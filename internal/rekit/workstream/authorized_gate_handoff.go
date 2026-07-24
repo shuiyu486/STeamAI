@@ -44,10 +44,15 @@ type AuthorizedGateLiveValidationHandoff struct {
 	ScaffoldCommand                  string                     `json:"scaffoldCommand,omitempty"`
 	ScaffoldApplyCommand             string                     `json:"scaffoldApplyCommand,omitempty"`
 	SidecarTemplateSHA256            string                     `json:"sidecarTemplateSha256,omitempty"`
+	DraftCommand                     string                     `json:"draftCommand,omitempty"`
+	DraftApplyCommand                string                     `json:"draftApplyCommand,omitempty"`
+	DraftReportSHA256                string                     `json:"draftReportSha256,omitempty"`
 	CaseRelativeValidateCommand      string                     `json:"caseRelativeValidateCommand,omitempty"`
 	CaseRelativeRecordCommand        string                     `json:"caseRelativeRecordCommand,omitempty"`
 	CaseRelativeScaffoldCommand      string                     `json:"caseRelativeScaffoldCommand,omitempty"`
 	CaseRelativeScaffoldApplyCommand string                     `json:"caseRelativeScaffoldApplyCommand,omitempty"`
+	CaseRelativeDraftCommand         string                     `json:"caseRelativeDraftCommand,omitempty"`
+	CaseRelativeDraftApplyCommand    string                     `json:"caseRelativeDraftApplyCommand,omitempty"`
 	AdapterCandidateCount            int                        `json:"adapterCandidateCount"`
 	SelectedAdapterID                string                     `json:"selectedAdapterId,omitempty"`
 	SelectedAdapter                  *gate.AdapterToolCandidate `json:"selectedAdapter,omitempty"`
@@ -175,10 +180,15 @@ func authorizedGateLiveValidationHandoffFor(live gate.AdapterReportLiveValidatio
 		ScaffoldCommand:                  live.ScaffoldCommand,
 		ScaffoldApplyCommand:             live.ScaffoldApplyCommand,
 		SidecarTemplateSHA256:            live.SidecarTemplateSHA256,
+		DraftCommand:                     live.DraftCommand,
+		DraftApplyCommand:                live.DraftApplyCommand,
+		DraftReportSHA256:                live.DraftReportSHA256,
 		CaseRelativeValidateCommand:      live.CaseRelativeValidateCommand,
 		CaseRelativeRecordCommand:        live.CaseRelativeRecordCommand,
 		CaseRelativeScaffoldCommand:      live.CaseRelativeScaffoldCommand,
 		CaseRelativeScaffoldApplyCommand: live.CaseRelativeScaffoldApplyCommand,
+		CaseRelativeDraftCommand:         live.CaseRelativeDraftCommand,
+		CaseRelativeDraftApplyCommand:    live.CaseRelativeDraftApplyCommand,
 		AdapterCandidateCount:            len(live.AdapterCandidates),
 		SelectedAdapterID:                selectedAdapterID,
 		SelectedAdapter:                  selectedAdapter,
@@ -320,10 +330,15 @@ func writeAuthorizedGateAdapterHandoffMarkdown(out *bytes.Buffer, item Authorize
 		fmt.Fprintf(out, "  - scaffold: `%s`\n", live.ScaffoldCommand)
 		fmt.Fprintf(out, "  - scaffold apply: `%s`\n", live.ScaffoldApplyCommand)
 		fmt.Fprintf(out, "  - sidecar template sha256: `%s`\n", live.SidecarTemplateSHA256)
+		fmt.Fprintf(out, "  - draft: `%s`\n", live.DraftCommand)
+		fmt.Fprintf(out, "  - draft apply: `%s`\n", live.DraftApplyCommand)
+		fmt.Fprintf(out, "  - draft report sha256: `%s`\n", live.DraftReportSHA256)
 		fmt.Fprintf(out, "  - validate: `%s`\n", live.ValidateCommand)
 		fmt.Fprintf(out, "  - record: `%s`\n", live.RecordCommand)
 		fmt.Fprintf(out, "  - case scaffold: `%s`\n", live.CaseRelativeScaffoldCommand)
 		fmt.Fprintf(out, "  - case scaffold apply: `%s`\n", live.CaseRelativeScaffoldApplyCommand)
+		fmt.Fprintf(out, "  - case draft: `%s`\n", live.CaseRelativeDraftCommand)
+		fmt.Fprintf(out, "  - case draft apply: `%s`\n", live.CaseRelativeDraftApplyCommand)
 		fmt.Fprintf(out, "  - case validate: `%s`\n", live.CaseRelativeValidateCommand)
 		fmt.Fprintf(out, "  - case record: `%s`\n", live.CaseRelativeRecordCommand)
 		for _, workspace := range live.AuthorizedWorkspaces {

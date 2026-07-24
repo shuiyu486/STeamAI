@@ -53,7 +53,9 @@ type Options struct {
 	ExecutionReportContract       bool
 	ValidateExecutionReport       bool
 	ScaffoldExecutionReport       bool
+	DraftExecutionReport          bool
 	ExpectedExecutionReportSHA256 string
+	AdapterID                     string
 }
 
 type Plan struct {
@@ -195,6 +197,33 @@ type AdapterExecutionReportScaffold struct {
 	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 }
 
+type AdapterExecutionReportDraft struct {
+	SchemaVersion               int                                      `json:"schemaVersion"`
+	Command                     string                                   `json:"command"`
+	Kind                        string                                   `json:"kind"`
+	CaseRoot                    string                                   `json:"caseRoot"`
+	RepoRoot                    string                                   `json:"repoRoot"`
+	Pack                        string                                   `json:"pack"`
+	IsMutation                  bool                                     `json:"isMutation"`
+	Applied                     bool                                     `json:"applied"`
+	Mode                        string                                   `json:"mode"`
+	GateEventID                 string                                   `json:"gateEventId"`
+	ReportPath                  string                                   `json:"reportPath"`
+	ReportSHA256                string                                   `json:"reportSha256"`
+	AlreadyExists               bool                                     `json:"alreadyExists"`
+	ReplacesScaffold            bool                                     `json:"replacesScaffold"`
+	RequiresConfirmation        bool                                     `json:"requiresConfirmation"`
+	Report                      AdapterReport                            `json:"report"`
+	ValidateCommand             string                                   `json:"validateCommand"`
+	RecordCommand               string                                   `json:"recordCommand"`
+	ApplyCommand                string                                   `json:"applyCommand,omitempty"`
+	Boundary                    []string                                 `json:"boundary,omitempty"`
+	NextSteps                   []string                                 `json:"nextSteps,omitempty"`
+	MissionCommanderAction      mission.MissionCommanderAction           `json:"missionCommanderAction"`
+	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
+}
+
 type AdapterReportLiveValidation struct {
 	InvocationCwd                    string                       `json:"invocationCwd"`
 	AuthorizedWorkspaces             []string                     `json:"authorizedWorkspaces,omitempty"`
@@ -206,18 +235,27 @@ type AdapterReportLiveValidation struct {
 	ScaffoldCommand                  string                       `json:"scaffoldCommand,omitempty"`
 	ScaffoldApplyCommand             string                       `json:"scaffoldApplyCommand,omitempty"`
 	SidecarTemplateSHA256            string                       `json:"sidecarTemplateSha256,omitempty"`
+	DraftCommand                     string                       `json:"draftCommand,omitempty"`
+	DraftApplyCommand                string                       `json:"draftApplyCommand,omitempty"`
+	DraftReportSHA256                string                       `json:"draftReportSha256,omitempty"`
 	ValidateArgs                     []string                     `json:"validateArgs"`
 	RecordArgs                       []string                     `json:"recordArgs"`
 	ScaffoldArgs                     []string                     `json:"scaffoldArgs,omitempty"`
 	ScaffoldApplyArgs                []string                     `json:"scaffoldApplyArgs,omitempty"`
+	DraftArgs                        []string                     `json:"draftArgs,omitempty"`
+	DraftApplyArgs                   []string                     `json:"draftApplyArgs,omitempty"`
 	CaseRelativeValidateCommand      string                       `json:"caseRelativeValidateCommand,omitempty"`
 	CaseRelativeRecordCommand        string                       `json:"caseRelativeRecordCommand,omitempty"`
 	CaseRelativeScaffoldCommand      string                       `json:"caseRelativeScaffoldCommand,omitempty"`
 	CaseRelativeScaffoldApplyCommand string                       `json:"caseRelativeScaffoldApplyCommand,omitempty"`
+	CaseRelativeDraftCommand         string                       `json:"caseRelativeDraftCommand,omitempty"`
+	CaseRelativeDraftApplyCommand    string                       `json:"caseRelativeDraftApplyCommand,omitempty"`
 	CaseRelativeValidateArgs         []string                     `json:"caseRelativeValidateArgs,omitempty"`
 	CaseRelativeRecordArgs           []string                     `json:"caseRelativeRecordArgs,omitempty"`
 	CaseRelativeScaffoldArgs         []string                     `json:"caseRelativeScaffoldArgs,omitempty"`
 	CaseRelativeScaffoldApplyArgs    []string                     `json:"caseRelativeScaffoldApplyArgs,omitempty"`
+	CaseRelativeDraftArgs            []string                     `json:"caseRelativeDraftArgs,omitempty"`
+	CaseRelativeDraftApplyArgs       []string                     `json:"caseRelativeDraftApplyArgs,omitempty"`
 	AdapterCandidates                []AdapterToolCandidate       `json:"adapterCandidates,omitempty"`
 	SelectedAdapter                  *AdapterToolCandidate        `json:"selectedAdapter,omitempty"`
 	ReplayBehavior                   string                       `json:"replayBehavior"`
@@ -1187,6 +1225,26 @@ func AdapterReportLiveSnapshot(repoRoot, caseRoot, pack string, opt Options) (Ad
 	} else if err != nil {
 		return AdapterExecutionReportValidation{}, true, err
 	}
+	inst, gateEvent, err := authorizedGateEvent(repoRoot, caseRoot, pack, opt)
+	if err != nil {
+		return AdapterExecutionReportValidation{}, true, err
+	}
+	m, err := manifest.Load(repoRoot, pack)
+	if err != nil {
+		return AdapterExecutionReportValidation{}, true, err
+	}
+	contract := adapterReportContract(repoRoot, inst.CaseRoot, pack, gateEvent, m)
+	if existing, present, err := readAdapterReportRaw(inst.CaseRoot, fullPath, reportPath); err != nil {
+		return AdapterExecutionReportValidation{}, true, err
+	} else if present {
+		scaffoldData, scaffoldErr := adapterReportScaffoldBytes(contract.LiveValidation.SidecarTemplate)
+		if scaffoldErr != nil {
+			return AdapterExecutionReportValidation{}, true, scaffoldErr
+		}
+		if bytes.Equal(existing, scaffoldData) {
+			return adapterReportScaffoldLiveSnapshot(repoRoot, inst.CaseRoot, pack, gateEvent, contract, reportPath), true, nil
+		}
+	}
 	opt.ExecutionReportPath = reportPath
 	validation, err := ValidateAdapterExecutionReport(repoRoot, caseRoot, pack, opt)
 	validation.ReportSummary.ReportPresent = true
@@ -1201,6 +1259,87 @@ func AdapterReportLiveSnapshot(repoRoot, caseRoot, pack string, opt Options) (Ad
 		applyRecordedAdapterReportSnapshot(&validation)
 	}
 	return validation, true, nil
+}
+
+func adapterReportScaffoldLiveSnapshot(repoRoot, caseRoot, pack string, gateEvent EventPreview, contract AdapterExecutionReportContract, reportPath string) AdapterExecutionReportValidation {
+	reportPath = strings.TrimSpace(reportPath)
+	if reportPath == "" {
+		reportPath = contract.LiveValidation.CaseRelativeReportPath
+	}
+	validateCommand := adapterReportValidateSlashCommand(pack, gateEvent.EventID, reportPath)
+	draftCommand := adapterReportDraftSlashCommand(pack, gateEvent.EventID, reportPath)
+	label := gateCommanderActionLabel(gateEvent.Lane)
+	boundary := []string{
+		"exact scaffold is present; do not record it as execution evidence",
+		"fill bounded execution fields with gate -DraftExecutionReport or edit manually after external adapter completes",
+		"validation remains read-only and must return valid=true before evidence record",
+		"/rekit never executes the heavy tool",
+		"no observations/authority/confirmed writes",
+	}
+	commander := mission.MissionCommanderAction{
+		State:          "adapter-report-scaffold-awaiting-draft",
+		Prompt:         fmt.Sprintf("authorized gate `%s` has an exact adapter-report.json scaffold; fill bounded execution fields before validation or record.", gateEvent.EventID),
+		PrimaryCommand: draftCommand,
+		FollowUpCommands: []string{
+			validateCommand,
+			"/rekit handoff " + label,
+		},
+		Boundary: boundary,
+	}
+	items := []mission.MissionCommanderNextActionItem{
+		{Lane: gateEvent.Lane, Label: label, State: commander.State, Command: draftCommand, Source: "adapterReportLiveSnapshot.scaffold.draft", RequiresReview: true, Reasons: []string{"exact scaffold is present and still needs bounded execution fields"}, Boundary: append([]string{}, boundary...)},
+		{Lane: gateEvent.Lane, Label: label, State: commander.State, Command: validateCommand, Source: "adapterReportLiveSnapshot.scaffold.validation", Blocked: true, RequiresReview: true, Reasons: []string{"validation will fail until placeholder fields are replaced by bounded execution values"}, Boundary: append([]string{}, boundary...)},
+		{Lane: gateEvent.Lane, Label: label, State: commander.State, Command: "/rekit handoff " + label, Source: "adapterReportLiveSnapshot.scaffold.followUp", RequiresReview: true, Reasons: []string{"handoff scaffold and draft expectations"}, Boundary: append([]string{}, boundary...)},
+	}
+	queue := mission.MissionCommanderActionQueueFor(items)
+	follow := AuthorizedExecutionFollowThrough{
+		State:       commander.State,
+		GateEventID: gateEvent.EventID,
+		ReportPath:  reportPath,
+		Outcomes: []AuthorizedExecutionOutcome{{
+			Name:                 "scaffold-fill-and-validate",
+			State:                commander.State,
+			When:                 "after the exact adapter-report.json scaffold exists but before bounded execution fields are drafted",
+			Command:              draftCommand,
+			Actions:              []string{"fill bounded execution fields", "run read-only validation", "record only after valid=true"},
+			VerificationCommands: []string{draftCommand, validateCommand},
+			Expected:             "scaffold becomes a bounded execution report draft before validation/record",
+			Evidence:             []string{"exact scaffold sidecar", "authorized-gate ledger event"},
+			Boundary:             append([]string{}, boundary...),
+		}},
+		Boundary:    append([]string{}, boundary...),
+		ActionQueue: queue,
+	}
+	validation := AdapterExecutionReportValidation{
+		SchemaVersion:                    1,
+		Command:                          "gate",
+		Kind:                             "adapter-execution-report-validation",
+		CaseRoot:                         caseRoot,
+		RepoRoot:                         repoRoot,
+		Pack:                             pack,
+		IsMutation:                       false,
+		Applied:                          false,
+		Valid:                            false,
+		Error:                            "adapter execution report is still the exact scaffold template",
+		Errors:                           []string{"adapter execution report is still the exact scaffold template"},
+		FailureCode:                      "report-scaffold-placeholder",
+		FailureStage:                     "schema",
+		GateEventID:                      gateEvent.EventID,
+		ReportPath:                       reportPath,
+		Contract:                         contract,
+		MissionCommanderAction:           commander,
+		MissionCommanderNextActions:      items,
+		MissionCommanderActionQueue:      queue,
+		AuthorizedExecutionFollowThrough: follow,
+		NextSteps:                        []string{"fill bounded execution fields with gate -DraftExecutionReport or manual adapter output", "rerun read-only validation before recording evidence", "do not record the scaffold template"},
+	}
+	validation.ReportSummary = adapterReportHandoffSummary(gateEvent, commander.State, reportPath, nil, contract.AllowedStatuses, contract.AllowedOutputPaths, contract.LiveValidation.AdapterCandidates, contract.StopConditions, nil, follow, queue, items, false, validation.FailureCode, validation.FailureStage)
+	validation.ReportSummary.ReportPresent = true
+	validation.ReportSummary.RecordBlocked = true
+	validation.ReportSummary.RequiresValidation = false
+	validation.ReportSummary.RequiresRepair = true
+	validation.ReportSummary.Boundary = append([]string{}, boundary...)
+	return validation
 }
 
 func applyRecordedAdapterReportSnapshot(validation *AdapterExecutionReportValidation) {
@@ -1786,23 +1925,33 @@ func adapterReportLiveValidation(m *manifest.Manifest, pack string, event EventP
 	recordArgs := []string{"-Command", "gate", "-Pack", pack, "-Apply", "-GateEventId", event.EventID, "-ExecutionReportPath", reportFileName, "-Actor", "<executor-id>", "-Format", "json"}
 	scaffoldArgs := []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-ScaffoldExecutionReport", "-ExecutionReportPath", reportFileName, "-Format", "json"}
 	scaffoldApplyArgs := []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-ScaffoldExecutionReport", "-ExecutionReportPath", reportFileName, "-ExpectedExecutionReportSha256", templateSHA256, "-Apply", "-Format", "json"}
+	draftArgs := []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-DraftExecutionReport", "-ExecutionReportPath", reportFileName, "-AdapterId", template.AdapterID, "-ExecutionStatus", "<status>", "-Summary", "<bounded-summary>", "-Format", "json"}
+	draftApplyArgs := []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-DraftExecutionReport", "-ExecutionReportPath", reportFileName, "-AdapterId", template.AdapterID, "-ExecutionStatus", "<status>", "-Summary", "<bounded-summary>", "-ExpectedExecutionReportSha256", "<reportSha256-from-draft-preview>", "-Apply", "-Format", "json"}
 	caseRelativeValidateArgs := []string{}
 	caseRelativeRecordArgs := []string{}
 	caseRelativeScaffoldArgs := []string{}
 	caseRelativeScaffoldApplyArgs := []string{}
+	caseRelativeDraftArgs := []string{}
+	caseRelativeDraftApplyArgs := []string{}
 	caseRelativeValidateCommand := ""
 	caseRelativeRecordCommand := ""
 	caseRelativeScaffoldCommand := ""
 	caseRelativeScaffoldApplyCommand := ""
+	caseRelativeDraftCommand := ""
+	caseRelativeDraftApplyCommand := ""
 	if caseRelativeReportPath != "" {
 		caseRelativeValidateArgs = []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-ValidateExecutionReport", "-ExecutionReportPath", caseRelativeReportPath, "-Format", "json"}
 		caseRelativeRecordArgs = []string{"-Command", "gate", "-Pack", pack, "-Apply", "-GateEventId", event.EventID, "-ExecutionReportPath", caseRelativeReportPath, "-Actor", "<executor-id>", "-Format", "json"}
 		caseRelativeScaffoldArgs = []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-ScaffoldExecutionReport", "-ExecutionReportPath", caseRelativeReportPath, "-Format", "json"}
 		caseRelativeScaffoldApplyArgs = []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-ScaffoldExecutionReport", "-ExecutionReportPath", caseRelativeReportPath, "-ExpectedExecutionReportSha256", templateSHA256, "-Apply", "-Format", "json"}
+		caseRelativeDraftArgs = []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-DraftExecutionReport", "-ExecutionReportPath", caseRelativeReportPath, "-AdapterId", template.AdapterID, "-ExecutionStatus", "<status>", "-Summary", "<bounded-summary>", "-Format", "json"}
+		caseRelativeDraftApplyArgs = []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-DraftExecutionReport", "-ExecutionReportPath", caseRelativeReportPath, "-AdapterId", template.AdapterID, "-ExecutionStatus", "<status>", "-Summary", "<bounded-summary>", "-ExpectedExecutionReportSha256", "<reportSha256-from-draft-preview>", "-Apply", "-Format", "json"}
 		caseRelativeValidateCommand = "rekit " + strings.Join(caseRelativeValidateArgs, " ")
 		caseRelativeRecordCommand = "rekit " + strings.Join(caseRelativeRecordArgs, " ")
 		caseRelativeScaffoldCommand = "rekit " + strings.Join(caseRelativeScaffoldArgs, " ")
 		caseRelativeScaffoldApplyCommand = "rekit " + strings.Join(caseRelativeScaffoldApplyArgs, " ")
+		caseRelativeDraftCommand = "rekit " + strings.Join(caseRelativeDraftArgs, " ")
+		caseRelativeDraftApplyCommand = "rekit " + strings.Join(caseRelativeDraftApplyArgs, " ")
 	}
 	return AdapterReportLiveValidation{
 		InvocationCwd:                    "authorized output workspace listed in authorizedWorkspaces; use reportFileName as workspace-relative -ExecutionReportPath and omit -Target; or use caseRelativeReportPath with case-relative commands from any case-local cwd",
@@ -1815,18 +1964,27 @@ func adapterReportLiveValidation(m *manifest.Manifest, pack string, event EventP
 		ScaffoldCommand:                  "rekit " + strings.Join(scaffoldArgs, " "),
 		ScaffoldApplyCommand:             "rekit " + strings.Join(scaffoldApplyArgs, " "),
 		SidecarTemplateSHA256:            templateSHA256,
+		DraftCommand:                     "rekit " + strings.Join(draftArgs, " "),
+		DraftApplyCommand:                "rekit " + strings.Join(draftApplyArgs, " "),
+		DraftReportSHA256:                "<reportSha256-from-draft-preview>",
 		ValidateArgs:                     validateArgs,
 		RecordArgs:                       recordArgs,
 		ScaffoldArgs:                     scaffoldArgs,
 		ScaffoldApplyArgs:                scaffoldApplyArgs,
+		DraftArgs:                        draftArgs,
+		DraftApplyArgs:                   draftApplyArgs,
 		CaseRelativeValidateCommand:      caseRelativeValidateCommand,
 		CaseRelativeRecordCommand:        caseRelativeRecordCommand,
 		CaseRelativeScaffoldCommand:      caseRelativeScaffoldCommand,
 		CaseRelativeScaffoldApplyCommand: caseRelativeScaffoldApplyCommand,
+		CaseRelativeDraftCommand:         caseRelativeDraftCommand,
+		CaseRelativeDraftApplyCommand:    caseRelativeDraftApplyCommand,
 		CaseRelativeValidateArgs:         caseRelativeValidateArgs,
 		CaseRelativeRecordArgs:           caseRelativeRecordArgs,
 		CaseRelativeScaffoldArgs:         caseRelativeScaffoldArgs,
 		CaseRelativeScaffoldApplyArgs:    caseRelativeScaffoldApplyArgs,
+		CaseRelativeDraftArgs:            caseRelativeDraftArgs,
+		CaseRelativeDraftApplyArgs:       caseRelativeDraftApplyArgs,
 		AdapterCandidates:                adapterCandidates,
 		SelectedAdapter:                  selectedAdapterToolCandidate(m, event, sidecarAdapterID(adapterCandidates)),
 		ReplayBehavior:                   "repeating RecordArgs or CaseRelativeRecordArgs with the same bounded sidecar returns applied=false and reason=duplicate eventId without appending observations",
@@ -1880,12 +2038,61 @@ func ScaffoldAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 	result.AlreadyExists = false
 	result.RequiresConfirmation = false
 	result.NextSteps = []string{
-		"edit placeholder fields in the scaffolded adapter-report.json after the external adapter completes",
+		"fill the scaffold with gate -DraftExecutionReport after the external adapter completes, or edit bounded fields manually",
 		"run read-only validation: " + result.ValidateCommand,
 		"record bounded observation evidence only after validation returns valid=true: " + result.RecordCommand,
 	}
 	result.MissionCommanderAction = adapterReportScaffoldCommanderAction(result)
 	result.MissionCommanderNextActions = adapterReportScaffoldCommanderNextActions(gateEvent, result)
+	result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
+	return result, nil
+}
+
+func DraftAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options) (AdapterExecutionReportDraft, error) {
+	inst, gateEvent, err := authorizedGateEvent(repoRoot, caseRoot, pack, opt)
+	if err != nil {
+		return AdapterExecutionReportDraft{}, err
+	}
+	m, err := manifest.Load(repoRoot, pack)
+	if err != nil {
+		return AdapterExecutionReportDraft{}, err
+	}
+	if decoded, decodeErr := hex.DecodeString(strings.TrimSpace(opt.ExpectedExecutionReportSHA256)); strings.TrimSpace(opt.ExpectedExecutionReportSHA256) != "" && (decodeErr != nil || len(decoded) != sha256.Size) {
+		return AdapterExecutionReportDraft{}, fmt.Errorf("gate execution report draft Apply requires a valid -ExpectedExecutionReportSha256 from preview")
+	}
+	contract := adapterReportContract(repoRoot, inst.CaseRoot, pack, gateEvent, m)
+	result, data, scaffoldData, fullPath, err := adapterReportDraftPreview(repoRoot, inst.CaseRoot, pack, gateEvent, contract, opt, m)
+	if err != nil {
+		return AdapterExecutionReportDraft{}, err
+	}
+	if opt.ExpectedExecutionReportSHA256 == "" {
+		return result, nil
+	}
+	if !strings.EqualFold(result.ReportSHA256, strings.TrimSpace(opt.ExpectedExecutionReportSHA256)) {
+		return AdapterExecutionReportDraft{}, fmt.Errorf("gate execution report draft changed after preview")
+	}
+	if result.AlreadyExists && !result.ReplacesScaffold {
+		return result, nil
+	}
+	if err := writeAdapterReportDraft(inst.CaseRoot, fullPath, result.ReportPath, data, scaffoldData); err != nil {
+		return AdapterExecutionReportDraft{}, err
+	}
+	if existing, present, err := readAdapterReportRaw(inst.CaseRoot, fullPath, result.ReportPath); err != nil {
+		return AdapterExecutionReportDraft{}, err
+	} else if !present || !bytes.Equal(existing, data) {
+		return AdapterExecutionReportDraft{}, fmt.Errorf("gate execution report draft changed while writing: %s", result.ReportPath)
+	}
+	result.Applied = true
+	result.Mode = "drafted"
+	result.AlreadyExists = false
+	result.ReplacesScaffold = false
+	result.RequiresConfirmation = false
+	result.NextSteps = []string{
+		"run read-only validation: " + result.ValidateCommand,
+		"record bounded observation evidence only after validation returns valid=true: " + result.RecordCommand,
+	}
+	result.MissionCommanderAction = adapterReportDraftCommanderAction(result)
+	result.MissionCommanderNextActions = adapterReportDraftCommanderNextActions(gateEvent, result)
 	result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
 	return result, nil
 }
@@ -1951,6 +2158,141 @@ func adapterReportScaffoldPreview(repoRoot, caseRoot, pack string, gateEvent Eve
 	result.MissionCommanderNextActions = adapterReportScaffoldCommanderNextActions(gateEvent, result)
 	result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
 	return result, data, fullPath, nil
+}
+
+func adapterReportDraftPreview(repoRoot, caseRoot, pack string, gateEvent EventPreview, contract AdapterExecutionReportContract, opt Options, m *manifest.Manifest) (AdapterExecutionReportDraft, []byte, []byte, string, error) {
+	fullPath, reportPath, err := adapterExecutionReportScaffoldPath(caseRoot, gateEvent, opt.ExecutionReportCwd, opt.ExecutionReportPath)
+	if err != nil {
+		return AdapterExecutionReportDraft{}, nil, nil, "", err
+	}
+	report, err := adapterReportDraftFromOptions(caseRoot, gateEvent, contract, opt, m)
+	if err != nil {
+		return AdapterExecutionReportDraft{}, nil, nil, "", err
+	}
+	data, err := adapterReportBytes(report)
+	if err != nil {
+		return AdapterExecutionReportDraft{}, nil, nil, "", err
+	}
+	scaffoldData, err := adapterReportScaffoldBytes(contract.LiveValidation.SidecarTemplate)
+	if err != nil {
+		return AdapterExecutionReportDraft{}, nil, nil, "", err
+	}
+	reportSHA256 := sha256HexBytes(data)
+	validateCommand := adapterReportValidateSlashCommand(pack, gateEvent.EventID, reportPath)
+	recordCommand := adapterReportRecordSlashCommand(pack, gateEvent.EventID, reportPath)
+	applyCommand := adapterReportDraftApplySlashCommand(pack, gateEvent.EventID, reportPath, reportSHA256, opt, report.AdapterID)
+	boundary := adapterReportDraftBoundary()
+	result := AdapterExecutionReportDraft{
+		SchemaVersion:        1,
+		Command:              "gate",
+		Kind:                 "adapter-execution-report-draft",
+		CaseRoot:             caseRoot,
+		RepoRoot:             repoRoot,
+		Pack:                 pack,
+		IsMutation:           opt.ExpectedExecutionReportSHA256 != "",
+		Applied:              false,
+		Mode:                 "preview",
+		GateEventID:          gateEvent.EventID,
+		ReportPath:           reportPath,
+		ReportSHA256:         reportSHA256,
+		RequiresConfirmation: true,
+		Report:               report,
+		ValidateCommand:      validateCommand,
+		RecordCommand:        recordCommand,
+		ApplyCommand:         applyCommand,
+		Boundary:             boundary,
+		NextSteps: []string{
+			"review the deterministic adapter-report.json draft and exact hash",
+			"write or replace only a missing/exact scaffold sidecar: " + applyCommand,
+			"run read-only validation: " + validateCommand,
+			"record bounded observation evidence only after validation returns valid=true: " + recordCommand,
+		},
+	}
+	if existing, present, err := readAdapterReportRaw(caseRoot, fullPath, reportPath); err != nil {
+		return AdapterExecutionReportDraft{}, nil, nil, "", err
+	} else if present {
+		if bytes.Equal(existing, data) {
+			result.AlreadyExists = true
+			result.RequiresConfirmation = false
+			result.Mode = "already-drafted"
+			result.ApplyCommand = ""
+			result.NextSteps = []string{
+				"the exact execution report draft already exists",
+				"run read-only validation: " + validateCommand,
+				"record bounded observation evidence only after validation returns valid=true: " + recordCommand,
+			}
+		} else if bytes.Equal(existing, scaffoldData) {
+			result.ReplacesScaffold = true
+		} else {
+			return AdapterExecutionReportDraft{}, nil, nil, "", fmt.Errorf("gate execution report draft target already exists with different bytes; validate or repair existing sidecar instead: %s", reportPath)
+		}
+	}
+	result.MissionCommanderAction = adapterReportDraftCommanderAction(result)
+	result.MissionCommanderNextActions = adapterReportDraftCommanderNextActions(gateEvent, result)
+	result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
+	return result, data, scaffoldData, fullPath, nil
+}
+
+func adapterReportDraftFromOptions(caseRoot string, gateEvent EventPreview, contract AdapterExecutionReportContract, opt Options, m *manifest.Manifest) (AdapterReport, error) {
+	status := strings.ToLower(strings.TrimSpace(opt.ExecutionStatus))
+	if status == "" {
+		return AdapterReport{}, fmt.Errorf("gate -DraftExecutionReport requires -ExecutionStatus succeeded|failed|boundary-hit|escalated|aborted")
+	}
+	if !validExecutionStatus(status) {
+		return AdapterReport{}, fmt.Errorf("invalid ExecutionStatus %q; allowed: succeeded,failed,boundary-hit,escalated,aborted", opt.ExecutionStatus)
+	}
+	adapterID := strings.TrimSpace(opt.AdapterID)
+	if adapterID == "" {
+		adapterID = contract.LiveValidation.SidecarTemplate.AdapterID
+	}
+	if adapterID == "" || adapterID == "<adapter-id>" {
+		return AdapterReport{}, fmt.Errorf("gate -DraftExecutionReport requires -AdapterId when no pack tooling adapter can be selected")
+	}
+	if selected := selectedAdapterToolCandidate(m, gateEvent, adapterID); selected == nil && len(contract.LiveValidation.AdapterCandidates) > 0 {
+		return AdapterReport{}, fmt.Errorf("gate -DraftExecutionReport adapterId %q is not one of the selected pack tooling candidates", adapterID)
+	}
+	outputRefs, err := parseOutputPaths(caseRoot, opt.OutputRefs)
+	if err != nil {
+		return AdapterReport{}, err
+	}
+	evidenceRefs, err := validateCaseRelativePaths(caseRoot, "gate execution report draft evidenceRefs", splitList(opt.EvidenceRefs))
+	if err != nil {
+		return AdapterReport{}, err
+	}
+	boundaryHits, err := parseBoundaryHits(opt.BoundaryHits)
+	if err != nil {
+		return AdapterReport{}, err
+	}
+	summary := strings.TrimSpace(opt.Summary)
+	if summary == "" {
+		summary = "Adapter reported " + status + " for authorized " + gateEvent.Gate.Action + " gate"
+	}
+	report := AdapterReport{
+		SchemaVersion: 1,
+		Kind:          "adapter-execution-report",
+		AdapterID:     adapterID,
+		Action:        gateEvent.Gate.Action,
+		Status:        status,
+		GateEventID:   gateEvent.EventID,
+		ActualBudget:  autonomy.Budget{RuntimeSeconds: opt.ActualRuntimeSeconds, DiskMB: opt.ActualDiskMB, Requests: opt.ActualRequests},
+		OutputRefs:    outputRefs,
+		EvidenceRefs:  evidenceRefs,
+		BoundaryHits:  boundaryHits,
+		Escalation:    strings.TrimSpace(opt.Escalation),
+		Summary:       summary,
+	}
+	if err := validateAdapterExecutionReport(caseRoot, gateEvent, &report); err != nil {
+		return AdapterReport{}, err
+	}
+	return report, nil
+}
+
+func adapterReportBytes(report AdapterReport) ([]byte, error) {
+	data, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(data, '\n'), nil
 }
 
 func adapterReportScaffoldBytes(template AdapterReportSidecarTemplate) ([]byte, error) {
@@ -2039,6 +2381,14 @@ func readAdapterReportRaw(caseRoot, fullPath, relPath string) ([]byte, bool, err
 }
 
 func writeAdapterReportScaffold(caseRoot, fullPath, relPath string, data []byte) error {
+	return writeAdapterReportBytes(caseRoot, fullPath, relPath, data, nil, false)
+}
+
+func writeAdapterReportDraft(caseRoot, fullPath, relPath string, data, scaffoldData []byte) error {
+	return writeAdapterReportBytes(caseRoot, fullPath, relPath, data, scaffoldData, true)
+}
+
+func writeAdapterReportBytes(caseRoot, fullPath, relPath string, data, replaceData []byte, allowReplace bool) error {
 	if err := ensureAdapterReportParent(caseRoot, filepath.Dir(fullPath)); err != nil {
 		return err
 	}
@@ -2048,7 +2398,10 @@ func writeAdapterReportScaffold(caseRoot, fullPath, relPath string, data []byte)
 		if bytes.Equal(existing, data) {
 			return nil
 		}
-		return fmt.Errorf("gate execution report scaffold target already exists with different bytes; refusing overwrite: %s", relPath)
+		if allowReplace && bytes.Equal(existing, replaceData) {
+			return os.WriteFile(fullPath, data, 0o644)
+		}
+		return fmt.Errorf("gate execution report target already exists with different bytes; refusing overwrite: %s", relPath)
 	}
 	f, err := os.OpenFile(fullPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if os.IsExist(err) {
@@ -2056,6 +2409,8 @@ func writeAdapterReportScaffold(caseRoot, fullPath, relPath string, data []byte)
 			return readErr
 		} else if present && bytes.Equal(existing, data) {
 			return nil
+		} else if present && allowReplace && bytes.Equal(existing, replaceData) {
+			return os.WriteFile(fullPath, data, 0o644)
 		}
 	}
 	if err != nil {
@@ -2126,6 +2481,26 @@ func adapterReportScaffoldSlashCommand(pack, gateEventID, reportPath, reportSHA2
 	return adapterReportSlashCommand([]string{"gate", "-Pack", pack, "-GateEventId", gateEventID, "-ScaffoldExecutionReport", "-ExecutionReportPath", reportPath, "-ExpectedExecutionReportSha256", reportSHA256, "-Apply", "-Format", "json"})
 }
 
+func adapterReportDraftSlashCommand(pack, gateEventID, reportPath string) string {
+	return adapterReportSlashCommand([]string{"gate", "-Pack", pack, "-GateEventId", gateEventID, "-DraftExecutionReport", "-ExecutionReportPath", reportPath, "-Format", "json"})
+}
+
+func adapterReportDraftApplySlashCommand(pack, gateEventID, reportPath, reportSHA256 string, opt Options, adapterID string) string {
+	args := []string{"gate", "-Pack", pack, "-GateEventId", gateEventID, "-DraftExecutionReport", "-ExecutionReportPath", reportPath}
+	args = appendGateCommandArg(args, "-AdapterId", adapterID)
+	args = appendGateCommandArg(args, "-ExecutionStatus", opt.ExecutionStatus)
+	args = appendGateCommandIntArg(args, "-ActualRuntimeSeconds", opt.ActualRuntimeSeconds)
+	args = appendGateCommandIntArg(args, "-ActualDiskMB", opt.ActualDiskMB)
+	args = appendGateCommandIntArg(args, "-ActualRequests", opt.ActualRequests)
+	args = appendGateCommandArg(args, "-OutputRefs", opt.OutputRefs)
+	args = appendGateCommandArg(args, "-ExecutionEvidenceRefs", opt.EvidenceRefs)
+	args = appendGateCommandArg(args, "-BoundaryHits", opt.BoundaryHits)
+	args = appendGateCommandArg(args, "-Escalation", opt.Escalation)
+	args = appendGateCommandArg(args, "-Summary", opt.Summary)
+	args = append(args, "-ExpectedExecutionReportSha256", reportSHA256, "-Apply", "-Format", "json")
+	return adapterReportSlashCommand(args)
+}
+
 func adapterReportScaffoldBoundary() []string {
 	return []string{
 		"scaffold writes only a bounded adapter-report.json template under authorized outputPaths",
@@ -2134,6 +2509,17 @@ func adapterReportScaffoldBoundary() []string {
 		"do not record evidence until read-only validation returns valid=true",
 		"no observations/authority/confirmed writes during scaffold preview",
 		"refuse to overwrite a different existing sidecar",
+	}
+}
+
+func adapterReportDraftBoundary() []string {
+	return []string{
+		"draft writes only a bounded adapter-report.json sidecar under authorized outputPaths",
+		"draft records executor-reported fields; it does not execute the adapter or heavy tool",
+		"draft validates fields before writing but does not record observation evidence",
+		"draft may replace the exact scaffold template and refuses different existing sidecars",
+		"record evidence only after a separate read-only validation returns valid=true",
+		"no observations/authority/confirmed writes during draft preview/apply",
 	}
 }
 
@@ -2166,6 +2552,42 @@ func adapterReportScaffoldCommanderNextActions(gateEvent EventPreview, result Ad
 		items = append(items, mission.MissionCommanderNextActionItem{Lane: gateEvent.Lane, Label: label, State: state, Command: result.RecordCommand, Source: "adapterReportScaffold.record", Blocked: true, RequiresReview: true, Reasons: []string{"run only after validation returns valid=true", "replace <executor-id> before recording evidence"}, Boundary: append(append([]string{}, result.Boundary...), "do not record evidence until validation returns valid=true", "replace <executor-id> before running record command")})
 	}
 	items = append(items, mission.MissionCommanderNextActionItem{Lane: gateEvent.Lane, Label: label, State: state, Command: "/rekit handoff " + label, Source: "adapterReportScaffold.followUp", RequiresReview: true, Reasons: []string{"handoff scaffold status and adapter output expectations"}, Boundary: append([]string{}, result.Boundary...)})
+	return mission.UniqueCommanderNextActions(items)
+}
+
+func adapterReportDraftCommanderAction(result AdapterExecutionReportDraft) mission.MissionCommanderAction {
+	state := "ready-for-adapter-report-draft-apply"
+	primary := result.ApplyCommand
+	followUps := []string{result.ValidateCommand, result.RecordCommand}
+	prompt := fmt.Sprintf("review draft preview for authorized gate `%s`, then write bounded adapter-report.json fields without executing the adapter.", result.GateEventID)
+	boundary := append([]string{}, result.Boundary...)
+	if result.Applied || result.AlreadyExists {
+		state = "adapter-report-drafted-ready-for-validation"
+		primary = result.ValidateCommand
+		followUps = []string{result.RecordCommand}
+		prompt = fmt.Sprintf("authorized gate `%s` has a deterministic adapter-report.json draft; run read-only validation before recording evidence.", result.GateEventID)
+	}
+	return mission.MissionCommanderAction{State: state, Prompt: prompt, PrimaryCommand: primary, FollowUpCommands: followUps, Boundary: boundary}
+}
+
+func adapterReportDraftCommanderNextActions(gateEvent EventPreview, result AdapterExecutionReportDraft) []mission.MissionCommanderNextActionItem {
+	label := gateCommanderActionLabel(gateEvent.Lane)
+	items := []mission.MissionCommanderNextActionItem{}
+	state := result.MissionCommanderAction.State
+	if result.ApplyCommand != "" && !result.Applied && !result.AlreadyExists {
+		reasons := []string{"write deterministic adapter-report.json draft after reviewing reported execution fields and exact hash"}
+		if result.ReplacesScaffold {
+			reasons = append(reasons, "target is the exact scaffold template and can be replaced by the bounded draft")
+		}
+		items = append(items, mission.MissionCommanderNextActionItem{Lane: gateEvent.Lane, Label: label, State: state, Command: result.ApplyCommand, Source: "adapterReportDraft.preview", RequiresReview: true, Reasons: reasons, Boundary: append([]string{}, result.Boundary...)})
+	}
+	if result.ValidateCommand != "" {
+		items = append(items, mission.MissionCommanderNextActionItem{Lane: gateEvent.Lane, Label: label, State: state, Command: result.ValidateCommand, Source: "adapterReportDraft.validation", Blocked: !result.Applied && !result.AlreadyExists, RequiresReview: true, Reasons: []string{"run read-only validation after the deterministic draft is written"}, Boundary: append(append([]string{}, result.Boundary...), "validation remains read-only")})
+	}
+	if result.RecordCommand != "" {
+		items = append(items, mission.MissionCommanderNextActionItem{Lane: gateEvent.Lane, Label: label, State: state, Command: result.RecordCommand, Source: "adapterReportDraft.record", Blocked: true, RequiresReview: true, Reasons: []string{"run only after validation returns valid=true", "replace <executor-id> before recording evidence"}, Boundary: append(append([]string{}, result.Boundary...), "do not record evidence until validation returns valid=true", "replace <executor-id> before running record command")})
+	}
+	items = append(items, mission.MissionCommanderNextActionItem{Lane: gateEvent.Lane, Label: label, State: state, Command: "/rekit handoff " + label, Source: "adapterReportDraft.followUp", RequiresReview: true, Reasons: []string{"handoff draft status and validation expectations"}, Boundary: append([]string{}, result.Boundary...)})
 	return mission.UniqueCommanderNextActions(items)
 }
 

@@ -121,6 +121,16 @@ func TestParseGateScaffoldExecutionReport(t *testing.T) {
 	}
 }
 
+func TestParseGateDraftExecutionReport(t *testing.T) {
+	opt, err := Parse([]string{"-Command", "gate", "-DraftExecutionReport", "-GateEventId", "evt-authorized", "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-report.json", "-AdapterId", "unit-adapter", "-ExecutionStatus", "succeeded", "-ActualRuntimeSeconds", "12", "-ActualDiskMB", "34", "-ActualRequests", "1", "-OutputRefs", "workspace/main/debug/session-1/result.json", "-ExecutionEvidenceRefs", "workspace/main/debug/session-1/evidence.json", "-BoundaryHits", "timeout", "-Escalation", "bounded escalation", "-Summary", "bounded summary", "-ExpectedExecutionReportSha256", strings.Repeat("b", 64)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opt.Gate.DraftExecutionReport || opt.Gate.GateEventID != "evt-authorized" || opt.Gate.ExecutionReportPath != "workspace/main/debug/session-1/adapter-report.json" || opt.Gate.AdapterID != "unit-adapter" || opt.Gate.ExecutionStatus != "succeeded" || opt.Gate.ActualRuntimeSeconds != 12 || opt.Gate.ActualDiskMB != 34 || opt.Gate.ActualRequests != 1 || opt.Gate.OutputRefs != "workspace/main/debug/session-1/result.json" || opt.Gate.EvidenceRefs != "workspace/main/debug/session-1/evidence.json" || opt.Gate.BoundaryHits != "timeout" || opt.Gate.Escalation != "bounded escalation" || opt.Gate.Summary != "bounded summary" || opt.Gate.ExpectedExecutionReportSHA256 != strings.Repeat("b", 64) {
+		t.Fatalf("unexpected gate draft options: %+v", opt.Gate)
+	}
+}
+
 func TestParsePlanSubagentsReviewerPacketRetirement(t *testing.T) {
 	opt, err := Parse([]string{"-Command", "plan-subagents", "-RetireInvalidReviewerPacket", "-PacketPath", "packet.json", "-Lane", "feature-review", "-Actor", "mission-commander", "-Reason", "retire invalid packet", "-WhatIf"})
 	if err != nil {
@@ -9232,6 +9242,9 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if statusHandoff.EventID != authorizedEventID || statusHandoff.Lane != "main" || statusHandoff.Subject != "authorized debug" || statusHandoff.Action != "debug" || statusHandoff.Target != "target-alpha" || statusHandoff.Status != "authorized-gate" || statusHandoff.Authorization != "preauthorized" || statusHandoff.Profile != "prof-main-debug" || statusHandoff.ReportContract != wantStatusContract || statusHandoff.DefaultReportPath != "workspace/main/debug/session-1/adapter-report.json" || statusHandoff.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || statusHandoff.HandoffCommand != "/rekit handoff main" || !containsSubstring(statusHandoff.Evidence, "authorized outputPaths workspace/main/debug/session-1") || !containsSubstring(statusHandoff.Evidence, "authorized stopConditions timeout") || !strings.Contains(statusHandoff.ValidateBoundary, "ValidateExecutionReport") || !strings.Contains(statusHandoff.RecordBoundary, "valid=true") || statusHandoff.ReportSummary == nil || statusHandoff.ReportSummary.State != "needs-adapter-report-validation" || statusHandoff.ReportSummary.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || statusHandoff.ReportSummary.AllowedStatusCount != 5 || statusHandoff.ReportSummary.OutcomeCount != 3 || statusHandoff.LiveValidation == nil || statusHandoff.LiveValidation.CaseRelativeReportPath != "workspace/main/debug/session-1/adapter-report.json" || statusHandoff.LiveValidation.AdapterCandidateCount != 0 || statusHandoff.LiveValidation.SidecarTemplateAdapterID != "<adapter-id>" || statusHandoff.LiveValidation.SidecarTemplateSHA256 == "" || !strings.Contains(statusHandoff.LiveValidation.ScaffoldApplyCommand, statusHandoff.LiveValidation.SidecarTemplateSHA256) || !strings.Contains(statusHandoff.LiveValidation.CaseRelativeScaffoldCommand, "-ScaffoldExecutionReport") || !strings.Contains(statusHandoff.LiveValidation.CaseRelativeScaffoldApplyCommand, statusHandoff.LiveValidation.SidecarTemplateSHA256) {
 		t.Fatalf("unexpected status authorized gate handoff: %+v", statusHandoff)
 	}
+	if statusHandoff.LiveValidation.DraftReportSHA256 != "<reportSha256-from-draft-preview>" || !strings.Contains(statusHandoff.LiveValidation.DraftCommand, "-DraftExecutionReport") || !strings.Contains(statusHandoff.LiveValidation.DraftApplyCommand, "<reportSha256-from-draft-preview>") || !strings.Contains(statusHandoff.LiveValidation.CaseRelativeDraftCommand, "workspace/main/debug/session-1/adapter-report.json") || !strings.Contains(statusHandoff.LiveValidation.CaseRelativeDraftApplyCommand, "<reportSha256-from-draft-preview>") {
+		t.Fatalf("status authorized gate handoff omitted draft commands: %+v", statusHandoff.LiveValidation)
+	}
 	assertSnapshotEqual(t, beforeStatus, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 	out.Reset()
 	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
@@ -9245,6 +9258,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		"status case mission authorized gate live validation：eventId=" + authorizedEventID + " reportFileName=adapter-report.json caseRelativeReportPath=workspace/main/debug/session-1/adapter-report.json adapterCandidates=0 selectedAdapter= sidecarAdapter=<adapter-id> templateSha256=",
 		"scaffold=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -ScaffoldExecutionReport -ExecutionReportPath adapter-report.json -Format json scaffoldApply=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -ScaffoldExecutionReport -ExecutionReportPath adapter-report.json -ExpectedExecutionReportSha256",
 		"caseScaffold=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -ScaffoldExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Format json caseScaffoldApply=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -ScaffoldExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -ExpectedExecutionReportSha256",
+		"status case mission authorized gate draft handoff：eventId=" + authorizedEventID + " draft=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -DraftExecutionReport -ExecutionReportPath adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -Format json draftApply=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -DraftExecutionReport -ExecutionReportPath adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -ExpectedExecutionReportSha256 <reportSha256-from-draft-preview> -Apply -Format json draftSha256=<reportSha256-from-draft-preview> caseDraft=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -DraftExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -Format json caseDraftApply=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -DraftExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -ExpectedExecutionReportSha256 <reportSha256-from-draft-preview> -Apply -Format json",
 		"status case mission authorized gate live workspace：eventId=" + authorizedEventID + " workspace=workspace/main/debug/session-1",
 		"status case mission authorized gate validate boundary：eventId=" + authorizedEventID,
 		"status case mission authorized gate record boundary：eventId=" + authorizedEventID,
@@ -9495,8 +9509,92 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "_template", "-ScaffoldExecutionReport", "-Apply", "-GateEventId", authorizedEventID, "-ExecutionReportPath", scaffoldReportPath, "-ExpectedExecutionReportSha256", strings.Repeat("0", 64), "-Format", "json"}, &out); err == nil || !strings.Contains(err.Error(), "template changed after preview") {
-		t.Fatalf("scaffold apply with wrong hash error = %v, want template changed", err)
+	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "_template", "-DraftExecutionReport", "-GateEventId", authorizedEventID, "-ExecutionReportPath", scaffoldReportPath, "-AdapterId", "cli-draft-adapter", "-ExecutionStatus", "succeeded", "-ActualRuntimeSeconds", "21", "-ActualDiskMB", "31", "-ActualRequests", "1", "-OutputRefs", "workspace/main/debug/session-1/result.json", "-ExecutionEvidenceRefs", "workspace/main/debug/session-1/result.json", "-Summary", "CLI deterministic draft", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var draftPreview struct {
+		Kind                        string                           `json:"kind"`
+		IsMutation                  bool                             `json:"isMutation"`
+		Applied                     bool                             `json:"applied"`
+		Mode                        string                           `json:"mode"`
+		ReportPath                  string                           `json:"reportPath"`
+		ReportSHA256                string                           `json:"reportSha256"`
+		AlreadyExists               bool                             `json:"alreadyExists"`
+		ReplacesScaffold            bool                             `json:"replacesScaffold"`
+		RequiresConfirmation        bool                             `json:"requiresConfirmation"`
+		ApplyCommand                string                           `json:"applyCommand"`
+		ValidateCommand             string                           `json:"validateCommand"`
+		RecordCommand               string                           `json:"recordCommand"`
+		Boundary                    []string                         `json:"boundary"`
+		MissionCommanderAction      missionCommanderActionSnapshot   `json:"missionCommanderAction"`
+		MissionCommanderNextActions []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
+		Report                      struct {
+			AdapterID string `json:"adapterId"`
+			Status    string `json:"status"`
+			Summary   string `json:"summary"`
+		} `json:"report"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &draftPreview); err != nil {
+		t.Fatalf("draft preview stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if draftPreview.Kind != "adapter-execution-report-draft" || draftPreview.IsMutation || draftPreview.Applied || draftPreview.Mode != "preview" || draftPreview.ReportPath != scaffoldReportPath || draftPreview.ReportSHA256 == "" || !draftPreview.ReplacesScaffold || !draftPreview.RequiresConfirmation || draftPreview.Report.AdapterID != "cli-draft-adapter" || draftPreview.Report.Status != "succeeded" || draftPreview.Report.Summary != "CLI deterministic draft" || !strings.Contains(draftPreview.ApplyCommand, draftPreview.ReportSHA256) || !containsSubstring(draftPreview.Boundary, "does not execute the adapter") || draftPreview.MissionCommanderAction.State != "ready-for-adapter-report-draft-apply" || draftPreview.MissionCommanderAction.PrimaryCommand != draftPreview.ApplyCommand || !containsMissionCommanderNextAction(draftPreview.MissionCommanderNextActions, "adapterReportDraft.preview", draftPreview.ApplyCommand, false, true) {
+		t.Fatalf("unexpected draft preview: %+v", draftPreview)
+	}
+	observationsAfterDraftPreview, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(observationsAfterDraftPreview) != string(observationsBeforeScaffold) {
+		t.Fatalf("draft preview changed observations before record:\nbefore=%s\nafter=%s", string(observationsBeforeScaffold), string(observationsAfterDraftPreview))
+	}
+	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "_template", "-DraftExecutionReport", "-Apply", "-GateEventId", authorizedEventID, "-ExecutionReportPath", scaffoldReportPath, "-AdapterId", "cli-draft-adapter", "-ExecutionStatus", "succeeded", "-ActualRuntimeSeconds", "21", "-ActualDiskMB", "31", "-ActualRequests", "1", "-OutputRefs", "workspace/main/debug/session-1/result.json", "-ExecutionEvidenceRefs", "workspace/main/debug/session-1/result.json", "-Summary", "CLI deterministic draft", "-ExpectedExecutionReportSha256", strings.Repeat("0", 64), "-Format", "json"}, &out); err == nil || !strings.Contains(err.Error(), "draft changed after preview") {
+		t.Fatalf("draft apply with wrong hash error = %v, want draft changed", err)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "_template", "-DraftExecutionReport", "-Apply", "-GateEventId", authorizedEventID, "-ExecutionReportPath", scaffoldReportPath, "-AdapterId", "cli-draft-adapter", "-ExecutionStatus", "succeeded", "-ActualRuntimeSeconds", "21", "-ActualDiskMB", "31", "-ActualRequests", "1", "-OutputRefs", "workspace/main/debug/session-1/result.json", "-ExecutionEvidenceRefs", "workspace/main/debug/session-1/result.json", "-Summary", "CLI deterministic draft", "-ExpectedExecutionReportSha256", draftPreview.ReportSHA256, "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"gate adapter report draft：mode=drafted applied=true reportPath=" + scaffoldReportPath + " reportSha256=" + draftPreview.ReportSHA256 + " alreadyExists=false replacesScaffold=false requiresConfirmation=false",
+		"gate adapter report draft sidecar：kind=adapter-execution-report adapterId=cli-draft-adapter action=debug status=succeeded gateEventId=" + authorizedEventID + " actualBudget=runtimeSeconds=21,diskMB=31,requests=1",
+		"gate adapter report draft outputRefs：workspace/main/debug/session-1/result.json",
+		"gate adapter report draft evidenceRefs：workspace/main/debug/session-1/result.json",
+		"gate adapter report draft summary：escalation= summary=CLI deterministic draft",
+		"gate adapter report draft validate command：/rekit gate -Pack _template -GateEventId " + authorizedEventID + " -ValidateExecutionReport -ExecutionReportPath " + scaffoldReportPath + " -Format json",
+		"adapter report draft commander action：state=adapter-report-drafted-ready-for-validation primary=`/rekit gate -Pack _template -GateEventId " + authorizedEventID + " -ValidateExecutionReport -ExecutionReportPath " + scaffoldReportPath + " -Format json`",
+		"mission commander next action：state=adapter-report-drafted-ready-for-validation source=adapterReportDraft.validation",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("draft apply text missing %q:\n%s", expected, out.String())
+		}
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "_template", "-ValidateExecutionReport", "-GateEventId", authorizedEventID, "-ExecutionReportPath", scaffoldReportPath, "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var draftValidation struct {
+		Valid         bool `json:"valid"`
+		ReportSummary struct {
+			State       string `json:"state"`
+			RecordReady bool   `json:"recordReady"`
+			AdapterID   string `json:"adapterId"`
+		} `json:"reportSummary"`
+		Report struct {
+			AdapterID string `json:"adapterId"`
+			Summary   string `json:"summary"`
+		} `json:"report"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &draftValidation); err != nil {
+		t.Fatalf("draft validation stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !draftValidation.Valid || draftValidation.Report.AdapterID != "cli-draft-adapter" || draftValidation.Report.Summary != "CLI deterministic draft" || draftValidation.ReportSummary.State != "ready-to-record-evidence" || !draftValidation.ReportSummary.RecordReady || draftValidation.ReportSummary.AdapterID != "cli-draft-adapter" {
+		t.Fatalf("draft validation drifted: %+v", draftValidation)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "_template", "-ScaffoldExecutionReport", "-Apply", "-GateEventId", authorizedEventID, "-ExecutionReportPath", scaffoldReportPath, "-ExpectedExecutionReportSha256", strings.Repeat("0", 64), "-Format", "json"}, &out); err == nil || !strings.Contains(err.Error(), "target already exists with different bytes") {
+		t.Fatalf("scaffold apply after draft error = %v, want refusal", err)
 	}
 	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/scaffold-different.json", `{"different":true}`)
 	out.Reset()

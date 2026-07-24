@@ -759,6 +759,126 @@ func TestScaffoldAdapterExecutionReportPreviewApplyAndReplay(t *testing.T) {
 	}
 }
 
+func TestDraftAdapterExecutionReportPreviewApplyReplayAndScaffoldReplace(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixture(t)
+	writePreauthorizedProfile(t, caseRoot)
+	authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reportRel := "workspace/main/debug/session-1/adapter-report.json"
+	reportFull := filepath.Join(caseRoot, filepath.FromSlash(reportRel))
+	draftOpt := Options{GateEventID: authorized.EventID, ExecutionReportPath: reportRel, AdapterID: "unit-adapter", ExecutionStatus: "succeeded", ActualRuntimeSeconds: 24, ActualDiskMB: 33, ActualRequests: 1, OutputRefs: "workspace/main/debug/session-1/result.json", EvidenceRefs: "workspace/main/debug/session-1/evidence.json", Summary: "Adapter completed deterministic draft"}
+
+	preview, err := DraftAdapterExecutionReport(repoRoot, caseRoot, pack, draftOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Kind != "adapter-execution-report-draft" || preview.GateEventID != authorized.EventID || preview.ReportPath != reportRel || preview.IsMutation || preview.Applied || preview.Mode != "preview" || preview.ReportSHA256 == "" || !preview.RequiresConfirmation || preview.AlreadyExists || preview.ReplacesScaffold || preview.Report.AdapterID != "unit-adapter" || preview.Report.Status != "succeeded" || strings.Join(preview.Report.OutputRefs, ",") != "workspace/main/debug/session-1/result.json" || strings.Join(preview.Report.EvidenceRefs, ",") != "workspace/main/debug/session-1/evidence.json" || !strings.Contains(preview.ApplyCommand, "-ExpectedExecutionReportSha256 "+preview.ReportSHA256) {
+		t.Fatalf("unexpected draft preview: %+v", preview)
+	}
+	if preview.MissionCommanderAction.State != "ready-for-adapter-report-draft-apply" || preview.MissionCommanderAction.PrimaryCommand != preview.ApplyCommand || !gateNextActionContainsSource(preview.MissionCommanderNextActions, "adapterReportDraft.preview") || !gateNextActionContainsCommand(preview.MissionCommanderNextActions, preview.ValidateCommand) || !gateNextActionBoundaryContains(preview.MissionCommanderNextActions, "does not execute the adapter") {
+		t.Fatalf("draft preview omitted Mission Commander handoff: action=%+v next=%+v", preview.MissionCommanderAction, preview.MissionCommanderNextActions)
+	}
+	assertGateActionQueue(t, preview.MissionCommanderActionQueue, 4, 2, 2, 4, 1, preview.ApplyCommand)
+	assertGateNotExists(t, reportFull)
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
+
+	if _, err := DraftAdapterExecutionReport(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, ExecutionReportPath: "workspace/main/debug/session-1/no-adapter.json", ExecutionStatus: "succeeded"}); err == nil || !strings.Contains(err.Error(), "requires -AdapterId") {
+		t.Fatalf("draft without adapter id error = %v, want adapter id requirement", err)
+	}
+	if _, err := DraftAdapterExecutionReport(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, ExecutionReportPath: reportRel, AdapterID: "unit-adapter", ExecutionStatus: "succeeded", OutputRefs: "workspace/main/other/result.json"}); err == nil || !strings.Contains(err.Error(), "outputRefs must stay within authorized gate outputPaths") {
+		t.Fatalf("draft out-of-scope output error = %v, want output boundary", err)
+	}
+
+	applyOpt := draftOpt
+	applyOpt.ExpectedExecutionReportSHA256 = preview.ReportSHA256
+	applied, err := DraftAdapterExecutionReport(repoRoot, caseRoot, pack, applyOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !applied.IsMutation || !applied.Applied || applied.Mode != "drafted" || applied.AlreadyExists || applied.ReplacesScaffold || applied.RequiresConfirmation || applied.ReportSHA256 != preview.ReportSHA256 || applied.MissionCommanderAction.State != "adapter-report-drafted-ready-for-validation" || applied.MissionCommanderAction.PrimaryCommand != applied.ValidateCommand {
+		t.Fatalf("unexpected draft apply result: %+v", applied)
+	}
+	writtenBytes, err := os.ReadFile(reportFull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var written AdapterReport
+	if err := json.Unmarshal(writtenBytes, &written); err != nil {
+		t.Fatalf("drafted report did not decode: %v\n%s", err, string(writtenBytes))
+	}
+	if written.Kind != "adapter-execution-report" || written.AdapterID != "unit-adapter" || written.GateEventID != authorized.EventID || written.Action != "debug" || written.Status != "succeeded" || written.ActualBudget.RuntimeSeconds != 24 || strings.Join(written.OutputRefs, ",") != "workspace/main/debug/session-1/result.json" || written.Summary != "Adapter completed deterministic draft" {
+		t.Fatalf("drafted sidecar content drifted: %+v", written)
+	}
+	validation, err := ValidateAdapterExecutionReport(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, ExecutionReportPath: reportRel})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !validation.Valid || validation.Report == nil || validation.Report.AdapterID != "unit-adapter" || validation.ReportSummary.State != "ready-to-record-evidence" || !validation.ReportSummary.RecordReady {
+		t.Fatalf("drafted sidecar should validate read-only: %+v", validation)
+	}
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
+
+	replay, err := DraftAdapterExecutionReport(repoRoot, caseRoot, pack, applyOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !replay.IsMutation || replay.Applied || !replay.AlreadyExists || replay.Mode != "already-drafted" || replay.ApplyCommand != "" || replay.RequiresConfirmation {
+		t.Fatalf("unexpected exact draft replay: %+v", replay)
+	}
+	wrongHashOpt := draftOpt
+	wrongHashOpt.ExpectedExecutionReportSHA256 = strings.Repeat("0", 64)
+	if _, err := DraftAdapterExecutionReport(repoRoot, caseRoot, pack, wrongHashOpt); err == nil || !strings.Contains(err.Error(), "draft changed after preview") {
+		t.Fatalf("draft apply with wrong hash error = %v, want draft changed", err)
+	}
+	writeGateText(t, filepath.Join(caseRoot, "workspace", "main", "debug", "session-1", "custom-draft.json"), `{"different":true}`)
+	_, err = DraftAdapterExecutionReport(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, ExecutionReportPath: "workspace/main/debug/session-1/custom-draft.json", AdapterID: "unit-adapter", ExecutionStatus: "succeeded"})
+	if err == nil || !strings.Contains(err.Error(), "target already exists with different bytes") {
+		t.Fatalf("different existing draft error = %v, want refusal", err)
+	}
+
+	scaffoldRel := "workspace/main/debug/session-1/scaffold-then-draft.json"
+	scaffold, err := ScaffoldAdapterExecutionReport(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, ExecutionReportPath: scaffoldRel})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ScaffoldAdapterExecutionReport(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, ExecutionReportPath: scaffoldRel, ExpectedExecutionReportSHA256: scaffold.ReportSHA256}); err != nil {
+		t.Fatal(err)
+	}
+	live, present, err := AdapterReportLiveSnapshot(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, ExecutionReportPath: scaffoldRel})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !present || live.Valid || live.FailureCode != "report-scaffold-placeholder" || live.ReportSummary.State != "adapter-report-scaffold-awaiting-draft" || !live.ReportSummary.ReportPresent || !live.ReportSummary.RecordBlocked || live.MissionCommanderAction.State != "adapter-report-scaffold-awaiting-draft" || !strings.Contains(live.MissionCommanderAction.PrimaryCommand, "-DraftExecutionReport") || !gateNextActionContainsSource(live.MissionCommanderNextActions, "adapterReportLiveSnapshot.scaffold.draft") {
+		t.Fatalf("exact scaffold live snapshot should route to draft: %+v", live)
+	}
+	scaffoldDraftOpt := draftOpt
+	scaffoldDraftOpt.ExecutionReportPath = scaffoldRel
+	scaffoldDraftPreview, err := DraftAdapterExecutionReport(repoRoot, caseRoot, pack, scaffoldDraftOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !scaffoldDraftPreview.ReplacesScaffold || scaffoldDraftPreview.AlreadyExists || scaffoldDraftPreview.Mode != "preview" {
+		t.Fatalf("draft preview should allow replacing exact scaffold: %+v", scaffoldDraftPreview)
+	}
+	scaffoldDraftOpt.ExpectedExecutionReportSHA256 = scaffoldDraftPreview.ReportSHA256
+	replaced, err := DraftAdapterExecutionReport(repoRoot, caseRoot, pack, scaffoldDraftOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !replaced.Applied || replaced.ReplacesScaffold || replaced.Mode != "drafted" {
+		t.Fatalf("draft apply should replace exact scaffold: %+v", replaced)
+	}
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
+}
+
 func TestScaffoldAdapterExecutionReportAcceptsCwdRelativeAuthorizedPath(t *testing.T) {
 	repoRoot, caseRoot, pack := gateFixture(t)
 	writePreauthorizedProfile(t, caseRoot)
