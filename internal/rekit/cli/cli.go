@@ -5134,11 +5134,11 @@ func writeReviewerDispatchIntakeHandoffText(out io.Writer, prefix string, items 
 	if summary.Total == 0 {
 		return nil
 	}
-	if _, err := fmt.Fprintf(out, "%s reviewer dispatch intake summary：total=%d waitingForReviewerResult=%d readyForPreview=%d attachRequired=%d dispatchOnly=%d lanes=%d packets=%d latestPacketProgress=%d/%d latestPacketOpen=%d latestPacketNextOpen=%s latestCompletedShard=%s remaining=%s latestPacket=%s latestShard=%s latestState=%s latestSourceState=%s latestSource=%s latestCandidateState=%s latestCandidate=%s latestReviewerResult=%s nextActionShard=%s nextActionState=%s nextAction=%s\n", prefix, summary.Total, summary.WaitingForReviewerResult, summary.ReadyForPreview, summary.AttachRequired, summary.DispatchOnly, summary.LaneCount, summary.PacketCount, summary.LatestPacketDispatchCompleted, summary.LatestPacketDispatchTotal, summary.LatestPacketDispatchOpen, summary.LatestPacketNextOpenShardID, summary.LatestCompletedShardID, strings.Join(summary.RemainingShardIDs, ","), summary.LatestPacketPath, summary.LatestShardID, summary.LatestState, summary.LatestReviewerResultSourceState, summary.LatestReviewerResultSourcePath, summary.LatestReviewerResultCandidateState, summary.LatestReviewerResultCandidatePath, summary.LatestReviewerResultPath, summary.NextActionShardID, summary.NextActionState, summary.NextAction); err != nil {
+	if _, err := fmt.Fprintf(out, "%s reviewer dispatch intake summary：total=%d waitingForReviewerResult=%d readyForPreview=%d attachRequired=%d dispatchOnly=%d promptArtifactBlocked=%d lanes=%d packets=%d latestPacketProgress=%d/%d latestPacketOpen=%d latestPacketNextOpen=%s latestCompletedShard=%s remaining=%s latestPacket=%s latestShard=%s latestState=%s latestSourceState=%s latestSource=%s latestCandidateState=%s latestCandidate=%s latestReviewerResult=%s nextActionShard=%s nextActionState=%s nextAction=%s\n", prefix, summary.Total, summary.WaitingForReviewerResult, summary.ReadyForPreview, summary.AttachRequired, summary.DispatchOnly, summary.PromptArtifactBlocked, summary.LaneCount, summary.PacketCount, summary.LatestPacketDispatchCompleted, summary.LatestPacketDispatchTotal, summary.LatestPacketDispatchOpen, summary.LatestPacketNextOpenShardID, summary.LatestCompletedShardID, strings.Join(summary.RemainingShardIDs, ","), summary.LatestPacketPath, summary.LatestShardID, summary.LatestState, summary.LatestReviewerResultSourceState, summary.LatestReviewerResultSourcePath, summary.LatestReviewerResultCandidateState, summary.LatestReviewerResultCandidatePath, summary.LatestReviewerResultPath, summary.NextActionShardID, summary.NextActionState, summary.NextAction); err != nil {
 		return err
 	}
 	if strings.TrimSpace(summary.LatestDispatchPromptPath) != "" {
-		if _, err := fmt.Fprintf(out, "%s reviewer dispatch latest prompt：shard=%s prompt=%s promptSha256=%s\n", prefix, summary.LatestShardID, summary.LatestDispatchPromptPath, summary.LatestDispatchPromptSHA256); err != nil {
+		if _, err := fmt.Fprintf(out, "%s reviewer dispatch latest prompt：shard=%s prompt=%s promptSha256=%s promptState=%s promptCurrent=%t actualPromptSha256=%s promptFailure=%s\n", prefix, summary.LatestShardID, summary.LatestDispatchPromptPath, summary.LatestDispatchPromptSHA256, summary.LatestDispatchPromptState, summary.LatestDispatchPromptCurrent, summary.LatestDispatchPromptActualSHA256, summary.LatestDispatchPromptFailure); err != nil {
 			return err
 		}
 	}
@@ -5147,7 +5147,7 @@ func writeReviewerDispatchIntakeHandoffText(out io.Writer, prefix string, items 
 			return err
 		}
 		if strings.TrimSpace(summary.NextActionDispatchPromptPath) != "" {
-			if _, err := fmt.Fprintf(out, "%s reviewer dispatch next action prompt：shard=%s prompt=%s promptSha256=%s\n", prefix, summary.NextActionShardID, summary.NextActionDispatchPromptPath, summary.NextActionDispatchPromptSHA256); err != nil {
+			if _, err := fmt.Fprintf(out, "%s reviewer dispatch next action prompt：shard=%s prompt=%s promptSha256=%s promptState=%s promptCurrent=%t actualPromptSha256=%s promptFailure=%s\n", prefix, summary.NextActionShardID, summary.NextActionDispatchPromptPath, summary.NextActionDispatchPromptSHA256, summary.NextActionDispatchPromptState, summary.NextActionDispatchPromptCurrent, summary.NextActionDispatchPromptActualSHA256, summary.NextActionDispatchPromptFailure); err != nil {
 				return err
 			}
 		}
@@ -5172,7 +5172,7 @@ func writeReviewerDispatchIntakeHandoffText(out io.Writer, prefix string, items 
 			return err
 		}
 		if strings.TrimSpace(item.DispatchPromptPath) != "" {
-			if _, err := fmt.Fprintf(out, "%s reviewer dispatch prompt artifact：shard=%s prompt=%s promptSha256=%s\n", prefix, item.ShardID, item.DispatchPromptPath, item.DispatchPromptSHA256); err != nil {
+			if _, err := fmt.Fprintf(out, "%s reviewer dispatch prompt artifact：shard=%s prompt=%s promptSha256=%s promptState=%s promptCurrent=%t actualPromptSha256=%s promptFailure=%s\n", prefix, item.ShardID, item.DispatchPromptPath, item.DispatchPromptSHA256, item.DispatchPromptState, item.DispatchPromptCurrent, item.DispatchPromptActualSHA256, item.DispatchPromptFailure); err != nil {
 				return err
 			}
 		}

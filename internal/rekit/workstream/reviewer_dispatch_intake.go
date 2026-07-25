@@ -132,6 +132,10 @@ type ReviewerDispatchIntakeHandoff struct {
 	ReviewerResultCandidateState             string                            `json:"reviewerResultCandidateState,omitempty"`
 	DispatchPromptPath                       string                            `json:"dispatchPromptPath,omitempty"`
 	DispatchPromptSHA256                     string                            `json:"dispatchPromptSha256,omitempty"`
+	DispatchPromptState                      string                            `json:"dispatchPromptState,omitempty"`
+	DispatchPromptCurrent                    bool                              `json:"dispatchPromptCurrent,omitempty"`
+	DispatchPromptActualSHA256               string                            `json:"dispatchPromptActualSha256,omitempty"`
+	DispatchPromptFailure                    string                            `json:"dispatchPromptFailure,omitempty"`
 	AgentToolRequest                         *ReviewerAgentToolRequest         `json:"agentToolRequest,omitempty"`
 	ReviewerResultStagingCommand             string                            `json:"reviewerResultStagingCommand,omitempty"`
 	ReviewerResultCollectionCommands         *ReviewerResultCollectionCommands `json:"reviewerResultCollectionCommands,omitempty"`
@@ -166,6 +170,7 @@ type ReviewerDispatchIntakeSummary struct {
 	ReadyForPreview                        int      `json:"readyForPreview"`
 	AttachRequired                         int      `json:"attachRequired"`
 	DispatchOnly                           int      `json:"dispatchOnly"`
+	PromptArtifactBlocked                  int      `json:"promptArtifactBlocked"`
 	LaneCount                              int      `json:"laneCount"`
 	Lanes                                  []string `json:"lanes,omitempty"`
 	PacketCount                            int      `json:"packetCount"`
@@ -181,6 +186,10 @@ type ReviewerDispatchIntakeSummary struct {
 	LatestReviewerResultPath               string   `json:"latestReviewerResultPath,omitempty"`
 	LatestDispatchPromptPath               string   `json:"latestDispatchPromptPath,omitempty"`
 	LatestDispatchPromptSHA256             string   `json:"latestDispatchPromptSha256,omitempty"`
+	LatestDispatchPromptState              string   `json:"latestDispatchPromptState,omitempty"`
+	LatestDispatchPromptCurrent            bool     `json:"latestDispatchPromptCurrent,omitempty"`
+	LatestDispatchPromptActualSHA256       string   `json:"latestDispatchPromptActualSha256,omitempty"`
+	LatestDispatchPromptFailure            string   `json:"latestDispatchPromptFailure,omitempty"`
 	LatestReviewerResultSourcePath         string   `json:"latestReviewerResultSourcePath,omitempty"`
 	LatestReviewerResultSourceState        string   `json:"latestReviewerResultSourceState,omitempty"`
 	LatestReviewerResultCandidatePath      string   `json:"latestReviewerResultCandidatePath,omitempty"`
@@ -196,6 +205,10 @@ type ReviewerDispatchIntakeSummary struct {
 	NextActionState                        string   `json:"nextActionState,omitempty"`
 	NextActionDispatchPromptPath           string   `json:"nextActionDispatchPromptPath,omitempty"`
 	NextActionDispatchPromptSHA256         string   `json:"nextActionDispatchPromptSha256,omitempty"`
+	NextActionDispatchPromptState          string   `json:"nextActionDispatchPromptState,omitempty"`
+	NextActionDispatchPromptCurrent        bool     `json:"nextActionDispatchPromptCurrent,omitempty"`
+	NextActionDispatchPromptActualSHA256   string   `json:"nextActionDispatchPromptActualSha256,omitempty"`
+	NextActionDispatchPromptFailure        string   `json:"nextActionDispatchPromptFailure,omitempty"`
 	NextActionReviewerResultSourcePath     string   `json:"nextActionReviewerResultSourcePath,omitempty"`
 	NextActionReviewerResultSourceState    string   `json:"nextActionReviewerResultSourceState,omitempty"`
 	NextActionReviewerResultCandidatePath  string   `json:"nextActionReviewerResultCandidatePath,omitempty"`
@@ -542,7 +555,7 @@ func reviewerDispatchActionPriority(item ReviewerDispatchIntakeHandoff) int {
 	switch item.State {
 	case "reviewer-packet-owner-adoption-required":
 		return 0
-	case "reviewer-packet-integrity-invalid", "reviewer-result-symlink-blocked", "reviewer-result-source-invalid", "reviewer-result-candidate-invalid", "reviewer-result-canonical-invalid", "reviewer-result-collection-required", "reviewer-result-recovery-invalid", "reviewer-result-recovery-ambiguous", "attach-required-before-reviewer-intake":
+	case "reviewer-packet-integrity-invalid", "reviewer-dispatch-prompt-artifact-invalid", "reviewer-dispatch-prompt-artifact-drift", "reviewer-result-symlink-blocked", "reviewer-result-source-invalid", "reviewer-result-candidate-invalid", "reviewer-result-canonical-invalid", "reviewer-result-collection-required", "reviewer-result-recovery-invalid", "reviewer-result-recovery-ambiguous", "attach-required-before-reviewer-intake":
 		return 1
 	case "reviewer-result-recovery-required", "reviewer-result-recovery-finalize-required", "ready-for-reviewer-result-staging-preview", "ready-for-reviewer-result-collection-preview", "ready-for-reviewer-intake-preview":
 		return 2
@@ -568,6 +581,9 @@ func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) Rev
 		}
 		if item.DispatchOnly {
 			summary.DispatchOnly++
+		}
+		if item.State == "reviewer-dispatch-prompt-artifact-invalid" || item.State == "reviewer-dispatch-prompt-artifact-drift" {
+			summary.PromptArtifactBlocked++
 		}
 		switch item.State {
 		case "waiting-for-reviewer-result", "dispatch-only-waiting-for-result":
@@ -596,6 +612,10 @@ func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) Rev
 		summary.LatestReviewerResultPath = latest.ReviewerResultPath
 		summary.LatestDispatchPromptPath = latest.DispatchPromptPath
 		summary.LatestDispatchPromptSHA256 = latest.DispatchPromptSHA256
+		summary.LatestDispatchPromptState = latest.DispatchPromptState
+		summary.LatestDispatchPromptCurrent = latest.DispatchPromptCurrent
+		summary.LatestDispatchPromptActualSHA256 = latest.DispatchPromptActualSHA256
+		summary.LatestDispatchPromptFailure = latest.DispatchPromptFailure
 		summary.LatestReviewerResultSourcePath = latest.ReviewerResultSourcePath
 		summary.LatestReviewerResultSourceState = latest.ReviewerResultSourceState
 		summary.LatestReviewerResultCandidatePath = latest.ReviewerResultCandidatePath
@@ -621,6 +641,10 @@ func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) Rev
 			summary.NextActionState = nextAction.State
 			summary.NextActionDispatchPromptPath = nextAction.DispatchPromptPath
 			summary.NextActionDispatchPromptSHA256 = nextAction.DispatchPromptSHA256
+			summary.NextActionDispatchPromptState = nextAction.DispatchPromptState
+			summary.NextActionDispatchPromptCurrent = nextAction.DispatchPromptCurrent
+			summary.NextActionDispatchPromptActualSHA256 = nextAction.DispatchPromptActualSHA256
+			summary.NextActionDispatchPromptFailure = nextAction.DispatchPromptFailure
 			summary.NextActionReviewerResultSourcePath = nextAction.ReviewerResultSourcePath
 			summary.NextActionReviewerResultSourceState = nextAction.ReviewerResultSourceState
 			summary.NextActionReviewerResultCandidatePath = nextAction.ReviewerResultCandidatePath
@@ -965,6 +989,110 @@ func reviewerDispatchBytesSHA256(data []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
+type reviewerDispatchPromptArtifact struct {
+	Path           string
+	ExpectedSHA256 string
+	State          string
+	Current        bool
+	ActualSHA256   string
+	Failure        string
+}
+
+func reviewerDispatchPromptArtifactStatus(caseRoot, packetPath string, dispatch reviewerDispatchPacketDispatch) reviewerDispatchPromptArtifact {
+	path := strings.TrimSpace(dispatch.DispatchPromptPath)
+	expectedSHA256 := strings.TrimSpace(dispatch.DispatchPromptSHA256)
+	if dispatch.AgentToolRequest != nil {
+		if path == "" {
+			path = strings.TrimSpace(dispatch.AgentToolRequest.PromptPath)
+		}
+		if expectedSHA256 == "" {
+			expectedSHA256 = strings.TrimSpace(dispatch.AgentToolRequest.PromptSHA256)
+		}
+	}
+	status := reviewerDispatchPromptArtifact{Path: path, ExpectedSHA256: expectedSHA256}
+	if path == "" {
+		if expectedSHA256 != "" {
+			status.State = "invalid"
+			status.Failure = "reviewer prompt artifact path is missing"
+		}
+		return status
+	}
+	reviewRoot := filepath.Dir(packetPath)
+	promptRoot := filepath.Dir(path)
+	if reviewRoot == "." || filepath.Base(promptRoot) != "prompts" || !casebind.SamePath(filepath.Dir(promptRoot), reviewRoot) {
+		status.State = "invalid"
+		status.Failure = "reviewer prompt artifact path must stay under the packet prompts directory"
+		return status
+	}
+	if !reviewpath.CollectionNamespacePathSafe(caseRoot, promptRoot, false) {
+		status.State = "invalid"
+		status.Failure = "reviewer prompt artifact parent is outside the safe case namespace, missing, or crosses a symlink"
+		return status
+	}
+	classified, err := refsf.ClassifyNonEmptyRegularFile(path)
+	if err != nil {
+		status.State = "invalid"
+		status.Failure = "classify reviewer prompt artifact: " + err.Error()
+		return status
+	}
+	switch classified {
+	case refsf.RegularFileMissing:
+		status.State = "missing"
+		status.Failure = "reviewer prompt artifact is missing"
+		return status
+	case refsf.RegularFileWaiting:
+		status.State = "invalid"
+		status.Failure = "reviewer prompt artifact must be a non-empty regular file"
+		return status
+	case refsf.RegularFileSymlink:
+		status.State = "symlink"
+		status.Failure = "reviewer prompt artifact must not be a symlink"
+		return status
+	}
+	data, err := readStableReviewerWorkstreamArtifact(caseRoot, path, "reviewer prompt artifact")
+	if err != nil {
+		status.State = "invalid"
+		status.Failure = err.Error()
+		return status
+	}
+	status.ActualSHA256 = reviewerDispatchBytesSHA256(data)
+	if expectedSHA256 == "" {
+		status.State = "unverified"
+		status.Failure = "reviewer prompt artifact sha256 is missing"
+		return status
+	}
+	if _, err := hex.DecodeString(expectedSHA256); err != nil || len(expectedSHA256) != sha256.Size*2 {
+		status.State = "invalid"
+		status.Failure = "reviewer prompt artifact expected sha256 is invalid"
+		return status
+	}
+	if !strings.EqualFold(expectedSHA256, status.ActualSHA256) {
+		status.State = "drift"
+		status.Failure = "reviewer prompt artifact sha256 drift"
+		return status
+	}
+	status.State = "ready"
+	status.Current = true
+	return status
+}
+
+func reviewerDispatchPromptArtifactBlocksDispatch(status reviewerDispatchPromptArtifact, state string) bool {
+	if status.Path == "" && status.ExpectedSHA256 == "" {
+		return false
+	}
+	if status.Current {
+		return false
+	}
+	return state == "waiting-for-reviewer-result" || state == "dispatch-only-waiting-for-result"
+}
+
+func reviewerDispatchPromptArtifactBlockedState(status reviewerDispatchPromptArtifact) string {
+	if status.State == "drift" {
+		return "reviewer-dispatch-prompt-artifact-drift"
+	}
+	return "reviewer-dispatch-prompt-artifact-invalid"
+}
+
 func reviewerDispatchResultRecoveryApplyCommand(packetPath, shardID, lane string, record reviewerResultRecoveryRecord) string {
 	return "/rekit plan-subagents -PacketPath " + quoteCommandArg(packetPath) +
 		" -RecoverReviewerResult -ShardId " + quoteCommandArg(shardID) +
@@ -1157,6 +1285,10 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 	} else if !recoveryProjected && !present && sourceState == "ready" && stagingCommand != "" {
 		state = "ready-for-reviewer-result-staging-preview"
 	}
+	promptArtifact := reviewerDispatchPromptArtifactStatus(caseRoot, packetPath, dispatch)
+	if reviewerDispatchPromptArtifactBlocksDispatch(promptArtifact, state) {
+		state = reviewerDispatchPromptArtifactBlockedState(promptArtifact)
+	}
 	currentExecutor, currentGeneration := reviewerDispatchCurrentOwner(caseRoot, targetLane)
 	adoptionPath := filepath.Join(caseRoot, ".rekit", "reviewer-adoptions", packet.PacketID+".json")
 	adoptionCurrent := reviewerDispatchAdoptionCurrent(caseRoot, adoptionPath, packet, packetPath, currentExecutor, currentGeneration)
@@ -1164,6 +1296,10 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 		currentGeneration != packet.ReviewerOrchestration.OwnerBinding.ExecutorGeneration
 	if ownerStale && !adoptionCurrent {
 		state = "reviewer-packet-owner-adoption-required"
+	}
+	dispatchCommand := reviewerDispatchCommand(dispatch.ShardID, stagingCommand, sourcePath, candidatePath, resultPath, dispatch.DispatchPromptPath, dispatch.DispatchPromptSHA256, dispatch.AgentToolRequest, idx)
+	if promptArtifact.Path != "" && promptArtifact.State != "" && !promptArtifact.Current {
+		dispatchCommand = ""
 	}
 	item := ReviewerDispatchIntakeHandoff{
 		PacketID:                                 packet.PacketID,
@@ -1182,8 +1318,12 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 		ReviewerResultSourceState:                sourceState,
 		ReviewerResultCandidatePath:              candidatePath,
 		ReviewerResultCandidateState:             candidateState,
-		DispatchPromptPath:                       dispatch.DispatchPromptPath,
-		DispatchPromptSHA256:                     dispatch.DispatchPromptSHA256,
+		DispatchPromptPath:                       promptArtifact.Path,
+		DispatchPromptSHA256:                     promptArtifact.ExpectedSHA256,
+		DispatchPromptState:                      promptArtifact.State,
+		DispatchPromptCurrent:                    promptArtifact.Current,
+		DispatchPromptActualSHA256:               promptArtifact.ActualSHA256,
+		DispatchPromptFailure:                    promptArtifact.Failure,
 		AgentToolRequest:                         dispatch.AgentToolRequest,
 		ReviewerResultStagingCommand:             stagingCommand,
 		ReviewerResultCollectionCommands:         collectionCommands,
@@ -1195,7 +1335,7 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 		DispatchOnly:                             !intakeAvailable,
 		VerificationRecorded:                     verificationRecorded,
 		DecisionRecorded:                         decisionRecorded,
-		DispatchCommand:                          reviewerDispatchCommand(dispatch.ShardID, stagingCommand, sourcePath, candidatePath, resultPath, dispatch.DispatchPromptPath, dispatch.DispatchPromptSHA256, dispatch.AgentToolRequest, idx),
+		DispatchCommand:                          dispatchCommand,
 		PreviewCommand:                           dispatch.PreviewCommand,
 		ApplyCommand:                             dispatch.ApplyCommand,
 		BatchPreviewCommand:                      packet.ReviewerOrchestration.BatchPreviewCommand,
@@ -1367,11 +1507,21 @@ func reviewerDispatchIntakeEvidence(caseRoot string, item ReviewerDispatchIntake
 		evidence = append(evidence, "resultRoot "+reviewerDispatchDisplayPath(caseRoot, item.ResultRoot))
 	}
 	if strings.TrimSpace(item.DispatchPromptPath) != "" {
-		hash := strings.TrimSpace(item.DispatchPromptSHA256)
-		if hash != "" {
-			hash = " sha256=" + hash
+		parts := []string{"reviewerPrompt"}
+		if state := strings.TrimSpace(item.DispatchPromptState); state != "" {
+			parts = append(parts, state)
 		}
-		evidence = append(evidence, "reviewerPrompt"+hash+" "+reviewerDispatchDisplayPath(caseRoot, item.DispatchPromptPath))
+		if hash := strings.TrimSpace(item.DispatchPromptSHA256); hash != "" {
+			parts = append(parts, "sha256="+hash)
+		}
+		if actual := strings.TrimSpace(item.DispatchPromptActualSHA256); actual != "" && !strings.EqualFold(actual, item.DispatchPromptSHA256) {
+			parts = append(parts, "actualSha256="+actual)
+		}
+		parts = append(parts, reviewerDispatchDisplayPath(caseRoot, item.DispatchPromptPath))
+		if failure := strings.TrimSpace(item.DispatchPromptFailure); failure != "" {
+			parts = append(parts, "failure="+failure)
+		}
+		evidence = append(evidence, strings.Join(parts, " "))
 	}
 	if strings.TrimSpace(item.ReviewerResultSourcePath) != "" {
 		evidence = append(evidence, "reviewerResultSource "+firstText(item.ReviewerResultSourceState, "missing")+" "+reviewerDispatchDisplayPath(caseRoot, item.ReviewerResultSourcePath))
@@ -1410,6 +1560,9 @@ func reviewerDispatchIntakeBoundary(item ReviewerDispatchIntakeHandoff) []string
 	} else if item.IntakeAvailable {
 		boundary = append(boundary, "this packet has no canonical collection capability; save reviewer JSON directly to reviewerResultPath and use strict direct or batch intake")
 	}
+	if item.State == "reviewer-dispatch-prompt-artifact-invalid" || item.State == "reviewer-dispatch-prompt-artifact-drift" {
+		boundary = append(boundary, "reviewer prompt artifact must be present, non-symlink, non-empty, and match dispatchPromptSha256 before dispatching a reviewer")
+	}
 	if item.DispatchOnly {
 		boundary = append(boundary, "dispatch-only packets require an attached rekit case before reviewer-intake writeback")
 	}
@@ -1426,6 +1579,7 @@ func reviewerDispatchIntakeSummaryBoundary() []string {
 	return []string{
 		"reviewer dispatch intake summary is read-only; full packet.json, summary.md, and reviewerOrchestration remain available",
 		"runtime does not spawn, stop, monitor, or manage reviewer sessions from status/handoff/continue",
+		"dispatch reviewers only from prompt artifacts that are present, non-symlink, non-empty, and match promptSha256",
 		"run ready-result batch intake -WhatIf before -Apply; packet order, fail-fast, waiting results, no-authority, and no-heavy boundaries remain enforced",
 	}
 }
@@ -1436,6 +1590,12 @@ func reviewerDispatchIntakeNextAction(item ReviewerDispatchIntakeHandoff) string
 		return firstText(item.OwnerAdoptionPreviewCommand, "adopt reviewer packet "+item.PacketID+" before intake")
 	case "reviewer-packet-integrity-invalid":
 		return "regenerate canonical reviewer packet at " + item.PacketPath + "; do not continue from invalid packet integrity"
+	case "reviewer-dispatch-prompt-artifact-invalid", "reviewer-dispatch-prompt-artifact-drift":
+		failure := strings.TrimSpace(item.DispatchPromptFailure)
+		if failure != "" {
+			failure = ": " + failure
+		}
+		return "regenerate or restore reviewer prompt artifact for " + item.ShardID + " at " + item.DispatchPromptPath + failure + "; do not dispatch reviewer until promptSha256 matches"
 	case "reviewer-result-recovery-required":
 		return firstText(item.ReviewerResultRecoveryCommand, "run reviewer result recovery -WhatIf for "+item.ShardID)
 	case "reviewer-result-recovery-finalize-required":
@@ -1543,11 +1703,11 @@ func appendReviewerDispatchIntakeHandoff(lines []string, items []ReviewerDispatc
 		return append(lines, "- none")
 	}
 	summary := ReviewerDispatchIntakeSummaryFor(items)
-	lines = append(lines, fmt.Sprintf("- summary: total=%d waitingForReviewerResult=%d readyForPreview=%d attachRequired=%d dispatchOnly=%d packets=%d latestPacketProgress=%d/%d open=%d nextOpen=%s remaining=%s latestShard=%s latestState=%s sourceState=%s candidateState=%s nextAction=`%s`", summary.Total, summary.WaitingForReviewerResult, summary.ReadyForPreview, summary.AttachRequired, summary.DispatchOnly, summary.PacketCount, summary.LatestPacketDispatchCompleted, summary.LatestPacketDispatchTotal, summary.LatestPacketDispatchOpen, summary.LatestPacketNextOpenShardID, strings.Join(summary.RemainingShardIDs, ","), summary.LatestShardID, summary.LatestState, summary.LatestReviewerResultSourceState, summary.LatestReviewerResultCandidateState, summary.NextAction))
+	lines = append(lines, fmt.Sprintf("- summary: total=%d waitingForReviewerResult=%d readyForPreview=%d attachRequired=%d dispatchOnly=%d promptArtifactBlocked=%d packets=%d latestPacketProgress=%d/%d open=%d nextOpen=%s remaining=%s latestShard=%s latestState=%s sourceState=%s candidateState=%s nextAction=`%s`", summary.Total, summary.WaitingForReviewerResult, summary.ReadyForPreview, summary.AttachRequired, summary.DispatchOnly, summary.PromptArtifactBlocked, summary.PacketCount, summary.LatestPacketDispatchCompleted, summary.LatestPacketDispatchTotal, summary.LatestPacketDispatchOpen, summary.LatestPacketNextOpenShardID, strings.Join(summary.RemainingShardIDs, ","), summary.LatestShardID, summary.LatestState, summary.LatestReviewerResultSourceState, summary.LatestReviewerResultCandidateState, summary.NextAction))
 	for _, item := range items {
 		lines = append(lines, fmt.Sprintf("- dispatch intake: lane=%s shard=%s state=%s progress=%d/%d open=%d nextOpen=%s remaining=%s sourceState=%s source=`%s` candidateState=%s candidate=`%s` resultPresent=%t resultState=%s packet=`%s` reviewerResult=`%s` preview=`%s` apply=`%s` batchPreview=`%s` batchApply=`%s`", item.TargetLane, item.ShardID, item.State, item.DispatchCompleted, item.DispatchTotal, item.DispatchOpen, item.NextOpenShardID, strings.Join(item.RemainingShardIDs, ","), item.ReviewerResultSourceState, item.ReviewerResultSourcePath, item.ReviewerResultCandidateState, item.ReviewerResultCandidatePath, item.ReviewerResultPresent, item.ReviewerResultState, item.PacketPath, item.ReviewerResultPath, item.PreviewCommand, item.ApplyCommand, item.BatchPreviewCommand, item.BatchApplyCommand))
 		if strings.TrimSpace(item.DispatchPromptPath) != "" {
-			lines = append(lines, fmt.Sprintf("  - prompt artifact: path=`%s` sha256=%s", item.DispatchPromptPath, item.DispatchPromptSHA256))
+			lines = append(lines, fmt.Sprintf("  - prompt artifact: path=`%s` sha256=%s state=%s current=%t actualSha256=%s failure=%s", item.DispatchPromptPath, item.DispatchPromptSHA256, item.DispatchPromptState, item.DispatchPromptCurrent, item.DispatchPromptActualSHA256, item.DispatchPromptFailure))
 		}
 		if item.AgentToolRequest != nil {
 			lines = append(lines, fmt.Sprintf("  - agent tool: tool=%s agentType=%s readOnly=%t promptPath=`%s` promptSha256=%s expectedOutput=%s", item.AgentToolRequest.Tool, item.AgentToolRequest.AgentType, item.AgentToolRequest.ReadOnly, item.AgentToolRequest.PromptPath, item.AgentToolRequest.PromptSHA256, item.AgentToolRequest.ExpectedOutput))
@@ -1575,11 +1735,11 @@ func WriteReviewerDispatchIntakeHandoffSection(out *bytes.Buffer, title string, 
 	summary := ReviewerDispatchIntakeSummaryFor(items)
 	fmt.Fprintln(out, title)
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "- summary: total=%d waitingForReviewerResult=%d readyForPreview=%d attachRequired=%d dispatchOnly=%d packets=%d latestPacketProgress=%d/%d open=%d nextOpen=%s remaining=%s latestShard=%s latestState=%s sourceState=%s candidateState=%s nextAction=`%s`\n", summary.Total, summary.WaitingForReviewerResult, summary.ReadyForPreview, summary.AttachRequired, summary.DispatchOnly, summary.PacketCount, summary.LatestPacketDispatchCompleted, summary.LatestPacketDispatchTotal, summary.LatestPacketDispatchOpen, summary.LatestPacketNextOpenShardID, strings.Join(summary.RemainingShardIDs, ","), summary.LatestShardID, summary.LatestState, summary.LatestReviewerResultSourceState, summary.LatestReviewerResultCandidateState, summary.NextAction)
+	fmt.Fprintf(out, "- summary: total=%d waitingForReviewerResult=%d readyForPreview=%d attachRequired=%d dispatchOnly=%d promptArtifactBlocked=%d packets=%d latestPacketProgress=%d/%d open=%d nextOpen=%s remaining=%s latestShard=%s latestState=%s sourceState=%s candidateState=%s nextAction=`%s`\n", summary.Total, summary.WaitingForReviewerResult, summary.ReadyForPreview, summary.AttachRequired, summary.DispatchOnly, summary.PromptArtifactBlocked, summary.PacketCount, summary.LatestPacketDispatchCompleted, summary.LatestPacketDispatchTotal, summary.LatestPacketDispatchOpen, summary.LatestPacketNextOpenShardID, strings.Join(summary.RemainingShardIDs, ","), summary.LatestShardID, summary.LatestState, summary.LatestReviewerResultSourceState, summary.LatestReviewerResultCandidateState, summary.NextAction)
 	for _, item := range items {
 		fmt.Fprintf(out, "- dispatch intake: lane=%s shard=%s state=%s progress=%d/%d open=%d nextOpen=%s remaining=%s sourceState=%s source=`%s` candidateState=%s candidate=`%s` resultPresent=%t packet=`%s` reviewerResult=`%s` preview=`%s` apply=`%s`\n", item.TargetLane, item.ShardID, item.State, item.DispatchCompleted, item.DispatchTotal, item.DispatchOpen, item.NextOpenShardID, strings.Join(item.RemainingShardIDs, ","), item.ReviewerResultSourceState, item.ReviewerResultSourcePath, item.ReviewerResultCandidateState, item.ReviewerResultCandidatePath, item.ReviewerResultPresent, item.PacketPath, item.ReviewerResultPath, item.PreviewCommand, item.ApplyCommand)
 		if strings.TrimSpace(item.DispatchPromptPath) != "" {
-			fmt.Fprintf(out, "  - prompt artifact: path=`%s` sha256=%s\n", item.DispatchPromptPath, item.DispatchPromptSHA256)
+			fmt.Fprintf(out, "  - prompt artifact: path=`%s` sha256=%s state=%s current=%t actualSha256=%s failure=%s\n", item.DispatchPromptPath, item.DispatchPromptSHA256, item.DispatchPromptState, item.DispatchPromptCurrent, item.DispatchPromptActualSHA256, item.DispatchPromptFailure)
 		}
 		if item.AgentToolRequest != nil {
 			fmt.Fprintf(out, "  - agent tool: tool=%s agentType=%s readOnly=%t promptPath=`%s` promptSha256=%s expectedOutput=%s\n", item.AgentToolRequest.Tool, item.AgentToolRequest.AgentType, item.AgentToolRequest.ReadOnly, item.AgentToolRequest.PromptPath, item.AgentToolRequest.PromptSHA256, item.AgentToolRequest.ExpectedOutput)

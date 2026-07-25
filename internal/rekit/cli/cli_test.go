@@ -6061,8 +6061,42 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	}
 	assertReviewerDispatchIntakeSummary(t, "status before reviewer result", statusBeforeDispatch.CaseMission.ReviewerDispatchIntakeSummary, 2, 2, 0, "shard-02", "waiting-for-reviewer-result")
 	firstDispatch, ok := reviewerDispatchIntakeByShard(statusBeforeDispatch.CaseMission.ReviewerDispatchIntakeHandoffs, "shard-01")
-	if !ok || firstDispatch.PacketPath != plan.PacketPath || firstDispatch.ReviewerResultPresent || firstDispatch.State != "waiting-for-reviewer-result" || firstDispatch.ReviewerResultSourcePath != packet.ShardHandoffs[0].ReviewerStagingCommands.SourcePath || firstDispatch.ReviewerResultSourceState != "missing" || firstDispatch.ReviewerResultCandidatePath != packet.ShardHandoffs[0].ReviewerResultCandidatePath || firstDispatch.ReviewerResultCandidateState != "missing" || !strings.Contains(firstDispatch.ReviewerResultStagingCommand, "-StageReviewerResult") || !strings.Contains(firstDispatch.DispatchCommand, "dispatch read-only reviewer for shard-01") || !strings.Contains(firstDispatch.PreviewCommand, "-WhatIf -Format json") || !containsSubstring(firstDispatch.Boundary, "does not spawn") {
+	if !ok || firstDispatch.PacketPath != plan.PacketPath || firstDispatch.ReviewerResultPresent || firstDispatch.State != "waiting-for-reviewer-result" || firstDispatch.ReviewerResultSourcePath != packet.ShardHandoffs[0].ReviewerStagingCommands.SourcePath || firstDispatch.ReviewerResultSourceState != "missing" || firstDispatch.ReviewerResultCandidatePath != packet.ShardHandoffs[0].ReviewerResultCandidatePath || firstDispatch.ReviewerResultCandidateState != "missing" || firstDispatch.DispatchPromptState != "ready" || !firstDispatch.DispatchPromptCurrent || firstDispatch.DispatchPromptPath == "" || firstDispatch.DispatchPromptSHA256 == "" || firstDispatch.DispatchPromptActualSHA256 != firstDispatch.DispatchPromptSHA256 || !strings.Contains(firstDispatch.ReviewerResultStagingCommand, "-StageReviewerResult") || !strings.Contains(firstDispatch.DispatchCommand, "dispatch read-only reviewer for shard-01") || !strings.Contains(firstDispatch.PreviewCommand, "-WhatIf -Format json") || !containsSubstring(firstDispatch.Boundary, "does not spawn") {
 		t.Fatalf("status JSON omitted waiting reviewer dispatch intake handoff: %+v", statusBeforeDispatch.CaseMission.ReviewerDispatchIntakeHandoffs)
+	}
+	promptBytes, err := os.ReadFile(firstDispatch.DispatchPromptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(firstDispatch.DispatchPromptPath); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var statusWithMissingPrompt struct {
+		CaseMission struct {
+			ReviewerDispatchIntakeHandoffs []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
+			ReviewerDispatchIntakeSummary  reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &statusWithMissingPrompt); err != nil {
+		t.Fatalf("status JSON with missing prompt did not decode: %v\n%s", err, out.String())
+	}
+	missingPromptDispatch, ok := reviewerDispatchIntakeByShard(statusWithMissingPrompt.CaseMission.ReviewerDispatchIntakeHandoffs, "shard-01")
+	if !ok || missingPromptDispatch.State != "reviewer-dispatch-prompt-artifact-invalid" || missingPromptDispatch.DispatchPromptState != "missing" || missingPromptDispatch.DispatchPromptCurrent || statusWithMissingPrompt.CaseMission.ReviewerDispatchIntakeSummary.PromptArtifactBlocked != 1 || statusWithMissingPrompt.CaseMission.ReviewerDispatchIntakeSummary.NextActionState != "reviewer-dispatch-prompt-artifact-invalid" || !strings.Contains(statusWithMissingPrompt.CaseMission.ReviewerDispatchIntakeSummary.NextAction, "do not dispatch reviewer until promptSha256 matches") {
+		t.Fatalf("status JSON did not fail closed on missing prompt artifact: item=%+v summary=%+v", missingPromptDispatch, statusWithMissingPrompt.CaseMission.ReviewerDispatchIntakeSummary)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "promptArtifactBlocked=1") || !strings.Contains(out.String(), "promptState=missing") || !strings.Contains(out.String(), "promptFailure=reviewer prompt artifact is missing") {
+		t.Fatalf("status text did not show missing prompt artifact blocker:\n%s", out.String())
+	}
+	if err := os.WriteFile(firstDispatch.DispatchPromptPath, promptBytes, 0o644); err != nil {
+		t.Fatal(err)
 	}
 
 	out.Reset()
@@ -12445,6 +12479,10 @@ type reviewerDispatchIntakeCLIItem struct {
 	ReviewerResultCandidateState     string   `json:"reviewerResultCandidateState"`
 	DispatchPromptPath               string   `json:"dispatchPromptPath"`
 	DispatchPromptSHA256             string   `json:"dispatchPromptSha256"`
+	DispatchPromptState              string   `json:"dispatchPromptState"`
+	DispatchPromptCurrent            bool     `json:"dispatchPromptCurrent"`
+	DispatchPromptActualSHA256       string   `json:"dispatchPromptActualSha256"`
+	DispatchPromptFailure            string   `json:"dispatchPromptFailure"`
 	ReviewerResultStagingCommand     string   `json:"reviewerResultStagingCommand"`
 	IntakeAvailable                  bool     `json:"intakeAvailable"`
 	DispatchOnly                     bool     `json:"dispatchOnly"`
@@ -12468,6 +12506,7 @@ type reviewerDispatchIntakeSummaryCLIItem struct {
 	ReadyForPreview                        int      `json:"readyForPreview"`
 	AttachRequired                         int      `json:"attachRequired"`
 	DispatchOnly                           int      `json:"dispatchOnly"`
+	PromptArtifactBlocked                  int      `json:"promptArtifactBlocked"`
 	LaneCount                              int      `json:"laneCount"`
 	Lanes                                  []string `json:"lanes"`
 	PacketCount                            int      `json:"packetCount"`
@@ -12483,6 +12522,10 @@ type reviewerDispatchIntakeSummaryCLIItem struct {
 	LatestReviewerResultPath               string   `json:"latestReviewerResultPath"`
 	LatestDispatchPromptPath               string   `json:"latestDispatchPromptPath"`
 	LatestDispatchPromptSHA256             string   `json:"latestDispatchPromptSha256"`
+	LatestDispatchPromptState              string   `json:"latestDispatchPromptState"`
+	LatestDispatchPromptCurrent            bool     `json:"latestDispatchPromptCurrent"`
+	LatestDispatchPromptActualSHA256       string   `json:"latestDispatchPromptActualSha256"`
+	LatestDispatchPromptFailure            string   `json:"latestDispatchPromptFailure"`
 	LatestReviewerResultSourcePath         string   `json:"latestReviewerResultSourcePath"`
 	LatestReviewerResultSourceState        string   `json:"latestReviewerResultSourceState"`
 	LatestReviewerResultCandidatePath      string   `json:"latestReviewerResultCandidatePath"`
@@ -12496,6 +12539,10 @@ type reviewerDispatchIntakeSummaryCLIItem struct {
 	NextActionState                        string   `json:"nextActionState"`
 	NextActionDispatchPromptPath           string   `json:"nextActionDispatchPromptPath"`
 	NextActionDispatchPromptSHA256         string   `json:"nextActionDispatchPromptSha256"`
+	NextActionDispatchPromptState          string   `json:"nextActionDispatchPromptState"`
+	NextActionDispatchPromptCurrent        bool     `json:"nextActionDispatchPromptCurrent"`
+	NextActionDispatchPromptActualSHA256   string   `json:"nextActionDispatchPromptActualSha256"`
+	NextActionDispatchPromptFailure        string   `json:"nextActionDispatchPromptFailure"`
 	NextActionReviewerResultSourcePath     string   `json:"nextActionReviewerResultSourcePath"`
 	NextActionReviewerResultSourceState    string   `json:"nextActionReviewerResultSourceState"`
 	NextActionReviewerResultCandidatePath  string   `json:"nextActionReviewerResultCandidatePath"`

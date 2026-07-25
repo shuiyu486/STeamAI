@@ -245,6 +245,62 @@ func TestReviewerDispatchIntakeHandoffMatchesStrictResultClassification(t *testi
 	}
 }
 
+func reviewerDispatchTestContainsSubstring(values []string, needle string) bool {
+	return slices.ContainsFunc(values, func(value string) bool { return strings.Contains(value, needle) })
+}
+
+func TestReviewerDispatchPromptArtifactCurrentnessBlocksStaleDispatch(t *testing.T) {
+	root := t.TempDir()
+	reviewRoot := filepath.Join(root, ".rekit", "reviews", "prompt-currentness")
+	packetPath := filepath.Join(reviewRoot, "packet.json")
+	resultRoot := filepath.Join(reviewRoot, "results")
+	promptPath := filepath.Join(reviewRoot, "prompts", "shard-01.prompt.md")
+	if err := os.MkdirAll(filepath.Dir(promptPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(resultRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	promptBytes := []byte("read-only reviewer prompt\n")
+	promptSHA := reviewerDispatchBytesSHA256(promptBytes)
+	if err := os.WriteFile(promptPath, promptBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	packet := reviewerDispatchPacket{PacketID: "packet-prompt", ReviewerOrchestration: reviewerDispatchPacketOrchestration{TargetLane: "feature-review", PacketPath: packetPath, ResultRoot: resultRoot}}
+	dispatch := reviewerDispatchPacketDispatch{
+		ShardID:              "shard-01",
+		ReviewerResultPath:   filepath.Join(resultRoot, "shard-01.json"),
+		DispatchPromptPath:   promptPath,
+		DispatchPromptSHA256: promptSHA,
+		AgentToolRequest:     &ReviewerAgentToolRequest{Tool: "Claude Code Agent", AgentType: "read-only-reviewer", ReadOnly: true, PromptPath: promptPath, PromptSHA256: promptSHA, ExpectedOutput: "one JSON object"},
+		PreviewCommand:       "preview",
+		ApplyCommand:         "apply",
+	}
+
+	ready := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, packetPath, "feature-review", dispatch, 0)
+	if ready.State != "waiting-for-reviewer-result" || ready.DispatchPromptState != "ready" || !ready.DispatchPromptCurrent || ready.DispatchPromptActualSHA256 != promptSHA || !reviewerDispatchTestContainsSubstring(ready.Evidence, "reviewerPrompt ready sha256=") {
+		t.Fatalf("current prompt artifact was not projected as ready: %+v", ready)
+	}
+
+	if err := os.Remove(promptPath); err != nil {
+		t.Fatal(err)
+	}
+	missing := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, packetPath, "feature-review", dispatch, 0)
+	missingSummary := ReviewerDispatchIntakeSummaryFor([]ReviewerDispatchIntakeHandoff{missing})
+	if missing.State != "reviewer-dispatch-prompt-artifact-invalid" || missing.DispatchPromptState != "missing" || missing.DispatchPromptCurrent || missingSummary.PromptArtifactBlocked != 1 || !strings.Contains(reviewerDispatchIntakeNextAction(missing), "do not dispatch reviewer until promptSha256 matches") || !reviewerDispatchTestContainsSubstring(missing.Boundary, "reviewer prompt artifact must be present") {
+		t.Fatalf("missing prompt artifact did not block dispatch: item=%+v summary=%+v", missing, missingSummary)
+	}
+
+	driftBytes := []byte("modified prompt\n")
+	if err := os.WriteFile(promptPath, driftBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	drift := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, packetPath, "feature-review", dispatch, 0)
+	if drift.State != "reviewer-dispatch-prompt-artifact-drift" || drift.DispatchPromptState != "drift" || drift.DispatchPromptActualSHA256 != reviewerDispatchBytesSHA256(driftBytes) || !reviewerDispatchTestContainsSubstring(drift.Evidence, "actualSha256=") || !reviewerDispatchTestContainsSubstring(drift.Evidence, "failure=reviewer prompt artifact sha256 drift") {
+		t.Fatalf("drifted prompt artifact did not fail closed: %+v", drift)
+	}
+}
+
 func TestReviewerDispatchIntakeProjectsCandidateCollectionState(t *testing.T) {
 	root := t.TempDir()
 	reviewRoot := filepath.Join(root, ".rekit", "reviews", "review")

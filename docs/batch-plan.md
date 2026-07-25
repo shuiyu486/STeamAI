@@ -16,6 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 578：reviewer prompt artifact currentness handoff closure
+
+状态：已完成 runtime、CLI、workstream intake projection、tests、docs 与完整本地 release minimum；implementation commit/push 与 implementation remote release-gate inspection 待执行。本批延续 Batch 577：`plan-subagents` 已生成 hash-bound `prompts/<shard>.prompt.md` artifact 并投影 path/hash，但 downstream `status` / `handoff` / `continue` 仍可能在 prompt artifact 被删除、清空、换成 symlink、移动到 packet prompts 目录外或 SHA-256 drift 后继续显示 dispatch command，replacement executor 容易把 stale/missing prompt 当成可调度 reviewer 输入。
+
+目标：让 reviewer dispatch intake handoff 在推荐调度 read-only reviewer 前只读验证 prompt artifact currentness：必须位于同一 packet review root 的 `prompts/` 目录、non-symlink、non-empty regular file，且实际 SHA-256 匹配 packet 中的 `promptSha256`。缺失、invalid、symlink、unverified 或 drift 时 fail-closed 为 blocked prompt artifact state，并在 JSON/text/durable handoff 中投影 state、current、actual hash、failure 与 next action。
+
+已实现内容：
+
+- `ReviewerDispatchIntakeHandoff` 新增 `dispatchPromptState`、`dispatchPromptCurrent`、`dispatchPromptActualSha256` 与 `dispatchPromptFailure`；summary 同步新增 latest / next-action prompt currentness 字段与 `promptArtifactBlocked` 计数。
+- workstream intake handoff 现在从 dispatch 或 `agentToolRequest` 解析 prompt path/hash，校验 prompt parent 必须绑定同一 review packet 的 `prompts/` 目录，并通过 stable read 计算 SHA-256；missing / invalid / symlink / unverified / drift 均不会继续暴露 runnable dispatch command。
+- Mission Commander action priority、next action、evidence、boundary、status/handoff/continue text 与 durable Markdown handoff 均投影 prompt artifact currentness；blocked prompt artifact 要求先 restore/regenerate prompt artifact 并验证 `promptSha256`，再调度 reviewer。
+- Workstream unit coverage 与 CLI E2E 覆盖 current prompt artifact、missing prompt artifact fail-closed、hash drift fail-closed、status JSON/text prompt blocker projection，以及 existing reviewer staging/collection/intake flow 不回退。
+
+边界：本批只对既有 reviewer prompt artifact 做只读 currentness validation 与 downstream handoff 投影；不重写 prompt artifact、不修补 packet、不 spawn/stop/poll/monitor reviewer、不创建 reviewer result、不执行 staging/collection/intake Apply、不写 verification/decision/authority/confirmed、不执行 heavy tool、不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/subagents ./internal/rekit/workstream ./internal/rekit/cli -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过。remote release-gate inspection 待执行，当前不能声明 remote CI green。
+
 ### Batch 577：reviewer dispatch prompt artifact closure
 
 状态：已完成 runtime、CLI、workstream intake projection、tests、docs、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `916e1e9` 已推送。implementation run `30138173646` completed failure，Windows/Linux/macOS jobs `89626133314`/`89626133327`/`89626133336` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。本批延续 Batch 514、523–525、541、549、562 与 567：reviewer orchestration 已能生成 multi-shard dispatch/intake/collection handoff，但 replacement executor 仍需要从 nested JSON 中手工复制 `dispatchPrompt` 或 `agentToolRequest.prompt` 长文本，容易漏掉 owner binding、route output contract、result/staging path、no-heavy/no-authority boundary 与只读 reviewer 约束。
