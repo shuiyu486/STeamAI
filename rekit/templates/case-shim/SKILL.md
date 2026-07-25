@@ -22,7 +22,7 @@ disable-model-invocation: true
 ```
 
 5. 按 canonical skill 的 LLM-first 和日常工作流语义执行 `/rekit`。`overview/continue/start/handoff` 由 canonical runtime 解释；`sync` / `promote` 默认先生成 review 包，让 Claude 输出优劣/冲突报告并取得用户明确确认后，才执行写入动作。shim 只做 metadata 跳转，不展示底层脚本或 CLI 命令。
-6. 新会话 first screen 先使用 `/rekit`，确认 `status case shim ready=true`、`installedShimMatchesTemplate=true`，再按 `status case mission` 的 queue/current action 与 durable artifacts 接手；active reviewer/evidence/adapter review blocker 优先于普通 handoff/continue follow-up；如果 shim drift，先走 repair preview，不直接修复；默认 `/rekit` 还会先显示 compact Mission Commander first-screen strip，帮助快速定位 case current action 与 pack-memory current action。
+6. 新会话 first screen 先使用 `/rekit`，确认 `status case shim ready=true`、`installedShimMatchesTemplate=true`，再按 `status case mission` 的 queue/current action 与 durable artifacts 接手；active reviewer/evidence/adapter review blocker 优先于普通 handoff/continue follow-up；如果 shim drift，先走 repair preview，不直接修复；默认 `/rekit` 还会先显示 compact Mission Commander first-screen strip，空 mission/缺 board 时先投影 onboarding current action，帮助快速定位 case current action 与 pack-memory current action。
 
 ## 规则
 

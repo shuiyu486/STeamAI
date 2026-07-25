@@ -867,15 +867,18 @@ func TestRunStatusCaseMissionDoesNotInitializeMissingBoard(t *testing.T) {
 	}
 	var status struct {
 		CaseMission struct {
-			Ready                   bool     `json:"ready"`
-			Summary                 string   `json:"summary"`
-			MissionBriefNextActions []string `json:"missionBriefNextActions"`
+			Ready                       bool                                `json:"ready"`
+			Summary                     string                              `json:"summary"`
+			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+			MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
+			MissionBriefNextActions     []string                            `json:"missionBriefNextActions"`
 		} `json:"caseMission"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
 		t.Fatalf("case status JSON did not decode: %v\n%s", err, out.String())
 	}
-	if status.CaseMission.Ready || !strings.Contains(status.CaseMission.Summary, "case board missing") || len(status.CaseMission.MissionBriefNextActions) == 0 || !strings.Contains(status.CaseMission.MissionBriefNextActions[0], "overview") {
+	current := status.CaseMission.MissionCommanderActionQueue.CurrentAction
+	if status.CaseMission.Ready || !strings.Contains(status.CaseMission.Summary, "case board missing") || current == nil || current.Source != "caseMissionOnboarding" || current.State != "case-board-missing" || !strings.Contains(current.Command, "/rekit overview -Target") || len(status.CaseMission.MissionCommanderNextActions) != 1 || !containsSubstring(status.CaseMission.MissionBriefNextActions, "follow Mission Commander current action: /rekit overview -Target") {
 		t.Fatalf("unexpected missing-board mission summary: %+v", status.CaseMission)
 	}
 	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "board.json")); !os.IsNotExist(err) {
@@ -887,9 +890,15 @@ func TestRunStatusCaseMissionDoesNotInitializeMissingBoard(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
+		"status Mission Commander first screen：focus=case-current-action",
+		"status Mission Commander current action：scope=focus-case lane= label= state=case-board-missing source=caseMissionOnboarding blocked=false requiresReview=false command=/rekit overview -Target",
+		"status Mission Commander focus action reason：scope=case reason=case-local Mission Commander board is missing",
+		"status Mission Commander focus action boundary：scope=case boundary=overview may bootstrap case-local Mission Commander board and does not execute heavy tools",
 		"status case mission：summary=case board missing",
 		"ready=false lanes=0",
-		"status case mission brief next action：run /rekit overview -Target",
+		"status case mission queue：total=1 unblocked=1 blocked=0 requiresReview=0 followUp=0 current=/rekit overview -Target",
+		"status case mission next action：lane= label= state=case-board-missing source=caseMissionOnboarding blocked=false requiresReview=false command=/rekit overview -Target",
+		"status case mission brief next action：follow Mission Commander current action: /rekit overview -Target",
 	} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("missing-board status text missing %q:\n%s", expected, out.String())
@@ -2700,12 +2709,16 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 	if status.Mode != "case" || status.TargetProvided || status.Target != caseRoot || status.Case.CaseRoot != caseRoot || status.Case.ProjectName != "installed-entrypoint" || !status.Case.ShimMatchesTemplate || !status.CaseShim.Ready || status.CaseShim.InstalledShimMatchesTemplate == nil || !*status.CaseShim.InstalledShimMatchesTemplate || status.CaseShim.Entrypoint == nil || status.CaseShim.Entrypoint.CaseLocalFirstScreenCommand != "/rekit" || !strings.Contains(status.CaseShim.Entrypoint.ExplicitFirstScreenCommand, caseRoot) || !slices.Contains(status.CaseShim.Entrypoint.MetadataPaths, ".rekit/instance.yml") || !containsSubstring(status.CaseShim.Entrypoint.DurableArtifacts, ".rekit/lanes/<lane>/prompts/RESUME.md") || !containsSubstring(status.CaseShim.Entrypoint.FirstScreenChecks, "status case mission queue/current action") || !containsSubstring(status.CaseShim.Entrypoint.Boundary, "canonical skill") {
 		t.Fatalf("unexpected installed case shim status: %+v", status)
 	}
+	onboardingAction := status.CaseMission.MissionCommanderActionQueue.CurrentAction
+	if onboardingAction == nil || onboardingAction.Source != "caseMissionOnboarding" || onboardingAction.State != "case-board-missing" || !strings.Contains(onboardingAction.Command, "/rekit overview -Target") || !containsSubstring(status.CaseMission.MissionBriefNextActions, "follow Mission Commander current action: /rekit overview -Target") {
+		t.Fatalf("installed entrypoint status did not project onboarding current action: current=%+v next=%+v", onboardingAction, status.CaseMission.MissionBriefNextActions)
+	}
 
 	out.Reset()
 	if err := Run([]string{"-Command", "status"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"pack source: case-metadata", "case shim: case shim readiness ok ready=true", "status case shim entrypoint: caseLocal=/rekit", "status case shim durable artifact: .rekit/handovers/<lane>-latest.md", "status case shim first-screen check: status case mission queue/current action", "status Mission Commander first screen：focus=none", "status case mission handoff：preview=/rekit handoff"} {
+	for _, expected := range []string{"pack source: case-metadata", "case shim: case shim readiness ok ready=true", "status case shim entrypoint: caseLocal=/rekit", "status case shim durable artifact: .rekit/handovers/<lane>-latest.md", "status case shim first-screen check: status case mission queue/current action", "status Mission Commander first screen：focus=case-current-action", "state=case-board-missing source=caseMissionOnboarding", "status Mission Commander current action：scope=focus-case lane= label= state=case-board-missing source=caseMissionOnboarding blocked=false requiresReview=false command=/rekit overview -Target", "status Mission Commander focus action boundary：scope=case boundary=status is read-only; it only projects this onboarding action", "status case mission brief next action：follow Mission Commander current action: /rekit overview -Target", "status case mission handoff：preview=/rekit handoff"} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("installed entrypoint default status missing %q:\n%s", expected, out.String())
 		}

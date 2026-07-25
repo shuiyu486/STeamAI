@@ -16,6 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 598：empty-case onboarding current action closure
+
+状态：已完成 runtime/test/doc 工作树实现、focused tests 与完整本地 release minimum；implementation commit/push 与远程 release-gate inspection 待执行。本批 release-check/status 在提交前应把 release inspection cadence 保持为 implementation-pending，不记录远程 CI green。
+
+目标：修复 Batch 597 后仍暴露的新 case / 空 mission 接手断点：case-local 默认 `/rekit` first-screen 在 `.rekit/board.json` 缺失时可能显示 `focus=none`，只在后续 generic `missionBriefNextActions[]` 中提示运行 overview。新会话或 replacement executor 需要第一屏直接看到最小可执行 onboarding current action，先初始化 bounded case-local Mission Commander board，再回到 `/rekit` 选择 `continue main` 或 `start <name>`。
+
+已实现内容：
+
+- `buildStatusCaseMission` 的 missing-board 分支新增只读 `caseMissionOnboarding` action，并用现有 `mission.MissionCommanderActionQueueFor` 派生 `MissionCommanderActionQueue` 与 `MissionCommanderNextActions`；default `/rekit` / `status -Format text` 因此会在 first-screen strip 聚焦 `case-current-action`，显示 `/rekit overview -Target ... -Format text`、reason 与 boundary。
+- `MissionBriefNextActions` 改为先输出 `follow Mission Commander current action: /rekit overview -Target ... -Format text`，再提示 board 初始化后重新运行 `/rekit` 并选择 `/rekit continue main` 或 `/rekit start <name> -WhatIf -Format text`，避免空 mission 让用户在 generic next steps 中找入口。
+- Missing-board JSON/text 回归测试扩展为断言 onboarding current action、queue counts、first-screen focus、reason/boundary 与 status zero-write；installed case-local `/rekit` product-path E2E 也覆盖初始新 case first-screen 不再是 `focus=none`。
+- README、canonical skill 与 case-shim template 同步说明默认 `/rekit` first-screen 会先显示 current/onboarding action strip。
+
+边界：本批只增强 status/default `/rekit` 的只读 onboarding handoff projection；不让 `status` 初始化 board，不自动 start/continue/apply，不执行 reviewer/adapter/heavy tool，不写 facts/ledger/authority/confirmed，不新增 durable schema，不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/cli -run "TestRunStatusCaseMissionDoesNotInitializeMissingBoard|TestRunInstalledCaseShimProductPathStatusAndRefresh" -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。
+
 ### Batch 597：Mission Commander first-screen current action strip
 
 状态：已完成 runtime/test/doc 工作树实现、focused tests、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `bb90da2` 已推送。implementation run `30169713088` completed failure，macOS/Windows/Linux jobs `89708686973`/`89708686980`/`89708687021` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。

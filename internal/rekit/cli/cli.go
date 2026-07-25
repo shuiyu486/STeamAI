@@ -2988,18 +2988,44 @@ func buildStatusInventory(ctx runtime.Context, packSource string) (statusInvento
 	return status, nil
 }
 
+func statusCaseMissionOnboardingAction(caseRoot string) mission.MissionCommanderNextActionItem {
+	command := "/rekit overview -Target " + statusQuoteCommandArg(caseRoot) + " -Format text"
+	return mission.MissionCommanderNextActionItem{
+		State:   "case-board-missing",
+		Command: command,
+		Source:  "caseMissionOnboarding",
+		Reasons: []string{
+			"case-local Mission Commander board is missing",
+			"initialize bounded case-local board before continue/start",
+		},
+		Boundary: []string{
+			"status is read-only; it only projects this onboarding action",
+			"overview may bootstrap case-local Mission Commander board and does not execute heavy tools",
+			"after onboarding, use -WhatIf before start/continue apply",
+		},
+	}
+}
+
 func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission, error) {
 	previewCommand := fmt.Sprintf("/rekit handoff -Target %s -Format text", statusQuoteCommandArg(caseRoot))
 	applyCommand := fmt.Sprintf("/rekit handoff -Target %s -Apply -Format text", statusQuoteCommandArg(caseRoot))
 	continueBoundary := "status is read-only; run continue with -WhatIf first, then -Apply only after reviewing blockers/evidence"
 	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "board.json")); os.IsNotExist(err) {
+		action := statusCaseMissionOnboardingAction(caseRoot)
+		actions := []mission.MissionCommanderNextActionItem{action}
+		queue := mission.MissionCommanderActionQueueFor(actions)
 		return &statusCaseMission{
 			Ready:                         false,
 			Summary:                       "case board missing; run overview or start -Apply to initialize Mission Commander state",
+			MissionCommanderActionQueue:   queue,
+			MissionCommanderNextActions:   actions,
 			HandoffPreviewCommand:         previewCommand,
 			HandoffApplyCommand:           applyCommand,
 			ContinueRequiresExplicitApply: continueBoundary,
-			MissionBriefNextActions:       []string{"run /rekit overview -Target " + statusQuoteCommandArg(caseRoot) + " -Format text to initialize the case-local board before continuing"},
+			MissionBriefNextActions: []string{
+				"follow Mission Commander current action: " + action.Command,
+				"after the board is initialized, rerun /rekit and choose /rekit continue main or /rekit start <name> -WhatIf -Format text",
+			},
 		}, nil
 	} else if err != nil {
 		return nil, err
