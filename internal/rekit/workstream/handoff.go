@@ -781,8 +781,8 @@ func writeProjectLaneExecutionEvidenceReviewSummary(out *bytes.Buffer, summary E
 	if strings.TrimSpace(summary.LatestCommanderState) != "" || strings.TrimSpace(summary.LatestCommanderPrimary) != "" {
 		fmt.Fprintf(out, "  - evidence review summary commander：state=%s primary=`%s`\n", summary.LatestCommanderState, summary.LatestCommanderPrimary)
 	}
-	if strings.TrimSpace(summary.LatestExecutionReportPath) != "" || strings.TrimSpace(summary.LatestAdapterID) != "" || strings.TrimSpace(summary.LatestAdapterStatus) != "" {
-		fmt.Fprintf(out, "  - evidence review summary report：path=%s adapterId=%s adapterStatus=%s\n", firstText(summary.LatestExecutionReportPath, "none"), firstText(summary.LatestAdapterID, "none"), firstText(summary.LatestAdapterStatus, "none"))
+	if strings.TrimSpace(summary.LatestExecutionReportPath) != "" || strings.TrimSpace(summary.LatestExecutionReportSHA256) != "" || strings.TrimSpace(summary.LatestAdapterID) != "" || strings.TrimSpace(summary.LatestAdapterStatus) != "" {
+		fmt.Fprintf(out, "  - evidence review summary report：path=%s sha256=%s adapterId=%s adapterStatus=%s\n", firstText(summary.LatestExecutionReportPath, "none"), firstText(summary.LatestExecutionReportSHA256, "none"), firstText(summary.LatestAdapterID, "none"), firstText(summary.LatestAdapterStatus, "none"))
 	}
 	writeProjectLaneExecutionEvidenceAdapterContext(out, summary.LatestAdapterContext)
 	for _, hit := range mission.LimitStrings(summary.LatestBoundaryHits, maxHandoffRows) {
@@ -831,8 +831,8 @@ func writeProjectLaneExecutionEvidenceBoundaryDetail(out *bytes.Buffer, item Exe
 }
 
 func writeProjectLaneExecutionEvidenceReportDetail(out *bytes.Buffer, item ExecutionEvidenceReviewItem) {
-	if strings.TrimSpace(item.ExecutionReportPath) != "" {
-		fmt.Fprintf(out, "  - evidence report：%s\n", item.ExecutionReportPath)
+	if strings.TrimSpace(item.ExecutionReportPath) != "" || strings.TrimSpace(item.ExecutionReportSHA256) != "" {
+		fmt.Fprintf(out, "  - evidence report：%s sha256=%s\n", firstText(item.ExecutionReportPath, "none"), firstText(item.ExecutionReportSHA256, "none"))
 	}
 	if item.ActualBudget != nil {
 		fmt.Fprintf(out, "  - evidence budget：runtimeSeconds=%d diskMB=%d requests=%d\n", item.ActualBudget.RuntimeSeconds, item.ActualBudget.DiskMB, item.ActualBudget.Requests)
@@ -1460,8 +1460,8 @@ func writeExecutionEvidenceReviewSummary(out *bytes.Buffer, summary ExecutionEvi
 	if strings.TrimSpace(summary.LatestCommanderState) != "" || strings.TrimSpace(summary.LatestCommanderPrimary) != "" {
 		fmt.Fprintf(out, "  - summary commander: state=%s primary=`%s`\n", summary.LatestCommanderState, summary.LatestCommanderPrimary)
 	}
-	if strings.TrimSpace(summary.LatestExecutionReportPath) != "" || strings.TrimSpace(summary.LatestAdapterID) != "" || strings.TrimSpace(summary.LatestAdapterStatus) != "" {
-		fmt.Fprintf(out, "  - summary report: path=%s adapterId=%s adapterStatus=%s\n", firstText(summary.LatestExecutionReportPath, "none"), firstText(summary.LatestAdapterID, "none"), firstText(summary.LatestAdapterStatus, "none"))
+	if strings.TrimSpace(summary.LatestExecutionReportPath) != "" || strings.TrimSpace(summary.LatestExecutionReportSHA256) != "" || strings.TrimSpace(summary.LatestAdapterID) != "" || strings.TrimSpace(summary.LatestAdapterStatus) != "" {
+		fmt.Fprintf(out, "  - summary report: path=%s sha256=%s adapterId=%s adapterStatus=%s\n", firstText(summary.LatestExecutionReportPath, "none"), firstText(summary.LatestExecutionReportSHA256, "none"), firstText(summary.LatestAdapterID, "none"), firstText(summary.LatestAdapterStatus, "none"))
 	}
 	writeExecutionEvidenceAdapterContext(out, summary.LatestAdapterContext)
 	for _, hit := range mission.LimitStrings(summary.LatestBoundaryHits, maxHandoffRows) {
@@ -1513,8 +1513,8 @@ func writeExecutionEvidenceFollowThrough(out *bytes.Buffer, follow mission.Execu
 }
 
 func writeExecutionEvidenceReportDetail(out *bytes.Buffer, item ExecutionEvidenceReviewItem) {
-	if strings.TrimSpace(item.ExecutionReportPath) != "" {
-		fmt.Fprintf(out, "  - execution report: %s\n", item.ExecutionReportPath)
+	if strings.TrimSpace(item.ExecutionReportPath) != "" || strings.TrimSpace(item.ExecutionReportSHA256) != "" {
+		fmt.Fprintf(out, "  - execution report: %s sha256=%s\n", firstText(item.ExecutionReportPath, "none"), firstText(item.ExecutionReportSHA256, "none"))
 	}
 	if item.ActualBudget != nil {
 		fmt.Fprintf(out, "  - actual budget: runtimeSeconds=%d diskMB=%d requests=%d\n", item.ActualBudget.RuntimeSeconds, item.ActualBudget.DiskMB, item.ActualBudget.Requests)

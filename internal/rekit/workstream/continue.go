@@ -1071,8 +1071,8 @@ func appendExecutionEvidenceReviewSummary(lines []string, summary ExecutionEvide
 	if strings.TrimSpace(summary.LatestCommanderState) != "" || strings.TrimSpace(summary.LatestCommanderPrimary) != "" {
 		lines = append(lines, "- summary commander: state="+summary.LatestCommanderState+" primary=`"+summary.LatestCommanderPrimary+"`")
 	}
-	if strings.TrimSpace(summary.LatestExecutionReportPath) != "" || strings.TrimSpace(summary.LatestAdapterID) != "" || strings.TrimSpace(summary.LatestAdapterStatus) != "" {
-		lines = append(lines, "- summary report: path="+firstText(summary.LatestExecutionReportPath, "none")+" adapterId="+firstText(summary.LatestAdapterID, "none")+" adapterStatus="+firstText(summary.LatestAdapterStatus, "none"))
+	if strings.TrimSpace(summary.LatestExecutionReportPath) != "" || strings.TrimSpace(summary.LatestExecutionReportSHA256) != "" || strings.TrimSpace(summary.LatestAdapterID) != "" || strings.TrimSpace(summary.LatestAdapterStatus) != "" {
+		lines = append(lines, "- summary report: path="+firstText(summary.LatestExecutionReportPath, "none")+" sha256="+firstText(summary.LatestExecutionReportSHA256, "none")+" adapterId="+firstText(summary.LatestAdapterID, "none")+" adapterStatus="+firstText(summary.LatestAdapterStatus, "none"))
 	}
 	lines = appendContinueExecutionEvidenceAdapterContext(lines, summary.LatestAdapterContext)
 	for _, hit := range mission.LimitStrings(summary.LatestBoundaryHits, maxHandoffRows) {
@@ -1091,8 +1091,8 @@ func appendExecutionEvidenceReviewSummary(lines []string, summary ExecutionEvide
 }
 
 func appendContinueExecutionEvidenceReportDetail(lines []string, item ExecutionEvidenceReviewItem) []string {
-	if strings.TrimSpace(item.ExecutionReportPath) != "" {
-		lines = append(lines, "- execution report: "+item.ExecutionReportPath)
+	if strings.TrimSpace(item.ExecutionReportPath) != "" || strings.TrimSpace(item.ExecutionReportSHA256) != "" {
+		lines = append(lines, "- execution report: "+firstText(item.ExecutionReportPath, "none")+" sha256="+firstText(item.ExecutionReportSHA256, "none"))
 	}
 	if item.ActualBudget != nil {
 		lines = append(lines, fmt.Sprintf("- actual budget: runtimeSeconds=%d diskMB=%d requests=%d", item.ActualBudget.RuntimeSeconds, item.ActualBudget.DiskMB, item.ActualBudget.Requests))

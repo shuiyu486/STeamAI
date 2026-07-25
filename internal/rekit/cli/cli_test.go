@@ -9271,8 +9271,15 @@ func TestRunGateAdapterReportTextOutputsNextActions(t *testing.T) {
 }`)
 	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/result.json", `{"ok":true}`)
 	wantReportPath := "workspace/main/debug/session-1/adapter-report.json"
+	reportData, err := os.ReadFile(filepath.Join(caseRoot, filepath.FromSlash(wantReportPath)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reportSum := sha256.Sum256(reportData)
+	wantReportSHA256 := hex.EncodeToString(reportSum[:])
 	wantValidate := "/rekit gate -Pack _template -GateEventId " + applied.EventID + " -ValidateExecutionReport -ExecutionReportPath " + wantReportPath + " -Format json"
-	wantRecord := "/rekit gate -Pack _template -Apply -GateEventId " + applied.EventID + " -ExecutionReportPath " + wantReportPath + " -Actor <executor-id> -Format json"
+	wantContractRecord := "/rekit gate -Pack _template -Apply -GateEventId " + applied.EventID + " -ExecutionReportPath " + wantReportPath + " -Actor <executor-id> -Format json"
+	wantRecord := "/rekit gate -Pack _template -Apply -GateEventId " + applied.EventID + " -ExecutionReportPath " + wantReportPath + " -ExpectedExecutionReportSha256 " + wantReportSHA256 + " -Actor <executor-id> -Format json"
 	before := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 
 	out.Reset()
@@ -9281,7 +9288,7 @@ func TestRunGateAdapterReportTextOutputsNextActions(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"gate adapter report contract：gateEventId=" + applied.EventID + " action=debug lane=main reportPath=" + wantReportPath + " mutation=false",
-		"gate adapter report contract summary：state=needs-adapter-report-validation gateEventId=" + applied.EventID + " action=debug lane=main reportPath=" + wantReportPath + " defaultReportPath=" + wantReportPath + " reportPresent=false valid=false recordReady=false recordBlocked=true requiresValidation=true requiresRepair=false requiresMainEscalation=false allowedStatuses=5 allowedOutputPaths=1 stopConditions=1 adapterCandidates=0 repairHints=28 recordBlockedHints=28 escalateHints=1 outcomes=3 nextActions=3 reviewRequiredActions=3 currentAction=" + wantValidate,
+		"gate adapter report contract summary：state=needs-adapter-report-validation gateEventId=" + applied.EventID + " action=debug lane=main reportPath=" + wantReportPath + " reportSha256= recordExpectedReportSha256= defaultReportPath=" + wantReportPath + " reportPresent=false valid=false recordReady=false recordBlocked=true requiresValidation=true requiresRepair=false requiresMainEscalation=false allowedStatuses=5 allowedOutputPaths=1 stopConditions=1 adapterCandidates=0 repairHints=28 recordBlockedHints=28 escalateHints=1 outcomes=3 nextActions=3 reviewRequiredActions=3 currentAction=" + wantValidate,
 		"gate adapter report contract summary boundary：adapter report summary is read-only; full contract/validation/follow-through arrays remain available",
 		"gate adapter report validate command：rekit -Command gate -Pack _template -GateEventId " + applied.EventID + " -ValidateExecutionReport -ExecutionReportPath " + wantReportPath + " -Format json",
 		"gate adapter report record command：rekit -Command gate -Pack _template -Apply -GateEventId " + applied.EventID + " -ExecutionReportPath " + wantReportPath + " -Actor <executor-id> -Format json",
@@ -9298,7 +9305,7 @@ func TestRunGateAdapterReportTextOutputsNextActions(t *testing.T) {
 		"adapter report contract follow-through outcome：name=write-and-validate-report state=needs-adapter-report-validation command=`" + wantValidate + "`",
 		"adapter report contract follow-through when：name=write-and-validate-report when=after authorized-gate request is recorded and execution report contract is read",
 		"adapter report contract follow-through evidence：name=write-and-validate-report evidence=adapter execution report sidecar",
-		"adapter report contract follow-through outcome：name=valid-report-record state=ready-to-record-evidence command=`" + wantRecord + "`",
+		"adapter report contract follow-through outcome：name=valid-report-record state=ready-to-record-evidence command=`" + wantContractRecord + "`",
 		"adapter report contract follow-through when：name=valid-report-record when=validation returns valid=true for the bounded sidecar",
 		"adapter report contract follow-through evidence：name=valid-report-record evidence=observation evidence row",
 		"adapter report contract follow-through outcome：name=invalid-report-repair state=repair-adapter-report",
@@ -9306,7 +9313,7 @@ func TestRunGateAdapterReportTextOutputsNextActions(t *testing.T) {
 		"mission commander action queue：summary=total=3 unblocked=2 blocked=1 requiresReview=3 followUp=2 current=" + wantValidate,
 		"mission commander action queue current：state=needs-adapter-report-validation source=adapterReportContract.missionCommanderAction blocked=false requiresReview=true command=`" + wantValidate + "`",
 		"mission commander next action：state=needs-adapter-report-validation source=adapterReportContract.missionCommanderAction blocked=false requiresReview=true command=`" + wantValidate + "`",
-		"mission commander next action：state=needs-adapter-report-validation source=adapterReportContract.missionCommanderAction.followUp blocked=true requiresReview=true command=`" + wantRecord + "`",
+		"mission commander next action：state=needs-adapter-report-validation source=adapterReportContract.missionCommanderAction.followUp blocked=true requiresReview=true command=`" + wantContractRecord + "`",
 		"mission commander next action boundary：do not record evidence until validation returns valid=true",
 		"mission commander next action boundary：replace <executor-id> before running record command",
 	} {
@@ -9325,8 +9332,8 @@ func TestRunGateAdapterReportTextOutputsNextActions(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
-		"gate adapter report validation：valid=true gateEventId=" + applied.EventID + " reportPath=" + wantReportPath + " mutation=false applied=false",
-		"gate adapter report validation summary：state=ready-to-record-evidence gateEventId=" + applied.EventID + " action=debug lane=main reportPath=" + wantReportPath + " defaultReportPath=" + wantReportPath + " reportPresent=true valid=true recordReady=true recordBlocked=false requiresValidation=false requiresRepair=false requiresMainEscalation=false allowedStatuses=5 allowedOutputPaths=1 stopConditions=1 adapterCandidates=0 repairHints=0 recordBlockedHints=0 escalateHints=0 outcomes=1 nextActions=2 reviewRequiredActions=2 currentAction=" + wantRecord + " reportStatus=succeeded adapterId=text-cli-adapter actualBudget=runtimeSeconds=20,diskMB=32,requests=1 outputRefs=1 evidenceRefs=0 boundaryHits=0 hasEscalation=false hasSummary=true",
+		"gate adapter report validation：valid=true gateEventId=" + applied.EventID + " reportPath=" + wantReportPath + " reportSha256=" + wantReportSHA256 + " recordExpectedReportSha256=" + wantReportSHA256 + " mutation=false applied=false",
+		"gate adapter report validation summary：state=ready-to-record-evidence gateEventId=" + applied.EventID + " action=debug lane=main reportPath=" + wantReportPath + " reportSha256=" + wantReportSHA256 + " recordExpectedReportSha256=" + wantReportSHA256 + " defaultReportPath=" + wantReportPath + " reportPresent=true valid=true recordReady=true recordBlocked=false requiresValidation=false requiresRepair=false requiresMainEscalation=false allowedStatuses=5 allowedOutputPaths=1 stopConditions=1 adapterCandidates=0 repairHints=0 recordBlockedHints=0 escalateHints=0 outcomes=1 nextActions=2 reviewRequiredActions=2 currentAction=" + wantRecord + " reportStatus=succeeded adapterId=text-cli-adapter actualBudget=runtimeSeconds=20,diskMB=32,requests=1 outputRefs=1 evidenceRefs=0 boundaryHits=0 hasEscalation=false hasSummary=true",
 		"gate adapter report validation summary boundary：validation is read-only and must return valid=true before evidence record",
 		"gate adapter report sidecar：kind=adapter-execution-report adapterId=text-cli-adapter action=debug status=succeeded gateEventId=" + applied.EventID + " actualBudget=runtimeSeconds=20,diskMB=32,requests=1",
 		"gate adapter report sidecar outputRefs：workspace/main/debug/session-1/result.json",
@@ -9362,14 +9369,20 @@ func TestRunGateAdapterReportTextOutputsNextActions(t *testing.T) {
   "summary": "Adapter reported boundary hit without marker"
 }`)
 	invalidReportPath := "workspace/main/debug/session-1/adapter-invalid.json"
+	invalidReportData, err := os.ReadFile(filepath.Join(caseRoot, filepath.FromSlash(invalidReportPath)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalidReportSum := sha256.Sum256(invalidReportData)
+	wantInvalidReportSHA256 := hex.EncodeToString(invalidReportSum[:])
 	wantInvalidValidate := "/rekit gate -Pack _template -GateEventId " + applied.EventID + " -ValidateExecutionReport -ExecutionReportPath " + invalidReportPath + " -Format json"
 	out.Reset()
 	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "_template", "-ValidateExecutionReport", "-GateEventId", applied.EventID, "-ExecutionReportPath", invalidReportPath, "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
-		"gate adapter report validation：valid=false gateEventId=" + applied.EventID + " reportPath=" + invalidReportPath + " mutation=false applied=false",
-		"gate adapter report validation summary：state=repair-adapter-report gateEventId=" + applied.EventID + " action=debug lane=main reportPath=" + invalidReportPath + " defaultReportPath=" + wantReportPath + " reportPresent=true valid=false recordReady=false recordBlocked=true requiresValidation=false requiresRepair=true requiresMainEscalation=false allowedStatuses=5 allowedOutputPaths=1 stopConditions=1 adapterCandidates=0 repairHints=1 recordBlockedHints=1 escalateHints=0 outcomes=1 nextActions=2 reviewRequiredActions=2 currentAction=add-boundary-marker reportStatus=boundary-hit adapterId=text-cli-adapter actualBudget=runtimeSeconds=20,diskMB=32,requests=1 outputRefs=1 evidenceRefs=0 boundaryHits=0 hasEscalation=false hasSummary=true failureCode=boundary-marker-missing failureStage=boundary",
+		"gate adapter report validation：valid=false gateEventId=" + applied.EventID + " reportPath=" + invalidReportPath + " reportSha256=" + wantInvalidReportSHA256 + " recordExpectedReportSha256= mutation=false applied=false",
+		"gate adapter report validation summary：state=repair-adapter-report gateEventId=" + applied.EventID + " action=debug lane=main reportPath=" + invalidReportPath + " reportSha256=" + wantInvalidReportSHA256 + " recordExpectedReportSha256= defaultReportPath=" + wantReportPath + " reportPresent=true valid=false recordReady=false recordBlocked=true requiresValidation=false requiresRepair=true requiresMainEscalation=false allowedStatuses=5 allowedOutputPaths=1 stopConditions=1 adapterCandidates=0 repairHints=1 recordBlockedHints=1 escalateHints=0 outcomes=1 nextActions=2 reviewRequiredActions=2 currentAction=add-boundary-marker reportStatus=boundary-hit adapterId=text-cli-adapter actualBudget=runtimeSeconds=20,diskMB=32,requests=1 outputRefs=1 evidenceRefs=0 boundaryHits=0 hasEscalation=false hasSummary=true failureCode=boundary-marker-missing failureStage=boundary",
 		"gate adapter report validation summary boundary：record command writes bounded observation evidence only; /rekit does not execute the heavy tool",
 		"gate adapter report validation failure：code=boundary-marker-missing stage=boundary",
 		"gate adapter report repair hint：action=add-boundary-marker recordBlocked=true rerunValidation=true code=boundary-marker-missing stage=boundary fields=boundaryHits,escalation allowedValues= allowedOutputPaths= allowedStopConditions=timeout maxBytes=0 escalateToMain=false detail=boundary-hit or escalated status requires authorized boundaryHits or a bounded escalation",
@@ -9504,8 +9517,8 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		"status case mission authorized gate：authorized debug",
 		"status case mission authorized gate handoff：eventId=" + authorizedEventID + " lane=main subject=authorized debug action=debug target=target-alpha status=authorized-gate",
 		"auth=preauthorized profile=prof-main-debug reportContract=" + wantStatusContract + " defaultReportPath=workspace/main/debug/session-1/adapter-report.json reportPath=workspace/main/debug/session-1/adapter-report.json handoff=/rekit handoff main",
-		"status case mission authorized gate report summary：eventId=" + authorizedEventID + " state=needs-adapter-report-validation reportPath=workspace/main/debug/session-1/adapter-report.json defaultReportPath=workspace/main/debug/session-1/adapter-report.json reportPresent=false valid=false recordReady=false recordBlocked=true requiresValidation=true",
-		"status case mission authorized gate live validation：eventId=" + authorizedEventID + " reportFileName=adapter-report.json caseRelativeReportPath=workspace/main/debug/session-1/adapter-report.json adapterCandidates=0 selectedAdapter= sidecarAdapter=<adapter-id> templateSha256=",
+		"status case mission authorized gate report summary：eventId=" + authorizedEventID + " state=needs-adapter-report-validation reportPath=workspace/main/debug/session-1/adapter-report.json reportSha256= recordExpectedReportSha256= defaultReportPath=workspace/main/debug/session-1/adapter-report.json reportPresent=false valid=false recordReady=false recordBlocked=true requiresValidation=true",
+		"status case mission authorized gate live validation：eventId=" + authorizedEventID + " reportFileName=adapter-report.json caseRelativeReportPath=workspace/main/debug/session-1/adapter-report.json reportSha256= recordExpectedReportSha256= adapterCandidates=0 selectedAdapter= sidecarAdapter=<adapter-id> templateSha256=",
 		"scaffold=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -ScaffoldExecutionReport -ExecutionReportPath adapter-report.json -Format json scaffoldApply=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -ScaffoldExecutionReport -ExecutionReportPath adapter-report.json -ExpectedExecutionReportSha256",
 		"caseScaffold=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -ScaffoldExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Format json caseScaffoldApply=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -ScaffoldExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -ExpectedExecutionReportSha256",
 		"status case mission authorized gate draft handoff：eventId=" + authorizedEventID + " draft=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -DraftExecutionReport -ExecutionReportPath adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -Format json draftApply=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -DraftExecutionReport -ExecutionReportPath adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -ExpectedExecutionReportSha256 <reportSha256-from-draft-preview> -Apply -Format json draftSha256=<reportSha256-from-draft-preview> caseDraft=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -DraftExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -Format json caseDraftApply=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -DraftExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -ExpectedExecutionReportSha256 <reportSha256-from-draft-preview> -Apply -Format json",
@@ -10525,24 +10538,27 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 		t.Fatal(err)
 	}
 	var validation struct {
-		Kind       string `json:"kind"`
-		CaseRoot   string `json:"caseRoot"`
-		Pack       string `json:"pack"`
-		Valid      bool   `json:"valid"`
-		IsMutation bool   `json:"isMutation"`
-		Applied    bool   `json:"applied"`
-		Error      string `json:"error"`
-		ReportPath string `json:"reportPath"`
-		Report     *struct {
+		Kind                       string `json:"kind"`
+		CaseRoot                   string `json:"caseRoot"`
+		Pack                       string `json:"pack"`
+		Valid                      bool   `json:"valid"`
+		IsMutation                 bool   `json:"isMutation"`
+		Applied                    bool   `json:"applied"`
+		Error                      string `json:"error"`
+		ReportPath                 string `json:"reportPath"`
+		ReportSHA256               string `json:"reportSha256"`
+		RecordExpectedReportSHA256 string `json:"recordExpectedReportSha256"`
+		Report                     *struct {
 			AdapterID string `json:"adapterId"`
 		} `json:"report"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &validation); err != nil {
 		t.Fatalf("nested workspace adapter report validation stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if validation.Kind != "adapter-execution-report-validation" || validation.CaseRoot != caseRoot || validation.Pack != "_template" || !validation.Valid || validation.IsMutation || validation.Applied || validation.Error != "" || validation.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || validation.Report == nil || validation.Report.AdapterID != "nested-cli-adapter" {
+	if validation.Kind != "adapter-execution-report-validation" || validation.CaseRoot != caseRoot || validation.Pack != "_template" || !validation.Valid || validation.IsMutation || validation.Applied || validation.Error != "" || validation.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || validation.ReportSHA256 == "" || validation.RecordExpectedReportSHA256 != validation.ReportSHA256 || validation.Report == nil || validation.Report.AdapterID != "nested-cli-adapter" {
 		t.Fatalf("unexpected nested no-pack workspace adapter report validation: %+v", validation)
 	}
+	wantValidatedCaseRelativeRecord := "/rekit gate -Pack _template -Apply -GateEventId " + applied.EventID + " -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -ExpectedExecutionReportSha256 " + validation.RecordExpectedReportSHA256 + " -Actor <executor-id> -Format json"
 	var validationCommander struct {
 		MissionCommanderAction struct {
 			State            string   `json:"state"`
@@ -10556,10 +10572,10 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	if err := json.Unmarshal(out.Bytes(), &validationCommander); err != nil {
 		t.Fatalf("nested workspace validation commander envelope is not JSON: %v\n%s", err, out.String())
 	}
-	if validationCommander.MissionCommanderAction.State != "ready-to-record-evidence" || validationCommander.MissionCommanderAction.PrimaryCommand != wantCaseRelativeRecord || !containsSubstring(validationCommander.MissionCommanderAction.FollowUpCommands, "/rekit handoff main") || !containsSubstring(validationCommander.MissionCommanderAction.Boundary, "bounded observation evidence") || !containsSubstring(validationCommander.NextSteps, wantCaseRelativeRecord) {
+	if validationCommander.MissionCommanderAction.State != "ready-to-record-evidence" || validationCommander.MissionCommanderAction.PrimaryCommand != wantValidatedCaseRelativeRecord || !containsSubstring(validationCommander.MissionCommanderAction.FollowUpCommands, "/rekit handoff main") || !containsSubstring(validationCommander.MissionCommanderAction.Boundary, "bounded observation evidence") || !containsSubstring(validationCommander.NextSteps, wantValidatedCaseRelativeRecord) {
 		t.Fatalf("nested workspace adapter report validation omitted Mission Commander record handoff: action=%+v next=%+v", validationCommander.MissionCommanderAction, validationCommander.NextSteps)
 	}
-	if len(validationCommander.MissionCommanderNextActions) != 2 || validationCommander.MissionCommanderNextActions[0].Command != wantCaseRelativeRecord || validationCommander.MissionCommanderNextActions[1].Command != "/rekit handoff main" || !cliNextActionBoundaryContains(validationCommander.MissionCommanderNextActions, "replace <executor-id>") {
+	if len(validationCommander.MissionCommanderNextActions) != 2 || validationCommander.MissionCommanderNextActions[0].Command != wantValidatedCaseRelativeRecord || validationCommander.MissionCommanderNextActions[1].Command != "/rekit handoff main" || !cliNextActionBoundaryContains(validationCommander.MissionCommanderNextActions, "replace <executor-id>") {
 		t.Fatalf("nested workspace adapter report validation omitted Mission Commander next actions: %+v", validationCommander.MissionCommanderNextActions)
 	}
 	afterValidation := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
@@ -10754,11 +10770,11 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	for _, expected := range []string{
 		"status：mutation=false mode=case targetProvided=false pack=_template packSource=case-metadata",
 		"status case mission evidence review summary：total=1 readyForReview=1 mainEscalations=0 duplicates=0 outputRefs=1 evidenceRefs=0 boundaryHits=0 hasEscalation=false hasExecutionReport=true hasAdapter=true latestEventId=" + evidence.EventID,
-		"latestReport=workspace/main/debug/session-1/adapter-report.json latestAdapterId=nested-cli-adapter latestAdapterStatus=succeeded outcomes=1 followThrough=ready-for-evidence-review",
+		"latestReport=workspace/main/debug/session-1/adapter-report.json latestReportSha256=" + statusEvidence.ExecutionReportSHA256 + " latestAdapterId=nested-cli-adapter latestAdapterStatus=succeeded outcomes=1 followThrough=ready-for-evidence-review",
 		"status case mission evidence review summary boundary：no authority/confirmed writes",
 		"status case mission evidence review：eventId=" + evidence.EventID + " gateEventId=" + applied.EventID + " status=succeeded action=debug",
 		"review=review outputRefs/evidenceRefs for gateEventId " + applied.EventID + " handoff=/rekit handoff main commanderState=ready-for-evidence-review commanderPrimary=/rekit handoff main",
-		"status case mission evidence report：eventId=" + evidence.EventID + " path=workspace/main/debug/session-1/adapter-report.json",
+		"status case mission evidence report：eventId=" + evidence.EventID + " path=workspace/main/debug/session-1/adapter-report.json sha256=" + statusEvidence.ExecutionReportSHA256,
 		"status case mission evidence budget：eventId=" + evidence.EventID + " runtimeSeconds=20 diskMB=32 requests=1",
 		"status case mission evidence adapter：eventId=" + evidence.EventID + " adapterId=nested-cli-adapter status=succeeded",
 		"status case mission evidence output ref：eventId=" + evidence.EventID + " ref=workspace/main/debug/session-1/result.json",
@@ -10790,9 +10806,9 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	}
 	for _, expected := range []string{
 		"overview execution evidence review summary：total=1 readyForReview=1 mainEscalations=0 duplicates=0 outputRefs=1 evidenceRefs=0 boundaryHits=0 hasEscalation=false hasExecutionReport=true hasAdapter=true latestEventId=" + evidence.EventID,
-		"latestReport=workspace/main/debug/session-1/adapter-report.json latestAdapterId=nested-cli-adapter latestAdapterStatus=succeeded outcomes=1 followThrough=ready-for-evidence-review",
+		"latestReport=workspace/main/debug/session-1/adapter-report.json latestReportSha256=" + statusEvidence.ExecutionReportSHA256 + " latestAdapterId=nested-cli-adapter latestAdapterStatus=succeeded outcomes=1 followThrough=ready-for-evidence-review",
 		"overview execution evidence review summary boundary：no authority/confirmed writes",
-		"overview execution evidence report：eventId=" + evidence.EventID + " path=workspace/main/debug/session-1/adapter-report.json",
+		"overview execution evidence report：eventId=" + evidence.EventID + " path=workspace/main/debug/session-1/adapter-report.json sha256=" + statusEvidence.ExecutionReportSHA256,
 		"overview execution evidence budget：eventId=" + evidence.EventID + " runtimeSeconds=20 diskMB=32 requests=1",
 		"overview execution evidence adapter：eventId=" + evidence.EventID + " adapterId=nested-cli-adapter status=succeeded",
 	} {
@@ -10837,11 +10853,11 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	for _, expected := range []string{
 		"would write workstream handoff: main",
 		"handoff execution evidence review summary：total=1 readyForReview=1 mainEscalations=0 duplicates=0 outputRefs=1 evidenceRefs=0 boundaryHits=0 hasEscalation=false hasExecutionReport=true hasAdapter=true latestEventId=" + evidence.EventID,
-		"latestReport=workspace/main/debug/session-1/adapter-report.json latestAdapterId=nested-cli-adapter latestAdapterStatus=succeeded outcomes=1 followThrough=ready-for-evidence-review",
+		"latestReport=workspace/main/debug/session-1/adapter-report.json latestReportSha256=" + handoffEvidence.ExecutionReportSHA256 + " latestAdapterId=nested-cli-adapter latestAdapterStatus=succeeded outcomes=1 followThrough=ready-for-evidence-review",
 		"handoff execution evidence review summary boundary：no authority/confirmed writes",
 		"handoff execution evidence review：eventId=" + evidence.EventID + " gateEventId=" + applied.EventID + " status=succeeded action=debug",
 		"review=review outputRefs/evidenceRefs for gateEventId " + applied.EventID + " handoff=/rekit handoff main commanderState=ready-for-evidence-review commanderPrimary=/rekit handoff main",
-		"handoff execution evidence report：eventId=" + evidence.EventID + " path=workspace/main/debug/session-1/adapter-report.json",
+		"handoff execution evidence report：eventId=" + evidence.EventID + " path=workspace/main/debug/session-1/adapter-report.json sha256=" + handoffEvidence.ExecutionReportSHA256,
 		"handoff execution evidence budget：eventId=" + evidence.EventID + " runtimeSeconds=20 diskMB=32 requests=1",
 		"handoff execution evidence adapter：eventId=" + evidence.EventID + " adapterId=nested-cli-adapter status=succeeded",
 		"handoff execution evidence output ref：eventId=" + evidence.EventID + " ref=workspace/main/debug/session-1/result.json",
@@ -10874,7 +10890,7 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	assertWriteKind(t, handoffApply.Writes, "handoff", "write-lane-handoff")
 	assertWriteKind(t, handoffApply.Writes, "handoff", "write-latest-lane-handoff")
 	handoffApplyEvidence := handoffApply.ExecutionEvidenceReview[0]
-	if handoffApplyEvidence.EventID != evidence.EventID || handoffApplyEvidence.GateEventID != applied.EventID || handoffApplyEvidence.Status != "succeeded" || handoffApplyEvidence.Action != "debug" || !containsSubstring(handoffApplyEvidence.OutputRefs, "workspace/main/debug/session-1/result.json") || handoffApplyEvidence.MissionCommanderAction.State != "ready-for-evidence-review" || handoffApplyEvidence.MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || handoffApplyEvidence.FollowThrough.State != "ready-for-evidence-review" || !cliExecutionEvidenceFollowThroughContains(handoffApplyEvidence.FollowThrough, "recorded-evidence-review", "reviewed outputRefs/evidenceRefs") {
+	if handoffApplyEvidence.EventID != evidence.EventID || handoffApplyEvidence.GateEventID != applied.EventID || handoffApplyEvidence.Status != "succeeded" || handoffApplyEvidence.Action != "debug" || handoffApplyEvidence.ExecutionReportSHA256 == "" || !containsSubstring(handoffApplyEvidence.OutputRefs, "workspace/main/debug/session-1/result.json") || handoffApplyEvidence.MissionCommanderAction.State != "ready-for-evidence-review" || handoffApplyEvidence.MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || handoffApplyEvidence.FollowThrough.State != "ready-for-evidence-review" || !cliExecutionEvidenceFollowThroughContains(handoffApplyEvidence.FollowThrough, "recorded-evidence-review", "reviewed outputRefs/evidenceRefs") {
 		t.Fatalf("no-pack handoff apply omitted recorded adapter evidence review handoff: %+v", handoffApplyEvidence)
 	}
 	assertNestedAdapterExecutionEvidenceReviewSummary(t, "no-pack handoff apply JSON", handoffApply.ExecutionEvidenceReviewSummary, evidence.EventID, applied.EventID)
@@ -10889,13 +10905,13 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	for _, expected := range []string{
 		"## execution evidence review",
 		"summary: total=1 readyForReview=1 mainEscalations=0 duplicates=0 outputRefs=1 evidenceRefs=0 boundaryHits=0 latestEventId=" + evidence.EventID,
-		"summary report: path=workspace/main/debug/session-1/adapter-report.json adapterId=nested-cli-adapter adapterStatus=succeeded",
+		"summary report: path=workspace/main/debug/session-1/adapter-report.json sha256=" + handoffApplyEvidence.ExecutionReportSHA256 + " adapterId=nested-cli-adapter adapterStatus=succeeded",
 		"summary follow-through: state=ready-for-evidence-review outcomes=1",
 		"summary boundary: no authority/confirmed writes",
 		"gateEventId=" + applied.EventID,
 		"action=debug",
 		"outputRefs=workspace/main/debug/session-1/result.json",
-		"execution report: workspace/main/debug/session-1/adapter-report.json",
+		"execution report: workspace/main/debug/session-1/adapter-report.json sha256=" + handoffApplyEvidence.ExecutionReportSHA256,
 		"actual budget: runtimeSeconds=20 diskMB=32 requests=1",
 		"adapter report: adapterId=nested-cli-adapter status=succeeded",
 		"review command: `review outputRefs/evidenceRefs for gateEventId " + applied.EventID + "`",
@@ -10919,6 +10935,7 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 		"review command: `review outputRefs/evidenceRefs for gateEventId " + applied.EventID + "`",
 		"handoff command: `/rekit handoff main`",
 		"commander primary: `/rekit handoff main`",
+		"execution report: workspace/main/debug/session-1/adapter-report.json sha256=" + handoffApplyEvidence.ExecutionReportSHA256,
 		"evidence: workspace/main/debug/session-1/result.json",
 	} {
 		if !strings.Contains(string(resume), expected) {
@@ -10997,11 +11014,11 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 		"已选择工作线：main",
 		"工作区：workspace/main",
 		"continue execution evidence review summary：total=1 readyForReview=1 mainEscalations=0 duplicates=0 outputRefs=1 evidenceRefs=0 boundaryHits=0 hasEscalation=false hasExecutionReport=true hasAdapter=true latestEventId=" + evidence.EventID,
-		"latestReport=workspace/main/debug/session-1/adapter-report.json latestAdapterId=nested-cli-adapter latestAdapterStatus=succeeded outcomes=1 followThrough=ready-for-evidence-review",
+		"latestReport=workspace/main/debug/session-1/adapter-report.json latestReportSha256=" + continueEvidence.ExecutionReportSHA256 + " latestAdapterId=nested-cli-adapter latestAdapterStatus=succeeded outcomes=1 followThrough=ready-for-evidence-review",
 		"continue execution evidence review summary boundary：no authority/confirmed writes",
 		"continue execution evidence review：eventId=" + evidence.EventID + " gateEventId=" + applied.EventID + " status=succeeded action=debug",
 		"review=review outputRefs/evidenceRefs for gateEventId " + applied.EventID + " handoff=/rekit handoff main commanderState=ready-for-evidence-review commanderPrimary=/rekit handoff main",
-		"continue execution evidence report：eventId=" + evidence.EventID + " path=workspace/main/debug/session-1/adapter-report.json",
+		"continue execution evidence report：eventId=" + evidence.EventID + " path=workspace/main/debug/session-1/adapter-report.json sha256=" + continueEvidence.ExecutionReportSHA256,
 		"continue execution evidence budget：eventId=" + evidence.EventID + " runtimeSeconds=20 diskMB=32 requests=1",
 		"continue execution evidence adapter：eventId=" + evidence.EventID + " adapterId=nested-cli-adapter status=succeeded",
 		"continue execution evidence output ref：eventId=" + evidence.EventID + " ref=workspace/main/debug/session-1/result.json",
@@ -11050,7 +11067,7 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	assertWriteKind(t, continueApply.Writes, "run-status", "write")
 	assertWriteKind(t, continueApply.Writes, "run-digest", "write")
 	continueApplyEvidence := continueApply.ExecutionEvidenceReview[0]
-	if continueApplyEvidence.EventID != evidence.EventID || continueApplyEvidence.GateEventID != applied.EventID || continueApplyEvidence.Status != "succeeded" || continueApplyEvidence.Action != "debug" || !containsSubstring(continueApplyEvidence.OutputRefs, "workspace/main/debug/session-1/result.json") || continueApplyEvidence.MissionCommanderAction.State != "ready-for-evidence-review" || continueApplyEvidence.MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || continueApplyEvidence.FollowThrough.State != "ready-for-evidence-review" || !cliExecutionEvidenceFollowThroughContains(continueApplyEvidence.FollowThrough, "recorded-evidence-review", "reviewed outputRefs/evidenceRefs") {
+	if continueApplyEvidence.EventID != evidence.EventID || continueApplyEvidence.GateEventID != applied.EventID || continueApplyEvidence.Status != "succeeded" || continueApplyEvidence.Action != "debug" || continueApplyEvidence.ExecutionReportSHA256 == "" || !containsSubstring(continueApplyEvidence.OutputRefs, "workspace/main/debug/session-1/result.json") || continueApplyEvidence.MissionCommanderAction.State != "ready-for-evidence-review" || continueApplyEvidence.MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || continueApplyEvidence.FollowThrough.State != "ready-for-evidence-review" || !cliExecutionEvidenceFollowThroughContains(continueApplyEvidence.FollowThrough, "recorded-evidence-review", "reviewed outputRefs/evidenceRefs") {
 		t.Fatalf("no-pack continue apply omitted recorded adapter evidence review handoff: %+v", continueApplyEvidence)
 	}
 	assertNestedAdapterExecutionEvidenceReviewSummary(t, "no-pack continue apply JSON", continueApply.ExecutionEvidenceReviewSummary, evidence.EventID, applied.EventID)
@@ -11082,14 +11099,14 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	for _, expected := range []string{
 		"## Execution evidence review",
 		"summary: total=1 readyForReview=1 mainEscalations=0 duplicates=0 outputRefs=1 evidenceRefs=0 boundaryHits=0 latestEventId=" + evidence.EventID,
-		"summary report: path=workspace/main/debug/session-1/adapter-report.json adapterId=nested-cli-adapter adapterStatus=succeeded",
+		"summary report: path=workspace/main/debug/session-1/adapter-report.json sha256=" + continueStatus.ExecutionEvidenceReview[0].ExecutionReportSHA256 + " adapterId=nested-cli-adapter adapterStatus=succeeded",
 		"summary follow-through: state=ready-for-evidence-review outcomes=1",
 		"summary boundary: no authority/confirmed writes",
 		"gateEventId=" + applied.EventID,
 		"action=debug",
 		"outputRefs:",
 		"workspace/main/debug/session-1/result.json",
-		"execution report: workspace/main/debug/session-1/adapter-report.json",
+		"execution report: workspace/main/debug/session-1/adapter-report.json sha256=" + continueStatus.ExecutionEvidenceReview[0].ExecutionReportSHA256,
 		"actual budget: runtimeSeconds=20 diskMB=32 requests=1",
 		"adapter report: adapterId=nested-cli-adapter status=succeeded",
 		"review command: `review outputRefs/evidenceRefs for gateEventId " + applied.EventID + "`",
@@ -11106,7 +11123,7 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(resumeAfterContinue), "summary: total=1 readyForReview=1 mainEscalations=0") || !strings.Contains(string(resumeAfterContinue), "summary report: path=workspace/main/debug/session-1/adapter-report.json adapterId=nested-cli-adapter adapterStatus=succeeded") || !strings.Contains(string(resumeAfterContinue), "gateEventId="+applied.EventID) || !strings.Contains(string(resumeAfterContinue), "evidence: workspace/main/debug/session-1/result.json") || !strings.Contains(string(resumeAfterContinue), "execution report: workspace/main/debug/session-1/adapter-report.json") || !strings.Contains(string(resumeAfterContinue), "adapter report: adapterId=nested-cli-adapter status=succeeded") {
+	if !strings.Contains(string(resumeAfterContinue), "summary: total=1 readyForReview=1 mainEscalations=0") || !strings.Contains(string(resumeAfterContinue), "summary report: path=workspace/main/debug/session-1/adapter-report.json sha256="+continueStatus.ExecutionEvidenceReview[0].ExecutionReportSHA256+" adapterId=nested-cli-adapter adapterStatus=succeeded") || !strings.Contains(string(resumeAfterContinue), "gateEventId="+applied.EventID) || !strings.Contains(string(resumeAfterContinue), "evidence: workspace/main/debug/session-1/result.json") || !strings.Contains(string(resumeAfterContinue), "execution report: workspace/main/debug/session-1/adapter-report.json sha256="+continueStatus.ExecutionEvidenceReview[0].ExecutionReportSHA256) || !strings.Contains(string(resumeAfterContinue), "adapter report: adapterId=nested-cli-adapter status=succeeded") {
 		t.Fatalf("no-pack continue apply refreshed RESUME without evidence review handoff:\n%s", string(resumeAfterContinue))
 	}
 	checkpointAfterContinueBytes, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "lanes", "main", "checkpoints", "latest.json"))
@@ -11143,10 +11160,10 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 		"已选择工作线：main",
 		"工作区：workspace/main",
 		"continue execution evidence review summary：total=1 readyForReview=1 mainEscalations=0 duplicates=0 outputRefs=1 evidenceRefs=0 boundaryHits=0 hasEscalation=false hasExecutionReport=true hasAdapter=true latestEventId=" + evidence.EventID,
-		"latestReport=workspace/main/debug/session-1/adapter-report.json latestAdapterId=nested-cli-adapter latestAdapterStatus=succeeded outcomes=1 followThrough=ready-for-evidence-review",
+		"latestReport=workspace/main/debug/session-1/adapter-report.json latestReportSha256=" + continueStatus.ExecutionEvidenceReview[0].ExecutionReportSHA256 + " latestAdapterId=nested-cli-adapter latestAdapterStatus=succeeded outcomes=1 followThrough=ready-for-evidence-review",
 		"continue execution evidence review summary boundary：no authority/confirmed writes",
 		"continue execution evidence review：eventId=" + evidence.EventID + " gateEventId=" + applied.EventID + " status=succeeded action=debug",
-		"continue execution evidence report：eventId=" + evidence.EventID + " path=workspace/main/debug/session-1/adapter-report.json",
+		"continue execution evidence report：eventId=" + evidence.EventID + " path=workspace/main/debug/session-1/adapter-report.json sha256=" + continueStatus.ExecutionEvidenceReview[0].ExecutionReportSHA256,
 		"continue execution evidence budget：eventId=" + evidence.EventID + " runtimeSeconds=20 diskMB=32 requests=1",
 		"continue execution evidence adapter：eventId=" + evidence.EventID + " adapterId=nested-cli-adapter status=succeeded",
 		"continue execution evidence output ref：eventId=" + evidence.EventID + " ref=workspace/main/debug/session-1/result.json",
@@ -12671,43 +12688,44 @@ type reviewerWritebackSummaryCLIItem struct {
 }
 
 type executionEvidenceReviewSummarySnapshot struct {
-	Total                     int                           `json:"total"`
-	ReadyForReviewCount       int                           `json:"readyForReviewCount"`
-	MainEscalationCount       int                           `json:"mainEscalationCount"`
-	DuplicateCount            int                           `json:"duplicateCount"`
-	OutputRefCount            int                           `json:"outputRefCount"`
-	EvidenceRefCount          int                           `json:"evidenceRefCount"`
-	BoundaryHitCount          int                           `json:"boundaryHitCount"`
-	HasEscalation             bool                          `json:"hasEscalation"`
-	HasExecutionReport        bool                          `json:"hasExecutionReport"`
-	HasAdapter                bool                          `json:"hasAdapter"`
-	LatestEventID             string                        `json:"latestEventId"`
-	LatestGateEventID         string                        `json:"latestGateEventId"`
-	LatestStatus              string                        `json:"latestStatus"`
-	LatestAction              string                        `json:"latestAction"`
-	LatestTarget              string                        `json:"latestTarget"`
-	LatestReviewCommand       string                        `json:"latestReviewCommand"`
-	LatestHandoffCommand      string                        `json:"latestHandoffCommand"`
-	LatestCommanderState      string                        `json:"latestCommanderState"`
-	LatestCommanderPrimary    string                        `json:"latestCommanderPrimary"`
-	LatestExecutionReportPath string                        `json:"latestExecutionReportPath"`
-	LatestAdapterID           string                        `json:"latestAdapterId"`
-	LatestAdapterStatus       string                        `json:"latestAdapterStatus"`
-	LatestAdapterContext      *adapterToolCandidateSnapshot `json:"latestAdapterContext"`
-	LatestBoundaryHits        []string                      `json:"latestBoundaryHits"`
-	LatestEscalation          string                        `json:"latestEscalation"`
-	OutcomeCount              int                           `json:"outcomeCount"`
-	FollowThroughState        string                        `json:"followThroughState"`
-	ActionQueueSummary        string                        `json:"actionQueueSummary"`
-	CurrentAction             string                        `json:"currentAction"`
-	NextActionCount           int                           `json:"nextActionCount"`
-	ReviewRequiredActionCount int                           `json:"reviewRequiredActionCount"`
-	Boundary                  []string                      `json:"boundary"`
+	Total                       int                           `json:"total"`
+	ReadyForReviewCount         int                           `json:"readyForReviewCount"`
+	MainEscalationCount         int                           `json:"mainEscalationCount"`
+	DuplicateCount              int                           `json:"duplicateCount"`
+	OutputRefCount              int                           `json:"outputRefCount"`
+	EvidenceRefCount            int                           `json:"evidenceRefCount"`
+	BoundaryHitCount            int                           `json:"boundaryHitCount"`
+	HasEscalation               bool                          `json:"hasEscalation"`
+	HasExecutionReport          bool                          `json:"hasExecutionReport"`
+	HasAdapter                  bool                          `json:"hasAdapter"`
+	LatestEventID               string                        `json:"latestEventId"`
+	LatestGateEventID           string                        `json:"latestGateEventId"`
+	LatestStatus                string                        `json:"latestStatus"`
+	LatestAction                string                        `json:"latestAction"`
+	LatestTarget                string                        `json:"latestTarget"`
+	LatestReviewCommand         string                        `json:"latestReviewCommand"`
+	LatestHandoffCommand        string                        `json:"latestHandoffCommand"`
+	LatestCommanderState        string                        `json:"latestCommanderState"`
+	LatestCommanderPrimary      string                        `json:"latestCommanderPrimary"`
+	LatestExecutionReportPath   string                        `json:"latestExecutionReportPath"`
+	LatestExecutionReportSHA256 string                        `json:"latestExecutionReportSha256"`
+	LatestAdapterID             string                        `json:"latestAdapterId"`
+	LatestAdapterStatus         string                        `json:"latestAdapterStatus"`
+	LatestAdapterContext        *adapterToolCandidateSnapshot `json:"latestAdapterContext"`
+	LatestBoundaryHits          []string                      `json:"latestBoundaryHits"`
+	LatestEscalation            string                        `json:"latestEscalation"`
+	OutcomeCount                int                           `json:"outcomeCount"`
+	FollowThroughState          string                        `json:"followThroughState"`
+	ActionQueueSummary          string                        `json:"actionQueueSummary"`
+	CurrentAction               string                        `json:"currentAction"`
+	NextActionCount             int                           `json:"nextActionCount"`
+	ReviewRequiredActionCount   int                           `json:"reviewRequiredActionCount"`
+	Boundary                    []string                      `json:"boundary"`
 }
 
 func assertNestedAdapterExecutionEvidenceReviewSummary(t *testing.T, label string, summary executionEvidenceReviewSummarySnapshot, eventID, gateEventID string) {
 	t.Helper()
-	if summary.Total != 1 || summary.ReadyForReviewCount != 1 || summary.MainEscalationCount != 0 || summary.DuplicateCount != 0 || summary.OutputRefCount != 1 || summary.EvidenceRefCount != 0 || summary.BoundaryHitCount != 0 || summary.HasEscalation || !summary.HasExecutionReport || !summary.HasAdapter || summary.LatestEventID != eventID || summary.LatestGateEventID != gateEventID || summary.LatestStatus != "succeeded" || summary.LatestAction != "debug" || summary.LatestTarget != "target-alpha" || summary.LatestReviewCommand != "review outputRefs/evidenceRefs for gateEventId "+gateEventID || summary.LatestHandoffCommand != "/rekit handoff main" || summary.LatestCommanderState != "ready-for-evidence-review" || summary.LatestCommanderPrimary != "/rekit handoff main" || summary.LatestExecutionReportPath != "workspace/main/debug/session-1/adapter-report.json" || summary.LatestAdapterID != "nested-cli-adapter" || summary.LatestAdapterStatus != "succeeded" || len(summary.LatestBoundaryHits) != 0 || summary.LatestEscalation != "" || summary.OutcomeCount != 1 || summary.FollowThroughState != "ready-for-evidence-review" || summary.CurrentAction != "/rekit handoff main" || summary.NextActionCount == 0 || summary.ReviewRequiredActionCount == 0 || !strings.Contains(summary.ActionQueueSummary, "current=/rekit handoff main") || !containsSubstring(summary.Boundary, "summary is read-only") || !containsSubstring(summary.Boundary, "no authority/confirmed") {
+	if summary.Total != 1 || summary.ReadyForReviewCount != 1 || summary.MainEscalationCount != 0 || summary.DuplicateCount != 0 || summary.OutputRefCount != 1 || summary.EvidenceRefCount != 0 || summary.BoundaryHitCount != 0 || summary.HasEscalation || !summary.HasExecutionReport || !summary.HasAdapter || summary.LatestEventID != eventID || summary.LatestGateEventID != gateEventID || summary.LatestStatus != "succeeded" || summary.LatestAction != "debug" || summary.LatestTarget != "target-alpha" || summary.LatestReviewCommand != "review outputRefs/evidenceRefs for gateEventId "+gateEventID || summary.LatestHandoffCommand != "/rekit handoff main" || summary.LatestCommanderState != "ready-for-evidence-review" || summary.LatestCommanderPrimary != "/rekit handoff main" || summary.LatestExecutionReportPath != "workspace/main/debug/session-1/adapter-report.json" || summary.LatestExecutionReportSHA256 == "" || summary.LatestAdapterID != "nested-cli-adapter" || summary.LatestAdapterStatus != "succeeded" || len(summary.LatestBoundaryHits) != 0 || summary.LatestEscalation != "" || summary.OutcomeCount != 1 || summary.FollowThroughState != "ready-for-evidence-review" || summary.CurrentAction != "/rekit handoff main" || summary.NextActionCount == 0 || summary.ReviewRequiredActionCount == 0 || !strings.Contains(summary.ActionQueueSummary, "current=/rekit handoff main") || !containsSubstring(summary.Boundary, "summary is read-only") || !containsSubstring(summary.Boundary, "no authority/confirmed") {
 		t.Fatalf("%s missing nested adapter execution evidence review summary: %+v", label, summary)
 	}
 }
@@ -12721,7 +12739,7 @@ func assertEscalatedAdapterExecutionEvidenceReviewSummary(t *testing.T, label st
 
 func assertBoundaryHitAdapterExecutionEvidenceReviewSummary(t *testing.T, label string, summary executionEvidenceReviewSummarySnapshot, eventID, gateEventID string) {
 	t.Helper()
-	if summary.Total != 1 || summary.ReadyForReviewCount != 0 || summary.MainEscalationCount != 1 || summary.DuplicateCount != 0 || summary.OutputRefCount != 1 || summary.EvidenceRefCount != 0 || summary.BoundaryHitCount != 1 || summary.HasEscalation || !summary.HasExecutionReport || !summary.HasAdapter || summary.LatestEventID != eventID || summary.LatestGateEventID != gateEventID || summary.LatestStatus != "boundary-hit" || summary.LatestAction != "debug" || summary.LatestTarget != "target-alpha" || summary.LatestExecutionReportPath != "workspace/main/debug/session-1/adapter-report.json" || summary.LatestAdapterID != "boundary-cli-adapter" || summary.LatestAdapterStatus != "boundary-hit" || !containsSubstring(summary.LatestBoundaryHits, "timeout") || summary.OutcomeCount != 1 || summary.FollowThroughState != "needs-main-escalation" || summary.CurrentAction != "/rekit handoff main" || summary.NextActionCount != 2 || summary.ReviewRequiredActionCount != 2 || !strings.Contains(summary.ActionQueueSummary, "total=2") || !containsSubstring(summary.Boundary, "summary is read-only") || !containsSubstring(summary.Boundary, "no authority/confirmed") {
+	if summary.Total != 1 || summary.ReadyForReviewCount != 0 || summary.MainEscalationCount != 1 || summary.DuplicateCount != 0 || summary.OutputRefCount != 1 || summary.EvidenceRefCount != 0 || summary.BoundaryHitCount != 1 || summary.HasEscalation || !summary.HasExecutionReport || !summary.HasAdapter || summary.LatestEventID != eventID || summary.LatestGateEventID != gateEventID || summary.LatestStatus != "boundary-hit" || summary.LatestAction != "debug" || summary.LatestTarget != "target-alpha" || summary.LatestExecutionReportPath != "workspace/main/debug/session-1/adapter-report.json" || summary.LatestExecutionReportSHA256 == "" || summary.LatestAdapterID != "boundary-cli-adapter" || summary.LatestAdapterStatus != "boundary-hit" || !containsSubstring(summary.LatestBoundaryHits, "timeout") || summary.OutcomeCount != 1 || summary.FollowThroughState != "needs-main-escalation" || summary.CurrentAction != "/rekit handoff main" || summary.NextActionCount != 2 || summary.ReviewRequiredActionCount != 2 || !strings.Contains(summary.ActionQueueSummary, "total=2") || !containsSubstring(summary.Boundary, "summary is read-only") || !containsSubstring(summary.Boundary, "no authority/confirmed") {
 		t.Fatalf("%s missing boundary-hit adapter execution evidence review summary: %+v", label, summary)
 	}
 }
@@ -12735,6 +12753,7 @@ type executionEvidenceReviewItem struct {
 	OutputRefs             []string                               `json:"outputRefs"`
 	EvidenceRefs           []string                               `json:"evidenceRefs"`
 	ExecutionReportPath    string                                 `json:"executionReportPath"`
+	ExecutionReportSHA256  string                                 `json:"executionReportSha256"`
 	ActualBudget           *executionEvidenceBudgetSnapshot       `json:"actualBudget"`
 	AdapterID              string                                 `json:"adapterId"`
 	AdapterStatus          string                                 `json:"adapterStatus"`

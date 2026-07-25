@@ -937,11 +937,14 @@ func TestValidateAdapterExecutionReportReadOnlyPreflight(t *testing.T) {
 	if validation.Kind != "adapter-execution-report-validation" || validation.IsMutation || validation.Applied || !validation.Valid || validation.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || validation.Report == nil || validation.Report.AdapterID != "unit-adapter" {
 		t.Fatalf("unexpected adapter report validation result: %+v", validation)
 	}
+	if validation.ReportSHA256 == "" || validation.RecordExpectedReportSHA256 != validation.ReportSHA256 {
+		t.Fatalf("valid adapter report validation omitted hash handoff: %+v", validation)
+	}
 	if validation.Contract.Kind != "adapter-execution-report-contract" || validation.Contract.GateEventID != authorized.EventID || validation.Contract.AuthorizedBudget.RuntimeSeconds != 30 {
 		t.Fatalf("validation omitted adapter contract boundaries: %+v", validation.Contract)
 	}
 	commander := validation.MissionCommanderAction
-	wantRecord := "/rekit gate -Pack " + pack + " -Apply -GateEventId " + authorized.EventID + " -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Actor <executor-id> -Format json"
+	wantRecord := "/rekit gate -Pack " + pack + " -Apply -GateEventId " + authorized.EventID + " -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -ExpectedExecutionReportSha256 " + validation.RecordExpectedReportSHA256 + " -Actor <executor-id> -Format json"
 	if commander.State != "ready-to-record-evidence" || commander.PrimaryCommand != wantRecord || !strings.Contains(commander.Prompt, "valid=true") || !gateContainsSubstring(commander.FollowUpCommands, "/rekit handoff main") {
 		t.Fatalf("valid adapter report validation omitted Mission Commander record handoff: %+v", commander)
 	}
@@ -950,7 +953,7 @@ func TestValidateAdapterExecutionReportReadOnlyPreflight(t *testing.T) {
 	}
 	assertGateActionQueue(t, validation.MissionCommanderActionQueue, 2, 2, 0, 2, 1, wantRecord)
 	summary := validation.ReportSummary
-	if summary.State != "ready-to-record-evidence" || summary.GateEventID != authorized.EventID || summary.Action != "debug" || summary.Lane != "main" || summary.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || !summary.ReportPresent || !summary.Valid || !summary.RecordReady || summary.RecordBlocked || summary.RequiresValidation || summary.RequiresRepair || summary.RequiresMainEscalation || summary.ReportStatus != "succeeded" || summary.AdapterID != "unit-adapter" || summary.ActualRuntimeSeconds != 24 || summary.ActualDiskMB != 33 || summary.ActualRequests != 1 || summary.OutputRefCount != 1 || summary.EvidenceRefCount != 1 || summary.BoundaryHitCount != 0 || summary.HasEscalation || !summary.HasSummary || summary.OutcomeCount != 1 || summary.NextActionCount != 2 || summary.ReviewRequiredActionCount != 2 || summary.CurrentAction != wantRecord || summary.ActionQueueSummary != validation.MissionCommanderActionQueue.Summary || !gateContainsSubstring(summary.Boundary, "validation is read-only") {
+	if summary.State != "ready-to-record-evidence" || summary.GateEventID != authorized.EventID || summary.Action != "debug" || summary.Lane != "main" || summary.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || summary.ReportSHA256 != validation.ReportSHA256 || summary.RecordExpectedReportSHA256 != validation.RecordExpectedReportSHA256 || !summary.ReportPresent || !summary.Valid || !summary.RecordReady || summary.RecordBlocked || summary.RequiresValidation || summary.RequiresRepair || summary.RequiresMainEscalation || summary.ReportStatus != "succeeded" || summary.AdapterID != "unit-adapter" || summary.ActualRuntimeSeconds != 24 || summary.ActualDiskMB != 33 || summary.ActualRequests != 1 || summary.OutputRefCount != 1 || summary.EvidenceRefCount != 1 || summary.BoundaryHitCount != 0 || summary.HasEscalation || !summary.HasSummary || summary.OutcomeCount != 1 || summary.NextActionCount != 2 || summary.ReviewRequiredActionCount != 2 || summary.CurrentAction != wantRecord || summary.ActionQueueSummary != validation.MissionCommanderActionQueue.Summary || !gateContainsSubstring(summary.Boundary, "validation is read-only") {
 		t.Fatalf("valid adapter report validation omitted compact summary: %+v", summary)
 	}
 	follow := validation.AuthorizedExecutionFollowThrough
@@ -1481,6 +1484,50 @@ func TestRecordExecutionAcceptsAdapterReportForAuthorizedGate(t *testing.T) {
 	}
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
+}
+
+func TestRecordExecutionRejectsAdapterReportDriftAfterValidation(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixture(t)
+	writePreauthorizedProfile(t, caseRoot)
+	authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reportPath := filepath.Join(caseRoot, "workspace", "main", "debug", "session-1", "adapter-report.json")
+	writeGateText(t, reportPath, `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "unit-adapter",
+  "action": "debug",
+  "status": "succeeded",
+  "gateEventId": "`+authorized.EventID+`",
+  "actualBudget": {"runtimeSeconds": 24, "diskMB": 33, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/result.json"],
+  "summary": "Adapter completed bounded debug run"
+}`)
+	validation, err := ValidateAdapterExecutionReport(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, ExecutionReportPath: reportPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !validation.Valid || validation.RecordExpectedReportSHA256 == "" {
+		t.Fatalf("validation omitted expected report hash: %+v", validation)
+	}
+	writeGateText(t, reportPath, `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "unit-adapter",
+  "action": "debug",
+  "status": "succeeded",
+  "gateEventId": "`+authorized.EventID+`",
+  "actualBudget": {"runtimeSeconds": 25, "diskMB": 33, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/result.json"],
+  "summary": "Adapter sidecar drifted after validation"
+}`)
+	_, err = RecordExecution(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, Actor: "executor-1", ExecutionReportPath: reportPath, ExpectedExecutionReportSHA256: validation.RecordExpectedReportSHA256})
+	if err == nil || !strings.Contains(err.Error(), "adapter execution report sha256 changed after validation") {
+		t.Fatalf("RecordExecution drift error = %v, want sha256 mismatch", err)
+	}
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 }
 
 func TestRecordExecutionAcceptsCwdRelativeAdapterReportForAuthorizedGate(t *testing.T) {

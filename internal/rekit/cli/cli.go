@@ -1768,6 +1768,8 @@ type statusAuthorizedGateLiveValidationHandoff struct {
 	DraftCommand                     string                     `json:"draftCommand,omitempty"`
 	DraftApplyCommand                string                     `json:"draftApplyCommand,omitempty"`
 	DraftReportSHA256                string                     `json:"draftReportSha256,omitempty"`
+	ReportSHA256                     string                     `json:"reportSha256,omitempty"`
+	RecordExpectedReportSHA256       string                     `json:"recordExpectedReportSha256,omitempty"`
 	CaseRelativeValidateCommand      string                     `json:"caseRelativeValidateCommand,omitempty"`
 	CaseRelativeRecordCommand        string                     `json:"caseRelativeRecordCommand,omitempty"`
 	CaseRelativeScaffoldCommand      string                     `json:"caseRelativeScaffoldCommand,omitempty"`
@@ -2307,7 +2309,7 @@ func writeStatusAuthorizedGateHandoffText(out io.Writer, handoff statusAuthorize
 		return err
 	}
 	if summary := handoff.ReportSummary; summary != nil {
-		if _, err := fmt.Fprintf(out, "status case mission authorized gate report summary：eventId=%s state=%s reportPath=%s defaultReportPath=%s reportPresent=%t valid=%t recordReady=%t recordBlocked=%t requiresValidation=%t requiresRepair=%t requiresMainEscalation=%t allowedStatuses=%d allowedOutputPaths=%d authorizedStops=%d adapterCandidates=%d repairHints=%d outcomes=%d nextActions=%d reviewRequired=%d currentAction=%s\n", handoff.EventID, summary.State, summary.ReportPath, summary.DefaultReportPath, summary.ReportPresent, summary.Valid, summary.RecordReady, summary.RecordBlocked, summary.RequiresValidation, summary.RequiresRepair, summary.RequiresMainEscalation, summary.AllowedStatusCount, summary.AllowedOutputPathCount, summary.AuthorizedStopCount, summary.AdapterCandidateCount, summary.RepairHintCount, summary.OutcomeCount, summary.NextActionCount, summary.ReviewRequiredActionCount, summary.CurrentAction); err != nil {
+		if _, err := fmt.Fprintf(out, "status case mission authorized gate report summary：eventId=%s state=%s reportPath=%s reportSha256=%s recordExpectedReportSha256=%s defaultReportPath=%s reportPresent=%t valid=%t recordReady=%t recordBlocked=%t requiresValidation=%t requiresRepair=%t requiresMainEscalation=%t allowedStatuses=%d allowedOutputPaths=%d authorizedStops=%d adapterCandidates=%d repairHints=%d outcomes=%d nextActions=%d reviewRequired=%d currentAction=%s\n", handoff.EventID, summary.State, summary.ReportPath, summary.ReportSHA256, summary.RecordExpectedReportSHA256, summary.DefaultReportPath, summary.ReportPresent, summary.Valid, summary.RecordReady, summary.RecordBlocked, summary.RequiresValidation, summary.RequiresRepair, summary.RequiresMainEscalation, summary.AllowedStatusCount, summary.AllowedOutputPathCount, summary.AuthorizedStopCount, summary.AdapterCandidateCount, summary.RepairHintCount, summary.OutcomeCount, summary.NextActionCount, summary.ReviewRequiredActionCount, summary.CurrentAction); err != nil {
 			return err
 		}
 		for _, boundary := range summary.Boundary {
@@ -2317,7 +2319,7 @@ func writeStatusAuthorizedGateHandoffText(out io.Writer, handoff statusAuthorize
 		}
 	}
 	if live := handoff.LiveValidation; live != nil {
-		if _, err := fmt.Fprintf(out, "status case mission authorized gate live validation：eventId=%s reportFileName=%s caseRelativeReportPath=%s adapterCandidates=%d selectedAdapter=%s sidecarAdapter=%s templateSha256=%s scaffold=%s scaffoldApply=%s validate=%s record=%s caseScaffold=%s caseScaffoldApply=%s caseValidate=%s caseRecord=%s\n", handoff.EventID, live.ReportFileName, live.CaseRelativeReportPath, live.AdapterCandidateCount, live.SelectedAdapterID, live.SidecarTemplateAdapterID, live.SidecarTemplateSHA256, live.ScaffoldCommand, live.ScaffoldApplyCommand, live.ValidateCommand, live.RecordCommand, live.CaseRelativeScaffoldCommand, live.CaseRelativeScaffoldApplyCommand, live.CaseRelativeValidateCommand, live.CaseRelativeRecordCommand); err != nil {
+		if _, err := fmt.Fprintf(out, "status case mission authorized gate live validation：eventId=%s reportFileName=%s caseRelativeReportPath=%s reportSha256=%s recordExpectedReportSha256=%s adapterCandidates=%d selectedAdapter=%s sidecarAdapter=%s templateSha256=%s scaffold=%s scaffoldApply=%s validate=%s record=%s caseScaffold=%s caseScaffoldApply=%s caseValidate=%s caseRecord=%s\n", handoff.EventID, live.ReportFileName, live.CaseRelativeReportPath, live.ReportSHA256, live.RecordExpectedReportSHA256, live.AdapterCandidateCount, live.SelectedAdapterID, live.SidecarTemplateAdapterID, live.SidecarTemplateSHA256, live.ScaffoldCommand, live.ScaffoldApplyCommand, live.ValidateCommand, live.RecordCommand, live.CaseRelativeScaffoldCommand, live.CaseRelativeScaffoldApplyCommand, live.CaseRelativeValidateCommand, live.CaseRelativeRecordCommand); err != nil {
 			return err
 		}
 		if strings.TrimSpace(live.DraftCommand) != "" || strings.TrimSpace(live.CaseRelativeDraftCommand) != "" {
@@ -3289,6 +3291,10 @@ func statusAuthorizedGateHandoffFor(repoRoot, caseRoot, pack string, event map[s
 		handoff.ReportPath = statusFirstText(validation.ReportPath, handoff.ReportPath)
 		handoff.LiveValidationRepairHints = append([]gate.AdapterReportRepairHint{}, validation.RepairHints...)
 		handoff.LiveValidationNextSteps = append([]string{}, validation.NextSteps...)
+		liveValidation.ReportSHA256 = validation.ReportSHA256
+		liveValidation.RecordExpectedReportSHA256 = validation.RecordExpectedReportSHA256
+		liveValidation.RecordCommand = hashGateStatusRecordCommand(liveValidation.RecordCommand, validation.RecordExpectedReportSHA256)
+		liveValidation.CaseRelativeRecordCommand = hashGateStatusRecordCommand(liveValidation.CaseRelativeRecordCommand, validation.RecordExpectedReportSHA256)
 		if validation.AdapterContext != nil && validation.AdapterContext.Selected != nil {
 			selected := cloneGateAdapterToolCandidate(*validation.AdapterContext.Selected)
 			liveValidation.SelectedAdapterID = selected.ID
@@ -3346,6 +3352,22 @@ func cloneGateAdapterToolCandidate(candidate gate.AdapterToolCandidate) gate.Ada
 	candidate.EvidenceGuidance = append([]string{}, candidate.EvidenceGuidance...)
 	candidate.StopConditionHints = append([]string{}, candidate.StopConditionHints...)
 	return candidate
+}
+
+func hashGateStatusRecordCommand(command, reportSHA256 string) string {
+	command = strings.TrimSpace(command)
+	reportSHA256 = strings.TrimSpace(reportSHA256)
+	if command == "" || reportSHA256 == "" || strings.Contains(command, "-ExpectedExecutionReportSha256") {
+		return command
+	}
+	insert := " -ExpectedExecutionReportSha256 " + reportSHA256
+	if strings.Contains(command, " -Actor ") {
+		return strings.Replace(command, " -Actor ", insert+" -Actor ", 1)
+	}
+	if strings.Contains(command, " -Format ") {
+		return strings.Replace(command, " -Format ", insert+" -Format ", 1)
+	}
+	return command + insert
 }
 
 func statusEventMap(event map[string]any, key string) map[string]any {
@@ -4101,7 +4123,7 @@ func writeAuthorizedGateAdapterHandoffText(out io.Writer, prefix string, items [
 			return err
 		}
 		if summary := handoff.ReportSummary; summary != nil {
-			if _, err := fmt.Fprintf(out, "%s authorized gate adapter report summary：eventId=%s state=%s reportPath=%s defaultReportPath=%s reportPresent=%t valid=%t recordReady=%t recordBlocked=%t requiresValidation=%t requiresRepair=%t requiresMainEscalation=%t allowedStatuses=%d allowedOutputPaths=%d authorizedStops=%d adapterCandidates=%d repairHints=%d outcomes=%d nextActions=%d reviewRequired=%d currentAction=%s failureCode=%s failureStage=%s\n", prefix, handoff.EventID, summary.State, summary.ReportPath, summary.DefaultReportPath, summary.ReportPresent, summary.Valid, summary.RecordReady, summary.RecordBlocked, summary.RequiresValidation, summary.RequiresRepair, summary.RequiresMainEscalation, summary.AllowedStatusCount, summary.AllowedOutputPathCount, summary.AuthorizedStopCount, summary.AdapterCandidateCount, summary.RepairHintCount, summary.OutcomeCount, summary.NextActionCount, summary.ReviewRequiredActionCount, summary.CurrentAction, summary.ValidationFailureCode, summary.ValidationFailureStage); err != nil {
+			if _, err := fmt.Fprintf(out, "%s authorized gate adapter report summary：eventId=%s state=%s reportPath=%s reportSha256=%s recordExpectedReportSha256=%s defaultReportPath=%s reportPresent=%t valid=%t recordReady=%t recordBlocked=%t requiresValidation=%t requiresRepair=%t requiresMainEscalation=%t allowedStatuses=%d allowedOutputPaths=%d authorizedStops=%d adapterCandidates=%d repairHints=%d outcomes=%d nextActions=%d reviewRequired=%d currentAction=%s failureCode=%s failureStage=%s\n", prefix, handoff.EventID, summary.State, summary.ReportPath, summary.ReportSHA256, summary.RecordExpectedReportSHA256, summary.DefaultReportPath, summary.ReportPresent, summary.Valid, summary.RecordReady, summary.RecordBlocked, summary.RequiresValidation, summary.RequiresRepair, summary.RequiresMainEscalation, summary.AllowedStatusCount, summary.AllowedOutputPathCount, summary.AuthorizedStopCount, summary.AdapterCandidateCount, summary.RepairHintCount, summary.OutcomeCount, summary.NextActionCount, summary.ReviewRequiredActionCount, summary.CurrentAction, summary.ValidationFailureCode, summary.ValidationFailureStage); err != nil {
 				return err
 			}
 			for _, boundary := range summary.Boundary {
@@ -4111,7 +4133,7 @@ func writeAuthorizedGateAdapterHandoffText(out io.Writer, prefix string, items [
 			}
 		}
 		if live := handoff.LiveValidation; live != nil {
-			if _, err := fmt.Fprintf(out, "%s authorized gate adapter live validation：eventId=%s reportFileName=%s caseRelativeReportPath=%s adapterCandidates=%d selectedAdapter=%s sidecarAdapter=%s templateSha256=%s scaffold=%s scaffoldApply=%s validate=%s record=%s caseScaffold=%s caseScaffoldApply=%s caseValidate=%s caseRecord=%s\n", prefix, handoff.EventID, live.ReportFileName, live.CaseRelativeReportPath, live.AdapterCandidateCount, live.SelectedAdapterID, live.SidecarTemplateAdapterID, live.SidecarTemplateSHA256, live.ScaffoldCommand, live.ScaffoldApplyCommand, live.ValidateCommand, live.RecordCommand, live.CaseRelativeScaffoldCommand, live.CaseRelativeScaffoldApplyCommand, live.CaseRelativeValidateCommand, live.CaseRelativeRecordCommand); err != nil {
+			if _, err := fmt.Fprintf(out, "%s authorized gate adapter live validation：eventId=%s reportFileName=%s caseRelativeReportPath=%s reportSha256=%s recordExpectedReportSha256=%s adapterCandidates=%d selectedAdapter=%s sidecarAdapter=%s templateSha256=%s scaffold=%s scaffoldApply=%s validate=%s record=%s caseScaffold=%s caseScaffoldApply=%s caseValidate=%s caseRecord=%s\n", prefix, handoff.EventID, live.ReportFileName, live.CaseRelativeReportPath, live.ReportSHA256, live.RecordExpectedReportSHA256, live.AdapterCandidateCount, live.SelectedAdapterID, live.SidecarTemplateAdapterID, live.SidecarTemplateSHA256, live.ScaffoldCommand, live.ScaffoldApplyCommand, live.ValidateCommand, live.RecordCommand, live.CaseRelativeScaffoldCommand, live.CaseRelativeScaffoldApplyCommand, live.CaseRelativeValidateCommand, live.CaseRelativeRecordCommand); err != nil {
 				return err
 			}
 			if strings.TrimSpace(live.DraftCommand) != "" || strings.TrimSpace(live.CaseRelativeDraftCommand) != "" {
@@ -5352,8 +5374,8 @@ func writeExecutionEvidenceAdapterContextText(out io.Writer, prefix, eventID str
 }
 
 func writeExecutionEvidenceReportDetailText(out io.Writer, prefix, eventID string, item workstream.ExecutionEvidenceReviewItem) error {
-	if strings.TrimSpace(item.ExecutionReportPath) != "" {
-		if _, err := fmt.Fprintf(out, "%s report：eventId=%s path=%s\n", prefix, eventID, item.ExecutionReportPath); err != nil {
+	if strings.TrimSpace(item.ExecutionReportPath) != "" || strings.TrimSpace(item.ExecutionReportSHA256) != "" {
+		if _, err := fmt.Fprintf(out, "%s report：eventId=%s path=%s sha256=%s\n", prefix, eventID, item.ExecutionReportPath, item.ExecutionReportSHA256); err != nil {
 			return err
 		}
 	}
@@ -5377,7 +5399,7 @@ func writeExecutionEvidenceReviewSummaryText(out io.Writer, prefix string, summa
 	if summary.Total == 0 {
 		return nil
 	}
-	if _, err := fmt.Fprintf(out, "%s review summary：total=%d readyForReview=%d mainEscalations=%d duplicates=%d outputRefs=%d evidenceRefs=%d boundaryHits=%d hasEscalation=%t hasExecutionReport=%t hasAdapter=%t latestEventId=%s latestGateEventId=%s latestStatus=%s latestAction=%s latestTarget=%s latestReview=%s latestHandoff=%s latestCommanderState=%s latestCommanderPrimary=%s latestReport=%s latestAdapterId=%s latestAdapterStatus=%s outcomes=%d followThrough=%s nextActions=%d reviewRequiredActions=%d currentAction=%s\n", prefix, summary.Total, summary.ReadyForReviewCount, summary.MainEscalationCount, summary.DuplicateCount, summary.OutputRefCount, summary.EvidenceRefCount, summary.BoundaryHitCount, summary.HasEscalation, summary.HasExecutionReport, summary.HasAdapter, summary.LatestEventID, summary.LatestGateEventID, summary.LatestStatus, summary.LatestAction, summary.LatestTarget, summary.LatestReviewCommand, summary.LatestHandoffCommand, summary.LatestCommanderState, summary.LatestCommanderPrimary, summary.LatestExecutionReportPath, summary.LatestAdapterID, summary.LatestAdapterStatus, summary.OutcomeCount, summary.FollowThroughState, summary.NextActionCount, summary.ReviewRequiredActionCount, summary.CurrentAction); err != nil {
+	if _, err := fmt.Fprintf(out, "%s review summary：total=%d readyForReview=%d mainEscalations=%d duplicates=%d outputRefs=%d evidenceRefs=%d boundaryHits=%d hasEscalation=%t hasExecutionReport=%t hasAdapter=%t latestEventId=%s latestGateEventId=%s latestStatus=%s latestAction=%s latestTarget=%s latestReview=%s latestHandoff=%s latestCommanderState=%s latestCommanderPrimary=%s latestReport=%s latestReportSha256=%s latestAdapterId=%s latestAdapterStatus=%s outcomes=%d followThrough=%s nextActions=%d reviewRequiredActions=%d currentAction=%s\n", prefix, summary.Total, summary.ReadyForReviewCount, summary.MainEscalationCount, summary.DuplicateCount, summary.OutputRefCount, summary.EvidenceRefCount, summary.BoundaryHitCount, summary.HasEscalation, summary.HasExecutionReport, summary.HasAdapter, summary.LatestEventID, summary.LatestGateEventID, summary.LatestStatus, summary.LatestAction, summary.LatestTarget, summary.LatestReviewCommand, summary.LatestHandoffCommand, summary.LatestCommanderState, summary.LatestCommanderPrimary, summary.LatestExecutionReportPath, summary.LatestExecutionReportSHA256, summary.LatestAdapterID, summary.LatestAdapterStatus, summary.OutcomeCount, summary.FollowThroughState, summary.NextActionCount, summary.ReviewRequiredActionCount, summary.CurrentAction); err != nil {
 		return err
 	}
 	if strings.TrimSpace(summary.ActionQueueSummary) != "" {
@@ -7457,7 +7479,7 @@ func writeGateAdapterReportSummaryText(out io.Writer, prefix string, summary gat
 	if strings.TrimSpace(summary.GateEventID) == "" && strings.TrimSpace(summary.State) == "" {
 		return nil
 	}
-	if _, err := fmt.Fprintf(out, "%s summary：state=%s gateEventId=%s action=%s lane=%s reportPath=%s defaultReportPath=%s reportPresent=%t valid=%t recordReady=%t recordBlocked=%t requiresValidation=%t requiresRepair=%t requiresMainEscalation=%t allowedStatuses=%d allowedOutputPaths=%d stopConditions=%d adapterCandidates=%d repairHints=%d recordBlockedHints=%d escalateHints=%d outcomes=%d nextActions=%d reviewRequiredActions=%d currentAction=%s reportStatus=%s adapterId=%s actualBudget=runtimeSeconds=%d,diskMB=%d,requests=%d outputRefs=%d evidenceRefs=%d boundaryHits=%d hasEscalation=%t hasSummary=%t failureCode=%s failureStage=%s\n", prefix, summary.State, summary.GateEventID, summary.Action, summary.Lane, summary.ReportPath, summary.DefaultReportPath, summary.ReportPresent, summary.Valid, summary.RecordReady, summary.RecordBlocked, summary.RequiresValidation, summary.RequiresRepair, summary.RequiresMainEscalation, summary.AllowedStatusCount, summary.AllowedOutputPathCount, summary.AuthorizedStopCount, summary.AdapterCandidateCount, summary.RepairHintCount, summary.RecordBlockedHintCount, summary.EscalateHintCount, summary.OutcomeCount, summary.NextActionCount, summary.ReviewRequiredActionCount, summary.CurrentAction, summary.ReportStatus, summary.AdapterID, summary.ActualRuntimeSeconds, summary.ActualDiskMB, summary.ActualRequests, summary.OutputRefCount, summary.EvidenceRefCount, summary.BoundaryHitCount, summary.HasEscalation, summary.HasSummary, summary.ValidationFailureCode, summary.ValidationFailureStage); err != nil {
+	if _, err := fmt.Fprintf(out, "%s summary：state=%s gateEventId=%s action=%s lane=%s reportPath=%s reportSha256=%s recordExpectedReportSha256=%s defaultReportPath=%s reportPresent=%t valid=%t recordReady=%t recordBlocked=%t requiresValidation=%t requiresRepair=%t requiresMainEscalation=%t allowedStatuses=%d allowedOutputPaths=%d stopConditions=%d adapterCandidates=%d repairHints=%d recordBlockedHints=%d escalateHints=%d outcomes=%d nextActions=%d reviewRequiredActions=%d currentAction=%s reportStatus=%s adapterId=%s actualBudget=runtimeSeconds=%d,diskMB=%d,requests=%d outputRefs=%d evidenceRefs=%d boundaryHits=%d hasEscalation=%t hasSummary=%t failureCode=%s failureStage=%s\n", prefix, summary.State, summary.GateEventID, summary.Action, summary.Lane, summary.ReportPath, summary.ReportSHA256, summary.RecordExpectedReportSHA256, summary.DefaultReportPath, summary.ReportPresent, summary.Valid, summary.RecordReady, summary.RecordBlocked, summary.RequiresValidation, summary.RequiresRepair, summary.RequiresMainEscalation, summary.AllowedStatusCount, summary.AllowedOutputPathCount, summary.AuthorizedStopCount, summary.AdapterCandidateCount, summary.RepairHintCount, summary.RecordBlockedHintCount, summary.EscalateHintCount, summary.OutcomeCount, summary.NextActionCount, summary.ReviewRequiredActionCount, summary.CurrentAction, summary.ReportStatus, summary.AdapterID, summary.ActualRuntimeSeconds, summary.ActualDiskMB, summary.ActualRequests, summary.OutputRefCount, summary.EvidenceRefCount, summary.BoundaryHitCount, summary.HasEscalation, summary.HasSummary, summary.ValidationFailureCode, summary.ValidationFailureStage); err != nil {
 		return err
 	}
 	if strings.TrimSpace(summary.ActionQueueSummary) != "" {
@@ -7684,7 +7706,7 @@ func writeGateAdapterReportRepairHintText(out io.Writer, prefix string, hint gat
 }
 
 func writeGateAdapterReportValidationText(out io.Writer, validation gate.AdapterExecutionReportValidation) error {
-	if _, err := fmt.Fprintf(out, "gate adapter report validation：valid=%t gateEventId=%s reportPath=%s mutation=%t applied=%t\n", validation.Valid, validation.GateEventID, validation.ReportPath, validation.IsMutation, validation.Applied); err != nil {
+	if _, err := fmt.Fprintf(out, "gate adapter report validation：valid=%t gateEventId=%s reportPath=%s reportSha256=%s recordExpectedReportSha256=%s mutation=%t applied=%t\n", validation.Valid, validation.GateEventID, validation.ReportPath, validation.ReportSHA256, validation.RecordExpectedReportSHA256, validation.IsMutation, validation.Applied); err != nil {
 		return err
 	}
 	if err := writeGateAdapterReportSummaryText(out, "gate adapter report validation", validation.ReportSummary); err != nil {
@@ -7746,7 +7768,7 @@ func writeGateAdapterReportValidationText(out io.Writer, validation gate.Adapter
 }
 
 func writeGateExecutionEvidenceDetailText(out io.Writer, evidence gate.ExecutionEvidencePreview) error {
-	if _, err := fmt.Fprintf(out, "gate execution evidence detail：subject=%s summary=%s target=%s recordRequired=%t reportPath=%s\n", evidence.Subject, evidence.Summary, evidence.Target, evidence.Execution.RecordRequired, evidence.Execution.ExecutionReportPath); err != nil {
+	if _, err := fmt.Fprintf(out, "gate execution evidence detail：subject=%s summary=%s target=%s recordRequired=%t reportPath=%s reportSha256=%s\n", evidence.Subject, evidence.Summary, evidence.Target, evidence.Execution.RecordRequired, evidence.Execution.ExecutionReportPath, evidence.Execution.ExecutionReportSHA256); err != nil {
 		return err
 	}
 	if _, err := fmt.Fprintf(out, "gate execution evidence budget：runtimeSeconds=%d diskMB=%d requests=%d\n", evidence.Execution.ActualBudget.RuntimeSeconds, evidence.Execution.ActualBudget.DiskMB, evidence.Execution.ActualBudget.Requests); err != nil {

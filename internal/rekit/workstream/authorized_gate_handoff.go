@@ -47,6 +47,8 @@ type AuthorizedGateLiveValidationHandoff struct {
 	DraftCommand                     string                     `json:"draftCommand,omitempty"`
 	DraftApplyCommand                string                     `json:"draftApplyCommand,omitempty"`
 	DraftReportSHA256                string                     `json:"draftReportSha256,omitempty"`
+	ReportSHA256                     string                     `json:"reportSha256,omitempty"`
+	RecordExpectedReportSHA256       string                     `json:"recordExpectedReportSha256,omitempty"`
 	CaseRelativeValidateCommand      string                     `json:"caseRelativeValidateCommand,omitempty"`
 	CaseRelativeRecordCommand        string                     `json:"caseRelativeRecordCommand,omitempty"`
 	CaseRelativeScaffoldCommand      string                     `json:"caseRelativeScaffoldCommand,omitempty"`
@@ -147,6 +149,10 @@ func authorizedGateAdapterHandoffFor(repoRoot, caseRoot, pack string, item map[s
 		handoff.LiveValidationRepairHints = append([]gate.AdapterReportRepairHint{}, validation.RepairHints...)
 		handoff.LiveValidationNextSteps = append([]string{}, validation.NextSteps...)
 		handoff.missionCommanderNextActions = append([]mission.MissionCommanderNextActionItem{}, validation.MissionCommanderNextActions...)
+		liveValidation.ReportSHA256 = validation.ReportSHA256
+		liveValidation.RecordExpectedReportSHA256 = validation.RecordExpectedReportSHA256
+		liveValidation.RecordCommand = hashGateAuthorizedGateRecordCommand(liveValidation.RecordCommand, validation.RecordExpectedReportSHA256)
+		liveValidation.CaseRelativeRecordCommand = hashGateAuthorizedGateRecordCommand(liveValidation.CaseRelativeRecordCommand, validation.RecordExpectedReportSHA256)
 		if validation.AdapterContext != nil && validation.AdapterContext.Selected != nil {
 			selected := cloneAdapterToolCandidate(*validation.AdapterContext.Selected)
 			liveValidation.SelectedAdapterID = selected.ID
@@ -204,6 +210,22 @@ func cloneAdapterToolCandidate(candidate gate.AdapterToolCandidate) gate.Adapter
 	candidate.EvidenceGuidance = append([]string{}, candidate.EvidenceGuidance...)
 	candidate.StopConditionHints = append([]string{}, candidate.StopConditionHints...)
 	return candidate
+}
+
+func hashGateAuthorizedGateRecordCommand(command, reportSHA256 string) string {
+	command = strings.TrimSpace(command)
+	reportSHA256 = strings.TrimSpace(reportSHA256)
+	if command == "" || reportSHA256 == "" || strings.Contains(command, "-ExpectedExecutionReportSha256") {
+		return command
+	}
+	insert := " -ExpectedExecutionReportSha256 " + reportSHA256
+	if strings.Contains(command, " -Actor ") {
+		return strings.Replace(command, " -Actor ", insert+" -Actor ", 1)
+	}
+	if strings.Contains(command, " -Format ") {
+		return strings.Replace(command, " -Format ", insert+" -Format ", 1)
+	}
+	return command + insert
 }
 
 func MissionCommanderNextActionsWithAuthorizedGateAdapters(base []mission.MissionCommanderNextActionItem, handoffs []AuthorizedGateAdapterHandoff) []mission.MissionCommanderNextActionItem {
@@ -305,7 +327,7 @@ func WriteAuthorizedGateAdapterHandoffSection(out *bytes.Buffer, title string, i
 }
 
 func writeAuthorizedGateAdapterHandoffMarkdown(out *bytes.Buffer, item AuthorizedGateAdapterHandoff) {
-	state, reportPresent, valid, recordReady, recordBlocked, currentAction := "", false, false, false, false, ""
+	state, reportSHA256, recordExpectedReportSHA256, reportPresent, valid, recordReady, recordBlocked, currentAction := "", "", "", false, false, false, false, ""
 	allowedStatuses, allowedOutputs, authorizedStops, adapterCandidates := 0, 0, 0, 0
 	if item.ReportSummary != nil {
 		state = item.ReportSummary.State
@@ -314,12 +336,14 @@ func writeAuthorizedGateAdapterHandoffMarkdown(out *bytes.Buffer, item Authorize
 		recordReady = item.ReportSummary.RecordReady
 		recordBlocked = item.ReportSummary.RecordBlocked
 		currentAction = item.ReportSummary.CurrentAction
+		reportSHA256 = item.ReportSummary.ReportSHA256
+		recordExpectedReportSHA256 = item.ReportSummary.RecordExpectedReportSHA256
 		allowedStatuses = item.ReportSummary.AllowedStatusCount
 		allowedOutputs = item.ReportSummary.AllowedOutputPathCount
 		authorizedStops = item.ReportSummary.AuthorizedStopCount
 		adapterCandidates = item.ReportSummary.AdapterCandidateCount
 	}
-	fmt.Fprintf(out, "- authorized gate adapter handoff: eventId=%s lane=%s action=%s state=%s reportPath=%s defaultReportPath=%s reportPresent=%t valid=%t recordReady=%t recordBlocked=%t currentAction=%s\n", item.EventID, item.Lane, item.Action, state, item.ReportPath, item.DefaultReportPath, reportPresent, valid, recordReady, recordBlocked, currentAction)
+	fmt.Fprintf(out, "- authorized gate adapter handoff: eventId=%s lane=%s action=%s state=%s reportPath=%s reportSha256=%s recordExpectedReportSha256=%s defaultReportPath=%s reportPresent=%t valid=%t recordReady=%t recordBlocked=%t currentAction=%s\n", item.EventID, item.Lane, item.Action, state, item.ReportPath, reportSHA256, recordExpectedReportSHA256, item.DefaultReportPath, reportPresent, valid, recordReady, recordBlocked, currentAction)
 	fmt.Fprintf(out, "  - report contract: `%s`\n", item.ReportContract)
 	fmt.Fprintf(out, "  - counts: allowedStatuses=%d allowedOutputPaths=%d authorizedStops=%d adapterCandidates=%d\n", allowedStatuses, allowedOutputs, authorizedStops, adapterCandidates)
 	if live := item.LiveValidation; live != nil {
@@ -333,6 +357,8 @@ func writeAuthorizedGateAdapterHandoffMarkdown(out *bytes.Buffer, item Authorize
 		fmt.Fprintf(out, "  - draft: `%s`\n", live.DraftCommand)
 		fmt.Fprintf(out, "  - draft apply: `%s`\n", live.DraftApplyCommand)
 		fmt.Fprintf(out, "  - draft report sha256: `%s`\n", live.DraftReportSHA256)
+		fmt.Fprintf(out, "  - report sha256: `%s`\n", live.ReportSHA256)
+		fmt.Fprintf(out, "  - record expected report sha256: `%s`\n", live.RecordExpectedReportSHA256)
 		fmt.Fprintf(out, "  - validate: `%s`\n", live.ValidateCommand)
 		fmt.Fprintf(out, "  - record: `%s`\n", live.RecordCommand)
 		fmt.Fprintf(out, "  - case scaffold: `%s`\n", live.CaseRelativeScaffoldCommand)

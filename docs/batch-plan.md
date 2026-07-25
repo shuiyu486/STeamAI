@@ -16,6 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 580：authorized adapter report validate→record hash handoff closure
+
+状态：已完成 runtime、CLI、Mission/workstream downstream projection、tests、docs 与完整本地 release minimum；implementation commit/push 与 implementation remote release-gate inspection 待执行。本批延续 Batch 546–547、568–569：adapter execution report sidecar 已能 scaffold/draft、strict validate 并在 valid 后显式 record bounded observation evidence，但 validate→record 之间 sidecar 仍可能 drift；replacement executor 看到 valid validation envelope 或 downstream record command 后，如果 sidecar 被改写，旧命令缺少 currentness proof，可能把 stale adapter report 记录为 execution observation evidence。
+
+目标：让 read-only `gate -ValidateExecutionReport` 计算 adapter report sidecar SHA-256，并只在 `valid=true` 时投影带 `-ExpectedExecutionReportSha256 <hash>` 的 record command；`gate -Apply -ExecutionReportPath ...` 在记录 observation evidence 前，如果收到 expected hash，必须重新读取 sidecar 并复核当前 SHA-256，drift 时 fail-closed 且 zero-write。status / overview / handoff / continue / durable Markdown / lane RESUME / checkpoint / run digest 也要投影 report hash 与 hash-gated record command。
+
+已实现内容：
+
+- `gate` strict adapter report reader 现在在完成 non-symlink regular file、size limit 与 strict JSON decode 前后保留 raw sidecar bytes SHA-256；validation JSON/text、compact `reportSummary` 与 Mission Commander action/next steps 在 valid sidecar 上同步输出 `reportSha256` 和 `recordExpectedReportSha256`。
+- validation 生成的 record command 现在带 `-ExpectedExecutionReportSha256`；contract/scaffold/draft 阶段仍保留无 expected hash 的 generic record guidance，避免把未验证 sidecar 误标为 current。
+- `gate -Apply` 记录 adapter execution evidence 时若提供 expected hash，会先校验 hex SHA-256 格式，再重读 sidecar、比较当前 hash；hash mismatch 返回 `adapter execution report sha256 changed after validation`，不写 observations ledger。
+- observation evidence、Mission `executionEvidenceReview[]` / summary、status/overview/handoff/continue text、durable handoff Markdown、lane `RESUME.md`、checkpoint 与 continue run digest 均投影 recorded `executionReportSha256` / latest report hash，replacement executor 不必回查 sidecar 才能确认 evidence 绑定的 report bytes。
+- CLI/gate/product-path coverage 覆盖 read-only validation hash handoff、valid record command hash injection、invalid report只投影 raw hash不投影 expected record hash、record drift fail-closed zero-write、nested no-pack product path及 downstream/durable evidence review hash projection。
+
+边界：本批只增强 adapter execution report validate→record currentness handoff 与已记录 observation evidence 的只读 projection；`/rekit` 不执行 adapter/heavy tool、不 replay、不自动 record、不写 authority/confirmed；validation 仍 read-only；record 仍只在主 Agent 显式 `gate -Apply` 且 sidecar `valid=true` 后写 bounded observation evidence；不新增 PowerShell runtime logic，不把真实 case artifact / trace / dump / payload / flag / 客户信息写入模板仓库。
+
+验证结果：focused `go test ./internal/rekit/gate ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/cli -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。implementation push 与 remote release-gate inspection 待执行。
+
 ### Batch 579：reviewer prompt artifact deterministic repair closure
 
 状态：已完成 runtime、CLI、workstream intake projection、tests、docs、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `bbbf219` 已推送。implementation run `30141869464` completed failure，Linux/macOS/Windows jobs `89636549004`/`89636549030`/`89636549032` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。本批延续 Batch 577–578：`plan-subagents` 已生成 hash-bound `prompts/<shard>.prompt.md` prompt artifact，downstream `status` / `handoff` / `continue` 也会在 artifact missing / invalid / symlink / unverified / drift 时 fail-closed，但 replacement executor 仍缺少一个 Go-native、hash-gated、packet-derived 的恢复命令，只能手工 restore/regenerate，容易误覆盖 drifted prompt 或重新调度 stale reviewer 输入。
