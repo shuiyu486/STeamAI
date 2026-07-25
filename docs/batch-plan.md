@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 602：adapter currentness handoff closure
 
-状态：已完成 runtime/test/doc 工作树实现、focused adapter currentness tests、受影响 package tests 与完整本地 release minimum；implementation commit/push 与 implementation remote release-gate inspection 待完成。
+状态：已完成 runtime/test/doc 工作树实现、focused adapter currentness tests、受影响 package tests、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `bd34204` 已推送并进入 PR #8。PR run `30177220326` completed failure，Windows/macOS/Linux jobs `89727842288`/`89727842311`/`89727842312` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation PR run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。
 
 目标：补齐 Batch 594/580 后仍暴露的 authorized adapter report 接手断点：底层 record Apply 已支持 `-ExpectedExecutionReportSha256`，但 `gate -ExecutionReportContract`、scaffold/draft preview/apply、status/workstream handoff 与 text/JSON 消费者仍可能在 pre-validation 阶段复制裸 record command/args。Mission Commander 与 replacement executor 应先运行 read-only validation；只有 valid validation/status 绑定当前 sidecar hash 后，才暴露包含 `-ExpectedExecutionReportSha256` 的 record current action。
 
