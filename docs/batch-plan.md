@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 590：reviewer dispatch/intake first-screen runbook closure
 
-状态：已完成 runtime handoff 派生字段、CLI/product-path text 输出、入口文档更新、focused tests 与完整本地 release minimum；implementation commit/push 与 release inspection 待执行。
+状态：已完成 runtime handoff 派生字段、CLI/product-path text 输出、入口文档更新、focused tests、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `dab7802` 已推送。implementation run `30156522308` completed failure，macOS/Windows/Linux jobs `89675249671`/`89675249673`/`89675249708` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。
 
 目标：补齐 reviewer orchestration E2E residual：当 replacement executor 从 status/handoff/continue、lane `RESUME.md`、checkpoint 或 digest 接手 open reviewer packet 时，不需要打开完整 `packet.json`、`summary.md` 或 nested dispatch JSON，也能知道当前 shard 的下一步最小操作序列。open `reviewerDispatchIntakeHandoffs[]` 应提供 per-shard `runbookSteps[]`，compact `reviewerDispatchIntakeSummary` 应提供当前 `nextActionRunbookSteps[]`，覆盖 waiting、staging-ready、collection-ready、intake-ready、owner adoption、prompt repair 与 result recovery 等状态。
 
