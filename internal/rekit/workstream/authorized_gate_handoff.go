@@ -151,8 +151,12 @@ func authorizedGateAdapterHandoffFor(repoRoot, caseRoot, pack string, item map[s
 		handoff.missionCommanderNextActions = append([]mission.MissionCommanderNextActionItem{}, validation.MissionCommanderNextActions...)
 		liveValidation.ReportSHA256 = validation.ReportSHA256
 		liveValidation.RecordExpectedReportSHA256 = validation.RecordExpectedReportSHA256
-		liveValidation.RecordCommand = hashGateAuthorizedGateRecordCommand(liveValidation.RecordCommand, validation.RecordExpectedReportSHA256)
-		liveValidation.CaseRelativeRecordCommand = hashGateAuthorizedGateRecordCommand(liveValidation.CaseRelativeRecordCommand, validation.RecordExpectedReportSHA256)
+		recordCommand := ""
+		if validation.Valid && reportSummary.RecordReady && !reportSummary.RecordBlocked {
+			recordCommand = strings.TrimSpace(validation.MissionCommanderAction.PrimaryCommand)
+		}
+		liveValidation.RecordCommand = recordCommand
+		liveValidation.CaseRelativeRecordCommand = recordCommand
 		if validation.AdapterContext != nil && validation.AdapterContext.Selected != nil {
 			selected := cloneAdapterToolCandidate(*validation.AdapterContext.Selected)
 			liveValidation.SelectedAdapterID = selected.ID
@@ -212,20 +216,12 @@ func cloneAdapterToolCandidate(candidate gate.AdapterToolCandidate) gate.Adapter
 	return candidate
 }
 
-func hashGateAuthorizedGateRecordCommand(command, reportSHA256 string) string {
+func authorizedGateCurrentRecordCommandMarkdown(command, reportSHA256 string) string {
 	command = strings.TrimSpace(command)
-	reportSHA256 = strings.TrimSpace(reportSHA256)
-	if command == "" || reportSHA256 == "" || strings.Contains(command, "-ExpectedExecutionReportSha256") {
+	if command != "" && strings.TrimSpace(reportSHA256) != "" && strings.Contains(command, "-ExpectedExecutionReportSha256") {
 		return command
 	}
-	insert := " -ExpectedExecutionReportSha256 " + reportSHA256
-	if strings.Contains(command, " -Actor ") {
-		return strings.Replace(command, " -Actor ", insert+" -Actor ", 1)
-	}
-	if strings.Contains(command, " -Format ") {
-		return strings.Replace(command, " -Format ", insert+" -Format ", 1)
-	}
-	return command + insert
+	return "after valid=true, use validation/status returned hash-bound record command with -ExpectedExecutionReportSha256"
 }
 
 func MissionCommanderNextActionsWithAuthorizedGateAdapters(base []mission.MissionCommanderNextActionItem, handoffs []AuthorizedGateAdapterHandoff) []mission.MissionCommanderNextActionItem {
@@ -360,13 +356,13 @@ func writeAuthorizedGateAdapterHandoffMarkdown(out *bytes.Buffer, item Authorize
 		fmt.Fprintf(out, "  - report sha256: `%s`\n", live.ReportSHA256)
 		fmt.Fprintf(out, "  - record expected report sha256: `%s`\n", live.RecordExpectedReportSHA256)
 		fmt.Fprintf(out, "  - validate: `%s`\n", live.ValidateCommand)
-		fmt.Fprintf(out, "  - record: `%s`\n", live.RecordCommand)
+		fmt.Fprintf(out, "  - record: `%s`\n", authorizedGateCurrentRecordCommandMarkdown(live.RecordCommand, live.RecordExpectedReportSHA256))
 		fmt.Fprintf(out, "  - case scaffold: `%s`\n", live.CaseRelativeScaffoldCommand)
 		fmt.Fprintf(out, "  - case scaffold apply: `%s`\n", live.CaseRelativeScaffoldApplyCommand)
 		fmt.Fprintf(out, "  - case draft: `%s`\n", live.CaseRelativeDraftCommand)
 		fmt.Fprintf(out, "  - case draft apply: `%s`\n", live.CaseRelativeDraftApplyCommand)
 		fmt.Fprintf(out, "  - case validate: `%s`\n", live.CaseRelativeValidateCommand)
-		fmt.Fprintf(out, "  - case record: `%s`\n", live.CaseRelativeRecordCommand)
+		fmt.Fprintf(out, "  - case record: `%s`\n", authorizedGateCurrentRecordCommandMarkdown(live.CaseRelativeRecordCommand, live.RecordExpectedReportSHA256))
 		for _, workspace := range live.AuthorizedWorkspaces {
 			fmt.Fprintf(out, "  - authorized workspace: `%s`\n", workspace)
 		}

@@ -10056,7 +10056,6 @@ func TestRunGateAdapterReportTextOutputsNextActions(t *testing.T) {
 	reportSum := sha256.Sum256(reportData)
 	wantReportSHA256 := hex.EncodeToString(reportSum[:])
 	wantValidate := "/rekit gate -Pack _template -GateEventId " + applied.EventID + " -ValidateExecutionReport -ExecutionReportPath " + wantReportPath + " -Format json"
-	wantContractRecord := "/rekit gate -Pack _template -Apply -GateEventId " + applied.EventID + " -ExecutionReportPath " + wantReportPath + " -Actor <executor-id> -Format json"
 	wantRecord := "/rekit gate -Pack _template -Apply -GateEventId " + applied.EventID + " -ExecutionReportPath " + wantReportPath + " -ExpectedExecutionReportSha256 " + wantReportSHA256 + " -Actor <executor-id> -Format json"
 	before := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 
@@ -10066,10 +10065,10 @@ func TestRunGateAdapterReportTextOutputsNextActions(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"gate adapter report contract：gateEventId=" + applied.EventID + " action=debug lane=main reportPath=" + wantReportPath + " mutation=false",
-		"gate adapter report contract summary：state=needs-adapter-report-validation gateEventId=" + applied.EventID + " action=debug lane=main reportPath=" + wantReportPath + " reportSha256= recordExpectedReportSha256= defaultReportPath=" + wantReportPath + " reportPresent=false valid=false recordReady=false recordBlocked=true requiresValidation=true requiresRepair=false requiresMainEscalation=false allowedStatuses=5 allowedOutputPaths=1 stopConditions=1 adapterCandidates=0 repairHints=28 recordBlockedHints=28 escalateHints=1 outcomes=3 nextActions=3 reviewRequiredActions=3 currentAction=" + wantValidate,
+		"gate adapter report contract summary：state=needs-adapter-report-validation gateEventId=" + applied.EventID + " action=debug lane=main reportPath=" + wantReportPath + " reportSha256= recordExpectedReportSha256= defaultReportPath=" + wantReportPath + " reportPresent=false valid=false recordReady=false recordBlocked=true requiresValidation=true requiresRepair=false requiresMainEscalation=false allowedStatuses=5 allowedOutputPaths=1 stopConditions=1 adapterCandidates=0 repairHints=28 recordBlockedHints=28 escalateHints=1 outcomes=3 nextActions=2 reviewRequiredActions=2 currentAction=" + wantValidate,
 		"gate adapter report contract summary boundary：adapter report summary is read-only; full contract/validation/follow-through arrays remain available",
 		"gate adapter report validate command：rekit -Command gate -Pack _template -GateEventId " + applied.EventID + " -ValidateExecutionReport -ExecutionReportPath " + wantReportPath + " -Format json",
-		"gate adapter report record command：rekit -Command gate -Pack _template -Apply -GateEventId " + applied.EventID + " -ExecutionReportPath " + wantReportPath + " -Actor <executor-id> -Format json",
+		"gate adapter report record command：available only after valid=true validation/status returns a hash-bound command with -ExpectedExecutionReportSha256",
 		"gate adapter report live validation：cwd=authorized output workspace listed in authorizedWorkspaces; use reportFileName as workspace-relative -ExecutionReportPath and omit -Target; or use caseRelativeReportPath with case-relative commands from any case-local cwd reportFileName=adapter-report.json caseRelativeReportPath=" + wantReportPath,
 		"gate adapter report authorized workspaces：workspace/main/debug/session-1",
 		"gate adapter report sidecar template：kind=adapter-execution-report adapterId=<adapter-id> action=debug status=succeeded|failed|boundary-hit|escalated|aborted gateEventId=" + applied.EventID,
@@ -10083,17 +10082,16 @@ func TestRunGateAdapterReportTextOutputsNextActions(t *testing.T) {
 		"adapter report contract follow-through outcome：name=write-and-validate-report state=needs-adapter-report-validation command=`" + wantValidate + "`",
 		"adapter report contract follow-through when：name=write-and-validate-report when=after authorized-gate request is recorded and execution report contract is read",
 		"adapter report contract follow-through evidence：name=write-and-validate-report evidence=adapter execution report sidecar",
-		"adapter report contract follow-through outcome：name=valid-report-record state=ready-to-record-evidence command=`" + wantContractRecord + "`",
+		"adapter report contract follow-through outcome：name=valid-report-record state=ready-to-record-evidence command=``",
 		"adapter report contract follow-through when：name=valid-report-record when=validation returns valid=true for the bounded sidecar",
 		"adapter report contract follow-through evidence：name=valid-report-record evidence=observation evidence row",
 		"adapter report contract follow-through outcome：name=invalid-report-repair state=repair-adapter-report",
 		"adapter report commander action：state=needs-adapter-report-validation primary=`" + wantValidate + "`",
-		"mission commander action queue：summary=total=3 unblocked=2 blocked=1 requiresReview=3 followUp=2 current=" + wantValidate,
+		"mission commander action queue：summary=total=2 unblocked=2 blocked=0 requiresReview=2 followUp=1 current=" + wantValidate,
 		"mission commander action queue current：state=needs-adapter-report-validation source=adapterReportContract.missionCommanderAction blocked=false requiresReview=true command=`" + wantValidate + "`",
 		"mission commander next action：state=needs-adapter-report-validation source=adapterReportContract.missionCommanderAction blocked=false requiresReview=true command=`" + wantValidate + "`",
-		"mission commander next action：state=needs-adapter-report-validation source=adapterReportContract.missionCommanderAction.followUp blocked=true requiresReview=true command=`" + wantContractRecord + "`",
-		"mission commander next action boundary：do not record evidence until validation returns valid=true",
-		"mission commander next action boundary：replace <executor-id> before running record command",
+		"mission commander next action：state=needs-adapter-report-validation source=adapterReportContract.missionCommanderAction.followUp blocked=false requiresReview=true command=`/rekit handoff main`",
+		"mission commander next action boundary：contract handoff does not provide a runnable record Apply",
 	} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("adapter report contract text missing %q:\n%s", expected, out.String())
@@ -10386,7 +10384,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		t.Fatalf("unexpected adapter report contract identity: %+v", contract)
 	}
 	contractSummary := contract.ReportSummary
-	if contractSummary.State != "needs-adapter-report-validation" || contractSummary.GateEventID != authorizedEventID || contractSummary.Action != "debug" || contractSummary.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || contractSummary.ReportPresent || contractSummary.Valid || !contractSummary.RecordBlocked || !contractSummary.RequiresValidation || contractSummary.RequiresRepair || contractSummary.RequiresMainEscalation || contractSummary.OutcomeCount != 3 || contractSummary.NextActionCount != 3 || contractSummary.ReviewRequiredActionCount != 3 || !containsSubstring(contractSummary.Boundary, "summary is read-only") {
+	if contractSummary.State != "needs-adapter-report-validation" || contractSummary.GateEventID != authorizedEventID || contractSummary.Action != "debug" || contractSummary.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || contractSummary.ReportPresent || contractSummary.Valid || !contractSummary.RecordBlocked || !contractSummary.RequiresValidation || contractSummary.RequiresRepair || contractSummary.RequiresMainEscalation || contractSummary.OutcomeCount != 3 || contractSummary.NextActionCount != 2 || contractSummary.ReviewRequiredActionCount != 2 || !containsSubstring(contractSummary.Boundary, "summary is read-only") {
 		t.Fatalf("adapter report contract omitted compact summary: %+v", contractSummary)
 	}
 	contractFollow := contract.AuthorizedExecutionFollowThrough
@@ -10532,7 +10530,6 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		"gate adapter report scaffold：mode=scaffolded applied=true reportPath=" + scaffoldReportPath + " reportSha256=" + scaffoldPreview.ReportSHA256 + " alreadyExists=false requiresConfirmation=false",
 		"gate adapter report scaffold sidecar：kind=adapter-execution-report adapterId=<adapter-id> action=debug status=succeeded|failed|boundary-hit|escalated|aborted gateEventId=" + authorizedEventID,
 		"gate adapter report scaffold validate command：/rekit gate -Pack _template -GateEventId " + authorizedEventID + " -ValidateExecutionReport -ExecutionReportPath " + scaffoldReportPath + " -Format json",
-		"gate adapter report scaffold record command：/rekit gate -Pack _template -Apply -GateEventId " + authorizedEventID + " -ExecutionReportPath " + scaffoldReportPath + " -Actor <executor-id> -Format json",
 		"gate adapter report scaffold boundary：scaffold does not execute the adapter or heavy tool",
 		"adapter report scaffold commander action：state=adapter-report-scaffolded-awaiting-adapter-output primary=`/rekit gate -Pack _template -GateEventId " + authorizedEventID + " -ValidateExecutionReport -ExecutionReportPath " + scaffoldReportPath + " -Format json`",
 		"mission commander next action：state=adapter-report-scaffolded-awaiting-adapter-output source=adapterReportScaffold.validation",
@@ -11219,11 +11216,10 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 		t.Fatalf("nested workspace adapter report contract omitted live enforcement rules: %+v", contract)
 	}
 	wantCaseRelativeValidate := "/rekit gate -Pack _template -GateEventId " + applied.EventID + " -ValidateExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Format json"
-	wantCaseRelativeRecord := "/rekit gate -Pack _template -Apply -GateEventId " + applied.EventID + " -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Actor <executor-id> -Format json"
-	if contract.MissionCommanderAction.State != "needs-adapter-report-validation" || contract.MissionCommanderAction.PrimaryCommand != wantCaseRelativeValidate || !containsSubstring(contract.MissionCommanderAction.FollowUpCommands, wantCaseRelativeRecord) || !containsSubstring(contract.MissionCommanderAction.Boundary, "read-only") || !containsSubstring(contract.MissionCommanderAction.Boundary, "never executes the heavy tool") || !containsSubstring(contract.NextSteps, wantCaseRelativeValidate) || !containsSubstring(contract.NextSteps, wantCaseRelativeRecord) {
+	if contract.MissionCommanderAction.State != "needs-adapter-report-validation" || contract.MissionCommanderAction.PrimaryCommand != wantCaseRelativeValidate || containsSubstring(contract.MissionCommanderAction.FollowUpCommands, "-Apply") || !containsSubstring(contract.MissionCommanderAction.FollowUpCommands, "/rekit handoff main") || !containsSubstring(contract.MissionCommanderAction.Boundary, "read-only") || !containsSubstring(contract.MissionCommanderAction.Boundary, "never executes the heavy tool") || !containsSubstring(contract.MissionCommanderAction.Boundary, "does not provide a runnable record Apply") || !containsSubstring(contract.NextSteps, wantCaseRelativeValidate) || !containsSubstring(contract.NextSteps, "hash-bound record command") {
 		t.Fatalf("nested workspace adapter report contract omitted Mission Commander handoff: action=%+v next=%+v", contract.MissionCommanderAction, contract.NextSteps)
 	}
-	if len(contract.MissionCommanderNextActions) != 3 || contract.MissionCommanderNextActions[0].Command != wantCaseRelativeValidate || contract.MissionCommanderNextActions[1].Command != wantCaseRelativeRecord || !contract.MissionCommanderNextActions[1].Blocked || contract.MissionCommanderNextActions[2].Command != "/rekit handoff main" || !cliNextActionBoundaryContains(contract.MissionCommanderNextActions, "do not record evidence until validation returns valid=true") || !cliNextActionBoundaryContains(contract.MissionCommanderNextActions, "replace <executor-id>") {
+	if len(contract.MissionCommanderNextActions) != 2 || contract.MissionCommanderNextActions[0].Command != wantCaseRelativeValidate || contract.MissionCommanderNextActions[1].Command != "/rekit handoff main" || containsMissionCommanderNextAction(contract.MissionCommanderNextActions, "adapterReportContract.missionCommanderAction.followUp", "-Apply", true, true) || !cliNextActionBoundaryContains(contract.MissionCommanderNextActions, "does not provide a runnable record Apply") {
 		t.Fatalf("nested workspace adapter report contract omitted Mission Commander next actions: %+v", contract.MissionCommanderNextActions)
 	}
 	out.Reset()
@@ -11233,15 +11229,14 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	for _, expected := range []string{
 		"gate adapter report contract：gateEventId=" + applied.EventID + " action=debug lane=main reportPath=workspace/main/debug/session-1/adapter-report.json mutation=false",
 		"gate adapter report validate command：rekit -Command gate -Pack _template -GateEventId " + applied.EventID + " -ValidateExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Format json",
-		"gate adapter report record command：rekit -Command gate -Pack _template -Apply -GateEventId " + applied.EventID + " -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Actor <executor-id> -Format json",
+		"gate adapter report record command：available only after valid=true validation/status returns a hash-bound command with -ExpectedExecutionReportSha256",
 		"gate adapter report live validation：cwd=authorized output workspace listed in authorizedWorkspaces; use reportFileName as workspace-relative -ExecutionReportPath and omit -Target; or use caseRelativeReportPath with case-relative commands from any case-local cwd reportFileName=adapter-report.json caseRelativeReportPath=workspace/main/debug/session-1/adapter-report.json",
 		"gate adapter report sidecar template：kind=adapter-execution-report adapterId=<adapter-id> action=debug status=succeeded|failed|boundary-hit|escalated|aborted gateEventId=" + applied.EventID,
-		"gate adapter report live validation note：Replace <executor-id> before running RecordArgs or CaseRelativeRecordArgs; both record observation evidence only after strict sidecar validation and never execute the heavy tool.",
+		"gate adapter report live validation note：Pre-validation contract/scaffold/draft handoffs intentionally omit runnable RecordArgs/CaseRelativeRecordArgs; after valid=true, use validation/status returned hash-bound record command with -ExpectedExecutionReportSha256.",
 		"adapter report commander action：state=needs-adapter-report-validation primary=`" + wantCaseRelativeValidate + "`",
 		"mission commander next action：state=needs-adapter-report-validation source=adapterReportContract.missionCommanderAction blocked=false requiresReview=true command=`" + wantCaseRelativeValidate + "`",
-		"mission commander next action：state=needs-adapter-report-validation source=adapterReportContract.missionCommanderAction.followUp blocked=true requiresReview=true command=`" + wantCaseRelativeRecord + "`",
-		"mission commander next action boundary：do not record evidence until validation returns valid=true",
-		"mission commander next action boundary：replace <executor-id> before running record command",
+		"mission commander next action：state=needs-adapter-report-validation source=adapterReportContract.missionCommanderAction.followUp blocked=false requiresReview=true command=`/rekit handoff main`",
+		"mission commander next action boundary：contract handoff does not provide a runnable record Apply",
 	} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("adapter report contract text missing %q:\n%s", expected, out.String())
@@ -11250,7 +11245,7 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	if strings.Contains(out.String(), "source=adapterReportValidation.missionCommanderAction") {
 		t.Fatalf("contract text should not expose validation-stage record as current action:\n%s", out.String())
 	}
-	if strings.Join(contract.LiveValidation.AuthorizedWorkspaces, ",") != "workspace/main/debug/session-1" || contract.LiveValidation.ReportFileName != "adapter-report.json" || contract.LiveValidation.CaseRelativeReportPath != "workspace/main/debug/session-1/adapter-report.json" || strings.Join(contract.LiveValidation.ValidateArgs, " ") != "-Command gate -Pack _template -GateEventId "+applied.EventID+" -ValidateExecutionReport -ExecutionReportPath adapter-report.json -Format json" || strings.Join(contract.LiveValidation.RecordArgs, " ") != "-Command gate -Pack _template -Apply -GateEventId "+applied.EventID+" -ExecutionReportPath adapter-report.json -Actor <executor-id> -Format json" || contract.LiveValidation.ValidateCommand != "rekit "+strings.Join(contract.LiveValidation.ValidateArgs, " ") || contract.LiveValidation.RecordCommand != "rekit "+strings.Join(contract.LiveValidation.RecordArgs, " ") || strings.Join(contract.LiveValidation.CaseRelativeValidateArgs, " ") != "-Command gate -Pack _template -GateEventId "+applied.EventID+" -ValidateExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Format json" || strings.Join(contract.LiveValidation.CaseRelativeRecordArgs, " ") != "-Command gate -Pack _template -Apply -GateEventId "+applied.EventID+" -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Actor <executor-id> -Format json" || contract.LiveValidation.CaseRelativeValidateCommand != "rekit "+strings.Join(contract.LiveValidation.CaseRelativeValidateArgs, " ") || contract.LiveValidation.CaseRelativeRecordCommand != "rekit "+strings.Join(contract.LiveValidation.CaseRelativeRecordArgs, " ") || contract.LiveValidation.SidecarTemplate.Action != "debug" || contract.LiveValidation.SidecarTemplate.GateEventID != applied.EventID || !containsSubstring(contract.LiveValidation.SidecarTemplate.EvidenceRefs, "authorized outputPaths") || !strings.Contains(contract.LiveValidation.ReplayBehavior, "CaseRelativeRecordArgs") || !strings.Contains(contract.LiveValidation.ReplayBehavior, "duplicate eventId") {
+	if strings.Join(contract.LiveValidation.AuthorizedWorkspaces, ",") != "workspace/main/debug/session-1" || contract.LiveValidation.ReportFileName != "adapter-report.json" || contract.LiveValidation.CaseRelativeReportPath != "workspace/main/debug/session-1/adapter-report.json" || strings.Join(contract.LiveValidation.ValidateArgs, " ") != "-Command gate -Pack _template -GateEventId "+applied.EventID+" -ValidateExecutionReport -ExecutionReportPath adapter-report.json -Format json" || len(contract.LiveValidation.RecordArgs) != 0 || contract.LiveValidation.ValidateCommand != "rekit "+strings.Join(contract.LiveValidation.ValidateArgs, " ") || contract.LiveValidation.RecordCommand != "" || strings.Join(contract.LiveValidation.CaseRelativeValidateArgs, " ") != "-Command gate -Pack _template -GateEventId "+applied.EventID+" -ValidateExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Format json" || len(contract.LiveValidation.CaseRelativeRecordArgs) != 0 || contract.LiveValidation.CaseRelativeValidateCommand != "rekit "+strings.Join(contract.LiveValidation.CaseRelativeValidateArgs, " ") || contract.LiveValidation.CaseRelativeRecordCommand != "" || contract.LiveValidation.SidecarTemplate.Action != "debug" || contract.LiveValidation.SidecarTemplate.GateEventID != applied.EventID || !containsSubstring(contract.LiveValidation.SidecarTemplate.EvidenceRefs, "authorized outputPaths") || !strings.Contains(contract.LiveValidation.ReplayBehavior, "hash-bound record command") || !strings.Contains(contract.LiveValidation.ReplayBehavior, "duplicate eventId") {
 		t.Fatalf("nested workspace adapter report contract omitted live-validation handoff: %+v", contract.LiveValidation)
 	}
 
@@ -12607,10 +12602,11 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	var validation struct {
-		Valid          bool `json:"valid"`
-		IsMutation     bool `json:"isMutation"`
-		Applied        bool `json:"applied"`
-		AdapterContext struct {
+		Valid                      bool   `json:"valid"`
+		IsMutation                 bool   `json:"isMutation"`
+		Applied                    bool   `json:"applied"`
+		RecordExpectedReportSHA256 string `json:"recordExpectedReportSha256"`
+		AdapterContext             struct {
 			Candidates []struct {
 				ID string `json:"id"`
 			} `json:"candidates"`
@@ -12622,8 +12618,8 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &validation); err != nil {
 		t.Fatalf("generic-binary-re adapter validation stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if !validation.Valid || validation.IsMutation || validation.Applied || len(validation.AdapterContext.Candidates) != 1 || validation.AdapterContext.Selected == nil || validation.AdapterContext.Selected.ID != candidate.ID {
-		t.Fatalf("generic-binary-re adapter validation omitted selected candidate context: %+v", validation)
+	if !validation.Valid || validation.IsMutation || validation.Applied || validation.RecordExpectedReportSHA256 == "" || len(validation.AdapterContext.Candidates) != 1 || validation.AdapterContext.Selected == nil || validation.AdapterContext.Selected.ID != candidate.ID {
+		t.Fatalf("generic-binary-re adapter validation omitted selected candidate context or hash-bound record handoff: %+v", validation)
 	}
 
 	out.Reset()
@@ -12643,12 +12639,7 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		}
 	}
 
-	recordArgs := append([]string{}, contract.LiveValidation.CaseRelativeRecordArgs...)
-	for i, arg := range recordArgs {
-		if arg == "<executor-id>" {
-			recordArgs[i] = "executor-1"
-		}
-	}
+	recordArgs := []string{"-Command", "gate", "-Pack", "generic-binary-re", "-Apply", "-GateEventId", applied.EventID, "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-report.json", "-ExpectedExecutionReportSha256", validation.RecordExpectedReportSHA256, "-Actor", "executor-1", "-Format", "json"}
 	out.Reset()
 	if err := Run(recordArgs, &out); err != nil {
 		t.Fatal(err)
@@ -13273,8 +13264,8 @@ func assertAuthorizedGateAdapterHandoffSnapshot(t *testing.T, label string, item
 	if item.ReportSummary == nil || item.ReportSummary.ReportPath != wantReportPath || item.ReportSummary.DefaultReportPath != wantReportPath || item.ReportSummary.AllowedStatusCount != 5 || item.ReportSummary.AllowedOutputPathCount != 1 || item.ReportSummary.AuthorizedStopCount != 1 || item.ReportSummary.OutcomeCount == 0 {
 		t.Fatalf("%s authorized gate adapter handoff missing compact report summary: %+v", label, item.ReportSummary)
 	}
-	if item.LiveValidation == nil || item.LiveValidation.ReportFileName != "adapter-report.json" || item.LiveValidation.CaseRelativeReportPath != wantReportPath || item.LiveValidation.AdapterCandidateCount != 0 || item.LiveValidation.SidecarTemplateAdapterID != "<adapter-id>" || !strings.Contains(item.LiveValidation.CaseRelativeValidateCommand, wantReportPath) || !strings.Contains(item.LiveValidation.CaseRelativeRecordCommand, wantReportPath) {
-		t.Fatalf("%s authorized gate adapter handoff missing live validation: %+v", label, item.LiveValidation)
+	if item.LiveValidation == nil || item.LiveValidation.ReportFileName != "adapter-report.json" || item.LiveValidation.CaseRelativeReportPath != wantReportPath || item.LiveValidation.AdapterCandidateCount != 0 || item.LiveValidation.SidecarTemplateAdapterID != "<adapter-id>" || !strings.Contains(item.LiveValidation.CaseRelativeValidateCommand, wantReportPath) || item.LiveValidation.RecordCommand != "" || item.LiveValidation.CaseRelativeRecordCommand != "" {
+		t.Fatalf("%s authorized gate adapter handoff should expose validation-only pre-validation handoff: %+v", label, item.LiveValidation)
 	}
 	if !containsSubstring(item.LiveValidation.AuthorizedWorkspaces, "workspace/main/debug/session-1") || !containsSubstring(item.Evidence, "authorized outputPaths workspace/main/debug/session-1") || !containsSubstring(item.Evidence, "authorized stopConditions timeout") || !containsSubstring(item.Boundary, "projection may read and validate an existing canonical sidecar") || !containsSubstring(item.Boundary, "no heavy-tool replay") {
 		t.Fatalf("%s authorized gate adapter handoff missing workspace/evidence/boundary: %+v", label, item)
