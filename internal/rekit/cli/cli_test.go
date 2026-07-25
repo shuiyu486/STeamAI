@@ -2798,7 +2798,7 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &continueApply); err != nil {
 		t.Fatalf("installed entrypoint continue apply stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if continueApply.RunID != "run-preview" || continueApply.Applied || !continueApply.Blocked || continueApply.ReviewerWritebackSummary.Total != 2 || continueApply.ReviewerWritebackSummary.LatestShardID != "shard-01" || continueApply.ReviewerDispatchIntakeSummary.Total != 1 || continueApply.ReviewerDispatchIntakeSummary.LatestShardID != "shard-02" || len(continueApply.Writes) != 0 || !containsSubstring(continueApply.ReviewerDispatchIntakeSummary.NextActionRunbookSteps, "dispatch read-only reviewer") || !containsSubstring(continueApply.ReviewerDispatchIntakeSummary.NextActionRunbookSteps, "after saving reviewer JSON, run staging preview") {
+	if continueApply.RunID != "run-preview" || continueApply.Applied || !continueApply.Blocked || continueApply.ReviewerWritebackSummary.Total != 2 || continueApply.ReviewerWritebackSummary.LatestShardID != "shard-01" || continueApply.ReviewerDispatchIntakeSummary.Total != 1 || continueApply.ReviewerDispatchIntakeSummary.LatestShardID != "shard-02" || len(continueApply.Writes) != 0 || !containsSubstring(continueApply.ReviewerDispatchIntakeSummary.NextActionRunbookSteps, "dispatch read-only reviewer") || !containsSubstring(continueApply.ReviewerDispatchIntakeSummary.NextActionRunbookSteps, "after saving reviewer JSON input, run source capture preview") {
 		t.Fatalf("installed entrypoint continue apply did not fail closed on remaining reviewer work: %+v", continueApply)
 	}
 	out.Reset()
@@ -2818,7 +2818,7 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 	if err := Run([]string{"-Command", "status", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"status Mission Commander first screen：focus=reviewer-current-action", "status Mission Commander current action：scope=focus-reviewer", "status Mission Commander current action：scope=reviewer", "source=reviewerDispatchIntakeHandoffs", "status case mission reviewer dispatch intake summary：total=1", "status case mission reviewer dispatch queue：total=1", "status case mission reviewer dispatch queue action：bucket=current", "status case mission reviewer dispatch next action runbook：shard=shard-02", "status case mission brief next action：follow Mission Commander current action: dispatch read-only reviewer", "dispatch read-only reviewer", "after saving reviewer JSON, run staging preview"} {
+	for _, expected := range []string{"status Mission Commander first screen：focus=reviewer-current-action", "status Mission Commander current action：scope=focus-reviewer", "status Mission Commander current action：scope=reviewer", "source=reviewerDispatchIntakeHandoffs", "status case mission reviewer dispatch intake summary：total=1", "status case mission reviewer dispatch queue：total=1", "status case mission reviewer dispatch queue action：bucket=current", "status case mission reviewer dispatch next action runbook：shard=shard-02", "status case mission brief next action：follow Mission Commander current action: dispatch read-only reviewer", "dispatch read-only reviewer", "after saving reviewer JSON input, run source capture preview"} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("installed entrypoint status reviewer runbook text missing %q:\n%s", expected, out.String())
 		}
@@ -2827,7 +2827,7 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 	if err := Run([]string{"-Command", "continue", "-Apply", "login", "-Executor", "installed-session", "-ExpectedExecutorGeneration", "1", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"continue reviewer dispatch intake summary：total=1", "continue reviewer dispatch next action runbook：shard=shard-02", "dispatch read-only reviewer", "after saving reviewer JSON, run staging preview", "continue reviewer dispatch intake runbook：shard=shard-02"} {
+	for _, expected := range []string{"continue reviewer dispatch intake summary：total=1", "continue reviewer dispatch next action runbook：shard=shard-02", "dispatch read-only reviewer", "after saving reviewer JSON input, run source capture preview", "continue reviewer dispatch intake runbook：shard=shard-02"} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("installed entrypoint continue reviewer runbook text missing %q:\n%s", expected, out.String())
 		}
@@ -7878,7 +7878,7 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 		"plan-subagents reviewer orchestration summary current action：state=ready-for-reviewer-dispatch source=reviewerOrchestration.dispatch blocked=false requiresReview=true command=`dispatch read-only reviewer for shard-01",
 		"plan-subagents reviewer orchestration summary next action：state=ready-for-reviewer-batch-intake-preview source=reviewerOrchestration.batchIntake.preview blocked=true requiresReview=true",
 		"plan-subagents reviewer orchestration summary boundary：planning summary is read-only; full reviewerOrchestration dispatches, lifecycle, action queue, and shard handoffs remain available",
-		"plan-subagents reviewer orchestration scope：scope=dispatch read-only reviewers, save each JSON to reviewerStagingCommands.sourcePath, publish a validated packet-derived candidate with staging preview/expected-hash apply, publish immutable canonical results with collection preview/apply, then run packet-level ready-result batch intake preview/apply packet=",
+		"plan-subagents reviewer orchestration scope：scope=dispatch read-only reviewers, save each JSON to a symlink-free case-local input, run source capture preview/expected-input-hash apply to publish reviewerStagingCommands.sourcePath, publish a validated packet-derived candidate with staging preview/expected-source-hash apply, publish immutable canonical results with collection preview/apply, then run packet-level ready-result batch intake preview/apply packet=",
 		"plan-subagents reviewer orchestration owner：targetLane=devirt-main mode=attached-case-board-missing currentExecutor=unassigned generation=0 requiredForIntake=false spawnOwner=main-agent",
 		"plan-subagents reviewer orchestration lifecycle：step=dispatch-reviewers owner=main-agent inputs=reviewerOrchestration.dispatches[].dispatchPromptPath,reviewerOrchestration.dispatches[].dispatchPromptSha256,ownerBinding,packetPath mustPass=one reviewerSession is assigned per reviewer result,reviewers receive only the hashed prompt artifact, read-only boundary, and shard items,no reviewer writes files or ledgers nextOnSuccess=collect-results",
 		"plan-subagents reviewer orchestration boundary：boundary=runtime does not spawn subagents",
@@ -7888,12 +7888,15 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 		"plan-subagents shard owner binding：shard=shard-01 targetLane=devirt-main mode=attached-case-board-missing currentExecutor=unassigned generation=0 requiredForIntake=false spawnOwner=main-agent",
 		"plan-subagents shard owner boundary：shard=shard-01 boundary=runtime only records reviewer owner provenance; it does not spawn, stop, monitor, or manage reviewer/member sessions",
 		"plan-subagents reviewer writeback：shard=shard-01 handoff=/rekit plan-subagents -ReviewerResultPath ... -WhatIf/-Apply validates reviewer results and writes verification-before-decision facts for the main agent",
-		"plan-subagents shard next action：shard=shard-01 action=launch a read-only reviewer with agentToolRequest.promptPath, verify promptSha256, inspect its JSON against reviewerResultContract, save the single JSON object to reviewerStagingCommands.sourcePath, run reviewerStagingCommands.previewCommand then its expected-hash Apply command, run reviewerCollectionCommands.previewCommand then applyCommand, then use packet-level batch intake WhatIf before Apply; direct plan-subagents -ReviewerResultPath intake remains available for legacy packets",
+		"plan-subagents shard next action：shard=shard-01 action=launch a read-only reviewer with agentToolRequest.promptPath, verify promptSha256, inspect its JSON against reviewerResultContract, save the single JSON object to a symlink-free case-local input, run reviewerStagingCommands.sourceCaptureCommand then reviewerStagingCommands.sourceCaptureApply with the expected input hash, run reviewerStagingCommands.previewCommand then its expected-source-hash Apply command, run reviewerCollectionCommands.previewCommand then applyCommand, then use packet-level batch intake WhatIf before Apply; direct plan-subagents -ReviewerResultPath intake remains available for legacy packets",
 		"plan-subagents shard agent tool request：shard=shard-01 tool=Claude Code Agent agentType=read-only-reviewer readOnly=true promptPath=",
 		"promptSha256=",
 		"expectedOutput=exactly one ReviewerResult JSON object; no Markdown fence or surrounding prose",
 		"plan-subagents reviewer result candidate：shard=shard-01 path=",
 		"canonical=",
+		"plan-subagents reviewer source capture command：shard=shard-01 input=<case-local-reviewer-json-input> sourcePath=",
+		"-CaptureReviewerResultSource",
+		"-ExpectedReviewerResultInputSha256 <inputSha256-from-WhatIf> -Apply -Format json`",
 		"plan-subagents reviewer staging command：shard=shard-01 source=",
 		"-StageReviewerResult",
 		"-ReviewerResultSourcePath ",
@@ -13279,114 +13282,120 @@ func assertAuthorizedGateAdapterHandoffSnapshot(t *testing.T, label string, item
 }
 
 type reviewerDispatchIntakeCLIItem struct {
-	PacketID                         string   `json:"packetId"`
-	PacketPath                       string   `json:"packetPath"`
-	SummaryPath                      string   `json:"summaryPath"`
-	ResultRoot                       string   `json:"resultRoot"`
-	TargetLane                       string   `json:"targetLane"`
-	ShardID                          string   `json:"shardId"`
-	DispatchIndex                    int      `json:"dispatchIndex"`
-	DispatchTotal                    int      `json:"dispatchTotal"`
-	DispatchCompleted                int      `json:"dispatchCompleted"`
-	DispatchOpen                     int      `json:"dispatchOpen"`
-	DispatchWaitingForReviewerResult int      `json:"dispatchWaitingForReviewerResult"`
-	DispatchReadyForPreview          int      `json:"dispatchReadyForPreview"`
-	DispatchAttachRequired           int      `json:"dispatchAttachRequired"`
-	DispatchOnlyOpen                 int      `json:"dispatchOnlyOpen"`
-	LatestCompletedShardID           string   `json:"latestCompletedShardId"`
-	NextOpenShardID                  string   `json:"nextOpenShardId"`
-	RemainingShardIDs                []string `json:"remainingShardIds"`
-	State                            string   `json:"state"`
-	ReviewerResultPath               string   `json:"reviewerResultPath"`
-	ReviewerResultPresent            bool     `json:"reviewerResultPresent"`
-	ReviewerResultState              string   `json:"reviewerResultState"`
-	ReviewerResultSourcePath         string   `json:"reviewerResultSourcePath"`
-	ReviewerResultSourceState        string   `json:"reviewerResultSourceState"`
-	ReviewerResultCandidatePath      string   `json:"reviewerResultCandidatePath"`
-	ReviewerResultCandidateState     string   `json:"reviewerResultCandidateState"`
-	DispatchPromptPath               string   `json:"dispatchPromptPath"`
-	DispatchPromptSHA256             string   `json:"dispatchPromptSha256"`
-	DispatchPromptState              string   `json:"dispatchPromptState"`
-	DispatchPromptCurrent            bool     `json:"dispatchPromptCurrent"`
-	DispatchPromptActualSHA256       string   `json:"dispatchPromptActualSha256"`
-	DispatchPromptFailure            string   `json:"dispatchPromptFailure"`
-	DispatchPromptRepairCommand      string   `json:"dispatchPromptRepairCommand"`
-	ReviewerResultStagingCommand     string   `json:"reviewerResultStagingCommand"`
-	IntakeAvailable                  bool     `json:"intakeAvailable"`
-	DispatchOnly                     bool     `json:"dispatchOnly"`
-	VerificationRecorded             bool     `json:"verificationRecorded"`
-	DecisionRecorded                 bool     `json:"decisionRecorded"`
-	DispatchCommand                  string   `json:"dispatchCommand"`
-	PreviewCommand                   string   `json:"previewCommand"`
-	ApplyCommand                     string   `json:"applyCommand"`
-	BatchPreviewCommand              string   `json:"batchPreviewCommand"`
-	BatchApplyCommand                string   `json:"batchApplyCommand"`
-	OwnerExecutor                    string   `json:"ownerExecutor"`
-	OwnerGeneration                  int      `json:"ownerGeneration"`
-	OwnerBindingMode                 string   `json:"ownerBindingMode"`
-	RunbookSteps                     []string `json:"runbookSteps"`
-	Evidence                         []string `json:"evidence"`
-	Boundary                         []string `json:"boundary"`
+	PacketID                                string   `json:"packetId"`
+	PacketPath                              string   `json:"packetPath"`
+	SummaryPath                             string   `json:"summaryPath"`
+	ResultRoot                              string   `json:"resultRoot"`
+	TargetLane                              string   `json:"targetLane"`
+	ShardID                                 string   `json:"shardId"`
+	DispatchIndex                           int      `json:"dispatchIndex"`
+	DispatchTotal                           int      `json:"dispatchTotal"`
+	DispatchCompleted                       int      `json:"dispatchCompleted"`
+	DispatchOpen                            int      `json:"dispatchOpen"`
+	DispatchWaitingForReviewerResult        int      `json:"dispatchWaitingForReviewerResult"`
+	DispatchReadyForPreview                 int      `json:"dispatchReadyForPreview"`
+	DispatchAttachRequired                  int      `json:"dispatchAttachRequired"`
+	DispatchOnlyOpen                        int      `json:"dispatchOnlyOpen"`
+	LatestCompletedShardID                  string   `json:"latestCompletedShardId"`
+	NextOpenShardID                         string   `json:"nextOpenShardId"`
+	RemainingShardIDs                       []string `json:"remainingShardIds"`
+	State                                   string   `json:"state"`
+	ReviewerResultPath                      string   `json:"reviewerResultPath"`
+	ReviewerResultPresent                   bool     `json:"reviewerResultPresent"`
+	ReviewerResultState                     string   `json:"reviewerResultState"`
+	ReviewerResultSourcePath                string   `json:"reviewerResultSourcePath"`
+	ReviewerResultSourceState               string   `json:"reviewerResultSourceState"`
+	ReviewerResultCandidatePath             string   `json:"reviewerResultCandidatePath"`
+	ReviewerResultCandidateState            string   `json:"reviewerResultCandidateState"`
+	DispatchPromptPath                      string   `json:"dispatchPromptPath"`
+	DispatchPromptSHA256                    string   `json:"dispatchPromptSha256"`
+	DispatchPromptState                     string   `json:"dispatchPromptState"`
+	DispatchPromptCurrent                   bool     `json:"dispatchPromptCurrent"`
+	DispatchPromptActualSHA256              string   `json:"dispatchPromptActualSha256"`
+	DispatchPromptFailure                   string   `json:"dispatchPromptFailure"`
+	DispatchPromptRepairCommand             string   `json:"dispatchPromptRepairCommand"`
+	ReviewerResultSourceCaptureCommand      string   `json:"reviewerResultSourceCaptureCommand"`
+	ReviewerResultSourceCaptureApplyCommand string   `json:"reviewerResultSourceCaptureApplyCommand"`
+	ReviewerResultStagingCommand            string   `json:"reviewerResultStagingCommand"`
+	IntakeAvailable                         bool     `json:"intakeAvailable"`
+	DispatchOnly                            bool     `json:"dispatchOnly"`
+	VerificationRecorded                    bool     `json:"verificationRecorded"`
+	DecisionRecorded                        bool     `json:"decisionRecorded"`
+	DispatchCommand                         string   `json:"dispatchCommand"`
+	PreviewCommand                          string   `json:"previewCommand"`
+	ApplyCommand                            string   `json:"applyCommand"`
+	BatchPreviewCommand                     string   `json:"batchPreviewCommand"`
+	BatchApplyCommand                       string   `json:"batchApplyCommand"`
+	OwnerExecutor                           string   `json:"ownerExecutor"`
+	OwnerGeneration                         int      `json:"ownerGeneration"`
+	OwnerBindingMode                        string   `json:"ownerBindingMode"`
+	RunbookSteps                            []string `json:"runbookSteps"`
+	Evidence                                []string `json:"evidence"`
+	Boundary                                []string `json:"boundary"`
 }
 
 type reviewerDispatchIntakeSummaryCLIItem struct {
-	Total                                  int      `json:"total"`
-	WaitingForReviewerResult               int      `json:"waitingForReviewerResult"`
-	ReadyForPreview                        int      `json:"readyForPreview"`
-	AttachRequired                         int      `json:"attachRequired"`
-	DispatchOnly                           int      `json:"dispatchOnly"`
-	PromptArtifactBlocked                  int      `json:"promptArtifactBlocked"`
-	LaneCount                              int      `json:"laneCount"`
-	Lanes                                  []string `json:"lanes"`
-	PacketCount                            int      `json:"packetCount"`
-	LatestPacketDispatchTotal              int      `json:"latestPacketDispatchTotal"`
-	LatestPacketDispatchCompleted          int      `json:"latestPacketDispatchCompleted"`
-	LatestPacketDispatchOpen               int      `json:"latestPacketDispatchOpen"`
-	LatestPacketNextOpenShardID            string   `json:"latestPacketNextOpenShardId"`
-	LatestCompletedShardID                 string   `json:"latestCompletedShardId"`
-	RemainingShardIDs                      []string `json:"remainingShardIds"`
-	LatestPacketPath                       string   `json:"latestPacketPath"`
-	LatestShardID                          string   `json:"latestShardId"`
-	LatestState                            string   `json:"latestState"`
-	LatestReviewerResultPath               string   `json:"latestReviewerResultPath"`
-	LatestDispatchPromptPath               string   `json:"latestDispatchPromptPath"`
-	LatestDispatchPromptSHA256             string   `json:"latestDispatchPromptSha256"`
-	LatestDispatchPromptState              string   `json:"latestDispatchPromptState"`
-	LatestDispatchPromptCurrent            bool     `json:"latestDispatchPromptCurrent"`
-	LatestDispatchPromptActualSHA256       string   `json:"latestDispatchPromptActualSha256"`
-	LatestDispatchPromptFailure            string   `json:"latestDispatchPromptFailure"`
-	LatestReviewerResultSourcePath         string   `json:"latestReviewerResultSourcePath"`
-	LatestReviewerResultSourceState        string   `json:"latestReviewerResultSourceState"`
-	LatestReviewerResultCandidatePath      string   `json:"latestReviewerResultCandidatePath"`
-	LatestReviewerResultCandidateState     string   `json:"latestReviewerResultCandidateState"`
-	LatestReviewerResultStagingCommand     string   `json:"latestReviewerResultStagingCommand"`
-	LatestPreviewCommand                   string   `json:"latestPreviewCommand"`
-	LatestApplyCommand                     string   `json:"latestApplyCommand"`
-	LatestBatchPreviewCommand              string   `json:"latestBatchPreviewCommand"`
-	LatestBatchApplyCommand                string   `json:"latestBatchApplyCommand"`
-	NextActionShardID                      string   `json:"nextActionShardId"`
-	NextActionState                        string   `json:"nextActionState"`
-	NextActionDispatchPromptPath           string   `json:"nextActionDispatchPromptPath"`
-	NextActionDispatchPromptSHA256         string   `json:"nextActionDispatchPromptSha256"`
-	NextActionDispatchPromptState          string   `json:"nextActionDispatchPromptState"`
-	NextActionDispatchPromptCurrent        bool     `json:"nextActionDispatchPromptCurrent"`
-	NextActionDispatchPromptActualSHA256   string   `json:"nextActionDispatchPromptActualSha256"`
-	NextActionDispatchPromptFailure        string   `json:"nextActionDispatchPromptFailure"`
-	NextActionDispatchPromptRepairCommand  string   `json:"nextActionDispatchPromptRepairCommand"`
-	NextActionReviewerResultSourcePath     string   `json:"nextActionReviewerResultSourcePath"`
-	NextActionReviewerResultSourceState    string   `json:"nextActionReviewerResultSourceState"`
-	NextActionReviewerResultCandidatePath  string   `json:"nextActionReviewerResultCandidatePath"`
-	NextActionReviewerResultCandidateState string   `json:"nextActionReviewerResultCandidateState"`
-	NextActionReviewerResultStagingCommand string   `json:"nextActionReviewerResultStagingCommand"`
-	NextActionCollectionPreviewCommand     string   `json:"nextActionCollectionPreviewCommand"`
-	NextActionCollectionApplyCommand       string   `json:"nextActionCollectionApplyCommand"`
-	NextActionPreviewCommand               string   `json:"nextActionPreviewCommand"`
-	NextActionApplyCommand                 string   `json:"nextActionApplyCommand"`
-	NextActionBatchPreviewCommand          string   `json:"nextActionBatchPreviewCommand"`
-	NextActionBatchApplyCommand            string   `json:"nextActionBatchApplyCommand"`
-	NextAction                             string   `json:"nextAction"`
-	NextActionRunbookSteps                 []string `json:"nextActionRunbookSteps"`
-	Boundary                               []string `json:"boundary"`
+	Total                                             int      `json:"total"`
+	WaitingForReviewerResult                          int      `json:"waitingForReviewerResult"`
+	ReadyForPreview                                   int      `json:"readyForPreview"`
+	AttachRequired                                    int      `json:"attachRequired"`
+	DispatchOnly                                      int      `json:"dispatchOnly"`
+	PromptArtifactBlocked                             int      `json:"promptArtifactBlocked"`
+	LaneCount                                         int      `json:"laneCount"`
+	Lanes                                             []string `json:"lanes"`
+	PacketCount                                       int      `json:"packetCount"`
+	LatestPacketDispatchTotal                         int      `json:"latestPacketDispatchTotal"`
+	LatestPacketDispatchCompleted                     int      `json:"latestPacketDispatchCompleted"`
+	LatestPacketDispatchOpen                          int      `json:"latestPacketDispatchOpen"`
+	LatestPacketNextOpenShardID                       string   `json:"latestPacketNextOpenShardId"`
+	LatestCompletedShardID                            string   `json:"latestCompletedShardId"`
+	RemainingShardIDs                                 []string `json:"remainingShardIds"`
+	LatestPacketPath                                  string   `json:"latestPacketPath"`
+	LatestShardID                                     string   `json:"latestShardId"`
+	LatestState                                       string   `json:"latestState"`
+	LatestReviewerResultPath                          string   `json:"latestReviewerResultPath"`
+	LatestDispatchPromptPath                          string   `json:"latestDispatchPromptPath"`
+	LatestDispatchPromptSHA256                        string   `json:"latestDispatchPromptSha256"`
+	LatestDispatchPromptState                         string   `json:"latestDispatchPromptState"`
+	LatestDispatchPromptCurrent                       bool     `json:"latestDispatchPromptCurrent"`
+	LatestDispatchPromptActualSHA256                  string   `json:"latestDispatchPromptActualSha256"`
+	LatestDispatchPromptFailure                       string   `json:"latestDispatchPromptFailure"`
+	LatestReviewerResultSourcePath                    string   `json:"latestReviewerResultSourcePath"`
+	LatestReviewerResultSourceState                   string   `json:"latestReviewerResultSourceState"`
+	LatestReviewerResultCandidatePath                 string   `json:"latestReviewerResultCandidatePath"`
+	LatestReviewerResultCandidateState                string   `json:"latestReviewerResultCandidateState"`
+	LatestReviewerResultSourceCaptureCommand          string   `json:"latestReviewerResultSourceCaptureCommand"`
+	LatestReviewerResultSourceCaptureApplyCommand     string   `json:"latestReviewerResultSourceCaptureApplyCommand"`
+	LatestReviewerResultStagingCommand                string   `json:"latestReviewerResultStagingCommand"`
+	LatestPreviewCommand                              string   `json:"latestPreviewCommand"`
+	LatestApplyCommand                                string   `json:"latestApplyCommand"`
+	LatestBatchPreviewCommand                         string   `json:"latestBatchPreviewCommand"`
+	LatestBatchApplyCommand                           string   `json:"latestBatchApplyCommand"`
+	NextActionShardID                                 string   `json:"nextActionShardId"`
+	NextActionState                                   string   `json:"nextActionState"`
+	NextActionDispatchPromptPath                      string   `json:"nextActionDispatchPromptPath"`
+	NextActionDispatchPromptSHA256                    string   `json:"nextActionDispatchPromptSha256"`
+	NextActionDispatchPromptState                     string   `json:"nextActionDispatchPromptState"`
+	NextActionDispatchPromptCurrent                   bool     `json:"nextActionDispatchPromptCurrent"`
+	NextActionDispatchPromptActualSHA256              string   `json:"nextActionDispatchPromptActualSha256"`
+	NextActionDispatchPromptFailure                   string   `json:"nextActionDispatchPromptFailure"`
+	NextActionDispatchPromptRepairCommand             string   `json:"nextActionDispatchPromptRepairCommand"`
+	NextActionReviewerResultSourcePath                string   `json:"nextActionReviewerResultSourcePath"`
+	NextActionReviewerResultSourceState               string   `json:"nextActionReviewerResultSourceState"`
+	NextActionReviewerResultCandidatePath             string   `json:"nextActionReviewerResultCandidatePath"`
+	NextActionReviewerResultCandidateState            string   `json:"nextActionReviewerResultCandidateState"`
+	NextActionReviewerResultSourceCaptureCommand      string   `json:"nextActionReviewerResultSourceCaptureCommand"`
+	NextActionReviewerResultSourceCaptureApplyCommand string   `json:"nextActionReviewerResultSourceCaptureApplyCommand"`
+	NextActionReviewerResultStagingCommand            string   `json:"nextActionReviewerResultStagingCommand"`
+	NextActionCollectionPreviewCommand                string   `json:"nextActionCollectionPreviewCommand"`
+	NextActionCollectionApplyCommand                  string   `json:"nextActionCollectionApplyCommand"`
+	NextActionPreviewCommand                          string   `json:"nextActionPreviewCommand"`
+	NextActionApplyCommand                            string   `json:"nextActionApplyCommand"`
+	NextActionBatchPreviewCommand                     string   `json:"nextActionBatchPreviewCommand"`
+	NextActionBatchApplyCommand                       string   `json:"nextActionBatchApplyCommand"`
+	NextAction                                        string   `json:"nextAction"`
+	NextActionRunbookSteps                            []string `json:"nextActionRunbookSteps"`
+	Boundary                                          []string `json:"boundary"`
 }
 
 func assertReviewerDispatchIntakeSummary(t *testing.T, label string, summary reviewerDispatchIntakeSummaryCLIItem, total, waiting, ready int, latestShard, latestState string) {

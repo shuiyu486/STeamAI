@@ -16,6 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 601：capture-first reviewer handoff closure
+
+状态：已完成 runtime/test/doc 工作树实现、focused reviewer product-path tests、受影响 package tests 与完整本地 release minimum；implementation commit/push 与 remote release-gate inspection 待完成。
+
+目标：补齐 Batch 600 后的下游接手断点：runtime 已提供 `plan-subagents -CaptureReviewerResultSource`，但 fresh plan terminal、reviewer orchestration summary、status/handoff/continue runbook 与 Mission Commander current action 仍可能把 replacement executor 引回旧的“保存 reviewer JSON/source 后直接 staging”路径。新会话第一屏应明确先保存 symlink-free case-local input，运行 capture WhatIf，复核 `inputSha256` 后 hash-gated Apply 发布 packet-derived source，再进入 staging、collection 与 intake。
+
+已实现内容：
+
+- Fresh `ReviewerResultStagingCommands` 兼容新增 `sourceCaptureInput`、`sourceCaptureCommand` 与 `sourceCaptureApply`，plan terminal 现在先打印 `plan-subagents reviewer source capture command`，再打印 staging command；`reviewerOrchestration.scope`、lifecycle、shard next action、dispatch command 与 reviewer prompt 都改为 capture-first，不再要求主 Agent 手写 `reviewerStagingCommands.sourcePath`。
+- Downstream `ReviewerDispatchIntakeHandoff` / compact summary 兼容新增 source capture preview/apply command 字段；status/handoff/continue、durable runbook 与 Mission Commander reviewer queue 的 waiting shard next action 现在显示“保存 reviewer JSON input → source capture preview → expected-input-hash Apply → staging preview”的最小接续链路。
+- Workstream 对 legacy packet 保留 fallback 派生 capture preview/apply 命令；fresh canonical packet 继续从 packet-derived source/candidate/canonical bindings 重建 staging/collection command，invalid/forged source/candidate 仍 fail-closed，不自动覆盖或绕过 collection。
+- CLI text 输出同步在 reviewer dispatch next action、per-item reviewer result source 与 plan shard handoff 中显示 source capture preview/apply，installed case-local `/rekit` product-path 覆盖 partial reviewer intake 后继续阻塞普通 `continue`，并把 remaining shard 的 first-screen runbook 指向 capture-first。
+- `.claude/skills/rekit/SKILL.md` 同步更新 reviewer path 说明，避免技能入口继续描述 Batch 562 的手写 bounded source 路径。
+
+边界：本批只增强 transient handoff/runbook/terminal guidance 与兼容新增 optional packet/summary 字段；不新增 required durable schema，不执行 reviewer spawn/stop/poll/monitor，不创建 reviewer result/candidate/canonical artifact，不执行 capture/staging/collection/intake，不写 facts/ledger/authority/confirmed，不新增 PowerShell runtime logic。legacy direct/noncanonical packet intake 兼容路径保留。
+
+验证结果：focused `go test ./internal/rekit/workstream ./internal/rekit/cli -run "TestReviewerDispatchIntake|TestRunPlanSubagentsReviewerOrchestrationE2E|TestRunInstalledCaseShimProductPathStatusAndRefresh|TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E" -count=1` 已通过；受影响 package `go test ./internal/rekit/subagents ./internal/rekit/workstream ./internal/rekit/cli -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。
+
 ### Batch 600：reviewer result source capture product-path closure
 
 状态：已完成 runtime/test/doc 工作树实现、focused product-path tests、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `e8e085a` 已推送。implementation run `30173906579` completed failure，macOS/Linux/Windows jobs `89719477720`/`89719477726`/`89719477756` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。
