@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 604：release readiness evidence-scope parser closure
 
-状态：已完成 runtime/test/doc 工作树实现、focused release readiness parser tests、受影响 package tests 与本地 read-only release/status 验证；尚未创建本批代码提交，尚未检查本批对应的远程 workflow run。本批仍按 Windows 本机可验证 product-path 推进；远程 release-gate 若继续出现 jobs `steps=[]` 且无 logs，应仅记录为既有 runner/billing blocker，不能声明 remote CI green，也不要为后续 release inspection 记录自身的 CI 追加第三个记录提交。
+状态：已完成 runtime/test/doc 工作树实现、focused release readiness parser tests、受影响 package tests、完整本地 release minimum 与本地 read-only release/status 验证；最终 parser precedence 修正尚未提交推送，尚未检查最终代码提交对应的远程 workflow run。本批仍按 Windows 本机可验证 product-path 推进；远程 release-gate 若继续出现 jobs `steps=[]` 且无 logs，应仅记录为既有 runner/billing blocker，不能声明 remote CI green，也不要为后续 release inspection 记录自身的 CI 追加第三个记录提交。
 
 目标：补齐 Batch 603 暴露出的 release readiness parser 真实断点：latest-batch parser 会从 `docs/batch-plan.md` 的状态/验证结果短文本推导 Mission Commander release handoff，但此前仍以全文关键词识别 `commit/push`、`release inspection`、`release-gate run`、`steps=[]`。当当前批次为了说明 push cadence 或 known blocker 而写入 policy/boundary 文案时，parser 可能把尚未提交/尚未检查远程 run 的批次误判为已 inspection 或 blocked remote run。release/status first-screen 应只从明确 evidence/status 句推导 readiness，不让 policy guidance 伪造远程状态。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：本批只增强 release/status read-only latest-batch handoff truthfulness；不执行远程 CI，不修改 workflow，不改变 release gate inventory，不创建或删除 PR/run，不写 authority/confirmed，不新增 PowerShell runtime logic。
 
-验证结果：focused `go test ./internal/rekit/releasecheck -run "TestLatestBatch|TestReleaseHandoffInventoryFromRepo" -count=1` 已通过；受影响 package `go test ./internal/rekit/releasecheck ./internal/rekit/cli -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。read-only status 同时验证：Batch 603 completed inspection record 仍解析为 `remoteReleaseGate=blocked: completed failure with jobs steps=[]` 与 `releaseInspectionCadence.state=complete`；Batch 604 在尚未创建代码提交/尚未检查远程 workflow run 时应保持 `implementation-pending` / `remoteReleaseGate=not-recorded`。
+验证结果：focused `go test ./internal/rekit/releasecheck -run "TestLatestBatch|TestReleaseHandoffInventoryFromRepo" -count=1` 已通过；受影响 package `go test ./internal/rekit/releasecheck ./internal/rekit/cli -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。read-only status 同时验证：当前 Batch 604 在最终 parser fix 尚未提交推送/尚未检查远程 workflow run 时保持 `implementation-pending` / `remoteReleaseGate=not-recorded`；explicit remote run evidence 优先于 stale pending wording 的 completed blocker 场景由 focused tests 覆盖。
 
 ### Batch 603：execution evidence review runbook closure
 

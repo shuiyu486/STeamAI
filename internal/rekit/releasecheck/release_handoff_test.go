@@ -327,6 +327,21 @@ func TestLatestBatchReleaseReadinessWaitsForRemoteInspectionAfterImplementationP
 	}
 }
 
+func TestLatestBatchReleaseReadinessPrefersExplicitRemoteEvidenceOverStalePendingText(t *testing.T) {
+	section := `状态：已完成 runtime/test/doc 工作树实现、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit ` + "`" + `abc123d` + "`" + ` 已推送并进入 PR #10。PR run ` + "`" + `123456789` + "`" + ` completed failure，Linux/macOS/Windows jobs ` + "`" + `111111111` + "`" + `/` + "`" + `222222222` + "`" + `/` + "`" + `333333333` + "`" + ` 均 ` + "`" + `steps=[]` + "`" + `、` + "`" + `runner_id=0` + "`" + ` 且无 logs，仍属既有 runner/billing blocker。
+
+验证结果：完整本地 release minimum 已通过；read-only status 同时验证：本批在尚未创建代码提交/尚未检查远程 workflow run 时应保持 ` + "`" + `implementation-pending` + "`" + ` / ` + "`" + `remoteReleaseGate=not-recorded` + "`" + `。`
+
+	handoff := latestBatchHandoff(ReleaseHandoffLatestBatch{Status: "已完成 fixture"}, section)
+	if handoff.RemoteReleaseGate != "blocked: completed failure with jobs steps=[]" || handoff.RemoteReleaseGateDetail == nil || !handoff.RemoteReleaseGateDetail.EmptySteps || !handoff.RemoteReleaseGateDetail.CompletedFailure {
+		t.Fatalf("explicit remote evidence should win over stale pending wording: %+v", handoff.RemoteReleaseGateDetail)
+	}
+	cadence := handoff.ReleaseInspectionCadence
+	if cadence.State != "complete" || !cadence.ImplementationCommitReady || !cadence.InspectionCommitReady || !releaseHandoffStringsContain(cadence.Evidence, "release inspection commit/run recorded") || !releaseHandoffStringsContain(cadence.Evidence, "remote release-gate steps=[] blocker recorded") {
+		t.Fatalf("explicit remote evidence should complete cadence: %+v", cadence)
+	}
+}
+
 func TestReleaseHandoffPackMemoryCandidatesDetectsOpenResidue(t *testing.T) {
 	repo := t.TempDir()
 	candidatePath := filepath.Join(repo, "packs", "fixture", "promote-candidates", "candidate.candidate.md")

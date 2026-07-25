@@ -3428,10 +3428,6 @@ func latestBatchHasLocalValidation(text string) bool {
 }
 
 func latestBatchRemoteReleaseGate(text string) string {
-	lower := strings.ToLower(text)
-	if latestBatchRemoteInspectionPending(text, lower) {
-		return "not-recorded"
-	}
 	remoteText := latestBatchRemoteEvidenceText(text)
 	if strings.TrimSpace(remoteText) == "" {
 		return "not-recorded"
@@ -3468,18 +3464,22 @@ func latestBatchRemoteEvidenceText(text string) string {
 }
 
 func latestBatchRemoteEvidenceClause(clause, lower string) bool {
+	if latestBatchRemoteInspectionPending(clause, lower) {
+		return false
+	}
 	if latestBatchRemoteGreen(clause, lower) {
-		return true
-	}
-	if strings.Contains(lower, "release-gate run") || strings.Contains(lower, "workflow run") || strings.Contains(lower, "pr run") || strings.Contains(lower, "implementation run") {
-		return true
-	}
-	if strings.Contains(clause, "远程 release-gate") && (strings.Contains(clause, "已检查") || strings.Contains(clause, "已记录")) {
 		return true
 	}
 	remoteContext := strings.Contains(lower, "release-gate") || strings.Contains(lower, "remote") || strings.Contains(clause, "远程")
 	jobContext := strings.Contains(lower, "job") || strings.Contains(lower, "jobs")
 	completed := strings.Contains(lower, "completed") || strings.Contains(lower, "failure") || strings.Contains(lower, "success")
+	runContext := strings.Contains(lower, "release-gate run") || strings.Contains(lower, "workflow run") || strings.Contains(lower, "pr run") || strings.Contains(lower, "implementation run")
+	if runContext {
+		return len(latestBatchRemoteRunRefs(clause)) > 0 || jobContext || completed
+	}
+	if strings.Contains(clause, "远程 release-gate") && (strings.Contains(clause, "已检查") || strings.Contains(clause, "已记录")) {
+		return true
+	}
 	return remoteContext && jobContext && completed
 }
 
@@ -3608,11 +3608,7 @@ func latestBatchImplementationCommitReady(text string) bool {
 	return false
 }
 
-func latestBatchInspectionCommitReady(text string, handoff ReleaseHandoffLatestBatchHandoff) bool {
-	lower := strings.ToLower(text)
-	if latestBatchRemoteInspectionPending(text, lower) {
-		return false
-	}
+func latestBatchInspectionCommitReady(_ string, handoff ReleaseHandoffLatestBatchHandoff) bool {
 	return handoff.RemoteReleaseGate != "not-recorded"
 }
 
