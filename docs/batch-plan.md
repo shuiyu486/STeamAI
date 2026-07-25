@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 598：empty-case onboarding current action closure
 
-状态：已完成 runtime/test/doc 工作树实现、focused tests 与完整本地 release minimum；implementation commit/push 与远程 release-gate inspection 待执行。本批 release-check/status 在提交前应把 release inspection cadence 保持为 implementation-pending，不记录远程 CI green。
+状态：已完成 runtime/test/doc 工作树实现、focused tests、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `6a3f130` 已推送。implementation run `30171293954` completed failure，macOS/Linux/Windows jobs `89712780321`/`89712780326`/`89712780336` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。
 
 目标：修复 Batch 597 后仍暴露的新 case / 空 mission 接手断点：case-local 默认 `/rekit` first-screen 在 `.rekit/board.json` 缺失时可能显示 `focus=none`，只在后续 generic `missionBriefNextActions[]` 中提示运行 overview。新会话或 replacement executor 需要第一屏直接看到最小可执行 onboarding current action，先初始化 bounded case-local Mission Commander board，再回到 `/rekit` 选择 `continue main` 或 `start <name>`。
 
