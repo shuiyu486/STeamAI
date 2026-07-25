@@ -5454,7 +5454,7 @@ func writeReviewerDispatchIntakeHandoffText(out io.Writer, prefix string, items 
 		}
 	}
 	if strings.TrimSpace(summary.NextActionShardID) != "" {
-		if _, err := fmt.Fprintf(out, "%s reviewer dispatch next action：shard=%s state=%s sourceState=%s source=%s candidateState=%s candidate=%s stagingPreview=`%s` collectionPreview=`%s` batchPreview=`%s` preview=`%s` apply=`%s` nextAction=%s\n", prefix, summary.NextActionShardID, summary.NextActionState, summary.NextActionReviewerResultSourceState, summary.NextActionReviewerResultSourcePath, summary.NextActionReviewerResultCandidateState, summary.NextActionReviewerResultCandidatePath, summary.NextActionReviewerResultStagingCommand, summary.NextActionCollectionPreviewCommand, summary.NextActionBatchPreviewCommand, summary.NextActionPreviewCommand, summary.NextActionApplyCommand, summary.NextAction); err != nil {
+		if _, err := fmt.Fprintf(out, "%s reviewer dispatch next action：shard=%s state=%s sourceState=%s source=%s candidateState=%s candidate=%s sourceCapturePreview=`%s` sourceCaptureApply=`%s` stagingPreview=`%s` collectionPreview=`%s` batchPreview=`%s` preview=`%s` apply=`%s` nextAction=%s\n", prefix, summary.NextActionShardID, summary.NextActionState, summary.NextActionReviewerResultSourceState, summary.NextActionReviewerResultSourcePath, summary.NextActionReviewerResultCandidateState, summary.NextActionReviewerResultCandidatePath, summary.NextActionReviewerResultSourceCaptureCommand, summary.NextActionReviewerResultSourceCaptureApplyCommand, summary.NextActionReviewerResultStagingCommand, summary.NextActionCollectionPreviewCommand, summary.NextActionBatchPreviewCommand, summary.NextActionPreviewCommand, summary.NextActionApplyCommand, summary.NextAction); err != nil {
 			return err
 		}
 		if strings.TrimSpace(summary.NextActionDispatchPromptPath) != "" {
@@ -5498,7 +5498,7 @@ func writeReviewerDispatchIntakeHandoffText(out io.Writer, prefix string, items 
 			}
 		}
 		if strings.TrimSpace(item.ReviewerResultSourcePath) != "" {
-			if _, err := fmt.Fprintf(out, "%s reviewer result source：shard=%s source=%s state=%s stagingPreview=`%s`\n", prefix, item.ShardID, item.ReviewerResultSourcePath, item.ReviewerResultSourceState, item.ReviewerResultStagingCommand); err != nil {
+			if _, err := fmt.Fprintf(out, "%s reviewer result source：shard=%s source=%s state=%s sourceCapturePreview=`%s` sourceCaptureApply=`%s` stagingPreview=`%s`\n", prefix, item.ShardID, item.ReviewerResultSourcePath, item.ReviewerResultSourceState, item.ReviewerResultSourceCaptureCommand, item.ReviewerResultSourceCaptureApplyCommand, item.ReviewerResultStagingCommand); err != nil {
 				return err
 			}
 		}
@@ -6660,6 +6660,11 @@ func writePlanSubagentsShardHandoffText(out io.Writer, result subagents.Result) 
 			}
 		}
 		if commands := handoff.ReviewerStagingCommands; commands != nil {
+			if strings.TrimSpace(commands.SourceCaptureCommand) != "" || strings.TrimSpace(commands.SourceCaptureApply) != "" {
+				if _, err := fmt.Fprintf(out, "plan-subagents reviewer source capture command：shard=%s input=%s sourcePath=%s preview=`%s` apply=`%s`\n", handoff.ShardID, commands.SourceCaptureInput, commands.SourcePath, commands.SourceCaptureCommand, commands.SourceCaptureApply); err != nil {
+					return err
+				}
+			}
 			if _, err := fmt.Fprintf(out, "plan-subagents reviewer staging command：shard=%s source=%s sourcePath=%s preview=`%s`\n", handoff.ShardID, commands.SourcePathArgument, commands.SourcePath, commands.PreviewCommand); err != nil {
 				return err
 			}
