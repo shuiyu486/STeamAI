@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 584：reconcile replay fail-closed preflight zero-write closure
 
-状态：已完成 runtime、CLI product-path coverage、docs 与 focused validation；完整本地 release minimum、implementation commit/push 与 remote release-gate inspection 待本批收尾执行。本批收紧 Batch 583 的 deterministic replay/recovery 边界：existing resolution fact 若缺少 `eventId` / `time`，或 `executor` / `actor` / `reason` 与当前 bounded command 不一致，必须在任何 lane event、lane.json、board、RESUME 或 checkpoint 写入前 fail-closed。
+状态：已完成 runtime、CLI product-path coverage、docs、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `b521ef2` 已推送。implementation run `30149515188` completed failure，Linux/Windows/macOS jobs `89657341646`/`89657341670`/`89657341682` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。本批收紧 Batch 583 的 deterministic replay/recovery 边界：existing resolution fact 若缺少 `eventId` / `time`，或 `executor` / `actor` / `reason` 与当前 bounded command 不一致，必须在任何 lane event、lane.json、board、RESUME 或 checkpoint 写入前 fail-closed。
 
 目标：把 existing resolution replay 的完整性与 identity 校验前移到生成 deterministic lane event 之前，确保 invalid replay 是 zero-write；合法 replay 仍可复用 existing resolution identity/time，补齐 lane-local events 和 durable state。
 
@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：本批只收紧 bounded `reconcile -Apply` replay preflight；`reconcile -WhatIf` 仍 read-only，preview 不接受 resolved replay；invalid replay 不写任何 lane-local 或 durable artifact；不写 authority/confirmed、不执行 heavy tool、不新增 PowerShell runtime logic。
 
-验证结果：focused `go test ./internal/rekit/workstream ./internal/rekit/cli -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。
+验证结果：focused `go test ./internal/rekit/workstream ./internal/rekit/cli -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。remote inspection 已记录：implementation run `30149515188` completed failure，Linux/Windows/macOS jobs `89657341646`/`89657341670`/`89657341682` 均 `steps=[]`，未提供代码执行日志，按既有 runner/billing blocker 记录，不能声明 remote CI green。
 
 ### Batch 583：reconcile partial replay durable recovery closure
 
