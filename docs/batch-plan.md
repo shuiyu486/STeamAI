@@ -16,6 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 591：pack-memory candidate decision downstream runbook closure
+
+状态：已完成 runtime 派生字段、CLI text 输出、入口文档更新、focused tests 与完整本地 release minimum；implementation commit/push 与 implementation remote release-gate inspection 待执行。
+
+目标：补齐 pack-memory downstream UX residual：candidate decision WhatIf/Apply 已能 strict 绑定 packet/candidate/target/evidence hashes、写 receipt、返回 verification provisioning/verification commands 或 recovery envelope，但 Mission Commander / replacement executor 仍要跨 `actions[]`、`receipt`、`recoveryActions[]`、`nextSteps[]` 与后续 proof/reconsume命令手工拼接操作顺序。`CandidateDecisionResult` 应直接提供结果级 `decisionRunbookSteps[]`，覆盖 preview、accepted apply、reject/superseded-only apply 与 rollback/recovery envelope。
+
+已实现内容：
+
+- `CandidateDecisionResult` 新增派生 `decisionRunbookSteps[]`；WhatIf preview、Apply success、rollback/recovery 与 interrupted transaction recovery 都复用同一 helper，只读取已有 actions、receipt、recoveryActions、nextSteps、failedAction 与 counts。
+- preview runbook 提示先检查 planned actions / evidence refs；accepted preview 明确 Apply 后仍需要 verification provisioning + pack/fresh/attached reconsume proof，reject/superseded-only preview 明确 Apply 只做 cleanup/index closure。
+- Apply success runbook 按 accepted vs no accepted 分流：accepted 输出 receipt retention、receipt `verificationProvisionCommand` WhatIf、expected-hash provisioning Apply、`verificationCommand` 与 verification proof/status/doctor closure；reject/superseded-only 输出 cleanup/index confirmation 且说明不需要 fresh/attached reconsume proof。
+- rollback/recovery envelope runbook 在 cleanup failure、pre-commit failure、unfinished transaction 或 interrupted transaction recovery 后停下 downstream closure，提示先查看 `backupRoot` / `recoveryActions`，恢复后重跑 WhatIf 再 retry Apply。
+- CLI text `writePromoteCandidateDecisionText` 新增 `promote candidate decision runbook：step=<n> text=<...>` 行，使 terminal first-screen 不必解析 nested receipt/nextSteps 才能接续。
+
+边界：本批只增强 candidate decision 结果的只读 downstream runbook projection；不改变 candidate decision transaction、receipt、verification provisioning/final verification/retirement 语义；不生成 proof、不 merge tooling candidate、不执行 doctor/init/reconsume/heavy tool；不写 authority/confirmed；不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/promote ./internal/rekit/cli -run "TestApplyCandidateDecisionsPreviewsAndAppliesReviewedManagedCandidate|TestApplyCandidateDecisionsClosesToolingOnlyReject|TestApplyCandidateDecisionsRejectAndRollbackCleanupFailure|TestWritePromoteCandidateDecisionTextIncludesRunbookSteps" -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 与 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File rekit/tests/facade-smoke.ps1 -Pack _template` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。
+
 ### Batch 590：reviewer dispatch/intake first-screen runbook closure
 
 状态：已完成 runtime handoff 派生字段、CLI/product-path text 输出、入口文档更新、focused tests、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `dab7802` 已推送。implementation run `30156522308` completed failure，macOS/Windows/Linux jobs `89675249671`/`89675249673`/`89675249708` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。

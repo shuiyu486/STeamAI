@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -177,31 +178,32 @@ type CandidateDecisionReceipt struct {
 }
 
 type CandidateDecisionResult struct {
-	SchemaVersion    int                       `json:"schemaVersion"`
-	Command          string                    `json:"command"`
-	Mode             string                    `json:"mode"`
-	CaseRoot         string                    `json:"caseRoot"`
-	RepoRoot         string                    `json:"repoRoot"`
-	Pack             string                    `json:"pack"`
-	PacketPath       string                    `json:"packetPath"`
-	DecisionPath     string                    `json:"decisionPath"`
-	PacketHash       string                    `json:"packetHash"`
-	IsMutation       bool                      `json:"isMutation"`
-	Applied          bool                      `json:"applied"`
-	RolledBack       bool                      `json:"rolledBack,omitempty"`
-	RecoveryRequired bool                      `json:"recoveryRequired,omitempty"`
-	FailedAction     string                    `json:"failedAction,omitempty"`
-	Accepted         int                       `json:"accepted"`
-	Rejected         int                       `json:"rejected"`
-	Superseded       int                       `json:"superseded"`
-	BackupRoot       string                    `json:"backupRoot,omitempty"`
-	IndexPath        string                    `json:"indexPath,omitempty"`
-	ReceiptPath      string                    `json:"receiptPath,omitempty"`
-	Receipt          *CandidateDecisionReceipt `json:"receipt,omitempty"`
-	Actions          []CandidateDecisionAction `json:"actions"`
-	RecoveryActions  []string                  `json:"recoveryActions,omitempty"`
-	NextSteps        []string                  `json:"nextSteps"`
-	Boundary         []string                  `json:"boundary"`
+	SchemaVersion        int                       `json:"schemaVersion"`
+	Command              string                    `json:"command"`
+	Mode                 string                    `json:"mode"`
+	CaseRoot             string                    `json:"caseRoot"`
+	RepoRoot             string                    `json:"repoRoot"`
+	Pack                 string                    `json:"pack"`
+	PacketPath           string                    `json:"packetPath"`
+	DecisionPath         string                    `json:"decisionPath"`
+	PacketHash           string                    `json:"packetHash"`
+	IsMutation           bool                      `json:"isMutation"`
+	Applied              bool                      `json:"applied"`
+	RolledBack           bool                      `json:"rolledBack,omitempty"`
+	RecoveryRequired     bool                      `json:"recoveryRequired,omitempty"`
+	FailedAction         string                    `json:"failedAction,omitempty"`
+	Accepted             int                       `json:"accepted"`
+	Rejected             int                       `json:"rejected"`
+	Superseded           int                       `json:"superseded"`
+	BackupRoot           string                    `json:"backupRoot,omitempty"`
+	IndexPath            string                    `json:"indexPath,omitempty"`
+	ReceiptPath          string                    `json:"receiptPath,omitempty"`
+	Receipt              *CandidateDecisionReceipt `json:"receipt,omitempty"`
+	Actions              []CandidateDecisionAction `json:"actions"`
+	RecoveryActions      []string                  `json:"recoveryActions,omitempty"`
+	DecisionRunbookSteps []string                  `json:"decisionRunbookSteps,omitempty"`
+	NextSteps            []string                  `json:"nextSteps"`
+	Boundary             []string                  `json:"boundary"`
 }
 
 type candidateDecisionPlan struct {
@@ -1048,6 +1050,7 @@ func ApplyCandidateDecisions(repoRoot, caseRoot, pack string, opt CandidateDecis
 		if err != nil {
 			return CandidateDecisionResult{}, err
 		}
+		plan.result.DecisionRunbookSteps = candidateDecisionRunbookSteps(plan.result)
 		return plan.result, nil
 	}
 	m, err := manifest.Load(repoRoot, pack)
@@ -1341,6 +1344,7 @@ func applyCandidateDecisionPlan(plan candidateDecisionPlan) (CandidateDecisionRe
 		result.FailedAction = action
 		result.RecoveryRequired = true
 		result.NextSteps = []string{"inspect backupRoot and recoveryActions before retrying the reviewed decision"}
+		result.DecisionRunbookSteps = candidateDecisionRunbookSteps(result)
 		return result, &CandidateDecisionApplyError{Result: result, Err: fmt.Errorf("candidate decision apply %s: %w", action, err)}
 	}
 	if err := verifyCandidateDecisionPlan(plan); err != nil {
@@ -1440,6 +1444,7 @@ func applyCandidateDecisionPlan(plan candidateDecisionPlan) (CandidateDecisionRe
 	result.Applied = true
 	result.RecoveryRequired = false
 	result.FailedAction = ""
+	result.DecisionRunbookSteps = candidateDecisionRunbookSteps(result)
 	if err := writeCandidateDecisionCommitted(filepath.Join(backupRoot, "committed.json"), result); err != nil {
 		result.FailedAction = "write committed marker"
 		return rollbackCandidateDecision(result, mutated, plan, "write committed marker", err)
@@ -1515,6 +1520,94 @@ func writeCandidateDecisionReceipt(plan candidateDecisionPlan, result CandidateD
 		return CandidateDecisionReceipt{}, nil, err
 	}
 	return receipt, nextSteps, nil
+}
+
+func candidateDecisionRunbookSteps(result CandidateDecisionResult) []string {
+	steps := []string{}
+	add := func(step string) {
+		step = strings.TrimSpace(step)
+		if step == "" || slices.Contains(steps, step) {
+			return
+		}
+		steps = append(steps, step)
+	}
+	addNextSteps := func() {
+		for _, step := range result.NextSteps {
+			add("follow candidate decision nextSteps: " + step)
+		}
+	}
+
+	if result.RecoveryRequired || result.FailedAction != "" || result.RolledBack {
+		if result.FailedAction != "" {
+			add(fmt.Sprintf("stop candidate decision follow-through; failedAction=%s must be resolved before cleanup proof, verification, or reconsume", result.FailedAction))
+		} else {
+			add("stop candidate decision follow-through; recoveryRequired must be resolved before cleanup proof, verification, or reconsume")
+		}
+		if result.RolledBack && !result.RecoveryRequired {
+			add("rollback completed; review the recovery envelope, rerun WhatIf, then explicitly retry Apply")
+		} else if result.BackupRoot != "" {
+			add(fmt.Sprintf("inspect backupRoot %s and its transaction/rollback markers before retrying the reviewed decision", result.BackupRoot))
+		} else {
+			add("inspect the returned recovery envelope before retrying the reviewed decision")
+		}
+		if len(result.RecoveryActions) > 0 {
+			add(fmt.Sprintf("review %d recoveryActions and restore or verify the listed backups if rollback was incomplete", len(result.RecoveryActions)))
+		}
+		addNextSteps()
+		add("after recovery is complete, rerun candidate decision with -WhatIf before any new -Apply")
+		add("do not continue pack-memory downstream closure until this recovery envelope is resolved")
+		return steps
+	}
+
+	if result.Mode == "candidate-decision-preview" || !result.IsMutation {
+		add(fmt.Sprintf("inspect %d planned candidate decision actions and every evidenceRefs entry before applying", len(result.Actions)))
+		if result.Accepted > 0 {
+			add("note accepted managed-doc candidates will require receipt verification provisioning plus pack/fresh/attached reconsume proof after Apply")
+		} else {
+			add("note this decision has no accepted candidates; Apply should only clean reviewed rejected/superseded candidates and update the index")
+		}
+		addNextSteps()
+		add("rerun the identical candidate decision command with -Apply only after the reviewed packet/decision hashes still match")
+		add("do not continue pack-memory downstream closure until Apply produces a receipt or recovery envelope")
+		return steps
+	}
+
+	if result.Applied {
+		if result.ReceiptPath != "" {
+			add(fmt.Sprintf("retain candidate decision receipt %s as terminal cleanup evidence", result.ReceiptPath))
+		} else {
+			add("retain the candidate decision receipt as terminal cleanup evidence")
+		}
+		if result.Accepted > 0 {
+			if result.Receipt != nil && result.Receipt.VerificationProvisionCommand != "" {
+				add("run receipt verificationProvisionCommand with -WhatIf and inspect the no-overwrite fresh/attached verification case plan: " + result.Receipt.VerificationProvisionCommand)
+			} else {
+				add("run the receipt verificationProvisionCommand with -WhatIf and inspect the no-overwrite fresh/attached verification case plan")
+			}
+			add("run the returned expected-hash provisioning Apply command only after the fresh/attached verification roots are safe")
+			if result.Receipt != nil && result.Receipt.VerificationCommand != "" {
+				add("after provisioning succeeds, run verificationCommand to prove pack/fresh/attached doctor and reconsume closure: " + result.Receipt.VerificationCommand)
+			} else {
+				add("after provisioning succeeds, run verificationCommand to prove pack/fresh/attached doctor and reconsume closure")
+			}
+			if result.Receipt != nil && result.Receipt.VerificationProofPath != "" {
+				add("retain verification proof " + result.Receipt.VerificationProofPath + " and rerun /rekit status or doctor to confirm pack-memory candidate closure")
+			} else {
+				add("retain the candidate decision verification proof and rerun /rekit status or doctor to confirm pack-memory candidate closure")
+			}
+		} else {
+			add(fmt.Sprintf("confirm %d rejected and %d superseded candidate cleanup actions are reflected in the candidate index", result.Rejected, result.Superseded))
+			add("no fresh/attached reconsume proof is required because no accepted candidate changed pack content")
+		}
+		addNextSteps()
+		add("do not continue pack-memory downstream closure until cleanup receipt and any required verification proof are accounted for")
+		return steps
+	}
+
+	add("review candidate decision result actions, receipt, and nextSteps before continuing pack-memory downstream closure")
+	addNextSteps()
+	add("do not continue pack-memory downstream closure until candidate decision Apply, recovery, or verification follow-through is resolved")
+	return steps
 }
 
 func verifyCandidateDecisionCaseContent(packRoot, caseRoot, label string, actions []CandidateDecisionAction) error {
@@ -1683,12 +1776,14 @@ func rollbackCandidateDecision(result CandidateDecisionResult, mutated []candida
 	result.RolledBack = len(rollbackErrors) == 0
 	result.RecoveryRequired = len(rollbackErrors) != 0
 	result.NextSteps = []string{"inspect backupRoot and recoveryActions before retrying the reviewed decision"}
+	result.DecisionRunbookSteps = candidateDecisionRunbookSteps(result)
 	if len(rollbackErrors) != 0 {
 		err := fmt.Errorf("candidate decision apply %s: %w; rollback errors: %s", action, cause, strings.Join(rollbackErrors, "; "))
 		return result, &CandidateDecisionApplyError{Result: result, Err: err}
 	}
 	if markerErr := writeCandidateDecisionCommitted(filepath.Join(result.BackupRoot, "rolled-back.json"), result); markerErr != nil && !os.IsExist(markerErr) {
 		result.RecoveryRequired = true
+		result.DecisionRunbookSteps = candidateDecisionRunbookSteps(result)
 		err := fmt.Errorf("candidate decision apply %s: %w; rollback completed but marker write failed: %v", action, cause, markerErr)
 		return result, &CandidateDecisionApplyError{Result: result, Err: err}
 	}
@@ -1762,6 +1857,7 @@ func recoverCandidateDecisionTransaction(repoRoot, caseRoot, pack string, opt Ca
 			result := candidate.Result
 			result.FailedAction = "unfinished candidate decision transaction"
 			result.RecoveryRequired = true
+			result.DecisionRunbookSteps = candidateDecisionRunbookSteps(result)
 			err := fmt.Errorf("unfinished candidate decision transaction %s must be recovered with its original packet and decision before starting another decision", root)
 			return result, true, &CandidateDecisionApplyError{Result: result, Err: err}
 		}
@@ -1871,12 +1967,14 @@ func recoverCandidateDecisionTransaction(repoRoot, caseRoot, pack string, opt Ca
 	result.RolledBack = len(rollbackErrors) == 0
 	result.RecoveryRequired = len(rollbackErrors) != 0
 	result.NextSteps = []string{"review the recovered transaction, rerun WhatIf, then explicitly retry Apply"}
+	result.DecisionRunbookSteps = candidateDecisionRunbookSteps(result)
 	if len(rollbackErrors) != 0 {
 		err := fmt.Errorf("candidate decision interrupted transaction recovery failed: %s", strings.Join(rollbackErrors, "; "))
 		return result, true, &CandidateDecisionApplyError{Result: result, Err: err}
 	}
 	if err := writeCandidateDecisionCommitted(filepath.Join(transactionRoot, "rolled-back.json"), result); err != nil {
 		result.RecoveryRequired = true
+		result.DecisionRunbookSteps = candidateDecisionRunbookSteps(result)
 		err := fmt.Errorf("candidate decision interrupted transaction rolled back but marker write failed: %w", err)
 		return result, true, &CandidateDecisionApplyError{Result: result, Err: err}
 	}

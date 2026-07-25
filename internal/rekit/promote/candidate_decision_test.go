@@ -432,6 +432,22 @@ func candidateDecisionDraftNextActionForTest(items []mission.MissionCommanderNex
 	return false
 }
 
+func assertCandidateDecisionRunbookContains(t *testing.T, steps []string, wants ...string) {
+	t.Helper()
+	for _, want := range wants {
+		found := false
+		for _, step := range steps {
+			if strings.Contains(step, want) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("candidate decision runbook missing %q: %+v", want, steps)
+		}
+	}
+}
+
 func TestDraftCandidateDecisionsRejectsUnsafeInputs(t *testing.T) {
 	repoRoot, caseRoot, pack := promoteFixture(t)
 	created, err := CreateCandidates(repoRoot, caseRoot, pack, CandidateOptions{})
@@ -527,6 +543,11 @@ func TestApplyCandidateDecisionsPreviewsAndAppliesReviewedManagedCandidate(t *te
 	if preview.IsMutation || preview.Applied || preview.Accepted != 1 || preview.Rejected != 1 || len(preview.Actions) != 2 || preview.Actions[0].Action != "merge-accepted-candidate-and-cleanup" {
 		t.Fatalf("unexpected candidate decision preview: %+v", preview)
 	}
+	assertCandidateDecisionRunbookContains(t, preview.DecisionRunbookSteps,
+		"inspect 2 planned candidate decision actions",
+		"accepted managed-doc candidates will require receipt verification provisioning",
+		"rerun the identical candidate decision command with -Apply",
+	)
 	packAfterPreview, err := os.ReadFile(managed.PackTarget)
 	if err != nil {
 		t.Fatal(err)
@@ -542,6 +563,12 @@ func TestApplyCandidateDecisionsPreviewsAndAppliesReviewedManagedCandidate(t *te
 	if !applied.IsMutation || !applied.Applied || applied.Accepted != 1 || applied.BackupRoot == "" || applied.Actions[0].CandidateBackupPath == "" || applied.Actions[0].TargetBackupPath == "" {
 		t.Fatalf("unexpected candidate decision apply: %+v", applied)
 	}
+	assertCandidateDecisionRunbookContains(t, applied.DecisionRunbookSteps,
+		"retain candidate decision receipt",
+		"run receipt verificationProvisionCommand with -WhatIf",
+		"after provisioning succeeds, run verificationCommand",
+		"retain verification proof",
+	)
 	targetBytes, err := os.ReadFile(applied.Actions[0].TargetBackupPath)
 	if err != nil {
 		t.Fatal(err)
@@ -819,6 +846,10 @@ func TestApplyCandidateDecisionsClosesToolingOnlyReject(t *testing.T) {
 	if preview.IsMutation || preview.Applied || preview.Rejected != 1 || len(preview.Actions) != 1 {
 		t.Fatalf("tooling-only reject preview drifted: %+v", preview)
 	}
+	assertCandidateDecisionRunbookContains(t, preview.DecisionRunbookSteps,
+		"inspect 1 planned candidate decision actions",
+		"this decision has no accepted candidates",
+	)
 	if _, err := os.Lstat(canonicalCandidateRoot); !os.IsNotExist(err) {
 		t.Fatalf("tooling-only WhatIf created candidate root: %v", err)
 	}
@@ -829,6 +860,11 @@ func TestApplyCandidateDecisionsClosesToolingOnlyReject(t *testing.T) {
 	if applied.Accepted != 0 || applied.Rejected != 1 || applied.Receipt == nil || applied.Receipt.VerificationPending || applied.Receipt.VerificationProofPath != "" || len(applied.Actions) != 1 || applied.Actions[0].Kind != "tooling-candidate-source" {
 		t.Fatalf("tooling-only reject receipt drifted: %+v", applied)
 	}
+	assertCandidateDecisionRunbookContains(t, applied.DecisionRunbookSteps,
+		"retain candidate decision receipt",
+		"confirm 1 rejected and 0 superseded candidate cleanup actions",
+		"no fresh/attached reconsume proof is required",
+	)
 	if _, err := os.Lstat(tooling.CandidatePath); !os.IsNotExist(err) {
 		t.Fatalf("tooling reject did not clean candidate: %v", err)
 	}
@@ -1275,6 +1311,11 @@ func TestApplyCandidateDecisionsRejectAndRollbackCleanupFailure(t *testing.T) {
 	if err == nil || !result.RolledBack || result.RecoveryRequired || result.FailedAction != "cleanup candidate" {
 		t.Fatalf("cleanup failure did not return rolled-back recovery envelope: result=%+v err=%v", result, err)
 	}
+	assertCandidateDecisionRunbookContains(t, result.DecisionRunbookSteps,
+		"failedAction=cleanup candidate",
+		"rollback completed",
+		"rerun candidate decision with -WhatIf",
+	)
 	target, readErr := os.ReadFile(managed.PackTarget)
 	if readErr != nil {
 		t.Fatal(readErr)

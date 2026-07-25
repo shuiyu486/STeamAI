@@ -8455,6 +8455,11 @@ func writePromoteCandidateDecisionText(out io.Writer, result promote.CandidateDe
 			return err
 		}
 	}
+	for idx, step := range result.DecisionRunbookSteps {
+		if _, err := fmt.Fprintf(out, "promote candidate decision runbook：step=%d text=%s\n", idx+1, step); err != nil {
+			return err
+		}
+	}
 	for _, step := range result.NextSteps {
 		if _, err := fmt.Fprintf(out, "promote candidate decision next step：%s\n", step); err != nil {
 			return err

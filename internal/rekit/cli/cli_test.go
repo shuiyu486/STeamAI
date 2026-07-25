@@ -204,6 +204,36 @@ func TestParsePlanSubagentsReviewerResultRecovery(t *testing.T) {
 	}
 }
 
+func TestWritePromoteCandidateDecisionTextIncludesRunbookSteps(t *testing.T) {
+	result := promote.CandidateDecisionResult{
+		Mode:                 "candidate-decision",
+		IsMutation:           true,
+		Applied:              true,
+		Accepted:             1,
+		PacketPath:           "packet.json",
+		DecisionPath:         "decisions.json",
+		PacketHash:           strings.Repeat("a", 64),
+		BackupRoot:           "backup",
+		IndexPath:            "index.json",
+		ReceiptPath:          "receipt.json",
+		DecisionRunbookSteps: []string{"retain candidate decision receipt receipt.json as terminal cleanup evidence", "run receipt verificationProvisionCommand with -WhatIf"},
+		NextSteps:            []string{"run verificationCommand"},
+	}
+	var out bytes.Buffer
+	if err := writePromoteCandidateDecisionText(&out, result); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"promote candidate decision runbook：step=1 text=retain candidate decision receipt receipt.json as terminal cleanup evidence",
+		"promote candidate decision runbook：step=2 text=run receipt verificationProvisionCommand with -WhatIf",
+		"promote candidate decision next step：run verificationCommand",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("candidate decision text missing %q:\n%s", expected, out.String())
+		}
+	}
+}
+
 func TestParsePlanSubagentsNumericOptionsRejectTrailingJunk(t *testing.T) {
 	_, err := Parse([]string{"-Command", "plan-subagents", "-ItemsPerAgent", "2x"})
 	if err == nil || !strings.Contains(err.Error(), "invalid -ItemsPerAgent") {
