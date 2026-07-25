@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 586：blocked continue pending gate / open decision handoff closure
 
-状态：implementation in progress；已完成 runtime、CLI product-path coverage 与 focused package tests，完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection 待完成。本批延续 Batch 581–585 的 Mission Commander blocker 接手闭环：replacement executor 最常直接运行 `continue <lane>`，但 pending gate 或 open candidate/decision 仍可能让 `continue -Apply` 创建 run、写 facts、刷新 lane/board/RESUME/checkpoint，迫使主 Agent从 status/overview/handoff 另行回查 gate 或 decision handoff。
+状态：已完成 runtime、CLI product-path coverage、入口文档更新、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `7e36786` 已推送。implementation run `30152274807` completed failure，Windows/macOS/Linux jobs `89664563778`/`89664563793`/`89664563853` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。本批延续 Batch 581–585 的 Mission Commander blocker 接手闭环：replacement executor 最常直接运行 `continue <lane>`，但 pending gate 或 open candidate/decision 仍可能让 `continue -Apply` 创建 run、写 facts、刷新 lane/board/RESUME/checkpoint，迫使主 Agent从 status/overview/handoff 另行回查 gate 或 decision handoff。
 
 目标：让 blocked `continue -WhatIf/-Apply` 在遇到 lane-local pending-gate request 或 open candidate/decision 时保持 zero-write，并直接返回结构化 `pendingGateHandoffs[]` / `openDecisionHandoffs[]`，CLI text 同步输出 concrete handoff、decision/continue boundary 与 evidence；pending gate handoff 暴露 case-local `gate -WhatIf` 与 bounded request-decision `gate -Apply`，open decision handoff 暴露 source list、decision note WhatIf 与 record command。
 
@@ -33,7 +33,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：本批只封住 `continue` 在 pending gate / open decision blocker 下的写入缺口并增强 handoff；blocked `continue -WhatIf/-Apply` 不创建 run、不写 facts/lane/board/RESUME/checkpoint；`gate -Apply` 仍只写 request ledger decision，`note -Kind decision` 仍只写 case-local decision ledger，不写 authority/confirmed、不执行 heavy tool、不新增 PowerShell runtime logic。
 
-验证结果：focused `go test ./internal/rekit/workstream ./internal/rekit/cli -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。implementation commit/push 与 implementation remote release-gate inspection 待执行。
+验证结果：focused `go test ./internal/rekit/workstream ./internal/rekit/cli -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。remote inspection 已记录：implementation run `30152274807` completed failure，Windows/macOS/Linux jobs `89664563778`/`89664563793`/`89664563853` 均 `steps=[]`，未提供代码执行日志，按既有 runner/billing blocker 记录，不能声明 remote CI green。
 
 ### Batch 585：blocked continue reconcile handoff closure
 
