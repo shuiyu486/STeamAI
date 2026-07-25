@@ -5736,6 +5736,58 @@ func TestRunContinueBlocksUntilReconcileClosesIntervention(t *testing.T) {
 	assertWriteKind(t, cont.Writes, "run-status", "write")
 }
 
+func TestRunReconcileApplyReplaysExistingResolutionToRefreshDurableState(t *testing.T) {
+	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	writeContinueFixture(t, caseRoot)
+	writeCaseFile(t, caseRoot, ".rekit/facts/interventions.jsonl", `{"eventId":"evt-human-stop","kind":"intervention","lane":"feature-login","subject":"human correction","summary":"user changed lane direction","action":"override","status":"open","target":"workspace/features/feature-login"}`+"\n"+`{"schemaVersion":1,"eventId":"evt-existing-resolution","kind":"intervention","lane":"feature-login","subject":"reconciled intervention: human correction","summary":"reconciled intervention: human correction","action":"reconcile","status":"resolved","resolvesEventId":"evt-human-stop","target":"workspace/features/feature-login","actor":"main-agent","executor":"session-2","reason":"accept user correction","time":"2026-01-02T03:04:05Z"}`+"\n")
+	beforeFacts, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "interventions.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "reconcile", "-Target", caseRoot, "-Pack", "vmp-re", "-Apply", "login", "-InterventionId", "evt-human-stop", "-Executor", "session-2", "-Actor", "main-agent", "-Reason", "accept user correction"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var replay struct {
+		Command                     string                           `json:"command"`
+		Applied                     bool                             `json:"applied"`
+		ResolutionEventID           string                           `json:"resolutionEventId"`
+		Lane                        startLane                        `json:"lane"`
+		ExecutorAction              executorActionSnapshot           `json:"executorAction"`
+		MissionCommanderNextActions []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
+		Writes                      []startWrite                     `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &replay); err != nil {
+		t.Fatalf("reconcile replay stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if replay.Command != "reconcile" || !replay.Applied || replay.ResolutionEventID != "evt-existing-resolution" || replay.Lane.CurrentExecutor != "session-2" || replay.Lane.ExecutorGeneration != 1 || replay.Lane.LastReconciledIntervention != "evt-human-stop" {
+		t.Fatalf("unexpected reconcile replay result: %+v", replay)
+	}
+	assertContinueWrite(t, replay.Writes, ".rekit/facts/interventions.jsonl", "already-appended")
+	assertWriteKind(t, replay.Writes, "lane-event", "append-intervention-reconciled")
+	assertWriteKind(t, replay.Writes, "lane-event", "append-executor-takeover")
+	assertContinueWrite(t, replay.Writes, ".rekit/lanes/feature-login/lane.json", "update-reconcile-state")
+	assertContinueWrite(t, replay.Writes, ".rekit/lanes/feature-login/prompts/RESUME.md", "refresh")
+	if replay.ExecutorAction.Blocked || !replay.ExecutorAction.Ready || replay.ExecutorAction.OpenInterventions != 0 || !containsMissionCommanderNextAction(replay.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue login -Executor session-2 -ExpectedExecutorGeneration 1", false, false) {
+		t.Fatalf("reconcile replay did not restore ready Mission Commander handoff: action=%+v next=%+v", replay.ExecutorAction, replay.MissionCommanderNextActions)
+	}
+	afterFacts, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "interventions.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(afterFacts) != string(beforeFacts) {
+		t.Fatalf("reconcile replay duplicated intervention fact\nbefore:\n%s\nafter:\n%s", beforeFacts, afterFacts)
+	}
+	resume, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "lanes", "feature-login", "prompts", "RESUME.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(resume), "current executor: `session-2`") || strings.Contains(string(resume), "human correction") {
+		t.Fatalf("reconcile replay did not refresh durable resume:\n%s", resume)
+	}
+}
+
 func TestRunContinueWhatIfDoesNotWrite(t *testing.T) {
 	caseRoot := attachedCaseWithPack(t, "vmp-re")
 	writeContinueFixture(t, caseRoot)

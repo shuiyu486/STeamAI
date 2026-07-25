@@ -63,21 +63,22 @@ type ReconcileResult struct {
 }
 
 type reconcileContext struct {
-	inst         instance.Instance
-	manifest     *manifest.Manifest
-	board        board
-	selector     string
-	lane         Lane
-	facts        mission.LedgerFacts
-	intervention map[string]any
-	actor        string
-	executor     string
-	reason       string
-	summary      string
+	inst               instance.Instance
+	manifest           *manifest.Manifest
+	board              board
+	selector           string
+	lane               Lane
+	facts              mission.LedgerFacts
+	intervention       map[string]any
+	existingResolution map[string]any
+	actor              string
+	executor           string
+	reason             string
+	summary            string
 }
 
 func ReconcilePreview(repoRoot, caseRoot, pack string, opt ReconcileOptions) (ReconcileResult, error) {
-	ctx, err := newReconcileContext(repoRoot, caseRoot, pack, opt)
+	ctx, err := newReconcileContext(repoRoot, caseRoot, pack, opt, false)
 	if err != nil {
 		return ReconcileResult{}, err
 	}
@@ -85,7 +86,7 @@ func ReconcilePreview(repoRoot, caseRoot, pack string, opt ReconcileOptions) (Re
 }
 
 func ReconcileApply(repoRoot, caseRoot, pack string, opt ReconcileOptions) (result ReconcileResult, err error) {
-	ctx, err := newReconcileContext(repoRoot, caseRoot, pack, opt)
+	ctx, err := newReconcileContext(repoRoot, caseRoot, pack, opt, true)
 	if err != nil {
 		return ReconcileResult{}, err
 	}
@@ -99,7 +100,7 @@ func ReconcileApply(repoRoot, caseRoot, pack string, opt ReconcileOptions) (resu
 			result = ReconcileResult{}
 		}
 	}()
-	ctx, err = newReconcileContext(repoRoot, caseRoot, pack, opt)
+	ctx, err = newReconcileContext(repoRoot, caseRoot, pack, opt, true)
 	if err != nil {
 		return ReconcileResult{}, err
 	}
@@ -113,31 +114,24 @@ func ReconcileApply(repoRoot, caseRoot, pack string, opt ReconcileOptions) (resu
 		return ReconcileResult{}, err
 	}
 	sourceID := mission.Value(ctx.intervention, "eventId")
-	resolutionID := eventID(ctx.lane.ID, "intervention-resolved-"+sourceID, now)
-	resolution := map[string]any{
-		"schemaVersion":   1,
-		"eventId":         resolutionID,
-		"kind":            "intervention",
-		"lane":            ctx.lane.ID,
-		"subject":         firstText(ctx.summary, "reconcile: "+interventionLabel(ctx.intervention)),
-		"summary":         ctx.summary,
-		"action":          "reconcile",
-		"status":          "resolved",
-		"resolvesEventId": sourceID,
-		"target":          mission.Value(ctx.intervention, "target"),
-		"actor":           ctx.actor,
-		"executor":        ctx.executor,
-		"reason":          ctx.reason,
-		"time":            now,
+	resolutionID := ""
+	if ctx.existingResolution != nil {
+		now = strings.TrimSpace(mission.Value(ctx.existingResolution, "time"))
+		resolutionID = mission.Value(ctx.existingResolution, "eventId")
+		rel, path, err := mission.FactPath(ctx.inst.CaseRoot, "intervention")
+		if err != nil {
+			return ReconcileResult{}, err
+		}
+		writes = append(writes, StartWrite{Path: rel, Kind: "fact-jsonl", Action: "already-appended", TargetPath: path})
+	} else {
+		resolutionID = eventID(ctx.lane.ID, "intervention-resolved-"+sourceID, now)
+		resolution := ctx.reconcileResolution(sourceID, resolutionID, now)
+		rel, path, err := mission.AppendFact(ctx.inst.CaseRoot, "intervention", resolution)
+		if err != nil {
+			return ReconcileResult{}, err
+		}
+		writes = append(writes, StartWrite{Path: rel, Kind: "fact-jsonl", Action: "append", TargetPath: path})
 	}
-	if strings.TrimSpace(ctx.summary) == "" {
-		resolution["summary"] = "reconciled intervention: " + interventionLabel(ctx.intervention)
-	}
-	rel, path, err := mission.AppendFact(ctx.inst.CaseRoot, "intervention", resolution)
-	if err != nil {
-		return ReconcileResult{}, err
-	}
-	writes = append(writes, StartWrite{Path: rel, Kind: "fact-jsonl", Action: "append", TargetPath: path})
 
 	laneEventPath := LaneEventsJSONLPath(laneRoot)
 	laneEvent := map[string]any{
@@ -153,14 +147,60 @@ func ReconcileApply(repoRoot, caseRoot, pack string, opt ReconcileOptions) (resu
 		"executor":          ctx.executor,
 		"reason":            ctx.reason,
 	}
-	if err := mission.AppendJSONLine(laneEventPath, laneEvent); err != nil {
+	laneEventWrite, err := appendReconcileLaneEvent(ctx.inst.CaseRoot, laneEventPath, "append-intervention-reconciled", laneEvent)
+	if err != nil {
 		return ReconcileResult{}, err
 	}
-	writes = append(writes, StartWrite{Path: relativePath(ctx.inst.CaseRoot, laneEventPath), Kind: "lane-event", Action: "append-intervention-reconciled", TargetPath: laneEventPath})
+	writes = append(writes, laneEventWrite)
 
 	previousExecutor := strings.TrimSpace(ctx.lane.CurrentExecutor)
 	generation := max(ctx.lane.ExecutorGeneration, 0)
-	if ctx.executor != "" && !strings.EqualFold(previousExecutor, ctx.executor) {
+	if ctx.existingResolution != nil {
+		if resolutionID == "" || now == "" {
+			return ReconcileResult{}, fmt.Errorf("existing reconcile resolution for %s is missing eventId or time; refusing replay", sourceID)
+		}
+		if existingExecutor := strings.TrimSpace(mission.Value(ctx.existingResolution, "executor")); existingExecutor != "" && !strings.EqualFold(existingExecutor, ctx.executor) {
+			return ReconcileResult{}, fmt.Errorf("existing reconcile resolution executor differs for %s; refusing replay", sourceID)
+		}
+		if existingActor := strings.TrimSpace(mission.Value(ctx.existingResolution, "actor")); existingActor != "" && existingActor != ctx.actor {
+			return ReconcileResult{}, fmt.Errorf("existing reconcile resolution actor differs for %s; refusing replay", sourceID)
+		}
+		if existingReason := strings.TrimSpace(mission.Value(ctx.existingResolution, "reason")); existingReason != "" && existingReason != ctx.reason {
+			return ReconcileResult{}, fmt.Errorf("existing reconcile resolution reason differs for %s; refusing replay", sourceID)
+		}
+		if strings.TrimSpace(ctx.lane.CurrentExecutor) != "" && strings.EqualFold(ctx.lane.CurrentExecutor, ctx.executor) && ctx.lane.ExecutorGeneration > 0 {
+			generation = ctx.lane.ExecutorGeneration
+		} else if ctx.executor != "" && generation == 0 {
+			generation = 1
+		}
+		if ctx.executor != "" {
+			ctx.lane.CurrentExecutor = ctx.executor
+			ctx.lane.ExecutorGeneration = generation
+			ctx.lane.LastTakeoverAt = now
+			ctx.lane.LastTakeoverBy = ctx.actor
+			ctx.lane.LastTakeoverReason = firstText(ctx.reason, "reconcile intervention "+sourceID)
+			if !strings.EqualFold(previousExecutor, ctx.executor) {
+				takeoverEvent := map[string]any{
+					"eventId":              eventID(ctx.lane.ID, "executor-takeover-"+ctx.executor, now),
+					"kind":                 "executor-takeover",
+					"lane":                 ctx.lane.ID,
+					"time":                 now,
+					"summary":              "executor takeover: " + ctx.executor,
+					"previousExecutor":     previousExecutor,
+					"currentExecutor":      ctx.executor,
+					"executorGeneration":   generation,
+					"sourceInterventionId": sourceID,
+					"actor":                ctx.actor,
+					"reason":               ctx.reason,
+				}
+				takeoverWrite, err := appendReconcileLaneEvent(ctx.inst.CaseRoot, laneEventPath, "append-executor-takeover", takeoverEvent)
+				if err != nil {
+					return ReconcileResult{}, err
+				}
+				writes = append(writes, takeoverWrite)
+			}
+		}
+	} else if ctx.executor != "" && !strings.EqualFold(previousExecutor, ctx.executor) {
 		generation++
 		ctx.lane.CurrentExecutor = ctx.executor
 		ctx.lane.ExecutorGeneration = generation
@@ -180,10 +220,11 @@ func ReconcileApply(repoRoot, caseRoot, pack string, opt ReconcileOptions) (resu
 			"actor":                ctx.actor,
 			"reason":               ctx.reason,
 		}
-		if err := mission.AppendJSONLine(laneEventPath, takeoverEvent); err != nil {
+		takeoverWrite, err := appendReconcileLaneEvent(ctx.inst.CaseRoot, laneEventPath, "append-executor-takeover", takeoverEvent)
+		if err != nil {
 			return ReconcileResult{}, err
 		}
-		writes = append(writes, StartWrite{Path: relativePath(ctx.inst.CaseRoot, laneEventPath), Kind: "lane-event", Action: "append-executor-takeover", TargetPath: laneEventPath})
+		writes = append(writes, takeoverWrite)
 	} else if ctx.executor != "" && generation == 0 {
 		generation = 1
 		ctx.lane.CurrentExecutor = ctx.executor
@@ -223,7 +264,7 @@ func ReconcileApply(repoRoot, caseRoot, pack string, opt ReconcileOptions) (resu
 	return result, nil
 }
 
-func newReconcileContext(repoRoot, caseRoot, pack string, opt ReconcileOptions) (reconcileContext, error) {
+func newReconcileContext(repoRoot, caseRoot, pack string, opt ReconcileOptions, allowResolvedReplay bool) (reconcileContext, error) {
 	inst, err := instance.AssertAttached(caseRoot, repoRoot, pack)
 	if err != nil {
 		return reconcileContext{}, err
@@ -260,6 +301,10 @@ func newReconcileContext(repoRoot, caseRoot, pack string, opt ReconcileOptions) 
 	}
 	open := mission.EffectiveOpenLaneInterventions(facts.Facts, lane.ID)
 	intervention, err := selectOpenIntervention(open, opt.InterventionID)
+	var existingResolution map[string]any
+	if err != nil && allowResolvedReplay && strings.TrimSpace(opt.InterventionID) != "" {
+		intervention, existingResolution, err = selectResolvedReplayIntervention(facts.Facts.Interventions, lane.ID, opt.InterventionID)
+	}
 	if err != nil {
 		return reconcileContext{}, err
 	}
@@ -282,7 +327,7 @@ func newReconcileContext(repoRoot, caseRoot, pack string, opt ReconcileOptions) 
 	if summary == "" {
 		summary = "reconciled intervention: " + interventionLabel(intervention)
 	}
-	return reconcileContext{inst: inst, manifest: m, board: b, selector: selector, lane: lane, facts: facts, intervention: intervention, actor: actor, executor: executor, reason: reason, summary: summary}, nil
+	return reconcileContext{inst: inst, manifest: m, board: b, selector: selector, lane: lane, facts: facts, intervention: intervention, existingResolution: existingResolution, actor: actor, executor: executor, reason: reason, summary: summary}, nil
 }
 
 func selectOpenIntervention(open []map[string]any, requested string) (map[string]any, error) {
@@ -306,6 +351,85 @@ func selectOpenIntervention(open []map[string]any, requested string) (map[string
 		}
 	}
 	return nil, fmt.Errorf("intervention %q is not an effective open intervention for the selected lane", requested)
+}
+
+func selectResolvedReplayIntervention(items []map[string]any, laneID, requested string) (map[string]any, map[string]any, error) {
+	requested = strings.TrimSpace(requested)
+	var source map[string]any
+	var resolution map[string]any
+	for _, item := range items {
+		if mission.Value(item, "lane") != laneID {
+			continue
+		}
+		if mission.Value(item, "eventId") == requested {
+			source = item
+		}
+		if mission.Value(item, "resolvesEventId") != requested {
+			continue
+		}
+		status := strings.ToLower(strings.TrimSpace(mission.Value(item, "status")))
+		if status != "resolved" {
+			continue
+		}
+		if mission.Value(item, "action") != "reconcile" {
+			continue
+		}
+		if resolution != nil {
+			return nil, nil, fmt.Errorf("intervention %q has multiple reconcile resolution events; refusing replay", requested)
+		}
+		resolution = item
+	}
+	if source == nil || resolution == nil {
+		return nil, nil, fmt.Errorf("intervention %q is not an effective open intervention for the selected lane", requested)
+	}
+	return source, resolution, nil
+}
+
+func (ctx reconcileContext) reconcileResolution(sourceID, resolutionID, now string) map[string]any {
+	resolution := map[string]any{
+		"schemaVersion":   1,
+		"eventId":         resolutionID,
+		"kind":            "intervention",
+		"lane":            ctx.lane.ID,
+		"subject":         firstText(ctx.summary, "reconcile: "+interventionLabel(ctx.intervention)),
+		"summary":         ctx.summary,
+		"action":          "reconcile",
+		"status":          "resolved",
+		"resolvesEventId": sourceID,
+		"target":          mission.Value(ctx.intervention, "target"),
+		"actor":           ctx.actor,
+		"executor":        ctx.executor,
+		"reason":          ctx.reason,
+		"time":            now,
+	}
+	if strings.TrimSpace(ctx.summary) == "" {
+		resolution["summary"] = "reconciled intervention: " + interventionLabel(ctx.intervention)
+	}
+	return resolution
+}
+
+func appendReconcileLaneEvent(caseRoot, path, action string, event map[string]any) (StartWrite, error) {
+	rel := relativePath(caseRoot, path)
+	eventID := mission.Value(event, "eventId")
+	existing, err := mission.ReadJSONLineObjects(path)
+	if err != nil {
+		return StartWrite{}, err
+	}
+	for _, item := range existing {
+		if mission.Value(item, "eventId") != eventID {
+			continue
+		}
+		for _, key := range []string{"kind", "lane", "sourceEventId", "resolvesEventId", "resolutionEventId", "sourceInterventionId", "currentExecutor", "executorGeneration", "actor", "reason"} {
+			if strings.TrimSpace(mission.Value(event, key)) != "" && mission.Value(item, key) != mission.Value(event, key) {
+				return StartWrite{}, fmt.Errorf("reconcile lane event %s differs on %s; refusing replay", eventID, key)
+			}
+		}
+		return StartWrite{Path: rel, Kind: "lane-event", Action: "already-appended", TargetPath: path}, nil
+	}
+	if err := mission.AppendJSONLine(path, event); err != nil {
+		return StartWrite{}, err
+	}
+	return StartWrite{Path: rel, Kind: "lane-event", Action: action, TargetPath: path}, nil
 }
 
 func (ctx reconcileContext) result(mutating, applied, confirm bool, writes []StartWrite) ReconcileResult {

@@ -16,6 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 583：reconcile partial replay durable recovery closure
+
+状态：已完成 runtime、CLI product-path coverage、docs 与 focused validation；完整本地 release minimum、implementation commit/push 与 remote release-gate inspection 待本批收尾执行。本批延续 Batch 581–582 的 intervention handoff/reconcile 接手闭环：Mission Commander 已能引导 selected `reconcile -WhatIf` → bounded `-Apply`，但 `reconcile -Apply` 涉及 resolution fact、lane event、lane.json、board、RESUME 与 checkpoint 多文件写入；若在 resolution fact 已写入后中断，下一次重试会因为 source intervention 已被 `resolvesEventId` 过滤出 effective-open 集合而无法补齐 durable lane state。
+
+目标：让同一个 bounded `reconcile -Apply -InterventionId <source>` 在检测到已有且唯一的 matching `action=reconcile status=resolved resolvesEventId=<source>` resolution fact 时，进入 deterministic replay/recovery：不重复追加 intervention resolution fact，而是复用 existing `resolutionEventId` / `time`，补齐或验证 deterministic lane reconcile/takeover events，并刷新 lane.json、board、RESUME 和 checkpoint，使 replacement executor 可从 partial apply 后恢复到 ready-to-continue handoff。
+
+已实现内容：
+
+- `ReconcileApply` 的 apply context 现在允许 resolved replay selection：普通 `ReconcilePreview` 仍只接受 effective-open intervention；apply 重试可在 source intervention 已被 matching resolution fact 关闭后，严格绑定同 lane/source/resolution 继续恢复。
+- resolution fact 已存在时返回 `fact-jsonl already-appended`，并校验 existing resolution 的 `executor` / `actor` / `reason` 与当前 bounded command 一致；缺失 `eventId` / `time`、多个 matching resolution 或不一致字段均 fail-closed。
+- lane-local `intervention-reconciled` / `executor-takeover` events 现在按 existing resolution time 生成 deterministic event IDs；已存在时验证关键字段后标记 `already-appended`，不存在时补 append，随后刷新 lane state、durable `RESUME.md` 与 checkpoint。
+- CLI product-path coverage 模拟 resolution fact 已写但 durable lane state 未刷新，验证 replay 不重复 intervention fact、补齐 lane events/lane.json/RESUME，并恢复 ready Mission Commander continue command。
+
+边界：本批只增强 bounded `reconcile -Apply` 的 partial-write recovery；`reconcile -WhatIf` 仍 read-only，preview 不接受 resolved replay；replay 只在已有唯一 matching resolution fact 且 bounded command identity 一致时执行；不写 authority/confirmed、不执行 heavy tool、不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/workstream ./internal/rekit/cli -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。
+
 ### Batch 582：multi-intervention concrete reconcile preview option handoff closure
 
 状态：已完成 runtime、CLI product-path coverage、docs、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `0b78531` 已推送。implementation run `30148331819` completed failure，Linux/Windows/macOS jobs `89654278355`/`89654278337`/`89654278333` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。本批延续 Batch 581 的 Mission Commander intervention handoff closure：单个 open intervention 已可 concrete WhatIf→Apply，但多个 open interventions 全都有 concrete `eventId` 时，Mission Commander 仍只能给 `/rekit handoff <lane>` 加 `<eventId>` placeholder，replacement executor 需要回查 ledger 手工构造每个 preview command。
