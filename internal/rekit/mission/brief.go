@@ -265,7 +265,8 @@ func BuildWithOptions(lanes []Lane, facts Facts, opts BuildOptions) Brief {
 		}
 		interventionLines = append(interventionLines, InterventionLine(item))
 	}
-	openDecisionCount := len(OpenCandidates(facts.Candidates)) + len(OpenDecisionEvents(facts.Decisions))
+	openDecisionItems := OpenDecisionItems(facts)
+	openDecisionCount := len(openDecisionItems)
 	openDecisions := OpenDecisionLines(facts)
 	for _, lane := range OpenDecisionLanes(facts) {
 		blocked[lane] = append(blocked[lane], "open-decision")
@@ -842,6 +843,73 @@ func OpenCandidates(items []map[string]any) []map[string]any {
 	return open
 }
 
+func EffectiveOpenCandidates(facts Facts) []map[string]any {
+	resolved := candidateDecisionResolutionIDs(facts.Decisions)
+	open := []map[string]any{}
+	for _, item := range OpenCandidates(facts.Candidates) {
+		eventID := strings.TrimSpace(Value(item, "eventId"))
+		if eventID != "" && resolved[eventID] {
+			continue
+		}
+		open = append(open, item)
+	}
+	return open
+}
+
+func candidateDecisionResolutionIDs(decisions []map[string]any) map[string]bool {
+	resolved := map[string]bool{}
+	for _, decision := range decisions {
+		if !candidateClosingDecision(decision) {
+			continue
+		}
+		for _, related := range stringListValue(decision["related"]) {
+			resolved[related] = true
+		}
+	}
+	return resolved
+}
+
+func candidateClosingDecision(decision map[string]any) bool {
+	status := strings.ToLower(strings.TrimSpace(Value(decision, "status")))
+	if status != "" && !IsTerminalStatus(status) {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(FirstText(Value(decision, "decision"), Value(decision, "action")))) {
+	case "accept", "reject", "supersede":
+		return true
+	default:
+		return false
+	}
+}
+
+func stringListValue(value any) []string {
+	items := []string{}
+	add := func(value string) {
+		for _, part := range strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == ';' || r == '\n' }) {
+			if part = strings.TrimSpace(part); part != "" {
+				items = append(items, part)
+			}
+		}
+	}
+	switch t := value.(type) {
+	case string:
+		add(t)
+	case []string:
+		for _, item := range t {
+			add(item)
+		}
+	case []any:
+		for _, item := range t {
+			add(fmt.Sprint(item))
+		}
+	default:
+		if value != nil {
+			add(fmt.Sprint(value))
+		}
+	}
+	return UniqueStrings(items)
+}
+
 func OpenDecisionEvents(decisions []map[string]any) []map[string]any {
 	open := []map[string]any{}
 	for _, decision := range decisions {
@@ -856,7 +924,7 @@ func OpenDecisionEvents(decisions []map[string]any) []map[string]any {
 
 func OpenDecisionLanes(facts Facts) []string {
 	lanes := []string{}
-	for _, candidate := range OpenCandidates(facts.Candidates) {
+	for _, candidate := range EffectiveOpenCandidates(facts) {
 		if lane := Value(candidate, "lane"); lane != "" {
 			lanes = append(lanes, lane)
 		}
@@ -871,7 +939,7 @@ func OpenDecisionLanes(facts Facts) []string {
 
 func OpenDecisionItems(facts Facts) []map[string]any {
 	items := []map[string]any{}
-	items = append(items, OpenCandidates(facts.Candidates)...)
+	items = append(items, EffectiveOpenCandidates(facts)...)
 	items = append(items, OpenDecisionEvents(facts.Decisions)...)
 	return items
 }

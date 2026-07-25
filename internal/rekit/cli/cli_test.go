@@ -4603,6 +4603,88 @@ func TestRunNoteAppendWritesFactEvent(t *testing.T) {
 	}
 }
 
+func TestRunNoteDecisionRelatedCandidateClosesOpenCandidateBlocker(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	writeHandoffFixture(t, caseRoot)
+	factsRoot := filepath.Join(caseRoot, ".rekit", "facts")
+	writeFactFile(t, factsRoot, "observations.jsonl", nil)
+	writeFactFile(t, factsRoot, "requests.jsonl", nil)
+	writeFactFile(t, factsRoot, "candidates.jsonl", []string{`{"eventId":"cand-related-1","kind":"candidate","lane":"feature-login","subject":"candidate alpha","summary":"needs decision","status":"open","target":"candidate-alpha","confidence":"high","evidenceRefs":["evidence/candidate.json"],"batchId":"batch-related"}`})
+	writeFactFile(t, factsRoot, "decisions.jsonl", nil)
+	writeFactFile(t, factsRoot, "interventions.jsonl", nil)
+	writeFactFile(t, factsRoot, "rollbacks.jsonl", nil)
+	writeCaseFile(t, caseRoot, ".rekit/locks/lane-feature-login.lease", "")
+
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-Kind", "decision", "-Lane", "feature-login", "-Subject", "decision for candidate alpha", "-Decision", "accept", "-Reason", "reviewed candidate evidence", "-TargetRef", "candidate-alpha", "-Related", "cand-related-1", "-EvidenceRefs", "evidence/candidate.json", "-EventId", "dec-related-1"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Command                     string                           `json:"command"`
+		Applied                     bool                             `json:"applied"`
+		Event                       map[string]any                   `json:"event"`
+		MissionBrief                missionBrief                     `json:"missionBrief"`
+		ExecutorAction              executorActionSnapshot           `json:"executorAction"`
+		MissionCommanderAction      missionCommanderActionSnapshot   `json:"missionCommanderAction"`
+		MissionCommanderNextActions []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("related decision note stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if result.Command != "note" || !result.Applied || result.Event["eventId"] != "dec-related-1" || result.Event["decision"] != "accept" {
+		t.Fatalf("unexpected related decision note result: %+v", result)
+	}
+	related, ok := result.Event["related"].([]any)
+	if !ok || len(related) != 1 || related[0] != "cand-related-1" {
+		t.Fatalf("decision note should retain related candidate id: %+v", result.Event)
+	}
+	if result.MissionBrief.Summary != "openLanes=1 ready=1 blocked=0 pendingGates=0 authorizedGates=0 openDecisions=0 interventions=0" || !result.ExecutorAction.Ready || result.ExecutorAction.Blocked || result.ExecutorAction.OpenDecisions != 0 || result.MissionCommanderAction.State != "ready-to-continue" || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2", false, false) {
+		t.Fatalf("related decision should close candidate blocker: brief=%+v action=%+v commander=%+v next=%+v", result.MissionBrief, result.ExecutorAction, result.MissionCommanderAction, result.MissionCommanderNextActions)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		CaseMission struct {
+			BlockedLanes         []string                    `json:"blockedLanes"`
+			OpenDecisions        []string                    `json:"openDecisions"`
+			OpenDecisionHandoffs []statusOpenDecisionHandoff `json:"openDecisionHandoffs"`
+			LaneExecutorActions  []handoffLaneExecutorAction `json:"laneExecutorActions"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("status after related decision stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if len(status.CaseMission.BlockedLanes) != 0 || len(status.CaseMission.OpenDecisions) != 0 || len(status.CaseMission.OpenDecisionHandoffs) != 0 {
+		t.Fatalf("status should not keep candidate open after related decision: %+v", status.CaseMission)
+	}
+	login := handoffLaneActionFor(t, status.CaseMission.LaneExecutorActions, "feature-login")
+	if !login.ExecutorAction.Ready || login.ExecutorAction.Blocked || login.ExecutorAction.OpenDecisions != 0 || login.ExecutorAction.ResumeCommand != "/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2" {
+		t.Fatalf("login lane should be ready after related decision: %+v", login.ExecutorAction)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login", "-Executor", "session-login", "-ExpectedExecutorGeneration", "2"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var cont struct {
+		Command              string       `json:"command"`
+		Applied              bool         `json:"applied"`
+		Blocked              bool         `json:"blocked"`
+		OpenDecisionRequired bool         `json:"openDecisionRequired"`
+		Writes               []startWrite `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &cont); err != nil {
+		t.Fatalf("continue after related decision stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if cont.Command != "continue" || !cont.Applied || cont.Blocked || cont.OpenDecisionRequired {
+		t.Fatalf("continue should proceed after related decision closes candidate: %+v", cont)
+	}
+	assertWriteKind(t, cont.Writes, "run-status", "write")
+}
+
 func TestRunNoteAppendTableAndTSVKeepJsonCompatibility(t *testing.T) {
 	caseRoot := attachedCaseWithBoard(t)
 	for _, format := range []string{"table", "tsv"} {

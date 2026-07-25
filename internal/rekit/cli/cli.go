@@ -2898,7 +2898,7 @@ func statusLimitOpenDecisionItems(events []statusOpenDecisionItem, n int) []stat
 
 func statusOpenDecisionHandoffs(caseRoot, pack string, facts mission.Facts) []statusOpenDecisionHandoff {
 	events := []statusOpenDecisionItem{}
-	for _, event := range mission.OpenCandidates(facts.Candidates) {
+	for _, event := range mission.EffectiveOpenCandidates(facts) {
 		events = append(events, statusOpenDecisionItem{SourceKind: "candidate", Event: event})
 	}
 	for _, event := range mission.OpenDecisionEvents(facts.Decisions) {

@@ -16,6 +16,22 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 588：related decision note candidate blocker closure
+
+状态：已完成 runtime、CLI product-path coverage、入口文档更新、focused tests 与完整本地 release minimum；implementation commit/push 与 remote release-gate inspection 待执行。本批修复 Batch 586–587 后暴露的更深闭环断点：blocked continue/start/reconcile 已能给出 open candidate handoff，并推荐 `note -Kind decision -Related <candidateEventId>`，但 Mission 判定若只看 candidate 自身 status，会导致主 Agent 按 handoff 记录 terminal decision note 后，candidate blocker 仍不消失。
+
+目标：让既有 append-only decision note 的 `related` refs 成为 open candidate lifecycle closure 的 deterministic 输入；当 decision note 明确 `accept` / `reject` / `supersede` 且 `related` 指向 candidate `eventId` 时，Mission brief、status/overview、continue/start/reconcile handoff 与 lane executor action 都不再把该 candidate 视为 open blocker。
+
+已实现内容：
+
+- Mission 层新增 `EffectiveOpenCandidates(facts)`，先读取 `OpenCandidates`，再用 terminal closing decision note 的 `related` event IDs 过滤已关闭 candidate；`defer`、`pending-user`、`status=open`、仅 `target` 指向 candidate 或缺 `eventId` 的 candidate 仍保持 open。
+- `OpenDecisionItems`、`OpenDecisionLanes`、Mission brief count/blocked lanes、blocked continue open-decision handoff、status `openDecisionHandoffs[]` 与 overview open candidates 均改用 effective open candidate 语义，避免同一 ledger 在不同入口出现 blocker 漂移。
+- CLI product-path coverage 覆盖 `note -Kind decision -Related cand... -Decision accept` 后，post-note Mission Commander action 变为 ready、status 不再投影 open decision handoff，随后 owner-bound `continue <lane> -Apply -Executor ... -ExpectedExecutorGeneration ...` 可继续并写 run status。
+
+边界：本批只消费既有 append-only decision refs，不新增 schema 字段，不修改 candidate 原事件，不写 authority/confirmed，不执行 heavy tool，不新增 PowerShell runtime logic。`target` 不作为 lifecycle closure；只有 `related` 指向 concrete candidate `eventId` 且 decision 为 terminal accept/reject/supersede 时才关闭 candidate blocker。
+
+验证结果：focused `go test ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/cli ./internal/rekit/overview -run "TestEffectiveOpenCandidatesHonorsRelatedDecisionNotes|TestRunNoteDecisionRelatedCandidateClosesOpenCandidateBlocker|TestRunContinueBlocksOpenDecisionBeforeWrites|TestRunStartProjectsExecutorActionForExistingLaneBlockers|TestRunReconcileApplyProjectsGateDecisionHandoffsAfterInterventionResolution|TestLaneExecutorActionSnapshotsKeepNextActionsLaneLocal" -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。
+
 ### Batch 587：start/reconcile pending gate / open decision handoff closure
 
 状态：已完成 runtime、CLI product-path coverage、入口文档更新、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `1e72510` 已推送。implementation run `30153277971` completed failure，macOS/Linux/Windows jobs `89667127082`/`89667127098`/`89667127104` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。本批延续 Batch 585–586 的 replacement executor 接手闭环：新会话常先运行 `start <lane> -Apply -Executor ...` 登记/接管 durable lane，或在 `reconcile <lane> -Apply` 清除 open intervention 后回到 lane；过去若该 lane 仍有 pending gate/open decision blocker，结果只给 executor blocker counts / generic next action，缺少 concrete gate/note handoff，替换执行体仍需切回 status/handoff 才能拿到下一步命令。

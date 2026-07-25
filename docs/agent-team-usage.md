@@ -232,7 +232,7 @@ Batch 561 为 `continue` executor-generation stale-writer guard，当前状态�
 | 工作线 | 典型命令 | 主要职责 | 默认可写 |
 |---|---|---|---|
 | 主线 | `/rekit continue main` | 收敛结论、验证 candidate、维护长期 handoff、处理 authority review；JSON envelope/run artifacts 暴露 apply 后 `missionBrief`，含 pending gates 与非阻塞 authorized gates；若存在 pending gate / open decision / intervention blocker，continue 先 zero-write 返回 handoff | canonical 文件、主线 workspace、`.rekit/**` |
-| 功能支线 | `/rekit start <name>`、`/rekit continue <name>` | 围绕一个功能点/阻塞点做探索、收集 evidence、提出 candidate/request；start/reconcile/continue preview/apply `missionBrief` 让 lane executor 看到全局 ready/blocked 状态、pending gates 与非阻塞 authorized gates；start/reconcile 在接管或清除 intervention 后会直接投影剩余 gate/decision handoff，blocked continue 不写 lane artifacts，先给 gate/decision/reconcile handoff | 自己的 lane workspace、outbox、candidate/request |
+| 功能支线 | `/rekit start <name>`、`/rekit continue <name>` | 围绕一个功能点/阻塞点做探索、收集 evidence、提出 candidate/request；start/reconcile/continue preview/apply `missionBrief` 让 lane executor 看到全局 ready/blocked 状态、pending gates 与非阻塞 authorized gates；start/reconcile 在接管或清除 intervention 后会直接投影剩余 gate/decision handoff；按 handoff 记录 terminal `note -Kind decision -Related <candidateEventId>` 后会关闭对应 open candidate blocker；blocked continue 不写 lane artifacts，先给 gate/decision/reconcile handoff | 自己的 lane workspace、outbox、candidate/request |
 | 项目级索引 | `/rekit handoff` | 生成跨工作线接手索引，并在顶部 Markdown 与 Go JSON `missionBrief` 汇总 ready/blocked lanes、pending gates、authorized gates、open decisions、interventions、next agent actions 与 escalations | `.rekit/handovers/latest.md` |
 
 推荐流程：

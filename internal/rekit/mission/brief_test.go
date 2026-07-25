@@ -425,6 +425,47 @@ func TestEffectiveOpenInterventionsHonorsAppendOnlyResolution(t *testing.T) {
 	}
 }
 
+func TestEffectiveOpenCandidatesHonorsRelatedDecisionNotes(t *testing.T) {
+	facts := Facts{
+		Candidates: []map[string]any{
+			{"eventId": "cand-accepted", "kind": "candidate", "lane": "feature-login", "subject": "accepted candidate", "status": "open"},
+			{"eventId": "cand-rejected", "kind": "candidate", "lane": "feature-login", "subject": "rejected candidate", "status": "open"},
+			{"eventId": "cand-deferred", "kind": "candidate", "lane": "feature-login", "subject": "deferred candidate", "status": "open"},
+			{"eventId": "cand-status-open", "kind": "candidate", "lane": "feature-login", "subject": "status-open decision", "status": "open"},
+			{"kind": "candidate", "lane": "feature-login", "subject": "missing event id", "status": "open"},
+		},
+		Decisions: []map[string]any{
+			{"kind": "decision", "lane": "feature-login", "subject": "accept accepted", "decision": "accept", "related": []any{"cand-accepted"}},
+			{"kind": "decision", "lane": "feature-login", "subject": "reject rejected", "decision": "reject", "related": "cand-rejected"},
+			{"kind": "decision", "lane": "feature-login", "subject": "defer still open", "decision": "defer", "related": []any{"cand-deferred"}},
+			{"kind": "decision", "lane": "feature-login", "subject": "status open does not close", "decision": "accept", "status": "open", "related": []any{"cand-status-open"}},
+			{"kind": "decision", "lane": "feature-login", "subject": "target is not lifecycle", "decision": "accept", "target": "cand-deferred"},
+		},
+	}
+
+	open := EffectiveOpenCandidates(facts)
+	if len(open) != 3 || Value(open[0], "eventId") != "cand-deferred" || Value(open[1], "eventId") != "cand-status-open" || Value(open[2], "subject") != "missing event id" {
+		t.Fatalf("effective open candidates = %+v", open)
+	}
+	items := OpenDecisionItems(facts)
+	if len(items) != 5 || containsOpenDecisionItem(items, "cand-accepted") || containsOpenDecisionItem(items, "cand-rejected") {
+		t.Fatalf("open decision items should exclude candidates closed by related accept/reject notes: %+v", items)
+	}
+	brief := BuildWithOptions([]Lane{{ID: "feature-login", Label: "login", Status: "active"}}, facts, BuildOptions{MaxRows: 10})
+	if brief.Summary != "openLanes=1 ready=0 blocked=1 pendingGates=0 authorizedGates=0 openDecisions=5 interventions=0" || !slices.Contains(brief.BlockedLanes, "login (open-decision)") || containsSubstring(brief.OpenDecisions, "accepted candidate") || containsSubstring(brief.OpenDecisions, "rejected candidate") {
+		t.Fatalf("mission brief did not honor related decision closure: %+v", brief)
+	}
+}
+
+func containsOpenDecisionItem(items []map[string]any, eventID string) bool {
+	for _, item := range items {
+		if Value(item, "eventId") == eventID {
+			return true
+		}
+	}
+	return false
+}
+
 func TestLaneOpenDecisionLineOmitsLaneField(t *testing.T) {
 	facts := LaneFacts(Facts{
 		Candidates: []map[string]any{{"kind": "candidate", "lane": "feature-login", "subject": "candidate blocker", "status": "open"}},

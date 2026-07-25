@@ -193,7 +193,7 @@ func Render(repoRoot, caseRoot, pack string) (string, error) {
 	writeExecutionEvidenceReview(&out, evidenceReview, workstream.ExecutionEvidenceReviewSummaryFor(evidenceReview, actionQueue))
 	workstream.WriteAuthorizedGateAdapterHandoffSection(&out, "Authorized gate adapter handoff：", authorizedGateAdapterHandoffs)
 	workstream.WriteReviewerDispatchIntakeHandoffSection(&out, "Reviewer dispatch intake handoff：", reviewerDispatchIntakeHandoffs)
-	writeOpenCandidates(&out, facts.Candidates)
+	writeOpenCandidates(&out, mission.EffectiveOpenCandidates(facts.Facts))
 	writePendingGates(&out, facts.Requests)
 	writeAuthorizedGates(&out, facts.Requests)
 	writeVerifications(&out, facts.Verifications)
@@ -318,7 +318,7 @@ func loadOverviewData(repoRoot, caseRoot, pack string) (overviewData, error) {
 }
 
 func buildOverviewSections(facts factSet) OverviewSections {
-	openCandidates := openStatusEvents(facts.Candidates)
+	openCandidates := mission.EffectiveOpenCandidates(facts.Facts)
 	pendingGates := []event{}
 	authorizedGates := []event{}
 	for _, request := range facts.Requests {
@@ -643,18 +643,6 @@ func writeBriefList(out *bytes.Buffer, label string, items []string) {
 func newEventSection(items []event) EventSection {
 	shown := lastEvents(items, maxRows)
 	return EventSection{Total: len(items), Shown: len(shown), Events: cloneEvents(shown)}
-}
-
-func openStatusEvents(items []event) []event {
-	terminal := map[string]bool{"confirmed": true, "accepted": true, "rejected": true, "superseded": true, "resolved": true}
-	open := []event{}
-	for _, item := range items {
-		status := strings.ToLower(strings.TrimSpace(stringValue(item, "status")))
-		if status == "" || !terminal[status] {
-			open = append(open, item)
-		}
-	}
-	return open
 }
 
 func newBatchSection(events []event) BatchSection {

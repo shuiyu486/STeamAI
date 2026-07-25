@@ -788,7 +788,7 @@ type continueOpenDecisionItem struct {
 
 func continueOpenDecisionItems(facts mission.Facts) []continueOpenDecisionItem {
 	items := []continueOpenDecisionItem{}
-	for _, event := range mission.OpenCandidates(facts.Candidates) {
+	for _, event := range mission.EffectiveOpenCandidates(facts) {
 		items = append(items, continueOpenDecisionItem{SourceKind: "candidate", Event: event})
 	}
 	for _, event := range mission.OpenDecisionEvents(facts.Decisions) {
