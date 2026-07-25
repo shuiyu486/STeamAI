@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 599：reviewer dispatch current-action queue first-screen closure
 
-状态：已完成 runtime/test/doc 工作树实现、focused product-path test 与完整本地 release minimum；implementation commit/push、remote release-gate inspection 与 release inspection record 待执行。
+状态：已完成 runtime/test/doc 工作树实现、focused product-path test、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `cc30646` 已推送。implementation run `30172310025` completed failure，Linux/Windows/macOS jobs `89715369696`/`89715369698`/`89715369707` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。
 
 目标：补齐 Batch 597/598 后仍暴露的 reviewer orchestration first-screen 断点：`overview` / `status` 的全局 `MissionCommanderActionQueue` 已能把 reviewer dispatch/intake action 排为 case current action，且 `reviewerDispatchIntakeSummary.nextActionRunbookSteps[]` 已给出当前 shard runbook，但 default `/rekit` 第一屏没有单独的 reviewer work queue/current action 概览。replacement executor 在多 packet / shard handoff 中仍要从 full handoff rows 推断哪个 reviewer packet/shard 是当前工作。
 
