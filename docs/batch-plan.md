@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 577：reviewer dispatch prompt artifact closure
 
-状态：已完成 runtime、CLI、workstream intake projection、tests、docs 与完整本地 release minimum；implementation commit/push 与 implementation remote release-gate inspection 待执行。本批延续 Batch 514、523–525、541、549、562 与 567：reviewer orchestration 已能生成 multi-shard dispatch/intake/collection handoff，但 replacement executor 仍需要从 nested JSON 中手工复制 `dispatchPrompt` 或 `agentToolRequest.prompt` 长文本，容易漏掉 owner binding、route output contract、result/staging path、no-heavy/no-authority boundary 与只读 reviewer 约束。
+状态：已完成 runtime、CLI、workstream intake projection、tests、docs、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `916e1e9` 已推送。implementation run `30138173646` completed failure，Windows/Linux/macOS jobs `89626133314`/`89626133327`/`89626133336` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。本批延续 Batch 514、523–525、541、549、562 与 567：reviewer orchestration 已能生成 multi-shard dispatch/intake/collection handoff，但 replacement executor 仍需要从 nested JSON 中手工复制 `dispatchPrompt` 或 `agentToolRequest.prompt` 长文本，容易漏掉 owner binding、route output contract、result/staging path、no-heavy/no-authority boundary 与只读 reviewer 约束。
 
 目标：让 `plan-subagents` 为每个 reviewer shard 生成 durable prompt artifact，并把 `promptPath` / `promptSha256` 投影到 planning packet、reviewer orchestration summary、shard handoff、status/handoff/continue reviewer dispatch intake 与 CLI text first-screen；replacement executor 只需读取 hash-bound prompt artifact 调度 read-only reviewer，而不再从 nested JSON 手工复制长 prompt。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：本批只生成和投影 reviewer prompt artifact；不 spawn、stop、poll 或 monitor reviewer，不创建 reviewer result，不执行 staging/collection/intake Apply，不写 verification/decision/authority/confirmed，不执行 heavy tool，不新增 PowerShell runtime logic。旧 raw `dispatchPrompt` 字段仍保留用于兼容既有 JSON 消费者，但 product-path handoff 优先使用 hash-bound prompt artifact。
 
-验证结果：focused `go test ./internal/rekit/subagents ./internal/rekit/workstream ./internal/rekit/cli -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过。remote release-gate inspection 待执行，当前不能声明 remote CI green。
+验证结果：focused `go test ./internal/rekit/subagents ./internal/rekit/workstream ./internal/rekit/cli -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过。remote inspection 已记录：implementation run `30138173646` completed failure，Windows/Linux/macOS jobs `89626133314`/`89626133327`/`89626133336` 均 `steps=[]`，未提供代码执行日志，按既有 runner/billing blocker 记录，不能声明 remote CI green。
 
 ### Batch 576：case-local pack-memory next-missing proof binding closure
 
