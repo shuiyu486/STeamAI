@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 601：capture-first reviewer handoff closure
 
-状态：已完成 runtime/test/doc 工作树实现、focused reviewer product-path tests、受影响 package tests 与完整本地 release minimum；implementation commit/push 与 remote release-gate inspection 待完成。
+状态：已完成 runtime/test/doc 工作树实现、focused reviewer product-path tests、受影响 package tests、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `19d6db6` 已推送。implementation run `30175252468` completed failure，macOS/Windows/Linux jobs `89722869546`/`89722869553`/`89722869556` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。
 
 目标：补齐 Batch 600 后的下游接手断点：runtime 已提供 `plan-subagents -CaptureReviewerResultSource`，但 fresh plan terminal、reviewer orchestration summary、status/handoff/continue runbook 与 Mission Commander current action 仍可能把 replacement executor 引回旧的“保存 reviewer JSON/source 后直接 staging”路径。新会话第一屏应明确先保存 symlink-free case-local input，运行 capture WhatIf，复核 `inputSha256` 后 hash-gated Apply 发布 packet-derived source，再进入 staging、collection 与 intake。
 
