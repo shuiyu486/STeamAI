@@ -197,7 +197,7 @@ func TestLatestBatchSummarySelectsFirstCurrentBatchSection(t *testing.T) {
 func TestLatestBatchHandoffExtractsValidationEvidence(t *testing.T) {
 	section := `状态：已完成 fixture implementation、durable docs、完整本地 release minimum、commit/push 与远程 release-gate inspection。
 
-验证结果：已通过 public CLI 临时 product-path 验证与完整本地 release minimum：` + "`" + `go run ./cmd/rekit -- -Command release-check -Format json` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command status` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command packs` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command doctor` + "`" + `、` + "`" + `go test ./...` + "`" + `、` + "`" + `go vet ./...` + "`" + `、` + "`" + `git diff --check` + "`" + `；` + "`" + `release-check ready=true` + "`" + `。已提交并推送 ` + "`" + `abc123d` + "`" + `；远程 release-gate run ` + "`" + `123456789` + "`" + ` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 ` + "`" + `steps: []` + "`" + `。`
+验证结果：已通过 public CLI 临时 product-path 验证与完整本地 release minimum：` + "`" + `go run ./cmd/rekit -- -Command release-check -Format json` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command status` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command packs` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command doctor` + "`" + `、` + "`" + `go test ./...` + "`" + `、` + "`" + `go vet ./...` + "`" + `、` + "`" + `git diff --check` + "`" + `；` + "`" + `release-check ready=true` + "`" + `。implementation commits ` + "`" + `abc123d` + "`" + ` / ` + "`" + `9887297` + "`" + ` 已提交并推送；远程 release-gate run ` + "`" + `123456789` + "`" + ` 为 completed failure，Windows/Linux/macOS jobs 均 failure 且 ` + "`" + `steps: []` + "`" + `。`
 
 	latest := ReleaseHandoffLatestBatch{Status: "已完成 fixture", ValidationResult: "fixture validation"}
 	handoff := latestBatchHandoff(latest, section)
@@ -212,8 +212,13 @@ func TestLatestBatchHandoffExtractsValidationEvidence(t *testing.T) {
 			t.Fatalf("latest batch handoff evidence missing %q: %+v", evidence, handoff.Evidence)
 		}
 	}
-	if !slices.Contains(handoff.CommitRefs, "abc123d") || slices.Contains(handoff.CommitRefs, "123456789") {
-		t.Fatalf("unexpected commit refs: %+v", handoff.CommitRefs)
+	for _, want := range []string{"abc123d", "9887297"} {
+		if !slices.Contains(handoff.CommitRefs, want) {
+			t.Fatalf("commit refs missing %q: %+v", want, handoff.CommitRefs)
+		}
+	}
+	if slices.Contains(handoff.CommitRefs, "123456789") {
+		t.Fatalf("remote run id should not be treated as a commit ref: %+v", handoff.CommitRefs)
 	}
 }
 
