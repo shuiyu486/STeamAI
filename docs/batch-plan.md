@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 600：reviewer result source capture product-path closure
 
-状态：已完成 runtime/test/doc 工作树实现、focused product-path tests 与完整本地 release minimum；仍需 implementation commit/push 与 implementation remote release-gate inspection。若远程仍为既有 `steps=[]` runner/billing blocker，只记录为 known blocker，不声明 remote CI green，也不为 release inspection commit 自身 CI 追加第三个记录提交。
+状态：已完成 runtime/test/doc 工作树实现、focused product-path tests、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `e8e085a` 已推送。implementation run `30173906579` completed failure，macOS/Linux/Windows jobs `89719477720`/`89719477726`/`89719477756` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。
 
 目标：补齐 Batch 562/558 后仍存在的 reviewer result source 写入断点：fresh canonical packet 已提供 packet-derived `reviewerStagingCommands.sourcePath`，`-StageReviewerResult` 也要求 source path 精确匹配该 packet-derived path，但主 Agent 仍需手工把 read-only reviewer 返回的唯一 JSON 写入 `results/sources/<shard>.json`。这一步在 deterministic `/rekit` WhatIf→Apply 链外，容易写错 shard/source、不能 hash-gated apply，也不能在产品路径中证明 preview 不写入与 Apply exact replay。
 
