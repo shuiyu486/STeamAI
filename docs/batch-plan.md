@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 582：multi-intervention concrete reconcile preview option handoff closure
 
-状态：已完成 runtime、CLI product-path coverage、docs 与 focused validation；完整本地 release minimum、implementation commit/push 与 remote release-gate inspection 待本批收尾执行。本批延续 Batch 581 的 Mission Commander intervention handoff closure：单个 open intervention 已可 concrete WhatIf→Apply，但多个 open interventions 全都有 concrete `eventId` 时，Mission Commander 仍只能给 `/rekit handoff <lane>` 加 `<eventId>` placeholder，replacement executor 需要回查 ledger 手工构造每个 preview command。
+状态：已完成 runtime、CLI product-path coverage、docs、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `0b78531` 已推送。implementation run `30148331819` completed failure，Linux/Windows/macOS jobs `89654278355`/`89654278337`/`89654278333` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。本批延续 Batch 581 的 Mission Commander intervention handoff closure：单个 open intervention 已可 concrete WhatIf→Apply，但多个 open interventions 全都有 concrete `eventId` 时，Mission Commander 仍只能给 `/rekit handoff <lane>` 加 `<eventId>` placeholder，replacement executor 需要回查 ledger 手工构造每个 preview command。
 
 目标：多个 open interventions 时不自动选择任一 intervention，primary 继续保持 `/rekit handoff <lane>`；但 follow-up 应按每个 concrete `eventId` 列出 `/rekit reconcile <lane> -InterventionId <eventId> -WhatIf` preview option，并追加 blocked `continue -WhatIf`。当 open intervention 缺少 `eventId` 或存在重复/不完整 selection 信息时，继续保留 `<eventId>` placeholder 作为 fail-closed fallback。
 
@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：本批只改变 Mission Commander 可消费 handoff 与 follow-up option 列表；多 intervention primary 仍不自动选择、不 Apply；`reconcile -WhatIf` 仍 read-only，`reconcile -Apply` 不在本批多 intervention primary 中自动暴露；不写 authority/confirmed、不执行 heavy tool、不新增 PowerShell runtime logic。
 
-验证结果：focused `go test ./internal/rekit/mission ./internal/rekit/cli -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。
+验证结果：focused `go test ./internal/rekit/mission ./internal/rekit/cli -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。remote inspection 已记录：implementation run `30148331819` completed failure，Linux/Windows/macOS jobs `89654278355`/`89654278337`/`89654278333` 均 `steps=[]`，未提供代码执行日志，按既有 runner/billing blocker 记录，不能声明 remote CI green。
 
 ### Batch 581：blocked lane concrete reconcile WhatIf→Apply handoff closure
 
