@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 604：release readiness evidence-scope parser closure
 
-状态：已完成 runtime/test/doc 工作树实现、focused release readiness parser tests、受影响 package tests、完整本地 release minimum 与本地 read-only release/status 验证；latest implementation parser fix 尚未提交推送，尚未检查该最终代码提交对应的远程 workflow run。本批仍按 Windows 本机可验证 product-path 推进；远程 release-gate 若继续出现 jobs `steps=[]` 且无 logs，应仅记录为既有 runner/billing blocker，不能声明 remote CI green，也不要为后续 release inspection 记录自身的 CI 追加第三个记录提交。
+状态：已完成 runtime/test/doc 工作树实现、focused release readiness parser tests、受影响 package tests、完整本地 release minimum、implementation commit/push 与 final implementation remote release-gate inspection；implementation commits `eb3c238` / `9887297` / `44de375` 已推送并进入 PR #10。最终 PR run `30179376831` completed failure，Windows/Linux/macOS jobs `89733303757`/`89733303769`/`89733303806` 均 `steps=[]`、`runner_id=0` 且无 logs，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录最终 implementation PR run；不要为 release inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。
 
 目标：补齐 Batch 603 暴露出的 release readiness parser 真实断点：latest-batch parser 会从 `docs/batch-plan.md` 的状态/验证结果短文本推导 Mission Commander release handoff，但此前仍以全文关键词识别 `commit/push`、`release inspection`、`release-gate run`、`steps=[]`。当当前批次为了说明 push cadence 或 known blocker 而写入 policy/boundary 文案时，parser 可能把尚未提交/尚未检查远程 run 的批次误判为已 inspection 或 blocked remote run。release/status first-screen 应只从明确 evidence/status 句推导 readiness，不让 policy guidance 伪造远程状态。
 
