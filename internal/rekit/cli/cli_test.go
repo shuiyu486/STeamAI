@@ -2768,6 +2768,8 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 		Blocked                       bool                                 `json:"blocked"`
 		ReviewerWritebackSummary      reviewerWritebackSummaryCLIItem      `json:"reviewerWritebackSummary"`
 		ReviewerDispatchIntakeSummary reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+		MissionCommanderActionQueue   missionCommanderActionQueueSnapshot  `json:"missionCommanderActionQueue"`
+		MissionBriefNextActions       []string                             `json:"missionBriefNextActions"`
 		Writes                        []startWrite                         `json:"writes"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &continueApply); err != nil {
@@ -2777,10 +2779,19 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 		t.Fatalf("installed entrypoint continue apply did not fail closed on remaining reviewer work: %+v", continueApply)
 	}
 	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	status = decodeInstalledCaseShimStatus(t, out.Bytes())
+	currentAction := status.CaseMission.MissionCommanderActionQueue.CurrentAction
+	if currentAction == nil || currentAction.Source != "reviewerDispatchIntakeHandoffs" || !strings.Contains(currentAction.Command, "dispatch read-only reviewer") || !containsSubstring(status.CaseMission.MissionBriefNextActions, "follow Mission Commander current action: dispatch read-only reviewer") || containsSubstring(status.CaseMission.MissionBriefNextActions, "/rekit continue login") {
+		t.Fatalf("installed entrypoint status did not prioritize reviewer queue action: current=%+v next=%+v", currentAction, status.CaseMission.MissionBriefNextActions)
+	}
+	out.Reset()
 	if err := Run([]string{"-Command", "status", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"status case mission reviewer dispatch intake summary：total=1", "status case mission reviewer dispatch next action runbook：shard=shard-02", "dispatch read-only reviewer", "after saving reviewer JSON, run staging preview"} {
+	for _, expected := range []string{"status case mission reviewer dispatch intake summary：total=1", "status case mission reviewer dispatch next action runbook：shard=shard-02", "status case mission brief next action：follow Mission Commander current action: dispatch read-only reviewer", "dispatch read-only reviewer", "after saving reviewer JSON, run staging preview"} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("installed entrypoint status reviewer runbook text missing %q:\n%s", expected, out.String())
 		}
@@ -2840,6 +2851,8 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 	var checkpoint struct {
 		ReviewerWritebackSummary      reviewerWritebackSummaryCLIItem      `json:"reviewerWritebackSummary"`
 		ReviewerDispatchIntakeSummary reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+		MissionCommanderActionQueue   missionCommanderActionQueueSnapshot  `json:"missionCommanderActionQueue"`
+		MissionBriefNextActions       []string                             `json:"missionBriefNextActions"`
 	}
 	if err := json.Unmarshal(checkpointBytes, &checkpoint); err != nil {
 		t.Fatalf("installed entrypoint checkpoint did not decode: %v\n%s", err, string(checkpointBytes))
@@ -2977,6 +2990,8 @@ type installedCaseShimStatus struct {
 	CaseMission struct {
 		ReviewerWritebackSummary      reviewerWritebackSummaryCLIItem      `json:"reviewerWritebackSummary"`
 		ReviewerDispatchIntakeSummary reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+		MissionCommanderActionQueue   missionCommanderActionQueueSnapshot  `json:"missionCommanderActionQueue"`
+		MissionBriefNextActions       []string                             `json:"missionBriefNextActions"`
 	} `json:"caseMission"`
 	ProjectHandoff *struct {
 		PackMemoryCandidates struct {

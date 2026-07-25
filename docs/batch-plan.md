@@ -16,6 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 596：Mission Commander action queue current-action closure
+
+状态：已完成 runtime/test/doc 工作树实现、focused tests 与完整本地 release minimum；implementation commit/push 待执行，推送后再读取对应 GitHub Actions 运行结果并记录一次。本轮完成后按用户要求收尾停止，不继续开启 Batch 597。
+
+目标：修复 Batch 590、547、595 后仍暴露的 first-screen operational 断点：`overview` / `status` 已有统一 `MissionCommanderActionQueue` 并能合并 reviewer、adapter、evidence 与 lane action，但 current-action selection 会先取 unblocked follow-up，导致 active reviewer dispatch/intake blocker 存在时，case-local `/rekit` 第一屏仍可能推荐普通 `/rekit handoff <lane>` 或保留 `/rekit continue <lane>`，replacement executor 需要回查完整 handoff 才能知道应先调度 read-only reviewer 或处理 review-owned current action。
+
+已实现内容：
+
+- `MissionCommanderActionQueueFor` 的 current-action 选择改为基于完整队列优先级：先选择 non-follow-up 且未 blocked 的 primary action，再选择 non-follow-up blocker/review action，随后才回退到 blocked/requiresReview 或普通 follow-up；这样 reviewer/evidence/adapter blocker 不会被 ready lane 的普通 handoff follow-up 遮蔽。
+- `overview.nextSteps[]` 现在把 `follow Mission Commander current action: <command>` 放到第一屏 next step，并在 queue current action 需要 review、blocked 或来自 reviewer/adapter/evidence 等非普通 ready lane source 时过滤 generic `/rekit continue ...`。
+- `status.caseMission.missionBriefNextActions[]` 改为复用 `overview` inventory 的 queue-aware `NextSteps`，使 JSON/text 与 unified queue current action 保持一致。
+- Installed case-local `/rekit` product-path E2E 覆盖 partial reviewer intake 后 `status -Format json/text`：remaining reviewer shard 成为 current action，brief next action 跟随 `dispatch read-only reviewer`，且不再推荐 `/rekit continue login`。
+
+边界：本批只改变只读 Mission Commander action queue selection 与 overview/status first-screen handoff；不新增 schema 字段，不自动 spawn/stop/poll/monitor reviewer，不执行 adapter/heavy tool，不写 ledger/facts/authority/confirmed，不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/mission -count=1`、`go test ./internal/rekit/overview -count=1`、`go test ./internal/rekit/cli -run TestRunInstalledCaseShimProductPathStatusAndRefresh -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。
+
 ### Batch 595：pack-memory candidate Mission Commander current action queue closure
 
 状态：已完成 release/status pack-memory current action queue runtime、case-local default `/rekit` product-path binding、入口文档更新、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `f76df49` 已推送。implementation run `30160413914` completed failure，Linux/Windows/macOS jobs `89684716377`/`89684716436`/`89684716444` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。本批承接 Batch 570-576、591-593 的 pack-memory review/proof/cleanup/reconsume/retirement closure：release/status 已能列出 per-pack open residue、proof summary 与 next missing proof，但 multi-pack 或 case-local replacement executor 仍可能只看到泛化 `nextAction`，需要手工遍历 `packs[]` 才知道当前应处理哪个 pack、运行哪个 bounded proof/verification/retirement command；无参数 `/rekit` default/table text 还绕过 case-local packet-derived review workspace binding，导致 first-screen current action 仍可能使用 `<packet.json>` 占位。

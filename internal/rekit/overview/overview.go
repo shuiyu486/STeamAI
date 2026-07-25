@@ -201,7 +201,7 @@ func Render(repoRoot, caseRoot, pack string) (string, error) {
 	writeBatches(&out, facts.AllBatchEvents)
 	writeInterventions(&out, facts.Interventions)
 	writeRollbacks(&out, facts.Rollbacks)
-	writeNextSteps(&out, overviewNextSteps(brief, evidenceReview))
+	writeNextSteps(&out, overviewNextSteps(brief, evidenceReview, actionQueue))
 	return out.String(), nil
 }
 
@@ -276,7 +276,7 @@ func BuildInventory(repoRoot, caseRoot, pack string) (Inventory, error) {
 		ReviewerDispatchIntakeHandoffs: reviewerDispatchIntakeHandoffs,
 		ReviewerDispatchIntakeSummary:  workstream.ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
 		Sections:                       data.sections,
-		NextSteps:                      overviewNextSteps(brief, evidenceReview),
+		NextSteps:                      overviewNextSteps(brief, evidenceReview, actionQueue),
 	}, nil
 }
 
@@ -720,14 +720,35 @@ func overviewBlocked(brief MissionBrief) bool {
 	return len(brief.BlockedLanes) > 0 || len(brief.PendingGates) > 0 || len(brief.OpenDecisions) > 0 || len(brief.Interventions) > 0
 }
 
-func overviewNextSteps(brief MissionBrief, evidenceReview []workstream.ExecutionEvidenceReviewItem) []string {
+func overviewNextSteps(brief MissionBrief, evidenceReview []workstream.ExecutionEvidenceReviewItem, queue MissionCommanderActionQueue) []string {
 	blocked := overviewBlocked(brief)
-	steps := append([]string{}, workstream.ExecutionEvidenceReviewNextSteps(evidenceReview, !blocked)...)
+	queueRequiresAttention := overviewActionQueueRequiresAttention(queue)
+	steps := []string{}
+	if queue.CurrentAction != nil {
+		steps = append(steps, "follow Mission Commander current action: "+queue.CurrentAction.Command)
+	}
+	steps = append(steps, workstream.ExecutionEvidenceReviewNextSteps(evidenceReview, !blocked && !queueRequiresAttention)...)
 	if !mission.ExecutionEvidenceReviewNeedsMainReview(evidenceReview) {
-		steps = append(steps, brief.NextAgentActions...)
+		for _, action := range brief.NextAgentActions {
+			if queueRequiresAttention && strings.Contains(action, "/rekit continue") {
+				continue
+			}
+			steps = append(steps, action)
+		}
 	}
 	steps = append(steps, "/rekit start <name>", "/rekit handoff", "/rekit handoff main 或 /rekit handoff <name>")
 	return uniqueStrings(steps)
+}
+
+func overviewActionQueueRequiresAttention(queue MissionCommanderActionQueue) bool {
+	if queue.CurrentAction == nil {
+		return queue.Counts.Blocked > 0 || queue.Counts.RequiresReview > 0
+	}
+	current := *queue.CurrentAction
+	if current.Blocked || current.RequiresReview {
+		return true
+	}
+	return current.Source != "missionCommanderActions" || current.State != "ready-to-continue"
 }
 
 func uniqueStrings(items []string) []string {

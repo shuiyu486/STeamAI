@@ -2931,7 +2931,7 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 		ExecutionEvidenceReviewSummary: inventory.ExecutionEvidenceReviewSummary,
 		MissionCommanderActionQueue:    inventory.MissionCommanderActionQueue,
 		MissionCommanderNextActions:    append([]mission.MissionCommanderNextActionItem{}, inventory.MissionCommanderNextActions...),
-		MissionBriefNextActions:        append([]string{}, inventory.MissionBrief.NextAgentActions...),
+		MissionBriefNextActions:        append([]string{}, inventory.NextSteps...),
 		Escalations:                    append([]string{}, inventory.MissionBrief.Escalations...),
 		HandoffPreviewCommand:          previewCommand,
 		HandoffApplyCommand:            applyCommand,

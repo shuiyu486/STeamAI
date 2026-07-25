@@ -562,10 +562,8 @@ func MissionCommanderActionQueueFor(items []MissionCommanderNextActionItem) Miss
 			queue.FollowUpActions = append(queue.FollowUpActions, item)
 		}
 	}
-	if current, ok := firstMissionCommanderCurrentAction(queue.UnblockedActions); ok {
+	if current, ok := firstMissionCommanderCurrentAction(items); ok {
 		queue.CurrentAction = missionCommanderNextActionPtr(current)
-	} else if len(items) > 0 {
-		queue.CurrentAction = missionCommanderNextActionPtr(items[0])
 	}
 	queue.Summary = MissionCommanderActionQueueSummary(queue)
 	return queue
@@ -584,15 +582,34 @@ func MissionCommanderActionQueueSummary(queue MissionCommanderActionQueue) strin
 }
 
 func firstMissionCommanderCurrentAction(items []MissionCommanderNextActionItem) (MissionCommanderNextActionItem, bool) {
-	for _, item := range items {
-		if !MissionCommanderNextActionIsFollowUp(item) {
-			return item, true
-		}
+	if current, ok := firstMissionCommanderCurrentActionMatching(items, func(item MissionCommanderNextActionItem) bool {
+		return !MissionCommanderNextActionIsFollowUp(item) && !item.Blocked
+	}); ok {
+		return current, true
+	}
+	if current, ok := firstMissionCommanderCurrentActionMatching(items, func(item MissionCommanderNextActionItem) bool {
+		return !MissionCommanderNextActionIsFollowUp(item)
+	}); ok {
+		return current, true
+	}
+	if current, ok := firstMissionCommanderCurrentActionMatching(items, func(item MissionCommanderNextActionItem) bool {
+		return item.RequiresReview || item.Blocked
+	}); ok {
+		return current, true
 	}
 	if len(items) == 0 {
 		return MissionCommanderNextActionItem{}, false
 	}
 	return items[0], true
+}
+
+func firstMissionCommanderCurrentActionMatching(items []MissionCommanderNextActionItem, match func(MissionCommanderNextActionItem) bool) (MissionCommanderNextActionItem, bool) {
+	for _, item := range items {
+		if match(item) {
+			return item, true
+		}
+	}
+	return MissionCommanderNextActionItem{}, false
 }
 
 func missionCommanderNextActionPtr(item MissionCommanderNextActionItem) *MissionCommanderNextActionItem {

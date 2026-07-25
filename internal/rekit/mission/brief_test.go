@@ -216,6 +216,18 @@ func TestMissionCommanderNextActionsIncludeLaneFollowUps(t *testing.T) {
 	}
 }
 
+func TestMissionCommanderActionQueuePromotesReviewBlockerOverFollowUp(t *testing.T) {
+	items := []MissionCommanderNextActionItem{
+		{State: "ready-to-continue", Command: "/rekit handoff login", Source: "missionCommanderActions.followUp"},
+		{State: "waiting-for-reviewer-result", Command: "dispatch read-only reviewer for shard-02", Source: "reviewerDispatchIntakeHandoffs", Blocked: true, RequiresReview: true},
+	}
+
+	queue := MissionCommanderActionQueueFor(items)
+	if queue.CurrentAction == nil || queue.CurrentAction.Command != "dispatch read-only reviewer for shard-02" || queue.CurrentAction.Source != "reviewerDispatchIntakeHandoffs" || queue.Summary != "total=2 unblocked=1 blocked=1 requiresReview=1 followUp=1 current=dispatch read-only reviewer for shard-02" {
+		t.Fatalf("Mission Commander action queue did not promote reviewer blocker over ordinary follow-up: %+v", queue)
+	}
+}
+
 func TestMissionCommanderNextActionsKeepGateSpecificEvidenceActions(t *testing.T) {
 	review := func(gateEventID, status string) ExecutionEvidenceReviewItem {
 		return ExecutionEvidenceReviewItem{
