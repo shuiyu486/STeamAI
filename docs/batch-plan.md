@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 603：execution evidence review runbook closure
 
-状态：已完成 runtime/test/doc 工作树实现、focused execution evidence review tests、受影响 package tests 与完整本地 release minimum；尚未创建本批代码提交，尚未检查本批对应的远程 workflow run。本批仍按 Windows 本机可验证 product-path 推进，远程 release-gate 若继续出现 jobs `steps=[]` 且无 logs，应仅记录为既有 runner/billing blocker，不能声明 remote CI green，也不要为后续 release inspection 记录自身的 CI 追加第三个记录提交。
+状态：已完成 runtime/test/doc 工作树实现、focused execution evidence review tests、受影响 package tests、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `67c8199` 已推送并进入 PR #9。PR run `30178318236` completed failure，macOS/Linux/Windows jobs `89730638005`/`89730638010`/`89730638018` 均 `steps=[]`、`runner_id=0` 且无 logs，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation PR run；不要为 release inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。
 
 目标：补齐 Batch 580/536 后仍存在的 execution evidence review 接手断点：bounded observation evidence 已记录后，status/overview/handoff 能显示 review queue、summary、follow-through 与 boundary，但 replacement executor 仍需要从多处字段拼接“review evidence → no-heavy/no-authority → handoff/continue”的具体步骤。Mission Commander first-screen、handoff Markdown 与 resume/checkpoint 应直接投影有序 runbook，让主 Agent 或替换 executor 不打开 observations ledger、完整 sidecar 或 follow-through JSON 也能安全接手。
 
