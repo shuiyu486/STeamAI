@@ -1355,8 +1355,13 @@ func writePackMemoryCandidateReviewSummaryText(out io.Writer, prefix, pack strin
 		}
 		if proof.NextMissingProof != nil {
 			next := proof.NextMissingProof
-			if _, err := fmt.Fprintf(out, "%s pack-memory next missing proof：pack=%s stage=%s proofType=%s path=%s candidatePath=%s packTarget=%s when=%s action=%s format=%s requiresPacket=%t requiresCandidateDecision=%t requiresExplicitReview=%t draft=%s draftApply=%s\n", prefix, pack, textOr(next.Stage, "none"), textOr(next.ProofType, "none"), textOr(next.Path, "none"), textOr(next.CandidatePath, "none"), textOr(next.PackTarget, "none"), textOr(next.When, "none"), textOr(next.Action, "none"), textOr(next.Format, "none"), next.RequiresPacket, next.RequiresCandidateDecision, next.RequiresExplicitReview, textOr(next.DraftCommand, "none"), textOr(next.DraftApplyTemplate, "none")); err != nil {
+			if _, err := fmt.Fprintf(out, "%s pack-memory next missing proof：pack=%s stage=%s proofType=%s path=%s candidatePath=%s packTarget=%s packet=%s candidateDecision=%s when=%s action=%s format=%s requiresPacket=%t requiresCandidateDecision=%t requiresExplicitReview=%t draft=%s draftApply=%s\n", prefix, pack, textOr(next.Stage, "none"), textOr(next.ProofType, "none"), textOr(next.Path, "none"), textOr(next.CandidatePath, "none"), textOr(next.PackTarget, "none"), textOr(next.PacketPath, "none"), textOr(next.CandidateDecisionPath, "none"), textOr(next.When, "none"), textOr(next.Action, "none"), textOr(next.Format, "none"), next.RequiresPacket, next.RequiresCandidateDecision, next.RequiresExplicitReview, textOr(next.DraftCommand, "none"), textOr(next.DraftApplyTemplate, "none")); err != nil {
 				return err
+			}
+			for _, evidenceRef := range next.EvidenceRefs {
+				if _, err := fmt.Fprintf(out, "%s pack-memory next missing proof evidence ref：pack=%s evidence=%s\n", prefix, pack, evidenceRef); err != nil {
+					return err
+				}
 			}
 			for _, evidence := range next.Evidence {
 				if _, err := fmt.Fprintf(out, "%s pack-memory next missing proof evidence：pack=%s evidence=%s\n", prefix, pack, evidence); err != nil {
@@ -3409,10 +3414,50 @@ func bindStatusCaseCandidateDecisionDraftHandoffs(handoff *statusProjectHandoff,
 			draft := drafts[j]
 			if draft.Handoff != nil && statusCaseCandidateDraftCoversPackStatus(repoRoot, *status, draft.CandidatePaths) {
 				status.DecisionDraftHandoff = draft.Handoff
+				bindStatusCaseCandidateNextMissingProof(status, draft.Handoff)
 				break
 			}
 		}
 	}
+}
+
+func bindStatusCaseCandidateNextMissingProof(status *releasecheck.ReleaseHandoffPackMemoryCandidateStatus, handoff *promote.CandidateDecisionDraftHandoff) {
+	if status == nil || handoff == nil || status.ProofSummary.NextMissingProof == nil || !status.ProofSummary.NextMissingProof.RequiresPacket {
+		return
+	}
+	packetPath := strings.TrimSpace(handoff.PacketPath)
+	if packetPath == "" {
+		return
+	}
+	next := *status.ProofSummary.NextMissingProof
+	next.PacketPath = packetPath
+	decisionPath := strings.TrimSpace(handoff.DecisionPath)
+	if next.RequiresCandidateDecision && decisionPath != "" {
+		next.CandidateDecisionPath = decisionPath
+	}
+	if next.ProofType == "candidate-decision-note" && len(handoff.EvidenceRefs) > 0 {
+		next.EvidenceRefs = append([]string{}, handoff.EvidenceRefs...)
+	}
+	next.DraftCommand = statusCaseCandidateNextMissingProofCommand(next.DraftCommand, packetPath, next.CandidateDecisionPath, next.EvidenceRefs)
+	next.DraftApplyTemplate = statusCaseCandidateNextMissingProofCommand(next.DraftApplyTemplate, packetPath, next.CandidateDecisionPath, next.EvidenceRefs)
+	next.Boundary = append(next.Boundary, "case-local status bound this next missing proof to a packet-derived review workspace; release/status still does not write proof")
+	status.ProofSummary.NextMissingProof = &next
+	status.ReviewSummary.ProofSummary = status.ProofSummary
+}
+
+func statusCaseCandidateNextMissingProofCommand(command, packetPath, decisionPath string, evidenceRefs []string) string {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return ""
+	}
+	command = strings.ReplaceAll(command, "<packet.json>", statusQuoteCommandArg(packetPath))
+	if strings.TrimSpace(decisionPath) != "" {
+		command = strings.ReplaceAll(command, "<candidate-decisions.json>", statusQuoteCommandArg(decisionPath))
+	}
+	if len(evidenceRefs) > 0 {
+		command = strings.ReplaceAll(command, "<review-evidence-ref>", statusQuoteCommandArg(strings.Join(evidenceRefs, ",")))
+	}
+	return command
 }
 
 type statusCaseCandidateDecisionDraft struct {

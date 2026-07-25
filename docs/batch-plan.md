@@ -16,6 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 576：case-local pack-memory next-missing proof binding closure
+
+状态：已完成 runtime、CLI、release/status handoff、tests/docs 与本地 release minimum；implementation commit/push 与 implementation remote release-gate inspection 待执行。本批延续 Batch 565 与 Batch 570–575：case-mode `status` 已能从 attached case 的 `.rekit/reviews/**/packet.json` 绑定 `DecisionDraftHandoff`，但 nested `packMemoryCandidates.reviewSummary.proofSummary.nextMissingProof` 仍保留 `<packet.json>` / `<review-evidence-ref>` placeholder，replacement executor 在第一屏看到 decision draft handoff 后，还要手工回找 packet 与 evidence refs 才能接续 proof draft。
+
+目标：让 case-local `status` 在发现严格绑定当前 repo/case/pack 的 durable candidate review packet 时，把同一 packet-derived review workspace 注入 next missing proof summary，使 Mission Commander / replacement executor 可直接从 first-screen status 拿到 concrete packet path、candidate decision path、evidence refs 与 runnable proof draft command；kit-only `release-check` 仍保持只读 fallback，不推断 case-local packet。
+
+已实现内容：
+
+- `ReleaseHandoffPackMemoryCandidateReviewNextMissingProof` 新增只读 handoff 字段 `packetPath`、`candidateDecisionPath` 与 `evidenceRefs`，用于承载 case-mode status 的 packet-derived proof draft context。
+- case-mode `status` 在绑定 durable `DecisionDraftHandoff` 后，同步把 matching packet path、candidate decision path 与 candidate decision note evidence refs 注入 nested next missing proof；draft command / apply template 会替换 `<packet.json>`、`<candidate-decisions.json>` 与 `<review-evidence-ref>` placeholder。
+- CLI text first-screen 的 `status pack-memory next missing proof` 行现在显示 packet、candidateDecision、draft、draftApply，并逐行输出 proof evidence ref 与 boundary，避免 replacement executor 扫描完整 review packet 才能执行 proof draft。
+- CLI product-path coverage 覆盖 nested JSON proof binding、placeholder removal、packet-derived evidence refs、text command/evidence/boundary 输出；releasecheck/promote focused coverage 保持 kit-only handoff 与 proof draft attestation 不回退。
+
+边界：本批只在 case-local status 读取已存在、严格绑定的 durable review packet 后增强 proof handoff；不生成 proof、不运行 proof draft、不写 decision/proof file、不 merge/cleanup candidates、不运行 doctor/init/reconsume、不执行 heavy tool、不写 authority/confirmed、不新增 PowerShell runtime logic。`release-check` / kit-only status 不推断 case-local packet，也不能据此声明 remote CI green。
+
+验证结果：focused `go test ./internal/rekit/cli ./internal/rekit/releasecheck ./internal/rekit/promote -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。remote inspection 待 implementation commit/push 后执行。
+
 ### Batch 575：pack-memory lifecycle proof deterministic draft closure
 
 状态：已完成 runtime、CLI、release/status handoff、tests、本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `0524688` 已推送。implementation run `30134331373` completed failure，macOS/Windows/Linux jobs `89615073082`/`89615073103`/`89615073118` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。本批延续 Batch 570–574：candidate decision note、receipt-derived cleanup proof 与 lifecycle proof strict attestation 已闭环，但 `pack-doctor-output`、`fresh-case-reconsume-proof` 与 `attached-case-reconsume-proof` 仍需要 replacement executor 手工撰写 strict JSON proof note，容易遗漏 stage/checks/evidence hash 或写入 case 绝对路径。

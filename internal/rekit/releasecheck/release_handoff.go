@@ -187,6 +187,9 @@ type ReleaseHandoffPackMemoryCandidateReviewNextMissingProof struct {
 	When                      string   `json:"when,omitempty"`
 	Action                    string   `json:"action,omitempty"`
 	Format                    string   `json:"format,omitempty"`
+	PacketPath                string   `json:"packetPath,omitempty"`
+	CandidateDecisionPath     string   `json:"candidateDecisionPath,omitempty"`
+	EvidenceRefs              []string `json:"evidenceRefs,omitempty"`
 	DraftCommand              string   `json:"draftCommand,omitempty"`
 	DraftApplyTemplate        string   `json:"draftApplyTemplate,omitempty"`
 	RequiresPacket            bool     `json:"requiresPacket,omitempty"`

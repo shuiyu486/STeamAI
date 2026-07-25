@@ -1286,6 +1286,9 @@ type nextMissingProofDetail struct {
 	When                      string   `json:"when"`
 	Action                    string   `json:"action"`
 	Format                    string   `json:"format"`
+	PacketPath                string   `json:"packetPath"`
+	CandidateDecisionPath     string   `json:"candidateDecisionPath"`
+	EvidenceRefs              []string `json:"evidenceRefs"`
 	DraftCommand              string   `json:"draftCommand"`
 	DraftApplyTemplate        string   `json:"draftApplyTemplate"`
 	RequiresPacket            bool     `json:"requiresPacket"`
@@ -7783,6 +7786,9 @@ func TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime(t *te
 	if handoff := pack.DecisionDraftHandoff; handoff == nil || handoff.Mode != "candidate-decision-draft-handoff" || handoff.PacketPath != result.ReviewWorkspace.PacketPath || handoff.DecisionPath != filepath.Join(reviewRoot, "candidate-decisions.json") || !containsSubstring(handoff.EvidenceRefs, result.ReviewWorkspace.CombinedDiffPath) || !containsSubstring(handoff.SupportedDecisions, "accept-managed-reject-tooling") || len(handoff.PreviewCommands) == 0 || !strings.Contains(handoff.PreviewCommands[0].PreviewCommand, "-DraftCandidateDecision") || !strings.Contains(handoff.PreviewCommands[0].ApplyCommandTemplate, "<decisionSha256-from-WhatIf>") || !strings.Contains(handoff.NextAction, "-DraftCandidateDecision") || !containsSubstring(handoff.Boundary, "draft Apply writes only") {
 		t.Fatalf("unexpected nested status pack-memory decision draft handoff: %+v", pack.DecisionDraftHandoff)
 	}
+	if next := pack.ReviewSummary.ProofSummary.NextMissingProof; next == nil || next.PacketPath != result.ReviewWorkspace.PacketPath || !containsSubstring(next.EvidenceRefs, result.ReviewWorkspace.CombinedDiffPath) || strings.Contains(next.DraftCommand, "<packet.json>") || strings.Contains(next.DraftCommand, "<review-evidence-ref>") || !strings.Contains(next.DraftCommand, statusQuoteCommandArg(result.ReviewWorkspace.PacketPath)) || !strings.Contains(next.DraftCommand, result.ReviewWorkspace.CombinedDiffPath) || !strings.Contains(next.DraftApplyTemplate, statusQuoteCommandArg(result.ReviewWorkspace.PacketPath)) || !containsSubstring(next.Boundary, "packet-derived review workspace") {
+		t.Fatalf("unexpected nested status next-missing proof binding: %+v", next)
+	}
 
 	out.Reset()
 	if err := Run([]string{"-Command", "status", "-Format", "text"}, &out); err != nil {
@@ -7795,6 +7801,11 @@ func TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime(t *te
 		"status pack-memory candidate pack：pack=_template candidateRoot=packs/_template/promote-candidates toolingRoot=packs/_template/tooling/candidates indexPath=packs/_template/promote-candidates/index.json candidateFiles=1 toolingFiles=1 indexEntries=1 receipts=0 pendingVerification=0 completedVerification=0 review=true cleanup=true verification=false",
 		"status pack-memory review summary：pack=_template total=3 candidateFiles=1 toolingFiles=1 indexEntries=1 reviewArtifacts=8 decisionArtifacts=2 cleanupArtifacts=2 reconsumeArtifacts=4",
 		"status pack-memory review summary boundary：pack=_template boundary=pack-memory reviewSummary is read-only; full candidate paths, indexCandidates, and reviewArtifacts remain available",
+		"status pack-memory next missing proof：pack=_template stage=decision-proof-required proofType=candidate-decision-note path=packs/_template/promote-candidates/review-artifacts/",
+		"packet=" + result.ReviewWorkspace.PacketPath,
+		"draft=/rekit promote -PacketPath " + statusQuoteCommandArg(result.ReviewWorkspace.PacketPath),
+		"status pack-memory next missing proof evidence ref：pack=_template evidence=" + result.ReviewWorkspace.CombinedDiffPath,
+		"status pack-memory next missing proof boundary：pack=_template boundary=case-local status bound this next missing proof to a packet-derived review workspace; release/status still does not write proof",
 		"status pack-memory decision draft handoff：pack=_template mode=candidate-decision-draft-handoff packet=" + result.ReviewWorkspace.PacketPath + " decisionPath=" + filepath.Join(reviewRoot, "candidate-decisions.json") + " nextAction=/rekit promote -PacketPath",
 		"status pack-memory decision draft evidence ref：pack=_template evidence=" + result.ReviewWorkspace.CombinedDiffPath,
 		"status pack-memory decision draft supported decision：pack=_template decision=accept-managed-reject-tooling",
