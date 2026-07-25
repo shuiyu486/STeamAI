@@ -16,6 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 603：execution evidence review runbook closure
+
+状态：已完成 runtime/test/doc 工作树实现、focused execution evidence review tests、受影响 package tests 与完整本地 release minimum；尚未创建本批代码提交，尚未检查本批对应的远程 workflow run。本批仍按 Windows 本机可验证 product-path 推进，远程 release-gate 若继续出现 jobs `steps=[]` 且无 logs，应仅记录为既有 runner/billing blocker，不能声明 remote CI green，也不要为后续 release inspection 记录自身的 CI 追加第三个记录提交。
+
+目标：补齐 Batch 580/536 后仍存在的 execution evidence review 接手断点：bounded observation evidence 已记录后，status/overview/handoff 能显示 review queue、summary、follow-through 与 boundary，但 replacement executor 仍需要从多处字段拼接“review evidence → no-heavy/no-authority → handoff/continue”的具体步骤。Mission Commander first-screen、handoff Markdown 与 resume/checkpoint 应直接投影有序 runbook，让主 Agent 或替换 executor 不打开 observations ledger、完整 sidecar 或 follow-through JSON 也能安全接手。
+
+已实现内容：
+
+- `mission.ExecutionEvidenceReviewItem` 新增只读 `reviewRunbookSteps[]`，由 `ExecutionEvidenceReviewRunbookSteps` 从 `gateEventId` / `reviewCommand`、recorded execution report path + SHA-256、`outputRefs`、`evidenceRefs`、boundary/escalation 状态、no-heavy/no-authority boundary 与 Mission Commander handoff/follow-up commands 派生；需要 main review 的 evidence 会过滤 autonomous `/rekit continue` follow-up。
+- Evidence item 构建、workstream lane-specific continue command rebind、gate duplicate/immediate execution evidence review override 均在 Mission Commander action/follow-through 更新后重算 `reviewRunbookSteps[]`，避免 action 覆盖后 runbook stale。
+- `status` case mission text、overview text、generic execution evidence review text、overview JSON、project/lane handoff Markdown、lane `RESUME.md` 与 checkpoint/digest text 同步输出完整 runbook steps；runbook 输出不再使用 tail `LimitStrings` 截断，保证 step 1 始终保留 review evidence/currentness 入口。
+- CLI/product-path 回归扩展 execution evidence review JSON/text 断言，覆盖 succeeded observation evidence、duplicate/already-recorded evidence、boundary/escalated evidence、project/lane handoff Markdown 与 Mission Commander next action suppression。
+- `release-check` / `status` latest-batch parser 同步修复 policy-only `steps=[]` wording 误判：当当前批次已完成本地验证但尚未创建代码提交、尚未检查对应远程 workflow run 时，remote gate 保持 `not-recorded`，release inspection cadence 保持 `implementation-pending`，不从 boundary 文案伪造 inspection evidence。
+
+边界：本批只增强已记录 observation evidence 的只读 downstream/durable runbook projection；不 replay adapter/heavy tool，不自动 validate/record sidecar，不改变 `gate -Apply` observation evidence 写入语义，不写 authority/confirmed，不新增 durable schema，不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/cli -run "TestRunStatusCaseMissionIncludesExecutionEvidenceReview|TestRunOverviewJsonIncludesMissionCommanderActionQueue|TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility" -count=1` 已通过；focused release parser `go test ./internal/rekit/releasecheck -run "TestLatestBatchReleaseInspectionCadenceWaitsForImplementationCommit|TestLatestBatchRemoteGateDoesNotTreatNegativeGreenAsGreen|TestLatestBatchRemoteGateIgnoresPolicyOnlyEmptyStepsBeforeInspection|TestLatestBatchRemoteGateRecognizesEqualsEmptyStepsAndChineseNegativeGreen" -count=1` 已通过；受影响 package `go test ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/gate ./internal/rekit/overview ./internal/rekit/cli ./internal/rekit/releasecheck -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。
+
 ### Batch 602：adapter currentness handoff closure
 
 状态：已完成 runtime/test/doc 工作树实现、focused adapter currentness tests、受影响 package tests、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `bd34204` 已推送并进入 PR #8。PR run `30177220326` completed failure，Windows/macOS/Linux jobs `89727842288`/`89727842311`/`89727842312` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation PR run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。

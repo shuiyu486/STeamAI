@@ -242,6 +242,27 @@ func TestLatestBatchRemoteGateDoesNotTreatNegativeGreenAsGreen(t *testing.T) {
 	}
 }
 
+func TestLatestBatchRemoteGateIgnoresPolicyOnlyEmptyStepsBeforeInspection(t *testing.T) {
+	section := `状态：已完成 runtime/test/doc 工作树实现、focused tests、受影响 package tests 与完整本地 release minimum；尚未创建本批代码提交，尚未检查本批对应的远程 workflow run。本批远程 release-gate 若继续出现 jobs ` + "`" + `steps=[]` + "`" + ` 且无 logs，应仅记录为既有 runner/billing blocker，不能声明 remote CI green，也不要为后续 release inspection 记录自身的 CI 追加第三个记录提交。
+
+验证结果：完整本地 release minimum 已通过：` + "`" + `go run ./cmd/rekit -- -Command release-check -Format json` + "`" + ` 返回 ` + "`" + `ready=true` + "`" + `，` + "`" + `go run ./cmd/rekit -- -Command status` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command packs` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command doctor` + "`" + `、` + "`" + `go test ./...` + "`" + `、` + "`" + `go vet ./...` + "`" + ` 与 ` + "`" + `git diff --check` + "`" + ` 均通过。`
+
+	handoff := latestBatchHandoff(ReleaseHandoffLatestBatch{Status: "已完成 fixture"}, section)
+	if !handoff.LocalValidationReady || !handoff.ReleaseCheckReady {
+		t.Fatalf("local validation should be ready before commit: %+v", handoff)
+	}
+	if handoff.RemoteReleaseGate != "not-recorded" || handoff.RemoteReleaseGateDetail == nil || handoff.RemoteReleaseGateDetail.EmptySteps {
+		t.Fatalf("policy-only steps=[] should not be treated as inspected remote gate: %+v", handoff.RemoteReleaseGateDetail)
+	}
+	if slices.Contains(handoff.Evidence, "remote release-gate jobs steps=[] recorded") {
+		t.Fatalf("policy-only steps=[] should not become remote evidence: %+v", handoff.Evidence)
+	}
+	cadence := handoff.ReleaseInspectionCadence
+	if cadence.State != "implementation-pending" || cadence.ImplementationCommitReady || cadence.InspectionCommitReady || !strings.Contains(cadence.NextAction, "implementation commit") {
+		t.Fatalf("unexpected pre-commit cadence for policy-only remote text: %+v", cadence)
+	}
+}
+
 func TestLatestBatchRemoteGateRecognizesEqualsEmptyStepsAndChineseNegativeGreen(t *testing.T) {
 	section := `状态：已完成 fixture；远程 release-gate run ` + "`" + `123456789` + "`" + ` completed failure，Linux/Windows/macOS jobs ` + "`" + `steps=[]` + "`" + `，不能声明远程 CI green。`
 	if got := latestBatchRemoteReleaseGate(section); got != "blocked: completed failure with jobs steps=[]" {
