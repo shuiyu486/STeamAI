@@ -3590,18 +3590,25 @@ func latestBatchReleaseInspectionCadence(text string, handoff ReleaseHandoffLate
 }
 
 func latestBatchImplementationCommitReady(text string) bool {
+	if latestBatchImplementationCommitEvidence(text) {
+		return true
+	}
 	lower := strings.ToLower(text)
 	for _, pending := range []string{"待 implementation commit/push", "implementation commit/push 待", "implementation commit/push 与远程 release-gate inspection 待", "pending implementation commit/push", "implementation commit/push and remote release-gate inspection pending", "after implementation commit/push", "尚未创建本批代码提交", "尚未提交推送"} {
 		if strings.Contains(lower, pending) || strings.Contains(text, pending) {
 			return false
 		}
 	}
+	return false
+}
+
+func latestBatchImplementationCommitEvidence(text string) bool {
 	for _, clause := range latestBatchEvidenceClauses(text) {
 		clauseLower := strings.ToLower(clause)
 		if strings.Contains(clauseLower, "do not") || strings.Contains(clauseLower, "不要") || strings.Contains(clauseLower, "不为") {
 			continue
 		}
-		if strings.Contains(clause, "已推送") || strings.Contains(clause, "已提交并推送") || strings.Contains(clauseLower, "implementation commit/push recorded") || strings.Contains(clauseLower, "implementation commit `") {
+		if strings.Contains(clause, "已推送") || strings.Contains(clause, "已提交并推送") || strings.Contains(clauseLower, "implementation commit/push recorded") || strings.Contains(clauseLower, "implementation commit `") || strings.Contains(clauseLower, "implementation commits `") {
 			return true
 		}
 	}

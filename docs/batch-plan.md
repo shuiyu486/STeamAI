@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 604：release readiness evidence-scope parser closure
 
-状态：已完成 runtime/test/doc 工作树实现、focused release readiness parser tests、受影响 package tests、完整本地 release minimum 与本地 read-only release/status 验证；最终 parser precedence 修正尚未提交推送，尚未检查最终代码提交对应的远程 workflow run。本批仍按 Windows 本机可验证 product-path 推进；远程 release-gate 若继续出现 jobs `steps=[]` 且无 logs，应仅记录为既有 runner/billing blocker，不能声明 remote CI green，也不要为后续 release inspection 记录自身的 CI 追加第三个记录提交。
+状态：已完成 runtime/test/doc 工作树实现、focused release readiness parser tests、受影响 package tests、完整本地 release minimum 与本地 read-only release/status 验证；latest implementation parser fix 尚未提交推送，尚未检查该最终代码提交对应的远程 workflow run。本批仍按 Windows 本机可验证 product-path 推进；远程 release-gate 若继续出现 jobs `steps=[]` 且无 logs，应仅记录为既有 runner/billing blocker，不能声明 remote CI green，也不要为后续 release inspection 记录自身的 CI 追加第三个记录提交。
 
 目标：补齐 Batch 603 暴露出的 release readiness parser 真实断点：latest-batch parser 会从 `docs/batch-plan.md` 的状态/验证结果短文本推导 Mission Commander release handoff，但此前仍以全文关键词识别 `commit/push`、`release inspection`、`release-gate run`、`steps=[]`。当当前批次为了说明 push cadence 或 known blocker 而写入 policy/boundary 文案时，parser 可能把尚未提交/尚未检查远程 run 的批次误判为已 inspection 或 blocked remote run。release/status first-screen 应只从明确 evidence/status 句推导 readiness，不让 policy guidance 伪造远程状态。
 
@@ -26,7 +26,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 - `latestBatchRemoteReleaseGate` 改为先用 `latestBatchEvidenceClauses` 将状态/验证结果按句切分，再由 `latestBatchRemoteEvidenceText` 只保留明确 remote run/job/completed/explicit green evidence；pending remote inspection 仍优先返回 `not-recorded`。
 - `latestBatchRemoteReleaseGateDetail`、remote job/run refs、`steps=[]` evidence 与 cadence 的 `remote release-gate steps=[] blocker recorded` 统一消费 scoped remote evidence text，不再从 policy/boundary 句抓取 jobs、run refs 或 empty steps。
-- `latestBatchImplementationCommitReady` 改为 pending 优先，只有“已推送/已提交并推送/implementation commit `<sha>`/recorded”类 evidence clause 才标记 implementation ready；`latestBatchInspectionCommitReady` 只在 scoped remote gate evidence 非 `not-recorded` 时标记 inspection ready。
+- `latestBatchImplementationCommitReady` 改为 evidence 优先：只要存在“已推送/已提交并推送/implementation commit(s) `<sha>`/recorded”类 evidence clause 即标记 implementation ready；没有 pushed evidence 时，pending wording 才保持 implementation-pending。`latestBatchInspectionCommitReady` 只在 scoped remote gate evidence 非 `not-recorded` 时标记 inspection ready。
 - Releasecheck 回归覆盖：local validation 已完成但未提交/未检查远程 run 时保持 `implementation-pending`；implementation commit 已推送但远程 run 尚未检查时保持 `inspection-pending`；policy-only `steps=[]`/`no third inspection` 不产生 remote evidence；已有 Batch 603 completed `steps=[]` inspection record 仍解析为 complete blocked state。
 
 边界：本批只增强 release/status read-only latest-batch handoff truthfulness；不执行远程 CI，不修改 workflow，不改变 release gate inventory，不创建或删除 PR/run，不写 authority/confirmed，不新增 PowerShell runtime logic。
