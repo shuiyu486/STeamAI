@@ -90,6 +90,7 @@ func ExecutionEvidenceReviewItemFromObservation(observation map[string]any, lane
 	}
 	item.MissionCommanderAction = ExecutionEvidenceReviewCommanderAction(item, label)
 	item.FollowThrough = ExecutionEvidenceReviewFollowThrough(item)
+	item.ReviewRunbookSteps = ExecutionEvidenceReviewRunbookSteps(item, true)
 	return item, true
 }
 
@@ -148,6 +149,53 @@ func ExecutionEvidenceReviewFollowThrough(item ExecutionEvidenceReviewItem) Exec
 	follow.Outcomes = []ExecutionEvidenceOutcome{executionEvidenceOutcomeFor(item, state, boundary)}
 	follow.ActionQueue = MissionCommanderActionQueueFor(executionEvidenceFollowThroughActions(item, state, boundary))
 	return follow
+}
+
+func ExecutionEvidenceReviewRunbookSteps(item ExecutionEvidenceReviewItem, includeContinueFollowUp bool) []string {
+	steps := []string{}
+	if item.GateEventID != "" {
+		if item.ReviewCommand != "" {
+			steps = append(steps, "review execution evidence for gateEventId "+item.GateEventID+": "+item.ReviewCommand)
+		} else {
+			steps = append(steps, "review execution evidence for gateEventId "+item.GateEventID)
+		}
+	} else if item.ReviewCommand != "" {
+		steps = append(steps, "review execution evidence: "+item.ReviewCommand)
+	}
+	if item.ExecutionReportPath != "" || item.ExecutionReportSHA256 != "" {
+		reportPath := strings.TrimSpace(item.ExecutionReportPath)
+		if reportPath == "" {
+			reportPath = "none"
+		}
+		reportSHA256 := strings.TrimSpace(item.ExecutionReportSHA256)
+		if reportSHA256 == "" {
+			reportSHA256 = "none"
+		}
+		steps = append(steps, "verify execution report currentness: path="+reportPath+" sha256="+reportSHA256)
+	}
+	if len(item.OutputRefs) > 0 {
+		steps = append(steps, "review outputRefs: "+strings.Join(item.OutputRefs, ","))
+	}
+	if len(item.EvidenceRefs) > 0 {
+		steps = append(steps, "review evidenceRefs: "+strings.Join(item.EvidenceRefs, ","))
+	}
+	if ExecutionEvidenceReviewItemNeedsMainReview(item) {
+		steps = append(steps, "boundary hit or escalation in execution evidence; stop autonomous continuation and notify main Agent")
+	}
+	steps = append(steps, "do not replay the heavy tool or adapter action")
+	steps = append(steps, "do not write authority/confirmed from evidence review")
+	if command := strings.TrimSpace(item.MissionCommanderAction.PrimaryCommand); command != "" {
+		steps = append(steps, command)
+	} else if command := strings.TrimSpace(item.HandoffCommand); command != "" {
+		steps = append(steps, command)
+	}
+	for _, followUp := range item.MissionCommanderAction.FollowUpCommands {
+		if strings.Contains(followUp, "/rekit continue") && (!includeContinueFollowUp || ExecutionEvidenceReviewItemNeedsMainReview(item)) {
+			continue
+		}
+		steps = append(steps, followUp)
+	}
+	return UniqueStrings(compactStrings(steps))
 }
 
 func executionEvidenceOutcomeFor(item ExecutionEvidenceReviewItem, state string, boundary []string) ExecutionEvidenceOutcome {

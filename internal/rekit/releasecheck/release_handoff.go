@@ -3431,7 +3431,7 @@ func latestBatchRemoteReleaseGate(text string) string {
 	lower := strings.ToLower(text)
 	emptySteps := latestBatchRemoteHasEmptySteps(text, lower)
 	switch {
-	case strings.Contains(text, "远程 release-gate inspection 待") || strings.Contains(lower, "remote release-gate inspection pending") || strings.Contains(lower, "release-gate inspection pending"):
+	case latestBatchRemoteInspectionPending(text, lower):
 		return "not-recorded"
 	case emptySteps && strings.Contains(lower, "completed failure"):
 		return "blocked: completed failure with jobs steps=[]"
@@ -3444,6 +3444,23 @@ func latestBatchRemoteReleaseGate(text string) string {
 	default:
 		return "not-recorded"
 	}
+}
+
+func latestBatchRemoteInspectionPending(text, lower string) bool {
+	for _, pending := range []string{
+		"远程 release-gate inspection 待",
+		"remote release-gate inspection pending",
+		"release-gate inspection pending",
+		"remote workflow run pending",
+		"workflow run pending",
+	} {
+		if strings.Contains(text, pending) || strings.Contains(lower, pending) {
+			return true
+		}
+	}
+	pendingChinese := strings.Contains(text, "尚未检查") || strings.Contains(text, "尚未记录") || strings.Contains(text, "待检查")
+	remoteRun := strings.Contains(text, "远程") && (strings.Contains(lower, "workflow run") || strings.Contains(lower, "release-gate run") || strings.Contains(text, "release-gate"))
+	return pendingChinese && remoteRun
 }
 
 func latestBatchRemoteReleaseGateDetail(text string) *ReleaseHandoffRemoteReleaseGateDetail {

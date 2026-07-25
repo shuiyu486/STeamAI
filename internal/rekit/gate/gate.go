@@ -3265,6 +3265,7 @@ func gateExecutionEvidenceReviewWithAction(event ExecutionEvidencePreview, comma
 		item.Boundary = append([]string{}, commander.Boundary...)
 		item.MissionCommanderAction = commander
 		item.FollowThrough = mission.ExecutionEvidenceReviewFollowThrough(item)
+		item.ReviewRunbookSteps = mission.ExecutionEvidenceReviewRunbookSteps(item, true)
 	}
 	return []mission.ExecutionEvidenceReviewItem{item}
 }

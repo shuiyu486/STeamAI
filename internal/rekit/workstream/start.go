@@ -1536,36 +1536,23 @@ func ExecutionEvidenceReviewSummaryFor(items []ExecutionEvidenceReviewItem, queu
 	return mission.ExecutionEvidenceReviewSummaryFor(items, queue)
 }
 
-func executionEvidenceReviewNeedsMainReview(item ExecutionEvidenceReviewItem) bool {
-	return mission.ExecutionEvidenceReviewItemNeedsMainReview(item)
-}
-
 func ExecutionEvidenceReviewNeedsMainReview(items []ExecutionEvidenceReviewItem) bool {
 	return mission.ExecutionEvidenceReviewNeedsMainReview(items)
 }
 
 func ExecutionEvidenceReviewNextSteps(items []ExecutionEvidenceReviewItem, includeContinueFollowUp bool) []string {
 	next := []string{}
-	needsMainReview := ExecutionEvidenceReviewNeedsMainReview(items)
+	includeContinue := includeContinueFollowUp && !ExecutionEvidenceReviewNeedsMainReview(items)
 	for _, item := range items {
-		if item.GateEventID != "" {
-			next = append(next, "review execution evidence for gateEventId "+item.GateEventID+": "+item.ReviewCommand)
-		} else if item.ReviewCommand != "" {
-			next = append(next, "review execution evidence: "+item.ReviewCommand)
+		steps := item.ReviewRunbookSteps
+		if len(steps) == 0 {
+			steps = mission.ExecutionEvidenceReviewRunbookSteps(item, includeContinue)
 		}
-		if executionEvidenceReviewNeedsMainReview(item) {
-			next = append(next, "boundary hit or escalation in execution evidence; stop autonomous continuation and notify main Agent")
-		}
-		if item.MissionCommanderAction.PrimaryCommand != "" {
-			next = append(next, item.MissionCommanderAction.PrimaryCommand)
-		} else if item.HandoffCommand != "" {
-			next = append(next, item.HandoffCommand)
-		}
-		for _, followUp := range item.MissionCommanderAction.FollowUpCommands {
-			if strings.Contains(followUp, "/rekit continue") && (!includeContinueFollowUp || needsMainReview) {
+		for _, step := range steps {
+			if strings.Contains(step, "/rekit continue") && !includeContinue {
 				continue
 			}
-			next = append(next, followUp)
+			next = append(next, step)
 		}
 	}
 	return mission.UniqueStrings(next)
@@ -1623,6 +1610,9 @@ func appendResumeExecutionEvidenceReview(lines []string, items []ExecutionEviden
 		}
 		lines = append(lines, "    - review command: `"+item.ReviewCommand+"`")
 		lines = append(lines, "    - handoff command: `"+item.HandoffCommand+"`")
+		for idx, step := range item.ReviewRunbookSteps {
+			lines = append(lines, fmt.Sprintf("    - review runbook: step=%d text=%s", idx+1, step))
+		}
 		lines = append(lines, "    - commander state: "+item.MissionCommanderAction.State)
 		lines = append(lines, "    - commander primary: `"+item.MissionCommanderAction.PrimaryCommand+"`")
 		lines = appendResumeExecutionEvidenceFollowThrough(lines, item.FollowThrough)

@@ -138,6 +138,7 @@ type ExecutionEvidenceReviewItem struct {
 	FollowThrough          ExecutionEvidenceFollowThrough   `json:"followThrough"`
 	ReviewCommand          string                           `json:"reviewCommand"`
 	HandoffCommand         string                           `json:"handoffCommand"`
+	ReviewRunbookSteps     []string                         `json:"reviewRunbookSteps,omitempty"`
 	Boundary               []string                         `json:"boundary"`
 	MissionCommanderAction MissionCommanderAction           `json:"missionCommanderAction"`
 }

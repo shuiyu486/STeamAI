@@ -517,6 +517,9 @@ func writeExecutionEvidenceReview(out *bytes.Buffer, items []workstream.Executio
 			fmt.Fprintf(out, "  - evidenceRefs: %s\n", refs)
 		}
 		fmt.Fprintf(out, "  - review command: `%s`\n", item.ReviewCommand)
+		for idx, step := range item.ReviewRunbookSteps {
+			fmt.Fprintf(out, "  - review runbook: step=%d text=%s\n", idx+1, step)
+		}
 		fmt.Fprintf(out, "  - commander: state=%s primary=`%s`\n", item.MissionCommanderAction.State, item.MissionCommanderAction.PrimaryCommand)
 		writeExecutionEvidenceFollowThrough(out, item.FollowThrough)
 		writeActionIndexList(out, "commander follow-up", item.MissionCommanderAction.FollowUpCommands)

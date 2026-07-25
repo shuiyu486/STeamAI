@@ -358,6 +358,7 @@ func bindExecutionEvidenceReviewContinueCommands(items []ExecutionEvidenceReview
 		}
 		items[idx].MissionCommanderAction = bindMissionCommanderActionContinueCommands(items[idx].MissionCommanderAction, lane)
 		items[idx].FollowThrough = mission.ExecutionEvidenceReviewFollowThrough(items[idx])
+		items[idx].ReviewRunbookSteps = mission.ExecutionEvidenceReviewRunbookSteps(items[idx], true)
 	}
 	return items
 }
@@ -810,6 +811,9 @@ func writeProjectLaneExecutionEvidenceReview(out *bytes.Buffer, items []Executio
 		writeProjectLaneExecutionEvidenceReportDetail(out, item)
 		fmt.Fprintf(out, "  - evidence review command：`%s`\n", item.ReviewCommand)
 		fmt.Fprintf(out, "  - evidence handoff：`%s`\n", item.HandoffCommand)
+		for idx, step := range item.ReviewRunbookSteps {
+			fmt.Fprintf(out, "  - evidence review runbook：step=%d text=%s\n", idx+1, step)
+		}
 		fmt.Fprintf(out, "  - evidence commander：state=%s primary=`%s`\n", item.MissionCommanderAction.State, item.MissionCommanderAction.PrimaryCommand)
 		writeProjectLaneEvidenceFollowThrough(out, item.FollowThrough)
 		for _, followUp := range mission.LimitStrings(item.MissionCommanderAction.FollowUpCommands, maxHandoffRows) {
@@ -1434,6 +1438,9 @@ func writeExecutionEvidenceReviewSection(out *bytes.Buffer, items []ExecutionEvi
 		writeExecutionEvidenceReportDetail(out, item)
 		fmt.Fprintf(out, "  - review command: `%s`\n", item.ReviewCommand)
 		fmt.Fprintf(out, "  - handoff command: `%s`\n", item.HandoffCommand)
+		for idx, step := range item.ReviewRunbookSteps {
+			fmt.Fprintf(out, "  - review runbook: step=%d text=%s\n", idx+1, step)
+		}
 		fmt.Fprintf(out, "  - commander state: %s\n", item.MissionCommanderAction.State)
 		fmt.Fprintf(out, "  - commander primary: `%s`\n", item.MissionCommanderAction.PrimaryCommand)
 		writeExecutionEvidenceFollowThrough(out, item.FollowThrough)

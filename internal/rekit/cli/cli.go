@@ -2447,6 +2447,11 @@ func writeStatusCaseMissionText(out io.Writer, summary *statusCaseMission) error
 		if err := writeExecutionEvidenceReportDetailText(out, "status case mission evidence", item.EventID, item); err != nil {
 			return err
 		}
+		for idx, step := range item.ReviewRunbookSteps {
+			if _, err := fmt.Fprintf(out, "%s review runbook：eventId=%s step=%d text=%s\n", "status case mission evidence", item.EventID, idx+1, step); err != nil {
+				return err
+			}
+		}
 		for _, ref := range item.OutputRefs {
 			if _, err := fmt.Fprintf(out, "status case mission evidence output ref：eventId=%s ref=%s\n", item.EventID, ref); err != nil {
 				return err
@@ -4571,6 +4576,11 @@ func writeOverviewExecutionEvidenceReviewText(out io.Writer, items []workstream.
 		if err := writeExecutionEvidenceReportDetailText(out, "overview execution evidence", item.EventID, item); err != nil {
 			return err
 		}
+		for idx, step := range item.ReviewRunbookSteps {
+			if _, err := fmt.Fprintf(out, "%s review runbook：eventId=%s step=%d text=%s\n", "overview execution evidence", item.EventID, idx+1, step); err != nil {
+				return err
+			}
+		}
 		for _, ref := range item.OutputRefs {
 			if _, err := fmt.Fprintf(out, "overview execution evidence output ref：eventId=%s ref=%s\n", item.EventID, ref); err != nil {
 				return err
@@ -5723,6 +5733,11 @@ func writeExecutionEvidenceReviewText(out io.Writer, prefix string, items []work
 		}
 		if err := writeExecutionEvidenceReportDetailText(out, prefix, item.EventID, item); err != nil {
 			return err
+		}
+		for idx, step := range item.ReviewRunbookSteps {
+			if _, err := fmt.Fprintf(out, "%s review runbook：eventId=%s step=%d text=%s\n", prefix, item.EventID, idx+1, step); err != nil {
+				return err
+			}
 		}
 		for _, ref := range item.OutputRefs {
 			if _, err := fmt.Fprintf(out, "%s output ref：eventId=%s ref=%s\n", prefix, item.EventID, ref); err != nil {
