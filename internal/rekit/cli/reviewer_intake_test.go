@@ -1055,6 +1055,29 @@ func TestRunPlanSubagentsReviewerIntakeEmitsPartialRecoveryJSON(t *testing.T) {
 	}
 }
 
+type reviewerResultSourceCaptureCLIResult struct {
+	Mode            string `json:"mode"`
+	IsMutation      bool   `json:"isMutation"`
+	Applied         bool   `json:"applied"`
+	Status          string `json:"status"`
+	InputPath       string `json:"inputPath"`
+	InputSHA256     string `json:"inputSha256"`
+	InputBytes      int    `json:"inputBytes"`
+	SourcePath      string `json:"sourcePath"`
+	SourceSHA256    string `json:"sourceSha256"`
+	SourceBytes     int    `json:"sourceBytes"`
+	AlreadyCaptured bool   `json:"alreadyCaptured"`
+}
+
+func decodeReviewerResultSourceCaptureCLIResult(t *testing.T, data []byte) reviewerResultSourceCaptureCLIResult {
+	t.Helper()
+	var result reviewerResultSourceCaptureCLIResult
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("reviewer result source capture stdout is not JSON: %v\n%s", err, string(data))
+	}
+	return result
+}
+
 type reviewerResultStagingCLIResult struct {
 	Mode          string `json:"mode"`
 	IsMutation    bool   `json:"isMutation"`
@@ -1097,28 +1120,77 @@ func decodeReviewerResultCollectionCLIResult(t *testing.T, data []byte) reviewer
 	return result
 }
 
-func stageAndCollectReviewerResultForCLIPlan(t *testing.T, out *bytes.Buffer, baseArgs []string, packetPath string, handoff planSubagentsHandoff, lane, actor string, data []byte) {
+func captureReviewerResultSourceForCLIPlan(t *testing.T, out *bytes.Buffer, baseArgs []string, packetPath string, handoff planSubagentsHandoff, lane, actor string, data []byte) reviewerResultSourceCaptureCLIResult {
 	t.Helper()
 	if handoff.ReviewerStagingCommands == nil || handoff.ReviewerStagingCommands.SourcePath == "" || handoff.ReviewerStagingCommands.SourcePathArgument != handoff.ReviewerStagingCommands.SourcePath {
 		t.Fatalf("reviewer staging source path was not packet-derived: %+v", handoff.ReviewerStagingCommands)
 	}
+	sourcePath := handoff.ReviewerStagingCommands.SourcePath
+	inputPath := filepath.Join(filepath.Dir(sourcePath), "..", "inputs", handoff.ShardID+".reviewer-input.json")
+	if err := os.MkdirAll(filepath.Dir(inputPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(inputPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out.Reset()
+	if err := Run(planSubagentsCLIArgs(baseArgs, "-PacketPath", packetPath, "-CaptureReviewerResultSource", "-ShardId", handoff.ShardID, "-ReviewerResultInputPath", inputPath, "-Lane", lane, "-Actor", actor, "-WhatIf", "-Format", "json"), out); err != nil {
+		t.Fatal(err)
+	}
+	capturePreview := decodeReviewerResultSourceCaptureCLIResult(t, out.Bytes())
+	if capturePreview.Mode != "reviewer-result-source-capture" || capturePreview.IsMutation || capturePreview.Applied || capturePreview.InputPath != inputPath || capturePreview.InputSHA256 == "" || capturePreview.SourcePath != sourcePath || capturePreview.SourceSHA256 != capturePreview.InputSHA256 {
+		t.Fatalf("unexpected reviewer result source capture preview: %+v", capturePreview)
+	}
+	if capturePreview.Status == "already-captured" {
+		captured, err := os.ReadFile(sourcePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(captured, data) {
+			t.Fatalf("already captured reviewer result source bytes differ from input")
+		}
+		return capturePreview
+	}
+	if capturePreview.Status != "previewed" {
+		t.Fatalf("unexpected reviewer result source capture preview status: %+v", capturePreview)
+	}
+	if _, err := os.Stat(sourcePath); !os.IsNotExist(err) {
+		t.Fatalf("reviewer result source capture preview wrote source path: err=%v", err)
+	}
+
+	out.Reset()
+	if err := Run(planSubagentsCLIArgs(baseArgs, "-PacketPath", packetPath, "-CaptureReviewerResultSource", "-ShardId", handoff.ShardID, "-ReviewerResultInputPath", inputPath, "-Lane", lane, "-Actor", actor, "-ExpectedReviewerResultInputSha256", capturePreview.InputSHA256, "-Apply", "-Format", "json"), out); err != nil {
+		t.Fatal(err)
+	}
+	captureApply := decodeReviewerResultSourceCaptureCLIResult(t, out.Bytes())
+	if captureApply.Status != "captured" || !captureApply.IsMutation || !captureApply.Applied || captureApply.AlreadyCaptured || captureApply.InputPath != inputPath || captureApply.SourcePath != sourcePath || captureApply.SourceSHA256 != capturePreview.InputSHA256 {
+		t.Fatalf("unexpected reviewer result source capture apply: %+v", captureApply)
+	}
+	captured, err := os.ReadFile(sourcePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(captured, data) {
+		t.Fatalf("captured reviewer result source bytes changed")
+	}
+	return captureApply
+}
+
+func stageAndCollectReviewerResultForCLIPlan(t *testing.T, out *bytes.Buffer, baseArgs []string, packetPath string, handoff planSubagentsHandoff, lane, actor string, data []byte) {
+	t.Helper()
 	if handoff.ReviewerResultCandidatePath == "" || handoff.ReviewerResultCandidatePath == handoff.ReviewerResultPath {
 		t.Fatalf("reviewer collection candidate path is not distinct: %+v", handoff)
 	}
 	sourcePath := handoff.ReviewerStagingCommands.SourcePath
-	if err := os.MkdirAll(filepath.Dir(sourcePath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(sourcePath, data, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	captureApply := captureReviewerResultSourceForCLIPlan(t, out, baseArgs, packetPath, handoff, lane, actor, data)
 
 	out.Reset()
 	if err := Run(planSubagentsCLIArgs(baseArgs, "-PacketPath", packetPath, "-StageReviewerResult", "-ShardId", handoff.ShardID, "-ReviewerResultSourcePath", sourcePath, "-Lane", lane, "-Actor", actor, "-WhatIf", "-Format", "json"), out); err != nil {
 		t.Fatal(err)
 	}
 	stagingPreview := decodeReviewerResultStagingCLIResult(t, out.Bytes())
-	if stagingPreview.Mode != "reviewer-result-staging" || stagingPreview.Status != "previewed" || stagingPreview.IsMutation || stagingPreview.Applied || stagingPreview.SourcePath != sourcePath || stagingPreview.SourceSHA256 == "" || stagingPreview.CandidatePath != handoff.ReviewerResultCandidatePath {
+	if stagingPreview.Mode != "reviewer-result-staging" || stagingPreview.Status != "previewed" || stagingPreview.IsMutation || stagingPreview.Applied || stagingPreview.SourcePath != sourcePath || stagingPreview.SourceSHA256 == "" || stagingPreview.SourceSHA256 != captureApply.SourceSHA256 || stagingPreview.CandidatePath != handoff.ReviewerResultCandidatePath {
 		t.Fatalf("unexpected reviewer result staging preview: %+v", stagingPreview)
 	}
 

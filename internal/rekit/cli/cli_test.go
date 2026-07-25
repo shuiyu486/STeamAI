@@ -194,6 +194,16 @@ func TestParsePlanSubagentsReviewerResultStaging(t *testing.T) {
 	}
 }
 
+func TestParsePlanSubagentsReviewerResultSourceCapture(t *testing.T) {
+	opt, err := Parse([]string{"-Command", "plan-subagents", "-CaptureReviewerResultSource", "-PacketPath", "packet.json", "-ShardId", "shard-01", "-ReviewerResultInputPath", "workspace/reviewer-input.json", "-Lane", "feature-review", "-Actor", "mission-commander", "-ExpectedReviewerResultInputSha256", strings.Repeat("b", 64), "-Apply"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opt.CaptureReviewerResultSource || opt.PacketPath != "packet.json" || opt.ShardID != "shard-01" || opt.ReviewerResultInputPath != "workspace/reviewer-input.json" || opt.Note.Lane != "feature-review" || opt.Note.Actor != "mission-commander" || opt.ExpectedReviewerResultInputSHA256 != strings.Repeat("b", 64) || !opt.Apply {
+		t.Fatalf("unexpected reviewer result source capture options: %+v", opt)
+	}
+}
+
 func TestParsePlanSubagentsReviewerResultRecovery(t *testing.T) {
 	opt, err := Parse([]string{"-Command", "plan-subagents", "-RecoverReviewerResult", "-PacketPath", "packet.json", "-ShardId", "shard-01", "-Lane", "feature-review", "-Actor", "mission-commander", "-Reason", "quarantine conflict", "-ExpectedCandidateSha256", strings.Repeat("a", 64), "-ExpectedReviewerResultSha256", strings.Repeat("b", 64), "-Apply"})
 	if err != nil {
@@ -5247,6 +5257,20 @@ func TestRunRejectsReviewerResultStagingFlagsOutsidePlanSubagents(t *testing.T) 
 	}
 }
 
+func TestRunRejectsReviewerResultSourceCaptureFlagsOutsidePlanSubagents(t *testing.T) {
+	for _, args := range [][]string{
+		{"-Command", "status", "-CaptureReviewerResultSource"},
+		{"-Command", "status", "-ReviewerResultInputPath", "reviewer-input.json"},
+		{"-Command", "status", "-ExpectedReviewerResultInputSha256", strings.Repeat("a", 64)},
+	} {
+		var out bytes.Buffer
+		err := Run(args, &out)
+		if err == nil || !strings.Contains(err.Error(), "supported only by plan-subagents reviewer result source capture") {
+			t.Fatalf("source capture flags outside plan-subagents error = %v", err)
+		}
+	}
+}
+
 func TestRunNoteRejectsUnsupportedWriteFlags(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	var out bytes.Buffer
@@ -6870,13 +6894,8 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	}
 
 	firstSourcePath := packet.ShardHandoffs[0].ReviewerStagingCommands.SourcePath
-	firstSourceData := reviewerResultForCLIPlan(t, packet, packet.ShardHandoffs[0], "accept", "accepted", "reviewer-session-source-ready")
-	if err := os.MkdirAll(filepath.Dir(firstSourcePath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(firstSourcePath, firstSourceData, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	firstSourceData := reviewerResultForCLIPlan(t, packet, packet.ShardHandoffs[0], "accept", "accepted", "reviewer-session-shard-01")
+	captureReviewerResultSourceForCLIPlan(t, &out, []string{"-Target", caseRoot, "-Pack", "_template"}, plan.PacketPath, packet.ShardHandoffs[0], "feature-login", "mission-commander", firstSourceData)
 	out.Reset()
 	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
