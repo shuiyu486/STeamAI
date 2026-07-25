@@ -293,6 +293,40 @@ func TestLatestBatchRemoteGateRecognizesEqualsEmptyStepsAndChineseNegativeGreen(
 	}
 }
 
+func TestLatestBatchReleaseReadinessIgnoresBoundaryOnlyCommitAndInspectionWords(t *testing.T) {
+	section := `状态：已完成 runtime/test/doc 工作树实现与完整本地 release minimum；尚未创建本批代码提交，尚未检查本批对应的远程 workflow run。
+
+目标：正常批次最多两次 push：implementation commit/push 和 release inspection commit/push；若远程 release-gate 后续仍为 jobs ` + "`" + `steps=[]` + "`" + `，只记录既有 blocker，do not add a third inspection record。
+
+验证结果：完整本地 release minimum 已通过：` + "`" + `go run ./cmd/rekit -- -Command release-check -Format json` + "`" + ` 返回 ` + "`" + `ready=true` + "`" + `，` + "`" + `go run ./cmd/rekit -- -Command status` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command packs` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command doctor` + "`" + `、` + "`" + `go test ./...` + "`" + `、` + "`" + `go vet ./...` + "`" + ` 与 ` + "`" + `git diff --check` + "`" + ` 均通过。`
+
+	handoff := latestBatchHandoff(ReleaseHandoffLatestBatch{Status: "已完成 fixture"}, section)
+	if handoff.RemoteReleaseGate != "not-recorded" || handoff.RemoteReleaseGateDetail == nil || handoff.RemoteReleaseGateDetail.EmptySteps || len(handoff.RemoteReleaseGateDetail.RunRefs) != 0 || len(handoff.RemoteReleaseGateDetail.Jobs) != 0 {
+		t.Fatalf("boundary-only remote words should not become remote evidence: %+v", handoff.RemoteReleaseGateDetail)
+	}
+	cadence := handoff.ReleaseInspectionCadence
+	if cadence.State != "implementation-pending" || cadence.ImplementationCommitReady || cadence.InspectionCommitReady || releaseHandoffStringsContain(cadence.Evidence, "implementation commit/push recorded") || releaseHandoffStringsContain(cadence.Evidence, "release inspection commit/run recorded") || releaseHandoffStringsContain(cadence.Evidence, "remote release-gate steps=[] blocker recorded") {
+		t.Fatalf("boundary-only commit/inspection words should not become cadence evidence: %+v", cadence)
+	}
+}
+
+func TestLatestBatchReleaseReadinessWaitsForRemoteInspectionAfterImplementationPush(t *testing.T) {
+	section := `状态：已完成 runtime/test/doc 工作树实现、完整本地 release minimum 与 implementation commit/push；implementation commit ` + "`" + `abc123d` + "`" + ` 已推送。尚未检查本批对应的远程 workflow run。
+
+目标：release inspection commit/push 只记录 implementation run；若后续 CI 为 jobs ` + "`" + `steps=[]` + "`" + `，按既有 blocker 处理，不要追加第三个记录提交。
+
+验证结果：完整本地 release minimum 已通过：` + "`" + `go run ./cmd/rekit -- -Command release-check -Format json` + "`" + ` 返回 ` + "`" + `ready=true` + "`" + `，` + "`" + `go run ./cmd/rekit -- -Command status` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command packs` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command doctor` + "`" + `、` + "`" + `go test ./...` + "`" + `、` + "`" + `go vet ./...` + "`" + ` 与 ` + "`" + `git diff --check` + "`" + ` 均通过。`
+
+	handoff := latestBatchHandoff(ReleaseHandoffLatestBatch{Status: "已完成 fixture"}, section)
+	if handoff.RemoteReleaseGate != "not-recorded" || handoff.RemoteReleaseGateDetail == nil || handoff.RemoteReleaseGateDetail.EmptySteps || slices.Contains(handoff.Evidence, "remote release-gate jobs steps=[] recorded") {
+		t.Fatalf("remote inspection should stay not-recorded before run evidence: %+v evidence=%+v", handoff.RemoteReleaseGateDetail, handoff.Evidence)
+	}
+	cadence := handoff.ReleaseInspectionCadence
+	if cadence.State != "inspection-pending" || !cadence.ImplementationCommitReady || cadence.InspectionCommitReady || !releaseHandoffStringsContain(cadence.Evidence, "implementation commit/push recorded") || releaseHandoffStringsContain(cadence.Evidence, "release inspection commit/run recorded") {
+		t.Fatalf("implementation push should wait for scoped remote inspection evidence: %+v", cadence)
+	}
+}
+
 func TestReleaseHandoffPackMemoryCandidatesDetectsOpenResidue(t *testing.T) {
 	repo := t.TempDir()
 	candidatePath := filepath.Join(repo, "packs", "fixture", "promote-candidates", "candidate.candidate.md")

@@ -3429,21 +3429,72 @@ func latestBatchHasLocalValidation(text string) bool {
 
 func latestBatchRemoteReleaseGate(text string) string {
 	lower := strings.ToLower(text)
-	emptySteps := latestBatchRemoteHasEmptySteps(text, lower)
-	switch {
-	case latestBatchRemoteInspectionPending(text, lower):
+	if latestBatchRemoteInspectionPending(text, lower) {
 		return "not-recorded"
-	case emptySteps && strings.Contains(lower, "completed failure"):
+	}
+	remoteText := latestBatchRemoteEvidenceText(text)
+	if strings.TrimSpace(remoteText) == "" {
+		return "not-recorded"
+	}
+	remoteLower := strings.ToLower(remoteText)
+	emptySteps := latestBatchRemoteHasEmptySteps(remoteText, remoteLower)
+	switch {
+	case emptySteps && strings.Contains(remoteLower, "completed failure"):
 		return "blocked: completed failure with jobs steps=[]"
 	case emptySteps:
 		return "blocked: jobs steps=[]"
-	case latestBatchRemoteGreen(text, lower):
+	case latestBatchRemoteGreen(remoteText, remoteLower):
 		return "green"
-	case strings.Contains(text, "远程 release-gate") || strings.Contains(lower, "release-gate run"):
+	case strings.Contains(remoteText, "远程 release-gate") || strings.Contains(remoteLower, "release-gate run") || strings.Contains(remoteLower, "workflow run") || strings.Contains(remoteLower, "pr run") || strings.Contains(remoteLower, "implementation run"):
 		return "inspected"
 	default:
 		return "not-recorded"
 	}
+}
+
+func latestBatchRemoteEvidenceText(text string) string {
+	clauses := []string{}
+	for _, clause := range latestBatchEvidenceClauses(text) {
+		lower := strings.ToLower(clause)
+		if latestBatchRemoteInspectionPending(clause, lower) {
+			continue
+		}
+		if !latestBatchRemoteEvidenceClause(clause, lower) {
+			continue
+		}
+		clauses = append(clauses, clause)
+	}
+	return strings.Join(clauses, "\n")
+}
+
+func latestBatchRemoteEvidenceClause(clause, lower string) bool {
+	if latestBatchRemoteGreen(clause, lower) {
+		return true
+	}
+	if strings.Contains(lower, "release-gate run") || strings.Contains(lower, "workflow run") || strings.Contains(lower, "pr run") || strings.Contains(lower, "implementation run") {
+		return true
+	}
+	if strings.Contains(clause, "远程 release-gate") && (strings.Contains(clause, "已检查") || strings.Contains(clause, "已记录")) {
+		return true
+	}
+	remoteContext := strings.Contains(lower, "release-gate") || strings.Contains(lower, "remote") || strings.Contains(clause, "远程")
+	jobContext := strings.Contains(lower, "job") || strings.Contains(lower, "jobs")
+	completed := strings.Contains(lower, "completed") || strings.Contains(lower, "failure") || strings.Contains(lower, "success")
+	return remoteContext && jobContext && completed
+}
+
+func latestBatchEvidenceClauses(text string) []string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	text = strings.NewReplacer("。", "\n", "；", "\n", ";", "\n").Replace(text)
+	clauses := []string{}
+	for line := range strings.SplitSeq(text, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			clauses = append(clauses, line)
+		}
+	}
+	return clauses
 }
 
 func latestBatchRemoteInspectionPending(text, lower string) bool {
@@ -3464,17 +3515,18 @@ func latestBatchRemoteInspectionPending(text, lower string) bool {
 }
 
 func latestBatchRemoteReleaseGateDetail(text string) *ReleaseHandoffRemoteReleaseGateDetail {
-	lower := strings.ToLower(text)
+	remoteText := latestBatchRemoteEvidenceText(text)
+	remoteLower := strings.ToLower(remoteText)
 	state := latestBatchRemoteReleaseGate(text)
 	detail := ReleaseHandoffRemoteReleaseGateDetail{
 		State:         state,
 		CanClaimGreen: state == "green",
 	}
 	if state != "not-recorded" {
-		detail.RunRefs = latestBatchRemoteRunRefs(text)
-		detail.Jobs = latestBatchRemoteJobs(lower)
-		detail.EmptySteps = latestBatchRemoteHasEmptySteps(text, lower)
-		detail.CompletedFailure = strings.Contains(lower, "completed failure")
+		detail.RunRefs = latestBatchRemoteRunRefs(remoteText)
+		detail.Jobs = latestBatchRemoteJobs(remoteLower)
+		detail.EmptySteps = latestBatchRemoteHasEmptySteps(remoteText, remoteLower)
+		detail.CompletedFailure = strings.Contains(remoteLower, "completed failure")
 	}
 	switch {
 	case state == "green":
@@ -3498,8 +3550,8 @@ func latestBatchReleaseInspectionCadence(text string, handoff ReleaseHandoffLate
 	lower := strings.ToLower(text)
 	cadence := ReleaseHandoffReleaseInspectionCadence{
 		MaxPushes:                 2,
-		ImplementationCommitReady: latestBatchImplementationCommitReady(lower),
-		InspectionCommitReady:     latestBatchInspectionCommitReady(lower, handoff),
+		ImplementationCommitReady: latestBatchImplementationCommitReady(text),
+		InspectionCommitReady:     latestBatchInspectionCommitReady(text, handoff),
 		NewRemoteSignal:           latestBatchHasNewRemoteSignal(lower, handoff),
 		Boundary: []string{
 			"normal batches stop after implementation commit/push plus one release inspection commit/push",
@@ -3537,17 +3589,31 @@ func latestBatchReleaseInspectionCadence(text string, handoff ReleaseHandoffLate
 	return cadence
 }
 
-func latestBatchImplementationCommitReady(lower string) bool {
-	for _, pending := range []string{"待 implementation commit/push", "implementation commit/push 待", "implementation commit/push 与远程 release-gate inspection 待", "pending implementation commit/push", "implementation commit/push and remote release-gate inspection pending", "after implementation commit/push"} {
-		if strings.Contains(lower, pending) {
+func latestBatchImplementationCommitReady(text string) bool {
+	lower := strings.ToLower(text)
+	for _, pending := range []string{"待 implementation commit/push", "implementation commit/push 待", "implementation commit/push 与远程 release-gate inspection 待", "pending implementation commit/push", "implementation commit/push and remote release-gate inspection pending", "after implementation commit/push", "尚未创建本批代码提交", "尚未提交推送"} {
+		if strings.Contains(lower, pending) || strings.Contains(text, pending) {
 			return false
 		}
 	}
-	return strings.Contains(lower, "implementation commit") || strings.Contains(lower, "commit/push") || strings.Contains(lower, "提交并推送")
+	for _, clause := range latestBatchEvidenceClauses(text) {
+		clauseLower := strings.ToLower(clause)
+		if strings.Contains(clauseLower, "do not") || strings.Contains(clauseLower, "不要") || strings.Contains(clauseLower, "不为") {
+			continue
+		}
+		if strings.Contains(clause, "已推送") || strings.Contains(clause, "已提交并推送") || strings.Contains(clauseLower, "implementation commit/push recorded") || strings.Contains(clauseLower, "implementation commit `") {
+			return true
+		}
+	}
+	return false
 }
 
-func latestBatchInspectionCommitReady(lower string, handoff ReleaseHandoffLatestBatchHandoff) bool {
-	return handoff.RemoteReleaseGate != "not-recorded" || strings.Contains(lower, "release inspection commit/push") || strings.Contains(lower, "inspection commit/push")
+func latestBatchInspectionCommitReady(text string, handoff ReleaseHandoffLatestBatchHandoff) bool {
+	lower := strings.ToLower(text)
+	if latestBatchRemoteInspectionPending(text, lower) {
+		return false
+	}
+	return handoff.RemoteReleaseGate != "not-recorded"
 }
 
 func latestBatchHasNewRemoteSignal(lower string, handoff ReleaseHandoffLatestBatchHandoff) bool {
@@ -3666,6 +3732,8 @@ func looksLikeCommitRef(value string) bool {
 
 func latestBatchEvidence(text string) []string {
 	lower := strings.ToLower(text)
+	remoteText := latestBatchRemoteEvidenceText(text)
+	remoteLower := strings.ToLower(remoteText)
 	evidence := []string{}
 	for _, candidate := range []struct {
 		match string
@@ -3684,7 +3752,7 @@ func latestBatchEvidence(text string) []string {
 	} {
 		matched := strings.Contains(lower, candidate.match)
 		if candidate.match == "steps: []" {
-			matched = latestBatchRemoteHasEmptySteps(text, lower)
+			matched = latestBatchRemoteHasEmptySteps(remoteText, remoteLower)
 		}
 		if !matched {
 			continue
