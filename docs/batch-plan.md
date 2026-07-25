@@ -16,6 +16,22 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 589：note WhatIf hash-bound record currentness closure
+
+状态：已完成 runtime、CLI product-path handoff、retained façade 参数透传、入口文档更新、focused tests 与完整本地 release minimum；implementation commit/push 与 remote inspection 待本批收尾补记。本批承接 Batch 588 的 open-candidate decision closure：handoff 已推荐先写 `note -Kind decision -Related <candidateEventId>`，但主 Agent 若先预览再手动 record，旧路径只复制裸 note command，`createdAt`、`eventId` 或 decision 参数 drift 会导致写入的事实不等于已复核的 preview。
+
+目标：让 append-only note 写入形成 deterministic WhatIf→record currentness 闭环；`note -WhatIf` 返回 `eventSha256` 与 hash-bound `recordCommand`，record 时带 `-ExpectedNoteEventSha256` 并在写 ledger 前重建 event 校验，drift 则 fail-closed zero-write。status/continue/start/reconcile 的 open-decision handoff 只提示运行 WhatIf 返回的 recordCommand，避免裸 record 绕过 preview hash。
+
+已实现内容：
+
+- `note.Append` 支持 `CreatedAt` 与 `ExpectedEventSHA256`，在 append 前构造 event、生成 SHA-256、输出 `eventSha256` / `expectedEventSha256` / 可重放 `recordCommand`；expected hash 长度或内容不匹配时在 `mission.AppendFact` 前返回错误且不写 ledger。
+- `recordCommand` 仅对公共 CLI 可完整重放的 note event 输出；含 reviewer-intake 内部字段等不可 CLI-replayable event 只输出 hash，避免生成无法重建 hash 的误导命令。
+- CLI parse/text 输出支持 `-CreatedAt` 与 `-ExpectedNoteEventSha256`；status 以及 blocked continue/start/reconcile 的 open-decision handoff 统一为“先 `note -WhatIf`，再运行返回的 hash-bound `recordCommand`”。retained `rekit.ps1` 只补新 flags 透传到 Go backend，不新增业务 runtime。
+
+边界：本批只收紧 note append preview→record currentness，不改 ledger schema，不写 authority/confirmed，不执行 heavy tool，不改变 `continue -Apply` / `gate -Apply` 既有边界。旧不带 expected hash 的 note record 仍兼容；hash-bound record 是 handoff 推荐路径。
+
+验证结果：focused `go test ./internal/rekit/note ./internal/rekit/workstream ./internal/rekit/cli -run "TestAppendWhatIfOmitsRecordCommandForInternalFields|TestRunNoteHashBoundRecordRejectsDrift|TestRunNoteAppendWhatIfDoesNotWrite|TestRunNoteAppendWhatIfTextHandoffDoesNotWrite|TestRunNoteAppendTextHandoffWritesFactEvent|TestRunNoteAppendRejectsInvalidInputs|TestRunStatusJsonAndTextCaseMissionHandoffs|TestRunStatusFromInstalledCaseLocalShim|TestRunStartProjectsExecutorActionForExistingLaneBlockers|TestRunContinueBlocksOpenDecisionBeforeWrites|TestRunReconcileApplyProjectsGateDecisionHandoffsAfterInterventionResolution|TestRunContinueShowsAuthorizedGateAdapterHandoffAndEvidenceReview" -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 与 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File rekit/tests/facade-smoke.ps1 -Pack _template` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。remote inspection 待 implementation commit/push 后补记。
+
 ### Batch 588：related decision note candidate blocker closure
 
 状态：已完成 runtime、CLI product-path coverage、入口文档更新、focused tests、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `8d47b04` 已推送。implementation run `30154082878` completed failure，Windows/macOS/Linux jobs `89669186876`/`89669186902`/`89669186911` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。本批修复 Batch 586–587 后暴露的更深闭环断点：blocked continue/start/reconcile 已能给出 open candidate handoff，并推荐 `note -Kind decision -Related <candidateEventId>`，但 Mission 判定若只看 candidate 自身 status，会导致主 Agent 按 handoff 记录 terminal decision note 后，candidate blocker 仍不消失。

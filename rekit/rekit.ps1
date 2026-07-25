@@ -52,6 +52,8 @@ param(
   [int]$ItemsPerAgent = 0,
   [int]$MaxParallel = 0,
   [string]$Format = '',
+  [string]$CreatedAt = '',
+  [string]$ExpectedNoteEventSha256 = '',
   [Parameter(ValueFromRemainingArguments=$true)]
   [string[]]$RemainingArgs = @()
 )
@@ -434,6 +436,8 @@ function Get-RekitGoArgs {
       Expires = ''
       EvidenceRefs = ''
       EventId = ''
+      CreatedAt = $CreatedAt
+      ExpectedNoteEventSha256 = $ExpectedNoteEventSha256
     }
     foreach ($name in @($noteValues.Keys)) {
       if ([string]::IsNullOrWhiteSpace([string]$noteValues[$name]) -and $noteArgs.ContainsKey($name)) { $noteValues[$name] = [string]$noteArgs[$name] }

@@ -210,6 +210,14 @@ try {
   Assert-FakeDefaultDelegation -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-List','-Format','json') -CommandName 'note' -Label 'default note list JSON fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-Kind','observation','-Lane','main','-Subject','default note append','-Summary','fake default note append') -CommandName 'note' -Label 'default note append fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-Kind','observation','-Lane','main','-Subject','default note what-if','-Summary','fake default note what-if','-WhatIf') -CommandName 'note' -Label 'default note what-if fake delegation'
+  $noteHashCapturePath = Join-Path $matrixRoot 'note-hash-bound-args.txt'
+  Write-CapturingFakeGoBackend -Path $fakeGo -CapturePath $noteHashCapturePath
+  $noteHashOut = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-Kind','decision','-Lane','main','-Subject','default note hash','-Summary','fake default note hash','-Decision','accept','-Related','evt-open-candidate','-EventId','evt-note-hash','-CreatedAt','2026-07-25T10:20:00Z','-ExpectedNoteEventSha256','0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $noteHashOut -Expected '"delegatedByFake":true' -Label 'default note hash-bound delegation'
+  $capturedNoteHashArgs = [System.IO.File]::ReadAllText($noteHashCapturePath, [System.Text.Encoding]::Default)
+  foreach ($expectedNoteArg in @('-EventId evt-note-hash','-CreatedAt 2026-07-25T10:20:00Z','-ExpectedNoteEventSha256 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef','-Decision accept','-Related evt-open-candidate','-Format json')) {
+    Assert-ContainsText -Text $capturedNoteHashArgs -Expected $expectedNoteArg -Label 'note hash-bound facade args'
+  }
   Assert-FakeDefaultDelegation -Arguments @('-Command','gate','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf','-Action','debug','-Lane',$gateLane) -CommandName 'gate' -Label 'default gate what-if fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','gate','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-Action','debug','-Lane',$gateLane,'-Actor','facade-smoke') -CommandName 'gate' -Label 'default gate apply fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','start','-Target',$CaseRoot,'default-start-preview','-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'start' -Label 'default start JSON preview fake delegation'
@@ -242,6 +250,7 @@ try {
     } finally {
       Pop-Location
     }
+    $nestedContract = $nestedContractOut | ConvertFrom-Json
     Assert-ContainsText -Text $nestedContractOut -Expected '"kind": "adapter-execution-report-contract"' -Label 'facade nested workspace contract product path'
     Assert-ContainsText -Text $nestedContractOut -Expected '"isMutation": false' -Label 'facade nested workspace contract product path'
     Assert-ContainsText -Text $nestedContractOut -Expected '"liveValidation": {' -Label 'facade nested workspace contract live-validation handoff'
@@ -253,7 +262,7 @@ try {
     Assert-ContainsText -Text $nestedContractOut -Expected 'evidenceRefs must stay under authorized outputPaths' -Label 'facade nested workspace contract live-validation handoff'
     Assert-ContainsText -Text $nestedContractOut -Expected '"statusSummaryRequires": ' -Label 'facade nested workspace contract live-validation handoff'
     Assert-ContainsText -Text $nestedContractOut -Expected 'boundaryHits must be one of authorized stopConditions' -Label 'facade nested workspace contract live-validation handoff'
-    Assert-ContainsText -Text $nestedContractOut -Expected '"replayBehavior": "repeating RecordArgs with the same bounded sidecar returns applied=false and reason=duplicate eventId without appending observations"' -Label 'facade nested workspace contract live-validation handoff'
+    if ([string]$nestedContract.liveValidation.replayBehavior -notlike '*duplicate eventId*' -or [string]$nestedContract.liveValidation.replayBehavior -notlike '*without appending observations*') { throw "facade nested workspace contract missing replay behavior. Output:`n$nestedContractOut" }
     Assert-ContainsText -Text $nestedValidationOut -Expected '"kind": "adapter-execution-report-validation"' -Label 'facade nested workspace validation product path'
     Assert-ContainsText -Text $nestedValidationOut -Expected '"valid": true' -Label 'facade nested workspace validation product path'
     Assert-ContainsText -Text $nestedValidationOut -Expected '"applied": false' -Label 'facade nested workspace validation product path'
@@ -326,6 +335,14 @@ try {
   Assert-FakeDefaultDelegation -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-List','-Format','json') -CommandName 'note' -Label 'default note list JSON delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-Kind','verification','-Lane','main','-Subject','matrix note append','-Summary','fake default note append') -CommandName 'note' -Label 'default note append delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-Kind','verification','-Lane','main','-Subject','matrix note what-if','-Summary','fake default note what-if','-WhatIf') -CommandName 'note' -Label 'default note what-if delegation'
+  $noteHashCapturePath = Join-Path $matrixRoot 'matrix-note-hash-bound-args.txt'
+  Write-CapturingFakeGoBackend -Path $fakeGo -CapturePath $noteHashCapturePath
+  $noteHashOut = Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-Kind','decision','-Lane','main','-Subject','matrix note hash','-Summary','fake default note hash','-Decision','accept','-Related','evt-open-candidate','-EventId','evt-note-hash','-CreatedAt','2026-07-25T10:20:00Z','-ExpectedNoteEventSha256','0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $noteHashOut -Expected '"delegatedByFake":true' -Label 'default note hash-bound delegation'
+  $capturedNoteHashArgs = [System.IO.File]::ReadAllText($noteHashCapturePath, [System.Text.Encoding]::Default)
+  foreach ($expectedNoteArg in @('-EventId evt-note-hash','-CreatedAt 2026-07-25T10:20:00Z','-ExpectedNoteEventSha256 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef','-Decision accept','-Related evt-open-candidate','-Format json')) {
+    Assert-ContainsText -Text $capturedNoteHashArgs -Expected $expectedNoteArg -Label 'note hash-bound facade args'
+  }
   Assert-FakeDefaultDelegation -Arguments @('-Command','gate','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf','-Action','debug','-Lane',$gateLane) -CommandName 'gate' -Label 'default gate what-if delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','gate','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-Action','debug','-Lane',$gateLane,'-Actor','facade-smoke') -CommandName 'gate' -Label 'default gate apply delegation'
   $gateExecutionCapturePath = Join-Path $matrixRoot 'gate-execution-args.txt'

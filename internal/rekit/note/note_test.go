@@ -41,6 +41,38 @@ func TestAppendWhatIfDoesNotWrite(t *testing.T) {
 	assertNoteNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl"))
 }
 
+func TestAppendWhatIfOmitsRecordCommandForInternalFields(t *testing.T) {
+	repoRoot, caseRoot, pack := noteFixture(t)
+
+	result, err := Append(repoRoot, caseRoot, pack, Options{
+		Kind:               "verification",
+		Lane:               "main",
+		Subject:            "reviewer intake",
+		Summary:            "internal reviewer writeback",
+		Verifier:           "manual-review",
+		Verdict:            "accepted",
+		PacketID:           "packet-1",
+		RouteID:            "route-a",
+		ShardID:            "shard-01",
+		ReviewerSession:    "reviewer-session-1",
+		ReviewerDecision:   "accept",
+		RecommendedVerdict: "accepted",
+	}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Applied || result.IsMutation || result.Reason != "what-if" || len(result.EventSHA256) != 64 {
+		t.Fatalf("unexpected internal-field what-if result: %+v", result)
+	}
+	if result.RecordCommand != "" {
+		t.Fatalf("internal reviewer fields should not expose a non-replayable record command: %q", result.RecordCommand)
+	}
+	if stringValue(result.Event, "packetId") != "packet-1" || stringValue(result.Event, "reviewerSession") != "reviewer-session-1" || stringValue(result.Event, "reviewerDecision") != "accept" {
+		t.Fatalf("internal fields missing from event: %+v", result.Event)
+	}
+	assertNoteNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl"))
+}
+
 func TestAppendWhatIfProjectsBlockerKinds(t *testing.T) {
 	for _, tc := range []struct {
 		name         string

@@ -1027,8 +1027,8 @@ func continueOpenDecisionHandoffs(lane Lane, items []continueOpenDecisionItem) [
 			RecordPath:       recordPath,
 			ReviewCommand:    "/rekit handoff " + label,
 			WhatIfCommand:    continueDecisionNoteCommand(lane, event, true),
-			RecordCommand:    continueDecisionNoteCommand(lane, event, false),
-			DecisionBoundary: "review evidence and choose accept/reject/defer/supersede before recording a decision note; record command only appends case-local decision ledger state and never writes authority/confirmed or executes heavy-tool",
+			RecordCommand:    "run the hash-bound recordCommand returned by note -WhatIf",
+			DecisionBoundary: "review evidence and choose accept/reject/defer/supersede with note -WhatIf first; then run the returned hash-bound recordCommand, which only appends case-local decision ledger state and never writes authority/confirmed or executes heavy-tool",
 			ContinueBoundary: "blocked continue is zero-write and only exposes open-decision handoff; do not continue autonomously while the open decision remains unresolved",
 			Evidence:         evidence,
 		})

@@ -22,42 +22,44 @@ const (
 )
 
 type Options struct {
-	Kind               string
-	Lane               string
-	Subject            string
-	Summary            string
-	Actor              string
-	Risk               string
-	Related            string
-	Confidence         string
-	Decision           string
-	Reason             string
-	Status             string
-	BatchID            string
-	Target             string
-	Verifier           string
-	Verdict            string
-	Action             string
-	ApprovedBy         string
-	Scope              string
-	Expires            string
-	EvidenceRefs       string
-	EventID            string
-	PacketID           string
-	RouteID            string
-	ShardID            string
-	PacketPath         string
-	ReviewerResultPath string
-	ReviewerSession    string
-	OwnerExecutor      string
-	OwnerGeneration    string
-	OwnerBindingMode   string
-	OwnerBindingTarget string
-	ReviewerDecision   string
-	RecommendedVerdict string
-	ReviewerRisks      []string
-	ReviewerConflicts  []string
-	RouteOutput        map[string]any
+	Kind                string
+	Lane                string
+	Subject             string
+	Summary             string
+	Actor               string
+	Risk                string
+	Related             string
+	Confidence          string
+	Decision            string
+	Reason              string
+	Status              string
+	BatchID             string
+	Target              string
+	Verifier            string
+	Verdict             string
+	Action              string
+	ApprovedBy          string
+	Scope               string
+	Expires             string
+	EvidenceRefs        string
+	EventID             string
+	CreatedAt           string
+	ExpectedEventSHA256 string
+	PacketID            string
+	RouteID             string
+	ShardID             string
+	PacketPath          string
+	ReviewerResultPath  string
+	ReviewerSession     string
+	OwnerExecutor       string
+	OwnerGeneration     string
+	OwnerBindingMode    string
+	OwnerBindingTarget  string
+	ReviewerDecision    string
+	RecommendedVerdict  string
+	ReviewerRisks       []string
+	ReviewerConflicts   []string
+	RouteOutput         map[string]any
 }
 
 type AppendResult struct {
@@ -71,6 +73,9 @@ type AppendResult struct {
 	EventID                          string                                   `json:"eventId"`
 	Path                             string                                   `json:"path"`
 	Reason                           string                                   `json:"reason,omitempty"`
+	EventSHA256                      string                                   `json:"eventSha256"`
+	ExpectedEventSHA256              string                                   `json:"expectedEventSha256,omitempty"`
+	RecordCommand                    string                                   `json:"recordCommand,omitempty"`
 	Event                            map[string]any                           `json:"event"`
 	MissionBrief                     mission.Brief                            `json:"missionBrief"`
 	ExecutorAction                   mission.ExecutorAction                   `json:"executorAction"`
@@ -194,13 +199,17 @@ func Append(repoRoot, caseRoot, pack string, opt Options, whatIf bool) (AppendRe
 	if err := validateAppendOptions(kind, opt); err != nil {
 		return AppendResult{}, err
 	}
-	event := buildEvent(kind, lane, opt)
+	createdAt, err := noteCreatedAt(opt.CreatedAt)
+	if err != nil {
+		return AppendResult{}, err
+	}
+	event := buildEvent(kind, lane, createdAt, opt)
 	eventID := strings.TrimSpace(opt.EventID)
 	if eventID == "" {
 		eventID = eventIDFor(event)
 	}
 	event["eventId"] = eventID
-	encodedEvent, err := json.Marshal(event)
+	encodedEvent, eventSHA256, err := encodeEvent(event)
 	if err != nil {
 		return AppendResult{}, err
 	}
@@ -225,11 +234,22 @@ func Append(repoRoot, caseRoot, pack string, opt Options, whatIf bool) (AppendRe
 		Applied:                     false,
 		EventID:                     eventID,
 		Path:                        relPath,
+		EventSHA256:                 eventSHA256,
+		ExpectedEventSHA256:         strings.TrimSpace(opt.ExpectedEventSHA256),
+		RecordCommand:               recordCommand(inst.CaseRoot, pack, event, eventSHA256),
 		Event:                       event,
 		MissionBrief:                brief,
 		ExecutorAction:              action,
 		MissionCommanderAction:      action.MissionCommanderAction,
 		MissionCommanderNextActions: noteMissionCommanderNextActions(boardLane, action),
+	}
+	if expected := strings.TrimSpace(opt.ExpectedEventSHA256); expected != "" {
+		if len(expected) != 64 {
+			return result, fmt.Errorf("invalid ExpectedNoteEventSha256 %q", expected)
+		}
+		if !strings.EqualFold(expected, eventSHA256) {
+			return result, fmt.Errorf("note event sha256 changed after preview: expected %s got %s", expected, eventSHA256)
+		}
 	}
 	exists, err := eventIDExists(inst.CaseRoot, eventID)
 	if err != nil {
@@ -291,14 +311,14 @@ func laneExecutorSnapshot(caseRoot, laneID string) (mission.Brief, mission.Execu
 	return brief, mission.LaneExecutorAction(missionLane, facts, brief), facts, lane, nil
 }
 
-func buildEvent(kind, lane string, opt Options) map[string]any {
+func buildEvent(kind, lane, createdAt string, opt Options) map[string]any {
 	event := map[string]any{
 		"schemaVersion": 1,
 		"kind":          kind,
 		"lane":          lane,
 		"subject":       strings.TrimSpace(opt.Subject),
 		"summary":       strings.TrimSpace(opt.Summary),
-		"createdAt":     time.Now().UTC().Format(time.RFC3339Nano),
+		"createdAt":     createdAt,
 	}
 	addString := func(key, value string) {
 		if strings.TrimSpace(value) != "" {
@@ -555,6 +575,115 @@ func routeOutputStrings(values map[string]any) map[string]string {
 
 func assertLane(caseRoot, lane string) error {
 	return mission.AssertBoardLane(caseRoot, lane, mission.LaneGuardOptions{Command: "note"})
+}
+
+func noteCreatedAt(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Now().UTC().Format(time.RFC3339Nano), nil
+	}
+	if _, err := time.Parse(time.RFC3339Nano, value); err != nil {
+		return "", fmt.Errorf("invalid CreatedAt %q: %w", value, err)
+	}
+	return value, nil
+}
+
+func encodeEvent(event map[string]any) ([]byte, string, error) {
+	encoded, err := json.Marshal(event)
+	if err != nil {
+		return nil, "", err
+	}
+	sum := sha256.Sum256(encoded)
+	return encoded, hex.EncodeToString(sum[:]), nil
+}
+
+var recordCommandReplayableKeys = map[string]bool{
+	"schemaVersion": true,
+	"kind":          true,
+	"lane":          true,
+	"subject":       true,
+	"summary":       true,
+	"actor":         true,
+	"risk":          true,
+	"related":       true,
+	"confidence":    true,
+	"decision":      true,
+	"reason":        true,
+	"status":        true,
+	"batchId":       true,
+	"target":        true,
+	"verifier":      true,
+	"verdict":       true,
+	"action":        true,
+	"approvedBy":    true,
+	"scope":         true,
+	"expires":       true,
+	"evidenceRefs":  true,
+	"eventId":       true,
+	"createdAt":     true,
+}
+
+func recordCommand(caseRoot, pack string, event map[string]any, eventSHA256 string) string {
+	if !recordCommandReplayable(event) {
+		return ""
+	}
+	args := []string{"/rekit", "note", "-Target", caseRoot, "-Pack", pack, "-Kind", stringValue(event, "kind"), "-Lane", stringValue(event, "lane")}
+	for _, item := range []struct{ flag, key string }{
+		{"-Subject", "subject"},
+		{"-Summary", "summary"},
+		{"-Actor", "actor"},
+		{"-Risk", "risk"},
+		{"-Related", "related"},
+		{"-Confidence", "confidence"},
+		{"-Decision", "decision"},
+		{"-Reason", "reason"},
+		{"-Status", "status"},
+		{"-BatchId", "batchId"},
+		{"-TargetRef", "target"},
+		{"-Verifier", "verifier"},
+		{"-Verdict", "verdict"},
+		{"-Action", "action"},
+		{"-ApprovedBy", "approvedBy"},
+		{"-Scope", "scope"},
+		{"-Expires", "expires"},
+		{"-EvidenceRefs", "evidenceRefs"},
+		{"-EventId", "eventId"},
+		{"-CreatedAt", "createdAt"},
+		{"-ExpectedNoteEventSha256", ""},
+	} {
+		value := eventSHA256
+		if item.key != "" {
+			value = stringValue(event, item.key)
+		}
+		if strings.TrimSpace(value) != "" {
+			args = append(args, item.flag, value)
+		}
+	}
+	args = append(args, "-Format", "json")
+	for i := range args {
+		args[i] = quoteCommandArg(args[i])
+	}
+	return strings.Join(args, " ")
+}
+
+func quoteCommandArg(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return `""`
+	}
+	if !strings.ContainsAny(value, " \t\"") {
+		return value
+	}
+	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
+}
+
+func recordCommandReplayable(event map[string]any) bool {
+	for key := range event {
+		if !recordCommandReplayableKeys[key] {
+			return false
+		}
+	}
+	return true
 }
 
 func eventIDFor(event map[string]any) string {

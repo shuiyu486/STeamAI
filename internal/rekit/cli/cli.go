@@ -424,6 +424,18 @@ func Parse(args []string) (Options, error) {
 			}
 			opt.Note.EventID = args[i]
 			opt.Reconcile.InterventionID = args[i]
+		case "-CreatedAt", "--created-at":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -CreatedAt")
+			}
+			opt.Note.CreatedAt = args[i]
+		case "-ExpectedNoteEventSha256", "-ExpectedNoteEventSHA256", "--expected-note-event-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedNoteEventSha256")
+			}
+			opt.Note.ExpectedEventSHA256 = args[i]
 		case "-InterventionId", "--intervention-id":
 			i++
 			if i >= len(args) {
@@ -776,6 +788,9 @@ func Run(args []string, stdout io.Writer) error {
 	}
 	if (opt.RetireCandidateVerificationWorkspace || strings.TrimSpace(opt.ExpectedRetirementSHA256) != "") && opt.Command != commands.Promote {
 		return fmt.Errorf("candidate verification retirement flags are supported only by promote")
+	}
+	if (strings.TrimSpace(opt.Note.CreatedAt) != "" || strings.TrimSpace(opt.Note.ExpectedEventSHA256) != "") && opt.Command != commands.Note {
+		return fmt.Errorf("note event currentness flags are supported only by note")
 	}
 	if strings.TrimSpace(opt.ReviewerResultPath) != "" && opt.Command != commands.PlanSubagents {
 		return fmt.Errorf("-ReviewerResultPath is supported only by plan-subagents reviewer intake")
@@ -2964,8 +2979,8 @@ func statusOpenDecisionHandoffFor(caseRoot, pack, sourceKind string, event map[s
 		RecordPath:       recordPath,
 		ReviewCommand:    "/rekit handoff " + statusLaneCommandLabel(lane),
 		WhatIfCommand:    statusDecisionNoteCommand(caseRoot, pack, event, true),
-		RecordCommand:    statusDecisionNoteCommand(caseRoot, pack, event, false),
-		DecisionBoundary: "review evidence and choose accept/reject/defer/supersede before recording a decision note; record command only appends case-local decision ledger state and never writes authority/confirmed or executes heavy-tool",
+		RecordCommand:    "run the hash-bound recordCommand returned by note -WhatIf",
+		DecisionBoundary: "review evidence and choose accept/reject/defer/supersede with note -WhatIf first; then run the returned hash-bound recordCommand, which only appends case-local decision ledger state and never writes authority/confirmed or executes heavy-tool",
 		ContinueBoundary: "blocked lane can only continue with -WhatIf after open candidate/decision review is recorded or deliberately deferred; do not continue autonomously while the open decision remains unresolved",
 		Evidence:         evidence,
 	}
@@ -4575,6 +4590,9 @@ func writeNoteAppendText(out io.Writer, result note.AppendResult) error {
 		return err
 	}
 	if _, err := fmt.Fprintf(out, "note target：caseRoot=%s repoRoot=%s pack=%s\n", result.CaseRoot, result.RepoRoot, result.Pack); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "note event hash：eventId=%s eventSha256=%s expected=%s record=%s\n", result.EventID, result.EventSHA256, result.ExpectedEventSHA256, result.RecordCommand); err != nil {
 		return err
 	}
 	if err := writeNoteEventText(out, result); err != nil {
