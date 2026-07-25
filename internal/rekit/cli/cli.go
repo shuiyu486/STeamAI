@@ -2034,15 +2034,18 @@ func runStatusLegacyText(ctx runtime.Context, packSource string, out io.Writer) 
 		if err != nil {
 			return err
 		}
-		if err := writeStatusCaseMissionText(out, caseMission); err != nil {
-			return err
-		}
 		release, err := releasecheck.Build(ctx.RepoRoot)
 		if err != nil {
 			return err
 		}
 		projectHandoff := buildStatusProjectHandoff(release.ReleaseHandoff)
 		bindStatusCaseCandidateDecisionDraftHandoffs(projectHandoff, ctx.RepoRoot, inst.CaseRoot, ctx.Pack)
+		if err := writeStatusMissionCommanderFirstScreenText(out, caseMission, projectHandoff); err != nil {
+			return err
+		}
+		if err := writeStatusCaseMissionText(out, caseMission); err != nil {
+			return err
+		}
 		return writeStatusProjectHandoffText(out, projectHandoff)
 	}
 	fmt.Fprintf(out, "case shim: %s ready=%t\n", caseShim.Summary, caseShim.Ready)
@@ -2090,6 +2093,9 @@ func runStatusText(ctx runtime.Context, packSource string, out io.Writer) error 
 		}
 	}
 	if err := writeStatusCaseShimText(out, status.CaseShim); err != nil {
+		return err
+	}
+	if err := writeStatusMissionCommanderFirstScreenText(out, status.CaseMission, status.ProjectHandoff); err != nil {
 		return err
 	}
 	if err := writeStatusCaseMissionText(out, status.CaseMission); err != nil {
@@ -2168,6 +2174,111 @@ func writeStatusCaseShimEntrypointText(out io.Writer, entry *statusCaseShimEntry
 		}
 	}
 	return nil
+}
+
+func writeStatusMissionCommanderFirstScreenText(out io.Writer, caseMission *statusCaseMission, projectHandoff *statusProjectHandoff) error {
+	if caseMission == nil && projectHandoff == nil {
+		return nil
+	}
+	caseQueue := mission.MissionCommanderActionQueue{}
+	caseCurrent := (*mission.MissionCommanderNextActionItem)(nil)
+	if caseMission != nil {
+		caseQueue = caseMission.MissionCommanderActionQueue
+		caseCurrent = caseQueue.CurrentAction
+	}
+	packQueue := mission.MissionCommanderActionQueue{}
+	packCurrent := (*mission.MissionCommanderNextActionItem)(nil)
+	packTotal := 0
+	if projectHandoff != nil {
+		packCandidates := projectHandoff.PackMemoryCandidates
+		packQueue = packCandidates.MissionCommanderActionQueue
+		packCurrent = packQueue.CurrentAction
+		packTotal = packCandidates.Total
+	}
+	focus := statusMissionCommanderFirstScreenFocus(caseCurrent, projectHandoff, packCurrent)
+	if _, err := fmt.Fprintf(out, "status Mission Commander first screen：focus=%s caseCurrent=%s caseQueueTotal=%d caseQueueBlocked=%d caseQueueRequiresReview=%d packMemoryCurrent=%s packMemoryTotal=%d packMemoryRequiresReview=%d\n", focus, statusMissionActionCommand(caseCurrent), caseQueue.Counts.Total, caseQueue.Counts.Blocked, caseQueue.Counts.RequiresReview, statusMissionActionCommand(packCurrent), packTotal, packQueue.Counts.RequiresReview); err != nil {
+		return err
+	}
+	switch focus {
+	case "case-current-action":
+		if err := writeStatusMissionCommanderFirstScreenActionText(out, "case", caseCurrent); err != nil {
+			return err
+		}
+	case "pack-memory-current-action":
+		if err := writeStatusMissionCommanderFirstScreenActionText(out, "pack-memory", packCurrent); err != nil {
+			return err
+		}
+	}
+	if caseCurrent != nil {
+		if err := writeStatusMissionCommanderCurrentActionText(out, "case", *caseCurrent); err != nil {
+			return err
+		}
+	}
+	if packCurrent != nil {
+		if err := writeStatusMissionCommanderCurrentActionText(out, "pack-memory", *packCurrent); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func statusMissionCommanderFirstScreenFocus(caseCurrent *mission.MissionCommanderNextActionItem, projectHandoff *statusProjectHandoff, packCurrent *mission.MissionCommanderNextActionItem) string {
+	if statusCaseMissionCurrentActionNeedsAttention(caseCurrent) {
+		return "case-current-action"
+	}
+	if statusPackMemoryCurrentActionNeedsAttention(projectHandoff, packCurrent) {
+		return "pack-memory-current-action"
+	}
+	if caseCurrent != nil {
+		return "case-current-action"
+	}
+	if packCurrent != nil {
+		return "pack-memory-current-action"
+	}
+	return "none"
+}
+
+func statusCaseMissionCurrentActionNeedsAttention(action *mission.MissionCommanderNextActionItem) bool {
+	if action == nil {
+		return false
+	}
+	if action.Blocked || action.RequiresReview {
+		return true
+	}
+	return action.Source != "missionCommanderActions" || action.State != "ready-to-continue"
+}
+
+func statusPackMemoryCurrentActionNeedsAttention(projectHandoff *statusProjectHandoff, action *mission.MissionCommanderNextActionItem) bool {
+	if projectHandoff == nil || action == nil {
+		return false
+	}
+	candidates := projectHandoff.PackMemoryCandidates
+	return !candidates.Ready || candidates.Total > 0 || action.Blocked || action.RequiresReview
+}
+
+func writeStatusMissionCommanderFirstScreenActionText(out io.Writer, scope string, action *mission.MissionCommanderNextActionItem) error {
+	if action == nil {
+		return nil
+	}
+	if err := writeStatusMissionCommanderCurrentActionText(out, "focus-"+scope, *action); err != nil {
+		return err
+	}
+	for _, reason := range action.Reasons {
+		if _, err := fmt.Fprintf(out, "status Mission Commander focus action reason：scope=%s reason=%s\n", scope, reason); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range action.Boundary {
+		if _, err := fmt.Fprintf(out, "status Mission Commander focus action boundary：scope=%s boundary=%s\n", scope, boundary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeStatusMissionCommanderCurrentActionText(out io.Writer, scope string, action mission.MissionCommanderNextActionItem) error {
+	_, err := fmt.Fprintf(out, "status Mission Commander current action：scope=%s lane=%s label=%s state=%s source=%s blocked=%t requiresReview=%t command=%s\n", scope, action.Lane, action.Label, action.State, action.Source, action.Blocked, action.RequiresReview, action.Command)
+	return err
 }
 
 func writeStatusCaseMissionText(out io.Writer, summary *statusCaseMission) error {

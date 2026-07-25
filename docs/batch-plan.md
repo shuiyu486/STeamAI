@@ -16,6 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 597：Mission Commander first-screen current action strip
+
+状态：已完成 runtime/test/doc 工作树实现与本地验证；implementation commit/push 与 implementation remote release-gate inspection 待执行。远程 GitHub Actions 若仍为 `steps=[]` runner/billing blocker，只记录为 known gap，不能声明 remote CI green。
+
+目标：补齐 Batch 596 后仍存在的新会话接手 first-screen 断点：case-local 无参数 `/rekit` 默认仍走 table/legacy status 输出，虽然内部已有 queue-aware case current action 与 pack-memory action queue，但用户/替换 executor 必须在 case shim、case mission、project handoff、pack-memory 等大量行中手工寻找真正下一步。默认第一屏应在最靠前位置给出一个 compact Mission Commander strip：同时显示 case current action、pack-memory current action、焦点来源与 counts；当 reviewer/adapter/evidence 等 case current action 需要复核时优先聚焦 case，当 case ready 但 pack-memory 仍有 open residue 时聚焦 pack-memory bounded proof/review/cleanup/reconsume action。
+
+已实现内容：
+
+- `runStatusLegacyText` 与 `runStatusText` 在 case shim 输出后立即调用统一 `writeStatusMissionCommanderFirstScreenText`，把 `status Mission Commander first screen` 放到无参数 `/rekit` / `status -Format text` 第一屏靠前位置。
+- first-screen strip 复用既有 `status.caseMission.missionCommanderActionQueue` 与 `status.projectHandoff.packMemoryCandidates.missionCommanderActionQueue`，输出 case current action、pack-memory current action、queue counts、focus、blocked/requiresReview/source/state/command/reasons/boundary；不复制 queue selection 或 pack-memory action 派生逻辑。
+- 焦点选择保持产品语义：case current action 若来自 reviewer/adapter/evidence/blocker 或 requiresReview/blocked 则优先；否则 open pack-memory residue 的 current action 优先于普通 ready lane continue；若都不存在则显示 none。
+- Installed case-local `/rekit` product-path E2E 覆盖 initial none focus、partial reviewer intake 时 case focus，以及 reviewer 完成但 pack-memory candidate proof open 时 pack-memory focus；同时断言 default output 不泄漏 JSON、不使用 `<packet.json>` placeholder。
+
+边界：本批只增强 case-local status/default `/rekit` 的只读 first-screen projection；不新增 durable schema，不自动 spawn/stop/poll/monitor reviewer，不执行 adapter/heavy tool，不生成或写入 pack-memory proof，不写 ledger/facts/authority/confirmed，不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/cli -run TestRunInstalledCaseShimProductPathStatusAndRefresh -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。实现前一次 `release-check` / `go test ./...` 曾因 Batch 597 文档仍标记进行中而 fail-closed；状态与完整验证记录更新后重跑通过。
+
 ### Batch 596：Mission Commander action queue current-action closure
 
 状态：已完成 runtime/test/doc 工作树实现、focused tests、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `93812c6` 已推送。implementation run `30161847547` completed failure，Linux/Windows/macOS jobs `89688329614`/`89688329665`/`89688329800` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。本轮完成后按用户要求收尾停止，不继续开启 Batch 597。

@@ -2705,7 +2705,7 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 	if err := Run([]string{"-Command", "status"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"pack source: case-metadata", "case shim: case shim readiness ok ready=true", "status case shim entrypoint: caseLocal=/rekit", "status case shim durable artifact: .rekit/handovers/<lane>-latest.md", "status case shim first-screen check: status case mission queue/current action", "status case mission handoff：preview=/rekit handoff"} {
+	for _, expected := range []string{"pack source: case-metadata", "case shim: case shim readiness ok ready=true", "status case shim entrypoint: caseLocal=/rekit", "status case shim durable artifact: .rekit/handovers/<lane>-latest.md", "status case shim first-screen check: status case mission queue/current action", "status Mission Commander first screen：focus=none", "status case mission handoff：preview=/rekit handoff"} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("installed entrypoint default status missing %q:\n%s", expected, out.String())
 		}
@@ -2791,7 +2791,7 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 	if err := Run([]string{"-Command", "status", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"status case mission reviewer dispatch intake summary：total=1", "status case mission reviewer dispatch next action runbook：shard=shard-02", "status case mission brief next action：follow Mission Commander current action: dispatch read-only reviewer", "dispatch read-only reviewer", "after saving reviewer JSON, run staging preview"} {
+	for _, expected := range []string{"status Mission Commander first screen：focus=case-current-action", "status Mission Commander current action：scope=focus-case", "source=reviewerDispatchIntakeHandoffs", "status case mission reviewer dispatch intake summary：total=1", "status case mission reviewer dispatch next action runbook：shard=shard-02", "status case mission brief next action：follow Mission Commander current action: dispatch read-only reviewer", "dispatch read-only reviewer", "after saving reviewer JSON, run staging preview"} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("installed entrypoint status reviewer runbook text missing %q:\n%s", expected, out.String())
 		}
@@ -2898,6 +2898,10 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 	for _, expected := range []string{
 		"pack source: case-metadata",
 		"status case shim entrypoint: caseLocal=/rekit",
+		"status Mission Commander first screen：focus=pack-memory-current-action",
+		"status Mission Commander current action：scope=focus-pack-memory lane= label=_template state=pack-memory-proof-required",
+		"status Mission Commander current action：scope=case lane=feature-login label=login state=ready-to-continue",
+		"status Mission Commander current action：scope=pack-memory lane= label=_template state=pack-memory-proof-required",
 		"status case shim first-screen check: reviewer writeback or reviewer dispatch intake summaries show reviewer state without reopening packet/result JSON",
 		"status case shim first-screen check: project handoff pack-memory candidate summary shows candidate review/cleanup/reconsume proof state",
 		"status case mission reviewer writeback summary：total=4 verifications=2 decisions=2 lanes=1 latestKind=decision",
