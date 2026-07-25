@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 578：reviewer prompt artifact currentness handoff closure
 
-状态：已完成 runtime、CLI、workstream intake projection、tests、docs 与完整本地 release minimum；implementation commit/push 与 implementation remote release-gate inspection 待执行。本批延续 Batch 577：`plan-subagents` 已生成 hash-bound `prompts/<shard>.prompt.md` artifact 并投影 path/hash，但 downstream `status` / `handoff` / `continue` 仍可能在 prompt artifact 被删除、清空、换成 symlink、移动到 packet prompts 目录外或 SHA-256 drift 后继续显示 dispatch command，replacement executor 容易把 stale/missing prompt 当成可调度 reviewer 输入。
+状态：已完成 runtime、CLI、workstream intake projection、tests、docs、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `3d60078` 已推送。implementation run `30140168734` completed failure，Linux/Windows/macOS jobs `89631766382`/`89631766398`/`89631766439` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。本批延续 Batch 577：`plan-subagents` 已生成 hash-bound `prompts/<shard>.prompt.md` artifact 并投影 path/hash，但 downstream `status` / `handoff` / `continue` 仍可能在 prompt artifact 被删除、清空、换成 symlink、移动到 packet prompts 目录外或 SHA-256 drift 后继续显示 dispatch command，replacement executor 容易把 stale/missing prompt 当成可调度 reviewer 输入。
 
 目标：让 reviewer dispatch intake handoff 在推荐调度 read-only reviewer 前只读验证 prompt artifact currentness：必须位于同一 packet review root 的 `prompts/` 目录、non-symlink、non-empty regular file，且实际 SHA-256 匹配 packet 中的 `promptSha256`。缺失、invalid、symlink、unverified 或 drift 时 fail-closed 为 blocked prompt artifact state，并在 JSON/text/durable handoff 中投影 state、current、actual hash、failure 与 next action。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：本批只对既有 reviewer prompt artifact 做只读 currentness validation 与 downstream handoff 投影；不重写 prompt artifact、不修补 packet、不 spawn/stop/poll/monitor reviewer、不创建 reviewer result、不执行 staging/collection/intake Apply、不写 verification/decision/authority/confirmed、不执行 heavy tool、不新增 PowerShell runtime logic。
 
-验证结果：focused `go test ./internal/rekit/subagents ./internal/rekit/workstream ./internal/rekit/cli -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过。remote release-gate inspection 待执行，当前不能声明 remote CI green。
+验证结果：focused `go test ./internal/rekit/subagents ./internal/rekit/workstream ./internal/rekit/cli -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过。remote inspection 已记录：implementation run `30140168734` completed failure，Linux/Windows/macOS jobs `89631766382`/`89631766398`/`89631766439` 均 `steps=[]`，未提供代码执行日志，按既有 runner/billing blocker 记录，不能声明 remote CI green。
 
 ### Batch 577：reviewer dispatch prompt artifact closure
 
