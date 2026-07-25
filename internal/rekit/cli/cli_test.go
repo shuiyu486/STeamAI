@@ -4184,6 +4184,37 @@ func TestRunOverviewEmitsReadOnlySummary(t *testing.T) {
 	assertSnapshotEqual(t, before, after)
 }
 
+func TestRunOverviewListsConcreteMultiInterventionPreviewOptions(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	writeOverviewFixture(t, caseRoot)
+	factsRoot := filepath.Join(caseRoot, ".rekit", "facts")
+	writeFactFile(t, factsRoot, "interventions.jsonl", []string{
+		`{"kind":"intervention","eventId":"int-main-1","lane":"main","subject":"manual override","summary":"needs human","action":"override","target":"batch-overview","approvedBy":"lead","scope":"metadata","status":"open","batchId":"batch-overview"}`,
+		`{"kind":"intervention","eventId":"int-main-2","lane":"main","subject":"manual pause","summary":"needs second review","action":"override","target":"batch-overview-2","approvedBy":"lead","scope":"metadata","status":"open","batchId":"batch-overview"}`,
+	})
+	before := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, expected := range []string{
+		"main：state=needs-reconcile blocked=true ready=false primary=`/rekit handoff main`",
+		"/rekit reconcile main -InterventionId int-main-1 -WhatIf",
+		"/rekit reconcile main -InterventionId int-main-2 -WhatIf",
+		"multiple or unidentified open interventions require handoff review before selecting a concrete eventId",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("overview multi intervention missing %q:\n%s", expected, text)
+		}
+	}
+	if strings.Contains(text, "/rekit reconcile main -InterventionId <eventId> -WhatIf") {
+		t.Fatalf("overview should not show placeholder when every open intervention has eventId:\n%s", text)
+	}
+	after := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	assertSnapshotEqual(t, before, after)
+}
+
 func TestRunOverviewJsonEmitsReadOnlyInventory(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	writeOverviewFixture(t, caseRoot)

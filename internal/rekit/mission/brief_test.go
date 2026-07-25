@@ -92,6 +92,47 @@ func TestLaneExecutorActionUsesSharedTypedBlockerProjection(t *testing.T) {
 	}
 }
 
+func TestLaneExecutorActionListsConcreteMultiInterventionPreviewOptions(t *testing.T) {
+	facts := Facts{
+		Interventions: []map[string]any{
+			{"eventId": "evt-open-a", "kind": "intervention", "lane": "feature-login", "subject": "manual stop", "status": "open"},
+			{"eventId": "evt-open-b", "kind": "intervention", "lane": "feature-login", "subject": "manual override", "status": "open"},
+		},
+	}
+	brief := BuildWithOptions([]Lane{{ID: "feature-login", Label: "login", Status: "active"}}, facts, BuildOptions{MaxRows: 10})
+	action := LaneExecutorAction(Lane{ID: "feature-login", Label: "login", Status: "active"}, facts, brief)
+	commander := action.MissionCommanderAction
+	if commander.State != "needs-reconcile" || commander.PrimaryCommand != "/rekit handoff login" {
+		t.Fatalf("multiple interventions should keep handoff as primary instead of choosing one: %+v", commander)
+	}
+	for _, command := range []string{"/rekit reconcile login -InterventionId evt-open-a -WhatIf", "/rekit reconcile login -InterventionId evt-open-b -WhatIf", "/rekit continue login -WhatIf"} {
+		if !slices.Contains(commander.FollowUpCommands, command) {
+			t.Fatalf("multiple interventions should expose concrete preview option %q: %+v", command, commander)
+		}
+	}
+	if slices.Contains(commander.FollowUpCommands, "/rekit reconcile login -InterventionId <eventId> -WhatIf") {
+		t.Fatalf("all-concrete multiple interventions should not require placeholder event selection: %+v", commander)
+	}
+	if !slices.Contains(commander.Boundary, "multiple or unidentified open interventions require handoff review before selecting a concrete eventId") {
+		t.Fatalf("multiple interventions should retain selection boundary: %+v", commander)
+	}
+}
+
+func TestLaneExecutorActionKeepsPlaceholderForUnidentifiedMultiIntervention(t *testing.T) {
+	facts := Facts{
+		Interventions: []map[string]any{
+			{"eventId": "evt-open-a", "kind": "intervention", "lane": "feature-login", "subject": "manual stop", "status": "open"},
+			{"kind": "intervention", "lane": "feature-login", "subject": "manual override", "status": "open"},
+		},
+	}
+	brief := BuildWithOptions([]Lane{{ID: "feature-login", Label: "login", Status: "active"}}, facts, BuildOptions{MaxRows: 10})
+	action := LaneExecutorAction(Lane{ID: "feature-login", Label: "login", Status: "active"}, facts, brief)
+	commander := action.MissionCommanderAction
+	if commander.PrimaryCommand != "/rekit handoff login" || !slices.Contains(commander.FollowUpCommands, "/rekit reconcile login -InterventionId evt-open-a -WhatIf") || !slices.Contains(commander.FollowUpCommands, "/rekit reconcile login -InterventionId <eventId> -WhatIf") {
+		t.Fatalf("unidentified multi intervention should expose known options plus placeholder: %+v", commander)
+	}
+}
+
 func TestLaneExecutorActionPendingGateUsesCanonicalLaneForGateCommand(t *testing.T) {
 	facts := Facts{
 		Requests: []map[string]any{{"kind": "request", "lane": "feature-login", "subject": "debug gate", "status": "pending-gate", "risk": "high"}},

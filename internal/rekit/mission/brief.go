@@ -731,7 +731,8 @@ func LaneMissionCommanderActionForLane(label, laneID, status string, ready bool,
 			return action
 		}
 		action.PrimaryCommand = "/rekit handoff " + label
-		action.FollowUpCommands = []string{"/rekit reconcile " + label + " -InterventionId <eventId> -WhatIf", "/rekit continue " + label + " -WhatIf"}
+		action.FollowUpCommands = multiInterventionReconcilePreviewCommands(label, openInterventions)
+		action.FollowUpCommands = append(action.FollowUpCommands, "/rekit continue "+label+" -WhatIf")
 		action.Boundary = append(action.Boundary, "multiple or unidentified open interventions require handoff review before selecting a concrete eventId")
 		return action
 	}
@@ -757,6 +758,23 @@ func LaneMissionCommanderActionForLane(label, laneID, status string, ready bool,
 		return action
 	}
 	return action
+}
+
+func multiInterventionReconcilePreviewCommands(label string, openInterventions []map[string]any) []string {
+	commands := []string{}
+	seen := map[string]bool{}
+	for _, item := range openInterventions {
+		eventID := strings.TrimSpace(Value(item, "eventId"))
+		if eventID == "" || seen[eventID] {
+			continue
+		}
+		seen[eventID] = true
+		commands = append(commands, "/rekit reconcile "+label+" -InterventionId "+quoteCommandArg(eventID)+" -WhatIf")
+	}
+	if len(commands) != len(openInterventions) {
+		commands = append(commands, "/rekit reconcile "+label+" -InterventionId <eventId> -WhatIf")
+	}
+	return commands
 }
 
 func quoteCommandArg(value string) string {
