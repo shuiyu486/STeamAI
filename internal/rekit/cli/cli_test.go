@@ -204,6 +204,34 @@ func TestParsePlanSubagentsReviewerResultRecovery(t *testing.T) {
 	}
 }
 
+func TestWritePromoteCandidateVerificationTextIncludesRunbookSteps(t *testing.T) {
+	result := promote.CandidateDecisionVerificationResult{
+		Pack:                     "_template",
+		Applied:                  true,
+		Ready:                    true,
+		ReceiptPath:              "receipt.json",
+		VerificationProofPath:    "proof.json",
+		PackDoctorRows:           1,
+		FreshDoctorRows:          1,
+		AttachedDoctorRows:       1,
+		VerificationRunbookSteps: []string{"retain candidate verification proof proof.json", "run retirementPreviewCommand with -WhatIf"},
+		NextSteps:                []string{"rerun /rekit status"},
+	}
+	var out bytes.Buffer
+	if err := writePromoteCandidateVerificationText(&out, result); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"promote candidate verification runbook：step=1 text=retain candidate verification proof proof.json",
+		"promote candidate verification runbook：step=2 text=run retirementPreviewCommand with -WhatIf",
+		"promote candidate verification next step：rerun /rekit status",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("candidate verification text missing %q:\n%s", expected, out.String())
+		}
+	}
+}
+
 func TestWritePromoteCandidateDecisionTextIncludesRunbookSteps(t *testing.T) {
 	result := promote.CandidateDecisionResult{
 		Mode:                 "candidate-decision",

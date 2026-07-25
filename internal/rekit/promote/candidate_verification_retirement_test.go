@@ -20,6 +20,12 @@ func TestRetireCandidateVerificationWorkspacePreviewsAppliesAndFailsClosedOnRecr
 	if !strings.Contains(verified.RetirementPreviewCommand, "-RetireCandidateVerificationWorkspace -WhatIf") {
 		t.Fatalf("final verification omitted retirement preview command: %+v", verified)
 	}
+	assertCandidateVerificationRunbookContains(t, verified.VerificationRunbookSteps,
+		"retain candidate verification proof",
+		"confirm provisioning artifacts are bound before retirement",
+		"run retirementPreviewCommand with -WhatIf",
+		"expected-hash retirement Apply command",
+	)
 	opt := CandidateVerificationRetirementOptions{PacketPath: packetPath, DecisionPath: decisionPath, WhatIf: true}
 	preview, err := RetireCandidateVerificationWorkspace(repoRoot, sourceCase, pack, opt)
 	if err != nil {

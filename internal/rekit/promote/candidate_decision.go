@@ -147,6 +147,7 @@ type CandidateDecisionVerificationResult struct {
 	FreshDoctorRows          int                       `json:"freshDoctorRows"`
 	AttachedDoctorRows       int                       `json:"attachedDoctorRows"`
 	VerifiedActions          []CandidateDecisionAction `json:"verifiedActions"`
+	VerificationRunbookSteps []string                  `json:"verificationRunbookSteps,omitempty"`
 	NextSteps                []string                  `json:"nextSteps"`
 	Boundary                 []string                  `json:"boundary"`
 }
@@ -624,18 +625,70 @@ func VerifyCandidateDecision(repoRoot, caseRoot, pack string, opt CandidateDecis
 	}
 	if opt.WhatIf {
 		result.NextSteps = []string{"inspect doctor/reconsume validation, then rerun the identical command with -Apply"}
+		result.VerificationRunbookSteps = candidateVerificationRunbookSteps(result)
 		return result, nil
 	}
 	result.Applied = true
 	result.NextSteps = []string{"run the returned retirementPreviewCommand to preview exact cleanup of the generated verification workspace", "rerun /rekit status or release-check after retirement"}
-	data, err := json.MarshalIndent(result, "", "  ")
+	proofResult := result
+	data, err := json.MarshalIndent(proofResult, "", "  ")
 	if err != nil {
 		return CandidateDecisionVerificationResult{}, err
 	}
 	if err := writeDurableFileIdempotent(proofPath, append(data, '\n')); err != nil {
 		return CandidateDecisionVerificationResult{}, err
 	}
+	result.VerificationRunbookSteps = candidateVerificationRunbookSteps(result)
 	return result, nil
+}
+
+func candidateVerificationRunbookSteps(result CandidateDecisionVerificationResult) []string {
+	steps := []string{}
+	add := func(step string) {
+		step = strings.TrimSpace(step)
+		if step == "" || slices.Contains(steps, step) {
+			return
+		}
+		steps = append(steps, step)
+	}
+	addNextSteps := func() {
+		for _, step := range result.NextSteps {
+			add("follow candidate verification nextSteps: " + step)
+		}
+	}
+
+	if !result.Ready {
+		add("stop candidate verification follow-through; doctor/reconsume validation is not ready")
+		addNextSteps()
+		add("do not preview verification workspace retirement until verification is ready")
+		return steps
+	}
+	if !result.Applied || !result.IsMutation {
+		add(fmt.Sprintf("inspect pack/fresh/attached doctor and reconsume validation for %d accepted candidate actions", len(result.VerifiedActions)))
+		addNextSteps()
+		add("rerun the identical candidate verification command with -Apply only after the source, fresh, and attached cases still match the receipt")
+		add("do not retire the verification workspace until the verification proof has been written by Apply")
+		return steps
+	}
+
+	if result.VerificationProofPath != "" {
+		add("retain candidate verification proof " + result.VerificationProofPath + " as the terminal accepted-candidate reconsume evidence")
+	} else {
+		add("retain the candidate verification proof as the terminal accepted-candidate reconsume evidence")
+	}
+	if result.ProvisionIntentPath != "" && result.ProvisionReceiptPath != "" {
+		add("confirm provisioning artifacts are bound before retirement: intent=" + result.ProvisionIntentPath + " receipt=" + result.ProvisionReceiptPath)
+	}
+	if result.RetirementPreviewCommand != "" {
+		add("run retirementPreviewCommand with -WhatIf to inspect exact verification workspace cleanup: " + result.RetirementPreviewCommand)
+		add("run the returned expected-hash retirement Apply command only after reviewing the exact deletion plan")
+		add("after retirement, rerun /rekit status or release-check to confirm pack-memory candidate closure")
+	} else {
+		add("no retirement preview command is available; keep the verification proof and rerun /rekit status or release-check for downstream closure")
+	}
+	addNextSteps()
+	add("do not continue pack-memory downstream closure until verification proof and any required retirement receipt are accounted for")
+	return steps
 }
 
 func DraftCandidateDecisions(repoRoot, caseRoot, pack string, opt CandidateDecisionDraftOptions) (CandidateDecisionDraftResult, error) {

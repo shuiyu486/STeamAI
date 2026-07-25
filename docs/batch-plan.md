@@ -16,6 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 592：pack-memory final verification retirement handoff closure
+
+状态：已完成 runtime 派生字段、CLI text 输出、入口文档更新与 focused tests；完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection 待执行。
+
+目标：补齐 pack-memory accepted candidate final verification 后的 operational closure：`VerifyCandidateDecision` 已能写 repo-local verification proof，并在 canonical provisioning workspace 可绑定时返回 `retirementPreviewCommand`，但 Mission Commander / replacement executor 仍要从 proof path、provision intent/receipt、retirement preview command 与 `NextSteps` 手工拼接 proof→retirement→status/release-check 的下一步顺序。`CandidateDecisionVerificationResult` 应直接提供返回 envelope 级 `verificationRunbookSteps[]`，覆盖 verification WhatIf、Apply/replay、canonical retirement handoff 与无 retirement command 的 fallback。
+
+已实现内容：
+
+- `CandidateDecisionVerificationResult` 新增返回级派生 `verificationRunbookSteps[]`；WhatIf runbook 提示先复核 pack/fresh/attached doctor 与 reconsume validation，再用 identical Apply 写 repo-local proof。
+- Apply/replay runbook 提示保留 `verificationProofPath` 作为 accepted-candidate reconsume evidence；当 canonical provisioning artifacts 可绑定时，直接提示复核 provision intent/receipt、运行 `retirementPreviewCommand` WhatIf、再运行 returned expected-hash retirement Apply，并以 status/release-check 确认 closure。
+- 非 canonical fresh/attached roots 或缺 provisioning artifacts 时，runbook 明确无 retirement preview command，保留 proof 并回到 status/release-check 接续。
+- `verificationRunbookSteps[]` 只在返回 envelope/text 中提供 operational handoff，不写入 durable verification proof，避免 handoff guidance 成为 proof authority。
+- CLI text `writePromoteCandidateVerificationText` 新增 `promote candidate verification runbook：step=<n> text=<...>` 行，使 terminal first-screen 可直接从 verification result 接续 retirement。
+
+边界：本批只增强 final verification 结果的只读 downstream runbook projection；不改变 verification proof、provisioning、retirement intent/receipt 或 deletion semantics；不创建 verification cases、不执行 retirement、不 merge/cleanup candidates、不运行 heavy tool；不写 authority/confirmed；不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/promote ./internal/rekit/cli -run "TestVerifyCandidateDecisionPreviewsAppliesAndReplays|TestRetireCandidateVerificationWorkspacePreviewsAppliesAndFailsClosedOnRecreation|TestWritePromoteCandidateVerificationTextIncludesRunbookSteps" -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 与 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File rekit/tests/facade-smoke.ps1 -Pack _template` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。
+
 ### Batch 591：pack-memory candidate decision downstream runbook closure
 
 状态：已完成 runtime 派生字段、CLI text 输出、入口文档更新、focused tests、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `031b381` 已推送。implementation run `30157225900` completed failure，macOS/Linux/Windows jobs `89676973276`/`89676973285`/`89676973296` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。

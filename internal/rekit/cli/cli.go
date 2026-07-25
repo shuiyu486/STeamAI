@@ -8310,6 +8310,11 @@ func writePromoteCandidateVerificationText(out io.Writer, result promote.Candida
 			return err
 		}
 	}
+	for idx, step := range result.VerificationRunbookSteps {
+		if _, err := fmt.Fprintf(out, "promote candidate verification runbook：step=%d text=%s\n", idx+1, step); err != nil {
+			return err
+		}
+	}
 	for _, step := range result.NextSteps {
 		if _, err := fmt.Fprintf(out, "promote candidate verification next step：%s\n", step); err != nil {
 			return err

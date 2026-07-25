@@ -434,6 +434,16 @@ func candidateDecisionDraftNextActionForTest(items []mission.MissionCommanderNex
 
 func assertCandidateDecisionRunbookContains(t *testing.T, steps []string, wants ...string) {
 	t.Helper()
+	assertRunbookContains(t, "candidate decision", steps, wants...)
+}
+
+func assertCandidateVerificationRunbookContains(t *testing.T, steps []string, wants ...string) {
+	t.Helper()
+	assertRunbookContains(t, "candidate verification", steps, wants...)
+}
+
+func assertRunbookContains(t *testing.T, label string, steps []string, wants ...string) {
+	t.Helper()
 	for _, want := range wants {
 		found := false
 		for _, step := range steps {
@@ -443,7 +453,7 @@ func assertCandidateDecisionRunbookContains(t *testing.T, steps []string, wants 
 			}
 		}
 		if !found {
-			t.Fatalf("candidate decision runbook missing %q: %+v", want, steps)
+			t.Fatalf("%s runbook missing %q: %+v", label, want, steps)
 		}
 	}
 }
@@ -628,6 +638,11 @@ func TestVerifyCandidateDecisionPreviewsAppliesAndReplays(t *testing.T) {
 	if preview.IsMutation || preview.Applied || !preview.Ready || preview.PackDoctorRows == 0 || preview.FreshDoctorRows == 0 || preview.AttachedDoctorRows == 0 {
 		t.Fatalf("unexpected candidate verification preview: %+v", preview)
 	}
+	assertCandidateVerificationRunbookContains(t, preview.VerificationRunbookSteps,
+		"inspect pack/fresh/attached doctor and reconsume validation",
+		"rerun the identical candidate verification command with -Apply",
+		"do not retire the verification workspace until the verification proof has been written",
+	)
 	if _, err := os.Stat(preview.VerificationProofPath); !os.IsNotExist(err) {
 		t.Fatalf("candidate verification WhatIf wrote proof: %v", err)
 	}
@@ -638,17 +653,27 @@ func TestVerifyCandidateDecisionPreviewsAppliesAndReplays(t *testing.T) {
 	if !verified.IsMutation || !verified.Applied || !verified.Ready {
 		t.Fatalf("unexpected candidate verification apply: %+v", verified)
 	}
+	assertCandidateVerificationRunbookContains(t, verified.VerificationRunbookSteps,
+		"retain candidate verification proof",
+		"no retirement preview command is available",
+		"rerun /rekit status or release-check",
+	)
 	proofData, err := os.ReadFile(verified.VerificationProofPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var proof CandidateDecisionVerificationResult
-	if err := decodeStrictJSON(proofData, &proof); err != nil || proof.PacketHash != verified.PacketHash || proof.DecisionHash != verified.DecisionHash || !sameCandidateDecisionPath(proof.ReceiptPath, applied.ReceiptPath) || len(proof.VerifiedActions) != len(applied.Actions) {
+	if err := decodeStrictJSON(proofData, &proof); err != nil || proof.PacketHash != verified.PacketHash || proof.DecisionHash != verified.DecisionHash || !sameCandidateDecisionPath(proof.ReceiptPath, applied.ReceiptPath) || len(proof.VerifiedActions) != len(applied.Actions) || len(proof.VerificationRunbookSteps) != 0 {
 		t.Fatalf("candidate verification proof is not durably bound to receipt/actions: proof=%+v err=%v", proof, err)
 	}
-	if replay, err := VerifyCandidateDecision(repoRoot, sourceCase, pack, CandidateDecisionVerificationOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, FreshCaseRoot: freshCase, AttachedCaseRoot: attachedCase}); err != nil || !replay.Applied {
+	replay, err := VerifyCandidateDecision(repoRoot, sourceCase, pack, CandidateDecisionVerificationOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, FreshCaseRoot: freshCase, AttachedCaseRoot: attachedCase})
+	if err != nil || !replay.Applied {
 		t.Fatalf("candidate verification replay failed: result=%+v err=%v", replay, err)
 	}
+	assertCandidateVerificationRunbookContains(t, replay.VerificationRunbookSteps,
+		"retain candidate verification proof",
+		"no retirement preview command is available",
+	)
 	if err := os.WriteFile(verified.VerificationProofPath, []byte("{\"ready\":true}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
