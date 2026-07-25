@@ -118,6 +118,18 @@ func ReconcileApply(repoRoot, caseRoot, pack string, opt ReconcileOptions) (resu
 	if ctx.existingResolution != nil {
 		now = strings.TrimSpace(mission.Value(ctx.existingResolution, "time"))
 		resolutionID = mission.Value(ctx.existingResolution, "eventId")
+		if resolutionID == "" || now == "" {
+			return ReconcileResult{}, fmt.Errorf("existing reconcile resolution for %s is missing eventId or time; refusing replay", sourceID)
+		}
+		if existingExecutor := strings.TrimSpace(mission.Value(ctx.existingResolution, "executor")); existingExecutor != "" && !strings.EqualFold(existingExecutor, ctx.executor) {
+			return ReconcileResult{}, fmt.Errorf("existing reconcile resolution executor differs for %s; refusing replay", sourceID)
+		}
+		if existingActor := strings.TrimSpace(mission.Value(ctx.existingResolution, "actor")); existingActor != "" && existingActor != ctx.actor {
+			return ReconcileResult{}, fmt.Errorf("existing reconcile resolution actor differs for %s; refusing replay", sourceID)
+		}
+		if existingReason := strings.TrimSpace(mission.Value(ctx.existingResolution, "reason")); existingReason != "" && existingReason != ctx.reason {
+			return ReconcileResult{}, fmt.Errorf("existing reconcile resolution reason differs for %s; refusing replay", sourceID)
+		}
 		rel, path, err := mission.FactPath(ctx.inst.CaseRoot, "intervention")
 		if err != nil {
 			return ReconcileResult{}, err
@@ -156,18 +168,6 @@ func ReconcileApply(repoRoot, caseRoot, pack string, opt ReconcileOptions) (resu
 	previousExecutor := strings.TrimSpace(ctx.lane.CurrentExecutor)
 	generation := max(ctx.lane.ExecutorGeneration, 0)
 	if ctx.existingResolution != nil {
-		if resolutionID == "" || now == "" {
-			return ReconcileResult{}, fmt.Errorf("existing reconcile resolution for %s is missing eventId or time; refusing replay", sourceID)
-		}
-		if existingExecutor := strings.TrimSpace(mission.Value(ctx.existingResolution, "executor")); existingExecutor != "" && !strings.EqualFold(existingExecutor, ctx.executor) {
-			return ReconcileResult{}, fmt.Errorf("existing reconcile resolution executor differs for %s; refusing replay", sourceID)
-		}
-		if existingActor := strings.TrimSpace(mission.Value(ctx.existingResolution, "actor")); existingActor != "" && existingActor != ctx.actor {
-			return ReconcileResult{}, fmt.Errorf("existing reconcile resolution actor differs for %s; refusing replay", sourceID)
-		}
-		if existingReason := strings.TrimSpace(mission.Value(ctx.existingResolution, "reason")); existingReason != "" && existingReason != ctx.reason {
-			return ReconcileResult{}, fmt.Errorf("existing reconcile resolution reason differs for %s; refusing replay", sourceID)
-		}
 		if strings.TrimSpace(ctx.lane.CurrentExecutor) != "" && strings.EqualFold(ctx.lane.CurrentExecutor, ctx.executor) && ctx.lane.ExecutorGeneration > 0 {
 			generation = ctx.lane.ExecutorGeneration
 		} else if ctx.executor != "" && generation == 0 {

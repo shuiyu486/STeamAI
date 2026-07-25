@@ -5788,6 +5788,21 @@ func TestRunReconcileApplyReplaysExistingResolutionToRefreshDurableState(t *test
 	}
 }
 
+func TestRunReconcileApplyRejectsInvalidReplayBeforeWrites(t *testing.T) {
+	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	writeContinueFixture(t, caseRoot)
+	writeCaseFile(t, caseRoot, ".rekit/facts/interventions.jsonl", `{"eventId":"evt-human-stop","kind":"intervention","lane":"feature-login","subject":"human correction","summary":"user changed lane direction","action":"override","status":"open","target":"workspace/features/feature-login"}`+"\n"+`{"schemaVersion":1,"eventId":"evt-existing-resolution","kind":"intervention","lane":"feature-login","subject":"reconciled intervention: human correction","summary":"reconciled intervention: human correction","action":"reconcile","status":"resolved","resolvesEventId":"evt-human-stop","target":"workspace/features/feature-login","actor":"main-agent","executor":"session-other","reason":"accept user correction","time":"2026-01-02T03:04:05Z"}`+"\n")
+	before := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "reconcile", "-Target", caseRoot, "-Pack", "vmp-re", "-Apply", "login", "-InterventionId", "evt-human-stop", "-Executor", "session-2", "-Actor", "main-agent", "-Reason", "accept user correction"}, &out)
+	if err == nil || !strings.Contains(err.Error(), "existing reconcile resolution executor differs") {
+		t.Fatalf("reconcile invalid replay error = %v\n%s", err, out.String())
+	}
+	after := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	assertSnapshotEqual(t, before, after)
+}
+
 func TestRunContinueWhatIfDoesNotWrite(t *testing.T) {
 	caseRoot := attachedCaseWithPack(t, "vmp-re")
 	writeContinueFixture(t, caseRoot)
