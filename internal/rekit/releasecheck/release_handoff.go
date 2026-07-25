@@ -3694,6 +3694,34 @@ func latestBatchRemoteGreen(text, lower string) bool {
 func latestBatchCommitRefs(text string) []string {
 	refs := []string{}
 	seen := map[string]bool{}
+	for _, clause := range latestBatchEvidenceClauses(text) {
+		if !latestBatchCommitEvidenceClause(clause) {
+			continue
+		}
+		for _, token := range backtickTokens(clause) {
+			if looksLikeCommitRef(token) && !seen[token] {
+				seen[token] = true
+				refs = append(refs, token)
+			}
+		}
+	}
+	return refs
+}
+
+func latestBatchCommitEvidenceClause(clause string) bool {
+	lower := strings.ToLower(clause)
+	if strings.Contains(lower, "do not") || strings.Contains(lower, "不要") || strings.Contains(lower, "不为") {
+		return false
+	}
+	return strings.Contains(lower, "implementation commit") ||
+		strings.Contains(lower, "implementation commits") ||
+		strings.Contains(lower, "implementation commit/push recorded") ||
+		strings.Contains(clause, "已提交并推送") ||
+		strings.Contains(clause, "已推送")
+}
+
+func backtickTokens(text string) []string {
+	tokens := []string{}
 	for {
 		start := strings.Index(text, "`")
 		if start < 0 {
@@ -3704,33 +3732,26 @@ func latestBatchCommitRefs(text string) []string {
 		if end < 0 {
 			break
 		}
-		token := strings.TrimSpace(text[:end])
-		if looksLikeCommitRef(token) && !seen[token] {
-			seen[token] = true
-			refs = append(refs, token)
-		}
+		tokens = append(tokens, strings.TrimSpace(text[:end]))
 		text = text[end+1:]
 	}
-	return refs
+	return tokens
 }
 
 func looksLikeCommitRef(value string) bool {
 	if len(value) < 7 || len(value) > 40 {
 		return false
 	}
-	hasHexLetter := false
 	for _, r := range value {
 		switch {
 		case r >= '0' && r <= '9':
 		case r >= 'a' && r <= 'f':
-			hasHexLetter = true
 		case r >= 'A' && r <= 'F':
-			hasHexLetter = true
 		default:
 			return false
 		}
 	}
-	return hasHexLetter
+	return true
 }
 
 func latestBatchEvidence(text string) []string {

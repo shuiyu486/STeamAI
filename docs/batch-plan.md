@@ -16,6 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 605：release handoff multi-commit ref completeness closure
+
+状态：已完成 runtime/test/doc 工作树实现、focused release handoff commit-ref parser tests、真实 `status` / `release-check -Format json` commitRefs 复核、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `0428930` 已推送并进入 PR #11。PR run `30179936468` completed failure，Windows/macOS/Linux jobs `89734693035`/`89734693042`/`89734693051` 均 `steps=[]`、`runner_id=0` 且无 logs，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation PR run；不要为 release inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。
+
+目标：补齐 Batch 604 暴露出的 multi-implementation-commit handoff 断点：`status` / `release-check` 会把 latest-batch implementation commit refs 投影到 first-screen 和 JSON handoff，但旧 `looksLikeCommitRef` 为避免 remote run/job 数字误判，要求 token 必须包含 a-f 字母。合法 Git 短 SHA 可以全是数字，例如 Batch 604 的 `9887297`，导致 replacement executor 从 first-screen 只能看到 `eb3c238` / `44de375`，漏掉中间 implementation fix commit，release inspection 与 commit evidence chain 不完整。
+
+已实现内容：
+
+- `latestBatchCommitRefs` 改为只遍历 scoped `latestBatchEvidenceClauses` 中的 implementation commit/push evidence clause，再提取该 clause 内 backtick hex token；`looksLikeCommitRef` 允许 7-40 位 hex token（包括全数字短 SHA）。
+- 新增 `latestBatchCommitEvidenceClause` / `backtickTokens` helper，继续排除 `do not` / `不要` / `不为` policy/boundary clause，并避免从 remote run/job evidence clause 提取 run ID 或 job ID。
+- Releasecheck 回归 fixture 覆盖 `implementation commits `abc123d` / `9887297`` 与 remote run `123456789` 同句场景，断言全数字 short SHA 被保留、remote run ID 不进入 `commitRefs`。
+- 真实 product-path 复核：`status` 现在对 Batch 604 输出 `status latest batch commit：eb3c238`、`9887297`、`44de375`；`release-check -Format json` 的 `releaseHandoff.latestBatch.handoff.commitRefs` 同步返回三项。
+
+边界：本批只增强 release/status read-only latest-batch implementation commit evidence parsing 与 first-screen/JSON handoff completeness；不执行远程 CI，不改变 release inspection cadence，不修改 workflow，不创建或删除 PR/run，不写 authority/confirmed，不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/releasecheck -run "TestLatestBatchHandoffExtractsValidationEvidence|TestLatestBatchReleaseReadinessPrefersExplicitRemoteEvidenceOverStalePendingText|TestLatestBatchRemoteGateRecognizesEqualsEmptyStepsAndChineseNegativeGreen" -count=1` 已通过；package `go test ./internal/rekit/releasecheck -count=1` 已通过；真实 `status` 与 `release-check -Format json` commitRefs 复核已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。implementation commit/push 与远程 release-gate inspection 待最终执行。
+
 ### Batch 604：release readiness evidence-scope parser closure
 
 状态：已完成 runtime/test/doc 工作树实现、focused release readiness parser tests、受影响 package tests、完整本地 release minimum、implementation commit/push 与 final implementation remote release-gate inspection；implementation commits `eb3c238` / `9887297` / `44de375` 已推送并进入 PR #10。最终 PR run `30179376831` completed failure，Windows/Linux/macOS jobs `89733303757`/`89733303769`/`89733303806` 均 `steps=[]`、`runner_id=0` 且无 logs，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录最终 implementation PR run；不要为 release inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。
