@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 585：blocked continue reconcile handoff closure
 
-状态：已完成 runtime、CLI product-path coverage、入口文档更新与完整本地 release minimum；implementation commit/push 与 implementation remote release-gate inspection 待执行。本批延续 Batch 581–584 的 intervention handoff/reconcile 接手闭环：replacement executor 最常直接运行 `continue <lane>`，但当该 lane 因 effective open intervention fail-closed 时，blocked continue 结果过去只给 generic next step，仍需要切回 status/overview/handoff 才能拿到 concrete reconcile WhatIf→Apply handoff。
+状态：已完成 runtime、CLI product-path coverage、入口文档更新、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `e3e04a2` 已推送。implementation run `30150639182` completed failure，Windows/Linux/macOS jobs `89660325546`/`89660325548`/`89660325553` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。本批延续 Batch 581–584 的 intervention handoff/reconcile 接手闭环：replacement executor 最常直接运行 `continue <lane>`，但当该 lane 因 effective open intervention fail-closed 时，blocked continue 结果过去只给 generic next step，仍需要切回 status/overview/handoff 才能拿到 concrete reconcile WhatIf→Apply handoff。
 
 目标：让 blocked `continue -WhatIf/-Apply` 在遇到 effective open intervention 时保持 zero-write，同时直接返回结构化 `reconcileHandoffs[]`，并在 CLI text 输出 `continue reconcile handoff`、decision/continue boundary 与 evidence；若 lane 已有 current executor，handoff 中的 reconcile WhatIf/Apply 命令要保留 `-Executor <current>`，避免替换 executor 从 continue 入口恢复时丢失当前 lane executor identity。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：本批只增强 blocked `continue` 的 intervention handoff 输出；blocked `continue -WhatIf/-Apply` 仍 zero-write，不创建 run、不写 facts/lane/board/RESUME/checkpoint；`reconcile -WhatIf` 仍 read-only，`reconcile -Apply` 仍是显式 bounded write；不写 authority/confirmed、不执行 heavy tool、不新增 PowerShell runtime logic。
 
-验证结果：focused `go test ./internal/rekit/workstream ./internal/rekit/cli -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。remote inspection 待 implementation commit 推送后记录。
+验证结果：focused `go test ./internal/rekit/workstream ./internal/rekit/cli -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。remote inspection 已记录：implementation run `30150639182` completed failure，Windows/Linux/macOS jobs `89660325546`/`89660325548`/`89660325553` 均 `steps=[]`，未提供代码执行日志，按既有 runner/billing blocker 记录，不能声明 remote CI green。
 
 ### Batch 584：reconcile replay fail-closed preflight zero-write closure
 
