@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 579：reviewer prompt artifact deterministic repair closure
 
-状态：已完成 runtime、CLI、workstream intake projection、tests、docs 与完整本地 release minimum；implementation commit/push 与 implementation remote release-gate inspection 待执行。本批延续 Batch 577–578：`plan-subagents` 已生成 hash-bound `prompts/<shard>.prompt.md` prompt artifact，downstream `status` / `handoff` / `continue` 也会在 artifact missing / invalid / symlink / unverified / drift 时 fail-closed，但 replacement executor 仍缺少一个 Go-native、hash-gated、packet-derived 的恢复命令，只能手工 restore/regenerate，容易误覆盖 drifted prompt 或重新调度 stale reviewer 输入。
+状态：已完成 runtime、CLI、workstream intake projection、tests、docs、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `bbbf219` 已推送。implementation run `30141869464` completed failure，Linux/macOS/Windows jobs `89636549004`/`89636549030`/`89636549032` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。本批延续 Batch 577–578：`plan-subagents` 已生成 hash-bound `prompts/<shard>.prompt.md` prompt artifact，downstream `status` / `handoff` / `continue` 也会在 artifact missing / invalid / symlink / unverified / drift 时 fail-closed，但 replacement executor 仍缺少一个 Go-native、hash-gated、packet-derived 的恢复命令，只能手工 restore/regenerate，容易误覆盖 drifted prompt 或重新调度 stale reviewer 输入。
 
 目标：让 blocked prompt artifact handoff 提供 deterministic repair path：主 Agent 先运行 `plan-subagents -RepairReviewerPromptArtifact -PacketPath ... -ShardId ... -WhatIf` 复核 canonical packet 派生的 prompt bytes/path/hash，再用返回的 `-ExpectedPromptSha256 ... -Apply` 只恢复 missing `prompts/<shard>.prompt.md` 或 exact replay；已有 drifted / empty / symlink / directory / non-regular / different artifact 必须 fail-closed 且不覆盖。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：本批只做 packet-derived prompt artifact repair preview/hash-gated restore；不修补 packet、不覆盖 drifted artifact、不 spawn/stop/poll/monitor reviewer、不创建 reviewer result、不执行 staging/collection/intake Apply、不写 verification/decision/authority/confirmed、不执行 heavy tool、不新增 PowerShell runtime logic。
 
-验证结果：focused `go test ./internal/rekit/subagents ./internal/rekit/workstream ./internal/rekit/cli -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过。remote release-gate inspection 待执行，当前不能声明 remote CI green。
+验证结果：focused `go test ./internal/rekit/subagents ./internal/rekit/workstream ./internal/rekit/cli -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过。remote inspection 已记录：implementation run `30141869464` completed failure，Linux/macOS/Windows jobs `89636549004`/`89636549030`/`89636549032` 均 `steps=[]`，未提供代码执行日志，按既有 runner/billing blocker 记录，不能声明 remote CI green。
 
 ### Batch 578：reviewer prompt artifact currentness handoff closure
 
