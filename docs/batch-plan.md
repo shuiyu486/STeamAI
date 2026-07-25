@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 605：release handoff multi-commit ref completeness closure
 
-状态：进行中；已完成 runtime/test/doc 工作树实现、focused release handoff commit-ref parser tests、真实 `status` / `release-check -Format json` commitRefs 复核与完整本地 release minimum；implementation commit/push 与远程 release-gate inspection 待最终执行。本批 implementation commit/push 前，若 release/status 读取当前段落，不得把后续 release cadence 或 known blocker 文案当作已完成远程 inspection evidence。
+状态：已完成 runtime/test/doc 工作树实现、focused release handoff commit-ref parser tests、真实 `status` / `release-check -Format json` commitRefs 复核、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `0428930` 已推送并进入 PR #11。PR run `30179936468` completed failure，Windows/macOS/Linux jobs `89734693035`/`89734693042`/`89734693051` 均 `steps=[]`、`runner_id=0` 且无 logs，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation PR run；不要为 release inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。
 
 目标：补齐 Batch 604 暴露出的 multi-implementation-commit handoff 断点：`status` / `release-check` 会把 latest-batch implementation commit refs 投影到 first-screen 和 JSON handoff，但旧 `looksLikeCommitRef` 为避免 remote run/job 数字误判，要求 token 必须包含 a-f 字母。合法 Git 短 SHA 可以全是数字，例如 Batch 604 的 `9887297`，导致 replacement executor 从 first-screen 只能看到 `eb3c238` / `44de375`，漏掉中间 implementation fix commit，release inspection 与 commit evidence chain 不完整。
 
