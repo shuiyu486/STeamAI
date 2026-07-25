@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 597：Mission Commander first-screen current action strip
 
-状态：已完成 runtime/test/doc 工作树实现与本地验证；implementation commit/push 与 implementation remote release-gate inspection 待执行。远程 GitHub Actions 若仍为 `steps=[]` runner/billing blocker，只记录为 known gap，不能声明 remote CI green。
+状态：已完成 runtime/test/doc 工作树实现、focused tests、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `bb90da2` 已推送。implementation run `30169713088` completed failure，macOS/Windows/Linux jobs `89708686973`/`89708686980`/`89708687021` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。
 
 目标：补齐 Batch 596 后仍存在的新会话接手 first-screen 断点：case-local 无参数 `/rekit` 默认仍走 table/legacy status 输出，虽然内部已有 queue-aware case current action 与 pack-memory action queue，但用户/替换 executor 必须在 case shim、case mission、project handoff、pack-memory 等大量行中手工寻找真正下一步。默认第一屏应在最靠前位置给出一个 compact Mission Commander strip：同时显示 case current action、pack-memory current action、焦点来源与 counts；当 reviewer/adapter/evidence 等 case current action 需要复核时优先聚焦 case，当 case ready 但 pack-memory 仍有 open residue 时聚焦 pack-memory bounded proof/review/cleanup/reconsume action。
 
