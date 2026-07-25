@@ -94,7 +94,7 @@ claude
 排障或新会话接手时再用：
 
 ```text
-/rekit          # 无子命令时默认只读 status，先确认 kit/case 绑定
+/rekit          # 无子命令时默认只读 status，先确认 kit/case 绑定，并按 Mission Commander queue/current action 接手
 /rekit doctor
 ```
 

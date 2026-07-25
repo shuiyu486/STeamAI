@@ -53,7 +53,7 @@ disable-model-invocation: true
 
 | 用户意图 | 行为 |
 |---|---|
-| `/rekit` / `/rekit status` | 无子命令时默认只读 status；attached case 未显式传`-Pack`时使用metadata `templatePack`。第一屏显示pack来源与mismatch诊断、kit/case绑定和shim readiness；moved metadata、shim drift/missing等只给status recheck或`repair -WhatIf` bounded next step，不自动修复。case模式汇总pending/authorized gate、open decision/intervention、execution evidence review及其review/record/reconcile handoff；terminal `note -Kind decision -Related <candidateEventId>` 会关闭对应 open candidate blocker；kit模式显示latest-batch本地验证与remote gate真实性边界。`-Format json`保留机器可读status envelope、case handoff、evidence review、shim与project handoff。 |
+| `/rekit` / `/rekit status` | 无子命令时默认只读 status；attached case 未显式传`-Pack`时使用metadata `templatePack`。第一屏显示pack来源与mismatch诊断、kit/case绑定和shim readiness；moved metadata、shim drift/missing等只给status recheck或`repair -WhatIf` bounded next step，不自动修复。case模式汇总Mission Commander queue/current action、pending/authorized gate、open decision/intervention、execution evidence review及其review/record/reconcile handoff；active reviewer/evidence/adapter review blocker 会优先于普通 handoff/continue follow-up，terminal `note -Kind decision -Related <candidateEventId>` 会关闭对应 open candidate blocker；kit模式显示latest-batch本地验证与remote gate真实性边界。`-Format json`保留机器可读status envelope、case handoff、evidence review、shim与project handoff。 |
 | `/rekit packs` | 维护者只读查看当前 kit 内 pack 矩阵：成熟度、schema、route、managed/tooling 和 authority lane 概览；`-Format json` 输出机器可读 inventory。 |
 | `/rekit attach` | 将已有 case 绑定到当前 template root 和 pack。 |
 | `/rekit repair` | 预览迁移后的 metadata 修复；用户确认后才写入。 |
