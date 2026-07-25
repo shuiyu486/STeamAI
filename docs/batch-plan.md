@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 592：pack-memory final verification retirement handoff closure
 
-状态：已完成 runtime 派生字段、CLI text 输出、入口文档更新与 focused tests；完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection 待执行。
+状态：已完成 runtime 派生字段、CLI text 输出、入口文档更新、focused tests、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `f1af394` 已推送。implementation run `30157616192` completed failure，Linux/Windows/macOS jobs `89677919166`/`89677919192`/`89677919199` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。
 
 目标：补齐 pack-memory accepted candidate final verification 后的 operational closure：`VerifyCandidateDecision` 已能写 repo-local verification proof，并在 canonical provisioning workspace 可绑定时返回 `retirementPreviewCommand`，但 Mission Commander / replacement executor 仍要从 proof path、provision intent/receipt、retirement preview command 与 `NextSteps` 手工拼接 proof→retirement→status/release-check 的下一步顺序。`CandidateDecisionVerificationResult` 应直接提供返回 envelope 级 `verificationRunbookSteps[]`，覆盖 verification WhatIf、Apply/replay、canonical retirement handoff 与无 retirement command 的 fallback。
 
