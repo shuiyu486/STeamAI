@@ -120,6 +120,7 @@ type Observability struct {
 	RouteDebug       RouteDebug    `json:"routeDebug"`
 	ReviewRoot       string        `json:"reviewRoot"`
 	ResultRoot       string        `json:"resultRoot"`
+	PromptRoot       string        `json:"promptRoot,omitempty"`
 	PacketPath       string        `json:"packetPath"`
 	SummaryPath      string        `json:"summaryPath"`
 	CombinedDiffPath string        `json:"combinedDiffPath"`
@@ -214,6 +215,8 @@ type ReviewerOrchestrationDispatchSummary struct {
 	ShardID            string `json:"shardId"`
 	Status             string `json:"status"`
 	ReviewerResultPath string `json:"reviewerResultPath,omitempty"`
+	PromptPath         string `json:"promptPath,omitempty"`
+	PromptSHA256       string `json:"promptSha256,omitempty"`
 	DispatchCommand    string `json:"dispatchCommand,omitempty"`
 	PreviewCommand     string `json:"previewCommand,omitempty"`
 	ApplyCommand       string `json:"applyCommand,omitempty"`
@@ -232,6 +235,8 @@ type ReviewerAgentToolRequest struct {
 	AgentType      string `json:"agentType"`
 	ReadOnly       bool   `json:"readOnly"`
 	Prompt         string `json:"prompt"`
+	PromptPath     string `json:"promptPath,omitempty"`
+	PromptSHA256   string `json:"promptSha256,omitempty"`
 	ExpectedOutput string `json:"expectedOutput"`
 }
 
@@ -253,6 +258,8 @@ type ReviewerDispatch struct {
 	Status                      string                            `json:"status"`
 	Items                       []string                          `json:"items"`
 	DispatchPrompt              string                            `json:"dispatchPrompt"`
+	DispatchPromptPath          string                            `json:"dispatchPromptPath,omitempty"`
+	DispatchPromptSHA256        string                            `json:"dispatchPromptSha256,omitempty"`
 	AgentToolRequest            *ReviewerAgentToolRequest         `json:"agentToolRequest,omitempty"`
 	ReviewerResultPath          string                            `json:"reviewerResultPath"`
 	ReviewerResultCandidatePath string                            `json:"reviewerResultCandidatePath,omitempty"`
@@ -311,6 +318,8 @@ type ShardHandoff struct {
 	ReviewerResultCandidatePath string                            `json:"reviewerResultCandidatePath,omitempty"`
 	OwnerBinding                OwnerBinding                      `json:"ownerBinding"`
 	DispatchPrompt              string                            `json:"dispatchPrompt"`
+	DispatchPromptPath          string                            `json:"dispatchPromptPath,omitempty"`
+	DispatchPromptSHA256        string                            `json:"dispatchPromptSha256,omitempty"`
 	AgentToolRequest            *ReviewerAgentToolRequest         `json:"agentToolRequest,omitempty"`
 	ReviewerStagingCommands     *ReviewerResultStagingCommands    `json:"reviewerStagingCommands,omitempty"`
 	ReviewerCollectionCommands  *ReviewerResultCollectionCommands `json:"reviewerCollectionCommands,omitempty"`
@@ -381,6 +390,7 @@ type artifactPaths struct {
 	DiffRoot         string
 	PreviewRoot      string
 	ResultRoot       string
+	PromptRoot       string
 	PacketPath       string
 	SummaryPath      string
 	CombinedDiffPath string
@@ -455,6 +465,9 @@ func WritePlan(repoRoot, target, pack string, opt Options) (Result, error) {
 	}
 	targetLane := ownerBinding.TargetLane
 	shardHandoffs := newShardHandoffs(shards, route, observability, reviewLoop, planRoot, m.Pack, ownerBinding, caseTarget, collectionAvailable)
+	if err := writeReviewerPromptArtifacts(paths.PromptRoot, shardHandoffs); err != nil {
+		return Result{}, err
+	}
 	orchestration := newReviewerOrchestration(planRoot, m.Pack, shardHandoffs, observability, reviewLoop, ownerBinding, maxParallel, caseTarget, collectionAvailable)
 	commanderAction := reviewerPlanMissionCommanderAction(planRoot, m.Pack, orchestration, caseTarget)
 	commanderNextActions := reviewerPlanMissionCommanderNextActions(planRoot, m.Pack, orchestration, commanderAction, caseTarget)
@@ -759,16 +772,16 @@ func newShardHandoffs(shards []Shard, route Route, observability Observability, 
 		var stagingCommands *ReviewerResultStagingCommands
 		var collectionCommands *ReviewerResultCollectionCommands
 		reviewerResultCandidatePath := ""
-		nextAction := "launch a read-only reviewer with agentToolRequest.prompt, inspect its JSON against reviewerResultContract, save the single JSON object directly at reviewerResultPath, then use reviewerIntakeCommands or packet-level batch intake WhatIf before Apply"
+		nextAction := "launch a read-only reviewer with agentToolRequest.promptPath, verify promptSha256, inspect its JSON against reviewerResultContract, save the single JSON object directly at reviewerResultPath, then use reviewerIntakeCommands or packet-level batch intake WhatIf before Apply"
 		if collectionAvailable {
 			staging := reviewerResultStagingCommands(observability.PacketPath, shard.ID, targetLane, sourcePath)
 			stagingCommands = &staging
 			commands := reviewerResultCollectionCommands(observability.PacketPath, shard.ID, targetLane, candidatePath)
 			collectionCommands = &commands
 			reviewerResultCandidatePath = candidatePath
-			nextAction = "launch a read-only reviewer with agentToolRequest.prompt, inspect its JSON against reviewerResultContract, save the single JSON object to reviewerStagingCommands.sourcePath, run reviewerStagingCommands.previewCommand then its expected-hash Apply command, run reviewerCollectionCommands.previewCommand then applyCommand, then use packet-level batch intake WhatIf before Apply; direct plan-subagents -ReviewerResultPath intake remains available for legacy packets"
+			nextAction = "launch a read-only reviewer with agentToolRequest.promptPath, verify promptSha256, inspect its JSON against reviewerResultContract, save the single JSON object to reviewerStagingCommands.sourcePath, run reviewerStagingCommands.previewCommand then its expected-hash Apply command, run reviewerCollectionCommands.previewCommand then applyCommand, then use packet-level batch intake WhatIf before Apply; direct plan-subagents -ReviewerResultPath intake remains available for legacy packets"
 		} else if !intakeAvailable {
-			nextAction = "launch a read-only reviewer with agentToolRequest.prompt, inspect its JSON against reviewerResultContract, and retain the single JSON object; attach or init the target as a rekit case and regenerate a canonical case-local packet before reviewerCollectionCommands or reviewerIntakeCommands become runnable"
+			nextAction = "launch a read-only reviewer with agentToolRequest.promptPath, verify promptSha256, inspect its JSON against reviewerResultContract, and retain the single JSON object; attach or init the target as a rekit case and regenerate a canonical case-local packet before reviewerCollectionCommands or reviewerIntakeCommands become runnable"
 		}
 		dispatchPrompt := shardDispatchPrompt(shard, route, readOnlyBoundary, reviewLoop, ownerBinding, resultPath, collectionAvailable, intakeAvailable)
 		handoffs = append(handoffs, ShardHandoff{
@@ -804,6 +817,35 @@ func newShardHandoffs(shards []Shard, route Route, observability Observability, 
 		})
 	}
 	return handoffs
+}
+
+func writeReviewerPromptArtifacts(promptRoot string, handoffs []ShardHandoff) error {
+	promptRoot = strings.TrimSpace(promptRoot)
+	if len(handoffs) == 0 {
+		return nil
+	}
+	if promptRoot == "" {
+		return fmt.Errorf("reviewer prompt root is required when shard handoffs are planned")
+	}
+	for idx := range handoffs {
+		shardID := strings.TrimSpace(handoffs[idx].ShardID)
+		if shardID == "" || strings.ContainsAny(shardID, "/\\") {
+			return fmt.Errorf("reviewer prompt artifact shard id is not path-safe: %q", handoffs[idx].ShardID)
+		}
+		promptPath := filepath.Join(promptRoot, shardID+".prompt.md")
+		promptBytes := []byte(strings.TrimRight(handoffs[idx].DispatchPrompt, "\r\n") + "\n")
+		if err := os.WriteFile(promptPath, promptBytes, 0o644); err != nil {
+			return err
+		}
+		promptSHA256 := sha256Hex(promptBytes)
+		handoffs[idx].DispatchPromptPath = promptPath
+		handoffs[idx].DispatchPromptSHA256 = promptSHA256
+		if handoffs[idx].AgentToolRequest != nil {
+			handoffs[idx].AgentToolRequest.PromptPath = promptPath
+			handoffs[idx].AgentToolRequest.PromptSHA256 = promptSHA256
+		}
+	}
+	return nil
 }
 
 func reviewerResultContract() ReviewerResultContract {
@@ -1115,6 +1157,8 @@ func newReviewerOrchestration(planRoot, pack string, handoffs []ShardHandoff, ob
 			Status:                      handoff.Status,
 			Items:                       append([]string{}, handoff.Items...),
 			DispatchPrompt:              handoff.DispatchPrompt,
+			DispatchPromptPath:          handoff.DispatchPromptPath,
+			DispatchPromptSHA256:        handoff.DispatchPromptSHA256,
 			AgentToolRequest:            handoff.AgentToolRequest,
 			ReviewerResultPath:          handoff.ReviewerResultPath,
 			ReviewerResultCandidatePath: handoff.ReviewerResultCandidatePath,
@@ -1201,7 +1245,7 @@ func reviewerPlanMissionCommanderNextActions(planRoot, pack string, orchestratio
 			RequiresReview: true,
 			Reasons: []string{
 				"plan-subagents only wrote review artifacts; main agent owns reviewer spawn and merge",
-				"send reviewerOrchestration.dispatches[].dispatchPrompt to a read-only reviewer and collect one JSON result",
+				"send reviewerOrchestration.dispatches[].dispatchPromptPath to a read-only reviewer, verify promptSha256, and collect one JSON result",
 			},
 			Boundary: boundary,
 		})
@@ -1299,6 +1343,8 @@ func reviewerOrchestrationSummary(orchestration ReviewerOrchestrationPlan) Revie
 			ShardID:            dispatch.ShardID,
 			Status:             dispatch.Status,
 			ReviewerResultPath: dispatch.ReviewerResultPath,
+			PromptPath:         dispatch.DispatchPromptPath,
+			PromptSHA256:       dispatch.DispatchPromptSHA256,
 			DispatchCommand:    reviewerPlanDispatchCommand(orchestration, idx),
 			PreviewCommand:     dispatch.PreviewCommand,
 			ApplyCommand:       dispatch.ApplyCommand,
@@ -1364,13 +1410,38 @@ func reviewerPlanDispatchCommand(orchestration ReviewerOrchestrationPlan, idx in
 		return ""
 	}
 	dispatch := orchestration.Dispatches[idx]
+	promptRef := reviewerPlanPromptArtifactRef(dispatch, idx)
 	if orchestration.Summary.DispatchOnly || strings.EqualFold(orchestration.Mode, "dispatch-only-unattached-target") {
-		return "dispatch read-only reviewer for " + dispatch.ShardID + " using reviewerOrchestration.dispatches[" + strconv.Itoa(idx) + "].dispatchPrompt; retain the returned JSON until a canonical case-local packet is regenerated"
+		return "dispatch read-only reviewer for " + dispatch.ShardID + " using " + promptRef + "; retain the returned JSON until a canonical case-local packet is regenerated"
 	}
 	if dispatch.StagingCommands != nil {
-		return "dispatch read-only reviewer for " + dispatch.ShardID + " using reviewerOrchestration.dispatches[" + strconv.Itoa(idx) + "].dispatchPrompt; save the returned JSON to " + quoteCommandArg(dispatch.StagingCommands.SourcePath) + ", then run " + dispatch.StagingCommands.PreviewCommand
+		return "dispatch read-only reviewer for " + dispatch.ShardID + " using " + promptRef + "; save the returned JSON to " + quoteCommandArg(dispatch.StagingCommands.SourcePath) + ", then run " + dispatch.StagingCommands.PreviewCommand
 	}
-	return "dispatch read-only reviewer for " + dispatch.ShardID + " using reviewerOrchestration.dispatches[" + strconv.Itoa(idx) + "].dispatchPrompt; collect JSON at " + quoteCommandArg(dispatch.ReviewerResultPath)
+	return "dispatch read-only reviewer for " + dispatch.ShardID + " using " + promptRef + "; collect JSON at " + quoteCommandArg(dispatch.ReviewerResultPath)
+}
+
+func reviewerPlanPromptArtifactRef(dispatch ReviewerDispatch, idx int) string {
+	promptPath := strings.TrimSpace(dispatch.DispatchPromptPath)
+	promptSHA256 := strings.TrimSpace(dispatch.DispatchPromptSHA256)
+	if dispatch.AgentToolRequest != nil {
+		if promptPath == "" {
+			promptPath = strings.TrimSpace(dispatch.AgentToolRequest.PromptPath)
+		}
+		if promptSHA256 == "" {
+			promptSHA256 = strings.TrimSpace(dispatch.AgentToolRequest.PromptSHA256)
+		}
+	}
+	if promptPath != "" {
+		ref := "prompt artifact " + quoteCommandArg(promptPath)
+		if promptSHA256 != "" {
+			ref += " (sha256=" + promptSHA256 + ")"
+		}
+		return ref
+	}
+	if promptSHA256 != "" {
+		return "reviewerOrchestration.dispatches[" + strconv.Itoa(idx) + "].dispatchPromptPath (sha256=" + promptSHA256 + ")"
+	}
+	return "reviewerOrchestration.dispatches[" + strconv.Itoa(idx) + "].dispatchPromptPath"
 }
 
 func reviewerPlanCommanderBoundary(intakeAvailable bool) []string {
@@ -1402,9 +1473,9 @@ func reviewerOrchestrationLifecycle(intakeAvailable, collectionAvailable bool) [
 		{
 			Step:          "dispatch-reviewers",
 			Owner:         "main-agent",
-			Action:        "launch bounded read-only reviewers from reviewerOrchestration.dispatches[]; runtime records the plan but does not spawn, stop, monitor, or manage reviewer sessions",
-			Inputs:        []string{"reviewerOrchestration.dispatches[].dispatchPrompt", "ownerBinding", "packetPath"},
-			MustPass:      []string{"one reviewerSession is assigned per reviewer result", "reviewers receive only read-only boundary and shard items", "no reviewer writes files or ledgers"},
+			Action:        "launch bounded read-only reviewers from reviewerOrchestration.dispatches[].dispatchPromptPath after verifying promptSha256; runtime records the plan but does not spawn, stop, monitor, or manage reviewer sessions",
+			Inputs:        []string{"reviewerOrchestration.dispatches[].dispatchPromptPath", "reviewerOrchestration.dispatches[].dispatchPromptSha256", "ownerBinding", "packetPath"},
+			MustPass:      []string{"one reviewerSession is assigned per reviewer result", "reviewers receive only the hashed prompt artifact, read-only boundary, and shard items", "no reviewer writes files or ledgers"},
 			NextOnSuccess: "collect-results",
 			NextOnFailure: "retry-or-split-failed-shards",
 		},
@@ -1456,7 +1527,7 @@ func reviewerOrchestrationLifecycle(intakeAvailable, collectionAvailable bool) [
 	}
 	if !intakeAvailable {
 		steps[1].Action = "retain each reviewer JSON object externally and regenerate a canonical case-local packet after attach or init"
-		steps[1].Inputs = []string{"reviewerResultContract", "reviewerOrchestration.dispatches[].agentToolRequest"}
+		steps[1].Inputs = []string{"reviewerResultContract", "reviewerOrchestration.dispatches[].agentToolRequest.promptPath", "reviewerOrchestration.dispatches[].agentToolRequest.promptSha256"}
 		steps[1].MustPass = []string{"each result is a single JSON object", "do not present collection or intake commands as runnable", "regenerate the packet after attachment before writeback"}
 		steps[2].Action = "defer reviewer-intake until the target is attached or initialized as a rekit case"
 		steps[2].MustPass = []string{"previewCommand is n/a for dispatch-only out-of-case review artifacts", "do not expect readyForWriteback or postValidation until the target is an attached rekit case"}
@@ -1626,6 +1697,7 @@ func newObservability(route Route, opt Options, paths artifactPaths, shards []Sh
 		},
 		ReviewRoot:       paths.Root,
 		ResultRoot:       paths.ResultRoot,
+		PromptRoot:       paths.PromptRoot,
 		PacketPath:       paths.PacketPath,
 		SummaryPath:      paths.SummaryPath,
 		CombinedDiffPath: paths.CombinedDiffPath,
@@ -1728,7 +1800,7 @@ func makeArtifactPaths(planRoot string, opt Options) (artifactPaths, error) {
 			return artifactPaths{}, err
 		}
 	}
-	return artifactPaths{Root: root, DiffRoot: diffRoot, PreviewRoot: filepath.Join(root, "previews"), ResultRoot: filepath.Join(root, "results"), PacketPath: packet, SummaryPath: filepath.Join(root, "summary.md"), CombinedDiffPath: combined}, nil
+	return artifactPaths{Root: root, DiffRoot: diffRoot, PreviewRoot: filepath.Join(root, "previews"), ResultRoot: filepath.Join(root, "results"), PromptRoot: filepath.Join(root, "prompts"), PacketPath: packet, SummaryPath: filepath.Join(root, "summary.md"), CombinedDiffPath: combined}, nil
 }
 
 func requirePathUnder(root, path, label string) error {
@@ -1750,7 +1822,7 @@ func requirePathUnder(root, path, label string) error {
 }
 
 func prepareArtifactDirs(paths artifactPaths) error {
-	for _, dir := range []string{paths.Root, paths.DiffRoot, paths.PreviewRoot, paths.ResultRoot, filepath.Join(paths.ResultRoot, "sources"), filepath.Join(paths.ResultRoot, "candidates"), filepath.Dir(paths.PacketPath), filepath.Dir(paths.CombinedDiffPath)} {
+	for _, dir := range []string{paths.Root, paths.DiffRoot, paths.PreviewRoot, paths.ResultRoot, paths.PromptRoot, filepath.Join(paths.ResultRoot, "sources"), filepath.Join(paths.ResultRoot, "candidates"), filepath.Dir(paths.PacketPath), filepath.Dir(paths.CombinedDiffPath)} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
@@ -1787,6 +1859,7 @@ func summaryText(packetID string, route Route, taskType string, itemCount, shard
 		"- route selected by: `" + observability.RouteDebug.SelectedBy + "`",
 		"- review root: `" + observability.ReviewRoot + "`",
 		"- reviewer result root: `" + observability.ResultRoot + "`",
+		"- reviewer prompt root: `" + observability.PromptRoot + "`",
 		"- packet: `" + observability.PacketPath + "`",
 		"- combined diff: `" + observability.CombinedDiffPath + "`",
 		"- spawn owner: `" + reviewLoop.SpawnOwner + "`",
@@ -1836,7 +1909,7 @@ func summaryText(packetID string, route Route, taskType string, itemCount, shard
 	}
 	if summary.FirstDispatch != nil {
 		dispatch := *summary.FirstDispatch
-		lines = append(lines, fmt.Sprintf("- reviewer orchestration summary first dispatch: shard=`%s`; status=`%s`; result=`%s`; dispatch=`%s`; preview=`%s`; apply=`%s`", dispatch.ShardID, dispatch.Status, dispatch.ReviewerResultPath, dispatch.DispatchCommand, dispatch.PreviewCommand, dispatch.ApplyCommand))
+		lines = append(lines, fmt.Sprintf("- reviewer orchestration summary first dispatch: shard=`%s`; status=`%s`; result=`%s`; prompt=`%s`; promptSha256=`%s`; dispatch=`%s`; preview=`%s`; apply=`%s`", dispatch.ShardID, dispatch.Status, dispatch.ReviewerResultPath, dispatch.PromptPath, dispatch.PromptSHA256, dispatch.DispatchCommand, dispatch.PreviewCommand, dispatch.ApplyCommand))
 	}
 	if summary.CurrentAction != nil {
 		item := *summary.CurrentAction
@@ -1876,7 +1949,7 @@ func summaryText(packetID string, route Route, taskType string, itemCount, shard
 		lines = append(lines, fmt.Sprintf("- orchestration-step: `%s`; owner=`%s`; action=`%s`; inputs=`%s`; must-pass=`%s`; next-success=`%s`; next-failure=`%s`", step.Step, step.Owner, step.Action, strings.Join(step.Inputs, ","), strings.Join(step.MustPass, "; "), step.NextOnSuccess, step.NextOnFailure))
 	}
 	for _, dispatch := range orchestration.Dispatches {
-		lines = append(lines, fmt.Sprintf("- reviewer-dispatch: `%s`; role=`%s`; status=`%s`; result=`%s`; preview=`%s`; apply=`%s`", dispatch.ShardID, dispatch.ReviewerRole, dispatch.Status, dispatch.ReviewerResultPath, dispatch.PreviewCommand, dispatch.ApplyCommand))
+		lines = append(lines, fmt.Sprintf("- reviewer-dispatch: `%s`; role=`%s`; status=`%s`; prompt=`%s`; promptSha256=`%s`; result=`%s`; preview=`%s`; apply=`%s`", dispatch.ShardID, dispatch.ReviewerRole, dispatch.Status, dispatch.DispatchPromptPath, dispatch.DispatchPromptSHA256, dispatch.ReviewerResultPath, dispatch.PreviewCommand, dispatch.ApplyCommand))
 	}
 	lines = append(lines,
 		"",
@@ -1887,7 +1960,7 @@ func summaryText(packetID string, route Route, taskType string, itemCount, shard
 		lines = append(lines, "- no shard handoffs planned")
 	} else {
 		for _, handoff := range shardHandoffs {
-			lines = append(lines, fmt.Sprintf("- %s: `%s`; expected output=`%s`; main-agent result path=`%s`", handoff.ShardID, handoff.DispatchPrompt, handoff.ExpectedOutput, handoff.ReviewerResultPath))
+			lines = append(lines, fmt.Sprintf("- %s: prompt=`%s`; promptSha256=`%s`; expected output=`%s`; main-agent result path=`%s`", handoff.ShardID, handoff.DispatchPromptPath, handoff.DispatchPromptSHA256, handoff.ExpectedOutput, handoff.ReviewerResultPath))
 			if handoff.ReviewerStagingCommands != nil {
 				lines = append(lines, "  - reviewer result source path: `"+handoff.ReviewerStagingCommands.SourcePath+"`")
 				lines = append(lines, "  - reviewer staging preview: `"+handoff.ReviewerStagingCommands.PreviewCommand+"`")

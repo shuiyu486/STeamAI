@@ -16,6 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 577：reviewer dispatch prompt artifact closure
+
+状态：已完成 runtime、CLI、workstream intake projection、tests、docs 与完整本地 release minimum；implementation commit/push 与 implementation remote release-gate inspection 待执行。本批延续 Batch 514、523–525、541、549、562 与 567：reviewer orchestration 已能生成 multi-shard dispatch/intake/collection handoff，但 replacement executor 仍需要从 nested JSON 中手工复制 `dispatchPrompt` 或 `agentToolRequest.prompt` 长文本，容易漏掉 owner binding、route output contract、result/staging path、no-heavy/no-authority boundary 与只读 reviewer 约束。
+
+目标：让 `plan-subagents` 为每个 reviewer shard 生成 durable prompt artifact，并把 `promptPath` / `promptSha256` 投影到 planning packet、reviewer orchestration summary、shard handoff、status/handoff/continue reviewer dispatch intake 与 CLI text first-screen；replacement executor 只需读取 hash-bound prompt artifact 调度 read-only reviewer，而不再从 nested JSON 手工复制长 prompt。
+
+已实现内容：
+
+- `plan-subagents` 在 review root 下新增 `prompts/<shard>.prompt.md` artifact root；每个 shard 的 dispatch prompt 会以确定性 newline-normalized bytes 写入 prompt artifact，并计算 SHA-256。
+- `ShardHandoff`、`ReviewerDispatch`、`ReviewerAgentToolRequest` 与 `ReviewerOrchestrationSummary.dispatches[]` 现在同步携带 `dispatchPromptPath` / `dispatchPromptSha256` 或 `promptPath` / `promptSha256`；dispatch command 优先显示 `prompt artifact "<path>" (sha256=<hash>)`。
+- reviewer lifecycle、Mission Commander next actions、summary.md、terminal text、case `status` / `handoff` / `continue` reviewer dispatch intake handoff 均投影 prompt artifact path/hash，并提示先验证 hash 再把 artifact 内容交给 read-only reviewer。
+- CLI/package coverage 覆盖 prompt artifact 写入、path/hash 传播、artifact content/hash 校验、first dispatch summary text、shard handoff text 与 downstream reviewer dispatch intake prompt artifact visibility。
+
+边界：本批只生成和投影 reviewer prompt artifact；不 spawn、stop、poll 或 monitor reviewer，不创建 reviewer result，不执行 staging/collection/intake Apply，不写 verification/decision/authority/confirmed，不执行 heavy tool，不新增 PowerShell runtime logic。旧 raw `dispatchPrompt` 字段仍保留用于兼容既有 JSON 消费者，但 product-path handoff 优先使用 hash-bound prompt artifact。
+
+验证结果：focused `go test ./internal/rekit/subagents ./internal/rekit/workstream ./internal/rekit/cli -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过。remote release-gate inspection 待执行，当前不能声明 remote CI green。
+
 ### Batch 576：case-local pack-memory next-missing proof binding closure
 
 状态：已完成 runtime、CLI、release/status handoff、tests/docs、本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `f237cf3` 已推送。implementation run `30136214782` completed failure，Windows/Linux/macOS jobs `89620488573`/`89620488596`/`89620488627` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。本批延续 Batch 565 与 Batch 570–575：case-mode `status` 已能从 attached case 的 `.rekit/reviews/**/packet.json` 绑定 `DecisionDraftHandoff`，但 nested `packMemoryCandidates.reviewSummary.proofSummary.nextMissingProof` 仍保留 `<packet.json>` / `<review-evidence-ref>` placeholder，replacement executor 在第一屏看到 decision draft handoff 后，还要手工回找 packet 与 evidence refs 才能接续 proof draft。

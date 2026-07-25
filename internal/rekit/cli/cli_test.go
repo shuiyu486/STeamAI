@@ -7111,7 +7111,7 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 		"plan-subagents reviewer orchestration summary boundary：planning summary is read-only; full reviewerOrchestration dispatches, lifecycle, action queue, and shard handoffs remain available",
 		"plan-subagents reviewer orchestration scope：scope=dispatch read-only reviewers, save each JSON to reviewerStagingCommands.sourcePath, publish a validated packet-derived candidate with staging preview/expected-hash apply, publish immutable canonical results with collection preview/apply, then run packet-level ready-result batch intake preview/apply packet=",
 		"plan-subagents reviewer orchestration owner：targetLane=devirt-main mode=attached-case-board-missing currentExecutor=unassigned generation=0 requiredForIntake=false spawnOwner=main-agent",
-		"plan-subagents reviewer orchestration lifecycle：step=dispatch-reviewers owner=main-agent inputs=reviewerOrchestration.dispatches[].dispatchPrompt,ownerBinding,packetPath mustPass=one reviewerSession is assigned per reviewer result,reviewers receive only read-only boundary and shard items,no reviewer writes files or ledgers nextOnSuccess=collect-results",
+		"plan-subagents reviewer orchestration lifecycle：step=dispatch-reviewers owner=main-agent inputs=reviewerOrchestration.dispatches[].dispatchPromptPath,reviewerOrchestration.dispatches[].dispatchPromptSha256,ownerBinding,packetPath mustPass=one reviewerSession is assigned per reviewer result,reviewers receive only the hashed prompt artifact, read-only boundary, and shard items,no reviewer writes files or ledgers nextOnSuccess=collect-results",
 		"plan-subagents reviewer orchestration boundary：boundary=runtime does not spawn subagents",
 		"plan-subagents reviewer orchestration completion：criteria=each planned shard is accepted, rejected, deferred, or explicitly abandoned",
 		"plan-subagents reviewer dispatch：shard=shard-01 status=planned",
@@ -7119,8 +7119,10 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 		"plan-subagents shard owner binding：shard=shard-01 targetLane=devirt-main mode=attached-case-board-missing currentExecutor=unassigned generation=0 requiredForIntake=false spawnOwner=main-agent",
 		"plan-subagents shard owner boundary：shard=shard-01 boundary=runtime only records reviewer owner provenance; it does not spawn, stop, monitor, or manage reviewer/member sessions",
 		"plan-subagents reviewer writeback：shard=shard-01 handoff=/rekit plan-subagents -ReviewerResultPath ... -WhatIf/-Apply validates reviewer results and writes verification-before-decision facts for the main agent",
-		"plan-subagents shard next action：shard=shard-01 action=launch a read-only reviewer with agentToolRequest.prompt, inspect its JSON against reviewerResultContract, save the single JSON object to reviewerStagingCommands.sourcePath, run reviewerStagingCommands.previewCommand then its expected-hash Apply command, run reviewerCollectionCommands.previewCommand then applyCommand, then use packet-level batch intake WhatIf before Apply; direct plan-subagents -ReviewerResultPath intake remains available for legacy packets",
-		"plan-subagents shard agent tool request：shard=shard-01 tool=Claude Code Agent agentType=read-only-reviewer readOnly=true expectedOutput=exactly one ReviewerResult JSON object; no Markdown fence or surrounding prose",
+		"plan-subagents shard next action：shard=shard-01 action=launch a read-only reviewer with agentToolRequest.promptPath, verify promptSha256, inspect its JSON against reviewerResultContract, save the single JSON object to reviewerStagingCommands.sourcePath, run reviewerStagingCommands.previewCommand then its expected-hash Apply command, run reviewerCollectionCommands.previewCommand then applyCommand, then use packet-level batch intake WhatIf before Apply; direct plan-subagents -ReviewerResultPath intake remains available for legacy packets",
+		"plan-subagents shard agent tool request：shard=shard-01 tool=Claude Code Agent agentType=read-only-reviewer readOnly=true promptPath=",
+		"promptSha256=",
+		"expectedOutput=exactly one ReviewerResult JSON object; no Markdown fence or surrounding prose",
 		"plan-subagents reviewer result candidate：shard=shard-01 path=",
 		"canonical=",
 		"plan-subagents reviewer staging command：shard=shard-01 source=",
@@ -7131,6 +7133,8 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 		"-ShardId \"shard-01\"",
 		"-WhatIf -Format json` apply=`/rekit plan-subagents",
 		"-Apply -Format json`",
+		"plan-subagents shard dispatch prompt artifact：shard=shard-01 path=",
+		"shard-01.prompt.md sha256=",
 		"plan-subagents shard dispatch prompt：shard=shard-01 prompt=You are a read-only reviewer for rekit plan-subagents shard shard-01.",
 		"plan-subagents shard boundary：shard=shard-01 boundary=runtime does not spawn subagents",
 		"plan-subagents reviewer result contract：shard=shard-01 format=single JSON object per shard",
@@ -12439,6 +12443,8 @@ type reviewerDispatchIntakeCLIItem struct {
 	ReviewerResultSourceState        string   `json:"reviewerResultSourceState"`
 	ReviewerResultCandidatePath      string   `json:"reviewerResultCandidatePath"`
 	ReviewerResultCandidateState     string   `json:"reviewerResultCandidateState"`
+	DispatchPromptPath               string   `json:"dispatchPromptPath"`
+	DispatchPromptSHA256             string   `json:"dispatchPromptSha256"`
 	ReviewerResultStagingCommand     string   `json:"reviewerResultStagingCommand"`
 	IntakeAvailable                  bool     `json:"intakeAvailable"`
 	DispatchOnly                     bool     `json:"dispatchOnly"`
@@ -12475,6 +12481,8 @@ type reviewerDispatchIntakeSummaryCLIItem struct {
 	LatestShardID                          string   `json:"latestShardId"`
 	LatestState                            string   `json:"latestState"`
 	LatestReviewerResultPath               string   `json:"latestReviewerResultPath"`
+	LatestDispatchPromptPath               string   `json:"latestDispatchPromptPath"`
+	LatestDispatchPromptSHA256             string   `json:"latestDispatchPromptSha256"`
 	LatestReviewerResultSourcePath         string   `json:"latestReviewerResultSourcePath"`
 	LatestReviewerResultSourceState        string   `json:"latestReviewerResultSourceState"`
 	LatestReviewerResultCandidatePath      string   `json:"latestReviewerResultCandidatePath"`
@@ -12486,6 +12494,8 @@ type reviewerDispatchIntakeSummaryCLIItem struct {
 	LatestBatchApplyCommand                string   `json:"latestBatchApplyCommand"`
 	NextActionShardID                      string   `json:"nextActionShardId"`
 	NextActionState                        string   `json:"nextActionState"`
+	NextActionDispatchPromptPath           string   `json:"nextActionDispatchPromptPath"`
+	NextActionDispatchPromptSHA256         string   `json:"nextActionDispatchPromptSha256"`
 	NextActionReviewerResultSourcePath     string   `json:"nextActionReviewerResultSourcePath"`
 	NextActionReviewerResultSourceState    string   `json:"nextActionReviewerResultSourceState"`
 	NextActionReviewerResultCandidatePath  string   `json:"nextActionReviewerResultCandidatePath"`
