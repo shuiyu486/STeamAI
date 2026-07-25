@@ -176,6 +176,89 @@ func TestWritePlanBindsAttachedCaseLaneExecutor(t *testing.T) {
 	}
 }
 
+func TestRepairReviewerPromptArtifactRestoresMissingPromptFromPacket(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	root, err := filepath.Abs(repoRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := syncreview.Apply(root, caseRoot, defaults.DefaultPack, syncreview.ApplyOptions{ProjectName: "prompt-repair-test", CreateLocalFiles: true, Command: "init"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := workstream.StartApply(root, caseRoot, defaults.DefaultPack, workstream.StartOptions{Name: "intake", Executor: "session-plan", Actor: "mission-commander", TakeoverReason: "prompt repair fixture"}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handoff := result.ShardHandoffs[0]
+	promptBytes, err := os.ReadFile(handoff.DispatchPromptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(handoff.DispatchPromptPath); err != nil {
+		t.Fatal(err)
+	}
+
+	preview, err := RepairReviewerPromptArtifact(root, caseRoot, defaults.DefaultPack, ReviewerPromptArtifactRepairOptions{PacketPath: result.PacketPath, ShardID: handoff.ShardID, Lane: "feature-intake", Actor: "mission-commander", WhatIf: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.Mode != "reviewer-prompt-artifact-repair" || preview.Status != "previewed" || preview.IsMutation || preview.AlreadyCurrent || preview.PromptPath != handoff.DispatchPromptPath || preview.PromptSHA256 != handoff.DispatchPromptSHA256 || !strings.Contains(preview.ApplyCommand, "-ExpectedPromptSha256") {
+		t.Fatalf("unexpected prompt repair preview: %+v", preview)
+	}
+	if _, err := os.Stat(handoff.DispatchPromptPath); !os.IsNotExist(err) {
+		t.Fatalf("prompt repair WhatIf wrote artifact: %v", err)
+	}
+
+	applied, err := RepairReviewerPromptArtifact(root, caseRoot, defaults.DefaultPack, ReviewerPromptArtifactRepairOptions{PacketPath: result.PacketPath, ShardID: handoff.ShardID, Lane: "feature-intake", Actor: "mission-commander", ExpectedPromptSHA256: preview.PromptSHA256})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !applied.IsMutation || !applied.Applied || applied.Status != "restored" || applied.PromptBytes != len(promptBytes) {
+		t.Fatalf("unexpected prompt repair apply: %+v", applied)
+	}
+	restored, err := os.ReadFile(handoff.DispatchPromptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(restored) != string(promptBytes) {
+		t.Fatalf("prompt repair restored unexpected bytes: %q", string(restored))
+	}
+
+	replay, err := RepairReviewerPromptArtifact(root, caseRoot, defaults.DefaultPack, ReviewerPromptArtifactRepairOptions{PacketPath: result.PacketPath, ShardID: handoff.ShardID, Lane: "feature-intake", Actor: "mission-commander", ExpectedPromptSHA256: preview.PromptSHA256})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !replay.Applied || !replay.AlreadyCurrent || replay.Status != "already-current" {
+		t.Fatalf("exact prompt repair replay did not stay idempotent: %+v", replay)
+	}
+
+	driftBytes := []byte("modified prompt\n")
+	if err := os.WriteFile(handoff.DispatchPromptPath, driftBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	blocked, err := RepairReviewerPromptArtifact(root, caseRoot, defaults.DefaultPack, ReviewerPromptArtifactRepairOptions{PacketPath: result.PacketPath, ShardID: handoff.ShardID, Lane: "feature-intake", Actor: "mission-commander", WhatIf: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if blocked.Status != "blocked-existing-ready" || blocked.ApplyCommand != "" || blocked.ExistingPromptSHA256 == preview.PromptSHA256 {
+		t.Fatalf("drifted prompt repair preview did not block overwrite: %+v", blocked)
+	}
+	if _, err := RepairReviewerPromptArtifact(root, caseRoot, defaults.DefaultPack, ReviewerPromptArtifactRepairOptions{PacketPath: result.PacketPath, ShardID: handoff.ShardID, Lane: "feature-intake", Actor: "mission-commander", ExpectedPromptSHA256: preview.PromptSHA256}); err == nil || !strings.Contains(err.Error(), "refusing overwrite") {
+		t.Fatalf("drifted prompt repair apply should refuse overwrite, err=%v", err)
+	}
+	current, err := os.ReadFile(handoff.DispatchPromptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(current) != string(driftBytes) {
+		t.Fatalf("drifted prompt was overwritten: %q", string(current))
+	}
+}
+
 func TestWritePlanGatesCollectionForCustomArtifacts(t *testing.T) {
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")

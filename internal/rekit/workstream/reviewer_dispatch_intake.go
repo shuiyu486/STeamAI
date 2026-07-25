@@ -136,6 +136,7 @@ type ReviewerDispatchIntakeHandoff struct {
 	DispatchPromptCurrent                    bool                              `json:"dispatchPromptCurrent,omitempty"`
 	DispatchPromptActualSHA256               string                            `json:"dispatchPromptActualSha256,omitempty"`
 	DispatchPromptFailure                    string                            `json:"dispatchPromptFailure,omitempty"`
+	DispatchPromptRepairCommand              string                            `json:"dispatchPromptRepairCommand,omitempty"`
 	AgentToolRequest                         *ReviewerAgentToolRequest         `json:"agentToolRequest,omitempty"`
 	ReviewerResultStagingCommand             string                            `json:"reviewerResultStagingCommand,omitempty"`
 	ReviewerResultCollectionCommands         *ReviewerResultCollectionCommands `json:"reviewerResultCollectionCommands,omitempty"`
@@ -209,6 +210,7 @@ type ReviewerDispatchIntakeSummary struct {
 	NextActionDispatchPromptCurrent        bool     `json:"nextActionDispatchPromptCurrent,omitempty"`
 	NextActionDispatchPromptActualSHA256   string   `json:"nextActionDispatchPromptActualSha256,omitempty"`
 	NextActionDispatchPromptFailure        string   `json:"nextActionDispatchPromptFailure,omitempty"`
+	NextActionDispatchPromptRepairCommand  string   `json:"nextActionDispatchPromptRepairCommand,omitempty"`
 	NextActionReviewerResultSourcePath     string   `json:"nextActionReviewerResultSourcePath,omitempty"`
 	NextActionReviewerResultSourceState    string   `json:"nextActionReviewerResultSourceState,omitempty"`
 	NextActionReviewerResultCandidatePath  string   `json:"nextActionReviewerResultCandidatePath,omitempty"`
@@ -497,7 +499,7 @@ func MissionCommanderNextActionsWithReviewerDispatches(base []mission.MissionCom
 	for _, packetID := range packetOrder {
 		handoff := packetRepresentatives[packetID]
 		state := handoff.State
-		blocked := state != "ready-for-reviewer-result-staging-preview" && state != "ready-for-reviewer-result-collection-preview" && state != "ready-for-reviewer-intake-preview" && state != "reviewer-packet-owner-adoption-required" && state != "reviewer-result-recovery-required" && state != "reviewer-result-recovery-finalize-required" && !(state == "reviewer-result-recovery-ambiguous" && handoff.ReviewerResultRecoveryDispositionCommand != "")
+		blocked := state != "ready-for-reviewer-result-staging-preview" && state != "ready-for-reviewer-result-collection-preview" && state != "ready-for-reviewer-intake-preview" && state != "reviewer-packet-owner-adoption-required" && state != "reviewer-result-recovery-required" && state != "reviewer-result-recovery-finalize-required" && !(state == "reviewer-result-recovery-ambiguous" && handoff.ReviewerResultRecoveryDispositionCommand != "") && !((state == "reviewer-dispatch-prompt-artifact-invalid" || state == "reviewer-dispatch-prompt-artifact-drift") && handoff.DispatchPromptRepairCommand != "")
 		packetActions = append(packetActions, mission.MissionCommanderNextActionItem{
 			Lane:           handoff.TargetLane,
 			Label:          packetID,
@@ -645,6 +647,7 @@ func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) Rev
 			summary.NextActionDispatchPromptCurrent = nextAction.DispatchPromptCurrent
 			summary.NextActionDispatchPromptActualSHA256 = nextAction.DispatchPromptActualSHA256
 			summary.NextActionDispatchPromptFailure = nextAction.DispatchPromptFailure
+			summary.NextActionDispatchPromptRepairCommand = nextAction.DispatchPromptRepairCommand
 			summary.NextActionReviewerResultSourcePath = nextAction.ReviewerResultSourcePath
 			summary.NextActionReviewerResultSourceState = nextAction.ReviewerResultSourceState
 			summary.NextActionReviewerResultCandidatePath = nextAction.ReviewerResultCandidatePath
@@ -847,6 +850,12 @@ func reviewerDispatchResultRecoveryCommand(packetPath, shardID, lane string) str
 		" -RecoverReviewerResult -ShardId " + quoteCommandArg(shardID) +
 		" -Lane " + quoteCommandArg(lane) + " -Actor <main-agent> -Reason " +
 		quoteCommandArg("quarantine conflicting canonical reviewer result") + " -WhatIf -Format json"
+}
+
+func reviewerDispatchPromptArtifactRepairCommand(packetPath, shardID, lane string) string {
+	return "/rekit plan-subagents -PacketPath " + quoteCommandArg(packetPath) +
+		" -RepairReviewerPromptArtifact -ShardId " + quoteCommandArg(shardID) +
+		" -Lane " + quoteCommandArg(lane) + " -Actor <main-agent> -WhatIf -Format json"
 }
 
 func reviewerResultObstructionRecoverable(path string) bool {
@@ -1324,6 +1333,7 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 		DispatchPromptCurrent:                    promptArtifact.Current,
 		DispatchPromptActualSHA256:               promptArtifact.ActualSHA256,
 		DispatchPromptFailure:                    promptArtifact.Failure,
+		DispatchPromptRepairCommand:              reviewerDispatchPromptArtifactRepairCommand(packetPath, dispatch.ShardID, targetLane),
 		AgentToolRequest:                         dispatch.AgentToolRequest,
 		ReviewerResultStagingCommand:             stagingCommand,
 		ReviewerResultCollectionCommands:         collectionCommands,
@@ -1562,6 +1572,7 @@ func reviewerDispatchIntakeBoundary(item ReviewerDispatchIntakeHandoff) []string
 	}
 	if item.State == "reviewer-dispatch-prompt-artifact-invalid" || item.State == "reviewer-dispatch-prompt-artifact-drift" {
 		boundary = append(boundary, "reviewer prompt artifact must be present, non-symlink, non-empty, and match dispatchPromptSha256 before dispatching a reviewer")
+		boundary = append(boundary, "prompt artifact repair is hash-gated, packet-derived, and only creates a missing artifact or accepts exact replay; it never overwrites drifted or invalid existing artifacts")
 	}
 	if item.DispatchOnly {
 		boundary = append(boundary, "dispatch-only packets require an attached rekit case before reviewer-intake writeback")
@@ -1591,6 +1602,9 @@ func reviewerDispatchIntakeNextAction(item ReviewerDispatchIntakeHandoff) string
 	case "reviewer-packet-integrity-invalid":
 		return "regenerate canonical reviewer packet at " + item.PacketPath + "; do not continue from invalid packet integrity"
 	case "reviewer-dispatch-prompt-artifact-invalid", "reviewer-dispatch-prompt-artifact-drift":
+		if command := strings.TrimSpace(item.DispatchPromptRepairCommand); command != "" {
+			return command
+		}
 		failure := strings.TrimSpace(item.DispatchPromptFailure)
 		if failure != "" {
 			failure = ": " + failure

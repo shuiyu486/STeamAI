@@ -72,8 +72,10 @@ type Options struct {
 	RetireInvalidReviewerPacket          bool
 	RetireReviewerResultRecovery         bool
 	StageReviewerResult                  bool
+	RepairReviewerPromptArtifact         bool
 	ReviewerResultSourcePath             string
 	ExpectedSourceSHA256                 string
+	ExpectedPromptSHA256                 string
 	ExpectedPacketSHA256                 string
 	ExpectedIntegritySHA256              string
 	RecoverReviewerResult                bool
@@ -250,6 +252,8 @@ func Parse(args []string) (Options, error) {
 			opt.RetireReviewerResultRecovery = true
 		case "-StageReviewerResult", "--stage-reviewer-result":
 			opt.StageReviewerResult = true
+		case "-RepairReviewerPromptArtifact", "--repair-reviewer-prompt-artifact":
+			opt.RepairReviewerPromptArtifact = true
 		case "-ReviewerResultSourcePath", "--reviewer-result-source-path":
 			i++
 			if i >= len(args) {
@@ -262,6 +266,12 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ExpectedSourceSha256")
 			}
 			opt.ExpectedSourceSHA256 = args[i]
+		case "-ExpectedPromptSha256", "--expected-prompt-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedPromptSha256")
+			}
+			opt.ExpectedPromptSHA256 = args[i]
 		case "-ExpectedPacketSha256", "--expected-packet-sha256":
 			i++
 			if i >= len(args) {
@@ -772,6 +782,9 @@ func Run(args []string, stdout io.Writer) error {
 	}
 	if (opt.StageReviewerResult || strings.TrimSpace(opt.ReviewerResultSourcePath) != "" || strings.TrimSpace(opt.ExpectedSourceSHA256) != "") && opt.Command != commands.PlanSubagents {
 		return fmt.Errorf("reviewer result staging flags are supported only by plan-subagents reviewer result staging")
+	}
+	if (opt.RepairReviewerPromptArtifact || strings.TrimSpace(opt.ExpectedPromptSHA256) != "") && opt.Command != commands.PlanSubagents {
+		return fmt.Errorf("reviewer prompt artifact repair flags are supported only by plan-subagents reviewer prompt artifact repair")
 	}
 	if opt.ReadyReviewerResults && opt.Command != commands.PlanSubagents {
 		return fmt.Errorf("-ReadyReviewerResults is supported only by plan-subagents reviewer batch intake")
@@ -5147,7 +5160,7 @@ func writeReviewerDispatchIntakeHandoffText(out io.Writer, prefix string, items 
 			return err
 		}
 		if strings.TrimSpace(summary.NextActionDispatchPromptPath) != "" {
-			if _, err := fmt.Fprintf(out, "%s reviewer dispatch next action prompt：shard=%s prompt=%s promptSha256=%s promptState=%s promptCurrent=%t actualPromptSha256=%s promptFailure=%s\n", prefix, summary.NextActionShardID, summary.NextActionDispatchPromptPath, summary.NextActionDispatchPromptSHA256, summary.NextActionDispatchPromptState, summary.NextActionDispatchPromptCurrent, summary.NextActionDispatchPromptActualSHA256, summary.NextActionDispatchPromptFailure); err != nil {
+			if _, err := fmt.Fprintf(out, "%s reviewer dispatch next action prompt：shard=%s prompt=%s promptSha256=%s promptState=%s promptCurrent=%t actualPromptSha256=%s promptFailure=%s repair=`%s`\n", prefix, summary.NextActionShardID, summary.NextActionDispatchPromptPath, summary.NextActionDispatchPromptSHA256, summary.NextActionDispatchPromptState, summary.NextActionDispatchPromptCurrent, summary.NextActionDispatchPromptActualSHA256, summary.NextActionDispatchPromptFailure, summary.NextActionDispatchPromptRepairCommand); err != nil {
 				return err
 			}
 		}
@@ -5172,7 +5185,7 @@ func writeReviewerDispatchIntakeHandoffText(out io.Writer, prefix string, items 
 			return err
 		}
 		if strings.TrimSpace(item.DispatchPromptPath) != "" {
-			if _, err := fmt.Fprintf(out, "%s reviewer dispatch prompt artifact：shard=%s prompt=%s promptSha256=%s promptState=%s promptCurrent=%t actualPromptSha256=%s promptFailure=%s\n", prefix, item.ShardID, item.DispatchPromptPath, item.DispatchPromptSHA256, item.DispatchPromptState, item.DispatchPromptCurrent, item.DispatchPromptActualSHA256, item.DispatchPromptFailure); err != nil {
+			if _, err := fmt.Fprintf(out, "%s reviewer dispatch prompt artifact：shard=%s prompt=%s promptSha256=%s promptState=%s promptCurrent=%t actualPromptSha256=%s promptFailure=%s repair=`%s`\n", prefix, item.ShardID, item.DispatchPromptPath, item.DispatchPromptSHA256, item.DispatchPromptState, item.DispatchPromptCurrent, item.DispatchPromptActualSHA256, item.DispatchPromptFailure, item.DispatchPromptRepairCommand); err != nil {
 				return err
 			}
 		}
@@ -5637,8 +5650,8 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(opt.ShardID) != "" && !opt.StageReviewerResult && !opt.CollectReviewerResult && !opt.RecoverReviewerResult && !opt.RetireReviewerResultRecovery {
-		return fmt.Errorf("-ShardId is supported only with -StageReviewerResult, -CollectReviewerResult, -RecoverReviewerResult, or -RetireReviewerResultRecovery")
+	if strings.TrimSpace(opt.ShardID) != "" && !opt.StageReviewerResult && !opt.RepairReviewerPromptArtifact && !opt.CollectReviewerResult && !opt.RecoverReviewerResult && !opt.RetireReviewerResultRecovery {
+		return fmt.Errorf("-ShardId is supported only with -StageReviewerResult, -RepairReviewerPromptArtifact, -CollectReviewerResult, -RecoverReviewerResult, or -RetireReviewerResultRecovery")
 	}
 	if !opt.RetireInvalidReviewerPacket && (strings.TrimSpace(opt.ExpectedPacketSHA256) != "" || strings.TrimSpace(opt.ExpectedIntegritySHA256) != "") {
 		return fmt.Errorf("expected packet/integrity hashes are supported only with -RetireInvalidReviewerPacket -Apply")
@@ -5652,8 +5665,11 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 	if !opt.StageReviewerResult && (strings.TrimSpace(opt.ReviewerResultSourcePath) != "" || strings.TrimSpace(opt.ExpectedSourceSHA256) != "") {
 		return fmt.Errorf("reviewer result source path/hash are supported only with -StageReviewerResult")
 	}
+	if !opt.RepairReviewerPromptArtifact && strings.TrimSpace(opt.ExpectedPromptSHA256) != "" {
+		return fmt.Errorf("expected prompt hash is supported only with -RepairReviewerPromptArtifact -Apply")
+	}
 	if opt.StageReviewerResult {
-		if opt.ReadyReviewerResults || opt.AdoptReviewerPacket || opt.RetireInvalidReviewerPacket || opt.RetireReviewerResultRecovery || opt.CollectReviewerResult || opt.RecoverReviewerResult || strings.TrimSpace(opt.ReviewerResultPath) != "" {
+		if opt.ReadyReviewerResults || opt.AdoptReviewerPacket || opt.RetireInvalidReviewerPacket || opt.RetireReviewerResultRecovery || opt.RepairReviewerPromptArtifact || opt.CollectReviewerResult || opt.RecoverReviewerResult || strings.TrimSpace(opt.ReviewerResultPath) != "" {
 			return fmt.Errorf("plan-subagents reviewer result staging cannot combine with other reviewer modes")
 		}
 		if opt.CreateCandidates || opt.Review || opt.Force || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" || strings.TrimSpace(opt.Route) != "" || strings.TrimSpace(opt.TaskType) != "" || strings.TrimSpace(opt.Items) != "" || strings.TrimSpace(opt.ItemsFile) != "" || opt.ItemsPerAgent != 0 || opt.MaxParallel != 0 {
@@ -5685,7 +5701,7 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 		return writePlanSubagentsReviewerResultStagingText(out, result)
 	}
 	if opt.CollectReviewerResult {
-		if opt.ReadyReviewerResults || opt.AdoptReviewerPacket || opt.RetireInvalidReviewerPacket || opt.RecoverReviewerResult || strings.TrimSpace(opt.ReviewerResultPath) != "" {
+		if opt.ReadyReviewerResults || opt.AdoptReviewerPacket || opt.RetireInvalidReviewerPacket || opt.RepairReviewerPromptArtifact || opt.RecoverReviewerResult || strings.TrimSpace(opt.ReviewerResultPath) != "" {
 			return fmt.Errorf("plan-subagents reviewer result collection cannot combine with reviewer intake or adoption modes")
 		}
 		if opt.CreateCandidates || opt.Review || opt.Force || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" || strings.TrimSpace(opt.Route) != "" || strings.TrimSpace(opt.TaskType) != "" || strings.TrimSpace(opt.Items) != "" || strings.TrimSpace(opt.ItemsFile) != "" || opt.ItemsPerAgent != 0 || opt.MaxParallel != 0 {
@@ -5711,7 +5727,7 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 		return writePlanSubagentsReviewerResultCollectionText(out, result)
 	}
 	if opt.RetireReviewerResultRecovery {
-		if opt.ReadyReviewerResults || opt.AdoptReviewerPacket || opt.CollectReviewerResult || opt.RecoverReviewerResult || opt.RetireInvalidReviewerPacket || strings.TrimSpace(opt.ReviewerResultPath) != "" {
+		if opt.ReadyReviewerResults || opt.AdoptReviewerPacket || opt.CollectReviewerResult || opt.RepairReviewerPromptArtifact || opt.RecoverReviewerResult || opt.RetireInvalidReviewerPacket || strings.TrimSpace(opt.ReviewerResultPath) != "" {
 			return fmt.Errorf("plan-subagents reviewer result recovery disposition cannot combine with other reviewer modes")
 		}
 		if opt.CreateCandidates || opt.Review || opt.Force || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" || strings.TrimSpace(opt.Route) != "" || strings.TrimSpace(opt.TaskType) != "" || strings.TrimSpace(opt.Items) != "" || strings.TrimSpace(opt.ItemsFile) != "" || opt.ItemsPerAgent != 0 || opt.MaxParallel != 0 {
@@ -5743,7 +5759,7 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 		return writePlanSubagentsReviewerResultRecoveryDispositionText(out, result)
 	}
 	if opt.RetireInvalidReviewerPacket {
-		if opt.ReadyReviewerResults || opt.AdoptReviewerPacket || opt.CollectReviewerResult || opt.RecoverReviewerResult || strings.TrimSpace(opt.ReviewerResultPath) != "" || strings.TrimSpace(opt.ShardID) != "" {
+		if opt.ReadyReviewerResults || opt.AdoptReviewerPacket || opt.CollectReviewerResult || opt.RepairReviewerPromptArtifact || opt.RecoverReviewerResult || strings.TrimSpace(opt.ReviewerResultPath) != "" || strings.TrimSpace(opt.ShardID) != "" {
 			return fmt.Errorf("plan-subagents reviewer packet retirement cannot combine with reviewer intake or adoption modes")
 		}
 		if opt.CreateCandidates || opt.Review || opt.Force || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" || strings.TrimSpace(opt.Route) != "" || strings.TrimSpace(opt.TaskType) != "" || strings.TrimSpace(opt.Items) != "" || strings.TrimSpace(opt.ItemsFile) != "" || opt.ItemsPerAgent != 0 || opt.MaxParallel != 0 {
@@ -5775,7 +5791,7 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 		return writePlanSubagentsReviewerPacketRetirementText(out, result)
 	}
 	if opt.RecoverReviewerResult {
-		if opt.ReadyReviewerResults || opt.AdoptReviewerPacket || opt.CollectReviewerResult || strings.TrimSpace(opt.ReviewerResultPath) != "" {
+		if opt.ReadyReviewerResults || opt.AdoptReviewerPacket || opt.CollectReviewerResult || opt.RepairReviewerPromptArtifact || strings.TrimSpace(opt.ReviewerResultPath) != "" {
 			return fmt.Errorf("plan-subagents reviewer result recovery cannot combine with reviewer intake, adoption, or collection modes")
 		}
 		if opt.CreateCandidates || opt.Review || opt.Force || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" || strings.TrimSpace(opt.Route) != "" || strings.TrimSpace(opt.TaskType) != "" || strings.TrimSpace(opt.Items) != "" || strings.TrimSpace(opt.ItemsFile) != "" || opt.ItemsPerAgent != 0 || opt.MaxParallel != 0 {
@@ -5806,8 +5822,40 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 		}
 		return writePlanSubagentsReviewerResultRecoveryText(out, result)
 	}
+	if opt.RepairReviewerPromptArtifact {
+		if opt.ReadyReviewerResults || opt.AdoptReviewerPacket || opt.RetireInvalidReviewerPacket || opt.RetireReviewerResultRecovery || opt.StageReviewerResult || opt.CollectReviewerResult || opt.RecoverReviewerResult || strings.TrimSpace(opt.ReviewerResultPath) != "" {
+			return fmt.Errorf("plan-subagents reviewer prompt artifact repair cannot combine with other reviewer modes")
+		}
+		if opt.CreateCandidates || opt.Review || opt.Force || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" || strings.TrimSpace(opt.Route) != "" || strings.TrimSpace(opt.TaskType) != "" || strings.TrimSpace(opt.Items) != "" || strings.TrimSpace(opt.ItemsFile) != "" || opt.ItemsPerAgent != 0 || opt.MaxParallel != 0 {
+			return fmt.Errorf("plan-subagents reviewer prompt artifact repair does not support planning scope flags")
+		}
+		if opt.Apply == opt.WhatIf {
+			return fmt.Errorf("plan-subagents reviewer prompt artifact repair requires exactly one of -WhatIf or -Apply")
+		}
+		if opt.WhatIf && strings.TrimSpace(opt.ExpectedPromptSHA256) != "" {
+			return fmt.Errorf("plan-subagents reviewer prompt artifact repair preview does not accept an expected prompt hash")
+		}
+		if opt.Apply && strings.TrimSpace(opt.ExpectedPromptSHA256) == "" {
+			return fmt.Errorf("plan-subagents reviewer prompt artifact repair apply requires expected prompt hash from WhatIf")
+		}
+		if strings.TrimSpace(opt.PacketPath) == "" || strings.TrimSpace(opt.ShardID) == "" {
+			return fmt.Errorf("plan-subagents reviewer prompt artifact repair requires -PacketPath and -ShardId")
+		}
+		format, err := planSubagentsFormat(opt.Format)
+		if err != nil {
+			return fmt.Errorf("unsupported plan-subagents format: %s", opt.Format)
+		}
+		result, err := subagents.RepairReviewerPromptArtifact(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerPromptArtifactRepairOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedPromptSHA256: opt.ExpectedPromptSHA256, WhatIf: opt.WhatIf})
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return writeJSON(out, result)
+		}
+		return writePlanSubagentsReviewerPromptArtifactRepairText(out, result)
+	}
 	if opt.AdoptReviewerPacket {
-		if opt.ReadyReviewerResults || strings.TrimSpace(opt.ReviewerResultPath) != "" {
+		if opt.ReadyReviewerResults || opt.RepairReviewerPromptArtifact || strings.TrimSpace(opt.ReviewerResultPath) != "" {
 			return fmt.Errorf("plan-subagents reviewer packet adoption cannot combine with reviewer intake modes")
 		}
 		if opt.CreateCandidates || opt.Review || opt.Force || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" || strings.TrimSpace(opt.Route) != "" || strings.TrimSpace(opt.TaskType) != "" || strings.TrimSpace(opt.Items) != "" || strings.TrimSpace(opt.ItemsFile) != "" || opt.ItemsPerAgent != 0 || opt.MaxParallel != 0 {
@@ -5833,6 +5881,9 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 		return writePlanSubagentsReviewerPacketAdoptionText(out, result)
 	}
 	if opt.ReadyReviewerResults {
+		if opt.RepairReviewerPromptArtifact {
+			return fmt.Errorf("plan-subagents reviewer batch intake cannot combine with reviewer prompt artifact repair")
+		}
 		if strings.TrimSpace(opt.ReviewerResultPath) != "" {
 			return fmt.Errorf("plan-subagents reviewer batch intake cannot combine -ReadyReviewerResults with -ReviewerResultPath")
 		}
@@ -6507,6 +6558,26 @@ func writeReviewerIntakeSummaryText(out io.Writer, summary subagents.ReviewerInt
 		}
 	}
 	return nil
+}
+
+func writePlanSubagentsReviewerPromptArtifactRepairText(out io.Writer, result subagents.ReviewerPromptArtifactRepairResult) error {
+	if _, err := fmt.Fprintf(out, "plan-subagents reviewer prompt artifact repair：status=%s mutation=%t applied=%t alreadyCurrent=%t packet=%s shard=%s lane=%s actor=%s\n", result.Status, result.IsMutation, result.Applied, result.AlreadyCurrent, result.PacketID, result.ShardID, result.Lane, result.Actor); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "reviewer prompt artifact repair snapshot：prompt=%s promptSha256=%s promptBytes=%d existingState=%s existingSha256=%s existingBytes=%d apply=`%s`\n", result.PromptPath, result.PromptSHA256, result.PromptBytes, result.ExistingPromptState, result.ExistingPromptSHA256, result.ExistingPromptBytes, result.ApplyCommand); err != nil {
+		return err
+	}
+	for _, step := range result.NextSteps {
+		if _, err := fmt.Fprintf(out, "reviewer prompt artifact repair next step：%s\n", step); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range result.Boundary {
+		if _, err := fmt.Fprintf(out, "reviewer prompt artifact repair boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	return writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue)
 }
 
 func writePlanSubagentsReviewerResultStagingText(out io.Writer, result subagents.ReviewerResultStagingResult) error {

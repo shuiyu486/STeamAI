@@ -6085,18 +6085,55 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 		t.Fatalf("status JSON with missing prompt did not decode: %v\n%s", err, out.String())
 	}
 	missingPromptDispatch, ok := reviewerDispatchIntakeByShard(statusWithMissingPrompt.CaseMission.ReviewerDispatchIntakeHandoffs, "shard-01")
-	if !ok || missingPromptDispatch.State != "reviewer-dispatch-prompt-artifact-invalid" || missingPromptDispatch.DispatchPromptState != "missing" || missingPromptDispatch.DispatchPromptCurrent || statusWithMissingPrompt.CaseMission.ReviewerDispatchIntakeSummary.PromptArtifactBlocked != 1 || statusWithMissingPrompt.CaseMission.ReviewerDispatchIntakeSummary.NextActionState != "reviewer-dispatch-prompt-artifact-invalid" || !strings.Contains(statusWithMissingPrompt.CaseMission.ReviewerDispatchIntakeSummary.NextAction, "do not dispatch reviewer until promptSha256 matches") {
-		t.Fatalf("status JSON did not fail closed on missing prompt artifact: item=%+v summary=%+v", missingPromptDispatch, statusWithMissingPrompt.CaseMission.ReviewerDispatchIntakeSummary)
+	if !ok || missingPromptDispatch.State != "reviewer-dispatch-prompt-artifact-invalid" || missingPromptDispatch.DispatchPromptState != "missing" || missingPromptDispatch.DispatchPromptCurrent || missingPromptDispatch.DispatchPromptRepairCommand == "" || statusWithMissingPrompt.CaseMission.ReviewerDispatchIntakeSummary.PromptArtifactBlocked != 1 || statusWithMissingPrompt.CaseMission.ReviewerDispatchIntakeSummary.NextActionState != "reviewer-dispatch-prompt-artifact-invalid" || statusWithMissingPrompt.CaseMission.ReviewerDispatchIntakeSummary.NextActionDispatchPromptRepairCommand != missingPromptDispatch.DispatchPromptRepairCommand || !strings.Contains(statusWithMissingPrompt.CaseMission.ReviewerDispatchIntakeSummary.NextAction, "-RepairReviewerPromptArtifact") {
+		t.Fatalf("status JSON did not fail closed on missing prompt artifact with repair handoff: item=%+v summary=%+v", missingPromptDispatch, statusWithMissingPrompt.CaseMission.ReviewerDispatchIntakeSummary)
 	}
 	out.Reset()
 	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "promptArtifactBlocked=1") || !strings.Contains(out.String(), "promptState=missing") || !strings.Contains(out.String(), "promptFailure=reviewer prompt artifact is missing") {
-		t.Fatalf("status text did not show missing prompt artifact blocker:\n%s", out.String())
+	if !strings.Contains(out.String(), "promptArtifactBlocked=1") || !strings.Contains(out.String(), "promptState=missing") || !strings.Contains(out.String(), "promptFailure=reviewer prompt artifact is missing") || !strings.Contains(out.String(), "-RepairReviewerPromptArtifact") {
+		t.Fatalf("status text did not show missing prompt artifact repair blocker:\n%s", out.String())
 	}
-	if err := os.WriteFile(firstDispatch.DispatchPromptPath, promptBytes, 0o644); err != nil {
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-RepairReviewerPromptArtifact", "-ShardId", "shard-01", "-Lane", "feature-login", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
+	}
+	var promptRepairPreview struct {
+		Mode           string `json:"mode"`
+		Status         string `json:"status"`
+		PromptPath     string `json:"promptPath"`
+		PromptSHA256   string `json:"promptSha256"`
+		ApplyCommand   string `json:"applyCommand"`
+		IsMutation     bool   `json:"isMutation"`
+		AlreadyCurrent bool   `json:"alreadyCurrent"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &promptRepairPreview); err != nil {
+		t.Fatalf("prompt repair preview JSON did not decode: %v\n%s", err, out.String())
+	}
+	if promptRepairPreview.Mode != "reviewer-prompt-artifact-repair" || promptRepairPreview.Status != "previewed" || promptRepairPreview.IsMutation || promptRepairPreview.AlreadyCurrent || promptRepairPreview.PromptPath != firstDispatch.DispatchPromptPath || promptRepairPreview.PromptSHA256 != firstDispatch.DispatchPromptSHA256 || !strings.Contains(promptRepairPreview.ApplyCommand, "-ExpectedPromptSha256") {
+		t.Fatalf("unexpected prompt artifact repair preview: %+v", promptRepairPreview)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-RepairReviewerPromptArtifact", "-ShardId", "shard-01", "-Lane", "feature-login", "-Actor", "mission-commander", "-ExpectedPromptSha256", promptRepairPreview.PromptSHA256, "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var promptRepairApply struct {
+		Status  string `json:"status"`
+		Applied bool   `json:"applied"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &promptRepairApply); err != nil {
+		t.Fatalf("prompt repair apply JSON did not decode: %v\n%s", err, out.String())
+	}
+	if !promptRepairApply.Applied || promptRepairApply.Status != "restored" {
+		t.Fatalf("unexpected prompt artifact repair apply: %+v", promptRepairApply)
+	}
+	restoredPromptBytes, err := os.ReadFile(firstDispatch.DispatchPromptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(restoredPromptBytes) != string(promptBytes) {
+		t.Fatalf("prompt repair restored unexpected bytes: %q", string(restoredPromptBytes))
 	}
 
 	out.Reset()
@@ -12483,6 +12520,7 @@ type reviewerDispatchIntakeCLIItem struct {
 	DispatchPromptCurrent            bool     `json:"dispatchPromptCurrent"`
 	DispatchPromptActualSHA256       string   `json:"dispatchPromptActualSha256"`
 	DispatchPromptFailure            string   `json:"dispatchPromptFailure"`
+	DispatchPromptRepairCommand      string   `json:"dispatchPromptRepairCommand"`
 	ReviewerResultStagingCommand     string   `json:"reviewerResultStagingCommand"`
 	IntakeAvailable                  bool     `json:"intakeAvailable"`
 	DispatchOnly                     bool     `json:"dispatchOnly"`
@@ -12543,6 +12581,7 @@ type reviewerDispatchIntakeSummaryCLIItem struct {
 	NextActionDispatchPromptCurrent        bool     `json:"nextActionDispatchPromptCurrent"`
 	NextActionDispatchPromptActualSHA256   string   `json:"nextActionDispatchPromptActualSha256"`
 	NextActionDispatchPromptFailure        string   `json:"nextActionDispatchPromptFailure"`
+	NextActionDispatchPromptRepairCommand  string   `json:"nextActionDispatchPromptRepairCommand"`
 	NextActionReviewerResultSourcePath     string   `json:"nextActionReviewerResultSourcePath"`
 	NextActionReviewerResultSourceState    string   `json:"nextActionReviewerResultSourceState"`
 	NextActionReviewerResultCandidatePath  string   `json:"nextActionReviewerResultCandidatePath"`

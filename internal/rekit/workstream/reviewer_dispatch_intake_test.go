@@ -287,8 +287,8 @@ func TestReviewerDispatchPromptArtifactCurrentnessBlocksStaleDispatch(t *testing
 	}
 	missing := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, packetPath, "feature-review", dispatch, 0)
 	missingSummary := ReviewerDispatchIntakeSummaryFor([]ReviewerDispatchIntakeHandoff{missing})
-	if missing.State != "reviewer-dispatch-prompt-artifact-invalid" || missing.DispatchPromptState != "missing" || missing.DispatchPromptCurrent || missingSummary.PromptArtifactBlocked != 1 || !strings.Contains(reviewerDispatchIntakeNextAction(missing), "do not dispatch reviewer until promptSha256 matches") || !reviewerDispatchTestContainsSubstring(missing.Boundary, "reviewer prompt artifact must be present") {
-		t.Fatalf("missing prompt artifact did not block dispatch: item=%+v summary=%+v", missing, missingSummary)
+	if missing.State != "reviewer-dispatch-prompt-artifact-invalid" || missing.DispatchPromptState != "missing" || missing.DispatchPromptCurrent || missingSummary.PromptArtifactBlocked != 1 || missing.DispatchPromptRepairCommand == "" || !strings.Contains(reviewerDispatchIntakeNextAction(missing), "-RepairReviewerPromptArtifact") || missingSummary.NextActionDispatchPromptRepairCommand != missing.DispatchPromptRepairCommand || !reviewerDispatchTestContainsSubstring(missing.Boundary, "reviewer prompt artifact must be present") || !reviewerDispatchTestContainsSubstring(missing.Boundary, "only creates a missing artifact") {
+		t.Fatalf("missing prompt artifact did not block dispatch with repair handoff: item=%+v summary=%+v", missing, missingSummary)
 	}
 
 	driftBytes := []byte("modified prompt\n")
