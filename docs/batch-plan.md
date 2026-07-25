@@ -16,6 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 600：reviewer result source capture product-path closure
+
+状态：已完成 runtime/test/doc 工作树实现、focused product-path tests 与完整本地 release minimum；仍需 implementation commit/push 与 implementation remote release-gate inspection。若远程仍为既有 `steps=[]` runner/billing blocker，只记录为 known blocker，不声明 remote CI green，也不为 release inspection commit 自身 CI 追加第三个记录提交。
+
+目标：补齐 Batch 562/558 后仍存在的 reviewer result source 写入断点：fresh canonical packet 已提供 packet-derived `reviewerStagingCommands.sourcePath`，`-StageReviewerResult` 也要求 source path 精确匹配该 packet-derived path，但主 Agent 仍需手工把 read-only reviewer 返回的唯一 JSON 写入 `results/sources/<shard>.json`。这一步在 deterministic `/rekit` WhatIf→Apply 链外，容易写错 shard/source、不能 hash-gated apply，也不能在产品路径中证明 preview 不写入与 Apply exact replay。
+
+已实现内容：
+
+- `plan-subagents` 新增独立 `-CaptureReviewerResultSource` 模式，接收 `-PacketPath`、`-ShardId`、`-ReviewerResultInputPath`、`-Lane` 与 `-Actor`；WhatIf stable 读取 symlink-free case-local non-empty regular reviewer JSON input，复用 strict reviewer result validator 绑定 packet/route/shard/items/evidence，并返回 input SHA-256、packet-derived source path 与 hash-bound Apply command。
+- Capture Apply 必须携带 WhatIf 返回的 `-ExpectedReviewerResultInputSha256`，在共享 packet/shard mutation lock 内重读 packet/input、重验 packet integrity/currentness，并以 no-overwrite exact publication 写入 packet-derived `reviewerStagingCommands.sourcePath`；input drift、different existing source、source/case namespace symlink 或 packet/source binding drift 均 fail-closed，exact replay 幂等。
+- Capture 只发布 bounded source artifact；不执行 staging、collection 或 reviewer intake，不 spawn/stop/poll/monitor reviewer，不写 facts/ledger/authority/confirmed。Apply 后 Mission Commander action 指向独立 staging preview，让 source capture→staging→collection→intake 保持四个显式 WhatIf/Apply 边界。
+- CLI parse/dispatch/text 输出新增 capture flags 与 `plan-subagents reviewer result source capture` terminal lines；旧 `-ReviewerResultSourcePath` / `-ExpectedSourceSha256` 仍只属于 staging，新的 `-ReviewerResultInputPath` / `-ExpectedReviewerResultInputSha256` 只属于 capture，避免 input hash 与 source hash 语义混用。
+- CLI reviewer product-path helper 不再手工写 packet-derived source：测试先写 case-local input，再运行 capture WhatIf→expected-input-hash Apply，确认 preview zero-write、Apply exact bytes 到 source，然后继续既有 staging WhatIf→expected-source-hash Apply、collection WhatIf→Apply 与 reviewer intake。
+
+边界：本批只新增 case-local bounded reviewer result source artifact capture；不创建 reviewer result candidate/canonical result，不 intake reviewer writeback，不执行 reviewer/adapter/heavy tool，不写 facts/ledger/authority/confirmed，不新增 durable schema，不新增 PowerShell runtime logic。legacy staging 兼容路径保留，但 fresh packet product path 应优先使用 capture 再 staging。
+
+验证结果：focused `go test ./internal/rekit/subagents ./internal/rekit/cli -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。
+
 ### Batch 599：reviewer dispatch current-action queue first-screen closure
 
 状态：已完成 runtime/test/doc 工作树实现、focused product-path test、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `cc30646` 已推送。implementation run `30172310025` completed failure，Linux/Windows/macOS jobs `89715369696`/`89715369698`/`89715369707` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。
