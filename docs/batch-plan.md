@@ -16,6 +16,22 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 594：authorized adapter report hash-bound record product-path closure
+
+状态：已完成 runtime next-step boundary 收紧、nested case-local/no-pack CLI product-path coverage、入口文档更新与完整本地 release minimum；implementation commit/push 与 implementation remote release-gate inspection 待执行。本批承接 Batch 580 的 validate→record currentness 与 Batch 568/569 scaffold/draft sidecar lifecycle：runtime 已能在 `gate -Apply -ExecutionReportPath ... -ExpectedExecutionReportSha256 ...` 写 observations 前重读 sidecar 并校验 hash，但真实 replacement executor product path 仍可能从 scaffold/draft `nextSteps[]` 或裸 record template 接续，而不是从 validation/status 的 hash-bound command 接续。
+
+目标：把 authorized adapter execution report 的可运行接手链路收敛为 validation/status-derived hash-bound record：scaffold/draft 只指向先运行 read-only validation；`status` / validation 在 valid sidecar 后必须暴露 `reportSha256` / `recordExpectedReportSha256` 和包含 `-ExpectedExecutionReportSha256` 的 record current action；若 sidecar 在 validation 与 record 之间漂移，record 必须 fail-closed 且 `.rekit` zero-write。
+
+已实现内容：
+
+- `ScaffoldAdapterExecutionReport` / `DraftAdapterExecutionReport` 的 preview/apply/replay `nextSteps[]` 不再把裸 record template 作为最终可运行 handoff，而是明确要求先运行 read-only validation，并使用 validation/status 返回的 hash-bound record command 在 `valid=true` 后记录 bounded observation evidence。
+- Nested output workspace CLI product-path 覆盖从 `status -Format json` 读取 valid sidecar live snapshot，断言 `reportSha256` / `recordExpectedReportSha256` 已进入 handoff 和 Mission Commander current action，且 record command 包含 `-ExpectedExecutionReportSha256`。
+- 同一 E2E 在 record 前篡改 sidecar，验证旧 expected hash record 返回 `adapter execution report sha256 changed after validation` 且 `.rekit` snapshot 不变；恢复 exact bytes 后改用 hash-bound record 成功写 observation evidence，继续保持 no-heavy/no-authority/no-confirmed。
+
+边界：本批只收紧 authorized adapter report handoff currentness 与 product-path 回归；不改变 legacy 裸 record template 的兼容字段，不执行 adapter/heavy tool，不自动 validate/record，不写 authority/confirmed，不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/cli -run "TestRunGateAdapterReport(NoPackProductPathFromNestedOutputWorkspace|TextOutputAndValidationHandoff|SelectedAdapterStatusAndRecordClosure)" -count=1` 已通过；focused `go test ./internal/rekit/gate -run "Test(RecordExecutionWritesObservationForAuthorizedGate|RecordExecutionDuplicateDoesNotAppend|AdapterReportContractDescribesAuthorizedGateBoundaries|AdapterReportContractProjectsPackToolingCandidateOperationalClosure|ScaffoldAdapterExecutionReportPreviewApplyAndReplay|DraftAdapterExecutionReportPreviewApplyReplayAndScaffoldReplace|ValidateAdapterExecutionReport)" -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。
+
 ### Batch 593：pack-memory retirement inventory product-path closure
 
 状态：已完成 release/status strict discovery runtime、releasecheck/CLI product-path coverage、入口文档更新、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `5182327` 已推送。implementation run `30158605320` completed failure，macOS/Windows/Linux jobs `89680094182`/`89680094198`/`89680094207` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。本批承接 Batch 592 的 verification runbook：runbook 已要求 retirement Apply 后 rerun status/release-check，但真实 product-path 暴露出 `-DraftReviewProof -ProofPath ...` 写出的非 canonical receipt cleanup proof 可能未被 release/status receipt-derived discovery 识别，导致 retirement receipt 已 `retired`、pendingVerification=0 后仍保留 cleanup residue。

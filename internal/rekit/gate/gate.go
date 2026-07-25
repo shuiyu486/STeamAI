@@ -2064,7 +2064,7 @@ func ScaffoldAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 	result.NextSteps = []string{
 		"fill the scaffold with gate -DraftExecutionReport after the external adapter completes, or edit bounded fields manually",
 		"run read-only validation: " + result.ValidateCommand,
-		"record bounded observation evidence only after validation returns valid=true: " + result.RecordCommand,
+		"record bounded observation evidence only with the hash-bound record command returned by validation/status after valid=true",
 	}
 	result.MissionCommanderAction = adapterReportScaffoldCommanderAction(result)
 	result.MissionCommanderNextActions = adapterReportScaffoldCommanderNextActions(gateEvent, result)
@@ -2113,7 +2113,7 @@ func DraftAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options) (
 	result.RequiresConfirmation = false
 	result.NextSteps = []string{
 		"run read-only validation: " + result.ValidateCommand,
-		"record bounded observation evidence only after validation returns valid=true: " + result.RecordCommand,
+		"record bounded observation evidence only with the hash-bound record command returned by validation/status after valid=true",
 	}
 	result.MissionCommanderAction = adapterReportDraftCommanderAction(result)
 	result.MissionCommanderNextActions = adapterReportDraftCommanderNextActions(gateEvent, result)
@@ -2159,7 +2159,7 @@ func adapterReportScaffoldPreview(repoRoot, caseRoot, pack string, gateEvent Eve
 			"review the scaffolded adapter-report.json template and authorized output path",
 			"write scaffold only if the sidecar is missing: " + applyCommand,
 			"after the external adapter fills bounded execution fields, run read-only validation: " + validateCommand,
-			"record bounded observation evidence only after validation returns valid=true: " + recordCommand,
+			"record bounded observation evidence only with the hash-bound record command returned by validation/status after valid=true",
 		},
 	}
 	if existing, present, err := readAdapterReportRaw(caseRoot, fullPath, reportPath); err != nil {
@@ -2175,7 +2175,7 @@ func adapterReportScaffoldPreview(repoRoot, caseRoot, pack string, gateEvent Eve
 		result.NextSteps = []string{
 			"the exact scaffold already exists; edit placeholder fields after the external adapter completes",
 			"run read-only validation after placeholders are filled: " + validateCommand,
-			"record bounded observation evidence only after validation returns valid=true: " + recordCommand,
+			"record bounded observation evidence only with the hash-bound record command returned by validation/status after valid=true",
 		}
 	}
 	result.MissionCommanderAction = adapterReportScaffoldCommanderAction(result)
@@ -2229,7 +2229,7 @@ func adapterReportDraftPreview(repoRoot, caseRoot, pack string, gateEvent EventP
 			"review the deterministic adapter-report.json draft and exact hash",
 			"write or replace only a missing/exact scaffold sidecar: " + applyCommand,
 			"run read-only validation: " + validateCommand,
-			"record bounded observation evidence only after validation returns valid=true: " + recordCommand,
+			"record bounded observation evidence only with the hash-bound record command returned by validation/status after valid=true",
 		},
 	}
 	if existing, present, err := readAdapterReportRaw(caseRoot, fullPath, reportPath); err != nil {
@@ -2243,7 +2243,7 @@ func adapterReportDraftPreview(repoRoot, caseRoot, pack string, gateEvent EventP
 			result.NextSteps = []string{
 				"the exact execution report draft already exists",
 				"run read-only validation: " + validateCommand,
-				"record bounded observation evidence only after validation returns valid=true: " + recordCommand,
+				"record bounded observation evidence only with the hash-bound record command returned by validation/status after valid=true",
 			}
 		} else if bytes.Equal(existing, scaffoldData) {
 			result.ReplacesScaffold = true

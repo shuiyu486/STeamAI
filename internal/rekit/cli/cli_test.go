@@ -11271,11 +11271,62 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	afterInvalidValidation := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 	assertSnapshotEqual(t, before, afterInvalidValidation)
 
+	originalReportBytes, err := os.ReadFile(filepath.Join(caseRoot, "workspace", "main", "debug", "session-1", "adapter-report.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var recordReadyStatus struct {
+		CaseMission struct {
+			AuthorizedGateHandoffs      []statusAuthorizedGateHandoff       `json:"authorizedGateHandoffs"`
+			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &recordReadyStatus); err != nil {
+		t.Fatalf("status with valid adapter sidecar stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if len(recordReadyStatus.CaseMission.AuthorizedGateHandoffs) != 1 {
+		t.Fatalf("status with valid adapter sidecar omitted authorized gate handoff: %+v", recordReadyStatus.CaseMission)
+	}
+	recordReadyHandoff := recordReadyStatus.CaseMission.AuthorizedGateHandoffs[0]
+	wantExpectedHashArg := "-ExpectedExecutionReportSha256 " + validation.RecordExpectedReportSHA256
+	if recordReadyHandoff.ReportSummary == nil || recordReadyHandoff.ReportSummary.State != "ready-to-record-evidence" || !recordReadyHandoff.ReportSummary.RecordReady || recordReadyHandoff.ReportSummary.ReportSHA256 != validation.RecordExpectedReportSHA256 || recordReadyHandoff.LiveValidation == nil || recordReadyHandoff.LiveValidation.ReportSHA256 != validation.RecordExpectedReportSHA256 || recordReadyHandoff.LiveValidation.RecordExpectedReportSHA256 != validation.RecordExpectedReportSHA256 || !strings.Contains(recordReadyHandoff.LiveValidation.RecordCommand, wantExpectedHashArg) || !strings.Contains(recordReadyHandoff.LiveValidation.CaseRelativeRecordCommand, wantExpectedHashArg) {
+		t.Fatalf("status did not expose hash-bound record handoff for valid adapter sidecar: %+v", recordReadyHandoff)
+	}
+	if recordReadyStatus.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || recordReadyStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.State != "ready-to-record-evidence" || !strings.Contains(recordReadyStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.Command, wantExpectedHashArg) {
+		t.Fatalf("status did not promote hash-bound adapter record as current action: %+v", recordReadyStatus.CaseMission.MissionCommanderActionQueue)
+	}
+	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/adapter-report.json", `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "nested-cli-adapter",
+  "action": "debug",
+  "status": "succeeded",
+  "gateEventId": "`+applied.EventID+`",
+  "actualBudget": {"runtimeSeconds": 20, "diskMB": 32, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/result.json"],
+  "summary": "Adapter report drifted after validation"
+}`)
+	driftBeforeRecord := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-Apply", "-GateEventId", applied.EventID, "-ExecutionReportPath", "adapter-report.json", "-ExpectedExecutionReportSha256", recordReadyHandoff.LiveValidation.RecordExpectedReportSHA256, "-Actor", "executor-1", "-Format", "json"}, &out); err == nil || !strings.Contains(err.Error(), "adapter execution report sha256 changed after validation") {
+		t.Fatalf("hash-bound adapter record with drift error = %v, want sha256 changed", err)
+	}
+	assertSnapshotEqual(t, driftBeforeRecord, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+	if err := os.WriteFile(filepath.Join(caseRoot, "workspace", "main", "debug", "session-1", "adapter-report.json"), originalReportBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	caseLocalCwd := filepath.Join(caseRoot, "workspace", "main")
 	if err := os.Chdir(caseLocalCwd); err != nil {
 		t.Fatal(err)
 	}
-	recordArgs := []string{"-Command", "gate", "-Apply", "-GateEventId", applied.EventID, "-ExecutionReportPath", "debug/session-1/adapter-report.json", "-Actor", "executor-1", "-Format", "json"}
+	recordArgs := []string{"-Command", "gate", "-Apply", "-GateEventId", applied.EventID, "-ExecutionReportPath", "debug/session-1/adapter-report.json", "-ExpectedExecutionReportSha256", validation.RecordExpectedReportSHA256, "-Actor", "executor-1", "-Format", "json"}
 	out.Reset()
 	if err := Run(recordArgs, &out); err != nil {
 		t.Fatal(err)
@@ -13083,6 +13134,8 @@ type authorizedGateLiveValidationSnapshot struct {
 	CaseRelativeReportPath      string                        `json:"caseRelativeReportPath"`
 	ValidateCommand             string                        `json:"validateCommand"`
 	RecordCommand               string                        `json:"recordCommand"`
+	ReportSHA256                string                        `json:"reportSha256"`
+	RecordExpectedReportSHA256  string                        `json:"recordExpectedReportSha256"`
 	CaseRelativeValidateCommand string                        `json:"caseRelativeValidateCommand"`
 	CaseRelativeRecordCommand   string                        `json:"caseRelativeRecordCommand"`
 	AdapterCandidateCount       int                           `json:"adapterCandidateCount"`
