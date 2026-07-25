@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 596：Mission Commander action queue current-action closure
 
-状态：已完成 runtime/test/doc 工作树实现、focused tests 与完整本地 release minimum；implementation commit/push 待执行，推送后再读取对应 GitHub Actions 运行结果并记录一次。本轮完成后按用户要求收尾停止，不继续开启 Batch 597。
+状态：已完成 runtime/test/doc 工作树实现、focused tests、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `93812c6` 已推送。implementation run `30161847547` completed failure，Linux/Windows/macOS jobs `89688329614`/`89688329665`/`89688329800` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。本轮完成后按用户要求收尾停止，不继续开启 Batch 597。
 
 目标：修复 Batch 590、547、595 后仍暴露的 first-screen operational 断点：`overview` / `status` 已有统一 `MissionCommanderActionQueue` 并能合并 reviewer、adapter、evidence 与 lane action，但 current-action selection 会先取 unblocked follow-up，导致 active reviewer dispatch/intake blocker 存在时，case-local `/rekit` 第一屏仍可能推荐普通 `/rekit handoff <lane>` 或保留 `/rekit continue <lane>`，replacement executor 需要回查完整 handoff 才能知道应先调度 read-only reviewer 或处理 review-owned current action。
 
