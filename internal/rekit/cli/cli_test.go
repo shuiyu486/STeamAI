@@ -8693,14 +8693,17 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	}
 	created := decodeCandidateResult(t, out.Bytes())
 	var managed candidateReviewItem
+	var tooling candidateReviewItem
 	for _, item := range created.ReviewPlan.ReviewItems {
 		if item.Kind == "managed-doc" && item.ReviewDecision == "pending-review" {
 			managed = item
-			break
+		}
+		if item.Kind == "tooling-candidate-source" && item.ReviewDecision == "pending-review" {
+			tooling = item
 		}
 	}
-	if managed.CandidatePath == "" || managed.PackTarget == "" || created.ReviewWorkspace == nil {
-		t.Fatalf("candidate result omitted reviewed managed item: %+v", created)
+	if managed.CandidatePath == "" || managed.PackTarget == "" || tooling.CandidatePath == "" || created.ReviewWorkspace == nil {
+		t.Fatalf("candidate result omitted reviewed managed/tooling items: %+v", created)
 	}
 	candidateBytes, err := os.ReadFile(managed.CandidatePath)
 	if err != nil {
@@ -8905,6 +8908,34 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	}
 	if !cleanupProofApplied.IsMutation || !cleanupProofApplied.Applied || cleanupProofApplied.AlreadyWritten || cleanupProofApplied.ProofSHA256 != cleanupProofPreview.ProofSHA256 {
 		t.Fatalf("unexpected candidate cleanup proof apply: %+v", cleanupProofApplied)
+	}
+	toolingCleanupProofPathArg := filepath.ToSlash(filepath.Join("packs", "_template", "promote-candidates", "review-artifacts", "product-path-tooling.candidate-cleanup-proof.json"))
+	toolingCandidatePathArg, err := filepath.Rel(root, tooling.CandidatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolingCandidatePathArg = filepath.ToSlash(toolingCandidatePathArg)
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-DraftReviewProof", "-ProofPath", toolingCleanupProofPathArg, "-ProofType", "candidate-cleanup-proof", "-CandidatePath", toolingCandidatePathArg, "-Reason", "tooling receipt cleanup verified", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var toolingCleanupProofPreview promote.CandidateReviewProofDraftResult
+	if err := json.Unmarshal(out.Bytes(), &toolingCleanupProofPreview); err != nil {
+		t.Fatal(err)
+	}
+	if toolingCleanupProofPreview.IsMutation || toolingCleanupProofPreview.Applied || toolingCleanupProofPreview.ProofSHA256 == "" || toolingCleanupProofPreview.Decision != "reject" || toolingCleanupProofPreview.Proof.Cleanup == nil || !toolingCleanupProofPreview.Proof.Cleanup.CandidateAbsent {
+		t.Fatalf("unexpected tooling candidate cleanup proof preview: %+v", toolingCleanupProofPreview)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-DraftReviewProof", "-ProofPath", toolingCleanupProofPathArg, "-ProofType", "candidate-cleanup-proof", "-CandidatePath", toolingCandidatePathArg, "-Reason", "tooling receipt cleanup verified", "-Actor", "mission-commander", "-ExpectedProofSha256", toolingCleanupProofPreview.ProofSHA256, "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var toolingCleanupProofApplied promote.CandidateReviewProofDraftResult
+	if err := json.Unmarshal(out.Bytes(), &toolingCleanupProofApplied); err != nil {
+		t.Fatal(err)
+	}
+	if !toolingCleanupProofApplied.IsMutation || !toolingCleanupProofApplied.Applied || toolingCleanupProofApplied.AlreadyWritten || toolingCleanupProofApplied.ProofSHA256 != toolingCleanupProofPreview.ProofSHA256 {
+		t.Fatalf("unexpected tooling candidate cleanup proof apply: %+v", toolingCleanupProofApplied)
 	}
 	cleanupProofBytes, err := os.ReadFile(cleanupProofPath)
 	if err != nil {
@@ -9117,6 +9148,52 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	}
 	if _, err := os.Stat(retirementApplied.RetirementReceiptPath); err != nil {
 		t.Fatalf("repo-local retirement receipt missing: %v", err)
+	}
+
+	candidateBeforeRetiredStatus := snapshotFiles(t, candidateRoot)
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var retiredStatus statusInventory
+	if err := json.Unmarshal(out.Bytes(), &retiredStatus); err != nil {
+		t.Fatalf("retired status stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if retiredStatus.IsMutation || retiredStatus.ProjectHandoff == nil || !retiredStatus.ProjectHandoff.PackMemoryCandidates.Ready || retiredStatus.ProjectHandoff.PackMemoryCandidates.Total != 0 || len(retiredStatus.ProjectHandoff.PackMemoryCandidates.Packs) != 0 || retiredStatus.ProjectHandoff.PackMemoryCandidates.NextAction != "no pack-memory candidate cleanup is pending" {
+		t.Fatalf("status did not close retired candidate verification handoff: %+v", retiredStatus.ProjectHandoff)
+	}
+	assertSnapshotEqual(t, candidateBeforeRetiredStatus, snapshotFiles(t, candidateRoot))
+	if _, err := os.Stat(retirementApplied.WorkspaceRoot); !os.IsNotExist(err) {
+		t.Fatalf("retired status recreated canonical candidate verification workspace: %v", err)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	retiredStatusText := out.String()
+	if !strings.Contains(retiredStatusText, "status pack-memory candidates：summary=pack-memory candidate inventory ok ready=true total=0 packs=0 nextAction=no pack-memory candidate cleanup is pending") || strings.Contains(retiredStatusText, "status pack-memory decision receipt：") || strings.Contains(retiredStatusText, "retirementStatus=retired") {
+		t.Fatalf("status text did not keep retired candidate verification closed:\n%s", retiredStatusText)
+	}
+	assertSnapshotEqual(t, candidateBeforeRetiredStatus, snapshotFiles(t, candidateRoot))
+	if _, err := os.Stat(retirementApplied.WorkspaceRoot); !os.IsNotExist(err) {
+		t.Fatalf("retired status text recreated canonical candidate verification workspace: %v", err)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "release-check", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var retiredRelease releasecheck.Result
+	if err := json.Unmarshal(out.Bytes(), &retiredRelease); err != nil {
+		t.Fatalf("retired release-check stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if retiredRelease.IsMutation || !retiredRelease.ReleaseHandoff.PackMemoryCandidates.Ready || retiredRelease.ReleaseHandoff.PackMemoryCandidates.Total != 0 || len(retiredRelease.ReleaseHandoff.PackMemoryCandidates.Packs) != 0 || retiredRelease.ReleaseHandoff.PackMemoryCandidates.NextAction != "no pack-memory candidate cleanup is pending" {
+		t.Fatalf("release-check did not close retired candidate verification handoff: %+v", retiredRelease.ReleaseHandoff.PackMemoryCandidates)
+	}
+	assertSnapshotEqual(t, candidateBeforeRetiredStatus, snapshotFiles(t, candidateRoot))
+	if _, err := os.Stat(retirementApplied.WorkspaceRoot); !os.IsNotExist(err) {
+		t.Fatalf("release-check recreated canonical candidate verification workspace: %v", err)
 	}
 
 	if err := os.MkdirAll(retirementApplied.WorkspaceRoot, 0o755); err != nil {

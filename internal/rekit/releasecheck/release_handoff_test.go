@@ -619,7 +619,7 @@ func TestReleaseHandoffPackMemoryCandidateVerificationRetirementLifecycle(t *tes
 	writeFile(t, filepath.Join(backupRoot, "transaction.json"), "{\"kind\":\"transaction\"}\n")
 	acceptedCleanupEvidence := filepath.Join(caseRoot, "cleanup-evidence.md")
 	writeFile(t, acceptedCleanupEvidence, "cleanup proof evidence\n")
-	writeCandidateCleanupProof(t, repo, caseRoot, filepath.Join(proofRoot, "memory.candidate-cleanup-proof.md"), "fixture", packetHash, decisionHash, receiptPath, filepath.Join(backupRoot, "transaction.json"), filepath.Join(backupRoot, "committed.json"), actions[0]["candidatePath"].(string), acceptedCandidateBackupPath, acceptedPackTarget, "", filepath.Join(candidateRoot, "index.json"), "accept", "managed-doc", acceptedCleanupEvidence)
+	writeCandidateCleanupProof(t, repo, caseRoot, filepath.Join(proofRoot, "accepted-noncanonical.candidate-cleanup-proof.json"), "fixture", packetHash, decisionHash, receiptPath, filepath.Join(backupRoot, "transaction.json"), filepath.Join(backupRoot, "committed.json"), actions[0]["candidatePath"].(string), acceptedCandidateBackupPath, acceptedPackTarget, "", filepath.Join(candidateRoot, "index.json"), "accept", "managed-doc", acceptedCleanupEvidence)
 	ownedContent := "owned verification artifact\n"
 	freshOwned := filepath.Join(freshRoot, "owned.txt")
 	attachedOwned := filepath.Join(attachedRoot, "owned.txt")

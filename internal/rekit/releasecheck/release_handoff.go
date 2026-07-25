@@ -1038,29 +1038,98 @@ func packMemoryCandidateDecisionCleanupArtifacts(status ReleaseHandoffPackMemory
 				),
 			}
 			artifact.ExpectedProofs = []string{proofPath}
-			for _, ext := range []string{".md", ".json", ".txt"} {
-				candidate := filepath.Join(proofRoot, stem+".candidate-cleanup-proof"+ext)
-				info, err := os.Lstat(candidate)
-				if os.IsNotExist(err) {
-					continue
-				}
-				if err != nil {
-					return nil, err
-				}
-				if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() == 0 || info.Size() > 1024*1024 {
-					return nil, fmt.Errorf("candidate cleanup proof must be a non-empty regular file: %s", candidate)
-				}
-				if err := validatePackMemoryCandidateCleanupProof(status, receipt, action, proofRoot, candidate); err != nil {
-					return nil, err
-				}
-				artifact.ProofPath = filepath.ToSlash(filepath.Join(status.ProofRoot, filepath.Base(candidate)))
+			matchedProof, proofPresent, err := packMemoryCandidateDecisionCleanupProofPath(status, receipt, action, proofRoot, stem)
+			if err != nil {
+				return nil, err
+			}
+			if proofPresent {
+				artifact.ProofPath = releaseHandoffRepoRelative(status.repoRootFull, matchedProof)
 				artifact.ProofPresent = true
-				break
 			}
 			artifacts = append(artifacts, artifact)
 		}
 	}
 	return artifacts, nil
+}
+
+func packMemoryCandidateDecisionCleanupProofPath(status ReleaseHandoffPackMemoryCandidateStatus, receipt ReleaseHandoffPackMemoryCandidateDecisionReceipt, action ReleaseHandoffPackMemoryCandidateDecisionReceiptAction, proofRoot, stem string) (string, bool, error) {
+	for _, ext := range []string{".md", ".json", ".txt"} {
+		candidate := filepath.Join(proofRoot, stem+".candidate-cleanup-proof"+ext)
+		info, err := os.Lstat(candidate)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return "", false, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() == 0 || info.Size() > 1024*1024 {
+			return "", false, fmt.Errorf("candidate cleanup proof must be a non-empty regular file: %s", candidate)
+		}
+		if err := validatePackMemoryCandidateCleanupProof(status, receipt, action, proofRoot, candidate); err != nil {
+			return "", false, err
+		}
+		return candidate, true, nil
+	}
+
+	entries, err := os.ReadDir(proofRoot)
+	if os.IsNotExist(err) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !candidateCleanupProofArtifactName(entry.Name()) {
+			continue
+		}
+		candidate := filepath.Join(proofRoot, entry.Name())
+		info, err := entry.Info()
+		if err != nil {
+			return "", false, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() == 0 || info.Size() > 1024*1024 {
+			return "", false, fmt.Errorf("candidate cleanup proof must be a non-empty regular file: %s", candidate)
+		}
+		data, err := os.ReadFile(candidate)
+		if err != nil {
+			return "", false, err
+		}
+		var proof candidateReviewProofNoteInventory
+		if err := decodeReleaseHandoffStrictJSON(data, &proof); err != nil {
+			return "", false, fmt.Errorf("decode candidate cleanup proof %s: %w", candidate, err)
+		}
+		if !candidateCleanupProofTargetsReceiptAction(status, receipt, action, proof) {
+			continue
+		}
+		if err := validatePackMemoryCandidateCleanupProof(status, receipt, action, proofRoot, candidate); err != nil {
+			return "", false, err
+		}
+		return candidate, true, nil
+	}
+	return "", false, nil
+}
+
+func candidateCleanupProofArtifactName(name string) bool {
+	for _, ext := range []string{".md", ".json", ".txt"} {
+		if strings.HasSuffix(name, ".candidate-cleanup-proof"+ext) {
+			return true
+		}
+	}
+	return false
+}
+
+func candidateCleanupProofTargetsReceiptAction(status ReleaseHandoffPackMemoryCandidateStatus, receipt ReleaseHandoffPackMemoryCandidateDecisionReceipt, action ReleaseHandoffPackMemoryCandidateDecisionReceiptAction, proof candidateReviewProofNoteInventory) bool {
+	cleanup := proof.Cleanup
+	if cleanup == nil || proof.SchemaVersion != 1 || proof.Kind != "pack-memory-candidate-review-proof" || proof.Pack != status.Pack || proof.ProofType != "candidate-cleanup-proof" {
+		return false
+	}
+	if !strings.EqualFold(proof.PacketHash, receipt.packetHash) || !strings.EqualFold(proof.DecisionHash, receipt.decisionHash) {
+		return false
+	}
+	if proof.CandidatePath != action.CandidatePath || proof.PackTarget != action.PackTarget || proof.Decision != action.Decision {
+		return false
+	}
+	return cleanup.DecisionReceiptPath == releaseHandoffRepoRelative(status.repoRootFull, receipt.pathFull) && strings.EqualFold(cleanup.DecisionReceiptHash, receipt.receiptHash)
 }
 
 func validatePackMemoryCandidateDecisionProof(status ReleaseHandoffPackMemoryCandidateStatus, artifact ReleaseHandoffPackMemoryCandidateReviewArtifact, proofRoot, path string) error {

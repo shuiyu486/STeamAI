@@ -16,6 +16,22 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 593：pack-memory retirement inventory product-path closure
+
+状态：已完成 release/status strict discovery runtime、releasecheck/CLI product-path coverage 与入口文档更新；完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection 待最终执行。本批承接 Batch 592 的 verification runbook：runbook 已要求 retirement Apply 后 rerun status/release-check，但真实 product-path 暴露出 `-DraftReviewProof -ProofPath ...` 写出的非 canonical receipt cleanup proof 可能未被 release/status receipt-derived discovery 识别，导致 retirement receipt 已 `retired`、pendingVerification=0 后仍保留 cleanup residue。
+
+目标：收紧 pack-memory accepted candidate final verification retirement 的下游 inventory closure：`release-check` / `status` 必须只在每个 receipt action 的 strict cleanup proof、accepted candidate final verification proof、canonical workspace retirement receipt 都到位且 workspace absent 时清零；同时要识别公共 CLI `-DraftReviewProof -ProofPath` 合法写出的自定义 `*.candidate-cleanup-proof.{md,json,txt}`，不能只依赖 canonical stem 文件名。
+
+已实现内容：
+
+- `packMemoryCandidateDecisionCleanupArtifacts` 保留 canonical stem cleanup proof 快路径，并新增只读 fallback discovery：扫描 `review-artifacts` 顶层 `*.candidate-cleanup-proof.{md,json,txt}`，先 strict decode 再按 schema/kind/pack、packet/decision hashes、receipt path/hash、candidatePath、packTarget 与 decision 判断是否属于当前 receipt action。
+- 自定义 cleanup proof 被计入 present 前仍复用 `validatePackMemoryCandidateCleanupProof`，重新校验 receipt/transaction/committed marker、backup hashes、candidate absent、index entry absent、accepted packTarget hash、relative stored paths 与 evidence hash；畸形、drift、symlink、non-regular 或错误绑定 proof 继续 fail-closed。
+- CLI product-path 覆盖 managed accept + tooling reject 的所有 action cleanup proofs、final verification proof、retirement WhatIf→expected-hash Apply 后，`status -Format json/text` 与 `release-check -Format json` 都保持 read-only，并把 `packMemoryCandidates` 清为 ready/total=0；retirement receipt 后 workspace 重现仍保持 warning fail-closed。
+
+边界：本批只增强 release/status read-only cleanup proof discovery 与 final closure 判断；不把 retirement receipt 替代 per-action cleanup proof，不删除/重建 workspace，不执行 provisioning/verification/retirement/heavy tool，不写 facts/authority/confirmed，不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/releasecheck ./internal/rekit/cli -run "TestReleaseHandoffPackMemoryCandidateDecisionVerificationReceipt|TestReleaseHandoffPackMemoryCandidateVerificationRetirementLifecycle|TestReleaseHandoffPackMemoryCandidatesDetectsOpenResidue|TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply" -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。
+
 ### Batch 592：pack-memory final verification retirement handoff closure
 
 状态：已完成 runtime 派生字段、CLI text 输出、入口文档更新、focused tests、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `f1af394` 已推送。implementation run `30157616192` completed failure，Linux/Windows/macOS jobs `89677919166`/`89677919192`/`89677919199` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。
