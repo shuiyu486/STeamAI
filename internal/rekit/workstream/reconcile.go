@@ -22,13 +22,16 @@ type ReconcileOptions struct {
 }
 
 type InterventionSummary struct {
-	EventID string `json:"eventId"`
-	Lane    string `json:"lane"`
-	Subject string `json:"subject,omitempty"`
-	Summary string `json:"summary,omitempty"`
-	Action  string `json:"action,omitempty"`
-	Status  string `json:"status,omitempty"`
-	Target  string `json:"target,omitempty"`
+	EventID    string `json:"eventId"`
+	Lane       string `json:"lane"`
+	Subject    string `json:"subject,omitempty"`
+	Summary    string `json:"summary,omitempty"`
+	Action     string `json:"action,omitempty"`
+	Status     string `json:"status,omitempty"`
+	Target     string `json:"target,omitempty"`
+	Scope      string `json:"scope,omitempty"`
+	ApprovedBy string `json:"approvedBy,omitempty"`
+	BatchID    string `json:"batchId,omitempty"`
 }
 
 type ReconcileResult struct {
@@ -590,13 +593,16 @@ func interventionSummaries(items []map[string]any) []InterventionSummary {
 
 func summarizeIntervention(item map[string]any) InterventionSummary {
 	return InterventionSummary{
-		EventID: mission.Value(item, "eventId"),
-		Lane:    mission.Value(item, "lane"),
-		Subject: mission.Value(item, "subject"),
-		Summary: mission.Value(item, "summary"),
-		Action:  mission.Value(item, "action"),
-		Status:  firstText(mission.Value(item, "status"), "open"),
-		Target:  mission.Value(item, "target"),
+		EventID:    mission.Value(item, "eventId"),
+		Lane:       mission.Value(item, "lane"),
+		Subject:    mission.Value(item, "subject"),
+		Summary:    mission.Value(item, "summary"),
+		Action:     mission.Value(item, "action"),
+		Status:     firstText(mission.Value(item, "status"), "open"),
+		Target:     mission.Value(item, "target"),
+		Scope:      mission.Value(item, "scope"),
+		ApprovedBy: mission.Value(item, "approvedBy"),
+		BatchID:    mission.Value(item, "batchId"),
 	}
 }
 

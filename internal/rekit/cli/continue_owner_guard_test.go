@@ -9,6 +9,38 @@ import (
 	"testing"
 )
 
+func TestRunContinueBlockedInterventionHandoffPreservesCurrentExecutor(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	writeHandoffFixture(t, caseRoot)
+	before := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "login", "-Executor", "session-login", "-ExpectedExecutorGeneration", "2", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Blocked           bool `json:"blocked"`
+		ReconcileRequired bool `json:"reconcileRequired"`
+		ReconcileHandoffs []struct {
+			EventID       string `json:"eventId"`
+			WhatIfCommand string `json:"whatIfCommand"`
+			ApplyCommand  string `json:"applyCommand"`
+		} `json:"reconcileHandoffs"`
+		Writes []startWrite `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("blocked owner continue JSON did not decode: %v\n%s", err, out.String())
+	}
+	if !result.Blocked || !result.ReconcileRequired || len(result.Writes) != 0 || len(result.ReconcileHandoffs) != 1 {
+		t.Fatalf("unexpected owner-bound blocked continue: %+v", result)
+	}
+	handoff := result.ReconcileHandoffs[0]
+	if handoff.EventID != "evt-human-stop" || handoff.WhatIfCommand != "/rekit reconcile login -InterventionId evt-human-stop -WhatIf -Executor session-login" || handoff.ApplyCommand != "/rekit reconcile login -InterventionId evt-human-stop -Apply -Executor session-login" {
+		t.Fatalf("blocked continue did not preserve current executor in reconcile handoff: %+v", handoff)
+	}
+	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+}
+
 func TestRunContinueReplaceableSessionOwnerGuardNestedProductPath(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	nested := filepath.Join(caseRoot, "workspace", "features", "feature-login", "nested")

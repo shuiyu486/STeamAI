@@ -64,6 +64,7 @@ type ContinueResult struct {
 	Blocked                        bool                                     `json:"blocked"`
 	ReconcileRequired              bool                                     `json:"reconcileRequired"`
 	OpenInterventions              []InterventionSummary                    `json:"openInterventions,omitempty"`
+	ReconcileHandoffs              []ContinueReconcileHandoff               `json:"reconcileHandoffs,omitempty"`
 	WouldWrites                    []StartWrite                             `json:"wouldWrites"`
 	Writes                         []StartWrite                             `json:"writes,omitempty"`
 	BlockedActions                 []string                                 `json:"blockedActions"`
@@ -82,6 +83,22 @@ type ContinueSummary struct {
 	AuthorityWouldAppend int `json:"authorityWouldAppend"`
 	PendingUser          int `json:"pendingUser"`
 	Skipped              int `json:"skipped"`
+}
+
+type ContinueReconcileHandoff struct {
+	EventID          string   `json:"eventId,omitempty"`
+	Lane             string   `json:"lane,omitempty"`
+	Subject          string   `json:"subject,omitempty"`
+	Summary          string   `json:"summary,omitempty"`
+	Action           string   `json:"action,omitempty"`
+	Target           string   `json:"target,omitempty"`
+	Status           string   `json:"status,omitempty"`
+	ReviewCommand    string   `json:"reviewCommand,omitempty"`
+	WhatIfCommand    string   `json:"whatIfCommand,omitempty"`
+	ApplyCommand     string   `json:"applyCommand,omitempty"`
+	DecisionBoundary string   `json:"decisionBoundary,omitempty"`
+	ContinueBoundary string   `json:"continueBoundary,omitempty"`
+	Evidence         []string `json:"evidence,omitempty"`
 }
 
 type ContinueEventPreview struct {
@@ -618,6 +635,7 @@ func (ctx continueContext) blockedByOpenInterventions(apply bool) (ContinueResul
 		Blocked:                        true,
 		ReconcileRequired:              true,
 		OpenInterventions:              open,
+		ReconcileHandoffs:              continueReconcileHandoffs(ctx.lane, open),
 		WouldWrites:                    []StartWrite{},
 		Writes:                         []StartWrite{},
 		BlockedActions:                 []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution without a valid current authorization decision"},
@@ -631,6 +649,67 @@ func interventionRiskLines(items []InterventionSummary) []string {
 		lines = append(lines, fmt.Sprintf("intervention: %s | lane=%s | status=%s", firstText(item.Subject, item.Summary, item.EventID), item.Lane, item.Status))
 	}
 	return lines
+}
+
+func continueReconcileHandoffs(lane Lane, items []InterventionSummary) []ContinueReconcileHandoff {
+	label := workstreamLabel(lane)
+	handoffs := make([]ContinueReconcileHandoff, 0, len(items))
+	for _, item := range items {
+		evidence := []string{}
+		if strings.TrimSpace(item.EventID) != "" {
+			evidence = append(evidence, "open intervention ledger event "+item.EventID)
+		} else {
+			evidence = append(evidence, "open intervention has no eventId; review lane handoff before replacing <eventId> in reconcile apply")
+		}
+		if strings.TrimSpace(item.ApprovedBy) != "" {
+			evidence = append(evidence, "approvedBy "+item.ApprovedBy)
+		}
+		if strings.TrimSpace(item.Scope) != "" {
+			evidence = append(evidence, "scope "+item.Scope)
+		}
+		if strings.TrimSpace(item.Target) != "" {
+			evidence = append(evidence, "target "+item.Target)
+		}
+		if strings.TrimSpace(item.BatchID) != "" {
+			evidence = append(evidence, "batchId "+item.BatchID)
+		}
+		whatIfCommand := continueReconcileCommand(label, item.EventID, false)
+		applyCommand := continueReconcileCommand(label, item.EventID, true)
+		if lane.CurrentExecutor != "" {
+			ownerArg := " -Executor " + quoteCommandArg(lane.CurrentExecutor)
+			whatIfCommand += ownerArg
+			applyCommand += ownerArg
+		}
+		handoffs = append(handoffs, ContinueReconcileHandoff{
+			EventID:          item.EventID,
+			Lane:             item.Lane,
+			Subject:          item.Subject,
+			Summary:          item.Summary,
+			Action:           item.Action,
+			Target:           item.Target,
+			Status:           firstText(item.Status, "open"),
+			ReviewCommand:    "/rekit handoff " + label,
+			WhatIfCommand:    whatIfCommand,
+			ApplyCommand:     applyCommand,
+			DecisionBoundary: "review the open intervention before reconcile apply; apply command only writes case-local intervention/lane/resume/checkpoint/board state and never writes authority/confirmed or executes heavy-tool",
+			ContinueBoundary: "blocked continue is zero-write and only exposes reconcile handoff; do not continue autonomously while intervention remains open",
+			Evidence:         evidence,
+		})
+	}
+	return handoffs
+}
+
+func continueReconcileCommand(label, eventID string, apply bool) string {
+	parts := []string{"/rekit", "reconcile", label, "-InterventionId", firstText(eventID, "<eventId>")}
+	if apply {
+		parts = append(parts, "-Apply")
+	} else {
+		parts = append(parts, "-WhatIf")
+	}
+	for idx := range parts {
+		parts[idx] = quoteCommandArg(parts[idx])
+	}
+	return strings.Join(parts, " ")
 }
 
 func (ctx continueContext) previewEvent(event map[string]any) ContinueEventPreview {

@@ -5541,6 +5541,30 @@ func writeReconcileExecutorActionText(out io.Writer, result workstream.Reconcile
 	return writeMissionCommanderNextActionsText(out, result.MissionCommanderNextActions)
 }
 
+func writeContinueReconcileHandoffsText(out io.Writer, handoffs []workstream.ContinueReconcileHandoff) error {
+	for _, handoff := range handoffs {
+		if _, err := fmt.Fprintf(out, "continue reconcile handoff：eventId=%s lane=%s subject=%s summary=%s action=%s target=%s status=%s review=%s whatIf=%s apply=%s\n", handoff.EventID, handoff.Lane, handoff.Subject, handoff.Summary, handoff.Action, handoff.Target, handoff.Status, handoff.ReviewCommand, handoff.WhatIfCommand, handoff.ApplyCommand); err != nil {
+			return err
+		}
+		if strings.TrimSpace(handoff.DecisionBoundary) != "" {
+			if _, err := fmt.Fprintf(out, "continue reconcile decision boundary：eventId=%s boundary=%s\n", handoff.EventID, handoff.DecisionBoundary); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(handoff.ContinueBoundary) != "" {
+			if _, err := fmt.Fprintf(out, "continue reconcile continue boundary：eventId=%s boundary=%s\n", handoff.EventID, handoff.ContinueBoundary); err != nil {
+				return err
+			}
+		}
+		for _, evidence := range handoff.Evidence {
+			if _, err := fmt.Fprintf(out, "continue reconcile evidence：eventId=%s evidence=%s\n", handoff.EventID, evidence); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func writeContinueText(out io.Writer, result workstream.ContinueResult) error {
 	if result.Blocked && len(result.ReviewerDispatchIntakeHandoffs) > 0 {
 		if _, err := fmt.Fprintf(out, "工作线被 reviewer dispatch/intake 阻塞：%s\n", result.Lane.ID); err != nil {
@@ -5565,6 +5589,9 @@ func writeContinueText(out io.Writer, result workstream.ContinueResult) error {
 			if _, err := fmt.Fprintf(out, "- %s | eventId=%s | status=%s\n", textFirst(item.Subject, item.Summary, item.EventID), item.EventID, item.Status); err != nil {
 				return err
 			}
+		}
+		if err := writeContinueReconcileHandoffsText(out, result.ReconcileHandoffs); err != nil {
+			return err
 		}
 		if err := writeExecutorNextActionsText(out, result.ExecutorAction); err != nil {
 			return err

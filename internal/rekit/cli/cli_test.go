@@ -5582,6 +5582,21 @@ func TestRunContinueBlocksUntilReconcileClosesIntervention(t *testing.T) {
 			EventID string `json:"eventId"`
 			Lane    string `json:"lane"`
 		} `json:"openInterventions"`
+		ReconcileHandoffs []struct {
+			EventID          string   `json:"eventId"`
+			Lane             string   `json:"lane"`
+			Subject          string   `json:"subject"`
+			Summary          string   `json:"summary"`
+			Action           string   `json:"action"`
+			Target           string   `json:"target"`
+			Status           string   `json:"status"`
+			ReviewCommand    string   `json:"reviewCommand"`
+			WhatIfCommand    string   `json:"whatIfCommand"`
+			ApplyCommand     string   `json:"applyCommand"`
+			DecisionBoundary string   `json:"decisionBoundary"`
+			ContinueBoundary string   `json:"continueBoundary"`
+			Evidence         []string `json:"evidence"`
+		} `json:"reconcileHandoffs"`
 		ExecutorAction              executorActionSnapshot              `json:"executorAction"`
 		MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
 		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
@@ -5594,12 +5609,38 @@ func TestRunContinueBlocksUntilReconcileClosesIntervention(t *testing.T) {
 	if blocked.Command != "continue" || blocked.Applied || !blocked.Blocked || !blocked.ReconcileRequired || len(blocked.OpenInterventions) != 1 || blocked.OpenInterventions[0].EventID != "evt-human-stop" || len(blocked.Writes) != 0 {
 		t.Fatalf("unexpected blocked continue result: %+v", blocked)
 	}
+	if len(blocked.ReconcileHandoffs) != 1 {
+		t.Fatalf("blocked continue should expose reconcile handoff: %+v", blocked.ReconcileHandoffs)
+	}
+	handoff := blocked.ReconcileHandoffs[0]
+	if handoff.EventID != "evt-human-stop" || handoff.Lane != "feature-login" || handoff.Subject != "human correction" || handoff.Summary != "user changed lane direction" || handoff.Action != "override" || handoff.Target != "workspace/features/feature-login" || handoff.Status != "open" || handoff.ReviewCommand != "/rekit handoff login" || handoff.WhatIfCommand != "/rekit reconcile login -InterventionId evt-human-stop -WhatIf" || handoff.ApplyCommand != "/rekit reconcile login -InterventionId evt-human-stop -Apply" || !strings.Contains(handoff.DecisionBoundary, "only writes case-local intervention/lane/resume/checkpoint/board state") || !strings.Contains(handoff.ContinueBoundary, "blocked continue is zero-write") || !containsSubstring(handoff.Evidence, "open intervention ledger event evt-human-stop") || !containsSubstring(handoff.Evidence, "target workspace/features/feature-login") {
+		t.Fatalf("unexpected blocked continue reconcile handoff: %+v", handoff)
+	}
 	if !blocked.ExecutorAction.Blocked || blocked.ExecutorAction.Ready || !slices.Contains(blocked.ExecutorAction.NextAgentActions, "reconcile open intervention(s) before continuing this lane") || slices.Contains(blocked.ExecutorAction.NextAgentActions, "/rekit continue login") || !slices.Equal(blocked.NextSteps, blocked.ExecutorAction.NextAgentActions) {
 		t.Fatalf("blocked continue should expose reconcile-only executor next steps: action=%+v next=%+v", blocked.ExecutorAction, blocked.NextSteps)
 	}
 	assertCLIActionQueue(t, blocked.MissionCommanderActionQueue, 4, 1, 3, 4, 3, "/rekit reconcile login -InterventionId evt-human-stop -WhatIf")
 	afterBlocked := snapshotFiles(t, caseRoot)
 	assertSnapshotEqual(t, before, afterBlocked)
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "-Apply", "login", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"工作线被 blocker 阻塞：feature-login reasons=intervention",
+		"continue reconcile handoff：eventId=evt-human-stop lane=feature-login subject=human correction summary=user changed lane direction action=override target=workspace/features/feature-login status=open review=/rekit handoff login whatIf=/rekit reconcile login -InterventionId evt-human-stop -WhatIf apply=/rekit reconcile login -InterventionId evt-human-stop -Apply",
+		"continue reconcile decision boundary：eventId=evt-human-stop boundary=review the open intervention before reconcile apply; apply command only writes case-local intervention/lane/resume/checkpoint/board state and never writes authority/confirmed or executes heavy-tool",
+		"continue reconcile continue boundary：eventId=evt-human-stop boundary=blocked continue is zero-write and only exposes reconcile handoff; do not continue autonomously while intervention remains open",
+		"continue reconcile evidence：eventId=evt-human-stop evidence=open intervention ledger event evt-human-stop",
+		"continue reconcile evidence：eventId=evt-human-stop evidence=target workspace/features/feature-login",
+		"mission commander action queue current：state=needs-reconcile source=missionCommanderActions blocked=false requiresReview=true command=`/rekit reconcile login -InterventionId evt-human-stop -WhatIf`",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("blocked continue text missing %q:\n%s", expected, out.String())
+		}
+	}
+	assertSnapshotEqual(t, before, snapshotFiles(t, caseRoot))
 
 	out.Reset()
 	if err := Run([]string{"-Command", "reconcile", "-Target", caseRoot, "-Pack", "vmp-re", "-WhatIf", "login", "-InterventionId", "evt-human-stop", "-Executor", "session-2", "-Actor", "main-agent", "-Reason", "accept user correction"}, &out); err != nil {
