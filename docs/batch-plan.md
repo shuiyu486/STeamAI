@@ -16,6 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 599：reviewer dispatch current-action queue first-screen closure
+
+状态：已完成 runtime/test/doc 工作树实现、focused product-path test 与完整本地 release minimum；implementation commit/push、remote release-gate inspection 与 release inspection record 待执行。
+
+目标：补齐 Batch 597/598 后仍暴露的 reviewer orchestration first-screen 断点：`overview` / `status` 的全局 `MissionCommanderActionQueue` 已能把 reviewer dispatch/intake action 排为 case current action，且 `reviewerDispatchIntakeSummary.nextActionRunbookSteps[]` 已给出当前 shard runbook，但 default `/rekit` 第一屏没有单独的 reviewer work queue/current action 概览。replacement executor 在多 packet / shard handoff 中仍要从 full handoff rows 推断哪个 reviewer packet/shard 是当前工作。
+
+已实现内容：
+
+- `statusCaseMission` 新增只读 `reviewerDispatchIntakeActionQueue` JSON 字段，从既有 `ReviewerDispatchIntakeHandoffs` 复用 `workstream.MissionCommanderNextActionsWithReviewerDispatches(nil, ...)` 与 `mission.MissionCommanderActionQueueFor` 派生 reviewer-only current action；不新增 reviewer packet schema，也不复制 packet/shard priority 规则。
+- `writeStatusMissionCommanderFirstScreenText` 在 first-screen strip 中新增 `reviewerCurrent`、`reviewerQueueTotal`、`reviewerQueueBlocked`、`reviewerQueueRequiresReview`，并在全局 case current action 本身来自 `reviewerDispatchIntakeHandoffs` 时把 focus 显示为 `reviewer-current-action`，同时输出 focus-reviewer 与 reviewer current action details。
+- `status -Format text` 新增 `status case mission reviewer dispatch queue` 与 per-bucket action/reason/boundary 行，和既有 `reviewer dispatch intake summary` / `next action runbook` 并列，帮助新会话直接定位当前 packet/shard 的 bounded reviewer handoff。
+- Installed case-local `/rekit` product-path E2E 扩展 JSON/text 断言：partial reviewer intake 后 reviewer-only queue current action 与全局 case current action一致，first-screen 聚焦 reviewer current action，并保留 runbook/staging guidance。
+
+边界：本批只增强 status/default `/rekit` 的只读 reviewer dispatch/intake current-action projection；不 spawn/stop/poll/monitor reviewer，不创建 reviewer result，不执行 staging/collection/intake，不写 facts/ledger/authority/confirmed，不新增 durable schema，不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/cli -run "TestRunInstalledCaseShimProductPathStatusAndRefresh" -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。
+
 ### Batch 598：empty-case onboarding current action closure
 
 状态：已完成 runtime/test/doc 工作树实现、focused tests、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `6a3f130` 已推送。implementation run `30171293954` completed failure，macOS/Linux/Windows jobs `89712780321`/`89712780326`/`89712780336` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。

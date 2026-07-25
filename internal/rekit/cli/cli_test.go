@@ -2797,14 +2797,18 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 	}
 	status = decodeInstalledCaseShimStatus(t, out.Bytes())
 	currentAction := status.CaseMission.MissionCommanderActionQueue.CurrentAction
+	reviewerAction := status.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentAction
 	if currentAction == nil || currentAction.Source != "reviewerDispatchIntakeHandoffs" || !strings.Contains(currentAction.Command, "dispatch read-only reviewer") || !containsSubstring(status.CaseMission.MissionBriefNextActions, "follow Mission Commander current action: dispatch read-only reviewer") || containsSubstring(status.CaseMission.MissionBriefNextActions, "/rekit continue login") {
 		t.Fatalf("installed entrypoint status did not prioritize reviewer queue action: current=%+v next=%+v", currentAction, status.CaseMission.MissionBriefNextActions)
+	}
+	if reviewerAction == nil || reviewerAction.Source != "reviewerDispatchIntakeHandoffs" || reviewerAction.Label != currentAction.Label || status.CaseMission.ReviewerDispatchIntakeActionQueue.Counts.Total != 1 || status.CaseMission.ReviewerDispatchIntakeActionQueue.Counts.RequiresReview != 1 {
+		t.Fatalf("installed entrypoint status omitted reviewer-only queue: queue=%+v current=%+v", status.CaseMission.ReviewerDispatchIntakeActionQueue, currentAction)
 	}
 	out.Reset()
 	if err := Run([]string{"-Command", "status", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"status Mission Commander first screen：focus=case-current-action", "status Mission Commander current action：scope=focus-case", "source=reviewerDispatchIntakeHandoffs", "status case mission reviewer dispatch intake summary：total=1", "status case mission reviewer dispatch next action runbook：shard=shard-02", "status case mission brief next action：follow Mission Commander current action: dispatch read-only reviewer", "dispatch read-only reviewer", "after saving reviewer JSON, run staging preview"} {
+	for _, expected := range []string{"status Mission Commander first screen：focus=reviewer-current-action", "status Mission Commander current action：scope=focus-reviewer", "status Mission Commander current action：scope=reviewer", "source=reviewerDispatchIntakeHandoffs", "status case mission reviewer dispatch intake summary：total=1", "status case mission reviewer dispatch queue：total=1", "status case mission reviewer dispatch queue action：bucket=current", "status case mission reviewer dispatch next action runbook：shard=shard-02", "status case mission brief next action：follow Mission Commander current action: dispatch read-only reviewer", "dispatch read-only reviewer", "after saving reviewer JSON, run staging preview"} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("installed entrypoint status reviewer runbook text missing %q:\n%s", expected, out.String())
 		}
@@ -3005,10 +3009,11 @@ type installedCaseShimStatus struct {
 		NextSteps []string `json:"nextSteps"`
 	} `json:"caseShim"`
 	CaseMission struct {
-		ReviewerWritebackSummary      reviewerWritebackSummaryCLIItem      `json:"reviewerWritebackSummary"`
-		ReviewerDispatchIntakeSummary reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
-		MissionCommanderActionQueue   missionCommanderActionQueueSnapshot  `json:"missionCommanderActionQueue"`
-		MissionBriefNextActions       []string                             `json:"missionBriefNextActions"`
+		ReviewerWritebackSummary          reviewerWritebackSummaryCLIItem      `json:"reviewerWritebackSummary"`
+		ReviewerDispatchIntakeSummary     reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+		ReviewerDispatchIntakeActionQueue missionCommanderActionQueueSnapshot  `json:"reviewerDispatchIntakeActionQueue"`
+		MissionCommanderActionQueue       missionCommanderActionQueueSnapshot  `json:"missionCommanderActionQueue"`
+		MissionBriefNextActions           []string                             `json:"missionBriefNextActions"`
 	} `json:"caseMission"`
 	ProjectHandoff *struct {
 		PackMemoryCandidates struct {
