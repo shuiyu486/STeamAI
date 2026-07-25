@@ -763,6 +763,24 @@ func continuePendingGateRiskLines(items []map[string]any) []string {
 	return lines
 }
 
+func gateDecisionHandoffsForLane(caseRoot string, lane Lane) ([]ContinuePendingGateHandoff, []ContinueOpenDecisionHandoff) {
+	facts, err := readHandoffFacts(caseRoot)
+	if err != nil {
+		return nil, nil
+	}
+	return gateDecisionHandoffs(lane, mission.LaneFacts(facts.Facts, lane.ID))
+}
+
+func gateDecisionHandoffs(lane Lane, facts mission.Facts) ([]ContinuePendingGateHandoff, []ContinueOpenDecisionHandoff) {
+	pendingGates := []map[string]any{}
+	for _, item := range facts.Requests {
+		if mission.IsPendingGateRequest(item) {
+			pendingGates = append(pendingGates, item)
+		}
+	}
+	return continuePendingGateHandoffs(lane, pendingGates), continueOpenDecisionHandoffs(lane, continueOpenDecisionItems(facts))
+}
+
 type continueOpenDecisionItem struct {
 	SourceKind string
 	Event      map[string]any

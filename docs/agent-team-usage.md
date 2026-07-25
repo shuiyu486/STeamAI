@@ -65,9 +65,9 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 ```text
 /rekit overview              # 看项目总览，不选择工作线
 /rekit continue main         # 接手主线
-/rekit start unpacking       # 创建/进入功能支线
+/rekit start unpacking       # 创建/进入功能支线；已有 lane 若仍有 pending gate / open decision 会直接显示 handoff
 /rekit continue unpacking    # 继续功能支线；若存在 intervention / pending gate / open decision 会先返回 blocked handoff
-/rekit reconcile unpacking   # 将用户干预显式 reconcile 到 durable lane state
+/rekit reconcile unpacking   # 将用户干预显式 reconcile 到 durable lane state；若剩余 gate/decision blocker 会直接显示下一条 handoff
 /rekit handoff               # 生成项目级接手索引
 /rekit handoff main          # 生成主线接手文档
 /rekit handoff unpacking     # 生成功能支线接手文档
@@ -232,7 +232,7 @@ Batch 561 为 `continue` executor-generation stale-writer guard，当前状态�
 | 工作线 | 典型命令 | 主要职责 | 默认可写 |
 |---|---|---|---|
 | 主线 | `/rekit continue main` | 收敛结论、验证 candidate、维护长期 handoff、处理 authority review；JSON envelope/run artifacts 暴露 apply 后 `missionBrief`，含 pending gates 与非阻塞 authorized gates；若存在 pending gate / open decision / intervention blocker，continue 先 zero-write 返回 handoff | canonical 文件、主线 workspace、`.rekit/**` |
-| 功能支线 | `/rekit start <name>`、`/rekit continue <name>` | 围绕一个功能点/阻塞点做探索、收集 evidence、提出 candidate/request；start/continue preview/apply `missionBrief` 让 lane executor 看到全局 ready/blocked 状态、pending gates 与非阻塞 authorized gates；blocked continue 不写 lane artifacts，先给 gate/decision/reconcile handoff | 自己的 lane workspace、outbox、candidate/request |
+| 功能支线 | `/rekit start <name>`、`/rekit continue <name>` | 围绕一个功能点/阻塞点做探索、收集 evidence、提出 candidate/request；start/reconcile/continue preview/apply `missionBrief` 让 lane executor 看到全局 ready/blocked 状态、pending gates 与非阻塞 authorized gates；start/reconcile 在接管或清除 intervention 后会直接投影剩余 gate/decision handoff，blocked continue 不写 lane artifacts，先给 gate/decision/reconcile handoff | 自己的 lane workspace、outbox、candidate/request |
 | 项目级索引 | `/rekit handoff` | 生成跨工作线接手索引，并在顶部 Markdown 与 Go JSON `missionBrief` 汇总 ready/blocked lanes、pending gates、authorized gates、open decisions、interventions、next agent actions 与 escalations | `.rekit/handovers/latest.md` |
 
 推荐流程：
@@ -327,7 +327,7 @@ Batch 561 为 `continue` executor-generation stale-writer guard，当前状态�
 | 旧 case 移动了目录 | `/rekit status` -> `/rekit repair` -> 确认后 `repair -Apply` -> `/rekit doctor` |
 | 想看项目全局状态 | `/rekit overview` |
 | 想继续主线 | `/rekit continue main`；自动化可用 `-WhatIf/-Apply -Format json` 读取 `missionBrief`、`missionCommanderNextActions[]` 与 `missionCommanderActionQueue` |
-| 想做专项探索 | `/rekit start <name>`，之后 `/rekit continue <name>`；start JSON/text 与 continue run status/digest 会记录 Mission Control brief / executor action snapshot / Mission Commander action queue |
+| 想做专项探索 | `/rekit start <name>`，之后 `/rekit continue <name>`；start JSON/text、reconcile JSON/text 与 continue run status/digest 会记录 Mission Control brief / executor action snapshot / Mission Commander action queue；已有 blocker 时 start/reconcile 也会直接显示 gate/decision handoff |
 | 想换会话 | `/rekit handoff` 或 `/rekit handoff <name>`；JSON/text/Markdown 会直接投影 Mission Commander action queue |
 | 想把 kit 更新同步到 case | `/rekit sync`，确认后才 apply |
 | 想把 case 经验回流到 kit | `/rekit promote`，优先生成 candidate |

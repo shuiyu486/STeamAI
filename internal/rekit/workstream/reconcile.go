@@ -55,6 +55,8 @@ type ReconcileResult struct {
 	AuthorizedGateAdapterHandoffs  []AuthorizedGateAdapterHandoff           `json:"authorizedGateAdapterHandoffs,omitempty"`
 	ReviewerDispatchIntakeHandoffs []ReviewerDispatchIntakeHandoff          `json:"reviewerDispatchIntakeHandoffs,omitempty"`
 	ReviewerDispatchIntakeSummary  ReviewerDispatchIntakeSummary            `json:"reviewerDispatchIntakeSummary"`
+	PendingGateHandoffs            []ContinuePendingGateHandoff             `json:"pendingGateHandoffs,omitempty"`
+	OpenDecisionHandoffs           []ContinueOpenDecisionHandoff            `json:"openDecisionHandoffs,omitempty"`
 	ExecutorAction                 laneExecutorAction                       `json:"executorAction"`
 	MissionCommanderAction         mission.MissionCommanderAction           `json:"missionCommanderAction"`
 	MissionCommanderNextActions    []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
@@ -455,6 +457,7 @@ func (ctx reconcileContext) result(mutating, applied, confirm bool, writes []Sta
 	commanderAction := executorAction.MissionCommanderAction
 	authorizedGateAdapterHandoffs := AuthorizedGateAdapterHandoffs(ctx.manifest.RepoRoot, ctx.inst.CaseRoot, ctx.manifest.Pack, ctx.facts.Requests, ctx.lane.ID)
 	reviewerDispatchIntakeHandoffs, _ := ReviewerDispatchIntakeHandoffs(ctx.inst.CaseRoot, ctx.facts, ctx.lane.ID)
+	pendingGateHandoffs, openDecisionHandoffs := gateDecisionHandoffs(ctx.lane, laneFacts)
 	commanderNextActions := reconcileMissionCommanderNextActions(ctx.lane, executorAction, applied)
 	commanderNextActions = MissionCommanderNextActionsWithAuthorizedGateAdapters(commanderNextActions, authorizedGateAdapterHandoffs)
 	commanderNextActions = MissionCommanderNextActionsWithReviewerDispatches(commanderNextActions, reviewerDispatchIntakeHandoffs)
@@ -482,6 +485,8 @@ func (ctx reconcileContext) result(mutating, applied, confirm bool, writes []Sta
 		AuthorizedGateAdapterHandoffs:  authorizedGateAdapterHandoffs,
 		ReviewerDispatchIntakeHandoffs: reviewerDispatchIntakeHandoffs,
 		ReviewerDispatchIntakeSummary:  ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
+		PendingGateHandoffs:            pendingGateHandoffs,
+		OpenDecisionHandoffs:           openDecisionHandoffs,
 		ExecutorAction:                 executorAction,
 		MissionCommanderAction:         commanderAction,
 		MissionCommanderNextActions:    commanderNextActions,

@@ -5236,19 +5236,39 @@ func TestRunStartProjectsExecutorActionForExistingLaneBlockers(t *testing.T) {
 	if slices.Contains(preview.ExecutorAction.NextAgentActions, "/rekit continue main") || slices.Contains(preview.ExecutorAction.NextAgentActions, "/rekit continue login") || !containsSubstring(preview.ExecutorAction.NextAgentActions, "reconcile open intervention") || !containsSubstring(preview.ExecutorAction.NextAgentActions, "pending-gate") || !containsSubstring(preview.ExecutorAction.NextAgentActions, "candidate/decision") {
 		t.Fatalf("start preview blocked lane next actions should be lane-local blocker resolution: %+v", preview.ExecutorAction.NextAgentActions)
 	}
+	if len(preview.PendingGateHandoffs) != 1 || len(preview.OpenDecisionHandoffs) != 1 {
+		t.Fatalf("start preview should expose concrete gate/decision handoffs: pending=%+v open=%+v", preview.PendingGateHandoffs, preview.OpenDecisionHandoffs)
+	}
+	pendingGateHandoff := preview.PendingGateHandoffs[0]
+	if pendingGateHandoff.Lane != "feature-login" || pendingGateHandoff.Subject != "debug gate" || pendingGateHandoff.Action != "debug" || pendingGateHandoff.Target != "batch-handoff" || pendingGateHandoff.Status != "pending-gate" || pendingGateHandoff.Risk != "high" || pendingGateHandoff.ReviewCommand != "/rekit handoff login" || !strings.Contains(pendingGateHandoff.WhatIfCommand, "/rekit gate -Action debug -Lane feature-login -WhatIf") || !strings.Contains(pendingGateHandoff.ApplyCommand, "/rekit gate -Action debug -Lane feature-login -Apply -Actor runtime-test") || !strings.Contains(pendingGateHandoff.DecisionBoundary, "does not execute or approve heavy action") || !strings.Contains(pendingGateHandoff.ContinueBoundary, "blocked continue is zero-write") || !containsSubstring(pendingGateHandoff.Evidence, "pending-gate has no eventId") || !containsSubstring(pendingGateHandoff.Evidence, "requested budget 30s") || !containsSubstring(pendingGateHandoff.Evidence, "triedLightSteps overview,static review") {
+		t.Fatalf("unexpected start pending gate handoff: %+v", pendingGateHandoff)
+	}
+	openDecisionHandoff := preview.OpenDecisionHandoffs[0]
+	if openDecisionHandoff.Kind != "decision" || openDecisionHandoff.Lane != "feature-login" || openDecisionHandoff.Subject != "decision subject" || openDecisionHandoff.Decision != "defer" || openDecisionHandoff.Reason != "needs review" || openDecisionHandoff.Status != "open" || openDecisionHandoff.SourceKind != "decision" || openDecisionHandoff.SourcePath != ".rekit/facts/decisions.jsonl" || openDecisionHandoff.RecordPath != ".rekit/facts/decisions.jsonl" || openDecisionHandoff.ReviewCommand != "/rekit handoff login" || openDecisionHandoff.SourceCommand != "/rekit note -List -Kind decision -Lane feature-login" || !strings.Contains(openDecisionHandoff.WhatIfCommand, "/rekit note -Kind decision -Lane feature-login") || !strings.Contains(openDecisionHandoff.WhatIfCommand, "-Decision <accept|reject|defer|supersede>") || strings.Contains(openDecisionHandoff.RecordCommand, " -WhatIf") || !strings.Contains(openDecisionHandoff.DecisionBoundary, "record command only appends case-local decision ledger state") || !strings.Contains(openDecisionHandoff.ContinueBoundary, "blocked continue is zero-write") || !containsSubstring(openDecisionHandoff.Evidence, "decision has no eventId") || !containsSubstring(openDecisionHandoff.Evidence, "sourcePath .rekit/facts/decisions.jsonl") {
+		t.Fatalf("unexpected start open decision handoff: %+v", openDecisionHandoff)
+	}
 	assertCLIActionQueue(t, preview.MissionCommanderActionQueue, 4, 1, 3, 4, 3, "/rekit reconcile login -InterventionId evt-human-stop -WhatIf")
 
 	out.Reset()
 	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "login", "-Apply", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"executor next action：reconcile open intervention(s) before continuing this lane", "executor next action：resolve or keep deferred pending-gate request(s); gate records the request and never executes heavy-tool", "executor next action：review open candidate/decision item(s) with evidence and authority boundary", "executor action：blocked=true ready=false pendingGates=1 openInterventions=1 openDecisions=1", "executor requirements：reconcile=true pendingGate=true openDecision=true", "executor handoff：continue=`/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2` handoff=`/rekit handoff login`", "mission commander action queue：summary=total=4 unblocked=1 blocked=3 requiresReview=4 followUp=3 current=/rekit reconcile login -InterventionId evt-human-stop -WhatIf", "mission commander action queue current：state=needs-reconcile source=missionCommanderActions blocked=false requiresReview=true command=`/rekit reconcile login -InterventionId evt-human-stop -WhatIf`", "mission commander next action：state=needs-reconcile source=missionCommanderActions blocked=false requiresReview=true command=`/rekit reconcile login -InterventionId evt-human-stop -WhatIf`", "mission commander next action：state=needs-reconcile source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2 -WhatIf`", "mission commander next action reason：follow-up is available only after resolving current lane blockers", "mission commander next action boundary：do not run continue for blocked lanes"} {
+	for _, expected := range []string{"executor next action：reconcile open intervention(s) before continuing this lane", "executor next action：resolve or keep deferred pending-gate request(s); gate records the request and never executes heavy-tool", "executor next action：review open candidate/decision item(s) with evidence and authority boundary", "start pending gate handoff：eventId= lane=feature-login subject=debug gate action=debug target=batch-handoff status=pending-gate risk=high", "start pending gate decision boundary：eventId= boundary=review with the main agent/user or update strict durable autonomy before any heavy action; apply command only replays/records the gate request decision and does not execute or approve heavy action by itself", "start pending gate continue boundary：eventId= boundary=blocked continue is zero-write and only exposes pending-gate handoff; do not continue autonomously while the pending gate remains unresolved", "start open decision handoff：eventId= kind=decision lane=feature-login subject=decision subject", "start open decision boundary：eventId= boundary=review evidence and choose accept/reject/defer/supersede before recording a decision note; record command only appends case-local decision ledger state and never writes authority/confirmed or executes heavy-tool", "start open decision continue boundary：eventId= boundary=blocked continue is zero-write and only exposes open-decision handoff; do not continue autonomously while the open decision remains unresolved", "executor action：blocked=true ready=false pendingGates=1 openInterventions=1 openDecisions=1", "executor requirements：reconcile=true pendingGate=true openDecision=true", "executor handoff：continue=`/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2` handoff=`/rekit handoff login`", "mission commander action queue：summary=total=4 unblocked=1 blocked=3 requiresReview=4 followUp=3 current=/rekit reconcile login -InterventionId evt-human-stop -WhatIf", "mission commander action queue current：state=needs-reconcile source=missionCommanderActions blocked=false requiresReview=true command=`/rekit reconcile login -InterventionId evt-human-stop -WhatIf`", "mission commander next action：state=needs-reconcile source=missionCommanderActions blocked=false requiresReview=true command=`/rekit reconcile login -InterventionId evt-human-stop -WhatIf`", "mission commander next action：state=needs-reconcile source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2 -WhatIf`", "mission commander next action reason：follow-up is available only after resolving current lane blockers", "mission commander next action boundary：do not run continue for blocked lanes"} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("start text missing %q:\n%s", expected, out.String())
 		}
 	}
 	if strings.Contains(out.String(), "继续此支线：/rekit continue login") || strings.Contains(out.String(), "executor next action：/rekit continue main") {
 		t.Fatalf("start text should not recommend continue for blocked lane:\n%s", out.String())
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "login", "-Apply", "-Executor", "session-replacement", "-Actor", "mission-commander", "-Reason", "replace blocked lane session"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	applied := decodeStartResult(t, out.Bytes())
+	if !applied.Applied || applied.Lane.CurrentExecutor != "session-replacement" || applied.Lane.ExecutorGeneration != 3 || applied.ExecutorAction.ResumeCommand != "/rekit continue login -Executor session-replacement -ExpectedExecutorGeneration 3" || len(applied.PendingGateHandoffs) != 1 || len(applied.OpenDecisionHandoffs) != 1 {
+		t.Fatalf("start apply takeover should preserve gate/decision handoffs: %+v", applied)
 	}
 }
 
@@ -5924,6 +5944,81 @@ func TestRunContinueBlocksOpenDecisionBeforeWrites(t *testing.T) {
 		}
 	}
 	assertSnapshotEqual(t, before, snapshotFiles(t, caseRoot))
+}
+
+func TestRunReconcileApplyProjectsGateDecisionHandoffsAfterInterventionResolution(t *testing.T) {
+	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	writeContinueFixture(t, caseRoot)
+	writeCaseFile(t, caseRoot, ".rekit/facts/interventions.jsonl", `{"eventId":"evt-human-stop","kind":"intervention","lane":"feature-login","subject":"human correction","summary":"user changed lane direction","action":"override","status":"open","target":"workspace/features/feature-login"}`+"\n")
+	writeCaseFile(t, caseRoot, ".rekit/facts/requests.jsonl", `{"eventId":"evt-pending-debug","kind":"request","lane":"feature-login","subject":"debug gate","summary":"needs confirmation","status":"pending-gate","actor":"runtime-test","risk":"high","target":"workspace/features/feature-login","batchId":"batch-pending","gate":{"action":"debug","scope":"handler only","budget":"30s","requestedBudget":{"runtimeSeconds":30,"diskMB":64,"requests":1},"outputPaths":["workspace/features/feature-login/debug"],"triedLightSteps":["overview","static review"],"stopConditions":["timeout"],"authorization":{"decision":"needs-user","profileId":"manual-feature-login","reasons":["manual gate"]}}}`+"\n")
+	writeCaseFile(t, caseRoot, ".rekit/facts/candidates.jsonl", `{"eventId":"evt-open-candidate","kind":"candidate","lane":"feature-login","subject":"candidate alpha","summary":"needs decision","status":"open","target":"candidate-alpha","confidence":"high","evidenceRefs":["evidence/candidate.json"],"batchId":"batch-decision"}`+"\n")
+
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "reconcile", "-Target", caseRoot, "-Pack", "vmp-re", "-Apply", "login", "-InterventionId", "evt-human-stop", "-Executor", "session-2", "-Actor", "main-agent", "-Reason", "accept user correction"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Command                     string                              `json:"command"`
+		Applied                     bool                                `json:"applied"`
+		ResolutionEventID           string                              `json:"resolutionEventId"`
+		Lane                        startLane                           `json:"lane"`
+		ExecutorAction              executorActionSnapshot              `json:"executorAction"`
+		PendingGateHandoffs         []statusPendingGateHandoff          `json:"pendingGateHandoffs"`
+		OpenDecisionHandoffs        []statusOpenDecisionHandoff         `json:"openDecisionHandoffs"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		Writes                      []startWrite                        `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("reconcile stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if result.Command != "reconcile" || !result.Applied || result.ResolutionEventID == "" || result.Lane.CurrentExecutor != "session-2" || result.Lane.ExecutorGeneration != 1 || result.Lane.LastReconciledIntervention != "evt-human-stop" {
+		t.Fatalf("unexpected reconcile result: %+v", result)
+	}
+	if !result.ExecutorAction.Blocked || result.ExecutorAction.Ready || result.ExecutorAction.OpenInterventions != 0 || result.ExecutorAction.PendingGates != 1 || result.ExecutorAction.OpenDecisions != 1 || !result.ExecutorAction.PendingGateRequired || !result.ExecutorAction.OpenDecisionRequired || slices.Contains(result.ExecutorAction.NextAgentActions, "/rekit continue login") {
+		t.Fatalf("reconcile should keep lane blocked on remaining gate/decision handoffs: %+v", result.ExecutorAction)
+	}
+	if len(result.PendingGateHandoffs) != 1 || len(result.OpenDecisionHandoffs) != 1 {
+		t.Fatalf("reconcile result should expose remaining gate/decision handoffs: pending=%+v open=%+v", result.PendingGateHandoffs, result.OpenDecisionHandoffs)
+	}
+	pendingGateHandoff := result.PendingGateHandoffs[0]
+	if pendingGateHandoff.EventID != "evt-pending-debug" || pendingGateHandoff.Lane != "feature-login" || pendingGateHandoff.Subject != "debug gate" || pendingGateHandoff.Action != "debug" || pendingGateHandoff.Target != "workspace/features/feature-login" || pendingGateHandoff.Status != "pending-gate" || pendingGateHandoff.Risk != "high" || pendingGateHandoff.Authorization != "needs-user" || pendingGateHandoff.Profile != "manual-feature-login" || pendingGateHandoff.ReviewCommand != "/rekit handoff login" || !strings.Contains(pendingGateHandoff.WhatIfCommand, "/rekit gate -Action debug -Lane feature-login -WhatIf") || !strings.Contains(pendingGateHandoff.ApplyCommand, "/rekit gate -Action debug -Lane feature-login -Apply -Actor runtime-test") || !strings.Contains(pendingGateHandoff.DecisionBoundary, "does not execute or approve heavy action") || !strings.Contains(pendingGateHandoff.ContinueBoundary, "blocked continue is zero-write") || !containsSubstring(pendingGateHandoff.Evidence, "pending-gate ledger event evt-pending-debug") || !containsSubstring(pendingGateHandoff.Evidence, "requestedBudget runtimeSeconds=30,diskMB=64,requests=1") {
+		t.Fatalf("unexpected reconcile pending gate handoff: %+v", pendingGateHandoff)
+	}
+	openDecisionHandoff := result.OpenDecisionHandoffs[0]
+	if openDecisionHandoff.EventID != "evt-open-candidate" || openDecisionHandoff.Kind != "candidate" || openDecisionHandoff.Lane != "feature-login" || openDecisionHandoff.Subject != "candidate alpha" || openDecisionHandoff.Summary != "needs decision" || openDecisionHandoff.Status != "open" || openDecisionHandoff.Target != "candidate-alpha" || openDecisionHandoff.Confidence != "high" || openDecisionHandoff.SourceKind != "candidate" || openDecisionHandoff.SourcePath != ".rekit/facts/candidates.jsonl" || openDecisionHandoff.RecordPath != ".rekit/facts/decisions.jsonl" || openDecisionHandoff.ReviewCommand != "/rekit handoff login" || openDecisionHandoff.SourceCommand != "/rekit note -List -Kind candidate -Lane feature-login" || !strings.Contains(openDecisionHandoff.WhatIfCommand, "/rekit note -Kind decision -Lane feature-login") || !strings.Contains(openDecisionHandoff.WhatIfCommand, "-Decision <accept|reject|defer|supersede>") || strings.Contains(openDecisionHandoff.RecordCommand, " -WhatIf") || !strings.Contains(openDecisionHandoff.DecisionBoundary, "record command only appends case-local decision ledger state") || !strings.Contains(openDecisionHandoff.ContinueBoundary, "blocked continue is zero-write") || !containsSubstring(openDecisionHandoff.Evidence, "candidate ledger event evt-open-candidate") || !containsSubstring(openDecisionHandoff.Evidence, "sourcePath .rekit/facts/candidates.jsonl") {
+		t.Fatalf("unexpected reconcile open decision handoff: %+v", openDecisionHandoff)
+	}
+	if result.MissionCommanderActionQueue.CurrentAction == nil || result.MissionCommanderActionQueue.CurrentAction.Command != "/rekit handoff login" {
+		t.Fatalf("reconcile should route remaining blockers through lane handoff: %+v", result.MissionCommanderActionQueue)
+	}
+	assertContinueWrite(t, result.Writes, ".rekit/facts/interventions.jsonl", "append")
+	assertWriteKind(t, result.Writes, "lane", "update-reconcile-state")
+
+	textCaseRoot := attachedCaseWithPack(t, "vmp-re")
+	writeContinueFixture(t, textCaseRoot)
+	writeCaseFile(t, textCaseRoot, ".rekit/facts/interventions.jsonl", `{"eventId":"evt-human-stop","kind":"intervention","lane":"feature-login","subject":"human correction","summary":"user changed lane direction","action":"override","status":"open","target":"workspace/features/feature-login"}`+"\n")
+	writeCaseFile(t, textCaseRoot, ".rekit/facts/requests.jsonl", `{"eventId":"evt-pending-debug","kind":"request","lane":"feature-login","subject":"debug gate","summary":"needs confirmation","status":"pending-gate","actor":"runtime-test","risk":"high","target":"workspace/features/feature-login","batchId":"batch-pending","gate":{"action":"debug","scope":"handler only","budget":"30s","requestedBudget":{"runtimeSeconds":30,"diskMB":64,"requests":1},"outputPaths":["workspace/features/feature-login/debug"],"triedLightSteps":["overview","static review"],"stopConditions":["timeout"],"authorization":{"decision":"needs-user","profileId":"manual-feature-login","reasons":["manual gate"]}}}`+"\n")
+	writeCaseFile(t, textCaseRoot, ".rekit/facts/candidates.jsonl", `{"eventId":"evt-open-candidate","kind":"candidate","lane":"feature-login","subject":"candidate alpha","summary":"needs decision","status":"open","target":"candidate-alpha","confidence":"high","evidenceRefs":["evidence/candidate.json"],"batchId":"batch-decision"}`+"\n")
+	out.Reset()
+	if err := Run([]string{"-Command", "reconcile", "-Target", textCaseRoot, "-Pack", "vmp-re", "-Apply", "login", "-InterventionId", "evt-human-stop", "-Executor", "session-2", "-Actor", "main-agent", "-Reason", "accept user correction", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"reconcile pending gate handoff：eventId=evt-pending-debug lane=feature-login subject=debug gate action=debug target=workspace/features/feature-login status=pending-gate risk=high auth=needs-user profile=manual-feature-login review=/rekit handoff login",
+		"reconcile pending gate continue boundary：eventId=evt-pending-debug boundary=blocked continue is zero-write and only exposes pending-gate handoff; do not continue autonomously while the pending gate remains unresolved",
+		"reconcile open decision handoff：eventId=evt-open-candidate kind=candidate lane=feature-login subject=candidate alpha summary=needs decision",
+		"reconcile open decision continue boundary：eventId=evt-open-candidate boundary=blocked continue is zero-write and only exposes open-decision handoff; do not continue autonomously while the open decision remains unresolved",
+		"executor action：blocked=true ready=false pendingGates=1 openInterventions=0 openDecisions=1",
+		"executor requirements：reconcile=false pendingGate=true openDecision=true",
+		"mission commander action queue current：state=needs-gate-decision source=missionCommanderActions blocked=true requiresReview=true command=`/rekit handoff login`",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("reconcile text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "继续此支线：/rekit continue login") {
+		t.Fatalf("reconcile text should not recommend continue while gate/decision remain:\n%s", out.String())
+	}
 }
 
 func TestRunReconcileApplyReplaysExistingResolutionToRefreshDurableState(t *testing.T) {
@@ -12612,6 +12707,8 @@ type startResult struct {
 	Lane                          startLane                              `json:"lane"`
 	MissionBrief                  missionBrief                           `json:"missionBrief"`
 	AuthorizedGateAdapterHandoffs []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
+	PendingGateHandoffs           []statusPendingGateHandoff             `json:"pendingGateHandoffs"`
+	OpenDecisionHandoffs          []statusOpenDecisionHandoff            `json:"openDecisionHandoffs"`
 	ExecutorAction                executorActionSnapshot                 `json:"executorAction"`
 	MissionCommanderAction        missionCommanderActionSnapshot         `json:"missionCommanderAction"`
 	MissionCommanderNextActions   []missionCommanderNextActionItem       `json:"missionCommanderNextActions"`

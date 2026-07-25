@@ -77,6 +77,8 @@ type StartResult struct {
 	AuthorizedGateAdapterHandoffs  []AuthorizedGateAdapterHandoff           `json:"authorizedGateAdapterHandoffs,omitempty"`
 	ReviewerDispatchIntakeHandoffs []ReviewerDispatchIntakeHandoff          `json:"reviewerDispatchIntakeHandoffs,omitempty"`
 	ReviewerDispatchIntakeSummary  ReviewerDispatchIntakeSummary            `json:"reviewerDispatchIntakeSummary"`
+	PendingGateHandoffs            []ContinuePendingGateHandoff             `json:"pendingGateHandoffs,omitempty"`
+	OpenDecisionHandoffs           []ContinueOpenDecisionHandoff            `json:"openDecisionHandoffs,omitempty"`
 	ExecutorAction                 laneExecutorAction                       `json:"executorAction"`
 	MissionCommanderAction         mission.MissionCommanderAction           `json:"missionCommanderAction"`
 	MissionCommanderNextActions    []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
@@ -195,6 +197,7 @@ func StartPreview(repoRoot, caseRoot, pack string, opt StartOptions) (StartResul
 	brief := startMissionBrief(inst.CaseRoot)
 	authorizedGateAdapterHandoffs := authorizedGateAdapterHandoffsForLane(m.RepoRoot, inst.CaseRoot, m.Pack, lane.ID)
 	reviewerDispatchIntakeHandoffs := reviewerDispatchIntakeHandoffsForLane(inst.CaseRoot, lane.ID)
+	pendingGateHandoffs, openDecisionHandoffs := gateDecisionHandoffsForLane(inst.CaseRoot, lane)
 	executorAction := startExecutorAction(inst.CaseRoot, lane, brief)
 	if strings.HasPrefix(action, "would-create-lane") || strings.Contains(action, "claim-executor") {
 		executorAction.MissionCommanderAction = startApplyCommanderAction(lane, opt, claim)
@@ -216,6 +219,8 @@ func StartPreview(repoRoot, caseRoot, pack string, opt StartOptions) (StartResul
 		AuthorizedGateAdapterHandoffs:  authorizedGateAdapterHandoffs,
 		ReviewerDispatchIntakeHandoffs: reviewerDispatchIntakeHandoffs,
 		ReviewerDispatchIntakeSummary:  ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
+		PendingGateHandoffs:            pendingGateHandoffs,
+		OpenDecisionHandoffs:           openDecisionHandoffs,
 		ExecutorAction:                 executorAction,
 		MissionCommanderAction:         executorAction.MissionCommanderAction,
 		MissionCommanderNextActions:    commanderNextActions,
@@ -290,6 +295,7 @@ func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (result Start
 	brief := startMissionBrief(inst.CaseRoot)
 	authorizedGateAdapterHandoffs := authorizedGateAdapterHandoffsForLane(m.RepoRoot, inst.CaseRoot, m.Pack, lane.ID)
 	reviewerDispatchIntakeHandoffs := reviewerDispatchIntakeHandoffsForLane(inst.CaseRoot, lane.ID)
+	pendingGateHandoffs, openDecisionHandoffs := gateDecisionHandoffsForLane(inst.CaseRoot, lane)
 	executorAction := startExecutorAction(inst.CaseRoot, lane, brief)
 	executorAction = withReviewerDispatchBlocker(executorAction, reviewerDispatchIntakeHandoffs)
 	commanderNextActions := startMissionCommanderNextActions(lane, executorAction)
@@ -310,6 +316,8 @@ func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (result Start
 		AuthorizedGateAdapterHandoffs:  authorizedGateAdapterHandoffs,
 		ReviewerDispatchIntakeHandoffs: reviewerDispatchIntakeHandoffs,
 		ReviewerDispatchIntakeSummary:  ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
+		PendingGateHandoffs:            pendingGateHandoffs,
+		OpenDecisionHandoffs:           openDecisionHandoffs,
 		ExecutorAction:                 executorAction,
 		MissionCommanderAction:         executorAction.MissionCommanderAction,
 		MissionCommanderNextActions:    commanderNextActions,

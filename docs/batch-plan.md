@@ -16,6 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 587：start/reconcile pending gate / open decision handoff closure
+
+状态：实现与 focused product-path coverage 已完成，完整本地 release minimum、implementation commit/push 与 remote release-gate inspection 待执行。本批延续 Batch 585–586 的 replacement executor 接手闭环：新会话常先运行 `start <lane> -Apply -Executor ...` 登记/接管 durable lane，或在 `reconcile <lane> -Apply` 清除 open intervention 后回到 lane；过去若该 lane 仍有 pending gate/open decision blocker，结果只给 executor blocker counts / generic next action，缺少 concrete gate/note handoff，替换执行体仍需切回 status/handoff 才能拿到下一步命令。
+
+目标：让 `start -WhatIf/-Apply` 与 `reconcile -WhatIf/-Apply` 复用 blocked continue 的 workstream-level gate/decision handoff builder，在 JSON/text 第一屏直接输出 `pendingGateHandoffs[]` / `openDecisionHandoffs[]`、case-local gate/note WhatIf/Apply/record command、decision/continue boundary 与 evidence；owner takeover 与 reconcile 既有写入语义不变。
+
+已实现内容：
+
+- `StartResult` 与 `ReconcileResult` 新增 `pendingGateHandoffs[]` / `openDecisionHandoffs[]`，并由共享 `gateDecisionHandoffsForLane` / `gateDecisionHandoffs` 从 lane facts 生成，避免 start/reconcile 复制 command/boundary 构造逻辑。
+- `start -WhatIf/-Apply` 在创建/进入/接管已有 lane 后直接投影当前 lane-local pending gate / open decision handoff；replacement executor 用 `-Executor` takeover 后可在同一结果里看到新的 owner-bound continue command 和剩余 gate/decision handoff。
+- `reconcile -WhatIf/-Apply` 在 intervention resolution 结果里同样投影剩余 pending gate / open decision handoff；若 intervention 已清除但 lane 仍 blocked，Mission Commander action queue 会停在 gate/decision handoff，而不是建议继续 lane。
+- CLI text writer 复用 continue handoff 输出并支持 `start` / `reconcile` / `continue` prefix，terminal 第一屏能区分来源并显示 `start pending gate handoff`、`start open decision handoff`、`reconcile pending gate handoff` 与 `reconcile open decision handoff`。
+- CLI product-path coverage 覆盖已有 blocked lane 的 start preview/apply JSON/text handoff，以及 reconcile apply 清除 intervention 后剩余 pending gate/open candidate 时的 JSON/text handoff与不推荐 continue 行为。
+
+边界：本批只增强 start/reconcile 结果的只读 handoff projection；`start -Apply` 仍只写 case-local lane/board/resume/checkpoint/executor metadata，`reconcile -Apply` 仍只写 intervention resolution、lane events、lane.json、board、RESUME/checkpoint；gate Apply 只重放/记录 request decision，decision note record 只追加 case-local decision ledger state；不写 authority/confirmed、不执行 heavy tool、不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/workstream ./internal/rekit/cli -run "TestRunStartProjectsExecutorActionForExistingLaneBlockers|TestRunReconcileApplyProjectsGateDecisionHandoffsAfterInterventionResolution|TestRunReconcileApplyReplaysExistingResolutionToRefreshDurableState|TestRunContinueBlocks(PendingGate|OpenDecision)BeforeWrites" -count=1` 已通过；完整本地 release minimum、implementation commit/push 与 remote inspection 待执行。
+
 ### Batch 586：blocked continue pending gate / open decision handoff closure
 
 状态：已完成 runtime、CLI product-path coverage、入口文档更新、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `7e36786` 已推送。implementation run `30152274807` completed failure，Windows/macOS/Linux jobs `89664563778`/`89664563793`/`89664563853` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。本批延续 Batch 581–585 的 Mission Commander blocker 接手闭环：replacement executor 最常直接运行 `continue <lane>`，但 pending gate 或 open candidate/decision 仍可能让 `continue -Apply` 创建 run、写 facts、刷新 lane/board/RESUME/checkpoint，迫使主 Agent从 status/overview/handoff 另行回查 gate 或 decision handoff。

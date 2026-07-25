@@ -4949,6 +4949,12 @@ func writeStartText(out io.Writer, result workstream.StartResult) error {
 		if err := writeAuthorizedGateAdapterHandoffText(out, "start", result.AuthorizedGateAdapterHandoffs); err != nil {
 			return err
 		}
+		if err := writeContinuePendingGateHandoffsText(out, "start", result.PendingGateHandoffs); err != nil {
+			return err
+		}
+		if err := writeContinueOpenDecisionHandoffsText(out, "start", result.OpenDecisionHandoffs); err != nil {
+			return err
+		}
 		return writeStartExecutorActionText(out, result)
 	}
 	if _, err := fmt.Fprintf(out, "功能支线已准备：%s\n", result.Lane.ID); err != nil {
@@ -4971,6 +4977,12 @@ func writeStartText(out io.Writer, result workstream.StartResult) error {
 		return err
 	}
 	if err := writeAuthorizedGateAdapterHandoffText(out, "start", result.AuthorizedGateAdapterHandoffs); err != nil {
+		return err
+	}
+	if err := writeContinuePendingGateHandoffsText(out, "start", result.PendingGateHandoffs); err != nil {
+		return err
+	}
+	if err := writeContinueOpenDecisionHandoffsText(out, "start", result.OpenDecisionHandoffs); err != nil {
 		return err
 	}
 	return writeStartExecutorActionText(out, result)
@@ -5492,6 +5504,12 @@ func writeReconcileText(out io.Writer, result workstream.ReconcileResult) error 
 		if err := writeAuthorizedGateAdapterHandoffText(out, "reconcile", result.AuthorizedGateAdapterHandoffs); err != nil {
 			return err
 		}
+		if err := writeContinuePendingGateHandoffsText(out, "reconcile", result.PendingGateHandoffs); err != nil {
+			return err
+		}
+		if err := writeContinueOpenDecisionHandoffsText(out, "reconcile", result.OpenDecisionHandoffs); err != nil {
+			return err
+		}
 		return writeReconcileExecutorActionText(out, result)
 	}
 	if _, err := fmt.Fprintf(out, "已 reconcile intervention：%s\n", result.Intervention.EventID); err != nil {
@@ -5516,6 +5534,12 @@ func writeReconcileText(out io.Writer, result workstream.ReconcileResult) error 
 		return err
 	}
 	if err := writeAuthorizedGateAdapterHandoffText(out, "reconcile", result.AuthorizedGateAdapterHandoffs); err != nil {
+		return err
+	}
+	if err := writeContinuePendingGateHandoffsText(out, "reconcile", result.PendingGateHandoffs); err != nil {
+		return err
+	}
+	if err := writeContinueOpenDecisionHandoffsText(out, "reconcile", result.OpenDecisionHandoffs); err != nil {
 		return err
 	}
 	return writeReconcileExecutorActionText(out, result)
@@ -5565,23 +5589,27 @@ func writeContinueReconcileHandoffsText(out io.Writer, handoffs []workstream.Con
 	return nil
 }
 
-func writeContinuePendingGateHandoffsText(out io.Writer, handoffs []workstream.ContinuePendingGateHandoff) error {
+func writeContinuePendingGateHandoffsText(out io.Writer, prefix string, handoffs []workstream.ContinuePendingGateHandoff) error {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		prefix = "continue"
+	}
 	for _, handoff := range handoffs {
-		if _, err := fmt.Fprintf(out, "continue pending gate handoff：eventId=%s lane=%s subject=%s action=%s target=%s status=%s risk=%s auth=%s profile=%s review=%s whatIf=%s apply=%s\n", handoff.EventID, handoff.Lane, handoff.Subject, handoff.Action, handoff.Target, handoff.Status, handoff.Risk, handoff.Authorization, handoff.Profile, handoff.ReviewCommand, handoff.WhatIfCommand, handoff.ApplyCommand); err != nil {
+		if _, err := fmt.Fprintf(out, "%s pending gate handoff：eventId=%s lane=%s subject=%s action=%s target=%s status=%s risk=%s auth=%s profile=%s review=%s whatIf=%s apply=%s\n", prefix, handoff.EventID, handoff.Lane, handoff.Subject, handoff.Action, handoff.Target, handoff.Status, handoff.Risk, handoff.Authorization, handoff.Profile, handoff.ReviewCommand, handoff.WhatIfCommand, handoff.ApplyCommand); err != nil {
 			return err
 		}
 		if strings.TrimSpace(handoff.DecisionBoundary) != "" {
-			if _, err := fmt.Fprintf(out, "continue pending gate decision boundary：eventId=%s boundary=%s\n", handoff.EventID, handoff.DecisionBoundary); err != nil {
+			if _, err := fmt.Fprintf(out, "%s pending gate decision boundary：eventId=%s boundary=%s\n", prefix, handoff.EventID, handoff.DecisionBoundary); err != nil {
 				return err
 			}
 		}
 		if strings.TrimSpace(handoff.ContinueBoundary) != "" {
-			if _, err := fmt.Fprintf(out, "continue pending gate continue boundary：eventId=%s boundary=%s\n", handoff.EventID, handoff.ContinueBoundary); err != nil {
+			if _, err := fmt.Fprintf(out, "%s pending gate continue boundary：eventId=%s boundary=%s\n", prefix, handoff.EventID, handoff.ContinueBoundary); err != nil {
 				return err
 			}
 		}
 		for _, evidence := range handoff.Evidence {
-			if _, err := fmt.Fprintf(out, "continue pending gate evidence：eventId=%s evidence=%s\n", handoff.EventID, evidence); err != nil {
+			if _, err := fmt.Fprintf(out, "%s pending gate evidence：eventId=%s evidence=%s\n", prefix, handoff.EventID, evidence); err != nil {
 				return err
 			}
 		}
@@ -5589,23 +5617,27 @@ func writeContinuePendingGateHandoffsText(out io.Writer, handoffs []workstream.C
 	return nil
 }
 
-func writeContinueOpenDecisionHandoffsText(out io.Writer, handoffs []workstream.ContinueOpenDecisionHandoff) error {
+func writeContinueOpenDecisionHandoffsText(out io.Writer, prefix string, handoffs []workstream.ContinueOpenDecisionHandoff) error {
+	prefix = strings.TrimSpace(prefix)
+	if prefix == "" {
+		prefix = "continue"
+	}
 	for _, handoff := range handoffs {
-		if _, err := fmt.Fprintf(out, "continue open decision handoff：eventId=%s kind=%s lane=%s subject=%s summary=%s decision=%s reason=%s status=%s target=%s confidence=%s sourceKind=%s sourcePath=%s recordPath=%s review=%s sourceCommand=%s whatIf=%s record=%s\n", handoff.EventID, handoff.Kind, handoff.Lane, handoff.Subject, handoff.Summary, handoff.Decision, handoff.Reason, handoff.Status, handoff.Target, handoff.Confidence, handoff.SourceKind, handoff.SourcePath, handoff.RecordPath, handoff.ReviewCommand, handoff.SourceCommand, handoff.WhatIfCommand, handoff.RecordCommand); err != nil {
+		if _, err := fmt.Fprintf(out, "%s open decision handoff：eventId=%s kind=%s lane=%s subject=%s summary=%s decision=%s reason=%s status=%s target=%s confidence=%s sourceKind=%s sourcePath=%s recordPath=%s review=%s sourceCommand=%s whatIf=%s record=%s\n", prefix, handoff.EventID, handoff.Kind, handoff.Lane, handoff.Subject, handoff.Summary, handoff.Decision, handoff.Reason, handoff.Status, handoff.Target, handoff.Confidence, handoff.SourceKind, handoff.SourcePath, handoff.RecordPath, handoff.ReviewCommand, handoff.SourceCommand, handoff.WhatIfCommand, handoff.RecordCommand); err != nil {
 			return err
 		}
 		if strings.TrimSpace(handoff.DecisionBoundary) != "" {
-			if _, err := fmt.Fprintf(out, "continue open decision boundary：eventId=%s boundary=%s\n", handoff.EventID, handoff.DecisionBoundary); err != nil {
+			if _, err := fmt.Fprintf(out, "%s open decision boundary：eventId=%s boundary=%s\n", prefix, handoff.EventID, handoff.DecisionBoundary); err != nil {
 				return err
 			}
 		}
 		if strings.TrimSpace(handoff.ContinueBoundary) != "" {
-			if _, err := fmt.Fprintf(out, "continue open decision continue boundary：eventId=%s boundary=%s\n", handoff.EventID, handoff.ContinueBoundary); err != nil {
+			if _, err := fmt.Fprintf(out, "%s open decision continue boundary：eventId=%s boundary=%s\n", prefix, handoff.EventID, handoff.ContinueBoundary); err != nil {
 				return err
 			}
 		}
 		for _, evidence := range handoff.Evidence {
-			if _, err := fmt.Fprintf(out, "continue open decision evidence：eventId=%s evidence=%s\n", handoff.EventID, evidence); err != nil {
+			if _, err := fmt.Fprintf(out, "%s open decision evidence：eventId=%s evidence=%s\n", prefix, handoff.EventID, evidence); err != nil {
 				return err
 			}
 		}
@@ -5641,10 +5673,10 @@ func writeContinueText(out io.Writer, result workstream.ContinueResult) error {
 		if err := writeContinueReconcileHandoffsText(out, result.ReconcileHandoffs); err != nil {
 			return err
 		}
-		if err := writeContinuePendingGateHandoffsText(out, result.PendingGateHandoffs); err != nil {
+		if err := writeContinuePendingGateHandoffsText(out, "continue", result.PendingGateHandoffs); err != nil {
 			return err
 		}
-		if err := writeContinueOpenDecisionHandoffsText(out, result.OpenDecisionHandoffs); err != nil {
+		if err := writeContinueOpenDecisionHandoffsText(out, "continue", result.OpenDecisionHandoffs); err != nil {
 			return err
 		}
 		if err := writeExecutorNextActionsText(out, result.ExecutorAction); err != nil {
