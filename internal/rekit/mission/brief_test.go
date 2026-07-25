@@ -87,8 +87,8 @@ func TestLaneExecutorActionUsesSharedTypedBlockerProjection(t *testing.T) {
 		t.Fatalf("unexpected executor requirements: %+v", action)
 	}
 	commander := action.MissionCommanderAction
-	if commander.State != "needs-reconcile" || commander.PrimaryCommand != "/rekit reconcile login -InterventionId <eventId> -Apply" || !slices.Contains(commander.FollowUpCommands, "/rekit continue login -WhatIf") || !slices.Contains(commander.Boundary, "do not run continue for blocked lanes") {
-		t.Fatalf("blocked executor should expose Mission Commander reconcile handoff: %+v", commander)
+	if commander.State != "needs-reconcile" || commander.PrimaryCommand != "/rekit reconcile login -InterventionId evt-open -WhatIf" || !slices.Contains(commander.FollowUpCommands, "/rekit reconcile login -InterventionId evt-open -Apply") || !slices.Contains(commander.FollowUpCommands, "/rekit continue login -WhatIf") || !slices.Contains(commander.Boundary, "review reconcile -WhatIf output before running the bounded -Apply follow-up") {
+		t.Fatalf("blocked executor should expose concrete Mission Commander reconcile handoff: %+v", commander)
 	}
 }
 
@@ -143,15 +143,15 @@ func TestMissionCommanderNextActionsIncludeLaneFollowUps(t *testing.T) {
 				BlockerReasons: []string{"intervention"},
 				MissionCommanderAction: MissionCommanderAction{
 					State:            "needs-reconcile",
-					PrimaryCommand:   "/rekit reconcile login -InterventionId <eventId> -Apply",
-					FollowUpCommands: []string{"/rekit continue login -WhatIf", "/rekit handoff login"},
-					Boundary:         []string{"do not run continue for blocked lanes"},
+					PrimaryCommand:   "/rekit reconcile login -InterventionId evt-open -WhatIf",
+					FollowUpCommands: []string{"/rekit reconcile login -InterventionId evt-open -Apply", "/rekit continue login -WhatIf", "/rekit handoff login"},
+					Boundary:         []string{"do not run continue for blocked lanes", "review reconcile -WhatIf output before running the bounded -Apply follow-up"},
 				},
 			},
 		},
 	}, nil, false)
 
-	if len(items) != 5 || items[0].Source != "missionCommanderActions" || items[0].Command != "/rekit continue main" || items[1].Source != "missionCommanderActions" || items[1].Command != "/rekit reconcile login -InterventionId <eventId> -Apply" {
+	if len(items) != 6 || items[0].Source != "missionCommanderActions" || items[0].Command != "/rekit continue main" || items[1].Source != "missionCommanderActions" || items[1].Command != "/rekit reconcile login -InterventionId evt-open -WhatIf" || items[1].Blocked || !items[1].RequiresReview {
 		t.Fatalf("unexpected primary action ordering: %+v", items)
 	}
 	if !slices.ContainsFunc(items, func(item MissionCommanderNextActionItem) bool {
@@ -160,12 +160,17 @@ func TestMissionCommanderNextActionsIncludeLaneFollowUps(t *testing.T) {
 		t.Fatalf("ready lane follow-up handoff missing: %+v", items)
 	}
 	if !slices.ContainsFunc(items, func(item MissionCommanderNextActionItem) bool {
+		return item.Source == "missionCommanderActions.followUp" && item.Command == "/rekit reconcile login -InterventionId evt-open -Apply" && item.Blocked && item.RequiresReview && containsSubstring(item.Reasons, "follow-up is available only after resolving current lane blockers") && containsSubstring(item.Boundary, "bounded -Apply follow-up")
+	}) {
+		t.Fatalf("blocked lane reconcile apply follow-up should remain blocked until preview is reviewed: %+v", items)
+	}
+	if !slices.ContainsFunc(items, func(item MissionCommanderNextActionItem) bool {
 		return item.Source == "missionCommanderActions.followUp" && item.Command == "/rekit continue login -WhatIf" && item.Blocked && item.RequiresReview && containsSubstring(item.Reasons, "run as -WhatIf first") && containsSubstring(item.Boundary, "do not run continue")
 	}) {
 		t.Fatalf("blocked lane continue follow-up should remain blocked with reason/boundary: %+v", items)
 	}
 	queue := MissionCommanderActionQueueFor(items)
-	if queue.Summary != "total=5 unblocked=2 blocked=3 requiresReview=3 followUp=3 current=/rekit continue main" || queue.Counts.Total != 5 || queue.Counts.Unblocked != 2 || queue.Counts.Blocked != 3 || queue.Counts.RequiresReview != 3 || queue.Counts.FollowUp != 3 || queue.CurrentAction == nil || queue.CurrentAction.Command != "/rekit continue main" || len(queue.UnblockedActions) != 2 || len(queue.BlockedActions) != 3 || len(queue.ReviewRequiredActions) != 3 || len(queue.FollowUpActions) != 3 {
+	if queue.Summary != "total=6 unblocked=3 blocked=3 requiresReview=4 followUp=4 current=/rekit continue main" || queue.Counts.Total != 6 || queue.Counts.Unblocked != 3 || queue.Counts.Blocked != 3 || queue.Counts.RequiresReview != 4 || queue.Counts.FollowUp != 4 || queue.CurrentAction == nil || queue.CurrentAction.Command != "/rekit continue main" || len(queue.UnblockedActions) != 3 || len(queue.BlockedActions) != 3 || len(queue.ReviewRequiredActions) != 4 || len(queue.FollowUpActions) != 4 {
 		t.Fatalf("Mission Commander action queue drifted: %+v", queue)
 	}
 }

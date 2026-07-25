@@ -16,6 +16,22 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 581：blocked lane concrete reconcile WhatIf→Apply handoff closure
+
+状态：已完成 runtime、CLI product-path coverage、docs 与完整本地 release minimum；implementation commit/push 与 remote release-gate inspection 待执行。本批延续 Mission Commander operational closure：blocked lane 的 first-screen action 过去在 open intervention 场景给出 `/rekit reconcile <lane> -InterventionId <eventId> -Apply` 占位符或直 Apply，replacement executor 必须先手工回查 ledger 选择 eventId，且第一动作缺少 read-only reconcile preview。
+
+目标：让 `status` / `overview` / `start` / `handoff` / `continue` 的 Mission Commander action queue 在单个 open intervention 且有 concrete `eventId` 时，primary action 直接给出 `/rekit reconcile <lane> -InterventionId <eventId> -WhatIf`；bounded `/rekit reconcile ... -Apply` 仅作为 blocked/review-required follow-up，随后才是 blocked `continue -WhatIf` 与 `handoff`。当存在多个 open intervention 或没有 eventId 时，仍 fail-closed 到 handoff 和 placeholder WhatIf，不猜测 event。
+
+已实现内容：
+
+- Mission `LaneExecutorAction` 现在把 effective open intervention items 传入 Mission Commander action 生成逻辑；单一 concrete intervention 会生成 concrete `-WhatIf` primary、bounded `-Apply` follow-up 与 review boundary。
+- `MissionCommanderNextActions` 对 concrete reconcile `-WhatIf` primary 标记为 unblocked 但 requires review，使 action queue 的 current action 可以先执行只读 preview；`-Apply` / `continue -WhatIf` / `handoff` 仍保持 blocked follow-up。
+- CLI product-path tests 覆盖 overview concrete `int-main-1`、start/handoff/continue concrete `evt-human-stop`、durable handoff / lane RESUME projection，以及 placeholder fail-closed 行为不被误升级。
+
+边界：本批只改变 Mission Commander 可消费 handoff 与 action queue 排序；`reconcile -WhatIf` 仍 read-only，`reconcile -Apply` 只写 bounded intervention resolution / lane state / durable handoff，不写 authority/confirmed、不执行 heavy tool；多 intervention 或缺 eventId 时不猜测；不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/cli -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。remote release-gate inspection 待 implementation commit/push 后执行。
+
 ### Batch 580：authorized adapter report validate→record hash handoff closure
 
 状态：已完成 runtime、CLI、Mission/workstream downstream projection、tests、docs、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `6fbb9f7` 已推送。implementation run `30145529056` completed failure，Linux/Windows/macOS jobs `89646557292`/`89646557332`/`89646557343` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。本批延续 Batch 546–547、568–569：adapter execution report sidecar 已能 scaffold/draft、strict validate 并在 valid 后显式 record bounded observation evidence，但 validate→record 之间 sidecar 仍可能 drift；replacement executor 看到 valid validation envelope 或 downstream record command 后，如果 sidecar 被改写，旧命令缺少 currentness proof，可能把 stale adapter report 记录为 execution observation evidence。
