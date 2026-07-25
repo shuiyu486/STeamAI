@@ -161,6 +161,7 @@ type ReviewerDispatchIntakeHandoff struct {
 	OwnerAdoptionRequired                    bool                              `json:"ownerAdoptionRequired"`
 	OwnerAdoptionPath                        string                            `json:"ownerAdoptionPath,omitempty"`
 	OwnerAdoptionPreviewCommand              string                            `json:"ownerAdoptionPreviewCommand,omitempty"`
+	RunbookSteps                             []string                          `json:"runbookSteps,omitempty"`
 	Evidence                                 []string                          `json:"evidence,omitempty"`
 	Boundary                                 []string                          `json:"boundary,omitempty"`
 }
@@ -223,6 +224,7 @@ type ReviewerDispatchIntakeSummary struct {
 	NextActionBatchPreviewCommand          string   `json:"nextActionBatchPreviewCommand,omitempty"`
 	NextActionBatchApplyCommand            string   `json:"nextActionBatchApplyCommand,omitempty"`
 	NextAction                             string   `json:"nextAction,omitempty"`
+	NextActionRunbookSteps                 []string `json:"nextActionRunbookSteps,omitempty"`
 	Boundary                               []string `json:"boundary,omitempty"`
 }
 
@@ -666,6 +668,7 @@ func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) Rev
 				summary.LatestBatchApplyCommand = nextAction.BatchApplyCommand
 			}
 			summary.NextAction = reviewerDispatchIntakeNextAction(*nextAction)
+			summary.NextActionRunbookSteps = reviewerDispatchIntakeRunbookSteps(*nextAction)
 		}
 		summary.Boundary = reviewerDispatchIntakeSummaryBoundary()
 	}
@@ -1365,6 +1368,7 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 		item.PreviewCommand = ""
 		item.ApplyCommand = ""
 	}
+	item.RunbookSteps = reviewerDispatchIntakeRunbookSteps(item)
 	item.Evidence = reviewerDispatchIntakeEvidence(caseRoot, item)
 	item.Boundary = reviewerDispatchIntakeBoundary(item)
 	return item
@@ -1595,6 +1599,105 @@ func reviewerDispatchIntakeSummaryBoundary() []string {
 	}
 }
 
+func reviewerDispatchIntakeRunbookSteps(item ReviewerDispatchIntakeHandoff) []string {
+	steps := []string{}
+	add := func(step string) {
+		step = strings.TrimSpace(step)
+		if step != "" {
+			steps = append(steps, step)
+		}
+	}
+	add("work from this first-screen handoff; open packet.json only if the command preview asks for full packet details")
+	switch item.State {
+	case "reviewer-packet-owner-adoption-required":
+		add("run owner adoption preview: " + firstText(item.OwnerAdoptionPreviewCommand, "<owner-adoption-WhatIf unavailable>"))
+		add("review adoptedOwner/currentExecutor/currentGeneration and boundary, then rerun the returned or same command with -Apply if it is still current")
+		add("rerun /rekit status or /rekit continue " + firstText(item.TargetLane, "<lane>") + " -WhatIf to resume reviewer dispatch/intake")
+	case "reviewer-packet-integrity-invalid":
+		add("regenerate the canonical reviewer packet and packet.integrity.json together; do not repair packet bytes or integrity metadata independently")
+		add("rerun /rekit status -Format text and use the refreshed reviewer dispatch intake handoff")
+	case "reviewer-dispatch-prompt-artifact-invalid", "reviewer-dispatch-prompt-artifact-drift":
+		add("run prompt artifact repair preview: " + firstText(item.DispatchPromptRepairCommand, "<prompt-artifact-repair-WhatIf unavailable>"))
+		add("if preview is valid and current, run its bounded hash-gated apply command; do not dispatch reviewer while promptSha256 is missing or drifted")
+		add("rerun status or continue to verify promptCurrent=true before dispatching a reviewer")
+	case "reviewer-result-recovery-required":
+		add("run reviewer result recovery preview: " + firstText(item.ReviewerResultRecoveryCommand, "<reviewer-result-recovery-WhatIf unavailable>"))
+		add("review the quarantine/recovery intent, then rerun status to obtain finalize guidance")
+	case "reviewer-result-recovery-finalize-required":
+		add("finalize reviewer result recovery with the hash-bound apply command: " + firstText(item.ReviewerResultRecoveryApplyCommand, "<reviewer-result-recovery-Apply unavailable>"))
+		add("rerun status or continue and proceed to collection/intake only after recovery is recorded")
+	case "reviewer-result-recovery-invalid":
+		add("repair or regenerate the strict reviewer result recovery intent before collection or intake")
+		add("rerun reviewer result recovery -WhatIf after the invalid recovery artifact is removed or corrected")
+	case "reviewer-result-recovery-ambiguous":
+		add("review the canonical reviewer result and quarantine intent; if they are the same intended result, run disposition preview: " + firstText(item.ReviewerResultRecoveryDispositionCommand, "<reviewer-result-recovery-disposition-WhatIf unavailable>"))
+		add("run only the bounded disposition apply returned by preview; do not overwrite canonical reviewer results manually")
+	case "ready-for-reviewer-result-staging-preview":
+		add("reviewer result source is ready at " + firstText(item.ReviewerResultSourcePath, "<reviewer-result-source-path>"))
+		add("run staging preview: " + firstText(item.ReviewerResultStagingCommand, "<reviewer-result-staging-WhatIf unavailable>"))
+		add("if preview reports the expected source hash, rerun the returned command with -ExpectedSourceSha256 and -Apply to publish the packet-derived candidate")
+		if item.ReviewerResultCollectionCommands != nil {
+			add("then run collection preview before apply: " + item.ReviewerResultCollectionCommands.PreviewCommand)
+		}
+	case "ready-for-reviewer-result-collection-preview":
+		if item.ReviewerResultCollectionCommands != nil {
+			add("run reviewer result collection preview: " + item.ReviewerResultCollectionCommands.PreviewCommand)
+			add("if candidate bytes match the packet-derived result, run collection apply: " + item.ReviewerResultCollectionCommands.ApplyCommand)
+		} else {
+			add("run reviewer result collection -WhatIf for " + item.ShardID + " before reviewer intake")
+		}
+		add("rerun status or continue; next handoff should become ready-for-reviewer-intake-preview")
+	case "ready-for-reviewer-intake-preview":
+		add("run reviewer intake preview: " + firstText(item.BatchPreviewCommand, item.PreviewCommand, "<reviewer-intake-WhatIf unavailable>"))
+		add("inspect verification, decision, postValidation, and action queue from preview; do not hand-write reviewer ledger events")
+		add("if preview remains valid, run the bounded apply command: " + firstText(item.BatchApplyCommand, item.ApplyCommand, "<reviewer-intake-Apply unavailable>"))
+	case "attach-required-before-reviewer-intake":
+		add("attach or init the target as a rekit case before reviewer intake writeback")
+		add("rerun status after attach and use the refreshed reviewer dispatch intake handoff")
+	case "reviewer-result-symlink-blocked":
+		if item.ReviewerResultRecoveryCommand != "" {
+			add("run reviewer result recovery preview: " + item.ReviewerResultRecoveryCommand)
+		} else {
+			add("replace reviewer result symlink with a regular non-empty reviewer JSON file at " + firstText(item.ReviewerResultPath, "<reviewer-result-path>"))
+		}
+		add("rerun status before any reviewer intake apply")
+	case "reviewer-result-canonical-invalid":
+		if item.ReviewerResultRecoveryCommand != "" {
+			add("run reviewer result recovery preview: " + item.ReviewerResultRecoveryCommand)
+		} else {
+			add("repair the canonical reviewer result so it is a non-empty regular file at " + firstText(item.ReviewerResultPath, "<reviewer-result-path>"))
+		}
+		add("rerun status before collection or intake")
+	case "reviewer-result-source-invalid":
+		add("replace the invalid reviewer result source with exactly one reviewer JSON object at " + firstText(item.ReviewerResultSourcePath, "<reviewer-result-source-path>"))
+		add("rerun staging preview: " + firstText(item.ReviewerResultStagingCommand, "<reviewer-result-staging-WhatIf unavailable>"))
+	case "reviewer-result-candidate-invalid":
+		add("remove or replace the invalid packet-derived reviewer result candidate at " + firstText(item.ReviewerResultCandidatePath, "<reviewer-result-candidate-path>"))
+		if item.ReviewerResultCollectionCommands != nil {
+			add("rerun collection preview only after staging republishes a valid candidate: " + item.ReviewerResultCollectionCommands.PreviewCommand)
+		}
+	case "reviewer-result-collection-required":
+		add("publish the packet-derived candidate through staging and collection before reviewer intake")
+		if item.ReviewerResultStagingCommand != "" {
+			add("staging preview: " + item.ReviewerResultStagingCommand)
+		}
+		if item.ReviewerResultCollectionCommands != nil {
+			add("collection preview: " + item.ReviewerResultCollectionCommands.PreviewCommand)
+		}
+	default:
+		if command := strings.TrimSpace(item.DispatchCommand); command != "" {
+			add(command)
+		} else {
+			add("collect read-only reviewer JSON for " + item.ShardID + " at " + firstText(item.ReviewerResultPath, "<reviewer-result-path>"))
+		}
+		if item.ReviewerResultStagingCommand != "" {
+			add("after saving reviewer JSON, run staging preview: " + item.ReviewerResultStagingCommand)
+		}
+	}
+	add("do not continue the lane until reviewer dispatch/intake handoff total is zero or the current packet action is resolved")
+	return mission.UniqueStrings(steps)
+}
+
 func reviewerDispatchIntakeNextAction(item ReviewerDispatchIntakeHandoff) string {
 	switch item.State {
 	case "reviewer-packet-owner-adoption-required":
@@ -1732,6 +1835,9 @@ func appendReviewerDispatchIntakeHandoff(lines []string, items []ReviewerDispatc
 		if item.ReviewerResultCollectionCommands != nil {
 			lines = append(lines, fmt.Sprintf("  - collection: preview=`%s` apply=`%s`", item.ReviewerResultCollectionCommands.PreviewCommand, item.ReviewerResultCollectionCommands.ApplyCommand))
 		}
+		for idx, step := range mission.LimitStrings(item.RunbookSteps, maxHandoffRows) {
+			lines = append(lines, fmt.Sprintf("  - runbook step %d: %s", idx+1, step))
+		}
 		for _, evidence := range mission.LimitStrings(item.Evidence, maxHandoffRows) {
 			lines = append(lines, "  - evidence: "+evidence)
 		}
@@ -1763,6 +1869,9 @@ func WriteReviewerDispatchIntakeHandoffSection(out *bytes.Buffer, title string, 
 		}
 		if item.ReviewerResultCollectionCommands != nil {
 			fmt.Fprintf(out, "  - collection: preview=`%s` apply=`%s`\n", item.ReviewerResultCollectionCommands.PreviewCommand, item.ReviewerResultCollectionCommands.ApplyCommand)
+		}
+		for idx, step := range mission.LimitStrings(item.RunbookSteps, maxHandoffRows) {
+			fmt.Fprintf(out, "  - runbook step %d: %s\n", idx+1, step)
 		}
 		for _, evidence := range item.Evidence {
 			fmt.Fprintf(out, "  - evidence: %s\n", evidence)

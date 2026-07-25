@@ -122,6 +122,50 @@ func TestReviewerDispatchIntakeSummaryPrefersReadyPacketBatchCommand(t *testing.
 	}
 }
 
+func TestReviewerDispatchIntakeRunbookStepsCoverReviewerLifecycle(t *testing.T) {
+	collectionCommands := &ReviewerResultCollectionCommands{PreviewCommand: "collect-preview", ApplyCommand: "collect-apply"}
+	for _, tc := range []struct {
+		name  string
+		item  ReviewerDispatchIntakeHandoff
+		wants []string
+	}{
+		{
+			name:  "waiting dispatch",
+			item:  ReviewerDispatchIntakeHandoff{State: "waiting-for-reviewer-result", ShardID: "shard-01", TargetLane: "feature-review", ReviewerResultPath: "results/shard-01.json", ReviewerResultSourcePath: "results/sources/shard-01.json", ReviewerResultStagingCommand: "stage-preview", DispatchCommand: "dispatch read-only reviewer for shard-01"},
+			wants: []string{"dispatch read-only reviewer for shard-01", "after saving reviewer JSON, run staging preview: stage-preview", "do not continue the lane"},
+		},
+		{
+			name:  "staging ready",
+			item:  ReviewerDispatchIntakeHandoff{State: "ready-for-reviewer-result-staging-preview", ShardID: "shard-01", ReviewerResultSourcePath: "results/sources/shard-01.json", ReviewerResultStagingCommand: "stage-preview", ReviewerResultCollectionCommands: collectionCommands},
+			wants: []string{"reviewer result source is ready", "run staging preview: stage-preview", "-ExpectedSourceSha256", "collection preview before apply: collect-preview"},
+		},
+		{
+			name:  "collection ready",
+			item:  ReviewerDispatchIntakeHandoff{State: "ready-for-reviewer-result-collection-preview", ShardID: "shard-01", ReviewerResultCollectionCommands: collectionCommands},
+			wants: []string{"run reviewer result collection preview: collect-preview", "run collection apply: collect-apply", "ready-for-reviewer-intake-preview"},
+		},
+		{
+			name:  "intake ready",
+			item:  ReviewerDispatchIntakeHandoff{State: "ready-for-reviewer-intake-preview", ShardID: "shard-01", PreviewCommand: "single-preview", ApplyCommand: "single-apply", BatchPreviewCommand: "batch-preview", BatchApplyCommand: "batch-apply"},
+			wants: []string{"run reviewer intake preview: batch-preview", "inspect verification, decision, postValidation", "bounded apply command: batch-apply"},
+		},
+		{
+			name:  "owner adoption",
+			item:  ReviewerDispatchIntakeHandoff{State: "reviewer-packet-owner-adoption-required", ShardID: "shard-01", TargetLane: "feature-review", OwnerAdoptionPreviewCommand: "adopt-preview"},
+			wants: []string{"owner adoption preview: adopt-preview", "review adoptedOwner/currentExecutor/currentGeneration", "/rekit continue feature-review -WhatIf"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			steps := reviewerDispatchIntakeRunbookSteps(tc.item)
+			for _, want := range tc.wants {
+				if !slices.ContainsFunc(steps, func(step string) bool { return strings.Contains(step, want) }) {
+					t.Fatalf("runbook steps missing %q: %+v", want, steps)
+				}
+			}
+		})
+	}
+}
+
 func TestReviewerDispatchIntakeSummaryProjectsWaitingNextAction(t *testing.T) {
 	items := []ReviewerDispatchIntakeHandoff{
 		{
@@ -150,7 +194,9 @@ func TestReviewerDispatchIntakeSummaryProjectsWaitingNextAction(t *testing.T) {
 	}
 
 	summary := ReviewerDispatchIntakeSummaryFor(items)
-	if summary.WaitingForReviewerResult != 2 || summary.LatestShardID != "shard-02" || summary.NextActionShardID != "shard-01" || summary.NextActionState != "waiting-for-reviewer-result" || summary.NextActionReviewerResultSourcePath != "results/sources/shard-01.json" || summary.NextActionReviewerResultCandidatePath != "results/candidates/shard-01.json" || !strings.Contains(summary.NextActionReviewerResultStagingCommand, "-StageReviewerResult") || !strings.Contains(summary.NextAction, "dispatch read-only reviewer for shard-01") {
+	if summary.WaitingForReviewerResult != 2 || summary.LatestShardID != "shard-02" || summary.NextActionShardID != "shard-01" || summary.NextActionState != "waiting-for-reviewer-result" || summary.NextActionReviewerResultSourcePath != "results/sources/shard-01.json" || summary.NextActionReviewerResultCandidatePath != "results/candidates/shard-01.json" || !strings.Contains(summary.NextActionReviewerResultStagingCommand, "-StageReviewerResult") || !strings.Contains(summary.NextAction, "dispatch read-only reviewer for shard-01") || !slices.ContainsFunc(summary.NextActionRunbookSteps, func(step string) bool {
+		return strings.Contains(step, "after saving reviewer JSON, run staging preview")
+	}) {
 		t.Fatalf("summary did not project first waiting next action separate from latest shard: %+v", summary)
 	}
 }

@@ -16,6 +16,22 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 590：reviewer dispatch/intake first-screen runbook closure
+
+状态：已完成 runtime handoff 派生字段、CLI/product-path text 输出、入口文档更新、focused tests 与完整本地 release minimum；implementation commit/push 与 release inspection 待执行。
+
+目标：补齐 reviewer orchestration E2E residual：当 replacement executor 从 status/handoff/continue、lane `RESUME.md`、checkpoint 或 digest 接手 open reviewer packet 时，不需要打开完整 `packet.json`、`summary.md` 或 nested dispatch JSON，也能知道当前 shard 的下一步最小操作序列。open `reviewerDispatchIntakeHandoffs[]` 应提供 per-shard `runbookSteps[]`，compact `reviewerDispatchIntakeSummary` 应提供当前 `nextActionRunbookSteps[]`，覆盖 waiting、staging-ready、collection-ready、intake-ready、owner adoption、prompt repair 与 result recovery 等状态。
+
+已实现内容：
+
+- `ReviewerDispatchIntakeHandoff` 新增派生 `runbookSteps[]`，`ReviewerDispatchIntakeSummary` 新增 `nextActionRunbookSteps[]`；二者只从既有 packet/handoff paths、commands、state 与 boundary 生成，不改变 packet schema 或 reviewer intake writeback 语义。
+- reviewer runbook 按状态输出 dispatch/save JSON、staging WhatIf→expected-source-hash Apply、collection WhatIf→Apply、batch/single intake WhatIf→Apply，以及 owner adoption、prompt artifact repair、result recovery / disposition / invalid source/candidate 的 fail-closed repair sequence。
+- status/continue text、project/lane handoff Markdown、lane `RESUME.md`、typed checkpoint 与 continue digest 通过既有 handoff envelope 投影 summary next-action runbook 与 per-shard runbook，使 first-screen 和 durable artifact 均可接续。
+
+边界：本批只增强 reviewer dispatch/intake handoff 的只读 projection；不自动 spawn、stop、poll 或 monitor reviewer；不执行 heavy tool；不写 authority/confirmed；不改变 `plan-subagents` packet schema、reviewer result contract、collection/recovery/intake writeback 语义或 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/workstream ./internal/rekit/cli -run "TestReviewerDispatchIntakeRunbookStepsCoverReviewerLifecycle|TestReviewerDispatchIntakeSummaryProjectsWaitingNextAction|TestRunInstalledCaseShimProductPathStatusAndRefresh" -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 与 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File rekit/tests/facade-smoke.ps1 -Pack _template` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。
+
 ### Batch 589：note WhatIf hash-bound record currentness closure
 
 状态：已完成 runtime、CLI product-path handoff、retained façade 参数透传、入口文档更新、focused tests、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `d9dbe05` 已推送。implementation run `30155766789` completed failure，macOS/Linux/Windows jobs `89673348320`/`89673348342`/`89673348344` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。本批承接 Batch 588 的 open-candidate decision closure：handoff 已推荐先写 `note -Kind decision -Related <candidateEventId>`，但主 Agent 若先预览再手动 record，旧路径只复制裸 note command，`createdAt`、`eventId` 或 decision 参数 drift 会导致写入的事实不等于已复核的 preview。

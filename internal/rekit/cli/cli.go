@@ -5216,6 +5216,11 @@ func writeReviewerDispatchIntakeHandoffText(out io.Writer, prefix string, items 
 				return err
 			}
 		}
+		for idx, step := range summary.NextActionRunbookSteps {
+			if _, err := fmt.Fprintf(out, "%s reviewer dispatch next action runbook：shard=%s step=%d text=%s\n", prefix, summary.NextActionShardID, idx+1, step); err != nil {
+				return err
+			}
+		}
 	}
 	if strings.TrimSpace(summary.LatestBatchPreviewCommand) != "" {
 		if _, err := fmt.Fprintf(out, "%s reviewer dispatch batch intake：preview=`%s` apply=`%s`\n", prefix, summary.LatestBatchPreviewCommand, summary.LatestBatchApplyCommand); err != nil {
@@ -5253,6 +5258,11 @@ func writeReviewerDispatchIntakeHandoffText(out io.Writer, prefix string, items 
 		}
 		if item.ReviewerResultCollectionCommands != nil {
 			if _, err := fmt.Fprintf(out, "%s reviewer result collection：shard=%s candidate=%s state=%s preview=`%s` apply=`%s`\n", prefix, item.ShardID, item.ReviewerResultCandidatePath, item.ReviewerResultCandidateState, item.ReviewerResultCollectionCommands.PreviewCommand, item.ReviewerResultCollectionCommands.ApplyCommand); err != nil {
+				return err
+			}
+		}
+		for idx, step := range item.RunbookSteps {
+			if _, err := fmt.Fprintf(out, "%s reviewer dispatch intake runbook：shard=%s step=%d text=%s\n", prefix, item.ShardID, idx+1, step); err != nil {
 				return err
 			}
 		}

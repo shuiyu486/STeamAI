@@ -2708,8 +2708,26 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &continueApply); err != nil {
 		t.Fatalf("installed entrypoint continue apply stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if continueApply.RunID != "run-preview" || continueApply.Applied || !continueApply.Blocked || continueApply.ReviewerWritebackSummary.Total != 2 || continueApply.ReviewerWritebackSummary.LatestShardID != "shard-01" || continueApply.ReviewerDispatchIntakeSummary.Total != 1 || continueApply.ReviewerDispatchIntakeSummary.LatestShardID != "shard-02" || len(continueApply.Writes) != 0 {
+	if continueApply.RunID != "run-preview" || continueApply.Applied || !continueApply.Blocked || continueApply.ReviewerWritebackSummary.Total != 2 || continueApply.ReviewerWritebackSummary.LatestShardID != "shard-01" || continueApply.ReviewerDispatchIntakeSummary.Total != 1 || continueApply.ReviewerDispatchIntakeSummary.LatestShardID != "shard-02" || len(continueApply.Writes) != 0 || !containsSubstring(continueApply.ReviewerDispatchIntakeSummary.NextActionRunbookSteps, "dispatch read-only reviewer") || !containsSubstring(continueApply.ReviewerDispatchIntakeSummary.NextActionRunbookSteps, "after saving reviewer JSON, run staging preview") {
 		t.Fatalf("installed entrypoint continue apply did not fail closed on remaining reviewer work: %+v", continueApply)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"status case mission reviewer dispatch intake summary：total=1", "status case mission reviewer dispatch next action runbook：shard=shard-02", "dispatch read-only reviewer", "after saving reviewer JSON, run staging preview"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("installed entrypoint status reviewer runbook text missing %q:\n%s", expected, out.String())
+		}
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "-Apply", "login", "-Executor", "installed-session", "-ExpectedExecutorGeneration", "1", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"continue reviewer dispatch intake summary：total=1", "continue reviewer dispatch next action runbook：shard=shard-02", "dispatch read-only reviewer", "after saving reviewer JSON, run staging preview", "continue reviewer dispatch intake runbook：shard=shard-02"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("installed entrypoint continue reviewer runbook text missing %q:\n%s", expected, out.String())
+		}
 	}
 
 	lastHandoff := packet.ShardHandoffs[1]
@@ -13027,6 +13045,7 @@ type reviewerDispatchIntakeCLIItem struct {
 	OwnerExecutor                    string   `json:"ownerExecutor"`
 	OwnerGeneration                  int      `json:"ownerGeneration"`
 	OwnerBindingMode                 string   `json:"ownerBindingMode"`
+	RunbookSteps                     []string `json:"runbookSteps"`
 	Evidence                         []string `json:"evidence"`
 	Boundary                         []string `json:"boundary"`
 }
@@ -13087,6 +13106,7 @@ type reviewerDispatchIntakeSummaryCLIItem struct {
 	NextActionBatchPreviewCommand          string   `json:"nextActionBatchPreviewCommand"`
 	NextActionBatchApplyCommand            string   `json:"nextActionBatchApplyCommand"`
 	NextAction                             string   `json:"nextAction"`
+	NextActionRunbookSteps                 []string `json:"nextActionRunbookSteps"`
 	Boundary                               []string `json:"boundary"`
 }
 
