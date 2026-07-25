@@ -189,7 +189,7 @@ type AdapterExecutionReportScaffold struct {
 	RequiresConfirmation        bool                                     `json:"requiresConfirmation"`
 	SidecarTemplate             AdapterReportSidecarTemplate             `json:"sidecarTemplate"`
 	ValidateCommand             string                                   `json:"validateCommand"`
-	RecordCommand               string                                   `json:"recordCommand"`
+	RecordCommand               string                                   `json:"recordCommand,omitempty"`
 	ApplyCommand                string                                   `json:"applyCommand,omitempty"`
 	Boundary                    []string                                 `json:"boundary,omitempty"`
 	NextSteps                   []string                                 `json:"nextSteps,omitempty"`
@@ -216,7 +216,7 @@ type AdapterExecutionReportDraft struct {
 	RequiresConfirmation        bool                                     `json:"requiresConfirmation"`
 	Report                      AdapterReport                            `json:"report"`
 	ValidateCommand             string                                   `json:"validateCommand"`
-	RecordCommand               string                                   `json:"recordCommand"`
+	RecordCommand               string                                   `json:"recordCommand,omitempty"`
 	ApplyCommand                string                                   `json:"applyCommand,omitempty"`
 	Boundary                    []string                                 `json:"boundary,omitempty"`
 	NextSteps                   []string                                 `json:"nextSteps,omitempty"`
@@ -232,7 +232,7 @@ type AdapterReportLiveValidation struct {
 	CaseRelativeReportPath           string                       `json:"caseRelativeReportPath,omitempty"`
 	SidecarTemplate                  AdapterReportSidecarTemplate `json:"sidecarTemplate"`
 	ValidateCommand                  string                       `json:"validateCommand"`
-	RecordCommand                    string                       `json:"recordCommand"`
+	RecordCommand                    string                       `json:"recordCommand,omitempty"`
 	ScaffoldCommand                  string                       `json:"scaffoldCommand,omitempty"`
 	ScaffoldApplyCommand             string                       `json:"scaffoldApplyCommand,omitempty"`
 	SidecarTemplateSHA256            string                       `json:"sidecarTemplateSha256,omitempty"`
@@ -240,7 +240,7 @@ type AdapterReportLiveValidation struct {
 	DraftApplyCommand                string                       `json:"draftApplyCommand,omitempty"`
 	DraftReportSHA256                string                       `json:"draftReportSha256,omitempty"`
 	ValidateArgs                     []string                     `json:"validateArgs"`
-	RecordArgs                       []string                     `json:"recordArgs"`
+	RecordArgs                       []string                     `json:"recordArgs,omitempty"`
 	ScaffoldArgs                     []string                     `json:"scaffoldArgs,omitempty"`
 	ScaffoldApplyArgs                []string                     `json:"scaffoldApplyArgs,omitempty"`
 	DraftArgs                        []string                     `json:"draftArgs,omitempty"`
@@ -847,7 +847,6 @@ func adapterReportHandoffSummary(gateEvent EventPreview, state, reportPath, repo
 
 func authorizedExecutionFollowThrough(gateEvent EventPreview, state, reportPath string, commander mission.MissionCommanderAction, items []mission.MissionCommanderNextActionItem, hints []AdapterReportRepairHint, valid, duplicate bool) AuthorizedExecutionFollowThrough {
 	reportPath = strings.TrimSpace(reportPath)
-	recordCommand := authorizedExecutionRecordCommand(commander, items)
 	if reportPath == "" && (state == "needs-adapter-report-validation" || (!valid && !duplicate)) {
 		reportPath = adapterReportDefaultPath(gateEvent.Gate.OutputPaths)
 	}
@@ -859,6 +858,7 @@ func authorizedExecutionFollowThrough(gateEvent EventPreview, state, reportPath 
 			"authorizedExecutionFollowThrough is guidance only; /rekit does not execute the heavy tool",
 			"validation is read-only and must return valid=true before evidence record",
 			"record command writes bounded observation evidence only",
+			"pre-validation contract/scaffold/draft handoffs do not provide runnable bare record Apply; use validation/status returned -ExpectedExecutionReportSha256 after valid=true",
 			"do not write authority/confirmed",
 		},
 	}
@@ -876,15 +876,13 @@ func authorizedExecutionFollowThrough(gateEvent EventPreview, state, reportPath 
 				Boundary:             []string{"sidecar refs stay under authorized outputPaths", "validation is read-only"},
 			},
 			AuthorizedExecutionOutcome{
-				Name:                 "valid-report-record",
-				State:                "ready-to-record-evidence",
-				When:                 "validation returns valid=true for the bounded sidecar",
-				Command:              recordCommand,
-				Actions:              []string{"replace <executor-id> in the record command", "record bounded observation evidence", "handoff to Mission Commander evidence review"},
-				VerificationCommands: []string{recordCommand},
-				Expected:             "validated sidecar becomes bounded observation evidence with adapter report provenance",
-				Evidence:             []string{"valid=true validation envelope", "observation evidence row", "executionEvidenceReview handoff"},
-				Boundary:             []string{"record only after valid=true", "do not replay heavy tool", "do not write authority/confirmed"},
+				Name:     "valid-report-record",
+				State:    "ready-to-record-evidence",
+				When:     "validation returns valid=true for the bounded sidecar",
+				Actions:  []string{"use the hash-bound record command returned by validation/status", "replace <executor-id> in the record command", "record bounded observation evidence", "handoff to Mission Commander evidence review"},
+				Expected: "validated sidecar becomes bounded observation evidence with adapter report provenance",
+				Evidence: []string{"valid=true validation envelope", "observation evidence row", "executionEvidenceReview handoff"},
+				Boundary: []string{"record only after valid=true", "require validation/status returned -ExpectedExecutionReportSha256", "do not replay heavy tool", "do not write authority/confirmed"},
 			},
 			AuthorizedExecutionOutcome{
 				Name:     "invalid-report-repair",
@@ -959,20 +957,6 @@ func authorizedExecutionFollowThrough(gateEvent EventPreview, state, reportPath 
 	}
 	follow.ActionQueue = mission.MissionCommanderActionQueueFor(items)
 	return follow
-}
-
-func authorizedExecutionRecordCommand(commander mission.MissionCommanderAction, items []mission.MissionCommanderNextActionItem) string {
-	for _, item := range items {
-		if strings.Contains(item.Command, " -Apply ") || strings.Contains(item.Command, " -Apply") {
-			return item.Command
-		}
-	}
-	for _, command := range commander.FollowUpCommands {
-		if strings.Contains(command, " -Apply ") || strings.Contains(command, " -Apply") {
-			return command
-		}
-	}
-	return ""
 }
 
 type ApplyResult struct {
@@ -1687,16 +1671,14 @@ func adapterReportContractCommanderAction(event EventPreview, pack string, liveV
 		reportPath = "<reportPath-under-authorized-outputPath>"
 	}
 	validateCommand := adapterReportValidateSlashCommand(pack, event.EventID, reportPath)
-	recordCommand := adapterReportRecordSlashCommand(pack, event.EventID, reportPath)
 	return mission.MissionCommanderAction{
 		State:          "needs-adapter-report-validation",
-		Prompt:         fmt.Sprintf("按 authorized gate `%s` 接手：先让 executor/tool adapter 在授权 outputPath 写 bounded sidecar，再用 read-only validation 预检；valid=true 后才 record observation evidence。", event.EventID),
+		Prompt:         fmt.Sprintf("按 authorized gate `%s` 接手：先让 executor/tool adapter 在授权 outputPath 写 bounded sidecar，再用 read-only validation 预检；valid=true 后只能使用 validation/status 返回的 hash-bound record command 记录 observation evidence。", event.EventID),
 		PrimaryCommand: validateCommand,
 		FollowUpCommands: []string{
-			recordCommand,
 			"/rekit handoff " + mission.BoardLaneLabel(mission.BoardLane{ID: event.Lane}),
 		},
-		Boundary: adapterReportCommanderBoundary(),
+		Boundary: append(adapterReportCommanderBoundary(), "contract handoff does not provide a runnable record Apply; use validation/status returned -ExpectedExecutionReportSha256 after valid=true"),
 	}
 }
 
@@ -1820,7 +1802,7 @@ func adapterReportContractNextSteps(pack string, event EventPreview, liveValidat
 	return []string{
 		"adapter writes bounded report under authorized output path: " + reportPath,
 		"preflight read-only: " + adapterReportValidateSlashCommand(pack, event.EventID, reportPath),
-		"after valid=true record observation evidence: " + adapterReportRecordSlashCommand(pack, event.EventID, reportPath),
+		"after valid=true, use the validation/status returned hash-bound record command with -ExpectedExecutionReportSha256; do not run a contract-stage bare record template",
 		"replace <executor-id> before record; /rekit records evidence only and never executes the heavy tool",
 		"review refs before any authority/confirmed outcome",
 	}
@@ -1876,10 +1858,6 @@ func adapterReportRepairState(hints []AdapterReportRepairHint) string {
 
 func adapterReportValidateSlashCommand(pack, gateEventID, reportPath string) string {
 	return adapterReportSlashCommand([]string{"gate", "-Pack", pack, "-GateEventId", gateEventID, "-ValidateExecutionReport", "-ExecutionReportPath", reportPath, "-Format", "json"})
-}
-
-func adapterReportRecordSlashCommand(pack, gateEventID, reportPath string) string {
-	return adapterReportRecordSlashCommandWithExpectedHash(pack, gateEventID, reportPath, "")
 }
 
 func adapterReportRecordSlashCommandWithExpectedHash(pack, gateEventID, reportPath, reportSHA256 string) string {
@@ -1946,7 +1924,6 @@ func adapterReportLiveValidation(m *manifest.Manifest, pack string, event EventP
 	templateData, _ := adapterReportScaffoldBytes(template)
 	templateSHA256 := sha256HexBytes(templateData)
 	validateArgs := []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-ValidateExecutionReport", "-ExecutionReportPath", reportFileName, "-Format", "json"}
-	recordArgs := []string{"-Command", "gate", "-Pack", pack, "-Apply", "-GateEventId", event.EventID, "-ExecutionReportPath", reportFileName, "-Actor", "<executor-id>", "-Format", "json"}
 	scaffoldArgs := []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-ScaffoldExecutionReport", "-ExecutionReportPath", reportFileName, "-Format", "json"}
 	scaffoldApplyArgs := []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-ScaffoldExecutionReport", "-ExecutionReportPath", reportFileName, "-ExpectedExecutionReportSha256", templateSHA256, "-Apply", "-Format", "json"}
 	draftArgs := []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-DraftExecutionReport", "-ExecutionReportPath", reportFileName, "-AdapterId", template.AdapterID, "-ExecutionStatus", "<status>", "-Summary", "<bounded-summary>", "-Format", "json"}
@@ -1958,20 +1935,17 @@ func adapterReportLiveValidation(m *manifest.Manifest, pack string, event EventP
 	caseRelativeDraftArgs := []string{}
 	caseRelativeDraftApplyArgs := []string{}
 	caseRelativeValidateCommand := ""
-	caseRelativeRecordCommand := ""
 	caseRelativeScaffoldCommand := ""
 	caseRelativeScaffoldApplyCommand := ""
 	caseRelativeDraftCommand := ""
 	caseRelativeDraftApplyCommand := ""
 	if caseRelativeReportPath != "" {
 		caseRelativeValidateArgs = []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-ValidateExecutionReport", "-ExecutionReportPath", caseRelativeReportPath, "-Format", "json"}
-		caseRelativeRecordArgs = []string{"-Command", "gate", "-Pack", pack, "-Apply", "-GateEventId", event.EventID, "-ExecutionReportPath", caseRelativeReportPath, "-Actor", "<executor-id>", "-Format", "json"}
 		caseRelativeScaffoldArgs = []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-ScaffoldExecutionReport", "-ExecutionReportPath", caseRelativeReportPath, "-Format", "json"}
 		caseRelativeScaffoldApplyArgs = []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-ScaffoldExecutionReport", "-ExecutionReportPath", caseRelativeReportPath, "-ExpectedExecutionReportSha256", templateSHA256, "-Apply", "-Format", "json"}
 		caseRelativeDraftArgs = []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-DraftExecutionReport", "-ExecutionReportPath", caseRelativeReportPath, "-AdapterId", template.AdapterID, "-ExecutionStatus", "<status>", "-Summary", "<bounded-summary>", "-Format", "json"}
 		caseRelativeDraftApplyArgs = []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-DraftExecutionReport", "-ExecutionReportPath", caseRelativeReportPath, "-AdapterId", template.AdapterID, "-ExecutionStatus", "<status>", "-Summary", "<bounded-summary>", "-ExpectedExecutionReportSha256", "<reportSha256-from-draft-preview>", "-Apply", "-Format", "json"}
 		caseRelativeValidateCommand = "rekit " + strings.Join(caseRelativeValidateArgs, " ")
-		caseRelativeRecordCommand = "rekit " + strings.Join(caseRelativeRecordArgs, " ")
 		caseRelativeScaffoldCommand = "rekit " + strings.Join(caseRelativeScaffoldArgs, " ")
 		caseRelativeScaffoldApplyCommand = "rekit " + strings.Join(caseRelativeScaffoldApplyArgs, " ")
 		caseRelativeDraftCommand = "rekit " + strings.Join(caseRelativeDraftArgs, " ")
@@ -1984,7 +1958,6 @@ func adapterReportLiveValidation(m *manifest.Manifest, pack string, event EventP
 		CaseRelativeReportPath:           caseRelativeReportPath,
 		SidecarTemplate:                  template,
 		ValidateCommand:                  "rekit " + strings.Join(validateArgs, " "),
-		RecordCommand:                    "rekit " + strings.Join(recordArgs, " "),
 		ScaffoldCommand:                  "rekit " + strings.Join(scaffoldArgs, " "),
 		ScaffoldApplyCommand:             "rekit " + strings.Join(scaffoldApplyArgs, " "),
 		SidecarTemplateSHA256:            templateSHA256,
@@ -1992,13 +1965,11 @@ func adapterReportLiveValidation(m *manifest.Manifest, pack string, event EventP
 		DraftApplyCommand:                "rekit " + strings.Join(draftApplyArgs, " "),
 		DraftReportSHA256:                "<reportSha256-from-draft-preview>",
 		ValidateArgs:                     validateArgs,
-		RecordArgs:                       recordArgs,
 		ScaffoldArgs:                     scaffoldArgs,
 		ScaffoldApplyArgs:                scaffoldApplyArgs,
 		DraftArgs:                        draftArgs,
 		DraftApplyArgs:                   draftApplyArgs,
 		CaseRelativeValidateCommand:      caseRelativeValidateCommand,
-		CaseRelativeRecordCommand:        caseRelativeRecordCommand,
 		CaseRelativeScaffoldCommand:      caseRelativeScaffoldCommand,
 		CaseRelativeScaffoldApplyCommand: caseRelativeScaffoldApplyCommand,
 		CaseRelativeDraftCommand:         caseRelativeDraftCommand,
@@ -2011,11 +1982,11 @@ func adapterReportLiveValidation(m *manifest.Manifest, pack string, event EventP
 		CaseRelativeDraftApplyArgs:       caseRelativeDraftApplyArgs,
 		AdapterCandidates:                adapterCandidates,
 		SelectedAdapter:                  selectedAdapterToolCandidate(m, event, sidecarAdapterID(adapterCandidates)),
-		ReplayBehavior:                   "repeating RecordArgs or CaseRelativeRecordArgs with the same bounded sidecar returns applied=false and reason=duplicate eventId without appending observations",
+		ReplayBehavior:                   "after valid=true, repeating the validation/status returned hash-bound record command with the same bounded sidecar returns applied=false and reason=duplicate eventId without appending observations",
 		Notes: []string{
 			"ScaffoldArgs and CaseRelativeScaffoldArgs write only the missing adapter-report.json template; they do not execute the adapter, validate the report, record observations, or write authority/confirmed.",
 			"ValidateArgs and CaseRelativeValidateArgs are read-only: isMutation=false, applied=false, and no observations/authority/confirmed writes.",
-			"Replace <executor-id> before running RecordArgs or CaseRelativeRecordArgs; both record observation evidence only after strict sidecar validation and never execute the heavy tool.",
+			"Pre-validation contract/scaffold/draft handoffs intentionally omit runnable RecordArgs/CaseRelativeRecordArgs; after valid=true, use validation/status returned hash-bound record command with -ExpectedExecutionReportSha256.",
 			"Use only authorized stopConditions in boundaryHits; failed/boundary-hit/escalated/aborted reports require a bounded summary.",
 			"Keep outputRefs/evidenceRefs case-relative and under authorized outputPaths so validation and record paths enforce the same artifact boundary.",
 			"Keep full trace/dump/log data in sidecar artifacts referenced by outputRefs/evidenceRefs, not in this report.",
@@ -2133,7 +2104,6 @@ func adapterReportScaffoldPreview(repoRoot, caseRoot, pack string, gateEvent Eve
 	}
 	reportSHA256 := sha256HexBytes(data)
 	validateCommand := adapterReportValidateSlashCommand(pack, gateEvent.EventID, reportPath)
-	recordCommand := adapterReportRecordSlashCommand(pack, gateEvent.EventID, reportPath)
 	applyCommand := adapterReportScaffoldSlashCommand(pack, gateEvent.EventID, reportPath, reportSHA256)
 	boundary := adapterReportScaffoldBoundary()
 	result := AdapterExecutionReportScaffold{
@@ -2152,7 +2122,6 @@ func adapterReportScaffoldPreview(repoRoot, caseRoot, pack string, gateEvent Eve
 		RequiresConfirmation: true,
 		SidecarTemplate:      template,
 		ValidateCommand:      validateCommand,
-		RecordCommand:        recordCommand,
 		ApplyCommand:         applyCommand,
 		Boundary:             boundary,
 		NextSteps: []string{
@@ -2203,7 +2172,6 @@ func adapterReportDraftPreview(repoRoot, caseRoot, pack string, gateEvent EventP
 	}
 	reportSHA256 := sha256HexBytes(data)
 	validateCommand := adapterReportValidateSlashCommand(pack, gateEvent.EventID, reportPath)
-	recordCommand := adapterReportRecordSlashCommand(pack, gateEvent.EventID, reportPath)
 	applyCommand := adapterReportDraftApplySlashCommand(pack, gateEvent.EventID, reportPath, reportSHA256, opt, report.AdapterID)
 	boundary := adapterReportDraftBoundary()
 	result := AdapterExecutionReportDraft{
@@ -2222,7 +2190,6 @@ func adapterReportDraftPreview(repoRoot, caseRoot, pack string, gateEvent EventP
 		RequiresConfirmation: true,
 		Report:               report,
 		ValidateCommand:      validateCommand,
-		RecordCommand:        recordCommand,
 		ApplyCommand:         applyCommand,
 		Boundary:             boundary,
 		NextSteps: []string{
@@ -2550,14 +2517,15 @@ func adapterReportDraftBoundary() []string {
 func adapterReportScaffoldCommanderAction(result AdapterExecutionReportScaffold) mission.MissionCommanderAction {
 	state := "ready-for-adapter-report-scaffold-apply"
 	primary := result.ApplyCommand
-	followUps := []string{result.ValidateCommand, result.RecordCommand}
-	prompt := fmt.Sprintf("review scaffold preview for authorized gate `%s`, then write missing bounded adapter-report.json; external adapter fills fields before validation.", result.GateEventID)
+	followUps := []string{result.ValidateCommand}
+	prompt := fmt.Sprintf("review scaffold preview for authorized gate `%s`, then write missing bounded adapter-report.json; external adapter fills fields before read-only validation, and record only with validation/status returned hash-bound command after valid=true.", result.GateEventID)
 	boundary := append([]string{}, result.Boundary...)
+	boundary = append(boundary, "scaffold handoff does not provide a runnable record Apply; use validation/status returned -ExpectedExecutionReportSha256 after valid=true")
 	if result.Applied || result.AlreadyExists {
 		state = "adapter-report-scaffolded-awaiting-adapter-output"
 		primary = result.ValidateCommand
-		followUps = []string{result.RecordCommand}
-		prompt = fmt.Sprintf("authorized gate `%s` has an adapter-report.json scaffold; let the external adapter fill bounded fields, then run read-only validation.", result.GateEventID)
+		followUps = nil
+		prompt = fmt.Sprintf("authorized gate `%s` has an adapter-report.json scaffold; let the external adapter fill bounded fields, then run read-only validation; record only with validation/status returned hash-bound command after valid=true.", result.GateEventID)
 	}
 	return mission.MissionCommanderAction{State: state, Prompt: prompt, PrimaryCommand: primary, FollowUpCommands: followUps, Boundary: boundary}
 }
@@ -2572,9 +2540,6 @@ func adapterReportScaffoldCommanderNextActions(gateEvent EventPreview, result Ad
 	if result.ValidateCommand != "" {
 		items = append(items, mission.MissionCommanderNextActionItem{Lane: gateEvent.Lane, Label: label, State: state, Command: result.ValidateCommand, Source: "adapterReportScaffold.validation", Blocked: true, RequiresReview: true, Reasons: []string{"run only after the external adapter fills placeholder execution fields"}, Boundary: append(append([]string{}, result.Boundary...), "validation remains read-only")})
 	}
-	if result.RecordCommand != "" {
-		items = append(items, mission.MissionCommanderNextActionItem{Lane: gateEvent.Lane, Label: label, State: state, Command: result.RecordCommand, Source: "adapterReportScaffold.record", Blocked: true, RequiresReview: true, Reasons: []string{"run only after validation returns valid=true", "replace <executor-id> before recording evidence"}, Boundary: append(append([]string{}, result.Boundary...), "do not record evidence until validation returns valid=true", "replace <executor-id> before running record command")})
-	}
 	items = append(items, mission.MissionCommanderNextActionItem{Lane: gateEvent.Lane, Label: label, State: state, Command: "/rekit handoff " + label, Source: "adapterReportScaffold.followUp", RequiresReview: true, Reasons: []string{"handoff scaffold status and adapter output expectations"}, Boundary: append([]string{}, result.Boundary...)})
 	return mission.UniqueCommanderNextActions(items)
 }
@@ -2582,14 +2547,15 @@ func adapterReportScaffoldCommanderNextActions(gateEvent EventPreview, result Ad
 func adapterReportDraftCommanderAction(result AdapterExecutionReportDraft) mission.MissionCommanderAction {
 	state := "ready-for-adapter-report-draft-apply"
 	primary := result.ApplyCommand
-	followUps := []string{result.ValidateCommand, result.RecordCommand}
-	prompt := fmt.Sprintf("review draft preview for authorized gate `%s`, then write bounded adapter-report.json fields without executing the adapter.", result.GateEventID)
+	followUps := []string{result.ValidateCommand}
+	prompt := fmt.Sprintf("review draft preview for authorized gate `%s`, then write bounded adapter-report.json fields without executing the adapter; record only with validation/status returned hash-bound command after valid=true.", result.GateEventID)
 	boundary := append([]string{}, result.Boundary...)
+	boundary = append(boundary, "draft handoff does not provide a runnable record Apply; use validation/status returned -ExpectedExecutionReportSha256 after valid=true")
 	if result.Applied || result.AlreadyExists {
 		state = "adapter-report-drafted-ready-for-validation"
 		primary = result.ValidateCommand
-		followUps = []string{result.RecordCommand}
-		prompt = fmt.Sprintf("authorized gate `%s` has a deterministic adapter-report.json draft; run read-only validation before recording evidence.", result.GateEventID)
+		followUps = nil
+		prompt = fmt.Sprintf("authorized gate `%s` has a deterministic adapter-report.json draft; run read-only validation before recording evidence, then use validation/status returned hash-bound record command after valid=true.", result.GateEventID)
 	}
 	return mission.MissionCommanderAction{State: state, Prompt: prompt, PrimaryCommand: primary, FollowUpCommands: followUps, Boundary: boundary}
 }
@@ -2607,9 +2573,6 @@ func adapterReportDraftCommanderNextActions(gateEvent EventPreview, result Adapt
 	}
 	if result.ValidateCommand != "" {
 		items = append(items, mission.MissionCommanderNextActionItem{Lane: gateEvent.Lane, Label: label, State: state, Command: result.ValidateCommand, Source: "adapterReportDraft.validation", Blocked: !result.Applied && !result.AlreadyExists, RequiresReview: true, Reasons: []string{"run read-only validation after the deterministic draft is written"}, Boundary: append(append([]string{}, result.Boundary...), "validation remains read-only")})
-	}
-	if result.RecordCommand != "" {
-		items = append(items, mission.MissionCommanderNextActionItem{Lane: gateEvent.Lane, Label: label, State: state, Command: result.RecordCommand, Source: "adapterReportDraft.record", Blocked: true, RequiresReview: true, Reasons: []string{"run only after validation returns valid=true", "replace <executor-id> before recording evidence"}, Boundary: append(append([]string{}, result.Boundary...), "do not record evidence until validation returns valid=true", "replace <executor-id> before running record command")})
 	}
 	items = append(items, mission.MissionCommanderNextActionItem{Lane: gateEvent.Lane, Label: label, State: state, Command: "/rekit handoff " + label, Source: "adapterReportDraft.followUp", RequiresReview: true, Reasons: []string{"handoff draft status and validation expectations"}, Boundary: append([]string{}, result.Boundary...)})
 	return mission.UniqueCommanderNextActions(items)

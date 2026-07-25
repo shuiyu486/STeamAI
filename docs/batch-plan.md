@@ -16,6 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 602：adapter currentness handoff closure
+
+状态：已完成 runtime/test/doc 工作树实现、focused adapter currentness tests、受影响 package tests、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `bd34204` 已推送并进入 PR #8。PR run `30177220326` completed failure，Windows/macOS/Linux jobs `89727842288`/`89727842311`/`89727842312` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation PR run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。
+
+目标：补齐 Batch 594/580 后仍暴露的 authorized adapter report 接手断点：底层 record Apply 已支持 `-ExpectedExecutionReportSha256`，但 `gate -ExecutionReportContract`、scaffold/draft preview/apply、status/workstream handoff 与 text/JSON 消费者仍可能在 pre-validation 阶段复制裸 record command/args。Mission Commander 与 replacement executor 应先运行 read-only validation；只有 valid validation/status 绑定当前 sidecar hash 后，才暴露包含 `-ExpectedExecutionReportSha256` 的 record current action。
+
+已实现内容：
+
+- `AdapterReportLiveValidation`、contract summary、authorized execution follow-through 与 contract Mission Commander action/next actions 改为 validation-only pre-validation handoff：`RecordArgs` / `CaseRelativeRecordArgs` / record command 字段在 contract 阶段保持 empty/omitempty，text 输出改为“valid=true 后使用 validation/status returned hash-bound record command”。
+- Scaffold/draft preview/apply 不再填充 `RecordCommand`，Mission Commander action queue 删除 `adapterReportScaffold.record` / `adapterReportDraft.record` blocked action，只保留 apply/validate/handoff；next steps 明确先 run read-only validation，再用 validation/status 返回的 hash-bound record command。
+- Status、authorized gate adapter handoff Markdown 与 CLI text merge valid live snapshot 时，只在 `validation.Valid && recordReady && !recordBlocked` 时从 `validation.MissionCommanderAction.PrimaryCommand` 投影 record command，并要求该 command 带 `-ExpectedExecutionReportSha256`；否则显示 guidance note 而不是可运行裸 record。
+- CLI/gate/workstream tests 同步覆盖 contract/scaffold/draft pre-validation 不暴露 runnable record Apply、overview/status/handoff helper 不再要求 `CaseRelativeRecordCommand`、nested case-local/no-pack product path 与 `generic-binary-re` adapter candidate record 路径先读取 validation 的 `recordExpectedReportSha256` 再 record。
+
+边界：本批只收紧 authorized adapter report handoff currentness 与 Mission Commander 可复制命令；不删除底层 legacy record Apply 兼容执行入口，不自动 validate/record，不执行 adapter/heavy tool，不写 authority/confirmed，不新增 durable schema，不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/gate -run "TestAdapterReportContractDescribesAuthorizedGateBoundaries|TestScaffoldAdapterExecutionReportPreviewApplyAndReplay|TestDraftAdapterExecutionReportPreviewApplyReplayAndScaffoldReplace|TestValidateAdapterExecutionReport" -count=1` 已通过；focused CLI adapter tests 已通过；受影响 package `go test ./internal/rekit/gate ./internal/rekit/cli ./internal/rekit/workstream -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。
+
 ### Batch 601：capture-first reviewer handoff closure
 
 状态：已完成 runtime/test/doc 工作树实现、focused reviewer product-path tests、受影响 package tests、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `19d6db6` 已推送。implementation run `30175252468` completed failure，macOS/Windows/Linux jobs `89722869546`/`89722869553`/`89722869556` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。

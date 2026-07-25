@@ -516,7 +516,7 @@ func TestAdapterReportContractDescribesAuthorizedGateBoundaries(t *testing.T) {
 	if !authorizedFollowThroughContainsForTest(follow, "write-and-validate-report", "run read-only validation") || !authorizedFollowThroughContainsForTest(follow, "valid-report-record", "validated sidecar becomes bounded observation evidence") || !authorizedFollowThroughContainsForTest(follow, "invalid-report-repair", "record remains blocked") || !authorizedFollowThroughContainsForTest(follow, "valid-report-record", "do not replay heavy tool") || !gateContainsSubstring(follow.Boundary, "guidance only") {
 		t.Fatalf("adapter report contract follow-through omitted lifecycle outcomes: %+v", follow)
 	}
-	if !strings.Contains(contract.LiveValidation.InvocationCwd, "authorizedWorkspaces") || !strings.Contains(contract.LiveValidation.InvocationCwd, "caseRelativeReportPath") || strings.Join(contract.LiveValidation.AuthorizedWorkspaces, ",") != "workspace/main/debug/session-1" || contract.LiveValidation.ReportFileName != "adapter-report.json" || contract.LiveValidation.CaseRelativeReportPath != "workspace/main/debug/session-1/adapter-report.json" || contract.LiveValidation.SidecarTemplate.Action != "debug" || contract.LiveValidation.SidecarTemplate.GateEventID != authorized.EventID || contract.LiveValidation.SidecarTemplate.Kind != "adapter-execution-report" || !strings.Contains(strings.Join(contract.LiveValidation.SidecarTemplate.EvidenceRefs, ","), "authorized outputPaths") || !strings.Contains(strings.Join(contract.LiveValidation.Notes, ","), "outputRefs/evidenceRefs") || !strings.Contains(strings.Join(contract.LiveValidation.Notes, ","), "CaseRelativeRecordArgs") || !strings.Contains(contract.LiveValidation.ReplayBehavior, "CaseRelativeRecordArgs") || !strings.Contains(contract.LiveValidation.ReplayBehavior, "duplicate eventId") {
+	if !strings.Contains(contract.LiveValidation.InvocationCwd, "authorizedWorkspaces") || !strings.Contains(contract.LiveValidation.InvocationCwd, "caseRelativeReportPath") || strings.Join(contract.LiveValidation.AuthorizedWorkspaces, ",") != "workspace/main/debug/session-1" || contract.LiveValidation.ReportFileName != "adapter-report.json" || contract.LiveValidation.CaseRelativeReportPath != "workspace/main/debug/session-1/adapter-report.json" || contract.LiveValidation.SidecarTemplate.Action != "debug" || contract.LiveValidation.SidecarTemplate.GateEventID != authorized.EventID || contract.LiveValidation.SidecarTemplate.Kind != "adapter-execution-report" || !strings.Contains(strings.Join(contract.LiveValidation.SidecarTemplate.EvidenceRefs, ","), "authorized outputPaths") || !strings.Contains(strings.Join(contract.LiveValidation.Notes, ","), "outputRefs/evidenceRefs") || !strings.Contains(strings.Join(contract.LiveValidation.Notes, ","), "omit runnable RecordArgs/CaseRelativeRecordArgs") || !strings.Contains(contract.LiveValidation.ReplayBehavior, "hash-bound record command") || !strings.Contains(contract.LiveValidation.ReplayBehavior, "duplicate eventId") {
 		t.Fatalf("adapter report contract omitted live-validation handoff: %+v", contract.LiveValidation)
 	}
 	if len(contract.LiveValidation.AdapterCandidates) != 0 {
@@ -540,11 +540,8 @@ func TestAdapterReportContractDescribesAuthorizedGateBoundaries(t *testing.T) {
 	if contract.LiveValidation.ValidateCommand != "rekit "+strings.Join(contract.LiveValidation.ValidateArgs, " ") {
 		t.Fatalf("adapter report contract validate command drifted: %q", contract.LiveValidation.ValidateCommand)
 	}
-	if strings.Join(contract.LiveValidation.RecordArgs, " ") != "-Command gate -Pack "+pack+" -Apply -GateEventId "+authorized.EventID+" -ExecutionReportPath adapter-report.json -Actor <executor-id> -Format json" {
-		t.Fatalf("adapter report contract record args drifted: %+v", contract.LiveValidation.RecordArgs)
-	}
-	if contract.LiveValidation.RecordCommand != "rekit "+strings.Join(contract.LiveValidation.RecordArgs, " ") {
-		t.Fatalf("adapter report contract record command drifted: %q", contract.LiveValidation.RecordCommand)
+	if len(contract.LiveValidation.RecordArgs) != 0 || contract.LiveValidation.RecordCommand != "" {
+		t.Fatalf("adapter report contract should omit pre-validation record command: args=%+v command=%q", contract.LiveValidation.RecordArgs, contract.LiveValidation.RecordCommand)
 	}
 	if strings.Join(contract.LiveValidation.CaseRelativeScaffoldArgs, " ") != "-Command gate -Pack "+pack+" -GateEventId "+authorized.EventID+" -ScaffoldExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Format json" {
 		t.Fatalf("adapter report contract case-relative scaffold args drifted: %+v", contract.LiveValidation.CaseRelativeScaffoldArgs)
@@ -564,30 +561,26 @@ func TestAdapterReportContractDescribesAuthorizedGateBoundaries(t *testing.T) {
 	if contract.LiveValidation.CaseRelativeValidateCommand != "rekit "+strings.Join(contract.LiveValidation.CaseRelativeValidateArgs, " ") {
 		t.Fatalf("adapter report contract case-relative validate command drifted: %q", contract.LiveValidation.CaseRelativeValidateCommand)
 	}
-	if strings.Join(contract.LiveValidation.CaseRelativeRecordArgs, " ") != "-Command gate -Pack "+pack+" -Apply -GateEventId "+authorized.EventID+" -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Actor <executor-id> -Format json" {
-		t.Fatalf("adapter report contract case-relative record args drifted: %+v", contract.LiveValidation.CaseRelativeRecordArgs)
-	}
-	if contract.LiveValidation.CaseRelativeRecordCommand != "rekit "+strings.Join(contract.LiveValidation.CaseRelativeRecordArgs, " ") {
-		t.Fatalf("adapter report contract case-relative record command drifted: %q", contract.LiveValidation.CaseRelativeRecordCommand)
+	if len(contract.LiveValidation.CaseRelativeRecordArgs) != 0 || contract.LiveValidation.CaseRelativeRecordCommand != "" {
+		t.Fatalf("adapter report contract should omit pre-validation case-relative record command: args=%+v command=%q", contract.LiveValidation.CaseRelativeRecordArgs, contract.LiveValidation.CaseRelativeRecordCommand)
 	}
 	commander := contract.MissionCommanderAction
 	wantValidate := "/rekit gate -Pack " + pack + " -GateEventId " + authorized.EventID + " -ValidateExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Format json"
-	wantRecord := "/rekit gate -Pack " + pack + " -Apply -GateEventId " + authorized.EventID + " -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Actor <executor-id> -Format json"
 	if commander.State != "needs-adapter-report-validation" || commander.PrimaryCommand != wantValidate || !strings.Contains(commander.Prompt, authorized.EventID) || !strings.Contains(commander.Prompt, "valid=true") {
 		t.Fatalf("adapter report contract omitted Mission Commander validation handoff: %+v", commander)
 	}
-	if !gateContainsSubstring(commander.FollowUpCommands, wantRecord) || !gateContainsSubstring(commander.FollowUpCommands, "/rekit handoff main") || !gateContainsSubstring(commander.Boundary, "read-only") || !gateContainsSubstring(commander.Boundary, "bounded observation evidence") || !gateContainsSubstring(commander.Boundary, "never executes the heavy tool") || !gateContainsSubstring(commander.Boundary, "no authority/confirmed") {
+	if gateContainsSubstring(commander.FollowUpCommands, "-Apply") || !gateContainsSubstring(commander.FollowUpCommands, "/rekit handoff main") || !gateContainsSubstring(commander.Boundary, "read-only") || !gateContainsSubstring(commander.Boundary, "bounded observation evidence") || !gateContainsSubstring(commander.Boundary, "never executes the heavy tool") || !gateContainsSubstring(commander.Boundary, "no authority/confirmed") || !gateContainsSubstring(commander.Boundary, "does not provide a runnable record Apply") {
 		t.Fatalf("adapter report contract omitted Mission Commander follow-up boundaries: %+v", commander)
 	}
-	if len(contract.MissionCommanderNextActions) != 3 || contract.MissionCommanderNextActions[0].State != "needs-adapter-report-validation" || contract.MissionCommanderNextActions[0].Source != "adapterReportContract.missionCommanderAction" || contract.MissionCommanderNextActions[0].Command != wantValidate || contract.MissionCommanderNextActions[1].Command != wantRecord || !contract.MissionCommanderNextActions[1].Blocked || contract.MissionCommanderNextActions[2].Command != "/rekit handoff main" || !gateNextActionBoundaryContains(contract.MissionCommanderNextActions, "do not record evidence until validation returns valid=true") || !gateNextActionBoundaryContains(contract.MissionCommanderNextActions, "replace <executor-id>") {
+	if len(contract.MissionCommanderNextActions) != 2 || contract.MissionCommanderNextActions[0].State != "needs-adapter-report-validation" || contract.MissionCommanderNextActions[0].Source != "adapterReportContract.missionCommanderAction" || contract.MissionCommanderNextActions[0].Command != wantValidate || contract.MissionCommanderNextActions[1].Command != "/rekit handoff main" || gateNextActionContainsCommand(contract.MissionCommanderNextActions, "-Apply") || !gateNextActionBoundaryContains(contract.MissionCommanderNextActions, "does not provide a runnable record Apply") {
 		t.Fatalf("adapter report contract omitted Mission Commander next actions: %+v", contract.MissionCommanderNextActions)
 	}
-	assertGateActionQueue(t, contract.MissionCommanderActionQueue, 3, 2, 1, 3, 2, wantValidate)
+	assertGateActionQueue(t, contract.MissionCommanderActionQueue, 2, 2, 0, 2, 1, wantValidate)
 	summary := contract.ReportSummary
-	if summary.State != "needs-adapter-report-validation" || summary.GateEventID != authorized.EventID || summary.Action != "debug" || summary.Lane != "main" || summary.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || summary.DefaultReportPath != "workspace/main/debug/session-1/adapter-report.json" || summary.ReportPresent || summary.Valid || summary.RecordReady || !summary.RecordBlocked || !summary.RequiresValidation || summary.RequiresRepair || summary.RequiresMainEscalation || summary.AllowedStatusCount != 5 || summary.AllowedOutputPathCount != 1 || summary.AuthorizedStopCount != 1 || summary.RepairHintCount != len(contract.ValidationRepairHints) || summary.RecordBlockedHintCount != len(contract.ValidationRepairHints) || summary.EscalateHintCount != 1 || summary.OutcomeCount != 3 || summary.NextActionCount != 3 || summary.ReviewRequiredActionCount != 3 || summary.CurrentAction != wantValidate || summary.ActionQueueSummary != contract.MissionCommanderActionQueue.Summary || !gateContainsSubstring(summary.Boundary, "summary is read-only") {
+	if summary.State != "needs-adapter-report-validation" || summary.GateEventID != authorized.EventID || summary.Action != "debug" || summary.Lane != "main" || summary.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || summary.DefaultReportPath != "workspace/main/debug/session-1/adapter-report.json" || summary.ReportPresent || summary.Valid || summary.RecordReady || !summary.RecordBlocked || !summary.RequiresValidation || summary.RequiresRepair || summary.RequiresMainEscalation || summary.AllowedStatusCount != 5 || summary.AllowedOutputPathCount != 1 || summary.AuthorizedStopCount != 1 || summary.RepairHintCount != len(contract.ValidationRepairHints) || summary.RecordBlockedHintCount != len(contract.ValidationRepairHints) || summary.EscalateHintCount != 1 || summary.OutcomeCount != 3 || summary.NextActionCount != 2 || summary.ReviewRequiredActionCount != 2 || summary.CurrentAction != wantValidate || summary.ActionQueueSummary != contract.MissionCommanderActionQueue.Summary || !gateContainsSubstring(summary.Boundary, "summary is read-only") {
 		t.Fatalf("adapter report contract omitted compact summary: %+v", summary)
 	}
-	if !gateContainsSubstring(contract.NextSteps, wantValidate) || !gateContainsSubstring(contract.NextSteps, wantRecord) || !gateContainsSubstring(contract.NextSteps, "valid=true") || !gateContainsSubstring(contract.NextSteps, "never executes the heavy tool") {
+	if !gateContainsSubstring(contract.NextSteps, wantValidate) || !gateContainsSubstring(contract.NextSteps, "hash-bound record command") || !gateContainsSubstring(contract.NextSteps, "valid=true") || !gateContainsSubstring(contract.NextSteps, "never executes the heavy tool") {
 		t.Fatalf("adapter report contract omitted concrete Mission Commander next steps: %+v", contract.NextSteps)
 	}
 	stages := map[string]bool{}
@@ -780,7 +773,7 @@ func TestDraftAdapterExecutionReportPreviewApplyReplayAndScaffoldReplace(t *test
 	if preview.MissionCommanderAction.State != "ready-for-adapter-report-draft-apply" || preview.MissionCommanderAction.PrimaryCommand != preview.ApplyCommand || !gateNextActionContainsSource(preview.MissionCommanderNextActions, "adapterReportDraft.preview") || !gateNextActionContainsCommand(preview.MissionCommanderNextActions, preview.ValidateCommand) || !gateNextActionBoundaryContains(preview.MissionCommanderNextActions, "does not execute the adapter") {
 		t.Fatalf("draft preview omitted Mission Commander handoff: action=%+v next=%+v", preview.MissionCommanderAction, preview.MissionCommanderNextActions)
 	}
-	assertGateActionQueue(t, preview.MissionCommanderActionQueue, 4, 2, 2, 4, 1, preview.ApplyCommand)
+	assertGateActionQueue(t, preview.MissionCommanderActionQueue, 3, 2, 1, 3, 1, preview.ApplyCommand)
 	assertGateNotExists(t, reportFull)
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))

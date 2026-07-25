@@ -2536,7 +2536,7 @@ func writeStatusAuthorizedGateHandoffText(out io.Writer, handoff statusAuthorize
 		}
 	}
 	if live := handoff.LiveValidation; live != nil {
-		if _, err := fmt.Fprintf(out, "status case mission authorized gate live validation：eventId=%s reportFileName=%s caseRelativeReportPath=%s reportSha256=%s recordExpectedReportSha256=%s adapterCandidates=%d selectedAdapter=%s sidecarAdapter=%s templateSha256=%s scaffold=%s scaffoldApply=%s validate=%s record=%s caseScaffold=%s caseScaffoldApply=%s caseValidate=%s caseRecord=%s\n", handoff.EventID, live.ReportFileName, live.CaseRelativeReportPath, live.ReportSHA256, live.RecordExpectedReportSHA256, live.AdapterCandidateCount, live.SelectedAdapterID, live.SidecarTemplateAdapterID, live.SidecarTemplateSHA256, live.ScaffoldCommand, live.ScaffoldApplyCommand, live.ValidateCommand, live.RecordCommand, live.CaseRelativeScaffoldCommand, live.CaseRelativeScaffoldApplyCommand, live.CaseRelativeValidateCommand, live.CaseRelativeRecordCommand); err != nil {
+		if _, err := fmt.Fprintf(out, "status case mission authorized gate live validation：eventId=%s reportFileName=%s caseRelativeReportPath=%s reportSha256=%s recordExpectedReportSha256=%s adapterCandidates=%d selectedAdapter=%s sidecarAdapter=%s templateSha256=%s scaffold=%s scaffoldApply=%s validate=%s record=%s caseScaffold=%s caseScaffoldApply=%s caseValidate=%s caseRecord=%s\n", handoff.EventID, live.ReportFileName, live.CaseRelativeReportPath, live.ReportSHA256, live.RecordExpectedReportSHA256, live.AdapterCandidateCount, live.SelectedAdapterID, live.SidecarTemplateAdapterID, live.SidecarTemplateSHA256, live.ScaffoldCommand, live.ScaffoldApplyCommand, live.ValidateCommand, adapterCurrentRecordCommandText(live.RecordCommand, live.RecordExpectedReportSHA256), live.CaseRelativeScaffoldCommand, live.CaseRelativeScaffoldApplyCommand, live.CaseRelativeValidateCommand, adapterCurrentRecordCommandText(live.CaseRelativeRecordCommand, live.RecordExpectedReportSHA256)); err != nil {
 			return err
 		}
 		if strings.TrimSpace(live.DraftCommand) != "" || strings.TrimSpace(live.CaseRelativeDraftCommand) != "" {
@@ -3553,8 +3553,12 @@ func statusAuthorizedGateHandoffFor(repoRoot, caseRoot, pack string, event map[s
 		handoff.LiveValidationNextSteps = append([]string{}, validation.NextSteps...)
 		liveValidation.ReportSHA256 = validation.ReportSHA256
 		liveValidation.RecordExpectedReportSHA256 = validation.RecordExpectedReportSHA256
-		liveValidation.RecordCommand = hashGateStatusRecordCommand(liveValidation.RecordCommand, validation.RecordExpectedReportSHA256)
-		liveValidation.CaseRelativeRecordCommand = hashGateStatusRecordCommand(liveValidation.CaseRelativeRecordCommand, validation.RecordExpectedReportSHA256)
+		recordCommand := ""
+		if validation.Valid && reportSummary.RecordReady && !reportSummary.RecordBlocked {
+			recordCommand = strings.TrimSpace(validation.MissionCommanderAction.PrimaryCommand)
+		}
+		liveValidation.RecordCommand = recordCommand
+		liveValidation.CaseRelativeRecordCommand = recordCommand
 		if validation.AdapterContext != nil && validation.AdapterContext.Selected != nil {
 			selected := cloneGateAdapterToolCandidate(*validation.AdapterContext.Selected)
 			liveValidation.SelectedAdapterID = selected.ID
@@ -3614,20 +3618,12 @@ func cloneGateAdapterToolCandidate(candidate gate.AdapterToolCandidate) gate.Ada
 	return candidate
 }
 
-func hashGateStatusRecordCommand(command, reportSHA256 string) string {
+func adapterCurrentRecordCommandText(command, reportSHA256 string) string {
 	command = strings.TrimSpace(command)
-	reportSHA256 = strings.TrimSpace(reportSHA256)
-	if command == "" || reportSHA256 == "" || strings.Contains(command, "-ExpectedExecutionReportSha256") {
+	if command != "" && strings.TrimSpace(reportSHA256) != "" && strings.Contains(command, "-ExpectedExecutionReportSha256") {
 		return command
 	}
-	insert := " -ExpectedExecutionReportSha256 " + reportSHA256
-	if strings.Contains(command, " -Actor ") {
-		return strings.Replace(command, " -Actor ", insert+" -Actor ", 1)
-	}
-	if strings.Contains(command, " -Format ") {
-		return strings.Replace(command, " -Format ", insert+" -Format ", 1)
-	}
-	return command + insert
+	return "after valid=true, use validation/status returned hash-bound record command with -ExpectedExecutionReportSha256"
 }
 
 func statusEventMap(event map[string]any, key string) map[string]any {
@@ -4394,7 +4390,7 @@ func writeAuthorizedGateAdapterHandoffText(out io.Writer, prefix string, items [
 			}
 		}
 		if live := handoff.LiveValidation; live != nil {
-			if _, err := fmt.Fprintf(out, "%s authorized gate adapter live validation：eventId=%s reportFileName=%s caseRelativeReportPath=%s reportSha256=%s recordExpectedReportSha256=%s adapterCandidates=%d selectedAdapter=%s sidecarAdapter=%s templateSha256=%s scaffold=%s scaffoldApply=%s validate=%s record=%s caseScaffold=%s caseScaffoldApply=%s caseValidate=%s caseRecord=%s\n", prefix, handoff.EventID, live.ReportFileName, live.CaseRelativeReportPath, live.ReportSHA256, live.RecordExpectedReportSHA256, live.AdapterCandidateCount, live.SelectedAdapterID, live.SidecarTemplateAdapterID, live.SidecarTemplateSHA256, live.ScaffoldCommand, live.ScaffoldApplyCommand, live.ValidateCommand, live.RecordCommand, live.CaseRelativeScaffoldCommand, live.CaseRelativeScaffoldApplyCommand, live.CaseRelativeValidateCommand, live.CaseRelativeRecordCommand); err != nil {
+			if _, err := fmt.Fprintf(out, "%s authorized gate adapter live validation：eventId=%s reportFileName=%s caseRelativeReportPath=%s reportSha256=%s recordExpectedReportSha256=%s adapterCandidates=%d selectedAdapter=%s sidecarAdapter=%s templateSha256=%s scaffold=%s scaffoldApply=%s validate=%s record=%s caseScaffold=%s caseScaffoldApply=%s caseValidate=%s caseRecord=%s\n", prefix, handoff.EventID, live.ReportFileName, live.CaseRelativeReportPath, live.ReportSHA256, live.RecordExpectedReportSHA256, live.AdapterCandidateCount, live.SelectedAdapterID, live.SidecarTemplateAdapterID, live.SidecarTemplateSHA256, live.ScaffoldCommand, live.ScaffoldApplyCommand, live.ValidateCommand, adapterCurrentRecordCommandText(live.RecordCommand, live.RecordExpectedReportSHA256), live.CaseRelativeScaffoldCommand, live.CaseRelativeScaffoldApplyCommand, live.CaseRelativeValidateCommand, adapterCurrentRecordCommandText(live.CaseRelativeRecordCommand, live.RecordExpectedReportSHA256)); err != nil {
 				return err
 			}
 			if strings.TrimSpace(live.DraftCommand) != "" || strings.TrimSpace(live.CaseRelativeDraftCommand) != "" {
@@ -8106,14 +8102,8 @@ func writeGateAdapterReportContractText(out io.Writer, contract gate.AdapterExec
 			return err
 		}
 	}
-	if strings.TrimSpace(contract.LiveValidation.CaseRelativeRecordCommand) != "" {
-		if _, err := fmt.Fprintf(out, "gate adapter report record command：%s\n", contract.LiveValidation.CaseRelativeRecordCommand); err != nil {
-			return err
-		}
-	} else if strings.TrimSpace(contract.LiveValidation.RecordCommand) != "" {
-		if _, err := fmt.Fprintf(out, "gate adapter report record command：%s\n", contract.LiveValidation.RecordCommand); err != nil {
-			return err
-		}
+	if _, err := fmt.Fprintln(out, "gate adapter report record command：available only after valid=true validation/status returns a hash-bound command with -ExpectedExecutionReportSha256"); err != nil {
+		return err
 	}
 	if err := writeGateAdapterReportLiveValidationText(out, contract.LiveValidation); err != nil {
 		return err
