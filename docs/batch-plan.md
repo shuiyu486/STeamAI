@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 591：pack-memory candidate decision downstream runbook closure
 
-状态：已完成 runtime 派生字段、CLI text 输出、入口文档更新、focused tests 与完整本地 release minimum；implementation commit/push 与 implementation remote release-gate inspection 待执行。
+状态：已完成 runtime 派生字段、CLI text 输出、入口文档更新、focused tests、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `031b381` 已推送。implementation run `30157225900` completed failure，macOS/Linux/Windows jobs `89676973276`/`89676973285`/`89676973296` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。
 
 目标：补齐 pack-memory downstream UX residual：candidate decision WhatIf/Apply 已能 strict 绑定 packet/candidate/target/evidence hashes、写 receipt、返回 verification provisioning/verification commands 或 recovery envelope，但 Mission Commander / replacement executor 仍要跨 `actions[]`、`receipt`、`recoveryActions[]`、`nextSteps[]` 与后续 proof/reconsume命令手工拼接操作顺序。`CandidateDecisionResult` 应直接提供结果级 `decisionRunbookSteps[]`，覆盖 preview、accepted apply、reject/superseded-only apply 与 rollback/recovery envelope。
 
