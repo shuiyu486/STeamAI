@@ -1416,6 +1416,38 @@ func writePackMemoryCandidateReviewSummaryText(out io.Writer, prefix, pack strin
 	return nil
 }
 
+func writePackMemoryCandidateActionQueueText(out io.Writer, prefix string, candidates releasecheck.ReleaseHandoffPackMemoryCandidateList) error {
+	queue := candidates.MissionCommanderActionQueue
+	if queue.Counts.Total == 0 {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "%s pack-memory action queue：summary=%s total=%d unblocked=%d blocked=%d requiresReview=%d followUp=%d\n", prefix, queue.Summary, queue.Counts.Total, queue.Counts.Unblocked, queue.Counts.Blocked, queue.Counts.RequiresReview, queue.Counts.FollowUp); err != nil {
+		return err
+	}
+	if queue.CurrentAction != nil {
+		current := *queue.CurrentAction
+		if _, err := fmt.Fprintf(out, "%s pack-memory current action：pack=%s state=%s source=%s blocked=%t requiresReview=%t command=%s\n", prefix, current.Label, current.State, current.Source, current.Blocked, current.RequiresReview, current.Command); err != nil {
+			return err
+		}
+	}
+	for _, action := range candidates.MissionCommanderNextActions {
+		if _, err := fmt.Fprintf(out, "%s pack-memory next action：pack=%s state=%s source=%s blocked=%t requiresReview=%t command=%s\n", prefix, action.Label, action.State, action.Source, action.Blocked, action.RequiresReview, action.Command); err != nil {
+			return err
+		}
+		for _, reason := range action.Reasons {
+			if _, err := fmt.Fprintf(out, "%s pack-memory next action reason：pack=%s reason=%s\n", prefix, action.Label, reason); err != nil {
+				return err
+			}
+		}
+		for _, boundary := range action.Boundary {
+			if _, err := fmt.Fprintf(out, "%s pack-memory next action boundary：pack=%s boundary=%s\n", prefix, action.Label, boundary); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func writeReleaseHandoffText(out io.Writer, handoff releasecheck.ReleaseHandoff) error {
 	handoffCounts := releasecheck.ReleaseHandoffCountsFor(handoff)
 	if _, err := fmt.Fprintf(out, "release-check release handoff：summary=%s ready=%t readFirst=%d signals=%d knownGaps=%d packMaturity=%d packMemoryCandidates=%d validation=%d nextActions=%d warnings=%d releaseNotes=%t latest=%s\n", handoff.Summary, handoff.Ready, handoffCounts.ReadFirst, handoffCounts.Signals, handoffCounts.KnownGaps, handoffCounts.PackMaturity.Total, handoffCounts.PackMemoryCandidates, handoffCounts.Validation, handoffCounts.NextActions, handoffCounts.Warnings, handoff.ReleaseNotes.Covered, handoff.LatestBatch.Title); err != nil {
@@ -1490,6 +1522,9 @@ func writeReleaseHandoffText(out io.Writer, handoff releasecheck.ReleaseHandoff)
 	}
 	candidates := handoff.PackMemoryCandidates
 	if _, err := fmt.Fprintf(out, "release-check pack-memory candidates：summary=%s ready=%t total=%d packs=%d nextAction=%s\n", candidates.Summary, candidates.Ready, candidates.Total, len(candidates.Packs), candidates.NextAction); err != nil {
+		return err
+	}
+	if err := writePackMemoryCandidateActionQueueText(out, "release-check", candidates); err != nil {
 		return err
 	}
 	for _, pack := range candidates.Packs {
@@ -2006,7 +2041,9 @@ func runStatusLegacyText(ctx runtime.Context, packSource string, out io.Writer) 
 		if err != nil {
 			return err
 		}
-		return writeStatusProjectHandoffText(out, buildStatusProjectHandoff(release.ReleaseHandoff))
+		projectHandoff := buildStatusProjectHandoff(release.ReleaseHandoff)
+		bindStatusCaseCandidateDecisionDraftHandoffs(projectHandoff, ctx.RepoRoot, inst.CaseRoot, ctx.Pack)
+		return writeStatusProjectHandoffText(out, projectHandoff)
 	}
 	fmt.Fprintf(out, "case shim: %s ready=%t\n", caseShim.Summary, caseShim.Ready)
 	m, err := manifest.Load(ctx.RepoRoot, ctx.Pack)
@@ -2672,6 +2709,9 @@ func writeStatusProjectHandoffText(out io.Writer, handoff *statusProjectHandoff)
 	}
 	candidates := handoff.PackMemoryCandidates
 	if _, err := fmt.Fprintf(out, "status pack-memory candidates：summary=%s ready=%t total=%d packs=%d nextAction=%s\n", candidates.Summary, candidates.Ready, candidates.Total, len(candidates.Packs), candidates.NextAction); err != nil {
+		return err
+	}
+	if err := writePackMemoryCandidateActionQueueText(out, "status", candidates); err != nil {
 		return err
 	}
 	for _, pack := range candidates.Packs {
@@ -3469,6 +3509,7 @@ func bindStatusCaseCandidateDecisionDraftHandoffs(handoff *statusProjectHandoff,
 			}
 		}
 	}
+	releasecheck.RebuildPackMemoryCandidateActionQueue(&handoff.PackMemoryCandidates)
 }
 
 func bindStatusCaseCandidateNextMissingProof(status *releasecheck.ReleaseHandoffPackMemoryCandidateStatus, handoff *promote.CandidateDecisionDraftHandoff) {

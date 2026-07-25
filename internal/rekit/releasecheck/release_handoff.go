@@ -16,6 +16,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/caseshim"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaultdocs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/promote"
 	syncpkg "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 )
@@ -145,12 +146,14 @@ type ReleaseHandoffPackMaturity struct {
 }
 
 type ReleaseHandoffPackMemoryCandidateList struct {
-	Ready      bool                                      `json:"ready"`
-	Summary    string                                    `json:"summary"`
-	Total      int                                       `json:"total"`
-	Packs      []ReleaseHandoffPackMemoryCandidateStatus `json:"packs"`
-	NextAction string                                    `json:"nextAction,omitempty"`
-	Warnings   []string                                  `json:"warnings,omitempty"`
+	Ready                       bool                                      `json:"ready"`
+	Summary                     string                                    `json:"summary"`
+	Total                       int                                       `json:"total"`
+	Packs                       []ReleaseHandoffPackMemoryCandidateStatus `json:"packs"`
+	NextAction                  string                                    `json:"nextAction,omitempty"`
+	MissionCommanderNextActions []mission.MissionCommanderNextActionItem  `json:"missionCommanderNextActions,omitempty"`
+	MissionCommanderActionQueue mission.MissionCommanderActionQueue       `json:"missionCommanderActionQueue"`
+	Warnings                    []string                                  `json:"warnings,omitempty"`
 }
 
 type ReleaseHandoffPackMemoryCandidateReviewSummary struct {
@@ -625,6 +628,8 @@ func releaseHandoffPackMemoryCandidates(repo string, packs []manifest.PackSummar
 		inventory.Summary = "pack-memory candidate inventory has warnings"
 		inventory.Warnings = warnings
 		inventory.NextAction = "repair pack-memory candidate index or candidate directory inventory before release handoff"
+		inventory.MissionCommanderNextActions = packMemoryCandidateNextActions(inventory.Packs)
+		inventory.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(inventory.MissionCommanderNextActions)
 		return inventory
 	}
 	if inventory.Total > 0 {
@@ -635,7 +640,120 @@ func releaseHandoffPackMemoryCandidates(repo string, packs []manifest.PackSummar
 	} else {
 		inventory.NextAction = "no pack-memory candidate cleanup is pending"
 	}
+	inventory.MissionCommanderNextActions = packMemoryCandidateNextActions(inventory.Packs)
+	inventory.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(inventory.MissionCommanderNextActions)
 	return inventory
+}
+
+func RebuildPackMemoryCandidateActionQueue(inventory *ReleaseHandoffPackMemoryCandidateList) {
+	if inventory == nil {
+		return
+	}
+	inventory.MissionCommanderNextActions = packMemoryCandidateNextActions(inventory.Packs)
+	inventory.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(inventory.MissionCommanderNextActions)
+}
+
+func packMemoryCandidateNextActions(packs []ReleaseHandoffPackMemoryCandidateStatus) []mission.MissionCommanderNextActionItem {
+	items := []mission.MissionCommanderNextActionItem{}
+	for _, pack := range packs {
+		command := packMemoryCandidateCurrentCommand(pack)
+		if strings.TrimSpace(command) == "" {
+			continue
+		}
+		items = append(items, mission.MissionCommanderNextActionItem{
+			Label:          pack.Pack,
+			State:          packMemoryCandidateActionState(pack),
+			Command:        command,
+			Source:         "packMemoryCandidates." + pack.Pack,
+			RequiresReview: true,
+			Reasons:        packMemoryCandidateActionReasons(pack),
+			Boundary:       packMemoryCandidateActionBoundary(pack),
+		})
+	}
+	return mission.UniqueCommanderNextActions(items)
+}
+
+func packMemoryCandidateCurrentCommand(pack ReleaseHandoffPackMemoryCandidateStatus) string {
+	if next := pack.ProofSummary.NextMissingProof; next != nil {
+		if command := strings.TrimSpace(next.DraftCommand); command != "" {
+			return command
+		}
+	}
+	for _, receipt := range pack.DecisionReceipts {
+		if receipt.RetirementInProgress {
+			if command := strings.TrimSpace(receipt.RetirementNextAction); command != "" {
+				return command
+			}
+		}
+		if receipt.RetirementRequired {
+			if command := strings.TrimSpace(receipt.RetirementPreviewCommand); command != "" {
+				return command
+			}
+		}
+		if receipt.ProvisionInProgress {
+			if command := strings.TrimSpace(receipt.ProvisionNextAction); command != "" {
+				return command
+			}
+		}
+		if receipt.ProvisionStatus == "required" {
+			if command := strings.TrimSpace(receipt.VerificationProvisionCommand); command != "" {
+				return command
+			}
+		}
+		if receipt.ProvisionComplete {
+			if command := strings.TrimSpace(receipt.VerificationCommand); command != "" {
+				return command
+			}
+		}
+	}
+	if pack.DecisionDraftHandoff != nil {
+		if command := strings.TrimSpace(pack.DecisionDraftHandoff.NextAction); command != "" {
+			return command
+		}
+	}
+	return strings.TrimSpace(pack.Action)
+}
+
+func packMemoryCandidateActionState(pack ReleaseHandoffPackMemoryCandidateStatus) string {
+	if pack.ProofSummary.NextMissingProof != nil {
+		return "pack-memory-proof-required"
+	}
+	if pack.RequiresVerification {
+		return "pack-memory-verification-required"
+	}
+	if pack.RequiresReview {
+		return "pack-memory-review-required"
+	}
+	if pack.RequiresCleanup {
+		return "pack-memory-cleanup-required"
+	}
+	if pack.HasOpenWork {
+		return "pack-memory-open-work"
+	}
+	return "pack-memory-ready"
+}
+
+func packMemoryCandidateActionReasons(pack ReleaseHandoffPackMemoryCandidateStatus) []string {
+	reasons := []string{"pack=" + pack.Pack, pack.Action}
+	if next := pack.ProofSummary.NextMissingProof; next != nil {
+		reasons = append(reasons, "next missing proof="+next.ProofType, "proof path="+next.Path)
+	}
+	for _, evidence := range pack.Evidence {
+		reasons = append(reasons, evidence)
+	}
+	return mission.UniqueStrings(reasons)
+}
+
+func packMemoryCandidateActionBoundary(pack ReleaseHandoffPackMemoryCandidateStatus) []string {
+	boundary := append([]string{}, pack.Boundary...)
+	boundary = append(boundary,
+		"pack-memory action queue is read-only handoff; it does not merge, cleanup, provision, verify, or write proof",
+		"run WhatIf previews and hash-gated Apply commands explicitly before any pack-memory mutation",
+	)
+	if next := pack.ProofSummary.NextMissingProof; next != nil {
+		boundary = append(boundary, next.Boundary...)
+	}
+	return mission.UniqueStrings(boundary)
 }
 
 func releaseHandoffPackMemoryCandidateStatus(repo string, pack manifest.PackSummary) (ReleaseHandoffPackMemoryCandidateStatus, error) {

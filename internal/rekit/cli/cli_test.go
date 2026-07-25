@@ -492,8 +492,15 @@ func TestRunStatusJsonKit(t *testing.T) {
 			LatestNextAction     string   `json:"latestNextAction"`
 			LatestEvidence       []string `json:"latestEvidence"`
 			PackMemoryCandidates struct {
-				Ready bool `json:"ready"`
-				Total int  `json:"total"`
+				Ready                       bool `json:"ready"`
+				Total                       int  `json:"total"`
+				MissionCommanderActionQueue struct {
+					CurrentAction *struct {
+						Label   string `json:"label"`
+						State   string `json:"state"`
+						Command string `json:"command"`
+					} `json:"currentAction"`
+				} `json:"missionCommanderActionQueue"`
 				Packs []struct {
 					Pack            string `json:"pack"`
 					CandidateRoot   string `json:"candidateRoot"`
@@ -2845,11 +2852,12 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 	writeCaseFile(t, caseRoot, "references/template/workflow-template.md", "# Blocked\n\nDo not promote C:\\case\\artifact\\installed-entrypoint-trace.csv.\n")
 	writeCaseFile(t, caseRoot, "references/template/toolchain-router.md", "# Tooling\n\nCase root: "+caseRoot+"\nAbsolute: C:\\cases\\installed.exe\nTrace: artifacts/run/installed-trace.csv\nAddress: 0x401000\nContext: ctx123 round7 Task #99\n")
 	out.Reset()
-	if err := Run([]string{"-Command", "promote", "-CreateCandidates", "-Format", "json"}, &out); err != nil {
+	packMemoryReviewRoot := filepath.Join(caseRoot, ".rekit", "reviews", "installed-entrypoint-pack-memory")
+	if err := Run([]string{"-Command", "promote", "-CreateCandidates", "-Review", "-ReviewOutputDir", packMemoryReviewRoot, "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	candidates := decodeCandidateResult(t, out.Bytes())
-	if candidates.CaseRoot != caseRoot || candidates.Pack != "_template" || !candidates.Applied || candidates.Created != 2 || candidates.Blocked == 0 || !candidates.RequiresCleanup || candidates.ReviewPlan.ReviewSummary.ProofSummary.NextMissingProof == nil {
+	if candidates.CaseRoot != caseRoot || candidates.Pack != "_template" || !candidates.Applied || candidates.Created != 2 || candidates.Blocked == 0 || !candidates.RequiresCleanup || candidates.ReviewPlan.ReviewSummary.ProofSummary.NextMissingProof == nil || candidates.ReviewPlan.DecisionDraftHandoff == nil || candidates.ReviewPlan.DecisionDraftHandoff.PacketPath == "" {
 		t.Fatalf("unexpected installed entrypoint pack-memory candidates: %+v", candidates)
 	}
 
@@ -2858,8 +2866,16 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 		t.Fatal(err)
 	}
 	status = decodeInstalledCaseShimStatus(t, out.Bytes())
-	if status.CaseMission.ReviewerWritebackSummary.Total != 4 || status.CaseMission.ReviewerDispatchIntakeSummary.Total != 0 || status.ProjectHandoff == nil || status.ProjectHandoff.PackMemoryCandidates.Ready || status.ProjectHandoff.PackMemoryCandidates.Total != 3 || len(status.ProjectHandoff.PackMemoryCandidates.Packs) != 1 || status.ProjectHandoff.PackMemoryCandidates.Packs[0].ReviewSummary.ProofSummary.NextMissingProof == nil {
+	if status.ProjectHandoff == nil {
+		t.Fatalf("installed entrypoint first-screen JSON omitted project handoff: %+v", status)
+	}
+	if status.CaseMission.ReviewerWritebackSummary.Total != 4 || status.CaseMission.ReviewerDispatchIntakeSummary.Total != 0 || status.ProjectHandoff.PackMemoryCandidates.Ready || status.ProjectHandoff.PackMemoryCandidates.Total != 3 || len(status.ProjectHandoff.PackMemoryCandidates.Packs) != 1 || status.ProjectHandoff.PackMemoryCandidates.Packs[0].ReviewSummary.ProofSummary.NextMissingProof == nil {
 		t.Fatalf("installed entrypoint first-screen JSON omitted reviewer/pack-memory handoff: %+v", status)
+	}
+	nextMissingProof := status.ProjectHandoff.PackMemoryCandidates.Packs[0].ProofSummary.NextMissingProof
+	packMemoryCurrent := status.ProjectHandoff.PackMemoryCandidates.MissionCommanderActionQueue.CurrentAction
+	if nextMissingProof == nil || nextMissingProof.PacketPath == "" || packMemoryCurrent == nil || packMemoryCurrent.Label != "_template" || packMemoryCurrent.State != "pack-memory-proof-required" || !strings.Contains(packMemoryCurrent.Command, nextMissingProof.PacketPath) || strings.Contains(packMemoryCurrent.Command, "<packet.json>") {
+		t.Fatalf("installed entrypoint first-screen JSON omitted pack-memory current action: current=%+v nextProof=%+v status=%+v", packMemoryCurrent, nextMissingProof, status)
 	}
 
 	out.Reset()
@@ -2875,12 +2891,19 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 		"latestShard=shard-02",
 		"latestReviewerSession=reviewer-session-installed-2",
 		"status pack-memory candidates：summary=pack-memory candidate inventory has open review/cleanup/verification work ready=false total=3 packs=1 nextAction=review listed pack-memory candidates or complete listed candidate decision verification",
+		"status pack-memory action queue：summary=total=1 unblocked=1 blocked=0 requiresReview=1 followUp=0",
+		"status pack-memory current action：pack=_template state=pack-memory-proof-required",
+		"-PacketPath",
+		"installed-entrypoint-pack-memory",
 		"status pack-memory review summary：pack=_template total=3 candidateFiles=1 toolingFiles=1 indexEntries=1 reviewArtifacts=8 decisionArtifacts=2 cleanupArtifacts=2 reconsumeArtifacts=4",
 		"status pack-memory next missing proof：pack=_template stage=decision-proof-required proofType=candidate-decision-note",
 	} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("installed entrypoint first screen missing product handoff %q:\n%s", expected, out.String())
 		}
+	}
+	if strings.Contains(out.String(), "status pack-memory current action：") && strings.Contains(out.String(), "<packet.json>") {
+		t.Fatalf("installed entrypoint pack-memory current action used placeholder packet path:\n%s", out.String())
 	}
 	if strings.Contains(out.String(), "{\n  ") {
 		t.Fatalf("installed entrypoint product first screen leaked JSON:\n%s", out.String())
@@ -2957,10 +2980,22 @@ type installedCaseShimStatus struct {
 	} `json:"caseMission"`
 	ProjectHandoff *struct {
 		PackMemoryCandidates struct {
-			Ready bool `json:"ready"`
-			Total int  `json:"total"`
+			Ready                       bool `json:"ready"`
+			Total                       int  `json:"total"`
+			MissionCommanderActionQueue struct {
+				CurrentAction *struct {
+					Label   string `json:"label"`
+					State   string `json:"state"`
+					Command string `json:"command"`
+				} `json:"currentAction"`
+			} `json:"missionCommanderActionQueue"`
 			Packs []struct {
 				ReviewSummary packMemoryCandidateReviewSummaryJSON `json:"reviewSummary"`
+				ProofSummary  struct {
+					NextMissingProof *struct {
+						PacketPath string `json:"packetPath"`
+					} `json:"nextMissingProof"`
+				} `json:"proofSummary"`
 			} `json:"packs"`
 		} `json:"packMemoryCandidates"`
 	} `json:"projectHandoff"`

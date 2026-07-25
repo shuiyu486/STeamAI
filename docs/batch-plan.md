@@ -16,6 +16,22 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 595：pack-memory candidate Mission Commander current action queue closure
+
+状态：已完成 release/status pack-memory current action queue runtime、case-local default `/rekit` product-path binding、入口文档更新与完整本地 release minimum；implementation commit/push 与 implementation remote release-gate inspection 待执行。本批承接 Batch 570-576、591-593 的 pack-memory review/proof/cleanup/reconsume/retirement closure：release/status 已能列出 per-pack open residue、proof summary 与 next missing proof，但 multi-pack 或 case-local replacement executor 仍可能只看到泛化 `nextAction`，需要手工遍历 `packs[]` 才知道当前应处理哪个 pack、运行哪个 bounded proof/verification/retirement command；无参数 `/rekit` default/table text 还绕过 case-local packet-derived review workspace binding，导致 first-screen current action 仍可能使用 `<packet.json>` 占位。
+
+目标：让 `release-check` / `status` 的 `packMemoryCandidates` 直接提供 Mission Commander 可消费的 `missionCommanderNextActions[]` 与 `missionCommanderActionQueue`，按 pack 排序选择当前 open pack 的最小 bounded action；case-local status/default `/rekit` 在绑定 `promote -CreateCandidates -Review` packet-derived workspace 后必须重算 queue，使 missing proof current action 直接包含 concrete `-PacketPath ...` command，不再要求主 Agent 手工拼 packet/proof/evidence path。
+
+已实现内容：
+
+- `ReleaseHandoffPackMemoryCandidateList` 新增只读 `missionCommanderNextActions[]` 与 `missionCommanderActionQueue`，从既有 per-pack `ProofSummary.NextMissingProof`、decision verification/provision/retirement receipt state、`DecisionDraftHandoff` 与 `Action` 派生，不改变 promote/proof/cleanup 事务语义。
+- `release-check` / `status` text 输出 pack-memory action queue、current action、next action reason 与 boundary；所有 action 均保持 requiresReview，并明确 queue 只是 handoff，不执行 merge/cleanup/provision/verify/write proof。
+- Case-local default `/rekit` table/text 路径现在与 `status -Format json/text` 一样复用 packet-derived candidate decision draft handoff binding，并在 binding 后重算 pack-memory action queue；installed case product-path 回归覆盖 `promote -CreateCandidates -Review` 后 JSON/text first-screen current action 使用 concrete packet path，且不回退到 `<packet.json>`。
+
+边界：本批只增强 release/status/default `/rekit` 的只读 pack-memory Mission Commander handoff；不新增 pack-memory mutation，不 merge/cleanup candidates，不 provision/verify/retire workspace，不写 proof/facts/authority/confirmed，不执行 heavy tool，不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/releasecheck ./internal/rekit/cli -run "TestReleaseHandoffPackMemoryCandidatesDetectsOpenResidue|TestRunInstalledCaseShimProductPathStatusAndRefresh" -count=1` 已通过；扩展 focused `go test ./internal/rekit/releasecheck ./internal/rekit/cli -run "TestReleaseHandoffPackMemoryCandidatesDetectsOpenResidue|TestReleaseHandoffPackMemoryCandidateDecisionVerificationReceipt|TestReleaseHandoffPackMemoryCandidateVerificationRetirementLifecycle|TestRunInstalledCaseShimProductPathStatusAndRefresh|TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply|TestRunPromoteCandidateReviewWorkspaceProductPath" -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。
+
 ### Batch 594：authorized adapter report hash-bound record product-path closure
 
 状态：已完成 runtime next-step boundary 收紧、nested case-local/no-pack CLI product-path coverage、入口文档更新、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `12f4a6e` 已推送。implementation run `30159484087` completed failure，macOS/Windows/Linux jobs `89682350095`/`89682350118`/`89682350148` 均 `steps=[]`，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation run；不要为 inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。本批承接 Batch 580 的 validate→record currentness 与 Batch 568/569 scaffold/draft sidecar lifecycle：runtime 已能在 `gate -Apply -ExecutionReportPath ... -ExpectedExecutionReportSha256 ...` 写 observations 前重读 sidecar 并校验 hash，但真实 replacement executor product path 仍可能从 scaffold/draft `nextSteps[]` 或裸 record template 接续，而不是从 validation/status 的 hash-bound command 接续。
