@@ -66,7 +66,7 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 /rekit overview              # 看项目总览，不选择工作线
 /rekit continue main         # 接手主线
 /rekit start unpacking       # 创建/进入功能支线
-/rekit continue unpacking    # 继续功能支线；若存在 open intervention 会要求先 reconcile
+/rekit continue unpacking    # 继续功能支线；若存在 intervention / pending gate / open decision 会先返回 blocked handoff
 /rekit reconcile unpacking   # 将用户干预显式 reconcile 到 durable lane state
 /rekit handoff               # 生成项目级接手索引
 /rekit handoff main          # 生成主线接手文档
@@ -231,8 +231,8 @@ Batch 561 为 `continue` executor-generation stale-writer guard，当前状态�
 
 | 工作线 | 典型命令 | 主要职责 | 默认可写 |
 |---|---|---|---|
-| 主线 | `/rekit continue main` | 收敛结论、验证 candidate、维护长期 handoff、处理 authority 写入；JSON envelope/run artifacts 暴露 apply 后 `missionBrief`，含 pending gates 与非阻塞 authorized gates | canonical 文件、主线 workspace、`.rekit/**` |
-| 功能支线 | `/rekit start <name>`、`/rekit continue <name>` | 围绕一个功能点/阻塞点做探索、收集 evidence、提出 candidate/request；start/continue preview/apply `missionBrief` 让 lane executor 看到全局 ready/blocked 状态、pending gates 与非阻塞 authorized gates | 自己的 lane workspace、outbox、candidate/request |
+| 主线 | `/rekit continue main` | 收敛结论、验证 candidate、维护长期 handoff、处理 authority review；JSON envelope/run artifacts 暴露 apply 后 `missionBrief`，含 pending gates 与非阻塞 authorized gates；若存在 pending gate / open decision / intervention blocker，continue 先 zero-write 返回 handoff | canonical 文件、主线 workspace、`.rekit/**` |
+| 功能支线 | `/rekit start <name>`、`/rekit continue <name>` | 围绕一个功能点/阻塞点做探索、收集 evidence、提出 candidate/request；start/continue preview/apply `missionBrief` 让 lane executor 看到全局 ready/blocked 状态、pending gates 与非阻塞 authorized gates；blocked continue 不写 lane artifacts，先给 gate/decision/reconcile handoff | 自己的 lane workspace、outbox、candidate/request |
 | 项目级索引 | `/rekit handoff` | 生成跨工作线接手索引，并在顶部 Markdown 与 Go JSON `missionBrief` 汇总 ready/blocked lanes、pending gates、authorized gates、open decisions、interventions、next agent actions 与 escalations | `.rekit/handovers/latest.md` |
 
 推荐流程：

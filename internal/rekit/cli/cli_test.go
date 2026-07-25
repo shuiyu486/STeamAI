@@ -5777,6 +5777,155 @@ func TestRunContinueBlocksUntilReconcileClosesIntervention(t *testing.T) {
 	assertWriteKind(t, cont.Writes, "run-status", "write")
 }
 
+func TestRunContinueBlocksPendingGateBeforeWrites(t *testing.T) {
+	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	writeContinueFixture(t, caseRoot)
+	writeCaseFile(t, caseRoot, ".rekit/facts/requests.jsonl", `{"eventId":"evt-pending-debug","kind":"request","lane":"feature-login","subject":"debug gate","summary":"needs confirmation","status":"pending-gate","actor":"runtime-test","risk":"high","target":"workspace/features/feature-login","batchId":"batch-pending","gate":{"action":"debug","scope":"handler only","budget":"30s","requestedBudget":{"runtimeSeconds":30,"diskMB":64,"requests":1},"outputPaths":["workspace/features/feature-login/debug"],"triedLightSteps":["overview","static review"],"stopConditions":["timeout"],"authorization":{"decision":"needs-user","profileId":"manual-feature-login","reasons":["manual gate"]}}}`+"\n")
+	writeCaseFile(t, caseRoot, ".rekit/locks/lane-feature-login.lease", "")
+	before := snapshotFiles(t, caseRoot)
+
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "-Apply", "login"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var blocked struct {
+		Command             string                 `json:"command"`
+		Applied             bool                   `json:"applied"`
+		Blocked             bool                   `json:"blocked"`
+		PendingGateRequired bool                   `json:"pendingGateRequired"`
+		ExecutorAction      executorActionSnapshot `json:"executorAction"`
+		PendingGateHandoffs []struct {
+			EventID          string   `json:"eventId"`
+			Lane             string   `json:"lane"`
+			Subject          string   `json:"subject"`
+			Action           string   `json:"action"`
+			Target           string   `json:"target"`
+			Status           string   `json:"status"`
+			Risk             string   `json:"risk"`
+			Authorization    string   `json:"authorization"`
+			Profile          string   `json:"profile"`
+			ReviewCommand    string   `json:"reviewCommand"`
+			WhatIfCommand    string   `json:"whatIfCommand"`
+			ApplyCommand     string   `json:"applyCommand"`
+			DecisionBoundary string   `json:"decisionBoundary"`
+			ContinueBoundary string   `json:"continueBoundary"`
+			Evidence         []string `json:"evidence"`
+		} `json:"pendingGateHandoffs"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		Writes                      []startWrite                        `json:"writes"`
+		NextSteps                   []string                            `json:"nextSteps"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &blocked); err != nil {
+		t.Fatalf("pending gate blocked continue stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if blocked.Command != "continue" || blocked.Applied || !blocked.Blocked || !blocked.PendingGateRequired || len(blocked.Writes) != 0 || len(blocked.PendingGateHandoffs) != 1 {
+		t.Fatalf("unexpected pending gate blocked continue result: %+v", blocked)
+	}
+	handoff := blocked.PendingGateHandoffs[0]
+	if handoff.EventID != "evt-pending-debug" || handoff.Lane != "feature-login" || handoff.Subject != "debug gate" || handoff.Action != "debug" || handoff.Target != "workspace/features/feature-login" || handoff.Status != "pending-gate" || handoff.Risk != "high" || handoff.Authorization != "needs-user" || handoff.Profile != "manual-feature-login" || handoff.ReviewCommand != "/rekit handoff login" || !strings.Contains(handoff.WhatIfCommand, "/rekit gate -Action debug -Lane feature-login -WhatIf") || !strings.Contains(handoff.ApplyCommand, "/rekit gate -Action debug -Lane feature-login -Apply -Actor runtime-test") || !strings.Contains(handoff.DecisionBoundary, "does not execute or approve heavy action") || !strings.Contains(handoff.ContinueBoundary, "blocked continue is zero-write") || !containsSubstring(handoff.Evidence, "pending-gate ledger event evt-pending-debug") || !containsSubstring(handoff.Evidence, "requestedBudget runtimeSeconds=30,diskMB=64,requests=1") || !containsSubstring(handoff.Evidence, "triedLightSteps overview,static review") {
+		t.Fatalf("unexpected continue pending gate handoff: %+v", handoff)
+	}
+	if !blocked.ExecutorAction.Blocked || blocked.ExecutorAction.PendingGates != 1 || !blocked.ExecutorAction.PendingGateRequired || !slices.Contains(blocked.ExecutorAction.NextAgentActions, "resolve or keep deferred pending-gate request(s); gate records the request and never executes heavy-tool") || slices.Contains(blocked.ExecutorAction.NextAgentActions, "/rekit continue login") || !slices.Equal(blocked.NextSteps, blocked.ExecutorAction.NextAgentActions) {
+		t.Fatalf("pending gate blocked continue should expose gate-only next steps: action=%+v next=%+v", blocked.ExecutorAction, blocked.NextSteps)
+	}
+	assertCLIActionQueue(t, blocked.MissionCommanderActionQueue, 3, 0, 3, 3, 2, "/rekit handoff login")
+	assertSnapshotEqual(t, before, snapshotFiles(t, caseRoot))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "-Apply", "login", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"工作线被 blocker 阻塞：feature-login reasons=pending-gate",
+		"continue pending gate handoff：eventId=evt-pending-debug lane=feature-login subject=debug gate action=debug target=workspace/features/feature-login status=pending-gate risk=high auth=needs-user profile=manual-feature-login review=/rekit handoff login",
+		"continue pending gate decision boundary：eventId=evt-pending-debug boundary=review with the main agent/user or update strict durable autonomy before any heavy action; apply command only replays/records the gate request decision and does not execute or approve heavy action by itself",
+		"continue pending gate continue boundary：eventId=evt-pending-debug boundary=blocked continue is zero-write and only exposes pending-gate handoff; do not continue autonomously while the pending gate remains unresolved",
+		"continue pending gate evidence：eventId=evt-pending-debug evidence=pending-gate ledger event evt-pending-debug",
+		"mission commander action queue current：state=needs-gate-decision source=missionCommanderActions blocked=true requiresReview=true command=`/rekit handoff login`",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("pending gate blocked continue text missing %q:\n%s", expected, out.String())
+		}
+	}
+	assertSnapshotEqual(t, before, snapshotFiles(t, caseRoot))
+}
+
+func TestRunContinueBlocksOpenDecisionBeforeWrites(t *testing.T) {
+	caseRoot := attachedCaseWithPack(t, "vmp-re")
+	writeContinueFixture(t, caseRoot)
+	writeCaseFile(t, caseRoot, ".rekit/facts/candidates.jsonl", `{"eventId":"evt-open-candidate","kind":"candidate","lane":"feature-login","subject":"candidate alpha","summary":"needs decision","status":"open","target":"candidate-alpha","confidence":"high","evidenceRefs":["evidence/candidate.json"],"batchId":"batch-decision"}`+"\n")
+	writeCaseFile(t, caseRoot, ".rekit/locks/lane-feature-login.lease", "")
+	before := snapshotFiles(t, caseRoot)
+
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "-Apply", "login"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var blocked struct {
+		Command              string                 `json:"command"`
+		Applied              bool                   `json:"applied"`
+		Blocked              bool                   `json:"blocked"`
+		OpenDecisionRequired bool                   `json:"openDecisionRequired"`
+		ExecutorAction       executorActionSnapshot `json:"executorAction"`
+		OpenDecisionHandoffs []struct {
+			EventID          string   `json:"eventId"`
+			Kind             string   `json:"kind"`
+			Lane             string   `json:"lane"`
+			Subject          string   `json:"subject"`
+			Summary          string   `json:"summary"`
+			Status           string   `json:"status"`
+			Target           string   `json:"target"`
+			Confidence       string   `json:"confidence"`
+			SourceKind       string   `json:"sourceKind"`
+			SourcePath       string   `json:"sourcePath"`
+			SourceCommand    string   `json:"sourceCommand"`
+			RecordPath       string   `json:"recordPath"`
+			ReviewCommand    string   `json:"reviewCommand"`
+			WhatIfCommand    string   `json:"whatIfCommand"`
+			RecordCommand    string   `json:"recordCommand"`
+			DecisionBoundary string   `json:"decisionBoundary"`
+			ContinueBoundary string   `json:"continueBoundary"`
+			Evidence         []string `json:"evidence"`
+		} `json:"openDecisionHandoffs"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		Writes                      []startWrite                        `json:"writes"`
+		NextSteps                   []string                            `json:"nextSteps"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &blocked); err != nil {
+		t.Fatalf("open decision blocked continue stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if blocked.Command != "continue" || blocked.Applied || !blocked.Blocked || !blocked.OpenDecisionRequired || len(blocked.Writes) != 0 || len(blocked.OpenDecisionHandoffs) != 1 {
+		t.Fatalf("unexpected open decision blocked continue result: %+v", blocked)
+	}
+	handoff := blocked.OpenDecisionHandoffs[0]
+	if handoff.EventID != "evt-open-candidate" || handoff.Kind != "candidate" || handoff.Lane != "feature-login" || handoff.Subject != "candidate alpha" || handoff.Summary != "needs decision" || handoff.Status != "open" || handoff.Target != "candidate-alpha" || handoff.Confidence != "high" || handoff.SourceKind != "candidate" || handoff.SourcePath != ".rekit/facts/candidates.jsonl" || handoff.RecordPath != ".rekit/facts/decisions.jsonl" || handoff.ReviewCommand != "/rekit handoff login" || handoff.SourceCommand != "/rekit note -List -Kind candidate -Lane feature-login" || !strings.Contains(handoff.WhatIfCommand, "/rekit note -Kind decision -Lane feature-login") || !strings.Contains(handoff.WhatIfCommand, "-Decision <accept|reject|defer|supersede>") || !strings.Contains(handoff.WhatIfCommand, "-Related evt-open-candidate") || !strings.Contains(handoff.RecordCommand, "/rekit note -Kind decision -Lane feature-login") || strings.Contains(handoff.RecordCommand, " -WhatIf") || !strings.Contains(handoff.DecisionBoundary, "record command only appends case-local decision ledger state") || !strings.Contains(handoff.ContinueBoundary, "blocked continue is zero-write") || !containsSubstring(handoff.Evidence, "candidate ledger event evt-open-candidate") || !containsSubstring(handoff.Evidence, "sourcePath .rekit/facts/candidates.jsonl") {
+		t.Fatalf("unexpected continue open decision handoff: %+v", handoff)
+	}
+	if !blocked.ExecutorAction.Blocked || blocked.ExecutorAction.OpenDecisions != 1 || !blocked.ExecutorAction.OpenDecisionRequired || !slices.Contains(blocked.ExecutorAction.NextAgentActions, "review open candidate/decision item(s) with evidence and authority boundary") || slices.Contains(blocked.ExecutorAction.NextAgentActions, "/rekit continue login") || !slices.Equal(blocked.NextSteps, blocked.ExecutorAction.NextAgentActions) {
+		t.Fatalf("open decision blocked continue should expose review-only next steps: action=%+v next=%+v", blocked.ExecutorAction, blocked.NextSteps)
+	}
+	assertCLIActionQueue(t, blocked.MissionCommanderActionQueue, 2, 0, 2, 2, 1, "/rekit handoff login")
+	assertSnapshotEqual(t, before, snapshotFiles(t, caseRoot))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "-Apply", "login", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"工作线被 blocker 阻塞：feature-login reasons=open-decision",
+		"continue open decision handoff：eventId=evt-open-candidate kind=candidate lane=feature-login subject=candidate alpha summary=needs decision",
+		"continue open decision boundary：eventId=evt-open-candidate boundary=review evidence and choose accept/reject/defer/supersede before recording a decision note; record command only appends case-local decision ledger state and never writes authority/confirmed or executes heavy-tool",
+		"continue open decision continue boundary：eventId=evt-open-candidate boundary=blocked continue is zero-write and only exposes open-decision handoff; do not continue autonomously while the open decision remains unresolved",
+		"continue open decision evidence：eventId=evt-open-candidate evidence=candidate ledger event evt-open-candidate",
+		"mission commander action queue current：state=needs-open-decision-review source=missionCommanderActions blocked=true requiresReview=true command=`/rekit handoff login`",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("open decision blocked continue text missing %q:\n%s", expected, out.String())
+		}
+	}
+	assertSnapshotEqual(t, before, snapshotFiles(t, caseRoot))
+}
+
 func TestRunReconcileApplyReplaysExistingResolutionToRefreshDurableState(t *testing.T) {
 	caseRoot := attachedCaseWithPack(t, "vmp-re")
 	writeContinueFixture(t, caseRoot)
@@ -10397,12 +10546,15 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 
 	writeCaseFile(t, caseRoot, ".rekit/facts/candidates.jsonl", `{"eventId":"evt-open-candidate","kind":"candidate","lane":"main","subject":"review candidate","summary":"needs authority review","status":"open","evidenceRefs":["workspace/main/main/packet.md"]}`+"\n")
 	writeCaseFile(t, caseRoot, ".rekit/lanes/main/outbox.jsonl", `{"eventId":"evt-authorized-continue","kind":"observation","subject":"post auth observation","summary":"continue after authorized gate","evidence":"evidence-authorized-gate"}`+"\n")
+	beforeContinue := snapshotFiles(t, caseRoot)
 	out.Reset()
 	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "-Apply", "main", "-Executor", "session-reconcile-text", "-ExpectedExecutorGeneration", "3"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var cont struct {
 		RunID          string       `json:"runId"`
+		Applied        bool         `json:"applied"`
+		Blocked        bool         `json:"blocked"`
 		MissionBrief   missionBrief `json:"missionBrief"`
 		ExecutorAction struct {
 			Blocked              bool     `json:"blocked"`
@@ -10416,12 +10568,22 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		} `json:"executorAction"`
 		AuthorizedGateAdapterHandoffs []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
 		ExecutionEvidenceReview       []executionEvidenceReviewItem          `json:"executionEvidenceReview"`
-		MissionCommanderNextActions   []missionCommanderNextActionItem       `json:"missionCommanderNextActions"`
-		Writes                        []startWrite                           `json:"writes"`
-		NextSteps                     []string                               `json:"nextSteps"`
+		OpenDecisionHandoffs          []struct {
+			EventID       string `json:"eventId"`
+			Kind          string `json:"kind"`
+			ReviewCommand string `json:"reviewCommand"`
+			WhatIfCommand string `json:"whatIfCommand"`
+			RecordCommand string `json:"recordCommand"`
+		} `json:"openDecisionHandoffs"`
+		MissionCommanderNextActions []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
+		Writes                      []startWrite                     `json:"writes"`
+		NextSteps                   []string                         `json:"nextSteps"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &cont); err != nil {
 		t.Fatalf("continue apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if cont.RunID != "run-preview" || cont.Applied || !cont.Blocked || len(cont.Writes) != 0 {
+		t.Fatalf("open-decision continue should fail closed without writes: %+v", cont)
 	}
 	if !containsSubstring(cont.MissionBrief.AuthorizedGates, "authorized debug") || !containsSubstring(cont.MissionBrief.AuthorizedGates, "outputPaths=workspace/main/debug/session-1") || !containsSubstring(cont.MissionBrief.AuthorizedGates, "stopConditions=timeout") || !containsSubstring(cont.MissionBrief.AuthorizedGates, "eventId="+authorizedEventID) || !containsSubstring(cont.MissionBrief.AuthorizedGates, "reportContract="+reportContract) || len(cont.MissionBrief.PendingGates) != 0 {
 		t.Fatalf("continue JSON missing authorized gate visibility: %+v", cont.MissionBrief)
@@ -10433,84 +10595,14 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if len(cont.ExecutionEvidenceReview) != 2 || cont.ExecutionEvidenceReview[0].GateEventID != authorizedEventID || cont.ExecutionEvidenceReview[1].Status != "escalated" {
 		t.Fatalf("continue JSON missing execution evidence review queue: %+v", cont.ExecutionEvidenceReview)
 	}
+	if len(cont.OpenDecisionHandoffs) != 1 || cont.OpenDecisionHandoffs[0].EventID != "evt-open-candidate" || cont.OpenDecisionHandoffs[0].Kind != "candidate" || cont.OpenDecisionHandoffs[0].ReviewCommand != "/rekit handoff main" || !strings.Contains(cont.OpenDecisionHandoffs[0].WhatIfCommand, "/rekit note -Kind decision -Lane main") || !strings.Contains(cont.OpenDecisionHandoffs[0].WhatIfCommand, "-Related evt-open-candidate") || !strings.Contains(cont.OpenDecisionHandoffs[0].RecordCommand, "/rekit note -Kind decision -Lane main") || strings.Contains(cont.OpenDecisionHandoffs[0].RecordCommand, " -WhatIf") {
+		t.Fatalf("continue JSON missing open decision handoff: %+v", cont.OpenDecisionHandoffs)
+	}
 	assertEvidenceReviewBeforeBlockedAdapterActions(t, "continue", cont.MissionCommanderNextActions, authorizedEventID)
 	if slices.Contains(cont.NextSteps, "/rekit continue main") || !containsSubstring(cont.NextSteps, "review open candidate/decision") {
 		t.Fatalf("authorized-gate continue should stay blocked only by open decision: %+v", cont.NextSteps)
 	}
-	statusPath := assertStartWrite(t, cont.Writes, ".rekit/runs/"+cont.RunID+"/status.json", "write").TargetPath
-	digestPath := assertStartWrite(t, cont.Writes, ".rekit/runs/"+cont.RunID+"/digest.md", "write").TargetPath
-	statusBytes, err := os.ReadFile(statusPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(statusBytes), `"authorizedGates"`) || !strings.Contains(string(statusBytes), `"authorizedGateAdapterHandoffs"`) || !strings.Contains(string(statusBytes), `"defaultReportPath": "workspace/main/debug/session-1/adapter-report.json"`) || !strings.Contains(string(statusBytes), `"caseRelativeReportPath": "workspace/main/debug/session-1/adapter-report.json"`) || !strings.Contains(string(statusBytes), `"executorAction"`) || !strings.Contains(string(statusBytes), `"executionEvidenceReview"`) || !strings.Contains(string(statusBytes), `"missionCommanderNextActions"`) || !strings.Contains(string(statusBytes), `"openDecisions": 1`) || !strings.Contains(string(statusBytes), "authorized debug") || !strings.Contains(string(statusBytes), "outputPaths=workspace/main/debug/session-1") || !strings.Contains(string(statusBytes), "stopConditions=timeout") || !strings.Contains(string(statusBytes), "eventId="+authorizedEventID) || !strings.Contains(string(statusBytes), "reportContract="+reportContract) || strings.Contains(string(statusBytes), "pending-gate requires main-agent/user decision") {
-		t.Fatalf("continue status missing non-blocking authorized gate visibility or executor action:\n%s", string(statusBytes))
-	}
-	digest, err := os.ReadFile(digestPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, expected := range []string{"- authorized gates:", "authorized debug", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "eventId=" + authorizedEventID, "reportContract=" + reportContract, "auth=preauthorized", "## Authorized gate adapter handoff", "defaultReportPath=workspace/main/debug/session-1/adapter-report.json", "caseRelativeReportPath=workspace/main/debug/session-1/adapter-report.json", "validate: `rekit -Command gate -Pack _template", "case record: `rekit -Command gate -Pack _template -Apply -GateEventId " + authorizedEventID, "boundary: projection may read and validate an existing canonical sidecar", "## Executor action snapshot", "- open decisions: `1`", "- open decision required: `true`", "- resume command: `/rekit continue main -Executor session-reconcile-text -ExpectedExecutorGeneration 3`", "## Mission Commander next actions", "state=ready-for-evidence-review source=executionEvidenceReview blocked=true requiresReview=true command=`/rekit handoff main`", "state=ready-for-evidence-review source=executionEvidenceReview.followUp blocked=true requiresReview=true command=`/rekit overview`", "review execution evidence for gateEventId " + authorizedEventID, "boundary hit or escalation in execution evidence", "follow-through: state=ready-for-evidence-review", "outcome: name=recorded-evidence-review", "when: bounded observation evidence was recorded for an authorized gate", "evidence: workspace/main/debug/session-1/result.json", "follow-through: state=needs-main-escalation", "outcome: name=boundary-or-escalation-review", "when: recorded evidence reports boundaryHits, escalation, boundary-hit, or escalated status", "evidence: workspace/main/debug/session-1/adapter-result.json", "- blocker reasons:", "open-decision"} {
-		if !strings.Contains(string(digest), expected) {
-			t.Fatalf("continue digest missing %q:\n%s", expected, string(digest))
-		}
-	}
-	resumePath := assertStartWrite(t, cont.Writes, ".rekit/lanes/main/prompts/RESUME.md", "refresh").TargetPath
-	checkpointPath := assertStartWrite(t, cont.Writes, ".rekit/lanes/main/checkpoints/latest.json", "refresh").TargetPath
-	resume, err := os.ReadFile(resumePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, expected := range []string{"## Mission Control brief", "openLanes=1 ready=0 blocked=1", "- blocked lanes:", "main (open-decision)", "- open decisions:", "review candidate", "- next agent actions:", "review open candidate/decision item(s) with evidence and authority boundary", "## Executor action snapshot", "- blocked: `true`", "- ready: `false`", "- open decision required: `true`", "- resume command: `/rekit continue main -Executor session-reconcile-text -ExpectedExecutorGeneration 3`", "## Mission Commander next actions", "state=ready-for-evidence-review source=executionEvidenceReview blocked=true requiresReview=true command=`/rekit handoff main`", "state=ready-for-evidence-review source=executionEvidenceReview.followUp blocked=true requiresReview=true command=`/rekit overview`", "review execution evidence for gateEventId " + authorizedEventID, "boundary hit or escalation in execution evidence", "- blocker reasons:", "open-decision", "## Heavy-action gate decisions", "- authorized-gate:", "authorized debug", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "eventId=" + authorizedEventID, "reportContract=" + reportContract, "auth=preauthorized", "profile=prof-main-debug", "- pending-gate: none", "- execution evidence review:", "status=succeeded | gateEventId=" + authorizedEventID, "status=escalated | gateEventId=" + authorizedEventID, "outputRefs: workspace/main/debug/session-1/result.json", "evidenceRefs: workspace/main/debug/session-1/result.json", "review command: `review outputRefs/evidenceRefs for gateEventId " + authorizedEventID + "`", "handoff command: `/rekit handoff main`", "commander state: ready-for-evidence-review", "commander state: needs-main-escalation", "commander primary: `/rekit handoff main`", "follow-through: state=ready-for-evidence-review", "outcome: name=recorded-evidence-review", "when: bounded observation evidence was recorded for an authorized gate", "evidence: workspace/main/debug/session-1/result.json", "follow-through: state=needs-main-escalation", "outcome: name=boundary-or-escalation-review", "when: recorded evidence reports boundaryHits, escalation, boundary-hit, or escalated status", "evidence: workspace/main/debug/session-1/adapter-result.json", "commander follow-up: /rekit overview", "commander follow-up: /rekit continue main -Executor session-reconcile-text -ExpectedExecutorGeneration 3 -WhatIf", "boundary: observation evidence is already recorded; do not replay heavy tool", "boundary: boundary/escalation requires main review before autonomous continuation"} {
-		if !strings.Contains(string(resume), expected) {
-			t.Fatalf("lane resume missing %q:\n%s", expected, string(resume))
-		}
-	}
-	checkpointBytes, err := os.ReadFile(checkpointPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var checkpoint struct {
-		MissionBrief struct {
-			Summary         string   `json:"summary"`
-			BlockedLanes    []string `json:"blockedLanes"`
-			OpenDecisions   []string `json:"openDecisions"`
-			PendingGates    []string `json:"pendingGates"`
-			AuthorizedGates []string `json:"authorizedGates"`
-		} `json:"missionBrief"`
-		ExecutorAction struct {
-			Blocked              bool     `json:"blocked"`
-			Ready                bool     `json:"ready"`
-			BlockerReasons       []string `json:"blockerReasons"`
-			PendingGates         int      `json:"pendingGates"`
-			OpenInterventions    int      `json:"openInterventions"`
-			OpenDecisions        int      `json:"openDecisions"`
-			OpenDecisionRequired bool     `json:"openDecisionRequired"`
-			ResumeCommand        string   `json:"resumeCommand"`
-		} `json:"executorAction"`
-		PendingGates                  []string                               `json:"pendingGates"`
-		AuthorizedGates               []string                               `json:"authorizedGates"`
-		AuthorizedGateAdapterHandoffs []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
-		ExecutionEvidenceReview       []executionEvidenceReviewItem          `json:"executionEvidenceReview"`
-		MissionCommanderNextActions   []missionCommanderNextActionItem       `json:"missionCommanderNextActions"`
-	}
-	if err := json.Unmarshal(checkpointBytes, &checkpoint); err != nil {
-		t.Fatalf("lane checkpoint did not decode: %v\n%s", err, string(checkpointBytes))
-	}
-	if checkpoint.MissionBrief.Summary != "openLanes=1 ready=0 blocked=1 pendingGates=0 authorizedGates=1 openDecisions=1 interventions=0" || !slices.Contains(checkpoint.MissionBrief.BlockedLanes, "main (open-decision)") || !containsSubstring(checkpoint.MissionBrief.OpenDecisions, "review candidate") || len(checkpoint.MissionBrief.PendingGates) != 0 || !containsSubstring(checkpoint.MissionBrief.AuthorizedGates, "eventId="+authorizedEventID) || !containsSubstring(checkpoint.MissionBrief.AuthorizedGates, "reportContract="+reportContract) {
-		t.Fatalf("lane checkpoint missing Mission Control brief snapshot: %+v", checkpoint.MissionBrief)
-	}
-	if !checkpoint.ExecutorAction.Blocked || checkpoint.ExecutorAction.Ready || !checkpoint.ExecutorAction.OpenDecisionRequired || checkpoint.ExecutorAction.PendingGates != 0 || checkpoint.ExecutorAction.OpenInterventions != 0 || checkpoint.ExecutorAction.OpenDecisions != 1 || !slices.Contains(checkpoint.ExecutorAction.BlockerReasons, "open-decision") || checkpoint.ExecutorAction.ResumeCommand != "/rekit continue main -Executor session-reconcile-text -ExpectedExecutorGeneration 3" {
-		t.Fatalf("lane checkpoint missing typed executor action snapshot: %+v", checkpoint.ExecutorAction)
-	}
-	if len(checkpoint.PendingGates) != 0 || !containsSubstring(checkpoint.AuthorizedGates, "authorized debug") || !containsSubstring(checkpoint.AuthorizedGates, "outputPaths=workspace/main/debug/session-1") || !containsSubstring(checkpoint.AuthorizedGates, "stopConditions=timeout") || !containsSubstring(checkpoint.AuthorizedGates, "eventId="+authorizedEventID) || !containsSubstring(checkpoint.AuthorizedGates, "reportContract="+reportContract) || !containsSubstring(checkpoint.AuthorizedGates, "auth=preauthorized") {
-		t.Fatalf("lane checkpoint missing non-blocking authorized gate visibility: %+v", checkpoint)
-	}
-	assertAuthorizedGateAdapterHandoffSnapshot(t, "lane checkpoint", checkpoint.AuthorizedGateAdapterHandoffs, authorizedEventID, wantContractCommand)
-	if len(checkpoint.ExecutionEvidenceReview) != 2 || checkpoint.ExecutionEvidenceReview[0].GateEventID != authorizedEventID || checkpoint.ExecutionEvidenceReview[0].Status != "succeeded" || !containsSubstring(checkpoint.ExecutionEvidenceReview[0].OutputRefs, "workspace/main/debug/session-1/result.json") || checkpoint.ExecutionEvidenceReview[0].HandoffCommand != "/rekit handoff main" || checkpoint.ExecutionEvidenceReview[0].MissionCommanderAction.State != "ready-for-evidence-review" || !containsSubstring(checkpoint.ExecutionEvidenceReview[0].MissionCommanderAction.FollowUpCommands, "/rekit continue main -Executor session-reconcile-text -ExpectedExecutorGeneration 3 -WhatIf") || checkpoint.ExecutionEvidenceReview[1].Status != "escalated" || !containsSubstring(checkpoint.ExecutionEvidenceReview[1].Boundary, "requires main review") || checkpoint.ExecutionEvidenceReview[1].MissionCommanderAction.State != "needs-main-escalation" || containsSubstring(checkpoint.ExecutionEvidenceReview[1].MissionCommanderAction.FollowUpCommands, "/rekit continue main") {
-		t.Fatalf("lane checkpoint missing execution evidence review queue: %+v", checkpoint.ExecutionEvidenceReview)
-	}
-	assertEvidenceReviewBeforeBlockedAdapterActions(t, "lane checkpoint", checkpoint.MissionCommanderNextActions, authorizedEventID)
+	assertSnapshotEqual(t, beforeContinue, snapshotFiles(t, caseRoot))
 }
 
 func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testing.T) {

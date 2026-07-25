@@ -63,8 +63,12 @@ type ContinueResult struct {
 	OpenRisks                      []string                                 `json:"openRisks"`
 	Blocked                        bool                                     `json:"blocked"`
 	ReconcileRequired              bool                                     `json:"reconcileRequired"`
+	PendingGateRequired            bool                                     `json:"pendingGateRequired"`
+	OpenDecisionRequired           bool                                     `json:"openDecisionRequired"`
 	OpenInterventions              []InterventionSummary                    `json:"openInterventions,omitempty"`
 	ReconcileHandoffs              []ContinueReconcileHandoff               `json:"reconcileHandoffs,omitempty"`
+	PendingGateHandoffs            []ContinuePendingGateHandoff             `json:"pendingGateHandoffs,omitempty"`
+	OpenDecisionHandoffs           []ContinueOpenDecisionHandoff            `json:"openDecisionHandoffs,omitempty"`
 	WouldWrites                    []StartWrite                             `json:"wouldWrites"`
 	Writes                         []StartWrite                             `json:"writes,omitempty"`
 	BlockedActions                 []string                                 `json:"blockedActions"`
@@ -96,6 +100,47 @@ type ContinueReconcileHandoff struct {
 	ReviewCommand    string   `json:"reviewCommand,omitempty"`
 	WhatIfCommand    string   `json:"whatIfCommand,omitempty"`
 	ApplyCommand     string   `json:"applyCommand,omitempty"`
+	DecisionBoundary string   `json:"decisionBoundary,omitempty"`
+	ContinueBoundary string   `json:"continueBoundary,omitempty"`
+	Evidence         []string `json:"evidence,omitempty"`
+}
+
+type ContinuePendingGateHandoff struct {
+	EventID          string   `json:"eventId,omitempty"`
+	Lane             string   `json:"lane,omitempty"`
+	Subject          string   `json:"subject,omitempty"`
+	Action           string   `json:"action,omitempty"`
+	Target           string   `json:"target,omitempty"`
+	Status           string   `json:"status,omitempty"`
+	Risk             string   `json:"risk,omitempty"`
+	Authorization    string   `json:"authorization,omitempty"`
+	Profile          string   `json:"profile,omitempty"`
+	ReviewCommand    string   `json:"reviewCommand,omitempty"`
+	WhatIfCommand    string   `json:"whatIfCommand,omitempty"`
+	ApplyCommand     string   `json:"applyCommand,omitempty"`
+	DecisionBoundary string   `json:"decisionBoundary,omitempty"`
+	ContinueBoundary string   `json:"continueBoundary,omitempty"`
+	Evidence         []string `json:"evidence,omitempty"`
+}
+
+type ContinueOpenDecisionHandoff struct {
+	EventID          string   `json:"eventId,omitempty"`
+	Kind             string   `json:"kind,omitempty"`
+	Lane             string   `json:"lane,omitempty"`
+	Subject          string   `json:"subject,omitempty"`
+	Summary          string   `json:"summary,omitempty"`
+	Decision         string   `json:"decision,omitempty"`
+	Reason           string   `json:"reason,omitempty"`
+	Status           string   `json:"status,omitempty"`
+	Target           string   `json:"target,omitempty"`
+	Confidence       string   `json:"confidence,omitempty"`
+	SourceKind       string   `json:"sourceKind,omitempty"`
+	SourcePath       string   `json:"sourcePath,omitempty"`
+	SourceCommand    string   `json:"sourceCommand,omitempty"`
+	RecordPath       string   `json:"recordPath,omitempty"`
+	ReviewCommand    string   `json:"reviewCommand,omitempty"`
+	WhatIfCommand    string   `json:"whatIfCommand,omitempty"`
+	RecordCommand    string   `json:"recordCommand,omitempty"`
 	DecisionBoundary string   `json:"decisionBoundary,omitempty"`
 	ContinueBoundary string   `json:"continueBoundary,omitempty"`
 	Evidence         []string `json:"evidence,omitempty"`
@@ -151,6 +196,9 @@ func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (Cont
 	}
 	if blocked := ctx.blockedByReviewerDispatches(false); blocked.Blocked {
 		return blocked, nil
+	}
+	if blocked, err := ctx.blockedByPendingGateOrOpenDecision(false); err != nil || blocked.Blocked {
+		return blocked, err
 	}
 	known, err := mission.ReadLedgerEventIDs(ctx.inst.CaseRoot)
 	if err != nil {
@@ -284,6 +332,9 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (result
 	}
 	if blocked := ctx.blockedByReviewerDispatches(true); blocked.Blocked {
 		return blocked, nil
+	}
+	if blocked, err := ctx.blockedByPendingGateOrOpenDecision(true); err != nil || blocked.Blocked {
+		return blocked, err
 	}
 	known, err := mission.ReadLedgerEventIDs(ctx.inst.CaseRoot)
 	if err != nil {
@@ -643,6 +694,99 @@ func (ctx continueContext) blockedByOpenInterventions(apply bool) (ContinueResul
 	}, nil
 }
 
+func (ctx continueContext) blockedByPendingGateOrOpenDecision(apply bool) (ContinueResult, error) {
+	facts, err := readHandoffFacts(ctx.inst.CaseRoot)
+	if err != nil {
+		return ContinueResult{}, err
+	}
+	laneFacts := mission.LaneFacts(facts.Facts, ctx.lane.ID)
+	pendingGates := []map[string]any{}
+	for _, item := range laneFacts.Requests {
+		if mission.IsPendingGateRequest(item) {
+			pendingGates = append(pendingGates, item)
+		}
+	}
+	openDecisions := continueOpenDecisionItems(laneFacts)
+	if len(pendingGates) == 0 && len(openDecisions) == 0 {
+		return ContinueResult{}, nil
+	}
+	executorAction := ctx.executorAction()
+	executionEvidenceReview := ctx.executionEvidenceReview()
+	reviewerWritebacks := ctx.reviewerWritebacks()
+	reviewerDispatchIntakeHandoffs := ctx.reviewerDispatchIntakeHandoffs()
+	authorizedGateAdapterHandoffs := ctx.authorizedGateAdapterHandoffs()
+	commanderNextActions := ctx.missionCommanderNextActions(executorAction, executionEvidenceReview, authorizedGateAdapterHandoffs, reviewerDispatchIntakeHandoffs)
+	commanderActionQueue := mission.MissionCommanderActionQueueFor(commanderNextActions)
+	return ContinueResult{
+		SchemaVersion:                  1,
+		Command:                        "continue",
+		CaseRoot:                       ctx.inst.CaseRoot,
+		RepoRoot:                       ctx.manifest.RepoRoot,
+		Pack:                           ctx.manifest.Pack,
+		IsMutation:                     apply,
+		Applied:                        false,
+		RequiresConfirmation:           false,
+		Selector:                       ctx.selector,
+		Lane:                           ctx.lane,
+		AutonomyProfile:                autonomy.ReadSummary(ctx.inst.CaseRoot, ctx.lane.ID, ctx.manifest),
+		RunID:                          continuePreviewRunID,
+		BatchID:                        "batch-" + continuePreviewRunID,
+		MissionBrief:                   ctx.missionBrief(),
+		ExecutorAction:                 executorAction,
+		ExecutionEvidenceReview:        executionEvidenceReview,
+		ExecutionEvidenceReviewSummary: ExecutionEvidenceReviewSummaryFor(executionEvidenceReview, commanderActionQueue),
+		ReviewerWritebacks:             reviewerWritebacks,
+		ReviewerWritebackSummary:       ReviewerWritebackSummaryFor(reviewerWritebacks),
+		ReviewerDispatchIntakeHandoffs: reviewerDispatchIntakeHandoffs,
+		ReviewerDispatchIntakeSummary:  ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
+		AuthorizedGateAdapterHandoffs:  authorizedGateAdapterHandoffs,
+		MissionCommanderNextActions:    commanderNextActions,
+		MissionCommanderActionQueue:    commanderActionQueue,
+		OpenRisks:                      append(continuePendingGateRiskLines(pendingGates), continueOpenDecisionRiskLines(openDecisions)...),
+		Blocked:                        true,
+		PendingGateRequired:            len(pendingGates) > 0,
+		OpenDecisionRequired:           len(openDecisions) > 0,
+		PendingGateHandoffs:            continuePendingGateHandoffs(ctx.lane, pendingGates),
+		OpenDecisionHandoffs:           continueOpenDecisionHandoffs(ctx.lane, openDecisions),
+		WouldWrites:                    []StartWrite{},
+		Writes:                         []StartWrite{},
+		BlockedActions:                 []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "lane continuation while pending gate or open decision remains unresolved"},
+		NextSteps:                      executorAction.NextAgentActions,
+	}, nil
+}
+
+func continuePendingGateRiskLines(items []map[string]any) []string {
+	lines := []string{}
+	for _, item := range items {
+		lines = append(lines, fmt.Sprintf("pending-gate: %s | lane=%s | status=%s", firstText(mission.Value(item, "subject"), mission.Value(item, "summary"), mission.Value(item, "eventId")), mission.Value(item, "lane"), firstText(mission.Value(item, "status"), "pending-gate")))
+	}
+	return lines
+}
+
+type continueOpenDecisionItem struct {
+	SourceKind string
+	Event      map[string]any
+}
+
+func continueOpenDecisionItems(facts mission.Facts) []continueOpenDecisionItem {
+	items := []continueOpenDecisionItem{}
+	for _, event := range mission.OpenCandidates(facts.Candidates) {
+		items = append(items, continueOpenDecisionItem{SourceKind: "candidate", Event: event})
+	}
+	for _, event := range mission.OpenDecisionEvents(facts.Decisions) {
+		items = append(items, continueOpenDecisionItem{SourceKind: "decision", Event: event})
+	}
+	return items
+}
+
+func continueOpenDecisionRiskLines(items []continueOpenDecisionItem) []string {
+	lines := []string{}
+	for _, item := range items {
+		lines = append(lines, fmt.Sprintf("open-decision: %s | lane=%s | status=%s", firstText(mission.Value(item.Event, "subject"), mission.Value(item.Event, "summary"), mission.Value(item.Event, "eventId")), mission.Value(item.Event, "lane"), firstText(mission.Value(item.Event, "status"), "open")))
+	}
+	return lines
+}
+
 func interventionRiskLines(items []InterventionSummary) []string {
 	lines := []string{}
 	for _, item := range items {
@@ -706,10 +850,257 @@ func continueReconcileCommand(label, eventID string, apply bool) string {
 	} else {
 		parts = append(parts, "-WhatIf")
 	}
-	for idx := range parts {
-		parts[idx] = quoteCommandArg(parts[idx])
+	return continueCommand(parts...)
+}
+
+func continuePendingGateHandoffs(lane Lane, items []map[string]any) []ContinuePendingGateHandoff {
+	label := workstreamLabel(lane)
+	handoffs := []ContinuePendingGateHandoff{}
+	for _, item := range lastObjects(items, maxHandoffRows) {
+		gate, _ := item["gate"].(map[string]any)
+		authorization, _ := gate["authorization"].(map[string]any)
+		eventID := mission.Value(item, "eventId")
+		evidence := []string{}
+		if eventID != "" {
+			evidence = append(evidence, "pending-gate ledger event "+eventID)
+		} else {
+			evidence = append(evidence, "pending-gate has no eventId; review lane handoff before replaying a gate decision request")
+		}
+		if reasons := mission.Value(authorization, "reasons"); reasons != "" {
+			evidence = append(evidence, "authorization reasons "+reasons)
+		}
+		if budget := mission.Value(gate, "budget"); budget != "" {
+			evidence = append(evidence, "requested budget "+budget)
+		}
+		if budget := continueRequestedBudgetEvidence(gate); budget != "" {
+			evidence = append(evidence, "requestedBudget "+budget)
+		}
+		if outputs := mission.Value(gate, "outputPaths"); outputs != "" {
+			evidence = append(evidence, "requested outputPaths "+outputs)
+		}
+		if stops := mission.Value(gate, "stopConditions"); stops != "" {
+			evidence = append(evidence, "requested stopConditions "+stops)
+		}
+		if tried := mission.Value(gate, "triedLightSteps"); tried != "" {
+			evidence = append(evidence, "triedLightSteps "+tried)
+		}
+		handoffs = append(handoffs, ContinuePendingGateHandoff{
+			EventID:          eventID,
+			Lane:             mission.Value(item, "lane"),
+			Subject:          mission.Value(item, "subject"),
+			Action:           mission.Value(gate, "action"),
+			Target:           mission.Value(item, "target"),
+			Status:           mission.Value(item, "status"),
+			Risk:             mission.Value(item, "risk"),
+			Authorization:    mission.Value(authorization, "decision"),
+			Profile:          mission.Value(authorization, "profileId"),
+			ReviewCommand:    "/rekit handoff " + label,
+			WhatIfCommand:    continueGateRequestCommand(lane, item, false),
+			ApplyCommand:     continueGateRequestCommand(lane, item, true),
+			DecisionBoundary: "review with the main agent/user or update strict durable autonomy before any heavy action; apply command only replays/records the gate request decision and does not execute or approve heavy action by itself",
+			ContinueBoundary: "blocked continue is zero-write and only exposes pending-gate handoff; do not continue autonomously while the pending gate remains unresolved",
+			Evidence:         evidence,
+		})
 	}
-	return strings.Join(parts, " ")
+	return handoffs
+}
+
+func continueRequestedBudgetEvidence(gate map[string]any) string {
+	budget, _ := gate["requestedBudget"].(map[string]any)
+	runtimeSeconds := mission.Value(budget, "runtimeSeconds")
+	diskMB := mission.Value(budget, "diskMB")
+	requests := mission.Value(budget, "requests")
+	if continueEmptyBudgetValue(runtimeSeconds) && continueEmptyBudgetValue(diskMB) && continueEmptyBudgetValue(requests) {
+		return ""
+	}
+	parts := []string{}
+	continueAddEvidencePart(&parts, "runtimeSeconds", runtimeSeconds)
+	continueAddEvidencePart(&parts, "diskMB", diskMB)
+	continueAddEvidencePart(&parts, "requests", requests)
+	return strings.Join(parts, ",")
+}
+
+func continueEmptyBudgetValue(value string) bool {
+	value = strings.TrimSpace(value)
+	return value == "" || value == "0" || value == "0.0"
+}
+
+func continueAddEvidencePart(parts *[]string, key, value string) {
+	if strings.TrimSpace(value) != "" {
+		*parts = append(*parts, key+"="+strings.TrimSpace(value))
+	}
+}
+
+func continueGateRequestCommand(lane Lane, item map[string]any, apply bool) string {
+	gate, _ := item["gate"].(map[string]any)
+	action := firstText(mission.Value(gate, "action"), "<action>")
+	laneID := firstText(mission.Value(item, "lane"), lane.ID)
+	parts := []string{"/rekit", "gate", "-Action", action, "-Lane", laneID}
+	if apply {
+		parts = append(parts, "-Apply", "-Actor", firstText(mission.Value(item, "actor"), "<actor>"))
+	} else {
+		parts = append(parts, "-WhatIf")
+	}
+	parts = continueAppendCommandArg(parts, "-Subject", mission.Value(item, "subject"))
+	parts = continueAppendCommandArg(parts, "-Summary", mission.Value(item, "summary"))
+	parts = continueAppendCommandArg(parts, "-TargetRef", mission.Value(item, "target"))
+	parts = continueAppendCommandArg(parts, "-BatchId", mission.Value(item, "batchId"))
+	parts = continueAppendCommandArg(parts, "-Scope", mission.Value(gate, "scope"))
+	parts = continueAppendCommandArg(parts, "-Budget", mission.Value(gate, "budget"))
+	budget, _ := gate["requestedBudget"].(map[string]any)
+	parts = continueAppendCommandArg(parts, "-RuntimeSeconds", mission.Value(budget, "runtimeSeconds"))
+	parts = continueAppendCommandArg(parts, "-DiskMB", mission.Value(budget, "diskMB"))
+	parts = continueAppendCommandArg(parts, "-Requests", mission.Value(budget, "requests"))
+	parts = continueAppendCommandArg(parts, "-OutputPaths", mission.Value(gate, "outputPaths"))
+	parts = continueAppendCommandArg(parts, "-TriedLightSteps", mission.Value(gate, "triedLightSteps"))
+	parts = continueAppendCommandArg(parts, "-StopConditions", mission.Value(gate, "stopConditions"))
+	parts = continueAppendCommandArg(parts, "-Risk", mission.Value(item, "risk"))
+	return continueCommand(parts...)
+}
+
+func continueOpenDecisionHandoffs(lane Lane, items []continueOpenDecisionItem) []ContinueOpenDecisionHandoff {
+	label := workstreamLabel(lane)
+	handoffs := []ContinueOpenDecisionHandoff{}
+	for _, item := range continueLimitOpenDecisionItems(items, maxHandoffRows) {
+		event := item.Event
+		eventID := mission.Value(event, "eventId")
+		sourceKind := continueOpenDecisionSourceKind(item.SourceKind)
+		kind := firstText(mission.Value(event, "kind"), sourceKind, "decision")
+		sourcePath := mission.FactRelPath(sourceKind)
+		recordPath := mission.FactRelPath("decision")
+		decision := mission.Value(event, "decision")
+		if decision == "" {
+			decision = mission.Value(event, "action")
+		}
+		evidence := []string{}
+		if eventID != "" {
+			evidence = append(evidence, kind+" ledger event "+eventID)
+		} else {
+			evidence = append(evidence, kind+" has no eventId; review lane handoff before adding related refs to a decision note")
+		}
+		if confidence := mission.Value(event, "confidence"); confidence != "" {
+			evidence = append(evidence, "confidence "+confidence)
+		}
+		if refs := mission.Value(event, "evidenceRefs"); refs != "" {
+			evidence = append(evidence, "evidenceRefs "+refs)
+		}
+		evidence = append(evidence, "sourcePath "+sourcePath)
+		evidence = append(evidence, "recordPath "+recordPath)
+		if target := mission.Value(event, "target"); target != "" {
+			evidence = append(evidence, "target "+target)
+		}
+		if batchID := mission.Value(event, "batchId"); batchID != "" {
+			evidence = append(evidence, "batchId "+batchID)
+		}
+		handoffs = append(handoffs, ContinueOpenDecisionHandoff{
+			EventID:          eventID,
+			Kind:             kind,
+			Lane:             mission.Value(event, "lane"),
+			Subject:          mission.Value(event, "subject"),
+			Summary:          mission.Value(event, "summary"),
+			Decision:         decision,
+			Reason:           mission.Value(event, "reason"),
+			Status:           firstText(mission.Value(event, "status"), "open"),
+			Target:           mission.Value(event, "target"),
+			Confidence:       mission.Value(event, "confidence"),
+			SourceKind:       sourceKind,
+			SourcePath:       sourcePath,
+			SourceCommand:    continueOpenDecisionSourceCommand(lane, sourceKind, mission.Value(event, "lane")),
+			RecordPath:       recordPath,
+			ReviewCommand:    "/rekit handoff " + label,
+			WhatIfCommand:    continueDecisionNoteCommand(lane, event, true),
+			RecordCommand:    continueDecisionNoteCommand(lane, event, false),
+			DecisionBoundary: "review evidence and choose accept/reject/defer/supersede before recording a decision note; record command only appends case-local decision ledger state and never writes authority/confirmed or executes heavy-tool",
+			ContinueBoundary: "blocked continue is zero-write and only exposes open-decision handoff; do not continue autonomously while the open decision remains unresolved",
+			Evidence:         evidence,
+		})
+	}
+	return handoffs
+}
+
+func continueLimitOpenDecisionItems(events []continueOpenDecisionItem, n int) []continueOpenDecisionItem {
+	if n <= 0 || len(events) <= n {
+		return events
+	}
+	return events[len(events)-n:]
+}
+
+func continueOpenDecisionSourceKind(kind string) string {
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "candidate":
+		return "candidate"
+	case "decision":
+		return "decision"
+	default:
+		return "decision"
+	}
+}
+
+func continueOpenDecisionSourceCommand(lane Lane, kind, laneID string) string {
+	parts := []string{"/rekit", "note", "-List", "-Kind", firstText(kind, "decision")}
+	if laneID = firstText(laneID, lane.ID); strings.TrimSpace(laneID) != "" {
+		parts = append(parts, "-Lane", laneID)
+	}
+	return continueCommand(parts...)
+}
+
+func continueDecisionNoteCommand(lane Lane, event map[string]any, whatIf bool) string {
+	laneID := firstText(mission.Value(event, "lane"), lane.ID)
+	if strings.TrimSpace(laneID) == "" {
+		return ""
+	}
+	decision := mission.Value(event, "decision")
+	if decision == "" || decision == "defer" || decision == "pending-user" {
+		decision = "<accept|reject|defer|supersede>"
+	}
+	parts := []string{"/rekit", "note", "-Kind", "decision", "-Lane", laneID}
+	parts = continueAppendCommandArg(parts, "-Subject", continueDecisionNoteSubject(event))
+	parts = continueAppendCommandArg(parts, "-Summary", continueDecisionNoteSummary(event))
+	parts = continueAppendCommandArg(parts, "-Decision", decision)
+	parts = continueAppendCommandArg(parts, "-Reason", firstText(mission.Value(event, "reason"), "reviewed open candidate/decision item"))
+	parts = continueAppendCommandArg(parts, "-TargetRef", mission.Value(event, "target"))
+	if eventID := mission.Value(event, "eventId"); eventID != "" {
+		parts = continueAppendCommandArg(parts, "-Related", eventID)
+	}
+	parts = continueAppendCommandArg(parts, "-EvidenceRefs", mission.Value(event, "evidenceRefs"))
+	parts = continueAppendCommandArg(parts, "-BatchId", mission.Value(event, "batchId"))
+	if whatIf {
+		parts = append(parts, "-WhatIf")
+	}
+	return continueCommand(parts...)
+}
+
+func continueDecisionNoteSubject(event map[string]any) string {
+	kind := firstText(mission.Value(event, "kind"), "decision")
+	subject := mission.Value(event, "subject")
+	if strings.TrimSpace(subject) == "" {
+		subject = firstText(mission.Value(event, "summary"), "open item")
+	}
+	return "decision for " + kind + ": " + subject
+}
+
+func continueDecisionNoteSummary(event map[string]any) string {
+	summary := mission.Value(event, "summary")
+	if strings.TrimSpace(summary) == "" {
+		summary = mission.Value(event, "subject")
+	}
+	return firstText(summary, "record reviewed open candidate/decision outcome")
+}
+
+func continueAppendCommandArg(parts []string, flag, value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return parts
+	}
+	return append(parts, flag, value)
+}
+
+func continueCommand(parts ...string) string {
+	out := append([]string{}, parts...)
+	for idx := range out {
+		out[idx] = quoteCommandArg(out[idx])
+	}
+	return strings.Join(out, " ")
 }
 
 func (ctx continueContext) previewEvent(event map[string]any) ContinueEventPreview {
