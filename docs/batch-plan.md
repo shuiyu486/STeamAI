@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 642：release handoff push-run parser completeness closure
 
-状态：已完成 release-handoff parser runtime/test 修复、focused/related release handoff parser tests 与完整本机 `release-run` release minimum；待 implementation commit/push 与 release inspection 记录。
+状态：已完成 release-handoff parser runtime/test 修复、focused/related release handoff parser tests、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `18799f7` 已推送。Push run `30220318328` completed failure，macOS/Linux/Windows jobs `89841536118`/`89841536121`/`89841536143` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。
 
 目标：继续执行端到端能力闭环约束，修正 Batch 641 的 release handoff 误报。现有 latest-batch parser 在已记录 `Push run <id> completed failure ... jobs ... steps=[]` 的实际文案下，会因为只识别 `release-gate run` / `workflow run` / `pr run` / `implementation run` 而把 `status` 误判成 `inspection-pending`，导致 Mission Commander 仍要求“inspect the implementation commit's remote release-gate run”，而不是直接把已记录的 `steps=[]` blocker 标成 complete。这个断点会误导后续批次，把已经完成的 release inspection 继续当成未完成。
 
