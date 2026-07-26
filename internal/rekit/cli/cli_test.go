@@ -12661,6 +12661,67 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	if len(acknowledgedContinue.ExecutionEvidenceReview) != 0 || acknowledgedContinue.MissionCommanderActionQueue.CurrentAction == nil || acknowledgedContinue.MissionCommanderActionQueue.CurrentAction.Source == "executionEvidenceReview" || acknowledgedContinue.MissionCommanderActionQueue.CurrentAction.Source == "adapterReportLiveSnapshot.recordedEvidence" {
 		t.Fatalf("continue after verification ack should close evidence review current action: %+v", acknowledgedContinue)
 	}
+
+	factsBeforeReplay := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
+	out.Reset()
+	if err := Run(applyVerificationArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var verificationReplay struct {
+		Applied                     bool                             `json:"applied"`
+		Reason                      string                           `json:"reason"`
+		EventID                     string                           `json:"eventId"`
+		EventSHA256                 string                           `json:"eventSha256"`
+		ExpectedEventSHA256         string                           `json:"expectedEventSha256"`
+		Path                        string                           `json:"path"`
+		ExecutorAction              executorActionSnapshot           `json:"executorAction"`
+		MissionCommanderAction      missionCommanderActionSnapshot   `json:"missionCommanderAction"`
+		MissionCommanderNextActions []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &verificationReplay); err != nil {
+		t.Fatalf("verification ack note replay stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if verificationReplay.Applied || verificationReplay.Reason != "duplicate eventId" || verificationReplay.EventID != verificationPreview.EventID || verificationReplay.EventSHA256 != verificationPreview.EventSHA256 || verificationReplay.ExpectedEventSHA256 != verificationPreview.EventSHA256 || verificationReplay.Path != ".rekit/facts/verifications.jsonl" {
+		t.Fatalf("verification ack note replay should be hash-bound idempotent: preview=%+v replay=%+v", verificationPreview, verificationReplay)
+	}
+	if verificationReplay.ExecutorAction.Blocked || !verificationReplay.ExecutorAction.Ready || verificationReplay.MissionCommanderAction.State == "ready-for-evidence-review" || verificationReplay.MissionCommanderAction.PrimaryCommand == "/rekit handoff main" || cliNextActionContainsSource(verificationReplay.MissionCommanderNextActions, "executionEvidenceReview") || containsMissionCommanderNextActionsCommand(verificationReplay.MissionCommanderNextActions, "review outputRefs/evidenceRefs") {
+		t.Fatalf("verification ack note replay should preserve closed evidence review queue: action=%+v next=%+v executor=%+v", verificationReplay.MissionCommanderAction, verificationReplay.MissionCommanderNextActions, verificationReplay.ExecutorAction)
+	}
+	assertSnapshotEqual(t, factsBeforeReplay, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var replayStatus struct {
+		CaseMission struct {
+			ExecutionEvidenceReviewCount int                                 `json:"executionEvidenceReviewCount"`
+			ExecutionEvidenceReview      []executionEvidenceReviewItem       `json:"executionEvidenceReview"`
+			MissionCommanderActionQueue  missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+			MissionCommanderNextActions  []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &replayStatus); err != nil {
+		t.Fatalf("status after verification ack replay stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if replayStatus.CaseMission.ExecutionEvidenceReviewCount != 0 || len(replayStatus.CaseMission.ExecutionEvidenceReview) != 0 || replayStatus.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || replayStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.Source == "executionEvidenceReview" || replayStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.Source == "adapterReportLiveSnapshot.recordedEvidence" || containsMissionCommanderNextActionsCommand(replayStatus.CaseMission.MissionCommanderNextActions, "review outputRefs/evidenceRefs") {
+		t.Fatalf("status after verification ack replay should keep evidence review closed: %+v", replayStatus.CaseMission)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "main", "-Format", "json", "-WhatIf"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var replayContinue struct {
+		ExecutionEvidenceReview     []executionEvidenceReviewItem       `json:"executionEvidenceReview"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &replayContinue); err != nil {
+		t.Fatalf("continue after verification ack replay stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if len(replayContinue.ExecutionEvidenceReview) != 0 || replayContinue.MissionCommanderActionQueue.CurrentAction == nil || replayContinue.MissionCommanderActionQueue.CurrentAction.Source == "executionEvidenceReview" || replayContinue.MissionCommanderActionQueue.CurrentAction.Source == "adapterReportLiveSnapshot.recordedEvidence" {
+		t.Fatalf("continue after verification ack replay should keep evidence review closed: %+v", replayContinue)
+	}
 }
 
 func TestRunGateAdapterReportBoundaryHitNoPackProductPathSuppressesContinue(t *testing.T) {
