@@ -16,6 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 623：reviewer result collection recovery handoff closure
+
+状态：已完成 runtime/test/doc 工作树实现、focused reviewer collection/recovery 回归、recovery disposition fail-closed 回归修正，以及完整本机 `release-run` release minimum；implementation commit/push 与 push-triggered remote release-gate inspection 尚待执行。
+
+目标：补齐 reviewer result collection 冲突恢复的真实产品断点：Batch 549/558/600/622 已让 reviewer source capture、staging、collection 和 runbook 都可显式接手，但当 packet-derived candidate 已准备好、canonical reviewer result path 被不同 bytes 或可恢复 obstruction 占据时，`-CollectReviewerResult -WhatIf` 仍只返回普通 error（例如 refusing overwrite / non-empty regular file），replacement executor 需要人工知道要切到 `-RecoverReviewerResult -WhatIf`、补 reason、复核 hashes、Apply 后再重跑 collection。本批让 collection preview 自身在可恢复冲突时返回结构化 recovery handoff，同时保持 Apply fail-closed。
+
+已实现内容：
+
+- `ReviewerResultCollectionResult` 新增只读 conflict snapshot 字段：`recoveryRequired`、`reviewerResultKind`、`reviewerResultBytes`、`reviewerResultMode` 与 `reviewerResultLinkTarget`，用于描述阻塞 canonical result 的 exact kind/hash/size/mode，而不读取或覆盖 candidate 之外的内容。
+- `CollectReviewerResult -WhatIf` 在正常 collection preflight 遇到不同 canonical bytes、empty-file 或 symlink obstruction 时，改为返回 `status=recovery-required` / `recoveryRequired=true`，并把 current Mission Commander action 指向 bounded `/rekit plan-subagents -RecoverReviewerResult ... -WhatIf -Format json`；runbook 继续要求先跑 recovery WhatIf、复核 exact hashes、只用返回的 hash-bound Apply，再重新跑 collection WhatIf。
+- `-CollectReviewerResult -Apply` 保持原有 no-overwrite fail-closed；collection preview 不 quarantine、不删除、不写 receipt、不执行 recovery、不写 facts/authority/confirmed。
+- CLI text 的 collection artifact 行新增 canonical kind/bytes，case-local obstruction recovery E2E 先从 collection WhatIf 看到 `recovery-required` handoff，再执行既有 Recover WhatIf→hash-bound Apply→collection→ready intake 链路。
+
+边界：本批只增强 reviewer result collection 的可恢复冲突 WhatIf handoff 与测试；不自动执行 recovery，不改变 `-RecoverReviewerResult` 的 expected-hash Apply、quarantine/receipt 语义，不放宽 canonical directory / unsupported obstruction fail-closed，不改变 reviewer intake、facts/ledger、authority/confirmed、heavy-tool 或 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/subagents ./internal/rekit/cli -run "TestCollectReviewerResultRejectsBindingsCollisionAndSymlink|TestRunPlanSubagentsReviewerResultObstructionRecoveryCaseLocalE2E" -count=1` 已通过；disposition regression focused `go test ./internal/rekit/subagents ./internal/rekit/cli -run "TestCollectReviewerResultRejectsBindingsCollisionAndSymlink|TestRetireAmbiguousReviewerResultRecoveryRetainsCanonical|TestRunPlanSubagentsReviewerResultObstructionRecoveryCaseLocalE2E" -count=1` 已通过。Package validation `go test ./internal/rekit/subagents ./internal/rekit/cli -count=1` 已通过。完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，返回 `ready=true` / `summary=release run ok`，聚合执行 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步，`passed=7 failed=0 skipped=0`；`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。`releaseInspection` handoff 因 implementation commit 尚未创建而显示 working tree dirty / `implementation-pending` next action，符合预提交状态。implementation commit/push 与远程 release-gate inspection 待执行。
+
 ### Batch 622：reviewer result writeback runbook closure
 
 状态：已完成 runtime/test/doc 工作树实现、focused reviewer writeback subagents 与 CLI product-path 回归、本机 release handoff bootstrap 修正、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `f26c6db` 已推送。Push run `30204276440` completed failure，Linux/Windows/macOS jobs `89799509740`/`89799509765`/`89799509774` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。

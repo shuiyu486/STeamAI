@@ -54,6 +54,25 @@ func TestRunPlanSubagentsReviewerResultObstructionRecoveryCaseLocalE2E(t *testin
 		t.Fatal(err)
 	}
 
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-CollectReviewerResult", "-ShardId", handoff.ShardID, "-Lane", "feature-review", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var collectionBlocked subagents.ReviewerResultCollectionResult
+	if err := json.Unmarshal(out.Bytes(), &collectionBlocked); err != nil {
+		t.Fatal(err)
+	}
+	if collectionBlocked.Status != "recovery-required" || !collectionBlocked.RecoveryRequired || collectionBlocked.ReviewerResultKind != "empty-file" || !strings.Contains(collectionBlocked.MissionCommanderAction.PrimaryCommand, "-RecoverReviewerResult") {
+		t.Fatalf("collection collision omitted recovery handoff: %+v", collectionBlocked)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-CollectReviewerResult", "-ShardId", handoff.ShardID, "-Lane", "feature-review", "-Actor", "mission-commander", "-WhatIf", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if text := out.String(); !strings.Contains(text, "status=recovery-required") || !strings.Contains(text, "canonicalKind=empty-file") || !strings.Contains(text, "-RecoverReviewerResult") {
+		t.Fatalf("collection recovery-required text omitted recovery handoff: %s", text)
+	}
+
 	args := []string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-RecoverReviewerResult", "-ShardId", handoff.ShardID, "-Lane", "feature-review", "-Actor", "mission-commander", "-Reason", "quarantine canonical obstruction"}
 	out.Reset()
 	if err := Run(append(append([]string{}, args...), "-WhatIf", "-Format", "json"), &out); err != nil {

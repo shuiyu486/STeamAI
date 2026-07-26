@@ -43,7 +43,12 @@ type ReviewerResultCollectionResult struct {
 	CandidateBytes              int                                      `json:"candidateBytes"`
 	ReviewerResultPath          string                                   `json:"reviewerResultPath"`
 	ReviewerResultSHA256        string                                   `json:"reviewerResultSha256,omitempty"`
+	ReviewerResultKind          string                                   `json:"reviewerResultKind,omitempty"`
+	ReviewerResultBytes         int                                      `json:"reviewerResultBytes,omitempty"`
+	ReviewerResultMode          uint32                                   `json:"reviewerResultMode,omitempty"`
+	ReviewerResultLinkTarget    string                                   `json:"reviewerResultLinkTarget,omitempty"`
 	AlreadyCollected            bool                                     `json:"alreadyCollected"`
+	RecoveryRequired            bool                                     `json:"recoveryRequired,omitempty"`
 	ReviewerResult              ReviewerResult                           `json:"reviewerResult"`
 	MissionCommanderAction      mission.MissionCommanderAction           `json:"missionCommanderAction"`
 	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions"`
@@ -76,6 +81,11 @@ func CollectReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerResultCo
 	caseRoot = inst.CaseRoot
 	prepared, err := prepareReviewerResultCollection(repoRoot, caseRoot, pack, opt)
 	if err != nil {
+		if opt.WhatIf && reviewerResultCollectionRecoveryHandoffCandidate(err) {
+			if recoveryResult, recoveryErr := reviewerResultCollectionRecoveryRequiredResult(repoRoot, caseRoot, pack, opt); recoveryErr == nil {
+				return recoveryResult, nil
+			}
+		}
 		return ReviewerResultCollectionResult{}, err
 	}
 	result := newReviewerResultCollectionResult(repoRoot, caseRoot, pack, opt, prepared)
@@ -151,6 +161,51 @@ func CollectReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerResultCo
 
 func prepareReviewerResultCollection(repoRoot, caseRoot, pack string, opt ReviewerResultCollectionOptions) (preparedReviewerResultCollection, error) {
 	return prepareReviewerResultCollectionMode(repoRoot, caseRoot, pack, opt, false)
+}
+
+func reviewerResultCollectionRecoveryHandoffCandidate(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "already contains different bytes") || strings.Contains(message, "canonical reviewer result must be a non-empty regular file")
+}
+
+func reviewerResultCollectionRecoveryRequiredResult(repoRoot, caseRoot, pack string, opt ReviewerResultCollectionOptions) (ReviewerResultCollectionResult, error) {
+	prepared, err := prepareReviewerResultCollectionMode(repoRoot, caseRoot, pack, opt, true)
+	if err != nil {
+		return ReviewerResultCollectionResult{}, err
+	}
+	if !prepared.canonicalPresent || prepared.alreadyCollected {
+		return ReviewerResultCollectionResult{}, fmt.Errorf("reviewer result collection recovery handoff is not required")
+	}
+	if prepared.canonicalObstruction != nil {
+		if prepared.canonicalObstruction.Kind == "directory" || !reviewerResultObstructionMoveSupported() || (prepared.canonicalObstruction.Kind != "empty-file" && prepared.canonicalObstruction.Kind != "symlink") {
+			return ReviewerResultCollectionResult{}, fmt.Errorf("canonical reviewer result %s cannot be recovered from collection WhatIf", prepared.canonicalObstruction.Kind)
+		}
+	}
+	result := newReviewerResultCollectionResult(repoRoot, caseRoot, pack, opt, prepared)
+	result.Status = "recovery-required"
+	result.RecoveryRequired = true
+	result.ReviewerResultKind = "regular-file"
+	result.ReviewerResultSHA256 = sha256Hex(prepared.canonical)
+	result.ReviewerResultBytes = len(prepared.canonical)
+	if prepared.canonicalObstruction != nil {
+		result.ReviewerResultKind = prepared.canonicalObstruction.Kind
+		result.ReviewerResultSHA256 = prepared.canonicalObstruction.Fingerprint
+		result.ReviewerResultBytes = prepared.canonicalObstruction.Bytes
+		result.ReviewerResultMode = prepared.canonicalObstruction.Mode
+		result.ReviewerResultLinkTarget = prepared.canonicalObstruction.LinkTarget
+	}
+	reason := "quarantine conflicting canonical reviewer result before collection"
+	result.NextSteps = []string{"canonical reviewer result blocks immutable collection; run reviewer result recovery -WhatIf, inspect its exact candidate/canonical hashes, then use the returned hash-bound recovery Apply before rerunning collection -WhatIf"}
+	result.Boundary = append(result.Boundary, "collection WhatIf does not quarantine conflicting canonical results; recovery remains a separate WhatIf then explicit Apply operation")
+	result.MissionCommanderAction = mission.MissionCommanderAction{
+		State:          "reviewer-result-collection-recovery-required",
+		PrimaryCommand: reviewerResultRecoveryCommand(prepared.packetPath, prepared.handoff.ShardID, prepared.lane, prepared.actor, reason, "", "", false),
+		Boundary:       result.Boundary,
+	}
+	return finalizeReviewerResultCollectionResult(result), nil
 }
 
 func prepareReviewerResultCollectionMode(repoRoot, caseRoot, pack string, opt ReviewerResultCollectionOptions, allowCollision bool) (preparedReviewerResultCollection, error) {

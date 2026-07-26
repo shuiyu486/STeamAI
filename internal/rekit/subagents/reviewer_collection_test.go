@@ -275,9 +275,15 @@ func TestCollectReviewerResultRejectsBindingsCollisionAndSymlink(t *testing.T) {
 	if err := os.WriteFile(handoff.ReviewerResultPath, []byte(`{"different":true}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := CollectReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, opt); err == nil || !strings.Contains(err.Error(), "refusing overwrite") {
-		t.Fatalf("canonical collision preview error = %v", err)
+	recoveryRequired, err := CollectReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, opt)
+	if err != nil {
+		t.Fatalf("canonical collision preview returned error instead of recovery handoff: %v", err)
 	}
+	if recoveryRequired.Status != "recovery-required" || !recoveryRequired.RecoveryRequired || recoveryRequired.ReviewerResultSHA256 == recoveryRequired.CandidateSHA256 || !strings.Contains(recoveryRequired.MissionCommanderAction.PrimaryCommand, "-RecoverReviewerResult") {
+		t.Fatalf("canonical collision preview omitted recovery handoff: %+v", recoveryRequired)
+	}
+	assertReviewerRunbookContains(t, recoveryRequired.RunbookSteps, "-RecoverReviewerResult")
+	assertReviewerRunbookContains(t, recoveryRequired.RunbookSteps, "separate bounded operations")
 	opt.WhatIf = false
 	if _, err := CollectReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, opt); err == nil || !strings.Contains(err.Error(), "refusing overwrite") {
 		t.Fatalf("canonical collision apply error = %v", err)

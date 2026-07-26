@@ -7821,7 +7821,7 @@ func writePlanSubagentsReviewerResultCollectionText(out io.Writer, result subage
 	if _, err := fmt.Fprintf(out, "plan-subagents reviewer result collection：status=%s mutation=%t applied=%t alreadyCollected=%t packet=%s shard=%s lane=%s reviewerSession=%s\n", result.Status, result.IsMutation, result.Applied, result.AlreadyCollected, result.PacketID, result.ShardID, result.Lane, result.ReviewerSession); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(out, "reviewer result collection artifact：candidate=%s candidateSha256=%s candidateBytes=%d canonical=%s canonicalSha256=%s\n", result.CandidatePath, result.CandidateSHA256, result.CandidateBytes, result.ReviewerResultPath, result.ReviewerResultSHA256); err != nil {
+	if _, err := fmt.Fprintf(out, "reviewer result collection artifact：candidate=%s candidateSha256=%s candidateBytes=%d canonical=%s canonicalSha256=%s canonicalKind=%s canonicalBytes=%d\n", result.CandidatePath, result.CandidateSHA256, result.CandidateBytes, result.ReviewerResultPath, result.ReviewerResultSHA256, result.ReviewerResultKind, result.ReviewerResultBytes); err != nil {
 		return err
 	}
 	for _, step := range result.NextSteps {

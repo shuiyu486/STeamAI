@@ -316,7 +316,7 @@ Batch 561 为 `continue` executor-generation stale-writer guard，当前状态�
 
 - 将 evidence ledger 从文档草案推进到 runtime 支持的 append-only JSONL。
 - 将 heavy-tool gate / lane autonomy profile 做成可复用 packet、授权和记录流程，支持预授权范围内自主执行与越界升级。
-- 继续完善 `plan-subagents` 的 tactical reviewer dispatch、多 shard intake 与跨会话接手收敛；当前已支持 planning review artifacts、planning compact orchestration summary、capture-first reviewer result source→staging→collection→ready intake 链路，以及每个 reviewer result writeback execution envelope 的 `runbookSteps[]` / text runbook 行，后续重点是 bounded orchestration，而不是重复实现单 reviewer intake 或恢复手动 note 落账。
+- 继续完善 `plan-subagents` 的 tactical reviewer dispatch、多 shard intake 与跨会话接手收敛；当前已支持 planning review artifacts、planning compact orchestration summary、capture-first reviewer result source→staging→collection→ready intake 链路、每个 reviewer result writeback execution envelope 的 `runbookSteps[]` / text runbook 行，以及 collection preview 遇 canonical 冲突时的 `recovery-required` → `-RecoverReviewerResult -WhatIf` 恢复 handoff，后续重点是 bounded orchestration，而不是重复实现单 reviewer intake 或恢复手动 note 落账。
 - 为 `packs/_template` 增加最小验证命令，降低新 pack 作者出错概率。
 
 ### 4.3 长期优化
