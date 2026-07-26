@@ -94,7 +94,7 @@ claude
 排障或新会话接手时再用：
 
 ```text
-/rekit          # 无子命令时默认只读 status，先确认 kit/case 绑定，并先看 compact Mission Commander first-screen strip / queue current action 接手；kit-mode 会先投影 latest-batch project current action，再回到 case/reviewer/pack-memory first-screen strip，空 case mission 会先投影 onboarding current action
+/rekit          # 无子命令时默认只读 status，先确认 kit/case 绑定，并先看 compact Mission Commander first-screen strip / queue current action 接手；kit-mode 会先投影 latest-batch project current action 与 project runbook，再回到 case/reviewer/pack-memory first-screen strip，空 case mission 会先投影 onboarding current action
 /rekit doctor
 ```
 

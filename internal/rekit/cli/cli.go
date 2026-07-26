@@ -2256,6 +2256,11 @@ func writeStatusMissionCommanderFirstScreenText(out io.Writer, caseMission *stat
 		if err := writeStatusMissionCommanderFirstScreenActionText(out, "project", projectCurrent); err != nil {
 			return err
 		}
+		if projectHandoff != nil {
+			if err := writeStatusMissionCommanderFirstScreenProjectRunbookText(out, projectHandoff, projectCurrent); err != nil {
+				return err
+			}
+		}
 	}
 	if caseCurrent != nil {
 		if err := writeStatusMissionCommanderCurrentActionText(out, "case", *caseCurrent); err != nil {
@@ -2414,6 +2419,35 @@ func writeStatusMissionCommanderFirstScreenReviewerRunbookText(out io.Writer, su
 	}
 	for idx, step := range summary.NextActionRunbookSteps {
 		if _, err := fmt.Fprintf(out, "status Mission Commander focus reviewer runbook：shard=%s state=%s step=%d text=%s\n", summary.NextActionShardID, summary.NextActionState, idx+1, step); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeStatusMissionCommanderFirstScreenProjectRunbookText(out io.Writer, projectHandoff *statusProjectHandoff, current *mission.MissionCommanderNextActionItem) error {
+	if projectHandoff == nil || current == nil {
+		return nil
+	}
+	steps := []string{}
+	if len(projectHandoff.ReadFirst) > 0 {
+		steps = append(steps, "read docs/context-routing.md first, then only the current batch section in docs/batch-plan.md")
+	}
+	if strings.TrimSpace(current.Command) != "" {
+		steps = append(steps, "follow the project current action from this first-screen handoff")
+	}
+	if strings.TrimSpace(projectHandoff.ReleaseInspectionCadence.NextAction) != "" {
+		steps = append(steps, "apply the latest batch release inspection cadence nextAction; do not create a third inspection record without a new remote signal")
+	}
+	if len(projectHandoff.ValidationCommands) > 0 {
+		steps = append(steps, "before handoff or release claims, rerun the listed local validation commands")
+	}
+	if detail := projectHandoff.LatestRemoteReleaseGateDetail; detail != nil && !detail.CanClaimGreen {
+		steps = append(steps, "treat remote release-gate status as non-green unless latest batch evidence explicitly records green jobs")
+	}
+	steps = mission.UniqueStrings(steps)
+	for idx, step := range steps {
+		if _, err := fmt.Fprintf(out, "status Mission Commander focus project runbook：batch=%s state=%s step=%d text=%s\n", current.Label, current.State, idx+1, step); err != nil {
 			return err
 		}
 	}

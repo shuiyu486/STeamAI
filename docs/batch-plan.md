@@ -16,6 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 612：Mission Commander project current action first-screen runbook
+
+状态：已完成 runtime/test/doc 工作树实现、focused CLI product-path 验证和完整本地 release minimum；implementation commit/push 与 PR-triggered remote release-gate inspection 待本批提交后记录。默认 kit-mode `status` / `status -Format text` 现在不仅投影 latest-batch project current action，还会在 `focus=project-current-action` 时输出 project runbook steps，让新会话从第一屏直接看到读取顺序、latest-batch action、release inspection cadence、local validation 与 remote non-green boundary。
+
+目标：补齐 Batch 611 后暴露的第一屏接手断点：project current action 已能显示 current/reason/boundary，但不像 reviewer/pack-memory focus 那样把下一步操作整理成可复制 runbook。replacement executor 仍需要从下方 release handoff 里拼出“先读哪些文档、按 cadence 做什么、验证前跑什么、远程 blocker 怎么处理”，增加接手摩擦。
+
+已实现内容：
+
+- `writeStatusMissionCommanderFirstScreenText` 在 `project-current-action` focus 分支追加 `writeStatusMissionCommanderFirstScreenProjectRunbookText`；case/reviewer/pack-memory 的既有优先级不变，project runbook 只在 project focus 成为兜底焦点时输出。
+- `writeStatusMissionCommanderFirstScreenProjectRunbookText` 复用 `statusProjectHandoff` 的 `ReadFirst`、`LatestNextAction` / current command、release inspection cadence nextAction、validation commands 与 latest remote gate detail，生成 `status Mission Commander focus project runbook` 行。
+- Runbook steps 明确：先读 `docs/context-routing.md` 与 `docs/batch-plan.md` 当前 batch 段；跟随 first-screen project current action；按 latest batch release inspection cadence 执行且无新远程信号不追加第三个 inspection record；handoff/release claim 前重跑本地 validation commands；remote gate 未明确 green 时不得宣称 remote CI green。
+- CLI 回归扩展默认 `status` 与 `status -Format text` 断言，锁定 project runbook 的 batch/state/step/text 输出，避免后续 first-screen 只剩 summary 或 boundary。
+- README 与 agent-team usage 文档补充 kit-mode latest-batch project focus 会显示 project current action 与 runbook，再回到 compact first-screen strip / queue current action 接手。
+
+边界：本批只增强 default status / Mission Commander first-screen 的只读 project runbook projection 与产品路径测试；不执行 heavy tool，不改变 release inspection cadence，不修改 workflow，不写 authority/confirmed，不新增 durable schema，不新增 PowerShell runtime logic。既有 `steps=[]` / `runner_id=0` runner/billing blocker 继续作为 known gap 记录，不能声明 remote CI green，也不因此阻塞 Windows 本机产品路径。
+
+验证结果：focused `go test ./internal/rekit/cli -run TestRunStatus -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true` / `summary=release gate inventory ok`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 均通过，`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。implementation commit/push 与 remote release-gate inspection 将在本批提交后补记；若远程仍为既有 `steps=[]` / `runner_id=0` blocker，则只记录 known blocker，不追加第三个 inspection record。
+
 ### Batch 610：release handoff commit-ref scope guard
 
 状态：已完成 runtime/test/doc 工作树实现、focused releasecheck parser 验证、完整本地 release minimum，以及 implementation commit/push 和 PR-triggered remote release-gate inspection；implementation commit `2ac506a` 已推送并进入 PR #15。PR run `30187565571` completed failure，Windows/Linux/macOS jobs `89754882530`/`89754882569`/`89754882571` 均 `steps=[]`、`runner_id=0` 且无 logs，仍属既有 runner/billing blocker。本批继续 Windows 本机 product-path 优先；远程 CI 若仍返回既有 blocker，不因此追加第三个 inspection record。
