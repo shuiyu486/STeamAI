@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 621：release-run release inspection handoff closure
 
-状态：runtime/test/doc 工作树实现已完成，focused `release-run` handoff 回归、CLI package 验证与完整本机 `release-run` release minimum 已通过；implementation commit/push 与 remote release inspection 待执行。
+状态：已完成 runtime/test/doc 工作树实现、focused `release-run` handoff 回归、CLI package 验证、完整本机 `release-run` release minimum，以及 implementation commit/push 和 push-triggered remote release-gate inspection；implementation commit `d84b427` 已推送。Push run `30203150398` completed failure，Linux/macOS/Windows jobs `89796512974`/`89796512982`/`89796513018` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。
 
 目标：补齐 release-run 后的真实接手断点：Batch 615 让本机 release minimum 可由 Go-native `release-run` 聚合执行，Batch 619 让 completed batch parser 识别 `release-run` 成功证据；但维护者在本机验证完成后仍要手工拼接 `git status`、`main`/`origin/main` 同步、latest-batch release inspection cadence、`steps=[]` blocker 与“不要追加第三个 inspection record”边界。replacement executor 容易把 `release-run ready=true` 误读为 remote green，或在 release inspection commit 自己触发的 CI 之后继续追第三次记录。本批让 `release-run` 在同一 JSON/text envelope 中输出只读 release inspection handoff。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：本批只增强 Go-native `release-run` 的只读 release inspection handoff；不新增 public command，不联网读取 GitHub Actions live state，不改变 recommendedMinimum，不写 repo/case durable state，不写 authority/confirmed，不执行 heavy tool，不新增 PowerShell runtime logic。
 
-验证结果：focused `go test ./internal/rekit/cli -run "TestRunReleaseRun" -count=1` 已通过；related `go test ./internal/rekit/cli -count=1` 已通过；focused release inventory 回归 `go test ./internal/rekit/cli -run "TestRunReleaseRun|TestRunReleaseCheckJsonInventory" -count=1` 已通过。完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，返回 `ready=true` / `summary=release run ok`，聚合执行 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步，`passed=7 failed=0 skipped=0`；新增 `releaseInspection` handoff 在当前未提交工作树下按预期显示 `ready=false`、`summary=release inspection handoff blocked` 与 clean-working-tree next action，不影响 local release minimum。
+验证结果：focused `go test ./internal/rekit/cli -run "TestRunReleaseRun" -count=1` 已通过；related `go test ./internal/rekit/cli -count=1` 已通过；focused release inventory 回归 `go test ./internal/rekit/cli -run "TestRunReleaseRun|TestRunReleaseCheckJsonInventory" -count=1` 已通过。完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，返回 `ready=true` / `summary=release run ok`，聚合执行 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步，`passed=7 failed=0 skipped=0`；新增 `releaseInspection` handoff 在当前未提交工作树下按预期显示 `ready=false`、`summary=release inspection handoff blocked` 与 clean-working-tree next action，不影响 local release minimum。implementation commit `d84b427` 已推送。Push-triggered release-gate run `30203150398` completed failure，Linux/macOS/Windows jobs `89796512974`/`89796512982`/`89796513018` 均为既有 `steps=[]` / `runner_id=0` blocker，不能声明 remote CI green。
 
 ### Batch 620：Mission Commander Markdown action identity closure
 
