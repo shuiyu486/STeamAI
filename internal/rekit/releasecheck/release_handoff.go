@@ -3508,7 +3508,7 @@ func latestBatchRemoteReleaseGate(text string) string {
 		return "blocked: jobs steps=[]"
 	case latestBatchRemoteGreen(remoteText, remoteLower):
 		return "green"
-	case strings.Contains(remoteText, "远程 release-gate") || strings.Contains(remoteLower, "release-gate run") || strings.Contains(remoteLower, "workflow run") || strings.Contains(remoteLower, "pr run") || strings.Contains(remoteLower, "implementation run"):
+	case strings.Contains(remoteText, "远程 release-gate") || strings.Contains(remoteLower, "release-gate run") || strings.Contains(remoteLower, "workflow run") || strings.Contains(remoteLower, "pr run") || strings.Contains(remoteLower, "implementation run") || strings.Contains(remoteLower, "push run"):
 		return "inspected"
 	default:
 		return "not-recorded"
@@ -3540,7 +3540,7 @@ func latestBatchRemoteEvidenceClause(clause, lower string) bool {
 	remoteContext := strings.Contains(lower, "release-gate") || strings.Contains(lower, "remote") || strings.Contains(clause, "远程")
 	jobContext := strings.Contains(lower, "job") || strings.Contains(lower, "jobs")
 	completed := strings.Contains(lower, "completed") || strings.Contains(lower, "failure") || strings.Contains(lower, "success")
-	runContext := strings.Contains(lower, "release-gate run") || strings.Contains(lower, "workflow run") || strings.Contains(lower, "pr run") || strings.Contains(lower, "implementation run")
+	runContext := strings.Contains(lower, "release-gate run") || strings.Contains(lower, "workflow run") || strings.Contains(lower, "pr run") || strings.Contains(lower, "implementation run") || strings.Contains(lower, "push run")
 	if runContext {
 		return len(latestBatchRemoteRunRefs(clause)) > 0 || jobContext || completed
 	}

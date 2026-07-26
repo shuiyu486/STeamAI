@@ -16,6 +16,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 642：release handoff push-run parser completeness closure
+
+状态：已完成 release-handoff parser runtime/test 修复、focused/related release handoff parser tests 与完整本机 `release-run` release minimum；待 implementation commit/push 与 release inspection 记录。
+
+目标：继续执行端到端能力闭环约束，修正 Batch 641 的 release handoff 误报。现有 latest-batch parser 在已记录 `Push run <id> completed failure ... jobs ... steps=[]` 的实际文案下，会因为只识别 `release-gate run` / `workflow run` / `pr run` / `implementation run` 而把 `status` 误判成 `inspection-pending`，导致 Mission Commander 仍要求“inspect the implementation commit's remote release-gate run”，而不是直接把已记录的 `steps=[]` blocker 标成 complete。这个断点会误导后续批次，把已经完成的 release inspection 继续当成未完成。
+
+已实现内容：扩展 `internal/rekit/releasecheck/release_handoff.go` 的 remote evidence 解析，把 `push run` 纳入 remote run/evidence 识别；同步新增 `TestLatestBatchReleaseReadinessRecognizesPushRunRemoteInspection`，覆盖 Batch 641 实际写法：implementation commit 已推送 + `Push run 30219763907 completed failure` + Linux/Windows/macOS jobs `steps=[]` + 已完成 release minimum，断言 `latestBatchHandoff` 直接解析为 `remoteReleaseGate=blocked: completed failure with jobs steps=[]`、remote gate detail 带回 run/job refs，`ReleaseInspectionCadence` 进入 `complete`，且 next action 为“do not create a third inspection record ... continue the next batch”。保留既有 policy-only `steps=[]` 防误判测试，确保未记录 remote inspection 时仍保持 `inspection-pending`。
+
+边界：本批只修正 release handoff 只读 parser 与回归测试，不改变 release-run / release-check 语义，不联网、不读取 GitHub live state、不写 repo/case state、不新增 public command、不写 authority/confirmed、不执行 heavy tool、不新增 PowerShell runtime logic；唯一新增能力是让已记录的 push-triggered release-gate blocker 正确进入 complete handoff。
+
+验证结果：focused `go test ./internal/rekit/releasecheck -run "TestLatestBatchRemoteGate|TestLatestBatchReleaseReadiness" -count=1` 已通过；related release handoff CLI regression `go test ./internal/rekit/cli -run "TestRunStatusJsonKit|TestRunReleaseCheckJsonInventory|TestRunReleaseCheckTextInventory|TestRunReleaseRunIncludesReleaseInspectionHandoff" -count=1` 已通过；完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，其中 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步均通过，返回 `ready=true` / `summary=release run ok`，聚合 `passed=7 failed=0 skipped=0`，`go test ./... attempts=1`，仅 `git diff --check` 保留 Windows 工作树 LF→CRLF 提示。implementation commit/push 与 release inspection 记录待执行。
+
 ### Batch 641：reviewer capture-first batch intake product-path closure
 
 状态：已完成 CLI product-path 测试实现、focused/related reviewer CLI tests、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `70297ea` 已推送。Push-triggered release-gate run `30219763907` completed failure，Linux/Windows/macOS jobs `89840063082`/`89840063135`/`89840063153` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。

@@ -401,6 +401,26 @@ func TestLatestBatchReleaseReadinessWaitsForRemoteInspectionAfterImplementationP
 	}
 }
 
+func TestLatestBatchReleaseReadinessRecognizesPushRunRemoteInspection(t *testing.T) {
+	section := `状态：已完成 CLI product-path 测试实现、完整本机 ` + "`" + `release-run` + "`" + ` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit ` + "`" + `70297ea` + "`" + ` 已推送。Push run ` + "`" + `30219763907` + "`" + ` completed failure，Linux/Windows/macOS jobs ` + "`" + `89840063082` + "`" + `/` + "`" + `89840063135` + "`" + `/` + "`" + `89840063153` + "`" + ` 均 ` + "`" + `steps=[]` + "`" + ` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。
+
+验证结果：完整本机 ` + "`" + `go run ./cmd/rekit -- -Command release-run -Format text` + "`" + ` 已通过，返回 ` + "`" + `ready=true` + "`" + ` / ` + "`" + `summary=release run ok` + "`" + `，聚合 ` + "`" + `passed=7 failed=0 skipped=0` + "`" + `。`
+
+	handoff := latestBatchHandoff(ReleaseHandoffLatestBatch{Status: "已完成 fixture"}, section)
+	if handoff.RemoteReleaseGate != "blocked: completed failure with jobs steps=[]" || handoff.RemoteReleaseGateDetail == nil || !handoff.RemoteReleaseGateDetail.EmptySteps || !handoff.RemoteReleaseGateDetail.CompletedFailure {
+		t.Fatalf("push run remote evidence should be recognized as steps=[] blocker: %+v", handoff.RemoteReleaseGateDetail)
+	}
+	for _, want := range []string{"30219763907", "89840063082", "89840063135", "89840063153"} {
+		if !slices.Contains(handoff.RemoteReleaseGateDetail.RunRefs, want) {
+			t.Fatalf("push run remote gate detail run refs missing %q: %+v", want, handoff.RemoteReleaseGateDetail.RunRefs)
+		}
+	}
+	cadence := handoff.ReleaseInspectionCadence
+	if cadence.State != "complete" || !cadence.ImplementationCommitReady || !cadence.InspectionCommitReady || !releaseHandoffStringsContain(cadence.Evidence, "release inspection commit/run recorded") || !releaseHandoffStringsContain(cadence.Evidence, "remote release-gate steps=[] blocker recorded") {
+		t.Fatalf("push run remote evidence should complete release inspection cadence: %+v", cadence)
+	}
+}
+
 func TestLatestBatchReleaseReadinessPrefersExplicitRemoteEvidenceOverStalePendingText(t *testing.T) {
 	section := `状态：已完成 runtime/test/doc 工作树实现、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commits ` + "`" + `abc123d` + "`" + ` / ` + "`" + `def456a` + "`" + ` 已推送并进入 PR #10。PR run ` + "`" + `123456789` + "`" + ` completed failure，Linux/macOS/Windows jobs ` + "`" + `111111111` + "`" + `/` + "`" + `222222222` + "`" + `/` + "`" + `333333333` + "`" + ` 均 ` + "`" + `steps=[]` + "`" + `、` + "`" + `runner_id=0` + "`" + ` 且无 logs，仍属既有 runner/billing blocker。
 
