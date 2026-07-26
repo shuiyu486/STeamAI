@@ -2233,6 +2233,11 @@ func writeStatusMissionCommanderFirstScreenText(out io.Writer, caseMission *stat
 		if err := writeStatusMissionCommanderFirstScreenActionText(out, "reviewer", reviewerCurrent); err != nil {
 			return err
 		}
+		if caseMission != nil {
+			if err := writeStatusMissionCommanderFirstScreenReviewerRunbookText(out, caseMission.ReviewerDispatchIntakeSummary); err != nil {
+				return err
+			}
+		}
 	case "pack-memory-current-action":
 		if err := writeStatusMissionCommanderFirstScreenActionText(out, "pack-memory", packCurrent); err != nil {
 			return err
@@ -2321,6 +2326,18 @@ func writeStatusMissionCommanderFirstScreenActionText(out io.Writer, scope strin
 	}
 	for _, boundary := range action.Boundary {
 		if _, err := fmt.Fprintf(out, "status Mission Commander focus action boundary：scope=%s boundary=%s\n", scope, boundary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeStatusMissionCommanderFirstScreenReviewerRunbookText(out io.Writer, summary workstream.ReviewerDispatchIntakeSummary) error {
+	if strings.TrimSpace(summary.NextActionShardID) == "" {
+		return nil
+	}
+	for idx, step := range summary.NextActionRunbookSteps {
+		if _, err := fmt.Fprintf(out, "status Mission Commander focus reviewer runbook：shard=%s state=%s step=%d text=%s\n", summary.NextActionShardID, summary.NextActionState, idx+1, step); err != nil {
 			return err
 		}
 	}
