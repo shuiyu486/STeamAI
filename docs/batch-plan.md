@@ -16,6 +16,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 646：pack-memory proof draft already-drafted replay handoff closure
+
+状态：已完成 runtime replay envelope 修正、focused pack-memory proof draft replay tests、case-local pack-memory CLI product-path regression 与完整本机 `release-run` release minimum；implementation commit/push 与 push-triggered remote release-gate inspection 待执行。
+
+目标：继续执行端到端能力闭环约束，转向 pack-memory proof draft 在 proof note 已写入后的重跑/接手断点。现有 candidate review proof、lifecycle proof 与 cleanup proof 已有 exact-file replay 的 `already-drafted` preview envelope，但 Apply 路径在 `AlreadyWritten=true` 后仍覆盖为新写入语义，容易让 replacement executor / Mission Commander 在会话中断后把重跑同一 expected-hash Apply 误读成新 proof draft，而不是“exact note 已存在，继续 release-check/status 刷新 pack-memory proof summary”的安全 handoff。
+
+已实现内容：调整 `DraftCandidateReviewProof` 与 `DraftCandidateLifecycleProof` 的 Apply replay 语义。首次写入仍返回 `mode=proof-drafted` / `mode=lifecycle-proof-drafted` 与原 next steps；当目标 proof note 已存在且 bytes 完全匹配 expected hash 时，Apply 保留 `prepare*Draft` 生成的 `mode=already-drafted`、清空 `applyCommand`、保留“the exact ... proof note already exists”与 `rerun release-check or status to refresh pack-memory proof summary` next steps，并设置 `applied=true` / `alreadyWritten=true`，不重写或改变已有 proof note。扩展 `candidate_decision_test.go` 的 review proof、lifecycle proof 与 cleanup proof replay 断言，统一锁定 `IsMutation`、`Applied`、`AlreadyWritten`、`Mode`、`ApplyCommand`、`ProofSHA256`、`ProofPath` 与 replay next steps。
+
+边界：本批不新增 public command，不改变 proof note schema，不自动 merge/cleanup/reconsume，不运行 doctor/init/reconsume/heavy tools，不写 authority/confirmed，不新增 PowerShell runtime logic；唯一新增能力是把现有 exact proof note replay 状态转换保留到 Apply envelope，确保 duplicate expected-hash Apply 是 zero-write / already-drafted handoff。
+
+验证结果：focused proof replay regression `go test ./internal/rekit/promote -run "TestDraftCandidate(ReviewProof|LifecycleProof|Decisions|CleanupReviewProof)" -count=1` 已通过；case-local pack-memory CLI regression `go test ./internal/rekit/cli -run "TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime" -count=1` 已通过；完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，其中 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步均通过，返回 `ready=true` / `summary=release run ok`，聚合 `passed=7 failed=0 skipped=0`，`go test ./... attempts=1`，仅 `git diff --check` 保留 Windows 工作树 LF→CRLF 提示。
+
 ### Batch 645：pack-memory candidate verification replay handoff closure
 
 状态：已完成 CLI product-path 测试扩展、focused pack-memory candidate decision E2E、同域 promote package regression、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `f801a70` 已推送。Push run `30222129123` completed failure，Windows/macOS/Linux jobs `89846245331`/`89846245354`/`89846245364` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。

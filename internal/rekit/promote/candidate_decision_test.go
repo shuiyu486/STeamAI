@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -111,8 +112,8 @@ func TestDraftCandidateReviewProofPreviewsAppliesAndReplaysProofNote(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !replay.Applied || !replay.AlreadyWritten {
-		t.Fatalf("candidate review proof replay was not idempotent: %+v", replay)
+	if !replay.IsMutation || !replay.Applied || !replay.AlreadyWritten || replay.Mode != "already-drafted" || replay.ApplyCommand != "" || replay.ProofSHA256 != preview.ProofSHA256 || replay.ProofPath != proofPath || !slices.Contains(replay.NextSteps, "the exact proof note already exists") || !slices.Contains(replay.NextSteps, "rerun release-check or status to refresh pack-memory proof summary") {
+		t.Fatalf("candidate review proof replay did not return already-drafted handoff: %+v", replay)
 	}
 }
 
@@ -159,8 +160,8 @@ func TestDraftCandidateLifecycleProofPreviewsAppliesAndReplaysProofNote(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !replay.Applied || !replay.AlreadyWritten {
-		t.Fatalf("candidate lifecycle proof replay was not idempotent: %+v", replay)
+	if !replay.IsMutation || !replay.Applied || !replay.AlreadyWritten || replay.Mode != "already-drafted" || replay.ApplyCommand != "" || replay.ProofSHA256 != preview.ProofSHA256 || replay.ProofPath != proofPath || !slices.Contains(replay.NextSteps, "the exact lifecycle proof note already exists") || !slices.Contains(replay.NextSteps, "rerun release-check or status to refresh pack-memory proof summary") {
+		t.Fatalf("candidate lifecycle proof replay did not return already-drafted handoff: %+v", replay)
 	}
 }
 
@@ -285,8 +286,8 @@ func TestDraftCandidateCleanupReviewProofPreviewsAppliesAndReplaysProofNote(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !replay.Applied || !replay.AlreadyWritten {
-		t.Fatalf("candidate cleanup proof replay was not idempotent: %+v", replay)
+	if !replay.IsMutation || !replay.Applied || !replay.AlreadyWritten || replay.Mode != "already-drafted" || replay.ApplyCommand != "" || replay.ProofSHA256 != preview.ProofSHA256 || replay.ProofPath != proofPath || !slices.Contains(replay.NextSteps, "the exact cleanup proof note already exists") || !slices.Contains(replay.NextSteps, "rerun release-check or status to refresh pack-memory proof summary") {
+		t.Fatalf("candidate cleanup proof replay did not return already-drafted handoff: %+v", replay)
 	}
 }
 

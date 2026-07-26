@@ -140,8 +140,10 @@ func DraftCandidateReviewProof(repoRoot, caseRoot, pack string, opt CandidateRev
 	}
 	result.Applied = true
 	result.AlreadyWritten = already
-	result.Mode = "proof-drafted"
-	result.NextSteps = []string{"review the drafted proof note", "rerun release-check or status to refresh pack-memory proof summary", "continue candidate decision/cleanup/reconsume flow only after required proof is present"}
+	if !already {
+		result.Mode = "proof-drafted"
+		result.NextSteps = []string{"review the drafted proof note", "rerun release-check or status to refresh pack-memory proof summary", "continue candidate decision/cleanup/reconsume flow only after required proof is present"}
+	}
 	return result, nil
 }
 

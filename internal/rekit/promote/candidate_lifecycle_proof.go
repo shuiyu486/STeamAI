@@ -105,8 +105,10 @@ func DraftCandidateLifecycleProof(repoRoot, caseRoot, pack string, opt Candidate
 	}
 	result.Applied = true
 	result.AlreadyWritten = already
-	result.Mode = "lifecycle-proof-drafted"
-	result.NextSteps = []string{"review the drafted lifecycle proof note", "rerun release-check or status to refresh pack-memory proof summary", "continue cleanup/reconsume flow only after required lifecycle proof is present"}
+	if !already {
+		result.Mode = "lifecycle-proof-drafted"
+		result.NextSteps = []string{"review the drafted lifecycle proof note", "rerun release-check or status to refresh pack-memory proof summary", "continue cleanup/reconsume flow only after required lifecycle proof is present"}
+	}
 	return result, nil
 }
 
