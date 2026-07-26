@@ -402,6 +402,50 @@ func TestRunPlanSubagentsReviewerPacketAdoptionCaseLocalProductPath(t *testing.T
 	if got := readOptionalCaseFile(t, caseRoot, ".rekit/facts/verifications.jsonl"); got != "" {
 		t.Fatalf("post-readoption batch intake WhatIf wrote verification facts:\n%s", got)
 	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-ReadyReviewerResults", "-Lane", "feature-review", "-Actor", "mission-commander", "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	readoptedApplied := decodeReviewerBatchIntakeResult(t, out.Bytes())
+	if !readoptedApplied.IsMutation || !readoptedApplied.Applied || readoptedApplied.Total != 1 || readoptedApplied.Ready != 1 || readoptedApplied.Waiting != 0 || readoptedApplied.Processed != 1 || readoptedApplied.Completed != 1 || readoptedApplied.AlreadyComplete != 0 || readoptedApplied.Stopped || len(readoptedApplied.Results) != 1 {
+		t.Fatalf("unexpected re-adopted ready reviewer results apply: %+v", readoptedApplied)
+	}
+	appliedResult := readoptedApplied.Results[0]
+	if appliedResult.WritebackStatus != "complete" || !appliedResult.Applied || !appliedResult.ReadyForWriteback || appliedResult.Verification == nil || appliedResult.Decision == nil || !appliedResult.Verification.Applied || !appliedResult.Decision.Applied || appliedResult.PostValidation == nil || !appliedResult.PostValidation.Valid || appliedResult.PostValidation.Overview.Sections.Verifications.Total != 1 || appliedResult.PostValidation.Overview.Sections.Decisions.Total != 1 || appliedResult.PostValidation.Summary.ReviewerWritebackSummary == nil || appliedResult.PostValidation.Summary.ReviewerWritebackSummary.Total != 2 || mission.Value(appliedResult.Verification.Event, "ownerExecutor") != "session-c" || mission.Value(appliedResult.Decision.Event, "ownerExecutor") != "session-c" {
+		t.Fatalf("re-adopted batch apply did not complete writeback with latest owner: %+v", appliedResult)
+	}
+	verificationFacts, err := mission.ReadStrictFact(caseRoot, "verification")
+	if err != nil {
+		t.Fatal(err)
+	}
+	decisionFacts, err := mission.ReadStrictFact(caseRoot, "decision")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(verificationFacts) != 1 || len(decisionFacts) != 1 || mission.Value(verificationFacts[0], "ownerExecutor") != "session-c" || mission.Value(decisionFacts[0], "ownerExecutor") != "session-c" {
+		t.Fatalf("re-adopted batch apply wrote unexpected owner facts: verifications=%+v decisions=%+v", verificationFacts, decisionFacts)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-ReadyReviewerResults", "-Lane", "feature-review", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	alreadyComplete := decodeReviewerBatchIntakeResult(t, out.Bytes())
+	if alreadyComplete.IsMutation || alreadyComplete.Applied || alreadyComplete.Total != 1 || alreadyComplete.Ready != 1 || alreadyComplete.Waiting != 0 || alreadyComplete.Processed != 1 || alreadyComplete.Completed != 0 || alreadyComplete.AlreadyComplete != 1 || alreadyComplete.Stopped || len(alreadyComplete.Results) != 1 || alreadyComplete.Results[0].WritebackStatus != "already-complete" {
+		t.Fatalf("re-adopted batch did not become already-complete without new writes: %+v", alreadyComplete)
+	}
+	verificationFactsAfter, err := mission.ReadStrictFact(caseRoot, "verification")
+	if err != nil {
+		t.Fatal(err)
+	}
+	decisionFactsAfter, err := mission.ReadStrictFact(caseRoot, "decision")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(verificationFactsAfter) != 1 || len(decisionFactsAfter) != 1 {
+		t.Fatalf("already-complete preview duplicated reviewer facts: verifications=%+v decisions=%+v", verificationFactsAfter, decisionFactsAfter)
+	}
 }
 
 func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t *testing.T) {
