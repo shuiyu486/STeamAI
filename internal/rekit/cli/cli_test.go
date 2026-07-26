@@ -591,6 +591,11 @@ func TestRunStatusJsonKit(t *testing.T) {
 		"status case shim：summary=case shim readiness ok ready=true",
 		"matchesTemplate=unknown",
 		"warnings=0",
+		"status Mission Commander first screen：focus=project-current-action",
+		"status Mission Commander current action：scope=focus-project lane= label=Batch ",
+		"source=releaseHandoffLatestBatch blocked=false requiresReview=",
+		"status Mission Commander focus action reason：scope=project reason=latest batch next action is recorded in the release handoff",
+		"status Mission Commander focus action boundary：scope=project boundary=normal batches stop after implementation commit/push plus one release inspection commit/push",
 		"status project handoff：summary=release handoff summary ok ready=true latestBatch=Batch ",
 		"latestStatus=",
 		"localValidationReady=",
@@ -620,6 +625,11 @@ func TestRunStatusJsonKit(t *testing.T) {
 
 	defaultStatusExpected := []string{
 		"rekit go backend:",
+		"status Mission Commander first screen：focus=project-current-action",
+		"status Mission Commander current action：scope=focus-project lane= label=Batch ",
+		"source=releaseHandoffLatestBatch blocked=false requiresReview=",
+		"status Mission Commander focus action reason：scope=project reason=latest batch next action is recorded in the release handoff",
+		"status Mission Commander focus action boundary：scope=project boundary=normal batches stop after implementation commit/push plus one release inspection commit/push",
 		"status project handoff：summary=release handoff summary ok ready=true latestBatch=Batch ",
 		"localValidationReady=",
 		"status latest batch remote gate：state=",

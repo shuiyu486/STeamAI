@@ -3336,19 +3336,12 @@ func latestBatchSummary(repo string) ReleaseHandoffLatestBatch {
 	}
 	latest.Present = true
 	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
-	start := -1
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "### Batch ") {
-			start = i
-			latest.Title = strings.TrimSpace(strings.TrimPrefix(trimmed, "### "))
-			latest.BatchID = batchIDFromTitle(latest.Title)
-			break
-		}
-	}
+	start, title, batchID := latestBatchSummarySelection(lines)
 	if start < 0 {
 		return latest
 	}
+	latest.Title = title
+	latest.BatchID = batchID
 	end := len(lines)
 	for i := start + 1; i < len(lines); i++ {
 		if strings.HasPrefix(strings.TrimSpace(lines[i]), "### ") {
@@ -3381,6 +3374,48 @@ func latestBatchSummary(repo string) ReleaseHandoffLatestBatch {
 	}
 	latest.Handoff = latestBatchHandoff(latest, strings.Join(handoffFields, "\n"))
 	return latest
+}
+
+func latestBatchSummarySelection(lines []string) (int, string, string) {
+	start := -1
+	var title string
+	var batchID string
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "### Batch ") {
+			continue
+		}
+		candidateTitle := strings.TrimSpace(strings.TrimPrefix(trimmed, "### "))
+		candidateBatchID := batchIDFromTitle(candidateTitle)
+		if candidateBatchID == "" {
+			continue
+		}
+		if start < 0 || latestBatchIDGreater(candidateBatchID, batchID) {
+			start = i
+			title = candidateTitle
+			batchID = candidateBatchID
+		}
+	}
+	return start, title, batchID
+}
+
+func latestBatchIDGreater(candidate, current string) bool {
+	if current == "" {
+		return true
+	}
+	return latestBatchIDNumber(candidate) > latestBatchIDNumber(current)
+}
+
+func latestBatchIDNumber(batchID string) int {
+	batchID = strings.TrimSpace(batchID)
+	if !strings.HasPrefix(batchID, "Batch ") {
+		return -1
+	}
+	var value int
+	if _, err := fmt.Sscanf(batchID, "Batch %d", &value); err != nil {
+		return -1
+	}
+	return value
 }
 
 func latestBatchHandoff(latest ReleaseHandoffLatestBatch, section string) ReleaseHandoffLatestBatchHandoff {

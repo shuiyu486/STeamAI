@@ -2082,7 +2082,11 @@ func runStatusLegacyText(ctx runtime.Context, packSource string, out io.Writer) 
 	if err != nil {
 		return err
 	}
-	return writeStatusProjectHandoffText(out, buildStatusProjectHandoff(release.ReleaseHandoff))
+	projectHandoff := buildStatusProjectHandoff(release.ReleaseHandoff)
+	if err := writeStatusMissionCommanderFirstScreenText(out, nil, projectHandoff); err != nil {
+		return err
+	}
+	return writeStatusProjectHandoffText(out, projectHandoff)
 }
 
 func runStatusText(ctx runtime.Context, packSource string, out io.Writer) error {
@@ -2220,7 +2224,8 @@ func writeStatusMissionCommanderFirstScreenText(out io.Writer, caseMission *stat
 		packCurrent = packQueue.CurrentAction
 		packTotal = packCandidates.Total
 	}
-	focus := statusMissionCommanderFirstScreenFocus(caseCurrent, reviewerCurrent, projectHandoff, packCurrent)
+	projectCurrent := statusProjectHandoffCurrentAction(projectHandoff)
+	focus := statusMissionCommanderFirstScreenFocus(caseCurrent, reviewerCurrent, projectCurrent, projectHandoff, packCurrent)
 	if _, err := fmt.Fprintf(out, "status Mission Commander first screen：focus=%s caseCurrent=%s caseQueueTotal=%d caseQueueBlocked=%d caseQueueRequiresReview=%d reviewerCurrent=%s reviewerQueueTotal=%d reviewerQueueBlocked=%d reviewerQueueRequiresReview=%d packMemoryCurrent=%s packMemoryTotal=%d packMemoryRequiresReview=%d\n", focus, statusMissionActionCommand(caseCurrent), caseQueue.Counts.Total, caseQueue.Counts.Blocked, caseQueue.Counts.RequiresReview, statusMissionActionCommand(reviewerCurrent), reviewerQueue.Counts.Total, reviewerQueue.Counts.Blocked, reviewerQueue.Counts.RequiresReview, statusMissionActionCommand(packCurrent), packTotal, packQueue.Counts.RequiresReview); err != nil {
 		return err
 	}
@@ -2247,6 +2252,10 @@ func writeStatusMissionCommanderFirstScreenText(out io.Writer, caseMission *stat
 				return err
 			}
 		}
+	case "project-current-action":
+		if err := writeStatusMissionCommanderFirstScreenActionText(out, "project", projectCurrent); err != nil {
+			return err
+		}
 	}
 	if caseCurrent != nil {
 		if err := writeStatusMissionCommanderCurrentActionText(out, "case", *caseCurrent); err != nil {
@@ -2263,10 +2272,15 @@ func writeStatusMissionCommanderFirstScreenText(out io.Writer, caseMission *stat
 			return err
 		}
 	}
+	if projectCurrent != nil {
+		if err := writeStatusMissionCommanderCurrentActionText(out, "project", *projectCurrent); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
-func statusMissionCommanderFirstScreenFocus(caseCurrent, reviewerCurrent *mission.MissionCommanderNextActionItem, projectHandoff *statusProjectHandoff, packCurrent *mission.MissionCommanderNextActionItem) string {
+func statusMissionCommanderFirstScreenFocus(caseCurrent, reviewerCurrent, projectCurrent *mission.MissionCommanderNextActionItem, projectHandoff *statusProjectHandoff, packCurrent *mission.MissionCommanderNextActionItem) string {
 	if statusMissionCommanderActionIsReviewerDispatch(caseCurrent) {
 		return "reviewer-current-action"
 	}
@@ -2287,6 +2301,9 @@ func statusMissionCommanderFirstScreenFocus(caseCurrent, reviewerCurrent *missio
 	}
 	if packCurrent != nil {
 		return "pack-memory-current-action"
+	}
+	if projectCurrent != nil {
+		return "project-current-action"
 	}
 	return "none"
 }
@@ -2315,6 +2332,60 @@ func statusPackMemoryCurrentActionNeedsAttention(projectHandoff *statusProjectHa
 	}
 	candidates := projectHandoff.PackMemoryCandidates
 	return !candidates.Ready || candidates.Total > 0 || action.Blocked || action.RequiresReview
+}
+
+func statusProjectHandoffCurrentAction(projectHandoff *statusProjectHandoff) *mission.MissionCommanderNextActionItem {
+	if projectHandoff == nil {
+		return nil
+	}
+	command := strings.TrimSpace(projectHandoff.LatestNextAction)
+	if command == "" {
+		command = strings.TrimSpace(projectHandoff.ReleaseInspectionCadence.NextAction)
+	}
+	if command == "" {
+		return nil
+	}
+	reasons := []string{"latest batch next action is recorded in the release handoff"}
+	if state := strings.TrimSpace(projectHandoff.ReleaseInspectionCadence.State); state != "" {
+		reasons = append(reasons, "release inspection cadence state: "+state)
+	}
+	if gate := strings.TrimSpace(projectHandoff.LatestRemoteReleaseGate); gate != "" {
+		reasons = append(reasons, "latest remote release gate: "+gate)
+	}
+	boundary := []string{}
+	if detail := projectHandoff.LatestRemoteReleaseGateDetail; detail != nil {
+		reasons = append(reasons, "remote release-gate detail recorded")
+		boundary = append(boundary, detail.Boundary...)
+	}
+	boundary = append(boundary, projectHandoff.ReleaseInspectionCadence.Boundary...)
+	boundary = mission.UniqueStrings(boundary)
+	if len(boundary) == 0 {
+		boundary = []string{"release handoff current action is read-only and projections only"}
+	}
+	remoteGateNeedsReview := false
+	if detail := projectHandoff.LatestRemoteReleaseGateDetail; detail != nil {
+		remoteGateNeedsReview = strings.HasPrefix(strings.ToLower(strings.TrimSpace(detail.State)), "blocked:")
+	}
+	requiresReview := !projectHandoff.Ready || projectHandoff.ReleaseInspectionCadence.State != "complete" || projectHandoff.ReleaseInspectionCadence.NewRemoteSignal || remoteGateNeedsReview
+	label := strings.TrimSpace(projectHandoff.LatestBatch)
+	if label == "" {
+		label = "latest-batch"
+	}
+	state := strings.TrimSpace(projectHandoff.ReleaseInspectionCadence.State)
+	if state == "" {
+		state = "release-handoff-next-action"
+	}
+	return &mission.MissionCommanderNextActionItem{
+		Label:          label,
+		ActionID:       "latest-batch-next-action",
+		State:          state,
+		Command:        command,
+		Source:         "releaseHandoffLatestBatch",
+		Blocked:        false,
+		RequiresReview: requiresReview,
+		Reasons:        mission.UniqueStrings(reasons),
+		Boundary:       boundary,
+	}
 }
 
 func writeStatusMissionCommanderFirstScreenActionText(out io.Writer, scope string, action *mission.MissionCommanderNextActionItem) error {
