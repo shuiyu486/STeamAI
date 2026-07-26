@@ -16,6 +16,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 637：reviewer writeback continuation durable handoff closure
+
+状态：已完成 runtime/test/doc 工作树实现、focused reviewer writeback continuation product-path 与相关 reviewer/workstream tests；release-handoff parser regression、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection 待执行。
+
+目标：继续执行端到端能力闭环约束，补齐 reviewer intake writeback 后 replacement executor 的真实下一跳。现有 reviewer intake E2E 已证明 reviewer result WhatIf→Apply 写入 verification/decision facts、postValidation summary 指向 `/rekit continue main`，以及 already-complete preview 不重复写 facts；但还没有证明 Mission Commander / replacement executor 随后运行 `continue -Apply` 时，reviewer writeback provenance 会进入 durable run status、digest、lane RESUME 和 checkpoint，且不会再次写 facts 或恢复 reviewer dispatch blocker。
+
+已实现内容：`writeContinueRunArtifacts` 现在把 `ContinueResult` 已有的 `reviewerWritebacks` 与 `reviewerWritebackSummary` 一并写入 `.rekit/runs/<runId>/status.json`，与 stdout/checkpoint/digest/RESUME 的 existing fields 对齐。扩展 `TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E`：在 reviewer intake Apply 写 verification/decision facts、already-complete preview 与 ledger linkage 断言后，保存 `.rekit/facts` 快照并运行 `continue -Target <case> -Pack _template main -Apply -Format json`；断言 stdout 中 `reviewerWritebacks`=2、summary total=2/verifications=1/decisions=1、latest reviewer result/session/owner/route output 保留，current action 仍是 `/rekit continue main`；读取 run `status.json`、`digest.md`、lane `RESUME.md` 与 checkpoint `latest.json`，确认均保留 reviewer writeback summary、reviewer session、reviewer result path、decision detail、no-heavy/no-authority boundary，且 facts 快照完全不变。
+
+边界：本批不改变 reviewer intake/writeback runtime 语义，不新增 public command，不自动 spawn/monitor reviewer，不自动 dispatch/intake，不写 authority/confirmed，不执行 heavy tool，不新增 PowerShell runtime logic；唯一 runtime 变更是把已计算的 reviewer writeback read-only provenance 补齐到 continue run status durable artifact，`continue -Apply` 仍只刷新 lane/run/board artifacts，不写新的 verification/decision facts。
+
+验证结果：focused `go test ./internal/rekit/cli -run "TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E" -count=1` 已通过；related reviewer intake CLI tests `go test ./internal/rekit/cli -run "TestRunPlanSubagentsReviewer(IntakeWhatIfApply|PacketAdoption|ReadyReviewerResults)" -count=1` 已通过；related workstream tests `go test ./internal/rekit/workstream -run "TestContinue|TestReviewer" -count=1` 已通过；release-handoff parser regression `go test ./internal/rekit/cli -run "TestRunStatusJsonKit|TestRunReleaseCheckJsonInventory|TestRunReleaseCheckTextInventory|TestRunReleaseRunIncludesReleaseInspectionHandoff" -count=1` 已通过；完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，返回 `ready=true` / `summary=release run ok`，聚合执行 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步，`passed=7 failed=0 skipped=0`；本次 `go test ./...` step 为 `attempts=1`，未触发 cleanup-lock retry；`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。implementation commit/push 与 remote release-gate inspection 待执行。
+
 ### Batch 636：execution evidence acknowledgement hash-bound replay closure
 
 状态：已完成 runtime/test/doc 工作树实现、focused adapter evidence review product-path、release-handoff parser regression、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `50bff3e` 已推送。Push run `30216337370` completed failure，Windows/macOS/Linux jobs `89831094875`/`89831094877`/`89831094908` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。

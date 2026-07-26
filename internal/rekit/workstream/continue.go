@@ -1374,6 +1374,8 @@ func writeContinueRunArtifacts(runRoot string, result ContinueResult) (string, s
 		"executorAction":                 result.ExecutorAction,
 		"executionEvidenceReview":        result.ExecutionEvidenceReview,
 		"executionEvidenceReviewSummary": result.ExecutionEvidenceReviewSummary,
+		"reviewerWritebacks":             result.ReviewerWritebacks,
+		"reviewerWritebackSummary":       result.ReviewerWritebackSummary,
 		"reviewerDispatchIntakeHandoffs": result.ReviewerDispatchIntakeHandoffs,
 		"reviewerDispatchIntakeSummary":  result.ReviewerDispatchIntakeSummary,
 		"authorizedGateAdapterHandoffs":  result.AuthorizedGateAdapterHandoffs,

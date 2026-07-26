@@ -218,6 +218,80 @@ func TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E(t *testing.T) {
 	if !strings.Contains(string(verificationLedger), applied.Verification.EventID) || !strings.Contains(string(decisionLedger), applied.Verification.EventID) || !strings.Contains(string(decisionLedger), applied.Decision.EventID) {
 		t.Fatalf("reviewer writeback ledger evidence linkage missing:\nverification=%s\ndecision=%s", verificationLedger, decisionLedger)
 	}
+
+	factsBeforeContinue := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "main", "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var continueApply struct {
+		RunID                       string                              `json:"runId"`
+		Applied                     bool                                `json:"applied"`
+		Blocked                     bool                                `json:"blocked"`
+		ReviewerWritebacks          []reviewerWritebackCLIItem          `json:"reviewerWritebacks"`
+		ReviewerWritebackSummary    reviewerWritebackSummaryCLIItem     `json:"reviewerWritebackSummary"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		Writes                      []startWrite                        `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &continueApply); err != nil {
+		t.Fatalf("continue after reviewer writeback stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !continueApply.Applied || continueApply.Blocked || continueApply.RunID == "" || continueApply.RunID == "run-preview" || len(continueApply.ReviewerWritebacks) != 2 || continueApply.ReviewerWritebackSummary.Total != 2 || continueApply.ReviewerWritebackSummary.VerificationCount != 1 || continueApply.ReviewerWritebackSummary.DecisionCount != 1 || continueApply.ReviewerWritebackSummary.LatestReviewerResult != resultPath || continueApply.ReviewerWritebackSummary.LatestReviewerSession != "reviewer-session-cli" || !continueApply.ReviewerWritebackSummary.HasReviewerResult || !continueApply.ReviewerWritebackSummary.HasOwnerBinding || !continueApply.ReviewerWritebackSummary.HasRouteOutput {
+		t.Fatalf("continue after reviewer writeback omitted writeback summary: %+v", continueApply)
+	}
+	if continueApply.MissionCommanderActionQueue.CurrentAction == nil || continueApply.MissionCommanderActionQueue.CurrentAction.Command != "/rekit continue main" {
+		t.Fatalf("continue after reviewer writeback should remain ready for replacement executor continuation: %+v", continueApply.MissionCommanderActionQueue)
+	}
+	resumePath := assertStartWrite(t, continueApply.Writes, ".rekit/lanes/main/prompts/RESUME.md", "refresh").TargetPath
+	checkpointPath := assertStartWrite(t, continueApply.Writes, ".rekit/lanes/main/checkpoints/latest.json", "refresh").TargetPath
+	statusPath := assertStartWrite(t, continueApply.Writes, ".rekit/runs/"+continueApply.RunID+"/status.json", "write").TargetPath
+	digestPath := assertStartWrite(t, continueApply.Writes, ".rekit/runs/"+continueApply.RunID+"/digest.md", "write").TargetPath
+	assertSnapshotEqual(t, factsBeforeContinue, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
+
+	statusBytes, err := os.ReadFile(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var runStatus struct {
+		ReviewerWritebacks       []reviewerWritebackCLIItem      `json:"reviewerWritebacks"`
+		ReviewerWritebackSummary reviewerWritebackSummaryCLIItem `json:"reviewerWritebackSummary"`
+	}
+	if err := json.Unmarshal(statusBytes, &runStatus); err != nil {
+		t.Fatalf("continue run status after reviewer writeback did not decode: %v\n%s", err, string(statusBytes))
+	}
+	if len(runStatus.ReviewerWritebacks) != 2 || runStatus.ReviewerWritebackSummary.Total != 2 || runStatus.ReviewerWritebackSummary.LatestReviewerResult != resultPath {
+		t.Fatalf("continue run status omitted reviewer writeback provenance: %+v", runStatus)
+	}
+
+	resume, err := os.ReadFile(resumePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := os.ReadFile(digestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for label, text := range map[string]string{"lane RESUME": string(resume), "continue digest": string(digest)} {
+		for _, expected := range []string{"## Reviewer writeback", "summary: total=`2` verifications=`1` decisions=`1`", "latestShard=`shard-01`", "reviewer-session-cli", "reviewer result: `" + resultPath + "`", "reviewer decision detail: reviewerDecision=accept recommendedVerdict=accepted", "reviewer writeback downstream handoff must not execute heavy tools or spawn reviewer sessions"} {
+			if !strings.Contains(text, expected) {
+				t.Fatalf("%s after reviewer writeback omitted durable handoff %q:\n%s", label, expected, text)
+			}
+		}
+	}
+	checkpointBytes, err := os.ReadFile(checkpointPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var checkpoint struct {
+		ReviewerWritebackSummary    reviewerWritebackSummaryCLIItem     `json:"reviewerWritebackSummary"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(checkpointBytes, &checkpoint); err != nil {
+		t.Fatalf("checkpoint after reviewer writeback did not decode: %v\n%s", err, string(checkpointBytes))
+	}
+	if checkpoint.ReviewerWritebackSummary.Total != 2 || checkpoint.ReviewerWritebackSummary.LatestReviewerResult != resultPath || checkpoint.MissionCommanderActionQueue.CurrentAction == nil || checkpoint.MissionCommanderActionQueue.CurrentAction.Command != "/rekit continue main" {
+		t.Fatalf("checkpoint after reviewer writeback omitted durable continuation handoff: %+v", checkpoint)
+	}
 }
 
 func TestRunPlanSubagentsReviewerPacketAdoptionCaseLocalProductPath(t *testing.T) {
