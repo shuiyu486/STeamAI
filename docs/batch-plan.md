@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 608：pack-memory first-screen runbook closure
 
-状态：已完成 runtime/test/doc 工作树实现、focused installed entrypoint product-path test、broader CLI regression、完整本地 release minimum；implementation commit/push 与 remote release-gate inspection 待执行。
+状态：已完成 runtime/test/doc 工作树实现、focused installed entrypoint product-path test、broader CLI regression、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `849e101` 已推送并进入 PR #14。PR run `30184059490` completed failure，Linux/Windows/macOS jobs `89745514664`/`89745514633`/`89745514666` 均 `steps=[]`、`runner_id=0` 且无 logs，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation PR run；不要为 release inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。
 
 目标：补齐 Batch 597/607 后仍存在的 pack-memory first-screen 接手断点：`status` / 默认 `/rekit` 第一屏已能聚焦 `pack-memory-current-action`，但只显示 current command/reason/boundary，没有把当前 pack 的 proof draft 与后续 verification/provisioning/retirement 接手顺序前置。replacement executor 仍需要向下翻完整 handoff 才能确认应先运行 proof draft WhatIf、再用返回的 `-ExpectedProofSha256` 做 Apply，随后才是 candidate verification / provisioning / retirement follow-up。
 
@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：本批只增强默认 status/Mission Commander first-screen 的只读 pack-memory runbook projection 与测试覆盖；不 merge、cleanup、provision、verify 或 retire pack-memory candidates，不写 proof/ledger/authority/confirmed，不新增 durable schema，不新增 PowerShell runtime logic。pack-memory 仍必须由主 Agent 按 WhatIf→hash-gated Apply 显式推进。
 
-验证结果：focused `go test ./internal/rekit/cli -run "TestRunStatus|TestRunContinue|TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E|TestRunInstalled" -count=1` 已通过；exact installed entrypoint test `go test ./internal/rekit/cli -run "TestRunInstalledCaseShimProductPathStatusAndRefresh" -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 均通过；`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。
+验证结果：focused `go test ./internal/rekit/cli -run "TestRunStatus|TestRunContinue|TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E|TestRunInstalled" -count=1` 已通过；exact installed entrypoint test `go test ./internal/rekit/cli -run "TestRunInstalledCaseShimProductPathStatusAndRefresh" -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 均通过；`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。implementation commit `849e101` 已推送；PR #14 run `30184059490` completed failure，Linux/Windows/macOS jobs `89745514664`/`89745514633`/`89745514666` 均 `steps=[]`、`runner_id=0` 且无 logs，仍为既有 runner/billing blocker；本地可验证 release gate 通过但不能声明 remote CI green。
 
 ### Batch 607：reviewer current-action first-screen runbook closure
 
