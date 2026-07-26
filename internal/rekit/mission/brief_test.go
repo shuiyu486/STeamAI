@@ -490,6 +490,54 @@ func TestEffectiveOpenCandidatesHonorsRelatedDecisionNotes(t *testing.T) {
 	}
 }
 
+func TestExecutionEvidenceReviewItemsWithLedgerFactsHonorsRelatedReviewNotes(t *testing.T) {
+	observations := []map[string]any{
+		executionEvidenceObservation("obs-accepted", "gate-accepted"),
+		executionEvidenceObservation("obs-gate-related", "gate-related"),
+		executionEvidenceObservation("obs-needs-more", "gate-needs-more"),
+		executionEvidenceObservation("obs-inconclusive", "gate-inconclusive"),
+		executionEvidenceObservation("obs-status-open", "gate-status-open"),
+		executionEvidenceObservation("obs-deferred", "gate-deferred"),
+		executionEvidenceObservation("obs-target-only", "gate-target-only"),
+		executionEvidenceObservation("obs-unreviewed", "gate-unreviewed"),
+	}
+	facts := LedgerFacts{
+		Facts: Facts{
+			Decisions: []map[string]any{
+				{"kind": "decision", "lane": "main", "status": "resolved", "decision": "accept", "related": []any{"obs-target-only"}},
+			},
+		},
+		Observations: observations,
+		Verifications: []map[string]any{
+			{"kind": "verification", "lane": "main", "status": "resolved", "verdict": "accepted", "related": []any{"obs-accepted"}},
+			{"kind": "verification", "lane": "main", "status": "accepted", "verdict": "accepted", "related": []any{"gate-related"}},
+			{"kind": "verification", "lane": "main", "status": "needs_more_evidence", "verdict": "needs-more-evidence", "related": []any{"obs-needs-more"}},
+			{"kind": "verification", "lane": "main", "status": "resolved", "verdict": "inconclusive", "related": []any{"obs-inconclusive"}},
+			{"kind": "verification", "lane": "main", "status": "open", "verdict": "accepted", "related": []any{"obs-status-open"}},
+			{"kind": "verification", "lane": "main", "status": "deferred", "verdict": "accepted", "related": []any{"obs-deferred"}},
+			{"kind": "verification", "lane": "main", "status": "resolved", "verdict": "accepted", "target": "obs-target-only"},
+		},
+	}
+
+	items := ExecutionEvidenceReviewItemsWithLedgerFacts(facts, "main", func(string) string { return "main" }, 0)
+	if len(items) != 5 || items[0].EventID != "obs-needs-more" || items[1].EventID != "obs-inconclusive" || items[2].EventID != "obs-status-open" || items[3].EventID != "obs-deferred" || items[4].EventID != "obs-unreviewed" {
+		t.Fatalf("execution evidence review items = %+v", items)
+	}
+}
+
+func executionEvidenceObservation(eventID, gateEventID string) map[string]any {
+	return map[string]any{
+		"eventId": eventID,
+		"kind":    "observation",
+		"lane":    "main",
+		"status":  "succeeded",
+		"execution": map[string]any{
+			"gateEventId":   gateEventID,
+			"authorization": "preauthorized",
+		},
+	}
+}
+
 func containsOpenDecisionItem(items []map[string]any, eventID string) bool {
 	for _, item := range items {
 		if Value(item, "eventId") == eventID {

@@ -14,10 +14,116 @@ func ExecutionEvidenceReviewItems(observations []map[string]any, laneID string, 
 			items = append(items, item)
 		}
 	}
+	return limitExecutionEvidenceReviewItems(items, maxRows)
+}
+
+func ExecutionEvidenceReviewItemsWithLedgerFacts(facts LedgerFacts, laneID string, labelFor func(string) string, maxRows int) []ExecutionEvidenceReviewItem {
+	acknowledged := ExecutionEvidenceReviewAcknowledgedIDs(facts)
+	items := []ExecutionEvidenceReviewItem{}
+	for _, observation := range facts.Observations {
+		item, ok := ExecutionEvidenceReviewItemFromObservation(observation, laneID, labelFor)
+		if !ok {
+			continue
+		}
+		if executionEvidenceReviewItemAcknowledged(item, acknowledged) {
+			continue
+		}
+		items = append(items, item)
+	}
+	return limitExecutionEvidenceReviewItems(items, maxRows)
+}
+
+func ExecutionEvidenceReviewAcknowledgedIDs(facts LedgerFacts) map[string]bool {
+	acknowledged := executionEvidenceReviewAcknowledgedIDs(facts)
+	for _, observation := range facts.Observations {
+		item, ok := ExecutionEvidenceReviewItemFromObservation(observation, "", nil)
+		if !ok {
+			continue
+		}
+		if executionEvidenceReviewItemAcknowledged(item, acknowledged) {
+			if item.EventID != "" {
+				acknowledged[item.EventID] = true
+			}
+			if item.GateEventID != "" {
+				acknowledged[item.GateEventID] = true
+			}
+		}
+	}
+	return acknowledged
+}
+
+func limitExecutionEvidenceReviewItems(items []ExecutionEvidenceReviewItem, maxRows int) []ExecutionEvidenceReviewItem {
 	if maxRows > 0 && len(items) > maxRows {
 		return items[len(items)-maxRows:]
 	}
 	return items
+}
+
+func executionEvidenceReviewAcknowledgedIDs(facts LedgerFacts) map[string]bool {
+	acknowledged := map[string]bool{}
+	for _, verification := range facts.Verifications {
+		if !executionEvidenceReviewClosingVerification(verification) {
+			continue
+		}
+		for _, related := range objectStringList(verification["related"]) {
+			acknowledged[related] = true
+		}
+	}
+	for _, decision := range facts.Decisions {
+		if !executionEvidenceReviewClosingDecision(decision) {
+			continue
+		}
+		for _, related := range objectStringList(decision["related"]) {
+			acknowledged[related] = true
+		}
+	}
+	return acknowledged
+}
+
+func executionEvidenceReviewClosingStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "accepted", "rejected", "resolved", "confirmed", "superseded":
+		return true
+	default:
+		return false
+	}
+}
+
+func executionEvidenceReviewClosingVerification(verification map[string]any) bool {
+	if !strings.EqualFold(firstObjectText(verification, "kind"), "verification") {
+		return false
+	}
+	if !executionEvidenceReviewClosingStatus(firstObjectText(verification, "status")) {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(firstObjectText(verification, "verdict"))) {
+	case "accepted", "rejected":
+		return true
+	default:
+		return false
+	}
+}
+
+func executionEvidenceReviewClosingDecision(decision map[string]any) bool {
+	if !strings.EqualFold(firstObjectText(decision, "kind"), "decision") {
+		return false
+	}
+	if !executionEvidenceReviewClosingStatus(firstObjectText(decision, "status")) {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(FirstText(firstObjectText(decision, "decision"), firstObjectText(decision, "action")))) {
+	case "accept", "reject", "supersede":
+		return true
+	default:
+		return false
+	}
+}
+
+func executionEvidenceReviewItemAcknowledged(item ExecutionEvidenceReviewItem, acknowledged map[string]bool) bool {
+	if len(acknowledged) == 0 {
+		return false
+	}
+	return (item.EventID != "" && acknowledged[item.EventID]) || (item.GateEventID != "" && acknowledged[item.GateEventID])
 }
 
 func ExecutionEvidenceReviewItemFromObservation(observation map[string]any, laneID string, labelFor func(string) string) (ExecutionEvidenceReviewItem, bool) {

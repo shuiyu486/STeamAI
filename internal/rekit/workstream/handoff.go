@@ -202,7 +202,11 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 		commanderActions = []mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(*lane, *executorAction)}
 	}
 	missionCommanderNext := mission.MissionCommanderNextActions(commanderActions, executionEvidenceReview, handoffHasBlockedAction(commanderActions))
-	missionCommanderNext = MissionCommanderNextActionsWithAuthorizedGateAdapters(missionCommanderNext, authorizedGateAdapterHandoffs)
+	if factsErr == nil {
+		missionCommanderNext = MissionCommanderNextActionsWithAuthorizedGateAdaptersAndAcknowledgements(missionCommanderNext, authorizedGateAdapterHandoffs, ExecutionEvidenceReviewAcknowledgedIDs(facts))
+	} else {
+		missionCommanderNext = MissionCommanderNextActionsWithAuthorizedGateAdapters(missionCommanderNext, authorizedGateAdapterHandoffs)
+	}
 	missionCommanderNext = MissionCommanderNextActionsWithReviewerDispatches(missionCommanderNext, reviewerDispatchIntakeHandoffs)
 	missionCommanderActionQueue := mission.MissionCommanderActionQueueFor(missionCommanderNext)
 	next := []string{"use /rekit as the Mission Commander entrypoint; JSON preview/apply is Go-owned by default"}
@@ -623,7 +627,7 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 		laneReviewerDispatches, _ := ReviewerDispatchIntakeHandoffs(ctx.inst.CaseRoot, facts, lane.ID)
 		executorAction = withReviewerDispatchBlocker(executorAction, laneReviewerDispatches)
 		missionCommanderNextActions := mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(lane, executorAction)}, executionEvidenceReview, executorAction.Blocked)
-		missionCommanderNextActions = MissionCommanderNextActionsWithAuthorizedGateAdapters(missionCommanderNextActions, authorizedGateAdapterHandoffs)
+		missionCommanderNextActions = MissionCommanderNextActionsWithAuthorizedGateAdaptersAndAcknowledgements(missionCommanderNextActions, authorizedGateAdapterHandoffs, ExecutionEvidenceReviewAcknowledgedIDs(facts))
 		missionCommanderNextActions = MissionCommanderNextActionsWithReviewerDispatches(missionCommanderNextActions, laneReviewerDispatches)
 		missionCommanderActionQueue := mission.MissionCommanderActionQueueFor(missionCommanderNextActions)
 		executionEvidenceReviewSummary := ExecutionEvidenceReviewSummaryFor(executionEvidenceReview, missionCommanderActionQueue)
@@ -924,7 +928,7 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 	laneReviewerDispatches, _ := ReviewerDispatchIntakeHandoffs(ctx.inst.CaseRoot, facts, lane.ID)
 	executorAction = withReviewerDispatchBlocker(executorAction, laneReviewerDispatches)
 	missionCommanderNextActions := mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(lane, executorAction)}, executionEvidenceReview, executorAction.Blocked)
-	missionCommanderNextActions = MissionCommanderNextActionsWithAuthorizedGateAdapters(missionCommanderNextActions, authorizedGateAdapterHandoffs)
+	missionCommanderNextActions = MissionCommanderNextActionsWithAuthorizedGateAdaptersAndAcknowledgements(missionCommanderNextActions, authorizedGateAdapterHandoffs, ExecutionEvidenceReviewAcknowledgedIDs(facts))
 	missionCommanderNextActions = MissionCommanderNextActionsWithReviewerDispatches(missionCommanderNextActions, laneReviewerDispatches)
 	missionCommanderActionQueue := mission.MissionCommanderActionQueueFor(missionCommanderNextActions)
 	executionEvidenceReviewSummary := ExecutionEvidenceReviewSummaryFor(executionEvidenceReview, missionCommanderActionQueue)
@@ -1203,7 +1207,7 @@ func (ctx handoffContext) projectExecutionEvidenceReview() []ExecutionEvidenceRe
 	if err != nil {
 		return nil
 	}
-	items := ExecutionEvidenceReviewItems(facts.Observations, "", ctx.laneCommandLabel)
+	items := ExecutionEvidenceReviewItemsWithLedgerFacts(facts, "", ctx.laneCommandLabel)
 	lanes := ctx.currentLanes()
 	return bindExecutionEvidenceReviewContinueCommands(items, func(command string) (Lane, bool) {
 		label, ok := strings.CutPrefix(strings.TrimSpace(command), "/rekit handoff ")
@@ -1224,7 +1228,7 @@ func (ctx handoffContext) executionEvidenceReview(lane Lane) []ExecutionEvidence
 	if err != nil {
 		return nil
 	}
-	return bindExecutionEvidenceReviewContinueCommands(laneExecutionEvidenceReview(lane, facts.Observations), func(string) (Lane, bool) {
+	return bindExecutionEvidenceReviewContinueCommands(laneExecutionEvidenceReview(lane, facts), func(string) (Lane, bool) {
 		return lane, true
 	})
 }

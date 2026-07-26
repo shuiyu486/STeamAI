@@ -182,7 +182,7 @@ func Render(repoRoot, caseRoot, pack string) (string, error) {
 		return "", err
 	}
 	nextActions := missionCommanderNextActions(actions, evidenceReview, overviewBlocked(brief))
-	nextActions = workstream.MissionCommanderNextActionsWithAuthorizedGateAdapters(nextActions, authorizedGateAdapterHandoffs)
+	nextActions = workstream.MissionCommanderNextActionsWithAuthorizedGateAdaptersAndAcknowledgements(nextActions, authorizedGateAdapterHandoffs, workstream.ExecutionEvidenceReviewAcknowledgedIDs(facts))
 	nextActions = workstream.MissionCommanderNextActionsWithReviewerDispatches(nextActions, reviewerDispatchIntakeHandoffs)
 	actionQueue := missionCommanderActionQueue(nextActions)
 	writeMissionBrief(&out, brief)
@@ -246,7 +246,7 @@ func BuildInventory(repoRoot, caseRoot, pack string) (Inventory, error) {
 		return Inventory{}, err
 	}
 	nextActions := missionCommanderNextActions(actions, evidenceReview, overviewBlocked(brief))
-	nextActions = workstream.MissionCommanderNextActionsWithAuthorizedGateAdapters(nextActions, authorizedGateAdapterHandoffs)
+	nextActions = workstream.MissionCommanderNextActionsWithAuthorizedGateAdaptersAndAcknowledgements(nextActions, authorizedGateAdapterHandoffs, workstream.ExecutionEvidenceReviewAcknowledgedIDs(facts))
 	nextActions = workstream.MissionCommanderNextActionsWithReviewerDispatches(nextActions, reviewerDispatchIntakeHandoffs)
 	actionQueue := missionCommanderActionQueue(nextActions)
 	return Inventory{
@@ -366,7 +366,7 @@ func overviewExecutionEvidenceReview(lanes []event, facts factSet) []workstream.
 			labels[laneID] = workstreamLabel(lane)
 		}
 	}
-	return workstream.ExecutionEvidenceReviewItems(facts.Observations, "", func(laneID string) string {
+	return workstream.ExecutionEvidenceReviewItemsWithLedgerFacts(facts, "", func(laneID string) string {
 		if label := labels[laneID]; label != "" {
 			return label
 		}

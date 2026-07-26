@@ -1235,7 +1235,7 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 	pendingGateLines := missionLines(mission.FilterLane(laneFacts.Requests, lane.ID, "pending-gate"), mission.LaneGateLine)
 	authorizedGateLines := missionLines(mission.FilterLane(laneFacts.Requests, lane.ID, "authorized-gate"), mission.LaneGateLine)
 	authorizedGateAdapterHandoffs := AuthorizedGateAdapterHandoffs(m.RepoRoot, caseRoot, m.Pack, ledgerFacts.Requests, lane.ID)
-	executionEvidenceReview := bindExecutionEvidenceReviewContinueCommands(laneExecutionEvidenceReview(lane, ledgerFacts.Observations), func(string) (Lane, bool) {
+	executionEvidenceReview := bindExecutionEvidenceReviewContinueCommands(laneExecutionEvidenceReview(lane, ledgerFacts), func(string) (Lane, bool) {
 		return lane, true
 	})
 	autonomySummary := autonomy.ReadSummary(caseRoot, lane.ID, m)
@@ -1523,13 +1523,21 @@ func lastObjects(items []map[string]any, limit int) []map[string]any {
 	return items[len(items)-limit:]
 }
 
-func laneExecutionEvidenceReview(lane Lane, observations []map[string]any) []ExecutionEvidenceReviewItem {
+func laneExecutionEvidenceReview(lane Lane, facts mission.LedgerFacts) []ExecutionEvidenceReviewItem {
 	label := workstreamLabel(lane)
-	return ExecutionEvidenceReviewItems(observations, lane.ID, func(string) string { return label })
+	return ExecutionEvidenceReviewItemsWithLedgerFacts(facts, lane.ID, func(string) string { return label })
 }
 
 func ExecutionEvidenceReviewItems(observations []map[string]any, laneID string, labelFor func(string) string) []ExecutionEvidenceReviewItem {
 	return mission.ExecutionEvidenceReviewItems(observations, laneID, labelFor, maxHandoffRows)
+}
+
+func ExecutionEvidenceReviewItemsWithLedgerFacts(facts mission.LedgerFacts, laneID string, labelFor func(string) string) []ExecutionEvidenceReviewItem {
+	return mission.ExecutionEvidenceReviewItemsWithLedgerFacts(facts, laneID, labelFor, maxHandoffRows)
+}
+
+func ExecutionEvidenceReviewAcknowledgedIDs(facts mission.LedgerFacts) map[string]bool {
+	return mission.ExecutionEvidenceReviewAcknowledgedIDs(facts)
 }
 
 func ExecutionEvidenceReviewSummaryFor(items []ExecutionEvidenceReviewItem, queue mission.MissionCommanderActionQueue) ExecutionEvidenceReviewSummary {

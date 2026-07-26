@@ -225,6 +225,10 @@ func authorizedGateCurrentRecordCommandMarkdown(command, reportSHA256 string) st
 }
 
 func MissionCommanderNextActionsWithAuthorizedGateAdapters(base []mission.MissionCommanderNextActionItem, handoffs []AuthorizedGateAdapterHandoff) []mission.MissionCommanderNextActionItem {
+	return MissionCommanderNextActionsWithAuthorizedGateAdaptersAndAcknowledgements(base, handoffs, nil)
+}
+
+func MissionCommanderNextActionsWithAuthorizedGateAdaptersAndAcknowledgements(base []mission.MissionCommanderNextActionItem, handoffs []AuthorizedGateAdapterHandoff, acknowledgedIDs map[string]bool) []mission.MissionCommanderNextActionItem {
 	recordedGateEvents := map[string]bool{}
 	evidenceNeedsMainReview := false
 	evidenceActions := []mission.MissionCommanderNextActionItem{}
@@ -252,6 +256,9 @@ func MissionCommanderNextActionsWithAuthorizedGateAdapters(base []mission.Missio
 	supersededEvidence := map[string]bool{}
 	for _, handoff := range handoffs {
 		exactRecorded := handoff.ReportSummary != nil && (handoff.ReportSummary.State == "evidence-already-recorded" || handoff.ReportSummary.RequiresMainEscalation)
+		if exactRecorded && acknowledgedIDs[strings.TrimSpace(handoff.EventID)] {
+			continue
+		}
 		if recordedGateEvents[handoff.EventID] && exactRecorded {
 			continue
 		}

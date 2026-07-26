@@ -16,6 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 609：execution evidence review acknowledgement closure
+
+状态：已完成 runtime/test/doc 工作树实现、focused mission/workstream/overview/CLI product-path 验证与完整本地 release minimum；implementation commit/push 与远程 release-gate inspection 待执行。本批继续 Windows 本机 product-path 优先；远程 CI 若仍返回既有 `steps=[]` runner/billing blocker，只记录 known gap，不因此追加第三个 inspection record。
+
+目标：补齐 Batch 580/603/594/602 后仍存在的 adapter downstream 断点：authorized adapter sidecar 经 valid=true validation/hash-bound record 后，observation evidence 已进入 ledger，status/overview/handoff/continue 会把 `executionEvidenceReview[]` 提升为 Mission Commander current action；但 review 完成后缺少 append-only acknowledgement 出口，exact recorded sidecar 还可能以 `evidence-already-recorded` adapter live snapshot 重新顶回 current action。replacement executor 只能反复看到 `/rekit handoff main` review queue，无法用既有 note ledger 明确关闭“已 review”状态。
+
+已实现内容：
+
+- `mission.ExecutionEvidenceReviewItemsWithLedgerFacts` 新增 ledger-aware projection，消费 observations + verifications + decisions；明确终结性的 related verification/decision note 会过滤已 review 的 observation evidence，旧 `ExecutionEvidenceReviewItems` 保持给 gate immediate / raw observation parsing 使用。
+- Acknowledgement 规则 fail-closed：verification 必须 `status=resolved|accepted|rejected|confirmed|superseded` 且 `verdict=accepted|rejected`；decision 必须同样具备 closed status 且 `decision=accept|reject|supersede`。`open`、`deferred`、`needs_more_evidence`、`inconclusive`、仅 `target` 指向 evidence 或缺 terminal status 的 note 不关闭 review。
+- acknowledgement IDs 会把同一 observation 的 `eventId` 与 `execution.gateEventId` 互相展开；主 Agent 可用 `-Related <observationEventId>` 或 `-Related <gateEventId>` 表达 review closure，并同时抑制 exact `evidence-already-recorded` adapter live snapshot 的 duplicate-record next action。
+- status/overview/project handoff/lane handoff/continue 均改用 ledger-aware evidence review projection 与 acknowledged adapter-action merge；recorded handoff summary 仍保留只读 state/provenance，但不再作为 review-owned current action 回流。
+- Nested no-pack/case-local adapter product-path 回归在 hash-bound adapter record 后追加 `note -Kind verification -WhatIf` → `-ExpectedNoteEventSha256` Apply，验证 acknowledgement 只追加 verifications ledger，不写 authority/confirmed，并使 status/handoff/continue 的 evidence review / duplicate-record current action 清零。
+
+边界：本批只消费既有 append-only note ledger 来关闭已 review 的 observation evidence queue；不新增 durable schema，不 replay adapter/heavy tool，不重新 validate/record sidecar，不自动写 authority/confirmed/decision outcome，不改变 `gate -Apply` observation evidence 写入语义，不新增 PowerShell runtime logic。需要更多证据或 inconclusive 的 review 必须保持 queue open。
+
+验证结果：focused `go test ./internal/rekit/mission -run TestExecutionEvidenceReviewItemsWithLedgerFactsHonorsRelatedReviewNotes` 已通过；focused `go test ./internal/rekit/cli -run TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace` 已通过；受影响 package `go test ./internal/rekit/mission ./internal/rekit/workstream ./internal/rekit/overview` 已通过；adapter product-path focused CLI `go test ./internal/rekit/cli -run "TestRunGateAdapterReport(NoPackProductPathFromNestedOutputWorkspace|BoundaryHitNoPackProductPathSuppressesContinue|TextOutputsNextActions|ReadOnlyPreflightFromCallerCwdBridge)"` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true` / `summary=release gate inventory ok`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 均通过，`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示；implementation commit/push 与远程 release-gate inspection 待执行。
+
 ### Batch 608：pack-memory first-screen runbook closure
 
 状态：已完成 runtime/test/doc 工作树实现、focused installed entrypoint product-path test、broader CLI regression、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `849e101` 已推送并进入 PR #14。PR run `30184059490` completed failure，Linux/Windows/macOS jobs `89745514664`/`89745514633`/`89745514666` 均 `steps=[]`、`runner_id=0` 且无 logs，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation PR run；不要为 release inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。

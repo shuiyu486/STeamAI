@@ -561,7 +561,7 @@ func (ctx continueContext) executionEvidenceReview() []ExecutionEvidenceReviewIt
 	if err != nil {
 		return nil
 	}
-	return bindExecutionEvidenceReviewContinueCommands(laneExecutionEvidenceReview(ctx.lane, facts.Observations), func(string) (Lane, bool) {
+	return bindExecutionEvidenceReviewContinueCommands(laneExecutionEvidenceReview(ctx.lane, facts), func(string) (Lane, bool) {
 		return ctx.lane, true
 	})
 }
@@ -595,8 +595,13 @@ func (ctx continueContext) authorizedGateAdapterHandoffs() []AuthorizedGateAdapt
 }
 
 func (ctx continueContext) missionCommanderNextActions(action laneExecutorAction, evidenceReview []ExecutionEvidenceReviewItem, adapterHandoffs []AuthorizedGateAdapterHandoff, reviewerHandoffs []ReviewerDispatchIntakeHandoff) []mission.MissionCommanderNextActionItem {
+	facts, err := readHandoffFacts(ctx.inst.CaseRoot)
+	acknowledgedIDs := map[string]bool{}
+	if err == nil {
+		acknowledgedIDs = ExecutionEvidenceReviewAcknowledgedIDs(facts)
+	}
 	items := mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(ctx.lane, action)}, evidenceReview, action.Blocked)
-	items = MissionCommanderNextActionsWithAuthorizedGateAdapters(items, adapterHandoffs)
+	items = MissionCommanderNextActionsWithAuthorizedGateAdaptersAndAcknowledgements(items, adapterHandoffs, acknowledgedIDs)
 	return MissionCommanderNextActionsWithReviewerDispatches(items, reviewerHandoffs)
 }
 

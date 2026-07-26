@@ -12013,6 +12013,134 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 		t.Fatalf("no-pack continue apply text after adapter evidence should not emit JSON:\n%s", out.String())
 	}
 	assertSnapshotEqual(t, beforeContinueTextApplyFacts, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
+
+	beforeReviewNote := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	out.Reset()
+	verificationArgs := []string{
+		"-Command", "note",
+		"-Kind", "verification",
+		"-Lane", "main",
+		"-Subject", "adapter evidence reviewed",
+		"-Summary", "reviewed recorded adapter output refs",
+		"-Actor", "runtime-test",
+		"-Verifier", "manual-review",
+		"-Verdict", "accepted",
+		"-Status", "resolved",
+		"-Related", evidence.EventID,
+		"-EvidenceRefs", "workspace/main/debug/session-1/result.json",
+		"-EventId", "verify-" + evidence.EventID,
+		"-CreatedAt", "2026-07-26T00:00:00Z",
+		"-Format", "json",
+	}
+	previewVerificationArgs := append(append([]string{}, verificationArgs...), "-WhatIf")
+	if err := Run(previewVerificationArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var verificationPreview struct {
+		Applied       bool   `json:"applied"`
+		Reason        string `json:"reason"`
+		EventID       string `json:"eventId"`
+		EventSHA256   string `json:"eventSha256"`
+		RecordCommand string `json:"recordCommand"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &verificationPreview); err != nil {
+		t.Fatalf("verification ack note preview stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if verificationPreview.Applied || verificationPreview.Reason != "what-if" || verificationPreview.EventID != "verify-"+evidence.EventID || len(verificationPreview.EventSHA256) != 64 || !strings.Contains(verificationPreview.RecordCommand, "-ExpectedNoteEventSha256 "+verificationPreview.EventSHA256) {
+		t.Fatalf("unexpected verification ack note preview: %+v", verificationPreview)
+	}
+	assertSnapshotEqual(t, beforeReviewNote, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+	out.Reset()
+	applyVerificationArgs := append(append([]string{}, verificationArgs...), "-ExpectedNoteEventSha256", verificationPreview.EventSHA256)
+	if err := Run(applyVerificationArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var verificationApply struct {
+		Applied bool   `json:"applied"`
+		EventID string `json:"eventId"`
+		Path    string `json:"path"`
+		Event   struct {
+			Kind    string   `json:"kind"`
+			Related []string `json:"related"`
+			Status  string   `json:"status"`
+			Verdict string   `json:"verdict"`
+		} `json:"event"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &verificationApply); err != nil {
+		t.Fatalf("verification ack note apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !verificationApply.Applied || verificationApply.EventID != verificationPreview.EventID || verificationApply.Path != ".rekit/facts/verifications.jsonl" || verificationApply.Event.Kind != "verification" || strings.Join(verificationApply.Event.Related, ",") != evidence.EventID || verificationApply.Event.Status != "resolved" || verificationApply.Event.Verdict != "accepted" {
+		t.Fatalf("unexpected verification ack note apply: %+v", verificationApply)
+	}
+	verifications, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(verifications), `"related":["`+evidence.EventID+`"]`) || !strings.Contains(string(verifications), `"status":"resolved"`) || !strings.Contains(string(verifications), `"verdict":"accepted"`) {
+		t.Fatalf("verification ack note ledger mismatch:\n%s", string(verifications))
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("verification ack note wrote authority ledger or stat failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("verification ack note wrote confirmed ledger or stat failed: %v", err)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var acknowledgedStatus struct {
+		CaseMission struct {
+			ExecutionEvidenceReviewCount int                                 `json:"executionEvidenceReviewCount"`
+			ExecutionEvidenceReview      []executionEvidenceReviewItem       `json:"executionEvidenceReview"`
+			AuthorizedGateHandoffs       []statusAuthorizedGateHandoff       `json:"authorizedGateHandoffs"`
+			MissionCommanderActionQueue  missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+			MissionCommanderNextActions  []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &acknowledgedStatus); err != nil {
+		t.Fatalf("status after verification ack stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if acknowledgedStatus.CaseMission.ExecutionEvidenceReviewCount != 0 || len(acknowledgedStatus.CaseMission.ExecutionEvidenceReview) != 0 {
+		t.Fatalf("status after verification ack should close evidence review queue: %+v", acknowledgedStatus.CaseMission.ExecutionEvidenceReview)
+	}
+	if len(acknowledgedStatus.CaseMission.AuthorizedGateHandoffs) != 1 || acknowledgedStatus.CaseMission.AuthorizedGateHandoffs[0].ReportSummary == nil || acknowledgedStatus.CaseMission.AuthorizedGateHandoffs[0].ReportSummary.State != "evidence-already-recorded" || acknowledgedStatus.CaseMission.AuthorizedGateHandoffs[0].ReportSummary.RecordReady {
+		t.Fatalf("status after verification ack should preserve recorded handoff summary without record action: %+v", acknowledgedStatus.CaseMission.AuthorizedGateHandoffs)
+	}
+	if acknowledgedStatus.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || acknowledgedStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.Source == "executionEvidenceReview" || acknowledgedStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.Source == "adapterReportLiveSnapshot.recordedEvidence" || strings.Contains(acknowledgedStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.Command, "gate -Apply") {
+		t.Fatalf("status after verification ack should not keep evidence review or duplicate record current action: %+v", acknowledgedStatus.CaseMission.MissionCommanderActionQueue)
+	}
+	if containsMissionCommanderNextActionsCommand(acknowledgedStatus.CaseMission.MissionCommanderNextActions, "review outputRefs/evidenceRefs") || containsMissionCommanderNextActionsCommand(acknowledgedStatus.CaseMission.MissionCommanderNextActions, "gate -Apply") {
+		t.Fatalf("status after verification ack retained evidence review/record next actions: %+v", acknowledgedStatus.CaseMission.MissionCommanderNextActions)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "main", "-Format", "json", "-WhatIf"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var acknowledgedHandoff handoffResult
+	if err := json.Unmarshal(out.Bytes(), &acknowledgedHandoff); err != nil {
+		t.Fatalf("handoff after verification ack stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if len(acknowledgedHandoff.ExecutionEvidenceReview) != 0 || acknowledgedHandoff.MissionCommanderActionQueue.CurrentAction == nil || acknowledgedHandoff.MissionCommanderActionQueue.CurrentAction.Source == "executionEvidenceReview" || acknowledgedHandoff.MissionCommanderActionQueue.CurrentAction.Source == "adapterReportLiveSnapshot.recordedEvidence" {
+		t.Fatalf("handoff after verification ack should close evidence review current action: %+v", acknowledgedHandoff)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "main", "-Format", "json", "-WhatIf"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var acknowledgedContinue struct {
+		ExecutionEvidenceReview     []executionEvidenceReviewItem       `json:"executionEvidenceReview"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &acknowledgedContinue); err != nil {
+		t.Fatalf("continue after verification ack stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if len(acknowledgedContinue.ExecutionEvidenceReview) != 0 || acknowledgedContinue.MissionCommanderActionQueue.CurrentAction == nil || acknowledgedContinue.MissionCommanderActionQueue.CurrentAction.Source == "executionEvidenceReview" || acknowledgedContinue.MissionCommanderActionQueue.CurrentAction.Source == "adapterReportLiveSnapshot.recordedEvidence" {
+		t.Fatalf("continue after verification ack should close evidence review current action: %+v", acknowledgedContinue)
+	}
 }
 
 func TestRunGateAdapterReportBoundaryHitNoPackProductPathSuppressesContinue(t *testing.T) {
