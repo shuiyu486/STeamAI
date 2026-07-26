@@ -177,8 +177,8 @@ func TestApplyWritesOnlyPendingGateRequest(t *testing.T) {
 	if !result.ExecutorAction.Blocked || result.ExecutorAction.Ready || result.ExecutorAction.PendingGates != 1 || !result.ExecutorAction.PendingGateRequired || result.ExecutorAction.ResumeCommand != "/rekit continue main" {
 		t.Fatalf("gate apply executor action drifted: %+v", result.ExecutorAction)
 	}
-	if result.MissionCommanderAction.State != "needs-gate-decision" || result.MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || !gateNextActionContainsCommand(result.MissionCommanderNextActions, "/rekit handoff main") || !gateNextActionContainsCommand(result.MissionCommanderNextActions, "/rekit continue main -WhatIf") || !gateNextActionBoundaryContains(result.MissionCommanderNextActions, "no authority/confirmed") {
-		t.Fatalf("gate apply omitted top-level pending-gate Mission Commander projection: action=%+v next=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions)
+	if result.MissionCommanderAction.State != "needs-gate-decision" || result.MissionCommanderAction.PrimaryCommand != "/rekit gate debug -Lane main -WhatIf" || !gateNextActionContainsCommand(result.MissionCommanderNextActions, "/rekit gate debug -Lane main -Apply -Actor <actor>") || !gateNextActionContainsCommand(result.MissionCommanderNextActions, "/rekit continue main -WhatIf") || !gateNextActionBoundaryContains(result.MissionCommanderNextActions, "review gate -WhatIf output before running the bounded -Apply follow-up") {
+		t.Fatalf("gate apply omitted top-level pending-gate concrete Mission Commander projection: action=%+v next=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions)
 	}
 	requestPath := filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl")
 	event := readSingleGateEvent(t, requestPath)

@@ -16,6 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 606：pending-gate concrete review-first handoff closure
+
+状态：已完成 runtime/test/doc 工作树实现、focused mission / CLI / gate pending-gate product-path tests、受影响 package tests 与完整本地 release minimum；implementation commit/push 与 implementation remote release-gate inspection 待最终执行。
+
+目标：补齐 Batch 586/587/597 后仍存在的 pending-gate first-screen 接手断点：blocked continue/start/reconcile/status 已能投影 `pendingGateHandoffs[]` 的 concrete `gate -Action ... -WhatIf/-Apply` handoff，但 Mission Commander lane action 仍把 pending-gate primary 降级为 `/rekit handoff <lane>` 或 `<action>` 占位符。replacement executor 在默认 `/rekit` / `status` 第一屏看到 pending-gate blocker 时，仍需要回到 handoff/ledger 才能知道应先 review 哪个 concrete gate preview，容易把 review-first gate decision 流程拆散。
+
+已实现内容：
+
+- `LaneExecutorAction` 现在把当前 lane 的 pending-gate request 明细传入 `LaneMissionCommanderActionForLane`；当只有单条 pending-gate 且 `gate.action` 明确时，Mission Commander primary action 直接变为 `/rekit gate <action> -Lane <lane> -WhatIf`，bounded `-Apply`、`continue -WhatIf` 与 `handoff` 只作为 follow-up。
+- `MissionCommanderNextActions` 将 `needs-gate-decision` 的 `-WhatIf` 视为可执行 review current action：queue first-screen 会把 concrete gate preview 排到 current action，而不是把 blocked Apply、blocked continue 或 handoff 当成下一步。
+- 多条 pending-gate 或 action 不完整时继续 fail-closed：primary 保持 handoff，follow-up 只列出可识别 action 的 concrete `gate ... -WhatIf` preview，并在无法一一识别时保留 `<action>` 占位 preview 作为人工选择边界。
+- CLI/gate/status 回归同步覆盖 pending-gate continue/reconcile/gate Apply/text/status 产品路径，断言 JSON/text current action 使用 concrete `/rekit gate debug -Lane ... -WhatIf`，bounded Apply 保持 follow-up，且单 concrete gate 不再泄漏 `/rekit gate <action>` 占位符。
+
+边界：本批只增强 pending-gate 的只读 Mission Commander action/queue/current-action 投影与测试覆盖；`gate -WhatIf` 仍只读，`gate -Apply` 仍只记录 pending-gate / authorized-gate request decision 或 bounded execution observation evidence，不执行 heavy-tool、不批准 heavy action、不写 authority/confirmed；多 gate/缺 action 场景继续 handoff review-first，不猜测 action；不新增 durable schema，不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/mission -count=1` 已通过；focused CLI pending-gate 产品路径 `go test ./internal/rekit/cli -run "TestRunContinueBlocksPendingGateBeforeWrites|TestRunReconcileApplyProjectsGateDecisionHandoffsAfterInterventionResolution|TestRunGateApplyAppendsPendingGateRequest|TestRunGateTextOutputsExecutorActions|TestRunStatusCaseMissionPromotesPendingGateWhatIfCurrentAction" -count=1` 已通过；受影响 package `go test ./internal/rekit/mission ./internal/rekit/cli ./internal/rekit/gate ./internal/rekit/releasecheck -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均通过（仅保留 Windows 工作树 LF→CRLF 提示）。implementation commit/push 与远程 release-gate inspection 待最终执行。
+
 ### Batch 605：release handoff multi-commit ref completeness closure
 
 状态：已完成 runtime/test/doc 工作树实现、focused release handoff commit-ref parser tests、真实 `status` / `release-check -Format json` commitRefs 复核、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `0428930` 已推送并进入 PR #11。PR run `30179936468` completed failure，Windows/macOS/Linux jobs `89734693035`/`89734693042`/`89734693051` 均 `steps=[]`、`runner_id=0` 且无 logs，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation PR run；不要为 release inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。
