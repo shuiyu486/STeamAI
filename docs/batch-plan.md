@@ -16,6 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 626：release-run transient retry downstream truthfulness closure
+
+状态：已完成 runtime/test/doc 工作树实现、focused release handoff/CLI 回归、releasecheck/CLI package validation 与完整本机 `release-run` release minimum；implementation commit/push 与 push-triggered remote release-gate inspection 仍待完成。
+
+目标：补齐 Batch 625 后的下游 release readiness 断点：`release-run` 已能对 Windows Go test cleanup-lock transient 做一次可审计 retry，但 `release-check` / `status` 的 latest-batch handoff 仍只把成功聚合为 localValidationReady=true。若某批真正依赖 retry 才通过，replacement executor 需要在 release handoff/status 第一屏看到该 retry 证据；同时，当前 Batch 625 只写了“未触发 retry / attempts=1”，不能被宽松 cleanup-lock 文案误判为 transient retry。本批把 retry 审计作为 downstream truthfulness evidence/warning 接入，并保持 fail-closed ready 判定。
+
+已实现内容：
+
+- `ReleaseHandoffLatestBatchHandoff` 新增只读 `validationWarnings[]`；`statusProjectHandoff` 同步投影为 `latestValidationWarnings[]`。
+- latest-batch parser 只在文本明确包含 `transientRetryReason`、`release-run step retry` 或 `attempts=2` 时识别 retry；普通 cleanup-lock 叙述、Batch 625 的 `attempts=1` 与“未触发 retry”不会误报。
+- 已记录 retry 的 completed release-run 会保留 `localValidationReady=true` / `releaseCheckReady=true`，但 evidence 新增 `release-run transient retry recorded`，validation warning 提醒 review retry reason 与 first-attempt output；retry 后仍 `ready=false` / `failed=1` 的 release-run 保持 local validation not-ready，并继续指向重跑 full local release minimum。
+- `release-check -Format text` 与 `status -Format text` 新增 latest batch validation warning 行；JSON 可供 automation 消费同一 warning。
+
+边界：本批只增强 release readiness/status 的只读 truthfulness projection；不改变 `release-run` 执行/retry 语义，不改变 gateProfile/recommendedMinimum，不把 transient retry 当 remote green，不写 repo/case state，不联网读取 GitHub Actions，不写 authority/confirmed，不执行 heavy tool，不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/releasecheck ./internal/rekit/cli -run "TestLatestBatchHandoff(RecordsReleaseRunTransientRetryEvidence|DoesNotTreatFailedReleaseRunRetryAsReady|ExtractsValidationEvidence)|TestReleaseHandoffInventoryFromRepo|TestRunStatusJsonKit|TestRunReleaseCheckJsonInventory" -count=1` 已通过；package validation `go test ./internal/rekit/releasecheck ./internal/rekit/cli -count=1` 已通过；`go run ./cmd/rekit -- -Command status -Format text` 已确认当前 Batch 625 `attempts=1` 不再误报 `release-run transient retry recorded`。完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，返回 `ready=true` / `summary=release run ok`，聚合执行 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步，`passed=7 failed=0 skipped=0`；本次 `go test ./...` step 为 `attempts=1`，未触发 cleanup-lock retry；`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。
+
 ### Batch 625：release-run Windows Go test cleanup retry closure
 
 状态：已完成 runtime/test/doc 工作树实现、focused release-run CLI 回归、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `db580f9` 已推送。Push run `30208604009` completed failure，Linux/macOS/Windows jobs `89810907570`/`89810907614`/`89810907617` 均 `steps=[]` / `runner_id=0` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。

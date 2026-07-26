@@ -192,6 +192,36 @@ func TestLatestBatchSummarySelectsHighestBatchSection(t *testing.T) {
 	}
 }
 
+func TestLatestBatchHandoffRecordsReleaseRunTransientRetryEvidence(t *testing.T) {
+	section := `状态：已完成 runtime/test/doc 工作树实现、focused release-run CLI 回归、完整本机 release-run release minimum、implementation commit/push 与 push-triggered remote release-gate inspection。
+
+验证结果：完整本机 release-run：ready=true summary=release run ok steps=7 passed=7 failed=0 skipped=0；release-run step：index=5 status=passed exitCode=0 attempts=2 command=go test ./...；release-run step retry：index=5 attempts=2 firstExitCode=1 firstError=exit status 1 reason=windows go test temporary binary cleanup lock；release-run step first attempt output tail：index=5 text=ok packages\ngo: unlinkat C:\Users\runner\AppData\Local\Temp\go-build1234\b001\cli.test.exe: The process cannot access the file because it is being used by another process。implementation commit ` + "`" + `abc123d` + "`" + ` 已推送。Push-triggered release-gate run ` + "`" + `123456789` + "`" + ` completed failure，Linux/macOS/Windows jobs 均 ` + "`" + `steps=[]` + "`" + ` / ` + "`" + `runner_id=0` + "`" + `。`
+
+	latest := ReleaseHandoffLatestBatch{Status: "已完成 fixture", ValidationResult: "fixture validation"}
+	handoff := latestBatchHandoff(latest, section)
+	if !handoff.LocalValidationReady || !handoff.ReleaseCheckReady || !slices.Contains(handoff.Evidence, "release-run transient retry recorded") || !releaseHandoffStringsContain(handoff.ValidationWarnings, "transient retry") {
+		t.Fatalf("release-run transient retry evidence missing: %+v", handoff)
+	}
+	if handoff.RemoteReleaseGate != "blocked: completed failure with jobs steps=[]" || handoff.ReleaseInspectionCadence.State != "complete" {
+		t.Fatalf("retry evidence should not change remote/cadence state: %+v", handoff)
+	}
+}
+
+func TestLatestBatchHandoffDoesNotTreatFailedReleaseRunRetryAsReady(t *testing.T) {
+	section := `状态：已完成 runtime/test/doc 工作树实现；完整本机 release minimum 待修复。
+
+验证结果：release-run：mutation=false ready=false summary=release run failed steps=7 passed=6 failed=1 skipped=0；release-run step：index=5 status=failed exitCode=1 attempts=2 command=go test ./...；release-run step retry：index=5 attempts=2 firstExitCode=1 firstError=exit status 1 reason=windows go test temporary binary cleanup lock；release-run step error：index=5 error=exit status 1。`
+
+	latest := ReleaseHandoffLatestBatch{Status: "已完成 fixture", ValidationResult: "fixture validation"}
+	handoff := latestBatchHandoff(latest, section)
+	if handoff.LocalValidationReady || handoff.ReleaseCheckReady || handoff.ReleaseInspectionCadence.ImplementationCommitReady || !slices.Contains(handoff.Evidence, "release-run transient retry recorded") {
+		t.Fatalf("failed release-run retry should remain not ready while retaining retry evidence: %+v", handoff)
+	}
+	if handoff.NextAction != "run the full local release minimum and update docs/batch-plan.md" {
+		t.Fatalf("failed release-run retry should ask for local validation: %+v", handoff)
+	}
+}
+
 func TestLatestBatchHandoffExtractsValidationEvidence(t *testing.T) {
 	section := `状态：已完成 fixture implementation、durable docs、完整本地 release minimum、commit/push 与远程 release-gate inspection。
 

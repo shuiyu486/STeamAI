@@ -564,6 +564,7 @@ func TestRunStatusJsonKit(t *testing.T) {
 			} `json:"releaseInspectionCadence"`
 			LatestNextAction            string   `json:"latestNextAction"`
 			LatestEvidence              []string `json:"latestEvidence"`
+			LatestValidationWarnings    []string `json:"latestValidationWarnings"`
 			MissionCommanderNextActions []struct {
 				Label          string   `json:"label"`
 				State          string   `json:"state"`
@@ -662,6 +663,9 @@ func TestRunStatusJsonKit(t *testing.T) {
 				t.Fatalf("project handoff latest evidence missing %q: %+v", want, status.ProjectHandoff.LatestEvidence)
 			}
 		}
+	}
+	if containsSubstring(status.ProjectHandoff.LatestEvidence, "transient retry") || len(status.ProjectHandoff.LatestValidationWarnings) != 0 {
+		t.Fatalf("project handoff should not infer retry warning when latest batch records attempts=1: evidence=%+v warnings=%+v", status.ProjectHandoff.LatestEvidence, status.ProjectHandoff.LatestValidationWarnings)
 	}
 	for _, want := range []string{"docs/context-routing.md", "docs/batch-plan.md", "docs/release-readiness.md", "CHANGELOG.md"} {
 		if !slices.Contains(status.ProjectHandoff.ReadFirst, want) {

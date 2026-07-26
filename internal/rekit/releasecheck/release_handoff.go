@@ -93,6 +93,7 @@ type ReleaseHandoffLatestBatchHandoff struct {
 	ReleaseInspectionCadence ReleaseHandoffReleaseInspectionCadence `json:"releaseInspectionCadence"`
 	CommitRefs               []string                               `json:"commitRefs,omitempty"`
 	Evidence                 []string                               `json:"evidence,omitempty"`
+	ValidationWarnings       []string                               `json:"validationWarnings,omitempty"`
 	NextAction               string                                 `json:"nextAction,omitempty"`
 }
 
@@ -3427,6 +3428,7 @@ func latestBatchHandoff(latest ReleaseHandoffLatestBatch, section string) Releas
 		RemoteReleaseGateDetail: latestBatchRemoteReleaseGateDetail(section),
 		CommitRefs:              latestBatchCommitRefs(section),
 		Evidence:                latestBatchEvidence(section),
+		ValidationWarnings:      latestBatchValidationWarnings(section),
 	}
 	handoff.ReleaseInspectionCadence = latestBatchReleaseInspectionCadence(section, handoff)
 	handoff.NextAction = latestBatchNextAction(handoff)
@@ -3474,6 +3476,22 @@ func latestBatchHasReleaseRunSuccess(lower string) bool {
 		return true
 	}
 	return strings.Contains(lower, "passed=7") && strings.Contains(lower, "failed=0") && strings.Contains(lower, "skipped=0")
+}
+
+func latestBatchHasReleaseRunTransientRetry(lower string) bool {
+	if !strings.Contains(lower, "release-run") {
+		return false
+	}
+	return strings.Contains(lower, "transientretryreason") || strings.Contains(lower, "release-run step retry") || strings.Contains(lower, "attempts=2")
+}
+
+func latestBatchValidationWarnings(text string) []string {
+	lower := strings.ToLower(text)
+	warnings := []string{}
+	if latestBatchHasReleaseRunTransientRetry(lower) {
+		warnings = append(warnings, "release-run local validation passed only after a recorded transient retry; review retry reason and first-attempt output before release handoff")
+	}
+	return mission.UniqueStrings(warnings)
 }
 
 func latestBatchRemoteReleaseGate(text string) string {
@@ -3864,6 +3882,7 @@ func latestBatchEvidence(text string) []string {
 		{match: "go vet ./...", label: "go vet ./... recorded"},
 		{match: "git diff --check", label: "git diff --check recorded"},
 		{match: "release-run", label: "release-run local release minimum recorded"},
+		{match: "release-run-retry", label: "release-run transient retry recorded"},
 		{match: "release-check ready=true", label: "release-check ready=true recorded"},
 		{match: "release-run-ready", label: "release-check ready=true recorded"},
 		{match: "steps: []", label: "remote release-gate jobs steps=[] recorded"},
@@ -3882,6 +3901,8 @@ func latestBatchEvidenceMatched(match, text, lower, remoteText, remoteLower stri
 		return latestBatchRemoteReleaseGate(text) != "not-recorded" && latestBatchRemoteHasEmptySteps(remoteText, remoteLower)
 	case "release-run-ready":
 		return latestBatchHasReleaseRunSuccess(lower)
+	case "release-run-retry":
+		return latestBatchHasReleaseRunTransientRetry(lower)
 	case "releasecheck-step":
 		return latestBatchHasReleaseRunSuccess(lower) && strings.Contains(lower, "release-check")
 	case "status-step":

@@ -2001,6 +2001,11 @@ func writeReleaseHandoffText(out io.Writer, handoff releasecheck.ReleaseHandoff)
 			return err
 		}
 	}
+	for _, warning := range latestHandoff.ValidationWarnings {
+		if _, err := fmt.Fprintf(out, "release-check latest batch validation warning：%s\n", warning); err != nil {
+			return err
+		}
+	}
 	for _, commit := range latestHandoff.CommitRefs {
 		if _, err := fmt.Fprintf(out, "release-check latest batch commit：%s\n", commit); err != nil {
 			return err
@@ -2269,6 +2274,7 @@ type statusProjectHandoff struct {
 	ReleaseInspectionCadence      releasecheck.ReleaseHandoffReleaseInspectionCadence `json:"releaseInspectionCadence"`
 	LatestNextAction              string                                              `json:"latestNextAction"`
 	LatestEvidence                []string                                            `json:"latestEvidence,omitempty"`
+	LatestValidationWarnings      []string                                            `json:"latestValidationWarnings,omitempty"`
 	LatestCommits                 []string                                            `json:"latestCommits,omitempty"`
 	MissionCommanderNextActions   []mission.MissionCommanderNextActionItem            `json:"missionCommanderNextActions,omitempty"`
 	MissionCommanderActionQueue   mission.MissionCommanderActionQueue                 `json:"missionCommanderActionQueue"`
@@ -3667,6 +3673,11 @@ func writeStatusProjectHandoffText(out io.Writer, handoff *statusProjectHandoff)
 			return err
 		}
 	}
+	for _, warning := range handoff.LatestValidationWarnings {
+		if _, err := fmt.Fprintf(out, "status latest batch validation warning：%s\n", warning); err != nil {
+			return err
+		}
+	}
 	for _, commit := range handoff.LatestCommits {
 		if _, err := fmt.Fprintf(out, "status latest batch commit：%s\n", commit); err != nil {
 			return err
@@ -4714,6 +4725,7 @@ func buildStatusProjectHandoff(handoff releasecheck.ReleaseHandoff) *statusProje
 		ReleaseInspectionCadence:      handoff.LatestBatch.Handoff.ReleaseInspectionCadence,
 		LatestNextAction:              handoff.LatestBatch.Handoff.NextAction,
 		LatestEvidence:                append([]string{}, handoff.LatestBatch.Handoff.Evidence...),
+		LatestValidationWarnings:      append([]string{}, handoff.LatestBatch.Handoff.ValidationWarnings...),
 		LatestCommits:                 append([]string{}, handoff.LatestBatch.Handoff.CommitRefs...),
 		PackMemoryCandidates:          handoff.PackMemoryCandidates,
 		KnownGaps:                     knownGaps,
