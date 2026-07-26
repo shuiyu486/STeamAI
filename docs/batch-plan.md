@@ -16,6 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 629：pack-memory first-screen proof command closure
+
+状态：已完成 runtime/test/doc 工作树实现、focused pack-memory first-screen evidence / installed case-local product-path 回归、CLI package validation、完整本机 `release-run` release minimum；implementation commit/push 与 push-triggered remote release-gate inspection 待执行。
+
+目标：补齐 Batch 614/608/576 后的 pack-memory operational closure 断点：first-screen 已能显示 pack-memory counts、proof progress、next missing proof type/candidate/target，lower `status pack-memory next missing proof` 与 Mission Commander current action 也已经携带 packet-derived `DraftCommand` / `DraftApplyTemplate`。但 replacement executor 在默认 `/rekit` 第一屏仍需要继续下翻完整 pack-memory handoff 才能复制 proof draft WhatIf 与 `ExpectedProofSha256` hash-bound Apply 模板。本批把 next-missing-proof 的 proof draft/apply/boundary 直接提升到 first-screen evidence shortlist。
+
+已实现内容：
+
+- `statusMissionCommanderFirstScreenPackMemoryEvidence` 在 `ProofSummary.NextMissingProof` 已提供 `DraftCommand` / `DraftApplyTemplate` 时，新增只读 evidence 行：`next missing proof draft WhatIf`、`next missing proof apply template` 与 proof Apply boundary。
+- pack-memory first-screen evidence shortlist 上限从 6 调整为 9，确保新增 proof 操作证据不会挤掉原有 high-value inventory evidence。
+- Focused unit test 和 installed case-local product-path test 现在同时断言 first-screen 能看到 concrete `/rekit promote -PacketPath ... -DraftReviewProof -WhatIf -Format json`、`-ExpectedProofSha256 <proofSha256-from-WhatIf> -Apply -Format json` 与 status/release read-only boundary。
+
+边界：本批只增强 status/default `/rekit` first-screen 的只读 text projection；不生成 proof、不运行 `promote -DraftReviewProof`、不写 candidate decision/proof/cleanup/verification、不 merge/retire/reconsume pack-memory candidates、不写 facts/ledger/authority/confirmed、不执行 heavy tool、不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/cli -run "TestStatusMissionCommanderFirstScreenPackMemoryEvidenceKeepsHighValueHead|TestRunStatusInstalledEntrypointFirstScreen" -count=1` 已通过；focused status/product-path regression `go test ./internal/rekit/cli -run "TestRunStatusJsonKit|TestRunStatusKitShowsOpenPackMemoryCandidates|TestStatusMissionCommanderFirstScreenPackMemoryEvidenceKeepsHighValueHead|TestRunInstalledCaseShimProductPathStatusAndRefresh" -count=1` 已通过；CLI package validation `go test ./internal/rekit/cli -count=1` 已通过；完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，返回 `ready=true` / `summary=release run ok`，聚合执行 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步，`passed=7 failed=0 skipped=0`；本次 `go test ./...` step 为 `attempts=1`，未触发 cleanup-lock retry；`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。implementation commit/push 与 push-triggered remote release-gate inspection 待执行。
+
+下一批硬约束：Batch 630 不能继续做字段、summary、text、first-screen 或 handoff 可见性小修小补；必须选择端到端能力闭环，至少覆盖一个可运行 runtime 行为或写入前后状态转换，并用 CLI/product-path/E2E 测试证明 Mission Commander / replacement executor 能完成真实下一步。
+
 ### Batch 628：reviewer invalid packet retirement handoff closure
 
 状态：已完成 runtime/test/doc 工作树实现、focused reviewer invalid packet / retirement CLI 回归、相关 package validation、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `dffa50d` 已推送。Push run `30210543983` completed failure，macOS/Linux/Windows jobs `89815909876`/`89815909913`/`89815909917` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。
@@ -1630,6 +1648,8 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 验证结果：已通过 `go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go test ./...`、`go vet ./...`、`git diff --check`（仅 LF→CRLF working-copy warning，无 whitespace error）。
 
 ### Next candidates
+
+Batch 630 强制选择端到端能力闭环：不要再把单字段、summary、text line、first-screen 或 handoff 可见性投影单独立批；若需要投影字段，必须作为更大 runtime/writeback/executor/reviewer/adapter/pack-memory E2E 的支撑，并通过 CLI/product-path/E2E 验证实际完成一个 Mission Commander / replacement executor 可感知的状态转换。
 
 1. **Lane/tool-adapter live validation residuals（如仍有缺口）**：Batch 421/424/432 已覆盖 adapter contract/validation/report action queue、follow-through 与 contract liveValidation text，Batch 458-462 已补齐 authorizedExecutionFollowThrough / evidence review follow-through text，Batch 504 已补齐 recorded adapter sidecar path、actualBudget 与 adapter provenance，Batch 518 已补齐 contract/validation compact `reportSummary`；后续仅在 Windows 本机 product-path 仍存在 validation/record/evidence review handoff 到 replacement executor 的真实断点时推进；不新增 adapter/heavy-tool execution。
 2. **Reviewer orchestration E2E residuals（如仍有缺口）**：Batch 489/499/505/514-516/523-525/530-532 已覆盖 reviewer intake product path、reviewer dispatch/intake downstream/durable/progress handoff、reviewer writeback identity、reviewer result provenance summary、reviewer intake terminal summary/postValidation summary 的 compact reviewer writeback provenance、blocked reviewer intake repair guidance compact summary，以及 reviewer intake terminal compact orchestration progress；后续仅在 multi-reviewer 接续仍要求解析 nested JSON、打开 reviewer result artifact 或手工拼 route output 才能接续时推进，不自动 spawn reviewer、不执行 heavy-tool。

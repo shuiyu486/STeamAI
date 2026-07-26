@@ -3051,6 +3051,13 @@ func statusMissionCommanderFirstScreenPackMemoryEvidence(pack releasecheck.Relea
 		evidence = append(evidence, fmt.Sprintf("proof progress: %s stage=%s missing=%d nextType=%s", textOr(proof.ProofProgress, "none"), textOr(proof.CurrentStage, "none"), proof.Missing, textOr(proof.NextMissingProofType, "none")))
 		if next := proof.NextMissingProof; next != nil {
 			evidence = append(evidence, fmt.Sprintf("next missing proof: type=%s candidate=%s target=%s", textOr(next.ProofType, "none"), textOr(next.CandidatePath, "none"), textOr(next.PackTarget, "none")))
+			if strings.TrimSpace(next.DraftCommand) != "" {
+				evidence = append(evidence, "next missing proof draft WhatIf: "+next.DraftCommand)
+			}
+			if strings.TrimSpace(next.DraftApplyTemplate) != "" {
+				evidence = append(evidence, "next missing proof apply template: "+next.DraftApplyTemplate)
+			}
+			evidence = append(evidence, "proof boundary: status/release are read-only; proof Apply requires the WhatIf ExpectedProofSha256")
 		}
 	}
 	if pack.PendingVerifications > 0 || pack.CompletedVerifications > 0 || len(pack.DecisionReceipts) > 0 {
@@ -3060,8 +3067,8 @@ func statusMissionCommanderFirstScreenPackMemoryEvidence(pack releasecheck.Relea
 		evidence = append(evidence, "inventory evidence: "+item)
 	}
 	evidence = mission.UniqueStrings(evidence)
-	if len(evidence) > 6 {
-		evidence = evidence[:6]
+	if len(evidence) > 9 {
+		evidence = evidence[:9]
 	}
 	return evidence
 }
