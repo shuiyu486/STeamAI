@@ -16,6 +16,22 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 618：adapter execution validation identity handoff closure
+
+状态：已完成 runtime/test/doc 工作树实现、focused adapter validation / CLI text product-path 验证与完整本机 `release-run` release minimum；implementation commit/push 与 PR-triggered remote release-gate inspection 待执行。
+
+目标：补齐 adapter execution validation 的接手断点：Batch 580/594/602 已把 adapter report currentness 收紧为 read-only validation → hash-bound record，但 Mission Commander terminal text/current action 仍主要暴露 command/source；replacement executor 要判断“这是哪个 authorized gate 的 validate、record、repair、scaffold/draft 阶段”仍需回查 nested JSON 或手工关联 gate event。本批让 adapter report lifecycle 的 current/next action 直接携带 gate identity 与稳定 action identity。
+
+已实现内容：
+
+- `gate -ExecutionReportContract`、`gate -ValidateExecutionReport`、adapter scaffold/draft live snapshot 与 recorded evidence snapshot 的 `missionCommanderNextActions[]` / `missionCommanderActionQueue.currentAction` 统一通过 adapter report action helper 构造，保留 lane、label、gateEventId 与 `<gateEventId>:<adapter-report-stage>` actionId。
+- CLI Mission Commander text renderer 在 `mission commander next action`、`mission commander action queue current` 与 status action queue bucket 行直接打印 lane、label、gateEventId、actionId；terminal replacement executor 不必解析 nested JSON 才能绑定 adapter gate identity。
+- Adapter report contract/validation/scaffold/draft/recorded evidence focused 回归锁定 current action identity，CLI text 回归锁定 valid record、invalid repair、contract validation 的 gateEventId/actionId 输出。
+
+边界：本批只增强 adapter execution validation / record handoff 的只读 projection 与 bounded observation evidence record 后的 current action identity；不执行 adapter/heavy tool，不自动 validate/record，不写 authority/confirmed，不新增 durable schema，不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/gate ./internal/rekit/cli -run "TestAdapterReportContractDescribesAuthorizedGateBoundaries|TestValidateAdapterExecutionReport(ReadOnlyPreflight|MissingPathExposesMissionCommanderRepair|ReturnsInvalidEnvelopeReadOnly)|TestAdapterReportLiveSnapshot(TracksRecordedReportIdentity|PreservesRecordedBoundaryEscalation|MarksMalformedSidecarPresent)|TestRunGateAdapterReportTextOutputsNextActions|TestRunStatus" -count=1` 已通过；完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，返回 `ready=true` / `summary=release run ok`，聚合执行 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步，`passed=7 failed=0 skipped=0`，`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。
+
 ### Batch 617：reviewer intake/postValidation full next-action summary
 
 状态：已完成 runtime/test/doc 工作树实现、focused reviewer intake product-path 验证、完整本机 `release-run` release minimum，以及 implementation commit/push 和 PR-triggered remote release-gate inspection；implementation commit `f261e68` 已推送。PR run `30198335234` completed failure，Linux/macOS/Windows jobs `89783801315`/`89783801328`/`89783801336` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。

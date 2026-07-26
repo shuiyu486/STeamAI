@@ -10373,9 +10373,9 @@ func TestRunGateAdapterReportTextOutputsNextActions(t *testing.T) {
 		"adapter report contract follow-through outcome：name=invalid-report-repair state=repair-adapter-report",
 		"adapter report commander action：state=needs-adapter-report-validation primary=`" + wantValidate + "`",
 		"mission commander action queue：summary=total=2 unblocked=2 blocked=0 requiresReview=2 followUp=1 current=" + wantValidate,
-		"mission commander action queue current：state=needs-adapter-report-validation source=adapterReportContract.missionCommanderAction blocked=false requiresReview=true command=`" + wantValidate + "`",
-		"mission commander next action：state=needs-adapter-report-validation source=adapterReportContract.missionCommanderAction blocked=false requiresReview=true command=`" + wantValidate + "`",
-		"mission commander next action：state=needs-adapter-report-validation source=adapterReportContract.missionCommanderAction.followUp blocked=false requiresReview=true command=`/rekit handoff main`",
+		"mission commander action queue current：state=needs-adapter-report-validation source=adapterReportContract.missionCommanderAction blocked=false requiresReview=true command=`" + wantValidate + "` lane=main label=main gateEventId=" + applied.EventID + " actionId=" + applied.EventID + ":adapter-report-contract-validation",
+		"mission commander next action：state=needs-adapter-report-validation source=adapterReportContract.missionCommanderAction blocked=false requiresReview=true command=`" + wantValidate + "` lane=main label=main gateEventId=" + applied.EventID + " actionId=" + applied.EventID + ":adapter-report-contract-validation",
+		"mission commander next action：state=needs-adapter-report-validation source=adapterReportContract.missionCommanderAction.followUp blocked=false requiresReview=true command=`/rekit handoff main` lane=main label=main gateEventId=" + applied.EventID + " actionId=" + applied.EventID + ":adapter-report-contract-follow-up",
 		"mission commander next action boundary：contract handoff does not provide a runnable record Apply",
 	} {
 		if !strings.Contains(out.String(), expected) {
@@ -10405,9 +10405,9 @@ func TestRunGateAdapterReportTextOutputsNextActions(t *testing.T) {
 		"adapter report validation follow-through evidence：name=valid-report-record evidence=valid=true validation envelope",
 		"adapter report validation commander action：state=ready-to-record-evidence primary=`" + wantRecord + "`",
 		"mission commander action queue：summary=total=2 unblocked=2 blocked=0 requiresReview=2 followUp=1 current=" + wantRecord,
-		"mission commander action queue current：state=ready-to-record-evidence source=adapterReportValidation.missionCommanderAction blocked=false requiresReview=true command=`" + wantRecord + "`",
-		"mission commander next action：state=ready-to-record-evidence source=adapterReportValidation.missionCommanderAction blocked=false requiresReview=true command=`" + wantRecord + "`",
-		"mission commander next action：state=ready-to-record-evidence source=adapterReportValidation.missionCommanderAction.followUp blocked=false requiresReview=true command=`/rekit handoff main`",
+		"mission commander action queue current：state=ready-to-record-evidence source=adapterReportValidation.missionCommanderAction blocked=false requiresReview=true command=`" + wantRecord + "` lane=main label=main gateEventId=" + applied.EventID + " actionId=" + applied.EventID + ":adapter-report-record",
+		"mission commander next action：state=ready-to-record-evidence source=adapterReportValidation.missionCommanderAction blocked=false requiresReview=true command=`" + wantRecord + "` lane=main label=main gateEventId=" + applied.EventID + " actionId=" + applied.EventID + ":adapter-report-record",
+		"mission commander next action：state=ready-to-record-evidence source=adapterReportValidation.missionCommanderAction.followUp blocked=false requiresReview=true command=`/rekit handoff main` lane=main label=main gateEventId=" + applied.EventID + " actionId=" + applied.EventID + ":adapter-report-record-follow-up-1",
 		"mission commander next action reason：validation returned valid=true",
 		"mission commander next action boundary：replace <executor-id> before running record command",
 	} {
@@ -10454,8 +10454,8 @@ func TestRunGateAdapterReportTextOutputsNextActions(t *testing.T) {
 		"adapter report validation follow-through repair action：name=invalid-report-repair action=add-boundary-marker",
 		"adapter report validation follow-through evidence：name=invalid-report-repair evidence=repairHints",
 		"adapter report validation commander action：state=repair-adapter-report primary=`" + wantInvalidValidate + "`",
-		"mission commander next action：state=repair-adapter-report source=adapterReportValidation.repairHints blocked=false requiresReview=true command=`add-boundary-marker`",
-		"mission commander next action：state=repair-adapter-report source=adapterReportValidation.missionCommanderAction blocked=false requiresReview=true command=`" + wantInvalidValidate + "`",
+		"mission commander next action：state=repair-adapter-report source=adapterReportValidation.repairHints blocked=false requiresReview=true command=`add-boundary-marker` lane=main label=main gateEventId=" + applied.EventID + " actionId=" + applied.EventID + ":adapter-report-repair-add-boundary-marker",
+		"mission commander next action：state=repair-adapter-report source=adapterReportValidation.missionCommanderAction blocked=false requiresReview=true command=`" + wantInvalidValidate + "` lane=main label=main gateEventId=" + applied.EventID + " actionId=" + applied.EventID + ":adapter-report-rerun-validation",
 		"mission commander next action reason：allowedStopConditions=timeout",
 		"mission commander next action reason：recordBlocked=true; do not record evidence until valid=true",
 		"mission commander next action boundary：boundaryHits must use authorized stopConditions: timeout",
@@ -14024,6 +14024,7 @@ type missionCommanderNextActionItem struct {
 	Lane           string   `json:"lane"`
 	Label          string   `json:"label"`
 	GateEventID    string   `json:"gateEventId"`
+	ActionID       string   `json:"actionId"`
 	State          string   `json:"state"`
 	Command        string   `json:"command"`
 	Source         string   `json:"source"`

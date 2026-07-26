@@ -3210,7 +3210,7 @@ func writeStatusMissionCommanderActionQueueText(out io.Writer, prefix string, qu
 }
 
 func writeStatusMissionCommanderActionQueueActionText(out io.Writer, prefix, bucket string, action mission.MissionCommanderNextActionItem) error {
-	if _, err := fmt.Fprintf(out, "%s action：bucket=%s lane=%s label=%s state=%s source=%s blocked=%t requiresReview=%t command=%s\n", prefix, bucket, action.Lane, action.Label, action.State, action.Source, action.Blocked, action.RequiresReview, action.Command); err != nil {
+	if _, err := fmt.Fprintf(out, "%s action：bucket=%s lane=%s label=%s state=%s source=%s blocked=%t requiresReview=%t command=%s gateEventId=%s actionId=%s\n", prefix, bucket, action.Lane, action.Label, action.State, action.Source, action.Blocked, action.RequiresReview, action.Command, action.GateEventID, action.ActionID); err != nil {
 		return err
 	}
 	for _, reason := range action.Reasons {
@@ -5778,7 +5778,7 @@ func writeMissionCommanderActionText(out io.Writer, prefix string, action missio
 
 func writeMissionCommanderNextActionsText(out io.Writer, items []mission.MissionCommanderNextActionItem) error {
 	for _, item := range items {
-		if _, err := fmt.Fprintf(out, "mission commander next action：state=%s source=%s blocked=%t requiresReview=%t command=`%s`\n", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command); err != nil {
+		if _, err := fmt.Fprintf(out, "mission commander next action：state=%s source=%s blocked=%t requiresReview=%t command=`%s` lane=%s label=%s gateEventId=%s actionId=%s\n", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command, item.Lane, item.Label, item.GateEventID, item.ActionID); err != nil {
 			return err
 		}
 		for _, reason := range item.Reasons {
@@ -5807,7 +5807,7 @@ func writeMissionCommanderActionQueueText(out io.Writer, queue mission.MissionCo
 		return err
 	}
 	item := *queue.CurrentAction
-	_, err := fmt.Fprintf(out, "mission commander action queue current：state=%s source=%s blocked=%t requiresReview=%t command=`%s`\n", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command)
+	_, err := fmt.Fprintf(out, "mission commander action queue current：state=%s source=%s blocked=%t requiresReview=%t command=`%s` lane=%s label=%s gateEventId=%s actionId=%s\n", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command, item.Lane, item.Label, item.GateEventID, item.ActionID)
 	return err
 }
 

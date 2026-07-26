@@ -1281,9 +1281,9 @@ func adapterReportScaffoldLiveSnapshot(repoRoot, caseRoot, pack string, gateEven
 		Boundary: boundary,
 	}
 	items := []mission.MissionCommanderNextActionItem{
-		{Lane: gateEvent.Lane, Label: label, State: commander.State, Command: draftCommand, Source: "adapterReportLiveSnapshot.scaffold.draft", RequiresReview: true, Reasons: []string{"exact scaffold is present and still needs bounded execution fields"}, Boundary: append([]string{}, boundary...)},
-		{Lane: gateEvent.Lane, Label: label, State: commander.State, Command: validateCommand, Source: "adapterReportLiveSnapshot.scaffold.validation", Blocked: true, RequiresReview: true, Reasons: []string{"validation will fail until placeholder fields are replaced by bounded execution values"}, Boundary: append([]string{}, boundary...)},
-		{Lane: gateEvent.Lane, Label: label, State: commander.State, Command: "/rekit handoff " + label, Source: "adapterReportLiveSnapshot.scaffold.followUp", RequiresReview: true, Reasons: []string{"handoff scaffold and draft expectations"}, Boundary: append([]string{}, boundary...)},
+		adapterReportNextActionItem(gateEvent, label, "adapter-report-live-scaffold-draft", commander.State, draftCommand, "adapterReportLiveSnapshot.scaffold.draft", false, true, []string{"exact scaffold is present and still needs bounded execution fields"}, boundary),
+		adapterReportNextActionItem(gateEvent, label, "adapter-report-live-scaffold-validation", commander.State, validateCommand, "adapterReportLiveSnapshot.scaffold.validation", true, true, []string{"validation will fail until placeholder fields are replaced by bounded execution values"}, boundary),
+		adapterReportNextActionItem(gateEvent, label, "adapter-report-live-scaffold-handoff", commander.State, "/rekit handoff "+label, "adapterReportLiveSnapshot.scaffold.followUp", false, true, []string{"handoff scaffold and draft expectations"}, boundary),
 	}
 	queue := mission.MissionCommanderActionQueueFor(items)
 	follow := AuthorizedExecutionFollowThrough{
@@ -1369,6 +1369,8 @@ func applyRecordedAdapterReportSnapshot(validation *AdapterExecutionReportValida
 		{
 			Lane:           validation.ReportSummary.Lane,
 			Label:          label,
+			GateEventID:    validation.GateEventID,
+			ActionID:       adapterReportActionID(validation.GateEventID, "recorded-evidence-review"),
 			State:          state,
 			Command:        handoffCommand,
 			Source:         "adapterReportLiveSnapshot.recordedEvidence",
@@ -1380,6 +1382,8 @@ func applyRecordedAdapterReportSnapshot(validation *AdapterExecutionReportValida
 		{
 			Lane:           validation.ReportSummary.Lane,
 			Label:          label,
+			GateEventID:    validation.GateEventID,
+			ActionID:       adapterReportActionID(validation.GateEventID, "recorded-evidence-overview"),
 			State:          state,
 			Command:        "/rekit overview",
 			Source:         "adapterReportLiveSnapshot.recordedEvidence.followUp",
@@ -1686,16 +1690,7 @@ func adapterReportContractCommanderNextActions(event EventPreview, commander mis
 	label := gateCommanderActionLabel(event.Lane)
 	items := []mission.MissionCommanderNextActionItem{}
 	if commander.PrimaryCommand != "" {
-		items = append(items, mission.MissionCommanderNextActionItem{
-			Lane:           event.Lane,
-			Label:          label,
-			State:          commander.State,
-			Command:        commander.PrimaryCommand,
-			Source:         "adapterReportContract.missionCommanderAction",
-			RequiresReview: true,
-			Reasons:        []string{"run read-only validation before recording observation evidence", "adapter sidecar must be valid=true before record"},
-			Boundary:       append([]string{}, commander.Boundary...),
-		})
+		items = append(items, adapterReportNextActionItem(event, label, "adapter-report-contract-validation", commander.State, commander.PrimaryCommand, "adapterReportContract.missionCommanderAction", false, true, []string{"run read-only validation before recording observation evidence", "adapter sidecar must be valid=true before record"}, commander.Boundary))
 	}
 	for _, followUp := range commander.FollowUpCommands {
 		boundary := append([]string{}, commander.Boundary...)
@@ -1706,17 +1701,7 @@ func adapterReportContractCommanderNextActions(event EventPreview, commander mis
 			reasons = append(reasons, "run only after validation returns valid=true", "replace <executor-id> before recording evidence")
 			boundary = append(boundary, "do not record evidence until validation returns valid=true", "replace <executor-id> before running record command")
 		}
-		items = append(items, mission.MissionCommanderNextActionItem{
-			Lane:           event.Lane,
-			Label:          label,
-			State:          commander.State,
-			Command:        followUp,
-			Source:         "adapterReportContract.missionCommanderAction.followUp",
-			Blocked:        blocked,
-			RequiresReview: true,
-			Reasons:        reasons,
-			Boundary:       boundary,
-		})
+		items = append(items, adapterReportNextActionItem(event, label, "adapter-report-contract-follow-up", commander.State, followUp, "adapterReportContract.missionCommanderAction.followUp", blocked, true, reasons, boundary))
 	}
 	return mission.UniqueCommanderNextActions(items)
 }
@@ -1726,28 +1711,10 @@ func adapterReportValidationCommanderNextActions(event EventPreview, commander m
 	items := []mission.MissionCommanderNextActionItem{}
 	if valid {
 		if commander.PrimaryCommand != "" {
-			items = append(items, mission.MissionCommanderNextActionItem{
-				Lane:           event.Lane,
-				Label:          label,
-				State:          commander.State,
-				Command:        commander.PrimaryCommand,
-				Source:         "adapterReportValidation.missionCommanderAction",
-				RequiresReview: true,
-				Reasons:        []string{"validation returned valid=true", "replace <executor-id> before recording bounded observation evidence"},
-				Boundary:       append(append([]string{}, commander.Boundary...), "replace <executor-id> before running record command"),
-			})
+			items = append(items, adapterReportNextActionItem(event, label, "adapter-report-record", commander.State, commander.PrimaryCommand, "adapterReportValidation.missionCommanderAction", false, true, []string{"validation returned valid=true", "replace <executor-id> before recording bounded observation evidence"}, append(append([]string{}, commander.Boundary...), "replace <executor-id> before running record command")))
 		}
-		for _, followUp := range commander.FollowUpCommands {
-			items = append(items, mission.MissionCommanderNextActionItem{
-				Lane:           event.Lane,
-				Label:          label,
-				State:          commander.State,
-				Command:        followUp,
-				Source:         "adapterReportValidation.missionCommanderAction.followUp",
-				RequiresReview: true,
-				Reasons:        []string{"handoff after recording or reviewing valid adapter report evidence"},
-				Boundary:       append([]string{}, commander.Boundary...),
-			})
+		for idx, followUp := range commander.FollowUpCommands {
+			items = append(items, adapterReportNextActionItem(event, label, fmt.Sprintf("adapter-report-record-follow-up-%d", idx+1), commander.State, followUp, "adapterReportValidation.missionCommanderAction.followUp", false, true, []string{"handoff after recording or reviewing valid adapter report evidence"}, commander.Boundary))
 		}
 		return mission.UniqueCommanderNextActions(items)
 	}
@@ -1755,30 +1722,10 @@ func adapterReportValidationCommanderNextActions(event EventPreview, commander m
 		if strings.TrimSpace(hint.RepairAction) == "" {
 			continue
 		}
-		items = append(items, mission.MissionCommanderNextActionItem{
-			Lane:           event.Lane,
-			Label:          label,
-			State:          commander.State,
-			Command:        hint.RepairAction,
-			Source:         "adapterReportValidation.repairHints",
-			Blocked:        hint.EscalateToMain,
-			RequiresReview: true,
-			Reasons:        adapterReportRepairHintReasons(hint),
-			Boundary:       adapterReportRepairHintBoundaries(commander.Boundary, hint),
-		})
+		items = append(items, adapterReportNextActionItem(event, label, "adapter-report-repair-"+hint.RepairAction, commander.State, hint.RepairAction, "adapterReportValidation.repairHints", hint.EscalateToMain, true, adapterReportRepairHintReasons(hint), adapterReportRepairHintBoundaries(commander.Boundary, hint)))
 	}
 	if commander.PrimaryCommand != "" {
-		items = append(items, mission.MissionCommanderNextActionItem{
-			Lane:           event.Lane,
-			Label:          label,
-			State:          commander.State,
-			Command:        commander.PrimaryCommand,
-			Source:         "adapterReportValidation.missionCommanderAction",
-			Blocked:        commander.State == "needs-main-escalation",
-			RequiresReview: true,
-			Reasons:        []string{"rerun read-only validation after repairing the adapter report", "do not record evidence until validation returns valid=true"},
-			Boundary:       append([]string{}, commander.Boundary...),
-		})
+		items = append(items, adapterReportNextActionItem(event, label, "adapter-report-rerun-validation", commander.State, commander.PrimaryCommand, "adapterReportValidation.missionCommanderAction", commander.State == "needs-main-escalation", true, []string{"rerun read-only validation after repairing the adapter report", "do not record evidence until validation returns valid=true"}, commander.Boundary))
 	}
 	return mission.UniqueCommanderNextActions(items)
 }
@@ -1792,6 +1739,34 @@ func gateCommanderActionLabel(laneID string) string {
 		label = "main"
 	}
 	return label
+}
+
+func adapterReportActionID(eventID, suffix string) string {
+	eventID = strings.TrimSpace(eventID)
+	suffix = strings.TrimSpace(suffix)
+	if eventID == "" {
+		return suffix
+	}
+	if suffix == "" {
+		return eventID
+	}
+	return eventID + ":" + suffix
+}
+
+func adapterReportNextActionItem(event EventPreview, label, actionID, state, command, source string, blocked, requiresReview bool, reasons, boundary []string) mission.MissionCommanderNextActionItem {
+	return mission.MissionCommanderNextActionItem{
+		Lane:           event.Lane,
+		Label:          label,
+		GateEventID:    event.EventID,
+		ActionID:       adapterReportActionID(event.EventID, actionID),
+		State:          state,
+		Command:        command,
+		Source:         source,
+		Blocked:        blocked,
+		RequiresReview: requiresReview,
+		Reasons:        append([]string{}, reasons...),
+		Boundary:       append([]string{}, boundary...),
+	}
 }
 
 func adapterReportContractNextSteps(pack string, event EventPreview, liveValidation AdapterReportLiveValidation) []string {
@@ -2535,12 +2510,12 @@ func adapterReportScaffoldCommanderNextActions(gateEvent EventPreview, result Ad
 	items := []mission.MissionCommanderNextActionItem{}
 	state := result.MissionCommanderAction.State
 	if result.ApplyCommand != "" && !result.Applied && !result.AlreadyExists {
-		items = append(items, mission.MissionCommanderNextActionItem{Lane: gateEvent.Lane, Label: label, State: state, Command: result.ApplyCommand, Source: "adapterReportScaffold.preview", RequiresReview: true, Reasons: []string{"write missing adapter-report.json scaffold after reviewing the deterministic template hash"}, Boundary: append([]string{}, result.Boundary...)})
+		items = append(items, adapterReportNextActionItem(gateEvent, label, "adapter-report-scaffold-apply", state, result.ApplyCommand, "adapterReportScaffold.preview", false, true, []string{"write missing adapter-report.json scaffold after reviewing the deterministic template hash"}, result.Boundary))
 	}
 	if result.ValidateCommand != "" {
-		items = append(items, mission.MissionCommanderNextActionItem{Lane: gateEvent.Lane, Label: label, State: state, Command: result.ValidateCommand, Source: "adapterReportScaffold.validation", Blocked: true, RequiresReview: true, Reasons: []string{"run only after the external adapter fills placeholder execution fields"}, Boundary: append(append([]string{}, result.Boundary...), "validation remains read-only")})
+		items = append(items, adapterReportNextActionItem(gateEvent, label, "adapter-report-scaffold-validation", state, result.ValidateCommand, "adapterReportScaffold.validation", true, true, []string{"run only after the external adapter fills placeholder execution fields"}, append(append([]string{}, result.Boundary...), "validation remains read-only")))
 	}
-	items = append(items, mission.MissionCommanderNextActionItem{Lane: gateEvent.Lane, Label: label, State: state, Command: "/rekit handoff " + label, Source: "adapterReportScaffold.followUp", RequiresReview: true, Reasons: []string{"handoff scaffold status and adapter output expectations"}, Boundary: append([]string{}, result.Boundary...)})
+	items = append(items, adapterReportNextActionItem(gateEvent, label, "adapter-report-scaffold-handoff", state, "/rekit handoff "+label, "adapterReportScaffold.followUp", false, true, []string{"handoff scaffold status and adapter output expectations"}, result.Boundary))
 	return mission.UniqueCommanderNextActions(items)
 }
 
@@ -2569,12 +2544,12 @@ func adapterReportDraftCommanderNextActions(gateEvent EventPreview, result Adapt
 		if result.ReplacesScaffold {
 			reasons = append(reasons, "target is the exact scaffold template and can be replaced by the bounded draft")
 		}
-		items = append(items, mission.MissionCommanderNextActionItem{Lane: gateEvent.Lane, Label: label, State: state, Command: result.ApplyCommand, Source: "adapterReportDraft.preview", RequiresReview: true, Reasons: reasons, Boundary: append([]string{}, result.Boundary...)})
+		items = append(items, adapterReportNextActionItem(gateEvent, label, "adapter-report-draft-apply", state, result.ApplyCommand, "adapterReportDraft.preview", false, true, reasons, result.Boundary))
 	}
 	if result.ValidateCommand != "" {
-		items = append(items, mission.MissionCommanderNextActionItem{Lane: gateEvent.Lane, Label: label, State: state, Command: result.ValidateCommand, Source: "adapterReportDraft.validation", Blocked: !result.Applied && !result.AlreadyExists, RequiresReview: true, Reasons: []string{"run read-only validation after the deterministic draft is written"}, Boundary: append(append([]string{}, result.Boundary...), "validation remains read-only")})
+		items = append(items, adapterReportNextActionItem(gateEvent, label, "adapter-report-draft-validation", state, result.ValidateCommand, "adapterReportDraft.validation", !result.Applied && !result.AlreadyExists, true, []string{"run read-only validation after the deterministic draft is written"}, append(append([]string{}, result.Boundary...), "validation remains read-only")))
 	}
-	items = append(items, mission.MissionCommanderNextActionItem{Lane: gateEvent.Lane, Label: label, State: state, Command: "/rekit handoff " + label, Source: "adapterReportDraft.followUp", RequiresReview: true, Reasons: []string{"handoff draft status and validation expectations"}, Boundary: append([]string{}, result.Boundary...)})
+	items = append(items, adapterReportNextActionItem(gateEvent, label, "adapter-report-draft-handoff", state, "/rekit handoff "+label, "adapterReportDraft.followUp", false, true, []string{"handoff draft status and validation expectations"}, result.Boundary))
 	return mission.UniqueCommanderNextActions(items)
 }
 

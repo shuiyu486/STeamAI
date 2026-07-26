@@ -121,6 +121,10 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 /rekit promote -Apply -Format text         # 确认 review scope 后写回 pack，并打印 validation / backup handoff
 ```
 
+### Adapter execution report handoff identity
+
+`gate -ExecutionReportContract`、`gate -ValidateExecutionReport`、scaffold/draft live snapshot 与 recorded evidence snapshot 的 Mission Commander next-action/current-action 行会直接显示 `lane`、`label`、`gateEventId`、`actionId`。replacement executor 应优先消费这些 typed fields 来确认当前步骤是 validate、record、repair、scaffold 还是 draft，并继续遵守 read-only validation → valid=true/hash-bound record → bounded observation evidence review 的顺序；不要把 contract 阶段的 handoff 当作已授权执行 adapter/heavy tool，也不要在缺少 matching `gateEventId`/`actionId` 时手工拼接 record。
+
 ### Batch 561 当前实施边界
 
 Batch 561 为 `continue` executor-generation stale-writer guard，当前状态是 implementation in progress，不能当作已验证 runtime 行为。计划中的调用方 contract 是：选定lane后，`continue -WhatIf`与`continue -Apply`都提供当前`-Executor <executor-id>`和`-ExpectedExecutorGeneration <generation>`；runtime在创建run、追加facts、刷新lane `RESUME.md`/checkpoint或修改board前，strict比对durable `currentExecutor`与`executorGeneration`，Apply在mutation边界内再次比对。缺失、不匹配或takeover后的旧generation均fail-closed且zero-write。
