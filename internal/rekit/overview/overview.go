@@ -474,7 +474,7 @@ func writeMissionCommanderNextActions(out *bytes.Buffer, items []MissionCommande
 		return
 	}
 	for _, item := range items {
-		fmt.Fprintf(out, "- %s：state=%s source=%s blocked=%t requiresReview=%t command=`%s`\n", firstText(item.Label, item.Lane, "project"), item.State, item.Source, item.Blocked, item.RequiresReview, item.Command)
+		fmt.Fprintf(out, "- %s：%s\n", firstText(item.Label, item.Lane, "project"), workstream.MissionCommanderNextActionMarkdownLine(item))
 		writeActionIndexList(out, "reasons", item.Reasons)
 		writeActionIndexList(out, "boundary", item.Boundary)
 	}
@@ -495,7 +495,7 @@ func writeMissionCommanderActionQueue(out *bytes.Buffer, queue MissionCommanderA
 		return
 	}
 	item := *queue.CurrentAction
-	fmt.Fprintf(out, "- current: %s state=%s source=%s blocked=%t requiresReview=%t command=`%s`\n", firstText(item.Label, item.Lane, "project"), item.State, item.Source, item.Blocked, item.RequiresReview, item.Command)
+	fmt.Fprintf(out, "- current: %s %s\n", firstText(item.Label, item.Lane, "project"), workstream.MissionCommanderNextActionMarkdownLine(item))
 	fmt.Fprintln(out)
 }
 

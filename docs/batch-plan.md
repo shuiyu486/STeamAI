@@ -16,6 +16,22 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 620：Mission Commander Markdown action identity closure
+
+状态：已完成 runtime/test/doc 工作树实现、focused overview/handoff Markdown product-path 验证与完整本机 `release-run` release minimum；implementation commit/push 与 PR-triggered remote release-gate inspection 待执行。
+
+目标：补齐 durable Markdown 接手面的真实断点：Batch 618 已让 CLI text/default Mission Commander action lines 打印 lane、label、gateEventId、actionId，但 overview 与 project/lane handoff Markdown 仍只在 action queue current / next action 行显示 state/source/command。replacement executor 从 `.rekit/handoffs`、lane `RESUME.md` 或 overview Markdown 接手 adapter/evidence/reviewer action 时，仍要回查 JSON 才能确认 gate/action identity。本批让 Markdown 接手面与 CLI text identity 一致，同时保持原有 state/source/command 前缀兼容。
+
+已实现内容：
+
+- 新增 `MissionCommanderNextActionMarkdownLine` formatter，保持 `state/source/blocked/requiresReview/command` 前缀不变，并在末尾追加 lane、label、gateEventId、actionId。
+- overview Markdown 的 Mission Commander action queue current 与 next actions、project handoff per-lane queue current/next actions、lane handoff Markdown queue current/next actions 统一复用该 formatter。
+- 单元测试锁定 Markdown formatter 与 overview queue current identity；CLI overview/handoff/status product-path focused 回归确认既有前缀断言未破坏。
+
+边界：本批只增强 overview / project handoff / lane handoff Markdown 的只读接手投影；不改变 Mission Commander queue ordering、adapter validation/record 语义、case durable state、authority/confirmed、heavy tool 或 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/workstream ./internal/rekit/overview -run "TestMissionCommanderNextActionMarkdownLineIncludesIdentity|TestOverviewMissionCommanderActionQueuePrintsIdentity|TestOverviewNextSteps" -count=1` 已通过；related product-path `go test ./internal/rekit/cli ./internal/rekit/overview ./internal/rekit/workstream -run "TestRunOverview|TestRunHandoff|TestRunStatus|TestMissionCommanderNextActionMarkdownLineIncludesIdentity|TestOverviewMissionCommanderActionQueuePrintsIdentity" -count=1` 已通过。完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，返回 `ready=true` / `summary=release run ok`，聚合执行 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步，`passed=7 failed=0 skipped=0`，`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。
+
 ### Batch 619：release-run project handoff readiness closure
 
 状态：已完成 runtime/test/doc 工作树实现、focused release handoff/status product-path 验证、完整本机 `release-run` release minimum，以及 implementation commit/push 和 PR-triggered remote release-gate inspection；implementation commit `ca254c5` 已推送。PR run `30200365431` completed failure，Linux/Windows/macOS jobs `89789151577`/`89789151581`/`89789151587` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。

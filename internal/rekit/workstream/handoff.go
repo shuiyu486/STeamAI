@@ -696,7 +696,7 @@ func writeProjectLaneMissionCommanderActionQueue(out *bytes.Buffer, queue missio
 		return
 	}
 	item := *queue.CurrentAction
-	fmt.Fprintf(out, "  - commander action queue current：state=%s source=%s blocked=%t requiresReview=%t command=`%s`\n", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command)
+	fmt.Fprintf(out, "  - commander action queue current：%s\n", MissionCommanderNextActionMarkdownLine(item))
 }
 
 func writeProjectLaneMissionCommanderNextActions(out *bytes.Buffer, items []mission.MissionCommanderNextActionItem) {
@@ -720,7 +720,7 @@ func writeLaneMissionCommanderActionQueue(out *bytes.Buffer, queue mission.Missi
 		return
 	}
 	item := *queue.CurrentAction
-	fmt.Fprintf(out, "- current: state=%s source=%s blocked=%t requiresReview=%t command=`%s`\n", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command)
+	fmt.Fprintf(out, "- current: %s\n", MissionCommanderNextActionMarkdownLine(item))
 	fmt.Fprintln(out)
 }
 
@@ -741,7 +741,7 @@ func writeLaneMissionCommanderNextActions(out *bytes.Buffer, items []mission.Mis
 func missionCommanderNextActionLines(items []mission.MissionCommanderNextActionItem) []string {
 	lines := make([]string, 0, len(items))
 	for _, item := range items {
-		lines = append(lines, fmt.Sprintf("state=%s source=%s blocked=%t requiresReview=%t command=`%s`", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command))
+		lines = append(lines, MissionCommanderNextActionMarkdownLine(item))
 		for _, reason := range item.Reasons {
 			lines = append(lines, "reason: "+reason)
 		}
@@ -750,6 +750,10 @@ func missionCommanderNextActionLines(items []mission.MissionCommanderNextActionI
 		}
 	}
 	return lines
+}
+
+func MissionCommanderNextActionMarkdownLine(item mission.MissionCommanderNextActionItem) string {
+	return fmt.Sprintf("state=%s source=%s blocked=%t requiresReview=%t command=`%s` lane=%s label=%s gateEventId=%s actionId=%s", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command, item.Lane, item.Label, item.GateEventID, item.ActionID)
 }
 
 func limitMissionCommanderNextActionItems(items []mission.MissionCommanderNextActionItem, n int) []mission.MissionCommanderNextActionItem {

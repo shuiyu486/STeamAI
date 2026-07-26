@@ -1,11 +1,38 @@
 package overview
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
+
+func TestOverviewMissionCommanderActionQueuePrintsIdentity(t *testing.T) {
+	current := mission.MissionCommanderNextActionItem{
+		Lane:           "main",
+		Label:          "Main",
+		GateEventID:    "evt-adapter",
+		ActionID:       "evt-adapter:adapter-report-record",
+		State:          "ready-to-record-evidence",
+		Command:        "/rekit gate -Apply -GateEventId evt-adapter",
+		Source:         "adapterReportValidation.missionCommanderAction",
+		RequiresReview: true,
+	}
+	var out strings.Builder
+	var buf bytes.Buffer
+	writeMissionCommanderActionQueue(&buf, mission.MissionCommanderActionQueue{
+		Counts:        mission.MissionCommanderActionQueueCounts{Total: 1, Unblocked: 1, RequiresReview: 1},
+		CurrentAction: &current,
+	})
+	out.WriteString(buf.String())
+	text := out.String()
+	for _, want := range []string{"- current: Main state=ready-to-record-evidence source=adapterReportValidation.missionCommanderAction", "command=`/rekit gate -Apply -GateEventId evt-adapter` lane=main label=Main", "gateEventId=evt-adapter", "actionId=evt-adapter:adapter-report-record"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("overview action queue missing %q:\n%s", want, text)
+		}
+	}
+}
 
 func TestOverviewNextStepsFollowActionQueueCurrentAction(t *testing.T) {
 	current := mission.MissionCommanderNextActionItem{

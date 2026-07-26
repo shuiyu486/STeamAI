@@ -12,6 +12,24 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
+func TestMissionCommanderNextActionMarkdownLineIncludesIdentity(t *testing.T) {
+	line := MissionCommanderNextActionMarkdownLine(mission.MissionCommanderNextActionItem{
+		Lane:           "main",
+		Label:          "Main",
+		GateEventID:    "evt-adapter",
+		ActionID:       "evt-adapter:adapter-report-record",
+		State:          "ready-to-record-evidence",
+		Source:         "adapterReportValidation.missionCommanderAction",
+		Command:        "/rekit gate -Apply -GateEventId evt-adapter",
+		RequiresReview: true,
+	})
+	for _, want := range []string{"state=ready-to-record-evidence source=adapterReportValidation.missionCommanderAction", "command=`/rekit gate -Apply -GateEventId evt-adapter` lane=main label=Main", "gateEventId=evt-adapter", "actionId=evt-adapter:adapter-report-record"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("markdown line missing %q: %s", want, line)
+		}
+	}
+}
+
 func TestReadHandoffFactsUsesMissionLedgerSnapshot(t *testing.T) {
 	caseRoot := t.TempDir()
 	factsRoot := filepath.Join(caseRoot, ".rekit", "facts")
