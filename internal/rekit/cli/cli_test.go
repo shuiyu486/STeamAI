@@ -9987,6 +9987,24 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	if !provisionApplied.IsMutation || !provisionApplied.Applied || provisionApplied.Replay || len(provisionApplied.Cases) != 2 || provisionApplied.Cases[0].DoctorRows == 0 || provisionApplied.Cases[1].DoctorRows == 0 {
 		t.Fatalf("unexpected candidate verification provision apply: %+v", provisionApplied)
 	}
+	candidateBeforeProvisionReplay := snapshotFiles(t, candidateRoot)
+	workspaceBeforeProvisionReplay := snapshotFiles(t, decisionApplied.Receipt.VerificationWorkspaceRoot)
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-ProvisionCandidateVerificationCases", "-FreshCaseRoot", freshCase, "-AttachedCaseRoot", attachedCase, "-ExpectedProvisionSha256", provisionPreview.ProvisionSHA256, "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var provisionReplay promote.CandidateVerificationProvisionResult
+	if err := json.Unmarshal(out.Bytes(), &provisionReplay); err != nil {
+		t.Fatalf("candidate verification provision replay stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if provisionReplay.Mode != "already-provisioned" || !provisionReplay.IsMutation || !provisionReplay.Applied || !provisionReplay.Replay || provisionReplay.ProvisionSHA256 != provisionPreview.ProvisionSHA256 || provisionReplay.WorkspaceRoot != decisionApplied.Receipt.VerificationWorkspaceRoot || provisionReplay.ApplyCommand != "" || !strings.Contains(provisionReplay.VerificationPreviewCommand, "-VerifyCandidateDecision") || !containsSubstring(provisionReplay.NextSteps, "candidate decision verification WhatIf") {
+		t.Fatalf("unexpected candidate verification provision replay: %+v", provisionReplay)
+	}
+	if len(provisionReplay.Cases) != 2 || provisionReplay.Cases[0].Role != "fresh" || !provisionReplay.Cases[0].Applied || !provisionReplay.Cases[0].Replay || provisionReplay.Cases[1].Role != "attached" || !provisionReplay.Cases[1].Applied || !provisionReplay.Cases[1].Replay {
+		t.Fatalf("candidate verification provision replay did not retain case handoff: %+v", provisionReplay.Cases)
+	}
+	assertSnapshotEqual(t, candidateBeforeProvisionReplay, snapshotFiles(t, candidateRoot))
+	assertSnapshotEqual(t, workspaceBeforeProvisionReplay, snapshotFiles(t, decisionApplied.Receipt.VerificationWorkspaceRoot))
 	out.Reset()
 	if err := Run([]string{"-Command", "promote", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-ProvisionCandidateVerificationCases", "-FreshCaseRoot", freshCase, "-AttachedCaseRoot", attachedCase, "-ExpectedProvisionSha256", provisionPreview.ProvisionSHA256, "-Apply", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
@@ -10142,6 +10160,26 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	assertSnapshotEqual(t, candidateBeforeRetiredStatus, snapshotFiles(t, candidateRoot))
 	if _, err := os.Stat(retirementApplied.WorkspaceRoot); !os.IsNotExist(err) {
 		t.Fatalf("retired status text recreated canonical candidate verification workspace: %v", err)
+	}
+
+	candidateBeforeRetirementReplay := snapshotFiles(t, candidateRoot)
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-RetireCandidateVerificationWorkspace", "-ExpectedRetirementSha256", retirementPreview.RetirementSHA256, "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var retirementReplay promote.CandidateVerificationRetirementResult
+	if err := json.Unmarshal(out.Bytes(), &retirementReplay); err != nil {
+		t.Fatalf("candidate verification retirement replay stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if retirementReplay.Mode != "already-retired" || !retirementReplay.IsMutation || !retirementReplay.Applied || !retirementReplay.Replay || retirementReplay.RetirementSHA256 != retirementPreview.RetirementSHA256 || retirementReplay.WorkspaceRoot != retirementApplied.WorkspaceRoot || retirementReplay.ApplyCommand != "" || !containsSubstring(retirementReplay.NextSteps, "retain the repo-local retirement intent and receipt") {
+		t.Fatalf("unexpected candidate verification retirement replay: %+v", retirementReplay)
+	}
+	if len(retirementReplay.Roots) != 2 || retirementReplay.Roots[0].Role != "fresh" || retirementReplay.Roots[1].Role != "attached" || len(retirementReplay.Roots[0].Deletes) == 0 || len(retirementReplay.Roots[1].Deletes) == 0 {
+		t.Fatalf("candidate verification retirement replay did not retain root deletion handoff: %+v", retirementReplay.Roots)
+	}
+	assertSnapshotEqual(t, candidateBeforeRetirementReplay, snapshotFiles(t, candidateRoot))
+	if _, err := os.Stat(retirementReplay.WorkspaceRoot); !os.IsNotExist(err) {
+		t.Fatalf("retirement replay recreated canonical candidate verification workspace: %v", err)
 	}
 
 	out.Reset()

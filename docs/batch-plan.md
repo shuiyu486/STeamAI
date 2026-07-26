@@ -16,6 +16,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 645：pack-memory candidate verification replay handoff closure
+
+状态：已完成 CLI product-path 测试扩展、focused pack-memory candidate decision E2E、同域 promote package regression 与完整本机 `release-run` release minimum；implementation commit 已在本地生成，具体 hash 将由 release inspection 记录，implementation push 与 push-triggered remote release-gate inspection 待执行。
+
+目标：继续执行端到端能力闭环约束，转向 pack-memory candidate verification workspace 的重跑/接手断点。现有 case-local pack-memory product path 已覆盖 candidate 创建、review proof、decision Apply、verification provisioning、verification Apply、retirement 与 status/release-check 关闭；但 provisioning/retirement 的 duplicate Apply replay 在 CLI JSON 产品路径中只通过 text 片段间接覆盖，尚未证明 replacement executor 重跑同一 expected-hash provisioning/retirement Apply 时能看到完整 `already-provisioned` / `already-retired` envelope、保留 fresh/attached case 或 deletion handoff，并且不重建 verification cases、不重新创建 retired workspace、不改 candidate evidence。
+
+已实现内容：扩展 `TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply`。在 `-ProvisionCandidateVerificationCases` WhatIf→expected-hash Apply 之后，测试保存 pack promote-candidates root 与 canonical verification workspace 快照，并重跑同一 JSON Apply；断言 replay 返回 `mode=already-provisioned`、`isMutation=true`、`applied=true`、`replay=true`、`provisionSha256` / `workspaceRoot` 与首次 preview/apply 绑定、`applyCommand` 为空、`verificationPreviewCommand` 仍指向 `-VerifyCandidateDecision`，fresh/attached cases 均标记 applied/replay，且 candidate/workspace 快照不变。retirement Apply 后同样保存 candidate root 快照并重跑同一 JSON `-RetireCandidateVerificationWorkspace` Apply；断言 `mode=already-retired`、hash/workspace 绑定、root deletion handoff 保留、next step 只要求保留 repo-local retirement intent/receipt，且 canonical workspace 没有被重建。
+
+边界：本批不改变 promote / pack-memory runtime 语义，不新增 public command，不自动 run verification、不自动 retire/reconsume，不写 authority/confirmed，不执行 heavy tool，不新增 PowerShell runtime logic；唯一新增能力是把现有 candidate verification provisioning/retirement replay 状态转换锁定到 CLI product-path 回归，duplicate replay 保持 zero-write / no-recreate。
+
+验证结果：focused `go test ./internal/rekit/cli -run "TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime" -count=1` 已通过；同域 promote package regression `go test ./internal/rekit/promote -run "TestProvisionCandidateVerificationCases|TestRetireCandidateVerificationWorkspace" -count=1` 已通过；完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，其中 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步均通过，返回 `ready=true` / `summary=release run ok`，聚合 `passed=7 failed=0 skipped=0`，`go test ./... attempts=1`，仅 `git diff --check` 保留 Windows 工作树 LF→CRLF 提示。implementation push 与 release inspection 记录待执行。
+
 ### Batch 644：adapter caller-cwd duplicate replay handoff closure
 
 状态：已完成 CLI product-path 测试扩展、focused/related adapter/gate CLI tests、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `5f1719f` 已推送。Push run `30220950002` completed failure，Linux/Windows/macOS jobs `89843204695`/`89843204714`/`89843204715` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。
