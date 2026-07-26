@@ -231,10 +231,14 @@ func TestRunPlanSubagentsReviewerPacketAdoptionCaseLocalProductPath(t *testing.T
 		t.Fatal(err)
 	}
 	plan := decodePlanSubagentsResult(t, out.Bytes())
+	packet := decodePlanSubagentsPacket(t, plan.PacketPath)
 	packetBefore, err := os.ReadFile(plan.PacketPath)
 	if err != nil {
 		t.Fatal(err)
 	}
+	writeCaseFile(t, caseRoot, "workspace/features/feature-login/review-evidence.md", "bounded reviewer adoption evidence\n")
+	stageAndCollectReviewerResultForCLIPlan(t, &out, []string{"-Target", caseRoot, "-Pack", "_template"}, plan.PacketPath, plan.ShardHandoffs[0], "feature-review", "mission-commander", reviewerResultForCLIPlan(t, packet, plan.ShardHandoffs[0], "accept", "accepted", "reviewer-adoption-e2e"))
+
 	out.Reset()
 	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "review", "-Executor", "session-b", "-Actor", "mission-commander", "-Reason", "replacement reviewer owner", "-Apply", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
@@ -253,6 +257,13 @@ func TestRunPlanSubagentsReviewerPacketAdoptionCaseLocalProductPath(t *testing.T
 	}
 	if status.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || status.CaseMission.MissionCommanderActionQueue.CurrentAction.State != "reviewer-packet-owner-adoption-required" {
 		t.Fatalf("status did not promote reviewer packet adoption: %+v", status.CaseMission.MissionCommanderActionQueue)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-ReadyReviewerResults", "-Lane", "feature-review", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err == nil || !strings.Contains(err.Error(), "run reviewer packet adoption WhatIf then Apply") {
+		t.Fatalf("ready reviewer results before adoption error = %v\n%s", err, out.String())
+	}
+	if got := readOptionalCaseFile(t, caseRoot, ".rekit/facts/verifications.jsonl"); got != "" {
+		t.Fatalf("blocked pre-adoption batch intake wrote verification facts:\n%s", got)
 	}
 	adoptionArgs := []string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-AdoptReviewerPacket", "-Lane", "feature-review", "-Actor", "mission-commander", "-Reason", "adopt existing reviewer work", "-WhatIf", "-Format", "json"}
 	out.Reset()
@@ -298,6 +309,17 @@ func TestRunPlanSubagentsReviewerPacketAdoptionCaseLocalProductPath(t *testing.T
 	}
 	if !bytes.Equal(packetBefore, packetAfter) {
 		t.Fatal("CLI adoption modified immutable reviewer packet")
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-ReadyReviewerResults", "-Lane", "feature-review", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	ready := decodeReviewerBatchIntakeResult(t, out.Bytes())
+	if ready.Total != 1 || ready.Ready != 1 || ready.Waiting != 0 || ready.Processed != 1 || ready.Stopped || len(ready.Results) != 1 || ready.Results[0].WritebackStatus != "previewed" || !ready.Results[0].ReadyForWriteback || ready.Results[0].Verification == nil || ready.Results[0].Decision == nil || mission.Value(ready.Results[0].Verification.Event, "ownerExecutor") != "session-b" || mission.Value(ready.Results[0].Decision.Event, "ownerExecutor") != "session-b" {
+		t.Fatalf("ready reviewer results did not use adopted owner: %+v", ready)
+	}
+	if got := readOptionalCaseFile(t, caseRoot, ".rekit/facts/verifications.jsonl"); got != "" {
+		t.Fatalf("post-adoption batch intake WhatIf wrote verification facts:\n%s", got)
 	}
 }
 
