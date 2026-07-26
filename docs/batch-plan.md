@@ -16,6 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 628：reviewer invalid packet retirement handoff closure
+
+状态：已完成 runtime/test/doc 工作树实现、focused reviewer invalid packet / retirement CLI 回归、相关 package validation 与完整本机 `release-run` release minimum；implementation commit/push 与 push-triggered remote release-gate inspection 待执行。
+
+目标：补齐 Batch 627 后的 reviewer invalid packet operational closure 断点：status/intake 已能在 `packet.integrity.json` 可读而 packet 本体 unreadable/malformed 时保留 lane provenance 和具体 decode evidence；仓库也已有 `plan-subagents -RetireInvalidReviewerPacket` hash-bound retirement runtime。但 replacement executor 从 `status` / `handoff` / `continue` 看到 `reviewer-packet-integrity-invalid` 后，仍只能看到 regenerate guidance，无法直接接续“如果该 invalid packet 已废弃，先跑 retirement WhatIf → 使用返回的 expected hashes Apply”闭环。本批把 invalid packet handoff 直接连接到既有 retirement runtime 的公开 WhatIf 入口。
+
+已实现内容：
+
+- `ReviewerDispatchIntakeHandoff` 新增只读 `packetRetirementPreviewCommand`，`ReviewerDispatchIntakeSummary` 同步投影 `nextActionPacketRetirementPreviewCommand`；invalid packet 的 `nextAction` 现在优先指向 `/rekit plan-subagents -RetireInvalidReviewerPacket ... -WhatIf -Format json`。
+- `reviewer-packet-integrity-invalid` item-level `runbookSteps[]` 现在明确分两路：obsolete invalid packet 先运行 retirement preview、复核 exact packet/integrity hashes、只使用 preview 返回的 hash-bound Apply；仍需 reviewer work 时再 regenerate canonical packet + sidecar。
+- CLI text 的 reviewer dispatch next action 行新增 `packetRetirementPreview=`，并为每个 invalid packet item 打印 `reviewer packet retirement` preview 行；status/continue/handoff terminal 输出不再要求 replacement executor 手工拼 retirement command。
+- Focused workstream 和 CLI product-path tests 覆盖 invalid packet status JSON summary/item 字段、status text retirement preview、runbook 与既有 WhatIf→hash-bound Apply retirement E2E。
+
+边界：本批只增强 reviewer dispatch/intake/status/handoff 的只读 retirement handoff；不执行 retirement，不删除、修补或覆盖 packet/sidecar，不预填 expected hashes 到 status handoff，不 dispatch/collect/intake reviewer，不写 facts/ledger/authority/confirmed，不执行 heavy tool，不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/workstream -run "TestReviewerDispatchIntakeFailsClosedOnPacketIntegrityDrift|TestReviewerDispatchIntakeSummary" -count=1` 已通过；focused CLI `go test ./internal/rekit/cli -run "TestRunPlanSubagentsReviewerPacketRetirementWhatIfApplyE2E|TestParsePlanSubagentsReviewerPacketRetirement" -count=1` 已通过；相关 package validation `go test ./internal/rekit/workstream ./internal/rekit/cli -count=1` 已通过；完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，返回 `ready=true` / `summary=release run ok`，聚合执行 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步，`passed=7 failed=0 skipped=0`；本次 `go test ./...` step 为 `attempts=1`，未触发 cleanup-lock retry；`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。release inspection handoff 在未提交工作树下按预期保持 `ready=false`，后续需提交推送并检查 push-triggered remote release-gate。
+
 ### Batch 627：reviewer packet integrity decode evidence closure
 
 状态：已完成 runtime/test/doc 工作树实现、focused reviewer packet integrity 回归、workstream package validation、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `f2b9b05` 已推送。Push run `30209966418` completed failure，Linux/macOS/Windows jobs `89814417370`/`89814417385`/`89814417400` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。

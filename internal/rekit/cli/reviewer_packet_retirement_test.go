@@ -112,6 +112,31 @@ func TestRunPlanSubagentsReviewerPacketRetirementWhatIfApplyE2E(t *testing.T) {
 	if err := os.WriteFile(plan.PacketPath, []byte("{truncated"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var invalidStatus struct {
+		CaseMission struct {
+			ReviewerDispatchIntakeHandoffs []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
+			ReviewerDispatchIntakeSummary  reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &invalidStatus); err != nil {
+		t.Fatalf("status JSON did not decode: %v\n%s", err, out.String())
+	}
+	if len(invalidStatus.CaseMission.ReviewerDispatchIntakeHandoffs) != 1 || !strings.Contains(invalidStatus.CaseMission.ReviewerDispatchIntakeHandoffs[0].PacketRetirementPreviewCommand, "-RetireInvalidReviewerPacket") || !strings.Contains(invalidStatus.CaseMission.ReviewerDispatchIntakeSummary.NextActionPacketRetirementPreviewCommand, "-RetireInvalidReviewerPacket") || !containsSubstring(invalidStatus.CaseMission.ReviewerDispatchIntakeSummary.NextActionRunbookSteps, "retirement preview") {
+		t.Fatalf("status omitted invalid packet retirement handoff: %+v", invalidStatus.CaseMission)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"status case mission reviewer dispatch next action", "packetRetirementPreview=`/rekit plan-subagents", "status case mission reviewer packet retirement", "-RetireInvalidReviewerPacket"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("status text omitted invalid packet retirement handoff %q:\n%s", expected, out.String())
+		}
+	}
 
 	args := []string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-RetireInvalidReviewerPacket", "-Lane", "feature-review", "-Actor", "mission-commander", "-Reason", "retire exact invalid packet"}
 	out.Reset()

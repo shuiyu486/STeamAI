@@ -13982,6 +13982,7 @@ type reviewerDispatchIntakeCLIItem struct {
 	OwnerExecutor                           string   `json:"ownerExecutor"`
 	OwnerGeneration                         int      `json:"ownerGeneration"`
 	OwnerBindingMode                        string   `json:"ownerBindingMode"`
+	PacketRetirementPreviewCommand          string   `json:"packetRetirementPreviewCommand"`
 	RunbookSteps                            []string `json:"runbookSteps"`
 	Evidence                                []string `json:"evidence"`
 	Boundary                                []string `json:"boundary"`
@@ -14046,6 +14047,7 @@ type reviewerDispatchIntakeSummaryCLIItem struct {
 	NextActionApplyCommand                            string   `json:"nextActionApplyCommand"`
 	NextActionBatchPreviewCommand                     string   `json:"nextActionBatchPreviewCommand"`
 	NextActionBatchApplyCommand                       string   `json:"nextActionBatchApplyCommand"`
+	NextActionPacketRetirementPreviewCommand          string   `json:"nextActionPacketRetirementPreviewCommand"`
 	NextAction                                        string   `json:"nextAction"`
 	NextActionRunbookSteps                            []string `json:"nextActionRunbookSteps"`
 	Boundary                                          []string `json:"boundary"`

@@ -74,8 +74,11 @@ func TestReviewerDispatchIntakeFailsClosedOnPacketIntegrityDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	items, err = ReviewerDispatchIntakeHandoffs(root, mission.LedgerFacts{}, "feature-review")
-	if err != nil || len(items) != 1 || items[0].State != "reviewer-packet-integrity-invalid" || items[0].IntakeAvailable || items[0].ReviewerResultCollectionCommands != nil || !strings.Contains(reviewerDispatchIntakeNextAction(items[0]), "regenerate canonical reviewer packet") {
-		t.Fatalf("packet integrity drift did not fail closed: items=%+v err=%v", items, err)
+	if err != nil || len(items) != 1 || items[0].State != "reviewer-packet-integrity-invalid" || items[0].IntakeAvailable || items[0].ReviewerResultCollectionCommands != nil || !strings.Contains(reviewerDispatchIntakeNextAction(items[0]), "-RetireInvalidReviewerPacket") {
+		t.Fatalf("packet integrity drift did not fail closed with retirement preview: items=%+v err=%v", items, err)
+	}
+	if !strings.Contains(items[0].PacketRetirementPreviewCommand, "-RetireInvalidReviewerPacket") || !strings.Contains(items[0].PacketRetirementPreviewCommand, "-WhatIf") || !reviewerDispatchTestContainsSubstring(items[0].RunbookSteps, "retirement preview") || !reviewerDispatchTestContainsSubstring(items[0].RunbookSteps, "hash-bound Apply") {
+		t.Fatalf("packet integrity drift omitted retirement handoff: %+v", items[0])
 	}
 	actions := MissionCommanderNextActionsWithReviewerDispatches(nil, items)
 	if len(actions) != 1 || !actions[0].Blocked || actions[0].State != "reviewer-packet-integrity-invalid" {

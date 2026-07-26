@@ -166,6 +166,7 @@ type ReviewerDispatchIntakeHandoff struct {
 	OwnerAdoptionRequired                    bool                              `json:"ownerAdoptionRequired"`
 	OwnerAdoptionPath                        string                            `json:"ownerAdoptionPath,omitempty"`
 	OwnerAdoptionPreviewCommand              string                            `json:"ownerAdoptionPreviewCommand,omitempty"`
+	PacketRetirementPreviewCommand           string                            `json:"packetRetirementPreviewCommand,omitempty"`
 	RunbookSteps                             []string                          `json:"runbookSteps,omitempty"`
 	Evidence                                 []string                          `json:"evidence,omitempty"`
 	Boundary                                 []string                          `json:"boundary,omitempty"`
@@ -232,6 +233,7 @@ type ReviewerDispatchIntakeSummary struct {
 	NextActionApplyCommand                            string   `json:"nextActionApplyCommand,omitempty"`
 	NextActionBatchPreviewCommand                     string   `json:"nextActionBatchPreviewCommand,omitempty"`
 	NextActionBatchApplyCommand                       string   `json:"nextActionBatchApplyCommand,omitempty"`
+	NextActionPacketRetirementPreviewCommand          string   `json:"nextActionPacketRetirementPreviewCommand,omitempty"`
 	NextAction                                        string   `json:"nextAction,omitempty"`
 	NextActionRunbookSteps                            []string `json:"nextActionRunbookSteps,omitempty"`
 	Boundary                                          []string `json:"boundary,omitempty"`
@@ -405,8 +407,9 @@ func reviewerPacketIntegrityInvalidHandoff(caseRoot string, packet reviewerDispa
 		RemainingShardIDs: []string{
 			"packet-integrity",
 		},
-		NextOpenShardID: "packet-integrity",
-		State:           "reviewer-packet-integrity-invalid",
+		NextOpenShardID:                "packet-integrity",
+		State:                          "reviewer-packet-integrity-invalid",
+		PacketRetirementPreviewCommand: reviewerDispatchPacketRetirementPreviewCommand(packetPath, targetLane),
 		Evidence: []string{
 			"packet " + reviewerDispatchDisplayPath(caseRoot, packetPath),
 			"integrity invalid: " + integrityErr.Error(),
@@ -417,6 +420,7 @@ func reviewerPacketIntegrityInvalidHandoff(caseRoot string, packet reviewerDispa
 			"runtime does not spawn, stop, monitor, or manage reviewer sessions and does not execute heavy tools or write authority/confirmed state",
 		},
 	}
+	item.RunbookSteps = reviewerDispatchIntakeRunbookSteps(item)
 	return item
 }
 
@@ -676,6 +680,7 @@ func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) Rev
 			summary.NextActionApplyCommand = nextAction.ApplyCommand
 			summary.NextActionBatchPreviewCommand = nextAction.BatchPreviewCommand
 			summary.NextActionBatchApplyCommand = nextAction.BatchApplyCommand
+			summary.NextActionPacketRetirementPreviewCommand = nextAction.PacketRetirementPreviewCommand
 			if nextAction.State == "ready-for-reviewer-intake-preview" && strings.TrimSpace(nextAction.BatchPreviewCommand) != "" {
 				summary.LatestBatchPreviewCommand = nextAction.BatchPreviewCommand
 				summary.LatestBatchApplyCommand = nextAction.BatchApplyCommand
@@ -1508,6 +1513,10 @@ func reviewerDispatchAdoptionPreviewCommand(packetPath, lane string) string {
 	return "/rekit plan-subagents -PacketPath " + quoteCommandArg(packetPath) + " -AdoptReviewerPacket -Lane " + quoteCommandArg(lane) + " -Actor <actor> -Reason <reason> -WhatIf -Format json"
 }
 
+func reviewerDispatchPacketRetirementPreviewCommand(packetPath, lane string) string {
+	return "/rekit plan-subagents -PacketPath " + quoteCommandArg(packetPath) + " -RetireInvalidReviewerPacket -Lane " + quoteCommandArg(lane) + " -Actor <actor> -Reason <reason> -WhatIf -Format json"
+}
+
 func reviewerDispatchIntakeCommandAvailable(command string) bool {
 	command = strings.TrimSpace(command)
 	return command != "" && !strings.HasPrefix(command, "n/a:")
@@ -1653,7 +1662,9 @@ func reviewerDispatchIntakeRunbookSteps(item ReviewerDispatchIntakeHandoff) []st
 		add("review adoptedOwner/currentExecutor/currentGeneration and boundary, then rerun the returned or same command with -Apply if it is still current")
 		add("rerun /rekit status or /rekit continue " + firstText(item.TargetLane, "<lane>") + " -WhatIf to resume reviewer dispatch/intake")
 	case "reviewer-packet-integrity-invalid":
-		add("regenerate the canonical reviewer packet and packet.integrity.json together; do not repair packet bytes or integrity metadata independently")
+		add("if the invalid packet is obsolete, run retirement preview: " + firstText(item.PacketRetirementPreviewCommand, "<reviewer-packet-retirement-WhatIf unavailable>"))
+		add("review exact packet/integrity hashes from preview; only use the returned hash-bound Apply command to retire this invalid packet snapshot")
+		add("otherwise regenerate the canonical reviewer packet and packet.integrity.json together; do not repair packet bytes or integrity metadata independently")
 		add("rerun /rekit status -Format text and use the refreshed reviewer dispatch intake handoff")
 	case "reviewer-dispatch-prompt-artifact-invalid", "reviewer-dispatch-prompt-artifact-drift":
 		add("run prompt artifact repair preview: " + firstText(item.DispatchPromptRepairCommand, "<prompt-artifact-repair-WhatIf unavailable>"))
@@ -1746,7 +1757,7 @@ func reviewerDispatchIntakeNextAction(item ReviewerDispatchIntakeHandoff) string
 	case "reviewer-packet-owner-adoption-required":
 		return firstText(item.OwnerAdoptionPreviewCommand, "adopt reviewer packet "+item.PacketID+" before intake")
 	case "reviewer-packet-integrity-invalid":
-		return "regenerate canonical reviewer packet at " + item.PacketPath + "; do not continue from invalid packet integrity"
+		return firstText(item.PacketRetirementPreviewCommand, "regenerate canonical reviewer packet at "+item.PacketPath+"; do not continue from invalid packet integrity")
 	case "reviewer-dispatch-prompt-artifact-invalid", "reviewer-dispatch-prompt-artifact-drift":
 		if command := strings.TrimSpace(item.DispatchPromptRepairCommand); command != "" {
 			return command

@@ -6268,7 +6268,7 @@ func writeReviewerDispatchIntakeHandoffText(out io.Writer, prefix string, items 
 		}
 	}
 	if strings.TrimSpace(summary.NextActionShardID) != "" {
-		if _, err := fmt.Fprintf(out, "%s reviewer dispatch next action：shard=%s state=%s sourceState=%s source=%s candidateState=%s candidate=%s sourceCapturePreview=`%s` sourceCaptureApply=`%s` stagingPreview=`%s` collectionPreview=`%s` batchPreview=`%s` preview=`%s` apply=`%s` nextAction=%s\n", prefix, summary.NextActionShardID, summary.NextActionState, summary.NextActionReviewerResultSourceState, summary.NextActionReviewerResultSourcePath, summary.NextActionReviewerResultCandidateState, summary.NextActionReviewerResultCandidatePath, summary.NextActionReviewerResultSourceCaptureCommand, summary.NextActionReviewerResultSourceCaptureApplyCommand, summary.NextActionReviewerResultStagingCommand, summary.NextActionCollectionPreviewCommand, summary.NextActionBatchPreviewCommand, summary.NextActionPreviewCommand, summary.NextActionApplyCommand, summary.NextAction); err != nil {
+		if _, err := fmt.Fprintf(out, "%s reviewer dispatch next action：shard=%s state=%s sourceState=%s source=%s candidateState=%s candidate=%s sourceCapturePreview=`%s` sourceCaptureApply=`%s` stagingPreview=`%s` collectionPreview=`%s` batchPreview=`%s` packetRetirementPreview=`%s` preview=`%s` apply=`%s` nextAction=%s\n", prefix, summary.NextActionShardID, summary.NextActionState, summary.NextActionReviewerResultSourceState, summary.NextActionReviewerResultSourcePath, summary.NextActionReviewerResultCandidateState, summary.NextActionReviewerResultCandidatePath, summary.NextActionReviewerResultSourceCaptureCommand, summary.NextActionReviewerResultSourceCaptureApplyCommand, summary.NextActionReviewerResultStagingCommand, summary.NextActionCollectionPreviewCommand, summary.NextActionBatchPreviewCommand, summary.NextActionPacketRetirementPreviewCommand, summary.NextActionPreviewCommand, summary.NextActionApplyCommand, summary.NextAction); err != nil {
 			return err
 		}
 		if strings.TrimSpace(summary.NextActionDispatchPromptPath) != "" {
@@ -6318,6 +6318,11 @@ func writeReviewerDispatchIntakeHandoffText(out io.Writer, prefix string, items 
 		}
 		if item.ReviewerResultCollectionCommands != nil {
 			if _, err := fmt.Fprintf(out, "%s reviewer result collection：shard=%s candidate=%s state=%s preview=`%s` apply=`%s`\n", prefix, item.ShardID, item.ReviewerResultCandidatePath, item.ReviewerResultCandidateState, item.ReviewerResultCollectionCommands.PreviewCommand, item.ReviewerResultCollectionCommands.ApplyCommand); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(item.PacketRetirementPreviewCommand) != "" {
+			if _, err := fmt.Fprintf(out, "%s reviewer packet retirement：shard=%s preview=`%s`\n", prefix, item.ShardID, item.PacketRetirementPreviewCommand); err != nil {
 				return err
 			}
 		}
