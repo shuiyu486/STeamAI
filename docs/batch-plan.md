@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 636：execution evidence acknowledgement hash-bound replay closure
 
-状态：已完成 runtime/test 工作树实现与 focused adapter evidence review product-path；release-handoff parser regression、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection 待执行。
+状态：已完成 runtime/test/doc 工作树实现、focused adapter evidence review product-path、release-handoff parser regression、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `50bff3e` 已推送。Push run `30216337370` completed failure，Windows/macOS/Linux jobs `89831094875`/`89831094877`/`89831094908` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。
 
 目标：继续执行端到端能力闭环约束，补齐 adapter execution evidence review 的 acknowledgement 写入后 replay 断点。现有 no-pack nested output workspace E2E 已证明 adapter report hash-bound record Apply 后生成 `ready-for-evidence-review` queue，并且 verification acknowledgement note 能通过 `note -WhatIf` 返回 `-ExpectedNoteEventSha256` record command、Apply 后关闭 status/handoff/continue 的 execution evidence review；但还没有证明同一 hash-bound verification note record replay 时保持 duplicate/idempotent、facts 不重复，并且 status/continue 不把已关闭的 evidence review current action 恢复出来。
 
@@ -26,7 +26,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：本批不改变 note / gate / adapter report runtime 语义，不新增 public command，不自动 acknowledgement、不自动 continue、不执行 adapter/heavy tool，不写 authority/confirmed，不新增 PowerShell runtime logic；唯一新增写入仍是测试临时 case 内显式 hash-bound verification note Apply，duplicate replay 保持 zero-write。
 
-验证结果：focused `go test ./internal/rekit/cli -run "TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace" -count=1` 已通过；release-handoff parser regression `go test ./internal/rekit/cli -run "TestRunStatusJsonKit|TestRunReleaseCheckJsonInventory|TestRunReleaseCheckTextInventory|TestRunReleaseRunIncludesReleaseInspectionHandoff" -count=1` 已通过；完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，返回 `ready=true` / `summary=release run ok`，聚合执行 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步，`passed=7 failed=0 skipped=0`；本次 `go test ./...` step 为 `attempts=1`，未触发 cleanup-lock retry；`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。implementation commit/push 与 remote release-gate inspection 待执行。
+验证结果：focused `go test ./internal/rekit/cli -run "TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace" -count=1` 已通过；release-handoff parser regression `go test ./internal/rekit/cli -run "TestRunStatusJsonKit|TestRunReleaseCheckJsonInventory|TestRunReleaseCheckTextInventory|TestRunReleaseRunIncludesReleaseInspectionHandoff" -count=1` 已通过；完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，返回 `ready=true` / `summary=release run ok`，聚合执行 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步，`passed=7 failed=0 skipped=0`；本次 `go test ./...` step 为 `attempts=1`，未触发 cleanup-lock retry；`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。implementation commit `50bff3e` 已推送。Push-triggered release-gate run `30216337370` completed failure，Windows/macOS/Linux jobs `89831094875`/`89831094877`/`89831094908` 均为既有 `steps=[]` / runner/billing blocker，不能声明 remote CI green。
 
 ### Batch 635：adapter report hash-bound duplicate replay review-only closure
 
