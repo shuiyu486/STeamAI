@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 610：release handoff commit-ref scope guard
 
-状态：已完成 runtime/test/doc 工作树实现、focused releasecheck parser 验证与完整本地 release minimum；implementation commit/push 与远程 release-gate inspection 待执行。本批继续 Windows 本机 product-path 优先；远程 CI 若仍返回既有 `steps=[]` runner/billing blocker，只记录 known gap，不因此追加第三个 inspection record。
+状态：已完成 runtime/test/doc 工作树实现、focused releasecheck parser 验证、完整本地 release minimum，以及 implementation commit/push 和 PR-triggered remote release-gate inspection；implementation commit `2ac506a` 已推送并进入 PR #15。PR run `30187565571` completed failure，Windows/Linux/macOS jobs `89754882530`/`89754882569`/`89754882571` 均 `steps=[]`、`runner_id=0` 且无 logs，仍属既有 runner/billing blocker。本批继续 Windows 本机 product-path 优先；远程 CI 若仍返回既有 blocker，不因此追加第三个 inspection record。
 
 目标：补齐 Batch 605/609 后暴露的 release handoff parser 真实断点：`release-check` / `status` 会把 latest-batch implementation commit refs 投影到 first-screen 和 JSON handoff；Batch 609 inspection 文案里曾把 implementation commit、PR run 与 job IDs 放在同一句 evidence clause，旧 `latestBatchCommitRefs` 只要看到该 clause 含 `implementation commit` 就扫描所有 backtick hex token，导致 remote run/job 数字误出现在 `commitRefs[]` / `status latest batch commit`。replacement executor 可能把 GitHub run/job ID 当作 implementation commit，release inspection 证据链被污染。
 
@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：本批只增强 release/status read-only latest-batch handoff parser 与测试覆盖；不执行远程 CI，不改变 release inspection cadence，不修改 workflow，不创建或删除 PR/run，不写 authority/confirmed，不新增 durable schema，不新增 PowerShell runtime logic。文档可继续把 implementation commit 与 remote run/job refs 写在同一句，parser 必须自行区分 scope。
 
-验证结果：focused `go test ./internal/rekit/releasecheck -run "TestLatestBatchHandoffExtractsValidationEvidence|TestLatestBatchCommitRefsIgnoreRemoteRefsInSameEvidenceClause|TestLatestBatchRemoteGateDoesNotTreatNegativeGreenAsGreen|TestLatestBatchReleaseInspectionCadenceWaitsForImplementationCommit" -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true` / `summary=release gate inventory ok`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 均通过，`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示；implementation commit/push 与远程 release-gate inspection 待执行。
+验证结果：focused `go test ./internal/rekit/releasecheck -run "TestLatestBatchHandoffExtractsValidationEvidence|TestLatestBatchCommitRefsIgnoreRemoteRefsInSameEvidenceClause|TestLatestBatchRemoteGateDoesNotTreatNegativeGreenAsGreen|TestLatestBatchReleaseInspectionCadenceWaitsForImplementationCommit" -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true` / `summary=release gate inventory ok`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 均通过，`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示；implementation commit `2ac506a` 已推送并进入 PR #15。PR-triggered release-gate run `30187565571` completed failure，Windows/Linux/macOS jobs `89754882530`/`89754882569`/`89754882571` 均为既有 `steps=[]` / `runner_id=0` blocker，不能声明 remote CI green。
 
 ### Batch 609：execution evidence review acknowledgement closure
 
