@@ -2251,6 +2251,9 @@ func writeStatusMissionCommanderFirstScreenText(out io.Writer, caseMission *stat
 			return err
 		}
 		if projectHandoff != nil {
+			if err := writeStatusMissionCommanderFirstScreenPackMemoryEvidenceText(out, projectHandoff.PackMemoryCandidates, packCurrent); err != nil {
+				return err
+			}
 			if err := writeStatusMissionCommanderFirstScreenPackMemoryRunbookText(out, projectHandoff.PackMemoryCandidates, packCurrent); err != nil {
 				return err
 			}
@@ -2511,6 +2514,48 @@ func writeStatusMissionCommanderFirstScreenProjectRunbookText(out io.Writer, pro
 		}
 	}
 	return nil
+}
+
+func writeStatusMissionCommanderFirstScreenPackMemoryEvidenceText(out io.Writer, candidates releasecheck.ReleaseHandoffPackMemoryCandidateList, current *mission.MissionCommanderNextActionItem) error {
+	if current == nil {
+		return nil
+	}
+	for _, pack := range candidates.Packs {
+		if pack.Pack != current.Label {
+			continue
+		}
+		evidence := statusMissionCommanderFirstScreenPackMemoryEvidence(pack)
+		for idx, item := range evidence {
+			if _, err := fmt.Fprintf(out, "status Mission Commander focus pack-memory evidence：pack=%s state=%s item=%d text=%s\n", pack.Pack, current.State, idx+1, item); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return nil
+}
+
+func statusMissionCommanderFirstScreenPackMemoryEvidence(pack releasecheck.ReleaseHandoffPackMemoryCandidateStatus) []string {
+	evidence := []string{}
+	evidence = append(evidence, fmt.Sprintf("open pack-memory counts: candidates=%d tooling=%d index=%d review=%t cleanup=%t verification=%t", pack.CandidateFiles, pack.ToolingFiles, pack.IndexEntries, pack.RequiresReview, pack.RequiresCleanup, pack.RequiresVerification))
+	proof := pack.ProofSummary
+	if proof.Total > 0 || strings.TrimSpace(proof.ProofRoot) != "" {
+		evidence = append(evidence, fmt.Sprintf("proof progress: %s stage=%s missing=%d nextType=%s", textOr(proof.ProofProgress, "none"), textOr(proof.CurrentStage, "none"), proof.Missing, textOr(proof.NextMissingProofType, "none")))
+		if next := proof.NextMissingProof; next != nil {
+			evidence = append(evidence, fmt.Sprintf("next missing proof: type=%s candidate=%s target=%s", textOr(next.ProofType, "none"), textOr(next.CandidatePath, "none"), textOr(next.PackTarget, "none")))
+		}
+	}
+	if pack.PendingVerifications > 0 || pack.CompletedVerifications > 0 || len(pack.DecisionReceipts) > 0 {
+		evidence = append(evidence, fmt.Sprintf("decision receipts: receipts=%d pendingVerification=%d completedVerification=%d", len(pack.DecisionReceipts), pack.PendingVerifications, pack.CompletedVerifications))
+	}
+	for _, item := range pack.Evidence {
+		evidence = append(evidence, "inventory evidence: "+item)
+	}
+	evidence = mission.UniqueStrings(evidence)
+	if len(evidence) > 6 {
+		evidence = evidence[:6]
+	}
+	return evidence
 }
 
 func writeStatusMissionCommanderFirstScreenPackMemoryRunbookText(out io.Writer, candidates releasecheck.ReleaseHandoffPackMemoryCandidateList, current *mission.MissionCommanderNextActionItem) error {

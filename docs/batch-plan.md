@@ -16,6 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 614：pack-memory focus first-screen evidence shortlist
+
+状态：已完成 runtime/test/doc 工作树实现、focused CLI product-path 验证和完整本地 release minimum；implementation commit/push 与 PR-triggered remote release-gate inspection 待本批提交后记录。当 `pack-memory-current-action` 成为 Mission Commander first-screen focus 时，default `status` / `/rekit` 现在会在 action/runbook 前输出 `status Mission Commander focus pack-memory evidence` 短名单，把导致 pack-memory focus 的 open pack counts、proof progress、next missing proof、receipt counts 与关键 inventory evidence 压到第一屏。
+
+目标：补齐 Batch 595/608/613 后仍存在的 pack-memory 接手断点：first-screen 能显示 pack-memory current action、routing explanation 与 runbook，但 replacement executor 仍需向下翻完整 pack-memory inventory 才能确认是哪一个 pack/candidate/proof residue 导致 focus。open candidate 多、review artifact 多或 proof stages 多时，第一屏缺少“为什么是这个 pack、缺哪种 proof、候选根在哪里”的短证据，容易把 runbook 当作通用步骤而忽略当前 residue。
+
+已实现内容：
+
+- `writeStatusMissionCommanderFirstScreenText` 在 `pack-memory-current-action` focus 分支新增 `writeStatusMissionCommanderFirstScreenPackMemoryEvidenceText`，位置在 focus action 后、pack-memory runbook 前；focus 优先级与 action queue 不变。
+- 新增 `statusMissionCommanderFirstScreenPackMemoryEvidence`，复用 `ReleaseHandoffPackMemoryCandidateStatus` 既有字段生成最多 6 条高价值 evidence：candidate/tooling/index counts、review/cleanup/verification flags、proof progress/current stage/missing count、next missing proof type/candidate/target、decision receipt verification counts，以及 pack inventory evidence。
+- Evidence shortlist 使用 head 截断保留 counts/proof/next-missing-proof 等高价值头部信息，避免 `mission.LimitStrings` 的 tail 截断把 first-screen 的核心 evidence 挤掉。
+- Pack-memory open-candidate fixture 扩展 text 断言，锁定 `focus=pack-memory-current-action` 时 first-screen evidence 会显示 `_template` 的 counts、proof progress、next missing proof 与 candidate root/file-count evidence；纯函数测试覆盖 head 截断行为。
+- README 与 agent-team usage 文档补充 pack-memory focus evidence shortlist；完整 lower-section `status pack-memory ...` inventory 仍保留，first-screen 只做接手短名单。
+
+边界：本批只增强 default status / Mission Commander first-screen 的只读 pack-memory evidence shortlist 与产品路径测试；不改变 pack-memory inventory、action queue、proof draft、candidate decision、cleanup/provision/verification/retirement事务语义，不 merge/cleanup/provision/verify/write proof，不新增 JSON/durable schema，不执行 heavy tool，不写 authority/confirmed，不新增 PowerShell runtime logic。既有 `steps=[]` / `runner_id=0` runner/billing blocker 继续作为 known gap 记录，不能声明 remote CI green。
+
+验证结果：focused `go test ./internal/rekit/cli -run "TestStatusMissionCommanderFirstScreenPackMemoryEvidenceKeepsHighValueHead|TestRunStatusKitShowsOpenPackMemoryCandidates" -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true` / `summary=release gate inventory ok`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 均通过，`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。implementation commit/push 与 remote release-gate inspection 将在本批提交后补记；若远程仍为既有 `steps=[]` / `runner_id=0` blocker，则只记录 known blocker，不追加第三个 inspection record。
+
 ### Batch 613：Mission Commander first-screen focus routing explanation
 
 状态：已完成 runtime/test/doc 工作树实现、focused CLI product-path 验证、完整本地 release minimum，以及 implementation commit/push 和 PR-triggered remote release-gate inspection；implementation commit `1ed2f22` 已推送并进入 PR #15。默认 `status` / `/rekit` first-screen 现在会在 `focus=...` summary 后追加 `status Mission Commander first screen routing` 行，说明当前 focus 为什么胜出，以及哪些其它 current-action queues 被延后。PR run `30191350331` completed failure，Linux/macOS/Windows jobs `89765045215`/`89765045222`/`89765045223` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。

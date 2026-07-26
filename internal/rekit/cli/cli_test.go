@@ -77,6 +77,50 @@ func TestStatusMissionCommanderFirstScreenFocusRoutingReasons(t *testing.T) {
 	}
 }
 
+func TestStatusMissionCommanderFirstScreenPackMemoryEvidenceKeepsHighValueHead(t *testing.T) {
+	pack := releasecheck.ReleaseHandoffPackMemoryCandidateStatus{
+		Pack:            "_template",
+		CandidateFiles:  1,
+		ToolingFiles:    1,
+		IndexEntries:    1,
+		RequiresReview:  true,
+		RequiresCleanup: true,
+		ProofSummary: releasecheck.ReleaseHandoffPackMemoryCandidateReviewProofSummary{
+			Total:                    8,
+			Missing:                  7,
+			ProofProgress:            "1/8",
+			CurrentStage:             "decision-proof-required",
+			NextMissingProofType:     "candidate-decision-note",
+			NextMissingCandidatePath: "packs/_template/tooling/candidates/batch501-tooling.candidate.md",
+			NextMissingPackTarget:    "packs/_template/tooling",
+			NextMissingProof: &releasecheck.ReleaseHandoffPackMemoryCandidateReviewNextMissingProof{
+				ProofType:     "candidate-decision-note",
+				CandidatePath: "packs/_template/tooling/candidates/batch501-tooling.candidate.md",
+				PackTarget:    "packs/_template/tooling",
+			},
+		},
+		Evidence: []string{
+			"candidateRoot packs/_template/promote-candidates",
+			"toolingRoot packs/_template/tooling/candidates",
+			"promote-candidates files=1",
+			"tooling/candidates files=1",
+			"indexPath packs/_template/promote-candidates/index.json entries=1",
+		},
+	}
+	got := statusMissionCommanderFirstScreenPackMemoryEvidence(pack)
+	want := []string{
+		"open pack-memory counts: candidates=1 tooling=1 index=1 review=true cleanup=true verification=false",
+		"proof progress: 1/8 stage=decision-proof-required missing=7 nextType=candidate-decision-note",
+		"next missing proof: type=candidate-decision-note candidate=packs/_template/tooling/candidates/batch501-tooling.candidate.md target=packs/_template/tooling",
+		"inventory evidence: candidateRoot packs/_template/promote-candidates",
+		"inventory evidence: toolingRoot packs/_template/tooling/candidates",
+		"inventory evidence: promote-candidates files=1",
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("pack-memory evidence shortlist drifted: got %+v want %+v", got, want)
+	}
+}
+
 func TestParseContinueOwnerGuardOptions(t *testing.T) {
 	for _, args := range [][]string{
 		{"-Command", "continue", "main", "-Executor", "session-a", "-ExpectedExecutorGeneration", "2"},
@@ -1365,6 +1409,12 @@ func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
+		"status Mission Commander first screen：focus=pack-memory-current-action",
+		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=1 text=open pack-memory counts: candidates=1 tooling=1 index=1 review=true cleanup=true verification=false",
+		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=2 text=proof progress: 1/8 stage=decision-proof-required missing=7 nextType=candidate-decision-note",
+		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=3 text=next missing proof: type=candidate-decision-note candidate=packs/_template/tooling/candidates/batch501-tooling.candidate.md target=packs/_template/tooling",
+		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=4 text=inventory evidence: candidateRoot packs/_template/promote-candidates",
+		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=6 text=inventory evidence: promote-candidates files=1",
 		"status pack-memory candidates：summary=pack-memory candidate inventory has open review/cleanup/verification work ready=false total=3 packs=1 nextAction=review listed pack-memory candidates or complete listed candidate decision verification",
 		"status pack-memory candidate pack：pack=_template candidateRoot=packs/_template/promote-candidates toolingRoot=packs/_template/tooling/candidates indexPath=packs/_template/promote-candidates/index.json candidateFiles=1 toolingFiles=1 indexEntries=1 receipts=0 pendingVerification=0 completedVerification=0 review=true cleanup=true verification=false",
 		"status pack-memory review summary：pack=_template total=3 candidateFiles=1 toolingFiles=1 indexEntries=1 reviewArtifacts=8 decisionArtifacts=2 cleanupArtifacts=2 reconsumeArtifacts=4 proofTotal=8 proofPresent=1 proofMissing=7 proofProgress=1/8 proofStage=decision-proof-required nextMissingProofType=candidate-decision-note nextMissingProofPath=packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md nextMissingCandidatePath=packs/_template/tooling/candidates/batch501-tooling.candidate.md proofComplete=false proofRoot=packs/_template/promote-candidates/review-artifacts",
