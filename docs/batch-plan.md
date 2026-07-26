@@ -16,6 +16,22 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 619：release-run project handoff readiness closure
+
+状态：已完成 runtime/test/doc 工作树实现、focused release handoff/status product-path 验证与完整本机 `release-run` release minimum；implementation commit/push 与 PR-triggered remote release-gate inspection 待执行。
+
+目标：补齐 completed batch project handoff 的真实断点：Batch 615 引入 Go-native `release-run` 后，Batch 617/618 文档开始用 `release-run ready=true / summary=release run ok / passed=7 failed=0 skipped=0` 作为完整本机 release minimum 证据；但 latest-batch parser 仍只把 7 条原子命令文本当作 localValidationReady 依据。结果 Batch 618 已 complete 且 cadence 已记录“continue the next batch”时，default `status` first-screen 仍把 project current action 指向“run the full local release minimum and update docs/batch-plan.md”，误导 replacement executor 重复做已完成验证。本批让 `release-run` 成功摘要成为一等本机 release minimum evidence，并驱动 completed batch current action 指向下一批。
+
+已实现内容：
+
+- `latestBatchHasLocalValidation` 与 `latestBatchReleaseCheckReady` 识别成功的 `release-run` 证据（`ready=true` 加 `summary=release run ok`，或 `passed=7 failed=0 skipped=0`），同时保留原子 7 步命令旧判定和 pending 文案 fail-closed。
+- `latestBatchEvidence` 将成功 `release-run` 聚合输出映射回 release-check/status/packs/doctor/go test/go vet/git diff evidence labels，并新增 `release-run local release minimum recorded`，避免 `localValidationReady=true` 但 evidence 缺失。
+- `status` project handoff / first-screen 回归锁定：当 latest batch release inspection cadence 已 complete 时，project current action 不得再包含 `run the full local release minimum`，而应指向继续下一批并保留 steps=[] blocker boundary。
+
+边界：本批只增强 release/status latest-batch parser 与 project current-action handoff；不执行远程 CI，不改变 release cadence，不把 `release-run` 加入 recommendedMinimum，不写 repo/case durable state、authority/confirmed，不执行 heavy tool，不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/releasecheck ./internal/rekit/cli -run "TestLatestBatchHandoffAcceptsReleaseRunLocalMinimum|TestLatestBatchHandoffExtractsValidationEvidence|TestLatestBatchReleaseInspectionCadenceWaitsForImplementationCommit|TestRunStatusJsonKit|TestRunStatus" -count=1` 已通过；`go run ./cmd/rekit -- -Command status -Format text` 已确认 Batch 618 `localValidationReady=true` / `releaseCheckReady=true`，first-screen current action 为“do not create a third inspection record ... continue the next Windows-verifiable batch”，不再重复要求 full local release minimum。完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，返回 `ready=true` / `summary=release run ok`，聚合执行 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步，`passed=7 failed=0 skipped=0`，`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。
+
 ### Batch 618：adapter execution validation identity handoff closure
 
 状态：已完成 runtime/test/doc 工作树实现、focused adapter validation / CLI text product-path 验证、完整本机 `release-run` release minimum，以及 implementation commit/push 和 PR-triggered remote release-gate inspection；implementation commit `483947c` 已推送。PR run `30199667894` completed failure，macOS/Windows/Linux jobs `89787316201`/`89787316236`/`89787316256` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。

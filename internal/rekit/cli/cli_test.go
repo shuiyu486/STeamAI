@@ -635,6 +635,12 @@ func TestRunStatusJsonKit(t *testing.T) {
 		t.Fatalf("project handoff omitted latest batch validation handoff: %+v", status.ProjectHandoff)
 	}
 	projectCurrent := status.ProjectHandoff.MissionCommanderActionQueue.CurrentAction
+	if projectCurrent != nil && status.ProjectHandoff.ReleaseInspectionCadence.State == "complete" && strings.Contains(projectCurrent.Command, "run the full local release minimum") {
+		t.Fatalf("completed release-run batch should not repeat local validation as current action: %+v", projectCurrent)
+	}
+	if projectCurrent != nil && status.ProjectHandoff.ReleaseInspectionCadence.State == "complete" && !strings.Contains(projectCurrent.Command, "continue the next") {
+		t.Fatalf("completed release inspection cadence should point project current action at the next batch: %+v cadence=%+v", projectCurrent, status.ProjectHandoff.ReleaseInspectionCadence)
+	}
 	if projectCurrent == nil || projectCurrent.Source != "releaseHandoffLatestBatch" || projectCurrent.Command != status.ProjectHandoff.LatestNextAction || projectCurrent.Label != status.ProjectHandoff.LatestBatch || status.ProjectHandoff.MissionCommanderActionQueue.Counts.Total != 1 || status.ProjectHandoff.MissionCommanderActionQueue.Counts.Unblocked != 1 || status.ProjectHandoff.MissionCommanderActionQueue.Counts.Blocked != 0 || status.ProjectHandoff.MissionCommanderActionQueue.Counts.RequiresReview != 1 || len(status.ProjectHandoff.MissionCommanderNextActions) != 1 {
 		t.Fatalf("project handoff omitted structured current action queue: current=%+v queue=%+v actions=%+v latest=%q", projectCurrent, status.ProjectHandoff.MissionCommanderActionQueue, status.ProjectHandoff.MissionCommanderNextActions, status.ProjectHandoff.LatestNextAction)
 	}

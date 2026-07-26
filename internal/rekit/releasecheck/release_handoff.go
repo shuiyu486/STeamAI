@@ -3436,15 +3436,19 @@ func latestBatchHandoff(latest ReleaseHandoffLatestBatch, section string) Releas
 func latestBatchReleaseCheckReady(text string) bool {
 	lower := strings.ToLower(text)
 	return strings.Contains(lower, "release-check ready=true") ||
-		(strings.Contains(lower, "release-check -format json") && strings.Contains(lower, "ready=true"))
+		(strings.Contains(lower, "release-check -format json") && strings.Contains(lower, "ready=true")) ||
+		latestBatchHasReleaseRunSuccess(lower)
 }
 
 func latestBatchHasLocalValidation(text string) bool {
 	lower := strings.ToLower(text)
-	for _, pending := range []string{"完整本地 release minimum 待", "本地 release minimum 待", "local release minimum pending", "full local release minimum pending"} {
+	for _, pending := range []string{"完整本地 release minimum 待", "本地 release minimum 待", "完整本机 release minimum 待", "本机 release minimum 待", "local release minimum pending", "full local release minimum pending"} {
 		if strings.Contains(lower, pending) {
 			return false
 		}
+	}
+	if latestBatchHasReleaseRunSuccess(lower) {
+		return true
 	}
 	for _, command := range []string{
 		"go run ./cmd/rekit -- -Command release-check -Format json",
@@ -3460,6 +3464,16 @@ func latestBatchHasLocalValidation(text string) bool {
 		}
 	}
 	return true
+}
+
+func latestBatchHasReleaseRunSuccess(lower string) bool {
+	if !strings.Contains(lower, "release-run") || !strings.Contains(lower, "ready=true") {
+		return false
+	}
+	if strings.Contains(lower, "summary=release run ok") || strings.Contains(lower, "release run ok") {
+		return true
+	}
+	return strings.Contains(lower, "passed=7") && strings.Contains(lower, "failed=0") && strings.Contains(lower, "skipped=0")
 }
 
 func latestBatchRemoteReleaseGate(text string) string {
@@ -3839,28 +3853,46 @@ func latestBatchEvidence(text string) []string {
 	}{
 		{match: "public cli", label: "public CLI product-path validation recorded"},
 		{match: "go run ./cmd/rekit -- -command release-check -format json", label: "release-check -Format json recorded"},
+		{match: "releasecheck-step", label: "release-check -Format json recorded"},
 		{match: "go run ./cmd/rekit -- -command status", label: "status handoff recorded"},
+		{match: "status-step", label: "status handoff recorded"},
 		{match: "go run ./cmd/rekit -- -command packs", label: "packs inventory recorded"},
+		{match: "packs-step", label: "packs inventory recorded"},
 		{match: "go run ./cmd/rekit -- -command doctor", label: "doctor validation recorded"},
+		{match: "doctor-step", label: "doctor validation recorded"},
 		{match: "go test ./...", label: "go test ./... recorded"},
 		{match: "go vet ./...", label: "go vet ./... recorded"},
 		{match: "git diff --check", label: "git diff --check recorded"},
+		{match: "release-run", label: "release-run local release minimum recorded"},
 		{match: "release-check ready=true", label: "release-check ready=true recorded"},
+		{match: "release-run-ready", label: "release-check ready=true recorded"},
 		{match: "steps: []", label: "remote release-gate jobs steps=[] recorded"},
 	} {
-		matched := strings.Contains(lower, candidate.match)
-		if candidate.match == "steps: []" {
-			matched = latestBatchRemoteHasEmptySteps(remoteText, remoteLower)
-		}
-		if !matched {
-			continue
-		}
-		if candidate.match == "steps: []" && latestBatchRemoteReleaseGate(text) == "not-recorded" {
+		if !latestBatchEvidenceMatched(candidate.match, text, lower, remoteText, remoteLower) {
 			continue
 		}
 		evidence = append(evidence, candidate.label)
 	}
-	return evidence
+	return mission.UniqueStrings(evidence)
+}
+
+func latestBatchEvidenceMatched(match, text, lower, remoteText, remoteLower string) bool {
+	switch match {
+	case "steps: []":
+		return latestBatchRemoteReleaseGate(text) != "not-recorded" && latestBatchRemoteHasEmptySteps(remoteText, remoteLower)
+	case "release-run-ready":
+		return latestBatchHasReleaseRunSuccess(lower)
+	case "releasecheck-step":
+		return latestBatchHasReleaseRunSuccess(lower) && strings.Contains(lower, "release-check")
+	case "status-step":
+		return latestBatchHasReleaseRunSuccess(lower) && strings.Contains(lower, "status")
+	case "packs-step":
+		return latestBatchHasReleaseRunSuccess(lower) && strings.Contains(lower, "packs")
+	case "doctor-step":
+		return latestBatchHasReleaseRunSuccess(lower) && strings.Contains(lower, "doctor")
+	default:
+		return strings.Contains(lower, match)
+	}
 }
 
 func latestBatchNextAction(handoff ReleaseHandoffLatestBatchHandoff) string {

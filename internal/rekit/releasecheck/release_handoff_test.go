@@ -220,6 +220,28 @@ func TestLatestBatchHandoffExtractsValidationEvidence(t *testing.T) {
 	}
 }
 
+func TestLatestBatchHandoffAcceptsReleaseRunLocalMinimum(t *testing.T) {
+	section := `状态：已完成 runtime/test/doc 工作树实现、完整本机 ` + "`" + `release-run` + "`" + ` release minimum，以及 implementation commit/push 和 PR-triggered remote release-gate inspection；implementation commit ` + "`" + `483947c` + "`" + ` 已推送。PR run ` + "`" + `30199667894` + "`" + ` completed failure，macOS/Windows/Linux jobs ` + "`" + `89787316201` + "`" + `/` + "`" + `89787316236` + "`" + `/` + "`" + `89787316256` + "`" + ` 均 ` + "`" + `steps=[]` + "`" + ` 且无 logs。
+
+验证结果：完整本机 ` + "`" + `go run ./cmd/rekit -- -Command release-run -Format text` + "`" + ` 已通过，返回 ` + "`" + `ready=true` + "`" + ` / ` + "`" + `summary=release run ok` + "`" + `，聚合执行 ` + "`" + `release-check` + "`" + `、` + "`" + `status` + "`" + `、` + "`" + `packs` + "`" + `、` + "`" + `doctor` + "`" + `、` + "`" + `go test ./...` + "`" + `、` + "`" + `go vet ./...` + "`" + `、` + "`" + `git diff --check` + "`" + ` 7 步，` + "`" + `passed=7 failed=0 skipped=0` + "`" + `。`
+
+	handoff := latestBatchHandoff(ReleaseHandoffLatestBatch{Status: "已完成 fixture"}, section)
+	if !handoff.LocalValidationReady || !handoff.ReleaseCheckReady {
+		t.Fatalf("release-run success should satisfy local release minimum: %+v", handoff)
+	}
+	if cadence := handoff.ReleaseInspectionCadence; cadence.State != "complete" || !cadence.ImplementationCommitReady || !cadence.InspectionCommitReady {
+		t.Fatalf("release-run completed batch should have complete cadence: %+v", cadence)
+	}
+	if strings.Contains(handoff.NextAction, "local release minimum") || !strings.Contains(handoff.NextAction, "continue the next Windows-verifiable batch") {
+		t.Fatalf("completed release-run batch should point to the next batch, got %q", handoff.NextAction)
+	}
+	for _, evidence := range []string{"release-run local release minimum recorded", "release-check ready=true recorded", "go test ./... recorded", "git diff --check recorded"} {
+		if !slices.Contains(handoff.Evidence, evidence) {
+			t.Fatalf("release-run handoff evidence missing %q: %+v", evidence, handoff.Evidence)
+		}
+	}
+}
+
 func TestLatestBatchCommitRefsIgnoreRemoteRefsInSameEvidenceClause(t *testing.T) {
 	section := `状态：已完成 runtime/test/docs 与完整本地 release minimum，以及 implementation commit/push 和 PR-triggered remote release-gate inspection。
 
