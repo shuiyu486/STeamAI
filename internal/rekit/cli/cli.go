@@ -2242,6 +2242,11 @@ func writeStatusMissionCommanderFirstScreenText(out io.Writer, caseMission *stat
 		if err := writeStatusMissionCommanderFirstScreenActionText(out, "pack-memory", packCurrent); err != nil {
 			return err
 		}
+		if projectHandoff != nil {
+			if err := writeStatusMissionCommanderFirstScreenPackMemoryRunbookText(out, projectHandoff.PackMemoryCandidates, packCurrent); err != nil {
+				return err
+			}
+		}
 	}
 	if caseCurrent != nil {
 		if err := writeStatusMissionCommanderCurrentActionText(out, "case", *caseCurrent); err != nil {
@@ -2340,6 +2345,49 @@ func writeStatusMissionCommanderFirstScreenReviewerRunbookText(out io.Writer, su
 		if _, err := fmt.Fprintf(out, "status Mission Commander focus reviewer runbook：shard=%s state=%s step=%d text=%s\n", summary.NextActionShardID, summary.NextActionState, idx+1, step); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func writeStatusMissionCommanderFirstScreenPackMemoryRunbookText(out io.Writer, candidates releasecheck.ReleaseHandoffPackMemoryCandidateList, current *mission.MissionCommanderNextActionItem) error {
+	if current == nil {
+		return nil
+	}
+	for _, pack := range candidates.Packs {
+		if pack.Pack != current.Label {
+			continue
+		}
+		steps := []string{}
+		if next := pack.ProofSummary.NextMissingProof; next != nil {
+			steps = append(steps, "run proof draft WhatIf from the current pack-memory action; Apply only with the returned ExpectedProofSha256")
+			if next.DraftApplyTemplate != "" {
+				steps = append(steps, "after proof WhatIf, use the draft apply template with <proofSha256-from-WhatIf>")
+			}
+		}
+		for _, receipt := range pack.DecisionReceipts {
+			if receipt.RetirementInProgress && receipt.RetirementNextAction != "" {
+				steps = append(steps, "after proof closure, finish candidate verification retirement using the recorded retirement next action")
+			}
+			if receipt.RetirementRequired && receipt.RetirementPreviewCommand != "" {
+				steps = append(steps, "after proof closure, preview candidate verification workspace retirement before expected-hash Apply")
+			}
+			if receipt.ProvisionInProgress && receipt.ProvisionNextAction != "" {
+				steps = append(steps, "after proof closure, complete candidate verification provisioning using the recorded provision next action")
+			}
+			if receipt.ProvisionStatus == "required" && receipt.VerificationProvisionCommand != "" {
+				steps = append(steps, "after proof closure, run candidate verification provisioning WhatIf before expected-hash Apply")
+			}
+			if receipt.ProvisionComplete && receipt.VerificationCommand != "" {
+				steps = append(steps, "after proof closure, run candidate decision verification WhatIf before Apply")
+			}
+		}
+		steps = mission.UniqueStrings(steps)
+		for idx, step := range steps {
+			if _, err := fmt.Fprintf(out, "status Mission Commander focus pack-memory runbook：pack=%s state=%s step=%d text=%s\n", pack.Pack, current.State, idx+1, step); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	return nil
 }
