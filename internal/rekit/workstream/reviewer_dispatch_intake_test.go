@@ -88,6 +88,9 @@ func TestReviewerDispatchIntakeFailsClosedOnPacketIntegrityDrift(t *testing.T) {
 	if err != nil || len(items) != 1 || items[0].State != "reviewer-packet-integrity-invalid" || items[0].TargetLane != "feature-review" {
 		t.Fatalf("truncated packet lost integrity lane provenance: items=%+v err=%v", items, err)
 	}
+	if !reviewerDispatchTestContainsSubstring(items[0].Evidence, "decode reviewer packet JSON") || !reviewerDispatchTestContainsSubstring(items[0].Evidence, "while integrity metadata remains") {
+		t.Fatalf("truncated packet omitted concrete decode evidence: %+v", items[0].Evidence)
+	}
 }
 
 func TestReviewerDispatchIntakeSummaryPrefersReadyPacketBatchCommand(t *testing.T) {

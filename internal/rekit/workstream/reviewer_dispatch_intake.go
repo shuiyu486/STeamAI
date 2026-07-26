@@ -340,8 +340,8 @@ func ReviewerDispatchIntakeHandoffs(caseRoot string, facts mission.LedgerFacts, 
 		if integrityPresent && reviewerPacketRetirementCurrent(caseRoot, packetPath, integrity) {
 			continue
 		}
-		packet, ok := readReviewerDispatchPacket(packetPath)
-		if !ok {
+		packet, packetErr := readReviewerDispatchPacket(packetPath)
+		if packetErr != nil {
 			if !integrityPresent {
 				continue
 			}
@@ -350,7 +350,7 @@ func ReviewerDispatchIntakeHandoffs(caseRoot string, facts mission.LedgerFacts, 
 			}
 			packet.PacketID = integrity.PacketID
 			packet.TargetLane = integrity.TargetLane
-			items = append(items, reviewerPacketIntegrityInvalidHandoff(caseRoot, packet, packetPath, integrity.TargetLane, fmt.Errorf("decode reviewer packet failed while integrity metadata remains")))
+			items = append(items, reviewerPacketIntegrityInvalidHandoff(caseRoot, packet, packetPath, integrity.TargetLane, fmt.Errorf("decode reviewer packet failed while integrity metadata remains: %w", packetErr)))
 			continue
 		}
 		packetTargetLane := firstText(packet.ReviewerOrchestration.TargetLane, packet.TargetLane, packet.ReviewerOrchestration.OwnerBinding.TargetLane)
@@ -711,16 +711,16 @@ func reviewerDispatchPacketPaths(caseRoot string) ([]string, error) {
 	return paths, nil
 }
 
-func readReviewerDispatchPacket(path string) (reviewerDispatchPacket, bool) {
+func readReviewerDispatchPacket(path string) (reviewerDispatchPacket, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return reviewerDispatchPacket{}, false
+		return reviewerDispatchPacket{}, fmt.Errorf("read reviewer packet: %w", err)
 	}
 	var packet reviewerDispatchPacket
 	if err := json.Unmarshal(data, &packet); err != nil {
-		return reviewerDispatchPacket{}, false
+		return reviewerDispatchPacket{}, fmt.Errorf("decode reviewer packet JSON: %w", err)
 	}
-	return packet, true
+	return packet, nil
 }
 
 func readStableReviewerWorkstreamArtifact(caseRoot, path, label string) ([]byte, error) {
