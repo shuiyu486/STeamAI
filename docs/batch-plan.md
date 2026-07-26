@@ -16,6 +16,22 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 607：reviewer current-action first-screen runbook closure
+
+状态：已完成 runtime/test/doc 工作树实现、focused installed entrypoint reviewer product-path test、focused CLI reviewer/status/continue tests 与完整本地 release minimum；implementation commit/push 与 implementation remote release-gate inspection 待执行。
+
+目标：补齐 Batch 590/599/601 后仍存在的 reviewer first-screen 接手断点：reviewer dispatch/intake 的完整 `nextActionRunbookSteps` 已在 summary、status lower section、continue/handoff 与 durable runbook 中存在，默认 `/rekit` / `status` 第一屏也能聚焦 reviewer current action；但 first-screen focus strip 只显示 current command/reason/boundary，没有把当前 shard 的 capture-first runbook 前置。replacement executor 仍需要向下翻完整 handoff 才能确认应先调度 read-only reviewer、保存 symlink-free JSON input、运行 source capture WhatIf/hash-gated Apply，再 staging/collection/intake，第一屏接手仍不够闭环。
+
+已实现内容：
+
+- `writeStatusMissionCommanderFirstScreenText` 的 `reviewer-current-action` 分支现在复用 `ReviewerDispatchIntakeSummary.NextActionRunbookSteps`，在 focus action 之后立即输出 `status Mission Commander focus reviewer runbook` 行，包含 current shard、state、step 序号与 runbook text。
+- 新增 `writeStatusMissionCommanderFirstScreenReviewerRunbookText` 小 helper，只做只读 text projection，不重新推导 reviewer state、不复制 workstream runbook 逻辑；空 `NextActionShardID` 时保持静默。
+- Installed case-local `/rekit` 产品路径回归扩展默认 `status -Format text` 断言，锁定 reviewer focus strip 中的 `work from this first-screen handoff`、source capture preview 与 staging preview 步骤；原有 lower-section `status case mission reviewer dispatch next action runbook` 与 `continue` reviewer runbook 断言继续保留。
+
+边界：本批只增强默认 status/Mission Commander first-screen 的只读 reviewer runbook projection 与测试覆盖；不 spawn、stop、poll 或 monitor reviewer，不创建 reviewer result，不执行 capture/staging/collection/intake，不写 facts/ledger/authority/confirmed，不新增 durable schema，不新增 PowerShell runtime logic。reviewer capture/staging/collection/intake 仍必须由主 Agent 按 WhatIf→hash-gated Apply 显式执行。
+
+验证结果：focused `go test ./internal/rekit/cli -run "TestRunStatus|TestRunContinue|TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E|TestRunInstalled" -count=1` 已通过；exact installed entrypoint test `go test ./internal/rekit/cli -run "TestRunInstalledCaseShimProductPathStatusAndRefresh" -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 均通过；`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。implementation commit/push 与远程 release-gate inspection 待最终执行；远程 jobs 若仍为 `steps=[]` / `runner_id=0` / logs 404，继续记录为既有 runner/billing blocker，不能声明 remote CI green。
+
 ### Batch 606：pending-gate concrete review-first handoff closure
 
 状态：已完成 runtime/test/doc 工作树实现、focused mission / CLI / gate pending-gate product-path tests、受影响 package tests、完整本地 release minimum、implementation commit/push 与 implementation remote release-gate inspection；implementation commit `a062add` 已推送并进入 PR #12。PR run `30181368510` completed failure，macOS/Windows/Linux jobs `89738355125`/`89738355149`/`89738355157` 均 `steps=[]`、`runner_id=0` 且 logs 404，仍属既有 runner/billing blocker，不能声明 remote CI green。本 release inspection record 仅记录该 implementation PR run；不要为 release inspection commit 自身 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` 的新远程信号。
