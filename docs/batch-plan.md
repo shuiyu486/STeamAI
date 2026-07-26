@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 616：project handoff structured current-action queue
 
-状态：已完成 runtime/test 工作树实现与 focused CLI product-path 验证；完整本机 release minimum、implementation commit/push 与 release inspection 尚待执行。
+状态：已完成 runtime/test/doc 工作树实现、focused CLI product-path 验证、完整本机 `release-run` release minimum，以及 implementation commit/push 和 PR-triggered remote release-gate inspection；implementation commit `78e2c3f` 已推送。PR run `30196672446` completed failure，macOS/Linux/Windows jobs `89779297674`/`89779297695`/`89779297736` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。
 
 目标：补齐新会话接手的真实断点：Batch 611/612/613 已把 latest-batch project current action 推到第一屏和 runbook，但 JSON/status project handoff 仍主要依赖 `latestNextAction` 字符串；replacement executor 或工具化接手要自行解析 free-text，难以复用 Mission Commander queue 的 current/unblocked/review/boundary 语义。本批将 project-level latest-batch handoff 提升为结构化 `missionCommanderNextActions[]` 与 `missionCommanderActionQueue`，并让 first-screen/text/JSON 共享同一来源。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：本批只增强 status/project handoff 的只读结构化接手投影；不改变 release cadence，不执行远程 CI，不写 repo/case durable state、authority/confirmed，不新增 PowerShell runtime logic，不把 remote CI inventory ready 说成 remote green。
 
-验证结果：focused `go test ./internal/rekit/cli -run "TestRunStatusJsonKit|TestRunStatus|TestRunStatusKitShowsOpenPackMemoryCandidates" -count=1` 已通过；`go run ./cmd/rekit -- -Command status -Format json` 与 `go run ./cmd/rekit -- -Command status -Format text` 已手动确认 project handoff queue 与 first-screen current action 同源。完整本机 release minimum、commit/push 与远程 release-gate inspection 尚待执行。
+验证结果：focused `go test ./internal/rekit/cli -run "TestRunStatusJsonKit|TestRunStatus|TestRunStatusKitShowsOpenPackMemoryCandidates" -count=1` 已通过；`go run ./cmd/rekit -- -Command status -Format json` 与 `go run ./cmd/rekit -- -Command status -Format text` 已手动确认 project handoff queue 与 first-screen current action 同源。完整本机 release minimum 已通过：`go run ./cmd/rekit -- -Command release-run -Format text` 返回 `ready=true` / `summary=release run ok`，聚合执行 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步，`passed=7 failed=0 skipped=0`，`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。implementation commit `78e2c3f` 已推送。PR-triggered release-gate run `30196672446` completed failure，macOS/Linux/Windows jobs `89779297674`/`89779297695`/`89779297736` 均为既有 `steps=[]` / `runner_id=0` blocker，不能声明 remote CI green。
 
 ### Batch 615：Go-native local release runner closure
 
