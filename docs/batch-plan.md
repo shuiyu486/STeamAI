@@ -16,6 +16,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 631：reviewer result recovery ambiguous disposition product-path closure
+
+状态：已完成 runtime/test/doc 工作树实现、focused reviewer result recovery/disposition case-local E2E 与完整本机 `release-run` release minimum；implementation commit/push 与 push-triggered remote release-gate inspection 待执行。
+
+目标：继续执行 Batch 630 后的“端到端能力闭环”硬约束，覆盖 reviewer result recovery 的另一个真实恢复分支。现有 runtime 已有 `RetireAmbiguousReviewerResultRecovery` 和 workstream `reviewer-result-recovery-ambiguous` handoff；当 recovery intent/quarantine 存在但 receipt 缺失、canonical reviewer result 又被人工恢复为 candidate bytes 时，replacement executor 需要从 `status` 得到 disposition preview，运行 hash-bound disposition Apply，然后恢复 collection/ready reviewer intake。
+
+已实现内容：新增独立 case-local CLI E2E：创建 reviewer packet/candidate，写入 conflicting canonical result，运行 recovery WhatIf→expected-hash Apply 生成 intent/quarantine/receipt；删除 receipt 并把 canonical result 恢复为 candidate bytes，模拟 ambiguous recovery 状态；`status -Format json/text` 断言 `reviewer-result-recovery-ambiguous`、`-RetireReviewerResultRecovery -WhatIf` 与 bounded disposition runbook；随后运行 disposition WhatIf，复核 `ExpectedIntentSha256` / `ExpectedCanonicalSha256` hash-bound Apply；Apply 后断言 canonical bytes 未变、disposition record 存在、collection WhatIf/Apply 返回 already-collected，packet-level ready reviewer results WhatIf 继续处理该 shard。CLI test helper 仅补充读取既有 `reviewerResultRecoveryDispositionCommand` / `reviewerResultRecoveryDispositionPath` JSON 字段用于断言，不新增 runtime schema。
+
+边界：本批不改变 reviewer recovery/disposition runtime 语义，不新增 public command，不自动 disposition、不自动 collection/intake，不覆盖 candidate/canonical result，不删除 intent/quarantine，不写 facts/ledger/authority/confirmed，不 spawn/monitor reviewer，不执行 heavy tool，不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/cli -run "TestRunPlanSubagentsReviewerResult(ObstructionRecovery|RecoveryDisposition)CaseLocalE2E"` 已通过；完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，返回 `ready=true` / `summary=release run ok`，聚合执行 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步，`passed=7 failed=0 skipped=0`；本次 `go test ./...` step 为 `attempts=1`，未触发 cleanup-lock retry；`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。implementation commit/push 与 remote release-gate inspection 待执行。
+
 ### Batch 630：reviewer result recovery crash-resume product-path closure
 
 状态：已完成 runtime/test/doc 工作树实现、focused reviewer result obstruction recovery case-local E2E、subagents recovery tests、workstream reviewer dispatch intake tests、CLI package validation、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `3e73de2` 已推送。Push run `30212214563` completed failure，Windows/macOS/Linux jobs `89820252149`/`89820252183`/`89820252209` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。

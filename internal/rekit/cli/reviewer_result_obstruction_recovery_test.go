@@ -166,3 +166,169 @@ func TestRunPlanSubagentsReviewerResultObstructionRecoveryCaseLocalE2E(t *testin
 		t.Fatal(err)
 	}
 }
+
+func TestRunPlanSubagentsReviewerResultRecoveryDispositionCaseLocalE2E(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "review", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	writeCaseFile(t, caseRoot, "workspace/features/feature-login/review-evidence.md", "bounded disposition evidence\n")
+
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", "alpha", "-Lane", "feature-review", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	plan := decodePlanSubagentsResult(t, out.Bytes())
+	packet := decodePlanSubagentsPacket(t, plan.PacketPath)
+	handoff := packet.ShardHandoffs[0]
+	candidate := reviewerResultForCLIPlan(t, packet, handoff, "accept", "accepted", "reviewer-disposition-e2e")
+	if err := os.MkdirAll(filepath.Dir(handoff.ReviewerResultCandidatePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(handoff.ReviewerResultCandidatePath, candidate, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	conflict := []byte(`{"conflict":true}`)
+	if err := os.WriteFile(handoff.ReviewerResultPath, conflict, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	recoveryArgs := []string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-RecoverReviewerResult", "-ShardId", handoff.ShardID, "-Lane", "feature-review", "-Actor", "mission-commander", "-Reason", "quarantine conflicting canonical reviewer result"}
+	out.Reset()
+	if err := Run(append(append([]string{}, recoveryArgs...), "-WhatIf", "-Format", "json"), &out); err != nil {
+		t.Fatal(err)
+	}
+	var recoveryPreview subagents.ReviewerResultRecoveryResult
+	if err := json.Unmarshal(out.Bytes(), &recoveryPreview); err != nil {
+		t.Fatalf("recovery preview JSON did not decode: %v\n%s", err, out.String())
+	}
+	if recoveryPreview.Applied || recoveryPreview.CandidateSHA256 == "" || recoveryPreview.ReviewerResultSHA256 == "" || recoveryPreview.MissionCommanderAction.State != "needs-reviewer-result-recovery-apply" {
+		t.Fatalf("unexpected recovery preview: %+v", recoveryPreview)
+	}
+
+	out.Reset()
+	if err := Run(append(append([]string{}, recoveryArgs...), "-ExpectedCandidateSha256", recoveryPreview.CandidateSHA256, "-ExpectedReviewerResultSha256", recoveryPreview.ReviewerResultSHA256, "-Apply", "-Format", "json"), &out); err != nil {
+		t.Fatal(err)
+	}
+	var recovered subagents.ReviewerResultRecoveryResult
+	if err := json.Unmarshal(out.Bytes(), &recovered); err != nil {
+		t.Fatalf("recovery apply JSON did not decode: %v\n%s", err, out.String())
+	}
+	if !recovered.Applied || recovered.ReceiptPath == "" || recovered.IntentPath == "" || recovered.QuarantinePath == "" {
+		t.Fatalf("unexpected recovery apply: %+v", recovered)
+	}
+	if err := os.Remove(recovered.ReceiptPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(handoff.ReviewerResultPath, candidate, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var ambiguousStatus struct {
+		CaseMission struct {
+			ReviewerDispatchIntakeHandoffs []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
+			ReviewerDispatchIntakeSummary  reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &ambiguousStatus); err != nil {
+		t.Fatalf("status JSON did not decode: %v\n%s", err, out.String())
+	}
+	if len(ambiguousStatus.CaseMission.ReviewerDispatchIntakeHandoffs) != 1 {
+		t.Fatalf("status handoff count = %d, want 1: %+v", len(ambiguousStatus.CaseMission.ReviewerDispatchIntakeHandoffs), ambiguousStatus.CaseMission)
+	}
+	item := ambiguousStatus.CaseMission.ReviewerDispatchIntakeHandoffs[0]
+	if item.State != "reviewer-result-recovery-ambiguous" || item.ReviewerResultRecoveryApplyCommand != "" || !strings.Contains(item.ReviewerResultRecoveryDispositionCommand, "-RetireReviewerResultRecovery") || !strings.Contains(item.ReviewerResultRecoveryDispositionCommand, "-WhatIf") || !containsSubstring(item.RunbookSteps, "bounded disposition apply") || ambiguousStatus.CaseMission.ReviewerDispatchIntakeSummary.NextActionState != "reviewer-result-recovery-ambiguous" || !strings.Contains(ambiguousStatus.CaseMission.ReviewerDispatchIntakeSummary.NextAction, "-RetireReviewerResultRecovery") {
+		t.Fatalf("status omitted ambiguous recovery disposition handoff: item=%+v summary=%+v", item, ambiguousStatus.CaseMission.ReviewerDispatchIntakeSummary)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if text := out.String(); !strings.Contains(text, "reviewer-result-recovery-ambiguous") || !strings.Contains(text, "-RetireReviewerResultRecovery") || !strings.Contains(text, "bounded disposition apply") {
+		t.Fatalf("status text omitted ambiguous disposition handoff: %s", text)
+	}
+
+	dispositionArgs := []string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-RetireReviewerResultRecovery", "-ShardId", handoff.ShardID, "-Lane", "feature-review", "-Actor", "mission-commander", "-Reason", "retain restored canonical reviewer result"}
+	out.Reset()
+	if err := Run(append(append([]string{}, dispositionArgs...), "-WhatIf", "-Format", "json"), &out); err != nil {
+		t.Fatal(err)
+	}
+	var dispositionPreview subagents.ReviewerResultRecoveryDispositionResult
+	if err := json.Unmarshal(out.Bytes(), &dispositionPreview); err != nil {
+		t.Fatalf("disposition preview JSON did not decode: %v\n%s", err, out.String())
+	}
+	if dispositionPreview.Applied || dispositionPreview.IntentSHA256 == "" || dispositionPreview.CanonicalSHA256 != recoveryPreview.CandidateSHA256 || dispositionPreview.MissionCommanderAction.State != "needs-reviewer-result-recovery-disposition-apply" || !strings.Contains(dispositionPreview.MissionCommanderAction.PrimaryCommand, "-ExpectedIntentSha256") || !strings.Contains(dispositionPreview.MissionCommanderAction.PrimaryCommand, "-ExpectedCanonicalSha256") {
+		t.Fatalf("unexpected disposition preview: %+v", dispositionPreview)
+	}
+	if _, err := os.Stat(dispositionPreview.DispositionPath); !os.IsNotExist(err) {
+		t.Fatalf("disposition preview wrote disposition: %v", err)
+	}
+
+	out.Reset()
+	if err := Run(append(append([]string{}, dispositionArgs...), "-WhatIf", "-Format", "text"), &out); err != nil {
+		t.Fatal(err)
+	}
+	if text := out.String(); !strings.Contains(text, "intentSha256=") || !strings.Contains(text, "canonicalSha256=") || !strings.Contains(text, "-ExpectedIntentSha256") || !strings.Contains(text, "-ExpectedCanonicalSha256") {
+		t.Fatalf("disposition preview text omitted bounded hashes: %s", text)
+	}
+
+	out.Reset()
+	if err := Run(append(append([]string{}, dispositionArgs...), "-ExpectedIntentSha256", dispositionPreview.IntentSHA256, "-ExpectedCanonicalSha256", dispositionPreview.CanonicalSHA256, "-Apply", "-Format", "json"), &out); err != nil {
+		t.Fatal(err)
+	}
+	var dispositionApplied subagents.ReviewerResultRecoveryDispositionResult
+	if err := json.Unmarshal(out.Bytes(), &dispositionApplied); err != nil {
+		t.Fatalf("disposition apply JSON did not decode: %v\n%s", err, out.String())
+	}
+	if !dispositionApplied.Applied || dispositionApplied.MissionCommanderAction.State != "reviewer-result-recovery-disposed-ready-for-collection-preview" {
+		t.Fatalf("unexpected disposition apply: %+v", dispositionApplied)
+	}
+	if data, err := os.ReadFile(handoff.ReviewerResultPath); err != nil || !bytes.Equal(data, candidate) {
+		t.Fatalf("canonical reviewer result changed during disposition: %q err=%v", data, err)
+	}
+	if _, err := os.Stat(dispositionApplied.DispositionPath); err != nil {
+		t.Fatalf("disposition record missing: %v", err)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-CollectReviewerResult", "-ShardId", handoff.ShardID, "-Lane", "feature-review", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var collectionPreview subagents.ReviewerResultCollectionResult
+	if err := json.Unmarshal(out.Bytes(), &collectionPreview); err != nil {
+		t.Fatalf("collection preview JSON did not decode: %v\n%s", err, out.String())
+	}
+	if collectionPreview.Status != "already-collected" || !collectionPreview.AlreadyCollected || collectionPreview.RecoveryRequired {
+		t.Fatalf("collection remained blocked after disposition: %+v", collectionPreview)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-CollectReviewerResult", "-ShardId", handoff.ShardID, "-Lane", "feature-review", "-Actor", "mission-commander", "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var collectionApplied subagents.ReviewerResultCollectionResult
+	if err := json.Unmarshal(out.Bytes(), &collectionApplied); err != nil {
+		t.Fatalf("collection apply JSON did not decode: %v\n%s", err, out.String())
+	}
+	if !collectionApplied.Applied || collectionApplied.Status != "already-collected" || !collectionApplied.AlreadyCollected {
+		t.Fatalf("collection apply did not proceed after disposition: %+v", collectionApplied)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-ReadyReviewerResults", "-Lane", "feature-review", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var ready subagents.ReviewerBatchIntakeResult
+	if err := json.Unmarshal(out.Bytes(), &ready); err != nil {
+		t.Fatalf("ready reviewer results JSON did not decode: %v\n%s", err, out.String())
+	}
+	if ready.Ready != 1 || ready.Processed != 1 || ready.Waiting != 0 || ready.Stopped {
+		t.Fatalf("ready reviewer results did not proceed after disposition: %+v", ready)
+	}
+}
