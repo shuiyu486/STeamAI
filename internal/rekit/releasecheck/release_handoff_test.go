@@ -222,6 +222,25 @@ func TestLatestBatchHandoffExtractsValidationEvidence(t *testing.T) {
 	}
 }
 
+func TestLatestBatchCommitRefsIgnoreRemoteRefsInSameEvidenceClause(t *testing.T) {
+	section := `状态：已完成 runtime/test/docs 与完整本地 release minimum，以及 implementation commit/push 和 PR-triggered remote release-gate inspection。
+
+验证结果：完整本地 release minimum 已通过：` + "`" + `go run ./cmd/rekit -- -Command release-check -Format json` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command status` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command packs` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command doctor` + "`" + `、` + "`" + `go test ./...` + "`" + `、` + "`" + `go vet ./...` + "`" + `、` + "`" + `git diff --check` + "`" + ` 均通过。Implementation commit ` + "`" + `7896077` + "`" + ` 已推送，PR #15 remote release-gate run ` + "`" + `30186884673` + "`" + ` completed failure，Linux/Windows/macOS jobs ` + "`" + `89753087844` + "`" + `/` + "`" + `89753087828` + "`" + `/` + "`" + `89753087808` + "`" + ` 均 ` + "`" + `steps=[]` + "`" + `、` + "`" + `runner_id=0` + "`" + ` 且无 logs。`
+
+	handoff := latestBatchHandoff(ReleaseHandoffLatestBatch{Status: "已完成 fixture"}, section)
+	if !slices.Equal(handoff.CommitRefs, []string{"7896077"}) {
+		t.Fatalf("commit refs should include only implementation commits, got %+v", handoff.CommitRefs)
+	}
+	if handoff.RemoteReleaseGate != "blocked: completed failure with jobs steps=[]" {
+		t.Fatalf("remote release gate should still use remote refs from same clause: %+v", handoff.RemoteReleaseGate)
+	}
+	for _, remoteRef := range []string{"30186884673", "89753087844", "89753087828", "89753087808"} {
+		if slices.Contains(handoff.CommitRefs, remoteRef) {
+			t.Fatalf("remote ref %q should not be treated as a commit ref: %+v", remoteRef, handoff.CommitRefs)
+		}
+	}
+}
+
 func TestLatestBatchReleaseInspectionCadenceWaitsForImplementationCommit(t *testing.T) {
 	section := `状态：已完成 runtime/test/docs implementation，但尚未提交推送；完整本地 release minimum、implementation commit/push 与远程 release-gate inspection 待最终执行。
 

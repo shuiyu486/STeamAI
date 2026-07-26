@@ -3698,7 +3698,7 @@ func latestBatchCommitRefs(text string) []string {
 		if !latestBatchCommitEvidenceClause(clause) {
 			continue
 		}
-		for _, token := range backtickTokens(clause) {
+		for _, token := range backtickTokens(latestBatchCommitRefScope(clause)) {
 			if looksLikeCommitRef(token) && !seen[token] {
 				seen[token] = true
 				refs = append(refs, token)
@@ -3706,6 +3706,45 @@ func latestBatchCommitRefs(text string) []string {
 		}
 	}
 	return refs
+}
+
+func latestBatchCommitRefScope(clause string) string {
+	lower := strings.ToLower(clause)
+	if start := latestBatchCommitMarkerIndex(lower); start >= 0 {
+		clause = clause[start:]
+		lower = lower[start:]
+	}
+	cutoff := len(clause)
+	for _, marker := range []string{
+		"pr #",
+		"remote",
+		"远程",
+		"release-gate run",
+		"workflow run",
+		"pr run",
+		"jobs",
+		"job ",
+	} {
+		if idx := strings.Index(lower, marker); idx >= 0 && idx < cutoff {
+			cutoff = idx
+		}
+	}
+	return strings.TrimSpace(clause[:cutoff])
+}
+
+func latestBatchCommitMarkerIndex(lower string) int {
+	best := -1
+	for _, marker := range []string{
+		"implementation commits",
+		"implementation commit",
+		"commits `",
+		"commit `",
+	} {
+		if idx := strings.Index(lower, marker); idx >= 0 && (best < 0 || idx < best) {
+			best = idx
+		}
+	}
+	return best
 }
 
 func latestBatchCommitEvidenceClause(clause string) bool {

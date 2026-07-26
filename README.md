@@ -29,7 +29,7 @@
 - case 迁移说明：`docs/case-migration.md`
 - Go backend 渐进迁移：`docs/go-runtime-migration.md`
 - Go-first 收束与 release readiness 阶段计划：`docs/go-first-convergence-plan.md`
-- 发布门禁与当前 release readiness checklist：`docs/release-readiness.md`（机器可读 inventory 与 release handoff：`go run ./cmd/rekit -- -Command release-check -Format json`；三平台 Go-native workflow 定义：`.github/workflows/release-gate.yml`；inventory ready 不等于远程 jobs 已实际运行并通过，远程 jobs `steps=[]` / `steps 为空` 会通过 `remoteReleaseGateDetail` 记录 run/job/boundary，并按 runner/billing blocker 而不是 remote CI green 处理）
+- 发布门禁与当前 release readiness checklist：`docs/release-readiness.md`（机器可读 inventory 与 release handoff：`go run ./cmd/rekit -- -Command release-check -Format json`；三平台 Go-native workflow 定义：`.github/workflows/release-gate.yml`；inventory ready 不等于远程 jobs 已实际运行并通过；`commitRefs[]` 只记录 implementation commit refs，远程 jobs `steps=[]` / `steps 为空` 会通过 `remoteReleaseGateDetail` 记录 run/job/boundary，并按 runner/billing blocker 而不是 remote CI green 处理）
 - PowerShell-free / Go-native convergence roadmap：`docs/powershell-deprecation.md`
 
 ## 如果你在维护本仓库
