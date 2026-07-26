@@ -3754,6 +3754,170 @@ func TestRunRepairApplyRefreshesMetadataShimAndLegacy(t *testing.T) {
 	}
 }
 
+func TestRunRepairApplyRestoresMovedCaseProductPathWithoutMissionMutation(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "repair-closure", "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	boardBefore, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "board.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	factsBefore := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
+	lanesBefore := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "lanes"))
+
+	oldRoot := filepath.Join(t.TempDir(), "old-case")
+	writeCaseFile(t, caseRoot, ".rekit/instance.yml", "templateRoot: "+repoRoot(t)+"\ntemplatePack: _template\nprojectName: demo\nprojectRoot: "+oldRoot+"\n")
+	writeCaseFile(t, caseRoot, ".claude/skills/rekit/SKILL.md", "drifted local shim\n")
+
+	out.Reset()
+	err = Run([]string{"-Command", "doctor", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out)
+	assertMovedCaseRepairPreviewDiagnostic(t, err, caseRoot, "_template")
+	out.Reset()
+	err = Run([]string{"-Command", "sync", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-WhatIf", "-Format", "json"}, &out)
+	assertMovedCaseRepairPreviewDiagnostic(t, err, caseRoot, "_template")
+
+	out.Reset()
+	if err := Run([]string{"-Command", "repair", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var preview struct {
+		Command              string   `json:"command"`
+		IsMutation           bool     `json:"isMutation"`
+		ReviewRequired       bool     `json:"reviewRequired"`
+		RequiresConfirmation bool     `json:"requiresConfirmation"`
+		Moved                bool     `json:"moved"`
+		RecordedProjectRoot  string   `json:"recordedProjectRoot"`
+		NewProjectRoot       string   `json:"newProjectRoot"`
+		BlockedActions       []string `json:"blockedActions"`
+		Writes               []struct {
+			Kind   string `json:"kind"`
+			Action string `json:"action"`
+		} `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+		t.Fatalf("repair product-path preview stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if preview.Command != "repair" || preview.IsMutation || !preview.ReviewRequired || !preview.RequiresConfirmation || !preview.Moved || preview.RecordedProjectRoot != oldRoot || preview.NewProjectRoot != caseRoot || len(preview.Writes) != 4 || !containsSubstring(preview.BlockedActions, "board/facts/lanes mutation") {
+		t.Fatalf("unexpected repair product-path preview: %+v", preview)
+	}
+	assertSnapshotEqual(t, factsBefore, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
+	assertSnapshotEqual(t, lanesBefore, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "lanes")))
+	if boardAfterPreview, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "board.json")); err != nil || !bytes.Equal(boardBefore, boardAfterPreview) {
+		t.Fatalf("repair preview changed mission board: err=%v before=%s after=%s", err, string(boardBefore), string(boardAfterPreview))
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "repair", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var applied struct {
+		Command             string `json:"command"`
+		IsMutation          bool   `json:"isMutation"`
+		Applied             bool   `json:"applied"`
+		Moved               bool   `json:"moved"`
+		RecordedProjectRoot string `json:"recordedProjectRoot"`
+		NewProjectRoot      string `json:"newProjectRoot"`
+		Writes              []struct {
+			Kind   string `json:"kind"`
+			Action string `json:"action"`
+		} `json:"writes"`
+		NextSteps []string `json:"nextSteps"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &applied); err != nil {
+		t.Fatalf("repair product-path apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if applied.Command != "repair" || !applied.IsMutation || !applied.Applied || !applied.Moved || applied.RecordedProjectRoot != oldRoot || applied.NewProjectRoot != caseRoot || len(applied.Writes) != 4 || !containsSubstring(applied.NextSteps, "run doctor to validate the attached case") {
+		t.Fatalf("unexpected repair product-path apply: %+v", applied)
+	}
+	assertSnapshotEqual(t, factsBefore, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
+	assertSnapshotEqual(t, lanesBefore, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "lanes")))
+	if boardAfterApply, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "board.json")); err != nil || !bytes.Equal(boardBefore, boardAfterApply) {
+		t.Fatalf("repair apply changed mission board: err=%v before=%s after=%s", err, string(boardBefore), string(boardAfterApply))
+	}
+
+	metadata, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "instance.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if text := string(metadata); !strings.Contains(text, "projectRoot: "+caseRoot) || strings.Contains(text, "projectRoot: "+oldRoot) {
+		t.Fatalf("repair apply did not refresh moved metadata: %s", text)
+	}
+	canonical, err := os.ReadFile(filepath.Join(repoRoot(t), "rekit", "templates", "case-shim", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	shim, err := os.ReadFile(filepath.Join(caseRoot, ".claude", "skills", "rekit", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(shim, canonical) {
+		t.Fatalf("repair apply did not restore canonical shim")
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		Case struct {
+			Moved     bool     `json:"moved"`
+			NextSteps []string `json:"nextSteps"`
+		} `json:"case"`
+		CaseShim struct {
+			Ready     bool     `json:"ready"`
+			NextSteps []string `json:"nextSteps"`
+		} `json:"caseShim"`
+		CaseMission struct {
+			LaneCount int `json:"laneCount"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("repaired moved-case status stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if status.Case.Moved || containsSubstring(status.Case.NextSteps, "previews moved-case metadata") || !status.CaseShim.Ready || containsSubstring(status.CaseShim.NextSteps, "repair -Apply") || status.CaseMission.LaneCount == 0 {
+		t.Fatalf("repaired moved-case status did not clear repair blockers: %+v", status)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "doctor", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var doctorResult struct {
+		Mode    string `json:"mode"`
+		Valid   bool   `json:"valid"`
+		Summary string `json:"summary"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &doctorResult); err != nil {
+		t.Fatalf("repaired moved-case doctor stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if doctorResult.Mode != "case" || !doctorResult.Valid || doctorResult.Summary != "instance validation ok" {
+		t.Fatalf("repaired moved-case doctor did not validate: %+v", doctorResult)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "sync", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var syncPreview struct {
+		Command    string `json:"command"`
+		IsMutation bool   `json:"isMutation"`
+		Applied    bool   `json:"applied"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &syncPreview); err != nil {
+		t.Fatalf("repaired moved-case sync preview stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if syncPreview.Command != "sync" || syncPreview.IsMutation || syncPreview.Applied {
+		t.Fatalf("repaired moved-case sync preview should be read-only: %+v", syncPreview)
+	}
+	assertSnapshotEqual(t, factsBefore, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
+	assertSnapshotEqual(t, lanesBefore, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "lanes")))
+	if boardAfterFollowup, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "board.json")); err != nil || !bytes.Equal(boardBefore, boardAfterFollowup) {
+		t.Fatalf("post-repair status/doctor/sync changed mission board: err=%v before=%s after=%s", err, string(boardBefore), string(boardAfterFollowup))
+	}
+}
+
 func TestRunRepairRejectsDifferentBinding(t *testing.T) {
 	caseRoot := attachedCase(t)
 	writeCaseFile(t, caseRoot, ".rekit/instance.yml", "templateRoot: C:\\other\\kit\ntemplatePack: _template\nprojectName: demo\nprojectRoot: C:\\old\\case\n")
