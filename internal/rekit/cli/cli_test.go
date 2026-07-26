@@ -12014,15 +12014,59 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 		t.Fatal(err)
 	}
 	var replay struct {
-		Applied bool   `json:"applied"`
-		EventID string `json:"eventId"`
-		Reason  string `json:"reason"`
+		Applied           bool   `json:"applied"`
+		EventID           string `json:"eventId"`
+		Reason            string `json:"reason"`
+		ExecutionEvidence struct {
+			Execution struct {
+				ExecutionReportPath   string   `json:"executionReportPath"`
+				ExecutionReportSHA256 string   `json:"executionReportSha256"`
+				OutputRefs            []string `json:"outputRefs"`
+				Adapter               struct {
+					AdapterID string `json:"adapterId"`
+					Status    string `json:"status"`
+				} `json:"adapter"`
+			} `json:"execution"`
+		} `json:"executionEvidence"`
+		MissionCommanderAction           missionCommanderActionSnapshot           `json:"missionCommanderAction"`
+		ExecutionEvidenceReview          []executionEvidenceReviewItem            `json:"executionEvidenceReview"`
+		ExecutionEvidenceReviewSummary   executionEvidenceReviewSummarySnapshot   `json:"executionEvidenceReviewSummary"`
+		MissionCommanderNextActions      []missionCommanderNextActionItem         `json:"missionCommanderNextActions"`
+		MissionCommanderActionQueue      missionCommanderActionQueueSnapshot      `json:"missionCommanderActionQueue"`
+		AuthorizedExecutionFollowThrough authorizedExecutionFollowThroughSnapshot `json:"authorizedExecutionFollowThrough"`
+		RunbookSteps                     []string                                 `json:"runbookSteps"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &replay); err != nil {
 		t.Fatalf("case-relative adapter replay stdout is not JSON: %v\n%s", err, out.String())
 	}
+	wantReplayReportPath := "workspace/main/debug/session-1/adapter-report.json"
 	if replay.Applied || replay.EventID != evidence.EventID || replay.Reason != "duplicate eventId" {
 		t.Fatalf("case-relative adapter replay should be idempotent: first=%+v replay=%+v", evidence, replay)
+	}
+	if replay.ExecutionEvidence.Execution.ExecutionReportPath != wantReplayReportPath || replay.ExecutionEvidence.Execution.ExecutionReportSHA256 != validation.RecordExpectedReportSHA256 || strings.Join(replay.ExecutionEvidence.Execution.OutputRefs, ",") != "workspace/main/debug/session-1/result.json" || replay.ExecutionEvidence.Execution.Adapter.AdapterID != "nested-cli-adapter" || replay.ExecutionEvidence.Execution.Adapter.Status != "succeeded" {
+		t.Fatalf("case-relative adapter replay did not preserve hash-bound report provenance: %+v", replay.ExecutionEvidence)
+	}
+	if replay.MissionCommanderAction.State != "evidence-already-recorded" || replay.MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || containsSubstring(replay.MissionCommanderAction.FollowUpCommands, "/rekit continue") || !containsSubstring(replay.MissionCommanderAction.FollowUpCommands, "/rekit overview") || !containsSubstring(replay.MissionCommanderAction.Boundary, "duplicate record did not append observation evidence") || !containsSubstring(replay.MissionCommanderAction.Boundary, "no authority/confirmed") {
+		t.Fatalf("case-relative adapter replay omitted idempotent review-only commander action: %+v", replay.MissionCommanderAction)
+	}
+	replayReview := replay.ExecutionEvidenceReview
+	if len(replayReview) != 1 || replayReview[0].EventID != evidence.EventID || replayReview[0].GateEventID != applied.EventID || replayReview[0].Status != "succeeded" || replayReview[0].Action != "debug" || replayReview[0].ExecutionReportPath != wantReplayReportPath || replayReview[0].ExecutionReportSHA256 != validation.RecordExpectedReportSHA256 || replayReview[0].AdapterID != "nested-cli-adapter" || replayReview[0].AdapterStatus != "succeeded" || replayReview[0].MissionCommanderAction.State != "evidence-already-recorded" || replayReview[0].MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || containsSubstring(replayReview[0].MissionCommanderAction.FollowUpCommands, "/rekit continue") || replayReview[0].FollowThrough.State != "evidence-already-recorded" || !cliExecutionEvidenceFollowThroughContains(replayReview[0].FollowThrough, "duplicate-record-review", "duplicate replay does not append observation evidence") {
+		t.Fatalf("case-relative adapter replay omitted duplicate evidence review handoff: %+v", replayReview)
+	}
+	if replay.ExecutionEvidenceReviewSummary.Total != 1 || replay.ExecutionEvidenceReviewSummary.ReadyForReviewCount != 1 || replay.ExecutionEvidenceReviewSummary.DuplicateCount != 1 || !replay.ExecutionEvidenceReviewSummary.HasExecutionReport || !replay.ExecutionEvidenceReviewSummary.HasAdapter || replay.ExecutionEvidenceReviewSummary.LatestEventID != evidence.EventID || replay.ExecutionEvidenceReviewSummary.LatestGateEventID != applied.EventID || replay.ExecutionEvidenceReviewSummary.LatestCommanderState != "evidence-already-recorded" || replay.ExecutionEvidenceReviewSummary.LatestCommanderPrimary != "/rekit handoff main" || replay.ExecutionEvidenceReviewSummary.LatestExecutionReportPath != wantReplayReportPath || replay.ExecutionEvidenceReviewSummary.LatestExecutionReportSHA256 != validation.RecordExpectedReportSHA256 || replay.ExecutionEvidenceReviewSummary.LatestAdapterID != "nested-cli-adapter" || replay.ExecutionEvidenceReviewSummary.LatestAdapterStatus != "succeeded" || replay.ExecutionEvidenceReviewSummary.FollowThroughState != "evidence-already-recorded" || replay.ExecutionEvidenceReviewSummary.CurrentAction != "/rekit handoff main" || replay.ExecutionEvidenceReviewSummary.NextActionCount != 2 || replay.ExecutionEvidenceReviewSummary.ReviewRequiredActionCount != 2 {
+		t.Fatalf("case-relative adapter replay omitted duplicate evidence review summary: %+v", replay.ExecutionEvidenceReviewSummary)
+	}
+	if len(replay.MissionCommanderNextActions) != 2 || replay.MissionCommanderNextActions[0].State != "evidence-already-recorded" || replay.MissionCommanderNextActions[0].Command != "/rekit handoff main" || replay.MissionCommanderNextActions[1].Command != "/rekit overview" || cliNextActionContainsCommand(replay.MissionCommanderNextActions, "/rekit continue") || cliNextActionContainsSource(replay.MissionCommanderNextActions, "missionCommanderActions") || !cliNextActionBoundaryContains(replay.MissionCommanderNextActions, "duplicate record did not append observation evidence") {
+		t.Fatalf("case-relative adapter replay next actions should be review-only: %+v", replay.MissionCommanderNextActions)
+	}
+	if replay.MissionCommanderActionQueue.Summary != "total=2 unblocked=2 blocked=0 requiresReview=2 followUp=1 current=/rekit handoff main" || replay.MissionCommanderActionQueue.CurrentAction == nil || replay.MissionCommanderActionQueue.CurrentAction.Command != "/rekit handoff main" || replay.MissionCommanderActionQueue.CurrentAction.Source != "executionEvidenceReview" || len(replay.MissionCommanderActionQueue.FollowUpActions) != 1 {
+		t.Fatalf("case-relative adapter replay omitted review-only action queue: %+v", replay.MissionCommanderActionQueue)
+	}
+	if replay.AuthorizedExecutionFollowThrough.State != "evidence-already-recorded" || replay.AuthorizedExecutionFollowThrough.GateEventID != applied.EventID || replay.AuthorizedExecutionFollowThrough.ReportPath != wantReplayReportPath || !cliAuthorizedFollowThroughContains(replay.AuthorizedExecutionFollowThrough, "duplicate-record-review", "duplicate replay does not append observations") || replay.AuthorizedExecutionFollowThrough.ActionQueue.CurrentAction == nil || replay.AuthorizedExecutionFollowThrough.ActionQueue.CurrentAction.Command != "/rekit handoff main" || replay.AuthorizedExecutionFollowThrough.ActionQueue.Counts.Total != 2 || replay.AuthorizedExecutionFollowThrough.ActionQueue.Counts.RequiresReview != 2 {
+		t.Fatalf("case-relative adapter replay omitted duplicate authorized execution follow-through: %+v", replay.AuthorizedExecutionFollowThrough)
+	}
+	if !containsSubstring(replay.RunbookSteps, "confirm adapter report record state=evidence-already-recorded") || !containsSubstring(replay.RunbookSteps, "confirm report path: "+wantReplayReportPath) || !containsSubstring(replay.RunbookSteps, "confirm report sha256: "+validation.RecordExpectedReportSHA256) || !containsSubstring(replay.RunbookSteps, "after record, review outputRefs/evidenceRefs before any authority/confirmed outcome") || containsSubstring(replay.RunbookSteps, "record bounded observation evidence only with -ExpectedExecutionReportSha256") {
+		t.Fatalf("case-relative adapter replay omitted duplicate record runbook boundary: %+v", replay.RunbookSteps)
 	}
 	replayedObservations, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 	if err != nil {
