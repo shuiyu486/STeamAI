@@ -909,6 +909,7 @@ func TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath(t *testing.T) 
 	if len(plan.ShardHandoffs) != 2 {
 		t.Fatalf("reviewer batch product fixture shard count = %d, want 2", len(plan.ShardHandoffs))
 	}
+	var batchPreviewCommand string
 	for i, handoff := range plan.ShardHandoffs {
 		result := map[string]any{
 			"packetId": packet.PacketID, "routeId": packet.Route.ID, "shardId": handoff.ShardID, "items": append([]string{}, handoff.Items...),
@@ -1060,19 +1061,24 @@ func TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath(t *testing.T) 
 			t.Fatal(err)
 		}
 		collectionApply := decodeReviewerResultCollectionCLIResult(t, out.Bytes())
-		if collectionApply.Status != "collected" || !collectionApply.IsMutation || !collectionApply.Applied || collectionApply.AlreadyCollected || collectionApply.CandidateSHA256 == "" || collectionApply.CandidateSHA256 != collectionApply.ReviewerResultSHA256 {
+		if collectionApply.Status != "collected" || !collectionApply.IsMutation || !collectionApply.Applied || collectionApply.AlreadyCollected || collectionApply.CandidateSHA256 == "" || collectionApply.CandidateSHA256 != collectionApply.ReviewerResultSHA256 || collectionApply.MissionCommanderAction.State != "reviewer-result-collected-ready-for-batch-intake-preview" || !strings.Contains(collectionApply.MissionCommanderAction.PrimaryCommand, "-ReadyReviewerResults") {
 			t.Fatalf("unexpected reviewer result collection apply: %+v", collectionApply)
 		}
+		batchPreviewCommand = collectionApply.MissionCommanderAction.PrimaryCommand
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-ReadyReviewerResults", "-Lane", "feature-review", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
+	if err := Run(reviewerPrimaryCommandCLIArgs(t, nil, batchPreviewCommand), &out); err != nil {
 		t.Fatal(err)
 	}
 	preview := decodeReviewerBatchIntakeResult(t, out.Bytes())
 	if preview.Command != "plan-subagents" || preview.Mode != "reviewer-batch-intake" || preview.CaseRoot != caseRoot || preview.Pack != "_template" || preview.IsMutation || preview.Applied || preview.Total != 2 || preview.Ready != 2 || preview.Waiting != 0 || preview.Processed != 2 || preview.Stopped || len(preview.Results) != 2 || preview.Results[0].WritebackStatus != "previewed" || preview.Results[1].WritebackStatus != "previewed" {
 		t.Fatalf("unexpected case-local reviewer batch preview: %+v", preview)
 	}
+	if preview.MissionCommanderAction.State != "ready-for-reviewer-batch-intake-apply-after-preview" || !strings.Contains(preview.MissionCommanderAction.PrimaryCommand, "-Apply -Format json") || !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "reviewerBatchIntake", preview.MissionCommanderAction.PrimaryCommand, false, true) {
+		t.Fatalf("case-local reviewer batch preview omitted apply handoff: action=%+v next=%+v", preview.MissionCommanderAction, preview.MissionCommanderNextActions)
+	}
+	assertCLIActionQueue(t, preview.MissionCommanderActionQueue, 1, 1, 0, 1, 0, preview.MissionCommanderAction.PrimaryCommand)
 	if got := readOptionalCaseFile(t, caseRoot, ".rekit/facts/verifications.jsonl"); got != "" {
 		t.Fatalf("reviewer batch WhatIf wrote verification facts:\n%s", got)
 	}
@@ -1086,6 +1092,9 @@ func TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath(t *testing.T) 
 		"reviewer batch intake shard：shard=shard-01 status=previewed",
 		"reviewer batch intake shard：shard=shard-02 status=previewed",
 		"reviewer batch intake boundary：each shard preserves strict reviewer result validation and verification-before-decision writeback",
+		"reviewer batch intake commander action：state=ready-for-reviewer-batch-intake-apply-after-preview",
+		"mission commander action queue current：state=ready-for-reviewer-batch-intake-apply-after-preview source=reviewerBatchIntake blocked=false requiresReview=true command=`/rekit plan-subagents",
+		"mission commander next action：state=ready-for-reviewer-batch-intake-apply-after-preview source=reviewerBatchIntake blocked=false requiresReview=true command=`/rekit plan-subagents",
 	} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("reviewer batch preview text missing %q:\n%s", expected, out.String())
@@ -1103,6 +1112,10 @@ func TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath(t *testing.T) 
 	if !applied.IsMutation || !applied.Applied || applied.Processed != 2 || applied.Completed != 2 || applied.AlreadyComplete != 0 || applied.Stopped || len(applied.Results) != 2 || applied.Results[0].WritebackStatus != "complete" || applied.Results[1].WritebackStatus != "complete" {
 		t.Fatalf("unexpected case-local reviewer batch apply: %+v", applied)
 	}
+	if applied.MissionCommanderAction.State != "reviewer-batch-intake-writeback-complete" || len(applied.MissionCommanderNextActions) == 0 || !strings.HasPrefix(applied.MissionCommanderNextActions[0].Source, "reviewerBatchIntake.reviewerIntake.postValidation.") || applied.MissionCommanderActionQueue.CurrentAction == nil {
+		t.Fatalf("case-local reviewer batch apply omitted post-validation handoff: action=%+v next=%+v queue=%+v", applied.MissionCommanderAction, applied.MissionCommanderNextActions, applied.MissionCommanderActionQueue)
+	}
+	assertCLIActionQueue(t, applied.MissionCommanderActionQueue, 2, 2, 0, 0, 1, applied.MissionCommanderActionQueue.CurrentAction.Command)
 	if got := strings.Count(readOptionalCaseFile(t, caseRoot, ".rekit/facts/verifications.jsonl"), `"shardId"`); got != 2 {
 		t.Fatalf("reviewer batch verification count = %d, want 2", got)
 	}
@@ -1374,18 +1387,19 @@ func TestRunPlanSubagentsReviewerIntakeEmitsPartialRecoveryJSON(t *testing.T) {
 }
 
 type reviewerResultSourceCaptureCLIResult struct {
-	Mode            string   `json:"mode"`
-	IsMutation      bool     `json:"isMutation"`
-	Applied         bool     `json:"applied"`
-	Status          string   `json:"status"`
-	InputPath       string   `json:"inputPath"`
-	InputSHA256     string   `json:"inputSha256"`
-	InputBytes      int      `json:"inputBytes"`
-	SourcePath      string   `json:"sourcePath"`
-	SourceSHA256    string   `json:"sourceSha256"`
-	SourceBytes     int      `json:"sourceBytes"`
-	AlreadyCaptured bool     `json:"alreadyCaptured"`
-	RunbookSteps    []string `json:"runbookSteps"`
+	Mode                   string                         `json:"mode"`
+	IsMutation             bool                           `json:"isMutation"`
+	Applied                bool                           `json:"applied"`
+	Status                 string                         `json:"status"`
+	InputPath              string                         `json:"inputPath"`
+	InputSHA256            string                         `json:"inputSha256"`
+	InputBytes             int                            `json:"inputBytes"`
+	SourcePath             string                         `json:"sourcePath"`
+	SourceSHA256           string                         `json:"sourceSha256"`
+	SourceBytes            int                            `json:"sourceBytes"`
+	AlreadyCaptured        bool                           `json:"alreadyCaptured"`
+	MissionCommanderAction missionCommanderActionSnapshot `json:"missionCommanderAction"`
+	RunbookSteps           []string                       `json:"runbookSteps"`
 }
 
 func decodeReviewerResultSourceCaptureCLIResult(t *testing.T, data []byte) reviewerResultSourceCaptureCLIResult {
@@ -1398,16 +1412,17 @@ func decodeReviewerResultSourceCaptureCLIResult(t *testing.T, data []byte) revie
 }
 
 type reviewerResultStagingCLIResult struct {
-	Mode          string   `json:"mode"`
-	IsMutation    bool     `json:"isMutation"`
-	Applied       bool     `json:"applied"`
-	Status        string   `json:"status"`
-	SourcePath    string   `json:"sourcePath"`
-	SourceSHA256  string   `json:"sourceSha256"`
-	SourceBytes   int      `json:"sourceBytes"`
-	CandidatePath string   `json:"candidatePath"`
-	AlreadyStaged bool     `json:"alreadyStaged"`
-	RunbookSteps  []string `json:"runbookSteps"`
+	Mode                   string                         `json:"mode"`
+	IsMutation             bool                           `json:"isMutation"`
+	Applied                bool                           `json:"applied"`
+	Status                 string                         `json:"status"`
+	SourcePath             string                         `json:"sourcePath"`
+	SourceSHA256           string                         `json:"sourceSha256"`
+	SourceBytes            int                            `json:"sourceBytes"`
+	CandidatePath          string                         `json:"candidatePath"`
+	AlreadyStaged          bool                           `json:"alreadyStaged"`
+	MissionCommanderAction missionCommanderActionSnapshot `json:"missionCommanderAction"`
+	RunbookSteps           []string                       `json:"runbookSteps"`
 }
 
 func decodeReviewerResultStagingCLIResult(t *testing.T, data []byte) reviewerResultStagingCLIResult {
@@ -1420,16 +1435,17 @@ func decodeReviewerResultStagingCLIResult(t *testing.T, data []byte) reviewerRes
 }
 
 type reviewerResultCollectionCLIResult struct {
-	Mode                 string   `json:"mode"`
-	IsMutation           bool     `json:"isMutation"`
-	Applied              bool     `json:"applied"`
-	Status               string   `json:"status"`
-	CandidatePath        string   `json:"candidatePath"`
-	CandidateSHA256      string   `json:"candidateSha256"`
-	ReviewerResultPath   string   `json:"reviewerResultPath"`
-	ReviewerResultSHA256 string   `json:"reviewerResultSha256"`
-	AlreadyCollected     bool     `json:"alreadyCollected"`
-	RunbookSteps         []string `json:"runbookSteps"`
+	Mode                   string                         `json:"mode"`
+	IsMutation             bool                           `json:"isMutation"`
+	Applied                bool                           `json:"applied"`
+	Status                 string                         `json:"status"`
+	CandidatePath          string                         `json:"candidatePath"`
+	CandidateSHA256        string                         `json:"candidateSha256"`
+	ReviewerResultPath     string                         `json:"reviewerResultPath"`
+	ReviewerResultSHA256   string                         `json:"reviewerResultSha256"`
+	AlreadyCollected       bool                           `json:"alreadyCollected"`
+	MissionCommanderAction missionCommanderActionSnapshot `json:"missionCommanderAction"`
+	RunbookSteps           []string                       `json:"runbookSteps"`
 }
 
 func decodeReviewerResultCollectionCLIResult(t *testing.T, data []byte) reviewerResultCollectionCLIResult {
@@ -1462,6 +1478,18 @@ func captureReviewerResultSourceForCLIPlan(t *testing.T, out *bytes.Buffer, base
 	capturePreview := decodeReviewerResultSourceCaptureCLIResult(t, out.Bytes())
 	if capturePreview.Mode != "reviewer-result-source-capture" || capturePreview.IsMutation || capturePreview.Applied || capturePreview.InputPath != inputPath || capturePreview.InputSHA256 == "" || capturePreview.SourcePath != sourcePath || capturePreview.SourceSHA256 != capturePreview.InputSHA256 {
 		t.Fatalf("unexpected reviewer result source capture preview: %+v", capturePreview)
+	}
+	switch capturePreview.Status {
+	case "previewed":
+		if capturePreview.MissionCommanderAction.State != "ready-for-reviewer-result-source-capture-apply" || !strings.Contains(capturePreview.MissionCommanderAction.PrimaryCommand, "-ExpectedReviewerResultInputSha256") {
+			t.Fatalf("previewed reviewer source capture omitted apply handoff: %+v", capturePreview)
+		}
+	case "already-captured":
+		if capturePreview.MissionCommanderAction.State != "reviewer-result-source-ready-for-staging-preview" || !strings.Contains(capturePreview.MissionCommanderAction.PrimaryCommand, "-StageReviewerResult") || strings.Contains(capturePreview.MissionCommanderAction.PrimaryCommand, "-ExpectedReviewerResultInputSha256") {
+			t.Fatalf("already-captured reviewer source capture omitted staging handoff: %+v", capturePreview)
+		}
+	default:
+		t.Fatalf("unexpected reviewer result source capture preview status: %+v", capturePreview)
 	}
 	assertStringContains(t, capturePreview.RunbookSteps, "run current Mission Commander command")
 	assertStringContains(t, capturePreview.RunbookSteps, "hash-bound Apply command")
@@ -1502,11 +1530,11 @@ func captureReviewerResultSourceForCLIPlan(t *testing.T, out *bytes.Buffer, base
 	}
 
 	out.Reset()
-	if err := Run(planSubagentsCLIArgs(baseArgs, "-PacketPath", packetPath, "-CaptureReviewerResultSource", "-ShardId", handoff.ShardID, "-ReviewerResultInputPath", inputPath, "-Lane", lane, "-Actor", actor, "-ExpectedReviewerResultInputSha256", capturePreview.InputSHA256, "-Apply", "-Format", "json"), out); err != nil {
+	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, capturePreview.MissionCommanderAction.PrimaryCommand), out); err != nil {
 		t.Fatal(err)
 	}
 	captureApply := decodeReviewerResultSourceCaptureCLIResult(t, out.Bytes())
-	if captureApply.Status != "captured" || !captureApply.IsMutation || !captureApply.Applied || captureApply.AlreadyCaptured || captureApply.InputPath != inputPath || captureApply.SourcePath != sourcePath || captureApply.SourceSHA256 != capturePreview.InputSHA256 {
+	if captureApply.Status != "captured" || !captureApply.IsMutation || !captureApply.Applied || captureApply.AlreadyCaptured || captureApply.InputPath != inputPath || captureApply.SourcePath != sourcePath || captureApply.SourceSHA256 != capturePreview.InputSHA256 || captureApply.MissionCommanderAction.State != "reviewer-result-source-ready-for-staging-preview" || !strings.Contains(captureApply.MissionCommanderAction.PrimaryCommand, "-StageReviewerResult") || strings.Contains(captureApply.MissionCommanderAction.PrimaryCommand, "-ExpectedReviewerResultInputSha256") {
 		t.Fatalf("unexpected reviewer result source capture apply: %+v", captureApply)
 	}
 	captured, err := os.ReadFile(sourcePath)
@@ -1519,7 +1547,7 @@ func captureReviewerResultSourceForCLIPlan(t *testing.T, out *bytes.Buffer, base
 	return captureApply
 }
 
-func stageAndCollectReviewerResultForCLIPlan(t *testing.T, out *bytes.Buffer, baseArgs []string, packetPath string, handoff planSubagentsHandoff, lane, actor string, data []byte) {
+func stageAndCollectReviewerResultForCLIPlan(t *testing.T, out *bytes.Buffer, baseArgs []string, packetPath string, handoff planSubagentsHandoff, lane, actor string, data []byte) reviewerResultCollectionCLIResult {
 	t.Helper()
 	if handoff.ReviewerResultCandidatePath == "" || handoff.ReviewerResultCandidatePath == handoff.ReviewerResultPath {
 		t.Fatalf("reviewer collection candidate path is not distinct: %+v", handoff)
@@ -1528,11 +1556,11 @@ func stageAndCollectReviewerResultForCLIPlan(t *testing.T, out *bytes.Buffer, ba
 	captureApply := captureReviewerResultSourceForCLIPlan(t, out, baseArgs, packetPath, handoff, lane, actor, data)
 
 	out.Reset()
-	if err := Run(planSubagentsCLIArgs(baseArgs, "-PacketPath", packetPath, "-StageReviewerResult", "-ShardId", handoff.ShardID, "-ReviewerResultSourcePath", sourcePath, "-Lane", lane, "-Actor", actor, "-WhatIf", "-Format", "json"), out); err != nil {
+	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, captureApply.MissionCommanderAction.PrimaryCommand), out); err != nil {
 		t.Fatal(err)
 	}
 	stagingPreview := decodeReviewerResultStagingCLIResult(t, out.Bytes())
-	if stagingPreview.Mode != "reviewer-result-staging" || stagingPreview.Status != "previewed" || stagingPreview.IsMutation || stagingPreview.Applied || stagingPreview.SourcePath != sourcePath || stagingPreview.SourceSHA256 == "" || stagingPreview.SourceSHA256 != captureApply.SourceSHA256 || stagingPreview.CandidatePath != handoff.ReviewerResultCandidatePath {
+	if stagingPreview.Mode != "reviewer-result-staging" || stagingPreview.Status != "previewed" || stagingPreview.IsMutation || stagingPreview.Applied || stagingPreview.SourcePath != sourcePath || stagingPreview.SourceSHA256 == "" || stagingPreview.SourceSHA256 != captureApply.SourceSHA256 || stagingPreview.CandidatePath != handoff.ReviewerResultCandidatePath || stagingPreview.MissionCommanderAction.State != "ready-for-reviewer-result-staging-apply" || !strings.Contains(stagingPreview.MissionCommanderAction.PrimaryCommand, "-ExpectedSourceSha256") {
 		t.Fatalf("unexpected reviewer result staging preview: %+v", stagingPreview)
 	}
 	assertStringContains(t, stagingPreview.RunbookSteps, "run current Mission Commander command")
@@ -1553,22 +1581,22 @@ func stageAndCollectReviewerResultForCLIPlan(t *testing.T, out *bytes.Buffer, ba
 	}
 
 	out.Reset()
-	if err := Run(planSubagentsCLIArgs(baseArgs, "-PacketPath", packetPath, "-StageReviewerResult", "-ShardId", handoff.ShardID, "-ReviewerResultSourcePath", sourcePath, "-Lane", lane, "-Actor", actor, "-ExpectedSourceSha256", stagingPreview.SourceSHA256, "-Apply", "-Format", "json"), out); err != nil {
+	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, stagingPreview.MissionCommanderAction.PrimaryCommand), out); err != nil {
 		t.Fatal(err)
 	}
 	stagingApply := decodeReviewerResultStagingCLIResult(t, out.Bytes())
-	if stagingApply.Status != "staged" || !stagingApply.IsMutation || !stagingApply.Applied || stagingApply.AlreadyStaged || stagingApply.CandidatePath != handoff.ReviewerResultCandidatePath {
+	if stagingApply.Status != "staged" || !stagingApply.IsMutation || !stagingApply.Applied || stagingApply.AlreadyStaged || stagingApply.CandidatePath != handoff.ReviewerResultCandidatePath || stagingApply.MissionCommanderAction.State != "reviewer-result-staged-ready-for-collection-preview" || !strings.Contains(stagingApply.MissionCommanderAction.PrimaryCommand, "-CollectReviewerResult") || strings.Contains(stagingApply.MissionCommanderAction.PrimaryCommand, "-ExpectedSourceSha256") {
 		t.Fatalf("unexpected reviewer result staging apply: %+v", stagingApply)
 	}
 	assertStringContains(t, stagingApply.RunbookSteps, "-CollectReviewerResult")
 	assertStringContains(t, stagingApply.RunbookSteps, "separate bounded operations")
 
 	out.Reset()
-	if err := Run(planSubagentsCLIArgs(baseArgs, "-PacketPath", packetPath, "-CollectReviewerResult", "-ShardId", handoff.ShardID, "-Lane", lane, "-Actor", actor, "-WhatIf", "-Format", "json"), out); err != nil {
+	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, stagingApply.MissionCommanderAction.PrimaryCommand), out); err != nil {
 		t.Fatal(err)
 	}
 	collectionPreview := decodeReviewerResultCollectionCLIResult(t, out.Bytes())
-	if collectionPreview.Mode != "reviewer-result-collection" || collectionPreview.Status != "previewed" || collectionPreview.IsMutation || collectionPreview.Applied || collectionPreview.CandidatePath != handoff.ReviewerResultCandidatePath || collectionPreview.ReviewerResultPath != handoff.ReviewerResultPath {
+	if collectionPreview.Mode != "reviewer-result-collection" || collectionPreview.Status != "previewed" || collectionPreview.IsMutation || collectionPreview.Applied || collectionPreview.CandidatePath != handoff.ReviewerResultCandidatePath || collectionPreview.ReviewerResultPath != handoff.ReviewerResultPath || collectionPreview.MissionCommanderAction.State != "ready-for-reviewer-result-collection-apply" || !strings.Contains(collectionPreview.MissionCommanderAction.PrimaryCommand, "-Apply") {
 		t.Fatalf("unexpected reviewer result collection preview: %+v", collectionPreview)
 	}
 	assertStringContains(t, collectionPreview.RunbookSteps, "run current Mission Commander command")
@@ -1589,14 +1617,78 @@ func stageAndCollectReviewerResultForCLIPlan(t *testing.T, out *bytes.Buffer, ba
 	}
 
 	out.Reset()
-	if err := Run(planSubagentsCLIArgs(baseArgs, "-PacketPath", packetPath, "-CollectReviewerResult", "-ShardId", handoff.ShardID, "-Lane", lane, "-Actor", actor, "-Apply", "-Format", "json"), out); err != nil {
+	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, collectionPreview.MissionCommanderAction.PrimaryCommand), out); err != nil {
 		t.Fatal(err)
 	}
 	collectionApply := decodeReviewerResultCollectionCLIResult(t, out.Bytes())
-	if collectionApply.Status != "collected" || !collectionApply.IsMutation || !collectionApply.Applied || collectionApply.AlreadyCollected || collectionApply.CandidatePath != handoff.ReviewerResultCandidatePath || collectionApply.ReviewerResultPath != handoff.ReviewerResultPath || collectionApply.CandidateSHA256 == "" || collectionApply.CandidateSHA256 != collectionApply.ReviewerResultSHA256 {
+	if collectionApply.Status != "collected" || !collectionApply.IsMutation || !collectionApply.Applied || collectionApply.AlreadyCollected || collectionApply.CandidatePath != handoff.ReviewerResultCandidatePath || collectionApply.ReviewerResultPath != handoff.ReviewerResultPath || collectionApply.CandidateSHA256 == "" || collectionApply.CandidateSHA256 != collectionApply.ReviewerResultSHA256 || collectionApply.MissionCommanderAction.State != "reviewer-result-collected-ready-for-batch-intake-preview" || !strings.Contains(collectionApply.MissionCommanderAction.PrimaryCommand, "-ReadyReviewerResults") {
 		t.Fatalf("unexpected reviewer result collection apply: %+v", collectionApply)
 	}
 	assertStringContains(t, collectionApply.RunbookSteps, "ready reviewer results intake")
+	if _, err := os.Stat(handoff.ReviewerResultPath); err != nil {
+		t.Fatal(err)
+	}
+	return collectionApply
+}
+
+func reviewerPrimaryCommandCLIArgs(t *testing.T, baseArgs []string, command string) []string {
+	t.Helper()
+	fields := splitReviewerPrimaryCommand(t, command)
+	if len(fields) < 2 || fields[0] != "/rekit" || fields[1] != "plan-subagents" {
+		t.Fatalf("unexpected reviewer primary command: %q", command)
+	}
+	args := append([]string{"-Command", fields[1]}, baseArgs...)
+	return append(args, fields[2:]...)
+}
+
+func splitReviewerPrimaryCommand(t *testing.T, command string) []string {
+	t.Helper()
+	command = strings.TrimSpace(command)
+	if command == "" {
+		t.Fatal("empty reviewer primary command")
+	}
+	fields := []string{}
+	var current strings.Builder
+	inQuote := false
+	inField := false
+	for i := 0; i < len(command); i++ {
+		ch := command[i]
+		if inQuote {
+			inField = true
+			if ch == '\\' && i+1 < len(command) && command[i+1] == '"' {
+				current.WriteByte('"')
+				i++
+				continue
+			}
+			if ch == '"' {
+				inQuote = false
+				continue
+			}
+			current.WriteByte(ch)
+			continue
+		}
+		switch ch {
+		case ' ', '\t', '\n', '\r':
+			if inField {
+				fields = append(fields, current.String())
+				current.Reset()
+				inField = false
+			}
+		case '"':
+			inQuote = true
+			inField = true
+		default:
+			inField = true
+			current.WriteByte(ch)
+		}
+	}
+	if inQuote {
+		t.Fatalf("unterminated quote in reviewer primary command: %q", command)
+	}
+	if inField {
+		fields = append(fields, current.String())
+	}
+	return fields
 }
 
 func planSubagentsCLIArgs(baseArgs []string, extra ...string) []string {
@@ -1605,22 +1697,25 @@ func planSubagentsCLIArgs(baseArgs []string, extra ...string) []string {
 }
 
 type reviewerBatchIntakeCLIResult struct {
-	Command         string                    `json:"command"`
-	Mode            string                    `json:"mode"`
-	CaseRoot        string                    `json:"caseRoot"`
-	Pack            string                    `json:"pack"`
-	IsMutation      bool                      `json:"isMutation"`
-	Applied         bool                      `json:"applied"`
-	Total           int                       `json:"total"`
-	Ready           int                       `json:"ready"`
-	Waiting         int                       `json:"waiting"`
-	Processed       int                       `json:"processed"`
-	Completed       int                       `json:"completed"`
-	AlreadyComplete int                       `json:"alreadyComplete"`
-	Stopped         bool                      `json:"stopped"`
-	StopShardID     string                    `json:"stopShardId"`
-	StopReason      string                    `json:"stopReason"`
-	Results         []reviewerIntakeCLIResult `json:"results"`
+	Command                     string                              `json:"command"`
+	Mode                        string                              `json:"mode"`
+	CaseRoot                    string                              `json:"caseRoot"`
+	Pack                        string                              `json:"pack"`
+	IsMutation                  bool                                `json:"isMutation"`
+	Applied                     bool                                `json:"applied"`
+	Total                       int                                 `json:"total"`
+	Ready                       int                                 `json:"ready"`
+	Waiting                     int                                 `json:"waiting"`
+	Processed                   int                                 `json:"processed"`
+	Completed                   int                                 `json:"completed"`
+	AlreadyComplete             int                                 `json:"alreadyComplete"`
+	Stopped                     bool                                `json:"stopped"`
+	StopShardID                 string                              `json:"stopShardId"`
+	StopReason                  string                              `json:"stopReason"`
+	Results                     []reviewerIntakeCLIResult           `json:"results"`
+	MissionCommanderAction      missionCommanderActionSnapshot      `json:"missionCommanderAction"`
+	MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
+	MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
 }
 
 func decodeReviewerBatchIntakeResult(t *testing.T, data []byte) reviewerBatchIntakeCLIResult {

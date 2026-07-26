@@ -162,6 +162,9 @@ func TestIntakeReadyReviewerResultsPreviewsAndAppliesAllReadyShards(t *testing.T
 	if preview.Mode != "reviewer-batch-intake" || preview.IsMutation || preview.Applied || preview.Total != 2 || preview.Ready != 2 || preview.Waiting != 0 || preview.Processed != 2 || preview.Stopped || len(preview.Results) != 2 || preview.Results[0].WritebackStatus != "previewed" || preview.Results[1].WritebackStatus != "previewed" {
 		t.Fatalf("unexpected reviewer batch preview: %+v", preview)
 	}
+	if preview.MissionCommanderAction.State != "ready-for-reviewer-batch-intake-apply-after-preview" || !strings.Contains(preview.MissionCommanderAction.PrimaryCommand, "-ReadyReviewerResults") || !strings.Contains(preview.MissionCommanderAction.PrimaryCommand, "-Apply -Format json") || len(preview.MissionCommanderNextActions) != 1 || preview.MissionCommanderActionQueue.CurrentAction == nil || preview.MissionCommanderActionQueue.CurrentAction.Command != preview.MissionCommanderAction.PrimaryCommand {
+		t.Fatalf("reviewer batch preview omitted Mission Commander apply handoff: action=%+v next=%+v queue=%+v", preview.MissionCommanderAction, preview.MissionCommanderNextActions, preview.MissionCommanderActionQueue)
+	}
 	if got := readOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl")); got != "" {
 		t.Fatalf("reviewer batch WhatIf wrote verification ledger:\n%s", got)
 	}
@@ -172,6 +175,9 @@ func TestIntakeReadyReviewerResultsPreviewsAndAppliesAllReadyShards(t *testing.T
 	}
 	if !applied.IsMutation || !applied.Applied || applied.Processed != 2 || applied.Completed != 2 || applied.AlreadyComplete != 0 || applied.Stopped || len(applied.Results) != 2 || applied.Results[0].WritebackStatus != "complete" || applied.Results[1].WritebackStatus != "complete" {
 		t.Fatalf("unexpected reviewer batch apply: %+v", applied)
+	}
+	if applied.MissionCommanderAction.State != "reviewer-batch-intake-writeback-complete" || len(applied.MissionCommanderNextActions) == 0 || applied.MissionCommanderActionQueue.CurrentAction == nil || !strings.HasPrefix(applied.MissionCommanderActionQueue.CurrentAction.Source, "reviewerBatchIntake.reviewerIntake.postValidation.") {
+		t.Fatalf("reviewer batch apply omitted post-validation Mission Commander handoff: action=%+v next=%+v queue=%+v", applied.MissionCommanderAction, applied.MissionCommanderNextActions, applied.MissionCommanderActionQueue)
 	}
 	if got := strings.Count(readOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl")), `"shardId"`); got != 2 {
 		t.Fatalf("verification shard writeback count = %d, want 2", got)
@@ -186,6 +192,9 @@ func TestIntakeReadyReviewerResultsPreviewsAndAppliesAllReadyShards(t *testing.T
 	}
 	if replay.Processed != 2 || replay.Completed != 0 || replay.AlreadyComplete != 2 || replay.Applied || replay.Stopped {
 		t.Fatalf("reviewer batch replay was not idempotent: %+v", replay)
+	}
+	if replay.MissionCommanderAction.State != "reviewer-batch-intake-writeback-complete" || replay.MissionCommanderActionQueue.CurrentAction == nil || !strings.HasPrefix(replay.MissionCommanderActionQueue.CurrentAction.Source, "reviewerBatchIntake.reviewerIntake.postValidation.") {
+		t.Fatalf("reviewer batch replay omitted already-complete post-validation handoff: action=%+v queue=%+v", replay.MissionCommanderAction, replay.MissionCommanderActionQueue)
 	}
 }
 

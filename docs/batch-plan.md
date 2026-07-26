@@ -16,6 +16,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 647：reviewer batch intake runtime-command handoff closure
+
+状态：已完成 reviewer batch intake Mission Commander runtime envelope、CLI text projection、source capture → staging → collection → batch intake primaryCommand relay E2E、focused reviewer intake regressions 与完整本机 `release-run` release minimum；implementation commit/push 与 push-triggered remote release-gate inspection 待执行。
+
+目标：继续执行端到端能力闭环约束，转向 reviewer orchestration 在结果收集后的 replacement executor 接手断点。现有 source capture、staging 与 collection 已能返回 Mission Commander action/queue，但 packet-level `-ReadyReviewerResults` 仍主要依赖 `NextSteps` 与测试中的手工 flag 拼装；replacement executor 在 collection Apply 后需要直接消费 runtime 返回的 canonical batch preview/apply command，并在 preview/apply/replay 中看到 batch-level current action、next actions 与 action queue，避免会话中断后重新手拼 `-ReadyReviewerResults` 或把 already-complete replay 误读成新写入。
+
+已实现内容：`ReviewerBatchIntakeResult` 新增 `MissionCommanderAction`、`MissionCommanderNextActions` 与 `MissionCommanderActionQueue`，`IntakeReadyReviewerResults` 的 preview、Apply、blocked/stopped、already-complete 与 zero-write replay 路径统一经 `finalizeReviewerBatchIntakeResult` 生成 batch-level handoff。新增 canonical reviewer batch command helper，保持 `-PacketPath` / `-Lane` / `-Actor` / `-WhatIf|Apply` / `-Format json` quoting 一致；CLI text 输出同步打印 reviewer batch intake commander action、Mission Commander action queue 与 next actions。CLI product-path 测试现在从 runtime `MissionCommanderAction.PrimaryCommand` 串接 source capture、staging、collection 与 batch intake，并支持 `already-captured` exact replay 直接进入 staging preview；package/CLI regression 锁定 batch preview 的 `ready-for-reviewer-batch-intake-apply-after-preview`、Apply 的 `reviewer-batch-intake-writeback-complete`、replay 的 zero-write writeback-complete 与 post-validation action queue。
+
+边界：本批不新增 public command，不改变 reviewer packet/result schema，不自动 spawn/monitor reviewer，不自动 continue lane，不写 authority/confirmed，不执行 heavy tool，不新增 PowerShell runtime logic；唯一新增能力是把既有 reviewer source capture → staging → collection → ready-results intake product path 收敛到 runtime 返回的 canonical Mission Commander handoff，并锁定 replay 为 zero-write / already-complete 接手语义。
+
+验证结果：完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，其中 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步均通过，返回 `ready=true` / `summary=release run ok`，聚合 `passed=7 failed=0 skipped=0`，`go test ./... attempts=1`，仅 `git diff --check` 保留 Windows 工作树 LF→CRLF 提示；release inspection 仍需在 clean implementation commit/push 后记录 push-triggered remote run。
+
 ### Batch 646：pack-memory proof draft already-drafted replay handoff closure
 
 状态：已完成 runtime replay envelope 修正、focused pack-memory proof draft replay tests、case-local pack-memory CLI product-path regression、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `b42f396` 已推送。Push run `30223494839` completed failure，Linux/macOS/Windows jobs `89849853906`/`89849853915`/`89849853917` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。

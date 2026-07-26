@@ -122,29 +122,32 @@ type ReviewerPacketAdoptionResult struct {
 }
 
 type ReviewerBatchIntakeResult struct {
-	SchemaVersion   int                    `json:"schemaVersion"`
-	Command         string                 `json:"command"`
-	Mode            string                 `json:"mode"`
-	CaseRoot        string                 `json:"caseRoot"`
-	RepoRoot        string                 `json:"repoRoot"`
-	Pack            string                 `json:"pack"`
-	IsMutation      bool                   `json:"isMutation"`
-	Applied         bool                   `json:"applied"`
-	PacketPath      string                 `json:"packetPath"`
-	Lane            string                 `json:"lane"`
-	Actor           string                 `json:"actor"`
-	Total           int                    `json:"total"`
-	Ready           int                    `json:"ready"`
-	Waiting         int                    `json:"waiting"`
-	Processed       int                    `json:"processed"`
-	Completed       int                    `json:"completed"`
-	AlreadyComplete int                    `json:"alreadyComplete"`
-	Stopped         bool                   `json:"stopped"`
-	StopShardID     string                 `json:"stopShardId,omitempty"`
-	StopReason      string                 `json:"stopReason,omitempty"`
-	Results         []ReviewerIntakeResult `json:"results"`
-	NextSteps       []string               `json:"nextSteps"`
-	Boundary        []string               `json:"boundary"`
+	SchemaVersion               int                                      `json:"schemaVersion"`
+	Command                     string                                   `json:"command"`
+	Mode                        string                                   `json:"mode"`
+	CaseRoot                    string                                   `json:"caseRoot"`
+	RepoRoot                    string                                   `json:"repoRoot"`
+	Pack                        string                                   `json:"pack"`
+	IsMutation                  bool                                     `json:"isMutation"`
+	Applied                     bool                                     `json:"applied"`
+	PacketPath                  string                                   `json:"packetPath"`
+	Lane                        string                                   `json:"lane"`
+	Actor                       string                                   `json:"actor"`
+	Total                       int                                      `json:"total"`
+	Ready                       int                                      `json:"ready"`
+	Waiting                     int                                      `json:"waiting"`
+	Processed                   int                                      `json:"processed"`
+	Completed                   int                                      `json:"completed"`
+	AlreadyComplete             int                                      `json:"alreadyComplete"`
+	Stopped                     bool                                     `json:"stopped"`
+	StopShardID                 string                                   `json:"stopShardId,omitempty"`
+	StopReason                  string                                   `json:"stopReason,omitempty"`
+	Results                     []ReviewerIntakeResult                   `json:"results"`
+	NextSteps                   []string                                 `json:"nextSteps"`
+	MissionCommanderAction      mission.MissionCommanderAction           `json:"missionCommanderAction"`
+	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
+	Boundary                    []string                                 `json:"boundary"`
 }
 
 type ReviewerIntakeResult struct {
@@ -521,31 +524,32 @@ func IntakeReadyReviewerResults(repoRoot, caseRoot, pack string, opt ReviewerBat
 			"runtime does not spawn or monitor reviewers, execute heavy tools, or write authority/confirmed state",
 		},
 	}
+shardLoop:
 	for _, handoff := range packet.ShardHandoffs {
 		resultPath, err := requiredAbsolutePath(handoff.ReviewerResultPath, "reviewer result")
 		if err != nil {
-			return result, err
+			return finalizeReviewerBatchIntakeResult(result), err
 		}
 		if !pathInside(packet.ReviewerOrchestration.ResultRoot, resultPath) {
-			return result, fmt.Errorf("reviewer batch intake result path %q for shard %s is outside packet resultRoot %q", resultPath, handoff.ShardID, packet.ReviewerOrchestration.ResultRoot)
+			return finalizeReviewerBatchIntakeResult(result), fmt.Errorf("reviewer batch intake result path %q for shard %s is outside packet resultRoot %q", resultPath, handoff.ShardID, packet.ReviewerOrchestration.ResultRoot)
 		}
 		fileState, err := refsf.ClassifyNonEmptyRegularFile(resultPath)
 		if err != nil {
-			return result, err
+			return finalizeReviewerBatchIntakeResult(result), err
 		}
 		switch fileState {
 		case refsf.RegularFileMissing, refsf.RegularFileWaiting:
 			result.Waiting++
 			continue
 		case refsf.RegularFileSymlink:
-			return result, fmt.Errorf("reviewer batch intake result path %q for shard %s must not be a symlink", resultPath, handoff.ShardID)
+			return finalizeReviewerBatchIntakeResult(result), fmt.Errorf("reviewer batch intake result path %q for shard %s must not be a symlink", resultPath, handoff.ShardID)
 		}
 		if err := ensureReviewerResultCollectedForIntake(caseRoot, packet, packetPath, handoff, resultPath); err != nil {
 			result.Stopped = true
 			result.StopShardID = handoff.ShardID
 			result.StopReason = err.Error()
 			result.NextSteps = []string{"publish the packet-derived reviewer result candidate via staging and collection before rerunning batch intake"}
-			return result, err
+			return finalizeReviewerBatchIntakeResult(result), err
 		}
 		result.Ready++
 		intake, intakeErr := IntakeReviewerResult(repoRoot, caseRoot, pack, ReviewerIntakeOptions{
@@ -556,28 +560,35 @@ func IntakeReadyReviewerResults(repoRoot, caseRoot, pack string, opt ReviewerBat
 			Actor:              actor,
 			WhatIf:             opt.WhatIf,
 		})
-		if intake.WritebackStatus != "" {
+		writebackStatus := strings.TrimSpace(intake.WritebackStatus)
+		switch writebackStatus {
+		case "":
+		case "complete":
 			result.Results = append(result.Results, intake)
 			result.Processed++
-			if intake.WritebackStatus == "complete" {
-				result.Completed++
-				result.Applied = result.Applied || intake.Applied
-			} else if intake.WritebackStatus == "already-complete" {
-				result.AlreadyComplete++
-			}
+			result.Completed++
+			result.Applied = result.Applied || intake.Applied
+		case "already-complete":
+			result.Results = append(result.Results, intake)
+			result.Processed++
+			result.AlreadyComplete++
+		default:
+			result.Results = append(result.Results, intake)
+			result.Processed++
 		}
 		if intakeErr != nil {
 			result.Stopped = true
 			result.StopShardID = handoff.ShardID
 			result.StopReason = intakeErr.Error()
 			result.NextSteps = []string{"repair or retry the stop shard using its strict single-result intake handoff before rerunning batch intake"}
-			return result, intakeErr
+			return finalizeReviewerBatchIntakeResult(result), intakeErr
 		}
-		if intake.WritebackStatus == "blocked" || intake.WritebackStatus == "event-id-collision" || intake.WritebackStatus == "verification-recorded" || intake.WritebackStatus == "complete-post-validation-failed" {
+		switch writebackStatus {
+		case "blocked", "event-id-collision", "verification-recorded", "complete-post-validation-failed":
 			result.Stopped = true
 			result.StopShardID = handoff.ShardID
-			result.StopReason = "reviewer intake stopped with writebackStatus=" + intake.WritebackStatus
-			break
+			result.StopReason = "reviewer intake stopped with writebackStatus=" + writebackStatus
+			break shardLoop
 		}
 	}
 	if result.Ready == 0 {
@@ -591,7 +602,100 @@ func IntakeReadyReviewerResults(repoRoot, caseRoot, pack string, opt ReviewerBat
 	} else {
 		result.NextSteps = []string{"consume the final shard postValidation and downstream reviewer writeback handoff before continuing the lane"}
 	}
-	return result, nil
+	return finalizeReviewerBatchIntakeResult(result), nil
+}
+
+func finalizeReviewerBatchIntakeResult(result ReviewerBatchIntakeResult) ReviewerBatchIntakeResult {
+	action := reviewerBatchIntakeMissionCommanderAction(result)
+	result.MissionCommanderAction = action
+	result.MissionCommanderNextActions = reviewerBatchIntakeMissionCommanderNextActions(result, action)
+	result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
+	return result
+}
+
+func reviewerBatchIntakeMissionCommanderAction(result ReviewerBatchIntakeResult) mission.MissionCommanderAction {
+	previewCommand := reviewerPacketBatchPreviewCommand(result.PacketPath, result.Lane, result.Actor)
+	applyCommand := reviewerPacketBatchApplyCommand(result.PacketPath, result.Lane, result.Actor)
+	boundary := append([]string{}, result.Boundary...)
+	if result.Stopped {
+		return mission.MissionCommanderAction{State: "reviewer-batch-intake-stopped", PrimaryCommand: previewCommand, Boundary: append(boundary, "repair the stop shard before applying or continuing")}
+	}
+	if result.Ready == 0 || result.Waiting > 0 {
+		return mission.MissionCommanderAction{State: "ready-for-reviewer-batch-intake-preview", PrimaryCommand: previewCommand, Boundary: boundary}
+	}
+	allPreviewed := result.Processed > 0
+	for _, item := range result.Results {
+		if strings.TrimSpace(item.WritebackStatus) != "previewed" {
+			allPreviewed = false
+			break
+		}
+	}
+	if allPreviewed {
+		return mission.MissionCommanderAction{State: "ready-for-reviewer-batch-intake-apply-after-preview", PrimaryCommand: applyCommand, Boundary: append(boundary, "apply only after inspecting every previewed shard and cited evidenceRefs")}
+	}
+	if result.Completed > 0 || result.AlreadyComplete > 0 {
+		if primary, followUp := reviewerBatchIntakePostValidationCommands(result); primary != "" {
+			return mission.MissionCommanderAction{State: "reviewer-batch-intake-writeback-complete", PrimaryCommand: primary, FollowUpCommands: followUp, Boundary: boundary}
+		}
+	}
+	return mission.MissionCommanderAction{State: "ready-for-reviewer-batch-intake-preview", PrimaryCommand: previewCommand, Boundary: boundary}
+}
+
+func reviewerBatchIntakeMissionCommanderNextActions(result ReviewerBatchIntakeResult, action mission.MissionCommanderAction) []mission.MissionCommanderNextActionItem {
+	if action.State == "reviewer-batch-intake-writeback-complete" {
+		if items := reviewerBatchIntakePostValidationNextActions(result); len(items) > 0 {
+			return mission.UniqueCommanderNextActions(items)
+		}
+	}
+	items := []mission.MissionCommanderNextActionItem{}
+	blocked := result.Stopped
+	requiresReview := true
+	if action.State == "reviewer-batch-intake-writeback-complete" {
+		requiresReview = false
+	}
+	if action.PrimaryCommand != "" {
+		items = append(items, mission.MissionCommanderNextActionItem{Lane: result.Lane, Label: filepath.Base(result.PacketPath), State: action.State, Command: action.PrimaryCommand, Source: "reviewerBatchIntake", Blocked: blocked, RequiresReview: requiresReview, Reasons: append([]string{}, result.NextSteps...), Boundary: append([]string{}, action.Boundary...)})
+	}
+	for _, command := range action.FollowUpCommands {
+		items = append(items, mission.MissionCommanderNextActionItem{Lane: result.Lane, Label: filepath.Base(result.PacketPath), State: action.State, Command: command, Source: "reviewerBatchIntake.followUp", Blocked: blocked, RequiresReview: requiresReview, Reasons: append(append([]string{}, result.NextSteps...), "follow-up is available only after the reviewer batch intake primary action is satisfied"), Boundary: append([]string{}, action.Boundary...)})
+	}
+	return mission.UniqueCommanderNextActions(items)
+}
+
+func reviewerBatchIntakePostValidationNextActions(result ReviewerBatchIntakeResult) []mission.MissionCommanderNextActionItem {
+	for i := len(result.Results) - 1; i >= 0; i-- {
+		item := result.Results[i]
+		status := strings.TrimSpace(item.WritebackStatus)
+		if status != "complete" && status != "already-complete" {
+			continue
+		}
+		items := reviewerIntakePostValidationNextActions(item)
+		if len(items) == 0 {
+			continue
+		}
+		out := make([]mission.MissionCommanderNextActionItem, 0, len(items))
+		for _, next := range items {
+			copyItem := next
+			copyItem.Source = "reviewerBatchIntake." + textOr(next.Source, "postValidation")
+			copyItem.Reasons = append([]string{"reviewer batch intake processed packet ready results; consume the latest shard postValidation handoff"}, next.Reasons...)
+			out = append(out, copyItem)
+		}
+		return out
+	}
+	return nil
+}
+
+func reviewerBatchIntakePostValidationCommands(result ReviewerBatchIntakeResult) (string, []string) {
+	items := reviewerBatchIntakePostValidationNextActions(result)
+	if len(items) == 0 {
+		return "", nil
+	}
+	primary := items[0].Command
+	followUp := []string{}
+	for _, item := range items[1:] {
+		followUp = append(followUp, item.Command)
+	}
+	return primary, mission.UniqueStrings(followUp)
 }
 
 func ensureReviewerResultCollectedForIntake(caseRoot string, packet Packet, packetPath string, handoff ShardHandoff, resultPath string) error {
@@ -1647,7 +1751,19 @@ func reviewerPacketAdoptionCommand(packetPath, lane, actor, reason string, apply
 }
 
 func reviewerPacketBatchPreviewCommand(packetPath, lane, actor string) string {
-	return strings.Join([]string{"/rekit", "plan-subagents", "-PacketPath", quoteReviewerCommandArg(packetPath), "-ReadyReviewerResults", "-Lane", quoteReviewerCommandArg(lane), "-Actor", quoteReviewerCommandArg(actor), "-WhatIf", "-Format", "json"}, " ")
+	return reviewerPacketBatchCommand(packetPath, lane, actor, false)
+}
+
+func reviewerPacketBatchApplyCommand(packetPath, lane, actor string) string {
+	return reviewerPacketBatchCommand(packetPath, lane, actor, true)
+}
+
+func reviewerPacketBatchCommand(packetPath, lane, actor string, apply bool) string {
+	mode := "-WhatIf"
+	if apply {
+		mode = "-Apply"
+	}
+	return strings.Join([]string{"/rekit", "plan-subagents", "-PacketPath", quoteReviewerCommandArg(packetPath), "-ReadyReviewerResults", "-Lane", quoteReviewerCommandArg(lane), "-Actor", quoteReviewerCommandArg(actor), mode, "-Format", "json"}, " ")
 }
 
 func quoteReviewerCommandArg(value string) string {

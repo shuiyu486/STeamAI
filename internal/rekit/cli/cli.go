@@ -1264,7 +1264,7 @@ func releaseRunInspectionNextActions(git releaseRunInspectionGitState, latest re
 
 func nonEmptyLines(text string) []string {
 	lines := []string{}
-	for _, line := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
 		line = strings.TrimSpace(line)
 		if line != "" {
 			lines = append(lines, line)
@@ -8061,7 +8061,13 @@ func writePlanSubagentsReviewerBatchIntakeText(out io.Writer, result subagents.R
 			return err
 		}
 	}
-	return nil
+	if err := writeMissionCommanderActionText(out, "reviewer batch intake commander action", mission.ExecutorAction{MissionCommanderAction: result.MissionCommanderAction}); err != nil {
+		return err
+	}
+	if err := writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue); err != nil {
+		return err
+	}
+	return writeMissionCommanderNextActionsText(out, result.MissionCommanderNextActions)
 }
 
 func writePlanSubagentsReviewerIntakeText(out io.Writer, result subagents.ReviewerIntakeResult) error {
