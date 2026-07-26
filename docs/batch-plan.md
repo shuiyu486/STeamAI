@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 631：reviewer result recovery ambiguous disposition product-path closure
 
-状态：已完成 runtime/test/doc 工作树实现、focused reviewer result recovery/disposition case-local E2E 与完整本机 `release-run` release minimum；implementation commit/push 与 push-triggered remote release-gate inspection 待执行。
+状态：已完成 runtime/test/doc 工作树实现、focused reviewer result recovery/disposition case-local E2E、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `a30fded` 已推送。Push run `30213133435` completed failure，Windows/macOS/Linux jobs `89822634898`/`89822634916`/`89822634928` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。
 
 目标：继续执行 Batch 630 后的“端到端能力闭环”硬约束，覆盖 reviewer result recovery 的另一个真实恢复分支。现有 runtime 已有 `RetireAmbiguousReviewerResultRecovery` 和 workstream `reviewer-result-recovery-ambiguous` handoff；当 recovery intent/quarantine 存在但 receipt 缺失、canonical reviewer result 又被人工恢复为 candidate bytes 时，replacement executor 需要从 `status` 得到 disposition preview，运行 hash-bound disposition Apply，然后恢复 collection/ready reviewer intake。
 
@@ -26,7 +26,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：本批不改变 reviewer recovery/disposition runtime 语义，不新增 public command，不自动 disposition、不自动 collection/intake，不覆盖 candidate/canonical result，不删除 intent/quarantine，不写 facts/ledger/authority/confirmed，不 spawn/monitor reviewer，不执行 heavy tool，不新增 PowerShell runtime logic。
 
-验证结果：focused `go test ./internal/rekit/cli -run "TestRunPlanSubagentsReviewerResult(ObstructionRecovery|RecoveryDisposition)CaseLocalE2E"` 已通过；完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，返回 `ready=true` / `summary=release run ok`，聚合执行 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步，`passed=7 failed=0 skipped=0`；本次 `go test ./...` step 为 `attempts=1`，未触发 cleanup-lock retry；`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。implementation commit/push 与 remote release-gate inspection 待执行。
+验证结果：focused `go test ./internal/rekit/cli -run "TestRunPlanSubagentsReviewerResult(ObstructionRecovery|RecoveryDisposition)CaseLocalE2E"` 已通过；release-handoff parser regression `go test ./internal/rekit/cli -run "TestRunStatusJsonKit|TestRunReleaseCheckJsonInventory|TestRunReleaseCheckTextInventory|TestRunReleaseRunIncludesReleaseInspectionHandoff"` 已通过；完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，返回 `ready=true` / `summary=release run ok`，聚合执行 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步，`passed=7 failed=0 skipped=0`；本次 `go test ./...` step 为 `attempts=1`，未触发 cleanup-lock retry；`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。implementation commit `a30fded` 已推送。Push-triggered release-gate run `30213133435` completed failure，Windows/macOS/Linux jobs `89822634898`/`89822634916`/`89822634928` 均为既有 `steps=[]` / runner/billing blocker，不能声明 remote CI green。
 
 ### Batch 630：reviewer result recovery crash-resume product-path closure
 
