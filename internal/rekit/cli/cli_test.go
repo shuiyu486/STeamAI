@@ -3341,6 +3341,101 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 	assertSnapshotEqual(t, beforeContinuePreview, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 
 	out.Reset()
+	if err := Run([]string{"-Command", "continue", "main", "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var mainContinueApply struct {
+		Command              string    `json:"command"`
+		CaseRoot             string    `json:"caseRoot"`
+		Pack                 string    `json:"pack"`
+		IsMutation           bool      `json:"isMutation"`
+		Applied              bool      `json:"applied"`
+		RequiresConfirmation bool      `json:"requiresConfirmation"`
+		Selector             string    `json:"selector"`
+		Lane                 startLane `json:"lane"`
+		RunID                string    `json:"runId"`
+		BatchID              string    `json:"batchId"`
+		Blocked              bool      `json:"blocked"`
+		Summary              struct {
+			Collected int `json:"collected"`
+		} `json:"summary"`
+		ExecutorAction              executorActionSnapshot              `json:"executorAction"`
+		BlockedActions              []string                            `json:"blockedActions"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		Writes                      []startWrite                        `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &mainContinueApply); err != nil {
+		t.Fatalf("installed entrypoint main continue apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	mainApplyAction := mainContinueApply.MissionCommanderActionQueue.CurrentAction
+	if mainContinueApply.Command != "continue" || mainContinueApply.CaseRoot != caseRoot || mainContinueApply.Pack != "_template" || !mainContinueApply.IsMutation || !mainContinueApply.Applied || mainContinueApply.RequiresConfirmation || mainContinueApply.Selector != "main" || mainContinueApply.Lane.ID != "main" || mainContinueApply.RunID == "" || mainContinueApply.RunID == "run-preview" || mainContinueApply.BatchID != "batch-"+mainContinueApply.RunID || mainContinueApply.Blocked || mainContinueApply.Summary.Collected != 0 || !mainContinueApply.ExecutorAction.Ready || mainContinueApply.ExecutorAction.Blocked || mainContinueApply.ExecutorAction.ResumeCommand != "/rekit continue main" || mainContinueApply.ExecutorAction.HandoffCommand != "/rekit handoff main" || mainApplyAction == nil || mainApplyAction.State != "ready-to-continue" || mainApplyAction.Command != "/rekit continue main" || !containsSubstring(mainContinueApply.BlockedActions, "authority/confirmed writes") || !containsSubstring(mainContinueApply.BlockedActions, "heavy-tool execution") {
+		t.Fatalf("unexpected installed entrypoint main continue apply: apply=%+v current=%+v", mainContinueApply, mainApplyAction)
+	}
+	mainResumePath := assertStartWrite(t, mainContinueApply.Writes, ".rekit/lanes/main/prompts/RESUME.md", "refresh").TargetPath
+	mainCheckpointPath := assertStartWrite(t, mainContinueApply.Writes, ".rekit/lanes/main/checkpoints/latest.json", "refresh").TargetPath
+	assertStartWrite(t, mainContinueApply.Writes, ".rekit/board.json", "refresh")
+	mainStatusPath := assertStartWrite(t, mainContinueApply.Writes, ".rekit/runs/"+mainContinueApply.RunID+"/status.json", "write").TargetPath
+	mainDigestPath := assertStartWrite(t, mainContinueApply.Writes, ".rekit/runs/"+mainContinueApply.RunID+"/digest.md", "write").TargetPath
+
+	mainResume, err := os.ReadFile(mainResumePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainDigest, err := os.ReadFile(mainDigestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for label, text := range map[string]string{"main RESUME": string(mainResume), "main continue digest": string(mainDigest)} {
+		for _, expected := range []string{"## Executor action snapshot", "- ready: `true`", "- resume command: `/rekit continue main`", "- handoff command: `/rekit handoff main`", "Mission Commander action queue", "command=`/rekit continue main`"} {
+			if !strings.Contains(text, expected) {
+				t.Fatalf("installed entrypoint %s omitted durable main handoff %q:\n%s", label, expected, text)
+			}
+		}
+	}
+	mainStatusBytes, err := os.ReadFile(mainStatusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mainRunStatus struct {
+		RunID   string `json:"runId"`
+		BatchID string `json:"batchId"`
+		Summary struct {
+			Collected int `json:"collected"`
+		} `json:"summary"`
+		ExecutorAction              executorActionSnapshot              `json:"executorAction"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(mainStatusBytes, &mainRunStatus); err != nil {
+		t.Fatalf("installed entrypoint main continue status did not decode: %v\n%s", err, string(mainStatusBytes))
+	}
+	if mainRunStatus.RunID != mainContinueApply.RunID || mainRunStatus.BatchID != mainContinueApply.BatchID || mainRunStatus.Summary.Collected != 0 || !mainRunStatus.ExecutorAction.Ready || mainRunStatus.ExecutorAction.Blocked || mainRunStatus.MissionCommanderActionQueue.CurrentAction == nil || mainRunStatus.MissionCommanderActionQueue.CurrentAction.Command != "/rekit continue main" {
+		t.Fatalf("installed entrypoint main continue status omitted current handoff: %+v", mainRunStatus)
+	}
+	mainCheckpointBytes, err := os.ReadFile(mainCheckpointPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mainCheckpoint struct {
+		Lane                        string                              `json:"lane"`
+		Workspace                   string                              `json:"workspace"`
+		ExecutorAction              executorActionSnapshot              `json:"executorAction"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		Resume                      string                              `json:"resume"`
+	}
+	if err := json.Unmarshal(mainCheckpointBytes, &mainCheckpoint); err != nil {
+		t.Fatalf("installed entrypoint main checkpoint did not decode: %v\n%s", err, string(mainCheckpointBytes))
+	}
+	if mainCheckpoint.Lane != "main" || mainCheckpoint.Workspace != filepath.ToSlash(mainContinueApply.Lane.Workspace) || mainCheckpoint.Workspace != "workspace/main/main" || mainCheckpoint.Resume != ".rekit/lanes/main/prompts/RESUME.md" || !mainCheckpoint.ExecutorAction.Ready || mainCheckpoint.ExecutorAction.Blocked || mainCheckpoint.ExecutorAction.MissionCommanderAction.PrimaryCommand != "/rekit continue main" || mainCheckpoint.MissionCommanderActionQueue.CurrentAction == nil || mainCheckpoint.MissionCommanderActionQueue.CurrentAction.Command != "/rekit continue main" {
+		t.Fatalf("installed entrypoint main checkpoint omitted current handoff: %+v", mainCheckpoint)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("installed entrypoint main continue wrote authority ledger or stat failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("installed entrypoint main continue wrote confirmed ledger or stat failed: %v", err)
+	}
+
+	out.Reset()
 	if err := Run([]string{"-Command", "start", "-Name", "login", "-Apply", "-Executor", "installed-session", "-Actor", "mission-commander", "-Reason", "installed entrypoint replacement executor handoff"}, &out); err != nil {
 		t.Fatal(err)
 	}
