@@ -360,7 +360,7 @@ func MissionCommanderNextActions(actions []LaneExecutorActionSnapshot, evidenceR
 		}
 		blocked := item.ExecutorAction.Blocked
 		requiresReview := item.ExecutorAction.Blocked
-		if action.State == "needs-reconcile" && strings.Contains(action.PrimaryCommand, " -WhatIf") {
+		if (action.State == "needs-reconcile" || action.State == "needs-gate-decision") && strings.Contains(action.PrimaryCommand, " -WhatIf") {
 			blocked = false
 			requiresReview = true
 		}
@@ -642,7 +642,8 @@ func LaneExecutorAction(lane Lane, facts Facts, brief Brief) ExecutorAction {
 	label := laneCommandLabel(lane)
 	laneFacts := LaneFacts(facts, lane.ID)
 	openInterventionItems := EffectiveOpenInterventions(laneFacts.Interventions)
-	pendingGates := len(FilterLane(laneFacts.Requests, lane.ID, "pending-gate"))
+	pendingGateItems := FilterLane(laneFacts.Requests, lane.ID, "pending-gate")
+	pendingGates := len(pendingGateItems)
 	openInterventions := len(openInterventionItems)
 	openDecisions := len(OpenDecisionItems(laneFacts))
 	reasons := []string{}
@@ -671,7 +672,7 @@ func LaneExecutorAction(lane Lane, facts Facts, brief Brief) ExecutorAction {
 		HandoffCommand:         "/rekit handoff " + label,
 		NextAgentActions:       LaneExecutorNextActions(label, ready, pendingGates, openInterventions, openDecisions),
 		Escalations:            LaneExecutorEscalations(pendingGates, openInterventions, openDecisions),
-		MissionCommanderAction: LaneMissionCommanderActionForLane(label, lane.ID, lane.Status, ready, pendingGates, openInterventionItems, openDecisions),
+		MissionCommanderAction: LaneMissionCommanderActionForLane(label, lane.ID, lane.Status, ready, pendingGateItems, openInterventionItems, openDecisions),
 	}
 }
 
@@ -710,11 +711,12 @@ func LaneExecutorEscalations(pendingGates, openInterventions, openDecisions int)
 }
 
 func LaneMissionCommanderAction(label, laneID, status string, ready bool, pendingGates, openInterventions, openDecisions int) MissionCommanderAction {
-	items := make([]map[string]any, max(openInterventions, 0))
-	return LaneMissionCommanderActionForLane(label, laneID, status, ready, pendingGates, items, openDecisions)
+	pendingGateItems := make([]map[string]any, max(pendingGates, 0))
+	interventionItems := make([]map[string]any, max(openInterventions, 0))
+	return LaneMissionCommanderActionForLane(label, laneID, status, ready, pendingGateItems, interventionItems, openDecisions)
 }
 
-func LaneMissionCommanderActionForLane(label, laneID, status string, ready bool, pendingGates int, openInterventions []map[string]any, openDecisions int) MissionCommanderAction {
+func LaneMissionCommanderActionForLane(label, laneID, status string, ready bool, pendingGateItems []map[string]any, openInterventions []map[string]any, openDecisions int) MissionCommanderAction {
 	label = strings.TrimSpace(label)
 	if label == "" {
 		label = "main"
@@ -755,11 +757,26 @@ func LaneMissionCommanderActionForLane(label, laneID, status string, ready bool,
 		action.Boundary = append(action.Boundary, "multiple or unidentified open interventions require handoff review before selecting a concrete eventId")
 		return action
 	}
-	if pendingGates > 0 {
+	if len(pendingGateItems) > 0 {
 		action.State = "needs-gate-decision"
-		action.Prompt = fmt.Sprintf("按 `%s` 接手，先处理 pending-gate；gate 只记录授权决策，不执行 heavy-tool。", label)
+		action.Prompt = fmt.Sprintf("按 `%s` 接手，先 review concrete gate preview，再写入 pending-gate decision。", label)
+		gateActions := pendingGatePreviewActions(pendingGateItems)
+		if len(pendingGateItems) == 1 && len(gateActions) == 1 {
+			gateAction := gateActions[0]
+			action.PrimaryCommand = "/rekit gate " + quoteCommandArg(gateAction) + " -Lane " + gateLane + " -WhatIf"
+			action.FollowUpCommands = []string{"/rekit gate " + quoteCommandArg(gateAction) + " -Lane " + gateLane + " -Apply -Actor <actor>", "/rekit continue " + label + " -WhatIf", "/rekit handoff " + label}
+			action.Boundary = append(action.Boundary, "review gate -WhatIf output before running the bounded -Apply follow-up")
+			return action
+		}
 		action.PrimaryCommand = "/rekit handoff " + label
-		action.FollowUpCommands = []string{"/rekit gate <action> -Lane " + gateLane + " -Apply -Actor <actor>", "/rekit continue " + label + " -WhatIf"}
+		for _, gateAction := range gateActions {
+			action.FollowUpCommands = append(action.FollowUpCommands, "/rekit gate "+quoteCommandArg(gateAction)+" -Lane "+gateLane+" -WhatIf")
+		}
+		if len(gateActions) != len(pendingGateItems) {
+			action.FollowUpCommands = append(action.FollowUpCommands, "/rekit gate <action> -Lane "+gateLane+" -WhatIf")
+		}
+		action.FollowUpCommands = append(action.FollowUpCommands, "/rekit continue "+label+" -WhatIf")
+		action.Boundary = append(action.Boundary, "multiple or unidentified pending-gate requests require handoff review before selecting a concrete action")
 		return action
 	}
 	if openDecisions > 0 {
@@ -794,6 +811,24 @@ func multiInterventionReconcilePreviewCommands(label string, openInterventions [
 		commands = append(commands, "/rekit reconcile "+label+" -InterventionId <eventId> -WhatIf")
 	}
 	return commands
+}
+
+func pendingGatePreviewActions(pendingGateItems []map[string]any) []string {
+	actions := []string{}
+	seen := map[string]bool{}
+	for _, item := range pendingGateItems {
+		gate, ok := item["gate"].(map[string]any)
+		if !ok {
+			continue
+		}
+		action := strings.TrimSpace(Value(gate, "action"))
+		if action == "" || seen[action] {
+			continue
+		}
+		seen[action] = true
+		actions = append(actions, action)
+	}
+	return actions
 }
 
 func quoteCommandArg(value string) string {

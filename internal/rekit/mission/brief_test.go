@@ -133,18 +133,26 @@ func TestLaneExecutorActionKeepsPlaceholderForUnidentifiedMultiIntervention(t *t
 	}
 }
 
-func TestLaneExecutorActionPendingGateUsesCanonicalLaneForGateCommand(t *testing.T) {
+func TestLaneExecutorActionPendingGateUsesConcreteWhatIfBeforeApply(t *testing.T) {
 	facts := Facts{
-		Requests: []map[string]any{{"kind": "request", "lane": "feature-login", "subject": "debug gate", "status": "pending-gate", "risk": "high"}},
+		Requests: []map[string]any{{"kind": "request", "lane": "feature-login", "subject": "debug gate", "status": "pending-gate", "risk": "high", "gate": map[string]any{"action": "debug", "scope": "unit-test"}}},
 	}
 	brief := BuildWithOptions([]Lane{{ID: "feature-login", Label: "login", Status: "active"}}, facts, BuildOptions{MaxRows: 10})
 	action := LaneExecutorAction(Lane{ID: "feature-login", Label: "login", Status: "active"}, facts, brief)
 	commander := action.MissionCommanderAction
-	if commander.State != "needs-gate-decision" || commander.PrimaryCommand != "/rekit handoff login" {
-		t.Fatalf("pending gate should expose gate decision handoff: %+v", commander)
+	if commander.State != "needs-gate-decision" || commander.PrimaryCommand != "/rekit gate debug -Lane feature-login -WhatIf" {
+		t.Fatalf("pending gate should expose concrete gate decision preview: %+v", commander)
 	}
-	if !slices.Contains(commander.FollowUpCommands, "/rekit gate <action> -Lane feature-login -Apply -Actor <actor>") || !slices.Contains(commander.FollowUpCommands, "/rekit continue login -WhatIf") {
-		t.Fatalf("pending gate follow-up should use canonical gate lane and display continue selector: %+v", commander)
+	for _, command := range []string{"/rekit gate debug -Lane feature-login -Apply -Actor <actor>", "/rekit continue login -WhatIf", "/rekit handoff login"} {
+		if !slices.Contains(commander.FollowUpCommands, command) {
+			t.Fatalf("pending gate follow-up should expose %q: %+v", command, commander)
+		}
+	}
+	if containsSubstring(commander.FollowUpCommands, "<action>") {
+		t.Fatalf("concrete pending gate should not require action placeholder: %+v", commander)
+	}
+	if !slices.Contains(commander.Boundary, "review gate -WhatIf output before running the bounded -Apply follow-up") {
+		t.Fatalf("pending gate should require WhatIf review boundary: %+v", commander)
 	}
 }
 
@@ -225,6 +233,19 @@ func TestMissionCommanderActionQueuePromotesReviewBlockerOverFollowUp(t *testing
 	queue := MissionCommanderActionQueueFor(items)
 	if queue.CurrentAction == nil || queue.CurrentAction.Command != "dispatch read-only reviewer for shard-02" || queue.CurrentAction.Source != "reviewerDispatchIntakeHandoffs" || queue.Summary != "total=2 unblocked=1 blocked=1 requiresReview=1 followUp=1 current=dispatch read-only reviewer for shard-02" {
 		t.Fatalf("Mission Commander action queue did not promote reviewer blocker over ordinary follow-up: %+v", queue)
+	}
+}
+
+func TestMissionCommanderActionQueuePromotesPendingGateWhatIfOverBlockedHandoff(t *testing.T) {
+	items := []MissionCommanderNextActionItem{
+		{State: "needs-gate-decision", Command: "/rekit gate debug -Lane feature-login -WhatIf", Source: "missionCommanderActions", RequiresReview: true, Reasons: []string{"pending-gate"}},
+		{State: "needs-gate-decision", Command: "/rekit gate debug -Lane feature-login -Apply -Actor <actor>", Source: "missionCommanderActions.followUp", Blocked: true, RequiresReview: true, Reasons: []string{"pending-gate"}},
+		{State: "needs-gate-decision", Command: "/rekit continue login -WhatIf", Source: "missionCommanderActions.followUp", Blocked: true, RequiresReview: true, Reasons: []string{"pending-gate"}},
+	}
+
+	queue := MissionCommanderActionQueueFor(items)
+	if queue.CurrentAction == nil || queue.CurrentAction.Command != "/rekit gate debug -Lane feature-login -WhatIf" || queue.CurrentAction.Source != "missionCommanderActions" || queue.CurrentAction.Blocked || !queue.CurrentAction.RequiresReview || queue.Summary != "total=3 unblocked=1 blocked=2 requiresReview=3 followUp=2 current=/rekit gate debug -Lane feature-login -WhatIf" {
+		t.Fatalf("Mission Commander action queue did not promote pending-gate WhatIf over blocked follow-ups: %+v", queue)
 	}
 }
 
