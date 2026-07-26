@@ -1635,6 +1635,119 @@ func TestRunReleaseRunUsesResolvedGateProfileSteps(t *testing.T) {
 	}
 }
 
+func TestRunReleaseRunIncludesReleaseInspectionHandoff(t *testing.T) {
+	previousCommand := releaseRunExecuteCommand
+	previousGit := releaseRunExecuteGitCommand
+	defer func() {
+		releaseRunExecuteCommand = previousCommand
+		releaseRunExecuteGitCommand = previousGit
+	}()
+	releaseRunExecuteCommand = func(ctx context.Context, repoRoot, command string) (int, string, error) {
+		return 0, "ok: " + command, nil
+	}
+	releaseRunExecuteGitCommand = fakeReleaseRunGit(map[string]fakeReleaseRunGitResult{
+		"rev-parse --abbrev-ref HEAD":               {output: "main\n"},
+		"rev-parse HEAD":                            {output: "abc123\n"},
+		"rev-parse origin/main":                     {output: "abc123\n"},
+		"status --short":                            {output: ""},
+		"merge-base --is-ancestor HEAD origin/main": {output: ""},
+		"merge-base --is-ancestor origin/main HEAD": {output: ""},
+	})
+
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "release-run", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var result releaseRunResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("release-run JSON did not decode: %v\n%s", err, out.String())
+	}
+	inspection := result.ReleaseInspection
+	if !inspection.Ready || inspection.Summary != "release inspection handoff ok; remote gate not green" || !inspection.LocalReleaseRunReady || inspection.Git.Branch != "main" || !inspection.Git.WorkingTreeClean || !inspection.Git.Synchronized || inspection.Git.Head != "abc123" || inspection.LatestBatch.BatchID == "" {
+		t.Fatalf("unexpected release inspection handoff: %+v", inspection)
+	}
+	assertStringContains(t, inspection.Boundary, "ciReleaseGate.ready remains workflow inventory readiness, not remote green")
+	assertStringContains(t, inspection.NextActions, "keep remote CI status truthful: inventory ready is not remote green")
+
+	out.Reset()
+	if err := Run([]string{"-Command", "release-run", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"release-run release inspection：ready=true summary=release inspection handoff ok; remote gate not green",
+		"release-run release inspection git：branch=main clean=true synchronized=true head=abc123 originMain=abc123",
+		"release-run release inspection next action：keep remote CI status truthful: inventory ready is not remote green",
+		"release-run release inspection boundary：does not fetch GitHub or inspect remote Actions live state",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("release-run release inspection text missing %q:\n%s", expected, out.String())
+		}
+	}
+}
+
+func TestRunReleaseRunReleaseInspectionBlocksDirtyUnsyncedHandoff(t *testing.T) {
+	previousCommand := releaseRunExecuteCommand
+	previousGit := releaseRunExecuteGitCommand
+	defer func() {
+		releaseRunExecuteCommand = previousCommand
+		releaseRunExecuteGitCommand = previousGit
+	}()
+	releaseRunExecuteCommand = func(ctx context.Context, repoRoot, command string) (int, string, error) {
+		return 0, "ok", nil
+	}
+	releaseRunExecuteGitCommand = fakeReleaseRunGit(map[string]fakeReleaseRunGitResult{
+		"rev-parse --abbrev-ref HEAD":               {output: "feature\n"},
+		"rev-parse HEAD":                            {output: "abc123\n"},
+		"rev-parse origin/main":                     {output: "def456\n"},
+		"status --short":                            {output: " M docs/batch-plan.md\n"},
+		"merge-base --is-ancestor HEAD origin/main": {exitCode: 1, err: errors.New("exit status 1")},
+		"merge-base --is-ancestor origin/main HEAD": {exitCode: 1, err: errors.New("exit status 1")},
+	})
+
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "release-run", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var result releaseRunResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("release-run JSON did not decode: %v\n%s", err, out.String())
+	}
+	inspection := result.ReleaseInspection
+	if inspection.Ready || inspection.Summary != "release inspection handoff blocked" || inspection.Git.Branch != "feature" || inspection.Git.WorkingTreeClean || inspection.Git.Synchronized || len(inspection.Warnings) < 3 {
+		t.Fatalf("dirty/unsynced release inspection should be blocked: %+v", inspection)
+	}
+	assertStringContains(t, inspection.NextActions, "switch to main before release inspection handoff")
+	assertStringContains(t, inspection.NextActions, "commit or revert working tree changes before declaring release inspection complete")
+	assertStringContains(t, inspection.NextActions, "fetch/pull/push until local main and origin/main point at the same commit")
+}
+
+type fakeReleaseRunGitResult struct {
+	exitCode int
+	output   string
+	err      error
+}
+
+func fakeReleaseRunGit(results map[string]fakeReleaseRunGitResult) releaseRunGitCommandExecutor {
+	return func(ctx context.Context, repoRoot string, args ...string) (int, string, error) {
+		key := strings.Join(args, " ")
+		result, ok := results[key]
+		if !ok {
+			return 127, "", fmt.Errorf("unexpected git command: %s", key)
+		}
+		return result.exitCode, result.output, result.err
+	}
+}
+
+func assertStringContains(t *testing.T, values []string, expected string) {
+	t.Helper()
+	for _, value := range values {
+		if strings.Contains(value, expected) {
+			return
+		}
+	}
+	t.Fatalf("missing %q in %v", expected, values)
+}
+
 func TestRunReleaseRunReportsFailuresWithoutStopping(t *testing.T) {
 	previous := releaseRunExecuteCommand
 	defer func() { releaseRunExecuteCommand = previous }()

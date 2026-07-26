@@ -16,6 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 621：release-run release inspection handoff closure
+
+状态：runtime/test/doc 工作树实现已完成，focused `release-run` handoff 回归、CLI package 验证与完整本机 `release-run` release minimum 已通过；implementation commit/push 与 remote release inspection 待执行。
+
+目标：补齐 release-run 后的真实接手断点：Batch 615 让本机 release minimum 可由 Go-native `release-run` 聚合执行，Batch 619 让 completed batch parser 识别 `release-run` 成功证据；但维护者在本机验证完成后仍要手工拼接 `git status`、`main`/`origin/main` 同步、latest-batch release inspection cadence、`steps=[]` blocker 与“不要追加第三个 inspection record”边界。replacement executor 容易把 `release-run ready=true` 误读为 remote green，或在 release inspection commit 自己触发的 CI 之后继续追第三次记录。本批让 `release-run` 在同一 JSON/text envelope 中输出只读 release inspection handoff。
+
+已实现内容：
+
+- `release-run` 结果新增 `releaseInspection` handoff，执行本机 gateProfile steps 后只读汇总 local git branch、HEAD、origin/main、working tree clean、HEAD/origin ancestry 同步、latest-batch `releaseInspectionCadence`、remote gate detail、next actions、warnings 与 boundary。
+- Text 输出新增 `release-run release inspection`、`release-run release inspection git`、remote gate、next action、boundary/warning 行；JSON 输出保留同一机器可读结构，供新会话/维护脚本直接判断 clean/sync、third-inspection guard 与 remote non-green boundary。
+- Handoff 明确不 fetch GitHub、不读取 live Actions、不改变 `release-run` pass/fail 语义；dirty/非 main/未同步只让 `releaseInspection.ready=false` 并给出下一步，不把 local release minimum 变成失败。
+- 单元测试覆盖 clean synced handoff、remote non-green truthfulness、dirty/unsynced blocked handoff 与既有 release-run failure aggregation。
+
+边界：本批只增强 Go-native `release-run` 的只读 release inspection handoff；不新增 public command，不联网读取 GitHub Actions live state，不改变 recommendedMinimum，不写 repo/case durable state，不写 authority/confirmed，不执行 heavy tool，不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/cli -run "TestRunReleaseRun" -count=1` 已通过；related `go test ./internal/rekit/cli -count=1` 已通过；focused release inventory 回归 `go test ./internal/rekit/cli -run "TestRunReleaseRun|TestRunReleaseCheckJsonInventory" -count=1` 已通过。完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，返回 `ready=true` / `summary=release run ok`，聚合执行 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步，`passed=7 failed=0 skipped=0`；新增 `releaseInspection` handoff 在当前未提交工作树下按预期显示 `ready=false`、`summary=release inspection handoff blocked` 与 clean-working-tree next action，不影响 local release minimum。
+
 ### Batch 620：Mission Commander Markdown action identity closure
 
 状态：已完成 runtime/test/doc 工作树实现、focused overview/handoff Markdown product-path 验证、完整本机 `release-run` release minimum，以及 implementation commit/push 和 PR-triggered remote release-gate inspection；implementation commit `4333fbd` 已推送。PR run `30200780699` completed failure，macOS/Linux/Windows jobs `89790230652`/`89790230682`/`89790230693` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。

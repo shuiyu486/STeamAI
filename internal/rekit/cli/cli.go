@@ -913,20 +913,21 @@ func runReleaseCheck(ctx runtime.Context, opt Options, out io.Writer) error {
 }
 
 type releaseRunResult struct {
-	Command       string                   `json:"command"`
-	SchemaVersion int                      `json:"schemaVersion"`
-	IsMutation    bool                     `json:"isMutation"`
-	RepoRoot      string                   `json:"repoRoot"`
-	Ready         bool                     `json:"ready"`
-	Summary       string                   `json:"summary"`
-	GateProfile   releasecheck.GateProfile `json:"gateProfile"`
-	StepCount     int                      `json:"stepCount"`
-	Passed        int                      `json:"passed"`
-	Failed        int                      `json:"failed"`
-	Skipped       int                      `json:"skipped"`
-	DurationMS    int64                    `json:"durationMs"`
-	Steps         []releaseRunStepResult   `json:"steps"`
-	Boundary      []string                 `json:"boundary"`
+	Command           string                      `json:"command"`
+	SchemaVersion     int                         `json:"schemaVersion"`
+	IsMutation        bool                        `json:"isMutation"`
+	RepoRoot          string                      `json:"repoRoot"`
+	Ready             bool                        `json:"ready"`
+	Summary           string                      `json:"summary"`
+	GateProfile       releasecheck.GateProfile    `json:"gateProfile"`
+	StepCount         int                         `json:"stepCount"`
+	Passed            int                         `json:"passed"`
+	Failed            int                         `json:"failed"`
+	Skipped           int                         `json:"skipped"`
+	DurationMS        int64                       `json:"durationMs"`
+	Steps             []releaseRunStepResult      `json:"steps"`
+	Boundary          []string                    `json:"boundary"`
+	ReleaseInspection releaseRunInspectionHandoff `json:"releaseInspection"`
 }
 
 type releaseRunStepResult struct {
@@ -943,9 +944,34 @@ type releaseRunStepResult struct {
 	Error      string `json:"error,omitempty"`
 }
 
+type releaseRunInspectionHandoff struct {
+	Ready                bool                                   `json:"ready"`
+	Summary              string                                 `json:"summary"`
+	LocalReleaseRunReady bool                                   `json:"localReleaseRunReady"`
+	Git                  releaseRunInspectionGitState           `json:"git"`
+	LatestBatch          releasecheck.ReleaseHandoffLatestBatch `json:"latestBatch"`
+	NextActions          []string                               `json:"nextActions"`
+	Boundary             []string                               `json:"boundary"`
+	Warnings             []string                               `json:"warnings,omitempty"`
+}
+
+type releaseRunInspectionGitState struct {
+	Branch           string   `json:"branch,omitempty"`
+	Head             string   `json:"head,omitempty"`
+	OriginMain       string   `json:"originMain,omitempty"`
+	WorkingTreeClean bool     `json:"workingTreeClean"`
+	StatusShort      []string `json:"statusShort,omitempty"`
+	HeadInOrigin     bool     `json:"headInOrigin"`
+	OriginInHead     bool     `json:"originInHead"`
+	Synchronized     bool     `json:"synchronized"`
+	Warnings         []string `json:"warnings,omitempty"`
+}
+
 type releaseRunCommandExecutor func(context.Context, string, string) (int, string, error)
+type releaseRunGitCommandExecutor func(context.Context, string, ...string) (int, string, error)
 
 var releaseRunExecuteCommand releaseRunCommandExecutor = executeReleaseRunCommand
+var releaseRunExecuteGitCommand releaseRunGitCommandExecutor = executeReleaseRunGitCommand
 
 func runReleaseRun(ctx runtime.Context, opt Options, out io.Writer) error {
 	if ctx.TargetProvided {
@@ -959,6 +985,7 @@ func runReleaseRun(ctx runtime.Context, opt Options, out io.Writer) error {
 		return err
 	}
 	result := runReleaseRunSteps(ctx.RepoRoot, inventory.GateProfile, releaseRunExecuteCommand)
+	result.ReleaseInspection = releaseRunInspectionHandoffFor(ctx.RepoRoot, inventory, result.Ready, releaseRunExecuteGitCommand)
 	format := strings.ToLower(strings.TrimSpace(opt.Format))
 	if format == "" {
 		format = "table"
@@ -1043,6 +1070,175 @@ func executeReleaseRunCommand(ctx context.Context, repoRoot, command string) (in
 	return exitCode, string(output), err
 }
 
+func executeReleaseRunGitCommand(ctx context.Context, repoRoot string, args ...string) (int, string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = repoRoot
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		return 0, string(output), nil
+	}
+	exitCode := -1
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		exitCode = exitErr.ExitCode()
+	}
+	return exitCode, string(output), err
+}
+
+func releaseRunInspectionHandoffFor(repoRoot string, inventory releasecheck.Result, localReady bool, executor releaseRunGitCommandExecutor) releaseRunInspectionHandoff {
+	git := releaseRunInspectionGitStateFor(repoRoot, executor)
+	latest := inventory.ReleaseHandoff.LatestBatch
+	warnings := append([]string{}, git.Warnings...)
+	if strings.TrimSpace(git.Branch) != "main" {
+		warnings = append(warnings, fmt.Sprintf("release inspection should run from main; current branch is %s", emptyAs(git.Branch, "<unknown>")))
+	}
+	if !git.WorkingTreeClean {
+		warnings = append(warnings, "release inspection needs a clean working tree before commit/push handoff")
+	}
+	if !git.Synchronized {
+		warnings = append(warnings, "release inspection needs local main and origin/main synchronized before declaring handoff complete")
+	}
+	if !localReady {
+		warnings = append(warnings, "local release-run did not pass; do not inspect or hand off remote readiness yet")
+	}
+	if !inventory.Ready {
+		warnings = append(warnings, "release-check inventory is not ready; inspect release-check warnings before release handoff")
+	}
+	if !latest.Present {
+		warnings = append(warnings, "latest batch handoff is missing from docs/batch-plan.md")
+	}
+	ready := len(warnings) == 0
+	return releaseRunInspectionHandoff{
+		Ready:                ready,
+		Summary:              releaseRunInspectionSummary(ready, latest),
+		LocalReleaseRunReady: localReady,
+		Git:                  git,
+		LatestBatch:          latest,
+		NextActions:          releaseRunInspectionNextActions(git, latest, localReady),
+		Boundary: []string{
+			"does not fetch GitHub or inspect remote Actions live state",
+			"uses local git refs, docs/batch-plan.md latest-batch handoff, and release-check inventory only",
+			"ciReleaseGate.ready remains workflow inventory readiness, not remote green",
+			"do not add a third release inspection record unless latest-batch cadence reports a new remote signal",
+		},
+		Warnings: warnings,
+	}
+}
+
+func releaseRunInspectionGitStateFor(repoRoot string, executor releaseRunGitCommandExecutor) releaseRunInspectionGitState {
+	state := releaseRunInspectionGitState{WorkingTreeClean: true}
+	run := func(args ...string) (string, bool) {
+		exitCode, output, err := executor(context.Background(), repoRoot, args...)
+		if err != nil || exitCode != 0 {
+			state.Warnings = append(state.Warnings, fmt.Sprintf("git %s failed: exitCode=%d error=%s output=%s", strings.Join(args, " "), exitCode, errorString(err), releaseRunOutputTail(output)))
+			return "", false
+		}
+		return strings.TrimSpace(output), true
+	}
+	state.Branch, _ = run("rev-parse", "--abbrev-ref", "HEAD")
+	state.Head, _ = run("rev-parse", "HEAD")
+	state.OriginMain, _ = run("rev-parse", "origin/main")
+	if status, ok := run("status", "--short"); ok {
+		state.StatusShort = nonEmptyLines(status)
+		state.WorkingTreeClean = len(state.StatusShort) == 0
+	}
+	state.HeadInOrigin = releaseRunGitIsAncestor(repoRoot, executor, "HEAD", "origin/main", &state)
+	state.OriginInHead = releaseRunGitIsAncestor(repoRoot, executor, "origin/main", "HEAD", &state)
+	state.Synchronized = state.HeadInOrigin && state.OriginInHead && strings.TrimSpace(state.Head) != "" && strings.TrimSpace(state.OriginMain) != ""
+	return state
+}
+
+func releaseRunGitIsAncestor(repoRoot string, executor releaseRunGitCommandExecutor, ancestor, descendant string, state *releaseRunInspectionGitState) bool {
+	exitCode, output, err := executor(context.Background(), repoRoot, "merge-base", "--is-ancestor", ancestor, descendant)
+	if exitCode == 0 && err == nil {
+		return true
+	}
+	if exitCode == 1 {
+		return false
+	}
+	state.Warnings = append(state.Warnings, fmt.Sprintf("git merge-base --is-ancestor %s %s failed: exitCode=%d error=%s output=%s", ancestor, descendant, exitCode, errorString(err), releaseRunOutputTail(output)))
+	return false
+}
+
+func releaseRunInspectionSummary(ready bool, latest releasecheck.ReleaseHandoffLatestBatch) string {
+	if !ready {
+		return "release inspection handoff blocked"
+	}
+	if detail := latest.Handoff.RemoteReleaseGateDetail; detail != nil && !detail.CanClaimGreen {
+		return "release inspection handoff ok; remote gate not green"
+	}
+	return "release inspection handoff ok"
+}
+
+func releaseRunInspectionNextActions(git releaseRunInspectionGitState, latest releasecheck.ReleaseHandoffLatestBatch, localReady bool) []string {
+	actions := []string{}
+	if strings.TrimSpace(git.Branch) != "main" {
+		actions = append(actions, "switch to main before release inspection handoff")
+	}
+	if !git.WorkingTreeClean {
+		actions = append(actions, "commit or revert working tree changes before declaring release inspection complete")
+	}
+	if !git.Synchronized {
+		actions = append(actions, "fetch/pull/push until local main and origin/main point at the same commit")
+	}
+	if !localReady {
+		actions = append(actions, "run go run ./cmd/rekit -- -Command release-run -Format text and record the local release minimum result before handoff")
+	} else if !latest.Handoff.LocalValidationReady || !latest.Handoff.ReleaseCheckReady {
+		actions = append(actions, "record this release-run result in docs/batch-plan.md before final release handoff")
+	}
+	cadence := latest.Handoff.ReleaseInspectionCadence
+	if cadence.State == "complete" && !cadence.ThirdInspectionAllowed {
+		actions = append(actions, "do not create a third release inspection record unless a new remote signal differs from the known steps=[] runner/billing blocker")
+	}
+	if strings.TrimSpace(cadence.NextAction) != "" {
+		actions = append(actions, cadence.NextAction)
+	} else if strings.TrimSpace(latest.Handoff.NextAction) != "" {
+		actions = append(actions, latest.Handoff.NextAction)
+	}
+	if detail := latest.Handoff.RemoteReleaseGateDetail; detail != nil && !detail.CanClaimGreen {
+		actions = append(actions, "keep remote CI status truthful: inventory ready is not remote green")
+	}
+	return uniqueNonEmptyStrings(actions)
+}
+
+func nonEmptyLines(text string) []string {
+	lines := []string{}
+	for _, line := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}
+
+func uniqueNonEmptyStrings(values []string) []string {
+	out := []string{}
+	seen := map[string]bool{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
+}
+
+func errorString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+func emptyAs(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
+}
+
 func releaseRunOutputTail(output string) string {
 	output = strings.TrimSpace(strings.ReplaceAll(output, "\r\n", "\n"))
 	if output == "" {
@@ -1092,6 +1288,41 @@ func writeReleaseRunText(out io.Writer, result releaseRunResult) error {
 	}
 	for _, boundary := range result.Boundary {
 		if _, err := fmt.Fprintf(out, "release-run boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	return writeReleaseRunInspectionText(out, result.ReleaseInspection)
+}
+
+func writeReleaseRunInspectionText(out io.Writer, handoff releaseRunInspectionHandoff) error {
+	if _, err := fmt.Fprintf(out, "release-run release inspection：ready=%t summary=%s localReleaseRunReady=%t latestBatch=%s cadence=%s remoteGate=%s\n", handoff.Ready, handoff.Summary, handoff.LocalReleaseRunReady, handoff.LatestBatch.BatchID, handoff.LatestBatch.Handoff.ReleaseInspectionCadence.State, handoff.LatestBatch.Handoff.RemoteReleaseGate); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "release-run release inspection git：branch=%s clean=%t synchronized=%t head=%s originMain=%s headInOrigin=%t originInHead=%t\n", handoff.Git.Branch, handoff.Git.WorkingTreeClean, handoff.Git.Synchronized, handoff.Git.Head, handoff.Git.OriginMain, handoff.Git.HeadInOrigin, handoff.Git.OriginInHead); err != nil {
+		return err
+	}
+	for _, status := range handoff.Git.StatusShort {
+		if _, err := fmt.Fprintf(out, "release-run release inspection git status：%s\n", status); err != nil {
+			return err
+		}
+	}
+	if detail := handoff.LatestBatch.Handoff.RemoteReleaseGateDetail; detail != nil {
+		if _, err := fmt.Fprintf(out, "release-run release inspection remote gate：state=%s canClaimGreen=%t emptySteps=%t completedFailure=%t runs=%s jobs=%s\n", detail.State, detail.CanClaimGreen, detail.EmptySteps, detail.CompletedFailure, strings.Join(detail.RunRefs, ","), strings.Join(detail.Jobs, ",")); err != nil {
+			return err
+		}
+	}
+	for _, action := range handoff.NextActions {
+		if _, err := fmt.Fprintf(out, "release-run release inspection next action：%s\n", action); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range handoff.Boundary {
+		if _, err := fmt.Fprintf(out, "release-run release inspection boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	for _, warning := range handoff.Warnings {
+		if _, err := fmt.Fprintf(out, "release-run release inspection warning：%s\n", warning); err != nil {
 			return err
 		}
 	}
