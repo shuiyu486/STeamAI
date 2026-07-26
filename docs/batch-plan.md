@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 624：adapter execution report lifecycle runbook handoff closure
 
-状态：已完成 runtime/test/doc 工作树实现、focused adapter gate/CLI 回归与完整本机 `release-run` release minimum；implementation commit/push 与 push-triggered remote release-gate inspection 仍待完成。
+状态：已完成 runtime/test/doc 工作树实现、focused adapter gate/CLI 回归、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `c631cdc` 已推送。Push run `30207891944` completed failure，Linux/Windows/macOS jobs `89809035554`/`89809035577`/`89809035578` 均 `steps=[]` / `runner_id=0` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。
 
 目标：补齐 adapter execution report lifecycle 的真实接手断点：Batch 568/569/580/594/602/618 已让 sidecar scaffold/draft、read-only validation、hash-bound record currentness 与 action identity 形成闭环，但 replacement executor 执行 contract、scaffold、draft、validation、status handoff 或 record 后，仍需要从 `nextSteps[]`、Mission Commander command、path/hash 和 boundary 中手工拼接下一条 bounded operation。本批让每个 adapter report lifecycle envelope 自身携带可复制 runbook，直接说明确认当前 state/path/hash、先 validation、只使用 validation/status 返回的 expected hash record Apply、record 后转 evidence review 的顺序。
 
@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：本批只增强 adapter execution report lifecycle 的只读 operational handoff 与测试；不新增 public command，不执行 adapter/heavy tool，不自动 validate/record，不放宽 expected-hash Apply currentness，不写 authority/confirmed，不新增 durable schema，不新增 PowerShell runtime logic。
 
-验证结果：focused `go test ./internal/rekit/gate ./internal/rekit/cli` 已通过。首次完整 `go run ./cmd/rekit -- -Command release-run -Format text` 在 `go test ./...` 全部包输出 `ok` 后因 Windows 临时测试二进制清理失败（`go: unlinkat ... cli.test.exe: The process cannot access the file because it is being used by another process`）返回 6/7；随后单独 `go test ./...` 已通过，重跑完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，返回 `ready=true` / `summary=release run ok`，聚合执行 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步，`passed=7 failed=0 skipped=0`；`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。
+验证结果：focused `go test ./internal/rekit/gate ./internal/rekit/cli` 已通过。首次完整 `go run ./cmd/rekit -- -Command release-run -Format text` 在 `go test ./...` 全部包输出 `ok` 后因 Windows 临时测试二进制清理失败（`go: unlinkat ... cli.test.exe: The process cannot access the file because it is being used by another process`）返回 6/7；随后单独 `go test ./...` 已通过，重跑完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，返回 `ready=true` / `summary=release run ok`，聚合执行 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步，`passed=7 failed=0 skipped=0`；`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。implementation commit `c631cdc` 已推送。Push-triggered release-gate run `30207891944` completed failure，Linux/Windows/macOS jobs `89809035554`/`89809035577`/`89809035578` 均为既有 `steps=[]` / `runner_id=0` blocker，不能声明 remote CI green。
 
 ### Batch 623：reviewer result collection recovery handoff closure
 
