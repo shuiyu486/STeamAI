@@ -996,6 +996,34 @@ func TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath(t *testing.T) 
 			t.Fatalf("reviewer source capture wrote different bytes: %s", string(captured))
 		}
 		out.Reset()
+		if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-CaptureReviewerResultSource", "-ShardId", handoff.ShardID, "-ReviewerResultInputPath", inputPath, "-Lane", "feature-review", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
+			t.Fatal(err)
+		}
+		var sourceReplayPreview struct {
+			Mode                   string `json:"mode"`
+			Status                 string `json:"status"`
+			IsMutation             bool   `json:"isMutation"`
+			Applied                bool   `json:"applied"`
+			AlreadyCaptured        bool   `json:"alreadyCaptured"`
+			InputPath              string `json:"inputPath"`
+			InputSHA256            string `json:"inputSha256"`
+			SourcePath             string `json:"sourcePath"`
+			SourceSHA256           string `json:"sourceSha256"`
+			MissionCommanderAction struct {
+				State          string `json:"state"`
+				PrimaryCommand string `json:"primaryCommand"`
+			} `json:"missionCommanderAction"`
+		}
+		if err := json.Unmarshal(out.Bytes(), &sourceReplayPreview); err != nil {
+			t.Fatalf("reviewer source capture replay preview JSON did not decode: %v\n%s", err, out.String())
+		}
+		if sourceReplayPreview.Mode != "reviewer-result-source-capture" || sourceReplayPreview.Status != "already-captured" || sourceReplayPreview.IsMutation || sourceReplayPreview.Applied || !sourceReplayPreview.AlreadyCaptured || sourceReplayPreview.InputPath != inputPath || sourceReplayPreview.SourcePath != sourcePath || sourceReplayPreview.InputSHA256 != sourcePreview.InputSHA256 || sourceReplayPreview.SourceSHA256 != sourcePreview.SourceSHA256 || sourceReplayPreview.MissionCommanderAction.State != "reviewer-result-source-ready-for-staging-preview" || !strings.Contains(sourceReplayPreview.MissionCommanderAction.PrimaryCommand, "-StageReviewerResult") || strings.Contains(sourceReplayPreview.MissionCommanderAction.PrimaryCommand, "-ExpectedReviewerResultInputSha256") {
+			t.Fatalf("unexpected reviewer source capture replay preview: %+v", sourceReplayPreview)
+		}
+		if _, err := os.Stat(handoff.ReviewerResultCandidatePath); !os.IsNotExist(err) {
+			t.Fatalf("reviewer source capture replay WhatIf wrote candidate: %v", err)
+		}
+		out.Reset()
 		if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-StageReviewerResult", "-ShardId", handoff.ShardID, "-ReviewerResultSourcePath", sourcePath, "-Lane", "feature-review", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
 			t.Fatal(err)
 		}

@@ -16,6 +16,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 643：reviewer source capture already-captured replay product-path closure
+
+状态：已完成 CLI product-path 测试扩展、focused/related reviewer CLI tests 与完整本机 `release-run` release minimum；待 implementation commit/push 与 release inspection 记录。
+
+目标：继续执行端到端能力闭环约束，补齐 capture-first reviewer 接手链在 source 发布后、staging 前中断的真实恢复断点。Batch 641 已证明主 Agent 会先把 reviewer JSON 保存到 symlink-free case-local input，再通过 `-CaptureReviewerResultSource` WhatIf→hash-bound Apply 发布到 packet-derived source path；但还没有证明 replacement executor 在 capture Apply 已完成、随后会话中断或重跑同一 handoff 时，能从同一 input 安全看到 `already-captured` 并直接接续 staging，而不是重复写 source、误要求再次 capture Apply 或提前写 candidate/result。
+
+已实现内容：继续扩展 `TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath`。在 source capture Apply 写入 exact bytes 后、staging WhatIf 之前，测试重跑同一 `-CaptureReviewerResultSource -WhatIf -Format json`，断言 envelope 进入 `status=already-captured`、仍是 read-only、`alreadyCaptured=true`、input/source path 与 SHA-256 绑定到首次 preview/apply，Mission Commander action 直接进入 `reviewer-result-source-ready-for-staging-preview` 且 primary command 指向 `-StageReviewerResult`、不再包含 `-ExpectedReviewerResultInputSha256` capture Apply。随后断言 candidate path 仍不存在，再继续原 staging WhatIf→Apply、collection WhatIf→Apply 与 packet-level ready-results intake，证明 crash/retry 接手不会提前写下游 artifact。
+
+边界：本批不改变 reviewer source capture runtime 语义，不新增 public command，不自动 spawn/monitor reviewer，不重复写 packet-derived source，不 staging/collection/intake 直到显式后续命令，不写 authority/confirmed，不执行 heavy tool，不新增 PowerShell runtime logic；唯一新增能力是把现有 already-captured replay 状态转换锁定到 case-local product-path 回归。
+
+验证结果：focused `go test ./internal/rekit/cli -run "TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath" -count=1` 已通过；related reviewer CLI regression `go test ./internal/rekit/cli -run "TestRunPlanSubagentsReviewer(IntakeWhatIfApply|PacketAdoption|ReadyReviewerResults|ResultObstructionRecovery|ResultRecoveryDisposition)" -count=1` 已通过；完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，其中 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步均通过，返回 `ready=true` / `summary=release run ok`，聚合 `passed=7 failed=0 skipped=0`，`go test ./... attempts=1`，仅 `git diff --check` 保留 Windows 工作树 LF→CRLF 提示。implementation commit/push 与 release inspection 记录待执行。
+
 ### Batch 642：release handoff push-run parser completeness closure
 
 状态：已完成 release-handoff parser runtime/test 修复、focused/related release handoff parser tests、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `18799f7` 已推送。Push run `30220318328` completed failure，macOS/Linux/Windows jobs `89841536118`/`89841536121`/`89841536143` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。
