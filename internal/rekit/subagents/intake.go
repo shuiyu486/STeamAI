@@ -220,11 +220,17 @@ type ReviewerIntakeSummary struct {
 }
 
 type ReviewerIntakeNextActionSummary struct {
-	State          string `json:"state"`
-	Source         string `json:"source"`
-	Command        string `json:"command"`
-	Blocked        bool   `json:"blocked,omitempty"`
-	RequiresReview bool   `json:"requiresReview,omitempty"`
+	Lane           string   `json:"lane,omitempty"`
+	Label          string   `json:"label,omitempty"`
+	GateEventID    string   `json:"gateEventId,omitempty"`
+	ActionID       string   `json:"actionId,omitempty"`
+	State          string   `json:"state"`
+	Source         string   `json:"source"`
+	Command        string   `json:"command"`
+	Blocked        bool     `json:"blocked,omitempty"`
+	RequiresReview bool     `json:"requiresReview,omitempty"`
+	Reasons        []string `json:"reasons,omitempty"`
+	Boundary       []string `json:"boundary,omitempty"`
 }
 
 type ReviewerIntakeOrchestrationProgress struct {
@@ -283,11 +289,17 @@ type ReviewerPostValidationSummary struct {
 }
 
 type ReviewerPostValidationNextActionSummary struct {
-	State          string `json:"state"`
-	Source         string `json:"source"`
-	Command        string `json:"command"`
-	Blocked        bool   `json:"blocked,omitempty"`
-	RequiresReview bool   `json:"requiresReview,omitempty"`
+	Lane           string   `json:"lane,omitempty"`
+	Label          string   `json:"label,omitempty"`
+	GateEventID    string   `json:"gateEventId,omitempty"`
+	ActionID       string   `json:"actionId,omitempty"`
+	State          string   `json:"state"`
+	Source         string   `json:"source"`
+	Command        string   `json:"command"`
+	Blocked        bool     `json:"blocked,omitempty"`
+	RequiresReview bool     `json:"requiresReview,omitempty"`
+	Reasons        []string `json:"reasons,omitempty"`
+	Boundary       []string `json:"boundary,omitempty"`
 }
 
 type ReviewerOrchestrationIntake struct {
@@ -988,11 +1000,17 @@ func reviewerIntakeSummary(result ReviewerIntakeResult) ReviewerIntakeSummary {
 
 func reviewerIntakeNextActionSummary(item mission.MissionCommanderNextActionItem) ReviewerIntakeNextActionSummary {
 	return ReviewerIntakeNextActionSummary{
+		Lane:           item.Lane,
+		Label:          item.Label,
+		GateEventID:    item.GateEventID,
+		ActionID:       item.ActionID,
 		State:          item.State,
 		Source:         item.Source,
 		Command:        item.Command,
 		Blocked:        item.Blocked,
 		RequiresReview: item.RequiresReview,
+		Reasons:        append([]string{}, item.Reasons...),
+		Boundary:       append([]string{}, item.Boundary...),
 	}
 }
 
@@ -2195,11 +2213,17 @@ func reviewerPostValidationSummary(validation ReviewerPostValidation) ReviewerPo
 
 func reviewerPostValidationNextActionSummary(item mission.MissionCommanderNextActionItem) ReviewerPostValidationNextActionSummary {
 	return ReviewerPostValidationNextActionSummary{
+		Lane:           item.Lane,
+		Label:          item.Label,
+		GateEventID:    item.GateEventID,
+		ActionID:       item.ActionID,
 		State:          item.State,
 		Source:         item.Source,
 		Command:        item.Command,
 		Blocked:        item.Blocked,
 		RequiresReview: item.RequiresReview,
+		Reasons:        append([]string{}, item.Reasons...),
+		Boundary:       append([]string{}, item.Boundary...),
 	}
 }
 

@@ -16,6 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 617：reviewer intake/postValidation full next-action summary
+
+状态：已完成 runtime/test/doc 工作树实现、focused reviewer intake product-path 验证与完整本机 `release-run` release minimum；implementation commit/push 与 release inspection 尚待执行。
+
+目标：补齐 reviewer writeback 后的接手断点：Batch 616 已把 project handoff 升级为结构化 queue，但 reviewer-intake compact summary 与 postValidation summary 仍只保留 state/source/command/blocked/requiresReview；replacement executor 在 preview、complete 或 already-complete 后仍要回查 nested handoff queue / `missionCommanderNextActions[]` 才能看到 lane/label、packet identity、reason 与 no-heavy/no-authority boundary。本批让 reviewer intake 总 summary 与 postValidation summary 都保留完整 current/next action handoff 语义，并在 text path 直接输出 reason/boundary。
+
+已实现内容：
+
+- `ReviewerIntakeNextActionSummary` 与 `ReviewerPostValidationNextActionSummary` 新增 lane、label、gateEventId、actionId、reasons、boundary，只读复制对应 `MissionCommanderNextActionItem` 字段；不新增 durable schema 或 case 写入。
+- `reviewerIntakeSummary` 与 `reviewerPostValidationSummary` 的 current/next action projection 现在保留完整 action item 语义；preview 分支可直接看到 reviewer packet action 的 packet/lane/reason/boundary，already-complete 分支可直接看到 lane continue 的 reason/boundary。
+- `plan-subagents -Format text` 的 reviewer intake summary 与 postValidation summary current/next action lines 继续保持原有 state/source/command 前缀，同时追加 lane/label/gateEventId/actionId，并输出对应 reason/boundary lines，避免 replacement executor 解析 nested queue 才能安全接续。
+- CLI reviewer-intake E2E 回归锁定 preview summary 的 WhatIf/no-heavy boundary、postValidation reviewer packet reason/boundary，以及 already-complete postValidation 的 ready lane continue reason/boundary。
+
+边界：本批只增强 reviewer intake/postValidation compact summary 的只读 JSON/text 投影；不改变 reviewer result validation、verification-before-decision writeback、batch intake ordering、status/handoff priority、case durable state、authority/confirmed 或 heavy-tool 执行语义，不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/cli -run TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E -count=1` 已通过；完整本机 release minimum 已通过：`go run ./cmd/rekit -- -Command release-run -Format text` 返回 `ready=true` / `summary=release run ok`，聚合执行 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步，`passed=7 failed=0 skipped=0`，`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。implementation commit/push 与远程 release-gate inspection 尚待执行。
+
 ### Batch 616：project handoff structured current-action queue
 
 状态：已完成 runtime/test/doc 工作树实现、focused CLI product-path 验证、完整本机 `release-run` release minimum，以及 implementation commit/push 和 PR-triggered remote release-gate inspection；implementation commit `78e2c3f` 已推送。PR run `30196672446` completed failure，macOS/Linux/Windows jobs `89779297674`/`89779297695`/`89779297736` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。

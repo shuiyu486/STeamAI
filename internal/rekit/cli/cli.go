@@ -7482,18 +7482,34 @@ func writeReviewerIntakeSummaryText(out io.Writer, summary subagents.ReviewerInt
 		}
 	}
 	if summary.CurrentAction != nil {
-		item := *summary.CurrentAction
-		if _, err := fmt.Fprintf(out, "reviewer intake summary current action：state=%s source=%s blocked=%t requiresReview=%t command=`%s`\n", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command); err != nil {
+		if err := writeReviewerIntakeNextActionSummaryText(out, "reviewer intake summary current action", *summary.CurrentAction); err != nil {
 			return err
 		}
 	}
 	for _, item := range summary.NextActions {
-		if _, err := fmt.Fprintf(out, "reviewer intake summary next action：state=%s source=%s blocked=%t requiresReview=%t command=`%s`\n", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command); err != nil {
+		if err := writeReviewerIntakeNextActionSummaryText(out, "reviewer intake summary next action", item); err != nil {
 			return err
 		}
 	}
 	for _, boundary := range summary.Boundary {
 		if _, err := fmt.Fprintf(out, "reviewer intake summary boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeReviewerIntakeNextActionSummaryText(out io.Writer, prefix string, item subagents.ReviewerIntakeNextActionSummary) error {
+	if _, err := fmt.Fprintf(out, "%s：state=%s source=%s blocked=%t requiresReview=%t command=`%s` lane=%s label=%s gateEventId=%s actionId=%s\n", prefix, item.State, item.Source, item.Blocked, item.RequiresReview, item.Command, item.Lane, item.Label, item.GateEventID, item.ActionID); err != nil {
+		return err
+	}
+	for _, reason := range item.Reasons {
+		if _, err := fmt.Fprintf(out, "%s reason：%s\n", prefix, reason); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range item.Boundary {
+		if _, err := fmt.Fprintf(out, "%s boundary：%s\n", prefix, boundary); err != nil {
 			return err
 		}
 	}
@@ -7775,18 +7791,34 @@ func writeReviewerIntakePostValidationSummaryText(out io.Writer, summary subagen
 		}
 	}
 	if summary.CurrentAction != nil {
-		item := *summary.CurrentAction
-		if _, err := fmt.Fprintf(out, "reviewer intake post-validation summary current action：state=%s source=%s blocked=%t requiresReview=%t command=`%s`\n", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command); err != nil {
+		if err := writeReviewerIntakePostValidationNextActionText(out, "reviewer intake post-validation summary current action", *summary.CurrentAction); err != nil {
 			return err
 		}
 	}
 	for _, item := range summary.NextActions {
-		if _, err := fmt.Fprintf(out, "reviewer intake post-validation summary next action：state=%s source=%s blocked=%t requiresReview=%t command=`%s`\n", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command); err != nil {
+		if err := writeReviewerIntakePostValidationNextActionText(out, "reviewer intake post-validation summary next action", item); err != nil {
 			return err
 		}
 	}
 	for _, boundary := range summary.Boundary {
 		if _, err := fmt.Fprintf(out, "reviewer intake post-validation summary boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeReviewerIntakePostValidationNextActionText(out io.Writer, prefix string, item subagents.ReviewerPostValidationNextActionSummary) error {
+	if _, err := fmt.Fprintf(out, "%s：state=%s source=%s blocked=%t requiresReview=%t command=`%s` lane=%s label=%s gateEventId=%s actionId=%s\n", prefix, item.State, item.Source, item.Blocked, item.RequiresReview, item.Command, item.Lane, item.Label, item.GateEventID, item.ActionID); err != nil {
+		return err
+	}
+	for _, reason := range item.Reasons {
+		if _, err := fmt.Fprintf(out, "%s reason：%s\n", prefix, reason); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range item.Boundary {
+		if _, err := fmt.Fprintf(out, "%s boundary：%s\n", prefix, boundary); err != nil {
 			return err
 		}
 	}
