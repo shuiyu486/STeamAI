@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 627：reviewer packet integrity decode evidence closure
 
-状态：已完成 runtime/test/doc 工作树实现、focused reviewer packet integrity 回归、workstream package validation 与完整本机 `release-run` release minimum；implementation commit/push 与 push-triggered remote release-gate inspection 待执行。
+状态：已完成 runtime/test/doc 工作树实现、focused reviewer packet integrity 回归、workstream package validation、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `f2b9b05` 已推送。Push run `30209966418` completed failure，Linux/macOS/Windows jobs `89814417370`/`89814417385`/`89814417400` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。
 
 目标：补齐 reviewer dispatch intake 的可诊断 fail-closed 断点：Batch 578/579 之后 canonical reviewer packet 已有 `packet.integrity.json` sidecar 与 repair/retirement handoff，但当 packet 本体 unreadable 或 malformed、sidecar 仍能提供可信 lane provenance 时，downstream handoff 只给泛化 decode failed，replacement executor 无法区分 JSON 损坏、读取失败或路径/锁问题。本批在不修补 packet 的前提下，把具体 read/decode error 放入 `reviewer-packet-integrity-invalid` evidence，同时继续保留 integrity sidecar 的 target lane provenance。
 
@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：本批只增强 reviewer dispatch intake 的只读诊断 evidence；不修复、覆盖、删除或 retirement packet，不修改 `packet.integrity.json`，不 dispatch/collect/intake reviewer，不写 facts/ledger/authority/confirmed，不执行 heavy tool，不新增 PowerShell runtime logic。
 
-验证结果：focused `go test ./internal/rekit/workstream -run "TestReviewerDispatchIntakeFailsClosedOnPacketIntegrityDrift" -count=1` 已通过；package validation `go test ./internal/rekit/workstream -count=1` 已通过；完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，返回 `ready=true` / `summary=release run ok`，聚合执行 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步，`passed=7 failed=0 skipped=0`；本次 `go test ./...` step 为 `attempts=1`，未触发 cleanup-lock retry；`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。release inspection handoff 在未提交工作树下按预期保持 `ready=false`，后续需提交推送并检查 push-triggered remote release-gate。
+验证结果：focused `go test ./internal/rekit/workstream -run "TestReviewerDispatchIntakeFailsClosedOnPacketIntegrityDrift" -count=1` 已通过；package validation `go test ./internal/rekit/workstream -count=1` 已通过；完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，返回 `ready=true` / `summary=release run ok`，聚合执行 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步，`passed=7 failed=0 skipped=0`；本次 `go test ./...` step 为 `attempts=1`，未触发 cleanup-lock retry；`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。implementation commit `f2b9b05` 已推送。Push-triggered release-gate run `30209966418` completed failure，Linux/macOS/Windows jobs `89814417370`/`89814417385`/`89814417400` 均为既有 `steps=[]` / runner/billing blocker，不能声明 remote CI green。
 
 ### Batch 626：release-run transient retry downstream truthfulness closure
 
