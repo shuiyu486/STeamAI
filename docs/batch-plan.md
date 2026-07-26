@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 609：execution evidence review acknowledgement closure
 
-状态：已完成 runtime/test/doc 工作树实现、focused mission/workstream/overview/CLI product-path 验证与完整本地 release minimum；implementation commit/push 与远程 release-gate inspection 待执行。本批继续 Windows 本机 product-path 优先；远程 CI 若仍返回既有 `steps=[]` runner/billing blocker，只记录 known gap，不因此追加第三个 inspection record。
+状态：已完成 runtime/test/doc 工作树实现、focused mission/workstream/overview/CLI product-path 验证、完整本地 release minimum，以及 implementation commit/push 和 PR-triggered remote release-gate inspection；implementation commit `7896077` 已推送并进入 PR #15。PR run `30186884673` completed failure，Linux/Windows/macOS jobs `89753087844`/`89753087828`/`89753087808` 均 `steps=[]`、`runner_id=0` 且无 logs，仍属既有 runner/billing blocker。本批继续 Windows 本机 product-path 优先；远程 CI 若仍返回既有 blocker，不因此追加第三个 inspection record。
 
 目标：补齐 Batch 580/603/594/602 后仍存在的 adapter downstream 断点：authorized adapter sidecar 经 valid=true validation/hash-bound record 后，observation evidence 已进入 ledger，status/overview/handoff/continue 会把 `executionEvidenceReview[]` 提升为 Mission Commander current action；但 review 完成后缺少 append-only acknowledgement 出口，exact recorded sidecar 还可能以 `evidence-already-recorded` adapter live snapshot 重新顶回 current action。replacement executor 只能反复看到 `/rekit handoff main` review queue，无法用既有 note ledger 明确关闭“已 review”状态。
 
