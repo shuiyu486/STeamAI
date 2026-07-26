@@ -1,15 +1,18 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/attach"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
@@ -840,6 +843,8 @@ func Run(args []string, stdout io.Writer) error {
 		return runPacks(ctx, opt, stdout)
 	case commands.ReleaseCheck:
 		return runReleaseCheck(ctx, opt, stdout)
+	case commands.ReleaseRun:
+		return runReleaseRun(ctx, opt, stdout)
 	case commands.Doctor, commands.Validate:
 		return runDoctor(ctx, opt, stdout)
 	case commands.Attach:
@@ -905,6 +910,193 @@ func runReleaseCheck(ctx runtime.Context, opt Options, out io.Writer) error {
 		format = "table"
 	}
 	return writeReleaseCheckResult(out, result, format)
+}
+
+type releaseRunResult struct {
+	Command       string                   `json:"command"`
+	SchemaVersion int                      `json:"schemaVersion"`
+	IsMutation    bool                     `json:"isMutation"`
+	RepoRoot      string                   `json:"repoRoot"`
+	Ready         bool                     `json:"ready"`
+	Summary       string                   `json:"summary"`
+	GateProfile   releasecheck.GateProfile `json:"gateProfile"`
+	StepCount     int                      `json:"stepCount"`
+	Passed        int                      `json:"passed"`
+	Failed        int                      `json:"failed"`
+	Skipped       int                      `json:"skipped"`
+	DurationMS    int64                    `json:"durationMs"`
+	Steps         []releaseRunStepResult   `json:"steps"`
+	Boundary      []string                 `json:"boundary"`
+}
+
+type releaseRunStepResult struct {
+	Index      int    `json:"index"`
+	Command    string `json:"command"`
+	Kind       string `json:"kind"`
+	RepoPath   string `json:"repoPath,omitempty"`
+	Required   bool   `json:"required"`
+	Resolved   bool   `json:"resolved"`
+	Status     string `json:"status"`
+	ExitCode   int    `json:"exitCode"`
+	DurationMS int64  `json:"durationMs"`
+	OutputTail string `json:"outputTail,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
+
+type releaseRunCommandExecutor func(context.Context, string, string) (int, string, error)
+
+var releaseRunExecuteCommand releaseRunCommandExecutor = executeReleaseRunCommand
+
+func runReleaseRun(ctx runtime.Context, opt Options, out io.Writer) error {
+	if ctx.TargetProvided {
+		return fmt.Errorf("release-run runs against the kit repo; omit -Target")
+	}
+	if opt.Apply || opt.WhatIf || opt.CreateCandidates || opt.Review || opt.Force || opt.List || wantsReviewArtifacts(opt) {
+		return fmt.Errorf("release-run executes local validation commands and does not accept mutation, review artifact, or list flags")
+	}
+	inventory, err := releasecheck.Build(ctx.RepoRoot)
+	if err != nil {
+		return err
+	}
+	result := runReleaseRunSteps(ctx.RepoRoot, inventory.GateProfile, releaseRunExecuteCommand)
+	format := strings.ToLower(strings.TrimSpace(opt.Format))
+	if format == "" {
+		format = "table"
+	}
+	if err := writeReleaseRunResult(out, result, format); err != nil {
+		return err
+	}
+	if result.Ready {
+		return nil
+	}
+	return fmt.Errorf("release-run not ready: passed=%d failed=%d skipped=%d", result.Passed, result.Failed, result.Skipped)
+}
+
+func runReleaseRunSteps(repoRoot string, profile releasecheck.GateProfile, executor releaseRunCommandExecutor) releaseRunResult {
+	start := time.Now()
+	result := releaseRunResult{
+		Command:       commands.ReleaseRun,
+		SchemaVersion: 1,
+		IsMutation:    false,
+		RepoRoot:      repoRoot,
+		Ready:         true,
+		Summary:       "release run ok",
+		GateProfile:   profile,
+		StepCount:     len(profile.Steps),
+		Steps:         []releaseRunStepResult{},
+		Boundary: []string{
+			"runs only release-check gateProfile steps from the kit repo",
+			"does not write repo or case state",
+			"does not execute heavy tools or authority/confirmed writes",
+		},
+	}
+	for idx, step := range profile.Steps {
+		stepResult := releaseRunStepResult{Index: idx + 1, Command: step.Command, Kind: step.Kind, RepoPath: step.RepoPath, Required: step.Required, Resolved: step.Resolved, ExitCode: -1}
+		if !step.Resolved {
+			stepResult.Status = "skipped"
+			stepResult.Error = "gate profile step is not resolved"
+			result.Skipped++
+			result.Ready = false
+			result.Steps = append(result.Steps, stepResult)
+			continue
+		}
+		stepStart := time.Now()
+		exitCode, output, err := executor(context.Background(), repoRoot, step.Command)
+		stepResult.DurationMS = time.Since(stepStart).Milliseconds()
+		stepResult.ExitCode = exitCode
+		stepResult.OutputTail = releaseRunOutputTail(output)
+		if err != nil || exitCode != 0 {
+			stepResult.Status = "failed"
+			if err != nil {
+				stepResult.Error = err.Error()
+			}
+			result.Failed++
+			result.Ready = false
+		} else {
+			stepResult.Status = "passed"
+			result.Passed++
+		}
+		result.Steps = append(result.Steps, stepResult)
+	}
+	result.DurationMS = time.Since(start).Milliseconds()
+	if !result.Ready {
+		result.Summary = "release run failed"
+	}
+	return result
+}
+
+func executeReleaseRunCommand(ctx context.Context, repoRoot, command string) (int, string, error) {
+	fields := strings.Fields(command)
+	if len(fields) == 0 {
+		return -1, "", fmt.Errorf("empty release-run command")
+	}
+	cmd := exec.CommandContext(ctx, fields[0], fields[1:]...)
+	cmd.Dir = repoRoot
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		return 0, string(output), nil
+	}
+	exitCode := -1
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		exitCode = exitErr.ExitCode()
+	}
+	return exitCode, string(output), err
+}
+
+func releaseRunOutputTail(output string) string {
+	output = strings.TrimSpace(strings.ReplaceAll(output, "\r\n", "\n"))
+	if output == "" {
+		return ""
+	}
+	lines := strings.Split(output, "\n")
+	if len(lines) > 12 {
+		lines = lines[len(lines)-12:]
+	}
+	tail := strings.Join(lines, "\n")
+	runes := []rune(tail)
+	if len(runes) > 4000 {
+		tail = string(runes[len(runes)-4000:])
+	}
+	return tail
+}
+
+func writeReleaseRunResult(out io.Writer, result releaseRunResult, format string) error {
+	switch format {
+	case "table", "tsv", "text":
+		return writeReleaseRunText(out, result)
+	case "json":
+		return writeJSON(out, result)
+	default:
+		return fmt.Errorf("unsupported release-run format: %s", format)
+	}
+}
+
+func writeReleaseRunText(out io.Writer, result releaseRunResult) error {
+	if _, err := fmt.Fprintf(out, "release-run：mutation=%t ready=%t summary=%s repoRoot=%s gateProfile=%s steps=%d passed=%d failed=%d skipped=%d durationMs=%d\n", result.IsMutation, result.Ready, result.Summary, result.RepoRoot, result.GateProfile.Name, result.StepCount, result.Passed, result.Failed, result.Skipped, result.DurationMS); err != nil {
+		return err
+	}
+	for _, step := range result.Steps {
+		if _, err := fmt.Fprintf(out, "release-run step：index=%d status=%s exitCode=%d durationMs=%d command=%s kind=%s repoPath=%s required=%t resolved=%t\n", step.Index, step.Status, step.ExitCode, step.DurationMS, step.Command, step.Kind, step.RepoPath, step.Required, step.Resolved); err != nil {
+			return err
+		}
+		if strings.TrimSpace(step.OutputTail) != "" {
+			if _, err := fmt.Fprintf(out, "release-run step output tail：index=%d text=%s\n", step.Index, strings.ReplaceAll(step.OutputTail, "\n", `\n`)); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(step.Error) != "" {
+			if _, err := fmt.Fprintf(out, "release-run step error：index=%d error=%s\n", step.Index, step.Error); err != nil {
+				return err
+			}
+		}
+	}
+	for _, boundary := range result.Boundary {
+		if _, err := fmt.Fprintf(out, "release-run boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func writeReleaseCheckResult(out io.Writer, result releasecheck.Result, format string) error {

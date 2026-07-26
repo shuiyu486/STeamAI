@@ -570,6 +570,7 @@ func TestPowerShellDeprecationStrategyInvariants(t *testing.T) {
 	}
 	for _, command := range []string{
 		"release-check",
+		"release-run",
 		"status",
 		"packs",
 		"doctor",
@@ -644,6 +645,7 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 		"status",
 		"packs",
 		"release-check",
+		"release-run",
 		"doctor",
 		"validate",
 		"attach",
@@ -680,8 +682,8 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 	}
 
 	for _, required := range []string{
-		"if ($Command -eq 'release-check' -and -not [string]::IsNullOrWhiteSpace($Target)) { return $false }",
-		"if ($Command -notin @('start','handoff','continue','reconcile','release-check'))",
+		"if ($Command -in @('release-check','release-run') -and -not [string]::IsNullOrWhiteSpace($Target)) { return $false }",
+		"if ($Command -notin @('start','handoff','continue','reconcile','release-check','release-run'))",
 		"implemented by the Go backend only",
 		"Test-RekitNoPowerShellFallbackCommand",
 		"PowerShell fallback has been retired",
@@ -698,7 +700,7 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 		assertTextContains(t, facade, required, "PowerShell facade freeze guard")
 	}
 	for _, required := range []string{
-		"| `release-check` | Go default | façade delegate + no PowerShell fallback |",
+		"| `release-check` / `release-run` | Go default | façade delegate + no PowerShell fallback |",
 		"| `status` / `packs` / `doctor` / `validate` | Go default | façade delegate + no PowerShell fallback |",
 		"| case lifecycle `attach` / `repair` / `init` / `bootstrap` preview/apply | Go default | façade delegate + no PowerShell fallback |",
 		"| `sync` / `update` review/apply/JSON preview | Go default | façade delegate + no PowerShell fallback |",

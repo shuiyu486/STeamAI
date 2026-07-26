@@ -16,6 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 615：Go-native local release runner closure
+
+状态：已完成 runtime/test/doc 工作树实现、focused package / release inventory 验证与完整本机 `release-run` release minimum；`release-run` 首次 fail-closed 暴露 latest-batch 文档状态与 PowerShell façade freeze invariant 残留，均已修复并重跑通过。implementation commit/push 与 release inspection 记录尚待执行。
+
+目标：补齐维护者本机 release gate 真实断点：`release-check` 只枚举 `local-ci-minimum` gate profile，本机 release minimum 仍要手工按顺序运行 7 条命令，容易漏步、丢失每步 exit code / duration / output tail，也没有统一 JSON/text summary 供 replacement executor 接手。本批将 resolved gateProfile steps 变成 Go-native local runner，但不改变 `release-check` 只读 inventory 语义，也不把 runner 自身加入 recommendedMinimum。
+
+已实现内容：
+
+- 新增 public command `release-run`，登记为 read-only public profile；Go-native public surface、symbol catalog、handler coverage、profile summary、boundary rows 与 PowerShell public façade cross-check 基线从 20/5 更新为 21/6。
+- `runReleaseRun` 读取 `releasecheck.Build(ctx.RepoRoot).GateProfile`，顺序执行 resolved steps，跳过 unresolved steps，聚合 passed/failed/skipped、每步 exit code、durationMs、outputTail 与 error；默认 text/table 输出，`-Format json` 输出机器可读 envelope。
+- `release-run` 明确拒绝 `-Target`、mutation/review/list flags 与 review artifacts flags；结果 boundary 声明只执行 kit repo gateProfile steps、不写 repo/case state、不执行 heavy tool、不写 authority/confirmed。
+- retained `rekit/rekit.ps1` 只同步 ValidateSet、Go-default delegation、no-fallback、安全参数透传和 no-target guard，不新增 PowerShell runtime logic；`docs/powershell-deprecation.md` 将 `release-run` 纳入 Go-owned/no-fallback command ownership 与 public façade retention inventory。
+- README、agent-team usage 与 release readiness 说明 `release-run` 是维护者本机 release minimum 聚合 runner，不替代 `release-check` inventory 或真实远程 CI green；recommendedMinimum 仍保持原子 7 步，不包含 `release-run`，避免递归。
+
+边界：本批只新增 Go-native local release runner 与只读 release/public surface 文档/测试；不修改 `rekit/tests/catalog.json` recommendedMinimum，不执行或批准 heavy action，不写 repo/case durable state、authority/confirmed 或 case-specific artifact，不改变 sync/promote/gate/continue 语义，不新增 PowerShell runtime logic，不把 remote CI inventory ready 说成 remote green。
+
+验证结果：focused `go test ./internal/rekit/releasecheck ./internal/rekit/cli -run "TestReleaseHandoffInventoryFromRepo|TestReleaseCheckIncludesManifestHeavyToolGateActions|TestPowerShellDeprecationInventoryFromRepo|TestRunStatusJsonKit|TestRunReleaseCheckJsonInventory|TestRunReleaseCheckTextInventory|TestRunReleaseRun|TestReleaseRunOutputTail" -count=1` 已通过；首次 `go run ./cmd/rekit -- -Command release-run -Format text` 证明 runner 会聚合执行 7 步并在 `release-check` / `go test ./...` 因 latest batch 文档仍标“进行中”时 fail-closed。完整本地 release minimum、commit/push 与远程 release-gate inspection 尚待重跑/执行。
+
 ### Batch 614：pack-memory focus first-screen evidence shortlist
 
 状态：已完成 runtime/test/doc 工作树实现、focused CLI product-path 验证、完整本地 release minimum，以及 implementation commit/push 和 PR-triggered remote release-gate inspection；implementation commit `49f86fb` 已推送并进入 PR #15。当 `pack-memory-current-action` 成为 Mission Commander first-screen focus 时，default `status` / `/rekit` 现在会在 action/runbook 前输出 `status Mission Commander focus pack-memory evidence` 短名单，把导致 pack-memory focus 的 open pack counts、proof progress、next missing proof、receipt counts 与关键 inventory evidence 压到第一屏。PR run `30191742065` completed failure，Linux/macOS/Windows jobs `89766054766`/`89766054768`/`89766054787` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。

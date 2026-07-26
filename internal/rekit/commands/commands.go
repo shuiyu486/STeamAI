@@ -22,6 +22,7 @@ const (
 	Promote       = "promote"
 	Reconcile     = "reconcile"
 	ReleaseCheck  = "release-check"
+	ReleaseRun    = "release-run"
 	Repair        = "repair"
 	Start         = "start"
 	Status        = "status"
@@ -120,6 +121,7 @@ var publicCommands = []string{
 	Promote,
 	Reconcile,
 	ReleaseCheck,
+	ReleaseRun,
 	Repair,
 	Start,
 	Status,
@@ -143,6 +145,7 @@ var publicProfiles = []PublicProfile{
 	{Command: Promote, MutationBoundary: BoundaryKitReviewFirst, IsMutation: true, WritesKit: true, ReviewFirst: true, ApplyRequired: true},
 	{Command: Reconcile, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
 	{Command: ReleaseCheck, MutationBoundary: BoundaryReadOnly},
+	{Command: ReleaseRun, MutationBoundary: BoundaryReadOnly},
 	{Command: Repair, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
 	{Command: Start, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
 	{Command: Status, MutationBoundary: BoundaryReadOnly},
@@ -181,6 +184,7 @@ func SymbolValues() map[string]string {
 		"Promote":       Promote,
 		"Reconcile":     Reconcile,
 		"ReleaseCheck":  ReleaseCheck,
+		"ReleaseRun":    ReleaseRun,
 		"Repair":        Repair,
 		"Start":         Start,
 		"Status":        Status,
