@@ -46,6 +46,8 @@ func TestCollectReviewerResultWhatIfApplyAndReplay(t *testing.T) {
 	if preview.Status != "previewed" || preview.IsMutation || preview.Applied || preview.CandidateSHA256 == "" || preview.CandidateBytes == 0 {
 		t.Fatalf("unexpected collection preview: %+v", preview)
 	}
+	assertReviewerRunbookContains(t, preview.RunbookSteps, "-CollectReviewerResult")
+	assertReviewerRunbookContains(t, preview.RunbookSteps, "hash-bound Apply command")
 	if _, err := os.Stat(handoff.ReviewerResultPath); !os.IsNotExist(err) {
 		t.Fatalf("collection WhatIf wrote canonical result: %v", err)
 	}
@@ -57,6 +59,7 @@ func TestCollectReviewerResultWhatIfApplyAndReplay(t *testing.T) {
 	if !applied.Applied || applied.Status != "collected" || applied.AlreadyCollected || applied.ReviewerResultSHA256 != applied.CandidateSHA256 {
 		t.Fatalf("unexpected collection apply: %+v", applied)
 	}
+	assertReviewerRunbookContains(t, applied.RunbookSteps, "ready reviewer results intake")
 	canonical, err := os.ReadFile(handoff.ReviewerResultPath)
 	if err != nil {
 		t.Fatal(err)

@@ -49,6 +49,7 @@ type ReviewerResultCollectionResult struct {
 	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions"`
 	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 	NextSteps                   []string                                 `json:"nextSteps"`
+	RunbookSteps                []string                                 `json:"runbookSteps"`
 	Boundary                    []string                                 `json:"boundary"`
 }
 
@@ -325,6 +326,7 @@ func newReviewerResultCollectionResult(repoRoot, caseRoot, pack string, opt Revi
 }
 
 func finalizeReviewerResultCollectionResult(result ReviewerResultCollectionResult) ReviewerResultCollectionResult {
+	result.RunbookSteps = reviewerResultWritebackRunbookSteps("collection", result.Status, result.MissionCommanderAction.PrimaryCommand, result.NextSteps, result.Boundary)
 	result.MissionCommanderNextActions = []mission.MissionCommanderNextActionItem{{
 		Lane:           result.Lane,
 		Label:          result.PacketID,

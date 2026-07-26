@@ -7779,6 +7779,11 @@ func writePlanSubagentsReviewerResultSourceCaptureText(out io.Writer, result sub
 			return err
 		}
 	}
+	for _, step := range result.RunbookSteps {
+		if _, err := fmt.Fprintf(out, "reviewer result source capture runbook：%s\n", step); err != nil {
+			return err
+		}
+	}
 	for _, boundary := range result.Boundary {
 		if _, err := fmt.Fprintf(out, "reviewer result source capture boundary：%s\n", boundary); err != nil {
 			return err
@@ -7799,6 +7804,11 @@ func writePlanSubagentsReviewerResultStagingText(out io.Writer, result subagents
 			return err
 		}
 	}
+	for _, step := range result.RunbookSteps {
+		if _, err := fmt.Fprintf(out, "reviewer result staging runbook：%s\n", step); err != nil {
+			return err
+		}
+	}
 	for _, boundary := range result.Boundary {
 		if _, err := fmt.Fprintf(out, "reviewer result staging boundary：%s\n", boundary); err != nil {
 			return err
@@ -7816,6 +7826,11 @@ func writePlanSubagentsReviewerResultCollectionText(out io.Writer, result subage
 	}
 	for _, step := range result.NextSteps {
 		if _, err := fmt.Fprintf(out, "reviewer result collection next step：%s\n", step); err != nil {
+			return err
+		}
+	}
+	for _, step := range result.RunbookSteps {
+		if _, err := fmt.Fprintf(out, "reviewer result collection runbook：%s\n", step); err != nil {
 			return err
 		}
 	}

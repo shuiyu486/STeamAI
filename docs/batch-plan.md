@@ -16,6 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 622：reviewer result writeback runbook closure
+
+状态：已完成 runtime/test/doc 工作树实现、focused reviewer writeback subagents 与 CLI product-path 回归、本机 release handoff bootstrap 修正，以及完整本机 `release-run` release minimum；implementation commit/push 与 push-triggered remote release-gate inspection 尚待执行。
+
+目标：补齐 reviewer result writeback 执行结果的接手断点：Batch 600/601/607 已把 capture-first reviewer 链路写进 packet、summary、status/continue/handoff runbook，但 replacement executor 真正执行 `-CaptureReviewerResultSource`、`-StageReviewerResult` 或 `-CollectReviewerResult` 后，返回 envelope 仍主要依赖 `nextSteps[]` 与 `missionCommanderAction`，需要重开 packet/handoff 才能确认下一条 bounded operation、hash-bound Apply discipline 与 no-heavy/no-authority 边界。本批让 source capture → staging → collection 的每个执行结果自身携带可复制 runbook。
+
+已实现内容：
+
+- `ReviewerResultSourceCaptureResult`、`ReviewerResultStagingResult` 与 `ReviewerResultCollectionResult` 新增只读 `runbookSteps[]`；finalize 阶段从当前 stage/status、artifact hash envelope、`missionCommanderAction.primaryCommand`、`nextSteps[]` 与 boundary 派生去重 runbook。
+- Runbook 明确要求先确认当前 stage/status 与 artifact hashes，再运行当前 Mission Commander command；每次 Apply 后必须重新运行下一步 WhatIf，并只使用返回的 hash-bound Apply command；capture、staging、collection 与 packet-level ready reviewer intake 保持四个独立 bounded operations。
+- `plan-subagents -Format text` 的 reviewer result source capture / staging / collection 结果新增 `reviewer result ... runbook` terminal lines；JSON/text 都能直接暴露下一步命令、WhatIf→Apply 纪律与 boundary guard。
+- Focused subagents 与 CLI product-path 测试覆盖 source capture/staging/collection preview/apply 的 JSON `runbookSteps[]` 和 text runbook 行，锁定 replacement executor 不必回读 packet/summary 即可安全接续。
+
+边界：本批只增强 reviewer result writeback execution envelope 的只读 operational runbook 与测试；不改变 packet schema、reviewer result validation、source/candidate/canonical result publication、ready reviewer results intake、Mission Commander queue ordering、case durable authority/confirmed 或 heavy-tool 执行语义，不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/subagents -run "TestStageReviewerResultPublishesCandidateForCollection|TestCollectReviewerResultWhatIfApplyAndReplay" -count=1` 已通过；focused product-path `go test ./internal/rekit/cli ./internal/rekit/subagents -run "TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E|TestStageReviewerResultPublishesCandidateForCollection|TestCollectReviewerResultWhatIfApplyAndReplay" -count=1` 已通过。Package validation `go test ./internal/rekit/cli ./internal/rekit/subagents -count=1` 已通过。完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，返回 `ready=true` / `summary=release run ok`，聚合执行 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步，`passed=7 failed=0 skipped=0`；`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。`releaseInspection` handoff 因 implementation commit 尚未创建而显示 working tree dirty / `implementation-pending` next action，符合预提交状态。implementation commit/push 与远程 release-gate inspection 待执行。
+
 ### Batch 621：release-run release inspection handoff closure
 
 状态：已完成 runtime/test/doc 工作树实现、focused `release-run` handoff 回归、CLI package 验证、完整本机 `release-run` release minimum，以及 implementation commit/push 和 push-triggered remote release-gate inspection；implementation commit `d84b427` 已推送。Push run `30203150398` completed failure，Linux/macOS/Windows jobs `89796512974`/`89796512982`/`89796513018` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。

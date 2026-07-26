@@ -65,6 +65,7 @@ type ReviewerResultSourceCaptureResult struct {
 	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions"`
 	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 	NextSteps                   []string                                 `json:"nextSteps"`
+	RunbookSteps                []string                                 `json:"runbookSteps"`
 	Boundary                    []string                                 `json:"boundary"`
 }
 
@@ -94,6 +95,7 @@ type ReviewerResultStagingResult struct {
 	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions"`
 	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 	NextSteps                   []string                                 `json:"nextSteps"`
+	RunbookSteps                []string                                 `json:"runbookSteps"`
 	Boundary                    []string                                 `json:"boundary"`
 }
 
@@ -1158,6 +1160,7 @@ func newReviewerResultSourceCaptureResult(repoRoot, caseRoot, pack string, opt R
 }
 
 func finalizeReviewerResultSourceCaptureResult(result ReviewerResultSourceCaptureResult) ReviewerResultSourceCaptureResult {
+	result.RunbookSteps = reviewerResultWritebackRunbookSteps("source capture", result.Status, result.MissionCommanderAction.PrimaryCommand, result.NextSteps, result.Boundary)
 	result.MissionCommanderNextActions = []mission.MissionCommanderNextActionItem{{
 		Lane:           result.Lane,
 		Label:          result.PacketID,
@@ -1205,6 +1208,7 @@ func newReviewerResultStagingResult(repoRoot, caseRoot, pack string, opt Reviewe
 }
 
 func finalizeReviewerResultStagingResult(result ReviewerResultStagingResult) ReviewerResultStagingResult {
+	result.RunbookSteps = reviewerResultWritebackRunbookSteps("staging", result.Status, result.MissionCommanderAction.PrimaryCommand, result.NextSteps, result.Boundary)
 	result.MissionCommanderNextActions = []mission.MissionCommanderNextActionItem{{
 		Lane:           result.Lane,
 		Label:          result.PacketID,
@@ -1218,6 +1222,42 @@ func finalizeReviewerResultStagingResult(result ReviewerResultStagingResult) Rev
 	}}
 	result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
 	return result
+}
+
+func reviewerResultWritebackRunbookSteps(stage, status, primaryCommand string, nextSteps, boundary []string) []string {
+	steps := []string{fmt.Sprintf("confirm reviewer result %s status=%s and artifact hashes in this envelope", stage, status)}
+	for _, next := range nextSteps {
+		if strings.TrimSpace(next) != "" {
+			steps = append(steps, "handoff reason: "+strings.TrimSpace(next))
+		}
+	}
+	if strings.TrimSpace(primaryCommand) != "" {
+		steps = append(steps, "run current Mission Commander command: "+strings.TrimSpace(primaryCommand))
+	}
+	steps = append(steps,
+		"after each Apply, rerun the next WhatIf and use only the returned hash-bound Apply command",
+		"keep capture, staging, collection, and packet-level reviewer intake as separate bounded operations",
+	)
+	for _, guard := range boundary {
+		if strings.Contains(strings.ToLower(guard), "does not") || strings.Contains(strings.ToLower(guard), "runtime does not") {
+			steps = append(steps, "boundary guard: "+strings.TrimSpace(guard))
+		}
+	}
+	return uniqueReviewerResultRunbookSteps(steps)
+}
+
+func uniqueReviewerResultRunbookSteps(values []string) []string {
+	out := []string{}
+	seen := map[string]bool{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
 }
 
 func reviewerResultSourceCaptureCommand(packetPath, shardID, inputPath, lane, actor, expectedInputSHA256 string, apply bool) string {

@@ -53,6 +53,8 @@ func TestStageReviewerResultPublishesCandidateForCollection(t *testing.T) {
 	if preview.Applied || preview.SourceSHA256 == "" || preview.CandidatePath != handoff.ReviewerResultCandidatePath || preview.MissionCommanderAction.State != "ready-for-reviewer-result-staging-apply" || !strings.Contains(preview.MissionCommanderAction.PrimaryCommand, "-ExpectedSourceSha256") {
 		t.Fatalf("unexpected staging preview: %+v", preview)
 	}
+	assertReviewerRunbookContains(t, preview.RunbookSteps, "run current Mission Commander command")
+	assertReviewerRunbookContains(t, preview.RunbookSteps, "hash-bound Apply command")
 	if _, err := os.Stat(handoff.ReviewerResultCandidatePath); !os.IsNotExist(err) {
 		t.Fatalf("preview wrote candidate: %v", err)
 	}
@@ -65,6 +67,8 @@ func TestStageReviewerResultPublishesCandidateForCollection(t *testing.T) {
 	if !applied.Applied || applied.Status != "staged" || applied.MissionCommanderAction.State != "reviewer-result-staged-ready-for-collection-preview" {
 		t.Fatalf("unexpected staging apply: %+v", applied)
 	}
+	assertReviewerRunbookContains(t, applied.RunbookSteps, "-CollectReviewerResult")
+	assertReviewerRunbookContains(t, applied.RunbookSteps, "separate bounded operations")
 	if data, err := os.ReadFile(handoff.ReviewerResultCandidatePath); err != nil || string(data) != string(source) {
 		t.Fatalf("staged candidate = %q err=%v", data, err)
 	}
@@ -85,6 +89,17 @@ func TestStageReviewerResultPublishesCandidateForCollection(t *testing.T) {
 	if collection.CandidateSHA256 != preview.SourceSHA256 || collection.ReviewerResult.ReviewerSession != preview.ReviewerResult.ReviewerSession {
 		t.Fatalf("collection did not consume staged candidate: %+v", collection)
 	}
+	assertReviewerRunbookContains(t, collection.RunbookSteps, "run current Mission Commander command")
+}
+
+func assertReviewerRunbookContains(t *testing.T, steps []string, want string) {
+	t.Helper()
+	for _, step := range steps {
+		if strings.Contains(step, want) {
+			return
+		}
+	}
+	t.Fatalf("runbook missing %q in %v", want, steps)
 }
 
 func TestPublishReviewerResultCandidateRejectsPreparedNamespaceRebind(t *testing.T) {
