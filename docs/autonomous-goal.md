@@ -84,7 +84,7 @@ Mission Control 相关批次还应检查：
 在发正式 goal 前，可先复制这段给新会话：
 
 ```text
-请在 C:\AI\m_projects\RE\re-context-kits 接手长期推进；先按仓库路由读取最小上下文并确认当前状态，不要开始改动。我随后会发送正式 goal。
+请在 C:\AI\m_projects\RE\re-context-kits 的 main 分支接手长期推进；先按仓库路由读取最小上下文，确认 main 与 origin/main 同步、工作树干净和当前状态，不要开始改动。我随后会发送正式 goal。
 ```
 
 ## 给新会话的 goal 语句
@@ -92,9 +92,9 @@ Mission Control 相关批次还应检查：
 推荐直接复制这段给新会话，保持短而明确；更细边界由仓库文档和实际验证承载，不塞进 goal：
 
 ```text
-在 C:\AI\m_projects\RE\re-context-kits 中，长期、自主、连续推进项目向 Lane-centric Agent Team Mission Control 收敛。每轮先按 docs/context-routing.md 读取最小上下文，确认 docs/batch-plan.md 当前状态、CHANGELOG.md 顶部和真实 git/验证状态，再选择一个中大型、可验证、能提升真实产品闭环或降低维护风险的 vertical slice 实施。
+在 C:\AI\m_projects\RE\re-context-kits 的 main 分支长期、自主、连续推进项目向 Lane-centric Agent Team Mission Control 收敛。每轮先按 docs/context-routing.md 读取最小上下文，确认 docs/batch-plan.md 当前状态、CHANGELOG.md 顶部、main/origin/main 同步状态和真实验证状态，再选择一个中大型、可验证、能提升真实产品闭环或降低维护风险的 vertical slice 实施。
 
 近期优先 PowerShell-free default/product path、Go-native、Mission Commander operational closure、replaceable session executor、reviewer dispatch/intake/writeback、authorized execution evidence、tool-adapter live validation、pack-memory UX 和 Windows 本机 product-path 稳定；不要连续做一两行或逐字段 metadata 微批次。禁止新增 PowerShell runtime logic，远程 CI steps=[] 只如实记录为 known gap。
 
-完成一批后更新必要文档和 CHANGELOG，运行合适验证；若本 session 已授权，提交并推送 main。除非遇到仓库文档规定必须升级的事项，否则自主判断并继续下一批；不要把单个 batch、一次提交、inventory ready 或工作树干净当成长期 goal 完成。
+完成一批后更新必要文档和 CHANGELOG，运行合适验证；若本 session 已授权，直接提交并推送到 origin/main。除非遇到仓库文档规定必须升级的事项，否则自主判断并继续下一批；不要把单个 batch、一次提交、inventory ready 或工作树干净当成长期 goal 完成。
 ```

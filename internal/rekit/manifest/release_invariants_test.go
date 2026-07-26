@@ -492,6 +492,8 @@ func TestAutonomousGoalGuideInvariants(t *testing.T) {
 		"简短接手锚点",
 		"不是新的限制清单",
 		"Lane-centric Agent Team Mission Control",
+		"main 与 origin/main 同步",
+		"直接提交并推送到 origin/main",
 		"中大型",
 		"完成后自审、评估",
 		"默认继续自主推进",
