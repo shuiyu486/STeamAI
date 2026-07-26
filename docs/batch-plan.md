@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 643：reviewer source capture already-captured replay product-path closure
 
-状态：已完成 CLI product-path 测试扩展、focused/related reviewer CLI tests 与完整本机 `release-run` release minimum；待 implementation commit/push 与 release inspection 记录。
+状态：已完成 CLI product-path 测试扩展、focused/related reviewer CLI tests、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `99d8820` 已推送。Push run `30220583629` completed failure，macOS/Linux/Windows jobs `89842225832`/`89842225849`/`89842225895` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。
 
 目标：继续执行端到端能力闭环约束，补齐 capture-first reviewer 接手链在 source 发布后、staging 前中断的真实恢复断点。Batch 641 已证明主 Agent 会先把 reviewer JSON 保存到 symlink-free case-local input，再通过 `-CaptureReviewerResultSource` WhatIf→hash-bound Apply 发布到 packet-derived source path；但还没有证明 replacement executor 在 capture Apply 已完成、随后会话中断或重跑同一 handoff 时，能从同一 input 安全看到 `already-captured` 并直接接续 staging，而不是重复写 source、误要求再次 capture Apply 或提前写 candidate/result。
 
