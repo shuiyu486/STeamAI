@@ -16,6 +16,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 613：Mission Commander first-screen focus routing explanation
+
+状态：已完成 runtime/test/doc 工作树实现、focused CLI product-path 验证和完整本地 release minimum；implementation commit/push 与 PR-triggered remote release-gate inspection 待本批提交后记录。默认 `status` / `/rekit` first-screen 现在会在 `focus=...` summary 后追加 `status Mission Commander first screen routing` 行，说明当前 focus 为什么胜出，以及哪些其它 current-action queues 被延后。
+
+目标：补齐 Batch 597/611/612 后仍存在的第一屏解释断点：Mission Commander first-screen 已能显示 case/reviewer/pack-memory/project focus 和 project runbook，但 replacement executor 仍只能看到最终 `focus=...`，不知道它是因为 reviewer dispatch 覆盖 case action、case action 需要 review、pack-memory candidate 未闭合，还是只是 project fallback；当下方仍打印多个 `status Mission Commander current action` 时，容易误以为较低优先级队列被忽略。
+
+已实现内容：
+
+- `writeStatusMissionCommanderFirstScreenText` 在 focus summary 之后输出 `status Mission Commander first screen routing` 只读说明；focus 选择逻辑与优先级保持不变。
+- 新增 `statusMissionCommanderFirstScreenFocusRoutingReasons`，复用已有 `caseCurrent`、`reviewerCurrent`、`packCurrent`、`projectCurrent` 与 pack-memory readiness 判定，解释 reviewer-dispatch override、case needs-attention、reviewer queue open、pack-memory closure required、project fallback 或 no-action。
+- Routing explanation 会在存在 lower-priority current actions 时追加 `deferred focus queues`，让 replacement executor 知道其它队列仍在下方保留，但当前 focus 有更高接手优先级。
+- CLI focused tests 覆盖 routing pure helper 的 project fallback 与 reviewer-dispatch override/deferred queues，并扩展默认 `status` / `status -Format text` 断言，锁定 project fallback routing 行。
+- README 与 agent-team usage 文档补充 first-screen 会显示 focus routing explanation 与 project runbook，避免用户把 routing explanation 误认为 durable state 或新 schema。
+
+边界：本批只增强 default status / Mission Commander first-screen 的只读 text routing explanation 与产品路径测试；不改变 focus priority，不新增 JSON/durable schema，不改变 release inspection cadence，不执行 heavy tool，不写 authority/confirmed，不新增 PowerShell runtime logic。既有 `steps=[]` / `runner_id=0` runner/billing blocker 继续作为 known gap 记录，不能声明 remote CI green。
+
+验证结果：focused `go test ./internal/rekit/cli -run "TestStatusMissionCommanderFirstScreenFocusRoutingReasons|TestRunStatus" -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true` / `summary=release gate inventory ok`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 均通过，`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。implementation commit/push 与 remote release-gate inspection 将在本批提交后补记；若远程仍为既有 `steps=[]` / `runner_id=0` blocker，则只记录 known blocker，不追加第三个 inspection record。
+
 ### Batch 612：Mission Commander project current action first-screen runbook
 
 状态：已完成 runtime/test/doc 工作树实现、focused CLI product-path 验证、完整本地 release minimum，以及 implementation commit/push 和 PR-triggered remote release-gate inspection；implementation commit `cb2ec80` 已推送并进入 PR #15。默认 kit-mode `status` / `status -Format text` 现在不仅投影 latest-batch project current action，还会在 `focus=project-current-action` 时输出 project runbook steps，让新会话从第一屏直接看到读取顺序、latest-batch action、release inspection cadence、local validation 与 remote non-green boundary。PR run `30191008102` completed failure，Linux/Windows/macOS jobs `89764153978`/`89764153979`/`89764154001` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。

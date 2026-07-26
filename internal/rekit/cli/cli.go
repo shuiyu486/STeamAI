@@ -2229,6 +2229,9 @@ func writeStatusMissionCommanderFirstScreenText(out io.Writer, caseMission *stat
 	if _, err := fmt.Fprintf(out, "status Mission Commander first screen：focus=%s caseCurrent=%s caseQueueTotal=%d caseQueueBlocked=%d caseQueueRequiresReview=%d reviewerCurrent=%s reviewerQueueTotal=%d reviewerQueueBlocked=%d reviewerQueueRequiresReview=%d packMemoryCurrent=%s packMemoryTotal=%d packMemoryRequiresReview=%d\n", focus, statusMissionActionCommand(caseCurrent), caseQueue.Counts.Total, caseQueue.Counts.Blocked, caseQueue.Counts.RequiresReview, statusMissionActionCommand(reviewerCurrent), reviewerQueue.Counts.Total, reviewerQueue.Counts.Blocked, reviewerQueue.Counts.RequiresReview, statusMissionActionCommand(packCurrent), packTotal, packQueue.Counts.RequiresReview); err != nil {
 		return err
 	}
+	if err := writeStatusMissionCommanderFirstScreenFocusRoutingText(out, focus, caseCurrent, reviewerCurrent, projectCurrent, projectHandoff, packCurrent); err != nil {
+		return err
+	}
 	switch focus {
 	case "case-current-action":
 		if err := writeStatusMissionCommanderFirstScreenActionText(out, "case", caseCurrent); err != nil {
@@ -2311,6 +2314,62 @@ func statusMissionCommanderFirstScreenFocus(caseCurrent, reviewerCurrent, projec
 		return "project-current-action"
 	}
 	return "none"
+}
+
+func writeStatusMissionCommanderFirstScreenFocusRoutingText(out io.Writer, focus string, caseCurrent, reviewerCurrent, projectCurrent *mission.MissionCommanderNextActionItem, projectHandoff *statusProjectHandoff, packCurrent *mission.MissionCommanderNextActionItem) error {
+	for _, reason := range statusMissionCommanderFirstScreenFocusRoutingReasons(focus, caseCurrent, reviewerCurrent, projectCurrent, projectHandoff, packCurrent) {
+		if _, err := fmt.Fprintf(out, "status Mission Commander first screen routing：focus=%s reason=%s\n", focus, reason); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func statusMissionCommanderFirstScreenFocusRoutingReasons(focus string, caseCurrent, reviewerCurrent, projectCurrent *mission.MissionCommanderNextActionItem, projectHandoff *statusProjectHandoff, packCurrent *mission.MissionCommanderNextActionItem) []string {
+	reasons := []string{}
+	switch focus {
+	case "reviewer-current-action":
+		if statusMissionCommanderActionIsReviewerDispatch(caseCurrent) {
+			reasons = append(reasons, "case current action is a reviewer dispatch handoff, so reviewer focus wins")
+		} else if statusReviewerDispatchCurrentActionNeedsAttention(reviewerCurrent) {
+			reasons = append(reasons, "reviewer dispatch/intake queue has an open current action")
+		} else {
+			reasons = append(reasons, "reviewer current action is the highest available fallback")
+		}
+	case "case-current-action":
+		if statusCaseMissionCurrentActionNeedsAttention(caseCurrent) {
+			reasons = append(reasons, "case current action needs attention before lower-priority queues")
+		} else {
+			reasons = append(reasons, "case current action is the highest available fallback")
+		}
+	case "pack-memory-current-action":
+		if statusPackMemoryCurrentActionNeedsAttention(projectHandoff, packCurrent) {
+			reasons = append(reasons, "pack-memory candidate queue still needs review or closure")
+		} else {
+			reasons = append(reasons, "pack-memory current action is the highest available fallback")
+		}
+	case "project-current-action":
+		reasons = append(reasons, "case, reviewer, and pack-memory focus queues are empty or lower priority")
+	case "none":
+		reasons = append(reasons, "no Mission Commander current action is available")
+	}
+	deferred := []string{}
+	if focus != "case-current-action" && caseCurrent != nil {
+		deferred = append(deferred, "case")
+	}
+	if focus != "reviewer-current-action" && reviewerCurrent != nil {
+		deferred = append(deferred, "reviewer")
+	}
+	if focus != "pack-memory-current-action" && packCurrent != nil {
+		deferred = append(deferred, "pack-memory")
+	}
+	if focus != "project-current-action" && projectCurrent != nil {
+		deferred = append(deferred, "project")
+	}
+	if len(deferred) > 0 {
+		reasons = append(reasons, "deferred focus queues: "+strings.Join(deferred, ","))
+	}
+	return mission.UniqueStrings(reasons)
 }
 
 func statusMissionCommanderActionIsReviewerDispatch(action *mission.MissionCommanderNextActionItem) bool {

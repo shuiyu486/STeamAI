@@ -17,6 +17,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaultdocs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/promote"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/releasecheck"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/review"
@@ -58,6 +59,21 @@ func TestParseDefaults(t *testing.T) {
 	}
 	if opt.Pack != defaults.DefaultPack {
 		t.Fatalf("Pack = %q, want %s", opt.Pack, defaults.DefaultPack)
+	}
+}
+
+func TestStatusMissionCommanderFirstScreenFocusRoutingReasons(t *testing.T) {
+	project := &mission.MissionCommanderNextActionItem{Command: "/rekit status", Source: "releaseHandoffLatestBatch", State: "complete"}
+	if got := statusMissionCommanderFirstScreenFocusRoutingReasons("project-current-action", nil, nil, project, nil, nil); !slices.Equal(got, []string{"case, reviewer, and pack-memory focus queues are empty or lower priority"}) {
+		t.Fatalf("project routing reasons drifted: %+v", got)
+	}
+
+	caseAction := &mission.MissionCommanderNextActionItem{Command: "/rekit plan-subagents", Source: "reviewerDispatchIntakeHandoffs", State: "waiting-for-reviewer"}
+	packAction := &mission.MissionCommanderNextActionItem{Command: "/rekit promote", Source: "packMemoryCandidates", State: "missing-proof"}
+	got := statusMissionCommanderFirstScreenFocusRoutingReasons("reviewer-current-action", caseAction, nil, project, nil, packAction)
+	want := []string{"case current action is a reviewer dispatch handoff, so reviewer focus wins", "deferred focus queues: case,pack-memory,project"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("reviewer routing reasons drifted: got %+v want %+v", got, want)
 	}
 }
 
@@ -592,6 +608,7 @@ func TestRunStatusJsonKit(t *testing.T) {
 		"matchesTemplate=unknown",
 		"warnings=0",
 		"status Mission Commander first screen：focus=project-current-action",
+		"status Mission Commander first screen routing：focus=project-current-action reason=case, reviewer, and pack-memory focus queues are empty or lower priority",
 		"status Mission Commander current action：scope=focus-project lane= label=Batch ",
 		"source=releaseHandoffLatestBatch blocked=false requiresReview=",
 		"status Mission Commander focus action reason：scope=project reason=latest batch next action is recorded in the release handoff",
@@ -629,6 +646,7 @@ func TestRunStatusJsonKit(t *testing.T) {
 	defaultStatusExpected := []string{
 		"rekit go backend:",
 		"status Mission Commander first screen：focus=project-current-action",
+		"status Mission Commander first screen routing：focus=project-current-action reason=case, reviewer, and pack-memory focus queues are empty or lower priority",
 		"status Mission Commander current action：scope=focus-project lane= label=Batch ",
 		"source=releaseHandoffLatestBatch blocked=false requiresReview=",
 		"status Mission Commander focus action reason：scope=project reason=latest batch next action is recorded in the release handoff",
