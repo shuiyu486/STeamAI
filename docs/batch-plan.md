@@ -16,6 +16,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 641：reviewer capture-first batch intake product-path closure
+
+状态：已完成 CLI product-path 测试实现、focused/related reviewer CLI tests 与完整本机 `release-run` release minimum；待 implementation commit/push 与 push-triggered remote release-gate inspection。
+
+目标：继续执行端到端能力闭环约束，补齐 Batch 600/601 capture-first reviewer handoff 在 packet-level ready-results E2E 中的真实断点。现有 case-local ready reviewer results product path 直接把 reviewer JSON 写到 packet-derived `reviewerStagingCommands.sourcePath`，只能证明 staging/collection/intake 下游；它没有锁定主 Agent 按 handoff 先保存唯一 reviewer JSON 到 symlink-free case-local input，再通过 source capture WhatIf→hash-bound Apply 发布到 packet-derived source path 的完整接手顺序。
+
+已实现内容：扩展 `TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath`。测试现在先把 reviewer JSON 保存到 `workspace/reviewer-inputs/<shard>.json`，运行 `plan-subagents -CaptureReviewerResultSource -WhatIf -Format json`，断言 preview 为 read-only、返回 input/source SHA-256、Mission Commander action 指向 `ready-for-reviewer-result-source-capture-apply` 且 source path 尚不存在；随后使用 preview 返回的 `-ExpectedReviewerResultInputSha256` 执行 Apply，断言 envelope `status=captured`、exact input/source hashes 绑定、Mission Commander action 进入 `reviewer-result-source-ready-for-staging-preview` 并指向 `-StageReviewerResult`，同时读取 packet-derived source path 确认 exact bytes 已发布。之后同一测试继续运行 staging WhatIf→expected-source-hash Apply、collection WhatIf→Apply 与 packet-level `-ReadyReviewerResults` WhatIf→Apply，证明 capture-first source publication 能接续到 verification/decision writeback。
+
+边界：本批不改变 reviewer source capture、staging、collection 或 intake runtime 语义，不新增 public command，不自动 spawn/monitor reviewer，不把 reviewer JSON 直接写入 packet-derived source，不绕过 hash-bound Apply，不写 authority/confirmed，不执行 heavy tool，不新增 PowerShell runtime logic；唯一新增能力是把现有 capture-first reviewer 接手链锁定到 case-local batch ready-results product-path 回归。
+
+验证结果：focused `go test ./internal/rekit/cli -run "TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath" -count=1` 已通过；related reviewer CLI regression `go test ./internal/rekit/cli -run "TestRunPlanSubagentsReviewer(IntakeWhatIfApply|PacketAdoption|ReadyReviewerResults|ResultObstructionRecovery|ResultRecoveryDisposition)" -count=1` 已通过；完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，其中 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步均通过，返回 `ready=true` / `summary=release run ok`，聚合 `passed=7 failed=0 skipped=0`，`go test ./... attempts=1`，仅 `git diff --check` 保留 Windows 工作树 LF→CRLF 提示。implementation commit/push 与远程 inspection 待执行。
+
 ### Batch 640：installed/case-local onboarding continue-apply durable handoff closure
 
 状态：已完成 CLI product-path 测试实现、focused/related onboarding continue CLI tests、release-handoff parser regression、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `32384e4` 已推送。Push run `30218764792` completed failure，Windows/Linux/macOS jobs `89837384703`/`89837384745`/`89837384752` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。

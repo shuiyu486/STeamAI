@@ -927,11 +927,73 @@ func TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath(t *testing.T) 
 			t.Fatalf("reviewer staging source path was not packet-derived: %+v", handoff.ReviewerStagingCommands)
 		}
 		sourcePath := handoff.ReviewerStagingCommands.SourcePath
-		if err := os.MkdirAll(filepath.Dir(sourcePath), 0o755); err != nil {
+		inputPath := filepath.Join(caseRoot, "workspace", "reviewer-inputs", handoff.ShardID+".json")
+		if err := os.MkdirAll(filepath.Dir(inputPath), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(sourcePath, data, 0o644); err != nil {
+		if err := os.WriteFile(inputPath, data, 0o644); err != nil {
 			t.Fatal(err)
+		}
+		out.Reset()
+		if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-CaptureReviewerResultSource", "-ShardId", handoff.ShardID, "-ReviewerResultInputPath", inputPath, "-Lane", "feature-review", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
+			t.Fatal(err)
+		}
+		var sourcePreview struct {
+			Mode                   string   `json:"mode"`
+			Status                 string   `json:"status"`
+			IsMutation             bool     `json:"isMutation"`
+			Applied                bool     `json:"applied"`
+			InputPath              string   `json:"inputPath"`
+			InputSHA256            string   `json:"inputSha256"`
+			SourcePath             string   `json:"sourcePath"`
+			SourceSHA256           string   `json:"sourceSha256"`
+			RunbookSteps           []string `json:"runbookSteps"`
+			Boundary               []string `json:"boundary"`
+			MissionCommanderAction struct {
+				State          string `json:"state"`
+				PrimaryCommand string `json:"primaryCommand"`
+			} `json:"missionCommanderAction"`
+		}
+		if err := json.Unmarshal(out.Bytes(), &sourcePreview); err != nil {
+			t.Fatalf("reviewer source capture preview JSON did not decode: %v\n%s", err, out.String())
+		}
+		if sourcePreview.Mode != "reviewer-result-source-capture" || sourcePreview.Status != "previewed" || sourcePreview.IsMutation || sourcePreview.Applied || sourcePreview.InputPath != inputPath || sourcePreview.SourcePath != sourcePath || sourcePreview.InputSHA256 == "" || sourcePreview.SourceSHA256 != sourcePreview.InputSHA256 || sourcePreview.MissionCommanderAction.State != "ready-for-reviewer-result-source-capture-apply" || !strings.Contains(sourcePreview.MissionCommanderAction.PrimaryCommand, "-ExpectedReviewerResultInputSha256") || !containsSubstring(sourcePreview.RunbookSteps, "source capture") || !containsSubstring(sourcePreview.Boundary, "does not append facts") {
+			t.Fatalf("unexpected reviewer source capture preview: %+v", sourcePreview)
+		}
+		if _, err := os.Stat(sourcePath); !os.IsNotExist(err) {
+			t.Fatalf("reviewer source capture WhatIf wrote source: %v", err)
+		}
+		out.Reset()
+		if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-CaptureReviewerResultSource", "-ShardId", handoff.ShardID, "-ReviewerResultInputPath", inputPath, "-Lane", "feature-review", "-Actor", "mission-commander", "-ExpectedReviewerResultInputSha256", sourcePreview.InputSHA256, "-Apply", "-Format", "json"}, &out); err != nil {
+			t.Fatal(err)
+		}
+		var sourceApply struct {
+			Mode                   string `json:"mode"`
+			Status                 string `json:"status"`
+			IsMutation             bool   `json:"isMutation"`
+			Applied                bool   `json:"applied"`
+			AlreadyCaptured        bool   `json:"alreadyCaptured"`
+			InputPath              string `json:"inputPath"`
+			InputSHA256            string `json:"inputSha256"`
+			SourcePath             string `json:"sourcePath"`
+			SourceSHA256           string `json:"sourceSha256"`
+			MissionCommanderAction struct {
+				State          string `json:"state"`
+				PrimaryCommand string `json:"primaryCommand"`
+			} `json:"missionCommanderAction"`
+		}
+		if err := json.Unmarshal(out.Bytes(), &sourceApply); err != nil {
+			t.Fatalf("reviewer source capture apply JSON did not decode: %v\n%s", err, out.String())
+		}
+		if sourceApply.Mode != "reviewer-result-source-capture" || sourceApply.Status != "captured" || !sourceApply.IsMutation || !sourceApply.Applied || sourceApply.AlreadyCaptured || sourceApply.InputPath != inputPath || sourceApply.SourcePath != sourcePath || sourceApply.InputSHA256 != sourcePreview.InputSHA256 || sourceApply.SourceSHA256 != sourcePreview.SourceSHA256 || sourceApply.MissionCommanderAction.State != "reviewer-result-source-ready-for-staging-preview" || !strings.Contains(sourceApply.MissionCommanderAction.PrimaryCommand, "-StageReviewerResult") {
+			t.Fatalf("unexpected reviewer source capture apply: %+v", sourceApply)
+		}
+		captured, err := os.ReadFile(sourcePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(captured, data) {
+			t.Fatalf("reviewer source capture wrote different bytes: %s", string(captured))
 		}
 		out.Reset()
 		if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-StageReviewerResult", "-ShardId", handoff.ShardID, "-ReviewerResultSourcePath", sourcePath, "-Lane", "feature-review", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
