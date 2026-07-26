@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 641：reviewer capture-first batch intake product-path closure
 
-状态：已完成 CLI product-path 测试实现、focused/related reviewer CLI tests、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `70297ea` 已推送。Push run `30219763907` completed failure，Linux/Windows/macOS jobs `89840063082`/`89840063135`/`89840063153` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。
+状态：已完成 CLI product-path 测试实现、focused/related reviewer CLI tests、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `70297ea` 已推送。Push-triggered release-gate run `30219763907` completed failure，Linux/Windows/macOS jobs `89840063082`/`89840063135`/`89840063153` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。
 
 目标：继续执行端到端能力闭环约束，补齐 Batch 600/601 capture-first reviewer handoff 在 packet-level ready-results E2E 中的真实断点。现有 case-local ready reviewer results product path 直接把 reviewer JSON 写到 packet-derived `reviewerStagingCommands.sourcePath`，只能证明 staging/collection/intake 下游；它没有锁定主 Agent 按 handoff 先保存唯一 reviewer JSON 到 symlink-free case-local input，再通过 source capture WhatIf→hash-bound Apply 发布到 packet-derived source path 的完整接手顺序。
 
