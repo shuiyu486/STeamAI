@@ -16,6 +16,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 616：project handoff structured current-action queue
+
+状态：已完成 runtime/test 工作树实现与 focused CLI product-path 验证；完整本机 release minimum、implementation commit/push 与 release inspection 尚待执行。
+
+目标：补齐新会话接手的真实断点：Batch 611/612/613 已把 latest-batch project current action 推到第一屏和 runbook，但 JSON/status project handoff 仍主要依赖 `latestNextAction` 字符串；replacement executor 或工具化接手要自行解析 free-text，难以复用 Mission Commander queue 的 current/unblocked/review/boundary 语义。本批将 project-level latest-batch handoff 提升为结构化 `missionCommanderNextActions[]` 与 `missionCommanderActionQueue`，并让 first-screen/text/JSON 共享同一来源。
+
+已实现内容：
+
+- `statusProjectHandoff` 新增只读 `missionCommanderNextActions[]` 与 `missionCommanderActionQueue`，复用既有 `MissionCommanderNextActionItem` / `MissionCommanderActionQueue` schema；不新增 durable state 或 case-local 写入。
+- `buildStatusProjectHandoff` 在构造 release handoff 时生成 project current action queue；`writeStatusMissionCommanderFirstScreenText` 不再临时从 `latestNextAction` 重新派生 project current，而是消费同一个 queue current action。
+- `status -Format text` 在 latest-batch handoff 段输出 `status project handoff current action queue` 与 current/unblocked/reviewRequired buckets，让新会话从 text 或 JSON 都能拿到同一条可执行接手 action、reason 与 boundary。
+- CLI 回归锁定 JSON queue current action 与 `latestNextAction` 同源、queue counts、reasons/boundary，以及 text/default status 的 project queue 输出。
+
+边界：本批只增强 status/project handoff 的只读结构化接手投影；不改变 release cadence，不执行远程 CI，不写 repo/case durable state、authority/confirmed，不新增 PowerShell runtime logic，不把 remote CI inventory ready 说成 remote green。
+
+验证结果：focused `go test ./internal/rekit/cli -run "TestRunStatusJsonKit|TestRunStatus|TestRunStatusKitShowsOpenPackMemoryCandidates" -count=1` 已通过；`go run ./cmd/rekit -- -Command status -Format json` 与 `go run ./cmd/rekit -- -Command status -Format text` 已手动确认 project handoff queue 与 first-screen current action 同源。完整本机 release minimum、commit/push 与远程 release-gate inspection 尚待执行。
+
 ### Batch 615：Go-native local release runner closure
 
 状态：已完成 runtime/test/doc 工作树实现、focused package / release inventory 验证、完整本机 `release-run` release minimum，以及 implementation commit/push 和 PR-triggered remote release-gate inspection；implementation commit `6e1eebf` 已推送。`release-run` 首次 fail-closed 暴露 latest-batch 文档状态与 PowerShell façade freeze invariant 残留，均已修复并重跑通过。PR run `30195410301` completed failure，Windows/macOS/Linux jobs `89775948859`/`89775948866`/`89775948868` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。

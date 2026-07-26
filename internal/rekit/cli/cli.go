@@ -1037,8 +1037,7 @@ func executeReleaseRunCommand(ctx context.Context, repoRoot, command string) (in
 		return 0, string(output), nil
 	}
 	exitCode := -1
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
+	if exitErr, ok := err.(*exec.ExitError); ok {
 		exitCode = exitErr.ExitCode()
 	}
 	return exitCode, string(output), err
@@ -1968,6 +1967,8 @@ type statusProjectHandoff struct {
 	LatestNextAction              string                                              `json:"latestNextAction"`
 	LatestEvidence                []string                                            `json:"latestEvidence,omitempty"`
 	LatestCommits                 []string                                            `json:"latestCommits,omitempty"`
+	MissionCommanderNextActions   []mission.MissionCommanderNextActionItem            `json:"missionCommanderNextActions,omitempty"`
+	MissionCommanderActionQueue   mission.MissionCommanderActionQueue                 `json:"missionCommanderActionQueue"`
 	PackMemoryCandidates          releasecheck.ReleaseHandoffPackMemoryCandidateList  `json:"packMemoryCandidates"`
 	KnownGaps                     []string                                            `json:"knownGaps"`
 	NextActions                   []string                                            `json:"nextActions"`
@@ -2416,7 +2417,12 @@ func writeStatusMissionCommanderFirstScreenText(out io.Writer, caseMission *stat
 		packCurrent = packQueue.CurrentAction
 		packTotal = packCandidates.Total
 	}
-	projectCurrent := statusProjectHandoffCurrentAction(projectHandoff)
+	projectQueue := mission.MissionCommanderActionQueue{}
+	projectCurrent := (*mission.MissionCommanderNextActionItem)(nil)
+	if projectHandoff != nil {
+		projectQueue = projectHandoff.MissionCommanderActionQueue
+		projectCurrent = projectQueue.CurrentAction
+	}
 	focus := statusMissionCommanderFirstScreenFocus(caseCurrent, reviewerCurrent, projectCurrent, projectHandoff, packCurrent)
 	if _, err := fmt.Fprintf(out, "status Mission Commander first screen：focus=%s caseCurrent=%s caseQueueTotal=%d caseQueueBlocked=%d caseQueueRequiresReview=%d reviewerCurrent=%s reviewerQueueTotal=%d reviewerQueueBlocked=%d reviewerQueueRequiresReview=%d packMemoryCurrent=%s packMemoryTotal=%d packMemoryRequiresReview=%d\n", focus, statusMissionActionCommand(caseCurrent), caseQueue.Counts.Total, caseQueue.Counts.Blocked, caseQueue.Counts.RequiresReview, statusMissionActionCommand(reviewerCurrent), reviewerQueue.Counts.Total, reviewerQueue.Counts.Blocked, reviewerQueue.Counts.RequiresReview, statusMissionActionCommand(packCurrent), packTotal, packQueue.Counts.RequiresReview); err != nil {
 		return err
@@ -3343,6 +3349,9 @@ func writeStatusProjectHandoffText(out io.Writer, handoff *statusProjectHandoff)
 		if _, err := fmt.Fprintf(out, "status latest batch next action：%s\n", handoff.LatestNextAction); err != nil {
 			return err
 		}
+	}
+	if err := writeStatusMissionCommanderActionQueueText(out, "status project handoff current action queue", handoff.MissionCommanderActionQueue); err != nil {
+		return err
 	}
 	for _, evidence := range handoff.LatestEvidence {
 		if _, err := fmt.Fprintf(out, "status latest batch evidence：%s\n", evidence); err != nil {
@@ -4379,7 +4388,7 @@ func buildStatusProjectHandoff(handoff releasecheck.ReleaseHandoff) *statusProje
 	for _, validation := range handoff.Validation {
 		validationCommands = append(validationCommands, validation.Command)
 	}
-	return &statusProjectHandoff{
+	project := &statusProjectHandoff{
 		Ready:                         handoff.Ready,
 		Summary:                       handoff.Summary,
 		ReadFirst:                     readFirst,
@@ -4400,6 +4409,11 @@ func buildStatusProjectHandoff(handoff releasecheck.ReleaseHandoff) *statusProje
 		NextActions:                   append([]string{}, handoff.NextActions...),
 		ValidationCommands:            validationCommands,
 	}
+	if current := statusProjectHandoffCurrentAction(project); current != nil {
+		project.MissionCommanderNextActions = []mission.MissionCommanderNextActionItem{*current}
+	}
+	project.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(project.MissionCommanderNextActions)
+	return project
 }
 
 func buildStatusCaseShim(repoRoot, caseRoot string) statusCaseShim {

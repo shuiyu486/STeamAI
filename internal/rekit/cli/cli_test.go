@@ -562,8 +562,32 @@ func TestRunStatusJsonKit(t *testing.T) {
 				Evidence                  []string `json:"evidence"`
 				Boundary                  []string `json:"boundary"`
 			} `json:"releaseInspectionCadence"`
-			LatestNextAction     string   `json:"latestNextAction"`
-			LatestEvidence       []string `json:"latestEvidence"`
+			LatestNextAction            string   `json:"latestNextAction"`
+			LatestEvidence              []string `json:"latestEvidence"`
+			MissionCommanderNextActions []struct {
+				Label          string   `json:"label"`
+				State          string   `json:"state"`
+				Source         string   `json:"source"`
+				Command        string   `json:"command"`
+				RequiresReview bool     `json:"requiresReview"`
+				Reasons        []string `json:"reasons"`
+				Boundary       []string `json:"boundary"`
+			} `json:"missionCommanderNextActions"`
+			MissionCommanderActionQueue struct {
+				Counts struct {
+					Total          int `json:"total"`
+					Unblocked      int `json:"unblocked"`
+					Blocked        int `json:"blocked"`
+					RequiresReview int `json:"requiresReview"`
+				} `json:"counts"`
+				CurrentAction *struct {
+					Label          string `json:"label"`
+					State          string `json:"state"`
+					Source         string `json:"source"`
+					Command        string `json:"command"`
+					RequiresReview bool   `json:"requiresReview"`
+				} `json:"currentAction"`
+			} `json:"missionCommanderActionQueue"`
 			PackMemoryCandidates struct {
 				Ready                       bool `json:"ready"`
 				Total                       int  `json:"total"`
@@ -609,6 +633,13 @@ func TestRunStatusJsonKit(t *testing.T) {
 	}
 	if strings.TrimSpace(status.ProjectHandoff.LatestRemoteReleaseGate) == "" || status.ProjectHandoff.LatestRemoteReleaseGateDetail == nil || strings.TrimSpace(status.ProjectHandoff.LatestRemoteReleaseGateDetail.State) == "" || strings.TrimSpace(status.ProjectHandoff.LatestNextAction) == "" {
 		t.Fatalf("project handoff omitted latest batch validation handoff: %+v", status.ProjectHandoff)
+	}
+	projectCurrent := status.ProjectHandoff.MissionCommanderActionQueue.CurrentAction
+	if projectCurrent == nil || projectCurrent.Source != "releaseHandoffLatestBatch" || projectCurrent.Command != status.ProjectHandoff.LatestNextAction || projectCurrent.Label != status.ProjectHandoff.LatestBatch || status.ProjectHandoff.MissionCommanderActionQueue.Counts.Total != 1 || status.ProjectHandoff.MissionCommanderActionQueue.Counts.Unblocked != 1 || status.ProjectHandoff.MissionCommanderActionQueue.Counts.Blocked != 0 || status.ProjectHandoff.MissionCommanderActionQueue.Counts.RequiresReview != 1 || len(status.ProjectHandoff.MissionCommanderNextActions) != 1 {
+		t.Fatalf("project handoff omitted structured current action queue: current=%+v queue=%+v actions=%+v latest=%q", projectCurrent, status.ProjectHandoff.MissionCommanderActionQueue, status.ProjectHandoff.MissionCommanderNextActions, status.ProjectHandoff.LatestNextAction)
+	}
+	if len(status.ProjectHandoff.MissionCommanderNextActions[0].Reasons) == 0 || len(status.ProjectHandoff.MissionCommanderNextActions[0].Boundary) == 0 {
+		t.Fatalf("project handoff structured current action omitted reasons/boundary: %+v", status.ProjectHandoff.MissionCommanderNextActions[0])
 	}
 	if status.ProjectHandoff.LatestRemoteReleaseGateDetail.State != status.ProjectHandoff.LatestRemoteReleaseGate {
 		t.Fatalf("project handoff remote gate detail state drifted: %+v", status.ProjectHandoff.LatestRemoteReleaseGateDetail)
@@ -660,6 +691,10 @@ func TestRunStatusJsonKit(t *testing.T) {
 		"source=releaseHandoffLatestBatch blocked=false requiresReview=",
 		"status Mission Commander focus action reason：scope=project reason=latest batch next action is recorded in the release handoff",
 		"status Mission Commander focus action boundary：scope=project boundary=normal batches stop after implementation commit/push plus one release inspection commit/push",
+		"status project handoff current action queue：total=1 unblocked=1 blocked=0",
+		"status project handoff current action queue action：bucket=current lane= label=Batch ",
+		"status project handoff current action queue action reason：bucket=current lane= reason=latest batch next action is recorded in the release handoff",
+		"status project handoff current action queue action boundary：bucket=current lane= boundary=normal batches stop after implementation commit/push plus one release inspection commit/push",
 		"status Mission Commander focus project runbook：batch=Batch ",
 		"text=read docs/context-routing.md first, then only the current batch section in docs/batch-plan.md",
 		"text=before handoff or release claims, rerun the listed local validation commands",
@@ -674,6 +709,10 @@ func TestRunStatusJsonKit(t *testing.T) {
 		"status latest batch release inspection cadence boundary：do not add a third record commit",
 		"status latest batch next action：",
 		"status latest batch release inspection cadence boundary：normal batches stop after implementation commit/push plus one release inspection commit/push",
+		"status project handoff current action queue：total=1 unblocked=1 blocked=0",
+		"status project handoff current action queue action：bucket=current lane= label=Batch ",
+		"status project handoff current action queue action reason：bucket=current lane= reason=latest batch next action is recorded in the release handoff",
+		"status project handoff current action queue action boundary：bucket=current lane= boundary=normal batches stop after implementation commit/push plus one release inspection commit/push",
 		"status pack-memory candidates：summary=pack-memory candidate inventory ok ready=true total=0 packs=0 nextAction=no pack-memory candidate cleanup is pending",
 		"status latest batch goal：",
 		"status latest batch validation：",
@@ -709,6 +748,10 @@ func TestRunStatusJsonKit(t *testing.T) {
 		"maxPushes=2",
 		"thirdInspectionAllowed=",
 		"status latest batch release inspection cadence boundary：do not add a third record commit",
+		"status project handoff current action queue：total=1 unblocked=1 blocked=0",
+		"status project handoff current action queue action：bucket=current lane= label=Batch ",
+		"status project handoff current action queue action reason：bucket=current lane= reason=latest batch next action is recorded in the release handoff",
+		"status project handoff current action queue action boundary：bucket=current lane= boundary=normal batches stop after implementation commit/push plus one release inspection commit/push",
 		"status latest batch next action：",
 		"status latest batch release inspection cadence boundary：normal batches stop after implementation commit/push plus one release inspection commit/push",
 		"status pack-memory candidates：summary=pack-memory candidate inventory ok ready=true total=0 packs=0 nextAction=no pack-memory candidate cleanup is pending",
