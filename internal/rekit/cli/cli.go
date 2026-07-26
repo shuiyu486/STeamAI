@@ -2275,6 +2275,7 @@ type statusAuthorizedGateLiveValidationHandoff struct {
 	SelectedAdapter                  *gate.AdapterToolCandidate `json:"selectedAdapter,omitempty"`
 	SidecarTemplateAdapterID         string                     `json:"sidecarTemplateAdapterId,omitempty"`
 	ReplayBehavior                   string                     `json:"replayBehavior,omitempty"`
+	RunbookSteps                     []string                   `json:"runbookSteps,omitempty"`
 }
 
 type statusInterventionHandoff struct {
@@ -3259,6 +3260,11 @@ func writeStatusAuthorizedGateHandoffText(out io.Writer, handoff statusAuthorize
 		}
 		for _, workspace := range live.AuthorizedWorkspaces {
 			if _, err := fmt.Fprintf(out, "status case mission authorized gate live workspace：eventId=%s workspace=%s\n", handoff.EventID, workspace); err != nil {
+				return err
+			}
+		}
+		for _, step := range live.RunbookSteps {
+			if _, err := fmt.Fprintf(out, "status case mission authorized gate live validation runbook：eventId=%s step=%s\n", handoff.EventID, step); err != nil {
 				return err
 			}
 		}
@@ -4262,6 +4268,7 @@ func statusAuthorizedGateHandoffFor(repoRoot, caseRoot, pack string, event map[s
 		handoff.ReportPath = statusFirstText(validation.ReportPath, handoff.ReportPath)
 		handoff.LiveValidationRepairHints = append([]gate.AdapterReportRepairHint{}, validation.RepairHints...)
 		handoff.LiveValidationNextSteps = append([]string{}, validation.NextSteps...)
+		liveValidation.RunbookSteps = append([]string{}, validation.RunbookSteps...)
 		liveValidation.ReportSHA256 = validation.ReportSHA256
 		liveValidation.RecordExpectedReportSHA256 = validation.RecordExpectedReportSHA256
 		recordCommand := ""
@@ -4317,6 +4324,7 @@ func statusAuthorizedGateLiveValidationHandoffFor(live gate.AdapterReportLiveVal
 		SelectedAdapter:                  selectedAdapter,
 		SidecarTemplateAdapterID:         live.SidecarTemplate.AdapterID,
 		ReplayBehavior:                   live.ReplayBehavior,
+		RunbookSteps:                     append([]string{}, live.RunbookSteps...),
 	}
 }
 
@@ -5121,6 +5129,11 @@ func writeAuthorizedGateAdapterHandoffText(out io.Writer, prefix string, items [
 			}
 			for _, workspace := range live.AuthorizedWorkspaces {
 				if _, err := fmt.Fprintf(out, "%s authorized gate adapter live workspace：eventId=%s workspace=%s\n", prefix, handoff.EventID, workspace); err != nil {
+					return err
+				}
+			}
+			for _, step := range live.RunbookSteps {
+				if _, err := fmt.Fprintf(out, "%s authorized gate adapter live validation runbook：eventId=%s step=%s\n", prefix, handoff.EventID, step); err != nil {
 					return err
 				}
 			}
@@ -8683,6 +8696,11 @@ func writeGateAdapterReportLiveValidationText(out io.Writer, live gate.AdapterRe
 			return err
 		}
 	}
+	for _, step := range live.RunbookSteps {
+		if _, err := fmt.Fprintf(out, "gate adapter report live validation runbook：%s\n", step); err != nil {
+			return err
+		}
+	}
 	for _, note := range live.Notes {
 		if _, err := fmt.Fprintf(out, "gate adapter report live validation note：%s\n", note); err != nil {
 			return err
@@ -8759,6 +8777,11 @@ func writeGateAdapterReportDraftText(out io.Writer, draft gate.AdapterExecutionR
 			return err
 		}
 	}
+	for _, step := range draft.RunbookSteps {
+		if _, err := fmt.Fprintf(out, "gate adapter report draft runbook：%s\n", step); err != nil {
+			return err
+		}
+	}
 	for _, boundary := range draft.Boundary {
 		if _, err := fmt.Fprintf(out, "gate adapter report draft boundary：%s\n", boundary); err != nil {
 			return err
@@ -8821,6 +8844,11 @@ func writeGateAdapterReportScaffoldText(out io.Writer, scaffold gate.AdapterExec
 			return err
 		}
 	}
+	for _, step := range scaffold.RunbookSteps {
+		if _, err := fmt.Fprintf(out, "gate adapter report scaffold runbook：%s\n", step); err != nil {
+			return err
+		}
+	}
 	for _, boundary := range scaffold.Boundary {
 		if _, err := fmt.Fprintf(out, "gate adapter report scaffold boundary：%s\n", boundary); err != nil {
 			return err
@@ -8877,6 +8905,11 @@ func writeGateAdapterReportContractText(out io.Writer, contract gate.AdapterExec
 	}
 	if _, err := fmt.Fprintln(out, "gate adapter report record command：available only after valid=true validation/status returns a hash-bound command with -ExpectedExecutionReportSha256"); err != nil {
 		return err
+	}
+	for _, step := range contract.RunbookSteps {
+		if _, err := fmt.Fprintf(out, "gate adapter report contract runbook：%s\n", step); err != nil {
+			return err
+		}
 	}
 	if err := writeGateAdapterReportLiveValidationText(out, contract.LiveValidation); err != nil {
 		return err
@@ -8965,6 +8998,11 @@ func writeGateAdapterReportValidationText(out io.Writer, validation gate.Adapter
 			return err
 		}
 	}
+	for _, step := range validation.RunbookSteps {
+		if _, err := fmt.Fprintf(out, "gate adapter report validation runbook：%s\n", step); err != nil {
+			return err
+		}
+	}
 	if err := writeAuthorizedExecutionFollowThroughText(out, "adapter report validation", validation.AuthorizedExecutionFollowThrough); err != nil {
 		return err
 	}
@@ -9023,6 +9061,11 @@ func writeGateApplyText(out io.Writer, result gate.ApplyResult) error {
 		}
 		if err := writeAuthorizedExecutionFollowThroughText(out, "execution evidence", result.AuthorizedExecutionFollowThrough); err != nil {
 			return err
+		}
+		for _, step := range result.RunbookSteps {
+			if _, err := fmt.Fprintf(out, "gate execution evidence runbook：%s\n", step); err != nil {
+				return err
+			}
 		}
 		if err := writeMissionCommanderActionText(out, "evidence commander action", mission.ExecutorAction{MissionCommanderAction: result.MissionCommanderAction}); err != nil {
 			return err

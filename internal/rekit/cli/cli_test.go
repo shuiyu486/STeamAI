@@ -10375,6 +10375,8 @@ func TestRunGateExecutionEvidenceTextOutputsNextActions(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"gate execution evidence：applied=true status=succeeded",
+		"gate execution evidence runbook：confirm adapter report record state=ready-for-evidence-review",
+		"gate execution evidence runbook：after record, review outputRefs/evidenceRefs before any authority/confirmed outcome",
 		"gate execution evidence detail：subject=execution evidence for authorized debug summary=Recorded execution evidence for authorized debug gate target=target-alpha recordRequired=true reportPath=",
 		"gate execution evidence budget：runtimeSeconds=25 diskMB=0 requests=0",
 		"gate execution evidence outputRefs：workspace/main/debug/session-1/text-result.json",
@@ -10473,10 +10475,13 @@ func TestRunGateAdapterReportTextOutputsNextActions(t *testing.T) {
 		"gate adapter report contract summary boundary：adapter report summary is read-only; full contract/validation/follow-through arrays remain available",
 		"gate adapter report validate command：rekit -Command gate -Pack _template -GateEventId " + applied.EventID + " -ValidateExecutionReport -ExecutionReportPath " + wantReportPath + " -Format json",
 		"gate adapter report record command：available only after valid=true validation/status returns a hash-bound command with -ExpectedExecutionReportSha256",
+		"gate adapter report contract runbook：confirm adapter report contract state=needs-adapter-report-validation",
+		"gate adapter report contract runbook：keep contract, scaffold/draft, validation, record, and evidence review as separate bounded operations",
 		"gate adapter report live validation：cwd=authorized output workspace listed in authorizedWorkspaces; use reportFileName as workspace-relative -ExecutionReportPath and omit -Target; or use caseRelativeReportPath with case-relative commands from any case-local cwd reportFileName=adapter-report.json caseRelativeReportPath=" + wantReportPath,
 		"gate adapter report authorized workspaces：workspace/main/debug/session-1",
 		"gate adapter report sidecar template：kind=adapter-execution-report adapterId=<adapter-id> action=debug status=succeeded|failed|boundary-hit|escalated|aborted gateEventId=" + applied.EventID,
 		"gate adapter report sidecar outputRefs：<case-relative output under authorized outputPaths>",
+		"gate adapter report live validation runbook：record command is intentionally unavailable until validation/status returns valid=true with -ExpectedExecutionReportSha256",
 		"gate adapter report live validation note：ValidateArgs and CaseRelativeValidateArgs are read-only: isMutation=false, applied=false, and no observations/authority/confirmed writes.",
 		"gate adapter report validation repair hint：action=add-boundary-marker recordBlocked=true rerunValidation=true code=boundary-marker-missing stage=boundary",
 		"gate adapter report validation repair hint evidence：action=add-boundary-marker evidence=allowedStopConditions=timeout",
@@ -10703,6 +10708,8 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		"caseScaffold=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -ScaffoldExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Format json caseScaffoldApply=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -ScaffoldExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -ExpectedExecutionReportSha256",
 		"status case mission authorized gate draft handoff：eventId=" + authorizedEventID + " draft=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -DraftExecutionReport -ExecutionReportPath adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -Format json draftApply=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -DraftExecutionReport -ExecutionReportPath adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -ExpectedExecutionReportSha256 <reportSha256-from-draft-preview> -Apply -Format json draftSha256=<reportSha256-from-draft-preview> caseDraft=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -DraftExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -Format json caseDraftApply=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -DraftExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -ExpectedExecutionReportSha256 <reportSha256-from-draft-preview> -Apply -Format json",
 		"status case mission authorized gate live workspace：eventId=" + authorizedEventID + " workspace=workspace/main/debug/session-1",
+		"status case mission authorized gate live validation runbook：eventId=" + authorizedEventID + " step=confirm authorized output workspace and adapter-report.json sidecar path before adapter work",
+		"status case mission authorized gate live validation runbook：eventId=" + authorizedEventID + " step=record command is intentionally unavailable until validation/status returns valid=true with -ExpectedExecutionReportSha256",
 		"status case mission authorized gate validate boundary：eventId=" + authorizedEventID,
 		"status case mission authorized gate record boundary：eventId=" + authorizedEventID,
 		"status case mission authorized gate evidence：eventId=" + authorizedEventID + " evidence=authorized outputPaths workspace/main/debug/session-1",
@@ -10769,6 +10776,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		} `json:"authorizedBudget"`
 		RefPathRequires []string `json:"refPathRequires"`
 		DeniedActions   []string `json:"deniedActions"`
+		RunbookSteps    []string `json:"runbookSteps"`
 		LiveValidation  struct {
 			ScaffoldCommand                  string   `json:"scaffoldCommand"`
 			ScaffoldApplyCommand             string   `json:"scaffoldApplyCommand"`
@@ -10779,6 +10787,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 			CaseRelativeScaffoldApplyCommand string   `json:"caseRelativeScaffoldApplyCommand"`
 			CaseRelativeScaffoldArgs         []string `json:"caseRelativeScaffoldArgs"`
 			CaseRelativeScaffoldApplyArgs    []string `json:"caseRelativeScaffoldApplyArgs"`
+			RunbookSteps                     []string `json:"runbookSteps"`
 		} `json:"liveValidation"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &contract); err != nil {
@@ -10970,6 +10979,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		Boundary                    []string                         `json:"boundary"`
 		MissionCommanderAction      missionCommanderActionSnapshot   `json:"missionCommanderAction"`
 		MissionCommanderNextActions []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
+		RunbookSteps                []string                         `json:"runbookSteps"`
 		Report                      struct {
 			AdapterID string `json:"adapterId"`
 			Status    string `json:"status"`
@@ -13760,6 +13770,7 @@ type authorizedGateLiveValidationSnapshot struct {
 	SelectedAdapter             *adapterToolCandidateSnapshot `json:"selectedAdapter"`
 	SidecarTemplateAdapterID    string                        `json:"sidecarTemplateAdapterId"`
 	ReplayBehavior              string                        `json:"replayBehavior"`
+	RunbookSteps                []string                      `json:"runbookSteps"`
 }
 
 type adapterToolCandidateSnapshot struct {
@@ -13801,6 +13812,9 @@ func assertAuthorizedGateAdapterHandoffSnapshot(t *testing.T, label string, item
 	}
 	if !containsSubstring(item.LiveValidation.AuthorizedWorkspaces, "workspace/main/debug/session-1") || !containsSubstring(item.Evidence, "authorized outputPaths workspace/main/debug/session-1") || !containsSubstring(item.Evidence, "authorized stopConditions timeout") || !containsSubstring(item.Boundary, "projection may read and validate an existing canonical sidecar") || !containsSubstring(item.Boundary, "no heavy-tool replay") {
 		t.Fatalf("%s authorized gate adapter handoff missing workspace/evidence/boundary: %+v", label, item)
+	}
+	if !containsSubstring(item.LiveValidation.RunbookSteps, "confirm authorized output workspace and adapter-report.json sidecar path before adapter work") || !containsSubstring(item.LiveValidation.RunbookSteps, "record command is intentionally unavailable until validation/status returns valid=true with -ExpectedExecutionReportSha256") {
+		t.Fatalf("%s authorized gate adapter handoff missing live validation runbook: %+v", label, item.LiveValidation)
 	}
 }
 

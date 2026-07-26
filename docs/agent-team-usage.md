@@ -123,7 +123,7 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 
 ### Adapter execution report handoff identity
 
-`gate -ExecutionReportContract`、`gate -ValidateExecutionReport`、scaffold/draft live snapshot 与 recorded evidence snapshot 的 Mission Commander next-action/current-action 行会直接显示 `lane`、`label`、`gateEventId`、`actionId`。replacement executor 应优先消费这些 typed fields 来确认当前步骤是 validate、record、repair、scaffold 还是 draft，并继续遵守 read-only validation → valid=true/hash-bound record → bounded observation evidence review 的顺序；不要把 contract 阶段的 handoff 当作已授权执行 adapter/heavy tool，也不要在缺少 matching `gateEventId`/`actionId` 时手工拼接 record。
+`gate -ExecutionReportContract`、`gate -ValidateExecutionReport`、scaffold/draft live snapshot 与 recorded evidence snapshot 的 Mission Commander next-action/current-action 行会直接显示 `lane`、`label`、`gateEventId`、`actionId`。这些 contract、scaffold、draft、validation、record 与 status/handoff envelope 还会输出 `runbookSteps[]`（text 中为对应 runbook 行），replacement executor 应优先消费这些 typed fields 与 runbook 来确认当前步骤是 validate、record、repair、scaffold 还是 draft：先确认 state/path/hash，再运行当前 Mission Commander command；record 前必须先做 read-only validation，并只使用 validation/status 返回的 `-ExpectedExecutionReportSha256` hash-bound record Apply；record 后只进入 bounded observation evidence review。不要把 contract 阶段的 handoff 当作已授权执行 adapter/heavy tool，也不要在缺少 matching `gateEventId`/`actionId` 或 current report hash 时手工拼接 record。
 
 ### Batch 561 当前实施边界
 

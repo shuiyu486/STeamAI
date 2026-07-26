@@ -420,6 +420,8 @@ func TestRecordExecutionWritesObservationForAuthorizedGate(t *testing.T) {
 	if !gateContainsSubstring(result.NextSteps, "/rekit handoff main") || !gateContainsSubstring(result.NextSteps, "Review output refs") {
 		t.Fatalf("execution evidence next steps omitted handoff/review guidance: %+v", result.NextSteps)
 	}
+	assertAdapterReportRunbookContains(t, result.RunbookSteps, "confirm adapter report record state=ready-for-evidence-review")
+	assertAdapterReportRunbookContains(t, result.RunbookSteps, "after record, review outputRefs/evidenceRefs before any authority/confirmed outcome")
 	assertGateActionQueue(t, result.MissionCommanderActionQueue, 5, 5, 0, 3, 3, "/rekit handoff main")
 	if result.ExecutionEvidenceReviewSummary.Total != 1 || result.ExecutionEvidenceReviewSummary.ReadyForReviewCount != 1 || result.ExecutionEvidenceReviewSummary.MainEscalationCount != 0 || result.ExecutionEvidenceReviewSummary.OutputRefCount != 1 || result.ExecutionEvidenceReviewSummary.EvidenceRefCount != 1 || result.ExecutionEvidenceReviewSummary.LatestGateEventID != authorized.EventID || result.ExecutionEvidenceReviewSummary.LatestStatus != "succeeded" || result.ExecutionEvidenceReviewSummary.CurrentAction != "/rekit handoff main" || result.ExecutionEvidenceReviewSummary.NextActionCount != 5 || result.ExecutionEvidenceReviewSummary.ReviewRequiredActionCount != 3 || !gateContainsSubstring(result.ExecutionEvidenceReviewSummary.Boundary, "summary is read-only") || !gateContainsSubstring(result.ExecutionEvidenceReviewSummary.Boundary, "no authority/confirmed") {
 		t.Fatalf("execution evidence review summary omitted compact handoff: %+v", result.ExecutionEvidenceReviewSummary)
@@ -584,6 +586,12 @@ func TestAdapterReportContractDescribesAuthorizedGateBoundaries(t *testing.T) {
 	if !gateContainsSubstring(contract.NextSteps, wantValidate) || !gateContainsSubstring(contract.NextSteps, "hash-bound record command") || !gateContainsSubstring(contract.NextSteps, "valid=true") || !gateContainsSubstring(contract.NextSteps, "never executes the heavy tool") {
 		t.Fatalf("adapter report contract omitted concrete Mission Commander next steps: %+v", contract.NextSteps)
 	}
+	assertAdapterReportRunbookContains(t, contract.RunbookSteps, "confirm adapter report contract state=needs-adapter-report-validation")
+	assertAdapterReportRunbookContains(t, contract.RunbookSteps, "run current Mission Commander command: "+wantValidate)
+	assertAdapterReportRunbookContains(t, contract.RunbookSteps, "keep contract, scaffold/draft, validation, record, and evidence review as separate bounded operations")
+	assertAdapterReportRunbookContains(t, contract.RunbookSteps, "/rekit does not execute adapter or heavy tool")
+	assertAdapterReportRunbookContains(t, contract.RunbookSteps, "do not write authority/confirmed")
+	assertAdapterReportRunbookContains(t, contract.LiveValidation.RunbookSteps, "record command is intentionally unavailable until validation/status returns valid=true with -ExpectedExecutionReportSha256")
 	stages := map[string]bool{}
 	for _, stage := range contract.ValidationFailureStages {
 		stages[stage.Stage] = stage.Description != ""
@@ -709,6 +717,9 @@ func TestScaffoldAdapterExecutionReportPreviewApplyAndReplay(t *testing.T) {
 	if preview.MissionCommanderAction.State != "ready-for-adapter-report-scaffold-apply" || preview.MissionCommanderAction.PrimaryCommand != preview.ApplyCommand || !gateNextActionContainsSource(preview.MissionCommanderNextActions, "adapterReportScaffold.preview") || !gateNextActionContainsCommand(preview.MissionCommanderNextActions, preview.ValidateCommand) || !gateNextActionBoundaryContains(preview.MissionCommanderNextActions, "does not execute the adapter") {
 		t.Fatalf("scaffold preview omitted Mission Commander handoff: action=%+v next=%+v", preview.MissionCommanderAction, preview.MissionCommanderNextActions)
 	}
+	assertAdapterReportRunbookContains(t, preview.RunbookSteps, "confirm adapter report scaffold state=ready-for-adapter-report-scaffold-apply")
+	assertAdapterReportRunbookContains(t, preview.RunbookSteps, "hash-bound")
+	assertAdapterReportRunbookContains(t, preview.RunbookSteps, "does not execute adapter")
 	assertGateNotExists(t, reportFull)
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
@@ -721,6 +732,9 @@ func TestScaffoldAdapterExecutionReportPreviewApplyAndReplay(t *testing.T) {
 	if !applied.IsMutation || !applied.Applied || applied.Mode != "scaffolded" || applied.AlreadyExists || applied.RequiresConfirmation || applied.ReportSHA256 != preview.ReportSHA256 || applied.MissionCommanderAction.State != "adapter-report-scaffolded-awaiting-adapter-output" || applied.MissionCommanderAction.PrimaryCommand != applied.ValidateCommand {
 		t.Fatalf("unexpected scaffold apply result: %+v", applied)
 	}
+	assertAdapterReportRunbookContains(t, applied.RunbookSteps, "confirm adapter report scaffold state=adapter-report-scaffolded-awaiting-adapter-output")
+	assertAdapterReportRunbookContains(t, applied.RunbookSteps, "run read-only validation")
+	assertAdapterReportRunbookContains(t, applied.RunbookSteps, "hash-bound record command")
 	writtenBytes, err := os.ReadFile(reportFull)
 	if err != nil {
 		t.Fatal(err)
@@ -774,6 +788,9 @@ func TestDraftAdapterExecutionReportPreviewApplyReplayAndScaffoldReplace(t *test
 	if preview.MissionCommanderAction.State != "ready-for-adapter-report-draft-apply" || preview.MissionCommanderAction.PrimaryCommand != preview.ApplyCommand || !gateNextActionContainsSource(preview.MissionCommanderNextActions, "adapterReportDraft.preview") || !gateNextActionContainsCommand(preview.MissionCommanderNextActions, preview.ValidateCommand) || !gateNextActionBoundaryContains(preview.MissionCommanderNextActions, "does not execute the adapter") {
 		t.Fatalf("draft preview omitted Mission Commander handoff: action=%+v next=%+v", preview.MissionCommanderAction, preview.MissionCommanderNextActions)
 	}
+	assertAdapterReportRunbookContains(t, preview.RunbookSteps, "confirm adapter report draft state=ready-for-adapter-report-draft-apply")
+	assertAdapterReportRunbookContains(t, preview.RunbookSteps, "run current Mission Commander command: "+preview.ApplyCommand)
+	assertAdapterReportRunbookContains(t, preview.RunbookSteps, "separate bounded operations")
 	assertGateActionQueue(t, preview.MissionCommanderActionQueue, 3, 2, 1, 3, 1, preview.ApplyCommand)
 	assertGateActionQueueCurrentIdentity(t, preview.MissionCommanderActionQueue, authorized.EventID, "adapter-report-draft-apply")
 	assertGateNotExists(t, reportFull)
@@ -797,6 +814,9 @@ func TestDraftAdapterExecutionReportPreviewApplyReplayAndScaffoldReplace(t *test
 	if !applied.IsMutation || !applied.Applied || applied.Mode != "drafted" || applied.AlreadyExists || applied.ReplacesScaffold || applied.RequiresConfirmation || applied.ReportSHA256 != preview.ReportSHA256 || applied.MissionCommanderAction.State != "adapter-report-drafted-ready-for-validation" || applied.MissionCommanderAction.PrimaryCommand != applied.ValidateCommand {
 		t.Fatalf("unexpected draft apply result: %+v", applied)
 	}
+	assertAdapterReportRunbookContains(t, applied.RunbookSteps, "confirm adapter report draft state=adapter-report-drafted-ready-for-validation")
+	assertAdapterReportRunbookContains(t, applied.RunbookSteps, "run current Mission Commander command: "+applied.ValidateCommand)
+	assertAdapterReportRunbookContains(t, applied.RunbookSteps, "separate bounded operations")
 	writtenBytes, err := os.ReadFile(reportFull)
 	if err != nil {
 		t.Fatal(err)
@@ -815,6 +835,8 @@ func TestDraftAdapterExecutionReportPreviewApplyReplayAndScaffoldReplace(t *test
 	if !validation.Valid || validation.Report == nil || validation.Report.AdapterID != "unit-adapter" || validation.ReportSummary.State != "ready-to-record-evidence" || !validation.ReportSummary.RecordReady {
 		t.Fatalf("drafted sidecar should validate read-only: %+v", validation)
 	}
+	assertAdapterReportRunbookContains(t, validation.RunbookSteps, "replace <executor-id> before the hash-bound record Apply command")
+	assertAdapterReportRunbookContains(t, validation.RunbookSteps, "record bounded observation evidence only with -ExpectedExecutionReportSha256")
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
@@ -959,6 +981,10 @@ func TestValidateAdapterExecutionReportReadOnlyPreflight(t *testing.T) {
 	if !gateContainsSubstring(commander.Boundary, "read-only") || !gateContainsSubstring(commander.Boundary, "bounded observation evidence") || !gateContainsSubstring(commander.Boundary, "never executes the heavy tool") || !gateContainsSubstring(validation.NextSteps, wantRecord) {
 		t.Fatalf("valid adapter report validation omitted Mission Commander boundaries: commander=%+v next=%+v", commander, validation.NextSteps)
 	}
+	assertAdapterReportRunbookContains(t, validation.RunbookSteps, "confirm adapter report validation state=ready-to-record-evidence")
+	assertAdapterReportRunbookContains(t, validation.RunbookSteps, "replace <executor-id> before the hash-bound record Apply command")
+	assertAdapterReportRunbookContains(t, validation.RunbookSteps, "record bounded observation evidence only with -ExpectedExecutionReportSha256")
+	assertAdapterReportRunbookContains(t, validation.RunbookSteps, "run current Mission Commander command: "+wantRecord)
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
@@ -1030,6 +1056,9 @@ func TestAdapterReportLiveSnapshotTracksRecordedReportIdentity(t *testing.T) {
 	if !present || live.ReportSummary.State != "evidence-already-recorded" || live.ReportSummary.RecordReady || !live.ReportSummary.RecordBlocked || live.ReportSummary.RequiresValidation || live.ReportSummary.RequiresMainEscalation || len(live.NextSteps) != 2 || !strings.Contains(live.NextSteps[0], "do not record or replay") || live.MissionCommanderAction.State != "evidence-already-recorded" || strings.Contains(live.MissionCommanderAction.PrimaryCommand, "-Apply") || len(live.MissionCommanderNextActions) != 2 || strings.Contains(live.MissionCommanderActionQueue.Summary, "-Apply") || live.AuthorizedExecutionFollowThrough.State != "evidence-already-recorded" || len(live.AuthorizedExecutionFollowThrough.Outcomes) != 1 || live.AuthorizedExecutionFollowThrough.Outcomes[0].Name != "duplicate-record-review" {
 		t.Fatalf("recorded live report should route to evidence review without record queue: %+v", live)
 	}
+	assertAdapterReportRunbookContains(t, live.RunbookSteps, "confirm adapter report recorded evidence state=evidence-already-recorded")
+	assertAdapterReportRunbookContains(t, live.RunbookSteps, "do not record or replay the adapter report again")
+	assertAdapterReportRunbookContains(t, live.RunbookSteps, "after record, review outputRefs/evidenceRefs before any authority/confirmed outcome")
 
 	writeReport("changed bounded execution", 0)
 	live, present, err = AdapterReportLiveSnapshot(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, ExecutionReportPath: reportPath})
@@ -1070,6 +1099,8 @@ func TestAdapterReportLiveSnapshotPreservesRecordedBoundaryEscalation(t *testing
 	if !present || live.ReportSummary.State != "needs-main-escalation" || !live.ReportSummary.RequiresMainEscalation || live.ReportSummary.RecordReady || live.MissionCommanderAction.State != "needs-main-escalation" || !strings.Contains(live.MissionCommanderAction.Prompt, "停止") || len(live.AuthorizedExecutionFollowThrough.Outcomes) != 1 || live.AuthorizedExecutionFollowThrough.Outcomes[0].Name != "boundary-or-escalation-review" || strings.Contains(live.MissionCommanderActionQueue.Summary, "-Apply") {
 		t.Fatalf("recorded boundary report must preserve main escalation: %+v", live)
 	}
+	assertAdapterReportRunbookContains(t, live.RunbookSteps, "confirm adapter report recorded evidence state=needs-main-escalation")
+	assertAdapterReportRunbookContains(t, live.RunbookSteps, "after record, review outputRefs/evidenceRefs before any authority/confirmed outcome")
 }
 
 func TestValidateAdapterExecutionReportRejectsSymlinkPathComponents(t *testing.T) {
@@ -1181,6 +1212,9 @@ func TestValidateAdapterExecutionReportMissingPathExposesMissionCommanderRepair(
 	if follow.State != "needs-execution-report-path" || follow.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || follow.ActionQueue.Summary != validation.MissionCommanderActionQueue.Summary || !authorizedFollowThroughContainsForTest(follow, "invalid-report-repair", "provide-execution-report-path") || !authorizedFollowThroughContainsForTest(follow, "invalid-report-repair", "recordBlocked=true") {
 		t.Fatalf("missing-path validation omitted repair follow-through: %+v", follow)
 	}
+	assertAdapterReportRunbookContains(t, validation.RunbookSteps, "confirm adapter report validation state=needs-execution-report-path")
+	assertAdapterReportRunbookContains(t, validation.RunbookSteps, "handoff reason: repairAction: provide-execution-report-path")
+	assertAdapterReportRunbookContains(t, validation.RunbookSteps, "do not record it with gate -Apply until valid=true")
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 }
 
@@ -1234,6 +1268,9 @@ func TestValidateAdapterExecutionReportReturnsInvalidEnvelopeReadOnly(t *testing
 	if follow.State != "repair-adapter-report" || follow.ReportPath != "workspace/main/debug/session-1/bad-report.json" || follow.ActionQueue.Summary != validation.MissionCommanderActionQueue.Summary || !authorizedFollowThroughContainsForTest(follow, "invalid-report-repair", "add-boundary-marker") || !authorizedFollowThroughContainsForTest(follow, "invalid-report-repair", "failureCode/failureStage") {
 		t.Fatalf("invalid adapter report validation omitted repair follow-through: %+v", follow)
 	}
+	assertAdapterReportRunbookContains(t, validation.RunbookSteps, "confirm adapter report validation state=repair-adapter-report")
+	assertAdapterReportRunbookContains(t, validation.RunbookSteps, "handoff reason: repairAction: add-boundary-marker")
+	assertAdapterReportRunbookContains(t, validation.RunbookSteps, "do not record it with gate -Apply until valid=true")
 	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 }
 
@@ -2061,6 +2098,13 @@ func executionEvidenceFollowThroughContainsForTest(follow mission.ExecutionEvide
 		fields = append(fields, outcome.Boundary...)
 	}
 	return gateContainsSubstring(fields, want)
+}
+
+func assertAdapterReportRunbookContains(t *testing.T, steps []string, want string) {
+	t.Helper()
+	if !gateContainsSubstring(steps, want) {
+		t.Fatalf("adapter report runbook missing %q in %v", want, steps)
+	}
 }
 
 func gateContainsSubstring(items []string, want string) bool {

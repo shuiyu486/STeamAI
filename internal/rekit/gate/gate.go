@@ -169,6 +169,7 @@ type AdapterExecutionReportContract struct {
 	MissionCommanderAction           mission.MissionCommanderAction           `json:"missionCommanderAction"`
 	MissionCommanderNextActions      []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
 	MissionCommanderActionQueue      mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
+	RunbookSteps                     []string                                 `json:"runbookSteps,omitempty"`
 	NextSteps                        []string                                 `json:"nextSteps,omitempty"`
 }
 
@@ -193,6 +194,7 @@ type AdapterExecutionReportScaffold struct {
 	ApplyCommand                string                                   `json:"applyCommand,omitempty"`
 	Boundary                    []string                                 `json:"boundary,omitempty"`
 	NextSteps                   []string                                 `json:"nextSteps,omitempty"`
+	RunbookSteps                []string                                 `json:"runbookSteps,omitempty"`
 	MissionCommanderAction      mission.MissionCommanderAction           `json:"missionCommanderAction"`
 	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
 	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
@@ -220,6 +222,7 @@ type AdapterExecutionReportDraft struct {
 	ApplyCommand                string                                   `json:"applyCommand,omitempty"`
 	Boundary                    []string                                 `json:"boundary,omitempty"`
 	NextSteps                   []string                                 `json:"nextSteps,omitempty"`
+	RunbookSteps                []string                                 `json:"runbookSteps,omitempty"`
 	MissionCommanderAction      mission.MissionCommanderAction           `json:"missionCommanderAction"`
 	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
 	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
@@ -260,6 +263,7 @@ type AdapterReportLiveValidation struct {
 	AdapterCandidates                []AdapterToolCandidate       `json:"adapterCandidates,omitempty"`
 	SelectedAdapter                  *AdapterToolCandidate        `json:"selectedAdapter,omitempty"`
 	ReplayBehavior                   string                       `json:"replayBehavior"`
+	RunbookSteps                     []string                     `json:"runbookSteps,omitempty"`
 	Notes                            []string                     `json:"notes,omitempty"`
 }
 
@@ -417,6 +421,7 @@ type AdapterExecutionReportValidation struct {
 	MissionCommanderAction           mission.MissionCommanderAction           `json:"missionCommanderAction"`
 	MissionCommanderNextActions      []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
 	MissionCommanderActionQueue      mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
+	RunbookSteps                     []string                                 `json:"runbookSteps,omitempty"`
 	NextSteps                        []string                                 `json:"nextSteps"`
 }
 
@@ -768,6 +773,77 @@ func adapterReportRepairNextSteps(hints []AdapterReportRepairHint) []string {
 	return steps
 }
 
+func adapterReportRunbookSteps(stage, state, reportPath, reportSHA256 string, valid, recordReady, applied, duplicate bool, nextSteps, boundary []string, commander mission.MissionCommanderAction) []string {
+	steps := []string{fmt.Sprintf("confirm adapter report %s state=%s", strings.TrimSpace(stage), strings.TrimSpace(state))}
+	if strings.TrimSpace(reportPath) != "" {
+		steps = append(steps, "confirm report path: "+strings.TrimSpace(reportPath))
+	}
+	if strings.TrimSpace(reportSHA256) != "" {
+		steps = append(steps, "confirm report sha256: "+strings.TrimSpace(reportSHA256))
+	}
+	for _, next := range nextSteps {
+		if strings.TrimSpace(next) != "" {
+			steps = append(steps, "handoff reason: "+strings.TrimSpace(next))
+		}
+	}
+	if strings.TrimSpace(commander.PrimaryCommand) != "" {
+		steps = append(steps, "run current Mission Commander command: "+strings.TrimSpace(commander.PrimaryCommand))
+	}
+	if valid && recordReady {
+		steps = append(steps, "replace <executor-id> before the hash-bound record Apply command")
+		steps = append(steps, "record bounded observation evidence only with -ExpectedExecutionReportSha256 from this validation/status envelope")
+	}
+	if applied || duplicate {
+		steps = append(steps, "after record, review outputRefs/evidenceRefs before any authority/confirmed outcome")
+	}
+	steps = append(steps,
+		"keep contract, scaffold/draft, validation, record, and evidence review as separate bounded operations",
+		"/rekit does not execute adapter or heavy tool actions from this handoff",
+		"do not write authority/confirmed from adapter report lifecycle handoff",
+	)
+	for _, guard := range boundary {
+		guard = strings.TrimSpace(guard)
+		if guard == "" {
+			continue
+		}
+		lower := strings.ToLower(guard)
+		if strings.Contains(lower, "read-only") || strings.Contains(lower, "does not") || strings.Contains(lower, "never executes") || strings.Contains(lower, "no authority") || strings.Contains(lower, "do not") {
+			steps = append(steps, "boundary guard: "+guard)
+		}
+	}
+	return mission.UniqueStrings(steps)
+}
+
+func adapterReportLiveValidationRunbookSteps(live AdapterReportLiveValidation) []string {
+	steps := []string{"confirm authorized output workspace and adapter-report.json sidecar path before adapter work"}
+	if strings.TrimSpace(live.CaseRelativeReportPath) != "" {
+		steps = append(steps, "default case-relative report path: "+strings.TrimSpace(live.CaseRelativeReportPath))
+	}
+	if strings.TrimSpace(live.ScaffoldCommand) != "" {
+		steps = append(steps, "preview scaffold if the sidecar is missing: "+strings.TrimSpace(live.ScaffoldCommand))
+	}
+	if strings.TrimSpace(live.ScaffoldApplyCommand) != "" {
+		steps = append(steps, "write only missing exact scaffold with hash-bound Apply: "+strings.TrimSpace(live.ScaffoldApplyCommand))
+	}
+	if strings.TrimSpace(live.DraftCommand) != "" {
+		steps = append(steps, "draft bounded executor-reported sidecar fields: "+strings.TrimSpace(live.DraftCommand))
+	}
+	if strings.TrimSpace(live.ValidateCommand) != "" {
+		steps = append(steps, "run read-only validation before record: "+strings.TrimSpace(live.ValidateCommand))
+	}
+	if strings.TrimSpace(live.RecordCommand) != "" {
+		steps = append(steps, "record only with current hash-bound validation/status command: "+strings.TrimSpace(live.RecordCommand))
+	} else {
+		steps = append(steps, "record command is intentionally unavailable until validation/status returns valid=true with -ExpectedExecutionReportSha256")
+	}
+	steps = append(steps,
+		"keep scaffold/draft, validation, record, and evidence review as separate bounded operations",
+		"/rekit does not execute adapter or heavy tool actions from this handoff",
+		"do not write authority/confirmed from adapter report lifecycle handoff",
+	)
+	return mission.UniqueStrings(steps)
+}
+
 func adapterReportHandoffSummary(gateEvent EventPreview, state, reportPath, reportSHA256 string, report *AdapterReport, allowedStatuses, allowedOutputPaths []string, adapterCandidates []AdapterToolCandidate, stopConditions []string, hints []AdapterReportRepairHint, follow AuthorizedExecutionFollowThrough, queue mission.MissionCommanderActionQueue, items []mission.MissionCommanderNextActionItem, valid bool, failureCode, failureStage string) AdapterReportHandoffSummary {
 	reportPath = strings.TrimSpace(reportPath)
 	reportSHA256 = strings.TrimSpace(reportSHA256)
@@ -980,6 +1056,7 @@ type ApplyResult struct {
 	AuthorizedExecutionFollowThrough AuthorizedExecutionFollowThrough         `json:"authorizedExecutionFollowThrough"`
 	MissionCommanderNextActions      []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
 	MissionCommanderActionQueue      mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
+	RunbookSteps                     []string                                 `json:"runbookSteps,omitempty"`
 	NextSteps                        []string                                 `json:"nextSteps"`
 }
 
@@ -1159,6 +1236,7 @@ func RecordExecution(repoRoot, caseRoot, pack string, opt Options) (ApplyResult,
 		result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
 		result.ExecutionEvidenceReviewSummary = mission.ExecutionEvidenceReviewSummaryFor(result.ExecutionEvidenceReview, result.MissionCommanderActionQueue)
 		result.AuthorizedExecutionFollowThrough = authorizedExecutionFollowThrough(gateEvent, result.MissionCommanderAction.State, execution.Execution.ExecutionReportPath, result.MissionCommanderAction, result.MissionCommanderNextActions, nil, false, true)
+		result.RunbookSteps = adapterReportRunbookSteps("record", result.MissionCommanderAction.State, execution.Execution.ExecutionReportPath, execution.Execution.ExecutionReportSHA256, true, false, result.Applied, true, result.NextSteps, result.MissionCommanderAction.Boundary, result.MissionCommanderAction)
 		result.Reason = "duplicate eventId"
 		return result, nil
 	}
@@ -1174,6 +1252,7 @@ func RecordExecution(repoRoot, caseRoot, pack string, opt Options) (ApplyResult,
 	result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
 	result.ExecutionEvidenceReviewSummary = mission.ExecutionEvidenceReviewSummaryFor(result.ExecutionEvidenceReview, result.MissionCommanderActionQueue)
 	result.AuthorizedExecutionFollowThrough = authorizedExecutionFollowThrough(gateEvent, result.MissionCommanderAction.State, execution.Execution.ExecutionReportPath, result.MissionCommanderAction, result.MissionCommanderNextActions, nil, true, false)
+	result.RunbookSteps = adapterReportRunbookSteps("record", result.MissionCommanderAction.State, execution.Execution.ExecutionReportPath, execution.Execution.ExecutionReportSHA256, true, false, result.Applied, false, result.NextSteps, result.MissionCommanderAction.Boundary, result.MissionCommanderAction)
 	return result, nil
 }
 
@@ -1333,6 +1412,7 @@ func adapterReportScaffoldLiveSnapshot(repoRoot, caseRoot, pack string, gateEven
 	validation.ReportSummary.RequiresValidation = false
 	validation.ReportSummary.RequiresRepair = true
 	validation.ReportSummary.Boundary = append([]string{}, boundary...)
+	validation.RunbookSteps = adapterReportRunbookSteps("live scaffold", commander.State, validation.ReportSummary.ReportPath, validation.ReportSHA256, false, validation.ReportSummary.RecordReady, false, false, validation.NextSteps, boundary, commander)
 	return validation
 }
 
@@ -1437,6 +1517,7 @@ func applyRecordedAdapterReportSnapshot(validation *AdapterExecutionReportValida
 	validation.ReportSummary.ActionQueueSummary = queue.Summary
 	validation.ReportSummary.CurrentAction = handoffCommand
 	validation.ReportSummary.Boundary = append([]string{}, boundary...)
+	validation.RunbookSteps = adapterReportRunbookSteps("recorded evidence", state, validation.ReportSummary.ReportPath, validation.ReportSHA256, validation.Valid, validation.ReportSummary.RecordReady, true, true, validation.NextSteps, boundary, commander)
 }
 
 func adapterReportEvidenceRecorded(caseRoot, gateEventID, reportPath string, report *AdapterReport) (bool, error) {
@@ -1563,6 +1644,7 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 		validation.AuthorizedExecutionFollowThrough = authorizedExecutionFollowThrough(gateEvent, validation.MissionCommanderAction.State, validation.ReportPath, validation.MissionCommanderAction, validation.MissionCommanderNextActions, validation.RepairHints, false, false)
 		validation.ReportSummary = adapterReportHandoffSummary(gateEvent, validation.MissionCommanderAction.State, validation.ReportPath, validation.ReportSHA256, validation.Report, validation.Contract.AllowedStatuses, validation.Contract.AllowedOutputPaths, adapterCandidates, validation.Contract.StopConditions, validation.RepairHints, validation.AuthorizedExecutionFollowThrough, validation.MissionCommanderActionQueue, validation.MissionCommanderNextActions, false, validation.FailureCode, validation.FailureStage)
 		validation.NextSteps = adapterReportRepairNextSteps(validation.RepairHints)
+		validation.RunbookSteps = adapterReportRunbookSteps("validation", validation.MissionCommanderAction.State, validation.ReportSummary.ReportPath, validation.ReportSHA256, false, validation.ReportSummary.RecordReady, false, false, validation.NextSteps, validation.MissionCommanderAction.Boundary, validation.MissionCommanderAction)
 		return validation, nil
 	}
 	if adapterReport == nil {
@@ -1576,6 +1658,7 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 		validation.AuthorizedExecutionFollowThrough = authorizedExecutionFollowThrough(gateEvent, validation.MissionCommanderAction.State, validation.ReportPath, validation.MissionCommanderAction, validation.MissionCommanderNextActions, validation.RepairHints, false, false)
 		validation.ReportSummary = adapterReportHandoffSummary(gateEvent, validation.MissionCommanderAction.State, validation.ReportPath, validation.ReportSHA256, validation.Report, validation.Contract.AllowedStatuses, validation.Contract.AllowedOutputPaths, adapterCandidates, validation.Contract.StopConditions, validation.RepairHints, validation.AuthorizedExecutionFollowThrough, validation.MissionCommanderActionQueue, validation.MissionCommanderNextActions, false, validation.FailureCode, validation.FailureStage)
 		validation.NextSteps = adapterReportRepairNextSteps(validation.RepairHints)
+		validation.RunbookSteps = adapterReportRunbookSteps("validation", validation.MissionCommanderAction.State, validation.ReportSummary.ReportPath, validation.ReportSHA256, false, validation.ReportSummary.RecordReady, false, false, validation.NextSteps, validation.MissionCommanderAction.Boundary, validation.MissionCommanderAction)
 		return validation, nil
 	}
 	validation.Valid = true
@@ -1586,6 +1669,7 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 	validation.AuthorizedExecutionFollowThrough = authorizedExecutionFollowThrough(gateEvent, validation.MissionCommanderAction.State, validation.ReportPath, validation.MissionCommanderAction, validation.MissionCommanderNextActions, nil, true, false)
 	validation.ReportSummary = adapterReportHandoffSummary(gateEvent, validation.MissionCommanderAction.State, validation.ReportPath, validation.ReportSHA256, validation.Report, validation.Contract.AllowedStatuses, validation.Contract.AllowedOutputPaths, adapterCandidates, validation.Contract.StopConditions, nil, validation.AuthorizedExecutionFollowThrough, validation.MissionCommanderActionQueue, validation.MissionCommanderNextActions, true, "", "")
 	validation.NextSteps = adapterReportValidationNextSteps(pack, gateEvent, validation.ReportPath, validation.RecordExpectedReportSHA256)
+	validation.RunbookSteps = adapterReportRunbookSteps("validation", validation.MissionCommanderAction.State, validation.ReportSummary.ReportPath, validation.ReportSHA256, validation.Valid, validation.ReportSummary.RecordReady, false, false, validation.NextSteps, validation.MissionCommanderAction.Boundary, validation.MissionCommanderAction)
 	return validation, nil
 }
 
@@ -1666,6 +1750,7 @@ func adapterReportContract(repoRoot, caseRoot, pack string, event EventPreview, 
 	contract.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(contract.MissionCommanderNextActions)
 	contract.AuthorizedExecutionFollowThrough = authorizedExecutionFollowThrough(event, commander.State, liveValidation.CaseRelativeReportPath, commander, contract.MissionCommanderNextActions, nil, false, false)
 	contract.ReportSummary = adapterReportHandoffSummary(event, commander.State, liveValidation.CaseRelativeReportPath, "", nil, contract.AllowedStatuses, contract.AllowedOutputPaths, liveValidation.AdapterCandidates, contract.StopConditions, contract.ValidationRepairHints, contract.AuthorizedExecutionFollowThrough, contract.MissionCommanderActionQueue, contract.MissionCommanderNextActions, false, "", "")
+	contract.RunbookSteps = adapterReportRunbookSteps("contract", commander.State, contract.ReportSummary.ReportPath, "", false, false, false, false, contract.NextSteps, commander.Boundary, commander)
 	return contract
 }
 
@@ -1926,7 +2011,7 @@ func adapterReportLiveValidation(m *manifest.Manifest, pack string, event EventP
 		caseRelativeDraftCommand = "rekit " + strings.Join(caseRelativeDraftArgs, " ")
 		caseRelativeDraftApplyCommand = "rekit " + strings.Join(caseRelativeDraftApplyArgs, " ")
 	}
-	return AdapterReportLiveValidation{
+	live := AdapterReportLiveValidation{
 		InvocationCwd:                    "authorized output workspace listed in authorizedWorkspaces; use reportFileName as workspace-relative -ExecutionReportPath and omit -Target; or use caseRelativeReportPath with case-relative commands from any case-local cwd",
 		AuthorizedWorkspaces:             normalizedGatePaths(event.Gate.OutputPaths),
 		ReportFileName:                   reportFileName,
@@ -1967,6 +2052,8 @@ func adapterReportLiveValidation(m *manifest.Manifest, pack string, event EventP
 			"Keep full trace/dump/log data in sidecar artifacts referenced by outputRefs/evidenceRefs, not in this report.",
 		},
 	}
+	live.RunbookSteps = adapterReportLiveValidationRunbookSteps(live)
+	return live
 }
 
 func ScaffoldAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options) (AdapterExecutionReportScaffold, error) {
@@ -2015,6 +2102,7 @@ func ScaffoldAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 	result.MissionCommanderAction = adapterReportScaffoldCommanderAction(result)
 	result.MissionCommanderNextActions = adapterReportScaffoldCommanderNextActions(gateEvent, result)
 	result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
+	result.RunbookSteps = adapterReportRunbookSteps("scaffold", result.MissionCommanderAction.State, result.ReportPath, result.ReportSHA256, false, false, result.Applied, false, result.NextSteps, result.Boundary, result.MissionCommanderAction)
 	return result, nil
 }
 
@@ -2064,6 +2152,7 @@ func DraftAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options) (
 	result.MissionCommanderAction = adapterReportDraftCommanderAction(result)
 	result.MissionCommanderNextActions = adapterReportDraftCommanderNextActions(gateEvent, result)
 	result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
+	result.RunbookSteps = adapterReportRunbookSteps("draft", result.MissionCommanderAction.State, result.ReportPath, result.ReportSHA256, false, false, result.Applied, false, result.NextSteps, result.Boundary, result.MissionCommanderAction)
 	return result, nil
 }
 
@@ -2125,6 +2214,7 @@ func adapterReportScaffoldPreview(repoRoot, caseRoot, pack string, gateEvent Eve
 	result.MissionCommanderAction = adapterReportScaffoldCommanderAction(result)
 	result.MissionCommanderNextActions = adapterReportScaffoldCommanderNextActions(gateEvent, result)
 	result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
+	result.RunbookSteps = adapterReportRunbookSteps("scaffold", result.MissionCommanderAction.State, result.ReportPath, result.ReportSHA256, false, false, result.Applied, false, result.NextSteps, result.Boundary, result.MissionCommanderAction)
 	return result, data, fullPath, nil
 }
 
@@ -2196,6 +2286,7 @@ func adapterReportDraftPreview(repoRoot, caseRoot, pack string, gateEvent EventP
 	result.MissionCommanderAction = adapterReportDraftCommanderAction(result)
 	result.MissionCommanderNextActions = adapterReportDraftCommanderNextActions(gateEvent, result)
 	result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
+	result.RunbookSteps = adapterReportRunbookSteps("draft", result.MissionCommanderAction.State, result.ReportPath, result.ReportSHA256, false, false, result.Applied, false, result.NextSteps, result.Boundary, result.MissionCommanderAction)
 	return result, data, scaffoldData, fullPath, nil
 }
 

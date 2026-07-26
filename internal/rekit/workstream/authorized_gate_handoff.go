@@ -60,6 +60,7 @@ type AuthorizedGateLiveValidationHandoff struct {
 	SelectedAdapter                  *gate.AdapterToolCandidate `json:"selectedAdapter,omitempty"`
 	SidecarTemplateAdapterID         string                     `json:"sidecarTemplateAdapterId,omitempty"`
 	ReplayBehavior                   string                     `json:"replayBehavior,omitempty"`
+	RunbookSteps                     []string                   `json:"runbookSteps,omitempty"`
 }
 
 func AuthorizedGateAdapterHandoffs(repoRoot, caseRoot, pack string, requests []map[string]any, laneID string) []AuthorizedGateAdapterHandoff {
@@ -149,6 +150,7 @@ func authorizedGateAdapterHandoffFor(repoRoot, caseRoot, pack string, item map[s
 		handoff.LiveValidationRepairHints = append([]gate.AdapterReportRepairHint{}, validation.RepairHints...)
 		handoff.LiveValidationNextSteps = append([]string{}, validation.NextSteps...)
 		handoff.missionCommanderNextActions = append([]mission.MissionCommanderNextActionItem{}, validation.MissionCommanderNextActions...)
+		liveValidation.RunbookSteps = append([]string{}, validation.RunbookSteps...)
 		liveValidation.ReportSHA256 = validation.ReportSHA256
 		liveValidation.RecordExpectedReportSHA256 = validation.RecordExpectedReportSHA256
 		recordCommand := ""
@@ -204,6 +206,7 @@ func authorizedGateLiveValidationHandoffFor(live gate.AdapterReportLiveValidatio
 		SelectedAdapter:                  selectedAdapter,
 		SidecarTemplateAdapterID:         live.SidecarTemplate.AdapterID,
 		ReplayBehavior:                   live.ReplayBehavior,
+		RunbookSteps:                     append([]string{}, live.RunbookSteps...),
 	}
 }
 
