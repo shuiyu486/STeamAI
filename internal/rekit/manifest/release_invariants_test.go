@@ -506,6 +506,11 @@ func TestAutonomousGoalGuideInvariants(t *testing.T) {
 		assertTextContains(t, readRepoText(t, repo, doc), "docs/autonomous-goal.md", doc+" autonomous goal link")
 		assertTextContains(t, readRepoText(t, repo, doc), "docs/mission-control-product-direction.md", doc+" mission control link")
 	}
+	for _, doc := range []string{"README.md", "CLAUDE.md", "docs/context-routing.md", "docs/autonomous-goal.md", "docs/reference-absorption.md"} {
+		text := readRepoText(t, repo, doc)
+		assertTextContains(t, text, "main", doc+" main branch handoff")
+		assertTextContains(t, text, "origin/main", doc+" origin main handoff")
+	}
 }
 
 func TestMissionControlProductDirectionInvariants(t *testing.T) {

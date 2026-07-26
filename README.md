@@ -10,7 +10,7 @@
 
 ## 项目路线（按需文档索引）
 
-以下是文档索引，不是默认必读清单。新会话、上下文压缩后接手或维护文档时，先读 `docs/context-routing.md`，再按场景只读对应顶部区。
+以下是文档索引，不是默认必读清单。新会话、上下文压缩后接手或维护文档时，先在 `main` 分支确认 `main` 与 `origin/main` 同步且工作树干净，再读 `docs/context-routing.md`，并按场景只读对应顶部区。
 
 - 新会话与维护文档的按需路由入口：`docs/context-routing.md`
 - 新架构使用与旧 case 兼容：`docs/agent-team-usage.md`

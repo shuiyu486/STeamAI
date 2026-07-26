@@ -4,7 +4,7 @@
 
 本文件用于回答：本项目从外部参考文章和项目中吸收了什么、已经落地了哪些能力、哪些仍是后续计划。
 
-如果你是在另一台电脑接手维护本项目，先读 `CLAUDE.md` 与 `docs/context-routing.md`，再按场景读取本文件顶部、`docs/mission-control-product-direction.md`、`docs/autonomous-goal.md`、`docs/agent-team-usage.md` 或 `docs/batch-plan.md`。不要把本文件当成新会话默认 read-first 清单；它只在需要追溯外部参考吸收关系时进入上下文。
+如果你是在另一台电脑接手维护本项目，先确认在 `main` 分支且 `main` 与 `origin/main` 同步，再读 `CLAUDE.md` 与 `docs/context-routing.md`，并按场景读取本文件顶部、`docs/mission-control-product-direction.md`、`docs/autonomous-goal.md`、`docs/agent-team-usage.md` 或 `docs/batch-plan.md`。不要把本文件当成新会话默认 read-first 清单；它只在需要追溯外部参考吸收关系时进入上下文。
 
 本文件只记录可复用设计和落地映射，不记录真实样本名、RVA/VA、trace/dump、artifact 路径、客户信息或 case-specific 进度。
 

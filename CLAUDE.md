@@ -20,7 +20,7 @@
 4. `CHANGELOG.md` 顶部 `Unreleased`。
 5. 真实状态：`git status --short`、必要 focused tests、本机 release gate；远程 CI 只在需要 release 判断时检查。
 
-Batch 推送节奏（仅在当前 goal/session 已明确授权 commit/push 时适用）：正常最多两次 push，先推 implementation commit（代码、测试、文档、本地验证），再推 release inspection commit（只记录 implementation commit 触发的远程 run）。不要为 release inspection commit 自己触发的 CI 再追加第三个记录提交；除非出现不同于既有 GitHub Actions runner/billing `steps=[]` blocker 的新远程信号，否则只在当前上下文或下一批 planning 中引用既有 blocker。
+Batch 推送节奏（仅在当前 goal/session 已明确授权 commit/push 时适用）：若 goal 指定在 `main` 接手，先确认 `main` 与 `origin/main` 同步且工作树干净，再在 `main` 上提交并推送到 `origin/main`。正常最多两次 push，先推 implementation commit（代码、测试、文档、本地验证），再推 release inspection commit（只记录 implementation commit 触发的远程 run）。不要为 release inspection commit 自己触发的 CI 再追加第三个记录提交；除非出现不同于既有 GitHub Actions runner/billing `steps=[]` blocker 的新远程信号，否则只在当前上下文或下一批 planning 中引用既有 blocker。
 
 按需路由：
 
