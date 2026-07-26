@@ -2989,6 +2989,8 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 		"status case shim entrypoint: caseLocal=/rekit",
 		"status Mission Commander first screen：focus=pack-memory-current-action",
 		"status Mission Commander current action：scope=focus-pack-memory lane= label=_template state=pack-memory-proof-required",
+		"status Mission Commander focus pack-memory runbook：pack=_template state=pack-memory-proof-required step=1 text=run proof draft WhatIf from the current pack-memory action; Apply only with the returned ExpectedProofSha256",
+		"status Mission Commander focus pack-memory runbook：pack=_template state=pack-memory-proof-required step=2 text=after proof WhatIf, use the draft apply template with <proofSha256-from-WhatIf>",
 		"status Mission Commander current action：scope=case lane=feature-login label=login state=ready-to-continue",
 		"status Mission Commander current action：scope=pack-memory lane= label=_template state=pack-memory-proof-required",
 		"status case shim first-screen check: reviewer writeback or reviewer dispatch intake summaries show reviewer state without reopening packet/result JSON",
