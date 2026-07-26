@@ -111,6 +111,47 @@ func TestRunPlanSubagentsReviewerResultObstructionRecoveryCaseLocalE2E(t *testin
 	if _, err := os.Lstat(handoff.ReviewerResultPath); !os.IsNotExist(err) {
 		t.Fatalf("canonical obstruction remains: %v", err)
 	}
+	if err := os.Remove(applied.ReceiptPath); err != nil {
+		t.Fatal(err)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var interruptedStatus struct {
+		CaseMission struct {
+			ReviewerDispatchIntakeHandoffs []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
+			ReviewerDispatchIntakeSummary  reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &interruptedStatus); err != nil {
+		t.Fatalf("status JSON did not decode: %v\n%s", err, out.String())
+	}
+	if len(interruptedStatus.CaseMission.ReviewerDispatchIntakeHandoffs) != 1 || interruptedStatus.CaseMission.ReviewerDispatchIntakeHandoffs[0].State != "reviewer-result-recovery-finalize-required" || !strings.Contains(interruptedStatus.CaseMission.ReviewerDispatchIntakeHandoffs[0].ReviewerResultRecoveryApplyCommand, "-ExpectedReviewerResultSha256") || interruptedStatus.CaseMission.ReviewerDispatchIntakeSummary.NextActionState != "reviewer-result-recovery-finalize-required" || !strings.Contains(interruptedStatus.CaseMission.ReviewerDispatchIntakeSummary.NextAction, "-ExpectedCandidateSha256") {
+		t.Fatalf("status omitted interrupted recovery finalize handoff: %+v", interruptedStatus.CaseMission)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if text := out.String(); !strings.Contains(text, "reviewer-result-recovery-finalize-required") || !strings.Contains(text, "-ExpectedReviewerResultSha256") {
+		t.Fatalf("status text omitted interrupted recovery finalize handoff: %s", text)
+	}
+	out.Reset()
+	if err := Run(applyArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var finalized subagents.ReviewerResultRecoveryResult
+	if err := json.Unmarshal(out.Bytes(), &finalized); err != nil {
+		t.Fatal(err)
+	}
+	if !finalized.Applied || finalized.AlreadyRecovered || finalized.MissionCommanderAction.State != "reviewer-result-recovery-already-applied" {
+		t.Fatalf("unexpected interrupted recovery finalize apply: %+v", finalized)
+	}
+	if _, err := os.Lstat(finalized.ReceiptPath); err != nil {
+		t.Fatalf("finalized recovery receipt missing: %v", err)
+	}
 
 	out.Reset()
 	if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-CollectReviewerResult", "-ShardId", handoff.ShardID, "-Lane", "feature-review", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {

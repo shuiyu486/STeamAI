@@ -13983,6 +13983,8 @@ type reviewerDispatchIntakeCLIItem struct {
 	ReviewerResultSourceCaptureCommand      string   `json:"reviewerResultSourceCaptureCommand"`
 	ReviewerResultSourceCaptureApplyCommand string   `json:"reviewerResultSourceCaptureApplyCommand"`
 	ReviewerResultStagingCommand            string   `json:"reviewerResultStagingCommand"`
+	ReviewerResultRecoveryCommand           string   `json:"reviewerResultRecoveryCommand"`
+	ReviewerResultRecoveryApplyCommand      string   `json:"reviewerResultRecoveryApplyCommand"`
 	IntakeAvailable                         bool     `json:"intakeAvailable"`
 	DispatchOnly                            bool     `json:"dispatchOnly"`
 	VerificationRecorded                    bool     `json:"verificationRecorded"`
@@ -14054,6 +14056,8 @@ type reviewerDispatchIntakeSummaryCLIItem struct {
 	NextActionReviewerResultSourceCaptureCommand      string   `json:"nextActionReviewerResultSourceCaptureCommand"`
 	NextActionReviewerResultSourceCaptureApplyCommand string   `json:"nextActionReviewerResultSourceCaptureApplyCommand"`
 	NextActionReviewerResultStagingCommand            string   `json:"nextActionReviewerResultStagingCommand"`
+	NextActionReviewerResultRecoveryCommand           string   `json:"nextActionReviewerResultRecoveryCommand"`
+	NextActionReviewerResultRecoveryApplyCommand      string   `json:"nextActionReviewerResultRecoveryApplyCommand"`
 	NextActionCollectionPreviewCommand                string   `json:"nextActionCollectionPreviewCommand"`
 	NextActionCollectionApplyCommand                  string   `json:"nextActionCollectionApplyCommand"`
 	NextActionPreviewCommand                          string   `json:"nextActionPreviewCommand"`
