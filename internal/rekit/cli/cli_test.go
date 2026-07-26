@@ -14159,12 +14159,34 @@ func TestRunGateAdapterReportReadOnlyPreflightFromCallerCwdBridge(t *testing.T) 
 		Applied bool   `json:"applied"`
 		EventID string `json:"eventId"`
 		Reason  string `json:"reason"`
+		ExecutionEvidence struct {
+			Status    string `json:"status"`
+			Execution struct {
+				ExecutionReportPath string `json:"executionReportPath"`
+				Adapter             struct {
+					AdapterID string `json:"adapterId"`
+				} `json:"adapter"`
+			} `json:"execution"`
+		} `json:"executionEvidence"`
+		ExecutionEvidenceReview     []executionEvidenceReviewItem       `json:"executionEvidenceReview"`
+		MissionCommanderAction      missionCommanderActionSnapshot      `json:"missionCommanderAction"`
+		MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &replay); err != nil {
 		t.Fatalf("caller cwd bridge adapter replay stdout is not JSON: %v\n%s", err, out.String())
 	}
 	if replay.Applied || replay.EventID != evidence.EventID || replay.Reason != "duplicate eventId" {
 		t.Fatalf("caller cwd bridge adapter replay should be idempotent: first=%+v replay=%+v", evidence, replay)
+	}
+	if replay.ExecutionEvidence.Status != "succeeded" || replay.ExecutionEvidence.Execution.ExecutionReportPath != "workspace/main/debug/session-1/adapter-report.json" || replay.ExecutionEvidence.Execution.Adapter.AdapterID != "caller-cwd-bridge-adapter" {
+		t.Fatalf("caller cwd bridge adapter replay should retain report provenance: %+v", replay.ExecutionEvidence)
+	}
+	if len(replay.ExecutionEvidenceReview) != 1 || replay.ExecutionEvidenceReview[0].EventID != evidence.EventID || replay.ExecutionEvidenceReview[0].GateEventID != applied.EventID || replay.ExecutionEvidenceReview[0].Status != "succeeded" || replay.ExecutionEvidenceReview[0].MissionCommanderAction.State != "evidence-already-recorded" || !cliExecutionEvidenceFollowThroughContains(replay.ExecutionEvidenceReview[0].FollowThrough, "duplicate-record-review", "duplicate replay does not append observation evidence") {
+		t.Fatalf("caller cwd bridge adapter replay should retain duplicate review handoff: %+v", replay.ExecutionEvidenceReview)
+	}
+	if replay.MissionCommanderAction.State != "evidence-already-recorded" || replay.MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || containsSubstring(replay.MissionCommanderAction.FollowUpCommands, "/rekit continue") || len(replay.MissionCommanderNextActions) != 2 || replay.MissionCommanderNextActions[0].Command != "/rekit handoff main" || replay.MissionCommanderActionQueue.CurrentAction == nil || replay.MissionCommanderActionQueue.CurrentAction.Command != "/rekit handoff main" {
+		t.Fatalf("caller cwd bridge adapter replay should remain review-only handoff: action=%+v next=%+v queue=%+v", replay.MissionCommanderAction, replay.MissionCommanderNextActions, replay.MissionCommanderActionQueue)
 	}
 	replayedObservations, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 	if err != nil {

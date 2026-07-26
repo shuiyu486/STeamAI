@@ -16,6 +16,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 644：adapter caller-cwd duplicate replay handoff closure
+
+状态：已完成 CLI product-path 测试扩展、focused/related adapter/gate CLI tests 与完整本机 `release-run` release minimum；待 implementation commit/push 与 release inspection 记录。
+
+目标：继续执行端到端能力闭环约束，转向 adapter execution evidence / live validation。现有 caller-cwd bridge 测试已证明无 `-Target`、仅凭 `REKIT_CALLER_CWD` 可从 adapter output workspace 运行 execution report contract、validation、record，并且 duplicate record replay 不追加 observations；但 duplicate replay envelope 本身尚未锁定 Mission Commander review-only handoff、executionEvidenceReview 和 report provenance。replacement executor 在新会话从 adapter workspace 重跑 record command 时，需要看到“已记录，不要 replay heavy tool；继续 review/handoff”的完整下一步，而不是只看到 `duplicate eventId`。
+
+已实现内容：扩展 `TestRunGateAdapterReportReadOnlyPreflightFromCallerCwdBridge` 的 duplicate replay 段。测试现在在 caller-cwd bridge record Apply 成功后重跑同一 `gate -Apply -ExecutionReportPath adapter-report.json`，除断言 `applied=false` / `reason=duplicate eventId` / observations 不变外，还断言 replay envelope 保留 `executionEvidence.status=succeeded`、`executionReportPath=workspace/main/debug/session-1/adapter-report.json`、`adapterId=caller-cwd-bridge-adapter`，`executionEvidenceReview` 进入 `evidence-already-recorded` / `duplicate-record-review`，Mission Commander action/queue 只指向 `/rekit handoff main` 与 `/rekit overview`，且不推荐 `/rekit continue` 或重复 record。
+
+边界：本批不改变 gate / adapter report runtime 语义，不新增 public command，不执行 adapter/heavy tool，不自动 validate/record，不追加 duplicate observation evidence，不写 authority/confirmed，不新增 PowerShell runtime logic；唯一新增能力是把 caller-cwd bridge duplicate replay 的 review-only handoff 锁定成 CLI product-path 回归。
+
+验证结果：focused `go test ./internal/rekit/cli -run "TestRunGateAdapterReportReadOnlyPreflightFromCallerCwdBridge" -count=1` 已通过；related adapter/gate CLI regression `go test ./internal/rekit/cli -run "TestRunGate(AdapterReportReadOnlyPreflightFromCallerCwdBridge|AdapterReportNoPackProductPathFromNestedOutputWorkspace|AdapterReportBoundaryHitNoPackProductPathSuppressesContinue|DuplicateExecutionEvidenceProjectsIdempotentNextActions|ExecutionEvidenceTextOutputsNextActions|AdapterReportTextOutputsNextActions)" -count=1` 已通过；完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，其中 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步均通过，返回 `ready=true` / `summary=release run ok`，聚合 `passed=7 failed=0 skipped=0`，`go test ./... attempts=1`，仅 `git diff --check` 保留 Windows 工作树 LF→CRLF 提示。implementation commit/push 与 release inspection 记录待执行。
+
 ### Batch 643：reviewer source capture already-captured replay product-path closure
 
 状态：已完成 CLI product-path 测试扩展、focused/related reviewer CLI tests、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `99d8820` 已推送。Push run `30220583629` completed failure，macOS/Linux/Windows jobs `89842225832`/`89842225849`/`89842225895` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。
