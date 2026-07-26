@@ -3264,6 +3264,83 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 	}
 
 	out.Reset()
+	if err := Run([]string{"-Command", "overview", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var overviewResult struct {
+		Command    string `json:"command"`
+		CaseRoot   string `json:"caseRoot"`
+		IsMutation bool   `json:"isMutation"`
+		Lanes      []struct {
+			ID        string `json:"id"`
+			Label     string `json:"label"`
+			Kind      string `json:"kind"`
+			Authority bool   `json:"authority"`
+		} `json:"lanes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &overviewResult); err != nil {
+		t.Fatalf("installed entrypoint overview stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if overviewResult.Command != "overview" || overviewResult.CaseRoot != caseRoot || !overviewResult.IsMutation || len(overviewResult.Lanes) != 1 || overviewResult.Lanes[0].ID != "main" || overviewResult.Lanes[0].Label != "main" || overviewResult.Lanes[0].Kind != "main" || !overviewResult.Lanes[0].Authority {
+		t.Fatalf("unexpected installed entrypoint onboarding overview result: %+v", overviewResult)
+	}
+	for _, rel := range []string{
+		".rekit/board.json",
+		".rekit/policy.yml",
+		".rekit/facts/observations.jsonl",
+		".rekit/facts/candidates.jsonl",
+		".rekit/facts/requests.jsonl",
+		".rekit/facts/publications.jsonl",
+		".rekit/facts/decisions.jsonl",
+		".rekit/facts/hypotheses.jsonl",
+		".rekit/facts/verifications.jsonl",
+		".rekit/facts/interventions.jsonl",
+		".rekit/facts/rollbacks.jsonl",
+		".rekit/lanes/main/lane.json",
+	} {
+		if _, err := os.Stat(filepath.Join(caseRoot, filepath.FromSlash(rel))); err != nil {
+			t.Fatalf("installed entrypoint onboarding overview missing %s: %v", rel, err)
+		}
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	status = decodeInstalledCaseShimStatus(t, out.Bytes())
+	readyAction := status.CaseMission.MissionCommanderActionQueue.CurrentAction
+	if !status.CaseMission.Ready || status.CaseMission.LaneCount != 1 || status.CaseMission.ReadyLaneCount != 1 || !slices.Contains(status.CaseMission.ReadyLanes, "main") || readyAction == nil || readyAction.Source == "caseMissionOnboarding" || readyAction.State != "ready-to-continue" || readyAction.Lane != "main" || readyAction.Command != "/rekit continue main" || containsSubstring(status.CaseMission.MissionBriefNextActions, "case board missing") || containsSubstring(status.CaseMission.MissionBriefNextActions, "overview -Target") {
+		t.Fatalf("installed entrypoint status did not advance from onboarding to ready-to-continue: current=%+v mission=%+v", readyAction, status.CaseMission)
+	}
+	beforeContinuePreview := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "main", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var continuePreview struct {
+		Command                     string                              `json:"command"`
+		CaseRoot                    string                              `json:"caseRoot"`
+		Pack                        string                              `json:"pack"`
+		IsMutation                  bool                                `json:"isMutation"`
+		Applied                     bool                                `json:"applied"`
+		RequiresConfirmation        bool                                `json:"requiresConfirmation"`
+		Selector                    string                              `json:"selector"`
+		Lane                        startLane                           `json:"lane"`
+		RunID                       string                              `json:"runId"`
+		Blocked                     bool                                `json:"blocked"`
+		BlockedActions              []string                            `json:"blockedActions"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &continuePreview); err != nil {
+		t.Fatalf("installed entrypoint continue preview stdout is not JSON: %v\n%s", err, out.String())
+	}
+	previewAction := continuePreview.MissionCommanderActionQueue.CurrentAction
+	if continuePreview.Command != "continue" || continuePreview.CaseRoot != caseRoot || continuePreview.Pack != "_template" || continuePreview.IsMutation || continuePreview.Applied || !continuePreview.RequiresConfirmation || continuePreview.Selector != "main" || continuePreview.Lane.ID != "main" || continuePreview.RunID != "run-preview" || continuePreview.Blocked || !containsSubstring(continuePreview.BlockedActions, "authority/confirmed writes") || !containsSubstring(continuePreview.BlockedActions, "heavy-tool execution") || previewAction == nil || previewAction.State != "ready-to-continue" || previewAction.Command != "/rekit continue main" {
+		t.Fatalf("unexpected installed entrypoint onboarding continue preview: preview=%+v current=%+v", continuePreview, previewAction)
+	}
+	assertSnapshotEqual(t, beforeContinuePreview, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	out.Reset()
 	if err := Run([]string{"-Command", "start", "-Name", "login", "-Apply", "-Executor", "installed-session", "-Actor", "mission-commander", "-Reason", "installed entrypoint replacement executor handoff"}, &out); err != nil {
 		t.Fatal(err)
 	}
@@ -3549,6 +3626,10 @@ type installedCaseShimStatus struct {
 		NextSteps []string `json:"nextSteps"`
 	} `json:"caseShim"`
 	CaseMission struct {
+		Ready                             bool                                 `json:"ready"`
+		LaneCount                         int                                  `json:"laneCount"`
+		ReadyLaneCount                    int                                  `json:"readyLaneCount"`
+		ReadyLanes                        []string                             `json:"readyLanes"`
 		ReviewerWritebackSummary          reviewerWritebackSummaryCLIItem      `json:"reviewerWritebackSummary"`
 		ReviewerDispatchIntakeSummary     reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
 		ReviewerDispatchIntakeActionQueue missionCommanderActionQueueSnapshot  `json:"reviewerDispatchIntakeActionQueue"`

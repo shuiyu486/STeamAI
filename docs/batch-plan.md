@@ -16,6 +16,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 639：installed/case-local onboarding product-path closure
+
+状态：已完成 CLI product-path 测试实现、focused/related onboarding CLI tests、release-handoff parser regression 与完整本机 `release-run` release minimum；implementation commit/push 与 remote release-gate inspection 待执行。
+
+目标：继续执行端到端能力闭环约束，补齐普通 `init -Apply` 后 replacement executor 的首轮接手断点。现有 installed-entrypoint E2E 已证明新 case 在嵌套 cwd 无 `-Target` 可运行 `status`、随后可 `start` feature lane 并接续 reviewer/continue/pack-memory；但它在看到 `case-board-missing` onboarding current action 后直接跳到 `start -Apply`，没有证明 replacement executor 按第一屏提示实际运行 `overview` 后，Mission Commander board/facts/main lane 会初始化、`status` 会从 onboarding 切到 `ready-to-continue`，并且 `continue main -WhatIf` 可从同一 case-local cwd read-only 接续。
+
+已实现内容：扩展 `TestRunInstalledCaseShimProductPathStatusAndRefresh`。测试在 `init -Apply` 后进入 `workspace/main/main`，先保持既有 `status -Format json` 与默认 `/rekit` 断言，确认 `caseMissionOnboarding` / `case-board-missing` current action 仍是 read-only onboarding handoff；随后运行 `overview -Format json` 且不传 `-Target`，确认 command/caseRoot/isMutation/main authority lane 正确，并验证 `.rekit/board.json`、`.rekit/policy.yml`、facts JSONL 与 `.rekit/lanes/main/lane.json` 被初始化。接着再次运行 `status -Format json` 无 `-Target`，断言 caseMission ready、laneCount=1、readyLaneCount=1、readyLanes 包含 main、current action 不再来自 onboarding 且转为 `/rekit continue main`。最后保存 `.rekit` 快照并运行 `continue main -WhatIf -Format json`，断言 preview 为 read-only、requiresConfirmation、selector/lane/main/run-preview 绑定正确、保留 authority/confirmed 与 heavy-tool blocked actions，并验证 `.rekit` 快照不变；之后继续原有 start/reviewer/continue/pack-memory/drift/doctor 链路。
+
+边界：本批不改变 runtime 语义，不新增 public command，不改变 `overview` 的 bootstrap 行为，不自动 `start`/`continue -Apply`，不写 authority/confirmed，不执行 heavy tool，不新增 PowerShell runtime logic；唯一新增能力是把现有 Go-native init/status/overview/continue product path 锁定成端到端回归，证明 case-local thin shim / metadata discovery / Mission Commander onboarding 可由 replacement executor 无 `-Target` 接续。
+
+验证结果：focused `go test ./internal/rekit/cli -run "TestRunInstalledCaseShimProductPathStatusAndRefresh" -count=1` 已通过；related onboarding/status CLI tests `go test ./internal/rekit/cli -run "TestRunInstalledCaseShimProductPathStatusAndRefresh|TestRunOverviewInitializesMissingBoard|TestRunStatusJsonCase" -count=1` 已通过；release-handoff parser regression `go test ./internal/rekit/cli -run "TestRunStatusJsonKit|TestRunReleaseCheckJsonInventory|TestRunReleaseCheckTextInventory|TestRunReleaseRunIncludesReleaseInspectionHandoff" -count=1` 已通过；完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，其中 `go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步均通过，返回 `ready=true` / `summary=release run ok`，聚合 `passed=7 failed=0 skipped=0`，`go test ./... attempts=1`，仅 `git diff --check` 保留 Windows 工作树 LF→CRLF 提示。implementation commit/push 与 remote release-gate inspection 待执行。
+
 ### Batch 638：moved-case repair product-path restoration closure
 
 状态：已完成 CLI product-path 测试实现、focused/related repair tests、release-handoff parser regression、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `0e93194` 已推送。Push run `30217721074` completed failure，macOS/Linux/Windows jobs `89834696857`/`89834696887`/`89834696893` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。
