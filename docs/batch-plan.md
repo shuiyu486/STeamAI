@@ -34,7 +34,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 611：Mission Commander project current action first-screen
 
-状态：已完成 runtime/test/doc 工作树实现、focused releasecheck selector/parser 验证、focused CLI product-path 验证，以及完整本地 release minimum；implementation commit/push recorded 待最终提交推送后补入具体 commit ref，默认 kit-mode `status` / `status -Format text` 现已在 legacy text 路径投影 latest-batch project current action，并在 Mission Commander first-screen 里把 release handoff 的 next action 置于 case/reviewer/pack-memory 之后兜底。远程 release-gate inspection 待 implementation commit/push 后执行；若仍返回既有 `steps=[]` / `runner_id=0` blocker，不因此追加第三个 inspection record。
+状态：已完成 runtime/test/doc 工作树实现、focused releasecheck selector/parser 验证、focused CLI product-path 验证、完整本地 release minimum，以及 implementation commit/push 和 PR-triggered remote release-gate inspection；implementation commit `0fc49f0` 已推送并进入 PR #15，默认 kit-mode `status` / `status -Format text` 现已在 legacy text 路径投影 latest-batch project current action，并在 Mission Commander first-screen 里把 release handoff 的 next action 置于 case/reviewer/pack-memory 之后兜底。PR run `30190378620` completed failure，macOS/Windows/Linux jobs `89762460487`/`89762460488`/`89762460507` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。
 
 目标：补齐默认 `/rekit` 与 `status` 的第一屏接手断点：case/reviewer/pack-memory current action 已有 first-screen strip，但 kit-mode 默认入口在没有 case mission 时只显示 project handoff summary / remote gate / cadence，仍容易让新会话先看到 `focus=none` 或先翻 handoff 才知道下一步。需要把 latest-batch next action 直接变成 project-level Mission Commander current action，再让 case/reviewer/pack-memory 继续按既有优先级覆盖它。
 
@@ -48,7 +48,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：本批只增强默认 status/Mission Commander first-screen 的只读 project current action projection 与测试覆盖；不执行远程 CI，不改变 release inspection cadence，不修改 workflow，不写 authority/confirmed，不新增 durable schema，不新增 PowerShell runtime logic。既有 `steps=[]` runner/billing blocker 继续作为 known gap 记录，不因此阻塞 Windows 本机产品路径。
 
-验证结果：focused `go test ./internal/rekit/releasecheck -run TestLatestBatchSummarySelectsHighestBatchSection -count=1` 与 `go test ./internal/rekit/cli -run TestRunStatus -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true` / `summary=release gate inventory ok`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 均通过，`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。远程 release-gate inspection 待 implementation commit/push 后执行；当前不能声明 remote CI green。
+验证结果：focused `go test ./internal/rekit/releasecheck -run TestLatestBatchSummarySelectsHighestBatchSection -count=1` 与 `go test ./internal/rekit/cli -run TestRunStatus -count=1` 已通过；完整本地 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true` / `summary=release gate inventory ok`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 均通过，`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示；implementation commit `0fc49f0` 已推送并进入 PR #15。PR-triggered release-gate run `30190378620` completed failure，macOS/Windows/Linux jobs `89762460487`/`89762460488`/`89762460507` 均为既有 `steps=[]` / `runner_id=0` blocker，不能声明 remote CI green。
 
 ### Batch 609：execution evidence review acknowledgement closure
 
