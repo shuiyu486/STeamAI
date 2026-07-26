@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 646：pack-memory proof draft already-drafted replay handoff closure
 
-状态：已完成 runtime replay envelope 修正、focused pack-memory proof draft replay tests、case-local pack-memory CLI product-path regression 与完整本机 `release-run` release minimum；implementation commit/push 与 push-triggered remote release-gate inspection 待执行。
+状态：已完成 runtime replay envelope 修正、focused pack-memory proof draft replay tests、case-local pack-memory CLI product-path regression、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `b42f396` 已推送。Push run `30223494839` completed failure，Linux/macOS/Windows jobs `89849853906`/`89849853915`/`89849853917` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。
 
 目标：继续执行端到端能力闭环约束，转向 pack-memory proof draft 在 proof note 已写入后的重跑/接手断点。现有 candidate review proof、lifecycle proof 与 cleanup proof 已有 exact-file replay 的 `already-drafted` preview envelope，但 Apply 路径在 `AlreadyWritten=true` 后仍覆盖为新写入语义，容易让 replacement executor / Mission Commander 在会话中断后把重跑同一 expected-hash Apply 误读成新 proof draft，而不是“exact note 已存在，继续 release-check/status 刷新 pack-memory proof summary”的安全 handoff。
 
