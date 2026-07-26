@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 644：adapter caller-cwd duplicate replay handoff closure
 
-状态：已完成 CLI product-path 测试扩展、focused/related adapter/gate CLI tests 与完整本机 `release-run` release minimum；待 implementation commit/push 与 release inspection 记录。
+状态：已完成 CLI product-path 测试扩展、focused/related adapter/gate CLI tests、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `5f1719f` 已推送。Push run `30220950002` completed failure，Linux/Windows/macOS jobs `89843204695`/`89843204714`/`89843204715` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。
 
 目标：继续执行端到端能力闭环约束，转向 adapter execution evidence / live validation。现有 caller-cwd bridge 测试已证明无 `-Target`、仅凭 `REKIT_CALLER_CWD` 可从 adapter output workspace 运行 execution report contract、validation、record，并且 duplicate record replay 不追加 observations；但 duplicate replay envelope 本身尚未锁定 Mission Commander review-only handoff、executionEvidenceReview 和 report provenance。replacement executor 在新会话从 adapter workspace 重跑 record command 时，需要看到“已记录，不要 replay heavy tool；继续 review/handoff”的完整下一步，而不是只看到 `duplicate eventId`。
 
