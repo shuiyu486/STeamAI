@@ -16,6 +16,22 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 625：release-run Windows Go test cleanup retry closure
+
+状态：已完成 runtime/test/doc 工作树实现、focused release-run CLI 回归与完整本机 `release-run` release minimum；implementation commit/push 与 push-triggered remote release-gate inspection 仍待完成。
+
+目标：补齐 Windows 本机 release verification 的真实稳定性断点：Batch 624 的首次完整 `release-run` 已看到 `go test ./...` 所有 package 输出 `ok`，但 Go 在清理临时 `*.test.exe` 时被 Windows 文件占用锁阻塞，导致整次本机 release minimum 误报 failed。维护者必须人工判断并重跑，容易把 transient cleanup lock 和真实测试失败混在一起。本批让 `release-run` 对该特定 cleanup-lock 形态做一次可审计重试，同时保持真实测试失败 fail-closed。
+
+已实现内容：
+
+- `releaseRunStepResult` 新增只读 retry metadata：`attempts`、`transientRetryReason`、`firstAttemptExitCode`、`firstAttemptError` 与 `firstAttemptOutputTail`，text 输出同步打印 `release-run step retry` 和 first-attempt tail 行。
+- `go test ./...` step 首次失败时，只有输出/错误同时匹配 Windows `go: unlinkat ... .test.exe ... used by another process` cleanup-lock 形态，且没有 `FAIL` / setup failed / build failed / panic 等真实测试失败信号，才会重试一次；其它命令、普通 go test failure、build/setup failure 和 retry 后失败仍按原 release-run failure 语义记录。
+- Tests 覆盖 cleanup lock first attempt → retry success、真实 go test failure + cleanup lock 不重试、普通 go test failure 不重试，以及既有 release-run step order / failure aggregation / release inspection handoff。
+
+边界：本批只增强 Go-native `release-run` 的 Windows 本机验证稳定性与审计输出；不新增 public command，不改变 gateProfile/recommendedMinimum，不跳过任何 release step，不吞掉真实测试失败，不写 repo/case state，不联网读取 GitHub Actions，不写 authority/confirmed，不执行 heavy tool，不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/cli -run "TestRunReleaseRun" -count=1` 已通过。完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，返回 `ready=true` / `summary=release run ok`，聚合执行 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步，`passed=7 failed=0 skipped=0`；本次 `go test ./...` step 为 `attempts=1`，未触发 cleanup-lock retry；`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。
+
 ### Batch 624：adapter execution report lifecycle runbook handoff closure
 
 状态：已完成 runtime/test/doc 工作树实现、focused adapter gate/CLI 回归、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `c631cdc` 已推送。Push run `30207891944` completed failure，Linux/Windows/macOS jobs `89809035554`/`89809035577`/`89809035578` 均 `steps=[]` / `runner_id=0` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。

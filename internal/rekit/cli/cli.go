@@ -931,17 +931,22 @@ type releaseRunResult struct {
 }
 
 type releaseRunStepResult struct {
-	Index      int    `json:"index"`
-	Command    string `json:"command"`
-	Kind       string `json:"kind"`
-	RepoPath   string `json:"repoPath,omitempty"`
-	Required   bool   `json:"required"`
-	Resolved   bool   `json:"resolved"`
-	Status     string `json:"status"`
-	ExitCode   int    `json:"exitCode"`
-	DurationMS int64  `json:"durationMs"`
-	OutputTail string `json:"outputTail,omitempty"`
-	Error      string `json:"error,omitempty"`
+	Index                  int    `json:"index"`
+	Command                string `json:"command"`
+	Kind                   string `json:"kind"`
+	RepoPath               string `json:"repoPath,omitempty"`
+	Required               bool   `json:"required"`
+	Resolved               bool   `json:"resolved"`
+	Status                 string `json:"status"`
+	ExitCode               int    `json:"exitCode"`
+	DurationMS             int64  `json:"durationMs"`
+	Attempts               int    `json:"attempts,omitempty"`
+	TransientRetryReason   string `json:"transientRetryReason,omitempty"`
+	FirstAttemptExitCode   int    `json:"firstAttemptExitCode,omitempty"`
+	FirstAttemptError      string `json:"firstAttemptError,omitempty"`
+	FirstAttemptOutputTail string `json:"firstAttemptOutputTail,omitempty"`
+	OutputTail             string `json:"outputTail,omitempty"`
+	Error                  string `json:"error,omitempty"`
 }
 
 type releaseRunInspectionHandoff struct {
@@ -1027,16 +1032,8 @@ func runReleaseRunSteps(repoRoot string, profile releasecheck.GateProfile, execu
 			result.Steps = append(result.Steps, stepResult)
 			continue
 		}
-		stepStart := time.Now()
-		exitCode, output, err := executor(context.Background(), repoRoot, step.Command)
-		stepResult.DurationMS = time.Since(stepStart).Milliseconds()
-		stepResult.ExitCode = exitCode
-		stepResult.OutputTail = releaseRunOutputTail(output)
-		if err != nil || exitCode != 0 {
-			stepResult.Status = "failed"
-			if err != nil {
-				stepResult.Error = err.Error()
-			}
+		runReleaseRunStep(repoRoot, step.Command, executor, &stepResult)
+		if stepResult.Status == "failed" {
 			result.Failed++
 			result.Ready = false
 		} else {
@@ -1050,6 +1047,71 @@ func runReleaseRunSteps(repoRoot string, profile releasecheck.GateProfile, execu
 		result.Summary = "release run failed"
 	}
 	return result
+}
+
+func runReleaseRunStep(repoRoot, command string, executor releaseRunCommandExecutor, stepResult *releaseRunStepResult) {
+	stepStart := time.Now()
+	exitCode, output, err := executor(context.Background(), repoRoot, command)
+	stepResult.Attempts = 1
+	if reason := releaseRunGoTestCleanupLockRetryReason(command, output, err, exitCode); reason != "" {
+		stepResult.TransientRetryReason = reason
+		stepResult.FirstAttemptExitCode = exitCode
+		if err != nil {
+			stepResult.FirstAttemptError = err.Error()
+		}
+		stepResult.FirstAttemptOutputTail = releaseRunOutputTail(output)
+		exitCode, output, err = executor(context.Background(), repoRoot, command)
+		stepResult.Attempts = 2
+	}
+	stepResult.DurationMS = time.Since(stepStart).Milliseconds()
+	stepResult.ExitCode = exitCode
+	stepResult.OutputTail = releaseRunOutputTail(output)
+	if err != nil || exitCode != 0 {
+		stepResult.Status = "failed"
+		if err != nil {
+			stepResult.Error = err.Error()
+		}
+		return
+	}
+	stepResult.Status = "passed"
+}
+
+func releaseRunGoTestCleanupLockRetryReason(command, output string, err error, exitCode int) string {
+	if strings.TrimSpace(command) != "go test ./..." || (err == nil && exitCode == 0) {
+		return ""
+	}
+	combined := strings.ToLower(output)
+	if err != nil {
+		combined += "\n" + strings.ToLower(err.Error())
+	}
+	if releaseRunGoTestOutputHasFailureSignal(combined) {
+		return ""
+	}
+	if strings.Contains(combined, "go: unlinkat ") && strings.Contains(combined, ".test.exe") && strings.Contains(combined, "used by another process") {
+		return "windows go test temporary binary cleanup lock; retried once after package output reached cleanup"
+	}
+	if strings.Contains(combined, "go: unlinkat ") && strings.Contains(combined, ".test.exe") && strings.Contains(combined, "the process cannot access the file because it is being used by another process") {
+		return "windows go test temporary binary cleanup lock; retried once after package output reached cleanup"
+	}
+	return ""
+}
+
+func releaseRunGoTestOutputHasFailureSignal(output string) bool {
+	for _, signal := range []string{
+		"\nfail\t",
+		"\nfail\r",
+		"\n--- fail:",
+		"\nfailed\n",
+		"setup failed",
+		"build failed",
+		"[build failed]",
+		"panic:",
+	} {
+		if strings.Contains(output, signal) {
+			return true
+		}
+	}
+	return strings.HasPrefix(output, "fail\t") || strings.HasPrefix(output, "--- fail:")
 }
 
 func executeReleaseRunCommand(ctx context.Context, repoRoot, command string) (int, string, error) {
@@ -1272,8 +1334,18 @@ func writeReleaseRunText(out io.Writer, result releaseRunResult) error {
 		return err
 	}
 	for _, step := range result.Steps {
-		if _, err := fmt.Fprintf(out, "release-run step：index=%d status=%s exitCode=%d durationMs=%d command=%s kind=%s repoPath=%s required=%t resolved=%t\n", step.Index, step.Status, step.ExitCode, step.DurationMS, step.Command, step.Kind, step.RepoPath, step.Required, step.Resolved); err != nil {
+		if _, err := fmt.Fprintf(out, "release-run step：index=%d status=%s exitCode=%d durationMs=%d attempts=%d command=%s kind=%s repoPath=%s required=%t resolved=%t\n", step.Index, step.Status, step.ExitCode, step.DurationMS, step.Attempts, step.Command, step.Kind, step.RepoPath, step.Required, step.Resolved); err != nil {
 			return err
+		}
+		if strings.TrimSpace(step.TransientRetryReason) != "" {
+			if _, err := fmt.Fprintf(out, "release-run step retry：index=%d attempts=%d firstExitCode=%d firstError=%s reason=%s\n", step.Index, step.Attempts, step.FirstAttemptExitCode, step.FirstAttemptError, step.TransientRetryReason); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(step.FirstAttemptOutputTail) != "" {
+			if _, err := fmt.Fprintf(out, "release-run step first attempt output tail：index=%d text=%s\n", step.Index, strings.ReplaceAll(step.FirstAttemptOutputTail, "\n", `\n`)); err != nil {
+				return err
+			}
 		}
 		if strings.TrimSpace(step.OutputTail) != "" {
 			if _, err := fmt.Fprintf(out, "release-run step output tail：index=%d text=%s\n", step.Index, strings.ReplaceAll(step.OutputTail, "\n", `\n`)); err != nil {

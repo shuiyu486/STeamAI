@@ -1748,7 +1748,116 @@ func assertStringContains(t *testing.T, values []string, expected string) {
 	t.Fatalf("missing %q in %v", expected, values)
 }
 
-func TestRunReleaseRunReportsFailuresWithoutStopping(t *testing.T) {
+func TestRunReleaseRunRetriesWindowsGoTestCleanupLockOnce(t *testing.T) {
+	previous := releaseRunExecuteCommand
+	defer func() { releaseRunExecuteCommand = previous }()
+
+	calls := []string{}
+	releaseRunExecuteCommand = func(ctx context.Context, repoRoot, command string) (int, string, error) {
+		calls = append(calls, command)
+		switch len(calls) {
+		case 1:
+			if command != "go run ./cmd/rekit -- -Command release-check -Format json" {
+				t.Fatalf("unexpected first command: %s", command)
+			}
+			return 0, "ok", nil
+		case 2:
+			if command != "go run ./cmd/rekit -- -Command status" {
+				t.Fatalf("unexpected second command: %s", command)
+			}
+			return 0, "ok", nil
+		case 3:
+			if command != "go run ./cmd/rekit -- -Command packs" {
+				t.Fatalf("unexpected third command: %s", command)
+			}
+			return 0, "ok", nil
+		case 4:
+			if command != "go run ./cmd/rekit -- -Command doctor" {
+				t.Fatalf("unexpected fourth command: %s", command)
+			}
+			return 0, "ok", nil
+		case 5:
+			if command != "go test ./..." {
+				t.Fatalf("unexpected fifth command: %s", command)
+			}
+			return 1, "ok after package tests\ngo: unlinkat C:\\Users\\13209\\AppData\\Local\\Temp\\go-build1234\\b001\\cli.test.exe: The process cannot access the file because it is being used by another process.", errors.New("exit status 1")
+		case 6:
+			if command != "go test ./..." {
+				t.Fatalf("unexpected retry command: %s", command)
+			}
+			return 0, "ok after retry", nil
+		case 7:
+			if command != "go vet ./..." {
+				t.Fatalf("unexpected seventh command: %s", command)
+			}
+			return 0, "ok", nil
+		case 8:
+			if command != "git diff --check" {
+				t.Fatalf("unexpected eighth command: %s", command)
+			}
+			return 0, "ok", nil
+		default:
+			t.Fatalf("unexpected extra command %d: %s", len(calls), command)
+			return 0, "", nil
+		}
+	}
+
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "release-run", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var result releaseRunResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("release-run JSON did not decode: %v\n%s", err, out.String())
+	}
+	if !result.Ready || result.Passed != 7 || result.Failed != 0 || result.Skipped != 0 || len(calls) != 8 {
+		t.Fatalf("release-run retry result drifted: result=%+v calls=%+v", result, calls)
+	}
+	step := result.Steps[4]
+	if step.Command != "go test ./..." || step.Status != "passed" || step.Attempts != 2 || step.FirstAttemptExitCode != 1 || step.FirstAttemptError != "exit status 1" || step.TransientRetryReason == "" || !strings.Contains(step.TransientRetryReason, "cleanup lock") || !strings.Contains(step.FirstAttemptOutputTail, "go: unlinkat") || step.Error != "" {
+		t.Fatalf("release-run retry step drifted: %+v", step)
+	}
+	if result.Steps[5].Command != "go vet ./..." || result.Steps[6].Command != "git diff --check" {
+		t.Fatalf("release-run retry reordered remaining commands: %+v", result.Steps)
+	}
+	var text bytes.Buffer
+	if err := writeReleaseRunText(&text, result); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text.String(), "release-run step retry：index=5 attempts=2 firstExitCode=1 firstError=exit status 1 reason=windows go test temporary binary cleanup lock") || !strings.Contains(text.String(), "release-run step first attempt output tail：index=5 text=ok after package tests") {
+		t.Fatalf("release-run retry text missing retry lines:\n%s", text.String())
+	}
+}
+
+func TestRunReleaseRunDoesNotRetryGoTestFailureWithCleanupLock(t *testing.T) {
+	previous := releaseRunExecuteCommand
+	defer func() { releaseRunExecuteCommand = previous }()
+
+	calls := []string{}
+	releaseRunExecuteCommand = func(ctx context.Context, repoRoot, command string) (int, string, error) {
+		calls = append(calls, command)
+		if command == "go test ./..." {
+			return 1, "--- FAIL: TestRealFailure (0.00s)\nFAIL\tgithub.com/shuiyu486/re-context-kits/internal/rekit/cli\ngo: unlinkat C:\\Users\\13209\\AppData\\Local\\Temp\\go-build1234\\b001\\cli.test.exe: The process cannot access the file because it is being used by another process.", errors.New("exit status 1")
+		}
+		return 0, "ok", nil
+	}
+
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "release-run", "-Format", "json"}, &out)
+	if err == nil || !strings.Contains(err.Error(), "release-run not ready") {
+		t.Fatalf("release-run failure error = %v, want not ready", err)
+	}
+	var result releaseRunResult
+	if decodeErr := json.Unmarshal(out.Bytes(), &result); decodeErr != nil {
+		t.Fatalf("release-run failure JSON did not decode: %v\n%s", decodeErr, out.String())
+	}
+	failed := result.Steps[4]
+	if result.Ready || result.Passed != 6 || result.Failed != 1 || len(calls) != 7 || failed.Attempts != 1 || failed.TransientRetryReason != "" || failed.FirstAttemptOutputTail != "" || !strings.Contains(failed.OutputTail, "--- FAIL") {
+		t.Fatalf("release-run should not retry real go test failure: result=%+v failed=%+v calls=%+v", result, failed, calls)
+	}
+}
+
+func TestRunReleaseRunReportsFailuresWithoutRetry(t *testing.T) {
 	previous := releaseRunExecuteCommand
 	defer func() { releaseRunExecuteCommand = previous }()
 
@@ -1774,8 +1883,11 @@ func TestRunReleaseRunReportsFailuresWithoutStopping(t *testing.T) {
 		t.Fatalf("release-run failure result drifted: result=%+v calls=%+v", result, calls)
 	}
 	failed := result.Steps[4]
-	if failed.Command != "go test ./..." || failed.Status != "failed" || failed.ExitCode != 1 || !strings.Contains(failed.OutputTail, "line3") || failed.Error != "exit status 1" {
+	if failed.Command != "go test ./..." || failed.Status != "failed" || failed.ExitCode != 1 || !strings.Contains(failed.OutputTail, "line3") || failed.Error != "exit status 1" || failed.Attempts != 1 || failed.TransientRetryReason != "" {
 		t.Fatalf("release-run failure step drifted: %+v", failed)
+	}
+	if strings.Contains(out.String(), "release-run step retry：") {
+		t.Fatalf("release-run failure should not emit retry text:\n%s", out.String())
 	}
 }
 
