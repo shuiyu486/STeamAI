@@ -321,6 +321,87 @@ func TestRunPlanSubagentsReviewerPacketAdoptionCaseLocalProductPath(t *testing.T
 	if got := readOptionalCaseFile(t, caseRoot, ".rekit/facts/verifications.jsonl"); got != "" {
 		t.Fatalf("post-adoption batch intake WhatIf wrote verification facts:\n%s", got)
 	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "review", "-Executor", "session-c", "-Actor", "mission-commander", "-Reason", "second replacement reviewer owner", "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || status.CaseMission.MissionCommanderActionQueue.CurrentAction.State != "reviewer-packet-owner-adoption-required" {
+		t.Fatalf("status did not promote stale reviewer packet adoption after second takeover: %+v", status.CaseMission.MissionCommanderActionQueue)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-ReadyReviewerResults", "-Lane", "feature-review", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err == nil || !strings.Contains(err.Error(), "adoption is stale") {
+		t.Fatalf("ready reviewer results with stale adoption error = %v\n%s", err, out.String())
+	}
+	if got := readOptionalCaseFile(t, caseRoot, ".rekit/facts/verifications.jsonl"); got != "" {
+		t.Fatalf("blocked stale-adoption batch intake wrote verification facts:\n%s", got)
+	}
+
+	readoptionArgs := []string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-AdoptReviewerPacket", "-Lane", "feature-review", "-Actor", "mission-commander", "-Reason", "re-adopt reviewer work after second takeover", "-WhatIf", "-Format", "json"}
+	out.Reset()
+	if err := Run(readoptionArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var secondPreview struct {
+		Applied      bool   `json:"applied"`
+		IsMutation   bool   `json:"isMutation"`
+		AdoptionPath string `json:"adoptionPath"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &secondPreview); err != nil {
+		t.Fatal(err)
+	}
+	if secondPreview.Applied || secondPreview.IsMutation || secondPreview.AdoptionPath != applied.AdoptionPath {
+		t.Fatalf("second adoption WhatIf mutated or changed receipt path: %+v", secondPreview)
+	}
+	readoptionArgs[15] = "-Apply"
+	out.Reset()
+	if err := Run(readoptionArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var secondApplied struct {
+		Applied      bool   `json:"applied"`
+		AdoptionPath string `json:"adoptionPath"`
+		AdoptedOwner struct {
+			CurrentExecutor    string `json:"currentExecutor"`
+			ExecutorGeneration int    `json:"executorGeneration"`
+		} `json:"adoptedOwner"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &secondApplied); err != nil {
+		t.Fatal(err)
+	}
+	if !secondApplied.Applied || secondApplied.AdoptionPath != applied.AdoptionPath || secondApplied.AdoptedOwner.CurrentExecutor != "session-c" || secondApplied.AdoptedOwner.ExecutorGeneration != 3 {
+		t.Fatalf("unexpected second adoption apply: %+v", secondApplied)
+	}
+	firstAdoptionHistory := filepath.Join(filepath.Dir(secondApplied.AdoptionPath), "history", packet.PacketID+"-generation-2.json")
+	if _, err := os.Stat(firstAdoptionHistory); err != nil {
+		t.Fatalf("first adoption receipt was not archived during re-adoption: %v", err)
+	}
+	packetAfterSecondAdoption, err := os.ReadFile(plan.PacketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(packetBefore, packetAfterSecondAdoption) {
+		t.Fatal("CLI re-adoption modified immutable reviewer packet")
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-ReadyReviewerResults", "-Lane", "feature-review", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	readoptedReady := decodeReviewerBatchIntakeResult(t, out.Bytes())
+	if readoptedReady.Total != 1 || readoptedReady.Ready != 1 || readoptedReady.Waiting != 0 || readoptedReady.Processed != 1 || readoptedReady.Stopped || len(readoptedReady.Results) != 1 || readoptedReady.Results[0].WritebackStatus != "previewed" || !readoptedReady.Results[0].ReadyForWriteback || readoptedReady.Results[0].Verification == nil || readoptedReady.Results[0].Decision == nil || mission.Value(readoptedReady.Results[0].Verification.Event, "ownerExecutor") != "session-c" || mission.Value(readoptedReady.Results[0].Decision.Event, "ownerExecutor") != "session-c" {
+		t.Fatalf("ready reviewer results did not use re-adopted owner: %+v", readoptedReady)
+	}
+	if got := readOptionalCaseFile(t, caseRoot, ".rekit/facts/verifications.jsonl"); got != "" {
+		t.Fatalf("post-readoption batch intake WhatIf wrote verification facts:\n%s", got)
+	}
 }
 
 func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t *testing.T) {

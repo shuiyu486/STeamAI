@@ -16,6 +16,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 633：reviewer packet re-adoption intake-unblock product-path closure
+
+状态：已完成 runtime/test/doc 工作树实现、focused reviewer packet re-adoption product-path、相关 reviewer intake CLI tests、release-handoff parser regression 与完整本机 `release-run` release minimum；implementation commit/push 与 push-triggered remote release-gate inspection 待执行。
+
+目标：继续执行端到端能力闭环约束，补齐 reviewer packet adoption 的二次 takeover 真实断点。Package 层已有 `TestReviewerPacketAdoptionBecomesStaleAfterSecondTakeover` 证明旧 adoption receipt 在第二次 lane takeover 后会 stale，并可再次 adoption；CLI product path 只覆盖了 session-a packet 在 session-b takeover 后 first adoption 解锁 batch intake，还没有覆盖“已有 adoption receipt 后再次 takeover → stale adoption 阻塞 ready reviewer results → re-adoption Apply 后 intake 使用最新 owner”。
+
+已实现内容：扩展 `TestRunPlanSubagentsReviewerPacketAdoptionCaseLocalProductPath`：在 session-a 下生成 packet、写入 packet-derived reviewer result，并在 session-b takeover 后保持既有 pre-adoption fail-closed、adoption WhatIf→Apply、immutable packet 与 batch intake WhatIf 使用 `session-b` owner 的断言；随后再次 takeover 到 `session-c`，`status` 重新提升 `reviewer-packet-owner-adoption-required`，`-ReadyReviewerResults -WhatIf` 因 `adoption is stale` fail-closed 且 facts zero-write；re-adoption WhatIf 仍 zero-write 并复用同一 receipt path，Apply 写入 generation 3 owner、归档 generation 2 receipt、仍不修改 immutable packet；最后 batch ready reviewer results WhatIf 重新解锁并确认 verification/decision preview 使用 `session-c` owner。
+
+边界：本批不改变 reviewer owner adoption runtime 语义，不新增 public command，不自动 intake Apply，不修改 immutable reviewer packet，不写 verification/decision facts、authority/confirmed，不 spawn/monitor reviewer，不执行 heavy tool，不新增 PowerShell runtime logic。
+
+验证结果：focused `go test ./internal/rekit/cli -run "TestRunPlanSubagentsReviewerPacketAdoptionCaseLocalProductPath" -count=1` 已通过；related reviewer intake CLI tests `go test ./internal/rekit/cli -run "TestRunPlanSubagentsReviewer(PacketAdoption|ReadyReviewerResults|IntakeWhatIfApply)" -count=1` 已通过；release-handoff parser regression `go test ./internal/rekit/cli -run "TestRunStatusJsonKit|TestRunReleaseCheckJsonInventory|TestRunReleaseCheckTextInventory|TestRunReleaseRunIncludesReleaseInspectionHandoff" -count=1` 已通过；完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，返回 `ready=true` / `summary=release run ok`，聚合执行 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步，`passed=7 failed=0 skipped=0`；本次 `go test ./...` step 为 `attempts=1`，未触发 cleanup-lock retry；`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。Implementation commit/push 与 push-triggered remote release-gate inspection pending。
+
 ### Batch 632：reviewer packet adoption intake-unblock product-path closure
 
 状态：已完成 runtime/test/doc 工作树实现、focused reviewer packet adoption product-path、相关 reviewer intake CLI tests、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `3d35503` 已推送。Push run `30213568707` completed failure，Windows/Linux/macOS jobs `89823763479`/`89823763488`/`89823763491` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。
