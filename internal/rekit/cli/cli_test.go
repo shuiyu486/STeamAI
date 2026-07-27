@@ -118,6 +118,48 @@ func TestStatusMissionCommanderFirstScreenFocusRoutingReasons(t *testing.T) {
 	}
 }
 
+func TestStatusProjectHandoffUsesPackMemoryLifecyclePriority(t *testing.T) {
+	packCandidates := releasecheck.ReleaseHandoffPackMemoryCandidateList{
+		Ready:   false,
+		Summary: "pack-memory candidate inventory has open review/cleanup/verification work",
+		Total:   2,
+		Packs: []releasecheck.ReleaseHandoffPackMemoryCandidateStatus{
+			{
+				Pack:            "aaa-review-first-in-manifest",
+				HasOpenWork:     true,
+				RequiresReview:  true,
+				RequiresCleanup: true,
+				ProofSummary: releasecheck.ReleaseHandoffPackMemoryCandidateReviewProofSummary{NextMissingProof: &releasecheck.ReleaseHandoffPackMemoryCandidateReviewNextMissingProof{
+					Stage:        "decision-proof-required",
+					ProofType:    "candidate-decision-note",
+					DraftCommand: "/rekit promote -PacketPath aaa-packet.json -DraftReviewProof -ProofDecision reject -WhatIf -Format json",
+				}},
+			},
+			{
+				Pack:                 "zzz-retirement-ready",
+				HasOpenWork:          true,
+				RequiresVerification: true,
+				DecisionReceipts: []releasecheck.ReleaseHandoffPackMemoryCandidateDecisionReceipt{{
+					Path:                     "packs/zzz-retirement-ready/promote-candidates/review-artifacts/decision-receipt.json",
+					VerificationPending:      true,
+					VerificationComplete:     true,
+					RetirementStatus:         "required",
+					RetirementRequired:       true,
+					RetirementPreviewCommand: "/rekit promote -PacketPath zzz-packet.json -CandidateDecisionPath zzz-decision.json -RetireCandidateVerificationWorkspace -WhatIf -Format json",
+				}},
+			},
+		},
+	}
+	releasecheck.RebuildPackMemoryCandidateActionQueue(&packCandidates)
+	project := buildStatusProjectHandoff(releasecheck.ReleaseHandoff{Ready: false, Summary: "fixture", PackMemoryCandidates: packCandidates})
+	packCurrent := project.PackMemoryCandidates.MissionCommanderActionQueue.CurrentAction
+	projectCurrent := statusProjectHandoffCurrentAction(project)
+	focus := statusMissionCommanderFirstScreenFocus(nil, nil, projectCurrent, project, packCurrent)
+	if focus != "pack-memory-current-action" || packCurrent == nil || packCurrent.Label != "zzz-retirement-ready" || packCurrent.ActionID != "pack-memory-verification-retirement-required" || !strings.Contains(packCurrent.Command, "-RetireCandidateVerificationWorkspace") {
+		t.Fatalf("status project handoff did not preserve pack-memory lifecycle priority: focus=%s current=%+v project=%+v", focus, packCurrent, project)
+	}
+}
+
 func TestStatusMissionCommanderFirstScreenPackMemoryEvidenceKeepsHighValueHead(t *testing.T) {
 	pack := releasecheck.ReleaseHandoffPackMemoryCandidateStatus{
 		Pack:            "_template",

@@ -857,6 +857,69 @@ func TestPackMemoryCandidateActionQueuePrioritizesAdvancedReceiptAcrossReceipts(
 	}
 }
 
+func TestPackMemoryCandidateActionQueueOrdersLifecycleAcrossPacks(t *testing.T) {
+	decisionProof := ReleaseHandoffPackMemoryCandidateStatus{
+		Pack:            "aaa-review-first-in-manifest",
+		HasOpenWork:     true,
+		RequiresReview:  true,
+		RequiresCleanup: true,
+		Action:          "review pack-memory candidate proofs before merge",
+		ProofSummary: ReleaseHandoffPackMemoryCandidateReviewProofSummary{NextMissingProof: &ReleaseHandoffPackMemoryCandidateReviewNextMissingProof{
+			Stage:        "decision-proof-required",
+			ProofType:    "candidate-decision-note",
+			Path:         "packs/aaa-review-first-in-manifest/promote-candidates/review-artifacts/candidate-decision-note.md",
+			DraftCommand: "/rekit promote -PacketPath aaa-packet.json -DraftReviewProof -ProofDecision reject -WhatIf -Format json",
+		}},
+	}
+	retirementRequired := ReleaseHandoffPackMemoryCandidateStatus{
+		Pack:                 "zzz-retirement-ready",
+		HasOpenWork:          true,
+		RequiresVerification: true,
+		RequiresCleanup:      true,
+		Action:               "complete candidate decision verification before release handoff",
+		ProofSummary: ReleaseHandoffPackMemoryCandidateReviewProofSummary{NextMissingProof: &ReleaseHandoffPackMemoryCandidateReviewNextMissingProof{
+			Stage:        "cleanup-proof-required",
+			ProofType:    "candidate-cleanup-proof",
+			Path:         "packs/zzz-retirement-ready/promote-candidates/review-artifacts/candidate-cleanup-proof.json",
+			DraftCommand: "/rekit promote -PacketPath zzz-packet.json -DraftReviewProof -ProofType candidate-cleanup-proof -WhatIf -Format json",
+		}},
+		DecisionReceipts: []ReleaseHandoffPackMemoryCandidateDecisionReceipt{{
+			Path:                     "packs/zzz-retirement-ready/promote-candidates/review-artifacts/decision-receipt.json",
+			VerificationPending:      true,
+			VerificationComplete:     true,
+			RetirementStatus:         "required",
+			RetirementRequired:       true,
+			RetirementPreviewCommand: "/rekit promote -PacketPath zzz-packet.json -CandidateDecisionPath zzz-decision.json -RetireCandidateVerificationWorkspace -WhatIf -Format json",
+			RetirementNextAction:     "run retirement preview, inspect the plan, then run expected-hash Apply",
+		}},
+	}
+	inventory := ReleaseHandoffPackMemoryCandidateList{Packs: []ReleaseHandoffPackMemoryCandidateStatus{decisionProof, retirementRequired}}
+	RebuildPackMemoryCandidateActionQueue(&inventory)
+	assertReleaseHandoffPackMemoryCurrentAction(t, inventory, "zzz-retirement-ready", "pack-memory-verification-retirement-required", "pack-memory-verification-required", "-RetireCandidateVerificationWorkspace")
+	if inventory.MissionCommanderActionQueue.Counts.Total != 3 || inventory.MissionCommanderActionQueue.Counts.FollowUp != 1 || inventory.MissionCommanderNextActions[1].Label != "aaa-review-first-in-manifest" || inventory.MissionCommanderNextActions[2].Source != "packMemoryCandidates.zzz-retirement-ready.followUp.proof" {
+		t.Fatalf("pack-memory multi-pack lifecycle ordering drifted: %+v", inventory.MissionCommanderNextActions)
+	}
+
+	provisionInProgress := ReleaseHandoffPackMemoryCandidateStatus{
+		Pack:                 "yyy-provision-in-progress",
+		HasOpenWork:          true,
+		RequiresVerification: true,
+		Action:               "resume in-progress candidate verification provisioning",
+		DecisionReceipts: []ReleaseHandoffPackMemoryCandidateDecisionReceipt{{
+			Path:                  "packs/yyy-provision-in-progress/promote-candidates/review-artifacts/decision-receipt.json",
+			VerificationPending:   true,
+			ProvisionStatus:       "in-progress",
+			ProvisionInProgress:   true,
+			ProvisionSHA256:       "provision-sha",
+			ProvisionApplyCommand: "/rekit promote -PacketPath yyy-packet.json -CandidateDecisionPath yyy-decision.json -ProvisionCandidateVerificationCases -ExpectedProvisionSha256 provision-sha -Apply -Format json",
+			ProvisionNextAction:   "resume provisioning with provisionApplyCommand",
+		}},
+	}
+	inventory = ReleaseHandoffPackMemoryCandidateList{Packs: []ReleaseHandoffPackMemoryCandidateStatus{retirementRequired, provisionInProgress, decisionProof}}
+	RebuildPackMemoryCandidateActionQueue(&inventory)
+	assertReleaseHandoffPackMemoryCurrentAction(t, inventory, "yyy-provision-in-progress", "pack-memory-verification-provision-in-progress", "pack-memory-verification-required", "-ExpectedProvisionSha256")
+}
+
 func TestReleaseHandoffPackMemoryCandidateVerificationRetirementLifecycle(t *testing.T) {
 	repo := t.TempDir()
 	proofRoot := filepath.Join(repo, "packs", "fixture", "promote-candidates", "review-artifacts")

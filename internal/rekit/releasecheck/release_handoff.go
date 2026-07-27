@@ -664,7 +664,62 @@ func packMemoryCandidateNextActions(packs []ReleaseHandoffPackMemoryCandidateSta
 			items = append(items, followUp)
 		}
 	}
-	return mission.UniqueCommanderNextActions(items)
+	return orderPackMemoryCandidateActions(mission.UniqueCommanderNextActions(items))
+}
+
+func orderPackMemoryCandidateActions(items []mission.MissionCommanderNextActionItem) []mission.MissionCommanderNextActionItem {
+	out := append([]mission.MissionCommanderNextActionItem{}, items...)
+	sort.SliceStable(out, func(i, j int) bool {
+		return packMemoryCandidateActionPriority(out[i]) < packMemoryCandidateActionPriority(out[j])
+	})
+	return out
+}
+
+func packMemoryCandidateActionPriority(item mission.MissionCommanderNextActionItem) int {
+	priority := packMemoryCandidatePrimaryActionPriority(item)
+	if mission.MissionCommanderNextActionIsFollowUp(item) {
+		priority += 100
+	}
+	return priority
+}
+
+func packMemoryCandidatePrimaryActionPriority(item mission.MissionCommanderNextActionItem) int {
+	switch item.ActionID {
+	case "pack-memory-verification-retirement-in-progress":
+		return 0
+	case "pack-memory-verification-provision-in-progress":
+		return 1
+	case "pack-memory-verification-retirement-required":
+		return 2
+	case "pack-memory-verification-run-required":
+		return 3
+	case "pack-memory-verification-provision-required":
+		return 4
+	case "pack-memory-cleanup-proof-required":
+		return 5
+	case "pack-memory-reconsume-proof-required":
+		return 6
+	case "pack-memory-decision-proof-required":
+		return 7
+	case "pack-memory-decision-draft-required":
+		return 8
+	}
+	switch item.State {
+	case "pack-memory-verification-required":
+		return 4
+	case "pack-memory-proof-required":
+		return 7
+	case "pack-memory-review-required":
+		return 8
+	case "pack-memory-cleanup-required":
+		return 9
+	case "pack-memory-open-work":
+		return 10
+	case "pack-memory-ready":
+		return 11
+	default:
+		return 12
+	}
 }
 
 func packMemoryCandidatePrimaryNextAction(pack ReleaseHandoffPackMemoryCandidateStatus) (mission.MissionCommanderNextActionItem, bool) {
