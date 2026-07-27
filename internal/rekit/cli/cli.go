@@ -1940,12 +1940,12 @@ func writePackMemoryCandidateActionQueueText(out io.Writer, prefix string, candi
 	}
 	if queue.CurrentAction != nil {
 		current := *queue.CurrentAction
-		if _, err := fmt.Fprintf(out, "%s pack-memory current action：pack=%s state=%s source=%s blocked=%t requiresReview=%t command=%s\n", prefix, current.Label, current.State, current.Source, current.Blocked, current.RequiresReview, current.Command); err != nil {
+		if _, err := fmt.Fprintf(out, "%s pack-memory current action：pack=%s state=%s actionId=%s source=%s blocked=%t requiresReview=%t command=%s\n", prefix, current.Label, current.State, current.ActionID, current.Source, current.Blocked, current.RequiresReview, current.Command); err != nil {
 			return err
 		}
 	}
 	for _, action := range candidates.MissionCommanderNextActions {
-		if _, err := fmt.Fprintf(out, "%s pack-memory next action：pack=%s state=%s source=%s blocked=%t requiresReview=%t command=%s\n", prefix, action.Label, action.State, action.Source, action.Blocked, action.RequiresReview, action.Command); err != nil {
+		if _, err := fmt.Fprintf(out, "%s pack-memory next action：pack=%s state=%s actionId=%s source=%s blocked=%t requiresReview=%t command=%s\n", prefix, action.Label, action.State, action.ActionID, action.Source, action.Blocked, action.RequiresReview, action.Command); err != nil {
 			return err
 		}
 		for _, reason := range action.Reasons {
@@ -3133,6 +3133,9 @@ func statusMissionCommanderFirstScreenPackMemoryEvidence(pack releasecheck.Relea
 	}
 	if pack.PendingVerifications > 0 || pack.CompletedVerifications > 0 || len(pack.DecisionReceipts) > 0 {
 		evidence = append(evidence, fmt.Sprintf("decision receipts: receipts=%d pendingVerification=%d completedVerification=%d", len(pack.DecisionReceipts), pack.PendingVerifications, pack.CompletedVerifications))
+		for _, receipt := range pack.DecisionReceipts {
+			evidence = append(evidence, statusMissionCommanderPackMemoryReceiptEvidence(receipt)...)
+		}
 	}
 	for _, item := range pack.Evidence {
 		evidence = append(evidence, "inventory evidence: "+item)
@@ -3140,6 +3143,33 @@ func statusMissionCommanderFirstScreenPackMemoryEvidence(pack releasecheck.Relea
 	evidence = mission.UniqueStrings(evidence)
 	if len(evidence) > 9 {
 		evidence = evidence[:9]
+	}
+	return evidence
+}
+
+func statusMissionCommanderPackMemoryReceiptEvidence(receipt releasecheck.ReleaseHandoffPackMemoryCandidateDecisionReceipt) []string {
+	evidence := []string{
+		fmt.Sprintf("candidate verification receipt: path=%s provisionStatus=%s provisionInProgress=%t provisionComplete=%t verificationComplete=%t retirementStatus=%s retirementRequired=%t retirementInProgress=%t retired=%t", textOr(receipt.Path, "none"), textOr(receipt.ProvisionStatus, "none"), receipt.ProvisionInProgress, receipt.ProvisionComplete, receipt.VerificationComplete, textOr(receipt.RetirementStatus, "none"), receipt.RetirementRequired, receipt.RetirementInProgress, receipt.Retired),
+	}
+	if receipt.ProvisionStatus == "required" && strings.TrimSpace(receipt.VerificationProvisionCommand) != "" {
+		evidence = append(evidence, "candidate verification provisioning WhatIf: "+receipt.VerificationProvisionCommand)
+	}
+	if receipt.ProvisionInProgress && strings.TrimSpace(receipt.ProvisionApplyCommand) != "" {
+		evidence = append(evidence, "candidate verification provisioning Apply: "+receipt.ProvisionApplyCommand)
+	} else if receipt.ProvisionInProgress && strings.TrimSpace(receipt.ProvisionNextAction) != "" {
+		evidence = append(evidence, "candidate verification provisioning next action: "+receipt.ProvisionNextAction)
+	}
+	if receipt.ProvisionComplete && strings.TrimSpace(receipt.VerificationCommand) != "" {
+		evidence = append(evidence, "candidate decision verification WhatIf: "+receipt.VerificationCommand)
+	}
+	if receipt.RetirementRequired && strings.TrimSpace(receipt.RetirementPreviewCommand) != "" {
+		evidence = append(evidence, "candidate verification retirement WhatIf: "+receipt.RetirementPreviewCommand)
+	}
+	if receipt.RetirementInProgress && strings.TrimSpace(receipt.RetirementNextAction) != "" {
+		evidence = append(evidence, "candidate verification retirement next action: "+receipt.RetirementNextAction)
+	}
+	if receipt.Retired {
+		evidence = append(evidence, fmt.Sprintf("candidate verification retired evidence: intent=%s receipt=%s", textOr(receipt.RetirementIntentPath, "none"), textOr(receipt.RetirementReceiptPath, "none")))
 	}
 	return evidence
 }
@@ -3160,21 +3190,7 @@ func writeStatusMissionCommanderFirstScreenPackMemoryRunbookText(out io.Writer, 
 			}
 		}
 		for _, receipt := range pack.DecisionReceipts {
-			if receipt.RetirementInProgress && receipt.RetirementNextAction != "" {
-				steps = append(steps, "after proof closure, finish candidate verification retirement using the recorded retirement next action")
-			}
-			if receipt.RetirementRequired && receipt.RetirementPreviewCommand != "" {
-				steps = append(steps, "after proof closure, preview candidate verification workspace retirement before expected-hash Apply")
-			}
-			if receipt.ProvisionInProgress && receipt.ProvisionNextAction != "" {
-				steps = append(steps, "after proof closure, complete candidate verification provisioning using the recorded provision next action")
-			}
-			if receipt.ProvisionStatus == "required" && receipt.VerificationProvisionCommand != "" {
-				steps = append(steps, "after proof closure, run candidate verification provisioning WhatIf before expected-hash Apply")
-			}
-			if receipt.ProvisionComplete && receipt.VerificationCommand != "" {
-				steps = append(steps, "after proof closure, run candidate decision verification WhatIf before Apply")
-			}
+			steps = append(steps, statusMissionCommanderPackMemoryReceiptRunbookSteps(receipt)...)
 		}
 		steps = mission.UniqueStrings(steps)
 		for idx, step := range steps {
@@ -3185,6 +3201,44 @@ func writeStatusMissionCommanderFirstScreenPackMemoryRunbookText(out io.Writer, 
 		return nil
 	}
 	return nil
+}
+
+func statusMissionCommanderPackMemoryReceiptRunbookSteps(receipt releasecheck.ReleaseHandoffPackMemoryCandidateDecisionReceipt) []string {
+	steps := []string{}
+	if receipt.RetirementInProgress && receipt.RetirementNextAction != "" {
+		steps = append(steps,
+			"resume candidate verification retirement using retirementNextAction; status/release-check will not delete reappeared workspaces automatically",
+			"after retirement replay closes, confirm status and release-check show pack-memory candidates ready with total=0",
+		)
+	}
+	if receipt.RetirementRequired && receipt.RetirementPreviewCommand != "" {
+		steps = append(steps,
+			"run the current pack-memory action to preview candidate verification workspace retirement before expected-hash Apply",
+			"apply retirement only with the returned retirementSha256, then rerun status and release-check for closed handoff",
+		)
+	}
+	if receipt.ProvisionInProgress && receipt.ProvisionNextAction != "" {
+		steps = append(steps,
+			"complete candidate verification provisioning using provisionNextAction; do not run final verification until the provision receipt is complete",
+			"after provisioning closes, rerun status and follow the candidate decision verification WhatIf current action",
+		)
+	}
+	if receipt.ProvisionStatus == "required" && receipt.VerificationProvisionCommand != "" {
+		steps = append(steps,
+			"run the current pack-memory action to preview candidate verification provisioning before expected-hash Apply",
+			"apply provisioning only with the returned provisionSha256 and inspect both fresh/attached case plans",
+		)
+	}
+	if receipt.ProvisionComplete && receipt.VerificationCommand != "" {
+		steps = append(steps,
+			"run the current pack-memory action for candidate decision verification WhatIf after reviewing completed provisioning intent and receipt",
+			"Apply verification only after fresh/attached doctor evidence is reviewed; then follow the retirementPreviewCommand handoff",
+		)
+	}
+	if receipt.Retired {
+		steps = append(steps, "retain the repo-local retirement intent and receipt as final evidence; closed status should return to project next-batch selection")
+	}
+	return steps
 }
 
 func writeStatusMissionCommanderCurrentActionText(out io.Writer, scope string, action mission.MissionCommanderNextActionItem) error {

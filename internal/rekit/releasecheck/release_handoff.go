@@ -663,6 +663,7 @@ func packMemoryCandidateNextActions(packs []ReleaseHandoffPackMemoryCandidateSta
 		}
 		items = append(items, mission.MissionCommanderNextActionItem{
 			Label:          pack.Pack,
+			ActionID:       packMemoryCandidateActionID(pack),
 			State:          packMemoryCandidateActionState(pack),
 			Command:        command,
 			Source:         "packMemoryCandidates." + pack.Pack,
@@ -675,36 +676,26 @@ func packMemoryCandidateNextActions(packs []ReleaseHandoffPackMemoryCandidateSta
 }
 
 func packMemoryCandidateCurrentCommand(pack ReleaseHandoffPackMemoryCandidateStatus) string {
+	if receipt, stage, ok := packMemoryCandidateActiveDecisionReceipt(pack); ok {
+		switch stage {
+		case "verification-retirement-in-progress":
+			return strings.TrimSpace(receipt.RetirementNextAction)
+		case "verification-retirement-required":
+			return strings.TrimSpace(receipt.RetirementPreviewCommand)
+		case "verification-provision-in-progress":
+			if command := strings.TrimSpace(receipt.ProvisionApplyCommand); command != "" {
+				return command
+			}
+			return strings.TrimSpace(receipt.ProvisionNextAction)
+		case "verification-provision-required":
+			return strings.TrimSpace(receipt.VerificationProvisionCommand)
+		case "verification-run-required":
+			return strings.TrimSpace(receipt.VerificationCommand)
+		}
+	}
 	if next := pack.ProofSummary.NextMissingProof; next != nil {
 		if command := strings.TrimSpace(next.DraftCommand); command != "" {
 			return command
-		}
-	}
-	for _, receipt := range pack.DecisionReceipts {
-		if receipt.RetirementInProgress {
-			if command := strings.TrimSpace(receipt.RetirementNextAction); command != "" {
-				return command
-			}
-		}
-		if receipt.RetirementRequired {
-			if command := strings.TrimSpace(receipt.RetirementPreviewCommand); command != "" {
-				return command
-			}
-		}
-		if receipt.ProvisionInProgress {
-			if command := strings.TrimSpace(receipt.ProvisionNextAction); command != "" {
-				return command
-			}
-		}
-		if receipt.ProvisionStatus == "required" {
-			if command := strings.TrimSpace(receipt.VerificationProvisionCommand); command != "" {
-				return command
-			}
-		}
-		if receipt.ProvisionComplete {
-			if command := strings.TrimSpace(receipt.VerificationCommand); command != "" {
-				return command
-			}
 		}
 	}
 	if pack.DecisionDraftHandoff != nil {
@@ -715,7 +706,44 @@ func packMemoryCandidateCurrentCommand(pack ReleaseHandoffPackMemoryCandidateSta
 	return strings.TrimSpace(pack.Action)
 }
 
+func packMemoryCandidateActiveDecisionReceipt(pack ReleaseHandoffPackMemoryCandidateStatus) (ReleaseHandoffPackMemoryCandidateDecisionReceipt, string, bool) {
+	for _, receipt := range pack.DecisionReceipts {
+		if receipt.RetirementInProgress && strings.TrimSpace(receipt.RetirementNextAction) != "" {
+			return receipt, "verification-retirement-in-progress", true
+		}
+		if receipt.RetirementRequired && strings.TrimSpace(receipt.RetirementPreviewCommand) != "" {
+			return receipt, "verification-retirement-required", true
+		}
+		if receipt.ProvisionInProgress && strings.TrimSpace(receipt.ProvisionNextAction) != "" {
+			return receipt, "verification-provision-in-progress", true
+		}
+		if receipt.ProvisionStatus == "required" && strings.TrimSpace(receipt.VerificationProvisionCommand) != "" {
+			return receipt, "verification-provision-required", true
+		}
+		if receipt.ProvisionComplete && strings.TrimSpace(receipt.VerificationCommand) != "" {
+			return receipt, "verification-run-required", true
+		}
+	}
+	return ReleaseHandoffPackMemoryCandidateDecisionReceipt{}, "", false
+}
+
+func packMemoryCandidateActionID(pack ReleaseHandoffPackMemoryCandidateStatus) string {
+	if _, stage, ok := packMemoryCandidateActiveDecisionReceipt(pack); ok {
+		return "pack-memory-" + stage
+	}
+	if pack.ProofSummary.NextMissingProof != nil {
+		return "pack-memory-proof-required"
+	}
+	if pack.DecisionDraftHandoff != nil && strings.TrimSpace(pack.DecisionDraftHandoff.NextAction) != "" {
+		return "pack-memory-decision-draft-required"
+	}
+	return packMemoryCandidateActionState(pack)
+}
+
 func packMemoryCandidateActionState(pack ReleaseHandoffPackMemoryCandidateStatus) string {
+	if _, _, ok := packMemoryCandidateActiveDecisionReceipt(pack); ok {
+		return "pack-memory-verification-required"
+	}
 	if pack.ProofSummary.NextMissingProof != nil {
 		return "pack-memory-proof-required"
 	}
@@ -735,9 +763,24 @@ func packMemoryCandidateActionState(pack ReleaseHandoffPackMemoryCandidateStatus
 }
 
 func packMemoryCandidateActionReasons(pack ReleaseHandoffPackMemoryCandidateStatus) []string {
-	reasons := []string{"pack=" + pack.Pack, pack.Action}
+	reasons := []string{"pack=" + pack.Pack, "actionId=" + packMemoryCandidateActionID(pack), pack.Action}
 	if next := pack.ProofSummary.NextMissingProof; next != nil {
 		reasons = append(reasons, "next missing proof="+next.ProofType, "proof path="+next.Path)
+	}
+	if receipt, stage, ok := packMemoryCandidateActiveDecisionReceipt(pack); ok {
+		reasons = append(reasons, "candidate verification stage="+stage, "receipt="+receipt.Path)
+		if strings.TrimSpace(receipt.ProvisionStatus) != "" {
+			reasons = append(reasons, "provisionStatus="+receipt.ProvisionStatus)
+		}
+		if strings.TrimSpace(receipt.RetirementStatus) != "" {
+			reasons = append(reasons, "retirementStatus="+receipt.RetirementStatus)
+		}
+		if strings.TrimSpace(receipt.VerificationProofPath) != "" {
+			reasons = append(reasons, "verificationProof="+receipt.VerificationProofPath)
+		}
+		if strings.TrimSpace(receipt.VerificationWorkspaceRoot) != "" {
+			reasons = append(reasons, "verificationWorkspace="+receipt.VerificationWorkspaceRoot)
+		}
 	}
 	for _, evidence := range pack.Evidence {
 		reasons = append(reasons, evidence)
@@ -748,11 +791,30 @@ func packMemoryCandidateActionReasons(pack ReleaseHandoffPackMemoryCandidateStat
 func packMemoryCandidateActionBoundary(pack ReleaseHandoffPackMemoryCandidateStatus) []string {
 	boundary := append([]string{}, pack.Boundary...)
 	boundary = append(boundary,
-		"pack-memory action queue is read-only handoff; it does not merge, cleanup, provision, verify, or write proof",
+		"pack-memory action queue is read-only handoff; it does not merge, cleanup, provision, verify, retire, or write proof",
 		"run WhatIf previews and hash-gated Apply commands explicitly before any pack-memory mutation",
 	)
 	if next := pack.ProofSummary.NextMissingProof; next != nil {
 		boundary = append(boundary, next.Boundary...)
+	}
+	if _, stage, ok := packMemoryCandidateActiveDecisionReceipt(pack); ok {
+		switch stage {
+		case "verification-provision-required", "verification-provision-in-progress":
+			boundary = append(boundary,
+				"candidate verification provisioning is source-case-local and exact-hash gated",
+				"provisioning does not run final verification, write authority/confirmed, or execute heavy tools",
+			)
+		case "verification-run-required":
+			boundary = append(boundary,
+				"candidate decision verification runs only after reviewing completed provisioning intent and receipt",
+				"verification writes only bounded pack-memory verification proof; authority/confirmed remain deferred",
+			)
+		case "verification-retirement-required", "verification-retirement-in-progress":
+			boundary = append(boundary,
+				"candidate verification retirement is expected-hash gated and limited to the canonical verification workspace plus provisioning artifacts",
+				"status/release-check never delete reappeared verification workspaces automatically",
+			)
+		}
 	}
 	return mission.UniqueStrings(boundary)
 }

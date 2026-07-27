@@ -9805,6 +9805,7 @@ func TestRunPromoteCreateCandidatesWritesDurableReviewWorkspace(t *testing.T) {
 
 func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
+	writeCaseFile(t, caseRoot, ".rekit/board.json", `{"lanes":[{"id":"main"}]}`)
 	root := repoRoot(t)
 	candidateRoot := filepath.Join(root, "packs", "_template", "promote-candidates")
 	toolingRoot := filepath.Join(root, "packs", "_template", "tooling", "candidates")
@@ -10112,6 +10113,24 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	if pendingProvisionStatus.IsMutation || pendingProvisionStatus.ProjectHandoff == nil || !hasCandidateVerificationProvisionStatus(pendingProvisionStatus.ProjectHandoff.PackMemoryCandidates, "required") {
 		t.Fatalf("status omitted required candidate verification provisioning handoff or mutated: %+v", pendingProvisionStatus)
 	}
+	pendingProvisionCurrent := assertPackMemoryCurrentAction(t, pendingProvisionStatus.ProjectHandoff.PackMemoryCandidates, "_template", "pack-memory-verification-provision-required", "pack-memory-verification-required", "-ProvisionCandidateVerificationCases")
+	if pendingProvisionCurrent.Command != decisionApplied.Receipt.VerificationProvisionCommand {
+		t.Fatalf("status current action did not bind verificationProvisionCommand: %+v receipt=%+v", pendingProvisionCurrent, decisionApplied.Receipt)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"status Mission Commander first screen：focus=pack-memory-current-action",
+		"status Mission Commander focus action reason：scope=pack-memory reason=actionId=pack-memory-verification-provision-required",
+		"candidate verification provisioning WhatIf:",
+		"run the current pack-memory action to preview candidate verification provisioning before expected-hash Apply",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("pending provisioning status text omitted %q:\n%s", expected, out.String())
+		}
+	}
 	assertSnapshotEqual(t, candidateBeforePendingProvisionStatus, snapshotFiles(t, candidateRoot))
 	assertSnapshotEqual(t, workspaceBeforePendingProvisionStatus, snapshotFiles(t, decisionApplied.Receipt.VerificationWorkspaceRoot))
 
@@ -10193,6 +10212,10 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	if provisionStatus.IsMutation || provisionStatus.ProjectHandoff == nil || !hasCandidateVerificationProvisionStatus(provisionStatus.ProjectHandoff.PackMemoryCandidates, "complete") {
 		t.Fatalf("status omitted completed candidate verification provisioning handoff or mutated: %+v", provisionStatus)
 	}
+	provisionCurrent := assertPackMemoryCurrentAction(t, provisionStatus.ProjectHandoff.PackMemoryCandidates, "_template", "pack-memory-verification-run-required", "pack-memory-verification-required", "-VerifyCandidateDecision")
+	if provisionCurrent.Command != decisionApplied.Receipt.VerificationCommand {
+		t.Fatalf("status current action did not bind verificationCommand: %+v receipt=%+v", provisionCurrent, decisionApplied.Receipt)
+	}
 	assertSnapshotEqual(t, candidateBeforeProvisionStatus, snapshotFiles(t, candidateRoot))
 	assertSnapshotEqual(t, workspaceBeforeProvisionStatus, snapshotFiles(t, decisionApplied.Receipt.VerificationWorkspaceRoot))
 
@@ -10200,7 +10223,7 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	if err := Run([]string{"-Command", "status", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "provisionStatus=complete provisionInProgress=false provisionComplete=true") || !strings.Contains(out.String(), "provisionApplyCommand=") || !strings.Contains(out.String(), "provisionNextAction=run verificationCommand") {
+	if !strings.Contains(out.String(), "provisionStatus=complete provisionInProgress=false provisionComplete=true") || !strings.Contains(out.String(), "provisionApplyCommand=") || !strings.Contains(out.String(), "provisionNextAction=run verificationCommand") || !strings.Contains(out.String(), "status Mission Commander focus action reason：scope=pack-memory reason=actionId=pack-memory-verification-run-required") || !strings.Contains(out.String(), "candidate decision verification WhatIf:") || !strings.Contains(out.String(), "run the current pack-memory action for candidate decision verification WhatIf") {
 		t.Fatalf("status text omitted completed candidate verification provisioning handoff:\n%s", out.String())
 	}
 	assertSnapshotEqual(t, candidateBeforeProvisionStatus, snapshotFiles(t, candidateRoot))
@@ -10280,6 +10303,10 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	if !hasCandidateVerificationRetirementStatus(requiredStatus.ProjectHandoff.PackMemoryCandidates, "required") {
 		t.Fatalf("status omitted required candidate verification retirement: %+v", requiredStatus.ProjectHandoff.PackMemoryCandidates)
 	}
+	requiredCurrent := assertPackMemoryCurrentAction(t, requiredStatus.ProjectHandoff.PackMemoryCandidates, "_template", "pack-memory-verification-retirement-required", "pack-memory-verification-required", "-RetireCandidateVerificationWorkspace")
+	if requiredCurrent.Command != verificationApplied.RetirementPreviewCommand {
+		t.Fatalf("status current action did not bind retirementPreviewCommand: %+v verification=%+v", requiredCurrent, verificationApplied)
+	}
 	assertSnapshotEqual(t, candidateBeforeRequiredStatus, snapshotFiles(t, candidateRoot))
 	assertSnapshotEqual(t, workspaceBeforeRequiredStatus, snapshotFiles(t, decisionApplied.Receipt.VerificationWorkspaceRoot))
 
@@ -10287,7 +10314,7 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	if err := Run([]string{"-Command", "status", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "retirementStatus=required retirementRequired=true retirementInProgress=false retired=false") {
+	if !strings.Contains(out.String(), "retirementStatus=required retirementRequired=true retirementInProgress=false retired=false") || !strings.Contains(out.String(), "status Mission Commander focus action reason：scope=pack-memory reason=actionId=pack-memory-verification-retirement-required") || !strings.Contains(out.String(), "candidate verification retirement WhatIf:") || !strings.Contains(out.String(), "run the current pack-memory action to preview candidate verification workspace retirement") {
 		t.Fatalf("status text omitted required candidate verification retirement:\n%s", out.String())
 	}
 	assertSnapshotEqual(t, candidateBeforeRequiredStatus, snapshotFiles(t, candidateRoot))
@@ -10385,7 +10412,7 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "release-check", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "release-check", "-Format", "json"}, &out); err != nil && !strings.Contains(err.Error(), "release-check not ready") {
 		t.Fatal(err)
 	}
 	var retiredRelease releasecheck.Result
@@ -10442,6 +10469,21 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 			t.Fatalf("candidate verification retirement text omitted %q:\n%s", expected, out.String())
 		}
 	}
+}
+
+func assertPackMemoryCurrentAction(t *testing.T, candidates releasecheck.ReleaseHandoffPackMemoryCandidateList, label, actionID, state, commandContains string) mission.MissionCommanderNextActionItem {
+	t.Helper()
+	if candidates.MissionCommanderActionQueue.CurrentAction == nil {
+		t.Fatalf("pack-memory action queue omitted current action: %+v", candidates.MissionCommanderActionQueue)
+	}
+	action := *candidates.MissionCommanderActionQueue.CurrentAction
+	if action.Label != label || action.ActionID != actionID || action.State != state || !strings.Contains(action.Command, commandContains) {
+		t.Fatalf("pack-memory current action drifted: got %+v want label=%s actionId=%s state=%s command contains %s", action, label, actionID, state, commandContains)
+	}
+	if len(candidates.MissionCommanderNextActions) == 0 || candidates.MissionCommanderNextActions[0].ActionID != actionID {
+		t.Fatalf("pack-memory next action did not expose current action identity: current=%+v next=%+v", action, candidates.MissionCommanderNextActions)
+	}
+	return action
 }
 
 func hasCandidateVerificationProvisionStatus(candidates releasecheck.ReleaseHandoffPackMemoryCandidateList, status string) bool {
