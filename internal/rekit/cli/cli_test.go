@@ -14224,6 +14224,12 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	}
 	assertSnapshotEqual(t, caseRelativeBefore, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 
+	caseRelativeDraftBytesBeforeRepair := append([]byte{}, caseRelativeDraftBytes...)
+	assertMultiGateAcknowledgedAndRepairContinuation(t, caseRoot, applied.EventID, caseRelativeGate.EventID, wantCaseRelativeReportPath)
+	if err := os.WriteFile(filepath.Join(caseRoot, "workspace", "main", "debug", "session-2", "adapter-report.json"), caseRelativeDraftBytesBeforeRepair, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	caseRelativeRecordArgs := []string{"-Command", "gate", "-Pack", "_template", "-Apply", "-GateEventId", caseRelativeGate.EventID, "-ExecutionReportPath", wantCaseRelativeReportPath, "-ExpectedExecutionReportSha256", caseRelativeRecordReady.RecordExpectedReportSHA256, "-Actor", "executor-case-root", "-Format", "json"}
 	out.Reset()
 	if err := Run(caseRelativeRecordArgs, &out); err != nil {
@@ -15703,6 +15709,7 @@ func assertAcknowledgedStatusAuthorizedGateHandoff(t *testing.T, label string, i
 
 func assertStatusAuthorizedGateAdapterRepairHandoff(t *testing.T, label string, item statusAuthorizedGateHandoff, eventID, reportPath string) {
 	t.Helper()
+	wantOutputPath := strings.TrimSuffix(reportPath, "/adapter-report.json")
 	if item.EventID != eventID || item.ReportPath != reportPath {
 		t.Fatalf("%s status authorized gate repair handoff identity drifted: %+v", label, item)
 	}
@@ -15712,7 +15719,7 @@ func assertStatusAuthorizedGateAdapterRepairHandoff(t *testing.T, label string, 
 	if item.LiveValidation == nil || item.LiveValidation.ReportSHA256 == "" || item.LiveValidation.RecordExpectedReportSHA256 != "" || item.LiveValidation.RecordCommand != "" || item.LiveValidation.CaseRelativeRecordCommand != "" || !strings.Contains(item.LiveValidation.ValidateCommand, "-ValidateExecutionReport") || !strings.Contains(item.LiveValidation.CaseRelativeValidateCommand, reportPath) || !strings.Contains(item.LiveValidation.ScaffoldCommand, "-ScaffoldExecutionReport") || !strings.Contains(item.LiveValidation.DraftCommand, "-DraftExecutionReport") || !containsSubstring(item.LiveValidation.RunbookSteps, "confirm adapter report validation state=repair-adapter-report") || !containsSubstring(item.LiveValidation.RunbookSteps, "boundary guard: validation is read-only") {
 		t.Fatalf("%s status authorized gate repair live validation drifted: %+v", label, item.LiveValidation)
 	}
-	if len(item.LiveValidationRepairHints) != 1 || item.LiveValidationRepairHints[0].RepairAction != "move-evidence-refs-under-authorized-output-paths" || item.LiveValidationRepairHints[0].Code != "evidence-refs-out-of-scope" || item.LiveValidationRepairHints[0].Stage != "refs" || !item.LiveValidationRepairHints[0].RecordBlocked || !item.LiveValidationRepairHints[0].RerunValidation || !containsSubstring(item.LiveValidationRepairHints[0].AllowedOutputPaths, "workspace/main/debug/session-1") || !containsSubstring(item.LiveValidationRepairHints[0].Boundary, "recordBlocked=true") {
+	if len(item.LiveValidationRepairHints) != 1 || item.LiveValidationRepairHints[0].RepairAction != "move-evidence-refs-under-authorized-output-paths" || item.LiveValidationRepairHints[0].Code != "evidence-refs-out-of-scope" || item.LiveValidationRepairHints[0].Stage != "refs" || !item.LiveValidationRepairHints[0].RecordBlocked || !item.LiveValidationRepairHints[0].RerunValidation || !containsSubstring(item.LiveValidationRepairHints[0].AllowedOutputPaths, wantOutputPath) || !containsSubstring(item.LiveValidationRepairHints[0].Boundary, "recordBlocked=true") {
 		t.Fatalf("%s status authorized gate repair hints drifted: %+v", label, item.LiveValidationRepairHints)
 	}
 	if !containsSubstring(item.LiveValidationNextSteps, "report is invalid for read-only preflight") || !containsSubstring(item.LiveValidationNextSteps, "rerun gate -ValidateExecutionReport before recording evidence") || !containsSubstring(item.LiveValidationNextSteps, "do not record it with gate -Apply until valid=true") {
@@ -15722,6 +15729,7 @@ func assertStatusAuthorizedGateAdapterRepairHandoff(t *testing.T, label string, 
 
 func assertAuthorizedGateAdapterRepairHandoffSnapshot(t *testing.T, label string, item authorizedGateAdapterHandoffSnapshot, eventID, reportPath string) {
 	t.Helper()
+	wantOutputPath := strings.TrimSuffix(reportPath, "/adapter-report.json")
 	if item.EventID != eventID || item.ReportPath != reportPath {
 		t.Fatalf("%s authorized gate adapter repair handoff identity drifted: %+v", label, item)
 	}
@@ -15731,7 +15739,7 @@ func assertAuthorizedGateAdapterRepairHandoffSnapshot(t *testing.T, label string
 	if item.LiveValidation == nil || item.LiveValidation.ReportSHA256 == "" || item.LiveValidation.RecordExpectedReportSHA256 != "" || item.LiveValidation.RecordCommand != "" || item.LiveValidation.CaseRelativeRecordCommand != "" || !strings.Contains(item.LiveValidation.ValidateCommand, "-ValidateExecutionReport") || !strings.Contains(item.LiveValidation.CaseRelativeValidateCommand, reportPath) || !strings.Contains(item.LiveValidation.ScaffoldCommand, "-ScaffoldExecutionReport") || !strings.Contains(item.LiveValidation.DraftCommand, "-DraftExecutionReport") || !containsSubstring(item.LiveValidation.RunbookSteps, "confirm adapter report validation state=repair-adapter-report") || !containsSubstring(item.LiveValidation.RunbookSteps, "boundary guard: validation is read-only") {
 		t.Fatalf("%s authorized gate adapter repair live validation drifted: %+v", label, item.LiveValidation)
 	}
-	if len(item.LiveValidationRepairHints) != 1 || item.LiveValidationRepairHints[0].RepairAction != "move-evidence-refs-under-authorized-output-paths" || item.LiveValidationRepairHints[0].Code != "evidence-refs-out-of-scope" || item.LiveValidationRepairHints[0].Stage != "refs" || !item.LiveValidationRepairHints[0].RecordBlocked || !item.LiveValidationRepairHints[0].RerunValidation || !containsSubstring(item.LiveValidationRepairHints[0].AllowedOutputPaths, "workspace/main/debug/session-1") || !containsSubstring(item.LiveValidationRepairHints[0].Boundary, "recordBlocked=true") {
+	if len(item.LiveValidationRepairHints) != 1 || item.LiveValidationRepairHints[0].RepairAction != "move-evidence-refs-under-authorized-output-paths" || item.LiveValidationRepairHints[0].Code != "evidence-refs-out-of-scope" || item.LiveValidationRepairHints[0].Stage != "refs" || !item.LiveValidationRepairHints[0].RecordBlocked || !item.LiveValidationRepairHints[0].RerunValidation || !containsSubstring(item.LiveValidationRepairHints[0].AllowedOutputPaths, wantOutputPath) || !containsSubstring(item.LiveValidationRepairHints[0].Boundary, "recordBlocked=true") {
 		t.Fatalf("%s authorized gate adapter repair hints drifted: %+v", label, item.LiveValidationRepairHints)
 	}
 	if !containsSubstring(item.LiveValidationNextSteps, "report is invalid for read-only preflight") || !containsSubstring(item.LiveValidationNextSteps, "rerun gate -ValidateExecutionReport before recording evidence") || !containsSubstring(item.LiveValidationNextSteps, "do not record it with gate -Apply until valid=true") {
@@ -15989,6 +15997,245 @@ func assertAdapterReportDriftRepairContinuation(t *testing.T, caseRoot, eventID 
 	}
 	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl")); !os.IsNotExist(err) {
 		t.Fatalf("drift repair continuation wrote confirmed ledger or stat failed: %v", err)
+	}
+}
+
+func assertMultiGateAcknowledgedAndRepairContinuation(t *testing.T, caseRoot, acknowledgedEventID, repairEventID, repairReportPath string) {
+	t.Helper()
+	writeCaseFile(t, caseRoot, repairReportPath, `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "case-root-cli-adapter",
+  "action": "debug",
+  "status": "succeeded",
+  "gateEventId": "`+repairEventID+`",
+  "actualBudget": {"runtimeSeconds": 25, "diskMB": 48, "requests": 2},
+  "outputRefs": ["workspace/main/debug/session-2/result.json"],
+  "evidenceRefs": ["workspace/main/other/evidence.json"],
+  "summary": "Second adapter report drifted out of authorized output workspace before record"
+}`)
+	before := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	assertRepairCurrent := func(label string, queue missionCommanderActionQueueSnapshot, actions []missionCommanderNextActionItem) {
+		t.Helper()
+		if queue.CurrentAction == nil || queue.CurrentAction.GateEventID != repairEventID || queue.CurrentAction.State != "repair-adapter-report" || queue.CurrentAction.Command != "move-evidence-refs-under-authorized-output-paths" || queue.CurrentAction.Source != "adapterReportValidation.repairHints" || !queue.CurrentAction.RequiresReview {
+			t.Fatalf("%s should choose repair action for latest invalid adapter report, not acknowledged/record-ready provenance: %+v", label, queue)
+		}
+		repairIndex := -1
+		recordIndex := -1
+		for idx, action := range actions {
+			if action.GateEventID == acknowledgedEventID && (action.Source == "executionEvidenceReview" || strings.Contains(action.Command, "gate -Apply")) {
+				t.Fatalf("%s resurrected acknowledged adapter evidence action: %+v", label, action)
+			}
+			if action.GateEventID == repairEventID && action.State == "repair-adapter-report" {
+				repairIndex = idx
+			}
+			if action.State == "ready-to-record-evidence" {
+				recordIndex = idx
+			}
+		}
+		if repairIndex < 0 {
+			t.Fatalf("%s omitted repair action from Mission Commander next actions: %+v", label, actions)
+		}
+		if recordIndex >= 0 && recordIndex < repairIndex {
+			t.Fatalf("%s placed record-ready action before repair action: %+v", label, actions)
+		}
+	}
+	assertStatusItems := func(label string, items []statusAuthorizedGateHandoff, queue missionCommanderActionQueueSnapshot, actions []missionCommanderNextActionItem) {
+		t.Helper()
+		foundAcknowledged := false
+		foundRepair := false
+		for _, item := range items {
+			switch item.EventID {
+			case acknowledgedEventID:
+				foundAcknowledged = true
+				assertAcknowledgedStatusAuthorizedGateHandoff(t, label, item, acknowledgedEventID)
+			case repairEventID:
+				foundRepair = true
+				assertStatusAuthorizedGateAdapterRepairHandoff(t, label, item, repairEventID, repairReportPath)
+			}
+		}
+		if !foundAcknowledged || !foundRepair {
+			t.Fatalf("%s should expose both acknowledged provenance and repair handoff: acknowledged=%t repair=%t items=%+v", label, foundAcknowledged, foundRepair, items)
+		}
+		assertRepairCurrent(label, queue, actions)
+	}
+	assertAdapterItems := func(label string, items []authorizedGateAdapterHandoffSnapshot, queue missionCommanderActionQueueSnapshot, actions []missionCommanderNextActionItem) {
+		t.Helper()
+		foundAcknowledged := false
+		foundRepair := false
+		for _, item := range items {
+			switch item.EventID {
+			case acknowledgedEventID:
+				foundAcknowledged = true
+				assertAcknowledgedAuthorizedGateAdapterHandoffSnapshot(t, label, item, acknowledgedEventID)
+			case repairEventID:
+				foundRepair = true
+				assertAuthorizedGateAdapterRepairHandoffSnapshot(t, label, item, repairEventID, repairReportPath)
+			}
+		}
+		if !foundAcknowledged || !foundRepair {
+			t.Fatalf("%s should expose both acknowledged provenance and repair handoff: acknowledged=%t repair=%t items=%+v", label, foundAcknowledged, foundRepair, items)
+		}
+		assertRepairCurrent(label, queue, actions)
+	}
+
+	var out bytes.Buffer
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var statusResult struct {
+		CaseMission struct {
+			AuthorizedGateHandoffs      []statusAuthorizedGateHandoff       `json:"authorizedGateHandoffs"`
+			MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
+			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &statusResult); err != nil {
+		t.Fatalf("multi-gate status stdout is not JSON: %v\n%s", err, out.String())
+	}
+	assertStatusItems("status multi-gate acknowledged+repair", statusResult.CaseMission.AuthorizedGateHandoffs, statusResult.CaseMission.MissionCommanderActionQueue, statusResult.CaseMission.MissionCommanderNextActions)
+	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	assertAcknowledgedAdapterHandoffText(t, "status text multi-gate acknowledged provenance", out.String(), "status case mission", acknowledgedEventID)
+	assertAdapterReportRepairText(t, "status text multi-gate repair current", out.String(), "status case mission", repairEventID)
+	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "main", "-Format", "json", "-WhatIf"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var handoffPreview handoffResult
+	if err := json.Unmarshal(out.Bytes(), &handoffPreview); err != nil {
+		t.Fatalf("multi-gate handoff preview stdout is not JSON: %v\n%s", err, out.String())
+	}
+	assertAdapterItems("handoff preview multi-gate acknowledged+repair", handoffPreview.AuthorizedGateAdapterHandoffs, handoffPreview.MissionCommanderActionQueue, handoffPreview.MissionCommanderNextActions)
+	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "main", "-Format", "text", "-WhatIf"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	assertAcknowledgedAdapterHandoffText(t, "handoff text multi-gate acknowledged provenance", out.String(), "handoff", acknowledgedEventID)
+	assertAdapterReportRepairText(t, "handoff text multi-gate repair current", out.String(), "handoff", repairEventID)
+	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	factsBeforeHandoffApply := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "main", "-Format", "json", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var handoffApply handoffResult
+	if err := json.Unmarshal(out.Bytes(), &handoffApply); err != nil {
+		t.Fatalf("multi-gate handoff apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !handoffApply.Applied {
+		t.Fatalf("multi-gate handoff apply did not apply: %+v", handoffApply)
+	}
+	assertAdapterItems("handoff apply multi-gate acknowledged+repair", handoffApply.AuthorizedGateAdapterHandoffs, handoffApply.MissionCommanderActionQueue, handoffApply.MissionCommanderNextActions)
+	assertSnapshotEqual(t, factsBeforeHandoffApply, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
+	latestHandoff, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "handovers", "main-latest.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertAcknowledgedAdapterHandoffMarkdown(t, "multi-gate handoff acknowledged provenance", string(latestHandoff), acknowledgedEventID)
+	assertAdapterReportRepairMarkdown(t, "multi-gate handoff repair current", string(latestHandoff), repairEventID)
+	afterHandoffApply := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "main", "-Format", "json", "-WhatIf"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var continuePreview struct {
+		AuthorizedGateAdapterHandoffs []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
+		MissionCommanderNextActions   []missionCommanderNextActionItem       `json:"missionCommanderNextActions"`
+		MissionCommanderActionQueue   missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &continuePreview); err != nil {
+		t.Fatalf("multi-gate continue preview stdout is not JSON: %v\n%s", err, out.String())
+	}
+	assertAdapterItems("continue preview multi-gate acknowledged+repair", continuePreview.AuthorizedGateAdapterHandoffs, continuePreview.MissionCommanderActionQueue, continuePreview.MissionCommanderNextActions)
+	assertSnapshotEqual(t, afterHandoffApply, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "main", "-Format", "text", "-WhatIf"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	assertAcknowledgedAdapterHandoffText(t, "continue text multi-gate acknowledged provenance", out.String(), "continue", acknowledgedEventID)
+	assertAdapterReportRepairText(t, "continue text multi-gate repair current", out.String(), "continue", repairEventID)
+	assertSnapshotEqual(t, afterHandoffApply, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	factsBeforeContinueApply := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "main", "-Format", "json", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var continueApply struct {
+		RunID                         string                                 `json:"runId"`
+		Applied                       bool                                   `json:"applied"`
+		Blocked                       bool                                   `json:"blocked"`
+		AuthorizedGateAdapterHandoffs []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
+		MissionCommanderNextActions   []missionCommanderNextActionItem       `json:"missionCommanderNextActions"`
+		MissionCommanderActionQueue   missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
+		Writes                        []startWrite                           `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &continueApply); err != nil {
+		t.Fatalf("multi-gate continue apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !continueApply.Applied || continueApply.Blocked || continueApply.RunID == "" {
+		t.Fatalf("unexpected multi-gate continue apply: %+v", continueApply)
+	}
+	assertAdapterItems("continue apply multi-gate acknowledged+repair", continueApply.AuthorizedGateAdapterHandoffs, continueApply.MissionCommanderActionQueue, continueApply.MissionCommanderNextActions)
+	assertSnapshotEqual(t, factsBeforeContinueApply, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
+	runStatusPath := assertStartWrite(t, continueApply.Writes, ".rekit/runs/"+continueApply.RunID+"/status.json", "write").TargetPath
+	runDigestPath := assertStartWrite(t, continueApply.Writes, ".rekit/runs/"+continueApply.RunID+"/digest.md", "write").TargetPath
+	runStatusBytes, err := os.ReadFile(runStatusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var runStatus struct {
+		AuthorizedGateAdapterHandoffs []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
+		MissionCommanderNextActions   []missionCommanderNextActionItem       `json:"missionCommanderNextActions"`
+		MissionCommanderActionQueue   missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(runStatusBytes, &runStatus); err != nil {
+		t.Fatalf("multi-gate continue run status did not decode: %v\n%s", err, string(runStatusBytes))
+	}
+	assertAdapterItems("continue run status multi-gate acknowledged+repair", runStatus.AuthorizedGateAdapterHandoffs, runStatus.MissionCommanderActionQueue, runStatus.MissionCommanderNextActions)
+	runDigest, err := os.ReadFile(runDigestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertAcknowledgedAdapterHandoffMarkdown(t, "multi-gate continue digest acknowledged provenance", string(runDigest), acknowledgedEventID)
+	assertAdapterReportRepairMarkdown(t, "multi-gate continue digest repair current", string(runDigest), repairEventID)
+	resume, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "lanes", "main", "prompts", "RESUME.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertAcknowledgedAdapterHandoffMarkdown(t, "multi-gate RESUME acknowledged provenance", string(resume), acknowledgedEventID)
+	assertAdapterReportRepairMarkdown(t, "multi-gate RESUME repair current", string(resume), repairEventID)
+	checkpointBytes, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "lanes", "main", "checkpoints", "latest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var checkpoint struct {
+		AuthorizedGateAdapterHandoffs []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
+		MissionCommanderNextActions   []missionCommanderNextActionItem       `json:"missionCommanderNextActions"`
+		MissionCommanderActionQueue   missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(checkpointBytes, &checkpoint); err != nil {
+		t.Fatalf("multi-gate checkpoint did not decode: %v\n%s", err, string(checkpointBytes))
+	}
+	assertAdapterItems("checkpoint multi-gate acknowledged+repair", checkpoint.AuthorizedGateAdapterHandoffs, checkpoint.MissionCommanderActionQueue, checkpoint.MissionCommanderNextActions)
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("multi-gate repair continuation wrote authority ledger or stat failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("multi-gate repair continuation wrote confirmed ledger or stat failed: %v", err)
 	}
 }
 

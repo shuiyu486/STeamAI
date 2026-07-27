@@ -2,7 +2,9 @@ package workstream
 
 import (
 	"bytes"
+	"cmp"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
@@ -353,6 +355,7 @@ func MissionCommanderNextActionsWithAuthorizedGateAdaptersAndAcknowledgements(ba
 	if len(adapterActions) == 0 {
 		return mission.UniqueCommanderNextActions(base)
 	}
+	adapterActions = orderAuthorizedGateAdapterActions(adapterActions)
 	items := []mission.MissionCommanderNextActionItem{}
 	for _, item := range evidenceActions {
 		if item.Source == "executionEvidenceReview" && item.State == "needs-main-escalation" && !supersededEvidence[firstText(item.GateEventID, item.Label)] {
@@ -371,6 +374,34 @@ func MissionCommanderNextActionsWithAuthorizedGateAdaptersAndAcknowledgements(ba
 	items = append(items, adapterActions...)
 	items = append(items, laneActions...)
 	return mission.UniqueCommanderNextActions(items)
+}
+
+func orderAuthorizedGateAdapterActions(items []mission.MissionCommanderNextActionItem) []mission.MissionCommanderNextActionItem {
+	out := append([]mission.MissionCommanderNextActionItem{}, items...)
+	slices.SortStableFunc(out, func(a, b mission.MissionCommanderNextActionItem) int {
+		return cmp.Compare(authorizedGateAdapterActionPriority(a), authorizedGateAdapterActionPriority(b))
+	})
+	return out
+}
+
+func authorizedGateAdapterActionPriority(item mission.MissionCommanderNextActionItem) int {
+	if item.Blocked {
+		return 0
+	}
+	switch item.State {
+	case "repair-adapter-report":
+		return 1
+	case "ready-to-record-evidence":
+		return 2
+	case "needs-adapter-report-validation", "adapter-report-drafted-ready-for-validation", "adapter-report-scaffolded-awaiting-adapter-output":
+		return 3
+	case "ready-for-adapter-report-draft-apply", "ready-for-adapter-report-scaffold-apply":
+		return 4
+	case "evidence-already-recorded":
+		return 6
+	default:
+		return 5
+	}
 }
 
 func authorizedGateReportContractCommand(pack, eventID string) string {

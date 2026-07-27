@@ -30,6 +30,67 @@ func TestMissionCommanderNextActionMarkdownLineIncludesIdentity(t *testing.T) {
 	}
 }
 
+func TestMissionCommanderNextActionsWithAuthorizedGateAdaptersPrioritizesRepair(t *testing.T) {
+	base := []mission.MissionCommanderNextActionItem{{
+		Lane:    "main",
+		Label:   "main",
+		State:   "ready-to-continue",
+		Source:  "missionCommanderActions",
+		Command: "/rekit continue main",
+	}}
+	handoffs := []AuthorizedGateAdapterHandoff{
+		{
+			EventID: "evt-record",
+			missionCommanderNextActions: []mission.MissionCommanderNextActionItem{{
+				Lane:           "main",
+				Label:          "main",
+				State:          "ready-to-record-evidence",
+				Source:         "adapterReportValidation.missionCommanderAction",
+				Command:        "/rekit gate -Apply -GateEventId evt-record",
+				RequiresReview: true,
+			}},
+		},
+		{
+			EventID: "evt-repair",
+			missionCommanderNextActions: []mission.MissionCommanderNextActionItem{{
+				Lane:           "main",
+				Label:          "main",
+				State:          "repair-adapter-report",
+				Source:         "adapterReportValidation.repairHints",
+				Command:        "move-evidence-refs-under-authorized-output-paths",
+				RequiresReview: true,
+			}},
+		},
+		{
+			EventID: "evt-acknowledged",
+			ReportSummary: &gate.AdapterReportHandoffSummary{
+				State: "evidence-already-recorded",
+			},
+			missionCommanderNextActions: []mission.MissionCommanderNextActionItem{{
+				Lane:           "main",
+				Label:          "main",
+				State:          "evidence-already-recorded",
+				Source:         "adapterReportLiveSnapshot.recordedEvidence",
+				Command:        "/rekit handoff main",
+				RequiresReview: true,
+			}},
+		},
+	}
+	items := MissionCommanderNextActionsWithAuthorizedGateAdaptersAndAcknowledgements(base, handoffs, map[string]bool{"evt-acknowledged": true})
+	queue := mission.MissionCommanderActionQueueFor(items)
+	if queue.CurrentAction == nil || queue.CurrentAction.GateEventID != "evt-repair" || queue.CurrentAction.State != "repair-adapter-report" || queue.CurrentAction.Command != "move-evidence-refs-under-authorized-output-paths" {
+		t.Fatalf("repair action should be current before record-ready and acknowledged provenance: queue=%+v items=%+v", queue, items)
+	}
+	if len(items) < 2 || items[0].GateEventID != "evt-repair" || items[1].GateEventID != "evt-record" {
+		t.Fatalf("adapter actions should be sorted repair before record-ready: %+v", items)
+	}
+	for _, item := range items {
+		if item.GateEventID == "evt-acknowledged" {
+			t.Fatalf("acknowledged recorded adapter action should not re-enter queue: %+v", items)
+		}
+	}
+}
+
 func TestReadHandoffFactsUsesMissionLedgerSnapshot(t *testing.T) {
 	caseRoot := t.TempDir()
 	factsRoot := filepath.Join(caseRoot, ".rekit", "facts")
