@@ -674,11 +674,14 @@ func TestRunStatusJsonKit(t *testing.T) {
 	if !strings.HasSuffix(filepath.ToSlash(status.Manifest.ManifestPath), "packs/_template/manifest.yml") || status.Manifest.SchemaVersion != "1" || status.Manifest.ManagedFiles != 4 || status.Manifest.PromoteFiles != 4 || status.Manifest.ToolingFiles != 2 {
 		t.Fatalf("unexpected manifest summary: %+v", status.Manifest)
 	}
-	if !status.ProjectHandoff.Ready || status.ProjectHandoff.Summary != "release handoff summary ok" || !strings.HasPrefix(status.ProjectHandoff.LatestBatch, "Batch ") || !strings.Contains(status.ProjectHandoff.LatestBatchStatus, "已完成") || status.ProjectHandoff.LatestBatchGoal == "" || status.ProjectHandoff.LatestValidation == "" {
+	if !status.ProjectHandoff.Ready || status.ProjectHandoff.Summary != "release handoff summary ok" || !strings.HasPrefix(status.ProjectHandoff.LatestBatch, "Batch ") || strings.TrimSpace(status.ProjectHandoff.LatestBatchStatus) == "" || status.ProjectHandoff.LatestBatchGoal == "" || status.ProjectHandoff.LatestValidation == "" {
 		t.Fatalf("unexpected project handoff summary: %+v", status.ProjectHandoff)
 	}
-	if strings.TrimSpace(status.ProjectHandoff.LatestRemoteReleaseGate) == "" || status.ProjectHandoff.LatestRemoteReleaseGateDetail == nil || strings.TrimSpace(status.ProjectHandoff.LatestRemoteReleaseGateDetail.State) == "" || strings.TrimSpace(status.ProjectHandoff.LatestNextAction) == "" {
-		t.Fatalf("project handoff omitted latest batch validation handoff: %+v", status.ProjectHandoff)
+	if strings.TrimSpace(status.ProjectHandoff.LatestNextAction) == "" {
+		t.Fatalf("project handoff omitted latest batch next action: %+v", status.ProjectHandoff)
+	}
+	if strings.TrimSpace(status.ProjectHandoff.LatestRemoteReleaseGate) != "" && (status.ProjectHandoff.LatestRemoteReleaseGateDetail == nil || strings.TrimSpace(status.ProjectHandoff.LatestRemoteReleaseGateDetail.State) == "") {
+		t.Fatalf("project handoff omitted latest batch remote gate detail: %+v", status.ProjectHandoff)
 	}
 	projectCurrent := status.ProjectHandoff.MissionCommanderActionQueue.CurrentAction
 	if projectCurrent != nil && status.ProjectHandoff.ReleaseInspectionCadence.State == "complete" && strings.Contains(projectCurrent.Command, "run the full local release minimum") {
@@ -733,30 +736,18 @@ func TestRunStatusJsonKit(t *testing.T) {
 		t.Fatalf("project handoff should expose known gaps and next actions: %+v", status.ProjectHandoff)
 	}
 
-	out.Reset()
-	if err := Run([]string{"-Command", "status", "-Pack", "_template", "-Format", "text"}, &out); err != nil {
-		t.Fatal(err)
-	}
-	for _, expected := range []string{
+	formatStatusTextExpected := []string{
 		"status：mutation=false mode=kit targetProvided=false pack=_template packSource=explicit",
 		"status manifest：path=",
 		"schema=1 managed=4 promote=4 tooling=2",
 		"status case shim：summary=case shim readiness ok ready=true",
 		"matchesTemplate=unknown",
 		"warnings=0",
+	}
+	commonStatusTextExpected := []string{
 		"status Mission Commander first screen：focus=project-current-action",
 		"status Mission Commander first screen routing：focus=project-current-action reason=case, reviewer, and pack-memory focus queues are empty or lower priority",
-		"status Mission Commander current action：scope=focus-project lane= label=Batch ",
-		"source=releaseHandoffLatestBatch blocked=false requiresReview=",
-		"status Mission Commander focus action reason：scope=project reason=latest batch next action is recorded in the release handoff",
-		"status Mission Commander focus action boundary：scope=project boundary=normal batches stop after implementation commit/push plus one release inspection commit/push",
 		"status project handoff current action queue：total=1 unblocked=1 blocked=0",
-		"status project handoff current action queue action：bucket=current lane= label=Batch ",
-		"status project handoff current action queue action reason：bucket=current lane= reason=latest batch next action is recorded in the release handoff",
-		"status project handoff current action queue action boundary：bucket=current lane= boundary=normal batches stop after implementation commit/push plus one release inspection commit/push",
-		"status Mission Commander focus project runbook：batch=Batch ",
-		"text=read docs/context-routing.md first, then only the current batch section in docs/batch-plan.md",
-		"text=before handoff or release claims, rerun the listed local validation commands",
 		"status project handoff：summary=release handoff summary ok ready=true latestBatch=Batch ",
 		"latestStatus=",
 		"localValidationReady=",
@@ -768,10 +759,6 @@ func TestRunStatusJsonKit(t *testing.T) {
 		"status latest batch release inspection cadence boundary：do not add a third record commit",
 		"status latest batch next action：",
 		"status latest batch release inspection cadence boundary：normal batches stop after implementation commit/push plus one release inspection commit/push",
-		"status project handoff current action queue：total=1 unblocked=1 blocked=0",
-		"status project handoff current action queue action：bucket=current lane= label=Batch ",
-		"status project handoff current action queue action reason：bucket=current lane= reason=latest batch next action is recorded in the release handoff",
-		"status project handoff current action queue action boundary：bucket=current lane= boundary=normal batches stop after implementation commit/push plus one release inspection commit/push",
 		"status pack-memory candidates：summary=pack-memory candidate inventory ok ready=true total=0 packs=0 nextAction=no pack-memory candidate cleanup is pending",
 		"status latest batch goal：",
 		"status latest batch validation：",
@@ -779,7 +766,43 @@ func TestRunStatusJsonKit(t *testing.T) {
 		"status known gap：远程 release-gate",
 		"status validation command：go test ./...",
 		"status next action：Read docs/context-routing.md first",
-	} {
+	}
+	projectActionTextExpected := []string{}
+	if status.ProjectHandoff.ReleaseInspectionCadence.State == "complete" {
+		projectActionTextExpected = []string{
+			"status Mission Commander current action：scope=focus-project lane= label=next-batch state=ready-for-next-batch-selection source=releaseHandoffNextBatch blocked=false requiresReview=false command=select the next Windows-verifiable product-path closure",
+			"status Mission Commander focus action reason：scope=project reason=latest batch release inspection cadence is complete",
+			"status Mission Commander focus action reason：scope=project reason=project is ready for the next Windows-verifiable product-path batch",
+			"status Mission Commander focus action boundary：scope=project boundary=avoid single-field, summary, text, or handoff projection micro-batches; choose an operational closure with runtime or product-path verification",
+			"status Mission Commander focus project runbook：batch=next-batch state=ready-for-next-batch-selection",
+			"text=read docs/context-routing.md first, then only docs/batch-plan.md current/next/latest sections",
+			"text=choose a Windows-verifiable product-path closure",
+			"status project handoff current action queue action：bucket=current lane= label=next-batch state=ready-for-next-batch-selection source=releaseHandoffNextBatch blocked=false requiresReview=false command=select the next Windows-verifiable product-path closure",
+			"status project handoff current action queue action reason：bucket=current lane= reason=latest batch release inspection cadence is complete",
+			"status project handoff current action queue action boundary：bucket=current lane= boundary=avoid single-field, summary, text, or handoff projection micro-batches; choose an operational closure with runtime or product-path verification",
+		}
+	} else {
+		projectActionTextExpected = []string{
+			"status Mission Commander current action：scope=focus-project lane= label=Batch ",
+			"source=releaseHandoffLatestBatch blocked=false requiresReview=",
+			"status Mission Commander focus action reason：scope=project reason=latest batch next action is recorded in the release handoff",
+			"status Mission Commander focus action boundary：scope=project boundary=normal batches stop after implementation commit/push plus one release inspection commit/push",
+			"status Mission Commander focus project runbook：batch=Batch ",
+			"text=read docs/context-routing.md first, then only the current batch section in docs/batch-plan.md",
+			"text=before handoff or release claims, rerun the listed local validation commands",
+			"status project handoff current action queue action：bucket=current lane= label=Batch ",
+			"status project handoff current action queue action reason：bucket=current lane= reason=latest batch next action is recorded in the release handoff",
+			"status project handoff current action queue action boundary：bucket=current lane= boundary=normal batches stop after implementation commit/push plus one release inspection commit/push",
+		}
+	}
+	statusTextExpected := append(append([]string{}, commonStatusTextExpected...), projectActionTextExpected...)
+	formatStatusTextExpected = append(formatStatusTextExpected, statusTextExpected...)
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Pack", "_template", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range formatStatusTextExpected {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("status kit text missing %q:\n%s", expected, out.String())
 		}
@@ -788,36 +811,8 @@ func TestRunStatusJsonKit(t *testing.T) {
 		t.Fatalf("status kit text should not emit JSON:\n%s", out.String())
 	}
 
-	defaultStatusExpected := []string{
-		"rekit go backend:",
-		"status Mission Commander first screen：focus=project-current-action",
-		"status Mission Commander first screen routing：focus=project-current-action reason=case, reviewer, and pack-memory focus queues are empty or lower priority",
-		"status Mission Commander current action：scope=focus-project lane= label=Batch ",
-		"source=releaseHandoffLatestBatch blocked=false requiresReview=",
-		"status Mission Commander focus action reason：scope=project reason=latest batch next action is recorded in the release handoff",
-		"status Mission Commander focus action boundary：scope=project boundary=normal batches stop after implementation commit/push plus one release inspection commit/push",
-		"status Mission Commander focus project runbook：batch=Batch ",
-		"text=read docs/context-routing.md first, then only the current batch section in docs/batch-plan.md",
-		"text=before handoff or release claims, rerun the listed local validation commands",
-		"status project handoff：summary=release handoff summary ok ready=true latestBatch=Batch ",
-		"localValidationReady=",
-		"status latest batch remote gate：state=",
-		"status latest batch remote gate boundary：",
-		"status latest batch release inspection cadence：state=",
-		"maxPushes=2",
-		"thirdInspectionAllowed=",
-		"status latest batch release inspection cadence boundary：do not add a third record commit",
-		"status project handoff current action queue：total=1 unblocked=1 blocked=0",
-		"status project handoff current action queue action：bucket=current lane= label=Batch ",
-		"status project handoff current action queue action reason：bucket=current lane= reason=latest batch next action is recorded in the release handoff",
-		"status project handoff current action queue action boundary：bucket=current lane= boundary=normal batches stop after implementation commit/push plus one release inspection commit/push",
-		"status latest batch next action：",
-		"status latest batch release inspection cadence boundary：normal batches stop after implementation commit/push plus one release inspection commit/push",
-		"status pack-memory candidates：summary=pack-memory candidate inventory ok ready=true total=0 packs=0 nextAction=no pack-memory candidate cleanup is pending",
-		"status read first：docs/context-routing.md",
-		"status validation command：go run ./cmd/rekit -- -Command release-check -Format json",
-		"status next action：Read docs/context-routing.md first",
-	}
+	defaultStatusExpected := append([]string{"rekit go backend:"}, statusTextExpected...)
+	defaultStatusExpected = append(defaultStatusExpected, "status validation command：go run ./cmd/rekit -- -Command release-check -Format json")
 	out.Reset()
 	if err := Run([]string{"-Command", "status", "-Pack", "_template"}, &out); err != nil {
 		t.Fatal(err)
@@ -12133,17 +12128,6 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 		t.Fatalf("unexpected authorized gate result: %+v", applied)
 	}
 
-	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/adapter-report.json", `{
-  "schemaVersion": 1,
-  "kind": "adapter-execution-report",
-  "adapterId": "nested-cli-adapter",
-  "action": "debug",
-  "status": "succeeded",
-  "gateEventId": "`+applied.EventID+`",
-  "actualBudget": {"runtimeSeconds": 20, "diskMB": 32, "requests": 1},
-  "outputRefs": ["workspace/main/debug/session-1/result.json"],
-  "summary": "Adapter report from nested output workspace"
-}`)
 	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/result.json", `{"ok":true}`)
 	workspace := filepath.Join(caseRoot, "workspace", "main", "debug", "session-1")
 	oldwd, err := os.Getwd()
@@ -12185,18 +12169,27 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 		MissionCommanderNextActions []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
 		NextSteps                   []string                         `json:"nextSteps"`
 		LiveValidation              struct {
-			AuthorizedWorkspaces        []string `json:"authorizedWorkspaces"`
-			ReportFileName              string   `json:"reportFileName"`
-			CaseRelativeReportPath      string   `json:"caseRelativeReportPath"`
-			ValidateCommand             string   `json:"validateCommand"`
-			RecordCommand               string   `json:"recordCommand"`
-			ValidateArgs                []string `json:"validateArgs"`
-			RecordArgs                  []string `json:"recordArgs"`
-			CaseRelativeValidateCommand string   `json:"caseRelativeValidateCommand"`
-			CaseRelativeRecordCommand   string   `json:"caseRelativeRecordCommand"`
-			CaseRelativeValidateArgs    []string `json:"caseRelativeValidateArgs"`
-			CaseRelativeRecordArgs      []string `json:"caseRelativeRecordArgs"`
-			AdapterCandidates           []struct {
+			AuthorizedWorkspaces             []string `json:"authorizedWorkspaces"`
+			ReportFileName                   string   `json:"reportFileName"`
+			CaseRelativeReportPath           string   `json:"caseRelativeReportPath"`
+			ValidateCommand                  string   `json:"validateCommand"`
+			RecordCommand                    string   `json:"recordCommand"`
+			ScaffoldCommand                  string   `json:"scaffoldCommand"`
+			ScaffoldApplyCommand             string   `json:"scaffoldApplyCommand"`
+			SidecarTemplateSHA256            string   `json:"sidecarTemplateSha256"`
+			ValidateArgs                     []string `json:"validateArgs"`
+			RecordArgs                       []string `json:"recordArgs"`
+			ScaffoldArgs                     []string `json:"scaffoldArgs"`
+			ScaffoldApplyArgs                []string `json:"scaffoldApplyArgs"`
+			CaseRelativeValidateCommand      string   `json:"caseRelativeValidateCommand"`
+			CaseRelativeRecordCommand        string   `json:"caseRelativeRecordCommand"`
+			CaseRelativeScaffoldCommand      string   `json:"caseRelativeScaffoldCommand"`
+			CaseRelativeScaffoldApplyCommand string   `json:"caseRelativeScaffoldApplyCommand"`
+			CaseRelativeValidateArgs         []string `json:"caseRelativeValidateArgs"`
+			CaseRelativeRecordArgs           []string `json:"caseRelativeRecordArgs"`
+			CaseRelativeScaffoldArgs         []string `json:"caseRelativeScaffoldArgs"`
+			CaseRelativeScaffoldApplyArgs    []string `json:"caseRelativeScaffoldApplyArgs"`
+			AdapterCandidates                []struct {
 				ID                  string   `json:"id"`
 				Status              string   `json:"status"`
 				GateActions         []string `json:"gateActions"`
@@ -12253,6 +12246,161 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	if strings.Join(contract.LiveValidation.AuthorizedWorkspaces, ",") != "workspace/main/debug/session-1" || contract.LiveValidation.ReportFileName != "adapter-report.json" || contract.LiveValidation.CaseRelativeReportPath != "workspace/main/debug/session-1/adapter-report.json" || strings.Join(contract.LiveValidation.ValidateArgs, " ") != "-Command gate -Pack _template -GateEventId "+applied.EventID+" -ValidateExecutionReport -ExecutionReportPath adapter-report.json -Format json" || len(contract.LiveValidation.RecordArgs) != 0 || contract.LiveValidation.ValidateCommand != "rekit "+strings.Join(contract.LiveValidation.ValidateArgs, " ") || contract.LiveValidation.RecordCommand != "" || strings.Join(contract.LiveValidation.CaseRelativeValidateArgs, " ") != "-Command gate -Pack _template -GateEventId "+applied.EventID+" -ValidateExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Format json" || len(contract.LiveValidation.CaseRelativeRecordArgs) != 0 || contract.LiveValidation.CaseRelativeValidateCommand != "rekit "+strings.Join(contract.LiveValidation.CaseRelativeValidateArgs, " ") || contract.LiveValidation.CaseRelativeRecordCommand != "" || contract.LiveValidation.SidecarTemplate.Action != "debug" || contract.LiveValidation.SidecarTemplate.GateEventID != applied.EventID || !containsSubstring(contract.LiveValidation.SidecarTemplate.EvidenceRefs, "authorized outputPaths") || !strings.Contains(contract.LiveValidation.ReplayBehavior, "hash-bound record command") || !strings.Contains(contract.LiveValidation.ReplayBehavior, "duplicate eventId") {
 		t.Fatalf("nested workspace adapter report contract omitted live-validation handoff: %+v", contract.LiveValidation)
 	}
+	wantWorkspaceScaffoldArgs := "-Command gate -Pack _template -GateEventId " + applied.EventID + " -ScaffoldExecutionReport -ExecutionReportPath adapter-report.json -Format json"
+	wantWorkspaceScaffoldApplyArgs := "-Command gate -Pack _template -GateEventId " + applied.EventID + " -ScaffoldExecutionReport -ExecutionReportPath adapter-report.json -ExpectedExecutionReportSha256 " + contract.LiveValidation.SidecarTemplateSHA256 + " -Apply -Format json"
+	wantCaseRelativeScaffoldArgs := "-Command gate -Pack _template -GateEventId " + applied.EventID + " -ScaffoldExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Format json"
+	wantCaseRelativeScaffoldApplyArgs := "-Command gate -Pack _template -GateEventId " + applied.EventID + " -ScaffoldExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -ExpectedExecutionReportSha256 " + contract.LiveValidation.SidecarTemplateSHA256 + " -Apply -Format json"
+	if contract.LiveValidation.SidecarTemplateSHA256 == "" || strings.Join(contract.LiveValidation.ScaffoldArgs, " ") != wantWorkspaceScaffoldArgs || strings.Join(contract.LiveValidation.ScaffoldApplyArgs, " ") != wantWorkspaceScaffoldApplyArgs || contract.LiveValidation.ScaffoldCommand != "rekit "+wantWorkspaceScaffoldArgs || contract.LiveValidation.ScaffoldApplyCommand != "rekit "+wantWorkspaceScaffoldApplyArgs || strings.Join(contract.LiveValidation.CaseRelativeScaffoldArgs, " ") != wantCaseRelativeScaffoldArgs || strings.Join(contract.LiveValidation.CaseRelativeScaffoldApplyArgs, " ") != wantCaseRelativeScaffoldApplyArgs || contract.LiveValidation.CaseRelativeScaffoldCommand != "rekit "+wantCaseRelativeScaffoldArgs || contract.LiveValidation.CaseRelativeScaffoldApplyCommand != "rekit "+wantCaseRelativeScaffoldApplyArgs {
+		t.Fatalf("nested workspace adapter report contract omitted scaffold handoff: %+v", contract.LiveValidation)
+	}
+
+	out.Reset()
+	if err := Run(contract.LiveValidation.ScaffoldArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var scaffoldPreview struct {
+		Kind                        string                              `json:"kind"`
+		CaseRoot                    string                              `json:"caseRoot"`
+		Pack                        string                              `json:"pack"`
+		IsMutation                  bool                                `json:"isMutation"`
+		Applied                     bool                                `json:"applied"`
+		Mode                        string                              `json:"mode"`
+		GateEventID                 string                              `json:"gateEventId"`
+		ReportPath                  string                              `json:"reportPath"`
+		ReportSHA256                string                              `json:"reportSha256"`
+		AlreadyExists               bool                                `json:"alreadyExists"`
+		RequiresConfirmation        bool                                `json:"requiresConfirmation"`
+		ValidateCommand             string                              `json:"validateCommand"`
+		ApplyCommand                string                              `json:"applyCommand"`
+		Boundary                    []string                            `json:"boundary"`
+		NextSteps                   []string                            `json:"nextSteps"`
+		RunbookSteps                []string                            `json:"runbookSteps"`
+		MissionCommanderAction      missionCommanderActionSnapshot      `json:"missionCommanderAction"`
+		MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		SidecarTemplate             struct {
+			AdapterID    string   `json:"adapterId"`
+			Action       string   `json:"action"`
+			Status       string   `json:"status"`
+			GateEventID  string   `json:"gateEventId"`
+			OutputRefs   []string `json:"outputRefs"`
+			EvidenceRefs []string `json:"evidenceRefs"`
+		} `json:"sidecarTemplate"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &scaffoldPreview); err != nil {
+		t.Fatalf("nested workspace scaffold preview stdout is not JSON: %v\n%s", err, out.String())
+	}
+	wantScaffoldApply := "/rekit gate -Pack _template -GateEventId " + applied.EventID + " -ScaffoldExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -ExpectedExecutionReportSha256 " + contract.LiveValidation.SidecarTemplateSHA256 + " -Apply -Format json"
+	wantScaffoldValidate := "/rekit gate -Pack _template -GateEventId " + applied.EventID + " -ValidateExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Format json"
+	if scaffoldPreview.Kind != "adapter-execution-report-scaffold" || scaffoldPreview.CaseRoot != caseRoot || scaffoldPreview.Pack != "_template" || scaffoldPreview.IsMutation || scaffoldPreview.Applied || scaffoldPreview.Mode != "preview" || scaffoldPreview.GateEventID != applied.EventID || scaffoldPreview.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || scaffoldPreview.ReportSHA256 != contract.LiveValidation.SidecarTemplateSHA256 || scaffoldPreview.AlreadyExists || !scaffoldPreview.RequiresConfirmation || scaffoldPreview.ValidateCommand != wantScaffoldValidate || scaffoldPreview.ApplyCommand != wantScaffoldApply || scaffoldPreview.SidecarTemplate.AdapterID != "<adapter-id>" || scaffoldPreview.SidecarTemplate.Action != "debug" || scaffoldPreview.SidecarTemplate.Status != "succeeded|failed|boundary-hit|escalated|aborted" || scaffoldPreview.SidecarTemplate.GateEventID != applied.EventID || !containsSubstring(scaffoldPreview.SidecarTemplate.OutputRefs, "authorized outputPaths") || !containsSubstring(scaffoldPreview.SidecarTemplate.EvidenceRefs, "authorized outputPaths") {
+		t.Fatalf("unexpected nested workspace scaffold preview: %+v", scaffoldPreview)
+	}
+	if scaffoldPreview.MissionCommanderAction.State != "ready-for-adapter-report-scaffold-apply" || scaffoldPreview.MissionCommanderAction.PrimaryCommand != wantScaffoldApply || !containsSubstring(scaffoldPreview.MissionCommanderAction.FollowUpCommands, wantScaffoldValidate) || len(scaffoldPreview.MissionCommanderNextActions) != 3 || scaffoldPreview.MissionCommanderActionQueue.CurrentAction == nil || scaffoldPreview.MissionCommanderActionQueue.CurrentAction.Command != wantScaffoldApply || !containsSubstring(scaffoldPreview.NextSteps, wantScaffoldApply) || !containsSubstring(scaffoldPreview.Boundary, "does not execute the adapter") || !containsSubstring(scaffoldPreview.RunbookSteps, "confirm adapter report scaffold state=ready-for-adapter-report-scaffold-apply") {
+		t.Fatalf("nested workspace scaffold preview omitted commander handoff: action=%+v next=%+v queue=%+v", scaffoldPreview.MissionCommanderAction, scaffoldPreview.MissionCommanderNextActions, scaffoldPreview.MissionCommanderActionQueue)
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "adapter-report.json")); !os.IsNotExist(err) {
+		t.Fatalf("scaffold preview should not write adapter report, stat err=%v", err)
+	}
+	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	out.Reset()
+	if err := Run(contract.LiveValidation.ScaffoldApplyArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var scaffoldApply struct {
+		Kind                        string                              `json:"kind"`
+		CaseRoot                    string                              `json:"caseRoot"`
+		Pack                        string                              `json:"pack"`
+		IsMutation                  bool                                `json:"isMutation"`
+		Applied                     bool                                `json:"applied"`
+		Mode                        string                              `json:"mode"`
+		GateEventID                 string                              `json:"gateEventId"`
+		ReportPath                  string                              `json:"reportPath"`
+		ReportSHA256                string                              `json:"reportSha256"`
+		AlreadyExists               bool                                `json:"alreadyExists"`
+		RequiresConfirmation        bool                                `json:"requiresConfirmation"`
+		ValidateCommand             string                              `json:"validateCommand"`
+		MissionCommanderAction      missionCommanderActionSnapshot      `json:"missionCommanderAction"`
+		MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &scaffoldApply); err != nil {
+		t.Fatalf("nested workspace scaffold apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if scaffoldApply.Kind != "adapter-execution-report-scaffold" || scaffoldApply.CaseRoot != caseRoot || scaffoldApply.Pack != "_template" || !scaffoldApply.IsMutation || !scaffoldApply.Applied || scaffoldApply.Mode != "scaffolded" || scaffoldApply.GateEventID != applied.EventID || scaffoldApply.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || scaffoldApply.ReportSHA256 != scaffoldPreview.ReportSHA256 || scaffoldApply.AlreadyExists || scaffoldApply.RequiresConfirmation || scaffoldApply.ValidateCommand != wantScaffoldValidate {
+		t.Fatalf("unexpected nested workspace scaffold apply: %+v", scaffoldApply)
+	}
+	if scaffoldApply.MissionCommanderAction.State != "adapter-report-scaffolded-awaiting-adapter-output" || scaffoldApply.MissionCommanderAction.PrimaryCommand != wantScaffoldValidate || len(scaffoldApply.MissionCommanderAction.FollowUpCommands) != 0 || len(scaffoldApply.MissionCommanderNextActions) != 2 || scaffoldApply.MissionCommanderActionQueue.CurrentAction == nil || scaffoldApply.MissionCommanderActionQueue.CurrentAction.Command != wantScaffoldValidate || !cliNextActionBoundaryContains(scaffoldApply.MissionCommanderNextActions, "validation remains read-only") {
+		t.Fatalf("nested workspace scaffold apply omitted validation handoff: action=%+v next=%+v queue=%+v", scaffoldApply.MissionCommanderAction, scaffoldApply.MissionCommanderNextActions, scaffoldApply.MissionCommanderActionQueue)
+	}
+	scaffoldBytes, err := os.ReadFile(filepath.Join(workspace, "adapter-report.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	scaffoldSum := sha256.Sum256(scaffoldBytes)
+	var scaffoldSidecar struct {
+		AdapterID string `json:"adapterId"`
+		Status    string `json:"status"`
+	}
+	if err := json.Unmarshal(scaffoldBytes, &scaffoldSidecar); err != nil {
+		t.Fatalf("scaffolded adapter report is not JSON: %v\n%s", err, string(scaffoldBytes))
+	}
+	if hex.EncodeToString(scaffoldSum[:]) != scaffoldPreview.ReportSHA256 || scaffoldSidecar.AdapterID != "<adapter-id>" || scaffoldSidecar.Status != "succeeded|failed|boundary-hit|escalated|aborted" {
+		t.Fatalf("scaffolded adapter report bytes do not match preview hash/content: sha=%x sidecar=%+v\n%s", scaffoldSum, scaffoldSidecar, string(scaffoldBytes))
+	}
+	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	out.Reset()
+	if err := Run(contract.LiveValidation.ValidateArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var scaffoldValidation struct {
+		Kind                       string `json:"kind"`
+		Valid                      bool   `json:"valid"`
+		IsMutation                 bool   `json:"isMutation"`
+		Applied                    bool   `json:"applied"`
+		ReportPath                 string `json:"reportPath"`
+		ReportSHA256               string `json:"reportSha256"`
+		RecordExpectedReportSHA256 string `json:"recordExpectedReportSha256"`
+		FailureCode                string `json:"failureCode"`
+		FailureStage               string `json:"failureStage"`
+		Error                      string `json:"error"`
+		RepairHints                []struct {
+			RepairAction    string   `json:"repairAction"`
+			AllowedValues   []string `json:"allowedValues"`
+			RecordBlocked   bool     `json:"recordBlocked"`
+			RerunValidation bool     `json:"rerunValidation"`
+		} `json:"repairHints"`
+		ReportSummary               adapterReportHandoffSummarySnapshot `json:"reportSummary"`
+		MissionCommanderAction      missionCommanderActionSnapshot      `json:"missionCommanderAction"`
+		MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &scaffoldValidation); err != nil {
+		t.Fatalf("nested workspace scaffold validation stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if scaffoldValidation.Kind != "adapter-execution-report-validation" || scaffoldValidation.Valid || scaffoldValidation.IsMutation || scaffoldValidation.Applied || scaffoldValidation.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || scaffoldValidation.ReportSHA256 != scaffoldPreview.ReportSHA256 || scaffoldValidation.RecordExpectedReportSHA256 != "" || scaffoldValidation.FailureCode != "status" || scaffoldValidation.FailureStage != "schema" || !strings.Contains(scaffoldValidation.Error, "status has unsupported value") {
+		t.Fatalf("unexpected placeholder scaffold validation: %+v", scaffoldValidation)
+	}
+	if len(scaffoldValidation.RepairHints) != 1 || scaffoldValidation.RepairHints[0].RepairAction != "set-valid-status" || strings.Join(scaffoldValidation.RepairHints[0].AllowedValues, ",") != "succeeded,failed,boundary-hit,escalated,aborted" || !scaffoldValidation.RepairHints[0].RecordBlocked || !scaffoldValidation.RepairHints[0].RerunValidation {
+		t.Fatalf("placeholder scaffold validation omitted repair hint: %+v", scaffoldValidation.RepairHints)
+	}
+	if scaffoldValidation.ReportSummary.State != "repair-adapter-report" || scaffoldValidation.ReportSummary.Valid || scaffoldValidation.ReportSummary.RecordReady || !scaffoldValidation.ReportSummary.RecordBlocked || !scaffoldValidation.ReportSummary.RequiresRepair || scaffoldValidation.ReportSummary.ValidationFailureCode != "status" || scaffoldValidation.MissionCommanderAction.State != "repair-adapter-report" || scaffoldValidation.MissionCommanderAction.PrimaryCommand != wantScaffoldValidate || cliNextActionContainsCommand(scaffoldValidation.MissionCommanderNextActions, "-Apply") || scaffoldValidation.MissionCommanderActionQueue.CurrentAction == nil || strings.Contains(scaffoldValidation.MissionCommanderActionQueue.CurrentAction.Command, "-Apply") {
+		t.Fatalf("placeholder scaffold validation should remain repair-only/read-only: summary=%+v action=%+v next=%+v queue=%+v", scaffoldValidation.ReportSummary, scaffoldValidation.MissionCommanderAction, scaffoldValidation.MissionCommanderNextActions, scaffoldValidation.MissionCommanderActionQueue)
+	}
+	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/adapter-report.json", `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "nested-cli-adapter",
+  "action": "debug",
+  "status": "succeeded",
+  "gateEventId": "`+applied.EventID+`",
+  "actualBudget": {"runtimeSeconds": 20, "diskMB": 32, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/result.json"],
+  "summary": "Adapter report from nested output workspace"
+}`)
 
 	out.Reset()
 	if err := Run([]string{"-Command", "gate", "-ValidateExecutionReport", "-GateEventId", applied.EventID, "-ExecutionReportPath", "adapter-report.json", "-Format", "json"}, &out); err != nil {

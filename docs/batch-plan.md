@@ -16,6 +16,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 653：authorized execution adapter report scaffold product-path closure
+
+状态：已完成 adapter scaffold product-path 工作树实现、focused adapter scaffold/status regressions、完整 CLI package regression 与完整本机 `release-run` release minimum；implementation commit/push 与 push-triggered remote release-gate inspection 待执行。
+
+目标：继续执行端到端能力闭环约束，转向 authorized execution adapter live validation 的 replacement executor 接手断点。现有 no-pack nested output workspace E2E 已证明 adapter report validate/status/hash-bound record/replay/handoff，但一开始仍由测试手写完整 `adapter-report.json`；这没有证明 lane executor 能从 `liveValidation` handoff 先生成 bounded scaffold，再让外部 adapter 填充字段、read-only validate、hash-bound record。新会话需要能从授权 output workspace 直接运行 scaffold preview/apply，而不是手拼 sidecar 起点。
+
+已实现内容：扩展 `TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace`，去掉最早的手写 report 起点。测试现在从 nested authorized output workspace 读取 `gate -ExecutionReportContract`，断言 `liveValidation` 暴露 workspace-relative 与 case-relative 的 `ScaffoldCommand` / `ScaffoldApplyCommand`、`SidecarTemplateSHA256`、`ScaffoldArgs` / `ScaffoldApplyArgs` 以及对应 case-relative args；随后运行 scaffold preview，确认 read-only、no-write、Mission Commander current action 指向 hash-bound scaffold Apply；再运行 `ScaffoldApplyArgs`，确认只在授权 output path 写入 `adapter-report.json` scaffold，bytes 与 preview SHA-256 绑定，Mission Commander 下一步转为 read-only validation。placeholder scaffold 立即经过 `ValidateArgs` read-only validation，必须 fail-closed 为 `failureCode=status` / `repairAction=set-valid-status`，record hash 为空且 next actions 不含 `-Apply` record；之后测试模拟外部 adapter 填充 scaffold，再接续既有 valid=true validation、status hash-bound record handoff、drift fail-closed、case-local cwd record、duplicate replay、status/overview/handoff evidence review，以及 no authority/confirmed 断言。顺带把 `TestRunStatusJsonKit` 的 live-doc text 期望改为同时支持 active latest-batch 与 completed-cadence `next-batch` 两种真实 docs 状态，避免后续先写 active batch state 时破坏状态测试。
+
+边界：本批不新增 public command，不改变 gate/adapter report runtime 语义或 durable schema，不自动执行 adapter/heavy tool，不自动 record，不写 authority/confirmed，不新增 PowerShell runtime logic；唯一写入来自测试临时 case 内显式 hash-bound `-ScaffoldExecutionReport -Apply` 与后续 bounded observation evidence record，placeholder scaffold validation 保持 read-only/fail-closed。
+
+验证结果：focused scaffold/status regression `go test ./internal/rekit/cli -run "TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace|TestRunStatusJsonKit" -count=1` 已通过；完整 CLI package regression `go test ./internal/rekit/cli -count=1` 已通过；完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，返回 `ready=true` / `summary=release run ok`，聚合 `passed=7 failed=0 skipped=0`，其中包含 `go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；本次 `go test ./... attempts=1`，未触发 retry；`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。
+
 ### Batch 652：next-batch selection handoff closure
 
 状态：已完成 release handoff / status project current-action runtime、CLI/releasecheck regression、真实 `status` smoke、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `afe62f6` 已推送。Push run `30233024548` completed failure，Windows/Linux/macOS jobs `89875320968`/`89875320970`/`89875321042` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。
