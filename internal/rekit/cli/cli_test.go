@@ -8036,6 +8036,9 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	if !ok || firstDispatch.PacketPath != plan.PacketPath || firstDispatch.ReviewerResultPresent || firstDispatch.State != "waiting-for-reviewer-result" || firstDispatch.ReviewerResultSourcePath != packet.ShardHandoffs[0].ReviewerStagingCommands.SourcePath || firstDispatch.ReviewerResultSourceState != "missing" || firstDispatch.ReviewerResultCandidatePath != packet.ShardHandoffs[0].ReviewerResultCandidatePath || firstDispatch.ReviewerResultCandidateState != "missing" || firstDispatch.DispatchPromptState != "ready" || !firstDispatch.DispatchPromptCurrent || firstDispatch.DispatchPromptPath == "" || firstDispatch.DispatchPromptSHA256 == "" || firstDispatch.DispatchPromptActualSHA256 != firstDispatch.DispatchPromptSHA256 || !strings.Contains(firstDispatch.ReviewerResultStagingCommand, "-StageReviewerResult") || !strings.Contains(firstDispatch.DispatchCommand, "dispatch read-only reviewer for shard-01") || !strings.Contains(firstDispatch.PreviewCommand, "-WhatIf -Format json") || !containsSubstring(firstDispatch.Boundary, "does not spawn") {
 		t.Fatalf("status JSON omitted waiting reviewer dispatch intake handoff: %+v", statusBeforeDispatch.CaseMission.ReviewerDispatchIntakeHandoffs)
 	}
+	if firstDispatch.ManagedDispatch == nil || firstDispatch.ManagedDispatch.ShardID != "shard-01" || firstDispatch.ManagedDispatch.PromptPath != firstDispatch.DispatchPromptPath || firstDispatch.ManagedDispatch.PromptSHA256 != firstDispatch.DispatchPromptSHA256 || firstDispatch.ManagedDispatch.ReviewerResultInputPath != packet.ShardHandoffs[0].ReviewerStagingCommands.SourceCaptureInput || firstDispatch.ManagedDispatch.ReviewerResultSourcePath != packet.ShardHandoffs[0].ReviewerStagingCommands.SourcePath || firstDispatch.ManagedDispatch.ReviewerResultCandidatePath != packet.ShardHandoffs[0].ReviewerResultCandidatePath || firstDispatch.ManagedDispatch.CollectionPreviewCommand == "" || !containsSubstring(firstDispatch.ManagedDispatch.Boundary, "does not spawn") || !containsSubstring(firstDispatch.Evidence, "managedDispatch packet") || !containsSubstring(firstDispatch.RunbookSteps, "managed dispatch packet is available") || !containsSubstring(firstDispatch.Boundary, "managed dispatch packet is read-only recovery context") {
+		t.Fatalf("status JSON omitted managed dispatch takeover handoff: %+v", firstDispatch)
+	}
 	promptBytes, err := os.ReadFile(firstDispatch.DispatchPromptPath)
 	if err != nil {
 		t.Fatal(err)
@@ -8131,7 +8134,7 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"status case mission reviewer dispatch intake summary：total=2 waitingForReviewerResult=2 readyForPreview=0", "nextActionShard=shard-01 nextActionState=waiting-for-reviewer-result", "status case mission reviewer dispatch next action：shard=shard-01 state=waiting-for-reviewer-result sourceState=missing", "stagingPreview=`/rekit plan-subagents", "-StageReviewerResult", "status case mission reviewer dispatch intake：lane=feature-login shard=shard-01 state=waiting-for-reviewer-result", "status case mission reviewer dispatch intake dispatch：shard=shard-01 command=`dispatch read-only reviewer for shard-01"} {
+	for _, expected := range []string{"status case mission reviewer dispatch intake summary：total=2 waitingForReviewerResult=2 readyForPreview=0", "nextActionShard=shard-01 nextActionState=waiting-for-reviewer-result", "status case mission reviewer dispatch next action：shard=shard-01 state=waiting-for-reviewer-result sourceState=missing", "stagingPreview=`/rekit plan-subagents", "-StageReviewerResult", "status case mission reviewer dispatch intake：lane=feature-login shard=shard-01 state=waiting-for-reviewer-result", "status case mission reviewer managed dispatch：shard=shard-01 mode=manual-main-agent-intake", "status case mission reviewer dispatch intake dispatch：shard=shard-01 command=`dispatch read-only reviewer for shard-01"} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("status text omitted reviewer dispatch intake handoff %q:\n%s", expected, out.String())
 		}
@@ -8141,7 +8144,7 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "login", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "handoff reviewer dispatch intake summary：total=2 waitingForReviewerResult=2 readyForPreview=0") || !strings.Contains(out.String(), "handoff reviewer dispatch intake：lane=feature-login shard=shard-01 state=waiting-for-reviewer-result") {
+	if !strings.Contains(out.String(), "handoff reviewer dispatch intake summary：total=2 waitingForReviewerResult=2 readyForPreview=0") || !strings.Contains(out.String(), "handoff reviewer dispatch intake：lane=feature-login shard=shard-01 state=waiting-for-reviewer-result") || !strings.Contains(out.String(), "handoff reviewer managed dispatch：shard=shard-01 mode=manual-main-agent-intake") {
 		t.Fatalf("handoff text omitted reviewer dispatch intake handoff:\n%s", out.String())
 	}
 
@@ -8155,7 +8158,7 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	}
 	assertReviewerDispatchIntakeSummary(t, "handoff apply after prompt repair", repairedHandoff.ReviewerDispatchIntakeSummary, 2, 2, 0, "shard-02", "waiting-for-reviewer-result")
 	repairedHandoffDispatch, ok := reviewerDispatchIntakeByShard(repairedHandoff.ReviewerDispatchIntakeHandoffs, "shard-01")
-	if !ok || repairedHandoffDispatch.State != "waiting-for-reviewer-result" || repairedHandoffDispatch.DispatchPromptState != "ready" || !repairedHandoffDispatch.DispatchPromptCurrent || repairedHandoffDispatch.DispatchPromptSHA256 != firstDispatch.DispatchPromptSHA256 {
+	if !ok || repairedHandoffDispatch.State != "waiting-for-reviewer-result" || repairedHandoffDispatch.DispatchPromptState != "ready" || !repairedHandoffDispatch.DispatchPromptCurrent || repairedHandoffDispatch.DispatchPromptSHA256 != firstDispatch.DispatchPromptSHA256 || repairedHandoffDispatch.ManagedDispatch == nil || repairedHandoffDispatch.ManagedDispatch.ReviewerResultInputPath != firstDispatch.ManagedDispatch.ReviewerResultInputPath {
 		t.Fatalf("handoff apply after prompt repair did not preserve ready reviewer dispatch handoff: %+v", repairedHandoff.ReviewerDispatchIntakeHandoffs)
 	}
 	repairedLatest := assertStartWrite(t, repairedHandoff.Writes, ".rekit/handovers/feature-login-latest.md", "write-latest-lane-handoff")
@@ -8163,7 +8166,7 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"## Reviewer dispatch intake handoff", "summary: total=2 waitingForReviewerResult=2 readyForPreview=0", "dispatch intake: lane=feature-login shard=shard-01 state=waiting-for-reviewer-result", "sha256=" + firstDispatch.DispatchPromptSHA256 + " state=ready current=true", "dispatch read-only reviewer for shard-01", "runtime does not spawn, stop, monitor, or manage reviewer sessions"} {
+	for _, expected := range []string{"## Reviewer dispatch intake handoff", "summary: total=2 waitingForReviewerResult=2 readyForPreview=0", "dispatch intake: lane=feature-login shard=shard-01 state=waiting-for-reviewer-result", "sha256=" + firstDispatch.DispatchPromptSHA256 + " state=ready current=true", "managed dispatch: mode=manual-main-agent-intake shard=shard-01", "dispatch read-only reviewer for shard-01", "runtime does not spawn, stop, monitor, or manage reviewer sessions"} {
 		if !strings.Contains(string(repairedHandoffText), expected) {
 			t.Fatalf("repaired reviewer lane handoff missing %q:\n%s", expected, string(repairedHandoffText))
 		}
@@ -8178,7 +8181,7 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "login", "-Executor", "session-login", "-ExpectedExecutorGeneration", "1", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "continue reviewer dispatch intake summary：total=2 waitingForReviewerResult=2 readyForPreview=0") || !strings.Contains(out.String(), "continue reviewer dispatch intake：lane=feature-login shard=shard-01 state=waiting-for-reviewer-result") {
+	if !strings.Contains(out.String(), "continue reviewer dispatch intake summary：total=2 waitingForReviewerResult=2 readyForPreview=0") || !strings.Contains(out.String(), "continue reviewer dispatch intake：lane=feature-login shard=shard-01 state=waiting-for-reviewer-result") || !strings.Contains(out.String(), "continue reviewer managed dispatch：shard=shard-01 mode=manual-main-agent-intake") {
 		t.Fatalf("continue text omitted reviewer dispatch intake handoff:\n%s", out.String())
 	}
 
@@ -16836,35 +16839,36 @@ type reviewerDispatchIntakeCLIItem struct {
 		PreviewCommand string `json:"previewCommand"`
 		ApplyCommand   string `json:"applyCommand"`
 	} `json:"reviewerResultCollectionCommands"`
-	ReviewerResultRecoveryCommand            string   `json:"reviewerResultRecoveryCommand"`
-	ReviewerResultRecoveryApplyCommand       string   `json:"reviewerResultRecoveryApplyCommand"`
-	ReviewerResultRecoveryDispositionCommand string   `json:"reviewerResultRecoveryDispositionCommand"`
-	ReviewerResultRecoveryDispositionPath    string   `json:"reviewerResultRecoveryDispositionPath"`
-	IntakeAvailable                          bool     `json:"intakeAvailable"`
-	DispatchOnly                             bool     `json:"dispatchOnly"`
-	VerificationRecorded                     bool     `json:"verificationRecorded"`
-	DecisionRecorded                         bool     `json:"decisionRecorded"`
-	DispatchCommand                          string   `json:"dispatchCommand"`
-	PreviewCommand                           string   `json:"previewCommand"`
-	ApplyCommand                             string   `json:"applyCommand"`
-	BatchPreviewCommand                      string   `json:"batchPreviewCommand"`
-	BatchApplyCommand                        string   `json:"batchApplyCommand"`
-	OwnerExecutor                            string   `json:"ownerExecutor"`
-	OwnerGeneration                          int      `json:"ownerGeneration"`
-	OwnerBindingMode                         string   `json:"ownerBindingMode"`
-	CurrentExecutor                          string   `json:"currentExecutor"`
-	CurrentGeneration                        int      `json:"currentGeneration"`
-	OwnerAdoptionRequired                    bool     `json:"ownerAdoptionRequired"`
-	OwnerAdoptionCurrent                     bool     `json:"ownerAdoptionCurrent"`
-	OwnerAdoptionPath                        string   `json:"ownerAdoptionPath"`
-	OwnerAdoptionActor                       string   `json:"ownerAdoptionActor"`
-	OwnerAdoptionReason                      string   `json:"ownerAdoptionReason"`
-	OwnerAdoptionCreatedAt                   string   `json:"ownerAdoptionCreatedAt"`
-	OwnerAdoptionPreviewCommand              string   `json:"ownerAdoptionPreviewCommand"`
-	PacketRetirementPreviewCommand           string   `json:"packetRetirementPreviewCommand"`
-	RunbookSteps                             []string `json:"runbookSteps"`
-	Evidence                                 []string `json:"evidence"`
-	Boundary                                 []string `json:"boundary"`
+	ReviewerResultRecoveryCommand            string                        `json:"reviewerResultRecoveryCommand"`
+	ReviewerResultRecoveryApplyCommand       string                        `json:"reviewerResultRecoveryApplyCommand"`
+	ReviewerResultRecoveryDispositionCommand string                        `json:"reviewerResultRecoveryDispositionCommand"`
+	ReviewerResultRecoveryDispositionPath    string                        `json:"reviewerResultRecoveryDispositionPath"`
+	IntakeAvailable                          bool                          `json:"intakeAvailable"`
+	DispatchOnly                             bool                          `json:"dispatchOnly"`
+	VerificationRecorded                     bool                          `json:"verificationRecorded"`
+	DecisionRecorded                         bool                          `json:"decisionRecorded"`
+	DispatchCommand                          string                        `json:"dispatchCommand"`
+	PreviewCommand                           string                        `json:"previewCommand"`
+	ApplyCommand                             string                        `json:"applyCommand"`
+	BatchPreviewCommand                      string                        `json:"batchPreviewCommand"`
+	BatchApplyCommand                        string                        `json:"batchApplyCommand"`
+	OwnerExecutor                            string                        `json:"ownerExecutor"`
+	OwnerGeneration                          int                           `json:"ownerGeneration"`
+	OwnerBindingMode                         string                        `json:"ownerBindingMode"`
+	CurrentExecutor                          string                        `json:"currentExecutor"`
+	CurrentGeneration                        int                           `json:"currentGeneration"`
+	OwnerAdoptionRequired                    bool                          `json:"ownerAdoptionRequired"`
+	OwnerAdoptionCurrent                     bool                          `json:"ownerAdoptionCurrent"`
+	OwnerAdoptionPath                        string                        `json:"ownerAdoptionPath"`
+	OwnerAdoptionActor                       string                        `json:"ownerAdoptionActor"`
+	OwnerAdoptionReason                      string                        `json:"ownerAdoptionReason"`
+	OwnerAdoptionCreatedAt                   string                        `json:"ownerAdoptionCreatedAt"`
+	OwnerAdoptionPreviewCommand              string                        `json:"ownerAdoptionPreviewCommand"`
+	PacketRetirementPreviewCommand           string                        `json:"packetRetirementPreviewCommand"`
+	ManagedDispatch                          *planSubagentsManagedDispatch `json:"managedDispatch"`
+	RunbookSteps                             []string                      `json:"runbookSteps"`
+	Evidence                                 []string                      `json:"evidence"`
+	Boundary                                 []string                      `json:"boundary"`
 }
 
 type reviewerPacketRetirementCLIItem struct {
@@ -17458,18 +17462,18 @@ type planSubagentsPacket struct {
 }
 
 type planSubagentsOrchestration struct {
-	Mode                string                            `json:"mode"`
-	Scope               string                            `json:"scope"`
-	TargetLane          string                            `json:"targetLane"`
-	PacketPath          string                            `json:"packetPath"`
-	ResultRoot          string                            `json:"resultRoot"`
-	BatchPreviewCommand string                            `json:"batchPreviewCommand"`
-	BatchApplyCommand    string                              `json:"batchApplyCommand"`
+	Mode                  string                              `json:"mode"`
+	Scope                 string                              `json:"scope"`
+	TargetLane            string                              `json:"targetLane"`
+	PacketPath            string                              `json:"packetPath"`
+	ResultRoot            string                              `json:"resultRoot"`
+	BatchPreviewCommand   string                              `json:"batchPreviewCommand"`
+	BatchApplyCommand     string                              `json:"batchApplyCommand"`
 	ManagedDispatchPacket *planSubagentsManagedDispatchPacket `json:"managedDispatchPacket"`
-	ReviewerCount        int                                 `json:"reviewerCount"`
-	MaxParallel         int                               `json:"maxParallel"`
-	Summary             planSubagentsOrchestrationSummary `json:"summary"`
-	Dispatches          []struct {
+	ReviewerCount         int                                 `json:"reviewerCount"`
+	MaxParallel           int                                 `json:"maxParallel"`
+	Summary               planSubagentsOrchestrationSummary   `json:"summary"`
+	Dispatches            []struct {
 		ShardID            string   `json:"shardId"`
 		ReviewerRole       string   `json:"reviewerRole"`
 		Status             string   `json:"status"`
@@ -17496,31 +17500,31 @@ type planSubagentsOrchestration struct {
 }
 
 type planSubagentsOrchestrationSummary struct {
-	Mode                 string                           `json:"mode"`
-	TargetLane           string                           `json:"targetLane"`
-	ReviewerCount        int                              `json:"reviewerCount"`
-	MaxParallel          int                              `json:"maxParallel"`
-	PacketPath           string                           `json:"packetPath"`
-	ResultRoot           string                           `json:"resultRoot"`
-	BatchPreviewCommand  string                           `json:"batchPreviewCommand"`
-	BatchApplyCommand    string                           `json:"batchApplyCommand"`
-	OwnerBinding           planSubagentsOwnerBinding          `json:"ownerBinding"`
+	Mode                   string                               `json:"mode"`
+	TargetLane             string                               `json:"targetLane"`
+	ReviewerCount          int                                  `json:"reviewerCount"`
+	MaxParallel            int                                  `json:"maxParallel"`
+	PacketPath             string                               `json:"packetPath"`
+	ResultRoot             string                               `json:"resultRoot"`
+	BatchPreviewCommand    string                               `json:"batchPreviewCommand"`
+	BatchApplyCommand      string                               `json:"batchApplyCommand"`
+	OwnerBinding           planSubagentsOwnerBinding            `json:"ownerBinding"`
 	ManagedDispatchSummary *planSubagentsManagedDispatchSummary `json:"managedDispatchSummary"`
-	DispatchCount          int                                `json:"dispatchCount"`
-	IntakeAvailable      bool                             `json:"intakeAvailable"`
-	CollectionAvailable  bool                             `json:"collectionAvailable"`
-	DispatchOnly         bool                             `json:"dispatchOnly"`
-	ActionTotal          int                              `json:"actionTotal"`
-	ActionUnblocked      int                              `json:"actionUnblocked"`
-	ActionBlocked        int                              `json:"actionBlocked"`
-	ActionRequiresReview int                              `json:"actionRequiresReview"`
-	ActionFollowUp       int                              `json:"actionFollowUp"`
-	QueueSummary         string                           `json:"queueSummary"`
-	FirstDispatch        *planSubagentsDispatchSummary    `json:"firstDispatch"`
-	Dispatches           []planSubagentsDispatchSummary   `json:"dispatches"`
-	CurrentAction        *missionCommanderNextActionItem  `json:"currentAction"`
-	NextActions          []missionCommanderNextActionItem `json:"nextActions"`
-	Boundary             []string                         `json:"boundary"`
+	DispatchCount          int                                  `json:"dispatchCount"`
+	IntakeAvailable        bool                                 `json:"intakeAvailable"`
+	CollectionAvailable    bool                                 `json:"collectionAvailable"`
+	DispatchOnly           bool                                 `json:"dispatchOnly"`
+	ActionTotal            int                                  `json:"actionTotal"`
+	ActionUnblocked        int                                  `json:"actionUnblocked"`
+	ActionBlocked          int                                  `json:"actionBlocked"`
+	ActionRequiresReview   int                                  `json:"actionRequiresReview"`
+	ActionFollowUp         int                                  `json:"actionFollowUp"`
+	QueueSummary           string                               `json:"queueSummary"`
+	FirstDispatch          *planSubagentsDispatchSummary        `json:"firstDispatch"`
+	Dispatches             []planSubagentsDispatchSummary       `json:"dispatches"`
+	CurrentAction          *missionCommanderNextActionItem      `json:"currentAction"`
+	NextActions            []missionCommanderNextActionItem     `json:"nextActions"`
+	Boundary               []string                             `json:"boundary"`
 }
 
 type planSubagentsDispatchSummary struct {
@@ -17548,35 +17552,35 @@ type planSubagentsManagedDispatchPacket struct {
 }
 
 type planSubagentsManagedDispatch struct {
-	ShardID                     string `json:"shardId"`
-	ReviewerRole                string `json:"reviewerRole"`
-	Status                      string `json:"status"`
-	PromptPath                  string `json:"promptPath"`
-	PromptSHA256                string `json:"promptSha256"`
-	ReviewerResultPath          string `json:"reviewerResultPath"`
-	ReviewerResultCandidatePath string `json:"reviewerResultCandidatePath"`
-	ReviewerResultInputPath     string `json:"reviewerResultInputPath"`
-	ReviewerResultSourcePath    string `json:"reviewerResultSourcePath"`
-	SourceCapturePreviewCommand string `json:"sourceCapturePreviewCommand"`
-	SourceCaptureApplyCommand   string `json:"sourceCaptureApplyCommand"`
-	StagingPreviewCommand       string `json:"stagingPreviewCommand"`
-	CollectionPreviewCommand    string `json:"collectionPreviewCommand"`
-	CollectionApplyCommand      string `json:"collectionApplyCommand"`
-	IntakePreviewCommand        string `json:"intakePreviewCommand"`
-	IntakeApplyCommand          string `json:"intakeApplyCommand"`
-	DispatchCommand             string `json:"dispatchCommand"`
-	ReviewerResultSkeleton      string `json:"reviewerResultSkeleton"`
-	NextAction                  string `json:"nextAction"`
+	ShardID                     string   `json:"shardId"`
+	ReviewerRole                string   `json:"reviewerRole"`
+	Status                      string   `json:"status"`
+	PromptPath                  string   `json:"promptPath"`
+	PromptSHA256                string   `json:"promptSha256"`
+	ReviewerResultPath          string   `json:"reviewerResultPath"`
+	ReviewerResultCandidatePath string   `json:"reviewerResultCandidatePath"`
+	ReviewerResultInputPath     string   `json:"reviewerResultInputPath"`
+	ReviewerResultSourcePath    string   `json:"reviewerResultSourcePath"`
+	SourceCapturePreviewCommand string   `json:"sourceCapturePreviewCommand"`
+	SourceCaptureApplyCommand   string   `json:"sourceCaptureApplyCommand"`
+	StagingPreviewCommand       string   `json:"stagingPreviewCommand"`
+	CollectionPreviewCommand    string   `json:"collectionPreviewCommand"`
+	CollectionApplyCommand      string   `json:"collectionApplyCommand"`
+	IntakePreviewCommand        string   `json:"intakePreviewCommand"`
+	IntakeApplyCommand          string   `json:"intakeApplyCommand"`
+	DispatchCommand             string   `json:"dispatchCommand"`
+	ReviewerResultSkeleton      string   `json:"reviewerResultSkeleton"`
+	NextAction                  string   `json:"nextAction"`
 	Boundary                    []string `json:"boundary"`
 }
 
 type planSubagentsManagedDispatchSummary struct {
-	Mode          string                                `json:"mode"`
-	TargetLane    string                                `json:"targetLane"`
-	PacketPath    string                                `json:"packetPath"`
-	DispatchCount int                                   `json:"dispatchCount"`
+	Mode          string                                   `json:"mode"`
+	TargetLane    string                                   `json:"targetLane"`
+	PacketPath    string                                   `json:"packetPath"`
+	DispatchCount int                                      `json:"dispatchCount"`
 	FirstDispatch *planSubagentsManagedDispatchItemSummary `json:"firstDispatch"`
-	Boundary      []string                              `json:"boundary"`
+	Boundary      []string                                 `json:"boundary"`
 }
 
 type planSubagentsManagedDispatchItemSummary struct {

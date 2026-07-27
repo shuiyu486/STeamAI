@@ -6714,6 +6714,12 @@ func writeReviewerDispatchIntakeHandoffText(out io.Writer, prefix string, items 
 				return err
 			}
 		}
+		if item.ManagedDispatch != nil {
+			managed := item.ManagedDispatch
+			if _, err := fmt.Fprintf(out, "%s reviewer managed dispatch：shard=%s mode=%s role=%s reviewers=%d maxParallel=%d prompt=%s promptSha256=%s input=%s source=%s candidate=%s result=%s nextAction=%s\n", prefix, managed.ShardID, managed.Mode, managed.ReviewerRole, managed.ReviewerCount, managed.MaxParallel, managed.PromptPath, managed.PromptSHA256, managed.ReviewerResultInputPath, managed.ReviewerResultSourcePath, managed.ReviewerResultCandidatePath, managed.ReviewerResultPath, managed.NextAction); err != nil {
+				return err
+			}
+		}
 		if strings.TrimSpace(item.ReviewerResultSourcePath) != "" {
 			if _, err := fmt.Fprintf(out, "%s reviewer result source：shard=%s source=%s state=%s sourceCapturePreview=`%s` sourceCaptureApply=`%s` stagingPreview=`%s`\n", prefix, item.ShardID, item.ReviewerResultSourcePath, item.ReviewerResultSourceState, item.ReviewerResultSourceCaptureCommand, item.ReviewerResultSourceCaptureApplyCommand, item.ReviewerResultStagingCommand); err != nil {
 				return err

@@ -453,9 +453,42 @@ func TestReviewerDispatchIntakeProjectsCandidateCollectionState(t *testing.T) {
 	commands := &ReviewerResultCollectionCommands{CandidatePath: candidatePath, PreviewCommand: "collect-preview", ApplyCommand: "collect-apply"}
 	packet := reviewerDispatchPacket{PacketID: "packet-collection", ReviewerOrchestration: reviewerDispatchPacketOrchestration{TargetLane: "feature-review", PacketPath: packetPath, ResultRoot: resultRoot, Dispatches: []reviewerDispatchPacketDispatch{{ShardID: "shard-01"}}}}
 	dispatch := reviewerDispatchPacketDispatch{ShardID: "shard-01", ReviewerResultPath: resultPath, ReviewerResultCandidatePath: candidatePath, AgentToolRequest: request, StagingCommands: staging, CollectionCommands: commands, PreviewCommand: "intake-preview", ApplyCommand: "intake-apply"}
+	packet.ReviewerOrchestration.ManagedDispatchPacket = &reviewerManagedDispatchPacket{
+		Mode:          "manual-main-agent-intake",
+		Scope:         "case-local",
+		TargetLane:    "feature-review",
+		PacketPath:    packetPath,
+		ResultRoot:    resultRoot,
+		ReviewerCount: 1,
+		MaxParallel:   1,
+		Runbook:       []string{"dispatch at most maxParallel read-only reviewers using managedDispatchPacket.dispatches in shard order"},
+		Boundary:      []string{"managed dispatch packet is read-only handoff; runtime does not spawn reviewers"},
+		Dispatches: []reviewerManagedDispatch{{
+			ShardID:                     "shard-01",
+			ReviewerRole:                "read-only-reviewer",
+			Status:                      "planned",
+			Items:                       []string{"alpha"},
+			AgentToolRequest:            request,
+			ReviewerResultPath:          resultPath,
+			ReviewerResultCandidatePath: candidatePath,
+			ReviewerResultInputPath:     inputPath,
+			ReviewerResultSourcePath:    sourcePath,
+			SourceCapturePreviewCommand: "managed-source-capture-preview",
+			SourceCaptureApplyCommand:   "managed-source-capture-apply",
+			StagingPreviewCommand:       "managed-staging-preview",
+			CollectionPreviewCommand:    "managed-collection-preview",
+			CollectionApplyCommand:      "managed-collection-apply",
+			IntakePreviewCommand:        "intake-preview",
+			IntakeApplyCommand:          "intake-apply",
+			DispatchCommand:             "managed dispatch read-only reviewer",
+			ExpectedOutput:              "one JSON object",
+			NextAction:                  "save reviewer JSON and follow source capture/staging/collection/intake",
+			Boundary:                    []string{"reviewers must not write files"},
+		}},
+	}
 
 	missing := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, firstText(packet.ReviewerOrchestration.PacketPath, "packet.json"), "feature-review", dispatch, 0)
-	if missing.State != "waiting-for-reviewer-result" || missing.ReviewerResultInputPath != inputPath || missing.ReviewerResultInputState != "missing" || missing.ReviewerResultCandidateState != "missing" || missing.AgentToolRequest == nil || missing.ReviewerResultSourceCaptureCommand == "" || missing.ReviewerResultSourceCaptureApplyCommand == "" || missing.ReviewerResultStagingCommand == "" || missing.ReviewerResultCollectionCommands == nil || !strings.Contains(missing.DispatchCommand, "agentToolRequest.prompt") || !strings.Contains(missing.DispatchCommand, inputPath) || !strings.Contains(missing.DispatchCommand, "source capture preview") || !strings.Contains(missing.DispatchCommand, "ExpectedReviewerResultInputSha256") || !strings.Contains(missing.DispatchCommand, "expected-source-hash Apply") {
+	if missing.State != "waiting-for-reviewer-result" || missing.ReviewerResultInputPath != inputPath || missing.ReviewerResultInputState != "missing" || missing.ReviewerResultCandidateState != "missing" || missing.AgentToolRequest == nil || missing.ManagedDispatch == nil || missing.ManagedDispatch.Mode != "manual-main-agent-intake" || missing.ManagedDispatch.ShardID != "shard-01" || missing.ManagedDispatch.ReviewerResultInputPath != inputPath || missing.ManagedDispatch.CollectionPreviewCommand != "managed-collection-preview" || !reviewerDispatchTestContainsSubstring(missing.ManagedDispatch.Boundary, "does not spawn reviewers") || !reviewerDispatchTestContainsSubstring(missing.RunbookSteps, "managed dispatch packet is available") || !reviewerDispatchTestContainsSubstring(missing.Evidence, "managedDispatch packet") || !reviewerDispatchTestContainsSubstring(missing.Boundary, "managed dispatch packet is read-only recovery context") || missing.ReviewerResultSourceCaptureCommand == "" || missing.ReviewerResultSourceCaptureApplyCommand == "" || missing.ReviewerResultStagingCommand == "" || missing.ReviewerResultCollectionCommands == nil || !strings.Contains(missing.DispatchCommand, "agentToolRequest.prompt") || !strings.Contains(missing.DispatchCommand, inputPath) || !strings.Contains(missing.DispatchCommand, "source capture preview") || !strings.Contains(missing.DispatchCommand, "ExpectedReviewerResultInputSha256") || !strings.Contains(missing.DispatchCommand, "expected-source-hash Apply") {
 		t.Fatalf("missing candidate handoff omitted typed dispatch/collection state: %+v", missing)
 	}
 	if missing.ReviewerResultSourcePath != sourcePath || missing.ReviewerResultSourceState != "missing" || !strings.Contains(missing.ReviewerResultSourceCaptureCommand, "-CaptureReviewerResultSource") || !strings.Contains(missing.ReviewerResultSourceCaptureCommand, "-ReviewerResultInputPath "+quoteCommandArg(inputPath)) || !strings.Contains(missing.ReviewerResultSourceCaptureApplyCommand, "-ExpectedReviewerResultInputSha256") || !strings.Contains(missing.ReviewerResultStagingCommand, "-StageReviewerResult") || !strings.Contains(missing.ReviewerResultStagingCommand, "-ReviewerResultSourcePath "+quoteCommandArg(sourcePath)) || strings.Contains(missing.ReviewerResultStagingCommand, "forged-staging-preview") {
