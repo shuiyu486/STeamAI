@@ -12964,6 +12964,7 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 		t.Fatalf("hash-bound adapter record with drift error = %v, want sha256 changed", err)
 	}
 	assertSnapshotEqual(t, driftBeforeRecord, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+	assertAdapterReportDriftRepairContinuation(t, caseRoot, applied.EventID)
 	if err := os.WriteFile(filepath.Join(caseRoot, "workspace", "main", "debug", "session-1", "adapter-report.json"), originalReportBytes, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -15470,45 +15471,71 @@ type handoffLaneExecutorAction struct {
 }
 
 type authorizedGateAdapterHandoffSnapshot struct {
-	EventID              string                                `json:"eventId"`
-	Lane                 string                                `json:"lane"`
-	Subject              string                                `json:"subject"`
-	Action               string                                `json:"action"`
-	Target               string                                `json:"target"`
-	Status               string                                `json:"status"`
-	Risk                 string                                `json:"risk"`
-	Authorization        string                                `json:"authorization"`
-	Profile              string                                `json:"profile"`
-	ReportContract       string                                `json:"reportContract"`
-	DefaultReportPath    string                                `json:"defaultReportPath"`
-	ReportPath           string                                `json:"reportPath"`
-	ReportSummary        *adapterReportHandoffSummarySnapshot  `json:"reportSummary"`
-	LiveValidation       *authorizedGateLiveValidationSnapshot `json:"liveValidation"`
-	ReportContractError  string                                `json:"reportContractError"`
-	HandoffCommand       string                                `json:"handoffCommand"`
-	Acknowledged         bool                                  `json:"acknowledged"`
-	AcknowledgementState string                                `json:"acknowledgementState"`
-	Boundary             []string                              `json:"boundary"`
-	Evidence             []string                              `json:"evidence"`
+	EventID                   string                                `json:"eventId"`
+	Lane                      string                                `json:"lane"`
+	Subject                   string                                `json:"subject"`
+	Action                    string                                `json:"action"`
+	Target                    string                                `json:"target"`
+	Status                    string                                `json:"status"`
+	Risk                      string                                `json:"risk"`
+	Authorization             string                                `json:"authorization"`
+	Profile                   string                                `json:"profile"`
+	ReportContract            string                                `json:"reportContract"`
+	DefaultReportPath         string                                `json:"defaultReportPath"`
+	ReportPath                string                                `json:"reportPath"`
+	ReportSummary             *adapterReportHandoffSummarySnapshot  `json:"reportSummary"`
+	LiveValidation            *authorizedGateLiveValidationSnapshot `json:"liveValidation"`
+	LiveValidationRepairHints []adapterReportRepairHintSnapshot     `json:"liveValidationRepairHints"`
+	LiveValidationNextSteps   []string                              `json:"liveValidationNextSteps"`
+	LiveValidationError       string                                `json:"liveValidationError"`
+	ReportContractError       string                                `json:"reportContractError"`
+	HandoffCommand            string                                `json:"handoffCommand"`
+	Acknowledged              bool                                  `json:"acknowledged"`
+	AcknowledgementState      string                                `json:"acknowledgementState"`
+	Boundary                  []string                              `json:"boundary"`
+	Evidence                  []string                              `json:"evidence"`
 }
 
 type authorizedGateLiveValidationSnapshot struct {
-	InvocationCwd               string                        `json:"invocationCwd"`
-	AuthorizedWorkspaces        []string                      `json:"authorizedWorkspaces"`
-	ReportFileName              string                        `json:"reportFileName"`
-	CaseRelativeReportPath      string                        `json:"caseRelativeReportPath"`
-	ValidateCommand             string                        `json:"validateCommand"`
-	RecordCommand               string                        `json:"recordCommand"`
-	ReportSHA256                string                        `json:"reportSha256"`
-	RecordExpectedReportSHA256  string                        `json:"recordExpectedReportSha256"`
-	CaseRelativeValidateCommand string                        `json:"caseRelativeValidateCommand"`
-	CaseRelativeRecordCommand   string                        `json:"caseRelativeRecordCommand"`
-	AdapterCandidateCount       int                           `json:"adapterCandidateCount"`
-	SelectedAdapterID           string                        `json:"selectedAdapterId"`
-	SelectedAdapter             *adapterToolCandidateSnapshot `json:"selectedAdapter"`
-	SidecarTemplateAdapterID    string                        `json:"sidecarTemplateAdapterId"`
-	ReplayBehavior              string                        `json:"replayBehavior"`
-	RunbookSteps                []string                      `json:"runbookSteps"`
+	InvocationCwd                    string                        `json:"invocationCwd"`
+	AuthorizedWorkspaces             []string                      `json:"authorizedWorkspaces"`
+	ReportFileName                   string                        `json:"reportFileName"`
+	CaseRelativeReportPath           string                        `json:"caseRelativeReportPath"`
+	ValidateCommand                  string                        `json:"validateCommand"`
+	RecordCommand                    string                        `json:"recordCommand"`
+	ScaffoldCommand                  string                        `json:"scaffoldCommand"`
+	ScaffoldApplyCommand             string                        `json:"scaffoldApplyCommand"`
+	SidecarTemplateSHA256            string                        `json:"sidecarTemplateSha256"`
+	DraftCommand                     string                        `json:"draftCommand"`
+	DraftApplyCommand                string                        `json:"draftApplyCommand"`
+	DraftReportSHA256                string                        `json:"draftReportSha256"`
+	ReportSHA256                     string                        `json:"reportSha256"`
+	RecordExpectedReportSHA256       string                        `json:"recordExpectedReportSha256"`
+	CaseRelativeValidateCommand      string                        `json:"caseRelativeValidateCommand"`
+	CaseRelativeRecordCommand        string                        `json:"caseRelativeRecordCommand"`
+	CaseRelativeScaffoldCommand      string                        `json:"caseRelativeScaffoldCommand"`
+	CaseRelativeScaffoldApplyCommand string                        `json:"caseRelativeScaffoldApplyCommand"`
+	CaseRelativeDraftCommand         string                        `json:"caseRelativeDraftCommand"`
+	CaseRelativeDraftApplyCommand    string                        `json:"caseRelativeDraftApplyCommand"`
+	AdapterCandidateCount            int                           `json:"adapterCandidateCount"`
+	SelectedAdapterID                string                        `json:"selectedAdapterId"`
+	SelectedAdapter                  *adapterToolCandidateSnapshot `json:"selectedAdapter"`
+	SidecarTemplateAdapterID         string                        `json:"sidecarTemplateAdapterId"`
+	ReplayBehavior                   string                        `json:"replayBehavior"`
+	RunbookSteps                     []string                      `json:"runbookSteps"`
+}
+
+type adapterReportRepairHintSnapshot struct {
+	Code               string   `json:"code"`
+	Stage              string   `json:"stage"`
+	RepairAction       string   `json:"repairAction"`
+	Fields             []string `json:"fields"`
+	AllowedOutputPaths []string `json:"allowedOutputPaths"`
+	RecordBlocked      bool     `json:"recordBlocked"`
+	RerunValidation    bool     `json:"rerunValidation"`
+	EscalateToMain     bool     `json:"escalateToMain"`
+	Detail             string   `json:"detail"`
+	Boundary           []string `json:"boundary"`
 }
 
 type adapterToolCandidateSnapshot struct {
@@ -15585,6 +15612,297 @@ func assertAcknowledgedStatusAuthorizedGateHandoff(t *testing.T, label string, i
 	}
 	if !containsSubstring(item.Evidence, "execution evidence review acknowledged for gateEventId "+eventID) {
 		t.Fatalf("%s status authorized gate handoff omitted acknowledgement evidence: %+v", label, item.Evidence)
+	}
+}
+
+func assertStatusAuthorizedGateAdapterRepairHandoff(t *testing.T, label string, item statusAuthorizedGateHandoff, eventID, reportPath string) {
+	t.Helper()
+	if item.EventID != eventID || item.ReportPath != reportPath {
+		t.Fatalf("%s status authorized gate repair handoff identity drifted: %+v", label, item)
+	}
+	if item.ReportSummary == nil || item.ReportSummary.State != "repair-adapter-report" || item.ReportSummary.ReportPath != reportPath || !item.ReportSummary.ReportPresent || item.ReportSummary.Valid || item.ReportSummary.RecordReady || !item.ReportSummary.RecordBlocked || !item.ReportSummary.RequiresRepair || item.ReportSummary.ValidationFailureCode != "evidence-refs-out-of-scope" || item.ReportSummary.ValidationFailureStage != "refs" || item.ReportSummary.CurrentAction != "move-evidence-refs-under-authorized-output-paths" || item.ReportSummary.RepairHintCount != 1 || item.ReportSummary.RecordBlockedHintCount != 1 {
+		t.Fatalf("%s status authorized gate repair summary drifted: %+v", label, item.ReportSummary)
+	}
+	if item.LiveValidation == nil || item.LiveValidation.ReportSHA256 == "" || item.LiveValidation.RecordExpectedReportSHA256 != "" || item.LiveValidation.RecordCommand != "" || item.LiveValidation.CaseRelativeRecordCommand != "" || !strings.Contains(item.LiveValidation.ValidateCommand, "-ValidateExecutionReport") || !strings.Contains(item.LiveValidation.CaseRelativeValidateCommand, reportPath) || !strings.Contains(item.LiveValidation.ScaffoldCommand, "-ScaffoldExecutionReport") || !strings.Contains(item.LiveValidation.DraftCommand, "-DraftExecutionReport") || !containsSubstring(item.LiveValidation.RunbookSteps, "confirm adapter report validation state=repair-adapter-report") || !containsSubstring(item.LiveValidation.RunbookSteps, "boundary guard: validation is read-only") {
+		t.Fatalf("%s status authorized gate repair live validation drifted: %+v", label, item.LiveValidation)
+	}
+	if len(item.LiveValidationRepairHints) != 1 || item.LiveValidationRepairHints[0].RepairAction != "move-evidence-refs-under-authorized-output-paths" || item.LiveValidationRepairHints[0].Code != "evidence-refs-out-of-scope" || item.LiveValidationRepairHints[0].Stage != "refs" || !item.LiveValidationRepairHints[0].RecordBlocked || !item.LiveValidationRepairHints[0].RerunValidation || !containsSubstring(item.LiveValidationRepairHints[0].AllowedOutputPaths, "workspace/main/debug/session-1") || !containsSubstring(item.LiveValidationRepairHints[0].Boundary, "recordBlocked=true") {
+		t.Fatalf("%s status authorized gate repair hints drifted: %+v", label, item.LiveValidationRepairHints)
+	}
+	if !containsSubstring(item.LiveValidationNextSteps, "report is invalid for read-only preflight") || !containsSubstring(item.LiveValidationNextSteps, "rerun gate -ValidateExecutionReport before recording evidence") || !containsSubstring(item.LiveValidationNextSteps, "do not record it with gate -Apply until valid=true") {
+		t.Fatalf("%s status authorized gate repair next steps drifted: %+v", label, item.LiveValidationNextSteps)
+	}
+}
+
+func assertAuthorizedGateAdapterRepairHandoffSnapshot(t *testing.T, label string, item authorizedGateAdapterHandoffSnapshot, eventID, reportPath string) {
+	t.Helper()
+	if item.EventID != eventID || item.ReportPath != reportPath {
+		t.Fatalf("%s authorized gate adapter repair handoff identity drifted: %+v", label, item)
+	}
+	if item.ReportSummary == nil || item.ReportSummary.State != "repair-adapter-report" || item.ReportSummary.ReportPath != reportPath || !item.ReportSummary.ReportPresent || item.ReportSummary.Valid || item.ReportSummary.RecordReady || !item.ReportSummary.RecordBlocked || !item.ReportSummary.RequiresRepair || item.ReportSummary.ValidationFailureCode != "evidence-refs-out-of-scope" || item.ReportSummary.ValidationFailureStage != "refs" || item.ReportSummary.CurrentAction != "move-evidence-refs-under-authorized-output-paths" || item.ReportSummary.RepairHintCount != 1 || item.ReportSummary.RecordBlockedHintCount != 1 {
+		t.Fatalf("%s authorized gate adapter repair summary drifted: %+v", label, item.ReportSummary)
+	}
+	if item.LiveValidation == nil || item.LiveValidation.ReportSHA256 == "" || item.LiveValidation.RecordExpectedReportSHA256 != "" || item.LiveValidation.RecordCommand != "" || item.LiveValidation.CaseRelativeRecordCommand != "" || !strings.Contains(item.LiveValidation.ValidateCommand, "-ValidateExecutionReport") || !strings.Contains(item.LiveValidation.CaseRelativeValidateCommand, reportPath) || !strings.Contains(item.LiveValidation.ScaffoldCommand, "-ScaffoldExecutionReport") || !strings.Contains(item.LiveValidation.DraftCommand, "-DraftExecutionReport") || !containsSubstring(item.LiveValidation.RunbookSteps, "confirm adapter report validation state=repair-adapter-report") || !containsSubstring(item.LiveValidation.RunbookSteps, "boundary guard: validation is read-only") {
+		t.Fatalf("%s authorized gate adapter repair live validation drifted: %+v", label, item.LiveValidation)
+	}
+	if len(item.LiveValidationRepairHints) != 1 || item.LiveValidationRepairHints[0].RepairAction != "move-evidence-refs-under-authorized-output-paths" || item.LiveValidationRepairHints[0].Code != "evidence-refs-out-of-scope" || item.LiveValidationRepairHints[0].Stage != "refs" || !item.LiveValidationRepairHints[0].RecordBlocked || !item.LiveValidationRepairHints[0].RerunValidation || !containsSubstring(item.LiveValidationRepairHints[0].AllowedOutputPaths, "workspace/main/debug/session-1") || !containsSubstring(item.LiveValidationRepairHints[0].Boundary, "recordBlocked=true") {
+		t.Fatalf("%s authorized gate adapter repair hints drifted: %+v", label, item.LiveValidationRepairHints)
+	}
+	if !containsSubstring(item.LiveValidationNextSteps, "report is invalid for read-only preflight") || !containsSubstring(item.LiveValidationNextSteps, "rerun gate -ValidateExecutionReport before recording evidence") || !containsSubstring(item.LiveValidationNextSteps, "do not record it with gate -Apply until valid=true") {
+		t.Fatalf("%s authorized gate adapter repair next steps drifted: %+v", label, item.LiveValidationNextSteps)
+	}
+}
+
+func assertAdapterReportRepairText(t *testing.T, label, text, prefix, eventID string) {
+	t.Helper()
+	subject := "authorized gate adapter"
+	if prefix == "status case mission" {
+		subject = "authorized gate"
+	}
+	for _, expected := range []string{
+		prefix + " " + subject + " report summary：eventId=" + eventID + " state=repair-adapter-report",
+		"recordReady=false recordBlocked=true requiresValidation=false requiresRepair=true requiresMainEscalation=false",
+		"currentAction=move-evidence-refs-under-authorized-output-paths failureCode=evidence-refs-out-of-scope failureStage=refs",
+		prefix + " " + subject + " draft handoff：eventId=" + eventID,
+		prefix + " " + subject + " live validation repair：eventId=" + eventID + " action=move-evidence-refs-under-authorized-output-paths code=evidence-refs-out-of-scope stage=refs recordBlocked=true rerunValidation=true",
+		prefix + " " + subject + " live validation next step：eventId=" + eventID + " step=report is invalid for read-only preflight",
+		prefix + " " + subject + " live validation next step：eventId=" + eventID + " step=do not record it with gate -Apply until valid=true",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("%s missing adapter repair text %q:\n%s", label, expected, text)
+		}
+	}
+	if strings.Contains(text, "recordExpectedReportSha256=") && strings.Contains(text, "recordReady=true") {
+		t.Fatalf("%s repair text should not expose record-ready state:\n%s", label, text)
+	}
+}
+
+func assertAdapterReportRepairMarkdown(t *testing.T, label, text, eventID string) {
+	t.Helper()
+	for _, expected := range []string{
+		"- authorized gate adapter handoff: eventId=" + eventID + " lane=main action=debug state=repair-adapter-report",
+		"reportPresent=true valid=false recordReady=false recordBlocked=true",
+		"  - live validation repair: action=move-evidence-refs-under-authorized-output-paths code=evidence-refs-out-of-scope stage=refs recordBlocked=true rerunValidation=true",
+		"  - live validation next step: report is invalid for read-only preflight",
+		"  - live validation next step: do not record it with gate -Apply until valid=true",
+		"  - case validate: `rekit -Command gate -Pack _template -GateEventId " + eventID,
+		"  - case record: `after valid=true, use validation/status returned hash-bound record command with -ExpectedExecutionReportSha256`",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("%s missing adapter repair markdown %q:\n%s", label, expected, text)
+		}
+	}
+}
+
+func assertAdapterReportDriftRepairContinuation(t *testing.T, caseRoot, eventID string) {
+	t.Helper()
+	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/adapter-report.json", `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "nested-cli-adapter",
+  "action": "debug",
+  "status": "succeeded",
+  "gateEventId": "`+eventID+`",
+  "actualBudget": {"runtimeSeconds": 20, "diskMB": 32, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/result.json"],
+  "evidenceRefs": ["workspace/main/other/evidence.json"],
+  "summary": "Adapter report drifted out of authorized output workspace before record"
+}`)
+	var out bytes.Buffer
+	beforeStatus := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	wantReportPath := "workspace/main/debug/session-1/adapter-report.json"
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var repairStatus struct {
+		CaseMission struct {
+			AuthorizedGateHandoffs      []statusAuthorizedGateHandoff       `json:"authorizedGateHandoffs"`
+			MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
+			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &repairStatus); err != nil {
+		t.Fatalf("status with drifted invalid adapter sidecar stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if len(repairStatus.CaseMission.AuthorizedGateHandoffs) != 1 {
+		t.Fatalf("status with drifted invalid adapter sidecar omitted authorized gate handoff: %+v", repairStatus.CaseMission.AuthorizedGateHandoffs)
+	}
+	assertStatusAuthorizedGateAdapterRepairHandoff(t, "status with drifted invalid adapter sidecar", repairStatus.CaseMission.AuthorizedGateHandoffs[0], eventID, wantReportPath)
+	if repairStatus.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || repairStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.State != "repair-adapter-report" || repairStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.Command != "move-evidence-refs-under-authorized-output-paths" || repairStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.Source != "adapterReportValidation.repairHints" || !repairStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.RequiresReview || len(repairStatus.CaseMission.MissionCommanderNextActions) == 0 || containsMissionCommanderNextActionsCommand(repairStatus.CaseMission.MissionCommanderNextActions, "gate -Apply") {
+		t.Fatalf("status with drifted invalid adapter sidecar did not promote repair-only current action: %+v", repairStatus.CaseMission.MissionCommanderActionQueue)
+	}
+	assertSnapshotEqual(t, beforeStatus, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	assertAdapterReportRepairText(t, "status text with drifted invalid adapter sidecar", out.String(), "status case mission", eventID)
+	assertSnapshotEqual(t, beforeStatus, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "main", "-Format", "json", "-WhatIf"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var repairHandoffPreview handoffResult
+	if err := json.Unmarshal(out.Bytes(), &repairHandoffPreview); err != nil {
+		t.Fatalf("handoff preview with drifted invalid adapter sidecar stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if repairHandoffPreview.Command != "handoff" || repairHandoffPreview.IsMutation || repairHandoffPreview.Applied || !repairHandoffPreview.RequiresConfirmation || len(repairHandoffPreview.AuthorizedGateAdapterHandoffs) != 1 {
+		t.Fatalf("unexpected handoff preview with drifted invalid adapter sidecar: %+v", repairHandoffPreview)
+	}
+	assertAuthorizedGateAdapterRepairHandoffSnapshot(t, "handoff preview with drifted invalid adapter sidecar", repairHandoffPreview.AuthorizedGateAdapterHandoffs[0], eventID, wantReportPath)
+	if repairHandoffPreview.MissionCommanderActionQueue.CurrentAction == nil || repairHandoffPreview.MissionCommanderActionQueue.CurrentAction.State != "repair-adapter-report" || repairHandoffPreview.MissionCommanderActionQueue.CurrentAction.Command != "move-evidence-refs-under-authorized-output-paths" || repairHandoffPreview.MissionCommanderActionQueue.CurrentAction.Source != "adapterReportValidation.repairHints" || !repairHandoffPreview.MissionCommanderActionQueue.CurrentAction.RequiresReview || containsMissionCommanderNextActionsCommand(repairHandoffPreview.MissionCommanderNextActions, "gate -Apply") {
+		t.Fatalf("handoff preview with drifted invalid adapter sidecar did not preserve repair-only current action: %+v", repairHandoffPreview.MissionCommanderActionQueue)
+	}
+	assertSnapshotEqual(t, beforeStatus, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "main", "-Format", "text", "-WhatIf"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	assertAdapterReportRepairText(t, "handoff text with drifted invalid adapter sidecar", out.String(), "handoff", eventID)
+	assertSnapshotEqual(t, beforeStatus, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	factsBeforeHandoffApply := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "main", "-Format", "json", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var repairHandoffApply handoffResult
+	if err := json.Unmarshal(out.Bytes(), &repairHandoffApply); err != nil {
+		t.Fatalf("handoff apply with drifted invalid adapter sidecar stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !repairHandoffApply.Applied || repairHandoffApply.RequiresConfirmation || len(repairHandoffApply.AuthorizedGateAdapterHandoffs) != 1 {
+		t.Fatalf("unexpected handoff apply with drifted invalid adapter sidecar: %+v", repairHandoffApply)
+	}
+	assertAuthorizedGateAdapterRepairHandoffSnapshot(t, "handoff apply with drifted invalid adapter sidecar", repairHandoffApply.AuthorizedGateAdapterHandoffs[0], eventID, wantReportPath)
+	assertSnapshotEqual(t, factsBeforeHandoffApply, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
+	latestHandoff, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "handovers", "main-latest.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertAdapterReportRepairMarkdown(t, "written handoff with drifted invalid adapter sidecar", string(latestHandoff), eventID)
+	resume, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "lanes", "main", "prompts", "RESUME.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertAdapterReportRepairMarkdown(t, "written RESUME with drifted invalid adapter sidecar", string(resume), eventID)
+	checkpointBytes, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "lanes", "main", "checkpoints", "latest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var checkpoint struct {
+		AuthorizedGateAdapterHandoffs []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
+		MissionCommanderActionQueue   missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(checkpointBytes, &checkpoint); err != nil {
+		t.Fatalf("checkpoint with drifted invalid adapter sidecar did not decode: %v\n%s", err, string(checkpointBytes))
+	}
+	if len(checkpoint.AuthorizedGateAdapterHandoffs) != 1 || checkpoint.MissionCommanderActionQueue.CurrentAction == nil || checkpoint.MissionCommanderActionQueue.CurrentAction.Command != "move-evidence-refs-under-authorized-output-paths" {
+		t.Fatalf("checkpoint with drifted invalid adapter sidecar omitted repair handoff: %+v", checkpoint)
+	}
+	assertAuthorizedGateAdapterRepairHandoffSnapshot(t, "checkpoint with drifted invalid adapter sidecar", checkpoint.AuthorizedGateAdapterHandoffs[0], eventID, wantReportPath)
+
+	beforeContinue := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "main", "-Format", "json", "-WhatIf"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var repairContinuePreview struct {
+		Applied                       bool                                   `json:"applied"`
+		RequiresConfirmation          bool                                   `json:"requiresConfirmation"`
+		AuthorizedGateAdapterHandoffs []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
+		MissionCommanderNextActions   []missionCommanderNextActionItem       `json:"missionCommanderNextActions"`
+		MissionCommanderActionQueue   missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &repairContinuePreview); err != nil {
+		t.Fatalf("continue preview with drifted invalid adapter sidecar stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if repairContinuePreview.Applied || !repairContinuePreview.RequiresConfirmation || len(repairContinuePreview.AuthorizedGateAdapterHandoffs) != 1 {
+		t.Fatalf("unexpected continue preview with drifted invalid adapter sidecar: %+v", repairContinuePreview)
+	}
+	assertAuthorizedGateAdapterRepairHandoffSnapshot(t, "continue preview with drifted invalid adapter sidecar", repairContinuePreview.AuthorizedGateAdapterHandoffs[0], eventID, wantReportPath)
+	if repairContinuePreview.MissionCommanderActionQueue.CurrentAction == nil || repairContinuePreview.MissionCommanderActionQueue.CurrentAction.State != "repair-adapter-report" || repairContinuePreview.MissionCommanderActionQueue.CurrentAction.Command != "move-evidence-refs-under-authorized-output-paths" || repairContinuePreview.MissionCommanderActionQueue.CurrentAction.Source != "adapterReportValidation.repairHints" || containsMissionCommanderNextActionsCommand(repairContinuePreview.MissionCommanderNextActions, "gate -Apply") {
+		t.Fatalf("continue preview with drifted invalid adapter sidecar did not preserve repair current action: %+v", repairContinuePreview.MissionCommanderActionQueue)
+	}
+	assertSnapshotEqual(t, beforeContinue, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "main", "-Format", "text", "-WhatIf"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	assertAdapterReportRepairText(t, "continue text with drifted invalid adapter sidecar", out.String(), "continue", eventID)
+	assertSnapshotEqual(t, beforeContinue, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	factsBeforeContinueApply := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "main", "-Format", "json", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var repairContinueApply struct {
+		RunID                         string                                 `json:"runId"`
+		Applied                       bool                                   `json:"applied"`
+		Blocked                       bool                                   `json:"blocked"`
+		AuthorizedGateAdapterHandoffs []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
+		MissionCommanderActionQueue   missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
+		Writes                        []startWrite                           `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &repairContinueApply); err != nil {
+		t.Fatalf("continue apply with drifted invalid adapter sidecar stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !repairContinueApply.Applied || repairContinueApply.Blocked || repairContinueApply.RunID == "" || len(repairContinueApply.AuthorizedGateAdapterHandoffs) != 1 || repairContinueApply.MissionCommanderActionQueue.CurrentAction == nil || repairContinueApply.MissionCommanderActionQueue.CurrentAction.Command != "move-evidence-refs-under-authorized-output-paths" {
+		t.Fatalf("unexpected continue apply with drifted invalid adapter sidecar: %+v", repairContinueApply)
+	}
+	assertAuthorizedGateAdapterRepairHandoffSnapshot(t, "continue apply with drifted invalid adapter sidecar", repairContinueApply.AuthorizedGateAdapterHandoffs[0], eventID, wantReportPath)
+	assertSnapshotEqual(t, factsBeforeContinueApply, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
+	runStatusPath := assertStartWrite(t, repairContinueApply.Writes, ".rekit/runs/"+repairContinueApply.RunID+"/status.json", "write").TargetPath
+	runDigestPath := assertStartWrite(t, repairContinueApply.Writes, ".rekit/runs/"+repairContinueApply.RunID+"/digest.md", "write").TargetPath
+	runStatusBytes, err := os.ReadFile(runStatusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var runStatus struct {
+		AuthorizedGateAdapterHandoffs []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
+		MissionCommanderActionQueue   missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(runStatusBytes, &runStatus); err != nil {
+		t.Fatalf("continue run status with drifted invalid adapter sidecar did not decode: %v\n%s", err, string(runStatusBytes))
+	}
+	if len(runStatus.AuthorizedGateAdapterHandoffs) != 1 || runStatus.MissionCommanderActionQueue.CurrentAction == nil || runStatus.MissionCommanderActionQueue.CurrentAction.Command != "move-evidence-refs-under-authorized-output-paths" {
+		t.Fatalf("continue run status with drifted invalid adapter sidecar omitted repair handoff: %+v", runStatus)
+	}
+	assertAuthorizedGateAdapterRepairHandoffSnapshot(t, "continue run status with drifted invalid adapter sidecar", runStatus.AuthorizedGateAdapterHandoffs[0], eventID, wantReportPath)
+	runDigest, err := os.ReadFile(runDigestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertAdapterReportRepairMarkdown(t, "continue digest with drifted invalid adapter sidecar", string(runDigest), eventID)
+	resumeAfterContinue, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "lanes", "main", "prompts", "RESUME.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertAdapterReportRepairMarkdown(t, "RESUME after continue with drifted invalid adapter sidecar", string(resumeAfterContinue), eventID)
+	checkpointAfterContinueBytes, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "lanes", "main", "checkpoints", "latest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var checkpointAfterContinue struct {
+		AuthorizedGateAdapterHandoffs []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
+		MissionCommanderActionQueue   missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(checkpointAfterContinueBytes, &checkpointAfterContinue); err != nil {
+		t.Fatalf("checkpoint after continue with drifted invalid adapter sidecar did not decode: %v\n%s", err, string(checkpointAfterContinueBytes))
+	}
+	if len(checkpointAfterContinue.AuthorizedGateAdapterHandoffs) != 1 || checkpointAfterContinue.MissionCommanderActionQueue.CurrentAction == nil || checkpointAfterContinue.MissionCommanderActionQueue.CurrentAction.Command != "move-evidence-refs-under-authorized-output-paths" {
+		t.Fatalf("checkpoint after continue with drifted invalid adapter sidecar omitted repair handoff: %+v", checkpointAfterContinue)
+	}
+	assertAuthorizedGateAdapterRepairHandoffSnapshot(t, "checkpoint after continue with drifted invalid adapter sidecar", checkpointAfterContinue.AuthorizedGateAdapterHandoffs[0], eventID, wantReportPath)
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("drift repair continuation wrote authority ledger or stat failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("drift repair continuation wrote confirmed ledger or stat failed: %v", err)
 	}
 }
 
