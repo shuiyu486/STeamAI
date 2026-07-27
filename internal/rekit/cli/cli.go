@@ -7866,11 +7866,75 @@ func writePlanSubagentsReviewerOrchestrationSummaryText(out io.Writer, summary s
 	return nil
 }
 
+func writePlanSubagentsManagedDispatchPacketText(out io.Writer, packet *subagents.ReviewerManagedDispatchPacket) error {
+	if packet == nil {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "plan-subagents managed reviewer dispatch packet：mode=%s targetLane=%s reviewers=%d maxParallel=%d packet=%s promptRoot=%s resultRoot=%s\n", packet.Mode, packet.TargetLane, packet.ReviewerCount, packet.MaxParallel, packet.PacketPath, packet.PromptRoot, packet.ResultRoot); err != nil {
+		return err
+	}
+	if strings.TrimSpace(packet.BatchPreviewCommand) != "" || strings.TrimSpace(packet.BatchApplyCommand) != "" {
+		if _, err := fmt.Fprintf(out, "plan-subagents managed reviewer dispatch batch intake：preview=`%s` apply=`%s`\n", packet.BatchPreviewCommand, packet.BatchApplyCommand); err != nil {
+			return err
+		}
+	}
+	for _, step := range packet.Runbook {
+		if _, err := fmt.Fprintf(out, "plan-subagents managed reviewer dispatch runbook：%s\n", step); err != nil {
+			return err
+		}
+	}
+	for _, dispatch := range packet.Dispatches {
+		if _, err := fmt.Fprintf(out, "plan-subagents managed reviewer dispatch：shard=%s status=%s role=%s prompt=%s promptSha256=%s result=%s input=%s source=%s candidate=%s dispatch=`%s`\n", dispatch.ShardID, dispatch.Status, dispatch.ReviewerRole, dispatch.PromptPath, dispatch.PromptSHA256, dispatch.ReviewerResultPath, dispatch.ReviewerResultInputPath, dispatch.ReviewerResultSourcePath, dispatch.ReviewerResultCandidatePath, dispatch.DispatchCommand); err != nil {
+			return err
+		}
+		if strings.TrimSpace(dispatch.SourceCapturePreviewCommand) != "" || strings.TrimSpace(dispatch.SourceCaptureApplyCommand) != "" {
+			if _, err := fmt.Fprintf(out, "plan-subagents managed reviewer dispatch source capture：shard=%s preview=`%s` apply=`%s`\n", dispatch.ShardID, dispatch.SourceCapturePreviewCommand, dispatch.SourceCaptureApplyCommand); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(dispatch.StagingPreviewCommand) != "" {
+			if _, err := fmt.Fprintf(out, "plan-subagents managed reviewer dispatch staging：shard=%s preview=`%s`\n", dispatch.ShardID, dispatch.StagingPreviewCommand); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(dispatch.CollectionPreviewCommand) != "" || strings.TrimSpace(dispatch.CollectionApplyCommand) != "" {
+			if _, err := fmt.Fprintf(out, "plan-subagents managed reviewer dispatch collection：shard=%s preview=`%s` apply=`%s`\n", dispatch.ShardID, dispatch.CollectionPreviewCommand, dispatch.CollectionApplyCommand); err != nil {
+				return err
+			}
+		}
+		if _, err := fmt.Fprintf(out, "plan-subagents managed reviewer dispatch intake：shard=%s preview=`%s` apply=`%s`\n", dispatch.ShardID, dispatch.IntakePreviewCommand, dispatch.IntakeApplyCommand); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(out, "plan-subagents managed reviewer dispatch skeleton：shard=%s json=%s\n", dispatch.ShardID, dispatch.ReviewerResultSkeleton); err != nil {
+			return err
+		}
+		if strings.TrimSpace(dispatch.NextAction) != "" {
+			if _, err := fmt.Fprintf(out, "plan-subagents managed reviewer dispatch next action：shard=%s action=%s\n", dispatch.ShardID, planSubagentsTextInline(dispatch.NextAction)); err != nil {
+				return err
+			}
+		}
+		for _, boundary := range dispatch.Boundary {
+			if _, err := fmt.Fprintf(out, "plan-subagents managed reviewer dispatch boundary：shard=%s boundary=%s\n", dispatch.ShardID, boundary); err != nil {
+				return err
+			}
+		}
+	}
+	for _, boundary := range packet.Boundary {
+		if _, err := fmt.Fprintf(out, "plan-subagents managed reviewer dispatch packet boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func writePlanSubagentsReviewerOrchestrationText(out io.Writer, orchestration subagents.ReviewerOrchestrationPlan, targetLane string) error {
 	if _, err := fmt.Fprintf(out, "plan-subagents reviewer orchestration：mode=%s targetLane=%s reviewers=%d maxParallel=%d resultRoot=%s\n", orchestration.Mode, targetLane, orchestration.ReviewerCount, orchestration.MaxParallel, orchestration.ResultRoot); err != nil {
 		return err
 	}
 	if err := writePlanSubagentsReviewerOrchestrationSummaryText(out, orchestration.Summary); err != nil {
+		return err
+	}
+	if err := writePlanSubagentsManagedDispatchPacketText(out, orchestration.ManagedDispatchPacket); err != nil {
 		return err
 	}
 	if strings.TrimSpace(orchestration.Scope) != "" || strings.TrimSpace(orchestration.PacketPath) != "" {
