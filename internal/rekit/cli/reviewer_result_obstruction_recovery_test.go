@@ -297,6 +297,75 @@ func TestRunPlanSubagentsReviewerResultRecoveryDispositionCaseLocalE2E(t *testin
 	}
 
 	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var disposedStatus struct {
+		CaseMission struct {
+			ReviewerDispatchIntakeHandoffs    []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
+			ReviewerDispatchIntakeSummary     reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+			ReviewerDispatchIntakeActionQueue missionCommanderActionQueueSnapshot  `json:"reviewerDispatchIntakeActionQueue"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &disposedStatus); err != nil {
+		t.Fatalf("disposed status JSON did not decode: %v\n%s", err, out.String())
+	}
+	if len(disposedStatus.CaseMission.ReviewerDispatchIntakeHandoffs) != 1 {
+		t.Fatalf("disposed status handoff count = %d, want 1: %+v", len(disposedStatus.CaseMission.ReviewerDispatchIntakeHandoffs), disposedStatus.CaseMission)
+	}
+	disposedItem := disposedStatus.CaseMission.ReviewerDispatchIntakeHandoffs[0]
+	disposedSummary := disposedStatus.CaseMission.ReviewerDispatchIntakeSummary
+	disposedCurrent := disposedStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentAction
+	if disposedItem.State != "reviewer-result-recovery-disposed-ready-for-collection-preview" || disposedItem.ReviewerResultRecoveryDispositionPath != dispositionApplied.DispositionPath || disposedItem.ReviewerResultCollectionCommands == nil || !strings.Contains(disposedItem.ReviewerResultCollectionCommands.PreviewCommand, "-CollectReviewerResult") || !containsSubstring(disposedItem.RunbookSteps, "recovery disposition is current") || !containsSubstring(disposedItem.Evidence, "reviewerResultRecoveryDisposition current") || disposedSummary.NextActionState != "reviewer-result-recovery-disposed-ready-for-collection-preview" || !strings.Contains(disposedSummary.NextAction, "-CollectReviewerResult") || disposedCurrent == nil || disposedCurrent.Blocked || disposedCurrent.State != "reviewer-result-recovery-disposed-ready-for-collection-preview" || !strings.Contains(disposedCurrent.Command, "-CollectReviewerResult") {
+		t.Fatalf("disposed status omitted collection continuation: item=%+v summary=%+v current=%+v", disposedItem, disposedSummary, disposedCurrent)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if text := out.String(); !strings.Contains(text, "reviewer-result-recovery-disposed-ready-for-collection-preview") || !strings.Contains(text, "-CollectReviewerResult") || !strings.Contains(text, "reviewerResultRecoveryDisposition current") {
+		t.Fatalf("disposed status text omitted collection continuation: %s", text)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	disposedHandoff := decodeHandoffResult(t, out.Bytes())
+	if !disposedHandoff.Project || !disposedHandoff.Applied || disposedHandoff.ReviewerDispatchIntakeSummary.NextActionState != "reviewer-result-recovery-disposed-ready-for-collection-preview" || disposedHandoff.MissionCommanderActionQueue.CurrentAction == nil || disposedHandoff.MissionCommanderActionQueue.CurrentAction.State != "reviewer-result-recovery-disposed-ready-for-collection-preview" || !strings.Contains(disposedHandoff.MissionCommanderActionQueue.CurrentAction.Command, "-CollectReviewerResult") {
+		t.Fatalf("disposed project handoff omitted collection continuation: %+v", disposedHandoff)
+	}
+	latestProjectHandoff := assertStartWrite(t, disposedHandoff.Writes, ".rekit/handovers/latest.md", "write-latest-project-handoff")
+	latestProjectHandoffText, err := os.ReadFile(latestProjectHandoff.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"reviewer-result-recovery-disposed-ready-for-collection-preview", "reviewerResultRecoveryDisposition current", "-CollectReviewerResult"} {
+		if !bytes.Contains(latestProjectHandoffText, []byte(expected)) {
+			t.Fatalf("disposed project handoff text omitted %q:\n%s", expected, string(latestProjectHandoffText))
+		}
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "review", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var disposedContinue struct {
+		Blocked                       bool                                 `json:"blocked"`
+		ReviewerDispatchIntakeSummary reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+		MissionCommanderActionQueue   missionCommanderActionQueueSnapshot  `json:"missionCommanderActionQueue"`
+		NextSteps                     []string                             `json:"nextSteps"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &disposedContinue); err != nil {
+		t.Fatalf("disposed continue JSON did not decode: %v\n%s", err, out.String())
+	}
+	continueCurrent := disposedContinue.MissionCommanderActionQueue.CurrentAction
+	if !disposedContinue.Blocked || disposedContinue.ReviewerDispatchIntakeSummary.NextActionState != "reviewer-result-recovery-disposed-ready-for-collection-preview" || continueCurrent == nil || continueCurrent.Blocked || continueCurrent.State != "reviewer-result-recovery-disposed-ready-for-collection-preview" || !strings.Contains(continueCurrent.Command, "-CollectReviewerResult") || !containsSubstring(disposedContinue.NextSteps, "-CollectReviewerResult") {
+		t.Fatalf("disposed continue preview omitted collection continuation: preview=%+v current=%+v", disposedContinue, continueCurrent)
+	}
+
+	out.Reset()
 	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-CollectReviewerResult", "-ShardId", handoff.ShardID, "-Lane", "feature-review", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}

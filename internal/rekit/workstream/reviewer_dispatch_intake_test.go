@@ -506,12 +506,15 @@ func TestReviewerDispatchIntakeProjectsCandidateCollectionState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	packet.RepoRoot = inst.TemplateRoot
+	packet.Pack = inst.TemplatePack
 	intent := reviewerResultRecoveryRecord{SchemaVersion: 1, Kind: "reviewer-result-recovery", RepoRoot: inst.TemplateRoot, CaseRoot: root, Pack: inst.TemplatePack, PacketID: packet.PacketID, PacketPath: packetPath, ShardID: "shard-01", Lane: "feature-review", CandidatePath: candidatePath, CandidateSHA256: reviewerDispatchBytesSHA256(candidateBytes), CandidateBytes: len(candidateBytes), ReviewerResultPath: resultPath, ReviewerResultKind: "regular-file", ReviewerResultSHA256: resultHash, ReviewerResultBytes: len(quarantined), QuarantinePath: quarantinePath, Actor: "mission-commander", Reason: "recover conflict", CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), NoVerdict: true, NoFacts: true, NoHeavyTool: true, NoAuthority: true}
 	intentBytes, err := json.Marshal(intent)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(resultRoot, "recoveries", "shard-01.recovery.intent.json"), append(intentBytes, '\n'), 0o600); err != nil {
+	intentFileBytes := append(append([]byte{}, intentBytes...), '\n')
+	if err := os.WriteFile(filepath.Join(resultRoot, "recoveries", "shard-01.recovery.intent.json"), intentFileBytes, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Remove(resultPath); err != nil {
@@ -527,6 +530,26 @@ func TestReviewerDispatchIntakeProjectsCandidateCollectionState(t *testing.T) {
 	reappeared := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, packetPath, "feature-review", dispatch, 0)
 	if reappeared.State != "reviewer-result-recovery-ambiguous" || reappeared.ReviewerResultRecoveryApplyCommand != "" || reappeared.ReviewerResultRecoveryDispositionCommand == "" || !strings.Contains(reviewerDispatchIntakeNextAction(reappeared), "-RetireReviewerResultRecovery") {
 		t.Fatalf("reappeared canonical result did not promote disposition preview: %+v", reappeared)
+	}
+	dispositionPath := filepath.Join(resultRoot, "recoveries", "shard-01.recovery.disposition.json")
+	disposition := reviewerResultRecoveryDispositionRecord{SchemaVersion: 1, Kind: "reviewer-result-recovery-disposition", Decision: "retain-canonical", RepoRoot: inst.TemplateRoot, CaseRoot: root, Pack: inst.TemplatePack, PacketID: packet.PacketID, PacketPath: packetPath, ShardID: "shard-01", Lane: "feature-review", CandidatePath: candidatePath, CandidateSHA256: reviewerDispatchBytesSHA256(candidateBytes), CandidateBytes: len(candidateBytes), ReviewerResultPath: resultPath, CanonicalSHA256: reviewerDispatchBytesSHA256(candidateBytes), CanonicalBytes: len(candidateBytes), IntentPath: filepath.Join(resultRoot, "recoveries", "shard-01.recovery.intent.json"), IntentSHA256: reviewerDispatchBytesSHA256(intentFileBytes), IntentBytes: len(intentFileBytes), QuarantinePath: quarantinePath, Actor: "mission-commander", Reason: "retain restored canonical reviewer result", CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), NoDelete: true, NoFacts: true, NoHeavyTool: true, NoAuthority: true}
+	dispositionBytes, err := json.Marshal(disposition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dispositionPath, append(dispositionBytes, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	disposed := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, packetPath, "feature-review", dispatch, 0)
+	if disposed.State != "reviewer-result-recovery-disposed-ready-for-collection-preview" || disposed.ReviewerResultRecoveryDispositionPath != dispositionPath || disposed.ReviewerResultCollectionCommands == nil || reviewerDispatchIntakeNextAction(disposed) != disposed.ReviewerResultCollectionCommands.PreviewCommand || !slices.ContainsFunc(disposed.Evidence, func(line string) bool { return strings.Contains(line, "reviewerResultRecoveryDisposition current") }) || !slices.ContainsFunc(disposed.RunbookSteps, func(line string) bool { return strings.Contains(line, "recovery disposition is current") }) {
+		t.Fatalf("current recovery disposition did not advance to collection preview: %+v", disposed)
+	}
+	actions = MissionCommanderNextActionsWithReviewerDispatches(nil, []ReviewerDispatchIntakeHandoff{disposed})
+	if len(actions) != 1 || actions[0].Blocked || actions[0].State != "reviewer-result-recovery-disposed-ready-for-collection-preview" || actions[0].Command != disposed.ReviewerResultCollectionCommands.PreviewCommand {
+		t.Fatalf("disposed recovery collection continuation was not actionable: %+v", actions)
+	}
+	if err := os.Remove(dispositionPath); err != nil {
+		t.Fatal(err)
 	}
 	if err := os.Remove(resultPath); err != nil {
 		t.Fatal(err)
@@ -545,7 +568,7 @@ func TestReviewerDispatchIntakeProjectsCandidateCollectionState(t *testing.T) {
 	if len(actions) != 1 || actions[0].Blocked || actions[0].Command != interrupted.ReviewerResultRecoveryApplyCommand || !strings.Contains(actions[0].Command, "-Actor mission-commander") || !strings.Contains(actions[0].Command, "-Reason \"recover conflict\"") {
 		t.Fatalf("interrupted recovery finalize was not exact and actionable: %+v", actions)
 	}
-	if err := os.WriteFile(filepath.Join(resultRoot, "recoveries", "shard-01.recovery.json"), append(append([]byte{}, intentBytes...), '\n'), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(resultRoot, "recoveries", "shard-01.recovery.json"), intentFileBytes, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	committed := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, packetPath, "feature-review", dispatch, 0)

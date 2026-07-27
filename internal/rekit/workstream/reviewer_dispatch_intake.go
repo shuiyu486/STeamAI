@@ -487,7 +487,7 @@ func reviewerDispatchPacketProgress(items []ReviewerDispatchIntakeHandoff) revie
 		switch item.State {
 		case "waiting-for-reviewer-result", "dispatch-only-waiting-for-result":
 			progress.WaitingForReviewerResult++
-		case "ready-for-reviewer-result-source-capture-preview", "ready-for-reviewer-result-staging-preview", "ready-for-reviewer-result-collection-preview", "ready-for-reviewer-intake-preview":
+		case "ready-for-reviewer-result-source-capture-preview", "ready-for-reviewer-result-staging-preview", "ready-for-reviewer-result-collection-preview", "reviewer-result-recovery-disposed-ready-for-collection-preview", "ready-for-reviewer-intake-preview":
 			progress.ReadyForPreview++
 		case "reviewer-packet-owner-adoption-required":
 			progress.AttachRequired++
@@ -521,7 +521,7 @@ func MissionCommanderNextActionsWithReviewerDispatches(base []mission.MissionCom
 	for _, packetID := range packetOrder {
 		handoff := packetRepresentatives[packetID]
 		state := handoff.State
-		blocked := state != "ready-for-reviewer-result-source-capture-preview" && state != "ready-for-reviewer-result-staging-preview" && state != "ready-for-reviewer-result-collection-preview" && state != "ready-for-reviewer-intake-preview" && state != "reviewer-packet-owner-adoption-required" && state != "reviewer-result-recovery-required" && state != "reviewer-result-recovery-finalize-required" && !(state == "reviewer-result-recovery-ambiguous" && handoff.ReviewerResultRecoveryDispositionCommand != "") && !((state == "reviewer-dispatch-prompt-artifact-invalid" || state == "reviewer-dispatch-prompt-artifact-drift") && handoff.DispatchPromptRepairCommand != "")
+		blocked := state != "ready-for-reviewer-result-source-capture-preview" && state != "ready-for-reviewer-result-staging-preview" && state != "ready-for-reviewer-result-collection-preview" && state != "reviewer-result-recovery-disposed-ready-for-collection-preview" && state != "ready-for-reviewer-intake-preview" && state != "reviewer-packet-owner-adoption-required" && state != "reviewer-result-recovery-required" && state != "reviewer-result-recovery-finalize-required" && !(state == "reviewer-result-recovery-ambiguous" && handoff.ReviewerResultRecoveryDispositionCommand != "") && !((state == "reviewer-dispatch-prompt-artifact-invalid" || state == "reviewer-dispatch-prompt-artifact-drift") && handoff.DispatchPromptRepairCommand != "")
 		packetActions = append(packetActions, mission.MissionCommanderNextActionItem{
 			Lane:           handoff.TargetLane,
 			Label:          packetID,
@@ -581,7 +581,7 @@ func reviewerDispatchActionPriority(item ReviewerDispatchIntakeHandoff) int {
 		return 0
 	case "reviewer-packet-integrity-invalid", "reviewer-dispatch-prompt-artifact-invalid", "reviewer-dispatch-prompt-artifact-drift", "reviewer-result-symlink-blocked", "reviewer-result-input-invalid", "reviewer-result-source-invalid", "reviewer-result-candidate-invalid", "reviewer-result-canonical-invalid", "reviewer-result-collection-required", "reviewer-result-recovery-invalid", "reviewer-result-recovery-ambiguous", "attach-required-before-reviewer-intake":
 		return 1
-	case "reviewer-result-recovery-required", "reviewer-result-recovery-finalize-required", "ready-for-reviewer-result-source-capture-preview", "ready-for-reviewer-result-staging-preview", "ready-for-reviewer-result-collection-preview", "ready-for-reviewer-intake-preview":
+	case "reviewer-result-recovery-required", "reviewer-result-recovery-finalize-required", "ready-for-reviewer-result-source-capture-preview", "ready-for-reviewer-result-staging-preview", "ready-for-reviewer-result-collection-preview", "reviewer-result-recovery-disposed-ready-for-collection-preview", "ready-for-reviewer-intake-preview":
 		return 2
 	default:
 		return 3
@@ -612,7 +612,7 @@ func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) Rev
 		switch item.State {
 		case "waiting-for-reviewer-result", "dispatch-only-waiting-for-result":
 			summary.WaitingForReviewerResult++
-		case "ready-for-reviewer-result-source-capture-preview", "ready-for-reviewer-result-staging-preview", "ready-for-reviewer-result-collection-preview", "ready-for-reviewer-intake-preview":
+		case "ready-for-reviewer-result-source-capture-preview", "ready-for-reviewer-result-staging-preview", "ready-for-reviewer-result-collection-preview", "reviewer-result-recovery-disposed-ready-for-collection-preview", "ready-for-reviewer-intake-preview":
 			summary.ReadyForPreview++
 		}
 		if item.State == "attach-required-before-reviewer-intake" || item.State == "reviewer-packet-owner-adoption-required" {
@@ -1343,6 +1343,7 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 					state = "reviewer-result-recovery-invalid"
 					return
 				}
+				state = "reviewer-result-recovery-disposed-ready-for-collection-preview"
 				return
 			} else if dispositionState != refsf.RegularFileMissing {
 				state = "reviewer-result-recovery-invalid"
@@ -1359,7 +1360,7 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 	if !verificationRecorded && !decisionRecorded {
 		projectRecoveryState()
 	}
-	recoveryProjected := state == "reviewer-result-recovery-invalid" || state == "reviewer-result-recovery-ambiguous" || state == "reviewer-result-recovery-finalize-required" || state == "reviewer-result-collection-required"
+	recoveryProjected := state == "reviewer-result-recovery-invalid" || state == "reviewer-result-recovery-ambiguous" || state == "reviewer-result-recovery-finalize-required" || state == "reviewer-result-recovery-disposed-ready-for-collection-preview" || state == "reviewer-result-collection-required"
 	if !recoveryProjected && !present && resultState == refsf.RegularFileWaiting && candidatePath != "" {
 		state = "reviewer-result-canonical-invalid"
 		if reviewerResultObstructionRecoverable(resultPath) {
@@ -1647,6 +1648,9 @@ func reviewerDispatchIntakeEvidence(caseRoot string, item ReviewerDispatchIntake
 		}
 		evidence = append(evidence, "reviewerResult "+state+" "+reviewerDispatchDisplayPath(caseRoot, item.ReviewerResultPath))
 	}
+	if strings.TrimSpace(item.ReviewerResultRecoveryDispositionPath) != "" {
+		evidence = append(evidence, "reviewerResultRecoveryDisposition current "+reviewerDispatchDisplayPath(caseRoot, item.ReviewerResultRecoveryDispositionPath))
+	}
 	if item.VerificationRecorded {
 		evidence = append(evidence, "verification writeback already recorded")
 	}
@@ -1746,7 +1750,10 @@ func reviewerDispatchIntakeRunbookSteps(item ReviewerDispatchIntakeHandoff) []st
 		if item.ReviewerResultCollectionCommands != nil {
 			add("then run collection preview before apply: " + item.ReviewerResultCollectionCommands.PreviewCommand)
 		}
-	case "ready-for-reviewer-result-collection-preview":
+	case "ready-for-reviewer-result-collection-preview", "reviewer-result-recovery-disposed-ready-for-collection-preview":
+		if item.State == "reviewer-result-recovery-disposed-ready-for-collection-preview" {
+			add("reviewer result recovery disposition is current at " + firstText(item.ReviewerResultRecoveryDispositionPath, "<reviewer-result-recovery-disposition-path>"))
+		}
 		if item.ReviewerResultCollectionCommands != nil {
 			add("run reviewer result collection preview: " + item.ReviewerResultCollectionCommands.PreviewCommand)
 			add("if candidate bytes match the packet-derived result, run collection apply: " + item.ReviewerResultCollectionCommands.ApplyCommand)
@@ -1837,7 +1844,7 @@ func reviewerDispatchIntakeNextAction(item ReviewerDispatchIntakeHandoff) string
 		return firstText(item.ReviewerResultRecoveryDispositionCommand, "review the canonical reviewer result and exact quarantine for "+item.ShardID+"; runtime cannot prove they are the same filesystem object")
 	case "ready-for-reviewer-result-staging-preview":
 		return firstText(item.ReviewerResultStagingCommand, "run reviewer result staging -WhatIf for "+item.ShardID)
-	case "ready-for-reviewer-result-collection-preview":
+	case "ready-for-reviewer-result-collection-preview", "reviewer-result-recovery-disposed-ready-for-collection-preview":
 		if item.ReviewerResultCollectionCommands != nil {
 			return firstText(item.ReviewerResultCollectionCommands.PreviewCommand, "run reviewer result collection -WhatIf for "+item.ShardID)
 		}
