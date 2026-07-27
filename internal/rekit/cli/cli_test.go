@@ -140,6 +140,59 @@ func TestStatusMissionCommanderFirstScreenFocusUsesCrossSubsystemPriority(t *tes
 	}
 }
 
+func TestStatusProjectHandoffNextBatchCandidateDomainsOnlyAfterCompleteCadence(t *testing.T) {
+	complete := buildStatusProjectHandoff(releasecheck.ReleaseHandoff{
+		Ready:   true,
+		Summary: "release handoff summary ok",
+		LatestBatch: releasecheck.ReleaseHandoffLatestBatch{
+			BatchID: "Batch 681",
+			Handoff: releasecheck.ReleaseHandoffLatestBatchHandoff{
+				LocalValidationReady: true,
+				ReleaseCheckReady:    true,
+				RemoteReleaseGate:    "blocked: completed failure with jobs steps=[]",
+				ReleaseInspectionCadence: releasecheck.ReleaseHandoffReleaseInspectionCadence{
+					State:                     "complete",
+					ImplementationCommitReady: true,
+					InspectionCommitReady:     true,
+					Boundary:                  []string{"do not add a third record commit"},
+				},
+			},
+		},
+		PackMemoryCandidates: releasecheck.ReleaseHandoffPackMemoryCandidateList{Ready: true, Summary: "pack-memory candidate inventory ok", NextAction: "no pack-memory candidate cleanup is pending"},
+	})
+	if complete.MissionCommanderActionQueue.CurrentAction == nil || complete.MissionCommanderActionQueue.CurrentAction.ActionID != "next-batch-selection" || complete.MissionCommanderActionQueue.Counts.Total != 8 || complete.MissionCommanderActionQueue.Counts.FollowUp != 7 {
+		t.Fatalf("complete cadence should expose current next-batch selection plus candidate-domain follow-ups: %+v", complete.MissionCommanderActionQueue)
+	}
+	if !slices.ContainsFunc(complete.MissionCommanderNextActions, func(item mission.MissionCommanderNextActionItem) bool {
+		return item.ActionID == "next-batch-pack-memory-ux" && containsSubstring(item.Reasons, "pack-memory candidate queue is closed: no pack-memory candidate cleanup is pending") && containsSubstring(item.Boundary, "candidate-domain follow-ups are selection guidance only")
+	}) {
+		t.Fatalf("complete cadence next-batch candidate domains omitted product-path guidance: %+v", complete.MissionCommanderNextActions)
+	}
+
+	incomplete := buildStatusProjectHandoff(releasecheck.ReleaseHandoff{
+		Ready:   true,
+		Summary: "release handoff summary ok",
+		LatestBatch: releasecheck.ReleaseHandoffLatestBatch{
+			BatchID: "Batch 682",
+			Handoff: releasecheck.ReleaseHandoffLatestBatchHandoff{
+				LocalValidationReady: false,
+				ReleaseCheckReady:    false,
+				NextAction:           "run the full local release minimum before handoff",
+				ReleaseInspectionCadence: releasecheck.ReleaseHandoffReleaseInspectionCadence{
+					State:      "implementation-pending",
+					NextAction: "run the full local release minimum before handoff",
+				},
+			},
+		},
+		PackMemoryCandidates: releasecheck.ReleaseHandoffPackMemoryCandidateList{Ready: true, Summary: "pack-memory candidate inventory ok", NextAction: "no pack-memory candidate cleanup is pending"},
+	})
+	if incomplete.MissionCommanderActionQueue.CurrentAction == nil || incomplete.MissionCommanderActionQueue.CurrentAction.Source != "releaseHandoffLatestBatch" || incomplete.MissionCommanderActionQueue.Counts.Total != 1 || incomplete.MissionCommanderActionQueue.Counts.FollowUp != 0 || slices.ContainsFunc(incomplete.MissionCommanderNextActions, func(item mission.MissionCommanderNextActionItem) bool {
+		return item.ActionID == "next-batch-pack-memory-ux"
+	}) {
+		t.Fatalf("incomplete cadence should keep latest-batch action without candidate-domain follow-ups: %+v actions=%+v", incomplete.MissionCommanderActionQueue, incomplete.MissionCommanderNextActions)
+	}
+}
+
 func TestStatusProjectHandoffUsesPackMemoryLifecyclePriority(t *testing.T) {
 	packCandidates := releasecheck.ReleaseHandoffPackMemoryCandidateList{
 		Ready:   false,
@@ -758,15 +811,27 @@ func TestRunStatusJsonKit(t *testing.T) {
 	if projectCurrent != nil && status.ProjectHandoff.ReleaseInspectionCadence.State == "complete" && strings.Contains(projectCurrent.Command, "run the full local release minimum") {
 		t.Fatalf("completed release-run batch should not repeat local validation as current action: %+v", projectCurrent)
 	}
-	if projectCurrent == nil || status.ProjectHandoff.MissionCommanderActionQueue.Counts.Total != 1 || status.ProjectHandoff.MissionCommanderActionQueue.Counts.Unblocked != 1 || status.ProjectHandoff.MissionCommanderActionQueue.Counts.Blocked != 0 || len(status.ProjectHandoff.MissionCommanderNextActions) != 1 {
+	if projectCurrent == nil || status.ProjectHandoff.MissionCommanderActionQueue.Counts.Unblocked != status.ProjectHandoff.MissionCommanderActionQueue.Counts.Total || status.ProjectHandoff.MissionCommanderActionQueue.Counts.Blocked != 0 {
 		t.Fatalf("project handoff omitted structured current action queue: current=%+v queue=%+v actions=%+v latest=%q", projectCurrent, status.ProjectHandoff.MissionCommanderActionQueue, status.ProjectHandoff.MissionCommanderNextActions, status.ProjectHandoff.LatestNextAction)
 	}
 	if status.ProjectHandoff.ReleaseInspectionCadence.State == "complete" {
+		if status.ProjectHandoff.MissionCommanderActionQueue.Counts.Total != 8 || len(status.ProjectHandoff.MissionCommanderNextActions) != 8 {
+			t.Fatalf("completed next-batch handoff should expose current action plus candidate-domain follow-ups: queue=%+v actions=%+v", status.ProjectHandoff.MissionCommanderActionQueue, status.ProjectHandoff.MissionCommanderNextActions)
+		}
 		if !strings.Contains(projectCurrent.Command, "select the next Windows-verifiable product-path closure") || projectCurrent.Source != "releaseHandoffNextBatch" || projectCurrent.ActionID != "next-batch-selection" || projectCurrent.State != "ready-for-next-batch-selection" || projectCurrent.Label != "next-batch" || projectCurrent.RequiresReview || status.ProjectHandoff.MissionCommanderActionQueue.Counts.RequiresReview != 0 {
 			t.Fatalf("completed release inspection cadence should point project current action at next-batch selection: current=%+v queue=%+v", projectCurrent, status.ProjectHandoff.MissionCommanderActionQueue)
 		}
 		if action := status.ProjectHandoff.MissionCommanderNextActions[0]; action.ActionID != "next-batch-selection" || action.Source != "releaseHandoffNextBatch" || len(action.Reasons) == 0 || len(action.Boundary) == 0 || !containsSubstring(action.Reasons, "ready for the next Windows-verifiable product-path batch") || !containsSubstring(action.Boundary, "avoid single-field") {
 			t.Fatalf("project handoff structured next-batch action omitted reasons/boundary: %+v", action)
+		}
+		wantDomains := []string{"next-batch-mission-commander-operational-closure", "next-batch-replacement-executor-takeover", "next-batch-reviewer-orchestration-closure", "next-batch-authorized-execution-evidence", "next-batch-adapter-live-validation", "next-batch-pack-memory-ux", "next-batch-go-native-product-path"}
+		for _, want := range wantDomains {
+			if !statusProjectHandoffNextActionIDContains(status.ProjectHandoff.MissionCommanderNextActions, want) {
+				t.Fatalf("project handoff next-batch candidate domains missing %q: %+v", want, status.ProjectHandoff.MissionCommanderNextActions)
+			}
+		}
+		if !statusProjectHandoffNextActionReasonContains(status.ProjectHandoff.MissionCommanderNextActions, "pack-memory candidate queue is closed: no pack-memory candidate cleanup is pending") || !statusProjectHandoffNextActionBoundaryContains(status.ProjectHandoff.MissionCommanderNextActions, "candidate-domain follow-ups are selection guidance only") {
+			t.Fatalf("project handoff next-batch candidates omitted closed-state evidence or selection boundary: %+v", status.ProjectHandoff.MissionCommanderNextActions)
 		}
 	} else if projectCurrent.Source != "releaseHandoffLatestBatch" || projectCurrent.Command != status.ProjectHandoff.LatestNextAction || projectCurrent.Label != status.ProjectHandoff.LatestBatch || status.ProjectHandoff.MissionCommanderActionQueue.Counts.RequiresReview != 1 {
 		t.Fatalf("in-progress latest batch should keep latest-batch release handoff action: current=%+v queue=%+v latest=%q", projectCurrent, status.ProjectHandoff.MissionCommanderActionQueue, status.ProjectHandoff.LatestNextAction)
@@ -818,7 +883,6 @@ func TestRunStatusJsonKit(t *testing.T) {
 	commonStatusTextExpected := []string{
 		"status Mission Commander first screen：focus=project-current-action",
 		"status Mission Commander first screen routing：focus=project-current-action reason=case, reviewer, and pack-memory focus queues are empty or lower priority",
-		"status project handoff current action queue：total=1 unblocked=1 blocked=0",
 		"latestStatus=",
 		"localValidationReady=",
 		"status latest batch remote gate：state=",
@@ -840,6 +904,7 @@ func TestRunStatusJsonKit(t *testing.T) {
 	if status.ProjectHandoff.ReleaseInspectionCadence.State == "complete" {
 		projectActionTextExpected = []string{
 			"status project handoff：summary=release handoff summary ok ready=true latestBatch=Batch ",
+			"status project handoff current action queue：total=8 unblocked=8 blocked=0",
 			"status latest batch validation：",
 			"status Mission Commander current action：scope=focus-project lane= label=next-batch state=ready-for-next-batch-selection source=releaseHandoffNextBatch blocked=false requiresReview=false command=select the next Windows-verifiable product-path closure",
 			"status Mission Commander focus action reason：scope=project reason=latest batch release inspection cadence is complete",
@@ -851,10 +916,16 @@ func TestRunStatusJsonKit(t *testing.T) {
 			"status project handoff current action queue action：bucket=current lane= label=next-batch state=ready-for-next-batch-selection source=releaseHandoffNextBatch blocked=false requiresReview=false command=select the next Windows-verifiable product-path closure",
 			"status project handoff current action queue action reason：bucket=current lane= reason=latest batch release inspection cadence is complete",
 			"status project handoff current action queue action boundary：bucket=current lane= boundary=avoid single-field, summary, text, or handoff projection micro-batches; choose an operational closure with runtime or product-path verification",
+			"status Mission Commander focus project next-batch candidate：label=mission-commander actionId=next-batch-mission-commander-operational-closure state=next-batch-candidate-domain",
+			"status Mission Commander focus project next-batch candidate reason：label=pack-memory-ux reason=pack-memory candidate queue is closed: no pack-memory candidate cleanup is pending",
+			"status Mission Commander focus project next-batch candidate boundary：label=pack-memory-ux boundary=candidate-domain follow-ups are selection guidance only",
+			"status project handoff current action queue action：bucket=followUp lane= label=pack-memory-ux state=next-batch-candidate-domain source=releaseHandoffNextBatch.followUp.candidateDomain blocked=false requiresReview=false command=select a pack-memory UX slice",
+			"status project handoff current action queue action reason：bucket=followUp lane= reason=pack-memory candidate queue is closed: no pack-memory candidate cleanup is pending",
 		}
 	} else {
 		projectActionTextExpected = []string{
 			fmt.Sprintf("status project handoff：summary=%s ready=%t latestBatch=Batch ", status.ProjectHandoff.Summary, status.ProjectHandoff.Ready),
+			"status project handoff current action queue：total=1 unblocked=1 blocked=0",
 			"status Mission Commander current action：scope=focus-project lane= label=Batch ",
 			"source=releaseHandoffLatestBatch blocked=false requiresReview=",
 			"status Mission Commander focus action reason：scope=project reason=latest batch next action is recorded in the release handoff",
@@ -18026,6 +18097,60 @@ func cliNextActionContainsSource(items []missionCommanderNextActionItem, want st
 }
 
 func cliNextActionBoundaryContains(items []missionCommanderNextActionItem, want string) bool {
+	for _, item := range items {
+		if containsSubstring(item.Boundary, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func statusProjectHandoffNextActionIDContains(items []struct {
+	Label          string   `json:"label"`
+	ActionID       string   `json:"actionId"`
+	State          string   `json:"state"`
+	Source         string   `json:"source"`
+	Command        string   `json:"command"`
+	RequiresReview bool     `json:"requiresReview"`
+	Reasons        []string `json:"reasons"`
+	Boundary       []string `json:"boundary"`
+}, want string) bool {
+	for _, item := range items {
+		if strings.Contains(item.ActionID, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func statusProjectHandoffNextActionReasonContains(items []struct {
+	Label          string   `json:"label"`
+	ActionID       string   `json:"actionId"`
+	State          string   `json:"state"`
+	Source         string   `json:"source"`
+	Command        string   `json:"command"`
+	RequiresReview bool     `json:"requiresReview"`
+	Reasons        []string `json:"reasons"`
+	Boundary       []string `json:"boundary"`
+}, want string) bool {
+	for _, item := range items {
+		if containsSubstring(item.Reasons, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func statusProjectHandoffNextActionBoundaryContains(items []struct {
+	Label          string   `json:"label"`
+	ActionID       string   `json:"actionId"`
+	State          string   `json:"state"`
+	Source         string   `json:"source"`
+	Command        string   `json:"command"`
+	RequiresReview bool     `json:"requiresReview"`
+	Reasons        []string `json:"reasons"`
+	Boundary       []string `json:"boundary"`
+}, want string) bool {
 	for _, item := range items {
 		if containsSubstring(item.Boundary, want) {
 			return true

@@ -2782,6 +2782,9 @@ func writeStatusMissionCommanderFirstScreenText(out io.Writer, caseMission *stat
 			if err := writeStatusMissionCommanderFirstScreenProjectRunbookText(out, projectHandoff, projectCurrent); err != nil {
 				return err
 			}
+			if err := writeStatusMissionCommanderFirstScreenProjectNextBatchCandidateText(out, projectHandoff, projectCurrent); err != nil {
+				return err
+			}
 		}
 	}
 	if caseCurrent != nil {
@@ -2995,6 +2998,18 @@ func statusPackMemoryCurrentActionNeedsAttention(projectHandoff *statusProjectHa
 	return !candidates.Ready || candidates.Total > 0 || action.Blocked || action.RequiresReview
 }
 
+func statusProjectHandoffMissionCommanderNextActions(projectHandoff *statusProjectHandoff) []mission.MissionCommanderNextActionItem {
+	current := statusProjectHandoffCurrentAction(projectHandoff)
+	if current == nil {
+		return nil
+	}
+	items := []mission.MissionCommanderNextActionItem{*current}
+	if current.Source == "releaseHandoffNextBatch" || current.State == "ready-for-next-batch-selection" {
+		items = append(items, statusProjectHandoffNextBatchCandidateActions(projectHandoff)...)
+	}
+	return mission.UniqueCommanderNextActions(items)
+}
+
 func statusProjectHandoffCurrentAction(projectHandoff *statusProjectHandoff) *mission.MissionCommanderNextActionItem {
 	if projectHandoff == nil {
 		return nil
@@ -3058,6 +3073,110 @@ func statusProjectHandoffReadyForNextBatchSelection(projectHandoff *statusProjec
 	}
 	cadence := projectHandoff.ReleaseInspectionCadence
 	return cadence.State == "complete" && cadence.ImplementationCommitReady && cadence.InspectionCommitReady && !cadence.NewRemoteSignal
+}
+
+func statusProjectHandoffNextBatchCandidateActions(projectHandoff *statusProjectHandoff) []mission.MissionCommanderNextActionItem {
+	if projectHandoff == nil {
+		return nil
+	}
+	reasons := statusProjectHandoffNextBatchCandidateReasons(projectHandoff)
+	boundary := statusProjectHandoffNextBatchCandidateBoundary(projectHandoff)
+	domains := []struct {
+		label    string
+		actionID string
+		command  string
+	}{
+		{
+			label:    "mission-commander",
+			actionID: "next-batch-mission-commander-operational-closure",
+			command:  "select a Mission Commander operational closure slice with status/handoff/continue product-path verification",
+		},
+		{
+			label:    "replacement-executor",
+			actionID: "next-batch-replacement-executor-takeover",
+			command:  "select a replacement executor takeover slice that can be resumed from status or durable handoff without prior chat context",
+		},
+		{
+			label:    "reviewer-orchestration",
+			actionID: "next-batch-reviewer-orchestration-closure",
+			command:  "select a reviewer orchestration slice that improves bounded dispatch, intake, writeback, or recovery without auto-spawning reviewers",
+		},
+		{
+			label:    "authorized-evidence",
+			actionID: "next-batch-authorized-execution-evidence",
+			command:  "select an authorized execution evidence slice that tightens adapter report validation, repair, recording, or acknowledgement handoff",
+		},
+		{
+			label:    "adapter-live-validation",
+			actionID: "next-batch-adapter-live-validation",
+			command:  "select an adapter live validation slice with strict authorized-gate scope and machine-readable repair evidence",
+		},
+		{
+			label:    "pack-memory-ux",
+			actionID: "next-batch-pack-memory-ux",
+			command:  "select a pack-memory UX slice that improves candidate review, verification, cleanup, or reconsume closure without automatic mutation",
+		},
+		{
+			label:    "go-native-product-path",
+			actionID: "next-batch-go-native-product-path",
+			command:  "select a Go-native product-path slice that reduces PowerShell-free or cross-session operational friction with Windows local validation",
+		},
+	}
+	items := make([]mission.MissionCommanderNextActionItem, 0, len(domains))
+	for _, domain := range domains {
+		items = append(items, mission.MissionCommanderNextActionItem{
+			Label:          domain.label,
+			ActionID:       domain.actionID,
+			State:          "next-batch-candidate-domain",
+			Command:        domain.command,
+			Source:         "releaseHandoffNextBatch.followUp.candidateDomain",
+			Blocked:        false,
+			RequiresReview: false,
+			Reasons:        reasons,
+			Boundary:       boundary,
+		})
+	}
+	return items
+}
+
+func statusProjectHandoffNextBatchCandidateReasons(projectHandoff *statusProjectHandoff) []string {
+	reasons := []string{
+		"latest batch release inspection cadence is complete",
+		"candidate domains are offered only after project handoff is ready for next-batch selection",
+	}
+	packCandidates := projectHandoff.PackMemoryCandidates
+	if packCandidates.Ready && packCandidates.Total == 0 && len(packCandidates.Packs) == 0 {
+		if nextAction := strings.TrimSpace(packCandidates.NextAction); nextAction != "" {
+			reasons = append(reasons, "pack-memory candidate queue is closed: "+nextAction)
+		} else {
+			reasons = append(reasons, "pack-memory candidate queue is closed")
+		}
+	} else if strings.TrimSpace(packCandidates.NextAction) != "" {
+		reasons = append(reasons, "pack-memory candidate queue next action: "+packCandidates.NextAction)
+	}
+	if latest := strings.TrimSpace(projectHandoff.LatestBatch); latest != "" {
+		reasons = append(reasons, "latest completed batch: "+latest)
+	}
+	if gate := strings.TrimSpace(projectHandoff.LatestRemoteReleaseGate); gate != "" {
+		reasons = append(reasons, "latest remote release gate: "+gate)
+	}
+	return mission.UniqueStrings(reasons)
+}
+
+func statusProjectHandoffNextBatchCandidateBoundary(projectHandoff *statusProjectHandoff) []string {
+	boundary := []string{
+		"candidate-domain follow-ups are selection guidance only; update docs/batch-plan.md current batch state before implementation",
+		"do not execute reviewer, adapter, pack-memory, gate, or heavy-tool mutations from next-batch selection guidance",
+		"choose one medium product-path closure with focused regressions plus the local release minimum",
+		"do not use candidate-domain follow-ups to justify single-field, summary, or projection-only micro-batches",
+	}
+	if projectHandoff != nil {
+		boundary = append(boundary, projectHandoff.ReleaseInspectionCadence.Boundary...)
+		if detail := projectHandoff.LatestRemoteReleaseGateDetail; detail != nil {
+			boundary = append(boundary, detail.Boundary...)
+		}
+	}
+	return mission.UniqueStrings(boundary)
 }
 
 func statusProjectHandoffNextBatchSelectionAction(projectHandoff *statusProjectHandoff) *mission.MissionCommanderNextActionItem {
@@ -3137,6 +3256,31 @@ func writeStatusMissionCommanderFirstScreenProjectRunbookText(out io.Writer, pro
 	for idx, step := range steps {
 		if _, err := fmt.Fprintf(out, "status Mission Commander focus project runbook：batch=%s state=%s step=%d text=%s\n", current.Label, current.State, idx+1, step); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func writeStatusMissionCommanderFirstScreenProjectNextBatchCandidateText(out io.Writer, projectHandoff *statusProjectHandoff, current *mission.MissionCommanderNextActionItem) error {
+	if projectHandoff == nil || current == nil || current.State != "ready-for-next-batch-selection" {
+		return nil
+	}
+	for _, action := range projectHandoff.MissionCommanderNextActions {
+		if action.Source != "releaseHandoffNextBatch.followUp.candidateDomain" {
+			continue
+		}
+		if _, err := fmt.Fprintf(out, "status Mission Commander focus project next-batch candidate：label=%s actionId=%s state=%s command=%s\n", action.Label, action.ActionID, action.State, action.Command); err != nil {
+			return err
+		}
+		for _, reason := range action.Reasons {
+			if _, err := fmt.Fprintf(out, "status Mission Commander focus project next-batch candidate reason：label=%s reason=%s\n", action.Label, reason); err != nil {
+				return err
+			}
+		}
+		for _, boundary := range action.Boundary {
+			if _, err := fmt.Fprintf(out, "status Mission Commander focus project next-batch candidate boundary：label=%s boundary=%s\n", action.Label, boundary); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -5141,9 +5285,7 @@ func buildStatusProjectHandoff(handoff releasecheck.ReleaseHandoff) *statusProje
 		NextActions:                   append([]string{}, handoff.NextActions...),
 		ValidationCommands:            validationCommands,
 	}
-	if current := statusProjectHandoffCurrentAction(project); current != nil {
-		project.MissionCommanderNextActions = []mission.MissionCommanderNextActionItem{*current}
-	}
+	project.MissionCommanderNextActions = statusProjectHandoffMissionCommanderNextActions(project)
 	project.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(project.MissionCommanderNextActions)
 	return project
 }
