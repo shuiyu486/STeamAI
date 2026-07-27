@@ -10063,6 +10063,40 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 			t.Fatalf("cleanup-pending status text omitted %q:\n%s", expected, out.String())
 		}
 	}
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	cleanupPendingHandoff := decodeHandoffResult(t, out.Bytes())
+	if !cleanupPendingHandoff.Project || !cleanupPendingHandoff.IsMutation || !cleanupPendingHandoff.Applied || cleanupPendingHandoff.MissionCommanderActionQueue.CurrentAction == nil {
+		t.Fatalf("cleanup-pending project handoff omitted durable project action queue: %+v", cleanupPendingHandoff)
+	}
+	handoffCurrent := cleanupPendingHandoff.MissionCommanderActionQueue.CurrentAction
+	if handoffCurrent.ActionID != "pack-memory-verification-provision-required" || handoffCurrent.State != "pack-memory-verification-required" || handoffCurrent.Source != "packMemoryCandidates._template" || handoffCurrent.Command != decisionApplied.Receipt.VerificationProvisionCommand {
+		t.Fatalf("cleanup-pending project handoff did not keep pack-memory verification current: %+v receipt=%+v", handoffCurrent, decisionApplied.Receipt)
+	}
+	if len(cleanupPendingHandoff.MissionCommanderActionQueue.FollowUpActions) == 0 || !cliNextActionContainsSource(cleanupPendingHandoff.MissionCommanderActionQueue.FollowUpActions, "packMemoryCandidates._template.followUp.proof") || !cliNextActionContainsCommand(cleanupPendingHandoff.MissionCommanderActionQueue.FollowUpActions, "-ProofType candidate-cleanup-proof") {
+		t.Fatalf("cleanup-pending project handoff omitted cleanup proof follow-up: %+v", cleanupPendingHandoff.MissionCommanderActionQueue)
+	}
+	if !cliNextActionContainsCommand(cleanupPendingHandoff.MissionCommanderNextActions, "-ProvisionCandidateVerificationCases") || !cliNextActionContainsCommand(cleanupPendingHandoff.MissionCommanderNextActions, "-ProofType candidate-cleanup-proof") {
+		t.Fatalf("cleanup-pending project handoff JSON omitted copyable pack-memory commands: %+v", cleanupPendingHandoff.MissionCommanderNextActions)
+	}
+	latestHandoff := assertStartWrite(t, cleanupPendingHandoff.Writes, ".rekit/handovers/latest.md", "write-latest-project-handoff")
+	handoffText, err := os.ReadFile(latestHandoff.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"## Project Mission Commander action queue",
+		"actionId=pack-memory-verification-provision-required",
+		"actionId=pack-memory-cleanup-proof-required",
+		"source=packMemoryCandidates._template.followUp.proof",
+		"does not replace the current verification action",
+	} {
+		if !bytes.Contains(handoffText, []byte(expected)) {
+			t.Fatalf("cleanup-pending project handoff text omitted %q:\n%s", expected, string(handoffText))
+		}
+	}
 	cleanupProofPath := filepath.Join(candidateRoot, "review-artifacts", "product-path.candidate-cleanup-proof.json")
 	cleanupProofPathArg := filepath.ToSlash(filepath.Join("packs", "_template", "promote-candidates", "review-artifacts", "product-path.candidate-cleanup-proof.json"))
 	out.Reset()

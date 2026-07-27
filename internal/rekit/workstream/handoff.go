@@ -26,7 +26,8 @@ var (
 )
 
 type HandoffOptions struct {
-	Selector string
+	Selector                           string
+	ProjectMissionCommanderNextActions []mission.MissionCommanderNextActionItem
 }
 
 type HandoffResult struct {
@@ -109,14 +110,15 @@ func HandoffApply(repoRoot, caseRoot, pack string, opt HandoffOptions) (result H
 }
 
 type handoffContext struct {
-	inst      instance.Instance
-	manifest  *manifest.Manifest
-	board     board
-	selector  string
-	project   bool
-	lane      *Lane
-	stamp     string
-	handovers string
+	inst                               instance.Instance
+	manifest                           *manifest.Manifest
+	board                              board
+	selector                           string
+	project                            bool
+	lane                               *Lane
+	stamp                              string
+	handovers                          string
+	projectMissionCommanderNextActions []mission.MissionCommanderNextActionItem
 }
 
 func newHandoffContext(repoRoot, caseRoot, pack string, opt HandoffOptions) (handoffContext, error) {
@@ -140,6 +142,9 @@ func newHandoffContext(repoRoot, caseRoot, pack string, opt HandoffOptions) (han
 	}
 	selector := strings.TrimSpace(opt.Selector)
 	ctx := handoffContext{inst: inst, manifest: m, board: b, selector: selector, project: selector == "", stamp: handoffTimestamp()}
+	if ctx.project {
+		ctx.projectMissionCommanderNextActions = mission.UniqueCommanderNextActions(opt.ProjectMissionCommanderNextActions)
+	}
 	ctx.handovers, err = refsf.SafeJoin(inst.CaseRoot, relJoin(".rekit", "handovers"))
 	if err != nil {
 		return handoffContext{}, err
@@ -208,6 +213,9 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 		missionCommanderNext = MissionCommanderNextActionsWithAuthorizedGateAdapters(missionCommanderNext, authorizedGateAdapterHandoffs)
 	}
 	missionCommanderNext = MissionCommanderNextActionsWithReviewerDispatches(missionCommanderNext, reviewerDispatchIntakeHandoffs)
+	if ctx.project && len(ctx.projectMissionCommanderNextActions) > 0 {
+		missionCommanderNext = mission.UniqueCommanderNextActions(append(append([]mission.MissionCommanderNextActionItem{}, ctx.projectMissionCommanderNextActions...), missionCommanderNext...))
+	}
 	missionCommanderActionQueue := mission.MissionCommanderActionQueueFor(missionCommanderNext)
 	next := []string{"use /rekit as the Mission Commander entrypoint; JSON preview/apply is Go-owned by default"}
 	next = append(next, ExecutionEvidenceReviewNextSteps(executionEvidenceReview, includeEvidenceContinue)...)
@@ -601,6 +609,7 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 		return "", nil, err
 	}
 	WriteReviewerDispatchIntakeHandoffSection(&out, "## Reviewer dispatch intake handoff", reviewerDispatchIntakeHandoffs)
+	writeProjectMissionCommanderActionQueue(&out, ctx.projectMissionCommanderNextActions)
 	fmt.Fprintln(&out, "## 工作线")
 	fmt.Fprintln(&out)
 	for _, row := range ctx.board.Lanes {
@@ -670,6 +679,28 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 	}
 	fmt.Fprintln(&out, "- 多工作线时不要使用无参数 `/rekit continue` 盲目继续，应使用 `/rekit continue main` 或 `/rekit continue <name>`。")
 	return out.String(), writes, nil
+}
+
+func writeProjectMissionCommanderActionQueue(out *bytes.Buffer, items []mission.MissionCommanderNextActionItem) {
+	fmt.Fprintln(out, "## Project Mission Commander action queue")
+	fmt.Fprintln(out)
+	queue := mission.MissionCommanderActionQueueFor(items)
+	fmt.Fprintf(out, "- summary: %s\n", queue.Summary)
+	fmt.Fprintf(out, "- counts: total=%d unblocked=%d blocked=%d requiresReview=%d followUp=%d\n", queue.Counts.Total, queue.Counts.Unblocked, queue.Counts.Blocked, queue.Counts.RequiresReview, queue.Counts.FollowUp)
+	if queue.CurrentAction == nil {
+		fmt.Fprintln(out, "- current: none")
+	} else {
+		fmt.Fprintf(out, "- current: %s\n", MissionCommanderNextActionMarkdownLine(*queue.CurrentAction))
+	}
+	if len(items) == 0 {
+		fmt.Fprintln(out, "- next action: none")
+		fmt.Fprintln(out)
+		return
+	}
+	for _, line := range missionCommanderNextActionLines(limitMissionCommanderNextActionItems(items, maxHandoffRows)) {
+		fmt.Fprintf(out, "- next action: %s\n", line)
+	}
+	fmt.Fprintln(out)
 }
 
 func writeProjectLaneNextActions(out *bytes.Buffer, actions []string) {

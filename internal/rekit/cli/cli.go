@@ -6028,11 +6028,15 @@ func runHandoff(ctx runtime.Context, opt Options, out io.Writer) error {
 	if !opt.WhatIf && !opt.Apply && format == "json" {
 		return fmt.Errorf("handoff write requires -Apply; use -WhatIf for preview")
 	}
+	handoffOpt := opt.Handoff
+	if err := bindProjectHandoffPackMemoryActions(ctx.RepoRoot, target, ctx.Pack, &handoffOpt); err != nil {
+		return err
+	}
 	var result workstream.HandoffResult
 	if opt.WhatIf {
-		result, err = workstream.HandoffPreview(ctx.RepoRoot, target, ctx.Pack, opt.Handoff)
+		result, err = workstream.HandoffPreview(ctx.RepoRoot, target, ctx.Pack, handoffOpt)
 	} else {
-		result, err = workstream.HandoffApply(ctx.RepoRoot, target, ctx.Pack, opt.Handoff)
+		result, err = workstream.HandoffApply(ctx.RepoRoot, target, ctx.Pack, handoffOpt)
 	}
 	if err != nil {
 		return err
@@ -6041,6 +6045,23 @@ func runHandoff(ctx runtime.Context, opt Options, out io.Writer) error {
 		return writeJSON(out, result)
 	}
 	return writeHandoffText(out, result)
+}
+
+func bindProjectHandoffPackMemoryActions(repoRoot, target, pack string, opt *workstream.HandoffOptions) error {
+	if opt == nil || strings.TrimSpace(opt.Selector) != "" {
+		return nil
+	}
+	release, err := releasecheck.Build(repoRoot)
+	if err != nil {
+		return err
+	}
+	project := buildStatusProjectHandoff(release.ReleaseHandoff)
+	bindStatusCaseCandidateDecisionDraftHandoffs(project, repoRoot, target, pack)
+	if project == nil || project.PackMemoryCandidates.MissionCommanderActionQueue.Counts.Total == 0 {
+		return nil
+	}
+	opt.ProjectMissionCommanderNextActions = project.PackMemoryCandidates.MissionCommanderNextActions
+	return nil
 }
 
 func runReconcile(ctx runtime.Context, opt Options, out io.Writer) error {
