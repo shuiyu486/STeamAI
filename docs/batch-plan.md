@@ -16,6 +16,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 648：reviewer batch intake continuation closure
+
+状态：已完成 case-local reviewer batch continuation product-path 回归、focused reviewer batch continuation test 与相邻 reviewer CLI/subagents regressions；完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection 待执行。
+
+目标：继续执行端到端能力闭环约束，转向 reviewer orchestration 在 batch-level ready-results writeback 之后的 lane continuation 接手断点。Batch 647 已让 collection Apply 返回 canonical `-ReadyReviewerResults` primaryCommand，并让 batch intake preview/apply/replay 输出 Mission Commander action/queue；但 product-path 尚未证明两个 shard 的 source capture → staging → collection → batch intake Apply 完成后，`status` / Mission Commander 会真正清空 open `reviewerDispatchIntakeHandoffs`，并推进到 label-based lane continuation，而不是仍被已完成 reviewer packet 阻塞或只在 batch intake envelope 内可见。
+
+已实现内容：扩展 `TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath`。测试现在在两个 reviewer shard 都经 capture-first publication、staging、collection 与 packet-level `-ReadyReviewerResults -Apply` 完成后，继续运行 nested `status -Format json`，断言 `reviewerDispatchIntakeHandoffs=[]`、`reviewerDispatchIntakeSummary.total=0`、reviewer writeback summary 聚合 `total=4 / verifications=2 / decisions=2`，Mission Commander current action 进入真实 label command `/rekit continue review`。随后运行 `/rekit continue review -WhatIf` 证明 preview unblocked、requiresConfirmation 且保留 reviewer writeback handoff，再运行 `/rekit continue review -Apply`，断言不改 facts、写入 run `status.json` / `digest.md`、lane `RESUME.md` 与 checkpoint `latest.json`，且这些 durable artifacts 继续保留 `summary total=4`、latest shard/session、closed reviewer dispatch handoff 与 no-heavy/no-spawn boundary。
+
+边界：本批不改变 runtime 语义，不新增 public command，不改变 reviewer packet/result/facts schema，不自动 spawn/monitor reviewer，不自动执行 heavy tool，不写 authority/confirmed，不新增 PowerShell runtime logic；唯一新增能力是把既有 reviewer batch intake 后的 lane continuation closure 锁定到 CLI product-path 回归，确保 replacement executor 可从 batch writeback 后直接继续 label-based lane。
+
+验证结果：focused reviewer batch continuation regression `go test ./internal/rekit/cli -run "TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath" -count=1` 已通过；相邻 reviewer CLI regression `go test ./internal/rekit/cli -run "TestRunPlanSubagents(ReviewerOrchestrationE2E|ReadyReviewerResultsCaseLocalProductPath|ReviewerIntakeCaseLocalProductPath)" -count=1` 已通过；相邻 reviewer subagents regression `go test ./internal/rekit/subagents -run "Test(IntakeReadyReviewerResults|ReviewerResult|CollectReviewerResult|StageReviewerResult)" -count=1` 已通过；完整本机 release minimum 待执行。
+
 ### Batch 647：reviewer batch intake runtime-command handoff closure
 
 状态：已完成 reviewer batch intake Mission Commander runtime envelope、CLI text projection、source capture → staging → collection → batch intake primaryCommand relay E2E、focused reviewer intake regressions、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `6f5471c` 已推送。Push run `30226287360` completed failure，Linux/Windows/macOS jobs `89856894610`/`89856894627`/`89856894645` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。
