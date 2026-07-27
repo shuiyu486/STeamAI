@@ -928,7 +928,10 @@ func TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath(t *testing.T) 
 			t.Fatalf("reviewer staging source path was not packet-derived: %+v", handoff.ReviewerStagingCommands)
 		}
 		sourcePath := handoff.ReviewerStagingCommands.SourcePath
-		inputPath := filepath.Join(caseRoot, "workspace", "reviewer-inputs", handoff.ShardID+".json")
+		inputPath := handoff.ReviewerStagingCommands.SourceCaptureInput
+		if inputPath == "" || inputPath != filepath.Join(filepath.Dir(sourcePath), "..", "inputs", handoff.ShardID+".reviewer-input.json") || !strings.Contains(handoff.ReviewerStagingCommands.SourceCaptureCommand, "-ReviewerResultInputPath") || !strings.Contains(handoff.ReviewerStagingCommands.SourceCaptureCommand, inputPath) || !strings.Contains(handoff.ReviewerStagingCommands.SourceCaptureApply, "-ExpectedReviewerResultInputSha256") {
+			t.Fatalf("reviewer input drop path was not packet-derived: %+v", handoff.ReviewerStagingCommands)
+		}
 		if err := os.MkdirAll(filepath.Dir(inputPath), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -1581,7 +1584,10 @@ func captureReviewerResultSourceForCLIPlan(t *testing.T, out *bytes.Buffer, base
 		t.Fatalf("reviewer staging source path was not packet-derived: %+v", handoff.ReviewerStagingCommands)
 	}
 	sourcePath := handoff.ReviewerStagingCommands.SourcePath
-	inputPath := filepath.Join(filepath.Dir(sourcePath), "..", "inputs", handoff.ShardID+".reviewer-input.json")
+	inputPath := handoff.ReviewerStagingCommands.SourceCaptureInput
+	if inputPath == "" || inputPath != filepath.Join(filepath.Dir(sourcePath), "..", "inputs", handoff.ShardID+".reviewer-input.json") || !strings.Contains(handoff.ReviewerStagingCommands.SourceCaptureCommand, "-ReviewerResultInputPath") || !strings.Contains(handoff.ReviewerStagingCommands.SourceCaptureCommand, inputPath) || !strings.Contains(handoff.ReviewerStagingCommands.SourceCaptureApply, "-ExpectedReviewerResultInputSha256") {
+		t.Fatalf("reviewer input drop path was not packet-derived: %+v", handoff.ReviewerStagingCommands)
+	}
 	if err := os.MkdirAll(filepath.Dir(inputPath), 0o755); err != nil {
 		t.Fatal(err)
 	}

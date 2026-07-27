@@ -137,8 +137,18 @@ func TestReviewerDispatchIntakeRunbookStepsCoverReviewerLifecycle(t *testing.T) 
 	}{
 		{
 			name:  "waiting dispatch",
-			item:  ReviewerDispatchIntakeHandoff{State: "waiting-for-reviewer-result", ShardID: "shard-01", TargetLane: "feature-review", ReviewerResultPath: "results/shard-01.json", ReviewerResultSourcePath: "results/sources/shard-01.json", ReviewerResultSourceCaptureCommand: "capture-preview", ReviewerResultSourceCaptureApplyCommand: "capture-apply", ReviewerResultStagingCommand: "stage-preview", DispatchCommand: "dispatch read-only reviewer for shard-01"},
-			wants: []string{"dispatch read-only reviewer for shard-01", "after saving reviewer JSON input, run source capture preview: capture-preview", "expected input hash", "after source capture publishes reviewerResultSourcePath, run staging preview: stage-preview", "do not continue the lane"},
+			item:  ReviewerDispatchIntakeHandoff{State: "waiting-for-reviewer-result", ShardID: "shard-01", TargetLane: "feature-review", ReviewerResultPath: "results/shard-01.json", ReviewerResultInputPath: "results/inputs/shard-01.reviewer-input.json", ReviewerResultSourcePath: "results/sources/shard-01.json", ReviewerResultSourceCaptureCommand: "capture-preview", ReviewerResultSourceCaptureApplyCommand: "capture-apply", ReviewerResultStagingCommand: "stage-preview", DispatchCommand: "dispatch read-only reviewer for shard-01"},
+			wants: []string{"dispatch read-only reviewer for shard-01", "after saving reviewer JSON input at results/inputs/shard-01.reviewer-input.json", "expected input hash", "after source capture publishes reviewerResultSourcePath, run staging preview: stage-preview", "do not continue the lane"},
+		},
+		{
+			name:  "source capture ready",
+			item:  ReviewerDispatchIntakeHandoff{State: "ready-for-reviewer-result-source-capture-preview", ShardID: "shard-01", ReviewerResultInputPath: "results/inputs/shard-01.reviewer-input.json", ReviewerResultInputState: "ready", ReviewerResultSourcePath: "results/sources/shard-01.json", ReviewerResultSourceCaptureCommand: "capture-preview", ReviewerResultSourceCaptureApplyCommand: "capture-apply", ReviewerResultStagingCommand: "stage-preview"},
+			wants: []string{"reviewer result input is ready at results/inputs/shard-01.reviewer-input.json", "run source capture preview: capture-preview", "-ExpectedReviewerResultInputSha256", "staging preview after reviewerResultSourcePath is ready: stage-preview"},
+		},
+		{
+			name:  "input invalid",
+			item:  ReviewerDispatchIntakeHandoff{State: "reviewer-result-input-invalid", ShardID: "shard-01", ReviewerResultInputPath: "results/inputs/shard-01.reviewer-input.json", ReviewerResultInputState: "invalid", ReviewerResultSourceCaptureCommand: "capture-preview"},
+			wants: []string{"replace the invalid reviewer result input", "results/inputs/shard-01.reviewer-input.json", "rerun source capture preview: capture-preview"},
 		},
 		{
 			name:  "staging ready",
@@ -180,13 +190,15 @@ func TestReviewerDispatchIntakeSummaryProjectsWaitingNextAction(t *testing.T) {
 			TargetLane:                              "feature-review",
 			ShardID:                                 "shard-01",
 			State:                                   "waiting-for-reviewer-result",
+			ReviewerResultInputPath:                 "results/inputs/shard-01.reviewer-input.json",
+			ReviewerResultInputState:                "missing",
 			ReviewerResultSourcePath:                "results/sources/shard-01.json",
 			ReviewerResultSourceState:               "missing",
 			ReviewerResultCandidatePath:             "results/candidates/shard-01.json",
 			ReviewerResultCandidateState:            "missing",
 			AgentToolRequest:                        &ReviewerAgentToolRequest{Tool: "Claude Code Agent", AgentType: "read-only-reviewer", ReadOnly: true, Prompt: "review", ExpectedOutput: "one JSON object"},
-			ReviewerResultSourceCaptureCommand:      "/rekit plan-subagents -CaptureReviewerResultSource -ShardId shard-01 -WhatIf -Format json",
-			ReviewerResultSourceCaptureApplyCommand: "/rekit plan-subagents -CaptureReviewerResultSource -ShardId shard-01 -ExpectedReviewerResultInputSha256 <inputSha256-from-WhatIf> -Apply -Format json",
+			ReviewerResultSourceCaptureCommand:      "/rekit plan-subagents -CaptureReviewerResultSource -ShardId shard-01 -ReviewerResultInputPath results/inputs/shard-01.reviewer-input.json -WhatIf -Format json",
+			ReviewerResultSourceCaptureApplyCommand: "/rekit plan-subagents -CaptureReviewerResultSource -ShardId shard-01 -ReviewerResultInputPath results/inputs/shard-01.reviewer-input.json -ExpectedReviewerResultInputSha256 <inputSha256-from-WhatIf> -Apply -Format json",
 			ReviewerResultStagingCommand:            "/rekit plan-subagents -StageReviewerResult -ShardId shard-01 -WhatIf -Format json",
 			DispatchCommand:                         "dispatch read-only reviewer for shard-01",
 		},
@@ -202,8 +214,8 @@ func TestReviewerDispatchIntakeSummaryProjectsWaitingNextAction(t *testing.T) {
 	}
 
 	summary := ReviewerDispatchIntakeSummaryFor(items)
-	if summary.WaitingForReviewerResult != 2 || summary.LatestShardID != "shard-02" || summary.NextActionShardID != "shard-01" || summary.NextActionState != "waiting-for-reviewer-result" || summary.NextActionReviewerResultSourcePath != "results/sources/shard-01.json" || summary.NextActionReviewerResultCandidatePath != "results/candidates/shard-01.json" || !strings.Contains(summary.NextActionReviewerResultSourceCaptureCommand, "-CaptureReviewerResultSource") || !strings.Contains(summary.NextActionReviewerResultSourceCaptureApplyCommand, "-ExpectedReviewerResultInputSha256") || !strings.Contains(summary.NextActionReviewerResultStagingCommand, "-StageReviewerResult") || !strings.Contains(summary.NextAction, "dispatch read-only reviewer for shard-01") || !slices.ContainsFunc(summary.NextActionRunbookSteps, func(step string) bool {
-		return strings.Contains(step, "after saving reviewer JSON input, run source capture preview")
+	if summary.WaitingForReviewerResult != 2 || summary.LatestShardID != "shard-02" || summary.NextActionShardID != "shard-01" || summary.NextActionState != "waiting-for-reviewer-result" || summary.NextActionReviewerResultInputPath != "results/inputs/shard-01.reviewer-input.json" || summary.NextActionReviewerResultInputState != "missing" || summary.NextActionReviewerResultSourcePath != "results/sources/shard-01.json" || summary.NextActionReviewerResultCandidatePath != "results/candidates/shard-01.json" || !strings.Contains(summary.NextActionReviewerResultSourceCaptureCommand, "-CaptureReviewerResultSource") || !strings.Contains(summary.NextActionReviewerResultSourceCaptureCommand, "-ReviewerResultInputPath results/inputs/shard-01.reviewer-input.json") || !strings.Contains(summary.NextActionReviewerResultSourceCaptureApplyCommand, "-ExpectedReviewerResultInputSha256") || !strings.Contains(summary.NextActionReviewerResultStagingCommand, "-StageReviewerResult") || !strings.Contains(summary.NextAction, "dispatch read-only reviewer for shard-01") || !slices.ContainsFunc(summary.NextActionRunbookSteps, func(step string) bool {
+		return strings.Contains(step, "after saving reviewer JSON input at results/inputs/shard-01.reviewer-input.json")
 	}) || !slices.ContainsFunc(summary.NextActionRunbookSteps, func(step string) bool {
 		return strings.Contains(step, "after source capture publishes reviewerResultSourcePath, run staging preview")
 	}) {
@@ -370,19 +382,30 @@ func TestReviewerDispatchIntakeProjectsCandidateCollectionState(t *testing.T) {
 	if err := os.WriteFile(packetPath, []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	inputPath := filepath.Join(resultRoot, "inputs", "shard-01.reviewer-input.json")
 	sourcePath := filepath.Join(resultRoot, "sources", "shard-01.json")
 	request := &ReviewerAgentToolRequest{Tool: "Claude Code Agent", AgentType: "read-only-reviewer", ReadOnly: true, Prompt: "review", ExpectedOutput: "one JSON object"}
-	staging := &ReviewerResultStagingCommands{SourcePath: sourcePath, SourcePathArgument: sourcePath, PreviewCommand: "forged-staging-preview"}
+	staging := &ReviewerResultStagingCommands{SourcePath: sourcePath, SourcePathArgument: sourcePath, SourceCaptureInput: inputPath, PreviewCommand: "forged-staging-preview"}
 	commands := &ReviewerResultCollectionCommands{CandidatePath: candidatePath, PreviewCommand: "collect-preview", ApplyCommand: "collect-apply"}
 	packet := reviewerDispatchPacket{PacketID: "packet-collection", ReviewerOrchestration: reviewerDispatchPacketOrchestration{TargetLane: "feature-review", PacketPath: packetPath, ResultRoot: resultRoot, Dispatches: []reviewerDispatchPacketDispatch{{ShardID: "shard-01"}}}}
 	dispatch := reviewerDispatchPacketDispatch{ShardID: "shard-01", ReviewerResultPath: resultPath, ReviewerResultCandidatePath: candidatePath, AgentToolRequest: request, StagingCommands: staging, CollectionCommands: commands, PreviewCommand: "intake-preview", ApplyCommand: "intake-apply"}
 
 	missing := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, firstText(packet.ReviewerOrchestration.PacketPath, "packet.json"), "feature-review", dispatch, 0)
-	if missing.State != "waiting-for-reviewer-result" || missing.ReviewerResultCandidateState != "missing" || missing.AgentToolRequest == nil || missing.ReviewerResultSourceCaptureCommand == "" || missing.ReviewerResultSourceCaptureApplyCommand == "" || missing.ReviewerResultStagingCommand == "" || missing.ReviewerResultCollectionCommands == nil || !strings.Contains(missing.DispatchCommand, "agentToolRequest.prompt") || !strings.Contains(missing.DispatchCommand, "source capture preview") || !strings.Contains(missing.DispatchCommand, "ExpectedReviewerResultInputSha256") || !strings.Contains(missing.DispatchCommand, "expected-source-hash Apply") {
+	if missing.State != "waiting-for-reviewer-result" || missing.ReviewerResultInputPath != inputPath || missing.ReviewerResultInputState != "missing" || missing.ReviewerResultCandidateState != "missing" || missing.AgentToolRequest == nil || missing.ReviewerResultSourceCaptureCommand == "" || missing.ReviewerResultSourceCaptureApplyCommand == "" || missing.ReviewerResultStagingCommand == "" || missing.ReviewerResultCollectionCommands == nil || !strings.Contains(missing.DispatchCommand, "agentToolRequest.prompt") || !strings.Contains(missing.DispatchCommand, inputPath) || !strings.Contains(missing.DispatchCommand, "source capture preview") || !strings.Contains(missing.DispatchCommand, "ExpectedReviewerResultInputSha256") || !strings.Contains(missing.DispatchCommand, "expected-source-hash Apply") {
 		t.Fatalf("missing candidate handoff omitted typed dispatch/collection state: %+v", missing)
 	}
-	if missing.ReviewerResultSourcePath != sourcePath || missing.ReviewerResultSourceState != "missing" || !strings.Contains(missing.ReviewerResultSourceCaptureCommand, "-CaptureReviewerResultSource") || !strings.Contains(missing.ReviewerResultSourceCaptureCommand, "-ReviewerResultInputPath <case-local-reviewer-json-input>") || !strings.Contains(missing.ReviewerResultSourceCaptureApplyCommand, "-ExpectedReviewerResultInputSha256") || !strings.Contains(missing.ReviewerResultStagingCommand, "-StageReviewerResult") || !strings.Contains(missing.ReviewerResultStagingCommand, "-ReviewerResultSourcePath "+quoteCommandArg(sourcePath)) || strings.Contains(missing.ReviewerResultStagingCommand, "forged-staging-preview") {
+	if missing.ReviewerResultSourcePath != sourcePath || missing.ReviewerResultSourceState != "missing" || !strings.Contains(missing.ReviewerResultSourceCaptureCommand, "-CaptureReviewerResultSource") || !strings.Contains(missing.ReviewerResultSourceCaptureCommand, "-ReviewerResultInputPath "+quoteCommandArg(inputPath)) || !strings.Contains(missing.ReviewerResultSourceCaptureApplyCommand, "-ExpectedReviewerResultInputSha256") || !strings.Contains(missing.ReviewerResultStagingCommand, "-StageReviewerResult") || !strings.Contains(missing.ReviewerResultStagingCommand, "-ReviewerResultSourcePath "+quoteCommandArg(sourcePath)) || strings.Contains(missing.ReviewerResultStagingCommand, "forged-staging-preview") {
 		t.Fatalf("staging command was not rebuilt from canonical source bindings: %+v", missing)
+	}
+	if err := os.MkdirAll(filepath.Dir(inputPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(inputPath, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inputReady := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, packetPath, "feature-review", dispatch, 0)
+	if inputReady.State != "ready-for-reviewer-result-source-capture-preview" || inputReady.ReviewerResultInputState != "ready" || reviewerDispatchIntakeNextAction(inputReady) != inputReady.ReviewerResultSourceCaptureCommand || inputReady.ReviewerResultSourceState != "missing" {
+		t.Fatalf("input-ready handoff did not promote source capture preview: %+v", inputReady)
 	}
 	if err := os.MkdirAll(filepath.Dir(sourcePath), 0o755); err != nil {
 		t.Fatal(err)
