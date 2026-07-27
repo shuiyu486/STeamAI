@@ -298,6 +298,43 @@ func TestLatestBatchHandoffAcceptsReleaseRunLocalMinimum(t *testing.T) {
 	}
 }
 
+func TestLatestBatchHandoffWarnsForStalePendingValidationAfterCompleteCadence(t *testing.T) {
+	section := `状态：已完成 runtime/test/doc 工作树实现、完整本机 release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit ` + "`" + `b460a5c` + "`" + ` 已推送。Push run ` + "`" + `30308624088` + "`" + ` completed failure；Windows/macOS/Linux jobs ` + "`" + `90118781570` + "`" + `/` + "`" + `90118781609` + "`" + `/` + "`" + `90118781685` + "`" + ` 均 ` + "`" + `steps=[]` + "`" + `；` + "`" + `gh run view 30308624088 --log-failed` + "`" + ` 返回 ` + "`" + `log not found: 90118781570` + "`" + `。
+
+验证结果：完整本机 release minimum 已通过：` + "`" + `go run ./cmd/rekit -- -Command release-check -Format json` + "`" + ` 返回 ` + "`" + `ready=true` + "`" + ` / ` + "`" + `summary=release gate inventory ok` + "`" + `，` + "`" + `go run ./cmd/rekit -- -Command status` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command packs` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command doctor` + "`" + `、` + "`" + `go test ./...` + "`" + `、` + "`" + `go vet ./...` + "`" + ` 与 ` + "`" + `git diff --check` + "`" + ` 均已运行。Implementation commit/push 与一次 push-triggered remote release-gate inspection 待执行。`
+
+	handoff := latestBatchHandoff(ReleaseHandoffLatestBatch{Status: "已完成 fixture"}, section)
+	if !handoff.LocalValidationReady || !handoff.ReleaseCheckReady || handoff.RemoteReleaseGate != "blocked: completed failure with jobs steps=[]" {
+		t.Fatalf("complete cadence fixture should remain ready with known blocker: %+v", handoff)
+	}
+	if cadence := handoff.ReleaseInspectionCadence; cadence.State != "complete" || !cadence.ImplementationCommitReady || !cadence.InspectionCommitReady || cadence.NewRemoteSignal {
+		t.Fatalf("stale pending validation text should not override complete cadence: %+v", cadence)
+	}
+	if !releaseHandoffStringsContain(handoff.ValidationWarnings, "stale pending release steps") {
+		t.Fatalf("stale pending validation text should be surfaced as warning: %+v", handoff.ValidationWarnings)
+	}
+	if strings.Contains(handoff.NextAction, "local release minimum") || !strings.Contains(handoff.NextAction, "select the next Windows-verifiable product-path batch") {
+		t.Fatalf("stale pending warning should not replace next-batch action: %+v", handoff)
+	}
+}
+
+func TestLatestBatchHandoffDoesNotWarnForRealPendingValidation(t *testing.T) {
+	section := `状态：已完成 runtime/test/doc 工作树实现；完整本机 release minimum、implementation commit/push 与 push-triggered remote release-gate inspection 待执行。
+
+验证结果：完整本机 release minimum 待执行；implementation commit/push 与一次 push-triggered remote release-gate inspection 待执行。`
+
+	handoff := latestBatchHandoff(ReleaseHandoffLatestBatch{Status: "已完成 fixture"}, section)
+	if handoff.LocalValidationReady || handoff.ReleaseCheckReady || handoff.RemoteReleaseGate != "not-recorded" {
+		t.Fatalf("real pending validation should remain fail-closed: %+v", handoff)
+	}
+	if cadence := handoff.ReleaseInspectionCadence; cadence.State != "implementation-pending" || cadence.ImplementationCommitReady || cadence.InspectionCommitReady {
+		t.Fatalf("real pending validation should remain implementation-pending: %+v", cadence)
+	}
+	if releaseHandoffStringsContain(handoff.ValidationWarnings, "stale pending release steps") {
+		t.Fatalf("real pending validation should not get stale-complete warning: %+v", handoff.ValidationWarnings)
+	}
+}
+
 func TestLatestBatchCommitRefsIgnoreRemoteRefsInSameEvidenceClause(t *testing.T) {
 	section := `状态：已完成 runtime/test/docs 与完整本地 release minimum，以及 implementation commit/push 和 PR-triggered remote release-gate inspection。
 

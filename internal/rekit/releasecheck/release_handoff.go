@@ -3721,9 +3721,9 @@ func latestBatchHandoff(latest ReleaseHandoffLatestBatch, section string) Releas
 		RemoteReleaseGateDetail: latestBatchRemoteReleaseGateDetail(evidenceSection),
 		CommitRefs:              latestBatchCommitRefs(evidenceSection),
 		Evidence:                latestBatchEvidence(evidenceSection),
-		ValidationWarnings:      latestBatchValidationWarnings(evidenceSection),
 	}
 	handoff.ReleaseInspectionCadence = latestBatchReleaseInspectionCadence(evidenceSection, handoff)
+	handoff.ValidationWarnings = latestBatchValidationWarnings(evidenceSection, handoff)
 	handoff.NextAction = latestBatchNextAction(handoff)
 	return handoff
 }
@@ -3821,13 +3821,51 @@ func latestBatchHasReleaseRunTransientRetry(lower string) bool {
 	return strings.Contains(lower, "transientretryreason") || strings.Contains(lower, "release-run step retry") || strings.Contains(lower, "attempts=2")
 }
 
-func latestBatchValidationWarnings(text string) []string {
+func latestBatchValidationWarnings(text string, handoff ReleaseHandoffLatestBatchHandoff) []string {
 	lower := strings.ToLower(text)
 	warnings := []string{}
 	if latestBatchHasReleaseRunTransientRetry(lower) {
 		warnings = append(warnings, "release-run local validation passed only after a recorded transient retry; review retry reason and first-attempt output before release handoff")
 	}
+	if latestBatchHasStalePendingReleaseStepNarrative(text, handoff) {
+		warnings = append(warnings, "latest batch validation text still contains stale pending release steps after cadence complete; release inspection cadence evidence wins, clean docs before handoff")
+	}
 	return mission.UniqueStrings(warnings)
+}
+
+func latestBatchHasStalePendingReleaseStepNarrative(text string, handoff ReleaseHandoffLatestBatchHandoff) bool {
+	cadence := handoff.ReleaseInspectionCadence
+	if cadence.State != "complete" || !cadence.ImplementationCommitReady || !cadence.InspectionCommitReady || cadence.NewRemoteSignal || !handoff.LocalValidationReady || !handoff.ReleaseCheckReady || handoff.RemoteReleaseGate == "not-recorded" {
+		return false
+	}
+	for _, clause := range latestBatchEvidenceClauses(text) {
+		clauseLower := strings.ToLower(clause)
+		if !latestBatchPendingReleaseStepClause(clause, clauseLower) {
+			continue
+		}
+		if latestBatchImplementationCommitEvidence(clause) || latestBatchRemoteEvidenceClause(clause, clauseLower) || latestBatchRemoteEvidenceDetailClause(clause, clauseLower) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func latestBatchPendingReleaseStepClause(clause, lower string) bool {
+	pending := strings.Contains(clause, "待执行") || strings.Contains(clause, "待检查") || strings.Contains(clause, "待完成") || strings.Contains(clause, "尚未") || strings.Contains(lower, "pending")
+	if !pending {
+		return false
+	}
+	return strings.Contains(lower, "implementation commit") ||
+		strings.Contains(lower, "commit/push") ||
+		strings.Contains(lower, "push-triggered") ||
+		strings.Contains(lower, "remote release-gate") ||
+		strings.Contains(lower, "release inspection") ||
+		strings.Contains(lower, "workflow run") ||
+		strings.Contains(lower, "release minimum") ||
+		strings.Contains(clause, "完整本机 release minimum") ||
+		strings.Contains(clause, "完整本地 release minimum") ||
+		strings.Contains(clause, "远程 release-gate")
 }
 
 func latestBatchRemoteReleaseGate(text string) string {
