@@ -16,6 +16,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 649：adapter evidence acknowledgement durable continuation closure
+
+状态：已完成 acknowledged adapter evidence review 的 lane RESUME/checkpoint runtime 修复、no-pack adapter product-path durable artifact 回归、focused adapter acknowledgement closure tests 与相关 adapter/workstream regressions；完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection 待执行。
+
+目标：继续执行端到端能力闭环约束，转向 authorized execution evidence 在 acknowledgement 后的 durable continuation 接手断点。既有 no-pack adapter product path 已证明 hash-bound adapter report record 后可通过 verification acknowledgement note 关闭 `executionEvidenceReview`，并覆盖 `status`、`handoff` 与 `continue -WhatIf` 不再暴露 evidence review current action；但 `continue -Apply` 刷新 lane `RESUME.md` / checkpoint 时仍通过 `writeLaneResume` 使用未带 acknowledgement 的 adapter snapshot 合并路径，可能把已确认的 `adapterReportLiveSnapshot.recordedEvidence` 重新提升为 durable current action，导致 replacement executor 在下一次接手时看到“review outputRefs/evidenceRefs / handoff main”而不是已关闭后的 ready-to-continue 状态。
+
+已实现内容：`writeLaneResume` 的 Mission Commander action 合并改为调用 `MissionCommanderNextActionsWithAuthorizedGateAdaptersAndAcknowledgements(..., ExecutionEvidenceReviewAcknowledgedIDs(ledgerFacts))`，与 `continue` / handoff envelope 使用同一 acknowledgement filtering 规则。扩展 `TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace`：在 verification acknowledgement Apply 关闭 evidence review 后，继续运行 `/rekit continue main -Apply -Format json`，断言 Apply JSON、run `status.json` 与 checkpoint 中 `executionEvidenceReview=[]` / summary total=0，current action 不来自 `executionEvidenceReview` 或 `adapterReportLiveSnapshot.recordedEvidence`，facts 快照不变，并检查 `digest.md` 与 lane `RESUME.md` 不再保留 `ready-for-evidence-review` 或 `review outputRefs/evidenceRefs` 的已关闭 review 指令。
+
+边界：本批不改变 gate/adapter report record 语义，不新增 public command，不自动 acknowledgement、不自动执行 adapter/heavy tool、不写 authority/confirmed，不删除 authorized-gate 或 recorded adapter provenance；唯一 runtime 变更是让 lane durable RESUME/checkpoint 的 adapter action queue 使用既有 acknowledgement filter，和 status/handoff/continue JSON 的 closed evidence review 语义保持一致。
+
+验证结果：focused adapter acknowledgement closure `go test ./internal/rekit/cli -run "TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace|TestRunGateAdapterReportReadOnlyPreflightFromCallerCwdBridge" -count=1` 已通过；related adapter CLI regression `go test ./internal/rekit/cli -run "TestRunGateAdapterReport(ReadOnlyPreflightFromCallerCwdBridge|NoPackProductPathFromNestedOutputWorkspace|BoundaryHitNoPackProductPathSuppressesContinue|TextOutputsNextActions|DuplicateExecutionEvidenceProjectsIdempotentNextActions|ExecutionEvidenceTextOutputsNextActions|AdapterReportTextOutputsNextActions)" -count=1` 已通过；related workstream regression `go test ./internal/rekit/workstream -run "Test(Continue|Handoff|ExecutionEvidenceReview|AuthorizedGateAdapter|LaneCheckpoint|LaneExecutorAction)" -count=1` 已通过；完整本机 release minimum 待执行。
+
 ### Batch 648：reviewer batch intake continuation closure
 
 状态：已完成 case-local reviewer batch continuation product-path 回归、focused reviewer batch continuation test、相邻 reviewer CLI/subagents regressions、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `a13846d` 已推送。Push run `30226733099` completed failure，macOS/Linux/Windows jobs `89858057148`/`89858057162`/`89858057362` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。

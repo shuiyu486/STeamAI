@@ -13040,6 +13040,73 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 		t.Fatalf("continue after verification ack should close evidence review current action: %+v", acknowledgedContinue)
 	}
 
+	factsBeforeAcknowledgedContinueApply := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "main", "-Format", "json", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var acknowledgedContinueApply struct {
+		RunID                          string                                 `json:"runId"`
+		Applied                        bool                                   `json:"applied"`
+		Blocked                        bool                                   `json:"blocked"`
+		ExecutionEvidenceReview        []executionEvidenceReviewItem          `json:"executionEvidenceReview"`
+		ExecutionEvidenceReviewSummary executionEvidenceReviewSummarySnapshot `json:"executionEvidenceReviewSummary"`
+		MissionCommanderActionQueue    missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
+		Writes                         []startWrite                           `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &acknowledgedContinueApply); err != nil {
+		t.Fatalf("continue apply after verification ack stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !acknowledgedContinueApply.Applied || acknowledgedContinueApply.Blocked || len(acknowledgedContinueApply.ExecutionEvidenceReview) != 0 || acknowledgedContinueApply.ExecutionEvidenceReviewSummary.Total != 0 || acknowledgedContinueApply.MissionCommanderActionQueue.CurrentAction == nil || acknowledgedContinueApply.MissionCommanderActionQueue.CurrentAction.Source == "executionEvidenceReview" || acknowledgedContinueApply.MissionCommanderActionQueue.CurrentAction.Source == "adapterReportLiveSnapshot.recordedEvidence" {
+		t.Fatalf("continue apply after verification ack should persist closed evidence review state: %+v", acknowledgedContinueApply)
+	}
+	assertSnapshotEqual(t, factsBeforeAcknowledgedContinueApply, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
+	ackStatusPath := assertStartWrite(t, acknowledgedContinueApply.Writes, ".rekit/runs/"+acknowledgedContinueApply.RunID+"/status.json", "write").TargetPath
+	ackDigestPath := assertStartWrite(t, acknowledgedContinueApply.Writes, ".rekit/runs/"+acknowledgedContinueApply.RunID+"/digest.md", "write").TargetPath
+	ackResumePath := assertStartWrite(t, acknowledgedContinueApply.Writes, ".rekit/lanes/main/prompts/RESUME.md", "refresh").TargetPath
+	ackCheckpointPath := assertStartWrite(t, acknowledgedContinueApply.Writes, ".rekit/lanes/main/checkpoints/latest.json", "refresh").TargetPath
+	ackStatusBytes, err := os.ReadFile(ackStatusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var acknowledgedRunStatus struct {
+		ExecutionEvidenceReview        []executionEvidenceReviewItem          `json:"executionEvidenceReview"`
+		ExecutionEvidenceReviewSummary executionEvidenceReviewSummarySnapshot `json:"executionEvidenceReviewSummary"`
+		MissionCommanderActionQueue    missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(ackStatusBytes, &acknowledgedRunStatus); err != nil {
+		t.Fatalf("continue run status after verification ack did not decode: %v\n%s", err, string(ackStatusBytes))
+	}
+	if len(acknowledgedRunStatus.ExecutionEvidenceReview) != 0 || acknowledgedRunStatus.ExecutionEvidenceReviewSummary.Total != 0 || acknowledgedRunStatus.MissionCommanderActionQueue.CurrentAction == nil || acknowledgedRunStatus.MissionCommanderActionQueue.CurrentAction.Source == "executionEvidenceReview" || acknowledgedRunStatus.MissionCommanderActionQueue.CurrentAction.Source == "adapterReportLiveSnapshot.recordedEvidence" {
+		t.Fatalf("continue run status after verification ack should persist closed evidence review: %+v", acknowledgedRunStatus)
+	}
+	for label, path := range map[string]string{"continue digest": ackDigestPath, "lane RESUME": ackResumePath} {
+		text, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, unexpected := range []string{"ready-for-evidence-review", "review outputRefs/evidenceRefs"} {
+			if strings.Contains(string(text), unexpected) {
+				t.Fatalf("%s after verification ack retained closed evidence review %q:\n%s", label, unexpected, string(text))
+			}
+		}
+	}
+	ackCheckpointBytes, err := os.ReadFile(ackCheckpointPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var acknowledgedCheckpoint struct {
+		ExecutionEvidenceReview        []executionEvidenceReviewItem          `json:"executionEvidenceReview"`
+		ExecutionEvidenceReviewSummary executionEvidenceReviewSummarySnapshot `json:"executionEvidenceReviewSummary"`
+		MissionCommanderActionQueue    missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(ackCheckpointBytes, &acknowledgedCheckpoint); err != nil {
+		t.Fatalf("checkpoint after verification ack did not decode: %v\n%s", err, string(ackCheckpointBytes))
+	}
+	if len(acknowledgedCheckpoint.ExecutionEvidenceReview) != 0 || acknowledgedCheckpoint.ExecutionEvidenceReviewSummary.Total != 0 || acknowledgedCheckpoint.MissionCommanderActionQueue.CurrentAction == nil || acknowledgedCheckpoint.MissionCommanderActionQueue.CurrentAction.Source == "executionEvidenceReview" || acknowledgedCheckpoint.MissionCommanderActionQueue.CurrentAction.Source == "adapterReportLiveSnapshot.recordedEvidence" {
+		t.Fatalf("checkpoint after verification ack should persist closed evidence review: %+v", acknowledgedCheckpoint)
+	}
+
 	factsBeforeReplay := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
 	out.Reset()
 	if err := Run(applyVerificationArgs, &out); err != nil {
@@ -14194,9 +14261,9 @@ func TestRunGateAdapterReportReadOnlyPreflightFromCallerCwdBridge(t *testing.T) 
 		t.Fatal(err)
 	}
 	var replay struct {
-		Applied bool   `json:"applied"`
-		EventID string `json:"eventId"`
-		Reason  string `json:"reason"`
+		Applied           bool   `json:"applied"`
+		EventID           string `json:"eventId"`
+		Reason            string `json:"reason"`
 		ExecutionEvidence struct {
 			Status    string `json:"status"`
 			Execution struct {
