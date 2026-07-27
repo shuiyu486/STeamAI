@@ -3278,6 +3278,7 @@ func releaseHandoffValidation(steps []GateStep) []ReleaseHandoffValidation {
 
 func releaseHandoffNextActions() []string {
 	return []string{
+		"When latestBatch.handoff.releaseInspectionCadence.state=complete, select the next Windows-verifiable product-path batch; do not create a third inspection record unless a new remote signal appears.",
 		"Read docs/context-routing.md first, then use releaseHandoff.signals[] to decide which detailed document is needed.",
 		"Read only docs/batch-plan.md current/next/latest sections for routine continuation; search docs/batch-history.md only for old-batch archaeology.",
 		"Use releaseHandoff.validation[] or gateProfile.steps[] as the local/CI minimum before tagging or handing off.",
@@ -3931,9 +3932,9 @@ func latestBatchNextAction(handoff ReleaseHandoffLatestBatchHandoff) string {
 	case handoff.RemoteReleaseGate == "not-recorded":
 		return "inspect the remote release-gate run before claiming remote CI status"
 	case strings.HasPrefix(handoff.RemoteReleaseGate, "blocked:"):
-		return "do not create a third inspection record for the release inspection commit's own CI; treat steps=[] as known blocker and continue the next Windows-verifiable batch"
+		return "select the next Windows-verifiable product-path batch from docs/context-routing.md and docs/batch-plan.md; do not create a third inspection record for the release inspection commit's own CI unless a new remote signal appears"
 	default:
-		return "continue the next batch from docs/context-routing.md and docs/batch-plan.md"
+		return "select the next batch from docs/context-routing.md and docs/batch-plan.md"
 	}
 }
 

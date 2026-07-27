@@ -65,6 +65,44 @@ func TestParseDefaults(t *testing.T) {
 	}
 }
 
+func TestStatusProjectHandoffCurrentActionPromotesCompletedCadenceToNextBatchSelection(t *testing.T) {
+	project := &statusProjectHandoff{
+		Ready:                      true,
+		LatestBatch:                "Batch 651",
+		LatestLocalValidationReady: true,
+		LatestReleaseCheckReady:    true,
+		LatestRemoteReleaseGate:    "blocked: completed failure with jobs steps=[]",
+		LatestRemoteReleaseGateDetail: &releasecheck.ReleaseHandoffRemoteReleaseGateDetail{
+			State:            "blocked: completed failure with jobs steps=[]",
+			EmptySteps:       true,
+			CompletedFailure: true,
+			CanClaimGreen:    false,
+			Boundary:         []string{"treat remote release-gate steps=[] as a known runner/billing blocker"},
+		},
+		ReleaseInspectionCadence: releasecheck.ReleaseHandoffReleaseInspectionCadence{
+			State:                     "complete",
+			ImplementationCommitReady: true,
+			InspectionCommitReady:     true,
+			Boundary:                  []string{"do not add a third record commit for the release inspection commit's own CI run"},
+		},
+		ReadFirst:          []string{"docs/context-routing.md", "docs/batch-plan.md"},
+		ValidationCommands: []string{"go test ./..."},
+	}
+	action := statusProjectHandoffCurrentAction(project)
+	if action == nil || action.Label != "next-batch" || action.ActionID != "next-batch-selection" || action.State != "ready-for-next-batch-selection" || action.Source != "releaseHandoffNextBatch" || action.RequiresReview || !strings.Contains(action.Command, "select the next Windows-verifiable product-path closure") {
+		t.Fatalf("completed cadence should promote to next-batch selection: %+v", action)
+	}
+	if !containsSubstring(action.Reasons, "ready for the next Windows-verifiable product-path batch") || !containsSubstring(action.Boundary, "avoid single-field") || !containsSubstring(action.Boundary, "steps=[]") {
+		t.Fatalf("next-batch action omitted reasons/boundary: %+v", action)
+	}
+	steps := statusProjectHandoffRunbookSteps(project, action)
+	for _, want := range []string{"confirm git status is clean", "choose a Windows-verifiable product-path closure", "write the selected Batch state", "full local release minimum", "steps=[] blocker"} {
+		if !containsSubstring(steps, want) {
+			t.Fatalf("next-batch runbook missing %q: %+v", want, steps)
+		}
+	}
+}
+
 func TestStatusMissionCommanderFirstScreenFocusRoutingReasons(t *testing.T) {
 	project := &mission.MissionCommanderNextActionItem{Command: "/rekit status", Source: "releaseHandoffLatestBatch", State: "complete"}
 	if got := statusMissionCommanderFirstScreenFocusRoutingReasons("project-current-action", nil, nil, project, nil, nil); !slices.Equal(got, []string{"case, reviewer, and pack-memory focus queues are empty or lower priority"}) {
@@ -572,6 +610,7 @@ func TestRunStatusJsonKit(t *testing.T) {
 			LatestValidationWarnings    []string `json:"latestValidationWarnings"`
 			MissionCommanderNextActions []struct {
 				Label          string   `json:"label"`
+				ActionID       string   `json:"actionId"`
 				State          string   `json:"state"`
 				Source         string   `json:"source"`
 				Command        string   `json:"command"`
@@ -588,6 +627,7 @@ func TestRunStatusJsonKit(t *testing.T) {
 				} `json:"counts"`
 				CurrentAction *struct {
 					Label          string `json:"label"`
+					ActionID       string `json:"actionId"`
 					State          string `json:"state"`
 					Source         string `json:"source"`
 					Command        string `json:"command"`
@@ -644,14 +684,18 @@ func TestRunStatusJsonKit(t *testing.T) {
 	if projectCurrent != nil && status.ProjectHandoff.ReleaseInspectionCadence.State == "complete" && strings.Contains(projectCurrent.Command, "run the full local release minimum") {
 		t.Fatalf("completed release-run batch should not repeat local validation as current action: %+v", projectCurrent)
 	}
-	if projectCurrent != nil && status.ProjectHandoff.ReleaseInspectionCadence.State == "complete" && !strings.Contains(projectCurrent.Command, "continue the next") {
-		t.Fatalf("completed release inspection cadence should point project current action at the next batch: %+v cadence=%+v", projectCurrent, status.ProjectHandoff.ReleaseInspectionCadence)
-	}
-	if projectCurrent == nil || projectCurrent.Source != "releaseHandoffLatestBatch" || projectCurrent.Command != status.ProjectHandoff.LatestNextAction || projectCurrent.Label != status.ProjectHandoff.LatestBatch || status.ProjectHandoff.MissionCommanderActionQueue.Counts.Total != 1 || status.ProjectHandoff.MissionCommanderActionQueue.Counts.Unblocked != 1 || status.ProjectHandoff.MissionCommanderActionQueue.Counts.Blocked != 0 || status.ProjectHandoff.MissionCommanderActionQueue.Counts.RequiresReview != 1 || len(status.ProjectHandoff.MissionCommanderNextActions) != 1 {
+	if projectCurrent == nil || status.ProjectHandoff.MissionCommanderActionQueue.Counts.Total != 1 || status.ProjectHandoff.MissionCommanderActionQueue.Counts.Unblocked != 1 || status.ProjectHandoff.MissionCommanderActionQueue.Counts.Blocked != 0 || len(status.ProjectHandoff.MissionCommanderNextActions) != 1 {
 		t.Fatalf("project handoff omitted structured current action queue: current=%+v queue=%+v actions=%+v latest=%q", projectCurrent, status.ProjectHandoff.MissionCommanderActionQueue, status.ProjectHandoff.MissionCommanderNextActions, status.ProjectHandoff.LatestNextAction)
 	}
-	if len(status.ProjectHandoff.MissionCommanderNextActions[0].Reasons) == 0 || len(status.ProjectHandoff.MissionCommanderNextActions[0].Boundary) == 0 {
-		t.Fatalf("project handoff structured current action omitted reasons/boundary: %+v", status.ProjectHandoff.MissionCommanderNextActions[0])
+	if status.ProjectHandoff.ReleaseInspectionCadence.State == "complete" {
+		if !strings.Contains(projectCurrent.Command, "select the next Windows-verifiable product-path closure") || projectCurrent.Source != "releaseHandoffNextBatch" || projectCurrent.ActionID != "next-batch-selection" || projectCurrent.State != "ready-for-next-batch-selection" || projectCurrent.Label != "next-batch" || projectCurrent.RequiresReview || status.ProjectHandoff.MissionCommanderActionQueue.Counts.RequiresReview != 0 {
+			t.Fatalf("completed release inspection cadence should point project current action at next-batch selection: current=%+v queue=%+v", projectCurrent, status.ProjectHandoff.MissionCommanderActionQueue)
+		}
+		if action := status.ProjectHandoff.MissionCommanderNextActions[0]; action.ActionID != "next-batch-selection" || action.Source != "releaseHandoffNextBatch" || len(action.Reasons) == 0 || len(action.Boundary) == 0 || !containsSubstring(action.Reasons, "ready for the next Windows-verifiable product-path batch") || !containsSubstring(action.Boundary, "avoid single-field") {
+			t.Fatalf("project handoff structured next-batch action omitted reasons/boundary: %+v", action)
+		}
+	} else if projectCurrent.Source != "releaseHandoffLatestBatch" || projectCurrent.Command != status.ProjectHandoff.LatestNextAction || projectCurrent.Label != status.ProjectHandoff.LatestBatch || status.ProjectHandoff.MissionCommanderActionQueue.Counts.RequiresReview != 1 {
+		t.Fatalf("in-progress latest batch should keep latest-batch release handoff action: current=%+v queue=%+v latest=%q", projectCurrent, status.ProjectHandoff.MissionCommanderActionQueue, status.ProjectHandoff.LatestNextAction)
 	}
 	if status.ProjectHandoff.LatestRemoteReleaseGateDetail.State != status.ProjectHandoff.LatestRemoteReleaseGate {
 		t.Fatalf("project handoff remote gate detail state drifted: %+v", status.ProjectHandoff.LatestRemoteReleaseGateDetail)

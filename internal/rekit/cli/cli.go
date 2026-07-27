@@ -2913,6 +2913,9 @@ func statusProjectHandoffCurrentAction(projectHandoff *statusProjectHandoff) *mi
 	if projectHandoff == nil {
 		return nil
 	}
+	if statusProjectHandoffReadyForNextBatchSelection(projectHandoff) {
+		return statusProjectHandoffNextBatchSelectionAction(projectHandoff)
+	}
 	command := strings.TrimSpace(projectHandoff.LatestNextAction)
 	if command == "" {
 		command = strings.TrimSpace(projectHandoff.ReleaseInspectionCadence.NextAction)
@@ -2963,6 +2966,51 @@ func statusProjectHandoffCurrentAction(projectHandoff *statusProjectHandoff) *mi
 	}
 }
 
+func statusProjectHandoffReadyForNextBatchSelection(projectHandoff *statusProjectHandoff) bool {
+	if projectHandoff == nil || !projectHandoff.Ready || !projectHandoff.LatestLocalValidationReady || !projectHandoff.LatestReleaseCheckReady {
+		return false
+	}
+	cadence := projectHandoff.ReleaseInspectionCadence
+	return cadence.State == "complete" && cadence.ImplementationCommitReady && cadence.InspectionCommitReady && !cadence.NewRemoteSignal
+}
+
+func statusProjectHandoffNextBatchSelectionAction(projectHandoff *statusProjectHandoff) *mission.MissionCommanderNextActionItem {
+	reasons := []string{
+		"latest batch release inspection cadence is complete",
+		"implementation and release inspection evidence are recorded",
+		"project is ready for the next Windows-verifiable product-path batch",
+	}
+	if latest := strings.TrimSpace(projectHandoff.LatestBatch); latest != "" {
+		reasons = append(reasons, "latest completed batch: "+latest)
+	}
+	if gate := strings.TrimSpace(projectHandoff.LatestRemoteReleaseGate); gate != "" {
+		reasons = append(reasons, "latest remote release gate: "+gate)
+	}
+	boundary := []string{
+		"do not create a third inspection record for the previous release inspection commit unless a new remote signal appears",
+		"do not claim remote CI green unless latest batch evidence explicitly records green jobs",
+		"select only Windows-verifiable local product-path work while remote runner/billing blocker remains",
+		"avoid single-field, summary, text, or handoff projection micro-batches; choose an operational closure with runtime or product-path verification",
+		"run focused regressions and the local release minimum before the next implementation commit",
+	}
+	if detail := projectHandoff.LatestRemoteReleaseGateDetail; detail != nil {
+		reasons = append(reasons, "previous remote release-gate detail recorded")
+		boundary = append(boundary, detail.Boundary...)
+	}
+	boundary = append(boundary, projectHandoff.ReleaseInspectionCadence.Boundary...)
+	return &mission.MissionCommanderNextActionItem{
+		Label:          "next-batch",
+		ActionID:       "next-batch-selection",
+		State:          "ready-for-next-batch-selection",
+		Command:        "select the next Windows-verifiable product-path closure from docs/context-routing.md and docs/batch-plan.md, then update docs/batch-plan.md current batch state before implementation",
+		Source:         "releaseHandoffNextBatch",
+		Blocked:        false,
+		RequiresReview: false,
+		Reasons:        mission.UniqueStrings(reasons),
+		Boundary:       mission.UniqueStrings(boundary),
+	}
+}
+
 func writeStatusMissionCommanderFirstScreenActionText(out io.Writer, scope string, action *mission.MissionCommanderNextActionItem) error {
 	if action == nil {
 		return nil
@@ -2999,6 +3047,35 @@ func writeStatusMissionCommanderFirstScreenProjectRunbookText(out io.Writer, pro
 	if projectHandoff == nil || current == nil {
 		return nil
 	}
+	steps := statusProjectHandoffRunbookSteps(projectHandoff, current)
+	for idx, step := range steps {
+		if _, err := fmt.Fprintf(out, "status Mission Commander focus project runbook：batch=%s state=%s step=%d text=%s\n", current.Label, current.State, idx+1, step); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func statusProjectHandoffRunbookSteps(projectHandoff *statusProjectHandoff, current *mission.MissionCommanderNextActionItem) []string {
+	if projectHandoff == nil || current == nil {
+		return nil
+	}
+	if current.Source == "releaseHandoffNextBatch" || current.State == "ready-for-next-batch-selection" {
+		steps := []string{}
+		if len(projectHandoff.ReadFirst) > 0 {
+			steps = append(steps, "read docs/context-routing.md first, then only docs/batch-plan.md current/next/latest sections")
+		}
+		steps = append(steps,
+			"confirm git status is clean and main is synchronized before starting the next batch",
+			"choose a Windows-verifiable product-path closure that advances Mission Commander, replacement executor, reviewer orchestration, authorized execution evidence, adapter live validation, or pack-memory UX",
+			"write the selected Batch state in docs/batch-plan.md before implementation, including goal, boundary, and verification standard",
+			"run focused regressions during implementation and the full local release minimum before the next implementation commit",
+		)
+		if detail := projectHandoff.LatestRemoteReleaseGateDetail; detail != nil && !detail.CanClaimGreen {
+			steps = append(steps, "carry forward the previous remote release-gate steps=[] blocker as non-green; do not inspect the inspection commit's own run without a new signal")
+		}
+		return mission.UniqueStrings(steps)
+	}
 	steps := []string{}
 	if len(projectHandoff.ReadFirst) > 0 {
 		steps = append(steps, "read docs/context-routing.md first, then only the current batch section in docs/batch-plan.md")
@@ -3015,13 +3092,7 @@ func writeStatusMissionCommanderFirstScreenProjectRunbookText(out io.Writer, pro
 	if detail := projectHandoff.LatestRemoteReleaseGateDetail; detail != nil && !detail.CanClaimGreen {
 		steps = append(steps, "treat remote release-gate status as non-green unless latest batch evidence explicitly records green jobs")
 	}
-	steps = mission.UniqueStrings(steps)
-	for idx, step := range steps {
-		if _, err := fmt.Fprintf(out, "status Mission Commander focus project runbook：batch=%s state=%s step=%d text=%s\n", current.Label, current.State, idx+1, step); err != nil {
-			return err
-		}
-	}
-	return nil
+	return mission.UniqueStrings(steps)
 }
 
 func writeStatusMissionCommanderFirstScreenPackMemoryEvidenceText(out io.Writer, candidates releasecheck.ReleaseHandoffPackMemoryCandidateList, current *mission.MissionCommanderNextActionItem) error {

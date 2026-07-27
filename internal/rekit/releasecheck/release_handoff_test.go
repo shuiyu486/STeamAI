@@ -28,6 +28,9 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	if counts.ReadFirst != 4 || counts.Signals != 13 || counts.KnownGaps == 0 || counts.PackMaturity.Total == 0 || counts.Validation == 0 || counts.NextActions == 0 {
 		t.Fatalf("release handoff omitted required sections: %+v", handoff)
 	}
+	if !releaseHandoffStringsContain(handoff.NextActions, "select the next Windows-verifiable product-path batch") || !releaseHandoffStringsContain(handoff.NextActions, "do not create a third inspection record") {
+		t.Fatalf("release handoff next actions should expose next-batch selection guard: %+v", handoff.NextActions)
+	}
 	assertHandoffReadFirst(t, handoff, "docs/context-routing.md")
 	assertHandoffReadFirst(t, handoff, "docs/batch-plan.md")
 	assertHandoffReadFirst(t, handoff, "docs/release-readiness.md")
@@ -262,8 +265,8 @@ func TestLatestBatchHandoffAcceptsReleaseRunLocalMinimum(t *testing.T) {
 	if cadence := handoff.ReleaseInspectionCadence; cadence.State != "complete" || !cadence.ImplementationCommitReady || !cadence.InspectionCommitReady {
 		t.Fatalf("release-run completed batch should have complete cadence: %+v", cadence)
 	}
-	if strings.Contains(handoff.NextAction, "local release minimum") || !strings.Contains(handoff.NextAction, "continue the next Windows-verifiable batch") {
-		t.Fatalf("completed release-run batch should point to the next batch, got %q", handoff.NextAction)
+	if strings.Contains(handoff.NextAction, "local release minimum") || !strings.Contains(handoff.NextAction, "select the next Windows-verifiable product-path batch") || !strings.Contains(handoff.NextAction, "third inspection") {
+		t.Fatalf("completed release-run batch should point to guarded next-batch selection, got %q", handoff.NextAction)
 	}
 	for _, evidence := range []string{"release-run local release minimum recorded", "release-check ready=true recorded", "go test ./... recorded", "git diff --check recorded"} {
 		if !slices.Contains(handoff.Evidence, evidence) {
