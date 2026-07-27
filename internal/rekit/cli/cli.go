@@ -7053,7 +7053,8 @@ func writeContinueOpenDecisionHandoffsText(out io.Writer, prefix string, handoff
 }
 
 func writeContinueText(out io.Writer, result workstream.ContinueResult) error {
-	if result.Blocked && len(result.ReviewerDispatchIntakeHandoffs) > 0 {
+	hasLaneBlockerHandoff := len(result.OpenInterventions) > 0 || len(result.ReconcileHandoffs) > 0 || len(result.PendingGateHandoffs) > 0 || len(result.OpenDecisionHandoffs) > 0
+	if result.Blocked && len(result.ReviewerDispatchIntakeHandoffs) > 0 && !hasLaneBlockerHandoff {
 		if _, err := fmt.Fprintf(out, "工作线被 reviewer dispatch/intake 阻塞：%s\n", result.Lane.ID); err != nil {
 			return err
 		}
@@ -7096,6 +7097,12 @@ func writeContinueText(out io.Writer, result workstream.ContinueResult) error {
 			return err
 		}
 		if err := writeReviewerWritebackText(out, "continue", result.ReviewerWritebacks); err != nil {
+			return err
+		}
+		if err := writeReviewerDispatchIntakeHandoffText(out, "continue", result.ReviewerDispatchIntakeHandoffs, result.ReviewerDispatchIntakeSummary); err != nil {
+			return err
+		}
+		if err := writeReviewerPacketRetirementHandoffText(out, "continue", result.ReviewerPacketRetirementHandoffs, result.ReviewerPacketRetirementSummary); err != nil {
 			return err
 		}
 		if err := writeAuthorizedGateAdapterHandoffText(out, "continue", result.AuthorizedGateAdapterHandoffs); err != nil {

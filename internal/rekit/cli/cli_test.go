@@ -7107,6 +7107,92 @@ func TestRunContinueBlocksPendingGateBeforeWrites(t *testing.T) {
 	assertSnapshotEqual(t, before, snapshotFiles(t, caseRoot))
 }
 
+func TestRunContinuePrioritizesLaneGateBlockerWhilePreservingReviewerDispatch(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "login", "-Apply", "-Executor", "session-login", "-Actor", "mission-commander", "-Reason", "mixed blocked continuation owner"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", "alpha", "-ItemsPerAgent", "1", "-MaxParallel", "1", "-Lane", "feature-login"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	plan := decodePlanSubagentsResult(t, out.Bytes())
+	if plan.PacketPath == "" || len(plan.ShardHandoffs) != 1 || plan.ShardHandoffs[0].ShardID != "shard-01" {
+		t.Fatalf("reviewer dispatch fixture did not create one shard: %+v", plan)
+	}
+	writeCaseFile(t, caseRoot, ".rekit/facts/requests.jsonl", `{"eventId":"evt-mixed-pending-debug","kind":"request","lane":"feature-login","subject":"debug gate","summary":"needs confirmation before reviewer continuation","status":"pending-gate","actor":"runtime-test","risk":"high","target":"workspace/features/feature-login","batchId":"batch-mixed-blocked-continue","gate":{"action":"debug","scope":"handler only","budget":"30s","requestedBudget":{"runtimeSeconds":30,"diskMB":64,"requests":1},"outputPaths":["workspace/features/feature-login/debug"],"triedLightSteps":["overview","static review"],"stopConditions":["timeout"],"authorization":{"decision":"needs-user","profileId":"manual-feature-login","reasons":["manual gate"]}}}`+"\n")
+	before := snapshotFiles(t, caseRoot)
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login", "-Executor", "session-login", "-ExpectedExecutorGeneration", "1", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var blocked struct {
+		Command                        string                               `json:"command"`
+		RunID                          string                               `json:"runId"`
+		Applied                        bool                                 `json:"applied"`
+		Blocked                        bool                                 `json:"blocked"`
+		PendingGateRequired            bool                                 `json:"pendingGateRequired"`
+		ExecutorAction                 executorActionSnapshot               `json:"executorAction"`
+		PendingGateHandoffs            []statusPendingGateHandoff           `json:"pendingGateHandoffs"`
+		ReviewerDispatchIntakeHandoffs []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
+		ReviewerDispatchIntakeSummary  reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+		MissionCommanderActionQueue    missionCommanderActionQueueSnapshot  `json:"missionCommanderActionQueue"`
+		Writes                         []startWrite                         `json:"writes"`
+		NextSteps                      []string                             `json:"nextSteps"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &blocked); err != nil {
+		t.Fatalf("mixed blocked continue stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if blocked.Command != "continue" || blocked.RunID != "run-preview" || blocked.Applied || !blocked.Blocked || !blocked.PendingGateRequired || len(blocked.Writes) != 0 || len(blocked.PendingGateHandoffs) != 1 {
+		t.Fatalf("unexpected mixed blocked continue result: %+v", blocked)
+	}
+	pending := blocked.PendingGateHandoffs[0]
+	if pending.EventID != "evt-mixed-pending-debug" || pending.Lane != "feature-login" || pending.Subject != "debug gate" || pending.Action != "debug" || pending.Target != "workspace/features/feature-login" || pending.Status != "pending-gate" || pending.Risk != "high" || pending.Authorization != "needs-user" || pending.Profile != "manual-feature-login" || pending.ReviewCommand != "/rekit handoff login" || !strings.Contains(pending.WhatIfCommand, "/rekit gate -Action debug -Lane feature-login -WhatIf") || !strings.Contains(pending.ApplyCommand, "/rekit gate -Action debug -Lane feature-login -Apply -Actor runtime-test") || !strings.Contains(pending.ContinueBoundary, "blocked continue is zero-write") || !containsSubstring(pending.Evidence, "pending-gate ledger event evt-mixed-pending-debug") {
+		t.Fatalf("mixed blocked continue omitted concrete pending-gate handoff: %+v", pending)
+	}
+	assertReviewerDispatchIntakeSummary(t, "mixed blocked continue", blocked.ReviewerDispatchIntakeSummary, 1, 1, 0, "shard-01", "waiting-for-reviewer-result")
+	if dispatch, ok := reviewerDispatchIntakeByShard(blocked.ReviewerDispatchIntakeHandoffs, "shard-01"); !ok || dispatch.State != "waiting-for-reviewer-result" || dispatch.PacketPath != plan.PacketPath {
+		t.Fatalf("mixed blocked continue omitted reviewer dispatch provenance: %+v", blocked.ReviewerDispatchIntakeHandoffs)
+	}
+	current := blocked.MissionCommanderActionQueue.CurrentAction
+	if current == nil || current.Source != "missionCommanderActions" || current.State != "needs-gate-decision" || current.Blocked || !current.RequiresReview || current.Command != "/rekit gate debug -Lane feature-login -WhatIf" {
+		t.Fatalf("mixed blocked continue should prioritize lane pending-gate current action before reviewer dispatch: %+v", blocked.MissionCommanderActionQueue)
+	}
+	if !blocked.ExecutorAction.Blocked || blocked.ExecutorAction.PendingGates != 1 || !blocked.ExecutorAction.PendingGateRequired || !slices.Contains(blocked.ExecutorAction.NextAgentActions, "resolve or keep deferred pending-gate request(s); gate records the request and never executes heavy-tool") || slices.Contains(blocked.ExecutorAction.NextAgentActions, "/rekit continue login") || !slices.Equal(blocked.NextSteps, blocked.ExecutorAction.NextAgentActions) {
+		t.Fatalf("mixed blocked continue should expose lane blocker next steps without continuing: action=%+v next=%+v", blocked.ExecutorAction, blocked.NextSteps)
+	}
+	assertSnapshotEqual(t, before, snapshotFiles(t, caseRoot))
+	if entries, err := os.ReadDir(filepath.Join(caseRoot, ".rekit", "runs")); err == nil && len(entries) != 0 {
+		t.Fatalf("mixed blocked continue apply created run artifacts: %+v", entries)
+	} else if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "login", "-Executor", "session-login", "-ExpectedExecutorGeneration", "1", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, expected := range []string{
+		"工作线被 blocker 阻塞：feature-login reasons=pending-gate",
+		"continue pending gate handoff：eventId=evt-mixed-pending-debug lane=feature-login subject=debug gate action=debug target=workspace/features/feature-login status=pending-gate risk=high auth=needs-user profile=manual-feature-login review=/rekit handoff login",
+		"continue pending gate continue boundary：eventId=evt-mixed-pending-debug boundary=blocked continue is zero-write",
+		"continue reviewer dispatch intake summary：total=1 waitingForReviewerResult=1 readyForPreview=0",
+		"continue reviewer dispatch intake：lane=feature-login shard=shard-01 state=waiting-for-reviewer-result",
+		"mission commander action queue current：state=needs-gate-decision source=missionCommanderActions blocked=false requiresReview=true command=`/rekit gate debug -Lane feature-login -WhatIf`",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("mixed blocked continue text missing %q:\n%s", expected, text)
+		}
+	}
+	if strings.Contains(text, "工作线被 reviewer dispatch/intake 阻塞") {
+		t.Fatalf("mixed blocked continue text should not hide lane blocker behind reviewer-only title:\n%s", text)
+	}
+	assertSnapshotEqual(t, before, snapshotFiles(t, caseRoot))
+}
+
 func TestRunContinueBlocksOpenDecisionBeforeWrites(t *testing.T) {
 	caseRoot := attachedCaseWithPack(t, "vmp-re")
 	writeContinueFixture(t, caseRoot)

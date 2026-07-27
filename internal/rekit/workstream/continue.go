@@ -196,11 +196,11 @@ func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (Cont
 	if blocked, err := ctx.blockedByOpenInterventions(false); err != nil || blocked.Blocked {
 		return blocked, err
 	}
-	if blocked := ctx.blockedByReviewerDispatches(false); blocked.Blocked {
-		return blocked, nil
-	}
 	if blocked, err := ctx.blockedByPendingGateOrOpenDecision(false); err != nil || blocked.Blocked {
 		return blocked, err
+	}
+	if blocked := ctx.blockedByReviewerDispatches(false); blocked.Blocked {
+		return blocked, nil
 	}
 	known, err := mission.ReadLedgerEventIDs(ctx.inst.CaseRoot)
 	if err != nil {
@@ -335,11 +335,11 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (result
 	if blocked, err := ctx.blockedByOpenInterventions(true); err != nil || blocked.Blocked {
 		return blocked, err
 	}
-	if blocked := ctx.blockedByReviewerDispatches(true); blocked.Blocked {
-		return blocked, nil
-	}
 	if blocked, err := ctx.blockedByPendingGateOrOpenDecision(true); err != nil || blocked.Blocked {
 		return blocked, err
+	}
+	if blocked := ctx.blockedByReviewerDispatches(true); blocked.Blocked {
+		return blocked, nil
 	}
 	known, err := mission.ReadLedgerEventIDs(ctx.inst.CaseRoot)
 	if err != nil {
