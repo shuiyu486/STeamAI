@@ -330,4 +330,171 @@ func TestRunPlanSubagentsReviewerPacketRetirementWhatIfApplyE2E(t *testing.T) {
 		assertReviewerPacketRetirementText(t, label, text, "feature-review")
 		assertNoReviewerPacketRetirementReopensInvalidPacket(t, label, text)
 	}
+
+	regeneratedRoot := filepath.Join(caseRoot, ".rekit", "reviews", "regenerated-after-retirement")
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", "beta", "-Lane", "feature-review", "-ReviewOutputDir", regeneratedRoot, "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	regeneratedPlan := decodePlanSubagentsResult(t, out.Bytes())
+	regeneratedPacket := decodePlanSubagentsPacket(t, regeneratedPlan.PacketPath)
+	if regeneratedPlan.PacketPath == plan.PacketPath || regeneratedPacket.PacketID == applied.PacketID || regeneratedPacket.PacketID == "" {
+		t.Fatalf("regenerated packet did not create a fresh canonical packet: old=%s/%s regenerated=%s/%s", plan.PacketPath, applied.PacketID, regeneratedPlan.PacketPath, regeneratedPacket.PacketID)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var regeneratedStatus struct {
+		CaseMission struct {
+			ReviewerDispatchIntakeHandoffs    []reviewerDispatchIntakeCLIItem        `json:"reviewerDispatchIntakeHandoffs"`
+			ReviewerDispatchIntakeSummary     reviewerDispatchIntakeSummaryCLIItem   `json:"reviewerDispatchIntakeSummary"`
+			ReviewerDispatchIntakeActionQueue missionCommanderActionQueueSnapshot    `json:"reviewerDispatchIntakeActionQueue"`
+			ReviewerPacketRetirementHandoffs  []reviewerPacketRetirementCLIItem      `json:"reviewerPacketRetirementHandoffs"`
+			ReviewerPacketRetirementSummary   reviewerPacketRetirementSummaryCLIItem `json:"reviewerPacketRetirementSummary"`
+			MissionCommanderActionQueue       missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &regeneratedStatus); err != nil {
+		t.Fatalf("regenerated status JSON did not decode: %v\n%s", err, out.String())
+	}
+	assertReviewerPacketRetirementClosure(t, "status after regeneration", regeneratedStatus.CaseMission.ReviewerPacketRetirementHandoffs, regeneratedStatus.CaseMission.ReviewerPacketRetirementSummary, applied.PacketID, "feature-review", applied.PacketSHA256, applied.IntegritySHA256)
+	assertReviewerDispatchIntakeSummary(t, "status after regeneration", regeneratedStatus.CaseMission.ReviewerDispatchIntakeSummary, 1, 1, 0, "shard-01", "waiting-for-reviewer-result")
+	regeneratedDispatch, ok := reviewerDispatchIntakeByShard(regeneratedStatus.CaseMission.ReviewerDispatchIntakeHandoffs, "shard-01")
+	if !ok || regeneratedDispatch.PacketID != regeneratedPacket.PacketID || regeneratedDispatch.PacketPath != regeneratedPlan.PacketPath || regeneratedDispatch.PacketID == applied.PacketID || regeneratedDispatch.TargetLane != "feature-review" || regeneratedDispatch.State != "waiting-for-reviewer-result" || regeneratedDispatch.PacketRetirementPreviewCommand != "" || !strings.Contains(regeneratedDispatch.DispatchCommand, "dispatch read-only reviewer") {
+		t.Fatalf("status after regeneration did not promote fresh packet dispatch: dispatch=%+v regenerated=%+v old=%+v", regeneratedDispatch, regeneratedPlan, applied)
+	}
+	for _, item := range regeneratedStatus.CaseMission.ReviewerDispatchIntakeHandoffs {
+		if item.PacketID == applied.PacketID || item.PacketPath == plan.PacketPath {
+			t.Fatalf("status after regeneration reopened retired packet as dispatch: %+v", item)
+		}
+	}
+	if queue := regeneratedStatus.CaseMission.ReviewerDispatchIntakeActionQueue; queue.Counts.Total != 1 || queue.Counts.RequiresReview != 1 || queue.CurrentAction == nil || queue.CurrentAction.Source != "reviewerDispatchIntakeHandoffs" || !strings.Contains(queue.CurrentAction.Command, "dispatch read-only reviewer") {
+		t.Fatalf("status after regeneration omitted reviewer-only dispatch current action: %+v", queue)
+	}
+	if queue := regeneratedStatus.CaseMission.MissionCommanderActionQueue; queue.CurrentAction == nil || queue.CurrentAction.Source != "reviewerDispatchIntakeHandoffs" || !strings.Contains(queue.CurrentAction.Command, "dispatch read-only reviewer") {
+		t.Fatalf("status after regeneration did not prioritize fresh reviewer dispatch as case mission current action: %+v", queue)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "status case mission reviewer dispatch intake：lane=feature-review shard=shard-01 state=waiting-for-reviewer-result") || !strings.Contains(out.String(), "status case mission reviewer dispatch queue") {
+		t.Fatalf("status text after regeneration omitted fresh reviewer dispatch:\n%s", out.String())
+	}
+	assertReviewerPacketRetirementText(t, "status text after regeneration", out.String(), "feature-review")
+	assertNoReviewerPacketRetirementReopensInvalidPacket(t, "status text after regeneration", out.String())
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "review", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var regeneratedHandoff struct {
+		ReviewerDispatchIntakeHandoffs   []reviewerDispatchIntakeCLIItem        `json:"reviewerDispatchIntakeHandoffs"`
+		ReviewerDispatchIntakeSummary    reviewerDispatchIntakeSummaryCLIItem   `json:"reviewerDispatchIntakeSummary"`
+		ReviewerPacketRetirementHandoffs []reviewerPacketRetirementCLIItem      `json:"reviewerPacketRetirementHandoffs"`
+		ReviewerPacketRetirementSummary  reviewerPacketRetirementSummaryCLIItem `json:"reviewerPacketRetirementSummary"`
+		Writes                           []startWrite                           `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &regeneratedHandoff); err != nil {
+		t.Fatalf("regenerated handoff JSON did not decode: %v\n%s", err, out.String())
+	}
+	assertReviewerPacketRetirementClosure(t, "handoff after regeneration", regeneratedHandoff.ReviewerPacketRetirementHandoffs, regeneratedHandoff.ReviewerPacketRetirementSummary, applied.PacketID, "feature-review", applied.PacketSHA256, applied.IntegritySHA256)
+	assertReviewerDispatchIntakeSummary(t, "handoff after regeneration", regeneratedHandoff.ReviewerDispatchIntakeSummary, 1, 1, 0, "shard-01", "waiting-for-reviewer-result")
+	regeneratedHandoffDispatch, ok := reviewerDispatchIntakeByShard(regeneratedHandoff.ReviewerDispatchIntakeHandoffs, "shard-01")
+	if !ok || regeneratedHandoffDispatch.PacketID != regeneratedPacket.PacketID || regeneratedHandoffDispatch.PacketID == applied.PacketID {
+		t.Fatalf("handoff after regeneration did not preserve fresh packet dispatch: %+v", regeneratedHandoff.ReviewerDispatchIntakeHandoffs)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "review", "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var regeneratedHandoffApply struct {
+		Applied                          bool                                   `json:"applied"`
+		ReviewerDispatchIntakeHandoffs   []reviewerDispatchIntakeCLIItem        `json:"reviewerDispatchIntakeHandoffs"`
+		ReviewerDispatchIntakeSummary    reviewerDispatchIntakeSummaryCLIItem   `json:"reviewerDispatchIntakeSummary"`
+		ReviewerPacketRetirementHandoffs []reviewerPacketRetirementCLIItem      `json:"reviewerPacketRetirementHandoffs"`
+		ReviewerPacketRetirementSummary  reviewerPacketRetirementSummaryCLIItem `json:"reviewerPacketRetirementSummary"`
+		Writes                           []startWrite                           `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &regeneratedHandoffApply); err != nil {
+		t.Fatalf("regenerated handoff apply JSON did not decode: %v\n%s", err, out.String())
+	}
+	if !regeneratedHandoffApply.Applied {
+		t.Fatalf("regenerated handoff apply did not apply: %+v", regeneratedHandoffApply)
+	}
+	assertReviewerPacketRetirementClosure(t, "handoff apply after regeneration", regeneratedHandoffApply.ReviewerPacketRetirementHandoffs, regeneratedHandoffApply.ReviewerPacketRetirementSummary, applied.PacketID, "feature-review", applied.PacketSHA256, applied.IntegritySHA256)
+	assertReviewerDispatchIntakeSummary(t, "handoff apply after regeneration", regeneratedHandoffApply.ReviewerDispatchIntakeSummary, 1, 1, 0, "shard-01", "waiting-for-reviewer-result")
+	latestHandoffPath := assertStartWrite(t, regeneratedHandoffApply.Writes, ".rekit/handovers/feature-review-latest.md", "write-latest-lane-handoff").TargetPath
+	latestHandoffBytes, err := os.ReadFile(latestHandoffPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	latestHandoffText := string(latestHandoffBytes)
+	if !strings.Contains(latestHandoffText, "## Reviewer dispatch intake handoff") || !strings.Contains(latestHandoffText, "dispatch intake: lane=feature-review shard=shard-01 state=waiting-for-reviewer-result") || !strings.Contains(latestHandoffText, regeneratedPacket.PacketID) {
+		t.Fatalf("latest handoff after regeneration omitted fresh dispatch:\n%s", latestHandoffText)
+	}
+	assertReviewerPacketRetirementText(t, "latest handoff after regeneration", latestHandoffText, "feature-review")
+	assertNoReviewerPacketRetirementReopensInvalidPacket(t, "latest handoff after regeneration", latestHandoffText)
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "review", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var regeneratedContinuePreview struct {
+		Applied                          bool                                   `json:"applied"`
+		Blocked                          bool                                   `json:"blocked"`
+		ReviewerDispatchIntakeHandoffs   []reviewerDispatchIntakeCLIItem        `json:"reviewerDispatchIntakeHandoffs"`
+		ReviewerDispatchIntakeSummary    reviewerDispatchIntakeSummaryCLIItem   `json:"reviewerDispatchIntakeSummary"`
+		ReviewerPacketRetirementHandoffs []reviewerPacketRetirementCLIItem      `json:"reviewerPacketRetirementHandoffs"`
+		ReviewerPacketRetirementSummary  reviewerPacketRetirementSummaryCLIItem `json:"reviewerPacketRetirementSummary"`
+		MissionCommanderActionQueue      missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &regeneratedContinuePreview); err != nil {
+		t.Fatalf("regenerated continue preview JSON did not decode: %v\n%s", err, out.String())
+	}
+	if regeneratedContinuePreview.Applied || !regeneratedContinuePreview.Blocked || regeneratedContinuePreview.MissionCommanderActionQueue.CurrentAction == nil || regeneratedContinuePreview.MissionCommanderActionQueue.CurrentAction.Source != "reviewerDispatchIntakeHandoffs" {
+		t.Fatalf("continue preview after regeneration did not block on fresh reviewer dispatch: %+v", regeneratedContinuePreview)
+	}
+	assertReviewerPacketRetirementClosure(t, "continue preview after regeneration", regeneratedContinuePreview.ReviewerPacketRetirementHandoffs, regeneratedContinuePreview.ReviewerPacketRetirementSummary, applied.PacketID, "feature-review", applied.PacketSHA256, applied.IntegritySHA256)
+	assertReviewerDispatchIntakeSummary(t, "continue preview after regeneration", regeneratedContinuePreview.ReviewerDispatchIntakeSummary, 1, 1, 0, "shard-01", "waiting-for-reviewer-result")
+	regeneratedContinueDispatch, ok := reviewerDispatchIntakeByShard(regeneratedContinuePreview.ReviewerDispatchIntakeHandoffs, "shard-01")
+	if !ok || regeneratedContinueDispatch.PacketID != regeneratedPacket.PacketID || regeneratedContinueDispatch.PacketID == applied.PacketID {
+		t.Fatalf("continue preview after regeneration did not preserve fresh packet dispatch: %+v", regeneratedContinuePreview.ReviewerDispatchIntakeHandoffs)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "review", "-WhatIf", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "continue reviewer dispatch intake：lane=feature-review shard=shard-01 state=waiting-for-reviewer-result") {
+		t.Fatalf("continue text after regeneration omitted fresh reviewer dispatch:\n%s", out.String())
+	}
+	assertReviewerPacketRetirementText(t, "continue text after regeneration", out.String(), "feature-review")
+	assertNoReviewerPacketRetirementReopensInvalidPacket(t, "continue text after regeneration", out.String())
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "review", "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var regeneratedContinueApply struct {
+		Applied                          bool                                   `json:"applied"`
+		Blocked                          bool                                   `json:"blocked"`
+		ReviewerDispatchIntakeHandoffs   []reviewerDispatchIntakeCLIItem        `json:"reviewerDispatchIntakeHandoffs"`
+		ReviewerDispatchIntakeSummary    reviewerDispatchIntakeSummaryCLIItem   `json:"reviewerDispatchIntakeSummary"`
+		ReviewerPacketRetirementHandoffs []reviewerPacketRetirementCLIItem      `json:"reviewerPacketRetirementHandoffs"`
+		ReviewerPacketRetirementSummary  reviewerPacketRetirementSummaryCLIItem `json:"reviewerPacketRetirementSummary"`
+		Writes                           []startWrite                           `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &regeneratedContinueApply); err != nil {
+		t.Fatalf("regenerated continue apply JSON did not decode: %v\n%s", err, out.String())
+	}
+	if regeneratedContinueApply.Applied || !regeneratedContinueApply.Blocked || len(regeneratedContinueApply.Writes) != 0 {
+		t.Fatalf("continue apply after regeneration should remain blocked with zero writes while reviewer dispatch is open: %+v", regeneratedContinueApply)
+	}
+	assertReviewerPacketRetirementClosure(t, "continue apply after regeneration", regeneratedContinueApply.ReviewerPacketRetirementHandoffs, regeneratedContinueApply.ReviewerPacketRetirementSummary, applied.PacketID, "feature-review", applied.PacketSHA256, applied.IntegritySHA256)
+	assertReviewerDispatchIntakeSummary(t, "continue apply after regeneration", regeneratedContinueApply.ReviewerDispatchIntakeSummary, 1, 1, 0, "shard-01", "waiting-for-reviewer-result")
 }

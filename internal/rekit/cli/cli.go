@@ -7060,6 +7060,9 @@ func writeContinueText(out io.Writer, result workstream.ContinueResult) error {
 		if err := writeReviewerDispatchIntakeHandoffText(out, "continue", result.ReviewerDispatchIntakeHandoffs, result.ReviewerDispatchIntakeSummary); err != nil {
 			return err
 		}
+		if err := writeReviewerPacketRetirementHandoffText(out, "continue", result.ReviewerPacketRetirementHandoffs, result.ReviewerPacketRetirementSummary); err != nil {
+			return err
+		}
 		if err := writeAuthorizedGateAdapterHandoffText(out, "continue", result.AuthorizedGateAdapterHandoffs); err != nil {
 			return err
 		}
