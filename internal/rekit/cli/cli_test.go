@@ -7718,6 +7718,104 @@ func TestRunGoWorkstreamE2EStartNoteContinueHandoff(t *testing.T) {
 	}
 }
 
+func TestRunPlanSubagentsReviewerMultiPacketLifecyclePriorityE2E(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "login", "-Apply", "-Executor", "session-login", "-Actor", "mission-commander", "-Reason", "reviewer lifecycle priority owner"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	writeCaseFile(t, caseRoot, "workspace/features/feature-login/review-evidence.md", "bounded reviewer lifecycle priority evidence\n")
+
+	firstReviewRoot := filepath.Join(caseRoot, ".rekit", "reviews", "a-source-capture-ready")
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", "alpha", "-ItemsPerAgent", "1", "-MaxParallel", "1", "-Lane", "feature-login", "-ReviewOutputDir", firstReviewRoot, "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	firstPlan := decodePlanSubagentsResult(t, out.Bytes())
+	firstPacket := decodePlanSubagentsPacket(t, firstPlan.PacketPath)
+	firstHandoff := firstPlan.ShardHandoffs[0]
+	firstInputPath := firstHandoff.ReviewerStagingCommands.SourceCaptureInput
+	if firstInputPath == "" {
+		t.Fatalf("first reviewer packet omitted deterministic input path: %+v", firstHandoff.ReviewerStagingCommands)
+	}
+	if err := os.MkdirAll(filepath.Dir(firstInputPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(firstInputPath, reviewerResultForCLIPlan(t, firstPacket, firstHandoff, "accept", "accepted", "reviewer-session-source-ready"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	secondReviewRoot := filepath.Join(caseRoot, ".rekit", "reviews", "z-ready-intake")
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", "beta", "-ItemsPerAgent", "1", "-MaxParallel", "1", "-Lane", "feature-login", "-ReviewOutputDir", secondReviewRoot, "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	secondPlan := decodePlanSubagentsResult(t, out.Bytes())
+	secondPacket := decodePlanSubagentsPacket(t, secondPlan.PacketPath)
+	secondHandoff := secondPlan.ShardHandoffs[0]
+	stageAndCollectReviewerResultForCLIPlan(t, &out, []string{"-Target", caseRoot, "-Pack", "_template"}, secondPlan.PacketPath, secondHandoff, "feature-login", "mission-commander", reviewerResultForCLIPlan(t, secondPacket, secondHandoff, "reject", "rejected", "reviewer-session-intake-ready"))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		CaseMission struct {
+			ReviewerDispatchIntakeHandoffs []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
+			ReviewerDispatchIntakeSummary  reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+			MissionCommanderActionQueue    missionCommanderActionQueueSnapshot  `json:"missionCommanderActionQueue"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("multi-packet reviewer status JSON did not decode: %v\n%s", err, out.String())
+	}
+	firstDispatch, ok := reviewerDispatchIntakeByPacket(status.CaseMission.ReviewerDispatchIntakeHandoffs, firstPacket.PacketID)
+	if !ok || firstDispatch.State != "ready-for-reviewer-result-source-capture-preview" || firstDispatch.ReviewerResultInputPath != firstInputPath || firstDispatch.ReviewerResultInputState != "ready" || firstDispatch.ReviewerResultSourceState != "missing" {
+		t.Fatalf("status omitted first source-capture-ready reviewer packet: %+v", status.CaseMission.ReviewerDispatchIntakeHandoffs)
+	}
+	secondDispatch, ok := reviewerDispatchIntakeByPacket(status.CaseMission.ReviewerDispatchIntakeHandoffs, secondPacket.PacketID)
+	statusCurrent := status.CaseMission.MissionCommanderActionQueue.CurrentAction
+	if !ok || secondDispatch.State != "ready-for-reviewer-intake-preview" || !secondDispatch.ReviewerResultPresent || !strings.Contains(secondDispatch.BatchPreviewCommand, "-ReadyReviewerResults") || status.CaseMission.ReviewerDispatchIntakeSummary.NextActionState != "ready-for-reviewer-intake-preview" || status.CaseMission.ReviewerDispatchIntakeSummary.NextActionShardID != secondDispatch.ShardID || !strings.Contains(status.CaseMission.ReviewerDispatchIntakeSummary.NextAction, secondPlan.PacketPath) || statusCurrent == nil || statusCurrent.Source != "reviewerDispatchIntakeHandoffs" || statusCurrent.Label != secondPacket.PacketID || statusCurrent.State != "ready-for-reviewer-intake-preview" || statusCurrent.Blocked || !strings.Contains(statusCurrent.Command, secondPlan.PacketPath) {
+		t.Fatalf("status should prioritize downstream reviewer intake over earlier source capture: first=%+v second=%+v summary=%+v current=%+v", firstDispatch, secondDispatch, status.CaseMission.ReviewerDispatchIntakeSummary, statusCurrent)
+	}
+	if len(status.CaseMission.MissionCommanderActionQueue.UnblockedActions) < 2 || status.CaseMission.MissionCommanderActionQueue.UnblockedActions[0].Label != secondPacket.PacketID || status.CaseMission.MissionCommanderActionQueue.UnblockedActions[1].Label != firstPacket.PacketID {
+		t.Fatalf("status action queue should sort reviewer packets by lifecycle priority: %+v", status.CaseMission.MissionCommanderActionQueue.UnblockedActions)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "login", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	handoffPreview := decodeHandoffResult(t, out.Bytes())
+	if handoffPreview.MissionCommanderActionQueue.CurrentAction == nil || handoffPreview.MissionCommanderActionQueue.CurrentAction.Label != secondPacket.PacketID || handoffPreview.MissionCommanderActionQueue.CurrentAction.State != "ready-for-reviewer-intake-preview" || handoffPreview.MissionCommanderActionQueue.CurrentAction.Blocked {
+		t.Fatalf("handoff preview should preserve downstream reviewer intake current action: %+v", handoffPreview.MissionCommanderActionQueue)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login", "-Executor", "session-login", "-ExpectedExecutorGeneration", "1", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var continueApply struct {
+		RunID                       string                              `json:"runId"`
+		Applied                     bool                                `json:"applied"`
+		Blocked                     bool                                `json:"blocked"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		Writes                      []startWrite                        `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &continueApply); err != nil {
+		t.Fatalf("multi-packet reviewer continue apply JSON did not decode: %v\n%s", err, out.String())
+	}
+	continueCurrent := continueApply.MissionCommanderActionQueue.CurrentAction
+	if !continueApply.Blocked || continueApply.Applied || continueApply.RunID != "run-preview" || len(continueApply.Writes) != 0 || continueCurrent == nil || continueCurrent.Label != secondPacket.PacketID || continueCurrent.State != "ready-for-reviewer-intake-preview" || continueCurrent.Blocked {
+		t.Fatalf("blocked continue should preserve downstream reviewer intake current action without writes: apply=%+v current=%+v", continueApply, continueCurrent)
+	}
+	if entries, err := os.ReadDir(filepath.Join(caseRoot, ".rekit", "runs")); err == nil && len(entries) != 0 {
+		t.Fatalf("blocked multi-packet reviewer continue created run artifacts: %+v", entries)
+	} else if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+}
+
 func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	var out bytes.Buffer
@@ -16545,6 +16643,15 @@ func assertReviewerIntakeOrchestrationProgress(t *testing.T, label string, progr
 func reviewerDispatchIntakeByShard(items []reviewerDispatchIntakeCLIItem, shard string) (reviewerDispatchIntakeCLIItem, bool) {
 	for _, item := range items {
 		if item.ShardID == shard {
+			return item, true
+		}
+	}
+	return reviewerDispatchIntakeCLIItem{}, false
+}
+
+func reviewerDispatchIntakeByPacket(items []reviewerDispatchIntakeCLIItem, packetID string) (reviewerDispatchIntakeCLIItem, bool) {
+	for _, item := range items {
+		if item.PacketID == packetID {
 			return item, true
 		}
 	}

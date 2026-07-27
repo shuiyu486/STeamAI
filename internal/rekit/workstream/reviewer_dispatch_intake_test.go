@@ -267,6 +267,38 @@ func TestMissionCommanderReviewerDispatchSelectsActionablePacketRepresentative(t
 	}
 }
 
+func TestMissionCommanderReviewerDispatchOrdersLifecycleAcrossPackets(t *testing.T) {
+	sourceCaptureCommand := "/rekit plan-subagents -PacketPath early-packet.json -CaptureReviewerResultSource -ShardId shard-early -WhatIf -Format json"
+	intakeCommand := "/rekit plan-subagents -PacketPath later-packet.json -ReadyReviewerResults -WhatIf -Format json"
+	items := MissionCommanderNextActionsWithReviewerDispatches(nil, []ReviewerDispatchIntakeHandoff{
+		{PacketID: "packet-early", TargetLane: "feature-review", ShardID: "shard-early", State: "ready-for-reviewer-result-source-capture-preview", ReviewerResultSourceCaptureCommand: sourceCaptureCommand},
+		{PacketID: "packet-later", TargetLane: "feature-review", ShardID: "shard-later", State: "ready-for-reviewer-intake-preview", BatchPreviewCommand: intakeCommand},
+	})
+	queue := mission.MissionCommanderActionQueueFor(items)
+	if len(items) != 2 || queue.CurrentAction == nil || queue.CurrentAction.Command != intakeCommand || queue.CurrentAction.Label != "packet-later" || queue.CurrentAction.State != "ready-for-reviewer-intake-preview" || queue.CurrentAction.Blocked {
+		t.Fatalf("downstream reviewer intake should be current before earlier source capture: items=%+v queue=%+v", items, queue)
+	}
+	if items[0].Label != "packet-later" || items[1].Label != "packet-early" {
+		t.Fatalf("reviewer packet actions should be sorted by lifecycle priority: %+v", items)
+	}
+}
+
+func TestMissionCommanderReviewerDispatchOrdersRepairBeforeDownstreamReady(t *testing.T) {
+	repairCommand := "/rekit plan-subagents -PacketPath repair-packet.json -RepairReviewerPromptArtifact -ShardId shard-repair -WhatIf -Format json"
+	intakeCommand := "/rekit plan-subagents -PacketPath later-packet.json -ReadyReviewerResults -WhatIf -Format json"
+	items := MissionCommanderNextActionsWithReviewerDispatches(nil, []ReviewerDispatchIntakeHandoff{
+		{PacketID: "packet-intake", TargetLane: "feature-review", ShardID: "shard-ready", State: "ready-for-reviewer-intake-preview", BatchPreviewCommand: intakeCommand},
+		{PacketID: "packet-repair", TargetLane: "feature-review", ShardID: "shard-repair", State: "reviewer-dispatch-prompt-artifact-invalid", DispatchPromptRepairCommand: repairCommand},
+	})
+	queue := mission.MissionCommanderActionQueueFor(items)
+	if len(items) != 2 || queue.CurrentAction == nil || queue.CurrentAction.Command != repairCommand || queue.CurrentAction.Label != "packet-repair" || queue.CurrentAction.State != "reviewer-dispatch-prompt-artifact-invalid" || queue.CurrentAction.Blocked {
+		t.Fatalf("reviewer prompt repair should be current before intake: items=%+v queue=%+v", items, queue)
+	}
+	if items[0].Label != "packet-repair" || items[1].Label != "packet-intake" {
+		t.Fatalf("reviewer repair action should sort before downstream ready action: %+v", items)
+	}
+}
+
 func TestMissionCommanderReviewerDispatchPreservesBoundedApplyPriority(t *testing.T) {
 	startCommand := "/rekit start review -Apply"
 	items := MissionCommanderNextActionsWithReviewerDispatches([]mission.MissionCommanderNextActionItem{{

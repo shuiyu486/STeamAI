@@ -511,8 +511,8 @@ func limitReviewerDispatchIntakeHandoffs(items []ReviewerDispatchIntakeHandoff, 
 		return items
 	}
 	limited := append([]ReviewerDispatchIntakeHandoff{}, items[len(items)-limit:]...)
-	bestPriority := 4
-	for _, item := range limited {
+	bestPriority := reviewerDispatchActionPriority(limited[0])
+	for _, item := range limited[1:] {
 		bestPriority = min(bestPriority, reviewerDispatchActionPriority(item))
 	}
 	for idx := len(items) - limit - 1; idx >= 0; idx-- {
@@ -660,6 +660,7 @@ func MissionCommanderNextActionsWithReviewerDispatches(base []mission.MissionCom
 			Boundary:       append([]string{}, handoff.Boundary...),
 		})
 	}
+	packetActions = orderReviewerDispatchMissionActions(packetActions)
 	if len(packetActions) == 0 {
 		return mission.UniqueCommanderNextActions(base)
 	}
@@ -700,16 +701,40 @@ func reviewerDispatchBaseActionHasPriority(item mission.MissionCommanderNextActi
 	return item.Source == "missionCommanderActions" && (item.State == "needs-start-apply" || item.State == "needs-reconcile")
 }
 
+func orderReviewerDispatchMissionActions(items []mission.MissionCommanderNextActionItem) []mission.MissionCommanderNextActionItem {
+	out := append([]mission.MissionCommanderNextActionItem{}, items...)
+	slices.SortStableFunc(out, func(a, b mission.MissionCommanderNextActionItem) int {
+		return reviewerDispatchMissionActionPriority(a) - reviewerDispatchMissionActionPriority(b)
+	})
+	return out
+}
+
+func reviewerDispatchMissionActionPriority(item mission.MissionCommanderNextActionItem) int {
+	return reviewerDispatchActionPriority(ReviewerDispatchIntakeHandoff{State: item.State})
+}
+
 func reviewerDispatchActionPriority(item ReviewerDispatchIntakeHandoff) int {
 	switch item.State {
 	case "reviewer-packet-owner-adoption-required":
 		return 0
-	case "reviewer-packet-integrity-invalid", "reviewer-dispatch-prompt-artifact-invalid", "reviewer-dispatch-prompt-artifact-drift", "reviewer-result-symlink-blocked", "reviewer-result-input-invalid", "reviewer-result-source-invalid", "reviewer-result-candidate-invalid", "reviewer-result-canonical-invalid", "reviewer-result-collection-required", "reviewer-result-recovery-invalid", "reviewer-result-recovery-ambiguous", "attach-required-before-reviewer-intake":
+	case "reviewer-dispatch-prompt-artifact-invalid", "reviewer-dispatch-prompt-artifact-drift", "reviewer-result-recovery-finalize-required":
 		return 1
-	case "reviewer-result-recovery-required", "reviewer-result-recovery-finalize-required", "ready-for-reviewer-result-source-capture-preview", "ready-for-reviewer-result-staging-preview", "ready-for-reviewer-result-collection-preview", "reviewer-result-recovery-disposed-ready-for-collection-preview", "ready-for-reviewer-intake-preview":
+	case "reviewer-result-recovery-required", "reviewer-result-recovery-ambiguous":
 		return 2
-	default:
+	case "ready-for-reviewer-intake-preview":
 		return 3
+	case "ready-for-reviewer-result-collection-preview", "reviewer-result-recovery-disposed-ready-for-collection-preview":
+		return 4
+	case "ready-for-reviewer-result-staging-preview":
+		return 5
+	case "ready-for-reviewer-result-source-capture-preview":
+		return 6
+	case "reviewer-packet-integrity-invalid", "reviewer-result-symlink-blocked", "reviewer-result-input-invalid", "reviewer-result-source-invalid", "reviewer-result-candidate-invalid", "reviewer-result-canonical-invalid", "reviewer-result-collection-required", "reviewer-result-recovery-invalid", "attach-required-before-reviewer-intake":
+		return 7
+	case "waiting-for-reviewer-result", "dispatch-only-waiting-for-result":
+		return 8
+	default:
+		return 9
 	}
 }
 
