@@ -7866,7 +7866,7 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(firstInputPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(firstInputPath, nil, 0o644); err != nil {
+	if err := os.WriteFile(firstInputPath, []byte(`{"packetId":"`+packet.PacketID+`","routeId":"`+packet.Route.ID+`"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	out.Reset()

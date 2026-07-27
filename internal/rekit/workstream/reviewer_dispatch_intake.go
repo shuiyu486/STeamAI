@@ -20,6 +20,7 @@ import (
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewerresult"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewpath"
 )
 
@@ -1193,6 +1194,11 @@ func reviewerDispatchSourceCaptureApplyCommand(packetPath, shardID, targetLane, 
 		" -Actor <main-agent> -ExpectedReviewerResultInputSha256 <inputSha256-from-WhatIf> -Apply -Format json"
 }
 
+func reviewerResultInputSemanticInvalid(data []byte) bool {
+	_, err := reviewerresult.Decode(data)
+	return err != nil
+}
+
 func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts, packet reviewerDispatchPacket, packetPath, targetLane string, dispatch reviewerDispatchPacketDispatch, idx int) ReviewerDispatchIntakeHandoff {
 	resultPath := strings.TrimSpace(dispatch.ReviewerResultPath)
 	candidatePath := strings.TrimSpace(dispatch.ReviewerResultCandidatePath)
@@ -1250,6 +1256,9 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 			}
 		} else if classified == refsf.RegularFileReady {
 			inputState = "ready"
+			if data, err := readStableReviewerWorkstreamArtifact(caseRoot, inputPath, "reviewer result input"); err != nil || reviewerResultInputSemanticInvalid(data) {
+				inputState = "invalid"
+			}
 		}
 	}
 	sourceState := ""

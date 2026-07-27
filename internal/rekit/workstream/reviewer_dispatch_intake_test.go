@@ -400,7 +400,16 @@ func TestReviewerDispatchIntakeProjectsCandidateCollectionState(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(inputPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(inputPath, []byte("{}\n"), 0o644); err != nil {
+	if err := os.WriteFile(inputPath, []byte(`{"packetId":"packet-collection","routeId":"route-collection"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	invalidInput := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, packetPath, "feature-review", dispatch, 0)
+	if invalidInput.State != "reviewer-result-input-invalid" || invalidInput.ReviewerResultInputState != "invalid" || invalidInput.ReviewerResultSourceState != "missing" {
+		t.Fatalf("malformed input handoff did not fail closed before source capture: %+v", invalidInput)
+	}
+	validInput := []byte(`{"packetId":"packet-collection","routeId":"route-collection","shardId":"shard-01","items":["item-a"],"reviewerSession":"reviewer-session-1","decision":"accept","confidence":"high","summary":"accepted","evidenceRefs":[],"risks":[],"conflicts":[],"recommendedVerdict":"accepted","routeOutput":{}}
+`)
+	if err := os.WriteFile(inputPath, validInput, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	inputReady := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, packetPath, "feature-review", dispatch, 0)

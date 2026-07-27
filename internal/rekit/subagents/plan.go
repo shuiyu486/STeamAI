@@ -15,6 +15,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewerresult"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewpath"
 )
 
@@ -854,22 +855,13 @@ func writeReviewerPromptArtifacts(promptRoot string, handoffs []ShardHandoff) er
 }
 
 func reviewerResultContract() ReviewerResultContract {
+	contract := reviewerresult.CurrentContract()
 	return ReviewerResultContract{
-		OutputFormat:     "single JSON object per shard with route-specific fields nested under routeOutput; no markdown tables, file writes, ledger appends, authority, confirmed, or heavy-tool output",
-		RequiredFields:   []string{"packetId", "routeId", "shardId", "items", "reviewerSession", "decision", "confidence", "summary", "evidenceRefs", "risks", "conflicts", "recommendedVerdict", "routeOutput"},
-		AllowedDecisions: []string{"accept", "reject", "defer", "abandon", "needs-more-evidence"},
-		EvidenceRules: []string{
-			"accepted or rejected reviewer decisions must cite evidenceRefs from the packet, reviewed artifacts, or bounded evidence paths",
-			"route-specific outputContract fields must be returned inside routeOutput so strict intake can preserve pack-specific data without allowing unknown top-level fields",
-			"missing, ambiguous, or inaccessible evidenceRefs require decision=needs-more-evidence or defer",
-			"do not paste long logs; cite stable packet/evidence references and summarize the relevant observation",
-		},
-		ConflictSignals: []string{
-			"reviewer decision conflicts with evidenceRefs or route output contract",
-			"reviewer requests file writes, ledger append, authority/confirmed changes, heavy tools, or external effects",
-			"reviewer output overlaps another shard or changes items outside this shard",
-			"reviewer confidence is low or evidence cannot be independently inspected by the main agent",
-		},
+		OutputFormat:     contract.OutputFormat,
+		RequiredFields:   append([]string{}, contract.RequiredFields...),
+		AllowedDecisions: append([]string{}, contract.AllowedDecisions...),
+		EvidenceRules:    append([]string{}, contract.EvidenceRules...),
+		ConflictSignals:  append([]string{}, contract.ConflictSignals...),
 	}
 }
 
