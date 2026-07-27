@@ -644,7 +644,10 @@ func TestReleaseHandoffPackMemoryCandidateDecisionVerificationReceipt(t *testing
 	if pack.PendingVerifications != 1 || pack.CompletedVerifications != 0 || !pack.RequiresVerification || pack.RequiresReview || !pack.RequiresCleanup || len(pack.DecisionReceipts) != 1 || len(receiptStatus.Actions) != 1 || receiptStatus.Actions[0].CandidatePath != "packs/fixture/promote-candidates/memory.candidate.md" || receiptStatus.VerificationComplete || receiptStatus.VerificationWorkspaceRoot == "" || !strings.Contains(receiptStatus.VerificationProvisionCommand, "-ProvisionCandidateVerificationCases") || !strings.Contains(receiptStatus.VerificationCommand, "-FreshCaseRoot") || receiptStatus.ProvisionStatus != "required" || receiptStatus.ProvisionIntentPath == "" || receiptStatus.ProvisionReceiptPath == "" || receiptStatus.ProvisionApplyCommand == "" || receiptStatus.ProvisionInProgress || receiptStatus.ProvisionComplete || !strings.Contains(receiptStatus.ProvisionNextAction, "verificationProvisionCommand") || !strings.Contains(pack.Action, "candidate-cleanup-proof") || pack.ProofSummary.NextMissingProof == nil || !pack.ProofSummary.NextMissingProof.RequiresCandidateDecision || !strings.Contains(pack.ProofSummary.NextMissingProof.DraftCommand, "-ProofType candidate-cleanup-proof") || !strings.Contains(pack.ProofSummary.NextMissingProof.DraftApplyTemplate, "<proofSha256-from-WhatIf>") {
 		t.Fatalf("pending candidate verification handoff drifted: %+v", pack)
 	}
-	assertReleaseHandoffPackMemoryCurrentAction(t, inventory, "fixture", "pack-memory-verification-provision-required", "pack-memory-verification-required", "-ProvisionCandidateVerificationCases")
+	provisionCommand := assertReleaseHandoffPackMemoryCurrentAction(t, inventory, "fixture", "pack-memory-verification-provision-required", "pack-memory-verification-required", "-ProvisionCandidateVerificationCases")
+	assertReleaseHandoffCommandTargetsSource(t, provisionCommand, caseRoot)
+	assertReleaseHandoffCommandTargetsSource(t, receiptStatus.VerificationProvisionCommand, caseRoot)
+	assertReleaseHandoffCommandTargetsSource(t, receiptStatus.VerificationCommand, caseRoot)
 
 	workspace := filepath.Join(caseRoot, ".rekit", "verifications", "candidate-decisions", shortReleaseHandoffHash(packetHash+decisionHash))
 	freshCaseRoot = filepath.Join(workspace, "fresh")
@@ -681,7 +684,8 @@ func TestReleaseHandoffPackMemoryCandidateDecisionVerificationReceipt(t *testing
 	if provisionInProgress.Ready || provisionInProgress.Total != 1 || len(provisionInProgress.Packs) != 1 || len(provisionInProgress.Packs[0].DecisionReceipts) != 1 || !provisionInProgress.Packs[0].DecisionReceipts[0].ProvisionInProgress || provisionInProgress.Packs[0].DecisionReceipts[0].ProvisionStatus != "in-progress" {
 		t.Fatalf("candidate verification provision intent was not projected as in-progress: %+v", provisionInProgress)
 	}
-	assertReleaseHandoffPackMemoryCurrentAction(t, provisionInProgress, "fixture", "pack-memory-verification-provision-in-progress", "pack-memory-verification-required", "ExpectedProvisionSha256")
+	provisionResumeCommand := assertReleaseHandoffPackMemoryCurrentAction(t, provisionInProgress, "fixture", "pack-memory-verification-provision-in-progress", "pack-memory-verification-required", "ExpectedProvisionSha256")
+	assertReleaseHandoffCommandTargetsSource(t, provisionResumeCommand, caseRoot)
 	provisionArtifact.Kind = "pack-memory-candidate-verification-case-provision-receipt"
 	writeCandidateVerificationProvisionArtifact(t, provisionReceiptPath, provisionArtifact)
 	if err := os.MkdirAll(filepath.Join(workspace, "fresh"), 0o755); err != nil {
@@ -694,7 +698,8 @@ func TestReleaseHandoffPackMemoryCandidateDecisionVerificationReceipt(t *testing
 	if provisionComplete.Ready || provisionComplete.Total != 1 || len(provisionComplete.Packs) != 1 || len(provisionComplete.Packs[0].DecisionReceipts) != 1 || !provisionComplete.Packs[0].DecisionReceipts[0].ProvisionComplete || provisionComplete.Packs[0].DecisionReceipts[0].ProvisionStatus != "complete" {
 		t.Fatalf("candidate verification provision receipt was not projected as complete: %+v", provisionComplete)
 	}
-	assertReleaseHandoffPackMemoryCurrentAction(t, provisionComplete, "fixture", "pack-memory-verification-run-required", "pack-memory-verification-required", "-FreshCaseRoot")
+	verificationCommand := assertReleaseHandoffPackMemoryCurrentAction(t, provisionComplete, "fixture", "pack-memory-verification-run-required", "pack-memory-verification-required", "-FreshCaseRoot")
+	assertReleaseHandoffCommandTargetsSource(t, verificationCommand, caseRoot)
 	retirementPreviewCommand := "/rekit promote -PacketPath " + packetPath + " -CandidateDecisionPath " + decisionPath + " -RetireCandidateVerificationWorkspace -WhatIf -Format json"
 	proof := map[string]any{
 		"schemaVersion":            1,
@@ -769,10 +774,12 @@ func TestReleaseHandoffPackMemoryCandidateDecisionVerificationReceipt(t *testing
 		t.Fatalf("completed candidate verification did not require retirement: %+v", retirementRequired)
 	}
 	retirement := retirementRequired.Packs[0].DecisionReceipts[0]
-	if retirement.RetirementStatus != "required" || !retirement.RetirementRequired || retirement.RetirementInProgress || retirement.Retired || retirement.RetirementPreviewCommand != retirementPreviewCommand || !strings.Contains(retirement.RetirementNextAction, "expected-hash Apply") {
+	if retirement.RetirementStatus != "required" || !retirement.RetirementRequired || retirement.RetirementInProgress || retirement.Retired || !strings.Contains(retirement.RetirementPreviewCommand, "-RetireCandidateVerificationWorkspace") || strings.Contains(retirement.RetirementPreviewCommand, "pending-packet.json") || !strings.Contains(retirement.RetirementNextAction, "expected-hash Apply") {
 		t.Fatalf("required candidate verification retirement handoff drifted: %+v", retirement)
 	}
-	assertReleaseHandoffPackMemoryCurrentAction(t, retirementRequired, "fixture", "pack-memory-verification-retirement-required", "pack-memory-verification-required", "-RetireCandidateVerificationWorkspace")
+	assertReleaseHandoffCommandTargetsSource(t, retirement.RetirementPreviewCommand, caseRoot)
+	retirementCommand := assertReleaseHandoffPackMemoryCurrentAction(t, retirementRequired, "fixture", "pack-memory-verification-retirement-required", "pack-memory-verification-required", "-RetireCandidateVerificationWorkspace")
+	assertReleaseHandoffCommandTargetsSource(t, retirementCommand, caseRoot)
 
 	pendingPacketPath := filepath.Join(repo, "case", ".rekit", "reviews", "pending-packet.json")
 	pendingDecisionPath := filepath.Join(repo, "case", ".rekit", "reviews", "pending-decisions.json")
@@ -1057,10 +1064,11 @@ func TestReleaseHandoffPackMemoryCandidateVerificationRetirementLifecycle(t *tes
 	}
 	writeRetirementArtifact(retirementIntentPath, "pack-memory-candidate-verification-retirement-intent")
 	inProgress := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
-	if inProgress.Ready || len(inProgress.Packs) != 1 || !inProgress.Packs[0].DecisionReceipts[0].RetirementInProgress || inProgress.Packs[0].DecisionReceipts[0].RetirementStatus != "in-progress" || !strings.Contains(inProgress.Packs[0].Action, "resume") {
+	if inProgress.Ready || len(inProgress.Packs) != 1 || !inProgress.Packs[0].DecisionReceipts[0].RetirementInProgress || inProgress.Packs[0].DecisionReceipts[0].RetirementStatus != "in-progress" || !strings.Contains(inProgress.Packs[0].Action, "-RetireCandidateVerificationWorkspace") || !strings.Contains(inProgress.Packs[0].Action, "-ExpectedRetirementSha256") || !strings.Contains(inProgress.Packs[0].Action, "-Apply") {
 		t.Fatalf("retirement intent was not projected as in-progress: %+v", inProgress)
 	}
-	assertReleaseHandoffPackMemoryCurrentAction(t, inProgress, "fixture", "pack-memory-verification-retirement-in-progress", "pack-memory-verification-required", "retirementSha256")
+	retirementInProgressCommand := assertReleaseHandoffPackMemoryCurrentAction(t, inProgress, "fixture", "pack-memory-verification-retirement-in-progress", "pack-memory-verification-required", "-ExpectedRetirementSha256")
+	assertReleaseHandoffCommandTargetsSource(t, retirementInProgressCommand, caseRoot)
 	assertInvalidResume := func(name, want string, mutate func() func()) {
 		t.Helper()
 		restore := mutate()
@@ -1714,7 +1722,7 @@ func assertHandoffSignalDetailContains(t *testing.T, handoff ReleaseHandoff, nam
 	t.Fatalf("missing signal %s: %+v", name, handoff.Signals)
 }
 
-func assertReleaseHandoffPackMemoryCurrentAction(t *testing.T, inventory ReleaseHandoffPackMemoryCandidateList, label, actionID, state, commandContains string) {
+func assertReleaseHandoffPackMemoryCurrentAction(t *testing.T, inventory ReleaseHandoffPackMemoryCandidateList, label, actionID, state, commandContains string) string {
 	t.Helper()
 	if inventory.MissionCommanderActionQueue.CurrentAction == nil {
 		t.Fatalf("pack-memory action queue omitted current action: %+v", inventory.MissionCommanderActionQueue)
@@ -1725,6 +1733,14 @@ func assertReleaseHandoffPackMemoryCurrentAction(t *testing.T, inventory Release
 	}
 	if len(inventory.MissionCommanderNextActions) == 0 || inventory.MissionCommanderNextActions[0].ActionID != actionID || !releaseHandoffStringsContain(inventory.MissionCommanderNextActions[0].Reasons, "actionId="+actionID) {
 		t.Fatalf("pack-memory next action did not expose current action identity: current=%+v next=%+v", action, inventory.MissionCommanderNextActions)
+	}
+	return action.Command
+}
+
+func assertReleaseHandoffCommandTargetsSource(t *testing.T, command, caseRoot string) {
+	t.Helper()
+	if !strings.Contains(command, "-Target "+quoteReleaseHandoffCommandArg(caseRoot)) {
+		t.Fatalf("pack-memory command omitted source case target: command=%s target=%s", command, caseRoot)
 	}
 }
 

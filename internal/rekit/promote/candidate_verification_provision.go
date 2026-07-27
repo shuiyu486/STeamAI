@@ -362,7 +362,7 @@ func candidateVerificationProvisionHash(result CandidateVerificationProvisionRes
 }
 
 func candidateVerificationProvisionCommand(result CandidateVerificationProvisionResult, apply bool) string {
-	command := fmt.Sprintf("/rekit promote -PacketPath %s -CandidateDecisionPath %s -ProvisionCandidateVerificationCases -FreshCaseRoot %s -AttachedCaseRoot %s", quoteCandidateDecisionArg(result.PacketPath), quoteCandidateDecisionArg(result.DecisionPath), quoteCandidateDecisionArg(result.Cases[0].CaseRoot), quoteCandidateDecisionArg(result.Cases[1].CaseRoot))
+	command := fmt.Sprintf("/rekit promote -Target %s -PacketPath %s -CandidateDecisionPath %s -ProvisionCandidateVerificationCases -FreshCaseRoot %s -AttachedCaseRoot %s", quoteCandidateDecisionArg(result.SourceCaseRoot), quoteCandidateDecisionArg(result.PacketPath), quoteCandidateDecisionArg(result.DecisionPath), quoteCandidateDecisionArg(result.Cases[0].CaseRoot), quoteCandidateDecisionArg(result.Cases[1].CaseRoot))
 	if apply {
 		command += " -ExpectedProvisionSha256 " + result.ProvisionSHA256 + " -Apply"
 	} else {

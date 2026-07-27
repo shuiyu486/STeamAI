@@ -1593,7 +1593,7 @@ func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
 		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=9 text=inventory evidence: promote-candidates files=1",
 		"status pack-memory candidates：summary=pack-memory candidate inventory has open review/cleanup/verification work ready=false total=3 packs=1 nextAction=review listed pack-memory candidates or complete listed candidate decision verification",
 		"status pack-memory candidate pack：pack=_template candidateRoot=packs/_template/promote-candidates toolingRoot=packs/_template/tooling/candidates indexPath=packs/_template/promote-candidates/index.json candidateFiles=1 toolingFiles=1 indexEntries=1 receipts=0 pendingVerification=0 completedVerification=0 review=true cleanup=true verification=false",
-		"status pack-memory review summary：pack=_template total=3 candidateFiles=1 toolingFiles=1 indexEntries=1 reviewArtifacts=8 decisionArtifacts=2 cleanupArtifacts=2 reconsumeArtifacts=4 proofTotal=8 proofPresent=1 proofMissing=7 proofProgress=1/8 proofStage=decision-proof-required nextMissingProofType=candidate-decision-note nextMissingProofPath=packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md nextMissingCandidatePath=packs/_template/tooling/candidates/batch501-tooling.candidate.md proofComplete=false proofRoot=packs/_template/promote-candidates/review-artifacts",
+		"status pack-memory review summary：pack=_template total=3 candidateFiles=1 toolingFiles=1 indexEntries=1 reviewArtifacts=8 decisionArtifacts=2 cleanupArtifacts=2 reconsumeArtifacts=4 proofTotal=8 proofPresent=1 proofMissing=7 proofProgress=1/8 proofStage=decision-proof-required nextMissingProofType=candidate-decision-note nextMissingProofPath=packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md nextMissingCandidatePath=packs/_template/tooling/candidates/batch501-tooling.candidate.md nextMissingSourceCase=none proofComplete=false proofRoot=packs/_template/promote-candidates/review-artifacts",
 		"status pack-memory proof summary：pack=_template total=8 present=1 missing=7 progress=1/8 stage=decision-proof-required decisionPresent=1 decisionMissing=1 cleanupPresent=0 cleanupMissing=2 reconsumePresent=0 reconsumeMissing=4 nextMissingType=candidate-decision-note nextMissingPath=packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md nextMissingCandidate=packs/_template/tooling/candidates/batch501-tooling.candidate.md nextMissingTarget=packs/_template/tooling complete=false proofRoot=packs/_template/promote-candidates/review-artifacts",
 		"status pack-memory next missing proof：pack=_template stage=decision-proof-required proofType=candidate-decision-note path=packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md candidatePath=packs/_template/tooling/candidates/batch501-tooling.candidate.md packTarget=packs/_template/tooling",
 		"status pack-memory next missing proof evidence：pack=_template evidence=selected decisionFollowThrough outcome",
@@ -1624,7 +1624,7 @@ func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
 		t.Fatalf("release-check with open pack-memory candidates error = %v, want pack-memory candidates warning", err)
 	}
 	for _, expected := range []string{
-		"release-check pack-memory review summary：pack=_template total=3 candidateFiles=1 toolingFiles=1 indexEntries=1 reviewArtifacts=8 decisionArtifacts=2 cleanupArtifacts=2 reconsumeArtifacts=4 proofTotal=8 proofPresent=1 proofMissing=7 proofProgress=1/8 proofStage=decision-proof-required nextMissingProofType=candidate-decision-note nextMissingProofPath=packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md nextMissingCandidatePath=packs/_template/tooling/candidates/batch501-tooling.candidate.md proofComplete=false proofRoot=packs/_template/promote-candidates/review-artifacts",
+		"release-check pack-memory review summary：pack=_template total=3 candidateFiles=1 toolingFiles=1 indexEntries=1 reviewArtifacts=8 decisionArtifacts=2 cleanupArtifacts=2 reconsumeArtifacts=4 proofTotal=8 proofPresent=1 proofMissing=7 proofProgress=1/8 proofStage=decision-proof-required nextMissingProofType=candidate-decision-note nextMissingProofPath=packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md nextMissingCandidatePath=packs/_template/tooling/candidates/batch501-tooling.candidate.md nextMissingSourceCase=none proofComplete=false proofRoot=packs/_template/promote-candidates/review-artifacts",
 		"release-check pack-memory proof summary：pack=_template total=8 present=1 missing=7 progress=1/8 stage=decision-proof-required decisionPresent=1 decisionMissing=1 cleanupPresent=0 cleanupMissing=2 reconsumePresent=0 reconsumeMissing=4 nextMissingType=candidate-decision-note nextMissingPath=packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md nextMissingCandidate=packs/_template/tooling/candidates/batch501-tooling.candidate.md nextMissingTarget=packs/_template/tooling complete=false proofRoot=packs/_template/promote-candidates/review-artifacts",
 		"release-check pack-memory next missing proof：pack=_template stage=decision-proof-required proofType=candidate-decision-note path=packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md candidatePath=packs/_template/tooling/candidates/batch501-tooling.candidate.md packTarget=packs/_template/tooling",
 		"release-check pack-memory next missing proof evidence：pack=_template evidence=selected decisionFollowThrough outcome",
@@ -1768,6 +1768,7 @@ type nextMissingProofDetail struct {
 	Path                      string   `json:"path"`
 	CandidatePath             string   `json:"candidatePath"`
 	PackTarget                string   `json:"packTarget"`
+	SourceCaseRoot            string   `json:"sourceCaseRoot"`
 	When                      string   `json:"when"`
 	Action                    string   `json:"action"`
 	Format                    string   `json:"format"`
@@ -3816,8 +3817,8 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 		"status case shim entrypoint: caseLocal=/rekit",
 		"status Mission Commander first screen：focus=pack-memory-current-action",
 		"status Mission Commander current action：scope=focus-pack-memory lane= label=_template state=pack-memory-proof-required",
-		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=4 text=next missing proof draft WhatIf: /rekit promote -PacketPath",
-		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=5 text=next missing proof apply template: /rekit promote -PacketPath",
+		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=4 text=next missing proof draft WhatIf: /rekit promote -Target " + statusQuoteCommandArg(caseRoot) + " -PacketPath",
+		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=5 text=next missing proof apply template: /rekit promote -Target " + statusQuoteCommandArg(caseRoot) + " -PacketPath",
 		"-ExpectedProofSha256 <proofSha256-from-WhatIf> -Apply -Format json",
 		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=6 text=proof boundary: status/release are read-only; proof Apply requires the WhatIf ExpectedProofSha256",
 		"status Mission Commander focus pack-memory runbook：pack=_template state=pack-memory-proof-required step=1 text=run proof draft WhatIf from the current pack-memory action; Apply only with the returned ExpectedProofSha256",
@@ -9951,9 +9952,16 @@ func TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime(t *te
 	}
 	if handoff := pack.DecisionDraftHandoff; handoff == nil || handoff.Mode != "candidate-decision-draft-handoff" || handoff.PacketPath != result.ReviewWorkspace.PacketPath || handoff.DecisionPath != filepath.Join(reviewRoot, "candidate-decisions.json") || !containsSubstring(handoff.EvidenceRefs, result.ReviewWorkspace.CombinedDiffPath) || !containsSubstring(handoff.SupportedDecisions, "accept-managed-reject-tooling") || len(handoff.PreviewCommands) == 0 || !strings.Contains(handoff.PreviewCommands[0].PreviewCommand, "-DraftCandidateDecision") || !strings.Contains(handoff.PreviewCommands[0].ApplyCommandTemplate, "<decisionSha256-from-WhatIf>") || !strings.Contains(handoff.NextAction, "-DraftCandidateDecision") || !containsSubstring(handoff.Boundary, "draft Apply writes only") {
 		t.Fatalf("unexpected nested status pack-memory decision draft handoff: %+v", pack.DecisionDraftHandoff)
+	} else {
+		assertCommandTargetsCase(t, handoff.NextAction, caseRoot)
+		assertCommandTargetsCase(t, handoff.PreviewCommands[0].PreviewCommand, caseRoot)
+		assertCommandTargetsCase(t, handoff.PreviewCommands[0].ApplyCommandTemplate, caseRoot)
 	}
-	if next := pack.ReviewSummary.ProofSummary.NextMissingProof; next == nil || next.PacketPath != result.ReviewWorkspace.PacketPath || !containsSubstring(next.EvidenceRefs, result.ReviewWorkspace.CombinedDiffPath) || strings.Contains(next.DraftCommand, "<packet.json>") || strings.Contains(next.DraftCommand, "<review-evidence-ref>") || !strings.Contains(next.DraftCommand, statusQuoteCommandArg(result.ReviewWorkspace.PacketPath)) || !strings.Contains(next.DraftCommand, result.ReviewWorkspace.CombinedDiffPath) || !strings.Contains(next.DraftApplyTemplate, statusQuoteCommandArg(result.ReviewWorkspace.PacketPath)) || !containsSubstring(next.Boundary, "packet-derived review workspace") {
+	if next := pack.ReviewSummary.ProofSummary.NextMissingProof; next == nil || next.PacketPath != result.ReviewWorkspace.PacketPath || next.SourceCaseRoot != caseRoot || !containsSubstring(next.EvidenceRefs, result.ReviewWorkspace.CombinedDiffPath) || strings.Contains(next.DraftCommand, "<packet.json>") || strings.Contains(next.DraftCommand, "<review-evidence-ref>") || !strings.Contains(next.DraftCommand, statusQuoteCommandArg(result.ReviewWorkspace.PacketPath)) || !strings.Contains(next.DraftCommand, result.ReviewWorkspace.CombinedDiffPath) || !strings.Contains(next.DraftApplyTemplate, statusQuoteCommandArg(result.ReviewWorkspace.PacketPath)) || !containsSubstring(next.Boundary, "packet-derived review workspace") {
 		t.Fatalf("unexpected nested status next-missing proof binding: %+v", next)
+	} else {
+		assertCommandTargetsCase(t, next.DraftCommand, caseRoot)
+		assertCommandTargetsCase(t, next.DraftApplyTemplate, caseRoot)
 	}
 
 	out.Reset()
@@ -9969,14 +9977,14 @@ func TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime(t *te
 		"status pack-memory review summary boundary：pack=_template boundary=pack-memory reviewSummary is read-only; full candidate paths, indexCandidates, and reviewArtifacts remain available",
 		"status pack-memory next missing proof：pack=_template stage=decision-proof-required proofType=candidate-decision-note path=packs/_template/promote-candidates/review-artifacts/",
 		"packet=" + result.ReviewWorkspace.PacketPath,
-		"draft=/rekit promote -PacketPath " + statusQuoteCommandArg(result.ReviewWorkspace.PacketPath),
+		"draft=/rekit promote -Target " + statusQuoteCommandArg(caseRoot) + " -PacketPath " + statusQuoteCommandArg(result.ReviewWorkspace.PacketPath),
 		"status pack-memory next missing proof evidence ref：pack=_template evidence=" + result.ReviewWorkspace.CombinedDiffPath,
 		"status pack-memory next missing proof boundary：pack=_template boundary=case-local status bound this next missing proof to a packet-derived review workspace; release/status still does not write proof",
-		"status pack-memory decision draft handoff：pack=_template mode=candidate-decision-draft-handoff packet=" + result.ReviewWorkspace.PacketPath + " decisionPath=" + filepath.Join(reviewRoot, "candidate-decisions.json") + " nextAction=/rekit promote -PacketPath",
+		"status pack-memory decision draft handoff：pack=_template mode=candidate-decision-draft-handoff packet=" + result.ReviewWorkspace.PacketPath + " decisionPath=" + filepath.Join(reviewRoot, "candidate-decisions.json") + " nextAction=/rekit promote -Target " + statusQuoteCommandArg(caseRoot) + " -PacketPath",
 		"status pack-memory decision draft evidence ref：pack=_template evidence=" + result.ReviewWorkspace.CombinedDiffPath,
 		"status pack-memory decision draft supported decision：pack=_template decision=accept-managed-reject-tooling",
-		"status pack-memory decision draft preview command：pack=_template decision=accept-managed-reject-tooling command=/rekit promote -PacketPath",
-		"status pack-memory decision draft apply template：pack=_template decision=accept-managed-reject-tooling command=/rekit promote -PacketPath",
+		"status pack-memory decision draft preview command：pack=_template decision=accept-managed-reject-tooling command=/rekit promote -Target " + statusQuoteCommandArg(caseRoot) + " -PacketPath",
+		"status pack-memory decision draft apply template：pack=_template decision=accept-managed-reject-tooling command=/rekit promote -Target " + statusQuoteCommandArg(caseRoot) + " -PacketPath",
 		"status pack-memory decision draft handoff boundary：pack=_template boundary=draft Apply writes only the case-local decisionPath JSON and is exact replay only",
 		"status pack-memory candidate path：pack=_template path=packs/_template/promote-candidates/",
 		"status pack-memory tooling candidate path：pack=_template path=packs/_template/tooling/candidates/",
@@ -10382,9 +10390,7 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 		t.Fatalf("status omitted required candidate verification provisioning handoff or mutated before cleanup proof: %+v", cleanupPendingStatus)
 	}
 	cleanupPendingCurrent := assertPackMemoryCurrentAction(t, cleanupPendingStatus.ProjectHandoff.PackMemoryCandidates, "_template", "pack-memory-verification-provision-required", "pack-memory-verification-required", "-ProvisionCandidateVerificationCases")
-	if cleanupPendingCurrent.Command != decisionApplied.Receipt.VerificationProvisionCommand {
-		t.Fatalf("cleanup-pending status current action did not bind verificationProvisionCommand: %+v receipt=%+v", cleanupPendingCurrent, decisionApplied.Receipt)
-	}
+	assertProjectedCommandMatchesDurableCommand(t, cleanupPendingCurrent.Command, decisionApplied.Receipt.VerificationProvisionCommand, caseRoot)
 	cleanupProofFollowUp := assertPackMemoryNextAction(t, cleanupPendingStatus.ProjectHandoff.PackMemoryCandidates, "_template", "pack-memory-cleanup-proof-required", "pack-memory-proof-required", "-ProofType candidate-cleanup-proof")
 	if cleanupProofFollowUp.Source != "packMemoryCandidates._template.followUp.proof" || !cleanupProofFollowUp.RequiresReview || !containsSubstring(cleanupProofFollowUp.Reasons, "proofStage=cleanup-proof-required") || !containsSubstring(cleanupProofFollowUp.Boundary, "does not replace the current verification action") {
 		t.Fatalf("status omitted cleanup proof downstream follow-up: %+v", cleanupProofFollowUp)
@@ -10398,9 +10404,7 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 		t.Fatalf("cleanup-pending release-check stdout is not JSON: %v\n%s", err, out.String())
 	}
 	releaseCleanupCurrent := assertPackMemoryCurrentAction(t, cleanupPendingRelease.ReleaseHandoff.PackMemoryCandidates, "_template", "pack-memory-verification-provision-required", "pack-memory-verification-required", "-ProvisionCandidateVerificationCases")
-	if releaseCleanupCurrent.Command != decisionApplied.Receipt.VerificationProvisionCommand {
-		t.Fatalf("release-check current action did not bind verificationProvisionCommand: %+v", releaseCleanupCurrent)
-	}
+	assertProjectedCommandMatchesDurableCommand(t, releaseCleanupCurrent.Command, decisionApplied.Receipt.VerificationProvisionCommand, caseRoot)
 	assertPackMemoryNextAction(t, cleanupPendingRelease.ReleaseHandoff.PackMemoryCandidates, "_template", "pack-memory-cleanup-proof-required", "pack-memory-proof-required", "-ProofType candidate-cleanup-proof")
 	out.Reset()
 	if err := Run([]string{"-Command", "status", "-Format", "text"}, &out); err != nil {
@@ -10427,9 +10431,10 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 		t.Fatalf("cleanup-pending project handoff omitted durable project action queue: %+v", cleanupPendingHandoff)
 	}
 	handoffCurrent := cleanupPendingHandoff.MissionCommanderActionQueue.CurrentAction
-	if handoffCurrent.ActionID != "pack-memory-verification-provision-required" || handoffCurrent.State != "pack-memory-verification-required" || handoffCurrent.Source != "packMemoryCandidates._template" || handoffCurrent.Command != decisionApplied.Receipt.VerificationProvisionCommand {
+	if handoffCurrent.ActionID != "pack-memory-verification-provision-required" || handoffCurrent.State != "pack-memory-verification-required" || handoffCurrent.Source != "packMemoryCandidates._template" {
 		t.Fatalf("cleanup-pending project handoff did not keep pack-memory verification current: %+v receipt=%+v", handoffCurrent, decisionApplied.Receipt)
 	}
+	assertProjectedCommandMatchesDurableCommand(t, handoffCurrent.Command, decisionApplied.Receipt.VerificationProvisionCommand, caseRoot)
 	if len(cleanupPendingHandoff.MissionCommanderActionQueue.FollowUpActions) == 0 || !cliNextActionContainsSource(cleanupPendingHandoff.MissionCommanderActionQueue.FollowUpActions, "packMemoryCandidates._template.followUp.proof") || !cliNextActionContainsCommand(cleanupPendingHandoff.MissionCommanderActionQueue.FollowUpActions, "-ProofType candidate-cleanup-proof") {
 		t.Fatalf("cleanup-pending project handoff omitted cleanup proof follow-up: %+v", cleanupPendingHandoff.MissionCommanderActionQueue)
 	}
@@ -10523,9 +10528,7 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 		t.Fatalf("cleanup proof Apply did not remove downstream proof follow-up: %+v", cleanupClosedStatus.ProjectHandoff)
 	}
 	cleanupClosedCurrent := assertPackMemoryCurrentAction(t, cleanupClosedStatus.ProjectHandoff.PackMemoryCandidates, "_template", "pack-memory-verification-provision-required", "pack-memory-verification-required", "-ProvisionCandidateVerificationCases")
-	if cleanupClosedCurrent.Command != decisionApplied.Receipt.VerificationProvisionCommand {
-		t.Fatalf("cleanup-closed status did not return to verification current action: %+v", cleanupClosedCurrent)
-	}
+	assertProjectedCommandMatchesDurableCommand(t, cleanupClosedCurrent.Command, decisionApplied.Receipt.VerificationProvisionCommand, caseRoot)
 	out.Reset()
 	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-DraftReviewProof", "-ProofPath", cleanupProofPathArg, "-ProofType", "candidate-cleanup-proof", "-CandidatePath", candidatePathArg, "-Reason", "receipt cleanup verified", "-Actor", "mission-commander", "-WhatIf", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
@@ -10566,9 +10569,7 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 		t.Fatalf("status omitted required candidate verification provisioning handoff or mutated: %+v", pendingProvisionStatus)
 	}
 	pendingProvisionCurrent := assertPackMemoryCurrentAction(t, pendingProvisionStatus.ProjectHandoff.PackMemoryCandidates, "_template", "pack-memory-verification-provision-required", "pack-memory-verification-required", "-ProvisionCandidateVerificationCases")
-	if pendingProvisionCurrent.Command != decisionApplied.Receipt.VerificationProvisionCommand {
-		t.Fatalf("status current action did not bind verificationProvisionCommand: %+v receipt=%+v", pendingProvisionCurrent, decisionApplied.Receipt)
-	}
+	assertProjectedCommandMatchesDurableCommand(t, pendingProvisionCurrent.Command, decisionApplied.Receipt.VerificationProvisionCommand, caseRoot)
 	out.Reset()
 	if err := Run([]string{"-Command", "status", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
@@ -10665,9 +10666,7 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 		t.Fatalf("status omitted completed candidate verification provisioning handoff or mutated: %+v", provisionStatus)
 	}
 	provisionCurrent := assertPackMemoryCurrentAction(t, provisionStatus.ProjectHandoff.PackMemoryCandidates, "_template", "pack-memory-verification-run-required", "pack-memory-verification-required", "-VerifyCandidateDecision")
-	if provisionCurrent.Command != decisionApplied.Receipt.VerificationCommand {
-		t.Fatalf("status current action did not bind verificationCommand: %+v receipt=%+v", provisionCurrent, decisionApplied.Receipt)
-	}
+	assertProjectedCommandMatchesDurableCommand(t, provisionCurrent.Command, decisionApplied.Receipt.VerificationCommand, caseRoot)
 	assertSnapshotEqual(t, candidateBeforeProvisionStatus, snapshotFiles(t, candidateRoot))
 	assertSnapshotEqual(t, workspaceBeforeProvisionStatus, snapshotFiles(t, decisionApplied.Receipt.VerificationWorkspaceRoot))
 
@@ -10756,9 +10755,7 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 		t.Fatalf("status omitted required candidate verification retirement: %+v", requiredStatus.ProjectHandoff.PackMemoryCandidates)
 	}
 	requiredCurrent := assertPackMemoryCurrentAction(t, requiredStatus.ProjectHandoff.PackMemoryCandidates, "_template", "pack-memory-verification-retirement-required", "pack-memory-verification-required", "-RetireCandidateVerificationWorkspace")
-	if requiredCurrent.Command != verificationApplied.RetirementPreviewCommand {
-		t.Fatalf("status current action did not bind retirementPreviewCommand: %+v verification=%+v", requiredCurrent, verificationApplied)
-	}
+	assertProjectedCommandMatchesDurableCommand(t, requiredCurrent.Command, verificationApplied.RetirementPreviewCommand, caseRoot)
 	assertSnapshotEqual(t, candidateBeforeRequiredStatus, snapshotFiles(t, candidateRoot))
 	assertSnapshotEqual(t, workspaceBeforeRequiredStatus, snapshotFiles(t, decisionApplied.Receipt.VerificationWorkspaceRoot))
 
@@ -10932,6 +10929,22 @@ func assertPackMemoryNextAction(t *testing.T, candidates releasecheck.ReleaseHan
 	}
 	t.Fatalf("pack-memory next action not found: label=%s actionId=%s state=%s command contains %s actions=%+v", label, actionID, state, commandContains, candidates.MissionCommanderNextActions)
 	return mission.MissionCommanderNextActionItem{}
+}
+
+func assertCommandTargetsCase(t *testing.T, command, caseRoot string) {
+	t.Helper()
+	if !strings.Contains(command, "-Target "+statusQuoteCommandArg(caseRoot)) {
+		t.Fatalf("command omitted source case target: command=%s target=%s", command, caseRoot)
+	}
+}
+
+func assertProjectedCommandMatchesDurableCommand(t *testing.T, projected, durable, caseRoot string) {
+	t.Helper()
+	assertCommandTargetsCase(t, projected, caseRoot)
+	withoutTarget := strings.Replace(projected, " -Target "+statusQuoteCommandArg(caseRoot), "", 1)
+	if withoutTarget != durable {
+		t.Fatalf("projected command drifted from durable command: projected=%s durable=%s withoutTarget=%s", projected, durable, withoutTarget)
+	}
 }
 
 func assertPackMemoryCurrentAction(t *testing.T, candidates releasecheck.ReleaseHandoffPackMemoryCandidateList, label, actionID, state, commandContains string) mission.MissionCommanderNextActionItem {

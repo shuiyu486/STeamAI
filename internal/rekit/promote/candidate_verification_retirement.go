@@ -555,7 +555,7 @@ func candidateVerificationRetirementHash(result CandidateVerificationRetirementR
 }
 
 func candidateVerificationRetirementCommand(result CandidateVerificationRetirementResult) string {
-	return fmt.Sprintf("/rekit promote -PacketPath %s -CandidateDecisionPath %s -RetireCandidateVerificationWorkspace -ExpectedRetirementSha256 %s -Apply -Format json", quoteCandidateDecisionArg(result.PacketPath), quoteCandidateDecisionArg(result.DecisionPath), result.RetirementSHA256)
+	return fmt.Sprintf("/rekit promote -Target %s -PacketPath %s -CandidateDecisionPath %s -RetireCandidateVerificationWorkspace -ExpectedRetirementSha256 %s -Apply -Format json", quoteCandidateDecisionArg(result.SourceCaseRoot), quoteCandidateDecisionArg(result.PacketPath), quoteCandidateDecisionArg(result.DecisionPath), result.RetirementSHA256)
 }
 
 func strictCandidateVerificationRetirementBytes(value candidateVerificationRetirementArtifact) ([]byte, error) {

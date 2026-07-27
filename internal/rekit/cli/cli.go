@@ -1888,7 +1888,11 @@ func writePackMemoryCandidateReviewSummaryText(out io.Writer, prefix, pack strin
 		return nil
 	}
 	proof := summary.ProofSummary
-	if _, err := fmt.Fprintf(out, "%s pack-memory review summary：pack=%s total=%d candidateFiles=%d toolingFiles=%d indexEntries=%d reviewArtifacts=%d decisionArtifacts=%d cleanupArtifacts=%d reconsumeArtifacts=%d proofTotal=%d proofPresent=%d proofMissing=%d proofProgress=%s proofStage=%s nextMissingProofType=%s nextMissingProofPath=%s nextMissingCandidatePath=%s proofComplete=%t proofRoot=%s candidateRoot=%s toolingRoot=%s indexPath=%s review=%t cleanup=%t hasCandidatePaths=%t hasToolingPaths=%t hasIndex=%t hasDecisionArtifacts=%t hasCleanupArtifacts=%t hasReconsumeArtifacts=%t nextAction=%s\n", prefix, pack, summary.Total, summary.CandidateFiles, summary.ToolingFiles, summary.IndexEntries, summary.ReviewArtifactCount, summary.DecisionArtifactCount, summary.CleanupArtifactCount, summary.ReconsumeArtifactCount, proof.Total, proof.Present, proof.Missing, proof.ProofProgress, proof.CurrentStage, proof.NextMissingProofType, proof.NextMissingProofPath, proof.NextMissingCandidatePath, proof.Complete, proof.ProofRoot, summary.CandidateRoot, summary.ToolingRoot, summary.IndexPath, summary.RequiresReview, summary.RequiresCleanup, summary.HasCandidatePaths, summary.HasToolingPaths, summary.HasIndex, summary.HasDecisionArtifacts, summary.HasCleanupArtifacts, summary.HasReconsumeArtifacts, summary.NextAction); err != nil {
+	nextMissingSourceCase := "none"
+	if proof.NextMissingProof != nil && strings.TrimSpace(proof.NextMissingProof.SourceCaseRoot) != "" {
+		nextMissingSourceCase = proof.NextMissingProof.SourceCaseRoot
+	}
+	if _, err := fmt.Fprintf(out, "%s pack-memory review summary：pack=%s total=%d candidateFiles=%d toolingFiles=%d indexEntries=%d reviewArtifacts=%d decisionArtifacts=%d cleanupArtifacts=%d reconsumeArtifacts=%d proofTotal=%d proofPresent=%d proofMissing=%d proofProgress=%s proofStage=%s nextMissingProofType=%s nextMissingProofPath=%s nextMissingCandidatePath=%s nextMissingSourceCase=%s proofComplete=%t proofRoot=%s candidateRoot=%s toolingRoot=%s indexPath=%s review=%t cleanup=%t hasCandidatePaths=%t hasToolingPaths=%t hasIndex=%t hasDecisionArtifacts=%t hasCleanupArtifacts=%t hasReconsumeArtifacts=%t nextAction=%s\n", prefix, pack, summary.Total, summary.CandidateFiles, summary.ToolingFiles, summary.IndexEntries, summary.ReviewArtifactCount, summary.DecisionArtifactCount, summary.CleanupArtifactCount, summary.ReconsumeArtifactCount, proof.Total, proof.Present, proof.Missing, proof.ProofProgress, proof.CurrentStage, proof.NextMissingProofType, proof.NextMissingProofPath, proof.NextMissingCandidatePath, nextMissingSourceCase, proof.Complete, proof.ProofRoot, summary.CandidateRoot, summary.ToolingRoot, summary.IndexPath, summary.RequiresReview, summary.RequiresCleanup, summary.HasCandidatePaths, summary.HasToolingPaths, summary.HasIndex, summary.HasDecisionArtifacts, summary.HasCleanupArtifacts, summary.HasReconsumeArtifacts, summary.NextAction); err != nil {
 		return err
 	}
 	if proof.Total > 0 || strings.TrimSpace(proof.ProofRoot) != "" {
@@ -1897,7 +1901,7 @@ func writePackMemoryCandidateReviewSummaryText(out io.Writer, prefix, pack strin
 		}
 		if proof.NextMissingProof != nil {
 			next := proof.NextMissingProof
-			if _, err := fmt.Fprintf(out, "%s pack-memory next missing proof：pack=%s stage=%s proofType=%s path=%s candidatePath=%s packTarget=%s packet=%s candidateDecision=%s when=%s action=%s format=%s requiresPacket=%t requiresCandidateDecision=%t requiresExplicitReview=%t draft=%s draftApply=%s\n", prefix, pack, textOr(next.Stage, "none"), textOr(next.ProofType, "none"), textOr(next.Path, "none"), textOr(next.CandidatePath, "none"), textOr(next.PackTarget, "none"), textOr(next.PacketPath, "none"), textOr(next.CandidateDecisionPath, "none"), textOr(next.When, "none"), textOr(next.Action, "none"), textOr(next.Format, "none"), next.RequiresPacket, next.RequiresCandidateDecision, next.RequiresExplicitReview, textOr(next.DraftCommand, "none"), textOr(next.DraftApplyTemplate, "none")); err != nil {
+			if _, err := fmt.Fprintf(out, "%s pack-memory next missing proof：pack=%s stage=%s proofType=%s path=%s candidatePath=%s packTarget=%s sourceCaseRoot=%s packet=%s candidateDecision=%s when=%s action=%s format=%s requiresPacket=%t requiresCandidateDecision=%t requiresExplicitReview=%t draft=%s draftApply=%s\n", prefix, pack, textOr(next.Stage, "none"), textOr(next.ProofType, "none"), textOr(next.Path, "none"), textOr(next.CandidatePath, "none"), textOr(next.PackTarget, "none"), textOr(next.SourceCaseRoot, "none"), textOr(next.PacketPath, "none"), textOr(next.CandidateDecisionPath, "none"), textOr(next.When, "none"), textOr(next.Action, "none"), textOr(next.Format, "none"), next.RequiresPacket, next.RequiresCandidateDecision, next.RequiresExplicitReview, textOr(next.DraftCommand, "none"), textOr(next.DraftApplyTemplate, "none")); err != nil {
 				return err
 			}
 			for _, evidenceRef := range next.EvidenceRefs {
@@ -2072,7 +2076,7 @@ func writeReleaseHandoffText(out io.Writer, handoff releasecheck.ReleaseHandoff)
 			}
 		}
 		for _, receipt := range pack.DecisionReceipts {
-			if _, err := fmt.Fprintf(out, "release-check pack-memory decision receipt：pack=%s path=%s accepted=%d rejected=%d superseded=%d verificationPending=%t verificationComplete=%t workspace=%s proofPath=%s provisionCommand=%s command=%s provisionStatus=%s provisionInProgress=%t provisionComplete=%t provisionApplyCommand=%s provisionIntentPath=%s provisionReceiptPath=%s provisionSha256=%s provisionNextAction=%s retirementStatus=%s retirementRequired=%t retirementInProgress=%t retired=%t retirementPreviewCommand=%s retirementIntentPath=%s retirementReceiptPath=%s retirementSha256=%s retirementNextAction=%s\n", pack.Pack, receipt.Path, receipt.Accepted, receipt.Rejected, receipt.Superseded, receipt.VerificationPending, receipt.VerificationComplete, receipt.VerificationWorkspaceRoot, receipt.VerificationProofPath, receipt.VerificationProvisionCommand, receipt.VerificationCommand, receipt.ProvisionStatus, receipt.ProvisionInProgress, receipt.ProvisionComplete, receipt.ProvisionApplyCommand, receipt.ProvisionIntentPath, receipt.ProvisionReceiptPath, receipt.ProvisionSHA256, receipt.ProvisionNextAction, receipt.RetirementStatus, receipt.RetirementRequired, receipt.RetirementInProgress, receipt.Retired, receipt.RetirementPreviewCommand, receipt.RetirementIntentPath, receipt.RetirementReceiptPath, receipt.RetirementSHA256, receipt.RetirementNextAction); err != nil {
+			if _, err := fmt.Fprintf(out, "release-check pack-memory decision receipt：pack=%s path=%s sourceCaseRoot=%s accepted=%d rejected=%d superseded=%d verificationPending=%t verificationComplete=%t workspace=%s proofPath=%s provisionCommand=%s command=%s provisionStatus=%s provisionInProgress=%t provisionComplete=%t provisionApplyCommand=%s provisionIntentPath=%s provisionReceiptPath=%s provisionSha256=%s provisionNextAction=%s retirementStatus=%s retirementRequired=%t retirementInProgress=%t retired=%t retirementPreviewCommand=%s retirementIntentPath=%s retirementReceiptPath=%s retirementSha256=%s retirementNextAction=%s\n", pack.Pack, receipt.Path, receipt.SourceCaseRoot, receipt.Accepted, receipt.Rejected, receipt.Superseded, receipt.VerificationPending, receipt.VerificationComplete, receipt.VerificationWorkspaceRoot, receipt.VerificationProofPath, receipt.VerificationProvisionCommand, receipt.VerificationCommand, receipt.ProvisionStatus, receipt.ProvisionInProgress, receipt.ProvisionComplete, receipt.ProvisionApplyCommand, receipt.ProvisionIntentPath, receipt.ProvisionReceiptPath, receipt.ProvisionSHA256, receipt.ProvisionNextAction, receipt.RetirementStatus, receipt.RetirementRequired, receipt.RetirementInProgress, receipt.Retired, receipt.RetirementPreviewCommand, receipt.RetirementIntentPath, receipt.RetirementReceiptPath, receipt.RetirementSHA256, receipt.RetirementNextAction); err != nil {
 				return err
 			}
 		}
@@ -3954,7 +3958,7 @@ func writeStatusProjectHandoffText(out io.Writer, handoff *statusProjectHandoff)
 			}
 		}
 		for _, receipt := range pack.DecisionReceipts {
-			if _, err := fmt.Fprintf(out, "status pack-memory decision receipt：pack=%s path=%s accepted=%d rejected=%d superseded=%d verificationPending=%t verificationComplete=%t workspace=%s proofPath=%s provisionCommand=%s command=%s provisionStatus=%s provisionInProgress=%t provisionComplete=%t provisionApplyCommand=%s provisionIntentPath=%s provisionReceiptPath=%s provisionSha256=%s provisionNextAction=%s retirementStatus=%s retirementRequired=%t retirementInProgress=%t retired=%t retirementPreviewCommand=%s retirementIntentPath=%s retirementReceiptPath=%s retirementSha256=%s retirementNextAction=%s\n", pack.Pack, receipt.Path, receipt.Accepted, receipt.Rejected, receipt.Superseded, receipt.VerificationPending, receipt.VerificationComplete, receipt.VerificationWorkspaceRoot, receipt.VerificationProofPath, receipt.VerificationProvisionCommand, receipt.VerificationCommand, receipt.ProvisionStatus, receipt.ProvisionInProgress, receipt.ProvisionComplete, receipt.ProvisionApplyCommand, receipt.ProvisionIntentPath, receipt.ProvisionReceiptPath, receipt.ProvisionSHA256, receipt.ProvisionNextAction, receipt.RetirementStatus, receipt.RetirementRequired, receipt.RetirementInProgress, receipt.Retired, receipt.RetirementPreviewCommand, receipt.RetirementIntentPath, receipt.RetirementReceiptPath, receipt.RetirementSHA256, receipt.RetirementNextAction); err != nil {
+			if _, err := fmt.Fprintf(out, "status pack-memory decision receipt：pack=%s path=%s sourceCaseRoot=%s accepted=%d rejected=%d superseded=%d verificationPending=%t verificationComplete=%t workspace=%s proofPath=%s provisionCommand=%s command=%s provisionStatus=%s provisionInProgress=%t provisionComplete=%t provisionApplyCommand=%s provisionIntentPath=%s provisionReceiptPath=%s provisionSha256=%s provisionNextAction=%s retirementStatus=%s retirementRequired=%t retirementInProgress=%t retired=%t retirementPreviewCommand=%s retirementIntentPath=%s retirementReceiptPath=%s retirementSha256=%s retirementNextAction=%s\n", pack.Pack, receipt.Path, receipt.SourceCaseRoot, receipt.Accepted, receipt.Rejected, receipt.Superseded, receipt.VerificationPending, receipt.VerificationComplete, receipt.VerificationWorkspaceRoot, receipt.VerificationProofPath, receipt.VerificationProvisionCommand, receipt.VerificationCommand, receipt.ProvisionStatus, receipt.ProvisionInProgress, receipt.ProvisionComplete, receipt.ProvisionApplyCommand, receipt.ProvisionIntentPath, receipt.ProvisionReceiptPath, receipt.ProvisionSHA256, receipt.ProvisionNextAction, receipt.RetirementStatus, receipt.RetirementRequired, receipt.RetirementInProgress, receipt.Retired, receipt.RetirementPreviewCommand, receipt.RetirementIntentPath, receipt.RetirementReceiptPath, receipt.RetirementSHA256, receipt.RetirementNextAction); err != nil {
 				return err
 			}
 		}
@@ -4862,6 +4866,27 @@ func statusQuoteCommandArg(value string) string {
 	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
 }
 
+func statusPromoteCommandWithTarget(command, target string) string {
+	command = strings.TrimSpace(command)
+	target = strings.TrimSpace(target)
+	if command == "" || target == "" || !strings.HasPrefix(command, "/rekit promote") || statusPromoteCommandHasTarget(command) {
+		return command
+	}
+	return strings.Replace(command, "/rekit promote", "/rekit promote -Target "+statusQuoteCommandArg(target), 1)
+}
+
+func statusPromoteCommandHasTarget(command string) bool {
+	for field := range strings.FieldsSeq(command) {
+		switch {
+		case field == "-Target" || field == "--target":
+			return true
+		case strings.HasPrefix(field, "-Target=") || strings.HasPrefix(field, "--target="):
+			return true
+		}
+	}
+	return false
+}
+
 func bindStatusCaseCandidateDecisionDraftHandoffs(handoff *statusProjectHandoff, repoRoot, caseRoot, pack string) {
 	if handoff == nil {
 		return
@@ -4878,7 +4903,8 @@ func bindStatusCaseCandidateDecisionDraftHandoffs(handoff *statusProjectHandoff,
 			draft := drafts[j]
 			if draft.Handoff != nil && statusCaseCandidateDraftCoversPackStatus(repoRoot, *status, draft.CandidatePaths) {
 				status.DecisionDraftHandoff = draft.Handoff
-				bindStatusCaseCandidateNextMissingProof(status, draft.Handoff)
+				bindStatusCaseCandidateDecisionDraftHandoff(status.DecisionDraftHandoff, caseRoot)
+				bindStatusCaseCandidateNextMissingProof(status, draft.Handoff, caseRoot)
 				break
 			}
 		}
@@ -4886,7 +4912,18 @@ func bindStatusCaseCandidateDecisionDraftHandoffs(handoff *statusProjectHandoff,
 	releasecheck.RebuildPackMemoryCandidateActionQueue(&handoff.PackMemoryCandidates)
 }
 
-func bindStatusCaseCandidateNextMissingProof(status *releasecheck.ReleaseHandoffPackMemoryCandidateStatus, handoff *promote.CandidateDecisionDraftHandoff) {
+func bindStatusCaseCandidateDecisionDraftHandoff(handoff *promote.CandidateDecisionDraftHandoff, caseRoot string) {
+	if handoff == nil {
+		return
+	}
+	handoff.NextAction = statusPromoteCommandWithTarget(handoff.NextAction, caseRoot)
+	for i := range handoff.PreviewCommands {
+		handoff.PreviewCommands[i].PreviewCommand = statusPromoteCommandWithTarget(handoff.PreviewCommands[i].PreviewCommand, caseRoot)
+		handoff.PreviewCommands[i].ApplyCommandTemplate = statusPromoteCommandWithTarget(handoff.PreviewCommands[i].ApplyCommandTemplate, caseRoot)
+	}
+}
+
+func bindStatusCaseCandidateNextMissingProof(status *releasecheck.ReleaseHandoffPackMemoryCandidateStatus, handoff *promote.CandidateDecisionDraftHandoff, caseRoot string) {
 	if status == nil || handoff == nil || status.ProofSummary.NextMissingProof == nil || !status.ProofSummary.NextMissingProof.RequiresPacket {
 		return
 	}
@@ -4903,14 +4940,15 @@ func bindStatusCaseCandidateNextMissingProof(status *releasecheck.ReleaseHandoff
 	if next.ProofType == "candidate-decision-note" && len(handoff.EvidenceRefs) > 0 {
 		next.EvidenceRefs = append([]string{}, handoff.EvidenceRefs...)
 	}
-	next.DraftCommand = statusCaseCandidateNextMissingProofCommand(next.DraftCommand, packetPath, next.CandidateDecisionPath, next.EvidenceRefs)
-	next.DraftApplyTemplate = statusCaseCandidateNextMissingProofCommand(next.DraftApplyTemplate, packetPath, next.CandidateDecisionPath, next.EvidenceRefs)
+	next.SourceCaseRoot = strings.TrimSpace(caseRoot)
+	next.DraftCommand = statusCaseCandidateNextMissingProofCommand(next.DraftCommand, packetPath, next.CandidateDecisionPath, next.EvidenceRefs, caseRoot)
+	next.DraftApplyTemplate = statusCaseCandidateNextMissingProofCommand(next.DraftApplyTemplate, packetPath, next.CandidateDecisionPath, next.EvidenceRefs, caseRoot)
 	next.Boundary = append(next.Boundary, "case-local status bound this next missing proof to a packet-derived review workspace; release/status still does not write proof")
 	status.ProofSummary.NextMissingProof = &next
 	status.ReviewSummary.ProofSummary = status.ProofSummary
 }
 
-func statusCaseCandidateNextMissingProofCommand(command, packetPath, decisionPath string, evidenceRefs []string) string {
+func statusCaseCandidateNextMissingProofCommand(command, packetPath, decisionPath string, evidenceRefs []string, caseRoot string) string {
 	command = strings.TrimSpace(command)
 	if command == "" {
 		return ""
@@ -4922,7 +4960,7 @@ func statusCaseCandidateNextMissingProofCommand(command, packetPath, decisionPat
 	if len(evidenceRefs) > 0 {
 		command = strings.ReplaceAll(command, "<review-evidence-ref>", statusQuoteCommandArg(strings.Join(evidenceRefs, ",")))
 	}
-	return command
+	return statusPromoteCommandWithTarget(command, caseRoot)
 }
 
 type statusCaseCandidateDecisionDraft struct {
