@@ -176,7 +176,7 @@ func Render(repoRoot, caseRoot, pack string) (string, error) {
 	brief := workstream.BindMissionBriefAuthorityContinueCommands(buildMissionBrief(data.lanes, facts), board)
 	actions := buildLaneExecutorActions(data.lanes, facts, brief)
 	evidenceReview := workstream.BindExecutionEvidenceReviewAuthorityContinueCommands(overviewExecutionEvidenceReview(data.lanes, facts), board)
-	authorizedGateAdapterHandoffs := workstream.AuthorizedGateAdapterHandoffs(data.manifest.RepoRoot, data.inst.CaseRoot, data.manifest.Pack, facts.Requests, "")
+	authorizedGateAdapterHandoffs := workstream.AuthorizedGateAdapterHandoffsWithAcknowledgements(data.manifest.RepoRoot, data.inst.CaseRoot, data.manifest.Pack, facts.Requests, "", workstream.ExecutionEvidenceReviewAcknowledgedIDs(facts))
 	reviewerDispatchIntakeHandoffs, err := workstream.ReviewerDispatchIntakeHandoffs(data.inst.CaseRoot, facts, "")
 	if err != nil {
 		return "", err
@@ -240,7 +240,7 @@ func BuildInventory(repoRoot, caseRoot, pack string) (Inventory, error) {
 	brief := workstream.BindMissionBriefAuthorityContinueCommands(buildMissionBrief(data.lanes, facts), board)
 	actions := buildLaneExecutorActions(data.lanes, facts, brief)
 	evidenceReview := workstream.BindExecutionEvidenceReviewAuthorityContinueCommands(overviewExecutionEvidenceReview(data.lanes, facts), board)
-	authorizedGateAdapterHandoffs := workstream.AuthorizedGateAdapterHandoffs(data.manifest.RepoRoot, data.inst.CaseRoot, data.manifest.Pack, facts.Requests, "")
+	authorizedGateAdapterHandoffs := workstream.AuthorizedGateAdapterHandoffsWithAcknowledgements(data.manifest.RepoRoot, data.inst.CaseRoot, data.manifest.Pack, facts.Requests, "", workstream.ExecutionEvidenceReviewAcknowledgedIDs(facts))
 	reviewerDispatchIntakeHandoffs, err := workstream.ReviewerDispatchIntakeHandoffs(data.inst.CaseRoot, facts, "")
 	if err != nil {
 		return Inventory{}, err

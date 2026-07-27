@@ -1234,7 +1234,7 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 	brief := laneMissionBrief(lane, ledgerFacts)
 	pendingGateLines := missionLines(mission.FilterLane(laneFacts.Requests, lane.ID, "pending-gate"), mission.LaneGateLine)
 	authorizedGateLines := missionLines(mission.FilterLane(laneFacts.Requests, lane.ID, "authorized-gate"), mission.LaneGateLine)
-	authorizedGateAdapterHandoffs := AuthorizedGateAdapterHandoffs(m.RepoRoot, caseRoot, m.Pack, ledgerFacts.Requests, lane.ID)
+	authorizedGateAdapterHandoffs := AuthorizedGateAdapterHandoffsWithAcknowledgements(m.RepoRoot, caseRoot, m.Pack, ledgerFacts.Requests, lane.ID, ExecutionEvidenceReviewAcknowledgedIDs(ledgerFacts))
 	executionEvidenceReview := bindExecutionEvidenceReviewContinueCommands(laneExecutionEvidenceReview(lane, ledgerFacts), func(string) (Lane, bool) {
 		return lane, true
 	})

@@ -591,7 +591,7 @@ func (ctx continueContext) authorizedGateAdapterHandoffs() []AuthorizedGateAdapt
 	if err != nil {
 		return nil
 	}
-	return AuthorizedGateAdapterHandoffs(ctx.manifest.RepoRoot, ctx.inst.CaseRoot, ctx.manifest.Pack, facts.Requests, ctx.lane.ID)
+	return AuthorizedGateAdapterHandoffsWithAcknowledgements(ctx.manifest.RepoRoot, ctx.inst.CaseRoot, ctx.manifest.Pack, facts.Requests, ctx.lane.ID, ExecutionEvidenceReviewAcknowledgedIDs(facts))
 }
 
 func (ctx continueContext) missionCommanderNextActions(action laneExecutorAction, evidenceReview []ExecutionEvidenceReviewItem, adapterHandoffs []AuthorizedGateAdapterHandoff, reviewerHandoffs []ReviewerDispatchIntakeHandoff) []mission.MissionCommanderNextActionItem {

@@ -13639,15 +13639,22 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	if acknowledgedStatus.CaseMission.ExecutionEvidenceReviewCount != 0 || len(acknowledgedStatus.CaseMission.ExecutionEvidenceReview) != 0 {
 		t.Fatalf("status after verification ack should close evidence review queue: %+v", acknowledgedStatus.CaseMission.ExecutionEvidenceReview)
 	}
-	if len(acknowledgedStatus.CaseMission.AuthorizedGateHandoffs) != 1 || acknowledgedStatus.CaseMission.AuthorizedGateHandoffs[0].ReportSummary == nil || acknowledgedStatus.CaseMission.AuthorizedGateHandoffs[0].ReportSummary.State != "evidence-already-recorded" || acknowledgedStatus.CaseMission.AuthorizedGateHandoffs[0].ReportSummary.RecordReady {
-		t.Fatalf("status after verification ack should preserve recorded handoff summary without record action: %+v", acknowledgedStatus.CaseMission.AuthorizedGateHandoffs)
+	if len(acknowledgedStatus.CaseMission.AuthorizedGateHandoffs) != 1 {
+		t.Fatalf("status after verification ack should preserve recorded handoff provenance: %+v", acknowledgedStatus.CaseMission.AuthorizedGateHandoffs)
 	}
+	assertAcknowledgedStatusAuthorizedGateHandoff(t, "status after verification ack", acknowledgedStatus.CaseMission.AuthorizedGateHandoffs[0], applied.EventID)
 	if acknowledgedStatus.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || acknowledgedStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.Source == "executionEvidenceReview" || acknowledgedStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.Source == "adapterReportLiveSnapshot.recordedEvidence" || strings.Contains(acknowledgedStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.Command, "gate -Apply") {
 		t.Fatalf("status after verification ack should not keep evidence review or duplicate record current action: %+v", acknowledgedStatus.CaseMission.MissionCommanderActionQueue)
 	}
 	if containsMissionCommanderNextActionsCommand(acknowledgedStatus.CaseMission.MissionCommanderNextActions, "review outputRefs/evidenceRefs") || containsMissionCommanderNextActionsCommand(acknowledgedStatus.CaseMission.MissionCommanderNextActions, "gate -Apply") {
 		t.Fatalf("status after verification ack retained evidence review/record next actions: %+v", acknowledgedStatus.CaseMission.MissionCommanderNextActions)
 	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	assertAcknowledgedAdapterHandoffText(t, "status text after verification ack", out.String(), "status case mission", applied.EventID)
 
 	out.Reset()
 	if err := Run([]string{"-Command", "handoff", "main", "-Format", "json", "-WhatIf"}, &out); err != nil {
@@ -13660,14 +13667,25 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	if len(acknowledgedHandoff.ExecutionEvidenceReview) != 0 || acknowledgedHandoff.MissionCommanderActionQueue.CurrentAction == nil || acknowledgedHandoff.MissionCommanderActionQueue.CurrentAction.Source == "executionEvidenceReview" || acknowledgedHandoff.MissionCommanderActionQueue.CurrentAction.Source == "adapterReportLiveSnapshot.recordedEvidence" {
 		t.Fatalf("handoff after verification ack should close evidence review current action: %+v", acknowledgedHandoff)
 	}
+	if len(acknowledgedHandoff.AuthorizedGateAdapterHandoffs) != 1 {
+		t.Fatalf("handoff after verification ack should preserve acknowledged adapter provenance: %+v", acknowledgedHandoff.AuthorizedGateAdapterHandoffs)
+	}
+	assertAcknowledgedAuthorizedGateAdapterHandoffSnapshot(t, "handoff after verification ack", acknowledgedHandoff.AuthorizedGateAdapterHandoffs[0], applied.EventID)
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "main", "-Format", "text", "-WhatIf"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	assertAcknowledgedAdapterHandoffText(t, "handoff text after verification ack", out.String(), "handoff", applied.EventID)
 
 	out.Reset()
 	if err := Run([]string{"-Command", "continue", "main", "-Format", "json", "-WhatIf"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var acknowledgedContinue struct {
-		ExecutionEvidenceReview     []executionEvidenceReviewItem       `json:"executionEvidenceReview"`
-		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		ExecutionEvidenceReview       []executionEvidenceReviewItem          `json:"executionEvidenceReview"`
+		AuthorizedGateAdapterHandoffs []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
+		MissionCommanderActionQueue   missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &acknowledgedContinue); err != nil {
 		t.Fatalf("continue after verification ack stdout is not JSON: %v\n%s", err, out.String())
@@ -13675,6 +13693,16 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	if len(acknowledgedContinue.ExecutionEvidenceReview) != 0 || acknowledgedContinue.MissionCommanderActionQueue.CurrentAction == nil || acknowledgedContinue.MissionCommanderActionQueue.CurrentAction.Source == "executionEvidenceReview" || acknowledgedContinue.MissionCommanderActionQueue.CurrentAction.Source == "adapterReportLiveSnapshot.recordedEvidence" {
 		t.Fatalf("continue after verification ack should close evidence review current action: %+v", acknowledgedContinue)
 	}
+	if len(acknowledgedContinue.AuthorizedGateAdapterHandoffs) != 1 {
+		t.Fatalf("continue after verification ack should preserve acknowledged adapter provenance: %+v", acknowledgedContinue.AuthorizedGateAdapterHandoffs)
+	}
+	assertAcknowledgedAuthorizedGateAdapterHandoffSnapshot(t, "continue after verification ack", acknowledgedContinue.AuthorizedGateAdapterHandoffs[0], applied.EventID)
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "main", "-Format", "text", "-WhatIf"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	assertAcknowledgedAdapterHandoffText(t, "continue text after verification ack", out.String(), "continue", applied.EventID)
 
 	factsBeforeAcknowledgedContinueApply := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
 	out.Reset()
@@ -13687,6 +13715,7 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 		Blocked                        bool                                   `json:"blocked"`
 		ExecutionEvidenceReview        []executionEvidenceReviewItem          `json:"executionEvidenceReview"`
 		ExecutionEvidenceReviewSummary executionEvidenceReviewSummarySnapshot `json:"executionEvidenceReviewSummary"`
+		AuthorizedGateAdapterHandoffs  []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
 		MissionCommanderActionQueue    missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
 		Writes                         []startWrite                           `json:"writes"`
 	}
@@ -13696,6 +13725,10 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	if !acknowledgedContinueApply.Applied || acknowledgedContinueApply.Blocked || len(acknowledgedContinueApply.ExecutionEvidenceReview) != 0 || acknowledgedContinueApply.ExecutionEvidenceReviewSummary.Total != 0 || acknowledgedContinueApply.MissionCommanderActionQueue.CurrentAction == nil || acknowledgedContinueApply.MissionCommanderActionQueue.CurrentAction.Source == "executionEvidenceReview" || acknowledgedContinueApply.MissionCommanderActionQueue.CurrentAction.Source == "adapterReportLiveSnapshot.recordedEvidence" {
 		t.Fatalf("continue apply after verification ack should persist closed evidence review state: %+v", acknowledgedContinueApply)
 	}
+	if len(acknowledgedContinueApply.AuthorizedGateAdapterHandoffs) != 1 {
+		t.Fatalf("continue apply after verification ack should preserve acknowledged adapter provenance: %+v", acknowledgedContinueApply.AuthorizedGateAdapterHandoffs)
+	}
+	assertAcknowledgedAuthorizedGateAdapterHandoffSnapshot(t, "continue apply after verification ack", acknowledgedContinueApply.AuthorizedGateAdapterHandoffs[0], applied.EventID)
 	assertSnapshotEqual(t, factsBeforeAcknowledgedContinueApply, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
 	ackStatusPath := assertStartWrite(t, acknowledgedContinueApply.Writes, ".rekit/runs/"+acknowledgedContinueApply.RunID+"/status.json", "write").TargetPath
 	ackDigestPath := assertStartWrite(t, acknowledgedContinueApply.Writes, ".rekit/runs/"+acknowledgedContinueApply.RunID+"/digest.md", "write").TargetPath
@@ -13708,6 +13741,7 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	var acknowledgedRunStatus struct {
 		ExecutionEvidenceReview        []executionEvidenceReviewItem          `json:"executionEvidenceReview"`
 		ExecutionEvidenceReviewSummary executionEvidenceReviewSummarySnapshot `json:"executionEvidenceReviewSummary"`
+		AuthorizedGateAdapterHandoffs  []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
 		MissionCommanderActionQueue    missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
 	}
 	if err := json.Unmarshal(ackStatusBytes, &acknowledgedRunStatus); err != nil {
@@ -13716,16 +13750,16 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	if len(acknowledgedRunStatus.ExecutionEvidenceReview) != 0 || acknowledgedRunStatus.ExecutionEvidenceReviewSummary.Total != 0 || acknowledgedRunStatus.MissionCommanderActionQueue.CurrentAction == nil || acknowledgedRunStatus.MissionCommanderActionQueue.CurrentAction.Source == "executionEvidenceReview" || acknowledgedRunStatus.MissionCommanderActionQueue.CurrentAction.Source == "adapterReportLiveSnapshot.recordedEvidence" {
 		t.Fatalf("continue run status after verification ack should persist closed evidence review: %+v", acknowledgedRunStatus)
 	}
+	if len(acknowledgedRunStatus.AuthorizedGateAdapterHandoffs) != 1 {
+		t.Fatalf("continue run status after verification ack should persist acknowledged adapter provenance: %+v", acknowledgedRunStatus.AuthorizedGateAdapterHandoffs)
+	}
+	assertAcknowledgedAuthorizedGateAdapterHandoffSnapshot(t, "continue run status after verification ack", acknowledgedRunStatus.AuthorizedGateAdapterHandoffs[0], applied.EventID)
 	for label, path := range map[string]string{"continue digest": ackDigestPath, "lane RESUME": ackResumePath} {
 		text, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, unexpected := range []string{"ready-for-evidence-review", "review outputRefs/evidenceRefs"} {
-			if strings.Contains(string(text), unexpected) {
-				t.Fatalf("%s after verification ack retained closed evidence review %q:\n%s", label, unexpected, string(text))
-			}
-		}
+		assertAcknowledgedAdapterHandoffMarkdown(t, label+" after verification ack", string(text), applied.EventID)
 	}
 	ackCheckpointBytes, err := os.ReadFile(ackCheckpointPath)
 	if err != nil {
@@ -13734,6 +13768,7 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	var acknowledgedCheckpoint struct {
 		ExecutionEvidenceReview        []executionEvidenceReviewItem          `json:"executionEvidenceReview"`
 		ExecutionEvidenceReviewSummary executionEvidenceReviewSummarySnapshot `json:"executionEvidenceReviewSummary"`
+		AuthorizedGateAdapterHandoffs  []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
 		MissionCommanderActionQueue    missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
 	}
 	if err := json.Unmarshal(ackCheckpointBytes, &acknowledgedCheckpoint); err != nil {
@@ -13742,6 +13777,10 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	if len(acknowledgedCheckpoint.ExecutionEvidenceReview) != 0 || acknowledgedCheckpoint.ExecutionEvidenceReviewSummary.Total != 0 || acknowledgedCheckpoint.MissionCommanderActionQueue.CurrentAction == nil || acknowledgedCheckpoint.MissionCommanderActionQueue.CurrentAction.Source == "executionEvidenceReview" || acknowledgedCheckpoint.MissionCommanderActionQueue.CurrentAction.Source == "adapterReportLiveSnapshot.recordedEvidence" {
 		t.Fatalf("checkpoint after verification ack should persist closed evidence review: %+v", acknowledgedCheckpoint)
 	}
+	if len(acknowledgedCheckpoint.AuthorizedGateAdapterHandoffs) != 1 {
+		t.Fatalf("checkpoint after verification ack should persist acknowledged adapter provenance: %+v", acknowledgedCheckpoint.AuthorizedGateAdapterHandoffs)
+	}
+	assertAcknowledgedAuthorizedGateAdapterHandoffSnapshot(t, "checkpoint after verification ack", acknowledgedCheckpoint.AuthorizedGateAdapterHandoffs[0], applied.EventID)
 
 	factsBeforeReplay := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
 	out.Reset()
@@ -15431,24 +15470,26 @@ type handoffLaneExecutorAction struct {
 }
 
 type authorizedGateAdapterHandoffSnapshot struct {
-	EventID             string                                `json:"eventId"`
-	Lane                string                                `json:"lane"`
-	Subject             string                                `json:"subject"`
-	Action              string                                `json:"action"`
-	Target              string                                `json:"target"`
-	Status              string                                `json:"status"`
-	Risk                string                                `json:"risk"`
-	Authorization       string                                `json:"authorization"`
-	Profile             string                                `json:"profile"`
-	ReportContract      string                                `json:"reportContract"`
-	DefaultReportPath   string                                `json:"defaultReportPath"`
-	ReportPath          string                                `json:"reportPath"`
-	ReportSummary       *adapterReportHandoffSummarySnapshot  `json:"reportSummary"`
-	LiveValidation      *authorizedGateLiveValidationSnapshot `json:"liveValidation"`
-	ReportContractError string                                `json:"reportContractError"`
-	HandoffCommand      string                                `json:"handoffCommand"`
-	Boundary            []string                              `json:"boundary"`
-	Evidence            []string                              `json:"evidence"`
+	EventID              string                                `json:"eventId"`
+	Lane                 string                                `json:"lane"`
+	Subject              string                                `json:"subject"`
+	Action               string                                `json:"action"`
+	Target               string                                `json:"target"`
+	Status               string                                `json:"status"`
+	Risk                 string                                `json:"risk"`
+	Authorization        string                                `json:"authorization"`
+	Profile              string                                `json:"profile"`
+	ReportContract       string                                `json:"reportContract"`
+	DefaultReportPath    string                                `json:"defaultReportPath"`
+	ReportPath           string                                `json:"reportPath"`
+	ReportSummary        *adapterReportHandoffSummarySnapshot  `json:"reportSummary"`
+	LiveValidation       *authorizedGateLiveValidationSnapshot `json:"liveValidation"`
+	ReportContractError  string                                `json:"reportContractError"`
+	HandoffCommand       string                                `json:"handoffCommand"`
+	Acknowledged         bool                                  `json:"acknowledged"`
+	AcknowledgementState string                                `json:"acknowledgementState"`
+	Boundary             []string                              `json:"boundary"`
+	Evidence             []string                              `json:"evidence"`
 }
 
 type authorizedGateLiveValidationSnapshot struct {
@@ -15512,6 +15553,92 @@ func assertAuthorizedGateAdapterHandoffSnapshot(t *testing.T, label string, item
 	}
 	if !containsSubstring(item.LiveValidation.RunbookSteps, "confirm authorized output workspace and adapter-report.json sidecar path before adapter work") || !containsSubstring(item.LiveValidation.RunbookSteps, "record command is intentionally unavailable until validation/status returns valid=true with -ExpectedExecutionReportSha256") {
 		t.Fatalf("%s authorized gate adapter handoff missing live validation runbook: %+v", label, item.LiveValidation)
+	}
+}
+
+func assertAcknowledgedAuthorizedGateAdapterHandoffSnapshot(t *testing.T, label string, item authorizedGateAdapterHandoffSnapshot, eventID string) {
+	t.Helper()
+	if item.EventID != eventID || !item.Acknowledged || item.AcknowledgementState != "execution-evidence-review-acknowledged" {
+		t.Fatalf("%s authorized gate adapter handoff missing acknowledgement closure: %+v", label, item)
+	}
+	if item.ReportSummary == nil || item.ReportSummary.State != "evidence-already-recorded" || item.ReportSummary.CurrentAction != "" || item.ReportSummary.NextActionCount != 0 || item.ReportSummary.ReviewRequiredActionCount != 0 || item.ReportSummary.ActionQueueSummary != "" || !containsSubstring(item.ReportSummary.Boundary, "execution evidence review is acknowledged/closed") {
+		t.Fatalf("%s authorized gate adapter handoff retained current review action after acknowledgement: %+v", label, item.ReportSummary)
+	}
+	if item.LiveValidation == nil || item.LiveValidation.RecordCommand != "" || item.LiveValidation.CaseRelativeRecordCommand != "" || !strings.Contains(item.LiveValidation.ReplayBehavior, "acknowledged recorded evidence is closed") {
+		t.Fatalf("%s authorized gate adapter handoff retained live record action after acknowledgement: %+v", label, item.LiveValidation)
+	}
+	if !containsSubstring(item.Evidence, "execution evidence review acknowledged for gateEventId "+eventID) || !containsSubstring(item.Boundary, "acknowledged recorded adapter evidence is retained as provenance only") {
+		t.Fatalf("%s authorized gate adapter handoff omitted provenance-only acknowledgement evidence/boundary: %+v", label, item)
+	}
+}
+
+func assertAcknowledgedStatusAuthorizedGateHandoff(t *testing.T, label string, item statusAuthorizedGateHandoff, eventID string) {
+	t.Helper()
+	if item.EventID != eventID || !item.Acknowledged || item.AcknowledgementState != "execution-evidence-review-acknowledged" {
+		t.Fatalf("%s status authorized gate handoff missing acknowledgement closure: %+v", label, item)
+	}
+	if item.ReportSummary == nil || item.ReportSummary.State != "evidence-already-recorded" || item.ReportSummary.CurrentAction != "" || item.ReportSummary.NextActionCount != 0 || item.ReportSummary.ReviewRequiredActionCount != 0 || item.ReportSummary.ActionQueueSummary != "" || !containsSubstring(item.ReportSummary.Boundary, "execution evidence review is acknowledged/closed") {
+		t.Fatalf("%s status authorized gate handoff retained current review action after acknowledgement: %+v", label, item.ReportSummary)
+	}
+	if item.LiveValidation == nil || item.LiveValidation.RecordCommand != "" || item.LiveValidation.CaseRelativeRecordCommand != "" || !strings.Contains(item.LiveValidation.ReplayBehavior, "acknowledged recorded evidence is closed") {
+		t.Fatalf("%s status authorized gate handoff retained live record action after acknowledgement: %+v", label, item.LiveValidation)
+	}
+	if !containsSubstring(item.Evidence, "execution evidence review acknowledged for gateEventId "+eventID) {
+		t.Fatalf("%s status authorized gate handoff omitted acknowledgement evidence: %+v", label, item.Evidence)
+	}
+}
+
+func assertAcknowledgedAdapterHandoffText(t *testing.T, label, text, prefix, eventID string) {
+	t.Helper()
+	subject := "authorized gate adapter"
+	if prefix == "status case mission" {
+		subject = "authorized gate"
+	}
+	for _, expected := range []string{
+		prefix + " " + subject + " handoff：eventId=" + eventID,
+		"acknowledged=true acknowledgementState=execution-evidence-review-acknowledged",
+		prefix + " " + subject + " acknowledgement：eventId=" + eventID + " state=execution-evidence-review-acknowledged boundary=recorded adapter report is provenance-only; no review or record action remains",
+		prefix + " " + subject + " report summary：eventId=" + eventID + " state=evidence-already-recorded",
+		"nextActions=0 reviewRequired=0 currentAction=",
+		prefix + " " + subject + " report summary boundary：eventId=" + eventID + " boundary=execution evidence review is acknowledged/closed; recorded report summary is provenance-only",
+		"record=closed: execution evidence review acknowledged; no record action remains",
+		"caseRecord=closed: execution evidence review acknowledged; no record action remains",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("%s missing acknowledged adapter handoff text %q:\n%s", label, expected, text)
+		}
+	}
+	assertNoAcknowledgedAdapterCurrentActionText(t, label, text, prefix+" "+subject, "eventId="+eventID)
+}
+
+func assertAcknowledgedAdapterHandoffMarkdown(t *testing.T, label, text, eventID string) {
+	t.Helper()
+	for _, expected := range []string{
+		"- authorized gate adapter handoff: eventId=" + eventID,
+		"acknowledged=true acknowledgementState=execution-evidence-review-acknowledged",
+		"  - acknowledgement: state=execution-evidence-review-acknowledged boundary=recorded adapter report is provenance-only; no review or record action remains",
+		"  - record: `closed: execution evidence review acknowledged; no record action remains`",
+		"  - case record: `closed: execution evidence review acknowledged; no record action remains`",
+		"  - boundary: acknowledged recorded adapter evidence is retained as provenance only; do not review, record, or replay it again",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("%s missing acknowledged adapter handoff Markdown %q:\n%s", label, expected, text)
+		}
+	}
+	assertNoAcknowledgedAdapterCurrentActionText(t, label, text, "authorized gate adapter", "eventId="+eventID)
+}
+
+func assertNoAcknowledgedAdapterCurrentActionText(t *testing.T, label, text, lineNeedle, eventNeedle string) {
+	t.Helper()
+	for _, line := range strings.Split(text, "\n") {
+		if !strings.Contains(line, lineNeedle) || !strings.Contains(line, eventNeedle) {
+			continue
+		}
+		for _, unexpected := range []string{"ready-for-evidence-review", "review outputRefs/evidenceRefs", "record=rekit ", "caseRecord=rekit ", "record=/rekit ", "caseRecord=/rekit ", "- record: `rekit ", "- case record: `rekit ", "- record: `/rekit ", "- case record: `/rekit "} {
+			if strings.Contains(line, unexpected) {
+				t.Fatalf("%s retained closed evidence review/record text %q in acknowledged handoff line:\n%s", label, unexpected, line)
+			}
+		}
 	}
 }
 

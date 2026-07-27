@@ -185,11 +185,11 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 		if lane != nil {
 			reviewerWritebacks = ReviewerWritebackItems(facts, lane.ID)
 			reviewerDispatchIntakeHandoffs, _ = ReviewerDispatchIntakeHandoffs(ctx.inst.CaseRoot, facts, lane.ID)
-			authorizedGateAdapterHandoffs = AuthorizedGateAdapterHandoffs(ctx.manifest.RepoRoot, ctx.inst.CaseRoot, ctx.manifest.Pack, facts.Requests, lane.ID)
+			authorizedGateAdapterHandoffs = AuthorizedGateAdapterHandoffsWithAcknowledgements(ctx.manifest.RepoRoot, ctx.inst.CaseRoot, ctx.manifest.Pack, facts.Requests, lane.ID, ExecutionEvidenceReviewAcknowledgedIDs(facts))
 		} else if ctx.project {
 			reviewerWritebacks = ReviewerWritebackItems(facts, "")
 			reviewerDispatchIntakeHandoffs, _ = ReviewerDispatchIntakeHandoffs(ctx.inst.CaseRoot, facts, "")
-			authorizedGateAdapterHandoffs = AuthorizedGateAdapterHandoffs(ctx.manifest.RepoRoot, ctx.inst.CaseRoot, ctx.manifest.Pack, facts.Requests, "")
+			authorizedGateAdapterHandoffs = AuthorizedGateAdapterHandoffsWithAcknowledgements(ctx.manifest.RepoRoot, ctx.inst.CaseRoot, ctx.manifest.Pack, facts.Requests, "", ExecutionEvidenceReviewAcknowledgedIDs(facts))
 		}
 	}
 	if lane != nil {
@@ -602,7 +602,7 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 	}
 	fmt.Fprintln(&out)
 	writeProjectMissionBrief(&out, ctx.board.Lanes, facts, ctx.currentLanes())
-	WriteAuthorizedGateAdapterHandoffSection(&out, "## Authorized gate adapter handoff", AuthorizedGateAdapterHandoffs(ctx.manifest.RepoRoot, ctx.inst.CaseRoot, ctx.manifest.Pack, facts.Requests, ""))
+	WriteAuthorizedGateAdapterHandoffSection(&out, "## Authorized gate adapter handoff", AuthorizedGateAdapterHandoffsWithAcknowledgements(ctx.manifest.RepoRoot, ctx.inst.CaseRoot, ctx.manifest.Pack, facts.Requests, "", ExecutionEvidenceReviewAcknowledgedIDs(facts)))
 	writeReviewerWritebackItems(&out, ReviewerWritebackItems(facts, ""))
 	reviewerDispatchIntakeHandoffs, err := ReviewerDispatchIntakeHandoffs(ctx.inst.CaseRoot, facts, "")
 	if err != nil {
@@ -632,7 +632,7 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 		autonomySummary := autonomy.ReadSummary(ctx.inst.CaseRoot, lane.ID, ctx.manifest)
 		executorAction := ctx.executorAction(lane)
 		executionEvidenceReview := ctx.executionEvidenceReview(lane)
-		authorizedGateAdapterHandoffs := AuthorizedGateAdapterHandoffs(ctx.manifest.RepoRoot, ctx.inst.CaseRoot, ctx.manifest.Pack, facts.Requests, lane.ID)
+		authorizedGateAdapterHandoffs := AuthorizedGateAdapterHandoffsWithAcknowledgements(ctx.manifest.RepoRoot, ctx.inst.CaseRoot, ctx.manifest.Pack, facts.Requests, lane.ID, ExecutionEvidenceReviewAcknowledgedIDs(facts))
 		laneReviewerDispatches, _ := ReviewerDispatchIntakeHandoffs(ctx.inst.CaseRoot, facts, lane.ID)
 		executorAction = withReviewerDispatchBlocker(executorAction, laneReviewerDispatches)
 		missionCommanderNextActions := mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(lane, executorAction)}, executionEvidenceReview, executorAction.Blocked)
@@ -959,7 +959,7 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 	if err != nil {
 		return "", nil, err
 	}
-	authorizedGateAdapterHandoffs := AuthorizedGateAdapterHandoffs(ctx.manifest.RepoRoot, ctx.inst.CaseRoot, ctx.manifest.Pack, facts.Requests, lane.ID)
+	authorizedGateAdapterHandoffs := AuthorizedGateAdapterHandoffsWithAcknowledgements(ctx.manifest.RepoRoot, ctx.inst.CaseRoot, ctx.manifest.Pack, facts.Requests, lane.ID, ExecutionEvidenceReviewAcknowledgedIDs(facts))
 	laneReviewerDispatches, _ := ReviewerDispatchIntakeHandoffs(ctx.inst.CaseRoot, facts, lane.ID)
 	executorAction = withReviewerDispatchBlocker(executorAction, laneReviewerDispatches)
 	missionCommanderNextActions := mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(lane, executorAction)}, executionEvidenceReview, executorAction.Blocked)

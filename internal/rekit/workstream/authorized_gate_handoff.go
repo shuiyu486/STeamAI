@@ -29,6 +29,8 @@ type AuthorizedGateAdapterHandoff struct {
 	LiveValidationError         string                               `json:"liveValidationError,omitempty"`
 	ReportContractError         string                               `json:"reportContractError,omitempty"`
 	HandoffCommand              string                               `json:"handoffCommand,omitempty"`
+	Acknowledged                bool                                 `json:"acknowledged,omitempty"`
+	AcknowledgementState        string                               `json:"acknowledgementState,omitempty"`
 	Boundary                    []string                             `json:"boundary,omitempty"`
 	Evidence                    []string                             `json:"evidence,omitempty"`
 	missionCommanderNextActions []mission.MissionCommanderNextActionItem
@@ -64,6 +66,10 @@ type AuthorizedGateLiveValidationHandoff struct {
 }
 
 func AuthorizedGateAdapterHandoffs(repoRoot, caseRoot, pack string, requests []map[string]any, laneID string) []AuthorizedGateAdapterHandoff {
+	return AuthorizedGateAdapterHandoffsWithAcknowledgements(repoRoot, caseRoot, pack, requests, laneID, nil)
+}
+
+func AuthorizedGateAdapterHandoffsWithAcknowledgements(repoRoot, caseRoot, pack string, requests []map[string]any, laneID string, acknowledgedIDs map[string]bool) []AuthorizedGateAdapterHandoff {
 	items := []map[string]any{}
 	for _, item := range requests {
 		if !mission.IsAuthorizedGateRequest(item) {
@@ -80,6 +86,7 @@ func AuthorizedGateAdapterHandoffs(repoRoot, caseRoot, pack string, requests []m
 		if strings.TrimSpace(handoff.EventID) == "" && strings.TrimSpace(handoff.Subject) == "" {
 			continue
 		}
+		applyAuthorizedGateAdapterAcknowledgement(&handoff, acknowledgedIDs)
 		out = append(out, handoff)
 	}
 	return out
@@ -90,7 +97,61 @@ func authorizedGateAdapterHandoffsForLane(repoRoot, caseRoot, pack, laneID strin
 	if err != nil {
 		return nil
 	}
-	return AuthorizedGateAdapterHandoffs(repoRoot, caseRoot, pack, facts.Requests, laneID)
+	return AuthorizedGateAdapterHandoffsWithAcknowledgements(repoRoot, caseRoot, pack, facts.Requests, laneID, ExecutionEvidenceReviewAcknowledgedIDs(facts))
+}
+
+func applyAuthorizedGateAdapterAcknowledgement(handoff *AuthorizedGateAdapterHandoff, acknowledgedIDs map[string]bool) {
+	if handoff == nil || len(acknowledgedIDs) == 0 || !acknowledgedIDs[strings.TrimSpace(handoff.EventID)] {
+		return
+	}
+	if handoff.ReportSummary == nil || (handoff.ReportSummary.State != "evidence-already-recorded" && !handoff.ReportSummary.RequiresMainEscalation) {
+		return
+	}
+	handoff.Acknowledged = true
+	handoff.AcknowledgementState = "execution-evidence-review-acknowledged"
+	handoff.Evidence = append(handoff.Evidence, "execution evidence review acknowledged for gateEventId "+handoff.EventID)
+	handoff.Boundary = append(handoff.Boundary, "acknowledged recorded adapter evidence is retained as provenance only; do not review, record, or replay it again")
+	handoff.LiveValidationNextSteps = acknowledgedAdapterClosureSteps()
+	handoff.missionCommanderNextActions = nil
+	summary := *handoff.ReportSummary
+	summary.NextActionCount = 0
+	summary.ReviewRequiredActionCount = 0
+	summary.ActionQueueSummary = ""
+	summary.CurrentAction = ""
+	summary.Boundary = acknowledgedAdapterBoundary(summary.Boundary)
+	handoff.ReportSummary = &summary
+	if handoff.LiveValidation != nil {
+		handoff.LiveValidation.RecordCommand = ""
+		handoff.LiveValidation.CaseRelativeRecordCommand = ""
+		handoff.LiveValidation.ReplayBehavior = "acknowledged recorded evidence is closed; do not record or replay the adapter report again"
+		handoff.LiveValidation.RunbookSteps = acknowledgedAdapterClosureSteps()
+	}
+}
+
+func acknowledgedAdapterBoundary(items []string) []string {
+	out := []string{}
+	for _, item := range items {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == "" || acknowledgedAdapterCurrentReviewLine(trimmed) {
+			continue
+		}
+		out = append(out, trimmed)
+	}
+	return append(out, "execution evidence review is acknowledged/closed; recorded report summary is provenance-only")
+}
+
+func acknowledgedAdapterClosureSteps() []string {
+	return []string{
+		"execution evidence review acknowledged/closed; recorded adapter report is provenance-only",
+		"no review, record, or replay action remains for this adapter report snapshot",
+	}
+}
+
+func acknowledgedAdapterCurrentReviewLine(line string) bool {
+	line = strings.ToLower(strings.TrimSpace(line))
+	return strings.Contains(line, "ready-for-evidence-review") ||
+		strings.Contains(line, "review outputrefs/evidencerefs") ||
+		strings.Contains(line, "review the recorded observation evidence")
 }
 
 func authorizedGateAdapterHandoffFor(repoRoot, caseRoot, pack string, item map[string]any) AuthorizedGateAdapterHandoff {
@@ -227,6 +288,13 @@ func authorizedGateCurrentRecordCommandMarkdown(command, reportSHA256 string) st
 	return "after valid=true, use validation/status returned hash-bound record command with -ExpectedExecutionReportSha256"
 }
 
+func authorizedGateCurrentRecordCommandMarkdownForHandoff(item AuthorizedGateAdapterHandoff, command, reportSHA256 string) string {
+	if item.Acknowledged {
+		return "closed: execution evidence review acknowledged; no record action remains"
+	}
+	return authorizedGateCurrentRecordCommandMarkdown(command, reportSHA256)
+}
+
 func MissionCommanderNextActionsWithAuthorizedGateAdapters(base []mission.MissionCommanderNextActionItem, handoffs []AuthorizedGateAdapterHandoff) []mission.MissionCommanderNextActionItem {
 	return MissionCommanderNextActionsWithAuthorizedGateAdaptersAndAcknowledgements(base, handoffs, nil)
 }
@@ -349,7 +417,10 @@ func writeAuthorizedGateAdapterHandoffMarkdown(out *bytes.Buffer, item Authorize
 		authorizedStops = item.ReportSummary.AuthorizedStopCount
 		adapterCandidates = item.ReportSummary.AdapterCandidateCount
 	}
-	fmt.Fprintf(out, "- authorized gate adapter handoff: eventId=%s lane=%s action=%s state=%s reportPath=%s reportSha256=%s recordExpectedReportSha256=%s defaultReportPath=%s reportPresent=%t valid=%t recordReady=%t recordBlocked=%t currentAction=%s\n", item.EventID, item.Lane, item.Action, state, item.ReportPath, reportSHA256, recordExpectedReportSHA256, item.DefaultReportPath, reportPresent, valid, recordReady, recordBlocked, currentAction)
+	fmt.Fprintf(out, "- authorized gate adapter handoff: eventId=%s lane=%s action=%s state=%s reportPath=%s reportSha256=%s recordExpectedReportSha256=%s defaultReportPath=%s reportPresent=%t valid=%t recordReady=%t recordBlocked=%t currentAction=%s acknowledged=%t acknowledgementState=%s\n", item.EventID, item.Lane, item.Action, state, item.ReportPath, reportSHA256, recordExpectedReportSHA256, item.DefaultReportPath, reportPresent, valid, recordReady, recordBlocked, currentAction, item.Acknowledged, item.AcknowledgementState)
+	if item.Acknowledged {
+		fmt.Fprintf(out, "  - acknowledgement: state=%s boundary=recorded adapter report is provenance-only; no review or record action remains\n", item.AcknowledgementState)
+	}
 	fmt.Fprintf(out, "  - report contract: `%s`\n", item.ReportContract)
 	fmt.Fprintf(out, "  - counts: allowedStatuses=%d allowedOutputPaths=%d authorizedStops=%d adapterCandidates=%d\n", allowedStatuses, allowedOutputs, authorizedStops, adapterCandidates)
 	if live := item.LiveValidation; live != nil {
@@ -366,13 +437,13 @@ func writeAuthorizedGateAdapterHandoffMarkdown(out *bytes.Buffer, item Authorize
 		fmt.Fprintf(out, "  - report sha256: `%s`\n", live.ReportSHA256)
 		fmt.Fprintf(out, "  - record expected report sha256: `%s`\n", live.RecordExpectedReportSHA256)
 		fmt.Fprintf(out, "  - validate: `%s`\n", live.ValidateCommand)
-		fmt.Fprintf(out, "  - record: `%s`\n", authorizedGateCurrentRecordCommandMarkdown(live.RecordCommand, live.RecordExpectedReportSHA256))
+		fmt.Fprintf(out, "  - record: `%s`\n", authorizedGateCurrentRecordCommandMarkdownForHandoff(item, live.RecordCommand, live.RecordExpectedReportSHA256))
 		fmt.Fprintf(out, "  - case scaffold: `%s`\n", live.CaseRelativeScaffoldCommand)
 		fmt.Fprintf(out, "  - case scaffold apply: `%s`\n", live.CaseRelativeScaffoldApplyCommand)
 		fmt.Fprintf(out, "  - case draft: `%s`\n", live.CaseRelativeDraftCommand)
 		fmt.Fprintf(out, "  - case draft apply: `%s`\n", live.CaseRelativeDraftApplyCommand)
 		fmt.Fprintf(out, "  - case validate: `%s`\n", live.CaseRelativeValidateCommand)
-		fmt.Fprintf(out, "  - case record: `%s`\n", authorizedGateCurrentRecordCommandMarkdown(live.CaseRelativeRecordCommand, live.RecordExpectedReportSHA256))
+		fmt.Fprintf(out, "  - case record: `%s`\n", authorizedGateCurrentRecordCommandMarkdownForHandoff(item, live.CaseRelativeRecordCommand, live.RecordExpectedReportSHA256))
 		for _, workspace := range live.AuthorizedWorkspaces {
 			fmt.Fprintf(out, "  - authorized workspace: `%s`\n", workspace)
 		}
