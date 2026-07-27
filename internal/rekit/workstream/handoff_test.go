@@ -2,6 +2,7 @@ package workstream
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -88,6 +89,39 @@ func TestMissionCommanderNextActionsWithAuthorizedGateAdaptersPrioritizesRepair(
 		if item.GateEventID == "evt-acknowledged" {
 			t.Fatalf("acknowledged recorded adapter action should not re-enter queue: %+v", items)
 		}
+	}
+}
+
+func TestAuthorizedGateAdapterHandoffsLimitKeepsActionableEarlierGate(t *testing.T) {
+	repair := AuthorizedGateAdapterHandoff{
+		EventID:       "evt-repair-earlier",
+		ReportSummary: &gate.AdapterReportHandoffSummary{State: "repair-adapter-report", ReportPresent: true, RequiresRepair: true},
+		missionCommanderNextActions: []mission.MissionCommanderNextActionItem{{
+			Lane:           "main",
+			Label:          "main",
+			State:          "repair-adapter-report",
+			Source:         "adapterReportValidation.repairHints",
+			Command:        "move-evidence-refs-under-authorized-output-paths",
+			RequiresReview: true,
+		}},
+	}
+	items := []AuthorizedGateAdapterHandoff{repair}
+	for idx := 1; idx <= maxHandoffRows; idx++ {
+		items = append(items, AuthorizedGateAdapterHandoff{
+			EventID:       fmt.Sprintf("evt-low-%d", idx),
+			Acknowledged:  true,
+			ReportSummary: &gate.AdapterReportHandoffSummary{State: "evidence-already-recorded", ReportPresent: true, Valid: true},
+		})
+	}
+
+	limited := limitAuthorizedGateAdapterHandoffs(items, maxHandoffRows)
+	if len(limited) != maxHandoffRows || limited[0].EventID != "evt-repair-earlier" || slices.ContainsFunc(limited, func(item AuthorizedGateAdapterHandoff) bool { return item.EventID == "evt-low-1" }) {
+		t.Fatalf("authorized adapter handoff limiter should keep earlier repair and drop oldest low-value item: %+v", limited)
+	}
+	merged := MissionCommanderNextActionsWithAuthorizedGateAdapters([]mission.MissionCommanderNextActionItem{{Lane: "main", Label: "main", State: "ready-to-continue", Source: "missionCommanderActions", Command: "/rekit continue main"}}, limited)
+	queue := mission.MissionCommanderActionQueueFor(merged)
+	if queue.CurrentAction == nil || queue.CurrentAction.GateEventID != "evt-repair-earlier" || queue.CurrentAction.State != "repair-adapter-report" {
+		t.Fatalf("limited authorized adapter handoffs should still surface repair current action: queue=%+v items=%+v", queue, merged)
 	}
 }
 

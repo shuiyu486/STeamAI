@@ -83,7 +83,7 @@ func AuthorizedGateAdapterHandoffsWithAcknowledgements(repoRoot, caseRoot, pack 
 		items = append(items, item)
 	}
 	out := []AuthorizedGateAdapterHandoff{}
-	for _, item := range lastObjects(items, maxHandoffRows) {
+	for _, item := range items {
 		handoff := authorizedGateAdapterHandoffFor(repoRoot, caseRoot, pack, item)
 		if strings.TrimSpace(handoff.EventID) == "" && strings.TrimSpace(handoff.Subject) == "" {
 			continue
@@ -91,7 +91,76 @@ func AuthorizedGateAdapterHandoffsWithAcknowledgements(repoRoot, caseRoot, pack 
 		applyAuthorizedGateAdapterAcknowledgement(&handoff, acknowledgedIDs)
 		out = append(out, handoff)
 	}
+	return limitAuthorizedGateAdapterHandoffs(out, maxHandoffRows)
+}
+
+func limitAuthorizedGateAdapterHandoffs(items []AuthorizedGateAdapterHandoff, limit int) []AuthorizedGateAdapterHandoff {
+	if limit <= 0 || len(items) <= limit {
+		return items
+	}
+	ranked := make([]struct {
+		index    int
+		priority int
+	}, 0, len(items))
+	for index, item := range items {
+		ranked = append(ranked, struct {
+			index    int
+			priority int
+		}{index: index, priority: authorizedGateAdapterHandoffPriority(item)})
+	}
+	slices.SortStableFunc(ranked, func(a, b struct {
+		index    int
+		priority int
+	}) int {
+		if priority := cmp.Compare(a.priority, b.priority); priority != 0 {
+			return priority
+		}
+		return cmp.Compare(b.index, a.index)
+	})
+	keep := map[int]bool{}
+	for _, item := range ranked[:limit] {
+		keep[item.index] = true
+	}
+	out := []AuthorizedGateAdapterHandoff{}
+	for index, item := range items {
+		if keep[index] {
+			out = append(out, item)
+		}
+	}
 	return out
+}
+
+func authorizedGateAdapterHandoffPriority(item AuthorizedGateAdapterHandoff) int {
+	if item.Acknowledged {
+		return 90
+	}
+	priority := 100
+	for _, action := range item.missionCommanderNextActions {
+		priority = min(priority, authorizedGateAdapterActionPriority(action))
+	}
+	if priority < 100 {
+		return priority
+	}
+	if item.ReportSummary == nil {
+		return 80
+	}
+	if item.ReportSummary.RequiresMainEscalation {
+		return 0
+	}
+	switch item.ReportSummary.State {
+	case "repair-adapter-report":
+		return 1
+	case "ready-to-record-evidence":
+		return 2
+	case "needs-adapter-report-validation", "adapter-report-drafted-ready-for-validation", "adapter-report-scaffolded-awaiting-adapter-output":
+		return 3
+	case "ready-for-adapter-report-draft-apply", "ready-for-adapter-report-scaffold-apply":
+		return 4
+	case "evidence-already-recorded":
+		return 70
+	default:
+		return 60
+	}
 }
 
 func authorizedGateAdapterHandoffsForLane(repoRoot, caseRoot, pack, laneID string) []AuthorizedGateAdapterHandoff {

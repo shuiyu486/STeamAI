@@ -4078,7 +4078,7 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 		PendingGates:                      append([]string{}, inventory.MissionBrief.PendingGates...),
 		PendingGateHandoffs:               statusPendingGateHandoffs(caseRoot, pack, inventory.Sections.PendingGates.Events),
 		AuthorizedGates:                   append([]string{}, inventory.MissionBrief.AuthorizedGates...),
-		AuthorizedGateHandoffs:            statusAuthorizedGateHandoffs(repoRoot, caseRoot, pack, inventory.Sections.AuthorizedGates.Events, workstream.ExecutionEvidenceReviewAcknowledgedIDs(ledgerFacts)),
+		AuthorizedGateHandoffs:            statusAuthorizedGateHandoffs(repoRoot, caseRoot, pack, ledgerFacts.Requests, workstream.ExecutionEvidenceReviewAcknowledgedIDs(ledgerFacts)),
 		OpenDecisions:                     append([]string{}, inventory.MissionBrief.OpenDecisions...),
 		OpenDecisionHandoffs:              statusOpenDecisionHandoffs(caseRoot, pack, ledgerFacts.Facts),
 		Interventions:                     append([]string{}, inventory.MissionBrief.Interventions...),
@@ -4445,9 +4445,14 @@ func statusReconcileCommand(caseRoot, pack string, event map[string]any, apply b
 	return strings.Join(args, " ")
 }
 
+const statusAuthorizedGateHandoffRows = 5
+
 func statusAuthorizedGateHandoffs(repoRoot, caseRoot, pack string, events []map[string]any, acknowledgedIDs map[string]bool) []statusAuthorizedGateHandoff {
 	out := []statusAuthorizedGateHandoff{}
 	for _, event := range events {
+		if !mission.IsAuthorizedGateRequest(event) {
+			continue
+		}
 		handoff := statusAuthorizedGateHandoffFor(repoRoot, caseRoot, pack, event)
 		if strings.TrimSpace(handoff.EventID) == "" && strings.TrimSpace(handoff.Subject) == "" {
 			continue
@@ -4455,7 +4460,66 @@ func statusAuthorizedGateHandoffs(repoRoot, caseRoot, pack string, events []map[
 		applyStatusAuthorizedGateAcknowledgement(&handoff, acknowledgedIDs)
 		out = append(out, handoff)
 	}
+	return limitStatusAuthorizedGateHandoffs(out, statusAuthorizedGateHandoffRows)
+}
+
+func limitStatusAuthorizedGateHandoffs(items []statusAuthorizedGateHandoff, limit int) []statusAuthorizedGateHandoff {
+	if limit <= 0 || len(items) <= limit {
+		return items
+	}
+	ranked := make([]struct {
+		index    int
+		priority int
+	}, 0, len(items))
+	for index, item := range items {
+		ranked = append(ranked, struct {
+			index    int
+			priority int
+		}{index: index, priority: statusAuthorizedGateHandoffPriority(item)})
+	}
+	sort.SliceStable(ranked, func(i, j int) bool {
+		if ranked[i].priority != ranked[j].priority {
+			return ranked[i].priority < ranked[j].priority
+		}
+		return ranked[i].index > ranked[j].index
+	})
+	keep := map[int]bool{}
+	for _, item := range ranked[:limit] {
+		keep[item.index] = true
+	}
+	out := []statusAuthorizedGateHandoff{}
+	for index, item := range items {
+		if keep[index] {
+			out = append(out, item)
+		}
+	}
 	return out
+}
+
+func statusAuthorizedGateHandoffPriority(item statusAuthorizedGateHandoff) int {
+	if item.Acknowledged {
+		return 90
+	}
+	if item.ReportSummary == nil {
+		return 80
+	}
+	if item.ReportSummary.RequiresMainEscalation {
+		return 0
+	}
+	switch item.ReportSummary.State {
+	case "repair-adapter-report":
+		return 1
+	case "ready-to-record-evidence":
+		return 2
+	case "needs-adapter-report-validation", "adapter-report-drafted-ready-for-validation", "adapter-report-scaffolded-awaiting-adapter-output":
+		return 3
+	case "ready-for-adapter-report-draft-apply", "ready-for-adapter-report-scaffold-apply":
+		return 4
+	case "evidence-already-recorded":
+		return 70
+	default:
+		return 60
+	}
 }
 
 func applyStatusAuthorizedGateAcknowledgement(handoff *statusAuthorizedGateHandoff, acknowledgedIDs map[string]bool) {

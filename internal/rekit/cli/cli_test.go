@@ -14366,6 +14366,8 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 
 	caseRelativeDraftBytesBeforeRepair := append([]byte{}, caseRelativeDraftBytes...)
 	assertMultiGateAcknowledgedAndRepairContinuation(t, caseRoot, applied.EventID, caseRelativeGate.EventID, wantCaseRelativeReportPath)
+	overflowGateIDs := appendAuthorizedAdapterOverflowGates(t, caseRoot, 5)
+	assertMaxRowAuthorizedAdapterRepairSurvivorship(t, caseRoot, caseRelativeGate.EventID, wantCaseRelativeReportPath, overflowGateIDs)
 	if err := os.WriteFile(filepath.Join(caseRoot, "workspace", "main", "debug", "session-2", "adapter-report.json"), caseRelativeDraftBytesBeforeRepair, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -16379,6 +16381,238 @@ func assertMultiGateAcknowledgedAndRepairContinuation(t *testing.T, caseRoot, ac
 	}
 }
 
+func appendAuthorizedAdapterOverflowGates(t *testing.T, caseRoot string, count int) []string {
+	t.Helper()
+	ids := []string{}
+	for idx := 1; idx <= count; idx++ {
+		var out bytes.Buffer
+		if err := Run([]string{
+			"-Command", "gate",
+			"-Target", caseRoot,
+			"-Pack", "_template",
+			"-Apply",
+			"-Action", "debug",
+			"-Lane", "main",
+			"-Actor", "runtime-test",
+			"-Subject", fmt.Sprintf("authorized overflow debug %d", idx),
+			"-TargetRef", "target-alpha",
+			"-BatchId", "batch-authorized-adapter-max-row-survivorship",
+			"-Scope", "handler only",
+			"-RuntimeSeconds", "10",
+			"-DiskMB", "16",
+			"-Requests", "1",
+			"-OutputPaths", fmt.Sprintf("workspace/main/debug/overflow-%d", idx),
+			"-StopConditions", "timeout",
+			"-Format", "json",
+		}, &out); err != nil {
+			t.Fatal(err)
+		}
+		var applied struct {
+			EventID string `json:"eventId"`
+			Applied bool   `json:"applied"`
+		}
+		if err := json.Unmarshal(out.Bytes(), &applied); err != nil {
+			t.Fatalf("overflow authorized gate apply stdout is not JSON: %v\n%s", err, out.String())
+		}
+		if !applied.Applied || applied.EventID == "" {
+			t.Fatalf("unexpected overflow authorized gate result: %+v", applied)
+		}
+		ids = append(ids, applied.EventID)
+	}
+	return ids
+}
+
+func assertMaxRowAuthorizedAdapterRepairSurvivorship(t *testing.T, caseRoot, repairEventID, repairReportPath string, overflowGateIDs []string) {
+	t.Helper()
+	if len(overflowGateIDs) == 0 {
+		t.Fatal("max-row survivorship fixture requires overflow gate ids")
+	}
+	before := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	wantMaxRowHandoffs := statusAuthorizedGateHandoffRows
+	oldestOverflowID := overflowGateIDs[0]
+	assertRepairQueue := func(label string, queue missionCommanderActionQueueSnapshot, actions []missionCommanderNextActionItem) {
+		t.Helper()
+		if queue.CurrentAction == nil || queue.CurrentAction.GateEventID != repairEventID || queue.CurrentAction.State != "repair-adapter-report" || queue.CurrentAction.Command != "move-evidence-refs-under-authorized-output-paths" || queue.CurrentAction.Source != "adapterReportValidation.repairHints" || !queue.CurrentAction.RequiresReview {
+			t.Fatalf("%s should keep earlier repair as current action after adapter handoff row limit: %+v", label, queue)
+		}
+		if !slices.ContainsFunc(actions, func(action missionCommanderNextActionItem) bool {
+			return action.GateEventID == repairEventID && action.State == "repair-adapter-report"
+		}) {
+			t.Fatalf("%s omitted repair action from Mission Commander next actions: %+v", label, actions)
+		}
+		if containsMissionCommanderNextActionsCommand(actions, "gate -Apply") {
+			t.Fatalf("%s repair/validation queue should not expose record apply before valid=true: %+v", label, actions)
+		}
+	}
+	assertLimitedAdapterItems := func(label string, items []authorizedGateAdapterHandoffSnapshot, queue missionCommanderActionQueueSnapshot, actions []missionCommanderNextActionItem) {
+		t.Helper()
+		if len(items) != wantMaxRowHandoffs {
+			t.Fatalf("%s authorized adapter handoffs count = %d, want %d: %+v", label, len(items), wantMaxRowHandoffs, items)
+		}
+		foundRepair := false
+		for _, item := range items {
+			switch item.EventID {
+			case repairEventID:
+				foundRepair = true
+				assertAuthorizedGateAdapterRepairHandoffSnapshot(t, label, item, repairEventID, repairReportPath)
+			case oldestOverflowID:
+				t.Fatalf("%s should drop the oldest lower-priority overflow adapter handoff, not the earlier repair handoff: %+v", label, items)
+			}
+		}
+		if !foundRepair {
+			t.Fatalf("%s omitted earlier repair handoff after adapter max-row limiting: %+v", label, items)
+		}
+		assertRepairQueue(label, queue, actions)
+	}
+
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var statusResult struct {
+		CaseMission struct {
+			AuthorizedGateHandoffs      []statusAuthorizedGateHandoff       `json:"authorizedGateHandoffs"`
+			MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
+			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &statusResult); err != nil {
+		t.Fatalf("max-row status stdout is not JSON: %v\n%s", err, out.String())
+	}
+	foundStatusRepair := false
+	for _, item := range statusResult.CaseMission.AuthorizedGateHandoffs {
+		if item.EventID == repairEventID {
+			foundStatusRepair = true
+			assertStatusAuthorizedGateAdapterRepairHandoff(t, "status max-row survivorship", item, repairEventID, repairReportPath)
+		}
+	}
+	if !foundStatusRepair {
+		t.Fatalf("status should keep earlier repair visible after adapter max-row limiting: %+v", statusResult.CaseMission.AuthorizedGateHandoffs)
+	}
+	assertRepairQueue("status max-row survivorship", statusResult.CaseMission.MissionCommanderActionQueue, statusResult.CaseMission.MissionCommanderNextActions)
+	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	assertAdapterReportRepairText(t, "status text max-row survivorship", out.String(), "status case mission", repairEventID)
+	if !strings.Contains(out.String(), "state=repair-adapter-report source=adapterReportValidation.repairHints") || !strings.Contains(out.String(), "command=move-evidence-refs-under-authorized-output-paths") {
+		t.Fatalf("status text should keep earlier repair as Mission Commander current action:\n%s", out.String())
+	}
+	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "main", "-Format", "json", "-WhatIf"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var handoffPreview handoffResult
+	if err := json.Unmarshal(out.Bytes(), &handoffPreview); err != nil {
+		t.Fatalf("max-row handoff preview stdout is not JSON: %v\n%s", err, out.String())
+	}
+	assertLimitedAdapterItems("handoff preview max-row survivorship", handoffPreview.AuthorizedGateAdapterHandoffs, handoffPreview.MissionCommanderActionQueue, handoffPreview.MissionCommanderNextActions)
+	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "main", "-Format", "text", "-WhatIf"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	assertAdapterReportRepairText(t, "handoff text max-row survivorship", out.String(), "handoff", repairEventID)
+	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	factsBeforeHandoffApply := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "main", "-Format", "json", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var handoffApply handoffResult
+	if err := json.Unmarshal(out.Bytes(), &handoffApply); err != nil {
+		t.Fatalf("max-row handoff apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !handoffApply.Applied {
+		t.Fatalf("max-row handoff apply did not apply: %+v", handoffApply)
+	}
+	assertLimitedAdapterItems("handoff apply max-row survivorship", handoffApply.AuthorizedGateAdapterHandoffs, handoffApply.MissionCommanderActionQueue, handoffApply.MissionCommanderNextActions)
+	assertSnapshotEqual(t, factsBeforeHandoffApply, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
+	latestHandoff, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "handovers", "main-latest.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertAdapterReportRepairMarkdown(t, "written handoff max-row survivorship", string(latestHandoff), repairEventID)
+	afterHandoffApply := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "main", "-Format", "json", "-WhatIf"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var continuePreview struct {
+		AuthorizedGateAdapterHandoffs []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
+		MissionCommanderNextActions   []missionCommanderNextActionItem       `json:"missionCommanderNextActions"`
+		MissionCommanderActionQueue   missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &continuePreview); err != nil {
+		t.Fatalf("max-row continue preview stdout is not JSON: %v\n%s", err, out.String())
+	}
+	assertLimitedAdapterItems("continue preview max-row survivorship", continuePreview.AuthorizedGateAdapterHandoffs, continuePreview.MissionCommanderActionQueue, continuePreview.MissionCommanderNextActions)
+	assertSnapshotEqual(t, afterHandoffApply, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "main", "-Format", "text", "-WhatIf"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	assertAdapterReportRepairText(t, "continue text max-row survivorship", out.String(), "continue", repairEventID)
+	assertSnapshotEqual(t, afterHandoffApply, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	factsBeforeContinueApply := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "main", "-Format", "json", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var continueApply struct {
+		RunID                         string                                 `json:"runId"`
+		Applied                       bool                                   `json:"applied"`
+		Blocked                       bool                                   `json:"blocked"`
+		AuthorizedGateAdapterHandoffs []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
+		MissionCommanderNextActions   []missionCommanderNextActionItem       `json:"missionCommanderNextActions"`
+		MissionCommanderActionQueue   missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
+		Writes                        []startWrite                           `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &continueApply); err != nil {
+		t.Fatalf("max-row continue apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !continueApply.Applied || continueApply.Blocked || continueApply.RunID == "" {
+		t.Fatalf("unexpected max-row continue apply: %+v", continueApply)
+	}
+	assertLimitedAdapterItems("continue apply max-row survivorship", continueApply.AuthorizedGateAdapterHandoffs, continueApply.MissionCommanderActionQueue, continueApply.MissionCommanderNextActions)
+	assertSnapshotEqual(t, factsBeforeContinueApply, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
+	runStatusPath := assertStartWrite(t, continueApply.Writes, ".rekit/runs/"+continueApply.RunID+"/status.json", "write").TargetPath
+	runDigestPath := assertStartWrite(t, continueApply.Writes, ".rekit/runs/"+continueApply.RunID+"/digest.md", "write").TargetPath
+	runStatusBytes, err := os.ReadFile(runStatusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var runStatus struct {
+		AuthorizedGateAdapterHandoffs []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
+		MissionCommanderNextActions   []missionCommanderNextActionItem       `json:"missionCommanderNextActions"`
+		MissionCommanderActionQueue   missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(runStatusBytes, &runStatus); err != nil {
+		t.Fatalf("max-row continue run status did not decode: %v\n%s", err, string(runStatusBytes))
+	}
+	assertLimitedAdapterItems("continue run status max-row survivorship", runStatus.AuthorizedGateAdapterHandoffs, runStatus.MissionCommanderActionQueue, runStatus.MissionCommanderNextActions)
+	runDigest, err := os.ReadFile(runDigestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertAdapterReportRepairMarkdown(t, "continue digest max-row survivorship", string(runDigest), repairEventID)
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("max-row repair survivorship wrote authority ledger or stat failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("max-row repair survivorship wrote confirmed ledger or stat failed: %v", err)
+	}
+}
+
 func assertAcknowledgedAdapterHandoffText(t *testing.T, label, text, prefix, eventID string) {
 	t.Helper()
 	subject := "authorized gate adapter"
@@ -16421,7 +16655,7 @@ func assertAcknowledgedAdapterHandoffMarkdown(t *testing.T, label, text, eventID
 
 func assertNoAcknowledgedAdapterCurrentActionText(t *testing.T, label, text, lineNeedle, eventNeedle string) {
 	t.Helper()
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		if !strings.Contains(line, lineNeedle) || !strings.Contains(line, eventNeedle) {
 			continue
 		}
@@ -16587,7 +16821,7 @@ func assertReviewerPacketRetirementText(t *testing.T, label, text, lane string) 
 
 func assertNoReviewerPacketRetirementReopensInvalidPacket(t *testing.T, label, text string) {
 	t.Helper()
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		relevant := strings.Contains(line, "reviewer dispatch") || strings.Contains(line, "reviewer packet retirement")
 		if !relevant {
 			continue
