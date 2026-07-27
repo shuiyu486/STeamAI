@@ -674,8 +674,15 @@ func TestRunStatusJsonKit(t *testing.T) {
 	if !strings.HasSuffix(filepath.ToSlash(status.Manifest.ManifestPath), "packs/_template/manifest.yml") || status.Manifest.SchemaVersion != "1" || status.Manifest.ManagedFiles != 4 || status.Manifest.PromoteFiles != 4 || status.Manifest.ToolingFiles != 2 {
 		t.Fatalf("unexpected manifest summary: %+v", status.Manifest)
 	}
-	if !status.ProjectHandoff.Ready || status.ProjectHandoff.Summary != "release handoff summary ok" || !strings.HasPrefix(status.ProjectHandoff.LatestBatch, "Batch ") || strings.TrimSpace(status.ProjectHandoff.LatestBatchStatus) == "" || status.ProjectHandoff.LatestBatchGoal == "" || status.ProjectHandoff.LatestValidation == "" {
-		t.Fatalf("unexpected project handoff summary: %+v", status.ProjectHandoff)
+	if !strings.HasPrefix(status.ProjectHandoff.LatestBatch, "Batch ") || strings.TrimSpace(status.ProjectHandoff.LatestBatchStatus) == "" || status.ProjectHandoff.LatestBatchGoal == "" {
+		t.Fatalf("unexpected project handoff latest batch summary: %+v", status.ProjectHandoff)
+	}
+	if status.ProjectHandoff.ReleaseInspectionCadence.State == "complete" {
+		if !status.ProjectHandoff.Ready || status.ProjectHandoff.Summary != "release handoff summary ok" || status.ProjectHandoff.LatestValidation == "" {
+			t.Fatalf("completed project handoff summary should be ready and include validation: %+v", status.ProjectHandoff)
+		}
+	} else if strings.TrimSpace(status.ProjectHandoff.Summary) == "" {
+		t.Fatalf("in-progress project handoff summary should still explain current readiness: %+v", status.ProjectHandoff)
 	}
 	if strings.TrimSpace(status.ProjectHandoff.LatestNextAction) == "" {
 		t.Fatalf("project handoff omitted latest batch next action: %+v", status.ProjectHandoff)
@@ -748,7 +755,6 @@ func TestRunStatusJsonKit(t *testing.T) {
 		"status Mission Commander first screen：focus=project-current-action",
 		"status Mission Commander first screen routing：focus=project-current-action reason=case, reviewer, and pack-memory focus queues are empty or lower priority",
 		"status project handoff current action queue：total=1 unblocked=1 blocked=0",
-		"status project handoff：summary=release handoff summary ok ready=true latestBatch=Batch ",
 		"latestStatus=",
 		"localValidationReady=",
 		"status latest batch remote gate：state=",
@@ -761,7 +767,6 @@ func TestRunStatusJsonKit(t *testing.T) {
 		"status latest batch release inspection cadence boundary：normal batches stop after implementation commit/push plus one release inspection commit/push",
 		"status pack-memory candidates：summary=pack-memory candidate inventory ok ready=true total=0 packs=0 nextAction=no pack-memory candidate cleanup is pending",
 		"status latest batch goal：",
-		"status latest batch validation：",
 		"status read first：docs/context-routing.md",
 		"status known gap：远程 release-gate",
 		"status validation command：go test ./...",
@@ -770,6 +775,8 @@ func TestRunStatusJsonKit(t *testing.T) {
 	projectActionTextExpected := []string{}
 	if status.ProjectHandoff.ReleaseInspectionCadence.State == "complete" {
 		projectActionTextExpected = []string{
+			"status project handoff：summary=release handoff summary ok ready=true latestBatch=Batch ",
+			"status latest batch validation：",
 			"status Mission Commander current action：scope=focus-project lane= label=next-batch state=ready-for-next-batch-selection source=releaseHandoffNextBatch blocked=false requiresReview=false command=select the next Windows-verifiable product-path closure",
 			"status Mission Commander focus action reason：scope=project reason=latest batch release inspection cadence is complete",
 			"status Mission Commander focus action reason：scope=project reason=project is ready for the next Windows-verifiable product-path batch",
@@ -783,6 +790,7 @@ func TestRunStatusJsonKit(t *testing.T) {
 		}
 	} else {
 		projectActionTextExpected = []string{
+			fmt.Sprintf("status project handoff：summary=%s ready=%t latestBatch=Batch ", status.ProjectHandoff.Summary, status.ProjectHandoff.Ready),
 			"status Mission Commander current action：scope=focus-project lane= label=Batch ",
 			"source=releaseHandoffLatestBatch blocked=false requiresReview=",
 			"status Mission Commander focus action reason：scope=project reason=latest batch next action is recorded in the release handoff",
@@ -13529,6 +13537,366 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	}
 	if len(replayContinue.ExecutionEvidenceReview) != 0 || replayContinue.MissionCommanderActionQueue.CurrentAction == nil || replayContinue.MissionCommanderActionQueue.CurrentAction.Source == "executionEvidenceReview" || replayContinue.MissionCommanderActionQueue.CurrentAction.Source == "adapterReportLiveSnapshot.recordedEvidence" {
 		t.Fatalf("continue after verification ack replay should keep evidence review closed: %+v", replayContinue)
+	}
+
+	out.Reset()
+	if err := Run([]string{
+		"-Command", "gate",
+		"-Target", caseRoot,
+		"-Pack", "_template",
+		"-Apply",
+		"-Action", "debug",
+		"-Lane", "main",
+		"-Actor", "runtime-test",
+		"-Subject", "authorized case-relative debug",
+		"-TargetRef", "target-alpha",
+		"-BatchId", "batch-case-relative-draft-product-path",
+		"-Scope", "handler only",
+		"-RuntimeSeconds", "45",
+		"-DiskMB", "96",
+		"-Requests", "2",
+		"-OutputPaths", "workspace/main/debug/session-2",
+		"-StopConditions", "timeout",
+		"-Format", "json",
+	}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var caseRelativeGate struct {
+		EventID string `json:"eventId"`
+		Applied bool   `json:"applied"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &caseRelativeGate); err != nil {
+		t.Fatalf("case-relative gate apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !caseRelativeGate.Applied || caseRelativeGate.EventID == "" || caseRelativeGate.EventID == applied.EventID {
+		t.Fatalf("unexpected case-relative authorized gate result: %+v", caseRelativeGate)
+	}
+	writeCaseFile(t, caseRoot, "workspace/main/debug/session-2/result.json", `{"ok":"case-relative"}`)
+	if err := os.Chdir(caseRoot); err != nil {
+		t.Fatal(err)
+	}
+	caseRelativeBefore := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-Pack", "_template", "-ExecutionReportContract", "-GateEventId", caseRelativeGate.EventID, "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var caseRelativeContract struct {
+		Kind           string `json:"kind"`
+		CaseRoot       string `json:"caseRoot"`
+		Pack           string `json:"pack"`
+		GateEventID    string `json:"gateEventId"`
+		IsMutation     bool   `json:"isMutation"`
+		LiveValidation struct {
+			SidecarTemplateSHA256            string   `json:"sidecarTemplateSha256"`
+			CaseRelativeReportPath           string   `json:"caseRelativeReportPath"`
+			CaseRelativeValidateArgs         []string `json:"caseRelativeValidateArgs"`
+			CaseRelativeScaffoldArgs         []string `json:"caseRelativeScaffoldArgs"`
+			CaseRelativeScaffoldApplyArgs    []string `json:"caseRelativeScaffoldApplyArgs"`
+			CaseRelativeDraftArgs            []string `json:"caseRelativeDraftArgs"`
+			CaseRelativeDraftApplyArgs       []string `json:"caseRelativeDraftApplyArgs"`
+			CaseRelativeValidateCommand      string   `json:"caseRelativeValidateCommand"`
+			CaseRelativeScaffoldCommand      string   `json:"caseRelativeScaffoldCommand"`
+			CaseRelativeScaffoldApplyCommand string   `json:"caseRelativeScaffoldApplyCommand"`
+			CaseRelativeDraftCommand         string   `json:"caseRelativeDraftCommand"`
+			CaseRelativeDraftApplyCommand    string   `json:"caseRelativeDraftApplyCommand"`
+		} `json:"liveValidation"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &caseRelativeContract); err != nil {
+		t.Fatalf("case-relative adapter report contract stdout is not JSON: %v\n%s", err, out.String())
+	}
+	wantCaseRelativeReportPath := "workspace/main/debug/session-2/adapter-report.json"
+	wantCaseRelativeScaffoldArgs2 := "-Command gate -Pack _template -GateEventId " + caseRelativeGate.EventID + " -ScaffoldExecutionReport -ExecutionReportPath " + wantCaseRelativeReportPath + " -Format json"
+	wantCaseRelativeScaffoldApplyArgs2 := "-Command gate -Pack _template -GateEventId " + caseRelativeGate.EventID + " -ScaffoldExecutionReport -ExecutionReportPath " + wantCaseRelativeReportPath + " -ExpectedExecutionReportSha256 " + caseRelativeContract.LiveValidation.SidecarTemplateSHA256 + " -Apply -Format json"
+	wantCaseRelativeDraftArgs2 := "-Command gate -Pack _template -GateEventId " + caseRelativeGate.EventID + " -DraftExecutionReport -ExecutionReportPath " + wantCaseRelativeReportPath + " -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -Format json"
+	wantCaseRelativeDraftApplyArgs2 := "-Command gate -Pack _template -GateEventId " + caseRelativeGate.EventID + " -DraftExecutionReport -ExecutionReportPath " + wantCaseRelativeReportPath + " -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -ExpectedExecutionReportSha256 <reportSha256-from-draft-preview> -Apply -Format json"
+	if caseRelativeContract.Kind != "adapter-execution-report-contract" || caseRelativeContract.CaseRoot != caseRoot || caseRelativeContract.Pack != "_template" || caseRelativeContract.GateEventID != caseRelativeGate.EventID || caseRelativeContract.IsMutation || caseRelativeContract.LiveValidation.CaseRelativeReportPath != wantCaseRelativeReportPath || caseRelativeContract.LiveValidation.SidecarTemplateSHA256 == "" {
+		t.Fatalf("unexpected case-relative adapter report contract: %+v", caseRelativeContract)
+	}
+	if strings.Join(caseRelativeContract.LiveValidation.CaseRelativeScaffoldArgs, " ") != wantCaseRelativeScaffoldArgs2 || strings.Join(caseRelativeContract.LiveValidation.CaseRelativeScaffoldApplyArgs, " ") != wantCaseRelativeScaffoldApplyArgs2 || caseRelativeContract.LiveValidation.CaseRelativeScaffoldCommand != "rekit "+wantCaseRelativeScaffoldArgs2 || caseRelativeContract.LiveValidation.CaseRelativeScaffoldApplyCommand != "rekit "+wantCaseRelativeScaffoldApplyArgs2 || strings.Join(caseRelativeContract.LiveValidation.CaseRelativeDraftArgs, " ") != wantCaseRelativeDraftArgs2 || strings.Join(caseRelativeContract.LiveValidation.CaseRelativeDraftApplyArgs, " ") != wantCaseRelativeDraftApplyArgs2 || caseRelativeContract.LiveValidation.CaseRelativeDraftCommand != "rekit "+wantCaseRelativeDraftArgs2 || caseRelativeContract.LiveValidation.CaseRelativeDraftApplyCommand != "rekit "+wantCaseRelativeDraftApplyArgs2 || caseRelativeContract.LiveValidation.CaseRelativeValidateCommand != "rekit "+strings.Join(caseRelativeContract.LiveValidation.CaseRelativeValidateArgs, " ") {
+		t.Fatalf("case-relative adapter report contract omitted runnable handoff: %+v", caseRelativeContract.LiveValidation)
+	}
+	assertSnapshotEqual(t, caseRelativeBefore, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	out.Reset()
+	if err := Run(caseRelativeContract.LiveValidation.CaseRelativeScaffoldArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var caseRelativeScaffoldPreview struct {
+		Kind                        string                              `json:"kind"`
+		CaseRoot                    string                              `json:"caseRoot"`
+		Pack                        string                              `json:"pack"`
+		IsMutation                  bool                                `json:"isMutation"`
+		Applied                     bool                                `json:"applied"`
+		Mode                        string                              `json:"mode"`
+		GateEventID                 string                              `json:"gateEventId"`
+		ReportPath                  string                              `json:"reportPath"`
+		ReportSHA256                string                              `json:"reportSha256"`
+		AlreadyExists               bool                                `json:"alreadyExists"`
+		RequiresConfirmation        bool                                `json:"requiresConfirmation"`
+		ValidateCommand             string                              `json:"validateCommand"`
+		ApplyCommand                string                              `json:"applyCommand"`
+		MissionCommanderAction      missionCommanderActionSnapshot      `json:"missionCommanderAction"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &caseRelativeScaffoldPreview); err != nil {
+		t.Fatalf("case-relative scaffold preview stdout is not JSON: %v\n%s", err, out.String())
+	}
+	wantCaseRelativeValidate2 := "/rekit gate -Pack _template -GateEventId " + caseRelativeGate.EventID + " -ValidateExecutionReport -ExecutionReportPath " + wantCaseRelativeReportPath + " -Format json"
+	wantCaseRelativeScaffoldApply2 := "/rekit gate -Pack _template -GateEventId " + caseRelativeGate.EventID + " -ScaffoldExecutionReport -ExecutionReportPath " + wantCaseRelativeReportPath + " -ExpectedExecutionReportSha256 " + caseRelativeContract.LiveValidation.SidecarTemplateSHA256 + " -Apply -Format json"
+	if caseRelativeScaffoldPreview.Kind != "adapter-execution-report-scaffold" || caseRelativeScaffoldPreview.CaseRoot != caseRoot || caseRelativeScaffoldPreview.Pack != "_template" || caseRelativeScaffoldPreview.IsMutation || caseRelativeScaffoldPreview.Applied || caseRelativeScaffoldPreview.Mode != "preview" || caseRelativeScaffoldPreview.GateEventID != caseRelativeGate.EventID || caseRelativeScaffoldPreview.ReportPath != wantCaseRelativeReportPath || caseRelativeScaffoldPreview.ReportSHA256 != caseRelativeContract.LiveValidation.SidecarTemplateSHA256 || caseRelativeScaffoldPreview.AlreadyExists || !caseRelativeScaffoldPreview.RequiresConfirmation || caseRelativeScaffoldPreview.ValidateCommand != wantCaseRelativeValidate2 || caseRelativeScaffoldPreview.ApplyCommand != wantCaseRelativeScaffoldApply2 {
+		t.Fatalf("unexpected case-relative scaffold preview: %+v", caseRelativeScaffoldPreview)
+	}
+	if caseRelativeScaffoldPreview.MissionCommanderAction.State != "ready-for-adapter-report-scaffold-apply" || caseRelativeScaffoldPreview.MissionCommanderAction.PrimaryCommand != wantCaseRelativeScaffoldApply2 || caseRelativeScaffoldPreview.MissionCommanderActionQueue.CurrentAction == nil || caseRelativeScaffoldPreview.MissionCommanderActionQueue.CurrentAction.Command != wantCaseRelativeScaffoldApply2 {
+		t.Fatalf("case-relative scaffold preview omitted commander apply handoff: action=%+v queue=%+v", caseRelativeScaffoldPreview.MissionCommanderAction, caseRelativeScaffoldPreview.MissionCommanderActionQueue)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, "workspace", "main", "debug", "session-2", "adapter-report.json")); !os.IsNotExist(err) {
+		t.Fatalf("case-relative scaffold preview should not write adapter report, stat err=%v", err)
+	}
+	assertSnapshotEqual(t, caseRelativeBefore, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	out.Reset()
+	if err := Run(caseRelativeContract.LiveValidation.CaseRelativeScaffoldApplyArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var caseRelativeScaffoldApply struct {
+		Kind                   string                         `json:"kind"`
+		CaseRoot               string                         `json:"caseRoot"`
+		Pack                   string                         `json:"pack"`
+		IsMutation             bool                           `json:"isMutation"`
+		Applied                bool                           `json:"applied"`
+		Mode                   string                         `json:"mode"`
+		GateEventID            string                         `json:"gateEventId"`
+		ReportPath             string                         `json:"reportPath"`
+		ReportSHA256           string                         `json:"reportSha256"`
+		AlreadyExists          bool                           `json:"alreadyExists"`
+		RequiresConfirmation   bool                           `json:"requiresConfirmation"`
+		ValidateCommand        string                         `json:"validateCommand"`
+		MissionCommanderAction missionCommanderActionSnapshot `json:"missionCommanderAction"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &caseRelativeScaffoldApply); err != nil {
+		t.Fatalf("case-relative scaffold apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if caseRelativeScaffoldApply.Kind != "adapter-execution-report-scaffold" || caseRelativeScaffoldApply.CaseRoot != caseRoot || caseRelativeScaffoldApply.Pack != "_template" || !caseRelativeScaffoldApply.IsMutation || !caseRelativeScaffoldApply.Applied || caseRelativeScaffoldApply.Mode != "scaffolded" || caseRelativeScaffoldApply.GateEventID != caseRelativeGate.EventID || caseRelativeScaffoldApply.ReportPath != wantCaseRelativeReportPath || caseRelativeScaffoldApply.ReportSHA256 != caseRelativeScaffoldPreview.ReportSHA256 || caseRelativeScaffoldApply.AlreadyExists || caseRelativeScaffoldApply.RequiresConfirmation || caseRelativeScaffoldApply.ValidateCommand != wantCaseRelativeValidate2 || caseRelativeScaffoldApply.MissionCommanderAction.State != "adapter-report-scaffolded-awaiting-adapter-output" || caseRelativeScaffoldApply.MissionCommanderAction.PrimaryCommand != wantCaseRelativeValidate2 {
+		t.Fatalf("unexpected case-relative scaffold apply: %+v", caseRelativeScaffoldApply)
+	}
+	caseRelativeScaffoldBytes, err := os.ReadFile(filepath.Join(caseRoot, "workspace", "main", "debug", "session-2", "adapter-report.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	caseRelativeScaffoldSum := sha256.Sum256(caseRelativeScaffoldBytes)
+	if hex.EncodeToString(caseRelativeScaffoldSum[:]) != caseRelativeScaffoldPreview.ReportSHA256 {
+		t.Fatalf("case-relative scaffold bytes do not match preview hash: sha=%x\n%s", caseRelativeScaffoldSum, string(caseRelativeScaffoldBytes))
+	}
+	assertSnapshotEqual(t, caseRelativeBefore, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	caseRelativeDraftPreviewArgs := append([]string{}, caseRelativeContract.LiveValidation.CaseRelativeDraftArgs...)
+	replaceCaseRelativeDraftArg := func(args []string, flag, value string) {
+		for i := 0; i < len(args)-1; i++ {
+			if args[i] == flag {
+				args[i+1] = value
+				return
+			}
+		}
+		t.Fatalf("case-relative draft args missing %s: %+v", flag, args)
+	}
+	replaceCaseRelativeDraftArg(caseRelativeDraftPreviewArgs, "-AdapterId", "case-root-cli-adapter")
+	replaceCaseRelativeDraftArg(caseRelativeDraftPreviewArgs, "-ExecutionStatus", "succeeded")
+	replaceCaseRelativeDraftArg(caseRelativeDraftPreviewArgs, "-Summary", "Case-relative adapter report from case root")
+	caseRelativeDraftPreviewArgs = append(caseRelativeDraftPreviewArgs, "-ActualRuntimeSeconds", "25", "-ActualDiskMB", "48", "-ActualRequests", "2", "-OutputRefs", "workspace/main/debug/session-2/result.json")
+	out.Reset()
+	if err := Run(caseRelativeDraftPreviewArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var caseRelativeDraftPreview struct {
+		Kind                        string                              `json:"kind"`
+		CaseRoot                    string                              `json:"caseRoot"`
+		Pack                        string                              `json:"pack"`
+		IsMutation                  bool                                `json:"isMutation"`
+		Applied                     bool                                `json:"applied"`
+		Mode                        string                              `json:"mode"`
+		GateEventID                 string                              `json:"gateEventId"`
+		ReportPath                  string                              `json:"reportPath"`
+		ReportSHA256                string                              `json:"reportSha256"`
+		AlreadyExists               bool                                `json:"alreadyExists"`
+		ReplacesScaffold            bool                                `json:"replacesScaffold"`
+		RequiresConfirmation        bool                                `json:"requiresConfirmation"`
+		ValidateCommand             string                              `json:"validateCommand"`
+		ApplyCommand                string                              `json:"applyCommand"`
+		MissionCommanderAction      missionCommanderActionSnapshot      `json:"missionCommanderAction"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		Report                      struct {
+			AdapterID    string   `json:"adapterId"`
+			Status       string   `json:"status"`
+			OutputRefs   []string `json:"outputRefs"`
+			Summary      string   `json:"summary"`
+			ActualBudget struct {
+				RuntimeSeconds int `json:"runtimeSeconds"`
+				DiskMB         int `json:"diskMB"`
+				Requests       int `json:"requests"`
+			} `json:"actualBudget"`
+		} `json:"report"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &caseRelativeDraftPreview); err != nil {
+		t.Fatalf("case-relative draft preview stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if caseRelativeDraftPreview.Kind != "adapter-execution-report-draft" || caseRelativeDraftPreview.CaseRoot != caseRoot || caseRelativeDraftPreview.Pack != "_template" || caseRelativeDraftPreview.IsMutation || caseRelativeDraftPreview.Applied || caseRelativeDraftPreview.Mode != "preview" || caseRelativeDraftPreview.GateEventID != caseRelativeGate.EventID || caseRelativeDraftPreview.ReportPath != wantCaseRelativeReportPath || caseRelativeDraftPreview.ReportSHA256 == "" || caseRelativeDraftPreview.ReportSHA256 == caseRelativeScaffoldPreview.ReportSHA256 || caseRelativeDraftPreview.AlreadyExists || !caseRelativeDraftPreview.ReplacesScaffold || !caseRelativeDraftPreview.RequiresConfirmation || caseRelativeDraftPreview.ValidateCommand != wantCaseRelativeValidate2 || !strings.Contains(caseRelativeDraftPreview.ApplyCommand, "-ExecutionReportPath "+wantCaseRelativeReportPath) || !strings.Contains(caseRelativeDraftPreview.ApplyCommand, "-ExpectedExecutionReportSha256 "+caseRelativeDraftPreview.ReportSHA256) || caseRelativeDraftPreview.Report.AdapterID != "case-root-cli-adapter" || caseRelativeDraftPreview.Report.Status != "succeeded" || strings.Join(caseRelativeDraftPreview.Report.OutputRefs, ",") != "workspace/main/debug/session-2/result.json" || caseRelativeDraftPreview.Report.Summary != "Case-relative adapter report from case root" || caseRelativeDraftPreview.Report.ActualBudget.RuntimeSeconds != 25 || caseRelativeDraftPreview.Report.ActualBudget.DiskMB != 48 || caseRelativeDraftPreview.Report.ActualBudget.Requests != 2 {
+		t.Fatalf("unexpected case-relative draft preview: %+v", caseRelativeDraftPreview)
+	}
+	if caseRelativeDraftPreview.MissionCommanderAction.State != "ready-for-adapter-report-draft-apply" || caseRelativeDraftPreview.MissionCommanderAction.PrimaryCommand != caseRelativeDraftPreview.ApplyCommand || caseRelativeDraftPreview.MissionCommanderActionQueue.CurrentAction == nil || caseRelativeDraftPreview.MissionCommanderActionQueue.CurrentAction.Command != caseRelativeDraftPreview.ApplyCommand {
+		t.Fatalf("case-relative draft preview omitted commander apply handoff: action=%+v queue=%+v", caseRelativeDraftPreview.MissionCommanderAction, caseRelativeDraftPreview.MissionCommanderActionQueue)
+	}
+	caseRelativeDraftPreviewBytes, err := os.ReadFile(filepath.Join(caseRoot, "workspace", "main", "debug", "session-2", "adapter-report.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(caseRelativeDraftPreviewBytes, caseRelativeScaffoldBytes) {
+		t.Fatalf("case-relative draft preview should not replace scaffold:\n%s", string(caseRelativeDraftPreviewBytes))
+	}
+	assertSnapshotEqual(t, caseRelativeBefore, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	caseRelativeDraftApplyArgs := append([]string{}, caseRelativeContract.LiveValidation.CaseRelativeDraftApplyArgs...)
+	replaceCaseRelativeDraftArg(caseRelativeDraftApplyArgs, "-AdapterId", "case-root-cli-adapter")
+	replaceCaseRelativeDraftArg(caseRelativeDraftApplyArgs, "-ExecutionStatus", "succeeded")
+	replaceCaseRelativeDraftArg(caseRelativeDraftApplyArgs, "-Summary", "Case-relative adapter report from case root")
+	replaceCaseRelativeDraftArg(caseRelativeDraftApplyArgs, "-ExpectedExecutionReportSha256", caseRelativeDraftPreview.ReportSHA256)
+	caseRelativeDraftApplyArgs = append(caseRelativeDraftApplyArgs, "-ActualRuntimeSeconds", "25", "-ActualDiskMB", "48", "-ActualRequests", "2", "-OutputRefs", "workspace/main/debug/session-2/result.json")
+	out.Reset()
+	if err := Run(caseRelativeDraftApplyArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var caseRelativeDraftApply struct {
+		Kind                 string `json:"kind"`
+		CaseRoot             string `json:"caseRoot"`
+		Pack                 string `json:"pack"`
+		IsMutation           bool   `json:"isMutation"`
+		Applied              bool   `json:"applied"`
+		Mode                 string `json:"mode"`
+		GateEventID          string `json:"gateEventId"`
+		ReportPath           string `json:"reportPath"`
+		ReportSHA256         string `json:"reportSha256"`
+		AlreadyExists        bool   `json:"alreadyExists"`
+		ReplacesScaffold     bool   `json:"replacesScaffold"`
+		RequiresConfirmation bool   `json:"requiresConfirmation"`
+		ValidateCommand      string `json:"validateCommand"`
+		Report               struct {
+			AdapterID    string   `json:"adapterId"`
+			Status       string   `json:"status"`
+			OutputRefs   []string `json:"outputRefs"`
+			Summary      string   `json:"summary"`
+			ActualBudget struct {
+				RuntimeSeconds int `json:"runtimeSeconds"`
+				DiskMB         int `json:"diskMB"`
+				Requests       int `json:"requests"`
+			} `json:"actualBudget"`
+		} `json:"report"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &caseRelativeDraftApply); err != nil {
+		t.Fatalf("case-relative draft apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if caseRelativeDraftApply.Kind != "adapter-execution-report-draft" || caseRelativeDraftApply.CaseRoot != caseRoot || caseRelativeDraftApply.Pack != "_template" || !caseRelativeDraftApply.IsMutation || !caseRelativeDraftApply.Applied || caseRelativeDraftApply.Mode != "drafted" || caseRelativeDraftApply.GateEventID != caseRelativeGate.EventID || caseRelativeDraftApply.ReportPath != wantCaseRelativeReportPath || caseRelativeDraftApply.ReportSHA256 != caseRelativeDraftPreview.ReportSHA256 || caseRelativeDraftApply.AlreadyExists || caseRelativeDraftApply.ReplacesScaffold || caseRelativeDraftApply.RequiresConfirmation || caseRelativeDraftApply.ValidateCommand != wantCaseRelativeValidate2 || caseRelativeDraftApply.Report.AdapterID != "case-root-cli-adapter" || caseRelativeDraftApply.Report.Status != "succeeded" || strings.Join(caseRelativeDraftApply.Report.OutputRefs, ",") != "workspace/main/debug/session-2/result.json" || caseRelativeDraftApply.Report.Summary != "Case-relative adapter report from case root" || caseRelativeDraftApply.Report.ActualBudget.RuntimeSeconds != 25 || caseRelativeDraftApply.Report.ActualBudget.DiskMB != 48 || caseRelativeDraftApply.Report.ActualBudget.Requests != 2 {
+		t.Fatalf("unexpected case-relative draft apply: %+v", caseRelativeDraftApply)
+	}
+	caseRelativeDraftBytes, err := os.ReadFile(filepath.Join(caseRoot, "workspace", "main", "debug", "session-2", "adapter-report.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	caseRelativeDraftSum := sha256.Sum256(caseRelativeDraftBytes)
+	if hex.EncodeToString(caseRelativeDraftSum[:]) != caseRelativeDraftPreview.ReportSHA256 {
+		t.Fatalf("case-relative draft bytes do not match preview hash: sha=%x\n%s", caseRelativeDraftSum, string(caseRelativeDraftBytes))
+	}
+	assertSnapshotEqual(t, caseRelativeBefore, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	out.Reset()
+	if err := Run(caseRelativeContract.LiveValidation.CaseRelativeValidateArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var caseRelativeRecordReady struct {
+		Kind                       string                         `json:"kind"`
+		Valid                      bool                           `json:"valid"`
+		IsMutation                 bool                           `json:"isMutation"`
+		Applied                    bool                           `json:"applied"`
+		ReportPath                 string                         `json:"reportPath"`
+		ReportSHA256               string                         `json:"reportSha256"`
+		RecordExpectedReportSHA256 string                         `json:"recordExpectedReportSha256"`
+		MissionCommanderAction     missionCommanderActionSnapshot `json:"missionCommanderAction"`
+		Report                     *struct {
+			AdapterID string `json:"adapterId"`
+		} `json:"report"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &caseRelativeRecordReady); err != nil {
+		t.Fatalf("case-relative validation stdout is not JSON: %v\n%s", err, out.String())
+	}
+	wantCaseRelativeRecord2 := "/rekit gate -Pack _template -Apply -GateEventId " + caseRelativeGate.EventID + " -ExecutionReportPath " + wantCaseRelativeReportPath + " -ExpectedExecutionReportSha256 " + caseRelativeRecordReady.RecordExpectedReportSHA256 + " -Actor <executor-id> -Format json"
+	if caseRelativeRecordReady.Kind != "adapter-execution-report-validation" || !caseRelativeRecordReady.Valid || caseRelativeRecordReady.IsMutation || caseRelativeRecordReady.Applied || caseRelativeRecordReady.ReportPath != wantCaseRelativeReportPath || caseRelativeRecordReady.ReportSHA256 != caseRelativeDraftPreview.ReportSHA256 || caseRelativeRecordReady.RecordExpectedReportSHA256 != caseRelativeRecordReady.ReportSHA256 || caseRelativeRecordReady.Report == nil || caseRelativeRecordReady.Report.AdapterID != "case-root-cli-adapter" || caseRelativeRecordReady.MissionCommanderAction.State != "ready-to-record-evidence" || caseRelativeRecordReady.MissionCommanderAction.PrimaryCommand != wantCaseRelativeRecord2 {
+		t.Fatalf("unexpected case-relative record-ready validation: %+v", caseRelativeRecordReady)
+	}
+	assertSnapshotEqual(t, caseRelativeBefore, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	caseRelativeRecordArgs := []string{"-Command", "gate", "-Pack", "_template", "-Apply", "-GateEventId", caseRelativeGate.EventID, "-ExecutionReportPath", wantCaseRelativeReportPath, "-ExpectedExecutionReportSha256", caseRelativeRecordReady.RecordExpectedReportSHA256, "-Actor", "executor-case-root", "-Format", "json"}
+	out.Reset()
+	if err := Run(caseRelativeRecordArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var caseRelativeEvidence struct {
+		Applied           bool   `json:"applied"`
+		EventID           string `json:"eventId"`
+		Path              string `json:"path"`
+		ExecutionEvidence struct {
+			Kind      string `json:"kind"`
+			Status    string `json:"status"`
+			Summary   string `json:"summary"`
+			Execution struct {
+				GateEventID           string   `json:"gateEventId"`
+				ExecutionReportPath   string   `json:"executionReportPath"`
+				ExecutionReportSHA256 string   `json:"executionReportSha256"`
+				OutputRefs            []string `json:"outputRefs"`
+				Adapter               struct {
+					AdapterID string `json:"adapterId"`
+					Status    string `json:"status"`
+				} `json:"adapter"`
+			} `json:"execution"`
+		} `json:"executionEvidence"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &caseRelativeEvidence); err != nil {
+		t.Fatalf("case-relative record stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !caseRelativeEvidence.Applied || caseRelativeEvidence.EventID == "" || caseRelativeEvidence.Path != ".rekit/facts/observations.jsonl" || caseRelativeEvidence.ExecutionEvidence.Kind != "observation" || caseRelativeEvidence.ExecutionEvidence.Status != "succeeded" || caseRelativeEvidence.ExecutionEvidence.Summary != "Case-relative adapter report from case root" || caseRelativeEvidence.ExecutionEvidence.Execution.GateEventID != caseRelativeGate.EventID || caseRelativeEvidence.ExecutionEvidence.Execution.ExecutionReportPath != wantCaseRelativeReportPath || caseRelativeEvidence.ExecutionEvidence.Execution.ExecutionReportSHA256 != caseRelativeRecordReady.RecordExpectedReportSHA256 || strings.Join(caseRelativeEvidence.ExecutionEvidence.Execution.OutputRefs, ",") != "workspace/main/debug/session-2/result.json" || caseRelativeEvidence.ExecutionEvidence.Execution.Adapter.AdapterID != "case-root-cli-adapter" || caseRelativeEvidence.ExecutionEvidence.Execution.Adapter.Status != "succeeded" {
+		t.Fatalf("unexpected case-relative record evidence: %+v", caseRelativeEvidence)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("case-relative lifecycle wrote authority ledger or stat failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("case-relative lifecycle wrote confirmed ledger or stat failed: %v", err)
+	}
+
+	out.Reset()
+	if err := Run(caseRelativeRecordArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var caseRelativeReplay struct {
+		Applied           bool   `json:"applied"`
+		EventID           string `json:"eventId"`
+		Reason            string `json:"reason"`
+		ExecutionEvidence struct {
+			Execution struct {
+				ExecutionReportPath   string `json:"executionReportPath"`
+				ExecutionReportSHA256 string `json:"executionReportSha256"`
+				Adapter               struct {
+					AdapterID string `json:"adapterId"`
+					Status    string `json:"status"`
+				} `json:"adapter"`
+			} `json:"execution"`
+		} `json:"executionEvidence"`
+		MissionCommanderAction      missionCommanderActionSnapshot   `json:"missionCommanderAction"`
+		MissionCommanderNextActions []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &caseRelativeReplay); err != nil {
+		t.Fatalf("case-relative record replay stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if caseRelativeReplay.Applied || caseRelativeReplay.EventID != caseRelativeEvidence.EventID || caseRelativeReplay.Reason != "duplicate eventId" || caseRelativeReplay.ExecutionEvidence.Execution.ExecutionReportPath != wantCaseRelativeReportPath || caseRelativeReplay.ExecutionEvidence.Execution.ExecutionReportSHA256 != caseRelativeRecordReady.RecordExpectedReportSHA256 || caseRelativeReplay.ExecutionEvidence.Execution.Adapter.AdapterID != "case-root-cli-adapter" || caseRelativeReplay.ExecutionEvidence.Execution.Adapter.Status != "succeeded" || caseRelativeReplay.MissionCommanderAction.State != "evidence-already-recorded" || caseRelativeReplay.MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || containsMissionCommanderNextActionsCommand(caseRelativeReplay.MissionCommanderNextActions, "gate -Apply") {
+		t.Fatalf("case-relative record replay should remain idempotent review-only: %+v", caseRelativeReplay)
 	}
 }
 
