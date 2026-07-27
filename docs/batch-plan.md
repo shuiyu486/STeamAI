@@ -16,6 +16,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 650：pack-memory candidate verification proof replay handoff closure
+
+状态：已完成 candidate verification proof Apply replay runtime 修正、case-local pack-memory product-path 回归扩展、focused CLI/promote regressions 与完整本机 `release-run` release minimum；implementation commit/push 与 push-triggered remote release-gate inspection 待执行。
+
+目标：继续执行端到端能力闭环约束，转向 pack-memory verification proof 已写入后的 replacement executor 接手断点。现有 candidate verification Apply 已用 idempotent durable write 防止重写 proof，但返回 envelope 与 text 无法区分首次 proof 写入和 exact proof 已存在的 zero-write replay；会话中断后 executor 重跑同一 `-VerifyCandidateDecision -Apply` 时，容易把已完成 verification 误读成新 proof 写入，或不确定下一步是否应进入 retirement preview。durable verification proof 仍必须保持 authority/evidence 语义，不持久化运行时 handoff 字段。
+
+已实现内容：`CandidateDecisionVerificationResult` 新增返回级 `mode` / `replay`；`VerifyCandidateDecision` 的 WhatIf 返回 `mode=previewed`，首次 Apply 返回 `mode=verified`，exact proof bytes 已存在时返回 `mode=already-verified` / `replay=true`，保留 `retirementPreviewCommand` 后续 handoff，并明确 next step 为 exact candidate verification proof already exists。`writeDurableFileIdempotent` 改为返回是否命中 already-existing exact bytes；proof 文件写入仍使用不含 `mode` / `replay` / `verificationRunbookSteps` 的 `proofResult`，避免把 transient operational handoff 写入 durable proof authority。CLI text 同步打印 `mode` 与 `replay`。扩展 `TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply`：verification preview → JSON Apply → JSON replay → text replay，断言首次 Apply 为 `verified`、replay 为 `already-verified`、candidate/workspace 快照不变、durable proof 不持久化 transient fields，并继续进入既有 retirement required / retirement apply / status / release-check closure。
+
+边界：本批不新增 public command，不改变 verification proof durable authority schema，不自动 run provisioning/verification/retirement/reconsume，不写 authority/confirmed，不执行 heavy tool，不新增 PowerShell runtime logic；唯一 runtime 变更是把现有 idempotent proof write 的 replay 状态显式投影到返回 envelope/text，保持 replay zero-write 和后续 retirement handoff 清晰。
+
+验证结果：focused pack-memory verification replay regression `go test ./internal/rekit/cli -run "TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply" -count=1` 已通过；related promote package regression `go test ./internal/rekit/promote -run "Test(VerifyCandidateDecision|ProvisionCandidateVerificationCases|RetireCandidateVerificationWorkspace|DraftCandidate|ApplyCandidate)" -count=1` 已通过；related promote CLI regression `go test ./internal/rekit/cli -run "TestRunPromote(CreateCandidatesCaseLocalProductPathUsesMetadataRuntime|CandidateDecisionCaseLocalPreviewAndApply)" -count=1` 已通过；完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，其中 `release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check` 7 步均通过，返回 `ready=true` / `summary=release run ok`，聚合 `passed=7 failed=0 skipped=0`，`go test ./... attempts=1`，仅 `git diff --check` 保留 Windows 工作树 LF→CRLF 提示。Implementation commit/push 与 remote inspection 待执行。
+
 ### Batch 649：adapter evidence acknowledgement durable continuation closure
 
 状态：已完成 acknowledged adapter evidence review 的 lane RESUME/checkpoint runtime 修复、no-pack adapter product-path durable artifact 回归、focused adapter acknowledgement closure tests、相关 adapter/workstream regressions、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `7cc1689` 已推送。Push run `30227493794` completed failure，macOS/Linux/Windows jobs `89860066375`/`89860066407`/`89860066438` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。

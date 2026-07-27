@@ -10049,14 +10049,51 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &verification); err != nil {
 		t.Fatal(err)
 	}
-	if verification.IsMutation || verification.Applied || !verification.Ready || verification.FreshDoctorRows == 0 || verification.AttachedDoctorRows == 0 {
+	if verification.Mode != "previewed" || verification.IsMutation || verification.Applied || verification.Replay || !verification.Ready || verification.FreshDoctorRows == 0 || verification.AttachedDoctorRows == 0 {
 		t.Fatalf("unexpected candidate verification preview: %+v", verification)
 	}
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-VerifyCandidateDecision", "-FreshCaseRoot", freshCase, "-AttachedCaseRoot", attachedCase, "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var verificationApplied promote.CandidateDecisionVerificationResult
+	if err := json.Unmarshal(out.Bytes(), &verificationApplied); err != nil {
+		t.Fatalf("candidate verification apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if verificationApplied.Mode != "verified" || !verificationApplied.IsMutation || !verificationApplied.Applied || verificationApplied.Replay || !verificationApplied.Ready || verificationApplied.VerificationProofPath == "" || verificationApplied.VerificationProofPath != verification.VerificationProofPath || !containsSubstring(verificationApplied.NextSteps, "retirementPreviewCommand") {
+		t.Fatalf("unexpected candidate verification apply: %+v", verificationApplied)
+	}
+	verificationProofBytes, err := os.ReadFile(verificationApplied.VerificationProofPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var durableVerificationProof promote.CandidateDecisionVerificationResult
+	if err := json.Unmarshal(verificationProofBytes, &durableVerificationProof); err != nil {
+		t.Fatal(err)
+	}
+	if durableVerificationProof.Mode != "" || durableVerificationProof.Replay || len(durableVerificationProof.VerificationRunbookSteps) != 0 {
+		t.Fatalf("verification proof persisted transient handoff fields: %+v", durableVerificationProof)
+	}
+	candidateBeforeVerificationReplay := snapshotFiles(t, candidateRoot)
+	workspaceBeforeVerificationReplay := snapshotFiles(t, decisionApplied.Receipt.VerificationWorkspaceRoot)
+	out.Reset()
+	if err := Run([]string{"-Command", "promote", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-VerifyCandidateDecision", "-FreshCaseRoot", freshCase, "-AttachedCaseRoot", attachedCase, "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var verificationReplay promote.CandidateDecisionVerificationResult
+	if err := json.Unmarshal(out.Bytes(), &verificationReplay); err != nil {
+		t.Fatalf("candidate verification replay stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if verificationReplay.Mode != "already-verified" || !verificationReplay.IsMutation || !verificationReplay.Applied || !verificationReplay.Replay || !verificationReplay.Ready || verificationReplay.VerificationProofPath != verificationApplied.VerificationProofPath || !containsSubstring(verificationReplay.NextSteps, "exact candidate verification proof already exists") || !containsSubstring(verificationReplay.NextSteps, "retirementPreviewCommand") {
+		t.Fatalf("unexpected candidate verification replay: %+v", verificationReplay)
+	}
+	assertSnapshotEqual(t, candidateBeforeVerificationReplay, snapshotFiles(t, candidateRoot))
+	assertSnapshotEqual(t, workspaceBeforeVerificationReplay, snapshotFiles(t, decisionApplied.Receipt.VerificationWorkspaceRoot))
 	out.Reset()
 	if err := Run([]string{"-Command", "promote", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-VerifyCandidateDecision", "-FreshCaseRoot", freshCase, "-AttachedCaseRoot", attachedCase, "-Apply", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"promote candidate verification：mutation=true applied=true ready=true", "freshDoctorRows=", "attachedDoctorRows=", "write authority/confirmed"} {
+	for _, expected := range []string{"promote candidate verification：mutation=true applied=true ready=true mode=already-verified replay=true", "freshDoctorRows=", "attachedDoctorRows=", "exact candidate verification proof already exists", "write authority/confirmed"} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("candidate verification text omitted %q:\n%s", expected, out.String())
 		}

@@ -9511,7 +9511,7 @@ func writePromoteCandidateVerificationRetirementText(out io.Writer, result promo
 }
 
 func writePromoteCandidateVerificationText(out io.Writer, result promote.CandidateDecisionVerificationResult) error {
-	if _, err := fmt.Fprintf(out, "promote candidate verification：mutation=%t applied=%t ready=%t pack=%s receipt=%s proof=%s packDoctorRows=%d freshDoctorRows=%d attachedDoctorRows=%d\n", result.IsMutation, result.Applied, result.Ready, result.Pack, result.ReceiptPath, result.VerificationProofPath, result.PackDoctorRows, result.FreshDoctorRows, result.AttachedDoctorRows); err != nil {
+	if _, err := fmt.Fprintf(out, "promote candidate verification：mutation=%t applied=%t ready=%t mode=%s replay=%t pack=%s receipt=%s proof=%s packDoctorRows=%d freshDoctorRows=%d attachedDoctorRows=%d\n", result.IsMutation, result.Applied, result.Ready, result.Mode, result.Replay, result.Pack, result.ReceiptPath, result.VerificationProofPath, result.PackDoctorRows, result.FreshDoctorRows, result.AttachedDoctorRows); err != nil {
 		return err
 	}
 	for _, action := range result.VerifiedActions {

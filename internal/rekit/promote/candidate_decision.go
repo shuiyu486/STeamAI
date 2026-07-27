@@ -126,6 +126,7 @@ func (e *CandidateDecisionApplyError) Unwrap() error {
 type CandidateDecisionVerificationResult struct {
 	SchemaVersion            int                       `json:"schemaVersion"`
 	Kind                     string                    `json:"kind"`
+	Mode                     string                    `json:"mode,omitempty"`
 	Pack                     string                    `json:"pack"`
 	CaseRoot                 string                    `json:"caseRoot"`
 	FreshCaseRoot            string                    `json:"freshCaseRoot"`
@@ -142,6 +143,7 @@ type CandidateDecisionVerificationResult struct {
 	RetirementPreviewCommand string                    `json:"retirementPreviewCommand,omitempty"`
 	IsMutation               bool                      `json:"isMutation"`
 	Applied                  bool                      `json:"applied"`
+	Replay                   bool                      `json:"replay,omitempty"`
 	Ready                    bool                      `json:"ready"`
 	PackDoctorRows           int                       `json:"packDoctorRows"`
 	FreshDoctorRows          int                       `json:"freshDoctorRows"`
@@ -624,6 +626,7 @@ func VerifyCandidateDecision(repoRoot, caseRoot, pack string, opt CandidateDecis
 		},
 	}
 	if opt.WhatIf {
+		result.Mode = "previewed"
 		result.NextSteps = []string{"inspect doctor/reconsume validation, then rerun the identical command with -Apply"}
 		result.VerificationRunbookSteps = candidateVerificationRunbookSteps(result)
 		return result, nil
@@ -635,8 +638,15 @@ func VerifyCandidateDecision(repoRoot, caseRoot, pack string, opt CandidateDecis
 	if err != nil {
 		return CandidateDecisionVerificationResult{}, err
 	}
-	if err := writeDurableFileIdempotent(proofPath, append(data, '\n')); err != nil {
+	already, err := writeDurableFileIdempotent(proofPath, append(data, '\n'))
+	if err != nil {
 		return CandidateDecisionVerificationResult{}, err
+	}
+	result.Mode = "verified"
+	if already {
+		result.Mode = "already-verified"
+		result.Replay = true
+		result.NextSteps = []string{"the exact candidate verification proof already exists", "run the returned retirementPreviewCommand to preview exact cleanup of the generated verification workspace", "rerun /rekit status or release-check after retirement"}
 	}
 	result.VerificationRunbookSteps = candidateVerificationRunbookSteps(result)
 	return result, nil
@@ -2125,29 +2135,29 @@ func writeDurableExclusiveFile(path string, data []byte) error {
 	return nil
 }
 
-func writeDurableFileIdempotent(path string, data []byte) error {
+func writeDurableFileIdempotent(path string, data []byte) (bool, error) {
 	err := writeDurableExclusiveFile(path, data)
 	if err == nil {
-		return nil
+		return false, nil
 	}
 	if !os.IsExist(err) {
-		return err
+		return false, err
 	}
 	state, stateErr := refsf.ClassifyNonEmptyRegularFile(path)
 	if stateErr != nil {
-		return stateErr
+		return false, stateErr
 	}
 	if state != refsf.RegularFileReady {
-		return fmt.Errorf("existing durable proof must be a non-empty regular file: %s", path)
+		return false, fmt.Errorf("existing durable proof must be a non-empty regular file: %s", path)
 	}
 	existing, readErr := os.ReadFile(path)
 	if readErr != nil {
-		return readErr
+		return false, readErr
 	}
 	if !bytes.Equal(existing, data) {
-		return fmt.Errorf("existing durable proof does not match replay: %s", path)
+		return false, fmt.Errorf("existing durable proof does not match replay: %s", path)
 	}
-	return nil
+	return true, nil
 }
 
 func readStrictCandidateDecisionFile(path, label string) (string, []byte, error) {
