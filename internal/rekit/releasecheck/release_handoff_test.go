@@ -195,6 +195,29 @@ func TestLatestBatchSummarySelectsHighestBatchSection(t *testing.T) {
 	}
 }
 
+func TestLatestBatchHandoffIgnoresPreviousBatchEvidenceClauses(t *testing.T) {
+	section := `状态：已完成 Batch 676 runtime/test/doc、完整本机 release-run、implementation push 与 remote release-gate inspection；implementation commit ` + "`" + `abc676d` + "`" + ` 已推送。Push run ` + "`" + `30267667676` + "`" + ` completed failure，Windows/macOS/Linux jobs ` + "`" + `90067600001` + "`" + `/` + "`" + `90067600002` + "`" + `/` + "`" + `90067600003` + "`" + ` 均 ` + "`" + `steps=[]` + "`" + ` 且无 logs。Batch 675 release inspection cadence 已完成，implementation commit ` + "`" + `abc675d` + "`" + ` 与 release inspection commit ` + "`" + `def675d` + "`" + ` 已推送。Batch 674 release inspection cadence 已完成，implementation commit ` + "`" + `abc674d` + "`" + ` 与 release inspection commit ` + "`" + `def674d` + "`" + ` 已推送。
+
+验证结果：完整本机 ` + "`" + `go run ./cmd/rekit -- -Command release-run -Format text` + "`" + ` 已通过，返回 ` + "`" + `ready=true` + "`" + ` / ` + "`" + `summary=release run ok` + "`" + `，聚合 ` + "`" + `steps=7 passed=7 failed=0 skipped=0` + "`" + `，覆盖 ` + "`" + `release-check` + "`" + `、` + "`" + `status` + "`" + `、` + "`" + `packs` + "`" + `、` + "`" + `doctor` + "`" + `、` + "`" + `go test ./...` + "`" + `、` + "`" + `go vet ./...` + "`" + ` 与 ` + "`" + `git diff --check` + "`" + `。Implementation commit ` + "`" + `abc676d` + "`" + ` 已推送。Push run ` + "`" + `30267667676` + "`" + ` completed failure，Windows/macOS/Linux jobs ` + "`" + `90067600001` + "`" + `/` + "`" + `90067600002` + "`" + `/` + "`" + `90067600003` + "`" + ` 均 ` + "`" + `steps=[]` + "`" + ` 且无 logs。`
+
+	latest := ReleaseHandoffLatestBatch{BatchID: "Batch 676", Status: "已完成 fixture", ValidationResult: "fixture validation"}
+	handoff := latestBatchHandoff(latest, section)
+	if !handoff.LocalValidationReady || !handoff.ReleaseCheckReady || handoff.RemoteReleaseGate != "blocked: completed failure with jobs steps=[]" || handoff.ReleaseInspectionCadence.State != "complete" {
+		t.Fatalf("latest batch handoff should remain complete using only current batch evidence: %+v", handoff)
+	}
+	if !slices.Equal(handoff.CommitRefs, []string{"abc676d"}) {
+		t.Fatalf("latest batch commit refs should exclude previous batch refs: %+v", handoff.CommitRefs)
+	}
+	for _, stale := range []string{"abc675d", "def675d", "abc674d", "def674d"} {
+		if slices.Contains(handoff.CommitRefs, stale) {
+			t.Fatalf("previous batch commit ref %q leaked into latest handoff: %+v", stale, handoff.CommitRefs)
+		}
+	}
+	if detail := handoff.RemoteReleaseGateDetail; detail == nil || !slices.Equal(detail.RunRefs, []string{"30267667676", "90067600001", "90067600002", "90067600003"}) {
+		t.Fatalf("latest batch remote refs should exclude previous batch runs/jobs: %+v", handoff.RemoteReleaseGateDetail)
+	}
+}
+
 func TestLatestBatchHandoffRecordsReleaseRunTransientRetryEvidence(t *testing.T) {
 	section := `状态：已完成 runtime/test/doc 工作树实现、focused release-run CLI 回归、完整本机 release-run release minimum、implementation commit/push 与 push-triggered remote release-gate inspection。
 

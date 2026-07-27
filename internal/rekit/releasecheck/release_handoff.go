@@ -3648,19 +3648,63 @@ func latestBatchIDNumber(batchID string) int {
 }
 
 func latestBatchHandoff(latest ReleaseHandoffLatestBatch, section string) ReleaseHandoffLatestBatchHandoff {
+	evidenceSection := latestBatchEvidenceSection(latest.BatchID, section)
 	handoff := ReleaseHandoffLatestBatchHandoff{
 		Completed:               strings.Contains(latest.Status, "已完成"),
-		LocalValidationReady:    latestBatchHasLocalValidation(section),
-		ReleaseCheckReady:       latestBatchReleaseCheckReady(section),
-		RemoteReleaseGate:       latestBatchRemoteReleaseGate(section),
-		RemoteReleaseGateDetail: latestBatchRemoteReleaseGateDetail(section),
-		CommitRefs:              latestBatchCommitRefs(section),
-		Evidence:                latestBatchEvidence(section),
-		ValidationWarnings:      latestBatchValidationWarnings(section),
+		LocalValidationReady:    latestBatchHasLocalValidation(evidenceSection),
+		ReleaseCheckReady:       latestBatchReleaseCheckReady(evidenceSection),
+		RemoteReleaseGate:       latestBatchRemoteReleaseGate(evidenceSection),
+		RemoteReleaseGateDetail: latestBatchRemoteReleaseGateDetail(evidenceSection),
+		CommitRefs:              latestBatchCommitRefs(evidenceSection),
+		Evidence:                latestBatchEvidence(evidenceSection),
+		ValidationWarnings:      latestBatchValidationWarnings(evidenceSection),
 	}
-	handoff.ReleaseInspectionCadence = latestBatchReleaseInspectionCadence(section, handoff)
+	handoff.ReleaseInspectionCadence = latestBatchReleaseInspectionCadence(evidenceSection, handoff)
 	handoff.NextAction = latestBatchNextAction(handoff)
 	return handoff
+}
+
+func latestBatchEvidenceSection(batchID, section string) string {
+	batchID = strings.TrimSpace(batchID)
+	if batchID == "" {
+		return section
+	}
+	currentBatch := latestBatchIDNumber(batchID)
+	if currentBatch < 0 {
+		return section
+	}
+	clauses := []string{}
+	for _, clause := range latestBatchEvidenceClauses(section) {
+		if latestBatchClauseReferencesOtherBatch(clause, currentBatch) {
+			continue
+		}
+		clauses = append(clauses, clause)
+	}
+	return strings.Join(clauses, "\n")
+}
+
+func latestBatchClauseReferencesOtherBatch(clause string, currentBatch int) bool {
+	for _, token := range strings.FieldsFunc(clause, func(r rune) bool {
+		return r < '0' || r > '9'
+	}) {
+		value := 0
+		if _, err := fmt.Sscanf(token, "%d", &value); err != nil {
+			continue
+		}
+		if value == currentBatch {
+			continue
+		}
+		idx := strings.Index(clause, token)
+		if idx < 0 {
+			continue
+		}
+		prefixStart := max(0, idx-16)
+		prefix := strings.ToLower(clause[prefixStart:idx])
+		if strings.Contains(prefix, "batch ") || strings.Contains(prefix, "batch") {
+			return true
+		}
+	}
+	return false
 }
 
 func latestBatchReleaseCheckReady(text string) bool {
