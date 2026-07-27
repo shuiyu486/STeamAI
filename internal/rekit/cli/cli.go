@@ -3184,7 +3184,12 @@ func writeStatusMissionCommanderFirstScreenPackMemoryRunbookText(out io.Writer, 
 		}
 		steps := []string{}
 		if next := pack.ProofSummary.NextMissingProof; next != nil {
-			steps = append(steps, "run proof draft WhatIf from the current pack-memory action; Apply only with the returned ExpectedProofSha256")
+			proofAction := statusPackMemoryProofAction(candidates, pack.Pack)
+			if proofAction != nil && current.Command != proofAction.Command {
+				steps = append(steps, "run the pack-memory proof follow-up action for proof draft WhatIf; Apply only with the returned ExpectedProofSha256")
+			} else {
+				steps = append(steps, "run proof draft WhatIf from the current pack-memory action; Apply only with the returned ExpectedProofSha256")
+			}
 			if next.DraftApplyTemplate != "" {
 				steps = append(steps, "after proof WhatIf, use the draft apply template with <proofSha256-from-WhatIf>")
 			}
@@ -3199,6 +3204,17 @@ func writeStatusMissionCommanderFirstScreenPackMemoryRunbookText(out io.Writer, 
 			}
 		}
 		return nil
+	}
+	return nil
+}
+
+func statusPackMemoryProofAction(candidates releasecheck.ReleaseHandoffPackMemoryCandidateList, pack string) *mission.MissionCommanderNextActionItem {
+	for _, action := range candidates.MissionCommanderNextActions {
+		if action.Label != pack || !strings.Contains(action.ActionID, "proof-required") {
+			continue
+		}
+		copy := action
+		return &copy
 	}
 	return nil
 }

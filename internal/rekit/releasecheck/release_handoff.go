@@ -657,22 +657,107 @@ func RebuildPackMemoryCandidateActionQueue(inventory *ReleaseHandoffPackMemoryCa
 func packMemoryCandidateNextActions(packs []ReleaseHandoffPackMemoryCandidateStatus) []mission.MissionCommanderNextActionItem {
 	items := []mission.MissionCommanderNextActionItem{}
 	for _, pack := range packs {
-		command := packMemoryCandidateCurrentCommand(pack)
-		if strings.TrimSpace(command) == "" {
-			continue
+		if primary, ok := packMemoryCandidatePrimaryNextAction(pack); ok {
+			items = append(items, primary)
 		}
-		items = append(items, mission.MissionCommanderNextActionItem{
-			Label:          pack.Pack,
-			ActionID:       packMemoryCandidateActionID(pack),
-			State:          packMemoryCandidateActionState(pack),
-			Command:        command,
-			Source:         "packMemoryCandidates." + pack.Pack,
-			RequiresReview: true,
-			Reasons:        packMemoryCandidateActionReasons(pack),
-			Boundary:       packMemoryCandidateActionBoundary(pack),
-		})
+		if followUp, ok := packMemoryCandidateProofFollowUpAction(pack); ok {
+			items = append(items, followUp)
+		}
 	}
 	return mission.UniqueCommanderNextActions(items)
+}
+
+func packMemoryCandidatePrimaryNextAction(pack ReleaseHandoffPackMemoryCandidateStatus) (mission.MissionCommanderNextActionItem, bool) {
+	command := packMemoryCandidateCurrentCommand(pack)
+	if strings.TrimSpace(command) == "" {
+		return mission.MissionCommanderNextActionItem{}, false
+	}
+	return mission.MissionCommanderNextActionItem{
+		Label:          pack.Pack,
+		ActionID:       packMemoryCandidateActionID(pack),
+		State:          packMemoryCandidateActionState(pack),
+		Command:        command,
+		Source:         "packMemoryCandidates." + pack.Pack,
+		RequiresReview: true,
+		Reasons:        packMemoryCandidateActionReasons(pack),
+		Boundary:       packMemoryCandidateActionBoundary(pack),
+	}, true
+}
+
+func packMemoryCandidateProofFollowUpAction(pack ReleaseHandoffPackMemoryCandidateStatus) (mission.MissionCommanderNextActionItem, bool) {
+	next := pack.ProofSummary.NextMissingProof
+	if next == nil || strings.TrimSpace(next.DraftCommand) == "" {
+		return mission.MissionCommanderNextActionItem{}, false
+	}
+	if strings.TrimSpace(next.DraftCommand) == strings.TrimSpace(packMemoryCandidateCurrentCommand(pack)) {
+		return mission.MissionCommanderNextActionItem{}, false
+	}
+	actionID := packMemoryCandidateProofActionID(*next)
+	return mission.MissionCommanderNextActionItem{
+		Label:          pack.Pack,
+		ActionID:       actionID,
+		State:          "pack-memory-proof-required",
+		Command:        next.DraftCommand,
+		Source:         "packMemoryCandidates." + pack.Pack + ".followUp.proof",
+		RequiresReview: true,
+		Reasons:        packMemoryCandidateProofActionReasons(pack, *next, actionID),
+		Boundary:       packMemoryCandidateProofActionBoundary(pack, *next),
+	}, true
+}
+
+func packMemoryCandidateProofActionID(next ReleaseHandoffPackMemoryCandidateReviewNextMissingProof) string {
+	switch strings.TrimSpace(next.Stage) {
+	case "decision-proof-required":
+		return "pack-memory-decision-proof-required"
+	case "cleanup-proof-required":
+		return "pack-memory-cleanup-proof-required"
+	case "reconsume-proof-required":
+		return "pack-memory-reconsume-proof-required"
+	}
+	switch strings.TrimSpace(next.ProofType) {
+	case "candidate-decision-note", "blocked-review-note":
+		return "pack-memory-decision-proof-required"
+	case "candidate-cleanup-proof":
+		return "pack-memory-cleanup-proof-required"
+	case "pack-doctor-output", "fresh-case-reconsume-proof", "attached-case-reconsume-proof":
+		return "pack-memory-reconsume-proof-required"
+	}
+	return "pack-memory-proof-required"
+}
+
+func packMemoryCandidateProofActionReasons(pack ReleaseHandoffPackMemoryCandidateStatus, next ReleaseHandoffPackMemoryCandidateReviewNextMissingProof, actionID string) []string {
+	stage := strings.TrimSpace(next.Stage)
+	if stage == "" {
+		stage = "unknown"
+	}
+	proofType := strings.TrimSpace(next.ProofType)
+	if proofType == "" {
+		proofType = "unknown"
+	}
+	reasons := []string{"pack=" + pack.Pack, "actionId=" + actionID, "proofStage=" + stage, "proofType=" + proofType}
+	if strings.TrimSpace(next.Path) != "" {
+		reasons = append(reasons, "proof path="+next.Path)
+	}
+	if strings.TrimSpace(next.CandidatePath) != "" {
+		reasons = append(reasons, "candidate="+next.CandidatePath)
+	}
+	if strings.TrimSpace(next.PackTarget) != "" {
+		reasons = append(reasons, "packTarget="+next.PackTarget)
+	}
+	if strings.TrimSpace(pack.Action) != "" {
+		reasons = append(reasons, pack.Action)
+	}
+	return mission.UniqueStrings(reasons)
+}
+
+func packMemoryCandidateProofActionBoundary(pack ReleaseHandoffPackMemoryCandidateStatus, next ReleaseHandoffPackMemoryCandidateReviewNextMissingProof) []string {
+	boundary := packMemoryCandidateActionBoundary(pack)
+	boundary = append(boundary, next.Boundary...)
+	boundary = append(boundary,
+		"proof follow-up is read-only Mission Commander handoff; it does not replace the current verification action",
+		"run proof draft WhatIf and hash-gated Apply explicitly before declaring pack-memory downstream closure",
+	)
+	return mission.UniqueStrings(boundary)
 }
 
 func packMemoryCandidateCurrentCommand(pack ReleaseHandoffPackMemoryCandidateStatus) string {
@@ -732,7 +817,7 @@ func packMemoryCandidateActionID(pack ReleaseHandoffPackMemoryCandidateStatus) s
 		return "pack-memory-" + stage
 	}
 	if pack.ProofSummary.NextMissingProof != nil {
-		return "pack-memory-proof-required"
+		return packMemoryCandidateProofActionID(*pack.ProofSummary.NextMissingProof)
 	}
 	if pack.DecisionDraftHandoff != nil && strings.TrimSpace(pack.DecisionDraftHandoff.NextAction) != "" {
 		return "pack-memory-decision-draft-required"

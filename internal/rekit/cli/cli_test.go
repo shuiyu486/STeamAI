@@ -10015,6 +10015,54 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	if decisionApplied.Receipt == nil || !decisionApplied.Receipt.VerificationPending || decisionApplied.Receipt.VerificationWorkspaceRoot == "" || !strings.Contains(decisionApplied.Receipt.VerificationProvisionCommand, "-ProvisionCandidateVerificationCases") || !containsSubstring(decisionApplied.NextSteps, "verificationProvisionCommand") || !containsSubstring(decisionApplied.NextSteps, "verificationCommand") {
 		t.Fatalf("candidate decision omitted verification provisioning handoff: %+v", decisionApplied)
 	}
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var cleanupPendingStatus statusInventory
+	if err := json.Unmarshal(out.Bytes(), &cleanupPendingStatus); err != nil {
+		t.Fatalf("cleanup-pending status stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if cleanupPendingStatus.IsMutation || cleanupPendingStatus.ProjectHandoff == nil || !hasCandidateVerificationProvisionStatus(cleanupPendingStatus.ProjectHandoff.PackMemoryCandidates, "required") {
+		t.Fatalf("status omitted required candidate verification provisioning handoff or mutated before cleanup proof: %+v", cleanupPendingStatus)
+	}
+	cleanupPendingCurrent := assertPackMemoryCurrentAction(t, cleanupPendingStatus.ProjectHandoff.PackMemoryCandidates, "_template", "pack-memory-verification-provision-required", "pack-memory-verification-required", "-ProvisionCandidateVerificationCases")
+	if cleanupPendingCurrent.Command != decisionApplied.Receipt.VerificationProvisionCommand {
+		t.Fatalf("cleanup-pending status current action did not bind verificationProvisionCommand: %+v receipt=%+v", cleanupPendingCurrent, decisionApplied.Receipt)
+	}
+	cleanupProofFollowUp := assertPackMemoryNextAction(t, cleanupPendingStatus.ProjectHandoff.PackMemoryCandidates, "_template", "pack-memory-cleanup-proof-required", "pack-memory-proof-required", "-ProofType candidate-cleanup-proof")
+	if cleanupProofFollowUp.Source != "packMemoryCandidates._template.followUp.proof" || !cleanupProofFollowUp.RequiresReview || !containsSubstring(cleanupProofFollowUp.Reasons, "proofStage=cleanup-proof-required") || !containsSubstring(cleanupProofFollowUp.Boundary, "does not replace the current verification action") {
+		t.Fatalf("status omitted cleanup proof downstream follow-up: %+v", cleanupProofFollowUp)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "release-check", "-Format", "json"}, &out); err != nil && !strings.Contains(err.Error(), "release-check not ready") {
+		t.Fatal(err)
+	}
+	var cleanupPendingRelease releasecheck.Result
+	if err := json.Unmarshal(out.Bytes(), &cleanupPendingRelease); err != nil {
+		t.Fatalf("cleanup-pending release-check stdout is not JSON: %v\n%s", err, out.String())
+	}
+	releaseCleanupCurrent := assertPackMemoryCurrentAction(t, cleanupPendingRelease.ReleaseHandoff.PackMemoryCandidates, "_template", "pack-memory-verification-provision-required", "pack-memory-verification-required", "-ProvisionCandidateVerificationCases")
+	if releaseCleanupCurrent.Command != decisionApplied.Receipt.VerificationProvisionCommand {
+		t.Fatalf("release-check current action did not bind verificationProvisionCommand: %+v", releaseCleanupCurrent)
+	}
+	assertPackMemoryNextAction(t, cleanupPendingRelease.ReleaseHandoff.PackMemoryCandidates, "_template", "pack-memory-cleanup-proof-required", "pack-memory-proof-required", "-ProofType candidate-cleanup-proof")
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"status Mission Commander first screen：focus=pack-memory-current-action",
+		"status Mission Commander focus action reason：scope=pack-memory reason=actionId=pack-memory-verification-provision-required",
+		"candidate verification provisioning WhatIf:",
+		"run the current pack-memory action to preview candidate verification provisioning before expected-hash Apply",
+		"status pack-memory next action：pack=_template state=pack-memory-proof-required actionId=pack-memory-cleanup-proof-required source=packMemoryCandidates._template.followUp.proof",
+		"status Mission Commander focus pack-memory runbook：pack=_template state=pack-memory-verification-required step=1 text=run the pack-memory proof follow-up action for proof draft WhatIf; Apply only with the returned ExpectedProofSha256",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("cleanup-pending status text omitted %q:\n%s", expected, out.String())
+		}
+	}
 	cleanupProofPath := filepath.Join(candidateRoot, "review-artifacts", "product-path.candidate-cleanup-proof.json")
 	cleanupProofPathArg := filepath.ToSlash(filepath.Join("packs", "_template", "promote-candidates", "review-artifacts", "product-path.candidate-cleanup-proof.json"))
 	out.Reset()
@@ -10073,6 +10121,21 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	}
 	if bytes.Contains(cleanupProofBytes, []byte(caseRoot)) || bytes.Contains(cleanupProofBytes, []byte(root)) {
 		t.Fatalf("candidate cleanup proof persisted absolute path: %s", string(cleanupProofBytes))
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var cleanupClosedStatus statusInventory
+	if err := json.Unmarshal(out.Bytes(), &cleanupClosedStatus); err != nil {
+		t.Fatalf("cleanup-closed status stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if cleanupClosedStatus.ProjectHandoff == nil || cleanupClosedStatus.ProjectHandoff.PackMemoryCandidates.MissionCommanderActionQueue.Counts.Total != 1 {
+		t.Fatalf("cleanup proof Apply did not remove downstream proof follow-up: %+v", cleanupClosedStatus.ProjectHandoff)
+	}
+	cleanupClosedCurrent := assertPackMemoryCurrentAction(t, cleanupClosedStatus.ProjectHandoff.PackMemoryCandidates, "_template", "pack-memory-verification-provision-required", "pack-memory-verification-required", "-ProvisionCandidateVerificationCases")
+	if cleanupClosedCurrent.Command != decisionApplied.Receipt.VerificationProvisionCommand {
+		t.Fatalf("cleanup-closed status did not return to verification current action: %+v", cleanupClosedCurrent)
 	}
 	out.Reset()
 	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-DraftReviewProof", "-ProofPath", cleanupProofPathArg, "-ProofType", "candidate-cleanup-proof", "-CandidatePath", candidatePathArg, "-Reason", "receipt cleanup verified", "-Actor", "mission-commander", "-WhatIf", "-Format", "text"}, &out); err != nil {
@@ -10469,6 +10532,17 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 			t.Fatalf("candidate verification retirement text omitted %q:\n%s", expected, out.String())
 		}
 	}
+}
+
+func assertPackMemoryNextAction(t *testing.T, candidates releasecheck.ReleaseHandoffPackMemoryCandidateList, label, actionID, state, commandContains string) mission.MissionCommanderNextActionItem {
+	t.Helper()
+	for _, action := range candidates.MissionCommanderNextActions {
+		if action.Label == label && action.ActionID == actionID && action.State == state && strings.Contains(action.Command, commandContains) {
+			return action
+		}
+	}
+	t.Fatalf("pack-memory next action not found: label=%s actionId=%s state=%s command contains %s actions=%+v", label, actionID, state, commandContains, candidates.MissionCommanderNextActions)
+	return mission.MissionCommanderNextActionItem{}
 }
 
 func assertPackMemoryCurrentAction(t *testing.T, candidates releasecheck.ReleaseHandoffPackMemoryCandidateList, label, actionID, state, commandContains string) mission.MissionCommanderNextActionItem {

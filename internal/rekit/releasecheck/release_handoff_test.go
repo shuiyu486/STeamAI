@@ -467,7 +467,7 @@ func TestReleaseHandoffPackMemoryCandidatesDetectsOpenResidue(t *testing.T) {
 	if inventory.Ready || inventory.Summary != "pack-memory candidate inventory has open review/cleanup/verification work" || inventory.Total != 3 || len(inventory.Packs) != 1 || !strings.Contains(inventory.NextAction, "review listed pack-memory candidates") || len(inventory.Warnings) == 0 {
 		t.Fatalf("unexpected pack-memory candidate inventory: %+v", inventory)
 	}
-	if inventory.MissionCommanderActionQueue.CurrentAction == nil || inventory.MissionCommanderActionQueue.Counts.Total != 1 || inventory.MissionCommanderActionQueue.Counts.RequiresReview != 1 || len(inventory.MissionCommanderNextActions) != 1 || inventory.MissionCommanderNextActions[0].Label != "fixture" || inventory.MissionCommanderNextActions[0].ActionID != "pack-memory-proof-required" || inventory.MissionCommanderNextActions[0].State != "pack-memory-proof-required" || !strings.Contains(inventory.MissionCommanderNextActions[0].Command, "-DraftReviewProof") || !strings.Contains(inventory.MissionCommanderNextActions[0].Command, "-ProofDecision") || !releaseHandoffStringsContain(inventory.MissionCommanderNextActions[0].Reasons, "actionId=pack-memory-proof-required") || !releaseHandoffStringsContain(inventory.MissionCommanderNextActions[0].Boundary, "read-only handoff") {
+	if inventory.MissionCommanderActionQueue.CurrentAction == nil || inventory.MissionCommanderActionQueue.Counts.Total != 1 || inventory.MissionCommanderActionQueue.Counts.RequiresReview != 1 || len(inventory.MissionCommanderNextActions) != 1 || inventory.MissionCommanderNextActions[0].Label != "fixture" || inventory.MissionCommanderNextActions[0].ActionID != "pack-memory-decision-proof-required" || inventory.MissionCommanderNextActions[0].State != "pack-memory-proof-required" || !strings.Contains(inventory.MissionCommanderNextActions[0].Command, "-DraftReviewProof") || !strings.Contains(inventory.MissionCommanderNextActions[0].Command, "-ProofDecision") || !releaseHandoffStringsContain(inventory.MissionCommanderNextActions[0].Reasons, "actionId=pack-memory-decision-proof-required") || !releaseHandoffStringsContain(inventory.MissionCommanderNextActions[0].Boundary, "read-only handoff") {
 		t.Fatalf("pack-memory candidate action queue omitted current proof handoff: %+v", inventory.MissionCommanderActionQueue)
 	}
 	pack := inventory.Packs[0]
@@ -1159,6 +1159,11 @@ func TestReleaseHandoffPackMemoryToolingRejectReceiptDoesNotBlock(t *testing.T) 
 	}
 	writeFile(t, filepath.Join(backupRoot, "committed.json"), string(committedData)+"\n")
 	writeFile(t, receiptPath, string(data)+"\n")
+	missingCleanup := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+	if missingCleanup.Ready || missingCleanup.Total != 1 || len(missingCleanup.Packs) != 1 || missingCleanup.Packs[0].ProofSummary.CurrentStage != "cleanup-proof-required" || missingCleanup.Packs[0].ProofSummary.NextMissingProof == nil || missingCleanup.Packs[0].ProofSummary.NextMissingProof.ProofType != "candidate-cleanup-proof" {
+		t.Fatalf("cleanup proof missing handoff drifted: %+v", missingCleanup)
+	}
+	assertReleaseHandoffPackMemoryCurrentAction(t, missingCleanup, "fixture", "pack-memory-cleanup-proof-required", "pack-memory-proof-required", "-ProofType candidate-cleanup-proof")
 	cleanupProofPath := filepath.Join(proofRoot, "tool.candidate-cleanup-proof.md")
 	writeFile(t, cleanupProofPath, "# cleanup proof\n")
 	looseProof := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
