@@ -118,6 +118,28 @@ func TestStatusMissionCommanderFirstScreenFocusRoutingReasons(t *testing.T) {
 	}
 }
 
+func TestStatusMissionCommanderFirstScreenFocusUsesCrossSubsystemPriority(t *testing.T) {
+	project := &mission.MissionCommanderNextActionItem{Command: "/rekit status", Source: "releaseHandoffLatestBatch", State: "complete"}
+	passiveReviewer := &mission.MissionCommanderNextActionItem{Command: "dispatch read-only reviewer", Source: "reviewerDispatchIntakeHandoffs", State: "waiting-for-reviewer-result", RequiresReview: true}
+	packInProgress := &mission.MissionCommanderNextActionItem{Command: "/rekit promote -ExpectedProvisionSha256 provision-sha -Apply -Format json", Source: "packMemoryCandidates._template", State: "pack-memory-verification-required", ActionID: "pack-memory-verification-provision-in-progress", RequiresReview: true}
+	packProject := &statusProjectHandoff{PackMemoryCandidates: releasecheck.ReleaseHandoffPackMemoryCandidateList{Ready: false, Total: 1}}
+	focus := statusMissionCommanderFirstScreenFocus(nil, passiveReviewer, project, packProject, packInProgress)
+	if focus != "pack-memory-current-action" {
+		t.Fatalf("pack-memory in-progress closure should outrank passive reviewer wait: focus=%s reviewer=%+v pack=%+v", focus, passiveReviewer, packInProgress)
+	}
+	reasons := statusMissionCommanderFirstScreenFocusRoutingReasons(focus, nil, passiveReviewer, project, packProject, packInProgress)
+	if !containsSubstring(reasons, "pack-memory candidate queue still needs review or closure") || !containsSubstring(reasons, "deferred focus queues: reviewer,project") {
+		t.Fatalf("pack-memory cross-subsystem routing reasons drifted: %+v", reasons)
+	}
+
+	reviewerReady := &mission.MissionCommanderNextActionItem{Command: "/rekit plan-subagents -ReadyReviewerResults -WhatIf -Format json", Source: "reviewerDispatchIntakeHandoffs", State: "ready-for-reviewer-intake-preview", RequiresReview: true}
+	packProof := &mission.MissionCommanderNextActionItem{Command: "/rekit promote -DraftReviewProof -WhatIf -Format json", Source: "packMemoryCandidates._template", State: "pack-memory-proof-required", ActionID: "pack-memory-decision-proof-required", RequiresReview: true}
+	focus = statusMissionCommanderFirstScreenFocus(nil, reviewerReady, project, packProject, packProof)
+	if focus != "reviewer-current-action" {
+		t.Fatalf("reviewer ready intake should outrank ordinary pack-memory proof follow-up: focus=%s reviewer=%+v pack=%+v", focus, reviewerReady, packProof)
+	}
+}
+
 func TestStatusProjectHandoffUsesPackMemoryLifecyclePriority(t *testing.T) {
 	packCandidates := releasecheck.ReleaseHandoffPackMemoryCandidateList{
 		Ready:   false,
@@ -1615,6 +1637,88 @@ func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
 	} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("release-check text missing pack-memory review summary %q:\n%s", expected, out.String())
+		}
+	}
+}
+
+func TestRunStatusCaseFirstScreenPrioritizesPackMemoryClosureOverReviewerWait(t *testing.T) {
+	root := repoRoot(t)
+	candidateRoot := filepath.Join(root, "packs", "_template", "promote-candidates")
+	toolingRoot := filepath.Join(root, "packs", "_template", "tooling", "candidates")
+	candidateBefore := snapshotFiles(t, candidateRoot)
+	toolingBefore := snapshotFiles(t, toolingRoot)
+	defer removeNewFiles(t, candidateRoot, candidateBefore)
+	defer removeNewFiles(t, toolingRoot, toolingBefore)
+	writePathFile(t, filepath.Join(candidateRoot, "batch675-cross-focus.candidate.md"), "# candidate\n")
+	writePathFile(t, filepath.Join(toolingRoot, "batch675-cross-focus-tooling.candidate.md"), "# tooling\n")
+	writePathFile(t, filepath.Join(candidateRoot, "index.json"), `[
+  {
+    "path": "references/template/README.md",
+    "candidate": "batch675-cross-focus.candidate.md"
+  }
+]
+`)
+	proofPath := filepath.Join(candidateRoot, "review-artifacts", "batch675-cross-focus.candidate-decision-note.md")
+	evidencePath := filepath.Join(candidateRoot, "review-artifacts", "batch675-cross-focus.review-evidence.md")
+	writePathFile(t, evidencePath, "bounded candidate decision evidence\n")
+	writeCLIPackMemoryCandidateDecisionProof(t, root, proofPath, "_template", "packet-hash", filepath.Join(candidateRoot, "batch675-cross-focus.candidate.md"), filepath.Join(root, "packs", "_template", "references", "template", "README.md"), "reject", "managed-doc", evidencePath)
+
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "login", "-Apply", "-Executor", "session-login", "-Actor", "mission-commander", "-Reason", "cross subsystem status focus"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", "alpha", "-ItemsPerAgent", "1", "-MaxParallel", "1", "-Lane", "feature-login"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	plan := decodePlanSubagentsResult(t, out.Bytes())
+	if plan.ReviewerOrchestration.TargetLane != "feature-login" || plan.ReviewerOrchestration.ReviewerCount != 1 {
+		t.Fatalf("unexpected reviewer wait fixture plan: %+v", plan.ReviewerOrchestration)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status statusInventory
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("cross-subsystem status JSON did not decode: %v\n%s", err, out.String())
+	}
+	if status.CaseMission == nil || status.ProjectHandoff == nil {
+		t.Fatalf("cross-subsystem status omitted case/project handoffs: %+v", status)
+	}
+	reviewerSummary := status.CaseMission.ReviewerDispatchIntakeSummary
+	if reviewerSummary.Total != 1 || reviewerSummary.WaitingForReviewerResult != 1 || reviewerSummary.ReadyForPreview != 0 || reviewerSummary.LatestShardID != "shard-01" || reviewerSummary.LatestState != "waiting-for-reviewer-result" || reviewerSummary.NextAction == "" || !containsSubstring(reviewerSummary.Boundary, "summary is read-only") {
+		t.Fatalf("cross-subsystem status missing reviewer dispatch intake summary: %+v", reviewerSummary)
+	}
+	reviewerCurrent := status.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentAction
+	if reviewerCurrent == nil || reviewerCurrent.State != "waiting-for-reviewer-result" || reviewerCurrent.Source != "reviewerDispatchIntakeHandoffs" {
+		t.Fatalf("cross-subsystem status omitted passive reviewer wait current action: %+v", status.CaseMission.ReviewerDispatchIntakeActionQueue)
+	}
+	packCurrent := assertPackMemoryCurrentAction(t, status.ProjectHandoff.PackMemoryCandidates, "_template", "pack-memory-decision-proof-required", "pack-memory-proof-required", "-DraftReviewProof")
+	projectCurrent := statusProjectHandoffCurrentAction(status.ProjectHandoff)
+	focus := statusMissionCommanderFirstScreenFocus(status.CaseMission.MissionCommanderActionQueue.CurrentAction, reviewerCurrent, projectCurrent, status.ProjectHandoff, &packCurrent)
+	if focus != "pack-memory-current-action" {
+		t.Fatalf("status first screen should choose actionable pack-memory closure over passive reviewer wait: focus=%s case=%+v reviewer=%+v pack=%+v project=%+v", focus, status.CaseMission.MissionCommanderActionQueue.CurrentAction, reviewerCurrent, packCurrent, projectCurrent)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, expected := range []string{
+		"status Mission Commander first screen：focus=pack-memory-current-action",
+		"status Mission Commander first screen routing：focus=pack-memory-current-action reason=pack-memory candidate queue still needs review or closure",
+		"status Mission Commander current action：scope=focus-pack-memory lane= label=_template state=pack-memory-proof-required source=packMemoryCandidates._template",
+		"status Mission Commander current action：scope=reviewer lane=feature-login",
+		"state=waiting-for-reviewer-result source=reviewerDispatchIntakeHandoffs",
+		"status case mission reviewer dispatch intake summary：total=1 waitingForReviewerResult=1 readyForPreview=0",
+		"status pack-memory candidates：summary=pack-memory candidate inventory has open review/cleanup/verification work ready=false total=3 packs=1",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("cross-subsystem status text missing %q:\n%s", expected, text)
 		}
 	}
 }

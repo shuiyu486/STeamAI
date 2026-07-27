@@ -2804,31 +2804,109 @@ func writeStatusMissionCommanderFirstScreenText(out io.Writer, caseMission *stat
 }
 
 func statusMissionCommanderFirstScreenFocus(caseCurrent, reviewerCurrent, projectCurrent *mission.MissionCommanderNextActionItem, projectHandoff *statusProjectHandoff, packCurrent *mission.MissionCommanderNextActionItem) string {
-	if statusMissionCommanderActionIsReviewerDispatch(caseCurrent) {
-		return "reviewer-current-action"
-	}
-	if statusCaseMissionCurrentActionNeedsAttention(caseCurrent) {
-		return "case-current-action"
-	}
-	if statusReviewerDispatchCurrentActionNeedsAttention(reviewerCurrent) {
-		return "reviewer-current-action"
-	}
-	if statusPackMemoryCurrentActionNeedsAttention(projectHandoff, packCurrent) {
-		return "pack-memory-current-action"
+	focus := "none"
+	bestPriority := statusMissionCommanderFirstScreenNoActionPriority
+	consider := func(candidate string, priority int) {
+		if priority < bestPriority {
+			focus = candidate
+			bestPriority = priority
+		}
 	}
 	if caseCurrent != nil {
-		return "case-current-action"
+		if statusMissionCommanderActionIsReviewerDispatch(caseCurrent) {
+			consider("reviewer-current-action", statusReviewerDispatchFirstScreenPriority(caseCurrent))
+		} else {
+			consider("case-current-action", statusCaseMissionFirstScreenPriority(caseCurrent))
+		}
 	}
 	if reviewerCurrent != nil {
-		return "reviewer-current-action"
+		consider("reviewer-current-action", statusReviewerDispatchFirstScreenPriority(reviewerCurrent))
 	}
 	if packCurrent != nil {
-		return "pack-memory-current-action"
+		consider("pack-memory-current-action", statusPackMemoryFirstScreenPriority(projectHandoff, packCurrent))
 	}
 	if projectCurrent != nil {
-		return "project-current-action"
+		consider("project-current-action", statusProjectHandoffFirstScreenPriority(projectCurrent))
 	}
-	return "none"
+	return focus
+}
+
+const statusMissionCommanderFirstScreenNoActionPriority = 1000
+
+func statusCaseMissionFirstScreenPriority(action *mission.MissionCommanderNextActionItem) int {
+	if action == nil {
+		return statusMissionCommanderFirstScreenNoActionPriority
+	}
+	if action.Blocked || action.RequiresReview {
+		return 0
+	}
+	if action.Source == "missionCommanderActions" && action.State == "ready-to-continue" {
+		return 90
+	}
+	return 20
+}
+
+func statusReviewerDispatchFirstScreenPriority(action *mission.MissionCommanderNextActionItem) int {
+	if action == nil {
+		return statusMissionCommanderFirstScreenNoActionPriority
+	}
+	switch action.State {
+	case "reviewer-packet-owner-adoption-required":
+		return 10
+	case "reviewer-dispatch-prompt-artifact-invalid", "reviewer-dispatch-prompt-artifact-drift", "reviewer-result-recovery-finalize-required":
+		return 11
+	case "reviewer-result-recovery-required", "reviewer-result-recovery-ambiguous":
+		return 12
+	case "ready-for-reviewer-intake-preview":
+		return 20
+	case "ready-for-reviewer-result-collection-preview", "reviewer-result-recovery-disposed-ready-for-collection-preview":
+		return 30
+	case "ready-for-reviewer-result-staging-preview":
+		return 35
+	case "ready-for-reviewer-result-source-capture-preview":
+		return 40
+	case "reviewer-packet-integrity-invalid", "reviewer-result-symlink-blocked", "reviewer-result-input-invalid", "reviewer-result-source-invalid", "reviewer-result-candidate-invalid", "reviewer-result-canonical-invalid", "reviewer-result-collection-required", "reviewer-result-recovery-invalid", "attach-required-before-reviewer-intake":
+		return 45
+	case "waiting-for-reviewer-result", "dispatch-only-waiting-for-result":
+		return 80
+	default:
+		return 85
+	}
+}
+
+func statusPackMemoryFirstScreenPriority(projectHandoff *statusProjectHandoff, action *mission.MissionCommanderNextActionItem) int {
+	if action == nil {
+		return statusMissionCommanderFirstScreenNoActionPriority
+	}
+	switch action.ActionID {
+	case "pack-memory-verification-retirement-in-progress", "pack-memory-verification-provision-in-progress":
+		return 15
+	case "pack-memory-verification-retirement-required", "pack-memory-verification-run-required", "pack-memory-verification-provision-required":
+		return 25
+	case "pack-memory-cleanup-proof-required", "pack-memory-reconsume-proof-required", "pack-memory-decision-proof-required", "pack-memory-decision-draft-required":
+		return 55
+	}
+	if projectHandoff == nil {
+		if action.Blocked || action.RequiresReview {
+			return 60
+		}
+		return 95
+	}
+	candidates := projectHandoff.PackMemoryCandidates
+	if !candidates.Ready || candidates.Total > 0 || action.Blocked || action.RequiresReview {
+		return 60
+	}
+	return 95
+}
+
+func statusProjectHandoffFirstScreenPriority(action *mission.MissionCommanderNextActionItem) int {
+	if action == nil {
+		return statusMissionCommanderFirstScreenNoActionPriority
+	}
+	if action.Blocked || action.RequiresReview {
+		return 90
+	}
+	return 100
 }
 
 func writeStatusMissionCommanderFirstScreenFocusRoutingText(out io.Writer, focus string, caseCurrent, reviewerCurrent, projectCurrent *mission.MissionCommanderNextActionItem, projectHandoff *statusProjectHandoff, packCurrent *mission.MissionCommanderNextActionItem) error {
