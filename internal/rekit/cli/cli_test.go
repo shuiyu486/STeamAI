@@ -7859,6 +7859,47 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	}
 
 	firstSourcePath := packet.ShardHandoffs[0].ReviewerStagingCommands.SourcePath
+	firstInputPath := packet.ShardHandoffs[0].ReviewerStagingCommands.SourceCaptureInput
+	if firstInputPath == "" {
+		t.Fatalf("first reviewer shard omitted deterministic input path: %+v", packet.ShardHandoffs[0].ReviewerStagingCommands)
+	}
+	if err := os.MkdirAll(filepath.Dir(firstInputPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(firstInputPath, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var statusWithInvalidInput struct {
+		CaseMission struct {
+			ReviewerDispatchIntakeHandoffs []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
+			ReviewerDispatchIntakeSummary  reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+			MissionCommanderActionQueue    missionCommanderActionQueueSnapshot  `json:"missionCommanderActionQueue"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &statusWithInvalidInput); err != nil {
+		t.Fatalf("status JSON with invalid reviewer input did not decode: %v\n%s", err, out.String())
+	}
+	invalidInputDispatch, ok := reviewerDispatchIntakeByShard(statusWithInvalidInput.CaseMission.ReviewerDispatchIntakeHandoffs, "shard-01")
+	invalidInputAction := statusWithInvalidInput.CaseMission.MissionCommanderActionQueue.CurrentAction
+	if !ok || invalidInputDispatch.State != "reviewer-result-input-invalid" || invalidInputDispatch.ReviewerResultInputPath != firstInputPath || invalidInputDispatch.ReviewerResultInputState != "invalid" || invalidInputDispatch.ReviewerResultSourceState != "missing" || !strings.Contains(invalidInputDispatch.ReviewerResultSourceCaptureCommand, "-CaptureReviewerResultSource") || statusWithInvalidInput.CaseMission.ReviewerDispatchIntakeSummary.NextActionShardID != "shard-01" || statusWithInvalidInput.CaseMission.ReviewerDispatchIntakeSummary.NextActionState != "reviewer-result-input-invalid" || statusWithInvalidInput.CaseMission.ReviewerDispatchIntakeSummary.NextActionReviewerResultInputPath != firstInputPath || statusWithInvalidInput.CaseMission.ReviewerDispatchIntakeSummary.NextActionReviewerResultInputState != "invalid" || !strings.Contains(statusWithInvalidInput.CaseMission.ReviewerDispatchIntakeSummary.NextAction, "replace the invalid reviewer result input") || invalidInputAction == nil || invalidInputAction.Source != "reviewerDispatchIntakeHandoffs" || invalidInputAction.State != "reviewer-result-input-invalid" || !invalidInputAction.Blocked || !invalidInputAction.RequiresReview || !strings.Contains(invalidInputAction.Command, firstInputPath) {
+		t.Fatalf("status JSON did not fail closed on invalid reviewer input: item=%+v summary=%+v action=%+v", invalidInputDispatch, statusWithInvalidInput.CaseMission.ReviewerDispatchIntakeSummary, invalidInputAction)
+	}
+	assertFileNotExists(t, firstSourcePath)
+	assertFileNotExists(t, packet.ShardHandoffs[0].ReviewerResultCandidatePath)
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"status case mission reviewer dispatch next action：shard=shard-01 state=reviewer-result-input-invalid", "reviewerResultInput invalid", firstInputPath, "replace the invalid reviewer result input", "rerun source capture preview", "sourceCapturePreview=`/rekit plan-subagents"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("status text omitted invalid reviewer input handoff %q:\n%s", expected, out.String())
+		}
+	}
+
 	firstSourceData := reviewerResultForCLIPlan(t, packet, packet.ShardHandoffs[0], "accept", "accepted", "reviewer-session-shard-01")
 	captureReviewerResultSourceForCLIPlan(t, &out, []string{"-Target", caseRoot, "-Pack", "_template"}, plan.PacketPath, packet.ShardHandoffs[0], "feature-login", "mission-commander", firstSourceData)
 	out.Reset()
@@ -7886,6 +7927,32 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	for _, expected := range []string{"status case mission reviewer dispatch next action：shard=shard-01 state=ready-for-reviewer-result-staging-preview sourceState=ready", "stagingPreview=`/rekit plan-subagents", "-StageReviewerResult"} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("status text omitted source-ready reviewer staging handoff %q:\n%s", expected, out.String())
+		}
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	sourceReadyHandoff := decodeHandoffResult(t, out.Bytes())
+	assertReviewerDispatchIntakeSummary(t, "handoff apply after reviewer input repair", sourceReadyHandoff.ReviewerDispatchIntakeSummary, 2, 1, 1, "shard-02", "waiting-for-reviewer-result")
+	sourceReadyHandoffDispatch, ok := reviewerDispatchIntakeByShard(sourceReadyHandoff.ReviewerDispatchIntakeHandoffs, "shard-01")
+	if !sourceReadyHandoff.IsMutation || !sourceReadyHandoff.Applied || sourceReadyHandoff.Project || sourceReadyHandoff.Lane == nil || sourceReadyHandoff.Lane.ID != "feature-login" || !ok || sourceReadyHandoffDispatch.State != "ready-for-reviewer-result-staging-preview" || sourceReadyHandoffDispatch.ReviewerResultInputPath != firstInputPath || sourceReadyHandoffDispatch.ReviewerResultInputState != "ready" || sourceReadyHandoffDispatch.ReviewerResultSourcePath != firstSourcePath || sourceReadyHandoffDispatch.ReviewerResultSourceState != "ready" || !strings.Contains(sourceReadyHandoffDispatch.ReviewerResultStagingCommand, "-StageReviewerResult") {
+		t.Fatalf("handoff apply after reviewer input repair did not preserve source-ready reviewer handoff: result=%+v dispatch=%+v", sourceReadyHandoff, sourceReadyHandoffDispatch)
+	}
+	sourceReadyLatest := assertStartWrite(t, sourceReadyHandoff.Writes, ".rekit/handovers/feature-login-latest.md", "write-latest-lane-handoff")
+	sourceReadyHandoffText, err := os.ReadFile(sourceReadyLatest.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"## Reviewer dispatch intake handoff", "summary: total=2 waitingForReviewerResult=1 readyForPreview=1", "dispatch intake: lane=feature-login shard=shard-01 state=ready-for-reviewer-result-staging-preview", "inputState=ready input=`" + firstInputPath + "`", "sourceState=ready source=`" + firstSourcePath + "`", "-StageReviewerResult", "runtime does not spawn, stop, monitor, or manage reviewer sessions"} {
+		if !strings.Contains(string(sourceReadyHandoffText), expected) {
+			t.Fatalf("source-ready reviewer lane handoff missing %q:\n%s", expected, string(sourceReadyHandoffText))
+		}
+	}
+	for _, forbidden := range []string{"reviewer-result-input-invalid", "replace the invalid reviewer result input"} {
+		if strings.Contains(string(sourceReadyHandoffText), forbidden) {
+			t.Fatalf("source-ready reviewer lane handoff still contains invalid input blocker %q:\n%s", forbidden, string(sourceReadyHandoffText))
 		}
 	}
 
