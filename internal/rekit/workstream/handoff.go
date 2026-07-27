@@ -31,32 +31,34 @@ type HandoffOptions struct {
 }
 
 type HandoffResult struct {
-	SchemaVersion                  int                                      `json:"schemaVersion"`
-	Command                        string                                   `json:"command"`
-	CaseRoot                       string                                   `json:"caseRoot"`
-	RepoRoot                       string                                   `json:"repoRoot"`
-	Pack                           string                                   `json:"pack"`
-	IsMutation                     bool                                     `json:"isMutation"`
-	Applied                        bool                                     `json:"applied"`
-	RequiresConfirmation           bool                                     `json:"requiresConfirmation"`
-	Selector                       string                                   `json:"selector,omitempty"`
-	Project                        bool                                     `json:"project"`
-	Lane                           *Lane                                    `json:"lane,omitempty"`
-	MissionBrief                   mission.Brief                            `json:"missionBrief"`
-	ExecutorAction                 *laneExecutorAction                      `json:"executorAction,omitempty"`
-	LaneExecutorActions            []mission.LaneExecutorActionSnapshot     `json:"laneExecutorActions,omitempty"`
-	ExecutionEvidenceReview        []ExecutionEvidenceReviewItem            `json:"executionEvidenceReview,omitempty"`
-	ExecutionEvidenceReviewSummary ExecutionEvidenceReviewSummary           `json:"executionEvidenceReviewSummary"`
-	ReviewerWritebacks             []ReviewerWritebackItem                  `json:"reviewerWritebacks,omitempty"`
-	ReviewerWritebackSummary       ReviewerWritebackSummary                 `json:"reviewerWritebackSummary"`
-	ReviewerDispatchIntakeHandoffs []ReviewerDispatchIntakeHandoff          `json:"reviewerDispatchIntakeHandoffs,omitempty"`
-	ReviewerDispatchIntakeSummary  ReviewerDispatchIntakeSummary            `json:"reviewerDispatchIntakeSummary"`
-	AuthorizedGateAdapterHandoffs  []AuthorizedGateAdapterHandoff           `json:"authorizedGateAdapterHandoffs,omitempty"`
-	MissionCommanderNextActions    []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
-	MissionCommanderActionQueue    mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
-	Writes                         []StartWrite                             `json:"writes"`
-	BlockedActions                 []string                                 `json:"blockedActions"`
-	NextSteps                      []string                                 `json:"nextSteps"`
+	SchemaVersion                    int                                      `json:"schemaVersion"`
+	Command                          string                                   `json:"command"`
+	CaseRoot                         string                                   `json:"caseRoot"`
+	RepoRoot                         string                                   `json:"repoRoot"`
+	Pack                             string                                   `json:"pack"`
+	IsMutation                       bool                                     `json:"isMutation"`
+	Applied                          bool                                     `json:"applied"`
+	RequiresConfirmation             bool                                     `json:"requiresConfirmation"`
+	Selector                         string                                   `json:"selector,omitempty"`
+	Project                          bool                                     `json:"project"`
+	Lane                             *Lane                                    `json:"lane,omitempty"`
+	MissionBrief                     mission.Brief                            `json:"missionBrief"`
+	ExecutorAction                   *laneExecutorAction                      `json:"executorAction,omitempty"`
+	LaneExecutorActions              []mission.LaneExecutorActionSnapshot     `json:"laneExecutorActions,omitempty"`
+	ExecutionEvidenceReview          []ExecutionEvidenceReviewItem            `json:"executionEvidenceReview,omitempty"`
+	ExecutionEvidenceReviewSummary   ExecutionEvidenceReviewSummary           `json:"executionEvidenceReviewSummary"`
+	ReviewerWritebacks               []ReviewerWritebackItem                  `json:"reviewerWritebacks,omitempty"`
+	ReviewerWritebackSummary         ReviewerWritebackSummary                 `json:"reviewerWritebackSummary"`
+	ReviewerDispatchIntakeHandoffs   []ReviewerDispatchIntakeHandoff          `json:"reviewerDispatchIntakeHandoffs,omitempty"`
+	ReviewerDispatchIntakeSummary    ReviewerDispatchIntakeSummary            `json:"reviewerDispatchIntakeSummary"`
+	ReviewerPacketRetirementHandoffs []ReviewerPacketRetirementHandoff        `json:"reviewerPacketRetirementHandoffs,omitempty"`
+	ReviewerPacketRetirementSummary  ReviewerPacketRetirementSummary          `json:"reviewerPacketRetirementSummary"`
+	AuthorizedGateAdapterHandoffs    []AuthorizedGateAdapterHandoff           `json:"authorizedGateAdapterHandoffs,omitempty"`
+	MissionCommanderNextActions      []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	MissionCommanderActionQueue      mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
+	Writes                           []StartWrite                             `json:"writes"`
+	BlockedActions                   []string                                 `json:"blockedActions"`
+	NextSteps                        []string                                 `json:"nextSteps"`
 }
 
 func HandoffPreview(repoRoot, caseRoot, pack string, opt HandoffOptions) (HandoffResult, error) {
@@ -179,16 +181,19 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 	executionEvidenceReview := []ExecutionEvidenceReviewItem{}
 	reviewerWritebacks := []ReviewerWritebackItem{}
 	reviewerDispatchIntakeHandoffs := []ReviewerDispatchIntakeHandoff{}
+	reviewerPacketRetirementHandoffs := []ReviewerPacketRetirementHandoff{}
 	authorizedGateAdapterHandoffs := []AuthorizedGateAdapterHandoff{}
 	facts, factsErr := readHandoffFacts(ctx.inst.CaseRoot)
 	if factsErr == nil {
 		if lane != nil {
 			reviewerWritebacks = ReviewerWritebackItems(facts, lane.ID)
 			reviewerDispatchIntakeHandoffs, _ = ReviewerDispatchIntakeHandoffs(ctx.inst.CaseRoot, facts, lane.ID)
+			reviewerPacketRetirementHandoffs, _ = ReviewerPacketRetirementHandoffs(ctx.inst.CaseRoot, lane.ID)
 			authorizedGateAdapterHandoffs = AuthorizedGateAdapterHandoffsWithAcknowledgements(ctx.manifest.RepoRoot, ctx.inst.CaseRoot, ctx.manifest.Pack, facts.Requests, lane.ID, ExecutionEvidenceReviewAcknowledgedIDs(facts))
 		} else if ctx.project {
 			reviewerWritebacks = ReviewerWritebackItems(facts, "")
 			reviewerDispatchIntakeHandoffs, _ = ReviewerDispatchIntakeHandoffs(ctx.inst.CaseRoot, facts, "")
+			reviewerPacketRetirementHandoffs, _ = ReviewerPacketRetirementHandoffs(ctx.inst.CaseRoot, "")
 			authorizedGateAdapterHandoffs = AuthorizedGateAdapterHandoffsWithAcknowledgements(ctx.manifest.RepoRoot, ctx.inst.CaseRoot, ctx.manifest.Pack, facts.Requests, "", ExecutionEvidenceReviewAcknowledgedIDs(facts))
 		}
 	}
@@ -230,32 +235,34 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 	}
 	next = mission.UniqueStrings(next)
 	return HandoffResult{
-		SchemaVersion:                  1,
-		Command:                        "handoff",
-		CaseRoot:                       ctx.inst.CaseRoot,
-		RepoRoot:                       ctx.manifest.RepoRoot,
-		Pack:                           ctx.manifest.Pack,
-		IsMutation:                     mutating,
-		Applied:                        applied,
-		RequiresConfirmation:           confirm,
-		Selector:                       ctx.selector,
-		Project:                        ctx.project,
-		Lane:                           lane,
-		MissionBrief:                   brief,
-		ExecutorAction:                 executorAction,
-		LaneExecutorActions:            laneExecutorActions,
-		ExecutionEvidenceReview:        executionEvidenceReview,
-		ExecutionEvidenceReviewSummary: ExecutionEvidenceReviewSummaryFor(executionEvidenceReview, missionCommanderActionQueue),
-		ReviewerWritebacks:             reviewerWritebacks,
-		ReviewerWritebackSummary:       ReviewerWritebackSummaryFor(reviewerWritebacks),
-		ReviewerDispatchIntakeHandoffs: reviewerDispatchIntakeHandoffs,
-		ReviewerDispatchIntakeSummary:  ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
-		AuthorizedGateAdapterHandoffs:  authorizedGateAdapterHandoffs,
-		MissionCommanderNextActions:    missionCommanderNext,
-		MissionCommanderActionQueue:    missionCommanderActionQueue,
-		Writes:                         writes,
-		BlockedActions:                 []string{"authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "continue auto-apply", "board/facts/lane creation"},
-		NextSteps:                      next,
+		SchemaVersion:                    1,
+		Command:                          "handoff",
+		CaseRoot:                         ctx.inst.CaseRoot,
+		RepoRoot:                         ctx.manifest.RepoRoot,
+		Pack:                             ctx.manifest.Pack,
+		IsMutation:                       mutating,
+		Applied:                          applied,
+		RequiresConfirmation:             confirm,
+		Selector:                         ctx.selector,
+		Project:                          ctx.project,
+		Lane:                             lane,
+		MissionBrief:                     brief,
+		ExecutorAction:                   executorAction,
+		LaneExecutorActions:              laneExecutorActions,
+		ExecutionEvidenceReview:          executionEvidenceReview,
+		ExecutionEvidenceReviewSummary:   ExecutionEvidenceReviewSummaryFor(executionEvidenceReview, missionCommanderActionQueue),
+		ReviewerWritebacks:               reviewerWritebacks,
+		ReviewerWritebackSummary:         ReviewerWritebackSummaryFor(reviewerWritebacks),
+		ReviewerDispatchIntakeHandoffs:   reviewerDispatchIntakeHandoffs,
+		ReviewerDispatchIntakeSummary:    ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
+		ReviewerPacketRetirementHandoffs: reviewerPacketRetirementHandoffs,
+		ReviewerPacketRetirementSummary:  ReviewerPacketRetirementSummaryFor(reviewerPacketRetirementHandoffs),
+		AuthorizedGateAdapterHandoffs:    authorizedGateAdapterHandoffs,
+		MissionCommanderNextActions:      missionCommanderNext,
+		MissionCommanderActionQueue:      missionCommanderActionQueue,
+		Writes:                           writes,
+		BlockedActions:                   []string{"authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "continue auto-apply", "board/facts/lane creation"},
+		NextSteps:                        next,
 	}
 }
 
@@ -609,6 +616,11 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 		return "", nil, err
 	}
 	WriteReviewerDispatchIntakeHandoffSection(&out, "## Reviewer dispatch intake handoff", reviewerDispatchIntakeHandoffs)
+	reviewerPacketRetirementHandoffs, err := ReviewerPacketRetirementHandoffs(ctx.inst.CaseRoot, "")
+	if err != nil {
+		return "", nil, err
+	}
+	WriteReviewerPacketRetirementHandoffSection(&out, "## Reviewer packet retirement handoff", reviewerPacketRetirementHandoffs)
 	writeProjectMissionCommanderActionQueue(&out, ctx.projectMissionCommanderNextActions)
 	fmt.Fprintln(&out, "## 工作线")
 	fmt.Fprintln(&out)
@@ -1031,6 +1043,11 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 		return "", nil, err
 	}
 	WriteReviewerDispatchIntakeHandoffSection(&out, "## Reviewer dispatch intake handoff", reviewerDispatchIntakeHandoffs)
+	reviewerPacketRetirementHandoffs, err := ReviewerPacketRetirementHandoffs(ctx.inst.CaseRoot, lane.ID)
+	if err != nil {
+		return "", nil, err
+	}
+	WriteReviewerPacketRetirementHandoffSection(&out, "## Reviewer packet retirement handoff", reviewerPacketRetirementHandoffs)
 	writePendingGateSection(&out, facts.Requests, lane.ID)
 	writeAuthorizedGateSection(&out, facts.Requests, lane.ID)
 	WriteAuthorizedGateAdapterHandoffSection(&out, "## Authorized gate adapter handoff", authorizedGateAdapterHandoffs)

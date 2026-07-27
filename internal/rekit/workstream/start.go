@@ -63,29 +63,31 @@ type StartWrite struct {
 }
 
 type StartResult struct {
-	SchemaVersion                  int                                      `json:"schemaVersion"`
-	Command                        string                                   `json:"command"`
-	CaseRoot                       string                                   `json:"caseRoot"`
-	RepoRoot                       string                                   `json:"repoRoot"`
-	Pack                           string                                   `json:"pack"`
-	IsMutation                     bool                                     `json:"isMutation"`
-	Applied                        bool                                     `json:"applied"`
-	RequiresConfirmation           bool                                     `json:"requiresConfirmation"`
-	Lane                           Lane                                     `json:"lane"`
-	AutonomyProfile                autonomy.Summary                         `json:"autonomyProfile"`
-	MissionBrief                   mission.Brief                            `json:"missionBrief"`
-	AuthorizedGateAdapterHandoffs  []AuthorizedGateAdapterHandoff           `json:"authorizedGateAdapterHandoffs,omitempty"`
-	ReviewerDispatchIntakeHandoffs []ReviewerDispatchIntakeHandoff          `json:"reviewerDispatchIntakeHandoffs,omitempty"`
-	ReviewerDispatchIntakeSummary  ReviewerDispatchIntakeSummary            `json:"reviewerDispatchIntakeSummary"`
-	PendingGateHandoffs            []ContinuePendingGateHandoff             `json:"pendingGateHandoffs,omitempty"`
-	OpenDecisionHandoffs           []ContinueOpenDecisionHandoff            `json:"openDecisionHandoffs,omitempty"`
-	ExecutorAction                 laneExecutorAction                       `json:"executorAction"`
-	MissionCommanderAction         mission.MissionCommanderAction           `json:"missionCommanderAction"`
-	MissionCommanderNextActions    []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
-	MissionCommanderActionQueue    mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
-	Writes                         []StartWrite                             `json:"writes"`
-	BlockedActions                 []string                                 `json:"blockedActions"`
-	NextSteps                      []string                                 `json:"nextSteps"`
+	SchemaVersion                    int                                      `json:"schemaVersion"`
+	Command                          string                                   `json:"command"`
+	CaseRoot                         string                                   `json:"caseRoot"`
+	RepoRoot                         string                                   `json:"repoRoot"`
+	Pack                             string                                   `json:"pack"`
+	IsMutation                       bool                                     `json:"isMutation"`
+	Applied                          bool                                     `json:"applied"`
+	RequiresConfirmation             bool                                     `json:"requiresConfirmation"`
+	Lane                             Lane                                     `json:"lane"`
+	AutonomyProfile                  autonomy.Summary                         `json:"autonomyProfile"`
+	MissionBrief                     mission.Brief                            `json:"missionBrief"`
+	AuthorizedGateAdapterHandoffs    []AuthorizedGateAdapterHandoff           `json:"authorizedGateAdapterHandoffs,omitempty"`
+	ReviewerDispatchIntakeHandoffs   []ReviewerDispatchIntakeHandoff          `json:"reviewerDispatchIntakeHandoffs,omitempty"`
+	ReviewerDispatchIntakeSummary    ReviewerDispatchIntakeSummary            `json:"reviewerDispatchIntakeSummary"`
+	ReviewerPacketRetirementHandoffs []ReviewerPacketRetirementHandoff        `json:"reviewerPacketRetirementHandoffs,omitempty"`
+	ReviewerPacketRetirementSummary  ReviewerPacketRetirementSummary          `json:"reviewerPacketRetirementSummary"`
+	PendingGateHandoffs              []ContinuePendingGateHandoff             `json:"pendingGateHandoffs,omitempty"`
+	OpenDecisionHandoffs             []ContinueOpenDecisionHandoff            `json:"openDecisionHandoffs,omitempty"`
+	ExecutorAction                   laneExecutorAction                       `json:"executorAction"`
+	MissionCommanderAction           mission.MissionCommanderAction           `json:"missionCommanderAction"`
+	MissionCommanderNextActions      []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	MissionCommanderActionQueue      mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
+	Writes                           []StartWrite                             `json:"writes"`
+	BlockedActions                   []string                                 `json:"blockedActions"`
+	NextSteps                        []string                                 `json:"nextSteps"`
 }
 
 type Lane struct {
@@ -120,36 +122,38 @@ type ExecutionEvidenceReviewItem = mission.ExecutionEvidenceReviewItem
 type ExecutionEvidenceReviewSummary = mission.ExecutionEvidenceReviewSummary
 
 type laneCheckpoint struct {
-	SchemaVersion                  int                                      `json:"schemaVersion"`
-	Lane                           string                                   `json:"lane"`
-	Status                         string                                   `json:"status"`
-	Workspace                      string                                   `json:"workspace"`
-	CurrentExecutor                string                                   `json:"currentExecutor"`
-	ExecutorGeneration             int                                      `json:"executorGeneration"`
-	LastTakeoverAt                 string                                   `json:"lastTakeoverAt"`
-	LastTakeoverBy                 string                                   `json:"lastTakeoverBy"`
-	LastTakeoverReason             string                                   `json:"lastTakeoverReason"`
-	LastReconciledIntervention     string                                   `json:"lastReconciledIntervention"`
-	LastReconcileAt                string                                   `json:"lastReconcileAt"`
-	AutonomyProfile                autonomy.Summary                         `json:"autonomyProfile"`
-	MissionBrief                   mission.Brief                            `json:"missionBrief"`
-	ExecutorAction                 laneExecutorAction                       `json:"executorAction"`
-	PendingGates                   []string                                 `json:"pendingGates"`
-	AuthorizedGates                []string                                 `json:"authorizedGates"`
-	ExecutionEvidenceReview        []ExecutionEvidenceReviewItem            `json:"executionEvidenceReview,omitempty"`
-	ExecutionEvidenceReviewSummary ExecutionEvidenceReviewSummary           `json:"executionEvidenceReviewSummary"`
-	ReviewerWritebacks             []ReviewerWritebackItem                  `json:"reviewerWritebacks,omitempty"`
-	ReviewerWritebackSummary       ReviewerWritebackSummary                 `json:"reviewerWritebackSummary"`
-	ReviewerDispatchIntakeHandoffs []ReviewerDispatchIntakeHandoff          `json:"reviewerDispatchIntakeHandoffs,omitempty"`
-	ReviewerDispatchIntakeSummary  ReviewerDispatchIntakeSummary            `json:"reviewerDispatchIntakeSummary"`
-	AuthorizedGateAdapterHandoffs  []AuthorizedGateAdapterHandoff           `json:"authorizedGateAdapterHandoffs,omitempty"`
-	MissionCommanderNextActions    []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
-	MissionCommanderActionQueue    mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
-	OpenInterventions              []InterventionSummary                    `json:"openInterventions"`
-	Inbox                          int                                      `json:"inbox"`
-	Tasks                          int                                      `json:"tasks"`
-	UpdatedAt                      string                                   `json:"updatedAt"`
-	Resume                         string                                   `json:"resume"`
+	SchemaVersion                    int                                      `json:"schemaVersion"`
+	Lane                             string                                   `json:"lane"`
+	Status                           string                                   `json:"status"`
+	Workspace                        string                                   `json:"workspace"`
+	CurrentExecutor                  string                                   `json:"currentExecutor"`
+	ExecutorGeneration               int                                      `json:"executorGeneration"`
+	LastTakeoverAt                   string                                   `json:"lastTakeoverAt"`
+	LastTakeoverBy                   string                                   `json:"lastTakeoverBy"`
+	LastTakeoverReason               string                                   `json:"lastTakeoverReason"`
+	LastReconciledIntervention       string                                   `json:"lastReconciledIntervention"`
+	LastReconcileAt                  string                                   `json:"lastReconcileAt"`
+	AutonomyProfile                  autonomy.Summary                         `json:"autonomyProfile"`
+	MissionBrief                     mission.Brief                            `json:"missionBrief"`
+	ExecutorAction                   laneExecutorAction                       `json:"executorAction"`
+	PendingGates                     []string                                 `json:"pendingGates"`
+	AuthorizedGates                  []string                                 `json:"authorizedGates"`
+	ExecutionEvidenceReview          []ExecutionEvidenceReviewItem            `json:"executionEvidenceReview,omitempty"`
+	ExecutionEvidenceReviewSummary   ExecutionEvidenceReviewSummary           `json:"executionEvidenceReviewSummary"`
+	ReviewerWritebacks               []ReviewerWritebackItem                  `json:"reviewerWritebacks,omitempty"`
+	ReviewerWritebackSummary         ReviewerWritebackSummary                 `json:"reviewerWritebackSummary"`
+	ReviewerDispatchIntakeHandoffs   []ReviewerDispatchIntakeHandoff          `json:"reviewerDispatchIntakeHandoffs,omitempty"`
+	ReviewerDispatchIntakeSummary    ReviewerDispatchIntakeSummary            `json:"reviewerDispatchIntakeSummary"`
+	ReviewerPacketRetirementHandoffs []ReviewerPacketRetirementHandoff        `json:"reviewerPacketRetirementHandoffs,omitempty"`
+	ReviewerPacketRetirementSummary  ReviewerPacketRetirementSummary          `json:"reviewerPacketRetirementSummary"`
+	AuthorizedGateAdapterHandoffs    []AuthorizedGateAdapterHandoff           `json:"authorizedGateAdapterHandoffs,omitempty"`
+	MissionCommanderNextActions      []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	MissionCommanderActionQueue      mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
+	OpenInterventions                []InterventionSummary                    `json:"openInterventions"`
+	Inbox                            int                                      `json:"inbox"`
+	Tasks                            int                                      `json:"tasks"`
+	UpdatedAt                        string                                   `json:"updatedAt"`
+	Resume                           string                                   `json:"resume"`
 }
 
 type board = mission.Board
@@ -197,6 +201,7 @@ func StartPreview(repoRoot, caseRoot, pack string, opt StartOptions) (StartResul
 	brief := startMissionBrief(inst.CaseRoot)
 	authorizedGateAdapterHandoffs := authorizedGateAdapterHandoffsForLane(m.RepoRoot, inst.CaseRoot, m.Pack, lane.ID)
 	reviewerDispatchIntakeHandoffs := reviewerDispatchIntakeHandoffsForLane(inst.CaseRoot, lane.ID)
+	reviewerPacketRetirementHandoffs := reviewerPacketRetirementHandoffsForLane(inst.CaseRoot, lane.ID)
 	pendingGateHandoffs, openDecisionHandoffs := gateDecisionHandoffsForLane(inst.CaseRoot, lane)
 	executorAction := startExecutorAction(inst.CaseRoot, lane, brief)
 	if strings.HasPrefix(action, "would-create-lane") || strings.Contains(action, "claim-executor") {
@@ -206,25 +211,27 @@ func StartPreview(repoRoot, caseRoot, pack string, opt StartOptions) (StartResul
 	commanderNextActions = MissionCommanderNextActionsWithAuthorizedGateAdapters(commanderNextActions, authorizedGateAdapterHandoffs)
 	commanderNextActions = MissionCommanderNextActionsWithReviewerDispatches(commanderNextActions, reviewerDispatchIntakeHandoffs)
 	return StartResult{
-		SchemaVersion:                  1,
-		Command:                        "start",
-		CaseRoot:                       inst.CaseRoot,
-		RepoRoot:                       m.RepoRoot,
-		Pack:                           m.Pack,
-		IsMutation:                     false,
-		Applied:                        false,
-		RequiresConfirmation:           true,
-		Lane:                           lane,
-		MissionBrief:                   brief,
-		AuthorizedGateAdapterHandoffs:  authorizedGateAdapterHandoffs,
-		ReviewerDispatchIntakeHandoffs: reviewerDispatchIntakeHandoffs,
-		ReviewerDispatchIntakeSummary:  ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
-		PendingGateHandoffs:            pendingGateHandoffs,
-		OpenDecisionHandoffs:           openDecisionHandoffs,
-		ExecutorAction:                 executorAction,
-		MissionCommanderAction:         executorAction.MissionCommanderAction,
-		MissionCommanderNextActions:    commanderNextActions,
-		MissionCommanderActionQueue:    mission.MissionCommanderActionQueueFor(commanderNextActions),
+		SchemaVersion:                    1,
+		Command:                          "start",
+		CaseRoot:                         inst.CaseRoot,
+		RepoRoot:                         m.RepoRoot,
+		Pack:                             m.Pack,
+		IsMutation:                       false,
+		Applied:                          false,
+		RequiresConfirmation:             true,
+		Lane:                             lane,
+		MissionBrief:                     brief,
+		AuthorizedGateAdapterHandoffs:    authorizedGateAdapterHandoffs,
+		ReviewerDispatchIntakeHandoffs:   reviewerDispatchIntakeHandoffs,
+		ReviewerDispatchIntakeSummary:    ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
+		ReviewerPacketRetirementHandoffs: reviewerPacketRetirementHandoffs,
+		ReviewerPacketRetirementSummary:  ReviewerPacketRetirementSummaryFor(reviewerPacketRetirementHandoffs),
+		PendingGateHandoffs:              pendingGateHandoffs,
+		OpenDecisionHandoffs:             openDecisionHandoffs,
+		ExecutorAction:                   executorAction,
+		MissionCommanderAction:           executorAction.MissionCommanderAction,
+		MissionCommanderNextActions:      commanderNextActions,
+		MissionCommanderActionQueue:      mission.MissionCommanderActionQueueFor(commanderNextActions),
 		Writes: []StartWrite{{
 			Path:       relJoin(".rekit", "lanes", laneID, "lane.json"),
 			Kind:       "lane",
@@ -295,6 +302,7 @@ func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (result Start
 	brief := startMissionBrief(inst.CaseRoot)
 	authorizedGateAdapterHandoffs := authorizedGateAdapterHandoffsForLane(m.RepoRoot, inst.CaseRoot, m.Pack, lane.ID)
 	reviewerDispatchIntakeHandoffs := reviewerDispatchIntakeHandoffsForLane(inst.CaseRoot, lane.ID)
+	reviewerPacketRetirementHandoffs := reviewerPacketRetirementHandoffsForLane(inst.CaseRoot, lane.ID)
 	pendingGateHandoffs, openDecisionHandoffs := gateDecisionHandoffsForLane(inst.CaseRoot, lane)
 	executorAction := startExecutorAction(inst.CaseRoot, lane, brief)
 	executorAction = withReviewerDispatchBlocker(executorAction, reviewerDispatchIntakeHandoffs)
@@ -302,29 +310,31 @@ func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (result Start
 	commanderNextActions = MissionCommanderNextActionsWithAuthorizedGateAdapters(commanderNextActions, authorizedGateAdapterHandoffs)
 	commanderNextActions = MissionCommanderNextActionsWithReviewerDispatches(commanderNextActions, reviewerDispatchIntakeHandoffs)
 	return StartResult{
-		SchemaVersion:                  1,
-		Command:                        "start",
-		CaseRoot:                       inst.CaseRoot,
-		RepoRoot:                       m.RepoRoot,
-		Pack:                           m.Pack,
-		IsMutation:                     true,
-		Applied:                        true,
-		RequiresConfirmation:           false,
-		Lane:                           lane,
-		AutonomyProfile:                autonomy.ReadSummary(inst.CaseRoot, lane.ID, m),
-		MissionBrief:                   brief,
-		AuthorizedGateAdapterHandoffs:  authorizedGateAdapterHandoffs,
-		ReviewerDispatchIntakeHandoffs: reviewerDispatchIntakeHandoffs,
-		ReviewerDispatchIntakeSummary:  ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
-		PendingGateHandoffs:            pendingGateHandoffs,
-		OpenDecisionHandoffs:           openDecisionHandoffs,
-		ExecutorAction:                 executorAction,
-		MissionCommanderAction:         executorAction.MissionCommanderAction,
-		MissionCommanderNextActions:    commanderNextActions,
-		MissionCommanderActionQueue:    mission.MissionCommanderActionQueueFor(commanderNextActions),
-		Writes:                         writes,
-		BlockedActions:                 []string{"authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "handoff writes", "continue auto-apply"},
-		NextSteps:                      workstreamNextSteps(executorAction, true),
+		SchemaVersion:                    1,
+		Command:                          "start",
+		CaseRoot:                         inst.CaseRoot,
+		RepoRoot:                         m.RepoRoot,
+		Pack:                             m.Pack,
+		IsMutation:                       true,
+		Applied:                          true,
+		RequiresConfirmation:             false,
+		Lane:                             lane,
+		AutonomyProfile:                  autonomy.ReadSummary(inst.CaseRoot, lane.ID, m),
+		MissionBrief:                     brief,
+		AuthorizedGateAdapterHandoffs:    authorizedGateAdapterHandoffs,
+		ReviewerDispatchIntakeHandoffs:   reviewerDispatchIntakeHandoffs,
+		ReviewerDispatchIntakeSummary:    ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
+		ReviewerPacketRetirementHandoffs: reviewerPacketRetirementHandoffs,
+		ReviewerPacketRetirementSummary:  ReviewerPacketRetirementSummaryFor(reviewerPacketRetirementHandoffs),
+		PendingGateHandoffs:              pendingGateHandoffs,
+		OpenDecisionHandoffs:             openDecisionHandoffs,
+		ExecutorAction:                   executorAction,
+		MissionCommanderAction:           executorAction.MissionCommanderAction,
+		MissionCommanderNextActions:      commanderNextActions,
+		MissionCommanderActionQueue:      mission.MissionCommanderActionQueueFor(commanderNextActions),
+		Writes:                           writes,
+		BlockedActions:                   []string{"authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "handoff writes", "continue auto-apply"},
+		NextSteps:                        workstreamNextSteps(executorAction, true),
 	}, nil
 }
 
@@ -426,6 +436,14 @@ func reviewerDispatchIntakeHandoffsForLane(caseRoot, laneID string) []ReviewerDi
 		return nil
 	}
 	items, err := ReviewerDispatchIntakeHandoffs(caseRoot, facts, laneID)
+	if err != nil {
+		return nil
+	}
+	return items
+}
+
+func reviewerPacketRetirementHandoffsForLane(caseRoot, laneID string) []ReviewerPacketRetirementHandoff {
+	items, err := ReviewerPacketRetirementHandoffs(caseRoot, laneID)
 	if err != nil {
 		return nil
 	}
@@ -1231,6 +1249,10 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 	if err != nil {
 		return "", "", err
 	}
+	reviewerPacketRetirementHandoffs, err := ReviewerPacketRetirementHandoffs(caseRoot, lane.ID)
+	if err != nil {
+		return "", "", err
+	}
 	brief := laneMissionBrief(lane, ledgerFacts)
 	pendingGateLines := missionLines(mission.FilterLane(laneFacts.Requests, lane.ID, "pending-gate"), mission.LaneGateLine)
 	authorizedGateLines := missionLines(mission.FilterLane(laneFacts.Requests, lane.ID, "authorized-gate"), mission.LaneGateLine)
@@ -1314,6 +1336,7 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 	lines = appendResumeList(lines, "commander boundary", executorAction.MissionCommanderAction.Boundary)
 	lines = appendResumeReviewerWritebacks(lines, reviewerWritebacks)
 	lines = appendReviewerDispatchIntakeHandoff(lines, reviewerDispatchIntakeHandoffs)
+	lines = appendReviewerPacketRetirementHandoff(lines, reviewerPacketRetirementHandoffs)
 	lines = appendMissionCommanderActionQueue(lines, missionCommanderActionQueue)
 	lines = appendResumeMissionCommanderNextActions(lines, missionCommanderNextActions)
 	lines = appendResumeList(lines, "blocker reasons", executorAction.BlockerReasons)
@@ -1369,36 +1392,38 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 	}
 	checkpointPath := filepath.Join(laneRoot, "checkpoints", "latest.json")
 	checkpoint := laneCheckpoint{
-		SchemaVersion:                  1,
-		Lane:                           lane.ID,
-		Status:                         lane.Status,
-		Workspace:                      lane.Workspace,
-		CurrentExecutor:                lane.CurrentExecutor,
-		ExecutorGeneration:             lane.ExecutorGeneration,
-		LastTakeoverAt:                 lane.LastTakeoverAt,
-		LastTakeoverBy:                 lane.LastTakeoverBy,
-		LastTakeoverReason:             lane.LastTakeoverReason,
-		LastReconciledIntervention:     lane.LastReconciledIntervention,
-		LastReconcileAt:                lane.LastReconcileAt,
-		AutonomyProfile:                autonomySummary,
-		MissionBrief:                   brief,
-		ExecutorAction:                 executorAction,
-		PendingGates:                   pendingGateLines,
-		AuthorizedGates:                authorizedGateLines,
-		ExecutionEvidenceReview:        executionEvidenceReview,
-		ExecutionEvidenceReviewSummary: ExecutionEvidenceReviewSummaryFor(executionEvidenceReview, missionCommanderActionQueue),
-		ReviewerWritebacks:             reviewerWritebacks,
-		ReviewerWritebackSummary:       ReviewerWritebackSummaryFor(reviewerWritebacks),
-		ReviewerDispatchIntakeHandoffs: reviewerDispatchIntakeHandoffs,
-		ReviewerDispatchIntakeSummary:  ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
-		AuthorizedGateAdapterHandoffs:  authorizedGateAdapterHandoffs,
-		MissionCommanderNextActions:    missionCommanderNextActions,
-		MissionCommanderActionQueue:    missionCommanderActionQueue,
-		OpenInterventions:              openInterventions,
-		Inbox:                          len(inbox),
-		Tasks:                          len(tasks),
-		UpdatedAt:                      time.Now().UTC().Format(time.RFC3339Nano),
-		Resume:                         relativePath(caseRoot, resumePath),
+		SchemaVersion:                    1,
+		Lane:                             lane.ID,
+		Status:                           lane.Status,
+		Workspace:                        lane.Workspace,
+		CurrentExecutor:                  lane.CurrentExecutor,
+		ExecutorGeneration:               lane.ExecutorGeneration,
+		LastTakeoverAt:                   lane.LastTakeoverAt,
+		LastTakeoverBy:                   lane.LastTakeoverBy,
+		LastTakeoverReason:               lane.LastTakeoverReason,
+		LastReconciledIntervention:       lane.LastReconciledIntervention,
+		LastReconcileAt:                  lane.LastReconcileAt,
+		AutonomyProfile:                  autonomySummary,
+		MissionBrief:                     brief,
+		ExecutorAction:                   executorAction,
+		PendingGates:                     pendingGateLines,
+		AuthorizedGates:                  authorizedGateLines,
+		ExecutionEvidenceReview:          executionEvidenceReview,
+		ExecutionEvidenceReviewSummary:   ExecutionEvidenceReviewSummaryFor(executionEvidenceReview, missionCommanderActionQueue),
+		ReviewerWritebacks:               reviewerWritebacks,
+		ReviewerWritebackSummary:         ReviewerWritebackSummaryFor(reviewerWritebacks),
+		ReviewerDispatchIntakeHandoffs:   reviewerDispatchIntakeHandoffs,
+		ReviewerDispatchIntakeSummary:    ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
+		ReviewerPacketRetirementHandoffs: reviewerPacketRetirementHandoffs,
+		ReviewerPacketRetirementSummary:  ReviewerPacketRetirementSummaryFor(reviewerPacketRetirementHandoffs),
+		AuthorizedGateAdapterHandoffs:    authorizedGateAdapterHandoffs,
+		MissionCommanderNextActions:      missionCommanderNextActions,
+		MissionCommanderActionQueue:      missionCommanderActionQueue,
+		OpenInterventions:                openInterventions,
+		Inbox:                            len(inbox),
+		Tasks:                            len(tasks),
+		UpdatedAt:                        time.Now().UTC().Format(time.RFC3339Nano),
+		Resume:                           relativePath(caseRoot, resumePath),
 	}
 	if err := writeJSON(checkpointPath, checkpoint); err != nil {
 		return "", "", err

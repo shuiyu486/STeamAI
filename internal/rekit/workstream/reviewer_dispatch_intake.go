@@ -175,6 +175,47 @@ type ReviewerDispatchIntakeHandoff struct {
 	Boundary                                 []string                          `json:"boundary,omitempty"`
 }
 
+type ReviewerPacketRetirementHandoff struct {
+	PacketID        string   `json:"packetId,omitempty"`
+	PacketPath      string   `json:"packetPath"`
+	IntegrityPath   string   `json:"integrityPath"`
+	RetirementPath  string   `json:"retirementPath"`
+	TargetLane      string   `json:"targetLane,omitempty"`
+	State           string   `json:"state"`
+	PacketSHA256    string   `json:"packetSha256"`
+	PacketBytes     int      `json:"packetBytes"`
+	IntegritySHA256 string   `json:"integritySha256"`
+	IntegrityBytes  int      `json:"integrityBytes"`
+	Actor           string   `json:"actor,omitempty"`
+	Reason          string   `json:"reason,omitempty"`
+	CreatedAt       string   `json:"createdAt,omitempty"`
+	NoDelete        bool     `json:"noDelete"`
+	NoHeavyTool     bool     `json:"noHeavyTool"`
+	NoAuthority     bool     `json:"noAuthorityOrConfirmed"`
+	NextAction      string   `json:"nextAction,omitempty"`
+	RunbookSteps    []string `json:"runbookSteps,omitempty"`
+	Evidence        []string `json:"evidence,omitempty"`
+	Boundary        []string `json:"boundary,omitempty"`
+}
+
+type ReviewerPacketRetirementSummary struct {
+	Total           int      `json:"total"`
+	LaneCount       int      `json:"laneCount"`
+	Lanes           []string `json:"lanes,omitempty"`
+	PacketCount     int      `json:"packetCount"`
+	LatestPacketID  string   `json:"latestPacketId,omitempty"`
+	LatestPacket    string   `json:"latestPacket,omitempty"`
+	LatestState     string   `json:"latestState,omitempty"`
+	LatestLane      string   `json:"latestLane,omitempty"`
+	LatestReceipt   string   `json:"latestReceipt,omitempty"`
+	LatestActor     string   `json:"latestActor,omitempty"`
+	LatestReason    string   `json:"latestReason,omitempty"`
+	LatestCreatedAt string   `json:"latestCreatedAt,omitempty"`
+	NextAction      string   `json:"nextAction,omitempty"`
+	RunbookSteps    []string `json:"runbookSteps,omitempty"`
+	Boundary        []string `json:"boundary,omitempty"`
+}
+
 type ReviewerDispatchIntakeSummary struct {
 	Total                                             int      `json:"total"`
 	WaitingForReviewerResult                          int      `json:"waitingForReviewerResult"`
@@ -379,6 +420,90 @@ func ReviewerDispatchIntakeHandoffs(caseRoot string, facts mission.LedgerFacts, 
 		items = append(items, reviewerDispatchIntakeHandoffsForPacket(caseRoot, facts, packet, packetPath, packetTargetLane)...)
 	}
 	return limitReviewerDispatchIntakeHandoffs(items, maxHandoffRows), nil
+}
+
+func ReviewerPacketRetirementHandoffs(caseRoot, laneID string) ([]ReviewerPacketRetirementHandoff, error) {
+	packetPaths, err := reviewerDispatchPacketPaths(caseRoot)
+	if err != nil {
+		return nil, err
+	}
+	items := []ReviewerPacketRetirementHandoff{}
+	for _, packetPath := range packetPaths {
+		integrity, err := readReviewerPacketIntegrity(caseRoot, packetPath)
+		if err != nil {
+			continue
+		}
+		if strings.TrimSpace(laneID) != "" && integrity.TargetLane != laneID {
+			continue
+		}
+		retirement, ok := currentReviewerPacketRetirement(caseRoot, packetPath, integrity)
+		if !ok {
+			continue
+		}
+		items = append(items, reviewerPacketRetirementHandoff(caseRoot, packetPath, integrity, retirement))
+	}
+	return limitReviewerPacketRetirementHandoffs(items, maxHandoffRows), nil
+}
+
+func limitReviewerPacketRetirementHandoffs(items []ReviewerPacketRetirementHandoff, limit int) []ReviewerPacketRetirementHandoff {
+	if limit <= 0 || len(items) <= limit {
+		return items
+	}
+	return append([]ReviewerPacketRetirementHandoff{}, items[len(items)-limit:]...)
+}
+
+func reviewerPacketRetirementHandoff(caseRoot, packetPath string, integrity reviewerPacketIntegrity, retirement reviewerPacketRetirement) ReviewerPacketRetirementHandoff {
+	integrityPath := filepath.Join(filepath.Dir(packetPath), "packet.integrity.json")
+	retirementPath := filepath.Join(filepath.Dir(packetPath), "packet.retirement.json")
+	item := ReviewerPacketRetirementHandoff{
+		PacketID:        integrity.PacketID,
+		PacketPath:      packetPath,
+		IntegrityPath:   integrityPath,
+		RetirementPath:  retirementPath,
+		TargetLane:      integrity.TargetLane,
+		State:           "reviewer-packet-retired",
+		PacketSHA256:    retirement.PacketSHA256,
+		PacketBytes:     retirement.PacketBytes,
+		IntegritySHA256: retirement.IntegritySHA256,
+		IntegrityBytes:  retirement.IntegrityBytes,
+		Actor:           retirement.Actor,
+		Reason:          retirement.Reason,
+		CreatedAt:       retirement.CreatedAt,
+		NoDelete:        retirement.NoDelete,
+		NoHeavyTool:     retirement.NoHeavyTool,
+		NoAuthority:     retirement.NoAuthority,
+		NextAction:      reviewerPacketRetirementNextAction(integrity.TargetLane),
+		Evidence: []string{
+			"exact retirement receipt " + reviewerDispatchDisplayPath(caseRoot, retirementPath),
+			"packet " + reviewerDispatchDisplayPath(caseRoot, packetPath) + " sha256=" + retirement.PacketSHA256,
+			"integrity " + reviewerDispatchDisplayPath(caseRoot, integrityPath) + " sha256=" + retirement.IntegritySHA256,
+		},
+		Boundary: reviewerPacketRetirementBoundary(),
+	}
+	item.RunbookSteps = reviewerPacketRetirementRunbookSteps(item)
+	return item
+}
+
+func reviewerPacketRetirementNextAction(lane string) string {
+	lane = firstText(lane, "<lane>")
+	return "regenerate a new canonical reviewer packet for " + lane + " if reviewer work remains; otherwise rerun /rekit continue " + lane + " -WhatIf to resume lane continuation"
+}
+
+func reviewerPacketRetirementRunbookSteps(item ReviewerPacketRetirementHandoff) []string {
+	lane := firstText(item.TargetLane, "<lane>")
+	return mission.UniqueStrings([]string{
+		"exact invalid reviewer packet retirement is current; do not dispatch, collect, intake, adopt, or continue from the retired packet",
+		"if reviewer work remains, regenerate the canonical reviewer packet and packet.integrity.json together; do not repair packet bytes or integrity metadata independently",
+		"if no reviewer work remains, rerun /rekit continue " + lane + " -WhatIf and then the bounded Apply only after reviewing the refreshed preview",
+	})
+}
+
+func reviewerPacketRetirementBoundary() []string {
+	return []string{
+		"retired reviewer packet is closed provenance only and must not be dispatched, collected, intaken, adopted, or used for lane continuation",
+		"retirement does not delete, repair, or rewrite packet bytes or packet.integrity.json",
+		"runtime does not spawn, stop, monitor, or manage reviewer sessions and does not execute heavy tools or write authority/confirmed state",
+	}
 }
 
 func limitReviewerDispatchIntakeHandoffs(items []ReviewerDispatchIntakeHandoff, limit int) []ReviewerDispatchIntakeHandoff {
@@ -704,6 +829,47 @@ func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) Rev
 	return summary
 }
 
+func ReviewerPacketRetirementSummaryFor(items []ReviewerPacketRetirementHandoff) ReviewerPacketRetirementSummary {
+	summary := ReviewerPacketRetirementSummary{}
+	lanes := map[string]bool{}
+	packets := map[string]bool{}
+	for _, item := range items {
+		summary.Total++
+		if lane := strings.TrimSpace(item.TargetLane); lane != "" {
+			lanes[lane] = true
+		}
+		packetKey := firstText(item.PacketID, item.PacketPath)
+		if packetKey != "" {
+			packets[packetKey] = true
+		}
+	}
+	for lane := range lanes {
+		summary.Lanes = append(summary.Lanes, lane)
+	}
+	sort.Strings(summary.Lanes)
+	summary.LaneCount = len(summary.Lanes)
+	summary.PacketCount = len(packets)
+	if len(items) > 0 {
+		latest := items[len(items)-1]
+		summary.LatestPacketID = latest.PacketID
+		summary.LatestPacket = latest.PacketPath
+		summary.LatestState = latest.State
+		summary.LatestLane = latest.TargetLane
+		summary.LatestReceipt = latest.RetirementPath
+		summary.LatestActor = latest.Actor
+		summary.LatestReason = latest.Reason
+		summary.LatestCreatedAt = latest.CreatedAt
+		summary.NextAction = latest.NextAction
+		summary.RunbookSteps = append([]string{}, latest.RunbookSteps...)
+		summary.Boundary = reviewerPacketRetirementSummaryBoundary()
+	}
+	return summary
+}
+
+func reviewerPacketRetirementSummaryBoundary() []string {
+	return mission.UniqueStrings(append([]string{"reviewer packet retirement summary is read-only and does not reopen retired packet work"}, reviewerPacketRetirementBoundary()...))
+}
+
 func reviewerDispatchPacketPaths(caseRoot string) ([]string, error) {
 	root := filepath.Join(caseRoot, ".rekit", "reviews")
 	entries, err := os.ReadDir(root)
@@ -799,43 +965,49 @@ func readReviewerPacketIntegrity(caseRoot, packetPath string) (reviewerPacketInt
 }
 
 func reviewerPacketRetirementCurrent(caseRoot, packetPath string, integrity reviewerPacketIntegrity) bool {
+	_, ok := currentReviewerPacketRetirement(caseRoot, packetPath, integrity)
+	return ok
+}
+
+func currentReviewerPacketRetirement(caseRoot, packetPath string, integrity reviewerPacketIntegrity) (reviewerPacketRetirement, bool) {
 	inst, err := instance.Read(caseRoot)
 	if err != nil || inst.Source == "missing" || inst.Moved() || strings.TrimSpace(inst.TemplateRoot) == "" || strings.TrimSpace(inst.TemplatePack) == "" {
-		return false
+		return reviewerPacketRetirement{}, false
 	}
 	retirementPath := filepath.Join(filepath.Dir(packetPath), "packet.retirement.json")
 	if !reviewpath.CollectionNamespacePathSafe(caseRoot, retirementPath, false) {
-		return false
+		return reviewerPacketRetirement{}, false
 	}
 	data, err := readStableReviewerWorkstreamArtifact(caseRoot, retirementPath, "reviewer packet retirement")
 	if err != nil {
-		return false
+		return reviewerPacketRetirement{}, false
 	}
 	dec := json.NewDecoder(bytes.NewReader(bytes.TrimSpace(data)))
 	dec.DisallowUnknownFields()
 	var retirement reviewerPacketRetirement
 	if err := dec.Decode(&retirement); err != nil {
-		return false
+		return reviewerPacketRetirement{}, false
 	}
 	var trailing any
 	if err := dec.Decode(&trailing); err != io.EOF {
-		return false
+		return reviewerPacketRetirement{}, false
 	}
 	packetData, packetErr := readStableReviewerWorkstreamArtifact(caseRoot, packetPath, "reviewer packet")
 	integrityPath := filepath.Join(filepath.Dir(packetPath), "packet.integrity.json")
 	integrityData, integrityErr := readStableReviewerWorkstreamArtifact(caseRoot, integrityPath, "reviewer packet integrity")
 	if packetErr != nil || integrityErr != nil {
-		return false
+		return reviewerPacketRetirement{}, false
 	}
 	packetSum := sha256.Sum256(packetData)
 	integritySum := sha256.Sum256(integrityData)
 	_, createdAtErr := time.Parse(time.RFC3339Nano, retirement.CreatedAt)
-	return retirement.SchemaVersion == 1 && retirement.Kind == "reviewer-packet-retirement" &&
+	current := retirement.SchemaVersion == 1 && retirement.Kind == "reviewer-packet-retirement" &&
 		casebind.SamePath(retirement.RepoRoot, inst.TemplateRoot) && casebind.SamePath(retirement.CaseRoot, inst.CaseRoot) && retirement.Pack == inst.TemplatePack &&
 		retirement.PacketID == integrity.PacketID && retirement.Lane == integrity.TargetLane &&
 		casebind.SamePath(retirement.PacketPath, packetPath) && retirement.PacketSHA256 == hex.EncodeToString(packetSum[:]) && retirement.PacketBytes == len(packetData) &&
 		casebind.SamePath(retirement.IntegrityPath, integrityPath) && retirement.IntegritySHA256 == hex.EncodeToString(integritySum[:]) && retirement.IntegrityBytes == len(integrityData) &&
 		strings.TrimSpace(retirement.Actor) != "" && strings.TrimSpace(retirement.Reason) != "" && createdAtErr == nil && retirement.NoDelete && retirement.NoHeavyTool && retirement.NoAuthority
+	return retirement, current
 }
 
 func validateReviewerPacketIntegrity(caseRoot, packetPath string, packet reviewerDispatchPacket) error {
@@ -2008,6 +2180,51 @@ func WriteReviewerDispatchIntakeHandoffSection(out *bytes.Buffer, title string, 
 			fmt.Fprintf(out, "  - evidence: %s\n", evidence)
 		}
 		for _, boundary := range item.Boundary {
+			fmt.Fprintf(out, "  - boundary: %s\n", boundary)
+		}
+	}
+	fmt.Fprintln(out)
+}
+
+func appendReviewerPacketRetirementHandoff(lines []string, items []ReviewerPacketRetirementHandoff) []string {
+	lines = append(lines, "", "## Reviewer packet retirement handoff", "")
+	if len(items) == 0 {
+		return append(lines, "- none")
+	}
+	summary := ReviewerPacketRetirementSummaryFor(items)
+	lines = append(lines, fmt.Sprintf("- summary: total=%d packets=%d lanes=%d latestPacket=%s latestState=%s latestLane=%s latestReceipt=`%s` nextAction=`%s`", summary.Total, summary.PacketCount, summary.LaneCount, summary.LatestPacketID, summary.LatestState, summary.LatestLane, summary.LatestReceipt, summary.NextAction))
+	for _, item := range items {
+		lines = append(lines, fmt.Sprintf("- packet retirement: lane=%s packet=%s state=%s receipt=`%s` packetSha256=%s integritySha256=%s noDelete=%t noHeavyTool=%t noAuthorityOrConfirmed=%t nextAction=`%s`", item.TargetLane, firstText(item.PacketID, item.PacketPath), item.State, item.RetirementPath, item.PacketSHA256, item.IntegritySHA256, item.NoDelete, item.NoHeavyTool, item.NoAuthority, item.NextAction))
+		for idx, step := range mission.LimitStrings(item.RunbookSteps, maxHandoffRows) {
+			lines = append(lines, fmt.Sprintf("  - runbook step %d: %s", idx+1, step))
+		}
+		for _, evidence := range mission.LimitStrings(item.Evidence, maxHandoffRows) {
+			lines = append(lines, "  - evidence: "+evidence)
+		}
+		for _, boundary := range mission.LimitStrings(item.Boundary, maxHandoffRows) {
+			lines = append(lines, "  - boundary: "+boundary)
+		}
+	}
+	return lines
+}
+
+func WriteReviewerPacketRetirementHandoffSection(out *bytes.Buffer, title string, items []ReviewerPacketRetirementHandoff) {
+	if len(items) == 0 {
+		return
+	}
+	summary := ReviewerPacketRetirementSummaryFor(items)
+	fmt.Fprintln(out, title)
+	fmt.Fprintln(out)
+	fmt.Fprintf(out, "- summary: total=%d packets=%d lanes=%d latestPacket=%s latestState=%s latestLane=%s latestReceipt=`%s` nextAction=`%s`\n", summary.Total, summary.PacketCount, summary.LaneCount, summary.LatestPacketID, summary.LatestState, summary.LatestLane, summary.LatestReceipt, summary.NextAction)
+	for _, item := range items {
+		fmt.Fprintf(out, "- packet retirement: lane=%s packet=%s state=%s receipt=`%s` packetSha256=%s integritySha256=%s noDelete=%t noHeavyTool=%t noAuthorityOrConfirmed=%t nextAction=`%s`\n", item.TargetLane, firstText(item.PacketID, item.PacketPath), item.State, item.RetirementPath, item.PacketSHA256, item.IntegritySHA256, item.NoDelete, item.NoHeavyTool, item.NoAuthority, item.NextAction)
+		for idx, step := range mission.LimitStrings(item.RunbookSteps, maxHandoffRows) {
+			fmt.Fprintf(out, "  - runbook step %d: %s\n", idx+1, step)
+		}
+		for _, evidence := range mission.LimitStrings(item.Evidence, maxHandoffRows) {
+			fmt.Fprintf(out, "  - evidence: %s\n", evidence)
+		}
+		for _, boundary := range mission.LimitStrings(item.Boundary, maxHandoffRows) {
 			fmt.Fprintf(out, "  - boundary: %s\n", boundary)
 		}
 	}

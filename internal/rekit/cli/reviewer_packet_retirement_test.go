@@ -171,4 +171,163 @@ func TestRunPlanSubagentsReviewerPacketRetirementWhatIfApplyE2E(t *testing.T) {
 	if !applied.Applied || applied.MissionCommanderAction.State != "reviewer-packet-retired" {
 		t.Fatalf("unexpected retirement apply: %+v", applied)
 	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var retiredStatus struct {
+		CaseMission struct {
+			ReviewerDispatchIntakeHandoffs    []reviewerDispatchIntakeCLIItem        `json:"reviewerDispatchIntakeHandoffs"`
+			ReviewerDispatchIntakeSummary     reviewerDispatchIntakeSummaryCLIItem   `json:"reviewerDispatchIntakeSummary"`
+			ReviewerPacketRetirementHandoffs  []reviewerPacketRetirementCLIItem      `json:"reviewerPacketRetirementHandoffs"`
+			ReviewerPacketRetirementSummary   reviewerPacketRetirementSummaryCLIItem `json:"reviewerPacketRetirementSummary"`
+			ReviewerDispatchIntakeActionQueue missionCommanderActionQueueSnapshot    `json:"reviewerDispatchIntakeActionQueue"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &retiredStatus); err != nil {
+		t.Fatalf("retired status JSON did not decode: %v\n%s", err, out.String())
+	}
+	if len(retiredStatus.CaseMission.ReviewerDispatchIntakeHandoffs) != 0 || retiredStatus.CaseMission.ReviewerDispatchIntakeSummary.Total != 0 || retiredStatus.CaseMission.ReviewerDispatchIntakeActionQueue.Counts.Total != 0 {
+		t.Fatalf("retired status kept invalid packet as open reviewer dispatch: %+v", retiredStatus.CaseMission)
+	}
+	assertReviewerPacketRetirementClosure(t, "status after retirement", retiredStatus.CaseMission.ReviewerPacketRetirementHandoffs, retiredStatus.CaseMission.ReviewerPacketRetirementSummary, applied.PacketID, "feature-review", applied.PacketSHA256, applied.IntegritySHA256)
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	assertReviewerPacketRetirementText(t, "status text after retirement", out.String(), "feature-review")
+	assertNoReviewerPacketRetirementReopensInvalidPacket(t, "status text after retirement", out.String())
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "review", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var retiredHandoff struct {
+		ReviewerDispatchIntakeHandoffs   []reviewerDispatchIntakeCLIItem        `json:"reviewerDispatchIntakeHandoffs"`
+		ReviewerDispatchIntakeSummary    reviewerDispatchIntakeSummaryCLIItem   `json:"reviewerDispatchIntakeSummary"`
+		ReviewerPacketRetirementHandoffs []reviewerPacketRetirementCLIItem      `json:"reviewerPacketRetirementHandoffs"`
+		ReviewerPacketRetirementSummary  reviewerPacketRetirementSummaryCLIItem `json:"reviewerPacketRetirementSummary"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &retiredHandoff); err != nil {
+		t.Fatalf("retired handoff JSON did not decode: %v\n%s", err, out.String())
+	}
+	if len(retiredHandoff.ReviewerDispatchIntakeHandoffs) != 0 || retiredHandoff.ReviewerDispatchIntakeSummary.Total != 0 {
+		t.Fatalf("retired handoff kept invalid packet as open reviewer dispatch: %+v", retiredHandoff)
+	}
+	assertReviewerPacketRetirementClosure(t, "handoff after retirement", retiredHandoff.ReviewerPacketRetirementHandoffs, retiredHandoff.ReviewerPacketRetirementSummary, applied.PacketID, "feature-review", applied.PacketSHA256, applied.IntegritySHA256)
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "review", "-WhatIf", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	assertReviewerPacketRetirementText(t, "handoff text after retirement", out.String(), "feature-review")
+	assertNoReviewerPacketRetirementReopensInvalidPacket(t, "handoff text after retirement", out.String())
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "review", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var retiredContinuePreview struct {
+		Applied                          bool                                   `json:"applied"`
+		Blocked                          bool                                   `json:"blocked"`
+		ReviewerDispatchIntakeHandoffs   []reviewerDispatchIntakeCLIItem        `json:"reviewerDispatchIntakeHandoffs"`
+		ReviewerDispatchIntakeSummary    reviewerDispatchIntakeSummaryCLIItem   `json:"reviewerDispatchIntakeSummary"`
+		ReviewerPacketRetirementHandoffs []reviewerPacketRetirementCLIItem      `json:"reviewerPacketRetirementHandoffs"`
+		ReviewerPacketRetirementSummary  reviewerPacketRetirementSummaryCLIItem `json:"reviewerPacketRetirementSummary"`
+		MissionCommanderActionQueue      missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &retiredContinuePreview); err != nil {
+		t.Fatalf("retired continue preview JSON did not decode: %v\n%s", err, out.String())
+	}
+	if retiredContinuePreview.Applied || retiredContinuePreview.Blocked || len(retiredContinuePreview.ReviewerDispatchIntakeHandoffs) != 0 || retiredContinuePreview.ReviewerDispatchIntakeSummary.Total != 0 {
+		t.Fatalf("retired continue preview kept reviewer blocker: %+v", retiredContinuePreview)
+	}
+	if current := retiredContinuePreview.MissionCommanderActionQueue.CurrentAction; current != nil && current.Source == "reviewerDispatchIntakeHandoffs" {
+		t.Fatalf("retired continue preview current action still points at reviewer dispatch: %+v", current)
+	}
+	assertReviewerPacketRetirementClosure(t, "continue preview after retirement", retiredContinuePreview.ReviewerPacketRetirementHandoffs, retiredContinuePreview.ReviewerPacketRetirementSummary, applied.PacketID, "feature-review", applied.PacketSHA256, applied.IntegritySHA256)
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "review", "-WhatIf", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	assertReviewerPacketRetirementText(t, "continue text after retirement", out.String(), "feature-review")
+	assertNoReviewerPacketRetirementReopensInvalidPacket(t, "continue text after retirement", out.String())
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "review", "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var retiredContinueApply struct {
+		RunID                            string                                 `json:"runId"`
+		Applied                          bool                                   `json:"applied"`
+		Blocked                          bool                                   `json:"blocked"`
+		ReviewerDispatchIntakeHandoffs   []reviewerDispatchIntakeCLIItem        `json:"reviewerDispatchIntakeHandoffs"`
+		ReviewerDispatchIntakeSummary    reviewerDispatchIntakeSummaryCLIItem   `json:"reviewerDispatchIntakeSummary"`
+		ReviewerPacketRetirementHandoffs []reviewerPacketRetirementCLIItem      `json:"reviewerPacketRetirementHandoffs"`
+		ReviewerPacketRetirementSummary  reviewerPacketRetirementSummaryCLIItem `json:"reviewerPacketRetirementSummary"`
+		Writes                           []startWrite                           `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &retiredContinueApply); err != nil {
+		t.Fatalf("retired continue apply JSON did not decode: %v\n%s", err, out.String())
+	}
+	if !retiredContinueApply.Applied || retiredContinueApply.Blocked || retiredContinueApply.RunID == "" || retiredContinueApply.RunID == "run-preview" || len(retiredContinueApply.ReviewerDispatchIntakeHandoffs) != 0 || retiredContinueApply.ReviewerDispatchIntakeSummary.Total != 0 {
+		t.Fatalf("retired continue apply kept reviewer blocker or omitted run: %+v", retiredContinueApply)
+	}
+	assertReviewerPacketRetirementClosure(t, "continue apply after retirement", retiredContinueApply.ReviewerPacketRetirementHandoffs, retiredContinueApply.ReviewerPacketRetirementSummary, applied.PacketID, "feature-review", applied.PacketSHA256, applied.IntegritySHA256)
+	resumePath := assertStartWrite(t, retiredContinueApply.Writes, ".rekit/lanes/feature-review/prompts/RESUME.md", "refresh").TargetPath
+	checkpointPath := assertStartWrite(t, retiredContinueApply.Writes, ".rekit/lanes/feature-review/checkpoints/latest.json", "refresh").TargetPath
+	statusPath := assertStartWrite(t, retiredContinueApply.Writes, ".rekit/runs/"+retiredContinueApply.RunID+"/status.json", "write").TargetPath
+	digestPath := assertStartWrite(t, retiredContinueApply.Writes, ".rekit/runs/"+retiredContinueApply.RunID+"/digest.md", "write").TargetPath
+
+	statusBytes, err := os.ReadFile(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var runStatus struct {
+		ReviewerDispatchIntakeHandoffs   []reviewerDispatchIntakeCLIItem        `json:"reviewerDispatchIntakeHandoffs"`
+		ReviewerDispatchIntakeSummary    reviewerDispatchIntakeSummaryCLIItem   `json:"reviewerDispatchIntakeSummary"`
+		ReviewerPacketRetirementHandoffs []reviewerPacketRetirementCLIItem      `json:"reviewerPacketRetirementHandoffs"`
+		ReviewerPacketRetirementSummary  reviewerPacketRetirementSummaryCLIItem `json:"reviewerPacketRetirementSummary"`
+	}
+	if err := json.Unmarshal(statusBytes, &runStatus); err != nil {
+		t.Fatalf("retired continue run status did not decode: %v\n%s", err, string(statusBytes))
+	}
+	if len(runStatus.ReviewerDispatchIntakeHandoffs) != 0 || runStatus.ReviewerDispatchIntakeSummary.Total != 0 {
+		t.Fatalf("retired continue run status kept reviewer blocker: %+v", runStatus)
+	}
+	assertReviewerPacketRetirementClosure(t, "continue run status after retirement", runStatus.ReviewerPacketRetirementHandoffs, runStatus.ReviewerPacketRetirementSummary, applied.PacketID, "feature-review", applied.PacketSHA256, applied.IntegritySHA256)
+
+	checkpointBytes, err := os.ReadFile(checkpointPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var checkpoint struct {
+		ReviewerDispatchIntakeHandoffs   []reviewerDispatchIntakeCLIItem        `json:"reviewerDispatchIntakeHandoffs"`
+		ReviewerDispatchIntakeSummary    reviewerDispatchIntakeSummaryCLIItem   `json:"reviewerDispatchIntakeSummary"`
+		ReviewerPacketRetirementHandoffs []reviewerPacketRetirementCLIItem      `json:"reviewerPacketRetirementHandoffs"`
+		ReviewerPacketRetirementSummary  reviewerPacketRetirementSummaryCLIItem `json:"reviewerPacketRetirementSummary"`
+	}
+	if err := json.Unmarshal(checkpointBytes, &checkpoint); err != nil {
+		t.Fatalf("retired checkpoint did not decode: %v\n%s", err, string(checkpointBytes))
+	}
+	if len(checkpoint.ReviewerDispatchIntakeHandoffs) != 0 || checkpoint.ReviewerDispatchIntakeSummary.Total != 0 {
+		t.Fatalf("retired checkpoint kept reviewer blocker: %+v", checkpoint)
+	}
+	assertReviewerPacketRetirementClosure(t, "checkpoint after retirement", checkpoint.ReviewerPacketRetirementHandoffs, checkpoint.ReviewerPacketRetirementSummary, applied.PacketID, "feature-review", applied.PacketSHA256, applied.IntegritySHA256)
+
+	resumeBytes, err := os.ReadFile(resumePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digestBytes, err := os.ReadFile(digestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for label, text := range map[string]string{"lane RESUME after retirement": string(resumeBytes), "continue digest after retirement": string(digestBytes)} {
+		assertReviewerPacketRetirementText(t, label, text, "feature-review")
+		assertNoReviewerPacketRetirementReopensInvalidPacket(t, label, text)
+	}
 }

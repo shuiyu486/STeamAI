@@ -22,27 +22,29 @@ const maxRows = 10
 type event = map[string]any
 
 type Inventory struct {
-	SchemaVersion                  int                                        `json:"schemaVersion"`
-	Command                        string                                     `json:"command"`
-	CaseRoot                       string                                     `json:"caseRoot"`
-	RepoRoot                       string                                     `json:"repoRoot"`
-	Pack                           string                                     `json:"pack"`
-	IsMutation                     bool                                       `json:"isMutation"`
-	AutomationMode                 string                                     `json:"automationMode"`
-	Lanes                          []LaneSummary                              `json:"lanes"`
-	Counts                         FactCounts                                 `json:"counts"`
-	MissionBrief                   MissionBrief                               `json:"missionBrief"`
-	LaneExecutorActions            []mission.LaneExecutorActionSnapshot       `json:"laneExecutorActions"`
-	MissionCommanderActions        []MissionCommanderActionIndexItem          `json:"missionCommanderActions"`
-	MissionCommanderNextActions    []MissionCommanderNextActionItem           `json:"missionCommanderNextActions"`
-	MissionCommanderActionQueue    MissionCommanderActionQueue                `json:"missionCommanderActionQueue"`
-	ExecutionEvidenceReview        []workstream.ExecutionEvidenceReviewItem   `json:"executionEvidenceReview"`
-	ExecutionEvidenceReviewSummary workstream.ExecutionEvidenceReviewSummary  `json:"executionEvidenceReviewSummary"`
-	AuthorizedGateAdapterHandoffs  []workstream.AuthorizedGateAdapterHandoff  `json:"authorizedGateAdapterHandoffs,omitempty"`
-	ReviewerDispatchIntakeHandoffs []workstream.ReviewerDispatchIntakeHandoff `json:"reviewerDispatchIntakeHandoffs,omitempty"`
-	ReviewerDispatchIntakeSummary  workstream.ReviewerDispatchIntakeSummary   `json:"reviewerDispatchIntakeSummary"`
-	Sections                       OverviewSections                           `json:"sections"`
-	NextSteps                      []string                                   `json:"nextSteps"`
+	SchemaVersion                    int                                          `json:"schemaVersion"`
+	Command                          string                                       `json:"command"`
+	CaseRoot                         string                                       `json:"caseRoot"`
+	RepoRoot                         string                                       `json:"repoRoot"`
+	Pack                             string                                       `json:"pack"`
+	IsMutation                       bool                                         `json:"isMutation"`
+	AutomationMode                   string                                       `json:"automationMode"`
+	Lanes                            []LaneSummary                                `json:"lanes"`
+	Counts                           FactCounts                                   `json:"counts"`
+	MissionBrief                     MissionBrief                                 `json:"missionBrief"`
+	LaneExecutorActions              []mission.LaneExecutorActionSnapshot         `json:"laneExecutorActions"`
+	MissionCommanderActions          []MissionCommanderActionIndexItem            `json:"missionCommanderActions"`
+	MissionCommanderNextActions      []MissionCommanderNextActionItem             `json:"missionCommanderNextActions"`
+	MissionCommanderActionQueue      MissionCommanderActionQueue                  `json:"missionCommanderActionQueue"`
+	ExecutionEvidenceReview          []workstream.ExecutionEvidenceReviewItem     `json:"executionEvidenceReview"`
+	ExecutionEvidenceReviewSummary   workstream.ExecutionEvidenceReviewSummary    `json:"executionEvidenceReviewSummary"`
+	AuthorizedGateAdapterHandoffs    []workstream.AuthorizedGateAdapterHandoff    `json:"authorizedGateAdapterHandoffs,omitempty"`
+	ReviewerDispatchIntakeHandoffs   []workstream.ReviewerDispatchIntakeHandoff   `json:"reviewerDispatchIntakeHandoffs,omitempty"`
+	ReviewerDispatchIntakeSummary    workstream.ReviewerDispatchIntakeSummary     `json:"reviewerDispatchIntakeSummary"`
+	ReviewerPacketRetirementHandoffs []workstream.ReviewerPacketRetirementHandoff `json:"reviewerPacketRetirementHandoffs,omitempty"`
+	ReviewerPacketRetirementSummary  workstream.ReviewerPacketRetirementSummary   `json:"reviewerPacketRetirementSummary"`
+	Sections                         OverviewSections                             `json:"sections"`
+	NextSteps                        []string                                     `json:"nextSteps"`
 }
 
 type LaneSummary struct {
@@ -181,6 +183,10 @@ func Render(repoRoot, caseRoot, pack string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	reviewerPacketRetirementHandoffs, err := workstream.ReviewerPacketRetirementHandoffs(data.inst.CaseRoot, "")
+	if err != nil {
+		return "", err
+	}
 	nextActions := missionCommanderNextActions(actions, evidenceReview, overviewBlocked(brief))
 	nextActions = workstream.MissionCommanderNextActionsWithAuthorizedGateAdaptersAndAcknowledgements(nextActions, authorizedGateAdapterHandoffs, workstream.ExecutionEvidenceReviewAcknowledgedIDs(facts))
 	nextActions = workstream.MissionCommanderNextActionsWithReviewerDispatches(nextActions, reviewerDispatchIntakeHandoffs)
@@ -193,6 +199,7 @@ func Render(repoRoot, caseRoot, pack string) (string, error) {
 	writeExecutionEvidenceReview(&out, evidenceReview, workstream.ExecutionEvidenceReviewSummaryFor(evidenceReview, actionQueue))
 	workstream.WriteAuthorizedGateAdapterHandoffSection(&out, "Authorized gate adapter handoff：", authorizedGateAdapterHandoffs)
 	workstream.WriteReviewerDispatchIntakeHandoffSection(&out, "Reviewer dispatch intake handoff：", reviewerDispatchIntakeHandoffs)
+	workstream.WriteReviewerPacketRetirementHandoffSection(&out, "Reviewer packet retirement handoff：", reviewerPacketRetirementHandoffs)
 	writeOpenCandidates(&out, mission.EffectiveOpenCandidates(facts.Facts))
 	writePendingGates(&out, facts.Requests)
 	writeAuthorizedGates(&out, facts.Requests)
@@ -245,6 +252,10 @@ func BuildInventory(repoRoot, caseRoot, pack string) (Inventory, error) {
 	if err != nil {
 		return Inventory{}, err
 	}
+	reviewerPacketRetirementHandoffs, err := workstream.ReviewerPacketRetirementHandoffs(data.inst.CaseRoot, "")
+	if err != nil {
+		return Inventory{}, err
+	}
 	nextActions := missionCommanderNextActions(actions, evidenceReview, overviewBlocked(brief))
 	nextActions = workstream.MissionCommanderNextActionsWithAuthorizedGateAdaptersAndAcknowledgements(nextActions, authorizedGateAdapterHandoffs, workstream.ExecutionEvidenceReviewAcknowledgedIDs(facts))
 	nextActions = workstream.MissionCommanderNextActionsWithReviewerDispatches(nextActions, reviewerDispatchIntakeHandoffs)
@@ -265,18 +276,20 @@ func BuildInventory(repoRoot, caseRoot, pack string) (Inventory, error) {
 			Publications:     len(facts.Publications),
 			PendingDecisions: data.pending,
 		},
-		MissionBrief:                   brief,
-		LaneExecutorActions:            actions,
-		MissionCommanderActions:        missionCommanderActionIndex(actions),
-		MissionCommanderNextActions:    nextActions,
-		MissionCommanderActionQueue:    actionQueue,
-		ExecutionEvidenceReview:        evidenceReview,
-		ExecutionEvidenceReviewSummary: workstream.ExecutionEvidenceReviewSummaryFor(evidenceReview, actionQueue),
-		AuthorizedGateAdapterHandoffs:  authorizedGateAdapterHandoffs,
-		ReviewerDispatchIntakeHandoffs: reviewerDispatchIntakeHandoffs,
-		ReviewerDispatchIntakeSummary:  workstream.ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
-		Sections:                       data.sections,
-		NextSteps:                      overviewNextSteps(brief, evidenceReview, actionQueue),
+		MissionBrief:                     brief,
+		LaneExecutorActions:              actions,
+		MissionCommanderActions:          missionCommanderActionIndex(actions),
+		MissionCommanderNextActions:      nextActions,
+		MissionCommanderActionQueue:      actionQueue,
+		ExecutionEvidenceReview:          evidenceReview,
+		ExecutionEvidenceReviewSummary:   workstream.ExecutionEvidenceReviewSummaryFor(evidenceReview, actionQueue),
+		AuthorizedGateAdapterHandoffs:    authorizedGateAdapterHandoffs,
+		ReviewerDispatchIntakeHandoffs:   reviewerDispatchIntakeHandoffs,
+		ReviewerDispatchIntakeSummary:    workstream.ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
+		ReviewerPacketRetirementHandoffs: reviewerPacketRetirementHandoffs,
+		ReviewerPacketRetirementSummary:  workstream.ReviewerPacketRetirementSummaryFor(reviewerPacketRetirementHandoffs),
+		Sections:                         data.sections,
+		NextSteps:                        overviewNextSteps(brief, evidenceReview, actionQueue),
 	}, nil
 }
 

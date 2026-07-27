@@ -2400,39 +2400,41 @@ type statusOpenDecisionHandoff struct {
 }
 
 type statusCaseMission struct {
-	Ready                             bool                                       `json:"ready"`
-	Summary                           string                                     `json:"summary"`
-	LaneCount                         int                                        `json:"laneCount"`
-	ReadyLaneCount                    int                                        `json:"readyLaneCount"`
-	BlockedLaneCount                  int                                        `json:"blockedLaneCount"`
-	ReadyLanes                        []string                                   `json:"readyLanes,omitempty"`
-	BlockedLanes                      []string                                   `json:"blockedLanes,omitempty"`
-	LaneExecutorActions               []mission.LaneExecutorActionSnapshot       `json:"laneExecutorActions,omitempty"`
-	PendingGates                      []string                                   `json:"pendingGates,omitempty"`
-	PendingGateHandoffs               []statusPendingGateHandoff                 `json:"pendingGateHandoffs,omitempty"`
-	AuthorizedGates                   []string                                   `json:"authorizedGates,omitempty"`
-	AuthorizedGateHandoffs            []statusAuthorizedGateHandoff              `json:"authorizedGateHandoffs,omitempty"`
-	OpenDecisions                     []string                                   `json:"openDecisions,omitempty"`
-	OpenDecisionHandoffs              []statusOpenDecisionHandoff                `json:"openDecisionHandoffs,omitempty"`
-	Interventions                     []string                                   `json:"interventions,omitempty"`
-	InterventionHandoffs              []statusInterventionHandoff                `json:"interventionHandoffs,omitempty"`
-	FactCounts                        *overview.FactCounts                       `json:"factCounts,omitempty"`
-	Sections                          *overview.OverviewSections                 `json:"sections,omitempty"`
-	ReviewerWritebacks                []workstream.ReviewerWritebackItem         `json:"reviewerWritebacks,omitempty"`
-	ReviewerWritebackSummary          workstream.ReviewerWritebackSummary        `json:"reviewerWritebackSummary"`
-	ReviewerDispatchIntakeHandoffs    []workstream.ReviewerDispatchIntakeHandoff `json:"reviewerDispatchIntakeHandoffs,omitempty"`
-	ReviewerDispatchIntakeSummary     workstream.ReviewerDispatchIntakeSummary   `json:"reviewerDispatchIntakeSummary"`
-	ReviewerDispatchIntakeActionQueue mission.MissionCommanderActionQueue        `json:"reviewerDispatchIntakeActionQueue"`
-	ExecutionEvidenceReviewCount      int                                        `json:"executionEvidenceReviewCount"`
-	ExecutionEvidenceReview           []workstream.ExecutionEvidenceReviewItem   `json:"executionEvidenceReview,omitempty"`
-	ExecutionEvidenceReviewSummary    workstream.ExecutionEvidenceReviewSummary  `json:"executionEvidenceReviewSummary"`
-	MissionCommanderActionQueue       mission.MissionCommanderActionQueue        `json:"missionCommanderActionQueue"`
-	MissionCommanderNextActions       []mission.MissionCommanderNextActionItem   `json:"missionCommanderNextActions"`
-	MissionBriefNextActions           []string                                   `json:"missionBriefNextActions"`
-	Escalations                       []string                                   `json:"escalations"`
-	HandoffPreviewCommand             string                                     `json:"handoffPreviewCommand"`
-	HandoffApplyCommand               string                                     `json:"handoffApplyCommand"`
-	ContinueRequiresExplicitApply     string                                     `json:"continueRequiresExplicitApply"`
+	Ready                             bool                                         `json:"ready"`
+	Summary                           string                                       `json:"summary"`
+	LaneCount                         int                                          `json:"laneCount"`
+	ReadyLaneCount                    int                                          `json:"readyLaneCount"`
+	BlockedLaneCount                  int                                          `json:"blockedLaneCount"`
+	ReadyLanes                        []string                                     `json:"readyLanes,omitempty"`
+	BlockedLanes                      []string                                     `json:"blockedLanes,omitempty"`
+	LaneExecutorActions               []mission.LaneExecutorActionSnapshot         `json:"laneExecutorActions,omitempty"`
+	PendingGates                      []string                                     `json:"pendingGates,omitempty"`
+	PendingGateHandoffs               []statusPendingGateHandoff                   `json:"pendingGateHandoffs,omitempty"`
+	AuthorizedGates                   []string                                     `json:"authorizedGates,omitempty"`
+	AuthorizedGateHandoffs            []statusAuthorizedGateHandoff                `json:"authorizedGateHandoffs,omitempty"`
+	OpenDecisions                     []string                                     `json:"openDecisions,omitempty"`
+	OpenDecisionHandoffs              []statusOpenDecisionHandoff                  `json:"openDecisionHandoffs,omitempty"`
+	Interventions                     []string                                     `json:"interventions,omitempty"`
+	InterventionHandoffs              []statusInterventionHandoff                  `json:"interventionHandoffs,omitempty"`
+	FactCounts                        *overview.FactCounts                         `json:"factCounts,omitempty"`
+	Sections                          *overview.OverviewSections                   `json:"sections,omitempty"`
+	ReviewerWritebacks                []workstream.ReviewerWritebackItem           `json:"reviewerWritebacks,omitempty"`
+	ReviewerWritebackSummary          workstream.ReviewerWritebackSummary          `json:"reviewerWritebackSummary"`
+	ReviewerDispatchIntakeHandoffs    []workstream.ReviewerDispatchIntakeHandoff   `json:"reviewerDispatchIntakeHandoffs,omitempty"`
+	ReviewerDispatchIntakeSummary     workstream.ReviewerDispatchIntakeSummary     `json:"reviewerDispatchIntakeSummary"`
+	ReviewerPacketRetirementHandoffs  []workstream.ReviewerPacketRetirementHandoff `json:"reviewerPacketRetirementHandoffs,omitempty"`
+	ReviewerPacketRetirementSummary   workstream.ReviewerPacketRetirementSummary   `json:"reviewerPacketRetirementSummary"`
+	ReviewerDispatchIntakeActionQueue mission.MissionCommanderActionQueue          `json:"reviewerDispatchIntakeActionQueue"`
+	ExecutionEvidenceReviewCount      int                                          `json:"executionEvidenceReviewCount"`
+	ExecutionEvidenceReview           []workstream.ExecutionEvidenceReviewItem     `json:"executionEvidenceReview,omitempty"`
+	ExecutionEvidenceReviewSummary    workstream.ExecutionEvidenceReviewSummary    `json:"executionEvidenceReviewSummary"`
+	MissionCommanderActionQueue       mission.MissionCommanderActionQueue          `json:"missionCommanderActionQueue"`
+	MissionCommanderNextActions       []mission.MissionCommanderNextActionItem     `json:"missionCommanderNextActions"`
+	MissionBriefNextActions           []string                                     `json:"missionBriefNextActions"`
+	Escalations                       []string                                     `json:"escalations"`
+	HandoffPreviewCommand             string                                       `json:"handoffPreviewCommand"`
+	HandoffApplyCommand               string                                       `json:"handoffApplyCommand"`
+	ContinueRequiresExplicitApply     string                                       `json:"continueRequiresExplicitApply"`
 }
 
 func runStatus(ctx runtime.Context, opt Options, out io.Writer) error {
@@ -3278,6 +3280,9 @@ func writeStatusCaseMissionText(out io.Writer, summary *statusCaseMission) error
 	if err := writeReviewerDispatchIntakeHandoffText(out, "status case mission", summary.ReviewerDispatchIntakeHandoffs, summary.ReviewerDispatchIntakeSummary); err != nil {
 		return err
 	}
+	if err := writeReviewerPacketRetirementHandoffText(out, "status case mission", summary.ReviewerPacketRetirementHandoffs, summary.ReviewerPacketRetirementSummary); err != nil {
+		return err
+	}
 	if err := writeStatusCaseMissionQueueText(out, queue); err != nil {
 		return err
 	}
@@ -4085,6 +4090,8 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 		ReviewerWritebackSummary:          workstream.ReviewerWritebackSummaryFor(reviewerWritebacks),
 		ReviewerDispatchIntakeHandoffs:    reviewerDispatchIntakeHandoffs,
 		ReviewerDispatchIntakeSummary:     workstream.ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
+		ReviewerPacketRetirementHandoffs:  append([]workstream.ReviewerPacketRetirementHandoff{}, inventory.ReviewerPacketRetirementHandoffs...),
+		ReviewerPacketRetirementSummary:   inventory.ReviewerPacketRetirementSummary,
 		ReviewerDispatchIntakeActionQueue: reviewerDispatchIntakeActionQueue,
 		ExecutionEvidenceReviewCount:      len(inventory.ExecutionEvidenceReview),
 		ExecutionEvidenceReview:           append([]workstream.ExecutionEvidenceReviewItem{}, inventory.ExecutionEvidenceReview...),
@@ -6302,6 +6309,9 @@ func writeStartText(out io.Writer, result workstream.StartResult) error {
 	if err := writeReviewerDispatchIntakeHandoffText(out, "start", result.ReviewerDispatchIntakeHandoffs, result.ReviewerDispatchIntakeSummary); err != nil {
 		return err
 	}
+	if err := writeReviewerPacketRetirementHandoffText(out, "start", result.ReviewerPacketRetirementHandoffs, result.ReviewerPacketRetirementSummary); err != nil {
+		return err
+	}
 	if err := writeAuthorizedGateAdapterHandoffText(out, "start", result.AuthorizedGateAdapterHandoffs); err != nil {
 		return err
 	}
@@ -6490,6 +6500,9 @@ func writeHandoffText(out io.Writer, result workstream.HandoffResult) error {
 	if err := writeReviewerDispatchIntakeHandoffText(out, "handoff", result.ReviewerDispatchIntakeHandoffs, result.ReviewerDispatchIntakeSummary); err != nil {
 		return err
 	}
+	if err := writeReviewerPacketRetirementHandoffText(out, "handoff", result.ReviewerPacketRetirementHandoffs, result.ReviewerPacketRetirementSummary); err != nil {
+		return err
+	}
 	if err := writeAuthorizedGateAdapterHandoffText(out, "handoff", result.AuthorizedGateAdapterHandoffs); err != nil {
 		return err
 	}
@@ -6591,6 +6604,51 @@ func writeReviewerDispatchIntakeHandoffText(out io.Writer, prefix string, items 
 		}
 		for _, boundary := range item.Boundary {
 			if _, err := fmt.Fprintf(out, "%s reviewer dispatch intake boundary：shard=%s boundary=%s\n", prefix, item.ShardID, boundary); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func writeReviewerPacketRetirementHandoffText(out io.Writer, prefix string, items []workstream.ReviewerPacketRetirementHandoff, summary workstream.ReviewerPacketRetirementSummary) error {
+	if summary.Total == 0 {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "%s reviewer packet retirement summary：total=%d packets=%d lanes=%d latestPacket=%s latestState=%s latestLane=%s latestReceipt=%s nextAction=%s\n", prefix, summary.Total, summary.PacketCount, summary.LaneCount, summary.LatestPacketID, summary.LatestState, summary.LatestLane, summary.LatestReceipt, summary.NextAction); err != nil {
+		return err
+	}
+	for _, lane := range summary.Lanes {
+		if _, err := fmt.Fprintf(out, "%s reviewer packet retirement summary lane：%s\n", prefix, lane); err != nil {
+			return err
+		}
+	}
+	for idx, step := range summary.RunbookSteps {
+		if _, err := fmt.Fprintf(out, "%s reviewer packet retirement summary runbook：step=%d text=%s\n", prefix, idx+1, step); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range summary.Boundary {
+		if _, err := fmt.Fprintf(out, "%s reviewer packet retirement summary boundary：%s\n", prefix, boundary); err != nil {
+			return err
+		}
+	}
+	for _, item := range items {
+		if _, err := fmt.Fprintf(out, "%s reviewer packet retirement：lane=%s packet=%s state=%s receipt=%s packetSha256=%s integritySha256=%s noDelete=%t noHeavyTool=%t noAuthorityOrConfirmed=%t nextAction=%s\n", prefix, item.TargetLane, textFirst(item.PacketID, item.PacketPath), item.State, item.RetirementPath, item.PacketSHA256, item.IntegritySHA256, item.NoDelete, item.NoHeavyTool, item.NoAuthority, item.NextAction); err != nil {
+			return err
+		}
+		for idx, step := range item.RunbookSteps {
+			if _, err := fmt.Fprintf(out, "%s reviewer packet retirement runbook：packet=%s step=%d text=%s\n", prefix, textFirst(item.PacketID, item.PacketPath), idx+1, step); err != nil {
+				return err
+			}
+		}
+		for _, evidence := range item.Evidence {
+			if _, err := fmt.Fprintf(out, "%s reviewer packet retirement evidence：packet=%s evidence=%s\n", prefix, textFirst(item.PacketID, item.PacketPath), evidence); err != nil {
+				return err
+			}
+		}
+		for _, boundary := range item.Boundary {
+			if _, err := fmt.Fprintf(out, "%s reviewer packet retirement boundary：packet=%s boundary=%s\n", prefix, textFirst(item.PacketID, item.PacketPath), boundary); err != nil {
 				return err
 			}
 		}
@@ -6879,6 +6937,9 @@ func writeReconcileText(out io.Writer, result workstream.ReconcileResult) error 
 	if err := writeReviewerDispatchIntakeHandoffText(out, "reconcile", result.ReviewerDispatchIntakeHandoffs, result.ReviewerDispatchIntakeSummary); err != nil {
 		return err
 	}
+	if err := writeReviewerPacketRetirementHandoffText(out, "reconcile", result.ReviewerPacketRetirementHandoffs, result.ReviewerPacketRetirementSummary); err != nil {
+		return err
+	}
 	if err := writeAuthorizedGateAdapterHandoffText(out, "reconcile", result.AuthorizedGateAdapterHandoffs); err != nil {
 		return err
 	}
@@ -7065,6 +7126,9 @@ func writeContinueText(out io.Writer, result workstream.ContinueResult) error {
 		return err
 	}
 	if err := writeReviewerDispatchIntakeHandoffText(out, "continue", result.ReviewerDispatchIntakeHandoffs, result.ReviewerDispatchIntakeSummary); err != nil {
+		return err
+	}
+	if err := writeReviewerPacketRetirementHandoffText(out, "continue", result.ReviewerPacketRetirementHandoffs, result.ReviewerPacketRetirementSummary); err != nil {
 		return err
 	}
 	if err := writeAuthorizedGateAdapterHandoffText(out, "continue", result.AuthorizedGateAdapterHandoffs); err != nil {

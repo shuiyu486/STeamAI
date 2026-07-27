@@ -32,47 +32,49 @@ type ContinueOptions struct {
 }
 
 type ContinueResult struct {
-	SchemaVersion                  int                                      `json:"schemaVersion"`
-	Command                        string                                   `json:"command"`
-	CaseRoot                       string                                   `json:"caseRoot"`
-	RepoRoot                       string                                   `json:"repoRoot"`
-	Pack                           string                                   `json:"pack"`
-	IsMutation                     bool                                     `json:"isMutation"`
-	Applied                        bool                                     `json:"applied"`
-	RequiresConfirmation           bool                                     `json:"requiresConfirmation"`
-	Selector                       string                                   `json:"selector"`
-	Lane                           Lane                                     `json:"lane"`
-	AutonomyProfile                autonomy.Summary                         `json:"autonomyProfile"`
-	RunID                          string                                   `json:"runId"`
-	BatchID                        string                                   `json:"batchId"`
-	Summary                        ContinueSummary                          `json:"summary"`
-	MissionBrief                   mission.Brief                            `json:"missionBrief"`
-	ExecutorAction                 laneExecutorAction                       `json:"executorAction"`
-	ExecutionEvidenceReview        []ExecutionEvidenceReviewItem            `json:"executionEvidenceReview,omitempty"`
-	ExecutionEvidenceReviewSummary ExecutionEvidenceReviewSummary           `json:"executionEvidenceReviewSummary"`
-	ReviewerWritebacks             []ReviewerWritebackItem                  `json:"reviewerWritebacks,omitempty"`
-	ReviewerWritebackSummary       ReviewerWritebackSummary                 `json:"reviewerWritebackSummary"`
-	ReviewerDispatchIntakeHandoffs []ReviewerDispatchIntakeHandoff          `json:"reviewerDispatchIntakeHandoffs,omitempty"`
-	ReviewerDispatchIntakeSummary  ReviewerDispatchIntakeSummary            `json:"reviewerDispatchIntakeSummary"`
-	AuthorizedGateAdapterHandoffs  []AuthorizedGateAdapterHandoff           `json:"authorizedGateAdapterHandoffs,omitempty"`
-	MissionCommanderNextActions    []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
-	MissionCommanderActionQueue    mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
-	Inputs                         []string                                 `json:"inputs"`
-	PacketRefs                     []string                                 `json:"packetRefs"`
-	Events                         []ContinueEventPreview                   `json:"events"`
-	OpenRisks                      []string                                 `json:"openRisks"`
-	Blocked                        bool                                     `json:"blocked"`
-	ReconcileRequired              bool                                     `json:"reconcileRequired"`
-	PendingGateRequired            bool                                     `json:"pendingGateRequired"`
-	OpenDecisionRequired           bool                                     `json:"openDecisionRequired"`
-	OpenInterventions              []InterventionSummary                    `json:"openInterventions,omitempty"`
-	ReconcileHandoffs              []ContinueReconcileHandoff               `json:"reconcileHandoffs,omitempty"`
-	PendingGateHandoffs            []ContinuePendingGateHandoff             `json:"pendingGateHandoffs,omitempty"`
-	OpenDecisionHandoffs           []ContinueOpenDecisionHandoff            `json:"openDecisionHandoffs,omitempty"`
-	WouldWrites                    []StartWrite                             `json:"wouldWrites"`
-	Writes                         []StartWrite                             `json:"writes,omitempty"`
-	BlockedActions                 []string                                 `json:"blockedActions"`
-	NextSteps                      []string                                 `json:"nextSteps"`
+	SchemaVersion                    int                                      `json:"schemaVersion"`
+	Command                          string                                   `json:"command"`
+	CaseRoot                         string                                   `json:"caseRoot"`
+	RepoRoot                         string                                   `json:"repoRoot"`
+	Pack                             string                                   `json:"pack"`
+	IsMutation                       bool                                     `json:"isMutation"`
+	Applied                          bool                                     `json:"applied"`
+	RequiresConfirmation             bool                                     `json:"requiresConfirmation"`
+	Selector                         string                                   `json:"selector"`
+	Lane                             Lane                                     `json:"lane"`
+	AutonomyProfile                  autonomy.Summary                         `json:"autonomyProfile"`
+	RunID                            string                                   `json:"runId"`
+	BatchID                          string                                   `json:"batchId"`
+	Summary                          ContinueSummary                          `json:"summary"`
+	MissionBrief                     mission.Brief                            `json:"missionBrief"`
+	ExecutorAction                   laneExecutorAction                       `json:"executorAction"`
+	ExecutionEvidenceReview          []ExecutionEvidenceReviewItem            `json:"executionEvidenceReview,omitempty"`
+	ExecutionEvidenceReviewSummary   ExecutionEvidenceReviewSummary           `json:"executionEvidenceReviewSummary"`
+	ReviewerWritebacks               []ReviewerWritebackItem                  `json:"reviewerWritebacks,omitempty"`
+	ReviewerWritebackSummary         ReviewerWritebackSummary                 `json:"reviewerWritebackSummary"`
+	ReviewerDispatchIntakeHandoffs   []ReviewerDispatchIntakeHandoff          `json:"reviewerDispatchIntakeHandoffs,omitempty"`
+	ReviewerDispatchIntakeSummary    ReviewerDispatchIntakeSummary            `json:"reviewerDispatchIntakeSummary"`
+	ReviewerPacketRetirementHandoffs []ReviewerPacketRetirementHandoff        `json:"reviewerPacketRetirementHandoffs,omitempty"`
+	ReviewerPacketRetirementSummary  ReviewerPacketRetirementSummary          `json:"reviewerPacketRetirementSummary"`
+	AuthorizedGateAdapterHandoffs    []AuthorizedGateAdapterHandoff           `json:"authorizedGateAdapterHandoffs,omitempty"`
+	MissionCommanderNextActions      []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	MissionCommanderActionQueue      mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
+	Inputs                           []string                                 `json:"inputs"`
+	PacketRefs                       []string                                 `json:"packetRefs"`
+	Events                           []ContinueEventPreview                   `json:"events"`
+	OpenRisks                        []string                                 `json:"openRisks"`
+	Blocked                          bool                                     `json:"blocked"`
+	ReconcileRequired                bool                                     `json:"reconcileRequired"`
+	PendingGateRequired              bool                                     `json:"pendingGateRequired"`
+	OpenDecisionRequired             bool                                     `json:"openDecisionRequired"`
+	OpenInterventions                []InterventionSummary                    `json:"openInterventions,omitempty"`
+	ReconcileHandoffs                []ContinueReconcileHandoff               `json:"reconcileHandoffs,omitempty"`
+	PendingGateHandoffs              []ContinuePendingGateHandoff             `json:"pendingGateHandoffs,omitempty"`
+	OpenDecisionHandoffs             []ContinueOpenDecisionHandoff            `json:"openDecisionHandoffs,omitempty"`
+	WouldWrites                      []StartWrite                             `json:"wouldWrites"`
+	Writes                           []StartWrite                             `json:"writes,omitempty"`
+	BlockedActions                   []string                                 `json:"blockedActions"`
+	NextSteps                        []string                                 `json:"nextSteps"`
 }
 
 type ContinueSummary struct {
@@ -220,37 +222,40 @@ func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (Cont
 	executionEvidenceReview := ctx.executionEvidenceReview()
 	reviewerWritebacks := ctx.reviewerWritebacks()
 	reviewerDispatchIntakeHandoffs := ctx.reviewerDispatchIntakeHandoffs()
+	reviewerPacketRetirementHandoffs := ctx.reviewerPacketRetirementHandoffs()
 	authorizedGateAdapterHandoffs := ctx.authorizedGateAdapterHandoffs()
 	commanderNextActions := ctx.missionCommanderNextActions(executorAction, executionEvidenceReview, authorizedGateAdapterHandoffs, reviewerDispatchIntakeHandoffs)
 	commanderActionQueue := mission.MissionCommanderActionQueueFor(commanderNextActions)
 	result := ContinueResult{
-		SchemaVersion:                  1,
-		Command:                        "continue",
-		CaseRoot:                       ctx.inst.CaseRoot,
-		RepoRoot:                       ctx.manifest.RepoRoot,
-		Pack:                           ctx.manifest.Pack,
-		IsMutation:                     false,
-		Applied:                        false,
-		RequiresConfirmation:           true,
-		Selector:                       ctx.selector,
-		Lane:                           ctx.lane,
-		AutonomyProfile:                autonomy.ReadSummary(ctx.inst.CaseRoot, ctx.lane.ID, ctx.manifest),
-		RunID:                          continuePreviewRunID,
-		BatchID:                        "batch-" + continuePreviewRunID,
-		MissionBrief:                   ctx.missionBrief(),
-		ExecutorAction:                 executorAction,
-		ExecutionEvidenceReview:        executionEvidenceReview,
-		ExecutionEvidenceReviewSummary: ExecutionEvidenceReviewSummaryFor(executionEvidenceReview, commanderActionQueue),
-		ReviewerWritebacks:             reviewerWritebacks,
-		ReviewerWritebackSummary:       ReviewerWritebackSummaryFor(reviewerWritebacks),
-		ReviewerDispatchIntakeHandoffs: reviewerDispatchIntakeHandoffs,
-		ReviewerDispatchIntakeSummary:  ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
-		AuthorizedGateAdapterHandoffs:  authorizedGateAdapterHandoffs,
-		MissionCommanderNextActions:    commanderNextActions,
-		MissionCommanderActionQueue:    commanderActionQueue,
-		Inputs:                         uniqueStrings(inputs),
-		PacketRefs:                     uniqueStrings(packets),
-		BlockedActions:                 []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution without a valid current authorization decision"},
+		SchemaVersion:                    1,
+		Command:                          "continue",
+		CaseRoot:                         ctx.inst.CaseRoot,
+		RepoRoot:                         ctx.manifest.RepoRoot,
+		Pack:                             ctx.manifest.Pack,
+		IsMutation:                       false,
+		Applied:                          false,
+		RequiresConfirmation:             true,
+		Selector:                         ctx.selector,
+		Lane:                             ctx.lane,
+		AutonomyProfile:                  autonomy.ReadSummary(ctx.inst.CaseRoot, ctx.lane.ID, ctx.manifest),
+		RunID:                            continuePreviewRunID,
+		BatchID:                          "batch-" + continuePreviewRunID,
+		MissionBrief:                     ctx.missionBrief(),
+		ExecutorAction:                   executorAction,
+		ExecutionEvidenceReview:          executionEvidenceReview,
+		ExecutionEvidenceReviewSummary:   ExecutionEvidenceReviewSummaryFor(executionEvidenceReview, commanderActionQueue),
+		ReviewerWritebacks:               reviewerWritebacks,
+		ReviewerWritebackSummary:         ReviewerWritebackSummaryFor(reviewerWritebacks),
+		ReviewerDispatchIntakeHandoffs:   reviewerDispatchIntakeHandoffs,
+		ReviewerDispatchIntakeSummary:    ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
+		ReviewerPacketRetirementHandoffs: reviewerPacketRetirementHandoffs,
+		ReviewerPacketRetirementSummary:  ReviewerPacketRetirementSummaryFor(reviewerPacketRetirementHandoffs),
+		AuthorizedGateAdapterHandoffs:    authorizedGateAdapterHandoffs,
+		MissionCommanderNextActions:      commanderNextActions,
+		MissionCommanderActionQueue:      commanderActionQueue,
+		Inputs:                           uniqueStrings(inputs),
+		PacketRefs:                       uniqueStrings(packets),
+		BlockedActions:                   []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution without a valid current authorization decision"},
 		NextSteps: []string{
 			"review this preview, then re-run continue with -Apply when the case-local facts/route/digest writes are acceptable",
 			"use /rekit as the Mission Commander entrypoint; JSON preview and explicit apply are Go-owned by default",
@@ -445,6 +450,8 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (result
 	result.ReviewerWritebackSummary = ReviewerWritebackSummaryFor(result.ReviewerWritebacks)
 	result.ReviewerDispatchIntakeHandoffs = ctx.reviewerDispatchIntakeHandoffs()
 	result.ReviewerDispatchIntakeSummary = ReviewerDispatchIntakeSummaryFor(result.ReviewerDispatchIntakeHandoffs)
+	result.ReviewerPacketRetirementHandoffs = ctx.reviewerPacketRetirementHandoffs()
+	result.ReviewerPacketRetirementSummary = ReviewerPacketRetirementSummaryFor(result.ReviewerPacketRetirementHandoffs)
 	result.AuthorizedGateAdapterHandoffs = ctx.authorizedGateAdapterHandoffs()
 	result.MissionCommanderNextActions = ctx.missionCommanderNextActions(result.ExecutorAction, result.ExecutionEvidenceReview, result.AuthorizedGateAdapterHandoffs, result.ReviewerDispatchIntakeHandoffs)
 	result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
@@ -586,6 +593,14 @@ func (ctx continueContext) reviewerDispatchIntakeHandoffs() []ReviewerDispatchIn
 	return items
 }
 
+func (ctx continueContext) reviewerPacketRetirementHandoffs() []ReviewerPacketRetirementHandoff {
+	items, err := ReviewerPacketRetirementHandoffs(ctx.inst.CaseRoot, ctx.lane.ID)
+	if err != nil {
+		return nil
+	}
+	return items
+}
+
 func (ctx continueContext) authorizedGateAdapterHandoffs() []AuthorizedGateAdapterHandoff {
 	facts, err := readHandoffFacts(ctx.inst.CaseRoot)
 	if err != nil {
@@ -613,37 +628,40 @@ func (ctx continueContext) blockedByReviewerDispatches(apply bool) ContinueResul
 	executorAction := ctx.executorAction()
 	executionEvidenceReview := ctx.executionEvidenceReview()
 	reviewerWritebacks := ctx.reviewerWritebacks()
+	reviewerPacketRetirementHandoffs := ctx.reviewerPacketRetirementHandoffs()
 	adapterHandoffs := ctx.authorizedGateAdapterHandoffs()
 	nextActions := ctx.missionCommanderNextActions(executorAction, executionEvidenceReview, adapterHandoffs, handoffs)
 	queue := mission.MissionCommanderActionQueueFor(nextActions)
 	return ContinueResult{
-		SchemaVersion:                  1,
-		Command:                        "continue",
-		CaseRoot:                       ctx.inst.CaseRoot,
-		RepoRoot:                       ctx.manifest.RepoRoot,
-		Pack:                           ctx.manifest.Pack,
-		IsMutation:                     apply,
-		Applied:                        false,
-		RequiresConfirmation:           false,
-		Selector:                       ctx.selector,
-		Lane:                           ctx.lane,
-		AutonomyProfile:                autonomy.ReadSummary(ctx.inst.CaseRoot, ctx.lane.ID, ctx.manifest),
-		RunID:                          continuePreviewRunID,
-		BatchID:                        "batch-" + continuePreviewRunID,
-		MissionBrief:                   ctx.missionBrief(),
-		ExecutorAction:                 executorAction,
-		ExecutionEvidenceReview:        executionEvidenceReview,
-		ExecutionEvidenceReviewSummary: ExecutionEvidenceReviewSummaryFor(executionEvidenceReview, queue),
-		ReviewerWritebacks:             reviewerWritebacks,
-		ReviewerWritebackSummary:       ReviewerWritebackSummaryFor(reviewerWritebacks),
-		ReviewerDispatchIntakeHandoffs: handoffs,
-		ReviewerDispatchIntakeSummary:  ReviewerDispatchIntakeSummaryFor(handoffs),
-		AuthorizedGateAdapterHandoffs:  adapterHandoffs,
-		MissionCommanderNextActions:    nextActions,
-		MissionCommanderActionQueue:    queue,
-		Blocked:                        true,
-		BlockedActions:                 []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "lane continuation while reviewer dispatch/intake remains open"},
-		NextSteps:                      []string{ReviewerDispatchIntakeSummaryFor(handoffs).NextAction},
+		SchemaVersion:                    1,
+		Command:                          "continue",
+		CaseRoot:                         ctx.inst.CaseRoot,
+		RepoRoot:                         ctx.manifest.RepoRoot,
+		Pack:                             ctx.manifest.Pack,
+		IsMutation:                       apply,
+		Applied:                          false,
+		RequiresConfirmation:             false,
+		Selector:                         ctx.selector,
+		Lane:                             ctx.lane,
+		AutonomyProfile:                  autonomy.ReadSummary(ctx.inst.CaseRoot, ctx.lane.ID, ctx.manifest),
+		RunID:                            continuePreviewRunID,
+		BatchID:                          "batch-" + continuePreviewRunID,
+		MissionBrief:                     ctx.missionBrief(),
+		ExecutorAction:                   executorAction,
+		ExecutionEvidenceReview:          executionEvidenceReview,
+		ExecutionEvidenceReviewSummary:   ExecutionEvidenceReviewSummaryFor(executionEvidenceReview, queue),
+		ReviewerWritebacks:               reviewerWritebacks,
+		ReviewerWritebackSummary:         ReviewerWritebackSummaryFor(reviewerWritebacks),
+		ReviewerDispatchIntakeHandoffs:   handoffs,
+		ReviewerDispatchIntakeSummary:    ReviewerDispatchIntakeSummaryFor(handoffs),
+		ReviewerPacketRetirementHandoffs: reviewerPacketRetirementHandoffs,
+		ReviewerPacketRetirementSummary:  ReviewerPacketRetirementSummaryFor(reviewerPacketRetirementHandoffs),
+		AuthorizedGateAdapterHandoffs:    adapterHandoffs,
+		MissionCommanderNextActions:      nextActions,
+		MissionCommanderActionQueue:      queue,
+		Blocked:                          true,
+		BlockedActions:                   []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "lane continuation while reviewer dispatch/intake remains open"},
+		NextSteps:                        []string{ReviewerDispatchIntakeSummaryFor(handoffs).NextAction},
 	}
 }
 
@@ -659,43 +677,46 @@ func (ctx continueContext) blockedByOpenInterventions(apply bool) (ContinueResul
 	executionEvidenceReview := ctx.executionEvidenceReview()
 	reviewerWritebacks := ctx.reviewerWritebacks()
 	reviewerDispatchIntakeHandoffs := ctx.reviewerDispatchIntakeHandoffs()
+	reviewerPacketRetirementHandoffs := ctx.reviewerPacketRetirementHandoffs()
 	authorizedGateAdapterHandoffs := ctx.authorizedGateAdapterHandoffs()
 	commanderNextActions := ctx.missionCommanderNextActions(executorAction, executionEvidenceReview, authorizedGateAdapterHandoffs, reviewerDispatchIntakeHandoffs)
 	commanderActionQueue := mission.MissionCommanderActionQueueFor(commanderNextActions)
 	return ContinueResult{
-		SchemaVersion:                  1,
-		Command:                        "continue",
-		CaseRoot:                       ctx.inst.CaseRoot,
-		RepoRoot:                       ctx.manifest.RepoRoot,
-		Pack:                           ctx.manifest.Pack,
-		IsMutation:                     apply,
-		Applied:                        false,
-		RequiresConfirmation:           false,
-		Selector:                       ctx.selector,
-		Lane:                           ctx.lane,
-		AutonomyProfile:                autonomy.ReadSummary(ctx.inst.CaseRoot, ctx.lane.ID, ctx.manifest),
-		RunID:                          continuePreviewRunID,
-		BatchID:                        "batch-" + continuePreviewRunID,
-		MissionBrief:                   ctx.missionBrief(),
-		ExecutorAction:                 executorAction,
-		ExecutionEvidenceReview:        executionEvidenceReview,
-		ExecutionEvidenceReviewSummary: ExecutionEvidenceReviewSummaryFor(executionEvidenceReview, commanderActionQueue),
-		ReviewerWritebacks:             reviewerWritebacks,
-		ReviewerWritebackSummary:       ReviewerWritebackSummaryFor(reviewerWritebacks),
-		ReviewerDispatchIntakeHandoffs: reviewerDispatchIntakeHandoffs,
-		ReviewerDispatchIntakeSummary:  ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
-		AuthorizedGateAdapterHandoffs:  authorizedGateAdapterHandoffs,
-		MissionCommanderNextActions:    commanderNextActions,
-		MissionCommanderActionQueue:    commanderActionQueue,
-		OpenRisks:                      interventionRiskLines(open),
-		Blocked:                        true,
-		ReconcileRequired:              true,
-		OpenInterventions:              open,
-		ReconcileHandoffs:              continueReconcileHandoffs(ctx.lane, open),
-		WouldWrites:                    []StartWrite{},
-		Writes:                         []StartWrite{},
-		BlockedActions:                 []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution without a valid current authorization decision"},
-		NextSteps:                      executorAction.NextAgentActions,
+		SchemaVersion:                    1,
+		Command:                          "continue",
+		CaseRoot:                         ctx.inst.CaseRoot,
+		RepoRoot:                         ctx.manifest.RepoRoot,
+		Pack:                             ctx.manifest.Pack,
+		IsMutation:                       apply,
+		Applied:                          false,
+		RequiresConfirmation:             false,
+		Selector:                         ctx.selector,
+		Lane:                             ctx.lane,
+		AutonomyProfile:                  autonomy.ReadSummary(ctx.inst.CaseRoot, ctx.lane.ID, ctx.manifest),
+		RunID:                            continuePreviewRunID,
+		BatchID:                          "batch-" + continuePreviewRunID,
+		MissionBrief:                     ctx.missionBrief(),
+		ExecutorAction:                   executorAction,
+		ExecutionEvidenceReview:          executionEvidenceReview,
+		ExecutionEvidenceReviewSummary:   ExecutionEvidenceReviewSummaryFor(executionEvidenceReview, commanderActionQueue),
+		ReviewerWritebacks:               reviewerWritebacks,
+		ReviewerWritebackSummary:         ReviewerWritebackSummaryFor(reviewerWritebacks),
+		ReviewerDispatchIntakeHandoffs:   reviewerDispatchIntakeHandoffs,
+		ReviewerDispatchIntakeSummary:    ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
+		ReviewerPacketRetirementHandoffs: reviewerPacketRetirementHandoffs,
+		ReviewerPacketRetirementSummary:  ReviewerPacketRetirementSummaryFor(reviewerPacketRetirementHandoffs),
+		AuthorizedGateAdapterHandoffs:    authorizedGateAdapterHandoffs,
+		MissionCommanderNextActions:      commanderNextActions,
+		MissionCommanderActionQueue:      commanderActionQueue,
+		OpenRisks:                        interventionRiskLines(open),
+		Blocked:                          true,
+		ReconcileRequired:                true,
+		OpenInterventions:                open,
+		ReconcileHandoffs:                continueReconcileHandoffs(ctx.lane, open),
+		WouldWrites:                      []StartWrite{},
+		Writes:                           []StartWrite{},
+		BlockedActions:                   []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution without a valid current authorization decision"},
+		NextSteps:                        executorAction.NextAgentActions,
 	}, nil
 }
 
@@ -719,44 +740,47 @@ func (ctx continueContext) blockedByPendingGateOrOpenDecision(apply bool) (Conti
 	executionEvidenceReview := ctx.executionEvidenceReview()
 	reviewerWritebacks := ctx.reviewerWritebacks()
 	reviewerDispatchIntakeHandoffs := ctx.reviewerDispatchIntakeHandoffs()
+	reviewerPacketRetirementHandoffs := ctx.reviewerPacketRetirementHandoffs()
 	authorizedGateAdapterHandoffs := ctx.authorizedGateAdapterHandoffs()
 	commanderNextActions := ctx.missionCommanderNextActions(executorAction, executionEvidenceReview, authorizedGateAdapterHandoffs, reviewerDispatchIntakeHandoffs)
 	commanderActionQueue := mission.MissionCommanderActionQueueFor(commanderNextActions)
 	return ContinueResult{
-		SchemaVersion:                  1,
-		Command:                        "continue",
-		CaseRoot:                       ctx.inst.CaseRoot,
-		RepoRoot:                       ctx.manifest.RepoRoot,
-		Pack:                           ctx.manifest.Pack,
-		IsMutation:                     apply,
-		Applied:                        false,
-		RequiresConfirmation:           false,
-		Selector:                       ctx.selector,
-		Lane:                           ctx.lane,
-		AutonomyProfile:                autonomy.ReadSummary(ctx.inst.CaseRoot, ctx.lane.ID, ctx.manifest),
-		RunID:                          continuePreviewRunID,
-		BatchID:                        "batch-" + continuePreviewRunID,
-		MissionBrief:                   ctx.missionBrief(),
-		ExecutorAction:                 executorAction,
-		ExecutionEvidenceReview:        executionEvidenceReview,
-		ExecutionEvidenceReviewSummary: ExecutionEvidenceReviewSummaryFor(executionEvidenceReview, commanderActionQueue),
-		ReviewerWritebacks:             reviewerWritebacks,
-		ReviewerWritebackSummary:       ReviewerWritebackSummaryFor(reviewerWritebacks),
-		ReviewerDispatchIntakeHandoffs: reviewerDispatchIntakeHandoffs,
-		ReviewerDispatchIntakeSummary:  ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
-		AuthorizedGateAdapterHandoffs:  authorizedGateAdapterHandoffs,
-		MissionCommanderNextActions:    commanderNextActions,
-		MissionCommanderActionQueue:    commanderActionQueue,
-		OpenRisks:                      append(continuePendingGateRiskLines(pendingGates), continueOpenDecisionRiskLines(openDecisions)...),
-		Blocked:                        true,
-		PendingGateRequired:            len(pendingGates) > 0,
-		OpenDecisionRequired:           len(openDecisions) > 0,
-		PendingGateHandoffs:            continuePendingGateHandoffs(ctx.lane, pendingGates),
-		OpenDecisionHandoffs:           continueOpenDecisionHandoffs(ctx.lane, openDecisions),
-		WouldWrites:                    []StartWrite{},
-		Writes:                         []StartWrite{},
-		BlockedActions:                 []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "lane continuation while pending gate or open decision remains unresolved"},
-		NextSteps:                      executorAction.NextAgentActions,
+		SchemaVersion:                    1,
+		Command:                          "continue",
+		CaseRoot:                         ctx.inst.CaseRoot,
+		RepoRoot:                         ctx.manifest.RepoRoot,
+		Pack:                             ctx.manifest.Pack,
+		IsMutation:                       apply,
+		Applied:                          false,
+		RequiresConfirmation:             false,
+		Selector:                         ctx.selector,
+		Lane:                             ctx.lane,
+		AutonomyProfile:                  autonomy.ReadSummary(ctx.inst.CaseRoot, ctx.lane.ID, ctx.manifest),
+		RunID:                            continuePreviewRunID,
+		BatchID:                          "batch-" + continuePreviewRunID,
+		MissionBrief:                     ctx.missionBrief(),
+		ExecutorAction:                   executorAction,
+		ExecutionEvidenceReview:          executionEvidenceReview,
+		ExecutionEvidenceReviewSummary:   ExecutionEvidenceReviewSummaryFor(executionEvidenceReview, commanderActionQueue),
+		ReviewerWritebacks:               reviewerWritebacks,
+		ReviewerWritebackSummary:         ReviewerWritebackSummaryFor(reviewerWritebacks),
+		ReviewerDispatchIntakeHandoffs:   reviewerDispatchIntakeHandoffs,
+		ReviewerDispatchIntakeSummary:    ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
+		ReviewerPacketRetirementHandoffs: reviewerPacketRetirementHandoffs,
+		ReviewerPacketRetirementSummary:  ReviewerPacketRetirementSummaryFor(reviewerPacketRetirementHandoffs),
+		AuthorizedGateAdapterHandoffs:    authorizedGateAdapterHandoffs,
+		MissionCommanderNextActions:      commanderNextActions,
+		MissionCommanderActionQueue:      commanderActionQueue,
+		OpenRisks:                        append(continuePendingGateRiskLines(pendingGates), continueOpenDecisionRiskLines(openDecisions)...),
+		Blocked:                          true,
+		PendingGateRequired:              len(pendingGates) > 0,
+		OpenDecisionRequired:             len(openDecisions) > 0,
+		PendingGateHandoffs:              continuePendingGateHandoffs(ctx.lane, pendingGates),
+		OpenDecisionHandoffs:             continueOpenDecisionHandoffs(ctx.lane, openDecisions),
+		WouldWrites:                      []StartWrite{},
+		Writes:                           []StartWrite{},
+		BlockedActions:                   []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "lane continuation while pending gate or open decision remains unresolved"},
+		NextSteps:                        executorAction.NextAgentActions,
 	}, nil
 }
 
@@ -1365,26 +1389,28 @@ func writeContinueRunArtifacts(runRoot string, result ContinueResult) (string, s
 	}
 	statusPath := filepath.Join(runRoot, "status.json")
 	status := map[string]any{
-		"schemaVersion":                  1,
-		"runId":                          result.RunID,
-		"batchId":                        result.BatchID,
-		"summary":                        result.Summary,
-		"autonomyProfile":                result.AutonomyProfile,
-		"missionBrief":                   result.MissionBrief,
-		"executorAction":                 result.ExecutorAction,
-		"executionEvidenceReview":        result.ExecutionEvidenceReview,
-		"executionEvidenceReviewSummary": result.ExecutionEvidenceReviewSummary,
-		"reviewerWritebacks":             result.ReviewerWritebacks,
-		"reviewerWritebackSummary":       result.ReviewerWritebackSummary,
-		"reviewerDispatchIntakeHandoffs": result.ReviewerDispatchIntakeHandoffs,
-		"reviewerDispatchIntakeSummary":  result.ReviewerDispatchIntakeSummary,
-		"authorizedGateAdapterHandoffs":  result.AuthorizedGateAdapterHandoffs,
-		"missionCommanderNextActions":    result.MissionCommanderNextActions,
-		"missionCommanderActionQueue":    result.MissionCommanderActionQueue,
-		"inputs":                         result.Inputs,
-		"packetRefs":                     result.PacketRefs,
-		"openRisks":                      result.OpenRisks,
-		"time":                           isoNow(),
+		"schemaVersion":                    1,
+		"runId":                            result.RunID,
+		"batchId":                          result.BatchID,
+		"summary":                          result.Summary,
+		"autonomyProfile":                  result.AutonomyProfile,
+		"missionBrief":                     result.MissionBrief,
+		"executorAction":                   result.ExecutorAction,
+		"executionEvidenceReview":          result.ExecutionEvidenceReview,
+		"executionEvidenceReviewSummary":   result.ExecutionEvidenceReviewSummary,
+		"reviewerWritebacks":               result.ReviewerWritebacks,
+		"reviewerWritebackSummary":         result.ReviewerWritebackSummary,
+		"reviewerDispatchIntakeHandoffs":   result.ReviewerDispatchIntakeHandoffs,
+		"reviewerDispatchIntakeSummary":    result.ReviewerDispatchIntakeSummary,
+		"reviewerPacketRetirementHandoffs": result.ReviewerPacketRetirementHandoffs,
+		"reviewerPacketRetirementSummary":  result.ReviewerPacketRetirementSummary,
+		"authorizedGateAdapterHandoffs":    result.AuthorizedGateAdapterHandoffs,
+		"missionCommanderNextActions":      result.MissionCommanderNextActions,
+		"missionCommanderActionQueue":      result.MissionCommanderActionQueue,
+		"inputs":                           result.Inputs,
+		"packetRefs":                       result.PacketRefs,
+		"openRisks":                        result.OpenRisks,
+		"time":                             isoNow(),
 	}
 	if err := writeJSON(statusPath, status); err != nil {
 		return "", "", err
@@ -1448,6 +1474,7 @@ func continueDigestText(result ContinueResult) string {
 	lines = appendContinueExecutionEvidenceReview(lines, result.ExecutionEvidenceReview, result.ExecutionEvidenceReviewSummary)
 	lines = appendDigestReviewerWritebacks(lines, result.ReviewerWritebacks)
 	lines = appendReviewerDispatchIntakeHandoff(lines, result.ReviewerDispatchIntakeHandoffs)
+	lines = appendReviewerPacketRetirementHandoff(lines, result.ReviewerPacketRetirementHandoffs)
 	lines = appendMissionBriefDigestList(lines, "blocker reasons", result.ExecutorAction.BlockerReasons)
 	lines = appendMissionBriefDigestList(lines, "executor next actions", result.ExecutorAction.NextAgentActions)
 	lines = appendMissionBriefDigestList(lines, "executor escalations", result.ExecutorAction.Escalations)

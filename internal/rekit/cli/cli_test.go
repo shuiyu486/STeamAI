@@ -15707,6 +15707,99 @@ type reviewerDispatchIntakeCLIItem struct {
 	Boundary                                 []string `json:"boundary"`
 }
 
+type reviewerPacketRetirementCLIItem struct {
+	PacketID        string   `json:"packetId"`
+	PacketPath      string   `json:"packetPath"`
+	IntegrityPath   string   `json:"integrityPath"`
+	RetirementPath  string   `json:"retirementPath"`
+	TargetLane      string   `json:"targetLane"`
+	State           string   `json:"state"`
+	PacketSHA256    string   `json:"packetSha256"`
+	PacketBytes     int      `json:"packetBytes"`
+	IntegritySHA256 string   `json:"integritySha256"`
+	IntegrityBytes  int      `json:"integrityBytes"`
+	Actor           string   `json:"actor"`
+	Reason          string   `json:"reason"`
+	CreatedAt       string   `json:"createdAt"`
+	NoDelete        bool     `json:"noDelete"`
+	NoHeavyTool     bool     `json:"noHeavyTool"`
+	NoAuthority     bool     `json:"noAuthorityOrConfirmed"`
+	NextAction      string   `json:"nextAction"`
+	RunbookSteps    []string `json:"runbookSteps"`
+	Evidence        []string `json:"evidence"`
+	Boundary        []string `json:"boundary"`
+}
+
+type reviewerPacketRetirementSummaryCLIItem struct {
+	Total           int      `json:"total"`
+	LaneCount       int      `json:"laneCount"`
+	Lanes           []string `json:"lanes"`
+	PacketCount     int      `json:"packetCount"`
+	LatestPacketID  string   `json:"latestPacketId"`
+	LatestPacket    string   `json:"latestPacket"`
+	LatestState     string   `json:"latestState"`
+	LatestLane      string   `json:"latestLane"`
+	LatestReceipt   string   `json:"latestReceipt"`
+	LatestActor     string   `json:"latestActor"`
+	LatestReason    string   `json:"latestReason"`
+	LatestCreatedAt string   `json:"latestCreatedAt"`
+	NextAction      string   `json:"nextAction"`
+	RunbookSteps    []string `json:"runbookSteps"`
+	Boundary        []string `json:"boundary"`
+}
+
+func assertReviewerPacketRetirementClosure(t *testing.T, label string, items []reviewerPacketRetirementCLIItem, summary reviewerPacketRetirementSummaryCLIItem, packetID, lane, packetSHA256, integritySHA256 string) {
+	t.Helper()
+	if len(items) != 1 {
+		t.Fatalf("%s retired packet handoff count = %d, want 1: %+v", label, len(items), items)
+	}
+	item := items[0]
+	if item.PacketID != packetID || item.TargetLane != lane || item.State != "reviewer-packet-retired" || item.PacketSHA256 != packetSHA256 || item.IntegritySHA256 != integritySHA256 || strings.TrimSpace(item.RetirementPath) == "" || !strings.HasSuffix(item.RetirementPath, "packet.retirement.json") || !item.NoDelete || !item.NoHeavyTool || !item.NoAuthority {
+		t.Fatalf("%s missing exact retirement closure: %+v", label, item)
+	}
+	if !containsSubstring(item.RunbookSteps, "exact invalid reviewer packet retirement is current") || !containsSubstring(item.RunbookSteps, "regenerate the canonical reviewer packet") || !containsSubstring(item.RunbookSteps, "rerun /rekit continue "+lane+" -WhatIf") {
+		t.Fatalf("%s missing retirement runbook: %+v", label, item.RunbookSteps)
+	}
+	for _, unexpected := range []string{"-RetireInvalidReviewerPacket", "reviewer-packet-integrity-invalid", "packetRetirementPreview"} {
+		if strings.Contains(item.NextAction, unexpected) || containsSubstring(item.RunbookSteps, unexpected) {
+			t.Fatalf("%s reopened invalid packet action %q: next=%q runbook=%+v", label, unexpected, item.NextAction, item.RunbookSteps)
+		}
+	}
+	if !containsSubstring(item.Evidence, "exact retirement receipt") || !containsSubstring(item.Evidence, "packet ") || !containsSubstring(item.Evidence, "integrity ") {
+		t.Fatalf("%s missing retirement evidence provenance: %+v", label, item.Evidence)
+	}
+	if !containsSubstring(item.Boundary, "closed provenance only") || !containsSubstring(item.Boundary, "does not delete, repair, or rewrite") || !containsSubstring(item.Boundary, "does not spawn") {
+		t.Fatalf("%s missing retirement boundary: %+v", label, item.Boundary)
+	}
+	if summary.Total != 1 || summary.PacketCount != 1 || summary.LaneCount != 1 || summary.LatestPacketID != packetID || summary.LatestLane != lane || summary.LatestState != "reviewer-packet-retired" || !strings.HasSuffix(summary.LatestReceipt, "packet.retirement.json") || !containsSubstring(summary.Lanes, lane) || !strings.Contains(summary.NextAction, "/rekit continue "+lane+" -WhatIf") || !containsSubstring(summary.Boundary, "does not reopen retired packet work") {
+		t.Fatalf("%s missing retirement summary: %+v", label, summary)
+	}
+}
+
+func assertReviewerPacketRetirementText(t *testing.T, label, text, lane string) {
+	t.Helper()
+	for _, expected := range []string{"reviewer packet retirement", "state=reviewer-packet-retired", "packet.retirement.json", "noDelete=true", "noHeavyTool=true", "noAuthorityOrConfirmed=true", "closed provenance only", "regenerate the canonical reviewer packet", "/rekit continue " + lane + " -WhatIf"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("%s omitted retirement closure text %q:\n%s", label, expected, text)
+		}
+	}
+}
+
+func assertNoReviewerPacketRetirementReopensInvalidPacket(t *testing.T, label, text string) {
+	t.Helper()
+	for _, line := range strings.Split(text, "\n") {
+		relevant := strings.Contains(line, "reviewer dispatch") || strings.Contains(line, "reviewer packet retirement")
+		if !relevant {
+			continue
+		}
+		for _, unexpected := range []string{"reviewer-packet-integrity-invalid", "-RetireInvalidReviewerPacket", "packetRetirementPreview=`/rekit plan-subagents"} {
+			if strings.Contains(line, unexpected) {
+				t.Fatalf("%s reopened invalid packet action %q in reviewer handoff line:\n%s", label, unexpected, line)
+			}
+		}
+	}
+}
+
 type reviewerDispatchIntakeSummaryCLIItem struct {
 	Total                                             int      `json:"total"`
 	WaitingForReviewerResult                          int      `json:"waitingForReviewerResult"`
