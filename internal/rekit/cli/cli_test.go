@@ -7757,6 +7757,25 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	}
 
 	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var statusAfterPromptRepair struct {
+		CaseMission struct {
+			ReviewerDispatchIntakeHandoffs []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
+			ReviewerDispatchIntakeSummary  reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &statusAfterPromptRepair); err != nil {
+		t.Fatalf("status JSON after prompt repair did not decode: %v\n%s", err, out.String())
+	}
+	assertReviewerDispatchIntakeSummary(t, "status after prompt repair", statusAfterPromptRepair.CaseMission.ReviewerDispatchIntakeSummary, 2, 2, 0, "shard-02", "waiting-for-reviewer-result")
+	repairedDispatch, ok := reviewerDispatchIntakeByShard(statusAfterPromptRepair.CaseMission.ReviewerDispatchIntakeHandoffs, "shard-01")
+	if !ok || repairedDispatch.State != "waiting-for-reviewer-result" || repairedDispatch.DispatchPromptState != "ready" || !repairedDispatch.DispatchPromptCurrent || repairedDispatch.DispatchPromptPath != firstDispatch.DispatchPromptPath || repairedDispatch.DispatchPromptSHA256 != firstDispatch.DispatchPromptSHA256 || repairedDispatch.DispatchPromptActualSHA256 != firstDispatch.DispatchPromptSHA256 || statusAfterPromptRepair.CaseMission.ReviewerDispatchIntakeSummary.PromptArtifactBlocked != 0 || statusAfterPromptRepair.CaseMission.ReviewerDispatchIntakeSummary.NextActionState != "waiting-for-reviewer-result" || strings.Contains(statusAfterPromptRepair.CaseMission.ReviewerDispatchIntakeSummary.NextAction, "-RepairReviewerPromptArtifact") {
+		t.Fatalf("status JSON after prompt repair did not restore reviewer dispatch handoff: item=%+v summary=%+v", repairedDispatch, statusAfterPromptRepair.CaseMission.ReviewerDispatchIntakeSummary)
+	}
+
+	out.Reset()
 	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
@@ -7772,6 +7791,35 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "handoff reviewer dispatch intake summary：total=2 waitingForReviewerResult=2 readyForPreview=0") || !strings.Contains(out.String(), "handoff reviewer dispatch intake：lane=feature-login shard=shard-01 state=waiting-for-reviewer-result") {
 		t.Fatalf("handoff text omitted reviewer dispatch intake handoff:\n%s", out.String())
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	repairedHandoff := decodeHandoffResult(t, out.Bytes())
+	if !repairedHandoff.IsMutation || !repairedHandoff.Applied || repairedHandoff.Project || repairedHandoff.Lane == nil || repairedHandoff.Lane.ID != "feature-login" {
+		t.Fatalf("unexpected repaired reviewer lane handoff result: %+v", repairedHandoff)
+	}
+	assertReviewerDispatchIntakeSummary(t, "handoff apply after prompt repair", repairedHandoff.ReviewerDispatchIntakeSummary, 2, 2, 0, "shard-02", "waiting-for-reviewer-result")
+	repairedHandoffDispatch, ok := reviewerDispatchIntakeByShard(repairedHandoff.ReviewerDispatchIntakeHandoffs, "shard-01")
+	if !ok || repairedHandoffDispatch.State != "waiting-for-reviewer-result" || repairedHandoffDispatch.DispatchPromptState != "ready" || !repairedHandoffDispatch.DispatchPromptCurrent || repairedHandoffDispatch.DispatchPromptSHA256 != firstDispatch.DispatchPromptSHA256 {
+		t.Fatalf("handoff apply after prompt repair did not preserve ready reviewer dispatch handoff: %+v", repairedHandoff.ReviewerDispatchIntakeHandoffs)
+	}
+	repairedLatest := assertStartWrite(t, repairedHandoff.Writes, ".rekit/handovers/feature-login-latest.md", "write-latest-lane-handoff")
+	repairedHandoffText, err := os.ReadFile(repairedLatest.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"## Reviewer dispatch intake handoff", "summary: total=2 waitingForReviewerResult=2 readyForPreview=0", "dispatch intake: lane=feature-login shard=shard-01 state=waiting-for-reviewer-result", "sha256=" + firstDispatch.DispatchPromptSHA256 + " state=ready current=true", "dispatch read-only reviewer for shard-01", "runtime does not spawn, stop, monitor, or manage reviewer sessions"} {
+		if !strings.Contains(string(repairedHandoffText), expected) {
+			t.Fatalf("repaired reviewer lane handoff missing %q:\n%s", expected, string(repairedHandoffText))
+		}
+	}
+	for _, forbidden := range []string{"reviewer-dispatch-prompt-artifact-invalid", "reviewer prompt artifact is missing", "-RepairReviewerPromptArtifact"} {
+		if strings.Contains(string(repairedHandoffText), forbidden) {
+			t.Fatalf("repaired reviewer lane handoff still contains prompt artifact blocker %q:\n%s", forbidden, string(repairedHandoffText))
+		}
 	}
 
 	out.Reset()
