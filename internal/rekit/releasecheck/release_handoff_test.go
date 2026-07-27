@@ -335,6 +335,22 @@ func TestLatestBatchHandoffDoesNotWarnForRealPendingValidation(t *testing.T) {
 	}
 }
 
+func TestLatestBatchHandoffDoesNotWarnForPendingPhraseInProblemNarrative(t *testing.T) {
+	section := `状态：已完成 latest-batch stale pending validation guard closure 的 runtime/test/doc 实现、完整本机 release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit ` + "`" + `04f0e66` + "`" + ` 已推送。Push run ` + "`" + `30309500487` + "`" + ` completed failure；Linux/Windows/macOS jobs ` + "`" + `90121569501` + "`" + `/` + "`" + `90121569503` + "`" + `/` + "`" + `90121569534` + "`" + ` 均 ` + "`" + `steps=[]` + "`" + `。
+
+目标：Batch 680 ` + "`" + `验证结果` + "`" + ` 末尾仍残留 “Implementation commit/push 与一次 push-triggered remote release-gate inspection 待执行” 这类过期 pending 句，replacement executor 可能把已完成 cadence 的 batch 误读为仍需重复 implementation push / remote inspection。
+
+验证结果：新增 regression 覆盖 stale pending warning，并保留真正 pending local validation / implementation commit 场景不被误标 complete。完整本机 release minimum 已通过：` + "`" + `go run ./cmd/rekit -- -Command release-check -Format json` + "`" + ` 返回 ` + "`" + `ready=true` + "`" + `，` + "`" + `go run ./cmd/rekit -- -Command status` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command packs` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command doctor` + "`" + `、` + "`" + `go test ./...` + "`" + `、` + "`" + `go vet ./...` + "`" + ` 与 ` + "`" + `git diff --check` + "`" + ` 均已运行。Implementation commit ` + "`" + `04f0e66` + "`" + ` 已推送。Push run ` + "`" + `30309500487` + "`" + ` completed failure；Linux/Windows/macOS jobs ` + "`" + `90121569501` + "`" + `/` + "`" + `90121569503` + "`" + `/` + "`" + `90121569534` + "`" + ` 均 ` + "`" + `steps=[]` + "`" + `。`
+
+	handoff := latestBatchHandoff(ReleaseHandoffLatestBatch{Status: "已完成 fixture"}, section)
+	if cadence := handoff.ReleaseInspectionCadence; cadence.State != "complete" || !cadence.ImplementationCommitReady || !cadence.InspectionCommitReady {
+		t.Fatalf("completed cadence should survive problem narrative: %+v", cadence)
+	}
+	if releaseHandoffStringsContain(handoff.ValidationWarnings, "stale pending release steps") {
+		t.Fatalf("problem narrative quoting stale pending text should not warn: %+v", handoff.ValidationWarnings)
+	}
+}
+
 func TestLatestBatchCommitRefsIgnoreRemoteRefsInSameEvidenceClause(t *testing.T) {
 	section := `状态：已完成 runtime/test/docs 与完整本地 release minimum，以及 implementation commit/push 和 PR-triggered remote release-gate inspection。
 

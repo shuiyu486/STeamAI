@@ -3851,9 +3851,41 @@ func latestBatchHasStalePendingReleaseStepNarrative(text string, handoff Release
 	return false
 }
 
+func latestBatchPendingReleaseStepNarrativeClause(clause, lower string) bool {
+	for _, marker := range []string{
+		"残留",
+		"过期",
+		"误读",
+		"误导",
+		"历史",
+		"旧句",
+		"这类",
+		"例如",
+		"可能把",
+		"可能导致",
+		"保留真正",
+		"场景",
+		"不被误标",
+		"已验证当前",
+		"-run",
+		"testlatestbatch",
+		"regression",
+		"focused",
+		"fail-closed",
+		"would otherwise",
+		"stale pending",
+		"narrative",
+	} {
+		if strings.Contains(clause, marker) || strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 func latestBatchPendingReleaseStepClause(clause, lower string) bool {
 	pending := strings.Contains(clause, "待执行") || strings.Contains(clause, "待检查") || strings.Contains(clause, "待完成") || strings.Contains(clause, "尚未") || strings.Contains(lower, "pending")
-	if !pending {
+	if !pending || latestBatchPendingReleaseStepNarrativeClause(clause, lower) {
 		return false
 	}
 	return strings.Contains(lower, "implementation commit") ||
