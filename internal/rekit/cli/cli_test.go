@@ -24,6 +24,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/promote"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/releasecheck"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/review"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
 func TestParsePowerShellStyleOptions(t *testing.T) {
@@ -6789,6 +6790,134 @@ func TestRunHandoffPreviewDoesNotWrite(t *testing.T) {
 	assertCLIActionQueue(t, result.MissionCommanderActionQueue, 6, 3, 3, 4, 4, "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 1")
 	after := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 	assertSnapshotEqual(t, before, after)
+}
+
+func TestProjectHandoffDurableActionInjectionSelectsClosedNextBatchOnly(t *testing.T) {
+	closedProject := buildStatusProjectHandoff(releasecheck.ReleaseHandoff{
+		Ready:   true,
+		Summary: "release handoff summary ok",
+		LatestBatch: releasecheck.ReleaseHandoffLatestBatch{
+			BatchID: "Batch 682",
+			Handoff: releasecheck.ReleaseHandoffLatestBatchHandoff{
+				LocalValidationReady: true,
+				ReleaseCheckReady:    true,
+				RemoteReleaseGate:    "blocked: completed failure with jobs steps=[]",
+				ReleaseInspectionCadence: releasecheck.ReleaseHandoffReleaseInspectionCadence{
+					State:                     "complete",
+					ImplementationCommitReady: true,
+					InspectionCommitReady:     true,
+					Boundary:                  []string{"do not add a third record commit"},
+				},
+			},
+		},
+		PackMemoryCandidates: releasecheck.ReleaseHandoffPackMemoryCandidateList{Ready: true, Summary: "pack-memory candidate inventory ok", NextAction: "no pack-memory candidate cleanup is pending"},
+	})
+	closedActions := projectHandoffMissionCommanderActionsForDurableHandoff(closedProject)
+	if len(closedActions) != 8 || closedActions[0].ActionID != "next-batch-selection" || !slices.ContainsFunc(closedActions, func(item mission.MissionCommanderNextActionItem) bool {
+		return item.ActionID == "next-batch-replacement-executor-takeover" && item.Source == "releaseHandoffNextBatch.followUp.candidateDomain" && containsSubstring(item.Reasons, "pack-memory candidate queue is closed: no pack-memory candidate cleanup is pending") && containsSubstring(item.Boundary, "candidate-domain follow-ups are selection guidance only")
+	}) {
+		t.Fatalf("closed completed cadence should inject durable next-batch candidate-domain actions: %+v", closedActions)
+	}
+
+	packAction := mission.MissionCommanderNextActionItem{Label: "_template", ActionID: "pack-memory-verification-provision-required", State: "pack-memory-verification-required", Source: "packMemoryCandidates._template", Command: "/rekit promote -ProvisionCandidateVerificationCases -WhatIf -Format json"}
+	openPackProject := *closedProject
+	openPackProject.PackMemoryCandidates = releasecheck.ReleaseHandoffPackMemoryCandidateList{
+		Ready:                       false,
+		Summary:                     "pack-memory candidate inventory has open review/cleanup/verification work",
+		Total:                       1,
+		MissionCommanderNextActions: []mission.MissionCommanderNextActionItem{packAction},
+		MissionCommanderActionQueue: mission.MissionCommanderActionQueueFor([]mission.MissionCommanderNextActionItem{packAction}),
+	}
+	openPackActions := projectHandoffMissionCommanderActionsForDurableHandoff(&openPackProject)
+	if len(openPackActions) != 1 || openPackActions[0].ActionID != "pack-memory-verification-provision-required" || strings.Contains(openPackActions[0].Source, "releaseHandoffNextBatch") {
+		t.Fatalf("open pack-memory work should keep durable pack-memory action priority: %+v", openPackActions)
+	}
+
+	incompleteProject := buildStatusProjectHandoff(releasecheck.ReleaseHandoff{
+		Ready:   true,
+		Summary: "release handoff summary ok",
+		LatestBatch: releasecheck.ReleaseHandoffLatestBatch{
+			BatchID: "Batch 683",
+			Handoff: releasecheck.ReleaseHandoffLatestBatchHandoff{
+				LocalValidationReady: false,
+				ReleaseCheckReady:    false,
+				NextAction:           "run the full local release minimum before handoff",
+				ReleaseInspectionCadence: releasecheck.ReleaseHandoffReleaseInspectionCadence{
+					State:      "implementation-pending",
+					NextAction: "run the full local release minimum before handoff",
+				},
+			},
+		},
+		PackMemoryCandidates: releasecheck.ReleaseHandoffPackMemoryCandidateList{Ready: true, Summary: "pack-memory candidate inventory ok", NextAction: "no pack-memory candidate cleanup is pending"},
+	})
+	if actions := projectHandoffMissionCommanderActionsForDurableHandoff(incompleteProject); len(actions) != 0 {
+		t.Fatalf("incomplete cadence should not inject latest-batch or candidate-domain actions into durable handoff: %+v", actions)
+	}
+}
+
+func TestRunHandoffApplyWritesNextBatchCandidateDomains(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	writeHandoffFixture(t, caseRoot)
+	project := buildStatusProjectHandoff(releasecheck.ReleaseHandoff{
+		Ready:   true,
+		Summary: "release handoff summary ok",
+		LatestBatch: releasecheck.ReleaseHandoffLatestBatch{
+			BatchID: "Batch 682",
+			Handoff: releasecheck.ReleaseHandoffLatestBatchHandoff{
+				LocalValidationReady: true,
+				ReleaseCheckReady:    true,
+				RemoteReleaseGate:    "blocked: completed failure with jobs steps=[]",
+				ReleaseInspectionCadence: releasecheck.ReleaseHandoffReleaseInspectionCadence{
+					State:                     "complete",
+					ImplementationCommitReady: true,
+					InspectionCommitReady:     true,
+					Boundary:                  []string{"do not add a third record commit"},
+				},
+			},
+		},
+		PackMemoryCandidates: releasecheck.ReleaseHandoffPackMemoryCandidateList{Ready: true, Summary: "pack-memory candidate inventory ok", NextAction: "no pack-memory candidate cleanup is pending"},
+	})
+	result, err := workstream.HandoffApply(repoRoot(t), caseRoot, "_template", workstream.HandoffOptions{ProjectMissionCommanderNextActions: projectHandoffMissionCommanderActionsForDurableHandoff(project)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Project || !result.IsMutation || !result.Applied || result.MissionCommanderActionQueue.CurrentAction == nil || result.MissionCommanderActionQueue.CurrentAction.ActionID != "next-batch-selection" || result.MissionCommanderActionQueue.Counts.Total != 14 || result.MissionCommanderActionQueue.Counts.FollowUp != 11 {
+		t.Fatalf("project handoff JSON should prepend durable next-batch action queue before lane actions: %+v", result.MissionCommanderActionQueue)
+	}
+	if !slices.ContainsFunc(result.MissionCommanderNextActions, func(item mission.MissionCommanderNextActionItem) bool {
+		return item.ActionID == "next-batch-replacement-executor-takeover" && item.Source == "releaseHandoffNextBatch.followUp.candidateDomain" && containsSubstring(item.Boundary, "candidate-domain follow-ups are selection guidance only")
+	}) {
+		t.Fatalf("project handoff JSON omitted replacement-executor candidate-domain follow-up: %+v", result.MissionCommanderNextActions)
+	}
+
+	var latest workstream.StartWrite
+	for _, write := range result.Writes {
+		if write.Path == ".rekit/handovers/latest.md" && write.Action == "write-latest-project-handoff" {
+			latest = write
+			break
+		}
+	}
+	if latest.TargetPath == "" {
+		t.Fatalf("project handoff did not write latest durable handoff: %+v", result.Writes)
+	}
+	text, err := os.ReadFile(latest.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"## Project Mission Commander action queue",
+		"counts: total=8 unblocked=8 blocked=0 requiresReview=0 followUp=7",
+		"actionId=next-batch-selection",
+		"actionId=next-batch-replacement-executor-takeover",
+		"command=`select a replacement executor takeover slice that can be resumed from status or durable handoff without prior chat context`",
+		"pack-memory candidate queue is closed: no pack-memory candidate cleanup is pending",
+		"candidate-domain follow-ups are selection guidance only",
+		"do not execute reviewer, adapter, pack-memory, gate, or heavy-tool mutations from next-batch selection guidance",
+	} {
+		if !bytes.Contains(text, []byte(expected)) {
+			t.Fatalf("project durable handoff omitted %q:\n%s", expected, string(text))
+		}
+	}
 }
 
 func TestRunHandoffApplyWritesProjectAndLane(t *testing.T) {

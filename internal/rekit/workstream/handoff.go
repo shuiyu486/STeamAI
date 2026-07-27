@@ -709,7 +709,7 @@ func writeProjectMissionCommanderActionQueue(out *bytes.Buffer, items []mission.
 		fmt.Fprintln(out)
 		return
 	}
-	for _, line := range missionCommanderNextActionLines(limitMissionCommanderNextActionItems(items, maxHandoffRows)) {
+	for _, line := range missionCommanderNextActionLines(limitProjectMissionCommanderNextActionItems(items, maxHandoffRows)) {
 		fmt.Fprintf(out, "- next action: %s\n", line)
 	}
 	fmt.Fprintln(out)
@@ -804,6 +804,26 @@ func limitMissionCommanderNextActionItems(items []mission.MissionCommanderNextAc
 		return items
 	}
 	return items[len(items)-n:]
+}
+
+func limitProjectMissionCommanderNextActionItems(items []mission.MissionCommanderNextActionItem, n int) []mission.MissionCommanderNextActionItem {
+	if projectNextBatchCandidateQueue(items) {
+		return items
+	}
+	return limitMissionCommanderNextActionItems(items, n)
+}
+
+func projectNextBatchCandidateQueue(items []mission.MissionCommanderNextActionItem) bool {
+	if len(items) == 0 {
+		return false
+	}
+	for _, item := range items {
+		source := strings.TrimSpace(item.Source)
+		if source != "releaseHandoffNextBatch" && source != "releaseHandoffNextBatch.followUp.candidateDomain" {
+			return false
+		}
+	}
+	return true
 }
 
 func writeProjectLaneCommanderList(out *bytes.Buffer, label string, items []string) {

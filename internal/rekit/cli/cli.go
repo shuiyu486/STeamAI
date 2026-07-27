@@ -6437,7 +6437,7 @@ func runHandoff(ctx runtime.Context, opt Options, out io.Writer) error {
 		return fmt.Errorf("handoff write requires -Apply; use -WhatIf for preview")
 	}
 	handoffOpt := opt.Handoff
-	if err := bindProjectHandoffPackMemoryActions(ctx.RepoRoot, target, ctx.Pack, &handoffOpt); err != nil {
+	if err := bindProjectHandoffMissionCommanderActions(ctx.RepoRoot, target, ctx.Pack, &handoffOpt); err != nil {
 		return err
 	}
 	var result workstream.HandoffResult
@@ -6455,7 +6455,7 @@ func runHandoff(ctx runtime.Context, opt Options, out io.Writer) error {
 	return writeHandoffText(out, result)
 }
 
-func bindProjectHandoffPackMemoryActions(repoRoot, target, pack string, opt *workstream.HandoffOptions) error {
+func bindProjectHandoffMissionCommanderActions(repoRoot, target, pack string, opt *workstream.HandoffOptions) error {
 	if opt == nil || strings.TrimSpace(opt.Selector) != "" {
 		return nil
 	}
@@ -6465,10 +6465,23 @@ func bindProjectHandoffPackMemoryActions(repoRoot, target, pack string, opt *wor
 	}
 	project := buildStatusProjectHandoff(release.ReleaseHandoff)
 	bindStatusCaseCandidateDecisionDraftHandoffs(project, repoRoot, target, pack)
-	if project == nil || project.PackMemoryCandidates.MissionCommanderActionQueue.Counts.Total == 0 {
+	if project == nil {
 		return nil
 	}
-	opt.ProjectMissionCommanderNextActions = project.PackMemoryCandidates.MissionCommanderNextActions
+	opt.ProjectMissionCommanderNextActions = projectHandoffMissionCommanderActionsForDurableHandoff(project)
+	return nil
+}
+
+func projectHandoffMissionCommanderActionsForDurableHandoff(project *statusProjectHandoff) []mission.MissionCommanderNextActionItem {
+	if project == nil {
+		return nil
+	}
+	if project.PackMemoryCandidates.MissionCommanderActionQueue.Counts.Total > 0 {
+		return project.PackMemoryCandidates.MissionCommanderNextActions
+	}
+	if statusProjectHandoffReadyForNextBatchSelection(project) {
+		return project.MissionCommanderNextActions
+	}
 	return nil
 }
 

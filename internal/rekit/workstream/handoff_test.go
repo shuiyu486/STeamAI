@@ -31,6 +31,28 @@ func TestMissionCommanderNextActionMarkdownLineIncludesIdentity(t *testing.T) {
 	}
 }
 
+func TestLimitProjectMissionCommanderNextActionItemsKeepsNextBatchCandidateQueue(t *testing.T) {
+	items := []mission.MissionCommanderNextActionItem{
+		{Label: "next-batch", ActionID: "next-batch-selection", State: "ready-for-next-batch-selection", Source: "releaseHandoffNextBatch", Command: "select the next batch"},
+		{Label: "mission-commander", ActionID: "next-batch-mission-commander-operational-closure", State: "next-batch-candidate-domain", Source: "releaseHandoffNextBatch.followUp.candidateDomain", Command: "select mission commander closure"},
+		{Label: "replacement-executor", ActionID: "next-batch-replacement-executor-takeover", State: "next-batch-candidate-domain", Source: "releaseHandoffNextBatch.followUp.candidateDomain", Command: "select replacement executor takeover"},
+		{Label: "reviewer-orchestration", ActionID: "next-batch-reviewer-orchestration-closure", State: "next-batch-candidate-domain", Source: "releaseHandoffNextBatch.followUp.candidateDomain", Command: "select reviewer orchestration closure"},
+	}
+	limited := limitProjectMissionCommanderNextActionItems(items, 2)
+	if len(limited) != len(items) || limited[0].ActionID != "next-batch-selection" || !slices.ContainsFunc(limited, func(item mission.MissionCommanderNextActionItem) bool {
+		return item.ActionID == "next-batch-replacement-executor-takeover"
+	}) {
+		t.Fatalf("next-batch candidate-domain queue should not be truncated in project durable handoff: %+v", limited)
+	}
+
+	ordinary := append([]mission.MissionCommanderNextActionItem{}, items...)
+	ordinary[0].Source = "missionCommanderActions"
+	ordinaryLimited := limitProjectMissionCommanderNextActionItems(ordinary, 2)
+	if len(ordinaryLimited) != 2 || slices.ContainsFunc(ordinaryLimited, func(item mission.MissionCommanderNextActionItem) bool { return item.ActionID == "next-batch-selection" }) {
+		t.Fatalf("ordinary project action queue should keep existing tail limit semantics: %+v", ordinaryLimited)
+	}
+}
+
 func TestMissionCommanderNextActionsWithAuthorizedGateAdaptersPrioritizesRepair(t *testing.T) {
 	base := []mission.MissionCommanderNextActionItem{{
 		Lane:    "main",
