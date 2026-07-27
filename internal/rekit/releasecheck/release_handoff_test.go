@@ -393,6 +393,59 @@ func TestLatestBatchRemoteGateRecognizesEqualsEmptyStepsAndChineseNegativeGreen(
 	}
 }
 
+func TestLatestBatchRemoteGateKeepsSplitEmptyStepsFailureAsKnownBlocker(t *testing.T) {
+	section := `状态：已完成 fixture、完整本机 release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit ` + "`" + `dcd977a` + "`" + ` 已推送。Push run ` + "`" + `30306725830` + "`" + ` completed failure；Windows/Linux/macOS jobs ` + "`" + `90112653163` + "`" + `/` + "`" + `90112653167` + "`" + `/` + "`" + `90112653180` + "`" + ` 均 ` + "`" + `steps=[]` + "`" + `；annotations 显示 GitHub account payments/spending limit blocker；` + "`" + `gh run view 30306725830 --log-failed` + "`" + ` 返回 ` + "`" + `log not found: 90112653163` + "`" + `。这是既有 runner/billing blocker，未发现新的远程 release signal，不声明 remote green。`
+
+	handoff := latestBatchHandoff(ReleaseHandoffLatestBatch{Status: "已完成 fixture"}, section)
+	if handoff.RemoteReleaseGate != "blocked: completed failure with jobs steps=[]" || handoff.RemoteReleaseGateDetail == nil || !handoff.RemoteReleaseGateDetail.EmptySteps || !handoff.RemoteReleaseGateDetail.CompletedFailure || handoff.RemoteReleaseGateDetail.CanClaimGreen {
+		t.Fatalf("split remote evidence should remain known steps=[] blocker: %+v", handoff.RemoteReleaseGateDetail)
+	}
+	for _, want := range []string{"30306725830", "90112653163", "90112653167", "90112653180"} {
+		if !slices.Contains(handoff.RemoteReleaseGateDetail.RunRefs, want) {
+			t.Fatalf("split remote evidence run refs missing %q: %+v", want, handoff.RemoteReleaseGateDetail.RunRefs)
+		}
+	}
+	cadence := handoff.ReleaseInspectionCadence
+	if cadence.State != "complete" || !cadence.ImplementationCommitReady || !cadence.InspectionCommitReady || cadence.NewRemoteSignal || cadence.ThirdInspectionAllowed || !releaseHandoffStringsContain(cadence.Evidence, "remote release-gate steps=[] blocker recorded") {
+		t.Fatalf("split remote evidence should complete cadence without new remote signal: %+v", cadence)
+	}
+}
+
+func TestLatestBatchRemoteGateKeepsSplitCompletedFailureAsNewSignal(t *testing.T) {
+	section := `状态：已完成 fixture、完整本机 release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit ` + "`" + `feed680` + "`" + ` 已推送。Push run ` + "`" + `30306726800` + "`" + ` completed failure；Windows/Linux/macOS jobs ` + "`" + `90112668001` + "`" + `/` + "`" + `90112668002` + "`" + `/` + "`" + `90112668003` + "`" + ` completed failure。`
+
+	handoff := latestBatchHandoff(ReleaseHandoffLatestBatch{Status: "已完成 fixture"}, section)
+	if handoff.RemoteReleaseGate != "inspected" || handoff.RemoteReleaseGateDetail == nil || handoff.RemoteReleaseGateDetail.EmptySteps || !handoff.RemoteReleaseGateDetail.CompletedFailure || handoff.RemoteReleaseGateDetail.CanClaimGreen {
+		t.Fatalf("split non-empty completed failure should remain inspected/new signal: %+v", handoff.RemoteReleaseGateDetail)
+	}
+	for _, want := range []string{"30306726800", "90112668001", "90112668002", "90112668003"} {
+		if !slices.Contains(handoff.RemoteReleaseGateDetail.RunRefs, want) {
+			t.Fatalf("split completed failure run refs missing %q: %+v", want, handoff.RemoteReleaseGateDetail.RunRefs)
+		}
+	}
+	cadence := handoff.ReleaseInspectionCadence
+	if cadence.State != "new-remote-signal" || !cadence.ImplementationCommitReady || !cadence.InspectionCommitReady || !cadence.NewRemoteSignal || !cadence.ThirdInspectionAllowed || !releaseHandoffStringsContain(cadence.Evidence, "new remote signal differs from existing steps=[] blocker") {
+		t.Fatalf("split non-empty completed failure should keep new remote signal cadence: %+v", cadence)
+	}
+}
+
+func TestLatestBatchRemoteGateIgnoresParserRegressionNarrativeBeforeInspection(t *testing.T) {
+	section := `状态：已完成 release remote evidence clause normalization closure 的 runtime/test/doc 实现；完整本机 release minimum、implementation commit/push 与 push-triggered remote release-gate inspection 待执行。本批选择一个 Windows 本机可验证的 release-readiness / Mission Commander product-path slice：Batch 679 release inspection 记录一度把 ` + "`" + `Push run 30306725830 completed failure` + "`" + ` 与 ` + "`" + `jobs ... steps=[]` + "`" + ` 分在不同 clause，` + "`" + `status` + "`" + ` 因此把既有 GitHub Actions billing/spending ` + "`" + `steps=[]` + "`" + ` blocker 误判成 ` + "`" + `new-remote-signal` + "`" + `。
+
+目标：latest batch evidence 同时记录 completed failure、jobs 和 ` + "`" + `steps=[]` + "`" + ` 时，即使被中文句号/分号拆成多句，也应稳定归类为 ` + "`" + `blocked: completed failure with jobs steps=[]` + "`" + `，release inspection cadence 为 ` + "`" + `complete` + "`" + `。
+
+验证结果：新增 releasecheck regression 覆盖 latest batch remote evidence 被分成 run-completed clause 与 jobs-steps clause 时仍识别为 known ` + "`" + `steps=[]` + "`" + ` blocker；补充相邻 parser regression 确认真正非 ` + "`" + `steps=[]` + "`" + ` completed failure 仍触发 ` + "`" + `new-remote-signal` + "`" + `。完整本机 release minimum、implementation push 与一次 push-triggered remote release-gate inspection 待执行；远程 ` + "`" + `steps=[]` + "`" + ` 继续记录为 known blocker，不声明 remote green。`
+
+	handoff := latestBatchHandoff(ReleaseHandoffLatestBatch{BatchID: "Batch 680", Status: "已完成 fixture"}, section)
+	if handoff.RemoteReleaseGate != "not-recorded" || handoff.RemoteReleaseGateDetail == nil || handoff.RemoteReleaseGateDetail.EmptySteps || handoff.RemoteReleaseGateDetail.CompletedFailure || len(handoff.RemoteReleaseGateDetail.RunRefs) != 0 {
+		t.Fatalf("parser/regression narrative should not become remote inspection evidence: %+v", handoff.RemoteReleaseGateDetail)
+	}
+	cadence := handoff.ReleaseInspectionCadence
+	if cadence.State != "implementation-pending" || cadence.ImplementationCommitReady || cadence.InspectionCommitReady || cadence.NewRemoteSignal || cadence.ThirdInspectionAllowed || releaseHandoffStringsContain(cadence.Evidence, "remote release-gate steps=[] blocker recorded") {
+		t.Fatalf("parser/regression narrative should keep cadence pending implementation: %+v", cadence)
+	}
+}
+
 func TestLatestBatchReleaseReadinessIgnoresBoundaryOnlyCommitAndInspectionWords(t *testing.T) {
 	section := `状态：已完成 runtime/test/doc 工作树实现与完整本地 release minimum；尚未创建本批代码提交，尚未检查本批对应的远程 workflow run。
 

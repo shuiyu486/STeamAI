@@ -3853,21 +3853,72 @@ func latestBatchRemoteReleaseGate(text string) string {
 
 func latestBatchRemoteEvidenceText(text string) string {
 	clauses := []string{}
+	remoteContext := false
 	for _, clause := range latestBatchEvidenceClauses(text) {
 		lower := strings.ToLower(clause)
 		if latestBatchRemoteInspectionPending(clause, lower) {
+			remoteContext = false
 			continue
 		}
-		if !latestBatchRemoteEvidenceClause(clause, lower) {
+		if latestBatchRemoteEvidenceClause(clause, lower) {
+			clauses = append(clauses, clause)
+			remoteContext = true
 			continue
 		}
-		clauses = append(clauses, clause)
+		if remoteContext && latestBatchRemoteEvidenceDetailClause(clause, lower) {
+			clauses = append(clauses, clause)
+			continue
+		}
+		remoteContext = false
 	}
 	return strings.Join(clauses, "\n")
 }
 
+func latestBatchRemoteEvidenceNarrativeClause(clause, lower string) bool {
+	if len(latestBatchRemoteRunRefs(clause)) > 0 {
+		return false
+	}
+	for _, marker := range []string{
+		"regression",
+		"parser",
+		"目标：",
+		"边界：",
+		"验证标准",
+		"回归",
+		"测试",
+		"覆盖",
+		"被分成",
+		"分在不同",
+		"误判",
+		"诱导",
+		"仍识别",
+		"仍触发",
+	} {
+		if strings.Contains(lower, marker) || strings.Contains(clause, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func latestBatchRemoteEvidenceDetailClause(clause, lower string) bool {
+	if latestBatchRemoteInspectionPending(clause, lower) || latestBatchRemoteEvidenceNarrativeClause(clause, lower) {
+		return false
+	}
+	return strings.Contains(lower, "job") ||
+		strings.Contains(lower, "steps=[]") ||
+		strings.Contains(lower, "steps: []") ||
+		strings.Contains(clause, "steps=[]") ||
+		strings.Contains(clause, "steps 为空") ||
+		strings.Contains(clause, "steps为空") ||
+		strings.Contains(lower, "log not found") ||
+		strings.Contains(lower, "billing") ||
+		strings.Contains(lower, "spending limit") ||
+		strings.Contains(clause, "无 logs")
+}
+
 func latestBatchRemoteEvidenceClause(clause, lower string) bool {
-	if latestBatchRemoteInspectionPending(clause, lower) {
+	if latestBatchRemoteInspectionPending(clause, lower) || latestBatchRemoteEvidenceNarrativeClause(clause, lower) {
 		return false
 	}
 	if latestBatchRemoteGreen(clause, lower) {
