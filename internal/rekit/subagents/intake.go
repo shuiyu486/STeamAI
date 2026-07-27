@@ -129,6 +129,11 @@ type ReviewerBatchIntakeResult struct {
 	Stopped                     bool                                     `json:"stopped"`
 	StopShardID                 string                                   `json:"stopShardId,omitempty"`
 	StopReason                  string                                   `json:"stopReason,omitempty"`
+	Partial                     bool                                     `json:"partial"`
+	NextOpenShardID             string                                   `json:"nextOpenShardId,omitempty"`
+	RemainingShardIDs           []string                                 `json:"remainingShardIds,omitempty"`
+	RerunCommand                string                                   `json:"rerunCommand,omitempty"`
+	RecoveryAction              *mission.MissionCommanderNextActionItem  `json:"recoveryAction,omitempty"`
 	Results                     []ReviewerIntakeResult                   `json:"results"`
 	NextSteps                   []string                                 `json:"nextSteps"`
 	MissionCommanderAction      mission.MissionCommanderAction           `json:"missionCommanderAction"`
@@ -593,6 +598,14 @@ shardLoop:
 }
 
 func finalizeReviewerBatchIntakeResult(result ReviewerBatchIntakeResult) ReviewerBatchIntakeResult {
+	closed := result.Completed + result.AlreadyComplete
+	result.Partial = result.Stopped || (closed > 0 && closed < result.Total) || (result.Waiting > 0 && result.Processed > 0)
+	result.RerunCommand = reviewerPacketBatchPreviewCommand(result.PacketPath, result.Lane, result.Actor)
+	result.NextOpenShardID, result.RemainingShardIDs = reviewerBatchIntakeOpenShardProgress(result)
+	if result.Stopped {
+		recovery := reviewerBatchIntakeRecoveryAction(result)
+		result.RecoveryAction = &recovery
+	}
 	action := reviewerBatchIntakeMissionCommanderAction(result)
 	result.MissionCommanderAction = action
 	result.MissionCommanderNextActions = reviewerBatchIntakeMissionCommanderNextActions(result, action)
@@ -600,20 +613,98 @@ func finalizeReviewerBatchIntakeResult(result ReviewerBatchIntakeResult) Reviewe
 	return result
 }
 
+func reviewerBatchIntakeOpenShardProgress(result ReviewerBatchIntakeResult) (string, []string) {
+	closed := map[string]bool{}
+	for _, item := range result.Results {
+		shardID := strings.TrimSpace(item.ShardID)
+		if shardID == "" {
+			continue
+		}
+		switch strings.TrimSpace(item.WritebackStatus) {
+		case "complete", "already-complete":
+			closed[shardID] = true
+		}
+	}
+	remaining := []string{}
+	if stop := strings.TrimSpace(result.StopShardID); stop != "" {
+		remaining = append(remaining, stop)
+	}
+	for _, item := range result.Results {
+		progress := item.Summary.OrchestrationProgress
+		if progress == nil {
+			continue
+		}
+		for _, shardID := range progress.RemainingShardIDs {
+			shardID = strings.TrimSpace(shardID)
+			if shardID == "" || closed[shardID] {
+				continue
+			}
+			remaining = append(remaining, shardID)
+		}
+	}
+	remaining = mission.UniqueStrings(remaining)
+	if len(remaining) == 0 && result.Waiting > 0 {
+		return "", remaining
+	}
+	if len(remaining) == 0 {
+		return "", nil
+	}
+	return remaining[0], remaining
+}
+
+func reviewerBatchIntakeRecoveryAction(result ReviewerBatchIntakeResult) mission.MissionCommanderNextActionItem {
+	command := strings.TrimSpace(result.RerunCommand)
+	state := "reviewer-batch-intake-stopped"
+	reasons := []string{}
+	if stop := strings.TrimSpace(result.StopShardID); stop != "" {
+		reasons = append(reasons, "stopShardId="+stop)
+	}
+	if reason := strings.TrimSpace(result.StopReason); reason != "" {
+		reasons = append(reasons, "stopReason="+reason)
+	}
+	if len(result.RemainingShardIDs) > 0 {
+		reasons = append(reasons, "remainingShards="+strings.Join(result.RemainingShardIDs, ","))
+	}
+	if command == "" {
+		command = "repair reviewer batch intake stop shard " + textOr(result.StopShardID, "<stop-shard>") + ", then rerun packet-level ready reviewer results intake -WhatIf"
+		state = "reviewer-batch-intake-repair-required"
+	}
+	return mission.MissionCommanderNextActionItem{
+		Lane:           result.Lane,
+		Label:          filepath.Base(result.PacketPath),
+		ActionID:       "reviewer-batch-intake-stop-shard",
+		State:          state,
+		Command:        command,
+		Source:         "reviewerBatchIntake.recovery",
+		Blocked:        true,
+		RequiresReview: true,
+		Reasons:        mission.UniqueStrings(append(reasons, result.NextSteps...)),
+		Boundary:       append(append([]string{}, result.Boundary...), "repair the stop shard and rerun -WhatIf before any batch Apply or lane continuation"),
+	}
+}
+
 func reviewerBatchIntakeMissionCommanderAction(result ReviewerBatchIntakeResult) mission.MissionCommanderAction {
 	previewCommand := reviewerPacketBatchPreviewCommand(result.PacketPath, result.Lane, result.Actor)
 	applyCommand := reviewerPacketBatchApplyCommand(result.PacketPath, result.Lane, result.Actor)
 	boundary := append([]string{}, result.Boundary...)
 	if result.Stopped {
-		return mission.MissionCommanderAction{State: "reviewer-batch-intake-stopped", PrimaryCommand: previewCommand, Boundary: append(boundary, "repair the stop shard before applying or continuing")}
+		primary := previewCommand
+		if result.RecoveryAction != nil && strings.TrimSpace(result.RecoveryAction.Command) != "" {
+			primary = result.RecoveryAction.Command
+		}
+		return mission.MissionCommanderAction{State: "reviewer-batch-intake-stopped", PrimaryCommand: primary, Boundary: append(boundary, "repair the stop shard before applying or continuing")}
 	}
 	if result.Ready == 0 || result.Waiting > 0 {
 		return mission.MissionCommanderAction{State: "ready-for-reviewer-batch-intake-preview", PrimaryCommand: previewCommand, Boundary: boundary}
 	}
-	allPreviewed := result.Processed > 0
+	allPreviewed := !result.IsMutation && result.Processed > 0
 	for _, item := range result.Results {
-		if strings.TrimSpace(item.WritebackStatus) != "previewed" {
+		switch strings.TrimSpace(item.WritebackStatus) {
+		case "previewed", "already-complete":
+		default:
 			allPreviewed = false
+		}
+		if !allPreviewed {
 			break
 		}
 	}
@@ -635,13 +726,16 @@ func reviewerBatchIntakeMissionCommanderNextActions(result ReviewerBatchIntakeRe
 		}
 	}
 	items := []mission.MissionCommanderNextActionItem{}
+	if result.Stopped && result.RecoveryAction != nil {
+		items = append(items, *result.RecoveryAction)
+	}
 	blocked := result.Stopped
 	requiresReview := true
 	if action.State == "reviewer-batch-intake-writeback-complete" {
 		requiresReview = false
 	}
 	if action.PrimaryCommand != "" {
-		items = append(items, mission.MissionCommanderNextActionItem{Lane: result.Lane, Label: filepath.Base(result.PacketPath), State: action.State, Command: action.PrimaryCommand, Source: "reviewerBatchIntake", Blocked: blocked, RequiresReview: requiresReview, Reasons: append([]string{}, result.NextSteps...), Boundary: append([]string{}, action.Boundary...)})
+		items = append(items, mission.MissionCommanderNextActionItem{Lane: result.Lane, Label: filepath.Base(result.PacketPath), ActionID: "reviewer-batch-intake-current", State: action.State, Command: action.PrimaryCommand, Source: "reviewerBatchIntake", Blocked: blocked, RequiresReview: requiresReview, Reasons: append([]string{}, result.NextSteps...), Boundary: append([]string{}, action.Boundary...)})
 	}
 	for _, command := range action.FollowUpCommands {
 		items = append(items, mission.MissionCommanderNextActionItem{Lane: result.Lane, Label: filepath.Base(result.PacketPath), State: action.State, Command: command, Source: "reviewerBatchIntake.followUp", Blocked: blocked, RequiresReview: requiresReview, Reasons: append(append([]string{}, result.NextSteps...), "follow-up is available only after the reviewer batch intake primary action is satisfied"), Boundary: append([]string{}, action.Boundary...)})

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -1067,7 +1068,58 @@ func TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath(t *testing.T) 
 		if collectionApply.Status != "collected" || !collectionApply.IsMutation || !collectionApply.Applied || collectionApply.AlreadyCollected || collectionApply.CandidateSHA256 == "" || collectionApply.CandidateSHA256 != collectionApply.ReviewerResultSHA256 || collectionApply.MissionCommanderAction.State != "reviewer-result-collected-ready-for-batch-intake-preview" || !strings.Contains(collectionApply.MissionCommanderAction.PrimaryCommand, "-ReadyReviewerResults") {
 			t.Fatalf("unexpected reviewer result collection apply: %+v", collectionApply)
 		}
-		batchPreviewCommand = collectionApply.MissionCommanderAction.PrimaryCommand
+		batchPreviewCommand = strings.Replace(collectionApply.MissionCommanderAction.PrimaryCommand, "-Actor <main-agent>", "-Actor mission-commander", 1)
+	}
+
+	firstSingleApplyCommand := plan.ShardHandoffs[0].ReviewerIntakeCommands.ApplyCommand
+	if firstSingleApplyCommand == "" || !strings.Contains(firstSingleApplyCommand, "-ReviewerResultPath") || !strings.Contains(firstSingleApplyCommand, "-Apply") || !strings.Contains(firstSingleApplyCommand, "-Actor <main-agent>") {
+		t.Fatalf("first shard did not expose single intake apply command: %+v", plan.ShardHandoffs[0].ReviewerIntakeCommands)
+	}
+	firstSingleApplyCommand = strings.Replace(firstSingleApplyCommand, "-Actor <main-agent>", "-Actor mission-commander", 1)
+	out.Reset()
+	if err := Run(reviewerPrimaryCommandCLIArgs(t, nil, firstSingleApplyCommand), &out); err != nil {
+		t.Fatal(err)
+	}
+	firstSingleApply := decodeReviewerIntakeResult(t, out.Bytes())
+	if firstSingleApply.WritebackStatus != "complete" || !firstSingleApply.IsMutation || !firstSingleApply.Applied || firstSingleApply.Summary.OrchestrationProgress == nil || firstSingleApply.Summary.OrchestrationProgress.Completed != 1 || firstSingleApply.Summary.OrchestrationProgress.Open != 1 || firstSingleApply.Summary.OrchestrationProgress.NextOpenShardID != "shard-02" || !slices.Contains(firstSingleApply.Summary.OrchestrationProgress.RemainingShardIDs, "shard-02") || firstSingleApply.MissionCommanderActionQueue.CurrentAction == nil || !strings.Contains(firstSingleApply.MissionCommanderActionQueue.CurrentAction.Command, "-ReadyReviewerResults") {
+		t.Fatalf("single-shard intake did not expose partial reviewer batch continuation: result=%+v queue=%+v", firstSingleApply, firstSingleApply.MissionCommanderActionQueue)
+	}
+	if got := strings.Count(readOptionalCaseFile(t, caseRoot, ".rekit/facts/verifications.jsonl"), `"shardId"`); got != 1 {
+		t.Fatalf("partial reviewer intake verification count = %d, want 1", got)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var partialStatus struct {
+		CaseMission struct {
+			ReviewerWritebackSummary       reviewerWritebackSummaryCLIItem      `json:"reviewerWritebackSummary"`
+			ReviewerDispatchIntakeHandoffs []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
+			ReviewerDispatchIntakeSummary  reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+			MissionCommanderActionQueue    missionCommanderActionQueueSnapshot  `json:"missionCommanderActionQueue"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &partialStatus); err != nil {
+		t.Fatalf("partial status stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if partialStatus.CaseMission.ReviewerWritebackSummary.Total != 2 || len(partialStatus.CaseMission.ReviewerDispatchIntakeHandoffs) != 1 || partialStatus.CaseMission.ReviewerDispatchIntakeSummary.Total != 1 || partialStatus.CaseMission.ReviewerDispatchIntakeSummary.LatestPacketDispatchCompleted != 1 || partialStatus.CaseMission.ReviewerDispatchIntakeSummary.LatestPacketDispatchOpen != 1 || partialStatus.CaseMission.ReviewerDispatchIntakeSummary.NextActionShardID != "shard-02" || partialStatus.CaseMission.ReviewerDispatchIntakeSummary.NextActionState != "ready-for-reviewer-intake-preview" || !strings.Contains(partialStatus.CaseMission.ReviewerDispatchIntakeSummary.NextActionBatchPreviewCommand, "-ReadyReviewerResults") || partialStatus.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || partialStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.Source != "reviewerDispatchIntakeHandoffs" || partialStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.State != "ready-for-reviewer-intake-preview" || !strings.Contains(partialStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.Command, "-ReadyReviewerResults") {
+		t.Fatalf("partial status omitted reviewer batch recovery handoff: %+v", partialStatus.CaseMission)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "review", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var partialContinue struct {
+		Blocked                        bool                                 `json:"blocked"`
+		ReviewerDispatchIntakeHandoffs []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
+		ReviewerDispatchIntakeSummary  reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+		MissionCommanderActionQueue    missionCommanderActionQueueSnapshot  `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &partialContinue); err != nil {
+		t.Fatalf("partial continue stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !partialContinue.Blocked || len(partialContinue.ReviewerDispatchIntakeHandoffs) != 1 || partialContinue.ReviewerDispatchIntakeSummary.NextActionShardID != "shard-02" || partialContinue.MissionCommanderActionQueue.CurrentAction == nil || partialContinue.MissionCommanderActionQueue.CurrentAction.Source != "reviewerDispatchIntakeHandoffs" || !strings.Contains(partialContinue.MissionCommanderActionQueue.CurrentAction.Command, "-ReadyReviewerResults") {
+		t.Fatalf("partial continue did not block on reviewer batch recovery handoff: %+v", partialContinue)
 	}
 
 	out.Reset()
@@ -1075,15 +1127,18 @@ func TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath(t *testing.T) 
 		t.Fatal(err)
 	}
 	preview := decodeReviewerBatchIntakeResult(t, out.Bytes())
-	if preview.Command != "plan-subagents" || preview.Mode != "reviewer-batch-intake" || preview.CaseRoot != caseRoot || preview.Pack != "_template" || preview.IsMutation || preview.Applied || preview.Total != 2 || preview.Ready != 2 || preview.Waiting != 0 || preview.Processed != 2 || preview.Stopped || len(preview.Results) != 2 || preview.Results[0].WritebackStatus != "previewed" || preview.Results[1].WritebackStatus != "previewed" {
-		t.Fatalf("unexpected case-local reviewer batch preview: %+v", preview)
+	if preview.Command != "plan-subagents" || preview.Mode != "reviewer-batch-intake" || preview.CaseRoot != caseRoot || preview.Pack != "_template" || preview.IsMutation || preview.Applied || preview.Total != 2 || preview.Ready != 2 || preview.Waiting != 0 || preview.Processed != 2 || preview.Completed != 0 || preview.AlreadyComplete != 1 || preview.Stopped || !preview.Partial || len(preview.Results) != 2 || preview.Results[0].WritebackStatus != "already-complete" || preview.Results[1].WritebackStatus != "previewed" || preview.NextOpenShardID != "shard-02" || !slices.Contains(preview.RemainingShardIDs, "shard-02") || !strings.Contains(preview.RerunCommand, "-ReadyReviewerResults") {
+		t.Fatalf("unexpected case-local reviewer batch partial preview: %+v", preview)
 	}
 	if preview.MissionCommanderAction.State != "ready-for-reviewer-batch-intake-apply-after-preview" || !strings.Contains(preview.MissionCommanderAction.PrimaryCommand, "-Apply -Format json") || !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "reviewerBatchIntake", preview.MissionCommanderAction.PrimaryCommand, false, true) {
 		t.Fatalf("case-local reviewer batch preview omitted apply handoff: action=%+v next=%+v", preview.MissionCommanderAction, preview.MissionCommanderNextActions)
 	}
 	assertCLIActionQueue(t, preview.MissionCommanderActionQueue, 1, 1, 0, 1, 0, preview.MissionCommanderAction.PrimaryCommand)
-	if got := readOptionalCaseFile(t, caseRoot, ".rekit/facts/verifications.jsonl"); got != "" {
-		t.Fatalf("reviewer batch WhatIf wrote verification facts:\n%s", got)
+	if got := strings.Count(readOptionalCaseFile(t, caseRoot, ".rekit/facts/verifications.jsonl"), `"shardId"`); got != 1 {
+		t.Fatalf("reviewer batch WhatIf changed verification count = %d, want existing single-shard count 1", got)
+	}
+	if got := strings.Count(readOptionalCaseFile(t, caseRoot, ".rekit/facts/decisions.jsonl"), `"shardId"`); got != 1 {
+		t.Fatalf("reviewer batch WhatIf changed decision count = %d, want existing single-shard count 1", got)
 	}
 
 	out.Reset()
@@ -1091,8 +1146,9 @@ func TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath(t *testing.T) 
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
-		"plan-subagents reviewer batch intake：mutation=false applied=false lane=feature-review total=2 ready=2 waiting=0 processed=2 completed=0 alreadyComplete=0 stopped=false",
-		"reviewer batch intake shard：shard=shard-01 status=previewed",
+		"plan-subagents reviewer batch intake：mutation=false applied=false lane=feature-review total=2 ready=2 waiting=0 processed=2 completed=0 alreadyComplete=1 stopped=false partial=true",
+		"nextOpen=shard-02 remaining=shard-02",
+		"reviewer batch intake shard：shard=shard-01 status=already-complete",
 		"reviewer batch intake shard：shard=shard-02 status=previewed",
 		"reviewer batch intake boundary：each shard preserves strict reviewer result validation and verification-before-decision writeback",
 		"reviewer batch intake commander action：state=ready-for-reviewer-batch-intake-apply-after-preview",
@@ -1112,8 +1168,8 @@ func TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath(t *testing.T) 
 		t.Fatal(err)
 	}
 	applied := decodeReviewerBatchIntakeResult(t, out.Bytes())
-	if !applied.IsMutation || !applied.Applied || applied.Processed != 2 || applied.Completed != 2 || applied.AlreadyComplete != 0 || applied.Stopped || len(applied.Results) != 2 || applied.Results[0].WritebackStatus != "complete" || applied.Results[1].WritebackStatus != "complete" {
-		t.Fatalf("unexpected case-local reviewer batch apply: %+v", applied)
+	if !applied.IsMutation || !applied.Applied || applied.Processed != 2 || applied.Completed != 1 || applied.AlreadyComplete != 1 || applied.Stopped || applied.Partial || applied.NextOpenShardID != "" || len(applied.RemainingShardIDs) != 0 || len(applied.Results) != 2 || applied.Results[0].WritebackStatus != "already-complete" || applied.Results[1].WritebackStatus != "complete" {
+		t.Fatalf("unexpected case-local reviewer batch recovery apply: %+v", applied)
 	}
 	if applied.MissionCommanderAction.State != "reviewer-batch-intake-writeback-complete" || len(applied.MissionCommanderNextActions) == 0 || !strings.HasPrefix(applied.MissionCommanderNextActions[0].Source, "reviewerBatchIntake.reviewerIntake.postValidation.") || applied.MissionCommanderActionQueue.CurrentAction == nil {
 		t.Fatalf("case-local reviewer batch apply omitted post-validation handoff: action=%+v next=%+v queue=%+v", applied.MissionCommanderAction, applied.MissionCommanderNextActions, applied.MissionCommanderActionQueue)
@@ -1411,7 +1467,7 @@ func TestRunPlanSubagentsReadyReviewerResultsEmitsStrictErrorEnvelope(t *testing
 		t.Fatalf("error = %v, want strict reviewer result failure", err)
 	}
 	result := decodeReviewerBatchIntakeResult(t, out.Bytes())
-	if !result.Stopped || result.StopShardID != "shard-01" || result.StopReason == "" {
+	if !result.Stopped || !result.Partial || result.StopShardID != "shard-01" || result.StopReason == "" || result.RecoveryAction == nil || result.RecoveryAction.Source != "reviewerBatchIntake.recovery" || result.RecoveryAction.ActionID != "reviewer-batch-intake-stop-shard" || !result.RecoveryAction.Blocked || !result.RecoveryAction.RequiresReview || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "reviewerBatchIntake.recovery", result.RecoveryAction.Command, true, true) {
 		t.Fatalf("strict reviewer batch error omitted recovery envelope: %+v", result)
 	}
 }
@@ -1836,6 +1892,11 @@ type reviewerBatchIntakeCLIResult struct {
 	Stopped                     bool                                `json:"stopped"`
 	StopShardID                 string                              `json:"stopShardId"`
 	StopReason                  string                              `json:"stopReason"`
+	Partial                     bool                                `json:"partial"`
+	NextOpenShardID             string                              `json:"nextOpenShardId"`
+	RemainingShardIDs           []string                            `json:"remainingShardIds"`
+	RerunCommand                string                              `json:"rerunCommand"`
+	RecoveryAction              *missionCommanderNextActionItem     `json:"recoveryAction"`
 	Results                     []reviewerIntakeCLIResult           `json:"results"`
 	MissionCommanderAction      missionCommanderActionSnapshot      `json:"missionCommanderAction"`
 	MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`

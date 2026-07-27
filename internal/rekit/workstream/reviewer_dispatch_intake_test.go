@@ -128,6 +128,38 @@ func TestReviewerDispatchIntakeSummaryPrefersReadyPacketBatchCommand(t *testing.
 	}
 }
 
+func TestReviewerDispatchIntakeSummaryProjectsPartialPacketRecovery(t *testing.T) {
+	batchPreview := "/rekit plan-subagents -PacketPath packet.json -ReadyReviewerResults -Lane feature-review -Actor mission-commander -WhatIf -Format json"
+	items := []ReviewerDispatchIntakeHandoff{
+		{
+			PacketID:               "packet-partial",
+			PacketPath:             "packet.json",
+			TargetLane:             "feature-review",
+			ShardID:                "shard-02",
+			State:                  "ready-for-reviewer-intake-preview",
+			DispatchTotal:          2,
+			DispatchCompleted:      1,
+			DispatchOpen:           1,
+			LatestCompletedShardID: "shard-01",
+			NextOpenShardID:        "shard-02",
+			RemainingShardIDs:      []string{"shard-02"},
+			PreviewCommand:         "/rekit plan-subagents -PacketPath packet.json -ReviewerResultPath shard-02.json -Lane feature-review -Actor mission-commander -WhatIf -Format json",
+			ApplyCommand:           "/rekit plan-subagents -PacketPath packet.json -ReviewerResultPath shard-02.json -Lane feature-review -Actor mission-commander -Apply -Format json",
+			BatchPreviewCommand:    batchPreview,
+		},
+	}
+
+	summary := ReviewerDispatchIntakeSummaryFor(items)
+	if summary.Total != 1 || summary.LatestPacketDispatchCompleted != 1 || summary.LatestPacketDispatchOpen != 1 || summary.LatestCompletedShardID != "shard-01" || summary.LatestPacketNextOpenShardID != "shard-02" || !slices.Equal(summary.RemainingShardIDs, []string{"shard-02"}) || summary.NextActionShardID != "shard-02" || summary.NextActionState != "ready-for-reviewer-intake-preview" || summary.NextAction != batchPreview || summary.NextActionBatchPreviewCommand != batchPreview || !slices.ContainsFunc(summary.NextActionRunbookSteps, func(step string) bool { return strings.Contains(step, "run reviewer intake preview: "+batchPreview) }) {
+		t.Fatalf("summary did not project partial reviewer packet recovery: %+v", summary)
+	}
+	actions := MissionCommanderNextActionsWithReviewerDispatches(nil, items)
+	queue := mission.MissionCommanderActionQueueFor(actions)
+	if len(actions) != 1 || queue.CurrentAction == nil || queue.CurrentAction.Command != batchPreview || queue.CurrentAction.State != "ready-for-reviewer-intake-preview" || queue.CurrentAction.Blocked || !queue.CurrentAction.RequiresReview {
+		t.Fatalf("Mission Commander did not choose partial packet batch recovery: actions=%+v queue=%+v", actions, queue)
+	}
+}
+
 func TestReviewerDispatchIntakeRunbookStepsCoverReviewerLifecycle(t *testing.T) {
 	collectionCommands := &ReviewerResultCollectionCommands{PreviewCommand: "collect-preview", ApplyCommand: "collect-apply"}
 	for _, tc := range []struct {

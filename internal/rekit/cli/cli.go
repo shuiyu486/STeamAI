@@ -8157,12 +8157,23 @@ func writePlanSubagentsReviewerPacketAdoptionText(out io.Writer, result subagent
 }
 
 func writePlanSubagentsReviewerBatchIntakeText(out io.Writer, result subagents.ReviewerBatchIntakeResult) error {
-	if _, err := fmt.Fprintf(out, "plan-subagents reviewer batch intake：mutation=%t applied=%t lane=%s total=%d ready=%d waiting=%d processed=%d completed=%d alreadyComplete=%d stopped=%t stopShard=%s\n", result.IsMutation, result.Applied, result.Lane, result.Total, result.Ready, result.Waiting, result.Processed, result.Completed, result.AlreadyComplete, result.Stopped, result.StopShardID); err != nil {
+	if _, err := fmt.Fprintf(out, "plan-subagents reviewer batch intake：mutation=%t applied=%t lane=%s total=%d ready=%d waiting=%d processed=%d completed=%d alreadyComplete=%d stopped=%t partial=%t stopShard=%s nextOpen=%s remaining=%s rerun=%s\n", result.IsMutation, result.Applied, result.Lane, result.Total, result.Ready, result.Waiting, result.Processed, result.Completed, result.AlreadyComplete, result.Stopped, result.Partial, result.StopShardID, result.NextOpenShardID, strings.Join(result.RemainingShardIDs, ","), result.RerunCommand); err != nil {
 		return err
 	}
 	if strings.TrimSpace(result.StopReason) != "" {
 		if _, err := fmt.Fprintf(out, "reviewer batch intake stop reason：%s\n", planSubagentsTextInline(result.StopReason)); err != nil {
 			return err
+		}
+	}
+	if result.RecoveryAction != nil {
+		action := *result.RecoveryAction
+		if _, err := fmt.Fprintf(out, "reviewer batch intake recovery action：state=%s source=%s blocked=%t requiresReview=%t actionId=%s command=`%s`\n", action.State, action.Source, action.Blocked, action.RequiresReview, action.ActionID, action.Command); err != nil {
+			return err
+		}
+		for _, reason := range action.Reasons {
+			if _, err := fmt.Fprintf(out, "reviewer batch intake recovery reason：%s\n", reason); err != nil {
+				return err
+			}
 		}
 	}
 	for _, item := range result.Results {
