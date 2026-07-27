@@ -16450,6 +16450,15 @@ type reviewerDispatchIntakeCLIItem struct {
 	OwnerExecutor                            string   `json:"ownerExecutor"`
 	OwnerGeneration                          int      `json:"ownerGeneration"`
 	OwnerBindingMode                         string   `json:"ownerBindingMode"`
+	CurrentExecutor                          string   `json:"currentExecutor"`
+	CurrentGeneration                        int      `json:"currentGeneration"`
+	OwnerAdoptionRequired                    bool     `json:"ownerAdoptionRequired"`
+	OwnerAdoptionCurrent                     bool     `json:"ownerAdoptionCurrent"`
+	OwnerAdoptionPath                        string   `json:"ownerAdoptionPath"`
+	OwnerAdoptionActor                       string   `json:"ownerAdoptionActor"`
+	OwnerAdoptionReason                      string   `json:"ownerAdoptionReason"`
+	OwnerAdoptionCreatedAt                   string   `json:"ownerAdoptionCreatedAt"`
+	OwnerAdoptionPreviewCommand              string   `json:"ownerAdoptionPreviewCommand"`
 	PacketRetirementPreviewCommand           string   `json:"packetRetirementPreviewCommand"`
 	RunbookSteps                             []string `json:"runbookSteps"`
 	Evidence                                 []string `json:"evidence"`

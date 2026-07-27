@@ -385,6 +385,62 @@ func TestRunPlanSubagentsReviewerPacketAdoptionCaseLocalProductPath(t *testing.T
 	if !bytes.Equal(packetBefore, packetAfter) {
 		t.Fatal("CLI adoption modified immutable reviewer packet")
 	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var adoptedStatus struct {
+		CaseMission struct {
+			ReviewerDispatchIntakeHandoffs []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
+			ReviewerDispatchIntakeSummary  reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+			MissionCommanderActionQueue    missionCommanderActionQueueSnapshot  `json:"missionCommanderActionQueue"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &adoptedStatus); err != nil {
+		t.Fatalf("status after reviewer packet adoption stdout is not JSON: %v\n%s", err, out.String())
+	}
+	adoptedDispatch, ok := reviewerDispatchIntakeByShard(adoptedStatus.CaseMission.ReviewerDispatchIntakeHandoffs, "shard-01")
+	statusCurrent := adoptedStatus.CaseMission.MissionCommanderActionQueue.CurrentAction
+	if !ok || adoptedDispatch.State != "ready-for-reviewer-intake-preview" || adoptedDispatch.OwnerAdoptionRequired || !adoptedDispatch.OwnerAdoptionCurrent || adoptedDispatch.OwnerAdoptionPath != applied.AdoptionPath || adoptedDispatch.OwnerAdoptionActor != "mission-commander" || adoptedDispatch.OwnerAdoptionReason != "adopt existing reviewer work" || adoptedDispatch.CurrentExecutor != "session-b" || adoptedDispatch.CurrentGeneration != 2 || !containsSubstring(adoptedDispatch.Evidence, "ownerAdoption current") || !containsSubstring(adoptedDispatch.RunbookSteps, "owner adoption receipt is current") || !containsSubstring(adoptedDispatch.Boundary, "current reviewer packet adoption receipt") || adoptedStatus.CaseMission.ReviewerDispatchIntakeSummary.NextActionState != "ready-for-reviewer-intake-preview" || statusCurrent == nil || statusCurrent.State != "ready-for-reviewer-intake-preview" || statusCurrent.Blocked || !strings.Contains(statusCurrent.Command, "-ReadyReviewerResults") {
+		t.Fatalf("status after adoption should expose adopted ready-intake continuation: dispatch=%+v summary=%+v current=%+v", adoptedDispatch, adoptedStatus.CaseMission.ReviewerDispatchIntakeSummary, statusCurrent)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "review", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	handoffPreview := decodeHandoffResult(t, out.Bytes())
+	handoffDispatch, ok := reviewerDispatchIntakeByShard(handoffPreview.ReviewerDispatchIntakeHandoffs, "shard-01")
+	handoffCurrent := handoffPreview.MissionCommanderActionQueue.CurrentAction
+	if !ok || !handoffDispatch.OwnerAdoptionCurrent || handoffDispatch.OwnerAdoptionRequired || handoffDispatch.OwnerAdoptionPath != applied.AdoptionPath || handoffDispatch.State != "ready-for-reviewer-intake-preview" || handoffCurrent == nil || handoffCurrent.State != "ready-for-reviewer-intake-preview" || handoffCurrent.Blocked || !strings.Contains(handoffCurrent.Command, "-ReadyReviewerResults") {
+		t.Fatalf("handoff after adoption should preserve adopted ready-intake continuation: dispatch=%+v current=%+v", handoffDispatch, handoffCurrent)
+	}
+
+	beforeBlockedContinue := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "review", "-Executor", "session-b", "-ExpectedExecutorGeneration", "2", "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var blockedContinue struct {
+		Applied                        bool                                 `json:"applied"`
+		Blocked                        bool                                 `json:"blocked"`
+		RunID                          string                               `json:"runId"`
+		Writes                         []startWrite                         `json:"writes"`
+		ReviewerDispatchIntakeHandoffs []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
+		ReviewerDispatchIntakeSummary  reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+		MissionCommanderActionQueue    missionCommanderActionQueueSnapshot  `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &blockedContinue); err != nil {
+		t.Fatalf("blocked continue after reviewer packet adoption stdout is not JSON: %v\n%s", err, out.String())
+	}
+	continueDispatch, ok := reviewerDispatchIntakeByShard(blockedContinue.ReviewerDispatchIntakeHandoffs, "shard-01")
+	continueCurrent := blockedContinue.MissionCommanderActionQueue.CurrentAction
+	if blockedContinue.Applied || !blockedContinue.Blocked || blockedContinue.RunID != "run-preview" || len(blockedContinue.Writes) != 0 || !ok || !continueDispatch.OwnerAdoptionCurrent || continueDispatch.OwnerAdoptionRequired || continueDispatch.State != "ready-for-reviewer-intake-preview" || blockedContinue.ReviewerDispatchIntakeSummary.NextActionState != "ready-for-reviewer-intake-preview" || continueCurrent == nil || continueCurrent.State != "ready-for-reviewer-intake-preview" || continueCurrent.Blocked || !strings.Contains(continueCurrent.Command, "-ReadyReviewerResults") {
+		t.Fatalf("blocked continue after adoption should be zero-write ready-intake handoff: continue=%+v dispatch=%+v current=%+v", blockedContinue, continueDispatch, continueCurrent)
+	}
+	assertSnapshotEqual(t, beforeBlockedContinue, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
 	out.Reset()
 	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-ReadyReviewerResults", "-Lane", "feature-review", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)

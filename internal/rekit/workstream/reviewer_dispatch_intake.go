@@ -167,7 +167,11 @@ type ReviewerDispatchIntakeHandoff struct {
 	CurrentExecutor                          string                            `json:"currentExecutor,omitempty"`
 	CurrentGeneration                        int                               `json:"currentGeneration,omitempty"`
 	OwnerAdoptionRequired                    bool                              `json:"ownerAdoptionRequired"`
+	OwnerAdoptionCurrent                     bool                              `json:"ownerAdoptionCurrent,omitempty"`
 	OwnerAdoptionPath                        string                            `json:"ownerAdoptionPath,omitempty"`
+	OwnerAdoptionActor                       string                            `json:"ownerAdoptionActor,omitempty"`
+	OwnerAdoptionReason                      string                            `json:"ownerAdoptionReason,omitempty"`
+	OwnerAdoptionCreatedAt                   string                            `json:"ownerAdoptionCreatedAt,omitempty"`
 	OwnerAdoptionPreviewCommand              string                            `json:"ownerAdoptionPreviewCommand,omitempty"`
 	PacketRetirementPreviewCommand           string                            `json:"packetRetirementPreviewCommand,omitempty"`
 	RunbookSteps                             []string                          `json:"runbookSteps,omitempty"`
@@ -362,6 +366,26 @@ type reviewerDispatchPacketOwner struct {
 	RequiredForIntake      bool   `json:"requiredForIntake"`
 	MainAgentSpawnOwner    string `json:"mainAgentSpawnOwner"`
 	RuntimeSessionBoundary string `json:"runtimeSessionBoundary"`
+}
+
+type reviewerPacketOwnerAdoption struct {
+	SchemaVersion          int                         `json:"schemaVersion"`
+	Kind                   string                      `json:"kind"`
+	PacketID               string                      `json:"packetId"`
+	PacketPath             string                      `json:"packetPath"`
+	PacketSHA256           string                      `json:"packetSha256"`
+	RepoRoot               string                      `json:"repoRoot"`
+	CaseRoot               string                      `json:"caseRoot"`
+	Pack                   string                      `json:"pack"`
+	Lane                   string                      `json:"lane"`
+	DispatchedOwner        reviewerDispatchPacketOwner `json:"dispatchedOwner"`
+	AdoptedOwner           reviewerDispatchPacketOwner `json:"adoptedOwner"`
+	Actor                  string                      `json:"actor"`
+	Reason                 string                      `json:"reason"`
+	CreatedAt              string                      `json:"createdAt"`
+	NoSpawn                bool                        `json:"noSpawn"`
+	NoHeavyTool            bool                        `json:"noHeavyTool"`
+	NoAuthorityOrConfirmed bool                        `json:"noAuthorityOrConfirmed"`
 }
 
 type reviewerDispatchPacketDispatch struct {
@@ -1587,7 +1611,7 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 	}
 	currentExecutor, currentGeneration := reviewerDispatchCurrentOwner(caseRoot, targetLane)
 	adoptionPath := filepath.Join(caseRoot, ".rekit", "reviewer-adoptions", packet.PacketID+".json")
-	adoptionCurrent := reviewerDispatchAdoptionCurrent(caseRoot, adoptionPath, packet, packetPath, currentExecutor, currentGeneration)
+	adoption, adoptionCurrent := reviewerDispatchCurrentAdoption(caseRoot, adoptionPath, packet, packetPath, currentExecutor, currentGeneration)
 	ownerStale := currentExecutor != strings.TrimSpace(packet.ReviewerOrchestration.OwnerBinding.CurrentExecutor) ||
 		currentGeneration != packet.ReviewerOrchestration.OwnerBinding.ExecutorGeneration
 	if ownerStale && !adoptionCurrent {
@@ -1647,7 +1671,11 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 		CurrentExecutor:                          currentExecutor,
 		CurrentGeneration:                        currentGeneration,
 		OwnerAdoptionRequired:                    ownerStale && !adoptionCurrent,
+		OwnerAdoptionCurrent:                     ownerStale && adoptionCurrent,
 		OwnerAdoptionPath:                        adoptionPath,
+		OwnerAdoptionActor:                       adoption.Actor,
+		OwnerAdoptionReason:                      adoption.Reason,
+		OwnerAdoptionCreatedAt:                   adoption.CreatedAt,
 		OwnerAdoptionPreviewCommand:              reviewerDispatchAdoptionPreviewCommand(packetPath, targetLane),
 	}
 	if item.OwnerAdoptionRequired {
@@ -1675,48 +1703,35 @@ func reviewerDispatchCurrentOwner(caseRoot, laneID string) (string, int) {
 }
 
 func reviewerDispatchAdoptionCurrent(caseRoot, path string, packet reviewerDispatchPacket, packetPath, currentExecutor string, currentGeneration int) bool {
+	_, current := reviewerDispatchCurrentAdoption(caseRoot, path, packet, packetPath, currentExecutor, currentGeneration)
+	return current
+}
+
+func reviewerDispatchCurrentAdoption(caseRoot, path string, packet reviewerDispatchPacket, packetPath, currentExecutor string, currentGeneration int) (reviewerPacketOwnerAdoption, bool) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return false
+		return reviewerPacketOwnerAdoption{}, false
 	}
-	var adoption struct {
-		SchemaVersion          int                         `json:"schemaVersion"`
-		Kind                   string                      `json:"kind"`
-		PacketID               string                      `json:"packetId"`
-		PacketPath             string                      `json:"packetPath"`
-		PacketSHA256           string                      `json:"packetSha256"`
-		RepoRoot               string                      `json:"repoRoot"`
-		CaseRoot               string                      `json:"caseRoot"`
-		Pack                   string                      `json:"pack"`
-		Lane                   string                      `json:"lane"`
-		DispatchedOwner        reviewerDispatchPacketOwner `json:"dispatchedOwner"`
-		AdoptedOwner           reviewerDispatchPacketOwner `json:"adoptedOwner"`
-		Actor                  string                      `json:"actor"`
-		Reason                 string                      `json:"reason"`
-		CreatedAt              string                      `json:"createdAt"`
-		NoSpawn                bool                        `json:"noSpawn"`
-		NoHeavyTool            bool                        `json:"noHeavyTool"`
-		NoAuthorityOrConfirmed bool                        `json:"noAuthorityOrConfirmed"`
-	}
+	var adoption reviewerPacketOwnerAdoption
 	decoder := json.NewDecoder(bytes.NewReader(bytes.TrimSpace(data)))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&adoption); err != nil {
-		return false
+		return reviewerPacketOwnerAdoption{}, false
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); err != io.EOF {
-		return false
+		return reviewerPacketOwnerAdoption{}, false
 	}
 	if _, err := time.Parse(time.RFC3339Nano, adoption.CreatedAt); err != nil {
-		return false
+		return reviewerPacketOwnerAdoption{}, false
 	}
 	packetBytes, err := os.ReadFile(packetPath)
 	if err != nil {
-		return false
+		return reviewerPacketOwnerAdoption{}, false
 	}
 	sum := sha256.Sum256(packetBytes)
 	owner := packet.ReviewerOrchestration.OwnerBinding
-	return adoption.SchemaVersion == 1 &&
+	current := adoption.SchemaVersion == 1 &&
 		adoption.Kind == "reviewer-packet-owner-adoption" &&
 		adoption.PacketID == packet.PacketID &&
 		reviewerDispatchSamePath(adoption.PacketPath, packetPath) &&
@@ -1737,6 +1752,10 @@ func reviewerDispatchAdoptionCurrent(caseRoot, path string, packet reviewerDispa
 		strings.TrimSpace(adoption.Reason) != "" &&
 		strings.TrimSpace(adoption.CreatedAt) != "" &&
 		adoption.NoSpawn && adoption.NoHeavyTool && adoption.NoAuthorityOrConfirmed
+	if !current {
+		return reviewerPacketOwnerAdoption{}, false
+	}
+	return adoption, true
 }
 
 func reviewerDispatchSamePath(left, right string) bool {
@@ -1812,6 +1831,11 @@ func reviewerDispatchIntakeEvidence(caseRoot string, item ReviewerDispatchIntake
 	if strings.TrimSpace(item.ResultRoot) != "" {
 		evidence = append(evidence, "resultRoot "+reviewerDispatchDisplayPath(caseRoot, item.ResultRoot))
 	}
+	if item.OwnerAdoptionRequired {
+		evidence = append(evidence, fmt.Sprintf("ownerAdoption required ownerExecutor=%s generation=%d currentExecutor=%s generation=%d", firstText(item.OwnerExecutor, "unassigned"), item.OwnerGeneration, firstText(item.CurrentExecutor, "unassigned"), item.CurrentGeneration))
+	} else if item.OwnerAdoptionCurrent {
+		evidence = append(evidence, fmt.Sprintf("ownerAdoption current %s adoptedExecutor=%s generation=%d actor=%s reason=%s createdAt=%s", reviewerDispatchDisplayPath(caseRoot, item.OwnerAdoptionPath), firstText(item.CurrentExecutor, "unassigned"), item.CurrentGeneration, item.OwnerAdoptionActor, item.OwnerAdoptionReason, item.OwnerAdoptionCreatedAt))
+	}
 	if strings.TrimSpace(item.DispatchPromptPath) != "" {
 		parts := []string{"reviewerPrompt"}
 		if state := strings.TrimSpace(item.DispatchPromptState); state != "" {
@@ -1886,6 +1910,9 @@ func reviewerDispatchIntakeBoundary(item ReviewerDispatchIntakeHandoff) []string
 	if item.OwnerAdoptionRequired {
 		boundary = append(boundary, "review packet owner binding is stale; adopt the immutable packet before intake or lane continuation")
 	}
+	if item.OwnerAdoptionCurrent {
+		boundary = append(boundary, "current reviewer packet adoption receipt transfers strict intake ownership without mutating the immutable packet or spawning reviewers")
+	}
 	return mission.UniqueStrings(boundary)
 }
 
@@ -1959,6 +1986,9 @@ func reviewerDispatchIntakeRunbookSteps(item ReviewerDispatchIntakeHandoff) []st
 		}
 		add("rerun status or continue; next handoff should become ready-for-reviewer-intake-preview")
 	case "ready-for-reviewer-intake-preview":
+		if item.OwnerAdoptionCurrent {
+			add("owner adoption receipt is current at " + firstText(item.OwnerAdoptionPath, "<owner-adoption-receipt>"))
+		}
 		add("run reviewer intake preview: " + firstText(item.BatchPreviewCommand, item.PreviewCommand, "<reviewer-intake-WhatIf unavailable>"))
 		add("inspect verification, decision, postValidation, and action queue from preview; do not hand-write reviewer ledger events")
 		add("if preview remains valid, run the bounded apply command: " + firstText(item.BatchApplyCommand, item.ApplyCommand, "<reviewer-intake-Apply unavailable>"))

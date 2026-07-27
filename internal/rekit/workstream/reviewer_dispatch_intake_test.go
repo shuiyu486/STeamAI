@@ -885,6 +885,107 @@ func TestReviewerDispatchAdoptionCurrentRejectsForgedReceipt(t *testing.T) {
 	}
 }
 
+func TestReviewerDispatchIntakeProjectsCurrentAdoptionReceipt(t *testing.T) {
+	root := t.TempDir()
+	metadataRoot := filepath.Join(root, ".rekit")
+	if err := os.MkdirAll(filepath.Join(metadataRoot, "reviewer-adoptions"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	board := map[string]any{
+		"schemaVersion": 1,
+		"lanes": []map[string]any{{
+			"id":                 "feature-review",
+			"status":             "open",
+			"currentExecutor":    "session-b",
+			"executorGeneration": 2,
+		}},
+	}
+	boardBytes, err := json.Marshal(board)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(metadataRoot, "board.json"), boardBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	packetPath := filepath.Join(root, "packet.json")
+	packetBytes := []byte("{\"packetId\":\"packet-adopted\"}\n")
+	if err := os.WriteFile(packetPath, packetBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resultPath := filepath.Join(root, "reviewer-result.json")
+	if err := os.WriteFile(resultPath, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	owner := reviewerDispatchPacketOwner{
+		TargetLane:             "feature-review",
+		CurrentExecutor:        "session-a",
+		ExecutorGeneration:     1,
+		BindingMode:            "durable-lane-executor",
+		RequiredForIntake:      true,
+		MainAgentSpawnOwner:    "main-agent",
+		RuntimeSessionBoundary: "replaceable-session",
+	}
+	packet := reviewerDispatchPacket{
+		PacketID:   "packet-adopted",
+		RepoRoot:   filepath.Join(root, "repo"),
+		Pack:       "_template",
+		TargetLane: "feature-review",
+		ReviewerOrchestration: reviewerDispatchPacketOrchestration{
+			TargetLane:   "feature-review",
+			OwnerBinding: owner,
+		},
+	}
+	adoptedOwner := owner
+	adoptedOwner.CurrentExecutor = "session-b"
+	adoptedOwner.ExecutorGeneration = 2
+	adoptedOwner.BindingMode = "durable-lane-executor-adoption"
+	sum := sha256.Sum256(packetBytes)
+	receipt := map[string]any{
+		"schemaVersion":          1,
+		"kind":                   "reviewer-packet-owner-adoption",
+		"packetId":               packet.PacketID,
+		"packetPath":             packetPath,
+		"packetSha256":           hex.EncodeToString(sum[:]),
+		"repoRoot":               packet.RepoRoot,
+		"caseRoot":               root,
+		"pack":                   packet.Pack,
+		"lane":                   packet.TargetLane,
+		"dispatchedOwner":        owner,
+		"adoptedOwner":           adoptedOwner,
+		"actor":                  "mission-commander",
+		"reason":                 "replacement executor takeover",
+		"createdAt":              "2026-07-23T00:00:00Z",
+		"noSpawn":                true,
+		"noHeavyTool":            true,
+		"noAuthorityOrConfirmed": true,
+	}
+	receiptBytes, err := json.Marshal(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adoptionPath := filepath.Join(metadataRoot, "reviewer-adoptions", packet.PacketID+".json")
+	if err := os.WriteFile(adoptionPath, receiptBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dispatch := reviewerDispatchPacketDispatch{ShardID: "shard-01", ReviewerResultPath: resultPath, PreviewCommand: "intake-preview", ApplyCommand: "intake-apply"}
+
+	item := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, packetPath, "feature-review", dispatch, 0)
+	if item.State != "ready-for-reviewer-intake-preview" || item.OwnerAdoptionRequired || !item.OwnerAdoptionCurrent || item.OwnerAdoptionPath != adoptionPath || item.OwnerAdoptionActor != "mission-commander" || item.OwnerAdoptionReason != "replacement executor takeover" || item.OwnerAdoptionCreatedAt == "" {
+		t.Fatalf("current adoption receipt was not projected into ready intake handoff: %+v", item)
+	}
+	if !slices.ContainsFunc(item.Evidence, func(line string) bool {
+		return strings.Contains(line, "ownerAdoption current") && strings.Contains(line, "session-b")
+	}) {
+		t.Fatalf("current adoption receipt evidence missing: %+v", item.Evidence)
+	}
+	if !slices.ContainsFunc(item.Boundary, func(line string) bool { return strings.Contains(line, "current reviewer packet adoption receipt") }) {
+		t.Fatalf("current adoption boundary missing: %+v", item.Boundary)
+	}
+	if !slices.ContainsFunc(item.RunbookSteps, func(line string) bool { return strings.Contains(line, "owner adoption receipt is current") }) {
+		t.Fatalf("current adoption runbook missing: %+v", item.RunbookSteps)
+	}
+}
+
 func TestLimitReviewerDispatchIntakeHandoffsPreservesReadyPacket(t *testing.T) {
 	items := []ReviewerDispatchIntakeHandoff{{ShardID: "ready", State: "ready-for-reviewer-intake-preview", BatchPreviewCommand: "ready-batch"}}
 	for idx := range 6 {
