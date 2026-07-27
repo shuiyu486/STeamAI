@@ -12177,18 +12177,27 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 			ScaffoldCommand                  string   `json:"scaffoldCommand"`
 			ScaffoldApplyCommand             string   `json:"scaffoldApplyCommand"`
 			SidecarTemplateSHA256            string   `json:"sidecarTemplateSha256"`
+			DraftCommand                     string   `json:"draftCommand"`
+			DraftApplyCommand                string   `json:"draftApplyCommand"`
+			DraftReportSHA256                string   `json:"draftReportSha256"`
 			ValidateArgs                     []string `json:"validateArgs"`
 			RecordArgs                       []string `json:"recordArgs"`
 			ScaffoldArgs                     []string `json:"scaffoldArgs"`
 			ScaffoldApplyArgs                []string `json:"scaffoldApplyArgs"`
+			DraftArgs                        []string `json:"draftArgs"`
+			DraftApplyArgs                   []string `json:"draftApplyArgs"`
 			CaseRelativeValidateCommand      string   `json:"caseRelativeValidateCommand"`
 			CaseRelativeRecordCommand        string   `json:"caseRelativeRecordCommand"`
 			CaseRelativeScaffoldCommand      string   `json:"caseRelativeScaffoldCommand"`
 			CaseRelativeScaffoldApplyCommand string   `json:"caseRelativeScaffoldApplyCommand"`
+			CaseRelativeDraftCommand         string   `json:"caseRelativeDraftCommand"`
+			CaseRelativeDraftApplyCommand    string   `json:"caseRelativeDraftApplyCommand"`
 			CaseRelativeValidateArgs         []string `json:"caseRelativeValidateArgs"`
 			CaseRelativeRecordArgs           []string `json:"caseRelativeRecordArgs"`
 			CaseRelativeScaffoldArgs         []string `json:"caseRelativeScaffoldArgs"`
 			CaseRelativeScaffoldApplyArgs    []string `json:"caseRelativeScaffoldApplyArgs"`
+			CaseRelativeDraftArgs            []string `json:"caseRelativeDraftArgs"`
+			CaseRelativeDraftApplyArgs       []string `json:"caseRelativeDraftApplyArgs"`
 			AdapterCandidates                []struct {
 				ID                  string   `json:"id"`
 				Status              string   `json:"status"`
@@ -12230,6 +12239,9 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 		"gate adapter report record command：available only after valid=true validation/status returns a hash-bound command with -ExpectedExecutionReportSha256",
 		"gate adapter report live validation：cwd=authorized output workspace listed in authorizedWorkspaces; use reportFileName as workspace-relative -ExecutionReportPath and omit -Target; or use caseRelativeReportPath with case-relative commands from any case-local cwd reportFileName=adapter-report.json caseRelativeReportPath=workspace/main/debug/session-1/adapter-report.json",
 		"gate adapter report sidecar template：kind=adapter-execution-report adapterId=<adapter-id> action=debug status=succeeded|failed|boundary-hit|escalated|aborted gateEventId=" + applied.EventID,
+		"gate adapter report draft command：rekit -Command gate -Pack _template -GateEventId " + applied.EventID + " -DraftExecutionReport -ExecutionReportPath adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -Format json",
+		"gate adapter report draft apply command：rekit -Command gate -Pack _template -GateEventId " + applied.EventID + " -DraftExecutionReport -ExecutionReportPath adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -ExpectedExecutionReportSha256 <reportSha256-from-draft-preview> -Apply -Format json",
+		"gate adapter report draft hash：sha256=<reportSha256-from-draft-preview>",
 		"gate adapter report live validation note：Pre-validation contract/scaffold/draft handoffs intentionally omit runnable RecordArgs/CaseRelativeRecordArgs; after valid=true, use validation/status returned hash-bound record command with -ExpectedExecutionReportSha256.",
 		"adapter report commander action：state=needs-adapter-report-validation primary=`" + wantCaseRelativeValidate + "`",
 		"mission commander next action：state=needs-adapter-report-validation source=adapterReportContract.missionCommanderAction blocked=false requiresReview=true command=`" + wantCaseRelativeValidate + "`",
@@ -12252,6 +12264,13 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	wantCaseRelativeScaffoldApplyArgs := "-Command gate -Pack _template -GateEventId " + applied.EventID + " -ScaffoldExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -ExpectedExecutionReportSha256 " + contract.LiveValidation.SidecarTemplateSHA256 + " -Apply -Format json"
 	if contract.LiveValidation.SidecarTemplateSHA256 == "" || strings.Join(contract.LiveValidation.ScaffoldArgs, " ") != wantWorkspaceScaffoldArgs || strings.Join(contract.LiveValidation.ScaffoldApplyArgs, " ") != wantWorkspaceScaffoldApplyArgs || contract.LiveValidation.ScaffoldCommand != "rekit "+wantWorkspaceScaffoldArgs || contract.LiveValidation.ScaffoldApplyCommand != "rekit "+wantWorkspaceScaffoldApplyArgs || strings.Join(contract.LiveValidation.CaseRelativeScaffoldArgs, " ") != wantCaseRelativeScaffoldArgs || strings.Join(contract.LiveValidation.CaseRelativeScaffoldApplyArgs, " ") != wantCaseRelativeScaffoldApplyArgs || contract.LiveValidation.CaseRelativeScaffoldCommand != "rekit "+wantCaseRelativeScaffoldArgs || contract.LiveValidation.CaseRelativeScaffoldApplyCommand != "rekit "+wantCaseRelativeScaffoldApplyArgs {
 		t.Fatalf("nested workspace adapter report contract omitted scaffold handoff: %+v", contract.LiveValidation)
+	}
+	wantWorkspaceDraftArgs := "-Command gate -Pack _template -GateEventId " + applied.EventID + " -DraftExecutionReport -ExecutionReportPath adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -Format json"
+	wantWorkspaceDraftApplyArgs := "-Command gate -Pack _template -GateEventId " + applied.EventID + " -DraftExecutionReport -ExecutionReportPath adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -ExpectedExecutionReportSha256 <reportSha256-from-draft-preview> -Apply -Format json"
+	wantCaseRelativeDraftArgs := "-Command gate -Pack _template -GateEventId " + applied.EventID + " -DraftExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -Format json"
+	wantCaseRelativeDraftApplyArgs := "-Command gate -Pack _template -GateEventId " + applied.EventID + " -DraftExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -ExpectedExecutionReportSha256 <reportSha256-from-draft-preview> -Apply -Format json"
+	if contract.LiveValidation.DraftReportSHA256 != "<reportSha256-from-draft-preview>" || strings.Join(contract.LiveValidation.DraftArgs, " ") != wantWorkspaceDraftArgs || strings.Join(contract.LiveValidation.DraftApplyArgs, " ") != wantWorkspaceDraftApplyArgs || contract.LiveValidation.DraftCommand != "rekit "+wantWorkspaceDraftArgs || contract.LiveValidation.DraftApplyCommand != "rekit "+wantWorkspaceDraftApplyArgs || strings.Join(contract.LiveValidation.CaseRelativeDraftArgs, " ") != wantCaseRelativeDraftArgs || strings.Join(contract.LiveValidation.CaseRelativeDraftApplyArgs, " ") != wantCaseRelativeDraftApplyArgs || contract.LiveValidation.CaseRelativeDraftCommand != "rekit "+wantCaseRelativeDraftArgs || contract.LiveValidation.CaseRelativeDraftApplyCommand != "rekit "+wantCaseRelativeDraftApplyArgs {
+		t.Fatalf("nested workspace adapter report contract omitted draft handoff: %+v", contract.LiveValidation)
 	}
 
 	out.Reset()
@@ -12390,17 +12409,129 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	}
 	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 
-	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/adapter-report.json", `{
-  "schemaVersion": 1,
-  "kind": "adapter-execution-report",
-  "adapterId": "nested-cli-adapter",
-  "action": "debug",
-  "status": "succeeded",
-  "gateEventId": "`+applied.EventID+`",
-  "actualBudget": {"runtimeSeconds": 20, "diskMB": 32, "requests": 1},
-  "outputRefs": ["workspace/main/debug/session-1/result.json"],
-  "summary": "Adapter report from nested output workspace"
-}`)
+	draftPreviewArgs := append([]string{}, contract.LiveValidation.DraftArgs...)
+	replaceDraftArg := func(flag, value string) {
+		for i := 0; i < len(draftPreviewArgs)-1; i++ {
+			if draftPreviewArgs[i] == flag {
+				draftPreviewArgs[i+1] = value
+				return
+			}
+		}
+		t.Fatalf("draft args missing %s: %+v", flag, draftPreviewArgs)
+	}
+	replaceDraftArg("-AdapterId", "nested-cli-adapter")
+	replaceDraftArg("-ExecutionStatus", "succeeded")
+	replaceDraftArg("-Summary", "Adapter report from nested output workspace")
+	draftPreviewArgs = append(draftPreviewArgs, "-ActualRuntimeSeconds", "20", "-ActualDiskMB", "32", "-ActualRequests", "1", "-OutputRefs", "workspace/main/debug/session-1/result.json")
+	out.Reset()
+	if err := Run(draftPreviewArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var draftPreview struct {
+		Kind                        string                              `json:"kind"`
+		CaseRoot                    string                              `json:"caseRoot"`
+		Pack                        string                              `json:"pack"`
+		IsMutation                  bool                                `json:"isMutation"`
+		Applied                     bool                                `json:"applied"`
+		Mode                        string                              `json:"mode"`
+		GateEventID                 string                              `json:"gateEventId"`
+		ReportPath                  string                              `json:"reportPath"`
+		ReportSHA256                string                              `json:"reportSha256"`
+		AlreadyExists               bool                                `json:"alreadyExists"`
+		ReplacesScaffold            bool                                `json:"replacesScaffold"`
+		RequiresConfirmation        bool                                `json:"requiresConfirmation"`
+		ValidateCommand             string                              `json:"validateCommand"`
+		ApplyCommand                string                              `json:"applyCommand"`
+		Boundary                    []string                            `json:"boundary"`
+		NextSteps                   []string                            `json:"nextSteps"`
+		RunbookSteps                []string                            `json:"runbookSteps"`
+		MissionCommanderAction      missionCommanderActionSnapshot      `json:"missionCommanderAction"`
+		MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		Report                      struct {
+			AdapterID    string   `json:"adapterId"`
+			Status       string   `json:"status"`
+			GateEventID  string   `json:"gateEventId"`
+			OutputRefs   []string `json:"outputRefs"`
+			Summary      string   `json:"summary"`
+			ActualBudget struct {
+				RuntimeSeconds int `json:"runtimeSeconds"`
+				DiskMB         int `json:"diskMB"`
+				Requests       int `json:"requests"`
+			} `json:"actualBudget"`
+		} `json:"report"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &draftPreview); err != nil {
+		t.Fatalf("nested workspace draft preview stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if draftPreview.Kind != "adapter-execution-report-draft" || draftPreview.CaseRoot != caseRoot || draftPreview.Pack != "_template" || draftPreview.IsMutation || draftPreview.Applied || draftPreview.Mode != "preview" || draftPreview.GateEventID != applied.EventID || draftPreview.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || draftPreview.ReportSHA256 == "" || draftPreview.ReportSHA256 == scaffoldPreview.ReportSHA256 || draftPreview.AlreadyExists || !draftPreview.ReplacesScaffold || !draftPreview.RequiresConfirmation || draftPreview.ValidateCommand != wantScaffoldValidate || !strings.Contains(draftPreview.ApplyCommand, "-DraftExecutionReport") || !strings.Contains(draftPreview.ApplyCommand, "-ExpectedExecutionReportSha256 "+draftPreview.ReportSHA256) || draftPreview.Report.AdapterID != "nested-cli-adapter" || draftPreview.Report.Status != "succeeded" || draftPreview.Report.GateEventID != applied.EventID || strings.Join(draftPreview.Report.OutputRefs, ",") != "workspace/main/debug/session-1/result.json" || draftPreview.Report.Summary != "Adapter report from nested output workspace" || draftPreview.Report.ActualBudget.RuntimeSeconds != 20 || draftPreview.Report.ActualBudget.DiskMB != 32 || draftPreview.Report.ActualBudget.Requests != 1 {
+		t.Fatalf("unexpected nested workspace draft preview: %+v", draftPreview)
+	}
+	if draftPreview.MissionCommanderAction.State != "ready-for-adapter-report-draft-apply" || draftPreview.MissionCommanderAction.PrimaryCommand != draftPreview.ApplyCommand || !containsSubstring(draftPreview.MissionCommanderAction.FollowUpCommands, wantScaffoldValidate) || len(draftPreview.MissionCommanderNextActions) != 3 || draftPreview.MissionCommanderActionQueue.CurrentAction == nil || draftPreview.MissionCommanderActionQueue.CurrentAction.Command != draftPreview.ApplyCommand || !containsSubstring(draftPreview.NextSteps, draftPreview.ApplyCommand) || !containsSubstring(draftPreview.Boundary, "does not execute the adapter") || !containsSubstring(draftPreview.RunbookSteps, "confirm adapter report draft state=ready-for-adapter-report-draft-apply") || !cliNextActionBoundaryContains(draftPreview.MissionCommanderNextActions, "draft validates fields before writing") {
+		t.Fatalf("nested workspace draft preview omitted commander handoff: action=%+v next=%+v queue=%+v", draftPreview.MissionCommanderAction, draftPreview.MissionCommanderNextActions, draftPreview.MissionCommanderActionQueue)
+	}
+	draftPreviewBytes, err := os.ReadFile(filepath.Join(workspace, "adapter-report.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(draftPreviewBytes, scaffoldBytes) {
+		t.Fatalf("draft preview should not replace scaffold:\n%s", string(draftPreviewBytes))
+	}
+	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	draftApplyArgs := append([]string{}, draftPreviewArgs...)
+	draftApplyArgs = append(draftApplyArgs, "-ExpectedExecutionReportSha256", draftPreview.ReportSHA256, "-Apply")
+	out.Reset()
+	if err := Run(draftApplyArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var draftApply struct {
+		Kind                        string                              `json:"kind"`
+		CaseRoot                    string                              `json:"caseRoot"`
+		Pack                        string                              `json:"pack"`
+		IsMutation                  bool                                `json:"isMutation"`
+		Applied                     bool                                `json:"applied"`
+		Mode                        string                              `json:"mode"`
+		GateEventID                 string                              `json:"gateEventId"`
+		ReportPath                  string                              `json:"reportPath"`
+		ReportSHA256                string                              `json:"reportSha256"`
+		AlreadyExists               bool                                `json:"alreadyExists"`
+		ReplacesScaffold            bool                                `json:"replacesScaffold"`
+		RequiresConfirmation        bool                                `json:"requiresConfirmation"`
+		ValidateCommand             string                              `json:"validateCommand"`
+		MissionCommanderAction      missionCommanderActionSnapshot      `json:"missionCommanderAction"`
+		MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		Report                      struct {
+			AdapterID    string   `json:"adapterId"`
+			Status       string   `json:"status"`
+			OutputRefs   []string `json:"outputRefs"`
+			Summary      string   `json:"summary"`
+			ActualBudget struct {
+				RuntimeSeconds int `json:"runtimeSeconds"`
+				DiskMB         int `json:"diskMB"`
+				Requests       int `json:"requests"`
+			} `json:"actualBudget"`
+		} `json:"report"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &draftApply); err != nil {
+		t.Fatalf("nested workspace draft apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if draftApply.Kind != "adapter-execution-report-draft" || draftApply.CaseRoot != caseRoot || draftApply.Pack != "_template" || !draftApply.IsMutation || !draftApply.Applied || draftApply.Mode != "drafted" || draftApply.GateEventID != applied.EventID || draftApply.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || draftApply.ReportSHA256 != draftPreview.ReportSHA256 || draftApply.AlreadyExists || draftApply.ReplacesScaffold || draftApply.RequiresConfirmation || draftApply.ValidateCommand != wantScaffoldValidate || draftApply.Report.AdapterID != "nested-cli-adapter" || draftApply.Report.Status != "succeeded" || strings.Join(draftApply.Report.OutputRefs, ",") != "workspace/main/debug/session-1/result.json" || draftApply.Report.Summary != "Adapter report from nested output workspace" || draftApply.Report.ActualBudget.RuntimeSeconds != 20 || draftApply.Report.ActualBudget.DiskMB != 32 || draftApply.Report.ActualBudget.Requests != 1 {
+		t.Fatalf("unexpected nested workspace draft apply: %+v", draftApply)
+	}
+	if draftApply.MissionCommanderAction.State != "adapter-report-drafted-ready-for-validation" || draftApply.MissionCommanderAction.PrimaryCommand != wantScaffoldValidate || len(draftApply.MissionCommanderAction.FollowUpCommands) != 0 || len(draftApply.MissionCommanderNextActions) != 2 || draftApply.MissionCommanderActionQueue.CurrentAction == nil || draftApply.MissionCommanderActionQueue.CurrentAction.Command != wantScaffoldValidate || !cliNextActionBoundaryContains(draftApply.MissionCommanderNextActions, "validation remains read-only") {
+		t.Fatalf("nested workspace draft apply omitted validation handoff: action=%+v next=%+v queue=%+v", draftApply.MissionCommanderAction, draftApply.MissionCommanderNextActions, draftApply.MissionCommanderActionQueue)
+	}
+	draftBytes, err := os.ReadFile(filepath.Join(workspace, "adapter-report.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	draftSum := sha256.Sum256(draftBytes)
+	if hex.EncodeToString(draftSum[:]) != draftPreview.ReportSHA256 {
+		t.Fatalf("drafted adapter report bytes do not match preview hash: sha=%x\n%s", draftSum, string(draftBytes))
+	}
+	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 
 	out.Reset()
 	if err := Run([]string{"-Command", "gate", "-ValidateExecutionReport", "-GateEventId", applied.EventID, "-ExecutionReportPath", "adapter-report.json", "-Format", "json"}, &out); err != nil {

@@ -16,6 +16,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 654：authorized execution adapter report draft product-path closure
+
+状态：已完成 adapter draft product-path 工作树实现、focused adapter draft/scaffold/status regressions、完整 CLI package regression 与完整本机 `release-run` release minimum；implementation commit/push 与 push-triggered remote release-gate inspection 待执行。
+
+目标：继续执行端到端能力闭环约束，转向 authorized execution adapter live validation 的 draft 接手断点。Batch 653 已证明 replacement executor 可从 `liveValidation` scaffold preview/apply 生成 bounded placeholder scaffold，并让 placeholder validation fail-closed；但 valid report 仍由测试直接手写完整 `adapter-report.json`，没有证明 executor 能从 `liveValidation.DraftArgs` / `DraftApplyArgs` 把占位参数替换为 concrete adapter output fields，预览 deterministic draft，hash-bound Apply 替换 exact scaffold，再进入 read-only validation 与 hash-bound record。
+
+已实现内容：`writeGateAdapterReportLiveValidationText` 现在在 contract/live validation text 中直接打印 `DraftCommand`、`DraftApplyCommand` 与 `DraftReportSHA256`，让 terminal handoff 与 status/handoff 既有 draft projection 对齐。扩展 `TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace`：测试解码并断言 workspace-relative 与 case-relative draft command/args/apply template；在 scaffold preview/apply 与 placeholder validation fail-closed 后，不再手写 valid sidecar，而是从 `contract.LiveValidation.DraftArgs` 复制参数，替换 `<adapter-id>` / `<status>` / `<bounded-summary>`，追加 actual budget 与 outputRefs，运行 draft preview，确认 read-only、no-write、`replacesScaffold=true`、Mission Commander current action 指向 hash-bound draft Apply；随后用 preview hash 运行 draft Apply，确认只替换 exact scaffold、bytes 与 preview SHA-256 绑定，并把下一步转为 read-only validation。后续继续接续既有 valid=true validation、status hash-bound record handoff、drift fail-closed、case-local cwd record、duplicate replay、status/overview/handoff evidence review，以及 no authority/confirmed 断言。
+
+边界：本批不新增 public command，不改变 gate/adapter report runtime 语义或 durable schema，不自动执行 adapter/heavy tool，不自动 record，不写 authority/confirmed，不新增 PowerShell runtime logic；draft preview/apply 只写测试临时 case 内授权 output path 下的 bounded sidecar，且只允许替换 exact scaffold 或 exact draft replay，record 仍必须等 read-only validation 返回 valid=true 与 `-ExpectedExecutionReportSha256`。
+
+验证结果：focused adapter draft/scaffold/status regression `go test ./internal/rekit/cli -run "TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace|TestRunGateAdapterReportTextOutputsNextActions|TestRunStatusJsonKit" -count=1` 已通过；完整 CLI package regression `go test ./internal/rekit/cli -count=1` 已通过；完整本机 `go run ./cmd/rekit -- -Command release-run -Format text` 已通过，返回 `ready=true` / `summary=release run ok`，聚合 `passed=7 failed=0 skipped=0`，其中包含 `go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`；本次 `go test ./... attempts=1`，未触发 retry；`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。implementation commit/push 与 release inspection 记录待执行。
+
 ### Batch 653：authorized execution adapter report scaffold product-path closure
 
 状态：已完成 adapter scaffold product-path 工作树实现、focused adapter scaffold/status regressions、完整 CLI package regression、完整本机 `release-run` release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `3d2f602` 已推送。Push run `30234719028` completed failure，macOS/Windows/Linux jobs `89880246818`/`89880246825`/`89880246852` 均 `steps=[]` 且无 logs，仍属既有 runner/billing blocker；不为 release inspection record 自身追加第三个 inspection。

@@ -8835,6 +8835,21 @@ func writeGateAdapterReportLiveValidationText(out io.Writer, live gate.AdapterRe
 			return err
 		}
 	}
+	if strings.TrimSpace(live.DraftCommand) != "" {
+		if _, err := fmt.Fprintf(out, "gate adapter report draft command：%s\n", live.DraftCommand); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(live.DraftApplyCommand) != "" {
+		if _, err := fmt.Fprintf(out, "gate adapter report draft apply command：%s\n", live.DraftApplyCommand); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(live.DraftReportSHA256) != "" {
+		if _, err := fmt.Fprintf(out, "gate adapter report draft hash：sha256=%s\n", live.DraftReportSHA256); err != nil {
+			return err
+		}
+	}
 	template := live.SidecarTemplate
 	if _, err := fmt.Fprintf(out, "gate adapter report sidecar template：kind=%s adapterId=%s action=%s status=%s gateEventId=%s\n", template.Kind, template.AdapterID, template.Action, template.Status, template.GateEventID); err != nil {
 		return err
