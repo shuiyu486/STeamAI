@@ -792,21 +792,46 @@ func packMemoryCandidateCurrentCommand(pack ReleaseHandoffPackMemoryCandidateSta
 }
 
 func packMemoryCandidateActiveDecisionReceipt(pack ReleaseHandoffPackMemoryCandidateStatus) (ReleaseHandoffPackMemoryCandidateDecisionReceipt, string, bool) {
-	for _, receipt := range pack.DecisionReceipts {
-		if receipt.RetirementInProgress && strings.TrimSpace(receipt.RetirementNextAction) != "" {
-			return receipt, "verification-retirement-in-progress", true
-		}
-		if receipt.RetirementRequired && strings.TrimSpace(receipt.RetirementPreviewCommand) != "" {
-			return receipt, "verification-retirement-required", true
-		}
-		if receipt.ProvisionInProgress && strings.TrimSpace(receipt.ProvisionNextAction) != "" {
-			return receipt, "verification-provision-in-progress", true
-		}
-		if receipt.ProvisionStatus == "required" && strings.TrimSpace(receipt.VerificationProvisionCommand) != "" {
-			return receipt, "verification-provision-required", true
-		}
-		if receipt.ProvisionComplete && strings.TrimSpace(receipt.VerificationCommand) != "" {
-			return receipt, "verification-run-required", true
+	stages := []struct {
+		stage   string
+		command func(ReleaseHandoffPackMemoryCandidateDecisionReceipt) string
+	}{
+		{stage: "verification-retirement-in-progress", command: func(receipt ReleaseHandoffPackMemoryCandidateDecisionReceipt) string {
+			if receipt.RetirementInProgress {
+				return strings.TrimSpace(receipt.RetirementNextAction)
+			}
+			return ""
+		}},
+		{stage: "verification-provision-in-progress", command: func(receipt ReleaseHandoffPackMemoryCandidateDecisionReceipt) string {
+			if receipt.ProvisionInProgress {
+				return strings.TrimSpace(receipt.ProvisionNextAction)
+			}
+			return ""
+		}},
+		{stage: "verification-retirement-required", command: func(receipt ReleaseHandoffPackMemoryCandidateDecisionReceipt) string {
+			if receipt.RetirementRequired {
+				return strings.TrimSpace(receipt.RetirementPreviewCommand)
+			}
+			return ""
+		}},
+		{stage: "verification-run-required", command: func(receipt ReleaseHandoffPackMemoryCandidateDecisionReceipt) string {
+			if receipt.ProvisionComplete {
+				return strings.TrimSpace(receipt.VerificationCommand)
+			}
+			return ""
+		}},
+		{stage: "verification-provision-required", command: func(receipt ReleaseHandoffPackMemoryCandidateDecisionReceipt) string {
+			if receipt.ProvisionStatus == "required" {
+				return strings.TrimSpace(receipt.VerificationProvisionCommand)
+			}
+			return ""
+		}},
+	}
+	for _, item := range stages {
+		for _, receipt := range pack.DecisionReceipts {
+			if item.command(receipt) != "" {
+				return receipt, item.stage, true
+			}
 		}
 	}
 	return ReleaseHandoffPackMemoryCandidateDecisionReceipt{}, "", false

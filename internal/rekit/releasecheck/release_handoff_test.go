@@ -750,6 +750,111 @@ func TestReleaseHandoffPackMemoryCandidateDecisionVerificationReceipt(t *testing
 		t.Fatalf("required candidate verification retirement handoff drifted: %+v", retirement)
 	}
 	assertReleaseHandoffPackMemoryCurrentAction(t, retirementRequired, "fixture", "pack-memory-verification-retirement-required", "pack-memory-verification-required", "-RetireCandidateVerificationWorkspace")
+
+	pendingPacketPath := filepath.Join(repo, "case", ".rekit", "reviews", "pending-packet.json")
+	pendingDecisionPath := filepath.Join(repo, "case", ".rekit", "reviews", "pending-decisions.json")
+	pendingPacketHash := "packet-hash-pending"
+	pendingDecisionHash := "decision-hash-pending"
+	pendingReceiptPath := filepath.Join(proofRoot, "00-pending.candidate-decision-receipt.json")
+	pendingBackupRoot := filepath.Join(candidateRoot, ".decision-backup", "pending")
+	writeFile(t, filepath.Join(pendingBackupRoot, "committed.json"), "{\"applied\":true}\n")
+	pendingActions := []map[string]any{{
+		"candidatePath":       filepath.Join(candidateRoot, "pending-memory.candidate.md"),
+		"kind":                "managed-doc",
+		"decision":            "accept",
+		"packTarget":          filepath.Join(repo, "packs", "fixture", "pending-memory.md"),
+		"action":              "replace pack target with reviewed candidate",
+		"candidateBackupPath": filepath.Join(pendingBackupRoot, "actions", "000", "candidate"),
+		"evidenceRefs":        []string{},
+	}}
+	pendingWorkspace := filepath.Join(caseRoot, ".rekit", "verifications", "candidate-decisions", shortReleaseHandoffHash(pendingPacketHash+pendingDecisionHash))
+	pendingReceipt := map[string]any{
+		"schemaVersion":                1,
+		"kind":                         "pack-memory-candidate-decision-receipt",
+		"pack":                         "fixture",
+		"repoRoot":                     repo,
+		"caseRoot":                     caseRoot,
+		"packetPath":                   pendingPacketPath,
+		"decisionPath":                 pendingDecisionPath,
+		"packetHash":                   pendingPacketHash,
+		"decisionHash":                 pendingDecisionHash,
+		"backupRoot":                   pendingBackupRoot,
+		"indexPath":                    filepath.Join(candidateRoot, "index.json"),
+		"accepted":                     1,
+		"rejected":                     0,
+		"superseded":                   0,
+		"actions":                      pendingActions,
+		"decisionEvidence":             []string{},
+		"receiptPath":                  pendingReceiptPath,
+		"verificationPending":          true,
+		"verificationWorkspaceRoot":    pendingWorkspace,
+		"verificationProvisionCommand": "/rekit promote -PacketPath " + pendingPacketPath + " -CandidateDecisionPath " + pendingDecisionPath + " -ProvisionCandidateVerificationCases -FreshCaseRoot <workspace>/fresh -AttachedCaseRoot <workspace>/attached -WhatIf -Format json",
+		"verificationCommand":          "/rekit promote -VerifyCandidateDecision -FreshCaseRoot <workspace>/fresh -AttachedCaseRoot <workspace>/attached -WhatIf -Format json",
+		"verificationProofPath":        filepath.Join(proofRoot, "00-pending.candidate-verification-proof.json"),
+		"boundary":                     []string{"pending fixture boundary"},
+	}
+	pendingData, err := json.MarshalIndent(pendingReceipt, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, pendingReceiptPath, string(pendingData)+"\n")
+	mixedReceipts := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+	if mixedReceipts.Ready || len(mixedReceipts.Packs) != 1 || len(mixedReceipts.Packs[0].DecisionReceipts) != 2 || mixedReceipts.Packs[0].DecisionReceipts[0].ProvisionStatus != "required" || !mixedReceipts.Packs[0].DecisionReceipts[1].RetirementRequired {
+		t.Fatalf("mixed candidate decision receipt inventory drifted: %+v", mixedReceipts)
+	}
+	assertReleaseHandoffPackMemoryCurrentAction(t, mixedReceipts, "fixture", "pack-memory-verification-retirement-required", "pack-memory-verification-required", "-RetireCandidateVerificationWorkspace")
+	mixedCurrent := *mixedReceipts.MissionCommanderActionQueue.CurrentAction
+	if strings.Contains(mixedCurrent.Command, "pending-packet.json") || !releaseHandoffStringsContain(mixedCurrent.Reasons, "receipt=packs/fixture/promote-candidates/review-artifacts/fixture.candidate-decision-receipt.json") || !releaseHandoffStringsContain(mixedCurrent.Reasons, "retirementStatus=required") {
+		t.Fatalf("mixed receipt release handoff should prioritize retirement closure over earlier provisioning receipt: %+v", mixedCurrent)
+	}
+}
+
+func TestPackMemoryCandidateActionQueuePrioritizesAdvancedReceiptAcrossReceipts(t *testing.T) {
+	provisioningReceipt := ReleaseHandoffPackMemoryCandidateDecisionReceipt{
+		Path:                         "packs/fixture/promote-candidates/review-artifacts/01-provisioning.candidate-decision-receipt.json",
+		VerificationPending:          true,
+		ProvisionStatus:              "required",
+		VerificationWorkspaceRoot:    "case/.rekit/verifications/candidate-decisions/older",
+		VerificationProvisionCommand: "/rekit promote -PacketPath older-packet.json -CandidateDecisionPath older-decision.json -ProvisionCandidateVerificationCases -WhatIf -Format json",
+		ProvisionNextAction:          "run verificationProvisionCommand; inspect the exact fresh/attached case write plan, then run its expected-hash Apply command",
+	}
+	retirementReceipt := ReleaseHandoffPackMemoryCandidateDecisionReceipt{
+		Path:                     "packs/fixture/promote-candidates/review-artifacts/02-retirement.candidate-decision-receipt.json",
+		VerificationPending:      true,
+		VerificationComplete:     true,
+		VerificationProofPath:    "packs/fixture/promote-candidates/review-artifacts/02-retirement.candidate-verification-proof.json",
+		RetirementStatus:         "required",
+		RetirementRequired:       true,
+		RetirementPreviewCommand: "/rekit promote -PacketPath newer-packet.json -CandidateDecisionPath newer-decision.json -RetireCandidateVerificationWorkspace -WhatIf -Format json",
+		RetirementNextAction:     "run the returned retirementPreviewCommand; inspect the exact plan, then run its expected-hash Apply command",
+	}
+	pack := ReleaseHandoffPackMemoryCandidateStatus{
+		Pack:                 "fixture",
+		HasOpenWork:          true,
+		RequiresVerification: true,
+		Action:               "complete candidate decision verification receipts before release handoff",
+		DecisionReceipts:     []ReleaseHandoffPackMemoryCandidateDecisionReceipt{provisioningReceipt, retirementReceipt},
+	}
+	inventory := ReleaseHandoffPackMemoryCandidateList{Packs: []ReleaseHandoffPackMemoryCandidateStatus{pack}}
+	RebuildPackMemoryCandidateActionQueue(&inventory)
+	assertReleaseHandoffPackMemoryCurrentAction(t, inventory, "fixture", "pack-memory-verification-retirement-required", "pack-memory-verification-required", "-RetireCandidateVerificationWorkspace")
+	current := *inventory.MissionCommanderActionQueue.CurrentAction
+	if strings.Contains(current.Command, "older-packet.json") || !releaseHandoffStringsContain(current.Reasons, "receipt=packs/fixture/promote-candidates/review-artifacts/02-retirement.candidate-decision-receipt.json") || !releaseHandoffStringsContain(current.Reasons, "retirementStatus=required") {
+		t.Fatalf("pack-memory current action did not prioritize the advanced retirement receipt: %+v", current)
+	}
+
+	pack.DecisionReceipts[0].ProvisionStatus = "in-progress"
+	pack.DecisionReceipts[0].ProvisionInProgress = true
+	pack.DecisionReceipts[0].ProvisionSHA256 = "provision-sha"
+	pack.DecisionReceipts[0].ProvisionApplyCommand = "/rekit promote -PacketPath older-packet.json -CandidateDecisionPath older-decision.json -ProvisionCandidateVerificationCases -ExpectedProvisionSha256 provision-sha -Apply -Format json"
+	pack.DecisionReceipts[0].ProvisionNextAction = "resume candidate verification provisioning with provisionApplyCommand"
+	inventory = ReleaseHandoffPackMemoryCandidateList{Packs: []ReleaseHandoffPackMemoryCandidateStatus{pack}}
+	RebuildPackMemoryCandidateActionQueue(&inventory)
+	assertReleaseHandoffPackMemoryCurrentAction(t, inventory, "fixture", "pack-memory-verification-provision-in-progress", "pack-memory-verification-required", "-ExpectedProvisionSha256")
+	current = *inventory.MissionCommanderActionQueue.CurrentAction
+	if strings.Contains(current.Command, "newer-packet.json") || !releaseHandoffStringsContain(current.Reasons, "receipt=packs/fixture/promote-candidates/review-artifacts/01-provisioning.candidate-decision-receipt.json") || !releaseHandoffStringsContain(current.Reasons, "provisionStatus=in-progress") {
+		t.Fatalf("pack-memory current action did not resume the in-progress provisioning receipt first: %+v", current)
+	}
 }
 
 func TestReleaseHandoffPackMemoryCandidateVerificationRetirementLifecycle(t *testing.T) {
