@@ -94,22 +94,54 @@ func TestRunContinueReplaceableSessionOwnerGuardNestedProductPath(t *testing.T) 
 	}
 
 	beforeStale := snapshotFiles(t, caseRoot)
-	for _, tc := range []struct {
-		name string
-		args []string
-	}{
-		{name: "preview", args: []string{"continue", "login", "-WhatIf", "-Executor", "session-a", "-ExpectedExecutorGeneration", "1", "-Format", "json"}},
-		{name: "apply", args: []string{"continue", "login", "-Apply", "--executor", "session-a", "--expected-executor-generation", "1", "-Format", "text"}},
-	} {
-		t.Run("stale-"+tc.name, func(t *testing.T) {
-			out.Reset()
-			err := Run(tc.args, &out)
-			if err == nil || !strings.Contains(err.Error(), "owner guard is not current") {
-				t.Fatalf("stale %s error = %v", tc.name, err)
-			}
-			assertSnapshotEqual(t, beforeStale, snapshotFiles(t, caseRoot))
-		})
+	out.Reset()
+	if err := Run([]string{"continue", "login", "-WhatIf", "-Executor", "session-a", "-ExpectedExecutorGeneration", "1", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
 	}
+	var stalePreview struct {
+		Blocked                    bool         `json:"blocked"`
+		Applied                    bool         `json:"applied"`
+		IsMutation                 bool         `json:"isMutation"`
+		Writes                     []startWrite `json:"writes"`
+		ContinueOwnerGuardRecovery struct {
+			Ready                       bool                 `json:"ready"`
+			Reason                      string               `json:"reason"`
+			ReceivedExecutor            string               `json:"receivedExecutor"`
+			ReceivedExecutorGeneration  int                  `json:"receivedExecutorGeneration"`
+			CurrentExecutor             string               `json:"currentExecutor"`
+			CurrentExecutorGeneration   int                  `json:"currentExecutorGeneration"`
+			CurrentContinueCommand      string               `json:"currentContinueCommand"`
+			HandoffPath                 string               `json:"handoffPath"`
+			StartTakeoverPreviewCommand string               `json:"startTakeoverPreviewCommand"`
+			StartTakeoverApplyCommand   string               `json:"startTakeoverApplyCommand"`
+			LaneTakeoverPackage         *laneTakeoverPackage `json:"laneTakeoverPackage"`
+			Boundary                    []string             `json:"boundary"`
+		} `json:"continueOwnerGuardRecovery"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &stalePreview); err != nil {
+		t.Fatalf("stale continue preview JSON did not decode: %v\n%s", err, out.String())
+	}
+	if !stalePreview.Blocked || stalePreview.Applied || stalePreview.IsMutation || len(stalePreview.Writes) != 0 || !stalePreview.ContinueOwnerGuardRecovery.Ready || !strings.Contains(stalePreview.ContinueOwnerGuardRecovery.Reason, "owner guard is not current") || stalePreview.ContinueOwnerGuardRecovery.ReceivedExecutor != "session-a" || stalePreview.ContinueOwnerGuardRecovery.ReceivedExecutorGeneration != 1 || stalePreview.ContinueOwnerGuardRecovery.CurrentExecutor != "session-b" || stalePreview.ContinueOwnerGuardRecovery.CurrentExecutorGeneration != 2 || stalePreview.ContinueOwnerGuardRecovery.CurrentContinueCommand != "/rekit continue login -Executor session-b -ExpectedExecutorGeneration 2" || stalePreview.ContinueOwnerGuardRecovery.HandoffPath != ".rekit/handovers/feature-login-latest.md" || stalePreview.ContinueOwnerGuardRecovery.LaneTakeoverPackage == nil || stalePreview.ContinueOwnerGuardRecovery.LaneTakeoverPackage.CurrentExecutor != "session-b" || !containsSubstring(stalePreview.ContinueOwnerGuardRecovery.Boundary, "zero-write") {
+		t.Fatalf("stale continue preview omitted owner guard recovery: %+v", stalePreview)
+	}
+	if !strings.Contains(stalePreview.ContinueOwnerGuardRecovery.StartTakeoverPreviewCommand, "/rekit start login -WhatIf -Executor <new-executor>") || !strings.Contains(stalePreview.ContinueOwnerGuardRecovery.StartTakeoverApplyCommand, "/rekit start login -Apply -Executor <new-executor>") {
+		t.Fatalf("stale continue preview omitted takeover commands: %+v", stalePreview.ContinueOwnerGuardRecovery)
+	}
+	assertSnapshotEqual(t, beforeStale, snapshotFiles(t, caseRoot))
+
+	out.Reset()
+	if err := Run([]string{"continue", "login", "-Apply", "--executor", "session-a", "--expected-executor-generation", "1", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"continue owner guard recovery：blocked=true ready=true lane=feature-login label=login", "continue owner guard received：executor=session-a generation=1", "continue owner guard current：executor=session-b generation=2 continue=`/rekit continue login -Executor session-b -ExpectedExecutorGeneration 2`", "continue owner guard paths：resume=`.rekit/lanes/feature-login/prompts/RESUME.md` checkpoint=`.rekit/lanes/feature-login/checkpoints/latest.json` handoff=`.rekit/handovers/feature-login-latest.md`", "continue owner guard takeover：preview=`/rekit start login -WhatIf -Executor <new-executor>", "continue owner guard boundary：owner guard mismatch is fail-closed and zero-write"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("stale continue text missing %q:\n%s", expected, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "已选择工作线：feature-login") || strings.Contains(out.String(), "{\n") {
+		t.Fatalf("stale continue text should be recovery guidance only:\n%s", out.String())
+	}
+	assertSnapshotEqual(t, beforeStale, snapshotFiles(t, caseRoot))
 
 	beforePreview := snapshotFiles(t, caseRoot)
 	out.Reset()

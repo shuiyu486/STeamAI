@@ -7590,7 +7590,51 @@ func writeContinueOpenDecisionHandoffsText(out io.Writer, prefix string, handoff
 	return nil
 }
 
+func writeContinueOwnerGuardRecoveryText(out io.Writer, result workstream.ContinueResult) error {
+	recovery := result.ContinueOwnerGuardRecovery
+	if _, err := fmt.Fprintf(out, "continue owner guard recovery：blocked=%t ready=%t lane=%s label=%s reason=%s\n", result.Blocked, recovery.Ready, recovery.Lane, recovery.Label, recovery.Reason); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "continue owner guard received：executor=%s generation=%d\n", textFirst(recovery.ReceivedExecutor, "unassigned"), recovery.ReceivedExecutorGeneration); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "continue owner guard current：executor=%s generation=%d continue=`%s`\n", textFirst(recovery.CurrentExecutor, "unassigned"), recovery.CurrentExecutorGeneration, recovery.CurrentContinueCommand); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "continue owner guard paths：resume=`%s` checkpoint=`%s` handoff=`%s`\n", recovery.ResumePath, recovery.CheckpointPath, recovery.HandoffPath); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "continue owner guard takeover：preview=`%s` apply=`%s`\n", recovery.StartTakeoverPreviewCommand, recovery.StartTakeoverApplyCommand); err != nil {
+		return err
+	}
+	if err := writeLaneTakeoverPackageText(out, "continue", recovery.LaneTakeoverPackage); err != nil {
+		return err
+	}
+	if recovery.MissionCommanderCurrentAction != nil {
+		if _, err := fmt.Fprintf(out, "continue owner guard commander current：state=%s source=%s blocked=%t requiresReview=%t command=`%s`\n", recovery.MissionCommanderCurrentAction.State, recovery.MissionCommanderCurrentAction.Source, recovery.MissionCommanderCurrentAction.Blocked, recovery.MissionCommanderCurrentAction.RequiresReview, recovery.MissionCommanderCurrentAction.Command); err != nil {
+			return err
+		}
+	}
+	if err := writeMissionCommanderActionQueueText(out, recovery.MissionCommanderActionQueue); err != nil {
+		return err
+	}
+	for _, step := range recovery.RunbookSteps {
+		if _, err := fmt.Fprintf(out, "continue owner guard runbook：%s\n", step); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range recovery.Boundary {
+		if _, err := fmt.Fprintf(out, "continue owner guard boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	return writeMissionCommanderNextActionsText(out, result.MissionCommanderNextActions)
+}
+
 func writeContinueText(out io.Writer, result workstream.ContinueResult) error {
+	if result.ContinueOwnerGuardRecovery != nil && result.ContinueOwnerGuardRecovery.Ready {
+		return writeContinueOwnerGuardRecoveryText(out, result)
+	}
 	hasLaneBlockerHandoff := len(result.OpenInterventions) > 0 || len(result.ReconcileHandoffs) > 0 || len(result.PendingGateHandoffs) > 0 || len(result.OpenDecisionHandoffs) > 0
 	if result.Blocked && len(result.ReviewerDispatchIntakeHandoffs) > 0 && !hasLaneBlockerHandoff {
 		if _, err := fmt.Fprintf(out, "工作线被 reviewer dispatch/intake 阻塞：%s\n", result.Lane.ID); err != nil {

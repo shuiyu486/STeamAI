@@ -60,6 +60,7 @@ type ContinueResult struct {
 	MissionCommanderNextActions      []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
 	MissionCommanderActionQueue      mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 	LaneTakeoverPackage              *LaneTakeoverPackage                     `json:"laneTakeoverPackage,omitempty"`
+	ContinueOwnerGuardRecovery       *ContinueOwnerGuardRecovery              `json:"continueOwnerGuardRecovery,omitempty"`
 	Inputs                           []string                                 `json:"inputs"`
 	PacketRefs                       []string                                 `json:"packetRefs"`
 	Events                           []ContinueEventPreview                   `json:"events"`
@@ -165,12 +166,14 @@ type ContinueEventPreview struct {
 }
 
 type continueContext struct {
-	inst     instance.Instance
-	manifest *manifest.Manifest
-	board    board
-	policy   continuePolicy
-	selector string
-	lane     Lane
+	inst                     instance.Instance
+	manifest                 *manifest.Manifest
+	board                    board
+	policy                   continuePolicy
+	selector                 string
+	lane                     Lane
+	continueOptions          ContinueOptions
+	ownerGuardRecoveryReason string
 }
 
 type continuePolicy struct {
@@ -190,9 +193,12 @@ type continuePolicy struct {
 }
 
 func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (ContinueResult, error) {
-	ctx, err := newContinueContext(repoRoot, caseRoot, pack, opt)
+	ctx, err := newContinueContextAllowingOwnerGuardRecovery(repoRoot, caseRoot, pack, opt)
 	if err != nil {
 		return ContinueResult{}, err
+	}
+	if ctx.ownerGuardRecoveryReason != "" {
+		return ctx.blockedByOwnerGuardRecovery(false), nil
 	}
 	if blocked, err := ctx.blockedByOpenInterventions(false); err != nil || blocked.Blocked {
 		return blocked, err
@@ -255,6 +261,7 @@ func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (Cont
 		MissionCommanderNextActions:      commanderNextActions,
 		MissionCommanderActionQueue:      commanderActionQueue,
 		LaneTakeoverPackage:              laneTakeoverPackageFor(ctx.inst.CaseRoot, ctx.lane, executorAction, commanderActionQueue, false),
+		ContinueOwnerGuardRecovery:       nil,
 		Inputs:                           uniqueStrings(inputs),
 		PacketRefs:                       uniqueStrings(packets),
 		BlockedActions:                   []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution without a valid current authorization decision"},
@@ -313,9 +320,12 @@ func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (Cont
 }
 
 func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (result ContinueResult, err error) {
-	ctx, err := newContinueContext(repoRoot, caseRoot, pack, opt)
+	ctx, err := newContinueContextAllowingOwnerGuardRecovery(repoRoot, caseRoot, pack, opt)
 	if err != nil {
 		return ContinueResult{}, err
+	}
+	if ctx.ownerGuardRecoveryReason != "" {
+		return ctx.blockedByOwnerGuardRecovery(true), nil
 	}
 	lease, err := acquireLaneMutationLock(ctx.inst.CaseRoot, ctx.lane.ID)
 	if err != nil {
@@ -327,9 +337,12 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (result
 			result = ContinueResult{}
 		}
 	}()
-	ctx, err = newContinueContext(repoRoot, caseRoot, pack, opt)
+	ctx, err = newContinueContextAllowingOwnerGuardRecovery(repoRoot, caseRoot, pack, opt)
 	if err != nil {
 		return ContinueResult{}, err
+	}
+	if ctx.ownerGuardRecoveryReason != "" {
+		return ctx.blockedByOwnerGuardRecovery(true), nil
 	}
 	if err := lease.Validate(); err != nil {
 		return ContinueResult{}, err
@@ -471,7 +484,18 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (result
 	return result, nil
 }
 
-func newContinueContext(repoRoot, caseRoot, pack string, opt ContinueOptions) (continueContext, error) {
+func newContinueContextAllowingOwnerGuardRecovery(repoRoot, caseRoot, pack string, opt ContinueOptions) (continueContext, error) {
+	ctx, err := newContinueContextCore(repoRoot, caseRoot, pack, opt)
+	if err != nil {
+		return continueContext{}, err
+	}
+	if err := validateContinueOwnerBinding(ctx.lane, opt); err != nil {
+		ctx.ownerGuardRecoveryReason = err.Error()
+	}
+	return ctx, nil
+}
+
+func newContinueContextCore(repoRoot, caseRoot, pack string, opt ContinueOptions) (continueContext, error) {
 	inst, err := instance.AssertAttached(caseRoot, repoRoot, pack)
 	if err != nil {
 		return continueContext{}, err
@@ -510,14 +534,11 @@ func newContinueContext(repoRoot, caseRoot, pack string, opt ContinueOptions) (c
 	if status == "archived" || status == "paused" || status == "closed" {
 		return continueContext{}, fmt.Errorf("target lane is not open: %s", lane.ID)
 	}
-	if err := validateContinueOwnerBinding(lane, opt); err != nil {
-		return continueContext{}, err
-	}
 	policy, err := readContinuePolicy(inst.CaseRoot)
 	if err != nil {
 		return continueContext{}, err
 	}
-	return continueContext{inst: inst, manifest: m, board: b, policy: policy, selector: selector, lane: lane}, nil
+	return continueContext{inst: inst, manifest: m, board: b, policy: policy, selector: selector, lane: lane, continueOptions: opt}, nil
 }
 
 func validateContinueOwnerBinding(lane Lane, opt ContinueOptions) error {
@@ -546,6 +567,56 @@ func textOrUnassigned(value string) string {
 		return value
 	}
 	return "unassigned"
+}
+
+func (ctx continueContext) blockedByOwnerGuardRecovery(apply bool) ContinueResult {
+	executorAction := ctx.executorAction()
+	executionEvidenceReview := ctx.executionEvidenceReview()
+	reviewerWritebacks := ctx.reviewerWritebacks()
+	reviewerDispatchIntakeHandoffs := ctx.reviewerDispatchIntakeHandoffs()
+	reviewerPacketRetirementHandoffs := ctx.reviewerPacketRetirementHandoffs()
+	authorizedGateAdapterHandoffs := ctx.authorizedGateAdapterHandoffs()
+	commanderNextActions := ctx.missionCommanderNextActions(executorAction, executionEvidenceReview, authorizedGateAdapterHandoffs, reviewerDispatchIntakeHandoffs)
+	commanderActionQueue := mission.MissionCommanderActionQueueFor(commanderNextActions)
+	laneTakeoverPackage := laneTakeoverPackageFor(ctx.inst.CaseRoot, ctx.lane, executorAction, commanderActionQueue, false)
+	recovery := continueOwnerGuardRecoveryFor(ctx.inst.CaseRoot, ctx.lane, executorAction, commanderActionQueue, ctx.continueOptions, ctx.ownerGuardRecoveryReason)
+	result := ContinueResult{
+		SchemaVersion:                    1,
+		Command:                          "continue",
+		CaseRoot:                         ctx.inst.CaseRoot,
+		RepoRoot:                         ctx.manifest.RepoRoot,
+		Pack:                             ctx.manifest.Pack,
+		IsMutation:                       apply,
+		Applied:                          false,
+		RequiresConfirmation:             false,
+		Selector:                         ctx.selector,
+		Lane:                             ctx.lane,
+		AutonomyProfile:                  autonomy.ReadSummary(ctx.inst.CaseRoot, ctx.lane.ID, ctx.manifest),
+		RunID:                            continuePreviewRunID,
+		BatchID:                          "batch-" + continuePreviewRunID,
+		MissionBrief:                     ctx.missionBrief(),
+		ExecutorAction:                   executorAction,
+		ExecutionEvidenceReview:          executionEvidenceReview,
+		ExecutionEvidenceReviewSummary:   ExecutionEvidenceReviewSummaryFor(executionEvidenceReview, commanderActionQueue),
+		ReviewerWritebacks:               reviewerWritebacks,
+		ReviewerWritebackSummary:         ReviewerWritebackSummaryFor(reviewerWritebacks),
+		ReviewerDispatchIntakeHandoffs:   reviewerDispatchIntakeHandoffs,
+		ReviewerDispatchIntakeSummary:    ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
+		ReviewerPacketRetirementHandoffs: reviewerPacketRetirementHandoffs,
+		ReviewerPacketRetirementSummary:  ReviewerPacketRetirementSummaryFor(reviewerPacketRetirementHandoffs),
+		AuthorizedGateAdapterHandoffs:    authorizedGateAdapterHandoffs,
+		MissionCommanderNextActions:      commanderNextActions,
+		MissionCommanderActionQueue:      commanderActionQueue,
+		LaneTakeoverPackage:              laneTakeoverPackage,
+		ContinueOwnerGuardRecovery:       recovery,
+		Blocked:                          true,
+		BlockedActions:                   []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "lane continuation with a stale or missing executor owner guard", "authority/confirmed writes", "heavy-tool execution without a valid current authorization decision"},
+		NextSteps:                        recovery.RunbookSteps,
+	}
+	if result.ContinueOwnerGuardRecovery != nil {
+		result.ContinueOwnerGuardRecovery.ReceivedExecutor = strings.TrimSpace(result.ContinueOwnerGuardRecovery.ReceivedExecutor)
+	}
+	return result
 }
 
 func (ctx continueContext) missionBrief() mission.Brief {
