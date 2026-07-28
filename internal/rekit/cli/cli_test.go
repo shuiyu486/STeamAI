@@ -1555,6 +1555,95 @@ func TestRunOpenDecisionFirstScreenHandoffHashBoundApplyUnblocksLane(t *testing.
 	assertSnapshotEqual(t, beforeContinue, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
 	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
+
+	factsBeforeContinueApply := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "main", "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var continued struct {
+		Command                     string                              `json:"command"`
+		IsMutation                  bool                                `json:"isMutation"`
+		Applied                     bool                                `json:"applied"`
+		RequiresConfirmation        bool                                `json:"requiresConfirmation"`
+		Selector                    string                              `json:"selector"`
+		Lane                        startLane                           `json:"lane"`
+		RunID                       string                              `json:"runId"`
+		BatchID                     string                              `json:"batchId"`
+		Blocked                     bool                                `json:"blocked"`
+		OpenDecisionRequired        bool                                `json:"openDecisionRequired"`
+		ExecutorAction              executorActionSnapshot              `json:"executorAction"`
+		OpenDecisionHandoffs        []statusOpenDecisionHandoff         `json:"openDecisionHandoffs"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		LaneTakeoverPackage         *laneTakeoverPackage                `json:"laneTakeoverPackage"`
+		Writes                      []startWrite                        `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &continued); err != nil {
+		t.Fatalf("open decision unblocked continue apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	continuedCurrent := continued.MissionCommanderActionQueue.CurrentAction
+	if continued.Command != "continue" || !continued.IsMutation || !continued.Applied || continued.RequiresConfirmation || continued.Selector != "main" || continued.Lane.ID != "main" || continued.RunID == "" || continued.RunID == "run-preview" || continued.BatchID != "batch-"+continued.RunID || continued.Blocked || continued.OpenDecisionRequired || continued.ExecutorAction.Blocked || !continued.ExecutorAction.Ready || continued.ExecutorAction.OpenDecisions != 0 || len(continued.OpenDecisionHandoffs) != 0 || continuedCurrent == nil || continuedCurrent.State != "ready-to-continue" || continuedCurrent.Command != "/rekit continue main" {
+		t.Fatalf("continue apply did not persist unblocked open-decision closure: result=%+v current=%+v", continued, continuedCurrent)
+	}
+	if continued.LaneTakeoverPackage == nil || !continued.LaneTakeoverPackage.Ready || continued.LaneTakeoverPackage.ApplyRequired || !continued.LaneTakeoverPackage.ContinueReady || continued.LaneTakeoverPackage.Blocked || continued.LaneTakeoverPackage.Lane != "main" || continued.LaneTakeoverPackage.CurrentCommand != "/rekit continue main" || continued.LaneTakeoverPackage.MissionCommanderActionQueue.CurrentAction == nil || continued.LaneTakeoverPackage.MissionCommanderActionQueue.CurrentAction.Command != "/rekit continue main" {
+		t.Fatalf("continue apply omitted ready lane takeover package after decision closure: %+v", continued.LaneTakeoverPackage)
+	}
+	resumePath := assertStartWrite(t, continued.Writes, ".rekit/lanes/main/prompts/RESUME.md", "refresh").TargetPath
+	checkpointPath := assertStartWrite(t, continued.Writes, ".rekit/lanes/main/checkpoints/latest.json", "refresh").TargetPath
+	assertStartWrite(t, continued.Writes, ".rekit/board.json", "refresh")
+	statusPath := assertStartWrite(t, continued.Writes, ".rekit/runs/"+continued.RunID+"/status.json", "write").TargetPath
+	digestPath := assertStartWrite(t, continued.Writes, ".rekit/runs/"+continued.RunID+"/digest.md", "write").TargetPath
+	resumeBytes, err := os.ReadFile(resumePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digestBytes, err := os.ReadFile(digestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for label, text := range map[string]string{"open decision RESUME": string(resumeBytes), "open decision digest": string(digestBytes)} {
+		for _, expected := range []string{"## Executor action snapshot", "- ready: `true`", "- resume command: `/rekit continue main`", "- handoff command: `/rekit handoff main`", "Mission Commander action queue", "command=`/rekit continue main`"} {
+			if !strings.Contains(text, expected) {
+				t.Fatalf("%s omitted durable ready continuation %q:\n%s", label, expected, text)
+			}
+		}
+	}
+	statusBytes, err := os.ReadFile(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var runStatus struct {
+		RunID                       string                              `json:"runId"`
+		BatchID                     string                              `json:"batchId"`
+		ExecutorAction              executorActionSnapshot              `json:"executorAction"`
+		OpenDecisionHandoffs        []statusOpenDecisionHandoff         `json:"openDecisionHandoffs"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(statusBytes, &runStatus); err != nil {
+		t.Fatalf("open decision continue status did not decode: %v\n%s", err, string(statusBytes))
+	}
+	if runStatus.RunID != continued.RunID || runStatus.BatchID != continued.BatchID || runStatus.ExecutorAction.Blocked || !runStatus.ExecutorAction.Ready || runStatus.ExecutorAction.OpenDecisions != 0 || len(runStatus.OpenDecisionHandoffs) != 0 || runStatus.MissionCommanderActionQueue.CurrentAction == nil || runStatus.MissionCommanderActionQueue.CurrentAction.Command != "/rekit continue main" {
+		t.Fatalf("run status reopened open decision blocker after continue apply: %+v", runStatus)
+	}
+	checkpointBytes, err := os.ReadFile(checkpointPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var checkpoint struct {
+		ExecutorAction              executorActionSnapshot              `json:"executorAction"`
+		OpenDecisionHandoffs        []statusOpenDecisionHandoff         `json:"openDecisionHandoffs"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		LaneTakeoverPackage         *laneTakeoverPackage                `json:"laneTakeoverPackage"`
+	}
+	if err := json.Unmarshal(checkpointBytes, &checkpoint); err != nil {
+		t.Fatalf("open decision continue checkpoint did not decode: %v\n%s", err, string(checkpointBytes))
+	}
+	if checkpoint.ExecutorAction.Blocked || !checkpoint.ExecutorAction.Ready || checkpoint.ExecutorAction.OpenDecisions != 0 || len(checkpoint.OpenDecisionHandoffs) != 0 || checkpoint.MissionCommanderActionQueue.CurrentAction == nil || checkpoint.MissionCommanderActionQueue.CurrentAction.Command != "/rekit continue main" || checkpoint.LaneTakeoverPackage == nil || !checkpoint.LaneTakeoverPackage.ContinueReady || checkpoint.LaneTakeoverPackage.CurrentCommand != "/rekit continue main" {
+		t.Fatalf("checkpoint did not preserve open decision closure after continue apply: %+v", checkpoint)
+	}
+	assertSnapshotEqual(t, factsBeforeContinueApply, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
 }
 
 func TestRunStatusCaseMissionIncludesExecutionEvidenceReview(t *testing.T) {

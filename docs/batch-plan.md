@@ -16,6 +16,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 700：open decision closure to continue apply handoff
+
+状态：已完成 CLI product-path regression，focused open decision / note hash-bound regressions 已通过；文档/CHANGELOG、完整本机 release minimum、implementation commit/push 与 push-triggered remote release-gate inspection 待执行。本批从 Batch 699 的 `note -Kind decision` hash-bound Apply 解锁 lane 继续延伸到真实 lane continuation：Batch 699 已证明 open candidate blocker 消失并且 `continue main -WhatIf` 回到 unblocked read-only path，但 replacement executor 仍需要产品路径证明随后执行 `continue main -Apply` 会写出 durable run/status/digest/RESUME/checkpoint handoff，并且不会重新打开 open decision blocker 或触碰 authority/confirmed facts。
+
+目标：在 `TestRunOpenDecisionFirstScreenHandoffHashBoundApplyUnblocksLane` 中继续执行 `continue main -Apply -Format json`，证明 decision closure 后的 lane continuation 进入真实 durable writeback。回归必须验证 apply result 是 mutation/applied、`RunID` 非 preview、`BatchID=batch-<runId>`、Mission Commander current action 仍是 `/rekit continue main`、`OpenDecisionHandoffs` 为空、`LaneTakeoverPackage` 为 ready/continueReady，并写出 `.rekit/runs/<runId>/status.json`、`digest.md`、lane `RESUME.md`、checkpoint 与 board refresh。
+
+边界：本批不新增 public command，不新增或迁移 durable schema，不改变 `continue` mutation semantics，不自动 review/write decision，不执行 heavy tool、gate、adapter、reviewer、pack-memory、sync 或 promote，不写 authority/confirmed，不新增 PowerShell runtime logic。唯一新增覆盖是关闭 decision 后的 explicit `continue -Apply` durable handoff；facts ledger 在 continue Apply 前后必须保持不变。
+
+已实现内容：扩展 `TestRunOpenDecisionFirstScreenHandoffHashBoundApplyUnblocksLane`。测试现在在 Batch 699 的 status-ready 与 `continue main -WhatIf` zero-write 断言之后，保存 `.rekit/facts` snapshot，执行 `continue main -Apply -Format json`，断言 apply result、executor action、Mission Commander queue、open decision handoffs 与 lane takeover package 均保持 ready/unblocked。随后测试读取 run `status.json`、run `digest.md`、lane `RESUME.md` 与 checkpoint，确认 durable artifacts 保留 ready continuation、`/rekit continue main` current handoff 与 open decision closure；最后断言 `.rekit/facts` 未变化且未创建 authority/confirmed ledger。
+
+验证结果：focused CLI regressions 已通过：`go test ./internal/rekit/cli -run "TestRunOpenDecisionFirstScreenHandoffHashBoundApplyUnblocksLane|TestRunStatusCaseMissionOpenDecisionFirstScreenPackage|TestRunNoteHashBoundRecordRejectsDrift|TestRunNoteAppendWhatIfDoesNotWrite" -count=1`。完整本机 release minimum 待执行；implementation commit/push 与远程 release-gate inspection 待执行。
+
 ### Batch 699：open decision hash-bound apply unblock closure
 
 状态：已完成 CLI product-path regression、文档/CHANGELOG、完整本机 release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `3b0289f` 已推送。Push run `30357461236` completed failure；Linux/macOS/Windows jobs `90268877292`/`90268877317`/`90268877314` 均 `steps=[]`；`gh run view 30357461236 --log-failed` 返回 `log not found: 90268877292`。这是既有 runner/billing blocker，未发现新的远程 release signal，不声明 remote green。本批从 Batch 698 first-screen open decision package 转向真实解锁闭环：replacement executor 已能在第一屏拿到 `note -Kind decision -WhatIf`，但产品路径还需要证明复制该 preview、选择 accept/reject/defer/supersede、消费 returned hash-bound `recordCommand` Apply 后，open candidate blocker 会实际消失，Mission Commander action queue 与 `continue -WhatIf` 回到可接手状态。
