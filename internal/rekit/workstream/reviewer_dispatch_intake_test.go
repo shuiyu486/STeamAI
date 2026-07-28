@@ -214,6 +214,26 @@ func TestReviewerDispatchIntakeRunbookStepsCoverReviewerLifecycle(t *testing.T) 
 	}
 }
 
+func TestReviewerDispatchOperatorPackageOnlyForOpenManagedDispatch(t *testing.T) {
+	managed := &ReviewerManagedDispatchHandoff{ShardID: "shard-01", PromptPath: "prompt.md", PromptSHA256: strings.Repeat("a", sha256.Size*2), ReviewerResultInputPath: "input.json", ReviewerResultSourcePath: "source.json", ReviewerResultCandidatePath: "candidate.json", ReviewerResultPath: "result.json", AgentToolRequest: &ReviewerAgentToolRequest{Tool: "Claude Code Agent", ReadOnly: true}}
+	base := ReviewerDispatchIntakeHandoff{PacketID: "packet-managed", PacketPath: "packet.json", TargetLane: "feature-review", ShardID: "shard-01", State: "waiting-for-reviewer-result", ManagedDispatch: managed, ReviewerResultInputPath: "input.json", ReviewerResultSourcePath: "source.json", ReviewerResultCandidatePath: "candidate.json", ReviewerResultPath: "result.json", DispatchCommand: "dispatch read-only reviewer"}
+	open := ReviewerDispatchIntakeSummaryFor([]ReviewerDispatchIntakeHandoff{base})
+	if open.OperatorPackage == nil || !open.OperatorPackage.Ready || open.OperatorPackage.Current == nil || open.OperatorPackage.Current.DispatchCommand != base.DispatchCommand {
+		t.Fatalf("open managed dispatch did not generate operator package: %+v", open.OperatorPackage)
+	}
+	unmanaged := base
+	unmanaged.ManagedDispatch = nil
+	if pkg := ReviewerDispatchIntakeSummaryFor([]ReviewerDispatchIntakeHandoff{unmanaged}).OperatorPackage; pkg != nil {
+		t.Fatalf("unmanaged reviewer dispatch generated operator package: %+v", pkg)
+	}
+	closed := base
+	closed.VerificationRecorded = true
+	closed.DecisionRecorded = true
+	if pkg := ReviewerDispatchIntakeSummaryFor([]ReviewerDispatchIntakeHandoff{closed}).OperatorPackage; pkg != nil {
+		t.Fatalf("closed reviewer dispatch generated operator package: %+v", pkg)
+	}
+}
+
 func TestReviewerDispatchIntakeSummaryProjectsWaitingNextAction(t *testing.T) {
 	items := []ReviewerDispatchIntakeHandoff{
 		{
@@ -468,6 +488,8 @@ func TestReviewerDispatchIntakeProjectsCandidateCollectionState(t *testing.T) {
 			ReviewerRole:                "read-only-reviewer",
 			Status:                      "planned",
 			Items:                       []string{"alpha"},
+			PromptPath:                  filepath.Join(reviewRoot, "prompts", "shard-01.prompt.md"),
+			PromptSHA256:                strings.Repeat("a", sha256.Size*2),
 			AgentToolRequest:            request,
 			ReviewerResultPath:          resultPath,
 			ReviewerResultCandidatePath: candidatePath,
@@ -481,6 +503,7 @@ func TestReviewerDispatchIntakeProjectsCandidateCollectionState(t *testing.T) {
 			IntakePreviewCommand:        "intake-preview",
 			IntakeApplyCommand:          "intake-apply",
 			DispatchCommand:             "managed dispatch read-only reviewer",
+			ReviewerResultSkeleton:      `{"packetId":"packet-collection","shardId":"shard-01","reviewerSession":"reviewer-session-id"}`,
 			ExpectedOutput:              "one JSON object",
 			NextAction:                  "save reviewer JSON and follow source capture/staging/collection/intake",
 			Boundary:                    []string{"reviewers must not write files"},
@@ -493,6 +516,11 @@ func TestReviewerDispatchIntakeProjectsCandidateCollectionState(t *testing.T) {
 	}
 	if missing.ReviewerResultSourcePath != sourcePath || missing.ReviewerResultSourceState != "missing" || !strings.Contains(missing.ReviewerResultSourceCaptureCommand, "-CaptureReviewerResultSource") || !strings.Contains(missing.ReviewerResultSourceCaptureCommand, "-ReviewerResultInputPath "+quoteCommandArg(inputPath)) || !strings.Contains(missing.ReviewerResultSourceCaptureApplyCommand, "-ExpectedReviewerResultInputSha256") || !strings.Contains(missing.ReviewerResultStagingCommand, "-StageReviewerResult") || !strings.Contains(missing.ReviewerResultStagingCommand, "-ReviewerResultSourcePath "+quoteCommandArg(sourcePath)) || strings.Contains(missing.ReviewerResultStagingCommand, "forged-staging-preview") {
 		t.Fatalf("staging command was not rebuilt from canonical source bindings: %+v", missing)
+	}
+	missingSummary := ReviewerDispatchIntakeSummaryFor([]ReviewerDispatchIntakeHandoff{missing})
+	operator := missingSummary.OperatorPackage
+	if operator == nil || !operator.Ready || operator.Current == nil || operator.PacketID != "packet-collection" || operator.TargetLane != "feature-review" || operator.Current.ShardID != "shard-01" || operator.Current.State != "waiting-for-reviewer-result" || operator.Current.DispatchPromptPath != missing.ManagedDispatch.PromptPath || operator.Current.DispatchPromptSHA256 != missing.ManagedDispatch.PromptSHA256 || operator.Current.AgentToolRequest == nil || operator.Current.AgentToolRequest.PromptPath != missing.ManagedDispatch.PromptPath || operator.Current.AgentToolRequest.PromptSHA256 != missing.ManagedDispatch.PromptSHA256 || !operator.Current.AgentToolRequest.ReadOnly || operator.Current.ExpectedReviewerResultSkeleton == "" || operator.Current.ReviewerResultDropPath != inputPath || operator.Current.ReviewerResultSourceCapturePreviewCommand != missing.ReviewerResultSourceCaptureCommand || operator.Current.ReviewerResultStagingPreviewCommand != missing.ReviewerResultStagingCommand || operator.Current.ReviewerResultCollectionPreviewCommand != missing.ReviewerResultCollectionCommands.PreviewCommand || operator.Current.ReviewerResultIntakePreviewCommand != "intake-preview" || operator.Current.DispatchCommand != missing.DispatchCommand || !reviewerDispatchTestContainsSubstring(operator.RunbookSteps, "managed dispatch packet is available") || !reviewerDispatchTestContainsSubstring(operator.CompletionCriteria, "reviewerResultDropPath") || !reviewerDispatchTestContainsSubstring(operator.Boundary, "does not call Agent tool") || !reviewerDispatchTestContainsSubstring(operator.Boundary, "does not write facts") {
+		t.Fatalf("summary omitted managed reviewer dispatch operator package: %+v", missingSummary)
 	}
 	if err := os.MkdirAll(filepath.Dir(inputPath), 0o755); err != nil {
 		t.Fatal(err)

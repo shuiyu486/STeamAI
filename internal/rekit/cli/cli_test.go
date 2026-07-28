@@ -8476,6 +8476,7 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	if firstDispatch.ManagedDispatch == nil || firstDispatch.ManagedDispatch.ShardID != "shard-01" || firstDispatch.ManagedDispatch.PromptPath != firstDispatch.DispatchPromptPath || firstDispatch.ManagedDispatch.PromptSHA256 != firstDispatch.DispatchPromptSHA256 || firstDispatch.ManagedDispatch.ReviewerResultInputPath != packet.ShardHandoffs[0].ReviewerStagingCommands.SourceCaptureInput || firstDispatch.ManagedDispatch.ReviewerResultSourcePath != packet.ShardHandoffs[0].ReviewerStagingCommands.SourcePath || firstDispatch.ManagedDispatch.ReviewerResultCandidatePath != packet.ShardHandoffs[0].ReviewerResultCandidatePath || firstDispatch.ManagedDispatch.CollectionPreviewCommand == "" || !containsSubstring(firstDispatch.ManagedDispatch.Boundary, "does not spawn") || !containsSubstring(firstDispatch.Evidence, "managedDispatch packet") || !containsSubstring(firstDispatch.RunbookSteps, "managed dispatch packet is available") || !containsSubstring(firstDispatch.Boundary, "managed dispatch packet is read-only recovery context") {
 		t.Fatalf("status JSON omitted managed dispatch takeover handoff: %+v", firstDispatch)
 	}
+	assertReviewerDispatchOperatorPackage(t, "status before reviewer result", statusBeforeDispatch.CaseMission.ReviewerDispatchIntakeSummary, "shard-01", firstDispatch.DispatchPromptSHA256)
 	promptBytes, err := os.ReadFile(firstDispatch.DispatchPromptPath)
 	if err != nil {
 		t.Fatal(err)
@@ -8562,6 +8563,7 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 		t.Fatalf("status JSON after prompt repair did not decode: %v\n%s", err, out.String())
 	}
 	assertReviewerDispatchIntakeSummary(t, "status after prompt repair", statusAfterPromptRepair.CaseMission.ReviewerDispatchIntakeSummary, 2, 2, 0, "shard-02", "waiting-for-reviewer-result")
+	assertReviewerDispatchOperatorPackage(t, "status after prompt repair", statusAfterPromptRepair.CaseMission.ReviewerDispatchIntakeSummary, "shard-01", firstDispatch.DispatchPromptSHA256)
 	repairedDispatch, ok := reviewerDispatchIntakeByShard(statusAfterPromptRepair.CaseMission.ReviewerDispatchIntakeHandoffs, "shard-01")
 	if !ok || repairedDispatch.State != "waiting-for-reviewer-result" || repairedDispatch.DispatchPromptState != "ready" || !repairedDispatch.DispatchPromptCurrent || repairedDispatch.DispatchPromptPath != firstDispatch.DispatchPromptPath || repairedDispatch.DispatchPromptSHA256 != firstDispatch.DispatchPromptSHA256 || repairedDispatch.DispatchPromptActualSHA256 != firstDispatch.DispatchPromptSHA256 || statusAfterPromptRepair.CaseMission.ReviewerDispatchIntakeSummary.PromptArtifactBlocked != 0 || statusAfterPromptRepair.CaseMission.ReviewerDispatchIntakeSummary.NextActionState != "waiting-for-reviewer-result" || strings.Contains(statusAfterPromptRepair.CaseMission.ReviewerDispatchIntakeSummary.NextAction, "-RepairReviewerPromptArtifact") {
 		t.Fatalf("status JSON after prompt repair did not restore reviewer dispatch handoff: item=%+v summary=%+v", repairedDispatch, statusAfterPromptRepair.CaseMission.ReviewerDispatchIntakeSummary)
@@ -8571,7 +8573,7 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"status case mission reviewer dispatch intake summary：total=2 waitingForReviewerResult=2 readyForPreview=0", "nextActionShard=shard-01 nextActionState=waiting-for-reviewer-result", "status case mission reviewer dispatch next action：shard=shard-01 state=waiting-for-reviewer-result sourceState=missing", "stagingPreview=`/rekit plan-subagents", "-StageReviewerResult", "status case mission reviewer dispatch intake：lane=feature-login shard=shard-01 state=waiting-for-reviewer-result", "status case mission reviewer managed dispatch：shard=shard-01 mode=manual-main-agent-intake", "status case mission reviewer dispatch intake dispatch：shard=shard-01 command=`dispatch read-only reviewer for shard-01"} {
+	for _, expected := range []string{"status case mission reviewer dispatch intake summary：total=2 waitingForReviewerResult=2 readyForPreview=0", "nextActionShard=shard-01 nextActionState=waiting-for-reviewer-result", "status case mission reviewer dispatch next action：shard=shard-01 state=waiting-for-reviewer-result sourceState=missing", "stagingPreview=`/rekit plan-subagents", "-StageReviewerResult", "status case mission reviewer dispatch operator package：ready=true", "status case mission reviewer dispatch operator agent tool：shard=shard-01", "status case mission reviewer dispatch operator result skeleton：shard=shard-01", "status case mission reviewer dispatch operator result pipeline：shard=shard-01", "status case mission reviewer dispatch operator boundary：shard=shard-01 boundary=reviewer dispatch operator package is read-only", "status case mission reviewer dispatch intake：lane=feature-login shard=shard-01 state=waiting-for-reviewer-result", "status case mission reviewer managed dispatch：shard=shard-01 mode=manual-main-agent-intake", "status case mission reviewer dispatch intake dispatch：shard=shard-01 command=`dispatch read-only reviewer for shard-01"} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("status text omitted reviewer dispatch intake handoff %q:\n%s", expected, out.String())
 		}
@@ -8581,7 +8583,7 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "login", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "handoff reviewer dispatch intake summary：total=2 waitingForReviewerResult=2 readyForPreview=0") || !strings.Contains(out.String(), "handoff reviewer dispatch intake：lane=feature-login shard=shard-01 state=waiting-for-reviewer-result") || !strings.Contains(out.String(), "handoff reviewer managed dispatch：shard=shard-01 mode=manual-main-agent-intake") {
+	if !strings.Contains(out.String(), "handoff reviewer dispatch intake summary：total=2 waitingForReviewerResult=2 readyForPreview=0") || !strings.Contains(out.String(), "handoff reviewer dispatch operator package：ready=true") || !strings.Contains(out.String(), "handoff reviewer dispatch operator result pipeline：shard=shard-01") || !strings.Contains(out.String(), "handoff reviewer dispatch intake：lane=feature-login shard=shard-01 state=waiting-for-reviewer-result") || !strings.Contains(out.String(), "handoff reviewer managed dispatch：shard=shard-01 mode=manual-main-agent-intake") {
 		t.Fatalf("handoff text omitted reviewer dispatch intake handoff:\n%s", out.String())
 	}
 
@@ -8594,6 +8596,7 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 		t.Fatalf("unexpected repaired reviewer lane handoff result: %+v", repairedHandoff)
 	}
 	assertReviewerDispatchIntakeSummary(t, "handoff apply after prompt repair", repairedHandoff.ReviewerDispatchIntakeSummary, 2, 2, 0, "shard-02", "waiting-for-reviewer-result")
+	assertReviewerDispatchOperatorPackage(t, "handoff apply after prompt repair", repairedHandoff.ReviewerDispatchIntakeSummary, "shard-01", firstDispatch.DispatchPromptSHA256)
 	repairedHandoffDispatch, ok := reviewerDispatchIntakeByShard(repairedHandoff.ReviewerDispatchIntakeHandoffs, "shard-01")
 	if !ok || repairedHandoffDispatch.State != "waiting-for-reviewer-result" || repairedHandoffDispatch.DispatchPromptState != "ready" || !repairedHandoffDispatch.DispatchPromptCurrent || repairedHandoffDispatch.DispatchPromptSHA256 != firstDispatch.DispatchPromptSHA256 || repairedHandoffDispatch.ManagedDispatch == nil || repairedHandoffDispatch.ManagedDispatch.ReviewerResultInputPath != firstDispatch.ManagedDispatch.ReviewerResultInputPath {
 		t.Fatalf("handoff apply after prompt repair did not preserve ready reviewer dispatch handoff: %+v", repairedHandoff.ReviewerDispatchIntakeHandoffs)
@@ -8603,7 +8606,7 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"## Reviewer dispatch intake handoff", "summary: total=2 waitingForReviewerResult=2 readyForPreview=0", "dispatch intake: lane=feature-login shard=shard-01 state=waiting-for-reviewer-result", "sha256=" + firstDispatch.DispatchPromptSHA256 + " state=ready current=true", "managed dispatch: mode=manual-main-agent-intake shard=shard-01", "dispatch read-only reviewer for shard-01", "runtime does not spawn, stop, monitor, or manage reviewer sessions"} {
+	for _, expected := range []string{"## Reviewer dispatch intake handoff", "summary: total=2 waitingForReviewerResult=2 readyForPreview=0", "operator package: ready=true", "operator agent tool: tool=Claude Code Agent", "operator expected reviewer result skeleton", "operator result pipeline", "operator boundary: reviewer dispatch operator package is read-only", "dispatch intake: lane=feature-login shard=shard-01 state=waiting-for-reviewer-result", "sha256=" + firstDispatch.DispatchPromptSHA256 + " state=ready current=true", "managed dispatch: mode=manual-main-agent-intake shard=shard-01", "dispatch read-only reviewer for shard-01", "runtime does not spawn, stop, monitor, or manage reviewer sessions"} {
 		if !strings.Contains(string(repairedHandoffText), expected) {
 			t.Fatalf("repaired reviewer lane handoff missing %q:\n%s", expected, string(repairedHandoffText))
 		}
@@ -8618,7 +8621,7 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "login", "-Executor", "session-login", "-ExpectedExecutorGeneration", "1", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "continue reviewer dispatch intake summary：total=2 waitingForReviewerResult=2 readyForPreview=0") || !strings.Contains(out.String(), "continue reviewer dispatch intake：lane=feature-login shard=shard-01 state=waiting-for-reviewer-result") || !strings.Contains(out.String(), "continue reviewer managed dispatch：shard=shard-01 mode=manual-main-agent-intake") {
+	if !strings.Contains(out.String(), "continue reviewer dispatch intake summary：total=2 waitingForReviewerResult=2 readyForPreview=0") || !strings.Contains(out.String(), "continue reviewer dispatch operator package：ready=true") || !strings.Contains(out.String(), "continue reviewer dispatch operator result pipeline：shard=shard-01") || !strings.Contains(out.String(), "continue reviewer dispatch intake：lane=feature-login shard=shard-01 state=waiting-for-reviewer-result") || !strings.Contains(out.String(), "continue reviewer managed dispatch：shard=shard-01 mode=manual-main-agent-intake") {
 		t.Fatalf("continue text omitted reviewer dispatch intake handoff:\n%s", out.String())
 	}
 
@@ -8638,6 +8641,7 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 		t.Fatalf("continue apply before reviewer intake JSON did not decode: %v\n%s", err, out.String())
 	}
 	assertReviewerDispatchIntakeSummary(t, "continue apply before reviewer intake", continueApplyBeforeIntake.ReviewerDispatchIntakeSummary, 2, 2, 0, "shard-02", "waiting-for-reviewer-result")
+	assertReviewerDispatchOperatorPackage(t, "continue apply before reviewer intake", continueApplyBeforeIntake.ReviewerDispatchIntakeSummary, "shard-01", firstDispatch.DispatchPromptSHA256)
 	if _, ok := reviewerDispatchIntakeByShard(continueApplyBeforeIntake.ReviewerDispatchIntakeHandoffs, "shard-01"); !ok {
 		t.Fatalf("continue apply omitted open reviewer dispatch handoffs: %+v", continueApplyBeforeIntake.ReviewerDispatchIntakeHandoffs)
 	}
@@ -17414,74 +17418,75 @@ func assertNoReviewerPacketRetirementReopensInvalidPacket(t *testing.T, label, t
 }
 
 type reviewerDispatchIntakeSummaryCLIItem struct {
-	Total                                             int      `json:"total"`
-	WaitingForReviewerResult                          int      `json:"waitingForReviewerResult"`
-	ReadyForPreview                                   int      `json:"readyForPreview"`
-	AttachRequired                                    int      `json:"attachRequired"`
-	DispatchOnly                                      int      `json:"dispatchOnly"`
-	PromptArtifactBlocked                             int      `json:"promptArtifactBlocked"`
-	LaneCount                                         int      `json:"laneCount"`
-	Lanes                                             []string `json:"lanes"`
-	PacketCount                                       int      `json:"packetCount"`
-	LatestPacketDispatchTotal                         int      `json:"latestPacketDispatchTotal"`
-	LatestPacketDispatchCompleted                     int      `json:"latestPacketDispatchCompleted"`
-	LatestPacketDispatchOpen                          int      `json:"latestPacketDispatchOpen"`
-	LatestPacketNextOpenShardID                       string   `json:"latestPacketNextOpenShardId"`
-	LatestCompletedShardID                            string   `json:"latestCompletedShardId"`
-	RemainingShardIDs                                 []string `json:"remainingShardIds"`
-	LatestPacketPath                                  string   `json:"latestPacketPath"`
-	LatestShardID                                     string   `json:"latestShardId"`
-	LatestState                                       string   `json:"latestState"`
-	LatestReviewerResultPath                          string   `json:"latestReviewerResultPath"`
-	LatestReviewerResultInputPath                     string   `json:"latestReviewerResultInputPath"`
-	LatestReviewerResultInputState                    string   `json:"latestReviewerResultInputState"`
-	LatestDispatchPromptPath                          string   `json:"latestDispatchPromptPath"`
-	LatestDispatchPromptSHA256                        string   `json:"latestDispatchPromptSha256"`
-	LatestDispatchPromptState                         string   `json:"latestDispatchPromptState"`
-	LatestDispatchPromptCurrent                       bool     `json:"latestDispatchPromptCurrent"`
-	LatestDispatchPromptActualSHA256                  string   `json:"latestDispatchPromptActualSha256"`
-	LatestDispatchPromptFailure                       string   `json:"latestDispatchPromptFailure"`
-	LatestReviewerResultSourcePath                    string   `json:"latestReviewerResultSourcePath"`
-	LatestReviewerResultSourceState                   string   `json:"latestReviewerResultSourceState"`
-	LatestReviewerResultCandidatePath                 string   `json:"latestReviewerResultCandidatePath"`
-	LatestReviewerResultCandidateState                string   `json:"latestReviewerResultCandidateState"`
-	LatestReviewerResultSourceCaptureCommand          string   `json:"latestReviewerResultSourceCaptureCommand"`
-	LatestReviewerResultSourceCaptureApplyCommand     string   `json:"latestReviewerResultSourceCaptureApplyCommand"`
-	LatestReviewerResultStagingCommand                string   `json:"latestReviewerResultStagingCommand"`
-	LatestPreviewCommand                              string   `json:"latestPreviewCommand"`
-	LatestApplyCommand                                string   `json:"latestApplyCommand"`
-	LatestBatchPreviewCommand                         string   `json:"latestBatchPreviewCommand"`
-	LatestBatchApplyCommand                           string   `json:"latestBatchApplyCommand"`
-	NextActionShardID                                 string   `json:"nextActionShardId"`
-	NextActionState                                   string   `json:"nextActionState"`
-	NextActionDispatchPromptPath                      string   `json:"nextActionDispatchPromptPath"`
-	NextActionDispatchPromptSHA256                    string   `json:"nextActionDispatchPromptSha256"`
-	NextActionDispatchPromptState                     string   `json:"nextActionDispatchPromptState"`
-	NextActionDispatchPromptCurrent                   bool     `json:"nextActionDispatchPromptCurrent"`
-	NextActionDispatchPromptActualSHA256              string   `json:"nextActionDispatchPromptActualSha256"`
-	NextActionDispatchPromptFailure                   string   `json:"nextActionDispatchPromptFailure"`
-	NextActionDispatchPromptRepairCommand             string   `json:"nextActionDispatchPromptRepairCommand"`
-	NextActionReviewerResultInputPath                 string   `json:"nextActionReviewerResultInputPath"`
-	NextActionReviewerResultInputState                string   `json:"nextActionReviewerResultInputState"`
-	NextActionReviewerResultSourcePath                string   `json:"nextActionReviewerResultSourcePath"`
-	NextActionReviewerResultSourceState               string   `json:"nextActionReviewerResultSourceState"`
-	NextActionReviewerResultCandidatePath             string   `json:"nextActionReviewerResultCandidatePath"`
-	NextActionReviewerResultCandidateState            string   `json:"nextActionReviewerResultCandidateState"`
-	NextActionReviewerResultSourceCaptureCommand      string   `json:"nextActionReviewerResultSourceCaptureCommand"`
-	NextActionReviewerResultSourceCaptureApplyCommand string   `json:"nextActionReviewerResultSourceCaptureApplyCommand"`
-	NextActionReviewerResultStagingCommand            string   `json:"nextActionReviewerResultStagingCommand"`
-	NextActionReviewerResultRecoveryCommand           string   `json:"nextActionReviewerResultRecoveryCommand"`
-	NextActionReviewerResultRecoveryApplyCommand      string   `json:"nextActionReviewerResultRecoveryApplyCommand"`
-	NextActionCollectionPreviewCommand                string   `json:"nextActionCollectionPreviewCommand"`
-	NextActionCollectionApplyCommand                  string   `json:"nextActionCollectionApplyCommand"`
-	NextActionPreviewCommand                          string   `json:"nextActionPreviewCommand"`
-	NextActionApplyCommand                            string   `json:"nextActionApplyCommand"`
-	NextActionBatchPreviewCommand                     string   `json:"nextActionBatchPreviewCommand"`
-	NextActionBatchApplyCommand                       string   `json:"nextActionBatchApplyCommand"`
-	NextActionPacketRetirementPreviewCommand          string   `json:"nextActionPacketRetirementPreviewCommand"`
-	NextAction                                        string   `json:"nextAction"`
-	NextActionRunbookSteps                            []string `json:"nextActionRunbookSteps"`
-	Boundary                                          []string `json:"boundary"`
+	Total                                             int                                         `json:"total"`
+	WaitingForReviewerResult                          int                                         `json:"waitingForReviewerResult"`
+	ReadyForPreview                                   int                                         `json:"readyForPreview"`
+	AttachRequired                                    int                                         `json:"attachRequired"`
+	DispatchOnly                                      int                                         `json:"dispatchOnly"`
+	PromptArtifactBlocked                             int                                         `json:"promptArtifactBlocked"`
+	LaneCount                                         int                                         `json:"laneCount"`
+	Lanes                                             []string                                    `json:"lanes"`
+	PacketCount                                       int                                         `json:"packetCount"`
+	LatestPacketDispatchTotal                         int                                         `json:"latestPacketDispatchTotal"`
+	LatestPacketDispatchCompleted                     int                                         `json:"latestPacketDispatchCompleted"`
+	LatestPacketDispatchOpen                          int                                         `json:"latestPacketDispatchOpen"`
+	LatestPacketNextOpenShardID                       string                                      `json:"latestPacketNextOpenShardId"`
+	LatestCompletedShardID                            string                                      `json:"latestCompletedShardId"`
+	RemainingShardIDs                                 []string                                    `json:"remainingShardIds"`
+	LatestPacketPath                                  string                                      `json:"latestPacketPath"`
+	LatestShardID                                     string                                      `json:"latestShardId"`
+	LatestState                                       string                                      `json:"latestState"`
+	LatestReviewerResultPath                          string                                      `json:"latestReviewerResultPath"`
+	LatestReviewerResultInputPath                     string                                      `json:"latestReviewerResultInputPath"`
+	LatestReviewerResultInputState                    string                                      `json:"latestReviewerResultInputState"`
+	LatestDispatchPromptPath                          string                                      `json:"latestDispatchPromptPath"`
+	LatestDispatchPromptSHA256                        string                                      `json:"latestDispatchPromptSha256"`
+	LatestDispatchPromptState                         string                                      `json:"latestDispatchPromptState"`
+	LatestDispatchPromptCurrent                       bool                                        `json:"latestDispatchPromptCurrent"`
+	LatestDispatchPromptActualSHA256                  string                                      `json:"latestDispatchPromptActualSha256"`
+	LatestDispatchPromptFailure                       string                                      `json:"latestDispatchPromptFailure"`
+	LatestReviewerResultSourcePath                    string                                      `json:"latestReviewerResultSourcePath"`
+	LatestReviewerResultSourceState                   string                                      `json:"latestReviewerResultSourceState"`
+	LatestReviewerResultCandidatePath                 string                                      `json:"latestReviewerResultCandidatePath"`
+	LatestReviewerResultCandidateState                string                                      `json:"latestReviewerResultCandidateState"`
+	LatestReviewerResultSourceCaptureCommand          string                                      `json:"latestReviewerResultSourceCaptureCommand"`
+	LatestReviewerResultSourceCaptureApplyCommand     string                                      `json:"latestReviewerResultSourceCaptureApplyCommand"`
+	LatestReviewerResultStagingCommand                string                                      `json:"latestReviewerResultStagingCommand"`
+	LatestPreviewCommand                              string                                      `json:"latestPreviewCommand"`
+	LatestApplyCommand                                string                                      `json:"latestApplyCommand"`
+	LatestBatchPreviewCommand                         string                                      `json:"latestBatchPreviewCommand"`
+	LatestBatchApplyCommand                           string                                      `json:"latestBatchApplyCommand"`
+	NextActionShardID                                 string                                      `json:"nextActionShardId"`
+	NextActionState                                   string                                      `json:"nextActionState"`
+	NextActionDispatchPromptPath                      string                                      `json:"nextActionDispatchPromptPath"`
+	NextActionDispatchPromptSHA256                    string                                      `json:"nextActionDispatchPromptSha256"`
+	NextActionDispatchPromptState                     string                                      `json:"nextActionDispatchPromptState"`
+	NextActionDispatchPromptCurrent                   bool                                        `json:"nextActionDispatchPromptCurrent"`
+	NextActionDispatchPromptActualSHA256              string                                      `json:"nextActionDispatchPromptActualSha256"`
+	NextActionDispatchPromptFailure                   string                                      `json:"nextActionDispatchPromptFailure"`
+	NextActionDispatchPromptRepairCommand             string                                      `json:"nextActionDispatchPromptRepairCommand"`
+	NextActionReviewerResultInputPath                 string                                      `json:"nextActionReviewerResultInputPath"`
+	NextActionReviewerResultInputState                string                                      `json:"nextActionReviewerResultInputState"`
+	NextActionReviewerResultSourcePath                string                                      `json:"nextActionReviewerResultSourcePath"`
+	NextActionReviewerResultSourceState               string                                      `json:"nextActionReviewerResultSourceState"`
+	NextActionReviewerResultCandidatePath             string                                      `json:"nextActionReviewerResultCandidatePath"`
+	NextActionReviewerResultCandidateState            string                                      `json:"nextActionReviewerResultCandidateState"`
+	NextActionReviewerResultSourceCaptureCommand      string                                      `json:"nextActionReviewerResultSourceCaptureCommand"`
+	NextActionReviewerResultSourceCaptureApplyCommand string                                      `json:"nextActionReviewerResultSourceCaptureApplyCommand"`
+	NextActionReviewerResultStagingCommand            string                                      `json:"nextActionReviewerResultStagingCommand"`
+	NextActionReviewerResultRecoveryCommand           string                                      `json:"nextActionReviewerResultRecoveryCommand"`
+	NextActionReviewerResultRecoveryApplyCommand      string                                      `json:"nextActionReviewerResultRecoveryApplyCommand"`
+	NextActionCollectionPreviewCommand                string                                      `json:"nextActionCollectionPreviewCommand"`
+	NextActionCollectionApplyCommand                  string                                      `json:"nextActionCollectionApplyCommand"`
+	NextActionPreviewCommand                          string                                      `json:"nextActionPreviewCommand"`
+	NextActionApplyCommand                            string                                      `json:"nextActionApplyCommand"`
+	NextActionBatchPreviewCommand                     string                                      `json:"nextActionBatchPreviewCommand"`
+	NextActionBatchApplyCommand                       string                                      `json:"nextActionBatchApplyCommand"`
+	NextActionPacketRetirementPreviewCommand          string                                      `json:"nextActionPacketRetirementPreviewCommand"`
+	NextAction                                        string                                      `json:"nextAction"`
+	NextActionRunbookSteps                            []string                                    `json:"nextActionRunbookSteps"`
+	OperatorPackage                                   *workstream.ReviewerDispatchOperatorPackage `json:"operatorPackage"`
+	Boundary                                          []string                                    `json:"boundary"`
 }
 
 func assertReviewerDispatchIntakeSummary(t *testing.T, label string, summary reviewerDispatchIntakeSummaryCLIItem, total, waiting, ready int, latestShard, latestState string) {
@@ -17491,6 +17496,24 @@ func assertReviewerDispatchIntakeSummary(t *testing.T, label string, summary rev
 	}
 	if total > 0 && (summary.PacketCount == 0 || summary.LatestPacketDispatchTotal == 0 || summary.LatestPacketDispatchOpen == 0 || len(summary.RemainingShardIDs) == 0 || summary.NextActionShardID == "" || summary.NextActionState == "") {
 		t.Fatalf("%s missing reviewer dispatch intake progress summary: %+v", label, summary)
+	}
+}
+
+func assertReviewerDispatchOperatorPackage(t *testing.T, label string, summary reviewerDispatchIntakeSummaryCLIItem, shardID, promptSHA256 string) {
+	t.Helper()
+	pkg := summary.OperatorPackage
+	if pkg == nil || !pkg.Ready || pkg.Current == nil {
+		t.Fatalf("%s omitted reviewer dispatch operator package: %+v", label, summary)
+	}
+	current := pkg.Current
+	if pkg.PacketID == "" || pkg.PacketPath == "" || pkg.TargetLane == "" || current.ShardID != shardID || current.State == "" || current.DispatchPromptPath == "" || current.DispatchPromptSHA256 != promptSHA256 || !current.DispatchPromptCurrent || current.AgentToolRequest == nil || !current.AgentToolRequest.ReadOnly || current.ExpectedReviewerResultSkeleton == "" || current.ReviewerResultDropPath == "" || current.ReviewerResultInputPath == "" || current.ReviewerResultSourcePath == "" || current.ReviewerResultCandidatePath == "" || current.ReviewerResultPath == "" || current.DispatchCommand == "" || current.NextAction == "" {
+		t.Fatalf("%s missing operator package current handoff: %+v", label, pkg)
+	}
+	if current.ReviewerResultSourceCapturePreviewCommand == "" || current.ReviewerResultSourceCaptureApplyCommand == "" || current.ReviewerResultStagingPreviewCommand == "" || current.ReviewerResultCollectionPreviewCommand == "" || current.ReviewerResultCollectionApplyCommand == "" || current.ReviewerResultIntakePreviewCommand == "" || current.ReviewerResultIntakeApplyCommand == "" {
+		t.Fatalf("%s missing operator package command chain: %+v", label, current)
+	}
+	if !containsSubstring(pkg.RunbookSteps, "managed dispatch packet is available") || !containsSubstring(pkg.CompletionCriteria, "reviewerResultDropPath") || !containsSubstring(pkg.Boundary, "does not call Agent tool") || !containsSubstring(pkg.Boundary, "does not write facts") {
+		t.Fatalf("%s missing operator package runbook/boundary: %+v", label, pkg)
 	}
 }
 

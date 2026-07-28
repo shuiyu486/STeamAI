@@ -6752,6 +6752,58 @@ func writeHandoffExecutionEvidenceReviewText(out io.Writer, items []workstream.E
 	return writeExecutionEvidenceReviewText(out, "handoff execution evidence", items, summary)
 }
 
+func writeReviewerDispatchOperatorPackageText(out io.Writer, prefix string, pkg *workstream.ReviewerDispatchOperatorPackage) error {
+	if pkg == nil || !pkg.Ready || pkg.Current == nil {
+		return nil
+	}
+	current := *pkg.Current
+	if _, err := fmt.Fprintf(out, "%s reviewer dispatch operator package：ready=%t packet=%s lane=%s shard=%s state=%s prompt=%s promptSha256=%s drop=%s input=%s source=%s candidate=%s result=%s nextAction=%s\n", prefix, pkg.Ready, textFirst(pkg.PacketID, pkg.PacketPath), pkg.TargetLane, current.ShardID, current.State, current.DispatchPromptPath, current.DispatchPromptSHA256, current.ReviewerResultDropPath, current.ReviewerResultInputPath, current.ReviewerResultSourcePath, current.ReviewerResultCandidatePath, current.ReviewerResultPath, current.NextAction); err != nil {
+		return err
+	}
+	if current.AgentToolRequest != nil {
+		request := current.AgentToolRequest
+		if _, err := fmt.Fprintf(out, "%s reviewer dispatch operator agent tool：shard=%s tool=%s agentType=%s readOnly=%t promptPath=%s promptSha256=%s expectedOutput=%s\n", prefix, current.ShardID, request.Tool, request.AgentType, request.ReadOnly, request.PromptPath, request.PromptSHA256, request.ExpectedOutput); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(current.ExpectedReviewerResultSkeleton) != "" {
+		if _, err := fmt.Fprintf(out, "%s reviewer dispatch operator result skeleton：shard=%s json=%s\n", prefix, current.ShardID, current.ExpectedReviewerResultSkeleton); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(current.ReviewerResultSourceCapturePreviewCommand) != "" || strings.TrimSpace(current.ReviewerResultStagingPreviewCommand) != "" || strings.TrimSpace(current.ReviewerResultCollectionPreviewCommand) != "" {
+		if _, err := fmt.Fprintf(out, "%s reviewer dispatch operator result pipeline：shard=%s sourceCapturePreview=`%s` sourceCaptureApply=`%s` stagingPreview=`%s` collectionPreview=`%s` collectionApply=`%s`\n", prefix, current.ShardID, current.ReviewerResultSourceCapturePreviewCommand, current.ReviewerResultSourceCaptureApplyCommand, current.ReviewerResultStagingPreviewCommand, current.ReviewerResultCollectionPreviewCommand, current.ReviewerResultCollectionApplyCommand); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(current.ReviewerResultBatchIntakePreviewCommand) != "" || strings.TrimSpace(current.ReviewerResultIntakePreviewCommand) != "" {
+		if _, err := fmt.Fprintf(out, "%s reviewer dispatch operator intake：shard=%s preview=`%s` apply=`%s` batchPreview=`%s` batchApply=`%s`\n", prefix, current.ShardID, current.ReviewerResultIntakePreviewCommand, current.ReviewerResultIntakeApplyCommand, current.ReviewerResultBatchIntakePreviewCommand, current.ReviewerResultBatchIntakeApplyCommand); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(current.DispatchCommand) != "" {
+		if _, err := fmt.Fprintf(out, "%s reviewer dispatch operator dispatch：shard=%s command=`%s`\n", prefix, current.ShardID, current.DispatchCommand); err != nil {
+			return err
+		}
+	}
+	for idx, step := range pkg.RunbookSteps {
+		if _, err := fmt.Fprintf(out, "%s reviewer dispatch operator runbook：shard=%s step=%d text=%s\n", prefix, current.ShardID, idx+1, step); err != nil {
+			return err
+		}
+	}
+	for idx, criteria := range pkg.CompletionCriteria {
+		if _, err := fmt.Fprintf(out, "%s reviewer dispatch operator completion：shard=%s criteria=%d text=%s\n", prefix, current.ShardID, idx+1, criteria); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range pkg.Boundary {
+		if _, err := fmt.Fprintf(out, "%s reviewer dispatch operator boundary：shard=%s boundary=%s\n", prefix, current.ShardID, boundary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func writeReviewerDispatchIntakeHandoffText(out io.Writer, prefix string, items []workstream.ReviewerDispatchIntakeHandoff, summary workstream.ReviewerDispatchIntakeSummary) error {
 	if summary.Total == 0 {
 		return nil
@@ -6778,6 +6830,9 @@ func writeReviewerDispatchIntakeHandoffText(out io.Writer, prefix string, items 
 				return err
 			}
 		}
+	}
+	if err := writeReviewerDispatchOperatorPackageText(out, prefix, summary.OperatorPackage); err != nil {
+		return err
 	}
 	if strings.TrimSpace(summary.LatestBatchPreviewCommand) != "" {
 		if _, err := fmt.Fprintf(out, "%s reviewer dispatch batch intake：preview=`%s` apply=`%s`\n", prefix, summary.LatestBatchPreviewCommand, summary.LatestBatchApplyCommand); err != nil {
