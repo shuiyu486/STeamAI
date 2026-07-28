@@ -26,7 +26,7 @@
 - [ ] **P1：实现 session/reviewer lifecycle vertical slice**：引入 durable dispatch/session/completion/intake receipts，把 lane owner generation、prompt hash、result hash、session identity 和 takeover 串成真实产品路径。
 - [ ] **P1：实现 adapter execution provenance vertical slice**：在不让 `/rekit` 直接执行 heavy tool 的前提下，绑定 gate、adapter catalog、executor/session、预算计量、exit status、output hash 与 sidecar hash。
 - [ ] **P1：收敛 CLI 与 Mission Commander 内核**：按 command 拆分 parser/handler，类型化 action source/state，统一生成一次 mission snapshot，再由 status/start/continue/handoff 渲染。
-- [ ] **P1：隔离测试 fixture**：所有 pack-memory/promote 测试改用临时 repo 或注入式 pack root，禁止测试进程修改真实 `packs/_template`。
+- [x] **P1：隔离测试 fixture**：8 个会修改真实 `_template` 的 CLI pack-memory/promote E2E 已迁移到独立临时 kit repo，并通过双进程并发验证；只读真实仓库 contract tests 保留。
 - [ ] **P2：重做 pack-memory review UX**：把 review→cleanup→provision→verify→retire 表达为机器可读阶段图和一个可继续的主 Agent流程，并增加真实跨 case reconsume 场景。
 - [ ] **P2：压缩 active state 文档**：让 `docs/batch-plan.md` 真正只保留 current/latest/next，旧批次归档；CHANGELOG 只保留可发布的用户可见摘要。
 

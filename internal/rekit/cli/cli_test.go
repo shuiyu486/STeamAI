@@ -1971,7 +1971,8 @@ func TestRunStatusMovedCaseNextSteps(t *testing.T) {
 }
 
 func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
-	root := repoRoot(t)
+	fixture := newCLIFixture(t, cliFixtureOptions{})
+	root := fixture.repoRoot
 	candidateRoot := filepath.Join(root, "packs", "_template", "promote-candidates")
 	toolingRoot := filepath.Join(root, "packs", "_template", "tooling", "candidates")
 	candidateBefore := snapshotFiles(t, candidateRoot)
@@ -2108,7 +2109,8 @@ func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
 }
 
 func TestRunStatusCaseFirstScreenPrioritizesPackMemoryClosureOverReviewerWait(t *testing.T) {
-	root := repoRoot(t)
+	fixture := newCLIFixture(t, cliFixtureOptions{caseMode: "full"})
+	root := fixture.repoRoot
 	candidateRoot := filepath.Join(root, "packs", "_template", "promote-candidates")
 	toolingRoot := filepath.Join(root, "packs", "_template", "tooling", "candidates")
 	candidateBefore := snapshotFiles(t, candidateRoot)
@@ -2129,7 +2131,7 @@ func TestRunStatusCaseFirstScreenPrioritizesPackMemoryClosureOverReviewerWait(t 
 	writePathFile(t, evidencePath, "bounded candidate decision evidence\n")
 	writeCLIPackMemoryCandidateDecisionProof(t, root, proofPath, "_template", "packet-hash", filepath.Join(candidateRoot, "batch675-cross-focus.candidate.md"), filepath.Join(root, "packs", "_template", "references", "template", "README.md"), "reject", "managed-doc", evidencePath)
 
-	caseRoot := fullAttachedCase(t)
+	caseRoot := fixture.caseRoot
 	var out bytes.Buffer
 	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "login", "-Apply", "-Executor", "session-login", "-Actor", "mission-commander", "-Reason", "cross subsystem status focus"}, &out); err != nil {
 		t.Fatal(err)
@@ -3867,8 +3869,9 @@ func TestRunAttachApplyWritesBindingMetadataStateAndShim(t *testing.T) {
 }
 
 func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
+	fixture := newCLIFixture(t, cliFixtureOptions{})
 	caseRoot := filepath.Join(t.TempDir(), "kit")
-	root := repoRoot(t)
+	root := fixture.repoRoot
 	candidateRoot := filepath.Join(root, "packs", "_template", "promote-candidates")
 	toolingRoot := filepath.Join(root, "packs", "_template", "tooling", "candidates")
 	candidateBefore := snapshotFiles(t, candidateRoot)
@@ -10375,8 +10378,9 @@ func TestRunPromoteApplyWhatIfEmitsNonMutatingPlan(t *testing.T) {
 }
 
 func TestRunPromoteApplyWritesPackWithBackup(t *testing.T) {
-	caseRoot := fullAttachedCase(t)
-	root := repoRoot(t)
+	fixture := newCLIFixture(t, cliFixtureOptions{caseMode: "full"})
+	caseRoot := fixture.caseRoot
+	root := fixture.repoRoot
 	candidateRoot := filepath.Join(root, "packs", "_template", "promote-candidates")
 	candidateBefore := snapshotFiles(t, candidateRoot)
 	packRefsRoot := filepath.Join(root, "packs", "_template", "references", "template")
@@ -10434,8 +10438,9 @@ func TestRunPromoteApplyWritesPackWithBackup(t *testing.T) {
 }
 
 func TestRunPromoteApplyTextOutputsWritesValidationAndNextSteps(t *testing.T) {
-	caseRoot := fullAttachedCase(t)
-	root := repoRoot(t)
+	fixture := newCLIFixture(t, cliFixtureOptions{caseMode: "full"})
+	caseRoot := fixture.caseRoot
+	root := fixture.repoRoot
 	candidateRoot := filepath.Join(root, "packs", "_template", "promote-candidates")
 	candidateBefore := snapshotFiles(t, candidateRoot)
 	packRefsRoot := filepath.Join(root, "packs", "_template", "references", "template")
@@ -10572,8 +10577,9 @@ func TestRunPromoteCreateCandidatesWhatIf(t *testing.T) {
 }
 
 func TestRunPromoteCreateCandidatesWritesCandidates(t *testing.T) {
-	caseRoot := fullAttachedCase(t)
-	root := repoRoot(t)
+	fixture := newCLIFixture(t, cliFixtureOptions{caseMode: "full"})
+	caseRoot := fixture.caseRoot
+	root := fixture.repoRoot
 	candidateRoot := filepath.Join(root, "packs", "_template", "promote-candidates")
 	toolingRoot := filepath.Join(root, "packs", "_template", "tooling", "candidates")
 	candidateBefore := snapshotFiles(t, candidateRoot)
@@ -10698,7 +10704,7 @@ func TestRunPromoteCreateCandidatesWritesCandidates(t *testing.T) {
 			t.Fatalf("promote create-candidates text output missing %q:\n%s", expected, text)
 		}
 	}
-	if workflowWrite.TargetPath != filepath.Join(repoRoot(t), "packs", "_template", filepath.FromSlash("references/template/workflow-template.md")) {
+	if workflowWrite.TargetPath != filepath.Join(root, "packs", "_template", filepath.FromSlash("references/template/workflow-template.md")) {
 		t.Fatalf("blocked write target = %q, want pack source", workflowWrite.TargetPath)
 	}
 	if result.IndexPath == "" {
@@ -10722,8 +10728,9 @@ func TestRunPromoteCreateCandidatesWritesCandidates(t *testing.T) {
 }
 
 func TestRunPromoteCreateCandidatesCaseLocalProductPathUsesMetadataRuntime(t *testing.T) {
-	caseRoot := fullAttachedCase(t)
-	root := repoRoot(t)
+	fixture := newCLIFixture(t, cliFixtureOptions{caseMode: "full"})
+	caseRoot := fixture.caseRoot
+	root := fixture.repoRoot
 	candidateRoot := filepath.Join(root, "packs", "_template", "promote-candidates")
 	toolingRoot := filepath.Join(root, "packs", "_template", "tooling", "candidates")
 	candidateBefore := snapshotFiles(t, candidateRoot)
@@ -11081,9 +11088,10 @@ func TestRunPromoteCreateCandidatesWritesDurableReviewWorkspace(t *testing.T) {
 }
 
 func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
-	caseRoot := fullAttachedCase(t)
+	fixture := newCLIFixture(t, cliFixtureOptions{caseMode: "full"})
+	caseRoot := fixture.caseRoot
 	writeCaseFile(t, caseRoot, ".rekit/board.json", `{"lanes":[{"id":"main"}]}`)
-	root := repoRoot(t)
+	root := fixture.repoRoot
 	candidateRoot := filepath.Join(root, "packs", "_template", "promote-candidates")
 	toolingRoot := filepath.Join(root, "packs", "_template", "tooling", "candidates")
 	candidateBefore := snapshotFiles(t, candidateRoot)
