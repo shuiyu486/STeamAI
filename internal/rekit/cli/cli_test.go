@@ -1392,6 +1392,171 @@ func TestRunStatusCaseMissionOpenDecisionFirstScreenPackage(t *testing.T) {
 	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 }
 
+func TestRunOpenDecisionFirstScreenHandoffHashBoundApplyUnblocksLane(t *testing.T) {
+	caseRoot := attachedCase(t)
+	for _, dir := range []string{
+		".rekit/facts",
+		".rekit/lanes/main",
+		"workspace/main/main",
+	} {
+		if err := os.MkdirAll(filepath.Join(caseRoot, filepath.FromSlash(dir)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	board := `{"schemaVersion":1,"caseRoot":"` + filepath.ToSlash(caseRoot) + `","repoRoot":"` + filepath.ToSlash(repoRoot(t)) + `","pack":"_template","automationMode":"assist","defaultAuthorityLane":"main","lanes":[{"id":"main","type":"main","title":"Main","status":"open","authority":true,"workspace":"workspace/main/main"}],"factsRoot":".rekit/facts"}`
+	writeCaseFile(t, caseRoot, ".rekit/board.json", board)
+	writeCaseFile(t, caseRoot, ".rekit/lanes/main/lane.json", `{"schemaVersion":1,"id":"main","type":"main","title":"Main","status":"open","authority":true,"workspace":"workspace/main/main","laneRoot":".rekit/lanes/main"}`)
+	factsRoot := filepath.Join(caseRoot, ".rekit", "facts")
+	writeFactFile(t, factsRoot, "requests.jsonl", nil)
+	writeFactFile(t, factsRoot, "candidates.jsonl", []string{`{"eventId":"cand-main-open-1","kind":"candidate","lane":"main","subject":"main blocker","summary":"candidate needs decision","status":"open","confidence":"high","target":"candidate-main","evidenceRefs":"evidence/main-candidate.json"}`})
+	writeFactFile(t, factsRoot, "decisions.jsonl", nil)
+	writeFactFile(t, factsRoot, "interventions.jsonl", nil)
+
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var blockedStatus struct {
+		CaseMission struct {
+			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+			OpenDecisionHandoffs        []statusOpenDecisionHandoff         `json:"openDecisionHandoffs"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &blockedStatus); err != nil {
+		t.Fatalf("open decision blocked status JSON did not decode: %v\n%s", err, out.String())
+	}
+	blockedCurrent := blockedStatus.CaseMission.MissionCommanderActionQueue.CurrentAction
+	if blockedCurrent == nil || blockedCurrent.State != "needs-open-decision-review" || blockedCurrent.Source != "missionCommanderActions" || blockedCurrent.Command != "/rekit handoff main" || len(blockedStatus.CaseMission.OpenDecisionHandoffs) != 1 {
+		t.Fatalf("status did not start at open decision blocker: current=%+v handoffs=%+v", blockedCurrent, blockedStatus.CaseMission.OpenDecisionHandoffs)
+	}
+	handoff := blockedStatus.CaseMission.OpenDecisionHandoffs[0]
+	if handoff.EventID != "cand-main-open-1" || handoff.WhatIfCommand == "" || handoff.RecordCommand != "run the hash-bound recordCommand returned by note -WhatIf" {
+		t.Fatalf("status missing actionable open decision handoff: %+v", handoff)
+	}
+	beforePreview := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+
+	previewArgs := rekitCommandCLIArgs(t, handoff.WhatIfCommand)
+	for i := 0; i < len(previewArgs)-1; i++ {
+		if previewArgs[i] == "-Decision" && previewArgs[i+1] == "<accept|reject|defer|supersede>" {
+			previewArgs[i+1] = "accept"
+		}
+	}
+	out.Reset()
+	if err := Run(previewArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var preview struct {
+		IsMutation                       bool                             `json:"isMutation"`
+		Applied                          bool                             `json:"applied"`
+		Reason                           string                           `json:"reason"`
+		Path                             string                           `json:"path"`
+		EventID                          string                           `json:"eventId"`
+		EventSHA256                      string                           `json:"eventSha256"`
+		RecordCommand                    string                           `json:"recordCommand"`
+		Event                            map[string]any                   `json:"event"`
+		ExecutorAction                   executorActionSnapshot           `json:"executorAction"`
+		WouldExecutorAction              executorActionSnapshot           `json:"wouldExecutorAction"`
+		MissionCommanderAction           missionCommanderActionSnapshot   `json:"missionCommanderAction"`
+		WouldMissionCommanderAction      missionCommanderActionSnapshot   `json:"wouldMissionCommanderAction"`
+		MissionCommanderNextActions      []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
+		WouldMissionCommanderNextActions []missionCommanderNextActionItem `json:"wouldMissionCommanderNextActions"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+		t.Fatalf("open decision note what-if stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if preview.IsMutation || preview.Applied || preview.Reason != "what-if" || preview.Path != ".rekit/facts/decisions.jsonl" || len(preview.EventSHA256) != 64 || !strings.Contains(preview.RecordCommand, "-ExpectedNoteEventSha256 "+preview.EventSHA256) || !strings.Contains(preview.RecordCommand, "-CreatedAt ") || !strings.Contains(preview.RecordCommand, "-EventId ") {
+		t.Fatalf("unexpected open decision note preview: %+v", preview)
+	}
+	if preview.Event["decision"] != "accept" || preview.Event["target"] != "candidate-main" || !containsSubstring(noteEventListValues(preview.Event["related"]), "cand-main-open-1") || !containsSubstring(noteEventListValues(preview.Event["evidenceRefs"]), "evidence/main-candidate.json") {
+		t.Fatalf("open decision preview did not preserve candidate review refs: %+v", preview.Event)
+	}
+	if !preview.ExecutorAction.Blocked || preview.ExecutorAction.OpenDecisions != 1 || !preview.ExecutorAction.OpenDecisionRequired || preview.WouldExecutorAction.Blocked || !preview.WouldExecutorAction.Ready || preview.WouldExecutorAction.OpenDecisions != 0 || preview.WouldExecutorAction.OpenDecisionRequired || preview.MissionCommanderAction.State != "needs-open-decision-review" || preview.WouldMissionCommanderAction.State != "ready-to-continue" {
+		t.Fatalf("open decision preview did not expose unblock delta: current=%+v would=%+v commander=%+v wouldCommander=%+v", preview.ExecutorAction, preview.WouldExecutorAction, preview.MissionCommanderAction, preview.WouldMissionCommanderAction)
+	}
+	if !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "missionCommanderActions", "/rekit handoff main", true, true) || !containsMissionCommanderNextAction(preview.WouldMissionCommanderNextActions, "missionCommanderActions", "/rekit continue main", false, false) || containsMissionCommanderNextAction(preview.WouldMissionCommanderNextActions, "missionCommanderActions", "/rekit handoff main", true, true) {
+		t.Fatalf("open decision preview commander next actions drifted: current=%+v would=%+v", preview.MissionCommanderNextActions, preview.WouldMissionCommanderNextActions)
+	}
+	assertSnapshotEqual(t, beforePreview, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	out.Reset()
+	if err := Run(rekitCommandCLIArgs(t, preview.RecordCommand), &out); err != nil {
+		t.Fatal(err)
+	}
+	var applied struct {
+		IsMutation                  bool                             `json:"isMutation"`
+		Applied                     bool                             `json:"applied"`
+		Path                        string                           `json:"path"`
+		EventSHA256                 string                           `json:"eventSha256"`
+		ExpectedEventSHA256         string                           `json:"expectedEventSha256"`
+		Event                       map[string]any                   `json:"event"`
+		ExecutorAction              executorActionSnapshot           `json:"executorAction"`
+		MissionCommanderAction      missionCommanderActionSnapshot   `json:"missionCommanderAction"`
+		MissionCommanderNextActions []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &applied); err != nil {
+		t.Fatalf("open decision note apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !applied.IsMutation || !applied.Applied || applied.Path != ".rekit/facts/decisions.jsonl" || applied.EventSHA256 != preview.EventSHA256 || applied.ExpectedEventSHA256 != preview.EventSHA256 || applied.Event["decision"] != "accept" {
+		t.Fatalf("unexpected open decision note apply: %+v", applied)
+	}
+	if applied.ExecutorAction.Blocked || !applied.ExecutorAction.Ready || applied.ExecutorAction.OpenDecisions != 0 || applied.ExecutorAction.OpenDecisionRequired || applied.MissionCommanderAction.State != "ready-to-continue" || !containsMissionCommanderNextAction(applied.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue main", false, false) {
+		t.Fatalf("open decision apply did not unblock lane: action=%+v commander=%+v next=%+v", applied.ExecutorAction, applied.MissionCommanderAction, applied.MissionCommanderNextActions)
+	}
+	ledger, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "decisions.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ledgerText := string(ledger)
+	if !strings.Contains(ledgerText, `"decision":"accept"`) || !strings.Contains(ledgerText, `"cand-main-open-1"`) || strings.Contains(ledgerText, `"decision":"defer"`) || strings.Contains(ledgerText, `"decision":"pending-user"`) {
+		t.Fatalf("decision ledger did not record closing candidate decision:\n%s", ledgerText)
+	}
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var readyStatus struct {
+		CaseMission struct {
+			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+			OpenDecisionHandoffs        []statusOpenDecisionHandoff         `json:"openDecisionHandoffs"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &readyStatus); err != nil {
+		t.Fatalf("open decision ready status JSON did not decode: %v\n%s", err, out.String())
+	}
+	readyCurrent := readyStatus.CaseMission.MissionCommanderActionQueue.CurrentAction
+	if len(readyStatus.CaseMission.OpenDecisionHandoffs) != 0 || readyCurrent == nil || readyCurrent.State != "ready-to-continue" || readyCurrent.Source != "missionCommanderActions" || readyCurrent.Command != "/rekit continue main" || readyCurrent.Blocked || readyCurrent.RequiresReview {
+		t.Fatalf("status did not remove open decision blocker: current=%+v handoffs=%+v", readyCurrent, readyStatus.CaseMission.OpenDecisionHandoffs)
+	}
+
+	beforeContinue := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "main", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var continuation struct {
+		Command                     string                              `json:"command"`
+		Applied                     bool                                `json:"applied"`
+		Blocked                     bool                                `json:"blocked"`
+		OpenDecisionRequired        bool                                `json:"openDecisionRequired"`
+		ExecutorAction              executorActionSnapshot              `json:"executorAction"`
+		OpenDecisionHandoffs        []statusOpenDecisionHandoff         `json:"openDecisionHandoffs"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &continuation); err != nil {
+		t.Fatalf("open decision unblocked continue what-if stdout is not JSON: %v\n%s", err, out.String())
+	}
+	continueCurrent := continuation.MissionCommanderActionQueue.CurrentAction
+	if continuation.Command != "continue" || continuation.Applied || continuation.Blocked || continuation.OpenDecisionRequired || continuation.ExecutorAction.Blocked || !continuation.ExecutorAction.Ready || continuation.ExecutorAction.OpenDecisions != 0 || len(continuation.OpenDecisionHandoffs) != 0 || continueCurrent == nil || continueCurrent.State != "ready-to-continue" || continueCurrent.Command != "/rekit continue main" {
+		t.Fatalf("continue what-if did not stay on unblocked takeover path: result=%+v current=%+v", continuation, continueCurrent)
+	}
+	assertSnapshotEqual(t, beforeContinue, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
+}
+
 func TestRunStatusCaseMissionIncludesExecutionEvidenceReview(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	writeOverviewFixture(t, caseRoot)
