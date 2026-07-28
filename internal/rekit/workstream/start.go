@@ -1412,6 +1412,15 @@ func appendResumeExecutionEvidenceReportDetail(lines []string, item ExecutionEvi
 	if strings.TrimSpace(item.AdapterID) != "" || strings.TrimSpace(item.AdapterStatus) != "" {
 		lines = append(lines, fmt.Sprintf("    - adapter report: adapterId=%s status=%s", item.AdapterID, item.AdapterStatus))
 	}
+	if strings.TrimSpace(item.AdapterExecutionReceiptPath) != "" || strings.TrimSpace(item.AdapterExecutionReceiptSHA256) != "" {
+		lines = append(lines, "    - receipt: path="+firstText(item.AdapterExecutionReceiptPath, "none")+" sha256="+firstText(item.AdapterExecutionReceiptSHA256, "none"))
+	}
+	if strings.TrimSpace(item.CurrentExecutor) != "" || item.ExecutorGeneration > 0 || strings.TrimSpace(item.AdapterHarness) != "" || strings.TrimSpace(item.AdapterSession) != "" {
+		lines = append(lines, fmt.Sprintf("    - execution owner: executor=%s generation=%d harness=%s session=%s", item.CurrentExecutor, item.ExecutorGeneration, item.AdapterHarness, item.AdapterSession))
+	}
+	if strings.TrimSpace(item.ToolingCatalogSHA256) != "" || item.AdapterExecutionArtifactCount > 0 {
+		lines = append(lines, fmt.Sprintf("    - tooling provenance: catalogSha256=%s artifacts=%d", item.ToolingCatalogSHA256, item.AdapterExecutionArtifactCount))
+	}
 	return appendResumeExecutionEvidenceAdapterContext(lines, item.AdapterContext)
 }
 

@@ -3869,6 +3869,259 @@ func TestRunAttachApplyWritesBindingMetadataStateAndShim(t *testing.T) {
 	}
 }
 
+func TestRunInstalledCaseShimAdapterExecutorLifecycle(t *testing.T) {
+	fixture := newCLIFixture(t, cliFixtureOptions{})
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	writeCaseFile(t, fixture.repoRoot, "packs/_template/tooling/catalog.yml", `schemaVersion: 1
+pack: _template
+purpose: Installed adapter executor lifecycle fixture
+
+tools:
+  - id: installed-debug-adapter
+    status: supported
+    entry: <caseRoot>/tools/installed-debug-adapter
+    purpose: Execute bounded debug through an external installed case executor.
+    sideEffects: debug,filesystem-write
+`)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "init", "-Target", caseRoot, "-Pack", "_template", "-ProjectName", "installed-adapter-executor", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(caseRoot, "workspace", "main", "nested")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fixture.chdir(t, nested)
+
+	out.Reset()
+	if err := Run([]string{"-Command", "overview", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "start", "-Name", "main", "-Apply", "-Executor", "installed-executor-a", "-Actor", "mission-commander", "-Reason", "claim installed adapter executor"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	ownerA := decodeStartResult(t, out.Bytes())
+	if ownerA.Lane.CurrentExecutor != "installed-executor-a" || ownerA.Lane.ExecutorGeneration != 1 {
+		t.Fatalf("installed adapter initial owner mismatch: %+v", ownerA.Lane)
+	}
+	writeCaseFile(t, caseRoot, ".rekit/lanes/main/autonomy.json", `{
+  "schemaVersion": 1,
+  "profileId": "installed-main-debug",
+  "lane": "main",
+  "mode": "preauthorized",
+  "allowedActions": ["debug"],
+  "deniedActions": [],
+  "targetScope": [{"match":"exact","value":"installed-target"}],
+  "budget": {"runtimeSeconds": 60, "diskMB": 128, "requests": 2},
+  "stopConditions": ["timeout"],
+  "outputPaths": ["workspace/main/debug"],
+  "recordRequired": true,
+  "notifyMainOn": ["boundary-hit"],
+  "grantedBy": "user",
+  "grantedAt": "2026-07-29T00:00:00Z",
+  "expiresAt": "2999-01-01T00:00:00Z"
+}`)
+
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-Action", "debug", "-Lane", "main", "-TargetRef", "installed-target", "-RuntimeSeconds", "30", "-DiskMB", "64", "-Requests", "1", "-OutputPaths", "workspace/main/debug/session-1", "-StopConditions", "timeout", "-Actor", "mission-commander", "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var authorized gate.ApplyResult
+	if err := json.Unmarshal(out.Bytes(), &authorized); err != nil {
+		t.Fatalf("installed adapter gate apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if authorized.Event == nil || authorized.Event.Status != "authorized-gate" {
+		t.Fatalf("installed adapter gate was not preauthorized: %+v", authorized)
+	}
+	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/result.json", `{"result":"bounded external fixture"}`)
+	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/evidence.json", `{"evidence":"external harness observation"}`)
+	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/adapter-report.json", `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "installed-debug-adapter",
+  "action": "debug",
+  "status": "succeeded",
+  "gateEventId": "`+authorized.EventID+`",
+  "actualBudget": {"runtimeSeconds": 20, "diskMB": 24, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/result.json"],
+  "evidenceRefs": ["workspace/main/debug/session-1/evidence.json"],
+  "summary": "Installed external adapter completed"
+}`)
+
+	receiptArgs := []string{"-Command", "gate", "-GateEventId", authorized.EventID, "-RecordAdapterExecutionReceipt", "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-report.json", "-AdapterId", "installed-debug-adapter", "-Executor", "installed-executor-a", "-ExpectedExecutorGeneration", "1", "-AdapterHarness", "claude-code", "-AdapterSession", "installed-session-a", "-ExecutionExitStatus", "0", "-Actor", "mission-commander", "-Format", "json"}
+	out.Reset()
+	if err := Run(receiptArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var stalePreview gate.AdapterExecutionReceiptResult
+	if err := json.Unmarshal(out.Bytes(), &stalePreview); err != nil {
+		t.Fatalf("installed adapter receipt preview stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if stalePreview.Applied || stalePreview.BindingSHA256 == "" {
+		t.Fatalf("installed adapter receipt preview incomplete: %+v", stalePreview)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "start", "-Name", "main", "-Apply", "-Executor", "installed-executor-b", "-Actor", "mission-commander", "-Reason", "replace stale installed adapter session", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	ownerB := decodeStartResult(t, out.Bytes())
+	if ownerB.Lane.CurrentExecutor != "installed-executor-b" || ownerB.Lane.ExecutorGeneration != 2 {
+		t.Fatalf("installed adapter takeover mismatch: %+v", ownerB.Lane)
+	}
+	staleApplyArgs := append(append([]string{}, receiptArgs[:len(receiptArgs)-2]...), "-ExpectedAdapterExecutionBindingSha256", stalePreview.BindingSHA256, "-Apply", "-Format", "json")
+	out.Reset()
+	if err := Run(staleApplyArgs, &out); err == nil || !strings.Contains(err.Error(), "owner is stale") {
+		t.Fatalf("stale installed adapter receipt apply error = %v, want owner is stale", err)
+	}
+	assertFileNotExists(t, filepath.Join(caseRoot, filepath.FromSlash(stalePreview.ReceiptPath)))
+
+	receiptArgs = []string{"-Command", "gate", "-GateEventId", authorized.EventID, "-RecordAdapterExecutionReceipt", "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-report.json", "-AdapterId", "installed-debug-adapter", "-Executor", "installed-executor-b", "-ExpectedExecutorGeneration", "2", "-AdapterHarness", "claude-code", "-AdapterSession", "installed-session-b", "-ExecutionExitStatus", "0", "-Actor", "mission-commander", "-Format", "json"}
+	out.Reset()
+	if err := Run(receiptArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var receiptPreview gate.AdapterExecutionReceiptResult
+	if err := json.Unmarshal(out.Bytes(), &receiptPreview); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	receiptApplyArgs := append(append([]string{}, receiptArgs[:len(receiptArgs)-2]...), "-ExpectedAdapterExecutionBindingSha256", receiptPreview.BindingSHA256, "-Apply", "-Format", "json")
+	if err := Run(receiptApplyArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var receipt gate.AdapterExecutionReceiptResult
+	if err := json.Unmarshal(out.Bytes(), &receipt); err != nil {
+		t.Fatal(err)
+	}
+	if !receipt.Applied || receipt.Receipt.Owner.CurrentExecutor != "installed-executor-b" || receipt.Receipt.Owner.ExecutorGeneration != 2 || receipt.Receipt.Owner.AdapterSession != "installed-session-b" || receipt.ReceiptSHA256 == "" || len(receipt.Receipt.Artifacts) != 2 {
+		t.Fatalf("installed adapter receipt omitted replacement provenance: %+v", receipt)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-GateEventId", authorized.EventID, "-ValidateExecutionReport", "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-report.json", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var validation gate.AdapterExecutionReportValidation
+	if err := json.Unmarshal(out.Bytes(), &validation); err != nil {
+		t.Fatal(err)
+	}
+	if !validation.Valid || !validation.ProvenanceValid || validation.AdapterExecutionReceiptSHA256 != receipt.ReceiptSHA256 {
+		t.Fatalf("installed adapter validation omitted receipt provenance: %+v", validation)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-Apply", "-GateEventId", authorized.EventID, "-ExecutionReportPath", validation.ReportPath, "-ExpectedExecutionReportSha256", validation.RecordExpectedReportSHA256, "-AdapterExecutionReceiptPath", validation.AdapterExecutionReceiptPath, "-ExpectedAdapterExecutionReceiptSha256", validation.AdapterExecutionReceiptSHA256, "-Executor", "installed-executor-b", "-ExpectedExecutorGeneration", "2", "-Actor", "mission-commander", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var evidence gate.ApplyResult
+	if err := json.Unmarshal(out.Bytes(), &evidence); err != nil {
+		t.Fatal(err)
+	}
+	if !evidence.Applied || evidence.ExecutionEvidence == nil {
+		t.Fatalf("installed adapter observation was not recorded: %+v", evidence)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		CaseMission struct {
+			ExecutionEvidenceReview     []executionEvidenceReviewItem       `json:"executionEvidenceReview"`
+			AuthorizedGateHandoffs      []statusAuthorizedGateHandoff       `json:"authorizedGateHandoffs"`
+			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatal(err)
+	}
+	if len(status.CaseMission.ExecutionEvidenceReview) != 1 {
+		t.Fatalf("installed adapter status omitted evidence review: %+v", status.CaseMission)
+	}
+	review := status.CaseMission.ExecutionEvidenceReview[0]
+	if review.GateEventID != authorized.EventID || review.AdapterExecutionReceiptPath != receipt.ReceiptPath || review.AdapterExecutionReceiptSHA256 != receipt.ReceiptSHA256 || review.CurrentExecutor != "installed-executor-b" || review.ExecutorGeneration != 2 || review.AdapterHarness != "claude-code" || review.AdapterSession != "installed-session-b" || review.ToolingCatalogSHA256 == "" || review.AdapterExecutionArtifactCount != 2 || review.Acknowledgement == nil {
+		t.Fatalf("installed adapter review omitted immutable receipt lineage: %+v", review)
+	}
+
+	out.Reset()
+	if err := Run(rekitCommandCLIArgs(t, review.Acknowledgement.AcceptedPreviewCommand), &out); err != nil {
+		t.Fatal(err)
+	}
+	var acknowledgementPreview struct {
+		EventSHA256   string `json:"eventSha256"`
+		RecordCommand string `json:"recordCommand"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &acknowledgementPreview); err != nil {
+		t.Fatal(err)
+	}
+	if acknowledgementPreview.EventSHA256 == "" || acknowledgementPreview.RecordCommand == "" {
+		t.Fatalf("installed adapter acknowledgement preview incomplete: %+v", acknowledgementPreview)
+	}
+	out.Reset()
+	if err := Run(rekitCommandCLIArgs(t, acknowledgementPreview.RecordCommand), &out); err != nil {
+		t.Fatal(err)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "main", "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	handoff := decodeHandoffResult(t, out.Bytes())
+	if len(handoff.ExecutionEvidenceReview) != 0 || len(handoff.AuthorizedGateAdapterHandoffs) != 1 {
+		t.Fatalf("installed adapter acknowledged handoff state mismatch: %+v", handoff)
+	}
+	assertAcknowledgedAuthorizedGateAdapterHandoffSnapshot(t, "installed adapter handoff", handoff.AuthorizedGateAdapterHandoffs[0], authorized.EventID)
+	latestHandoff, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "handovers", "main-latest.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "main", "-Apply", "-Executor", "installed-executor-b", "-ExpectedExecutorGeneration", "2", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var continuation struct {
+		RunID                         string                                 `json:"runId"`
+		Applied                       bool                                   `json:"applied"`
+		ExecutionEvidenceReview       []executionEvidenceReviewItem          `json:"executionEvidenceReview"`
+		AuthorizedGateAdapterHandoffs []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
+		Writes                        []startWrite                           `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &continuation); err != nil {
+		t.Fatal(err)
+	}
+	if !continuation.Applied || len(continuation.ExecutionEvidenceReview) != 0 || len(continuation.AuthorizedGateAdapterHandoffs) != 1 {
+		t.Fatalf("installed adapter acknowledged continue state mismatch: %+v", continuation)
+	}
+	for label, path := range map[string]string{
+		"handoff":         filepath.Join(caseRoot, ".rekit", "handovers", "main-latest.md"),
+		"RESUME":          assertStartWrite(t, continuation.Writes, ".rekit/lanes/main/prompts/RESUME.md", "refresh").TargetPath,
+		"continue digest": assertStartWrite(t, continuation.Writes, ".rekit/runs/"+continuation.RunID+"/digest.md", "write").TargetPath,
+	} {
+		text := latestHandoff
+		if label != "handoff" {
+			text, err = os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, expected := range []string{
+			"receipt:",
+			"path=" + receipt.ReceiptPath + " sha256=" + receipt.ReceiptSHA256,
+			"execution owner: executor=installed-executor-b generation=2 harness=claude-code session=installed-session-b",
+			"tooling provenance: catalogSha256=" + review.ToolingCatalogSHA256 + " artifacts=2",
+			"acknowledgementState=execution-evidence-review-acknowledged",
+		} {
+			if !strings.Contains(string(text), expected) {
+				t.Fatalf("installed adapter %s omitted durable receipt lineage %q:\n%s", label, expected, string(text))
+			}
+		}
+	}
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
+}
+
 func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 	fixture := newCLIFixture(t, cliFixtureOptions{})
 	caseRoot := filepath.Join(t.TempDir(), "kit")
@@ -18400,29 +18653,37 @@ func assertBoundaryHitAdapterExecutionEvidenceReviewSummary(t *testing.T, label 
 }
 
 type executionEvidenceReviewItem struct {
-	Lane                   string                                 `json:"lane"`
-	EventID                string                                 `json:"eventId"`
-	GateEventID            string                                 `json:"gateEventId"`
-	Subject                string                                 `json:"subject"`
-	Status                 string                                 `json:"status"`
-	Action                 string                                 `json:"action"`
-	OutputRefs             []string                               `json:"outputRefs"`
-	EvidenceRefs           []string                               `json:"evidenceRefs"`
-	ExecutionReportPath    string                                 `json:"executionReportPath"`
-	ExecutionReportSHA256  string                                 `json:"executionReportSha256"`
-	ActualBudget           *executionEvidenceBudgetSnapshot       `json:"actualBudget"`
-	AdapterID              string                                 `json:"adapterId"`
-	AdapterStatus          string                                 `json:"adapterStatus"`
-	AdapterContext         *adapterToolCandidateSnapshot          `json:"adapterContext"`
-	BoundaryHits           []string                               `json:"boundaryHits"`
-	Escalation             string                                 `json:"escalation"`
-	Acknowledgement        *executionEvidenceAcknowledgement      `json:"acknowledgement"`
-	FollowThrough          executionEvidenceFollowThroughSnapshot `json:"followThrough"`
-	ReviewCommand          string                                 `json:"reviewCommand"`
-	HandoffCommand         string                                 `json:"handoffCommand"`
-	ReviewRunbookSteps     []string                               `json:"reviewRunbookSteps"`
-	Boundary               []string                               `json:"boundary"`
-	MissionCommanderAction missionCommanderActionSnapshot         `json:"missionCommanderAction"`
+	Lane                          string                                 `json:"lane"`
+	EventID                       string                                 `json:"eventId"`
+	GateEventID                   string                                 `json:"gateEventId"`
+	Subject                       string                                 `json:"subject"`
+	Status                        string                                 `json:"status"`
+	Action                        string                                 `json:"action"`
+	OutputRefs                    []string                               `json:"outputRefs"`
+	EvidenceRefs                  []string                               `json:"evidenceRefs"`
+	ExecutionReportPath           string                                 `json:"executionReportPath"`
+	ExecutionReportSHA256         string                                 `json:"executionReportSha256"`
+	ActualBudget                  *executionEvidenceBudgetSnapshot       `json:"actualBudget"`
+	AdapterID                     string                                 `json:"adapterId"`
+	AdapterStatus                 string                                 `json:"adapterStatus"`
+	AdapterContext                *adapterToolCandidateSnapshot          `json:"adapterContext"`
+	AdapterExecutionReceiptPath   string                                 `json:"adapterExecutionReceiptPath"`
+	AdapterExecutionReceiptSHA256 string                                 `json:"adapterExecutionReceiptSha256"`
+	CurrentExecutor               string                                 `json:"currentExecutor"`
+	ExecutorGeneration            int                                    `json:"executorGeneration"`
+	AdapterHarness                string                                 `json:"adapterHarness"`
+	AdapterSession                string                                 `json:"adapterSession"`
+	ToolingCatalogSHA256          string                                 `json:"toolingCatalogSha256"`
+	AdapterExecutionArtifactCount int                                    `json:"adapterExecutionArtifactCount"`
+	BoundaryHits                  []string                               `json:"boundaryHits"`
+	Escalation                    string                                 `json:"escalation"`
+	Acknowledgement               *executionEvidenceAcknowledgement      `json:"acknowledgement"`
+	FollowThrough                 executionEvidenceFollowThroughSnapshot `json:"followThrough"`
+	ReviewCommand                 string                                 `json:"reviewCommand"`
+	HandoffCommand                string                                 `json:"handoffCommand"`
+	ReviewRunbookSteps            []string                               `json:"reviewRunbookSteps"`
+	Boundary                      []string                               `json:"boundary"`
+	MissionCommanderAction        missionCommanderActionSnapshot         `json:"missionCommanderAction"`
 }
 
 type executionEvidenceBudgetSnapshot struct {

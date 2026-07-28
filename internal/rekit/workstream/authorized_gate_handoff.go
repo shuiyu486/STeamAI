@@ -559,6 +559,15 @@ func writeAuthorizedGateAdapterHandoffMarkdown(out *bytes.Buffer, item Authorize
 	fmt.Fprintf(out, "  - counts: allowedStatuses=%d allowedOutputPaths=%d authorizedStops=%d adapterCandidates=%d\n", allowedStatuses, allowedOutputs, authorizedStops, adapterCandidates)
 	if live := item.LiveValidation; live != nil {
 		fmt.Fprintf(out, "  - live validation: reportFileName=%s caseRelativeReportPath=%s adapterCandidates=%d selectedAdapter=%s sidecarAdapter=%s\n", live.ReportFileName, live.CaseRelativeReportPath, live.AdapterCandidateCount, live.SelectedAdapterID, live.SidecarTemplateAdapterID)
+		if live.ReceiptRequired || live.ReceiptPresent || strings.TrimSpace(live.AdapterExecutionReceiptPath) != "" {
+			fmt.Fprintf(out, "  - receipt: required=%t present=%t provenanceValid=%t path=%s sha256=%s\n", live.ReceiptRequired, live.ReceiptPresent, live.ProvenanceValid, live.AdapterExecutionReceiptPath, live.AdapterExecutionReceiptSHA256)
+		}
+		if strings.TrimSpace(live.CurrentExecutor) != "" || live.ExecutorGeneration > 0 || strings.TrimSpace(live.AdapterHarness) != "" || strings.TrimSpace(live.AdapterSession) != "" {
+			fmt.Fprintf(out, "  - execution owner: executor=%s generation=%d harness=%s session=%s\n", live.CurrentExecutor, live.ExecutorGeneration, live.AdapterHarness, live.AdapterSession)
+		}
+		if strings.TrimSpace(live.ToolingCatalogSHA256) != "" || live.ArtifactCount > 0 {
+			fmt.Fprintf(out, "  - tooling provenance: catalogSha256=%s artifacts=%d\n", live.ToolingCatalogSHA256, live.ArtifactCount)
+		}
 		if live.SelectedAdapter != nil {
 			writeAuthorizedGateSelectedAdapterMarkdown(out, *live.SelectedAdapter)
 		}

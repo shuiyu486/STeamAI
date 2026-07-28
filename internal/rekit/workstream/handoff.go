@@ -1687,7 +1687,20 @@ func writeExecutionEvidenceReportDetail(out *bytes.Buffer, item ExecutionEvidenc
 	if strings.TrimSpace(item.AdapterID) != "" || strings.TrimSpace(item.AdapterStatus) != "" {
 		fmt.Fprintf(out, "  - adapter report: adapterId=%s status=%s\n", item.AdapterID, item.AdapterStatus)
 	}
+	writeExecutionEvidenceReceiptDetail(out, item)
 	writeExecutionEvidenceAdapterContext(out, item.AdapterContext)
+}
+
+func writeExecutionEvidenceReceiptDetail(out *bytes.Buffer, item ExecutionEvidenceReviewItem) {
+	if strings.TrimSpace(item.AdapterExecutionReceiptPath) != "" || strings.TrimSpace(item.AdapterExecutionReceiptSHA256) != "" {
+		fmt.Fprintf(out, "  - receipt: path=%s sha256=%s\n", firstText(item.AdapterExecutionReceiptPath, "none"), firstText(item.AdapterExecutionReceiptSHA256, "none"))
+	}
+	if strings.TrimSpace(item.CurrentExecutor) != "" || item.ExecutorGeneration > 0 || strings.TrimSpace(item.AdapterHarness) != "" || strings.TrimSpace(item.AdapterSession) != "" {
+		fmt.Fprintf(out, "  - execution owner: executor=%s generation=%d harness=%s session=%s\n", item.CurrentExecutor, item.ExecutorGeneration, item.AdapterHarness, item.AdapterSession)
+	}
+	if strings.TrimSpace(item.ToolingCatalogSHA256) != "" || item.AdapterExecutionArtifactCount > 0 {
+		fmt.Fprintf(out, "  - tooling provenance: catalogSha256=%s artifacts=%d\n", item.ToolingCatalogSHA256, item.AdapterExecutionArtifactCount)
+	}
 }
 
 func writeExecutionEvidenceAdapterContext(out *bytes.Buffer, context *mission.ExecutionEvidenceAdapterContext) {
