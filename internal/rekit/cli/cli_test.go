@@ -14181,6 +14181,9 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	if statusEvidence.EventID != evidence.EventID || statusEvidence.GateEventID != applied.EventID || statusEvidence.Status != "succeeded" || statusEvidence.Action != "debug" || !containsSubstring(statusEvidence.OutputRefs, "workspace/main/debug/session-1/result.json") || statusEvidence.ExecutionReportPath != "workspace/main/debug/session-1/adapter-report.json" || statusEvidence.ActualBudget == nil || statusEvidence.ActualBudget.RuntimeSeconds != 20 || statusEvidence.ActualBudget.DiskMB != 32 || statusEvidence.ActualBudget.Requests != 1 || statusEvidence.AdapterID != "nested-cli-adapter" || statusEvidence.AdapterStatus != "succeeded" || statusEvidence.MissionCommanderAction.State != "ready-for-evidence-review" || statusEvidence.MissionCommanderAction.PrimaryCommand != "/rekit handoff main" || statusEvidence.FollowThrough.State != "ready-for-evidence-review" || !cliExecutionEvidenceFollowThroughContains(statusEvidence.FollowThrough, "recorded-evidence-review", "reviewed outputRefs/evidenceRefs") {
 		t.Fatalf("no-pack status omitted recorded adapter evidence review handoff: %+v", statusEvidence)
 	}
+	if statusEvidence.Acknowledgement == nil || statusEvidence.Acknowledgement.State != "ready-for-acknowledgement-preview" || !strings.Contains(statusEvidence.Acknowledgement.AcceptedPreviewCommand, "/rekit note -Kind verification -Lane main") || !strings.Contains(statusEvidence.Acknowledgement.AcceptedPreviewCommand, "-Verdict accepted") || !strings.Contains(statusEvidence.Acknowledgement.AcceptedPreviewCommand, "-Status resolved") || !strings.Contains(statusEvidence.Acknowledgement.AcceptedPreviewCommand, "-Related "+evidence.EventID+","+applied.EventID) || !strings.Contains(statusEvidence.Acknowledgement.RejectedPreviewCommand, "-Verdict rejected") || !strings.Contains(statusEvidence.Acknowledgement.RecordCommand, "hash-bound recordCommand") || !containsSubstring(statusEvidence.Acknowledgement.EvidenceRefs, "workspace/main/debug/session-1/result.json") || !containsSubstring(statusEvidence.Acknowledgement.EvidenceRefs, "workspace/main/debug/session-1/adapter-report.json") || !containsSubstring(statusEvidence.Acknowledgement.Boundary, "no authority/confirmed") {
+		t.Fatalf("no-pack status omitted evidence acknowledgement product path: %+v", statusEvidence.Acknowledgement)
+	}
 	assertNestedAdapterExecutionEvidenceReviewSummary(t, "no-pack status JSON", status.CaseMission.ExecutionEvidenceReviewSummary, evidence.EventID, applied.EventID)
 	queue := status.CaseMission.MissionCommanderActionQueue
 	if queue.CurrentAction == nil || queue.CurrentAction.Source != "executionEvidenceReview" || queue.CurrentAction.Command != "/rekit handoff main" || !queue.CurrentAction.RequiresReview || queue.Counts.Total == 0 || queue.Counts.RequiresReview == 0 {
@@ -14198,6 +14201,12 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 		"status case mission evidence review summary boundary：no authority/confirmed writes",
 		"status case mission evidence review：eventId=" + evidence.EventID + " gateEventId=" + applied.EventID + " status=succeeded action=debug",
 		"review=review outputRefs/evidenceRefs for gateEventId " + applied.EventID + " handoff=/rekit handoff main commanderState=ready-for-evidence-review commanderPrimary=/rekit handoff main",
+		"status case mission evidence acknowledgement：eventId=" + evidence.EventID + " state=ready-for-acknowledgement-preview acceptedPreview=/rekit note -Kind verification -Lane main",
+		"-Verdict accepted -Status resolved -Related " + evidence.EventID + "," + applied.EventID,
+		"rejectedPreview=/rekit note -Kind verification -Lane main",
+		"-Verdict rejected -Status rejected -Related " + evidence.EventID + "," + applied.EventID,
+		"record=run the hash-bound recordCommand returned by the acknowledgement note -WhatIf",
+		"status case mission evidence acknowledgement boundary：eventId=" + evidence.EventID + " boundary=acknowledgement only closes execution evidence review; no authority/confirmed writes and no heavy-tool replay",
 		"status case mission evidence report：eventId=" + evidence.EventID + " path=workspace/main/debug/session-1/adapter-report.json sha256=" + statusEvidence.ExecutionReportSHA256,
 		"status case mission evidence budget：eventId=" + evidence.EventID + " runtimeSeconds=20 diskMB=32 requests=1",
 		"status case mission evidence adapter：eventId=" + evidence.EventID + " adapterId=nested-cli-adapter status=succeeded",
@@ -14606,23 +14615,10 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 
 	beforeReviewNote := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 	out.Reset()
-	verificationArgs := []string{
-		"-Command", "note",
-		"-Kind", "verification",
-		"-Lane", "main",
-		"-Subject", "adapter evidence reviewed",
-		"-Summary", "reviewed recorded adapter output refs",
-		"-Actor", "runtime-test",
-		"-Verifier", "manual-review",
-		"-Verdict", "accepted",
-		"-Status", "resolved",
-		"-Related", evidence.EventID,
-		"-EvidenceRefs", "workspace/main/debug/session-1/result.json",
-		"-EventId", "verify-" + evidence.EventID,
-		"-CreatedAt", "2026-07-26T00:00:00Z",
-		"-Format", "json",
+	previewVerificationArgs := rekitCommandCLIArgs(t, statusEvidence.Acknowledgement.AcceptedPreviewCommand)
+	if !containsArgValue(previewVerificationArgs, "-WhatIf") || !containsArgValue(previewVerificationArgs, "-Verdict") || !containsArgValue(previewVerificationArgs, "accepted") || !containsArgValue(previewVerificationArgs, "-Related") || !containsArgValue(previewVerificationArgs, evidence.EventID+","+applied.EventID) {
+		t.Fatalf("acknowledgement accepted preview command args drifted: command=%q args=%v", statusEvidence.Acknowledgement.AcceptedPreviewCommand, previewVerificationArgs)
 	}
-	previewVerificationArgs := append(append([]string{}, verificationArgs...), "-WhatIf")
 	if err := Run(previewVerificationArgs, &out); err != nil {
 		t.Fatal(err)
 	}
@@ -14636,12 +14632,12 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	if err := json.Unmarshal(out.Bytes(), &verificationPreview); err != nil {
 		t.Fatalf("verification ack note preview stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if verificationPreview.Applied || verificationPreview.Reason != "what-if" || verificationPreview.EventID != "verify-"+evidence.EventID || len(verificationPreview.EventSHA256) != 64 || !strings.Contains(verificationPreview.RecordCommand, "-ExpectedNoteEventSha256 "+verificationPreview.EventSHA256) {
+	if verificationPreview.Applied || verificationPreview.Reason != "what-if" || verificationPreview.EventID == "" || len(verificationPreview.EventSHA256) != 64 || !strings.Contains(verificationPreview.RecordCommand, "-ExpectedNoteEventSha256 "+verificationPreview.EventSHA256) || !strings.Contains(verificationPreview.RecordCommand, "-EventId "+verificationPreview.EventID) {
 		t.Fatalf("unexpected verification ack note preview: %+v", verificationPreview)
 	}
 	assertSnapshotEqual(t, beforeReviewNote, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 	out.Reset()
-	applyVerificationArgs := append(append([]string{}, verificationArgs...), "-ExpectedNoteEventSha256", verificationPreview.EventSHA256)
+	applyVerificationArgs := rekitCommandCLIArgs(t, verificationPreview.RecordCommand)
 	if err := Run(applyVerificationArgs, &out); err != nil {
 		t.Fatal(err)
 	}
@@ -14659,14 +14655,14 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	if err := json.Unmarshal(out.Bytes(), &verificationApply); err != nil {
 		t.Fatalf("verification ack note apply stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if !verificationApply.Applied || verificationApply.EventID != verificationPreview.EventID || verificationApply.Path != ".rekit/facts/verifications.jsonl" || verificationApply.Event.Kind != "verification" || strings.Join(verificationApply.Event.Related, ",") != evidence.EventID || verificationApply.Event.Status != "resolved" || verificationApply.Event.Verdict != "accepted" {
+	if !verificationApply.Applied || verificationApply.EventID != verificationPreview.EventID || verificationApply.Path != ".rekit/facts/verifications.jsonl" || verificationApply.Event.Kind != "verification" || strings.Join(verificationApply.Event.Related, ",") != evidence.EventID+","+applied.EventID || verificationApply.Event.Status != "resolved" || verificationApply.Event.Verdict != "accepted" {
 		t.Fatalf("unexpected verification ack note apply: %+v", verificationApply)
 	}
 	verifications, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(verifications), `"related":["`+evidence.EventID+`"]`) || !strings.Contains(string(verifications), `"status":"resolved"`) || !strings.Contains(string(verifications), `"verdict":"accepted"`) {
+	if !strings.Contains(string(verifications), `"related":["`+evidence.EventID+`","`+applied.EventID+`"]`) || !strings.Contains(string(verifications), `"status":"resolved"`) || !strings.Contains(string(verifications), `"verdict":"accepted"`) {
 		t.Fatalf("verification ack note ledger mismatch:\n%s", string(verifications))
 	}
 	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl")); !os.IsNotExist(err) {
@@ -17939,6 +17935,7 @@ func assertBoundaryHitAdapterExecutionEvidenceReviewSummary(t *testing.T, label 
 }
 
 type executionEvidenceReviewItem struct {
+	Lane                   string                                 `json:"lane"`
 	EventID                string                                 `json:"eventId"`
 	GateEventID            string                                 `json:"gateEventId"`
 	Subject                string                                 `json:"subject"`
@@ -17954,6 +17951,7 @@ type executionEvidenceReviewItem struct {
 	AdapterContext         *adapterToolCandidateSnapshot          `json:"adapterContext"`
 	BoundaryHits           []string                               `json:"boundaryHits"`
 	Escalation             string                                 `json:"escalation"`
+	Acknowledgement        *executionEvidenceAcknowledgement      `json:"acknowledgement"`
 	FollowThrough          executionEvidenceFollowThroughSnapshot `json:"followThrough"`
 	ReviewCommand          string                                 `json:"reviewCommand"`
 	HandoffCommand         string                                 `json:"handoffCommand"`
@@ -17966,6 +17964,16 @@ type executionEvidenceBudgetSnapshot struct {
 	RuntimeSeconds int `json:"runtimeSeconds"`
 	DiskMB         int `json:"diskMB"`
 	Requests       int `json:"requests"`
+}
+
+type executionEvidenceAcknowledgement struct {
+	State                  string   `json:"state"`
+	AcceptedPreviewCommand string   `json:"acceptedPreviewCommand"`
+	RejectedPreviewCommand string   `json:"rejectedPreviewCommand"`
+	RecordCommand          string   `json:"recordCommand"`
+	Related                []string `json:"related"`
+	EvidenceRefs           []string `json:"evidenceRefs"`
+	Boundary               []string `json:"boundary"`
 }
 
 type executionEvidenceFollowThroughSnapshot struct {
@@ -18881,6 +18889,75 @@ func assertMovedCaseRepairPreviewDiagnostic(t *testing.T, err error, caseRoot, p
 func containsMissionCommanderNextActionsCommand(items []missionCommanderNextActionItem, want string) bool {
 	for _, item := range items {
 		if strings.Contains(item.Command, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func rekitCommandCLIArgs(t *testing.T, command string) []string {
+	t.Helper()
+	fields := splitShellCommand(t, command)
+	if len(fields) < 2 || fields[0] != "/rekit" {
+		t.Fatalf("unexpected rekit command: %q", command)
+	}
+	args := []string{"-Command", fields[1]}
+	return append(args, fields[2:]...)
+}
+
+func splitShellCommand(t *testing.T, command string) []string {
+	t.Helper()
+	command = strings.TrimSpace(command)
+	if command == "" {
+		t.Fatal("empty shell command")
+	}
+	fields := []string{}
+	var current strings.Builder
+	inQuote := false
+	inField := false
+	for i := 0; i < len(command); i++ {
+		ch := command[i]
+		if inQuote {
+			inField = true
+			if ch == '\\' && i+1 < len(command) && command[i+1] == '"' {
+				current.WriteByte('"')
+				i++
+				continue
+			}
+			if ch == '"' {
+				inQuote = false
+				continue
+			}
+			current.WriteByte(ch)
+			continue
+		}
+		switch ch {
+		case ' ', '\t', '\n', '\r':
+			if inField {
+				fields = append(fields, current.String())
+				current.Reset()
+				inField = false
+			}
+		case '"':
+			inQuote = true
+			inField = true
+		default:
+			inField = true
+			current.WriteByte(ch)
+		}
+	}
+	if inQuote {
+		t.Fatalf("unterminated quote in shell command: %q", command)
+	}
+	if inField {
+		fields = append(fields, current.String())
+	}
+	return fields
+}
+
+func containsArgValue(args []string, want string) bool {
+	for _, arg := range args {
+		if strings.Contains(arg, want) {
 			return true
 		}
 	}

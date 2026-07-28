@@ -173,6 +173,7 @@ func ExecutionEvidenceReviewItemFromObservation(observation map[string]any, lane
 		boundary = append(boundary, "boundary/escalation requires main review before autonomous continuation")
 	}
 	item := ExecutionEvidenceReviewItem{
+		Lane:                  lane,
 		EventID:               firstObjectText(observation, "eventId"),
 		GateEventID:           gateEventID,
 		Subject:               firstObjectText(observation, "subject"),
@@ -194,20 +195,109 @@ func ExecutionEvidenceReviewItemFromObservation(observation map[string]any, lane
 		HandoffCommand:        "/rekit handoff " + label,
 		Boundary:              boundary,
 	}
+	item.Acknowledgement = ExecutionEvidenceReviewAcknowledgementFor(item)
 	item.MissionCommanderAction = ExecutionEvidenceReviewCommanderAction(item, label)
 	item.FollowThrough = ExecutionEvidenceReviewFollowThrough(item)
 	item.ReviewRunbookSteps = ExecutionEvidenceReviewRunbookSteps(item, true)
 	return item, true
 }
 
+func ExecutionEvidenceReviewAcknowledgementFor(item ExecutionEvidenceReviewItem) *ExecutionEvidenceReviewAcknowledgement {
+	related := executionEvidenceReviewAcknowledgementRelated(item)
+	if len(related) == 0 {
+		return nil
+	}
+	ack := &ExecutionEvidenceReviewAcknowledgement{
+		State:         "ready-for-acknowledgement-preview",
+		RecordCommand: "run the hash-bound recordCommand returned by the acknowledgement note -WhatIf",
+		Related:       related,
+		EvidenceRefs:  executionEvidenceReviewAcknowledgementEvidenceRefs(item),
+		Boundary: []string{
+			"review outputRefs/evidenceRefs before running the acknowledgement note preview",
+			"acknowledgement uses note -Kind verification -WhatIf first; run only the returned hash-bound recordCommand after review",
+			"acknowledgement only closes execution evidence review; no authority/confirmed writes and no heavy-tool replay",
+		},
+	}
+	if ExecutionEvidenceReviewItemNeedsMainReview(item) {
+		ack.State = "requires-main-review-before-acknowledgement"
+		ack.RecordCommand = "main Agent must review boundary/escalation before choosing an acknowledgement note"
+		ack.Boundary = append(ack.Boundary, "boundary/escalation requires main review before any accepted/rejected acknowledgement note")
+		return ack
+	}
+	ack.AcceptedPreviewCommand = executionEvidenceReviewAcknowledgementCommand(item, "accepted")
+	ack.RejectedPreviewCommand = executionEvidenceReviewAcknowledgementCommand(item, "rejected")
+	return ack
+}
+
+func executionEvidenceReviewAcknowledgementRelated(item ExecutionEvidenceReviewItem) []string {
+	return UniqueStrings(compactStrings([]string{item.EventID, item.GateEventID}))
+}
+
+func executionEvidenceReviewAcknowledgementEvidenceRefs(item ExecutionEvidenceReviewItem) []string {
+	refs := append([]string{}, item.OutputRefs...)
+	refs = append(refs, item.EvidenceRefs...)
+	if item.ExecutionReportPath != "" {
+		refs = append(refs, item.ExecutionReportPath)
+	}
+	return UniqueStrings(compactStrings(refs))
+}
+
+func executionEvidenceReviewAcknowledgementCommand(item ExecutionEvidenceReviewItem, verdict string) string {
+	lane := evidenceReviewLane(item)
+	if lane == "" {
+		lane = strings.TrimSpace(item.Lane)
+	}
+	if lane == "" {
+		lane = "main"
+	}
+	verdict = strings.ToLower(strings.TrimSpace(verdict))
+	status := "resolved"
+	subject := "execution evidence review accepted"
+	summary := "accepted recorded execution evidence"
+	if verdict == "rejected" {
+		status = "rejected"
+		subject = "execution evidence review rejected"
+		summary = "rejected recorded execution evidence"
+	}
+	if item.GateEventID != "" {
+		summary += " for gateEventId " + item.GateEventID
+	}
+	args := []string{
+		"/rekit", "note",
+		"-Kind", "verification",
+		"-Lane", lane,
+		"-Subject", subject,
+		"-Summary", summary,
+		"-Verifier", "manual-review",
+		"-Verdict", verdict,
+		"-Status", status,
+		"-Related", strings.Join(executionEvidenceReviewAcknowledgementRelated(item), ","),
+		"-Reason", "reviewed outputRefs/evidenceRefs before closing execution evidence review",
+	}
+	if target := FirstText(item.Target, item.ExecutionReportPath, item.GateEventID); target != "" {
+		args = append(args, "-TargetRef", target)
+	}
+	if refs := executionEvidenceReviewAcknowledgementEvidenceRefs(item); len(refs) > 0 {
+		args = append(args, "-EvidenceRefs", strings.Join(refs, ","))
+	}
+	args = append(args, "-WhatIf", "-Format", "json")
+	for i := range args {
+		args[i] = quoteCommandArg(args[i])
+	}
+	return strings.Join(args, " ")
+}
+
 func ExecutionEvidenceReviewCommanderAction(item ExecutionEvidenceReviewItem, label string) MissionCommanderAction {
 	state := "ready-for-evidence-review"
-	prompt := "authorized gate `" + item.GateEventID + "` 的 observation evidence 已记录；先 review output/evidence refs，再考虑任何 authority/confirmed outcome。"
+	prompt := "authorized gate `" + item.GateEventID + "` 的 observation evidence 已记录；先 review output/evidence refs，再用 acknowledgement note -WhatIf 预览关闭 review。"
 	if ExecutionEvidenceReviewItemNeedsMainReview(item) {
 		state = "needs-main-escalation"
 		prompt = "authorized gate `" + item.GateEventID + "` 的 observation evidence 记录了 boundary/escalation；停止该 action 的自主推进并通知 main Agent。"
 	}
 	boundary := append([]string{}, item.Boundary...)
+	if item.Acknowledgement != nil {
+		boundary = append(boundary, item.Acknowledgement.Boundary...)
+	}
 	if len(boundary) == 0 {
 		boundary = []string{
 			"observation evidence is already recorded; do not replay heavy tool",
@@ -227,7 +317,7 @@ func ExecutionEvidenceReviewCommanderAction(item ExecutionEvidenceReviewItem, la
 		Prompt:           prompt,
 		PrimaryCommand:   item.HandoffCommand,
 		FollowUpCommands: followUp,
-		Boundary:         boundary,
+		Boundary:         UniqueStrings(compactStrings(boundary)),
 	}
 }
 
@@ -290,6 +380,17 @@ func ExecutionEvidenceReviewRunbookSteps(item ExecutionEvidenceReviewItem, inclu
 	}
 	steps = append(steps, "do not replay the heavy tool or adapter action")
 	steps = append(steps, "do not write authority/confirmed from evidence review")
+	if ack := item.Acknowledgement; ack != nil {
+		if ack.AcceptedPreviewCommand != "" {
+			steps = append(steps, "after review, preview accepted acknowledgement note: "+ack.AcceptedPreviewCommand)
+		}
+		if ack.RejectedPreviewCommand != "" {
+			steps = append(steps, "if evidence review rejects the observation, preview rejected acknowledgement note: "+ack.RejectedPreviewCommand)
+		}
+		if ack.RecordCommand != "" {
+			steps = append(steps, ack.RecordCommand)
+		}
+	}
 	if command := strings.TrimSpace(item.MissionCommanderAction.PrimaryCommand); command != "" {
 		steps = append(steps, command)
 	} else if command := strings.TrimSpace(item.HandoffCommand); command != "" {

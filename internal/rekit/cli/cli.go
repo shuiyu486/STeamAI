@@ -2844,6 +2844,9 @@ func writeStatusMissionCommanderFirstScreenText(out io.Writer, caseMission *stat
 			if err := writeStatusMissionCommanderFirstScreenAuthorizedGateText(out, caseMission.AuthorizedGateHandoffs, caseCurrent); err != nil {
 				return err
 			}
+			if err := writeStatusMissionCommanderFirstScreenEvidenceAcknowledgementText(out, caseMission.ExecutionEvidenceReview, caseCurrent); err != nil {
+				return err
+			}
 		}
 	case "reviewer-current-action":
 		if err := writeStatusMissionCommanderFirstScreenActionText(out, "reviewer", reviewerCurrent); err != nil {
@@ -3255,6 +3258,28 @@ func writeStatusMissionCommanderFirstScreenAuthorizedGateText(out io.Writer, han
 		if _, err := fmt.Fprintf(out, "status Mission Commander focus authorized gate evidence：eventId=%s evidence=%s\n", handoff.EventID, evidence); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func writeStatusMissionCommanderFirstScreenEvidenceAcknowledgementText(out io.Writer, items []workstream.ExecutionEvidenceReviewItem, current *mission.MissionCommanderNextActionItem) error {
+	if current == nil || !strings.HasPrefix(current.Source, "executionEvidenceReview") {
+		return nil
+	}
+	for _, item := range items {
+		if strings.TrimSpace(current.GateEventID) != "" && item.GateEventID != current.GateEventID {
+			continue
+		}
+		if strings.TrimSpace(current.GateEventID) == "" && strings.TrimSpace(current.Label) != "" && item.GateEventID != current.Label && item.EventID != current.Label {
+			continue
+		}
+		if _, err := fmt.Fprintf(out, "status Mission Commander focus evidence acknowledgement package：eventId=%s gateEventId=%s lane=%s state=%s command=%s\n", item.EventID, item.GateEventID, current.Lane, current.State, current.Command); err != nil {
+			return err
+		}
+		if err := writeExecutionEvidenceAcknowledgementText(out, "status Mission Commander focus evidence", item.EventID, item.Acknowledgement); err != nil {
+			return err
+		}
+		return nil
 	}
 	return nil
 }
@@ -3680,6 +3705,9 @@ func writeStatusCaseMissionText(out io.Writer, summary *statusCaseMission) error
 			return err
 		}
 		if err := writeExecutionEvidenceBoundaryDetailText(out, "status case mission evidence", item.EventID, item.BoundaryHits, item.Escalation); err != nil {
+			return err
+		}
+		if err := writeExecutionEvidenceAcknowledgementText(out, "status case mission evidence", item.EventID, item.Acknowledgement); err != nil {
 			return err
 		}
 		if err := writeExecutionEvidenceReportDetailText(out, "status case mission evidence", item.EventID, item); err != nil {
@@ -7341,6 +7369,21 @@ func writeExecutionEvidenceAdapterContextText(out io.Writer, prefix, eventID str
 	return nil
 }
 
+func writeExecutionEvidenceAcknowledgementText(out io.Writer, prefix, eventID string, ack *mission.ExecutionEvidenceReviewAcknowledgement) error {
+	if ack == nil {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "%s acknowledgement：eventId=%s state=%s acceptedPreview=%s rejectedPreview=%s record=%s related=%s evidenceRefs=%s\n", prefix, eventID, ack.State, ack.AcceptedPreviewCommand, ack.RejectedPreviewCommand, ack.RecordCommand, strings.Join(ack.Related, ","), strings.Join(ack.EvidenceRefs, ",")); err != nil {
+		return err
+	}
+	for _, boundary := range ack.Boundary {
+		if _, err := fmt.Fprintf(out, "%s acknowledgement boundary：eventId=%s boundary=%s\n", prefix, eventID, boundary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func writeExecutionEvidenceReportDetailText(out io.Writer, prefix, eventID string, item workstream.ExecutionEvidenceReviewItem) error {
 	if strings.TrimSpace(item.ExecutionReportPath) != "" || strings.TrimSpace(item.ExecutionReportSHA256) != "" {
 		if _, err := fmt.Fprintf(out, "%s report：eventId=%s path=%s sha256=%s\n", prefix, eventID, item.ExecutionReportPath, item.ExecutionReportSHA256); err != nil {
@@ -7405,6 +7448,9 @@ func writeExecutionEvidenceReviewText(out io.Writer, prefix string, items []work
 			return err
 		}
 		if err := writeExecutionEvidenceBoundaryDetailText(out, prefix, item.EventID, item.BoundaryHits, item.Escalation); err != nil {
+			return err
+		}
+		if err := writeExecutionEvidenceAcknowledgementText(out, prefix, item.EventID, item.Acknowledgement); err != nil {
 			return err
 		}
 		if err := writeExecutionEvidenceReportDetailText(out, prefix, item.EventID, item); err != nil {

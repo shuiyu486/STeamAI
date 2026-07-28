@@ -1582,6 +1582,7 @@ func writeExecutionEvidenceReviewSection(out *bytes.Buffer, items []ExecutionEvi
 		fmt.Fprintf(out, "- %s | status=%s | gateEventId=%s | action=%s | outputRefs=%s | evidenceRefs=%s\n", firstText(item.Subject, item.Summary, item.EventID), item.Status, item.GateEventID, item.Action, firstText(strings.Join(item.OutputRefs, ","), "none"), firstText(strings.Join(item.EvidenceRefs, ","), "none"))
 		writeExecutionEvidenceBoundaryDetail(out, item)
 		writeExecutionEvidenceReportDetail(out, item)
+		writeExecutionEvidenceAcknowledgement(out, item)
 		fmt.Fprintf(out, "  - review command: `%s`\n", item.ReviewCommand)
 		fmt.Fprintf(out, "  - handoff command: `%s`\n", item.HandoffCommand)
 		for idx, step := range item.ReviewRunbookSteps {
@@ -1637,6 +1638,17 @@ func writeExecutionEvidenceBoundaryDetail(out *bytes.Buffer, item ExecutionEvide
 	}
 	if strings.TrimSpace(item.Escalation) != "" {
 		fmt.Fprintf(out, "  - escalation: %s\n", item.Escalation)
+	}
+}
+
+func writeExecutionEvidenceAcknowledgement(out *bytes.Buffer, item ExecutionEvidenceReviewItem) {
+	ack := item.Acknowledgement
+	if ack == nil {
+		return
+	}
+	fmt.Fprintf(out, "  - acknowledgement: state=%s acceptedPreview=`%s` rejectedPreview=`%s` record=%s related=%s evidenceRefs=%s\n", ack.State, ack.AcceptedPreviewCommand, ack.RejectedPreviewCommand, ack.RecordCommand, strings.Join(ack.Related, ","), strings.Join(ack.EvidenceRefs, ","))
+	for _, boundary := range mission.LimitStrings(ack.Boundary, maxHandoffRows) {
+		fmt.Fprintf(out, "    - acknowledgement boundary: %s\n", boundary)
 	}
 }
 

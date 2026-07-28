@@ -118,29 +118,41 @@ type MissionCommanderActionQueueCounts struct {
 }
 
 type ExecutionEvidenceReviewItem struct {
-	EventID                string                           `json:"eventId,omitempty"`
-	GateEventID            string                           `json:"gateEventId,omitempty"`
-	Subject                string                           `json:"subject,omitempty"`
-	Summary                string                           `json:"summary,omitempty"`
-	Status                 string                           `json:"status,omitempty"`
-	Action                 string                           `json:"action,omitempty"`
-	Target                 string                           `json:"target,omitempty"`
-	OutputRefs             []string                         `json:"outputRefs,omitempty"`
-	EvidenceRefs           []string                         `json:"evidenceRefs,omitempty"`
-	ExecutionReportPath    string                           `json:"executionReportPath,omitempty"`
-	ExecutionReportSHA256  string                           `json:"executionReportSha256,omitempty"`
-	ActualBudget           *ExecutionEvidenceBudget         `json:"actualBudget,omitempty"`
-	AdapterID              string                           `json:"adapterId,omitempty"`
-	AdapterStatus          string                           `json:"adapterStatus,omitempty"`
-	AdapterContext         *ExecutionEvidenceAdapterContext `json:"adapterContext,omitempty"`
-	BoundaryHits           []string                         `json:"boundaryHits,omitempty"`
-	Escalation             string                           `json:"escalation,omitempty"`
-	FollowThrough          ExecutionEvidenceFollowThrough   `json:"followThrough"`
-	ReviewCommand          string                           `json:"reviewCommand"`
-	HandoffCommand         string                           `json:"handoffCommand"`
-	ReviewRunbookSteps     []string                         `json:"reviewRunbookSteps,omitempty"`
-	Boundary               []string                         `json:"boundary"`
-	MissionCommanderAction MissionCommanderAction           `json:"missionCommanderAction"`
+	Lane                   string                                  `json:"lane,omitempty"`
+	EventID                string                                  `json:"eventId,omitempty"`
+	GateEventID            string                                  `json:"gateEventId,omitempty"`
+	Subject                string                                  `json:"subject,omitempty"`
+	Summary                string                                  `json:"summary,omitempty"`
+	Status                 string                                  `json:"status,omitempty"`
+	Action                 string                                  `json:"action,omitempty"`
+	Target                 string                                  `json:"target,omitempty"`
+	OutputRefs             []string                                `json:"outputRefs,omitempty"`
+	EvidenceRefs           []string                                `json:"evidenceRefs,omitempty"`
+	ExecutionReportPath    string                                  `json:"executionReportPath,omitempty"`
+	ExecutionReportSHA256  string                                  `json:"executionReportSha256,omitempty"`
+	ActualBudget           *ExecutionEvidenceBudget                `json:"actualBudget,omitempty"`
+	AdapterID              string                                  `json:"adapterId,omitempty"`
+	AdapterStatus          string                                  `json:"adapterStatus,omitempty"`
+	AdapterContext         *ExecutionEvidenceAdapterContext        `json:"adapterContext,omitempty"`
+	BoundaryHits           []string                                `json:"boundaryHits,omitempty"`
+	Escalation             string                                  `json:"escalation,omitempty"`
+	Acknowledgement        *ExecutionEvidenceReviewAcknowledgement `json:"acknowledgement,omitempty"`
+	FollowThrough          ExecutionEvidenceFollowThrough          `json:"followThrough"`
+	ReviewCommand          string                                  `json:"reviewCommand"`
+	HandoffCommand         string                                  `json:"handoffCommand"`
+	ReviewRunbookSteps     []string                                `json:"reviewRunbookSteps,omitempty"`
+	Boundary               []string                                `json:"boundary"`
+	MissionCommanderAction MissionCommanderAction                  `json:"missionCommanderAction"`
+}
+
+type ExecutionEvidenceReviewAcknowledgement struct {
+	State                  string   `json:"state"`
+	AcceptedPreviewCommand string   `json:"acceptedPreviewCommand,omitempty"`
+	RejectedPreviewCommand string   `json:"rejectedPreviewCommand,omitempty"`
+	RecordCommand          string   `json:"recordCommand,omitempty"`
+	Related                []string `json:"related,omitempty"`
+	EvidenceRefs           []string `json:"evidenceRefs,omitempty"`
+	Boundary               []string `json:"boundary,omitempty"`
 }
 
 type ExecutionEvidenceAdapterContext struct {
@@ -515,9 +527,12 @@ func evidenceReviewLabel(item ExecutionEvidenceReviewItem) string {
 }
 
 func evidenceReviewLane(item ExecutionEvidenceReviewItem) string {
-	command := strings.TrimSpace(item.MissionCommanderAction.PrimaryCommand)
+	if lane := strings.TrimSpace(item.Lane); lane != "" {
+		return lane
+	}
+	command := strings.TrimSpace(item.HandoffCommand)
 	if command == "" {
-		command = strings.TrimSpace(item.HandoffCommand)
+		command = strings.TrimSpace(item.MissionCommanderAction.PrimaryCommand)
 	}
 	if lane, ok := strings.CutPrefix(command, "/rekit handoff "); ok {
 		return strings.TrimSpace(lane)
