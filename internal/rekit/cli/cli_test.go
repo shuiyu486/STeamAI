@@ -11790,6 +11790,38 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 		t.Fatalf("release-check recreated canonical candidate verification workspace: %v", err)
 	}
 
+	factsBeforeRetiredHandoff := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	retiredHandoff := decodeHandoffResult(t, out.Bytes())
+	if !retiredHandoff.Project || !retiredHandoff.IsMutation || !retiredHandoff.Applied {
+		t.Fatalf("retired candidate handoff was not a durable project apply: %+v", retiredHandoff)
+	}
+	for _, action := range retiredHandoff.MissionCommanderNextActions {
+		if strings.HasPrefix(action.Source, "packMemoryCandidates.") || strings.Contains(action.State, "pack-memory-proof") || strings.Contains(action.ActionID, "pack-memory-") {
+			t.Fatalf("retired candidate handoff reopened pack-memory proof action: %+v", action)
+		}
+	}
+	retiredHandoffCurrent := retiredHandoff.MissionCommanderActionQueue.CurrentAction
+	if retiredHandoffCurrent != nil && (strings.HasPrefix(retiredHandoffCurrent.Source, "packMemoryCandidates.") || strings.Contains(retiredHandoffCurrent.State, "pack-memory-proof") || strings.Contains(retiredHandoffCurrent.ActionID, "pack-memory-")) {
+		t.Fatalf("retired candidate handoff selected a closed pack-memory proof action: %+v", retiredHandoffCurrent)
+	}
+	retiredLatestHandoff := assertStartWrite(t, retiredHandoff.Writes, ".rekit/handovers/latest.md", "write-latest-project-handoff")
+	retiredHandoffText, err := os.ReadFile(retiredLatestHandoff.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"source=packMemoryCandidates._template", "pack-memory-decision-proof-required", "pack-memory-cleanup-proof-required", "pack-memory-reconsume-proof-required", "pack-memory-verification-retirement-required"} {
+		if strings.Contains(string(retiredHandoffText), forbidden) {
+			t.Fatalf("retired candidate durable handoff reopened closed pack-memory action %q:\n%s", forbidden, string(retiredHandoffText))
+		}
+	}
+	assertSnapshotEqual(t, factsBeforeRetiredHandoff, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
+
 	if err := os.MkdirAll(retirementApplied.WorkspaceRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}

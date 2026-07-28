@@ -16,9 +16,21 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 702：pack-memory proof closure to durable project handoff
+
+状态：已完成 CLI product-path regression、文档/CHANGELOG、完整本机 release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit与远程 run 详情将在提交推送后回填。本批从既有 pack-memory candidate decision verification/retirement 生命周期继续推进 replacement executor 接手断点：status/release-check 已证明 retirement 后 pack-memory candidate queue 关闭，但尚未证明随后生成 project durable handoff 不会把已关闭的 proof/verification action 重新注入 action queue 或 handoff Markdown。
+
+目标：在 `TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply` 完成 candidate verification retirement、`status`/`release-check` 确认 pack-memory queue closed 后，执行 project `handoff -Apply -Format json`。回归必须验证 project handoff mutation/applied、Mission Commander next actions 与 current action 不含已关闭的 `packMemoryCandidates.*` / `pack-memory-proof` / `pack-memory-*` action，`.rekit/handovers/latest.md` 不含关闭的 decision/cleanup/reconsume/retirement proof action，并且 facts、authority、confirmed 保持不变。
+
+边界：本批不新增 public command，不新增或迁移 durable schema，不改变 promote verification/retirement 或 handoff mutation semantics，不自动 merge/cleanup/provision/verify/retire/reconsume，不执行 heavy tool、reviewer、adapter、gate、sync 或 promote 之外的测试 mutation，不写 authority/confirmed，不新增 PowerShell runtime logic。唯一新增覆盖是已完成 pack-memory proof/verification closure 后的 explicit project `handoff -Apply` durable handoff；handoff 仍只写既有 handover/resume/checkpoint 产物，facts ledger 必须保持不变。
+
+已实现内容：扩展 `TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply`。测试在 verification retirement Apply 后、status/release-check 证明 pack-memory candidate inventory closed 的阶段，保存 `.rekit/facts` snapshot，执行 project `handoff -Apply -Format json`，断言 handoff JSON 的 project mutation/applied 与 Mission Commander queue 不再包含任何已关闭的 pack-memory source/state/action；随后读取 `.rekit/handovers/latest.md`，断言 durable Markdown 不再带回 pack-memory proof/verification actions；最后确认 facts 未变化且未创建 authority/confirmed ledger。
+
+验证结果：focused CLI E2E 已通过：`go test ./internal/rekit/cli -run TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply -count=1`。完整本机 release minimum、implementation commit/push 与远程 release-gate inspection 待执行。
+
 ### Batch 701：open decision closure to durable handoff continuation
 
-状态：已完成 CLI product-path regression、文档/CHANGELOG 与完整本机 release minimum；implementation commit/push 与 push-triggered remote release-gate inspection 待执行。本批从 Batch 700 的 `continue main -Apply` durable run/status/digest/RESUME/checkpoint closure 再往 replacement executor handoff 前进一跳：Batch 700 已证明 decision closure 后可真实写出 lane continuation，但接手者仍需要证明随后执行 `handoff main -Apply` 会生成 durable lane handoff markdown/JSON，并且不会重新打开已关闭的 open decision blocker 或触碰 authority/confirmed facts。
+状态：已完成 CLI product-path regression、文档/CHANGELOG、完整本机 release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `724a516` 已推送，release inspection commit `3b689cd` 已推送。Push run `30360987878` completed failure；macOS/Linux/Windows jobs `90280444970`/`90280444913`/`90280444867` 均 `steps=[]`；release inspection commit 自己触发的 run `30361413057` 也 completed failure，macOS/Linux/Windows jobs `90281838088`/`90281838102`/`90281838106` 均 `steps=[]`；`gh run view 30361413057 --log-failed` 返回 `log not found: 90281838088`。这是既有 runner/billing blocker，未发现新的远程 release signal，不声明 remote green。本批从 Batch 700 的 `continue main -Apply` durable run/status/digest/RESUME/checkpoint closure 再往 replacement executor handoff 前进一跳：Batch 700 已证明 decision closure 后可真实写出 lane continuation，但接手者仍需要证明随后执行 `handoff main -Apply` 会生成 durable lane handoff markdown/JSON，并且不会重新打开已关闭的 open decision blocker 或触碰 authority/confirmed facts。
 
 目标：在 `TestRunOpenDecisionFirstScreenHandoffHashBoundApplyUnblocksLane` 中于 `continue main -Apply` 之后继续执行 `handoff main -Apply -Format json`，证明 decision closure 与 continue Apply 后的 lane handoff 仍保持 ready continuation。回归必须验证 handoff result 为 mutation/applied、lane 为 `main`、executor action ready/unblocked、Mission Commander current action 仍为 `/rekit continue main`、`OpenDecisionHandoffs` 为空、`LaneTakeoverPackage` 为 ready/continueReady，并写出 `.rekit/handovers/main-latest.md`。
 
