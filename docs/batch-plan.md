@@ -16,6 +16,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 701：open decision closure to durable handoff continuation
+
+状态：已完成 CLI product-path regression、文档/CHANGELOG 与完整本机 release minimum；implementation commit/push 与 push-triggered remote release-gate inspection 待执行。本批从 Batch 700 的 `continue main -Apply` durable run/status/digest/RESUME/checkpoint closure 再往 replacement executor handoff 前进一跳：Batch 700 已证明 decision closure 后可真实写出 lane continuation，但接手者仍需要证明随后执行 `handoff main -Apply` 会生成 durable lane handoff markdown/JSON，并且不会重新打开已关闭的 open decision blocker 或触碰 authority/confirmed facts。
+
+目标：在 `TestRunOpenDecisionFirstScreenHandoffHashBoundApplyUnblocksLane` 中于 `continue main -Apply` 之后继续执行 `handoff main -Apply -Format json`，证明 decision closure 与 continue Apply 后的 lane handoff 仍保持 ready continuation。回归必须验证 handoff result 为 mutation/applied、lane 为 `main`、executor action ready/unblocked、Mission Commander current action 仍为 `/rekit continue main`、`OpenDecisionHandoffs` 为空、`LaneTakeoverPackage` 为 ready/continueReady，并写出 `.rekit/handovers/main-latest.md`。
+
+边界：本批不新增 public command，不新增或迁移 durable schema，不改变 `handoff` 或 `continue` mutation semantics，不自动 review/write decision，不执行 heavy tool、gate、adapter、reviewer、pack-memory、sync 或 promote，不写 authority/confirmed，不新增 PowerShell runtime logic。唯一新增覆盖是关闭 decision 且完成 continue Apply 后的 explicit lane `handoff -Apply` durable handoff；facts ledger 在 handoff Apply 前后必须保持不变。
+
+已实现内容：扩展 `TestRunOpenDecisionFirstScreenHandoffHashBoundApplyUnblocksLane`。测试现在在 Batch 700 的 durable run/status/digest/RESUME/checkpoint 与 facts snapshot 断言之后，保存 `.rekit/facts` snapshot，执行 `handoff main -Apply -Format json`，断言 handoff JSON、executor action、Mission Commander queue、open decision handoffs 与 lane takeover package 均保持 ready/unblocked。随后测试读取 `.rekit/handovers/main-latest.md`，确认 handoff markdown 明确指示按 latest handoff 接手并执行 `/rekit continue main`，包含 Lane takeover package 与 current command，同时不再出现 `needs-open-decision-review` 或 `cand-main-open-1`；最后断言 `.rekit/facts` 未变化且未创建 authority/confirmed ledger。
+
+验证结果：focused CLI regression 已通过：`go test ./internal/rekit/cli -run "TestRunOpenDecisionFirstScreenHandoffHashBoundApplyUnblocksLane" -count=1`。完整本机 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 在文档完成记录前按预期返回 implementation-pending warning，随后 `go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均已运行；`go test ./...` 含 `internal/rekit/cli` 227.981s 通过，`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。完成状态记录后将复跑 `release-check -Format json`；远程 release-gate 待 implementation push 后检查。
+
 ### Batch 700：open decision closure to continue apply handoff
 
 状态：已完成 CLI product-path regression、文档/CHANGELOG、完整本机 release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `a9cb2e4` 已推送。Push run `30359223973` completed failure；macOS/Linux/Windows jobs `90274561549`/`90274561614`/`90274561629` 均 `steps=[]`；`gh run view 30359223973 --log-failed` 返回 `log not found: 90274561549`。这是既有 runner/billing blocker，未发现新的远程 release signal，不声明 remote green。本批从 Batch 699 的 `note -Kind decision` hash-bound Apply 解锁 lane 继续延伸到真实 lane continuation：Batch 699 已证明 open candidate blocker 消失并且 `continue main -WhatIf` 回到 unblocked read-only path，但 replacement executor 仍需要产品路径证明随后执行 `continue main -Apply` 会写出 durable run/status/digest/RESUME/checkpoint handoff，并且不会重新打开 open decision blocker 或触碰 authority/confirmed facts。

@@ -1644,6 +1644,51 @@ func TestRunOpenDecisionFirstScreenHandoffHashBoundApplyUnblocksLane(t *testing.
 	assertSnapshotEqual(t, factsBeforeContinueApply, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
 	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
 	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
+
+	factsBeforeHandoffApply := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "main", "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var laneHandoff struct {
+		Command                     string                              `json:"command"`
+		IsMutation                  bool                                `json:"isMutation"`
+		Applied                     bool                                `json:"applied"`
+		Project                     bool                                `json:"project"`
+		Lane                        *startLane                          `json:"lane"`
+		ExecutorAction              *executorActionSnapshot             `json:"executorAction"`
+		OpenDecisionHandoffs        []statusOpenDecisionHandoff         `json:"openDecisionHandoffs"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		LaneTakeoverPackage         *laneTakeoverPackage                `json:"laneTakeoverPackage"`
+		Writes                      []startWrite                        `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &laneHandoff); err != nil {
+		t.Fatalf("open decision lane handoff apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	handoffCurrent := laneHandoff.MissionCommanderActionQueue.CurrentAction
+	if laneHandoff.Command != "handoff" || !laneHandoff.IsMutation || !laneHandoff.Applied || laneHandoff.Project || laneHandoff.Lane == nil || laneHandoff.Lane.ID != "main" || laneHandoff.ExecutorAction == nil || laneHandoff.ExecutorAction.Blocked || !laneHandoff.ExecutorAction.Ready || laneHandoff.ExecutorAction.OpenDecisions != 0 || len(laneHandoff.OpenDecisionHandoffs) != 0 || handoffCurrent == nil || handoffCurrent.State != "ready-to-continue" || handoffCurrent.Command != "/rekit continue main" {
+		t.Fatalf("lane handoff reopened open decision blocker after continue apply: handoff=%+v current=%+v", laneHandoff, handoffCurrent)
+	}
+	if laneHandoff.LaneTakeoverPackage == nil || !laneHandoff.LaneTakeoverPackage.Ready || laneHandoff.LaneTakeoverPackage.ApplyRequired || !laneHandoff.LaneTakeoverPackage.ContinueReady || laneHandoff.LaneTakeoverPackage.Blocked || laneHandoff.LaneTakeoverPackage.CurrentCommand != "/rekit continue main" || laneHandoff.LaneTakeoverPackage.MissionCommanderActionQueue.CurrentAction == nil || laneHandoff.LaneTakeoverPackage.MissionCommanderActionQueue.CurrentAction.Command != "/rekit continue main" {
+		t.Fatalf("lane handoff omitted ready takeover package after open decision closure: %+v", laneHandoff.LaneTakeoverPackage)
+	}
+	handoffPath := assertStartWrite(t, laneHandoff.Writes, ".rekit/handovers/main-latest.md", "write-latest-lane-handoff").TargetPath
+	handoffBytes, err := os.ReadFile(handoffPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handoffText := string(handoffBytes)
+	for _, expected := range []string{"直接说：按 `.rekit/handovers/main-latest.md` 接手，然后执行 `/rekit continue main`。", "## Lane takeover package", "- continue command: `/rekit continue main`", "- current command: `/rekit continue main`", "Mission Commander action queue", "command=`/rekit continue main`"} {
+		if !strings.Contains(handoffText, expected) {
+			t.Fatalf("lane handoff markdown omitted open decision closure handoff %q:\n%s", expected, handoffText)
+		}
+	}
+	if strings.Contains(handoffText, "needs-open-decision-review") || strings.Contains(handoffText, "cand-main-open-1") {
+		t.Fatalf("lane handoff markdown reopened closed open decision blocker:\n%s", handoffText)
+	}
+	assertSnapshotEqual(t, factsBeforeHandoffApply, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
 }
 
 func TestRunStatusCaseMissionIncludesExecutionEvidenceReview(t *testing.T) {
