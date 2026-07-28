@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 704：isolated CLI pack-memory mutation fixtures
 
-状态：已完成测试基础设施实现、8 个 targeted CLI E2E、双进程并发隔离验证、最终完整本机 release minimum 与文档/CHANGELOG；待 implementation commit/push 和 remote inspection。
+状态：已完成测试基础设施实现、8 个 targeted CLI E2E、双进程并发隔离验证、最终完整本机 release minimum、文档/CHANGELOG、implementation commit/push 与 push-triggered remote inspection；implementation commit `a837cd0` 已推送。Push run `30373776979` completed failure；Windows/macOS/Linux jobs `90324084081`/`90324084233`/`90324084364` 均 `steps=[]`，`gh run view 30373776979 --log-failed` 返回 `log not found: 90324084081`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。
 
 目标：消除 pack-memory/promote CLI tests 对真实 `packs/_template` 的进程级共享 mutation。所有会 create candidate、apply promote、写 verification/retirement proof 或修改 pack target 的目标测试必须把 `templateRoot`、candidate/tooling roots 和 pack target 全部绑定到独立临时 kit repo；测试失败、中断或并发运行不得污染开发工作树或其它测试进程。
 
@@ -26,7 +26,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 已实现内容：新增 `internal/rekit/cli/cli_fixture_test.go`，从 canonical repo 复制独立临时 kit，跳过 `.git`、`.codegraph`、Agent worktrees 与所有 volatile candidate roots；attached/full case metadata 指向临时 `templateRoot`，并支持 case-local cwd。8 个原先修改真实 `_template` 的 status/installed-shim/promote/candidate-decision E2E 已迁移到该 fixture。copy helper 对位于 source repo 内的 target fail-closed，避免自递归复制。真实 `_template` 在 focused、shuffle 和双进程并发测试前后均无 diff、无 candidate 残留。
 
-验证结果：8 个 targeted tests `-count=1 -shuffle=on` 通过；拆分为两个独立 `go test` 进程并发运行通过；containment guard 与 targeted tests 复跑通过；最终 `go test ./... -count=1` 通过（CLI 253.254s），`go vet ./...` 通过，真实 `_template` 无 tracked diff、无 candidate 残留。`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true` / `summary=release gate inventory ok`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check` 在提交前复跑通过。
+验证结果：8 个 targeted tests `-count=1 -shuffle=on` 通过；拆分为两个独立 `go test` 进程并发运行通过；containment guard 与 targeted tests 复跑通过；最终 `go test ./... -count=1` 通过（CLI 253.254s），`go vet ./...` 通过，真实 `_template` 无 tracked diff、无 candidate 残留。`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true` / `summary=release gate inventory ok`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check` 在提交前复跑通过。Implementation commit `a837cd0` 已推送；push run `30373776979` completed failure，Windows/macOS/Linux jobs `90324084081`/`90324084233`/`90324084364` 均 `steps=[]`，且无失败日志。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。
 
 ### Batch 703：release handoff truth and reviewer/gate fail-closed correctness
 
