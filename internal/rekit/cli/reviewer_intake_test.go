@@ -312,7 +312,8 @@ func TestRunPlanSubagentsReviewerPacketAdoptionCaseLocalProductPath(t *testing.T
 		t.Fatal(err)
 	}
 	writeCaseFile(t, caseRoot, "workspace/features/feature-login/review-evidence.md", "bounded reviewer adoption evidence\n")
-	stageAndCollectReviewerResultForCLIPlan(t, &out, []string{"-Target", caseRoot, "-Pack", "_template"}, plan.PacketPath, plan.ShardHandoffs[0], "feature-review", "mission-commander", reviewerResultForCLIPlan(t, packet, plan.ShardHandoffs[0], "accept", "accepted", "reviewer-adoption-e2e"))
+	reviewerResult := reviewerResultForCLIPlan(t, packet, plan.ShardHandoffs[0], "accept", "accepted", "reviewer-adoption-e2e")
+	stageAndCollectReviewerResultForCLIPlan(t, &out, []string{"-Target", caseRoot, "-Pack", "_template"}, plan.PacketPath, plan.ShardHandoffs[0], "feature-review", "mission-commander", reviewerResult)
 
 	out.Reset()
 	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "review", "-Executor", "session-b", "-Actor", "mission-commander", "-Reason", "replacement reviewer owner", "-Apply", "-Format", "json"}, &out); err != nil {
@@ -385,6 +386,7 @@ func TestRunPlanSubagentsReviewerPacketAdoptionCaseLocalProductPath(t *testing.T
 	if !bytes.Equal(packetBefore, packetAfter) {
 		t.Fatal("CLI adoption modified immutable reviewer packet")
 	}
+	recordReviewerSessionReceiptsForCLIPlan(t, &out, []string{"-Target", caseRoot, "-Pack", "_template"}, plan.PacketPath, plan.ShardHandoffs[0], "feature-review", "mission-commander", "replacement-cli-harness", reviewerResult)
 
 	out.Reset()
 	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
@@ -521,6 +523,7 @@ func TestRunPlanSubagentsReviewerPacketAdoptionCaseLocalProductPath(t *testing.T
 	if !bytes.Equal(packetBefore, packetAfterSecondAdoption) {
 		t.Fatal("CLI re-adoption modified immutable reviewer packet")
 	}
+	recordReviewerSessionReceiptsForCLIPlan(t, &out, []string{"-Target", caseRoot, "-Pack", "_template"}, plan.PacketPath, plan.ShardHandoffs[0], "feature-review", "mission-commander", "replacement-cli-harness-session-c", reviewerResult)
 
 	out.Reset()
 	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-ReadyReviewerResults", "-Lane", "feature-review", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
@@ -914,6 +917,90 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 	}
 }
 
+func TestRunPlanSubagentsReviewerSessionReceiptProductPath(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "review", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	writeCaseFile(t, caseRoot, "workspace/review-evidence.md", "bounded reviewer evidence\n")
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", "alpha", "-Lane", "feature-review", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	plan := decodePlanSubagentsResult(t, out.Bytes())
+	packet := decodePlanSubagentsPacket(t, plan.PacketPath)
+	handoff := plan.ShardHandoffs[0]
+
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-RecordReviewerDispatch", "-ShardId", handoff.ShardID, "-ReviewerHarness", "claude-code-agent", "-ReviewerSession", "reviewer-session-cli-receipt", "-Lane", packet.TargetLane, "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var dispatchPreview subagents.ReviewerSessionReceiptResult
+	if err := json.Unmarshal(out.Bytes(), &dispatchPreview); err != nil {
+		t.Fatal(err)
+	}
+	if dispatchPreview.DispatchID == "" || dispatchPreview.BindingSHA256 == "" || !strings.Contains(dispatchPreview.ApplyCommand, "-ExpectedReviewerDispatchBindingSha256") {
+		t.Fatalf("unexpected dispatch preview: %+v", dispatchPreview)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-RecordReviewerDispatch", "-ShardId", handoff.ShardID, "-ReviewerHarness", "claude-code-agent", "-ReviewerSession", "reviewer-session-cli-receipt", "-Lane", packet.TargetLane, "-Actor", "mission-commander", "-ExpectedReviewerDispatchBindingSha256", dispatchPreview.BindingSHA256, "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var dispatch subagents.ReviewerSessionReceiptResult
+	if err := json.Unmarshal(out.Bytes(), &dispatch); err != nil {
+		t.Fatal(err)
+	}
+	if !dispatch.Applied || dispatch.ReceiptSHA256 == "" {
+		t.Fatalf("unexpected dispatch apply: %+v", dispatch)
+	}
+
+	inputPath := handoff.ReviewerStagingCommands.SourceCaptureInput
+	result := map[string]any{
+		"packetId": packet.PacketID, "routeId": packet.Route.ID, "shardId": handoff.ShardID, "items": handoff.Items,
+		"reviewerSession": "reviewer-session-cli-receipt", "decision": "accept", "confidence": "high", "summary": "reviewed alpha",
+		"evidenceRefs": []string{"workspace/review-evidence.md"}, "risks": []string{}, "conflicts": []string{}, "recommendedVerdict": "accepted",
+		"routeOutput": map[string]any{"item": "alpha", "decision": "accept", "confidence": "high", "evidence": "workspace/review-evidence.md", "risk": "low", "next_action": "main-agent-writeback", "tier_used": "light", "tool_scope": "read-only", "feature": "review", "request_id": "n/a", "candidate_path": "n/a", "defer_reason": "n/a"},
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(inputPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(inputPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-RecordReviewerCompletion", "-ReviewerDispatchId", dispatch.DispatchID, "-ReviewerOutcome", "succeeded", "-ReviewerExitStatus", "completed", "-ReviewerResultInputPath", inputPath, "-Lane", packet.TargetLane, "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var completionPreview subagents.ReviewerSessionReceiptResult
+	if err := json.Unmarshal(out.Bytes(), &completionPreview); err != nil {
+		t.Fatal(err)
+	}
+	if completionPreview.DispatchReceiptSHA256 != dispatch.ReceiptSHA256 || completionPreview.ReviewerResultInputSHA256 == "" || !strings.Contains(completionPreview.ApplyCommand, "-ExpectedReviewerResultInputSha256") {
+		t.Fatalf("unexpected completion preview: %+v", completionPreview)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-RecordReviewerCompletion", "-ReviewerDispatchId", dispatch.DispatchID, "-ReviewerOutcome", "succeeded", "-ReviewerExitStatus", "completed", "-ReviewerResultInputPath", inputPath, "-Lane", packet.TargetLane, "-Actor", "mission-commander", "-ExpectedReviewerDispatchReceiptSha256", completionPreview.DispatchReceiptSHA256, "-ExpectedReviewerResultInputSha256", completionPreview.ReviewerResultInputSHA256, "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var completion subagents.ReviewerSessionReceiptResult
+	if err := json.Unmarshal(out.Bytes(), &completion); err != nil {
+		t.Fatal(err)
+	}
+	if !completion.Applied || completion.Outcome != "succeeded" {
+		t.Fatalf("unexpected completion apply: %+v", completion)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-CaptureReviewerResultSource", "-ShardId", handoff.ShardID, "-ReviewerResultInputPath", inputPath, "-Lane", packet.TargetLane, "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRunPlanSubagentsRejectsShardIDOutsideReviewerShardModes(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	var out bytes.Buffer
@@ -989,12 +1076,7 @@ func TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath(t *testing.T) 
 		if inputPath == "" || inputPath != filepath.Join(filepath.Dir(sourcePath), "..", "inputs", handoff.ShardID+".reviewer-input.json") || !strings.Contains(handoff.ReviewerStagingCommands.SourceCaptureCommand, "-ReviewerResultInputPath") || !strings.Contains(handoff.ReviewerStagingCommands.SourceCaptureCommand, inputPath) || !strings.Contains(handoff.ReviewerStagingCommands.SourceCaptureApply, "-ExpectedReviewerResultInputSha256") {
 			t.Fatalf("reviewer input drop path was not packet-derived: %+v", handoff.ReviewerStagingCommands)
 		}
-		if err := os.MkdirAll(filepath.Dir(inputPath), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(inputPath, data, 0o644); err != nil {
-			t.Fatal(err)
-		}
+		recordReviewerSessionReceiptsForCLIPlan(t, &out, nil, plan.PacketPath, handoff, "feature-review", "mission-commander", fmt.Sprintf("go-cli-batch-harness-%d", i+1), data)
 		out.Reset()
 		if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-CaptureReviewerResultSource", "-ShardId", handoff.ShardID, "-ReviewerResultInputPath", inputPath, "-Lane", "feature-review", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
 			t.Fatal(err)
@@ -1690,6 +1772,51 @@ func decodeReviewerResultCollectionCLIResult(t *testing.T, data []byte) reviewer
 	return result
 }
 
+func recordReviewerSessionReceiptsForCLIPlan(t *testing.T, out *bytes.Buffer, baseArgs []string, packetPath string, handoff planSubagentsHandoff, lane, actor, harness string, data []byte) {
+	t.Helper()
+	inputPath := handoff.ReviewerStagingCommands.SourceCaptureInput
+	if err := os.MkdirAll(filepath.Dir(inputPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(inputPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var reviewerResult struct {
+		ReviewerSession string `json:"reviewerSession"`
+	}
+	if err := json.Unmarshal(data, &reviewerResult); err != nil || strings.TrimSpace(reviewerResult.ReviewerSession) == "" {
+		t.Fatalf("reviewer result lacks session identity: %v", err)
+	}
+	out.Reset()
+	if err := Run(planSubagentsCLIArgs(baseArgs, "-PacketPath", packetPath, "-RecordReviewerDispatch", "-ShardId", handoff.ShardID, "-ReviewerHarness", harness, "-ReviewerSession", reviewerResult.ReviewerSession, "-Lane", lane, "-Actor", actor, "-WhatIf", "-Format", "json"), out); err != nil {
+		t.Fatal(err)
+	}
+	var dispatchPreview subagents.ReviewerSessionReceiptResult
+	if err := json.Unmarshal(out.Bytes(), &dispatchPreview); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run(planSubagentsCLIArgs(baseArgs, "-PacketPath", packetPath, "-RecordReviewerDispatch", "-ShardId", handoff.ShardID, "-ReviewerHarness", harness, "-ReviewerSession", reviewerResult.ReviewerSession, "-Lane", lane, "-Actor", actor, "-ExpectedReviewerDispatchBindingSha256", dispatchPreview.BindingSHA256, "-Apply", "-Format", "json"), out); err != nil {
+		t.Fatal(err)
+	}
+	var dispatch subagents.ReviewerSessionReceiptResult
+	if err := json.Unmarshal(out.Bytes(), &dispatch); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run(planSubagentsCLIArgs(baseArgs, "-PacketPath", packetPath, "-RecordReviewerCompletion", "-ReviewerDispatchId", dispatch.DispatchID, "-ReviewerOutcome", "succeeded", "-ReviewerExitStatus", "completed", "-ReviewerResultInputPath", inputPath, "-Lane", lane, "-Actor", actor, "-WhatIf", "-Format", "json"), out); err != nil {
+		t.Fatal(err)
+	}
+	var completionPreview subagents.ReviewerSessionReceiptResult
+	if err := json.Unmarshal(out.Bytes(), &completionPreview); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run(planSubagentsCLIArgs(baseArgs, "-PacketPath", packetPath, "-RecordReviewerCompletion", "-ReviewerDispatchId", dispatch.DispatchID, "-ReviewerOutcome", "succeeded", "-ReviewerExitStatus", "completed", "-ReviewerResultInputPath", inputPath, "-Lane", lane, "-Actor", actor, "-ExpectedReviewerDispatchReceiptSha256", completionPreview.DispatchReceiptSHA256, "-ExpectedReviewerResultInputSha256", completionPreview.ReviewerResultInputSHA256, "-Apply", "-Format", "json"), out); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func captureReviewerResultSourceForCLIPlan(t *testing.T, out *bytes.Buffer, baseArgs []string, packetPath string, handoff planSubagentsHandoff, lane, actor string, data []byte) reviewerResultSourceCaptureCLIResult {
 	t.Helper()
 	if handoff.ReviewerStagingCommands == nil || handoff.ReviewerStagingCommands.SourcePath == "" || handoff.ReviewerStagingCommands.SourcePathArgument != handoff.ReviewerStagingCommands.SourcePath {
@@ -1700,12 +1827,7 @@ func captureReviewerResultSourceForCLIPlan(t *testing.T, out *bytes.Buffer, base
 	if inputPath == "" || inputPath != filepath.Join(filepath.Dir(sourcePath), "..", "inputs", handoff.ShardID+".reviewer-input.json") || !strings.Contains(handoff.ReviewerStagingCommands.SourceCaptureCommand, "-ReviewerResultInputPath") || !strings.Contains(handoff.ReviewerStagingCommands.SourceCaptureCommand, inputPath) || !strings.Contains(handoff.ReviewerStagingCommands.SourceCaptureApply, "-ExpectedReviewerResultInputSha256") {
 		t.Fatalf("reviewer input drop path was not packet-derived: %+v", handoff.ReviewerStagingCommands)
 	}
-	if err := os.MkdirAll(filepath.Dir(inputPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(inputPath, data, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	recordReviewerSessionReceiptsForCLIPlan(t, out, baseArgs, packetPath, handoff, lane, actor, "go-cli-test-harness", data)
 
 	out.Reset()
 	if err := Run(planSubagentsCLIArgs(baseArgs, "-PacketPath", packetPath, "-CaptureReviewerResultSource", "-ShardId", handoff.ShardID, "-ReviewerResultInputPath", inputPath, "-Lane", lane, "-Actor", actor, "-WhatIf", "-Format", "json"), out); err != nil {

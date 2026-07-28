@@ -163,7 +163,7 @@ func TestWritePlanBindsAttachedCaseLaneExecutor(t *testing.T) {
 		t.Fatalf("canonical packet integrity does not bind exact packet: %+v", integrity)
 	}
 	handoffs, err := workstream.ReviewerDispatchIntakeHandoffs(caseRoot, mission.LedgerFacts{}, "feature-intake")
-	if err != nil || len(handoffs) != 1 || handoffs[0].State != "waiting-for-reviewer-result" || handoffs[0].ReviewerResultCollectionCommands == nil || handoffs[0].ReviewerResultCandidatePath == "" {
+	if err != nil || len(handoffs) != 1 || handoffs[0].State != "ready-for-reviewer-dispatch" || handoffs[0].ReviewerResultCollectionCommands == nil || handoffs[0].ReviewerResultCandidatePath == "" {
 		t.Fatalf("fresh canonical packet did not survive durable integrity validation: handoffs=%+v err=%v", handoffs, err)
 	}
 	if result.ReviewerOrchestration.Mode != "manual-main-agent-intake" || result.ReviewerOrchestration.TargetLane != "feature-intake" || result.ReviewerOrchestration.Dispatches[0].PreviewCommand == "" || strings.Contains(result.ReviewerOrchestration.Dispatches[0].PreviewCommand, "n/a:") {

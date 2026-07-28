@@ -161,6 +161,7 @@ func TestRunPlanSubagentsReviewerResultObstructionRecoveryCaseLocalE2E(t *testin
 	if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-CollectReviewerResult", "-ShardId", handoff.ShardID, "-Lane", "feature-review", "-Actor", "mission-commander", "-Apply", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
+	recordReviewerSessionReceiptsForCLIPlan(t, &out, nil, plan.PacketPath, handoff, "feature-review", "mission-commander", "go-cli-obstruction-recovery-harness", candidate)
 	out.Reset()
 	if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-ReadyReviewerResults", "-Lane", "feature-review", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
@@ -389,6 +390,7 @@ func TestRunPlanSubagentsReviewerResultRecoveryDispositionCaseLocalE2E(t *testin
 		t.Fatalf("collection apply did not proceed after disposition: %+v", collectionApplied)
 	}
 
+	recordReviewerSessionReceiptsForCLIPlan(t, &out, []string{"-Target", caseRoot, "-Pack", "_template"}, plan.PacketPath, handoff, "feature-review", "mission-commander", "go-cli-disposition-harness", candidate)
 	out.Reset()
 	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-ReadyReviewerResults", "-Lane", "feature-review", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)

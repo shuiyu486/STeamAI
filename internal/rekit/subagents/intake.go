@@ -24,6 +24,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/note"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/overview"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewerresult"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewersession"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewpath"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
@@ -176,6 +177,17 @@ type ReviewerIntakeResult struct {
 	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 	NextSteps                   []string                                 `json:"nextSteps"`
 	Summary                     ReviewerIntakeSummary                    `json:"summary"`
+}
+
+type reviewerSessionWritebackProvenance struct {
+	ReviewerHarness           string
+	DispatchID                string
+	DispatchPath              string
+	DispatchSHA256            string
+	CompletionPath            string
+	CompletionSHA256          string
+	ReviewerResultInputPath   string
+	ReviewerResultInputSHA256 string
 }
 
 type ReviewerIntakeSummary struct {
@@ -779,6 +791,69 @@ func reviewerBatchIntakePostValidationCommands(result ReviewerBatchIntakeResult)
 	return primary, mission.UniqueStrings(followUp)
 }
 
+func reviewerSessionProvenanceForIntake(caseRoot, packetPath string, packet Packet, packetBytes []byte, handoff ShardHandoff, resultBytes []byte, result ReviewerResult, effectiveOwner OwnerBinding, adoption *ReviewerPacketAdoption) (reviewerSessionWritebackProvenance, error) {
+	dispatchRoot := filepath.Join(reviewerSessionRoot(packetPath, handoff.ShardID), "dispatches")
+	entries, err := os.ReadDir(dispatchRoot)
+	if os.IsNotExist(err) {
+		if reviewerSessionReceiptsRequired(handoff) {
+			return reviewerSessionWritebackProvenance{}, fmt.Errorf("managed reviewer intake requires a durable dispatch and successful completion receipt")
+		}
+		return reviewerSessionWritebackProvenance{}, nil
+	}
+	if err != nil {
+		return reviewerSessionWritebackProvenance{}, fmt.Errorf("read reviewer session dispatch receipts for intake: %w", err)
+	}
+	exactMatches := []reviewerSessionWritebackProvenance{}
+	matchingDispatches := 0
+	adoptionPath, adoptionSHA256 := reviewerSessionAdoptionProvenance(caseRoot, packet.PacketID, adoption)
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".json") {
+			continue
+		}
+		dispatchPath := filepath.Join(dispatchRoot, entry.Name())
+		dispatchBytes, readErr := readReviewerSessionReceiptBytes(caseRoot, dispatchPath, "reviewer session dispatch receipt")
+		if readErr != nil {
+			continue
+		}
+		dispatch, decodeErr := reviewersession.DecodeDispatch(dispatchBytes)
+		if decodeErr != nil || !reviewerSessionDispatchMatchesCurrent(packetPath, dispatchPath, packet, packetBytes, handoff, dispatch, effectiveOwner, adoptionPath, adoptionSHA256) || dispatch.ReviewerSession != result.ReviewerSession {
+			continue
+		}
+		matchingDispatches++
+		completionPath := reviewerSessionCompletionPath(packetPath, handoff.ShardID, dispatch.DispatchID)
+		completionBytes, readErr := readReviewerSessionReceiptBytes(caseRoot, completionPath, "reviewer session completion receipt")
+		if readErr != nil {
+			continue
+		}
+		completion, decodeErr := reviewersession.DecodeCompletion(completionBytes)
+		if decodeErr != nil || reviewersession.ValidateCompletionDispatchLineage(completion, dispatch, dispatchPath, sha256Hex(dispatchBytes)) != nil || completion.Outcome != "succeeded" || completion.CompletionOwner != reviewerSessionOwner(effectiveOwner) {
+			continue
+		}
+		expectedInputPath := ""
+		if handoff.ReviewerStagingCommands != nil {
+			expectedInputPath = handoff.ReviewerStagingCommands.SourceCaptureInput
+		}
+		if expectedInputPath == "" || !samePath(completion.ReviewerResultInputPath, expectedInputPath) {
+			continue
+		}
+		inputBytes, readErr := readStableReviewerArtifact(filepath.Dir(completion.ReviewerResultInputPath), completion.ReviewerResultInputPath, "reviewer session completion result input", maxReviewerResultBytes)
+		if readErr != nil || completion.ReviewerResultInputSHA256 != sha256Hex(inputBytes) || completion.ReviewerResultInputBytes != len(inputBytes) || !bytes.Equal(inputBytes, resultBytes) {
+			continue
+		}
+		exactMatches = append(exactMatches, reviewerSessionWritebackProvenance{ReviewerHarness: dispatch.ReviewerHarness, DispatchID: dispatch.DispatchID, DispatchPath: dispatchPath, DispatchSHA256: sha256Hex(dispatchBytes), CompletionPath: completionPath, CompletionSHA256: sha256Hex(completionBytes), ReviewerResultInputPath: completion.ReviewerResultInputPath, ReviewerResultInputSHA256: completion.ReviewerResultInputSHA256})
+	}
+	if len(exactMatches) == 1 {
+		return exactMatches[0], nil
+	}
+	if len(exactMatches) > 1 {
+		return reviewerSessionWritebackProvenance{}, fmt.Errorf("reviewer intake result matches multiple successful completion receipt lineages")
+	}
+	if matchingDispatches > 0 {
+		return reviewerSessionWritebackProvenance{}, fmt.Errorf("reviewer intake requires a successful completion receipt matching the exact canonical result bytes and current owner")
+	}
+	return reviewerSessionWritebackProvenance{}, fmt.Errorf("reviewer intake result session is not bound to a current durable dispatch receipt")
+}
+
 func ensureReviewerResultCollectedForIntake(caseRoot string, packet Packet, packetPath string, handoff ShardHandoff, resultPath string) error {
 	collectionBound := handoff.ReviewerStagingCommands != nil || handoff.ReviewerCollectionCommands != nil || strings.TrimSpace(handoff.ReviewerResultCandidatePath) != ""
 	if !collectionBound {
@@ -859,7 +934,7 @@ func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOpt
 	if lane != packet.TargetLane {
 		return ReviewerIntakeResult{}, fmt.Errorf("reviewer intake lane %q does not match packet targetLane %q", lane, packet.TargetLane)
 	}
-	effectiveOwner, _, err := validateOwnerBinding(caseRoot, packet, packetPath, packetBytes)
+	effectiveOwner, adoption, err := validateOwnerBinding(caseRoot, packet, packetPath, packetBytes)
 	if err != nil {
 		return ReviewerIntakeResult{}, err
 	}
@@ -885,6 +960,10 @@ func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOpt
 		return ReviewerIntakeResult{}, err
 	}
 	if err := ensureReviewerResultIntakeRecoveryComplete(caseRoot, packet, packetPath, reviewerResult.ShardID, lane, resultPath); err != nil {
+		return ReviewerIntakeResult{}, err
+	}
+	sessionProvenance, err := reviewerSessionProvenanceForIntake(caseRoot, packetPath, packet, packetBytes, handoff, resultBytes, reviewerResult, effectiveOwner, adoption)
+	if err != nil {
 		return ReviewerIntakeResult{}, err
 	}
 	if reviewerResult.RouteID != packet.Route.ID {
@@ -959,7 +1038,7 @@ func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOpt
 		return finalizeReviewerIntakeResult(result), nil
 	}
 
-	verificationOpt, decisionOpt := reviewerNoteOptions(packet, reviewerResult, mapping, effectiveOwner, lane, actor, intakeID, packetPath, resultPath)
+	verificationOpt, decisionOpt := reviewerNoteOptions(packet, reviewerResult, mapping, effectiveOwner, sessionProvenance, lane, actor, intakeID, packetPath, resultPath)
 	verificationPreview, err := appendReviewerNote(repoRoot, caseRoot, pack, verificationOpt, true)
 	if err != nil {
 		return ReviewerIntakeResult{}, fmt.Errorf("preview reviewer verification note: %w", err)
@@ -1036,6 +1115,13 @@ func IntakeReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerIntakeOpt
 	}
 	if err := ensureReviewerResultIntakeRecoveryComplete(caseRoot, packet, packetPath, reviewerResult.ShardID, lane, resultPath); err != nil {
 		return ReviewerIntakeResult{}, err
+	}
+	currentSessionProvenance, err := reviewerSessionProvenanceForIntake(caseRoot, packetPath, packet, packetBytes, latestHandoff, currentResultBytes, reviewerResult, effectiveOwner, adoption)
+	if err != nil {
+		return ReviewerIntakeResult{}, err
+	}
+	if currentSessionProvenance != sessionProvenance {
+		return ReviewerIntakeResult{}, fmt.Errorf("reviewer session receipt provenance changed before writeback")
 	}
 	if err := validateAdoptedOwnerStillCurrent(caseRoot, effectiveOwner); err != nil {
 		return ReviewerIntakeResult{}, fmt.Errorf("reviewer intake owner changed before writeback: %w", err)
@@ -2183,7 +2269,7 @@ func normalizeActionText(value string) string {
 	}), " ")
 }
 
-func reviewerNoteOptions(packet Packet, result ReviewerResult, mapping ReviewerDecisionMapping, owner OwnerBinding, lane, actor, intakeID, packetPath, resultPath string) (note.Options, note.Options) {
+func reviewerNoteOptions(packet Packet, result ReviewerResult, mapping ReviewerDecisionMapping, owner OwnerBinding, session reviewerSessionWritebackProvenance, lane, actor, intakeID, packetPath, resultPath string) (note.Options, note.Options) {
 	target := strings.Join(result.Items, ",")
 	evidence := strings.Join(result.EvidenceRefs, ",")
 	verificationID := "evt-" + intakeID + "-verification"
@@ -2192,62 +2278,78 @@ func reviewerNoteOptions(packet Packet, result ReviewerResult, mapping ReviewerD
 		ownerGeneration = strconv.Itoa(owner.ExecutorGeneration)
 	}
 	verification := note.Options{
-		Kind:               "verification",
-		Lane:               lane,
-		Subject:            "reviewer verdict for " + result.ShardID,
-		Summary:            result.Summary,
-		Actor:              actor,
-		Confidence:         result.Confidence,
-		BatchID:            intakeID,
-		Target:             target,
-		Verifier:           "manual-review",
-		Verdict:            mapping.VerificationVerdict,
-		EvidenceRefs:       evidence,
-		EventID:            verificationID,
-		PacketID:           packet.PacketID,
-		RouteID:            packet.Route.ID,
-		ShardID:            result.ShardID,
-		PacketPath:         packetPath,
-		ReviewerResultPath: resultPath,
-		ReviewerSession:    result.ReviewerSession,
-		OwnerExecutor:      owner.CurrentExecutor,
-		OwnerGeneration:    ownerGeneration,
-		OwnerBindingMode:   owner.BindingMode,
-		OwnerBindingTarget: owner.TargetLane,
-		ReviewerDecision:   result.Decision,
-		RecommendedVerdict: result.RecommendedVerdict,
-		ReviewerRisks:      result.Risks,
-		ReviewerConflicts:  result.Conflicts,
-		RouteOutput:        result.RouteOutput,
+		Kind:                      "verification",
+		Lane:                      lane,
+		Subject:                   "reviewer verdict for " + result.ShardID,
+		Summary:                   result.Summary,
+		Actor:                     actor,
+		Confidence:                result.Confidence,
+		BatchID:                   intakeID,
+		Target:                    target,
+		Verifier:                  "manual-review",
+		Verdict:                   mapping.VerificationVerdict,
+		EvidenceRefs:              evidence,
+		EventID:                   verificationID,
+		PacketID:                  packet.PacketID,
+		RouteID:                   packet.Route.ID,
+		ShardID:                   result.ShardID,
+		PacketPath:                packetPath,
+		ReviewerResultPath:        resultPath,
+		ReviewerSession:           result.ReviewerSession,
+		ReviewerHarness:           session.ReviewerHarness,
+		ReviewerDispatchID:        session.DispatchID,
+		ReviewerDispatchPath:      session.DispatchPath,
+		ReviewerDispatchSHA256:    session.DispatchSHA256,
+		ReviewerCompletionPath:    session.CompletionPath,
+		ReviewerCompletionSHA256:  session.CompletionSHA256,
+		ReviewerResultInputPath:   session.ReviewerResultInputPath,
+		ReviewerResultInputSHA256: session.ReviewerResultInputSHA256,
+		OwnerExecutor:             owner.CurrentExecutor,
+		OwnerGeneration:           ownerGeneration,
+		OwnerBindingMode:          owner.BindingMode,
+		OwnerBindingTarget:        owner.TargetLane,
+		ReviewerDecision:          result.Decision,
+		RecommendedVerdict:        result.RecommendedVerdict,
+		ReviewerRisks:             result.Risks,
+		ReviewerConflicts:         result.Conflicts,
+		RouteOutput:               result.RouteOutput,
 	}
 	decision := note.Options{
-		Kind:               "decision",
-		Lane:               lane,
-		Subject:            "main merge decision for " + result.ShardID,
-		Summary:            "mapped reviewer decision " + result.Decision + ": " + result.Summary,
-		Actor:              actor,
-		Confidence:         result.Confidence,
-		Decision:           mapping.MainDecision,
-		Reason:             "validated bounded reviewer intake " + intakeID,
-		BatchID:            intakeID,
-		Target:             target,
-		EvidenceRefs:       verificationID + "," + evidence,
-		EventID:            "evt-" + intakeID + "-decision",
-		PacketID:           packet.PacketID,
-		RouteID:            packet.Route.ID,
-		ShardID:            result.ShardID,
-		PacketPath:         packetPath,
-		ReviewerResultPath: resultPath,
-		ReviewerSession:    result.ReviewerSession,
-		OwnerExecutor:      owner.CurrentExecutor,
-		OwnerGeneration:    ownerGeneration,
-		OwnerBindingMode:   owner.BindingMode,
-		OwnerBindingTarget: owner.TargetLane,
-		ReviewerDecision:   result.Decision,
-		RecommendedVerdict: result.RecommendedVerdict,
-		ReviewerRisks:      result.Risks,
-		ReviewerConflicts:  result.Conflicts,
-		RouteOutput:        result.RouteOutput,
+		Kind:                      "decision",
+		Lane:                      lane,
+		Subject:                   "main merge decision for " + result.ShardID,
+		Summary:                   "mapped reviewer decision " + result.Decision + ": " + result.Summary,
+		Actor:                     actor,
+		Confidence:                result.Confidence,
+		Decision:                  mapping.MainDecision,
+		Reason:                    "validated bounded reviewer intake " + intakeID,
+		BatchID:                   intakeID,
+		Target:                    target,
+		EvidenceRefs:              verificationID + "," + evidence,
+		EventID:                   "evt-" + intakeID + "-decision",
+		PacketID:                  packet.PacketID,
+		RouteID:                   packet.Route.ID,
+		ShardID:                   result.ShardID,
+		PacketPath:                packetPath,
+		ReviewerResultPath:        resultPath,
+		ReviewerSession:           result.ReviewerSession,
+		ReviewerHarness:           session.ReviewerHarness,
+		ReviewerDispatchID:        session.DispatchID,
+		ReviewerDispatchPath:      session.DispatchPath,
+		ReviewerDispatchSHA256:    session.DispatchSHA256,
+		ReviewerCompletionPath:    session.CompletionPath,
+		ReviewerCompletionSHA256:  session.CompletionSHA256,
+		ReviewerResultInputPath:   session.ReviewerResultInputPath,
+		ReviewerResultInputSHA256: session.ReviewerResultInputSHA256,
+		OwnerExecutor:             owner.CurrentExecutor,
+		OwnerGeneration:           ownerGeneration,
+		OwnerBindingMode:          owner.BindingMode,
+		OwnerBindingTarget:        owner.TargetLane,
+		ReviewerDecision:          result.Decision,
+		RecommendedVerdict:        result.RecommendedVerdict,
+		ReviewerRisks:             result.Risks,
+		ReviewerConflicts:         result.Conflicts,
+		RouteOutput:               result.RouteOutput,
 	}
 	return verification, decision
 }
@@ -2615,7 +2717,7 @@ func existingEventByID(caseRoot, kind, eventID string) (map[string]any, bool, er
 }
 
 func eventMismatch(expected map[string]any, existing map[string]any) string {
-	for _, key := range []string{"schemaVersion", "kind", "lane", "subject", "summary", "actor", "risk", "related", "confidence", "decision", "reason", "status", "batchId", "evidenceRefs", "target", "verifier", "verdict", "action", "approvedBy", "scope", "expires", "eventId", "packetId", "routeId", "shardId", "packetPath", "reviewerResultPath", "reviewerSession", "ownerExecutor", "ownerGeneration", "ownerBindingMode", "ownerBindingTarget"} {
+	for _, key := range []string{"schemaVersion", "kind", "lane", "subject", "summary", "actor", "risk", "related", "confidence", "decision", "reason", "status", "batchId", "evidenceRefs", "target", "verifier", "verdict", "action", "approvedBy", "scope", "expires", "eventId", "packetId", "routeId", "shardId", "packetPath", "reviewerResultPath", "reviewerSession", "reviewerHarness", "reviewerDispatchId", "reviewerDispatchReceiptPath", "reviewerDispatchReceiptSha256", "reviewerCompletionReceiptPath", "reviewerCompletionReceiptSha256", "reviewerResultInputPath", "reviewerResultInputSha256", "ownerExecutor", "ownerGeneration", "ownerBindingMode", "ownerBindingTarget"} {
 		left := eventValue(expected, key)
 		right := eventValue(existing, key)
 		if left != right {

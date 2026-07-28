@@ -15,6 +15,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/note"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewerresult"
 	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
@@ -323,6 +324,7 @@ func TestIntakeReadyReviewerResultsBindsPathToShardAndPreservesWaiting(t *testin
 	if err := os.WriteFile(first.ReviewerResultPath, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	writeReviewerSessionReceiptsForResult(t, first, data)
 	waiting, err := IntakeReadyReviewerResults(repoRoot, caseRoot, defaults.DefaultPack, ReviewerBatchIntakeOptions{PacketPath: plan.PacketPath, Lane: "feature-intake", Actor: "mission-commander"})
 	if err != nil {
 		t.Fatal(err)
@@ -660,7 +662,17 @@ func TestReviewerPacketAdoptionBecomesStaleAfterSecondTakeover(t *testing.T) {
 	if _, err := workstream.StartApply(root, caseRoot, defaults.DefaultPack, workstream.StartOptions{Name: "intake", Executor: "session-third", Actor: "mission-commander", TakeoverReason: "second takeover"}); err != nil {
 		t.Fatal(err)
 	}
-	resultPath := writeCollectedReviewerResult(t, packet.ShardHandoffs[0], reviewerResultForPacket(t, packet, "accept", "accepted", nil))
+	resultData := reviewerResultForPacket(t, packet, "accept", "accepted", nil)
+	if err := os.MkdirAll(filepath.Dir(packet.ShardHandoffs[0].ReviewerResultCandidatePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(packet.ShardHandoffs[0].ReviewerResultCandidatePath, resultData, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(packet.ShardHandoffs[0].ReviewerResultPath, resultData, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resultPath := packet.ShardHandoffs[0].ReviewerResultPath
 	_, err = IntakeReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, ReviewerIntakeOptions{PacketPath: plan.PacketPath, ReviewerResultPath: resultPath, Lane: "feature-intake", Actor: "mission-commander", WhatIf: true})
 	if err == nil || !strings.Contains(err.Error(), "adoption is stale") {
 		t.Fatalf("error = %v, want stale adoption rejection", err)
@@ -676,6 +688,7 @@ func TestReviewerPacketAdoptionBecomesStaleAfterSecondTakeover(t *testing.T) {
 	if _, err := os.Stat(historyPath); err != nil {
 		t.Fatalf("previous adoption receipt was not archived: %v", err)
 	}
+	writeReviewerSessionReceiptsForResult(t, packet.ShardHandoffs[0], resultData)
 	intake, err := IntakeReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, ReviewerIntakeOptions{PacketPath: plan.PacketPath, ReviewerResultPath: resultPath, Lane: "feature-intake", Actor: "mission-commander", WhatIf: true})
 	if err != nil {
 		t.Fatal(err)
@@ -1073,6 +1086,7 @@ func writeCollectedReviewerResult(t *testing.T, handoff ShardHandoff, data []byt
 	if handoff.ReviewerResultCandidatePath == "" || handoff.ReviewerResultPath == "" {
 		t.Fatalf("reviewer handoff missing collection paths: %+v", handoff)
 	}
+	writeReviewerSessionReceiptsForResult(t, handoff, data)
 	if err := os.MkdirAll(filepath.Dir(handoff.ReviewerResultCandidatePath), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1083,6 +1097,49 @@ func writeCollectedReviewerResult(t *testing.T, handoff ShardHandoff, data []byt
 		t.Fatal(err)
 	}
 	return handoff.ReviewerResultPath
+}
+
+func writeReviewerSessionReceiptsForResult(t *testing.T, handoff ShardHandoff, data []byte) {
+	t.Helper()
+	if !reviewerSessionReceiptsRequired(handoff) {
+		return
+	}
+	result, err := reviewerresult.Decode(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resultRoot := filepath.Dir(filepath.Dir(handoff.ReviewerResultCandidatePath))
+	packetPath := filepath.Join(filepath.Dir(resultRoot), "packet.json")
+	packet := readReviewerPacket(t, packetPath)
+	inputPath := handoff.ReviewerStagingCommands.SourceCaptureInput
+	if err := os.MkdirAll(filepath.Dir(inputPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(inputPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dispatchOpt := ReviewerSessionDispatchOptions{PacketPath: packetPath, ShardID: handoff.ShardID, Lane: packet.TargetLane, Actor: "test-main-agent", ReviewerHarness: "go-test-harness", ReviewerSession: result.ReviewerSession, WhatIf: true}
+	dispatchPreview, err := RecordReviewerSessionDispatch(packet.RepoRoot, packet.PlanRoot, packet.Pack, dispatchOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatchOpt.WhatIf = false
+	dispatchOpt.ExpectedBindingSHA256 = dispatchPreview.BindingSHA256
+	dispatch, err := RecordReviewerSessionDispatch(packet.RepoRoot, packet.PlanRoot, packet.Pack, dispatchOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completionOpt := ReviewerSessionCompletionOptions{PacketPath: packetPath, DispatchID: dispatch.DispatchID, Lane: packet.TargetLane, Actor: "test-main-agent", Outcome: "succeeded", ExitStatus: "completed", ReviewerResultInputPath: inputPath, WhatIf: true}
+	completionPreview, err := RecordReviewerSessionCompletion(packet.RepoRoot, packet.PlanRoot, packet.Pack, completionOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completionOpt.WhatIf = false
+	completionOpt.ExpectedDispatchReceiptSHA256 = completionPreview.DispatchReceiptSHA256
+	completionOpt.ExpectedReviewerResultSHA256 = completionPreview.ReviewerResultInputSHA256
+	if _, err := RecordReviewerSessionCompletion(packet.RepoRoot, packet.PlanRoot, packet.Pack, completionOpt); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func writeReviewerIntakeCase(t *testing.T, repoRoot, caseRoot string) {

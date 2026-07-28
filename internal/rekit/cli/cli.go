@@ -40,75 +40,84 @@ import (
 var releaseCheckBuild = releasecheck.Build
 
 type Options struct {
-	Command                              string
-	Target                               string
-	Pack                                 string
-	PackProvided                         bool
-	Review                               bool
-	Apply                                bool
-	CreateCandidates                     bool
-	WhatIf                               bool
-	Force                                bool
-	List                                 bool
-	ReviewOutputDir                      string
-	PacketPath                           string
-	CandidateDecisionPath                string
-	DraftCandidateDecision               bool
-	DraftReviewProof                     bool
-	ReviewProofPath                      string
-	ReviewProofType                      string
-	ReviewProofCandidatePath             string
-	ExpectedReviewProofSHA256            string
-	CandidateDecision                    string
-	CandidateDecisionReason              string
-	CandidateDecisionActor               string
-	CandidateDecisionEvidenceRefs        string
-	ExpectedDecisionSHA256               string
-	VerifyCandidateDecision              bool
-	ProvisionCandidateVerificationCases  bool
-	ExpectedProvisionSHA256              string
-	RetireCandidateVerificationWorkspace bool
-	ExpectedRetirementSHA256             string
-	FreshCaseRoot                        string
-	AttachedCaseRoot                     string
-	ReviewerResultPath                   string
-	ReadyReviewerResults                 bool
-	AdoptReviewerPacket                  bool
-	RetireInvalidReviewerPacket          bool
-	RetireReviewerResultRecovery         bool
-	StageReviewerResult                  bool
-	CaptureReviewerResultSource          bool
-	RepairReviewerPromptArtifact         bool
-	ReviewerResultSourcePath             string
-	ReviewerResultInputPath              string
-	ExpectedSourceSHA256                 string
-	ExpectedReviewerResultInputSHA256    string
-	ExpectedPromptSHA256                 string
-	ExpectedPacketSHA256                 string
-	ExpectedIntegritySHA256              string
-	RecoverReviewerResult                bool
-	ExpectedCandidateSHA256              string
-	ExpectedReviewerResultSHA256         string
-	ExpectedIntentSHA256                 string
-	ExpectedCanonicalSHA256              string
-	ExpectedExecutorGenerationProvided   bool
-	CollectReviewerResult                bool
-	ShardID                              string
-	DiffPath                             string
-	ProjectName                          string
-	Route                                string
-	TaskType                             string
-	Items                                string
-	ItemsFile                            string
-	ItemsPerAgent                        int
-	MaxParallel                          int
-	Format                               string
-	Gate                                 gate.Options
-	Note                                 note.Options
-	Start                                workstream.StartOptions
-	Handoff                              workstream.HandoffOptions
-	Continue                             workstream.ContinueOptions
-	Reconcile                            workstream.ReconcileOptions
+	Command                               string
+	Target                                string
+	Pack                                  string
+	PackProvided                          bool
+	Review                                bool
+	Apply                                 bool
+	CreateCandidates                      bool
+	WhatIf                                bool
+	Force                                 bool
+	List                                  bool
+	ReviewOutputDir                       string
+	PacketPath                            string
+	CandidateDecisionPath                 string
+	DraftCandidateDecision                bool
+	DraftReviewProof                      bool
+	ReviewProofPath                       string
+	ReviewProofType                       string
+	ReviewProofCandidatePath              string
+	ExpectedReviewProofSHA256             string
+	CandidateDecision                     string
+	CandidateDecisionReason               string
+	CandidateDecisionActor                string
+	CandidateDecisionEvidenceRefs         string
+	ExpectedDecisionSHA256                string
+	VerifyCandidateDecision               bool
+	ProvisionCandidateVerificationCases   bool
+	ExpectedProvisionSHA256               string
+	RetireCandidateVerificationWorkspace  bool
+	ExpectedRetirementSHA256              string
+	FreshCaseRoot                         string
+	AttachedCaseRoot                      string
+	ReviewerResultPath                    string
+	ReadyReviewerResults                  bool
+	AdoptReviewerPacket                   bool
+	RetireInvalidReviewerPacket           bool
+	RetireReviewerResultRecovery          bool
+	StageReviewerResult                   bool
+	CaptureReviewerResultSource           bool
+	RepairReviewerPromptArtifact          bool
+	ReviewerResultSourcePath              string
+	ReviewerResultInputPath               string
+	ExpectedSourceSHA256                  string
+	ExpectedReviewerResultInputSHA256     string
+	ExpectedPromptSHA256                  string
+	ExpectedPacketSHA256                  string
+	ExpectedIntegritySHA256               string
+	RecoverReviewerResult                 bool
+	ExpectedCandidateSHA256               string
+	ExpectedReviewerResultSHA256          string
+	ExpectedIntentSHA256                  string
+	ExpectedCanonicalSHA256               string
+	ExpectedExecutorGenerationProvided    bool
+	CollectReviewerResult                 bool
+	RecordReviewerDispatch                bool
+	RecordReviewerCompletion              bool
+	ReviewerHarness                       string
+	ReviewerSession                       string
+	ReviewerDispatchID                    string
+	ReviewerOutcome                       string
+	ReviewerExitStatus                    string
+	ExpectedReviewerDispatchBindingSHA256 string
+	ExpectedReviewerDispatchReceiptSHA256 string
+	ShardID                               string
+	DiffPath                              string
+	ProjectName                           string
+	Route                                 string
+	TaskType                              string
+	Items                                 string
+	ItemsFile                             string
+	ItemsPerAgent                         int
+	MaxParallel                           int
+	Format                                string
+	Gate                                  gate.Options
+	Note                                  note.Options
+	Start                                 workstream.StartOptions
+	Handoff                               workstream.HandoffOptions
+	Continue                              workstream.ContinueOptions
+	Reconcile                             workstream.ReconcileOptions
 }
 
 func Parse(args []string) (Options, error) {
@@ -334,6 +343,52 @@ func Parse(args []string) (Options, error) {
 			opt.ExpectedCanonicalSHA256 = args[i]
 		case "-CollectReviewerResult", "--collect-reviewer-result":
 			opt.CollectReviewerResult = true
+		case "-RecordReviewerDispatch", "--record-reviewer-dispatch":
+			opt.RecordReviewerDispatch = true
+		case "-RecordReviewerCompletion", "--record-reviewer-completion":
+			opt.RecordReviewerCompletion = true
+		case "-ReviewerHarness", "--reviewer-harness":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ReviewerHarness")
+			}
+			opt.ReviewerHarness = args[i]
+		case "-ReviewerSession", "--reviewer-session":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ReviewerSession")
+			}
+			opt.ReviewerSession = args[i]
+		case "-ReviewerDispatchId", "--reviewer-dispatch-id":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ReviewerDispatchId")
+			}
+			opt.ReviewerDispatchID = args[i]
+		case "-ReviewerOutcome", "--reviewer-outcome":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ReviewerOutcome")
+			}
+			opt.ReviewerOutcome = args[i]
+		case "-ReviewerExitStatus", "--reviewer-exit-status":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ReviewerExitStatus")
+			}
+			opt.ReviewerExitStatus = args[i]
+		case "-ExpectedReviewerDispatchBindingSha256", "--expected-reviewer-dispatch-binding-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedReviewerDispatchBindingSha256")
+			}
+			opt.ExpectedReviewerDispatchBindingSHA256 = args[i]
+		case "-ExpectedReviewerDispatchReceiptSha256", "--expected-reviewer-dispatch-receipt-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedReviewerDispatchReceiptSha256")
+			}
+			opt.ExpectedReviewerDispatchReceiptSHA256 = args[i]
 		case "-ShardId", "--shard-id":
 			i++
 			if i >= len(args) {
@@ -4093,6 +4148,11 @@ func writeStatusCaseMissionReviewerWritebackText(out io.Writer, items []workstre
 		if _, err := fmt.Fprintf(out, "status case mission reviewer writeback：kind=%s eventId=%s lane=%s shard=%s reviewerSession=%s verdict=%s decision=%s packetId=%s routeId=%s\n", item.Kind, item.EventID, item.Lane, item.ShardID, item.ReviewerSession, item.Verdict, item.Decision, item.PacketID, item.RouteID); err != nil {
 			return err
 		}
+		if strings.TrimSpace(item.ReviewerDispatchID) != "" || strings.TrimSpace(item.ReviewerCompletionSHA256) != "" {
+			if _, err := fmt.Fprintf(out, "status case mission reviewer session receipts：eventId=%s dispatchId=%s harness=%s dispatch=%s dispatchSha256=%s completion=%s completionSha256=%s input=%s inputSha256=%s\n", item.EventID, item.ReviewerDispatchID, item.ReviewerHarness, item.ReviewerDispatchPath, item.ReviewerDispatchSHA256, item.ReviewerCompletionPath, item.ReviewerCompletionSHA256, item.ReviewerResultInputPath, item.ReviewerResultInputSHA256); err != nil {
+				return err
+			}
+		}
 		if strings.TrimSpace(item.ReviewerResultPath) != "" {
 			if _, err := fmt.Fprintf(out, "status case mission reviewer result：eventId=%s path=%s\n", item.EventID, item.ReviewerResultPath); err != nil {
 				return err
@@ -7101,6 +7161,21 @@ func writeReviewerDispatchOperatorPackageText(out io.Writer, prefix string, pkg 
 			return err
 		}
 	}
+	if strings.TrimSpace(current.ReviewerSessionReceiptState) != "" {
+		if _, err := fmt.Fprintf(out, "%s reviewer dispatch operator session：shard=%s state=%s dispatchId=%s harness=%s session=%s outcome=%s exitStatus=%s dispatchReceipt=%s dispatchSha256=%s completionReceipt=%s completionSha256=%s failure=%s\n", prefix, current.ShardID, current.ReviewerSessionReceiptState, current.ReviewerDispatchID, current.ReviewerHarness, current.ReviewerSession, current.ReviewerSessionOutcome, current.ReviewerSessionExitStatus, current.ReviewerDispatchReceiptPath, current.ReviewerDispatchReceiptSHA256, current.ReviewerCompletionReceiptPath, current.ReviewerCompletionReceiptSHA256, current.ReviewerSessionReceiptFailure); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(current.ReviewerDispatchRecordCommand) != "" {
+		if _, err := fmt.Fprintf(out, "%s reviewer dispatch operator dispatch receipt：shard=%s preview=`%s`\n", prefix, current.ShardID, current.ReviewerDispatchRecordCommand); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(current.ReviewerCompletionRecordCommand) != "" {
+		if _, err := fmt.Fprintf(out, "%s reviewer dispatch operator completion receipt：shard=%s preview=`%s`\n", prefix, current.ShardID, current.ReviewerCompletionRecordCommand); err != nil {
+			return err
+		}
+	}
 	if strings.TrimSpace(current.ExpectedReviewerResultSkeleton) != "" {
 		if _, err := fmt.Fprintf(out, "%s reviewer dispatch operator result skeleton：shard=%s json=%s\n", prefix, current.ShardID, current.ExpectedReviewerResultSkeleton); err != nil {
 			return err
@@ -7908,8 +7983,8 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if strings.TrimSpace(opt.ShardID) != "" && !opt.StageReviewerResult && !opt.CaptureReviewerResultSource && !opt.RepairReviewerPromptArtifact && !opt.CollectReviewerResult && !opt.RecoverReviewerResult && !opt.RetireReviewerResultRecovery {
-		return fmt.Errorf("-ShardId is supported only with -StageReviewerResult, -CaptureReviewerResultSource, -RepairReviewerPromptArtifact, -CollectReviewerResult, -RecoverReviewerResult, or -RetireReviewerResultRecovery")
+	if strings.TrimSpace(opt.ShardID) != "" && !opt.StageReviewerResult && !opt.CaptureReviewerResultSource && !opt.RepairReviewerPromptArtifact && !opt.CollectReviewerResult && !opt.RecoverReviewerResult && !opt.RetireReviewerResultRecovery && !opt.RecordReviewerDispatch {
+		return fmt.Errorf("-ShardId is supported only with -StageReviewerResult, reviewer result pipeline modes, or -RecordReviewerDispatch")
 	}
 	if !opt.RetireInvalidReviewerPacket && (strings.TrimSpace(opt.ExpectedPacketSHA256) != "" || strings.TrimSpace(opt.ExpectedIntegritySHA256) != "") {
 		return fmt.Errorf("expected packet/integrity hashes are supported only with -RetireInvalidReviewerPacket -Apply")
@@ -7923,11 +7998,72 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 	if !opt.StageReviewerResult && (strings.TrimSpace(opt.ReviewerResultSourcePath) != "" || strings.TrimSpace(opt.ExpectedSourceSHA256) != "") {
 		return fmt.Errorf("reviewer result source path/hash are supported only with -StageReviewerResult")
 	}
-	if !opt.CaptureReviewerResultSource && (strings.TrimSpace(opt.ReviewerResultInputPath) != "" || strings.TrimSpace(opt.ExpectedReviewerResultInputSHA256) != "") {
-		return fmt.Errorf("reviewer result input path/hash are supported only with -CaptureReviewerResultSource")
+	if !opt.CaptureReviewerResultSource && !opt.RecordReviewerCompletion && (strings.TrimSpace(opt.ReviewerResultInputPath) != "" || strings.TrimSpace(opt.ExpectedReviewerResultInputSHA256) != "") {
+		return fmt.Errorf("reviewer result input path/hash are supported only with -CaptureReviewerResultSource or -RecordReviewerCompletion")
 	}
 	if !opt.RepairReviewerPromptArtifact && strings.TrimSpace(opt.ExpectedPromptSHA256) != "" {
 		return fmt.Errorf("expected prompt hash is supported only with -RepairReviewerPromptArtifact -Apply")
+	}
+	if !opt.RecordReviewerDispatch && (strings.TrimSpace(opt.ReviewerHarness) != "" || strings.TrimSpace(opt.ReviewerSession) != "" || strings.TrimSpace(opt.ExpectedReviewerDispatchBindingSHA256) != "") {
+		return fmt.Errorf("reviewer harness/session/dispatch binding hash are supported only with -RecordReviewerDispatch")
+	}
+	if !opt.RecordReviewerCompletion && (strings.TrimSpace(opt.ReviewerDispatchID) != "" || strings.TrimSpace(opt.ReviewerOutcome) != "" || strings.TrimSpace(opt.ReviewerExitStatus) != "" || strings.TrimSpace(opt.ExpectedReviewerDispatchReceiptSHA256) != "") {
+		return fmt.Errorf("reviewer dispatch ID/outcome/exit status/receipt hash are supported only with -RecordReviewerCompletion")
+	}
+	if opt.RecordReviewerDispatch || opt.RecordReviewerCompletion {
+		if opt.RecordReviewerDispatch && opt.RecordReviewerCompletion {
+			return fmt.Errorf("reviewer session dispatch and completion receipt modes are mutually exclusive")
+		}
+		if opt.ReadyReviewerResults || opt.AdoptReviewerPacket || opt.RetireInvalidReviewerPacket || opt.RetireReviewerResultRecovery || opt.StageReviewerResult || opt.CaptureReviewerResultSource || opt.RepairReviewerPromptArtifact || opt.CollectReviewerResult || opt.RecoverReviewerResult || strings.TrimSpace(opt.ReviewerResultPath) != "" {
+			return fmt.Errorf("reviewer session receipt mode cannot combine with other reviewer modes")
+		}
+		if opt.CreateCandidates || opt.Review || opt.Force || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.DiffPath) != "" || strings.TrimSpace(opt.Route) != "" || strings.TrimSpace(opt.TaskType) != "" || strings.TrimSpace(opt.Items) != "" || strings.TrimSpace(opt.ItemsFile) != "" || opt.ItemsPerAgent != 0 || opt.MaxParallel != 0 {
+			return fmt.Errorf("reviewer session receipt mode does not support planning scope flags")
+		}
+		if opt.Apply == opt.WhatIf {
+			return fmt.Errorf("reviewer session receipt mode requires exactly one of -WhatIf or -Apply")
+		}
+		if strings.TrimSpace(opt.PacketPath) == "" || strings.TrimSpace(opt.Note.Lane) == "" || strings.TrimSpace(opt.Note.Actor) == "" {
+			return fmt.Errorf("reviewer session receipt mode requires -PacketPath, -Lane, and -Actor")
+		}
+		format, err := planSubagentsFormat(opt.Format)
+		if err != nil {
+			return fmt.Errorf("unsupported plan-subagents format: %s", opt.Format)
+		}
+		var result subagents.ReviewerSessionReceiptResult
+		if opt.RecordReviewerDispatch {
+			if strings.TrimSpace(opt.ShardID) == "" || strings.TrimSpace(opt.ReviewerHarness) == "" || strings.TrimSpace(opt.ReviewerSession) == "" {
+				return fmt.Errorf("reviewer session dispatch requires -ShardId, -ReviewerHarness, and -ReviewerSession")
+			}
+			if opt.WhatIf && strings.TrimSpace(opt.ExpectedReviewerDispatchBindingSHA256) != "" {
+				return fmt.Errorf("reviewer session dispatch preview does not accept expected binding hash")
+			}
+			if opt.Apply && strings.TrimSpace(opt.ExpectedReviewerDispatchBindingSHA256) == "" {
+				return fmt.Errorf("reviewer session dispatch apply requires expected binding hash from WhatIf")
+			}
+			result, err = subagents.RecordReviewerSessionDispatch(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerSessionDispatchOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ReviewerHarness: opt.ReviewerHarness, ReviewerSession: opt.ReviewerSession, ExpectedBindingSHA256: opt.ExpectedReviewerDispatchBindingSHA256, WhatIf: opt.WhatIf})
+		} else {
+			if strings.TrimSpace(opt.ReviewerDispatchID) == "" || strings.TrimSpace(opt.ReviewerOutcome) == "" || strings.TrimSpace(opt.ReviewerExitStatus) == "" {
+				return fmt.Errorf("reviewer session completion requires -ReviewerDispatchId, -ReviewerOutcome, and -ReviewerExitStatus")
+			}
+			if opt.WhatIf && (strings.TrimSpace(opt.ExpectedReviewerDispatchReceiptSHA256) != "" || strings.TrimSpace(opt.ExpectedReviewerResultInputSHA256) != "") {
+				return fmt.Errorf("reviewer session completion preview does not accept expected hashes")
+			}
+			if opt.Apply && strings.TrimSpace(opt.ExpectedReviewerDispatchReceiptSHA256) == "" {
+				return fmt.Errorf("reviewer session completion apply requires expected dispatch receipt hash from WhatIf")
+			}
+			if opt.Apply && strings.EqualFold(strings.TrimSpace(opt.ReviewerOutcome), "succeeded") && strings.TrimSpace(opt.ExpectedReviewerResultInputSHA256) == "" {
+				return fmt.Errorf("successful reviewer session completion apply requires expected result input hash from WhatIf")
+			}
+			result, err = subagents.RecordReviewerSessionCompletion(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerSessionCompletionOptions{PacketPath: opt.PacketPath, DispatchID: opt.ReviewerDispatchID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, Outcome: opt.ReviewerOutcome, ExitStatus: opt.ReviewerExitStatus, ReviewerResultInputPath: opt.ReviewerResultInputPath, ExpectedDispatchReceiptSHA256: opt.ExpectedReviewerDispatchReceiptSHA256, ExpectedReviewerResultSHA256: opt.ExpectedReviewerResultInputSHA256, WhatIf: opt.WhatIf})
+		}
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return writeJSON(out, result)
+		}
+		return writePlanSubagentsReviewerSessionReceiptText(out, result)
 	}
 	if opt.CaptureReviewerResultSource {
 		if opt.ReadyReviewerResults || opt.AdoptReviewerPacket || opt.RetireInvalidReviewerPacket || opt.RetireReviewerResultRecovery || opt.StageReviewerResult || opt.RepairReviewerPromptArtifact || opt.CollectReviewerResult || opt.RecoverReviewerResult || strings.TrimSpace(opt.ReviewerResultPath) != "" || strings.TrimSpace(opt.ReviewerResultSourcePath) != "" {
@@ -8956,6 +9092,28 @@ func writePlanSubagentsReviewerPromptArtifactRepairText(out io.Writer, result su
 		}
 	}
 	return writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue)
+}
+
+func writePlanSubagentsReviewerSessionReceiptText(out io.Writer, result subagents.ReviewerSessionReceiptResult) error {
+	if _, err := fmt.Fprintf(out, "plan-subagents reviewer session receipt：mode=%s applied=%t replay=%t packet=%s shard=%s dispatch=%s harness=%s session=%s outcome=%s exitStatus=%s receipt=%s\n", result.Mode, result.Applied, result.AlreadyRecorded, result.PacketID, result.ShardID, result.DispatchID, result.ReviewerHarness, result.ReviewerSession, result.Outcome, result.ExitStatus, result.ReceiptPath); err != nil {
+		return err
+	}
+	if result.ApplyCommand != "" {
+		if _, err := fmt.Fprintf(out, "plan-subagents reviewer session receipt apply：%s\n", result.ApplyCommand); err != nil {
+			return err
+		}
+	}
+	for _, step := range result.NextSteps {
+		if _, err := fmt.Fprintf(out, "plan-subagents reviewer session receipt next：%s\n", step); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range result.Boundary {
+		if _, err := fmt.Fprintf(out, "plan-subagents reviewer session receipt boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func writePlanSubagentsReviewerResultSourceCaptureText(out io.Writer, result subagents.ReviewerResultSourceCaptureResult) error {

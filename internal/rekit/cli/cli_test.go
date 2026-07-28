@@ -145,7 +145,7 @@ func TestStatusMissionCommanderFirstScreenFocusRoutingReasons(t *testing.T) {
 
 func TestStatusMissionCommanderFirstScreenFocusUsesCrossSubsystemPriority(t *testing.T) {
 	project := &mission.MissionCommanderNextActionItem{Command: "/rekit status", Source: "releaseHandoffLatestBatch", State: "complete"}
-	passiveReviewer := &mission.MissionCommanderNextActionItem{Command: "dispatch read-only reviewer", Source: "reviewerDispatchIntakeHandoffs", State: "waiting-for-reviewer-result", RequiresReview: true}
+	passiveReviewer := &mission.MissionCommanderNextActionItem{Command: "dispatch read-only reviewer", Source: "reviewerDispatchIntakeHandoffs", State: "ready-for-reviewer-dispatch", RequiresReview: true}
 	packInProgress := &mission.MissionCommanderNextActionItem{Command: "/rekit promote -ExpectedProvisionSha256 provision-sha -Apply -Format json", Source: "packMemoryCandidates._template", State: "pack-memory-verification-required", ActionID: "pack-memory-verification-provision-in-progress", RequiresReview: true}
 	packProject := &statusProjectHandoff{PackMemoryCandidates: releasecheck.ReleaseHandoffPackMemoryCandidateList{Ready: false, Total: 1}}
 	focus := statusMissionCommanderFirstScreenFocus(nil, passiveReviewer, project, packProject, packInProgress)
@@ -2157,11 +2157,11 @@ func TestRunStatusCaseFirstScreenPrioritizesPackMemoryClosureOverReviewerWait(t 
 		t.Fatalf("cross-subsystem status omitted case/project handoffs: %+v", status)
 	}
 	reviewerSummary := status.CaseMission.ReviewerDispatchIntakeSummary
-	if reviewerSummary.Total != 1 || reviewerSummary.WaitingForReviewerResult != 1 || reviewerSummary.ReadyForPreview != 0 || reviewerSummary.LatestShardID != "shard-01" || reviewerSummary.LatestState != "waiting-for-reviewer-result" || reviewerSummary.NextAction == "" || !containsSubstring(reviewerSummary.Boundary, "summary is read-only") {
+	if reviewerSummary.Total != 1 || reviewerSummary.WaitingForReviewerResult != 1 || reviewerSummary.ReadyForPreview != 0 || reviewerSummary.LatestShardID != "shard-01" || reviewerSummary.LatestState != "ready-for-reviewer-dispatch" || reviewerSummary.NextAction == "" || !containsSubstring(reviewerSummary.Boundary, "summary is read-only") {
 		t.Fatalf("cross-subsystem status missing reviewer dispatch intake summary: %+v", reviewerSummary)
 	}
 	reviewerCurrent := status.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentAction
-	if reviewerCurrent == nil || reviewerCurrent.State != "waiting-for-reviewer-result" || reviewerCurrent.Source != "reviewerDispatchIntakeHandoffs" {
+	if reviewerCurrent == nil || reviewerCurrent.State != "ready-for-reviewer-dispatch" || reviewerCurrent.Source != "reviewerDispatchIntakeHandoffs" {
 		t.Fatalf("cross-subsystem status omitted passive reviewer wait current action: %+v", status.CaseMission.ReviewerDispatchIntakeActionQueue)
 	}
 	packCurrent := assertPackMemoryCurrentAction(t, status.ProjectHandoff.PackMemoryCandidates, "_template", "pack-memory-decision-proof-required", "pack-memory-proof-required", "-DraftReviewProof")
@@ -2181,7 +2181,7 @@ func TestRunStatusCaseFirstScreenPrioritizesPackMemoryClosureOverReviewerWait(t 
 		"status Mission Commander first screen routing：focus=pack-memory-current-action reason=pack-memory candidate queue still needs review or closure",
 		"status Mission Commander current action：scope=focus-pack-memory lane= label=_template state=pack-memory-proof-required source=packMemoryCandidates._template",
 		"status Mission Commander current action：scope=reviewer lane=feature-login",
-		"state=waiting-for-reviewer-result source=reviewerDispatchIntakeHandoffs",
+		"state=ready-for-reviewer-dispatch source=reviewerDispatchIntakeHandoffs",
 		"status case mission reviewer dispatch intake summary：total=1 waitingForReviewerResult=1 readyForPreview=0",
 		"status pack-memory candidates：summary=pack-memory candidate inventory has open review/cleanup/verification work ready=false total=3 packs=1",
 	} {
@@ -4160,7 +4160,7 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &continueApply); err != nil {
 		t.Fatalf("installed entrypoint continue apply stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if continueApply.RunID != "run-preview" || continueApply.Applied || !continueApply.Blocked || continueApply.ReviewerWritebackSummary.Total != 2 || continueApply.ReviewerWritebackSummary.LatestShardID != "shard-01" || continueApply.ReviewerDispatchIntakeSummary.Total != 1 || continueApply.ReviewerDispatchIntakeSummary.LatestShardID != "shard-02" || len(continueApply.Writes) != 0 || !containsSubstring(continueApply.ReviewerDispatchIntakeSummary.NextActionRunbookSteps, "dispatch read-only reviewer") || !containsSubstring(continueApply.ReviewerDispatchIntakeSummary.NextActionRunbookSteps, "after saving reviewer JSON input at") {
+	if continueApply.RunID != "run-preview" || continueApply.Applied || !continueApply.Blocked || continueApply.ReviewerWritebackSummary.Total != 2 || continueApply.ReviewerWritebackSummary.LatestShardID != "shard-01" || continueApply.ReviewerDispatchIntakeSummary.Total != 1 || continueApply.ReviewerDispatchIntakeSummary.LatestShardID != "shard-02" || len(continueApply.Writes) != 0 || !containsSubstring(continueApply.ReviewerDispatchIntakeSummary.NextActionRunbookSteps, "invoke the read-only Agent tool request") || !containsSubstring(continueApply.ReviewerDispatchIntakeSummary.NextActionRunbookSteps, "record the immutable dispatch receipt") {
 		t.Fatalf("installed entrypoint continue apply did not fail closed on remaining reviewer work: %+v", continueApply)
 	}
 	out.Reset()
@@ -4170,11 +4170,11 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 	status = decodeInstalledCaseShimStatus(t, out.Bytes())
 	currentAction := status.CaseMission.MissionCommanderActionQueue.CurrentAction
 	reviewerAction := status.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentAction
-	if currentAction == nil || currentAction.Source != "reviewerDispatchIntakeHandoffs" || !strings.Contains(currentAction.Command, "dispatch read-only reviewer") || !containsSubstring(status.CaseMission.MissionBriefNextActions, "follow Mission Commander current action: dispatch read-only reviewer") || containsSubstring(status.CaseMission.MissionBriefNextActions, "/rekit continue login") {
+	if currentAction == nil || currentAction.Source != "reviewerDispatchIntakeHandoffs" || !strings.Contains(currentAction.Command, "-RecordReviewerDispatch") || !containsSubstring(status.CaseMission.MissionBriefNextActions, "follow Mission Commander current action: /rekit plan-subagents") || !containsSubstring(status.CaseMission.MissionBriefNextActions, "-RecordReviewerDispatch") || containsSubstring(status.CaseMission.MissionBriefNextActions, "/rekit continue login") {
 		t.Fatalf("installed entrypoint status did not prioritize reviewer queue action: current=%+v next=%+v", currentAction, status.CaseMission.MissionBriefNextActions)
 	}
-	if !containsSubstring(status.CaseMission.ReviewerDispatchIntakeSummary.NextActionRunbookSteps, "after saving reviewer JSON input at") || !containsSubstring(status.CaseMission.ReviewerDispatchIntakeSummary.NextActionRunbookSteps, "after source capture publishes reviewerResultSourcePath, run staging preview") {
-		t.Fatalf("installed entrypoint status omitted reviewer runbook steps: runbook=%+v", status.CaseMission.ReviewerDispatchIntakeSummary.NextActionRunbookSteps)
+	if !containsSubstring(status.CaseMission.ReviewerDispatchIntakeSummary.NextActionRunbookSteps, "invoke the read-only Agent tool request") || !containsSubstring(status.CaseMission.ReviewerDispatchIntakeSummary.NextActionRunbookSteps, "record the immutable dispatch receipt") || !containsSubstring(status.CaseMission.ReviewerDispatchIntakeSummary.NextActionRunbookSteps, "hash-bound Apply") {
+		t.Fatalf("installed entrypoint status omitted reviewer receipt runbook steps: runbook=%+v", status.CaseMission.ReviewerDispatchIntakeSummary.NextActionRunbookSteps)
 	}
 	if reviewerAction == nil || reviewerAction.Source != "reviewerDispatchIntakeHandoffs" || reviewerAction.Label != currentAction.Label || status.CaseMission.ReviewerDispatchIntakeActionQueue.Counts.Total != 1 || status.CaseMission.ReviewerDispatchIntakeActionQueue.Counts.RequiresReview != 1 {
 		t.Fatalf("installed entrypoint status omitted reviewer-only queue: queue=%+v current=%+v", status.CaseMission.ReviewerDispatchIntakeActionQueue, currentAction)
@@ -4183,7 +4183,7 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 	if err := Run([]string{"-Command", "status", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"status Mission Commander first screen：focus=reviewer-current-action", "status Mission Commander current action：scope=focus-reviewer", "status Mission Commander focus reviewer runbook：shard=shard-02 state=waiting-for-reviewer-result step=1 text=work from this first-screen handoff", "status Mission Commander focus reviewer runbook：shard=shard-02 state=waiting-for-reviewer-result step=3 text=after saving reviewer JSON input at", "status Mission Commander focus reviewer runbook：shard=shard-02 state=waiting-for-reviewer-result step=5 text=after source capture publishes reviewerResultSourcePath, run staging preview", "status Mission Commander focus reviewer dispatch operator package：ready=true", "status Mission Commander focus reviewer dispatch operator agent tool：shard=shard-02", "status Mission Commander focus reviewer dispatch operator result pipeline：shard=shard-02", "status Mission Commander focus reviewer dispatch operator dispatch：shard=shard-02 command=`dispatch read-only reviewer for shard-02", "status Mission Commander focus reviewer dispatch operator boundary：shard=shard-02 boundary=reviewer dispatch operator package is read-only", "status Mission Commander current action：scope=reviewer", "source=reviewerDispatchIntakeHandoffs", "status case mission reviewer dispatch intake summary：total=1", "status case mission reviewer dispatch queue：total=1", "status case mission reviewer dispatch queue action：bucket=current", "status case mission reviewer dispatch next action runbook：shard=shard-02", "status case mission brief next action：follow Mission Commander current action: dispatch read-only reviewer", "dispatch read-only reviewer", "after saving reviewer JSON input at"} {
+	for _, expected := range []string{"status Mission Commander first screen：focus=reviewer-current-action", "status Mission Commander current action：scope=focus-reviewer", "status Mission Commander focus reviewer runbook：shard=shard-02 state=ready-for-reviewer-dispatch step=1 text=work from this first-screen handoff", "status Mission Commander focus reviewer runbook：shard=shard-02 state=ready-for-reviewer-dispatch step=2 text=invoke the read-only Agent tool request", "status Mission Commander focus reviewer runbook：shard=shard-02 state=ready-for-reviewer-dispatch step=3 text=use the returned hash-bound Apply", "status Mission Commander focus reviewer dispatch operator package：ready=true", "status Mission Commander focus reviewer dispatch operator agent tool：shard=shard-02", "status Mission Commander focus reviewer dispatch operator result pipeline：shard=shard-02", "status Mission Commander focus reviewer dispatch operator dispatch：shard=shard-02 command=`dispatch read-only reviewer for shard-02", "status Mission Commander focus reviewer dispatch operator boundary：shard=shard-02 boundary=reviewer dispatch operator package is read-only", "status Mission Commander current action：scope=reviewer", "source=reviewerDispatchIntakeHandoffs", "status case mission reviewer dispatch intake summary：total=1", "status case mission reviewer dispatch queue：total=1", "status case mission reviewer dispatch queue action：bucket=current", "status case mission reviewer dispatch next action runbook：shard=shard-02", "status case mission brief next action：follow Mission Commander current action: /rekit plan-subagents", "-RecordReviewerDispatch", "record the immutable dispatch receipt"} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("installed entrypoint status reviewer runbook text missing %q:\n%s", expected, out.String())
 		}
@@ -4192,7 +4192,7 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 	if err := Run([]string{"-Command", "continue", "-Apply", "login", "-Executor", "installed-session", "-ExpectedExecutorGeneration", "1", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"continue reviewer dispatch intake summary：total=1", "continue reviewer dispatch next action runbook：shard=shard-02", "dispatch read-only reviewer", "after saving reviewer JSON input at", "continue reviewer dispatch intake runbook：shard=shard-02"} {
+	for _, expected := range []string{"continue reviewer dispatch intake summary：total=1", "continue reviewer dispatch next action runbook：shard=shard-02", "-RecordReviewerDispatch", "record the immutable dispatch receipt", "continue reviewer dispatch intake runbook：shard=shard-02"} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("installed entrypoint continue reviewer runbook text missing %q:\n%s", expected, out.String())
 		}
@@ -8212,8 +8212,8 @@ func TestRunContinuePrioritizesLaneGateBlockerWhilePreservingReviewerDispatch(t 
 	if pending.EventID != "evt-mixed-pending-debug" || pending.Lane != "feature-login" || pending.Subject != "debug gate" || pending.Action != "debug" || pending.Target != "workspace/features/feature-login" || pending.Status != "pending-gate" || pending.Risk != "high" || pending.Authorization != "needs-user" || pending.Profile != "manual-feature-login" || pending.ReviewCommand != "/rekit handoff login" || !strings.Contains(pending.WhatIfCommand, "/rekit gate -Action debug -Lane feature-login -WhatIf") || !strings.Contains(pending.ApplyCommand, "/rekit gate -Action debug -Lane feature-login -Apply -Actor runtime-test") || !strings.Contains(pending.ContinueBoundary, "blocked continue is zero-write") || !containsSubstring(pending.Evidence, "pending-gate ledger event evt-mixed-pending-debug") {
 		t.Fatalf("mixed blocked continue omitted concrete pending-gate handoff: %+v", pending)
 	}
-	assertReviewerDispatchIntakeSummary(t, "mixed blocked continue", blocked.ReviewerDispatchIntakeSummary, 1, 1, 0, "shard-01", "waiting-for-reviewer-result")
-	if dispatch, ok := reviewerDispatchIntakeByShard(blocked.ReviewerDispatchIntakeHandoffs, "shard-01"); !ok || dispatch.State != "waiting-for-reviewer-result" || dispatch.PacketPath != plan.PacketPath {
+	assertReviewerDispatchIntakeSummary(t, "mixed blocked continue", blocked.ReviewerDispatchIntakeSummary, 1, 1, 0, "shard-01", "ready-for-reviewer-dispatch")
+	if dispatch, ok := reviewerDispatchIntakeByShard(blocked.ReviewerDispatchIntakeHandoffs, "shard-01"); !ok || dispatch.State != "ready-for-reviewer-dispatch" || dispatch.PacketPath != plan.PacketPath {
 		t.Fatalf("mixed blocked continue omitted reviewer dispatch provenance: %+v", blocked.ReviewerDispatchIntakeHandoffs)
 	}
 	current := blocked.MissionCommanderActionQueue.CurrentAction
@@ -8240,7 +8240,7 @@ func TestRunContinuePrioritizesLaneGateBlockerWhilePreservingReviewerDispatch(t 
 		"continue pending gate handoff：eventId=evt-mixed-pending-debug lane=feature-login subject=debug gate action=debug target=workspace/features/feature-login status=pending-gate risk=high auth=needs-user profile=manual-feature-login review=/rekit handoff login",
 		"continue pending gate continue boundary：eventId=evt-mixed-pending-debug boundary=blocked continue is zero-write",
 		"continue reviewer dispatch intake summary：total=1 waitingForReviewerResult=1 readyForPreview=0",
-		"continue reviewer dispatch intake：lane=feature-login shard=shard-01 state=waiting-for-reviewer-result",
+		"continue reviewer dispatch intake：lane=feature-login shard=shard-01 state=ready-for-reviewer-dispatch",
 		"mission commander action queue current：state=needs-gate-decision source=missionCommanderActions blocked=false requiresReview=true command=`/rekit gate debug -Lane feature-login -WhatIf`",
 	} {
 		if !strings.Contains(text, expected) {
@@ -8798,12 +8798,8 @@ func TestRunPlanSubagentsReviewerMultiPacketLifecyclePriorityE2E(t *testing.T) {
 	if firstInputPath == "" {
 		t.Fatalf("first reviewer packet omitted deterministic input path: %+v", firstHandoff.ReviewerStagingCommands)
 	}
-	if err := os.MkdirAll(filepath.Dir(firstInputPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(firstInputPath, reviewerResultForCLIPlan(t, firstPacket, firstHandoff, "accept", "accepted", "reviewer-session-source-ready"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	firstResult := reviewerResultForCLIPlan(t, firstPacket, firstHandoff, "accept", "accepted", "reviewer-session-source-ready")
+	recordReviewerSessionReceiptsForCLIPlan(t, &out, []string{"-Target", caseRoot, "-Pack", "_template"}, firstPlan.PacketPath, firstHandoff, "feature-login", "mission-commander", "go-cli-priority-harness", firstResult)
 
 	secondReviewRoot := filepath.Join(caseRoot, ".rekit", "reviews", "z-ready-intake")
 	out.Reset()
@@ -8945,9 +8941,9 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &statusBeforeDispatch); err != nil {
 		t.Fatalf("status JSON did not decode: %v\n%s", err, out.String())
 	}
-	assertReviewerDispatchIntakeSummary(t, "status before reviewer result", statusBeforeDispatch.CaseMission.ReviewerDispatchIntakeSummary, 2, 2, 0, "shard-02", "waiting-for-reviewer-result")
+	assertReviewerDispatchIntakeSummary(t, "status before reviewer result", statusBeforeDispatch.CaseMission.ReviewerDispatchIntakeSummary, 2, 2, 0, "shard-02", "ready-for-reviewer-dispatch")
 	firstDispatch, ok := reviewerDispatchIntakeByShard(statusBeforeDispatch.CaseMission.ReviewerDispatchIntakeHandoffs, "shard-01")
-	if !ok || firstDispatch.PacketPath != plan.PacketPath || firstDispatch.ReviewerResultPresent || firstDispatch.State != "waiting-for-reviewer-result" || firstDispatch.ReviewerResultSourcePath != packet.ShardHandoffs[0].ReviewerStagingCommands.SourcePath || firstDispatch.ReviewerResultSourceState != "missing" || firstDispatch.ReviewerResultCandidatePath != packet.ShardHandoffs[0].ReviewerResultCandidatePath || firstDispatch.ReviewerResultCandidateState != "missing" || firstDispatch.DispatchPromptState != "ready" || !firstDispatch.DispatchPromptCurrent || firstDispatch.DispatchPromptPath == "" || firstDispatch.DispatchPromptSHA256 == "" || firstDispatch.DispatchPromptActualSHA256 != firstDispatch.DispatchPromptSHA256 || !strings.Contains(firstDispatch.ReviewerResultStagingCommand, "-StageReviewerResult") || !strings.Contains(firstDispatch.DispatchCommand, "dispatch read-only reviewer for shard-01") || !strings.Contains(firstDispatch.PreviewCommand, "-WhatIf -Format json") || !containsSubstring(firstDispatch.Boundary, "does not spawn") {
+	if !ok || firstDispatch.PacketPath != plan.PacketPath || firstDispatch.ReviewerResultPresent || firstDispatch.State != "ready-for-reviewer-dispatch" || firstDispatch.ReviewerResultSourcePath != packet.ShardHandoffs[0].ReviewerStagingCommands.SourcePath || firstDispatch.ReviewerResultSourceState != "missing" || firstDispatch.ReviewerResultCandidatePath != packet.ShardHandoffs[0].ReviewerResultCandidatePath || firstDispatch.ReviewerResultCandidateState != "missing" || firstDispatch.DispatchPromptState != "ready" || !firstDispatch.DispatchPromptCurrent || firstDispatch.DispatchPromptPath == "" || firstDispatch.DispatchPromptSHA256 == "" || firstDispatch.DispatchPromptActualSHA256 != firstDispatch.DispatchPromptSHA256 || !strings.Contains(firstDispatch.ReviewerResultStagingCommand, "-StageReviewerResult") || !strings.Contains(firstDispatch.DispatchCommand, "dispatch read-only reviewer for shard-01") || !strings.Contains(firstDispatch.PreviewCommand, "-WhatIf -Format json") || !containsSubstring(firstDispatch.Boundary, "does not spawn") {
 		t.Fatalf("status JSON omitted waiting reviewer dispatch intake handoff: %+v", statusBeforeDispatch.CaseMission.ReviewerDispatchIntakeHandoffs)
 	}
 	if firstDispatch.ManagedDispatch == nil || firstDispatch.ManagedDispatch.ShardID != "shard-01" || firstDispatch.ManagedDispatch.PromptPath != firstDispatch.DispatchPromptPath || firstDispatch.ManagedDispatch.PromptSHA256 != firstDispatch.DispatchPromptSHA256 || firstDispatch.ManagedDispatch.ReviewerResultInputPath != packet.ShardHandoffs[0].ReviewerStagingCommands.SourceCaptureInput || firstDispatch.ManagedDispatch.ReviewerResultSourcePath != packet.ShardHandoffs[0].ReviewerStagingCommands.SourcePath || firstDispatch.ManagedDispatch.ReviewerResultCandidatePath != packet.ShardHandoffs[0].ReviewerResultCandidatePath || firstDispatch.ManagedDispatch.CollectionPreviewCommand == "" || !containsSubstring(firstDispatch.ManagedDispatch.Boundary, "does not spawn") || !containsSubstring(firstDispatch.Evidence, "managedDispatch packet") || !containsSubstring(firstDispatch.RunbookSteps, "managed dispatch packet is available") || !containsSubstring(firstDispatch.Boundary, "managed dispatch packet is read-only recovery context") {
@@ -9039,10 +9035,10 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &statusAfterPromptRepair); err != nil {
 		t.Fatalf("status JSON after prompt repair did not decode: %v\n%s", err, out.String())
 	}
-	assertReviewerDispatchIntakeSummary(t, "status after prompt repair", statusAfterPromptRepair.CaseMission.ReviewerDispatchIntakeSummary, 2, 2, 0, "shard-02", "waiting-for-reviewer-result")
+	assertReviewerDispatchIntakeSummary(t, "status after prompt repair", statusAfterPromptRepair.CaseMission.ReviewerDispatchIntakeSummary, 2, 2, 0, "shard-02", "ready-for-reviewer-dispatch")
 	assertReviewerDispatchOperatorPackage(t, "status after prompt repair", statusAfterPromptRepair.CaseMission.ReviewerDispatchIntakeSummary, "shard-01", firstDispatch.DispatchPromptSHA256)
 	repairedDispatch, ok := reviewerDispatchIntakeByShard(statusAfterPromptRepair.CaseMission.ReviewerDispatchIntakeHandoffs, "shard-01")
-	if !ok || repairedDispatch.State != "waiting-for-reviewer-result" || repairedDispatch.DispatchPromptState != "ready" || !repairedDispatch.DispatchPromptCurrent || repairedDispatch.DispatchPromptPath != firstDispatch.DispatchPromptPath || repairedDispatch.DispatchPromptSHA256 != firstDispatch.DispatchPromptSHA256 || repairedDispatch.DispatchPromptActualSHA256 != firstDispatch.DispatchPromptSHA256 || statusAfterPromptRepair.CaseMission.ReviewerDispatchIntakeSummary.PromptArtifactBlocked != 0 || statusAfterPromptRepair.CaseMission.ReviewerDispatchIntakeSummary.NextActionState != "waiting-for-reviewer-result" || strings.Contains(statusAfterPromptRepair.CaseMission.ReviewerDispatchIntakeSummary.NextAction, "-RepairReviewerPromptArtifact") {
+	if !ok || repairedDispatch.State != "ready-for-reviewer-dispatch" || repairedDispatch.DispatchPromptState != "ready" || !repairedDispatch.DispatchPromptCurrent || repairedDispatch.DispatchPromptPath != firstDispatch.DispatchPromptPath || repairedDispatch.DispatchPromptSHA256 != firstDispatch.DispatchPromptSHA256 || repairedDispatch.DispatchPromptActualSHA256 != firstDispatch.DispatchPromptSHA256 || statusAfterPromptRepair.CaseMission.ReviewerDispatchIntakeSummary.PromptArtifactBlocked != 0 || statusAfterPromptRepair.CaseMission.ReviewerDispatchIntakeSummary.NextActionState != "ready-for-reviewer-dispatch" || strings.Contains(statusAfterPromptRepair.CaseMission.ReviewerDispatchIntakeSummary.NextAction, "-RepairReviewerPromptArtifact") {
 		t.Fatalf("status JSON after prompt repair did not restore reviewer dispatch handoff: item=%+v summary=%+v", repairedDispatch, statusAfterPromptRepair.CaseMission.ReviewerDispatchIntakeSummary)
 	}
 
@@ -9050,7 +9046,7 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"status Mission Commander first screen：focus=reviewer-current-action", "status Mission Commander focus reviewer dispatch operator package：ready=true", "status Mission Commander focus reviewer dispatch operator agent tool：shard=shard-01", "status Mission Commander focus reviewer dispatch operator result skeleton：shard=shard-01", "status Mission Commander focus reviewer dispatch operator result pipeline：shard=shard-01", "status Mission Commander focus reviewer dispatch operator dispatch：shard=shard-01 command=`dispatch read-only reviewer for shard-01", "status Mission Commander focus reviewer dispatch operator boundary：shard=shard-01 boundary=reviewer dispatch operator package is read-only", "status case mission reviewer dispatch intake summary：total=2 waitingForReviewerResult=2 readyForPreview=0", "nextActionShard=shard-01 nextActionState=waiting-for-reviewer-result", "status case mission reviewer dispatch next action：shard=shard-01 state=waiting-for-reviewer-result sourceState=missing", "stagingPreview=`/rekit plan-subagents", "-StageReviewerResult", "status case mission reviewer dispatch operator package：ready=true", "status case mission reviewer dispatch operator agent tool：shard=shard-01", "status case mission reviewer dispatch operator result skeleton：shard=shard-01", "status case mission reviewer dispatch operator result pipeline：shard=shard-01", "status case mission reviewer dispatch operator boundary：shard=shard-01 boundary=reviewer dispatch operator package is read-only", "status case mission reviewer dispatch intake：lane=feature-login shard=shard-01 state=waiting-for-reviewer-result", "status case mission reviewer managed dispatch：shard=shard-01 mode=manual-main-agent-intake", "status case mission reviewer dispatch intake dispatch：shard=shard-01 command=`dispatch read-only reviewer for shard-01"} {
+	for _, expected := range []string{"status Mission Commander first screen：focus=reviewer-current-action", "status Mission Commander focus reviewer dispatch operator package：ready=true", "status Mission Commander focus reviewer dispatch operator agent tool：shard=shard-01", "status Mission Commander focus reviewer dispatch operator result skeleton：shard=shard-01", "status Mission Commander focus reviewer dispatch operator result pipeline：shard=shard-01", "status Mission Commander focus reviewer dispatch operator dispatch：shard=shard-01 command=`dispatch read-only reviewer for shard-01", "status Mission Commander focus reviewer dispatch operator boundary：shard=shard-01 boundary=reviewer dispatch operator package is read-only", "status case mission reviewer dispatch intake summary：total=2 waitingForReviewerResult=2 readyForPreview=0", "nextActionShard=shard-01 nextActionState=ready-for-reviewer-dispatch", "status case mission reviewer dispatch next action：shard=shard-01 state=ready-for-reviewer-dispatch sourceState=missing", "stagingPreview=`/rekit plan-subagents", "-StageReviewerResult", "status case mission reviewer dispatch operator package：ready=true", "status case mission reviewer dispatch operator agent tool：shard=shard-01", "status case mission reviewer dispatch operator result skeleton：shard=shard-01", "status case mission reviewer dispatch operator result pipeline：shard=shard-01", "status case mission reviewer dispatch operator boundary：shard=shard-01 boundary=reviewer dispatch operator package is read-only", "status case mission reviewer dispatch intake：lane=feature-login shard=shard-01 state=ready-for-reviewer-dispatch", "status case mission reviewer managed dispatch：shard=shard-01 mode=manual-main-agent-intake", "status case mission reviewer dispatch intake dispatch：shard=shard-01 command=`dispatch read-only reviewer for shard-01"} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("status text omitted reviewer dispatch intake handoff %q:\n%s", expected, out.String())
 		}
@@ -9060,7 +9056,7 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "login", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "handoff reviewer dispatch intake summary：total=2 waitingForReviewerResult=2 readyForPreview=0") || !strings.Contains(out.String(), "handoff reviewer dispatch operator package：ready=true") || !strings.Contains(out.String(), "handoff reviewer dispatch operator result pipeline：shard=shard-01") || !strings.Contains(out.String(), "handoff reviewer dispatch intake：lane=feature-login shard=shard-01 state=waiting-for-reviewer-result") || !strings.Contains(out.String(), "handoff reviewer managed dispatch：shard=shard-01 mode=manual-main-agent-intake") {
+	if !strings.Contains(out.String(), "handoff reviewer dispatch intake summary：total=2 waitingForReviewerResult=2 readyForPreview=0") || !strings.Contains(out.String(), "handoff reviewer dispatch operator package：ready=true") || !strings.Contains(out.String(), "handoff reviewer dispatch operator result pipeline：shard=shard-01") || !strings.Contains(out.String(), "handoff reviewer dispatch intake：lane=feature-login shard=shard-01 state=ready-for-reviewer-dispatch") || !strings.Contains(out.String(), "handoff reviewer managed dispatch：shard=shard-01 mode=manual-main-agent-intake") {
 		t.Fatalf("handoff text omitted reviewer dispatch intake handoff:\n%s", out.String())
 	}
 
@@ -9072,10 +9068,10 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	if !repairedHandoff.IsMutation || !repairedHandoff.Applied || repairedHandoff.Project || repairedHandoff.Lane == nil || repairedHandoff.Lane.ID != "feature-login" {
 		t.Fatalf("unexpected repaired reviewer lane handoff result: %+v", repairedHandoff)
 	}
-	assertReviewerDispatchIntakeSummary(t, "handoff apply after prompt repair", repairedHandoff.ReviewerDispatchIntakeSummary, 2, 2, 0, "shard-02", "waiting-for-reviewer-result")
+	assertReviewerDispatchIntakeSummary(t, "handoff apply after prompt repair", repairedHandoff.ReviewerDispatchIntakeSummary, 2, 2, 0, "shard-02", "ready-for-reviewer-dispatch")
 	assertReviewerDispatchOperatorPackage(t, "handoff apply after prompt repair", repairedHandoff.ReviewerDispatchIntakeSummary, "shard-01", firstDispatch.DispatchPromptSHA256)
 	repairedHandoffDispatch, ok := reviewerDispatchIntakeByShard(repairedHandoff.ReviewerDispatchIntakeHandoffs, "shard-01")
-	if !ok || repairedHandoffDispatch.State != "waiting-for-reviewer-result" || repairedHandoffDispatch.DispatchPromptState != "ready" || !repairedHandoffDispatch.DispatchPromptCurrent || repairedHandoffDispatch.DispatchPromptSHA256 != firstDispatch.DispatchPromptSHA256 || repairedHandoffDispatch.ManagedDispatch == nil || repairedHandoffDispatch.ManagedDispatch.ReviewerResultInputPath != firstDispatch.ManagedDispatch.ReviewerResultInputPath {
+	if !ok || repairedHandoffDispatch.State != "ready-for-reviewer-dispatch" || repairedHandoffDispatch.DispatchPromptState != "ready" || !repairedHandoffDispatch.DispatchPromptCurrent || repairedHandoffDispatch.DispatchPromptSHA256 != firstDispatch.DispatchPromptSHA256 || repairedHandoffDispatch.ManagedDispatch == nil || repairedHandoffDispatch.ManagedDispatch.ReviewerResultInputPath != firstDispatch.ManagedDispatch.ReviewerResultInputPath {
 		t.Fatalf("handoff apply after prompt repair did not preserve ready reviewer dispatch handoff: %+v", repairedHandoff.ReviewerDispatchIntakeHandoffs)
 	}
 	repairedLatest := assertStartWrite(t, repairedHandoff.Writes, ".rekit/handovers/feature-login-latest.md", "write-latest-lane-handoff")
@@ -9083,7 +9079,7 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"## Reviewer dispatch intake handoff", "summary: total=2 waitingForReviewerResult=2 readyForPreview=0", "operator package: ready=true", "operator agent tool: tool=Claude Code Agent", "operator expected reviewer result skeleton", "operator result pipeline", "operator boundary: reviewer dispatch operator package is read-only", "dispatch intake: lane=feature-login shard=shard-01 state=waiting-for-reviewer-result", "sha256=" + firstDispatch.DispatchPromptSHA256 + " state=ready current=true", "managed dispatch: mode=manual-main-agent-intake shard=shard-01", "dispatch read-only reviewer for shard-01", "runtime does not spawn, stop, monitor, or manage reviewer sessions"} {
+	for _, expected := range []string{"## Reviewer dispatch intake handoff", "summary: total=2 waitingForReviewerResult=2 readyForPreview=0", "operator package: ready=true", "operator agent tool: tool=Claude Code Agent", "operator expected reviewer result skeleton", "operator result pipeline", "operator boundary: reviewer dispatch operator package is read-only", "dispatch intake: lane=feature-login shard=shard-01 state=ready-for-reviewer-dispatch", "sha256=" + firstDispatch.DispatchPromptSHA256 + " state=ready current=true", "managed dispatch: mode=manual-main-agent-intake shard=shard-01", "dispatch read-only reviewer for shard-01", "runtime does not spawn, stop, monitor, or manage reviewer sessions"} {
 		if !strings.Contains(string(repairedHandoffText), expected) {
 			t.Fatalf("repaired reviewer lane handoff missing %q:\n%s", expected, string(repairedHandoffText))
 		}
@@ -9098,7 +9094,7 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "login", "-Executor", "session-login", "-ExpectedExecutorGeneration", "1", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "continue reviewer dispatch intake summary：total=2 waitingForReviewerResult=2 readyForPreview=0") || !strings.Contains(out.String(), "continue reviewer dispatch operator package：ready=true") || !strings.Contains(out.String(), "continue reviewer dispatch operator result pipeline：shard=shard-01") || !strings.Contains(out.String(), "continue reviewer dispatch intake：lane=feature-login shard=shard-01 state=waiting-for-reviewer-result") || !strings.Contains(out.String(), "continue reviewer managed dispatch：shard=shard-01 mode=manual-main-agent-intake") {
+	if !strings.Contains(out.String(), "continue reviewer dispatch intake summary：total=2 waitingForReviewerResult=2 readyForPreview=0") || !strings.Contains(out.String(), "continue reviewer dispatch operator package：ready=true") || !strings.Contains(out.String(), "continue reviewer dispatch operator result pipeline：shard=shard-01") || !strings.Contains(out.String(), "continue reviewer dispatch intake：lane=feature-login shard=shard-01 state=ready-for-reviewer-dispatch") || !strings.Contains(out.String(), "continue reviewer managed dispatch：shard=shard-01 mode=manual-main-agent-intake") {
 		t.Fatalf("continue text omitted reviewer dispatch intake handoff:\n%s", out.String())
 	}
 
@@ -9117,7 +9113,7 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &continueApplyBeforeIntake); err != nil {
 		t.Fatalf("continue apply before reviewer intake JSON did not decode: %v\n%s", err, out.String())
 	}
-	assertReviewerDispatchIntakeSummary(t, "continue apply before reviewer intake", continueApplyBeforeIntake.ReviewerDispatchIntakeSummary, 2, 2, 0, "shard-02", "waiting-for-reviewer-result")
+	assertReviewerDispatchIntakeSummary(t, "continue apply before reviewer intake", continueApplyBeforeIntake.ReviewerDispatchIntakeSummary, 2, 2, 0, "shard-02", "ready-for-reviewer-dispatch")
 	assertReviewerDispatchOperatorPackage(t, "continue apply before reviewer intake", continueApplyBeforeIntake.ReviewerDispatchIntakeSummary, "shard-01", firstDispatch.DispatchPromptSHA256)
 	if _, ok := reviewerDispatchIntakeByShard(continueApplyBeforeIntake.ReviewerDispatchIntakeHandoffs, "shard-01"); !ok {
 		t.Fatalf("continue apply omitted open reviewer dispatch handoffs: %+v", continueApplyBeforeIntake.ReviewerDispatchIntakeHandoffs)
@@ -9188,7 +9184,7 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &statusWithSourceReady); err != nil {
 		t.Fatalf("status JSON with reviewer source did not decode: %v\n%s", err, out.String())
 	}
-	assertReviewerDispatchIntakeSummary(t, "status with reviewer source", statusWithSourceReady.CaseMission.ReviewerDispatchIntakeSummary, 2, 1, 1, "shard-02", "waiting-for-reviewer-result")
+	assertReviewerDispatchIntakeSummary(t, "status with reviewer source", statusWithSourceReady.CaseMission.ReviewerDispatchIntakeSummary, 2, 1, 1, "shard-02", "ready-for-reviewer-dispatch")
 	sourceReadyDispatch, ok := reviewerDispatchIntakeByShard(statusWithSourceReady.CaseMission.ReviewerDispatchIntakeHandoffs, "shard-01")
 	if !ok || sourceReadyDispatch.State != "ready-for-reviewer-result-staging-preview" || sourceReadyDispatch.ReviewerResultSourcePath != firstSourcePath || sourceReadyDispatch.ReviewerResultSourceState != "ready" || !strings.Contains(sourceReadyDispatch.ReviewerResultStagingCommand, "-StageReviewerResult") || statusWithSourceReady.CaseMission.ReviewerDispatchIntakeSummary.NextActionShardID != "shard-01" || statusWithSourceReady.CaseMission.ReviewerDispatchIntakeSummary.NextActionState != "ready-for-reviewer-result-staging-preview" || statusWithSourceReady.CaseMission.ReviewerDispatchIntakeSummary.NextActionReviewerResultSourcePath != firstSourcePath || !strings.Contains(statusWithSourceReady.CaseMission.ReviewerDispatchIntakeSummary.NextActionReviewerResultStagingCommand, "-StageReviewerResult") || !strings.Contains(statusWithSourceReady.CaseMission.ReviewerDispatchIntakeSummary.NextAction, "-StageReviewerResult") {
 		t.Fatalf("status JSON omitted source-ready reviewer staging handoff: dispatch=%+v summary=%+v", sourceReadyDispatch, statusWithSourceReady.CaseMission.ReviewerDispatchIntakeSummary)
@@ -9208,7 +9204,7 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 		t.Fatal(err)
 	}
 	sourceReadyHandoff := decodeHandoffResult(t, out.Bytes())
-	assertReviewerDispatchIntakeSummary(t, "handoff apply after reviewer input repair", sourceReadyHandoff.ReviewerDispatchIntakeSummary, 2, 1, 1, "shard-02", "waiting-for-reviewer-result")
+	assertReviewerDispatchIntakeSummary(t, "handoff apply after reviewer input repair", sourceReadyHandoff.ReviewerDispatchIntakeSummary, 2, 1, 1, "shard-02", "ready-for-reviewer-dispatch")
 	sourceReadyHandoffDispatch, ok := reviewerDispatchIntakeByShard(sourceReadyHandoff.ReviewerDispatchIntakeHandoffs, "shard-01")
 	if !sourceReadyHandoff.IsMutation || !sourceReadyHandoff.Applied || sourceReadyHandoff.Project || sourceReadyHandoff.Lane == nil || sourceReadyHandoff.Lane.ID != "feature-login" || !ok || sourceReadyHandoffDispatch.State != "ready-for-reviewer-result-staging-preview" || sourceReadyHandoffDispatch.ReviewerResultInputPath != firstInputPath || sourceReadyHandoffDispatch.ReviewerResultInputState != "ready" || sourceReadyHandoffDispatch.ReviewerResultSourcePath != firstSourcePath || sourceReadyHandoffDispatch.ReviewerResultSourceState != "ready" || !strings.Contains(sourceReadyHandoffDispatch.ReviewerResultStagingCommand, "-StageReviewerResult") {
 		t.Fatalf("handoff apply after reviewer input repair did not preserve source-ready reviewer handoff: result=%+v dispatch=%+v", sourceReadyHandoff, sourceReadyHandoffDispatch)
@@ -9252,7 +9248,7 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 			if err := json.Unmarshal(out.Bytes(), &statusWithReviewerResult); err != nil {
 				t.Fatalf("status JSON with reviewer result did not decode: %v\n%s", err, out.String())
 			}
-			assertReviewerDispatchIntakeSummary(t, "status with reviewer result", statusWithReviewerResult.CaseMission.ReviewerDispatchIntakeSummary, 2, 1, 1, "shard-02", "waiting-for-reviewer-result")
+			assertReviewerDispatchIntakeSummary(t, "status with reviewer result", statusWithReviewerResult.CaseMission.ReviewerDispatchIntakeSummary, 2, 1, 1, "shard-02", "ready-for-reviewer-dispatch")
 			readyDispatch, ok := reviewerDispatchIntakeByShard(statusWithReviewerResult.CaseMission.ReviewerDispatchIntakeHandoffs, "shard-01")
 			if !ok || !readyDispatch.ReviewerResultPresent || readyDispatch.State != "ready-for-reviewer-intake-preview" || !strings.Contains(readyDispatch.PreviewCommand, handoff.ReviewerResultPath) || !strings.Contains(readyDispatch.BatchPreviewCommand, "-ReadyReviewerResults") || !strings.Contains(statusWithReviewerResult.CaseMission.ReviewerDispatchIntakeSummary.NextAction, "-ReadyReviewerResults") || statusWithReviewerResult.CaseMission.ReviewerDispatchIntakeSummary.LatestBatchApplyCommand == "" || readyDispatch.DispatchOnly {
 				t.Fatalf("status JSON omitted ready reviewer batch intake handoff: %+v", statusWithReviewerResult.CaseMission.ReviewerDispatchIntakeHandoffs)
@@ -9319,7 +9315,7 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 			if err := json.Unmarshal(out.Bytes(), &statusAfterFirstIntake); err != nil {
 				t.Fatalf("status JSON after first reviewer intake did not decode: %v\n%s", err, out.String())
 			}
-			assertReviewerDispatchIntakeSummary(t, "status after first reviewer intake", statusAfterFirstIntake.CaseMission.ReviewerDispatchIntakeSummary, 1, 1, 0, "shard-02", "waiting-for-reviewer-result")
+			assertReviewerDispatchIntakeSummary(t, "status after first reviewer intake", statusAfterFirstIntake.CaseMission.ReviewerDispatchIntakeSummary, 1, 1, 0, "shard-02", "ready-for-reviewer-dispatch")
 			if statusAfterFirstIntake.CaseMission.ReviewerDispatchIntakeSummary.LatestPacketDispatchTotal != 2 || statusAfterFirstIntake.CaseMission.ReviewerDispatchIntakeSummary.LatestPacketDispatchCompleted != 1 || statusAfterFirstIntake.CaseMission.ReviewerDispatchIntakeSummary.LatestPacketDispatchOpen != 1 || statusAfterFirstIntake.CaseMission.ReviewerDispatchIntakeSummary.LatestPacketNextOpenShardID != "shard-02" || statusAfterFirstIntake.CaseMission.ReviewerDispatchIntakeSummary.LatestCompletedShardID != "shard-01" || !slices.Equal(statusAfterFirstIntake.CaseMission.ReviewerDispatchIntakeSummary.RemainingShardIDs, []string{"shard-02"}) {
 				t.Fatalf("status after first reviewer intake omitted packet progress: %+v", statusAfterFirstIntake.CaseMission.ReviewerDispatchIntakeSummary)
 			}
@@ -9343,7 +9339,7 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 			if err := json.Unmarshal(out.Bytes(), &continueApplyAfterFirstIntake); err != nil {
 				t.Fatalf("continue apply after first reviewer intake JSON did not decode: %v\n%s", err, out.String())
 			}
-			assertReviewerDispatchIntakeSummary(t, "continue apply after first reviewer intake", continueApplyAfterFirstIntake.ReviewerDispatchIntakeSummary, 1, 1, 0, "shard-02", "waiting-for-reviewer-result")
+			assertReviewerDispatchIntakeSummary(t, "continue apply after first reviewer intake", continueApplyAfterFirstIntake.ReviewerDispatchIntakeSummary, 1, 1, 0, "shard-02", "ready-for-reviewer-dispatch")
 			if continueApplyAfterFirstIntake.ReviewerDispatchIntakeSummary.LatestPacketDispatchCompleted != 1 || continueApplyAfterFirstIntake.ReviewerDispatchIntakeSummary.LatestPacketDispatchOpen != 1 || continueApplyAfterFirstIntake.ReviewerDispatchIntakeSummary.LatestPacketNextOpenShardID != "shard-02" || continueApplyAfterFirstIntake.ReviewerDispatchIntakeSummary.LatestCompletedShardID != "shard-01" {
 				t.Fatalf("continue apply after first reviewer intake omitted progress summary: %+v", continueApplyAfterFirstIntake.ReviewerDispatchIntakeSummary)
 			}

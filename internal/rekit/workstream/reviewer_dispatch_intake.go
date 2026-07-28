@@ -21,6 +21,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewerresult"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewersession"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewpath"
 )
 
@@ -143,6 +144,19 @@ type ReviewerDispatchIntakeHandoff struct {
 	DispatchPromptActualSHA256               string                            `json:"dispatchPromptActualSha256,omitempty"`
 	DispatchPromptFailure                    string                            `json:"dispatchPromptFailure,omitempty"`
 	DispatchPromptRepairCommand              string                            `json:"dispatchPromptRepairCommand,omitempty"`
+	ReviewerDispatchID                       string                            `json:"reviewerDispatchId,omitempty"`
+	ReviewerDispatchReceiptPath              string                            `json:"reviewerDispatchReceiptPath,omitempty"`
+	ReviewerDispatchReceiptSHA256            string                            `json:"reviewerDispatchReceiptSha256,omitempty"`
+	ReviewerHarness                          string                            `json:"reviewerHarness,omitempty"`
+	ReviewerSession                          string                            `json:"reviewerSession,omitempty"`
+	ReviewerSessionOutcome                   string                            `json:"reviewerSessionOutcome,omitempty"`
+	ReviewerSessionExitStatus                string                            `json:"reviewerSessionExitStatus,omitempty"`
+	ReviewerCompletionReceiptPath            string                            `json:"reviewerCompletionReceiptPath,omitempty"`
+	ReviewerCompletionReceiptSHA256          string                            `json:"reviewerCompletionReceiptSha256,omitempty"`
+	ReviewerSessionReceiptState              string                            `json:"reviewerSessionReceiptState,omitempty"`
+	ReviewerSessionReceiptFailure            string                            `json:"reviewerSessionReceiptFailure,omitempty"`
+	ReviewerDispatchRecordCommand            string                            `json:"reviewerDispatchRecordCommand,omitempty"`
+	ReviewerCompletionRecordCommand          string                            `json:"reviewerCompletionRecordCommand,omitempty"`
 	AgentToolRequest                         *ReviewerAgentToolRequest         `json:"agentToolRequest,omitempty"`
 	ReviewerResultSourceCaptureCommand       string                            `json:"reviewerResultSourceCaptureCommand,omitempty"`
 	ReviewerResultSourceCaptureApplyCommand  string                            `json:"reviewerResultSourceCaptureApplyCommand,omitempty"`
@@ -241,6 +255,19 @@ type ReviewerDispatchOperatorPackageItem struct {
 	DispatchPromptActualSHA256                string                    `json:"dispatchPromptActualSha256,omitempty"`
 	DispatchPromptFailure                     string                    `json:"dispatchPromptFailure,omitempty"`
 	DispatchPromptRepairCommand               string                    `json:"dispatchPromptRepairCommand,omitempty"`
+	ReviewerDispatchID                        string                    `json:"reviewerDispatchId,omitempty"`
+	ReviewerDispatchReceiptPath               string                    `json:"reviewerDispatchReceiptPath,omitempty"`
+	ReviewerDispatchReceiptSHA256             string                    `json:"reviewerDispatchReceiptSha256,omitempty"`
+	ReviewerHarness                           string                    `json:"reviewerHarness,omitempty"`
+	ReviewerSession                           string                    `json:"reviewerSession,omitempty"`
+	ReviewerSessionOutcome                    string                    `json:"reviewerSessionOutcome,omitempty"`
+	ReviewerSessionExitStatus                 string                    `json:"reviewerSessionExitStatus,omitempty"`
+	ReviewerCompletionReceiptPath             string                    `json:"reviewerCompletionReceiptPath,omitempty"`
+	ReviewerCompletionReceiptSHA256           string                    `json:"reviewerCompletionReceiptSha256,omitempty"`
+	ReviewerSessionReceiptState               string                    `json:"reviewerSessionReceiptState,omitempty"`
+	ReviewerSessionReceiptFailure             string                    `json:"reviewerSessionReceiptFailure,omitempty"`
+	ReviewerDispatchRecordCommand             string                    `json:"reviewerDispatchRecordCommand,omitempty"`
+	ReviewerCompletionRecordCommand           string                    `json:"reviewerCompletionRecordCommand,omitempty"`
 	AgentToolRequest                          *ReviewerAgentToolRequest `json:"agentToolRequest,omitempty"`
 	ExpectedReviewerResultSkeleton            string                    `json:"expectedReviewerResultSkeleton,omitempty"`
 	ExpectedOutput                            string                    `json:"expectedOutput,omitempty"`
@@ -425,8 +452,14 @@ type reviewerDispatchPacket struct {
 	RepoRoot              string                              `json:"repoRoot"`
 	Pack                  string                              `json:"pack"`
 	TargetLane            string                              `json:"targetLane"`
+	OwnerBinding          reviewerDispatchPacketOwner         `json:"ownerBinding"`
+	Route                 reviewerDispatchPacketRoute         `json:"route"`
 	Observability         reviewerDispatchPacketObservability `json:"observability"`
 	ReviewerOrchestration reviewerDispatchPacketOrchestration `json:"reviewerOrchestration"`
+}
+
+type reviewerDispatchPacketRoute struct {
+	ID string `json:"id"`
 }
 
 type reviewerDispatchPacketObservability struct {
@@ -525,6 +558,7 @@ type reviewerPacketOwnerAdoption struct {
 type reviewerDispatchPacketDispatch struct {
 	ShardID                     string                            `json:"shardId"`
 	Status                      string                            `json:"status"`
+	Items                       []string                          `json:"items"`
 	ReviewerResultPath          string                            `json:"reviewerResultPath"`
 	ReviewerResultCandidatePath string                            `json:"reviewerResultCandidatePath"`
 	DispatchPromptPath          string                            `json:"dispatchPromptPath"`
@@ -879,6 +913,8 @@ func reviewerDispatchActionPriority(item ReviewerDispatchIntakeHandoff) int {
 		return 1
 	case "reviewer-result-recovery-required", "reviewer-result-recovery-ambiguous":
 		return 2
+	case "reviewer-session-receipt-invalid", "reviewer-session-receipt-owner-stale", "reviewer-session-failed":
+		return 3
 	case "ready-for-reviewer-intake-preview":
 		return 3
 	case "ready-for-reviewer-result-collection-preview", "reviewer-result-recovery-disposed-ready-for-collection-preview":
@@ -889,8 +925,12 @@ func reviewerDispatchActionPriority(item ReviewerDispatchIntakeHandoff) int {
 		return 6
 	case "reviewer-packet-integrity-invalid", "reviewer-result-symlink-blocked", "reviewer-result-input-invalid", "reviewer-result-source-invalid", "reviewer-result-candidate-invalid", "reviewer-result-canonical-invalid", "reviewer-result-collection-required", "reviewer-result-recovery-invalid", "attach-required-before-reviewer-intake":
 		return 7
-	case "waiting-for-reviewer-result", "dispatch-only-waiting-for-result":
+	case "ready-for-reviewer-completion-receipt-preview":
+		return 7
+	case "reviewer-session-running-unknown":
 		return 8
+	case "ready-for-reviewer-dispatch", "waiting-for-reviewer-result", "dispatch-only-waiting-for-result":
+		return 9
 	default:
 		return 9
 	}
@@ -918,7 +958,7 @@ func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) Rev
 			summary.PromptArtifactBlocked++
 		}
 		switch item.State {
-		case "waiting-for-reviewer-result", "dispatch-only-waiting-for-result":
+		case "ready-for-reviewer-dispatch", "reviewer-session-running-unknown", "ready-for-reviewer-completion-receipt-preview", "waiting-for-reviewer-result", "dispatch-only-waiting-for-result":
 			summary.WaitingForReviewerResult++
 		case "ready-for-reviewer-result-source-capture-preview", "ready-for-reviewer-result-staging-preview", "ready-for-reviewer-result-collection-preview", "reviewer-result-recovery-disposed-ready-for-collection-preview", "ready-for-reviewer-intake-preview":
 			summary.ReadyForPreview++
@@ -1504,7 +1544,7 @@ func reviewerDispatchPromptArtifactBlocksDispatch(status reviewerDispatchPromptA
 	if status.Current {
 		return false
 	}
-	return state == "waiting-for-reviewer-result" || state == "dispatch-only-waiting-for-result"
+	return state == "ready-for-reviewer-dispatch" || state == "waiting-for-reviewer-result" || state == "dispatch-only-waiting-for-result"
 }
 
 func reviewerDispatchPromptArtifactBlockedState(status reviewerDispatchPromptArtifact) string {
@@ -1574,9 +1614,240 @@ func reviewerDispatchSourceCaptureApplyCommand(packetPath, shardID, targetLane, 
 		" -Actor <main-agent> -ExpectedReviewerResultInputSha256 <inputSha256-from-WhatIf> -Apply -Format json"
 }
 
-func reviewerResultInputSemanticInvalid(data []byte) bool {
-	_, err := reviewerresult.Decode(data)
-	return err != nil
+func reviewerResultInputSession(data []byte) (string, bool) {
+	result, err := reviewerresult.Decode(data)
+	if err != nil {
+		return "", false
+	}
+	return result.ReviewerSession, true
+}
+
+func reviewerDispatchSessionOwner(owner reviewerDispatchPacketOwner) reviewersession.Owner {
+	return reviewersession.Owner{CurrentExecutor: owner.CurrentExecutor, ExecutorGeneration: owner.ExecutorGeneration, BindingMode: owner.BindingMode}
+}
+
+func reviewerDispatchSessionID(packetID, routeID, shardID, promptSHA256, harness, session string) string {
+	value := strings.Join([]string{packetID, routeID, shardID, strings.ToLower(promptSHA256), harness, session}, "\n")
+	return reviewerDispatchBytesSHA256([]byte(value))
+}
+
+func reviewerDispatchSessionStaticBindingsCurrent(packet reviewerDispatchPacket, packetPath string, packetBytes []byte, targetLane string, dispatch reviewerDispatchPacketDispatch, receipt reviewersession.DispatchReceipt, receiptPath string) bool {
+	if dispatch.AgentToolRequest == nil {
+		return false
+	}
+	expectedID := reviewerDispatchSessionID(packet.PacketID, packet.Route.ID, dispatch.ShardID, dispatch.DispatchPromptSHA256, receipt.ReviewerHarness, receipt.ReviewerSession)
+	return receipt.DispatchID == expectedID &&
+		casebind.SamePath(receiptPath, reviewersession.DispatchPath(packetPath, dispatch.ShardID, expectedID)) &&
+		receipt.PacketID == packet.PacketID &&
+		casebind.SamePath(receipt.PacketPath, packetPath) &&
+		receipt.PacketSHA256 == reviewerDispatchBytesSHA256(packetBytes) &&
+		receipt.RouteID == packet.Route.ID &&
+		receipt.ShardID == dispatch.ShardID &&
+		slices.Equal(receipt.Items, dispatch.Items) &&
+		casebind.SamePath(receipt.PromptPath, dispatch.DispatchPromptPath) &&
+		receipt.PromptSHA256 == dispatch.DispatchPromptSHA256 &&
+		receipt.AgentType == dispatch.AgentToolRequest.AgentType &&
+		receipt.ReadOnly == dispatch.AgentToolRequest.ReadOnly &&
+		receipt.TargetLane == targetLane &&
+		receipt.PacketOwner == reviewerDispatchSessionOwner(packet.OwnerBinding)
+}
+
+func reviewerDispatchSessionCurrentOwnerBindings(caseRoot string, packet reviewerDispatchPacket, packetPath string, receipt reviewersession.DispatchReceipt, currentExecutor string, currentGeneration int) bool {
+	if receipt.EffectiveOwner.CurrentExecutor != currentExecutor || receipt.EffectiveOwner.ExecutorGeneration != currentGeneration {
+		return false
+	}
+	owner := packet.OwnerBinding
+	if owner.CurrentExecutor == currentExecutor && owner.ExecutorGeneration == currentGeneration {
+		return receipt.EffectiveOwner == reviewerDispatchSessionOwner(owner) && receipt.OwnerAdoptionPath == "" && receipt.OwnerAdoptionSHA256 == ""
+	}
+	adoptionPath := filepath.Join(caseRoot, ".rekit", "reviewer-adoptions", packet.PacketID+".json")
+	adoption, current := reviewerDispatchCurrentAdoption(caseRoot, adoptionPath, packet, packetPath, currentExecutor, currentGeneration)
+	if !current {
+		return false
+	}
+	data, err := readStableReviewerWorkstreamArtifact(caseRoot, adoptionPath, "reviewer packet adoption")
+	if err != nil {
+		return false
+	}
+	return receipt.EffectiveOwner == reviewerDispatchSessionOwner(adoption.AdoptedOwner) && casebind.SamePath(receipt.OwnerAdoptionPath, adoptionPath) && receipt.OwnerAdoptionSHA256 == reviewerDispatchBytesSHA256(data)
+}
+
+type reviewerSessionLifecycle struct {
+	dispatchID        string
+	dispatchPath      string
+	dispatchSHA256    string
+	harness           string
+	session           string
+	outcome           string
+	exitStatus        string
+	completionPath    string
+	completionSHA256  string
+	state             string
+	failure           string
+	dispatchCommand   string
+	completionCommand string
+}
+
+func reviewerDispatchSessionLifecycle(caseRoot string, packet reviewerDispatchPacket, packetPath, targetLane string, dispatch reviewerDispatchPacketDispatch, inputPath, inputState, inputSession, inputSHA256 string, inputBytes int, currentExecutor string, currentGeneration int) reviewerSessionLifecycle {
+	if dispatch.AgentToolRequest == nil || strings.TrimSpace(dispatch.DispatchPromptPath) == "" || strings.TrimSpace(dispatch.DispatchPromptSHA256) == "" || dispatch.StagingCommands == nil || strings.TrimSpace(dispatch.ReviewerResultCandidatePath) == "" {
+		return reviewerSessionLifecycle{}
+	}
+	packetBytes, err := readStableReviewerWorkstreamArtifact(caseRoot, packetPath, "reviewer packet")
+	if err != nil {
+		return reviewerSessionLifecycle{state: "reviewer-session-receipt-invalid", failure: err.Error()}
+	}
+	if strings.TrimSpace(packet.Route.ID) == "" {
+		return reviewerSessionLifecycle{state: "reviewer-session-receipt-invalid", failure: "reviewer packet route binding is missing"}
+	}
+	if len(dispatch.Items) == 0 {
+		return reviewerSessionLifecycle{state: "reviewer-session-receipt-invalid", failure: "reviewer packet shard items binding is missing"}
+	}
+	if packet.OwnerBinding.TargetLane != targetLane {
+		return reviewerSessionLifecycle{state: "reviewer-session-receipt-invalid", failure: "reviewer packet owner target lane does not match current lane"}
+	}
+	if !casebind.SamePath(packet.ReviewerOrchestration.PacketPath, packetPath) {
+		return reviewerSessionLifecycle{state: "reviewer-session-receipt-invalid", failure: "reviewer packet orchestration path does not match current packet"}
+	}
+	if packet.ReviewerOrchestration.OwnerBinding != packet.OwnerBinding {
+		return reviewerSessionLifecycle{state: "reviewer-session-receipt-invalid", failure: "reviewer packet orchestration owner binding does not match packet owner binding"}
+	}
+	if dispatch.AgentToolRequest.PromptPath != "" && !casebind.SamePath(dispatch.AgentToolRequest.PromptPath, dispatch.DispatchPromptPath) {
+		return reviewerSessionLifecycle{state: "reviewer-session-receipt-invalid", failure: "reviewer agent prompt path does not match dispatch prompt path"}
+	}
+	if dispatch.AgentToolRequest.PromptSHA256 != "" && dispatch.AgentToolRequest.PromptSHA256 != dispatch.DispatchPromptSHA256 {
+		return reviewerSessionLifecycle{state: "reviewer-session-receipt-invalid", failure: "reviewer agent prompt hash does not match dispatch prompt hash"}
+	}
+	if !dispatch.AgentToolRequest.ReadOnly {
+		return reviewerSessionLifecycle{state: "reviewer-session-receipt-invalid", failure: "reviewer agent request is not read-only"}
+	}
+	if strings.TrimSpace(dispatch.AgentToolRequest.AgentType) == "" {
+		return reviewerSessionLifecycle{state: "reviewer-session-receipt-invalid", failure: "reviewer agent type binding is missing"}
+	}
+	root := filepath.Join(filepath.Dir(packetPath), "sessions", dispatch.ShardID, "dispatches")
+	entries, err := os.ReadDir(root)
+	if os.IsNotExist(err) {
+		return reviewerSessionLifecycle{state: "ready-for-reviewer-dispatch", dispatchCommand: reviewerDispatchSessionRecordCommand(packetPath, dispatch.ShardID, targetLane)}
+	}
+	if err != nil {
+		return reviewerSessionLifecycle{state: "reviewer-session-receipt-invalid", failure: err.Error()}
+	}
+	names := []string{}
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(strings.ToLower(entry.Name()), ".json") {
+			names = append(names, entry.Name())
+		}
+	}
+	sort.Strings(names)
+	if len(names) == 0 {
+		return reviewerSessionLifecycle{state: "reviewer-session-receipt-invalid", failure: "dispatch receipt namespace contains no receipt"}
+	}
+	var selected reviewerSessionLifecycle
+	var selectedAt time.Time
+	var selectedStale reviewerSessionLifecycle
+	var selectedStaleAt time.Time
+	var exactInputMatch reviewerSessionLifecycle
+	exactInputMatches := 0
+	matchingInputDispatches := 0
+	for _, name := range names {
+		path := filepath.Join(root, name)
+		data, readErr := readStableReviewerWorkstreamArtifact(caseRoot, path, "reviewer session dispatch receipt")
+		if readErr != nil {
+			return reviewerSessionLifecycle{state: "reviewer-session-receipt-invalid", failure: readErr.Error()}
+		}
+		receipt, decodeErr := reviewersession.DecodeDispatch(data)
+		if decodeErr != nil || !reviewerDispatchSessionStaticBindingsCurrent(packet, packetPath, packetBytes, targetLane, dispatch, receipt, path) {
+			if decodeErr != nil {
+				return reviewerSessionLifecycle{state: "reviewer-session-receipt-invalid", failure: decodeErr.Error()}
+			}
+			return reviewerSessionLifecycle{state: "reviewer-session-receipt-invalid", failure: "dispatch receipt does not match current packet shard bindings"}
+		}
+		candidate := reviewerSessionLifecycle{dispatchID: receipt.DispatchID, dispatchPath: path, dispatchSHA256: reviewerDispatchBytesSHA256(data), harness: receipt.ReviewerHarness, session: receipt.ReviewerSession, state: "reviewer-session-running-unknown"}
+		if !reviewerDispatchSessionCurrentOwnerBindings(caseRoot, packet, packetPath, receipt, currentExecutor, currentGeneration) {
+			candidate.state = "reviewer-session-receipt-owner-stale"
+			candidate.failure = "dispatch receipt owner generation or adoption provenance is stale"
+		}
+		completionPath := reviewersession.CompletionPath(packetPath, dispatch.ShardID, receipt.DispatchID)
+		completionState, stateErr := refsf.ClassifyNonEmptyRegularFile(completionPath)
+		if stateErr != nil || (completionState != refsf.RegularFileMissing && completionState != refsf.RegularFileReady) {
+			return reviewerSessionLifecycle{state: "reviewer-session-receipt-invalid", failure: "completion receipt must be a non-empty regular file"}
+		}
+		if completionState == refsf.RegularFileReady {
+			completionData, readErr := readStableReviewerWorkstreamArtifact(caseRoot, completionPath, "reviewer session completion receipt")
+			if readErr != nil {
+				return reviewerSessionLifecycle{state: "reviewer-session-receipt-invalid", failure: readErr.Error()}
+			}
+			completion, decodeErr := reviewersession.DecodeCompletion(completionData)
+			if decodeErr != nil || reviewersession.ValidateCompletionDispatchLineage(completion, receipt, path, candidate.dispatchSHA256) != nil || completion.PacketID != packet.PacketID || completion.ShardID != dispatch.ShardID {
+				if decodeErr != nil {
+					return reviewerSessionLifecycle{state: "reviewer-session-receipt-invalid", failure: decodeErr.Error()}
+				}
+				return reviewerSessionLifecycle{state: "reviewer-session-receipt-invalid", failure: "completion receipt does not match dispatch receipt bindings"}
+			}
+			candidate.outcome = completion.Outcome
+			candidate.exitStatus = completion.ExitStatus
+			candidate.completionPath = completionPath
+			candidate.completionSHA256 = reviewerDispatchBytesSHA256(completionData)
+			if completion.CompletionOwner.CurrentExecutor != currentExecutor || completion.CompletionOwner.ExecutorGeneration != currentGeneration {
+				candidate.state = "reviewer-session-receipt-owner-stale"
+				candidate.failure = "completion receipt owner generation is stale"
+			} else if completion.Outcome == "failed" {
+				candidate.state = "reviewer-session-failed"
+			} else if inputState != "ready" || !casebind.SamePath(completion.ReviewerResultInputPath, inputPath) || !strings.EqualFold(completion.ReviewerResultInputSHA256, inputSHA256) || completion.ReviewerResultInputBytes != inputBytes {
+				candidate.state = "reviewer-session-receipt-invalid"
+				candidate.failure = "successful completion receipt does not match an available exact current reviewer result input"
+			} else {
+				candidate.state = "reviewer-session-completed"
+			}
+		} else if candidate.state != "reviewer-session-receipt-owner-stale" && inputState == "ready" && receipt.ReviewerSession == inputSession {
+			candidate.state = "ready-for-reviewer-completion-receipt-preview"
+			candidate.completionCommand = reviewerDispatchSessionCompletionCommand(packetPath, receipt.DispatchID, targetLane, inputPath)
+		}
+		recordedAt, _ := time.Parse(time.RFC3339Nano, receipt.RecordedAt)
+		if candidate.state == "reviewer-session-receipt-owner-stale" && (selectedStale.dispatchID == "" || recordedAt.After(selectedStaleAt)) {
+			selectedStale = candidate
+			selectedStaleAt = recordedAt
+		}
+		if inputState == "ready" {
+			if receipt.ReviewerSession != inputSession {
+				continue
+			}
+			matchingInputDispatches++
+			if candidate.state == "reviewer-session-completed" {
+				exactInputMatches++
+				exactInputMatch = candidate
+			}
+		}
+		if selected.dispatchID == "" || recordedAt.After(selectedAt) {
+			selected = candidate
+			selectedAt = recordedAt
+		}
+	}
+	if inputState == "ready" {
+		if exactInputMatches == 1 {
+			return exactInputMatch
+		}
+		if exactInputMatches > 1 {
+			return reviewerSessionLifecycle{state: "reviewer-session-receipt-invalid", failure: "reviewer result input matches multiple successful completion receipt lineages"}
+		}
+		if matchingInputDispatches == 0 && selectedStale.dispatchID != "" {
+			return selectedStale
+		}
+		if matchingInputDispatches == 0 {
+			return reviewerSessionLifecycle{state: "reviewer-session-receipt-invalid", failure: "reviewer result input session is not bound to a dispatch receipt"}
+		}
+		if matchingInputDispatches > 1 {
+			return reviewerSessionLifecycle{state: "reviewer-session-receipt-invalid", failure: "reviewer result input session has multiple dispatches without one exact successful completion lineage"}
+		}
+	}
+	return selected
+}
+
+func reviewerDispatchSessionRecordCommand(packetPath, shardID, lane string) string {
+	return "/rekit plan-subagents -PacketPath " + quoteCommandArg(packetPath) + " -RecordReviewerDispatch -ShardId " + quoteCommandArg(shardID) + " -ReviewerHarness <harness> -ReviewerSession <session-id> -Lane " + quoteCommandArg(lane) + " -Actor <main-agent> -WhatIf -Format json"
+}
+
+func reviewerDispatchSessionCompletionCommand(packetPath, dispatchID, lane, inputPath string) string {
+	return "/rekit plan-subagents -PacketPath " + quoteCommandArg(packetPath) + " -RecordReviewerCompletion -ReviewerDispatchId " + quoteCommandArg(dispatchID) + " -ReviewerOutcome succeeded -ReviewerExitStatus completed -ReviewerResultInputPath " + quoteCommandArg(inputPath) + " -Lane " + quoteCommandArg(lane) + " -Actor <main-agent> -WhatIf -Format json"
 }
 
 func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts, packet reviewerDispatchPacket, packetPath, targetLane string, dispatch reviewerDispatchPacketDispatch, idx int) ReviewerDispatchIntakeHandoff {
@@ -1628,6 +1899,9 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 	}
 	present := resultState == refsf.RegularFileReady
 	inputState := ""
+	inputSession := ""
+	inputSHA256 := ""
+	inputBytes := 0
 	if inputPath != "" {
 		inputState = "missing"
 		if classified, err := refsf.ClassifyNonEmptyRegularFile(inputPath); err != nil || classified == refsf.RegularFileSymlink || classified == refsf.RegularFileWaiting {
@@ -1636,8 +1910,16 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 			}
 		} else if classified == refsf.RegularFileReady {
 			inputState = "ready"
-			if data, err := readStableReviewerWorkstreamArtifact(caseRoot, inputPath, "reviewer result input"); err != nil || reviewerResultInputSemanticInvalid(data) {
+			data, readErr := readStableReviewerWorkstreamArtifact(caseRoot, inputPath, "reviewer result input")
+			var valid bool
+			if readErr == nil {
+				inputSession, valid = reviewerResultInputSession(data)
+			}
+			if !valid {
 				inputState = "invalid"
+			} else {
+				inputSHA256 = reviewerDispatchBytesSHA256(data)
+				inputBytes = len(data)
 			}
 		}
 	}
@@ -1765,10 +2047,21 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 		state = "ready-for-reviewer-result-source-capture-preview"
 	}
 	promptArtifact := reviewerDispatchPromptArtifactStatus(caseRoot, packetPath, dispatch)
+	currentExecutor, currentGeneration := reviewerDispatchCurrentOwner(caseRoot, targetLane)
+	sessionLifecycle := reviewerDispatchSessionLifecycle(caseRoot, packet, packetPath, targetLane, dispatch, inputPath, inputState, inputSession, inputSHA256, inputBytes, currentExecutor, currentGeneration)
+	if !recoveryProjected && sessionLifecycle.state != "" && reviewerDispatchSessionLifecycleCanProject(state) {
+		switch sessionLifecycle.state {
+		case "reviewer-session-completed":
+			if !present && inputState == "ready" && sourceCaptureCommand != "" {
+				state = "ready-for-reviewer-result-source-capture-preview"
+			}
+		default:
+			state = sessionLifecycle.state
+		}
+	}
 	if reviewerDispatchPromptArtifactBlocksDispatch(promptArtifact, state) {
 		state = reviewerDispatchPromptArtifactBlockedState(promptArtifact)
 	}
-	currentExecutor, currentGeneration := reviewerDispatchCurrentOwner(caseRoot, targetLane)
 	adoptionPath := filepath.Join(caseRoot, ".rekit", "reviewer-adoptions", packet.PacketID+".json")
 	adoption, adoptionCurrent := reviewerDispatchCurrentAdoption(caseRoot, adoptionPath, packet, packetPath, currentExecutor, currentGeneration)
 	ownerStale := currentExecutor != strings.TrimSpace(packet.ReviewerOrchestration.OwnerBinding.CurrentExecutor) ||
@@ -1806,6 +2099,19 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 		DispatchPromptActualSHA256:               promptArtifact.ActualSHA256,
 		DispatchPromptFailure:                    promptArtifact.Failure,
 		DispatchPromptRepairCommand:              reviewerDispatchPromptArtifactRepairCommand(packetPath, dispatch.ShardID, targetLane),
+		ReviewerDispatchID:                       sessionLifecycle.dispatchID,
+		ReviewerDispatchReceiptPath:              sessionLifecycle.dispatchPath,
+		ReviewerDispatchReceiptSHA256:            sessionLifecycle.dispatchSHA256,
+		ReviewerHarness:                          sessionLifecycle.harness,
+		ReviewerSession:                          sessionLifecycle.session,
+		ReviewerSessionOutcome:                   sessionLifecycle.outcome,
+		ReviewerSessionExitStatus:                sessionLifecycle.exitStatus,
+		ReviewerCompletionReceiptPath:            sessionLifecycle.completionPath,
+		ReviewerCompletionReceiptSHA256:          sessionLifecycle.completionSHA256,
+		ReviewerSessionReceiptState:              sessionLifecycle.state,
+		ReviewerSessionReceiptFailure:            sessionLifecycle.failure,
+		ReviewerDispatchRecordCommand:            sessionLifecycle.dispatchCommand,
+		ReviewerCompletionRecordCommand:          sessionLifecycle.completionCommand,
 		AgentToolRequest:                         dispatch.AgentToolRequest,
 		ReviewerResultSourceCaptureCommand:       sourceCaptureCommand,
 		ReviewerResultSourceCaptureApplyCommand:  sourceCaptureApplyCommand,
@@ -1994,6 +2300,13 @@ func reviewerDispatchIntakeCommandAvailable(command string) bool {
 	return command != "" && !strings.HasPrefix(command, "n/a:")
 }
 
+func reviewerDispatchSessionLifecycleCanProject(state string) bool {
+	return state == "waiting-for-reviewer-result" ||
+		state == "dispatch-only-waiting-for-result" ||
+		state == "ready-for-reviewer-result-source-capture-preview" ||
+		state == "ready-for-reviewer-intake-preview"
+}
+
 func reviewerDispatchIntakeState(resultState refsf.RegularFileState, intakeAvailable bool) string {
 	switch {
 	case resultState == refsf.RegularFileSymlink:
@@ -2062,6 +2375,12 @@ func reviewerDispatchIntakeEvidence(caseRoot string, item ReviewerDispatchIntake
 		}
 		evidence = append(evidence, strings.Join(parts, " "))
 	}
+	if strings.TrimSpace(item.ReviewerDispatchReceiptPath) != "" {
+		evidence = append(evidence, fmt.Sprintf("reviewerSession dispatchId=%s harness=%s session=%s state=%s dispatchReceipt=%s sha256=%s", item.ReviewerDispatchID, item.ReviewerHarness, item.ReviewerSession, item.ReviewerSessionReceiptState, reviewerDispatchDisplayPath(caseRoot, item.ReviewerDispatchReceiptPath), item.ReviewerDispatchReceiptSHA256))
+	}
+	if strings.TrimSpace(item.ReviewerCompletionReceiptPath) != "" {
+		evidence = append(evidence, fmt.Sprintf("reviewerSession completion outcome=%s exitStatus=%s receipt=%s sha256=%s", item.ReviewerSessionOutcome, item.ReviewerSessionExitStatus, reviewerDispatchDisplayPath(caseRoot, item.ReviewerCompletionReceiptPath), item.ReviewerCompletionReceiptSHA256))
+	}
 	if strings.TrimSpace(item.ReviewerResultInputPath) != "" {
 		evidence = append(evidence, "reviewerResultInput "+firstText(item.ReviewerResultInputState, "missing")+" "+reviewerDispatchDisplayPath(caseRoot, item.ReviewerResultInputPath))
 	}
@@ -2098,6 +2417,10 @@ func reviewerDispatchIntakeBoundary(item ReviewerDispatchIntakeHandoff) []string
 		"reviewer dispatch intake handoff is read-only; full packet.json and reviewerOrchestration remain source of truth",
 		"runtime does not spawn, stop, monitor, or manage reviewer sessions",
 		"reviewer intake must run -WhatIf before -Apply and must not write authority/confirmed state or execute heavy tools",
+	}
+	if item.ReviewerSessionReceiptState != "" {
+		boundary = append(boundary, "reviewer session receipts are immutable harness observations; runtime does not spawn, poll, monitor, stop, or manage the recorded session")
+		boundary = append(boundary, "successful completion receipt and exact current input binding are required before source capture; failed or stale-owner attempts cannot enter intake")
 	}
 	if item.ManagedDispatch != nil {
 		boundary = append(boundary, "managed dispatch packet is read-only recovery context; status/handoff/continue do not spawn reviewers or execute managed dispatch commands")
@@ -2159,6 +2482,19 @@ func reviewerDispatchOperatorPackageFor(item ReviewerDispatchIntakeHandoff) *Rev
 		DispatchPromptActualSHA256:                item.DispatchPromptActualSHA256,
 		DispatchPromptFailure:                     item.DispatchPromptFailure,
 		DispatchPromptRepairCommand:               item.DispatchPromptRepairCommand,
+		ReviewerDispatchID:                        item.ReviewerDispatchID,
+		ReviewerDispatchReceiptPath:               item.ReviewerDispatchReceiptPath,
+		ReviewerDispatchReceiptSHA256:             item.ReviewerDispatchReceiptSHA256,
+		ReviewerHarness:                           item.ReviewerHarness,
+		ReviewerSession:                           item.ReviewerSession,
+		ReviewerSessionOutcome:                    item.ReviewerSessionOutcome,
+		ReviewerSessionExitStatus:                 item.ReviewerSessionExitStatus,
+		ReviewerCompletionReceiptPath:             item.ReviewerCompletionReceiptPath,
+		ReviewerCompletionReceiptSHA256:           item.ReviewerCompletionReceiptSHA256,
+		ReviewerSessionReceiptState:               item.ReviewerSessionReceiptState,
+		ReviewerSessionReceiptFailure:             item.ReviewerSessionReceiptFailure,
+		ReviewerDispatchRecordCommand:             item.ReviewerDispatchRecordCommand,
+		ReviewerCompletionRecordCommand:           item.ReviewerCompletionRecordCommand,
 		AgentToolRequest:                          reviewerDispatchOperatorAgentToolRequest(item, managed),
 		ExpectedReviewerResultSkeleton:            managed.ReviewerResultSkeleton,
 		ExpectedOutput:                            firstText(managed.ExpectedOutput, reviewerAgentToolRequestExpectedOutput(item.AgentToolRequest), reviewerAgentToolRequestExpectedOutput(managed.AgentToolRequest)),
@@ -2252,6 +2588,15 @@ func reviewerDispatchOperatorPackageMarkdownLines(pkg *ReviewerDispatchOperatorP
 		request := current.AgentToolRequest
 		lines = append(lines, fmt.Sprintf("  - operator agent tool: tool=%s agentType=%s readOnly=%t promptPath=`%s` promptSha256=%s expectedOutput=%s", request.Tool, request.AgentType, request.ReadOnly, request.PromptPath, request.PromptSHA256, request.ExpectedOutput))
 	}
+	if strings.TrimSpace(current.ReviewerSessionReceiptState) != "" {
+		lines = append(lines, fmt.Sprintf("  - operator reviewer session: state=%s dispatchId=%s harness=%s session=%s outcome=%s exitStatus=%s dispatchReceipt=`%s` dispatchSha256=%s completionReceipt=`%s` completionSha256=%s failure=%s", current.ReviewerSessionReceiptState, current.ReviewerDispatchID, current.ReviewerHarness, current.ReviewerSession, current.ReviewerSessionOutcome, current.ReviewerSessionExitStatus, current.ReviewerDispatchReceiptPath, current.ReviewerDispatchReceiptSHA256, current.ReviewerCompletionReceiptPath, current.ReviewerCompletionReceiptSHA256, current.ReviewerSessionReceiptFailure))
+	}
+	if strings.TrimSpace(current.ReviewerDispatchRecordCommand) != "" {
+		lines = append(lines, "  - operator dispatch receipt preview: `"+current.ReviewerDispatchRecordCommand+"`")
+	}
+	if strings.TrimSpace(current.ReviewerCompletionRecordCommand) != "" {
+		lines = append(lines, "  - operator completion receipt preview: `"+current.ReviewerCompletionRecordCommand+"`")
+	}
 	if strings.TrimSpace(current.ExpectedReviewerResultSkeleton) != "" {
 		lines = append(lines, "  - operator expected reviewer result skeleton: `"+current.ExpectedReviewerResultSkeleton+"`")
 	}
@@ -2311,6 +2656,21 @@ func reviewerDispatchIntakeRunbookSteps(item ReviewerDispatchIntakeHandoff) []st
 	case "reviewer-result-recovery-ambiguous":
 		add("review the canonical reviewer result and quarantine intent; if they are the same intended result, run disposition preview: " + firstText(item.ReviewerResultRecoveryDispositionCommand, "<reviewer-result-recovery-disposition-WhatIf unavailable>"))
 		add("run only the bounded disposition apply returned by preview; do not overwrite canonical reviewer results manually")
+	case "ready-for-reviewer-dispatch":
+		add("invoke the read-only Agent tool request from this handoff, then record the immutable dispatch receipt: " + firstText(item.ReviewerDispatchRecordCommand, "<reviewer-dispatch-receipt-WhatIf unavailable>"))
+		add("use the returned hash-bound Apply only after the harness has actually accepted the reviewer session")
+	case "reviewer-session-running-unknown":
+		add("the dispatch receipt is durable, but runtime has no live reviewer visibility; inspect the harness session " + firstText(item.ReviewerSession, "<reviewer-session>"))
+		add("after success or failure, record a completion receipt before source capture")
+	case "ready-for-reviewer-completion-receipt-preview":
+		add("reviewer result input is ready; record successful completion preview: " + firstText(item.ReviewerCompletionRecordCommand, "<reviewer-completion-receipt-WhatIf unavailable>"))
+		add("review dispatch and input hashes, then use only the returned hash-bound Apply command")
+	case "reviewer-session-failed":
+		add("do not source-capture the failed attempt; dispatch a new reviewer session and record a distinct dispatch receipt")
+	case "reviewer-session-receipt-owner-stale":
+		add("the latest reviewer session receipt belongs to a stale lane owner generation; complete owner adoption and dispatch a replacement reviewer session")
+	case "reviewer-session-receipt-invalid":
+		add("repair or retire the invalid reviewer session receipt namespace before source capture: " + firstText(item.ReviewerSessionReceiptFailure, "receipt validation failed"))
 	case "ready-for-reviewer-result-source-capture-preview":
 		add("reviewer result input is ready at " + firstText(item.ReviewerResultInputPath, "<reviewer-result-input-path>"))
 		add("run source capture preview: " + firstText(item.ReviewerResultSourceCaptureCommand, "<reviewer-result-source-capture-WhatIf unavailable>"))
@@ -2423,6 +2783,18 @@ func reviewerDispatchIntakeNextAction(item ReviewerDispatchIntakeHandoff) string
 		return "repair or regenerate the strict reviewer result recovery intent for " + item.ShardID + "; collection remains blocked"
 	case "reviewer-result-recovery-ambiguous":
 		return firstText(item.ReviewerResultRecoveryDispositionCommand, "review the canonical reviewer result and exact quarantine for "+item.ShardID+"; runtime cannot prove they are the same filesystem object")
+	case "ready-for-reviewer-dispatch":
+		return firstText(item.ReviewerDispatchRecordCommand, item.DispatchCommand)
+	case "reviewer-session-running-unknown":
+		return "inspect harness reviewer session " + firstText(item.ReviewerSession, item.ReviewerDispatchID) + "; record completion receipt when it finishes"
+	case "ready-for-reviewer-completion-receipt-preview":
+		return firstText(item.ReviewerCompletionRecordCommand, "record reviewer session completion -WhatIf for "+item.ShardID)
+	case "reviewer-session-failed":
+		return "dispatch a replacement reviewer session for " + item.ShardID + "; failed attempts cannot enter source capture"
+	case "reviewer-session-receipt-owner-stale":
+		return "record a replacement reviewer dispatch for current lane owner generation before source capture for " + item.ShardID
+	case "reviewer-session-receipt-invalid":
+		return "repair or retire invalid reviewer session receipts for " + item.ShardID + ": " + item.ReviewerSessionReceiptFailure
 	case "ready-for-reviewer-result-staging-preview":
 		return firstText(item.ReviewerResultStagingCommand, "run reviewer result staging -WhatIf for "+item.ShardID)
 	case "ready-for-reviewer-result-collection-preview", "reviewer-result-recovery-disposed-ready-for-collection-preview":
@@ -2535,6 +2907,9 @@ func appendReviewerDispatchIntakeHandoff(lines []string, items []ReviewerDispatc
 		}
 		if item.AgentToolRequest != nil {
 			lines = append(lines, fmt.Sprintf("  - agent tool: tool=%s agentType=%s readOnly=%t promptPath=`%s` promptSha256=%s expectedOutput=%s", item.AgentToolRequest.Tool, item.AgentToolRequest.AgentType, item.AgentToolRequest.ReadOnly, item.AgentToolRequest.PromptPath, item.AgentToolRequest.PromptSHA256, item.AgentToolRequest.ExpectedOutput))
+		}
+		if item.ReviewerSessionReceiptState != "" {
+			lines = append(lines, fmt.Sprintf("  - reviewer session: state=%s dispatchId=%s harness=%s session=%s outcome=%s exitStatus=%s dispatchReceipt=`%s` completionReceipt=`%s` failure=%s", item.ReviewerSessionReceiptState, item.ReviewerDispatchID, item.ReviewerHarness, item.ReviewerSession, item.ReviewerSessionOutcome, item.ReviewerSessionExitStatus, item.ReviewerDispatchReceiptPath, item.ReviewerCompletionReceiptPath, item.ReviewerSessionReceiptFailure))
 		}
 		if item.ManagedDispatch != nil {
 			lines = append(lines, fmt.Sprintf("  - managed dispatch: mode=%s shard=%s role=%s reviewers=%d maxParallel=%d prompt=`%s` promptSha256=%s input=`%s` source=`%s` candidate=`%s` result=`%s`", item.ManagedDispatch.Mode, item.ManagedDispatch.ShardID, item.ManagedDispatch.ReviewerRole, item.ManagedDispatch.ReviewerCount, item.ManagedDispatch.MaxParallel, item.ManagedDispatch.PromptPath, item.ManagedDispatch.PromptSHA256, item.ManagedDispatch.ReviewerResultInputPath, item.ManagedDispatch.ReviewerResultSourcePath, item.ManagedDispatch.ReviewerResultCandidatePath, item.ManagedDispatch.ReviewerResultPath))

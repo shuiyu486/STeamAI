@@ -362,6 +362,9 @@ func prepareReviewerResultSourceCapture(repoRoot, caseRoot, pack string, opt Rev
 	if err != nil {
 		return preparedReviewerResultSourceCapture{}, err
 	}
+	if err := validateReviewerSessionCompletionForInput(caseRoot, packetPath, packet, handoff, inputPath, input, reviewerResult); err != nil {
+		return preparedReviewerResultSourceCapture{}, err
+	}
 	if expected := strings.TrimSpace(opt.ExpectedReviewerResultSHA256); expected != "" && !strings.EqualFold(expected, sha256Hex(input)) {
 		return preparedReviewerResultSourceCapture{}, fmt.Errorf("reviewer result input changed after preview")
 	}

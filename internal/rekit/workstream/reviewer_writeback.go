@@ -11,35 +11,43 @@ import (
 )
 
 type ReviewerWritebackItem struct {
-	Kind               string            `json:"kind"`
-	EventID            string            `json:"eventId,omitempty"`
-	Lane               string            `json:"lane,omitempty"`
-	Subject            string            `json:"subject,omitempty"`
-	Summary            string            `json:"summary,omitempty"`
-	Target             string            `json:"target,omitempty"`
-	Verdict            string            `json:"verdict,omitempty"`
-	Decision           string            `json:"decision,omitempty"`
-	Reason             string            `json:"reason,omitempty"`
-	Confidence         string            `json:"confidence,omitempty"`
-	BatchID            string            `json:"batchId,omitempty"`
-	PacketID           string            `json:"packetId,omitempty"`
-	RouteID            string            `json:"routeId,omitempty"`
-	ShardID            string            `json:"shardId,omitempty"`
-	PacketPath         string            `json:"packetPath,omitempty"`
-	ReviewerResultPath string            `json:"reviewerResultPath,omitempty"`
-	ReviewerSession    string            `json:"reviewerSession,omitempty"`
-	OwnerExecutor      string            `json:"ownerExecutor,omitempty"`
-	OwnerGeneration    string            `json:"ownerGeneration,omitempty"`
-	OwnerBindingMode   string            `json:"ownerBindingMode,omitempty"`
-	OwnerBindingTarget string            `json:"ownerBindingTarget,omitempty"`
-	ReviewerDecision   string            `json:"reviewerDecision,omitempty"`
-	RecommendedVerdict string            `json:"recommendedVerdict,omitempty"`
-	ReviewerRisks      []string          `json:"reviewerRisks,omitempty"`
-	ReviewerConflicts  []string          `json:"reviewerConflicts,omitempty"`
-	RouteOutput        map[string]string `json:"routeOutput,omitempty"`
-	EvidenceRefs       []string          `json:"evidenceRefs,omitempty"`
-	createdAt          time.Time
-	appendOrdinal      int
+	Kind                      string            `json:"kind"`
+	EventID                   string            `json:"eventId,omitempty"`
+	Lane                      string            `json:"lane,omitempty"`
+	Subject                   string            `json:"subject,omitempty"`
+	Summary                   string            `json:"summary,omitempty"`
+	Target                    string            `json:"target,omitempty"`
+	Verdict                   string            `json:"verdict,omitempty"`
+	Decision                  string            `json:"decision,omitempty"`
+	Reason                    string            `json:"reason,omitempty"`
+	Confidence                string            `json:"confidence,omitempty"`
+	BatchID                   string            `json:"batchId,omitempty"`
+	PacketID                  string            `json:"packetId,omitempty"`
+	RouteID                   string            `json:"routeId,omitempty"`
+	ShardID                   string            `json:"shardId,omitempty"`
+	PacketPath                string            `json:"packetPath,omitempty"`
+	ReviewerResultPath        string            `json:"reviewerResultPath,omitempty"`
+	ReviewerSession           string            `json:"reviewerSession,omitempty"`
+	ReviewerHarness           string            `json:"reviewerHarness,omitempty"`
+	ReviewerDispatchID        string            `json:"reviewerDispatchId,omitempty"`
+	ReviewerDispatchPath      string            `json:"reviewerDispatchReceiptPath,omitempty"`
+	ReviewerDispatchSHA256    string            `json:"reviewerDispatchReceiptSha256,omitempty"`
+	ReviewerCompletionPath    string            `json:"reviewerCompletionReceiptPath,omitempty"`
+	ReviewerCompletionSHA256  string            `json:"reviewerCompletionReceiptSha256,omitempty"`
+	ReviewerResultInputPath   string            `json:"reviewerResultInputPath,omitempty"`
+	ReviewerResultInputSHA256 string            `json:"reviewerResultInputSha256,omitempty"`
+	OwnerExecutor             string            `json:"ownerExecutor,omitempty"`
+	OwnerGeneration           string            `json:"ownerGeneration,omitempty"`
+	OwnerBindingMode          string            `json:"ownerBindingMode,omitempty"`
+	OwnerBindingTarget        string            `json:"ownerBindingTarget,omitempty"`
+	ReviewerDecision          string            `json:"reviewerDecision,omitempty"`
+	RecommendedVerdict        string            `json:"recommendedVerdict,omitempty"`
+	ReviewerRisks             []string          `json:"reviewerRisks,omitempty"`
+	ReviewerConflicts         []string          `json:"reviewerConflicts,omitempty"`
+	RouteOutput               map[string]string `json:"routeOutput,omitempty"`
+	EvidenceRefs              []string          `json:"evidenceRefs,omitempty"`
+	createdAt                 time.Time
+	appendOrdinal             int
 }
 
 type ReviewerWritebackSummary struct {
@@ -169,34 +177,42 @@ func appendReviewerWritebackEvents(out []ReviewerWritebackItem, kind string, eve
 func reviewerWritebackItem(kind string, event map[string]any) (ReviewerWritebackItem, bool) {
 	createdAt, _ := time.Parse(time.RFC3339Nano, strings.TrimSpace(firstObjectText(event, "createdAt")))
 	item := ReviewerWritebackItem{
-		Kind:               kind,
-		EventID:            firstObjectText(event, "eventId"),
-		Lane:               firstObjectText(event, "lane"),
-		Subject:            firstObjectText(event, "subject", "kind"),
-		Summary:            firstObjectText(event, "summary"),
-		Target:             firstObjectText(event, "target"),
-		Verdict:            firstObjectText(event, "verdict"),
-		Decision:           firstObjectText(event, "decision", "action"),
-		Reason:             firstObjectText(event, "reason"),
-		Confidence:         firstObjectText(event, "confidence"),
-		BatchID:            firstObjectText(event, "batchId"),
-		PacketID:           firstObjectText(event, "packetId"),
-		RouteID:            firstObjectText(event, "routeId"),
-		ShardID:            firstObjectText(event, "shardId"),
-		PacketPath:         firstObjectText(event, "packetPath"),
-		ReviewerResultPath: firstObjectText(event, "reviewerResultPath"),
-		ReviewerSession:    firstObjectText(event, "reviewerSession"),
-		OwnerExecutor:      firstObjectText(event, "ownerExecutor"),
-		OwnerGeneration:    firstObjectText(event, "ownerGeneration"),
-		OwnerBindingMode:   firstObjectText(event, "ownerBindingMode"),
-		OwnerBindingTarget: firstObjectText(event, "ownerBindingTarget"),
-		ReviewerDecision:   firstObjectText(event, "reviewerDecision"),
-		RecommendedVerdict: firstObjectText(event, "recommendedVerdict"),
-		ReviewerRisks:      reviewerWritebackStringList(event["reviewerRisks"]),
-		ReviewerConflicts:  reviewerWritebackStringList(event["reviewerConflicts"]),
-		RouteOutput:        reviewerWritebackStringMap(event["routeOutput"]),
-		EvidenceRefs:       reviewerWritebackStringList(event["evidenceRefs"]),
-		createdAt:          createdAt,
+		Kind:                      kind,
+		EventID:                   firstObjectText(event, "eventId"),
+		Lane:                      firstObjectText(event, "lane"),
+		Subject:                   firstObjectText(event, "subject", "kind"),
+		Summary:                   firstObjectText(event, "summary"),
+		Target:                    firstObjectText(event, "target"),
+		Verdict:                   firstObjectText(event, "verdict"),
+		Decision:                  firstObjectText(event, "decision", "action"),
+		Reason:                    firstObjectText(event, "reason"),
+		Confidence:                firstObjectText(event, "confidence"),
+		BatchID:                   firstObjectText(event, "batchId"),
+		PacketID:                  firstObjectText(event, "packetId"),
+		RouteID:                   firstObjectText(event, "routeId"),
+		ShardID:                   firstObjectText(event, "shardId"),
+		PacketPath:                firstObjectText(event, "packetPath"),
+		ReviewerResultPath:        firstObjectText(event, "reviewerResultPath"),
+		ReviewerSession:           firstObjectText(event, "reviewerSession"),
+		ReviewerHarness:           firstObjectText(event, "reviewerHarness"),
+		ReviewerDispatchID:        firstObjectText(event, "reviewerDispatchId"),
+		ReviewerDispatchPath:      firstObjectText(event, "reviewerDispatchReceiptPath"),
+		ReviewerDispatchSHA256:    firstObjectText(event, "reviewerDispatchReceiptSha256"),
+		ReviewerCompletionPath:    firstObjectText(event, "reviewerCompletionReceiptPath"),
+		ReviewerCompletionSHA256:  firstObjectText(event, "reviewerCompletionReceiptSha256"),
+		ReviewerResultInputPath:   firstObjectText(event, "reviewerResultInputPath"),
+		ReviewerResultInputSHA256: firstObjectText(event, "reviewerResultInputSha256"),
+		OwnerExecutor:             firstObjectText(event, "ownerExecutor"),
+		OwnerGeneration:           firstObjectText(event, "ownerGeneration"),
+		OwnerBindingMode:          firstObjectText(event, "ownerBindingMode"),
+		OwnerBindingTarget:        firstObjectText(event, "ownerBindingTarget"),
+		ReviewerDecision:          firstObjectText(event, "reviewerDecision"),
+		RecommendedVerdict:        firstObjectText(event, "recommendedVerdict"),
+		ReviewerRisks:             reviewerWritebackStringList(event["reviewerRisks"]),
+		ReviewerConflicts:         reviewerWritebackStringList(event["reviewerConflicts"]),
+		RouteOutput:               reviewerWritebackStringMap(event["routeOutput"]),
+		EvidenceRefs:              reviewerWritebackStringList(event["evidenceRefs"]),
+		createdAt:                 createdAt,
 	}
 	if item.PacketID == "" && item.RouteID == "" && item.ShardID == "" && item.ReviewerSession == "" && item.ReviewerResultPath == "" {
 		return ReviewerWritebackItem{}, false
@@ -317,6 +333,9 @@ func writeReviewerWritebackEventDetail(out *bytes.Buffer, prefix string, item Re
 	}
 	if item.ReviewerSession != "" {
 		fmt.Fprintf(out, "%s- reviewer session: %s\n", prefix, item.ReviewerSession)
+	}
+	if item.ReviewerDispatchID != "" || item.ReviewerCompletionSHA256 != "" {
+		fmt.Fprintf(out, "%s- reviewer session receipts: dispatchId=%s harness=%s dispatch=`%s` dispatchSha256=%s completion=`%s` completionSha256=%s input=`%s` inputSha256=%s\n", prefix, item.ReviewerDispatchID, item.ReviewerHarness, item.ReviewerDispatchPath, item.ReviewerDispatchSHA256, item.ReviewerCompletionPath, item.ReviewerCompletionSHA256, item.ReviewerResultInputPath, item.ReviewerResultInputSHA256)
 	}
 	if item.ReviewerResultPath != "" {
 		fmt.Fprintf(out, "%s- reviewer result: `%s`\n", prefix, item.ReviewerResultPath)

@@ -87,6 +87,7 @@ func TestRetireAmbiguousReviewerResultRecoveryRetainsCanonical(t *testing.T) {
 	if !reviewerResultRecoveryQuarantineMatches(caseRoot, reviewerResultRecoveryReceipt(result)) {
 		t.Fatal("quarantine changed during disposition")
 	}
+	writeReviewerSessionReceiptsForResult(t, handoff, candidate)
 	collectionOpt := ReviewerResultCollectionOptions{PacketPath: plan.PacketPath, ShardID: handoff.ShardID, Lane: packet.TargetLane, Actor: "mission-commander", WhatIf: true}
 	if _, err := CollectReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, collectionOpt); err != nil {
 		t.Fatal(err)

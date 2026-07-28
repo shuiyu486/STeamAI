@@ -22,44 +22,52 @@ const (
 )
 
 type Options struct {
-	Kind                string
-	Lane                string
-	Subject             string
-	Summary             string
-	Actor               string
-	Risk                string
-	Related             string
-	Confidence          string
-	Decision            string
-	Reason              string
-	Status              string
-	BatchID             string
-	Target              string
-	Verifier            string
-	Verdict             string
-	Action              string
-	ApprovedBy          string
-	Scope               string
-	Expires             string
-	EvidenceRefs        string
-	EventID             string
-	CreatedAt           string
-	ExpectedEventSHA256 string
-	PacketID            string
-	RouteID             string
-	ShardID             string
-	PacketPath          string
-	ReviewerResultPath  string
-	ReviewerSession     string
-	OwnerExecutor       string
-	OwnerGeneration     string
-	OwnerBindingMode    string
-	OwnerBindingTarget  string
-	ReviewerDecision    string
-	RecommendedVerdict  string
-	ReviewerRisks       []string
-	ReviewerConflicts   []string
-	RouteOutput         map[string]any
+	Kind                      string
+	Lane                      string
+	Subject                   string
+	Summary                   string
+	Actor                     string
+	Risk                      string
+	Related                   string
+	Confidence                string
+	Decision                  string
+	Reason                    string
+	Status                    string
+	BatchID                   string
+	Target                    string
+	Verifier                  string
+	Verdict                   string
+	Action                    string
+	ApprovedBy                string
+	Scope                     string
+	Expires                   string
+	EvidenceRefs              string
+	EventID                   string
+	CreatedAt                 string
+	ExpectedEventSHA256       string
+	PacketID                  string
+	RouteID                   string
+	ShardID                   string
+	PacketPath                string
+	ReviewerResultPath        string
+	ReviewerSession           string
+	ReviewerHarness           string
+	ReviewerDispatchID        string
+	ReviewerDispatchPath      string
+	ReviewerDispatchSHA256    string
+	ReviewerCompletionPath    string
+	ReviewerCompletionSHA256  string
+	ReviewerResultInputPath   string
+	ReviewerResultInputSHA256 string
+	OwnerExecutor             string
+	OwnerGeneration           string
+	OwnerBindingMode          string
+	OwnerBindingTarget        string
+	ReviewerDecision          string
+	RecommendedVerdict        string
+	ReviewerRisks             []string
+	ReviewerConflicts         []string
+	RouteOutput               map[string]any
 }
 
 type AppendResult struct {
@@ -332,6 +340,14 @@ func buildEvent(kind, lane, createdAt string, opt Options) map[string]any {
 	addString("packetPath", opt.PacketPath)
 	addString("reviewerResultPath", opt.ReviewerResultPath)
 	addString("reviewerSession", opt.ReviewerSession)
+	addString("reviewerHarness", opt.ReviewerHarness)
+	addString("reviewerDispatchId", opt.ReviewerDispatchID)
+	addString("reviewerDispatchReceiptPath", opt.ReviewerDispatchPath)
+	addString("reviewerDispatchReceiptSha256", opt.ReviewerDispatchSHA256)
+	addString("reviewerCompletionReceiptPath", opt.ReviewerCompletionPath)
+	addString("reviewerCompletionReceiptSha256", opt.ReviewerCompletionSHA256)
+	addString("reviewerResultInputPath", opt.ReviewerResultInputPath)
+	addString("reviewerResultInputSha256", opt.ReviewerResultInputSHA256)
 	addString("ownerExecutor", opt.OwnerExecutor)
 	addString("ownerGeneration", opt.OwnerGeneration)
 	addString("ownerBindingMode", opt.OwnerBindingMode)

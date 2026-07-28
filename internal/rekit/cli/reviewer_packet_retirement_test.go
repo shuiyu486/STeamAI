@@ -92,6 +92,7 @@ func TestRunPlanSubagentsReviewerResultRecoveryCaseLocalE2E(t *testing.T) {
 	if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-CollectReviewerResult", "-ShardId", handoff.ShardID, "-Lane", "feature-review", "-Actor", "mission-commander", "-Apply", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
+	recordReviewerSessionReceiptsForCLIPlan(t, &out, nil, plan.PacketPath, handoff, "feature-review", "mission-commander", "go-cli-recovery-harness", candidate)
 	out.Reset()
 	if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-ReadyReviewerResults", "-Lane", "feature-review", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
@@ -391,9 +392,9 @@ func TestRunPlanSubagentsReviewerPacketRetirementWhatIfApplyE2E(t *testing.T) {
 		t.Fatalf("regenerated status JSON did not decode: %v\n%s", err, out.String())
 	}
 	assertReviewerPacketRetirementClosure(t, "status after regeneration", regeneratedStatus.CaseMission.ReviewerPacketRetirementHandoffs, regeneratedStatus.CaseMission.ReviewerPacketRetirementSummary, applied.PacketID, "feature-review", applied.PacketSHA256, applied.IntegritySHA256)
-	assertReviewerDispatchIntakeSummary(t, "status after regeneration", regeneratedStatus.CaseMission.ReviewerDispatchIntakeSummary, 1, 1, 0, "shard-01", "waiting-for-reviewer-result")
+	assertReviewerDispatchIntakeSummary(t, "status after regeneration", regeneratedStatus.CaseMission.ReviewerDispatchIntakeSummary, 1, 1, 0, "shard-01", "ready-for-reviewer-dispatch")
 	regeneratedDispatch, ok := reviewerDispatchIntakeByShard(regeneratedStatus.CaseMission.ReviewerDispatchIntakeHandoffs, "shard-01")
-	if !ok || regeneratedDispatch.PacketID != regeneratedPacket.PacketID || regeneratedDispatch.PacketPath != regeneratedPlan.PacketPath || regeneratedDispatch.PacketID == applied.PacketID || regeneratedDispatch.TargetLane != "feature-review" || regeneratedDispatch.State != "waiting-for-reviewer-result" || regeneratedDispatch.PacketRetirementPreviewCommand != "" || !strings.Contains(regeneratedDispatch.DispatchCommand, "dispatch read-only reviewer") {
+	if !ok || regeneratedDispatch.PacketID != regeneratedPacket.PacketID || regeneratedDispatch.PacketPath != regeneratedPlan.PacketPath || regeneratedDispatch.PacketID == applied.PacketID || regeneratedDispatch.TargetLane != "feature-review" || regeneratedDispatch.State != "ready-for-reviewer-dispatch" || regeneratedDispatch.PacketRetirementPreviewCommand != "" || !strings.Contains(regeneratedDispatch.DispatchCommand, "dispatch read-only reviewer") {
 		t.Fatalf("status after regeneration did not promote fresh packet dispatch: dispatch=%+v regenerated=%+v old=%+v", regeneratedDispatch, regeneratedPlan, applied)
 	}
 	for _, item := range regeneratedStatus.CaseMission.ReviewerDispatchIntakeHandoffs {
@@ -401,10 +402,10 @@ func TestRunPlanSubagentsReviewerPacketRetirementWhatIfApplyE2E(t *testing.T) {
 			t.Fatalf("status after regeneration reopened retired packet as dispatch: %+v", item)
 		}
 	}
-	if queue := regeneratedStatus.CaseMission.ReviewerDispatchIntakeActionQueue; queue.Counts.Total != 1 || queue.Counts.RequiresReview != 1 || queue.CurrentAction == nil || queue.CurrentAction.Source != "reviewerDispatchIntakeHandoffs" || !strings.Contains(queue.CurrentAction.Command, "dispatch read-only reviewer") {
+	if queue := regeneratedStatus.CaseMission.ReviewerDispatchIntakeActionQueue; queue.Counts.Total != 1 || queue.Counts.RequiresReview != 1 || queue.CurrentAction == nil || queue.CurrentAction.Source != "reviewerDispatchIntakeHandoffs" || !strings.Contains(queue.CurrentAction.Command, "-RecordReviewerDispatch") {
 		t.Fatalf("status after regeneration omitted reviewer-only dispatch current action: %+v", queue)
 	}
-	if queue := regeneratedStatus.CaseMission.MissionCommanderActionQueue; queue.CurrentAction == nil || queue.CurrentAction.Source != "reviewerDispatchIntakeHandoffs" || !strings.Contains(queue.CurrentAction.Command, "dispatch read-only reviewer") {
+	if queue := regeneratedStatus.CaseMission.MissionCommanderActionQueue; queue.CurrentAction == nil || queue.CurrentAction.Source != "reviewerDispatchIntakeHandoffs" || !strings.Contains(queue.CurrentAction.Command, "-RecordReviewerDispatch") {
 		t.Fatalf("status after regeneration did not prioritize fresh reviewer dispatch as case mission current action: %+v", queue)
 	}
 
@@ -412,7 +413,7 @@ func TestRunPlanSubagentsReviewerPacketRetirementWhatIfApplyE2E(t *testing.T) {
 	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "status case mission reviewer dispatch intake：lane=feature-review shard=shard-01 state=waiting-for-reviewer-result") || !strings.Contains(out.String(), "status case mission reviewer dispatch queue") {
+	if !strings.Contains(out.String(), "status case mission reviewer dispatch intake：lane=feature-review shard=shard-01 state=ready-for-reviewer-dispatch") || !strings.Contains(out.String(), "status case mission reviewer dispatch queue") {
 		t.Fatalf("status text after regeneration omitted fresh reviewer dispatch:\n%s", out.String())
 	}
 	assertReviewerPacketRetirementText(t, "status text after regeneration", out.String(), "feature-review")
@@ -433,7 +434,7 @@ func TestRunPlanSubagentsReviewerPacketRetirementWhatIfApplyE2E(t *testing.T) {
 		t.Fatalf("regenerated handoff JSON did not decode: %v\n%s", err, out.String())
 	}
 	assertReviewerPacketRetirementClosure(t, "handoff after regeneration", regeneratedHandoff.ReviewerPacketRetirementHandoffs, regeneratedHandoff.ReviewerPacketRetirementSummary, applied.PacketID, "feature-review", applied.PacketSHA256, applied.IntegritySHA256)
-	assertReviewerDispatchIntakeSummary(t, "handoff after regeneration", regeneratedHandoff.ReviewerDispatchIntakeSummary, 1, 1, 0, "shard-01", "waiting-for-reviewer-result")
+	assertReviewerDispatchIntakeSummary(t, "handoff after regeneration", regeneratedHandoff.ReviewerDispatchIntakeSummary, 1, 1, 0, "shard-01", "ready-for-reviewer-dispatch")
 	regeneratedHandoffDispatch, ok := reviewerDispatchIntakeByShard(regeneratedHandoff.ReviewerDispatchIntakeHandoffs, "shard-01")
 	if !ok || regeneratedHandoffDispatch.PacketID != regeneratedPacket.PacketID || regeneratedHandoffDispatch.PacketID == applied.PacketID {
 		t.Fatalf("handoff after regeneration did not preserve fresh packet dispatch: %+v", regeneratedHandoff.ReviewerDispatchIntakeHandoffs)
@@ -458,14 +459,14 @@ func TestRunPlanSubagentsReviewerPacketRetirementWhatIfApplyE2E(t *testing.T) {
 		t.Fatalf("regenerated handoff apply did not apply: %+v", regeneratedHandoffApply)
 	}
 	assertReviewerPacketRetirementClosure(t, "handoff apply after regeneration", regeneratedHandoffApply.ReviewerPacketRetirementHandoffs, regeneratedHandoffApply.ReviewerPacketRetirementSummary, applied.PacketID, "feature-review", applied.PacketSHA256, applied.IntegritySHA256)
-	assertReviewerDispatchIntakeSummary(t, "handoff apply after regeneration", regeneratedHandoffApply.ReviewerDispatchIntakeSummary, 1, 1, 0, "shard-01", "waiting-for-reviewer-result")
+	assertReviewerDispatchIntakeSummary(t, "handoff apply after regeneration", regeneratedHandoffApply.ReviewerDispatchIntakeSummary, 1, 1, 0, "shard-01", "ready-for-reviewer-dispatch")
 	latestHandoffPath := assertStartWrite(t, regeneratedHandoffApply.Writes, ".rekit/handovers/feature-review-latest.md", "write-latest-lane-handoff").TargetPath
 	latestHandoffBytes, err := os.ReadFile(latestHandoffPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	latestHandoffText := string(latestHandoffBytes)
-	if !strings.Contains(latestHandoffText, "## Reviewer dispatch intake handoff") || !strings.Contains(latestHandoffText, "dispatch intake: lane=feature-review shard=shard-01 state=waiting-for-reviewer-result") || !strings.Contains(latestHandoffText, regeneratedPacket.PacketID) {
+	if !strings.Contains(latestHandoffText, "## Reviewer dispatch intake handoff") || !strings.Contains(latestHandoffText, "dispatch intake: lane=feature-review shard=shard-01 state=ready-for-reviewer-dispatch") || !strings.Contains(latestHandoffText, regeneratedPacket.PacketID) {
 		t.Fatalf("latest handoff after regeneration omitted fresh dispatch:\n%s", latestHandoffText)
 	}
 	assertReviewerPacketRetirementText(t, "latest handoff after regeneration", latestHandoffText, "feature-review")
@@ -491,7 +492,7 @@ func TestRunPlanSubagentsReviewerPacketRetirementWhatIfApplyE2E(t *testing.T) {
 		t.Fatalf("continue preview after regeneration did not block on fresh reviewer dispatch: %+v", regeneratedContinuePreview)
 	}
 	assertReviewerPacketRetirementClosure(t, "continue preview after regeneration", regeneratedContinuePreview.ReviewerPacketRetirementHandoffs, regeneratedContinuePreview.ReviewerPacketRetirementSummary, applied.PacketID, "feature-review", applied.PacketSHA256, applied.IntegritySHA256)
-	assertReviewerDispatchIntakeSummary(t, "continue preview after regeneration", regeneratedContinuePreview.ReviewerDispatchIntakeSummary, 1, 1, 0, "shard-01", "waiting-for-reviewer-result")
+	assertReviewerDispatchIntakeSummary(t, "continue preview after regeneration", regeneratedContinuePreview.ReviewerDispatchIntakeSummary, 1, 1, 0, "shard-01", "ready-for-reviewer-dispatch")
 	regeneratedContinueDispatch, ok := reviewerDispatchIntakeByShard(regeneratedContinuePreview.ReviewerDispatchIntakeHandoffs, "shard-01")
 	if !ok || regeneratedContinueDispatch.PacketID != regeneratedPacket.PacketID || regeneratedContinueDispatch.PacketID == applied.PacketID {
 		t.Fatalf("continue preview after regeneration did not preserve fresh packet dispatch: %+v", regeneratedContinuePreview.ReviewerDispatchIntakeHandoffs)
@@ -501,7 +502,7 @@ func TestRunPlanSubagentsReviewerPacketRetirementWhatIfApplyE2E(t *testing.T) {
 	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "review", "-WhatIf", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "continue reviewer dispatch intake：lane=feature-review shard=shard-01 state=waiting-for-reviewer-result") {
+	if !strings.Contains(out.String(), "continue reviewer dispatch intake：lane=feature-review shard=shard-01 state=ready-for-reviewer-dispatch") {
 		t.Fatalf("continue text after regeneration omitted fresh reviewer dispatch:\n%s", out.String())
 	}
 	assertReviewerPacketRetirementText(t, "continue text after regeneration", out.String(), "feature-review")
@@ -527,5 +528,5 @@ func TestRunPlanSubagentsReviewerPacketRetirementWhatIfApplyE2E(t *testing.T) {
 		t.Fatalf("continue apply after regeneration should remain blocked with zero writes while reviewer dispatch is open: %+v", regeneratedContinueApply)
 	}
 	assertReviewerPacketRetirementClosure(t, "continue apply after regeneration", regeneratedContinueApply.ReviewerPacketRetirementHandoffs, regeneratedContinueApply.ReviewerPacketRetirementSummary, applied.PacketID, "feature-review", applied.PacketSHA256, applied.IntegritySHA256)
-	assertReviewerDispatchIntakeSummary(t, "continue apply after regeneration", regeneratedContinueApply.ReviewerDispatchIntakeSummary, 1, 1, 0, "shard-01", "waiting-for-reviewer-result")
+	assertReviewerDispatchIntakeSummary(t, "continue apply after regeneration", regeneratedContinueApply.ReviewerDispatchIntakeSummary, 1, 1, 0, "shard-01", "ready-for-reviewer-dispatch")
 }

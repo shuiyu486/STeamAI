@@ -72,6 +72,7 @@ func TestRecoverReviewerResultWhatIfApplyCollectionAndIntake(t *testing.T) {
 		t.Fatalf("recovery replay: %+v err=%v", replayed, err)
 	}
 
+	writeReviewerSessionReceiptsForResult(t, handoff, candidate)
 	collectionOpt := ReviewerResultCollectionOptions{PacketPath: plan.PacketPath, ShardID: handoff.ShardID, Lane: packet.TargetLane, Actor: "mission-commander", WhatIf: true}
 	collectionPreview, err := CollectReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, collectionOpt)
 	if err != nil || collectionPreview.Status != "previewed" {
@@ -516,6 +517,7 @@ func TestRecoverReviewerResultRejectsDriftAndWriteback(t *testing.T) {
 	if err := os.WriteFile(handoff.ReviewerResultPath, candidate, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	writeReviewerSessionReceiptsForResult(t, handoff, candidate)
 	intakeOpt := ReviewerIntakeOptions{PacketPath: plan.PacketPath, ReviewerResultPath: handoff.ReviewerResultPath, Lane: packet.TargetLane, Actor: "mission-commander", ExpectedShardID: handoff.ShardID, WhatIf: false}
 	if _, err := IntakeReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, intakeOpt); err != nil {
 		t.Fatal(err)
