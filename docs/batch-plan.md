@@ -16,6 +16,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 694：stale owner-guard takeover-to-continue product-path closure
+
+状态：实现进行中；已扩展 nested case-local stale owner-guard CLI product-path regression，并完成 focused 验证。Batch 692 已让 stale/missing owner guard 的 `continue` 返回 fail-closed / zero-write recovery envelope，Batch 693 已让 `status` first-screen 直接投影当前 lane takeover package；但 replacement executor 从旧会话 stale `continue` 接手时，产品路径测试仍停在“看到 recovery”和“current executor 可继续”，没有证明 executor 按 recovery guidance 执行 explicit `start` takeover preview/apply 后，会获得新 generation 的 owner-bound continue，并且旧 executor 再次尝试 `continue` 会继续 fail-closed 指向新 owner。
+
+目标：把 stale `continue` recovery → explicit `start -WhatIf -Executor <new>` takeover preview → `start -Apply -Executor <new>` takeover → old executor 二次 stale `continue` recovery → new executor owner-bound `continue -Apply` 串成一个 CLI 产品路径回归。该回归必须证明 recovery 阶段 zero-write，takeover preview read-only 且给出 apply-required `LaneTakeoverPackage`，takeover apply durable 更新 current executor/generation 与 ready continue package，二次 stale recovery 指向最新 executor/generation，最终 continue apply 只接受新 owner guard。
+
+边界：本批不新增 public command，不改变 owner guard、lane/autonomy/reviewer/gate/adapter/pack-memory durable schema，不自动 claim executor、不自动 takeover、不自动 continue，不执行 reviewer/adapter/pack-memory/gate/sync/promote/heavy-tool mutation，不写 facts/authority/confirmed，不新增 PowerShell runtime logic。若 runtime 已满足链路，则只补产品路径回归与文档，不制造无必要 runtime 改动。
+
+已实现内容：扩展 `TestRunContinueReplaceableSessionOwnerGuardNestedProductPath`。测试现在在 `session-a` stale recovery 和 `session-b` current preview 之后，继续从 nested case-local cwd 运行 recovery-guided `start login -WhatIf -Executor session-c`，断言 preview zero-write、generation 递增到 3、top-level Mission Commander follow-up 指向 `/rekit continue login -Executor session-c -ExpectedExecutorGeneration 3`，且 apply-required `LaneTakeoverPackage.currentCommand` 指向 explicit takeover Apply。随后运行 `start login -Apply -Executor session-c`，断言 lane durable executor/generation/lastTakeover provenance 更新、writes 包含 `update-executor-takeover`，并且 ready package 输出新 owner-bound continue command。测试再用旧 `session-b` generation 2 重跑 `continue -WhatIf`，断言仍 fail-closed / zero-write 且 recovery 指向 `session-c` generation 3；最后用 `session-c` generation 3 执行 `continue -Apply`，证明 takeover 后的 replacement executor 可直接继续。
+
+验证结果：focused product-path regression 已通过：`go test ./internal/rekit/cli -run TestRunContinueReplaceableSessionOwnerGuardNestedProductPath -count=1`。相邻 regressions、受影响 package regressions、完整本机 release minimum、implementation commit/push 与 remote release-gate inspection 待执行。
+
 ### Batch 693：Mission Commander first-screen lane takeover package closure
 
 状态：已完成 runtime/test/doc 实现、本机验证、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `6141c79` 已推送。Push run `30340190330` completed failure；macOS/Linux/Windows jobs `90213804401`/`90213804403`/`90213804435` 均 `steps=[]`；`gh run view 30340190330 --log-failed` 返回 `log not found: 90213804401`。这是既有 runner/billing blocker，未发现新的远程 release signal，不声明 remote green。Batch 691 已让 `start`、lane `handoff`、`continue`、`RESUME.md` 与 checkpoint 都暴露 `LaneTakeoverPackage`，Batch 692 已让 stale/missing owner guard 的 `continue` 返回 structured recovery envelope。本批继续补齐 replacement executor 从 case-local `/rekit` shim、nested cwd 或新会话第一步运行 `status` 的 first-screen 接手断点：当 Mission Commander first screen 聚焦某条 lane 的 ready/blocked current action 时，第一屏直接展示同源 takeover package，而不是只给 generic action/reason/boundary。
