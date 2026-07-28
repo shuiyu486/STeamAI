@@ -1331,6 +1331,67 @@ func TestRunStatusCaseMissionPromotesPendingGateWhatIfCurrentAction(t *testing.T
 	}
 }
 
+func TestRunStatusCaseMissionOpenDecisionFirstScreenPackage(t *testing.T) {
+	caseRoot := attachedCase(t)
+	for _, dir := range []string{
+		".rekit/facts",
+		".rekit/lanes/main",
+		"workspace/main/main",
+	} {
+		if err := os.MkdirAll(filepath.Join(caseRoot, filepath.FromSlash(dir)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	board := `{"schemaVersion":1,"caseRoot":"` + filepath.ToSlash(caseRoot) + `","repoRoot":"` + filepath.ToSlash(repoRoot(t)) + `","pack":"_template","automationMode":"assist","defaultAuthorityLane":"main","lanes":[{"id":"main","type":"main","title":"Main","status":"open","authority":true,"workspace":"workspace/main/main"}],"factsRoot":".rekit/facts"}`
+	writeCaseFile(t, caseRoot, ".rekit/board.json", board)
+	writeCaseFile(t, caseRoot, ".rekit/lanes/main/lane.json", `{"schemaVersion":1,"id":"main","type":"main","title":"Main","status":"open","authority":true,"workspace":"workspace/main/main","laneRoot":".rekit/lanes/main"}`)
+	factsRoot := filepath.Join(caseRoot, ".rekit", "facts")
+	writeFactFile(t, factsRoot, "requests.jsonl", nil)
+	writeFactFile(t, factsRoot, "candidates.jsonl", []string{`{"eventId":"cand-main-open-1","kind":"candidate","lane":"main","subject":"main blocker","summary":"candidate needs decision","status":"open","confidence":"high","target":"candidate-main","evidenceRefs":"evidence/main-candidate.json"}`})
+	writeFactFile(t, factsRoot, "decisions.jsonl", nil)
+	writeFactFile(t, factsRoot, "interventions.jsonl", nil)
+	before := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		CaseMission struct {
+			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+			OpenDecisionHandoffs        []statusOpenDecisionHandoff         `json:"openDecisionHandoffs"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("open decision status JSON did not decode: %v\n%s", err, out.String())
+	}
+	current := status.CaseMission.MissionCommanderActionQueue.CurrentAction
+	if current == nil || current.Source != "missionCommanderActions" || current.State != "needs-open-decision-review" || !current.Blocked || !current.RequiresReview || current.Command != "/rekit handoff main" {
+		t.Fatalf("open decision status JSON did not expose current blocker handoff: current=%+v handoffs=%+v", current, status.CaseMission.OpenDecisionHandoffs)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"status Mission Commander first screen：focus=case-current-action",
+		"status Mission Commander current action：scope=focus-case lane=main label=main state=needs-open-decision-review source=missionCommanderActions blocked=true requiresReview=true command=/rekit handoff main",
+		"status Mission Commander focus open decision package：eventId=cand-main-open-1 kind=candidate lane=main state=needs-open-decision-review source=missionCommanderActions command=/rekit handoff main sourceKind=candidate sourcePath=.rekit/facts/candidates.jsonl recordPath=.rekit/facts/decisions.jsonl",
+		"status Mission Commander focus open decision handoff：eventId=cand-main-open-1 review=/rekit handoff main sourceCommand=/rekit note -Target \"" + caseRoot + "\" -Pack _template -List -Kind candidate -Lane main -Format json whatIf=/rekit note",
+		"-Decision \"<accept|reject|defer|supersede>\" -Reason \"reviewed open candidate/decision item\" -TargetRef \"candidate-main\" -Related \"cand-main-open-1\" -EvidenceRefs \"evidence/main-candidate.json\" -WhatIf -Format json record=run the hash-bound recordCommand returned by note -WhatIf",
+		"status Mission Commander focus open decision boundary：eventId=cand-main-open-1 boundary=review evidence and choose accept/reject/defer/supersede with note -WhatIf first; then run the returned hash-bound recordCommand, which only appends case-local decision ledger state and never writes authority/confirmed or executes heavy-tool",
+		"status Mission Commander focus open decision boundary：eventId=cand-main-open-1 boundary=blocked lane can only continue with -WhatIf after open candidate/decision review is recorded or deliberately deferred; do not continue autonomously while the open decision remains unresolved",
+		"status Mission Commander focus open decision evidence：eventId=cand-main-open-1 evidence=evidenceRefs evidence/main-candidate.json",
+		"status Mission Commander focus open decision evidence：eventId=cand-main-open-1 evidence=recordPath .rekit/facts/decisions.jsonl",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("open decision first-screen status text missing %q:\n%s", expected, out.String())
+		}
+	}
+	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+}
+
 func TestRunStatusCaseMissionIncludesExecutionEvidenceReview(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	writeOverviewFixture(t, caseRoot)

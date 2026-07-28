@@ -2847,6 +2847,9 @@ func writeStatusMissionCommanderFirstScreenText(out io.Writer, caseMission *stat
 			if err := writeStatusMissionCommanderFirstScreenEvidenceAcknowledgementText(out, caseMission.ExecutionEvidenceReview, caseCurrent); err != nil {
 				return err
 			}
+			if err := writeStatusMissionCommanderFirstScreenOpenDecisionText(out, caseMission.OpenDecisionHandoffs, caseCurrent); err != nil {
+				return err
+			}
 		}
 	case "reviewer-current-action":
 		if err := writeStatusMissionCommanderFirstScreenActionText(out, "reviewer", reviewerCurrent); err != nil {
@@ -3280,6 +3283,50 @@ func writeStatusMissionCommanderFirstScreenEvidenceAcknowledgementText(out io.Wr
 			return err
 		}
 		return nil
+	}
+	return nil
+}
+
+func writeStatusMissionCommanderFirstScreenOpenDecisionText(out io.Writer, handoffs []statusOpenDecisionHandoff, current *mission.MissionCommanderNextActionItem) error {
+	if current == nil || current.Source != "missionCommanderActions" || current.State != "needs-open-decision-review" {
+		return nil
+	}
+	handoff := statusOpenDecisionHandoffForCurrentAction(handoffs, current)
+	if handoff == nil {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "status Mission Commander focus open decision package：eventId=%s kind=%s lane=%s state=%s source=%s command=%s sourceKind=%s sourcePath=%s recordPath=%s\n", handoff.EventID, handoff.Kind, handoff.Lane, current.State, current.Source, current.Command, handoff.SourceKind, handoff.SourcePath, handoff.RecordPath); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "status Mission Commander focus open decision handoff：eventId=%s review=%s sourceCommand=%s whatIf=%s record=%s\n", handoff.EventID, handoff.ReviewCommand, handoff.SourceCommand, handoff.WhatIfCommand, handoff.RecordCommand); err != nil {
+		return err
+	}
+	for _, boundary := range []string{handoff.DecisionBoundary, handoff.ContinueBoundary} {
+		if strings.TrimSpace(boundary) == "" {
+			continue
+		}
+		if _, err := fmt.Fprintf(out, "status Mission Commander focus open decision boundary：eventId=%s boundary=%s\n", handoff.EventID, boundary); err != nil {
+			return err
+		}
+	}
+	for _, evidence := range handoff.Evidence {
+		if _, err := fmt.Fprintf(out, "status Mission Commander focus open decision evidence：eventId=%s evidence=%s\n", handoff.EventID, evidence); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func statusOpenDecisionHandoffForCurrentAction(handoffs []statusOpenDecisionHandoff, action *mission.MissionCommanderNextActionItem) *statusOpenDecisionHandoff {
+	if action == nil {
+		return nil
+	}
+	lane := strings.TrimSpace(action.Lane)
+	for idx := range handoffs {
+		if lane != "" && strings.TrimSpace(handoffs[idx].Lane) != lane {
+			continue
+		}
+		return &handoffs[idx]
 	}
 	return nil
 }
