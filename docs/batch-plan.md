@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 706：durable reviewer session receipt lifecycle
 
-状态：已完成实现、focused/package/CLI product-path 回归、Linux test binary cross-compile、完整本机 release minimum 与文档/CHANGELOG；待 implementation commit/push 及该 push 触发的 remote release-gate inspection。
+状态：已完成实现、focused/package/CLI product-path 回归、Linux test binary cross-compile、完整本机 release minimum、文档/CHANGELOG、implementation commit/push 与 push-triggered remote inspection；implementation commit `699c8f8` 已推送。Push run `30391673831` completed failure；Windows/Linux/macOS jobs `90384524538`/`90384524680`/`90384524750` 均 `steps=[]`，`gh run view 30391673831 --log-failed` 返回 `log not found: 90384524538`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。
 
 目标：把 immutable reviewer packet 接到真实 Claude Code harness session 生命周期，而不让 Go runtime 成为 Agent 进程管理器。主 Agent实际调用 read-only Agent tool 后记录 immutable dispatch receipt，session 结束后记录 immutable completion receipt；只有 current lane owner generation 下的 successful completion、exact reviewer session 和 exact result input hash/bytes 都匹配时，结果才可进入 source capture、staging、collection、intake 与 verification-before-decision writeback。
 
