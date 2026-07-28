@@ -111,6 +111,10 @@ func Decode(data []byte) (Result, error) {
 	if result.RouteOutput == nil {
 		return Result{}, fmt.Errorf("reviewer result routeOutput must be an object, even when no route-specific values are needed")
 	}
+	contract := CurrentContract()
+	if !slices.Contains(contract.AllowedDecisions, result.Decision) {
+		return Result{}, fmt.Errorf("invalid reviewer decision %q; allowed: %s", result.Decision, strings.Join(contract.AllowedDecisions, ","))
+	}
 	if !slices.Contains([]string{"low", "medium", "high"}, result.Confidence) {
 		return Result{}, fmt.Errorf("invalid reviewer confidence %q; allowed: low,medium,high", result.Confidence)
 	}

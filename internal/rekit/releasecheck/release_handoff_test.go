@@ -425,6 +425,20 @@ func TestLatestBatchHandoffExtractsValidationEvidence(t *testing.T) {
 	}
 }
 
+func TestLatestBatchHandoffAcceptsSplitReleaseCheckLocalMinimum(t *testing.T) {
+	section := `状态：已完成 runtime/test/doc、完整本机 release minimum、implementation commit/push 与 remote release-gate inspection；implementation commit ` + "`" + `abc702d` + "`" + ` 已推送。Push run ` + "`" + `30370270270` + "`" + ` completed failure，Linux/Windows/macOS jobs 均 ` + "`" + `steps=[]` + "`" + `。
+
+验证结果：完整本机 release minimum 已通过：` + "`" + `go run ./cmd/rekit -- -Command status` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command packs` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command doctor` + "`" + `、` + "`" + `go test ./...` + "`" + `、` + "`" + `go vet ./...` + "`" + ` 与 ` + "`" + `git diff --check` + "`" + ` 均已运行；完成状态记录后复跑 ` + "`" + `release-check -Format json` + "`" + ` 返回 ` + "`" + `ready=true` + "`" + ` / ` + "`" + `summary=release gate inventory ok` + "`" + `。`
+
+	handoff := latestBatchHandoff(ReleaseHandoffLatestBatch{Status: "已完成 fixture"}, section)
+	if !handoff.LocalValidationReady || !handoff.ReleaseCheckReady {
+		t.Fatalf("split release-check evidence should satisfy local release minimum: %+v", handoff)
+	}
+	if strings.Contains(handoff.NextAction, "local release minimum") || !strings.Contains(handoff.NextAction, "select the next Windows-verifiable product-path batch") {
+		t.Fatalf("completed split validation batch should point to next-batch selection, got %q", handoff.NextAction)
+	}
+}
+
 func TestLatestBatchHandoffAcceptsReleaseRunLocalMinimum(t *testing.T) {
 	section := `状态：已完成 runtime/test/doc 工作树实现、完整本机 ` + "`" + `release-run` + "`" + ` release minimum，以及 implementation commit/push 和 PR-triggered remote release-gate inspection；implementation commit ` + "`" + `483947c` + "`" + ` 已推送。PR run ` + "`" + `30199667894` + "`" + ` completed failure，macOS/Windows/Linux jobs ` + "`" + `89787316201` + "`" + `/` + "`" + `89787316236` + "`" + `/` + "`" + `89787316256` + "`" + ` 均 ` + "`" + `steps=[]` + "`" + ` 且无 logs。
 

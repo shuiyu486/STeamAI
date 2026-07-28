@@ -175,7 +175,7 @@ func applyAuthorizedGateAdapterAcknowledgement(handoff *AuthorizedGateAdapterHan
 	if handoff == nil || len(acknowledgedIDs) == 0 || !acknowledgedIDs[strings.TrimSpace(handoff.EventID)] {
 		return
 	}
-	if handoff.ReportSummary == nil || (handoff.ReportSummary.State != "evidence-already-recorded" && !handoff.ReportSummary.RequiresMainEscalation) {
+	if handoff.ReportSummary == nil || handoff.ReportSummary.State != "evidence-already-recorded" || handoff.ReportSummary.RequiresMainEscalation {
 		return
 	}
 	handoff.Acknowledged = true

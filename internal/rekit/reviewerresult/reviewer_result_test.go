@@ -12,6 +12,27 @@ func TestDecodeRejectsMalformedReviewerResultObject(t *testing.T) {
 	}
 }
 
+func TestDecodeRejectsUnsupportedReviewerDecision(t *testing.T) {
+	_, err := Decode([]byte(`{
+		"packetId":"packet-1",
+		"routeId":"route-1",
+		"shardId":"shard-01",
+		"items":[],
+		"reviewerSession":"reviewer-session-1",
+		"decision":"approve",
+		"confidence":"high",
+		"summary":"summary",
+		"evidenceRefs":[],
+		"risks":[],
+		"conflicts":[],
+		"recommendedVerdict":"accepted",
+		"routeOutput":{}
+	}`))
+	if err == nil || !strings.Contains(err.Error(), `invalid reviewer decision "approve"`) {
+		t.Fatalf("unsupported reviewer decision should be rejected: %v", err)
+	}
+}
+
 func TestDecodeAcceptsReviewerResultContract(t *testing.T) {
 	result, err := Decode([]byte(`{
 		"packetId":"packet-1",

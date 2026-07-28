@@ -96,6 +96,31 @@ func TestReviewerDispatchIntakeFailsClosedOnPacketIntegrityDrift(t *testing.T) {
 	}
 }
 
+func TestReadReviewerDispatchPacketRejectsUnknownAndTrailingJSON(t *testing.T) {
+	root := t.TempDir()
+	packetPath := filepath.Join(root, ".rekit", "reviews", "strict", "packet.json")
+	if err := os.MkdirAll(filepath.Dir(packetPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name string
+		data string
+		want string
+	}{
+		{name: "unknown-field", data: `{"packetId":"packet-strict","unexpected":true}`, want: "unknown field"},
+		{name: "trailing-object", data: `{"packetId":"packet-strict"} {}`, want: "exactly one JSON object"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if err := os.WriteFile(packetPath, []byte(test.data), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := readReviewerDispatchPacket(root, packetPath); err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("strict reviewer packet read should reject %s: %v", test.name, err)
+			}
+		})
+	}
+}
+
 func TestReviewerDispatchIntakeSummaryPrefersReadyPacketBatchCommand(t *testing.T) {
 	readyBatchPreview := "/rekit plan-subagents -PacketPath ready-packet.json -ReadyReviewerResults -WhatIf -Format json"
 	readyBatchApply := "/rekit plan-subagents -PacketPath ready-packet.json -ReadyReviewerResults -Apply -Format json"

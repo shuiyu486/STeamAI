@@ -4017,8 +4017,10 @@ func latestBatchHasLocalValidation(text string) bool {
 	if latestBatchHasReleaseRunSuccess(lower) {
 		return true
 	}
+	if !latestBatchReleaseCheckReady(text) {
+		return false
+	}
 	for _, command := range []string{
-		"go run ./cmd/rekit -- -Command release-check -Format json",
 		"go run ./cmd/rekit -- -Command status",
 		"go run ./cmd/rekit -- -Command packs",
 		"go run ./cmd/rekit -- -Command doctor",
@@ -4557,6 +4559,7 @@ func latestBatchEvidence(text string) []string {
 	}{
 		{match: "public cli", label: "public CLI product-path validation recorded"},
 		{match: "go run ./cmd/rekit -- -command release-check -format json", label: "release-check -Format json recorded"},
+		{match: "releasecheck-ready", label: "release-check -Format json recorded"},
 		{match: "releasecheck-step", label: "release-check -Format json recorded"},
 		{match: "go run ./cmd/rekit -- -command status", label: "status handoff recorded"},
 		{match: "status-step", label: "status handoff recorded"},
@@ -4587,6 +4590,8 @@ func latestBatchEvidenceMatched(match, text, lower, remoteText, remoteLower stri
 		return latestBatchRemoteReleaseGate(text) != "not-recorded" && latestBatchRemoteHasEmptySteps(remoteText, remoteLower)
 	case "release-run-ready":
 		return latestBatchHasReleaseRunSuccess(lower)
+	case "releasecheck-ready":
+		return latestBatchReleaseCheckReady(text)
 	case "release-run-retry":
 		return latestBatchHasReleaseRunTransientRetry(lower)
 	case "releasecheck-step":

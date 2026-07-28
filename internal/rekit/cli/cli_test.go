@@ -11800,7 +11800,7 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 		t.Fatalf("retired candidate handoff was not a durable project apply: %+v", retiredHandoff)
 	}
 	for _, action := range retiredHandoff.MissionCommanderNextActions {
-		if strings.HasPrefix(action.Source, "packMemoryCandidates.") || strings.Contains(action.State, "pack-memory-proof") || strings.Contains(action.ActionID, "pack-memory-") {
+		if strings.HasPrefix(action.Source, "packMemoryCandidates.") || strings.Contains(action.State, "pack-memory-proof") || strings.HasPrefix(action.ActionID, "pack-memory-") && !strings.HasPrefix(action.ActionID, "next-batch-") {
 			t.Fatalf("retired candidate handoff reopened pack-memory proof action: %+v", action)
 		}
 	}

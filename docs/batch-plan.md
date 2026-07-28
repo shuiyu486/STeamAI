@@ -16,6 +16,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 703：release handoff truth and reviewer/gate fail-closed correctness
+
+状态：已完成实现、focused/package 验证、完整本机 release minimum 与文档/CHANGELOG 收尾；本批不把 fixture 隔离误报为已完成。implementation commit/push 与 remote release-gate inspection 按当前 release cadence 在提交后记录；远程 `steps=[]` 仍不声明 green。
+
+目标：修复 Batch 702 完成记录与 release/status handoff parser 的证据语义漂移，并收紧 reviewer result、reviewer dispatch packet 与 authorized-gate acknowledgement 的 fail-closed 边界，使真实 CLI/product-path handoff 不因分段 validation 记录误回退，也不因非法 reviewer decision、canonical packet unknown/trailing JSON 或普通 acknowledgement 隐藏主 Agent escalation。
+
+边界：不新增 public command、durable schema 或 PowerShell runtime logic；不执行 heavy tool、reviewer、adapter、gate、sync 或 promote mutation；不写 authority/confirmed。pack-memory/promote 测试仍直接修改真实 `_template` fixture 的隔离迁移不在本批完成，保留为下一批中型测试架构闭环。
+
+已实现内容：`latestBatchHasLocalValidation` 现在在完整命令集合之外兼容 `release-check ready=true` 分段 evidence，并同步投影 release-check evidence；`reviewerresult.Decode` 校验 `CurrentContract().AllowedDecisions`；reviewer dispatch packet 使用 stable regular-file read、canonical top-level allowlist、single-object/trailing guard；普通 execution evidence acknowledgement 不再关闭 `RequiresMainEscalation`，并补齐 decision、packet、escalation 回归测试。另修正 pack-memory durable handoff 回归对合法 `next-batch-*` candidate-domain guidance 的误报，并保留 autonomous goal 的提交推送 invariant。
+
+验证结果：focused `TestRunStatusJsonKit`、`TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply`、`TestAutonomousGoalGuideInvariants`、releasecheck/reviewerresult/workstream/subagents 全量测试均已通过；最终 `go test ./... -count=1` 通过（含 CLI 243.897s），`go vet ./...` 通过，`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true` / `summary=release gate inventory ok`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check` 已通过。远程 release-gate 仍按既有 `steps=[]` runner/billing blocker 记录，不声明 remote green。
+
 ### Batch 702：pack-memory proof closure to durable project handoff
 
 状态：已完成 CLI product-path regression、文档/CHANGELOG、完整本机 release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `f3c59ae` 已推送。Push run `30363847694` completed failure；Linux/Windows/macOS jobs `90289930205`/`90289930246`/`90289930711` 均 `steps=[]`；`gh run view 30363847694 --log-failed` 返回 `log not found: 90289930205`。这是既有 runner/billing blocker，未发现新的远程 release signal，不声明 remote green。本批从既有 pack-memory candidate decision verification/retirement 生命周期继续推进 replacement executor 接手断点：status/release-check 已证明 retirement 后 pack-memory candidate queue 关闭，但尚未证明随后生成 project durable handoff 不会把已关闭的 proof/verification action 重新注入 action queue 或 handoff Markdown。

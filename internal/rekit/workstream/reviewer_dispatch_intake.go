@@ -548,7 +548,7 @@ func ReviewerDispatchIntakeHandoffs(caseRoot string, facts mission.LedgerFacts, 
 		if integrityPresent && reviewerPacketRetirementCurrent(caseRoot, packetPath, integrity) {
 			continue
 		}
-		packet, packetErr := readReviewerDispatchPacket(packetPath)
+		packet, packetErr := readReviewerDispatchPacket(caseRoot, packetPath)
 		if packetErr != nil {
 			if !integrityPresent {
 				continue
@@ -1077,13 +1077,37 @@ func reviewerDispatchPacketPaths(caseRoot string) ([]string, error) {
 	return paths, nil
 }
 
-func readReviewerDispatchPacket(path string) (reviewerDispatchPacket, error) {
-	data, err := os.ReadFile(path)
+func readReviewerDispatchPacket(caseRoot, path string) (reviewerDispatchPacket, error) {
+	data, err := readStableReviewerWorkstreamArtifact(caseRoot, path, "reviewer packet")
 	if err != nil {
-		return reviewerDispatchPacket{}, fmt.Errorf("read reviewer packet: %w", err)
+		return reviewerDispatchPacket{}, err
+	}
+	trimmed := bytes.TrimSpace(data)
+	dec := json.NewDecoder(bytes.NewReader(trimmed))
+	var fields map[string]json.RawMessage
+	if err := dec.Decode(&fields); err != nil {
+		return reviewerDispatchPacket{}, fmt.Errorf("decode reviewer packet JSON: %w", err)
+	}
+	var trailing any
+	if err := dec.Decode(&trailing); err != io.EOF {
+		return reviewerDispatchPacket{}, fmt.Errorf("reviewer packet must contain exactly one JSON object")
+	}
+	allowed := map[string]bool{
+		"schemaVersion": true, "packetId": true, "packetIntegrity": true, "command": true,
+		"isMutation": true, "writesReviewArtifacts": true, "planRoot": true, "repoRoot": true,
+		"pack": true, "manifestPath": true, "targetLane": true, "ownerBinding": true,
+		"route": true, "input": true, "shardPolicy": true, "shards": true,
+		"shardHandoffs": true, "reviewerOrchestration": true, "mainAgentResponsibilities": true,
+		"subagentPermissions": true, "outputContract": true, "reviewRequired": true,
+		"observability": true, "reviewLoop": true,
+	}
+	for field := range fields {
+		if !allowed[field] {
+			return reviewerDispatchPacket{}, fmt.Errorf("decode reviewer packet JSON: json: unknown field %q", field)
+		}
 	}
 	var packet reviewerDispatchPacket
-	if err := json.Unmarshal(data, &packet); err != nil {
+	if err := json.Unmarshal(trimmed, &packet); err != nil {
 		return reviewerDispatchPacket{}, fmt.Errorf("decode reviewer packet JSON: %w", err)
 	}
 	return packet, nil

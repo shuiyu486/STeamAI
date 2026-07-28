@@ -89,12 +89,8 @@ Mission Control 相关批次还应检查：
 
 ## 给新会话的 goal 语句
 
-推荐直接复制这段给新会话，保持短而明确；更细边界由仓库文档和实际验证承载，不塞进 goal：
+推荐直接复制这段给新会话，保持短而明确；更细边界由仓库文档和实际验证承载，不塞进 goal。每轮完成验证和文档收尾后，直接提交并推送到 origin/main，再继续下一轮：
 
 ```text
-在 C:\AI\m_projects\RE\re-context-kits 的 main 分支长期、自主、连续推进项目向 Lane-centric Agent Team Mission Control 收敛。每轮先按 docs/context-routing.md 读取最小上下文，确认 docs/batch-plan.md 当前状态、CHANGELOG.md 顶部、main/origin/main 同步状态和真实验证状态，再选择一个中大型、可验证、能提升真实产品闭环或降低维护风险的 vertical slice 实施。
-
-近期优先 PowerShell-free default/product path、Go-native、Mission Commander operational closure、replaceable session executor、reviewer dispatch/intake/writeback、authorized execution evidence、tool-adapter live validation、pack-memory UX 和 Windows 本机 product-path 稳定；不要连续做一两行或逐字段 metadata 微批次。禁止新增 PowerShell runtime logic，远程 CI steps=[] 只如实记录为 known gap。
-
-完成一批后更新必要文档和 CHANGELOG，运行合适验证；若本 session 已授权，直接提交并推送到 origin/main。除非遇到仓库文档规定必须升级的事项，否则自主判断并继续下一批；不要把单个 batch、一次提交、inventory ready 或工作树干净当成长期 goal 完成。
+在 C:\AI\m_projects\RE\re-context-kits 的 main 分支长期自主、连续推进项目成为可实际运行的 Lane-centric Agent Team Mission Control。每轮选择一个中大型、端到端、可验证的产品闭环，优先把现有 durable contract 接到真实 session、reviewer 和 adapter 生命周期，并同步收敛阻碍闭环的架构复杂度；完成验证、文档、提交和推送后继续下一轮。除非遇到必须由我决策的不可逆事项，否则不要停止，也不要把单批完成、工作树干净或 inventory ready 当作 goal 完成。
 ```

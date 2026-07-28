@@ -114,6 +114,29 @@ func TestMissionCommanderNextActionsWithAuthorizedGateAdaptersPrioritizesRepair(
 	}
 }
 
+func TestAuthorizedGateAdapterAcknowledgementPreservesMainEscalation(t *testing.T) {
+	action := mission.MissionCommanderNextActionItem{
+		GateEventID:    "evt-escalated",
+		State:          "needs-main-escalation",
+		Command:        "/rekit handoff main",
+		RequiresReview: true,
+	}
+	handoff := AuthorizedGateAdapterHandoff{
+		EventID:                     "evt-escalated",
+		ReportSummary:               &gate.AdapterReportHandoffSummary{State: "needs-main-escalation", RequiresMainEscalation: true, CurrentAction: action.Command, NextActionCount: 1, ReviewRequiredActionCount: 1},
+		missionCommanderNextActions: []mission.MissionCommanderNextActionItem{action},
+	}
+
+	applyAuthorizedGateAdapterAcknowledgement(&handoff, map[string]bool{"evt-escalated": true})
+
+	if handoff.Acknowledged || handoff.AcknowledgementState != "" || len(handoff.missionCommanderNextActions) != 1 {
+		t.Fatalf("ordinary evidence acknowledgement must not close main escalation: %+v", handoff)
+	}
+	if handoff.ReportSummary == nil || !handoff.ReportSummary.RequiresMainEscalation || handoff.ReportSummary.CurrentAction != action.Command || handoff.ReportSummary.NextActionCount != 1 {
+		t.Fatalf("main escalation summary was hidden by acknowledgement: %+v", handoff.ReportSummary)
+	}
+}
+
 func TestAuthorizedGateAdapterHandoffsLimitKeepsActionableEarlierGate(t *testing.T) {
 	repair := AuthorizedGateAdapterHandoff{
 		EventID:       "evt-repair-earlier",
