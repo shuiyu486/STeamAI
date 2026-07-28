@@ -6908,8 +6908,9 @@ func TestRunHandoffApplyWritesNextBatchCandidateDomains(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	writeHandoffFixture(t, caseRoot)
 	project := buildStatusProjectHandoff(releasecheck.ReleaseHandoff{
-		Ready:   true,
-		Summary: "release handoff summary ok",
+		Ready:      true,
+		Summary:    "release handoff summary ok",
+		Validation: []releasecheck.ReleaseHandoffValidation{{Command: "go test ./...", Required: true, Present: true, Resolved: true}},
 		LatestBatch: releasecheck.ReleaseHandoffLatestBatch{
 			BatchID: "Batch 682",
 			Handoff: releasecheck.ReleaseHandoffLatestBatchHandoff{
@@ -6926,7 +6927,7 @@ func TestRunHandoffApplyWritesNextBatchCandidateDomains(t *testing.T) {
 		},
 		PackMemoryCandidates: releasecheck.ReleaseHandoffPackMemoryCandidateList{Ready: true, Summary: "pack-memory candidate inventory ok", NextAction: "no pack-memory candidate cleanup is pending"},
 	})
-	result, err := workstream.HandoffApply(repoRoot(t), caseRoot, "_template", workstream.HandoffOptions{ProjectMissionCommanderNextActions: projectHandoffMissionCommanderActionsForDurableHandoff(project)})
+	result, err := workstream.HandoffApply(repoRoot(t), caseRoot, "_template", workstream.HandoffOptions{ProjectMissionCommanderNextActions: projectHandoffMissionCommanderActionsForDurableHandoff(project), ProjectNextBatchStarterPackage: projectHandoffNextBatchStarterPackageForDurableHandoff(project)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -6937,6 +6938,10 @@ func TestRunHandoffApplyWritesNextBatchCandidateDomains(t *testing.T) {
 		return item.ActionID == "next-batch-replacement-executor-takeover" && item.Source == "releaseHandoffNextBatch.followUp.candidateDomain" && containsSubstring(item.Boundary, "candidate-domain follow-ups are selection guidance only")
 	}) {
 		t.Fatalf("project handoff JSON omitted replacement-executor candidate-domain follow-up: %+v", result.MissionCommanderNextActions)
+	}
+	starter := result.ProjectNextBatchStarterPackage
+	if starter == nil || !starter.Ready || starter.LatestCompletedBatch != "Batch 682" || starter.SuggestedNextBatch != "Batch 683" || !strings.Contains(starter.CurrentBatchSection, "### Batch 683") || !strings.Contains(starter.CurrentBatchSection, "验证标准：") || !strings.Contains(starter.ChangelogEntry, "Batch 683") || !containsSubstring(starter.ValidationCommands, "go test ./...") || !containsSubstring(starter.ReleaseCadenceSteps, "implementation commit") || !containsSubstring(starter.Boundary, "starter package is read-only guidance") {
+		t.Fatalf("project handoff JSON omitted durable next-batch starter package: %+v", starter)
 	}
 
 	var latest workstream.StartWrite
@@ -6962,6 +6967,15 @@ func TestRunHandoffApplyWritesNextBatchCandidateDomains(t *testing.T) {
 		"pack-memory candidate queue is closed: no pack-memory candidate cleanup is pending",
 		"candidate-domain follow-ups are selection guidance only",
 		"do not execute reviewer, adapter, pack-memory, gate, or heavy-tool mutations from next-batch selection guidance",
+		"## Project next-batch starter package",
+		"latestCompletedBatch: Batch 682",
+		"suggestedNextBatch: Batch 683",
+		"### Batch 683",
+		"验证标准：",
+		"changelog entry: - Batch 683",
+		"validation command: go test ./...",
+		"release cadence step: 先提交并推送 implementation commit",
+		"boundary: starter package is read-only guidance",
 	} {
 		if !bytes.Contains(text, []byte(expected)) {
 			t.Fatalf("project durable handoff omitted %q:\n%s", expected, string(text))
@@ -7061,8 +7075,9 @@ func TestRunInstalledCaseShimDurableNextBatchTakeoverProductPath(t *testing.T) {
 			Ready:    true,
 			Summary:  "release gate inventory ok",
 			ReleaseHandoff: releasecheck.ReleaseHandoff{
-				Ready:   true,
-				Summary: "release handoff summary ok",
+				Ready:      true,
+				Summary:    "release handoff summary ok",
+				Validation: []releasecheck.ReleaseHandoffValidation{{Command: "go test ./...", Required: true, Present: true, Resolved: true}},
 				LatestBatch: releasecheck.ReleaseHandoffLatestBatch{
 					BatchID: "Batch 683",
 					Handoff: releasecheck.ReleaseHandoffLatestBatchHandoff{
@@ -7154,6 +7169,10 @@ func TestRunInstalledCaseShimDurableNextBatchTakeoverProductPath(t *testing.T) {
 	}) {
 		t.Fatalf("installed shim project handoff omitted replacement executor candidate-domain action: %+v", handoff.MissionCommanderNextActions)
 	}
+	starter := handoff.ProjectNextBatchStarterPackage
+	if starter == nil || !starter.Ready || starter.LatestCompletedBatch != "Batch 683" || starter.SuggestedNextBatch != "Batch 684" || !strings.Contains(starter.CurrentBatchSection, "### Batch 684") || !strings.Contains(starter.ChangelogEntry, "Batch 684") || !containsSubstring(starter.Boundary, "starter package is read-only guidance") {
+		t.Fatalf("installed shim project handoff omitted durable next-batch starter package: %+v", starter)
+	}
 	latest := assertStartWrite(t, handoff.Writes, ".rekit/handovers/latest.md", "write-latest-project-handoff")
 	latestText, err := os.ReadFile(latest.TargetPath)
 	if err != nil {
@@ -7168,6 +7187,12 @@ func TestRunInstalledCaseShimDurableNextBatchTakeoverProductPath(t *testing.T) {
 		"pack-memory candidate queue is closed: no pack-memory candidate cleanup is pending",
 		"candidate-domain follow-ups are selection guidance only",
 		"do not execute reviewer, adapter, pack-memory, gate, or heavy-tool mutations from next-batch selection guidance",
+		"## Project next-batch starter package",
+		"latestCompletedBatch: Batch 683",
+		"suggestedNextBatch: Batch 684",
+		"### Batch 684",
+		"changelog entry: - Batch 684",
+		"boundary: starter package is read-only guidance",
 	} {
 		if !bytes.Contains(latestText, []byte(expected)) {
 			t.Fatalf("installed shim durable project handoff omitted %q:\n%s", expected, string(latestText))
@@ -16331,8 +16356,21 @@ type handoffResult struct {
 	AuthorizedGateAdapterHandoffs  []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
 	MissionCommanderNextActions    []missionCommanderNextActionItem       `json:"missionCommanderNextActions"`
 	MissionCommanderActionQueue    missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
+	ProjectNextBatchStarterPackage *projectNextBatchStarterPackage        `json:"projectNextBatchStarterPackage"`
 	Writes                         []startWrite                           `json:"writes"`
 	NextSteps                      []string                               `json:"nextSteps"`
+}
+
+type projectNextBatchStarterPackage struct {
+	Ready                   bool     `json:"ready"`
+	LatestCompletedBatch    string   `json:"latestCompletedBatch"`
+	SuggestedNextBatch      string   `json:"suggestedNextBatch"`
+	CurrentBatchSection     string   `json:"currentBatchSection"`
+	ChangelogEntry          string   `json:"changelogEntry"`
+	ValidationCommands      []string `json:"validationCommands"`
+	ReleaseCadenceSteps     []string `json:"releaseCadenceSteps"`
+	RecommendedStarterSteps []string `json:"recommendedStarterSteps"`
+	Boundary                []string `json:"boundary"`
 }
 
 type handoffLaneExecutorAction struct {

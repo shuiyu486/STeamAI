@@ -28,6 +28,19 @@ var (
 type HandoffOptions struct {
 	Selector                           string
 	ProjectMissionCommanderNextActions []mission.MissionCommanderNextActionItem
+	ProjectNextBatchStarterPackage     *ProjectNextBatchStarterPackage
+}
+
+type ProjectNextBatchStarterPackage struct {
+	Ready                   bool     `json:"ready"`
+	LatestCompletedBatch    string   `json:"latestCompletedBatch,omitempty"`
+	SuggestedNextBatch      string   `json:"suggestedNextBatch,omitempty"`
+	CurrentBatchSection     string   `json:"currentBatchSection"`
+	ChangelogEntry          string   `json:"changelogEntry"`
+	ValidationCommands      []string `json:"validationCommands,omitempty"`
+	ReleaseCadenceSteps     []string `json:"releaseCadenceSteps,omitempty"`
+	RecommendedStarterSteps []string `json:"recommendedStarterSteps,omitempty"`
+	Boundary                []string `json:"boundary,omitempty"`
 }
 
 type HandoffResult struct {
@@ -56,6 +69,7 @@ type HandoffResult struct {
 	AuthorizedGateAdapterHandoffs    []AuthorizedGateAdapterHandoff           `json:"authorizedGateAdapterHandoffs,omitempty"`
 	MissionCommanderNextActions      []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
 	MissionCommanderActionQueue      mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
+	ProjectNextBatchStarterPackage   *ProjectNextBatchStarterPackage          `json:"projectNextBatchStarterPackage,omitempty"`
 	Writes                           []StartWrite                             `json:"writes"`
 	BlockedActions                   []string                                 `json:"blockedActions"`
 	NextSteps                        []string                                 `json:"nextSteps"`
@@ -121,6 +135,7 @@ type handoffContext struct {
 	stamp                              string
 	handovers                          string
 	projectMissionCommanderNextActions []mission.MissionCommanderNextActionItem
+	projectNextBatchStarterPackage     *ProjectNextBatchStarterPackage
 }
 
 func newHandoffContext(repoRoot, caseRoot, pack string, opt HandoffOptions) (handoffContext, error) {
@@ -146,6 +161,7 @@ func newHandoffContext(repoRoot, caseRoot, pack string, opt HandoffOptions) (han
 	ctx := handoffContext{inst: inst, manifest: m, board: b, selector: selector, project: selector == "", stamp: handoffTimestamp()}
 	if ctx.project {
 		ctx.projectMissionCommanderNextActions = mission.UniqueCommanderNextActions(opt.ProjectMissionCommanderNextActions)
+		ctx.projectNextBatchStarterPackage = cloneProjectNextBatchStarterPackage(opt.ProjectNextBatchStarterPackage)
 	}
 	ctx.handovers, err = refsf.SafeJoin(inst.CaseRoot, relJoin(".rekit", "handovers"))
 	if err != nil {
@@ -159,6 +175,18 @@ func newHandoffContext(repoRoot, caseRoot, pack string, opt HandoffOptions) (han
 		ctx.lane = &lane
 	}
 	return ctx, nil
+}
+
+func cloneProjectNextBatchStarterPackage(pkg *ProjectNextBatchStarterPackage) *ProjectNextBatchStarterPackage {
+	if pkg == nil {
+		return nil
+	}
+	clone := *pkg
+	clone.ValidationCommands = append([]string{}, pkg.ValidationCommands...)
+	clone.ReleaseCadenceSteps = append([]string{}, pkg.ReleaseCadenceSteps...)
+	clone.RecommendedStarterSteps = append([]string{}, pkg.RecommendedStarterSteps...)
+	clone.Boundary = append([]string{}, pkg.Boundary...)
+	return &clone
 }
 
 func (ctx handoffContext) result(mutating, applied, confirm bool, writes []StartWrite) HandoffResult {
@@ -260,6 +288,7 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 		AuthorizedGateAdapterHandoffs:    authorizedGateAdapterHandoffs,
 		MissionCommanderNextActions:      missionCommanderNext,
 		MissionCommanderActionQueue:      missionCommanderActionQueue,
+		ProjectNextBatchStarterPackage:   cloneProjectNextBatchStarterPackage(ctx.projectNextBatchStarterPackage),
 		Writes:                           writes,
 		BlockedActions:                   []string{"authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "continue auto-apply", "board/facts/lane creation"},
 		NextSteps:                        next,
@@ -622,6 +651,7 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 	}
 	WriteReviewerPacketRetirementHandoffSection(&out, "## Reviewer packet retirement handoff", reviewerPacketRetirementHandoffs)
 	writeProjectMissionCommanderActionQueue(&out, ctx.projectMissionCommanderNextActions)
+	writeProjectNextBatchStarterPackage(&out, ctx.projectNextBatchStarterPackage)
 	fmt.Fprintln(&out, "## 工作线")
 	fmt.Fprintln(&out)
 	for _, row := range ctx.board.Lanes {
@@ -691,6 +721,37 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 	}
 	fmt.Fprintln(&out, "- 多工作线时不要使用无参数 `/rekit continue` 盲目继续，应使用 `/rekit continue main` 或 `/rekit continue <name>`。")
 	return out.String(), writes, nil
+}
+
+func writeProjectNextBatchStarterPackage(out *bytes.Buffer, starter *ProjectNextBatchStarterPackage) {
+	if starter == nil || !starter.Ready {
+		return
+	}
+	fmt.Fprintln(out, "## Project next-batch starter package")
+	fmt.Fprintln(out)
+	fmt.Fprintf(out, "- ready: %t\n", starter.Ready)
+	fmt.Fprintf(out, "- latestCompletedBatch: %s\n", firstText(starter.LatestCompletedBatch, "none"))
+	fmt.Fprintf(out, "- suggestedNextBatch: %s\n", firstText(starter.SuggestedNextBatch, "none"))
+	fmt.Fprintln(out, "- current batch section:")
+	for line := range strings.SplitSeq(starter.CurrentBatchSection, "\n") {
+		fmt.Fprintf(out, "  %s\n", line)
+	}
+	fmt.Fprintf(out, "- changelog entry: %s\n", starter.ChangelogEntry)
+	writeProjectNextBatchStarterList(out, "validation command", starter.ValidationCommands)
+	writeProjectNextBatchStarterList(out, "recommended step", starter.RecommendedStarterSteps)
+	writeProjectNextBatchStarterList(out, "release cadence step", starter.ReleaseCadenceSteps)
+	writeProjectNextBatchStarterList(out, "boundary", starter.Boundary)
+	fmt.Fprintln(out)
+}
+
+func writeProjectNextBatchStarterList(out *bytes.Buffer, label string, items []string) {
+	if len(items) == 0 {
+		fmt.Fprintf(out, "- %s: none\n", label)
+		return
+	}
+	for _, item := range items {
+		fmt.Fprintf(out, "- %s: %s\n", label, item)
+	}
 }
 
 func writeProjectMissionCommanderActionQueue(out *bytes.Buffer, items []mission.MissionCommanderNextActionItem) {

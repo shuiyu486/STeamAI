@@ -6548,7 +6548,30 @@ func bindProjectHandoffMissionCommanderActions(repoRoot, target, pack string, op
 		return nil
 	}
 	opt.ProjectMissionCommanderNextActions = projectHandoffMissionCommanderActionsForDurableHandoff(project)
+	opt.ProjectNextBatchStarterPackage = projectHandoffNextBatchStarterPackageForDurableHandoff(project)
 	return nil
+}
+
+func projectHandoffNextBatchStarterPackageForDurableHandoff(project *statusProjectHandoff) *workstream.ProjectNextBatchStarterPackage {
+	if project == nil || project.PackMemoryCandidates.MissionCommanderActionQueue.Counts.Total > 0 {
+		return nil
+	}
+	pkg := project.NextBatchSelectionPackage
+	if pkg == nil || !pkg.Ready || pkg.StarterPackage == nil || !pkg.StarterPackage.Ready {
+		return nil
+	}
+	starter := pkg.StarterPackage
+	return &workstream.ProjectNextBatchStarterPackage{
+		Ready:                   starter.Ready,
+		LatestCompletedBatch:    starter.LatestCompletedBatch,
+		SuggestedNextBatch:      starter.SuggestedNextBatch,
+		CurrentBatchSection:     starter.CurrentBatchSection,
+		ChangelogEntry:          starter.ChangelogEntry,
+		ValidationCommands:      append([]string{}, starter.ValidationCommands...),
+		ReleaseCadenceSteps:     append([]string{}, starter.ReleaseCadenceSteps...),
+		RecommendedStarterSteps: append([]string{}, starter.RecommendedStarterSteps...),
+		Boundary:                append([]string{}, starter.Boundary...),
+	}
 }
 
 func projectHandoffMissionCommanderActionsForDurableHandoff(project *statusProjectHandoff) []mission.MissionCommanderNextActionItem {
