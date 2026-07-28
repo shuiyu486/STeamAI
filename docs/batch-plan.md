@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 702：pack-memory proof closure to durable project handoff
 
-状态：已完成 CLI product-path regression、文档/CHANGELOG、完整本机 release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit与远程 run 详情将在提交推送后回填。本批从既有 pack-memory candidate decision verification/retirement 生命周期继续推进 replacement executor 接手断点：status/release-check 已证明 retirement 后 pack-memory candidate queue 关闭，但尚未证明随后生成 project durable handoff 不会把已关闭的 proof/verification action 重新注入 action queue 或 handoff Markdown。
+状态：已完成 CLI product-path regression、文档/CHANGELOG、完整本机 release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit `f3c59ae` 已推送。Push run `30363847694` completed failure；Linux/Windows/macOS jobs `90289930205`/`90289930246`/`90289930711` 均 `steps=[]`；`gh run view 30363847694 --log-failed` 返回 `log not found: 90289930205`。这是既有 runner/billing blocker，未发现新的远程 release signal，不声明 remote green。本批从既有 pack-memory candidate decision verification/retirement 生命周期继续推进 replacement executor 接手断点：status/release-check 已证明 retirement 后 pack-memory candidate queue 关闭，但尚未证明随后生成 project durable handoff 不会把已关闭的 proof/verification action 重新注入 action queue 或 handoff Markdown。
 
 目标：在 `TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply` 完成 candidate verification retirement、`status`/`release-check` 确认 pack-memory queue closed 后，执行 project `handoff -Apply -Format json`。回归必须验证 project handoff mutation/applied、Mission Commander next actions 与 current action 不含已关闭的 `packMemoryCandidates.*` / `pack-memory-proof` / `pack-memory-*` action，`.rekit/handovers/latest.md` 不含关闭的 decision/cleanup/reconsume/retirement proof action，并且 facts、authority、confirmed 保持不变。
 
@@ -26,7 +26,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 已实现内容：扩展 `TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply`。测试在 verification retirement Apply 后、status/release-check 证明 pack-memory candidate inventory closed 的阶段，保存 `.rekit/facts` snapshot，执行 project `handoff -Apply -Format json`，断言 handoff JSON 的 project mutation/applied 与 Mission Commander queue 不再包含任何已关闭的 pack-memory source/state/action；随后读取 `.rekit/handovers/latest.md`，断言 durable Markdown 不再带回 pack-memory proof/verification actions；最后确认 facts 未变化且未创建 authority/confirmed ledger。
 
-验证结果：focused CLI E2E 已通过：`go test ./internal/rekit/cli -run TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply -count=1`。完整本机 release minimum、implementation commit/push 与远程 release-gate inspection 待执行。
+验证结果：focused CLI E2E 已通过：`go test ./internal/rekit/cli -run TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply -count=1`。完整本机 release minimum 已通过：`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 均已运行；`go test ./...` 含 `internal/rekit/cli` 249.903s 通过，`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。完成状态记录前 `release-check -Format json` 按预期返回 implementation-pending warning；完成状态记录后复跑返回 `ready=true` / `summary=release gate inventory ok`。Implementation commit `f3c59ae` 已推送；push run `30363847694` completed failure，Linux/Windows/macOS jobs `90289930205`/`90289930246`/`90289930711` 均 `steps=[]`，`gh run view 30363847694 --log-failed` 返回 `log not found: 90289930205`。这是既有 runner/billing blocker，未发现新的远程 release signal，不声明 remote green。
 
 ### Batch 701：open decision closure to durable handoff continuation
 
