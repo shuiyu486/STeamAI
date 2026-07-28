@@ -35,6 +35,20 @@ type LaneTakeoverPackage struct {
 	Boundary                      []string                                `json:"boundary,omitempty"`
 }
 
+func LaneTakeoverPackageForActionSnapshot(caseRoot string, snapshot mission.LaneExecutorActionSnapshot, queue mission.MissionCommanderActionQueue, applyRequired bool) *LaneTakeoverPackage {
+	lane := Lane{
+		ID:                 snapshot.Lane,
+		Status:             snapshot.Status,
+		Workspace:          snapshot.Workspace,
+		CurrentExecutor:    snapshot.CurrentExecutor,
+		ExecutorGeneration: snapshot.ExecutorGeneration,
+		LastTakeoverAt:     snapshot.LastTakeoverAt,
+		LastTakeoverBy:     snapshot.LastTakeoverBy,
+		LastTakeoverReason: snapshot.LastTakeoverReason,
+	}
+	return laneTakeoverPackageFor(caseRoot, lane, snapshot.ExecutorAction, queue, applyRequired)
+}
+
 func laneTakeoverPackageFor(caseRoot string, lane Lane, action laneExecutorAction, queue mission.MissionCommanderActionQueue, applyRequired bool) *LaneTakeoverPackage {
 	label := workstreamLabel(lane)
 	resumeRel := relJoin(lane.LaneRoot, "prompts", "RESUME.md")

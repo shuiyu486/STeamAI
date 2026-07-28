@@ -6711,6 +6711,40 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 		}
 	}
 
+	beforeStatus := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var takeoverStatus struct {
+		CaseMission struct {
+			FirstScreenLaneTakeoverPackage *laneTakeoverPackage                `json:"firstScreenLaneTakeoverPackage"`
+			MissionCommanderActionQueue    missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &takeoverStatus); err != nil {
+		t.Fatalf("status takeover JSON did not decode: %v\n%s", err, out.String())
+	}
+	statusPackage := takeoverStatus.CaseMission.FirstScreenLaneTakeoverPackage
+	if statusPackage == nil || !statusPackage.Ready || statusPackage.ContinueReady || statusPackage.ApplyRequired || !statusPackage.Blocked || statusPackage.Lane != "feature-login" || statusPackage.Label != "login" || statusPackage.CurrentExecutor != "session-login" || statusPackage.ExecutorGeneration != 2 || statusPackage.ContinueCommand != "/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2" || statusPackage.CurrentCommand != "/rekit reconcile login -InterventionId evt-human-stop -WhatIf" || statusPackage.HandoffPath != ".rekit/handovers/feature-login-latest.md" || statusPackage.MissionCommanderActionQueue.CurrentAction == nil || statusPackage.MissionCommanderActionQueue.CurrentAction.Command != "/rekit reconcile login -InterventionId evt-human-stop -WhatIf" || !containsSubstring(statusPackage.Boundary, "read-only guidance") || !containsSubstring(statusPackage.Boundary, "do not run continue while lane blockers remain open") {
+		t.Fatalf("status JSON omitted first-screen lane takeover package: %+v", statusPackage)
+	}
+	if takeoverStatus.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || takeoverStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.Command != statusPackage.CurrentCommand {
+		t.Fatalf("status current action drifted from takeover package: queue=%+v package=%+v", takeoverStatus.CaseMission.MissionCommanderActionQueue, statusPackage)
+	}
+	assertSnapshotEqual(t, beforeStatus, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"status Mission Commander first screen：focus=case-current-action", "status Mission Commander focus takeover package：ready=true lane=feature-login label=login status=open currentExecutor=session-login generation=2 blocked=true continueReady=false", "status Mission Commander focus takeover package paths：resume=`.rekit/lanes/feature-login/prompts/RESUME.md` checkpoint=`.rekit/lanes/feature-login/checkpoints/latest.json` handoff=`.rekit/handovers/feature-login-latest.md`", "status Mission Commander focus takeover package commands：continue=`/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2` handoff=`/rekit handoff login` current=`/rekit reconcile login -InterventionId evt-human-stop -WhatIf`", "status Mission Commander focus takeover package boundary：lane takeover package is read-only guidance; it does not claim a new executor", "status Mission Commander focus takeover package boundary：do not run continue while lane blockers remain open"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("status text missing first-screen takeover package %q:\n%s", expected, out.String())
+		}
+	}
+	assertSnapshotEqual(t, beforeStatus, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
 	out.Reset()
 	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "main", "-Executor", "session-main-replacement", "-ExpectedExecutorGeneration", "2", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)

@@ -2495,6 +2495,7 @@ type statusCaseMission struct {
 	ReadyLanes                        []string                                     `json:"readyLanes,omitempty"`
 	BlockedLanes                      []string                                     `json:"blockedLanes,omitempty"`
 	LaneExecutorActions               []mission.LaneExecutorActionSnapshot         `json:"laneExecutorActions,omitempty"`
+	FirstScreenLaneTakeoverPackage    *workstream.LaneTakeoverPackage              `json:"firstScreenLaneTakeoverPackage,omitempty"`
 	PendingGates                      []string                                     `json:"pendingGates,omitempty"`
 	PendingGateHandoffs               []statusPendingGateHandoff                   `json:"pendingGateHandoffs,omitempty"`
 	AuthorizedGates                   []string                                     `json:"authorizedGates,omitempty"`
@@ -2837,6 +2838,9 @@ func writeStatusMissionCommanderFirstScreenText(out io.Writer, caseMission *stat
 			return err
 		}
 		if caseMission != nil {
+			if err := writeLaneTakeoverPackageText(out, "status Mission Commander focus", caseMission.FirstScreenLaneTakeoverPackage); err != nil {
+				return err
+			}
 			if err := writeStatusMissionCommanderFirstScreenAuthorizedGateText(out, caseMission.AuthorizedGateHandoffs, caseCurrent); err != nil {
 				return err
 			}
@@ -4314,6 +4318,19 @@ func buildStatusInventory(ctx runtime.Context, packSource string) (statusInvento
 	return status, nil
 }
 
+func statusFirstScreenLaneTakeoverPackage(caseRoot string, actions []mission.LaneExecutorActionSnapshot, queue mission.MissionCommanderActionQueue) *workstream.LaneTakeoverPackage {
+	current := queue.CurrentAction
+	if current == nil || strings.TrimSpace(current.Lane) == "" {
+		return nil
+	}
+	for _, action := range actions {
+		if strings.TrimSpace(action.Lane) == strings.TrimSpace(current.Lane) {
+			return workstream.LaneTakeoverPackageForActionSnapshot(caseRoot, action, queue, false)
+		}
+	}
+	return nil
+}
+
 func statusCaseMissionOnboardingAction(caseRoot string) mission.MissionCommanderNextActionItem {
 	command := "/rekit overview -Target " + statusQuoteCommandArg(caseRoot) + " -Format text"
 	return mission.MissionCommanderNextActionItem{
@@ -4368,6 +4385,7 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 	reviewerDispatchIntakeHandoffs := append([]workstream.ReviewerDispatchIntakeHandoff{}, inventory.ReviewerDispatchIntakeHandoffs...)
 	reviewerDispatchIntakeNextActions := workstream.MissionCommanderNextActionsWithReviewerDispatches(nil, reviewerDispatchIntakeHandoffs)
 	reviewerDispatchIntakeActionQueue := mission.MissionCommanderActionQueueFor(reviewerDispatchIntakeNextActions)
+	firstScreenLaneTakeoverPackage := statusFirstScreenLaneTakeoverPackage(caseRoot, inventory.LaneExecutorActions, inventory.MissionCommanderActionQueue)
 	return &statusCaseMission{
 		Ready:                             inventory.MissionCommanderActionQueue.CurrentAction != nil && inventory.MissionCommanderActionQueue.Counts.Blocked == 0 && len(inventory.MissionBrief.Escalations) == 0,
 		Summary:                           inventory.MissionBrief.Summary,
@@ -4377,6 +4395,7 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 		ReadyLanes:                        append([]string{}, inventory.MissionBrief.ReadyLanes...),
 		BlockedLanes:                      append([]string{}, inventory.MissionBrief.BlockedLanes...),
 		PendingGates:                      append([]string{}, inventory.MissionBrief.PendingGates...),
+		FirstScreenLaneTakeoverPackage:    firstScreenLaneTakeoverPackage,
 		PendingGateHandoffs:               statusPendingGateHandoffs(caseRoot, pack, inventory.Sections.PendingGates.Events),
 		AuthorizedGates:                   append([]string{}, inventory.MissionBrief.AuthorizedGates...),
 		AuthorizedGateHandoffs:            statusAuthorizedGateHandoffs(repoRoot, caseRoot, pack, ledgerFacts.Requests, workstream.ExecutionEvidenceReviewAcknowledgedIDs(ledgerFacts)),
