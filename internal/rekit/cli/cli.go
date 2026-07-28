@@ -2796,6 +2796,11 @@ func writeStatusMissionCommanderFirstScreenText(out io.Writer, caseMission *stat
 		if err := writeStatusMissionCommanderFirstScreenActionText(out, "case", caseCurrent); err != nil {
 			return err
 		}
+		if caseMission != nil {
+			if err := writeStatusMissionCommanderFirstScreenAuthorizedGateText(out, caseMission.AuthorizedGateHandoffs, caseCurrent); err != nil {
+				return err
+			}
+		}
 	case "reviewer-current-action":
 		if err := writeStatusMissionCommanderFirstScreenActionText(out, "reviewer", reviewerCurrent); err != nil {
 			return err
@@ -3143,6 +3148,91 @@ func writeStatusMissionCommanderFirstScreenReviewerRunbookText(out io.Writer, su
 	for idx, step := range summary.NextActionRunbookSteps {
 		if _, err := fmt.Fprintf(out, "status Mission Commander focus reviewer runbook：shard=%s state=%s step=%d text=%s\n", summary.NextActionShardID, summary.NextActionState, idx+1, step); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func writeStatusMissionCommanderFirstScreenAuthorizedGateText(out io.Writer, handoffs []statusAuthorizedGateHandoff, current *mission.MissionCommanderNextActionItem) error {
+	if current == nil || !statusMissionCommanderActionIsAuthorizedGateAdapter(current) {
+		return nil
+	}
+	handoff := statusAuthorizedGateHandoffForCurrentAction(handoffs, current)
+	if handoff == nil {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "status Mission Commander focus authorized gate package：eventId=%s lane=%s state=%s source=%s actionId=%s reportPath=%s command=%s\n", handoff.EventID, current.Lane, current.State, current.Source, current.ActionID, handoff.ReportPath, current.Command); err != nil {
+		return err
+	}
+	if summary := handoff.ReportSummary; summary != nil {
+		if _, err := fmt.Fprintf(out, "status Mission Commander focus authorized gate report summary：eventId=%s state=%s reportPath=%s reportSha256=%s recordExpectedReportSha256=%s reportPresent=%t valid=%t recordReady=%t recordBlocked=%t requiresValidation=%t requiresRepair=%t requiresMainEscalation=%t currentAction=%s failureCode=%s failureStage=%s\n", handoff.EventID, summary.State, summary.ReportPath, summary.ReportSHA256, summary.RecordExpectedReportSHA256, summary.ReportPresent, summary.Valid, summary.RecordReady, summary.RecordBlocked, summary.RequiresValidation, summary.RequiresRepair, summary.RequiresMainEscalation, summary.CurrentAction, summary.ValidationFailureCode, summary.ValidationFailureStage); err != nil {
+			return err
+		}
+		for _, boundary := range summary.Boundary {
+			if _, err := fmt.Fprintf(out, "status Mission Commander focus authorized gate report boundary：eventId=%s boundary=%s\n", handoff.EventID, boundary); err != nil {
+				return err
+			}
+		}
+	}
+	if live := handoff.LiveValidation; live != nil {
+		if _, err := fmt.Fprintf(out, "status Mission Commander focus authorized gate live validation：eventId=%s workspace=%s reportFileName=%s caseRelativeReportPath=%s scaffold=%s scaffoldApply=%s draft=%s draftApply=%s validate=%s record=%s caseValidate=%s caseRecord=%s\n", handoff.EventID, strings.Join(live.AuthorizedWorkspaces, ","), live.ReportFileName, live.CaseRelativeReportPath, live.ScaffoldCommand, live.ScaffoldApplyCommand, live.DraftCommand, live.DraftApplyCommand, live.ValidateCommand, statusAdapterCurrentRecordCommandText(*handoff, live.RecordCommand, live.RecordExpectedReportSHA256), live.CaseRelativeValidateCommand, statusAdapterCurrentRecordCommandText(*handoff, live.CaseRelativeRecordCommand, live.RecordExpectedReportSHA256)); err != nil {
+			return err
+		}
+		if live.SelectedAdapter != nil {
+			if err := writeStatusAuthorizedGateSelectedAdapterWithPrefixText(out, "status Mission Commander focus authorized gate", handoff.EventID, *live.SelectedAdapter); err != nil {
+				return err
+			}
+		}
+		for _, step := range live.RunbookSteps {
+			if _, err := fmt.Fprintf(out, "status Mission Commander focus authorized gate live validation runbook：eventId=%s step=%s\n", handoff.EventID, step); err != nil {
+				return err
+			}
+		}
+	}
+	for _, hint := range handoff.LiveValidationRepairHints {
+		if _, err := fmt.Fprintf(out, "status Mission Commander focus authorized gate repair：eventId=%s action=%s code=%s stage=%s recordBlocked=%t rerunValidation=%t detail=%s\n", handoff.EventID, hint.RepairAction, hint.Code, hint.Stage, hint.RecordBlocked, hint.RerunValidation, hint.Detail); err != nil {
+			return err
+		}
+	}
+	for _, step := range handoff.LiveValidationNextSteps {
+		if _, err := fmt.Fprintf(out, "status Mission Commander focus authorized gate next step：eventId=%s step=%s\n", handoff.EventID, step); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range []string{handoff.ValidateBoundary, handoff.RecordBoundary} {
+		if strings.TrimSpace(boundary) == "" {
+			continue
+		}
+		if _, err := fmt.Fprintf(out, "status Mission Commander focus authorized gate boundary：eventId=%s boundary=%s\n", handoff.EventID, boundary); err != nil {
+			return err
+		}
+	}
+	for _, evidence := range handoff.Evidence {
+		if _, err := fmt.Fprintf(out, "status Mission Commander focus authorized gate evidence：eventId=%s evidence=%s\n", handoff.EventID, evidence); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func statusMissionCommanderActionIsAuthorizedGateAdapter(action *mission.MissionCommanderNextActionItem) bool {
+	if action == nil {
+		return false
+	}
+	return strings.HasPrefix(action.Source, "adapterReport") && strings.TrimSpace(action.GateEventID) != ""
+}
+
+func statusAuthorizedGateHandoffForCurrentAction(handoffs []statusAuthorizedGateHandoff, action *mission.MissionCommanderNextActionItem) *statusAuthorizedGateHandoff {
+	if action == nil {
+		return nil
+	}
+	gateEventID := strings.TrimSpace(action.GateEventID)
+	if gateEventID == "" {
+		return nil
+	}
+	for idx := range handoffs {
+		if strings.TrimSpace(handoffs[idx].EventID) == gateEventID {
+			return &handoffs[idx]
 		}
 	}
 	return nil
@@ -3672,31 +3762,35 @@ func writeStatusAuthorizedGateHandoffText(out io.Writer, handoff statusAuthorize
 }
 
 func writeStatusAuthorizedGateSelectedAdapterText(out io.Writer, eventID string, candidate gate.AdapterToolCandidate) error {
-	if _, err := fmt.Fprintf(out, "status case mission authorized gate selected adapter：eventId=%s id=%s status=%s entry=%s gateActions=%s recordOnlyAfterGate=%t toolingCatalogPath=%s\n", eventID, candidate.ID, candidate.Status, candidate.Entry, strings.Join(candidate.GateActions, ","), candidate.RecordOnlyAfterGate, candidate.ToolingCatalogPath); err != nil {
+	return writeStatusAuthorizedGateSelectedAdapterWithPrefixText(out, "status case mission authorized gate", eventID, candidate)
+}
+
+func writeStatusAuthorizedGateSelectedAdapterWithPrefixText(out io.Writer, prefix, eventID string, candidate gate.AdapterToolCandidate) error {
+	if _, err := fmt.Fprintf(out, "%s selected adapter：eventId=%s id=%s status=%s entry=%s gateActions=%s recordOnlyAfterGate=%t toolingCatalogPath=%s\n", prefix, eventID, candidate.ID, candidate.Status, candidate.Entry, strings.Join(candidate.GateActions, ","), candidate.RecordOnlyAfterGate, candidate.ToolingCatalogPath); err != nil {
 		return err
 	}
 	if strings.TrimSpace(candidate.Purpose) != "" {
-		if _, err := fmt.Fprintf(out, "status case mission authorized gate selected adapter purpose：eventId=%s id=%s purpose=%s\n", eventID, candidate.ID, candidate.Purpose); err != nil {
+		if _, err := fmt.Fprintf(out, "%s selected adapter purpose：eventId=%s id=%s purpose=%s\n", prefix, eventID, candidate.ID, candidate.Purpose); err != nil {
 			return err
 		}
 	}
 	if len(candidate.SideEffects) > 0 {
-		if _, err := fmt.Fprintf(out, "status case mission authorized gate selected adapter side effects：eventId=%s id=%s sideEffects=%s\n", eventID, candidate.ID, strings.Join(candidate.SideEffects, ",")); err != nil {
+		if _, err := fmt.Fprintf(out, "%s selected adapter side effects：eventId=%s id=%s sideEffects=%s\n", prefix, eventID, candidate.ID, strings.Join(candidate.SideEffects, ",")); err != nil {
 			return err
 		}
 	}
 	for _, guidance := range candidate.ReportGuidance {
-		if _, err := fmt.Fprintf(out, "status case mission authorized gate selected adapter report guidance：eventId=%s id=%s guidance=%s\n", eventID, candidate.ID, guidance); err != nil {
+		if _, err := fmt.Fprintf(out, "%s selected adapter report guidance：eventId=%s id=%s guidance=%s\n", prefix, eventID, candidate.ID, guidance); err != nil {
 			return err
 		}
 	}
 	for _, guidance := range candidate.EvidenceGuidance {
-		if _, err := fmt.Fprintf(out, "status case mission authorized gate selected adapter evidence guidance：eventId=%s id=%s guidance=%s\n", eventID, candidate.ID, guidance); err != nil {
+		if _, err := fmt.Fprintf(out, "%s selected adapter evidence guidance：eventId=%s id=%s guidance=%s\n", prefix, eventID, candidate.ID, guidance); err != nil {
 			return err
 		}
 	}
 	if len(candidate.StopConditionHints) > 0 {
-		if _, err := fmt.Fprintf(out, "status case mission authorized gate selected adapter stop conditions：eventId=%s id=%s hints=%s\n", eventID, candidate.ID, strings.Join(candidate.StopConditionHints, ",")); err != nil {
+		if _, err := fmt.Fprintf(out, "%s selected adapter stop conditions：eventId=%s id=%s hints=%s\n", prefix, eventID, candidate.ID, strings.Join(candidate.StopConditionHints, ",")); err != nil {
 			return err
 		}
 	}

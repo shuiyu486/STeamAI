@@ -12366,6 +12366,16 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
+		"status Mission Commander first screen：focus=case-current-action",
+		"status Mission Commander current action：scope=focus-case lane=main label=main state=needs-adapter-report-validation source=adapterReportContract.missionCommanderAction",
+		"status Mission Commander focus authorized gate package：eventId=" + authorizedEventID + " lane=main state=needs-adapter-report-validation source=adapterReportContract.missionCommanderAction",
+		"status Mission Commander focus authorized gate report summary：eventId=" + authorizedEventID + " state=needs-adapter-report-validation reportPath=workspace/main/debug/session-1/adapter-report.json",
+		"status Mission Commander focus authorized gate live validation：eventId=" + authorizedEventID + " workspace=workspace/main/debug/session-1 reportFileName=adapter-report.json caseRelativeReportPath=workspace/main/debug/session-1/adapter-report.json",
+		"scaffold=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -ScaffoldExecutionReport -ExecutionReportPath adapter-report.json -Format json",
+		"record=after valid=true, use validation/status returned hash-bound record command with -ExpectedExecutionReportSha256",
+		"status Mission Commander focus authorized gate live validation runbook：eventId=" + authorizedEventID + " step=record command is intentionally unavailable until validation/status returns valid=true with -ExpectedExecutionReportSha256",
+		"status Mission Commander focus authorized gate boundary：eventId=" + authorizedEventID,
+		"status Mission Commander focus authorized gate evidence：eventId=" + authorizedEventID + " evidence=authorized outputPaths workspace/main/debug/session-1",
 		"status case mission authorized gate：authorized debug",
 		"status case mission authorized gate handoff：eventId=" + authorizedEventID + " lane=main subject=authorized debug action=debug target=target-alpha status=authorized-gate",
 		"auth=preauthorized profile=prof-main-debug reportContract=" + wantStatusContract + " defaultReportPath=workspace/main/debug/session-1/adapter-report.json reportPath=workspace/main/debug/session-1/adapter-report.json handoff=/rekit handoff main",
@@ -13752,6 +13762,25 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	}
 	if recordReadyStatus.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || recordReadyStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.State != "ready-to-record-evidence" || !strings.Contains(recordReadyStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.Command, wantExpectedHashArg) {
 		t.Fatalf("status did not promote hash-bound adapter record as current action: %+v", recordReadyStatus.CaseMission.MissionCommanderActionQueue)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"status Mission Commander first screen：focus=case-current-action",
+		"status Mission Commander current action：scope=focus-case lane=main label=main state=ready-to-record-evidence source=adapterReportValidation.missionCommanderAction",
+		"status Mission Commander focus authorized gate package：eventId=" + applied.EventID + " lane=main state=ready-to-record-evidence source=adapterReportValidation.missionCommanderAction",
+		"status Mission Commander focus authorized gate report summary：eventId=" + applied.EventID + " state=ready-to-record-evidence reportPath=workspace/main/debug/session-1/adapter-report.json reportSha256=" + validation.RecordExpectedReportSHA256 + " recordExpectedReportSha256=" + validation.RecordExpectedReportSHA256,
+		"recordReady=true recordBlocked=false requiresValidation=false requiresRepair=false",
+		"status Mission Commander focus authorized gate live validation：eventId=" + applied.EventID + " workspace=workspace/main/debug/session-1 reportFileName=adapter-report.json caseRelativeReportPath=workspace/main/debug/session-1/adapter-report.json",
+		"record=/rekit gate -Pack _template -Apply -GateEventId " + applied.EventID + " -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json " + wantExpectedHashArg + " -Actor <executor-id> -Format json",
+		"caseRecord=/rekit gate -Pack _template -Apply -GateEventId " + applied.EventID + " -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json " + wantExpectedHashArg + " -Actor <executor-id> -Format json",
+		"status Mission Commander focus authorized gate boundary：eventId=" + applied.EventID,
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("status first-screen authorized gate record package missing %q:\n%s", expected, out.String())
+		}
 	}
 	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 
