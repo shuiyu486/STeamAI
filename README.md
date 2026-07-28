@@ -132,7 +132,7 @@ claude
 
 这些命令是主 Agent 和维护者使用的确定性 runtime API，不是最终产品的主要 UX。普通日常使用优先通过自然语言让主 Agent 选择和组合这些动作。
 
-Adapter execution report lifecycle 的 contract、scaffold、draft、validation、record 与 status/handoff 投影会输出 `runbookSteps[]` 或对应 text runbook 行；replacement executor 应优先按这些步骤确认 state/path/hash，先做 read-only validation，再使用 validation/status 返回的 `-ExpectedExecutionReportSha256` hash-bound record Apply，record 后只进入 evidence review，不从 contract 阶段推断 adapter/heavy tool 已执行或写 authority/confirmed。
+Adapter execution report lifecycle 的 contract、scaffold、draft、validation、receipt、record 与 status/handoff 投影会输出 `runbookSteps[]` 或对应 text runbook 行；replacement executor 应优先按这些步骤确认 state/path/hash。durable lane 且当前 action 有 tooling catalog candidate 时，先用 validation 返回的 receipt preview 记录 current executor generation、external harness/session、catalog/report/artifact hashes 与 outcome/exit status，再使用 validation/status 返回的 report+receipt 双 hash-bound record Apply；record 后只进入 evidence review。Go runtime 不执行 adapter/heavy tool，也不从 contract/report/receipt 推断 authority/confirmed。
 
 | 命令 | 方向 | 什么时候用 |
 |---|---|---|

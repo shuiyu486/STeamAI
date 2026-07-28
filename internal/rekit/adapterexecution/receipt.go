@@ -1,0 +1,257 @@
+package adapterexecution
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"sort"
+	"strings"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/autonomy"
+)
+
+type GateBinding struct {
+	GateEventID      string            `json:"gateEventId"`
+	Lane             string            `json:"lane"`
+	Action           string            `json:"action"`
+	Target           string            `json:"target,omitempty"`
+	Authorization    autonomy.Decision `json:"authorization"`
+	AuthorizedBudget autonomy.Budget   `json:"authorizedBudget"`
+	OutputPaths      []string          `json:"outputPaths"`
+	StopConditions   []string          `json:"stopConditions,omitempty"`
+	SnapshotSHA256   string            `json:"snapshotSha256"`
+}
+
+type Candidate struct {
+	ID                  string   `json:"id"`
+	Status              string   `json:"status,omitempty"`
+	Entry               string   `json:"entry,omitempty"`
+	Purpose             string   `json:"purpose,omitempty"`
+	SideEffects         []string `json:"sideEffects,omitempty"`
+	GateActions         []string `json:"gateActions,omitempty"`
+	ToolingCatalogPath  string   `json:"toolingCatalogPath"`
+	StopConditionHints  []string `json:"stopConditionHints,omitempty"`
+	RecordOnlyAfterGate bool     `json:"recordOnlyAfterGate"`
+}
+
+type AdapterBinding struct {
+	Pack                    string    `json:"pack"`
+	AdapterID               string    `json:"adapterId"`
+	ToolingCatalogPath      string    `json:"toolingCatalogPath"`
+	ToolingCatalogSHA256    string    `json:"toolingCatalogSha256"`
+	ToolingCatalogBytes     int64     `json:"toolingCatalogBytes"`
+	Candidate               Candidate `json:"candidate"`
+	CandidateSnapshotSHA256 string    `json:"candidateSnapshotSha256"`
+}
+
+type OwnerBinding struct {
+	Lane               string `json:"lane"`
+	CurrentExecutor    string `json:"currentExecutor"`
+	ExecutorGeneration int    `json:"executorGeneration"`
+	AdapterHarness     string `json:"adapterHarness"`
+	AdapterSession     string `json:"adapterSession"`
+	BindingMode        string `json:"bindingMode"`
+}
+
+type ExecutionBinding struct {
+	Outcome          string          `json:"outcome"`
+	ExitStatus       string          `json:"exitStatus"`
+	AuthorizedBudget autonomy.Budget `json:"authorizedBudget"`
+	ActualBudget     autonomy.Budget `json:"actualBudget"`
+	BoundaryHits     []string        `json:"boundaryHits,omitempty"`
+	Escalation       string          `json:"escalation,omitempty"`
+}
+
+type FileBinding struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+	Bytes  int64  `json:"bytes"`
+}
+
+type ArtifactBinding struct {
+	Path   string   `json:"path"`
+	Roles  []string `json:"roles"`
+	SHA256 string   `json:"sha256"`
+	Bytes  int64    `json:"bytes"`
+}
+
+type Receipt struct {
+	SchemaVersion int               `json:"schemaVersion"`
+	Kind          string            `json:"kind"`
+	ReceiptID     string            `json:"receiptId"`
+	Gate          GateBinding       `json:"gate"`
+	Adapter       AdapterBinding    `json:"adapter"`
+	Owner         OwnerBinding      `json:"owner"`
+	Execution     ExecutionBinding  `json:"execution"`
+	Report        FileBinding       `json:"report"`
+	Artifacts     []ArtifactBinding `json:"artifacts"`
+	Actor         string            `json:"actor"`
+	RecordedAt    string            `json:"recordedAt"`
+	NoExecute     bool              `json:"noAdapterOrHeavyToolExecution"`
+	NoAuthority   bool              `json:"noAuthorityOrConfirmed"`
+}
+
+type Binding struct {
+	SchemaVersion int               `json:"schemaVersion"`
+	Kind          string            `json:"kind"`
+	Gate          GateBinding       `json:"gate"`
+	Adapter       AdapterBinding    `json:"adapter"`
+	Owner         OwnerBinding      `json:"owner"`
+	Execution     ExecutionBinding  `json:"execution"`
+	Report        FileBinding       `json:"report"`
+	Artifacts     []ArtifactBinding `json:"artifacts"`
+	Actor         string            `json:"actor"`
+	NoExecute     bool              `json:"noAdapterOrHeavyToolExecution"`
+	NoAuthority   bool              `json:"noAuthorityOrConfirmed"`
+}
+
+func BindingFor(receipt Receipt) Binding {
+	artifacts := append([]ArtifactBinding{}, receipt.Artifacts...)
+	for i := range artifacts {
+		artifacts[i].Roles = append([]string{}, artifacts[i].Roles...)
+		sort.Strings(artifacts[i].Roles)
+	}
+	sort.Slice(artifacts, func(i, j int) bool { return artifacts[i].Path < artifacts[j].Path })
+	return Binding{
+		SchemaVersion: receipt.SchemaVersion,
+		Kind:          receipt.Kind,
+		Gate:          receipt.Gate,
+		Adapter:       receipt.Adapter,
+		Owner:         receipt.Owner,
+		Execution:     receipt.Execution,
+		Report:        receipt.Report,
+		Artifacts:     artifacts,
+		Actor:         receipt.Actor,
+		NoExecute:     receipt.NoExecute,
+		NoAuthority:   receipt.NoAuthority,
+	}
+}
+
+func BindingSHA256(receipt Receipt) (string, error) {
+	data, err := json.Marshal(BindingFor(receipt))
+	if err != nil {
+		return "", err
+	}
+	return SHA256(data), nil
+}
+
+func CandidateSHA256(candidate Candidate) (string, error) {
+	data, err := json.Marshal(candidate)
+	if err != nil {
+		return "", err
+	}
+	return SHA256(data), nil
+}
+
+func GateSHA256(binding GateBinding) (string, error) {
+	binding.SnapshotSHA256 = ""
+	data, err := json.Marshal(binding)
+	if err != nil {
+		return "", err
+	}
+	return SHA256(data), nil
+}
+
+func ReceiptBytes(receipt Receipt) ([]byte, error) {
+	data, err := json.MarshalIndent(receipt, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(data, '\n'), nil
+}
+
+func Decode(data []byte) (Receipt, error) {
+	var receipt Receipt
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&receipt); err != nil {
+		return Receipt{}, fmt.Errorf("invalid adapter execution receipt: %w", err)
+	}
+	var trailing any
+	if err := dec.Decode(&trailing); err != io.EOF {
+		return Receipt{}, fmt.Errorf("invalid adapter execution receipt: trailing data")
+	}
+	if err := Validate(receipt); err != nil {
+		return Receipt{}, err
+	}
+	return receipt, nil
+}
+
+func Validate(receipt Receipt) error {
+	if receipt.SchemaVersion != 1 || receipt.Kind != "adapter-execution-receipt" {
+		return fmt.Errorf("adapter execution receipt schema/kind is invalid")
+	}
+	if !validSHA256(receipt.ReceiptID) || receipt.Gate.GateEventID == "" || receipt.Gate.Lane == "" || receipt.Gate.Action == "" || receipt.Gate.Authorization.Decision != autonomy.DecisionPreauthorized || !validSHA256(receipt.Gate.SnapshotSHA256) {
+		return fmt.Errorf("adapter execution receipt gate binding is invalid")
+	}
+	if receipt.Adapter.Pack == "" || receipt.Adapter.AdapterID == "" || receipt.Adapter.ToolingCatalogPath == "" || !validSHA256(receipt.Adapter.ToolingCatalogSHA256) || receipt.Adapter.ToolingCatalogBytes < 0 || receipt.Adapter.Candidate.ID == "" || !validSHA256(receipt.Adapter.CandidateSnapshotSHA256) {
+		return fmt.Errorf("adapter execution receipt adapter binding is invalid")
+	}
+	if receipt.Owner.Lane != receipt.Gate.Lane || receipt.Owner.CurrentExecutor == "" || receipt.Owner.ExecutorGeneration <= 0 || receipt.Owner.AdapterHarness == "" || receipt.Owner.AdapterSession == "" || receipt.Owner.BindingMode != "durable-lane-owner" {
+		return fmt.Errorf("adapter execution receipt owner binding is invalid")
+	}
+	if !validOutcome(receipt.Execution.Outcome) || strings.TrimSpace(receipt.Execution.ExitStatus) == "" || len(receipt.Execution.ExitStatus) > 256 || receipt.Execution.AuthorizedBudget != receipt.Gate.AuthorizedBudget || receipt.Execution.ActualBudget.RuntimeSeconds < 0 || receipt.Execution.ActualBudget.DiskMB < 0 || receipt.Execution.ActualBudget.Requests < 0 {
+		return fmt.Errorf("adapter execution receipt execution binding is invalid")
+	}
+	if receipt.Report.Path == "" || !validSHA256(receipt.Report.SHA256) || receipt.Report.Bytes < 0 {
+		return fmt.Errorf("adapter execution receipt report binding is invalid")
+	}
+	seen := map[string]bool{}
+	for _, artifact := range receipt.Artifacts {
+		if artifact.Path == "" || artifact.Path == receipt.Report.Path || seen[artifact.Path] || !validSHA256(artifact.SHA256) || artifact.Bytes < 0 || len(artifact.Roles) == 0 {
+			return fmt.Errorf("adapter execution receipt artifact binding is invalid")
+		}
+		seen[artifact.Path] = true
+		for _, role := range artifact.Roles {
+			if role != "output" && role != "evidence" {
+				return fmt.Errorf("adapter execution receipt artifact role is invalid: %s", role)
+			}
+		}
+	}
+	if strings.TrimSpace(receipt.Actor) == "" || strings.TrimSpace(receipt.RecordedAt) == "" || !receipt.NoExecute || !receipt.NoAuthority {
+		return fmt.Errorf("adapter execution receipt observation boundary is invalid")
+	}
+	bindingSHA, err := BindingSHA256(receipt)
+	if err != nil || !strings.EqualFold(bindingSHA, receipt.ReceiptID) {
+		return fmt.Errorf("adapter execution receipt id does not match semantic binding")
+	}
+	candidateSHA, err := CandidateSHA256(receipt.Adapter.Candidate)
+	if err != nil || !strings.EqualFold(candidateSHA, receipt.Adapter.CandidateSnapshotSHA256) {
+		return fmt.Errorf("adapter execution receipt candidate snapshot hash mismatch")
+	}
+	gateSHA, err := GateSHA256(receipt.Gate)
+	if err != nil || !strings.EqualFold(gateSHA, receipt.Gate.SnapshotSHA256) {
+		return fmt.Errorf("adapter execution receipt gate snapshot hash mismatch")
+	}
+	return nil
+}
+
+func SemanticEqual(left, right Receipt) bool {
+	left.RecordedAt = ""
+	right.RecordedAt = ""
+	leftBytes, _ := json.Marshal(left)
+	rightBytes, _ := json.Marshal(right)
+	return bytes.Equal(leftBytes, rightBytes)
+}
+
+func SHA256(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func validSHA256(value string) bool {
+	data, err := hex.DecodeString(strings.TrimSpace(value))
+	return err == nil && len(data) == sha256.Size
+}
+
+func validOutcome(value string) bool {
+	switch value {
+	case "succeeded", "failed", "boundary-hit", "escalated", "aborted":
+		return true
+	default:
+		return false
+	}
+}

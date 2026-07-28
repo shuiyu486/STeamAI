@@ -1,6 +1,6 @@
 //go:build !windows && !aix && !darwin && !dragonfly && !freebsd && !linux && !netbsd && !openbsd && !solaris
 
-package workstream
+package lanemutation
 
 import "fmt"
 

@@ -562,6 +562,33 @@ func TestExecutionEvidenceReviewItemsWithLedgerFactsHonorsRelatedReviewNotes(t *
 	}
 }
 
+func TestExecutionEvidenceReviewItemProjectsAdapterExecutionReceiptLineage(t *testing.T) {
+	observation := executionEvidenceObservation("obs-receipt", "gate-receipt")
+	execution := observation["execution"].(map[string]any)
+	execution["executionReportPath"] = "workspace/main/debug/adapter-report.json"
+	execution["executionReportSha256"] = strings.Repeat("a", 64)
+	execution["adapterExecutionReceiptPath"] = ".rekit/lanes/main/adapter-executions/gate-receipt/receipt.json"
+	execution["adapterExecutionReceiptSha256"] = strings.Repeat("b", 64)
+	execution["adapterExecution"] = map[string]any{
+		"owner": map[string]any{
+			"currentExecutor": "executor-a", "executorGeneration": float64(3),
+			"adapterHarness": "claude-code", "adapterSession": "session-a",
+		},
+		"adapter": map[string]any{"toolingCatalogSha256": strings.Repeat("c", 64)},
+		"artifacts": []any{
+			map[string]any{"path": "workspace/main/debug/result.bin"},
+			map[string]any{"path": "workspace/main/debug/evidence.json"},
+		},
+	}
+	item, ok := ExecutionEvidenceReviewItemFromObservation(observation, "main", nil)
+	if !ok {
+		t.Fatal("receipt-backed observation was not projected")
+	}
+	if item.AdapterExecutionReceiptPath == "" || item.AdapterExecutionReceiptSHA256 != strings.Repeat("b", 64) || item.CurrentExecutor != "executor-a" || item.ExecutorGeneration != 3 || item.AdapterHarness != "claude-code" || item.AdapterSession != "session-a" || item.ToolingCatalogSHA256 != strings.Repeat("c", 64) || item.AdapterExecutionArtifactCount != 2 {
+		t.Fatalf("execution evidence review omitted compact receipt lineage: %+v", item)
+	}
+}
+
 func executionEvidenceObservation(eventID, gateEventID string) map[string]any {
 	return map[string]any{
 		"eventId": eventID,

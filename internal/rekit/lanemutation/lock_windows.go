@@ -1,6 +1,6 @@
 //go:build windows
 
-package workstream
+package lanemutation
 
 import (
 	"fmt"

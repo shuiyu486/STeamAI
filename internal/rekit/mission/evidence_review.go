@@ -162,6 +162,9 @@ func ExecutionEvidenceReviewItemFromObservation(observation map[string]any, lane
 		status = firstObjectText(execution, "status")
 	}
 	gate := objectMap(observation["gate"])
+	adapterExecution := objectMap(execution["adapterExecution"])
+	adapterOwner := objectMap(adapterExecution["owner"])
+	adapterBinding := objectMap(adapterExecution["adapter"])
 	boundary := []string{
 		"observation evidence is already recorded; do not replay heavy tool",
 		"review outputRefs/evidenceRefs before any authority/confirmed outcome",
@@ -173,27 +176,35 @@ func ExecutionEvidenceReviewItemFromObservation(observation map[string]any, lane
 		boundary = append(boundary, "boundary/escalation requires main review before autonomous continuation")
 	}
 	item := ExecutionEvidenceReviewItem{
-		Lane:                  lane,
-		EventID:               firstObjectText(observation, "eventId"),
-		GateEventID:           gateEventID,
-		Subject:               firstObjectText(observation, "subject"),
-		Summary:               firstObjectText(observation, "summary"),
-		Status:                status,
-		Action:                firstObjectText(gate, "action"),
-		Target:                firstObjectText(observation, "target"),
-		OutputRefs:            objectStringList(execution["outputRefs"]),
-		EvidenceRefs:          objectStringList(observation["evidenceRefs"]),
-		ExecutionReportPath:   firstObjectText(execution, "executionReportPath"),
-		ExecutionReportSHA256: firstObjectText(execution, "executionReportSha256"),
-		ActualBudget:          executionEvidenceBudget(execution),
-		AdapterID:             firstObjectText(objectMap(execution["adapter"]), "adapterId"),
-		AdapterStatus:         firstObjectText(objectMap(execution["adapter"]), "status"),
-		AdapterContext:        executionEvidenceAdapterContext(execution),
-		BoundaryHits:          boundaryHits,
-		Escalation:            escalation,
-		ReviewCommand:         "review outputRefs/evidenceRefs for gateEventId " + gateEventID,
-		HandoffCommand:        "/rekit handoff " + label,
-		Boundary:              boundary,
+		Lane:                          lane,
+		EventID:                       firstObjectText(observation, "eventId"),
+		GateEventID:                   gateEventID,
+		Subject:                       firstObjectText(observation, "subject"),
+		Summary:                       firstObjectText(observation, "summary"),
+		Status:                        status,
+		Action:                        firstObjectText(gate, "action"),
+		Target:                        firstObjectText(observation, "target"),
+		OutputRefs:                    objectStringList(execution["outputRefs"]),
+		EvidenceRefs:                  objectStringList(observation["evidenceRefs"]),
+		ExecutionReportPath:           firstObjectText(execution, "executionReportPath"),
+		ExecutionReportSHA256:         firstObjectText(execution, "executionReportSha256"),
+		AdapterExecutionReceiptPath:   firstObjectText(execution, "adapterExecutionReceiptPath"),
+		AdapterExecutionReceiptSHA256: firstObjectText(execution, "adapterExecutionReceiptSha256"),
+		CurrentExecutor:               firstObjectText(adapterOwner, "currentExecutor"),
+		ExecutorGeneration:            objectInt(adapterOwner["executorGeneration"]),
+		AdapterHarness:                firstObjectText(adapterOwner, "adapterHarness"),
+		AdapterSession:                firstObjectText(adapterOwner, "adapterSession"),
+		ToolingCatalogSHA256:          firstObjectText(adapterBinding, "toolingCatalogSha256"),
+		AdapterExecutionArtifactCount: objectListLength(adapterExecution["artifacts"]),
+		ActualBudget:                  executionEvidenceBudget(execution),
+		AdapterID:                     firstObjectText(objectMap(execution["adapter"]), "adapterId"),
+		AdapterStatus:                 firstObjectText(objectMap(execution["adapter"]), "status"),
+		AdapterContext:                executionEvidenceAdapterContext(execution),
+		BoundaryHits:                  boundaryHits,
+		Escalation:                    escalation,
+		ReviewCommand:                 "review outputRefs/evidenceRefs for gateEventId " + gateEventID,
+		HandoffCommand:                "/rekit handoff " + label,
+		Boundary:                      boundary,
 	}
 	item.Acknowledgement = ExecutionEvidenceReviewAcknowledgementFor(item)
 	item.MissionCommanderAction = ExecutionEvidenceReviewCommanderAction(item, label)
@@ -549,6 +560,17 @@ func objectMap(value any) map[string]any {
 		return item
 	}
 	return nil
+}
+
+func objectListLength(value any) int {
+	switch items := value.(type) {
+	case []any:
+		return len(items)
+	case []map[string]any:
+		return len(items)
+	default:
+		return 0
+	}
 }
 
 func objectStringList(value any) []string {

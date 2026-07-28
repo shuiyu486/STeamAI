@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -15,47 +16,67 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/adapterexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/autonomy"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
+type gateLaneMutationLease interface {
+	Validate() error
+	Unlock() error
+}
+
+var acquireGateLaneMutationLease = func(caseRoot, laneID string) (gateLaneMutationLease, error) {
+	return lanemutation.AcquireLane(caseRoot, laneID)
+}
+
 type Options struct {
-	Action                        string
-	Lane                          string
-	Subject                       string
-	Summary                       string
-	Actor                         string
-	Risk                          string
-	TargetRef                     string
-	BatchID                       string
-	Scope                         string
-	Budget                        string
-	RuntimeSeconds                int
-	DiskMB                        int
-	Requests                      int
-	OutputPaths                   string
-	TriedLightSteps               string
-	StopConditions                string
-	GateEventID                   string
-	ExecutionStatus               string
-	ActualRuntimeSeconds          int
-	ActualDiskMB                  int
-	ActualRequests                int
-	OutputRefs                    string
-	EvidenceRefs                  string
-	BoundaryHits                  string
-	Escalation                    string
-	ExecutionReportPath           string
-	ExecutionReportCwd            string
-	ExecutionReportContract       bool
-	ValidateExecutionReport       bool
-	ScaffoldExecutionReport       bool
-	DraftExecutionReport          bool
-	ExpectedExecutionReportSHA256 string
-	AdapterID                     string
+	Action                                string
+	Lane                                  string
+	Subject                               string
+	Summary                               string
+	Actor                                 string
+	Risk                                  string
+	TargetRef                             string
+	BatchID                               string
+	Scope                                 string
+	Budget                                string
+	RuntimeSeconds                        int
+	DiskMB                                int
+	Requests                              int
+	OutputPaths                           string
+	TriedLightSteps                       string
+	StopConditions                        string
+	GateEventID                           string
+	ExecutionStatus                       string
+	ActualRuntimeSeconds                  int
+	ActualDiskMB                          int
+	ActualRequests                        int
+	OutputRefs                            string
+	EvidenceRefs                          string
+	BoundaryHits                          string
+	Escalation                            string
+	ExecutionReportPath                   string
+	ExecutionReportCwd                    string
+	ExecutionReportContract               bool
+	ValidateExecutionReport               bool
+	ScaffoldExecutionReport               bool
+	DraftExecutionReport                  bool
+	RecordAdapterExecutionReceipt         bool
+	ExpectedExecutionReportSHA256         string
+	ExpectedAdapterExecutionBindingSHA256 string
+	ExpectedAdapterExecutionReceiptSHA256 string
+	AdapterExecutionReceiptPath           string
+	AdapterID                             string
+	Executor                              string
+	ExpectedExecutorGeneration            int
+	AdapterHarness                        string
+	AdapterSession                        string
+	ExecutionExitStatus                   string
 }
 
 type Plan struct {
@@ -97,20 +118,23 @@ type ExecutionEvidencePreview struct {
 }
 
 type ExecutionEvidenceDetails struct {
-	Status                string                `json:"status"`
-	ActualBudget          autonomy.Budget       `json:"actualBudget"`
-	OutputRefs            []string              `json:"outputRefs,omitempty"`
-	BoundaryHits          []string              `json:"boundaryHits,omitempty"`
-	Escalation            string                `json:"escalation,omitempty"`
-	GateEventID           string                `json:"gateEventId"`
-	GateStatus            string                `json:"gateStatus"`
-	Authorization         string                `json:"authorization"`
-	RecordRequired        bool                  `json:"recordRequired"`
-	NotifyMainOn          []string              `json:"notifyMainOn,omitempty"`
-	ExecutionReportPath   string                `json:"executionReportPath,omitempty"`
-	ExecutionReportSHA256 string                `json:"executionReportSha256,omitempty"`
-	AdapterContext        *AdapterToolCandidate `json:"adapterContext,omitempty"`
-	Adapter               *AdapterReport        `json:"adapter,omitempty"`
+	Status                        string                    `json:"status"`
+	ActualBudget                  autonomy.Budget           `json:"actualBudget"`
+	OutputRefs                    []string                  `json:"outputRefs,omitempty"`
+	BoundaryHits                  []string                  `json:"boundaryHits,omitempty"`
+	Escalation                    string                    `json:"escalation,omitempty"`
+	GateEventID                   string                    `json:"gateEventId"`
+	GateStatus                    string                    `json:"gateStatus"`
+	Authorization                 string                    `json:"authorization"`
+	RecordRequired                bool                      `json:"recordRequired"`
+	NotifyMainOn                  []string                  `json:"notifyMainOn,omitempty"`
+	ExecutionReportPath           string                    `json:"executionReportPath,omitempty"`
+	ExecutionReportSHA256         string                    `json:"executionReportSha256,omitempty"`
+	AdapterExecutionReceiptPath   string                    `json:"adapterExecutionReceiptPath,omitempty"`
+	AdapterExecutionReceiptSHA256 string                    `json:"adapterExecutionReceiptSha256,omitempty"`
+	AdapterExecution              *adapterexecution.Receipt `json:"adapterExecution,omitempty"`
+	AdapterContext                *AdapterToolCandidate     `json:"adapterContext,omitempty"`
+	Adapter                       *AdapterReport            `json:"adapter,omitempty"`
 }
 
 type AdapterReport struct {
@@ -408,6 +432,13 @@ type AdapterExecutionReportValidation struct {
 	Valid                            bool                                     `json:"valid"`
 	ReportSHA256                     string                                   `json:"reportSha256,omitempty"`
 	RecordExpectedReportSHA256       string                                   `json:"recordExpectedReportSha256,omitempty"`
+	ReceiptRequired                  bool                                     `json:"receiptRequired"`
+	ReceiptPresent                   bool                                     `json:"receiptPresent"`
+	ProvenanceValid                  bool                                     `json:"provenanceValid"`
+	AdapterExecutionReceiptPath      string                                   `json:"adapterExecutionReceiptPath,omitempty"`
+	AdapterExecutionReceiptSHA256    string                                   `json:"adapterExecutionReceiptSha256,omitempty"`
+	AdapterExecution                 *adapterexecution.Receipt                `json:"adapterExecution,omitempty"`
+	ReceiptPreviewCommand            string                                   `json:"receiptPreviewCommand,omitempty"`
 	Error                            string                                   `json:"error,omitempty"`
 	Errors                           []string                                 `json:"errors,omitempty"`
 	FailureCode                      string                                   `json:"failureCode,omitempty"`
@@ -1190,13 +1221,25 @@ func Apply(repoRoot, caseRoot, pack string, opt Options) (ApplyResult, error) {
 	return result, nil
 }
 
-func RecordExecution(repoRoot, caseRoot, pack string, opt Options) (ApplyResult, error) {
+func RecordExecution(repoRoot, caseRoot, pack string, opt Options) (_ ApplyResult, retErr error) {
 	if strings.TrimSpace(opt.Actor) == "" {
 		return ApplyResult{}, fmt.Errorf("gate execution evidence requires -Actor <recorded-by>")
 	}
+	initialInst, initialGateEvent, err := authorizedGateEvent(repoRoot, caseRoot, pack, opt)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	lease, err := acquireGateLaneMutationLease(initialInst.CaseRoot, initialGateEvent.Lane)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	defer func() { retErr = errors.Join(retErr, lease.Unlock()) }()
 	inst, gateEvent, err := authorizedGateEvent(repoRoot, caseRoot, pack, opt)
 	if err != nil {
 		return ApplyResult{}, err
+	}
+	if inst.CaseRoot != initialInst.CaseRoot || gateEvent.EventID != initialGateEvent.EventID || gateEvent.Lane != initialGateEvent.Lane {
+		return ApplyResult{}, fmt.Errorf("authorized gate routing changed while acquiring mutation lease")
 	}
 	m, err := manifest.Load(repoRoot, pack)
 	if err != nil {
@@ -1210,6 +1253,9 @@ func RecordExecution(repoRoot, caseRoot, pack string, opt Options) (ApplyResult,
 	execution.EventID = executionEventID(execution)
 	relPath, _, err := mission.FactPath(inst.CaseRoot, "observation")
 	if err != nil {
+		return ApplyResult{}, err
+	}
+	if err := lease.Validate(); err != nil {
 		return ApplyResult{}, err
 	}
 	known, err := mission.ReadFactEventIDs(inst.CaseRoot, "observation")
@@ -1243,6 +1289,9 @@ func RecordExecution(repoRoot, caseRoot, pack string, opt Options) (ApplyResult,
 		return result, nil
 	}
 	if _, _, err := mission.AppendFact(inst.CaseRoot, "observation", execution); err != nil {
+		return ApplyResult{}, err
+	}
+	if err := lease.Validate(); err != nil {
 		return ApplyResult{}, err
 	}
 	result.Applied = true
@@ -1640,7 +1689,7 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 			validation.FailureStage = validationErr.Stage
 		}
 		validation.RepairHints = adapterReportRepairHints(gateEvent, validation.FailureCode, validation.FailureStage)
-		validation.MissionCommanderAction = adapterReportValidationCommanderAction(pack, gateEvent, validation.ReportPath, validation.RecordExpectedReportSHA256, false, validation.RepairHints)
+		validation.MissionCommanderAction = adapterReportValidationCommanderAction(pack, gateEvent, validation.ReportPath, validation.RecordExpectedReportSHA256, "", nil, false, validation.RepairHints)
 		validation.MissionCommanderNextActions = adapterReportValidationCommanderNextActions(gateEvent, validation.MissionCommanderAction, false, validation.RepairHints)
 		validation.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(validation.MissionCommanderNextActions)
 		validation.AuthorizedExecutionFollowThrough = authorizedExecutionFollowThrough(gateEvent, validation.MissionCommanderAction.State, validation.ReportPath, validation.MissionCommanderAction, validation.MissionCommanderNextActions, validation.RepairHints, false, false)
@@ -1654,7 +1703,7 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 		validation.Error = "gate execution report validation requires -ExecutionReportPath"
 		validation.Errors = []string{validation.Error}
 		validation.RepairHints = adapterReportMissingPathRepairHints(gateEvent)
-		validation.MissionCommanderAction = adapterReportValidationCommanderAction(pack, gateEvent, validation.ReportPath, validation.RecordExpectedReportSHA256, false, validation.RepairHints)
+		validation.MissionCommanderAction = adapterReportValidationCommanderAction(pack, gateEvent, validation.ReportPath, validation.RecordExpectedReportSHA256, "", nil, false, validation.RepairHints)
 		validation.MissionCommanderNextActions = adapterReportValidationCommanderNextActions(gateEvent, validation.MissionCommanderAction, false, validation.RepairHints)
 		validation.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(validation.MissionCommanderNextActions)
 		validation.AuthorizedExecutionFollowThrough = authorizedExecutionFollowThrough(gateEvent, validation.MissionCommanderAction.State, validation.ReportPath, validation.MissionCommanderAction, validation.MissionCommanderNextActions, validation.RepairHints, false, false)
@@ -1665,7 +1714,65 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 	}
 	validation.Valid = true
 	validation.RecordExpectedReportSHA256 = validation.ReportSHA256
-	validation.MissionCommanderAction = adapterReportValidationCommanderAction(pack, gateEvent, validation.ReportPath, validation.RecordExpectedReportSHA256, true, nil)
+	validation.ReceiptRequired, err = adapterExecutionReceiptRequired(inst.CaseRoot, gateEvent, m)
+	if err != nil {
+		validation.Valid = false
+		validation.Error = err.Error()
+		validation.Errors = []string{validation.Error}
+		validation.FailureStage = "provenance"
+		validation.FailureCode = "adapter-execution-catalog-invalid"
+		validation.MissionCommanderAction = adapterReportValidationCommanderAction(pack, gateEvent, validation.ReportPath, validation.RecordExpectedReportSHA256, "", nil, false, nil)
+		validation.MissionCommanderNextActions = adapterReportValidationCommanderNextActions(gateEvent, validation.MissionCommanderAction, false, nil)
+		validation.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(validation.MissionCommanderNextActions)
+		validation.ReportSummary = adapterReportHandoffSummary(gateEvent, validation.MissionCommanderAction.State, validation.ReportPath, validation.ReportSHA256, validation.Report, validation.Contract.AllowedStatuses, validation.Contract.AllowedOutputPaths, adapterCandidates, validation.Contract.StopConditions, nil, AuthorizedExecutionFollowThrough{}, validation.MissionCommanderActionQueue, validation.MissionCommanderNextActions, false, validation.FailureCode, validation.FailureStage)
+		validation.ReportSummary.RecordReady = false
+		validation.ReportSummary.RecordBlocked = true
+		validation.NextSteps = []string{"repair the declared tooling catalog", "rerun read-only report validation", "do not record observation evidence while adapter capability provenance is invalid"}
+		return validation, nil
+	}
+	if validation.ReceiptRequired {
+		validation.ReceiptPreviewCommand = adapterExecutionReceiptPreviewSlashCommand(pack, gateEvent, validation.ReportPath, adapterReport.AdapterID)
+		receipt, receiptPath, receiptSHA, receiptErr := validateRecordedAdapterExecutionReceipt(inst.CaseRoot, pack, gateEvent, validation.ReportPath, validation.ReportSHA256, adapterReport, m, opt)
+		validation.AdapterExecutionReceiptPath = receiptPath
+		validation.AdapterExecutionReceiptSHA256 = receiptSHA
+		receiptPresent, existsErr := adapterExecutionReceiptExists(inst.CaseRoot, gateEvent)
+		validation.ReceiptPresent = receiptPresent
+		if receiptErr == nil && existsErr != nil {
+			receiptErr = existsErr
+		}
+		if receiptErr != nil {
+			validation.Valid = false
+			validation.ProvenanceValid = false
+			validation.Error = receiptErr.Error()
+			validation.Errors = []string{validation.Error}
+			validation.FailureStage = "provenance"
+			validation.FailureCode = "adapter-execution-receipt-invalid"
+			if validation.ReceiptPresent {
+				validation.ReceiptPreviewCommand = ""
+				reauthorization := gateEvent
+				reauthorization.EventID = ""
+				reauthorization.BatchID = gateEvent.EventID + "-provenance-retry"
+				reauthorization.Subject = gateEvent.Subject + " provenance retry"
+				reauthorization.Summary = fmt.Sprintf("Review a new authorized execution attempt after immutable provenance drift for gate %s; do not adopt or overwrite the existing receipt", gateEvent.EventID)
+				validation.MissionCommanderAction = mission.MissionCommanderAction{State: "blocked-by-adapter-execution-provenance-drift", Prompt: fmt.Sprintf("authorized gate `%s` 已有 immutable execution receipt，但 current owner/catalog/report/artifact 与该 receipt 不再一致；不能用新 preview 覆盖 canonical receipt。", gateEvent.EventID), PrimaryCommand: gateRequestWhatIfSlashCommand(pack, reauthorization), Boundary: append(adapterReportCommanderBoundary(), "existing immutable receipt cannot be replaced or adopted after provenance drift")}
+				validation.MissionCommanderNextActions = []mission.MissionCommanderNextActionItem{adapterReportNextActionItem(gateEvent, gateCommanderActionLabel(gateEvent.Lane), "adapter-execution-provenance-drift", validation.MissionCommanderAction.State, validation.MissionCommanderAction.PrimaryCommand, "adapterExecutionReceipt.validation", true, true, []string{"restore the exact receipt-bound sidecar/artifact bytes or review a distinct new authorized gate attempt"}, validation.MissionCommanderAction.Boundary)}
+				validation.NextSteps = []string{"restore the exact receipt-bound report and artifact bytes when the drift was accidental", "otherwise run the returned WhatIf command, review its distinct provenance-retry identity, then use its Apply command before any new adapter execution", "do not overwrite the existing receipt or record current drifted bytes as observation evidence"}
+			} else {
+				validation.MissionCommanderAction = mission.MissionCommanderAction{State: "ready-for-adapter-execution-receipt-preview", Prompt: fmt.Sprintf("authorized gate `%s` report 已通过 schema/boundary 校验，但 durable execution provenance 尚未完成；先记录 current owner/catalog/artifact receipt。", gateEvent.EventID), PrimaryCommand: validation.ReceiptPreviewCommand, Boundary: append(adapterReportCommanderBoundary(), "observation record is blocked until receipt provenance is valid")}
+				validation.MissionCommanderNextActions = []mission.MissionCommanderNextActionItem{adapterReportNextActionItem(gateEvent, gateCommanderActionLabel(gateEvent.Lane), "adapter-execution-receipt-preview", validation.MissionCommanderAction.State, validation.ReceiptPreviewCommand, "adapterExecutionReceipt.validation", false, true, []string{"report is valid but immutable execution receipt is missing"}, validation.MissionCommanderAction.Boundary)}
+				validation.NextSteps = []string{"record immutable adapter execution receipt from the returned preview command", "rerun read-only report validation", "do not record observation evidence or rerun the adapter solely because receipt is missing"}
+			}
+			validation.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(validation.MissionCommanderNextActions)
+			validation.ReportSummary = adapterReportHandoffSummary(gateEvent, validation.MissionCommanderAction.State, validation.ReportPath, validation.ReportSHA256, validation.Report, validation.Contract.AllowedStatuses, validation.Contract.AllowedOutputPaths, adapterCandidates, validation.Contract.StopConditions, nil, AuthorizedExecutionFollowThrough{}, validation.MissionCommanderActionQueue, validation.MissionCommanderNextActions, false, validation.FailureCode, validation.FailureStage)
+			validation.ReportSummary.RecordReady = false
+			validation.ReportSummary.RecordBlocked = true
+			validation.RunbookSteps = adapterReportRunbookSteps("provenance", validation.MissionCommanderAction.State, validation.ReportPath, validation.ReportSHA256, false, false, false, false, validation.NextSteps, validation.MissionCommanderAction.Boundary, validation.MissionCommanderAction)
+			return validation, nil
+		}
+		validation.AdapterExecution = receipt
+		validation.ProvenanceValid = true
+	}
+	validation.MissionCommanderAction = adapterReportValidationCommanderAction(pack, gateEvent, validation.ReportPath, validation.RecordExpectedReportSHA256, validation.AdapterExecutionReceiptSHA256, validation.AdapterExecution, true, nil)
 	validation.MissionCommanderNextActions = adapterReportValidationCommanderNextActions(gateEvent, validation.MissionCommanderAction, true, nil)
 	validation.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(validation.MissionCommanderNextActions)
 	validation.AuthorizedExecutionFollowThrough = authorizedExecutionFollowThrough(gateEvent, validation.MissionCommanderAction.State, validation.ReportPath, validation.MissionCommanderAction, validation.MissionCommanderNextActions, nil, true, false)
@@ -1870,7 +1977,7 @@ func adapterReportContractNextSteps(pack string, event EventPreview, liveValidat
 	}
 }
 
-func adapterReportValidationCommanderAction(pack string, gateEvent EventPreview, reportPath, reportSHA256 string, valid bool, hints []AdapterReportRepairHint) mission.MissionCommanderAction {
+func adapterReportValidationCommanderAction(pack string, gateEvent EventPreview, reportPath, reportSHA256, receiptSHA256 string, receipt *adapterexecution.Receipt, valid bool, hints []AdapterReportRepairHint) mission.MissionCommanderAction {
 	reportPath = strings.TrimSpace(reportPath)
 	reportSHA256 = strings.TrimSpace(reportSHA256)
 	if reportPath == "" {
@@ -1880,10 +1987,11 @@ func adapterReportValidationCommanderAction(pack string, gateEvent EventPreview,
 		reportPath = "<reportPath-under-authorized-outputPath>"
 	}
 	if valid {
+		command := adapterReportRecordSlashCommandWithExpectedHash(pack, gateEvent.EventID, reportPath, reportSHA256, receiptSHA256, receipt)
 		return mission.MissionCommanderAction{
 			State:          "ready-to-record-evidence",
-			Prompt:         fmt.Sprintf("authorized gate `%s` 的 sidecar 已 valid=true；替换 `<executor-id>` 后只记录 observation evidence，再 review refs。", gateEvent.EventID),
-			PrimaryCommand: adapterReportRecordSlashCommandWithExpectedHash(pack, gateEvent.EventID, reportPath, reportSHA256),
+			Prompt:         fmt.Sprintf("authorized gate `%s` 的 sidecar 与 execution receipt provenance 已 valid=true；只记录 observation evidence，再 review refs。", gateEvent.EventID),
+			PrimaryCommand: command,
 			FollowUpCommands: []string{
 				"/rekit handoff " + mission.BoardLaneLabel(mission.BoardLane{ID: gateEvent.Lane}),
 			},
@@ -1922,12 +2030,21 @@ func adapterReportValidateSlashCommand(pack, gateEventID, reportPath string) str
 	return adapterReportSlashCommand([]string{"gate", "-Pack", pack, "-GateEventId", gateEventID, "-ValidateExecutionReport", "-ExecutionReportPath", reportPath, "-Format", "json"})
 }
 
-func adapterReportRecordSlashCommandWithExpectedHash(pack, gateEventID, reportPath, reportSHA256 string) string {
+func adapterReportRecordSlashCommandWithExpectedHash(pack, gateEventID, reportPath, reportSHA256 string, provenance ...any) string {
 	args := []string{"gate", "-Pack", pack, "-Apply", "-GateEventId", gateEventID, "-ExecutionReportPath", reportPath}
 	if strings.TrimSpace(reportSHA256) != "" {
 		args = append(args, "-ExpectedExecutionReportSha256", strings.TrimSpace(reportSHA256))
 	}
-	args = append(args, "-Actor", "<executor-id>", "-Format", "json")
+	actor := "<executor-id>"
+	if len(provenance) == 2 {
+		receiptSHA256, _ := provenance[0].(string)
+		receipt, _ := provenance[1].(*adapterexecution.Receipt)
+		if receipt != nil && strings.TrimSpace(receiptSHA256) != "" {
+			args = append(args, "-AdapterExecutionReceiptPath", filepath.ToSlash(filepath.Join(".rekit", "lanes", receipt.Owner.Lane, "adapter-executions", receipt.Gate.GateEventID, "receipt.json")), "-ExpectedAdapterExecutionReceiptSha256", receiptSHA256, "-Executor", receipt.Owner.CurrentExecutor, "-ExpectedExecutorGeneration", fmt.Sprintf("%d", receipt.Owner.ExecutorGeneration))
+			actor = receipt.Actor
+		}
+	}
+	args = append(args, "-Actor", actor, "-Format", "json")
 	return adapterReportSlashCommand(args)
 }
 
@@ -2675,6 +2792,13 @@ func executionEvidence(caseRoot string, gateEvent EventPreview, opt Options, m *
 	if err != nil {
 		return ExecutionEvidencePreview{}, err
 	}
+	receiptRequired, err := adapterExecutionReceiptRequired(caseRoot, gateEvent, m)
+	if err != nil {
+		return ExecutionEvidencePreview{}, err
+	}
+	if receiptRequired && adapterReport == nil {
+		return ExecutionEvidencePreview{}, fmt.Errorf("managed adapter execution provenance requires -ExecutionReportPath and an immutable receipt")
+	}
 	var adapterContext *AdapterToolCandidate
 	if adapterReport != nil {
 		adapterContext = selectedAdapterToolCandidate(m, gateEvent, adapterReport.AdapterID)
@@ -2751,6 +2875,18 @@ func executionEvidence(caseRoot string, gateEvent EventPreview, opt Options, m *
 	} else if strings.TrimSpace(opt.ExpectedExecutionReportSHA256) != "" {
 		return ExecutionEvidencePreview{}, fmt.Errorf("gate execution evidence -ExpectedExecutionReportSha256 requires -ExecutionReportPath")
 	}
+	var adapterExecution *adapterexecution.Receipt
+	adapterExecutionReceiptPath := ""
+	adapterExecutionReceiptSHA256 := ""
+	if receiptRequired {
+		adapterExecution, adapterExecutionReceiptPath, adapterExecutionReceiptSHA256, err = validateRecordedAdapterExecutionReceipt(caseRoot, m.Pack, gateEvent, reportRel, reportSHA256, adapterReport, m, opt)
+		if err != nil {
+			return ExecutionEvidencePreview{}, err
+		}
+		if strings.TrimSpace(opt.ExpectedAdapterExecutionReceiptSHA256) == "" {
+			return ExecutionEvidencePreview{}, fmt.Errorf("gate execution evidence requires -ExpectedAdapterExecutionReceiptSha256 from read-only validation")
+		}
+	}
 	boundaryHits, err := parseBoundaryHits(opt.BoundaryHits)
 	if err != nil {
 		return ExecutionEvidencePreview{}, err
@@ -2810,20 +2946,23 @@ func executionEvidence(caseRoot string, gateEvent EventPreview, opt Options, m *
 		EvidenceRefs:  evidenceRefs,
 		Gate:          gateEvent.Gate,
 		Execution: ExecutionEvidenceDetails{
-			Status:                status,
-			ActualBudget:          actual,
-			OutputRefs:            outputRefs,
-			BoundaryHits:          boundaryHits,
-			Escalation:            escalation,
-			GateEventID:           gateEvent.EventID,
-			GateStatus:            gateEvent.Status,
-			Authorization:         gateEvent.Gate.Authorization.Decision,
-			RecordRequired:        gateEvent.Gate.Authorization.RecordRequired,
-			NotifyMainOn:          append([]string{}, gateEvent.Gate.Authorization.NotifyMainOn...),
-			ExecutionReportPath:   reportRel,
-			ExecutionReportSHA256: reportSHA256,
-			AdapterContext:        adapterContext,
-			Adapter:               adapterReport,
+			Status:                        status,
+			ActualBudget:                  actual,
+			OutputRefs:                    outputRefs,
+			BoundaryHits:                  boundaryHits,
+			Escalation:                    escalation,
+			GateEventID:                   gateEvent.EventID,
+			GateStatus:                    gateEvent.Status,
+			Authorization:                 gateEvent.Gate.Authorization.Decision,
+			RecordRequired:                gateEvent.Gate.Authorization.RecordRequired,
+			NotifyMainOn:                  append([]string{}, gateEvent.Gate.Authorization.NotifyMainOn...),
+			ExecutionReportPath:           reportRel,
+			ExecutionReportSHA256:         reportSHA256,
+			AdapterExecutionReceiptPath:   adapterExecutionReceiptPath,
+			AdapterExecutionReceiptSHA256: adapterExecutionReceiptSHA256,
+			AdapterExecution:              adapterExecution,
+			AdapterContext:                adapterContext,
+			Adapter:                       adapterReport,
 		},
 	}, nil
 }
@@ -3242,6 +3381,8 @@ func executionEventID(event ExecutionEvidencePreview) string {
 		strings.Join(event.Execution.BoundaryHits, ","),
 		event.Execution.Escalation,
 		event.Execution.ExecutionReportPath,
+		event.Execution.AdapterExecutionReceiptPath,
+		event.Execution.AdapterExecutionReceiptSHA256,
 		adapterEventIDSeed(event.Execution.Adapter),
 	}, "|")
 	sum := sha256.Sum256([]byte(seed))
@@ -3456,11 +3597,23 @@ func gateRequestMissionCommanderNextActions(laneID string, action mission.Execut
 }
 
 func gateRequestApplySlashCommand(pack string, preview EventPreview) string {
+	return gateRequestSlashCommand(pack, preview, true)
+}
+
+func gateRequestWhatIfSlashCommand(pack string, preview EventPreview) string {
+	return gateRequestSlashCommand(pack, preview, false)
+}
+
+func gateRequestSlashCommand(pack string, preview EventPreview, apply bool) string {
 	actor := strings.TrimSpace(preview.Actor)
 	if actor == "" {
 		actor = "<actor>"
 	}
-	args := []string{"gate", "-Pack", pack, "-Action", preview.Gate.Action, "-Lane", preview.Lane, "-Apply", "-Actor", actor}
+	mode := "-WhatIf"
+	if apply {
+		mode = "-Apply"
+	}
+	args := []string{"gate", "-Pack", pack, "-Action", preview.Gate.Action, "-Lane", preview.Lane, mode, "-Actor", actor}
 	args = appendGateCommandArg(args, "-Subject", preview.Subject)
 	args = appendGateCommandArg(args, "-Summary", preview.Summary)
 	args = appendGateCommandArg(args, "-TargetRef", preview.Target)
@@ -3816,42 +3969,17 @@ func selectedAdapterToolCandidate(m *manifest.Manifest, event EventPreview, adap
 }
 
 func adapterToolCandidates(m *manifest.Manifest, event EventPreview) []AdapterToolCandidate {
-	if m == nil {
-		return nil
-	}
-	action := strings.ToLower(strings.TrimSpace(event.Gate.Action))
-	if action == "" {
-		return nil
-	}
-	gate, ok := m.HeavyToolGate(action)
-	if !ok {
+	candidates, err := strictAdapterToolCandidates(m, event)
+	if err != nil {
 		return nil
 	}
 	rows := map[string]AdapterToolCandidate{}
-	for _, rel := range m.ToolingFiles {
-		rel = strings.TrimSpace(rel)
-		if rel == "" || !strings.HasSuffix(strings.ToLower(rel), "catalog.yml") {
+	for _, candidate := range candidates {
+		key := strings.ToLower(candidate.ID)
+		if existing, ok := rows[key]; ok && adapterToolCandidateRank(existing) <= adapterToolCandidateRank(candidate) {
 			continue
 		}
-		path, err := m.SourcePath(rel)
-		if err != nil {
-			continue
-		}
-		items, err := manifest.ObjectListFromFile(path, "tools")
-		if err != nil {
-			continue
-		}
-		for _, item := range items {
-			candidate := adapterToolCandidateFromCatalogItem(item, rel, action, gate)
-			if candidate.ID == "" {
-				continue
-			}
-			key := strings.ToLower(candidate.ID)
-			if existing, ok := rows[key]; ok && adapterToolCandidateRank(existing) <= adapterToolCandidateRank(candidate) {
-				continue
-			}
-			rows[key] = candidate
-		}
+		rows[key] = candidate
 	}
 	out := make([]AdapterToolCandidate, 0, len(rows))
 	for _, candidate := range rows {

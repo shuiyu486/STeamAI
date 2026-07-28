@@ -16,6 +16,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 707：adapter execution provenance lifecycle
+
+状态：已完成 runtime/CLI/test 实现、focused package、Windows 本机 CLI product-path、独立 correctness review 与完整本机 release minimum；implementation commit/push 与 push-triggered remote inspection在本批收尾阶段记录。
+
+目标：把 strict authorized gate、selected adapter catalog、current durable lane executor generation、external harness/session、typed authorized/actual budget、outcome/exit status、report hash/bytes 与 output/evidence artifact hash/bytes 串成 immutable execution provenance。Go runtime 仍只记录并验证 external executor/harness observation，不执行 adapter 或 heavy tool。
+
+边界：不新增 public command、PowerShell runtime logic或 authority/confirmed 写入；复用 `gate` 子模式。managed lane 当前 action存在 catalog candidate 时 receipt mandatory，未知/重复 candidate、owner/catalog/report/artifact drift、missing/directory/symlink/self-referencing artifact均 fail-closed；legacy 无 durable owner/catalog candidate 路径保持兼容。
+
+已实现内容：新增 strict `adapterexecution` receipt contract、durable `laneowner` reader 与 `gate -RecordAdapterExecutionReceipt` preview→expected-binding-hash Apply。receipt 使用 canonical `.rekit/lanes/<lane>/adapter-executions/<gateEventId>/receipt.json` no-overwrite geometry，绑定 authorized gate snapshot、exact catalog candidate、current executor generation、harness/session、outcome/exit status、report及artifact hashes/bytes；exact replay不重写。read-only report validation在 managed path重验 receipt/current owner/catalog/report/artifacts，随后只发布 report+receipt双 hash-bound observation record command。observation、Mission Commander evidence review与authorized gate handoff投影 compact receipt lineage。
+
+验证结果：focused/package/CLI product-path 回归覆盖 authorized gate Apply、report/artifact fixture、receipt preview→hash-bound Apply、receipt-backed validation、双 hash observation record、distinct provenance-drift reauthorization WhatIf→Apply、unknown/duplicate/malformed catalog candidate、catalog/report/artifact/owner/gate drift、invalid artifact types、temp-write failure recovery、receipt/observation exact replay、receipt mode flag allowlist及 reviewer packet目录时序隔离，并证明无 authority/confirmed 写入。独立 reviewer 三轮复核确认闭合 managed→legacy fail-open、receipt mode flag吞参、drift不可兑现 handoff与final-path partial write问题，最终无高置信残余。`go test ./... -count=1` 通过（CLI 238.201s），`go vet ./...` 通过；Linux `GOOS=linux GOARCH=amd64 go test -c` 已覆盖 gate/CLI。`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true` / `summary=release gate inventory ok`，`status`、`packs`、`doctor` 与 `git diff --check` 通过，后者仅有 Windows LF→CRLF working-copy warning。该 `ready=true` 只表示本机 inventory ready；remote green仍待 implementation push 后检查。
+
 ### Batch 706：durable reviewer session receipt lifecycle
 
 状态：已完成实现、focused/package/CLI product-path 回归、Linux test binary cross-compile、完整本机 release minimum、文档/CHANGELOG、implementation commit/push 与 push-triggered remote inspection；implementation commit `699c8f8` 已推送。Push run `30391673831` completed failure；Windows/Linux/macOS jobs `90384524538`/`90384524680`/`90384524750` 均 `steps=[]`，`gh run view 30391673831 --log-failed` 返回 `log not found: 90384524538`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。
@@ -2566,7 +2578,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 Batch 630 强制选择端到端能力闭环：不要再把单字段、summary、text line、first-screen 或 handoff 可见性投影单独立批；若需要投影字段，必须作为更大 runtime/writeback/executor/reviewer/adapter/pack-memory E2E 的支撑，并通过 CLI/product-path/E2E 验证实际完成一个 Mission Commander / replacement executor 可感知的状态转换。
 
-1. **Adapter execution provenance vertical slice**：复用 strict authorized-gate 与 adapter report contract，把 gate/action、adapter catalog、lane executor/session、typed budget、exit status、output hash 与 sidecar hash 串成 durable execution provenance；Go runtime 仍不执行 adapter/heavy tool，只记录并验证 executor/harness observation。必须以 Windows 本机 CLI/product-path 的真实状态转换为闭环，不做字段微批次。
+1. **Mission Commander live execution intake residuals**：Batch 707 已把 authorized gate、adapter catalog、durable lane owner、harness/session、report/artifact bytes与 observation writeback 串成 immutable provenance；下一步只在真实 adapter/executor integration 暴露 intake、multi-attempt或recovery断点时推进，不继续拆 receipt 字段或重复做 handoff 投影。
 2. **Reviewer orchestration E2E residuals（降优先级）**：Batch 706 已用 immutable dispatch/completion receipts 闭合真实 harness session、lane owner generation、successful completion、source capture/intake 与 writeback provenance；后续仅在 multi-shard partial/retry/resume 仍出现真实 CLI/product-path 断点时推进，不把 receipt 字段继续拆成投影微批次，不自动 spawn/poll/monitor/stop reviewer、不执行 heavy-tool。
 3. **Pack-memory downstream UX residuals（如仍有缺口）**：Batch 500 已把 candidate decision/cleanup/reconsume expected evidence 收口为 `reviewArtifacts[]`，Batch 501 已把 open candidate residue 投影到 release/status handoff，Batch 502/503 已补齐 case-local status/default path、candidate identity、index mapping 与 derived review artifact visibility，Batch 517/522/526 已补齐 compact review summary、proof presence 与 proof stage/next-missing handoff；后续仅在 accepted/rejected 人工流程、cleanup/reconsume 或 evidence review downstream UX 仍需跨 envelope 手工拼接时推进，不重复做字段微批次。
 4. **Cross-platform product-path E2E（降优先级）**：在本地 CLI/case E2E 已覆盖 nested cwd / case shim 的基础上，仅保持可在 runner 可用时执行的三平台 matrix 候选和 known gap 记录；不要在 GitHub runner/billing blocker 未解除前让它阻塞 Windows 本机迭代。

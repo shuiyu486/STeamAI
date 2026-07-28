@@ -141,7 +141,7 @@ func TestLaneMutationUnlockReportsFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lease.unlockFile = func(uintptr) error { return os.ErrPermission }
+	lease.SetUnlockFileForTest(func(uintptr) error { return os.ErrPermission })
 	if err := lease.Unlock(); err == nil || !strings.Contains(err.Error(), os.ErrPermission.Error()) {
 		t.Fatalf("Unlock error = %v, want visible injected failure", err)
 	}
@@ -461,8 +461,8 @@ func TestLegacyAttachedCaseMutationLeaseUsesLegacyInstanceBinding(t *testing.T) 
 	if err != nil {
 		t.Fatalf("legacy attached case lease failed: %v", err)
 	}
-	if !strings.EqualFold(filepath.Clean(lease.instancePath), filepath.Clean(legacy)) {
-		t.Fatalf("legacy lease instance path = %s, want %s", lease.instancePath, legacy)
+	if !strings.EqualFold(filepath.Clean(lease.InstancePath()), filepath.Clean(legacy)) {
+		t.Fatalf("legacy lease instance path = %s, want %s", lease.InstancePath(), legacy)
 	}
 	if err := lease.Unlock(); err != nil {
 		t.Fatal(err)
@@ -478,12 +478,12 @@ func TestLaneMutationLeaseRejectsCanonicalLaneRebindBeforeMutation(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	movedPath := lease.canonicalLanePath + ".moved"
-	if err := os.Rename(lease.canonicalLanePath, movedPath); err != nil {
+	movedPath := lease.CanonicalLanePath() + ".moved"
+	if err := os.Rename(lease.CanonicalLanePath(), movedPath); err != nil {
 		_ = lease.Unlock()
 		t.Skipf("canonical lane cannot be rebound on this platform while handle is open: %v", err)
 	}
-	if err := os.WriteFile(lease.canonicalLanePath, nil, 0o600); err != nil {
+	if err := os.WriteFile(lease.CanonicalLanePath(), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := lease.Validate(); err == nil || !strings.Contains(err.Error(), "canonical lane namespace changed") {
@@ -500,12 +500,12 @@ func TestLaneMutationLeaseRejectsCanonicalInstanceRebindBeforeMutation(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	movedPath := lease.instancePath + ".moved"
-	if err := os.Rename(lease.instancePath, movedPath); err != nil {
+	movedPath := lease.InstancePath() + ".moved"
+	if err := os.Rename(lease.InstancePath(), movedPath); err != nil {
 		_ = lease.Unlock()
 		t.Skipf("canonical instance cannot be rebound on this platform while handle is open: %v", err)
 	}
-	if err := os.WriteFile(lease.instancePath, nil, 0o600); err != nil {
+	if err := os.WriteFile(lease.InstancePath(), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := lease.Validate(); err == nil || !strings.Contains(err.Error(), "canonical instance namespace changed") {

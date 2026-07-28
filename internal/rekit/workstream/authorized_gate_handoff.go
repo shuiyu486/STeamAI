@@ -53,6 +53,18 @@ type AuthorizedGateLiveValidationHandoff struct {
 	DraftReportSHA256                string                     `json:"draftReportSha256,omitempty"`
 	ReportSHA256                     string                     `json:"reportSha256,omitempty"`
 	RecordExpectedReportSHA256       string                     `json:"recordExpectedReportSha256,omitempty"`
+	ReceiptRequired                  bool                       `json:"receiptRequired,omitempty"`
+	ReceiptPresent                   bool                       `json:"receiptPresent,omitempty"`
+	ProvenanceValid                  bool                       `json:"provenanceValid,omitempty"`
+	AdapterExecutionReceiptPath      string                     `json:"adapterExecutionReceiptPath,omitempty"`
+	AdapterExecutionReceiptSHA256    string                     `json:"adapterExecutionReceiptSha256,omitempty"`
+	ReceiptPreviewCommand            string                     `json:"receiptPreviewCommand,omitempty"`
+	CurrentExecutor                  string                     `json:"currentExecutor,omitempty"`
+	ExecutorGeneration               int                        `json:"executorGeneration,omitempty"`
+	AdapterHarness                   string                     `json:"adapterHarness,omitempty"`
+	AdapterSession                   string                     `json:"adapterSession,omitempty"`
+	ToolingCatalogSHA256             string                     `json:"toolingCatalogSha256,omitempty"`
+	ArtifactCount                    int                        `json:"artifactCount,omitempty"`
 	CaseRelativeValidateCommand      string                     `json:"caseRelativeValidateCommand,omitempty"`
 	CaseRelativeRecordCommand        string                     `json:"caseRelativeRecordCommand,omitempty"`
 	CaseRelativeScaffoldCommand      string                     `json:"caseRelativeScaffoldCommand,omitempty"`
@@ -285,6 +297,7 @@ func authorizedGateAdapterHandoffFor(repoRoot, caseRoot, pack string, item map[s
 		liveValidation.RunbookSteps = append([]string{}, validation.RunbookSteps...)
 		liveValidation.ReportSHA256 = validation.ReportSHA256
 		liveValidation.RecordExpectedReportSHA256 = validation.RecordExpectedReportSHA256
+		applyAdapterExecutionReceiptHandoff(&liveValidation, validation)
 		recordCommand := ""
 		if validation.Valid && reportSummary.RecordReady && !reportSummary.RecordBlocked {
 			recordCommand = strings.TrimSpace(validation.MissionCommanderAction.PrimaryCommand)
@@ -304,6 +317,27 @@ func authorizedGateAdapterHandoffFor(repoRoot, caseRoot, pack string, item map[s
 	}
 	handoff.ReportSummary = &reportSummary
 	return handoff
+}
+
+func applyAdapterExecutionReceiptHandoff(handoff *AuthorizedGateLiveValidationHandoff, validation gate.AdapterExecutionReportValidation) {
+	if handoff == nil {
+		return
+	}
+	handoff.ReceiptRequired = validation.ReceiptRequired
+	handoff.ReceiptPresent = validation.ReceiptPresent
+	handoff.ProvenanceValid = validation.ProvenanceValid
+	handoff.AdapterExecutionReceiptPath = validation.AdapterExecutionReceiptPath
+	handoff.AdapterExecutionReceiptSHA256 = validation.AdapterExecutionReceiptSHA256
+	handoff.ReceiptPreviewCommand = validation.ReceiptPreviewCommand
+	if validation.AdapterExecution == nil {
+		return
+	}
+	handoff.CurrentExecutor = validation.AdapterExecution.Owner.CurrentExecutor
+	handoff.ExecutorGeneration = validation.AdapterExecution.Owner.ExecutorGeneration
+	handoff.AdapterHarness = validation.AdapterExecution.Owner.AdapterHarness
+	handoff.AdapterSession = validation.AdapterExecution.Owner.AdapterSession
+	handoff.ToolingCatalogSHA256 = validation.AdapterExecution.Adapter.ToolingCatalogSHA256
+	handoff.ArtifactCount = len(validation.AdapterExecution.Artifacts)
 }
 
 func authorizedGateLiveValidationHandoffFor(live gate.AdapterReportLiveValidation) AuthorizedGateLiveValidationHandoff {

@@ -19,6 +19,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaultdocs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/promote"
@@ -2904,8 +2905,8 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releasecheck.ReleaseHandoff
 	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "removalImpact=true impactReferences=")
 	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "workItems=")
 	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "validationCommands=")
-	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "migrationTargets=75")
-	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "migrationValidationCommands=600")
+	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "migrationTargets=76")
+	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "migrationValidationCommands=608")
 	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "smokeMigrationTargets=29")
 	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "smokeMigrationValidationCommands=232")
 	assertReleaseHandoffSignalDetail(t, handoff, "public facade removal prerequisites", "public-facade-retained-boundary ready=true publicFacadeReady=true present=true retained=true migrationBoundary=true removalBoundary=true")
@@ -3130,7 +3131,7 @@ func assertReleaseCheckPublicFacadeRemoval(t *testing.T, inventory releasecheck.
 	if !inventory.RemovalPlan.Ready || inventory.RemovalPlan.Document != "docs/powershell-deprecation.md" || planCounts.Warnings != 0 || planCounts.RequiredPhrases != 9 || planCounts.ReplacementEntrypoints != 4 || planCounts.ReplacementValidationCommands != 32 || deletionGateCounts.Gates != 5 || deletionGateCounts.ValidationCommands != 40 || deletionGateCounts.ExitCriteria != 15 || deletionGateCounts.FailureSignals != 15 || deletionGateCounts.EscalationTriggers != 15 || deletionGateCounts.EscalationEvidence != 15 || deletionGateCounts.EscalationRecipients != 15 || deletionGateCounts.EscalationHandoffSteps != 15 || deletionGateCounts.EscalationDecisionOptions != 15 || deletionGateCounts.EscalationRetryConditions != 15 || deletionGateCounts.EscalationStopConditions != 15 || deletionGateCounts.EscalationResolutionArtifacts != 15 || deletionGateCounts.EscalationClosureChecks != 15 || deletionGateCounts.EscalationReopenConditions != 15 || deletionGateCounts.EscalationLedgerEvents != 15 || deletionGateCounts.EscalationStateTransitions != 15 || deletionGateCounts.EscalationBoundaryGuards != 15 || deletionGateCounts.EscalationAuditChecks != 15 || deletionGateCounts.VerificationArtifacts != 15 || deletionGateCounts.BlockedExecutionSteps != 10 || deletionGateCounts.RemediationActions != 15 || executionCounts.Steps != 5 || executionCounts.FailureSignals != 15 || executionCounts.RemediationActions != 15 || executionCounts.VerificationArtifacts != 15 || executionCounts.LedgerEvents != 15 || executionCounts.StateTransitions != 15 || executionCounts.EscalationTriggers != 15 || executionCounts.EscalationEvidence != 15 || executionCounts.EscalationRecipients != 15 || executionCounts.EscalationHandoffSteps != 15 || executionCounts.EscalationDecisionOptions != 15 || executionCounts.EscalationRetryConditions != 15 || executionCounts.EscalationStopConditions != 15 || executionCounts.EscalationResolutionArtifacts != 15 || executionCounts.EscalationClosureChecks != 15 || executionCounts.EscalationReopenConditions != 15 || executionCounts.EscalationLedgerEvents != 15 || executionCounts.EscalationStateTransitions != 15 || executionCounts.EscalationBoundaryGuards != 15 || executionCounts.EscalationAuditChecks != 15 || executionCounts.BoundaryGuards != 15 || executionCounts.AuditChecks != 15 || executionCounts.ValidationCommands != 40 || planCounts.BoundaryChecks != 6 || planCounts.BoundaryValidationCommands != 48 || planCounts.RecoverySteps != 4 || planCounts.RecoveryValidationCommands != 32 || planCounts.DocumentationTargets != 9 || planCounts.DocumentationValidationCommands != 72 || !releaseCheckPublicFacadeRemovalHasReplacementEntrypoint(inventory.RemovalPlan, "canonical-rekit-skill") || !releaseCheckPublicFacadeRemovalHasReplacementEntrypoint(inventory.RemovalPlan, "direct-go-cli") || !releaseCheckPublicFacadeRemovalHasDeletionGate(inventory.RemovalPlan, "go-native-alternatives-ready") || !releaseCheckPublicFacadeRemovalHasDeletionGate(inventory.RemovalPlan, "release-gate-green") || !releaseCheckPublicFacadeRemovalHasExecutionStep(inventory.RemovalPlan, "delete-public-facade") || !releaseCheckPublicFacadeRemovalHasExecutionStep(inventory.RemovalPlan, "rerun-release-gate") || !releaseCheckPublicFacadeRemovalHasBoundaryCheck(inventory.RemovalPlan, "no-powershell-runtime-logic") || !releaseCheckPublicFacadeRemovalHasBoundaryCheck(inventory.RemovalPlan, "no-external-effects") || !releaseCheckPublicFacadeRemovalHasRecoveryStep(inventory.RemovalPlan, "restore-public-facade") || !releaseCheckPublicFacadeRemovalHasDocumentationTarget(inventory.RemovalPlan, "docs/release-readiness.md") || !releaseCheckPublicFacadeRemovalHasDocumentationTarget(inventory.RemovalPlan, "CHANGELOG.md") {
 		t.Fatalf("public facade removal plan drifted: %+v", inventory.RemovalPlan)
 	}
-	if !inventory.RemovalImpact.Ready || inventory.RemovalImpact.FacadePath != "rekit/rekit.ps1" || !inventory.RemovalImpact.FacadePresent || impactCounts.Warnings != 0 || impactCounts.References == 0 || impactCounts.ReferenceCategories == 0 || impactCounts.WorkItems != impactCounts.ReferenceCategories || impactCounts.WorkItemValidationCommands != impactCounts.WorkItems*8 || impactCounts.MigrationTargets != 75 || impactCounts.MigrationValidationCommands != 600 || impactCounts.SmokeMigrationTargets != 29 || impactCounts.SmokeMigrationValidationCommands != 232 || impactCounts.UnclassifiedReferences != 0 || !releaseCheckPublicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "public-facade-entrypoint") || !releaseCheckPublicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "facade-compatibility-smoke") || !releaseCheckPublicFacadeRemovalHasImpactWorkItem(inventory.RemovalImpact, "release-inventory-and-tests") || !releaseCheckPublicFacadeRemovalHasMigrationTarget(inventory.RemovalImpact, "rekit/rekit.ps1") || !releaseCheckPublicFacadeRemovalHasMigrationTarget(inventory.RemovalImpact, "docs/powershell-deprecation.md") || !releaseCheckPublicFacadeRemovalHasSmokeMigrationTarget(inventory.RemovalImpact, "rekit/tests/facade-smoke.ps1") || !releaseCheckPublicFacadeRemovalHasSmokeMigrationTarget(inventory.RemovalImpact, "rekit/tests/continue-whatif-smoke.ps1") {
+	if !inventory.RemovalImpact.Ready || inventory.RemovalImpact.FacadePath != "rekit/rekit.ps1" || !inventory.RemovalImpact.FacadePresent || impactCounts.Warnings != 0 || impactCounts.References == 0 || impactCounts.ReferenceCategories == 0 || impactCounts.WorkItems != impactCounts.ReferenceCategories || impactCounts.WorkItemValidationCommands != impactCounts.WorkItems*8 || impactCounts.MigrationTargets != 76 || impactCounts.MigrationValidationCommands != 608 || impactCounts.SmokeMigrationTargets != 29 || impactCounts.SmokeMigrationValidationCommands != 232 || impactCounts.UnclassifiedReferences != 0 || !releaseCheckPublicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "public-facade-entrypoint") || !releaseCheckPublicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "facade-compatibility-smoke") || !releaseCheckPublicFacadeRemovalHasImpactWorkItem(inventory.RemovalImpact, "release-inventory-and-tests") || !releaseCheckPublicFacadeRemovalHasMigrationTarget(inventory.RemovalImpact, "rekit/rekit.ps1") || !releaseCheckPublicFacadeRemovalHasMigrationTarget(inventory.RemovalImpact, "docs/powershell-deprecation.md") || !releaseCheckPublicFacadeRemovalHasSmokeMigrationTarget(inventory.RemovalImpact, "rekit/tests/facade-smoke.ps1") || !releaseCheckPublicFacadeRemovalHasSmokeMigrationTarget(inventory.RemovalImpact, "rekit/tests/continue-whatif-smoke.ps1") {
 		t.Fatalf("public facade removal impact drifted: %+v", inventory.RemovalImpact)
 	}
 }
@@ -3510,7 +3511,7 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"public facade removal: public facade removal prerequisites ok ready=true prerequisites=8 removalPlan=true planChecks=9 replacementEntrypoints=4 replacementValidationCommands=32 deletionGates=5 deletionGateValidationCommands=40 deletionGateExitCriteria=15 deletionGateFailureSignals=15 deletionGateEscalationTriggers=15 deletionGateEscalationEvidence=15 deletionGateEscalationRecipients=15 deletionGateEscalationHandoffSteps=15 deletionGateEscalationDecisionOptions=15 deletionGateEscalationRetryConditions=15 deletionGateEscalationStopConditions=15 deletionGateEscalationResolutionArtifacts=15 deletionGateEscalationClosureChecks=15 deletionGateEscalationReopenConditions=15 deletionGateEscalationLedgerEvents=15 deletionGateEscalationStateTransitions=15 deletionGateEscalationBoundaryGuards=15 deletionGateEscalationAuditChecks=15 deletionGateVerificationArtifacts=15 deletionGateBlockedExecutionSteps=10 deletionGateRemediationActions=15 recoverySteps=4 recoveryValidationCommands=32 documentationTargets=9 documentationValidationCommands=72 executionSteps=5 executionFailureSignals=15 executionRemediationActions=15 executionVerificationArtifacts=15 executionLedgerEvents=15 executionStateTransitions=15 executionEscalationTriggers=15 executionEscalationEvidence=15 executionEscalationRecipients=15 executionEscalationHandoffSteps=15 executionEscalationDecisionOptions=15 executionEscalationRetryConditions=15 executionEscalationStopConditions=15 executionEscalationResolutionArtifacts=15 executionEscalationClosureChecks=15 executionEscalationReopenConditions=15 executionEscalationLedgerEvents=15 executionEscalationStateTransitions=15 executionEscalationBoundaryGuards=15 executionEscalationAuditChecks=15 executionBoundaryGuards=15 executionAuditChecks=15 executionValidationCommands=40 boundaryChecks=6 boundaryValidationCommands=48 removalImpact=true impactReferences=",
 		"workItems=",
 		"validationCommands=",
-		"migrationTargets=75 migrationValidationCommands=600",
+		"migrationTargets=76 migrationValidationCommands=608",
 		"smokeMigrationTargets=29 smokeMigrationValidationCommands=232",
 		"release handoff: release handoff summary ok ready=true readFirst=4 signals=13 knownGaps=5 packMaturity=10 packMemoryCandidates=0",
 		"releaseNotes=true",
@@ -8919,7 +8920,7 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	assertCLIActionQueue(t, *packet.ReviewerOrchestration.MissionCommanderActionQueue, 4, 2, 2, 4, 0, plan.MissionCommanderAction.PrimaryCommand)
 
 	out.Reset()
-	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", "alpha,beta", "-ItemsPerAgent", "1", "-MaxParallel", "2", "-Lane", "feature-login", "-Format", "text"}, &out); err != nil {
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", "alpha,beta", "-ItemsPerAgent", "1", "-MaxParallel", "2", "-Lane", "feature-login", "-ReviewOutputDir", filepath.Dir(plan.PacketPath), "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{"plan-subagents managed reviewer dispatch packet：mode=manual-main-agent-intake targetLane=feature-login reviewers=2 maxParallel=2", "plan-subagents managed reviewer dispatch batch intake：preview=`/rekit plan-subagents", "plan-subagents managed reviewer dispatch：shard=shard-01 status=planned role=read-only-reviewer", "plan-subagents managed reviewer dispatch source capture：shard=shard-01 preview=`/rekit plan-subagents", "plan-subagents managed reviewer dispatch collection：shard=shard-01 preview=`/rekit plan-subagents", "plan-subagents managed reviewer dispatch intake：shard=shard-01 preview=`/rekit plan-subagents", "plan-subagents managed reviewer dispatch skeleton：shard=shard-01", "plan-subagents managed reviewer dispatch boundary：shard=shard-01 boundary=managed dispatch packet is read-only handoff; runtime does not spawn"} {
@@ -16005,7 +16006,7 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		}
 	}
 	writeCaseFile(t, caseRoot, ".rekit/board.json", `{"lanes":[{"id":"main","type":"main","workspace":"workspace/main"}],"factsRoot":".rekit/facts"}`)
-	writeCaseFile(t, caseRoot, ".rekit/lanes/main/lane.json", `{"schemaVersion":1,"id":"main","type":"main","status":"open","authority":true,"workspace":"workspace/main","laneRoot":".rekit/lanes/main"}`)
+	writeCaseFile(t, caseRoot, ".rekit/lanes/main/lane.json", `{"schemaVersion":1,"id":"main","type":"main","status":"open","authority":true,"workspace":"workspace/main","laneRoot":".rekit/lanes/main","currentExecutor":"executor-1","executorGeneration":1}`)
 	writeCaseFile(t, caseRoot, ".rekit/lanes/main/autonomy.json", `{
   "schemaVersion": 1,
   "profileId": "prof-main-debug",
@@ -16241,6 +16242,38 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
   "evidenceRefs": ["workspace/main/debug/session-1/result.json"],
   "summary": "Generic binary adapter completed bounded debug handoff"
 }`)
+	receiptArgs := []string{"-Command", "gate", "-Target", caseRoot, "-Pack", "generic-binary-re", "-GateEventId", applied.EventID, "-RecordAdapterExecutionReceipt", "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-report.json", "-AdapterId", candidate.ID, "-Executor", "executor-1", "-ExpectedExecutorGeneration", "1", "-AdapterHarness", "claude-code", "-AdapterSession", "generic-binary-session-1", "-ExecutionExitStatus", "0", "-Actor", "executor-1", "-Format", "json"}
+	out.Reset()
+	if err := Run(receiptArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var receiptPreview struct {
+		Applied       bool   `json:"applied"`
+		BindingSHA256 string `json:"bindingSha256"`
+		ReceiptPath   string `json:"receiptPath"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &receiptPreview); err != nil {
+		t.Fatalf("generic-binary-re receipt preview stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if receiptPreview.Applied || receiptPreview.BindingSHA256 == "" || receiptPreview.ReceiptPath == "" {
+		t.Fatalf("generic-binary-re receipt preview is incomplete: %+v", receiptPreview)
+	}
+	out.Reset()
+	receiptApplyArgs := append(append([]string{}, receiptArgs[:len(receiptArgs)-2]...), "-ExpectedAdapterExecutionBindingSha256", receiptPreview.BindingSHA256, "-Apply", "-Format", "json")
+	if err := Run(receiptApplyArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var receiptApply struct {
+		Applied       bool   `json:"applied"`
+		ReceiptPath   string `json:"receiptPath"`
+		ReceiptSHA256 string `json:"receiptSha256"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &receiptApply); err != nil {
+		t.Fatalf("generic-binary-re receipt apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !receiptApply.Applied || receiptApply.ReceiptPath != receiptPreview.ReceiptPath || receiptApply.ReceiptSHA256 == "" {
+		t.Fatalf("generic-binary-re receipt apply is incomplete: %+v", receiptApply)
+	}
 	beforeLiveStatus := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 	out.Reset()
 	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "generic-binary-re", "-Format", "json"}, &out); err != nil {
@@ -16314,11 +16347,14 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	var validation struct {
-		Valid                      bool   `json:"valid"`
-		IsMutation                 bool   `json:"isMutation"`
-		Applied                    bool   `json:"applied"`
-		RecordExpectedReportSHA256 string `json:"recordExpectedReportSha256"`
-		AdapterContext             struct {
+		Valid                         bool   `json:"valid"`
+		IsMutation                    bool   `json:"isMutation"`
+		Applied                       bool   `json:"applied"`
+		RecordExpectedReportSHA256    string `json:"recordExpectedReportSha256"`
+		AdapterExecutionReceiptPath   string `json:"adapterExecutionReceiptPath"`
+		AdapterExecutionReceiptSHA256 string `json:"adapterExecutionReceiptSha256"`
+		ProvenanceValid               bool   `json:"provenanceValid"`
+		AdapterContext                struct {
 			Candidates []struct {
 				ID string `json:"id"`
 			} `json:"candidates"`
@@ -16330,7 +16366,7 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &validation); err != nil {
 		t.Fatalf("generic-binary-re adapter validation stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if !validation.Valid || validation.IsMutation || validation.Applied || validation.RecordExpectedReportSHA256 == "" || len(validation.AdapterContext.Candidates) != 1 || validation.AdapterContext.Selected == nil || validation.AdapterContext.Selected.ID != candidate.ID {
+	if !validation.Valid || !validation.ProvenanceValid || validation.IsMutation || validation.Applied || validation.RecordExpectedReportSHA256 == "" || validation.AdapterExecutionReceiptPath != receiptApply.ReceiptPath || validation.AdapterExecutionReceiptSHA256 != receiptApply.ReceiptSHA256 || len(validation.AdapterContext.Candidates) != 1 || validation.AdapterContext.Selected == nil || validation.AdapterContext.Selected.ID != candidate.ID {
 		t.Fatalf("generic-binary-re adapter validation omitted selected candidate context or hash-bound record handoff: %+v", validation)
 	}
 
@@ -16351,7 +16387,7 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		}
 	}
 
-	recordArgs := []string{"-Command", "gate", "-Pack", "generic-binary-re", "-Apply", "-GateEventId", applied.EventID, "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-report.json", "-ExpectedExecutionReportSha256", validation.RecordExpectedReportSHA256, "-Actor", "executor-1", "-Format", "json"}
+	recordArgs := []string{"-Command", "gate", "-Pack", "generic-binary-re", "-Apply", "-GateEventId", applied.EventID, "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-report.json", "-ExpectedExecutionReportSha256", validation.RecordExpectedReportSHA256, "-AdapterExecutionReceiptPath", validation.AdapterExecutionReceiptPath, "-ExpectedAdapterExecutionReceiptSha256", validation.AdapterExecutionReceiptSHA256, "-Executor", "executor-1", "-ExpectedExecutorGeneration", "1", "-Actor", "executor-1", "-Format", "json"}
 	out.Reset()
 	if err := Run(recordArgs, &out); err != nil {
 		t.Fatal(err)
@@ -16469,8 +16505,41 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &changedSidecarStatus); err != nil {
 		t.Fatalf("generic-binary-re changed sidecar status stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if len(changedSidecarStatus.CaseMission.AuthorizedGateHandoffs) != 1 || changedSidecarStatus.CaseMission.AuthorizedGateHandoffs[0].ReportSummary == nil || changedSidecarStatus.CaseMission.AuthorizedGateHandoffs[0].ReportSummary.State != "ready-to-record-evidence" || changedSidecarStatus.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || changedSidecarStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.State != "ready-to-record-evidence" || !strings.Contains(changedSidecarStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.Command, " -Apply ") {
-		t.Fatalf("generic-binary-re changed sidecar was hidden by old execution evidence: %+v", changedSidecarStatus.CaseMission)
+	var provenanceDriftCommand string
+	hasProvenanceDrift := slices.ContainsFunc(changedSidecarStatus.CaseMission.MissionCommanderActionQueue.BlockedActions, func(item missionCommanderNextActionItem) bool {
+		if item.State == "blocked-by-adapter-execution-provenance-drift" && strings.Contains(item.Command, "-Action debug") && strings.Contains(item.Command, "-WhatIf") && strings.Contains(item.Command, applied.EventID+"-provenance-retry") && !strings.Contains(item.Command, "-RecordAdapterExecutionReceipt") {
+			provenanceDriftCommand = item.Command
+			return true
+		}
+		return false
+	})
+	if len(changedSidecarStatus.CaseMission.AuthorizedGateHandoffs) != 1 || changedSidecarStatus.CaseMission.AuthorizedGateHandoffs[0].ReportSummary == nil || changedSidecarStatus.CaseMission.AuthorizedGateHandoffs[0].ReportSummary.State != "blocked-by-adapter-execution-provenance-drift" || !changedSidecarStatus.CaseMission.AuthorizedGateHandoffs[0].ReportSummary.RecordBlocked || !hasProvenanceDrift {
+		t.Fatalf("generic-binary-re changed sidecar did not route immutable provenance drift closed: %+v", changedSidecarStatus.CaseMission)
+	}
+	requestsPath := filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl")
+	requestsBeforeRetry, err := os.ReadFile(requestsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run(append(rekitCommandCLIArgs(t, provenanceDriftCommand), "-Target", caseRoot, "-Format", "json"), &out); err != nil {
+		t.Fatalf("generic-binary-re provenance drift WhatIf failed: %v", err)
+	}
+	var retryPlan gate.Plan
+	if err := json.Unmarshal(out.Bytes(), &retryPlan); err != nil || retryPlan.EventPreview.EventID == applied.EventID || !strings.Contains(retryPlan.MissionCommanderAction.PrimaryCommand, "-Apply") {
+		t.Fatalf("generic-binary-re provenance retry preview did not produce a distinct Apply: %+v err=%v", retryPlan, err)
+	}
+	requestsAfterPreview, err := os.ReadFile(requestsPath)
+	if err != nil || !bytes.Equal(requestsBeforeRetry, requestsAfterPreview) {
+		t.Fatalf("generic-binary-re provenance retry preview mutated requests: err=%v", err)
+	}
+	out.Reset()
+	if err := Run(append(rekitCommandCLIArgs(t, retryPlan.MissionCommanderAction.PrimaryCommand), "-Target", caseRoot, "-Format", "json"), &out); err != nil {
+		t.Fatalf("generic-binary-re provenance retry Apply failed: %v", err)
+	}
+	var retryApplied gate.ApplyResult
+	if err := json.Unmarshal(out.Bytes(), &retryApplied); err != nil || !retryApplied.Applied || retryApplied.EventID == applied.EventID {
+		t.Fatalf("generic-binary-re provenance retry did not record a distinct gate: %+v err=%v", retryApplied, err)
 	}
 	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/adapter-report.json", `{
   "schemaVersion": 1,
@@ -16585,7 +16654,7 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 	assertSnapshotEqual(t, beforeDurableFacts, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
 
 	out.Reset()
-	if err := Run([]string{"-Command", "continue", "main", "-Target", caseRoot, "-Pack", "generic-binary-re", "-Format", "json", "-Apply"}, &out); err != nil {
+	if err := Run([]string{"-Command", "continue", "main", "-Target", caseRoot, "-Pack", "generic-binary-re", "-Executor", "executor-1", "-ExpectedExecutorGeneration", "1", "-Format", "json", "-Apply"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var continueApply struct {
