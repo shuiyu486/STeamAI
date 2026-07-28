@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 708：installed case-local adapter executor lifecycle
 
-状态：已完成 installed case-local nested cwd product-path、focused/package/full regressions、独立 correctness review、文档收尾与本机 release minimum；implementation commit/push、push-triggered remote inspection 与 inspection commit 尚待执行。
+状态：已完成 installed case-local nested cwd product-path、focused/package/full regressions、独立 correctness review、文档收尾、本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `7439285` 已推送。Push run `30405139051` completed failure；macOS/Linux/Windows jobs `90428784723`/`90428784750`/`90428784813` 均 `steps=[]`，`gh run view 30405139051 --log-failed` 返回 `log not found: 90428784723`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。
 
 目标：从 installed `/rekit` thin shim 与 nested case cwd 走通 durable owner claim、authorized gate、外部 adapter report/artifacts、immutable receipt、replacement executor takeover、stale session fail-closed、observation、evidence acknowledgement 与 durable handoff/continue；让 replacement executor 从 durable artifacts 直接确认完整 provenance。
 
