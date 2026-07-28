@@ -2804,6 +2804,9 @@ func writeStatusMissionCommanderFirstScreenText(out io.Writer, caseMission *stat
 			if err := writeStatusMissionCommanderFirstScreenReviewerRunbookText(out, caseMission.ReviewerDispatchIntakeSummary); err != nil {
 				return err
 			}
+			if err := writeReviewerDispatchOperatorPackageText(out, "status Mission Commander focus", caseMission.ReviewerDispatchIntakeSummary.OperatorPackage); err != nil {
+				return err
+			}
 		}
 	case "pack-memory-current-action":
 		if err := writeStatusMissionCommanderFirstScreenActionText(out, "pack-memory", packCurrent); err != nil {
