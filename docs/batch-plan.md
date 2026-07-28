@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 707：adapter execution provenance lifecycle
 
-状态：已完成 runtime/CLI/test 实现、focused package、Windows 本机 CLI product-path、独立 correctness review 与完整本机 release minimum；implementation commit/push 与 push-triggered remote inspection在本批收尾阶段记录。
+状态：已完成 runtime/CLI/test 实现、focused package、Windows 本机 CLI product-path、独立 correctness review、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `6c86c7f` 已推送。Push run `30402872687` completed failure；macOS/Linux/Windows jobs `90421581519`/`90421581611`/`90421581613` 均 `steps=[]`，`gh run view 30402872687 --log-failed` 返回 `log not found: 90421581519`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。
 
 目标：把 strict authorized gate、selected adapter catalog、current durable lane executor generation、external harness/session、typed authorized/actual budget、outcome/exit status、report hash/bytes 与 output/evidence artifact hash/bytes 串成 immutable execution provenance。Go runtime 仍只记录并验证 external executor/harness observation，不执行 adapter 或 heavy tool。
 
