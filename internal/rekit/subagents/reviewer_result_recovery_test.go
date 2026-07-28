@@ -10,6 +10,7 @@ import (
 )
 
 func TestRecoverReviewerResultWhatIfApplyCollectionAndIntake(t *testing.T) {
+	requireReviewerResultExactMove(t, "regular-file")
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	writeReviewerIntakeCase(t, repoRoot, caseRoot)
@@ -87,7 +88,15 @@ func TestRecoverReviewerResultWhatIfApplyCollectionAndIntake(t *testing.T) {
 	}
 }
 
+func requireReviewerResultExactMove(t *testing.T, kind string) {
+	t.Helper()
+	if !reviewerResultExactMoveSupported(kind) {
+		t.Skipf("exact %s reviewer result move is unavailable on this platform", kind)
+	}
+}
+
 func TestRecoverReviewerResultResumesInterruptedIntent(t *testing.T) {
+	requireReviewerResultExactMove(t, "regular-file")
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	writeReviewerIntakeCase(t, repoRoot, caseRoot)
@@ -131,7 +140,7 @@ func TestRecoverReviewerResultResumesInterruptedIntent(t *testing.T) {
 	if err := writeReviewerResultRecoveryReceipt(caseRoot, paths.intentPath, reviewerResultRecoveryReceipt(result)); err != nil {
 		t.Fatal(err)
 	}
-	if err := quarantineReviewerResult(caseRoot, handoff.ReviewerResultPath, paths.quarantinePath, corrupt); err != nil {
+	if err := quarantineReviewerResult(caseRoot, handoff.ReviewerResultPath, paths.quarantinePath, paths.intentPath, corrupt); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(paths.receiptPath); !os.IsNotExist(err) {
@@ -165,6 +174,7 @@ func TestRecoverReviewerResultResumesInterruptedIntent(t *testing.T) {
 }
 
 func TestRecoverReviewerResultReusesIntentCreatedBeforeQuarantine(t *testing.T) {
+	requireReviewerResultExactMove(t, "empty-file")
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	writeReviewerIntakeCase(t, repoRoot, caseRoot)
@@ -229,6 +239,7 @@ func TestRecoverReviewerResultReusesIntentCreatedBeforeQuarantine(t *testing.T) 
 }
 
 func TestRecoverReviewerResultInterruptedIntentBlocksDirectIntake(t *testing.T) {
+	requireReviewerResultExactMove(t, "regular-file")
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	writeReviewerIntakeCase(t, repoRoot, caseRoot)
@@ -268,7 +279,7 @@ func TestRecoverReviewerResultInterruptedIntentBlocksDirectIntake(t *testing.T) 
 	if err := writeReviewerResultRecoveryReceipt(caseRoot, paths.intentPath, intent); err != nil {
 		t.Fatal(err)
 	}
-	if err := quarantineReviewerResult(caseRoot, handoff.ReviewerResultPath, paths.quarantinePath, prepared.canonical); err != nil {
+	if err := quarantineReviewerResult(caseRoot, handoff.ReviewerResultPath, paths.quarantinePath, paths.intentPath, prepared.canonical); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(handoff.ReviewerResultPath, candidate, 0o644); err != nil {
@@ -285,6 +296,7 @@ func TestRecoverReviewerResultInterruptedIntentBlocksDirectIntake(t *testing.T) 
 }
 
 func TestRecoverReviewerResultInterruptedIntentRejectsActorReasonDrift(t *testing.T) {
+	requireReviewerResultExactMove(t, "regular-file")
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	writeReviewerIntakeCase(t, repoRoot, caseRoot)
@@ -324,7 +336,7 @@ func TestRecoverReviewerResultInterruptedIntentRejectsActorReasonDrift(t *testin
 	if err := writeReviewerResultRecoveryReceipt(caseRoot, paths.intentPath, reviewerResultRecoveryReceipt(result)); err != nil {
 		t.Fatal(err)
 	}
-	if err := quarantineReviewerResult(caseRoot, handoff.ReviewerResultPath, paths.quarantinePath, corrupt); err != nil {
+	if err := quarantineReviewerResult(caseRoot, handoff.ReviewerResultPath, paths.quarantinePath, paths.intentPath, corrupt); err != nil {
 		t.Fatal(err)
 	}
 	opt.Actor = "replacement-commander"
@@ -337,6 +349,7 @@ func TestRecoverReviewerResultInterruptedIntentRejectsActorReasonDrift(t *testin
 func TestRecoverReviewerResultQuarantinesCanonicalObstructions(t *testing.T) {
 	for _, kind := range []string{"empty-file", "symlink"} {
 		t.Run(kind, func(t *testing.T) {
+			requireReviewerResultExactMove(t, kind)
 			repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 			caseRoot := filepath.Join(t.TempDir(), "case")
 			writeReviewerIntakeCase(t, repoRoot, caseRoot)
@@ -458,6 +471,7 @@ func TestRecoverReviewerResultRejectsCanonicalDirectories(t *testing.T) {
 	}
 }
 func TestRecoverReviewerResultRejectsDriftAndWriteback(t *testing.T) {
+	requireReviewerResultExactMove(t, "regular-file")
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	writeReviewerIntakeCase(t, repoRoot, caseRoot)

@@ -276,6 +276,17 @@ func TestCollectReviewerResultRejectsBindingsCollisionAndSymlink(t *testing.T) {
 		t.Fatal(err)
 	}
 	recoveryRequired, err := CollectReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, opt)
+	if !reviewerResultExactMoveSupported("regular-file") {
+		if err == nil || !strings.Contains(err.Error(), "cannot be recovered from collection WhatIf") {
+			t.Fatalf("unsupported canonical collision preview error = %v result=%+v", err, recoveryRequired)
+		}
+		if current, readErr := os.ReadFile(handoff.ReviewerResultPath); readErr != nil {
+			t.Fatal(readErr)
+		} else if string(current) != `{"different":true}` {
+			t.Fatalf("unsupported recovery changed canonical bytes: %q", current)
+		}
+		return
+	}
 	if err != nil {
 		t.Fatalf("canonical collision preview returned error instead of recovery handoff: %v", err)
 	}

@@ -179,10 +179,12 @@ func reviewerResultCollectionRecoveryRequiredResult(repoRoot, caseRoot, pack str
 	if !prepared.canonicalPresent || prepared.alreadyCollected {
 		return ReviewerResultCollectionResult{}, fmt.Errorf("reviewer result collection recovery handoff is not required")
 	}
+	resultKind := "regular-file"
 	if prepared.canonicalObstruction != nil {
-		if prepared.canonicalObstruction.Kind == "directory" || !reviewerResultObstructionMoveSupported() || (prepared.canonicalObstruction.Kind != "empty-file" && prepared.canonicalObstruction.Kind != "symlink") {
-			return ReviewerResultCollectionResult{}, fmt.Errorf("canonical reviewer result %s cannot be recovered from collection WhatIf", prepared.canonicalObstruction.Kind)
-		}
+		resultKind = prepared.canonicalObstruction.Kind
+	}
+	if resultKind == "directory" || !reviewerResultExactMoveSupported(resultKind) {
+		return ReviewerResultCollectionResult{}, fmt.Errorf("canonical reviewer result %s cannot be recovered from collection WhatIf", resultKind)
 	}
 	result := newReviewerResultCollectionResult(repoRoot, caseRoot, pack, opt, prepared)
 	result.Status = "recovery-required"

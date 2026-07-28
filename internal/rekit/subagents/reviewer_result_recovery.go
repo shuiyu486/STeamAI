@@ -26,6 +26,12 @@ type reviewerResultObstructionSnapshot struct {
 	LinkTarget  string
 }
 
+type reviewerResultExactMoveExpectation struct {
+	Kind        string
+	Contents    []byte
+	Obstruction reviewerResultObstructionSnapshot
+}
+
 func readReviewerResultObstruction(caseRoot, path string) (reviewerResultObstructionSnapshot, error) {
 	parent := filepath.Dir(path)
 	if !reviewpath.CollectionNamespacePathSafe(caseRoot, parent, false) {
@@ -214,8 +220,12 @@ func RecoverReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerResultRe
 	if prepared.canonicalObstruction != nil && prepared.canonicalObstruction.Kind == "directory" {
 		return ReviewerResultRecoveryResult{}, fmt.Errorf("canonical reviewer result directory cannot be recovered automatically; leave concurrent directory contents untouched")
 	}
-	if prepared.canonicalObstruction != nil && (!reviewerResultObstructionMoveSupported() || (prepared.canonicalObstruction.Kind != "empty-file" && prepared.canonicalObstruction.Kind != "symlink")) {
-		return ReviewerResultRecoveryResult{}, fmt.Errorf("exact %s reviewer result obstruction recovery is unavailable on this platform until its source snapshot can be handle-validated", prepared.canonicalObstruction.Kind)
+	resultKind := "regular-file"
+	if prepared.canonicalObstruction != nil {
+		resultKind = prepared.canonicalObstruction.Kind
+	}
+	if !reviewerResultExactMoveSupported(resultKind) {
+		return ReviewerResultRecoveryResult{}, fmt.Errorf("exact %s reviewer result recovery is unavailable on this platform until its source snapshot can be handle-validated", resultKind)
 	}
 	if opt.WhatIf {
 		result.NextSteps = []string{"inspect the exact candidate and canonical reviewer result hashes, then run the returned recovery command with -Apply"}
@@ -264,7 +274,7 @@ func RecoverReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerResultRe
 		if err := quarantineReviewerResultObstruction(inst.CaseRoot, prepared.handoff.ReviewerResultPath, paths.quarantinePath, paths.intentPath, *prepared.canonicalObstruction); err != nil {
 			return ReviewerResultRecoveryResult{}, err
 		}
-	} else if err := quarantineReviewerResult(inst.CaseRoot, prepared.handoff.ReviewerResultPath, paths.quarantinePath, prepared.canonical); err != nil {
+	} else if err := quarantineReviewerResult(inst.CaseRoot, prepared.handoff.ReviewerResultPath, paths.quarantinePath, paths.intentPath, prepared.canonical); err != nil {
 		return ReviewerResultRecoveryResult{}, err
 	}
 	if err := writeReviewerResultRecoveryReceipt(inst.CaseRoot, paths.receiptPath, receipt); err != nil {
@@ -511,7 +521,8 @@ func quarantineReviewerResultObstruction(caseRoot, resultPath, quarantinePath, n
 	if expected.Kind != "empty-file" && expected.Kind != "symlink" {
 		return fmt.Errorf("exact %s reviewer result obstruction recovery is unavailable until its source snapshot can be handle-validated", expected.Kind)
 	}
-	if err := moveReviewerResultObstructionExact(resultPath, quarantinePath, namespaceGuardPath, expected, validate); err != nil {
+	moveExpected := reviewerResultExactMoveExpectation{Kind: expected.Kind, Obstruction: expected}
+	if err := moveReviewerResultExact(resultPath, quarantinePath, namespaceGuardPath, moveExpected, validate); err != nil {
 		return fmt.Errorf("quarantine canonical reviewer result obstruction: %w", err)
 	}
 	moved, movedErr := readReviewerResultObstruction(caseRoot, quarantinePath)
@@ -521,7 +532,7 @@ func quarantineReviewerResultObstruction(caseRoot, resultPath, quarantinePath, n
 	return nil
 }
 
-func quarantineReviewerResult(caseRoot, resultPath, quarantinePath string, expected []byte) error {
+func quarantineReviewerResult(caseRoot, resultPath, quarantinePath, namespaceGuardPath string, expected []byte) error {
 	if len(expected) == 0 {
 		return fmt.Errorf("canonical reviewer result is missing")
 	}
@@ -552,7 +563,9 @@ func quarantineReviewerResult(caseRoot, resultPath, quarantinePath string, expec
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	if err := os.Rename(resultPath, quarantinePath); err != nil {
+	validate := func() error { return nil }
+	moveExpected := reviewerResultExactMoveExpectation{Kind: "regular-file", Contents: expected}
+	if err := moveReviewerResultExact(resultPath, quarantinePath, namespaceGuardPath, moveExpected, validate); err != nil {
 		return fmt.Errorf("quarantine canonical reviewer result: %w", err)
 	}
 	moved, err := readStableReviewerArtifact(quarantineRoot, quarantinePath, "quarantined reviewer result", maxReviewerResultBytes)

@@ -22,7 +22,7 @@
 ### 推荐优先顺序
 
 - [x] **P0：恢复 main 的真实 green**：修复 Batch 702 release handoff 解析漂移，使 focused regression 与仓库级测试恢复通过；本批同步保留分段 `release-check ready=true` evidence 的真值。
-- [x] **P0：收紧 reviewer/gate 正确性**：校验 reviewer `decision` 枚举、严格读取 dispatch packet、保留 acknowledged escalation；reviewer latest ordering 与 recovery exact-move 风险仍列为后续 correctness slice。
+- [x] **P0：收紧 reviewer/gate 正确性**：校验 reviewer `decision` 枚举、严格读取 dispatch packet、保留 acknowledged escalation；reviewer writeback 已按跨 ledger event time 全局排序，regular-file recovery 在 Windows 已绑定 source handle exact move，缺少对应原语的平台在 mutation 前 fail-closed。
 - [ ] **P1：实现 session/reviewer lifecycle vertical slice**：引入 durable dispatch/session/completion/intake receipts，把 lane owner generation、prompt hash、result hash、session identity 和 takeover 串成真实产品路径。
 - [ ] **P1：实现 adapter execution provenance vertical slice**：在不让 `/rekit` 直接执行 heavy tool 的前提下，绑定 gate、adapter catalog、executor/session、预算计量、exit status、output hash 与 sidecar hash。
 - [ ] **P1：收敛 CLI 与 Mission Commander 内核**：按 command 拆分 parser/handler，类型化 action source/state，统一生成一次 mission snapshot，再由 status/start/continue/handoff 渲染。

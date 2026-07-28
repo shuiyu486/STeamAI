@@ -3,6 +3,7 @@
 package subagents
 
 import (
+	"bytes"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -12,6 +13,7 @@ import (
 
 const (
 	reviewerObstructionDeleteAccess     = 0x00010000
+	reviewerObstructionReadData         = 0x00000001
 	reviewerObstructionReadAttributes   = 0x00000080
 	reviewerObstructionShareRead        = 0x00000001
 	reviewerObstructionShareWrite       = 0x00000002
@@ -34,8 +36,8 @@ type reviewerObstructionIOStatusBlock struct {
 	Information uintptr
 }
 
-func reviewerResultObstructionMoveSupported() bool {
-	return true
+func reviewerResultExactMoveSupported(kind string) bool {
+	return kind == "regular-file" || kind == "empty-file" || kind == "symlink"
 }
 
 type reviewerObstructionFileRenameInformation struct {
@@ -43,6 +45,14 @@ type reviewerObstructionFileRenameInformation struct {
 	RootDirectory   syscall.Handle
 	FileNameLength  uint32
 	FileName        [syscall.MAX_PATH]uint16
+}
+
+func reviewerObstructionCanonicalHandlePath(path string) string {
+	const extendedUNC = `\\?\UNC\`
+	if len(path) >= len(extendedUNC) && strings.EqualFold(path[:len(extendedUNC)], extendedUNC) {
+		return `\\` + path[len(extendedUNC):]
+	}
+	return strings.TrimPrefix(path, `\\?\`)
 }
 
 func reviewerObstructionHandleMatchesPath(handle syscall.Handle, expectedPath string) error {
@@ -59,8 +69,7 @@ func reviewerObstructionHandleMatchesPath(handle syscall.Handle, expectedPath st
 	if length >= uintptr(len(buffer)) {
 		return syscall.ENAMETOOLONG
 	}
-	actual := syscall.UTF16ToString(buffer[:length])
-	actual = strings.TrimPrefix(actual, `\\?\`)
+	actual := reviewerObstructionCanonicalHandlePath(syscall.UTF16ToString(buffer[:length]))
 	expected, err := filepath.Abs(expectedPath)
 	if err != nil {
 		return err
@@ -71,14 +80,18 @@ func reviewerObstructionHandleMatchesPath(handle syscall.Handle, expectedPath st
 	return nil
 }
 
-func moveReviewerResultObstructionExact(resultPath, quarantinePath, namespaceGuardPath string, expected reviewerResultObstructionSnapshot, validate func() error) error {
+func moveReviewerResultExact(resultPath, quarantinePath, namespaceGuardPath string, expected reviewerResultExactMoveExpectation, validate func() error) error {
 	resultPath16, err := syscall.UTF16PtrFromString(resultPath)
 	if err != nil {
 		return err
 	}
+	sourceAccess := uint32(reviewerObstructionDeleteAccess | reviewerObstructionReadAttributes)
+	if expected.Kind == "regular-file" {
+		sourceAccess |= reviewerObstructionReadData
+	}
 	handle, err := syscall.CreateFile(
 		resultPath16,
-		reviewerObstructionDeleteAccess|reviewerObstructionReadAttributes,
+		sourceAccess,
 		reviewerObstructionShareRead,
 		nil,
 		reviewerObstructionOpenExisting,
@@ -145,19 +158,47 @@ func moveReviewerResultObstructionExact(resultPath, quarantinePath, namespaceGua
 		return err
 	}
 	switch expected.Kind {
+	case "regular-file":
+		sourceBytes := uint64(sourceInfo.FileSizeHigh)<<32 | uint64(sourceInfo.FileSizeLow)
+		if sourceInfo.FileAttributes&syscall.FILE_ATTRIBUTE_REPARSE_POINT != 0 ||
+			sourceInfo.FileAttributes&syscall.FILE_ATTRIBUTE_DIRECTORY != 0 ||
+			sourceBytes == 0 || sourceBytes > uint64(maxReviewerResultBytes) ||
+			sourceBytes != uint64(len(expected.Contents)) {
+			return fmt.Errorf("reviewer result source handle is not the expected bounded non-empty regular file")
+		}
+		contents := make([]byte, len(expected.Contents))
+		for offset := 0; offset < len(contents); {
+			var read uint32
+			if err := syscall.ReadFile(handle, contents[offset:], &read, nil); err != nil {
+				return err
+			}
+			if read == 0 {
+				return fmt.Errorf("reviewer result source handle ended before its expected size")
+			}
+			offset += int(read)
+		}
+		if !bytes.Equal(contents, expected.Contents) {
+			return fmt.Errorf("reviewer result source handle bytes changed after recovery preview")
+		}
 	case "empty-file":
 		if sourceInfo.FileAttributes&syscall.FILE_ATTRIBUTE_REPARSE_POINT != 0 ||
 			sourceInfo.FileAttributes&syscall.FILE_ATTRIBUTE_DIRECTORY != 0 ||
 			sourceInfo.FileSizeHigh != 0 || sourceInfo.FileSizeLow != 0 {
 			return fmt.Errorf("reviewer result obstruction source handle is not an empty regular file")
 		}
+		if expected.Obstruction.Kind != expected.Kind {
+			return fmt.Errorf("reviewer result obstruction expectation kind changed")
+		}
 	case "symlink":
 		if sourceInfo.FileAttributes&syscall.FILE_ATTRIBUTE_REPARSE_POINT == 0 ||
 			sourceInfo.FileAttributes&syscall.FILE_ATTRIBUTE_DIRECTORY != 0 {
 			return fmt.Errorf("reviewer result obstruction source handle is not a file symlink")
 		}
+		if expected.Obstruction.Kind != expected.Kind {
+			return fmt.Errorf("reviewer result obstruction expectation kind changed")
+		}
 	default:
-		return fmt.Errorf("exact %s reviewer result obstruction move is unavailable", expected.Kind)
+		return fmt.Errorf("exact %s reviewer result move is unavailable", expected.Kind)
 	}
 	if err := validate(); err != nil {
 		return err
@@ -186,7 +227,7 @@ func moveReviewerResultObstructionExact(resultPath, quarantinePath, namespaceGua
 		reviewerObstructionFileRenameInfo,
 	)
 	if status != 0 {
-		return fmt.Errorf("rename exact reviewer result obstruction: NTSTATUS 0x%08x", uint32(status))
+		return fmt.Errorf("rename exact reviewer result: NTSTATUS 0x%08x", uint32(status))
 	}
 	return nil
 }

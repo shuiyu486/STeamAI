@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
@@ -37,6 +38,8 @@ type ReviewerWritebackItem struct {
 	ReviewerConflicts  []string          `json:"reviewerConflicts,omitempty"`
 	RouteOutput        map[string]string `json:"routeOutput,omitempty"`
 	EvidenceRefs       []string          `json:"evidenceRefs,omitempty"`
+	createdAt          time.Time
+	appendOrdinal      int
 }
 
 type ReviewerWritebackSummary struct {
@@ -68,6 +71,20 @@ func ReviewerWritebackItems(facts mission.LedgerFacts, laneID string) []Reviewer
 	items := []ReviewerWritebackItem{}
 	items = appendReviewerWritebackEvents(items, "verification", facts.Verifications, laneID)
 	items = appendReviewerWritebackEvents(items, "decision", facts.Decisions, laneID)
+	for idx := range items {
+		items[idx].appendOrdinal = idx
+	}
+	sort.SliceStable(items, func(left, right int) bool {
+		leftTimed := !items[left].createdAt.IsZero()
+		rightTimed := !items[right].createdAt.IsZero()
+		if leftTimed != rightTimed {
+			return !leftTimed
+		}
+		if leftTimed && !items[left].createdAt.Equal(items[right].createdAt) {
+			return items[left].createdAt.Before(items[right].createdAt)
+		}
+		return items[left].appendOrdinal < items[right].appendOrdinal
+	})
 	if maxHandoffRows > 0 && len(items) > maxHandoffRows {
 		items = items[len(items)-maxHandoffRows:]
 	}
@@ -150,6 +167,7 @@ func appendReviewerWritebackEvents(out []ReviewerWritebackItem, kind string, eve
 }
 
 func reviewerWritebackItem(kind string, event map[string]any) (ReviewerWritebackItem, bool) {
+	createdAt, _ := time.Parse(time.RFC3339Nano, strings.TrimSpace(firstObjectText(event, "createdAt")))
 	item := ReviewerWritebackItem{
 		Kind:               kind,
 		EventID:            firstObjectText(event, "eventId"),
@@ -178,6 +196,7 @@ func reviewerWritebackItem(kind string, event map[string]any) (ReviewerWriteback
 		ReviewerConflicts:  reviewerWritebackStringList(event["reviewerConflicts"]),
 		RouteOutput:        reviewerWritebackStringMap(event["routeOutput"]),
 		EvidenceRefs:       reviewerWritebackStringList(event["evidenceRefs"]),
+		createdAt:          createdAt,
 	}
 	if item.PacketID == "" && item.RouteID == "" && item.ShardID == "" && item.ReviewerSession == "" && item.ReviewerResultPath == "" {
 		return ReviewerWritebackItem{}, false

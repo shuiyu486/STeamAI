@@ -10,6 +10,7 @@ import (
 )
 
 func TestRetireAmbiguousReviewerResultRecoveryRetainsCanonical(t *testing.T) {
+	requireReviewerResultExactMove(t, "regular-file")
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	writeReviewerIntakeCase(t, repoRoot, caseRoot)
@@ -53,7 +54,7 @@ func TestRetireAmbiguousReviewerResultRecoveryRetainsCanonical(t *testing.T) {
 	if err := writeReviewerResultRecoveryReceipt(caseRoot, paths.intentPath, reviewerResultRecoveryReceipt(result)); err != nil {
 		t.Fatal(err)
 	}
-	if err := quarantineReviewerResult(caseRoot, handoff.ReviewerResultPath, paths.quarantinePath, conflict); err != nil {
+	if err := quarantineReviewerResult(caseRoot, handoff.ReviewerResultPath, paths.quarantinePath, paths.intentPath, conflict); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(handoff.ReviewerResultPath, candidate, 0o644); err != nil {
