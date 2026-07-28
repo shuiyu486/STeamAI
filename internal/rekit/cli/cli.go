@@ -37,6 +37,8 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
+var releaseCheckBuild = releasecheck.Build
+
 type Options struct {
 	Command                              string
 	Target                               string
@@ -901,7 +903,7 @@ func runReleaseCheck(ctx runtime.Context, opt Options, out io.Writer) error {
 	if opt.Apply || opt.WhatIf || opt.CreateCandidates || opt.Review || opt.Force || opt.List || wantsReviewArtifacts(opt) {
 		return fmt.Errorf("release-check is read-only and does not accept mutation, review artifact, or list flags")
 	}
-	result, err := releasecheck.Build(ctx.RepoRoot)
+	result, err := releaseCheckBuild(ctx.RepoRoot)
 	if err != nil {
 		return err
 	}
@@ -985,7 +987,7 @@ func runReleaseRun(ctx runtime.Context, opt Options, out io.Writer) error {
 	if opt.Apply || opt.WhatIf || opt.CreateCandidates || opt.Review || opt.Force || opt.List || wantsReviewArtifacts(opt) {
 		return fmt.Errorf("release-run executes local validation commands and does not accept mutation, review artifact, or list flags")
 	}
-	inventory, err := releasecheck.Build(ctx.RepoRoot)
+	inventory, err := releaseCheckBuild(ctx.RepoRoot)
 	if err != nil {
 		return err
 	}
@@ -2566,7 +2568,7 @@ func runStatusLegacyText(ctx runtime.Context, packSource string, out io.Writer) 
 		if err != nil {
 			return err
 		}
-		release, err := releasecheck.Build(ctx.RepoRoot)
+		release, err := releaseCheckBuild(ctx.RepoRoot)
 		if err != nil {
 			return err
 		}
@@ -2589,7 +2591,7 @@ func runStatusLegacyText(ctx runtime.Context, packSource string, out io.Writer) 
 	fmt.Fprintf(out, "managed files: %d\n", len(m.ManagedFiles))
 	fmt.Fprintf(out, "promote files: %d\n", len(m.PromoteFiles))
 	fmt.Fprintf(out, "tooling files: %d\n", len(m.ToolingFiles))
-	release, err := releasecheck.Build(ctx.RepoRoot)
+	release, err := releaseCheckBuild(ctx.RepoRoot)
 	if err != nil {
 		return err
 	}
@@ -4212,7 +4214,7 @@ func buildStatusInventory(ctx runtime.Context, packSource string) (statusInvento
 		if err != nil {
 			return statusInventory{}, err
 		}
-		release, err := releasecheck.Build(ctx.RepoRoot)
+		release, err := releaseCheckBuild(ctx.RepoRoot)
 		if err != nil {
 			return statusInventory{}, err
 		}
@@ -4231,7 +4233,7 @@ func buildStatusInventory(ctx runtime.Context, packSource string) (statusInvento
 		PromoteFiles:  len(m.PromoteFiles),
 		ToolingFiles:  len(m.ToolingFiles),
 	}
-	release, err := releasecheck.Build(ctx.RepoRoot)
+	release, err := releaseCheckBuild(ctx.RepoRoot)
 	if err != nil {
 		return statusInventory{}, err
 	}
@@ -5343,7 +5345,7 @@ func statusCaseShimEntrypointHandoff(caseRoot, canonicalSkillPath, installedShim
 			"status case shim ready=true and installedShimMatchesTemplate=true before trusting the case-local shim",
 			"status case mission queue/current action and next action lines choose the next safe command",
 			"reviewer writeback or reviewer dispatch intake summaries show reviewer state without reopening packet/result JSON",
-			"project handoff pack-memory candidate summary shows candidate review/cleanup/reconsume proof state",
+			"project handoff pack-memory and next-batch action queues show durable takeover state without prior chat context",
 		},
 		Boundary: []string{
 			"case-local shim is metadata-only and delegates to the canonical skill",
@@ -6459,7 +6461,7 @@ func bindProjectHandoffMissionCommanderActions(repoRoot, target, pack string, op
 	if opt == nil || strings.TrimSpace(opt.Selector) != "" {
 		return nil
 	}
-	release, err := releasecheck.Build(repoRoot)
+	release, err := releaseCheckBuild(repoRoot)
 	if err != nil {
 		return err
 	}

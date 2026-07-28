@@ -73,6 +73,7 @@ var requiredShimPhrases = []string{
 	"status case shim ready=true",
 	"installedShimMatchesTemplate=true",
 	"durable artifacts 接手",
+	"next-batch action queues",
 	"不要在本 shim 里维护模板规则",
 	"不要读取或修改用户级 `~/.claude/skills`",
 	"不要在 shim 中复制逻辑",

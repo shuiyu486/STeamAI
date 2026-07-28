@@ -3898,7 +3898,7 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 		"status Mission Commander current action：scope=case lane=feature-login label=login state=ready-to-continue",
 		"status Mission Commander current action：scope=pack-memory lane= label=_template state=pack-memory-proof-required",
 		"status case shim first-screen check: reviewer writeback or reviewer dispatch intake summaries show reviewer state without reopening packet/result JSON",
-		"status case shim first-screen check: project handoff pack-memory candidate summary shows candidate review/cleanup/reconsume proof state",
+		"status case shim first-screen check: project handoff pack-memory and next-batch action queues show durable takeover state without prior chat context",
 		"status case mission reviewer writeback summary：total=4 verifications=2 decisions=2 lanes=1 latestKind=decision",
 		"latestShard=shard-02",
 		"latestReviewerSession=reviewer-session-installed-2",
@@ -3998,7 +3998,9 @@ type installedCaseShimStatus struct {
 		MissionBriefNextActions           []string                             `json:"missionBriefNextActions"`
 	} `json:"caseMission"`
 	ProjectHandoff *struct {
-		PackMemoryCandidates struct {
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
+		PackMemoryCandidates        struct {
 			Ready                       bool `json:"ready"`
 			Total                       int  `json:"total"`
 			MissionCommanderActionQueue struct {
@@ -6917,6 +6919,137 @@ func TestRunHandoffApplyWritesNextBatchCandidateDomains(t *testing.T) {
 		if !bytes.Contains(text, []byte(expected)) {
 			t.Fatalf("project durable handoff omitted %q:\n%s", expected, string(text))
 		}
+	}
+}
+
+func TestRunInstalledCaseShimDurableNextBatchTakeoverProductPath(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	writeHandoffFixture(t, caseRoot)
+	originalReleaseCheckBuild := releaseCheckBuild
+	releaseCheckBuild = func(repoRoot string) (releasecheck.Result, error) {
+		return releasecheck.Result{
+			RepoRoot: repoRoot,
+			Ready:    true,
+			Summary:  "release gate inventory ok",
+			ReleaseHandoff: releasecheck.ReleaseHandoff{
+				Ready:   true,
+				Summary: "release handoff summary ok",
+				LatestBatch: releasecheck.ReleaseHandoffLatestBatch{
+					BatchID: "Batch 683",
+					Handoff: releasecheck.ReleaseHandoffLatestBatchHandoff{
+						LocalValidationReady: true,
+						ReleaseCheckReady:    true,
+						RemoteReleaseGate:    "blocked: completed failure with jobs steps=[]",
+						ReleaseInspectionCadence: releasecheck.ReleaseHandoffReleaseInspectionCadence{
+							State:                     "complete",
+							ImplementationCommitReady: true,
+							InspectionCommitReady:     true,
+							Boundary:                  []string{"do not add a third record commit"},
+						},
+					},
+				},
+				PackMemoryCandidates: releasecheck.ReleaseHandoffPackMemoryCandidateList{Ready: true, Summary: "pack-memory candidate inventory ok", NextAction: "no pack-memory candidate cleanup is pending"},
+			},
+		}, nil
+	}
+	t.Cleanup(func() { releaseCheckBuild = originalReleaseCheckBuild })
+
+	nested := filepath.Join(caseRoot, "workspace", "main", "main")
+	oldwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(nested); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldwd); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	status := decodeInstalledCaseShimStatus(t, out.Bytes())
+	if status.Mode != "case" || status.TargetProvided || status.Target != caseRoot || status.ProjectHandoff == nil || !status.CaseShim.Ready || status.CaseShim.InstalledShimMatchesTemplate == nil || !*status.CaseShim.InstalledShimMatchesTemplate {
+		t.Fatalf("installed shim nested status should resolve case-local project handoff: %+v", status)
+	}
+	projectQueue := status.ProjectHandoff.MissionCommanderActionQueue
+	if projectQueue.CurrentAction == nil || projectQueue.CurrentAction.ActionID != "next-batch-selection" || projectQueue.CurrentAction.Source != "releaseHandoffNextBatch" || projectQueue.Counts.Total != 8 || projectQueue.Counts.FollowUp != 7 || projectQueue.Counts.RequiresReview != 0 {
+		t.Fatalf("installed shim nested status omitted next-batch project queue: %+v", projectQueue)
+	}
+	if !slices.ContainsFunc(status.ProjectHandoff.MissionCommanderNextActions, func(item missionCommanderNextActionItem) bool {
+		return item.ActionID == "next-batch-replacement-executor-takeover" && item.Source == "releaseHandoffNextBatch.followUp.candidateDomain" && strings.Contains(item.Command, "replacement executor takeover") && containsSubstring(item.Reasons, "pack-memory candidate queue is closed") && containsSubstring(item.Boundary, "candidate-domain follow-ups are selection guidance only")
+	}) {
+		t.Fatalf("installed shim nested status omitted replacement executor candidate-domain action: %+v", status.ProjectHandoff.MissionCommanderNextActions)
+	}
+
+	out.Reset()
+	if err := Run(nil, &out); err != nil {
+		t.Fatal(err)
+	}
+	statusText := out.String()
+	for _, expected := range []string{
+		"pack source: case-metadata",
+		"status case shim entrypoint: caseLocal=/rekit",
+		"status case shim first-screen check: project handoff pack-memory and next-batch action queues show durable takeover state without prior chat context",
+		"status project handoff current action queue：total=8 unblocked=8 blocked=0",
+		"status project handoff current action queue action：bucket=current lane= label=next-batch state=ready-for-next-batch-selection source=releaseHandoffNextBatch blocked=false requiresReview=false command=select the next Windows-verifiable product-path closure",
+		"status project handoff current action queue action：bucket=followUp lane= label=replacement-executor state=next-batch-candidate-domain source=releaseHandoffNextBatch.followUp.candidateDomain blocked=false requiresReview=false command=select a replacement executor takeover slice that can be resumed from status or durable handoff without prior chat context",
+		"status project handoff current action queue action reason：bucket=followUp lane= reason=pack-memory candidate queue is closed: no pack-memory candidate cleanup is pending",
+		"status project handoff current action queue action boundary：bucket=followUp lane= boundary=candidate-domain follow-ups are selection guidance only; update docs/batch-plan.md current batch state before implementation",
+	} {
+		if !strings.Contains(statusText, expected) {
+			t.Fatalf("installed shim default status omitted next-batch takeover handoff %q:\n%s", expected, statusText)
+		}
+	}
+	for line := range strings.SplitSeq(statusText, "\n") {
+		if strings.Contains(line, "status case shim") && (strings.Contains(line, "rekit.ps1") || strings.Contains(line, "go run") || strings.Contains(line, "PowerShell")) {
+			t.Fatalf("installed shim first-screen text leaked low-level entrypoint detail: %s\n%s", line, statusText)
+		}
+	}
+
+	factsBeforeHandoff := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	handoff := decodeHandoffResult(t, out.Bytes())
+	if !handoff.Project || !handoff.IsMutation || !handoff.Applied || handoff.MissionCommanderActionQueue.CurrentAction == nil || handoff.MissionCommanderActionQueue.CurrentAction.ActionID != "next-batch-selection" || handoff.MissionCommanderActionQueue.Counts.Total != 14 || handoff.MissionCommanderActionQueue.Counts.FollowUp != 11 {
+		t.Fatalf("installed shim project handoff should prepend next-batch queue before lane actions: %+v", handoff.MissionCommanderActionQueue)
+	}
+	if !slices.ContainsFunc(handoff.MissionCommanderNextActions, func(item missionCommanderNextActionItem) bool {
+		return item.ActionID == "next-batch-replacement-executor-takeover" && item.Source == "releaseHandoffNextBatch.followUp.candidateDomain" && containsSubstring(item.Boundary, "candidate-domain follow-ups are selection guidance only")
+	}) {
+		t.Fatalf("installed shim project handoff omitted replacement executor candidate-domain action: %+v", handoff.MissionCommanderNextActions)
+	}
+	latest := assertStartWrite(t, handoff.Writes, ".rekit/handovers/latest.md", "write-latest-project-handoff")
+	latestText, err := os.ReadFile(latest.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"## Project Mission Commander action queue",
+		"counts: total=8 unblocked=8 blocked=0 requiresReview=0 followUp=7",
+		"actionId=next-batch-selection",
+		"actionId=next-batch-replacement-executor-takeover",
+		"command=`select a replacement executor takeover slice that can be resumed from status or durable handoff without prior chat context`",
+		"pack-memory candidate queue is closed: no pack-memory candidate cleanup is pending",
+		"candidate-domain follow-ups are selection guidance only",
+		"do not execute reviewer, adapter, pack-memory, gate, or heavy-tool mutations from next-batch selection guidance",
+	} {
+		if !bytes.Contains(latestText, []byte(expected)) {
+			t.Fatalf("installed shim durable project handoff omitted %q:\n%s", expected, string(latestText))
+		}
+	}
+	assertSnapshotEqual(t, factsBeforeHandoff, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("installed shim project handoff wrote authority ledger or stat failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("installed shim project handoff wrote confirmed ledger or stat failed: %v", err)
 	}
 }
 
