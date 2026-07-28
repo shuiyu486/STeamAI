@@ -754,9 +754,11 @@ func TestScaffoldAdapterExecutionReportPreviewApplyAndReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !replay.IsMutation || replay.Applied || !replay.AlreadyExists || replay.Mode != "already-scaffolded" || replay.ApplyCommand != "" || replay.RequiresConfirmation {
+	if !replay.IsMutation || !replay.Applied || !replay.Replay || !replay.AlreadyExists || replay.Mode != "already-scaffolded" || replay.ApplyCommand != "" || replay.RequiresConfirmation || replay.MissionCommanderAction.State != "adapter-report-scaffolded-awaiting-adapter-output" || replay.MissionCommanderAction.PrimaryCommand != replay.ValidateCommand || !strings.Contains(strings.Join(replay.NextSteps, "\n"), "duplicate Apply is an idempotent replay") || !strings.Contains(strings.Join(replay.NextSteps, "\n"), "did not rewrite bytes") || !strings.Contains(strings.Join(replay.NextSteps, "\n"), "do not rerun the adapter") {
 		t.Fatalf("unexpected exact scaffold replay: %+v", replay)
 	}
+	assertAdapterReportRunbookContains(t, replay.RunbookSteps, "confirm adapter report scaffold replay state=adapter-report-scaffolded-awaiting-adapter-output")
+	assertAdapterReportRunbookContains(t, replay.RunbookSteps, "did not rewrite bytes")
 	if _, err := ScaffoldAdapterExecutionReport(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, ExpectedExecutionReportSHA256: strings.Repeat("0", 64)}); err == nil || !strings.Contains(err.Error(), "template changed after preview") {
 		t.Fatalf("hash-gated scaffold replay error = %v, want template changed", err)
 	}
@@ -845,9 +847,11 @@ func TestDraftAdapterExecutionReportPreviewApplyReplayAndScaffoldReplace(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !replay.IsMutation || replay.Applied || !replay.AlreadyExists || replay.Mode != "already-drafted" || replay.ApplyCommand != "" || replay.RequiresConfirmation {
+	if !replay.IsMutation || !replay.Applied || !replay.Replay || !replay.AlreadyExists || replay.Mode != "already-drafted" || replay.ApplyCommand != "" || replay.RequiresConfirmation || replay.MissionCommanderAction.State != "adapter-report-drafted-ready-for-validation" || replay.MissionCommanderAction.PrimaryCommand != replay.ValidateCommand || !strings.Contains(strings.Join(replay.NextSteps, "\n"), "duplicate Apply is an idempotent replay") || !strings.Contains(strings.Join(replay.NextSteps, "\n"), "did not rewrite bytes") || !strings.Contains(strings.Join(replay.NextSteps, "\n"), "do not rerun the adapter") {
 		t.Fatalf("unexpected exact draft replay: %+v", replay)
 	}
+	assertAdapterReportRunbookContains(t, replay.RunbookSteps, "confirm adapter report draft replay state=adapter-report-drafted-ready-for-validation")
+	assertAdapterReportRunbookContains(t, replay.RunbookSteps, "did not rewrite bytes")
 	wrongHashOpt := draftOpt
 	wrongHashOpt.ExpectedExecutionReportSHA256 = strings.Repeat("0", 64)
 	if _, err := DraftAdapterExecutionReport(repoRoot, caseRoot, pack, wrongHashOpt); err == nil || !strings.Contains(err.Error(), "draft changed after preview") {

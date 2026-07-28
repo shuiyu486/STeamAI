@@ -182,6 +182,7 @@ type AdapterExecutionReportScaffold struct {
 	Pack                        string                                   `json:"pack"`
 	IsMutation                  bool                                     `json:"isMutation"`
 	Applied                     bool                                     `json:"applied"`
+	Replay                      bool                                     `json:"replay,omitempty"`
 	Mode                        string                                   `json:"mode"`
 	GateEventID                 string                                   `json:"gateEventId"`
 	ReportPath                  string                                   `json:"reportPath"`
@@ -209,6 +210,7 @@ type AdapterExecutionReportDraft struct {
 	Pack                        string                                   `json:"pack"`
 	IsMutation                  bool                                     `json:"isMutation"`
 	Applied                     bool                                     `json:"applied"`
+	Replay                      bool                                     `json:"replay,omitempty"`
 	Mode                        string                                   `json:"mode"`
 	GateEventID                 string                                   `json:"gateEventId"`
 	ReportPath                  string                                   `json:"reportPath"`
@@ -2080,6 +2082,18 @@ func ScaffoldAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 		return AdapterExecutionReportScaffold{}, fmt.Errorf("gate execution report scaffold template changed after preview")
 	}
 	if result.AlreadyExists {
+		result.Applied = true
+		result.Replay = true
+		result.RequiresConfirmation = false
+		result.NextSteps = []string{
+			"exact adapter-report.json scaffold already exists; duplicate Apply is an idempotent replay and did not rewrite bytes",
+			"do not rerun the adapter or record evidence from the scaffold replay; run read-only validation after bounded fields are filled: " + result.ValidateCommand,
+			"record bounded observation evidence only with the hash-bound record command returned by validation/status after valid=true",
+		}
+		result.MissionCommanderAction = adapterReportScaffoldCommanderAction(result)
+		result.MissionCommanderNextActions = adapterReportScaffoldCommanderNextActions(gateEvent, result)
+		result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
+		result.RunbookSteps = adapterReportRunbookSteps("scaffold replay", result.MissionCommanderAction.State, result.ReportPath, result.ReportSHA256, false, false, result.Applied, false, result.NextSteps, result.Boundary, result.MissionCommanderAction)
 		return result, nil
 	}
 	if err := writeAdapterReportScaffold(inst.CaseRoot, fullPath, result.ReportPath, data); err != nil {
@@ -2130,6 +2144,18 @@ func DraftAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options) (
 		return AdapterExecutionReportDraft{}, fmt.Errorf("gate execution report draft changed after preview")
 	}
 	if result.AlreadyExists && !result.ReplacesScaffold {
+		result.Applied = true
+		result.Replay = true
+		result.RequiresConfirmation = false
+		result.NextSteps = []string{
+			"exact adapter-report.json draft already exists; duplicate Apply is an idempotent replay and did not rewrite bytes",
+			"do not rerun the adapter or record evidence from the draft replay; run read-only validation: " + result.ValidateCommand,
+			"record bounded observation evidence only with the hash-bound record command returned by validation/status after valid=true",
+		}
+		result.MissionCommanderAction = adapterReportDraftCommanderAction(result)
+		result.MissionCommanderNextActions = adapterReportDraftCommanderNextActions(gateEvent, result)
+		result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
+		result.RunbookSteps = adapterReportRunbookSteps("draft replay", result.MissionCommanderAction.State, result.ReportPath, result.ReportSHA256, false, false, result.Applied, false, result.NextSteps, result.Boundary, result.MissionCommanderAction)
 		return result, nil
 	}
 	if err := writeAdapterReportDraft(inst.CaseRoot, fullPath, result.ReportPath, data, scaffoldData); err != nil {

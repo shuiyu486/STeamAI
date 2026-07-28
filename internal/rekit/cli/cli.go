@@ -9847,7 +9847,7 @@ func writeGateAdapterReportSummaryText(out io.Writer, prefix string, summary gat
 }
 
 func writeGateAdapterReportDraftText(out io.Writer, draft gate.AdapterExecutionReportDraft) error {
-	if _, err := fmt.Fprintf(out, "gate adapter report draft：mode=%s applied=%t reportPath=%s reportSha256=%s alreadyExists=%t replacesScaffold=%t requiresConfirmation=%t\n", draft.Mode, draft.Applied, draft.ReportPath, draft.ReportSHA256, draft.AlreadyExists, draft.ReplacesScaffold, draft.RequiresConfirmation); err != nil {
+	if _, err := fmt.Fprintf(out, "gate adapter report draft：mode=%s applied=%t replay=%t reportPath=%s reportSha256=%s alreadyExists=%t replacesScaffold=%t requiresConfirmation=%t\n", draft.Mode, draft.Applied, draft.Replay, draft.ReportPath, draft.ReportSHA256, draft.AlreadyExists, draft.ReplacesScaffold, draft.RequiresConfirmation); err != nil {
 		return err
 	}
 	report := draft.Report
@@ -9914,7 +9914,7 @@ func writeGateAdapterReportDraftText(out io.Writer, draft gate.AdapterExecutionR
 }
 
 func writeGateAdapterReportScaffoldText(out io.Writer, scaffold gate.AdapterExecutionReportScaffold) error {
-	if _, err := fmt.Fprintf(out, "gate adapter report scaffold：mode=%s applied=%t reportPath=%s reportSha256=%s alreadyExists=%t requiresConfirmation=%t\n", scaffold.Mode, scaffold.Applied, scaffold.ReportPath, scaffold.ReportSHA256, scaffold.AlreadyExists, scaffold.RequiresConfirmation); err != nil {
+	if _, err := fmt.Fprintf(out, "gate adapter report scaffold：mode=%s applied=%t replay=%t reportPath=%s reportSha256=%s alreadyExists=%t requiresConfirmation=%t\n", scaffold.Mode, scaffold.Applied, scaffold.Replay, scaffold.ReportPath, scaffold.ReportSHA256, scaffold.AlreadyExists, scaffold.RequiresConfirmation); err != nil {
 		return err
 	}
 	template := scaffold.SidecarTemplate

@@ -12731,7 +12731,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
-		"gate adapter report scaffold：mode=scaffolded applied=true reportPath=" + scaffoldReportPath + " reportSha256=" + scaffoldPreview.ReportSHA256 + " alreadyExists=false requiresConfirmation=false",
+		"gate adapter report scaffold：mode=scaffolded applied=true replay=false reportPath=" + scaffoldReportPath + " reportSha256=" + scaffoldPreview.ReportSHA256 + " alreadyExists=false requiresConfirmation=false",
 		"gate adapter report scaffold sidecar：kind=adapter-execution-report adapterId=<adapter-id> action=debug status=succeeded|failed|boundary-hit|escalated|aborted gateEventId=" + authorizedEventID,
 		"gate adapter report scaffold validate command：/rekit gate -Pack _template -GateEventId " + authorizedEventID + " -ValidateExecutionReport -ExecutionReportPath " + scaffoldReportPath + " -Format json",
 		"gate adapter report scaffold boundary：scaffold does not execute the adapter or heavy tool",
@@ -12799,7 +12799,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
-		"gate adapter report draft：mode=drafted applied=true reportPath=" + scaffoldReportPath + " reportSha256=" + draftPreview.ReportSHA256 + " alreadyExists=false replacesScaffold=false requiresConfirmation=false",
+		"gate adapter report draft：mode=drafted applied=true replay=false reportPath=" + scaffoldReportPath + " reportSha256=" + draftPreview.ReportSHA256 + " alreadyExists=false replacesScaffold=false requiresConfirmation=false",
 		"gate adapter report draft sidecar：kind=adapter-execution-report adapterId=cli-draft-adapter action=debug status=succeeded gateEventId=" + authorizedEventID + " actualBudget=runtimeSeconds=21,diskMB=31,requests=1",
 		"gate adapter report draft outputRefs：workspace/main/debug/session-1/result.json",
 		"gate adapter report draft evidenceRefs：workspace/main/debug/session-1/result.json",
@@ -13575,6 +13575,54 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 
 	out.Reset()
+	if err := Run(contract.LiveValidation.ScaffoldApplyArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var scaffoldReplay struct {
+		Kind                        string                              `json:"kind"`
+		IsMutation                  bool                                `json:"isMutation"`
+		Applied                     bool                                `json:"applied"`
+		Replay                      bool                                `json:"replay"`
+		Mode                        string                              `json:"mode"`
+		ReportPath                  string                              `json:"reportPath"`
+		ReportSHA256                string                              `json:"reportSha256"`
+		AlreadyExists               bool                                `json:"alreadyExists"`
+		RequiresConfirmation        bool                                `json:"requiresConfirmation"`
+		ApplyCommand                string                              `json:"applyCommand"`
+		ValidateCommand             string                              `json:"validateCommand"`
+		NextSteps                   []string                            `json:"nextSteps"`
+		MissionCommanderAction      missionCommanderActionSnapshot      `json:"missionCommanderAction"`
+		MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &scaffoldReplay); err != nil {
+		t.Fatalf("nested workspace scaffold replay stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if scaffoldReplay.Kind != "adapter-execution-report-scaffold" || !scaffoldReplay.IsMutation || !scaffoldReplay.Applied || !scaffoldReplay.Replay || scaffoldReplay.Mode != "already-scaffolded" || scaffoldReplay.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || scaffoldReplay.ReportSHA256 != scaffoldPreview.ReportSHA256 || !scaffoldReplay.AlreadyExists || scaffoldReplay.RequiresConfirmation || scaffoldReplay.ApplyCommand != "" || scaffoldReplay.ValidateCommand != wantScaffoldValidate || !containsSubstring(scaffoldReplay.NextSteps, "duplicate Apply is an idempotent replay") || !containsSubstring(scaffoldReplay.NextSteps, "did not rewrite bytes") || !containsSubstring(scaffoldReplay.NextSteps, "do not rerun the adapter") {
+		t.Fatalf("unexpected nested workspace scaffold replay: %+v", scaffoldReplay)
+	}
+	if scaffoldReplay.MissionCommanderAction.State != "adapter-report-scaffolded-awaiting-adapter-output" || scaffoldReplay.MissionCommanderAction.PrimaryCommand != wantScaffoldValidate || len(scaffoldReplay.MissionCommanderNextActions) != 2 || scaffoldReplay.MissionCommanderActionQueue.CurrentAction == nil || scaffoldReplay.MissionCommanderActionQueue.CurrentAction.Command != wantScaffoldValidate || !cliNextActionBoundaryContains(scaffoldReplay.MissionCommanderNextActions, "validation remains read-only") {
+		t.Fatalf("nested workspace scaffold replay omitted validation handoff: action=%+v next=%+v queue=%+v", scaffoldReplay.MissionCommanderAction, scaffoldReplay.MissionCommanderNextActions, scaffoldReplay.MissionCommanderActionQueue)
+	}
+	replayedScaffoldBytes, err := os.ReadFile(filepath.Join(workspace, "adapter-report.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(scaffoldBytes, replayedScaffoldBytes) {
+		t.Fatalf("duplicate scaffold Apply rewrote adapter report bytes")
+	}
+	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-Pack", "_template", "-GateEventId", applied.EventID, "-ScaffoldExecutionReport", "-ExecutionReportPath", "adapter-report.json", "-ExpectedExecutionReportSha256", contract.LiveValidation.SidecarTemplateSHA256, "-Apply", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"gate adapter report scaffold：mode=already-scaffolded applied=true replay=true", "alreadyExists=true", "exact adapter-report.json scaffold already exists", "do not rerun the adapter"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("scaffold replay text missing %q:\n%s", expected, out.String())
+		}
+	}
+
+	out.Reset()
 	if err := Run(contract.LiveValidation.ValidateArgs, &out); err != nil {
 		t.Fatal(err)
 	}
@@ -13737,6 +13785,62 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 		t.Fatalf("drafted adapter report bytes do not match preview hash: sha=%x\n%s", draftSum, string(draftBytes))
 	}
 	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	out.Reset()
+	if err := Run(draftApplyArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var draftReplay struct {
+		Kind                        string                              `json:"kind"`
+		IsMutation                  bool                                `json:"isMutation"`
+		Applied                     bool                                `json:"applied"`
+		Replay                      bool                                `json:"replay"`
+		Mode                        string                              `json:"mode"`
+		ReportPath                  string                              `json:"reportPath"`
+		ReportSHA256                string                              `json:"reportSha256"`
+		AlreadyExists               bool                                `json:"alreadyExists"`
+		ReplacesScaffold            bool                                `json:"replacesScaffold"`
+		RequiresConfirmation        bool                                `json:"requiresConfirmation"`
+		ApplyCommand                string                              `json:"applyCommand"`
+		ValidateCommand             string                              `json:"validateCommand"`
+		NextSteps                   []string                            `json:"nextSteps"`
+		MissionCommanderAction      missionCommanderActionSnapshot      `json:"missionCommanderAction"`
+		MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &draftReplay); err != nil {
+		t.Fatalf("nested workspace draft replay stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if draftReplay.Kind != "adapter-execution-report-draft" || !draftReplay.IsMutation || !draftReplay.Applied || !draftReplay.Replay || draftReplay.Mode != "already-drafted" || draftReplay.ReportPath != "workspace/main/debug/session-1/adapter-report.json" || draftReplay.ReportSHA256 != draftPreview.ReportSHA256 || !draftReplay.AlreadyExists || draftReplay.ReplacesScaffold || draftReplay.RequiresConfirmation || draftReplay.ApplyCommand != "" || draftReplay.ValidateCommand != wantScaffoldValidate || !containsSubstring(draftReplay.NextSteps, "duplicate Apply is an idempotent replay") || !containsSubstring(draftReplay.NextSteps, "did not rewrite bytes") || !containsSubstring(draftReplay.NextSteps, "do not rerun the adapter") {
+		t.Fatalf("unexpected nested workspace draft replay: %+v", draftReplay)
+	}
+	if draftReplay.MissionCommanderAction.State != "adapter-report-drafted-ready-for-validation" || draftReplay.MissionCommanderAction.PrimaryCommand != wantScaffoldValidate || len(draftReplay.MissionCommanderNextActions) != 2 || draftReplay.MissionCommanderActionQueue.CurrentAction == nil || draftReplay.MissionCommanderActionQueue.CurrentAction.Command != wantScaffoldValidate || !cliNextActionBoundaryContains(draftReplay.MissionCommanderNextActions, "validation remains read-only") {
+		t.Fatalf("nested workspace draft replay omitted validation handoff: action=%+v next=%+v queue=%+v", draftReplay.MissionCommanderAction, draftReplay.MissionCommanderNextActions, draftReplay.MissionCommanderActionQueue)
+	}
+	replayedDraftBytes, err := os.ReadFile(filepath.Join(workspace, "adapter-report.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(draftBytes, replayedDraftBytes) {
+		t.Fatalf("duplicate draft Apply rewrote adapter report bytes")
+	}
+	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+	out.Reset()
+	draftReplayTextArgs := append([]string{}, draftApplyArgs...)
+	for i := 0; i < len(draftReplayTextArgs)-1; i++ {
+		if draftReplayTextArgs[i] == "-Format" {
+			draftReplayTextArgs[i+1] = "text"
+			break
+		}
+	}
+	if err := Run(draftReplayTextArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"gate adapter report draft：mode=already-drafted applied=true replay=true", "alreadyExists=true", "exact adapter-report.json draft already exists", "do not rerun the adapter"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("draft replay text missing %q:\n%s", expected, out.String())
+		}
+	}
 
 	out.Reset()
 	if err := Run([]string{"-Command", "gate", "-ValidateExecutionReport", "-GateEventId", applied.EventID, "-ExecutionReportPath", "adapter-report.json", "-Format", "json"}, &out); err != nil {
