@@ -22,18 +22,19 @@ import (
 )
 
 type ReleaseHandoff struct {
-	Ready                bool                                  `json:"ready"`
-	Summary              string                                `json:"summary"`
-	ReadFirst            []ReleaseHandoffDocument              `json:"readFirst"`
-	Signals              []ReleaseHandoffSignal                `json:"signals"`
-	LatestBatch          ReleaseHandoffLatestBatch             `json:"latestBatch"`
-	ReleaseNotes         ReleaseHandoffReleaseNotes            `json:"releaseNotes"`
-	KnownGaps            []ReleaseHandoffKnownGap              `json:"knownGaps"`
-	PackMaturity         ReleaseHandoffPackMaturity            `json:"packMaturity"`
-	PackMemoryCandidates ReleaseHandoffPackMemoryCandidateList `json:"packMemoryCandidates"`
-	Validation           []ReleaseHandoffValidation            `json:"validation"`
-	NextActions          []string                              `json:"nextActions"`
-	Warnings             []string                              `json:"warnings"`
+	Ready                     bool                                     `json:"ready"`
+	Summary                   string                                   `json:"summary"`
+	ReadFirst                 []ReleaseHandoffDocument                 `json:"readFirst"`
+	Signals                   []ReleaseHandoffSignal                   `json:"signals"`
+	LatestBatch               ReleaseHandoffLatestBatch                `json:"latestBatch"`
+	ReleaseNotes              ReleaseHandoffReleaseNotes               `json:"releaseNotes"`
+	KnownGaps                 []ReleaseHandoffKnownGap                 `json:"knownGaps"`
+	PackMaturity              ReleaseHandoffPackMaturity               `json:"packMaturity"`
+	PackMemoryCandidates      ReleaseHandoffPackMemoryCandidateList    `json:"packMemoryCandidates"`
+	NextBatchSelectionPackage *ReleaseHandoffNextBatchSelectionPackage `json:"nextBatchSelectionPackage,omitempty"`
+	Validation                []ReleaseHandoffValidation               `json:"validation"`
+	NextActions               []string                                 `json:"nextActions"`
+	Warnings                  []string                                 `json:"warnings"`
 }
 
 type ReleaseHandoffCounts struct {
@@ -155,6 +156,14 @@ type ReleaseHandoffPackMemoryCandidateList struct {
 	MissionCommanderNextActions []mission.MissionCommanderNextActionItem  `json:"missionCommanderNextActions,omitempty"`
 	MissionCommanderActionQueue mission.MissionCommanderActionQueue       `json:"missionCommanderActionQueue"`
 	Warnings                    []string                                  `json:"warnings,omitempty"`
+}
+
+type ReleaseHandoffNextBatchSelectionPackage struct {
+	Ready                       bool                                     `json:"ready"`
+	Summary                     string                                   `json:"summary"`
+	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
+	Boundary                    []string                                 `json:"boundary,omitempty"`
 }
 
 type ReleaseHandoffPackMemoryCandidateReviewSummary struct {
@@ -400,6 +409,7 @@ func releaseHandoff(repo string, check Result) ReleaseHandoff {
 		handoff.Ready = false
 		handoff.Summary = "release handoff summary has warnings"
 	}
+	handoff.NextBatchSelectionPackage = BuildNextBatchSelectionPackage(handoff)
 	return handoff
 }
 
@@ -3565,6 +3575,143 @@ func releaseHandoffValidation(steps []GateStep) []ReleaseHandoffValidation {
 		})
 	}
 	return validation
+}
+
+func BuildNextBatchSelectionPackage(handoff ReleaseHandoff) *ReleaseHandoffNextBatchSelectionPackage {
+	if !releaseHandoffReadyForNextBatchSelection(handoff) {
+		return nil
+	}
+	current := releaseHandoffNextBatchSelectionAction(handoff)
+	actions := append([]mission.MissionCommanderNextActionItem{current}, releaseHandoffNextBatchCandidateActions(handoff)...)
+	actions = mission.UniqueCommanderNextActions(actions)
+	queue := mission.MissionCommanderActionQueueFor(actions)
+	return &ReleaseHandoffNextBatchSelectionPackage{
+		Ready:                       true,
+		Summary:                     queue.Summary,
+		MissionCommanderNextActions: append([]mission.MissionCommanderNextActionItem{}, actions...),
+		MissionCommanderActionQueue: queue,
+		Boundary:                    append([]string{}, current.Boundary...),
+	}
+}
+
+func releaseHandoffReadyForNextBatchSelection(handoff ReleaseHandoff) bool {
+	if !handoff.Ready || !handoff.LatestBatch.Handoff.LocalValidationReady || !handoff.LatestBatch.Handoff.ReleaseCheckReady {
+		return false
+	}
+	cadence := handoff.LatestBatch.Handoff.ReleaseInspectionCadence
+	if cadence.State != "complete" || !cadence.ImplementationCommitReady || !cadence.InspectionCommitReady || cadence.NewRemoteSignal {
+		return false
+	}
+	packCandidates := handoff.PackMemoryCandidates
+	return packCandidates.Ready && packCandidates.Total == 0 && len(packCandidates.Packs) == 0
+}
+
+func releaseHandoffNextBatchSelectionAction(handoff ReleaseHandoff) mission.MissionCommanderNextActionItem {
+	reasons := []string{
+		"latest batch release inspection cadence is complete",
+		"implementation and release inspection evidence are recorded",
+		"project is ready for the next Windows-verifiable product-path batch",
+	}
+	if latest := strings.TrimSpace(handoff.LatestBatch.BatchID); latest != "" {
+		reasons = append(reasons, "latest completed batch: "+latest)
+	}
+	if gate := strings.TrimSpace(handoff.LatestBatch.Handoff.RemoteReleaseGate); gate != "" {
+		reasons = append(reasons, "latest remote release gate: "+gate)
+	}
+	boundary := []string{
+		"do not create a third inspection record for the previous release inspection commit unless a new remote signal appears",
+		"do not claim remote CI green unless latest batch evidence explicitly records green jobs",
+		"select only Windows-verifiable local product-path work while remote runner/billing blocker remains",
+		"avoid single-field, summary, text, or handoff projection micro-batches; choose an operational closure with runtime or product-path verification",
+		"run focused regressions and the local release minimum before the next implementation commit",
+	}
+	if detail := handoff.LatestBatch.Handoff.RemoteReleaseGateDetail; detail != nil {
+		reasons = append(reasons, "previous remote release-gate detail recorded")
+		boundary = append(boundary, detail.Boundary...)
+	}
+	boundary = append(boundary, handoff.LatestBatch.Handoff.ReleaseInspectionCadence.Boundary...)
+	return mission.MissionCommanderNextActionItem{
+		Label:          "next-batch",
+		ActionID:       "next-batch-selection",
+		State:          "ready-for-next-batch-selection",
+		Command:        "select the next Windows-verifiable product-path closure from docs/context-routing.md and docs/batch-plan.md, then update docs/batch-plan.md current batch state before implementation",
+		Source:         "releaseHandoffNextBatch",
+		Blocked:        false,
+		RequiresReview: false,
+		Reasons:        mission.UniqueStrings(reasons),
+		Boundary:       mission.UniqueStrings(boundary),
+	}
+}
+
+func releaseHandoffNextBatchCandidateActions(handoff ReleaseHandoff) []mission.MissionCommanderNextActionItem {
+	reasons := releaseHandoffNextBatchCandidateReasons(handoff)
+	boundary := releaseHandoffNextBatchCandidateBoundary(handoff)
+	domains := []struct {
+		label    string
+		actionID string
+		command  string
+	}{
+		{label: "mission-commander", actionID: "next-batch-mission-commander-operational-closure", command: "select a Mission Commander operational closure slice with status/handoff/continue product-path verification"},
+		{label: "replacement-executor", actionID: "next-batch-replacement-executor-takeover", command: "select a replacement executor takeover slice that can be resumed from status or durable handoff without prior chat context"},
+		{label: "reviewer-orchestration", actionID: "next-batch-reviewer-orchestration-closure", command: "select a reviewer orchestration slice that improves bounded dispatch, intake, writeback, or recovery without auto-spawning reviewers"},
+		{label: "authorized-evidence", actionID: "next-batch-authorized-execution-evidence", command: "select an authorized execution evidence slice that tightens adapter report validation, repair, recording, or acknowledgement handoff"},
+		{label: "adapter-live-validation", actionID: "next-batch-adapter-live-validation", command: "select an adapter live validation slice with strict authorized-gate scope and machine-readable repair evidence"},
+		{label: "pack-memory-ux", actionID: "next-batch-pack-memory-ux", command: "select a pack-memory UX slice that improves candidate review, verification, cleanup, or reconsume closure without automatic mutation"},
+		{label: "go-native-product-path", actionID: "next-batch-go-native-product-path", command: "select a Go-native product-path slice that reduces PowerShell-free or cross-session operational friction with Windows local validation"},
+	}
+	items := make([]mission.MissionCommanderNextActionItem, 0, len(domains))
+	for _, domain := range domains {
+		items = append(items, mission.MissionCommanderNextActionItem{
+			Label:          domain.label,
+			ActionID:       domain.actionID,
+			State:          "next-batch-candidate-domain",
+			Command:        domain.command,
+			Source:         "releaseHandoffNextBatch.followUp.candidateDomain",
+			Blocked:        false,
+			RequiresReview: false,
+			Reasons:        reasons,
+			Boundary:       boundary,
+		})
+	}
+	return items
+}
+
+func releaseHandoffNextBatchCandidateReasons(handoff ReleaseHandoff) []string {
+	reasons := []string{
+		"latest batch release inspection cadence is complete",
+		"candidate domains are offered only after release handoff is ready for next-batch selection",
+	}
+	packCandidates := handoff.PackMemoryCandidates
+	if packCandidates.Ready && packCandidates.Total == 0 && len(packCandidates.Packs) == 0 {
+		if nextAction := strings.TrimSpace(packCandidates.NextAction); nextAction != "" {
+			reasons = append(reasons, "pack-memory candidate queue is closed: "+nextAction)
+		} else {
+			reasons = append(reasons, "pack-memory candidate queue is closed")
+		}
+	} else if strings.TrimSpace(packCandidates.NextAction) != "" {
+		reasons = append(reasons, "pack-memory candidate queue next action: "+packCandidates.NextAction)
+	}
+	if latest := strings.TrimSpace(handoff.LatestBatch.BatchID); latest != "" {
+		reasons = append(reasons, "latest completed batch: "+latest)
+	}
+	if gate := strings.TrimSpace(handoff.LatestBatch.Handoff.RemoteReleaseGate); gate != "" {
+		reasons = append(reasons, "latest remote release gate: "+gate)
+	}
+	return mission.UniqueStrings(reasons)
+}
+
+func releaseHandoffNextBatchCandidateBoundary(handoff ReleaseHandoff) []string {
+	boundary := []string{
+		"candidate-domain follow-ups are selection guidance only; update docs/batch-plan.md current batch state before implementation",
+		"do not execute reviewer, adapter, pack-memory, gate, or heavy-tool mutations from next-batch selection guidance",
+		"choose one medium product-path closure with focused regressions plus the local release minimum",
+		"do not use candidate-domain follow-ups to justify single-field, summary, or projection-only micro-batches",
+	}
+	boundary = append(boundary, handoff.LatestBatch.Handoff.ReleaseInspectionCadence.Boundary...)
+	if detail := handoff.LatestBatch.Handoff.RemoteReleaseGateDetail; detail != nil {
+		boundary = append(boundary, detail.Boundary...)
+	}
+	return mission.UniqueStrings(boundary)
 }
 
 func releaseHandoffNextActions() []string {

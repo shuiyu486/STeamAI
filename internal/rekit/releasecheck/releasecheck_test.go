@@ -11,7 +11,9 @@ import (
 )
 
 func TestReleaseCheckIncludesManifestHeavyToolGateActions(t *testing.T) {
-	result, err := Build(cleanReleaseRepoRoot(t))
+	repo := cleanReleaseRepoRoot(t)
+	writeCompletedReleaseHandoffLatestBatchFixture(t, repo)
+	result, err := Build(repo)
 	if err != nil {
 		t.Fatal(err)
 	}

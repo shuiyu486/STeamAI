@@ -1968,6 +1968,43 @@ func writePackMemoryCandidateActionQueueText(out io.Writer, prefix string, candi
 	return nil
 }
 
+func writeNextBatchSelectionPackageText(out io.Writer, prefix string, pkg *releasecheck.ReleaseHandoffNextBatchSelectionPackage) error {
+	if pkg == nil || !pkg.Ready || pkg.MissionCommanderActionQueue.Counts.Total == 0 {
+		return nil
+	}
+	queue := pkg.MissionCommanderActionQueue
+	if _, err := fmt.Fprintf(out, "%s next-batch selection package：summary=%s ready=%t total=%d unblocked=%d blocked=%d requiresReview=%d followUp=%d\n", prefix, pkg.Summary, pkg.Ready, queue.Counts.Total, queue.Counts.Unblocked, queue.Counts.Blocked, queue.Counts.RequiresReview, queue.Counts.FollowUp); err != nil {
+		return err
+	}
+	if queue.CurrentAction != nil {
+		current := *queue.CurrentAction
+		if _, err := fmt.Fprintf(out, "%s next-batch selection current action：label=%s state=%s actionId=%s source=%s blocked=%t requiresReview=%t command=%s\n", prefix, current.Label, current.State, current.ActionID, current.Source, current.Blocked, current.RequiresReview, current.Command); err != nil {
+			return err
+		}
+	}
+	for _, action := range pkg.MissionCommanderNextActions {
+		if _, err := fmt.Fprintf(out, "%s next-batch selection action：label=%s state=%s actionId=%s source=%s blocked=%t requiresReview=%t command=%s\n", prefix, action.Label, action.State, action.ActionID, action.Source, action.Blocked, action.RequiresReview, action.Command); err != nil {
+			return err
+		}
+		for _, reason := range action.Reasons {
+			if _, err := fmt.Fprintf(out, "%s next-batch selection action reason：label=%s reason=%s\n", prefix, action.Label, reason); err != nil {
+				return err
+			}
+		}
+		for _, boundary := range action.Boundary {
+			if _, err := fmt.Fprintf(out, "%s next-batch selection action boundary：label=%s boundary=%s\n", prefix, action.Label, boundary); err != nil {
+				return err
+			}
+		}
+	}
+	for _, boundary := range pkg.Boundary {
+		if _, err := fmt.Fprintf(out, "%s next-batch selection package boundary：%s\n", prefix, boundary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func writeReleaseHandoffText(out io.Writer, handoff releasecheck.ReleaseHandoff) error {
 	handoffCounts := releasecheck.ReleaseHandoffCountsFor(handoff)
 	if _, err := fmt.Fprintf(out, "release-check release handoff：summary=%s ready=%t readFirst=%d signals=%d knownGaps=%d packMaturity=%d packMemoryCandidates=%d validation=%d nextActions=%d warnings=%d releaseNotes=%t latest=%s\n", handoff.Summary, handoff.Ready, handoffCounts.ReadFirst, handoffCounts.Signals, handoffCounts.KnownGaps, handoffCounts.PackMaturity.Total, handoffCounts.PackMemoryCandidates, handoffCounts.Validation, handoffCounts.NextActions, handoffCounts.Warnings, handoff.ReleaseNotes.Covered, handoff.LatestBatch.Title); err != nil {
@@ -2050,6 +2087,9 @@ func writeReleaseHandoffText(out io.Writer, handoff releasecheck.ReleaseHandoff)
 		return err
 	}
 	if err := writePackMemoryCandidateActionQueueText(out, "release-check", candidates); err != nil {
+		return err
+	}
+	if err := writeNextBatchSelectionPackageText(out, "release-check", handoff.NextBatchSelectionPackage); err != nil {
 		return err
 	}
 	for _, pack := range candidates.Packs {
@@ -2266,28 +2306,29 @@ type statusManifestSummary struct {
 }
 
 type statusProjectHandoff struct {
-	Ready                         bool                                                `json:"ready"`
-	Summary                       string                                              `json:"summary"`
-	ReadFirst                     []string                                            `json:"readFirst"`
-	LatestBatch                   string                                              `json:"latestBatch"`
-	LatestBatchStatus             string                                              `json:"latestBatchStatus"`
-	LatestBatchGoal               string                                              `json:"latestBatchGoal"`
-	LatestValidation              string                                              `json:"latestValidation"`
-	LatestLocalValidationReady    bool                                                `json:"latestLocalValidationReady"`
-	LatestReleaseCheckReady       bool                                                `json:"latestReleaseCheckReady"`
-	LatestRemoteReleaseGate       string                                              `json:"latestRemoteReleaseGate"`
-	LatestRemoteReleaseGateDetail *releasecheck.ReleaseHandoffRemoteReleaseGateDetail `json:"latestRemoteReleaseGateDetail,omitempty"`
-	ReleaseInspectionCadence      releasecheck.ReleaseHandoffReleaseInspectionCadence `json:"releaseInspectionCadence"`
-	LatestNextAction              string                                              `json:"latestNextAction"`
-	LatestEvidence                []string                                            `json:"latestEvidence,omitempty"`
-	LatestValidationWarnings      []string                                            `json:"latestValidationWarnings,omitempty"`
-	LatestCommits                 []string                                            `json:"latestCommits,omitempty"`
-	MissionCommanderNextActions   []mission.MissionCommanderNextActionItem            `json:"missionCommanderNextActions,omitempty"`
-	MissionCommanderActionQueue   mission.MissionCommanderActionQueue                 `json:"missionCommanderActionQueue"`
-	PackMemoryCandidates          releasecheck.ReleaseHandoffPackMemoryCandidateList  `json:"packMemoryCandidates"`
-	KnownGaps                     []string                                            `json:"knownGaps"`
-	NextActions                   []string                                            `json:"nextActions"`
-	ValidationCommands            []string                                            `json:"validationCommands"`
+	Ready                         bool                                                  `json:"ready"`
+	Summary                       string                                                `json:"summary"`
+	ReadFirst                     []string                                              `json:"readFirst"`
+	LatestBatch                   string                                                `json:"latestBatch"`
+	LatestBatchStatus             string                                                `json:"latestBatchStatus"`
+	LatestBatchGoal               string                                                `json:"latestBatchGoal"`
+	LatestValidation              string                                                `json:"latestValidation"`
+	LatestLocalValidationReady    bool                                                  `json:"latestLocalValidationReady"`
+	LatestReleaseCheckReady       bool                                                  `json:"latestReleaseCheckReady"`
+	LatestRemoteReleaseGate       string                                                `json:"latestRemoteReleaseGate"`
+	LatestRemoteReleaseGateDetail *releasecheck.ReleaseHandoffRemoteReleaseGateDetail   `json:"latestRemoteReleaseGateDetail,omitempty"`
+	ReleaseInspectionCadence      releasecheck.ReleaseHandoffReleaseInspectionCadence   `json:"releaseInspectionCadence"`
+	LatestNextAction              string                                                `json:"latestNextAction"`
+	LatestEvidence                []string                                              `json:"latestEvidence,omitempty"`
+	LatestValidationWarnings      []string                                              `json:"latestValidationWarnings,omitempty"`
+	LatestCommits                 []string                                              `json:"latestCommits,omitempty"`
+	MissionCommanderNextActions   []mission.MissionCommanderNextActionItem              `json:"missionCommanderNextActions,omitempty"`
+	MissionCommanderActionQueue   mission.MissionCommanderActionQueue                   `json:"missionCommanderActionQueue"`
+	NextBatchSelectionPackage     *releasecheck.ReleaseHandoffNextBatchSelectionPackage `json:"nextBatchSelectionPackage,omitempty"`
+	PackMemoryCandidates          releasecheck.ReleaseHandoffPackMemoryCandidateList    `json:"packMemoryCandidates"`
+	KnownGaps                     []string                                              `json:"knownGaps"`
+	NextActions                   []string                                              `json:"nextActions"`
+	ValidationCommands            []string                                              `json:"validationCommands"`
 }
 
 type statusPendingGateHandoff struct {
@@ -3001,23 +3042,26 @@ func statusPackMemoryCurrentActionNeedsAttention(projectHandoff *statusProjectHa
 }
 
 func statusProjectHandoffMissionCommanderNextActions(projectHandoff *statusProjectHandoff) []mission.MissionCommanderNextActionItem {
+	if projectHandoff == nil {
+		return nil
+	}
+	if pkg := projectHandoff.NextBatchSelectionPackage; pkg != nil && pkg.Ready && pkg.MissionCommanderActionQueue.CurrentAction != nil {
+		return append([]mission.MissionCommanderNextActionItem{}, pkg.MissionCommanderNextActions...)
+	}
 	current := statusProjectHandoffCurrentAction(projectHandoff)
 	if current == nil {
 		return nil
 	}
-	items := []mission.MissionCommanderNextActionItem{*current}
-	if current.Source == "releaseHandoffNextBatch" || current.State == "ready-for-next-batch-selection" {
-		items = append(items, statusProjectHandoffNextBatchCandidateActions(projectHandoff)...)
-	}
-	return mission.UniqueCommanderNextActions(items)
+	return mission.UniqueCommanderNextActions([]mission.MissionCommanderNextActionItem{*current})
 }
 
 func statusProjectHandoffCurrentAction(projectHandoff *statusProjectHandoff) *mission.MissionCommanderNextActionItem {
 	if projectHandoff == nil {
 		return nil
 	}
-	if statusProjectHandoffReadyForNextBatchSelection(projectHandoff) {
-		return statusProjectHandoffNextBatchSelectionAction(projectHandoff)
+	if pkg := projectHandoff.NextBatchSelectionPackage; pkg != nil && pkg.Ready && pkg.MissionCommanderActionQueue.CurrentAction != nil {
+		current := *pkg.MissionCommanderActionQueue.CurrentAction
+		return &current
 	}
 	command := strings.TrimSpace(projectHandoff.LatestNextAction)
 	if command == "" {
@@ -3066,155 +3110,6 @@ func statusProjectHandoffCurrentAction(projectHandoff *statusProjectHandoff) *mi
 		RequiresReview: requiresReview,
 		Reasons:        mission.UniqueStrings(reasons),
 		Boundary:       boundary,
-	}
-}
-
-func statusProjectHandoffReadyForNextBatchSelection(projectHandoff *statusProjectHandoff) bool {
-	if projectHandoff == nil || !projectHandoff.Ready || !projectHandoff.LatestLocalValidationReady || !projectHandoff.LatestReleaseCheckReady {
-		return false
-	}
-	cadence := projectHandoff.ReleaseInspectionCadence
-	return cadence.State == "complete" && cadence.ImplementationCommitReady && cadence.InspectionCommitReady && !cadence.NewRemoteSignal
-}
-
-func statusProjectHandoffNextBatchCandidateActions(projectHandoff *statusProjectHandoff) []mission.MissionCommanderNextActionItem {
-	if projectHandoff == nil {
-		return nil
-	}
-	reasons := statusProjectHandoffNextBatchCandidateReasons(projectHandoff)
-	boundary := statusProjectHandoffNextBatchCandidateBoundary(projectHandoff)
-	domains := []struct {
-		label    string
-		actionID string
-		command  string
-	}{
-		{
-			label:    "mission-commander",
-			actionID: "next-batch-mission-commander-operational-closure",
-			command:  "select a Mission Commander operational closure slice with status/handoff/continue product-path verification",
-		},
-		{
-			label:    "replacement-executor",
-			actionID: "next-batch-replacement-executor-takeover",
-			command:  "select a replacement executor takeover slice that can be resumed from status or durable handoff without prior chat context",
-		},
-		{
-			label:    "reviewer-orchestration",
-			actionID: "next-batch-reviewer-orchestration-closure",
-			command:  "select a reviewer orchestration slice that improves bounded dispatch, intake, writeback, or recovery without auto-spawning reviewers",
-		},
-		{
-			label:    "authorized-evidence",
-			actionID: "next-batch-authorized-execution-evidence",
-			command:  "select an authorized execution evidence slice that tightens adapter report validation, repair, recording, or acknowledgement handoff",
-		},
-		{
-			label:    "adapter-live-validation",
-			actionID: "next-batch-adapter-live-validation",
-			command:  "select an adapter live validation slice with strict authorized-gate scope and machine-readable repair evidence",
-		},
-		{
-			label:    "pack-memory-ux",
-			actionID: "next-batch-pack-memory-ux",
-			command:  "select a pack-memory UX slice that improves candidate review, verification, cleanup, or reconsume closure without automatic mutation",
-		},
-		{
-			label:    "go-native-product-path",
-			actionID: "next-batch-go-native-product-path",
-			command:  "select a Go-native product-path slice that reduces PowerShell-free or cross-session operational friction with Windows local validation",
-		},
-	}
-	items := make([]mission.MissionCommanderNextActionItem, 0, len(domains))
-	for _, domain := range domains {
-		items = append(items, mission.MissionCommanderNextActionItem{
-			Label:          domain.label,
-			ActionID:       domain.actionID,
-			State:          "next-batch-candidate-domain",
-			Command:        domain.command,
-			Source:         "releaseHandoffNextBatch.followUp.candidateDomain",
-			Blocked:        false,
-			RequiresReview: false,
-			Reasons:        reasons,
-			Boundary:       boundary,
-		})
-	}
-	return items
-}
-
-func statusProjectHandoffNextBatchCandidateReasons(projectHandoff *statusProjectHandoff) []string {
-	reasons := []string{
-		"latest batch release inspection cadence is complete",
-		"candidate domains are offered only after project handoff is ready for next-batch selection",
-	}
-	packCandidates := projectHandoff.PackMemoryCandidates
-	if packCandidates.Ready && packCandidates.Total == 0 && len(packCandidates.Packs) == 0 {
-		if nextAction := strings.TrimSpace(packCandidates.NextAction); nextAction != "" {
-			reasons = append(reasons, "pack-memory candidate queue is closed: "+nextAction)
-		} else {
-			reasons = append(reasons, "pack-memory candidate queue is closed")
-		}
-	} else if strings.TrimSpace(packCandidates.NextAction) != "" {
-		reasons = append(reasons, "pack-memory candidate queue next action: "+packCandidates.NextAction)
-	}
-	if latest := strings.TrimSpace(projectHandoff.LatestBatch); latest != "" {
-		reasons = append(reasons, "latest completed batch: "+latest)
-	}
-	if gate := strings.TrimSpace(projectHandoff.LatestRemoteReleaseGate); gate != "" {
-		reasons = append(reasons, "latest remote release gate: "+gate)
-	}
-	return mission.UniqueStrings(reasons)
-}
-
-func statusProjectHandoffNextBatchCandidateBoundary(projectHandoff *statusProjectHandoff) []string {
-	boundary := []string{
-		"candidate-domain follow-ups are selection guidance only; update docs/batch-plan.md current batch state before implementation",
-		"do not execute reviewer, adapter, pack-memory, gate, or heavy-tool mutations from next-batch selection guidance",
-		"choose one medium product-path closure with focused regressions plus the local release minimum",
-		"do not use candidate-domain follow-ups to justify single-field, summary, or projection-only micro-batches",
-	}
-	if projectHandoff != nil {
-		boundary = append(boundary, projectHandoff.ReleaseInspectionCadence.Boundary...)
-		if detail := projectHandoff.LatestRemoteReleaseGateDetail; detail != nil {
-			boundary = append(boundary, detail.Boundary...)
-		}
-	}
-	return mission.UniqueStrings(boundary)
-}
-
-func statusProjectHandoffNextBatchSelectionAction(projectHandoff *statusProjectHandoff) *mission.MissionCommanderNextActionItem {
-	reasons := []string{
-		"latest batch release inspection cadence is complete",
-		"implementation and release inspection evidence are recorded",
-		"project is ready for the next Windows-verifiable product-path batch",
-	}
-	if latest := strings.TrimSpace(projectHandoff.LatestBatch); latest != "" {
-		reasons = append(reasons, "latest completed batch: "+latest)
-	}
-	if gate := strings.TrimSpace(projectHandoff.LatestRemoteReleaseGate); gate != "" {
-		reasons = append(reasons, "latest remote release gate: "+gate)
-	}
-	boundary := []string{
-		"do not create a third inspection record for the previous release inspection commit unless a new remote signal appears",
-		"do not claim remote CI green unless latest batch evidence explicitly records green jobs",
-		"select only Windows-verifiable local product-path work while remote runner/billing blocker remains",
-		"avoid single-field, summary, text, or handoff projection micro-batches; choose an operational closure with runtime or product-path verification",
-		"run focused regressions and the local release minimum before the next implementation commit",
-	}
-	if detail := projectHandoff.LatestRemoteReleaseGateDetail; detail != nil {
-		reasons = append(reasons, "previous remote release-gate detail recorded")
-		boundary = append(boundary, detail.Boundary...)
-	}
-	boundary = append(boundary, projectHandoff.ReleaseInspectionCadence.Boundary...)
-	return &mission.MissionCommanderNextActionItem{
-		Label:          "next-batch",
-		ActionID:       "next-batch-selection",
-		State:          "ready-for-next-batch-selection",
-		Command:        "select the next Windows-verifiable product-path closure from docs/context-routing.md and docs/batch-plan.md, then update docs/batch-plan.md current batch state before implementation",
-		Source:         "releaseHandoffNextBatch",
-		Blocked:        false,
-		RequiresReview: false,
-		Reasons:        mission.UniqueStrings(reasons),
-		Boundary:       mission.UniqueStrings(boundary),
 	}
 }
 
@@ -5282,10 +5177,14 @@ func buildStatusProjectHandoff(handoff releasecheck.ReleaseHandoff) *statusProje
 		LatestEvidence:                append([]string{}, handoff.LatestBatch.Handoff.Evidence...),
 		LatestValidationWarnings:      append([]string{}, handoff.LatestBatch.Handoff.ValidationWarnings...),
 		LatestCommits:                 append([]string{}, handoff.LatestBatch.Handoff.CommitRefs...),
+		NextBatchSelectionPackage:     handoff.NextBatchSelectionPackage,
 		PackMemoryCandidates:          handoff.PackMemoryCandidates,
 		KnownGaps:                     knownGaps,
 		NextActions:                   append([]string{}, handoff.NextActions...),
 		ValidationCommands:            validationCommands,
+	}
+	if project.NextBatchSelectionPackage == nil {
+		project.NextBatchSelectionPackage = releasecheck.BuildNextBatchSelectionPackage(handoff)
 	}
 	project.MissionCommanderNextActions = statusProjectHandoffMissionCommanderNextActions(project)
 	project.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(project.MissionCommanderNextActions)
@@ -6481,7 +6380,7 @@ func projectHandoffMissionCommanderActionsForDurableHandoff(project *statusProje
 	if project.PackMemoryCandidates.MissionCommanderActionQueue.Counts.Total > 0 {
 		return project.PackMemoryCandidates.MissionCommanderNextActions
 	}
-	if statusProjectHandoffReadyForNextBatchSelection(project) {
+	if pkg := project.NextBatchSelectionPackage; pkg != nil && pkg.Ready && pkg.MissionCommanderActionQueue.CurrentAction != nil {
 		return project.MissionCommanderNextActions
 	}
 	return nil

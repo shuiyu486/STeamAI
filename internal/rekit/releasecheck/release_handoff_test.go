@@ -16,7 +16,9 @@ import (
 )
 
 func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
-	result, err := Build(cleanReleaseRepoRoot(t))
+	repo := cleanReleaseRepoRoot(t)
+	writeCompletedReleaseHandoffLatestBatchFixture(t, repo)
+	result, err := Build(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,6 +159,148 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 				t.Fatalf("latest batch handoff evidence missing %q: %+v", evidence, latestHandoff.Evidence)
 			}
 		}
+	}
+}
+
+func TestReleaseHandoffBuildsNextBatchSelectionPackage(t *testing.T) {
+	repo := cleanReleaseRepoRoot(t)
+	writeCompletedReleaseHandoffLatestBatchFixture(t, repo)
+	result, err := Build(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg := result.ReleaseHandoff.NextBatchSelectionPackage
+	if pkg == nil || !pkg.Ready || pkg.MissionCommanderActionQueue.CurrentAction == nil || pkg.MissionCommanderActionQueue.CurrentAction.ActionID != "next-batch-selection" || pkg.MissionCommanderActionQueue.Counts.Total != 8 || pkg.MissionCommanderActionQueue.Counts.FollowUp != 7 {
+		t.Fatalf("release-check Build should expose next-batch selection package after completed cadence: pkg=%+v handoffReady=%t warnings=%+v latest=%+v", pkg, result.ReleaseHandoff.Ready, result.ReleaseHandoff.Warnings, result.ReleaseHandoff.LatestBatch.Handoff)
+	}
+	foundReplacementExecutor := false
+	for _, item := range pkg.MissionCommanderNextActions {
+		if item.ActionID == "next-batch-replacement-executor-takeover" && item.Source == "releaseHandoffNextBatch.followUp.candidateDomain" && releaseHandoffStringsContain(item.Reasons, "pack-memory candidate queue is closed") && releaseHandoffStringsContain(item.Boundary, "candidate-domain follow-ups are selection guidance only") {
+			foundReplacementExecutor = true
+			break
+		}
+	}
+	if !foundReplacementExecutor {
+		t.Fatalf("release-check Build omitted replacement executor candidate-domain action: %+v", pkg.MissionCommanderNextActions)
+	}
+}
+
+func writeCompletedReleaseHandoffLatestBatchFixture(t *testing.T, repo string) {
+	t.Helper()
+	planPath := filepath.Join(repo, "docs", "batch-plan.md")
+	planData, err := os.ReadFile(planPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	insert := `### Batch 999：Fixture
+
+状态：已完成 fixture implementation、完整本机 release minimum、implementation commit/push 与远程 release-gate inspection；implementation commit ` + "`" + `abc999d` + "`" + ` 已推送。Push run ` + "`" + `30399999999` + "`" + ` completed failure；Linux/Windows/macOS jobs ` + "`" + `90199900001` + "`" + `/` + "`" + `90199900002` + "`" + `/` + "`" + `90199900003` + "`" + ` 均 ` + "`" + `steps=[]` + "`" + `。
+
+目标：fixture completed goal.
+
+验证结果：完整本机 release minimum 已通过：` + "`" + `go run ./cmd/rekit -- -Command release-check -Format json` + "`" + ` 返回 ` + "`" + `ready=true` + "`" + ` / ` + "`" + `summary=release gate inventory ok` + "`" + `，` + "`" + `go run ./cmd/rekit -- -Command status` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command packs` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command doctor` + "`" + `、` + "`" + `go test ./...` + "`" + `、` + "`" + `go vet ./...` + "`" + ` 与 ` + "`" + `git diff --check` + "`" + ` 均已运行。Implementation commit ` + "`" + `abc999d` + "`" + ` 已推送。Push run ` + "`" + `30399999999` + "`" + ` completed failure；Linux/Windows/macOS jobs ` + "`" + `90199900001` + "`" + `/` + "`" + `90199900002` + "`" + `/` + "`" + `90199900003` + "`" + ` 均 ` + "`" + `steps=[]` + "`" + `；` + "`" + `gh run view 30399999999 --log-failed` + "`" + ` 返回 ` + "`" + `log not found: 90199900001` + "`" + `。
+
+`
+	planText := string(planData)
+	planMarker := "### Current batch state"
+	planIndex := strings.Index(planText, planMarker)
+	if planIndex < 0 {
+		t.Fatalf("batch plan fixture missing %q heading", planMarker)
+	}
+	planInsertAt := planIndex + len(planMarker)
+	switch {
+	case strings.HasPrefix(planText[planInsertAt:], "\r\n\r\n"):
+		planInsertAt += len("\r\n\r\n")
+	case strings.HasPrefix(planText[planInsertAt:], "\n\n"):
+		planInsertAt += len("\n\n")
+	default:
+		t.Fatalf("batch plan fixture heading %q is not followed by a blank line", planMarker)
+	}
+	plan := planText[:planInsertAt] + insert + planText[planInsertAt:]
+	writeFile(t, planPath, plan)
+	changelogPath := filepath.Join(repo, "CHANGELOG.md")
+	changelogData, err := os.ReadFile(changelogPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changelogText := string(changelogData)
+	changelogMarker := "### Added"
+	changelogIndex := strings.Index(changelogText, changelogMarker)
+	if changelogIndex < 0 {
+		t.Fatalf("changelog fixture missing %q heading", changelogMarker)
+	}
+	changelogInsertAt := changelogIndex + len(changelogMarker)
+	switch {
+	case strings.HasPrefix(changelogText[changelogInsertAt:], "\r\n\r\n"):
+		changelogInsertAt += len("\r\n\r\n")
+	case strings.HasPrefix(changelogText[changelogInsertAt:], "\n\n"):
+		changelogInsertAt += len("\n\n")
+	default:
+		t.Fatalf("changelog fixture heading %q is not followed by a blank line", changelogMarker)
+	}
+	changelog := changelogText[:changelogInsertAt] + "- Batch 999 fixture note.\n\n" + changelogText[changelogInsertAt:]
+	writeFile(t, changelogPath, changelog)
+}
+
+func TestNextBatchSelectionPackageOnlyAfterCompleteCadence(t *testing.T) {
+	base := ReleaseHandoff{
+		Ready: true,
+		LatestBatch: ReleaseHandoffLatestBatch{
+			BatchID: "Batch 684",
+			Handoff: ReleaseHandoffLatestBatchHandoff{
+				LocalValidationReady: true,
+				ReleaseCheckReady:    true,
+				RemoteReleaseGate:    "blocked: completed failure with jobs steps=[]",
+				RemoteReleaseGateDetail: &ReleaseHandoffRemoteReleaseGateDetail{
+					State:            "blocked: completed failure with jobs steps=[]",
+					EmptySteps:       true,
+					CompletedFailure: true,
+					CanClaimGreen:    false,
+					Boundary:         []string{"release-check inventory ready is not remote CI green"},
+				},
+				ReleaseInspectionCadence: ReleaseHandoffReleaseInspectionCadence{
+					State:                     "complete",
+					ImplementationCommitReady: true,
+					InspectionCommitReady:     true,
+					Boundary:                  []string{"do not add a third record commit"},
+				},
+			},
+		},
+		PackMemoryCandidates: ReleaseHandoffPackMemoryCandidateList{Ready: true, Summary: "pack-memory candidate inventory ok", NextAction: "no pack-memory candidate cleanup is pending"},
+	}
+
+	pkg := BuildNextBatchSelectionPackage(base)
+	if pkg == nil || !pkg.Ready || pkg.MissionCommanderActionQueue.CurrentAction == nil || pkg.MissionCommanderActionQueue.CurrentAction.ActionID != "next-batch-selection" || pkg.MissionCommanderActionQueue.Counts.Total != 8 || pkg.MissionCommanderActionQueue.Counts.FollowUp != 7 || pkg.MissionCommanderActionQueue.Counts.RequiresReview != 0 {
+		t.Fatalf("complete cadence should expose next-batch selection package: %+v", pkg)
+	}
+	foundReplacementExecutor := false
+	for _, item := range pkg.MissionCommanderNextActions {
+		if item.ActionID == "next-batch-replacement-executor-takeover" && item.Source == "releaseHandoffNextBatch.followUp.candidateDomain" && strings.Contains(item.Command, "replacement executor takeover") && releaseHandoffStringsContain(item.Reasons, "pack-memory candidate queue is closed: no pack-memory candidate cleanup is pending") && releaseHandoffStringsContain(item.Boundary, "candidate-domain follow-ups are selection guidance only") {
+			foundReplacementExecutor = true
+			break
+		}
+	}
+	if !foundReplacementExecutor {
+		t.Fatalf("next-batch selection package omitted replacement executor takeover action: %+v", pkg.MissionCommanderNextActions)
+	}
+	if !releaseHandoffStringsContain(pkg.Boundary, "do not create a third inspection record") || !releaseHandoffStringsContain(pkg.Boundary, "release-check inventory ready is not remote CI green") {
+		t.Fatalf("next-batch selection package omitted remote/cadence boundaries: %+v", pkg.Boundary)
+	}
+
+	incomplete := base
+	incomplete.LatestBatch.Handoff.ReleaseInspectionCadence.State = "implementation-pending"
+	if pkg := BuildNextBatchSelectionPackage(incomplete); pkg != nil {
+		t.Fatalf("incomplete cadence must not expose next-batch selection package: %+v", pkg)
+	}
+	openPackMemory := base
+	openPackMemory.PackMemoryCandidates = ReleaseHandoffPackMemoryCandidateList{Ready: false, Total: 1, NextAction: "review listed pack-memory candidates"}
+	if pkg := BuildNextBatchSelectionPackage(openPackMemory); pkg != nil {
+		t.Fatalf("open pack-memory work must not expose next-batch selection package: %+v", pkg)
+	}
+	newRemoteSignal := base
+	newRemoteSignal.LatestBatch.Handoff.ReleaseInspectionCadence.NewRemoteSignal = true
+	if pkg := BuildNextBatchSelectionPackage(newRemoteSignal); pkg != nil {
+		t.Fatalf("new remote signal must not expose next-batch selection package: %+v", pkg)
 	}
 }
 

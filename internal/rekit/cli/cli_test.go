@@ -67,27 +67,51 @@ func TestParseDefaults(t *testing.T) {
 }
 
 func TestStatusProjectHandoffCurrentActionPromotesCompletedCadenceToNextBatchSelection(t *testing.T) {
+	remoteDetail := &releasecheck.ReleaseHandoffRemoteReleaseGateDetail{
+		State:            "blocked: completed failure with jobs steps=[]",
+		EmptySteps:       true,
+		CompletedFailure: true,
+		CanClaimGreen:    false,
+		Boundary:         []string{"treat remote release-gate steps=[] as a known runner/billing blocker"},
+	}
+	cadence := releasecheck.ReleaseHandoffReleaseInspectionCadence{
+		State:                     "complete",
+		ImplementationCommitReady: true,
+		InspectionCommitReady:     true,
+		Boundary:                  []string{"do not add a third record commit for the release inspection commit's own CI run"},
+	}
+	pkg := releasecheck.BuildNextBatchSelectionPackage(releasecheck.ReleaseHandoff{
+		Ready: true,
+		LatestBatch: releasecheck.ReleaseHandoffLatestBatch{
+			BatchID: "Batch 651",
+			Handoff: releasecheck.ReleaseHandoffLatestBatchHandoff{
+				LocalValidationReady:     true,
+				ReleaseCheckReady:        true,
+				RemoteReleaseGate:        "blocked: completed failure with jobs steps=[]",
+				RemoteReleaseGateDetail:  remoteDetail,
+				ReleaseInspectionCadence: cadence,
+				CommitRefs:               []string{"def651a"},
+			},
+		},
+		PackMemoryCandidates: releasecheck.ReleaseHandoffPackMemoryCandidateList{
+			Ready:      true,
+			NextAction: "no pack-memory candidate cleanup is pending",
+		},
+	})
+	if pkg == nil {
+		t.Fatal("expected next-batch selection package fixture")
+	}
 	project := &statusProjectHandoff{
-		Ready:                      true,
-		LatestBatch:                "Batch 651",
-		LatestLocalValidationReady: true,
-		LatestReleaseCheckReady:    true,
-		LatestRemoteReleaseGate:    "blocked: completed failure with jobs steps=[]",
-		LatestRemoteReleaseGateDetail: &releasecheck.ReleaseHandoffRemoteReleaseGateDetail{
-			State:            "blocked: completed failure with jobs steps=[]",
-			EmptySteps:       true,
-			CompletedFailure: true,
-			CanClaimGreen:    false,
-			Boundary:         []string{"treat remote release-gate steps=[] as a known runner/billing blocker"},
-		},
-		ReleaseInspectionCadence: releasecheck.ReleaseHandoffReleaseInspectionCadence{
-			State:                     "complete",
-			ImplementationCommitReady: true,
-			InspectionCommitReady:     true,
-			Boundary:                  []string{"do not add a third record commit for the release inspection commit's own CI run"},
-		},
-		ReadFirst:          []string{"docs/context-routing.md", "docs/batch-plan.md"},
-		ValidationCommands: []string{"go test ./..."},
+		Ready:                         true,
+		LatestBatch:                   "Batch 651",
+		LatestLocalValidationReady:    true,
+		LatestReleaseCheckReady:       true,
+		LatestRemoteReleaseGate:       "blocked: completed failure with jobs steps=[]",
+		LatestRemoteReleaseGateDetail: remoteDetail,
+		ReleaseInspectionCadence:      cadence,
+		ReadFirst:                     []string{"docs/context-routing.md", "docs/batch-plan.md"},
+		ValidationCommands:            []string{"go test ./..."},
+		NextBatchSelectionPackage:     pkg,
 	}
 	action := statusProjectHandoffCurrentAction(project)
 	if action == nil || action.Label != "next-batch" || action.ActionID != "next-batch-selection" || action.State != "ready-for-next-batch-selection" || action.Source != "releaseHandoffNextBatch" || action.RequiresReview || !strings.Contains(action.Command, "select the next Windows-verifiable product-path closure") {
@@ -161,6 +185,9 @@ func TestStatusProjectHandoffNextBatchCandidateDomainsOnlyAfterCompleteCadence(t
 		},
 		PackMemoryCandidates: releasecheck.ReleaseHandoffPackMemoryCandidateList{Ready: true, Summary: "pack-memory candidate inventory ok", NextAction: "no pack-memory candidate cleanup is pending"},
 	})
+	if complete.NextBatchSelectionPackage == nil || !complete.NextBatchSelectionPackage.Ready || complete.NextBatchSelectionPackage.MissionCommanderActionQueue.Counts.Total != 8 {
+		t.Fatalf("complete cadence should bind release-check next-batch selection package: %+v", complete.NextBatchSelectionPackage)
+	}
 	if complete.MissionCommanderActionQueue.CurrentAction == nil || complete.MissionCommanderActionQueue.CurrentAction.ActionID != "next-batch-selection" || complete.MissionCommanderActionQueue.Counts.Total != 8 || complete.MissionCommanderActionQueue.Counts.FollowUp != 7 {
 		t.Fatalf("complete cadence should expose current next-batch selection plus candidate-domain follow-ups: %+v", complete.MissionCommanderActionQueue)
 	}
@@ -1917,6 +1944,8 @@ func TestRunReleaseRunUsesResolvedGateProfileSteps(t *testing.T) {
 func TestRunReleaseRunIncludesReleaseInspectionHandoff(t *testing.T) {
 	previousCommand := releaseRunExecuteCommand
 	previousGit := releaseRunExecuteGitCommand
+	restoreReleaseCheck := withReadyReleaseCheckFixture(t)
+	defer restoreReleaseCheck()
 	defer func() {
 		releaseRunExecuteCommand = previousCommand
 		releaseRunExecuteGitCommand = previousGit
@@ -2182,6 +2211,8 @@ func TestReleaseRunOutputTailKeepsRecentLines(t *testing.T) {
 }
 
 func TestRunReleaseCheckJsonInventory(t *testing.T) {
+	restoreReleaseCheck := withReadyReleaseCheckFixture(t)
+	defer restoreReleaseCheck()
 	var out bytes.Buffer
 	if err := Run([]string{"-Command", "release-check", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
@@ -3076,6 +3107,8 @@ func assertPowerShellModuleReferences(t *testing.T, inventory releaseCheckPowerS
 }
 
 func TestRunReleaseCheckTextInventory(t *testing.T) {
+	restoreReleaseCheck := withReadyReleaseCheckFixture(t)
+	defer restoreReleaseCheck()
 	var out bytes.Buffer
 	if err := Run([]string{"-Command", "release-check"}, &out); err != nil {
 		t.Fatal(err)
@@ -6918,6 +6951,76 @@ func TestRunHandoffApplyWritesNextBatchCandidateDomains(t *testing.T) {
 	} {
 		if !bytes.Contains(text, []byte(expected)) {
 			t.Fatalf("project durable handoff omitted %q:\n%s", expected, string(text))
+		}
+	}
+}
+
+func TestRunReleaseCheckExposesNextBatchSelectionPackage(t *testing.T) {
+	originalReleaseCheckBuild := releaseCheckBuild
+	releaseCheckBuild = func(repoRoot string) (releasecheck.Result, error) {
+		handoff := releasecheck.ReleaseHandoff{
+			Ready:   true,
+			Summary: "release handoff summary ok",
+			LatestBatch: releasecheck.ReleaseHandoffLatestBatch{
+				BatchID: "Batch 684",
+				Handoff: releasecheck.ReleaseHandoffLatestBatchHandoff{
+					LocalValidationReady: true,
+					ReleaseCheckReady:    true,
+					RemoteReleaseGate:    "blocked: completed failure with jobs steps=[]",
+					RemoteReleaseGateDetail: &releasecheck.ReleaseHandoffRemoteReleaseGateDetail{
+						State:            "blocked: completed failure with jobs steps=[]",
+						EmptySteps:       true,
+						CompletedFailure: true,
+						CanClaimGreen:    false,
+						Boundary:         []string{"release-check inventory ready is not remote CI green"},
+					},
+					ReleaseInspectionCadence: releasecheck.ReleaseHandoffReleaseInspectionCadence{
+						State:                     "complete",
+						ImplementationCommitReady: true,
+						InspectionCommitReady:     true,
+						Boundary:                  []string{"do not add a third record commit"},
+					},
+				},
+			},
+			PackMemoryCandidates: releasecheck.ReleaseHandoffPackMemoryCandidateList{Ready: true, Summary: "pack-memory candidate inventory ok", NextAction: "no pack-memory candidate cleanup is pending"},
+		}
+		handoff.NextBatchSelectionPackage = releasecheck.BuildNextBatchSelectionPackage(handoff)
+		return releasecheck.Result{RepoRoot: repoRoot, Ready: true, Summary: "release gate inventory ok", ReleaseHandoff: handoff}, nil
+	}
+	t.Cleanup(func() { releaseCheckBuild = originalReleaseCheckBuild })
+
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "release-check", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var result releasecheck.Result
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	pkg := result.ReleaseHandoff.NextBatchSelectionPackage
+	if pkg == nil || !pkg.Ready || pkg.MissionCommanderActionQueue.CurrentAction == nil || pkg.MissionCommanderActionQueue.CurrentAction.ActionID != "next-batch-selection" || pkg.MissionCommanderActionQueue.Counts.Total != 8 || pkg.MissionCommanderActionQueue.Counts.FollowUp != 7 {
+		t.Fatalf("release-check JSON omitted next-batch selection package: %+v", pkg)
+	}
+	if !slices.ContainsFunc(pkg.MissionCommanderNextActions, func(item mission.MissionCommanderNextActionItem) bool {
+		return item.ActionID == "next-batch-replacement-executor-takeover" && item.Source == "releaseHandoffNextBatch.followUp.candidateDomain" && containsSubstring(item.Reasons, "pack-memory candidate queue is closed") && containsSubstring(item.Boundary, "candidate-domain follow-ups are selection guidance only")
+	}) {
+		t.Fatalf("release-check JSON omitted replacement-executor candidate action: %+v", pkg.MissionCommanderNextActions)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "release-check", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, expected := range []string{
+		"release-check next-batch selection package：summary=total=8 unblocked=8 blocked=0 requiresReview=0 followUp=7 current=select the next Windows-verifiable product-path closure",
+		"release-check next-batch selection current action：label=next-batch state=ready-for-next-batch-selection actionId=next-batch-selection source=releaseHandoffNextBatch blocked=false requiresReview=false command=select the next Windows-verifiable product-path closure",
+		"release-check next-batch selection action：label=replacement-executor state=next-batch-candidate-domain actionId=next-batch-replacement-executor-takeover source=releaseHandoffNextBatch.followUp.candidateDomain blocked=false requiresReview=false command=select a replacement executor takeover slice that can be resumed from status or durable handoff without prior chat context",
+		"release-check next-batch selection action reason：label=replacement-executor reason=pack-memory candidate queue is closed: no pack-memory candidate cleanup is pending",
+		"release-check next-batch selection action boundary：label=replacement-executor boundary=candidate-domain follow-ups are selection guidance only; update docs/batch-plan.md current batch state before implementation",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("release-check text omitted next-batch selection package %q:\n%s", expected, text)
 		}
 	}
 }
@@ -19291,6 +19394,123 @@ func copyRepoFile(t *testing.T, repoRoot, sourceRel, caseRoot, targetRel string)
 		t.Fatal(err)
 	}
 	writeCaseFile(t, caseRoot, targetRel, string(content))
+}
+
+func withReadyReleaseCheckFixture(t *testing.T) func() {
+	t.Helper()
+	previous := releaseCheckBuild
+	releaseCheckBuild = func(repoRoot string) (releasecheck.Result, error) {
+		result, err := previous(repoRoot)
+		if err != nil {
+			return releasecheck.Result{}, err
+		}
+		handoff := readyReleaseHandoffFixture(result.ReleaseHandoff)
+		result.ReleaseHandoff = handoff
+		result.Ready = true
+		result.Summary = "release gate inventory ok"
+		result.Warnings = nil
+		return result, nil
+	}
+	return func() { releaseCheckBuild = previous }
+}
+
+func readyReleaseHandoffFixture(base releasecheck.ReleaseHandoff) releasecheck.ReleaseHandoff {
+	remoteDetail := &releasecheck.ReleaseHandoffRemoteReleaseGateDetail{
+		State:            "blocked: completed failure with jobs steps=[]",
+		EmptySteps:       true,
+		CompletedFailure: true,
+		CanClaimGreen:    false,
+		Boundary: []string{
+			"release-check inventory ready is not remote CI green",
+			"do not claim remote CI green while jobs have steps=[]",
+		},
+	}
+	cadence := releasecheck.ReleaseHandoffReleaseInspectionCadence{
+		MaxPushes:                 2,
+		ImplementationCommitReady: true,
+		InspectionCommitReady:     true,
+		State:                     "complete",
+		NextAction:                "do not create a third inspection record for the release inspection commit's own CI; continue the next batch",
+		Evidence: []string{
+			"implementation commit/push recorded",
+			"release inspection commit/run recorded",
+			"remote release-gate steps=[] blocker recorded",
+		},
+		Boundary: []string{
+			"normal batches stop after implementation commit/push plus one release inspection commit/push",
+			"do not add a third record commit for the release inspection commit's own CI run",
+			"only a remote signal different from the existing steps=[] runner/billing blocker may justify another inspection record",
+		},
+	}
+	handoff := base
+	handoff.Ready = true
+	handoff.Summary = "release handoff summary ok"
+	handoff.Warnings = nil
+	handoff.LatestBatch = releasecheck.ReleaseHandoffLatestBatch{
+		PlanPath:         "docs/batch-plan.md",
+		Present:          true,
+		Title:            "Batch 684：installed shim durable next-batch takeover product path",
+		BatchID:          "Batch 684",
+		Status:           "已完成 installed shim durable next-batch takeover product path 的 runtime/test/doc 实现与 focused 本机验证。",
+		Goal:             "fixture completed goal",
+		ValidationResult: "完整本机 release minimum 已通过。Implementation commit `dd15e1b` 已推送。Push run `30317050389` completed failure；jobs 均 `steps=[]`。",
+		Handoff: releasecheck.ReleaseHandoffLatestBatchHandoff{
+			Completed:                true,
+			LocalValidationReady:     true,
+			ReleaseCheckReady:        true,
+			RemoteReleaseGate:        "blocked: completed failure with jobs steps=[]",
+			RemoteReleaseGateDetail:  remoteDetail,
+			ReleaseInspectionCadence: cadence,
+			CommitRefs:               []string{"dd15e1b"},
+			Evidence: []string{
+				"release-check -Format json recorded",
+				"status handoff recorded",
+				"packs inventory recorded",
+				"doctor validation recorded",
+				"go test ./... recorded",
+				"go vet ./... recorded",
+				"git diff --check recorded",
+				"remote release-gate jobs steps=[] recorded",
+			},
+			NextAction: "select the next Windows-verifiable product-path batch from docs/context-routing.md and docs/batch-plan.md; do not create a third inspection record for the release inspection commit's own CI unless a new remote signal appears",
+		},
+	}
+	handoff.ReleaseNotes.Path = "CHANGELOG.md"
+	handoff.ReleaseNotes.Present = true
+	handoff.ReleaseNotes.Section = "Unreleased"
+	handoff.ReleaseNotes.LatestBatchID = "Batch 684"
+	handoff.ReleaseNotes.Covered = true
+	handoff.ReleaseNotes.Summary = "release notes cover latest batch"
+	handoff.PackMemoryCandidates.Ready = true
+	handoff.PackMemoryCandidates.Summary = "pack-memory candidate inventory ok"
+	handoff.PackMemoryCandidates.Total = 0
+	handoff.PackMemoryCandidates.Packs = nil
+	handoff.PackMemoryCandidates.NextAction = "no pack-memory candidate cleanup is pending"
+	handoff.PackMemoryCandidates.Warnings = nil
+	releasecheck.RebuildPackMemoryCandidateActionQueue(&handoff.PackMemoryCandidates)
+	handoff.NextActions = mission.UniqueStrings(append(handoff.NextActions,
+		"Read docs/context-routing.md first, then docs/batch-plan.md current batch state before choosing next work",
+		"select the next Windows-verifiable product-path batch",
+		"do not create a third inspection record unless a new remote signal appears",
+	))
+	for i := range handoff.Signals {
+		switch handoff.Signals[i].Name {
+		case "latest batch documentation":
+			handoff.Signals[i].Ready = true
+			handoff.Signals[i].Summary = "latest batch handoff ok"
+			handoff.Signals[i].Details = []string{"localValidationReady=true", "nextAction=" + handoff.LatestBatch.Handoff.NextAction}
+		case "release notes freshness":
+			handoff.Signals[i].Ready = true
+			handoff.Signals[i].Summary = "release notes cover latest batch"
+			handoff.Signals[i].Details = []string{"path=CHANGELOG.md", "covered=true", "latestBatch=Batch 684"}
+		case "pack-memory candidates":
+			handoff.Signals[i].Ready = true
+			handoff.Signals[i].Summary = "pack-memory candidate inventory ok"
+			handoff.Signals[i].Details = []string{"openPacks=0 total=0 ready=true", "nextAction=no pack-memory candidate cleanup is pending"}
+		}
+	}
+	handoff.NextBatchSelectionPackage = releasecheck.BuildNextBatchSelectionPackage(handoff)
+	return handoff
 }
 
 func repoRoot(t *testing.T) string {
