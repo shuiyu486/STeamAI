@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 705：reviewer writeback ordering and exact recovery move
 
-状态：已完成实现、focused/package/CLI 回归、Windows handle-bound 竞态验证、Linux test binary cross-compile、完整 `go test ./... -count=1` 与 `go vet ./...`；implementation commit/push 与 push-triggered remote inspection 待执行。
+状态：已完成实现、focused/package/CLI 回归、Windows handle-bound 竞态验证、Linux test binary cross-compile、完整本机 release minimum、文档/CHANGELOG、implementation commit/push 与 push-triggered remote inspection；implementation commit `643df26` 已推送。Push run `30377288105` completed failure；Windows/macOS/Linux jobs `90336096385`/`90336096542`/`90336096584` 均 `steps=[]`，`gh run view 30377288105 --log-failed` 返回 `log not found: 90336096385`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。
 
 目标：修复 reviewer verification/decision writeback 跨 ledger 的伪 `Latest*` 语义，并关闭 regular-file reviewer recovery 在 stable read 后、path-based rename 前的 source replacement 窗口。恢复动作必须证明被验证的 source object 就是被 quarantine 的 object；无法提供这种原语的平台不得发布可执行 recovery handoff。
 
@@ -26,7 +26,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 已实现内容：`ReviewerWritebackItems` 现在合并 verification/decision events 后按有效 RFC3339Nano `createdAt` 全局稳定排序，再保留最新 `maxHandoffRows`；legacy 无/非法时间事件保持确定性 append order 并排在可信时间事件之前。reviewer recovery 底层 primitive 泛化为 regular/empty-file/symlink exact move：Windows 在同一不共享 write/delete 的 source handle 上校验类型、大小和完整 bytes，再对该 handle 执行 destination no-replace rename；collection/recovery preview 根据平台 capability 决定是否发布 recovery action，非 Windows 返回 unsupported 且不改 source/quarantine/intent。新增 source replacement、unexpected handle bytes、existing quarantine no-replace、UNC handle path 规范化、跨 ledger latest/global limit/legacy fallback 回归，并让跨平台测试显式区分 supported closure 与 unsupported fail-closed。
 
-验证结果：focused reviewer writeback、subagents recovery/exact-move、workstream package与 CLI reviewer/status regressions 已通过；Windows source identity、pre-move bytes、destination no-replace tests 已通过；`GOOS=linux GOARCH=amd64 go test -c ./internal/rekit/subagents` 通过。最终 `go test ./... -count=1` 通过（CLI 259.145s），`go vet ./...` 通过。`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true` / `summary=release gate inventory ok`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check` 已通过；`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。
+验证结果：focused reviewer writeback、subagents recovery/exact-move、workstream package与 CLI reviewer/status regressions 已通过；Windows source identity、pre-move bytes、destination no-replace tests 已通过；`GOOS=linux GOARCH=amd64 go test -c ./internal/rekit/subagents` 通过。最终 `go test ./... -count=1` 通过（CLI 259.145s），`go vet ./...` 通过。`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true` / `summary=release gate inventory ok`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor` 与 `git diff --check` 已通过；`git diff --check` 仅保留 Windows 工作树 LF→CRLF 提示。Implementation commit `643df26` 已推送；push run `30377288105` completed failure，Windows/macOS/Linux jobs `90336096385`/`90336096542`/`90336096584` 均 `steps=[]` 且无失败日志，仍是既有 runner/billing blocker，不声明 remote green。
 
 ### Batch 704：isolated CLI pack-memory mutation fixtures
 
