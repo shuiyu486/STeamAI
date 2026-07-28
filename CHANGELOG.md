@@ -4,7 +4,7 @@
 
 ### Fixed
 
-- Batch 703 收紧 release handoff 与 reviewer/gate correctness：release handoff 现在兼容 `release-check ready=true` 的分段本地验证证据并保持 status/current action 真值；reviewer result 拒绝 contract 外的 `decision`；reviewer dispatch packet 使用稳定 regular-file read、canonical allowlist 和 single-object/trailing guard；普通 execution evidence acknowledgement 不再隐藏 `RequiresMainEscalation`。补充 releasecheck、reviewerresult、workstream、subagents 与 CLI 回归覆盖。最终 `go test ./... -count=1`、`go vet ./...`、`release-check`、`status`、`packs`、`doctor` 与 `git diff --check` 已通过。pack-memory/promote 测试的真实 `_template` fixture 隔离列为下一批，不在本批宣称完成。
+- Batch 703 收紧 release handoff 与 reviewer/gate correctness：release handoff 现在兼容 `release-check ready=true` 的分段本地验证证据并保持 status/current action 真值；reviewer result 拒绝 contract 外的 `decision`；reviewer dispatch packet 使用稳定 regular-file read、canonical allowlist 和 single-object/trailing guard；普通 execution evidence acknowledgement 不再隐藏 `RequiresMainEscalation`。补充 releasecheck、reviewerresult、workstream、subagents 与 CLI 回归覆盖。最终 `go test ./... -count=1`、`go vet ./...`、`release-check`、`status`、`packs`、`doctor` 与 `git diff --check` 已通过。pack-memory/promote 测试的真实 `_template` fixture 隔离列为下一批，不在本批宣称完成。Implementation commit `7be2b81` 已推送；push run `30370247554` completed failure，Linux/Windows/macOS jobs `90311910028`/`90311910040`/`90311910048` 均 `steps=[]` 且无失败日志，仍是既有 runner/billing blocker，不声明 remote green。
 
 ### Added
 
