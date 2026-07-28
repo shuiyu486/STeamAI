@@ -17587,7 +17587,13 @@ func assertReviewerPacketRetirementText(t *testing.T, label, text, lane string) 
 func assertNoReviewerPacketRetirementReopensInvalidPacket(t *testing.T, label, text string) {
 	t.Helper()
 	for line := range strings.SplitSeq(text, "\n") {
-		relevant := strings.Contains(line, "reviewer dispatch") || strings.Contains(line, "reviewer packet retirement")
+		trimmed := strings.TrimSpace(line)
+		relevant := strings.HasPrefix(trimmed, "status case mission reviewer dispatch") ||
+			strings.HasPrefix(trimmed, "status case mission reviewer packet retirement") ||
+			strings.HasPrefix(trimmed, "handoff reviewer dispatch") ||
+			strings.HasPrefix(trimmed, "handoff reviewer packet retirement") ||
+			strings.HasPrefix(trimmed, "continue reviewer dispatch") ||
+			strings.HasPrefix(trimmed, "continue reviewer packet retirement")
 		if !relevant {
 			continue
 		}

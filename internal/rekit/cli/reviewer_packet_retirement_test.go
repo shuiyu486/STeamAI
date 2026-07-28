@@ -168,8 +168,39 @@ func TestRunPlanSubagentsReviewerPacketRetirementWhatIfApplyE2E(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &applied); err != nil {
 		t.Fatal(err)
 	}
-	if !applied.Applied || applied.MissionCommanderAction.State != "reviewer-packet-retired" {
+	if !applied.Applied || applied.Replay || applied.Mode != "reviewer-packet-retirement" || applied.MissionCommanderAction.State != "reviewer-packet-retired" {
 		t.Fatalf("unexpected retirement apply: %+v", applied)
+	}
+	retirementBytes, err := os.ReadFile(applied.RetirementPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out.Reset()
+	if err := Run(append(applyArgs, "-Apply", "-Format", "json"), &out); err != nil {
+		t.Fatal(err)
+	}
+	var replay subagents.ReviewerPacketRetirementResult
+	if err := json.Unmarshal(out.Bytes(), &replay); err != nil {
+		t.Fatal(err)
+	}
+	if !replay.Applied || !replay.Replay || replay.Mode != "already-retired" || replay.PacketID != applied.PacketID || replay.RetirementPath != applied.RetirementPath || replay.MissionCommanderAction.State != "reviewer-packet-retired" || !containsSubstring(replay.NextSteps, "already exists") || !containsSubstring(replay.NextSteps, "do not dispatch") {
+		t.Fatalf("duplicate retirement apply did not return already-retired replay handoff: %+v", replay)
+	}
+	replayedRetirementBytes, err := os.ReadFile(replay.RetirementPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(retirementBytes, replayedRetirementBytes) {
+		t.Fatalf("duplicate retirement apply rewrote receipt bytes")
+	}
+
+	out.Reset()
+	if err := Run(append(applyArgs, "-Apply", "-Format", "text"), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "mode=already-retired") || !strings.Contains(out.String(), "replay=true") || !strings.Contains(out.String(), "exact reviewer packet retirement receipt already exists") {
+		t.Fatalf("duplicate retirement text did not expose replay handoff:\n%s", out.String())
 	}
 
 	out.Reset()

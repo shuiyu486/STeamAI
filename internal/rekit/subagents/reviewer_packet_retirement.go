@@ -59,6 +59,7 @@ type ReviewerPacketRetirementResult struct {
 	Pack                        string                                   `json:"pack"`
 	IsMutation                  bool                                     `json:"isMutation"`
 	Applied                     bool                                     `json:"applied"`
+	Replay                      bool                                     `json:"replay,omitempty"`
 	RequiresConfirmation        bool                                     `json:"requiresConfirmation"`
 	PacketID                    string                                   `json:"packetId"`
 	PacketPath                  string                                   `json:"packetPath"`
@@ -171,6 +172,8 @@ func RetireInvalidReviewerPacket(repoRoot, caseRoot, pack string, opt ReviewerPa
 			if !reviewerPacketRetirementMatches(existing, receipt) {
 				return ReviewerPacketRetirementResult{}, fmt.Errorf("reviewer packet retirement already exists for a different snapshot or decision: %s", prepared.retirementPath)
 			}
+			result.Mode = "already-retired"
+			result.Replay = true
 		} else if !os.IsNotExist(err) {
 			return ReviewerPacketRetirementResult{}, err
 		} else {
@@ -180,7 +183,11 @@ func RetireInvalidReviewerPacket(repoRoot, caseRoot, pack string, opt ReviewerPa
 			}
 		}
 		result.Applied = true
-		result.NextSteps = []string{"regenerate a new canonical reviewer packet if reviewer work remains; otherwise resume the lane after confirming the blocker is absent"}
+		if result.Replay {
+			result.NextSteps = []string{"exact reviewer packet retirement receipt already exists; do not dispatch, collect, intake, adopt, or continue from the retired packet", "rerun status, regenerate a new canonical reviewer packet if reviewer work remains, or continue the lane only after confirming no reviewer blocker remains"}
+		} else {
+			result.NextSteps = []string{"regenerate a new canonical reviewer packet if reviewer work remains; otherwise resume the lane after confirming the blocker is absent"}
+		}
 		result.MissionCommanderAction = mission.MissionCommanderAction{State: "reviewer-packet-retired", PrimaryCommand: "/rekit status", Boundary: boundary}
 	}
 	result.MissionCommanderNextActions = []mission.MissionCommanderNextActionItem{{Lane: result.Lane, Label: result.PacketID, State: result.MissionCommanderAction.State, Command: result.MissionCommanderAction.PrimaryCommand, Source: "reviewerPacketRetirement", RequiresReview: true, Reasons: append([]string{}, result.NextSteps...), Boundary: append([]string{}, boundary...)}}

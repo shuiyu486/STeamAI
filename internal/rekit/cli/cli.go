@@ -8981,7 +8981,7 @@ func writePlanSubagentsReviewerResultRecoveryDispositionText(out io.Writer, resu
 }
 
 func writePlanSubagentsReviewerPacketRetirementText(out io.Writer, result subagents.ReviewerPacketRetirementResult) error {
-	if _, err := fmt.Fprintf(out, "plan-subagents reviewer packet retirement：mutation=%t applied=%t requiresConfirmation=%t packet=%s lane=%s actor=%s retirementPath=%s\n", result.IsMutation, result.Applied, result.RequiresConfirmation, result.PacketID, result.Lane, result.Actor, result.RetirementPath); err != nil {
+	if _, err := fmt.Fprintf(out, "plan-subagents reviewer packet retirement：mode=%s mutation=%t applied=%t replay=%t requiresConfirmation=%t packet=%s lane=%s actor=%s retirementPath=%s\n", result.Mode, result.IsMutation, result.Applied, result.Replay, result.RequiresConfirmation, result.PacketID, result.Lane, result.Actor, result.RetirementPath); err != nil {
 		return err
 	}
 	if _, err := fmt.Fprintf(out, "reviewer packet retirement snapshot：packetPath=%s packetSha256=%s packetBytes=%d integrityPath=%s integritySha256=%s integrityBytes=%d invalidReason=%s reason=%s\n", result.PacketPath, result.PacketSHA256, result.PacketBytes, result.IntegrityPath, result.IntegritySHA256, result.IntegrityBytes, planSubagentsTextInline(result.InvalidReason), planSubagentsTextInline(result.Reason)); err != nil {
