@@ -219,7 +219,7 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 	}
 	missionCommanderNext = MissionCommanderNextActionsWithReviewerDispatches(missionCommanderNext, reviewerDispatchIntakeHandoffs)
 	if ctx.project && len(ctx.projectMissionCommanderNextActions) > 0 {
-		missionCommanderNext = mission.UniqueCommanderNextActions(append(append([]mission.MissionCommanderNextActionItem{}, ctx.projectMissionCommanderNextActions...), missionCommanderNext...))
+		missionCommanderNext = mission.UniqueCommanderNextActions(append(append([]mission.MissionCommanderNextActionItem{}, missionCommanderNext...), ctx.projectMissionCommanderNextActions...))
 	}
 	missionCommanderActionQueue := mission.MissionCommanderActionQueueFor(missionCommanderNext)
 	next := []string{"use /rekit as the Mission Commander entrypoint; JSON preview/apply is Go-owned by default"}

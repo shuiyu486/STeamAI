@@ -236,6 +236,43 @@ func TestMissionCommanderActionQueuePromotesReviewBlockerOverFollowUp(t *testing
 	}
 }
 
+func TestMissionCommanderActionQueuePromotesActiveProjectWorkOverLaneContinue(t *testing.T) {
+	items := []MissionCommanderNextActionItem{
+		{State: "ready-to-continue", Command: "/rekit continue main", Source: "missionCommanderActions"},
+		{ActionID: "pack-memory-verification-provision-required", State: "pack-memory-verification-required", Command: "/rekit promote -ProvisionCandidateVerificationCases -WhatIf -Format json", Source: "packMemoryCandidates._template", RequiresReview: true},
+	}
+
+	queue := MissionCommanderActionQueueFor(items)
+	if queue.CurrentAction == nil || queue.CurrentAction.ActionID != "pack-memory-verification-provision-required" || queue.CurrentAction.Source != "packMemoryCandidates._template" || queue.Summary != "total=2 unblocked=2 blocked=0 requiresReview=1 followUp=0 current=/rekit promote -ProvisionCandidateVerificationCases -WhatIf -Format json" {
+		t.Fatalf("Mission Commander action queue should promote active project work over lane continue: %+v", queue)
+	}
+}
+
+func TestMissionCommanderActionQueueDefersIdleNextBatchGuidance(t *testing.T) {
+	items := []MissionCommanderNextActionItem{
+		{State: "ready-for-next-batch-selection", Command: "select the next Windows-verifiable product-path closure", Source: "releaseHandoffNextBatch"},
+		{State: "next-batch-candidate-domain", Command: "select a replacement executor takeover slice", Source: "releaseHandoffNextBatch.followUp.candidateDomain"},
+		{State: "ready-for-evidence-review", Command: "/rekit handoff main", Source: "executionEvidenceReview", RequiresReview: true},
+	}
+
+	queue := MissionCommanderActionQueueFor(items)
+	if queue.CurrentAction == nil || queue.CurrentAction.Command != "/rekit handoff main" || queue.CurrentAction.Source != "executionEvidenceReview" || queue.Summary != "total=3 unblocked=3 blocked=0 requiresReview=1 followUp=1 current=/rekit handoff main" {
+		t.Fatalf("Mission Commander action queue should defer idle next-batch guidance behind active evidence review: %+v", queue)
+	}
+}
+
+func TestMissionCommanderActionQueueAllowsIdleNextBatchGuidanceWhenAlone(t *testing.T) {
+	items := []MissionCommanderNextActionItem{
+		{State: "ready-for-next-batch-selection", Command: "select the next Windows-verifiable product-path closure", Source: "releaseHandoffNextBatch"},
+		{State: "next-batch-candidate-domain", Command: "select a replacement executor takeover slice", Source: "releaseHandoffNextBatch.followUp.candidateDomain"},
+	}
+
+	queue := MissionCommanderActionQueueFor(items)
+	if queue.CurrentAction == nil || queue.CurrentAction.Command != "select the next Windows-verifiable product-path closure" || queue.CurrentAction.Source != "releaseHandoffNextBatch" || queue.Summary != "total=2 unblocked=2 blocked=0 requiresReview=0 followUp=1 current=select the next Windows-verifiable product-path closure" {
+		t.Fatalf("Mission Commander action queue should allow idle next-batch guidance when no active work remains: %+v", queue)
+	}
+}
+
 func TestMissionCommanderActionQueuePromotesPendingGateWhatIfOverBlockedHandoff(t *testing.T) {
 	items := []MissionCommanderNextActionItem{
 		{State: "needs-gate-decision", Command: "/rekit gate debug -Lane feature-login -WhatIf", Source: "missionCommanderActions", RequiresReview: true, Reasons: []string{"pending-gate"}},

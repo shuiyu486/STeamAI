@@ -161,9 +161,22 @@ type ReleaseHandoffPackMemoryCandidateList struct {
 type ReleaseHandoffNextBatchSelectionPackage struct {
 	Ready                       bool                                     `json:"ready"`
 	Summary                     string                                   `json:"summary"`
+	StarterPackage              *ReleaseHandoffNextBatchStarterPackage   `json:"starterPackage,omitempty"`
 	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
 	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 	Boundary                    []string                                 `json:"boundary,omitempty"`
+}
+
+type ReleaseHandoffNextBatchStarterPackage struct {
+	Ready                   bool     `json:"ready"`
+	LatestCompletedBatch    string   `json:"latestCompletedBatch,omitempty"`
+	SuggestedNextBatch      string   `json:"suggestedNextBatch,omitempty"`
+	CurrentBatchSection     string   `json:"currentBatchSection"`
+	ChangelogEntry          string   `json:"changelogEntry"`
+	ValidationCommands      []string `json:"validationCommands,omitempty"`
+	ReleaseCadenceSteps     []string `json:"releaseCadenceSteps,omitempty"`
+	RecommendedStarterSteps []string `json:"recommendedStarterSteps,omitempty"`
+	Boundary                []string `json:"boundary,omitempty"`
 }
 
 type ReleaseHandoffPackMemoryCandidateReviewSummary struct {
@@ -3588,10 +3601,79 @@ func BuildNextBatchSelectionPackage(handoff ReleaseHandoff) *ReleaseHandoffNextB
 	return &ReleaseHandoffNextBatchSelectionPackage{
 		Ready:                       true,
 		Summary:                     queue.Summary,
+		StarterPackage:              releaseHandoffNextBatchStarterPackage(handoff),
 		MissionCommanderNextActions: append([]mission.MissionCommanderNextActionItem{}, actions...),
 		MissionCommanderActionQueue: queue,
 		Boundary:                    append([]string{}, current.Boundary...),
 	}
+}
+
+func releaseHandoffNextBatchStarterPackage(handoff ReleaseHandoff) *ReleaseHandoffNextBatchStarterPackage {
+	latest := strings.TrimSpace(handoff.LatestBatch.BatchID)
+	next := releaseHandoffNextBatchID(latest)
+	sectionTitle := "Batch <next>：<Windows-verifiable product-path closure>"
+	if next != "" {
+		sectionTitle = next + "：<Windows-verifiable product-path closure>"
+	}
+	currentSection := strings.Join([]string{
+		"### " + sectionTitle,
+		"",
+		"状态：进行中。本批选择 <candidate-domain>，推进一个 Windows 本机可验证的 Mission Commander / replacement executor product-path slice。写清上一批完成后仍需要解决的接手断点，以及本批为何不是字段/文案/summary 微调。",
+		"",
+		"目标：<用 1 段描述可由 status/handoff/continue/release-check 或临时 case 验证的 operational closure。>",
+		"",
+		"边界：本批不新增 PowerShell runtime logic，不执行 heavy-tool，不写 authority/confirmed，不自动执行 reviewer/adapter/pack-memory/gate mutation；所有写入仍走既有 explicit WhatIf → expected-hash Apply 或 authorized-gate boundary。",
+		"",
+		"验证标准：<列 focused regressions、必要 product-path/temporary case checks，并在实现后运行完整本机 release minimum。>",
+	}, "\n")
+	changelogBatch := next
+	if changelogBatch == "" {
+		changelogBatch = "Batch <next>"
+	}
+	changelogEntry := "- " + changelogBatch + " 新增 <product-path closure>：<用户可见变化、同源 runtime/CLI envelope、关键边界与验证结果。>"
+	return &ReleaseHandoffNextBatchStarterPackage{
+		Ready:                true,
+		LatestCompletedBatch: latest,
+		SuggestedNextBatch:   next,
+		CurrentBatchSection:  currentSection,
+		ChangelogEntry:       changelogEntry,
+		ValidationCommands:   releaseHandoffValidationCommands(handoff.Validation),
+		ReleaseCadenceSteps: []string{
+			"先提交并推送 implementation commit（代码、测试、文档、本机验证）。",
+			"只检查 implementation commit 触发的 remote release-gate run。",
+			"若 run 仍是 steps=[] / no logs runner-billing blocker，记录为 inspection commit 且不声明 remote green。",
+			"不要为 release inspection commit 自己触发的 CI 追加第三个记录，除非出现不同于既有 steps=[] blocker 的新远程信号。",
+		},
+		RecommendedStarterSteps: []string{
+			"从 next-batch candidate-domain 中选择一个中型 product-path closure。",
+			"先更新 docs/batch-plan.md current batch state，再改 runtime/tests。",
+			"实现时优先复用既有 typed handoff/envelope，不创建并行业务逻辑。",
+			"focused regressions 通过后再运行完整本机 release minimum。",
+		},
+		Boundary: mission.UniqueStrings(append([]string{
+			"starter package is read-only guidance; it must not create or modify docs by itself",
+			"do not use starter package templates to justify a single-field, summary, or projection-only micro-batch",
+			"do not execute reviewer, adapter, pack-memory, gate, heavy-tool, sync, or promote mutation from starter guidance",
+		}, releaseHandoffNextBatchCandidateBoundary(handoff)...)),
+	}
+}
+
+func releaseHandoffValidationCommands(validation []ReleaseHandoffValidation) []string {
+	commands := make([]string, 0, len(validation))
+	for _, item := range validation {
+		if strings.TrimSpace(item.Command) != "" {
+			commands = append(commands, item.Command)
+		}
+	}
+	return mission.UniqueStrings(commands)
+}
+
+func releaseHandoffNextBatchID(latest string) string {
+	n := latestBatchIDNumber(latest)
+	if n < 0 {
+		return ""
+	}
+	return fmt.Sprintf("Batch %d", n+1)
 }
 
 func releaseHandoffReadyForNextBatchSelection(handoff ReleaseHandoff) bool {

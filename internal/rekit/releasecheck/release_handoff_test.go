@@ -244,7 +244,8 @@ func writeCompletedReleaseHandoffLatestBatchFixture(t *testing.T, repo string) {
 
 func TestNextBatchSelectionPackageOnlyAfterCompleteCadence(t *testing.T) {
 	base := ReleaseHandoff{
-		Ready: true,
+		Ready:      true,
+		Validation: []ReleaseHandoffValidation{{Command: "go test ./...", Required: true, Present: true, Resolved: true}},
 		LatestBatch: ReleaseHandoffLatestBatch{
 			BatchID: "Batch 684",
 			Handoff: ReleaseHandoffLatestBatchHandoff{
@@ -285,6 +286,10 @@ func TestNextBatchSelectionPackageOnlyAfterCompleteCadence(t *testing.T) {
 	}
 	if !releaseHandoffStringsContain(pkg.Boundary, "do not create a third inspection record") || !releaseHandoffStringsContain(pkg.Boundary, "release-check inventory ready is not remote CI green") {
 		t.Fatalf("next-batch selection package omitted remote/cadence boundaries: %+v", pkg.Boundary)
+	}
+	starter := pkg.StarterPackage
+	if starter == nil || !starter.Ready || starter.LatestCompletedBatch != "Batch 684" || starter.SuggestedNextBatch != "Batch 685" || !strings.Contains(starter.CurrentBatchSection, "### Batch 685") || !strings.Contains(starter.CurrentBatchSection, "验证标准：") || !strings.Contains(starter.ChangelogEntry, "Batch 685") || !releaseHandoffStringsContain(starter.ReleaseCadenceSteps, "implementation commit") || !releaseHandoffStringsContain(starter.Boundary, "starter package is read-only guidance") {
+		t.Fatalf("next-batch selection package omitted starter package: %+v", starter)
 	}
 
 	incomplete := base

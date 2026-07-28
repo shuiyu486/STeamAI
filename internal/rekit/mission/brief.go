@@ -574,6 +574,18 @@ func MissionCommanderNextActionIsFollowUp(item MissionCommanderNextActionItem) b
 	return strings.Contains(item.Source, ".followUp")
 }
 
+func missionCommanderNextActionIsIdleGuidance(item MissionCommanderNextActionItem) bool {
+	return strings.HasPrefix(item.Source, "releaseHandoffNextBatch")
+}
+
+func missionCommanderNextActionIsActiveProjectWork(item MissionCommanderNextActionItem) bool {
+	return strings.HasPrefix(item.Source, "executionEvidenceReview") || strings.HasPrefix(item.Source, "reviewerDispatch") || strings.HasPrefix(item.Source, "reviewerPacket") || strings.HasPrefix(item.Source, "packMemoryCandidates") || strings.HasPrefix(item.Source, "adapterReport")
+}
+
+func missionCommanderNextActionIsBoundedLanePrimary(item MissionCommanderNextActionItem) bool {
+	return item.Source == "missionCommanderActions" && item.State == "needs-start-apply"
+}
+
 func MissionCommanderActionQueueSummary(queue MissionCommanderActionQueue) string {
 	current := "none"
 	if queue.CurrentAction != nil {
@@ -583,34 +595,51 @@ func MissionCommanderActionQueueSummary(queue MissionCommanderActionQueue) strin
 }
 
 func firstMissionCommanderCurrentAction(items []MissionCommanderNextActionItem) (MissionCommanderNextActionItem, bool) {
-	if current, ok := firstMissionCommanderCurrentActionMatching(items, func(item MissionCommanderNextActionItem) bool {
-		return !MissionCommanderNextActionIsFollowUp(item) && !item.Blocked
-	}); ok {
-		return current, true
-	}
-	if current, ok := firstMissionCommanderCurrentActionMatching(items, func(item MissionCommanderNextActionItem) bool {
-		return !MissionCommanderNextActionIsFollowUp(item)
-	}); ok {
-		return current, true
-	}
-	if current, ok := firstMissionCommanderCurrentActionMatching(items, func(item MissionCommanderNextActionItem) bool {
-		return item.RequiresReview || item.Blocked
-	}); ok {
-		return current, true
-	}
 	if len(items) == 0 {
 		return MissionCommanderNextActionItem{}, false
 	}
-	return items[0], true
-}
-
-func firstMissionCommanderCurrentActionMatching(items []MissionCommanderNextActionItem, match func(MissionCommanderNextActionItem) bool) (MissionCommanderNextActionItem, bool) {
-	for _, item := range items {
-		if match(item) {
-			return item, true
+	current := items[0]
+	currentPriority := missionCommanderNextActionCurrentPriority(current)
+	for _, item := range items[1:] {
+		priority := missionCommanderNextActionCurrentPriority(item)
+		if priority < currentPriority {
+			current = item
+			currentPriority = priority
 		}
 	}
-	return MissionCommanderNextActionItem{}, false
+	return current, true
+}
+
+func missionCommanderNextActionCurrentPriority(item MissionCommanderNextActionItem) int {
+	followUp := MissionCommanderNextActionIsFollowUp(item)
+	idleGuidance := missionCommanderNextActionIsIdleGuidance(item)
+	activeProjectWork := missionCommanderNextActionIsActiveProjectWork(item)
+	boundedLanePrimary := missionCommanderNextActionIsBoundedLanePrimary(item)
+	if !followUp && !item.Blocked && boundedLanePrimary {
+		return 0
+	}
+	if !followUp && !item.Blocked && activeProjectWork {
+		return 10
+	}
+	if !followUp && !item.Blocked && !idleGuidance {
+		return 20
+	}
+	if !followUp && activeProjectWork {
+		return 30
+	}
+	if !followUp && !idleGuidance {
+		return 40
+	}
+	if !followUp && !item.Blocked {
+		return 50
+	}
+	if !followUp {
+		return 60
+	}
+	if item.RequiresReview || item.Blocked {
+		return 70
+	}
+	return 80
 }
 
 func missionCommanderNextActionPtr(item MissionCommanderNextActionItem) *MissionCommanderNextActionItem {

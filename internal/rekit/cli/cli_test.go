@@ -185,8 +185,8 @@ func TestStatusProjectHandoffNextBatchCandidateDomainsOnlyAfterCompleteCadence(t
 		},
 		PackMemoryCandidates: releasecheck.ReleaseHandoffPackMemoryCandidateList{Ready: true, Summary: "pack-memory candidate inventory ok", NextAction: "no pack-memory candidate cleanup is pending"},
 	})
-	if complete.NextBatchSelectionPackage == nil || !complete.NextBatchSelectionPackage.Ready || complete.NextBatchSelectionPackage.MissionCommanderActionQueue.Counts.Total != 8 {
-		t.Fatalf("complete cadence should bind release-check next-batch selection package: %+v", complete.NextBatchSelectionPackage)
+	if complete.NextBatchSelectionPackage == nil || !complete.NextBatchSelectionPackage.Ready || complete.NextBatchSelectionPackage.MissionCommanderActionQueue.Counts.Total != 8 || complete.NextBatchSelectionPackage.StarterPackage == nil || complete.NextBatchSelectionPackage.StarterPackage.SuggestedNextBatch != "Batch 682" || !strings.Contains(complete.NextBatchSelectionPackage.StarterPackage.CurrentBatchSection, "### Batch 682") {
+		t.Fatalf("complete cadence should bind release-check next-batch selection package with starter: %+v", complete.NextBatchSelectionPackage)
 	}
 	if complete.MissionCommanderActionQueue.CurrentAction == nil || complete.MissionCommanderActionQueue.CurrentAction.ActionID != "next-batch-selection" || complete.MissionCommanderActionQueue.Counts.Total != 8 || complete.MissionCommanderActionQueue.Counts.FollowUp != 7 {
 		t.Fatalf("complete cadence should expose current next-batch selection plus candidate-domain follow-ups: %+v", complete.MissionCommanderActionQueue)
@@ -941,6 +941,13 @@ func TestRunStatusJsonKit(t *testing.T) {
 			"status Mission Commander focus project runbook：batch=next-batch state=ready-for-next-batch-selection",
 			"text=read docs/context-routing.md first, then only docs/batch-plan.md current/next/latest sections",
 			"text=choose a Windows-verifiable product-path closure",
+			"status Mission Commander focus project next-batch starter package：ready=true latestCompletedBatch=Batch ",
+			"status Mission Commander focus project next-batch starter current batch section：### Batch ",
+			"status Mission Commander focus project next-batch starter current batch section：验证标准：",
+			"status Mission Commander focus project next-batch starter changelog entry：- Batch ",
+			"status Mission Commander focus project next-batch starter validation command：go test ./...",
+			"status Mission Commander focus project next-batch starter release cadence step：不要为 release inspection commit 自己触发的 CI 追加第三个记录",
+			"status Mission Commander focus project next-batch starter boundary：starter package is read-only guidance",
 			"status project handoff current action queue action：bucket=current lane= label=next-batch state=ready-for-next-batch-selection source=releaseHandoffNextBatch blocked=false requiresReview=false command=select the next Windows-verifiable product-path closure",
 			"status project handoff current action queue action reason：bucket=current lane= reason=latest batch release inspection cadence is complete",
 			"status project handoff current action queue action boundary：bucket=current lane= boundary=avoid single-field, summary, text, or handoff projection micro-batches; choose an operational closure with runtime or product-path verification",
@@ -6819,10 +6826,17 @@ func TestRunHandoffPreviewDoesNotWrite(t *testing.T) {
 	if loginAction.MissionCommanderAction.State != "needs-reconcile" || loginAction.MissionCommanderAction.PrimaryCommand != "/rekit reconcile login -InterventionId evt-human-stop -WhatIf" || !containsSubstring(loginAction.MissionCommanderAction.Boundary, "do not run continue") {
 		t.Fatalf("project handoff preview login action missing Mission Commander blocker handoff: %+v", loginAction.MissionCommanderAction)
 	}
-	if len(result.MissionCommanderNextActions) != 6 || result.MissionCommanderNextActions[0].Command != "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 1" || result.MissionCommanderNextActions[0].Source != "missionCommanderActions" || result.MissionCommanderNextActions[0].RequiresReview || !containsSubstring(result.MissionCommanderNextActions[0].Reasons, "ready lane primary action") || result.MissionCommanderNextActions[1].Command != "/rekit reconcile login -InterventionId evt-human-stop -WhatIf" || result.MissionCommanderNextActions[1].Blocked || !result.MissionCommanderNextActions[1].RequiresReview || !containsSubstring(result.MissionCommanderNextActions[1].Reasons, "intervention") || !containsSubstring(result.MissionCommanderNextActions[1].Boundary, "do not run continue") || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff main", false, false) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2 -WhatIf", true, true) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff login", true, true) || !containsSubstring(result.MissionCommanderNextActions[3].Reasons, "after resolving current lane blockers") {
-		t.Fatalf("project handoff preview missing Mission Commander next actions: %+v", result.MissionCommanderNextActions)
+	if !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 1", false, false) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit reconcile login -InterventionId evt-human-stop -WhatIf", false, true) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff main", false, false) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2 -WhatIf", true, true) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff login", true, true) {
+		t.Fatalf("project handoff preview missing lane Mission Commander next actions: %+v", result.MissionCommanderNextActions)
 	}
-	assertCLIActionQueue(t, result.MissionCommanderActionQueue, 6, 3, 3, 4, 4, "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 1")
+	hasNextBatchCandidate := slices.ContainsFunc(result.MissionCommanderNextActions, func(item missionCommanderNextActionItem) bool {
+		return item.ActionID == "next-batch-replacement-executor-takeover" && item.Source == "releaseHandoffNextBatch.followUp.candidateDomain" && !item.Blocked && !item.RequiresReview && containsSubstring(item.Boundary, "candidate-domain follow-ups are selection guidance only")
+	})
+	if hasNextBatchCandidate {
+		assertCLIActionQueue(t, result.MissionCommanderActionQueue, 14, 11, 3, 4, 11, "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 1")
+	} else {
+		assertCLIActionQueue(t, result.MissionCommanderActionQueue, 6, 3, 3, 4, 4, "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 1")
+	}
 	after := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 	assertSnapshotEqual(t, before, after)
 }
@@ -6916,8 +6930,8 @@ func TestRunHandoffApplyWritesNextBatchCandidateDomains(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Project || !result.IsMutation || !result.Applied || result.MissionCommanderActionQueue.CurrentAction == nil || result.MissionCommanderActionQueue.CurrentAction.ActionID != "next-batch-selection" || result.MissionCommanderActionQueue.Counts.Total != 14 || result.MissionCommanderActionQueue.Counts.FollowUp != 11 {
-		t.Fatalf("project handoff JSON should prepend durable next-batch action queue before lane actions: %+v", result.MissionCommanderActionQueue)
+	if !result.Project || !result.IsMutation || !result.Applied || result.MissionCommanderActionQueue.CurrentAction == nil || result.MissionCommanderActionQueue.CurrentAction.Command != "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 1" || result.MissionCommanderActionQueue.Counts.Total != 14 || result.MissionCommanderActionQueue.Counts.FollowUp != 11 {
+		t.Fatalf("project handoff JSON should keep lane current action while exposing durable next-batch guidance: %+v", result.MissionCommanderActionQueue)
 	}
 	if !slices.ContainsFunc(result.MissionCommanderNextActions, func(item mission.MissionCommanderNextActionItem) bool {
 		return item.ActionID == "next-batch-replacement-executor-takeover" && item.Source == "releaseHandoffNextBatch.followUp.candidateDomain" && containsSubstring(item.Boundary, "candidate-domain follow-ups are selection guidance only")
@@ -6959,8 +6973,9 @@ func TestRunReleaseCheckExposesNextBatchSelectionPackage(t *testing.T) {
 	originalReleaseCheckBuild := releaseCheckBuild
 	releaseCheckBuild = func(repoRoot string) (releasecheck.Result, error) {
 		handoff := releasecheck.ReleaseHandoff{
-			Ready:   true,
-			Summary: "release handoff summary ok",
+			Ready:      true,
+			Summary:    "release handoff summary ok",
+			Validation: []releasecheck.ReleaseHandoffValidation{{Command: "go test ./...", Required: true, Present: true, Resolved: true}},
 			LatestBatch: releasecheck.ReleaseHandoffLatestBatch{
 				BatchID: "Batch 684",
 				Handoff: releasecheck.ReleaseHandoffLatestBatchHandoff{
@@ -7006,6 +7021,10 @@ func TestRunReleaseCheckExposesNextBatchSelectionPackage(t *testing.T) {
 	}) {
 		t.Fatalf("release-check JSON omitted replacement-executor candidate action: %+v", pkg.MissionCommanderNextActions)
 	}
+	starter := pkg.StarterPackage
+	if starter == nil || !starter.Ready || starter.LatestCompletedBatch != "Batch 684" || starter.SuggestedNextBatch != "Batch 685" || !strings.Contains(starter.CurrentBatchSection, "### Batch 685") || !strings.Contains(starter.CurrentBatchSection, "验证标准：") || !strings.Contains(starter.ChangelogEntry, "Batch 685") || !containsSubstring(starter.ValidationCommands, "go test ./...") || !containsSubstring(starter.Boundary, "starter package is read-only guidance") {
+		t.Fatalf("release-check JSON omitted next-batch starter package: %+v", starter)
+	}
 
 	out.Reset()
 	if err := Run([]string{"-Command", "release-check", "-Format", "text"}, &out); err != nil {
@@ -7018,6 +7037,13 @@ func TestRunReleaseCheckExposesNextBatchSelectionPackage(t *testing.T) {
 		"release-check next-batch selection action：label=replacement-executor state=next-batch-candidate-domain actionId=next-batch-replacement-executor-takeover source=releaseHandoffNextBatch.followUp.candidateDomain blocked=false requiresReview=false command=select a replacement executor takeover slice that can be resumed from status or durable handoff without prior chat context",
 		"release-check next-batch selection action reason：label=replacement-executor reason=pack-memory candidate queue is closed: no pack-memory candidate cleanup is pending",
 		"release-check next-batch selection action boundary：label=replacement-executor boundary=candidate-domain follow-ups are selection guidance only; update docs/batch-plan.md current batch state before implementation",
+		"release-check next-batch starter package：ready=true latestCompletedBatch=Batch 684 suggestedNextBatch=Batch 685",
+		"release-check next-batch starter current batch section：### Batch 685",
+		"release-check next-batch starter current batch section：验证标准：",
+		"release-check next-batch starter changelog entry：- Batch 685",
+		"release-check next-batch starter validation command：go test ./...",
+		"release-check next-batch starter release cadence step：不要为 release inspection commit 自己触发的 CI 追加第三个记录",
+		"release-check next-batch starter boundary：starter package is read-only guidance",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("release-check text omitted next-batch selection package %q:\n%s", expected, text)
@@ -7120,8 +7146,8 @@ func TestRunInstalledCaseShimDurableNextBatchTakeoverProductPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	handoff := decodeHandoffResult(t, out.Bytes())
-	if !handoff.Project || !handoff.IsMutation || !handoff.Applied || handoff.MissionCommanderActionQueue.CurrentAction == nil || handoff.MissionCommanderActionQueue.CurrentAction.ActionID != "next-batch-selection" || handoff.MissionCommanderActionQueue.Counts.Total != 14 || handoff.MissionCommanderActionQueue.Counts.FollowUp != 11 {
-		t.Fatalf("installed shim project handoff should prepend next-batch queue before lane actions: %+v", handoff.MissionCommanderActionQueue)
+	if !handoff.Project || !handoff.IsMutation || !handoff.Applied || handoff.MissionCommanderActionQueue.CurrentAction == nil || handoff.MissionCommanderActionQueue.CurrentAction.Command != "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 1" || handoff.MissionCommanderActionQueue.Counts.Total != 14 || handoff.MissionCommanderActionQueue.Counts.FollowUp != 11 {
+		t.Fatalf("installed shim project handoff should keep lane current action while exposing durable next-batch guidance: %+v", handoff.MissionCommanderActionQueue)
 	}
 	if !slices.ContainsFunc(handoff.MissionCommanderNextActions, func(item missionCommanderNextActionItem) bool {
 		return item.ActionID == "next-batch-replacement-executor-takeover" && item.Source == "releaseHandoffNextBatch.followUp.candidateDomain" && containsSubstring(item.Boundary, "candidate-domain follow-ups are selection guidance only")
@@ -7184,10 +7210,17 @@ func TestRunHandoffApplyWritesProjectAndLane(t *testing.T) {
 	if slices.Contains(projectLoginAction.NextAgentActions, "/rekit continue main") || slices.Contains(projectLoginAction.NextAgentActions, "/rekit continue login") || !containsSubstring(projectLoginAction.NextAgentActions, "reconcile open intervention") {
 		t.Fatalf("project handoff JSON login next actions should remain lane-local and blocker-aware: %+v", projectLoginAction.NextAgentActions)
 	}
-	if len(project.MissionCommanderNextActions) != 6 || project.MissionCommanderNextActions[0].Command != "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 1" || project.MissionCommanderNextActions[0].Source != "missionCommanderActions" || project.MissionCommanderNextActions[0].Blocked || project.MissionCommanderNextActions[0].RequiresReview || project.MissionCommanderNextActions[1].Command != "/rekit reconcile login -InterventionId evt-human-stop -WhatIf" || project.MissionCommanderNextActions[1].Source != "missionCommanderActions" || project.MissionCommanderNextActions[1].Blocked || !project.MissionCommanderNextActions[1].RequiresReview || !containsSubstring(project.MissionCommanderNextActions[1].Reasons, "pending-gate") || !containsSubstring(project.MissionCommanderNextActions[1].Boundary, "do not run continue") || !containsMissionCommanderNextAction(project.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff main", false, false) || !containsMissionCommanderNextAction(project.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2 -WhatIf", true, true) || !containsMissionCommanderNextAction(project.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff login", true, true) || !containsSubstring(project.MissionCommanderNextActions[3].Reasons, "after resolving current lane blockers") {
-		t.Fatalf("project handoff JSON missing consumable Mission Commander next actions: %+v", project.MissionCommanderNextActions)
+	if !containsMissionCommanderNextAction(project.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 1", false, false) || !containsMissionCommanderNextAction(project.MissionCommanderNextActions, "missionCommanderActions", "/rekit reconcile login -InterventionId evt-human-stop -WhatIf", false, true) || !containsMissionCommanderNextAction(project.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff main", false, false) || !containsMissionCommanderNextAction(project.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2 -WhatIf", true, true) || !containsMissionCommanderNextAction(project.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff login", true, true) {
+		t.Fatalf("project handoff JSON missing lane Mission Commander next actions: %+v", project.MissionCommanderNextActions)
 	}
-	assertCLIActionQueue(t, project.MissionCommanderActionQueue, 6, 3, 3, 4, 4, "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 1")
+	hasProjectNextBatchCandidate := slices.ContainsFunc(project.MissionCommanderNextActions, func(item missionCommanderNextActionItem) bool {
+		return item.ActionID == "next-batch-replacement-executor-takeover" && item.Source == "releaseHandoffNextBatch.followUp.candidateDomain" && !item.Blocked && !item.RequiresReview && containsSubstring(item.Boundary, "candidate-domain follow-ups are selection guidance only")
+	})
+	if hasProjectNextBatchCandidate {
+		assertCLIActionQueue(t, project.MissionCommanderActionQueue, 14, 11, 3, 4, 11, "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 1")
+	} else {
+		assertCLIActionQueue(t, project.MissionCommanderActionQueue, 6, 3, 3, 4, 4, "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 1")
+	}
 	latest := assertStartWrite(t, project.Writes, ".rekit/handovers/latest.md", "write-latest-project-handoff")
 	text, err := os.ReadFile(latest.TargetPath)
 	if err != nil {

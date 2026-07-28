@@ -1968,6 +1968,15 @@ func writePackMemoryCandidateActionQueueText(out io.Writer, prefix string, candi
 	return nil
 }
 
+func writePrefixedMultilineText(out io.Writer, prefix, text string) error {
+	for line := range strings.SplitSeq(text, "\n") {
+		if _, err := fmt.Fprintf(out, "%s%s\n", prefix, line); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func writeNextBatchSelectionPackageText(out io.Writer, prefix string, pkg *releasecheck.ReleaseHandoffNextBatchSelectionPackage) error {
 	if pkg == nil || !pkg.Ready || pkg.MissionCommanderActionQueue.Counts.Total == 0 {
 		return nil
@@ -1993,6 +2002,37 @@ func writeNextBatchSelectionPackageText(out io.Writer, prefix string, pkg *relea
 		}
 		for _, boundary := range action.Boundary {
 			if _, err := fmt.Fprintf(out, "%s next-batch selection action boundary：label=%s boundary=%s\n", prefix, action.Label, boundary); err != nil {
+				return err
+			}
+		}
+	}
+	if starter := pkg.StarterPackage; starter != nil && starter.Ready {
+		if _, err := fmt.Fprintf(out, "%s next-batch starter package：ready=%t latestCompletedBatch=%s suggestedNextBatch=%s\n", prefix, starter.Ready, starter.LatestCompletedBatch, starter.SuggestedNextBatch); err != nil {
+			return err
+		}
+		if err := writePrefixedMultilineText(out, fmt.Sprintf("%s next-batch starter current batch section：", prefix), starter.CurrentBatchSection); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(out, "%s next-batch starter changelog entry：%s\n", prefix, starter.ChangelogEntry); err != nil {
+			return err
+		}
+		for _, command := range starter.ValidationCommands {
+			if _, err := fmt.Fprintf(out, "%s next-batch starter validation command：%s\n", prefix, command); err != nil {
+				return err
+			}
+		}
+		for _, step := range starter.RecommendedStarterSteps {
+			if _, err := fmt.Fprintf(out, "%s next-batch starter recommended step：%s\n", prefix, step); err != nil {
+				return err
+			}
+		}
+		for _, step := range starter.ReleaseCadenceSteps {
+			if _, err := fmt.Fprintf(out, "%s next-batch starter release cadence step：%s\n", prefix, step); err != nil {
+				return err
+			}
+		}
+		for _, boundary := range starter.Boundary {
+			if _, err := fmt.Fprintf(out, "%s next-batch starter boundary：%s\n", prefix, boundary); err != nil {
 				return err
 			}
 		}
@@ -3255,6 +3295,11 @@ func writeStatusMissionCommanderFirstScreenProjectNextBatchCandidateText(out io.
 	if projectHandoff == nil || current == nil || current.State != "ready-for-next-batch-selection" {
 		return nil
 	}
+	if pkg := projectHandoff.NextBatchSelectionPackage; pkg != nil && pkg.Ready {
+		if err := writeStatusMissionCommanderFirstScreenProjectNextBatchStarterText(out, pkg.StarterPackage); err != nil {
+			return err
+		}
+	}
 	for _, action := range projectHandoff.MissionCommanderNextActions {
 		if action.Source != "releaseHandoffNextBatch.followUp.candidateDomain" {
 			continue
@@ -3271,6 +3316,42 @@ func writeStatusMissionCommanderFirstScreenProjectNextBatchCandidateText(out io.
 			if _, err := fmt.Fprintf(out, "status Mission Commander focus project next-batch candidate boundary：label=%s boundary=%s\n", action.Label, boundary); err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+func writeStatusMissionCommanderFirstScreenProjectNextBatchStarterText(out io.Writer, starter *releasecheck.ReleaseHandoffNextBatchStarterPackage) error {
+	if starter == nil || !starter.Ready {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "status Mission Commander focus project next-batch starter package：ready=%t latestCompletedBatch=%s suggestedNextBatch=%s\n", starter.Ready, starter.LatestCompletedBatch, starter.SuggestedNextBatch); err != nil {
+		return err
+	}
+	if err := writePrefixedMultilineText(out, "status Mission Commander focus project next-batch starter current batch section：", starter.CurrentBatchSection); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "status Mission Commander focus project next-batch starter changelog entry：%s\n", starter.ChangelogEntry); err != nil {
+		return err
+	}
+	for _, command := range starter.ValidationCommands {
+		if _, err := fmt.Fprintf(out, "status Mission Commander focus project next-batch starter validation command：%s\n", command); err != nil {
+			return err
+		}
+	}
+	for _, step := range starter.RecommendedStarterSteps {
+		if _, err := fmt.Fprintf(out, "status Mission Commander focus project next-batch starter recommended step：%s\n", step); err != nil {
+			return err
+		}
+	}
+	for _, step := range starter.ReleaseCadenceSteps {
+		if _, err := fmt.Fprintf(out, "status Mission Commander focus project next-batch starter release cadence step：%s\n", step); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range starter.Boundary {
+		if _, err := fmt.Fprintf(out, "status Mission Commander focus project next-batch starter boundary：%s\n", boundary); err != nil {
+			return err
 		}
 	}
 	return nil
