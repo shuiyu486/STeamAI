@@ -55,6 +55,7 @@ type HandoffResult struct {
 	Selector                         string                                   `json:"selector,omitempty"`
 	Project                          bool                                     `json:"project"`
 	Lane                             *Lane                                    `json:"lane,omitempty"`
+	LaneTakeoverPackage              *LaneTakeoverPackage                     `json:"laneTakeoverPackage,omitempty"`
 	MissionBrief                     mission.Brief                            `json:"missionBrief"`
 	ExecutorAction                   *laneExecutorAction                      `json:"executorAction,omitempty"`
 	LaneExecutorActions              []mission.LaneExecutorActionSnapshot     `json:"laneExecutorActions,omitempty"`
@@ -250,6 +251,10 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 		missionCommanderNext = mission.UniqueCommanderNextActions(append(append([]mission.MissionCommanderNextActionItem{}, missionCommanderNext...), ctx.projectMissionCommanderNextActions...))
 	}
 	missionCommanderActionQueue := mission.MissionCommanderActionQueueFor(missionCommanderNext)
+	var laneTakeoverPackage *LaneTakeoverPackage
+	if lane != nil && executorAction != nil {
+		laneTakeoverPackage = laneTakeoverPackageFor(ctx.inst.CaseRoot, *lane, *executorAction, missionCommanderActionQueue, false)
+	}
 	next := []string{"use /rekit as the Mission Commander entrypoint; JSON preview/apply is Go-owned by default"}
 	next = append(next, ExecutionEvidenceReviewNextSteps(executionEvidenceReview, includeEvidenceContinue)...)
 	if applied {
@@ -274,6 +279,7 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 		Selector:                         ctx.selector,
 		Project:                          ctx.project,
 		Lane:                             lane,
+		LaneTakeoverPackage:              laneTakeoverPackage,
 		MissionBrief:                     brief,
 		ExecutorAction:                   executorAction,
 		LaneExecutorActions:              laneExecutorActions,
@@ -1114,6 +1120,9 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 	writeLaneMissionBrief(&out, lane, facts, executorAction)
 	writeLaneMissionCommanderActionQueue(&out, missionCommanderActionQueue)
 	writeLaneMissionCommanderNextActions(&out, missionCommanderNextActions)
+	for _, line := range appendLaneTakeoverPackage(nil, laneTakeoverPackageFor(ctx.inst.CaseRoot, lane, executorAction, missionCommanderActionQueue, false)) {
+		fmt.Fprintln(&out, line)
+	}
 	writeExecutorActionSection(&out, executorAction)
 	writeAutonomyProfileSection(&out, ctx.inst.CaseRoot, lane, ctx.manifest)
 	writeVerificationSection(&out, facts.Verifications, lane.ID)

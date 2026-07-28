@@ -73,6 +73,7 @@ type StartResult struct {
 	RequiresConfirmation             bool                                     `json:"requiresConfirmation"`
 	Lane                             Lane                                     `json:"lane"`
 	AutonomyProfile                  autonomy.Summary                         `json:"autonomyProfile"`
+	LaneTakeoverPackage              *LaneTakeoverPackage                     `json:"laneTakeoverPackage,omitempty"`
 	MissionBrief                     mission.Brief                            `json:"missionBrief"`
 	AuthorizedGateAdapterHandoffs    []AuthorizedGateAdapterHandoff           `json:"authorizedGateAdapterHandoffs,omitempty"`
 	ReviewerDispatchIntakeHandoffs   []ReviewerDispatchIntakeHandoff          `json:"reviewerDispatchIntakeHandoffs,omitempty"`
@@ -134,6 +135,7 @@ type laneCheckpoint struct {
 	LastReconciledIntervention       string                                   `json:"lastReconciledIntervention"`
 	LastReconcileAt                  string                                   `json:"lastReconcileAt"`
 	AutonomyProfile                  autonomy.Summary                         `json:"autonomyProfile"`
+	LaneTakeoverPackage              *LaneTakeoverPackage                     `json:"laneTakeoverPackage,omitempty"`
 	MissionBrief                     mission.Brief                            `json:"missionBrief"`
 	ExecutorAction                   laneExecutorAction                       `json:"executorAction"`
 	PendingGates                     []string                                 `json:"pendingGates"`
@@ -210,6 +212,7 @@ func StartPreview(repoRoot, caseRoot, pack string, opt StartOptions) (StartResul
 	commanderNextActions := startMissionCommanderNextActions(lane, executorAction)
 	commanderNextActions = MissionCommanderNextActionsWithAuthorizedGateAdapters(commanderNextActions, authorizedGateAdapterHandoffs)
 	commanderNextActions = MissionCommanderNextActionsWithReviewerDispatches(commanderNextActions, reviewerDispatchIntakeHandoffs)
+	commanderActionQueue := mission.MissionCommanderActionQueueFor(commanderNextActions)
 	return StartResult{
 		SchemaVersion:                    1,
 		Command:                          "start",
@@ -220,6 +223,7 @@ func StartPreview(repoRoot, caseRoot, pack string, opt StartOptions) (StartResul
 		Applied:                          false,
 		RequiresConfirmation:             true,
 		Lane:                             lane,
+		LaneTakeoverPackage:              laneTakeoverPackageFor(inst.CaseRoot, lane, executorAction, commanderActionQueue, true),
 		MissionBrief:                     brief,
 		AuthorizedGateAdapterHandoffs:    authorizedGateAdapterHandoffs,
 		ReviewerDispatchIntakeHandoffs:   reviewerDispatchIntakeHandoffs,
@@ -231,7 +235,7 @@ func StartPreview(repoRoot, caseRoot, pack string, opt StartOptions) (StartResul
 		ExecutorAction:                   executorAction,
 		MissionCommanderAction:           executorAction.MissionCommanderAction,
 		MissionCommanderNextActions:      commanderNextActions,
-		MissionCommanderActionQueue:      mission.MissionCommanderActionQueueFor(commanderNextActions),
+		MissionCommanderActionQueue:      commanderActionQueue,
 		Writes: []StartWrite{{
 			Path:       relJoin(".rekit", "lanes", laneID, "lane.json"),
 			Kind:       "lane",
@@ -309,6 +313,7 @@ func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (result Start
 	commanderNextActions := startMissionCommanderNextActions(lane, executorAction)
 	commanderNextActions = MissionCommanderNextActionsWithAuthorizedGateAdapters(commanderNextActions, authorizedGateAdapterHandoffs)
 	commanderNextActions = MissionCommanderNextActionsWithReviewerDispatches(commanderNextActions, reviewerDispatchIntakeHandoffs)
+	commanderActionQueue := mission.MissionCommanderActionQueueFor(commanderNextActions)
 	return StartResult{
 		SchemaVersion:                    1,
 		Command:                          "start",
@@ -320,6 +325,7 @@ func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (result Start
 		RequiresConfirmation:             false,
 		Lane:                             lane,
 		AutonomyProfile:                  autonomy.ReadSummary(inst.CaseRoot, lane.ID, m),
+		LaneTakeoverPackage:              laneTakeoverPackageFor(inst.CaseRoot, lane, executorAction, commanderActionQueue, false),
 		MissionBrief:                     brief,
 		AuthorizedGateAdapterHandoffs:    authorizedGateAdapterHandoffs,
 		ReviewerDispatchIntakeHandoffs:   reviewerDispatchIntakeHandoffs,
@@ -331,7 +337,7 @@ func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (result Start
 		ExecutorAction:                   executorAction,
 		MissionCommanderAction:           executorAction.MissionCommanderAction,
 		MissionCommanderNextActions:      commanderNextActions,
-		MissionCommanderActionQueue:      mission.MissionCommanderActionQueueFor(commanderNextActions),
+		MissionCommanderActionQueue:      commanderActionQueue,
 		Writes:                           writes,
 		BlockedActions:                   []string{"authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "handoff writes", "continue auto-apply"},
 		NextSteps:                        workstreamNextSteps(executorAction, true),
@@ -1267,6 +1273,7 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 	missionCommanderNextActions = MissionCommanderNextActionsWithAuthorizedGateAdaptersAndAcknowledgements(missionCommanderNextActions, authorizedGateAdapterHandoffs, ExecutionEvidenceReviewAcknowledgedIDs(ledgerFacts))
 	missionCommanderNextActions = MissionCommanderNextActionsWithReviewerDispatches(missionCommanderNextActions, reviewerDispatchIntakeHandoffs)
 	missionCommanderActionQueue := mission.MissionCommanderActionQueueFor(missionCommanderNextActions)
+	laneTakeoverPackage := laneTakeoverPackageFor(caseRoot, lane, executorAction, missionCommanderActionQueue, false)
 	lines := []string{
 		"# RESUME：" + lane.ID,
 		"",
@@ -1314,6 +1321,7 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 	lines = appendResumeList(lines, "interventions", brief.Interventions)
 	lines = appendResumeList(lines, "next agent actions", brief.NextAgentActions)
 	lines = appendResumeList(lines, "escalations", brief.Escalations)
+	lines = appendLaneTakeoverPackage(lines, laneTakeoverPackage)
 	lines = append(lines,
 		"",
 		"## Executor action snapshot",
@@ -1404,6 +1412,7 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 		LastReconciledIntervention:       lane.LastReconciledIntervention,
 		LastReconcileAt:                  lane.LastReconcileAt,
 		AutonomyProfile:                  autonomySummary,
+		LaneTakeoverPackage:              laneTakeoverPackage,
 		MissionBrief:                     brief,
 		ExecutorAction:                   executorAction,
 		PendingGates:                     pendingGateLines,

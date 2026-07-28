@@ -59,6 +59,7 @@ type ContinueResult struct {
 	AuthorizedGateAdapterHandoffs    []AuthorizedGateAdapterHandoff           `json:"authorizedGateAdapterHandoffs,omitempty"`
 	MissionCommanderNextActions      []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
 	MissionCommanderActionQueue      mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
+	LaneTakeoverPackage              *LaneTakeoverPackage                     `json:"laneTakeoverPackage,omitempty"`
 	Inputs                           []string                                 `json:"inputs"`
 	PacketRefs                       []string                                 `json:"packetRefs"`
 	Events                           []ContinueEventPreview                   `json:"events"`
@@ -253,6 +254,7 @@ func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (Cont
 		AuthorizedGateAdapterHandoffs:    authorizedGateAdapterHandoffs,
 		MissionCommanderNextActions:      commanderNextActions,
 		MissionCommanderActionQueue:      commanderActionQueue,
+		LaneTakeoverPackage:              laneTakeoverPackageFor(ctx.inst.CaseRoot, ctx.lane, executorAction, commanderActionQueue, false),
 		Inputs:                           uniqueStrings(inputs),
 		PacketRefs:                       uniqueStrings(packets),
 		BlockedActions:                   []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution without a valid current authorization decision"},
@@ -455,6 +457,7 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (result
 	result.AuthorizedGateAdapterHandoffs = ctx.authorizedGateAdapterHandoffs()
 	result.MissionCommanderNextActions = ctx.missionCommanderNextActions(result.ExecutorAction, result.ExecutionEvidenceReview, result.AuthorizedGateAdapterHandoffs, result.ReviewerDispatchIntakeHandoffs)
 	result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
+	result.LaneTakeoverPackage = laneTakeoverPackageFor(ctx.inst.CaseRoot, ctx.lane, result.ExecutorAction, result.MissionCommanderActionQueue, false)
 	result.ExecutionEvidenceReviewSummary = ExecutionEvidenceReviewSummaryFor(result.ExecutionEvidenceReview, result.MissionCommanderActionQueue)
 	result.NextSteps = workstreamNextSteps(result.ExecutorAction, true)
 	statusPath, digestPath, err := writeContinueRunArtifacts(runRoot, result)
@@ -659,6 +662,7 @@ func (ctx continueContext) blockedByReviewerDispatches(apply bool) ContinueResul
 		AuthorizedGateAdapterHandoffs:    adapterHandoffs,
 		MissionCommanderNextActions:      nextActions,
 		MissionCommanderActionQueue:      queue,
+		LaneTakeoverPackage:              laneTakeoverPackageFor(ctx.inst.CaseRoot, ctx.lane, executorAction, queue, false),
 		Blocked:                          true,
 		BlockedActions:                   []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "lane continuation while reviewer dispatch/intake remains open"},
 		NextSteps:                        []string{ReviewerDispatchIntakeSummaryFor(handoffs).NextAction},
@@ -708,6 +712,7 @@ func (ctx continueContext) blockedByOpenInterventions(apply bool) (ContinueResul
 		AuthorizedGateAdapterHandoffs:    authorizedGateAdapterHandoffs,
 		MissionCommanderNextActions:      commanderNextActions,
 		MissionCommanderActionQueue:      commanderActionQueue,
+		LaneTakeoverPackage:              laneTakeoverPackageFor(ctx.inst.CaseRoot, ctx.lane, executorAction, commanderActionQueue, false),
 		OpenRisks:                        interventionRiskLines(open),
 		Blocked:                          true,
 		ReconcileRequired:                true,
@@ -771,6 +776,7 @@ func (ctx continueContext) blockedByPendingGateOrOpenDecision(apply bool) (Conti
 		AuthorizedGateAdapterHandoffs:    authorizedGateAdapterHandoffs,
 		MissionCommanderNextActions:      commanderNextActions,
 		MissionCommanderActionQueue:      commanderActionQueue,
+		LaneTakeoverPackage:              laneTakeoverPackageFor(ctx.inst.CaseRoot, ctx.lane, executorAction, commanderActionQueue, false),
 		OpenRisks:                        append(continuePendingGateRiskLines(pendingGates), continueOpenDecisionRiskLines(openDecisions)...),
 		Blocked:                          true,
 		PendingGateRequired:              len(pendingGates) > 0,

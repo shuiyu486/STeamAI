@@ -23,6 +23,34 @@ func TestLaneCheckpointJSONContract(t *testing.T) {
 			Mode:  autonomy.ModeManualGate,
 			Ready: true,
 		},
+		LaneTakeoverPackage: &LaneTakeoverPackage{
+			Ready:              true,
+			State:              "ready-for-evidence-review",
+			Lane:               "main",
+			Label:              "main",
+			Status:             "open",
+			Workspace:          "workspace/main/main",
+			CurrentExecutor:    "session-main",
+			ExecutorGeneration: 2,
+			ResumePath:         ".rekit/lanes/main/prompts/RESUME.md",
+			CheckpointPath:     ".rekit/lanes/main/checkpoints/latest.json",
+			HandoffPath:        ".rekit/handovers/main-latest.md",
+			ContinueCommand:    "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 2",
+			HandoffCommand:     "/rekit handoff main",
+			CurrentCommand:     "/rekit handoff main",
+			MissionCommanderActionQueue: mission.MissionCommanderActionQueue{
+				Summary: "total=1 unblocked=1 blocked=0 requiresReview=1 followUp=0 current=/rekit handoff main",
+				CurrentAction: &mission.MissionCommanderNextActionItem{
+					Lane:           "main",
+					State:          "ready-for-evidence-review",
+					Command:        "/rekit handoff main",
+					Source:         "executionEvidenceReview",
+					RequiresReview: true,
+				},
+			},
+			RunbookSteps: []string{"read .rekit/lanes/main/prompts/RESUME.md before continuing lane main"},
+			Boundary:     []string{"continue command must keep -Executor and -ExpectedExecutorGeneration owner guard"},
+		},
 		MissionBrief: mission.Brief{
 			Summary:          "openLanes=1 ready=0 blocked=1 pendingGates=0 authorizedGates=1 openDecisions=1 interventions=0",
 			BlockedLanes:     []string{"main (open-decision)"},
@@ -129,7 +157,8 @@ func TestLaneCheckpointJSONContract(t *testing.T) {
 			} `json:"counts"`
 			CurrentAction *mission.MissionCommanderNextActionItem `json:"currentAction"`
 		} `json:"missionCommanderActionQueue"`
-		Resume string `json:"resume"`
+		LaneTakeoverPackage *LaneTakeoverPackage `json:"laneTakeoverPackage"`
+		Resume              string               `json:"resume"`
 	}
 	if err := json.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatalf("lane checkpoint json did not decode: %v\n%s", err, string(encoded))
@@ -148,5 +177,9 @@ func TestLaneCheckpointJSONContract(t *testing.T) {
 	}
 	if decoded.MissionCommanderActionQueue.Summary != "total=1 unblocked=1 blocked=0 requiresReview=1 followUp=0 current=/rekit handoff main" || decoded.MissionCommanderActionQueue.Counts.Total != 1 || decoded.MissionCommanderActionQueue.Counts.Unblocked != 1 || decoded.MissionCommanderActionQueue.Counts.RequiresReview != 1 || decoded.MissionCommanderActionQueue.CurrentAction == nil || decoded.MissionCommanderActionQueue.CurrentAction.Command != "/rekit handoff main" {
 		t.Fatalf("checkpoint Mission Commander action queue drifted: %+v", decoded.MissionCommanderActionQueue)
+	}
+	pkg := decoded.LaneTakeoverPackage
+	if pkg == nil || !pkg.Ready || pkg.Lane != "main" || pkg.CurrentExecutor != "session-main" || pkg.ExecutorGeneration != 2 || pkg.ResumePath != ".rekit/lanes/main/prompts/RESUME.md" || pkg.CheckpointPath != ".rekit/lanes/main/checkpoints/latest.json" || pkg.HandoffPath != ".rekit/handovers/main-latest.md" || pkg.ContinueCommand != "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 2" || pkg.MissionCommanderActionQueue.CurrentAction == nil || pkg.MissionCommanderActionQueue.CurrentAction.Command != "/rekit handoff main" || !containsString(pkg.Boundary, "continue command must keep -Executor and -ExpectedExecutorGeneration owner guard") {
+		t.Fatalf("checkpoint lane takeover package drifted: %+v", pkg)
 	}
 }

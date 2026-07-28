@@ -6773,6 +6773,40 @@ func writeExecutorNextActionsText(out io.Writer, action mission.ExecutorAction) 
 	return nil
 }
 
+func writeLaneTakeoverPackageText(out io.Writer, prefix string, pkg *workstream.LaneTakeoverPackage) error {
+	if pkg == nil || !pkg.Ready {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "%s takeover package：ready=%t lane=%s label=%s status=%s currentExecutor=%s generation=%d blocked=%t continueReady=%t\n", prefix, pkg.Ready, pkg.Lane, pkg.Label, pkg.Status, textFirst(pkg.CurrentExecutor, "unassigned"), pkg.ExecutorGeneration, pkg.Blocked, pkg.ContinueReady); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "%s takeover package paths：resume=`%s` checkpoint=`%s` handoff=`%s`\n", prefix, pkg.ResumePath, pkg.CheckpointPath, pkg.HandoffPath); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "%s takeover package commands：continue=`%s` handoff=`%s` current=`%s`\n", prefix, pkg.ContinueCommand, pkg.HandoffCommand, pkg.CurrentCommand); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "%s takeover package commander：state=%s primary=`%s` queue=%s\n", prefix, pkg.MissionCommanderAction.State, pkg.MissionCommanderAction.PrimaryCommand, pkg.MissionCommanderActionQueue.Summary); err != nil {
+		return err
+	}
+	if pkg.MissionCommanderCurrentAction != nil {
+		if _, err := fmt.Fprintf(out, "%s takeover package commander current：state=%s source=%s blocked=%t requiresReview=%t command=`%s` lane=%s label=%s gateEventId=%s actionId=%s\n", prefix, pkg.MissionCommanderCurrentAction.State, pkg.MissionCommanderCurrentAction.Source, pkg.MissionCommanderCurrentAction.Blocked, pkg.MissionCommanderCurrentAction.RequiresReview, pkg.MissionCommanderCurrentAction.Command, pkg.MissionCommanderCurrentAction.Lane, pkg.MissionCommanderCurrentAction.Label, pkg.MissionCommanderCurrentAction.GateEventID, pkg.MissionCommanderCurrentAction.ActionID); err != nil {
+			return err
+		}
+	}
+	for _, step := range pkg.RunbookSteps {
+		if _, err := fmt.Fprintf(out, "%s takeover package runbook：%s\n", prefix, step); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range pkg.Boundary {
+		if _, err := fmt.Fprintf(out, "%s takeover package boundary：%s\n", prefix, boundary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func writeMissionCommanderActionText(out io.Writer, prefix string, action mission.ExecutorAction) error {
 	commander := action.MissionCommanderAction
 	if strings.TrimSpace(commander.State) == "" {
@@ -6891,6 +6925,9 @@ func writeAuthorizedExecutionFollowThroughText(out io.Writer, prefix string, fol
 
 func writeStartExecutorActionText(out io.Writer, result workstream.StartResult) error {
 	action := result.ExecutorAction
+	if err := writeLaneTakeoverPackageText(out, "start", result.LaneTakeoverPackage); err != nil {
+		return err
+	}
 	if _, err := fmt.Fprintf(out, "executor action：blocked=%t ready=%t pendingGates=%d openInterventions=%d openDecisions=%d\n", action.Blocked, action.Ready, action.PendingGates, action.OpenInterventions, action.OpenDecisions); err != nil {
 		return err
 	}
@@ -6941,6 +6978,9 @@ func writeHandoffText(out io.Writer, result workstream.HandoffResult) error {
 		return err
 	}
 	if err := writeAuthorizedGateAdapterHandoffText(out, "handoff", result.AuthorizedGateAdapterHandoffs); err != nil {
+		return err
+	}
+	if err := writeLaneTakeoverPackageText(out, "handoff", result.LaneTakeoverPackage); err != nil {
 		return err
 	}
 	if err := writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue); err != nil {
@@ -7565,6 +7605,9 @@ func writeContinueText(out io.Writer, result workstream.ContinueResult) error {
 		if err := writeAuthorizedGateAdapterHandoffText(out, "continue", result.AuthorizedGateAdapterHandoffs); err != nil {
 			return err
 		}
+		if err := writeLaneTakeoverPackageText(out, "continue", result.LaneTakeoverPackage); err != nil {
+			return err
+		}
 		if err := writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue); err != nil {
 			return err
 		}
@@ -7606,6 +7649,9 @@ func writeContinueText(out io.Writer, result workstream.ContinueResult) error {
 		if err := writeAuthorizedGateAdapterHandoffText(out, "continue", result.AuthorizedGateAdapterHandoffs); err != nil {
 			return err
 		}
+		if err := writeLaneTakeoverPackageText(out, "continue", result.LaneTakeoverPackage); err != nil {
+			return err
+		}
 		if err := writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue); err != nil {
 			return err
 		}
@@ -7640,6 +7686,9 @@ func writeContinueText(out io.Writer, result workstream.ContinueResult) error {
 		return err
 	}
 	if err := writeAuthorizedGateAdapterHandoffText(out, "continue", result.AuthorizedGateAdapterHandoffs); err != nil {
+		return err
+	}
+	if err := writeLaneTakeoverPackageText(out, "continue", result.LaneTakeoverPackage); err != nil {
 		return err
 	}
 	if err := writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue); err != nil {

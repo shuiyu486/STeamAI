@@ -6613,6 +6613,9 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 	if preview.MissionCommanderAction.State != "needs-start-apply" || preview.MissionCommanderAction.PrimaryCommand != preview.ExecutorAction.MissionCommanderAction.PrimaryCommand || !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "missionCommanderActions", `/rekit start main -Apply -Executor session-main-preview -Actor mission-commander -Reason "preview replacement from handoff"`, false, true) || !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue main -Executor session-main-preview -ExpectedExecutorGeneration 2", true, true) {
 		t.Fatalf("-Name main preview should expose top-level Mission Commander takeover projection: action=%+v next=%+v", preview.MissionCommanderAction, preview.MissionCommanderNextActions)
 	}
+	if preview.LaneTakeoverPackage == nil || !preview.LaneTakeoverPackage.Ready || !preview.LaneTakeoverPackage.ApplyRequired || preview.LaneTakeoverPackage.Lane != "main" || preview.LaneTakeoverPackage.CurrentExecutor != "session-main-preview" || preview.LaneTakeoverPackage.ExecutorGeneration != 2 || preview.LaneTakeoverPackage.CurrentCommand != `/rekit start main -Apply -Executor session-main-preview -Actor mission-commander -Reason "preview replacement from handoff"` || preview.LaneTakeoverPackage.MissionCommanderCurrentAction == nil || preview.LaneTakeoverPackage.MissionCommanderCurrentAction.Command != preview.LaneTakeoverPackage.CurrentCommand || !containsSubstring(preview.LaneTakeoverPackage.RunbookSteps, "explicit -Apply") {
+		t.Fatalf("start preview omitted apply-required lane takeover package: %+v", preview.LaneTakeoverPackage)
+	}
 
 	out.Reset()
 	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Apply", "main", "-Executor", "session-main-replacement", "-Actor", "mission-commander", "-Reason", "replace stale main session from handoff"}, &out); err != nil {
@@ -6631,6 +6634,9 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 	if takeover.MissionCommanderAction.State != "ready-to-continue" || takeover.MissionCommanderAction.PrimaryCommand != "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2" || !containsMissionCommanderNextAction(takeover.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2", false, false) || !containsMissionCommanderNextAction(takeover.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff main", false, false) {
 		t.Fatalf("main executor takeover should expose top-level Mission Commander continue projection: action=%+v next=%+v", takeover.MissionCommanderAction, takeover.MissionCommanderNextActions)
 	}
+	if takeover.LaneTakeoverPackage == nil || !takeover.LaneTakeoverPackage.Ready || takeover.LaneTakeoverPackage.ApplyRequired || !takeover.LaneTakeoverPackage.ContinueReady || takeover.LaneTakeoverPackage.Blocked || takeover.LaneTakeoverPackage.Lane != "main" || takeover.LaneTakeoverPackage.CurrentExecutor != "session-main-replacement" || takeover.LaneTakeoverPackage.ExecutorGeneration != 2 || takeover.LaneTakeoverPackage.ResumePath != ".rekit/lanes/main/prompts/RESUME.md" || takeover.LaneTakeoverPackage.CheckpointPath != ".rekit/lanes/main/checkpoints/latest.json" || takeover.LaneTakeoverPackage.HandoffPath != ".rekit/handovers/main-latest.md" || takeover.LaneTakeoverPackage.ContinueCommand != "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2" || takeover.LaneTakeoverPackage.CurrentCommand != "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2" || !containsSubstring(takeover.LaneTakeoverPackage.Boundary, "owner guard") {
+		t.Fatalf("start apply omitted ready lane takeover package: %+v", takeover.LaneTakeoverPackage)
+	}
 	assertStartWrite(t, takeover.Writes, ".rekit/lanes/main/lane.json", "update-executor-takeover")
 	assertStartWrite(t, takeover.Writes, ".rekit/lanes/main/events.jsonl", "append-executor-takeover")
 	assertStartWrite(t, takeover.Writes, ".rekit/lanes/main/prompts/RESUME.md", "refresh")
@@ -6641,11 +6647,12 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 		t.Fatal(err)
 	}
 	var checkpoint struct {
-		CurrentExecutor    string                 `json:"currentExecutor"`
-		ExecutorGeneration int                    `json:"executorGeneration"`
-		LastTakeoverBy     string                 `json:"lastTakeoverBy"`
-		LastTakeoverReason string                 `json:"lastTakeoverReason"`
-		ExecutorAction     executorActionSnapshot `json:"executorAction"`
+		CurrentExecutor     string                 `json:"currentExecutor"`
+		ExecutorGeneration  int                    `json:"executorGeneration"`
+		LastTakeoverBy      string                 `json:"lastTakeoverBy"`
+		LastTakeoverReason  string                 `json:"lastTakeoverReason"`
+		ExecutorAction      executorActionSnapshot `json:"executorAction"`
+		LaneTakeoverPackage *laneTakeoverPackage   `json:"laneTakeoverPackage"`
 	}
 	if err := json.Unmarshal(checkpointBytes, &checkpoint); err != nil {
 		t.Fatalf("checkpoint did not decode: %v\n%s", err, string(checkpointBytes))
@@ -6656,11 +6663,14 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 	if checkpoint.ExecutorAction.MissionCommanderAction.State != "ready-to-continue" || checkpoint.ExecutorAction.MissionCommanderAction.PrimaryCommand != "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2" {
 		t.Fatalf("checkpoint omitted Mission Commander continue handoff: %+v", checkpoint.ExecutorAction.MissionCommanderAction)
 	}
+	if checkpoint.LaneTakeoverPackage == nil || !checkpoint.LaneTakeoverPackage.Ready || !checkpoint.LaneTakeoverPackage.ContinueReady || checkpoint.LaneTakeoverPackage.CurrentExecutor != "session-main-replacement" || checkpoint.LaneTakeoverPackage.ExecutorGeneration != 2 || checkpoint.LaneTakeoverPackage.CurrentCommand != "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2" || checkpoint.LaneTakeoverPackage.MissionCommanderActionQueue.CurrentAction == nil || checkpoint.LaneTakeoverPackage.MissionCommanderActionQueue.CurrentAction.Command != "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2" {
+		t.Fatalf("checkpoint omitted lane takeover package: %+v", checkpoint.LaneTakeoverPackage)
+	}
 	resumeBytes, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "lanes", "main", "prompts", "RESUME.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"current executor: `session-main-replacement`", "executor generation: `2`", "last takeover by: `mission-commander`", "resume command: `/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2`", "commander state: `ready-to-continue`", "commander prompt: 按 `main` 接手，然后继续该 lane。"} {
+	for _, expected := range []string{"current executor: `session-main-replacement`", "executor generation: `2`", "last takeover by: `mission-commander`", "resume command: `/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2`", "commander state: `ready-to-continue`", "commander prompt: 按 `main` 接手，然后继续该 lane。", "## Lane takeover package", "- continue command: `/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2`", "- current command: `/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2`", "- boundary: continue command must keep -Executor and -ExpectedExecutorGeneration owner guard"} {
 		if !strings.Contains(string(resumeBytes), expected) {
 			t.Fatalf("resume missing %q after takeover:\n%s", expected, string(resumeBytes))
 		}
@@ -6684,6 +6694,9 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 	if laneHandoff.ExecutorAction.MissionCommanderAction.State != "ready-to-continue" || laneHandoff.ExecutorAction.MissionCommanderAction.PrimaryCommand != "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2" {
 		t.Fatalf("lane handoff should expose Mission Commander continue handoff: %+v", laneHandoff.ExecutorAction.MissionCommanderAction)
 	}
+	if laneHandoff.LaneTakeoverPackage == nil || !laneHandoff.LaneTakeoverPackage.Ready || !laneHandoff.LaneTakeoverPackage.ContinueReady || laneHandoff.LaneTakeoverPackage.CurrentExecutor != "session-main-replacement" || laneHandoff.LaneTakeoverPackage.ExecutorGeneration != 2 || laneHandoff.LaneTakeoverPackage.HandoffPath != ".rekit/handovers/main-latest.md" || laneHandoff.LaneTakeoverPackage.CurrentCommand != "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2" || !containsSubstring(laneHandoff.LaneTakeoverPackage.RunbookSteps, "owner-bound continue") {
+		t.Fatalf("lane handoff omitted lane takeover package: %+v", laneHandoff.LaneTakeoverPackage)
+	}
 	laneLatest := assertStartWrite(t, laneHandoff.Writes, ".rekit/handovers/main-latest.md", "write-latest-lane-handoff")
 	laneHandoffText, err := os.ReadFile(laneLatest.TargetPath)
 	if err != nil {
@@ -6692,16 +6705,22 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 	if !strings.Contains(string(laneHandoffText), "current executor：session-main-replacement") || !strings.Contains(string(laneHandoffText), "executor generation：2") || !strings.Contains(string(laneHandoffText), "直接说：按 `.rekit/handovers/main-latest.md` 接手，然后执行 `/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2`。") {
 		t.Fatalf("lane handoff omitted replacement executor handoff text:\n%s", string(laneHandoffText))
 	}
+	for _, expected := range []string{"## Lane takeover package", "- resume: `.rekit/lanes/main/prompts/RESUME.md`", "- checkpoint: `.rekit/lanes/main/checkpoints/latest.json`", "- handoff: `.rekit/handovers/main-latest.md`", "- continue command: `/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2`", "- boundary: lane takeover package is read-only guidance; it does not claim a new executor"} {
+		if !strings.Contains(string(laneHandoffText), expected) {
+			t.Fatalf("lane handoff missing takeover package text %q:\n%s", expected, string(laneHandoffText))
+		}
+	}
 
 	out.Reset()
 	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "main", "-Executor", "session-main-replacement", "-ExpectedExecutorGeneration", "2", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var continuation struct {
-		IsMutation     bool                   `json:"isMutation"`
-		Applied        bool                   `json:"applied"`
-		Lane           startLane              `json:"lane"`
-		ExecutorAction executorActionSnapshot `json:"executorAction"`
+		IsMutation          bool                   `json:"isMutation"`
+		Applied             bool                   `json:"applied"`
+		Lane                startLane              `json:"lane"`
+		ExecutorAction      executorActionSnapshot `json:"executorAction"`
+		LaneTakeoverPackage *laneTakeoverPackage   `json:"laneTakeoverPackage"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &continuation); err != nil {
 		t.Fatalf("continue what-if did not decode: %v\n%s", err, out.String())
@@ -6711,6 +6730,9 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 	}
 	if continuation.ExecutorAction.MissionCommanderAction.State != "ready-to-continue" || continuation.ExecutorAction.MissionCommanderAction.PrimaryCommand != "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2" {
 		t.Fatalf("continue what-if should expose Mission Commander continue handoff: %+v", continuation.ExecutorAction.MissionCommanderAction)
+	}
+	if continuation.LaneTakeoverPackage == nil || !continuation.LaneTakeoverPackage.Ready || continuation.LaneTakeoverPackage.ApplyRequired || !continuation.LaneTakeoverPackage.ContinueReady || continuation.LaneTakeoverPackage.CurrentExecutor != "session-main-replacement" || continuation.LaneTakeoverPackage.ExecutorGeneration != 2 || continuation.LaneTakeoverPackage.CurrentCommand != "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2" || continuation.LaneTakeoverPackage.MissionCommanderCurrentAction == nil || continuation.LaneTakeoverPackage.MissionCommanderCurrentAction.Command != "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2" || !containsSubstring(continuation.LaneTakeoverPackage.Boundary, "heavy-tool") {
+		t.Fatalf("continue what-if omitted lane takeover package: %+v", continuation.LaneTakeoverPackage)
 	}
 	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl")); !os.IsNotExist(err) {
 		t.Fatalf("executor takeover wrote authority ledger or stat failed: %v", err)
@@ -16324,6 +16346,7 @@ type startResult struct {
 	IsMutation                    bool                                   `json:"isMutation"`
 	Applied                       bool                                   `json:"applied"`
 	Lane                          startLane                              `json:"lane"`
+	LaneTakeoverPackage           *laneTakeoverPackage                   `json:"laneTakeoverPackage"`
 	MissionBrief                  missionBrief                           `json:"missionBrief"`
 	AuthorizedGateAdapterHandoffs []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
 	PendingGateHandoffs           []statusPendingGateHandoff             `json:"pendingGateHandoffs"`
@@ -16344,6 +16367,7 @@ type handoffResult struct {
 	RequiresConfirmation           bool                                   `json:"requiresConfirmation"`
 	Project                        bool                                   `json:"project"`
 	Lane                           *startLane                             `json:"lane"`
+	LaneTakeoverPackage            *laneTakeoverPackage                   `json:"laneTakeoverPackage"`
 	MissionBrief                   missionBrief                           `json:"missionBrief"`
 	ExecutorAction                 *executorActionSnapshot                `json:"executorAction"`
 	LaneExecutorActions            []handoffLaneExecutorAction            `json:"laneExecutorActions"`
@@ -16371,6 +16395,30 @@ type projectNextBatchStarterPackage struct {
 	ReleaseCadenceSteps     []string `json:"releaseCadenceSteps"`
 	RecommendedStarterSteps []string `json:"recommendedStarterSteps"`
 	Boundary                []string `json:"boundary"`
+}
+
+type laneTakeoverPackage struct {
+	Ready                         bool                                `json:"ready"`
+	State                         string                              `json:"state"`
+	Lane                          string                              `json:"lane"`
+	Label                         string                              `json:"label"`
+	Status                        string                              `json:"status"`
+	Workspace                     string                              `json:"workspace"`
+	CurrentExecutor               string                              `json:"currentExecutor"`
+	ExecutorGeneration            int                                 `json:"executorGeneration"`
+	ApplyRequired                 bool                                `json:"applyRequired"`
+	Blocked                       bool                                `json:"blocked"`
+	ContinueReady                 bool                                `json:"continueReady"`
+	ResumePath                    string                              `json:"resumePath"`
+	CheckpointPath                string                              `json:"checkpointPath"`
+	HandoffPath                   string                              `json:"handoffPath"`
+	ContinueCommand               string                              `json:"continueCommand"`
+	HandoffCommand                string                              `json:"handoffCommand"`
+	CurrentCommand                string                              `json:"currentCommand"`
+	MissionCommanderCurrentAction *missionCommanderNextActionItem     `json:"missionCommanderCurrentAction"`
+	MissionCommanderActionQueue   missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+	RunbookSteps                  []string                            `json:"runbookSteps"`
+	Boundary                      []string                            `json:"boundary"`
 }
 
 type handoffLaneExecutorAction struct {
