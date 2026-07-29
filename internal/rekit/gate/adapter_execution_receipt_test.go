@@ -13,6 +13,11 @@ import (
 
 func managedAdapterExecutionFixture(t *testing.T) (string, string, string, ApplyResult, Options) {
 	t.Helper()
+	return managedAdapterExecutionFixtureWithReportPath(t, "workspace/main/debug/session-1/adapter-report.json")
+}
+
+func managedAdapterExecutionFixtureWithReportPath(t *testing.T, reportPath string) (string, string, string, ApplyResult, Options) {
+	t.Helper()
 	repoRoot, caseRoot, pack := gateToolingFixture(t)
 	writePreauthorizedProfile(t, caseRoot)
 	writeGateText(t, filepath.Join(caseRoot, ".rekit", "lanes", "main", "lane.json"), `{
@@ -39,7 +44,7 @@ func managedAdapterExecutionFixture(t *testing.T) (string, string, string, Apply
 		t.Fatal(err)
 	}
 	opt := Options{
-		GateEventID: authorized.EventID, ExecutionReportPath: "workspace/main/debug/session-1/adapter-report.json",
+		GateEventID: authorized.EventID, ExecutionReportPath: reportPath,
 		AdapterID: "dynamic-debug-or-writeback-action", Executor: "executor-a", ExpectedExecutorGeneration: 1,
 		AdapterHarness: "claude-code", AdapterSession: "adapter-session-a", ExecutionExitStatus: "0", Actor: "mission-commander",
 	}
@@ -59,7 +64,7 @@ func managedAdapterExecutionFixture(t *testing.T) (string, string, string, Apply
 	base := filepath.Join(caseRoot, "workspace", "main", "debug", "session-1")
 	writeGateText(t, filepath.Join(base, "result.bin"), "result-v1")
 	writeGateText(t, filepath.Join(base, "evidence.json"), `{"evidence":"v1"}`)
-	writeGateText(t, filepath.Join(base, "adapter-report.json"), `{
+	writeGateText(t, filepath.Join(caseRoot, filepath.FromSlash(reportPath)), `{
   "schemaVersion": 1,
   "kind": "adapter-execution-report",
   "adapterId": "dynamic-debug-or-writeback-action",

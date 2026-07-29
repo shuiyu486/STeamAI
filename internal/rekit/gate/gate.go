@@ -265,6 +265,14 @@ type AdapterReportLiveValidation struct {
 	AuthorizedWorkspaces             []string                     `json:"authorizedWorkspaces,omitempty"`
 	ReportFileName                   string                       `json:"reportFileName"`
 	CaseRelativeReportPath           string                       `json:"caseRelativeReportPath,omitempty"`
+	DispatchRequired                 bool                         `json:"dispatchRequired,omitempty"`
+	DispatchPresent                  bool                         `json:"dispatchPresent,omitempty"`
+	DispatchCurrent                  bool                         `json:"dispatchCurrent,omitempty"`
+	AdapterExecutionDispatchID       string                       `json:"adapterExecutionDispatchId,omitempty"`
+	AdapterExecutionDispatchPath     string                       `json:"adapterExecutionDispatchPath,omitempty"`
+	AdapterExecutionDispatchSHA256   string                       `json:"adapterExecutionDispatchSha256,omitempty"`
+	DispatchError                    string                       `json:"dispatchError,omitempty"`
+	DispatchRequirementError         string                       `json:"dispatchRequirementError,omitempty"`
 	SidecarTemplate                  AdapterReportSidecarTemplate `json:"sidecarTemplate"`
 	ValidateCommand                  string                       `json:"validateCommand"`
 	RecordCommand                    string                       `json:"recordCommand,omitempty"`
@@ -1853,7 +1861,7 @@ func findAuthorizedGateEvent(caseRoot, gateEventID string) (EventPreview, error)
 
 func adapterReportContract(repoRoot, caseRoot, pack string, event EventPreview, m *manifest.Manifest) AdapterExecutionReportContract {
 	liveValidation := adapterReportLiveValidation(m, caseRoot, pack, event)
-	dispatchRequired, _ := adapterExecutionReceiptRequired(caseRoot, event, m)
+	dispatchRequired := liveValidation.DispatchRequired
 	commander := adapterReportContractCommanderAction(event, pack, liveValidation, dispatchRequired)
 	requiredFields := []string{"schemaVersion", "kind", "adapterId", "action", "status", "gateEventId", "actualBudget"}
 	if dispatchRequired {
@@ -1924,15 +1932,51 @@ func adapterReportContractCommanderAction(event EventPreview, pack string, liveV
 		}
 	}
 	adapterID := liveValidation.SidecarTemplate.AdapterID
-	dispatchCommand := adapterExecutionDispatchPreviewSlashCommand(pack, event, reportPath, adapterID)
+	if strings.TrimSpace(liveValidation.DispatchRequirementError) != "" {
+		return mission.MissionCommanderAction{
+			State:          "blocked-by-adapter-execution-catalog-invalid",
+			Prompt:         fmt.Sprintf("authorized gate `%s` 的 managed adapter provenance 无法确定；先修复 durable owner/tooling catalog，再记录 dispatch。", event.EventID),
+			PrimaryCommand: "/rekit handoff " + mission.BoardLaneLabel(mission.BoardLane{ID: event.Lane}),
+			Boundary:       append(adapterReportCommanderBoundary(), "do not downgrade malformed managed adapter provenance to unmanaged compatibility", "repair owner/catalog before external execution"),
+		}
+	}
+	if !liveValidation.DispatchPresent {
+		dispatchCommand := adapterExecutionDispatchPreviewSlashCommand(pack, event, reportPath, adapterID)
+		return mission.MissionCommanderAction{
+			State:          "ready-for-adapter-execution-dispatch-preview",
+			Prompt:         fmt.Sprintf("按 authorized gate `%s` 接手：先为 current lane owner、selected adapter、harness/session 和 report path 记录 immutable dispatch；外部 adapter 只能在 dispatch Apply 后开始。", event.EventID),
+			PrimaryCommand: dispatchCommand,
+			FollowUpCommands: []string{
+				"/rekit handoff " + mission.BoardLaneLabel(mission.BoardLane{ID: event.Lane}),
+			},
+			Boundary: append(adapterReportCommanderBoundary(), "dispatch preview is read-only; review and Apply its expected binding before external adapter execution", "contract handoff does not provide a runnable record Apply; use validation/status returned -ExpectedExecutionReportSha256 after valid=true"),
+		}
+	}
+	if !liveValidation.DispatchCurrent {
+		reauthorization := event
+		reauthorization.EventID = ""
+		reauthorization.BatchID = event.EventID + "-dispatch-retry"
+		reauthorization.Subject = event.Subject + " dispatch retry"
+		reauthorization.Summary = fmt.Sprintf("Review a distinct authorized execution attempt because dispatch %s no longer matches the current owner, gate, catalog, session, or report path", event.EventID)
+		return mission.MissionCommanderAction{
+			State:          "blocked-by-adapter-execution-dispatch-drift",
+			Prompt:         fmt.Sprintf("authorized gate `%s` 已有 immutable dispatch，但它不再匹配 current owner/generation、gate、catalog、session 或 report path；不能采用旧 attempt 或同 gate 重跑。", event.EventID),
+			PrimaryCommand: gateRequestWhatIfSlashCommand(pack, reauthorization),
+			FollowUpCommands: []string{
+				"/rekit handoff " + mission.BoardLaneLabel(mission.BoardLane{ID: event.Lane}),
+			},
+			Boundary: append(adapterReportCommanderBoundary(), "do not adopt a stale dispatch after takeover or provenance drift", "authorize a distinct gate before any retry"),
+		}
+	}
 	return mission.MissionCommanderAction{
-		State:          "ready-for-adapter-execution-dispatch-preview",
-		Prompt:         fmt.Sprintf("按 authorized gate `%s` 接手：先为 current lane owner、selected adapter、harness/session 和 report path 记录 immutable dispatch；外部 adapter 只能在 dispatch Apply 后开始。", event.EventID),
-		PrimaryCommand: dispatchCommand,
+		State:          "adapter-execution-dispatched-awaiting-report",
+		Prompt:         fmt.Sprintf("authorized gate `%s` 的 immutable dispatch 已记录且仍匹配 current owner/catalog/session；等待 external harness 写 report。若 harness 已知 failed/aborted 但未写 sidecar，只记录 dispatch-bound terminal report，不重跑同一 gate。", event.EventID),
+		PrimaryCommand: liveValidation.CaseRelativeDraftCommand,
 		FollowUpCommands: []string{
+			liveValidation.CaseRelativeValidateCommand,
 			"/rekit handoff " + mission.BoardLaneLabel(mission.BoardLane{ID: event.Lane}),
 		},
-		Boundary: append(adapterReportCommanderBoundary(), "dispatch preview is read-only; review and Apply its expected binding before external adapter execution", "contract handoff does not provide a runnable record Apply; use validation/status returned -ExpectedExecutionReportSha256 after valid=true"),
+		Boundary: append(adapterReportCommanderBoundary(), "do not infer timeout or failure automatically; terminal report must reflect a known external harness outcome", "do not rerun the adapter under the same gate", "failed/aborted terminal draft remains preview then expected-hash Apply"),
 	}
 }
 
@@ -1942,13 +1986,27 @@ func adapterReportContractCommanderNextActions(event EventPreview, commander mis
 	if commander.PrimaryCommand != "" {
 		actionID := "adapter-report-contract-validation"
 		reasons := []string{"run read-only validation before recording observation evidence", "adapter sidecar must be valid=true before record"}
-		if commander.State == "ready-for-adapter-execution-dispatch-preview" {
+		switch commander.State {
+		case "ready-for-adapter-execution-dispatch-preview":
 			actionID = "adapter-execution-dispatch-preview"
 			reasons = []string{"record immutable dispatch before external adapter execution", "completion/report/observation must retain the exact dispatch lineage"}
+		case "adapter-execution-dispatched-awaiting-report":
+			actionID = "adapter-execution-terminal-report-preview"
+			reasons = []string{"immutable dispatch is current but report is missing", "wait for the external harness or record only a known failed/aborted terminal outcome"}
+		case "blocked-by-adapter-execution-dispatch-drift":
+			actionID = "adapter-execution-dispatch-drift-retry"
+			reasons = []string{"immutable dispatch no longer matches current provenance", "authorize a distinct gate before retry"}
+		case "blocked-by-adapter-execution-catalog-invalid":
+			actionID = "adapter-execution-catalog-repair"
+			reasons = []string{"managed adapter provenance is invalid", "repair durable owner/tooling catalog before external execution"}
 		}
-		items = append(items, adapterReportNextActionItem(event, label, actionID, commander.State, commander.PrimaryCommand, "adapterReportContract.missionCommanderAction", false, true, reasons, commander.Boundary))
+		blocked := strings.HasPrefix(commander.State, "blocked-by-adapter-execution-")
+		items = append(items, adapterReportNextActionItem(event, label, actionID, commander.State, commander.PrimaryCommand, "adapterReportContract.missionCommanderAction", blocked, true, reasons, commander.Boundary))
 	}
 	for _, followUp := range commander.FollowUpCommands {
+		if strings.TrimSpace(followUp) == "" {
+			continue
+		}
 		boundary := append([]string{}, commander.Boundary...)
 		reasons := []string{"follow adapter report contract handoff after validation"}
 		blocked := false
@@ -2149,6 +2207,15 @@ func adapterReportLiveValidation(m *manifest.Manifest, caseRoot, pack string, ev
 	reportFileName := "adapter-report.json"
 	caseRelativeReportPath := adapterReportDefaultPath(event.Gate.OutputPaths)
 	adapterCandidates := adapterToolCandidates(m, event)
+	dispatchRequired, dispatchRequirementErr := adapterExecutionReceiptRequired(caseRoot, event, m)
+	dispatch, dispatchPath, dispatchSHA, _, dispatchPresent, dispatchErr := inspectAdapterExecutionDispatch(caseRoot, pack, event, m)
+	if dispatchRequirementErr != nil {
+		dispatchRequired = true
+		dispatchErr = dispatchRequirementErr
+	}
+	if dispatchPresent && strings.TrimSpace(dispatch.ReportPath) != "" {
+		caseRelativeReportPath = dispatch.ReportPath
+	}
 	template := AdapterReportSidecarTemplate{
 		SchemaVersion: 1,
 		Kind:          "adapter-execution-report",
@@ -2163,7 +2230,7 @@ func adapterReportLiveValidation(m *manifest.Manifest, caseRoot, pack string, ev
 		Escalation:    "<bounded escalation when status/budget requires it>",
 		Summary:       "<bounded summary; required for failed/boundary-hit/escalated/aborted>",
 	}
-	if dispatch, dispatchPath, dispatchSHA, _, err := readCurrentAdapterExecutionDispatch(caseRoot, pack, event, m); err == nil {
+	if dispatchPresent && dispatchErr == nil {
 		template.Dispatch = &adapterexecution.ReportDispatchBinding{DispatchID: dispatch.DispatchID, Path: dispatchPath, SHA256: dispatchSHA}
 	}
 	templateData, _ := adapterReportScaffoldBytes(template)
@@ -2201,6 +2268,11 @@ func adapterReportLiveValidation(m *manifest.Manifest, caseRoot, pack string, ev
 		AuthorizedWorkspaces:             normalizedGatePaths(event.Gate.OutputPaths),
 		ReportFileName:                   reportFileName,
 		CaseRelativeReportPath:           caseRelativeReportPath,
+		DispatchRequired:                 dispatchRequired,
+		DispatchPresent:                  dispatchPresent,
+		DispatchCurrent:                  dispatchPresent && dispatchErr == nil,
+		AdapterExecutionDispatchPath:     dispatchPath,
+		AdapterExecutionDispatchSHA256:   dispatchSHA,
 		SidecarTemplate:                  template,
 		ValidateCommand:                  "rekit " + strings.Join(validateArgs, " "),
 		ScaffoldCommand:                  "rekit " + strings.Join(scaffoldArgs, " "),
@@ -2236,6 +2308,25 @@ func adapterReportLiveValidation(m *manifest.Manifest, caseRoot, pack string, ev
 			"Keep outputRefs/evidenceRefs case-relative and under authorized outputPaths so validation and record paths enforce the same artifact boundary.",
 			"Keep full trace/dump/log data in sidecar artifacts referenced by outputRefs/evidenceRefs, not in this report.",
 		},
+	}
+	if dispatchPresent {
+		live.AdapterExecutionDispatchID = dispatch.DispatchID
+	}
+	if dispatchRequirementErr != nil {
+		live.DispatchRequirementError = dispatchRequirementErr.Error()
+	}
+	if live.DispatchCurrent {
+		live.DraftArgs = []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-DraftExecutionReport", "-ExecutionReportPath", caseRelativeReportPath, "-AdapterId", template.AdapterID, "-ExecutionStatus", "failed|aborted", "-Summary", "<bounded-summary>", "-Format", "json"}
+		live.DraftApplyArgs = []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-DraftExecutionReport", "-ExecutionReportPath", caseRelativeReportPath, "-AdapterId", template.AdapterID, "-ExecutionStatus", "failed|aborted", "-Summary", "<bounded-summary>", "-ExpectedExecutionReportSha256", "<reportSha256-from-draft-preview>", "-Apply", "-Format", "json"}
+		live.DraftCommand = "rekit " + strings.Join(live.DraftArgs, " ")
+		live.DraftApplyCommand = "rekit " + strings.Join(live.DraftApplyArgs, " ")
+		live.CaseRelativeDraftArgs = append([]string{}, live.DraftArgs...)
+		live.CaseRelativeDraftApplyArgs = append([]string{}, live.DraftApplyArgs...)
+		live.CaseRelativeDraftCommand = live.DraftCommand
+		live.CaseRelativeDraftApplyCommand = live.DraftApplyCommand
+	}
+	if dispatchErr != nil {
+		live.DispatchError = dispatchErr.Error()
 	}
 	live.RunbookSteps = adapterReportLiveValidationRunbookSteps(live)
 	return live
@@ -2303,7 +2394,7 @@ func ScaffoldAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 	return result, nil
 }
 
-func DraftAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options) (AdapterExecutionReportDraft, error) {
+func DraftAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options) (_ AdapterExecutionReportDraft, retErr error) {
 	inst, gateEvent, err := authorizedGateEvent(repoRoot, caseRoot, pack, opt)
 	if err != nil {
 		return AdapterExecutionReportDraft{}, err
@@ -2323,6 +2414,30 @@ func DraftAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options) (
 	if opt.ExpectedExecutionReportSHA256 == "" {
 		return result, nil
 	}
+	lease, err := acquireGateLaneMutationLease(inst.CaseRoot, gateEvent.Lane)
+	if err != nil {
+		return AdapterExecutionReportDraft{}, err
+	}
+	defer func() { retErr = errors.Join(retErr, lease.Unlock()) }()
+	lockedInst, lockedGateEvent, err := authorizedGateEvent(repoRoot, caseRoot, pack, opt)
+	if err != nil {
+		return AdapterExecutionReportDraft{}, err
+	}
+	if lockedInst.CaseRoot != inst.CaseRoot || lockedGateEvent.EventID != gateEvent.EventID || lockedGateEvent.Lane != gateEvent.Lane {
+		return AdapterExecutionReportDraft{}, fmt.Errorf("authorized gate routing changed while acquiring mutation lease")
+	}
+	lockedManifest, err := manifest.Load(repoRoot, pack)
+	if err != nil {
+		return AdapterExecutionReportDraft{}, err
+	}
+	lockedContract := adapterReportContract(repoRoot, lockedInst.CaseRoot, pack, lockedGateEvent, lockedManifest)
+	result, data, scaffoldData, fullPath, err = adapterReportDraftPreview(repoRoot, lockedInst.CaseRoot, pack, lockedGateEvent, lockedContract, opt, lockedManifest)
+	if err != nil {
+		return AdapterExecutionReportDraft{}, err
+	}
+	if err := lease.Validate(); err != nil {
+		return AdapterExecutionReportDraft{}, err
+	}
 	if !strings.EqualFold(result.ReportSHA256, strings.TrimSpace(opt.ExpectedExecutionReportSHA256)) {
 		return AdapterExecutionReportDraft{}, fmt.Errorf("gate execution report draft changed after preview")
 	}
@@ -2341,10 +2456,13 @@ func DraftAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options) (
 		result.RunbookSteps = adapterReportRunbookSteps("draft replay", result.MissionCommanderAction.State, result.ReportPath, result.ReportSHA256, false, false, result.Applied, false, result.NextSteps, result.Boundary, result.MissionCommanderAction)
 		return result, nil
 	}
-	if err := writeAdapterReportDraft(inst.CaseRoot, fullPath, result.ReportPath, data, scaffoldData); err != nil {
+	if err := writeAdapterReportDraft(lockedInst.CaseRoot, fullPath, result.ReportPath, data, scaffoldData); err != nil {
 		return AdapterExecutionReportDraft{}, err
 	}
-	if existing, present, err := readAdapterReportRaw(inst.CaseRoot, fullPath, result.ReportPath); err != nil {
+	if err := lease.Validate(); err != nil {
+		return AdapterExecutionReportDraft{}, fmt.Errorf("adapter execution report draft may already be durable at %s; mutation lease validation failed after write: %w", result.ReportPath, err)
+	}
+	if existing, present, err := readAdapterReportRaw(lockedInst.CaseRoot, fullPath, result.ReportPath); err != nil {
 		return AdapterExecutionReportDraft{}, err
 	} else if !present || !bytes.Equal(existing, data) {
 		return AdapterExecutionReportDraft{}, fmt.Errorf("gate execution report draft changed while writing: %s", result.ReportPath)
@@ -2432,6 +2550,15 @@ func adapterReportDraftPreview(repoRoot, caseRoot, pack string, gateEvent EventP
 	if err != nil {
 		return AdapterExecutionReportDraft{}, nil, nil, "", err
 	}
+	if contract.LiveValidation.DispatchRequired && contract.LiveValidation.DispatchPresent {
+		if !contract.LiveValidation.DispatchCurrent {
+			return AdapterExecutionReportDraft{}, nil, nil, "", fmt.Errorf("gate execution report draft requires a current immutable dispatch")
+		}
+		dispatchReportPath := strings.TrimSpace(contract.LiveValidation.CaseRelativeReportPath)
+		if dispatchReportPath == "" || reportPath != dispatchReportPath {
+			return AdapterExecutionReportDraft{}, nil, nil, "", fmt.Errorf("gate execution report draft path %q must match immutable dispatch report path %q", reportPath, dispatchReportPath)
+		}
+	}
 	report, err := adapterReportDraftFromOptions(caseRoot, gateEvent, contract, opt, m)
 	if err != nil {
 		return AdapterExecutionReportDraft{}, nil, nil, "", err
@@ -2506,6 +2633,9 @@ func adapterReportDraftFromOptions(caseRoot string, gateEvent EventPreview, cont
 	}
 	if !validExecutionStatus(status) {
 		return AdapterReport{}, fmt.Errorf("invalid ExecutionStatus %q; allowed: succeeded,failed,boundary-hit,escalated,aborted", opt.ExecutionStatus)
+	}
+	if contract.LiveValidation.DispatchRequired && contract.LiveValidation.DispatchPresent && status != "failed" && status != "aborted" {
+		return AdapterReport{}, fmt.Errorf("gate terminal recovery for an existing immutable dispatch requires -ExecutionStatus failed|aborted; got %q", opt.ExecutionStatus)
 	}
 	adapterID := strings.TrimSpace(opt.AdapterID)
 	if adapterID == "" {

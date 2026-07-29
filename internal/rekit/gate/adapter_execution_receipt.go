@@ -708,6 +708,22 @@ func adapterExecutionReceiptPreviewSlashCommand(pack string, gateEvent EventPrev
 	return adapterReportSlashCommand([]string{"gate", "-Pack", pack, "-GateEventId", gateEvent.EventID, "-RecordAdapterExecutionReceipt", "-ExecutionReportPath", reportPath, "-AdapterId", adapterID, "-Executor", "<current-executor>", "-ExpectedExecutorGeneration", "<current-generation>", "-AdapterHarness", "<harness>", "-AdapterSession", "<session>", "-ExecutionExitStatus", "<exit-status>", "-Actor", "<recorded-by>", "-Format", "json"})
 }
 
+func inspectAdapterExecutionDispatch(caseRoot, pack string, gateEvent EventPreview, m *manifest.Manifest) (adapterexecution.DispatchReceipt, string, string, int64, bool, error) {
+	dispatchRel, dispatchFull, err := adapterExecutionDispatchPath(caseRoot, gateEvent.Lane, gateEvent.EventID)
+	if err != nil {
+		return adapterexecution.DispatchReceipt{}, "", "", 0, false, err
+	}
+	_, present, err := readAdapterExecutionReceiptRaw(caseRoot, dispatchFull, dispatchRel)
+	if err != nil {
+		return adapterexecution.DispatchReceipt{}, dispatchRel, "", 0, true, err
+	}
+	if !present {
+		return adapterexecution.DispatchReceipt{}, dispatchRel, "", 0, false, nil
+	}
+	dispatch, path, sha, bytes, err := readCurrentAdapterExecutionDispatch(caseRoot, pack, gateEvent, m)
+	return dispatch, path, sha, bytes, true, err
+}
+
 func readCurrentAdapterExecutionDispatch(caseRoot, pack string, gateEvent EventPreview, m *manifest.Manifest) (adapterexecution.DispatchReceipt, string, string, int64, error) {
 	dispatchRel, dispatchFull, err := adapterExecutionDispatchPath(caseRoot, gateEvent.Lane, gateEvent.EventID)
 	if err != nil {
@@ -730,10 +746,10 @@ func readCurrentAdapterExecutionDispatch(caseRoot, pack string, gateEvent EventP
 		AdapterHarness: dispatch.Owner.AdapterHarness, AdapterSession: dispatch.Owner.AdapterSession, Actor: dispatch.Actor,
 	}, m)
 	if err != nil {
-		return adapterexecution.DispatchReceipt{}, dispatchRel, adapterexecution.SHA256(data), int64(len(data)), err
+		return dispatch, dispatchRel, adapterexecution.SHA256(data), int64(len(data)), err
 	}
 	if !adapterexecution.DispatchSemanticEqual(dispatch, current.dispatch) {
-		return adapterexecution.DispatchReceipt{}, dispatchRel, adapterexecution.SHA256(data), int64(len(data)), fmt.Errorf("adapter execution dispatch gate, owner, catalog, session, or report path drifted")
+		return dispatch, dispatchRel, adapterexecution.SHA256(data), int64(len(data)), fmt.Errorf("adapter execution dispatch gate, owner, catalog, session, or report path drifted")
 	}
 	return dispatch, dispatchRel, adapterexecution.SHA256(data), int64(len(data)), nil
 }

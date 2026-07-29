@@ -2525,6 +2525,13 @@ type statusAuthorizedGateLiveValidationHandoff struct {
 	AuthorizedWorkspaces             []string                   `json:"authorizedWorkspaces,omitempty"`
 	ReportFileName                   string                     `json:"reportFileName,omitempty"`
 	CaseRelativeReportPath           string                     `json:"caseRelativeReportPath,omitempty"`
+	DispatchRequired                 bool                       `json:"dispatchRequired,omitempty"`
+	DispatchPresent                  bool                       `json:"dispatchPresent,omitempty"`
+	DispatchCurrent                  bool                       `json:"dispatchCurrent,omitempty"`
+	DispatchError                    string                     `json:"dispatchError,omitempty"`
+	AdapterExecutionDispatchID       string                     `json:"adapterExecutionDispatchId,omitempty"`
+	AdapterExecutionDispatchPath     string                     `json:"adapterExecutionDispatchPath,omitempty"`
+	AdapterExecutionDispatchSHA256   string                     `json:"adapterExecutionDispatchSha256,omitempty"`
 	ValidateCommand                  string                     `json:"validateCommand,omitempty"`
 	RecordCommand                    string                     `json:"recordCommand,omitempty"`
 	ScaffoldCommand                  string                     `json:"scaffoldCommand,omitempty"`
@@ -5252,6 +5259,13 @@ func statusAuthorizedGateLiveValidationHandoffFor(live gate.AdapterReportLiveVal
 		AuthorizedWorkspaces:             append([]string{}, live.AuthorizedWorkspaces...),
 		ReportFileName:                   live.ReportFileName,
 		CaseRelativeReportPath:           live.CaseRelativeReportPath,
+		DispatchRequired:                 live.DispatchRequired,
+		DispatchPresent:                  live.DispatchPresent,
+		DispatchCurrent:                  live.DispatchCurrent,
+		DispatchError:                    live.DispatchError,
+		AdapterExecutionDispatchID:       live.AdapterExecutionDispatchID,
+		AdapterExecutionDispatchPath:     live.AdapterExecutionDispatchPath,
+		AdapterExecutionDispatchSHA256:   live.AdapterExecutionDispatchSHA256,
 		ValidateCommand:                  live.ValidateCommand,
 		RecordCommand:                    live.RecordCommand,
 		ScaffoldCommand:                  live.ScaffoldCommand,

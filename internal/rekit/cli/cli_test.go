@@ -3984,6 +3984,36 @@ tools:
 		t.Fatalf("installed adapter dispatch omitted replacement owner: %+v", dispatch)
 	}
 
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var dispatchedStatus struct {
+		CaseMission struct {
+			AuthorizedGateHandoffs      []statusAuthorizedGateHandoff       `json:"authorizedGateHandoffs"`
+			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &dispatchedStatus); err != nil {
+		t.Fatal(err)
+	}
+	if len(dispatchedStatus.CaseMission.AuthorizedGateHandoffs) != 1 || dispatchedStatus.CaseMission.AuthorizedGateHandoffs[0].LiveValidation == nil {
+		t.Fatalf("installed adapter status omitted dispatch-only handoff: %+v", dispatchedStatus.CaseMission)
+	}
+	dispatchedLive := dispatchedStatus.CaseMission.AuthorizedGateHandoffs[0].LiveValidation
+	dispatchedQueue := dispatchedStatus.CaseMission.MissionCommanderActionQueue
+	if !dispatchedLive.DispatchPresent || !dispatchedLive.DispatchCurrent || dispatchedLive.AdapterExecutionDispatchID != dispatch.Dispatch.DispatchID || dispatchedQueue.CurrentAction == nil || dispatchedQueue.CurrentAction.State != "adapter-execution-dispatched-awaiting-report" || strings.Contains(dispatchedQueue.CurrentAction.Command, "-RecordAdapterExecutionDispatch") || !strings.Contains(dispatchedQueue.CurrentAction.Command, "-DraftExecutionReport") {
+		t.Fatalf("installed adapter dispatch-only status did not route to terminal report handoff: live=%+v queue=%+v", dispatchedLive, dispatchedQueue)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "main", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	dispatchedHandoff := decodeHandoffResult(t, out.Bytes())
+	if dispatchedHandoff.MissionCommanderActionQueue.CurrentAction == nil || dispatchedHandoff.MissionCommanderActionQueue.CurrentAction.State != "adapter-execution-dispatched-awaiting-report" || dispatchedHandoff.MissionCommanderActionQueue.CurrentAction.Command != dispatchedQueue.CurrentAction.Command {
+		t.Fatalf("installed adapter handoff drifted from dispatch-only status: %+v", dispatchedHandoff.MissionCommanderActionQueue)
+	}
+
 	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/result.json", `{"result":"bounded external fixture"}`)
 	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/evidence.json", `{"evidence":"external harness observation"}`)
 	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/adapter-report.json", `{
