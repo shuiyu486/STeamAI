@@ -18,6 +18,7 @@
 - `sync` / `promote` 仍然 review-first，写入前需要确认具体范围。
 - Mission Commander action queue 现在会为所有 current action 投影 `currentRunLoopStepId` / `currentActionRunLoop`，让 replacement executor 直接按 `inspect-current → apply-or-run-current / preview-current → refresh-state → follow-up-after-refresh` 接手；该 run-loop 是只读 handoff，不会改变 action 选择、不自动执行命令。
 - reviewer dispatch operator package 也会投影 ordered `runLoop[]` / `currentRunLoopStepId`，让 replacement executor 直接按 `verify-prompt → spawn-reviewer → record-dispatch → save-result-input → record-completion → source-capture → stage-candidate → collect-result → intake-results` 接手；Go runtime 仍只记录 dispatch/completion/intake，不 spawn/poll/stop reviewer session。
+- authorized-gate adapter live validation 会在 contract、validation、status、overview、handoff 与 durable Markdown 中投影同源 `currentRunLoopStepId` / `runLoop`，按 `inspect-contract → record-dispatch → run-external-adapter → draft-or-write-report → validate-report → record-receipt → record-observation → review-recorded-evidence` 交接当前 adapter 步骤、dispatch command、owner/provenance 与 tooling lineage；Go runtime 仍不执行 adapter/heavy tool。
 - Agent Team 当前主要是 context、workflow、tooling、ledger、gate 的底座，不代表已经全自动脱壳、全自动逆向、自动漏洞挖掘、自动恶意样本分析或通用自动渗透。
 
 推荐心智模型：
@@ -129,7 +130,7 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 
 ### Adapter execution report handoff identity
 
-`gate -ExecutionReportContract`、`gate -ValidateExecutionReport`、scaffold/draft live snapshot 与 recorded evidence snapshot 的 Mission Commander next-action/current-action 行会直接显示 `lane`、`label`、`gateEventId`、`actionId`。这些 contract、scaffold、draft、validation、record 与 status/handoff envelope 还会输出 `runbookSteps[]`（text 中为对应 runbook 行），replacement executor 应优先消费这些 typed fields 与 runbook 来确认当前步骤是 validate、record、repair、scaffold 还是 draft：先确认 state/path/hash，再运行当前 Mission Commander command；record 前必须先做 read-only validation，并只使用 validation/status 返回的 `-ExpectedExecutionReportSha256` hash-bound record Apply；record 后只进入 bounded observation evidence review。不要把 contract 阶段的 handoff 当作已授权执行 adapter/heavy tool，也不要在缺少 matching `gateEventId`/`actionId` 或 current report hash 时手工拼接 record。
+`gate -ExecutionReportContract`、`gate -ValidateExecutionReport`、scaffold/draft live snapshot 与 recorded evidence snapshot 的 Mission Commander next-action/current-action 行会直接显示 `lane`、`label`、`gateEventId`、`actionId`。这些 contract、scaffold、draft、validation、record 与 status/handoff envelope 还会输出 `runbookSteps[]`（text 中为对应 runbook 行），并共享 adapter live-validation `currentRunLoopStepId` / `runLoop`（text 中为 live run-loop 行），replacement executor 应优先消费这些 typed fields、runbook 与 live run-loop 来确认当前步骤是 inspect contract、record dispatch、等待/写 report、validate、record receipt、record observation、review evidence 还是 repair：先确认 state/path/hash/owner/provenance，再运行当前 Mission Commander command；record 前必须先做 read-only validation，并只使用 validation/status 返回的 `-ExpectedExecutionReportSha256` hash-bound record Apply；record 后只进入 bounded observation evidence review。不要把 contract 阶段的 handoff 当作已授权执行 adapter/heavy tool，也不要在缺少 matching `gateEventId`/`actionId`、current dispatch/report hash 或 current owner/provenance 时手工拼接 record。
 
 ### Batch 561 当前实施边界
 

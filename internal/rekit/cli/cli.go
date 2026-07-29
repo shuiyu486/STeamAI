@@ -2521,52 +2521,56 @@ type statusAuthorizedGateHandoff struct {
 }
 
 type statusAuthorizedGateLiveValidationHandoff struct {
-	InvocationCwd                    string                     `json:"invocationCwd,omitempty"`
-	AuthorizedWorkspaces             []string                   `json:"authorizedWorkspaces,omitempty"`
-	ReportFileName                   string                     `json:"reportFileName,omitempty"`
-	CaseRelativeReportPath           string                     `json:"caseRelativeReportPath,omitempty"`
-	DispatchRequired                 bool                       `json:"dispatchRequired,omitempty"`
-	DispatchPresent                  bool                       `json:"dispatchPresent,omitempty"`
-	DispatchCurrent                  bool                       `json:"dispatchCurrent,omitempty"`
-	DispatchError                    string                     `json:"dispatchError,omitempty"`
-	AdapterExecutionDispatchID       string                     `json:"adapterExecutionDispatchId,omitempty"`
-	AdapterExecutionDispatchPath     string                     `json:"adapterExecutionDispatchPath,omitempty"`
-	AdapterExecutionDispatchSHA256   string                     `json:"adapterExecutionDispatchSha256,omitempty"`
-	ValidateCommand                  string                     `json:"validateCommand,omitempty"`
-	RecordCommand                    string                     `json:"recordCommand,omitempty"`
-	ScaffoldCommand                  string                     `json:"scaffoldCommand,omitempty"`
-	ScaffoldApplyCommand             string                     `json:"scaffoldApplyCommand,omitempty"`
-	SidecarTemplateSHA256            string                     `json:"sidecarTemplateSha256,omitempty"`
-	DraftCommand                     string                     `json:"draftCommand,omitempty"`
-	DraftApplyCommand                string                     `json:"draftApplyCommand,omitempty"`
-	DraftReportSHA256                string                     `json:"draftReportSha256,omitempty"`
-	ReportSHA256                     string                     `json:"reportSha256,omitempty"`
-	RecordExpectedReportSHA256       string                     `json:"recordExpectedReportSha256,omitempty"`
-	ReceiptRequired                  bool                       `json:"receiptRequired,omitempty"`
-	ReceiptPresent                   bool                       `json:"receiptPresent,omitempty"`
-	ProvenanceValid                  bool                       `json:"provenanceValid,omitempty"`
-	AdapterExecutionReceiptPath      string                     `json:"adapterExecutionReceiptPath,omitempty"`
-	AdapterExecutionReceiptSHA256    string                     `json:"adapterExecutionReceiptSha256,omitempty"`
-	ReceiptPreviewCommand            string                     `json:"receiptPreviewCommand,omitempty"`
-	SupersedingGateEventID           string                     `json:"supersedingGateEventId,omitempty"`
-	CurrentExecutor                  string                     `json:"currentExecutor,omitempty"`
-	ExecutorGeneration               int                        `json:"executorGeneration,omitempty"`
-	AdapterHarness                   string                     `json:"adapterHarness,omitempty"`
-	AdapterSession                   string                     `json:"adapterSession,omitempty"`
-	ToolingCatalogSHA256             string                     `json:"toolingCatalogSha256,omitempty"`
-	ArtifactCount                    int                        `json:"artifactCount,omitempty"`
-	CaseRelativeValidateCommand      string                     `json:"caseRelativeValidateCommand,omitempty"`
-	CaseRelativeRecordCommand        string                     `json:"caseRelativeRecordCommand,omitempty"`
-	CaseRelativeScaffoldCommand      string                     `json:"caseRelativeScaffoldCommand,omitempty"`
-	CaseRelativeScaffoldApplyCommand string                     `json:"caseRelativeScaffoldApplyCommand,omitempty"`
-	CaseRelativeDraftCommand         string                     `json:"caseRelativeDraftCommand,omitempty"`
-	CaseRelativeDraftApplyCommand    string                     `json:"caseRelativeDraftApplyCommand,omitempty"`
-	AdapterCandidateCount            int                        `json:"adapterCandidateCount"`
-	SelectedAdapterID                string                     `json:"selectedAdapterId,omitempty"`
-	SelectedAdapter                  *gate.AdapterToolCandidate `json:"selectedAdapter,omitempty"`
-	SidecarTemplateAdapterID         string                     `json:"sidecarTemplateAdapterId,omitempty"`
-	ReplayBehavior                   string                     `json:"replayBehavior,omitempty"`
-	RunbookSteps                     []string                   `json:"runbookSteps,omitempty"`
+	InvocationCwd                    string                                `json:"invocationCwd,omitempty"`
+	AuthorizedWorkspaces             []string                              `json:"authorizedWorkspaces,omitempty"`
+	ReportFileName                   string                                `json:"reportFileName,omitempty"`
+	CaseRelativeReportPath           string                                `json:"caseRelativeReportPath,omitempty"`
+	DispatchRequired                 bool                                  `json:"dispatchRequired,omitempty"`
+	DispatchPresent                  bool                                  `json:"dispatchPresent,omitempty"`
+	DispatchCurrent                  bool                                  `json:"dispatchCurrent,omitempty"`
+	DispatchError                    string                                `json:"dispatchError,omitempty"`
+	DispatchRequirementError         string                                `json:"dispatchRequirementError,omitempty"`
+	DispatchCommand                  string                                `json:"dispatchCommand,omitempty"`
+	AdapterExecutionDispatchID       string                                `json:"adapterExecutionDispatchId,omitempty"`
+	AdapterExecutionDispatchPath     string                                `json:"adapterExecutionDispatchPath,omitempty"`
+	AdapterExecutionDispatchSHA256   string                                `json:"adapterExecutionDispatchSha256,omitempty"`
+	CurrentRunLoopStepID             string                                `json:"currentRunLoopStepId,omitempty"`
+	RunLoop                          []mission.MissionCommanderRunLoopStep `json:"runLoop,omitempty"`
+	ValidateCommand                  string                                `json:"validateCommand,omitempty"`
+	RecordCommand                    string                                `json:"recordCommand,omitempty"`
+	ScaffoldCommand                  string                                `json:"scaffoldCommand,omitempty"`
+	ScaffoldApplyCommand             string                                `json:"scaffoldApplyCommand,omitempty"`
+	SidecarTemplateSHA256            string                                `json:"sidecarTemplateSha256,omitempty"`
+	DraftCommand                     string                                `json:"draftCommand,omitempty"`
+	DraftApplyCommand                string                                `json:"draftApplyCommand,omitempty"`
+	DraftReportSHA256                string                                `json:"draftReportSha256,omitempty"`
+	ReportSHA256                     string                                `json:"reportSha256,omitempty"`
+	RecordExpectedReportSHA256       string                                `json:"recordExpectedReportSha256,omitempty"`
+	ReceiptRequired                  bool                                  `json:"receiptRequired,omitempty"`
+	ReceiptPresent                   bool                                  `json:"receiptPresent,omitempty"`
+	ProvenanceValid                  bool                                  `json:"provenanceValid,omitempty"`
+	AdapterExecutionReceiptPath      string                                `json:"adapterExecutionReceiptPath,omitempty"`
+	AdapterExecutionReceiptSHA256    string                                `json:"adapterExecutionReceiptSha256,omitempty"`
+	ReceiptPreviewCommand            string                                `json:"receiptPreviewCommand,omitempty"`
+	SupersedingGateEventID           string                                `json:"supersedingGateEventId,omitempty"`
+	CurrentExecutor                  string                                `json:"currentExecutor,omitempty"`
+	ExecutorGeneration               int                                   `json:"executorGeneration,omitempty"`
+	AdapterHarness                   string                                `json:"adapterHarness,omitempty"`
+	AdapterSession                   string                                `json:"adapterSession,omitempty"`
+	ToolingCatalogSHA256             string                                `json:"toolingCatalogSha256,omitempty"`
+	ArtifactCount                    int                                   `json:"artifactCount,omitempty"`
+	CaseRelativeValidateCommand      string                                `json:"caseRelativeValidateCommand,omitempty"`
+	CaseRelativeRecordCommand        string                                `json:"caseRelativeRecordCommand,omitempty"`
+	CaseRelativeScaffoldCommand      string                                `json:"caseRelativeScaffoldCommand,omitempty"`
+	CaseRelativeScaffoldApplyCommand string                                `json:"caseRelativeScaffoldApplyCommand,omitempty"`
+	CaseRelativeDraftCommand         string                                `json:"caseRelativeDraftCommand,omitempty"`
+	CaseRelativeDraftApplyCommand    string                                `json:"caseRelativeDraftApplyCommand,omitempty"`
+	AdapterCandidateCount            int                                   `json:"adapterCandidateCount"`
+	SelectedAdapterID                string                                `json:"selectedAdapterId,omitempty"`
+	SelectedAdapter                  *gate.AdapterToolCandidate            `json:"selectedAdapter,omitempty"`
+	SidecarTemplateAdapterID         string                                `json:"sidecarTemplateAdapterId,omitempty"`
+	ReplayBehavior                   string                                `json:"replayBehavior,omitempty"`
+	RunbookSteps                     []string                              `json:"runbookSteps,omitempty"`
 }
 
 type statusInterventionHandoff struct {
@@ -3355,10 +3359,33 @@ func writeStatusMissionCommanderFirstScreenAuthorizedGateText(out io.Writer, han
 		if _, err := fmt.Fprintf(out, "status Mission Commander focus authorized gate live validation：eventId=%s workspace=%s reportFileName=%s caseRelativeReportPath=%s scaffold=%s scaffoldApply=%s draft=%s draftApply=%s validate=%s record=%s caseValidate=%s caseRecord=%s\n", handoff.EventID, strings.Join(live.AuthorizedWorkspaces, ","), live.ReportFileName, live.CaseRelativeReportPath, live.ScaffoldCommand, live.ScaffoldApplyCommand, live.DraftCommand, live.DraftApplyCommand, live.ValidateCommand, statusAdapterCurrentRecordCommandText(*handoff, live.RecordCommand, live.RecordExpectedReportSHA256), live.CaseRelativeValidateCommand, statusAdapterCurrentRecordCommandText(*handoff, live.CaseRelativeRecordCommand, live.RecordExpectedReportSHA256)); err != nil {
 			return err
 		}
+		if strings.TrimSpace(live.DispatchRequirementError) != "" {
+			if _, err := fmt.Fprintf(out, "status Mission Commander focus authorized gate dispatch requirement：eventId=%s error=%s\n", handoff.EventID, live.DispatchRequirementError); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(live.DispatchCommand) != "" {
+			if _, err := fmt.Fprintf(out, "status Mission Commander focus authorized gate dispatch：eventId=%s command=%s\n", handoff.EventID, live.DispatchCommand); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(live.CurrentExecutor) != "" || live.ExecutorGeneration > 0 || strings.TrimSpace(live.AdapterHarness) != "" || strings.TrimSpace(live.AdapterSession) != "" {
+			if _, err := fmt.Fprintf(out, "status Mission Commander focus authorized gate execution owner：eventId=%s executor=%s generation=%d harness=%s session=%s\n", handoff.EventID, live.CurrentExecutor, live.ExecutorGeneration, live.AdapterHarness, live.AdapterSession); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(live.ToolingCatalogSHA256) != "" || live.ArtifactCount > 0 {
+			if _, err := fmt.Fprintf(out, "status Mission Commander focus authorized gate tooling provenance：eventId=%s catalogSha256=%s artifacts=%d\n", handoff.EventID, live.ToolingCatalogSHA256, live.ArtifactCount); err != nil {
+				return err
+			}
+		}
 		if live.SelectedAdapter != nil {
 			if err := writeStatusAuthorizedGateSelectedAdapterWithPrefixText(out, "status Mission Commander focus authorized gate", handoff.EventID, *live.SelectedAdapter); err != nil {
 				return err
 			}
+		}
+		if err := writeMissionCommanderRunLoopStepsText(out, "status Mission Commander focus authorized gate live validation", live.CurrentRunLoopStepID, live.RunLoop); err != nil {
+			return err
 		}
 		for _, step := range live.RunbookSteps {
 			if _, err := fmt.Fprintf(out, "status Mission Commander focus authorized gate live validation runbook：eventId=%s step=%s\n", handoff.EventID, step); err != nil {
@@ -3994,6 +4021,26 @@ func writeStatusAuthorizedGateHandoffText(out io.Writer, handoff statusAuthorize
 				return err
 			}
 		}
+		if strings.TrimSpace(live.DispatchRequirementError) != "" {
+			if _, err := fmt.Fprintf(out, "status case mission authorized gate dispatch requirement：eventId=%s error=%s\n", handoff.EventID, live.DispatchRequirementError); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(live.DispatchCommand) != "" {
+			if _, err := fmt.Fprintf(out, "status case mission authorized gate dispatch：eventId=%s command=%s\n", handoff.EventID, live.DispatchCommand); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(live.CurrentExecutor) != "" || live.ExecutorGeneration > 0 || strings.TrimSpace(live.AdapterHarness) != "" || strings.TrimSpace(live.AdapterSession) != "" {
+			if _, err := fmt.Fprintf(out, "status case mission authorized gate execution owner：eventId=%s executor=%s generation=%d harness=%s session=%s\n", handoff.EventID, live.CurrentExecutor, live.ExecutorGeneration, live.AdapterHarness, live.AdapterSession); err != nil {
+				return err
+			}
+		}
+		if strings.TrimSpace(live.ToolingCatalogSHA256) != "" || live.ArtifactCount > 0 {
+			if _, err := fmt.Fprintf(out, "status case mission authorized gate tooling provenance：eventId=%s catalogSha256=%s artifacts=%d\n", handoff.EventID, live.ToolingCatalogSHA256, live.ArtifactCount); err != nil {
+				return err
+			}
+		}
 		if live.SelectedAdapter != nil {
 			if err := writeStatusAuthorizedGateSelectedAdapterText(out, handoff.EventID, *live.SelectedAdapter); err != nil {
 				return err
@@ -4003,6 +4050,9 @@ func writeStatusAuthorizedGateHandoffText(out io.Writer, handoff statusAuthorize
 			if _, err := fmt.Fprintf(out, "status case mission authorized gate live workspace：eventId=%s workspace=%s\n", handoff.EventID, workspace); err != nil {
 				return err
 			}
+		}
+		if err := writeMissionCommanderRunLoopStepsText(out, "status case mission authorized gate live validation", live.CurrentRunLoopStepID, live.RunLoop); err != nil {
+			return err
 		}
 		for _, step := range live.RunbookSteps {
 			if _, err := fmt.Fprintf(out, "status case mission authorized gate live validation runbook：eventId=%s step=%s\n", handoff.EventID, step); err != nil {
@@ -5269,9 +5319,13 @@ func statusAuthorizedGateLiveValidationHandoffFor(live gate.AdapterReportLiveVal
 		DispatchPresent:                  live.DispatchPresent,
 		DispatchCurrent:                  live.DispatchCurrent,
 		DispatchError:                    live.DispatchError,
+		DispatchRequirementError:         live.DispatchRequirementError,
+		DispatchCommand:                  live.DispatchCommand,
 		AdapterExecutionDispatchID:       live.AdapterExecutionDispatchID,
 		AdapterExecutionDispatchPath:     live.AdapterExecutionDispatchPath,
 		AdapterExecutionDispatchSHA256:   live.AdapterExecutionDispatchSHA256,
+		CurrentRunLoopStepID:             live.CurrentRunLoopStepID,
+		RunLoop:                          append([]mission.MissionCommanderRunLoopStep{}, live.RunLoop...),
 		ValidateCommand:                  live.ValidateCommand,
 		RecordCommand:                    live.RecordCommand,
 		ScaffoldCommand:                  live.ScaffoldCommand,
@@ -5280,6 +5334,13 @@ func statusAuthorizedGateLiveValidationHandoffFor(live gate.AdapterReportLiveVal
 		DraftCommand:                     live.DraftCommand,
 		DraftApplyCommand:                live.DraftApplyCommand,
 		DraftReportSHA256:                live.DraftReportSHA256,
+		SupersedingGateEventID:           live.SupersedingGateEventID,
+		CurrentExecutor:                  live.CurrentExecutor,
+		ExecutorGeneration:               live.ExecutorGeneration,
+		AdapterHarness:                   live.AdapterHarness,
+		AdapterSession:                   live.AdapterSession,
+		ToolingCatalogSHA256:             live.ToolingCatalogSHA256,
+		ArtifactCount:                    live.ArtifactCount,
 		CaseRelativeValidateCommand:      live.CaseRelativeValidateCommand,
 		CaseRelativeRecordCommand:        live.CaseRelativeRecordCommand,
 		CaseRelativeScaffoldCommand:      live.CaseRelativeScaffoldCommand,
@@ -6154,6 +6215,9 @@ func writeAuthorizedGateAdapterHandoffText(out io.Writer, prefix string, items [
 				if _, err := fmt.Fprintf(out, "%s authorized gate adapter live workspace：eventId=%s workspace=%s\n", prefix, handoff.EventID, workspace); err != nil {
 					return err
 				}
+			}
+			if err := writeMissionCommanderRunLoopStepsText(out, prefix+" authorized gate adapter live validation", live.CurrentRunLoopStepID, live.RunLoop); err != nil {
+				return err
 			}
 			for _, step := range live.RunbookSteps {
 				if _, err := fmt.Fprintf(out, "%s authorized gate adapter live validation runbook：eventId=%s step=%s\n", prefix, handoff.EventID, step); err != nil {
@@ -7175,13 +7239,17 @@ func writeMissionCommanderActionQueueText(out io.Writer, queue mission.MissionCo
 }
 
 func writeMissionCommanderActionQueueRunLoopText(out io.Writer, prefix string, queue mission.MissionCommanderActionQueue) error {
-	if len(queue.CurrentActionRunLoop) == 0 {
+	return writeMissionCommanderRunLoopStepsText(out, prefix, queue.CurrentRunLoopStepID, queue.CurrentActionRunLoop)
+}
+
+func writeMissionCommanderRunLoopStepsText(out io.Writer, prefix, currentRunLoopStepID string, runLoop []mission.MissionCommanderRunLoopStep) error {
+	if len(runLoop) == 0 {
 		return nil
 	}
-	if _, err := fmt.Fprintf(out, "%s run loop：currentRunLoopStep=%s steps=%d\n", prefix, queue.CurrentRunLoopStepID, len(queue.CurrentActionRunLoop)); err != nil {
+	if _, err := fmt.Fprintf(out, "%s run loop：currentRunLoopStep=%s steps=%d\n", prefix, currentRunLoopStepID, len(runLoop)); err != nil {
 		return err
 	}
-	for _, step := range queue.CurrentActionRunLoop {
+	for _, step := range runLoop {
 		if _, err := fmt.Fprintf(out, "%s run loop step：order=%d step=%s actor=%s state=%s source=%s command=`%s` description=%s\n", prefix, step.Order, step.StepID, step.Actor, step.State, step.Source, step.Command, step.Description); err != nil {
 			return err
 		}

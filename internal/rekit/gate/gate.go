@@ -261,50 +261,68 @@ type AdapterExecutionReportDraft struct {
 }
 
 type AdapterReportLiveValidation struct {
-	InvocationCwd                    string                       `json:"invocationCwd"`
-	AuthorizedWorkspaces             []string                     `json:"authorizedWorkspaces,omitempty"`
-	ReportFileName                   string                       `json:"reportFileName"`
-	CaseRelativeReportPath           string                       `json:"caseRelativeReportPath,omitempty"`
-	DispatchRequired                 bool                         `json:"dispatchRequired,omitempty"`
-	DispatchPresent                  bool                         `json:"dispatchPresent,omitempty"`
-	DispatchCurrent                  bool                         `json:"dispatchCurrent,omitempty"`
-	AdapterExecutionDispatchID       string                       `json:"adapterExecutionDispatchId,omitempty"`
-	AdapterExecutionDispatchPath     string                       `json:"adapterExecutionDispatchPath,omitempty"`
-	AdapterExecutionDispatchSHA256   string                       `json:"adapterExecutionDispatchSha256,omitempty"`
-	DispatchError                    string                       `json:"dispatchError,omitempty"`
-	DispatchRequirementError         string                       `json:"dispatchRequirementError,omitempty"`
-	SidecarTemplate                  AdapterReportSidecarTemplate `json:"sidecarTemplate"`
-	ValidateCommand                  string                       `json:"validateCommand"`
-	RecordCommand                    string                       `json:"recordCommand,omitempty"`
-	ScaffoldCommand                  string                       `json:"scaffoldCommand,omitempty"`
-	ScaffoldApplyCommand             string                       `json:"scaffoldApplyCommand,omitempty"`
-	SidecarTemplateSHA256            string                       `json:"sidecarTemplateSha256,omitempty"`
-	DraftCommand                     string                       `json:"draftCommand,omitempty"`
-	DraftApplyCommand                string                       `json:"draftApplyCommand,omitempty"`
-	DraftReportSHA256                string                       `json:"draftReportSha256,omitempty"`
-	ValidateArgs                     []string                     `json:"validateArgs"`
-	RecordArgs                       []string                     `json:"recordArgs,omitempty"`
-	ScaffoldArgs                     []string                     `json:"scaffoldArgs,omitempty"`
-	ScaffoldApplyArgs                []string                     `json:"scaffoldApplyArgs,omitempty"`
-	DraftArgs                        []string                     `json:"draftArgs,omitempty"`
-	DraftApplyArgs                   []string                     `json:"draftApplyArgs,omitempty"`
-	CaseRelativeValidateCommand      string                       `json:"caseRelativeValidateCommand,omitempty"`
-	CaseRelativeRecordCommand        string                       `json:"caseRelativeRecordCommand,omitempty"`
-	CaseRelativeScaffoldCommand      string                       `json:"caseRelativeScaffoldCommand,omitempty"`
-	CaseRelativeScaffoldApplyCommand string                       `json:"caseRelativeScaffoldApplyCommand,omitempty"`
-	CaseRelativeDraftCommand         string                       `json:"caseRelativeDraftCommand,omitempty"`
-	CaseRelativeDraftApplyCommand    string                       `json:"caseRelativeDraftApplyCommand,omitempty"`
-	CaseRelativeValidateArgs         []string                     `json:"caseRelativeValidateArgs,omitempty"`
-	CaseRelativeRecordArgs           []string                     `json:"caseRelativeRecordArgs,omitempty"`
-	CaseRelativeScaffoldArgs         []string                     `json:"caseRelativeScaffoldArgs,omitempty"`
-	CaseRelativeScaffoldApplyArgs    []string                     `json:"caseRelativeScaffoldApplyArgs,omitempty"`
-	CaseRelativeDraftArgs            []string                     `json:"caseRelativeDraftArgs,omitempty"`
-	CaseRelativeDraftApplyArgs       []string                     `json:"caseRelativeDraftApplyArgs,omitempty"`
-	AdapterCandidates                []AdapterToolCandidate       `json:"adapterCandidates,omitempty"`
-	SelectedAdapter                  *AdapterToolCandidate        `json:"selectedAdapter,omitempty"`
-	ReplayBehavior                   string                       `json:"replayBehavior"`
-	RunbookSteps                     []string                     `json:"runbookSteps,omitempty"`
-	Notes                            []string                     `json:"notes,omitempty"`
+	InvocationCwd                    string                                `json:"invocationCwd"`
+	AuthorizedWorkspaces             []string                              `json:"authorizedWorkspaces,omitempty"`
+	ReportFileName                   string                                `json:"reportFileName"`
+	CaseRelativeReportPath           string                                `json:"caseRelativeReportPath,omitempty"`
+	DispatchRequired                 bool                                  `json:"dispatchRequired,omitempty"`
+	DispatchPresent                  bool                                  `json:"dispatchPresent,omitempty"`
+	DispatchCurrent                  bool                                  `json:"dispatchCurrent,omitempty"`
+	AdapterExecutionDispatchID       string                                `json:"adapterExecutionDispatchId,omitempty"`
+	AdapterExecutionDispatchPath     string                                `json:"adapterExecutionDispatchPath,omitempty"`
+	AdapterExecutionDispatchSHA256   string                                `json:"adapterExecutionDispatchSha256,omitempty"`
+	DispatchError                    string                                `json:"dispatchError,omitempty"`
+	DispatchRequirementError         string                                `json:"dispatchRequirementError,omitempty"`
+	DispatchCommand                  string                                `json:"dispatchCommand,omitempty"`
+	SidecarTemplate                  AdapterReportSidecarTemplate          `json:"sidecarTemplate"`
+	CurrentRunLoopStepID             string                                `json:"currentRunLoopStepId,omitempty"`
+	RunLoop                          []mission.MissionCommanderRunLoopStep `json:"runLoop,omitempty"`
+	ValidateCommand                  string                                `json:"validateCommand"`
+	RecordCommand                    string                                `json:"recordCommand,omitempty"`
+	ScaffoldCommand                  string                                `json:"scaffoldCommand,omitempty"`
+	ScaffoldApplyCommand             string                                `json:"scaffoldApplyCommand,omitempty"`
+	SidecarTemplateSHA256            string                                `json:"sidecarTemplateSha256,omitempty"`
+	DraftCommand                     string                                `json:"draftCommand,omitempty"`
+	DraftApplyCommand                string                                `json:"draftApplyCommand,omitempty"`
+	DraftReportSHA256                string                                `json:"draftReportSha256,omitempty"`
+	ReportSHA256                     string                                `json:"reportSha256,omitempty"`
+	RecordExpectedReportSHA256       string                                `json:"recordExpectedReportSha256,omitempty"`
+	ReceiptRequired                  bool                                  `json:"receiptRequired,omitempty"`
+	ReceiptPresent                   bool                                  `json:"receiptPresent,omitempty"`
+	ProvenanceValid                  bool                                  `json:"provenanceValid,omitempty"`
+	AdapterExecutionReceiptPath      string                                `json:"adapterExecutionReceiptPath,omitempty"`
+	AdapterExecutionReceiptSHA256    string                                `json:"adapterExecutionReceiptSha256,omitempty"`
+	ReceiptPreviewCommand            string                                `json:"receiptPreviewCommand,omitempty"`
+	SupersedingGateEventID           string                                `json:"supersedingGateEventId,omitempty"`
+	CurrentExecutor                  string                                `json:"currentExecutor,omitempty"`
+	ExecutorGeneration               int                                   `json:"executorGeneration,omitempty"`
+	AdapterHarness                   string                                `json:"adapterHarness,omitempty"`
+	AdapterSession                   string                                `json:"adapterSession,omitempty"`
+	ToolingCatalogSHA256             string                                `json:"toolingCatalogSha256,omitempty"`
+	ArtifactCount                    int                                   `json:"artifactCount,omitempty"`
+	ValidateArgs                     []string                              `json:"validateArgs"`
+	RecordArgs                       []string                              `json:"recordArgs,omitempty"`
+	ScaffoldArgs                     []string                              `json:"scaffoldArgs,omitempty"`
+	ScaffoldApplyArgs                []string                              `json:"scaffoldApplyArgs,omitempty"`
+	DraftArgs                        []string                              `json:"draftArgs,omitempty"`
+	DraftApplyArgs                   []string                              `json:"draftApplyArgs,omitempty"`
+	CaseRelativeValidateCommand      string                                `json:"caseRelativeValidateCommand,omitempty"`
+	CaseRelativeRecordCommand        string                                `json:"caseRelativeRecordCommand,omitempty"`
+	CaseRelativeScaffoldCommand      string                                `json:"caseRelativeScaffoldCommand,omitempty"`
+	CaseRelativeScaffoldApplyCommand string                                `json:"caseRelativeScaffoldApplyCommand,omitempty"`
+	CaseRelativeDraftCommand         string                                `json:"caseRelativeDraftCommand,omitempty"`
+	CaseRelativeDraftApplyCommand    string                                `json:"caseRelativeDraftApplyCommand,omitempty"`
+	CaseRelativeValidateArgs         []string                              `json:"caseRelativeValidateArgs,omitempty"`
+	CaseRelativeRecordArgs           []string                              `json:"caseRelativeRecordArgs,omitempty"`
+	CaseRelativeScaffoldArgs         []string                              `json:"caseRelativeScaffoldArgs,omitempty"`
+	CaseRelativeScaffoldApplyArgs    []string                              `json:"caseRelativeScaffoldApplyArgs,omitempty"`
+	CaseRelativeDraftArgs            []string                              `json:"caseRelativeDraftArgs,omitempty"`
+	CaseRelativeDraftApplyArgs       []string                              `json:"caseRelativeDraftApplyArgs,omitempty"`
+	AdapterCandidates                []AdapterToolCandidate                `json:"adapterCandidates,omitempty"`
+	SelectedAdapter                  *AdapterToolCandidate                 `json:"selectedAdapter,omitempty"`
+	ReplayBehavior                   string                                `json:"replayBehavior"`
+	RunbookSteps                     []string                              `json:"runbookSteps,omitempty"`
+	Notes                            []string                              `json:"notes,omitempty"`
 }
 
 type AdapterReportHandoffSummary struct {
@@ -1403,6 +1421,50 @@ func AdapterReportLiveSnapshot(repoRoot, caseRoot, pack string, opt Options) (Ad
 	return validation, true, nil
 }
 
+func applyAdapterReportValidationLiveState(pack string, gateEvent EventPreview, validation *AdapterExecutionReportValidation) {
+	if validation == nil {
+		return
+	}
+	live := validation.Contract.LiveValidation
+	live.CaseRelativeReportPath = adapterReportFirstText(validation.ReportPath, live.CaseRelativeReportPath)
+	live.ReportSHA256 = validation.ReportSHA256
+	live.RecordExpectedReportSHA256 = validation.RecordExpectedReportSHA256
+	live.ReceiptRequired = validation.ReceiptRequired
+	live.ReceiptPresent = validation.ReceiptPresent
+	live.ProvenanceValid = validation.ProvenanceValid
+	live.AdapterExecutionDispatchPath = validation.AdapterExecutionDispatchPath
+	live.AdapterExecutionDispatchSHA256 = validation.AdapterExecutionDispatchSHA256
+	if validation.AdapterExecutionDispatch != nil {
+		live.AdapterExecutionDispatchID = validation.AdapterExecutionDispatch.DispatchID
+	}
+	live.AdapterExecutionReceiptPath = validation.AdapterExecutionReceiptPath
+	live.AdapterExecutionReceiptSHA256 = validation.AdapterExecutionReceiptSHA256
+	live.ReceiptPreviewCommand = validation.ReceiptPreviewCommand
+	if validation.AdapterContext != nil && validation.AdapterContext.Selected != nil {
+		selected := *validation.AdapterContext.Selected
+		live.SelectedAdapter = &selected
+	}
+	if validation.AdapterExecution != nil {
+		live.CurrentExecutor = validation.AdapterExecution.Owner.CurrentExecutor
+		live.ExecutorGeneration = validation.AdapterExecution.Owner.ExecutorGeneration
+		live.AdapterHarness = validation.AdapterExecution.Owner.AdapterHarness
+		live.AdapterSession = validation.AdapterExecution.Owner.AdapterSession
+		live.ToolingCatalogSHA256 = validation.AdapterExecution.Adapter.ToolingCatalogSHA256
+		live.ArtifactCount = len(validation.AdapterExecution.Artifacts)
+	}
+	if validation.Valid && validation.ReportSummary.RecordReady && !validation.ReportSummary.RecordBlocked {
+		recordCommand := strings.TrimSpace(validation.MissionCommanderAction.PrimaryCommand)
+		live.RecordCommand = recordCommand
+		live.CaseRelativeRecordCommand = recordCommand
+	} else {
+		live.RecordCommand = ""
+		live.CaseRelativeRecordCommand = ""
+	}
+	live = adapterReportLiveValidationWithState(pack, gateEvent, live, validation.MissionCommanderAction.State)
+	live.RunbookSteps = adapterReportLiveValidationRunbookSteps(live)
+	validation.Contract.LiveValidation = live
+}
+
 func adapterReportScaffoldLiveSnapshot(repoRoot, caseRoot, pack string, gateEvent EventPreview, contract AdapterExecutionReportContract, reportPath string) AdapterExecutionReportValidation {
 	reportPath = strings.TrimSpace(reportPath)
 	if reportPath == "" {
@@ -1682,6 +1744,7 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 		GateEventID:   gateEvent.EventID,
 		Contract:      adapterReportContract(repoRoot, inst.CaseRoot, pack, gateEvent, m),
 	}
+	defer applyAdapterReportValidationLiveState(pack, gateEvent, &validation)
 	reportRel, reportSHA256, adapterReport, err := readAdapterExecutionReport(inst.CaseRoot, gateEvent, opt.ExecutionReportCwd, opt.ExecutionReportPath)
 	if reportRel != "" {
 		validation.ReportPath = reportRel
@@ -1902,7 +1965,7 @@ func adapterReportContract(repoRoot, caseRoot, pack string, event EventPreview, 
 		ValidationFailureCodes:      adapterReportValidationFailureCodes(),
 		ValidationRepairHints:       adapterReportContractRepairHints(event),
 		DeniedActions:               []string{"heavy-tool execution", "authority writes", "confirmed writes", "out-of-scope output refs", "full trace/dump/log embedding"},
-		LiveValidation:              liveValidation,
+		LiveValidation:              adapterReportLiveValidationWithState(pack, event, liveValidation, commander.State),
 		MissionCommanderAction:      commander,
 		MissionCommanderNextActions: adapterReportContractCommanderNextActions(event, commander),
 		NextSteps:                   adapterReportContractNextSteps(pack, event, liveValidation),
@@ -2203,6 +2266,197 @@ func adapterReportDefaultPath(outputPaths []string) string {
 	return ""
 }
 
+func adapterReportFirstText(values ...string) string {
+	for _, value := range values {
+		if text := strings.TrimSpace(value); text != "" {
+			return text
+		}
+	}
+	return ""
+}
+
+func adapterReportCaseRelativeArgs(pack, gateEventID, mode, reportPath string, extra ...string) []string {
+	args := []string{"-Command", "gate", "-Pack", pack, "-GateEventId", gateEventID, mode, "-ExecutionReportPath", reportPath}
+	args = append(args, extra...)
+	args = append(args, "-Format", "json")
+	return args
+}
+
+func adapterReportCaseRelativeCommand(args []string) string {
+	if len(args) == 0 {
+		return ""
+	}
+	return "rekit " + strings.Join(args, " ")
+}
+
+func adapterReportLiveValidationWithState(pack string, event EventPreview, live AdapterReportLiveValidation, state string) AdapterReportLiveValidation {
+	live.DispatchCommand = adapterExecutionDispatchPreviewSlashCommand(pack, event, live.CaseRelativeReportPath, live.SidecarTemplate.AdapterID)
+	live.CurrentRunLoopStepID = adapterReportLiveValidationCurrentRunLoopStepID(live, state)
+	live.RunLoop = adapterReportLiveValidationRunLoop(pack, event, live, state)
+	return live
+}
+
+func adapterReportLiveValidationCurrentRunLoopStepID(live AdapterReportLiveValidation, state string) string {
+	switch strings.TrimSpace(state) {
+	case "blocked-by-adapter-execution-catalog-invalid", "blocked-by-adapter-execution-dispatch-drift", "blocked-by-adapter-execution-provenance-drift", "needs-main-escalation":
+		return "repair-provenance-or-escalate"
+	case "ready-for-adapter-execution-dispatch-preview":
+		return "record-dispatch"
+	case "adapter-execution-dispatched-awaiting-report":
+		return "await-or-draft-report"
+	case "adapter-report-scaffold-awaiting-draft", "adapter-report-scaffolded-awaiting-adapter-output":
+		return "draft-or-write-report"
+	case "repair-adapter-report", "needs-execution-report-path":
+		return "repair-report"
+	case "ready-for-adapter-execution-receipt-preview":
+		return "record-receipt"
+	case "ready-to-record-evidence":
+		return "record-observation"
+	case "evidence-already-recorded":
+		return "review-recorded-evidence"
+	}
+	if live.DispatchRequired {
+		if strings.TrimSpace(live.DispatchRequirementError) != "" || (strings.TrimSpace(live.DispatchError) != "" && live.DispatchPresent && !live.DispatchCurrent) {
+			return "repair-provenance-or-escalate"
+		}
+		if !live.DispatchPresent {
+			return "record-dispatch"
+		}
+		if !live.DispatchCurrent {
+			return "repair-provenance-or-escalate"
+		}
+		if strings.TrimSpace(live.ReportSHA256) == "" {
+			return "await-or-draft-report"
+		}
+	}
+	if live.ReceiptRequired && !live.ProvenanceValid {
+		return "record-receipt"
+	}
+	if strings.TrimSpace(live.RecordCommand) != "" || strings.TrimSpace(live.CaseRelativeRecordCommand) != "" {
+		return "record-observation"
+	}
+	if strings.TrimSpace(live.ReportSHA256) == "" {
+		return "draft-or-write-report"
+	}
+	return "validate-report"
+}
+
+func adapterReportLiveValidationRunLoop(pack string, event EventPreview, live AdapterReportLiveValidation, state string) []mission.MissionCommanderRunLoopStep {
+	steps := []mission.MissionCommanderRunLoopStep{}
+	add := func(step mission.MissionCommanderRunLoopStep) {
+		step.StepID = strings.TrimSpace(step.StepID)
+		step.Actor = strings.TrimSpace(step.Actor)
+		step.Description = strings.TrimSpace(step.Description)
+		if step.StepID == "" || step.Description == "" {
+			return
+		}
+		step.Order = len(steps) + 1
+		step.Boundary = mission.UniqueStrings(step.Boundary)
+		steps = append(steps, step)
+	}
+	label := gateCommanderActionLabel(event.Lane)
+	add(mission.MissionCommanderRunLoopStep{
+		StepID:      "inspect-contract",
+		Actor:       "main-agent",
+		Description: "inspect the authorized gate, adapter candidate, output workspace, stop conditions, and live validation boundary",
+		Command:     gateExecutionReportContractSlashCommand(pack, event.EventID),
+		State:       state,
+		Source:      "adapterReportLiveValidation.contract",
+		Boundary: []string{
+			"live validation is a read-only operator handoff",
+			"do not execute adapter/heavy tool work from the contract inspection step",
+		},
+	})
+	if live.DispatchRequired {
+		add(mission.MissionCommanderRunLoopStep{
+			StepID:      "record-dispatch",
+			Actor:       "main-agent",
+			Description: "preview and then hash-bound Apply immutable dispatch before the external adapter starts",
+			Command:     live.DispatchCommand,
+			State:       state,
+			Source:      "adapterReportLiveValidation.dispatch",
+			Boundary: []string{
+				"dispatch preview is read-only until reviewed and applied with the returned expected binding hash",
+				"do not start or rerun the external adapter without a current dispatch for this gate",
+			},
+		})
+	}
+	add(mission.MissionCommanderRunLoopStep{
+		StepID:      "run-external-adapter",
+		Actor:       "external-harness",
+		Description: "run the selected adapter or harness outside /rekit within the authorized workspace, budget, and stop conditions",
+		State:       state,
+		Source:      "adapterReportLiveValidation.externalHarness",
+		Boundary: []string{
+			"/rekit does not spawn, poll, stop, or execute the adapter/heavy tool",
+			"external output must stay under authorized outputPaths and cite bounded refs rather than embedding full dumps/logs",
+		},
+	})
+	add(mission.MissionCommanderRunLoopStep{
+		StepID:      "draft-or-write-report",
+		Actor:       "lane-executor",
+		Description: "write or draft the bounded adapter execution report sidecar under the authorized report path",
+		Command:     adapterReportFirstText(live.CaseRelativeDraftCommand, live.DraftCommand, live.CaseRelativeScaffoldCommand, live.ScaffoldCommand),
+		State:       state,
+		Source:      "adapterReportLiveValidation.reportSidecar",
+		Boundary: []string{
+			"scaffold/draft writes only bounded sidecar bytes and never records observation evidence",
+			"failed or aborted terminal drafts must reflect a known external harness outcome, not an inferred timeout",
+		},
+	})
+	add(mission.MissionCommanderRunLoopStep{
+		StepID:      "validate-report",
+		Actor:       "main-agent",
+		Description: "run read-only report validation and inspect valid/provenance/repair hints before any record Apply",
+		Command:     adapterReportFirstText(live.CaseRelativeValidateCommand, live.ValidateCommand),
+		State:       state,
+		Source:      "adapterReportLiveValidation.validation",
+		Boundary: []string{
+			"validation must be read-only and return valid=true before observation evidence can be recorded",
+			"repair hints are review steps, not permission to record invalid sidecars",
+		},
+	})
+	if live.ReceiptRequired {
+		add(mission.MissionCommanderRunLoopStep{
+			StepID:      "record-receipt",
+			Actor:       "main-agent",
+			Description: "record immutable adapter execution receipt when validation reports receipt provenance is required but missing",
+			Command:     live.ReceiptPreviewCommand,
+			State:       state,
+			Source:      "adapterReportLiveValidation.receipt",
+			Boundary: []string{
+				"receipt preview/apply records external harness observation only and does not execute the adapter",
+				"takeover, catalog, report, or artifact drift requires repair or a distinct authorized gate",
+			},
+		})
+	}
+	add(mission.MissionCommanderRunLoopStep{
+		StepID:      "record-observation",
+		Actor:       "main-agent",
+		Description: "record bounded observation evidence only with the current validation/status returned hash-bound command",
+		Command:     adapterReportFirstText(live.CaseRelativeRecordCommand, live.RecordCommand),
+		State:       state,
+		Source:      "adapterReportLiveValidation.record",
+		Boundary: []string{
+			"record only after valid=true and expected report/receipt hashes match",
+			"record writes observation evidence only; no authority/confirmed writes",
+		},
+	})
+	add(mission.MissionCommanderRunLoopStep{
+		StepID:      "review-recorded-evidence",
+		Actor:       "main-agent",
+		Description: "after observation evidence is recorded, review output/evidence refs and acknowledge or escalate separately",
+		Command:     "/rekit handoff " + label,
+		State:       state,
+		Source:      "adapterReportLiveValidation.evidenceReview",
+		Boundary: []string{
+			"do not replay adapter execution just because record/review handoff is replayed",
+			"authority/confirmed writes remain separate explicit decisions",
+		},
+	})
+	return steps
+}
+
 func adapterReportLiveValidation(m *manifest.Manifest, caseRoot, pack string, event EventPreview) AdapterReportLiveValidation {
 	reportFileName := "adapter-report.json"
 	caseRelativeReportPath := adapterReportDefaultPath(event.Gate.OutputPaths)
@@ -2252,16 +2506,16 @@ func adapterReportLiveValidation(m *manifest.Manifest, caseRoot, pack string, ev
 	caseRelativeDraftCommand := ""
 	caseRelativeDraftApplyCommand := ""
 	if caseRelativeReportPath != "" {
-		caseRelativeValidateArgs = []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-ValidateExecutionReport", "-ExecutionReportPath", caseRelativeReportPath, "-Format", "json"}
-		caseRelativeScaffoldArgs = []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-ScaffoldExecutionReport", "-ExecutionReportPath", caseRelativeReportPath, "-Format", "json"}
-		caseRelativeScaffoldApplyArgs = []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-ScaffoldExecutionReport", "-ExecutionReportPath", caseRelativeReportPath, "-ExpectedExecutionReportSha256", templateSHA256, "-Apply", "-Format", "json"}
-		caseRelativeDraftArgs = []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-DraftExecutionReport", "-ExecutionReportPath", caseRelativeReportPath, "-AdapterId", template.AdapterID, "-ExecutionStatus", "<status>", "-Summary", "<bounded-summary>", "-Format", "json"}
-		caseRelativeDraftApplyArgs = []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-DraftExecutionReport", "-ExecutionReportPath", caseRelativeReportPath, "-AdapterId", template.AdapterID, "-ExecutionStatus", "<status>", "-Summary", "<bounded-summary>", "-ExpectedExecutionReportSha256", "<reportSha256-from-draft-preview>", "-Apply", "-Format", "json"}
-		caseRelativeValidateCommand = "rekit " + strings.Join(caseRelativeValidateArgs, " ")
-		caseRelativeScaffoldCommand = "rekit " + strings.Join(caseRelativeScaffoldArgs, " ")
-		caseRelativeScaffoldApplyCommand = "rekit " + strings.Join(caseRelativeScaffoldApplyArgs, " ")
-		caseRelativeDraftCommand = "rekit " + strings.Join(caseRelativeDraftArgs, " ")
-		caseRelativeDraftApplyCommand = "rekit " + strings.Join(caseRelativeDraftApplyArgs, " ")
+		caseRelativeValidateArgs = adapterReportCaseRelativeArgs(pack, event.EventID, "-ValidateExecutionReport", caseRelativeReportPath)
+		caseRelativeScaffoldArgs = adapterReportCaseRelativeArgs(pack, event.EventID, "-ScaffoldExecutionReport", caseRelativeReportPath)
+		caseRelativeScaffoldApplyArgs = adapterReportCaseRelativeArgs(pack, event.EventID, "-ScaffoldExecutionReport", caseRelativeReportPath, "-ExpectedExecutionReportSha256", templateSHA256, "-Apply")
+		caseRelativeDraftArgs = adapterReportCaseRelativeArgs(pack, event.EventID, "-DraftExecutionReport", caseRelativeReportPath, "-AdapterId", template.AdapterID, "-ExecutionStatus", "<status>", "-Summary", "<bounded-summary>")
+		caseRelativeDraftApplyArgs = adapterReportCaseRelativeArgs(pack, event.EventID, "-DraftExecutionReport", caseRelativeReportPath, "-AdapterId", template.AdapterID, "-ExecutionStatus", "<status>", "-Summary", "<bounded-summary>", "-ExpectedExecutionReportSha256", "<reportSha256-from-draft-preview>", "-Apply")
+		caseRelativeValidateCommand = adapterReportCaseRelativeCommand(caseRelativeValidateArgs)
+		caseRelativeScaffoldCommand = adapterReportCaseRelativeCommand(caseRelativeScaffoldArgs)
+		caseRelativeScaffoldApplyCommand = adapterReportCaseRelativeCommand(caseRelativeScaffoldApplyArgs)
+		caseRelativeDraftCommand = adapterReportCaseRelativeCommand(caseRelativeDraftArgs)
+		caseRelativeDraftApplyCommand = adapterReportCaseRelativeCommand(caseRelativeDraftApplyArgs)
 	}
 	live := AdapterReportLiveValidation{
 		InvocationCwd:                    "authorized output workspace listed in authorizedWorkspaces; use reportFileName as workspace-relative -ExecutionReportPath and omit -Target; or use caseRelativeReportPath with case-relative commands from any case-local cwd",
@@ -2316,10 +2570,10 @@ func adapterReportLiveValidation(m *manifest.Manifest, caseRoot, pack string, ev
 		live.DispatchRequirementError = dispatchRequirementErr.Error()
 	}
 	if live.DispatchCurrent {
-		live.DraftArgs = []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-DraftExecutionReport", "-ExecutionReportPath", caseRelativeReportPath, "-AdapterId", template.AdapterID, "-ExecutionStatus", "failed|aborted", "-Summary", "<bounded-summary>", "-Format", "json"}
-		live.DraftApplyArgs = []string{"-Command", "gate", "-Pack", pack, "-GateEventId", event.EventID, "-DraftExecutionReport", "-ExecutionReportPath", caseRelativeReportPath, "-AdapterId", template.AdapterID, "-ExecutionStatus", "failed|aborted", "-Summary", "<bounded-summary>", "-ExpectedExecutionReportSha256", "<reportSha256-from-draft-preview>", "-Apply", "-Format", "json"}
-		live.DraftCommand = "rekit " + strings.Join(live.DraftArgs, " ")
-		live.DraftApplyCommand = "rekit " + strings.Join(live.DraftApplyArgs, " ")
+		live.DraftArgs = adapterReportCaseRelativeArgs(pack, event.EventID, "-DraftExecutionReport", caseRelativeReportPath, "-AdapterId", template.AdapterID, "-ExecutionStatus", "failed|aborted", "-Summary", "<bounded-summary>")
+		live.DraftApplyArgs = adapterReportCaseRelativeArgs(pack, event.EventID, "-DraftExecutionReport", caseRelativeReportPath, "-AdapterId", template.AdapterID, "-ExecutionStatus", "failed|aborted", "-Summary", "<bounded-summary>", "-ExpectedExecutionReportSha256", "<reportSha256-from-draft-preview>", "-Apply")
+		live.DraftCommand = adapterReportCaseRelativeCommand(live.DraftArgs)
+		live.DraftApplyCommand = adapterReportCaseRelativeCommand(live.DraftApplyArgs)
 		live.CaseRelativeDraftArgs = append([]string{}, live.DraftArgs...)
 		live.CaseRelativeDraftApplyArgs = append([]string{}, live.DraftApplyArgs...)
 		live.CaseRelativeDraftCommand = live.DraftCommand

@@ -13591,6 +13591,8 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		"status Mission Commander focus authorized gate live validation：eventId=" + authorizedEventID + " workspace=workspace/main/debug/session-1 reportFileName=adapter-report.json caseRelativeReportPath=workspace/main/debug/session-1/adapter-report.json",
 		"scaffold=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -ScaffoldExecutionReport -ExecutionReportPath adapter-report.json -Format json",
 		"record=after valid=true, use validation/status returned hash-bound record command with -ExpectedExecutionReportSha256",
+		"status Mission Commander focus authorized gate live validation run loop：currentRunLoopStep=draft-or-write-report",
+		"status Mission Commander focus authorized gate live validation run loop step：order=1 step=inspect-contract actor=main-agent state=needs-adapter-report-validation source=adapterReportLiveValidation.contract",
 		"status Mission Commander focus authorized gate live validation runbook：eventId=" + authorizedEventID + " step=record command is intentionally unavailable until validation/status returns valid=true with -ExpectedExecutionReportSha256",
 		"status Mission Commander focus authorized gate boundary：eventId=" + authorizedEventID,
 		"status Mission Commander focus authorized gate evidence：eventId=" + authorizedEventID + " evidence=authorized outputPaths workspace/main/debug/session-1",
@@ -13603,6 +13605,8 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		"caseScaffold=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -ScaffoldExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Format json caseScaffoldApply=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -ScaffoldExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -ExpectedExecutionReportSha256",
 		"status case mission authorized gate draft handoff：eventId=" + authorizedEventID + " draft=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -DraftExecutionReport -ExecutionReportPath adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -Format json draftApply=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -DraftExecutionReport -ExecutionReportPath adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -ExpectedExecutionReportSha256 <reportSha256-from-draft-preview> -Apply -Format json draftSha256=<reportSha256-from-draft-preview> caseDraft=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -DraftExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -Format json caseDraftApply=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -DraftExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -ExpectedExecutionReportSha256 <reportSha256-from-draft-preview> -Apply -Format json",
 		"status case mission authorized gate live workspace：eventId=" + authorizedEventID + " workspace=workspace/main/debug/session-1",
+		"status case mission authorized gate live validation run loop：currentRunLoopStep=draft-or-write-report",
+		"status case mission authorized gate live validation run loop step：order=1 step=inspect-contract actor=main-agent state=needs-adapter-report-validation source=adapterReportLiveValidation.contract",
 		"status case mission authorized gate live validation runbook：eventId=" + authorizedEventID + " step=confirm authorized output workspace and adapter-report.json sidecar path before adapter work",
 		"status case mission authorized gate live validation runbook：eventId=" + authorizedEventID + " step=record command is intentionally unavailable until validation/status returns valid=true with -ExpectedExecutionReportSha256",
 		"status case mission authorized gate validate boundary：eventId=" + authorizedEventID,
@@ -17787,45 +17791,48 @@ type authorizedGateAdapterHandoffSnapshot struct {
 }
 
 type authorizedGateLiveValidationSnapshot struct {
-	InvocationCwd                    string                        `json:"invocationCwd"`
-	AuthorizedWorkspaces             []string                      `json:"authorizedWorkspaces"`
-	ReportFileName                   string                        `json:"reportFileName"`
-	CaseRelativeReportPath           string                        `json:"caseRelativeReportPath"`
-	ValidateCommand                  string                        `json:"validateCommand"`
-	RecordCommand                    string                        `json:"recordCommand"`
-	ScaffoldCommand                  string                        `json:"scaffoldCommand"`
-	ScaffoldApplyCommand             string                        `json:"scaffoldApplyCommand"`
-	SidecarTemplateSHA256            string                        `json:"sidecarTemplateSha256"`
-	DraftCommand                     string                        `json:"draftCommand"`
-	DraftApplyCommand                string                        `json:"draftApplyCommand"`
-	DraftReportSHA256                string                        `json:"draftReportSha256"`
-	ReportSHA256                     string                        `json:"reportSha256"`
-	RecordExpectedReportSHA256       string                        `json:"recordExpectedReportSha256"`
-	ReceiptRequired                  bool                          `json:"receiptRequired"`
-	ReceiptPresent                   bool                          `json:"receiptPresent"`
-	ProvenanceValid                  bool                          `json:"provenanceValid"`
-	AdapterExecutionReceiptPath      string                        `json:"adapterExecutionReceiptPath"`
-	AdapterExecutionReceiptSHA256    string                        `json:"adapterExecutionReceiptSha256"`
-	ReceiptPreviewCommand            string                        `json:"receiptPreviewCommand"`
-	SupersedingGateEventID           string                        `json:"supersedingGateEventId"`
-	CurrentExecutor                  string                        `json:"currentExecutor"`
-	ExecutorGeneration               int                           `json:"executorGeneration"`
-	AdapterHarness                   string                        `json:"adapterHarness"`
-	AdapterSession                   string                        `json:"adapterSession"`
-	ToolingCatalogSHA256             string                        `json:"toolingCatalogSha256"`
-	ArtifactCount                    int                           `json:"artifactCount"`
-	CaseRelativeValidateCommand      string                        `json:"caseRelativeValidateCommand"`
-	CaseRelativeRecordCommand        string                        `json:"caseRelativeRecordCommand"`
-	CaseRelativeScaffoldCommand      string                        `json:"caseRelativeScaffoldCommand"`
-	CaseRelativeScaffoldApplyCommand string                        `json:"caseRelativeScaffoldApplyCommand"`
-	CaseRelativeDraftCommand         string                        `json:"caseRelativeDraftCommand"`
-	CaseRelativeDraftApplyCommand    string                        `json:"caseRelativeDraftApplyCommand"`
-	AdapterCandidateCount            int                           `json:"adapterCandidateCount"`
-	SelectedAdapterID                string                        `json:"selectedAdapterId"`
-	SelectedAdapter                  *adapterToolCandidateSnapshot `json:"selectedAdapter"`
-	SidecarTemplateAdapterID         string                        `json:"sidecarTemplateAdapterId"`
-	ReplayBehavior                   string                        `json:"replayBehavior"`
-	RunbookSteps                     []string                      `json:"runbookSteps"`
+	InvocationCwd                    string                                `json:"invocationCwd"`
+	AuthorizedWorkspaces             []string                              `json:"authorizedWorkspaces"`
+	ReportFileName                   string                                `json:"reportFileName"`
+	CaseRelativeReportPath           string                                `json:"caseRelativeReportPath"`
+	DispatchCommand                  string                                `json:"dispatchCommand"`
+	CurrentRunLoopStepID             string                                `json:"currentRunLoopStepId"`
+	RunLoop                          []missionCommanderRunLoopStepSnapshot `json:"runLoop"`
+	ValidateCommand                  string                                `json:"validateCommand"`
+	RecordCommand                    string                                `json:"recordCommand"`
+	ScaffoldCommand                  string                                `json:"scaffoldCommand"`
+	ScaffoldApplyCommand             string                                `json:"scaffoldApplyCommand"`
+	SidecarTemplateSHA256            string                                `json:"sidecarTemplateSha256"`
+	DraftCommand                     string                                `json:"draftCommand"`
+	DraftApplyCommand                string                                `json:"draftApplyCommand"`
+	DraftReportSHA256                string                                `json:"draftReportSha256"`
+	ReportSHA256                     string                                `json:"reportSha256"`
+	RecordExpectedReportSHA256       string                                `json:"recordExpectedReportSha256"`
+	ReceiptRequired                  bool                                  `json:"receiptRequired"`
+	ReceiptPresent                   bool                                  `json:"receiptPresent"`
+	ProvenanceValid                  bool                                  `json:"provenanceValid"`
+	AdapterExecutionReceiptPath      string                                `json:"adapterExecutionReceiptPath"`
+	AdapterExecutionReceiptSHA256    string                                `json:"adapterExecutionReceiptSha256"`
+	ReceiptPreviewCommand            string                                `json:"receiptPreviewCommand"`
+	SupersedingGateEventID           string                                `json:"supersedingGateEventId"`
+	CurrentExecutor                  string                                `json:"currentExecutor"`
+	ExecutorGeneration               int                                   `json:"executorGeneration"`
+	AdapterHarness                   string                                `json:"adapterHarness"`
+	AdapterSession                   string                                `json:"adapterSession"`
+	ToolingCatalogSHA256             string                                `json:"toolingCatalogSha256"`
+	ArtifactCount                    int                                   `json:"artifactCount"`
+	CaseRelativeValidateCommand      string                                `json:"caseRelativeValidateCommand"`
+	CaseRelativeRecordCommand        string                                `json:"caseRelativeRecordCommand"`
+	CaseRelativeScaffoldCommand      string                                `json:"caseRelativeScaffoldCommand"`
+	CaseRelativeScaffoldApplyCommand string                                `json:"caseRelativeScaffoldApplyCommand"`
+	CaseRelativeDraftCommand         string                                `json:"caseRelativeDraftCommand"`
+	CaseRelativeDraftApplyCommand    string                                `json:"caseRelativeDraftApplyCommand"`
+	AdapterCandidateCount            int                                   `json:"adapterCandidateCount"`
+	SelectedAdapterID                string                                `json:"selectedAdapterId"`
+	SelectedAdapter                  *adapterToolCandidateSnapshot         `json:"selectedAdapter"`
+	SidecarTemplateAdapterID         string                                `json:"sidecarTemplateAdapterId"`
+	ReplayBehavior                   string                                `json:"replayBehavior"`
+	RunbookSteps                     []string                              `json:"runbookSteps"`
 }
 
 type adapterReportRepairHintSnapshot struct {
@@ -17877,6 +17884,9 @@ func assertAuthorizedGateAdapterHandoffSnapshot(t *testing.T, label string, item
 	}
 	if item.LiveValidation == nil || item.LiveValidation.ReportFileName != "adapter-report.json" || item.LiveValidation.CaseRelativeReportPath != wantReportPath || item.LiveValidation.AdapterCandidateCount != 0 || item.LiveValidation.SidecarTemplateAdapterID != "<adapter-id>" || !strings.Contains(item.LiveValidation.CaseRelativeValidateCommand, wantReportPath) || item.LiveValidation.RecordCommand != "" || item.LiveValidation.CaseRelativeRecordCommand != "" {
 		t.Fatalf("%s authorized gate adapter handoff should expose validation-only pre-validation handoff: %+v", label, item.LiveValidation)
+	}
+	if item.LiveValidation.DispatchCommand == "" || item.LiveValidation.CurrentRunLoopStepID != "draft-or-write-report" || len(item.LiveValidation.RunLoop) < 6 || item.LiveValidation.RunLoop[0].StepID != "inspect-contract" || item.LiveValidation.RunLoop[len(item.LiveValidation.RunLoop)-1].StepID != "review-recorded-evidence" {
+		t.Fatalf("%s authorized gate adapter handoff missing ordered live validation run loop: %+v", label, item.LiveValidation)
 	}
 	if !containsSubstring(item.LiveValidation.AuthorizedWorkspaces, "workspace/main/debug/session-1") || !containsSubstring(item.Evidence, "authorized outputPaths workspace/main/debug/session-1") || !containsSubstring(item.Evidence, "authorized stopConditions timeout") || !containsSubstring(item.Boundary, "projection may read and validate an existing canonical sidecar") || !containsSubstring(item.Boundary, "no heavy-tool replay") {
 		t.Fatalf("%s authorized gate adapter handoff missing workspace/evidence/boundary: %+v", label, item)

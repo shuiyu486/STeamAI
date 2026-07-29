@@ -39,52 +39,56 @@ type AuthorizedGateAdapterHandoff struct {
 }
 
 type AuthorizedGateLiveValidationHandoff struct {
-	InvocationCwd                    string                     `json:"invocationCwd,omitempty"`
-	AuthorizedWorkspaces             []string                   `json:"authorizedWorkspaces,omitempty"`
-	ReportFileName                   string                     `json:"reportFileName,omitempty"`
-	CaseRelativeReportPath           string                     `json:"caseRelativeReportPath,omitempty"`
-	DispatchRequired                 bool                       `json:"dispatchRequired,omitempty"`
-	DispatchPresent                  bool                       `json:"dispatchPresent,omitempty"`
-	DispatchCurrent                  bool                       `json:"dispatchCurrent,omitempty"`
-	DispatchError                    string                     `json:"dispatchError,omitempty"`
-	ValidateCommand                  string                     `json:"validateCommand,omitempty"`
-	RecordCommand                    string                     `json:"recordCommand,omitempty"`
-	ScaffoldCommand                  string                     `json:"scaffoldCommand,omitempty"`
-	ScaffoldApplyCommand             string                     `json:"scaffoldApplyCommand,omitempty"`
-	SidecarTemplateSHA256            string                     `json:"sidecarTemplateSha256,omitempty"`
-	DraftCommand                     string                     `json:"draftCommand,omitempty"`
-	DraftApplyCommand                string                     `json:"draftApplyCommand,omitempty"`
-	DraftReportSHA256                string                     `json:"draftReportSha256,omitempty"`
-	ReportSHA256                     string                     `json:"reportSha256,omitempty"`
-	RecordExpectedReportSHA256       string                     `json:"recordExpectedReportSha256,omitempty"`
-	ReceiptRequired                  bool                       `json:"receiptRequired,omitempty"`
-	ReceiptPresent                   bool                       `json:"receiptPresent,omitempty"`
-	ProvenanceValid                  bool                       `json:"provenanceValid,omitempty"`
-	AdapterExecutionDispatchID       string                     `json:"adapterExecutionDispatchId,omitempty"`
-	AdapterExecutionDispatchPath     string                     `json:"adapterExecutionDispatchPath,omitempty"`
-	AdapterExecutionDispatchSHA256   string                     `json:"adapterExecutionDispatchSha256,omitempty"`
-	AdapterExecutionReceiptPath      string                     `json:"adapterExecutionReceiptPath,omitempty"`
-	AdapterExecutionReceiptSHA256    string                     `json:"adapterExecutionReceiptSha256,omitempty"`
-	ReceiptPreviewCommand            string                     `json:"receiptPreviewCommand,omitempty"`
-	SupersedingGateEventID           string                     `json:"supersedingGateEventId,omitempty"`
-	CurrentExecutor                  string                     `json:"currentExecutor,omitempty"`
-	ExecutorGeneration               int                        `json:"executorGeneration,omitempty"`
-	AdapterHarness                   string                     `json:"adapterHarness,omitempty"`
-	AdapterSession                   string                     `json:"adapterSession,omitempty"`
-	ToolingCatalogSHA256             string                     `json:"toolingCatalogSha256,omitempty"`
-	ArtifactCount                    int                        `json:"artifactCount,omitempty"`
-	CaseRelativeValidateCommand      string                     `json:"caseRelativeValidateCommand,omitempty"`
-	CaseRelativeRecordCommand        string                     `json:"caseRelativeRecordCommand,omitempty"`
-	CaseRelativeScaffoldCommand      string                     `json:"caseRelativeScaffoldCommand,omitempty"`
-	CaseRelativeScaffoldApplyCommand string                     `json:"caseRelativeScaffoldApplyCommand,omitempty"`
-	CaseRelativeDraftCommand         string                     `json:"caseRelativeDraftCommand,omitempty"`
-	CaseRelativeDraftApplyCommand    string                     `json:"caseRelativeDraftApplyCommand,omitempty"`
-	AdapterCandidateCount            int                        `json:"adapterCandidateCount"`
-	SelectedAdapterID                string                     `json:"selectedAdapterId,omitempty"`
-	SelectedAdapter                  *gate.AdapterToolCandidate `json:"selectedAdapter,omitempty"`
-	SidecarTemplateAdapterID         string                     `json:"sidecarTemplateAdapterId,omitempty"`
-	ReplayBehavior                   string                     `json:"replayBehavior,omitempty"`
-	RunbookSteps                     []string                   `json:"runbookSteps,omitempty"`
+	InvocationCwd                    string                                `json:"invocationCwd,omitempty"`
+	AuthorizedWorkspaces             []string                              `json:"authorizedWorkspaces,omitempty"`
+	ReportFileName                   string                                `json:"reportFileName,omitempty"`
+	CaseRelativeReportPath           string                                `json:"caseRelativeReportPath,omitempty"`
+	DispatchRequired                 bool                                  `json:"dispatchRequired,omitempty"`
+	DispatchPresent                  bool                                  `json:"dispatchPresent,omitempty"`
+	DispatchCurrent                  bool                                  `json:"dispatchCurrent,omitempty"`
+	DispatchError                    string                                `json:"dispatchError,omitempty"`
+	DispatchRequirementError         string                                `json:"dispatchRequirementError,omitempty"`
+	DispatchCommand                  string                                `json:"dispatchCommand,omitempty"`
+	CurrentRunLoopStepID             string                                `json:"currentRunLoopStepId,omitempty"`
+	RunLoop                          []mission.MissionCommanderRunLoopStep `json:"runLoop,omitempty"`
+	ValidateCommand                  string                                `json:"validateCommand,omitempty"`
+	RecordCommand                    string                                `json:"recordCommand,omitempty"`
+	ScaffoldCommand                  string                                `json:"scaffoldCommand,omitempty"`
+	ScaffoldApplyCommand             string                                `json:"scaffoldApplyCommand,omitempty"`
+	SidecarTemplateSHA256            string                                `json:"sidecarTemplateSha256,omitempty"`
+	DraftCommand                     string                                `json:"draftCommand,omitempty"`
+	DraftApplyCommand                string                                `json:"draftApplyCommand,omitempty"`
+	DraftReportSHA256                string                                `json:"draftReportSha256,omitempty"`
+	ReportSHA256                     string                                `json:"reportSha256,omitempty"`
+	RecordExpectedReportSHA256       string                                `json:"recordExpectedReportSha256,omitempty"`
+	ReceiptRequired                  bool                                  `json:"receiptRequired,omitempty"`
+	ReceiptPresent                   bool                                  `json:"receiptPresent,omitempty"`
+	ProvenanceValid                  bool                                  `json:"provenanceValid,omitempty"`
+	AdapterExecutionDispatchID       string                                `json:"adapterExecutionDispatchId,omitempty"`
+	AdapterExecutionDispatchPath     string                                `json:"adapterExecutionDispatchPath,omitempty"`
+	AdapterExecutionDispatchSHA256   string                                `json:"adapterExecutionDispatchSha256,omitempty"`
+	AdapterExecutionReceiptPath      string                                `json:"adapterExecutionReceiptPath,omitempty"`
+	AdapterExecutionReceiptSHA256    string                                `json:"adapterExecutionReceiptSha256,omitempty"`
+	ReceiptPreviewCommand            string                                `json:"receiptPreviewCommand,omitempty"`
+	SupersedingGateEventID           string                                `json:"supersedingGateEventId,omitempty"`
+	CurrentExecutor                  string                                `json:"currentExecutor,omitempty"`
+	ExecutorGeneration               int                                   `json:"executorGeneration,omitempty"`
+	AdapterHarness                   string                                `json:"adapterHarness,omitempty"`
+	AdapterSession                   string                                `json:"adapterSession,omitempty"`
+	ToolingCatalogSHA256             string                                `json:"toolingCatalogSha256,omitempty"`
+	ArtifactCount                    int                                   `json:"artifactCount,omitempty"`
+	CaseRelativeValidateCommand      string                                `json:"caseRelativeValidateCommand,omitempty"`
+	CaseRelativeRecordCommand        string                                `json:"caseRelativeRecordCommand,omitempty"`
+	CaseRelativeScaffoldCommand      string                                `json:"caseRelativeScaffoldCommand,omitempty"`
+	CaseRelativeScaffoldApplyCommand string                                `json:"caseRelativeScaffoldApplyCommand,omitempty"`
+	CaseRelativeDraftCommand         string                                `json:"caseRelativeDraftCommand,omitempty"`
+	CaseRelativeDraftApplyCommand    string                                `json:"caseRelativeDraftApplyCommand,omitempty"`
+	AdapterCandidateCount            int                                   `json:"adapterCandidateCount"`
+	SelectedAdapterID                string                                `json:"selectedAdapterId,omitempty"`
+	SelectedAdapter                  *gate.AdapterToolCandidate            `json:"selectedAdapter,omitempty"`
+	SidecarTemplateAdapterID         string                                `json:"sidecarTemplateAdapterId,omitempty"`
+	ReplayBehavior                   string                                `json:"replayBehavior,omitempty"`
+	RunbookSteps                     []string                              `json:"runbookSteps,omitempty"`
 }
 
 func AuthorizedGateAdapterHandoffs(repoRoot, caseRoot, pack string, requests []map[string]any, laneID string) []AuthorizedGateAdapterHandoff {
@@ -424,9 +428,13 @@ func authorizedGateLiveValidationHandoffFor(live gate.AdapterReportLiveValidatio
 		DispatchPresent:                  live.DispatchPresent,
 		DispatchCurrent:                  live.DispatchCurrent,
 		DispatchError:                    live.DispatchError,
+		DispatchRequirementError:         live.DispatchRequirementError,
+		DispatchCommand:                  live.DispatchCommand,
 		AdapterExecutionDispatchID:       live.AdapterExecutionDispatchID,
 		AdapterExecutionDispatchPath:     live.AdapterExecutionDispatchPath,
 		AdapterExecutionDispatchSHA256:   live.AdapterExecutionDispatchSHA256,
+		CurrentRunLoopStepID:             live.CurrentRunLoopStepID,
+		RunLoop:                          append([]mission.MissionCommanderRunLoopStep{}, live.RunLoop...),
 		ValidateCommand:                  live.ValidateCommand,
 		RecordCommand:                    live.RecordCommand,
 		ScaffoldCommand:                  live.ScaffoldCommand,
@@ -644,6 +652,15 @@ func writeAuthorizedGateAdapterHandoffMarkdown(out *bytes.Buffer, item Authorize
 		}
 		if strings.TrimSpace(live.ToolingCatalogSHA256) != "" || live.ArtifactCount > 0 {
 			fmt.Fprintf(out, "  - tooling provenance: catalogSha256=%s artifacts=%d\n", live.ToolingCatalogSHA256, live.ArtifactCount)
+		}
+		if strings.TrimSpace(live.CurrentRunLoopStepID) != "" || len(live.RunLoop) > 0 {
+			fmt.Fprintf(out, "  - live run loop: currentRunLoopStep=%s steps=%d\n", live.CurrentRunLoopStepID, len(live.RunLoop))
+			for _, step := range live.RunLoop {
+				fmt.Fprintf(out, "  - live run loop step: order=%d step=%s actor=%s state=%s source=%s command=`%s` description=%s\n", step.Order, step.StepID, step.Actor, step.State, step.Source, step.Command, step.Description)
+				for _, boundary := range step.Boundary {
+					fmt.Fprintf(out, "  - live run loop boundary: step=%s boundary=%s\n", step.StepID, boundary)
+				}
+			}
 		}
 		if live.SelectedAdapter != nil {
 			writeAuthorizedGateSelectedAdapterMarkdown(out, *live.SelectedAdapter)

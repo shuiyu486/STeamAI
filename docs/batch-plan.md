@@ -16,17 +16,28 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Next candidates / goal guardrails
 
-用户仍希望继续用长期 goal 推进，但下一批不能把 Batch 707-712 的 adapter provenance 继续拆成单字段、summary 或 projection 微调。压缩上下文后优先按 `docs/autonomous-goal.md` 的 milestone cadence 选择一个中大型 Windows 本机可验证 product-path closure，并在完成 3-5 批或一个 milestone 后做短自评。
+用户仍希望继续用长期 goal 推进，但下一批不能把 Batch 707-715 的 adapter provenance / live validation 继续拆成单字段、summary 或 projection 微调。压缩上下文后优先按 `docs/autonomous-goal.md` 的 milestone cadence 选择一个中大型 Windows 本机可验证 product-path closure，并在完成 3-5 批或一个 milestone 后做短自评。
 
 首选候选：
 
 1. **Mission Commander run loop MVP**：主 Agent/harness 实际驱动 ready lane 或 reviewer session 的最小 run loop；Go runtime 只记录 request/receipt/state，不 spawn/poll/stop Claude Code 进程。
 2. **Reviewer/session orchestration UX**：在既有 immutable reviewer dispatch/completion receipt 上，把 ready/running/failed/stale/completed/source-capture/intake 的 operator next step 做成一条可复制、可恢复、可验证路径。
-3. **Adapter-specific live validation UX**：选择一个 pack/tooling candidate，把 authorized gate → dispatch receipt → external report → validate → record → acknowledgement 串成更少命令拼接的 managed handoff；仍不执行 heavy tool。
-4. **Pack-memory product UX**：把 promote/reconsume 从 proof chain 推进为跨 case 可消费的 review-first workflow。
-5. **嵌入式可维护性收敛**：只在上述 slice 中拆巨型 CLI/projection/test 或类型化 action source/state，不单独做大重构批。
+3. **Pack-memory product UX**：把 promote/reconsume 从 proof chain 推进为跨 case 可消费的 review-first workflow。
+4. **嵌入式可维护性收敛**：只在上述 slice 中拆巨型 CLI/projection/test 或类型化 action source/state，不单独做大重构批。
 
 ### Current batch state
+
+### Batch 715：adapter-specific live validation UX
+
+状态：已完成 runtime、CLI/status/overview/handoff/durable Markdown 投影、focused regressions、文档收尾与完整本机 release minimum；implementation commit/push 与 push-triggered remote release-gate inspection 待执行。
+
+目标：把 authorized gate → immutable dispatch → external adapter report → strict validation → receipt/evidence record → evidence review acknowledgement 的 adapter live-validation handoff 收敛成 replacement executor 可直接消费的 ordered operator run-loop，避免 contract、validation、status、overview 与 durable Markdown 各自暴露不同片段。
+
+边界：不新增 public command、durable schema 或 PowerShell runtime logic；Go runtime 不 spawn/poll/stop adapter 或 external harness，不执行 heavy tool，不写 authority/confirmed。run-loop 只是 contract/validation/status/handoff 的只读派生视图；真实 adapter execution 仍由 lane executor 或外部 harness 在 strict authorized gate 范围内完成并写回 evidence/receipt。
+
+已实现内容：`AdapterReportLiveValidation` 现在投影 `DispatchCommand`、`CurrentRunLoopStepID`、ordered `RunLoop`、superseding gate、current executor/generation、adapter harness/session、tooling catalog SHA 与 artifact count。contract 构造和 validation 结果回灌同一 `adapterReportLiveValidationWithState`，使 contract、read-only validation、status first-screen、case mission status、overview/handoff text 与 durable Markdown 共享同一状态映射。ordered run-loop 覆盖 `inspect-contract → record-dispatch → run-external-adapter → draft-or-write-report → validate-report → record-receipt → record-observation → review-recorded-evidence`，并把 dispatch drift、provenance drift、repair/main escalation、report draft、receipt preview、record observation 与 recorded evidence review 映射到明确 current step。
+
+验证结果：focused `go test ./internal/rekit/cli ./internal/rekit/gate ./internal/rekit/workstream` 两轮通过；完整本机 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true` / `summary=release gate inventory ok`，`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./... -count=1`（CLI 256.675s）、`go vet ./...` 与 `git diff --check` 均通过，后者仅有 Windows LF→CRLF working-copy warning。README、Agent Team 使用指南、canonical `/rekit` skill 与 common adapter policy 已同步；根 `CLAUDE.md`、pack manifest/config/schema 与 case 示例无需修改，因为本批未改变项目边界、public command ABI、durable schema、pack authoring 格式或 installed case-local shim 入口。
 
 ### Batch 714：Mission Commander run-loop product path
 
