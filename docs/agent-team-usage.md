@@ -16,6 +16,7 @@
 - 旧 case 可继续使用 `.re-template.yml`，也可以通过 `/rekit attach` / `/rekit repair` 补齐 `.rekit/instance.yml`。
 - 主线和功能支线仍然保留，而且是新架构的核心协作单元。
 - `sync` / `promote` 仍然 review-first，写入前需要确认具体范围。
+- reviewer dispatch operator package 现在还会投影 ordered `runLoop[]` / `currentRunLoopStepId`，让 replacement executor 直接按 `verify-prompt → spawn-reviewer → record-dispatch → save-result-input → record-completion → source-capture → stage-candidate → collect-result → intake-results` 接手；Go runtime 仍只记录 dispatch/completion/intake，不 spawn/poll/stop reviewer session。
 - Agent Team 当前主要是 context、workflow、tooling、ledger、gate 的底座，不代表已经全自动脱壳、全自动逆向、自动漏洞挖掘、自动恶意样本分析或通用自动渗透。
 
 推荐心智模型：

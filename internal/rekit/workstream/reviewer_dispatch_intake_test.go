@@ -243,8 +243,11 @@ func TestReviewerDispatchOperatorPackageOnlyForOpenManagedDispatch(t *testing.T)
 	managed := &ReviewerManagedDispatchHandoff{ShardID: "shard-01", PromptPath: "prompt.md", PromptSHA256: strings.Repeat("a", sha256.Size*2), ReviewerResultInputPath: "input.json", ReviewerResultSourcePath: "source.json", ReviewerResultCandidatePath: "candidate.json", ReviewerResultPath: "result.json", AgentToolRequest: &ReviewerAgentToolRequest{Tool: "Claude Code Agent", ReadOnly: true}}
 	base := ReviewerDispatchIntakeHandoff{PacketID: "packet-managed", PacketPath: "packet.json", TargetLane: "feature-review", ShardID: "shard-01", State: "waiting-for-reviewer-result", ManagedDispatch: managed, ReviewerResultInputPath: "input.json", ReviewerResultSourcePath: "source.json", ReviewerResultCandidatePath: "candidate.json", ReviewerResultPath: "result.json", DispatchCommand: "dispatch read-only reviewer"}
 	open := ReviewerDispatchIntakeSummaryFor([]ReviewerDispatchIntakeHandoff{base})
-	if open.OperatorPackage == nil || !open.OperatorPackage.Ready || open.OperatorPackage.Current == nil || open.OperatorPackage.Current.DispatchCommand != base.DispatchCommand {
+	if open.OperatorPackage == nil || !open.OperatorPackage.Ready || open.OperatorPackage.Current == nil || open.OperatorPackage.Current.DispatchCommand != base.DispatchCommand || open.OperatorPackage.CurrentRunLoopStepID != "spawn-reviewer" {
 		t.Fatalf("open managed dispatch did not generate operator package: %+v", open.OperatorPackage)
+	}
+	if len(open.OperatorPackage.RunLoop) != 9 || open.OperatorPackage.RunLoop[0].StepID != "verify-prompt" || open.OperatorPackage.RunLoop[1].StepID != "spawn-reviewer" || open.OperatorPackage.RunLoop[8].StepID != "intake-results" || open.OperatorPackage.RunLoop[1].Command != base.DispatchCommand || !reviewerDispatchTestContainsSubstring(open.OperatorPackage.RunLoop[1].Boundary, "Go runtime does not spawn") || !reviewerDispatchTestContainsSubstring(open.OperatorPackage.RunLoop[8].Boundary, "WhatIf before Apply") {
+		t.Fatalf("open managed dispatch omitted ordered run loop: %+v", open.OperatorPackage.RunLoop)
 	}
 	unmanaged := base
 	unmanaged.ManagedDispatch = nil
@@ -256,6 +259,42 @@ func TestReviewerDispatchOperatorPackageOnlyForOpenManagedDispatch(t *testing.T)
 	closed.DecisionRecorded = true
 	if pkg := ReviewerDispatchIntakeSummaryFor([]ReviewerDispatchIntakeHandoff{closed}).OperatorPackage; pkg != nil {
 		t.Fatalf("closed reviewer dispatch generated operator package: %+v", pkg)
+	}
+}
+
+func TestReviewerDispatchOperatorPackageCurrentRunLoopStepTracksLifecycle(t *testing.T) {
+	managed := &ReviewerManagedDispatchHandoff{ShardID: "shard-01", PromptPath: "prompt.md", PromptSHA256: strings.Repeat("a", sha256.Size*2), ReviewerResultInputPath: "input.json", ReviewerResultSourcePath: "source.json", ReviewerResultCandidatePath: "candidate.json", ReviewerResultPath: "result.json", AgentToolRequest: &ReviewerAgentToolRequest{Tool: "Claude Code Agent", ReadOnly: true}}
+	tests := []struct {
+		state string
+		want  string
+	}{
+		{state: "reviewer-dispatch-prompt-artifact-invalid", want: "verify-prompt"},
+		{state: "reviewer-dispatch-prompt-artifact-drift", want: "verify-prompt"},
+		{state: "ready-for-reviewer-dispatch", want: "spawn-reviewer"},
+		{state: "reviewer-session-running-unknown", want: "save-result-input"},
+		{state: "ready-for-reviewer-completion-receipt-preview", want: "record-completion"},
+		{state: "ready-for-reviewer-result-source-capture-preview", want: "source-capture"},
+		{state: "ready-for-reviewer-result-staging-preview", want: "stage-candidate"},
+		{state: "ready-for-reviewer-result-collection-preview", want: "collect-result"},
+		{state: "ready-for-reviewer-intake-preview", want: "intake-results"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.state, func(t *testing.T) {
+			item := ReviewerDispatchIntakeHandoff{PacketID: "packet-managed", PacketPath: "packet.json", TargetLane: "feature-review", ShardID: "shard-01", State: tc.state, ManagedDispatch: managed, ReviewerResultInputPath: "input.json", ReviewerResultSourcePath: "source.json", ReviewerResultCandidatePath: "candidate.json", ReviewerResultPath: "result.json", DispatchCommand: "dispatch read-only reviewer", DispatchPromptPath: "prompt.md", DispatchPromptCurrent: true}
+			pkg := ReviewerDispatchIntakeSummaryFor([]ReviewerDispatchIntakeHandoff{item}).OperatorPackage
+			if pkg == nil || pkg.CurrentRunLoopStepID != tc.want || len(pkg.RunLoop) != 9 {
+				t.Fatalf("state %s run loop step = %+v", tc.state, pkg)
+			}
+		})
+	}
+	for _, state := range []string{"reviewer-session-failed", "reviewer-session-receipt-owner-stale"} {
+		t.Run(state+"-prompt-drift", func(t *testing.T) {
+			item := ReviewerDispatchIntakeHandoff{PacketID: "packet-managed", PacketPath: "packet.json", TargetLane: "feature-review", ShardID: "shard-01", State: state, ManagedDispatch: managed, ReviewerResultInputPath: "input.json", ReviewerResultSourcePath: "source.json", ReviewerResultCandidatePath: "candidate.json", ReviewerResultPath: "result.json", DispatchCommand: "dispatch read-only reviewer", DispatchPromptPath: "prompt.md", DispatchPromptState: "drift", DispatchPromptCurrent: false}
+			pkg := ReviewerDispatchIntakeSummaryFor([]ReviewerDispatchIntakeHandoff{item}).OperatorPackage
+			if pkg == nil || pkg.CurrentRunLoopStepID != "verify-prompt" {
+				t.Fatalf("state %s with prompt drift run loop step = %+v", state, pkg)
+			}
+		})
 	}
 }
 
@@ -475,6 +514,11 @@ func TestReviewerDispatchPromptArtifactCurrentnessBlocksStaleDispatch(t *testing
 	drift := reviewerDispatchIntakeHandoffFor(root, mission.LedgerFacts{}, packet, packetPath, "feature-review", dispatch, 0)
 	if drift.State != "reviewer-dispatch-prompt-artifact-drift" || drift.DispatchPromptState != "drift" || drift.DispatchPromptActualSHA256 != reviewerDispatchBytesSHA256(driftBytes) || !reviewerDispatchTestContainsSubstring(drift.Evidence, "actualSha256=") || !reviewerDispatchTestContainsSubstring(drift.Evidence, "failure=reviewer prompt artifact sha256 drift") {
 		t.Fatalf("drifted prompt artifact did not fail closed: %+v", drift)
+	}
+	for _, state := range []string{"reviewer-session-failed", "reviewer-session-receipt-owner-stale"} {
+		if !reviewerDispatchPromptArtifactBlocksDispatch(reviewerDispatchPromptArtifact{Path: promptPath, ExpectedSHA256: promptSHA, ActualSHA256: reviewerDispatchBytesSHA256(driftBytes), State: "drift"}, state) {
+			t.Fatalf("prompt drift should block reviewer redispatch state %s", state)
+		}
 	}
 }
 

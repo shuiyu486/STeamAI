@@ -31,7 +31,7 @@
 3. 实施时优先 Go-native；禁止新增 PowerShell runtime logic。若迁移期必须保留 PowerShell，只能作为 legacy compatibility，并写清依赖方、阻塞原因和删除条件。
 4. 完成后自审、评估：看是否更接近 Mission Control 北极星，是否减少 PowerShell 默认路径，架构是否清晰，是否有重复逻辑，是否需要顺手做低风险调整。
 5. 自行做必要调整，不因小的低风险文档/测试/invariant 补齐而停下来问用户。
-6. 验证、更新 `docs/batch-plan.md` 或相关设计文档、必要时更新 `CHANGELOG.md`，然后按用户当前会话授权提交并推送；已授权 batch 正常最多两次 push：implementation commit 覆盖代码/测试/文档/本地验证，release inspection commit 只记录 implementation commit 的远程 run，不为 inspection commit 自己触发的 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` runner/billing blocker 的新信号。
+6. 验证、更新 `docs/batch-plan.md` 或相关设计文档、必要时更新 `CHANGELOG.md`，然后按用户当前会话授权直接提交并推送到 origin/main；已授权 batch 正常最多两次 push：implementation commit 覆盖代码/测试/文档、本地验证，release inspection commit 只记录 implementation commit 的远程 run，不为 inspection commit 自己触发的 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` runner/billing blocker 的新信号。
 7. 如果长期目标未整体完成，先重新校准运行事实、active milestone 和风险；无升级条件时把下一批写入 `docs/batch-plan.md` 的 active/next 区并继续，不把单个 batch、inventory ready、一次提交、本地验证通过或工作树干净视为 goal 完成。
 8. 每完成 3-5 个 batch 或一个明显 milestone 后，必须先做一次简短自评：当前是否仍在消除真实 Mission Commander / executor / reviewer / adapter / pack-memory 断点；若发现只是连续补 projection/summary/text 或局部 contract，停止该方向并选择更高层的 operational closure。该自评写入 `docs/batch-plan.md` 顶部即可，不新建长报告。
 

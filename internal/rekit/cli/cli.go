@@ -7296,7 +7296,7 @@ func writeReviewerDispatchOperatorPackageText(out io.Writer, prefix string, pkg 
 		return nil
 	}
 	current := *pkg.Current
-	if _, err := fmt.Fprintf(out, "%s reviewer dispatch operator package：ready=%t packet=%s lane=%s shard=%s state=%s prompt=%s promptSha256=%s drop=%s input=%s source=%s candidate=%s result=%s nextAction=%s\n", prefix, pkg.Ready, textFirst(pkg.PacketID, pkg.PacketPath), pkg.TargetLane, current.ShardID, current.State, current.DispatchPromptPath, current.DispatchPromptSHA256, current.ReviewerResultDropPath, current.ReviewerResultInputPath, current.ReviewerResultSourcePath, current.ReviewerResultCandidatePath, current.ReviewerResultPath, current.NextAction); err != nil {
+	if _, err := fmt.Fprintf(out, "%s reviewer dispatch operator package：ready=%t packet=%s lane=%s shard=%s state=%s currentRunLoopStep=%s prompt=%s promptSha256=%s drop=%s input=%s source=%s candidate=%s result=%s nextAction=%s\n", prefix, pkg.Ready, textFirst(pkg.PacketID, pkg.PacketPath), pkg.TargetLane, current.ShardID, current.State, pkg.CurrentRunLoopStepID, current.DispatchPromptPath, current.DispatchPromptSHA256, current.ReviewerResultDropPath, current.ReviewerResultInputPath, current.ReviewerResultSourcePath, current.ReviewerResultCandidatePath, current.ReviewerResultPath, current.NextAction); err != nil {
 		return err
 	}
 	if current.AgentToolRequest != nil {
@@ -7338,6 +7338,16 @@ func writeReviewerDispatchOperatorPackageText(out io.Writer, prefix string, pkg 
 	if strings.TrimSpace(current.DispatchCommand) != "" {
 		if _, err := fmt.Fprintf(out, "%s reviewer dispatch operator dispatch：shard=%s command=`%s`\n", prefix, current.ShardID, current.DispatchCommand); err != nil {
 			return err
+		}
+	}
+	for _, step := range pkg.RunLoop {
+		if _, err := fmt.Fprintf(out, "%s reviewer dispatch operator run loop：shard=%s order=%d step=%s actor=%s command=`%s` preview=`%s` apply=`%s` path=%s description=%s\n", prefix, current.ShardID, step.Order, step.StepID, step.Actor, step.Command, step.PreviewCommand, step.ApplyCommand, step.Path, step.Description); err != nil {
+			return err
+		}
+		for _, boundary := range step.Boundary {
+			if _, err := fmt.Fprintf(out, "%s reviewer dispatch operator run loop boundary：shard=%s step=%s boundary=%s\n", prefix, current.ShardID, step.StepID, boundary); err != nil {
+				return err
+			}
 		}
 	}
 	for idx, step := range pkg.RunbookSteps {

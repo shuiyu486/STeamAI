@@ -231,15 +231,29 @@ type ReviewerManagedDispatchHandoff struct {
 }
 
 type ReviewerDispatchOperatorPackage struct {
-	Ready              bool                                 `json:"ready"`
-	Summary            string                               `json:"summary,omitempty"`
-	PacketID           string                               `json:"packetId,omitempty"`
-	PacketPath         string                               `json:"packetPath,omitempty"`
-	TargetLane         string                               `json:"targetLane,omitempty"`
-	Current            *ReviewerDispatchOperatorPackageItem `json:"current,omitempty"`
-	RunbookSteps       []string                             `json:"runbookSteps,omitempty"`
-	CompletionCriteria []string                             `json:"completionCriteria,omitempty"`
-	Boundary           []string                             `json:"boundary,omitempty"`
+	Ready                bool                                 `json:"ready"`
+	Summary              string                               `json:"summary,omitempty"`
+	PacketID             string                               `json:"packetId,omitempty"`
+	PacketPath           string                               `json:"packetPath,omitempty"`
+	TargetLane           string                               `json:"targetLane,omitempty"`
+	Current              *ReviewerDispatchOperatorPackageItem `json:"current,omitempty"`
+	CurrentRunLoopStepID string                               `json:"currentRunLoopStepId,omitempty"`
+	RunLoop              []ReviewerDispatchRunLoopStep        `json:"runLoop,omitempty"`
+	RunbookSteps         []string                             `json:"runbookSteps,omitempty"`
+	CompletionCriteria   []string                             `json:"completionCriteria,omitempty"`
+	Boundary             []string                             `json:"boundary,omitempty"`
+}
+
+type ReviewerDispatchRunLoopStep struct {
+	StepID         string   `json:"stepId"`
+	Order          int      `json:"order"`
+	Actor          string   `json:"actor"`
+	Description    string   `json:"description"`
+	Command        string   `json:"command,omitempty"`
+	PreviewCommand string   `json:"previewCommand,omitempty"`
+	ApplyCommand   string   `json:"applyCommand,omitempty"`
+	Path           string   `json:"path,omitempty"`
+	Boundary       []string `json:"boundary,omitempty"`
 }
 
 type ReviewerDispatchOperatorPackageItem struct {
@@ -1544,7 +1558,7 @@ func reviewerDispatchPromptArtifactBlocksDispatch(status reviewerDispatchPromptA
 	if status.Current {
 		return false
 	}
-	return state == "ready-for-reviewer-dispatch" || state == "waiting-for-reviewer-result" || state == "dispatch-only-waiting-for-result"
+	return state == "ready-for-reviewer-dispatch" || state == "waiting-for-reviewer-result" || state == "dispatch-only-waiting-for-result" || state == "reviewer-session-failed" || state == "reviewer-session-receipt-owner-stale"
 }
 
 func reviewerDispatchPromptArtifactBlockedState(status reviewerDispatchPromptArtifact) string {
@@ -2538,17 +2552,174 @@ func reviewerDispatchOperatorPackageFor(item ReviewerDispatchIntakeHandoff) *Rev
 		"reviewer dispatch operator package is read-only; it does not call Agent tool, spawn reviewers, monitor sessions, or execute reviewer work",
 		"operator package does not write facts, authority, confirmed state, or execute heavy tools",
 	)
+	runLoop := reviewerDispatchOperatorRunLoop(current)
 	return &ReviewerDispatchOperatorPackage{
-		Ready:              true,
-		Summary:            fmt.Sprintf("managed reviewer dispatch operator package ready: packet=%s shard=%s state=%s", firstText(item.PacketID, item.PacketPath), item.ShardID, item.State),
-		PacketID:           item.PacketID,
-		PacketPath:         firstText(item.PacketPath, managed.PacketPath),
-		TargetLane:         firstText(item.TargetLane, managed.TargetLane),
-		Current:            &current,
-		RunbookSteps:       mission.UniqueStrings(runbook),
-		CompletionCriteria: mission.UniqueStrings(criteria),
-		Boundary:           mission.UniqueStrings(boundary),
+		Ready:                true,
+		Summary:              fmt.Sprintf("managed reviewer dispatch operator package ready: packet=%s shard=%s state=%s", firstText(item.PacketID, item.PacketPath), item.ShardID, item.State),
+		PacketID:             item.PacketID,
+		PacketPath:           firstText(item.PacketPath, managed.PacketPath),
+		TargetLane:           firstText(item.TargetLane, managed.TargetLane),
+		Current:              &current,
+		CurrentRunLoopStepID: reviewerDispatchCurrentRunLoopStepID(item),
+		RunLoop:              runLoop,
+		RunbookSteps:         mission.UniqueStrings(runbook),
+		CompletionCriteria:   mission.UniqueStrings(criteria),
+		Boundary:             mission.UniqueStrings(boundary),
 	}
+}
+
+func reviewerDispatchRunLoopRequiresCurrentPrompt(state string) bool {
+	switch state {
+	case "ready-for-reviewer-dispatch", "waiting-for-reviewer-result", "dispatch-only-waiting-for-result", "reviewer-session-failed", "reviewer-session-receipt-owner-stale":
+		return true
+	default:
+		return false
+	}
+}
+
+func reviewerDispatchCurrentRunLoopStepID(item ReviewerDispatchIntakeHandoff) string {
+	if strings.TrimSpace(item.DispatchPromptPath) != "" && !item.DispatchPromptCurrent && reviewerDispatchRunLoopRequiresCurrentPrompt(item.State) {
+		return "verify-prompt"
+	}
+	switch item.State {
+	case "reviewer-dispatch-prompt-artifact-invalid", "reviewer-dispatch-prompt-artifact-drift":
+		return "verify-prompt"
+	case "ready-for-reviewer-dispatch", "waiting-for-reviewer-result", "dispatch-only-waiting-for-result":
+		return "spawn-reviewer"
+	case "reviewer-session-running-unknown":
+		return "save-result-input"
+	case "ready-for-reviewer-completion-receipt-preview":
+		return "record-completion"
+	case "reviewer-session-failed", "reviewer-session-receipt-owner-stale":
+		return "spawn-reviewer"
+	case "ready-for-reviewer-result-source-capture-preview":
+		return "source-capture"
+	case "ready-for-reviewer-result-staging-preview":
+		return "stage-candidate"
+	case "ready-for-reviewer-result-collection-preview", "reviewer-result-recovery-disposed-ready-for-collection-preview":
+		return "collect-result"
+	case "ready-for-reviewer-intake-preview":
+		return "intake-results"
+	default:
+		return ""
+	}
+}
+
+func reviewerDispatchOperatorRunLoop(current ReviewerDispatchOperatorPackageItem) []ReviewerDispatchRunLoopStep {
+	steps := []ReviewerDispatchRunLoopStep{}
+	add := func(step ReviewerDispatchRunLoopStep) {
+		step.StepID = strings.TrimSpace(step.StepID)
+		step.Actor = strings.TrimSpace(step.Actor)
+		step.Description = strings.TrimSpace(step.Description)
+		if step.StepID == "" || step.Description == "" {
+			return
+		}
+		step.Order = len(steps) + 1
+		step.Boundary = mission.UniqueStrings(step.Boundary)
+		steps = append(steps, step)
+	}
+	if strings.TrimSpace(current.DispatchPromptPath) != "" {
+		add(ReviewerDispatchRunLoopStep{
+			StepID:      "verify-prompt",
+			Actor:       "main-agent",
+			Description: "verify the packet-derived reviewer prompt artifact is current before reviewer dispatch",
+			Path:        current.DispatchPromptPath,
+			Boundary: []string{
+				"prompt artifact must be present, non-symlink, non-empty, and match dispatchPromptSha256 before dispatch",
+				"if promptCurrent is false, run the prompt repair WhatIf/Apply path before invoking the Agent tool",
+			},
+		})
+	}
+	add(ReviewerDispatchRunLoopStep{
+		StepID:      "spawn-reviewer",
+		Actor:       "main-agent-harness",
+		Description: "invoke the read-only Agent tool request for this shard and obtain exactly one ReviewerResult JSON object",
+		Command:     current.DispatchCommand,
+		Boundary: []string{
+			"the main Agent or harness performs the Agent tool call; Go runtime does not spawn, poll, monitor, stop, or manage reviewer sessions",
+			"the reviewer must not write files, facts, authority, confirmed state, or execute heavy tools",
+		},
+	})
+	add(ReviewerDispatchRunLoopStep{
+		StepID:         "record-dispatch",
+		Actor:          "main-agent",
+		Description:    "after the harness accepts the reviewer session, record the immutable dispatch receipt",
+		PreviewCommand: current.ReviewerDispatchRecordCommand,
+		Path:           current.ReviewerDispatchReceiptPath,
+		Boundary: []string{
+			"record dispatch only after a real harness/session id exists; use the hash-bound Apply command returned by preview",
+			"dispatch receipt is an immutable harness observation and does not spawn or rerun the reviewer",
+		},
+	})
+	add(ReviewerDispatchRunLoopStep{
+		StepID:      "save-result-input",
+		Actor:       "main-agent",
+		Description: "save the reviewer JSON object to the packet-derived reviewer result input path",
+		Path:        firstText(current.ReviewerResultInputPath, current.ReviewerResultDropPath),
+		Boundary: []string{
+			"save exactly one reviewer JSON object before completion receipt, source capture, staging, collection, or intake",
+			"the saved input must contain the same reviewerSession bound to the dispatch receipt",
+		},
+	})
+	add(ReviewerDispatchRunLoopStep{
+		StepID:         "record-completion",
+		Actor:          "main-agent",
+		Description:    "when the reviewer session exits, record succeeded or failed completion before any source capture",
+		PreviewCommand: current.ReviewerCompletionRecordCommand,
+		Path:           current.ReviewerCompletionReceiptPath,
+		Boundary: []string{
+			"successful completion requires exact dispatch receipt and reviewer result input path/hash/bytes bindings",
+			"failed or stale-owner completion cannot enter source capture, collection, or intake",
+		},
+	})
+	add(ReviewerDispatchRunLoopStep{
+		StepID:         "source-capture",
+		Actor:          "main-agent",
+		Description:    "publish the exact completed reviewer input to the packet-derived source path",
+		PreviewCommand: current.ReviewerResultSourceCapturePreviewCommand,
+		ApplyCommand:   current.ReviewerResultSourceCaptureApplyCommand,
+		Path:           current.ReviewerResultSourcePath,
+		Boundary: []string{
+			"source capture requires a successful current completion receipt and uses the expected input hash returned by preview",
+			"source capture does not collect reviewer result or write verification/decision facts",
+		},
+	})
+	add(ReviewerDispatchRunLoopStep{
+		StepID:         "stage-candidate",
+		Actor:          "main-agent",
+		Description:    "stage the packet-derived source into the reviewer result candidate path",
+		PreviewCommand: current.ReviewerResultStagingPreviewCommand,
+		Path:           current.ReviewerResultCandidatePath,
+		Boundary: []string{
+			"staging uses only the packet-derived source path and the expected source hash returned by preview",
+			"staging publishes a candidate for later collection; it does not write facts",
+		},
+	})
+	add(ReviewerDispatchRunLoopStep{
+		StepID:         "collect-result",
+		Actor:          "main-agent",
+		Description:    "collect the staged candidate into the immutable canonical reviewer result path",
+		PreviewCommand: current.ReviewerResultCollectionPreviewCommand,
+		ApplyCommand:   current.ReviewerResultCollectionApplyCommand,
+		Path:           current.ReviewerResultPath,
+		Boundary: []string{
+			"collection is no-overwrite and exact-byte bound; different canonical bytes require reviewer result recovery",
+			"collection does not perform reviewer intake or write authority/confirmed state",
+		},
+	})
+	add(ReviewerDispatchRunLoopStep{
+		StepID:         "intake-results",
+		Actor:          "main-agent",
+		Description:    "run reviewer intake WhatIf, inspect verification/decision previews, then apply the bounded writeback command",
+		PreviewCommand: firstText(current.ReviewerResultBatchIntakePreviewCommand, current.ReviewerResultIntakePreviewCommand),
+		ApplyCommand:   firstText(current.ReviewerResultBatchIntakeApplyCommand, current.ReviewerResultIntakeApplyCommand),
+		Path:           current.ReviewerResultPath,
+		Boundary: []string{
+			"intake must run WhatIf before Apply and stops at the first blocked, partial, or invalid shard",
+			"intake writes verification/decision facts only; it does not write authority/confirmed state or execute heavy tools",
+		},
+	})
+	return steps
 }
 
 func reviewerDispatchOperatorAgentToolRequest(item ReviewerDispatchIntakeHandoff, managed *ReviewerManagedDispatchHandoff) *ReviewerAgentToolRequest {
@@ -2583,7 +2754,7 @@ func reviewerDispatchOperatorPackageMarkdownLines(pkg *ReviewerDispatchOperatorP
 		return nil
 	}
 	current := *pkg.Current
-	lines := []string{fmt.Sprintf("- operator package: ready=%t packet=%s lane=%s shard=%s state=%s prompt=`%s` promptSha256=%s input=`%s` source=`%s` candidate=`%s` result=`%s` nextAction=`%s`", pkg.Ready, firstText(pkg.PacketID, pkg.PacketPath), pkg.TargetLane, current.ShardID, current.State, current.DispatchPromptPath, current.DispatchPromptSHA256, current.ReviewerResultInputPath, current.ReviewerResultSourcePath, current.ReviewerResultCandidatePath, current.ReviewerResultPath, current.NextAction)}
+	lines := []string{fmt.Sprintf("- operator package: ready=%t packet=%s lane=%s shard=%s state=%s currentRunLoopStep=%s prompt=`%s` promptSha256=%s input=`%s` source=`%s` candidate=`%s` result=`%s` nextAction=`%s`", pkg.Ready, firstText(pkg.PacketID, pkg.PacketPath), pkg.TargetLane, current.ShardID, current.State, pkg.CurrentRunLoopStepID, current.DispatchPromptPath, current.DispatchPromptSHA256, current.ReviewerResultInputPath, current.ReviewerResultSourcePath, current.ReviewerResultCandidatePath, current.ReviewerResultPath, current.NextAction)}
 	if current.AgentToolRequest != nil {
 		request := current.AgentToolRequest
 		lines = append(lines, fmt.Sprintf("  - operator agent tool: tool=%s agentType=%s readOnly=%t promptPath=`%s` promptSha256=%s expectedOutput=%s", request.Tool, request.AgentType, request.ReadOnly, request.PromptPath, request.PromptSHA256, request.ExpectedOutput))
@@ -2608,6 +2779,12 @@ func reviewerDispatchOperatorPackageMarkdownLines(pkg *ReviewerDispatchOperatorP
 	}
 	if strings.TrimSpace(current.DispatchCommand) != "" {
 		lines = append(lines, "  - operator dispatch: `"+current.DispatchCommand+"`")
+	}
+	for _, step := range pkg.RunLoop {
+		lines = append(lines, fmt.Sprintf("  - operator run loop step %d: id=%s actor=%s command=`%s` preview=`%s` apply=`%s` path=`%s` description=%s", step.Order, step.StepID, step.Actor, step.Command, step.PreviewCommand, step.ApplyCommand, step.Path, step.Description))
+		for _, boundary := range mission.LimitStrings(step.Boundary, maxHandoffRows) {
+			lines = append(lines, "    - operator run loop boundary: "+boundary)
+		}
 	}
 	for idx, step := range mission.LimitStrings(pkg.RunbookSteps, maxHandoffRows) {
 		lines = append(lines, fmt.Sprintf("  - operator runbook step %d: %s", idx+1, step))
