@@ -81,7 +81,7 @@ git diff --check
 1. `CHANGELOG.md` 顶部 `Unreleased` 已描述本轮用户可见变化、边界和验证结果。
 2. `docs/batch-plan.md` 最新 batch 状态为已完成，并列出实际执行过的验证。
 3. `docs/go-first-convergence-plan.md` 未把阶段性进展误写成全局完成；Stage 1-8 未完成项仍保留。
-4. `docs/mission-control-product-direction.md` 的产品北极星与 README、CLAUDE、vision、design 一致；`docs/autonomous-goal.md` 的长期 goal、停止条件和中大型 vertical slice guidance 与本文件、go-first convergence 计划一致。
+4. `docs/mission-control-product-direction.md` 的产品北极星与 README、CLAUDE、vision、design 一致；`docs/autonomous-goal.md` 的短 goal、接手 cadence 和中大型 vertical slice guidance 与本文件、go-first convergence 计划一致。
 5. `rekit/tests/catalog.json` 与 `rekit/tests/README.md` 一致；新增 `*.ps1` 已被 catalog 收录。
 6. `git status --short` 干净后再打 tag 或发 release。
 

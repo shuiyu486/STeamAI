@@ -270,21 +270,21 @@ adapterId + gateEventId + executor/session + command/input hash + measured budge
 
 ### 推荐 goal
 
+长期 goal 的 canonical 版本在 `docs/autonomous-goal.md`。本复审报告不再内嵌另一份可复制长 goal，避免压缩上下文后出现多个版本。当前原则是：**goal 短，计划进文档**。
+
 ```text
-在 C:\AI\m_projects\RE\re-context-kits 的 main 分支长期自主、连续推进项目成为可实际运行的 Lane-centric Agent Team Mission Control。每轮选择一个中大型、端到端、可验证的产品闭环，优先把现有 durable contract 接到真实 session、reviewer 和 adapter 生命周期，并同步收敛阻碍闭环的架构复杂度；完成验证、文档、提交和推送后继续下一轮。除非遇到必须由我决策的不可逆事项，否则不要停止，也不要把单批完成、工作树干净或 inventory ready 当作 goal 完成。
+在 re-context-kits 仓库 main 分支长期自主推进项目成为可实际运行的 Lane-centric Agent Team Mission Control。接手后先读 CLAUDE.md、docs/context-routing.md、docs/autonomous-goal.md 顶部、docs/batch-plan.md 顶部和 CHANGELOG.md Unreleased 校准状态；每轮选择中大型、端到端、可验证的产品闭环，完成验证、文档、提交和推送后继续下一轮；除非遇到必须由我决策的事项，否则不要停止，也不要把单批完成当作长期 goal 完成。
 ```
 
-### 为什么这版更适合几十上百轮
+### 为什么短 goal 更适合长期推进
 
-- 只固定产品北极星、批次粒度、近期真实缺口和继续推进原则。
-- 不枚举几十条命令、边界、测试和停止条件；这些继续由仓库 `CLAUDE.md` 与路由文档承载。
-- “优先”而不是“只允许”，模型可以根据代码证据调整顺序。
-- 明确要求端到端闭环，能抑制 first-screen/summary/metadata 微批次。
-- 只有一个停止原则，避免模型在单批完成后自行宣布 goal 完成。
+- goal 只固定产品北极星和继续推进意图；路线、候选项、验证命令、release 边界和停止条件由仓库 `CLAUDE.md`、`docs/context-routing.md`、`docs/autonomous-goal.md` 顶部和 `docs/batch-plan.md` 顶部承载。
+- goal 说得越多，越容易让模型逐条满足文本约束，而不是根据代码证据主动发现真正产品断点。
+- 文档仍可要求端到端闭环、抑制 first-screen/summary/metadata 微批次，但这些要求不应全部复制进 goal。
 
 ### 不建议继续使用的写法
 
-不建议在 goal 中复制 `docs/autonomous-goal.md:94-100` 的全部细项。现有版本虽然方向正确，但把读取步骤、八类近期重点、PowerShell、CI blocker、文档、push、停止条件都塞入 goal，容易让模型把“逐项满足文本约束”误当任务，而不是主动发现真正产品断点。
+不建议在 goal 中复制读取步骤、八类近期重点、PowerShell、CI blocker、验证命令、文档、push、停止条件或 release inspection cadence 的全部细项。它们方向正确，但属于仓库文档计划，不属于可复制 goal。
 
 ## 六、结论
 

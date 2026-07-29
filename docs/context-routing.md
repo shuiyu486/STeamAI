@@ -50,7 +50,7 @@
 |---|---|---|
 | 产品北极星是否偏移 | `docs/mission-control-product-direction.md` 顶部 80-120 行 | 不读全篇历史章节 |
 | 架构四层模型 / stable boundary | `docs/design.md` 顶部和对应小节 | 不把 batch 日志并回架构总览 |
-| 自主 goal / 停止条件 | `docs/autonomous-goal.md` 顶部 80-120 行 | 不复制整段 goal 到每次总结 |
+| 自主短 goal / 接手 cadence | `docs/autonomous-goal.md` 顶部 80-120 行 | 不复制整段 goal 到每次总结 |
 | 2026-07-28 项目复审 / 中长期优化路线 | `docs/project-reassessment-2026-07-28.md` 顶部执行区；仅在重新评估方向或选择中大型主线时按需读取 | 不把复审报告加入每轮默认 read-first |
 | 当前 batch 和下一步 | `docs/batch-plan.md` 顶部 current/next/latest completed | 不读 `docs/batch-history.md` |
 | 旧 batch 细节 / 考古 | `docs/batch-history.md` 中按 Batch ID 搜索 | 不从 Batch 0 顺序读 |

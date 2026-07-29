@@ -14,6 +14,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 **Mission Commander operational closure and truthful release readiness**：把 durable lane/reviewer/autonomy contract 串成实际可运行、可跨会话接手、可验证的产品闭环，并区分 inventory ready、本地 gate executed 与远程 CI green。当前用户短期只要求 Windows 本机稳定可用；远程 Linux/macOS/Windows CI 因 runner/billing blocker 继续记录为 known gap，不阻塞本机 Mission Control 闭环。
 
+### Next candidates / goal guardrails
+
+用户仍希望继续用长期 goal 推进，但下一批不能把 Batch 707-712 的 adapter provenance 继续拆成单字段、summary 或 projection 微调。压缩上下文后优先按 `docs/autonomous-goal.md` 的 milestone cadence 选择一个中大型 Windows 本机可验证 product-path closure，并在完成 3-5 批或一个 milestone 后做短自评。
+
+首选候选：
+
+1. **Mission Commander run loop MVP**：主 Agent/harness 实际驱动 ready lane 或 reviewer session 的最小 run loop；Go runtime 只记录 request/receipt/state，不 spawn/poll/stop Claude Code 进程。
+2. **Reviewer/session orchestration UX**：在既有 immutable reviewer dispatch/completion receipt 上，把 ready/running/failed/stale/completed/source-capture/intake 的 operator next step 做成一条可复制、可恢复、可验证路径。
+3. **Adapter-specific live validation UX**：选择一个 pack/tooling candidate，把 authorized gate → dispatch receipt → external report → validate → record → acknowledgement 串成更少命令拼接的 managed handoff；仍不执行 heavy tool。
+4. **Pack-memory product UX**：把 promote/reconsume 从 proof chain 推进为跨 case 可消费的 review-first workflow。
+5. **嵌入式可维护性收敛**：只在上述 slice 中拆巨型 CLI/projection/test 或类型化 action source/state，不单独做大重构批。
+
 ### Current batch state
 
 ### Batch 712：pre-report adapter terminal recovery

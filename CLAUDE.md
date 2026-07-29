@@ -28,7 +28,7 @@ Batch 推送节奏（仅在当前 goal/session 已明确授权 commit/push 时�
 |---|---|
 | 产品方向 | `docs/mission-control-product-direction.md` 顶部 |
 | 架构边界 / 四层模型 | `docs/design.md` 顶部和对应小节 |
-| 自主 goal / 停止条件 | `docs/autonomous-goal.md` 顶部 |
+| 自主短 goal / 接手 cadence | `docs/autonomous-goal.md` 顶部 |
 | 当前批次 / 下一步 | `docs/batch-plan.md` 顶部 |
 | 旧批次考古 | `docs/batch-history.md` 中按 Batch ID 搜索 |
 | release / CI 判断 | `docs/release-readiness.md` 顶部 + `release-check -Format json` |

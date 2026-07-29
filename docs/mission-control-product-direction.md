@@ -266,12 +266,6 @@ case observation / recipe / checklist / prompt / adapter candidate
 
 ## 11. 推荐长期 goal 语句
 
-```text
-在 C:\AI\m_projects\RE\re-context-kits 中，长期自主推进 re-context-kits 向 Lane-centric Agent Team Mission Control 收敛。每轮选择一个 coherent、中大型、可验证、能降低真实维护风险或提高实际可用性的 vertical slice，不要只做一两行或逐字段 metadata 微批次；完成后自行审查、评估效果、做必要低风险调整，然后执行真实验证，更新 docs/batch-plan.md 的 current/active/next 区或相关设计文档，并只记录必要的 CHANGELOG。仅在当前用户 goal/session 明确授权时提交并推送指定分支；每批后重新校准运行事实和风险，长期目标未完成且无升级条件时再继续下一批。
+长期 goal 的 canonical 版本在 `docs/autonomous-goal.md`，本文件只保留产品北极星，避免两个可复制 goal 在上下文压缩后漂移。
 
-产品北极星：用户主要和主 Agent / Mission Commander 交互；主 Agent 调度 durable member lanes，而不是绑定旧聊天窗口；每个 lane 可由长期 Claude Code 会话执行，也可由新会话接手；主 Agent 可启动短命 tactical subagents 做搜索、验证、review、小修和 bounded implementation；用户可随时进入任意 lane 纠错、改向、硬切模型或要求新会话接手，当前 `continue` 对 open intervention fail-closed 并要求显式 `reconcile` 写入 durable state，目标是 Mission Commander 自动准备安全 resolution；lane 文档/packet 只表达授权意图，只有 strict durable autonomy profile 加 `authorized-gate` decision 完全覆盖 action、exact target、typed budget、stop conditions、output paths、record/notify 和 grant/expiry 时，成员 lane 才可不逐步打断用户地执行 heavy-tool、动态调试、patch、dump、hook、exploit replay、网络扫描/请求回放；超出范围、出现新风险、需要 confirmed/authority 或 pack promote 时必须升级。
-
-实施主线围绕七类：1) Mission Control UX：减少用户面对的命令，把 /rekit 作为 runtime API 而不是主要 UX；2) lane protocol：把已有 packet/status/outbox/handoff/intervention/autonomy/reconcile 底座推进为实际接手闭环；3) replaceable session executor：长期成员身份绑定 lane，并明确 session registration/takeover/ownership 的 operational contract；4) tactical subagents：实际验证主 Agent dispatch、intake、WhatIf、writeback 与 post-validation；5) pre-authorized lane autonomy：让 executor/tool adapter 消费 durable profile + authorized-gate 并回写 evidence/budget/boundary-hit；6) pack-based team memory：把复用经验 review/promote 后在 fresh case 重新消费；7) Go-first deterministic substrate：完成 PowerShell-free default/product path、retained façade 收束与跨平台 product-path E2E，禁止新增 PowerShell runtime logic。
-
-每批开始前先读 CLAUDE.md、docs/context-routing.md、docs/batch-plan.md 顶部 current/next 和 CHANGELOG.md 顶部 Unreleased，并检查 git、本地 gate 与远程 CI 实际状态；再按 docs/context-routing.md 只读取当前场景需要的顶部区。优先做 coherent 中大型 vertical slice，并自审是否偏离 Mission Control 北极星。除新的产品方向变化、破坏性仓库操作、未授权外部副作用、runtime schema 迁移、公共入口删除门禁不完整、confirmed/authority 写入策略变化或难以判断的架构取舍外，自主判断并持续推进。
-```
+当前推荐使用 `docs/autonomous-goal.md` 的短 goal：goal 只负责启动长期自主推进，不复制路线、候选项或停止条件细则。短 goal 应点名最小接手入口（`CLAUDE.md`、`docs/context-routing.md`、`docs/autonomous-goal.md` 顶部、`docs/batch-plan.md` 顶部、`CHANGELOG.md` Unreleased），再由这些文档承载具体计划：选择中大型、端到端、可验证的 product-path closure，并避免连续补字段、summary 或 projection 微批次。
