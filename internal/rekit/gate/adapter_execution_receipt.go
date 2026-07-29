@@ -19,6 +19,7 @@ import (
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
 var adapterExecutionSegmentPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
@@ -669,6 +670,40 @@ func adapterExecutionReceiptExists(caseRoot string, gateEvent EventPreview) (boo
 		return true, err
 	}
 	return true, nil
+}
+
+func ReadAdapterExecutionReceipt(caseRoot, lane, gateEventID string) (*adapterexecution.Receipt, string, string, bool, error) {
+	rel, full, err := adapterExecutionReceiptPath(caseRoot, lane, gateEventID)
+	if err != nil {
+		return nil, "", "", false, err
+	}
+	data, present, err := readAdapterExecutionReceiptRaw(caseRoot, full, rel)
+	if err != nil || !present {
+		return nil, rel, "", present, err
+	}
+	receiptSHA := adapterexecution.SHA256(data)
+	receipt, err := adapterexecution.Decode(data)
+	if err != nil {
+		return nil, rel, "", true, fmt.Errorf("adapter execution receipt is invalid: %w", err)
+	}
+	if receipt.Gate.GateEventID != strings.TrimSpace(gateEventID) || receipt.Gate.Lane != strings.TrimSpace(lane) || receipt.Owner.Lane != strings.TrimSpace(lane) {
+		return nil, rel, "", true, fmt.Errorf("adapter execution receipt identity does not match requested lane/gate: %s", rel)
+	}
+	observations, err := mission.ReadStrictFact(caseRoot, "observation")
+	if err != nil {
+		return nil, rel, "", true, err
+	}
+	for _, observation := range observations {
+		item, ok := mission.ExecutionEvidenceReviewItemFromObservation(observation, lane, nil)
+		if !ok || item.GateEventID != gateEventID {
+			continue
+		}
+		if filepath.Clean(filepath.FromSlash(item.AdapterExecutionReceiptPath)) != filepath.Clean(filepath.FromSlash(rel)) || !strings.EqualFold(item.AdapterExecutionReceiptSHA256, receiptSHA) || !strings.EqualFold(item.ExecutionReportSHA256, receipt.Report.SHA256) {
+			return nil, rel, "", true, fmt.Errorf("adapter execution receipt does not match recorded observation provenance: %s", rel)
+		}
+		return &receipt, rel, receiptSHA, true, nil
+	}
+	return nil, rel, "", true, fmt.Errorf("adapter execution receipt has no recorded observation provenance: %s", rel)
 }
 
 func readAdapterExecutionReceiptRaw(caseRoot, full, rel string) ([]byte, bool, error) {

@@ -59,6 +59,7 @@ type AuthorizedGateLiveValidationHandoff struct {
 	AdapterExecutionReceiptPath      string                     `json:"adapterExecutionReceiptPath,omitempty"`
 	AdapterExecutionReceiptSHA256    string                     `json:"adapterExecutionReceiptSha256,omitempty"`
 	ReceiptPreviewCommand            string                     `json:"receiptPreviewCommand,omitempty"`
+	SupersedingGateEventID           string                     `json:"supersedingGateEventId,omitempty"`
 	CurrentExecutor                  string                     `json:"currentExecutor,omitempty"`
 	ExecutorGeneration               int                        `json:"executorGeneration,omitempty"`
 	AdapterHarness                   string                     `json:"adapterHarness,omitempty"`
@@ -187,7 +188,12 @@ func applyAuthorizedGateAdapterAcknowledgement(handoff *AuthorizedGateAdapterHan
 	if handoff == nil || len(acknowledgedIDs) == 0 || !acknowledgedIDs[strings.TrimSpace(handoff.EventID)] {
 		return
 	}
-	if handoff.ReportSummary == nil || handoff.ReportSummary.State != "evidence-already-recorded" || handoff.ReportSummary.RequiresMainEscalation {
+	if handoff.ReportSummary == nil || handoff.ReportSummary.RequiresMainEscalation {
+		return
+	}
+	recorded := handoff.ReportSummary.State == "evidence-already-recorded"
+	superseded := handoff.ReportSummary.State == "repair-adapter-report" && handoff.LiveValidation != nil && handoff.LiveValidation.ReceiptPresent && strings.TrimSpace(handoff.LiveValidation.AdapterExecutionReceiptPath) != "" && strings.TrimSpace(handoff.LiveValidation.SupersedingGateEventID) != "" && handoff.LiveValidation.SupersedingGateEventID != handoff.EventID
+	if !recorded && !superseded {
 		return
 	}
 	handoff.Acknowledged = true
@@ -197,6 +203,20 @@ func applyAuthorizedGateAdapterAcknowledgement(handoff *AuthorizedGateAdapterHan
 	handoff.LiveValidationNextSteps = acknowledgedAdapterClosureSteps()
 	handoff.missionCommanderNextActions = nil
 	summary := *handoff.ReportSummary
+	if superseded {
+		summary.State = "evidence-already-recorded"
+		summary.ReportPath = handoff.LiveValidation.CaseRelativeReportPath
+		summary.ReportSHA256 = handoff.LiveValidation.ReportSHA256
+		summary.Valid = true
+		summary.RecordReady = false
+		summary.RecordBlocked = true
+		summary.RequiresValidation = false
+		summary.RequiresRepair = false
+		summary.ValidationFailureCode = ""
+		summary.ValidationFailureStage = ""
+		handoff.LiveValidationError = ""
+		handoff.LiveValidationRepairHints = nil
+	}
 	summary.NextActionCount = 0
 	summary.ReviewRequiredActionCount = 0
 	summary.ActionQueueSummary = ""
@@ -288,6 +308,20 @@ func authorizedGateAdapterHandoffFor(repoRoot, caseRoot, pack string, item map[s
 	handoff.missionCommanderNextActions = append([]mission.MissionCommanderNextActionItem{}, contract.MissionCommanderNextActions...)
 	if validation, present, err := gate.AdapterReportLiveSnapshot(repoRoot, caseRoot, pack, gate.Options{GateEventID: eventID, ExecutionReportPath: handoff.ReportPath}); err != nil {
 		handoff.LiveValidationError = err.Error()
+		if receipt, receiptPath, receiptSHA, receiptPresent, receiptErr := gate.ReadAdapterExecutionReceipt(caseRoot, lane, eventID); receiptErr == nil && receiptPresent && receipt != nil {
+			liveValidation.ReceiptRequired = true
+			liveValidation.ReceiptPresent = true
+			liveValidation.ProvenanceValid = false
+			liveValidation.AdapterExecutionReceiptPath = receiptPath
+			liveValidation.AdapterExecutionReceiptSHA256 = receiptSHA
+			liveValidation.ReportSHA256 = receipt.Report.SHA256
+			liveValidation.CurrentExecutor = receipt.Owner.CurrentExecutor
+			liveValidation.ExecutorGeneration = receipt.Owner.ExecutorGeneration
+			liveValidation.AdapterHarness = receipt.Owner.AdapterHarness
+			liveValidation.AdapterSession = receipt.Owner.AdapterSession
+			liveValidation.ToolingCatalogSHA256 = receipt.Adapter.ToolingCatalogSHA256
+			liveValidation.ArtifactCount = len(receipt.Artifacts)
+		}
 	} else if present {
 		reportSummary = validation.ReportSummary
 		handoff.ReportPath = firstText(validation.ReportPath, handoff.ReportPath)
@@ -298,6 +332,27 @@ func authorizedGateAdapterHandoffFor(repoRoot, caseRoot, pack string, item map[s
 		liveValidation.ReportSHA256 = validation.ReportSHA256
 		liveValidation.RecordExpectedReportSHA256 = validation.RecordExpectedReportSHA256
 		applyAdapterExecutionReceiptHandoff(&liveValidation, validation)
+		if liveValidation.AdapterExecutionReceiptPath == "" {
+			if receipt, receiptPath, receiptSHA, receiptPresent, receiptErr := gate.ReadAdapterExecutionReceipt(caseRoot, lane, eventID); receiptErr == nil && receiptPresent && receipt != nil {
+				liveValidation.ReceiptRequired = true
+				liveValidation.ReceiptPresent = true
+				liveValidation.ProvenanceValid = false
+				liveValidation.AdapterExecutionReceiptPath = receiptPath
+				liveValidation.AdapterExecutionReceiptSHA256 = receiptSHA
+				liveValidation.ReportSHA256 = receipt.Report.SHA256
+				liveValidation.CurrentExecutor = receipt.Owner.CurrentExecutor
+				liveValidation.ExecutorGeneration = receipt.Owner.ExecutorGeneration
+				liveValidation.AdapterHarness = receipt.Owner.AdapterHarness
+				liveValidation.AdapterSession = receipt.Owner.AdapterSession
+				liveValidation.ToolingCatalogSHA256 = receipt.Adapter.ToolingCatalogSHA256
+				liveValidation.ArtifactCount = len(receipt.Artifacts)
+			}
+		}
+		if identity, identityPresent, identityErr := gate.ReadAdapterExecutionReportIdentity(caseRoot, handoff.ReportPath); identityErr == nil && identityPresent && identity != eventID {
+			if authorized, authorizedErr := gate.IsAuthorizedAdapterReportAttempt(repoRoot, caseRoot, pack, identity, lane, handoff.Action, handoff.ReportPath); authorizedErr == nil && authorized {
+				liveValidation.SupersedingGateEventID = identity
+			}
+		}
 		recordCommand := ""
 		if validation.Valid && reportSummary.RecordReady && !reportSummary.RecordBlocked {
 			recordCommand = strings.TrimSpace(validation.MissionCommanderAction.PrimaryCommand)

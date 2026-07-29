@@ -2531,6 +2531,44 @@ func adapterExecutionReportScaffoldPath(caseRoot string, gateEvent EventPreview,
 	return fullPath, relPath, nil
 }
 
+func IsAuthorizedAdapterReportAttempt(repoRoot, caseRoot, pack, gateEventID, lane, action, reportPath string) (bool, error) {
+	_, event, err := authorizedGateEvent(repoRoot, caseRoot, pack, Options{GateEventID: gateEventID})
+	if err != nil {
+		return false, nil
+	}
+	if event.EventID != strings.TrimSpace(gateEventID) || event.Lane != strings.TrimSpace(lane) || event.Gate.Action != strings.TrimSpace(action) {
+		return false, nil
+	}
+	_, relPath, err := executionReportPath(caseRoot, reportPath)
+	if err != nil {
+		return false, err
+	}
+	return outputRefsWithinGate(event.Gate.OutputPaths, []string{relPath}), nil
+}
+
+func ReadAdapterExecutionReportIdentity(caseRoot, reportPath string) (string, bool, error) {
+	fullPath, relPath, err := executionReportPath(caseRoot, reportPath)
+	if err != nil {
+		return "", false, err
+	}
+	data, present, err := readAdapterReportRaw(caseRoot, fullPath, relPath)
+	if err != nil || !present {
+		return "", present, err
+	}
+	var identity struct {
+		GateEventID string `json:"gateEventId"`
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return "", true, err
+	}
+	raw, ok := fields["gateEventId"]
+	if !ok || json.Unmarshal(raw, &identity.GateEventID) != nil {
+		return "", true, fmt.Errorf("adapter execution report gateEventId is not a string: %s", relPath)
+	}
+	return strings.TrimSpace(identity.GateEventID), true, nil
+}
+
 func readAdapterReportRaw(caseRoot, fullPath, relPath string) ([]byte, bool, error) {
 	if err := rejectAdapterReportSymlinkExistingPath(caseRoot, fullPath); err != nil {
 		if os.IsNotExist(err) {

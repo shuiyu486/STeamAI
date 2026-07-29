@@ -10,6 +10,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ## 执行清单
 
+### Batch 709：installed adapter live-validation recovery
+
+状态：实现与 focused/package 回归已完成，待本机完整 release minimum、提交与推送。
+
+目标：把 installed nested-cwd adapter product path 从 immutable receipt/report 已存在后的 provenance drift 接到 distinct reauthorization recovery，并让旧 attempt 与新 attempt 在 status、handoff、continue、`RESUME.md` 和 digest 中保持可区分的 durable lineage。
+
+边界：不执行 adapter/heavy tool，不写 authority/confirmed，不覆盖旧 receipt，不新增 public command、pack manifest 或 PowerShell runtime logic。repair/recovery 只发布只读指导或显式 hash-bound gate/receipt/evidence Apply；同一 gate 的 drift 继续 fail-closed，新的 attempt 必须使用不同 gate/receipt identity。
+
+已实现内容：installed lifecycle E2E 现在在 receipt、双 hash observation 与 acknowledgement 后修改 report，验证 status 返回 `blocked-by-adapter-execution-provenance-drift`、不再暴露旧 receipt preview、WhatIf 不写 requests、returned Apply 产生 distinct gate；新 report/receipt/observation 使用新 gate namespace、session 与 receipt SHA。旧 receipt bytes 经 retry 前后相等，handoff/continue/`RESUME.md`/digest 同时保留两次 attempt 的 receipt path/SHA 与 session lineage。新增 `gate.ReadAdapterExecutionReceipt`，status/workstream 在 live report 无法按当前 gate 解释时从 canonical receipt 恢复 immutable lineage；已 acknowledgement closed 的 superseded attempt 不再被新 gate 的共用 report path 重新打开，而同一 gate drift 仍保持 fail-closed。
+
+验证结果：installed recovery focused E2E 与 gate/workstream/CLI 受影响包回归通过；完整 `go test ./... -count=1` 最终复跑通过（CLI 249.519s），`go vet ./...` 通过，`GOOS=linux GOARCH=amd64 go test -c ./internal/rekit/cli` 通过；`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true` / `summary=release gate inventory ok`，`status`、`packs`、`doctor` 与 `git diff --check` 通过，后者仅有 Windows LF→CRLF working-copy warning。本批未改变 README、CLAUDE.md、reference、pack 配置或示例文档，因为改动只扩展现有 gate receipt/status/handoff durable lifecycle，且不改变 public command ABI 或 pack authoring contract；CHANGELOG、release readiness 与本 batch plan 已更新。独立 correctness review 两轮发现并关闭 malformed/bogus superseding identity 与 receipt fallback observation anchoring/status-workstream 一致性问题，最终复核无高置信残余。implementation commit/push 与 release inspection 尚待执行。
+
 ### Current milestone
 
 **Mission Commander operational closure and truthful release readiness**：把 durable lane/reviewer/autonomy contract 串成实际可运行、可跨会话接手、可验证的产品闭环，并区分 inventory ready、本地 gate executed 与远程 CI green。当前用户短期只要求 Windows 本机稳定可用；远程 Linux/macOS/Windows CI 因 runner/billing blocker 继续记录为 known gap，不阻塞本机 Mission Control 闭环。

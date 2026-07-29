@@ -4120,6 +4120,268 @@ tools:
 	}
 	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
 	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
+	originalReceiptBytes, err := os.ReadFile(filepath.Join(caseRoot, filepath.FromSlash(receipt.ReceiptPath)))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A durable receipt is immutable: changing the observed report must route the
+	// installed product path to a distinct authorized retry rather than overwrite
+	// the original attempt.
+	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/adapter-report.json", `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "installed-debug-adapter",
+  "action": "debug",
+  "status": "succeeded",
+  "gateEventId": "`+authorized.EventID+`",
+  "actualBudget": {"runtimeSeconds": 21, "diskMB": 25, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/result.json"],
+  "evidenceRefs": ["workspace/main/debug/session-1/evidence.json"],
+  "summary": "Installed external adapter report changed after receipt"
+}`)
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var driftStatus struct {
+		CaseMission struct {
+			AuthorizedGateHandoffs      []statusAuthorizedGateHandoff       `json:"authorizedGateHandoffs"`
+			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &driftStatus); err != nil {
+		t.Fatalf("installed adapter drift status stdout is not JSON: %v\n%s", err, out.String())
+	}
+	var provenanceDriftCommand string
+	for _, item := range driftStatus.CaseMission.MissionCommanderActionQueue.BlockedActions {
+		if item.State == "blocked-by-adapter-execution-provenance-drift" && strings.Contains(item.Command, "-Action debug") && strings.Contains(item.Command, "-WhatIf") && strings.Contains(item.Command, authorized.EventID+"-provenance-retry") && !strings.Contains(item.Command, "-RecordAdapterExecutionReceipt") {
+			provenanceDriftCommand = item.Command
+			break
+		}
+	}
+	if len(driftStatus.CaseMission.AuthorizedGateHandoffs) != 1 || driftStatus.CaseMission.AuthorizedGateHandoffs[0].EventID != authorized.EventID || driftStatus.CaseMission.AuthorizedGateHandoffs[0].ReportSummary == nil || driftStatus.CaseMission.AuthorizedGateHandoffs[0].ReportSummary.State != "blocked-by-adapter-execution-provenance-drift" || provenanceDriftCommand == "" {
+		t.Fatalf("installed adapter drift did not fail closed with distinct retry action: %+v", driftStatus.CaseMission)
+	}
+	if driftStatus.CaseMission.AuthorizedGateHandoffs[0].LiveValidation == nil || driftStatus.CaseMission.AuthorizedGateHandoffs[0].LiveValidation.ReceiptPreviewCommand != "" || !driftStatus.CaseMission.AuthorizedGateHandoffs[0].LiveValidation.ReceiptPresent || driftStatus.CaseMission.AuthorizedGateHandoffs[0].LiveValidation.ProvenanceValid {
+		t.Fatalf("installed adapter drift exposed stale or incomplete receipt provenance: %+v", driftStatus.CaseMission.AuthorizedGateHandoffs[0].LiveValidation)
+	}
+	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/adapter-report.json", `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "installed-debug-adapter",
+  "action": "debug",
+  "status": "succeeded",
+  "gateEventId": "bogus-not-authorized",
+  "actualBudget": {"runtimeSeconds": 21, "diskMB": 25, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/result.json"],
+  "evidenceRefs": ["workspace/main/debug/session-1/evidence.json"],
+  "summary": "Bogus attempt must not supersede recorded provenance"
+}`)
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var bogusStatus struct {
+		CaseMission struct {
+			AuthorizedGateHandoffs []statusAuthorizedGateHandoff `json:"authorizedGateHandoffs"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &bogusStatus); err != nil || len(bogusStatus.CaseMission.AuthorizedGateHandoffs) != 1 || bogusStatus.CaseMission.AuthorizedGateHandoffs[0].Acknowledged || bogusStatus.CaseMission.AuthorizedGateHandoffs[0].LiveValidation == nil || bogusStatus.CaseMission.AuthorizedGateHandoffs[0].LiveValidation.SupersedingGateEventID != "" {
+		t.Fatalf("installed adapter bogus gate identity incorrectly superseded recorded provenance: %+v err=%v", bogusStatus.CaseMission, err)
+	}
+	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/adapter-report.json", `{malformed`)
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var malformedStatus struct {
+		CaseMission struct {
+			AuthorizedGateHandoffs []statusAuthorizedGateHandoff `json:"authorizedGateHandoffs"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &malformedStatus); err != nil || len(malformedStatus.CaseMission.AuthorizedGateHandoffs) != 1 || malformedStatus.CaseMission.AuthorizedGateHandoffs[0].Acknowledged || malformedStatus.CaseMission.AuthorizedGateHandoffs[0].ReportSummary == nil || !malformedStatus.CaseMission.AuthorizedGateHandoffs[0].ReportSummary.RequiresRepair {
+		t.Fatalf("installed adapter malformed same-attempt drift was not kept fail-closed: %+v err=%v", malformedStatus.CaseMission, err)
+	}
+	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/adapter-report.json", `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "installed-debug-adapter",
+  "action": "debug",
+  "status": "succeeded",
+  "gateEventId": "`+authorized.EventID+`",
+  "actualBudget": {"runtimeSeconds": 21, "diskMB": 25, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/result.json"],
+  "evidenceRefs": ["workspace/main/debug/session-1/evidence.json"],
+  "summary": "Installed external adapter report changed after receipt"
+}`)
+	requestsPath := filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl")
+	requestsBeforeRetry, err := os.ReadFile(requestsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run(append(rekitCommandCLIArgs(t, provenanceDriftCommand), "-Format", "json"), &out); err != nil {
+		t.Fatalf("installed adapter provenance drift WhatIf failed: %v", err)
+	}
+	var retryPlan gate.Plan
+	if err := json.Unmarshal(out.Bytes(), &retryPlan); err != nil || retryPlan.EventPreview.EventID == authorized.EventID || !strings.Contains(retryPlan.MissionCommanderAction.PrimaryCommand, "-Apply") {
+		t.Fatalf("installed adapter provenance retry preview did not produce distinct Apply: %+v err=%v", retryPlan, err)
+	}
+	requestsAfterPreview, err := os.ReadFile(requestsPath)
+	if err != nil || !bytes.Equal(requestsBeforeRetry, requestsAfterPreview) {
+		t.Fatalf("installed adapter provenance retry WhatIf mutated requests: err=%v", err)
+	}
+	out.Reset()
+	if err := Run(append(rekitCommandCLIArgs(t, retryPlan.MissionCommanderAction.PrimaryCommand), "-Format", "json"), &out); err != nil {
+		t.Fatalf("installed adapter provenance retry Apply failed: %v", err)
+	}
+	var retryApplied gate.ApplyResult
+	if err := json.Unmarshal(out.Bytes(), &retryApplied); err != nil || !retryApplied.Applied || retryApplied.EventID == authorized.EventID {
+		t.Fatalf("installed adapter provenance retry did not create distinct gate: %+v err=%v", retryApplied, err)
+	}
+	if retryApplied.EventID == "" || strings.Contains(retryApplied.EventID, authorized.EventID) && retryApplied.EventID == authorized.EventID {
+		t.Fatalf("installed adapter retry reused original gate identity: %+v", retryApplied)
+	}
+
+	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/adapter-report.json", `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "installed-debug-adapter",
+  "action": "debug",
+  "status": "succeeded",
+  "gateEventId": "`+retryApplied.EventID+`",
+  "actualBudget": {"runtimeSeconds": 21, "diskMB": 25, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/result.json"],
+  "evidenceRefs": ["workspace/main/debug/session-1/evidence.json"],
+  "summary": "Installed external adapter recovery attempt completed"
+}`)
+	retryReceiptArgs := []string{"-Command", "gate", "-GateEventId", retryApplied.EventID, "-RecordAdapterExecutionReceipt", "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-report.json", "-AdapterId", "installed-debug-adapter", "-Executor", "installed-executor-b", "-ExpectedExecutorGeneration", "2", "-AdapterHarness", "claude-code", "-AdapterSession", "installed-session-c", "-ExecutionExitStatus", "0", "-Actor", "mission-commander", "-Format", "json"}
+	out.Reset()
+	if err := Run(retryReceiptArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var retryReceiptPreview gate.AdapterExecutionReceiptResult
+	if err := json.Unmarshal(out.Bytes(), &retryReceiptPreview); err != nil || retryReceiptPreview.BindingSHA256 == "" || retryReceiptPreview.ReceiptPath == receipt.ReceiptPath {
+		t.Fatalf("installed adapter retry receipt preview reused original namespace: %+v err=%v", retryReceiptPreview, err)
+	}
+	out.Reset()
+	if err := Run(append(append([]string{}, retryReceiptArgs[:len(retryReceiptArgs)-2]...), "-ExpectedAdapterExecutionBindingSha256", retryReceiptPreview.BindingSHA256, "-Apply", "-Format", "json"), &out); err != nil {
+		t.Fatal(err)
+	}
+	var retryReceipt gate.AdapterExecutionReceiptResult
+	if err := json.Unmarshal(out.Bytes(), &retryReceipt); err != nil || !retryReceipt.Applied || retryReceipt.Receipt.ReceiptID == receipt.Receipt.ReceiptID || retryReceipt.Receipt.Owner.AdapterSession != "installed-session-c" {
+		t.Fatalf("installed adapter retry receipt did not bind a new attempt: %+v err=%v", retryReceipt, err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-Apply", "-GateEventId", retryApplied.EventID, "-ExecutionReportPath", retryReceipt.Receipt.Report.Path, "-ExpectedExecutionReportSha256", retryReceipt.Receipt.Report.SHA256, "-AdapterExecutionReceiptPath", retryReceipt.ReceiptPath, "-ExpectedAdapterExecutionReceiptSha256", retryReceipt.ReceiptSHA256, "-Executor", "installed-executor-b", "-ExpectedExecutorGeneration", "2", "-Actor", "mission-commander", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var retryEvidence gate.ApplyResult
+	if err := json.Unmarshal(out.Bytes(), &retryEvidence); err != nil || !retryEvidence.Applied || retryEvidence.ExecutionEvidence == nil {
+		t.Fatalf("installed adapter retry observation was not recorded: %+v err=%v", retryEvidence, err)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var recoveredStatus struct {
+		CaseMission struct {
+			ExecutionEvidenceReview []executionEvidenceReviewItem `json:"executionEvidenceReview"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &recoveredStatus); err != nil {
+		t.Fatal(err)
+	}
+	var retryReview *executionEvidenceReviewItem
+	for i := range recoveredStatus.CaseMission.ExecutionEvidenceReview {
+		if recoveredStatus.CaseMission.ExecutionEvidenceReview[i].GateEventID == retryApplied.EventID {
+			retryReview = &recoveredStatus.CaseMission.ExecutionEvidenceReview[i]
+			break
+		}
+	}
+	if retryReview == nil || retryReview.AdapterExecutionReceiptPath != retryReceipt.ReceiptPath || retryReview.AdapterExecutionReceiptSHA256 != retryReceipt.ReceiptSHA256 || retryReview.AdapterSession != "installed-session-c" {
+		t.Fatalf("installed adapter recovery status confused receipt attempts: %+v", recoveredStatus.CaseMission.ExecutionEvidenceReview)
+	}
+	out.Reset()
+	if err := Run(rekitCommandCLIArgs(t, retryReview.Acknowledgement.AcceptedPreviewCommand), &out); err != nil {
+		t.Fatal(err)
+	}
+	var retryAcknowledgementPreview struct {
+		RecordCommand string `json:"recordCommand"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &retryAcknowledgementPreview); err != nil || retryAcknowledgementPreview.RecordCommand == "" {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run(rekitCommandCLIArgs(t, retryAcknowledgementPreview.RecordCommand), &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "main", "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	retryHandoff := decodeHandoffResult(t, out.Bytes())
+	if len(retryHandoff.AuthorizedGateAdapterHandoffs) < 2 {
+		t.Fatalf("installed adapter recovery handoff omitted original and retry attempts: %+v", retryHandoff)
+	}
+	var retryHandoffFound bool
+	for _, item := range retryHandoff.AuthorizedGateAdapterHandoffs {
+		if item.EventID == retryApplied.EventID && item.LiveValidation != nil && strings.Contains(item.LiveValidation.AdapterExecutionReceiptPath, retryApplied.EventID) && item.LiveValidation.AdapterSession == "installed-session-c" {
+			retryHandoffFound = true
+		}
+	}
+	if !retryHandoffFound {
+		t.Fatalf("installed adapter recovery handoff confused retry lineage: %+v", retryHandoff.AuthorizedGateAdapterHandoffs)
+	}
+	originalReceiptAfterRetry, err := os.ReadFile(filepath.Join(caseRoot, filepath.FromSlash(receipt.ReceiptPath)))
+	if err != nil || !bytes.Equal(originalReceiptBytes, originalReceiptAfterRetry) {
+		t.Fatalf("installed adapter recovery changed immutable original receipt: err=%v", err)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "main", "-Apply", "-Executor", "installed-executor-b", "-ExpectedExecutorGeneration", "2", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var retryContinuation struct {
+		RunID                         string                                 `json:"runId"`
+		AuthorizedGateAdapterHandoffs []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
+		Writes                        []startWrite                           `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &retryContinuation); err != nil || len(retryContinuation.AuthorizedGateAdapterHandoffs) < 2 {
+		t.Fatalf("installed adapter recovery continue omitted attempt lineage: %+v err=%v", retryContinuation, err)
+	}
+	latestHandoff, err = os.ReadFile(filepath.Join(caseRoot, ".rekit", "handovers", "main-latest.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resumeBytes, err := os.ReadFile(assertStartWrite(t, retryContinuation.Writes, ".rekit/lanes/main/prompts/RESUME.md", "refresh").TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digestBytes, err := os.ReadFile(assertStartWrite(t, retryContinuation.Writes, ".rekit/runs/"+retryContinuation.RunID+"/digest.md", "write").TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for label, content := range map[string][]byte{
+		"handoff":         latestHandoff,
+		"RESUME":          resumeBytes,
+		"continue digest": digestBytes,
+	} {
+		for _, expected := range []string{
+			"path=" + receipt.ReceiptPath + " sha256=" + receipt.ReceiptSHA256,
+			"session=installed-session-b",
+			"path=" + retryReceipt.ReceiptPath + " sha256=" + retryReceipt.ReceiptSHA256,
+			"session=installed-session-c",
+		} {
+			if !strings.Contains(string(content), expected) {
+				t.Fatalf("installed adapter recovery %s omitted distinct attempt lineage %q:\n%s", label, expected, string(content))
+			}
+		}
+	}
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
 }
 
 func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
@@ -17327,6 +17589,19 @@ type authorizedGateLiveValidationSnapshot struct {
 	DraftReportSHA256                string                        `json:"draftReportSha256"`
 	ReportSHA256                     string                        `json:"reportSha256"`
 	RecordExpectedReportSHA256       string                        `json:"recordExpectedReportSha256"`
+	ReceiptRequired                  bool                          `json:"receiptRequired"`
+	ReceiptPresent                   bool                          `json:"receiptPresent"`
+	ProvenanceValid                  bool                          `json:"provenanceValid"`
+	AdapterExecutionReceiptPath      string                        `json:"adapterExecutionReceiptPath"`
+	AdapterExecutionReceiptSHA256    string                        `json:"adapterExecutionReceiptSha256"`
+	ReceiptPreviewCommand            string                        `json:"receiptPreviewCommand"`
+	SupersedingGateEventID           string                        `json:"supersedingGateEventId"`
+	CurrentExecutor                  string                        `json:"currentExecutor"`
+	ExecutorGeneration               int                           `json:"executorGeneration"`
+	AdapterHarness                   string                        `json:"adapterHarness"`
+	AdapterSession                   string                        `json:"adapterSession"`
+	ToolingCatalogSHA256             string                        `json:"toolingCatalogSha256"`
+	ArtifactCount                    int                           `json:"artifactCount"`
 	CaseRelativeValidateCommand      string                        `json:"caseRelativeValidateCommand"`
 	CaseRelativeRecordCommand        string                        `json:"caseRelativeRecordCommand"`
 	CaseRelativeScaffoldCommand      string                        `json:"caseRelativeScaffoldCommand"`
