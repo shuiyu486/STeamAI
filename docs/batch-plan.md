@@ -12,7 +12,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 710：adapter attempt selection closure
 
-状态：实现、focused/package/full regressions、独立 correctness review、文档收尾与本机 release minimum 已完成，待 implementation commit/push 与 push-triggered remote inspection。
+状态：已完成 installed product-path E2E、focused/package/full regressions、独立 correctness review、文档收尾、本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `d0b7765` 已推送。Push run `30418208315` completed failure；macOS/Linux/Windows jobs `90469193759`/`90469193809`/`90469193810` 均 `steps=[]`，`gh run view 30418208315 --log-failed` 返回 `log not found: 90469193759`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。
 
 目标：当同一 lane 的 immutable closed attempt、distinct recovery gate 与当前 executable attempt 并存时，让 Mission Commander/status/handoff/continue/takeover package 只选择最新未闭合 attempt；全部 evidence acknowledgement closed 后确定性回到 owner-bound lane continuation，同时保留 durable provenance lineage。
 
