@@ -189,6 +189,10 @@ func TestStatusProjectHandoffNextBatchCandidateDomainsOnlyAfterCompleteCadence(t
 	if complete.NextBatchSelectionPackage == nil || !complete.NextBatchSelectionPackage.Ready || complete.NextBatchSelectionPackage.MissionCommanderActionQueue.Counts.Total != 8 || complete.NextBatchSelectionPackage.StarterPackage == nil || complete.NextBatchSelectionPackage.StarterPackage.SuggestedNextBatch != "Batch 682" || !strings.Contains(complete.NextBatchSelectionPackage.StarterPackage.CurrentBatchSection, "### Batch 682") {
 		t.Fatalf("complete cadence should bind release-check next-batch selection package with starter: %+v", complete.NextBatchSelectionPackage)
 	}
+	starter := complete.NextBatchSelectionPackage.StarterPackage
+	if starter.CurrentRunLoopStepID != "select-candidate-domain" || len(starter.RunLoop) < 6 || starter.RunLoop[0].StepID != "select-candidate-domain" || starter.RunLoop[len(starter.RunLoop)-1].StepID != "commit-and-inspect" {
+		t.Fatalf("complete cadence should expose ordered starter run loop: %+v", starter)
+	}
 	if complete.MissionCommanderActionQueue.CurrentAction == nil || complete.MissionCommanderActionQueue.CurrentAction.ActionID != "next-batch-selection" || complete.MissionCommanderActionQueue.Counts.Total != 8 || complete.MissionCommanderActionQueue.Counts.FollowUp != 7 {
 		t.Fatalf("complete cadence should expose current next-batch selection plus candidate-domain follow-ups: %+v", complete.MissionCommanderActionQueue)
 	}
@@ -960,6 +964,10 @@ func TestRunStatusJsonKit(t *testing.T) {
 			"status Mission Commander focus project next-batch starter current batch section：验证标准：",
 			"status Mission Commander focus project next-batch starter changelog entry：- Batch ",
 			"status Mission Commander focus project next-batch starter validation command：go test ./...",
+			"status Mission Commander focus project next-batch starter run loop：currentRunLoopStep=select-candidate-domain steps=6",
+			"status Mission Commander focus project next-batch starter run loop step：order=1 step=select-candidate-domain actor=main-agent state=ready-for-next-batch-selection source=releaseHandoffNextBatch.starter.select",
+			"status Mission Commander focus project next-batch starter run loop step：order=6 step=commit-and-inspect actor=main-agent state=ready-for-next-batch-selection source=releaseHandoffNextBatch.starter.releaseCadence",
+			"status Mission Commander focus project next-batch starter run loop boundary：step=select-candidate-domain boundary=do not choose a single-field, summary, or projection-only micro-batch",
 			"status Mission Commander focus project next-batch starter release cadence step：不要为 release inspection commit 自己触发的 CI 追加第三个记录",
 			"status Mission Commander focus project next-batch starter boundary：starter package is read-only guidance",
 			"status project handoff current action queue action：bucket=current lane= label=next-batch state=ready-for-next-batch-selection source=releaseHandoffNextBatch blocked=false requiresReview=false command=select the next Windows-verifiable product-path closure",
@@ -8080,6 +8088,9 @@ func TestRunHandoffApplyWritesNextBatchCandidateDomains(t *testing.T) {
 	if starter == nil || !starter.Ready || starter.LatestCompletedBatch != "Batch 682" || starter.SuggestedNextBatch != "Batch 683" || !strings.Contains(starter.CurrentBatchSection, "### Batch 683") || !strings.Contains(starter.CurrentBatchSection, "验证标准：") || !strings.Contains(starter.ChangelogEntry, "Batch 683") || !containsSubstring(starter.ValidationCommands, "go test ./...") || !containsSubstring(starter.ReleaseCadenceSteps, "implementation commit") || !containsSubstring(starter.Boundary, "starter package is read-only guidance") {
 		t.Fatalf("project handoff JSON omitted durable next-batch starter package: %+v", starter)
 	}
+	if starter.CurrentRunLoopStepID != "select-candidate-domain" || len(starter.RunLoop) < 6 || starter.RunLoop[0].StepID != "select-candidate-domain" || starter.RunLoop[len(starter.RunLoop)-1].StepID != "commit-and-inspect" {
+		t.Fatalf("project handoff JSON omitted durable next-batch starter run loop: %+v", starter)
+	}
 
 	var latest workstream.StartWrite
 	for _, write := range result.Writes {
@@ -8111,6 +8122,10 @@ func TestRunHandoffApplyWritesNextBatchCandidateDomains(t *testing.T) {
 		"验证标准：",
 		"changelog entry: - Batch 683",
 		"validation command: go test ./...",
+		"starter run loop: currentRunLoopStep=select-candidate-domain steps=6",
+		"starter run loop step: order=1 step=select-candidate-domain actor=main-agent state=ready-for-next-batch-selection source=releaseHandoffNextBatch.starter.select",
+		"starter run loop step: order=6 step=commit-and-inspect actor=main-agent state=ready-for-next-batch-selection source=releaseHandoffNextBatch.starter.releaseCadence",
+		"starter run loop boundary: step=select-candidate-domain boundary=do not choose a single-field, summary, or projection-only micro-batch",
 		"release cadence step: 先提交并推送 implementation commit",
 		"boundary: starter package is read-only guidance",
 	} {
@@ -8176,6 +8191,9 @@ func TestRunReleaseCheckExposesNextBatchSelectionPackage(t *testing.T) {
 	if starter == nil || !starter.Ready || starter.LatestCompletedBatch != "Batch 684" || starter.SuggestedNextBatch != "Batch 685" || !strings.Contains(starter.CurrentBatchSection, "### Batch 685") || !strings.Contains(starter.CurrentBatchSection, "验证标准：") || !strings.Contains(starter.ChangelogEntry, "Batch 685") || !containsSubstring(starter.ValidationCommands, "go test ./...") || !containsSubstring(starter.Boundary, "starter package is read-only guidance") {
 		t.Fatalf("release-check JSON omitted next-batch starter package: %+v", starter)
 	}
+	if starter.CurrentRunLoopStepID != "select-candidate-domain" || len(starter.RunLoop) < 6 || starter.RunLoop[0].StepID != "select-candidate-domain" || starter.RunLoop[len(starter.RunLoop)-1].StepID != "commit-and-inspect" {
+		t.Fatalf("release-check JSON omitted next-batch starter run loop: %+v", starter)
+	}
 
 	out.Reset()
 	if err := Run([]string{"-Command", "release-check", "-Format", "text"}, &out); err != nil {
@@ -8193,6 +8211,10 @@ func TestRunReleaseCheckExposesNextBatchSelectionPackage(t *testing.T) {
 		"release-check next-batch starter current batch section：验证标准：",
 		"release-check next-batch starter changelog entry：- Batch 685",
 		"release-check next-batch starter validation command：go test ./...",
+		"release-check next-batch starter run loop：currentRunLoopStep=select-candidate-domain steps=6",
+		"release-check next-batch starter run loop step：order=1 step=select-candidate-domain actor=main-agent state=ready-for-next-batch-selection source=releaseHandoffNextBatch.starter.select",
+		"release-check next-batch starter run loop step：order=6 step=commit-and-inspect actor=main-agent state=ready-for-next-batch-selection source=releaseHandoffNextBatch.starter.releaseCadence",
+		"release-check next-batch starter run loop boundary：step=select-candidate-domain boundary=do not choose a single-field, summary, or projection-only micro-batch",
 		"release-check next-batch starter release cadence step：不要为 release inspection commit 自己触发的 CI 追加第三个记录",
 		"release-check next-batch starter boundary：starter package is read-only guidance",
 	} {

@@ -32,15 +32,17 @@ type HandoffOptions struct {
 }
 
 type ProjectNextBatchStarterPackage struct {
-	Ready                   bool     `json:"ready"`
-	LatestCompletedBatch    string   `json:"latestCompletedBatch,omitempty"`
-	SuggestedNextBatch      string   `json:"suggestedNextBatch,omitempty"`
-	CurrentBatchSection     string   `json:"currentBatchSection"`
-	ChangelogEntry          string   `json:"changelogEntry"`
-	ValidationCommands      []string `json:"validationCommands,omitempty"`
-	ReleaseCadenceSteps     []string `json:"releaseCadenceSteps,omitempty"`
-	RecommendedStarterSteps []string `json:"recommendedStarterSteps,omitempty"`
-	Boundary                []string `json:"boundary,omitempty"`
+	Ready                   bool                                  `json:"ready"`
+	LatestCompletedBatch    string                                `json:"latestCompletedBatch,omitempty"`
+	SuggestedNextBatch      string                                `json:"suggestedNextBatch,omitempty"`
+	CurrentBatchSection     string                                `json:"currentBatchSection"`
+	ChangelogEntry          string                                `json:"changelogEntry"`
+	ValidationCommands      []string                              `json:"validationCommands,omitempty"`
+	ReleaseCadenceSteps     []string                              `json:"releaseCadenceSteps,omitempty"`
+	RecommendedStarterSteps []string                              `json:"recommendedStarterSteps,omitempty"`
+	Boundary                []string                              `json:"boundary,omitempty"`
+	CurrentRunLoopStepID    string                                `json:"currentRunLoopStepId,omitempty"`
+	RunLoop                 []mission.MissionCommanderRunLoopStep `json:"runLoop,omitempty"`
 }
 
 type HandoffResult struct {
@@ -187,6 +189,7 @@ func cloneProjectNextBatchStarterPackage(pkg *ProjectNextBatchStarterPackage) *P
 	clone.ReleaseCadenceSteps = append([]string{}, pkg.ReleaseCadenceSteps...)
 	clone.RecommendedStarterSteps = append([]string{}, pkg.RecommendedStarterSteps...)
 	clone.Boundary = append([]string{}, pkg.Boundary...)
+	clone.RunLoop = append([]mission.MissionCommanderRunLoopStep{}, pkg.RunLoop...)
 	return &clone
 }
 
@@ -744,10 +747,24 @@ func writeProjectNextBatchStarterPackage(out *bytes.Buffer, starter *ProjectNext
 	}
 	fmt.Fprintf(out, "- changelog entry: %s\n", starter.ChangelogEntry)
 	writeProjectNextBatchStarterList(out, "validation command", starter.ValidationCommands)
+	writeProjectNextBatchStarterRunLoop(out, starter)
 	writeProjectNextBatchStarterList(out, "recommended step", starter.RecommendedStarterSteps)
 	writeProjectNextBatchStarterList(out, "release cadence step", starter.ReleaseCadenceSteps)
 	writeProjectNextBatchStarterList(out, "boundary", starter.Boundary)
 	fmt.Fprintln(out)
+}
+
+func writeProjectNextBatchStarterRunLoop(out *bytes.Buffer, starter *ProjectNextBatchStarterPackage) {
+	if starter == nil || len(starter.RunLoop) == 0 {
+		return
+	}
+	fmt.Fprintf(out, "- starter run loop: currentRunLoopStep=%s steps=%d\n", starter.CurrentRunLoopStepID, len(starter.RunLoop))
+	for _, step := range starter.RunLoop {
+		fmt.Fprintf(out, "- starter run loop step: order=%d step=%s actor=%s state=%s source=%s command=`%s` description=%s\n", step.Order, step.StepID, step.Actor, step.State, step.Source, step.Command, step.Description)
+		for _, boundary := range step.Boundary {
+			fmt.Fprintf(out, "- starter run loop boundary: step=%s boundary=%s\n", step.StepID, boundary)
+		}
+	}
 }
 
 func writeProjectNextBatchStarterList(out *bytes.Buffer, label string, items []string) {

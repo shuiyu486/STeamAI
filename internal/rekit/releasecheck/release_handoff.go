@@ -168,15 +168,17 @@ type ReleaseHandoffNextBatchSelectionPackage struct {
 }
 
 type ReleaseHandoffNextBatchStarterPackage struct {
-	Ready                   bool     `json:"ready"`
-	LatestCompletedBatch    string   `json:"latestCompletedBatch,omitempty"`
-	SuggestedNextBatch      string   `json:"suggestedNextBatch,omitempty"`
-	CurrentBatchSection     string   `json:"currentBatchSection"`
-	ChangelogEntry          string   `json:"changelogEntry"`
-	ValidationCommands      []string `json:"validationCommands,omitempty"`
-	ReleaseCadenceSteps     []string `json:"releaseCadenceSteps,omitempty"`
-	RecommendedStarterSteps []string `json:"recommendedStarterSteps,omitempty"`
-	Boundary                []string `json:"boundary,omitempty"`
+	Ready                   bool                                  `json:"ready"`
+	LatestCompletedBatch    string                                `json:"latestCompletedBatch,omitempty"`
+	SuggestedNextBatch      string                                `json:"suggestedNextBatch,omitempty"`
+	CurrentBatchSection     string                                `json:"currentBatchSection"`
+	ChangelogEntry          string                                `json:"changelogEntry"`
+	ValidationCommands      []string                              `json:"validationCommands,omitempty"`
+	ReleaseCadenceSteps     []string                              `json:"releaseCadenceSteps,omitempty"`
+	RecommendedStarterSteps []string                              `json:"recommendedStarterSteps,omitempty"`
+	Boundary                []string                              `json:"boundary,omitempty"`
+	CurrentRunLoopStepID    string                                `json:"currentRunLoopStepId,omitempty"`
+	RunLoop                 []mission.MissionCommanderRunLoopStep `json:"runLoop,omitempty"`
 }
 
 type ReleaseHandoffPackMemoryCandidateReviewSummary struct {
@@ -3787,13 +3789,14 @@ func releaseHandoffNextBatchStarterPackage(handoff ReleaseHandoff) *ReleaseHando
 		changelogBatch = "Batch <next>"
 	}
 	changelogEntry := "- " + changelogBatch + " 新增 <product-path closure>：<用户可见变化、同源 runtime/CLI envelope、关键边界与验证结果。>"
+	validationCommands := releaseHandoffValidationCommands(handoff.Validation)
 	return &ReleaseHandoffNextBatchStarterPackage{
 		Ready:                true,
 		LatestCompletedBatch: latest,
 		SuggestedNextBatch:   next,
 		CurrentBatchSection:  currentSection,
 		ChangelogEntry:       changelogEntry,
-		ValidationCommands:   releaseHandoffValidationCommands(handoff.Validation),
+		ValidationCommands:   validationCommands,
 		ReleaseCadenceSteps: []string{
 			"先提交并推送 implementation commit（代码、测试、文档、本机验证）。",
 			"只检查 implementation commit 触发的 remote release-gate run。",
@@ -3811,7 +3814,35 @@ func releaseHandoffNextBatchStarterPackage(handoff ReleaseHandoff) *ReleaseHando
 			"do not use starter package templates to justify a single-field, summary, or projection-only micro-batch",
 			"do not execute reviewer, adapter, pack-memory, gate, heavy-tool, sync, or promote mutation from starter guidance",
 		}, releaseHandoffNextBatchCandidateBoundary(handoff)...)),
+		CurrentRunLoopStepID: "select-candidate-domain",
+		RunLoop:              releaseHandoffNextBatchStarterRunLoop(validationCommands),
 	}
+}
+
+func releaseHandoffNextBatchStarterRunLoop(validationCommands []string) []mission.MissionCommanderRunLoopStep {
+	validationCommand := strings.Join(validationCommands, " && ")
+	if strings.TrimSpace(validationCommand) == "" {
+		validationCommand = "run the selected focused regressions, then the full local release minimum"
+	}
+	steps := []mission.MissionCommanderRunLoopStep{}
+	add := func(step mission.MissionCommanderRunLoopStep) {
+		step.StepID = strings.TrimSpace(step.StepID)
+		step.Actor = strings.TrimSpace(step.Actor)
+		step.Description = strings.TrimSpace(step.Description)
+		if step.StepID == "" || step.Actor == "" || step.Description == "" {
+			return
+		}
+		step.Order = len(steps) + 1
+		step.Boundary = mission.UniqueStrings(step.Boundary)
+		steps = append(steps, step)
+	}
+	add(mission.MissionCommanderRunLoopStep{StepID: "select-candidate-domain", Actor: "main-agent", Description: "choose one next-batch candidate domain and name the user-visible operational closure before editing docs", Command: "select a Windows-verifiable product-path closure from the next-batch candidate domains", State: "ready-for-next-batch-selection", Source: "releaseHandoffNextBatch.starter.select", Boundary: []string{"starter package is read-only guidance and does not select the batch by itself", "do not choose a single-field, summary, or projection-only micro-batch"}})
+	add(mission.MissionCommanderRunLoopStep{StepID: "draft-batch-plan", Actor: "main-agent", Description: "write the selected Batch section into docs/batch-plan.md current batch state before implementation", Command: "update docs/batch-plan.md current batch state with the selected product-path slice", State: "ready-for-next-batch-selection", Source: "releaseHandoffNextBatch.starter.batchPlan", Boundary: []string{"batch-plan edits must name the real handoff gap and verification standard", "do not copy long history or case-specific artifacts into the active batch section"}})
+	add(mission.MissionCommanderRunLoopStep{StepID: "implement-slice", Actor: "main-agent", Description: "implement only the selected runtime, CLI, test, or documentation support needed for that closure", Command: "implement the selected Windows-verifiable product-path slice", State: "ready-for-next-batch-selection", Source: "releaseHandoffNextBatch.starter.implementation", Boundary: []string{"do not add PowerShell runtime logic or a parallel runtime path", "do not execute reviewer, adapter, pack-memory, gate, heavy-tool, sync, or promote mutation from starter guidance"}})
+	add(mission.MissionCommanderRunLoopStep{StepID: "update-release-notes", Actor: "main-agent", Description: "update CHANGELOG.md Unreleased with the selected Batch entry, boundaries, and validation result", Command: "update CHANGELOG.md Unreleased for the selected Batch", State: "ready-for-next-batch-selection", Source: "releaseHandoffNextBatch.starter.releaseNotes", Boundary: []string{"CHANGELOG should record user-visible change and release truth, not full implementation history"}})
+	add(mission.MissionCommanderRunLoopStep{StepID: "validate-local", Actor: "main-agent", Description: "run focused regressions for the selected slice and then the local release minimum", Command: validationCommand, State: "ready-for-next-batch-selection", Source: "releaseHandoffNextBatch.starter.validation", Boundary: []string{"focused regressions should prove the operational closure before full release validation", "release-check inventory ready is not remote CI green"}})
+	add(mission.MissionCommanderRunLoopStep{StepID: "commit-and-inspect", Actor: "main-agent", Description: "commit and push the implementation, inspect the push-triggered release gate, and record only real remote signals", Command: "commit/push implementation, inspect remote release-gate, then record inspection if it is still the known steps=[] blocker", State: "ready-for-next-batch-selection", Source: "releaseHandoffNextBatch.starter.releaseCadence", Boundary: []string{"normal batches stop after implementation commit/push plus one release inspection commit/push", "do not create a third inspection record for the release inspection commit's own CI run unless a new remote signal appears"}})
+	return steps
 }
 
 func releaseHandoffValidationCommands(validation []ReleaseHandoffValidation) []string {

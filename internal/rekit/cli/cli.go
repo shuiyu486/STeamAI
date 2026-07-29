@@ -2129,6 +2129,9 @@ func writeNextBatchSelectionPackageText(out io.Writer, prefix string, pkg *relea
 				return err
 			}
 		}
+		if err := writeMissionCommanderRunLoopStepsText(out, fmt.Sprintf("%s next-batch starter", prefix), starter.CurrentRunLoopStepID, starter.RunLoop); err != nil {
+			return err
+		}
 		for _, step := range starter.RecommendedStarterSteps {
 			if _, err := fmt.Fprintf(out, "%s next-batch starter recommended step：%s\n", prefix, step); err != nil {
 				return err
@@ -3572,6 +3575,9 @@ func writeStatusMissionCommanderFirstScreenProjectNextBatchStarterText(out io.Wr
 		if _, err := fmt.Fprintf(out, "status Mission Commander focus project next-batch starter validation command：%s\n", command); err != nil {
 			return err
 		}
+	}
+	if err := writeMissionCommanderRunLoopStepsText(out, "status Mission Commander focus project next-batch starter", starter.CurrentRunLoopStepID, starter.RunLoop); err != nil {
+		return err
 	}
 	for _, step := range starter.RecommendedStarterSteps {
 		if _, err := fmt.Fprintf(out, "status Mission Commander focus project next-batch starter recommended step：%s\n", step); err != nil {
@@ -6961,6 +6967,8 @@ func projectHandoffNextBatchStarterPackageForDurableHandoff(project *statusProje
 		ReleaseCadenceSteps:     append([]string{}, starter.ReleaseCadenceSteps...),
 		RecommendedStarterSteps: append([]string{}, starter.RecommendedStarterSteps...),
 		Boundary:                append([]string{}, starter.Boundary...),
+		CurrentRunLoopStepID:    starter.CurrentRunLoopStepID,
+		RunLoop:                 append([]mission.MissionCommanderRunLoopStep{}, starter.RunLoop...),
 	}
 }
 

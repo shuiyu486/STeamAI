@@ -292,6 +292,9 @@ func TestNextBatchSelectionPackageOnlyAfterCompleteCadence(t *testing.T) {
 	if starter == nil || !starter.Ready || starter.LatestCompletedBatch != "Batch 684" || starter.SuggestedNextBatch != "Batch 685" || !strings.Contains(starter.CurrentBatchSection, "### Batch 685") || !strings.Contains(starter.CurrentBatchSection, "验证标准：") || !strings.Contains(starter.ChangelogEntry, "Batch 685") || !releaseHandoffStringsContain(starter.ReleaseCadenceSteps, "implementation commit") || !releaseHandoffStringsContain(starter.Boundary, "starter package is read-only guidance") {
 		t.Fatalf("next-batch selection package omitted starter package: %+v", starter)
 	}
+	if starter.CurrentRunLoopStepID != "select-candidate-domain" || len(starter.RunLoop) < 6 || starter.RunLoop[0].StepID != "select-candidate-domain" || starter.RunLoop[len(starter.RunLoop)-1].StepID != "commit-and-inspect" || !releaseHandoffRunLoopBoundaryContains(starter.RunLoop, "do not choose a single-field") {
+		t.Fatalf("next-batch starter package omitted ordered run loop: %+v", starter)
+	}
 
 	incomplete := base
 	incomplete.LatestBatch.Handoff.ReleaseInspectionCadence.State = "implementation-pending"
