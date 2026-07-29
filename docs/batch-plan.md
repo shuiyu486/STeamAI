@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 712：pre-report adapter terminal recovery
 
-状态：已完成runtime、CLI/status/handoff投影、installed nested-cwd与package对抗回归、完整本机验证、Linux gate/CLI test-binary cross-compile、独立correctness review、implementation commit/push与push-triggered remote inspection；implementation commit `b8db13b`已推送。Push run `30462193690` completed failure；Windows/macOS/Linux jobs `90610832793`/`90610832899`/`90610832933`均`steps=[]`，`gh run view 30462193690 --log-failed`返回`log not found: 90610832793`。这是既有runner/billing blocker，没有新的远程signal，不声明remote green。
+状态：已完成runtime、CLI/status/handoff投影、installed nested-cwd与package对抗回归、完整本机验证、Linux gate/CLI test-binary cross-compile、独立correctness review、implementation/corrective commits与push-triggered remote inspection；implementation commit `b8db13b`及审查修复commit `09b9247`已推送。最终实现push run `30463081044` completed failure；Linux/macOS/Windows jobs `90613930442`/`90613930451`/`90613930628`均`steps=[]`，`gh run view 30463081044 --log-failed`返回`log not found: 90613930442`。这是既有runner/billing blocker，没有新的远程signal，不声明remote green。
 
 目标：当external adapter attempt已dispatch但在写report前failed、aborted或失联时，让Mission Commander/replacement executor从durable dispatch直接区分：未dispatch→先记录dispatch；current dispatch且report缺失→等待external harness或显式记录dispatch-bound terminal report；dispatch因takeover/catalog/session/gate/report drift失效→使用distinct authorized gate重试。旧attempt不能被新owner采用或同gate重跑。
 
