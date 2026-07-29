@@ -27,6 +27,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 716：pack-memory proof workflow UX
+
+状态：已完成 runtime、CLI/status text、first-screen evidence、focused regressions、完整本机 release minimum 与文档收尾；implementation commit/push 和 push-triggered remote inspection 待执行。当前不声明 remote green。
+
+目标：把 pack-memory candidate 的 next missing proof handoff 从单条 draft/apply command 提升为 replacement executor 可直接消费的 ordered proof workflow；release-check / kit status 在缺 case-local packet 时停在 `bind-review-packet`，case-local status 绑定 packet/evidence 后切到 `draft-proof-whatif`，避免 executor 先运行带 `<packet.json>` placeholder 的 proof draft。
+
+边界：不新增 public command、durable schema、PowerShell runtime logic 或 pack authoring contract；不自动生成 proof、不 merge/cleanup/provision/verify/retire/reconsume、不执行 heavy tool、不写 authority/confirmed。workflow 是 status/release-check 的只读 operator handoff，实际 proof 仍必须走现有 `promote -DraftReviewProof -WhatIf` → returned `ExpectedProofSha256` → explicit Apply。
+
+已实现内容：`ReleaseHandoffPackMemoryCandidateReviewNextMissingProof` 现在暴露 `currentRunLoopStepId` / `runLoop`，ordered workflow 覆盖 `inspect-proof-gap → bind-review-packet → draft-proof-whatif → apply-proof-with-expected-hash → refresh-pack-memory-status → continue-review-cleanup-reconsume`。pack-memory current action 会按当前 workflow step 选择命令：未绑定 packet 时显示 `promote -CreateCandidates -Review` 绑定 guidance 并把 proof draft 作为 follow-up；case-local status 绑定 `DecisionDraftHandoff` 后重算 workflow，draft/apply template 带 concrete packet、case target 与 evidence refs。CLI text 输出同源 workflow summary/steps/boundary，first-screen evidence 显示 current proof step；verification/provisioning/retirement current action 的 first-screen evidence 仍优先保留 receipt/provisioning WhatIf，不会被 proof follow-up detail 挤出 head。
+
+验证结果：focused `go test ./internal/rekit/releasecheck -run PackMemory -count=1`、`go test ./internal/rekit/cli -run "PackMemory|PromoteCreateCandidatesCaseLocalProductPath" -count=1`、installed entrypoint focused `go test ./internal/rekit/cli -run TestRunInstalledCaseShimProductPathStatusAndRefresh -count=1` 与 affected evidence regression `go test ./internal/rekit/cli -run "TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply|TestStatusMissionCommanderFirstScreenPackMemoryEvidenceKeepsHighValueHead" -count=1` 均通过；完整本机 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true` / `summary=release gate inventory ok`，`go run ./cmd/rekit -- -Command status -Format text`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./... -count=1`（CLI 255.451s）、`go vet ./...` 与 `git diff --check`，后者仅有 Windows LF→CRLF working-copy warning。README 与 docs/agent-team-usage.md 已同步；canonical `/rekit` skill、根 `CLAUDE.md`、pack manifest/config/schema 与 case 示例无需修改，因为本批未改变 public command ABI、durable schema、pack authoring 格式或 installed case-local shim 入口。
+
 ### Batch 715：adapter-specific live validation UX
 
 状态：已完成 runtime、CLI/status/overview/handoff/durable Markdown 投影、focused regressions、文档收尾、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `b91cf05` 已推送。Push run `30492615021` completed failure；Windows/macOS/Linux jobs `90713904733`/`90713904798`/`90713904814` 均 `steps=[]`，`gh run view 30492615021 --log-failed` 返回 `log not found: 90713904733`，annotations 显示 GitHub account payments/spending limit blocker。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。

@@ -205,25 +205,27 @@ type ReleaseHandoffPackMemoryCandidateReviewSummary struct {
 }
 
 type ReleaseHandoffPackMemoryCandidateReviewNextMissingProof struct {
-	Stage                     string   `json:"stage,omitempty"`
-	ProofType                 string   `json:"proofType,omitempty"`
-	Path                      string   `json:"path,omitempty"`
-	CandidatePath             string   `json:"candidatePath,omitempty"`
-	PackTarget                string   `json:"packTarget,omitempty"`
-	SourceCaseRoot            string   `json:"sourceCaseRoot,omitempty"`
-	When                      string   `json:"when,omitempty"`
-	Action                    string   `json:"action,omitempty"`
-	Format                    string   `json:"format,omitempty"`
-	PacketPath                string   `json:"packetPath,omitempty"`
-	CandidateDecisionPath     string   `json:"candidateDecisionPath,omitempty"`
-	EvidenceRefs              []string `json:"evidenceRefs,omitempty"`
-	DraftCommand              string   `json:"draftCommand,omitempty"`
-	DraftApplyTemplate        string   `json:"draftApplyTemplate,omitempty"`
-	RequiresPacket            bool     `json:"requiresPacket,omitempty"`
-	RequiresCandidateDecision bool     `json:"requiresCandidateDecision,omitempty"`
-	RequiresExplicitReview    bool     `json:"requiresExplicitReview,omitempty"`
-	Evidence                  []string `json:"evidence,omitempty"`
-	Boundary                  []string `json:"boundary,omitempty"`
+	Stage                     string                                `json:"stage,omitempty"`
+	ProofType                 string                                `json:"proofType,omitempty"`
+	Path                      string                                `json:"path,omitempty"`
+	CandidatePath             string                                `json:"candidatePath,omitempty"`
+	PackTarget                string                                `json:"packTarget,omitempty"`
+	SourceCaseRoot            string                                `json:"sourceCaseRoot,omitempty"`
+	When                      string                                `json:"when,omitempty"`
+	Action                    string                                `json:"action,omitempty"`
+	Format                    string                                `json:"format,omitempty"`
+	PacketPath                string                                `json:"packetPath,omitempty"`
+	CandidateDecisionPath     string                                `json:"candidateDecisionPath,omitempty"`
+	EvidenceRefs              []string                              `json:"evidenceRefs,omitempty"`
+	DraftCommand              string                                `json:"draftCommand,omitempty"`
+	DraftApplyTemplate        string                                `json:"draftApplyTemplate,omitempty"`
+	CurrentRunLoopStepID      string                                `json:"currentRunLoopStepId,omitempty"`
+	RunLoop                   []mission.MissionCommanderRunLoopStep `json:"runLoop,omitempty"`
+	RequiresPacket            bool                                  `json:"requiresPacket,omitempty"`
+	RequiresCandidateDecision bool                                  `json:"requiresCandidateDecision,omitempty"`
+	RequiresExplicitReview    bool                                  `json:"requiresExplicitReview,omitempty"`
+	Evidence                  []string                              `json:"evidence,omitempty"`
+	Boundary                  []string                              `json:"boundary,omitempty"`
 }
 
 type ReleaseHandoffPackMemoryCandidateReviewProofSummary struct {
@@ -865,7 +867,7 @@ func packMemoryCandidateCurrentCommand(pack ReleaseHandoffPackMemoryCandidateSta
 		}
 	}
 	if next := pack.ProofSummary.NextMissingProof; next != nil {
-		if command := strings.TrimSpace(next.DraftCommand); command != "" {
+		if command := packMemoryCandidateCurrentProofCommand(*next); command != "" {
 			return command
 		}
 	}
@@ -875,6 +877,21 @@ func packMemoryCandidateCurrentCommand(pack ReleaseHandoffPackMemoryCandidateSta
 		}
 	}
 	return strings.TrimSpace(pack.Action)
+}
+
+func packMemoryCandidateCurrentProofCommand(next ReleaseHandoffPackMemoryCandidateReviewNextMissingProof) string {
+	current := strings.TrimSpace(next.CurrentRunLoopStepID)
+	for _, step := range next.RunLoop {
+		if step.StepID == current {
+			if command := strings.TrimSpace(step.Command); command != "" {
+				return command
+			}
+		}
+	}
+	if current == "bind-review-packet" {
+		return packMemoryCandidateNextMissingProofBindCommand(next)
+	}
+	return strings.TrimSpace(next.DraftCommand)
 }
 
 func packMemoryCandidateActiveDecisionReceipt(pack ReleaseHandoffPackMemoryCandidateStatus) (ReleaseHandoffPackMemoryCandidateDecisionReceipt, string, bool) {
@@ -2114,7 +2131,146 @@ func packMemoryCandidateNextMissingProof(stage, proofPath string, artifact Relea
 	}
 	proof.DraftCommand = releaseHandoffPackMemoryProofCommandWithBindings(proof.DraftCommand, proof.PacketPath, proof.CandidateDecisionPath, proof.EvidenceRefs, proof.SourceCaseRoot)
 	proof.DraftApplyTemplate = releaseHandoffPackMemoryProofCommandWithBindings(proof.DraftApplyTemplate, proof.PacketPath, proof.CandidateDecisionPath, proof.EvidenceRefs, proof.SourceCaseRoot)
+	RefreshPackMemoryCandidateNextMissingProofWorkflow(&proof)
 	return proof
+}
+
+func RefreshPackMemoryCandidateNextMissingProofWorkflow(next *ReleaseHandoffPackMemoryCandidateReviewNextMissingProof) {
+	if next == nil {
+		return
+	}
+	next.CurrentRunLoopStepID = packMemoryCandidateNextMissingProofCurrentRunLoopStepID(*next)
+	next.RunLoop = packMemoryCandidateNextMissingProofRunLoop(*next)
+}
+
+func packMemoryCandidateNextMissingProofCurrentRunLoopStepID(next ReleaseHandoffPackMemoryCandidateReviewNextMissingProof) string {
+	if strings.TrimSpace(next.ProofType) == "" && strings.TrimSpace(next.Path) == "" && strings.TrimSpace(next.CandidatePath) == "" {
+		return ""
+	}
+	if next.RequiresPacket && strings.TrimSpace(next.PacketPath) == "" {
+		return "bind-review-packet"
+	}
+	if next.RequiresCandidateDecision && strings.TrimSpace(next.CandidateDecisionPath) == "" {
+		return "bind-review-packet"
+	}
+	if strings.TrimSpace(next.DraftCommand) != "" {
+		return "draft-proof-whatif"
+	}
+	return "inspect-proof-gap"
+}
+
+func packMemoryCandidateNextMissingProofRunLoop(next ReleaseHandoffPackMemoryCandidateReviewNextMissingProof) []mission.MissionCommanderRunLoopStep {
+	current := packMemoryCandidateNextMissingProofCurrentRunLoopStepID(next)
+	if current == "" {
+		return nil
+	}
+	steps := []mission.MissionCommanderRunLoopStep{}
+	add := func(step mission.MissionCommanderRunLoopStep) {
+		step.StepID = strings.TrimSpace(step.StepID)
+		step.Actor = strings.TrimSpace(step.Actor)
+		step.Description = strings.TrimSpace(step.Description)
+		if step.StepID == "" || step.Description == "" {
+			return
+		}
+		step.Order = len(steps) + 1
+		step.Boundary = mission.UniqueStrings(step.Boundary)
+		steps = append(steps, step)
+	}
+	statusCommand := packMemoryCandidateNextMissingProofStatusCommand(next)
+	commonBoundary := []string{
+		"pack-memory proof workflow is an operator handoff; status/release-check do not create proof files",
+		"proof Apply requires the ExpectedProofSha256 returned by the matching WhatIf",
+		"no authority/confirmed writes and no heavy-tool execution",
+		"proof files must stay repo-local review evidence and must not contain case-specific artifacts, traces, dumps, captures, payloads, flags, or customer data",
+	}
+	add(mission.MissionCommanderRunLoopStep{
+		StepID:      "inspect-proof-gap",
+		Actor:       "main-agent",
+		Description: "inspect the next missing pack-memory proof, candidate path, pack target, expected proof path, and read-only boundaries",
+		Command:     statusCommand,
+		State:       "pack-memory-proof-required",
+		Source:      "packMemoryCandidateProof.workflow.inspect",
+		Boundary: append([]string{
+			"inspect is read-only and must not write proof, merge candidates, cleanup paths, or reconsume cases",
+		}, commonBoundary...),
+	})
+	add(mission.MissionCommanderRunLoopStep{
+		StepID:      "bind-review-packet",
+		Actor:       "main-agent",
+		Description: "bind a canonical case-local review packet, candidate decision path, and bounded evidence refs before proof drafting",
+		Command:     packMemoryCandidateNextMissingProofBindCommand(next),
+		State:       "pack-memory-proof-required",
+		Source:      "packMemoryCandidateProof.workflow.reviewPacket",
+		Boundary: append([]string{
+			"release-check cannot infer the case-local review packet without an attached source case",
+			"do not fabricate packet, candidate decision, or evidence refs",
+		}, commonBoundary...),
+	})
+	add(mission.MissionCommanderRunLoopStep{
+		StepID:      "draft-proof-whatif",
+		Actor:       "main-agent",
+		Description: "run the DraftReviewProof WhatIf for the next missing proof and inspect the returned proof hash",
+		Command:     strings.TrimSpace(next.DraftCommand),
+		State:       "pack-memory-proof-required",
+		Source:      "packMemoryCandidateProof.workflow.whatIf",
+		Boundary: append([]string{
+			"WhatIf is read-only and does not create the proof file",
+			"replace placeholders only with reviewed packet, decision, actor, reason, and repo-local evidence refs",
+		}, commonBoundary...),
+	})
+	add(mission.MissionCommanderRunLoopStep{
+		StepID:      "apply-proof-with-expected-hash",
+		Actor:       "main-agent",
+		Description: "apply the proof draft only with the ExpectedProofSha256 returned by the matching WhatIf preview",
+		Command:     strings.TrimSpace(next.DraftApplyTemplate),
+		State:       "pack-memory-proof-required",
+		Source:      "packMemoryCandidateProof.workflow.apply",
+		Boundary: append([]string{
+			"Apply writes only the bounded proof file at the next missing proof path",
+			"do not reuse a stale proof hash after packet, decision, evidence, reason, actor, or candidate state changes",
+		}, commonBoundary...),
+	})
+	add(mission.MissionCommanderRunLoopStep{
+		StepID:      "refresh-pack-memory-status",
+		Actor:       "main-agent",
+		Description: "rerun status or release-check to verify the proof is present and recompute the next pack-memory action",
+		Command:     statusCommand,
+		State:       "pack-memory-proof-required",
+		Source:      "packMemoryCandidateProof.workflow.refresh",
+		Boundary: append([]string{
+			"refresh is read-only and must not infer proof completion from a prior preview",
+		}, commonBoundary...),
+	})
+	add(mission.MissionCommanderRunLoopStep{
+		StepID:      "continue-review-cleanup-reconsume",
+		Actor:       "main-agent",
+		Description: "continue with the refreshed Mission Commander pack-memory queue for remaining cleanup, reconsume, verification, or release handoff",
+		Command:     statusCommand,
+		State:       "pack-memory-proof-required",
+		Source:      "packMemoryCandidateProof.workflow.continue",
+		Boundary: append([]string{
+			"do not declare closure until refreshed status/release-check exposes no open pack-memory work",
+			"cleanup, reconsume, and verification remain separate explicit bounded steps",
+		}, commonBoundary...),
+	})
+	return steps
+}
+
+func packMemoryCandidateNextMissingProofStatusCommand(next ReleaseHandoffPackMemoryCandidateReviewNextMissingProof) string {
+	if target := strings.TrimSpace(next.SourceCaseRoot); target != "" {
+		return "/rekit status -Target " + quoteReleaseHandoffCommandArg(target) + " -Format json"
+	}
+	return "/rekit release-check -Format json"
+}
+
+func packMemoryCandidateNextMissingProofBindCommand(next ReleaseHandoffPackMemoryCandidateReviewNextMissingProof) string {
+	if packetPath := strings.TrimSpace(next.PacketPath); packetPath != "" {
+		return "review packet already bound: " + packetPath
+	}
+	if target := strings.TrimSpace(next.SourceCaseRoot); target != "" {
+		return "/rekit promote -Target " + quoteReleaseHandoffCommandArg(target) + " -CreateCandidates -Review -Format json"
+	}
+	return "rerun promote -CreateCandidates -Review from the attached source case to bind a canonical review packet"
 }
 
 func packMemoryCandidateLifecycleProofType(proofType string) bool {

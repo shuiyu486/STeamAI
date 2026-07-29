@@ -2007,7 +2007,11 @@ func writePackMemoryCandidateReviewSummaryText(out io.Writer, prefix, pack strin
 		}
 		if proof.NextMissingProof != nil {
 			next := proof.NextMissingProof
-			if _, err := fmt.Fprintf(out, "%s pack-memory next missing proof：pack=%s stage=%s proofType=%s path=%s candidatePath=%s packTarget=%s sourceCaseRoot=%s packet=%s candidateDecision=%s when=%s action=%s format=%s requiresPacket=%t requiresCandidateDecision=%t requiresExplicitReview=%t draft=%s draftApply=%s\n", prefix, pack, textOr(next.Stage, "none"), textOr(next.ProofType, "none"), textOr(next.Path, "none"), textOr(next.CandidatePath, "none"), textOr(next.PackTarget, "none"), textOr(next.SourceCaseRoot, "none"), textOr(next.PacketPath, "none"), textOr(next.CandidateDecisionPath, "none"), textOr(next.When, "none"), textOr(next.Action, "none"), textOr(next.Format, "none"), next.RequiresPacket, next.RequiresCandidateDecision, next.RequiresExplicitReview, textOr(next.DraftCommand, "none"), textOr(next.DraftApplyTemplate, "none")); err != nil {
+			if _, err := fmt.Fprintf(out, "%s pack-memory next missing proof：pack=%s stage=%s proofType=%s path=%s candidatePath=%s packTarget=%s sourceCaseRoot=%s packet=%s candidateDecision=%s when=%s action=%s format=%s requiresPacket=%t requiresCandidateDecision=%t requiresExplicitReview=%t currentRunLoopStep=%s draft=%s draftApply=%s\n", prefix, pack, textOr(next.Stage, "none"), textOr(next.ProofType, "none"), textOr(next.Path, "none"), textOr(next.CandidatePath, "none"), textOr(next.PackTarget, "none"), textOr(next.SourceCaseRoot, "none"), textOr(next.PacketPath, "none"), textOr(next.CandidateDecisionPath, "none"), textOr(next.When, "none"), textOr(next.Action, "none"), textOr(next.Format, "none"), next.RequiresPacket, next.RequiresCandidateDecision, next.RequiresExplicitReview, textOr(next.CurrentRunLoopStepID, "none"), textOr(next.DraftCommand, "none"), textOr(next.DraftApplyTemplate, "none")); err != nil {
+				return err
+			}
+			workflowPrefix := fmt.Sprintf("%s pack-memory proof workflow：pack=%s", prefix, pack)
+			if err := writeMissionCommanderRunLoopStepsText(out, workflowPrefix, next.CurrentRunLoopStepID, next.RunLoop); err != nil {
 				return err
 			}
 			for _, evidenceRef := range next.EvidenceRefs {
@@ -3649,10 +3653,30 @@ func statusMissionCommanderFirstScreenPackMemoryEvidence(pack releasecheck.Relea
 	evidence := []string{}
 	evidence = append(evidence, fmt.Sprintf("open pack-memory counts: candidates=%d tooling=%d index=%d review=%t cleanup=%t verification=%t", pack.CandidateFiles, pack.ToolingFiles, pack.IndexEntries, pack.RequiresReview, pack.RequiresCleanup, pack.RequiresVerification))
 	proof := pack.ProofSummary
+	receiptEvidenceAppended := false
+	appendReceiptEvidence := func() {
+		if receiptEvidenceAppended {
+			return
+		}
+		receiptEvidenceAppended = true
+		if pack.PendingVerifications > 0 || pack.CompletedVerifications > 0 || len(pack.DecisionReceipts) > 0 {
+			evidence = append(evidence, fmt.Sprintf("decision receipts: receipts=%d pendingVerification=%d completedVerification=%d", len(pack.DecisionReceipts), pack.PendingVerifications, pack.CompletedVerifications))
+			for _, receipt := range pack.DecisionReceipts {
+				evidence = append(evidence, statusMissionCommanderPackMemoryReceiptEvidence(receipt)...)
+			}
+		}
+	}
+	receiptEvidenceFirst := pack.RequiresVerification || len(pack.DecisionReceipts) > 0
 	if proof.Total > 0 || strings.TrimSpace(proof.ProofRoot) != "" {
 		evidence = append(evidence, fmt.Sprintf("proof progress: %s stage=%s missing=%d nextType=%s", textOr(proof.ProofProgress, "none"), textOr(proof.CurrentStage, "none"), proof.Missing, textOr(proof.NextMissingProofType, "none")))
 		if next := proof.NextMissingProof; next != nil {
 			evidence = append(evidence, fmt.Sprintf("next missing proof: type=%s candidate=%s target=%s", textOr(next.ProofType, "none"), textOr(next.CandidatePath, "none"), textOr(next.PackTarget, "none")))
+			if receiptEvidenceFirst {
+				appendReceiptEvidence()
+			}
+			if strings.TrimSpace(next.CurrentRunLoopStepID) != "" {
+				evidence = append(evidence, "next missing proof current step: "+next.CurrentRunLoopStepID)
+			}
 			if strings.TrimSpace(next.DraftCommand) != "" {
 				evidence = append(evidence, "next missing proof draft WhatIf: "+next.DraftCommand)
 			}
@@ -3662,11 +3686,8 @@ func statusMissionCommanderFirstScreenPackMemoryEvidence(pack releasecheck.Relea
 			evidence = append(evidence, "proof boundary: status/release are read-only; proof Apply requires the WhatIf ExpectedProofSha256")
 		}
 	}
-	if pack.PendingVerifications > 0 || pack.CompletedVerifications > 0 || len(pack.DecisionReceipts) > 0 {
-		evidence = append(evidence, fmt.Sprintf("decision receipts: receipts=%d pendingVerification=%d completedVerification=%d", len(pack.DecisionReceipts), pack.PendingVerifications, pack.CompletedVerifications))
-		for _, receipt := range pack.DecisionReceipts {
-			evidence = append(evidence, statusMissionCommanderPackMemoryReceiptEvidence(receipt)...)
-		}
+	if !receiptEvidenceAppended {
+		appendReceiptEvidence()
 	}
 	for _, item := range pack.Evidence {
 		evidence = append(evidence, "inventory evidence: "+item)
@@ -5528,6 +5549,7 @@ func bindStatusCaseCandidateNextMissingProof(status *releasecheck.ReleaseHandoff
 	next.DraftCommand = statusCaseCandidateNextMissingProofCommand(next.DraftCommand, packetPath, next.CandidateDecisionPath, next.EvidenceRefs, caseRoot)
 	next.DraftApplyTemplate = statusCaseCandidateNextMissingProofCommand(next.DraftApplyTemplate, packetPath, next.CandidateDecisionPath, next.EvidenceRefs, caseRoot)
 	next.Boundary = append(next.Boundary, "case-local status bound this next missing proof to a packet-derived review workspace; release/status still does not write proof")
+	releasecheck.RefreshPackMemoryCandidateNextMissingProofWorkflow(&next)
 	status.ProofSummary.NextMissingProof = &next
 	status.ReviewSummary.ProofSummary = status.ProofSummary
 }

@@ -281,11 +281,12 @@ func TestStatusMissionCommanderFirstScreenPackMemoryEvidenceKeepsHighValueHead(t
 			NextMissingCandidatePath: "packs/_template/tooling/candidates/batch501-tooling.candidate.md",
 			NextMissingPackTarget:    "packs/_template/tooling",
 			NextMissingProof: &releasecheck.ReleaseHandoffPackMemoryCandidateReviewNextMissingProof{
-				ProofType:          "candidate-decision-note",
-				CandidatePath:      "packs/_template/tooling/candidates/batch501-tooling.candidate.md",
-				PackTarget:         "packs/_template/tooling",
-				DraftCommand:       "/rekit promote -DraftReviewProof -WhatIf -Format json",
-				DraftApplyTemplate: "/rekit promote -DraftReviewProof -ExpectedProofSha256 <proofSha256-from-WhatIf> -Apply -Format json",
+				ProofType:            "candidate-decision-note",
+				CandidatePath:        "packs/_template/tooling/candidates/batch501-tooling.candidate.md",
+				PackTarget:           "packs/_template/tooling",
+				CurrentRunLoopStepID: "draft-proof-whatif",
+				DraftCommand:         "/rekit promote -DraftReviewProof -WhatIf -Format json",
+				DraftApplyTemplate:   "/rekit promote -DraftReviewProof -ExpectedProofSha256 <proofSha256-from-WhatIf> -Apply -Format json",
 			},
 		},
 		Evidence: []string{
@@ -301,12 +302,12 @@ func TestStatusMissionCommanderFirstScreenPackMemoryEvidenceKeepsHighValueHead(t
 		"open pack-memory counts: candidates=1 tooling=1 index=1 review=true cleanup=true verification=false",
 		"proof progress: 1/8 stage=decision-proof-required missing=7 nextType=candidate-decision-note",
 		"next missing proof: type=candidate-decision-note candidate=packs/_template/tooling/candidates/batch501-tooling.candidate.md target=packs/_template/tooling",
+		"next missing proof current step: draft-proof-whatif",
 		"next missing proof draft WhatIf: /rekit promote -DraftReviewProof -WhatIf -Format json",
 		"next missing proof apply template: /rekit promote -DraftReviewProof -ExpectedProofSha256 <proofSha256-from-WhatIf> -Apply -Format json",
 		"proof boundary: status/release are read-only; proof Apply requires the WhatIf ExpectedProofSha256",
 		"inventory evidence: candidateRoot packs/_template/promote-candidates",
 		"inventory evidence: toolingRoot packs/_template/tooling/candidates",
-		"inventory evidence: promote-candidates files=1",
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("pack-memory evidence shortlist drifted: got %+v want %+v", got, want)
@@ -2052,7 +2053,7 @@ func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
 	if handoff := pack.DecisionDraftHandoff; handoff == nil || handoff.Mode != "candidate-decision-draft-review-workspace-required" || handoff.DecisionPath != "packs/_template/promote-candidates/review-artifacts/candidate-decisions.json" || !containsSubstring(handoff.EvidenceRefs, "batch501-status.candidate-decision-note.md") || !containsSubstring(handoff.SupportedDecisions, "accept-managed-reject-tooling") || !strings.Contains(handoff.NextAction, "promote -CreateCandidates -Review") || !containsSubstring(handoff.Boundary, "cannot infer the case-local review packet") {
 		t.Fatalf("unexpected status pack-memory decision draft handoff: %+v", pack.DecisionDraftHandoff)
 	}
-	if summary := pack.ReviewSummary; summary.Total != 3 || summary.CandidateFiles != 1 || summary.ToolingFiles != 1 || summary.IndexEntries != 1 || summary.DecisionArtifactCount != 2 || summary.CleanupArtifactCount != 2 || summary.ReconsumeArtifactCount != 4 || summary.ProofSummary.Total != 8 || summary.ProofSummary.Present != 1 || summary.ProofSummary.Missing != 7 || summary.ProofSummary.DecisionPresent != 1 || summary.ProofSummary.DecisionMissing != 1 || summary.ProofSummary.CleanupMissing != 2 || summary.ProofSummary.ReconsumeMissing != 4 || summary.ProofSummary.ProofProgress != "1/8" || summary.ProofSummary.CurrentStage != "decision-proof-required" || summary.ProofSummary.NextMissingProofType != "candidate-decision-note" || summary.ProofSummary.NextMissingProofPath != "packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md" || summary.ProofSummary.NextMissingCandidatePath != "packs/_template/tooling/candidates/batch501-tooling.candidate.md" || summary.ProofSummary.NextMissingPackTarget != "packs/_template/tooling" || summary.ProofSummary.NextMissingProof == nil || summary.ProofSummary.NextMissingProof.ProofType != "candidate-decision-note" || summary.ProofSummary.NextMissingProof.Stage != "decision-proof-required" || !strings.Contains(summary.ProofSummary.NextMissingProof.Action, "selected decisionFollowThrough outcome") || !containsSubstring(summary.ProofSummary.NextMissingProof.Evidence, "decision note path/ref") || summary.ProofSummary.Complete || summary.ProofSummary.ProofRoot != "packs/_template/promote-candidates/review-artifacts" || !strings.Contains(summary.ProofSummary.NextAction, "candidate-decision-note") || !containsSubstring(summary.ProofSummary.Boundary, "read-only") || !summary.RequiresReview || !summary.RequiresCleanup || !summary.HasDecisionArtifacts || !summary.HasCleanupArtifacts || !summary.HasReconsumeArtifacts || !containsSubstring(summary.Boundary, "reviewSummary is read-only") {
+	if summary := pack.ReviewSummary; summary.Total != 3 || summary.CandidateFiles != 1 || summary.ToolingFiles != 1 || summary.IndexEntries != 1 || summary.DecisionArtifactCount != 2 || summary.CleanupArtifactCount != 2 || summary.ReconsumeArtifactCount != 4 || summary.ProofSummary.Total != 8 || summary.ProofSummary.Present != 1 || summary.ProofSummary.Missing != 7 || summary.ProofSummary.DecisionPresent != 1 || summary.ProofSummary.DecisionMissing != 1 || summary.ProofSummary.CleanupMissing != 2 || summary.ProofSummary.ReconsumeMissing != 4 || summary.ProofSummary.ProofProgress != "1/8" || summary.ProofSummary.CurrentStage != "decision-proof-required" || summary.ProofSummary.NextMissingProofType != "candidate-decision-note" || summary.ProofSummary.NextMissingProofPath != "packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md" || summary.ProofSummary.NextMissingCandidatePath != "packs/_template/tooling/candidates/batch501-tooling.candidate.md" || summary.ProofSummary.NextMissingPackTarget != "packs/_template/tooling" || summary.ProofSummary.NextMissingProof == nil || summary.ProofSummary.NextMissingProof.ProofType != "candidate-decision-note" || summary.ProofSummary.NextMissingProof.Stage != "decision-proof-required" || summary.ProofSummary.NextMissingProof.CurrentRunLoopStepID != "bind-review-packet" || len(summary.ProofSummary.NextMissingProof.RunLoop) < 6 || summary.ProofSummary.NextMissingProof.RunLoop[0].StepID != "inspect-proof-gap" || !missionCommanderRunLoopStepContains(summary.ProofSummary.NextMissingProof.RunLoop, "bind-review-packet") || !strings.Contains(summary.ProofSummary.NextMissingProof.Action, "selected decisionFollowThrough outcome") || !containsSubstring(summary.ProofSummary.NextMissingProof.Evidence, "decision note path/ref") || summary.ProofSummary.Complete || summary.ProofSummary.ProofRoot != "packs/_template/promote-candidates/review-artifacts" || !strings.Contains(summary.ProofSummary.NextAction, "candidate-decision-note") || !containsSubstring(summary.ProofSummary.Boundary, "read-only") || !summary.RequiresReview || !summary.RequiresCleanup || !summary.HasDecisionArtifacts || !summary.HasCleanupArtifacts || !summary.HasReconsumeArtifacts || !containsSubstring(summary.Boundary, "reviewSummary is read-only") {
 		t.Fatalf("unexpected status pack-memory candidate review summary: %+v", summary)
 	}
 
@@ -2065,17 +2066,22 @@ func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
 		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=1 text=open pack-memory counts: candidates=1 tooling=1 index=1 review=true cleanup=true verification=false",
 		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=2 text=proof progress: 1/8 stage=decision-proof-required missing=7 nextType=candidate-decision-note",
 		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=3 text=next missing proof: type=candidate-decision-note candidate=packs/_template/tooling/candidates/batch501-tooling.candidate.md target=packs/_template/tooling",
-		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=4 text=next missing proof draft WhatIf: /rekit promote -PacketPath <packet.json>",
-		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=5 text=next missing proof apply template: /rekit promote -PacketPath <packet.json>",
+		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=4 text=next missing proof current step: bind-review-packet",
+		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=5 text=next missing proof draft WhatIf: /rekit promote -PacketPath <packet.json>",
+		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=6 text=next missing proof apply template: /rekit promote -PacketPath <packet.json>",
 		"-ExpectedProofSha256 <proofSha256-from-WhatIf> -Apply -Format json",
-		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=6 text=proof boundary: status/release are read-only; proof Apply requires the WhatIf ExpectedProofSha256",
-		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=7 text=inventory evidence: candidateRoot packs/_template/promote-candidates",
-		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=9 text=inventory evidence: promote-candidates files=1",
+		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=7 text=proof boundary: status/release are read-only; proof Apply requires the WhatIf ExpectedProofSha256",
+		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=8 text=inventory evidence: candidateRoot packs/_template/promote-candidates",
+		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=9 text=inventory evidence: toolingRoot packs/_template/tooling/candidates",
 		"status pack-memory candidates：summary=pack-memory candidate inventory has open review/cleanup/verification work ready=false total=3 packs=1 nextAction=review listed pack-memory candidates or complete listed candidate decision verification",
 		"status pack-memory candidate pack：pack=_template candidateRoot=packs/_template/promote-candidates toolingRoot=packs/_template/tooling/candidates indexPath=packs/_template/promote-candidates/index.json candidateFiles=1 toolingFiles=1 indexEntries=1 receipts=0 pendingVerification=0 completedVerification=0 review=true cleanup=true verification=false",
 		"status pack-memory review summary：pack=_template total=3 candidateFiles=1 toolingFiles=1 indexEntries=1 reviewArtifacts=8 decisionArtifacts=2 cleanupArtifacts=2 reconsumeArtifacts=4 proofTotal=8 proofPresent=1 proofMissing=7 proofProgress=1/8 proofStage=decision-proof-required nextMissingProofType=candidate-decision-note nextMissingProofPath=packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md nextMissingCandidatePath=packs/_template/tooling/candidates/batch501-tooling.candidate.md nextMissingSourceCase=none proofComplete=false proofRoot=packs/_template/promote-candidates/review-artifacts",
 		"status pack-memory proof summary：pack=_template total=8 present=1 missing=7 progress=1/8 stage=decision-proof-required decisionPresent=1 decisionMissing=1 cleanupPresent=0 cleanupMissing=2 reconsumePresent=0 reconsumeMissing=4 nextMissingType=candidate-decision-note nextMissingPath=packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md nextMissingCandidate=packs/_template/tooling/candidates/batch501-tooling.candidate.md nextMissingTarget=packs/_template/tooling complete=false proofRoot=packs/_template/promote-candidates/review-artifacts",
 		"status pack-memory next missing proof：pack=_template stage=decision-proof-required proofType=candidate-decision-note path=packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md candidatePath=packs/_template/tooling/candidates/batch501-tooling.candidate.md packTarget=packs/_template/tooling",
+		"currentRunLoopStep=bind-review-packet",
+		"status pack-memory proof workflow：pack=_template run loop：currentRunLoopStep=bind-review-packet steps=6",
+		"status pack-memory proof workflow：pack=_template run loop step：order=2 step=bind-review-packet actor=main-agent state=pack-memory-proof-required source=packMemoryCandidateProof.workflow.reviewPacket command=`rerun promote -CreateCandidates -Review from the attached source case to bind a canonical review packet`",
+		"status pack-memory proof workflow：pack=_template run loop boundary：step=inspect-proof-gap boundary=pack-memory proof workflow is an operator handoff; status/release-check do not create proof files",
 		"status pack-memory next missing proof evidence：pack=_template evidence=selected decisionFollowThrough outcome",
 		"status pack-memory proof summary boundary：pack=_template boundary=proofSummary is read-only; release/status detects and validates bounded proof files but does not create or reconsume them",
 		"status pack-memory review summary boundary：pack=_template boundary=pack-memory reviewSummary is read-only; full candidate paths, indexCandidates, and reviewArtifacts remain available",
@@ -2107,6 +2113,9 @@ func TestRunStatusKitShowsOpenPackMemoryCandidates(t *testing.T) {
 		"release-check pack-memory review summary：pack=_template total=3 candidateFiles=1 toolingFiles=1 indexEntries=1 reviewArtifacts=8 decisionArtifacts=2 cleanupArtifacts=2 reconsumeArtifacts=4 proofTotal=8 proofPresent=1 proofMissing=7 proofProgress=1/8 proofStage=decision-proof-required nextMissingProofType=candidate-decision-note nextMissingProofPath=packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md nextMissingCandidatePath=packs/_template/tooling/candidates/batch501-tooling.candidate.md nextMissingSourceCase=none proofComplete=false proofRoot=packs/_template/promote-candidates/review-artifacts",
 		"release-check pack-memory proof summary：pack=_template total=8 present=1 missing=7 progress=1/8 stage=decision-proof-required decisionPresent=1 decisionMissing=1 cleanupPresent=0 cleanupMissing=2 reconsumePresent=0 reconsumeMissing=4 nextMissingType=candidate-decision-note nextMissingPath=packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md nextMissingCandidate=packs/_template/tooling/candidates/batch501-tooling.candidate.md nextMissingTarget=packs/_template/tooling complete=false proofRoot=packs/_template/promote-candidates/review-artifacts",
 		"release-check pack-memory next missing proof：pack=_template stage=decision-proof-required proofType=candidate-decision-note path=packs/_template/promote-candidates/review-artifacts/batch501-tooling.candidate-decision-note.md candidatePath=packs/_template/tooling/candidates/batch501-tooling.candidate.md packTarget=packs/_template/tooling",
+		"currentRunLoopStep=bind-review-packet",
+		"release-check pack-memory proof workflow：pack=_template run loop：currentRunLoopStep=bind-review-packet steps=6",
+		"release-check pack-memory proof workflow：pack=_template run loop step：order=2 step=bind-review-packet actor=main-agent state=pack-memory-proof-required source=packMemoryCandidateProof.workflow.reviewPacket command=`rerun promote -CreateCandidates -Review from the attached source case to bind a canonical review packet`",
 		"release-check pack-memory next missing proof evidence：pack=_template evidence=selected decisionFollowThrough outcome",
 		"release-check pack-memory decision draft handoff：pack=_template mode=candidate-decision-draft-review-workspace-required packet= decisionPath=packs/_template/promote-candidates/review-artifacts/candidate-decisions.json nextAction=rerun promote -CreateCandidates -Review from the attached source case",
 		"release-check pack-memory decision draft evidence ref：pack=_template evidence=packs/_template/promote-candidates/review-artifacts/batch501-status.candidate-decision-note.md",
@@ -2177,7 +2186,7 @@ func TestRunStatusCaseFirstScreenPrioritizesPackMemoryClosureOverReviewerWait(t 
 	if reviewerCurrent == nil || reviewerCurrent.State != "ready-for-reviewer-dispatch" || reviewerCurrent.Source != "reviewerDispatchIntakeHandoffs" {
 		t.Fatalf("cross-subsystem status omitted passive reviewer wait current action: %+v", status.CaseMission.ReviewerDispatchIntakeActionQueue)
 	}
-	packCurrent := assertPackMemoryCurrentAction(t, status.ProjectHandoff.PackMemoryCandidates, "_template", "pack-memory-decision-proof-required", "pack-memory-proof-required", "-DraftReviewProof")
+	packCurrent := assertPackMemoryCurrentAction(t, status.ProjectHandoff.PackMemoryCandidates, "_template", "pack-memory-decision-proof-required", "pack-memory-proof-required", "CreateCandidates -Review")
 	projectCurrent := statusProjectHandoffCurrentAction(status.ProjectHandoff)
 	focus := statusMissionCommanderFirstScreenFocus(status.CaseMission.MissionCommanderActionQueue.CurrentAction, reviewerCurrent, projectCurrent, status.ProjectHandoff, &packCurrent)
 	if focus != "pack-memory-current-action" {
@@ -2244,25 +2253,27 @@ type packMemoryCandidateProofSummary struct {
 }
 
 type nextMissingProofDetail struct {
-	Stage                     string   `json:"stage"`
-	ProofType                 string   `json:"proofType"`
-	Path                      string   `json:"path"`
-	CandidatePath             string   `json:"candidatePath"`
-	PackTarget                string   `json:"packTarget"`
-	SourceCaseRoot            string   `json:"sourceCaseRoot"`
-	When                      string   `json:"when"`
-	Action                    string   `json:"action"`
-	Format                    string   `json:"format"`
-	PacketPath                string   `json:"packetPath"`
-	CandidateDecisionPath     string   `json:"candidateDecisionPath"`
-	EvidenceRefs              []string `json:"evidenceRefs"`
-	DraftCommand              string   `json:"draftCommand"`
-	DraftApplyTemplate        string   `json:"draftApplyTemplate"`
-	RequiresPacket            bool     `json:"requiresPacket"`
-	RequiresCandidateDecision bool     `json:"requiresCandidateDecision"`
-	RequiresExplicitReview    bool     `json:"requiresExplicitReview"`
-	Evidence                  []string `json:"evidence"`
-	Boundary                  []string `json:"boundary"`
+	Stage                     string                                `json:"stage"`
+	ProofType                 string                                `json:"proofType"`
+	Path                      string                                `json:"path"`
+	CandidatePath             string                                `json:"candidatePath"`
+	PackTarget                string                                `json:"packTarget"`
+	SourceCaseRoot            string                                `json:"sourceCaseRoot"`
+	When                      string                                `json:"when"`
+	Action                    string                                `json:"action"`
+	Format                    string                                `json:"format"`
+	PacketPath                string                                `json:"packetPath"`
+	CandidateDecisionPath     string                                `json:"candidateDecisionPath"`
+	EvidenceRefs              []string                              `json:"evidenceRefs"`
+	DraftCommand              string                                `json:"draftCommand"`
+	DraftApplyTemplate        string                                `json:"draftApplyTemplate"`
+	CurrentRunLoopStepID      string                                `json:"currentRunLoopStepId"`
+	RunLoop                   []missionCommanderRunLoopStepSnapshot `json:"runLoop"`
+	RequiresPacket            bool                                  `json:"requiresPacket"`
+	RequiresCandidateDecision bool                                  `json:"requiresCandidateDecision"`
+	RequiresExplicitReview    bool                                  `json:"requiresExplicitReview"`
+	Evidence                  []string                              `json:"evidence"`
+	Boundary                  []string                              `json:"boundary"`
 }
 
 func TestRunStatusRejectsUnsupportedFormat(t *testing.T) {
@@ -4983,7 +4994,7 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 	}
 	nextMissingProof := status.ProjectHandoff.PackMemoryCandidates.Packs[0].ProofSummary.NextMissingProof
 	packMemoryCurrent := status.ProjectHandoff.PackMemoryCandidates.MissionCommanderActionQueue.CurrentAction
-	if nextMissingProof == nil || nextMissingProof.PacketPath == "" || packMemoryCurrent == nil || packMemoryCurrent.Label != "_template" || packMemoryCurrent.State != "pack-memory-proof-required" || !strings.Contains(packMemoryCurrent.Command, nextMissingProof.PacketPath) || strings.Contains(packMemoryCurrent.Command, "<packet.json>") {
+	if nextMissingProof == nil || nextMissingProof.PacketPath == "" || nextMissingProof.CurrentRunLoopStepID != "draft-proof-whatif" || len(nextMissingProof.RunLoop) < 6 || packMemoryCurrent == nil || packMemoryCurrent.Label != "_template" || packMemoryCurrent.State != "pack-memory-proof-required" || !strings.Contains(packMemoryCurrent.Command, nextMissingProof.PacketPath) || strings.Contains(packMemoryCurrent.Command, "<packet.json>") {
 		t.Fatalf("installed entrypoint first-screen JSON omitted pack-memory current action: current=%+v nextProof=%+v status=%+v", packMemoryCurrent, nextMissingProof, status)
 	}
 
@@ -4996,10 +5007,11 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 		"status case shim entrypoint: caseLocal=/rekit",
 		"status Mission Commander first screen：focus=pack-memory-current-action",
 		"status Mission Commander current action：scope=focus-pack-memory lane= label=_template state=pack-memory-proof-required",
-		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=4 text=next missing proof draft WhatIf: /rekit promote -Target " + statusQuoteCommandArg(caseRoot) + " -PacketPath",
-		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=5 text=next missing proof apply template: /rekit promote -Target " + statusQuoteCommandArg(caseRoot) + " -PacketPath",
+		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=4 text=next missing proof current step: draft-proof-whatif",
+		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=5 text=next missing proof draft WhatIf: /rekit promote -Target " + statusQuoteCommandArg(caseRoot) + " -PacketPath",
+		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=6 text=next missing proof apply template: /rekit promote -Target " + statusQuoteCommandArg(caseRoot) + " -PacketPath",
 		"-ExpectedProofSha256 <proofSha256-from-WhatIf> -Apply -Format json",
-		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=6 text=proof boundary: status/release are read-only; proof Apply requires the WhatIf ExpectedProofSha256",
+		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=7 text=proof boundary: status/release are read-only; proof Apply requires the WhatIf ExpectedProofSha256",
 		"status Mission Commander focus pack-memory runbook：pack=_template state=pack-memory-proof-required step=1 text=run proof draft WhatIf from the current pack-memory action; Apply only with the returned ExpectedProofSha256",
 		"status Mission Commander focus pack-memory runbook：pack=_template state=pack-memory-proof-required step=2 text=after proof WhatIf, use the draft apply template with <proofSha256-from-WhatIf>",
 		"status Mission Commander current action：scope=case lane=feature-login label=login state=ready-to-continue",
@@ -5121,7 +5133,9 @@ type installedCaseShimStatus struct {
 				ReviewSummary packMemoryCandidateReviewSummaryJSON `json:"reviewSummary"`
 				ProofSummary  struct {
 					NextMissingProof *struct {
-						PacketPath string `json:"packetPath"`
+						PacketPath           string                                `json:"packetPath"`
+						CurrentRunLoopStepID string                                `json:"currentRunLoopStepId"`
+						RunLoop              []missionCommanderRunLoopStepSnapshot `json:"runLoop"`
 					} `json:"nextMissingProof"`
 				} `json:"proofSummary"`
 			} `json:"packs"`
@@ -20089,6 +20103,15 @@ func statusProjectHandoffNextActionBoundaryContains(items []struct {
 func containsSubstring(items []string, want string) bool {
 	for _, item := range items {
 		if strings.Contains(item, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func missionCommanderRunLoopStepContains(steps []missionCommanderRunLoopStepSnapshot, stepID string) bool {
+	for _, step := range steps {
+		if step.StepID == stepID {
 			return true
 		}
 	}
