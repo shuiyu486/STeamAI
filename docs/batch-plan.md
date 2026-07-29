@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 713：reviewer session operational closure
 
-状态：进行中。已完成 runtime/CLI/test 初步实现，正在收口受影响包回归、文档与 release minimum。
+状态：已完成 runtime、CLI/status/handoff/continue/Markdown 投影、focused/受影响包/完整本机验证、独立 correctness review 修复、implementation commit/push 与 push-triggered remote inspection；implementation commit `f3f9ad3` 已推送。Push run `30474039125` completed failure；Windows/macOS/Linux jobs `90651130568`/`90651130606`/`90651130655` 均 `steps=[]`，`gh run view 30474039125 --log-failed` 返回 `log not found: 90651130568`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。
 
 目标：把 existing immutable reviewer dispatch/completion receipt、source capture、staging、collection 与 intake 串成 Mission Commander/replacement executor 可直接顺序消费的 reviewer session run-loop envelope，避免主 Agent 在 status/handoff/continue/Markdown/JSON 间手工拼接下一步。
 
@@ -38,7 +38,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 已实现内容：`ReviewerDispatchOperatorPackage` 现在投影 ordered `runLoop[]` 与 `currentRunLoopStepId`，覆盖 `verify-prompt → spawn-reviewer → record-dispatch → save-result-input → record-completion → source-capture → stage-candidate → collect-result → intake-results`；prompt artifact invalid/drift 以及 failed/stale redispatch 的 prompt drift 会指向 `verify-prompt`，`reviewer-session-running-unknown` 指向 `save-result-input`，completion receipt preview 指向 `record-completion`，source/candidate/collection/intake states 分别指向对应步骤。CLI text 与 durable handoff Markdown 同步输出 run-loop step、命令、路径和 no-spawn/no-heavy/no-authority boundary。
 
-验证结果：focused `go test ./internal/rekit/workstream -run "TestReviewerDispatchOperatorPackage|TestReviewerDispatchPromptArtifactCurrentnessBlocksStaleDispatch" -count=1` 与 `go test ./internal/rekit/cli -run TestRunPlanSubagentsReviewerOrchestrationE2E -count=1` 通过；受影响包 `go test ./internal/rekit/workstream ./internal/rekit/cli -count=1` 通过（CLI 266.167s）。独立 correctness review 发现并已修复 `reviewer-session-running-unknown` 跳过 reviewer input 保存、failed/stale redispatch 绕过 prompt repair 两个问题。完整本机 release minimum 已通过：`release-check`、`status`、`packs`、`doctor`、`go test ./...`（CLI 303.568s）、`go vet ./...` 与 `git diff --check` 均通过，后者仅有 Windows LF→CRLF warning。Implementation commit/push 与 release inspection 待执行。
+验证结果：focused `go test ./internal/rekit/workstream -run "TestReviewerDispatchOperatorPackage|TestReviewerDispatchPromptArtifactCurrentnessBlocksStaleDispatch" -count=1` 与 `go test ./internal/rekit/cli -run TestRunPlanSubagentsReviewerOrchestrationE2E -count=1` 通过；受影响包 `go test ./internal/rekit/workstream ./internal/rekit/cli -count=1` 通过（CLI 266.167s）。独立 correctness review 发现并已修复 `reviewer-session-running-unknown` 跳过 reviewer input 保存、failed/stale redispatch 绕过 prompt repair 两个问题。完整本机 release minimum 已通过：`release-check`、`status`、`packs`、`doctor`、`go test ./...`（CLI 303.568s）、`go vet ./...` 与 `git diff --check` 均通过，后者仅有 Windows LF→CRLF warning。Implementation commit `f3f9ad3` 已推送；push-triggered release-gate run `30474039125` completed failure，Windows/macOS/Linux jobs 均 `steps=[]` 且无失败日志，仍是既有 runner/billing blocker。
 
 ### Batch 712：pre-report adapter terminal recovery
 
