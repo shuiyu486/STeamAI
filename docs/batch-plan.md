@@ -18,7 +18,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 711：immutable adapter dispatch lifecycle
 
-状态：runtime、CLI、installed nested-cwd product path、focused/package/full regressions、独立 correctness review、active docs与完整本机 release minimum已完成；implementation commit/push 和 push-triggered remote inspection尚未执行，不声明batch complete或remote green。
+状态：已完成runtime、CLI、installed nested-cwd product path、focused/package/full regressions、独立correctness review、active docs、完整本机release minimum、implementation commit/push与push-triggered remote inspection；implementation commit `3311a8b`已推送。Push run `30457118679` completed failure；macOS/Linux/Windows jobs `90593436385`/`90593436395`/`90593436739`均`steps=[]`，`gh run view 30457118679 --log-failed`返回`log not found: 90593436385`。这是既有runner/billing blocker，没有新的远程signal，不声明remote green。
 
 目标：在 external adapter 开始前记录 immutable dispatch/start receipt，并让 managed adapter report、completion receipt 与 observation 严格链接 exact dispatch；dispatch 同时绑定 strict authorized gate、current lane owner/generation、selected tooling catalog candidate、external harness/session、authorized budget 与 canonical report path，使 replacement executor 能从 durable handoff 区分 intent、external completion 和 observation writeback，而不能事后补造 provenance。
 
