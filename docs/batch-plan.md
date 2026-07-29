@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 714：Mission Commander run-loop product path
 
-状态：已完成 runtime、CLI/status/handoff/continue/overview/Markdown 投影、focused regressions、完整本机 release minimum 与文档/CHANGELOG 收尾；implementation commit/push 与 push-triggered remote release-gate inspection 待执行。
+状态：已完成 runtime、CLI/status/handoff/continue/overview/Markdown 投影、focused regressions、完整本机 release minimum、文档/CHANGELOG 收尾与 implementation commit/push；implementation commit `1b00cb9` 已推送；push-triggered remote release-gate inspection 已记录，结果为 completed failure 且三平台 jobs 均 steps=[]，仍是既有 runner/billing blocker，不声明 remote green。
 
 目标：把 Mission Commander current action 的 read-only run-loop 投影成可直接消费的四步顺序接手路径，避免主 Agent 在 status/handoff/continue/overview/Markdown 间手工拼接下一步，同时保持 current action 选择语义不变。
 
@@ -38,7 +38,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 已实现内容：`MissionCommanderActionQueue` 现在投影 `CurrentRunLoopStepID` 与 `CurrentActionRunLoop`；`MissionCommanderCurrentActionRunLoop` 生成 ordered `inspect-current → apply-or-run-current / preview-current → refresh-state → follow-up-after-refresh`，`blocked` current action 停在 `inspect-current`，review-required/WhatIf current action 走 `preview-current`，ready current action 走 `apply-or-run-current`。CLI `status`、overview、durable handoff 与 RESUME/continue Markdown 统一复用同一 run-loop writer，current action 与 follow-up 仍按既有优先级选择，不会被 run-loop 改写。
 
-验证结果：focused `go test ./internal/rekit/mission -count=1`、`go test ./internal/rekit/overview -count=1`、`go test ./internal/rekit/workstream -count=1` 与 `go test ./internal/rekit/cli -run "(TestRunOverviewEmitsReadOnlySummary|TestRunPlanSubagentsReviewerOrchestrationE2E|TestRunStatusJsonKit)" -count=1` 通过；完整本机 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true` / `summary=release gate inventory ok`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`（CLI 258.681s）、`go vet ./...` 与 `git diff --check` 均通过，后者仅有 Windows LF→CRLF working-copy warning。Implementation commit/push 与一次 push-triggered remote release-gate inspection 待执行。
+验证结果：focused `go test ./internal/rekit/mission -count=1`、`go test ./internal/rekit/overview -count=1`、`go test ./internal/rekit/workstream -count=1` 与 `go test ./internal/rekit/cli -run "(TestRunOverviewEmitsReadOnlySummary|TestRunPlanSubagentsReviewerOrchestrationE2E|TestRunStatusJsonKit)" -count=1` 通过；完整本机 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true` / `summary=release gate inventory ok`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`（CLI 258.681s）、`go vet ./...` 与 `git diff --check` 均通过，后者仅有 Windows LF→CRLF working-copy warning。Implementation commit `1b00cb9` 已推送；push-triggered release-gate run `30481362419` completed failure，Linux/macOS/Windows jobs `90675983482`/`90675983492`/`90675983498` 均 `steps=[]` 且无失败日志，`gh run view 30481362419 --log-failed` 返回 `log not found: 90675983482`，仍是既有 runner/billing blocker，不声明 remote green。
 
 ### Batch 713：reviewer session operational closure
 
