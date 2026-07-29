@@ -10,6 +10,24 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ## 执行清单
 
+### Current milestone
+
+**Mission Commander operational closure and truthful release readiness**：把 durable lane/reviewer/autonomy contract 串成实际可运行、可跨会话接手、可验证的产品闭环，并区分 inventory ready、本地 gate executed 与远程 CI green。当前用户短期只要求 Windows 本机稳定可用；远程 Linux/macOS/Windows CI 因 runner/billing blocker 继续记录为 known gap，不阻塞本机 Mission Control 闭环。
+
+### Current batch state
+
+### Batch 711：immutable adapter dispatch lifecycle
+
+状态：runtime、CLI、installed nested-cwd product path、focused/package/full regressions、独立 correctness review、active docs与完整本机 release minimum已完成；implementation commit/push 和 push-triggered remote inspection尚未执行，不声明batch complete或remote green。
+
+目标：在 external adapter 开始前记录 immutable dispatch/start receipt，并让 managed adapter report、completion receipt 与 observation 严格链接 exact dispatch；dispatch 同时绑定 strict authorized gate、current lane owner/generation、selected tooling catalog candidate、external harness/session、authorized budget 与 canonical report path，使 replacement executor 能从 durable handoff 区分 intent、external completion 和 observation writeback，而不能事后补造 provenance。
+
+边界：复用 public `gate` 子模式，不新增 public command、PowerShell runtime logic或 heavy-tool/adapter execution；Go runtime只记录外部 harness intent/completion/observation，不写 authority/confirmed。一个 authorized gate只对应一个 immutable attempt；同 gate retry、owner/generation/session/catalog/gate/report path drift和report-first backfill均 fail-closed，retry必须创建 distinct authorized gate与独立 dispatch/receipt namespace。
+
+已实现内容：新增 `-RecordAdapterExecutionDispatch` preview→expected-binding-hash Apply，在 `.rekit/lanes/<lane>/adapter-executions/<gateEventId>/dispatch.json` no-replace记录 gate、adapter/catalog、owner generation、harness/session、budget与report path；managed report显式声明 dispatch ID/path/SHA，completion receipt补齐 dispatch bytes并在创建及后续validation阶段重读canonical dispatch验证lineage，observation同时保留dispatch、completion receipt和report provenance。Mission Commander managed adapter current action改为dispatch-first；report已存在但dispatch缺失/漂移时不发布不可兑现的completion preview，而返回distinct reauthorization guidance。installed case-local thin shim E2E覆盖nested workspace相对report path、takeover前stale Apply拒绝、current owner dispatch、same-gate conflicting session、distinct retry gate、新旧attempt durable handoff/`RESUME.md`/continue digest与authority/confirmed零写入。
+
+验证结果：focused `go test ./internal/rekit/adapterexecution ./internal/rekit/gate ./internal/rekit/cli -count=1`通过；文档状态修正后`TestRunStatusJsonKit`复跑通过。完整`go test ./... -count=1`通过（CLI 260.805s），`go vet ./...`与Linux gate/CLI test-binary cross-compile通过；`go run ./cmd/rekit -- -Command release-check -Format json`返回`ready=true` / `summary=release gate inventory ok`；`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`与`git diff --check`均通过，后者仅有Windows LF→CRLF working-copy warning。独立correctness review发现并关闭managed report-first造成不可恢复backfill、installed nested cwd report path无法规范化两个问题；补充dispatch-first routing、distinct retry fail-closed与nested-cwd E2E后未发现新的高置信问题。README已同步dispatch-first用户路径；CLAUDE.md、reference、pack配置与示例无需修改，因为本批复用现有`gate`顶层public surface与pack tooling contract，不改变项目约束、pack authoring/schema或case示例。
+
 ### Batch 710：adapter attempt selection closure
 
 状态：已完成 installed product-path E2E、focused/package/full regressions、独立 correctness review、文档收尾、本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `d0b7765` 已推送。Push run `30418208315` completed failure；macOS/Linux/Windows jobs `90469193759`/`90469193809`/`90469193810` 均 `steps=[]`，`gh run view 30418208315 --log-failed` 返回 `log not found: 90469193759`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。
@@ -33,12 +51,6 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 已实现内容：installed lifecycle E2E 现在在 receipt、双 hash observation 与 acknowledgement 后修改 report，验证 status 返回 `blocked-by-adapter-execution-provenance-drift`、不再暴露旧 receipt preview、WhatIf 不写 requests、returned Apply 产生 distinct gate；新 report/receipt/observation 使用新 gate namespace、session 与 receipt SHA。旧 receipt bytes 经 retry 前后相等，handoff/continue/`RESUME.md`/digest 同时保留两次 attempt 的 receipt path/SHA 与 session lineage。新增 `gate.ReadAdapterExecutionReceipt`，status/workstream 在 live report 无法按当前 gate 解释时从 canonical receipt 恢复 immutable lineage；已 acknowledgement closed 的 superseded attempt 不再被新 gate 的共用 report path 重新打开，而同一 gate drift 仍保持 fail-closed。
 
 验证结果：installed recovery focused E2E 与 gate/workstream/CLI 受影响包回归通过；完整 `go test ./... -count=1` 最终复跑通过（CLI 249.519s），`go vet ./...` 通过，`GOOS=linux GOARCH=amd64 go test -c ./internal/rekit/cli` 通过；`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true` / `summary=release gate inventory ok`，`status`、`packs`、`doctor` 与 `git diff --check` 通过，后者仅有 Windows LF→CRLF working-copy warning。本批未改变 README、CLAUDE.md、reference、pack 配置或示例文档，因为改动只扩展现有 gate receipt/status/handoff durable lifecycle，且不改变 public command ABI 或 pack authoring contract；CHANGELOG、release readiness 与本 batch plan 已更新。独立 correctness review 两轮发现并关闭 malformed/bogus superseding identity 与 receipt fallback observation anchoring/status-workstream 一致性问题，最终复核无高置信残余。Implementation commit `3589b80` 已推送；push-triggered release run `30416964464` 的三平台 jobs 均 `steps=[]`，属于既有 runner/billing blocker，不声明 remote green。
-
-### Current milestone
-
-**Mission Commander operational closure and truthful release readiness**：把 durable lane/reviewer/autonomy contract 串成实际可运行、可跨会话接手、可验证的产品闭环，并区分 inventory ready、本地 gate executed 与远程 CI green。当前用户短期只要求 Windows 本机稳定可用；远程 Linux/macOS/Windows CI 因 runner/billing blocker 继续记录为 known gap，不阻塞本机 Mission Control 闭环。
-
-### Current batch state
 
 ### Batch 708：installed case-local adapter executor lifecycle
 

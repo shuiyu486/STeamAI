@@ -119,10 +119,11 @@ func TestRunGateAdapterExecutionReceiptRejectsModeConflicts(t *testing.T) {
 		{"-Command", "gate", "-Target", caseRoot, "-Pack", pack, "-GateEventId", "evt-test", "-AdapterSession", "session", "-Apply"},
 		{"-Command", "gate", "-Target", caseRoot, "-Pack", pack, "-GateEventId", "evt-test", "-ExecutionExitStatus", "0", "-Apply"},
 		{"-Command", "gate", "-Target", caseRoot, "-Pack", pack, "-GateEventId", "evt-test", "-ExpectedAdapterExecutionBindingSha256", strings.Repeat("c", 64), "-Apply"},
+		{"-Command", "gate", "-Target", caseRoot, "-Pack", pack, "-GateEventId", "evt-test", "-ExpectedAdapterExecutionDispatchBindingSha256", strings.Repeat("d", 64), "-Apply"},
 	} {
 		var out bytes.Buffer
-		if err := Run(args, &out); err == nil || !strings.Contains(err.Error(), "supported only with gate -RecordAdapterExecutionReceipt") {
-			t.Fatalf("receipt-only flag outside mode error = %v", err)
+		if err := Run(args, &out); err == nil || !strings.Contains(err.Error(), "supported only with gate adapter execution dispatch or completion receipt mode") {
+			t.Fatalf("adapter execution mode-only flag error = %v", err)
 		}
 	}
 }
@@ -159,6 +160,41 @@ func TestRunGateAdapterExecutionReceiptProductPath(t *testing.T) {
 	if authorized.Event == nil || authorized.Event.Status != "authorized-gate" {
 		t.Fatalf("unexpected gate apply: %+v", authorized)
 	}
+	workspace := filepath.Join(caseRoot, "workspace", "main", "debug", "session-1")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(workspace); err != nil {
+		t.Fatal(err)
+	}
+	dispatchArgs := []string{"-Command", "gate", "-Target", caseRoot, "-Pack", pack, "-GateEventId", authorized.EventID, "-RecordAdapterExecutionDispatch", "-ExecutionReportPath", "adapter-report.json", "-AdapterId", "dynamic-debug-or-writeback-action", "-Executor", "executor-a", "-ExpectedExecutorGeneration", "1", "-AdapterHarness", "claude-code", "-AdapterSession", "cli-session-a", "-Actor", "mission-commander", "-Format", "json"}
+	out.Reset()
+	if err := Run(dispatchArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var dispatchPreview gate.AdapterExecutionDispatchResult
+	if err := json.Unmarshal(out.Bytes(), &dispatchPreview); err != nil {
+		t.Fatal(err)
+	}
+	if dispatchPreview.Applied || dispatchPreview.BindingSHA256 == "" || dispatchPreview.ApplyCommand == "" {
+		t.Fatalf("unexpected CLI dispatch preview: %+v", dispatchPreview)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, filepath.FromSlash(dispatchPreview.DispatchPath))); !os.IsNotExist(err) {
+		t.Fatalf("CLI preview wrote dispatch: %v", err)
+	}
+	out.Reset()
+	dispatchApplyArgs := append(append([]string{}, dispatchArgs[:len(dispatchArgs)-2]...), "-ExpectedAdapterExecutionDispatchBindingSha256", dispatchPreview.BindingSHA256, "-Apply", "-Format", "json")
+	if err := Run(dispatchApplyArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var dispatch gate.AdapterExecutionDispatchResult
+	if err := json.Unmarshal(out.Bytes(), &dispatch); err != nil {
+		t.Fatal(err)
+	}
+	if !dispatch.Applied || dispatch.Replay || dispatch.DispatchSHA256 == "" || dispatch.Dispatch.DispatchID == "" || dispatch.Dispatch.ReportPath != "workspace/main/debug/session-1/adapter-report.json" {
+		t.Fatalf("unexpected nested-cwd CLI dispatch apply: %+v", dispatch)
+	}
+
 	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/result.bin", "cli-result")
 	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/adapter-report.json", `{
   "schemaVersion": 1,
@@ -167,6 +203,7 @@ func TestRunGateAdapterExecutionReceiptProductPath(t *testing.T) {
   "action": "debug",
   "status": "succeeded",
   "gateEventId": "`+authorized.EventID+`",
+  "dispatch": {"dispatchId": "`+dispatch.Dispatch.DispatchID+`", "path": "`+dispatch.DispatchPath+`", "sha256": "`+dispatch.DispatchSHA256+`"},
   "actualBudget": {"runtimeSeconds": 20, "diskMB": 24, "requests": 1},
   "outputRefs": ["workspace/main/debug/session-1/result.bin"],
   "summary": "CLI adapter execution completed"
@@ -200,6 +237,9 @@ func TestRunGateAdapterExecutionReceiptProductPath(t *testing.T) {
 	if !receipt.Applied || receipt.Replay || receipt.ReceiptSHA256 == "" || receipt.Receipt.Execution.ExitStatus != "-1" {
 		t.Fatalf("unexpected CLI receipt apply with dash-prefixed exit status: %+v", receipt)
 	}
+	if receipt.Receipt.Dispatch.DispatchID != dispatch.Dispatch.DispatchID || receipt.Receipt.Dispatch.Path != dispatch.DispatchPath || receipt.Receipt.Dispatch.SHA256 != dispatch.DispatchSHA256 {
+		t.Fatalf("CLI completion receipt omitted immutable dispatch lineage: dispatch=%+v receipt=%+v", dispatch, receipt)
+	}
 
 	out.Reset()
 	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", pack, "-GateEventId", authorized.EventID, "-ValidateExecutionReport", "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-report.json", "-Format", "json"}, &out); err != nil {
@@ -209,8 +249,8 @@ func TestRunGateAdapterExecutionReceiptProductPath(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &validation); err != nil {
 		t.Fatal(err)
 	}
-	if !validation.Valid || !validation.ProvenanceValid || !strings.Contains(validation.MissionCommanderAction.PrimaryCommand, "-ExpectedAdapterExecutionReceiptSha256") {
-		t.Fatalf("CLI validation omitted receipt-backed record command: %+v", validation)
+	if !validation.Valid || !validation.ProvenanceValid || validation.AdapterExecutionDispatch == nil || validation.AdapterExecutionDispatchPath != dispatch.DispatchPath || validation.AdapterExecutionDispatchSHA256 != dispatch.DispatchSHA256 || !strings.Contains(validation.MissionCommanderAction.PrimaryCommand, "-ExpectedAdapterExecutionReceiptSha256") {
+		t.Fatalf("CLI validation omitted dispatch/completion-backed record command: %+v", validation)
 	}
 
 	recordArgs := []string{"-Command", "gate", "-Target", caseRoot, "-Pack", pack, "-Apply", "-GateEventId", authorized.EventID, "-ExecutionReportPath", validation.ReportPath, "-ExpectedExecutionReportSha256", validation.RecordExpectedReportSHA256, "-AdapterExecutionReceiptPath", validation.AdapterExecutionReceiptPath, "-ExpectedAdapterExecutionReceiptSha256", validation.AdapterExecutionReceiptSHA256, "-Executor", "executor-a", "-ExpectedExecutorGeneration", "1", "-Actor", "mission-commander", "-Format", "json"}
@@ -222,8 +262,8 @@ func TestRunGateAdapterExecutionReceiptProductPath(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	if !result.Applied || result.ExecutionEvidence == nil || result.ExecutionEvidence.Execution.AdapterExecution == nil {
-		t.Fatalf("CLI record omitted adapter execution receipt: %+v", result)
+	if !result.Applied || result.ExecutionEvidence == nil || result.ExecutionEvidence.Execution.AdapterExecution == nil || result.ExecutionEvidence.Execution.AdapterExecutionDispatch == nil || result.ExecutionEvidence.Execution.AdapterExecutionDispatchPath != dispatch.DispatchPath || result.ExecutionEvidence.Execution.AdapterExecutionDispatchSHA256 != dispatch.DispatchSHA256 {
+		t.Fatalf("CLI record omitted adapter execution dispatch/completion lineage: %+v", result)
 	}
 	facts, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 	if err != nil || !strings.Contains(string(facts), "cli-session-a") || !strings.Contains(string(facts), receipt.ReceiptSHA256) {

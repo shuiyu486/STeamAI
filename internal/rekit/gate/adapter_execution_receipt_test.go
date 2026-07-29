@@ -38,6 +38,24 @@ func managedAdapterExecutionFixture(t *testing.T) (string, string, string, Apply
 	if err != nil {
 		t.Fatal(err)
 	}
+	opt := Options{
+		GateEventID: authorized.EventID, ExecutionReportPath: "workspace/main/debug/session-1/adapter-report.json",
+		AdapterID: "dynamic-debug-or-writeback-action", Executor: "executor-a", ExpectedExecutorGeneration: 1,
+		AdapterHarness: "claude-code", AdapterSession: "adapter-session-a", ExecutionExitStatus: "0", Actor: "mission-commander",
+	}
+	dispatchPreview, err := RecordAdapterExecutionDispatch(repoRoot, caseRoot, pack, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(dispatchPreview.ApplyCommand, "-RecordAdapterExecutionDispatch") || dispatchPreview.Dispatch.ReportPath != opt.ExecutionReportPath {
+		t.Fatalf("adapter dispatch preview omitted executable binding: %+v", dispatchPreview)
+	}
+	dispatchOpt := opt
+	dispatchOpt.ExpectedAdapterExecutionDispatchBindingSHA256 = dispatchPreview.BindingSHA256
+	dispatch, err := RecordAdapterExecutionDispatch(repoRoot, caseRoot, pack, dispatchOpt)
+	if err != nil || !dispatch.Applied {
+		t.Fatalf("record adapter execution dispatch: %+v err=%v", dispatch, err)
+	}
 	base := filepath.Join(caseRoot, "workspace", "main", "debug", "session-1")
 	writeGateText(t, filepath.Join(base, "result.bin"), "result-v1")
 	writeGateText(t, filepath.Join(base, "evidence.json"), `{"evidence":"v1"}`)
@@ -48,17 +66,41 @@ func managedAdapterExecutionFixture(t *testing.T) (string, string, string, Apply
   "action": "debug",
   "status": "succeeded",
   "gateEventId": "`+authorized.EventID+`",
+  "dispatch": {"dispatchId": "`+dispatch.Dispatch.DispatchID+`", "path": "`+dispatch.DispatchPath+`", "sha256": "`+dispatch.DispatchSHA256+`"},
   "actualBudget": {"runtimeSeconds": 24, "diskMB": 33, "requests": 1},
   "outputRefs": ["workspace/main/debug/session-1/result.bin"],
   "evidenceRefs": ["workspace/main/debug/session-1/evidence.json"],
   "summary": "Adapter completed bounded debug run"
 }`)
-	opt := Options{
-		GateEventID: authorized.EventID, ExecutionReportPath: "workspace/main/debug/session-1/adapter-report.json",
-		AdapterID: "dynamic-debug-or-writeback-action", Executor: "executor-a", ExpectedExecutorGeneration: 1,
-		AdapterHarness: "claude-code", AdapterSession: "adapter-session-a", ExecutionExitStatus: "0", Actor: "mission-commander",
-	}
 	return repoRoot, caseRoot, pack, authorized, opt
+}
+
+func TestAdapterExecutionDispatchRejectsPostExecutionBackfillAndConflictingSession(t *testing.T) {
+	repoRoot, caseRoot, pack, authorized, opt := managedAdapterExecutionFixture(t)
+	dispatchPath := filepath.Join(caseRoot, ".rekit", "lanes", "main", "adapter-executions", authorized.EventID, "dispatch.json")
+	data, err := os.ReadFile(dispatchPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(dispatchPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RecordAdapterExecutionDispatch(repoRoot, caseRoot, pack, opt); err == nil || !strings.Contains(err.Error(), "before the external execution report exists") {
+		t.Fatalf("post-execution dispatch backfill error = %v", err)
+	}
+	if err := os.WriteFile(dispatchPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	conflict := opt
+	conflict.AdapterSession = "adapter-session-b"
+	conflictPreview, err := RecordAdapterExecutionDispatch(repoRoot, caseRoot, pack, conflict)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflict.ExpectedAdapterExecutionDispatchBindingSHA256 = conflictPreview.BindingSHA256
+	if _, err := RecordAdapterExecutionDispatch(repoRoot, caseRoot, pack, conflict); err == nil || !strings.Contains(err.Error(), "different semantic bindings") {
+		t.Fatalf("same-gate conflicting session dispatch error = %v", err)
+	}
 }
 
 func TestAdapterExecutionReceiptLifecycleAndEvidenceRecord(t *testing.T) {
@@ -335,7 +377,7 @@ func TestAdapterExecutionReceiptRejectsAuthorizedGateSemanticDrift(t *testing.T)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if validation.Valid || validation.FailureStage != "provenance" || !strings.Contains(validation.Error, "authorized gate binding drifted") {
+			if validation.Valid || validation.FailureStage != "provenance" || !strings.Contains(validation.Error, "dispatch gate, owner, catalog, session, or report path drifted") {
 				t.Fatalf("%s drift validation = %+v", test.name, validation)
 			}
 		})
@@ -358,7 +400,7 @@ func TestAdapterExecutionReceiptRejectsCatalogAndReportDrift(t *testing.T) {
 				}
 				writeGateText(t, path, strings.Replace(string(data), "Execute a bounded debug", "Execute a catalog-drifted bounded debug", 1))
 			},
-			want: "catalog selection drifted",
+			want: "dispatch gate, owner, catalog, session, or report path drifted",
 		},
 		{
 			name: "report",
@@ -388,7 +430,7 @@ func TestAdapterExecutionReceiptRejectsCatalogAndReportDrift(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if validation.Valid || validation.FailureStage != "provenance" || !strings.Contains(validation.Error, test.want) || !validation.ReceiptPresent || validation.ReceiptPreviewCommand != "" || validation.MissionCommanderAction.State != "blocked-by-adapter-execution-provenance-drift" || strings.Contains(validation.MissionCommanderAction.PrimaryCommand, "-RecordAdapterExecutionReceipt") {
+			if validation.Valid || validation.FailureStage != "provenance" || !strings.Contains(validation.Error, test.want) || validation.ReceiptPreviewCommand != "" || validation.MissionCommanderAction.State != "blocked-by-adapter-execution-provenance-drift" || strings.Contains(validation.MissionCommanderAction.PrimaryCommand, "-RecordAdapterExecutionReceipt") {
 				t.Fatalf("%s drift validation = %+v", test.name, validation)
 			}
 		})

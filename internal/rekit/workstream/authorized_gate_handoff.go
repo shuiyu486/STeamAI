@@ -56,6 +56,9 @@ type AuthorizedGateLiveValidationHandoff struct {
 	ReceiptRequired                  bool                       `json:"receiptRequired,omitempty"`
 	ReceiptPresent                   bool                       `json:"receiptPresent,omitempty"`
 	ProvenanceValid                  bool                       `json:"provenanceValid,omitempty"`
+	AdapterExecutionDispatchID       string                     `json:"adapterExecutionDispatchId,omitempty"`
+	AdapterExecutionDispatchPath     string                     `json:"adapterExecutionDispatchPath,omitempty"`
+	AdapterExecutionDispatchSHA256   string                     `json:"adapterExecutionDispatchSha256,omitempty"`
 	AdapterExecutionReceiptPath      string                     `json:"adapterExecutionReceiptPath,omitempty"`
 	AdapterExecutionReceiptSHA256    string                     `json:"adapterExecutionReceiptSha256,omitempty"`
 	ReceiptPreviewCommand            string                     `json:"receiptPreviewCommand,omitempty"`
@@ -381,6 +384,11 @@ func applyAdapterExecutionReceiptHandoff(handoff *AuthorizedGateLiveValidationHa
 	handoff.ReceiptRequired = validation.ReceiptRequired
 	handoff.ReceiptPresent = validation.ReceiptPresent
 	handoff.ProvenanceValid = validation.ProvenanceValid
+	handoff.AdapterExecutionDispatchPath = validation.AdapterExecutionDispatchPath
+	handoff.AdapterExecutionDispatchSHA256 = validation.AdapterExecutionDispatchSHA256
+	if validation.AdapterExecutionDispatch != nil {
+		handoff.AdapterExecutionDispatchID = validation.AdapterExecutionDispatch.DispatchID
+	}
 	handoff.AdapterExecutionReceiptPath = validation.AdapterExecutionReceiptPath
 	handoff.AdapterExecutionReceiptSHA256 = validation.AdapterExecutionReceiptSHA256
 	handoff.ReceiptPreviewCommand = validation.ReceiptPreviewCommand
@@ -614,6 +622,9 @@ func writeAuthorizedGateAdapterHandoffMarkdown(out *bytes.Buffer, item Authorize
 	fmt.Fprintf(out, "  - counts: allowedStatuses=%d allowedOutputPaths=%d authorizedStops=%d adapterCandidates=%d\n", allowedStatuses, allowedOutputs, authorizedStops, adapterCandidates)
 	if live := item.LiveValidation; live != nil {
 		fmt.Fprintf(out, "  - live validation: reportFileName=%s caseRelativeReportPath=%s adapterCandidates=%d selectedAdapter=%s sidecarAdapter=%s\n", live.ReportFileName, live.CaseRelativeReportPath, live.AdapterCandidateCount, live.SelectedAdapterID, live.SidecarTemplateAdapterID)
+		if strings.TrimSpace(live.AdapterExecutionDispatchPath) != "" || strings.TrimSpace(live.AdapterExecutionDispatchSHA256) != "" {
+			fmt.Fprintf(out, "  - dispatch: id=%s path=%s sha256=%s\n", live.AdapterExecutionDispatchID, live.AdapterExecutionDispatchPath, live.AdapterExecutionDispatchSHA256)
+		}
 		if live.ReceiptRequired || live.ReceiptPresent || strings.TrimSpace(live.AdapterExecutionReceiptPath) != "" {
 			fmt.Fprintf(out, "  - receipt: required=%t present=%t provenanceValid=%t path=%s sha256=%s\n", live.ReceiptRequired, live.ReceiptPresent, live.ProvenanceValid, live.AdapterExecutionReceiptPath, live.AdapterExecutionReceiptSHA256)
 		}

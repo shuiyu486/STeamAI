@@ -20,6 +20,7 @@ ledger 采用 append-only、人可读、evidence-ref-first 模式：candidate、
 - JSONL 仍可逐行解析、grep、diff 和手工恢复。
 - 旧事件字段保持读层兼容，新事件优先使用 canonical 字段。
 - status/overview/handoff/continue 能投影关键 ledger handoff，而不是要求新会话读取完整 ledger。
+- managed adapter observation 能追溯同一 attempt 的 immutable dispatch/start receipt、completion receipt 与 exact report，而不是从完成后的 sidecar反推执行intent。
 
 ## 风险与注意事项
 
@@ -75,6 +76,12 @@ ledger 采用 append-only、人可读、evidence-ref-first 模式：candidate、
 ```
 
 `accepted` / `resolved` / `rejected` / `superseded` 是读层应视为终态的状态；`confirmed`、`pending-gate`、`needs_more_evidence` 是已落地 runtime 的兼容值，分别用于历史确认事件、gate request 与 packet 侧候选状态。新 decision event 应优先使用 `accepted|rejected|deferred|superseded`。
+
+### Managed adapter observation provenance
+
+managed adapter execution 的 `observation` 不是执行授权本身，也不是 completion receipt。一个可采用的 observation 必须保留并可重验同一 attempt 的三段 lineage：pre-execution immutable dispatch/start receipt、post-execution immutable completion receipt、dispatch-bound adapter report。dispatch绑定authorized gate event、current lane owner/generation、selected tooling catalog candidate、external harness/session、authorized budget与canonical report path；completion绑定dispatch ID/path/SHA/bytes与actual outcome/artifacts；observation保存dispatch、completion和report hashes。
+
+同一 authorized gate只允许一个immutable attempt。report先于dispatch存在、same-gate owner/generation/session/catalog/report drift，或旧attempt与retry attempt交叉引用时都必须fail-closed；retry需使用distinct authorized gate和新的`adapter-executions/<gateEventId>/` namespace。该lineage只证明外部harness observation可追溯，不执行heavy tool，也不授予confirmed/authority。
 
 ## Candidate 字段
 

@@ -578,6 +578,9 @@ func writeExecutionEvidenceReportDetail(out *bytes.Buffer, item workstream.Execu
 	if strings.TrimSpace(item.ExecutionReportPath) != "" {
 		fmt.Fprintf(out, "  - execution report: %s\n", item.ExecutionReportPath)
 	}
+	if strings.TrimSpace(item.AdapterExecutionDispatchPath) != "" || strings.TrimSpace(item.AdapterExecutionDispatchSHA256) != "" {
+		fmt.Fprintf(out, "  - dispatch: id=%s path=%s sha256=%s\n", firstText(item.AdapterExecutionDispatchID, "none"), firstText(item.AdapterExecutionDispatchPath, "none"), firstText(item.AdapterExecutionDispatchSHA256, "none"))
+	}
 	if item.ActualBudget != nil {
 		fmt.Fprintf(out, "  - actual budget: runtimeSeconds=%d diskMB=%d requests=%d\n", item.ActualBudget.RuntimeSeconds, item.ActualBudget.DiskMB, item.ActualBudget.Requests)
 	}

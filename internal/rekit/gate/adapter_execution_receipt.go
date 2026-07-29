@@ -24,6 +24,34 @@ import (
 
 var adapterExecutionSegmentPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
+type AdapterExecutionDispatchResult struct {
+	SchemaVersion         int                              `json:"schemaVersion"`
+	Command               string                           `json:"command"`
+	Kind                  string                           `json:"kind"`
+	CaseRoot              string                           `json:"caseRoot"`
+	RepoRoot              string                           `json:"repoRoot"`
+	Pack                  string                           `json:"pack"`
+	IsMutation            bool                             `json:"isMutation"`
+	Applied               bool                             `json:"applied"`
+	Replay                bool                             `json:"replay,omitempty"`
+	GateEventID           string                           `json:"gateEventId"`
+	DispatchPath          string                           `json:"dispatchPath"`
+	BindingSHA256         string                           `json:"bindingSha256"`
+	DispatchSHA256        string                           `json:"dispatchSha256,omitempty"`
+	ExpectedBindingSHA256 string                           `json:"expectedBindingSha256,omitempty"`
+	Dispatch              adapterexecution.DispatchReceipt `json:"dispatch"`
+	ApplyCommand          string                           `json:"applyCommand,omitempty"`
+	Boundary              []string                         `json:"boundary"`
+	NextSteps             []string                         `json:"nextSteps"`
+}
+
+type adapterExecutionDispatchSnapshot struct {
+	dispatch     adapterexecution.DispatchReceipt
+	bindingSHA   string
+	dispatchRel  string
+	dispatchFull string
+}
+
 type AdapterExecutionReceiptResult struct {
 	SchemaVersion         int                      `json:"schemaVersion"`
 	Command               string                   `json:"command"`
@@ -51,6 +79,222 @@ type adapterExecutionSnapshot struct {
 	bindingSHA  string
 	receiptRel  string
 	receiptFull string
+}
+
+func RecordAdapterExecutionDispatch(repoRoot, caseRoot, pack string, opt Options) (_ AdapterExecutionDispatchResult, retErr error) {
+	inst, gateEvent, err := authorizedGateEvent(repoRoot, caseRoot, pack, opt)
+	if err != nil {
+		return AdapterExecutionDispatchResult{}, err
+	}
+	m, err := manifest.Load(repoRoot, pack)
+	if err != nil {
+		return AdapterExecutionDispatchResult{}, err
+	}
+	snapshot, err := prepareAdapterExecutionDispatchSnapshot(inst.CaseRoot, pack, gateEvent, opt, m)
+	if err != nil {
+		return AdapterExecutionDispatchResult{}, err
+	}
+	apply := strings.TrimSpace(opt.ExpectedAdapterExecutionDispatchBindingSHA256) != ""
+	var lease gateLaneMutationLease
+	if apply {
+		lease, err = acquireGateLaneMutationLease(inst.CaseRoot, gateEvent.Lane)
+		if err != nil {
+			return AdapterExecutionDispatchResult{}, err
+		}
+		defer func() { retErr = errors.Join(retErr, lease.Unlock()) }()
+		lockedInst, lockedGateEvent, lockedErr := authorizedGateEvent(repoRoot, caseRoot, pack, opt)
+		if lockedErr != nil {
+			return AdapterExecutionDispatchResult{}, lockedErr
+		}
+		if lockedInst.CaseRoot != inst.CaseRoot || lockedGateEvent.EventID != gateEvent.EventID || lockedGateEvent.Lane != gateEvent.Lane {
+			return AdapterExecutionDispatchResult{}, fmt.Errorf("authorized gate routing changed while acquiring mutation lease")
+		}
+		lockedManifest, lockedErr := manifest.Load(repoRoot, pack)
+		if lockedErr != nil {
+			return AdapterExecutionDispatchResult{}, lockedErr
+		}
+		snapshot, lockedErr = prepareAdapterExecutionDispatchSnapshot(lockedInst.CaseRoot, pack, lockedGateEvent, opt, lockedManifest)
+		if lockedErr != nil {
+			return AdapterExecutionDispatchResult{}, lockedErr
+		}
+		if lockedErr = lease.Validate(); lockedErr != nil {
+			return AdapterExecutionDispatchResult{}, lockedErr
+		}
+	}
+	result := AdapterExecutionDispatchResult{
+		SchemaVersion: 1, Command: "gate", Kind: "adapter-execution-dispatch-result",
+		CaseRoot: inst.CaseRoot, RepoRoot: repoRoot, Pack: pack,
+		IsMutation: apply, Applied: false, GateEventID: gateEvent.EventID,
+		DispatchPath: snapshot.dispatchRel, BindingSHA256: snapshot.bindingSHA,
+		Dispatch: snapshot.dispatch,
+		Boundary: []string{
+			"dispatch records external harness execution intent before the adapter starts; /rekit does not execute the adapter or heavy tool",
+			"dispatch is immutable and bound to current lane owner, selected catalog candidate, harness/session, report path, authorized gate, and budget",
+			"dispatch write does not append observation evidence or write authority/confirmed",
+			"takeover, session, catalog, gate, or attempt drift requires a distinct authorized gate and dispatch",
+		},
+	}
+	result.ApplyCommand = adapterExecutionDispatchApplySlashCommand(pack, snapshot.dispatch, snapshot.bindingSHA)
+	result.NextSteps = []string{"review the pre-execution dispatch binding", "record dispatch with the hash-bound Apply command before starting the external adapter", "only the exact dispatch-bound harness/session may produce the report and completion receipt"}
+	if !apply {
+		return result, nil
+	}
+	if !validSHA256String(opt.ExpectedAdapterExecutionDispatchBindingSHA256) {
+		return AdapterExecutionDispatchResult{}, fmt.Errorf("gate adapter execution dispatch requires a valid -ExpectedAdapterExecutionDispatchBindingSha256 from preview")
+	}
+	if !strings.EqualFold(opt.ExpectedAdapterExecutionDispatchBindingSHA256, snapshot.bindingSHA) {
+		return AdapterExecutionDispatchResult{}, fmt.Errorf("adapter execution dispatch binding changed after preview: expected %s got %s", opt.ExpectedAdapterExecutionDispatchBindingSHA256, snapshot.bindingSHA)
+	}
+	existing, present, err := readAdapterExecutionReceiptRaw(inst.CaseRoot, snapshot.dispatchFull, snapshot.dispatchRel)
+	if err != nil {
+		return AdapterExecutionDispatchResult{}, err
+	}
+	if present {
+		if err := lease.Validate(); err != nil {
+			return AdapterExecutionDispatchResult{}, err
+		}
+		recorded, err := adapterexecution.DecodeDispatch(existing)
+		if err != nil {
+			return AdapterExecutionDispatchResult{}, fmt.Errorf("existing adapter execution dispatch receipt is invalid: %w", err)
+		}
+		if !adapterexecution.DispatchSemanticEqual(recorded, snapshot.dispatch) {
+			return AdapterExecutionDispatchResult{}, fmt.Errorf("adapter execution dispatch target already exists with different semantic bindings: %s", snapshot.dispatchRel)
+		}
+		result.Applied = true
+		result.Replay = true
+		result.ApplyCommand = ""
+		result.Dispatch = recorded
+		result.DispatchSHA256 = adapterexecution.SHA256(existing)
+		result.NextSteps = []string{"exact dispatch already exists; bytes were not rewritten", "do not start a second adapter execution for this dispatch", "complete or inspect the exact bound harness/session attempt"}
+		return result, nil
+	}
+	snapshot.dispatch.RecordedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	data, err := adapterexecution.DispatchReceiptBytes(snapshot.dispatch)
+	if err != nil {
+		return AdapterExecutionDispatchResult{}, err
+	}
+	if err := writeAdapterExecutionReceipt(inst.CaseRoot, snapshot.dispatchFull, snapshot.dispatchRel, data); err != nil {
+		return AdapterExecutionDispatchResult{}, err
+	}
+	written, present, err := readAdapterExecutionReceiptRaw(inst.CaseRoot, snapshot.dispatchFull, snapshot.dispatchRel)
+	if err != nil || !present {
+		if err == nil {
+			err = fmt.Errorf("adapter execution dispatch disappeared after write")
+		}
+		return AdapterExecutionDispatchResult{}, err
+	}
+	if !bytes.Equal(written, data) {
+		return AdapterExecutionDispatchResult{}, fmt.Errorf("adapter execution dispatch bytes changed after write: %s", snapshot.dispatchRel)
+	}
+	if err := lease.Validate(); err != nil {
+		return AdapterExecutionDispatchResult{}, fmt.Errorf("adapter execution dispatch may already be durable at %s; mutation lease validation failed after create: %w", snapshot.dispatchRel, err)
+	}
+	result.Applied = true
+	result.ApplyCommand = ""
+	result.Dispatch = snapshot.dispatch
+	result.DispatchSHA256 = adapterexecution.SHA256(written)
+	result.NextSteps = []string{"immutable pre-execution dispatch recorded", "start only the exact bound external harness/session", "completion report and receipt must hash-link this dispatch"}
+	return result, nil
+}
+
+func prepareAdapterExecutionDispatchSnapshot(caseRoot, pack string, gateEvent EventPreview, opt Options, m *manifest.Manifest) (adapterExecutionDispatchSnapshot, error) {
+	owner, err := laneowner.Read(caseRoot, gateEvent.Lane)
+	if err != nil {
+		return adapterExecutionDispatchSnapshot{}, err
+	}
+	if strings.TrimSpace(opt.Executor) == "" || opt.ExpectedExecutorGeneration <= 0 {
+		return adapterExecutionDispatchSnapshot{}, fmt.Errorf("gate adapter execution dispatch requires -Executor and -ExpectedExecutorGeneration for the current durable lane owner")
+	}
+	if opt.Executor != owner.CurrentExecutor || opt.ExpectedExecutorGeneration != owner.ExecutorGeneration {
+		return adapterExecutionDispatchSnapshot{}, fmt.Errorf("adapter execution dispatch owner is stale: current executor=%s generation=%d", owner.CurrentExecutor, owner.ExecutorGeneration)
+	}
+	if strings.TrimSpace(opt.AdapterID) == "" || strings.TrimSpace(opt.AdapterHarness) == "" || strings.TrimSpace(opt.AdapterSession) == "" || strings.TrimSpace(opt.Actor) == "" {
+		return adapterExecutionDispatchSnapshot{}, fmt.Errorf("gate adapter execution dispatch requires -AdapterId, -AdapterHarness, -AdapterSession, and -Actor")
+	}
+	for label, value := range map[string]string{"AdapterHarness": opt.AdapterHarness, "AdapterSession": opt.AdapterSession, "Actor": opt.Actor} {
+		if len(strings.TrimSpace(value)) > 256 || strings.ContainsAny(value, "\r\n") {
+			return adapterExecutionDispatchSnapshot{}, fmt.Errorf("adapter execution dispatch %s must be a bounded single-line value", label)
+		}
+	}
+	reportPath := strings.TrimSpace(opt.ExecutionReportPath)
+	if reportPath == "" {
+		reportPath = adapterReportDefaultPath(gateEvent.Gate.OutputPaths)
+	}
+	reportFull, reportRel, err := executionReportPath(caseRoot, reportPath)
+	if err == nil && !outputRefsWithinGate(gateEvent.Gate.OutputPaths, []string{reportRel}) {
+		if cwdFull, cwdRel, ok, cwdErr := cwdAuthorizedExecutionReportPath(caseRoot, gateEvent, opt.ExecutionReportCwd, reportPath); cwdErr != nil {
+			return adapterExecutionDispatchSnapshot{}, cwdErr
+		} else if ok {
+			reportFull = cwdFull
+			reportRel = cwdRel
+		} else {
+			err = fmt.Errorf("report path is outside authorized outputPaths")
+		}
+	}
+	if err != nil || !outputRefsWithinGate(gateEvent.Gate.OutputPaths, []string{reportRel}) {
+		return adapterExecutionDispatchSnapshot{}, fmt.Errorf("adapter execution dispatch report path must stay within authorized gate outputPaths")
+	}
+	dispatchRel, dispatchFull, err := adapterExecutionDispatchPath(caseRoot, gateEvent.Lane, gateEvent.EventID)
+	if err != nil {
+		return adapterExecutionDispatchSnapshot{}, err
+	}
+	if reportData, reportPresent, reportErr := readAdapterReportRaw(caseRoot, reportFull, reportRel); reportErr != nil {
+		return adapterExecutionDispatchSnapshot{}, reportErr
+	} else if reportPresent {
+		_, dispatchPresent, dispatchErr := readAdapterExecutionReceiptRaw(caseRoot, dispatchFull, dispatchRel)
+		if dispatchErr != nil {
+			return adapterExecutionDispatchSnapshot{}, dispatchErr
+		}
+		if !dispatchPresent {
+			contract := adapterReportContract("", caseRoot, pack, gateEvent, m)
+			scaffold, scaffoldErr := adapterReportScaffoldBytes(contract.LiveValidation.SidecarTemplate)
+			if scaffoldErr != nil || !bytes.Equal(reportData, scaffold) {
+				return adapterExecutionDispatchSnapshot{}, fmt.Errorf("adapter execution dispatch must be recorded before the external execution report exists")
+			}
+		}
+	}
+	candidate, catalogSHA, catalogBytes, err := strictAdapterCandidateSnapshot(m, gateEvent, opt.AdapterID)
+	if err != nil {
+		return adapterExecutionDispatchSnapshot{}, err
+	}
+	candidateBinding := adapterExecutionCandidate(candidate)
+	candidateSHA, err := adapterexecution.CandidateSHA256(candidateBinding)
+	if err != nil {
+		return adapterExecutionDispatchSnapshot{}, err
+	}
+	gateBinding, err := adapterExecutionGateBinding(gateEvent)
+	if err != nil {
+		return adapterExecutionDispatchSnapshot{}, err
+	}
+	dispatch := adapterexecution.DispatchReceipt{
+		SchemaVersion: 1, Kind: "adapter-execution-dispatch-receipt", Gate: gateBinding,
+		Adapter:       adapterexecution.AdapterBinding{Pack: pack, AdapterID: candidate.ID, ToolingCatalogPath: candidate.ToolingCatalogPath, ToolingCatalogSHA256: catalogSHA, ToolingCatalogBytes: catalogBytes, Candidate: candidateBinding, CandidateSnapshotSHA256: candidateSHA},
+		Owner:         adapterexecution.OwnerBinding{Lane: owner.Lane, CurrentExecutor: owner.CurrentExecutor, ExecutorGeneration: owner.ExecutorGeneration, AdapterHarness: strings.TrimSpace(opt.AdapterHarness), AdapterSession: strings.TrimSpace(opt.AdapterSession), BindingMode: "durable-lane-owner"},
+		ReportPath:    reportRel,
+		Actor:         strings.TrimSpace(opt.Actor),
+		NoExecute:     true,
+		NoObservation: true,
+		NoAuthority:   true,
+	}
+	bindingSHA, err := adapterexecution.DispatchBindingSHA256(dispatch)
+	if err != nil {
+		return adapterExecutionDispatchSnapshot{}, err
+	}
+	dispatch.DispatchID = bindingSHA
+	rel, full, err := adapterExecutionDispatchPath(caseRoot, gateEvent.Lane, gateEvent.EventID)
+	if err != nil {
+		return adapterExecutionDispatchSnapshot{}, err
+	}
+	return adapterExecutionDispatchSnapshot{dispatch: dispatch, bindingSHA: bindingSHA, dispatchRel: rel, dispatchFull: full}, nil
+}
+
+func adapterExecutionDispatchPreviewSlashCommand(pack string, gateEvent EventPreview, reportPath, adapterID string) string {
+	return adapterReportSlashCommand([]string{"gate", "-Pack", pack, "-GateEventId", gateEvent.EventID, "-RecordAdapterExecutionDispatch", "-ExecutionReportPath", reportPath, "-AdapterId", adapterID, "-Executor", "<current-executor>", "-ExpectedExecutorGeneration", "<current-generation>", "-AdapterHarness", "<harness>", "-AdapterSession", "<session>", "-Actor", "<recorded-by>", "-Format", "json"})
+}
+
+func adapterExecutionDispatchApplySlashCommand(pack string, dispatch adapterexecution.DispatchReceipt, bindingSHA string) string {
+	args := []string{"gate", "-Pack", pack, "-GateEventId", dispatch.Gate.GateEventID, "-RecordAdapterExecutionDispatch", "-ExecutionReportPath", dispatch.ReportPath, "-AdapterId", dispatch.Adapter.AdapterID, "-Executor", dispatch.Owner.CurrentExecutor, "-ExpectedExecutorGeneration", fmt.Sprintf("%d", dispatch.Owner.ExecutorGeneration), "-AdapterHarness", dispatch.Owner.AdapterHarness, "-AdapterSession", dispatch.Owner.AdapterSession, "-Actor", dispatch.Actor, "-ExpectedAdapterExecutionDispatchBindingSha256", bindingSHA, "-Apply", "-Format", "json"}
+	return adapterReportSlashCommand(args)
 }
 
 func RecordAdapterExecutionReceipt(repoRoot, caseRoot, pack string, opt Options) (_ AdapterExecutionReceiptResult, retErr error) {
@@ -352,6 +596,29 @@ func validateRecordedAdapterExecutionReceipt(caseRoot, pack string, gateEvent Ev
 	if err != nil {
 		return nil, rel, adapterexecution.SHA256(data), err
 	}
+	dispatch, dispatchRel, dispatchSHA, dispatchBytes, err :=
+		readCurrentAdapterExecutionDispatch(caseRoot, pack, gateEvent, m)
+	if err != nil {
+		return nil, rel, adapterexecution.SHA256(data), err
+	}
+	if err := adapterexecution.ValidateCompletionDispatchLineage(
+		receipt,
+		dispatch,
+		dispatchRel,
+		dispatchSHA,
+		dispatchBytes,
+	); err != nil {
+		return nil, rel, adapterexecution.SHA256(data), err
+	}
+	if err := validateAdapterReportDispatch(
+		report,
+		dispatch,
+		dispatchRel,
+		dispatchSHA,
+		dispatchBytes,
+	); err != nil {
+		return nil, rel, adapterexecution.SHA256(data), err
+	}
 	owner, err := laneowner.Read(caseRoot, gateEvent.Lane)
 	if err != nil {
 		return nil, rel, adapterexecution.SHA256(data), err
@@ -403,6 +670,24 @@ func validateRecordedAdapterExecutionReceipt(caseRoot, pack string, gateEvent Ev
 	return &receipt, rel, receiptSHA, nil
 }
 
+func validateAdapterReportDispatch(report *AdapterReport, dispatch adapterexecution.DispatchReceipt, dispatchPath, dispatchSHA string, dispatchBytes int64) error {
+	if report == nil || report.Dispatch == nil {
+		return fmt.Errorf("adapter execution report is missing immutable dispatch binding")
+	}
+	if dispatchBytes <= 0 {
+		return fmt.Errorf("adapter execution dispatch byte binding is invalid")
+	}
+	expected := adapterexecution.ReportDispatchBinding{
+		DispatchID: dispatch.DispatchID,
+		Path:       dispatchPath,
+		SHA256:     dispatchSHA,
+	}
+	if *report.Dispatch != expected {
+		return fmt.Errorf("adapter execution report dispatch binding drifted")
+	}
+	return nil
+}
+
 func artifactBindingsEqual(left, right []adapterexecution.ArtifactBinding) bool {
 	if len(left) != len(right) {
 		return false
@@ -423,7 +708,41 @@ func adapterExecutionReceiptPreviewSlashCommand(pack string, gateEvent EventPrev
 	return adapterReportSlashCommand([]string{"gate", "-Pack", pack, "-GateEventId", gateEvent.EventID, "-RecordAdapterExecutionReceipt", "-ExecutionReportPath", reportPath, "-AdapterId", adapterID, "-Executor", "<current-executor>", "-ExpectedExecutorGeneration", "<current-generation>", "-AdapterHarness", "<harness>", "-AdapterSession", "<session>", "-ExecutionExitStatus", "<exit-status>", "-Actor", "<recorded-by>", "-Format", "json"})
 }
 
+func readCurrentAdapterExecutionDispatch(caseRoot, pack string, gateEvent EventPreview, m *manifest.Manifest) (adapterexecution.DispatchReceipt, string, string, int64, error) {
+	dispatchRel, dispatchFull, err := adapterExecutionDispatchPath(caseRoot, gateEvent.Lane, gateEvent.EventID)
+	if err != nil {
+		return adapterexecution.DispatchReceipt{}, "", "", 0, err
+	}
+	data, present, err := readAdapterExecutionReceiptRaw(caseRoot, dispatchFull, dispatchRel)
+	if err != nil {
+		return adapterexecution.DispatchReceipt{}, dispatchRel, "", 0, err
+	}
+	if !present {
+		return adapterexecution.DispatchReceipt{}, dispatchRel, "", 0, fmt.Errorf("adapter execution completion requires an immutable dispatch recorded before external execution")
+	}
+	dispatch, err := adapterexecution.DecodeDispatch(data)
+	if err != nil {
+		return adapterexecution.DispatchReceipt{}, dispatchRel, adapterexecution.SHA256(data), int64(len(data)), err
+	}
+	current, err := prepareAdapterExecutionDispatchSnapshot(caseRoot, pack, gateEvent, Options{
+		GateEventID: gateEvent.EventID, ExecutionReportPath: dispatch.ReportPath, AdapterID: dispatch.Adapter.AdapterID,
+		Executor: dispatch.Owner.CurrentExecutor, ExpectedExecutorGeneration: dispatch.Owner.ExecutorGeneration,
+		AdapterHarness: dispatch.Owner.AdapterHarness, AdapterSession: dispatch.Owner.AdapterSession, Actor: dispatch.Actor,
+	}, m)
+	if err != nil {
+		return adapterexecution.DispatchReceipt{}, dispatchRel, adapterexecution.SHA256(data), int64(len(data)), err
+	}
+	if !adapterexecution.DispatchSemanticEqual(dispatch, current.dispatch) {
+		return adapterexecution.DispatchReceipt{}, dispatchRel, adapterexecution.SHA256(data), int64(len(data)), fmt.Errorf("adapter execution dispatch gate, owner, catalog, session, or report path drifted")
+	}
+	return dispatch, dispatchRel, adapterexecution.SHA256(data), int64(len(data)), nil
+}
+
 func prepareAdapterExecutionSnapshot(caseRoot, pack string, gateEvent EventPreview, opt Options, m *manifest.Manifest) (adapterExecutionSnapshot, error) {
+	dispatch, dispatchRel, dispatchSHA, dispatchBytes, err := readCurrentAdapterExecutionDispatch(caseRoot, pack, gateEvent, m)
+	if err != nil {
+		return adapterExecutionSnapshot{}, err
+	}
 	owner, err := laneowner.Read(caseRoot, gateEvent.Lane)
 	if err != nil {
 		return adapterExecutionSnapshot{}, err
@@ -475,10 +794,16 @@ func prepareAdapterExecutionSnapshot(caseRoot, pack string, gateEvent EventPrevi
 	if err != nil {
 		return adapterExecutionSnapshot{}, err
 	}
+	if dispatch.ReportPath != reportRel || dispatch.Owner.CurrentExecutor != owner.CurrentExecutor || dispatch.Owner.ExecutorGeneration != owner.ExecutorGeneration || dispatch.Owner.AdapterHarness != strings.TrimSpace(opt.AdapterHarness) || dispatch.Owner.AdapterSession != strings.TrimSpace(opt.AdapterSession) {
+		return adapterExecutionSnapshot{}, fmt.Errorf("adapter execution completion does not match immutable dispatch owner/session/report bindings")
+	}
+	if err := validateAdapterReportDispatch(report, dispatch, dispatchRel, dispatchSHA, dispatchBytes); err != nil {
+		return adapterExecutionSnapshot{}, err
+	}
 	receipt := adapterexecution.Receipt{
-		SchemaVersion: 1, Kind: "adapter-execution-receipt", Gate: gateBinding,
+		SchemaVersion: 1, Kind: "adapter-execution-receipt", Dispatch: adapterexecution.DispatchBinding{DispatchID: dispatch.DispatchID, Path: dispatchRel, SHA256: dispatchSHA, Bytes: dispatchBytes}, Gate: gateBinding,
 		Adapter:   adapterexecution.AdapterBinding{Pack: pack, AdapterID: report.AdapterID, ToolingCatalogPath: candidate.ToolingCatalogPath, ToolingCatalogSHA256: catalogSHA, ToolingCatalogBytes: catalogBytes, Candidate: candidateBinding, CandidateSnapshotSHA256: candidateSHA},
-		Owner:     adapterexecution.OwnerBinding{Lane: owner.Lane, CurrentExecutor: owner.CurrentExecutor, ExecutorGeneration: owner.ExecutorGeneration, AdapterHarness: strings.TrimSpace(opt.AdapterHarness), AdapterSession: strings.TrimSpace(opt.AdapterSession), BindingMode: "durable-lane-owner"},
+		Owner:     dispatch.Owner,
 		Execution: adapterexecution.ExecutionBinding{Outcome: report.Status, ExitStatus: strings.TrimSpace(opt.ExecutionExitStatus), AuthorizedBudget: gateEvent.Gate.RequestedBudget, ActualBudget: report.ActualBudget, BoundaryHits: append([]string{}, report.BoundaryHits...), Escalation: report.Escalation},
 		Report:    reportSnapshot, Artifacts: artifacts, Actor: strings.TrimSpace(opt.Actor), NoExecute: true, NoAuthority: true,
 	}
@@ -487,6 +812,9 @@ func prepareAdapterExecutionSnapshot(caseRoot, pack string, gateEvent EventPrevi
 		return adapterExecutionSnapshot{}, err
 	}
 	receipt.ReceiptID = bindingSHA
+	if err := adapterexecution.ValidateCompletionDispatchLineage(receipt, dispatch, dispatchRel, dispatchSHA, dispatchBytes); err != nil {
+		return adapterExecutionSnapshot{}, err
+	}
 	rel, full, err := adapterExecutionReceiptPath(caseRoot, gateEvent.Lane, gateEvent.EventID)
 	if err != nil {
 		return adapterExecutionSnapshot{}, err
@@ -648,6 +976,15 @@ func rejectSymlinkComponents(root, full string) error {
 		}
 	}
 	return nil
+}
+
+func adapterExecutionDispatchPath(caseRoot, laneID, gateEventID string) (string, string, error) {
+	if !adapterExecutionSegmentPattern.MatchString(laneID) || !adapterExecutionSegmentPattern.MatchString(gateEventID) {
+		return "", "", fmt.Errorf("invalid adapter execution dispatch path identity")
+	}
+	rel := filepath.ToSlash(filepath.Join(".rekit", "lanes", laneID, "adapter-executions", gateEventID, "dispatch.json"))
+	full, err := refsf.SafeJoin(caseRoot, rel)
+	return rel, full, err
 }
 
 func adapterExecutionReceiptPath(caseRoot, laneID, gateEventID string) (string, string, error) {

@@ -35,48 +35,50 @@ var acquireGateLaneMutationLease = func(caseRoot, laneID string) (gateLaneMutati
 }
 
 type Options struct {
-	Action                                string
-	Lane                                  string
-	Subject                               string
-	Summary                               string
-	Actor                                 string
-	Risk                                  string
-	TargetRef                             string
-	BatchID                               string
-	Scope                                 string
-	Budget                                string
-	RuntimeSeconds                        int
-	DiskMB                                int
-	Requests                              int
-	OutputPaths                           string
-	TriedLightSteps                       string
-	StopConditions                        string
-	GateEventID                           string
-	ExecutionStatus                       string
-	ActualRuntimeSeconds                  int
-	ActualDiskMB                          int
-	ActualRequests                        int
-	OutputRefs                            string
-	EvidenceRefs                          string
-	BoundaryHits                          string
-	Escalation                            string
-	ExecutionReportPath                   string
-	ExecutionReportCwd                    string
-	ExecutionReportContract               bool
-	ValidateExecutionReport               bool
-	ScaffoldExecutionReport               bool
-	DraftExecutionReport                  bool
-	RecordAdapterExecutionReceipt         bool
-	ExpectedExecutionReportSHA256         string
-	ExpectedAdapterExecutionBindingSHA256 string
-	ExpectedAdapterExecutionReceiptSHA256 string
-	AdapterExecutionReceiptPath           string
-	AdapterID                             string
-	Executor                              string
-	ExpectedExecutorGeneration            int
-	AdapterHarness                        string
-	AdapterSession                        string
-	ExecutionExitStatus                   string
+	Action                                        string
+	Lane                                          string
+	Subject                                       string
+	Summary                                       string
+	Actor                                         string
+	Risk                                          string
+	TargetRef                                     string
+	BatchID                                       string
+	Scope                                         string
+	Budget                                        string
+	RuntimeSeconds                                int
+	DiskMB                                        int
+	Requests                                      int
+	OutputPaths                                   string
+	TriedLightSteps                               string
+	StopConditions                                string
+	GateEventID                                   string
+	ExecutionStatus                               string
+	ActualRuntimeSeconds                          int
+	ActualDiskMB                                  int
+	ActualRequests                                int
+	OutputRefs                                    string
+	EvidenceRefs                                  string
+	BoundaryHits                                  string
+	Escalation                                    string
+	ExecutionReportPath                           string
+	ExecutionReportCwd                            string
+	ExecutionReportContract                       bool
+	ValidateExecutionReport                       bool
+	ScaffoldExecutionReport                       bool
+	DraftExecutionReport                          bool
+	RecordAdapterExecutionDispatch                bool
+	RecordAdapterExecutionReceipt                 bool
+	ExpectedExecutionReportSHA256                 string
+	ExpectedAdapterExecutionDispatchBindingSHA256 string
+	ExpectedAdapterExecutionBindingSHA256         string
+	ExpectedAdapterExecutionReceiptSHA256         string
+	AdapterExecutionReceiptPath                   string
+	AdapterID                                     string
+	Executor                                      string
+	ExpectedExecutorGeneration                    int
+	AdapterHarness                                string
+	AdapterSession                                string
+	ExecutionExitStatus                           string
 }
 
 type Plan struct {
@@ -118,38 +120,42 @@ type ExecutionEvidencePreview struct {
 }
 
 type ExecutionEvidenceDetails struct {
-	Status                        string                    `json:"status"`
-	ActualBudget                  autonomy.Budget           `json:"actualBudget"`
-	OutputRefs                    []string                  `json:"outputRefs,omitempty"`
-	BoundaryHits                  []string                  `json:"boundaryHits,omitempty"`
-	Escalation                    string                    `json:"escalation,omitempty"`
-	GateEventID                   string                    `json:"gateEventId"`
-	GateStatus                    string                    `json:"gateStatus"`
-	Authorization                 string                    `json:"authorization"`
-	RecordRequired                bool                      `json:"recordRequired"`
-	NotifyMainOn                  []string                  `json:"notifyMainOn,omitempty"`
-	ExecutionReportPath           string                    `json:"executionReportPath,omitempty"`
-	ExecutionReportSHA256         string                    `json:"executionReportSha256,omitempty"`
-	AdapterExecutionReceiptPath   string                    `json:"adapterExecutionReceiptPath,omitempty"`
-	AdapterExecutionReceiptSHA256 string                    `json:"adapterExecutionReceiptSha256,omitempty"`
-	AdapterExecution              *adapterexecution.Receipt `json:"adapterExecution,omitempty"`
-	AdapterContext                *AdapterToolCandidate     `json:"adapterContext,omitempty"`
-	Adapter                       *AdapterReport            `json:"adapter,omitempty"`
+	Status                         string                            `json:"status"`
+	ActualBudget                   autonomy.Budget                   `json:"actualBudget"`
+	OutputRefs                     []string                          `json:"outputRefs,omitempty"`
+	BoundaryHits                   []string                          `json:"boundaryHits,omitempty"`
+	Escalation                     string                            `json:"escalation,omitempty"`
+	GateEventID                    string                            `json:"gateEventId"`
+	GateStatus                     string                            `json:"gateStatus"`
+	Authorization                  string                            `json:"authorization"`
+	RecordRequired                 bool                              `json:"recordRequired"`
+	NotifyMainOn                   []string                          `json:"notifyMainOn,omitempty"`
+	ExecutionReportPath            string                            `json:"executionReportPath,omitempty"`
+	ExecutionReportSHA256          string                            `json:"executionReportSha256,omitempty"`
+	AdapterExecutionDispatchPath   string                            `json:"adapterExecutionDispatchPath,omitempty"`
+	AdapterExecutionDispatchSHA256 string                            `json:"adapterExecutionDispatchSha256,omitempty"`
+	AdapterExecutionDispatch       *adapterexecution.DispatchReceipt `json:"adapterExecutionDispatch,omitempty"`
+	AdapterExecutionReceiptPath    string                            `json:"adapterExecutionReceiptPath,omitempty"`
+	AdapterExecutionReceiptSHA256  string                            `json:"adapterExecutionReceiptSha256,omitempty"`
+	AdapterExecution               *adapterexecution.Receipt         `json:"adapterExecution,omitempty"`
+	AdapterContext                 *AdapterToolCandidate             `json:"adapterContext,omitempty"`
+	Adapter                        *AdapterReport                    `json:"adapter,omitempty"`
 }
 
 type AdapterReport struct {
-	SchemaVersion int             `json:"schemaVersion"`
-	Kind          string          `json:"kind"`
-	AdapterID     string          `json:"adapterId"`
-	Action        string          `json:"action"`
-	Status        string          `json:"status"`
-	GateEventID   string          `json:"gateEventId"`
-	ActualBudget  autonomy.Budget `json:"actualBudget"`
-	OutputRefs    []string        `json:"outputRefs,omitempty"`
-	EvidenceRefs  []string        `json:"evidenceRefs,omitempty"`
-	BoundaryHits  []string        `json:"boundaryHits,omitempty"`
-	Escalation    string          `json:"escalation,omitempty"`
-	Summary       string          `json:"summary,omitempty"`
+	SchemaVersion int                                     `json:"schemaVersion"`
+	Kind          string                                  `json:"kind"`
+	AdapterID     string                                  `json:"adapterId"`
+	Action        string                                  `json:"action"`
+	Status        string                                  `json:"status"`
+	GateEventID   string                                  `json:"gateEventId"`
+	Dispatch      *adapterexecution.ReportDispatchBinding `json:"dispatch,omitempty"`
+	ActualBudget  autonomy.Budget                         `json:"actualBudget"`
+	OutputRefs    []string                                `json:"outputRefs,omitempty"`
+	EvidenceRefs  []string                                `json:"evidenceRefs,omitempty"`
+	BoundaryHits  []string                                `json:"boundaryHits,omitempty"`
+	Escalation    string                                  `json:"escalation,omitempty"`
+	Summary       string                                  `json:"summary,omitempty"`
 }
 
 type AdapterExecutionReportContract struct {
@@ -373,18 +379,19 @@ type AdapterToolCandidate struct {
 }
 
 type AdapterReportSidecarTemplate struct {
-	SchemaVersion int             `json:"schemaVersion"`
-	Kind          string          `json:"kind"`
-	AdapterID     string          `json:"adapterId"`
-	Action        string          `json:"action"`
-	Status        string          `json:"status"`
-	GateEventID   string          `json:"gateEventId"`
-	ActualBudget  autonomy.Budget `json:"actualBudget"`
-	OutputRefs    []string        `json:"outputRefs"`
-	EvidenceRefs  []string        `json:"evidenceRefs"`
-	BoundaryHits  []string        `json:"boundaryHits"`
-	Escalation    string          `json:"escalation"`
-	Summary       string          `json:"summary"`
+	SchemaVersion int                                     `json:"schemaVersion"`
+	Kind          string                                  `json:"kind"`
+	AdapterID     string                                  `json:"adapterId"`
+	Action        string                                  `json:"action"`
+	Status        string                                  `json:"status"`
+	GateEventID   string                                  `json:"gateEventId"`
+	Dispatch      *adapterexecution.ReportDispatchBinding `json:"dispatch,omitempty"`
+	ActualBudget  autonomy.Budget                         `json:"actualBudget"`
+	OutputRefs    []string                                `json:"outputRefs"`
+	EvidenceRefs  []string                                `json:"evidenceRefs"`
+	BoundaryHits  []string                                `json:"boundaryHits"`
+	Escalation    string                                  `json:"escalation"`
+	Summary       string                                  `json:"summary"`
 }
 
 type AdapterReportValidationFailureStage struct {
@@ -435,6 +442,9 @@ type AdapterExecutionReportValidation struct {
 	ReceiptRequired                  bool                                     `json:"receiptRequired"`
 	ReceiptPresent                   bool                                     `json:"receiptPresent"`
 	ProvenanceValid                  bool                                     `json:"provenanceValid"`
+	AdapterExecutionDispatchPath     string                                   `json:"adapterExecutionDispatchPath,omitempty"`
+	AdapterExecutionDispatchSHA256   string                                   `json:"adapterExecutionDispatchSha256,omitempty"`
+	AdapterExecutionDispatch         *adapterexecution.DispatchReceipt        `json:"adapterExecutionDispatch,omitempty"`
 	AdapterExecutionReceiptPath      string                                   `json:"adapterExecutionReceiptPath,omitempty"`
 	AdapterExecutionReceiptSHA256    string                                   `json:"adapterExecutionReceiptSha256,omitempty"`
 	AdapterExecution                 *adapterexecution.Receipt                `json:"adapterExecution,omitempty"`
@@ -1731,6 +1741,31 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 		return validation, nil
 	}
 	if validation.ReceiptRequired {
+		dispatch, dispatchPath, dispatchSHA, _, dispatchErr := readCurrentAdapterExecutionDispatch(inst.CaseRoot, pack, gateEvent, m)
+		if dispatchErr != nil {
+			validation.Valid = false
+			validation.ProvenanceValid = false
+			validation.Error = dispatchErr.Error()
+			validation.Errors = []string{validation.Error}
+			validation.FailureStage = "provenance"
+			validation.FailureCode = "adapter-execution-dispatch-invalid"
+			reauthorization := gateEvent
+			reauthorization.EventID = ""
+			reauthorization.BatchID = gateEvent.EventID + "-dispatch-retry"
+			reauthorization.Subject = gateEvent.Subject + " dispatch retry"
+			reauthorization.Summary = fmt.Sprintf("Review a distinct authorized execution attempt because gate %s has a report without a valid pre-execution dispatch", gateEvent.EventID)
+			validation.MissionCommanderAction = mission.MissionCommanderAction{State: "blocked-by-adapter-execution-provenance-drift", Prompt: fmt.Sprintf("authorized gate `%s` 已有 report 但 immutable pre-execution dispatch 缺失或漂移；不能事后补写 dispatch。", gateEvent.EventID), PrimaryCommand: gateRequestWhatIfSlashCommand(pack, reauthorization), Boundary: append(adapterReportCommanderBoundary(), "do not backfill dispatch after external execution")}
+			validation.MissionCommanderNextActions = []mission.MissionCommanderNextActionItem{adapterReportNextActionItem(gateEvent, gateCommanderActionLabel(gateEvent.Lane), "adapter-execution-dispatch-missing", validation.MissionCommanderAction.State, validation.MissionCommanderAction.PrimaryCommand, "adapterExecutionDispatch.validation", true, true, []string{"authorize a distinct gate before any retry"}, validation.MissionCommanderAction.Boundary)}
+			validation.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(validation.MissionCommanderNextActions)
+			validation.ReportSummary = adapterReportHandoffSummary(gateEvent, validation.MissionCommanderAction.State, validation.ReportPath, validation.ReportSHA256, validation.Report, validation.Contract.AllowedStatuses, validation.Contract.AllowedOutputPaths, adapterCandidates, validation.Contract.StopConditions, nil, AuthorizedExecutionFollowThrough{}, validation.MissionCommanderActionQueue, validation.MissionCommanderNextActions, false, validation.FailureCode, validation.FailureStage)
+			validation.ReportSummary.RecordReady = false
+			validation.ReportSummary.RecordBlocked = true
+			validation.NextSteps = []string{"run the returned WhatIf command for a distinct gate", "record its dispatch before external execution", "do not run completion or observation for the unbound report"}
+			return validation, nil
+		}
+		validation.AdapterExecutionDispatchPath = dispatchPath
+		validation.AdapterExecutionDispatchSHA256 = dispatchSHA
+		validation.AdapterExecutionDispatch = &dispatch
 		validation.ReceiptPreviewCommand = adapterExecutionReceiptPreviewSlashCommand(pack, gateEvent, validation.ReportPath, adapterReport.AdapterID)
 		receipt, receiptPath, receiptSHA, receiptErr := validateRecordedAdapterExecutionReceipt(inst.CaseRoot, pack, gateEvent, validation.ReportPath, validation.ReportSHA256, adapterReport, m, opt)
 		validation.AdapterExecutionReceiptPath = receiptPath
@@ -1769,6 +1804,9 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 			validation.RunbookSteps = adapterReportRunbookSteps("provenance", validation.MissionCommanderAction.State, validation.ReportPath, validation.ReportSHA256, false, false, false, false, validation.NextSteps, validation.MissionCommanderAction.Boundary, validation.MissionCommanderAction)
 			return validation, nil
 		}
+		validation.AdapterExecutionDispatchPath = dispatchPath
+		validation.AdapterExecutionDispatchSHA256 = dispatchSHA
+		validation.AdapterExecutionDispatch = &dispatch
 		validation.AdapterExecution = receipt
 		validation.ProvenanceValid = true
 	}
@@ -1814,8 +1852,13 @@ func findAuthorizedGateEvent(caseRoot, gateEventID string) (EventPreview, error)
 }
 
 func adapterReportContract(repoRoot, caseRoot, pack string, event EventPreview, m *manifest.Manifest) AdapterExecutionReportContract {
-	liveValidation := adapterReportLiveValidation(m, pack, event)
-	commander := adapterReportContractCommanderAction(event, pack, liveValidation)
+	liveValidation := adapterReportLiveValidation(m, caseRoot, pack, event)
+	dispatchRequired, _ := adapterExecutionReceiptRequired(caseRoot, event, m)
+	commander := adapterReportContractCommanderAction(event, pack, liveValidation, dispatchRequired)
+	requiredFields := []string{"schemaVersion", "kind", "adapterId", "action", "status", "gateEventId", "actualBudget"}
+	if dispatchRequired {
+		requiredFields = append(requiredFields, "dispatch")
+	}
 	contract := AdapterExecutionReportContract{
 		SchemaVersion:               1,
 		Command:                     "gate",
@@ -1834,7 +1877,7 @@ func adapterReportContract(repoRoot, caseRoot, pack string, event EventPreview, 
 		GateEventID:                 event.EventID,
 		Action:                      event.Gate.Action,
 		AllowedStatuses:             []string{"succeeded", "failed", "boundary-hit", "escalated", "aborted"},
-		RequiredFields:              []string{"schemaVersion", "kind", "adapterId", "action", "status", "gateEventId", "actualBudget"},
+		RequiredFields:              requiredFields,
 		AllowedOutputPaths:          append([]string{}, event.Gate.OutputPaths...),
 		AuthorizedBudget:            event.Gate.RequestedBudget,
 		StopConditions:              append([]string{}, event.Gate.StopConditions...),
@@ -1863,20 +1906,33 @@ func adapterReportContract(repoRoot, caseRoot, pack string, event EventPreview, 
 	return contract
 }
 
-func adapterReportContractCommanderAction(event EventPreview, pack string, liveValidation AdapterReportLiveValidation) mission.MissionCommanderAction {
+func adapterReportContractCommanderAction(event EventPreview, pack string, liveValidation AdapterReportLiveValidation, dispatchRequired bool) mission.MissionCommanderAction {
 	reportPath := strings.TrimSpace(liveValidation.CaseRelativeReportPath)
 	if reportPath == "" {
 		reportPath = "<reportPath-under-authorized-outputPath>"
 	}
-	validateCommand := adapterReportValidateSlashCommand(pack, event.EventID, reportPath)
+	if !dispatchRequired {
+		validateCommand := adapterReportValidateSlashCommand(pack, event.EventID, reportPath)
+		return mission.MissionCommanderAction{
+			State:          "needs-adapter-report-validation",
+			Prompt:         fmt.Sprintf("按 authorized gate `%s` 接手：让 executor/tool adapter 在授权 outputPath 写 bounded sidecar，再用 read-only validation 预检；valid=true 后只能使用 validation/status 返回的 hash-bound record command 记录 observation evidence。", event.EventID),
+			PrimaryCommand: validateCommand,
+			FollowUpCommands: []string{
+				"/rekit handoff " + mission.BoardLaneLabel(mission.BoardLane{ID: event.Lane}),
+			},
+			Boundary: append(adapterReportCommanderBoundary(), "contract handoff does not provide a runnable record Apply; use validation/status returned -ExpectedExecutionReportSha256 after valid=true"),
+		}
+	}
+	adapterID := liveValidation.SidecarTemplate.AdapterID
+	dispatchCommand := adapterExecutionDispatchPreviewSlashCommand(pack, event, reportPath, adapterID)
 	return mission.MissionCommanderAction{
-		State:          "needs-adapter-report-validation",
-		Prompt:         fmt.Sprintf("按 authorized gate `%s` 接手：先让 executor/tool adapter 在授权 outputPath 写 bounded sidecar，再用 read-only validation 预检；valid=true 后只能使用 validation/status 返回的 hash-bound record command 记录 observation evidence。", event.EventID),
-		PrimaryCommand: validateCommand,
+		State:          "ready-for-adapter-execution-dispatch-preview",
+		Prompt:         fmt.Sprintf("按 authorized gate `%s` 接手：先为 current lane owner、selected adapter、harness/session 和 report path 记录 immutable dispatch；外部 adapter 只能在 dispatch Apply 后开始。", event.EventID),
+		PrimaryCommand: dispatchCommand,
 		FollowUpCommands: []string{
 			"/rekit handoff " + mission.BoardLaneLabel(mission.BoardLane{ID: event.Lane}),
 		},
-		Boundary: append(adapterReportCommanderBoundary(), "contract handoff does not provide a runnable record Apply; use validation/status returned -ExpectedExecutionReportSha256 after valid=true"),
+		Boundary: append(adapterReportCommanderBoundary(), "dispatch preview is read-only; review and Apply its expected binding before external adapter execution", "contract handoff does not provide a runnable record Apply; use validation/status returned -ExpectedExecutionReportSha256 after valid=true"),
 	}
 }
 
@@ -1884,7 +1940,13 @@ func adapterReportContractCommanderNextActions(event EventPreview, commander mis
 	label := gateCommanderActionLabel(event.Lane)
 	items := []mission.MissionCommanderNextActionItem{}
 	if commander.PrimaryCommand != "" {
-		items = append(items, adapterReportNextActionItem(event, label, "adapter-report-contract-validation", commander.State, commander.PrimaryCommand, "adapterReportContract.missionCommanderAction", false, true, []string{"run read-only validation before recording observation evidence", "adapter sidecar must be valid=true before record"}, commander.Boundary))
+		actionID := "adapter-report-contract-validation"
+		reasons := []string{"run read-only validation before recording observation evidence", "adapter sidecar must be valid=true before record"}
+		if commander.State == "ready-for-adapter-execution-dispatch-preview" {
+			actionID = "adapter-execution-dispatch-preview"
+			reasons = []string{"record immutable dispatch before external adapter execution", "completion/report/observation must retain the exact dispatch lineage"}
+		}
+		items = append(items, adapterReportNextActionItem(event, label, actionID, commander.State, commander.PrimaryCommand, "adapterReportContract.missionCommanderAction", false, true, reasons, commander.Boundary))
 	}
 	for _, followUp := range commander.FollowUpCommands {
 		boundary := append([]string{}, commander.Boundary...)
@@ -1969,7 +2031,8 @@ func adapterReportContractNextSteps(pack string, event EventPreview, liveValidat
 		reportPath = "<reportPath-under-authorized-outputPath>"
 	}
 	return []string{
-		"adapter writes bounded report under authorized output path: " + reportPath,
+		"record immutable dispatch before external execution: " + adapterExecutionDispatchPreviewSlashCommand(pack, event, reportPath, liveValidation.SidecarTemplate.AdapterID),
+		"after reviewed dispatch Apply, adapter writes bounded report under authorized output path: " + reportPath,
 		"preflight read-only: " + adapterReportValidateSlashCommand(pack, event.EventID, reportPath),
 		"after valid=true, use the validation/status returned hash-bound record command with -ExpectedExecutionReportSha256; do not run a contract-stage bare record template",
 		"replace <executor-id> before record; /rekit records evidence only and never executes the heavy tool",
@@ -2082,7 +2145,7 @@ func adapterReportDefaultPath(outputPaths []string) string {
 	return ""
 }
 
-func adapterReportLiveValidation(m *manifest.Manifest, pack string, event EventPreview) AdapterReportLiveValidation {
+func adapterReportLiveValidation(m *manifest.Manifest, caseRoot, pack string, event EventPreview) AdapterReportLiveValidation {
 	reportFileName := "adapter-report.json"
 	caseRelativeReportPath := adapterReportDefaultPath(event.Gate.OutputPaths)
 	adapterCandidates := adapterToolCandidates(m, event)
@@ -2099,6 +2162,9 @@ func adapterReportLiveValidation(m *manifest.Manifest, pack string, event EventP
 		BoundaryHits:  []string{"<authorized stopCondition token when status/budget requires it>"},
 		Escalation:    "<bounded escalation when status/budget requires it>",
 		Summary:       "<bounded summary; required for failed/boundary-hit/escalated/aborted>",
+	}
+	if dispatch, dispatchPath, dispatchSHA, _, err := readCurrentAdapterExecutionDispatch(caseRoot, pack, event, m); err == nil {
+		template.Dispatch = &adapterexecution.ReportDispatchBinding{DispatchID: dispatch.DispatchID, Path: dispatchPath, SHA256: dispatchSHA}
 	}
 	templateData, _ := adapterReportScaffoldBytes(template)
 	templateSHA256 := sha256HexBytes(templateData)
@@ -2467,6 +2533,21 @@ func adapterReportDraftFromOptions(caseRoot string, gateEvent EventPreview, cont
 	if summary == "" {
 		summary = "Adapter reported " + status + " for authorized " + gateEvent.Gate.Action + " gate"
 	}
+	var reportDispatch *adapterexecution.ReportDispatchBinding
+	dispatchRequired, err := adapterExecutionReceiptRequired(caseRoot, gateEvent, m)
+	if err != nil {
+		return AdapterReport{}, err
+	}
+	if dispatchRequired {
+		dispatch, dispatchPath, dispatchSHA, dispatchBytes, dispatchErr := readCurrentAdapterExecutionDispatch(caseRoot, contract.Pack, gateEvent, m)
+		if dispatchErr != nil {
+			return AdapterReport{}, fmt.Errorf("gate execution report draft requires immutable dispatch before external execution: %w", dispatchErr)
+		}
+		if dispatchBytes <= 0 {
+			return AdapterReport{}, fmt.Errorf("gate execution report draft dispatch byte binding is invalid")
+		}
+		reportDispatch = &adapterexecution.ReportDispatchBinding{DispatchID: dispatch.DispatchID, Path: dispatchPath, SHA256: dispatchSHA}
+	}
 	report := AdapterReport{
 		SchemaVersion: 1,
 		Kind:          "adapter-execution-report",
@@ -2474,6 +2555,7 @@ func adapterReportDraftFromOptions(caseRoot string, gateEvent EventPreview, cont
 		Action:        gateEvent.Gate.Action,
 		Status:        status,
 		GateEventID:   gateEvent.EventID,
+		Dispatch:      reportDispatch,
 		ActualBudget:  autonomy.Budget{RuntimeSeconds: opt.ActualRuntimeSeconds, DiskMB: opt.ActualDiskMB, Requests: opt.ActualRequests},
 		OutputRefs:    outputRefs,
 		EvidenceRefs:  evidenceRefs,
@@ -2913,6 +2995,9 @@ func executionEvidence(caseRoot string, gateEvent EventPreview, opt Options, m *
 	} else if strings.TrimSpace(opt.ExpectedExecutionReportSHA256) != "" {
 		return ExecutionEvidencePreview{}, fmt.Errorf("gate execution evidence -ExpectedExecutionReportSha256 requires -ExecutionReportPath")
 	}
+	var adapterExecutionDispatch *adapterexecution.DispatchReceipt
+	adapterExecutionDispatchPath := ""
+	adapterExecutionDispatchSHA256 := ""
 	var adapterExecution *adapterexecution.Receipt
 	adapterExecutionReceiptPath := ""
 	adapterExecutionReceiptSHA256 := ""
@@ -2924,6 +3009,19 @@ func executionEvidence(caseRoot string, gateEvent EventPreview, opt Options, m *
 		if strings.TrimSpace(opt.ExpectedAdapterExecutionReceiptSHA256) == "" {
 			return ExecutionEvidencePreview{}, fmt.Errorf("gate execution evidence requires -ExpectedAdapterExecutionReceiptSha256 from read-only validation")
 		}
+		dispatch, dispatchPath, dispatchSHA, _, dispatchErr :=
+			readCurrentAdapterExecutionDispatch(
+				caseRoot,
+				m.Pack,
+				gateEvent,
+				m,
+			)
+		if dispatchErr != nil {
+			return ExecutionEvidencePreview{}, dispatchErr
+		}
+		adapterExecutionDispatch = &dispatch
+		adapterExecutionDispatchPath = dispatchPath
+		adapterExecutionDispatchSHA256 = dispatchSHA
 	}
 	boundaryHits, err := parseBoundaryHits(opt.BoundaryHits)
 	if err != nil {
@@ -2984,23 +3082,26 @@ func executionEvidence(caseRoot string, gateEvent EventPreview, opt Options, m *
 		EvidenceRefs:  evidenceRefs,
 		Gate:          gateEvent.Gate,
 		Execution: ExecutionEvidenceDetails{
-			Status:                        status,
-			ActualBudget:                  actual,
-			OutputRefs:                    outputRefs,
-			BoundaryHits:                  boundaryHits,
-			Escalation:                    escalation,
-			GateEventID:                   gateEvent.EventID,
-			GateStatus:                    gateEvent.Status,
-			Authorization:                 gateEvent.Gate.Authorization.Decision,
-			RecordRequired:                gateEvent.Gate.Authorization.RecordRequired,
-			NotifyMainOn:                  append([]string{}, gateEvent.Gate.Authorization.NotifyMainOn...),
-			ExecutionReportPath:           reportRel,
-			ExecutionReportSHA256:         reportSHA256,
-			AdapterExecutionReceiptPath:   adapterExecutionReceiptPath,
-			AdapterExecutionReceiptSHA256: adapterExecutionReceiptSHA256,
-			AdapterExecution:              adapterExecution,
-			AdapterContext:                adapterContext,
-			Adapter:                       adapterReport,
+			Status:                         status,
+			ActualBudget:                   actual,
+			OutputRefs:                     outputRefs,
+			BoundaryHits:                   boundaryHits,
+			Escalation:                     escalation,
+			GateEventID:                    gateEvent.EventID,
+			GateStatus:                     gateEvent.Status,
+			Authorization:                  gateEvent.Gate.Authorization.Decision,
+			RecordRequired:                 gateEvent.Gate.Authorization.RecordRequired,
+			NotifyMainOn:                   append([]string{}, gateEvent.Gate.Authorization.NotifyMainOn...),
+			ExecutionReportPath:            reportRel,
+			ExecutionReportSHA256:          reportSHA256,
+			AdapterExecutionDispatchPath:   adapterExecutionDispatchPath,
+			AdapterExecutionDispatchSHA256: adapterExecutionDispatchSHA256,
+			AdapterExecutionDispatch:       adapterExecutionDispatch,
+			AdapterExecutionReceiptPath:    adapterExecutionReceiptPath,
+			AdapterExecutionReceiptSHA256:  adapterExecutionReceiptSHA256,
+			AdapterExecution:               adapterExecution,
+			AdapterContext:                 adapterContext,
+			Adapter:                        adapterReport,
 		},
 	}, nil
 }
@@ -3234,6 +3335,14 @@ func validateAdapterExecutionReport(caseRoot string, gateEvent EventPreview, rep
 	report.GateEventID = strings.TrimSpace(report.GateEventID)
 	if report.GateEventID != gateEvent.EventID {
 		return adapterReportValidationErrorf("gate-event-mismatch", "identity", "adapter execution report gateEventId %q does not match authorized gate eventId %q", report.GateEventID, gateEvent.EventID)
+	}
+	if report.Dispatch != nil {
+		report.Dispatch.DispatchID = strings.ToLower(strings.TrimSpace(report.Dispatch.DispatchID))
+		report.Dispatch.Path = strings.TrimSpace(filepath.ToSlash(report.Dispatch.Path))
+		report.Dispatch.SHA256 = strings.ToLower(strings.TrimSpace(report.Dispatch.SHA256))
+		if !validSHA256String(report.Dispatch.DispatchID) || report.Dispatch.Path == "" || !validSHA256String(report.Dispatch.SHA256) {
+			return adapterReportValidationErrorf("dispatch-binding-invalid", "identity", "adapter execution report dispatch binding is invalid")
+		}
 	}
 	if report.ActualBudget.RuntimeSeconds < 0 || report.ActualBudget.DiskMB < 0 || report.ActualBudget.Requests < 0 {
 		return adapterReportValidationErrorf("actual-budget-negative", "budget", "adapter execution report actualBudget values must be non-negative")

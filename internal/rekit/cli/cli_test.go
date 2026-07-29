@@ -3934,32 +3934,17 @@ tools:
 	if authorized.Event == nil || authorized.Event.Status != "authorized-gate" {
 		t.Fatalf("installed adapter gate was not preauthorized: %+v", authorized)
 	}
-	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/result.json", `{"result":"bounded external fixture"}`)
-	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/evidence.json", `{"evidence":"external harness observation"}`)
-	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/adapter-report.json", `{
-  "schemaVersion": 1,
-  "kind": "adapter-execution-report",
-  "adapterId": "installed-debug-adapter",
-  "action": "debug",
-  "status": "succeeded",
-  "gateEventId": "`+authorized.EventID+`",
-  "actualBudget": {"runtimeSeconds": 20, "diskMB": 24, "requests": 1},
-  "outputRefs": ["workspace/main/debug/session-1/result.json"],
-  "evidenceRefs": ["workspace/main/debug/session-1/evidence.json"],
-  "summary": "Installed external adapter completed"
-}`)
-
-	receiptArgs := []string{"-Command", "gate", "-GateEventId", authorized.EventID, "-RecordAdapterExecutionReceipt", "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-report.json", "-AdapterId", "installed-debug-adapter", "-Executor", "installed-executor-a", "-ExpectedExecutorGeneration", "1", "-AdapterHarness", "claude-code", "-AdapterSession", "installed-session-a", "-ExecutionExitStatus", "0", "-Actor", "mission-commander", "-Format", "json"}
+	dispatchArgs := []string{"-Command", "gate", "-GateEventId", authorized.EventID, "-RecordAdapterExecutionDispatch", "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-report.json", "-AdapterId", "installed-debug-adapter", "-Executor", "installed-executor-a", "-ExpectedExecutorGeneration", "1", "-AdapterHarness", "claude-code", "-AdapterSession", "installed-session-a", "-Actor", "mission-commander", "-Format", "json"}
 	out.Reset()
-	if err := Run(receiptArgs, &out); err != nil {
+	if err := Run(dispatchArgs, &out); err != nil {
 		t.Fatal(err)
 	}
-	var stalePreview gate.AdapterExecutionReceiptResult
-	if err := json.Unmarshal(out.Bytes(), &stalePreview); err != nil {
-		t.Fatalf("installed adapter receipt preview stdout is not JSON: %v\n%s", err, out.String())
+	var staleDispatchPreview gate.AdapterExecutionDispatchResult
+	if err := json.Unmarshal(out.Bytes(), &staleDispatchPreview); err != nil {
+		t.Fatalf("installed adapter dispatch preview stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if stalePreview.Applied || stalePreview.BindingSHA256 == "" {
-		t.Fatalf("installed adapter receipt preview incomplete: %+v", stalePreview)
+	if staleDispatchPreview.Applied || staleDispatchPreview.BindingSHA256 == "" {
+		t.Fatalf("installed adapter dispatch preview incomplete: %+v", staleDispatchPreview)
 	}
 
 	out.Reset()
@@ -3970,14 +3955,52 @@ tools:
 	if ownerB.Lane.CurrentExecutor != "installed-executor-b" || ownerB.Lane.ExecutorGeneration != 2 {
 		t.Fatalf("installed adapter takeover mismatch: %+v", ownerB.Lane)
 	}
-	staleApplyArgs := append(append([]string{}, receiptArgs[:len(receiptArgs)-2]...), "-ExpectedAdapterExecutionBindingSha256", stalePreview.BindingSHA256, "-Apply", "-Format", "json")
+	staleDispatchApplyArgs := append(append([]string{}, dispatchArgs[:len(dispatchArgs)-2]...), "-ExpectedAdapterExecutionDispatchBindingSha256", staleDispatchPreview.BindingSHA256, "-Apply", "-Format", "json")
 	out.Reset()
-	if err := Run(staleApplyArgs, &out); err == nil || !strings.Contains(err.Error(), "owner is stale") {
-		t.Fatalf("stale installed adapter receipt apply error = %v, want owner is stale", err)
+	if err := Run(staleDispatchApplyArgs, &out); err == nil || !strings.Contains(err.Error(), "owner is stale") {
+		t.Fatalf("stale installed adapter dispatch apply error = %v, want owner is stale", err)
 	}
-	assertFileNotExists(t, filepath.Join(caseRoot, filepath.FromSlash(stalePreview.ReceiptPath)))
+	assertFileNotExists(t, filepath.Join(caseRoot, filepath.FromSlash(staleDispatchPreview.DispatchPath)))
 
-	receiptArgs = []string{"-Command", "gate", "-GateEventId", authorized.EventID, "-RecordAdapterExecutionReceipt", "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-report.json", "-AdapterId", "installed-debug-adapter", "-Executor", "installed-executor-b", "-ExpectedExecutorGeneration", "2", "-AdapterHarness", "claude-code", "-AdapterSession", "installed-session-b", "-ExecutionExitStatus", "0", "-Actor", "mission-commander", "-Format", "json"}
+	dispatchArgs = []string{"-Command", "gate", "-GateEventId", authorized.EventID, "-RecordAdapterExecutionDispatch", "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-report.json", "-AdapterId", "installed-debug-adapter", "-Executor", "installed-executor-b", "-ExpectedExecutorGeneration", "2", "-AdapterHarness", "claude-code", "-AdapterSession", "installed-session-b", "-Actor", "mission-commander", "-Format", "json"}
+	out.Reset()
+	if err := Run(dispatchArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var dispatchPreview gate.AdapterExecutionDispatchResult
+	if err := json.Unmarshal(out.Bytes(), &dispatchPreview); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	dispatchApplyArgs := append(append([]string{}, dispatchArgs[:len(dispatchArgs)-2]...), "-ExpectedAdapterExecutionDispatchBindingSha256", dispatchPreview.BindingSHA256, "-Apply", "-Format", "json")
+	if err := Run(dispatchApplyArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var dispatch gate.AdapterExecutionDispatchResult
+	if err := json.Unmarshal(out.Bytes(), &dispatch); err != nil {
+		t.Fatal(err)
+	}
+	if !dispatch.Applied || dispatch.DispatchSHA256 == "" || dispatch.Dispatch.Owner.CurrentExecutor != "installed-executor-b" {
+		t.Fatalf("installed adapter dispatch omitted replacement owner: %+v", dispatch)
+	}
+
+	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/result.json", `{"result":"bounded external fixture"}`)
+	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/evidence.json", `{"evidence":"external harness observation"}`)
+	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/adapter-report.json", `{
+  "schemaVersion": 1,
+  "kind": "adapter-execution-report",
+  "adapterId": "installed-debug-adapter",
+  "action": "debug",
+  "status": "succeeded",
+  "gateEventId": "`+authorized.EventID+`",
+  "dispatch": {"dispatchId": "`+dispatch.Dispatch.DispatchID+`", "path": "`+dispatch.DispatchPath+`", "sha256": "`+dispatch.DispatchSHA256+`"},
+  "actualBudget": {"runtimeSeconds": 20, "diskMB": 24, "requests": 1},
+  "outputRefs": ["workspace/main/debug/session-1/result.json"],
+  "evidenceRefs": ["workspace/main/debug/session-1/evidence.json"],
+  "summary": "Installed external adapter completed"
+}`)
+
+	receiptArgs := []string{"-Command", "gate", "-GateEventId", authorized.EventID, "-RecordAdapterExecutionReceipt", "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-report.json", "-AdapterId", "installed-debug-adapter", "-Executor", "installed-executor-b", "-ExpectedExecutorGeneration", "2", "-AdapterHarness", "claude-code", "-AdapterSession", "installed-session-b", "-ExecutionExitStatus", "0", "-Actor", "mission-commander", "-Format", "json"}
 	out.Reset()
 	if err := Run(receiptArgs, &out); err != nil {
 		t.Fatal(err)
@@ -4107,6 +4130,8 @@ tools:
 			}
 		}
 		for _, expected := range []string{
+			"dispatch:",
+			"id=" + dispatch.Dispatch.DispatchID + " path=" + dispatch.DispatchPath + " sha256=" + dispatch.DispatchSHA256,
 			"receipt:",
 			"path=" + receipt.ReceiptPath + " sha256=" + receipt.ReceiptSHA256,
 			"execution owner: executor=installed-executor-b generation=2 harness=claude-code session=installed-session-b",
@@ -4244,6 +4269,27 @@ tools:
 		t.Fatalf("installed adapter retry reused original gate identity: %+v", retryApplied)
 	}
 
+	if err := os.Remove(filepath.Join(caseRoot, "workspace", "main", "debug", "session-1", "adapter-report.json")); err != nil {
+		t.Fatal(err)
+	}
+	retryDispatchArgs := []string{"-Command", "gate", "-GateEventId", retryApplied.EventID, "-RecordAdapterExecutionDispatch", "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-report.json", "-AdapterId", "installed-debug-adapter", "-Executor", "installed-executor-b", "-ExpectedExecutorGeneration", "2", "-AdapterHarness", "claude-code", "-AdapterSession", "installed-session-c", "-Actor", "mission-commander", "-Format", "json"}
+	out.Reset()
+	if err := Run(retryDispatchArgs, &out); err != nil {
+		t.Fatalf("installed adapter retry dispatch preview failed: %v", err)
+	}
+	var retryDispatchPreview gate.AdapterExecutionDispatchResult
+	if err := json.Unmarshal(out.Bytes(), &retryDispatchPreview); err != nil || retryDispatchPreview.BindingSHA256 == "" {
+		t.Fatalf("installed adapter retry dispatch preview incomplete: %+v err=%v", retryDispatchPreview, err)
+	}
+	out.Reset()
+	if err := Run(append(append([]string{}, retryDispatchArgs[:len(retryDispatchArgs)-2]...), "-ExpectedAdapterExecutionDispatchBindingSha256", retryDispatchPreview.BindingSHA256, "-Apply", "-Format", "json"), &out); err != nil {
+		t.Fatalf("installed adapter retry dispatch Apply failed: %v", err)
+	}
+	var retryDispatch gate.AdapterExecutionDispatchResult
+	if err := json.Unmarshal(out.Bytes(), &retryDispatch); err != nil || !retryDispatch.Applied {
+		t.Fatalf("installed adapter retry dispatch Apply incomplete: %+v err=%v", retryDispatch, err)
+	}
+
 	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/adapter-report.json", `{
   "schemaVersion": 1,
   "kind": "adapter-execution-report",
@@ -4251,6 +4297,7 @@ tools:
   "action": "debug",
   "status": "succeeded",
   "gateEventId": "`+retryApplied.EventID+`",
+  "dispatch": {"dispatchId": "`+retryDispatch.Dispatch.DispatchID+`", "path": "`+retryDispatch.DispatchPath+`", "sha256": "`+retryDispatch.DispatchSHA256+`"},
   "actualBudget": {"runtimeSeconds": 21, "diskMB": 25, "requests": 1},
   "outputRefs": ["workspace/main/debug/session-1/result.json"],
   "evidenceRefs": ["workspace/main/debug/session-1/evidence.json"],
@@ -16794,6 +16841,24 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 		}
 	}
 
+	dispatchArgs := []string{"-Command", "gate", "-Target", caseRoot, "-Pack", "generic-binary-re", "-GateEventId", applied.EventID, "-RecordAdapterExecutionDispatch", "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-report.json", "-AdapterId", candidate.ID, "-Executor", "executor-1", "-ExpectedExecutorGeneration", "1", "-AdapterHarness", "claude-code", "-AdapterSession", "generic-binary-session-1", "-Actor", "executor-1", "-Format", "json"}
+	out.Reset()
+	if err := Run(dispatchArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var dispatchPreview gate.AdapterExecutionDispatchResult
+	if err := json.Unmarshal(out.Bytes(), &dispatchPreview); err != nil || dispatchPreview.BindingSHA256 == "" {
+		t.Fatalf("generic-binary-re dispatch preview incomplete: %+v err=%v", dispatchPreview, err)
+	}
+	out.Reset()
+	if err := Run(append(append([]string{}, dispatchArgs[:len(dispatchArgs)-2]...), "-ExpectedAdapterExecutionDispatchBindingSha256", dispatchPreview.BindingSHA256, "-Apply", "-Format", "json"), &out); err != nil {
+		t.Fatal(err)
+	}
+	var dispatch gate.AdapterExecutionDispatchResult
+	if err := json.Unmarshal(out.Bytes(), &dispatch); err != nil || !dispatch.Applied {
+		t.Fatalf("generic-binary-re dispatch Apply incomplete: %+v err=%v", dispatch, err)
+	}
+
 	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/result.json", `{"ok":true}`)
 	writeCaseFile(t, caseRoot, "workspace/main/debug/session-1/adapter-report.json", `{
   "schemaVersion": 1,
@@ -16851,6 +16916,7 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
   "action": "debug",
   "status": "succeeded",
   "gateEventId": "`+applied.EventID+`",
+  "dispatch": {"dispatchId": "`+dispatch.Dispatch.DispatchID+`", "path": "`+dispatch.DispatchPath+`", "sha256": "`+dispatch.DispatchSHA256+`"},
   "actualBudget": {"runtimeSeconds": 24, "diskMB": 33, "requests": 1},
   "outputRefs": ["workspace/main/debug/session-1/result.json"],
   "evidenceRefs": ["workspace/main/debug/session-1/result.json"],
@@ -17162,6 +17228,7 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
   "action": "debug",
   "status": "succeeded",
   "gateEventId": "`+applied.EventID+`",
+  "dispatch": {"dispatchId": "`+dispatch.Dispatch.DispatchID+`", "path": "`+dispatch.DispatchPath+`", "sha256": "`+dispatch.DispatchSHA256+`"},
   "actualBudget": {"runtimeSeconds": 24, "diskMB": 33, "requests": 1},
   "outputRefs": ["workspace/main/debug/session-1/result.json"],
   "evidenceRefs": ["workspace/main/debug/session-1/result.json"],

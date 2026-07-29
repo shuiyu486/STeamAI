@@ -1699,6 +1699,9 @@ func appendContinueExecutionEvidenceReportDetail(lines []string, item ExecutionE
 	if strings.TrimSpace(item.AdapterID) != "" || strings.TrimSpace(item.AdapterStatus) != "" {
 		lines = append(lines, fmt.Sprintf("- adapter report: adapterId=%s status=%s", item.AdapterID, item.AdapterStatus))
 	}
+	if strings.TrimSpace(item.AdapterExecutionDispatchPath) != "" || strings.TrimSpace(item.AdapterExecutionDispatchSHA256) != "" {
+		lines = append(lines, "- dispatch: id="+firstText(item.AdapterExecutionDispatchID, "none")+" path="+firstText(item.AdapterExecutionDispatchPath, "none")+" sha256="+firstText(item.AdapterExecutionDispatchSHA256, "none"))
+	}
 	if strings.TrimSpace(item.AdapterExecutionReceiptPath) != "" || strings.TrimSpace(item.AdapterExecutionReceiptSHA256) != "" {
 		lines = append(lines, "- receipt: path="+firstText(item.AdapterExecutionReceiptPath, "none")+" sha256="+firstText(item.AdapterExecutionReceiptSHA256, "none"))
 	}

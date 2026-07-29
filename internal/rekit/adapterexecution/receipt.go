@@ -65,6 +65,47 @@ type ExecutionBinding struct {
 	Escalation       string          `json:"escalation,omitempty"`
 }
 
+type DispatchReceipt struct {
+	SchemaVersion int            `json:"schemaVersion"`
+	Kind          string         `json:"kind"`
+	DispatchID    string         `json:"dispatchId"`
+	Gate          GateBinding    `json:"gate"`
+	Adapter       AdapterBinding `json:"adapter"`
+	Owner         OwnerBinding   `json:"owner"`
+	ReportPath    string         `json:"reportPath"`
+	Actor         string         `json:"actor"`
+	RecordedAt    string         `json:"recordedAt"`
+	NoExecute     bool           `json:"noAdapterOrHeavyToolExecution"`
+	NoObservation bool           `json:"noObservationWrite"`
+	NoAuthority   bool           `json:"noAuthorityOrConfirmed"`
+}
+
+type DispatchSemanticBinding struct {
+	SchemaVersion int            `json:"schemaVersion"`
+	Kind          string         `json:"kind"`
+	Gate          GateBinding    `json:"gate"`
+	Adapter       AdapterBinding `json:"adapter"`
+	Owner         OwnerBinding   `json:"owner"`
+	ReportPath    string         `json:"reportPath"`
+	Actor         string         `json:"actor"`
+	NoExecute     bool           `json:"noAdapterOrHeavyToolExecution"`
+	NoObservation bool           `json:"noObservationWrite"`
+	NoAuthority   bool           `json:"noAuthorityOrConfirmed"`
+}
+
+type ReportDispatchBinding struct {
+	DispatchID string `json:"dispatchId"`
+	Path       string `json:"path"`
+	SHA256     string `json:"sha256"`
+}
+
+type DispatchBinding struct {
+	DispatchID string `json:"dispatchId"`
+	Path       string `json:"path"`
+	SHA256     string `json:"sha256"`
+	Bytes      int64  `json:"bytes"`
+}
+
 type FileBinding struct {
 	Path   string `json:"path"`
 	SHA256 string `json:"sha256"`
@@ -82,6 +123,7 @@ type Receipt struct {
 	SchemaVersion int               `json:"schemaVersion"`
 	Kind          string            `json:"kind"`
 	ReceiptID     string            `json:"receiptId"`
+	Dispatch      DispatchBinding   `json:"dispatch"`
 	Gate          GateBinding       `json:"gate"`
 	Adapter       AdapterBinding    `json:"adapter"`
 	Owner         OwnerBinding      `json:"owner"`
@@ -97,6 +139,7 @@ type Receipt struct {
 type Binding struct {
 	SchemaVersion int               `json:"schemaVersion"`
 	Kind          string            `json:"kind"`
+	Dispatch      DispatchBinding   `json:"dispatch"`
 	Gate          GateBinding       `json:"gate"`
 	Adapter       AdapterBinding    `json:"adapter"`
 	Owner         OwnerBinding      `json:"owner"`
@@ -118,6 +161,7 @@ func BindingFor(receipt Receipt) Binding {
 	return Binding{
 		SchemaVersion: receipt.SchemaVersion,
 		Kind:          receipt.Kind,
+		Dispatch:      receipt.Dispatch,
 		Gate:          receipt.Gate,
 		Adapter:       receipt.Adapter,
 		Owner:         receipt.Owner,
@@ -132,6 +176,29 @@ func BindingFor(receipt Receipt) Binding {
 
 func BindingSHA256(receipt Receipt) (string, error) {
 	data, err := json.Marshal(BindingFor(receipt))
+	if err != nil {
+		return "", err
+	}
+	return SHA256(data), nil
+}
+
+func DispatchBindingFor(receipt DispatchReceipt) DispatchSemanticBinding {
+	return DispatchSemanticBinding{
+		SchemaVersion: receipt.SchemaVersion,
+		Kind:          receipt.Kind,
+		Gate:          receipt.Gate,
+		Adapter:       receipt.Adapter,
+		Owner:         receipt.Owner,
+		ReportPath:    receipt.ReportPath,
+		Actor:         receipt.Actor,
+		NoExecute:     receipt.NoExecute,
+		NoObservation: receipt.NoObservation,
+		NoAuthority:   receipt.NoAuthority,
+	}
+}
+
+func DispatchBindingSHA256(receipt DispatchReceipt) (string, error) {
+	data, err := json.Marshal(DispatchBindingFor(receipt))
 	if err != nil {
 		return "", err
 	}
@@ -163,6 +230,31 @@ func ReceiptBytes(receipt Receipt) ([]byte, error) {
 	return append(data, '\n'), nil
 }
 
+func DispatchReceiptBytes(receipt DispatchReceipt) ([]byte, error) {
+	data, err := json.MarshalIndent(receipt, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(data, '\n'), nil
+}
+
+func DecodeDispatch(data []byte) (DispatchReceipt, error) {
+	var receipt DispatchReceipt
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&receipt); err != nil {
+		return DispatchReceipt{}, fmt.Errorf("invalid adapter execution dispatch receipt: %w", err)
+	}
+	var trailing any
+	if err := dec.Decode(&trailing); err != io.EOF {
+		return DispatchReceipt{}, fmt.Errorf("invalid adapter execution dispatch receipt: trailing data")
+	}
+	if err := ValidateDispatch(receipt); err != nil {
+		return DispatchReceipt{}, err
+	}
+	return receipt, nil
+}
+
 func Decode(data []byte) (Receipt, error) {
 	var receipt Receipt
 	dec := json.NewDecoder(bytes.NewReader(data))
@@ -180,12 +272,49 @@ func Decode(data []byte) (Receipt, error) {
 	return receipt, nil
 }
 
+func ValidateDispatch(receipt DispatchReceipt) error {
+	if receipt.SchemaVersion != 1 || receipt.Kind != "adapter-execution-dispatch-receipt" {
+		return fmt.Errorf("adapter execution dispatch receipt schema/kind is invalid")
+	}
+	if !validSHA256(receipt.DispatchID) || receipt.Gate.GateEventID == "" || receipt.Gate.Lane == "" || receipt.Gate.Action == "" || receipt.Gate.Authorization.Decision != autonomy.DecisionPreauthorized || !validSHA256(receipt.Gate.SnapshotSHA256) {
+		return fmt.Errorf("adapter execution dispatch receipt gate binding is invalid")
+	}
+	if receipt.Adapter.Pack == "" || receipt.Adapter.AdapterID == "" || receipt.Adapter.ToolingCatalogPath == "" || !validSHA256(receipt.Adapter.ToolingCatalogSHA256) || receipt.Adapter.ToolingCatalogBytes < 0 || receipt.Adapter.Candidate.ID == "" || !validSHA256(receipt.Adapter.CandidateSnapshotSHA256) {
+		return fmt.Errorf("adapter execution dispatch receipt adapter binding is invalid")
+	}
+	if receipt.Owner.Lane != receipt.Gate.Lane || receipt.Owner.CurrentExecutor == "" || receipt.Owner.ExecutorGeneration <= 0 || receipt.Owner.AdapterHarness == "" || receipt.Owner.AdapterSession == "" || receipt.Owner.BindingMode != "durable-lane-owner" {
+		return fmt.Errorf("adapter execution dispatch receipt owner binding is invalid")
+	}
+	if strings.TrimSpace(receipt.ReportPath) == "" {
+		return fmt.Errorf("adapter execution dispatch receipt report path binding is invalid")
+	}
+	if strings.TrimSpace(receipt.Actor) == "" || strings.TrimSpace(receipt.RecordedAt) == "" || !receipt.NoExecute || !receipt.NoObservation || !receipt.NoAuthority {
+		return fmt.Errorf("adapter execution dispatch receipt boundary is invalid")
+	}
+	bindingSHA, err := DispatchBindingSHA256(receipt)
+	if err != nil || !strings.EqualFold(bindingSHA, receipt.DispatchID) {
+		return fmt.Errorf("adapter execution dispatch receipt id does not match semantic binding")
+	}
+	candidateSHA, err := CandidateSHA256(receipt.Adapter.Candidate)
+	if err != nil || !strings.EqualFold(candidateSHA, receipt.Adapter.CandidateSnapshotSHA256) {
+		return fmt.Errorf("adapter execution dispatch receipt candidate snapshot hash mismatch")
+	}
+	gateSHA, err := GateSHA256(receipt.Gate)
+	if err != nil || !strings.EqualFold(gateSHA, receipt.Gate.SnapshotSHA256) {
+		return fmt.Errorf("adapter execution dispatch receipt gate snapshot hash mismatch")
+	}
+	return nil
+}
+
 func Validate(receipt Receipt) error {
 	if receipt.SchemaVersion != 1 || receipt.Kind != "adapter-execution-receipt" {
 		return fmt.Errorf("adapter execution receipt schema/kind is invalid")
 	}
 	if !validSHA256(receipt.ReceiptID) || receipt.Gate.GateEventID == "" || receipt.Gate.Lane == "" || receipt.Gate.Action == "" || receipt.Gate.Authorization.Decision != autonomy.DecisionPreauthorized || !validSHA256(receipt.Gate.SnapshotSHA256) {
 		return fmt.Errorf("adapter execution receipt gate binding is invalid")
+	}
+	if !validSHA256(receipt.Dispatch.DispatchID) || receipt.Dispatch.Path == "" || !validSHA256(receipt.Dispatch.SHA256) || receipt.Dispatch.Bytes <= 0 {
+		return fmt.Errorf("adapter execution receipt dispatch binding is invalid")
 	}
 	if receipt.Adapter.Pack == "" || receipt.Adapter.AdapterID == "" || receipt.Adapter.ToolingCatalogPath == "" || !validSHA256(receipt.Adapter.ToolingCatalogSHA256) || receipt.Adapter.ToolingCatalogBytes < 0 || receipt.Adapter.Candidate.ID == "" || !validSHA256(receipt.Adapter.CandidateSnapshotSHA256) {
 		return fmt.Errorf("adapter execution receipt adapter binding is invalid")
@@ -235,6 +364,36 @@ func SemanticEqual(left, right Receipt) bool {
 	leftBytes, _ := json.Marshal(left)
 	rightBytes, _ := json.Marshal(right)
 	return bytes.Equal(leftBytes, rightBytes)
+}
+
+func DispatchSemanticEqual(left, right DispatchReceipt) bool {
+	left.RecordedAt = ""
+	right.RecordedAt = ""
+	leftBytes, _ := json.Marshal(left)
+	rightBytes, _ := json.Marshal(right)
+	return bytes.Equal(leftBytes, rightBytes)
+}
+
+func ValidateCompletionDispatchLineage(receipt Receipt, dispatch DispatchReceipt, dispatchPath, dispatchSHA256 string, dispatchBytes int64) error {
+	validationReceipt := receipt
+	if strings.TrimSpace(validationReceipt.RecordedAt) == "" {
+		validationReceipt.RecordedAt = "preview"
+	}
+	if err := Validate(validationReceipt); err != nil {
+		return err
+	}
+	if err := ValidateDispatch(dispatch); err != nil {
+		return err
+	}
+	if receipt.Dispatch.DispatchID != dispatch.DispatchID || receipt.Dispatch.Path != dispatchPath || !strings.EqualFold(receipt.Dispatch.SHA256, dispatchSHA256) || receipt.Dispatch.Bytes != dispatchBytes {
+		return fmt.Errorf("adapter execution receipt dispatch path/hash binding mismatch")
+	}
+	receiptGate, _ := json.Marshal(receipt.Gate)
+	dispatchGate, _ := json.Marshal(dispatch.Gate)
+	if !bytes.Equal(receiptGate, dispatchGate) || receipt.Adapter.Pack != dispatch.Adapter.Pack || receipt.Adapter.AdapterID != dispatch.Adapter.AdapterID || receipt.Adapter.ToolingCatalogPath != dispatch.Adapter.ToolingCatalogPath || !strings.EqualFold(receipt.Adapter.ToolingCatalogSHA256, dispatch.Adapter.ToolingCatalogSHA256) || receipt.Adapter.ToolingCatalogBytes != dispatch.Adapter.ToolingCatalogBytes || !strings.EqualFold(receipt.Adapter.CandidateSnapshotSHA256, dispatch.Adapter.CandidateSnapshotSHA256) || receipt.Owner != dispatch.Owner {
+		return fmt.Errorf("adapter execution receipt does not match dispatch gate/adapter/owner bindings")
+	}
+	return nil
 }
 
 func SHA256(data []byte) string {

@@ -728,6 +728,8 @@ func Parse(args []string) (Options, error) {
 			opt.Gate.ScaffoldExecutionReport = true
 		case "-DraftExecutionReport", "--draft-execution-report":
 			opt.Gate.DraftExecutionReport = true
+		case "-RecordAdapterExecutionDispatch", "--record-adapter-execution-dispatch":
+			opt.Gate.RecordAdapterExecutionDispatch = true
 		case "-RecordAdapterExecutionReceipt", "--record-adapter-execution-receipt":
 			opt.Gate.RecordAdapterExecutionReceipt = true
 		case "-AdapterExecutionReceiptPath", "--adapter-execution-receipt-path":
@@ -766,6 +768,12 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ExpectedExecutionReportSha256")
 			}
 			opt.Gate.ExpectedExecutionReportSHA256 = args[i]
+		case "-ExpectedAdapterExecutionDispatchBindingSha256", "--expected-adapter-execution-dispatch-binding-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedAdapterExecutionDispatchBindingSha256")
+			}
+			opt.Gate.ExpectedAdapterExecutionDispatchBindingSHA256 = args[i]
 		case "-ExpectedAdapterExecutionBindingSha256", "--expected-adapter-execution-binding-sha256":
 			i++
 			if i >= len(args) {
@@ -9891,11 +9899,40 @@ func runGate(ctx runtime.Context, opt Options, out io.Writer) error {
 	if opt.Gate.DraftExecutionReport && (opt.Gate.ExecutionReportContract || opt.Gate.ValidateExecutionReport) {
 		return fmt.Errorf("gate -DraftExecutionReport cannot be combined with contract or validation modes")
 	}
+	if opt.Gate.RecordAdapterExecutionDispatch && opt.Gate.RecordAdapterExecutionReceipt {
+		return fmt.Errorf("gate adapter execution dispatch and completion receipt modes are mutually exclusive")
+	}
+	if opt.Gate.RecordAdapterExecutionDispatch && (opt.Gate.ExecutionReportContract || opt.Gate.ValidateExecutionReport || opt.Gate.ScaffoldExecutionReport || opt.Gate.DraftExecutionReport) {
+		return fmt.Errorf("gate -RecordAdapterExecutionDispatch cannot be combined with report contract, validation, scaffold, or draft modes")
+	}
 	if opt.Gate.RecordAdapterExecutionReceipt && (opt.Gate.ExecutionReportContract || opt.Gate.ValidateExecutionReport || opt.Gate.ScaffoldExecutionReport || opt.Gate.DraftExecutionReport) {
 		return fmt.Errorf("gate -RecordAdapterExecutionReceipt cannot be combined with report contract, validation, scaffold, or draft modes")
 	}
 	if err := validateAdapterExecutionReceiptModeFlags(opt); err != nil {
 		return err
+	}
+	if opt.Gate.RecordAdapterExecutionDispatch {
+		if opt.WhatIf {
+			return fmt.Errorf("gate -RecordAdapterExecutionDispatch uses read-only preview by default; omit -WhatIf")
+		}
+		if strings.TrimSpace(opt.Gate.ExecutionReportPath) == "" {
+			return fmt.Errorf("gate -RecordAdapterExecutionDispatch requires -ExecutionReportPath")
+		}
+		if opt.Apply && strings.TrimSpace(opt.Gate.ExpectedAdapterExecutionDispatchBindingSHA256) == "" {
+			return fmt.Errorf("gate -RecordAdapterExecutionDispatch -Apply requires -ExpectedAdapterExecutionDispatchBindingSha256 from preview")
+		}
+		if !opt.Apply && strings.TrimSpace(opt.Gate.ExpectedAdapterExecutionDispatchBindingSHA256) != "" {
+			return fmt.Errorf("gate -ExpectedAdapterExecutionDispatchBindingSha256 is only valid with dispatch -Apply")
+		}
+		opt.Gate.ExecutionReportCwd = ctx.Cwd
+		dispatch, err := gate.RecordAdapterExecutionDispatch(ctx.RepoRoot, target, ctx.Pack, opt.Gate)
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return writeJSON(out, dispatch)
+		}
+		return writeGateAdapterExecutionDispatchText(out, dispatch)
 	}
 	if opt.Gate.RecordAdapterExecutionReceipt {
 		if opt.WhatIf {
@@ -10073,14 +10110,29 @@ func validateAdapterExecutionReceiptModeFlags(opt Options) error {
 		}
 		flags[strings.ToLower(strings.SplitN(arg, "=", 2)[0])] = true
 	}
-	receiptOnly := []string{"-adapterharness", "--adapter-harness", "-adaptersession", "--adapter-session", "-executionexitstatus", "--execution-exit-status", "-expectedadapterexecutionbindingsha256", "--expected-adapter-execution-binding-sha256"}
-	if !opt.Gate.RecordAdapterExecutionReceipt {
-		for _, flag := range receiptOnly {
+	sharedModeOnly := []string{"-adapterharness", "--adapter-harness", "-adaptersession", "--adapter-session"}
+	dispatchOnly := []string{"-expectedadapterexecutiondispatchbindingsha256", "--expected-adapter-execution-dispatch-binding-sha256"}
+	receiptOnly := []string{"-executionexitstatus", "--execution-exit-status", "-expectedadapterexecutionbindingsha256", "--expected-adapter-execution-binding-sha256"}
+	if !opt.Gate.RecordAdapterExecutionDispatch && !opt.Gate.RecordAdapterExecutionReceipt {
+		for _, flag := range append(append(sharedModeOnly, dispatchOnly...), receiptOnly...) {
 			if flags[flag] {
-				return fmt.Errorf("%s is supported only with gate -RecordAdapterExecutionReceipt", flag)
+				return fmt.Errorf("%s is supported only with gate adapter execution dispatch or completion receipt mode", flag)
 			}
 		}
 		return nil
+	}
+	modeFlag := "-RecordAdapterExecutionDispatch"
+	modeName := "dispatch"
+	disallowed := receiptOnly
+	if opt.Gate.RecordAdapterExecutionReceipt {
+		modeFlag = "-RecordAdapterExecutionReceipt"
+		modeName = "receipt"
+		disallowed = dispatchOnly
+	}
+	for _, flag := range disallowed {
+		if flags[flag] {
+			return fmt.Errorf("gate %s cannot be combined with %s; %s mode uses an explicit flag allowlist", modeFlag, flag, modeName)
+		}
 	}
 	valueFlags := map[string]bool{
 		"-command": true, "--command": true,
@@ -10093,14 +10145,24 @@ func validateAdapterExecutionReceiptModeFlags(opt Options) error {
 		"-expectedexecutorgeneration": true, "--expected-executor-generation": true,
 		"-adapterharness": true, "--adapter-harness": true,
 		"-adaptersession": true, "--adapter-session": true,
-		"-executionexitstatus": true, "--execution-exit-status": true,
 		"-actor": true, "--actor": true,
-		"-expectedadapterexecutionbindingsha256": true, "--expected-adapter-execution-binding-sha256": true,
 		"-format": true, "--format": true,
 	}
 	booleanFlags := map[string]bool{
 		"-apply": true, "--apply": true,
-		"-recordadapterexecutionreceipt": true, "--record-adapter-execution-receipt": true,
+	}
+	if opt.Gate.RecordAdapterExecutionDispatch {
+		valueFlags["-expectedadapterexecutiondispatchbindingsha256"] = true
+		valueFlags["--expected-adapter-execution-dispatch-binding-sha256"] = true
+		booleanFlags["-recordadapterexecutiondispatch"] = true
+		booleanFlags["--record-adapter-execution-dispatch"] = true
+	} else {
+		valueFlags["-executionexitstatus"] = true
+		valueFlags["--execution-exit-status"] = true
+		valueFlags["-expectedadapterexecutionbindingsha256"] = true
+		valueFlags["--expected-adapter-execution-binding-sha256"] = true
+		booleanFlags["-recordadapterexecutionreceipt"] = true
+		booleanFlags["--record-adapter-execution-receipt"] = true
 	}
 	for index := 0; index < len(opt.rawArgs); index++ {
 		token := opt.rawArgs[index]
@@ -10111,17 +10173,17 @@ func validateAdapterExecutionReceiptModeFlags(opt Options) error {
 		if valueFlags[flag] {
 			if !strings.Contains(token, "=") {
 				if index+1 >= len(opt.rawArgs) {
-					return fmt.Errorf("gate -RecordAdapterExecutionReceipt is missing a value for %s", flag)
+					return fmt.Errorf("gate %s is missing a value for %s", modeFlag, flag)
 				}
 				value := opt.rawArgs[index+1]
 				if strings.HasPrefix(value, "-") && !adapterExecutionReceiptDashValueAllowed(flag, value) {
-					return fmt.Errorf("gate -RecordAdapterExecutionReceipt cannot be combined with %s; receipt mode uses an explicit flag allowlist", strings.ToLower(strings.SplitN(value, "=", 2)[0]))
+					return fmt.Errorf("gate %s cannot be combined with %s; %s mode uses an explicit flag allowlist", modeFlag, strings.ToLower(strings.SplitN(value, "=", 2)[0]), modeName)
 				}
 				index++
 			}
 			continue
 		}
-		return fmt.Errorf("gate -RecordAdapterExecutionReceipt cannot be combined with %s; receipt mode uses an explicit flag allowlist", flag)
+		return fmt.Errorf("gate %s cannot be combined with %s; %s mode uses an explicit flag allowlist", modeFlag, flag, modeName)
 	}
 	return nil
 }
@@ -10537,6 +10599,28 @@ func writeGateAdapterReportRepairHintText(out io.Writer, prefix string, hint gat
 	}
 	for _, boundary := range hint.Boundary {
 		if _, err := fmt.Fprintf(out, "%s boundary：action=%s boundary=%s\n", prefix, hint.RepairAction, planSubagentsTextInline(boundary)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeGateAdapterExecutionDispatchText(out io.Writer, result gate.AdapterExecutionDispatchResult) error {
+	if _, err := fmt.Fprintf(out, "gate adapter execution dispatch：applied=%t replay=%t gateEventId=%s path=%s bindingSha256=%s dispatchSha256=%s executor=%s generation=%d harness=%s session=%s reportPath=%s\n", result.Applied, result.Replay, result.GateEventID, result.DispatchPath, result.BindingSHA256, result.DispatchSHA256, result.Dispatch.Owner.CurrentExecutor, result.Dispatch.Owner.ExecutorGeneration, result.Dispatch.Owner.AdapterHarness, result.Dispatch.Owner.AdapterSession, result.Dispatch.ReportPath); err != nil {
+		return err
+	}
+	if result.ApplyCommand != "" {
+		if _, err := fmt.Fprintf(out, "gate adapter execution dispatch apply command：%s\n", result.ApplyCommand); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range result.Boundary {
+		if _, err := fmt.Fprintf(out, "gate adapter execution dispatch boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	for _, step := range result.NextSteps {
+		if _, err := fmt.Fprintf(out, "gate adapter execution dispatch next step：%s\n", step); err != nil {
 			return err
 		}
 	}

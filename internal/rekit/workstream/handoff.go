@@ -1692,6 +1692,9 @@ func writeExecutionEvidenceReportDetail(out *bytes.Buffer, item ExecutionEvidenc
 }
 
 func writeExecutionEvidenceReceiptDetail(out *bytes.Buffer, item ExecutionEvidenceReviewItem) {
+	if strings.TrimSpace(item.AdapterExecutionDispatchPath) != "" || strings.TrimSpace(item.AdapterExecutionDispatchSHA256) != "" {
+		fmt.Fprintf(out, "  - dispatch: id=%s path=%s sha256=%s\n", firstText(item.AdapterExecutionDispatchID, "none"), firstText(item.AdapterExecutionDispatchPath, "none"), firstText(item.AdapterExecutionDispatchSHA256, "none"))
+	}
 	if strings.TrimSpace(item.AdapterExecutionReceiptPath) != "" || strings.TrimSpace(item.AdapterExecutionReceiptSHA256) != "" {
 		fmt.Fprintf(out, "  - receipt: path=%s sha256=%s\n", firstText(item.AdapterExecutionReceiptPath, "none"), firstText(item.AdapterExecutionReceiptSHA256, "none"))
 	}
