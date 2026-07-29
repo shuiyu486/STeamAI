@@ -29,7 +29,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 716：pack-memory proof workflow UX
 
-状态：已完成 runtime、CLI/status text、first-screen evidence、focused regressions、完整本机 release minimum 与文档收尾；implementation commit/push 和 push-triggered remote inspection 待执行。当前不声明 remote green。
+状态：已完成 runtime、CLI/status text、first-screen evidence、focused regressions、完整本机 release minimum、文档收尾、implementation commit/push 与 push-triggered remote inspection；implementation commit `43b93b9` 已推送。Push run `30497395355` completed failure；Linux/macOS/Windows jobs `90729284089`/`90729284138`/`90729284151` 均 `steps=[]`，`gh run view 30497395355 --log-failed` 返回 `log not found: 90729284089`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。
 
 目标：把 pack-memory candidate 的 next missing proof handoff 从单条 draft/apply command 提升为 replacement executor 可直接消费的 ordered proof workflow；release-check / kit status 在缺 case-local packet 时停在 `bind-review-packet`，case-local status 绑定 packet/evidence 后切到 `draft-proof-whatif`，避免 executor 先运行带 `<packet.json>` placeholder 的 proof draft。
 
