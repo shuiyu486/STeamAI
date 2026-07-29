@@ -4256,14 +4256,94 @@ tools:
   "evidenceRefs": ["workspace/main/debug/session-1/evidence.json"],
   "summary": "Installed external adapter recovery attempt completed"
 }`)
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var attemptSelectionStatus struct {
+		CaseMission struct {
+			AuthorizedGateHandoffs      []statusAuthorizedGateHandoff       `json:"authorizedGateHandoffs"`
+			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+			MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &attemptSelectionStatus); err != nil {
+		t.Fatal(err)
+	}
+	var oldAttemptClosed, retryAttemptActive bool
+	for _, item := range attemptSelectionStatus.CaseMission.AuthorizedGateHandoffs {
+		switch item.EventID {
+		case authorized.EventID:
+			oldAttemptClosed = item.Acknowledged && item.ReportSummary != nil && item.ReportSummary.State == "evidence-already-recorded" && item.LiveValidation != nil && item.LiveValidation.SupersedingGateEventID == retryApplied.EventID
+		case retryApplied.EventID:
+			retryAttemptActive = !item.Acknowledged && item.ReportSummary != nil && item.ReportSummary.State == "ready-for-adapter-execution-receipt-preview"
+		}
+	}
+	queue := attemptSelectionStatus.CaseMission.MissionCommanderActionQueue
+	if !oldAttemptClosed || !retryAttemptActive || queue.CurrentAction == nil || queue.CurrentAction.GateEventID != retryApplied.EventID || queue.CurrentAction.State != "ready-for-adapter-execution-receipt-preview" || !strings.Contains(queue.CurrentAction.Command, "-GateEventId "+retryApplied.EventID) || strings.Contains(queue.CurrentAction.Command, authorized.EventID) {
+		t.Fatalf("installed adapter attempt selection did not choose latest executable retry: closed=%t active=%t queue=%+v handoffs=%+v", oldAttemptClosed, retryAttemptActive, queue, attemptSelectionStatus.CaseMission.AuthorizedGateHandoffs)
+	}
+	selectedReceiptCommand := strings.NewReplacer(
+		"<current-executor>", "installed-executor-b",
+		"<current-generation>", "2",
+		"<harness>", "claude-code",
+		"<session>", "installed-session-c",
+		"<exit-status>", "0",
+		"<recorded-by>", "mission-commander",
+	).Replace(queue.CurrentAction.Command)
+	for _, item := range attemptSelectionStatus.CaseMission.MissionCommanderNextActions {
+		if item.GateEventID == authorized.EventID && (strings.Contains(item.Source, "adapter") || strings.Contains(item.Source, "executionEvidenceReview")) {
+			t.Fatalf("installed adapter closed attempt leaked into action queue: %+v", item)
+		}
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "main", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	selectionHandoff := decodeHandoffResult(t, out.Bytes())
+	if selectionHandoff.MissionCommanderActionQueue.CurrentAction == nil || selectionHandoff.MissionCommanderActionQueue.CurrentAction.GateEventID != retryApplied.EventID || selectionHandoff.MissionCommanderActionQueue.CurrentAction.Command != queue.CurrentAction.Command || selectionHandoff.LaneTakeoverPackage == nil || selectionHandoff.LaneTakeoverPackage.MissionCommanderCurrentAction == nil || selectionHandoff.LaneTakeoverPackage.MissionCommanderCurrentAction.GateEventID != retryApplied.EventID || selectionHandoff.LaneTakeoverPackage.MissionCommanderCurrentAction.Command != queue.CurrentAction.Command {
+		t.Fatalf("installed adapter handoff did not preserve selected retry attempt: %+v", selectionHandoff)
+	}
+	for _, item := range selectionHandoff.MissionCommanderNextActions {
+		if item.GateEventID == authorized.EventID {
+			t.Fatalf("installed adapter handoff leaked closed attempt action: %+v", item)
+		}
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "continue", "main", "-WhatIf", "-Executor", "installed-executor-b", "-ExpectedExecutorGeneration", "2", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var selectionContinue struct {
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
+		LaneTakeoverPackage         *laneTakeoverPackage                `json:"laneTakeoverPackage"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &selectionContinue); err != nil || selectionContinue.MissionCommanderActionQueue.CurrentAction == nil || selectionContinue.MissionCommanderActionQueue.CurrentAction.GateEventID != retryApplied.EventID || selectionContinue.MissionCommanderActionQueue.CurrentAction.Command != queue.CurrentAction.Command || selectionContinue.LaneTakeoverPackage == nil || selectionContinue.LaneTakeoverPackage.MissionCommanderCurrentAction == nil || selectionContinue.LaneTakeoverPackage.MissionCommanderCurrentAction.GateEventID != retryApplied.EventID || selectionContinue.LaneTakeoverPackage.MissionCommanderCurrentAction.Command != queue.CurrentAction.Command {
+		t.Fatalf("installed adapter continue did not preserve selected retry attempt: %+v err=%v", selectionContinue, err)
+	}
+	for _, item := range selectionContinue.MissionCommanderNextActions {
+		if item.GateEventID == authorized.EventID {
+			t.Fatalf("installed adapter continue leaked closed attempt action: %+v", item)
+		}
+	}
+
+	out.Reset()
+	if err := Run(rekitCommandCLIArgs(t, selectedReceiptCommand), &out); err != nil {
+		t.Fatalf("installed adapter selected receipt command failed: %v", err)
+	}
+	var selectedReceiptPreview gate.AdapterExecutionReceiptResult
+	if err := json.Unmarshal(out.Bytes(), &selectedReceiptPreview); err != nil || selectedReceiptPreview.GateEventID != retryApplied.EventID || selectedReceiptPreview.ReceiptPath == receipt.ReceiptPath || selectedReceiptPreview.Receipt.Owner.AdapterSession != "installed-session-c" {
+		t.Fatalf("installed adapter selected receipt command targeted wrong attempt: %+v err=%v", selectedReceiptPreview, err)
+	}
+
 	retryReceiptArgs := []string{"-Command", "gate", "-GateEventId", retryApplied.EventID, "-RecordAdapterExecutionReceipt", "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-report.json", "-AdapterId", "installed-debug-adapter", "-Executor", "installed-executor-b", "-ExpectedExecutorGeneration", "2", "-AdapterHarness", "claude-code", "-AdapterSession", "installed-session-c", "-ExecutionExitStatus", "0", "-Actor", "mission-commander", "-Format", "json"}
 	out.Reset()
 	if err := Run(retryReceiptArgs, &out); err != nil {
 		t.Fatal(err)
 	}
 	var retryReceiptPreview gate.AdapterExecutionReceiptResult
-	if err := json.Unmarshal(out.Bytes(), &retryReceiptPreview); err != nil || retryReceiptPreview.BindingSHA256 == "" || retryReceiptPreview.ReceiptPath == receipt.ReceiptPath {
-		t.Fatalf("installed adapter retry receipt preview reused original namespace: %+v err=%v", retryReceiptPreview, err)
+	if err := json.Unmarshal(out.Bytes(), &retryReceiptPreview); err != nil || retryReceiptPreview.BindingSHA256 == "" || retryReceiptPreview.ReceiptPath == receipt.ReceiptPath || retryReceiptPreview.BindingSHA256 != selectedReceiptPreview.BindingSHA256 || retryReceiptPreview.ReceiptPath != selectedReceiptPreview.ReceiptPath {
+		t.Fatalf("installed adapter retry receipt preview reused or diverged from selected namespace: selected=%+v manual=%+v err=%v", selectedReceiptPreview, retryReceiptPreview, err)
 	}
 	out.Reset()
 	if err := Run(append(append([]string{}, retryReceiptArgs[:len(retryReceiptArgs)-2]...), "-ExpectedAdapterExecutionBindingSha256", retryReceiptPreview.BindingSHA256, "-Apply", "-Format", "json"), &out); err != nil {
@@ -4317,6 +4397,25 @@ tools:
 	out.Reset()
 	if err := Run(rekitCommandCLIArgs(t, retryAcknowledgementPreview.RecordCommand), &out); err != nil {
 		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var closedAttemptsStatus struct {
+		CaseMission struct {
+			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+			MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
+		} `json:"caseMission"`
+	}
+	expectedContinueCommand := "/rekit continue main -Executor installed-executor-b -ExpectedExecutorGeneration 2"
+	if err := json.Unmarshal(out.Bytes(), &closedAttemptsStatus); err != nil || closedAttemptsStatus.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || closedAttemptsStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.Source != "missionCommanderActions" || closedAttemptsStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.Command != expectedContinueCommand {
+		t.Fatalf("installed adapter closed attempts did not return to owner-bound lane continuation: %+v err=%v", closedAttemptsStatus.CaseMission, err)
+	}
+	for _, item := range closedAttemptsStatus.CaseMission.MissionCommanderNextActions {
+		if item.GateEventID == authorized.EventID || item.GateEventID == retryApplied.EventID {
+			t.Fatalf("installed adapter acknowledged attempt remained actionable after closure: %+v", item)
+		}
 	}
 	out.Reset()
 	if err := Run([]string{"-Command", "handoff", "main", "-Apply", "-Format", "json"}, &out); err != nil {

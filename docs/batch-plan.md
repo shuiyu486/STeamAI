@@ -10,6 +10,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ## 执行清单
 
+### Batch 710：adapter attempt selection closure
+
+状态：实现、focused/package/full regressions、独立 correctness review、文档收尾与本机 release minimum 已完成，待 implementation commit/push 与 push-triggered remote inspection。
+
+目标：当同一 lane 的 immutable closed attempt、distinct recovery gate 与当前 executable attempt 并存时，让 Mission Commander/status/handoff/continue/takeover package 只选择最新未闭合 attempt；全部 evidence acknowledgement closed 后确定性回到 owner-bound lane continuation，同时保留 durable provenance lineage。
+
+边界：不新增 public command、runtime branch、durable schema、pack contract 或 PowerShell runtime logic；不删除/覆盖旧 receipt，不执行 adapter/heavy tool，不写 authority/confirmed。selection 只消费现有 strict authorized gate、observation acknowledgement 与 immutable receipt 状态。
+
+已实现内容：扩展 installed nested-cwd adapter lifecycle E2E，在 distinct retry gate 已 Apply、retry receipt 尚未记录时断言 old attempt 为 acknowledged `evidence-already-recorded` provenance-only、retry attempt 为 `ready-for-adapter-execution-receipt-preview`，Mission Commander current action 唯一绑定 retry gate；status、handoff WhatIf、continue WhatIf 与 lane takeover package 保持同一 gate selection，旧 attempt 不泄漏 adapter/evidence action。retry receipt/observation/acknowledgement 完成后，status current action 返回 owner-bound `/rekit continue main`，两个 gate 均不再 actionable；后续 handoff/continue durable artifacts 仍保留两次 receipt/session lineage。现有 runtime 聚合规则已满足该闭环，因此无需生产代码改动。
+
+验证结果：`TestRunInstalledCaseShimAdapterExecutorLifecycle` focused E2E 通过（最终 11.613s）；installed + adjacent nested adapter tests `-count=3` 通过（99.085s），gate/workstream package regressions 通过；完整 `go test ./... -count=1` 最终复跑通过（CLI 251.235s），`go vet ./...` 与 Linux CLI test-binary cross-compile 通过。独立 correctness review 发现 action metadata 未验证完整 executable command 的覆盖缺口；测试已改为实际消费 runtime-selected receipt preview command，handoff/continue/takeover 完整 command 必须一致、旧 gate actions 全部排除、closure 后 continue command 精确绑定 current executor/generation，最终复核无高置信残余。`release-check`、`status`、`packs`、`doctor` 与 `git diff --check` 将在 completion 文档状态更新后复跑。本批不改变 README、CLAUDE.md、reference、配置或示例文档，因为只强化现有 status/handoff/continue selection contract 的 installed E2E，不改变用户命令、配置格式或 authoring contract。
+
 ### Batch 709：installed adapter live-validation recovery
 
 状态：已完成实现、focused/package/full regressions、独立 correctness review、文档收尾、本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `3589b80` 已推送。Push run `30416964464` completed failure；Windows/macOS/Linux jobs `90465478541`/`90465478562`/`90465478609` 均 `steps=[]`，`gh run view 30416964464 --log-failed` 返回 `log not found: 90465478541`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。
