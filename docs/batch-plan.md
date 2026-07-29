@@ -29,7 +29,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 715：adapter-specific live validation UX
 
-状态：已完成 runtime、CLI/status/overview/handoff/durable Markdown 投影、focused regressions、文档收尾与完整本机 release minimum；implementation commit/push 与 push-triggered remote release-gate inspection 待执行。
+状态：已完成 runtime、CLI/status/overview/handoff/durable Markdown 投影、focused regressions、文档收尾、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `b91cf05` 已推送。Push run `30492615021` completed failure；Windows/macOS/Linux jobs `90713904733`/`90713904798`/`90713904814` 均 `steps=[]`，`gh run view 30492615021 --log-failed` 返回 `log not found: 90713904733`，annotations 显示 GitHub account payments/spending limit blocker。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。
 
 目标：把 authorized gate → immutable dispatch → external adapter report → strict validation → receipt/evidence record → evidence review acknowledgement 的 adapter live-validation handoff 收敛成 replacement executor 可直接消费的 ordered operator run-loop，避免 contract、validation、status、overview 与 durable Markdown 各自暴露不同片段。
 
