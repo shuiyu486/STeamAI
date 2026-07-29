@@ -509,6 +509,9 @@ func writeMissionCommanderActionQueue(out *bytes.Buffer, queue MissionCommanderA
 	}
 	item := *queue.CurrentAction
 	fmt.Fprintf(out, "- current: %s %s\n", firstText(item.Label, item.Lane, "project"), workstream.MissionCommanderNextActionMarkdownLine(item))
+	for _, line := range workstream.MissionCommanderActionRunLoopMarkdownLines(queue) {
+		fmt.Fprintf(out, "- %s\n", line)
+	}
 	fmt.Fprintln(out)
 }
 

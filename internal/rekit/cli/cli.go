@@ -2958,7 +2958,7 @@ func writeStatusMissionCommanderFirstScreenText(out io.Writer, caseMission *stat
 	}
 	switch focus {
 	case "case-current-action":
-		if err := writeStatusMissionCommanderFirstScreenActionText(out, "case", caseCurrent); err != nil {
+		if err := writeStatusMissionCommanderFirstScreenActionText(out, "case", caseQueue, caseCurrent); err != nil {
 			return err
 		}
 		if caseMission != nil {
@@ -2976,7 +2976,7 @@ func writeStatusMissionCommanderFirstScreenText(out io.Writer, caseMission *stat
 			}
 		}
 	case "reviewer-current-action":
-		if err := writeStatusMissionCommanderFirstScreenActionText(out, "reviewer", reviewerCurrent); err != nil {
+		if err := writeStatusMissionCommanderFirstScreenActionText(out, "reviewer", reviewerQueue, reviewerCurrent); err != nil {
 			return err
 		}
 		if caseMission != nil {
@@ -2988,7 +2988,7 @@ func writeStatusMissionCommanderFirstScreenText(out io.Writer, caseMission *stat
 			}
 		}
 	case "pack-memory-current-action":
-		if err := writeStatusMissionCommanderFirstScreenActionText(out, "pack-memory", packCurrent); err != nil {
+		if err := writeStatusMissionCommanderFirstScreenActionText(out, "pack-memory", packQueue, packCurrent); err != nil {
 			return err
 		}
 		if projectHandoff != nil {
@@ -3000,7 +3000,7 @@ func writeStatusMissionCommanderFirstScreenText(out io.Writer, caseMission *stat
 			}
 		}
 	case "project-current-action":
-		if err := writeStatusMissionCommanderFirstScreenActionText(out, "project", projectCurrent); err != nil {
+		if err := writeStatusMissionCommanderFirstScreenActionText(out, "project", projectQueue, projectCurrent); err != nil {
 			return err
 		}
 		if projectHandoff != nil {
@@ -3295,7 +3295,7 @@ func statusProjectHandoffCurrentAction(projectHandoff *statusProjectHandoff) *mi
 	}
 }
 
-func writeStatusMissionCommanderFirstScreenActionText(out io.Writer, scope string, action *mission.MissionCommanderNextActionItem) error {
+func writeStatusMissionCommanderFirstScreenActionText(out io.Writer, scope string, queue mission.MissionCommanderActionQueue, action *mission.MissionCommanderNextActionItem) error {
 	if action == nil {
 		return nil
 	}
@@ -3311,6 +3311,9 @@ func writeStatusMissionCommanderFirstScreenActionText(out io.Writer, scope strin
 		if _, err := fmt.Fprintf(out, "status Mission Commander focus action boundary：scope=%s boundary=%s\n", scope, boundary); err != nil {
 			return err
 		}
+	}
+	if err := writeMissionCommanderActionQueueRunLoopText(out, "status Mission Commander focus action", queue); err != nil {
+		return err
 	}
 	return nil
 }
@@ -4162,6 +4165,9 @@ func writeStatusMissionCommanderActionQueueText(out io.Writer, prefix string, qu
 	}
 	if queue.CurrentAction != nil {
 		if err := writeStatusMissionCommanderActionQueueActionText(out, prefix, "current", *queue.CurrentAction); err != nil {
+			return err
+		}
+		if err := writeMissionCommanderActionQueueRunLoopText(out, prefix, queue); err != nil {
 			return err
 		}
 	}
@@ -7162,8 +7168,30 @@ func writeMissionCommanderActionQueueText(out io.Writer, queue mission.MissionCo
 		return err
 	}
 	item := *queue.CurrentAction
-	_, err := fmt.Fprintf(out, "mission commander action queue current：state=%s source=%s blocked=%t requiresReview=%t command=`%s` lane=%s label=%s gateEventId=%s actionId=%s\n", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command, item.Lane, item.Label, item.GateEventID, item.ActionID)
-	return err
+	if _, err := fmt.Fprintf(out, "mission commander action queue current：state=%s source=%s blocked=%t requiresReview=%t command=`%s` lane=%s label=%s gateEventId=%s actionId=%s\n", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command, item.Lane, item.Label, item.GateEventID, item.ActionID); err != nil {
+		return err
+	}
+	return writeMissionCommanderActionQueueRunLoopText(out, "mission commander action queue", queue)
+}
+
+func writeMissionCommanderActionQueueRunLoopText(out io.Writer, prefix string, queue mission.MissionCommanderActionQueue) error {
+	if len(queue.CurrentActionRunLoop) == 0 {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "%s run loop：currentRunLoopStep=%s steps=%d\n", prefix, queue.CurrentRunLoopStepID, len(queue.CurrentActionRunLoop)); err != nil {
+		return err
+	}
+	for _, step := range queue.CurrentActionRunLoop {
+		if _, err := fmt.Fprintf(out, "%s run loop step：order=%d step=%s actor=%s state=%s source=%s command=`%s` description=%s\n", prefix, step.Order, step.StepID, step.Actor, step.State, step.Source, step.Command, step.Description); err != nil {
+			return err
+		}
+		for _, boundary := range step.Boundary {
+			if _, err := fmt.Fprintf(out, "%s run loop boundary：step=%s boundary=%s\n", prefix, step.StepID, boundary); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func writeAuthorizedExecutionFollowThroughText(out io.Writer, prefix string, follow gate.AuthorizedExecutionFollowThrough) error {

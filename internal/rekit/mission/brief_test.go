@@ -286,6 +286,72 @@ func TestMissionCommanderActionQueuePromotesPendingGateWhatIfOverBlockedHandoff(
 	}
 }
 
+func TestMissionCommanderActionQueueAddsCurrentActionRunLoop(t *testing.T) {
+	items := []MissionCommanderNextActionItem{
+		{Lane: "main", Label: "main", State: "ready-to-continue", Command: "/rekit continue main", Source: "missionCommanderActions"},
+		{Lane: "main", Label: "main", State: "ready-to-continue", Command: "/rekit handoff main", Source: "missionCommanderActions.followUp"},
+		{Lane: "feature-login", Label: "login", State: "ready-to-continue", Command: "/rekit handoff login", Source: "missionCommanderActions.followUp"},
+	}
+
+	queue := MissionCommanderActionQueueFor(items)
+
+	if queue.CurrentAction == nil || queue.CurrentAction.Command != "/rekit continue main" || queue.CurrentRunLoopStepID != "apply-or-run-current" {
+		t.Fatalf("ready current action run loop drifted: %+v", queue)
+	}
+	assertMissionCommanderRunLoopStepIDs(t, queue.CurrentActionRunLoop, []string{"inspect-current", "apply-or-run-current", "refresh-state", "follow-up-after-refresh"})
+	if queue.CurrentActionRunLoop[1].Command != "/rekit continue main" || queue.CurrentActionRunLoop[3].Command != "/rekit handoff main" {
+		t.Fatalf("run loop did not bind current command and matching follow-up: %+v", queue.CurrentActionRunLoop)
+	}
+	if !containsSubstring(queue.CurrentActionRunLoop[1].Boundary, "Go runtime does not auto-run queued actions") || !containsSubstring(queue.CurrentActionRunLoop[3].Boundary, "remain candidates until refreshed state") {
+		t.Fatalf("run loop boundaries should preserve read-only/no-auto-run semantics: %+v", queue.CurrentActionRunLoop)
+	}
+}
+
+func TestMissionCommanderActionQueueRunLoopUsesPreviewForReviewRequiredWhatIf(t *testing.T) {
+	items := []MissionCommanderNextActionItem{
+		{Lane: "feature-login", Label: "login", State: "needs-gate-decision", Command: "/rekit gate debug -Lane feature-login -WhatIf", Source: "missionCommanderActions", RequiresReview: true},
+		{Lane: "feature-login", Label: "login", State: "needs-gate-decision", Command: "/rekit gate debug -Lane feature-login -Apply -Actor <actor>", Source: "missionCommanderActions.followUp", Blocked: true, RequiresReview: true},
+	}
+
+	queue := MissionCommanderActionQueueFor(items)
+
+	if queue.CurrentAction == nil || queue.CurrentRunLoopStepID != "preview-current" {
+		t.Fatalf("review-required WhatIf current action should stop at preview-current: %+v", queue)
+	}
+	assertMissionCommanderRunLoopStepIDs(t, queue.CurrentActionRunLoop, []string{"inspect-current", "preview-current", "refresh-state", "follow-up-after-refresh"})
+	if queue.CurrentActionRunLoop[1].Command != "/rekit gate debug -Lane feature-login -WhatIf" || !containsSubstring(queue.CurrentActionRunLoop[1].Boundary, "review preview output") {
+		t.Fatalf("preview run loop step lost WhatIf review boundary: %+v", queue.CurrentActionRunLoop[1])
+	}
+}
+
+func TestMissionCommanderActionQueueRunLoopStopsBlockedCurrentAtInspect(t *testing.T) {
+	items := []MissionCommanderNextActionItem{
+		{Lane: "feature-login", Label: "login", State: "waiting-for-reviewer-result", Command: "dispatch read-only reviewer for shard-02", Source: "reviewerDispatchIntakeHandoffs", Blocked: true, RequiresReview: true},
+	}
+
+	queue := MissionCommanderActionQueueFor(items)
+
+	if queue.CurrentAction == nil || queue.CurrentRunLoopStepID != "inspect-current" {
+		t.Fatalf("blocked current action should stop at inspect-current: %+v", queue)
+	}
+	assertMissionCommanderRunLoopStepIDs(t, queue.CurrentActionRunLoop, []string{"inspect-current", "preview-current", "refresh-state"})
+	if !containsSubstring(queue.CurrentActionRunLoop[1].Boundary, "blocked current actions must not be treated as autonomous continue/run permission") {
+		t.Fatalf("blocked current run loop should retain autonomous boundary: %+v", queue.CurrentActionRunLoop[1])
+	}
+}
+
+func assertMissionCommanderRunLoopStepIDs(t *testing.T, steps []MissionCommanderRunLoopStep, want []string) {
+	t.Helper()
+	if len(steps) != len(want) {
+		t.Fatalf("run loop length=%d, want %d: %+v", len(steps), len(want), steps)
+	}
+	for idx, step := range steps {
+		if step.Order != idx+1 || step.StepID != want[idx] {
+			t.Fatalf("run loop step %d = order=%d id=%s, want order=%d id=%s: %+v", idx, step.Order, step.StepID, idx+1, want[idx], steps)
+		}
+	}
+}
+
 func TestMissionCommanderNextActionsKeepGateSpecificEvidenceActions(t *testing.T) {
 	review := func(gateEventID, status string) ExecutionEvidenceReviewItem {
 		return ExecutionEvidenceReviewItem{

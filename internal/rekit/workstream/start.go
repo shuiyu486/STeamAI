@@ -1306,7 +1306,11 @@ func appendMissionCommanderActionQueue(lines []string, queue mission.MissionComm
 		return append(lines, "- current: none")
 	}
 	item := *queue.CurrentAction
-	return append(lines, fmt.Sprintf("- current: state=%s source=%s blocked=%t requiresReview=%t command=`%s`", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command))
+	lines = append(lines, fmt.Sprintf("- current: state=%s source=%s blocked=%t requiresReview=%t command=`%s`", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command))
+	for _, line := range MissionCommanderActionRunLoopMarkdownLines(queue) {
+		lines = append(lines, "- "+line)
+	}
+	return lines
 }
 
 func appendResumeMissionCommanderNextActions(lines []string, items []mission.MissionCommanderNextActionItem) []string {

@@ -789,6 +789,14 @@ func TestRunStatusJsonKit(t *testing.T) {
 						State   string `json:"state"`
 						Command string `json:"command"`
 					} `json:"currentAction"`
+					CurrentRunLoopStepID string `json:"currentRunLoopStepId"`
+					CurrentActionRunLoop []struct {
+						StepID  string `json:"stepId"`
+						Order   int    `json:"order"`
+						Command string `json:"command"`
+						State   string `json:"state"`
+						Source  string `json:"source"`
+					} `json:"currentActionRunLoop"`
 				} `json:"missionCommanderActionQueue"`
 				Packs []struct {
 					Pack            string `json:"pack"`
@@ -939,6 +947,10 @@ func TestRunStatusJsonKit(t *testing.T) {
 			"status Mission Commander focus action reason：scope=project reason=latest batch release inspection cadence is complete",
 			"status Mission Commander focus action reason：scope=project reason=project is ready for the next Windows-verifiable product-path batch",
 			"status Mission Commander focus action boundary：scope=project boundary=avoid single-field, summary, text, or handoff projection micro-batches; choose an operational closure with runtime or product-path verification",
+			"status Mission Commander focus action run loop：currentRunLoopStep=apply-or-run-current",
+			"status Mission Commander focus action run loop step：order=1 step=inspect-current actor=main-agent state=ready-for-next-batch-selection source=releaseHandoffNextBatch",
+			"status Mission Commander focus action run loop step：order=2 step=apply-or-run-current actor=main-agent state=ready-for-next-batch-selection source=releaseHandoffNextBatch",
+			"status Mission Commander focus action run loop step：order=3 step=refresh-state actor=main-agent",
 			"status Mission Commander focus project runbook：batch=next-batch state=ready-for-next-batch-selection",
 			"text=read docs/context-routing.md first, then only docs/batch-plan.md current/next/latest sections",
 			"text=choose a Windows-verifiable product-path closure",
@@ -19252,6 +19264,17 @@ type missionCommanderNextActionItem struct {
 	Boundary       []string `json:"boundary"`
 }
 
+type missionCommanderRunLoopStepSnapshot struct {
+	StepID      string   `json:"stepId"`
+	Order       int      `json:"order"`
+	Actor       string   `json:"actor"`
+	Description string   `json:"description"`
+	Command     string   `json:"command"`
+	State       string   `json:"state"`
+	Source      string   `json:"source"`
+	Boundary    []string `json:"boundary"`
+}
+
 type missionCommanderActionQueueSnapshot struct {
 	Summary string `json:"summary"`
 	Counts  struct {
@@ -19261,11 +19284,13 @@ type missionCommanderActionQueueSnapshot struct {
 		RequiresReview int `json:"requiresReview"`
 		FollowUp       int `json:"followUp"`
 	} `json:"counts"`
-	CurrentAction         *missionCommanderNextActionItem  `json:"currentAction"`
-	UnblockedActions      []missionCommanderNextActionItem `json:"unblockedActions"`
-	BlockedActions        []missionCommanderNextActionItem `json:"blockedActions"`
-	ReviewRequiredActions []missionCommanderNextActionItem `json:"reviewRequiredActions"`
-	FollowUpActions       []missionCommanderNextActionItem `json:"followUpActions"`
+	CurrentAction         *missionCommanderNextActionItem       `json:"currentAction"`
+	CurrentRunLoopStepID  string                                `json:"currentRunLoopStepId"`
+	CurrentActionRunLoop  []missionCommanderRunLoopStepSnapshot `json:"currentActionRunLoop"`
+	UnblockedActions      []missionCommanderNextActionItem      `json:"unblockedActions"`
+	BlockedActions        []missionCommanderNextActionItem      `json:"blockedActions"`
+	ReviewRequiredActions []missionCommanderNextActionItem      `json:"reviewRequiredActions"`
+	FollowUpActions       []missionCommanderNextActionItem      `json:"followUpActions"`
 }
 
 type authorizedExecutionFollowThroughSnapshot struct {

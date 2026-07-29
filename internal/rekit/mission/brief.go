@@ -99,10 +99,23 @@ type MissionCommanderNextActionItem struct {
 	Boundary       []string `json:"boundary,omitempty"`
 }
 
+type MissionCommanderRunLoopStep struct {
+	StepID      string   `json:"stepId"`
+	Order       int      `json:"order"`
+	Actor       string   `json:"actor"`
+	Description string   `json:"description"`
+	Command     string   `json:"command,omitempty"`
+	State       string   `json:"state,omitempty"`
+	Source      string   `json:"source,omitempty"`
+	Boundary    []string `json:"boundary,omitempty"`
+}
+
 type MissionCommanderActionQueue struct {
 	Summary               string                            `json:"summary"`
 	Counts                MissionCommanderActionQueueCounts `json:"counts"`
 	CurrentAction         *MissionCommanderNextActionItem   `json:"currentAction,omitempty"`
+	CurrentRunLoopStepID  string                            `json:"currentRunLoopStepId,omitempty"`
+	CurrentActionRunLoop  []MissionCommanderRunLoopStep     `json:"currentActionRunLoop,omitempty"`
 	UnblockedActions      []MissionCommanderNextActionItem  `json:"unblockedActions,omitempty"`
 	BlockedActions        []MissionCommanderNextActionItem  `json:"blockedActions,omitempty"`
 	ReviewRequiredActions []MissionCommanderNextActionItem  `json:"reviewRequiredActions,omitempty"`
@@ -591,6 +604,8 @@ func MissionCommanderActionQueueFor(items []MissionCommanderNextActionItem) Miss
 	}
 	if current, ok := firstMissionCommanderCurrentAction(items); ok {
 		queue.CurrentAction = missionCommanderNextActionPtr(current)
+		queue.CurrentRunLoopStepID = missionCommanderCurrentRunLoopStepID(current)
+		queue.CurrentActionRunLoop = MissionCommanderCurrentActionRunLoop(current, queue.FollowUpActions)
 	}
 	queue.Summary = MissionCommanderActionQueueSummary(queue)
 	return queue
@@ -598,6 +613,101 @@ func MissionCommanderActionQueueFor(items []MissionCommanderNextActionItem) Miss
 
 func MissionCommanderNextActionIsFollowUp(item MissionCommanderNextActionItem) bool {
 	return strings.Contains(item.Source, ".followUp")
+}
+
+func MissionCommanderCurrentActionRunLoop(current MissionCommanderNextActionItem, followUps []MissionCommanderNextActionItem) []MissionCommanderRunLoopStep {
+	steps := []MissionCommanderRunLoopStep{}
+	add := func(step MissionCommanderRunLoopStep) {
+		step.StepID = strings.TrimSpace(step.StepID)
+		step.Actor = strings.TrimSpace(step.Actor)
+		step.Description = strings.TrimSpace(step.Description)
+		if step.StepID == "" || step.Description == "" {
+			return
+		}
+		step.Order = len(steps) + 1
+		step.Boundary = UniqueStrings(step.Boundary)
+		steps = append(steps, step)
+	}
+	add(MissionCommanderRunLoopStep{
+		StepID:      "inspect-current",
+		Actor:       "main-agent",
+		Description: "inspect the selected Mission Commander current action, reasons, and boundary before running any command",
+		State:       current.State,
+		Source:      current.Source,
+		Boundary: []string{
+			"status, overview, handoff, and continue projections are read-only handoffs",
+			"do not skip blocked/review-required reasons or boundary lines when choosing the next command",
+		},
+	})
+	if strings.TrimSpace(current.Command) != "" {
+		stepID := "apply-or-run-current"
+		description := "run the current command only after inspection confirms it is the intended next action"
+		boundary := []string{
+			"the main Agent or executor runs this command explicitly; the Go runtime does not auto-run queued actions",
+			"do not write authority/confirmed state or execute heavy tools unless the command itself is an authorized gate-backed bounded action",
+		}
+		if current.Blocked || current.RequiresReview || strings.Contains(current.Command, " -WhatIf") {
+			stepID = "preview-current"
+			description = "run or review the current command as a bounded preview/review step before any apply or follow-up"
+			boundary = append(boundary, "review preview output and returned expected hashes before any apply follow-up")
+		}
+		if current.Blocked {
+			boundary = append(boundary, "blocked current actions must not be treated as autonomous continue/run permission")
+		}
+		add(MissionCommanderRunLoopStep{
+			StepID:      stepID,
+			Actor:       "main-agent",
+			Description: description,
+			Command:     current.Command,
+			State:       current.State,
+			Source:      current.Source,
+			Boundary:    boundary,
+		})
+	}
+	add(MissionCommanderRunLoopStep{
+		StepID:      "refresh-state",
+		Actor:       "main-agent",
+		Description: "rerun /rekit status or the returned command result handoff and rebuild the Mission Commander action queue",
+		Boundary: []string{
+			"only follow-up actions whose blockers are cleared and hashes match should be applied",
+			"do not assume current action completion from terminal text alone; refresh durable state first",
+		},
+	})
+	if follow := missionCommanderFirstRelevantFollowUp(current, followUps); follow.Command != "" {
+		add(MissionCommanderRunLoopStep{
+			StepID:      "follow-up-after-refresh",
+			Actor:       "main-agent",
+			Description: "after refresh confirms the blocker/review step is closed, consider the next follow-up command",
+			Command:     follow.Command,
+			State:       follow.State,
+			Source:      follow.Source,
+			Boundary: []string{
+				"follow-up commands remain candidates until refreshed state makes them current or unblocked",
+				"run -WhatIf previews before any apply follow-up when the command exposes a preview/apply pair",
+			},
+		})
+	}
+	return steps
+}
+
+func missionCommanderCurrentRunLoopStepID(current MissionCommanderNextActionItem) string {
+	if current.Blocked {
+		return "inspect-current"
+	}
+	if current.RequiresReview || strings.Contains(current.Command, " -WhatIf") {
+		return "preview-current"
+	}
+	return "apply-or-run-current"
+}
+
+func missionCommanderFirstRelevantFollowUp(current MissionCommanderNextActionItem, followUps []MissionCommanderNextActionItem) MissionCommanderNextActionItem {
+	for _, follow := range followUps {
+		if current.Lane != follow.Lane || current.Label != follow.Label || current.GateEventID != follow.GateEventID || current.ActionID != follow.ActionID || current.State != follow.State {
+			continue
+		}
+		return follow
+	}
+	return MissionCommanderNextActionItem{}
 }
 
 func missionCommanderNextActionIsIdleGuidance(item MissionCommanderNextActionItem) bool {

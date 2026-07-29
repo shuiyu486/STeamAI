@@ -770,6 +770,9 @@ func writeProjectMissionCommanderActionQueue(out *bytes.Buffer, items []mission.
 		fmt.Fprintln(out, "- current: none")
 	} else {
 		fmt.Fprintf(out, "- current: %s\n", MissionCommanderNextActionMarkdownLine(*queue.CurrentAction))
+		for _, line := range MissionCommanderActionRunLoopMarkdownLines(queue) {
+			fmt.Fprintf(out, "- %s\n", line)
+		}
 	}
 	if len(items) == 0 {
 		fmt.Fprintln(out, "- next action: none")
@@ -807,6 +810,9 @@ func writeProjectLaneMissionCommanderActionQueue(out *bytes.Buffer, queue missio
 	}
 	item := *queue.CurrentAction
 	fmt.Fprintf(out, "  - commander action queue current：%s\n", MissionCommanderNextActionMarkdownLine(item))
+	for _, line := range MissionCommanderActionRunLoopMarkdownLines(queue) {
+		fmt.Fprintf(out, "  - commander action queue %s\n", line)
+	}
 }
 
 func writeProjectLaneMissionCommanderNextActions(out *bytes.Buffer, items []mission.MissionCommanderNextActionItem) {
@@ -831,6 +837,9 @@ func writeLaneMissionCommanderActionQueue(out *bytes.Buffer, queue mission.Missi
 	}
 	item := *queue.CurrentAction
 	fmt.Fprintf(out, "- current: %s\n", MissionCommanderNextActionMarkdownLine(item))
+	for _, line := range MissionCommanderActionRunLoopMarkdownLines(queue) {
+		fmt.Fprintf(out, "- %s\n", line)
+	}
 	fmt.Fprintln(out)
 }
 
@@ -864,6 +873,20 @@ func missionCommanderNextActionLines(items []mission.MissionCommanderNextActionI
 
 func MissionCommanderNextActionMarkdownLine(item mission.MissionCommanderNextActionItem) string {
 	return fmt.Sprintf("state=%s source=%s blocked=%t requiresReview=%t command=`%s` lane=%s label=%s gateEventId=%s actionId=%s", item.State, item.Source, item.Blocked, item.RequiresReview, item.Command, item.Lane, item.Label, item.GateEventID, item.ActionID)
+}
+
+func MissionCommanderActionRunLoopMarkdownLines(queue mission.MissionCommanderActionQueue) []string {
+	if len(queue.CurrentActionRunLoop) == 0 {
+		return nil
+	}
+	lines := []string{fmt.Sprintf("current run loop：currentRunLoopStep=%s steps=%d", queue.CurrentRunLoopStepID, len(queue.CurrentActionRunLoop))}
+	for _, step := range queue.CurrentActionRunLoop {
+		lines = append(lines, fmt.Sprintf("run loop step：order=%d step=%s actor=%s state=%s source=%s command=`%s` description=%s", step.Order, step.StepID, step.Actor, step.State, step.Source, step.Command, step.Description))
+		for _, boundary := range step.Boundary {
+			lines = append(lines, fmt.Sprintf("run loop boundary：step=%s boundary=%s", step.StepID, boundary))
+		}
+	}
+	return lines
 }
 
 func limitMissionCommanderNextActionItems(items []mission.MissionCommanderNextActionItem, n int) []mission.MissionCommanderNextActionItem {
