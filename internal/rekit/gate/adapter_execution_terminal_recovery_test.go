@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/autonomy"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 )
 
@@ -177,6 +178,45 @@ func TestAdapterReportTerminalRecoveryRejectsSucceededAndMalformedCatalog(t *tes
 		_, err := DraftAdapterExecutionReport(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID, ExecutionReportPath: opt.ExecutionReportPath, AdapterID: opt.AdapterID, ExecutionStatus: "succeeded"})
 		if err == nil || !strings.Contains(err.Error(), "requires -ExecutionStatus failed|aborted") {
 			t.Fatalf("succeeded terminal recovery error = %v", err)
+		}
+	})
+
+	t.Run("existing succeeded report replays", func(t *testing.T) {
+		repoRoot, caseRoot, pack, authorized, opt := managedAdapterExecutionFixture(t)
+		contract, err := AdapterReportContract(repoRoot, caseRoot, pack, Options{GateEventID: authorized.EventID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		report := AdapterReport{
+			SchemaVersion: 1, Kind: "adapter-execution-report", AdapterID: opt.AdapterID,
+			Action: "debug", Status: "succeeded", GateEventID: authorized.EventID,
+			Dispatch:     contract.LiveValidation.SidecarTemplate.Dispatch,
+			ActualBudget: autonomy.Budget{RuntimeSeconds: 24, DiskMB: 33, Requests: 1},
+			OutputRefs:   []string{"workspace/main/debug/session-1/result.bin"}, EvidenceRefs: []string{"workspace/main/debug/session-1/evidence.json"},
+			Summary: "Adapter completed bounded debug run",
+		}
+		data, err := adapterReportBytes(report)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(caseRoot, filepath.FromSlash(opt.ExecutionReportPath)), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		draftOpt := Options{
+			GateEventID: authorized.EventID, ExecutionReportPath: opt.ExecutionReportPath,
+			AdapterID: opt.AdapterID, ExecutionStatus: "succeeded",
+			ActualRuntimeSeconds: 24, ActualDiskMB: 33, ActualRequests: 1,
+			OutputRefs: "workspace/main/debug/session-1/result.bin", EvidenceRefs: "workspace/main/debug/session-1/evidence.json",
+			Summary: "Adapter completed bounded debug run",
+		}
+		preview, err := DraftAdapterExecutionReport(repoRoot, caseRoot, pack, draftOpt)
+		if err != nil || !preview.AlreadyExists || preview.Report.Status != "succeeded" {
+			t.Fatalf("existing succeeded preview = %+v err=%v", preview, err)
+		}
+		draftOpt.ExpectedExecutionReportSHA256 = preview.ReportSHA256
+		replay, err := DraftAdapterExecutionReport(repoRoot, caseRoot, pack, draftOpt)
+		if err != nil || !replay.Applied || !replay.Replay || replay.Report.Status != "succeeded" {
+			t.Fatalf("existing succeeded replay = %+v err=%v", replay, err)
 		}
 	})
 

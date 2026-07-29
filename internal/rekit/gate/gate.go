@@ -2600,6 +2600,7 @@ func adapterReportDraftPreview(repoRoot, caseRoot, pack string, gateEvent EventP
 			"record bounded observation evidence only with the hash-bound record command returned by validation/status after valid=true",
 		},
 	}
+	recoveryStatusRequired := contract.LiveValidation.DispatchRequired && contract.LiveValidation.DispatchPresent && report.Status != "failed" && report.Status != "aborted"
 	if existing, present, err := readAdapterReportRaw(caseRoot, fullPath, reportPath); err != nil {
 		return AdapterExecutionReportDraft{}, nil, nil, "", err
 	} else if present {
@@ -2614,10 +2615,15 @@ func adapterReportDraftPreview(repoRoot, caseRoot, pack string, gateEvent EventP
 				"record bounded observation evidence only with the hash-bound record command returned by validation/status after valid=true",
 			}
 		} else if bytes.Equal(existing, scaffoldData) {
+			if recoveryStatusRequired {
+				return AdapterExecutionReportDraft{}, nil, nil, "", fmt.Errorf("gate terminal recovery for an existing immutable dispatch requires -ExecutionStatus failed|aborted; got %q", opt.ExecutionStatus)
+			}
 			result.ReplacesScaffold = true
 		} else {
 			return AdapterExecutionReportDraft{}, nil, nil, "", fmt.Errorf("gate execution report draft target already exists with different bytes; validate or repair existing sidecar instead: %s", reportPath)
 		}
+	} else if recoveryStatusRequired {
+		return AdapterExecutionReportDraft{}, nil, nil, "", fmt.Errorf("gate terminal recovery for an existing immutable dispatch requires -ExecutionStatus failed|aborted; got %q", opt.ExecutionStatus)
 	}
 	result.MissionCommanderAction = adapterReportDraftCommanderAction(result)
 	result.MissionCommanderNextActions = adapterReportDraftCommanderNextActions(gateEvent, result)
@@ -2633,9 +2639,6 @@ func adapterReportDraftFromOptions(caseRoot string, gateEvent EventPreview, cont
 	}
 	if !validExecutionStatus(status) {
 		return AdapterReport{}, fmt.Errorf("invalid ExecutionStatus %q; allowed: succeeded,failed,boundary-hit,escalated,aborted", opt.ExecutionStatus)
-	}
-	if contract.LiveValidation.DispatchRequired && contract.LiveValidation.DispatchPresent && status != "failed" && status != "aborted" {
-		return AdapterReport{}, fmt.Errorf("gate terminal recovery for an existing immutable dispatch requires -ExecutionStatus failed|aborted; got %q", opt.ExecutionStatus)
 	}
 	adapterID := strings.TrimSpace(opt.AdapterID)
 	if adapterID == "" {
