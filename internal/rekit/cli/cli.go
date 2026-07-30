@@ -2867,19 +2867,19 @@ type statusCaseShimEntrypoint struct {
 }
 
 type statusMissionControlRunbook struct {
-	Ready                       bool                                      `json:"ready"`
-	Focus                       string                                    `json:"focus"`
-	Scope                       string                                    `json:"scope"`
-	CurrentCommand              string                                    `json:"currentCommand,omitempty"`
-	CurrentRunLoopStepID        string                                    `json:"currentRunLoopStepId,omitempty"`
-	CurrentDriverRequest        *mission.MissionCommanderDriverRequest    `json:"currentDriverRequest,omitempty"`
-	GuidanceHandoff             *statusMissionControlGuidanceHandoff      `json:"guidanceHandoff,omitempty"`
-	ReplacementExecutorTakeover *statusReplacementExecutorTakeoverPackage `json:"replacementExecutorTakeoverPackage,omitempty"`
-	RefreshStatusCommand        string                                    `json:"refreshStatusCommand"`
-	Queues                      []statusMissionControlRunbookQueue        `json:"queues"`
-	RoutingReasons              []string                                  `json:"routingReasons,omitempty"`
-	RunLoop                     []statusMissionControlRunbookStep         `json:"runLoop"`
-	Boundary                    []string                                  `json:"boundary,omitempty"`
+	Ready                       bool                                        `json:"ready"`
+	Focus                       string                                      `json:"focus"`
+	Scope                       string                                      `json:"scope"`
+	CurrentCommand              string                                      `json:"currentCommand,omitempty"`
+	CurrentRunLoopStepID        string                                      `json:"currentRunLoopStepId,omitempty"`
+	CurrentDriverRequest        *mission.MissionCommanderDriverRequest      `json:"currentDriverRequest,omitempty"`
+	GuidanceHandoff             *statusMissionControlGuidanceHandoff        `json:"guidanceHandoff,omitempty"`
+	ReplacementExecutorTakeover *mission.ReplacementExecutorTakeoverPackage `json:"replacementExecutorTakeoverPackage,omitempty"`
+	RefreshStatusCommand        string                                      `json:"refreshStatusCommand"`
+	Queues                      []statusMissionControlRunbookQueue          `json:"queues"`
+	RoutingReasons              []string                                    `json:"routingReasons,omitempty"`
+	RunLoop                     []statusMissionControlRunbookStep           `json:"runLoop"`
+	Boundary                    []string                                    `json:"boundary,omitempty"`
 }
 
 type statusMissionControlGuidanceHandoff struct {
@@ -2907,27 +2907,6 @@ type statusMissionControlGuidanceReceipt struct {
 	Description          string   `json:"description"`
 	Checklist            []string `json:"checklist,omitempty"`
 	Boundary             []string `json:"boundary,omitempty"`
-}
-
-type statusReplacementExecutorTakeoverPackage struct {
-	Ready                bool                                  `json:"ready"`
-	Focus                string                                `json:"focus"`
-	Scope                string                                `json:"scope"`
-	State                string                                `json:"state,omitempty"`
-	Source               string                                `json:"source,omitempty"`
-	Label                string                                `json:"label,omitempty"`
-	ActionID             string                                `json:"actionId,omitempty"`
-	DriverKind           string                                `json:"driverKind"`
-	CommandExecutable    bool                                  `json:"commandExecutable"`
-	RequiresReview       bool                                  `json:"requiresReview"`
-	Blocked              bool                                  `json:"blocked,omitempty"`
-	Command              string                                `json:"command,omitempty"`
-	Guidance             string                                `json:"guidance,omitempty"`
-	CurrentDriverRequest mission.MissionCommanderDriverRequest `json:"currentDriverRequest"`
-	TargetDocuments      []string                              `json:"targetDocuments,omitempty"`
-	RefreshStatusCommand string                                `json:"refreshStatusCommand"`
-	RunbookSteps         []string                              `json:"runbookSteps,omitempty"`
-	Boundary             []string                              `json:"boundary,omitempty"`
 }
 
 type statusMissionControlGuidanceStarterPackage struct {
@@ -3598,34 +3577,17 @@ func statusMissionControlGuidanceHandoffFor(runbook *statusMissionControlRunbook
 	return handoff
 }
 
-func statusReplacementExecutorTakeoverPackageFor(runbook *statusMissionControlRunbook, projectHandoff *statusProjectHandoff) *statusReplacementExecutorTakeoverPackage {
+func statusReplacementExecutorTakeoverPackageFor(runbook *statusMissionControlRunbook, projectHandoff *statusProjectHandoff) *mission.ReplacementExecutorTakeoverPackage {
 	if runbook == nil || runbook.CurrentDriverRequest == nil {
 		return nil
 	}
-	request := *runbook.CurrentDriverRequest
-	request.Boundary = mission.UniqueStrings(request.Boundary)
-	request.ExpectedReceipt.Boundary = mission.UniqueStrings(request.ExpectedReceipt.Boundary)
-	pkg := &statusReplacementExecutorTakeoverPackage{
-		Ready:                true,
-		Focus:                strings.TrimSpace(runbook.Focus),
-		Scope:                strings.TrimSpace(runbook.Scope),
-		State:                strings.TrimSpace(request.State),
-		Source:               strings.TrimSpace(request.Source),
-		Label:                strings.TrimSpace(request.Label),
-		ActionID:             strings.TrimSpace(request.ActionID),
-		DriverKind:           statusFirstText(request.Kind, "unknown"),
-		CommandExecutable:    request.CommandExecutable,
-		RequiresReview:       request.RequiresReview,
-		Blocked:              request.Blocked,
-		Command:              strings.TrimSpace(request.Command),
-		Guidance:             strings.TrimSpace(request.Guidance),
-		CurrentDriverRequest: request,
-		TargetDocuments:      statusReplacementExecutorTakeoverTargetDocuments(runbook.Scope, request, projectHandoff),
-		RefreshStatusCommand: strings.TrimSpace(runbook.RefreshStatusCommand),
-	}
-	pkg.RunbookSteps = statusReplacementExecutorTakeoverRunbookSteps(pkg)
-	pkg.Boundary = statusReplacementExecutorTakeoverBoundary(pkg)
-	return pkg
+	return mission.ReplacementExecutorTakeoverPackageFor(runbook.CurrentDriverRequest, mission.ReplacementExecutorTakeoverOptions{
+		Focus:                runbook.Focus,
+		Scope:                runbook.Scope,
+		RefreshStatusCommand: runbook.RefreshStatusCommand,
+		PackagePath:          "missionControlRunbook.replacementExecutorTakeoverPackage",
+		TargetDocuments:      statusReplacementExecutorTakeoverTargetDocuments(runbook.Scope, *runbook.CurrentDriverRequest, projectHandoff),
+	})
 }
 
 func statusReplacementExecutorTakeoverTargetDocuments(scope string, request mission.MissionCommanderDriverRequest, projectHandoff *statusProjectHandoff) []string {
@@ -3647,46 +3609,6 @@ func statusReplacementExecutorTakeoverTargetDocuments(scope string, request miss
 		docs = append(docs, "missionControlRunbook.currentDriverRequest.expectedReceipt")
 	}
 	return mission.UniqueStrings(docs)
-}
-
-func statusReplacementExecutorTakeoverRunbookSteps(pkg *statusReplacementExecutorTakeoverPackage) []string {
-	if pkg == nil || !pkg.Ready {
-		return nil
-	}
-	steps := []string{
-		"read missionControlRunbook.replacementExecutorTakeoverPackage before using any prior chat context",
-		"consume currentDriverRequest exactly; do not reconstruct commands from terminal prose",
-	}
-	if pkg.Blocked {
-		steps = append(steps, "resolve the currentDriverRequest blocker before running any command or follow-up")
-	} else if pkg.CommandExecutable {
-		steps = append(steps, "run currentDriverRequest.command exactly when it is still the intended focused action")
-	} else {
-		steps = append(steps, "review currentDriverRequest.guidance and targetDocuments; do not execute guidance as a shell command")
-	}
-	if pkg.RequiresReview {
-		steps = append(steps, "review expectedReceipt and boundary before any Apply or follow-up")
-	}
-	if strings.TrimSpace(pkg.RefreshStatusCommand) != "" {
-		steps = append(steps, "after the explicit outcome, run refreshStatusCommand and rebuild status before choosing follow-up work")
-	}
-	return mission.UniqueStrings(steps)
-}
-
-func statusReplacementExecutorTakeoverBoundary(pkg *statusReplacementExecutorTakeoverPackage) []string {
-	boundary := []string{
-		"replacement executor takeover package is read-only and self-contained for status/handoff resumption",
-		"do not use prior chat context to override currentDriverRequest, expectedReceipt, or boundary",
-		"do not write authority/confirmed or execute heavy tools from this package",
-		"the Go runtime does not spawn or replace executor sessions",
-	}
-	if pkg != nil {
-		boundary = append(boundary, pkg.CurrentDriverRequest.Boundary...)
-		if !pkg.CommandExecutable {
-			boundary = append(boundary, "guidance must be reviewed, not executed as a shell command")
-		}
-	}
-	return mission.UniqueStrings(boundary)
 }
 
 func statusMissionControlGuidanceTargetDocuments(projectHandoff *statusProjectHandoff) []string {
@@ -3953,7 +3875,7 @@ func writeStatusMissionControlRunbookText(out io.Writer, runbook *statusMissionC
 	return nil
 }
 
-func writeStatusReplacementExecutorTakeoverPackageText(out io.Writer, pkg *statusReplacementExecutorTakeoverPackage) error {
+func writeStatusReplacementExecutorTakeoverPackageText(out io.Writer, pkg *mission.ReplacementExecutorTakeoverPackage) error {
 	if pkg == nil || !pkg.Ready {
 		return nil
 	}
@@ -3972,6 +3894,31 @@ func writeStatusReplacementExecutorTakeoverPackageText(out io.Writer, pkg *statu
 	}
 	for _, boundary := range pkg.Boundary {
 		if _, err := fmt.Fprintf(out, "status replacement executor takeover package boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeHandoffReplacementExecutorTakeoverPackageText(out io.Writer, pkg *mission.ReplacementExecutorTakeoverPackage) error {
+	if pkg == nil || !pkg.Ready {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "handoff replacement executor takeover package：ready=%t focus=%s scope=%s state=%s source=%s actionId=%s driverKind=%s executable=%t requiresReview=%t blocked=%t command=%s guidance=%s refresh=%s\n", pkg.Ready, pkg.Focus, pkg.Scope, pkg.State, pkg.Source, pkg.ActionID, pkg.DriverKind, pkg.CommandExecutable, pkg.RequiresReview, pkg.Blocked, pkg.Command, pkg.Guidance, pkg.RefreshStatusCommand); err != nil {
+		return err
+	}
+	for _, doc := range pkg.TargetDocuments {
+		if _, err := fmt.Fprintf(out, "handoff replacement executor takeover package target document：%s\n", doc); err != nil {
+			return err
+		}
+	}
+	for _, step := range pkg.RunbookSteps {
+		if _, err := fmt.Fprintf(out, "handoff replacement executor takeover package runbook step：%s\n", step); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range pkg.Boundary {
+		if _, err := fmt.Fprintf(out, "handoff replacement executor takeover package boundary：%s\n", boundary); err != nil {
 			return err
 		}
 	}
@@ -8622,6 +8569,9 @@ func writeHandoffText(out io.Writer, result workstream.HandoffResult) error {
 		return err
 	}
 	if err := writeLaneTakeoverPackageText(out, "handoff", result.LaneTakeoverPackage); err != nil {
+		return err
+	}
+	if err := writeHandoffReplacementExecutorTakeoverPackageText(out, result.ReplacementExecutorTakeoverPackage); err != nil {
 		return err
 	}
 	if err := writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue); err != nil {

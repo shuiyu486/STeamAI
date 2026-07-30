@@ -46,37 +46,38 @@ type ProjectNextBatchStarterPackage struct {
 }
 
 type HandoffResult struct {
-	SchemaVersion                    int                                      `json:"schemaVersion"`
-	Command                          string                                   `json:"command"`
-	CaseRoot                         string                                   `json:"caseRoot"`
-	RepoRoot                         string                                   `json:"repoRoot"`
-	Pack                             string                                   `json:"pack"`
-	IsMutation                       bool                                     `json:"isMutation"`
-	Applied                          bool                                     `json:"applied"`
-	RequiresConfirmation             bool                                     `json:"requiresConfirmation"`
-	Selector                         string                                   `json:"selector,omitempty"`
-	Project                          bool                                     `json:"project"`
-	Lane                             *Lane                                    `json:"lane,omitempty"`
-	LaneTakeoverPackage              *LaneTakeoverPackage                     `json:"laneTakeoverPackage,omitempty"`
-	MissionBrief                     mission.Brief                            `json:"missionBrief"`
-	ExecutorAction                   *laneExecutorAction                      `json:"executorAction,omitempty"`
-	LaneExecutorActions              []mission.LaneExecutorActionSnapshot     `json:"laneExecutorActions,omitempty"`
-	ExecutionEvidenceReview          []ExecutionEvidenceReviewItem            `json:"executionEvidenceReview,omitempty"`
-	ExecutionEvidenceReviewSummary   ExecutionEvidenceReviewSummary           `json:"executionEvidenceReviewSummary"`
-	ReviewerWritebacks               []ReviewerWritebackItem                  `json:"reviewerWritebacks,omitempty"`
-	ReviewerWritebackSummary         ReviewerWritebackSummary                 `json:"reviewerWritebackSummary"`
-	ReviewerDispatchIntakeHandoffs   []ReviewerDispatchIntakeHandoff          `json:"reviewerDispatchIntakeHandoffs,omitempty"`
-	ReviewerDispatchIntakeSummary    ReviewerDispatchIntakeSummary            `json:"reviewerDispatchIntakeSummary"`
-	ReviewerPacketRetirementHandoffs []ReviewerPacketRetirementHandoff        `json:"reviewerPacketRetirementHandoffs,omitempty"`
-	ReviewerPacketRetirementSummary  ReviewerPacketRetirementSummary          `json:"reviewerPacketRetirementSummary"`
-	AuthorizedGateAdapterHandoffs    []AuthorizedGateAdapterHandoff           `json:"authorizedGateAdapterHandoffs,omitempty"`
-	MissionCommanderNextActions      []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
-	MissionCommanderActionQueue      mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
-	DailyMissionControlRunbook       *DailyMissionControlRunbook              `json:"dailyMissionControlRunbook,omitempty"`
-	ProjectNextBatchStarterPackage   *ProjectNextBatchStarterPackage          `json:"projectNextBatchStarterPackage,omitempty"`
-	Writes                           []StartWrite                             `json:"writes"`
-	BlockedActions                   []string                                 `json:"blockedActions"`
-	NextSteps                        []string                                 `json:"nextSteps"`
+	SchemaVersion                      int                                         `json:"schemaVersion"`
+	Command                            string                                      `json:"command"`
+	CaseRoot                           string                                      `json:"caseRoot"`
+	RepoRoot                           string                                      `json:"repoRoot"`
+	Pack                               string                                      `json:"pack"`
+	IsMutation                         bool                                        `json:"isMutation"`
+	Applied                            bool                                        `json:"applied"`
+	RequiresConfirmation               bool                                        `json:"requiresConfirmation"`
+	Selector                           string                                      `json:"selector,omitempty"`
+	Project                            bool                                        `json:"project"`
+	Lane                               *Lane                                       `json:"lane,omitempty"`
+	LaneTakeoverPackage                *LaneTakeoverPackage                        `json:"laneTakeoverPackage,omitempty"`
+	MissionBrief                       mission.Brief                               `json:"missionBrief"`
+	ExecutorAction                     *laneExecutorAction                         `json:"executorAction,omitempty"`
+	LaneExecutorActions                []mission.LaneExecutorActionSnapshot        `json:"laneExecutorActions,omitempty"`
+	ExecutionEvidenceReview            []ExecutionEvidenceReviewItem               `json:"executionEvidenceReview,omitempty"`
+	ExecutionEvidenceReviewSummary     ExecutionEvidenceReviewSummary              `json:"executionEvidenceReviewSummary"`
+	ReviewerWritebacks                 []ReviewerWritebackItem                     `json:"reviewerWritebacks,omitempty"`
+	ReviewerWritebackSummary           ReviewerWritebackSummary                    `json:"reviewerWritebackSummary"`
+	ReviewerDispatchIntakeHandoffs     []ReviewerDispatchIntakeHandoff             `json:"reviewerDispatchIntakeHandoffs,omitempty"`
+	ReviewerDispatchIntakeSummary      ReviewerDispatchIntakeSummary               `json:"reviewerDispatchIntakeSummary"`
+	ReviewerPacketRetirementHandoffs   []ReviewerPacketRetirementHandoff           `json:"reviewerPacketRetirementHandoffs,omitempty"`
+	ReviewerPacketRetirementSummary    ReviewerPacketRetirementSummary             `json:"reviewerPacketRetirementSummary"`
+	AuthorizedGateAdapterHandoffs      []AuthorizedGateAdapterHandoff              `json:"authorizedGateAdapterHandoffs,omitempty"`
+	MissionCommanderNextActions        []mission.MissionCommanderNextActionItem    `json:"missionCommanderNextActions,omitempty"`
+	MissionCommanderActionQueue        mission.MissionCommanderActionQueue         `json:"missionCommanderActionQueue"`
+	DailyMissionControlRunbook         *DailyMissionControlRunbook                 `json:"dailyMissionControlRunbook,omitempty"`
+	ReplacementExecutorTakeoverPackage *mission.ReplacementExecutorTakeoverPackage `json:"replacementExecutorTakeoverPackage,omitempty"`
+	ProjectNextBatchStarterPackage     *ProjectNextBatchStarterPackage             `json:"projectNextBatchStarterPackage,omitempty"`
+	Writes                             []StartWrite                                `json:"writes"`
+	BlockedActions                     []string                                    `json:"blockedActions"`
+	NextSteps                          []string                                    `json:"nextSteps"`
 }
 
 func HandoffPreview(repoRoot, caseRoot, pack string, opt HandoffOptions) (HandoffResult, error) {
@@ -255,6 +256,9 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 		missionCommanderNext = mission.UniqueCommanderNextActions(append(append([]mission.MissionCommanderNextActionItem{}, missionCommanderNext...), ctx.projectMissionCommanderNextActions...))
 	}
 	missionCommanderActionQueue := mission.MissionCommanderActionQueueFor(missionCommanderNext)
+	runbookScope := handoffRunbookScope(ctx.project, ctx.selector)
+	dailyRunbook := DailyMissionControlRunbookFor(ctx.inst.CaseRoot, runbookScope, missionCommanderActionQueue, handoffPreviewCommand(ctx.inst.CaseRoot, ctx.selector), handoffApplyCommand(ctx.inst.CaseRoot, ctx.selector))
+	replacementExecutorTakeoverPackage := handoffReplacementExecutorTakeoverPackage(ctx.inst.CaseRoot, runbookScope, lane, missionCommanderActionQueue, dailyRunbook)
 	var laneTakeoverPackage *LaneTakeoverPackage
 	if lane != nil && executorAction != nil {
 		laneTakeoverPackage = laneTakeoverPackageFor(ctx.inst.CaseRoot, *lane, *executorAction, missionCommanderActionQueue, false)
@@ -272,37 +276,38 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 	}
 	next = mission.UniqueStrings(next)
 	return HandoffResult{
-		SchemaVersion:                    1,
-		Command:                          "handoff",
-		CaseRoot:                         ctx.inst.CaseRoot,
-		RepoRoot:                         ctx.manifest.RepoRoot,
-		Pack:                             ctx.manifest.Pack,
-		IsMutation:                       mutating,
-		Applied:                          applied,
-		RequiresConfirmation:             confirm,
-		Selector:                         ctx.selector,
-		Project:                          ctx.project,
-		Lane:                             lane,
-		LaneTakeoverPackage:              laneTakeoverPackage,
-		MissionBrief:                     brief,
-		ExecutorAction:                   executorAction,
-		LaneExecutorActions:              laneExecutorActions,
-		ExecutionEvidenceReview:          executionEvidenceReview,
-		ExecutionEvidenceReviewSummary:   ExecutionEvidenceReviewSummaryFor(executionEvidenceReview, missionCommanderActionQueue),
-		ReviewerWritebacks:               reviewerWritebacks,
-		ReviewerWritebackSummary:         ReviewerWritebackSummaryFor(reviewerWritebacks),
-		ReviewerDispatchIntakeHandoffs:   reviewerDispatchIntakeHandoffs,
-		ReviewerDispatchIntakeSummary:    ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
-		ReviewerPacketRetirementHandoffs: reviewerPacketRetirementHandoffs,
-		ReviewerPacketRetirementSummary:  ReviewerPacketRetirementSummaryFor(reviewerPacketRetirementHandoffs),
-		AuthorizedGateAdapterHandoffs:    authorizedGateAdapterHandoffs,
-		MissionCommanderNextActions:      missionCommanderNext,
-		MissionCommanderActionQueue:      missionCommanderActionQueue,
-		DailyMissionControlRunbook:       DailyMissionControlRunbookFor(ctx.inst.CaseRoot, handoffRunbookScope(ctx.project, ctx.selector), missionCommanderActionQueue, handoffPreviewCommand(ctx.inst.CaseRoot, ctx.selector), handoffApplyCommand(ctx.inst.CaseRoot, ctx.selector)),
-		ProjectNextBatchStarterPackage:   cloneProjectNextBatchStarterPackage(ctx.projectNextBatchStarterPackage),
-		Writes:                           writes,
-		BlockedActions:                   []string{"authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "continue auto-apply", "board/facts/lane creation"},
-		NextSteps:                        next,
+		SchemaVersion:                      1,
+		Command:                            "handoff",
+		CaseRoot:                           ctx.inst.CaseRoot,
+		RepoRoot:                           ctx.manifest.RepoRoot,
+		Pack:                               ctx.manifest.Pack,
+		IsMutation:                         mutating,
+		Applied:                            applied,
+		RequiresConfirmation:               confirm,
+		Selector:                           ctx.selector,
+		Project:                            ctx.project,
+		Lane:                               lane,
+		LaneTakeoverPackage:                laneTakeoverPackage,
+		MissionBrief:                       brief,
+		ExecutorAction:                     executorAction,
+		LaneExecutorActions:                laneExecutorActions,
+		ExecutionEvidenceReview:            executionEvidenceReview,
+		ExecutionEvidenceReviewSummary:     ExecutionEvidenceReviewSummaryFor(executionEvidenceReview, missionCommanderActionQueue),
+		ReviewerWritebacks:                 reviewerWritebacks,
+		ReviewerWritebackSummary:           ReviewerWritebackSummaryFor(reviewerWritebacks),
+		ReviewerDispatchIntakeHandoffs:     reviewerDispatchIntakeHandoffs,
+		ReviewerDispatchIntakeSummary:      ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
+		ReviewerPacketRetirementHandoffs:   reviewerPacketRetirementHandoffs,
+		ReviewerPacketRetirementSummary:    ReviewerPacketRetirementSummaryFor(reviewerPacketRetirementHandoffs),
+		AuthorizedGateAdapterHandoffs:      authorizedGateAdapterHandoffs,
+		MissionCommanderNextActions:        missionCommanderNext,
+		MissionCommanderActionQueue:        missionCommanderActionQueue,
+		DailyMissionControlRunbook:         dailyRunbook,
+		ReplacementExecutorTakeoverPackage: replacementExecutorTakeoverPackage,
+		ProjectNextBatchStarterPackage:     cloneProjectNextBatchStarterPackage(ctx.projectNextBatchStarterPackage),
+		Writes:                             writes,
+		BlockedActions:                     []string{"authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "continue auto-apply", "board/facts/lane creation"},
+		NextSteps:                          next,
 	}
 }
 
@@ -338,6 +343,37 @@ func handoffCommand(caseRoot, selector string, apply bool) string {
 		parts[i] = quoteCommandArg(part)
 	}
 	return strings.Join(parts, " ")
+}
+
+func handoffReplacementExecutorTakeoverPackage(caseRoot, scope string, lane *Lane, queue mission.MissionCommanderActionQueue, runbook *DailyMissionControlRunbook) *mission.ReplacementExecutorTakeoverPackage {
+	refresh := dailyMissionControlStatusCommand(caseRoot)
+	if runbook != nil && strings.TrimSpace(runbook.RefreshStatusCommand) != "" {
+		refresh = runbook.RefreshStatusCommand
+	}
+	return mission.ReplacementExecutorTakeoverPackageFor(queue.CurrentDriverRequest, mission.ReplacementExecutorTakeoverOptions{
+		Focus:                "durable-handoff-current-action",
+		Scope:                scope,
+		RefreshStatusCommand: refresh,
+		PackagePath:          "replacementExecutorTakeoverPackage",
+		TargetDocuments:      handoffReplacementExecutorTakeoverTargetDocuments(lane, queue.CurrentDriverRequest),
+	})
+}
+
+func handoffReplacementExecutorTakeoverTargetDocuments(lane *Lane, request *mission.MissionCommanderDriverRequest) []string {
+	docs := []string{"replacementExecutorTakeoverPackage", "missionCommanderActionQueue.currentDriverRequest", "dailyMissionControlRunbook.currentDriverRequest"}
+	if lane == nil {
+		docs = append(docs, ".rekit/handovers/latest.md")
+	} else {
+		docs = append(docs,
+			".rekit/handovers/"+lane.ID+"-latest.md",
+			relJoin(lane.LaneRoot, "prompts", "RESUME.md"),
+			relJoin(lane.LaneRoot, "checkpoints", "latest.json"),
+		)
+	}
+	if request != nil && request.RequiresReview {
+		docs = append(docs, "replacementExecutorTakeoverPackage.currentDriverRequest.expectedReceipt")
+	}
+	return mission.UniqueStrings(docs)
 }
 
 func (ctx handoffContext) missionBrief() (mission.Brief, error) {
@@ -683,7 +719,8 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 	}
 	fmt.Fprintln(&out)
 	writeProjectMissionBrief(&out, ctx.board.Lanes, facts, ctx.currentLanes())
-	WriteAuthorizedGateAdapterHandoffSection(&out, "## Authorized gate adapter handoff", AuthorizedGateAdapterHandoffsWithAcknowledgements(ctx.manifest.RepoRoot, ctx.inst.CaseRoot, ctx.manifest.Pack, facts.Requests, "", ExecutionEvidenceReviewAcknowledgedIDs(facts)))
+	authorizedGateAdapterHandoffs := AuthorizedGateAdapterHandoffsWithAcknowledgements(ctx.manifest.RepoRoot, ctx.inst.CaseRoot, ctx.manifest.Pack, facts.Requests, "", ExecutionEvidenceReviewAcknowledgedIDs(facts))
+	WriteAuthorizedGateAdapterHandoffSection(&out, "## Authorized gate adapter handoff", authorizedGateAdapterHandoffs)
 	writeReviewerWritebackItems(&out, ReviewerWritebackItems(facts, ""))
 	reviewerDispatchIntakeHandoffs, err := ReviewerDispatchIntakeHandoffs(ctx.inst.CaseRoot, facts, "")
 	if err != nil {
@@ -695,7 +732,17 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 		return "", nil, err
 	}
 	WriteReviewerPacketRetirementHandoffSection(&out, "## Reviewer packet retirement handoff", reviewerPacketRetirementHandoffs)
-	writeProjectMissionCommanderActionQueue(&out, ctx.projectMissionCommanderNextActions)
+	projectLaneActions := ctx.laneExecutorActions()
+	projectExecutionEvidenceReview := ctx.projectExecutionEvidenceReview()
+	projectMissionCommanderNext := mission.MissionCommanderNextActions(projectLaneActions, projectExecutionEvidenceReview, handoffHasBlockedAction(projectLaneActions))
+	projectMissionCommanderNext = MissionCommanderNextActionsWithAuthorizedGateAdaptersAndAcknowledgements(projectMissionCommanderNext, authorizedGateAdapterHandoffs, ExecutionEvidenceReviewAcknowledgedIDs(facts))
+	projectMissionCommanderNext = MissionCommanderNextActionsWithReviewerDispatches(projectMissionCommanderNext, reviewerDispatchIntakeHandoffs)
+	if len(ctx.projectMissionCommanderNextActions) > 0 {
+		projectMissionCommanderNext = mission.UniqueCommanderNextActions(append(append([]mission.MissionCommanderNextActionItem{}, projectMissionCommanderNext...), ctx.projectMissionCommanderNextActions...))
+	}
+	writeProjectMissionCommanderActionQueue(&out, projectMissionCommanderNext)
+	projectActionQueue := mission.MissionCommanderActionQueueFor(projectMissionCommanderNext)
+	writeReplacementExecutorTakeoverPackage(&out, handoffReplacementExecutorTakeoverPackage(ctx.inst.CaseRoot, "project", nil, projectActionQueue, nil))
 	writeProjectNextBatchStarterPackage(&out, ctx.projectNextBatchStarterPackage)
 	fmt.Fprintln(&out, "## 工作线")
 	fmt.Fprintln(&out)
@@ -767,6 +814,29 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 	}
 	fmt.Fprintln(&out, "- 多工作线时不要使用无参数 `/rekit continue` 盲目继续，应使用 `/rekit continue main` 或 `/rekit continue <name>`。")
 	return out.String(), writes, nil
+}
+
+func writeReplacementExecutorTakeoverPackage(out *bytes.Buffer, pkg *mission.ReplacementExecutorTakeoverPackage) {
+	if pkg == nil || !pkg.Ready {
+		return
+	}
+	fmt.Fprintln(out, "## Replacement executor takeover package")
+	fmt.Fprintln(out)
+	fmt.Fprintf(out, "- ready: %t\n", pkg.Ready)
+	fmt.Fprintf(out, "- focus: %s scope=%s state=%s source=%s actionId=%s\n", pkg.Focus, pkg.Scope, pkg.State, pkg.Source, pkg.ActionID)
+	fmt.Fprintf(out, "- driver: kind=%s executable=%t requiresReview=%t blocked=%t command=`%s` guidance=`%s`\n", pkg.DriverKind, pkg.CommandExecutable, pkg.RequiresReview, pkg.Blocked, pkg.Command, pkg.Guidance)
+	fmt.Fprintf(out, "- refresh: `%s`\n", pkg.RefreshStatusCommand)
+	fmt.Fprintf(out, "- current driver request: kind=%s step=%s actor=%s executable=%t blocked=%t requiresReview=%t command=`%s` guidance=`%s`\n", pkg.CurrentDriverRequest.Kind, pkg.CurrentDriverRequest.RunLoopStepID, pkg.CurrentDriverRequest.Actor, pkg.CurrentDriverRequest.CommandExecutable, pkg.CurrentDriverRequest.Blocked, pkg.CurrentDriverRequest.RequiresReview, pkg.CurrentDriverRequest.Command, pkg.CurrentDriverRequest.Guidance)
+	for _, doc := range pkg.TargetDocuments {
+		fmt.Fprintf(out, "- target document: %s\n", doc)
+	}
+	for idx, step := range pkg.RunbookSteps {
+		fmt.Fprintf(out, "- runbook step %d: %s\n", idx+1, step)
+	}
+	for _, boundary := range pkg.Boundary {
+		fmt.Fprintf(out, "- boundary: %s\n", boundary)
+	}
+	fmt.Fprintln(out)
 }
 
 func writeDailyMissionControlRunbook(out *bytes.Buffer, runbook *DailyMissionControlRunbook) {
@@ -993,10 +1063,19 @@ func limitMissionCommanderNextActionItems(items []mission.MissionCommanderNextAc
 }
 
 func limitProjectMissionCommanderNextActionItems(items []mission.MissionCommanderNextActionItem, n int) []mission.MissionCommanderNextActionItem {
-	if projectNextBatchCandidateQueue(items) {
+	if projectNextBatchCandidateQueue(items) || projectQueueContainsNextBatchGuidance(items) {
 		return items
 	}
 	return limitMissionCommanderNextActionItems(items, n)
+}
+
+func projectQueueContainsNextBatchGuidance(items []mission.MissionCommanderNextActionItem) bool {
+	for _, item := range items {
+		if strings.HasPrefix(strings.TrimSpace(item.Source), "releaseHandoffNextBatch") {
+			return true
+		}
+	}
+	return false
 }
 
 func projectNextBatchCandidateQueue(items []mission.MissionCommanderNextActionItem) bool {
@@ -1238,7 +1317,9 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 	}
 	writeLaneMissionBrief(&out, lane, facts, executorAction)
 	writeLaneMissionCommanderActionQueue(&out, missionCommanderActionQueue)
-	writeDailyMissionControlRunbook(&out, DailyMissionControlRunbookFor(ctx.inst.CaseRoot, "lane:"+label, missionCommanderActionQueue, handoffPreviewCommand(ctx.inst.CaseRoot, label), handoffApplyCommand(ctx.inst.CaseRoot, label)))
+	dailyRunbook := DailyMissionControlRunbookFor(ctx.inst.CaseRoot, "lane:"+label, missionCommanderActionQueue, handoffPreviewCommand(ctx.inst.CaseRoot, label), handoffApplyCommand(ctx.inst.CaseRoot, label))
+	writeDailyMissionControlRunbook(&out, dailyRunbook)
+	writeReplacementExecutorTakeoverPackage(&out, handoffReplacementExecutorTakeoverPackage(ctx.inst.CaseRoot, "lane:"+label, &lane, missionCommanderActionQueue, dailyRunbook))
 	writeLaneMissionCommanderNextActions(&out, missionCommanderNextActions)
 	for _, line := range appendLaneTakeoverPackage(nil, laneTakeoverPackageFor(ctx.inst.CaseRoot, lane, executorAction, missionCommanderActionQueue, false)) {
 		fmt.Fprintln(&out, line)

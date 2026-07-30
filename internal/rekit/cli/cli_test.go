@@ -8643,6 +8643,9 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 	if laneHandoff.LaneTakeoverPackage == nil || !laneHandoff.LaneTakeoverPackage.Ready || !laneHandoff.LaneTakeoverPackage.ContinueReady || laneHandoff.LaneTakeoverPackage.CurrentExecutor != "session-main-replacement" || laneHandoff.LaneTakeoverPackage.ExecutorGeneration != 2 || laneHandoff.LaneTakeoverPackage.HandoffPath != ".rekit/handovers/main-latest.md" || laneHandoff.LaneTakeoverPackage.CurrentCommand != "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2" || !containsSubstring(laneHandoff.LaneTakeoverPackage.RunbookSteps, "owner-bound continue") {
 		t.Fatalf("lane handoff omitted lane takeover package: %+v", laneHandoff.LaneTakeoverPackage)
 	}
+	if takeoverPackage := laneHandoff.ReplacementExecutorTakeoverPackage; takeoverPackage == nil || !takeoverPackage.Ready || takeoverPackage.Focus != "durable-handoff-current-action" || takeoverPackage.Scope != "lane:main" || takeoverPackage.DriverKind != "execute-command" || !takeoverPackage.CommandExecutable || takeoverPackage.RequiresReview || takeoverPackage.Command != "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2" || takeoverPackage.CurrentDriverRequest.Command != takeoverPackage.Command || !containsSubstring(takeoverPackage.TargetDocuments, ".rekit/handovers/main-latest.md") || !containsSubstring(takeoverPackage.TargetDocuments, "missionCommanderActionQueue.currentDriverRequest") || !containsSubstring(takeoverPackage.RunbookSteps, "read replacementExecutorTakeoverPackage before using any prior chat context") || !containsSubstring(takeoverPackage.RunbookSteps, "run currentDriverRequest.command exactly") || !containsSubstring(takeoverPackage.Boundary, "read-only and self-contained") {
+		t.Fatalf("lane handoff omitted replacement executor takeover package: %+v", takeoverPackage)
+	}
 	laneLatest := assertStartWrite(t, laneHandoff.Writes, ".rekit/handovers/main-latest.md", "write-latest-lane-handoff")
 	laneHandoffText, err := os.ReadFile(laneLatest.TargetPath)
 	if err != nil {
@@ -8651,7 +8654,7 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 	if !strings.Contains(string(laneHandoffText), "current executor：session-main-replacement") || !strings.Contains(string(laneHandoffText), "executor generation：2") || !strings.Contains(string(laneHandoffText), "直接说：按 `.rekit/handovers/main-latest.md` 接手，然后执行 `/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2`。") {
 		t.Fatalf("lane handoff omitted replacement executor handoff text:\n%s", string(laneHandoffText))
 	}
-	for _, expected := range []string{"## Lane takeover package", "- resume: `.rekit/lanes/main/prompts/RESUME.md`", "- checkpoint: `.rekit/lanes/main/checkpoints/latest.json`", "- handoff: `.rekit/handovers/main-latest.md`", "- continue command: `/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2`", "- boundary: lane takeover package is read-only guidance; it does not claim a new executor"} {
+	for _, expected := range []string{"## Lane takeover package", "- resume: `.rekit/lanes/main/prompts/RESUME.md`", "- checkpoint: `.rekit/lanes/main/checkpoints/latest.json`", "- handoff: `.rekit/handovers/main-latest.md`", "- continue command: `/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2`", "- boundary: lane takeover package is read-only guidance; it does not claim a new executor", "## Replacement executor takeover package", "- focus: durable-handoff-current-action scope=lane:main", "- target document: missionCommanderActionQueue.currentDriverRequest", "- target document: .rekit/handovers/main-latest.md", "- runbook step 1: read replacementExecutorTakeoverPackage before using any prior chat context", "- boundary: replacement executor takeover package is read-only and self-contained"} {
 		if !strings.Contains(string(laneHandoffText), expected) {
 			t.Fatalf("lane handoff missing takeover package text %q:\n%s", expected, string(laneHandoffText))
 		}
@@ -8941,6 +8944,10 @@ func TestRunHandoffApplyWritesNextBatchCandidateDomains(t *testing.T) {
 	}) {
 		t.Fatalf("project handoff JSON omitted replacement-executor candidate-domain follow-up: %+v", result.MissionCommanderNextActions)
 	}
+	takeover := result.ReplacementExecutorTakeoverPackage
+	if takeover == nil || !takeover.Ready || takeover.Focus != "durable-handoff-current-action" || takeover.Scope != "project" || takeover.DriverKind != "execute-command" || !takeover.CommandExecutable || takeover.RequiresReview || takeover.Command != "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 1" || takeover.CurrentDriverRequest.Command != takeover.Command || !containsSubstring(takeover.TargetDocuments, ".rekit/handovers/latest.md") || !containsSubstring(takeover.TargetDocuments, "missionCommanderActionQueue.currentDriverRequest") || !containsSubstring(takeover.RunbookSteps, "read replacementExecutorTakeoverPackage before using any prior chat context") || !containsSubstring(takeover.Boundary, "read-only and self-contained") {
+		t.Fatalf("project handoff JSON omitted replacement executor takeover package: %+v", takeover)
+	}
 	starter := result.ProjectNextBatchStarterPackage
 	if starter == nil || !starter.Ready || starter.LatestCompletedBatch != "Batch 682" || starter.SuggestedNextBatch != "Batch 683" || !strings.Contains(starter.CurrentBatchSection, "### Batch 683") || !strings.Contains(starter.CurrentBatchSection, "验证标准：") || !strings.Contains(starter.ChangelogEntry, "Batch 683") || !containsSubstring(starter.ValidationCommands, "go test ./...") || !containsSubstring(starter.ReleaseCadenceSteps, "implementation commit") || !containsSubstring(starter.Boundary, "starter package is read-only guidance") {
 		t.Fatalf("project handoff JSON omitted durable next-batch starter package: %+v", starter)
@@ -8965,13 +8972,19 @@ func TestRunHandoffApplyWritesNextBatchCandidateDomains(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"## Project Mission Commander action queue",
-		"counts: total=8 unblocked=8 blocked=0 requiresReview=0 followUp=7",
+		"counts: total=14 unblocked=11 blocked=3 requiresReview=4 followUp=11",
 		"actionId=next-batch-selection",
 		"actionId=next-batch-replacement-executor-takeover",
 		"command=`select a replacement executor takeover slice that can be resumed from status or durable handoff without prior chat context`",
 		"pack-memory candidate queue is closed: no pack-memory candidate cleanup is pending",
 		"candidate-domain follow-ups are selection guidance only",
 		"do not execute reviewer, adapter, pack-memory, gate, or heavy-tool mutations from next-batch selection guidance",
+		"## Replacement executor takeover package",
+		"focus: durable-handoff-current-action scope=project",
+		"target document: missionCommanderActionQueue.currentDriverRequest",
+		"target document: .rekit/handovers/latest.md",
+		"runbook step 1: read replacementExecutorTakeoverPackage before using any prior chat context",
+		"boundary: replacement executor takeover package is read-only and self-contained",
 		"## Project next-batch starter package",
 		"latestCompletedBatch: Batch 682",
 		"suggestedNextBatch: Batch 683",
@@ -9196,13 +9209,19 @@ func TestRunInstalledCaseShimDurableNextBatchTakeoverProductPath(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"## Project Mission Commander action queue",
-		"counts: total=8 unblocked=8 blocked=0 requiresReview=0 followUp=7",
+		"counts: total=14 unblocked=11 blocked=3 requiresReview=4 followUp=11",
 		"actionId=next-batch-selection",
 		"actionId=next-batch-replacement-executor-takeover",
 		"command=`select a replacement executor takeover slice that can be resumed from status or durable handoff without prior chat context`",
 		"pack-memory candidate queue is closed: no pack-memory candidate cleanup is pending",
 		"candidate-domain follow-ups are selection guidance only",
 		"do not execute reviewer, adapter, pack-memory, gate, or heavy-tool mutations from next-batch selection guidance",
+		"## Replacement executor takeover package",
+		"focus: durable-handoff-current-action scope=project",
+		"target document: missionCommanderActionQueue.currentDriverRequest",
+		"target document: .rekit/handovers/latest.md",
+		"runbook step 1: read replacementExecutorTakeoverPackage before using any prior chat context",
+		"boundary: replacement executor takeover package is read-only and self-contained",
 		"## Project next-batch starter package",
 		"latestCompletedBatch: Batch 683",
 		"suggestedNextBatch: Batch 684",
@@ -18699,30 +18718,31 @@ type startResult struct {
 }
 
 type handoffResult struct {
-	Command                        string                                 `json:"command"`
-	Pack                           string                                 `json:"pack"`
-	IsMutation                     bool                                   `json:"isMutation"`
-	Applied                        bool                                   `json:"applied"`
-	RequiresConfirmation           bool                                   `json:"requiresConfirmation"`
-	Project                        bool                                   `json:"project"`
-	Lane                           *startLane                             `json:"lane"`
-	LaneTakeoverPackage            *laneTakeoverPackage                   `json:"laneTakeoverPackage"`
-	MissionBrief                   missionBrief                           `json:"missionBrief"`
-	ExecutorAction                 *executorActionSnapshot                `json:"executorAction"`
-	LaneExecutorActions            []handoffLaneExecutorAction            `json:"laneExecutorActions"`
-	ExecutionEvidenceReview        []executionEvidenceReviewItem          `json:"executionEvidenceReview"`
-	ExecutionEvidenceReviewSummary executionEvidenceReviewSummarySnapshot `json:"executionEvidenceReviewSummary"`
-	ReviewerWritebacks             []reviewerWritebackCLIItem             `json:"reviewerWritebacks"`
-	ReviewerWritebackSummary       reviewerWritebackSummaryCLIItem        `json:"reviewerWritebackSummary"`
-	ReviewerDispatchIntakeHandoffs []reviewerDispatchIntakeCLIItem        `json:"reviewerDispatchIntakeHandoffs"`
-	ReviewerDispatchIntakeSummary  reviewerDispatchIntakeSummaryCLIItem   `json:"reviewerDispatchIntakeSummary"`
-	AuthorizedGateAdapterHandoffs  []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
-	MissionCommanderNextActions    []missionCommanderNextActionItem       `json:"missionCommanderNextActions"`
-	MissionCommanderActionQueue    missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
-	DailyMissionControlRunbook     *dailyMissionControlRunbookSnapshot    `json:"dailyMissionControlRunbook"`
-	ProjectNextBatchStarterPackage *projectNextBatchStarterPackage        `json:"projectNextBatchStarterPackage"`
-	Writes                         []startWrite                           `json:"writes"`
-	NextSteps                      []string                               `json:"nextSteps"`
+	Command                            string                                      `json:"command"`
+	Pack                               string                                      `json:"pack"`
+	IsMutation                         bool                                        `json:"isMutation"`
+	Applied                            bool                                        `json:"applied"`
+	RequiresConfirmation               bool                                        `json:"requiresConfirmation"`
+	Project                            bool                                        `json:"project"`
+	Lane                               *startLane                                  `json:"lane"`
+	LaneTakeoverPackage                *laneTakeoverPackage                        `json:"laneTakeoverPackage"`
+	MissionBrief                       missionBrief                                `json:"missionBrief"`
+	ExecutorAction                     *executorActionSnapshot                     `json:"executorAction"`
+	LaneExecutorActions                []handoffLaneExecutorAction                 `json:"laneExecutorActions"`
+	ExecutionEvidenceReview            []executionEvidenceReviewItem               `json:"executionEvidenceReview"`
+	ExecutionEvidenceReviewSummary     executionEvidenceReviewSummarySnapshot      `json:"executionEvidenceReviewSummary"`
+	ReviewerWritebacks                 []reviewerWritebackCLIItem                  `json:"reviewerWritebacks"`
+	ReviewerWritebackSummary           reviewerWritebackSummaryCLIItem             `json:"reviewerWritebackSummary"`
+	ReviewerDispatchIntakeHandoffs     []reviewerDispatchIntakeCLIItem             `json:"reviewerDispatchIntakeHandoffs"`
+	ReviewerDispatchIntakeSummary      reviewerDispatchIntakeSummaryCLIItem        `json:"reviewerDispatchIntakeSummary"`
+	AuthorizedGateAdapterHandoffs      []authorizedGateAdapterHandoffSnapshot      `json:"authorizedGateAdapterHandoffs"`
+	MissionCommanderNextActions        []missionCommanderNextActionItem            `json:"missionCommanderNextActions"`
+	MissionCommanderActionQueue        missionCommanderActionQueueSnapshot         `json:"missionCommanderActionQueue"`
+	DailyMissionControlRunbook         *dailyMissionControlRunbookSnapshot         `json:"dailyMissionControlRunbook"`
+	ReplacementExecutorTakeoverPackage *replacementExecutorTakeoverPackageSnapshot `json:"replacementExecutorTakeoverPackage"`
+	ProjectNextBatchStarterPackage     *projectNextBatchStarterPackage             `json:"projectNextBatchStarterPackage"`
+	Writes                             []startWrite                                `json:"writes"`
+	NextSteps                          []string                                    `json:"nextSteps"`
 }
 
 type projectNextBatchStarterPackage struct {
@@ -18735,6 +18755,27 @@ type projectNextBatchStarterPackage struct {
 	ReleaseCadenceSteps     []string `json:"releaseCadenceSteps"`
 	RecommendedStarterSteps []string `json:"recommendedStarterSteps"`
 	Boundary                []string `json:"boundary"`
+}
+
+type replacementExecutorTakeoverPackageSnapshot struct {
+	Ready                bool                                  `json:"ready"`
+	Focus                string                                `json:"focus"`
+	Scope                string                                `json:"scope"`
+	State                string                                `json:"state"`
+	Source               string                                `json:"source"`
+	Label                string                                `json:"label"`
+	ActionID             string                                `json:"actionId"`
+	DriverKind           string                                `json:"driverKind"`
+	CommandExecutable    bool                                  `json:"commandExecutable"`
+	RequiresReview       bool                                  `json:"requiresReview"`
+	Blocked              bool                                  `json:"blocked"`
+	Command              string                                `json:"command"`
+	Guidance             string                                `json:"guidance"`
+	CurrentDriverRequest missionCommanderDriverRequestSnapshot `json:"currentDriverRequest"`
+	TargetDocuments      []string                              `json:"targetDocuments"`
+	RefreshStatusCommand string                                `json:"refreshStatusCommand"`
+	RunbookSteps         []string                              `json:"runbookSteps"`
+	Boundary             []string                              `json:"boundary"`
 }
 
 type laneTakeoverPackage struct {

@@ -69,7 +69,7 @@ func DailyMissionControlRunbookFor(caseRoot, scope string, queue mission.Mission
 		request := *queue.CurrentDriverRequest
 		runbook.CurrentDriverRequest = &request
 	}
-	runbook.RunLoop = dailyMissionControlRunLoop(runbook, queue)
+	runbook.RunLoop = dailyMissionControlRunLoop(runbook)
 	return runbook
 }
 
@@ -81,7 +81,7 @@ func dailyMissionControlStatusCommand(caseRoot string) string {
 	return "/rekit status -Target " + quoteCommandArg(caseRoot) + " -Format json"
 }
 
-func dailyMissionControlRunLoop(runbook *DailyMissionControlRunbook, queue mission.MissionCommanderActionQueue) []DailyMissionControlRunbookStep {
+func dailyMissionControlRunLoop(runbook *DailyMissionControlRunbook) []DailyMissionControlRunbookStep {
 	steps := []DailyMissionControlRunbookStep{
 		{
 			StepID:            "inspect-status",

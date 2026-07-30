@@ -70,8 +70,18 @@ func TestLimitProjectMissionCommanderNextActionItemsKeepsNextBatchCandidateQueue
 		t.Fatalf("next-batch candidate-domain queue should not be truncated in project durable handoff: %+v", limited)
 	}
 
+	mixed := append([]mission.MissionCommanderNextActionItem{{Label: "main", State: "ready-to-continue", Source: "missionCommanderActions", Command: "/rekit continue main"}}, items...)
+	mixedLimited := limitProjectMissionCommanderNextActionItems(mixed, 2)
+	if len(mixedLimited) != len(mixed) || mixedLimited[0].Command != "/rekit continue main" || !slices.ContainsFunc(mixedLimited, func(item mission.MissionCommanderNextActionItem) bool {
+		return item.ActionID == "next-batch-replacement-executor-takeover"
+	}) {
+		t.Fatalf("mixed project queue should preserve injected next-batch guidance for durable handoff: %+v", mixedLimited)
+	}
+
 	ordinary := append([]mission.MissionCommanderNextActionItem{}, items...)
-	ordinary[0].Source = "missionCommanderActions"
+	for idx := range ordinary {
+		ordinary[idx].Source = "missionCommanderActions"
+	}
 	ordinaryLimited := limitProjectMissionCommanderNextActionItems(ordinary, 2)
 	if len(ordinaryLimited) != 2 || slices.ContainsFunc(ordinaryLimited, func(item mission.MissionCommanderNextActionItem) bool { return item.ActionID == "next-batch-selection" }) {
 		t.Fatalf("ordinary project action queue should keep existing tail limit semantics: %+v", ordinaryLimited)
