@@ -29,7 +29,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 728：reviewer/session failed completion redispatch product path
 
-状态：已完成本机实现、focused failed-redispatch regression、相邻 reviewer/session regression、完整 CLI package regression 与完整本机 release minimum；implementation commit/push 与 push-triggered remote inspection 待完成。
+状态：已完成本机实现、focused failed-redispatch regression、相邻 reviewer/session regression、完整 CLI package regression、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `e6e5029` 已推送。Push run `30521634218` completed failure；macOS/Windows/Linux jobs `90803146001`/`90803146055`/`90803146060` 均 `steps=[]`，`gh run view 30521634218 --log-failed` 返回 EOF。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。
 
 目标：把 failed reviewer completion receipt 后的 operator takeover 做成可验证产品路径：replacement executor 看到 failed receipt 后不能进入 source capture / staging / collection / intake，也不能把失败尝试误写为 reviewer verification/decision；必须从 status/operator package 回到 `spawn-reviewer` redispatch 路径，保留 failed receipt provenance，并允许同一 packet/shard 用新的 harness/session 记录 distinct dispatch receipt。
 
