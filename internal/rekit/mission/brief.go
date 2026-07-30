@@ -628,18 +628,25 @@ func MissionCommanderCurrentActionRunLoop(current MissionCommanderNextActionItem
 		step.Boundary = UniqueStrings(step.Boundary)
 		steps = append(steps, step)
 	}
+	inspectBoundary := []string{
+		"status, overview, handoff, and continue projections are read-only handoffs",
+		"do not skip blocked/review-required reasons or boundary lines when choosing the next command",
+	}
+	if strings.TrimSpace(current.Command) != "" && !MissionCommanderNextActionCommandExecutable(current.Command) {
+		inspectBoundary = append(inspectBoundary, "not every current action command is shell-executable; guidance text must be reviewed but not run as a command")
+	}
+	if current.Blocked {
+		inspectBoundary = append(inspectBoundary, "blocked current actions must not be treated as autonomous continue/run permission")
+	}
 	add(MissionCommanderRunLoopStep{
 		StepID:      "inspect-current",
 		Actor:       "main-agent",
 		Description: "inspect the selected Mission Commander current action, reasons, and boundary before running any command",
 		State:       current.State,
 		Source:      current.Source,
-		Boundary: []string{
-			"status, overview, handoff, and continue projections are read-only handoffs",
-			"do not skip blocked/review-required reasons or boundary lines when choosing the next command",
-		},
+		Boundary:    inspectBoundary,
 	})
-	if strings.TrimSpace(current.Command) != "" {
+	if strings.TrimSpace(current.Command) != "" && MissionCommanderNextActionCommandExecutable(current.Command) {
 		stepID := "apply-or-run-current"
 		description := "run the current command only after inspection confirms it is the intended next action"
 		boundary := []string{
@@ -691,13 +698,18 @@ func MissionCommanderCurrentActionRunLoop(current MissionCommanderNextActionItem
 }
 
 func missionCommanderCurrentRunLoopStepID(current MissionCommanderNextActionItem) string {
-	if current.Blocked {
+	if current.Blocked || !MissionCommanderNextActionCommandExecutable(current.Command) {
 		return "inspect-current"
 	}
 	if current.RequiresReview || strings.Contains(current.Command, " -WhatIf") {
 		return "preview-current"
 	}
 	return "apply-or-run-current"
+}
+
+func MissionCommanderNextActionCommandExecutable(command string) bool {
+	command = strings.TrimSpace(command)
+	return strings.HasPrefix(command, "/rekit") || strings.HasPrefix(command, "rekit")
 }
 
 func missionCommanderFirstRelevantFollowUp(current MissionCommanderNextActionItem, followUps []MissionCommanderNextActionItem) MissionCommanderNextActionItem {

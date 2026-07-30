@@ -307,6 +307,27 @@ func TestMissionCommanderActionQueueAddsCurrentActionRunLoop(t *testing.T) {
 	}
 }
 
+func TestMissionCommanderActionQueueRunLoopKeepsGuidanceOutOfExecutableCommandSteps(t *testing.T) {
+	items := []MissionCommanderNextActionItem{
+		{State: "ready-for-next-batch-selection", Command: "select the next Windows-verifiable product-path closure", Source: "releaseHandoffNextBatch"},
+	}
+
+	queue := MissionCommanderActionQueueFor(items)
+
+	if queue.CurrentAction == nil || queue.CurrentAction.Command != "select the next Windows-verifiable product-path closure" || queue.CurrentRunLoopStepID != "inspect-current" {
+		t.Fatalf("guidance current action should remain visible but not executable: %+v", queue)
+	}
+	assertMissionCommanderRunLoopStepIDs(t, queue.CurrentActionRunLoop, []string{"inspect-current", "refresh-state"})
+	for _, step := range queue.CurrentActionRunLoop {
+		if step.Command == "select the next Windows-verifiable product-path closure" {
+			t.Fatalf("guidance text must not be exposed as an executable run-loop command: %+v", queue.CurrentActionRunLoop)
+		}
+	}
+	if !containsSubstring(queue.CurrentActionRunLoop[0].Boundary, "not every current action command is shell-executable") {
+		t.Fatalf("guidance run loop should explain executable command boundary: %+v", queue.CurrentActionRunLoop)
+	}
+}
+
 func TestMissionCommanderActionQueueRunLoopUsesPreviewForReviewRequiredWhatIf(t *testing.T) {
 	items := []MissionCommanderNextActionItem{
 		{Lane: "feature-login", Label: "login", State: "needs-gate-decision", Command: "/rekit gate -Action debug -Lane feature-login -WhatIf", Source: "missionCommanderActions", RequiresReview: true},
@@ -334,9 +355,14 @@ func TestMissionCommanderActionQueueRunLoopStopsBlockedCurrentAtInspect(t *testi
 	if queue.CurrentAction == nil || queue.CurrentRunLoopStepID != "inspect-current" {
 		t.Fatalf("blocked current action should stop at inspect-current: %+v", queue)
 	}
-	assertMissionCommanderRunLoopStepIDs(t, queue.CurrentActionRunLoop, []string{"inspect-current", "preview-current", "refresh-state"})
-	if !containsSubstring(queue.CurrentActionRunLoop[1].Boundary, "blocked current actions must not be treated as autonomous continue/run permission") {
-		t.Fatalf("blocked current run loop should retain autonomous boundary: %+v", queue.CurrentActionRunLoop[1])
+	assertMissionCommanderRunLoopStepIDs(t, queue.CurrentActionRunLoop, []string{"inspect-current", "refresh-state"})
+	for _, step := range queue.CurrentActionRunLoop {
+		if step.Command == "dispatch read-only reviewer for shard-02" {
+			t.Fatalf("blocked guidance text must not be exposed as executable run-loop command: %+v", queue.CurrentActionRunLoop)
+		}
+	}
+	if !containsSubstring(queue.CurrentActionRunLoop[0].Boundary, "blocked current actions must not be treated as autonomous continue/run permission") || !containsSubstring(queue.CurrentActionRunLoop[0].Boundary, "not every current action command is shell-executable") {
+		t.Fatalf("blocked current run loop should retain autonomous and executable-boundary guidance: %+v", queue.CurrentActionRunLoop[0])
 	}
 }
 
