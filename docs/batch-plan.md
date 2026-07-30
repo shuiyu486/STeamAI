@@ -29,7 +29,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 730：reviewer adoption → stale-owner redispatch driver-request consumer loop
 
-状态：已完成本机实现、focused driver-loop regression、相邻 CLI/workstream/mission regression、完整 CLI package regression 与完整本机 release minimum；implementation commit/push 与 push-triggered remote inspection 待完成。
+状态：已完成本机实现、focused driver-loop regression、相邻 CLI/workstream/mission regression、完整 CLI package regression、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `c1880f2` 已推送。Push run `30524126119` completed failure；Linux/macOS/Windows jobs `90811010567`/`90811010568`/`90811010599` 均 `steps=[]`，`gh run view 30524126119 --log-failed` 返回 `log not found: 90811010567`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。
 
 目标：把 Batch 729 的 stale-owner reviewer packet adoption → redispatch 路径从“测试/接手者知道该调用哪些 receipt API”推进为 typed `currentDriverRequest` consumer loop：replacement executor 从 first-screen Mission Commander queue 或 reviewer dispatch queue 读取 current driver request，执行 adoption preview/apply、refresh，再执行 replacement dispatch preview/apply、refresh，而不是回退 operator package 字段或手写 CLI。
 
