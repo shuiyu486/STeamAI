@@ -32,6 +32,19 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 
 
+
+### Batch 749：Reviewer result recovery runbook handoff
+
+状态：本机实现、focused validation 与完整本机 release minimum 已完成；implementation commit/push 与 push-triggered remote inspection 待记录。本批选择 `reviewer-orchestration`，推进 Reviewer result recovery runbook handoff；release handoff candidate guidance 是：select a reviewer orchestration slice that improves bounded dispatch, intake, writeback, or recovery without auto-spawning reviewers。上一批完成后仍需要解决的接手断点必须落在该 domain 的可操作 product-path closure 上，并能由 status/handoff/continue/release-check 或必要临时 case 验证；本批不是字段、文案或 summary 投影微调。
+
+目标：把 `reviewer-orchestration` candidate 收敛成 Windows 本机可验证的闭环：Reviewer result recovery runbook handoff。实现应复用既有 typed handoff/envelope 和 deterministic runtime 边界，让 Mission Commander 或 replacement executor 能从 durable docs/status 消费结果，不依赖上一会话隐性上下文；focused work 必须证明该候选命令所描述的能力：select a reviewer orchestration slice that improves bounded dispatch, intake, writeback, or recovery without auto-spawning reviewers。
+
+已实现：`plan-subagents -RecoverReviewerResult` 的 direct recovery JSON 现在输出 `runbookSteps[]`，text output 同步输出 `reviewer result recovery runbook` 行；runbook 明确串起 `-RecoverReviewerResult -WhatIf` 复核 candidate/canonical hashes 与 recovery paths、只运行带 `-ExpectedCandidateSha256` / `-ExpectedReviewerResultSha256` 的 hash-bound Apply、中断恢复必须先 finalize receipt，以及恢复记录完成后回到 `-CollectReviewerResult -WhatIf`。该 closure 不改变 recovery mutation 边界：仍只隔离 exact conflicting canonical reviewer result 或 typed obstruction，不覆盖 candidate、不写 facts/authority/confirmed、不执行 reviewer/heavy tool。
+
+边界：本批不新增 PowerShell runtime logic，不执行 heavy-tool，不写 authority/confirmed，不自动执行 reviewer/adapter/pack-memory/gate/sync/promote mutation，不自动提交或声明 remote CI green；`/rekit next-batch -Apply` 只在 expected hash 匹配时写 kit repo `docs/batch-plan.md` 与 `CHANGELOG.md` planning receipt。
+
+验证：focused regressions 已通过：`go test ./internal/rekit/subagents -run "TestRecoverReviewerResult" -count=1`、`go test ./internal/rekit/cli -run "TestRunPlanSubagentsReviewerResult(ObstructionRecovery|RecoveryDisposition)CaseLocalE2E" -count=1`。完整本机 release minimum 已执行：`release-check -Format json` 在 implementation commit/push 与 remote inspection 写回前按预期返回 `ready=false` / `summary=release gate inventory has warnings`；`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 已通过（仅 Windows LF→CRLF warning）。实现完成后记录 implementation commit/push 与 push-triggered remote release-gate inspection；远程 `steps=[]` 仍只记录 blocker，不声明 green。
+
 ### Batch 748：Mission Commander status-to-handoff preview route
 
 状态：本机实现、focused validation、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection 已完成；implementation commit `1ef281b` 已推送。本批选择 `mission-commander`，推进 Mission Commander status-to-handoff preview route；release handoff candidate guidance 是：select a Mission Commander operational closure slice with status/handoff/continue product-path verification。Push run `30585540686` completed failure；Windows/Linux/macOS jobs `91015912328`/`91015912344`/`91015912379` 均 `steps=[]`，annotations 显示 GitHub account payments/spending limit blocker，`gh run view 30585540686 --log-failed` 返回 `log not found: 91015912328`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。

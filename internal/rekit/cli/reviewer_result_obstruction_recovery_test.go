@@ -82,14 +82,14 @@ func TestRunPlanSubagentsReviewerResultObstructionRecoveryCaseLocalE2E(t *testin
 	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
 		t.Fatal(err)
 	}
-	if preview.Applied || preview.ReviewerResultKind != "empty-file" || preview.ReviewerResultSHA256 == "" {
+	if preview.Applied || preview.ReviewerResultKind != "empty-file" || preview.ReviewerResultSHA256 == "" || !containsSubstring(preview.RunbookSteps, "-RecoverReviewerResult") || !containsSubstring(preview.RunbookSteps, "-ExpectedCandidateSha256") || !containsSubstring(preview.RunbookSteps, "-ExpectedReviewerResultSha256") || !containsSubstring(preview.RunbookSteps, "hash-bound") {
 		t.Fatalf("unexpected obstruction recovery preview: %+v", preview)
 	}
 	out.Reset()
 	if err := Run(append(append([]string{}, args...), "-WhatIf", "-Format", "text"), &out); err != nil {
 		t.Fatal(err)
 	}
-	if text := out.String(); !strings.Contains(text, "canonicalKind=empty-file") || !strings.Contains(text, "canonicalMode=") || !strings.Contains(text, "canonicalLinkTarget=") {
+	if text := out.String(); !strings.Contains(text, "canonicalKind=empty-file") || !strings.Contains(text, "canonicalMode=") || !strings.Contains(text, "canonicalLinkTarget=") || !strings.Contains(text, "reviewer result recovery runbook：") || !strings.Contains(text, "-RecoverReviewerResult") || !strings.Contains(text, "-ExpectedCandidateSha256") || !strings.Contains(text, "-ExpectedReviewerResultSha256") {
 		t.Fatalf("obstruction snapshot omitted from text output: %s", text)
 	}
 
@@ -102,7 +102,7 @@ func TestRunPlanSubagentsReviewerResultObstructionRecoveryCaseLocalE2E(t *testin
 	if err := json.Unmarshal(out.Bytes(), &applied); err != nil {
 		t.Fatal(err)
 	}
-	if !applied.Applied || applied.ReviewerResultKind != "empty-file" {
+	if !applied.Applied || applied.ReviewerResultKind != "empty-file" || !containsSubstring(applied.RunbookSteps, "-CollectReviewerResult") {
 		t.Fatalf("unexpected obstruction recovery apply: %+v", applied)
 	}
 	if st, err := os.Lstat(applied.QuarantinePath); err != nil || !st.Mode().IsRegular() || st.Size() != 0 {
@@ -146,7 +146,7 @@ func TestRunPlanSubagentsReviewerResultObstructionRecoveryCaseLocalE2E(t *testin
 	if err := json.Unmarshal(out.Bytes(), &finalized); err != nil {
 		t.Fatal(err)
 	}
-	if !finalized.Applied || finalized.AlreadyRecovered || finalized.MissionCommanderAction.State != "reviewer-result-recovery-already-applied" {
+	if !finalized.Applied || finalized.AlreadyRecovered || finalized.MissionCommanderAction.State != "reviewer-result-recovery-already-applied" || !containsSubstring(finalized.RunbookSteps, "-CollectReviewerResult") {
 		t.Fatalf("unexpected interrupted recovery finalize apply: %+v", finalized)
 	}
 	if _, err := os.Lstat(finalized.ReceiptPath); err != nil {

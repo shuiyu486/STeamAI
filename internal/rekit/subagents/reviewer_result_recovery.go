@@ -158,6 +158,7 @@ type ReviewerResultRecoveryResult struct {
 	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions"`
 	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
 	NextSteps                   []string                                 `json:"nextSteps"`
+	RunbookSteps                []string                                 `json:"runbookSteps"`
 	Boundary                    []string                                 `json:"boundary"`
 }
 
@@ -355,6 +356,7 @@ func finalizeReviewerResultRecoveryResult(result ReviewerResultRecoveryResult) R
 			Boundary:       result.Boundary,
 		}
 	}
+	result.RunbookSteps = reviewerResultRecoveryRunbookSteps(result)
 	result.MissionCommanderNextActions = []mission.MissionCommanderNextActionItem{{
 		Lane: result.Lane, Label: result.PacketID, ActionID: result.PacketID + ":" + result.ShardID,
 		State: result.MissionCommanderAction.State, Command: result.MissionCommanderAction.PrimaryCommand,
@@ -363,6 +365,17 @@ func finalizeReviewerResultRecoveryResult(result ReviewerResultRecoveryResult) R
 	}}
 	result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
 	return result
+}
+
+func reviewerResultRecoveryRunbookSteps(result ReviewerResultRecoveryResult) []string {
+	steps := reviewerResultWritebackRunbookSteps("recovery", result.MissionCommanderAction.State, result.MissionCommanderAction.PrimaryCommand, result.NextSteps, result.Boundary)
+	steps = append([]string{
+		"start reviewer result recovery with -RecoverReviewerResult -WhatIf and inspect candidateSha256, canonical reviewerResultSha256, quarantinePath, intentPath, and receiptPath in this envelope",
+		"run only the returned hash-bound -RecoverReviewerResult -Apply command containing -ExpectedCandidateSha256 and -ExpectedReviewerResultSha256",
+		"if recovery was interrupted after quarantine but before receipt write, finalize it with the returned expected-hash recovery Apply before collection or intake",
+		"after recovery is recorded, rerun reviewer result collection -WhatIf with -CollectReviewerResult before any collection Apply or reviewer intake",
+	}, steps...)
+	return uniqueReviewerResultRunbookSteps(steps)
 }
 
 func validateReviewerResultRecoveryExpectedHashes(opt ReviewerResultRecoveryOptions) error {

@@ -46,6 +46,10 @@ func TestRecoverReviewerResultWhatIfApplyCollectionAndIntake(t *testing.T) {
 	if preview.Applied || preview.CandidateSHA256 == "" || preview.ReviewerResultSHA256 == "" || !strings.Contains(preview.MissionCommanderAction.PrimaryCommand, "-ExpectedCandidateSha256") {
 		t.Fatalf("unexpected recovery preview: %+v", preview)
 	}
+	assertReviewerRunbookContains(t, preview.RunbookSteps, "-RecoverReviewerResult")
+	assertReviewerRunbookContains(t, preview.RunbookSteps, "-ExpectedCandidateSha256")
+	assertReviewerRunbookContains(t, preview.RunbookSteps, "-ExpectedReviewerResultSha256")
+	assertReviewerRunbookContains(t, preview.RunbookSteps, "hash-bound")
 	if _, err := os.Stat(preview.QuarantinePath); !os.IsNotExist(err) {
 		t.Fatalf("recovery WhatIf wrote quarantine: %v", err)
 	}
@@ -60,6 +64,8 @@ func TestRecoverReviewerResultWhatIfApplyCollectionAndIntake(t *testing.T) {
 	if !applied.Applied || applied.MissionCommanderAction.State != "reviewer-result-recovered-ready-for-collection-preview" {
 		t.Fatalf("unexpected recovery apply: %+v", applied)
 	}
+	assertReviewerRunbookContains(t, applied.RunbookSteps, "-CollectReviewerResult")
+	assertReviewerRunbookContains(t, applied.RunbookSteps, "separate bounded operations")
 	quarantined, err := os.ReadFile(applied.QuarantinePath)
 	if err != nil || string(quarantined) != string(corrupt) {
 		t.Fatalf("quarantine bytes = %q err=%v", quarantined, err)
@@ -71,6 +77,7 @@ func TestRecoverReviewerResultWhatIfApplyCollectionAndIntake(t *testing.T) {
 	if err != nil || !replayed.AlreadyRecovered || !replayed.Applied {
 		t.Fatalf("recovery replay: %+v err=%v", replayed, err)
 	}
+	assertReviewerRunbookContains(t, replayed.RunbookSteps, "-CollectReviewerResult")
 
 	writeReviewerSessionReceiptsForResult(t, handoff, candidate)
 	collectionOpt := ReviewerResultCollectionOptions{PacketPath: plan.PacketPath, ShardID: handoff.ShardID, Lane: packet.TargetLane, Actor: "mission-commander", WhatIf: true}
@@ -159,6 +166,9 @@ func TestRecoverReviewerResultResumesInterruptedIntent(t *testing.T) {
 	if resumePreview.MissionCommanderAction.State != "needs-reviewer-result-recovery-finalize-apply" {
 		t.Fatalf("unexpected interrupted recovery preview: %+v", resumePreview)
 	}
+	assertReviewerRunbookContains(t, resumePreview.RunbookSteps, "interrupted")
+	assertReviewerRunbookContains(t, resumePreview.RunbookSteps, "-ExpectedCandidateSha256")
+	assertReviewerRunbookContains(t, resumePreview.RunbookSteps, "before collection or intake")
 	opt.WhatIf = false
 	opt.ExpectedCandidateSHA256 = preview.CandidateSHA256
 	opt.ExpectedReviewerResultSHA256 = preview.ReviewerResultSHA256
@@ -169,6 +179,7 @@ func TestRecoverReviewerResultResumesInterruptedIntent(t *testing.T) {
 	if !resumed.Applied || resumed.AlreadyRecovered {
 		t.Fatalf("unexpected resumed recovery: %+v", resumed)
 	}
+	assertReviewerRunbookContains(t, resumed.RunbookSteps, "-CollectReviewerResult")
 	if _, err := readReviewerResultRecoveryReceipt(caseRoot, paths.receiptPath); err != nil {
 		t.Fatal(err)
 	}
