@@ -27,6 +27,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 729：reviewer/session stale-owner takeover redispatch product path
+
+状态：已完成本机实现、focused stale-owner redispatch regression、相邻 reviewer/session/adoption regression、完整 CLI package regression 与完整本机 release minimum；implementation commit/push 与 push-triggered remote inspection 待完成。
+
+目标：把 lane takeover 后旧 reviewer session receipt 的 stale-owner 状态做成可验证产品路径：旧 owner 已记录 dispatch/failed completion receipt 时，新 owner 不能继续旧 session、不能 source-capture/intake，也不能误写 verification/decision；必须先 reviewer packet adoption，再从 status/operator package 回到 `spawn-reviewer` replacement dispatch，并记录绑定 adopted owner provenance 的 distinct dispatch receipt。
+
+边界：不新增 public command、durable schema、PowerShell runtime logic、Claude Code session spawner、reviewer/heavy-tool executor 或生产 runtime API；Go runtime 不 spawn/poll/monitor/stop reviewer session，不调用 Agent tool，不执行 reviewer/heavy tool，不写 authority/confirmed。stale receipts 仍是 immutable harness observations；adoption 只记录 owner transfer provenance，不修改 immutable reviewer packet；redispatch 仍复用既有 `plan-subagents -RecordReviewerDispatch` WhatIf→expected-binding Apply。
+
+已实现内容：新增 `TestRunPlanSubagentsReviewerStaleOwnerRedispatchProductPath`。测试在 `session-a` 下创建单 shard reviewer packet，记录第一轮 immutable dispatch receipt 与 failed completion receipt；随后 `start -Apply -Executor session-b` takeover。首次 status refresh 断言 reviewer dispatch/intake handoff 进入 `reviewer-packet-owner-adoption-required`，batch preview/apply 与 intake preview/apply command 被清空，同时旧 dispatch/completion receipt provenance 与 `reviewer-session-receipt-owner-stale` lifecycle failure 仍可见。执行 `-AdoptReviewerPacket` WhatIf→Apply 后，status/operator package 断言 `currentRunLoopStepId=spawn-reviewer`、state=`reviewer-session-receipt-owner-stale`，reviewer dispatch queue 与 first-screen Mission Commander queue 都优先提示 replacement dispatch，而 result input/source/candidate/canonical pipeline 仍关闭。最后测试用第二组 harness/session 重新走 dispatch WhatIf→expected-binding Apply，验证 distinct dispatch ID/receipt SHA 且 result 绑定 `ownerAdoptionPath` / `ownerAdoptionSha256` / effective owner generation；status refresh 后进入新 `reviewer-session-running-unknown` / `save-result-input`，并确认 verification、decision、authority、confirmed facts 均未写入。
+
+验证结果：focused `go test ./internal/rekit/cli -run TestRunPlanSubagentsReviewerStaleOwnerRedispatchProductPath -count=1` 通过；相邻 reviewer/session/adoption regression `go test ./internal/rekit/cli -run "TestRunPlanSubagentsReviewerStaleOwnerRedispatchProductPath|TestRunPlanSubagentsReviewerFailedCompletionRedispatchProductPath|TestRunPlanSubagentsReviewerPacketAdoptionCaseLocalProductPath|TestRunPlanSubagentsReviewerSessionReceiptProductPath" -count=1` 通过。
+
 ### Batch 728：reviewer/session failed completion redispatch product path
 
 状态：已完成本机实现、focused failed-redispatch regression、相邻 reviewer/session regression、完整 CLI package regression、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `e6e5029` 已推送。Push run `30521634218` completed failure；macOS/Windows/Linux jobs `90803146001`/`90803146055`/`90803146060` 均 `steps=[]`，`gh run view 30521634218 --log-failed` 返回 EOF。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。

@@ -1001,6 +1001,194 @@ func TestRunPlanSubagentsReviewerSessionReceiptProductPath(t *testing.T) {
 	}
 }
 
+func TestRunPlanSubagentsReviewerStaleOwnerRedispatchProductPath(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "review", "-Apply", "-Executor", "session-a", "-Actor", "mission-commander", "-Reason", "initial reviewer owner", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", "alpha", "-ItemsPerAgent", "1", "-MaxParallel", "1", "-Lane", "feature-review", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	plan := decodePlanSubagentsResult(t, out.Bytes())
+	packet := decodePlanSubagentsPacket(t, plan.PacketPath)
+	handoff := plan.ShardHandoffs[0]
+	baseArgs := []string{"-Target", caseRoot, "-Pack", "_template"}
+	actor := "mission-commander"
+	firstHarness := "go-cli-stale-owner-harness"
+	firstSession := "reviewer-session-stale-owner"
+	secondHarness := "go-cli-adopted-owner-harness"
+	secondSession := "reviewer-session-adopted-owner"
+
+	runDispatchPreview := func(harness, session string) subagents.ReviewerSessionReceiptResult {
+		t.Helper()
+		out.Reset()
+		if err := Run(planSubagentsCLIArgs(baseArgs, "-PacketPath", plan.PacketPath, "-RecordReviewerDispatch", "-ShardId", handoff.ShardID, "-ReviewerHarness", harness, "-ReviewerSession", session, "-Lane", packet.TargetLane, "-Actor", actor, "-WhatIf", "-Format", "json"), &out); err != nil {
+			t.Fatal(err)
+		}
+		var preview subagents.ReviewerSessionReceiptResult
+		if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+			t.Fatalf("stale-owner reviewer dispatch preview JSON did not decode: %v\n%s", err, out.String())
+		}
+		return preview
+	}
+	runDispatchApply := func(harness, session string, bindingSHA string) subagents.ReviewerSessionReceiptResult {
+		t.Helper()
+		out.Reset()
+		if err := Run(planSubagentsCLIArgs(baseArgs, "-PacketPath", plan.PacketPath, "-RecordReviewerDispatch", "-ShardId", handoff.ShardID, "-ReviewerHarness", harness, "-ReviewerSession", session, "-Lane", packet.TargetLane, "-Actor", actor, "-ExpectedReviewerDispatchBindingSha256", bindingSHA, "-Apply", "-Format", "json"), &out); err != nil {
+			t.Fatal(err)
+		}
+		var apply subagents.ReviewerSessionReceiptResult
+		if err := json.Unmarshal(out.Bytes(), &apply); err != nil {
+			t.Fatalf("stale-owner reviewer dispatch apply JSON did not decode: %v\n%s", err, out.String())
+		}
+		return apply
+	}
+
+	firstPreview := runDispatchPreview(firstHarness, firstSession)
+	firstDispatch := runDispatchApply(firstHarness, firstSession, firstPreview.BindingSHA256)
+	if !firstDispatch.Applied || firstDispatch.DispatchID == "" || firstDispatch.ReviewerSession != firstSession || firstDispatch.OwnerAdoptionPath != "" || firstDispatch.EffectiveOwner.CurrentExecutor != "session-a" || firstDispatch.EffectiveOwner.ExecutorGeneration != 1 {
+		t.Fatalf("initial reviewer dispatch did not bind initial owner: %+v", firstDispatch)
+	}
+
+	out.Reset()
+	if err := Run(planSubagentsCLIArgs(baseArgs, "-PacketPath", plan.PacketPath, "-RecordReviewerCompletion", "-ReviewerDispatchId", firstDispatch.DispatchID, "-ReviewerOutcome", "failed", "-ReviewerExitStatus", "agent-error", "-Lane", packet.TargetLane, "-Actor", actor, "-WhatIf", "-Format", "json"), &out); err != nil {
+		t.Fatal(err)
+	}
+	var staleCompletionPreview subagents.ReviewerSessionReceiptResult
+	if err := json.Unmarshal(out.Bytes(), &staleCompletionPreview); err != nil {
+		t.Fatalf("stale-owner reviewer completion preview JSON did not decode: %v\n%s", err, out.String())
+	}
+	out.Reset()
+	if err := Run(planSubagentsCLIArgs(baseArgs, "-PacketPath", plan.PacketPath, "-RecordReviewerCompletion", "-ReviewerDispatchId", firstDispatch.DispatchID, "-ReviewerOutcome", "failed", "-ReviewerExitStatus", "agent-error", "-Lane", packet.TargetLane, "-Actor", actor, "-ExpectedReviewerDispatchReceiptSha256", staleCompletionPreview.DispatchReceiptSHA256, "-Apply", "-Format", "json"), &out); err != nil {
+		t.Fatal(err)
+	}
+	var staleCompletion subagents.ReviewerSessionReceiptResult
+	if err := json.Unmarshal(out.Bytes(), &staleCompletion); err != nil {
+		t.Fatalf("stale-owner reviewer completion apply JSON did not decode: %v\n%s", err, out.String())
+	}
+	if !staleCompletion.Applied || staleCompletion.Outcome != "failed" || staleCompletion.EffectiveOwner.CurrentExecutor != "session-a" || staleCompletion.EffectiveOwner.ExecutorGeneration != 1 || staleCompletion.OwnerAdoptionPath != "" {
+		t.Fatalf("initial failed completion did not preserve initial owner binding: %+v", staleCompletion)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "review", "-Apply", "-Executor", "session-b", "-Actor", "mission-commander", "-Reason", "replacement reviewer owner", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var staleStatus struct {
+		CaseMission struct {
+			ReviewerDispatchIntakeHandoffs    []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
+			ReviewerDispatchIntakeSummary     reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+			ReviewerDispatchIntakeActionQueue missionCommanderActionQueueSnapshot  `json:"reviewerDispatchIntakeActionQueue"`
+			MissionCommanderActionQueue       missionCommanderActionQueueSnapshot  `json:"missionCommanderActionQueue"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &staleStatus); err != nil {
+		t.Fatalf("stale-owner reviewer status JSON did not decode: %v\n%s", err, out.String())
+	}
+	staleItem := staleStatus.CaseMission.ReviewerDispatchIntakeHandoffs[0]
+	if staleItem.State != "reviewer-packet-owner-adoption-required" || !staleItem.OwnerAdoptionRequired || staleItem.OwnerAdoptionCurrent || staleItem.CurrentExecutor != "session-b" || staleItem.CurrentGeneration != 2 || staleItem.ReviewerDispatchID != firstDispatch.DispatchID || staleItem.ReviewerSessionReceiptState != "reviewer-session-receipt-owner-stale" || staleItem.ReviewerSessionReceiptFailure == "" || staleItem.PreviewCommand != "" || staleItem.ApplyCommand != "" || staleItem.BatchPreviewCommand != "" || staleItem.BatchApplyCommand != "" || staleStatus.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || staleStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.State != "reviewer-packet-owner-adoption-required" {
+		t.Fatalf("takeover should require packet adoption before stale reviewer redispatch: item=%+v summary=%+v queue=%+v", staleItem, staleStatus.CaseMission.ReviewerDispatchIntakeSummary, staleStatus.CaseMission.MissionCommanderActionQueue)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-AdoptReviewerPacket", "-Lane", packet.TargetLane, "-Actor", actor, "-Reason", "adopt stale reviewer session before redispatch", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var adoptionPreview struct {
+		Applied      bool   `json:"applied"`
+		IsMutation   bool   `json:"isMutation"`
+		AdoptionPath string `json:"adoptionPath"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &adoptionPreview); err != nil {
+		t.Fatalf("stale-owner adoption preview JSON did not decode: %v\n%s", err, out.String())
+	}
+	if adoptionPreview.Applied || adoptionPreview.IsMutation || adoptionPreview.AdoptionPath == "" {
+		t.Fatalf("stale-owner adoption preview mutated or omitted path: %+v", adoptionPreview)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-AdoptReviewerPacket", "-Lane", packet.TargetLane, "-Actor", actor, "-Reason", "adopt stale reviewer session before redispatch", "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var adoptionApply struct {
+		Applied      bool   `json:"applied"`
+		AdoptionPath string `json:"adoptionPath"`
+		AdoptedOwner struct {
+			CurrentExecutor    string `json:"currentExecutor"`
+			ExecutorGeneration int    `json:"executorGeneration"`
+		} `json:"adoptedOwner"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &adoptionApply); err != nil {
+		t.Fatalf("stale-owner adoption apply JSON did not decode: %v\n%s", err, out.String())
+	}
+	if !adoptionApply.Applied || adoptionApply.AdoptionPath != adoptionPreview.AdoptionPath || adoptionApply.AdoptedOwner.CurrentExecutor != "session-b" || adoptionApply.AdoptedOwner.ExecutorGeneration != 2 {
+		t.Fatalf("stale-owner adoption did not bind current owner: %+v", adoptionApply)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var adoptedStatus struct {
+		CaseMission struct {
+			ReviewerDispatchIntakeHandoffs    []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
+			ReviewerDispatchIntakeSummary     reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+			ReviewerDispatchIntakeActionQueue missionCommanderActionQueueSnapshot  `json:"reviewerDispatchIntakeActionQueue"`
+			MissionCommanderActionQueue       missionCommanderActionQueueSnapshot  `json:"missionCommanderActionQueue"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &adoptedStatus); err != nil {
+		t.Fatalf("adopted stale-owner status JSON did not decode: %v\n%s", err, out.String())
+	}
+	adoptedItem := adoptedStatus.CaseMission.ReviewerDispatchIntakeHandoffs[0]
+	pkg := adoptedStatus.CaseMission.ReviewerDispatchIntakeSummary.OperatorPackage
+	if adoptedItem.State != "reviewer-session-receipt-owner-stale" || adoptedItem.OwnerAdoptionRequired || !adoptedItem.OwnerAdoptionCurrent || adoptedItem.OwnerAdoptionPath != adoptionApply.AdoptionPath || adoptedItem.ReviewerDispatchID != firstDispatch.DispatchID || adoptedItem.ReviewerSession != firstSession || adoptedItem.ReviewerSessionReceiptFailure == "" || adoptedItem.ReviewerResultInputState == "ready" || adoptedItem.ReviewerResultSourceState == "ready" || adoptedItem.ReviewerResultCandidateState == "ready" || adoptedItem.ReviewerResultPresent || pkg == nil || pkg.Current == nil || pkg.CurrentRunLoopStepID != "spawn-reviewer" || pkg.Current.State != "reviewer-session-receipt-owner-stale" || !containsSubstring(pkg.RunbookSteps, "stale lane owner generation") || adoptedStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentAction == nil || adoptedStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentAction.State != "reviewer-session-receipt-owner-stale" || adoptedStatus.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || adoptedStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.State != "reviewer-session-receipt-owner-stale" {
+		t.Fatalf("adopted stale-owner status should prioritize replacement dispatch before result pipeline: item=%+v pkg=%+v reviewerQueue=%+v firstScreen=%+v", adoptedItem, pkg, adoptedStatus.CaseMission.ReviewerDispatchIntakeActionQueue, adoptedStatus.CaseMission.MissionCommanderActionQueue)
+	}
+
+	redispatchPreview := runDispatchPreview(secondHarness, secondSession)
+	if redispatchPreview.DispatchID == firstDispatch.DispatchID || redispatchPreview.BindingSHA256 == "" || redispatchPreview.OwnerAdoptionPath != adoptionApply.AdoptionPath || redispatchPreview.OwnerAdoptionSHA256 == "" || redispatchPreview.EffectiveOwner.CurrentExecutor != "session-b" || redispatchPreview.EffectiveOwner.ExecutorGeneration != 2 {
+		t.Fatalf("stale-owner redispatch preview did not bind adopted owner: first=%+v second=%+v adoption=%+v", firstDispatch, redispatchPreview, adoptionApply)
+	}
+	redispatchApply := runDispatchApply(secondHarness, secondSession, redispatchPreview.BindingSHA256)
+	if !redispatchApply.Applied || redispatchApply.DispatchID == firstDispatch.DispatchID || redispatchApply.ReceiptSHA256 == "" || redispatchApply.ReviewerSession != secondSession || redispatchApply.OwnerAdoptionPath != adoptionApply.AdoptionPath || redispatchApply.OwnerAdoptionSHA256 == "" || redispatchApply.EffectiveOwner.CurrentExecutor != "session-b" || redispatchApply.EffectiveOwner.ExecutorGeneration != 2 {
+		t.Fatalf("stale-owner redispatch apply did not record distinct adopted-owner receipt: first=%+v second=%+v adoption=%+v", firstDispatch, redispatchApply, adoptionApply)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var redispatchedStatus struct {
+		CaseMission struct {
+			ReviewerDispatchIntakeSummary reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &redispatchedStatus); err != nil {
+		t.Fatalf("stale-owner redispatched status JSON did not decode: %v\n%s", err, out.String())
+	}
+	redispatchedSummary := redispatchedStatus.CaseMission.ReviewerDispatchIntakeSummary
+	if redispatchedSummary.OperatorPackage == nil || redispatchedSummary.OperatorPackage.Current == nil || redispatchedSummary.OperatorPackage.CurrentRunLoopStepID != "save-result-input" || redispatchedSummary.OperatorPackage.Current.State != "reviewer-session-running-unknown" || redispatchedSummary.OperatorPackage.Current.ReviewerDispatchID != redispatchApply.DispatchID || redispatchedSummary.OperatorPackage.Current.ReviewerSession != secondSession {
+		t.Fatalf("stale-owner redispatch did not advance to adopted running session: %+v", redispatchedSummary.OperatorPackage)
+	}
+	if got := readOptionalCaseFile(t, caseRoot, ".rekit/facts/verifications.jsonl"); got != "" {
+		t.Fatalf("stale-owner redispatch wrote verification facts:\n%s", got)
+	}
+	if got := readOptionalCaseFile(t, caseRoot, ".rekit/facts/decisions.jsonl"); got != "" {
+		t.Fatalf("stale-owner redispatch wrote decision facts:\n%s", got)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("stale-owner redispatch wrote authority ledger or stat failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl")); !os.IsNotExist(err) {
+		t.Fatalf("stale-owner redispatch wrote confirmed ledger or stat failed: %v", err)
+	}
+}
 func TestRunPlanSubagentsReviewerFailedCompletionRedispatchProductPath(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	var out bytes.Buffer
