@@ -2469,11 +2469,61 @@ type statusMissionControlRunbook struct {
 	CurrentCommand       string                                 `json:"currentCommand,omitempty"`
 	CurrentRunLoopStepID string                                 `json:"currentRunLoopStepId,omitempty"`
 	CurrentDriverRequest *mission.MissionCommanderDriverRequest `json:"currentDriverRequest,omitempty"`
+	GuidanceHandoff      *statusMissionControlGuidanceHandoff   `json:"guidanceHandoff,omitempty"`
 	RefreshStatusCommand string                                 `json:"refreshStatusCommand"`
 	Queues               []statusMissionControlRunbookQueue     `json:"queues"`
 	RoutingReasons       []string                               `json:"routingReasons,omitempty"`
 	RunLoop              []statusMissionControlRunbookStep      `json:"runLoop"`
 	Boundary             []string                               `json:"boundary,omitempty"`
+}
+
+type statusMissionControlGuidanceHandoff struct {
+	Ready               bool                                          `json:"ready"`
+	Kind                string                                        `json:"kind"`
+	Scope               string                                        `json:"scope"`
+	State               string                                        `json:"state,omitempty"`
+	Source              string                                        `json:"source,omitempty"`
+	ActionID            string                                        `json:"actionId,omitempty"`
+	Label               string                                        `json:"label,omitempty"`
+	Guidance            string                                        `json:"guidance,omitempty"`
+	CommandExecutable   bool                                          `json:"commandExecutable"`
+	RequiresReview      bool                                          `json:"requiresReview"`
+	TargetDocuments     []string                                      `json:"targetDocuments,omitempty"`
+	AcceptanceChecklist []string                                      `json:"acceptanceChecklist,omitempty"`
+	ExpectedReceipt     statusMissionControlGuidanceReceipt           `json:"expectedReceipt"`
+	StarterPackage      *statusMissionControlGuidanceStarterPackage   `json:"starterPackage,omitempty"`
+	CandidateDomains    []statusMissionControlGuidanceCandidateDomain `json:"candidateDomains,omitempty"`
+	Boundary            []string                                      `json:"boundary,omitempty"`
+}
+
+type statusMissionControlGuidanceReceipt struct {
+	State                string   `json:"state"`
+	RefreshStatusCommand string   `json:"refreshStatusCommand"`
+	Description          string   `json:"description"`
+	Checklist            []string `json:"checklist,omitempty"`
+	Boundary             []string `json:"boundary,omitempty"`
+}
+
+type statusMissionControlGuidanceStarterPackage struct {
+	Ready                   bool     `json:"ready"`
+	LatestCompletedBatch    string   `json:"latestCompletedBatch,omitempty"`
+	SuggestedNextBatch      string   `json:"suggestedNextBatch,omitempty"`
+	CurrentBatchSection     string   `json:"currentBatchSection,omitempty"`
+	ChangelogEntry          string   `json:"changelogEntry,omitempty"`
+	ValidationCommands      []string `json:"validationCommands,omitempty"`
+	RecommendedStarterSteps []string `json:"recommendedStarterSteps,omitempty"`
+	ReleaseCadenceSteps     []string `json:"releaseCadenceSteps,omitempty"`
+	Boundary                []string `json:"boundary,omitempty"`
+}
+
+type statusMissionControlGuidanceCandidateDomain struct {
+	Label    string   `json:"label"`
+	ActionID string   `json:"actionId"`
+	State    string   `json:"state"`
+	Source   string   `json:"source"`
+	Command  string   `json:"command"`
+	Reasons  []string `json:"reasons,omitempty"`
+	Boundary []string `json:"boundary,omitempty"`
 }
 
 type statusMissionControlRunbookQueue struct {
@@ -3062,8 +3112,107 @@ func buildStatusMissionControlRunbook(target string, caseMission *statusCaseMiss
 			}
 		}
 	}
+	runbook.GuidanceHandoff = statusMissionControlGuidanceHandoffFor(runbook, projectHandoff)
 	runbook.RunLoop = statusMissionControlRunbookSteps(runbook)
 	return runbook
+}
+
+func statusMissionControlGuidanceHandoffFor(runbook *statusMissionControlRunbook, projectHandoff *statusProjectHandoff) *statusMissionControlGuidanceHandoff {
+	if runbook == nil || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.CommandExecutable || strings.TrimSpace(runbook.CurrentDriverRequest.Guidance) == "" {
+		return nil
+	}
+	request := runbook.CurrentDriverRequest
+	handoff := &statusMissionControlGuidanceHandoff{
+		Ready:             true,
+		Kind:              statusFirstText(request.Kind, "review-guidance"),
+		Scope:             runbook.Scope,
+		State:             strings.TrimSpace(request.State),
+		Source:            strings.TrimSpace(request.Source),
+		ActionID:          strings.TrimSpace(request.ActionID),
+		Label:             strings.TrimSpace(request.Label),
+		Guidance:          strings.TrimSpace(request.Guidance),
+		CommandExecutable: false,
+		RequiresReview:    true,
+		TargetDocuments:   statusMissionControlGuidanceTargetDocuments(projectHandoff),
+		AcceptanceChecklist: []string{
+			"select exactly one current guidance outcome and name the user-visible operational closure",
+			"write docs/batch-plan.md current batch state before implementation when selecting the next batch",
+			"keep CHANGELOG.md Unreleased aligned with the selected user-visible change before handoff",
+			"run focused regressions for the selected closure before the full local release minimum",
+		},
+		ExpectedReceipt: statusMissionControlGuidanceReceipt{
+			State:                "guidance-accepted-refresh-required",
+			RefreshStatusCommand: runbook.RefreshStatusCommand,
+			Description:          "after the main Agent or harness accepts the guidance by writing explicit planning or result evidence, rerun status before selecting follow-up work",
+			Checklist: []string{
+				"docs/batch-plan.md records the selected operational closure and validation standard",
+				"CHANGELOG.md records the user-visible change once implementation/validation is known",
+				"status is refreshed after the guidance outcome so the next current action is derived from durable state",
+			},
+			Boundary: []string{
+				"do not infer guidance completion from terminal prose alone",
+				"do not write authority/confirmed or execute heavy tools from this guidance handoff",
+			},
+		},
+		Boundary: mission.UniqueStrings(append([]string{
+			"guidanceHandoff is read-only; it does not choose a batch, edit docs, execute commands, or spawn sessions",
+			"guidance-only requests require explicit main-agent or harness acceptance before implementation",
+			"do not treat guidanceHandoff as authorization for reviewer, adapter, pack-memory, gate, sync, promote, or heavy-tool mutation",
+		}, request.Boundary...)),
+	}
+	if projectHandoff != nil && strings.TrimSpace(request.Source) == "releaseHandoffNextBatch" {
+		if pkg := projectHandoff.NextBatchSelectionPackage; pkg != nil && pkg.Ready {
+			handoff.StarterPackage = statusMissionControlGuidanceStarterPackageFor(pkg.StarterPackage)
+			handoff.CandidateDomains = statusMissionControlGuidanceCandidateDomains(pkg.MissionCommanderNextActions)
+		}
+	}
+	handoff.ExpectedReceipt.Checklist = mission.UniqueStrings(handoff.ExpectedReceipt.Checklist)
+	handoff.ExpectedReceipt.Boundary = mission.UniqueStrings(handoff.ExpectedReceipt.Boundary)
+	return handoff
+}
+
+func statusMissionControlGuidanceTargetDocuments(projectHandoff *statusProjectHandoff) []string {
+	docs := []string{"docs/context-routing.md", "docs/batch-plan.md", "CHANGELOG.md"}
+	if projectHandoff != nil {
+		docs = append(docs, projectHandoff.ReadFirst...)
+	}
+	return mission.UniqueStrings(docs)
+}
+
+func statusMissionControlGuidanceStarterPackageFor(starter *releasecheck.ReleaseHandoffNextBatchStarterPackage) *statusMissionControlGuidanceStarterPackage {
+	if starter == nil || !starter.Ready {
+		return nil
+	}
+	return &statusMissionControlGuidanceStarterPackage{
+		Ready:                   starter.Ready,
+		LatestCompletedBatch:    strings.TrimSpace(starter.LatestCompletedBatch),
+		SuggestedNextBatch:      strings.TrimSpace(starter.SuggestedNextBatch),
+		CurrentBatchSection:     strings.TrimSpace(starter.CurrentBatchSection),
+		ChangelogEntry:          strings.TrimSpace(starter.ChangelogEntry),
+		ValidationCommands:      mission.UniqueStrings(starter.ValidationCommands),
+		RecommendedStarterSteps: mission.UniqueStrings(starter.RecommendedStarterSteps),
+		ReleaseCadenceSteps:     mission.UniqueStrings(starter.ReleaseCadenceSteps),
+		Boundary:                mission.UniqueStrings(starter.Boundary),
+	}
+}
+
+func statusMissionControlGuidanceCandidateDomains(actions []mission.MissionCommanderNextActionItem) []statusMissionControlGuidanceCandidateDomain {
+	domains := []statusMissionControlGuidanceCandidateDomain{}
+	for _, action := range actions {
+		if strings.TrimSpace(action.State) != "next-batch-candidate-domain" {
+			continue
+		}
+		domains = append(domains, statusMissionControlGuidanceCandidateDomain{
+			Label:    strings.TrimSpace(action.Label),
+			ActionID: strings.TrimSpace(action.ActionID),
+			State:    strings.TrimSpace(action.State),
+			Source:   strings.TrimSpace(action.Source),
+			Command:  strings.TrimSpace(action.Command),
+			Reasons:  mission.UniqueStrings(action.Reasons),
+			Boundary: mission.UniqueStrings(action.Boundary),
+		})
+	}
+	return domains
 }
 
 func statusMissionControlRunbookQueueFor(scope string, queue mission.MissionCommanderActionQueue, focused bool) statusMissionControlRunbookQueue {
@@ -3241,6 +3390,9 @@ func writeStatusMissionControlRunbookText(out io.Writer, runbook *statusMissionC
 			return err
 		}
 	}
+	if err := writeStatusMissionControlGuidanceHandoffText(out, runbook.GuidanceHandoff); err != nil {
+		return err
+	}
 	for _, queue := range runbook.Queues {
 		if _, err := fmt.Fprintf(out, "status Mission Control runbook queue：scope=%s focused=%t total=%d blocked=%d requiresReview=%d currentState=%s currentSource=%s currentStep=%s currentCommand=%s\n", queue.Scope, queue.Focused, queue.Total, queue.Blocked, queue.RequiresReview, queue.CurrentState, queue.CurrentSource, queue.CurrentRunLoopStepID, queue.CurrentCommand); err != nil {
 			return err
@@ -3263,6 +3415,90 @@ func writeStatusMissionControlRunbookText(out io.Writer, runbook *statusMissionC
 	}
 	for _, boundary := range runbook.Boundary {
 		if _, err := fmt.Fprintf(out, "status Mission Control runbook boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeStatusMissionControlGuidanceHandoffText(out io.Writer, handoff *statusMissionControlGuidanceHandoff) error {
+	if handoff == nil || !handoff.Ready {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "status Mission Control guidance handoff：ready=%t kind=%s scope=%s state=%s source=%s actionId=%s label=%s executable=%t requiresReview=%t guidance=%s\n", handoff.Ready, handoff.Kind, handoff.Scope, handoff.State, handoff.Source, handoff.ActionID, handoff.Label, handoff.CommandExecutable, handoff.RequiresReview, handoff.Guidance); err != nil {
+		return err
+	}
+	for _, doc := range handoff.TargetDocuments {
+		if _, err := fmt.Fprintf(out, "status Mission Control guidance handoff target document：%s\n", doc); err != nil {
+			return err
+		}
+	}
+	for _, item := range handoff.AcceptanceChecklist {
+		if _, err := fmt.Fprintf(out, "status Mission Control guidance handoff acceptance：%s\n", item); err != nil {
+			return err
+		}
+	}
+	if _, err := fmt.Fprintf(out, "status Mission Control guidance handoff expected receipt：state=%s refresh=%s description=%s\n", handoff.ExpectedReceipt.State, handoff.ExpectedReceipt.RefreshStatusCommand, handoff.ExpectedReceipt.Description); err != nil {
+		return err
+	}
+	for _, item := range handoff.ExpectedReceipt.Checklist {
+		if _, err := fmt.Fprintf(out, "status Mission Control guidance handoff expected receipt checklist：%s\n", item); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range handoff.ExpectedReceipt.Boundary {
+		if _, err := fmt.Fprintf(out, "status Mission Control guidance handoff expected receipt boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	if starter := handoff.StarterPackage; starter != nil && starter.Ready {
+		if _, err := fmt.Fprintf(out, "status Mission Control guidance handoff starter：ready=%t latestCompletedBatch=%s suggestedNextBatch=%s\n", starter.Ready, starter.LatestCompletedBatch, starter.SuggestedNextBatch); err != nil {
+			return err
+		}
+		if err := writePrefixedMultilineText(out, "status Mission Control guidance handoff starter current batch section：", starter.CurrentBatchSection); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(out, "status Mission Control guidance handoff starter changelog entry：%s\n", starter.ChangelogEntry); err != nil {
+			return err
+		}
+		for _, command := range starter.ValidationCommands {
+			if _, err := fmt.Fprintf(out, "status Mission Control guidance handoff starter validation command：%s\n", command); err != nil {
+				return err
+			}
+		}
+		for _, step := range starter.RecommendedStarterSteps {
+			if _, err := fmt.Fprintf(out, "status Mission Control guidance handoff starter recommended step：%s\n", step); err != nil {
+				return err
+			}
+		}
+		for _, step := range starter.ReleaseCadenceSteps {
+			if _, err := fmt.Fprintf(out, "status Mission Control guidance handoff starter release cadence step：%s\n", step); err != nil {
+				return err
+			}
+		}
+		for _, boundary := range starter.Boundary {
+			if _, err := fmt.Fprintf(out, "status Mission Control guidance handoff starter boundary：%s\n", boundary); err != nil {
+				return err
+			}
+		}
+	}
+	for _, domain := range handoff.CandidateDomains {
+		if _, err := fmt.Fprintf(out, "status Mission Control guidance handoff candidate domain：label=%s actionId=%s state=%s source=%s command=%s\n", domain.Label, domain.ActionID, domain.State, domain.Source, domain.Command); err != nil {
+			return err
+		}
+		for _, reason := range domain.Reasons {
+			if _, err := fmt.Fprintf(out, "status Mission Control guidance handoff candidate domain reason：label=%s reason=%s\n", domain.Label, reason); err != nil {
+				return err
+			}
+		}
+		for _, boundary := range domain.Boundary {
+			if _, err := fmt.Fprintf(out, "status Mission Control guidance handoff candidate domain boundary：label=%s boundary=%s\n", domain.Label, boundary); err != nil {
+				return err
+			}
+		}
+	}
+	for _, boundary := range handoff.Boundary {
+		if _, err := fmt.Fprintf(out, "status Mission Control guidance handoff boundary：%s\n", boundary); err != nil {
 			return err
 		}
 	}

@@ -129,6 +129,77 @@ func TestStatusProjectHandoffCurrentActionPromotesCompletedCadenceToNextBatchSel
 	}
 }
 
+func TestStatusMissionControlRunbookGuidanceHandoffWrapsNextBatchSelection(t *testing.T) {
+	remoteDetail := &releasecheck.ReleaseHandoffRemoteReleaseGateDetail{
+		State:            "blocked: completed failure with jobs steps=[]",
+		EmptySteps:       true,
+		CompletedFailure: true,
+		CanClaimGreen:    false,
+		Boundary:         []string{"treat remote release-gate steps=[] as a known runner/billing blocker"},
+	}
+	project := buildStatusProjectHandoff(releasecheck.ReleaseHandoff{
+		Ready:   true,
+		Summary: "release handoff summary ok",
+		ReadFirst: []releasecheck.ReleaseHandoffDocument{
+			{Path: "docs/context-routing.md"},
+			{Path: "docs/batch-plan.md"},
+		},
+		LatestBatch: releasecheck.ReleaseHandoffLatestBatch{
+			BatchID: "Batch 651",
+			Handoff: releasecheck.ReleaseHandoffLatestBatchHandoff{
+				LocalValidationReady:    true,
+				ReleaseCheckReady:       true,
+				RemoteReleaseGate:       "blocked: completed failure with jobs steps=[]",
+				RemoteReleaseGateDetail: remoteDetail,
+				ReleaseInspectionCadence: releasecheck.ReleaseHandoffReleaseInspectionCadence{
+					State:                     "complete",
+					ImplementationCommitReady: true,
+					InspectionCommitReady:     true,
+					Boundary:                  []string{"do not add a third record commit for the release inspection commit's own CI run"},
+				},
+				CommitRefs: []string{"def651a"},
+			},
+		},
+		PackMemoryCandidates: releasecheck.ReleaseHandoffPackMemoryCandidateList{
+			Ready:      true,
+			NextAction: "no pack-memory candidate cleanup is pending",
+		},
+		Validation: []releasecheck.ReleaseHandoffValidation{{Command: "go test ./..."}},
+	})
+	runbook := buildStatusMissionControlRunbook("C:/repo", nil, project)
+	if runbook == nil || !runbook.Ready || runbook.Focus != "project-current-action" || runbook.Scope != "project" || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Kind != "review-guidance" || runbook.CurrentDriverRequest.CommandExecutable || runbook.GuidanceHandoff == nil {
+		t.Fatalf("next-batch status runbook should expose guidance handoff: %+v", runbook)
+	}
+	guidance := runbook.GuidanceHandoff
+	if !guidance.Ready || guidance.Kind != "review-guidance" || guidance.Scope != "project" || guidance.State != "ready-for-next-batch-selection" || guidance.Source != "releaseHandoffNextBatch" || guidance.ActionID != "next-batch-selection" || guidance.CommandExecutable || !guidance.RequiresReview {
+		t.Fatalf("guidance handoff identity drifted: %+v", guidance)
+	}
+	if guidance.ExpectedReceipt.State != "guidance-accepted-refresh-required" || guidance.ExpectedReceipt.RefreshStatusCommand != runbook.RefreshStatusCommand || !containsSubstring(guidance.ExpectedReceipt.Checklist, "docs/batch-plan.md records the selected operational closure") || !containsSubstring(guidance.ExpectedReceipt.Boundary, "do not infer guidance completion") {
+		t.Fatalf("guidance handoff expected receipt drifted: %+v", guidance.ExpectedReceipt)
+	}
+	if guidance.StarterPackage == nil || !guidance.StarterPackage.Ready || guidance.StarterPackage.LatestCompletedBatch != "Batch 651" || guidance.StarterPackage.SuggestedNextBatch != "Batch 652" || !strings.Contains(guidance.StarterPackage.CurrentBatchSection, "### Batch 652") || !strings.Contains(guidance.StarterPackage.ChangelogEntry, "Batch 652") || !slices.Contains(guidance.StarterPackage.ValidationCommands, "go test ./...") {
+		t.Fatalf("guidance handoff starter package drifted: %+v", guidance.StarterPackage)
+	}
+	if len(guidance.CandidateDomains) != 7 || !statusMissionControlGuidanceDomainContainsTyped(guidance.CandidateDomains, "next-batch-mission-commander-operational-closure") || !statusMissionControlGuidanceDomainContainsTyped(guidance.CandidateDomains, "next-batch-go-native-product-path") {
+		t.Fatalf("guidance handoff candidate domains drifted: %+v", guidance.CandidateDomains)
+	}
+	var out bytes.Buffer
+	if err := writeStatusMissionControlRunbookText(&out, runbook); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"status Mission Control guidance handoff：ready=true kind=review-guidance scope=project",
+		"status Mission Control guidance handoff expected receipt：state=guidance-accepted-refresh-required",
+		"status Mission Control guidance handoff starter current batch section：### Batch 652",
+		"status Mission Control guidance handoff candidate domain：label=mission-commander actionId=next-batch-mission-commander-operational-closure",
+		"status Mission Control guidance handoff boundary：guidanceHandoff is read-only",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("guidance handoff text missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
 func TestStatusMissionCommanderFirstScreenFocusRoutingReasons(t *testing.T) {
 	project := &mission.MissionCommanderNextActionItem{Command: "/rekit status", Source: "releaseHandoffLatestBatch", State: "complete"}
 	if got := statusMissionCommanderFirstScreenFocusRoutingReasons("project-current-action", nil, nil, project, nil, nil); !slices.Equal(got, []string{"case, reviewer, and pack-memory focus queues are empty or lower priority"}) {
@@ -885,7 +956,23 @@ func TestRunStatusJsonKit(t *testing.T) {
 		if args, ok := missionCommanderDriverRequestCommandCLIArgs(t, projectRequest); ok || args != nil {
 			t.Fatalf("guidance driver request should not produce executable CLI args: args=%+v request=%+v", args, projectRequest)
 		}
-		for _, want := range []string{`"currentDriverRequest"`, `"kind": "review-guidance"`, `"commandExecutable": false`, `"guidance": "select the next Windows-verifiable product-path closure`} {
+		guidance := status.MissionControlRunbook.GuidanceHandoff
+		if guidance == nil || !guidance.Ready || guidance.Kind != "review-guidance" || guidance.Scope != "project" || guidance.State != "ready-for-next-batch-selection" || guidance.Source != "releaseHandoffNextBatch" || guidance.ActionID != "next-batch-selection" || guidance.CommandExecutable || !guidance.RequiresReview || !strings.Contains(guidance.Guidance, "select the next Windows-verifiable product-path closure") {
+			t.Fatalf("status Mission Control guidance handoff should wrap next-batch selection guidance: %+v", guidance)
+		}
+		if guidance.ExpectedReceipt.State != "guidance-accepted-refresh-required" || guidance.ExpectedReceipt.RefreshStatusCommand != status.MissionControlRunbook.RefreshStatusCommand || !containsSubstring(guidance.ExpectedReceipt.Checklist, "docs/batch-plan.md records the selected operational closure") || !containsSubstring(guidance.ExpectedReceipt.Boundary, "do not infer guidance completion") {
+			t.Fatalf("guidance handoff expected receipt drifted: %+v", guidance.ExpectedReceipt)
+		}
+		if !slices.Contains(guidance.TargetDocuments, "docs/context-routing.md") || !slices.Contains(guidance.TargetDocuments, "docs/batch-plan.md") || !slices.Contains(guidance.TargetDocuments, "CHANGELOG.md") || !containsSubstring(guidance.AcceptanceChecklist, "write docs/batch-plan.md current batch state") || !containsSubstring(guidance.Boundary, "guidanceHandoff is read-only") {
+			t.Fatalf("guidance handoff omitted target docs, acceptance checklist, or boundary: %+v", guidance)
+		}
+		if guidance.StarterPackage == nil || !guidance.StarterPackage.Ready || !strings.HasPrefix(guidance.StarterPackage.SuggestedNextBatch, "Batch ") || !strings.Contains(guidance.StarterPackage.CurrentBatchSection, "### Batch ") || !strings.Contains(guidance.StarterPackage.ChangelogEntry, "Batch ") || !slices.Contains(guidance.StarterPackage.ValidationCommands, "go test ./...") || !containsSubstring(guidance.StarterPackage.ReleaseCadenceSteps, "不要为 release inspection commit") || !containsSubstring(guidance.StarterPackage.Boundary, "starter package is read-only guidance") {
+			t.Fatalf("guidance handoff should carry starter package: %+v", guidance.StarterPackage)
+		}
+		if len(guidance.CandidateDomains) != 7 || !statusMissionControlGuidanceDomainContains(guidance.CandidateDomains, "next-batch-mission-commander-operational-closure") || !statusMissionControlGuidanceDomainContains(guidance.CandidateDomains, "next-batch-pack-memory-ux") {
+			t.Fatalf("guidance handoff should carry candidate domains: %+v", guidance.CandidateDomains)
+		}
+		for _, want := range []string{`"currentDriverRequest"`, `"kind": "review-guidance"`, `"commandExecutable": false`, `"guidance": "select the next Windows-verifiable product-path closure`, `"guidanceHandoff"`, `"expectedReceipt"`, `"candidateDomains"`} {
 			if !strings.Contains(out.String(), want) {
 				t.Fatalf("status JSON driver request missing %q:\n%s", want, out.String())
 			}
@@ -20016,17 +20103,61 @@ type missionCommanderDriverRequestSnapshot struct {
 }
 
 type statusMissionControlRunbookSnapshot struct {
-	Ready                bool                                       `json:"ready"`
-	Focus                string                                     `json:"focus"`
-	Scope                string                                     `json:"scope"`
-	CurrentCommand       string                                     `json:"currentCommand"`
-	CurrentRunLoopStepID string                                     `json:"currentRunLoopStepId"`
-	CurrentDriverRequest *missionCommanderDriverRequestSnapshot     `json:"currentDriverRequest"`
-	RefreshStatusCommand string                                     `json:"refreshStatusCommand"`
-	Queues               []statusMissionControlRunbookQueueSnapshot `json:"queues"`
-	RoutingReasons       []string                                   `json:"routingReasons"`
-	RunLoop              []dailyMissionControlRunbookStepSnapshot   `json:"runLoop"`
-	Boundary             []string                                   `json:"boundary"`
+	Ready                bool                                         `json:"ready"`
+	Focus                string                                       `json:"focus"`
+	Scope                string                                       `json:"scope"`
+	CurrentCommand       string                                       `json:"currentCommand"`
+	CurrentRunLoopStepID string                                       `json:"currentRunLoopStepId"`
+	CurrentDriverRequest *missionCommanderDriverRequestSnapshot       `json:"currentDriverRequest"`
+	GuidanceHandoff      *statusMissionControlGuidanceHandoffSnapshot `json:"guidanceHandoff"`
+	RefreshStatusCommand string                                       `json:"refreshStatusCommand"`
+	Queues               []statusMissionControlRunbookQueueSnapshot   `json:"queues"`
+	RoutingReasons       []string                                     `json:"routingReasons"`
+	RunLoop              []dailyMissionControlRunbookStepSnapshot     `json:"runLoop"`
+	Boundary             []string                                     `json:"boundary"`
+}
+
+type statusMissionControlGuidanceHandoffSnapshot struct {
+	Ready               bool     `json:"ready"`
+	Kind                string   `json:"kind"`
+	Scope               string   `json:"scope"`
+	State               string   `json:"state"`
+	Source              string   `json:"source"`
+	ActionID            string   `json:"actionId"`
+	Label               string   `json:"label"`
+	Guidance            string   `json:"guidance"`
+	CommandExecutable   bool     `json:"commandExecutable"`
+	RequiresReview      bool     `json:"requiresReview"`
+	TargetDocuments     []string `json:"targetDocuments"`
+	AcceptanceChecklist []string `json:"acceptanceChecklist"`
+	ExpectedReceipt     struct {
+		State                string   `json:"state"`
+		RefreshStatusCommand string   `json:"refreshStatusCommand"`
+		Description          string   `json:"description"`
+		Checklist            []string `json:"checklist"`
+		Boundary             []string `json:"boundary"`
+	} `json:"expectedReceipt"`
+	StarterPackage *struct {
+		Ready                   bool     `json:"ready"`
+		LatestCompletedBatch    string   `json:"latestCompletedBatch"`
+		SuggestedNextBatch      string   `json:"suggestedNextBatch"`
+		CurrentBatchSection     string   `json:"currentBatchSection"`
+		ChangelogEntry          string   `json:"changelogEntry"`
+		ValidationCommands      []string `json:"validationCommands"`
+		RecommendedStarterSteps []string `json:"recommendedStarterSteps"`
+		ReleaseCadenceSteps     []string `json:"releaseCadenceSteps"`
+		Boundary                []string `json:"boundary"`
+	} `json:"starterPackage"`
+	CandidateDomains []struct {
+		Label    string   `json:"label"`
+		ActionID string   `json:"actionId"`
+		State    string   `json:"state"`
+		Source   string   `json:"source"`
+		Command  string   `json:"command"`
+		Reasons  []string `json:"reasons"`
+		Boundary []string `json:"boundary"`
+	} `json:"candidateDomains"`
+	Boundary []string `json:"boundary"`
 }
 
 type statusMissionControlRunbookQueueSnapshot struct {
@@ -20825,6 +20956,32 @@ func statusProjectHandoffNextActionIDContains(items []struct {
 	RequiresReview bool     `json:"requiresReview"`
 	Reasons        []string `json:"reasons"`
 	Boundary       []string `json:"boundary"`
+}, want string) bool {
+	for _, item := range items {
+		if strings.Contains(item.ActionID, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func statusMissionControlGuidanceDomainContainsTyped(items []statusMissionControlGuidanceCandidateDomain, want string) bool {
+	for _, item := range items {
+		if strings.Contains(item.ActionID, want) {
+			return true
+		}
+	}
+	return false
+}
+
+func statusMissionControlGuidanceDomainContains(items []struct {
+	Label    string   `json:"label"`
+	ActionID string   `json:"actionId"`
+	State    string   `json:"state"`
+	Source   string   `json:"source"`
+	Command  string   `json:"command"`
+	Reasons  []string `json:"reasons"`
+	Boundary []string `json:"boundary"`
 }, want string) bool {
 	for _, item := range items {
 		if strings.Contains(item.ActionID, want) {
