@@ -1,7 +1,7 @@
 [CmdletBinding(PositionalBinding=$false)]
 param(
   [Parameter(Position=0)]
-  [ValidateSet('status','packs','release-check','release-run','attach','repair','init','bootstrap','sync','update','promote','validate','doctor','plan-subagents','overview','continue','reconcile','start','handoff','note','gate')]
+  [ValidateSet('status','packs','release-check','release-run','next-batch','attach','repair','init','bootstrap','sync','update','promote','validate','doctor','plan-subagents','overview','continue','reconcile','start','handoff','note','gate')]
   [string]$Command = 'status',
   [string]$Target = '',
   [string]$Pack = 'vmp-re',
@@ -52,6 +52,9 @@ param(
   [int]$ItemsPerAgent = 0,
   [int]$MaxParallel = 0,
   [string]$Format = '',
+  [string]$Domain = '',
+  [string]$Closure = '',
+  [string]$ExpectedNextBatchPlanSha256 = '',
   [string]$CreatedAt = '',
   [string]$ExpectedNoteEventSha256 = '',
   [Parameter(ValueFromRemainingArguments=$true)]
@@ -151,12 +154,12 @@ function Test-RekitEnvTruthy {
 
 function Test-RekitGoDefaultDelegationCommand {
   param([string]$Name)
-  return (@('status','packs','release-check','release-run','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff','continue','reconcile','plan-subagents') -contains $Name)
+  return (@('status','packs','release-check','release-run','next-batch','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff','continue','reconcile','plan-subagents') -contains $Name)
 }
 
 function Test-RekitNoPowerShellFallbackCommand {
   param([string]$Name)
-  return (@('release-check','release-run','status','packs','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff','continue','reconcile','plan-subagents') -contains $Name)
+  return (@('release-check','release-run','next-batch','status','packs','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff','continue','reconcile','plan-subagents') -contains $Name)
 }
 
 function Test-RekitGoDelegationEnabled {
@@ -173,6 +176,18 @@ function Test-RekitGoDelegationSafe {
       if ($Command -in @('release-check','release-run') -and -not [string]::IsNullOrWhiteSpace($Target)) { return $false }
       if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
       return $true
+    }
+    'next-batch' {
+      if (-not [string]::IsNullOrWhiteSpace($Target)) { return $false }
+      if ($CreateCandidates -or $Review -or $Force) { return $false }
+      if ($WhatIf -and $Apply) { return $false }
+      if ((-not $WhatIf) -and (-not $Apply)) { return $false }
+      if ([string]::IsNullOrWhiteSpace($Domain) -or [string]::IsNullOrWhiteSpace($Closure)) { return $false }
+      if ($WhatIf -and -not [string]::IsNullOrWhiteSpace($ExpectedNextBatchPlanSha256)) { return $false }
+      if ($Apply -and [string]::IsNullOrWhiteSpace($ExpectedNextBatchPlanSha256)) { return $false }
+      if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
+      $formatValue = ([string]$Format).Trim().ToLowerInvariant()
+      return ([string]::IsNullOrWhiteSpace($formatValue) -or @('json','text','table','tsv') -contains $formatValue)
     }
     'attach' {
       if ([string]::IsNullOrWhiteSpace($Target) -or $CreateCandidates -or $Review) { return $false }
@@ -373,7 +388,7 @@ function Add-RekitGoSwitch {
 
 function Get-RekitGoTarget {
   switch ($Command) {
-    { $_ -in @('status','packs','release-check','release-run') } { return (Resolve-RekitTarget $Target) }
+    { $_ -in @('status','packs','release-check','release-run','next-batch') } { return (Resolve-RekitTarget $Target) }
     'gate' {
       if ([string]::IsNullOrWhiteSpace($Target)) { return '' }
       return (Resolve-RekitTarget $Target)
@@ -392,7 +407,7 @@ function Get-RekitGoTarget {
 function Get-RekitGoArgs {
   $goArgs = @('-Command', $Command, '-Pack', $Pack)
   $goTarget = Get-RekitGoTarget
-  if ($Command -notin @('start','handoff','continue','reconcile','release-check','release-run')) { Add-RekitGoArg ([ref]$goArgs) '-Target' $goTarget }
+  if ($Command -notin @('start','handoff','continue','reconcile','release-check','release-run','next-batch')) { Add-RekitGoArg ([ref]$goArgs) '-Target' $goTarget }
   $goReview = $Review.IsPresent
   if ($Command -in @('sync','update') -and (-not $Apply) -and (-not $WhatIf)) { $goReview = $true }
   if ($Command -eq 'promote' -and (-not $Apply) -and (-not $CreateCandidates) -and (-not $WhatIf)) { $goReview = $true }
@@ -406,7 +421,12 @@ function Get-RekitGoArgs {
   Add-RekitGoArg ([ref]$goArgs) '-DiffPath' (Resolve-RekitCallerPath $DiffPath)
   $goFormat = $Format
   if ($Command -in @('start','handoff','continue','reconcile') -and (-not $Apply.IsPresent) -and [string]::IsNullOrWhiteSpace([string]$goFormat)) { $goFormat = 'text' }
-  if ($Command -in @('status','packs','release-check','release-run','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff','continue','reconcile')) { Add-RekitGoArg ([ref]$goArgs) '-Format' $goFormat }
+  if ($Command -in @('status','packs','release-check','release-run','next-batch','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff','continue','reconcile')) { Add-RekitGoArg ([ref]$goArgs) '-Format' $goFormat }
+  if ($Command -eq 'next-batch') {
+    Add-RekitGoArg ([ref]$goArgs) '-Domain' $Domain
+    Add-RekitGoArg ([ref]$goArgs) '-Closure' $Closure
+    Add-RekitGoArg ([ref]$goArgs) '-ExpectedNextBatchPlanSha256' $ExpectedNextBatchPlanSha256
+  }
   if ($Command -in @('attach','repair','init','bootstrap','sync','update')) { Add-RekitGoArg ([ref]$goArgs) '-ProjectName' $ProjectName }
   if ($Command -in @('init','bootstrap','sync','update')) { Add-RekitGoSwitch ([ref]$goArgs) '-Force' $Force.IsPresent }
   if ($Command -eq 'note') {

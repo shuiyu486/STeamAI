@@ -15,6 +15,7 @@ const (
 	Gate          = "gate"
 	Handoff       = "handoff"
 	Init          = "init"
+	NextBatch     = "next-batch"
 	Note          = "note"
 	Overview      = "overview"
 	Packs         = "packs"
@@ -114,6 +115,7 @@ var publicCommands = []string{
 	Gate,
 	Handoff,
 	Init,
+	NextBatch,
 	Note,
 	Overview,
 	Packs,
@@ -138,6 +140,7 @@ var publicProfiles = []PublicProfile{
 	{Command: Gate, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
 	{Command: Handoff, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
 	{Command: Init, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
+	{Command: NextBatch, MutationBoundary: BoundaryKitReviewFirst, IsMutation: true, WritesKit: true, ReviewFirst: true, ApplyRequired: true},
 	{Command: Note, MutationBoundary: BoundaryCaseLocalAppend, IsMutation: true, WritesCase: true},
 	{Command: Overview, MutationBoundary: BoundaryCaseLocalReadOrBootstrap, IsMutation: true, WritesCase: true},
 	{Command: Packs, MutationBoundary: BoundaryReadOnly},
@@ -177,6 +180,7 @@ func SymbolValues() map[string]string {
 		"Gate":          Gate,
 		"Handoff":       Handoff,
 		"Init":          Init,
+		"NextBatch":     NextBatch,
 		"Note":          Note,
 		"Overview":      Overview,
 		"Packs":         Packs,

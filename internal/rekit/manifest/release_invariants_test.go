@@ -578,6 +578,7 @@ func TestPowerShellDeprecationStrategyInvariants(t *testing.T) {
 	for _, command := range []string{
 		"release-check",
 		"release-run",
+		"next-batch",
 		"status",
 		"packs",
 		"doctor",
@@ -653,6 +654,7 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 		"packs",
 		"release-check",
 		"release-run",
+		"next-batch",
 		"doctor",
 		"validate",
 		"attach",
@@ -690,7 +692,9 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 
 	for _, required := range []string{
 		"if ($Command -in @('release-check','release-run') -and -not [string]::IsNullOrWhiteSpace($Target)) { return $false }",
-		"if ($Command -notin @('start','handoff','continue','reconcile','release-check','release-run'))",
+		"if (-not [string]::IsNullOrWhiteSpace($Target)) { return $false }",
+		"if ($Command -notin @('start','handoff','continue','reconcile','release-check','release-run','next-batch'))",
+		"Add-RekitGoArg ([ref]$goArgs) '-ExpectedNextBatchPlanSha256' $ExpectedNextBatchPlanSha256",
 		"implemented by the Go backend only",
 		"Test-RekitNoPowerShellFallbackCommand",
 		"PowerShell fallback has been retired",
@@ -708,6 +712,7 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 	}
 	for _, required := range []string{
 		"| `release-check` / `release-run` | Go default | façade delegate + no PowerShell fallback |",
+		"| `next-batch` planning receipt | Go default | façade delegate + no PowerShell fallback |",
 		"| `status` / `packs` / `doctor` / `validate` | Go default | façade delegate + no PowerShell fallback |",
 		"| case lifecycle `attach` / `repair` / `init` / `bootstrap` preview/apply | Go default | façade delegate + no PowerShell fallback |",
 		"| `sync` / `update` review/apply/JSON preview | Go default | façade delegate + no PowerShell fallback |",

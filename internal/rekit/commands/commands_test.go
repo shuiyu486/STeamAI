@@ -8,10 +8,10 @@ import (
 
 func TestPublicCommandCatalog(t *testing.T) {
 	commands := Public()
-	if len(commands) != 21 || !slices.IsSorted(commands) {
+	if len(commands) != 22 || !slices.IsSorted(commands) {
 		t.Fatalf("unexpected public command catalog: %v", commands)
 	}
-	for _, command := range []string{"attach", "bootstrap", "continue", "doctor", "gate", "handoff", "init", "note", "overview", "packs", "plan-subagents", "promote", "reconcile", "release-check", "release-run", "repair", "start", "status", "sync", "update", "validate"} {
+	for _, command := range []string{"attach", "bootstrap", "continue", "doctor", "gate", "handoff", "init", "next-batch", "note", "overview", "packs", "plan-subagents", "promote", "reconcile", "release-check", "release-run", "repair", "start", "status", "sync", "update", "validate"} {
 		if !slices.Contains(commands, command) || !IsPublic(command) || !IsPublic(" "+command+" ") {
 			t.Fatalf("public command %s missing or not recognized: %v", command, commands)
 		}
@@ -41,21 +41,21 @@ func TestPublicCommandProfiles(t *testing.T) {
 			t.Fatalf("read-only command %s has mutating profile: %+v", command, profile)
 		}
 	}
-	for _, command := range []string{Sync, Update, Promote} {
+	for _, command := range []string{NextBatch, Sync, Update, Promote} {
 		profile := profileMap[command]
 		if !profile.IsMutation || !profile.ReviewFirst || !profile.ApplyRequired {
 			t.Fatalf("review-first command %s missing mutation guards: %+v", command, profile)
 		}
 	}
-	if profileMap[Promote].WritesCase || !profileMap[Promote].WritesKit || !profileMap[Sync].WritesCase || profileMap[Sync].WritesKit {
-		t.Fatalf("unexpected kit/case write boundaries: promote=%+v sync=%+v", profileMap[Promote], profileMap[Sync])
+	if profileMap[Promote].WritesCase || !profileMap[Promote].WritesKit || !profileMap[NextBatch].WritesKit || profileMap[NextBatch].WritesCase || !profileMap[Sync].WritesCase || profileMap[Sync].WritesKit {
+		t.Fatalf("unexpected kit/case write boundaries: next-batch=%+v promote=%+v sync=%+v", profileMap[NextBatch], profileMap[Promote], profileMap[Sync])
 	}
 	summary := PublicProfileSummaryBaseline()
-	if summary.Total != 21 || summary.ReadOnly != 6 || summary.Mutating != 15 || summary.WritesCase != 14 || summary.WritesKit != 1 || summary.ReviewFirst != 3 || summary.ApplyRequired != 13 || summary.HeavyTool != 0 || summary.AuthorityConfirmed != 0 || summary.Boundaries[BoundaryCaseLocalApply] != 9 || summary.Boundaries[BoundaryCaseLocalReviewWriteback] != 1 || summary.Boundaries[BoundaryCaseLocalReviewFirst] != 2 || summary.Boundaries[BoundaryKitReviewFirst] != 1 || summary.Boundaries[BoundaryReadOnly] != 6 {
+	if summary.Total != 22 || summary.ReadOnly != 6 || summary.Mutating != 16 || summary.WritesCase != 14 || summary.WritesKit != 2 || summary.ReviewFirst != 4 || summary.ApplyRequired != 14 || summary.HeavyTool != 0 || summary.AuthorityConfirmed != 0 || summary.Boundaries[BoundaryCaseLocalApply] != 9 || summary.Boundaries[BoundaryCaseLocalReviewWriteback] != 1 || summary.Boundaries[BoundaryCaseLocalReviewFirst] != 2 || summary.Boundaries[BoundaryKitReviewFirst] != 2 || summary.Boundaries[BoundaryReadOnly] != 6 {
 		t.Fatalf("unexpected public command profile summary: %+v", summary)
 	}
 	groups := PublicProfileGroupsBaseline()
-	if strings.Join(groups.ReadOnly, ",") != "doctor,packs,release-check,release-run,status,validate" || strings.Join(groups.WritesKit, ",") != Promote || strings.Join(groups.ReviewFirst, ",") != "promote,sync,update" || len(groups.HeavyTool) != 0 || len(groups.AuthorityConfirmed) != 0 || len(groups.ByBoundary[BoundaryCaseLocalApply]) != 9 || strings.Join(groups.ByBoundary[BoundaryCaseLocalReviewWriteback], ",") != PlanSubagents || len(groups.ByBoundary[BoundaryCaseLocalReviewFirst]) != 2 || groups.ByBoundary[BoundaryKitReviewFirst][0] != Promote {
+	if strings.Join(groups.ReadOnly, ",") != "doctor,packs,release-check,release-run,status,validate" || strings.Join(groups.WritesKit, ",") != "next-batch,promote" || strings.Join(groups.ReviewFirst, ",") != "next-batch,promote,sync,update" || len(groups.HeavyTool) != 0 || len(groups.AuthorityConfirmed) != 0 || len(groups.ByBoundary[BoundaryCaseLocalApply]) != 9 || strings.Join(groups.ByBoundary[BoundaryCaseLocalReviewWriteback], ",") != PlanSubagents || len(groups.ByBoundary[BoundaryCaseLocalReviewFirst]) != 2 || strings.Join(groups.ByBoundary[BoundaryKitReviewFirst], ",") != "next-batch,promote" {
 		t.Fatalf("unexpected public command profile groups: %+v", groups)
 	}
 	boundaries := PublicProfileBoundariesBaseline()

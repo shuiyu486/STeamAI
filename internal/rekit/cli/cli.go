@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -115,6 +117,9 @@ type Options struct {
 	ItemsPerAgent                         int
 	MaxParallel                           int
 	Format                                string
+	NextBatchDomain                       string
+	NextBatchClosure                      string
+	ExpectedNextBatchPlanSHA256           string
 	Gate                                  gate.Options
 	Note                                  note.Options
 	Start                                 workstream.StartOptions
@@ -352,6 +357,24 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ExpectedCanonicalSha256")
 			}
 			opt.ExpectedCanonicalSHA256 = args[i]
+		case "-Domain", "-NextBatchDomain", "--domain", "--next-batch-domain":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -NextBatchDomain")
+			}
+			opt.NextBatchDomain = args[i]
+		case "-Closure", "-NextBatchClosure", "--closure", "--next-batch-closure":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -NextBatchClosure")
+			}
+			opt.NextBatchClosure = args[i]
+		case "-ExpectedNextBatchPlanSha256", "-ExpectedNextBatchPlanSHA256", "--expected-next-batch-plan-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedNextBatchPlanSha256")
+			}
+			opt.ExpectedNextBatchPlanSHA256 = args[i]
 		case "-CollectReviewerResult", "--collect-reviewer-result":
 			opt.CollectReviewerResult = true
 		case "-RecordReviewerDispatch", "--record-reviewer-dispatch":
@@ -925,6 +948,9 @@ func Run(args []string, stdout io.Writer) error {
 	if (opt.RetireCandidateVerificationWorkspace || strings.TrimSpace(opt.ExpectedRetirementSHA256) != "") && opt.Command != commands.Promote {
 		return fmt.Errorf("candidate verification retirement flags are supported only by promote")
 	}
+	if (strings.TrimSpace(opt.NextBatchDomain) != "" || strings.TrimSpace(opt.NextBatchClosure) != "" || strings.TrimSpace(opt.ExpectedNextBatchPlanSHA256) != "") && opt.Command != commands.NextBatch {
+		return fmt.Errorf("next-batch planning receipt flags are supported only by next-batch")
+	}
 	if (strings.TrimSpace(opt.Note.CreatedAt) != "" || strings.TrimSpace(opt.Note.ExpectedEventSHA256) != "") && opt.Command != commands.Note {
 		return fmt.Errorf("note event currentness flags are supported only by note")
 	}
@@ -964,6 +990,8 @@ func Run(args []string, stdout io.Writer) error {
 		return runReleaseCheck(ctx, opt, stdout)
 	case commands.ReleaseRun:
 		return runReleaseRun(ctx, opt, stdout)
+	case commands.NextBatch:
+		return runNextBatch(ctx, opt, stdout)
 	case commands.Doctor, commands.Validate:
 		return runDoctor(ctx, opt, stdout)
 	case commands.Attach:
@@ -1121,6 +1149,363 @@ func runReleaseRun(ctx runtime.Context, opt Options, out io.Writer) error {
 		return nil
 	}
 	return fmt.Errorf("release-run not ready: passed=%d failed=%d skipped=%d", result.Passed, result.Failed, result.Skipped)
+}
+
+type nextBatchResult struct {
+	SchemaVersion               int                                    `json:"schemaVersion"`
+	Command                     string                                 `json:"command"`
+	RepoRoot                    string                                 `json:"repoRoot"`
+	IsMutation                  bool                                   `json:"isMutation"`
+	Applied                     bool                                   `json:"applied"`
+	ReviewRequired              bool                                   `json:"reviewRequired"`
+	RequiresConfirmation        bool                                   `json:"requiresConfirmation"`
+	LatestCompletedBatch        string                                 `json:"latestCompletedBatch,omitempty"`
+	NextBatch                   string                                 `json:"nextBatch"`
+	Domain                      string                                 `json:"domain"`
+	DomainActionID              string                                 `json:"domainActionId,omitempty"`
+	Closure                     string                                 `json:"closure"`
+	ExpectedNextBatchPlanSHA256 string                                 `json:"expectedNextBatchPlanSha256"`
+	CurrentBatchSection         string                                 `json:"currentBatchSection"`
+	ChangelogEntry              string                                 `json:"changelogEntry"`
+	Writes                      []nextBatchWritePlan                   `json:"writes"`
+	ValidationCommands          []string                               `json:"validationCommands,omitempty"`
+	ReleaseCadenceSteps         []string                               `json:"releaseCadenceSteps,omitempty"`
+	MissionCommanderAction      mission.MissionCommanderNextActionItem `json:"missionCommanderAction"`
+	MissionCommanderActionQueue mission.MissionCommanderActionQueue    `json:"missionCommanderActionQueue"`
+	Boundary                    []string                               `json:"boundary"`
+	NextSteps                   []string                               `json:"nextSteps"`
+}
+
+type nextBatchWritePlan struct {
+	Path         string `json:"path"`
+	Action       string `json:"action"`
+	TargetPath   string `json:"targetPath"`
+	InsertAfter  string `json:"insertAfter,omitempty"`
+	BeforeSHA256 string `json:"beforeSha256,omitempty"`
+	AfterSHA256  string `json:"afterSha256"`
+	BeforeBytes  int    `json:"beforeBytes"`
+	AfterBytes   int    `json:"afterBytes"`
+	Changed      bool   `json:"changed"`
+	PreviewText  string `json:"previewText,omitempty"`
+	PlannedText  string `json:"-"`
+}
+
+func runNextBatch(ctx runtime.Context, opt Options, out io.Writer) error {
+	if ctx.TargetProvided {
+		return fmt.Errorf("next-batch writes kit repo docs; omit -Target")
+	}
+	if opt.Apply == opt.WhatIf {
+		return fmt.Errorf("next-batch requires exactly one of -WhatIf or -Apply")
+	}
+	if opt.CreateCandidates || opt.Review || opt.Force || opt.List || wantsReviewArtifacts(opt) {
+		return fmt.Errorf("next-batch accepts only planning receipt flags; omit create/review/force/list/review artifact flags")
+	}
+	if opt.WhatIf && strings.TrimSpace(opt.ExpectedNextBatchPlanSHA256) != "" {
+		return fmt.Errorf("next-batch -WhatIf does not accept -ExpectedNextBatchPlanSha256")
+	}
+	if opt.Apply && strings.TrimSpace(opt.ExpectedNextBatchPlanSHA256) == "" {
+		return fmt.Errorf("next-batch -Apply requires -ExpectedNextBatchPlanSha256 from -WhatIf")
+	}
+	format, err := workstreamFormat(opt.Format)
+	if err != nil {
+		return fmt.Errorf("unsupported next-batch format: %s", opt.Format)
+	}
+	result, err := buildNextBatchResult(ctx.RepoRoot, opt)
+	if err != nil {
+		return err
+	}
+	if opt.Apply {
+		if !strings.EqualFold(strings.TrimSpace(opt.ExpectedNextBatchPlanSHA256), result.ExpectedNextBatchPlanSHA256) {
+			return fmt.Errorf("next-batch expected plan sha256 mismatch: got %s want %s", strings.TrimSpace(opt.ExpectedNextBatchPlanSHA256), result.ExpectedNextBatchPlanSHA256)
+		}
+		for _, write := range result.Writes {
+			if err := os.WriteFile(write.TargetPath, []byte(write.PlannedText), 0o644); err != nil {
+				return err
+			}
+		}
+		result.IsMutation = true
+		result.Applied = true
+		result.ReviewRequired = false
+		result.RequiresConfirmation = false
+		result.MissionCommanderAction = nextBatchRefreshAction()
+		result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor([]mission.MissionCommanderNextActionItem{result.MissionCommanderAction})
+		result.NextSteps = []string{
+			"next-batch planning receipt applied to docs/batch-plan.md and CHANGELOG.md only",
+			"rerun /rekit status -Format json to refresh Mission Commander current action from durable docs",
+			"implement the selected Windows-verifiable product-path slice, then run focused regressions and the full local release minimum",
+		}
+	}
+	if format == "json" {
+		return writeJSON(out, result)
+	}
+	return writeNextBatchText(out, result)
+}
+
+func buildNextBatchResult(repoRoot string, opt Options) (nextBatchResult, error) {
+	domain := nextBatchSingleLine(opt.NextBatchDomain)
+	closure := nextBatchSingleLine(opt.NextBatchClosure)
+	if domain == "" {
+		return nextBatchResult{}, fmt.Errorf("next-batch requires -Domain with one release handoff candidate domain")
+	}
+	if closure == "" {
+		return nextBatchResult{}, fmt.Errorf("next-batch requires -Closure describing the selected product-path closure")
+	}
+	if strings.ContainsAny(domain+closure, "<>") {
+		return nextBatchResult{}, fmt.Errorf("next-batch -Domain and -Closure must be concrete values, not starter-package placeholders")
+	}
+	inventory, err := releaseCheckBuild(repoRoot)
+	if err != nil {
+		return nextBatchResult{}, err
+	}
+	pkg := inventory.ReleaseHandoff.NextBatchSelectionPackage
+	if pkg == nil || !pkg.Ready || pkg.StarterPackage == nil || !pkg.StarterPackage.Ready {
+		return nextBatchResult{}, fmt.Errorf("next-batch selection package is not ready; run release-check/status and finish the current batch first")
+	}
+	selectedDomain, actionID, err := nextBatchSelectDomain(pkg, domain)
+	if err != nil {
+		return nextBatchResult{}, err
+	}
+	starter := pkg.StarterPackage
+	nextBatch := strings.TrimSpace(starter.SuggestedNextBatch)
+	if nextBatch == "" || strings.Contains(nextBatch, "<") {
+		return nextBatchResult{}, fmt.Errorf("next-batch starter package did not provide a concrete suggested batch id")
+	}
+	batchPlanPath := filepath.Join(repoRoot, filepath.FromSlash("docs/batch-plan.md"))
+	changelogPath := filepath.Join(repoRoot, "CHANGELOG.md")
+	batchPlanText, err := os.ReadFile(batchPlanPath)
+	if err != nil {
+		return nextBatchResult{}, err
+	}
+	changelogText, err := os.ReadFile(changelogPath)
+	if err != nil {
+		return nextBatchResult{}, err
+	}
+	section := nextBatchCurrentBatchSection(nextBatch, selectedDomain, closure, starter.ValidationCommands)
+	entry := nextBatchChangelogEntry(nextBatch, selectedDomain, closure)
+	plannedBatchPlan, err := nextBatchInsertAfterHeading(string(batchPlanText), "### Current batch state", "### "+nextBatch+"：", section)
+	if err != nil {
+		return nextBatchResult{}, err
+	}
+	plannedChangelog, err := nextBatchInsertAfterHeading(string(changelogText), "### Changed", "- "+nextBatch+" ", entry)
+	if err != nil {
+		return nextBatchResult{}, err
+	}
+	writes := []nextBatchWritePlan{
+		nextBatchWrite("docs/batch-plan.md", "insert-current-batch-section", batchPlanPath, "### Current batch state", batchPlanText, plannedBatchPlan, section),
+		nextBatchWrite("CHANGELOG.md", "insert-unreleased-changelog-entry", changelogPath, "### Changed", changelogText, plannedChangelog, entry),
+	}
+	current := nextBatchApplyAction(nextBatch, selectedDomain, closure, nextBatchPlanningSHA256(writes))
+	queue := mission.MissionCommanderActionQueueFor([]mission.MissionCommanderNextActionItem{current})
+	return nextBatchResult{
+		SchemaVersion:               1,
+		Command:                     commands.NextBatch,
+		RepoRoot:                    repoRoot,
+		IsMutation:                  false,
+		Applied:                     false,
+		ReviewRequired:              true,
+		RequiresConfirmation:        true,
+		LatestCompletedBatch:        strings.TrimSpace(starter.LatestCompletedBatch),
+		NextBatch:                   nextBatch,
+		Domain:                      selectedDomain,
+		DomainActionID:              actionID,
+		Closure:                     closure,
+		ExpectedNextBatchPlanSHA256: nextBatchPlanningSHA256(writes),
+		CurrentBatchSection:         section,
+		ChangelogEntry:              entry,
+		Writes:                      writes,
+		ValidationCommands:          mission.UniqueStrings(starter.ValidationCommands),
+		ReleaseCadenceSteps:         mission.UniqueStrings(starter.ReleaseCadenceSteps),
+		MissionCommanderAction:      current,
+		MissionCommanderActionQueue: queue,
+		Boundary: []string{
+			"next-batch is a kit review-first planning receipt command",
+			"WhatIf reads release handoff and previews docs/batch-plan.md plus CHANGELOG.md writes without mutation",
+			"Apply requires the exact ExpectedNextBatchPlanSha256 from WhatIf and writes only kit docs",
+			"next-batch does not touch case state, authority/confirmed, reviewer/adapter/pack-memory/gate/sync/promote mutation, heavy tools, commits, pushes, or remote CI",
+		},
+		NextSteps: []string{
+			"review this WhatIf output and the selected domain/closure",
+			"rerun next-batch with -Apply and -ExpectedNextBatchPlanSha256 to write the planning receipt",
+			"after Apply, rerun /rekit status -Format json before implementation",
+		},
+	}, nil
+}
+
+func nextBatchApplyAction(nextBatch, domain, closure, expectedSHA string) mission.MissionCommanderNextActionItem {
+	return mission.MissionCommanderNextActionItem{
+		Label:          nextBatch,
+		ActionID:       "next-batch-planning-receipt",
+		State:          "ready-for-next-batch-planning-apply",
+		Command:        fmt.Sprintf("/rekit next-batch -Domain %s -Closure %s -ExpectedNextBatchPlanSha256 %s -Apply -Format json", statusQuoteCommandArg(domain), statusQuoteCommandArg(closure), expectedSHA),
+		Source:         "nextBatchCommand",
+		RequiresReview: true,
+		Reasons: []string{
+			"release handoff next-batch selection package is ready",
+			"planning receipt writes only kit docs before implementation",
+		},
+		Boundary: []string{
+			"review the next-batch WhatIf output before Apply",
+			"Apply writes only docs/batch-plan.md and CHANGELOG.md in the kit repo",
+			"Apply does not execute reviewer, adapter, pack-memory, gate, sync, promote, heavy-tool, commit, push, or remote CI inspection",
+		},
+	}
+}
+
+func nextBatchRefreshAction() mission.MissionCommanderNextActionItem {
+	return mission.MissionCommanderNextActionItem{
+		Label:    "status-refresh",
+		ActionID: "next-batch-status-refresh",
+		State:    "next-batch-planning-applied-refresh-required",
+		Command:  "/rekit status -Format json",
+		Source:   "nextBatchCommand",
+		Reasons: []string{
+			"next-batch planning receipt was applied to kit docs",
+			"status must be refreshed before implementation follow-up is selected",
+		},
+		Boundary: []string{
+			"status refresh is read-only",
+			"do not infer follow-up work from next-batch Apply output alone",
+		},
+	}
+}
+
+func nextBatchSelectDomain(pkg *releasecheck.ReleaseHandoffNextBatchSelectionPackage, domain string) (string, string, error) {
+	domain = strings.TrimSpace(domain)
+	allowed := []string{}
+	for _, action := range pkg.MissionCommanderNextActions {
+		if strings.TrimSpace(action.State) != "next-batch-candidate-domain" {
+			continue
+		}
+		label := strings.TrimSpace(action.Label)
+		actionID := strings.TrimSpace(action.ActionID)
+		if label != "" {
+			allowed = append(allowed, label)
+		}
+		if strings.EqualFold(domain, label) || strings.EqualFold(domain, actionID) {
+			return label, actionID, nil
+		}
+	}
+	return "", "", fmt.Errorf("next-batch -Domain %q is not in ready candidate domains: %s", domain, strings.Join(mission.UniqueStrings(allowed), ", "))
+}
+
+func nextBatchCurrentBatchSection(nextBatch, domain, closure string, validationCommands []string) string {
+	validation := nextBatchValidationSummary(validationCommands)
+	return strings.Join([]string{
+		"### " + nextBatch + "：" + closure,
+		"",
+		"状态：进行中。本批选择 `" + domain + "`，推进 " + closure + "；上一批完成后仍需要解决的接手断点是 next-batch selection guidance acceptance 仍依赖主 Agent 手动编辑 `docs/batch-plan.md` / `CHANGELOG.md`，replacement harness 缺少 Go-native WhatIf → expected-hash Apply receipt 来把 guidance 接受写成可刷新 durable state。本批不是字段/文案/summary 微调，而是把 next-batch acceptance 变成可预览、可哈希确认、可刷新验证的产品路径。",
+		"",
+		"目标：新增 `/rekit next-batch` kit review-first command：`-WhatIf` 从 release handoff starter package 与 candidate domain 生成 `docs/batch-plan.md` current batch section 和 `CHANGELOG.md` Unreleased entry 的规划写入预览，并返回 `expectedNextBatchPlanSha256`；`-Apply` 必须带该 expected hash，且只写这两个 kit docs。Apply 后 replacement executor / harness 可立即 rerun `status -Format json`，从 durable docs 看到新批次 current action，而不是继续停在上一批的 guidance-only selection。",
+		"",
+		"边界：本批不新增 PowerShell runtime logic，不执行 heavy-tool，不写 authority/confirmed，不自动执行 reviewer/adapter/pack-memory/gate/sync/promote mutation，不自动选择后续实现工作，不自动提交或声明 remote CI green；`next-batch -Apply` 只在 expected hash 匹配时写 kit repo `docs/batch-plan.md` 与 `CHANGELOG.md` planning receipt。",
+		"",
+		"验证标准：focused regressions 覆盖 `next-batch` WhatIf/Apply/hash guard、public command surface、PowerShell façade no-fallback delegation 与 status/release-check handoff refresh；随后运行完整本机 release minimum：" + validation + "。实现完成后记录 implementation commit/push 与 push-triggered remote release-gate inspection；远程 `steps=[]` 仍只记录 blocker，不声明 green。",
+	}, "\n")
+}
+
+func nextBatchChangelogEntry(nextBatch, domain, closure string) string {
+	return "- " + nextBatch + " 新增 " + closure + "：`/rekit next-batch` 将 release handoff 的 next-batch guidance acceptance 收敛为 Go-native kit review-first planning receipt；`-WhatIf` 根据 selected domain `" + domain + "` 预览 `docs/batch-plan.md` / `CHANGELOG.md` 写入并返回 `expectedNextBatchPlanSha256`，`-Apply` 必须带该 hash 且只写 kit docs。该批不新增 PowerShell runtime logic、case state mutation、reviewer/adapter/pack-memory/gate/sync/promote mutation、heavy-tool、authority/confirmed 写入、自动提交或 remote CI green 声明。Focused validation、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection 待记录。"
+}
+
+func nextBatchValidationSummary(commands []string) string {
+	commands = mission.UniqueStrings(commands)
+	if len(commands) == 0 {
+		return "focused regressions、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`"
+	}
+	quoted := make([]string, 0, len(commands))
+	for _, command := range commands {
+		quoted = append(quoted, "`"+command+"`")
+	}
+	return strings.Join(quoted, "、")
+}
+
+func nextBatchInsertAfterHeading(text, heading, duplicateNeedle, insert string) (string, error) {
+	normalized := strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n")
+	if strings.Contains(normalized, duplicateNeedle) {
+		return "", fmt.Errorf("next-batch target already contains %q", strings.TrimSpace(duplicateNeedle))
+	}
+	idx := strings.Index(normalized, heading)
+	if idx < 0 {
+		return "", fmt.Errorf("next-batch target heading %q not found", heading)
+	}
+	lineEnd := strings.Index(normalized[idx:], "\n")
+	if lineEnd < 0 {
+		return normalized + "\n\n" + strings.TrimSpace(insert) + "\n", nil
+	}
+	insertAt := idx + lineEnd + 1
+	for insertAt < len(normalized) && normalized[insertAt] == '\n' {
+		insertAt++
+	}
+	return normalized[:insertAt] + "\n" + strings.TrimSpace(insert) + "\n\n" + normalized[insertAt:], nil
+}
+
+func nextBatchWrite(path, action, targetPath, insertAfter string, before []byte, plannedText, previewText string) nextBatchWritePlan {
+	return nextBatchWritePlan{
+		Path:         path,
+		Action:       action,
+		TargetPath:   targetPath,
+		InsertAfter:  insertAfter,
+		BeforeSHA256: nextBatchSHA256(before),
+		AfterSHA256:  nextBatchSHA256([]byte(plannedText)),
+		BeforeBytes:  len(before),
+		AfterBytes:   len([]byte(plannedText)),
+		Changed:      string(before) != plannedText,
+		PreviewText:  strings.TrimSpace(previewText),
+		PlannedText:  plannedText,
+	}
+}
+
+func nextBatchPlanningSHA256(writes []nextBatchWritePlan) string {
+	h := sha256.New()
+	for _, write := range writes {
+		_, _ = io.WriteString(h, write.Path)
+		_, _ = h.Write([]byte{0})
+		_, _ = io.WriteString(h, write.PlannedText)
+		_, _ = h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func nextBatchSHA256(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func nextBatchSingleLine(value string) string {
+	return strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+}
+
+func writeNextBatchText(out io.Writer, result nextBatchResult) error {
+	if _, err := fmt.Fprintf(out, "next-batch：mutation=%t applied=%t reviewRequired=%t repoRoot=%s latestCompletedBatch=%s nextBatch=%s domain=%s closure=%s expectedNextBatchPlanSha256=%s writes=%d\n", result.IsMutation, result.Applied, result.ReviewRequired, result.RepoRoot, result.LatestCompletedBatch, result.NextBatch, result.Domain, result.Closure, result.ExpectedNextBatchPlanSHA256, len(result.Writes)); err != nil {
+		return err
+	}
+	for _, write := range result.Writes {
+		if _, err := fmt.Fprintf(out, "next-batch write：path=%s action=%s changed=%t beforeSha256=%s afterSha256=%s beforeBytes=%d afterBytes=%d insertAfter=%s\n", write.Path, write.Action, write.Changed, write.BeforeSHA256, write.AfterSHA256, write.BeforeBytes, write.AfterBytes, write.InsertAfter); err != nil {
+			return err
+		}
+	}
+	if err := writePrefixedMultilineText(out, "next-batch current batch section：", result.CurrentBatchSection); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "next-batch changelog entry：%s\n", result.ChangelogEntry); err != nil {
+		return err
+	}
+	if request := result.MissionCommanderActionQueue.CurrentDriverRequest; request != nil {
+		if _, err := fmt.Fprintf(out, "next-batch driver：kind=%s executable=%t requiresReview=%t command=%s\n", request.Kind, request.CommandExecutable, request.RequiresReview, request.Command); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range result.Boundary {
+		if _, err := fmt.Fprintf(out, "next-batch boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	for _, step := range result.NextSteps {
+		if _, err := fmt.Fprintf(out, "next-batch next step：%s\n", step); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func runReleaseRunSteps(repoRoot string, profile releasecheck.GateProfile, executor releaseRunCommandExecutor) releaseRunResult {

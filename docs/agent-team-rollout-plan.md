@@ -6,7 +6,7 @@
 - 维护者开始新批次前先读本文件顶部：读取指南、实施摘要、执行清单、验证标准、风险与注意事项，再按批次读细节。
 - 本文件只写计划与契约压测方法，不替代 `common/policies/agent-team.md` 和 `common/policies/subagents.md` 的契约定义。
 - 推进姿态为 **选项 C：契约 dry-run + 临时 case 验证优先**。先压测契约，再按真实缺口决定 ledger runtime（Phase 5）与 bounded dispatch（Phase 6）的顺序。
-- 当前状态：公共 `/rekit` 默认路径已由 20 个 Go-owned/no-fallback public commands 支撑，legacy `rekit/lib/*.ps1` 已删除，`rekit.ps1` 仅 retained compatibility façade。Ledger runtime 支持 9 种 kind、`batchId`、Mission brief / executor action、显式 `reconcile`、typed autonomy preflight 与 pending/authorized gate visibility；`plan-subagents` planning mode 已输出 shard handoff、reviewer result/intake/decision/writeback contracts且不自动 spawn reviewer；Batch 353 已由主 Agent在本机真实 spawn 一个 read-only reviewer，并通过显式 Go-native reviewer intake 完成 strict WhatIf/Apply、verification-before-decision 写回与 post-validation。安全领域 packs 已有 package E2E 或真实临时 case smoke；pack-memory 已有 package E2E 覆盖 case tooling observation → sanitize/create candidate → reviewed recipe merge → fresh case reconsume。当前缺口是统一 member/reviewer session orchestration、真实 heavy-tool adapter execution closure、真实多 pack/跨 case pack-memory UX 与跨平台 product-path E2E；current baseline 见 `docs/go-first-convergence-plan.md` 顶部与 `docs/batch-plan.md` 的 current/active/next 区。
+- 当前状态：公共 `/rekit` 默认路径已由 22 个 Go-owned/no-fallback public commands 支撑，legacy `rekit/lib/*.ps1` 已删除，`rekit.ps1` 仅 retained compatibility façade；`release-run` 提供只读本机 release minimum driver，`next-batch` 提供 kit review-first planning receipt。Ledger runtime 支持 9 种 kind、`batchId`、Mission brief / executor action、显式 `reconcile`、typed autonomy preflight 与 pending/authorized gate visibility；`plan-subagents` planning mode 已输出 shard handoff、reviewer result/intake/decision/writeback contracts且不自动 spawn reviewer；Batch 353 已由主 Agent在本机真实 spawn 一个 read-only reviewer，并通过显式 Go-native reviewer intake 完成 strict WhatIf/Apply、verification-before-decision 写回与 post-validation。安全领域 packs 已有 package E2E 或真实临时 case smoke；pack-memory 已有 package E2E 覆盖 case tooling observation → sanitize/create candidate → reviewed recipe merge → fresh case reconsume。当前缺口是统一 member/reviewer session orchestration、真实 heavy-tool adapter execution closure、真实多 pack/跨 case pack-memory UX 与跨平台 product-path E2E；current baseline 见 `docs/go-first-convergence-plan.md` 顶部与 `docs/batch-plan.md` 的 current/active/next 区。
 
 ## 实施摘要
 
@@ -54,7 +54,7 @@ R4-R6（runtime 切片阶段，按 R3 决定激活）：
 - **dry-run 不执行真实 heavy-tool 动作**：full trace、动态调试、注入、patch、dump、网络、外部副作用一律 dry-run 或 mock，不碰真实样本。
 - **不绕过 review-first**：sync/promote 仍默认 review；confirmed/authority 写入仍需人工确认；dry-run 中的 "confirmed" 只写临时 case workspace，不写 kit 模板。
 - **不复制 runtime 逻辑到 case shim**：case-local `/rekit` 保持 thin shim。
-- **Go runtime current owner**：R4-R6 初期曾以 PowerShell runtime 为准；Batch 240 后 legacy modules 已删除，当前 20 个 public commands 全部 Go-owned/no-fallback。新增逻辑只进入 Go packages；`REKIT_GO_DISABLE=1` 不再回落到 PowerShell 业务实现。
+- **Go runtime current owner**：R4-R6 初期曾以 PowerShell runtime 为准；Batch 240 后 legacy modules 已删除，当前 22 个 public commands 全部 Go-owned/no-fallback。新增逻辑只进入 Go packages；`REKIT_GO_DISABLE=1` 不再回落到 PowerShell 业务实现。
 - **R3 是决策门，不是自动推进**：dry-run 结果可能指向 ledger 优先、dispatch 优先、或两者并行；必须显式记录决策理由，不能默认全做。
 - **schema 改动走文档先**：packet schema 缺口先回写 policy 文档，再考虑 runtime 校验；不在 dry-run 阶段做 schema 迁移。
 - **批次写回**：每批完成后回写本文件、`docs/batch-plan.md` 的 active/next 区、必要的 `CHANGELOG.md` 与 `docs/vision.md` 执行清单；后续计划必须先落到 durable docs，不能只留在聊天上下文。只有当前用户 goal/session 明确授权时才提交并推送指定分支。

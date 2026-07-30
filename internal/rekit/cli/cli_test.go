@@ -67,6 +67,143 @@ func TestParseDefaults(t *testing.T) {
 	}
 }
 
+func TestParseNextBatchPlanningReceiptFlags(t *testing.T) {
+	opt, err := Parse([]string{"next-batch", "-Domain", "mission-commander", "-Closure", "Mission Control next-batch acceptance", "-ExpectedNextBatchPlanSha256", "abc123", "-Apply", "-Format", "json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opt.Command != commands.NextBatch || opt.NextBatchDomain != "mission-commander" || opt.NextBatchClosure != "Mission Control next-batch acceptance" || opt.ExpectedNextBatchPlanSHA256 != "abc123" || !opt.Apply || opt.WhatIf || opt.Format != "json" {
+		t.Fatalf("unexpected next-batch options: %+v", opt)
+	}
+}
+
+func TestRunNextBatchWhatIfReturnsHashBoundDocsReceipt(t *testing.T) {
+	fixture := newCLIFixture(t, cliFixtureOptions{})
+	restore := withNextBatchReadyReleaseCheckFixture(t, "Batch 945")
+	defer restore()
+	beforePlan := readFixtureFile(t, fixture.repoRoot, "docs/batch-plan.md")
+	beforeChangelog := readFixtureFile(t, fixture.repoRoot, "CHANGELOG.md")
+
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "next-batch", "-Domain", "mission-commander", "-Closure", "Mission Control next-batch acceptance product path", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatalf("next-batch WhatIf failed: %v\n%s", err, out.String())
+	}
+	var result nextBatchResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("next-batch WhatIf JSON did not decode: %v\n%s", err, out.String())
+	}
+	if result.Command != commands.NextBatch || result.RepoRoot != fixture.repoRoot || result.IsMutation || result.Applied || !result.ReviewRequired || !result.RequiresConfirmation || result.LatestCompletedBatch != "Batch 945" || result.NextBatch != "Batch 946" || result.Domain != "mission-commander" || result.DomainActionID != "next-batch-mission-commander-operational-closure" || result.Closure != "Mission Control next-batch acceptance product path" {
+		t.Fatalf("unexpected next-batch WhatIf envelope: %+v", result)
+	}
+	if len(result.ExpectedNextBatchPlanSHA256) != 64 || len(result.Writes) != 2 || result.Writes[0].Path != "docs/batch-plan.md" || result.Writes[0].Action != "insert-current-batch-section" || !result.Writes[0].Changed || result.Writes[1].Path != "CHANGELOG.md" || result.Writes[1].Action != "insert-unreleased-changelog-entry" || !result.Writes[1].Changed {
+		t.Fatalf("unexpected next-batch write plan: sha=%q writes=%+v", result.ExpectedNextBatchPlanSHA256, result.Writes)
+	}
+	if !strings.Contains(result.CurrentBatchSection, "### Batch 946：Mission Control next-batch acceptance product path") || !strings.Contains(result.CurrentBatchSection, "`/rekit next-batch`") || !strings.Contains(result.ChangelogEntry, "Batch 946") || !strings.Contains(result.ChangelogEntry, "expectedNextBatchPlanSha256") || !containsSubstring(result.Boundary, "writes only kit docs") {
+		t.Fatalf("next-batch receipt omitted section/changelog/boundary: section=%s changelog=%s boundary=%+v", result.CurrentBatchSection, result.ChangelogEntry, result.Boundary)
+	}
+	request := result.MissionCommanderActionQueue.CurrentDriverRequest
+	if request == nil || request.Kind != "preview-command" || request.RunLoopStepID != "preview-current" || !request.CommandExecutable || !request.RequiresReview || request.Command == "" || strings.Contains(request.Command, " -Target ") || !strings.Contains(request.Command, "-ExpectedNextBatchPlanSha256 "+result.ExpectedNextBatchPlanSHA256) || !strings.Contains(request.Command, "-Apply -Format json") {
+		t.Fatalf("next-batch WhatIf should return hash-bound apply driver request: %+v", request)
+	}
+	if afterPlan := readFixtureFile(t, fixture.repoRoot, "docs/batch-plan.md"); afterPlan != beforePlan {
+		t.Fatal("next-batch WhatIf mutated docs/batch-plan.md")
+	}
+	if afterChangelog := readFixtureFile(t, fixture.repoRoot, "CHANGELOG.md"); afterChangelog != beforeChangelog {
+		t.Fatal("next-batch WhatIf mutated CHANGELOG.md")
+	}
+}
+
+func TestRunNextBatchApplyRequiresWhatIfHashAndRefreshesStatus(t *testing.T) {
+	fixture := newCLIFixture(t, cliFixtureOptions{})
+	restore := withNextBatchReadyReleaseCheckFixture(t, "Batch 945")
+	restored := false
+	defer func() {
+		if !restored {
+			restore()
+		}
+	}()
+
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "next-batch", "-Domain", "replacement-executor", "-Closure", "replacement executor durable next-batch receipt", "-Apply", "-Format", "json"}, &out); err == nil || !strings.Contains(err.Error(), "requires -ExpectedNextBatchPlanSha256") {
+		t.Fatalf("next-batch Apply without expected hash should fail, err=%v stdout=%s", err, out.String())
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "next-batch", "-Domain", "replacement-executor", "-Closure", "replacement executor durable next-batch receipt", "-ExpectedNextBatchPlanSha256", strings.Repeat("0", 64), "-WhatIf", "-Format", "json"}, &out); err == nil || !strings.Contains(err.Error(), "WhatIf does not accept") {
+		t.Fatalf("next-batch WhatIf with expected hash should fail, err=%v stdout=%s", err, out.String())
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "next-batch", "-Target", fixture.repoRoot, "-Domain", "replacement-executor", "-Closure", "replacement executor durable next-batch receipt", "-WhatIf", "-Format", "json"}, &out); err == nil || !strings.Contains(err.Error(), "omit -Target") {
+		t.Fatalf("next-batch with target should fail, err=%v stdout=%s", err, out.String())
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "next-batch", "-Domain", "replacement-executor", "-Closure", "replacement executor durable next-batch receipt", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatalf("next-batch WhatIf failed: %v\n%s", err, out.String())
+	}
+	var preview nextBatchResult
+	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+		t.Fatalf("next-batch WhatIf JSON did not decode: %v\n%s", err, out.String())
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "next-batch", "-Domain", "replacement-executor", "-Closure", "replacement executor durable next-batch receipt", "-ExpectedNextBatchPlanSha256", strings.Repeat("f", 64), "-Apply", "-Format", "json"}, &out); err == nil || !strings.Contains(err.Error(), "expected plan sha256 mismatch") {
+		t.Fatalf("next-batch Apply with wrong hash should fail, err=%v stdout=%s", err, out.String())
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "next-batch", "-Domain", "replacement-executor", "-Closure", "replacement executor durable next-batch receipt", "-ExpectedNextBatchPlanSha256", preview.ExpectedNextBatchPlanSHA256, "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatalf("next-batch Apply failed: %v\n%s", err, out.String())
+	}
+	var applied nextBatchResult
+	if err := json.Unmarshal(out.Bytes(), &applied); err != nil {
+		t.Fatalf("next-batch Apply JSON did not decode: %v\n%s", err, out.String())
+	}
+	if !applied.IsMutation || !applied.Applied || applied.ReviewRequired || applied.RequiresConfirmation || applied.ExpectedNextBatchPlanSHA256 != preview.ExpectedNextBatchPlanSHA256 {
+		t.Fatalf("unexpected next-batch Apply envelope: %+v", applied)
+	}
+	request := applied.MissionCommanderActionQueue.CurrentDriverRequest
+	if request == nil || request.Kind != "execute-command" || request.Command != "/rekit status -Format json" || request.RequiresReview || !request.CommandExecutable || !containsSubstring(applied.NextSteps, "status -Format json") {
+		t.Fatalf("next-batch Apply should return status refresh driver request: request=%+v next=%+v", request, applied.NextSteps)
+	}
+	if plan := readFixtureFile(t, fixture.repoRoot, "docs/batch-plan.md"); !strings.Contains(plan, "### Batch 946：replacement executor durable next-batch receipt") || !strings.Contains(plan, "`/rekit next-batch`") {
+		t.Fatalf("next-batch Apply did not write docs/batch-plan.md receipt:\n%s", plan)
+	}
+	if changelog := readFixtureFile(t, fixture.repoRoot, "CHANGELOG.md"); !strings.Contains(changelog, "Batch 946 新增 replacement executor durable next-batch receipt") || !strings.Contains(changelog, "expectedNextBatchPlanSha256") {
+		t.Fatalf("next-batch Apply did not write CHANGELOG.md receipt:\n%s", changelog)
+	}
+
+	restore()
+	restored = true
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatalf("status refresh after next-batch Apply failed: %v\n%s", err, out.String())
+	}
+	var status struct {
+		ProjectHandoff struct {
+			LatestBatch                 string                              `json:"latestBatch"`
+			LatestBatchStatus           string                              `json:"latestBatchStatus"`
+			LatestNextAction            string                              `json:"latestNextAction"`
+			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		} `json:"projectHandoff"`
+		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("status JSON after next-batch Apply did not decode: %v\n%s", err, out.String())
+	}
+	current := status.ProjectHandoff.MissionCommanderActionQueue.CurrentAction
+	if status.ProjectHandoff.LatestBatch != "Batch 946" || !strings.Contains(status.ProjectHandoff.LatestBatchStatus, "进行中") || !strings.Contains(status.ProjectHandoff.LatestNextAction, "finish the current batch") || current == nil || current.Command == "" || current.ActionID != "latest-batch-next-action" || current.Source != "releaseHandoffLatestBatch" || status.MissionControlRunbook == nil || status.MissionControlRunbook.GuidanceHandoff == nil || status.MissionControlRunbook.GuidanceHandoff.Source == "releaseHandoffNextBatch" {
+		t.Fatalf("status refresh should consume durable next-batch docs as current in-progress batch: project=%+v runbook=%+v", status.ProjectHandoff, status.MissionControlRunbook)
+	}
+}
+
+func readFixtureFile(t *testing.T, root, rel string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
 func TestStatusProjectHandoffCurrentActionPromotesCompletedCadenceToNextBatchSelection(t *testing.T) {
 	remoteDetail := &releasecheck.ReleaseHandoffRemoteReleaseGateDetail{
 		State:            "blocked: completed failure with jobs steps=[]",
@@ -3503,16 +3640,16 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releasecheck.ReleaseHandoff
 	assertReleaseHandoffReadFirst(t, handoff, "CHANGELOG.md")
 	assertReleaseHandoffSignal(t, handoff, "release-check inventory")
 	assertReleaseHandoffSignal(t, handoff, "CI release gate")
-	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "fallbackRetirement=true noFallback=21 candidates=0 removalModules=0 retiredModules=13")
+	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "fallbackRetirement=true noFallback=22 candidates=0 removalModules=0 retiredModules=13")
 	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "facadeRuntime=true legacyImports=false dispatcher=false")
-	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "publicFacade=true retained=true facadeCommands=21 noFallback=21")
+	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "publicFacade=true retained=true facadeCommands=22 noFallback=22")
 	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "moduleRemoval=true candidates=0 retired=13 facadeDeps=0 undocumented=0")
 	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "moduleReferences=true activeTests=0 fixtures=0 blockers=0 unclassified=0")
 	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "entrypoint=cmd/rekit present=true catalog=internal/rekit/commands/commands.go catalogPresent=true")
-	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "default=status commands=21 handlers=21 symbols=21 profiles=21 boundaries=7 alternative=go run ./cmd/rekit -- -Command <command>")
-	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "profileSummary total=21 readOnly=6 mutating=15 writesCase=14 writesKit=1 reviewFirst=3 applyRequired=13 heavyTool=0 authorityConfirmed=0")
-	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "profileGroups readOnly=doctor,packs,release-check,release-run,status,validate reviewFirst=promote,sync,update writesKit=promote")
-	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "profileBoundaries rows=7 caseLocalApply=attach,bootstrap,continue,gate,handoff,init,reconcile,repair,start caseLocalReviewWriteback=plan-subagents caseLocalReviewFirst=sync,update kitReviewFirst=promote readOnly=doctor,packs,release-check,release-run,status,validate")
+	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "default=status commands=22 handlers=22 symbols=22 profiles=22 boundaries=7 alternative=go run ./cmd/rekit -- -Command <command>")
+	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "profileSummary total=22 readOnly=6 mutating=16 writesCase=14 writesKit=2 reviewFirst=4 applyRequired=14 heavyTool=0 authorityConfirmed=0")
+	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "profileGroups readOnly=doctor,packs,release-check,release-run,status,validate reviewFirst=next-batch,promote,sync,update writesKit=next-batch,promote")
+	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "profileBoundaries rows=7 caseLocalApply=attach,bootstrap,continue,gate,handoff,init,reconcile,repair,start caseLocalReviewWriteback=plan-subagents caseLocalReviewFirst=sync,update kitReviewFirst=next-batch,promote readOnly=doctor,packs,release-check,release-run,status,validate")
 	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "profilePolicies rows=5 violations=0")
 	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "facadeRemovalReady=true prerequisites=5")
 	assertReleaseHandoffSignalDetail(t, handoff, "Go-native public surface", "unsupportedDiagnostic=true")
@@ -3745,34 +3882,34 @@ func assertReleaseCheckGoNativePublicSurface(t *testing.T, surface struct {
 		t.Fatalf("unexpected Go-native public surface inventory: %+v", surface)
 	}
 	coverageCounts := surfaceCounts.Coverage
-	if surfaceCounts.Catalog.Commands != 21 || surfaceCounts.Catalog.Empty != 0 || surfaceCounts.Catalog.Duplicates != 0 || coverageCounts.Commands != 21 || coverageCounts.HandlerCommands != 21 || coverageCounts.SymbolCommands != 21 || coverageCounts.ProfileCommands != 21 || coverageCounts.CommandProfiles != 21 || coverageCounts.HandlerMissing != 0 || coverageCounts.HandlerUnknown != 0 || coverageCounts.SymbolMissing != 0 || coverageCounts.SymbolUnknown != 0 || coverageCounts.ProfileMissing != 0 || coverageCounts.ProfileUnknown != 0 || surfaceCounts.MutationBoundaryInventory.Rows != 7 || surfaceCounts.MutationBoundaryInventory.Unknown != 0 {
+	if surfaceCounts.Catalog.Commands != 22 || surfaceCounts.Catalog.Empty != 0 || surfaceCounts.Catalog.Duplicates != 0 || coverageCounts.Commands != 22 || coverageCounts.HandlerCommands != 22 || coverageCounts.SymbolCommands != 22 || coverageCounts.ProfileCommands != 22 || coverageCounts.CommandProfiles != 22 || coverageCounts.HandlerMissing != 0 || coverageCounts.HandlerUnknown != 0 || coverageCounts.SymbolMissing != 0 || coverageCounts.SymbolUnknown != 0 || coverageCounts.ProfileMissing != 0 || coverageCounts.ProfileUnknown != 0 || surfaceCounts.MutationBoundaryInventory.Rows != 7 || surfaceCounts.MutationBoundaryInventory.Unknown != 0 {
 		t.Fatalf("Go-native public surface command coverage omitted expected commands: %+v", surface)
 	}
-	for _, command := range []string{"attach", "bootstrap", "continue", "doctor", "gate", "handoff", "init", "note", "overview", "packs", "plan-subagents", "promote", "reconcile", "release-check", "release-run", "repair", "start", "status", "sync", "update", "validate"} {
+	for _, command := range []string{"attach", "bootstrap", "continue", "doctor", "gate", "handoff", "init", "next-batch", "note", "overview", "packs", "plan-subagents", "promote", "reconcile", "release-check", "release-run", "repair", "start", "status", "sync", "update", "validate"} {
 		if !slices.Contains(surface.Commands, command) || !slices.Contains(surface.HandlerCommands, command) {
 			t.Fatalf("Go-native public command %s missing from catalog or handler coverage: %+v", command, surface)
 		}
 	}
-	if surfaceCounts.SymbolCatalog.Symbols != 21 || surfaceCounts.SymbolCatalog.EmptySymbols != 0 || surfaceCounts.SymbolCatalog.EmptyCommands != 0 || surface.SymbolCommands["PlanSubagents"] != "plan-subagents" || surface.SymbolCommands["ReleaseCheck"] != "release-check" || surface.SymbolCommands["ReleaseRun"] != "release-run" {
+	if surfaceCounts.SymbolCatalog.Symbols != 22 || surfaceCounts.SymbolCatalog.EmptySymbols != 0 || surfaceCounts.SymbolCatalog.EmptyCommands != 0 || surface.SymbolCommands["NextBatch"] != "next-batch" || surface.SymbolCommands["PlanSubagents"] != "plan-subagents" || surface.SymbolCommands["ReleaseCheck"] != "release-check" || surface.SymbolCommands["ReleaseRun"] != "release-run" {
 		t.Fatalf("Go-native public symbol catalog drifted: %+v", surface.SymbolCommands)
 	}
 	profiles := map[string]commands.PublicProfile{}
 	for _, profile := range surface.CommandProfiles {
 		profiles[profile.Command] = profile
 	}
-	if surfaceCounts.ProfileCatalog.Rows != 21 || surfaceCounts.ProfileCatalog.Empty != 0 || surfaceCounts.ProfileCatalog.Duplicates != 0 || surfaceCounts.ProfileCatalog.UnknownBoundaries != 0 || surfaceCounts.ProfileCatalog.HeavyTool != 0 || surfaceCounts.ProfileCatalog.AuthorityConfirmed != 0 || surfaceCounts.ProfileCatalog.WritesKitNoReview != 0 || surfaceCounts.ProfileCatalog.ReviewNoApply != 0 || profiles["release-check"].MutationBoundary != commands.BoundaryReadOnly || profiles["release-check"].IsMutation || profiles["release-run"].MutationBoundary != commands.BoundaryReadOnly || profiles["release-run"].IsMutation || !profiles["promote"].WritesKit || !profiles["promote"].ReviewFirst || profiles["sync"].WritesKit || !profiles["sync"].WritesCase || !slices.Contains(surface.MutationBoundaries, commands.BoundaryKitReviewFirst) {
+	if surfaceCounts.ProfileCatalog.Rows != 22 || surfaceCounts.ProfileCatalog.Empty != 0 || surfaceCounts.ProfileCatalog.Duplicates != 0 || surfaceCounts.ProfileCatalog.UnknownBoundaries != 0 || surfaceCounts.ProfileCatalog.HeavyTool != 0 || surfaceCounts.ProfileCatalog.AuthorityConfirmed != 0 || surfaceCounts.ProfileCatalog.WritesKitNoReview != 0 || surfaceCounts.ProfileCatalog.ReviewNoApply != 0 || profiles["release-check"].MutationBoundary != commands.BoundaryReadOnly || profiles["release-check"].IsMutation || profiles["release-run"].MutationBoundary != commands.BoundaryReadOnly || profiles["release-run"].IsMutation || !profiles["next-batch"].WritesKit || !profiles["next-batch"].ReviewFirst || profiles["next-batch"].WritesCase || !profiles["promote"].WritesKit || !profiles["promote"].ReviewFirst || profiles["sync"].WritesKit || !profiles["sync"].WritesCase || !slices.Contains(surface.MutationBoundaries, commands.BoundaryKitReviewFirst) {
 		t.Fatalf("Go-native public command profiles drifted: profiles=%+v boundaries=%+v", surface.CommandProfiles, surface.MutationBoundaries)
 	}
 	profileSummaryCounts := surfaceCounts.ProfileSummary
-	if profileSummaryCounts.Total != 21 || surfaceCounts.ProfileTotal != 21 || profileSummaryCounts.ReadOnly != 6 || profileSummaryCounts.Mutating != 15 || profileSummaryCounts.WritesCase != 14 || profileSummaryCounts.WritesKit != 1 || profileSummaryCounts.ReviewFirst != 3 || profileSummaryCounts.ApplyRequired != 13 || profileSummaryCounts.HeavyTool != 0 || profileSummaryCounts.AuthorityConfirmed != 0 || profileSummaryCounts.BoundaryReadOnly != 6 || profileSummaryCounts.BoundaryCaseLocalApply != 9 || profileSummaryCounts.BoundaryCaseLocalWriteback != 1 || profileSummaryCounts.BoundaryCaseLocalReview != 2 || profileSummaryCounts.BoundaryKitReview != 1 {
+	if profileSummaryCounts.Total != 22 || surfaceCounts.ProfileTotal != 22 || profileSummaryCounts.ReadOnly != 6 || profileSummaryCounts.Mutating != 16 || profileSummaryCounts.WritesCase != 14 || profileSummaryCounts.WritesKit != 2 || profileSummaryCounts.ReviewFirst != 4 || profileSummaryCounts.ApplyRequired != 14 || profileSummaryCounts.HeavyTool != 0 || profileSummaryCounts.AuthorityConfirmed != 0 || profileSummaryCounts.BoundaryReadOnly != 6 || profileSummaryCounts.BoundaryCaseLocalApply != 9 || profileSummaryCounts.BoundaryCaseLocalWriteback != 1 || profileSummaryCounts.BoundaryCaseLocalReview != 2 || profileSummaryCounts.BoundaryKitReview != 2 {
 		t.Fatalf("Go-native public command profile summary drifted: %+v", surface.CommandProfileSummary)
 	}
-	if strings.Join(surface.CommandProfileGroups.ReadOnly, ",") != "doctor,packs,release-check,release-run,status,validate" || strings.Join(surface.CommandProfileGroups.ReviewFirst, ",") != "promote,sync,update" || strings.Join(surface.CommandProfileGroups.WritesKit, ",") != "promote" || surfaceCounts.Groups.HeavyTool != 0 || surfaceCounts.Groups.AuthorityConfirmed != 0 || surfaceCounts.Groups.CaseLocalApply != 9 || surfaceCounts.Groups.CaseLocalReviewWriteback != 1 || surfaceCounts.Groups.CaseLocalReviewFirst != 2 {
+	if strings.Join(surface.CommandProfileGroups.ReadOnly, ",") != "doctor,packs,release-check,release-run,status,validate" || strings.Join(surface.CommandProfileGroups.ReviewFirst, ",") != "next-batch,promote,sync,update" || strings.Join(surface.CommandProfileGroups.WritesKit, ",") != "next-batch,promote" || surfaceCounts.Groups.HeavyTool != 0 || surfaceCounts.Groups.AuthorityConfirmed != 0 || surfaceCounts.Groups.CaseLocalApply != 9 || surfaceCounts.Groups.CaseLocalReviewWriteback != 1 || surfaceCounts.Groups.CaseLocalReviewFirst != 2 {
 		t.Fatalf("Go-native public command profile groups drifted: %+v", surface.CommandProfileGroups)
 	}
 	firstBoundaryCounts := releasecheck.GoNativePublicSurfaceBoundaryRowCountsFor(surface.CommandProfileBoundaries[0])
 	lastBoundaryCounts := releasecheck.GoNativePublicSurfaceBoundaryRowCountsFor(surface.CommandProfileBoundaries[len(surface.CommandProfileBoundaries)-1])
-	if surfaceCounts.Boundaries.Rows != 7 || surfaceCounts.Boundaries.Commands != 21 || surfaceCounts.Boundaries.CountedCommands != 21 || surfaceCounts.Boundaries.Unknown != 0 || surfaceCounts.Boundaries.Duplicates != 0 || surfaceCounts.Boundaries.CountMismatches != 0 || surfaceCounts.Boundaries.Unsorted != 0 || surfaceCounts.Boundaries.SummaryMismatches != 0 || surfaceCounts.Boundaries.GroupMismatches != 0 || surfaceCounts.Boundaries.Missing != 0 || surfaceCounts.Boundaries.CoverageMismatches != 0 || surface.CommandProfileBoundaries[0].Boundary != commands.BoundaryCaseLocalAppend || firstBoundaryCounts.Count != 1 || firstBoundaryCounts.Commands != 1 || strings.Join(surface.CommandProfileBoundaries[1].Commands, ",") != "attach,bootstrap,continue,gate,handoff,init,reconcile,repair,start" || surface.CommandProfileBoundaries[len(surface.CommandProfileBoundaries)-1].Boundary != commands.BoundaryReadOnly || lastBoundaryCounts.Count != 6 || lastBoundaryCounts.Commands != 6 {
+	if surfaceCounts.Boundaries.Rows != 7 || surfaceCounts.Boundaries.Commands != 22 || surfaceCounts.Boundaries.CountedCommands != 22 || surfaceCounts.Boundaries.Unknown != 0 || surfaceCounts.Boundaries.Duplicates != 0 || surfaceCounts.Boundaries.CountMismatches != 0 || surfaceCounts.Boundaries.Unsorted != 0 || surfaceCounts.Boundaries.SummaryMismatches != 0 || surfaceCounts.Boundaries.GroupMismatches != 0 || surfaceCounts.Boundaries.Missing != 0 || surfaceCounts.Boundaries.CoverageMismatches != 0 || surface.CommandProfileBoundaries[0].Boundary != commands.BoundaryCaseLocalAppend || firstBoundaryCounts.Count != 1 || firstBoundaryCounts.Commands != 1 || strings.Join(surface.CommandProfileBoundaries[1].Commands, ",") != "attach,bootstrap,continue,gate,handoff,init,reconcile,repair,start" || surface.CommandProfileBoundaries[len(surface.CommandProfileBoundaries)-1].Boundary != commands.BoundaryReadOnly || lastBoundaryCounts.Count != 6 || lastBoundaryCounts.Commands != 6 {
 		t.Fatalf("Go-native public command profile boundary rows drifted: %+v", surface.CommandProfileBoundaries)
 	}
 	if surfaceCounts.Policies.Rows != 5 || surfaceCounts.Policies.Violations != 0 || surfaceCounts.Policies.ViolationCommands != 0 || surface.CommandProfilePolicies[0].Policy != commands.PublicProfilePolicyNoHeavyTool || !surface.CommandProfilePolicies[0].Ready || surface.CommandProfilePolicies[3].Policy != commands.PublicProfilePolicyReviewFirstApplyRequired || releasecheck.GoNativePublicSurfacePolicyRowCountsFor(surface.CommandProfilePolicies[3]).Commands != 0 {
@@ -3975,7 +4112,7 @@ func assertReleaseCheckPublicDefaultDocs(t *testing.T, docs defaultdocs.Readines
 	assertPublicDefaultPhrase(t, docs, "docs/powershell-deprecation.md", "Go CLI/backend 是 canonical runtime")
 	assertPublicDefaultPhrase(t, docs, "docs/vision.md", "优先运行 Go-native 检查")
 	assertPublicDefaultPhrase(t, docs, "docs/reference-absorption.md", "Go-native release readiness 子集")
-	assertPublicDefaultPhrase(t, docs, "docs/agent-team-rollout-plan.md", "公共 `/rekit` 默认路径已由 20 个 Go-owned/no-fallback public commands 支撑")
+	assertPublicDefaultPhrase(t, docs, "docs/agent-team-rollout-plan.md", "公共 `/rekit` 默认路径已由 22 个 Go-owned/no-fallback public commands 支撑")
 	assertPublicDefaultPhrase(t, docs, "rekit/tests/README.md", "推荐最小回归组合")
 	for _, forbidden := range docs.ForbiddenCommands {
 		if forbidden.Present {
@@ -4070,10 +4207,10 @@ func assertPowerShellFallbackRetirement(t *testing.T, inventory releaseCheckPowe
 	if !fallback.Ready || fallback.Summary != "PowerShell fallback retirement inventory ok" || counts.Warnings != 0 {
 		t.Fatalf("unexpected PowerShell fallback retirement inventory: %+v", fallback)
 	}
-	if counts.GoDefaultCommands != 21 || counts.NoFallbackCommands != 21 || counts.CandidateCommands != 0 || counts.RemovalCandidateModules != 0 || counts.RetiredModules != 13 {
+	if counts.GoDefaultCommands != 22 || counts.NoFallbackCommands != 22 || counts.CandidateCommands != 0 || counts.RemovalCandidateModules != 0 || counts.RetiredModules != 13 {
 		t.Fatalf("fallback retirement inventory omitted expected sections: %+v", fallback)
 	}
-	for _, command := range []string{"attach", "bootstrap", "continue", "doctor", "gate", "handoff", "init", "note", "overview", "packs", "plan-subagents", "promote", "reconcile", "release-check", "release-run", "repair", "start", "status", "sync", "update", "validate"} {
+	for _, command := range []string{"attach", "bootstrap", "continue", "doctor", "gate", "handoff", "init", "next-batch", "note", "overview", "packs", "plan-subagents", "promote", "reconcile", "release-check", "release-run", "repair", "start", "status", "sync", "update", "validate"} {
 		if !slices.Contains(fallback.NoFallbackCommands, command) {
 			t.Fatalf("NoFallbackCommands = %v, missing %s", fallback.NoFallbackCommands, command)
 		}
@@ -4105,10 +4242,10 @@ func assertPowerShellPublicFacade(t *testing.T, inventory releaseCheckPowerShell
 	if !facade.Present || !facade.Retained || !facade.MigrationBoundaryDocumented || !facade.RemovalBoundaryDocumented || facade.GoNativeAlternative != "go run ./cmd/rekit -- -Command <command>" {
 		t.Fatalf("unexpected PowerShell public facade retention flags: %+v", facade)
 	}
-	if counts.CommandSurface != 21 || counts.GoDefaultCommands != 21 || counts.NoFallbackCommands != 21 {
+	if counts.CommandSurface != 22 || counts.GoDefaultCommands != 22 || counts.NoFallbackCommands != 22 {
 		t.Fatalf("PowerShell public facade inventory omitted expected command lists: %+v", facade)
 	}
-	for _, command := range []string{"attach", "bootstrap", "continue", "doctor", "gate", "handoff", "init", "note", "overview", "packs", "plan-subagents", "promote", "reconcile", "release-check", "release-run", "repair", "start", "status", "sync", "update", "validate"} {
+	for _, command := range []string{"attach", "bootstrap", "continue", "doctor", "gate", "handoff", "init", "next-batch", "note", "overview", "packs", "plan-subagents", "promote", "reconcile", "release-check", "release-run", "repair", "start", "status", "sync", "update", "validate"} {
 		if !slices.Contains(facade.CommandSurface, command) || !slices.Contains(facade.GoDefaultCommands, command) || !slices.Contains(facade.NoFallbackCommands, command) {
 			t.Fatalf("public facade command %s missing from command lists: %+v", command, facade)
 		}
@@ -4172,8 +4309,8 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"packs:",
 		"heavy-tool gate actions: debug,dump,full-trace,inject,network,patch,symex",
 		"PowerShell deprecation: PowerShell deprecation inventory ok ready=true",
-		"commands=14 modules=14 freezeGates=10 blocked=5 fallbackRetirement=true noFallback=21 candidates=0 removalModules=0 retiredModules=13 facadeRuntime=true legacyImports=false dispatcher=false publicFacade=true retained=true facadeCommands=21 noFallback=21 moduleRemoval=true removalCandidates=0 retired=13 facadeDeps=0 undocumented=0 moduleReferences=true activeTests=0 fixtures=0 blockers=0 unclassified=0",
-		"Go-native public surface: Go-native public command surface inventory ok ready=true entrypoint=cmd/rekit present=true catalog=internal/rekit/commands/commands.go catalogPresent=true default=status commands=21 handlers=21 symbols=21 profiles=21 boundaries=7 boundaryRows=7 policyRows=5 policyViolations=0 facadeRemovalReady=true facadePrerequisites=5 readOnly=6 mutating=15 writesCase=14 writesKit=1 reviewFirst=3 applyRequired=13 heavyTool=0 authorityConfirmed=0 readOnlyCommands=doctor,packs,release-check,release-run,status,validate reviewFirstCommands=promote,sync,update writesKitCommands=promote caseLocalApplyCommands=attach,bootstrap,continue,gate,handoff,init,reconcile,repair,start caseLocalReviewWritebackCommands=plan-subagents kitReviewFirstCommands=promote alternative=go run ./cmd/rekit -- -Command <command> unsupportedDiagnostic=true",
+		"commands=15 modules=14 freezeGates=10 blocked=5 fallbackRetirement=true noFallback=22 candidates=0 removalModules=0 retiredModules=13 facadeRuntime=true legacyImports=false dispatcher=false publicFacade=true retained=true facadeCommands=22 noFallback=22 moduleRemoval=true removalCandidates=0 retired=13 facadeDeps=0 undocumented=0 moduleReferences=true activeTests=0 fixtures=0 blockers=0 unclassified=0",
+		"Go-native public surface: Go-native public command surface inventory ok ready=true entrypoint=cmd/rekit present=true catalog=internal/rekit/commands/commands.go catalogPresent=true default=status commands=22 handlers=22 symbols=22 profiles=22 boundaries=7 boundaryRows=7 policyRows=5 policyViolations=0 facadeRemovalReady=true facadePrerequisites=5 readOnly=6 mutating=16 writesCase=14 writesKit=2 reviewFirst=4 applyRequired=14 heavyTool=0 authorityConfirmed=0 readOnlyCommands=doctor,packs,release-check,release-run,status,validate reviewFirstCommands=next-batch,promote,sync,update writesKitCommands=next-batch,promote caseLocalApplyCommands=attach,bootstrap,continue,gate,handoff,init,reconcile,repair,start caseLocalReviewWritebackCommands=plan-subagents kitReviewFirstCommands=next-batch,promote alternative=go run ./cmd/rekit -- -Command <command> unsupportedDiagnostic=true",
 		"case shim: case shim readiness ok ready=true",
 		"public default docs: public default docs readiness ok ready=true documents=15",
 		"public facade removal: public facade removal prerequisites ok ready=true prerequisites=8 removalPlan=true planChecks=9 replacementEntrypoints=4 replacementValidationCommands=32 deletionGates=5 deletionGateValidationCommands=40 deletionGateExitCriteria=15 deletionGateFailureSignals=15 deletionGateEscalationTriggers=15 deletionGateEscalationEvidence=15 deletionGateEscalationRecipients=15 deletionGateEscalationHandoffSteps=15 deletionGateEscalationDecisionOptions=15 deletionGateEscalationRetryConditions=15 deletionGateEscalationStopConditions=15 deletionGateEscalationResolutionArtifacts=15 deletionGateEscalationClosureChecks=15 deletionGateEscalationReopenConditions=15 deletionGateEscalationLedgerEvents=15 deletionGateEscalationStateTransitions=15 deletionGateEscalationBoundaryGuards=15 deletionGateEscalationAuditChecks=15 deletionGateVerificationArtifacts=15 deletionGateBlockedExecutionSteps=10 deletionGateRemediationActions=15 recoverySteps=4 recoveryValidationCommands=32 documentationTargets=9 documentationValidationCommands=72 executionSteps=5 executionFailureSignals=15 executionRemediationActions=15 executionVerificationArtifacts=15 executionLedgerEvents=15 executionStateTransitions=15 executionEscalationTriggers=15 executionEscalationEvidence=15 executionEscalationRecipients=15 executionEscalationHandoffSteps=15 executionEscalationDecisionOptions=15 executionEscalationRetryConditions=15 executionEscalationStopConditions=15 executionEscalationResolutionArtifacts=15 executionEscalationClosureChecks=15 executionEscalationReopenConditions=15 executionEscalationLedgerEvents=15 executionEscalationStateTransitions=15 executionEscalationBoundaryGuards=15 executionEscalationAuditChecks=15 executionBoundaryGuards=15 executionAuditChecks=15 executionValidationCommands=40 boundaryChecks=6 boundaryValidationCommands=48 removalImpact=true impactReferences=",
@@ -22181,6 +22318,11 @@ func copyRepoFile(t *testing.T, repoRoot, sourceRel, caseRoot, targetRel string)
 
 func withReadyReleaseCheckFixture(t *testing.T) func() {
 	t.Helper()
+	return withNextBatchReadyReleaseCheckFixture(t, "Batch 684")
+}
+
+func withNextBatchReadyReleaseCheckFixture(t *testing.T, latestBatch string) func() {
+	t.Helper()
 	previous := releaseCheckBuild
 	releaseCheckBuild = func(repoRoot string) (releasecheck.Result, error) {
 		result, err := previous(repoRoot)
@@ -22188,6 +22330,14 @@ func withReadyReleaseCheckFixture(t *testing.T) func() {
 			return releasecheck.Result{}, err
 		}
 		handoff := readyReleaseHandoffFixture(result.ReleaseHandoff)
+		latestBatch = strings.TrimSpace(latestBatch)
+		if latestBatch != "" {
+			handoff.LatestBatch.BatchID = latestBatch
+			handoff.LatestBatch.Title = latestBatch + "：fixture completed product path"
+			handoff.LatestBatch.Status = "已完成 fixture completed product path 的 runtime/test/doc 实现与 focused 本机验证。"
+			handoff.ReleaseNotes.LatestBatchID = latestBatch
+		}
+		handoff.NextBatchSelectionPackage = releasecheck.BuildNextBatchSelectionPackage(handoff)
 		result.ReleaseHandoff = handoff
 		result.Ready = true
 		result.Summary = "release gate inventory ok"
