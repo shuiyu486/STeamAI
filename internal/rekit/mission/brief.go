@@ -396,7 +396,7 @@ func MissionCommanderNextActions(actions []LaneExecutorActionSnapshot, evidenceR
 		}
 		blocked := item.ExecutorAction.Blocked
 		requiresReview := item.ExecutorAction.Blocked
-		if (action.State == "needs-reconcile" || action.State == "needs-gate-decision") && strings.Contains(action.PrimaryCommand, " -WhatIf") {
+		if (action.State == "needs-reconcile" || action.State == "needs-gate-decision" || action.State == "needs-open-decision-review") && strings.Contains(action.PrimaryCommand, " -WhatIf") {
 			blocked = false
 			requiresReview = true
 		}
@@ -810,7 +810,8 @@ func LaneExecutorAction(lane Lane, facts Facts, brief Brief) ExecutorAction {
 	pendingGateItems := FilterLane(laneFacts.Requests, lane.ID, "pending-gate")
 	pendingGates := len(pendingGateItems)
 	openInterventions := len(openInterventionItems)
-	openDecisions := len(OpenDecisionItems(laneFacts))
+	openDecisionItems := OpenDecisionItems(laneFacts)
+	openDecisions := len(openDecisionItems)
 	reasons := []string{}
 	if pendingGates > 0 {
 		reasons = append(reasons, "pending-gate")
@@ -837,7 +838,7 @@ func LaneExecutorAction(lane Lane, facts Facts, brief Brief) ExecutorAction {
 		HandoffCommand:         "/rekit handoff " + label,
 		NextAgentActions:       LaneExecutorNextActions(label, ready, pendingGates, openInterventions, openDecisions),
 		Escalations:            LaneExecutorEscalations(pendingGates, openInterventions, openDecisions),
-		MissionCommanderAction: LaneMissionCommanderActionForLane(label, lane.ID, lane.Status, ready, pendingGateItems, openInterventionItems, openDecisions),
+		MissionCommanderAction: LaneMissionCommanderActionForLane(label, lane.ID, lane.Status, ready, pendingGateItems, openInterventionItems, openDecisionItems),
 	}
 }
 
@@ -878,10 +879,11 @@ func LaneExecutorEscalations(pendingGates, openInterventions, openDecisions int)
 func LaneMissionCommanderAction(label, laneID, status string, ready bool, pendingGates, openInterventions, openDecisions int) MissionCommanderAction {
 	pendingGateItems := make([]map[string]any, max(pendingGates, 0))
 	interventionItems := make([]map[string]any, max(openInterventions, 0))
-	return LaneMissionCommanderActionForLane(label, laneID, status, ready, pendingGateItems, interventionItems, openDecisions)
+	openDecisionItems := make([]map[string]any, max(openDecisions, 0))
+	return LaneMissionCommanderActionForLane(label, laneID, status, ready, pendingGateItems, interventionItems, openDecisionItems)
 }
 
-func LaneMissionCommanderActionForLane(label, laneID, status string, ready bool, pendingGateItems []map[string]any, openInterventions []map[string]any, openDecisions int) MissionCommanderAction {
+func LaneMissionCommanderActionForLane(label, laneID, status string, ready bool, pendingGateItems []map[string]any, openInterventions []map[string]any, openDecisionItems []map[string]any) MissionCommanderAction {
 	label = strings.TrimSpace(label)
 	if label == "" {
 		label = "main"
@@ -944,11 +946,18 @@ func LaneMissionCommanderActionForLane(label, laneID, status string, ready bool,
 		action.Boundary = append(action.Boundary, "multiple or unidentified pending-gate requests require handoff review before selecting a concrete action")
 		return action
 	}
-	if openDecisions > 0 {
+	if len(openDecisionItems) > 0 {
 		action.State = "needs-open-decision-review"
 		action.Prompt = fmt.Sprintf("按 `%s` 接手，先 review open candidate/decision 与 evidence/authority boundary，再决定是否继续。", label)
+		if len(openDecisionItems) == 1 && strings.TrimSpace(Value(openDecisionItems[0], "lane")) != "" {
+			action.PrimaryCommand = openDecisionNotePreviewCommand(openDecisionItems[0])
+			action.FollowUpCommands = []string{"/rekit continue " + label + " -WhatIf", "/rekit handoff " + label}
+			action.Boundary = append(action.Boundary, "review note -WhatIf output and run only the returned hash-bound recordCommand")
+			return action
+		}
 		action.PrimaryCommand = "/rekit handoff " + label
-		action.FollowUpCommands = []string{"/rekit continue " + label + " -WhatIf"}
+		action.FollowUpCommands = append(openDecisionPreviewCommands(openDecisionItems), "/rekit continue "+label+" -WhatIf")
+		action.Boundary = append(action.Boundary, "multiple or unidentified open decisions require handoff review before selecting a concrete candidate/decision item")
 		return action
 	}
 	if ready {
@@ -976,6 +985,77 @@ func multiInterventionReconcilePreviewCommands(label string, openInterventions [
 		commands = append(commands, "/rekit reconcile "+label+" -InterventionId <eventId> -WhatIf")
 	}
 	return commands
+}
+
+func openDecisionPreviewCommands(openDecisionItems []map[string]any) []string {
+	commands := []string{}
+	seen := map[string]bool{}
+	for _, item := range openDecisionItems {
+		command := openDecisionNotePreviewCommand(item)
+		if command == "" || seen[command] {
+			continue
+		}
+		seen[command] = true
+		commands = append(commands, command)
+	}
+	return commands
+}
+
+func openDecisionNotePreviewCommand(item map[string]any) string {
+	lane := strings.TrimSpace(Value(item, "lane"))
+	if lane == "" {
+		return ""
+	}
+	decision := Value(item, "decision")
+	if decision == "" || decision == "defer" || decision == "pending-user" {
+		decision = "<accept|reject|defer|supersede>"
+	}
+	parts := []string{"/rekit", "note", "-Kind", "decision", "-Lane", lane}
+	parts = appendCommandArg(parts, "-Subject", openDecisionNoteSubject(item))
+	parts = appendCommandArg(parts, "-Summary", openDecisionNoteSummary(item))
+	parts = appendCommandArg(parts, "-Decision", decision)
+	parts = appendCommandArg(parts, "-Reason", FirstText(Value(item, "reason"), "reviewed open candidate/decision item"))
+	parts = appendCommandArg(parts, "-TargetRef", Value(item, "target"))
+	if eventID := Value(item, "eventId"); eventID != "" {
+		parts = appendCommandArg(parts, "-Related", eventID)
+	}
+	parts = appendCommandArg(parts, "-EvidenceRefs", Value(item, "evidenceRefs"))
+	parts = appendCommandArg(parts, "-BatchId", Value(item, "batchId"))
+	parts = append(parts, "-WhatIf")
+	return joinCommand(parts...)
+}
+
+func openDecisionNoteSubject(item map[string]any) string {
+	kind := FirstText(Value(item, "kind"), "decision")
+	subject := Value(item, "subject")
+	if strings.TrimSpace(subject) == "" {
+		subject = FirstText(Value(item, "summary"), "open item")
+	}
+	return "decision for " + kind + ": " + subject
+}
+
+func openDecisionNoteSummary(item map[string]any) string {
+	summary := Value(item, "summary")
+	if strings.TrimSpace(summary) == "" {
+		summary = Value(item, "subject")
+	}
+	return FirstText(summary, "record reviewed open candidate/decision outcome")
+}
+
+func appendCommandArg(parts []string, flag, value string) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return parts
+	}
+	return append(parts, flag, value)
+}
+
+func joinCommand(parts ...string) string {
+	out := append([]string{}, parts...)
+	for idx := range out {
+		out[idx] = quoteCommandArg(out[idx])
+	}
+	return strings.Join(out, " ")
 }
 
 func pendingGatePreviewActions(pendingGateItems []map[string]any) []string {

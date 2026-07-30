@@ -27,6 +27,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 720：Mission Commander open-decision current-action run-loop execution closure
+
+状态：已完成实现、focused/package/full regressions、文档收尾与完整本机 release minimum；尚未 commit/push 或做远端 release inspection。
+
+目标：把 Mission Commander action queue 的 open-decision 单项阻塞从旁路 `openDecisionHandoffs[].whatIfCommand` 提升到 `currentAction` / `currentActionRunLoop` 本身，让 replacement executor 可直接从 `CurrentActionRunLoop.preview-current` 执行 concrete `note -Kind decision ... -WhatIf`，消费返回的 hash-bound `recordCommand`，再刷新回 owner-bound `/rekit continue <lane>`。
+
+边界：不新增 public command、durable schema、PowerShell runtime logic 或 pack authoring contract；`mission` 包仍不依赖 case root / pack，只生成 case-local preview command；CLI/status 的 full `-Target` / `-Pack` open-decision handoff 继续保留。`note -WhatIf` 零写入；hash-bound record 只追加 case-local decision ledger，不写 authority/confirmed，不执行 heavy tool；多 open-decision 或 lane 不明确时仍停在 `/rekit handoff <lane>`，只把 concrete note previews 作为 follow-up 选择。
+
+已实现内容：`LaneExecutorAction` 现在把 lane-local `OpenDecisionItems` 传入 Mission Commander action builder；单 open-decision 且 lane 明确时，`needs-open-decision-review` 的 primary command 变为 case-local `/rekit note -Kind decision -Lane ... -Decision <accept|reject|defer|supersede> ... -WhatIf`，follow-up 保留 `/rekit continue <lane> -WhatIf` 与 `/rekit handoff <lane>`，并增加只运行 returned hash-bound `recordCommand` 的 boundary。`MissionCommanderNextActions` 将 `needs-open-decision-review` 的 `-WhatIf` primary 标记为 unblocked + requiresReview，使 queue current step 进入 `preview-current`；多 open-decision 分支继续保守 handoff current，避免自动选择候选/decision。新增/更新回归覆盖 status first-screen、note WhatIf/dedup、continue blocked 文本以及完整 open-decision preview→recordCommand Apply→status refresh→continue/handoff durable closure。
+
+验证结果：focused `go test ./internal/rekit/mission ./internal/rekit/cli -run "TestLaneExecutorActionSnapshotsKeepNextActionsLaneLocal|TestMissionCommanderActionQueueRunLoopUsesPreviewForReviewRequiredWhatIf|TestRunStatusCaseMissionOpenDecisionFirstScreenPackage|TestRunOpenDecisionFirstScreenHandoffHashBoundApplyUnblocksLane|TestRunNoteAppendWhatIfDoesNotWrite|TestRunNoteAppendWhatIfTextHandoffDoesNotWrite|TestRunNoteAppendDedupesByEventID" -count=1` 通过；continue open-decision focused `go test ./internal/rekit/cli -run "TestRunContinueBlocksOpenDecisionBeforeWrites|TestRunContinueApplyDoesNotWriteAuthorityWithoutConfirmation|TestRunContinueApplyWritesDigestAndFacts" -count=1` 通过；`go test ./internal/rekit/cli -count=1` 通过；`go test ./internal/rekit/note -count=1` 通过；完整 `go test ./... -count=1` 通过。完整本机 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true` / `summary=release gate inventory ok`，`status`、`packs -Format text`、`doctor -Format text`、`go vet ./...` 与 `git diff --check` 已通过，后者仅有 Windows LF→CRLF working-copy warning。
+
 ### Batch 719：reviewer operator package executable run loop closure
 
 状态：已完成 CLI product-path regression、focused reviewer/session regressions、完整 CLI package regression、完整本机 release minimum、文档收尾、implementation commit/push 与 push-triggered remote inspection；implementation commit `4eca038` 已推送。Push run `30506394163` completed failure；macOS/Linux/Windows jobs `90756987336`/`90756987384`/`90756987416` 均 `steps=[]`，`gh run view 30506394163 --log-failed` 返回 `log not found: 90756987336`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。

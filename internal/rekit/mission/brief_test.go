@@ -415,8 +415,12 @@ func TestLaneExecutorActionSnapshotsKeepNextActionsLaneLocal(t *testing.T) {
 	if mainAction.MissionCommanderAction.State != "ready-to-continue" || mainAction.MissionCommanderAction.PrimaryCommand != "/rekit continue main" {
 		t.Fatalf("ready main lane action missing Mission Commander handoff: %+v", mainAction.MissionCommanderAction)
 	}
-	if loginAction.MissionCommanderAction.State != "needs-open-decision-review" || loginAction.MissionCommanderAction.PrimaryCommand != "/rekit handoff login" || !strings.Contains(loginAction.MissionCommanderAction.Prompt, "candidate/decision") {
-		t.Fatalf("blocked login lane action missing Mission Commander decision review handoff: %+v", loginAction.MissionCommanderAction)
+	loginCommander := loginAction.MissionCommanderAction
+	if loginCommander.State != "needs-open-decision-review" || !strings.HasPrefix(loginCommander.PrimaryCommand, "/rekit note -Kind decision -Lane feature-login") || !strings.Contains(loginCommander.PrimaryCommand, "-Subject \"decision for candidate: login review\"") || !strings.Contains(loginCommander.PrimaryCommand, "-Decision <accept|reject|defer|supersede> -Reason \"reviewed open candidate/decision item\" -WhatIf") || !strings.Contains(loginCommander.Prompt, "candidate/decision") {
+		t.Fatalf("blocked login lane action missing executable Mission Commander decision review preview: %+v", loginCommander)
+	}
+	if !slices.Equal(loginCommander.FollowUpCommands, []string{"/rekit continue login -WhatIf", "/rekit handoff login"}) || !containsSubstring(loginCommander.Boundary, "hash-bound recordCommand") {
+		t.Fatalf("blocked login lane action missing hash-bound follow-up boundary: %+v", loginCommander)
 	}
 }
 

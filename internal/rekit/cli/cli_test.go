@@ -1388,8 +1388,11 @@ func TestRunStatusCaseMissionOpenDecisionFirstScreenPackage(t *testing.T) {
 		t.Fatalf("open decision status JSON did not decode: %v\n%s", err, out.String())
 	}
 	current := status.CaseMission.MissionCommanderActionQueue.CurrentAction
-	if current == nil || current.Source != "missionCommanderActions" || current.State != "needs-open-decision-review" || !current.Blocked || !current.RequiresReview || current.Command != "/rekit handoff main" {
-		t.Fatalf("open decision status JSON did not expose current blocker handoff: current=%+v handoffs=%+v", current, status.CaseMission.OpenDecisionHandoffs)
+	if current == nil || current.Source != "missionCommanderActions" || current.State != "needs-open-decision-review" || current.Blocked || !current.RequiresReview || !strings.HasPrefix(current.Command, "/rekit note -Kind decision -Lane main") || !strings.Contains(current.Command, "-Related cand-main-open-1") || !strings.Contains(current.Command, "-WhatIf") {
+		t.Fatalf("open decision status JSON did not expose executable current preview: current=%+v handoffs=%+v", current, status.CaseMission.OpenDecisionHandoffs)
+	}
+	if status.CaseMission.MissionCommanderActionQueue.CurrentRunLoopStepID != "preview-current" || !containsMissionCommanderRunLoopStep(status.CaseMission.MissionCommanderActionQueue.CurrentActionRunLoop, "preview-current", current.Command) {
+		t.Fatalf("open decision status JSON did not route current action through preview-current run-loop: queue=%+v", status.CaseMission.MissionCommanderActionQueue)
 	}
 
 	out.Reset()
@@ -1398,8 +1401,10 @@ func TestRunStatusCaseMissionOpenDecisionFirstScreenPackage(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"status Mission Commander first screen：focus=case-current-action",
-		"status Mission Commander current action：scope=focus-case lane=main label=main state=needs-open-decision-review source=missionCommanderActions blocked=true requiresReview=true command=/rekit handoff main",
-		"status Mission Commander focus open decision package：eventId=cand-main-open-1 kind=candidate lane=main state=needs-open-decision-review source=missionCommanderActions command=/rekit handoff main sourceKind=candidate sourcePath=.rekit/facts/candidates.jsonl recordPath=.rekit/facts/decisions.jsonl",
+		"status Mission Commander current action：scope=focus-case lane=main label=main state=needs-open-decision-review source=missionCommanderActions blocked=false requiresReview=true command=/rekit note -Kind decision -Lane main -Subject \"decision for candidate: main blocker\" -Summary \"candidate needs decision\" -Decision <accept|reject|defer|supersede> -Reason \"reviewed open candidate/decision item\" -TargetRef candidate-main -Related cand-main-open-1 -EvidenceRefs evidence/main-candidate.json -WhatIf",
+		"status Mission Commander focus action run loop：currentRunLoopStep=preview-current steps=4",
+		"status Mission Commander focus action run loop step：order=2 step=preview-current actor=main-agent state=needs-open-decision-review source=missionCommanderActions command=`/rekit note -Kind decision -Lane main -Subject \"decision for candidate: main blocker\" -Summary \"candidate needs decision\" -Decision <accept|reject|defer|supersede> -Reason \"reviewed open candidate/decision item\" -TargetRef candidate-main -Related cand-main-open-1 -EvidenceRefs evidence/main-candidate.json -WhatIf` description=run or review the current command as a bounded preview/review step before any apply or follow-up",
+		"status Mission Commander focus open decision package：eventId=cand-main-open-1 kind=candidate lane=main state=needs-open-decision-review source=missionCommanderActions command=/rekit note -Kind decision -Lane main -Subject \"decision for candidate: main blocker\" -Summary \"candidate needs decision\" -Decision <accept|reject|defer|supersede> -Reason \"reviewed open candidate/decision item\" -TargetRef candidate-main -Related cand-main-open-1 -EvidenceRefs evidence/main-candidate.json -WhatIf sourceKind=candidate sourcePath=.rekit/facts/candidates.jsonl recordPath=.rekit/facts/decisions.jsonl",
 		"status Mission Commander focus open decision handoff：eventId=cand-main-open-1 review=/rekit handoff main sourceCommand=/rekit note -Target \"" + caseRoot + "\" -Pack _template -List -Kind candidate -Lane main -Format json whatIf=/rekit note",
 		"-Decision \"<accept|reject|defer|supersede>\" -Reason \"reviewed open candidate/decision item\" -TargetRef \"candidate-main\" -Related \"cand-main-open-1\" -EvidenceRefs \"evidence/main-candidate.json\" -WhatIf -Format json record=run the hash-bound recordCommand returned by note -WhatIf",
 		"status Mission Commander focus open decision boundary：eventId=cand-main-open-1 boundary=review evidence and choose accept/reject/defer/supersede with note -WhatIf first; then run the returned hash-bound recordCommand, which only appends case-local decision ledger state and never writes authority/confirmed or executes heavy-tool",
@@ -1448,16 +1453,19 @@ func TestRunOpenDecisionFirstScreenHandoffHashBoundApplyUnblocksLane(t *testing.
 		t.Fatalf("open decision blocked status JSON did not decode: %v\n%s", err, out.String())
 	}
 	blockedCurrent := blockedStatus.CaseMission.MissionCommanderActionQueue.CurrentAction
-	if blockedCurrent == nil || blockedCurrent.State != "needs-open-decision-review" || blockedCurrent.Source != "missionCommanderActions" || blockedCurrent.Command != "/rekit handoff main" || len(blockedStatus.CaseMission.OpenDecisionHandoffs) != 1 {
-		t.Fatalf("status did not start at open decision blocker: current=%+v handoffs=%+v", blockedCurrent, blockedStatus.CaseMission.OpenDecisionHandoffs)
+	if blockedCurrent == nil || blockedCurrent.State != "needs-open-decision-review" || blockedCurrent.Source != "missionCommanderActions" || blockedCurrent.Blocked || !blockedCurrent.RequiresReview || !strings.HasPrefix(blockedCurrent.Command, "/rekit note -Kind decision -Lane main") || !strings.Contains(blockedCurrent.Command, "-Related cand-main-open-1") || !strings.Contains(blockedCurrent.Command, "-WhatIf") || len(blockedStatus.CaseMission.OpenDecisionHandoffs) != 1 {
+		t.Fatalf("status did not start at executable open decision preview: current=%+v handoffs=%+v", blockedCurrent, blockedStatus.CaseMission.OpenDecisionHandoffs)
+	}
+	if blockedStatus.CaseMission.MissionCommanderActionQueue.CurrentRunLoopStepID != "preview-current" || !containsMissionCommanderRunLoopStep(blockedStatus.CaseMission.MissionCommanderActionQueue.CurrentActionRunLoop, "preview-current", blockedCurrent.Command) {
+		t.Fatalf("status did not expose open decision current action as preview-current run-loop step: queue=%+v", blockedStatus.CaseMission.MissionCommanderActionQueue)
 	}
 	handoff := blockedStatus.CaseMission.OpenDecisionHandoffs[0]
-	if handoff.EventID != "cand-main-open-1" || handoff.WhatIfCommand == "" || handoff.RecordCommand != "run the hash-bound recordCommand returned by note -WhatIf" {
+	if handoff.EventID != "cand-main-open-1" || handoff.WhatIfCommand == "" || !strings.Contains(handoff.WhatIfCommand, `-Target "`+caseRoot+`"`) || handoff.RecordCommand != "run the hash-bound recordCommand returned by note -WhatIf" {
 		t.Fatalf("status missing actionable open decision handoff: %+v", handoff)
 	}
 	beforePreview := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 
-	previewArgs := rekitCommandCLIArgs(t, handoff.WhatIfCommand)
+	previewArgs := append(rekitCommandCLIArgs(t, blockedCurrent.Command), "-Target", caseRoot, "-Pack", "_template", "-Format", "json")
 	for i := 0; i < len(previewArgs)-1; i++ {
 		if previewArgs[i] == "-Decision" && previewArgs[i+1] == "<accept|reject|defer|supersede>" {
 			previewArgs[i+1] = "accept"
@@ -1495,7 +1503,7 @@ func TestRunOpenDecisionFirstScreenHandoffHashBoundApplyUnblocksLane(t *testing.
 	if !preview.ExecutorAction.Blocked || preview.ExecutorAction.OpenDecisions != 1 || !preview.ExecutorAction.OpenDecisionRequired || preview.WouldExecutorAction.Blocked || !preview.WouldExecutorAction.Ready || preview.WouldExecutorAction.OpenDecisions != 0 || preview.WouldExecutorAction.OpenDecisionRequired || preview.MissionCommanderAction.State != "needs-open-decision-review" || preview.WouldMissionCommanderAction.State != "ready-to-continue" {
 		t.Fatalf("open decision preview did not expose unblock delta: current=%+v would=%+v commander=%+v wouldCommander=%+v", preview.ExecutorAction, preview.WouldExecutorAction, preview.MissionCommanderAction, preview.WouldMissionCommanderAction)
 	}
-	if !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "missionCommanderActions", "/rekit handoff main", true, true) || !containsMissionCommanderNextAction(preview.WouldMissionCommanderNextActions, "missionCommanderActions", "/rekit continue main", false, false) || containsMissionCommanderNextAction(preview.WouldMissionCommanderNextActions, "missionCommanderActions", "/rekit handoff main", true, true) {
+	if !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "missionCommanderActions", blockedCurrent.Command, false, true) || !containsMissionCommanderNextAction(preview.WouldMissionCommanderNextActions, "missionCommanderActions", "/rekit continue main", false, false) || containsMissionCommanderNextAction(preview.WouldMissionCommanderNextActions, "missionCommanderActions", blockedCurrent.Command, false, true) {
 		t.Fatalf("open decision preview commander next actions drifted: current=%+v would=%+v", preview.MissionCommanderNextActions, preview.WouldMissionCommanderNextActions)
 	}
 	assertSnapshotEqual(t, beforePreview, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
@@ -7209,9 +7217,10 @@ func TestRunNoteAppendWhatIfTextHandoffDoesNotWrite(t *testing.T) {
 		"mission commander next action：state=ready-to-continue source=missionCommanderActions blocked=false requiresReview=false command=`/rekit continue main`",
 		"note would executor action：blocked=true ready=false",
 		"note would executor action requirements：reconcile=false pendingGate=false openDecision=true",
-		"note would executor action commander action：state=needs-open-decision-review primary=`/rekit handoff main`",
-		"note would mission commander next action：state=needs-open-decision-review source=missionCommanderActions blocked=true requiresReview=true command=`/rekit handoff main`",
+		"note would executor action commander action：state=needs-open-decision-review primary=`/rekit note -Kind decision -Lane main -Subject \"decision for candidate: preview blocker\" -Summary \"preview blocker\" -Decision <accept|reject|defer|supersede> -Reason \"reviewed open candidate/decision item\"",
+		"note would mission commander next action：state=needs-open-decision-review source=missionCommanderActions blocked=false requiresReview=true command=`/rekit note -Kind decision -Lane main -Subject \"decision for candidate: preview blocker\" -Summary \"preview blocker\" -Decision <accept|reject|defer|supersede> -Reason \"reviewed open candidate/decision item\"",
 		"note would mission commander next action：state=needs-open-decision-review source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit continue main -WhatIf`",
+		"note would mission commander next action：state=needs-open-decision-review source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit handoff main`",
 	} {
 		if !strings.Contains(textOut, expected) {
 			t.Fatalf("note what-if text missing %q:\n%s", expected, textOut)
@@ -7259,7 +7268,8 @@ func TestRunNoteAppendWhatIfDoesNotWrite(t *testing.T) {
 	if result.MissionCommanderAction.State != "ready-to-continue" || result.WouldMissionCommanderAction.State != "needs-open-decision-review" {
 		t.Fatalf("note what-if should expose current/would commander action delta: current=%+v would=%+v", result.MissionCommanderAction, result.WouldMissionCommanderAction)
 	}
-	if !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue main", false, false) || !containsMissionCommanderNextAction(result.WouldMissionCommanderNextActions, "missionCommanderActions", "/rekit handoff main", true, true) || !containsMissionCommanderNextAction(result.WouldMissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue main -WhatIf", true, true) {
+	wouldPreviewCommand := result.WouldMissionCommanderAction.PrimaryCommand
+	if !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue main", false, false) || !strings.HasPrefix(wouldPreviewCommand, "/rekit note -Kind decision -Lane main") || !strings.Contains(wouldPreviewCommand, "-Related "+result.Event["eventId"].(string)) || !containsMissionCommanderNextAction(result.WouldMissionCommanderNextActions, "missionCommanderActions", wouldPreviewCommand, false, true) || !containsMissionCommanderNextAction(result.WouldMissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue main -WhatIf", true, true) || !containsMissionCommanderNextAction(result.WouldMissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff main", true, true) {
 		t.Fatalf("note what-if commander next actions drifted: current=%+v would=%+v", result.MissionCommanderNextActions, result.WouldMissionCommanderNextActions)
 	}
 	after := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
@@ -7386,8 +7396,9 @@ func TestRunNoteAppendDedupesByEventID(t *testing.T) {
 	if result.WouldExecutorAction != nil || result.WouldMissionCommanderAction != nil || len(result.WouldMissionCommanderNextActions) != 0 || !result.ExecutorAction.Blocked || result.ExecutorAction.Ready || result.ExecutorAction.OpenDecisions != 1 {
 		t.Fatalf("duplicate should preserve the current blocked action without a would delta: %+v", result)
 	}
-	if result.MissionCommanderAction.State != "needs-open-decision-review" || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit handoff main", true, true) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue main -WhatIf", true, true) {
-		t.Fatalf("duplicate append should preserve blocked commander projection: action=%+v next=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions)
+	duplicatePreviewCommand := result.MissionCommanderAction.PrimaryCommand
+	if result.MissionCommanderAction.State != "needs-open-decision-review" || !strings.HasPrefix(duplicatePreviewCommand, "/rekit note -Kind decision -Lane main") || !strings.Contains(duplicatePreviewCommand, "-Related evt-fixed-note") || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", duplicatePreviewCommand, false, true) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue main -WhatIf", true, true) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff main", true, true) {
+		t.Fatalf("duplicate append should preserve executable preview commander projection: action=%+v next=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions)
 	}
 	ledger, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "candidates.jsonl"))
 	if err != nil {
@@ -9047,7 +9058,11 @@ func TestRunContinueBlocksOpenDecisionBeforeWrites(t *testing.T) {
 	if !blocked.ExecutorAction.Blocked || blocked.ExecutorAction.OpenDecisions != 1 || !blocked.ExecutorAction.OpenDecisionRequired || !slices.Contains(blocked.ExecutorAction.NextAgentActions, "review open candidate/decision item(s) with evidence and authority boundary") || slices.Contains(blocked.ExecutorAction.NextAgentActions, "/rekit continue login") || !slices.Equal(blocked.NextSteps, blocked.ExecutorAction.NextAgentActions) {
 		t.Fatalf("open decision blocked continue should expose review-only next steps: action=%+v next=%+v", blocked.ExecutorAction, blocked.NextSteps)
 	}
-	assertCLIActionQueue(t, blocked.MissionCommanderActionQueue, 2, 0, 2, 2, 1, "/rekit handoff login")
+	current := blocked.MissionCommanderActionQueue.CurrentAction
+	if current == nil || current.State != "needs-open-decision-review" || current.Source != "missionCommanderActions" || current.Blocked || !current.RequiresReview || !strings.HasPrefix(current.Command, "/rekit note -Kind decision -Lane feature-login") || !strings.Contains(current.Command, "-Related evt-open-candidate") || !strings.Contains(current.Command, "-WhatIf") {
+		t.Fatalf("open decision blocked continue should expose executable current preview: %+v", blocked.MissionCommanderActionQueue)
+	}
+	assertCLIActionQueue(t, blocked.MissionCommanderActionQueue, 3, 1, 2, 3, 2, current.Command)
 	assertSnapshotEqual(t, before, snapshotFiles(t, caseRoot))
 
 	out.Reset()
@@ -9060,7 +9075,7 @@ func TestRunContinueBlocksOpenDecisionBeforeWrites(t *testing.T) {
 		"continue open decision boundary：eventId=evt-open-candidate boundary=review evidence and choose accept/reject/defer/supersede with note -WhatIf first; then run the returned hash-bound recordCommand, which only appends case-local decision ledger state and never writes authority/confirmed or executes heavy-tool",
 		"continue open decision continue boundary：eventId=evt-open-candidate boundary=blocked continue is zero-write and only exposes open-decision handoff; do not continue autonomously while the open decision remains unresolved",
 		"continue open decision evidence：eventId=evt-open-candidate evidence=candidate ledger event evt-open-candidate",
-		"mission commander action queue current：state=needs-open-decision-review source=missionCommanderActions blocked=true requiresReview=true command=`/rekit handoff login`",
+		"mission commander action queue current：state=needs-open-decision-review source=missionCommanderActions blocked=false requiresReview=true command=`/rekit note -Kind decision -Lane feature-login -Subject \"decision for candidate: candidate alpha\" -Summary \"needs decision\" -Decision <accept|reject|defer|supersede> -Reason \"reviewed open candidate/decision item\" -TargetRef candidate-alpha -Related evt-open-candidate -EvidenceRefs evidence/candidate.json -BatchId batch-decision -WhatIf`",
 	} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("open decision blocked continue text missing %q:\n%s", expected, out.String())
@@ -9386,7 +9401,7 @@ func TestRunContinueApplyWritesDigestAndFacts(t *testing.T) {
 	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "vmp-re", "-Apply", "-Format", "text", "login"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"工作线被 blocker 阻塞：feature-login reasons=open-decision", "executor next action：review open candidate/decision item(s) with evidence and authority boundary", "mission commander action queue：summary=total=2 unblocked=0 blocked=2 requiresReview=2 followUp=1 current=/rekit handoff login", "mission commander action queue current：state=needs-open-decision-review source=missionCommanderActions blocked=true requiresReview=true command=`/rekit handoff login`"} {
+	for _, expected := range []string{"工作线被 blocker 阻塞：feature-login reasons=open-decision", "executor next action：review open candidate/decision item(s) with evidence and authority boundary", "mission commander action queue：summary=total=4 unblocked=0 blocked=4 requiresReview=4 followUp=3 current=/rekit handoff login", "mission commander action queue current：state=needs-open-decision-review source=missionCommanderActions blocked=true requiresReview=true command=`/rekit handoff login`", "mission commander next action：state=needs-open-decision-review source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit note -Kind decision -Lane feature-login -Subject \"decision for candidate: authority candidate\"", "mission commander next action：state=needs-open-decision-review source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit note -Kind decision -Lane feature-login -Subject \"decision for decision: authority candidate\""} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("continue blocked text missing %q:\n%s", expected, out.String())
 		}
@@ -20274,6 +20289,12 @@ func assertEvidenceReviewBeforeBlockedAdapterActions(t *testing.T, label string,
 func containsMissionCommanderNextAction(items []missionCommanderNextActionItem, source, command string, blocked, requiresReview bool) bool {
 	return slices.ContainsFunc(items, func(item missionCommanderNextActionItem) bool {
 		return item.Source == source && item.Command == command && item.Blocked == blocked && item.RequiresReview == requiresReview
+	})
+}
+
+func containsMissionCommanderRunLoopStep(steps []missionCommanderRunLoopStepSnapshot, stepID, command string) bool {
+	return slices.ContainsFunc(steps, func(step missionCommanderRunLoopStepSnapshot) bool {
+		return step.StepID == stepID && step.Command == command
 	})
 }
 

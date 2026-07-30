@@ -106,7 +106,7 @@ func TestAppendWhatIfProjectsBlockerKinds(t *testing.T) {
 			if !hasNoteCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue main", false, false) {
 				t.Fatalf("current commander next action missing ready continue: %+v", result.MissionCommanderNextActions)
 			}
-			wantPrimaryBlocked := tc.name != "intervention"
+			wantPrimaryBlocked := !strings.Contains(result.WouldMissionCommanderAction.PrimaryCommand, " -WhatIf")
 			if !hasNoteCommanderNextAction(result.WouldMissionCommanderNextActions, "missionCommanderActions", result.WouldMissionCommanderAction.PrimaryCommand, wantPrimaryBlocked, true) {
 				t.Fatalf("would commander next action missing primary: action=%+v next=%+v", result.WouldMissionCommanderAction, result.WouldMissionCommanderNextActions)
 			}
@@ -164,7 +164,7 @@ func TestAppendReturnsPostActionForAppliedBlockerKinds(t *testing.T) {
 			if result.MissionCommanderAction.State == "ready-to-continue" || result.WouldMissionCommanderAction != nil || len(result.WouldMissionCommanderNextActions) != 0 {
 				t.Fatalf("applied blocker note should expose post commander action only: action=%+v would=%+v", result.MissionCommanderAction, result.WouldMissionCommanderAction)
 			}
-			wantPrimaryBlocked := tc.name != "intervention"
+			wantPrimaryBlocked := !strings.Contains(result.MissionCommanderAction.PrimaryCommand, " -WhatIf")
 			if !hasNoteCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", result.MissionCommanderAction.PrimaryCommand, wantPrimaryBlocked, true) {
 				t.Fatalf("post commander next action missing primary: action=%+v next=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions)
 			}
