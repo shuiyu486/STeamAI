@@ -28,6 +28,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 740：daily Mission Control runbook
+
+状态：实现已完成，本机验证已通过；implementation commit/push 与远程 release-gate inspection 尚未完成。本批选择最低可用 Mission Control 路线，闭合一个真实日常断点：`status`、current driver request、refresh cadence 与 handoff 接手命令分散在多个字段和文档段落中，主 Agent / replacement harness 新会话接手时仍要跨 status text、action queue 与 handoff Markdown 手工拼接日常循环。
+
+目标：`status -Format json/text` 与 project/lane `handoff -Format json/Markdown` 应暴露同源 `dailyMissionControlRunbook`，把当前 `currentDriverRequest`、status refresh command、handoff preview/apply command 与固定日常 run loop 串为一个只读 envelope：`inspect-status → consume-current-driver-request → refresh-after-driver → preview-handoff → write-handoff-for-takeover`。接手者只能在 `commandExecutable=true` 时执行 current driver request command；guidance-only request 仍由主 Agent review，任何 preview/apply/continue/reconcile 后必须 refresh status。
+
+已实现：新增 `workstream.DailyMissionControlRunbook` 与 `DailyMissionControlRunbookFor`，从 Mission Commander action queue 派生 current state/source/command/runLoopStep/currentDriverRequest、refresh command、handoff preview/apply command、runLoop steps 与 no-spawn/no-authority/no-heavy boundary。`status` missing-board onboarding 与正常 case mission JSON/text 均输出该 runbook；`handoff` JSON 返回同一 envelope，project/lane durable Markdown 在每个 lane/指定 lane 段落输出 Daily Mission Control runbook，避免新会话只靠 terminal prose 拼接下一步。
+
+边界：不新增 public command、durable schema、PowerShell runtime logic、Claude Code spawner/session manager、reviewer/adapter/heavy-tool executor、authority/confirmed 写入、自动 handoff apply 或自动 continue；runbook 只是 read-only handoff，不执行 `/rekit` command，不改变 Mission Commander action selection。handoff apply 仍只写 case-local handoff/resume/checkpoint 文件。
+
+验证结果：focused `go test ./internal/rekit/cli -run "TestRunStatusJsonCase|TestRunHandoffApplyWritesProjectAndLane|TestRunMissionCommanderDriverRequestConsumerLoopProductPath"` 通过（19.430s）；完整本机 release minimum 已通过：`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`（CLI 361.141s）、`go vet ./...` 与 `git diff --check` 通过，后者仅有 Windows LF→CRLF working-copy warning。提交前 `go run ./cmd/rekit -- -Command release-check -Format json` 按预期返回 `ready=false` / `summary=release gate inventory has warnings`，因为 Batch 740 implementation commit/push 与远程 release-gate inspection 尚未记录。
+
 ### Batch 739：reviewer spawn agent-tool run-loop handoff
 
 状态：已完成本机实现、focused validation、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `312dced` 已推送。Push run `30549433809` completed failure；Linux/Windows/macOS jobs `90893947401`/`90893947501`/`90893947531` 均 `steps=[]`，`gh run view 30549433809 --log-failed` 返回 `log not found: 90893947401`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。本批选择 reviewer/session orchestration UX，推进一个 Windows 本机可验证的 replacement harness 接手 slice：reviewer operator package 已有 `agentToolRequest`，但 `spawn-reviewer` run-loop step 仍只携带自然语言/dispatch command，接手者需要跨字段拼装 Agent tool 参数。

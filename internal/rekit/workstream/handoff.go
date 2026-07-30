@@ -72,6 +72,7 @@ type HandoffResult struct {
 	AuthorizedGateAdapterHandoffs    []AuthorizedGateAdapterHandoff           `json:"authorizedGateAdapterHandoffs,omitempty"`
 	MissionCommanderNextActions      []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
 	MissionCommanderActionQueue      mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
+	DailyMissionControlRunbook       *DailyMissionControlRunbook              `json:"dailyMissionControlRunbook,omitempty"`
 	ProjectNextBatchStarterPackage   *ProjectNextBatchStarterPackage          `json:"projectNextBatchStarterPackage,omitempty"`
 	Writes                           []StartWrite                             `json:"writes"`
 	BlockedActions                   []string                                 `json:"blockedActions"`
@@ -297,11 +298,46 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 		AuthorizedGateAdapterHandoffs:    authorizedGateAdapterHandoffs,
 		MissionCommanderNextActions:      missionCommanderNext,
 		MissionCommanderActionQueue:      missionCommanderActionQueue,
+		DailyMissionControlRunbook:       DailyMissionControlRunbookFor(ctx.inst.CaseRoot, handoffRunbookScope(ctx.project, ctx.selector), missionCommanderActionQueue, handoffPreviewCommand(ctx.inst.CaseRoot, ctx.selector), handoffApplyCommand(ctx.inst.CaseRoot, ctx.selector)),
 		ProjectNextBatchStarterPackage:   cloneProjectNextBatchStarterPackage(ctx.projectNextBatchStarterPackage),
 		Writes:                           writes,
 		BlockedActions:                   []string{"authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "continue auto-apply", "board/facts/lane creation"},
 		NextSteps:                        next,
 	}
+}
+
+func handoffRunbookScope(project bool, selector string) string {
+	selector = strings.TrimSpace(selector)
+	if project || selector == "" {
+		return "project"
+	}
+	return "lane:" + selector
+}
+
+func handoffPreviewCommand(caseRoot, selector string) string {
+	return handoffCommand(caseRoot, selector, false)
+}
+
+func handoffApplyCommand(caseRoot, selector string) string {
+	return handoffCommand(caseRoot, selector, true)
+}
+
+func handoffCommand(caseRoot, selector string, apply bool) string {
+	parts := []string{"/rekit", "handoff", "-Target", caseRoot}
+	if apply {
+		parts = append(parts, "-Apply")
+	} else {
+		parts = append(parts, "-WhatIf")
+	}
+	selector = strings.TrimSpace(selector)
+	if selector != "" {
+		parts = append(parts, selector)
+	}
+	parts = append(parts, "-Format", "json")
+	for i, part := range parts {
+		parts[i] = quoteCommandArg(part)
+	}
+	return strings.Join(parts, " ")
 }
 
 func (ctx handoffContext) missionBrief() (mission.Brief, error) {
@@ -699,6 +735,7 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 		writeProjectLaneEvidenceNextSteps(&out, executionEvidenceReview, executorAction.Ready && !executorAction.Blocked)
 		writeProjectLaneExecutionEvidenceReviewSummary(&out, executionEvidenceReviewSummary)
 		writeProjectLaneMissionCommanderActionQueue(&out, missionCommanderActionQueue)
+		writeDailyMissionControlRunbook(&out, DailyMissionControlRunbookFor(ctx.inst.CaseRoot, "lane:"+workstreamLabel(lane), missionCommanderActionQueue, handoffPreviewCommand(ctx.inst.CaseRoot, workstreamLabel(lane)), handoffApplyCommand(ctx.inst.CaseRoot, workstreamLabel(lane))))
 		writeProjectLaneMissionCommanderNextActions(&out, missionCommanderNextActions)
 		if !evidenceNeedsMainReview {
 			writeProjectLaneNextActions(&out, executorAction.NextAgentActions)
@@ -730,6 +767,38 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 	}
 	fmt.Fprintln(&out, "- 多工作线时不要使用无参数 `/rekit continue` 盲目继续，应使用 `/rekit continue main` 或 `/rekit continue <name>`。")
 	return out.String(), writes, nil
+}
+
+func writeDailyMissionControlRunbook(out *bytes.Buffer, runbook *DailyMissionControlRunbook) {
+	if runbook == nil || len(runbook.RunLoop) == 0 {
+		return
+	}
+	fmt.Fprintln(out, "## Daily Mission Control runbook")
+	fmt.Fprintln(out)
+	fmt.Fprintf(out, "- ready: %t\n", runbook.Ready)
+	fmt.Fprintf(out, "- scope: %s\n", firstText(runbook.Scope, "case"))
+	fmt.Fprintf(out, "- current: state=%s source=%s step=%s command=`%s`\n", firstText(runbook.CurrentState, "none"), firstText(runbook.CurrentSource, "none"), firstText(runbook.CurrentRunLoopStepID, "none"), runbook.CurrentCommand)
+	fmt.Fprintf(out, "- refresh: `%s`\n", runbook.RefreshStatusCommand)
+	if strings.TrimSpace(runbook.HandoffPreviewCommand) != "" {
+		fmt.Fprintf(out, "- handoff preview: `%s`\n", runbook.HandoffPreviewCommand)
+	}
+	if strings.TrimSpace(runbook.HandoffApplyCommand) != "" {
+		fmt.Fprintf(out, "- handoff apply: `%s`\n", runbook.HandoffApplyCommand)
+	}
+	if request := runbook.CurrentDriverRequest; request != nil {
+		fmt.Fprintf(out, "- current driver request: kind=%s executable=%t blocked=%t requiresReview=%t command=`%s` guidance=`%s`\n", request.Kind, request.CommandExecutable, request.Blocked, request.RequiresReview, request.Command, request.Guidance)
+	}
+	fmt.Fprintf(out, "- run loop: steps=%d\n", len(runbook.RunLoop))
+	for _, step := range runbook.RunLoop {
+		fmt.Fprintf(out, "- run loop step: order=%d step=%s actor=%s state=%s source=%s driverKind=%s executable=%t blocked=%t requiresReview=%t command=`%s` guidance=`%s`\n", step.Order, step.StepID, step.Actor, step.State, step.Source, step.DriverKind, step.CommandExecutable, step.Blocked, step.RequiresReview, step.Command, step.Guidance)
+		for _, boundary := range step.Boundary {
+			fmt.Fprintf(out, "  - run loop boundary: step=%s boundary=%s\n", step.StepID, boundary)
+		}
+	}
+	for _, boundary := range runbook.Boundary {
+		fmt.Fprintf(out, "- boundary: %s\n", boundary)
+	}
+	fmt.Fprintln(out)
 }
 
 func writeProjectNextBatchStarterPackage(out *bytes.Buffer, starter *ProjectNextBatchStarterPackage) {
@@ -1169,6 +1238,7 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 	}
 	writeLaneMissionBrief(&out, lane, facts, executorAction)
 	writeLaneMissionCommanderActionQueue(&out, missionCommanderActionQueue)
+	writeDailyMissionControlRunbook(&out, DailyMissionControlRunbookFor(ctx.inst.CaseRoot, "lane:"+label, missionCommanderActionQueue, handoffPreviewCommand(ctx.inst.CaseRoot, label), handoffApplyCommand(ctx.inst.CaseRoot, label)))
 	writeLaneMissionCommanderNextActions(&out, missionCommanderNextActions)
 	for _, line := range appendLaneTakeoverPackage(nil, laneTakeoverPackageFor(ctx.inst.CaseRoot, lane, executorAction, missionCommanderActionQueue, false)) {
 		fmt.Fprintln(&out, line)

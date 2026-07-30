@@ -94,7 +94,7 @@ claude
 排障或新会话接手时再用：
 
 ```text
-/rekit          # 无子命令时默认只读 status，先确认 kit/case 绑定，并先看 compact Mission Commander first-screen strip / focus routing / queue current action 接手；kit-mode 会先投影 latest-batch project current action 与 project runbook，pack-memory focus 会先显示 evidence shortlist（含 next missing proof draft WhatIf / ExpectedProofSha256 Apply template），再回到 case/reviewer/pack-memory first-screen strip，空 case mission 会先投影 onboarding current action
+/rekit          # 无子命令时默认只读 status，先确认 kit/case 绑定，并先看 compact Mission Commander first-screen strip / focus routing / queue current action 接手；kit-mode 会先投影 latest-batch project current action 与 project runbook，pack-memory focus 会先显示 evidence shortlist（含 next missing proof draft WhatIf / ExpectedProofSha256 Apply template），再回到 case/reviewer/pack-memory first-screen strip，空 case mission 会先投影 onboarding current action。case mission 还会输出 daily Mission Control runbook，把 inspect status、consume currentDriverRequest、refresh after result、preview handoff 与 apply handoff 的只读接手节奏放在同一个机器可读 envelope 中。
 /rekit doctor
 ```
 

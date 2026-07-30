@@ -1165,12 +1165,13 @@ func TestRunStatusJsonCase(t *testing.T) {
 					Total int `json:"total"`
 				} `json:"pendingGates"`
 			} `json:"sections"`
-			ExecutionEvidenceReviewCount  int                           `json:"executionEvidenceReviewCount"`
-			ExecutionEvidenceReview       []executionEvidenceReviewItem `json:"executionEvidenceReview"`
-			HandoffPreviewCommand         string                        `json:"handoffPreviewCommand"`
-			HandoffApplyCommand           string                        `json:"handoffApplyCommand"`
-			ContinueRequiresExplicitApply string                        `json:"continueRequiresExplicitApply"`
-			MissionBriefNextActions       []string                      `json:"missionBriefNextActions"`
+			ExecutionEvidenceReviewCount  int                                 `json:"executionEvidenceReviewCount"`
+			ExecutionEvidenceReview       []executionEvidenceReviewItem       `json:"executionEvidenceReview"`
+			DailyMissionControlRunbook    *dailyMissionControlRunbookSnapshot `json:"dailyMissionControlRunbook"`
+			HandoffPreviewCommand         string                              `json:"handoffPreviewCommand"`
+			HandoffApplyCommand           string                              `json:"handoffApplyCommand"`
+			ContinueRequiresExplicitApply string                              `json:"continueRequiresExplicitApply"`
+			MissionBriefNextActions       []string                            `json:"missionBriefNextActions"`
 		} `json:"caseMission"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
@@ -1205,6 +1206,10 @@ func TestRunStatusJsonCase(t *testing.T) {
 		t.Fatalf("ready case mission should not include evidence review items: %+v", status.CaseMission.ExecutionEvidenceReview)
 	}
 
+	if runbook := status.CaseMission.DailyMissionControlRunbook; runbook == nil || !runbook.Ready || runbook.Scope != "case" || runbook.CurrentState != "ready-to-continue" || runbook.CurrentCommand != "/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1" || runbook.CurrentRunLoopStepID != "apply-or-run-current" || runbook.RefreshStatusCommand == "" || runbook.HandoffPreviewCommand == "" || runbook.HandoffApplyCommand == "" || len(runbook.RunLoop) != 5 || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Kind != "execute-command" || runbook.CurrentDriverRequest.Command != runbook.CurrentCommand {
+		t.Fatalf("case mission daily runbook drifted: %+v", runbook)
+	}
+
 	out.Reset()
 	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
@@ -1223,6 +1228,11 @@ func TestRunStatusJsonCase(t *testing.T) {
 		"ready=true lanes=",
 		"status case mission queue：total=4 unblocked=4 blocked=0 requiresReview=0 followUp=2 current=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
 		"status case mission queue action：bucket=current lane=feature-login label=login state=ready-to-continue source=missionCommanderActions blocked=false requiresReview=false command=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
+		"status case mission daily runbook：ready=true scope=case currentState=ready-to-continue currentSource=missionCommanderActions currentStep=apply-or-run-current currentCommand=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
+		"status case mission daily runbook driver：kind=execute-command actor=main-agent state=ready-to-continue source=missionCommanderActions executable=true blocked=false requiresReview=false command=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
+		"status case mission daily runbook step：order=3 step=refresh-after-driver actor=main-agent",
+		"status case mission daily runbook step：order=5 step=write-handoff-for-takeover actor=main-agent",
+		"status case mission daily runbook boundary：after any preview/apply/continue/reconcile result, refresh status before choosing follow-up work",
 		"status case mission queue action：bucket=followUp lane=feature-login label=login state=ready-to-continue source=missionCommanderActions.followUp blocked=false requiresReview=false command=/rekit handoff login",
 		"status case mission queue action reason：bucket=followUp lane=feature-login reason=follow Mission Commander handoff after primary action",
 		"status case mission lane action：lane=feature-login label=login status=open workspace=workspace/features/feature-login executor=session-1 generation=1 ready=true blocked=false pendingGates=0 openInterventions=0 openDecisions=0 resume=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1 handoff=/rekit handoff login commanderState=ready-to-continue commanderPrimary=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
@@ -8859,6 +8869,9 @@ func TestRunHandoffApplyWritesProjectAndLane(t *testing.T) {
 		assertCLIActionQueue(t, project.MissionCommanderActionQueue, 14, 11, 3, 4, 11, "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 1")
 	} else {
 		assertCLIActionQueue(t, project.MissionCommanderActionQueue, 6, 3, 3, 4, 4, "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 1")
+	}
+	if runbook := project.DailyMissionControlRunbook; runbook == nil || !runbook.Ready || runbook.Scope != "project" || runbook.CurrentState != "ready-to-continue" || runbook.CurrentCommand != "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 1" || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Kind != "execute-command" || len(runbook.RunLoop) != 5 {
+		t.Fatalf("project handoff daily runbook drifted: %+v", runbook)
 	}
 	latest := assertStartWrite(t, project.Writes, ".rekit/handovers/latest.md", "write-latest-project-handoff")
 	text, err := os.ReadFile(latest.TargetPath)
@@ -18314,6 +18327,7 @@ type handoffResult struct {
 	AuthorizedGateAdapterHandoffs  []authorizedGateAdapterHandoffSnapshot `json:"authorizedGateAdapterHandoffs"`
 	MissionCommanderNextActions    []missionCommanderNextActionItem       `json:"missionCommanderNextActions"`
 	MissionCommanderActionQueue    missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
+	DailyMissionControlRunbook     *dailyMissionControlRunbookSnapshot    `json:"dailyMissionControlRunbook"`
 	ProjectNextBatchStarterPackage *projectNextBatchStarterPackage        `json:"projectNextBatchStarterPackage"`
 	Writes                         []startWrite                           `json:"writes"`
 	NextSteps                      []string                               `json:"nextSteps"`
@@ -19946,6 +19960,36 @@ type missionCommanderDriverRequestSnapshot struct {
 		Description string   `json:"description"`
 		Boundary    []string `json:"boundary"`
 	} `json:"expectedReceipt"`
+}
+
+type dailyMissionControlRunbookSnapshot struct {
+	Ready                 bool                                     `json:"ready"`
+	Scope                 string                                   `json:"scope"`
+	CurrentState          string                                   `json:"currentState"`
+	CurrentSource         string                                   `json:"currentSource"`
+	CurrentCommand        string                                   `json:"currentCommand"`
+	CurrentRunLoopStepID  string                                   `json:"currentRunLoopStepId"`
+	CurrentDriverRequest  *missionCommanderDriverRequestSnapshot   `json:"currentDriverRequest"`
+	RefreshStatusCommand  string                                   `json:"refreshStatusCommand"`
+	HandoffPreviewCommand string                                   `json:"handoffPreviewCommand"`
+	HandoffApplyCommand   string                                   `json:"handoffApplyCommand"`
+	RunLoop               []dailyMissionControlRunbookStepSnapshot `json:"runLoop"`
+	Boundary              []string                                 `json:"boundary"`
+}
+
+type dailyMissionControlRunbookStepSnapshot struct {
+	StepID            string   `json:"stepId"`
+	Order             int      `json:"order"`
+	Actor             string   `json:"actor"`
+	State             string   `json:"state"`
+	Source            string   `json:"source"`
+	DriverKind        string   `json:"driverKind"`
+	Command           string   `json:"command"`
+	Guidance          string   `json:"guidance"`
+	CommandExecutable bool     `json:"commandExecutable"`
+	Blocked           bool     `json:"blocked"`
+	RequiresReview    bool     `json:"requiresReview"`
+	Boundary          []string `json:"boundary"`
 }
 
 type missionCommanderDriverReceiptSnapshot struct {

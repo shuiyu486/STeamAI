@@ -2666,6 +2666,7 @@ type statusCaseMission struct {
 	ExecutionEvidenceReviewSummary    workstream.ExecutionEvidenceReviewSummary    `json:"executionEvidenceReviewSummary"`
 	MissionCommanderActionQueue       mission.MissionCommanderActionQueue          `json:"missionCommanderActionQueue"`
 	MissionCommanderNextActions       []mission.MissionCommanderNextActionItem     `json:"missionCommanderNextActions"`
+	DailyMissionControlRunbook        *workstream.DailyMissionControlRunbook       `json:"dailyMissionControlRunbook,omitempty"`
 	MissionBriefNextActions           []string                                     `json:"missionBriefNextActions"`
 	Escalations                       []string                                     `json:"escalations"`
 	HandoffPreviewCommand             string                                       `json:"handoffPreviewCommand"`
@@ -3853,6 +3854,9 @@ func writeStatusCaseMissionText(out io.Writer, summary *statusCaseMission) error
 	if err := writeStatusCaseMissionQueueText(out, queue); err != nil {
 		return err
 	}
+	if err := writeStatusDailyMissionControlRunbookText(out, summary.DailyMissionControlRunbook); err != nil {
+		return err
+	}
 	if err := writeStatusReviewerDispatchIntakeQueueText(out, summary.ReviewerDispatchIntakeActionQueue); err != nil {
 		return err
 	}
@@ -4247,6 +4251,36 @@ func writeStatusReviewerDispatchIntakeQueueText(out io.Writer, queue mission.Mis
 		return nil
 	}
 	return writeStatusMissionCommanderActionQueueText(out, "status case mission reviewer dispatch queue", queue)
+}
+
+func writeStatusDailyMissionControlRunbookText(out io.Writer, runbook *workstream.DailyMissionControlRunbook) error {
+	if runbook == nil || len(runbook.RunLoop) == 0 {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "status case mission daily runbook：ready=%t scope=%s currentState=%s currentSource=%s currentStep=%s currentCommand=%s refresh=%s preview=%s apply=%s steps=%d\n", runbook.Ready, statusFirstText(runbook.Scope, "case"), statusFirstText(runbook.CurrentState, "none"), statusFirstText(runbook.CurrentSource, "none"), statusFirstText(runbook.CurrentRunLoopStepID, "none"), runbook.CurrentCommand, runbook.RefreshStatusCommand, runbook.HandoffPreviewCommand, runbook.HandoffApplyCommand, len(runbook.RunLoop)); err != nil {
+		return err
+	}
+	if request := runbook.CurrentDriverRequest; request != nil {
+		if _, err := fmt.Fprintf(out, "status case mission daily runbook driver：kind=%s actor=%s state=%s source=%s executable=%t blocked=%t requiresReview=%t command=%s guidance=%s\n", request.Kind, request.Actor, request.State, request.Source, request.CommandExecutable, request.Blocked, request.RequiresReview, request.Command, request.Guidance); err != nil {
+			return err
+		}
+	}
+	for _, step := range runbook.RunLoop {
+		if _, err := fmt.Fprintf(out, "status case mission daily runbook step：order=%d step=%s actor=%s state=%s source=%s driverKind=%s executable=%t blocked=%t requiresReview=%t command=%s guidance=%s\n", step.Order, step.StepID, step.Actor, step.State, step.Source, step.DriverKind, step.CommandExecutable, step.Blocked, step.RequiresReview, step.Command, step.Guidance); err != nil {
+			return err
+		}
+		for _, boundary := range step.Boundary {
+			if _, err := fmt.Fprintf(out, "status case mission daily runbook step boundary：step=%s boundary=%s\n", step.StepID, boundary); err != nil {
+				return err
+			}
+		}
+	}
+	for _, boundary := range runbook.Boundary {
+		if _, err := fmt.Fprintf(out, "status case mission daily runbook boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func writeStatusMissionCommanderActionQueueText(out io.Writer, prefix string, queue mission.MissionCommanderActionQueue) error {
@@ -4662,6 +4696,7 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 			Summary:                       "case board missing; run overview or start -Apply to initialize Mission Commander state",
 			MissionCommanderActionQueue:   queue,
 			MissionCommanderNextActions:   actions,
+			DailyMissionControlRunbook:    workstream.DailyMissionControlRunbookFor(caseRoot, "case-onboarding", queue, previewCommand, applyCommand),
 			HandoffPreviewCommand:         previewCommand,
 			HandoffApplyCommand:           applyCommand,
 			ContinueRequiresExplicitApply: continueBoundary,
@@ -4718,6 +4753,7 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 		ExecutionEvidenceReviewSummary:    inventory.ExecutionEvidenceReviewSummary,
 		MissionCommanderActionQueue:       inventory.MissionCommanderActionQueue,
 		MissionCommanderNextActions:       append([]mission.MissionCommanderNextActionItem{}, inventory.MissionCommanderNextActions...),
+		DailyMissionControlRunbook:        workstream.DailyMissionControlRunbookFor(caseRoot, "case", inventory.MissionCommanderActionQueue, previewCommand, applyCommand),
 		MissionBriefNextActions:           append([]string{}, inventory.NextSteps...),
 		Escalations:                       append([]string{}, inventory.MissionBrief.Escalations...),
 		HandoffPreviewCommand:             previewCommand,
