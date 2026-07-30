@@ -119,8 +119,10 @@ func TestRunPlanSubagentsReviewerPacketRetirementWhatIfApplyE2E(t *testing.T) {
 	}
 	var invalidStatus struct {
 		CaseMission struct {
-			ReviewerDispatchIntakeHandoffs []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
-			ReviewerDispatchIntakeSummary  reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+			ReviewerDispatchIntakeHandoffs    []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
+			ReviewerDispatchIntakeSummary     reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+			ReviewerDispatchIntakeActionQueue missionCommanderActionQueueSnapshot  `json:"reviewerDispatchIntakeActionQueue"`
+			MissionCommanderActionQueue       missionCommanderActionQueueSnapshot  `json:"missionCommanderActionQueue"`
 		} `json:"caseMission"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &invalidStatus); err != nil {
@@ -128,6 +130,17 @@ func TestRunPlanSubagentsReviewerPacketRetirementWhatIfApplyE2E(t *testing.T) {
 	}
 	if len(invalidStatus.CaseMission.ReviewerDispatchIntakeHandoffs) != 1 || !strings.Contains(invalidStatus.CaseMission.ReviewerDispatchIntakeHandoffs[0].PacketRetirementPreviewCommand, "-RetireInvalidReviewerPacket") || !strings.Contains(invalidStatus.CaseMission.ReviewerDispatchIntakeSummary.NextActionPacketRetirementPreviewCommand, "-RetireInvalidReviewerPacket") || !containsSubstring(invalidStatus.CaseMission.ReviewerDispatchIntakeSummary.NextActionRunbookSteps, "retirement preview") {
 		t.Fatalf("status omitted invalid packet retirement handoff: %+v", invalidStatus.CaseMission)
+	}
+	invalidPacket := invalidStatus.CaseMission.ReviewerDispatchIntakeHandoffs[0]
+	if invalidPacket.State != "reviewer-packet-integrity-invalid" || invalidPacket.DispatchCommand != "" || invalidPacket.PreviewCommand != "" || invalidPacket.ApplyCommand != "" || invalidPacket.BatchPreviewCommand != "" || invalidPacket.BatchApplyCommand != "" {
+		t.Fatalf("invalid packet status did not block reviewer dispatch/intake commands: %+v", invalidPacket)
+	}
+	retirementRequest := requireMissionCommanderDriverRequest(t, invalidStatus.CaseMission.MissionCommanderActionQueue, "blocked-review", "inspect-current", invalidPacket.PacketRetirementPreviewCommand, true, true, true)
+	if invalidStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentDriverRequest == nil || invalidStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentDriverRequest.Command != retirementRequest.Command {
+		t.Fatalf("packet retirement reviewer queue request drifted from first screen: first=%+v reviewer=%+v", retirementRequest, invalidStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentDriverRequest)
+	}
+	if strings.Contains(retirementRequest.Command, "-RecordReviewerDispatch") || strings.Contains(retirementRequest.Command, "-AdoptReviewerPacket") || strings.Contains(retirementRequest.Command, "-ReadyReviewerResults") {
+		t.Fatalf("packet retirement driver-loop exposed reviewer dispatch/adoption/intake while packet was invalid: %+v", retirementRequest)
 	}
 	out.Reset()
 	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
@@ -139,30 +152,57 @@ func TestRunPlanSubagentsReviewerPacketRetirementWhatIfApplyE2E(t *testing.T) {
 		}
 	}
 
-	args := []string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-RetireInvalidReviewerPacket", "-Lane", "feature-review", "-Actor", "mission-commander", "-Reason", "retire exact invalid packet"}
-	out.Reset()
-	if err := Run(append(append([]string{}, args...), "-WhatIf", "-Format", "json"), &out); err != nil {
-		t.Fatal(err)
-	}
-	var preview subagents.ReviewerPacketRetirementResult
-	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
-		t.Fatal(err)
-	}
-	if preview.Applied || preview.MissionCommanderAction.State != "needs-reviewer-packet-retirement-apply" {
-		t.Fatalf("unexpected retirement preview: %+v", preview)
+	baseArgs := []string{"-Target", caseRoot, "-Pack", "_template"}
+	actor := "mission-commander"
+	reason := "retire exact invalid packet"
+	driverRequestArgs := func(label string, request *missionCommanderDriverRequestSnapshot, replacements *strings.Replacer) []string {
+		t.Helper()
+		if request == nil {
+			t.Fatalf("%s missing driver request", label)
+		}
+		requestCopy := *request
+		if replacements != nil {
+			requestCopy.Command = replacements.Replace(requestCopy.Command)
+		}
+		args, ok := missionCommanderDriverRequestCommandCLIArgs(t, &requestCopy)
+		if !ok {
+			t.Fatalf("%s driver request did not expose executable command: %+v", label, request)
+		}
+		withBase := append([]string{}, args[:2]...)
+		withBase = append(withBase, baseArgs...)
+		return append(withBase, args[2:]...)
 	}
 
 	out.Reset()
-	if err := Run(append(append([]string{}, args...), "-WhatIf", "-Format", "text"), &out); err != nil {
+	if err := Run(driverRequestArgs("packet retirement preview", retirementRequest, strings.NewReplacer("<actor>", actor, "<reason>", reason)), &out); err != nil {
+		t.Fatal(err)
+	}
+	var preview struct {
+		Applied                     bool                                `json:"applied"`
+		IsMutation                  bool                                `json:"isMutation"`
+		PacketSHA256                string                              `json:"packetSha256"`
+		IntegritySHA256             string                              `json:"integritySha256"`
+		MissionCommanderAction      missionCommanderActionSnapshot      `json:"missionCommanderAction"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+		t.Fatal(err)
+	}
+	if preview.Applied || preview.IsMutation || preview.PacketSHA256 == "" || preview.IntegritySHA256 == "" || preview.MissionCommanderAction.State != "needs-reviewer-packet-retirement-apply" || !strings.Contains(preview.MissionCommanderAction.PrimaryCommand, "-ExpectedPacketSha256") || !strings.Contains(preview.MissionCommanderAction.PrimaryCommand, "-ExpectedIntegritySha256") {
+		t.Fatalf("unexpected retirement preview: %+v", preview)
+	}
+	retirementApplyRequest := requireMissionCommanderDriverRequest(t, preview.MissionCommanderActionQueue, "preview-command", "preview-current", preview.MissionCommanderAction.PrimaryCommand, true, false, true)
+
+	out.Reset()
+	if err := Run(driverRequestArgs("packet retirement text preview", retirementRequest, strings.NewReplacer("<actor>", actor, "<reason>", reason, "-Format json", "-Format text")), &out); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "plan-subagents reviewer packet retirement：") || strings.HasPrefix(strings.TrimSpace(out.String()), "{") {
 		t.Fatalf("unexpected retirement text output: %s", out.String())
 	}
 
-	applyArgs := append(append([]string{}, args...), "-ExpectedPacketSha256", preview.PacketSHA256, "-ExpectedIntegritySha256", preview.IntegritySHA256)
 	out.Reset()
-	if err := Run(append(applyArgs, "-Apply", "-Format", "json"), &out); err != nil {
+	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, retirementApplyRequest.Command), &out); err != nil {
 		t.Fatal(err)
 	}
 	var applied subagents.ReviewerPacketRetirementResult
@@ -178,7 +218,7 @@ func TestRunPlanSubagentsReviewerPacketRetirementWhatIfApplyE2E(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := Run(append(applyArgs, "-Apply", "-Format", "json"), &out); err != nil {
+	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, retirementApplyRequest.Command), &out); err != nil {
 		t.Fatal(err)
 	}
 	var replay subagents.ReviewerPacketRetirementResult
@@ -197,7 +237,8 @@ func TestRunPlanSubagentsReviewerPacketRetirementWhatIfApplyE2E(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := Run(append(applyArgs, "-Apply", "-Format", "text"), &out); err != nil {
+	textApplyCommand := strings.Replace(retirementApplyRequest.Command, "-Format json", "-Format text", 1)
+	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, textApplyCommand), &out); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "mode=already-retired") || !strings.Contains(out.String(), "replay=true") || !strings.Contains(out.String(), "exact reviewer packet retirement receipt already exists") {

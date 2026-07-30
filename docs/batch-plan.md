@@ -27,6 +27,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 732：reviewer packet integrity invalid retirement driver-request consumer loop
+
+状态：已完成本机实现、focused packet-retirement regression、相邻 reviewer packet/driver-loop regression、完整 CLI package regression 与完整本机 release minimum；implementation commit/push 与 push-triggered remote inspection 待执行。当前实现只增强 CLI product-path regression，未改 production runtime。
+
+目标：把 reviewer packet integrity invalid 的 fail-closed recovery 从“接手者手工调用 `-RetireInvalidReviewerPacket` preview/apply”推进为 typed `currentDriverRequest` consumer loop：replacement executor 从 first-screen Mission Commander queue 或 reviewer dispatch queue 读取 retirement preview request，执行 `-RetireInvalidReviewerPacket -WhatIf`，再消费 preview returned `MissionCommanderActionQueue.currentDriverRequest` 的 hash-gated Apply，refresh status/handoff/continue 后关闭 invalid packet blocker。
+
+边界：不新增 public command、durable schema、PowerShell runtime logic、Claude Code session spawner、reviewer/heavy-tool executor 或生产 runtime API；Go runtime 不 spawn/poll/monitor/stop reviewer session，不调用 Agent tool，不执行 reviewer/heavy tool，不写 authority/confirmed。packet retirement 只关闭一个 exact invalid canonical reviewer packet snapshot；不删除或修复 packet bytes，不 dispatch/adopt/intake invalid packet，changed packet/integrity bytes 会重新打开 blocker。
+
+已实现内容：增强 `TestRunPlanSubagentsReviewerPacketRetirementWhatIfApplyE2E`。测试篡改 canonical reviewer packet 后，status refresh 断言 state=`reviewer-packet-integrity-invalid`，`PacketRetirementPreviewCommand` 成为 first-screen Mission Commander queue 与 reviewer dispatch queue 的同源 `currentDriverRequest`，同时 reviewer dispatch/adoption/intake command 关闭。测试执行该 driver request 并替换 `<actor>/<reason>`，再消费 preview returned `MissionCommanderActionQueue.currentDriverRequest` 执行 hash-gated Apply；重复执行同一 Apply 返回 `already-retired` replay 且不重写 receipt bytes；最终 status/handoff/continue refresh 都证明 invalid packet 不再作为 open reviewer dispatch blocker，同时保留 no-delete/no-heavy/no-authority retirement provenance。
+
+验证结果：focused `go test ./internal/rekit/cli -run TestRunPlanSubagentsReviewerPacketRetirementWhatIfApplyE2E -count=1` 通过；相邻 reviewer packet/driver-loop regression `go test ./internal/rekit/cli -run "TestRunPlanSubagentsReviewerPacketRetirementWhatIfApplyE2E|TestRunPlanSubagentsReviewerPromptRepairDriverRequestConsumerLoop|TestRunPlanSubagentsReviewerAdoptionRedispatchDriverRequestConsumerLoop|TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath" -count=1` 通过；完整 CLI package `go test ./internal/rekit/cli -count=1` 通过（约 296s）。完整本机 release minimum 已通过：`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./... -count=1`、`go vet ./...`、`git diff --check` 与 `go run ./cmd/rekit -- -Command release-check -Format json`，`git diff --check` 仅有 Windows LF→CRLF working-copy warning，`release-check` 返回 `ready=true` / `summary=release gate inventory ok`。
+
 ### Batch 731：reviewer prompt artifact repair driver-request consumer loop
 
 状态：已完成本机实现、focused prompt-repair driver-loop regression、相邻 reviewer driver-loop regression、完整 CLI package regression、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `51cbf5a` 已推送。Push run `30526096132` completed failure；macOS/Linux/Windows jobs `90817228690`/`90817228761`/`90817228766` 均 `steps=[]`，annotations 显示 GitHub account payments/spending limit blocker，`gh run view 30526096132 --log-failed` 返回 `log not found: 90817228690`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。当前实现只新增 CLI product-path regression，未改 production runtime。
