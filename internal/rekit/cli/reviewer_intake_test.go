@@ -1001,6 +1001,166 @@ func TestRunPlanSubagentsReviewerSessionReceiptProductPath(t *testing.T) {
 	}
 }
 
+func TestRunPlanSubagentsReviewerPromptRepairDriverRequestConsumerLoop(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "review", "-Apply", "-Executor", "session-review", "-Actor", "mission-commander", "-Reason", "reviewer prompt repair owner", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", "alpha", "-ItemsPerAgent", "1", "-MaxParallel", "1", "-Lane", "feature-review", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	plan := decodePlanSubagentsResult(t, out.Bytes())
+	handoff := plan.ShardHandoffs[0]
+	baseArgs := []string{"-Target", caseRoot, "-Pack", "_template"}
+	actor := "mission-commander"
+
+	promptBytes, err := os.ReadFile(handoff.DispatchPromptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(handoff.DispatchPromptPath); err != nil {
+		t.Fatal(err)
+	}
+	assertFileNotExists(t, handoff.DispatchPromptPath)
+
+	driverRequestArgs := func(label string, request *missionCommanderDriverRequestSnapshot, replacements *strings.Replacer) []string {
+		t.Helper()
+		if request == nil {
+			t.Fatalf("%s missing driver request", label)
+		}
+		requestCopy := *request
+		if replacements != nil {
+			requestCopy.Command = replacements.Replace(requestCopy.Command)
+		}
+		args, ok := missionCommanderDriverRequestCommandCLIArgs(t, &requestCopy)
+		if !ok {
+			t.Fatalf("%s driver request did not expose executable command: %+v", label, request)
+		}
+		withBase := append([]string{}, args[:2]...)
+		withBase = append(withBase, baseArgs...)
+		return append(withBase, args[2:]...)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var blockedStatus struct {
+		CaseMission struct {
+			ReviewerDispatchIntakeHandoffs    []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
+			ReviewerDispatchIntakeSummary     reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+			ReviewerDispatchIntakeActionQueue missionCommanderActionQueueSnapshot  `json:"reviewerDispatchIntakeActionQueue"`
+			MissionCommanderActionQueue       missionCommanderActionQueueSnapshot  `json:"missionCommanderActionQueue"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &blockedStatus); err != nil {
+		t.Fatalf("prompt repair driver-loop status JSON did not decode: %v\n%s", err, out.String())
+	}
+	if len(blockedStatus.CaseMission.ReviewerDispatchIntakeHandoffs) != 1 {
+		t.Fatalf("prompt repair driver-loop status should expose one handoff: %+v", blockedStatus.CaseMission)
+	}
+	blockedItem := blockedStatus.CaseMission.ReviewerDispatchIntakeHandoffs[0]
+	if blockedItem.State != "reviewer-dispatch-prompt-artifact-invalid" || blockedItem.DispatchPromptState != "missing" || blockedItem.DispatchPromptCurrent || blockedItem.DispatchCommand != "" || blockedItem.DispatchPromptRepairCommand == "" || !strings.Contains(blockedItem.DispatchPromptRepairCommand, "-RepairReviewerPromptArtifact") || blockedStatus.CaseMission.ReviewerDispatchIntakeSummary.PromptArtifactBlocked != 1 || blockedStatus.CaseMission.ReviewerDispatchIntakeSummary.NextActionState != "reviewer-dispatch-prompt-artifact-invalid" || blockedStatus.CaseMission.ReviewerDispatchIntakeSummary.NextActionDispatchPromptRepairCommand != blockedItem.DispatchPromptRepairCommand {
+		t.Fatalf("prompt repair driver-loop status did not fail closed on missing prompt: item=%+v summary=%+v", blockedItem, blockedStatus.CaseMission.ReviewerDispatchIntakeSummary)
+	}
+	if blockedStatus.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || blockedStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.State != "reviewer-dispatch-prompt-artifact-invalid" || !strings.Contains(blockedStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.Command, "-RepairReviewerPromptArtifact") {
+		t.Fatalf("prompt repair driver-loop first screen did not prioritize repair handoff: %+v", blockedStatus.CaseMission.MissionCommanderActionQueue)
+	}
+	repairRequest := requireMissionCommanderDriverRequest(t, blockedStatus.CaseMission.MissionCommanderActionQueue, "preview-command", "preview-current", blockedItem.DispatchPromptRepairCommand, true, false, true)
+	if blockedStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentDriverRequest == nil || blockedStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentDriverRequest.Command != repairRequest.Command {
+		t.Fatalf("prompt repair driver-loop reviewer queue request drifted from first screen: first=%+v reviewer=%+v", repairRequest, blockedStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentDriverRequest)
+	}
+	if strings.Contains(repairRequest.Command, "-RecordReviewerDispatch") || strings.Contains(repairRequest.Command, "-CaptureReviewerResultSource") || strings.Contains(repairRequest.Command, "-ReadyReviewerResults") {
+		t.Fatalf("prompt repair driver-loop exposed dispatch/source/intake while prompt was invalid: %+v", repairRequest)
+	}
+
+	out.Reset()
+	if err := Run(driverRequestArgs("prompt repair preview", repairRequest, strings.NewReplacer("<main-agent>", actor)), &out); err != nil {
+		t.Fatal(err)
+	}
+	var repairPreview struct {
+		Applied                     bool                                `json:"applied"`
+		IsMutation                  bool                                `json:"isMutation"`
+		AlreadyCurrent              bool                                `json:"alreadyCurrent"`
+		Status                      string                              `json:"status"`
+		PromptPath                  string                              `json:"promptPath"`
+		PromptSHA256                string                              `json:"promptSha256"`
+		ApplyCommand                string                              `json:"applyCommand"`
+		MissionCommanderAction      missionCommanderActionSnapshot      `json:"missionCommanderAction"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &repairPreview); err != nil {
+		t.Fatalf("prompt repair preview JSON did not decode: %v\n%s", err, out.String())
+	}
+	if repairPreview.Applied || repairPreview.IsMutation || repairPreview.AlreadyCurrent || repairPreview.Status != "previewed" || repairPreview.PromptPath != handoff.DispatchPromptPath || repairPreview.PromptSHA256 != handoff.DispatchPromptSHA256 || !strings.Contains(repairPreview.ApplyCommand, "-ExpectedPromptSha256") || repairPreview.MissionCommanderAction.PrimaryCommand != repairPreview.ApplyCommand {
+		t.Fatalf("prompt repair preview omitted hash-gated apply handoff: %+v", repairPreview)
+	}
+	repairApplyRequest := requireMissionCommanderDriverRequest(t, repairPreview.MissionCommanderActionQueue, "preview-command", "preview-current", repairPreview.MissionCommanderAction.PrimaryCommand, true, false, true)
+
+	out.Reset()
+	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, repairApplyRequest.Command), &out); err != nil {
+		t.Fatal(err)
+	}
+	var repairApply struct {
+		Applied        bool   `json:"applied"`
+		IsMutation     bool   `json:"isMutation"`
+		AlreadyCurrent bool   `json:"alreadyCurrent"`
+		Status         string `json:"status"`
+		PromptPath     string `json:"promptPath"`
+		PromptSHA256   string `json:"promptSha256"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &repairApply); err != nil {
+		t.Fatalf("prompt repair apply JSON did not decode: %v\n%s", err, out.String())
+	}
+	if !repairApply.Applied || !repairApply.IsMutation || repairApply.AlreadyCurrent || repairApply.Status != "restored" || repairApply.PromptPath != handoff.DispatchPromptPath || repairApply.PromptSHA256 != handoff.DispatchPromptSHA256 {
+		t.Fatalf("prompt repair apply did not restore missing prompt artifact: %+v", repairApply)
+	}
+	restoredPromptBytes, err := os.ReadFile(handoff.DispatchPromptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(restoredPromptBytes) != string(promptBytes) {
+		t.Fatalf("prompt repair driver-loop restored unexpected prompt bytes: %q", string(restoredPromptBytes))
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var repairedStatus struct {
+		CaseMission struct {
+			ReviewerDispatchIntakeHandoffs    []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
+			ReviewerDispatchIntakeSummary     reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+			ReviewerDispatchIntakeActionQueue missionCommanderActionQueueSnapshot  `json:"reviewerDispatchIntakeActionQueue"`
+			MissionCommanderActionQueue       missionCommanderActionQueueSnapshot  `json:"missionCommanderActionQueue"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &repairedStatus); err != nil {
+		t.Fatalf("prompt repair driver-loop repaired status JSON did not decode: %v\n%s", err, out.String())
+	}
+	repairedItem := repairedStatus.CaseMission.ReviewerDispatchIntakeHandoffs[0]
+	if repairedItem.State != "ready-for-reviewer-dispatch" || repairedItem.DispatchPromptState != "ready" || !repairedItem.DispatchPromptCurrent || repairedItem.DispatchPromptActualSHA256 != handoff.DispatchPromptSHA256 || repairedStatus.CaseMission.ReviewerDispatchIntakeSummary.PromptArtifactBlocked != 0 || strings.Contains(repairedStatus.CaseMission.ReviewerDispatchIntakeSummary.NextAction, "-RepairReviewerPromptArtifact") || !strings.Contains(repairedItem.ReviewerDispatchRecordCommand, "-RecordReviewerDispatch") {
+		t.Fatalf("prompt repair driver-loop did not refresh to reviewer dispatch receipt preview: item=%+v summary=%+v", repairedItem, repairedStatus.CaseMission.ReviewerDispatchIntakeSummary)
+	}
+	dispatchRequest := requireMissionCommanderDriverRequest(t, repairedStatus.CaseMission.MissionCommanderActionQueue, "blocked-review", "inspect-current", repairedItem.ReviewerDispatchRecordCommand, true, true, true)
+	if repairedStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentDriverRequest == nil || repairedStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentDriverRequest.Command != dispatchRequest.Command {
+		t.Fatalf("prompt repair driver-loop repaired reviewer queue request drifted from first screen: first=%+v reviewer=%+v", dispatchRequest, repairedStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentDriverRequest)
+	}
+	if running := repairedStatus.CaseMission.ReviewerDispatchIntakeSummary.OperatorPackage; running == nil || running.Current == nil || running.CurrentRunLoopStepID != "spawn-reviewer" || running.Current.State != "ready-for-reviewer-dispatch" || !running.Current.DispatchPromptCurrent || running.Current.DispatchPromptSHA256 != handoff.DispatchPromptSHA256 {
+		t.Fatalf("prompt repair driver-loop did not restore operator package spawn-reviewer step: %+v", running)
+	}
+	if got := readOptionalCaseFile(t, caseRoot, ".rekit/facts/verifications.jsonl"); got != "" {
+		t.Fatalf("prompt repair driver-loop wrote verification facts:\n%s", got)
+	}
+	if got := readOptionalCaseFile(t, caseRoot, ".rekit/facts/decisions.jsonl"); got != "" {
+		t.Fatalf("prompt repair driver-loop wrote decision facts:\n%s", got)
+	}
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
+}
+
 func TestRunPlanSubagentsReviewerAdoptionRedispatchDriverRequestConsumerLoop(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	var out bytes.Buffer
