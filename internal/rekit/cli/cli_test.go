@@ -769,23 +769,8 @@ func TestRunStatusJsonKit(t *testing.T) {
 				Reasons        []string `json:"reasons"`
 				Boundary       []string `json:"boundary"`
 			} `json:"missionCommanderNextActions"`
-			MissionCommanderActionQueue struct {
-				Counts struct {
-					Total          int `json:"total"`
-					Unblocked      int `json:"unblocked"`
-					Blocked        int `json:"blocked"`
-					RequiresReview int `json:"requiresReview"`
-				} `json:"counts"`
-				CurrentAction *struct {
-					Label          string `json:"label"`
-					ActionID       string `json:"actionId"`
-					State          string `json:"state"`
-					Source         string `json:"source"`
-					Command        string `json:"command"`
-					RequiresReview bool   `json:"requiresReview"`
-				} `json:"currentAction"`
-			} `json:"missionCommanderActionQueue"`
-			PackMemoryCandidates struct {
+			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+			PackMemoryCandidates        struct {
 				Ready                       bool `json:"ready"`
 				Total                       int  `json:"total"`
 				MissionCommanderActionQueue struct {
@@ -862,6 +847,13 @@ func TestRunStatusJsonKit(t *testing.T) {
 		}
 		if !strings.Contains(projectCurrent.Command, "select the next Windows-verifiable product-path closure") || projectCurrent.Source != "releaseHandoffNextBatch" || projectCurrent.ActionID != "next-batch-selection" || projectCurrent.State != "ready-for-next-batch-selection" || projectCurrent.Label != "next-batch" || projectCurrent.RequiresReview || status.ProjectHandoff.MissionCommanderActionQueue.Counts.RequiresReview != 0 {
 			t.Fatalf("completed release inspection cadence should point project current action at next-batch selection: current=%+v queue=%+v", projectCurrent, status.ProjectHandoff.MissionCommanderActionQueue)
+		}
+		projectRequest := requireMissionCommanderDriverRequest(t, status.ProjectHandoff.MissionCommanderActionQueue, "review-guidance", "inspect-current", "", false, false, false)
+		if projectRequest.State != "ready-for-next-batch-selection" || projectRequest.Source != "releaseHandoffNextBatch" || projectRequest.ActionID != "next-batch-selection" || !strings.Contains(projectRequest.Guidance, "select the next Windows-verifiable product-path closure") || !containsSubstring(projectRequest.Boundary, "guidance text must be reviewed") {
+			t.Fatalf("next-batch guidance driver request drifted: %+v", projectRequest)
+		}
+		if args, ok := missionCommanderDriverRequestCommandCLIArgs(t, projectRequest); ok || args != nil {
+			t.Fatalf("guidance driver request should not produce executable CLI args: args=%+v request=%+v", args, projectRequest)
 		}
 		for _, want := range []string{`"currentDriverRequest"`, `"kind": "review-guidance"`, `"commandExecutable": false`, `"guidance": "select the next Windows-verifiable product-path closure`} {
 			if !strings.Contains(out.String(), want) {
@@ -1409,11 +1401,19 @@ func TestRunPendingGateCurrentRunLoopApplyOpensAuthorizedGateHandoff(t *testing.
 	if pendingCurrent == nil || pendingCurrent.State != "needs-gate-decision" || pendingCurrent.Source != "missionCommanderActions" || pendingCurrent.Blocked || !pendingCurrent.RequiresReview || pendingCurrent.Command != "/rekit gate -Action debug -Lane main -WhatIf" || pendingStatus.CaseMission.MissionCommanderActionQueue.CurrentRunLoopStepID != "preview-current" || !containsMissionCommanderRunLoopStep(pendingStatus.CaseMission.MissionCommanderActionQueue.CurrentActionRunLoop, "preview-current", pendingCurrent.Command) {
 		t.Fatalf("pending gate status did not expose executable preview-current run-loop: queue=%+v", pendingStatus.CaseMission.MissionCommanderActionQueue)
 	}
+	pendingRequest := requireMissionCommanderDriverRequest(t, pendingStatus.CaseMission.MissionCommanderActionQueue, "preview-command", "preview-current", pendingCurrent.Command, true, false, true)
+	if pendingRequest.ExpectedReceipt.Command != pendingCurrent.Command || !containsSubstring(pendingRequest.Boundary, "review-required current actions") || !containsSubstring(pendingRequest.ExpectedReceipt.Boundary, "do not write authority/confirmed") {
+		t.Fatalf("pending gate driver request omitted preview receipt boundary: %+v", pendingRequest)
+	}
 	if len(pendingStatus.CaseMission.PendingGateHandoffs) != 1 || len(pendingStatus.CaseMission.AuthorizedGateHandoffs) != 0 {
 		t.Fatalf("pending gate status handoffs drifted: %+v", pendingStatus.CaseMission)
 	}
 
-	previewArgs := append(rekitCommandCLIArgs(t, pendingCurrent.Command), "-Target", caseRoot, "-Pack", "_template", "-TargetRef", "target.bin", "-RuntimeSeconds", "30", "-DiskMB", "64", "-Requests", "1", "-OutputPaths", "workspace/main/debug/session-1", "-StopConditions", "timeout", "-Format", "json")
+	pendingRequestArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, pendingRequest)
+	if !ok {
+		t.Fatalf("pending gate preview driver request did not expose executable args: %+v", pendingRequest)
+	}
+	previewArgs := append(pendingRequestArgs, "-Target", caseRoot, "-Pack", "_template", "-TargetRef", "target.bin", "-RuntimeSeconds", "30", "-DiskMB", "64", "-Requests", "1", "-OutputPaths", "workspace/main/debug/session-1", "-StopConditions", "timeout", "-Format", "json")
 	out.Reset()
 	if err := Run(previewArgs, &out); err != nil {
 		t.Fatal(err)
@@ -1473,6 +1473,10 @@ func TestRunPendingGateCurrentRunLoopApplyOpensAuthorizedGateHandoff(t *testing.
 	}
 	if authorizedCurrent == nil || authorizedCurrent.GateEventID != applied.EventID || authorizedCurrent.State != "needs-adapter-report-validation" || authorizedCurrent.Blocked || !authorizedCurrent.RequiresReview || !strings.Contains(authorizedCurrent.Command, "-ValidateExecutionReport") || !strings.Contains(authorizedCurrent.Command, applied.EventID) || !containsMissionCommanderRunLoopStep(authorizedStatus.CaseMission.MissionCommanderActionQueue.CurrentActionRunLoop, "preview-current", authorizedCurrent.Command) {
 		t.Fatalf("authorized gate status did not select adapter validation current action: queue=%+v", authorizedStatus.CaseMission.MissionCommanderActionQueue)
+	}
+	authorizedRequest := requireMissionCommanderDriverRequest(t, authorizedStatus.CaseMission.MissionCommanderActionQueue, "preview-command", "preview-current", authorizedCurrent.Command, true, false, true)
+	if authorizedRequest.GateEventID != applied.EventID || !strings.Contains(authorizedRequest.Command, "-ValidateExecutionReport") {
+		t.Fatalf("authorized gate adapter validation driver request drifted: %+v", authorizedRequest)
 	}
 	ledger, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl"))
 	if err != nil {
@@ -1591,13 +1595,21 @@ func TestRunOpenDecisionFirstScreenHandoffHashBoundApplyUnblocksLane(t *testing.
 	if blockedStatus.CaseMission.MissionCommanderActionQueue.CurrentRunLoopStepID != "preview-current" || !containsMissionCommanderRunLoopStep(blockedStatus.CaseMission.MissionCommanderActionQueue.CurrentActionRunLoop, "preview-current", blockedCurrent.Command) {
 		t.Fatalf("status did not expose open decision current action as preview-current run-loop step: queue=%+v", blockedStatus.CaseMission.MissionCommanderActionQueue)
 	}
+	blockedRequest := requireMissionCommanderDriverRequest(t, blockedStatus.CaseMission.MissionCommanderActionQueue, "preview-command", "preview-current", blockedCurrent.Command, true, false, true)
+	if blockedRequest.Lane != "main" || !containsSubstring(blockedRequest.Boundary, "review-required current actions") {
+		t.Fatalf("open decision preview driver request drifted: %+v", blockedRequest)
+	}
 	handoff := blockedStatus.CaseMission.OpenDecisionHandoffs[0]
 	if handoff.EventID != "cand-main-open-1" || handoff.WhatIfCommand == "" || !strings.Contains(handoff.WhatIfCommand, `-Target "`+caseRoot+`"`) || handoff.RecordCommand != "run the hash-bound recordCommand returned by note -WhatIf" {
 		t.Fatalf("status missing actionable open decision handoff: %+v", handoff)
 	}
 	beforePreview := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 
-	previewArgs := append(rekitCommandCLIArgs(t, blockedCurrent.Command), "-Target", caseRoot, "-Pack", "_template", "-Format", "json")
+	blockedRequestArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, blockedRequest)
+	if !ok {
+		t.Fatalf("open decision preview driver request did not expose executable args: %+v", blockedRequest)
+	}
+	previewArgs := append(blockedRequestArgs, "-Target", caseRoot, "-Pack", "_template", "-Format", "json")
 	for i := 0; i < len(previewArgs)-1; i++ {
 		if previewArgs[i] == "-Decision" && previewArgs[i+1] == "<accept|reject|defer|supersede>" {
 			previewArgs[i+1] = "accept"
@@ -1693,9 +1705,18 @@ func TestRunOpenDecisionFirstScreenHandoffHashBoundApplyUnblocksLane(t *testing.
 		t.Fatalf("status did not remove open decision blocker: current=%+v handoffs=%+v", readyCurrent, readyStatus.CaseMission.OpenDecisionHandoffs)
 	}
 
+	readyRequest := requireMissionCommanderDriverRequest(t, readyStatus.CaseMission.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", readyCurrent.Command, true, false, false)
+	if readyRequest.ExpectedReceipt.Command != readyCurrent.Command || !containsSubstring(readyRequest.ExpectedReceipt.Boundary, "do not write authority/confirmed") {
+		t.Fatalf("ready continue driver request omitted receipt boundary: %+v", readyRequest)
+	}
 	beforeContinue := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 	out.Reset()
-	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "main", "-WhatIf", "-Format", "json"}, &out); err != nil {
+	continuePreviewArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, readyRequest)
+	if !ok {
+		t.Fatalf("ready continue driver request did not expose executable args: %+v", readyRequest)
+	}
+	continuePreviewArgs = append(continuePreviewArgs, "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json")
+	if err := Run(continuePreviewArgs, &out); err != nil {
 		t.Fatal(err)
 	}
 	var continuation struct {
@@ -1720,7 +1741,12 @@ func TestRunOpenDecisionFirstScreenHandoffHashBoundApplyUnblocksLane(t *testing.
 
 	factsBeforeContinueApply := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
 	out.Reset()
-	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "main", "-Apply", "-Format", "json"}, &out); err != nil {
+	continueApplyArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, readyRequest)
+	if !ok {
+		t.Fatalf("ready continue driver request did not expose apply base args: %+v", readyRequest)
+	}
+	continueApplyArgs = append(continueApplyArgs, "-Target", caseRoot, "-Pack", "_template", "-Apply", "-Format", "json")
+	if err := Run(continueApplyArgs, &out); err != nil {
 		t.Fatal(err)
 	}
 	var continued struct {
@@ -20340,6 +20366,45 @@ func assertMovedCaseRepairPreviewDiagnostic(t *testing.T, err error, caseRoot, p
 	if strings.Contains(text, "Run 'rekit repair -Target") {
 		t.Fatalf("moved case diagnostic should not recommend direct repair -Apply first: %s", text)
 	}
+}
+
+func requireMissionCommanderDriverRequest(t *testing.T, queue missionCommanderActionQueueSnapshot, kind, stepID, command string, executable, blocked, requiresReview bool) *missionCommanderDriverRequestSnapshot {
+	t.Helper()
+	request := queue.CurrentDriverRequest
+	if request == nil {
+		t.Fatalf("mission commander action queue omitted current driver request: %+v", queue)
+	}
+	if request.Kind != kind || request.RunLoopStepID != stepID || request.Command != command || request.CommandExecutable != executable || request.Blocked != blocked || request.RequiresReview != requiresReview {
+		t.Fatalf("mission commander driver request drifted: want kind=%s step=%s command=%q executable=%t blocked=%t requiresReview=%t got=%+v", kind, stepID, command, executable, blocked, requiresReview, request)
+	}
+	if request.Actor == "" || request.ExpectedReceipt.State != "refresh-required" || request.ExpectedReceipt.Description == "" || len(request.Boundary) == 0 || len(request.ExpectedReceipt.Boundary) == 0 {
+		t.Fatalf("mission commander driver request omitted actor/receipt/boundary: %+v", request)
+	}
+	if executable {
+		if strings.TrimSpace(request.Command) == "" || strings.TrimSpace(request.Guidance) != "" {
+			t.Fatalf("executable driver request must expose command only: %+v", request)
+		}
+	} else if strings.TrimSpace(request.Command) != "" || strings.TrimSpace(request.Guidance) == "" {
+		t.Fatalf("guidance driver request must expose guidance only: %+v", request)
+	}
+	return request
+}
+
+func missionCommanderDriverRequestCommandCLIArgs(t *testing.T, request *missionCommanderDriverRequestSnapshot) ([]string, bool) {
+	t.Helper()
+	if request == nil {
+		t.Fatal("missing mission commander driver request")
+	}
+	if !request.CommandExecutable {
+		if strings.TrimSpace(request.Command) != "" {
+			t.Fatalf("non-executable driver request leaked command: %+v", request)
+		}
+		return nil, false
+	}
+	if strings.TrimSpace(request.Guidance) != "" {
+		t.Fatalf("executable driver request leaked guidance: %+v", request)
+	}
+	return rekitCommandCLIArgs(t, request.Command), true
 }
 
 func containsMissionCommanderNextActionsCommand(items []missionCommanderNextActionItem, want string) bool {
