@@ -12,7 +12,7 @@
 
 新方案不是替换旧 case 的大迁移，而是在现有 `/rekit`、pack、case shim、工作线机制上增加 Agent Team 的组织方式：
 
-- 用户入口仍然是 `/rekit`。
+- 用户日常入口优先是自然语言主 Agent / Mission Commander；`/rekit` 仍是主 Agent、维护者、自动化和排障使用的 deterministic runtime API。
 - 旧 case 可继续使用 `.re-template.yml`，也可以通过 `/rekit attach` / `/rekit repair` 补齐 `.rekit/instance.yml`。
 - 主线和功能支线仍然保留，而且是新架构的核心协作单元。
 - `sync` / `promote` 仍然 review-first，写入前需要确认具体范围。

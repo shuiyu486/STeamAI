@@ -81,7 +81,7 @@ Mission Control 相关批次还应检查：
 
 ## 风险与注意事项
 
-不要把本文件当成限制模型发挥的规则清单。它只规定方向和节奏：Mission Control 北极星、PowerShell-free / Go-native / 跨平台阶段重点、中大型切片、完成后自审、评估、必要时自行调整、继续推进。
+不要把本文件当成限制模型发挥的规则清单。它只规定方向和节奏：Mission Control 北极星、先真实用起来的阶段重点、中大型切片、完成后自审、评估、必要时自行调整、继续推进。
 
 真正需要停下询问的情况仍按根目录 `CLAUDE.md`、`docs/mission-control-product-direction.md`、`docs/release-readiness.md` 和 `docs/powershell-deprecation.md` 的既有项目边界处理：新的产品方向变化、破坏性仓库操作且无明显恢复路径、未授权外部副作用、confirmed/authority 写入策略变化、runtime schema 迁移、删除公共入口但没有 Go-native 替代方案，或其它明显不可逆行为。除此之外，默认继续自主推进；PowerShell replacement/removal 本身已获当前阶段授权，只要有 Go-native 替代、文档和验证即可按批次推进。
 
