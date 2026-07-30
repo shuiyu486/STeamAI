@@ -29,7 +29,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 733：Mission Commander driver receipt run-artifact closure
 
-状态：已完成本机实现、focused Mission Commander driver-loop regression、相邻 Mission Commander/continue/workstream regression、完整 CLI package regression 与完整本机 release minimum；当前等待 implementation commit/push 与 push-triggered remote inspection。当前实现把 `continue -Apply` 的 explicit command result 扩展为 typed `missionCommanderDriverReceipt`，并写入 returned JSON、`.rekit/runs/<runId>/status.json` 与 `digest.md`。
+状态：已完成本机实现、focused Mission Commander driver-loop regression、相邻 Mission Commander/continue/workstream regression、完整 CLI package regression、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `1242893` 已推送。Push run `30529774818` completed failure；Linux/Windows/macOS jobs `90829090358`/`90829090398`/`90829090413` 均 `steps=[]`，`gh run view 30529774818 --log-failed` 返回 `log not found: 90829090358`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。当前实现把 `continue -Apply` 的 explicit command result 扩展为 typed `missionCommanderDriverReceipt`，并写入 returned JSON、`.rekit/runs/<runId>/status.json` 与 `digest.md`。
 
 目标：把 Batch 723-727 已有的 typed `currentDriverRequest` consumer loop 继续闭合到 durable run artifact receipt：replacement executor / harness 从 first-screen `missionCommanderActionQueue.currentDriverRequest` 执行 open-decision preview、消费 hash-bound record command、refresh 到 ready `/rekit continue main`，再执行 `continue -Apply` 后，必须能在 returned result、run status 与 digest 中看到同源 `missionCommanderDriverReceipt`，证明该步骤是外部 main-agent/harness 显式处理后的 refreshed durable state，而不是从 terminal text 推断或让 Go runtime 自动执行。
 
