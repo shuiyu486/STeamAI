@@ -2876,6 +2876,8 @@ type statusMissionControlRunbook struct {
 	GuidanceHandoff             *statusMissionControlGuidanceHandoff        `json:"guidanceHandoff,omitempty"`
 	ReplacementExecutorTakeover *mission.ReplacementExecutorTakeoverPackage `json:"replacementExecutorTakeoverPackage,omitempty"`
 	RefreshStatusCommand        string                                      `json:"refreshStatusCommand"`
+	HandoffPreviewCommand       string                                      `json:"handoffPreviewCommand,omitempty"`
+	HandoffApplyCommand         string                                      `json:"handoffApplyCommand,omitempty"`
 	Queues                      []statusMissionControlRunbookQueue          `json:"queues"`
 	RoutingReasons              []string                                    `json:"routingReasons,omitempty"`
 	RunLoop                     []statusMissionControlRunbookStep           `json:"runLoop"`
@@ -3490,6 +3492,10 @@ func buildStatusMissionControlRunbook(target string, caseMission *statusCaseMiss
 			"after any preview/apply/continue/reconcile result, refresh status before choosing follow-up work",
 		}),
 	}
+	if caseMission != nil {
+		runbook.HandoffPreviewCommand = strings.TrimSpace(caseMission.HandoffPreviewCommand)
+		runbook.HandoffApplyCommand = strings.TrimSpace(caseMission.HandoffApplyCommand)
+	}
 	queues := []struct {
 		scope string
 		queue mission.MissionCommanderActionQueue
@@ -3826,6 +3832,36 @@ func statusMissionControlRunbookSteps(runbook *statusMissionControlRunbook) []st
 			"do not choose follow-up work from stale first-screen focus data",
 		},
 	})
+	if strings.TrimSpace(runbook.HandoffPreviewCommand) != "" {
+		steps = append(steps, statusMissionControlRunbookStep{
+			StepID:            "preview-handoff",
+			Order:             4,
+			Actor:             "main-agent",
+			State:             "handoff-preview-available",
+			Source:            "missionControlRunbook.handoffPreview",
+			Command:           runbook.HandoffPreviewCommand,
+			CommandExecutable: true,
+			Boundary: []string{
+				"preview handoff before writing durable handoff artifacts when the next session must take over",
+				"handoff preview is read-only and should use -WhatIf -Format json",
+			},
+		})
+	}
+	if strings.TrimSpace(runbook.HandoffApplyCommand) != "" {
+		steps = append(steps, statusMissionControlRunbookStep{
+			StepID:            "write-handoff-for-takeover",
+			Order:             5,
+			Actor:             "main-agent",
+			State:             "handoff-apply-available",
+			Source:            "missionControlRunbook.handoffApply",
+			Command:           runbook.HandoffApplyCommand,
+			CommandExecutable: true,
+			Boundary: []string{
+				"write durable handoff only after reviewing the current status and handoff preview",
+				"handoff apply does not execute reviewer, adapter, heavy-tool, authority, or confirmed actions",
+			},
+		})
+	}
 	return steps
 }
 
@@ -3835,6 +3871,11 @@ func writeStatusMissionControlRunbookText(out io.Writer, runbook *statusMissionC
 	}
 	if _, err := fmt.Fprintf(out, "status Mission Control runbook：ready=%t focus=%s scope=%s currentStep=%s currentCommand=%s refresh=%s steps=%d\n", runbook.Ready, runbook.Focus, runbook.Scope, runbook.CurrentRunLoopStepID, runbook.CurrentCommand, runbook.RefreshStatusCommand, len(runbook.RunLoop)); err != nil {
 		return err
+	}
+	if strings.TrimSpace(runbook.HandoffPreviewCommand) != "" || strings.TrimSpace(runbook.HandoffApplyCommand) != "" {
+		if _, err := fmt.Fprintf(out, "status Mission Control runbook handoff：preview=%s apply=%s\n", runbook.HandoffPreviewCommand, runbook.HandoffApplyCommand); err != nil {
+			return err
+		}
 	}
 	if request := runbook.CurrentDriverRequest; request != nil {
 		if _, err := fmt.Fprintf(out, "status Mission Control runbook driver：kind=%s actor=%s state=%s source=%s executable=%t blocked=%t requiresReview=%t command=%s guidance=%s\n", request.Kind, request.Actor, request.State, request.Source, request.CommandExecutable, request.Blocked, request.RequiresReview, request.Command, request.Guidance); err != nil {
@@ -5773,8 +5814,8 @@ func statusCaseMissionOnboardingAction(caseRoot string) mission.MissionCommander
 }
 
 func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission, error) {
-	previewCommand := fmt.Sprintf("/rekit handoff -Target %s -Format text", statusQuoteCommandArg(caseRoot))
-	applyCommand := fmt.Sprintf("/rekit handoff -Target %s -Apply -Format text", statusQuoteCommandArg(caseRoot))
+	previewCommand := fmt.Sprintf("/rekit handoff -Target %s -WhatIf -Format json", statusQuoteCommandArg(caseRoot))
+	applyCommand := fmt.Sprintf("/rekit handoff -Target %s -Apply -Format json", statusQuoteCommandArg(caseRoot))
 	continueBoundary := "status is read-only; run continue with -WhatIf first, then -Apply only after reviewing blockers/evidence"
 	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "board.json")); os.IsNotExist(err) {
 		action := statusCaseMissionOnboardingAction(caseRoot)

@@ -31,6 +31,19 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 
 
+
+### Batch 748：Mission Commander status-to-handoff preview route
+
+状态：本机实现、focused validation 与完整本机 release minimum（除 completion evidence 写回前 expected release-check warning）已完成，implementation commit/push 待执行。本批选择 `mission-commander`，推进 Mission Commander status-to-handoff preview route；release handoff candidate guidance 是：select a Mission Commander operational closure slice with status/handoff/continue product-path verification。上一批完成后仍需要解决的接手断点必须落在该 domain 的可操作 product-path closure 上，并能由 status/handoff/continue/release-check 或必要临时 case 验证；本批不是字段、文案或 summary 投影微调。
+
+目标：把 `mission-commander` candidate 收敛成 Windows 本机可验证的闭环：Mission Commander status-to-handoff preview route。实现应复用既有 typed handoff/envelope 和 deterministic runtime 边界，让 Mission Commander 或 replacement executor 能从 durable docs/status 消费结果，不依赖上一会话隐性上下文；focused work 必须证明该候选命令所描述的能力：select a Mission Commander operational closure slice with status/handoff/continue product-path verification。
+
+已实现：`status` case mission 的 handoff preview route 现在固定为 machine-readable `/rekit handoff -Target <case> -WhatIf -Format json`，apply route 固定为 `/rekit handoff -Target <case> -Apply -Format json`，避免名为 preview 的 command 进入 handoff apply/mutation path。顶层 `missionControlRunbook` 同步投影 `handoffPreviewCommand` / `handoffApplyCommand`，并把 run loop 扩展为 `inspect-first-screen → consume-focused-driver-request → refresh-after-focus-result → preview-handoff → write-handoff-for-takeover`；text output 也输出同一 route。Focused regression 已通过：`go test ./internal/rekit/cli -run TestRunStatusJsonCase`，其中测试从 status JSON 取回 handoff preview command 实际执行，确认返回 JSON、`applied=false`、`project=true`，且 `.rekit` snapshot 不变。
+
+边界：本批不新增 PowerShell runtime logic，不执行 heavy-tool，不写 authority/confirmed，不自动执行 reviewer/adapter/pack-memory/gate/sync/promote mutation，不自动提交或声明 remote CI green；`/rekit next-batch -Apply` 只在 expected hash 匹配时写 kit repo `docs/batch-plan.md` 与 `CHANGELOG.md` planning receipt。
+
+验证结果：focused regression 已通过：`go test ./internal/rekit/cli -run TestRunStatusJsonCase`。完整本机 release minimum 已执行：completion evidence 写回前 `go run ./cmd/rekit -- -Command release-check -Format json` 按预期返回 `ready=false` / `summary=release gate inventory has warnings`，因为 implementation commit/push 与 remote release-gate inspection 尚未记录；其余本机 gate 已通过：`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`，其中 `git diff --check` 仅有 Windows LF→CRLF working-copy warning。Implementation commit/push 与 push-triggered remote release-gate inspection 待执行；远程 `steps=[]` 仍只记录 blocker，不声明 green。
+
 ### Batch 747：Replacement executor durable handoff takeover package
 
 状态：已完成本机实现、focused validation、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `bd82e8f` 已推送。本批选择 `replacement-executor`，推进 Replacement executor durable handoff takeover package；release handoff candidate guidance 是：select a replacement executor takeover slice that can be resumed from status or durable handoff without prior chat context。上一批完成后仍需要解决的接手断点必须落在该 domain 的可操作 product-path closure 上，并能由 status/handoff/continue/release-check 或必要临时 case 验证；本批不是字段、文案或 summary 投影微调。Push run `30583810709` completed failure；Linux/Windows/macOS jobs `91010321382`/`91010321468`/`91010321510` 均 `steps=[]`，annotations 显示 GitHub account payments/spending limit blocker，`gh run view 30583810709 --log-failed` 返回 `log not found: 91010321382`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。

@@ -1573,7 +1573,26 @@ func TestRunStatusJsonCase(t *testing.T) {
 	if runbook := status.CaseMission.DailyMissionControlRunbook; runbook == nil || !runbook.Ready || runbook.Scope != "case" || runbook.CurrentState != "ready-to-continue" || runbook.CurrentCommand != "/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1" || runbook.CurrentRunLoopStepID != "apply-or-run-current" || runbook.RefreshStatusCommand == "" || runbook.HandoffPreviewCommand == "" || runbook.HandoffApplyCommand == "" || len(runbook.RunLoop) != 5 || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Kind != "execute-command" || runbook.CurrentDriverRequest.Command != runbook.CurrentCommand {
 		t.Fatalf("case mission daily runbook drifted: %+v", runbook)
 	}
-	if runbook := status.MissionControlRunbook; runbook == nil || !runbook.Ready || runbook.Focus != "case-current-action" || runbook.Scope != "case" || runbook.CurrentRunLoopStepID != "apply-or-run-current" || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Kind != "preview-command" || runbook.CurrentDriverRequest.Command != runbook.CurrentCommand || !strings.Contains(runbook.CurrentDriverRequest.Command, " -Target ") || !strings.Contains(runbook.CurrentDriverRequest.Command, " -WhatIf") || !strings.Contains(runbook.CurrentDriverRequest.Command, " -Format json") || !strings.Contains(runbook.CurrentDriverRequest.Command, "login -Executor session-1 -ExpectedExecutorGeneration 1") || runbook.RefreshStatusCommand == "" || len(runbook.Queues) != 4 || len(runbook.RunLoop) != 3 || !containsSubstring(runbook.CurrentDriverRequest.Boundary, "invocation-scoped") || !containsSubstring(runbook.RoutingReasons, "deferred focus queues: project") || !containsSubstring(runbook.Boundary, "read-only") {
+	if !strings.Contains(status.CaseMission.HandoffPreviewCommand, " -WhatIf") || !strings.Contains(status.CaseMission.HandoffPreviewCommand, " -Format json") || strings.Contains(status.CaseMission.HandoffPreviewCommand, " -Apply") || !strings.Contains(status.CaseMission.HandoffApplyCommand, " -Apply") || !strings.Contains(status.CaseMission.HandoffApplyCommand, " -Format json") {
+		t.Fatalf("case mission handoff commands should expose safe JSON preview/apply route: preview=%q apply=%q", status.CaseMission.HandoffPreviewCommand, status.CaseMission.HandoffApplyCommand)
+	}
+	beforeHandoffPreview := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	out.Reset()
+	if err := Run(rekitCommandCLIArgs(t, status.CaseMission.HandoffPreviewCommand), &out); err != nil {
+		t.Fatalf("status handoff preview route failed: command=%s err=%v\n%s", status.CaseMission.HandoffPreviewCommand, err, out.String())
+	}
+	var handoffPreview struct {
+		Applied bool `json:"applied"`
+		Project bool `json:"project"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &handoffPreview); err != nil {
+		t.Fatalf("status handoff preview route should return JSON: %v\n%s", err, out.String())
+	}
+	if handoffPreview.Applied || !handoffPreview.Project {
+		t.Fatalf("status handoff preview route should be read-only project handoff preview: %+v", handoffPreview)
+	}
+	assertSnapshotEqual(t, beforeHandoffPreview, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+	if runbook := status.MissionControlRunbook; runbook == nil || !runbook.Ready || runbook.Focus != "case-current-action" || runbook.Scope != "case" || runbook.CurrentRunLoopStepID != "apply-or-run-current" || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Kind != "preview-command" || runbook.CurrentDriverRequest.Command != runbook.CurrentCommand || !strings.Contains(runbook.CurrentDriverRequest.Command, " -Target ") || !strings.Contains(runbook.CurrentDriverRequest.Command, " -WhatIf") || !strings.Contains(runbook.CurrentDriverRequest.Command, " -Format json") || !strings.Contains(runbook.CurrentDriverRequest.Command, "login -Executor session-1 -ExpectedExecutorGeneration 1") || runbook.RefreshStatusCommand == "" || runbook.HandoffPreviewCommand != status.CaseMission.HandoffPreviewCommand || runbook.HandoffApplyCommand != status.CaseMission.HandoffApplyCommand || !strings.Contains(runbook.HandoffPreviewCommand, " -WhatIf") || !strings.Contains(runbook.HandoffPreviewCommand, " -Format json") || strings.Contains(runbook.HandoffPreviewCommand, " -Apply") || !strings.Contains(runbook.HandoffApplyCommand, " -Apply") || !strings.Contains(runbook.HandoffApplyCommand, " -Format json") || len(runbook.Queues) != 4 || len(runbook.RunLoop) != 5 || !containsSubstring(runbook.CurrentDriverRequest.Boundary, "invocation-scoped") || !containsSubstring(runbook.RoutingReasons, "deferred focus queues: project") || !containsSubstring(runbook.Boundary, "read-only") {
 		t.Fatalf("status Mission Control runbook should route to invocation-scoped case current action: %+v", runbook)
 	} else {
 		args, ok := missionCommanderDriverRequestCommandCLIArgs(t, runbook.CurrentDriverRequest)
@@ -1617,7 +1636,12 @@ func TestRunStatusJsonCase(t *testing.T) {
 		"login -Executor session-1 -ExpectedExecutorGeneration 1 -WhatIf -Format json",
 		"status Mission Control runbook driver：kind=preview-command actor=main-agent state=ready-to-continue source=missionCommanderActions executable=true blocked=false requiresReview=true command=/rekit continue -Target",
 		"status Mission Control runbook queue：scope=case focused=true total=4 blocked=0 requiresReview=0 currentState=ready-to-continue currentSource=missionCommanderActions currentStep=apply-or-run-current currentCommand=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
+		"status Mission Control runbook handoff：preview=/rekit handoff -Target",
+		" -WhatIf -Format json apply=/rekit handoff -Target",
+		" -Apply -Format json",
 		"status Mission Control runbook step：order=3 step=refresh-after-focus-result actor=main-agent",
+		"status Mission Control runbook step：order=4 step=preview-handoff actor=main-agent",
+		"status Mission Control runbook step：order=5 step=write-handoff-for-takeover actor=main-agent",
 		"status Mission Control runbook boundary：missionControlRunbook is read-only",
 		"status case mission daily runbook：ready=true scope=case currentState=ready-to-continue currentSource=missionCommanderActions currentStep=apply-or-run-current currentCommand=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
 		"status case mission daily runbook driver：kind=execute-command actor=main-agent state=ready-to-continue source=missionCommanderActions executable=true blocked=false requiresReview=false command=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
@@ -20396,18 +20420,20 @@ type missionCommanderDriverRequestSnapshot struct {
 }
 
 type statusMissionControlRunbookSnapshot struct {
-	Ready                bool                                         `json:"ready"`
-	Focus                string                                       `json:"focus"`
-	Scope                string                                       `json:"scope"`
-	CurrentCommand       string                                       `json:"currentCommand"`
-	CurrentRunLoopStepID string                                       `json:"currentRunLoopStepId"`
-	CurrentDriverRequest *missionCommanderDriverRequestSnapshot       `json:"currentDriverRequest"`
-	GuidanceHandoff      *statusMissionControlGuidanceHandoffSnapshot `json:"guidanceHandoff"`
-	RefreshStatusCommand string                                       `json:"refreshStatusCommand"`
-	Queues               []statusMissionControlRunbookQueueSnapshot   `json:"queues"`
-	RoutingReasons       []string                                     `json:"routingReasons"`
-	RunLoop              []dailyMissionControlRunbookStepSnapshot     `json:"runLoop"`
-	Boundary             []string                                     `json:"boundary"`
+	Ready                 bool                                         `json:"ready"`
+	Focus                 string                                       `json:"focus"`
+	Scope                 string                                       `json:"scope"`
+	CurrentCommand        string                                       `json:"currentCommand"`
+	CurrentRunLoopStepID  string                                       `json:"currentRunLoopStepId"`
+	CurrentDriverRequest  *missionCommanderDriverRequestSnapshot       `json:"currentDriverRequest"`
+	GuidanceHandoff       *statusMissionControlGuidanceHandoffSnapshot `json:"guidanceHandoff"`
+	RefreshStatusCommand  string                                       `json:"refreshStatusCommand"`
+	HandoffPreviewCommand string                                       `json:"handoffPreviewCommand"`
+	HandoffApplyCommand   string                                       `json:"handoffApplyCommand"`
+	Queues                []statusMissionControlRunbookQueueSnapshot   `json:"queues"`
+	RoutingReasons        []string                                     `json:"routingReasons"`
+	RunLoop               []dailyMissionControlRunbookStepSnapshot     `json:"runLoop"`
+	Boundary              []string                                     `json:"boundary"`
 }
 
 type statusMissionControlGuidanceHandoffSnapshot struct {
