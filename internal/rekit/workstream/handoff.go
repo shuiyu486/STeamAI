@@ -481,7 +481,10 @@ func bindMissionCommanderActionContinueCommands(action mission.MissionCommanderA
 
 func bindExecutionEvidenceReviewContinueCommands(items []ExecutionEvidenceReviewItem, laneFor func(string) (Lane, bool)) []ExecutionEvidenceReviewItem {
 	for idx := range items {
-		lane, ok := laneFor(items[idx].MissionCommanderAction.PrimaryCommand)
+		lane, ok := laneFor(items[idx].HandoffCommand)
+		if !ok {
+			lane, ok = laneFor(items[idx].MissionCommanderAction.PrimaryCommand)
+		}
 		if !ok {
 			continue
 		}

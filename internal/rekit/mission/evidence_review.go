@@ -241,6 +241,7 @@ func ExecutionEvidenceReviewAcknowledgementFor(item ExecutionEvidenceReviewItem)
 	}
 	ack.AcceptedPreviewCommand = executionEvidenceReviewAcknowledgementCommand(item, "accepted")
 	ack.RejectedPreviewCommand = executionEvidenceReviewAcknowledgementCommand(item, "rejected")
+	ack.AcknowledgementReviewCommand = ack.AcceptedPreviewCommand
 	return ack
 }
 
@@ -321,17 +322,19 @@ func ExecutionEvidenceReviewCommanderAction(item ExecutionEvidenceReviewItem, la
 		}
 	}
 	followUp := []string{"/rekit overview"}
+	primaryCommand := strings.TrimSpace(item.HandoffCommand)
 	if label == "" {
 		label = "main"
 	}
-	if !ExecutionEvidenceReviewItemNeedsMainReview(item) {
-		followUp = append(followUp, "/rekit continue "+label+" -WhatIf")
+	if ack := item.Acknowledgement; ack != nil && !ExecutionEvidenceReviewItemNeedsMainReview(item) {
+		primaryCommand = FirstText(ack.AcknowledgementReviewCommand, ack.AcceptedPreviewCommand, primaryCommand)
+		followUp = append(followUp, item.HandoffCommand, "/rekit continue "+label+" -WhatIf")
 	}
 	return MissionCommanderAction{
 		State:            state,
 		Prompt:           prompt,
-		PrimaryCommand:   item.HandoffCommand,
-		FollowUpCommands: followUp,
+		PrimaryCommand:   primaryCommand,
+		FollowUpCommands: compactStrings(followUp),
 		Boundary:         UniqueStrings(compactStrings(boundary)),
 	}
 }
@@ -426,9 +429,14 @@ func executionEvidenceOutcomeFor(item ExecutionEvidenceReviewItem, state string,
 	expected := "reviewed outputRefs/evidenceRefs before any authority/confirmed outcome"
 	actions := []string{
 		"review outputRefs/evidenceRefs for gateEventId " + item.GateEventID,
-		"run the evidence handoff command before continuing the lane",
+		"run the acknowledgement note -WhatIf and its returned hash-bound recordCommand before continuing the lane",
 	}
+	command := strings.TrimSpace(item.HandoffCommand)
 	verification := []string{item.HandoffCommand, "/rekit overview"}
+	if item.MissionCommanderAction.PrimaryCommand != "" && state != "needs-main-escalation" && state != "evidence-already-recorded" {
+		command = item.MissionCommanderAction.PrimaryCommand
+		verification = []string{item.MissionCommanderAction.PrimaryCommand, item.HandoffCommand, "/rekit overview"}
+	}
 	switch state {
 	case "needs-main-escalation":
 		name = "boundary-or-escalation-review"
@@ -453,7 +461,7 @@ func executionEvidenceOutcomeFor(item ExecutionEvidenceReviewItem, state string,
 		Name:                 name,
 		State:                state,
 		When:                 when,
-		Command:              item.HandoffCommand,
+		Command:              command,
 		Actions:              actions,
 		VerificationCommands: compactStrings(verification),
 		Expected:             expected,

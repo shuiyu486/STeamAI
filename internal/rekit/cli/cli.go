@@ -8989,7 +8989,7 @@ func writeExecutionEvidenceAcknowledgementText(out io.Writer, prefix, eventID st
 	if ack == nil {
 		return nil
 	}
-	if _, err := fmt.Fprintf(out, "%s acknowledgement：eventId=%s state=%s acceptedPreview=%s rejectedPreview=%s record=%s related=%s evidenceRefs=%s\n", prefix, eventID, ack.State, ack.AcceptedPreviewCommand, ack.RejectedPreviewCommand, ack.RecordCommand, strings.Join(ack.Related, ","), strings.Join(ack.EvidenceRefs, ",")); err != nil {
+	if _, err := fmt.Fprintf(out, "%s acknowledgement：eventId=%s state=%s reviewCommand=%s acceptedPreview=%s rejectedPreview=%s record=%s related=%s evidenceRefs=%s\n", prefix, eventID, ack.State, ack.AcknowledgementReviewCommand, ack.AcceptedPreviewCommand, ack.RejectedPreviewCommand, ack.RecordCommand, strings.Join(ack.Related, ","), strings.Join(ack.EvidenceRefs, ",")); err != nil {
 		return err
 	}
 	for _, boundary := range ack.Boundary {

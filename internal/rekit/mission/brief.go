@@ -197,13 +197,14 @@ type ExecutionEvidenceReviewItem struct {
 }
 
 type ExecutionEvidenceReviewAcknowledgement struct {
-	State                  string   `json:"state"`
-	AcceptedPreviewCommand string   `json:"acceptedPreviewCommand,omitempty"`
-	RejectedPreviewCommand string   `json:"rejectedPreviewCommand,omitempty"`
-	RecordCommand          string   `json:"recordCommand,omitempty"`
-	Related                []string `json:"related,omitempty"`
-	EvidenceRefs           []string `json:"evidenceRefs,omitempty"`
-	Boundary               []string `json:"boundary,omitempty"`
+	State                        string   `json:"state"`
+	AcknowledgementReviewCommand string   `json:"acknowledgementReviewCommand,omitempty"`
+	AcceptedPreviewCommand       string   `json:"acceptedPreviewCommand,omitempty"`
+	RejectedPreviewCommand       string   `json:"rejectedPreviewCommand,omitempty"`
+	RecordCommand                string   `json:"recordCommand,omitempty"`
+	Related                      []string `json:"related,omitempty"`
+	EvidenceRefs                 []string `json:"evidenceRefs,omitempty"`
+	Boundary                     []string `json:"boundary,omitempty"`
 }
 
 type ExecutionEvidenceAdapterContext struct {

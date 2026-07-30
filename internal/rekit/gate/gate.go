@@ -3963,13 +3963,14 @@ func executionCommanderAction(event ExecutionEvidencePreview, applied, duplicate
 	if strings.TrimSpace(label) == "" {
 		label = "main"
 	}
+	needsMainReview := executionNeedsMainReview(event)
 	state := "ready-for-evidence-review"
-	prompt := fmt.Sprintf("authorized gate `%s` 的 observation evidence 已记录；先 review output/evidence refs，再考虑任何 authority/confirmed outcome。", event.Execution.GateEventID)
+	prompt := fmt.Sprintf("authorized gate `%s` 的 observation evidence 已记录；先 review output/evidence refs，再用 acknowledgement note -WhatIf 预览关闭 review。", event.Execution.GateEventID)
 	if duplicate {
 		state = "evidence-already-recorded"
 		prompt = fmt.Sprintf("authorized gate `%s` 的 observation evidence 已存在（duplicate eventId）；不要重复记录，直接 review output/evidence refs。", event.Execution.GateEventID)
 	}
-	if executionNeedsMainReview(event) {
+	if needsMainReview {
 		state = "needs-main-escalation"
 		prompt = fmt.Sprintf("authorized gate `%s` 的 observation evidence 记录了 boundary/escalation；停止该 action 的自主推进并通知 main Agent。", event.Execution.GateEventID)
 		if duplicate {
@@ -3985,20 +3986,35 @@ func executionCommanderAction(event ExecutionEvidencePreview, applied, duplicate
 	if duplicate {
 		boundary[0] = "duplicate record did not append observation evidence"
 	}
-	if executionNeedsMainReview(event) {
+	if needsMainReview {
 		boundary = append(boundary, "stop autonomous work on this action until main review")
 	}
+	primaryCommand := "/rekit handoff " + label
 	followUp := []string{"/rekit overview"}
-	if applied && !executionNeedsMainReview(event) {
+	if applied && !duplicate && !needsMainReview {
+		if command := executionEvidenceAcknowledgementReviewCommand(event); command != "" {
+			primaryCommand = command
+			followUp = append(followUp, "/rekit handoff "+label)
+		}
+	}
+	if applied && !needsMainReview {
 		followUp = append(followUp, "/rekit continue "+label+" -WhatIf")
 	}
 	return mission.MissionCommanderAction{
 		State:            state,
 		Prompt:           prompt,
-		PrimaryCommand:   "/rekit handoff " + label,
+		PrimaryCommand:   primaryCommand,
 		FollowUpCommands: followUp,
 		Boundary:         boundary,
 	}
+}
+
+func executionEvidenceAcknowledgementReviewCommand(event ExecutionEvidencePreview) string {
+	review := gateExecutionEvidenceReviewFromObservation(event)
+	if len(review) == 0 || review[0].Acknowledgement == nil {
+		return ""
+	}
+	return strings.TrimSpace(review[0].Acknowledgement.AcknowledgementReviewCommand)
 }
 
 func executionNeedsMainReview(event ExecutionEvidencePreview) bool {
