@@ -297,7 +297,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 本地验证证据：`release-check -Format json` 返回 `ready=true` / `summary=release gate inventory ok`；`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./...`、`go vet ./...` 与 `git diff --check` 已通过。
 
-远端 release inspection：implementation commit `e80aa10` 已推送；Push run `30501192230` completed failure；Linux/macOS/Windows jobs `90741008502`/`90741008579`/`90741008590` 均 `steps=[]`，`gh run view 30501192230 --log-failed` 返回 `log not found: 90741008502`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。
+远端 release inspection：implementation commit `e80aa10` 已推送；Push run `30501192230` completed failure；Linux/macOS/Windows jobs `90741008502`/`90741008579`/`90741008590` 均 `steps=[]`，`gh run view 30501192230 --log-failed` 返回 `log not found: 90741008502`。Release inspection commit self-run `30501618456`（head `bf6b382` / `Record Batch 717 starter loop`）也已 completed failure；Linux/macOS/Windows jobs `90742308801`/`90742308812`/`90742308816` 均 `steps=[]`，`gh run view 30501618456 --log-failed` 返回 `log not found: 90742308801`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green；该 self-run 只作当前结果记录，不创建第三个 release inspection 记录提交。
 
 目标：把 release-check / status / durable handoff 的 next-batch starter package 升级为 replacement executor 可直接消费的 ordered run-loop，让当前可执行下一批的选择、batch-plan 开局、实现、发布说明、验证和推送 inspection 在同源 envelope 中呈现。
 
