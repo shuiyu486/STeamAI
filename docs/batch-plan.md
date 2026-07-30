@@ -27,6 +27,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 739：reviewer spawn agent-tool run-loop handoff
+
+状态：已完成本机实现、focused validation 与完整本机 release minimum；implementation commit/push 与 push-triggered remote inspection 待执行。本批选择 reviewer/session orchestration UX，推进一个 Windows 本机可验证的 replacement harness 接手 slice：reviewer operator package 已有 `agentToolRequest`，但 `spawn-reviewer` run-loop step 仍只携带自然语言/dispatch command，接手者需要跨字段拼装 Agent tool 参数。
+
+目标：当 status/handoff/continue 暴露 managed reviewer dispatch operator package 且 current run-loop step 为 `spawn-reviewer` 时，replacement harness 应能直接从该 run-loop step 读取同源 read-only `agentToolRequest`（tool、agentType、promptPath、promptSha256、expectedOutput），而不是从 `current.agentToolRequest` 与 `dispatchCommand` 手工关联。Go runtime 仍不 spawn/poll/monitor/stop reviewer session，只返回 read-only handoff。
+
+已实现：`ReviewerDispatchRunLoopStep` 新增 optional `agentToolRequest`，`spawn-reviewer` step 绑定 `current.AgentToolRequest` 并明确 `agentToolRequest is a read-only handoff for the external harness and is not executed by /rekit`；CLI text formatter 与 durable handoff Markdown 同步输出 `operator run loop agent tool`，让 replacement harness 可直接从当前 run-loop step 读取 tool、agentType、readOnly、promptPath、promptSha256 与 expectedOutput。JSON helper 断言 `spawnStep.agentToolRequest` 与 `current.agentToolRequest` 同源，text regression 断言 status first-screen 暴露 run-loop agent tool 行。
+
+边界：不新增 public command、durable schema、PowerShell runtime logic、Claude Code spawner、reviewer/heavy-tool executor、authority/confirmed 写入或自动 reviewer dispatch/completion；`agentToolRequest` 只作为 operator/harness handoff，dispatch receipt 仍必须由外部真实 harness/session id 通过既有 `-RecordReviewerDispatch` WhatIf→expected-binding Apply 记录。
+
+验证结果：focused `go test ./internal/rekit/workstream -run "ReviewerDispatchOperatorPackage" -count=1` 通过；CLI focused `go test ./internal/rekit/cli -run TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath -count=1` 通过（13.654s），覆盖 status/handoff/continue product path 的 JSON 与 text handoff。完整本机 release minimum 除 completion evidence 写入前的 `release-check` 外已通过：`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./... -count=1`（CLI 308.245s）、`go vet ./...` 与 `git diff --check` 通过；completion evidence 写入前 `go run ./cmd/rekit -- -Command release-check -Format json` 按预期返回 `ready=false` / `summary=release gate inventory has warnings`，因为 implementation commit/push 与 remote release-gate inspection 尚未记录。
+
 ### Batch 738：release handoff next-batch selection closure
 
 状态：已完成本机实现、focused/status validation、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `cb35ab1` 已推送。Push run `30547495359` completed failure；macOS/Linux/Windows jobs `90887297271`/`90887297306`/`90887297360` 均 `steps=[]`，`gh run view 30547495359 --log-failed` 返回 `log not found: 90887297271`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。本批修复 Batch 737 release inspection cadence 已 complete 且 remote gate 已记录为既有 `steps=[]` blocker 后，`status -Format json` 仍把 stale `run the full local release minimum and update docs/batch-plan.md` 暴露为 Mission Commander current action 的接手断点。

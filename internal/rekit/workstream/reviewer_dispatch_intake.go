@@ -251,15 +251,16 @@ type ReviewerDispatchOperatorPackage struct {
 }
 
 type ReviewerDispatchRunLoopStep struct {
-	StepID         string   `json:"stepId"`
-	Order          int      `json:"order"`
-	Actor          string   `json:"actor"`
-	Description    string   `json:"description"`
-	Command        string   `json:"command,omitempty"`
-	PreviewCommand string   `json:"previewCommand,omitempty"`
-	ApplyCommand   string   `json:"applyCommand,omitempty"`
-	Path           string   `json:"path,omitempty"`
-	Boundary       []string `json:"boundary,omitempty"`
+	StepID           string                    `json:"stepId"`
+	Order            int                       `json:"order"`
+	Actor            string                    `json:"actor"`
+	Description      string                    `json:"description"`
+	Command          string                    `json:"command,omitempty"`
+	PreviewCommand   string                    `json:"previewCommand,omitempty"`
+	ApplyCommand     string                    `json:"applyCommand,omitempty"`
+	Path             string                    `json:"path,omitempty"`
+	AgentToolRequest *ReviewerAgentToolRequest `json:"agentToolRequest,omitempty"`
+	Boundary         []string                  `json:"boundary,omitempty"`
 }
 
 type ReviewerDispatchOperatorPackageItem struct {
@@ -2668,13 +2669,15 @@ func reviewerDispatchOperatorRunLoop(current ReviewerDispatchOperatorPackageItem
 		})
 	}
 	add(ReviewerDispatchRunLoopStep{
-		StepID:      "spawn-reviewer",
-		Actor:       "main-agent-harness",
-		Description: "invoke the read-only Agent tool request for this shard and obtain exactly one ReviewerResult JSON object",
-		Command:     current.DispatchCommand,
+		StepID:           "spawn-reviewer",
+		Actor:            "main-agent-harness",
+		Description:      "invoke the read-only Agent tool request for this shard and obtain exactly one ReviewerResult JSON object",
+		Command:          current.DispatchCommand,
+		AgentToolRequest: current.AgentToolRequest,
 		Boundary: []string{
 			"the main Agent or harness performs the Agent tool call; Go runtime does not spawn, poll, monitor, stop, or manage reviewer sessions",
 			"the reviewer must not write files, facts, authority, confirmed state, or execute heavy tools",
+			"agentToolRequest is a read-only handoff for the external harness and is not executed by /rekit",
 		},
 	})
 	add(ReviewerDispatchRunLoopStep{
@@ -2821,6 +2824,10 @@ func reviewerDispatchOperatorPackageMarkdownLines(pkg *ReviewerDispatchOperatorP
 	}
 	for _, step := range pkg.RunLoop {
 		lines = append(lines, fmt.Sprintf("  - operator run loop step %d: id=%s actor=%s command=`%s` preview=`%s` apply=`%s` path=`%s` description=%s", step.Order, step.StepID, step.Actor, step.Command, step.PreviewCommand, step.ApplyCommand, step.Path, step.Description))
+		if step.AgentToolRequest != nil {
+			request := step.AgentToolRequest
+			lines = append(lines, fmt.Sprintf("    - operator run loop agent tool: step=%s tool=%s agentType=%s readOnly=%t promptPath=`%s` promptSha256=%s expectedOutput=%s", step.StepID, request.Tool, request.AgentType, request.ReadOnly, request.PromptPath, request.PromptSHA256, request.ExpectedOutput))
+		}
 		for _, boundary := range mission.LimitStrings(step.Boundary, maxHandoffRows) {
 			lines = append(lines, "    - operator run loop boundary: "+boundary)
 		}

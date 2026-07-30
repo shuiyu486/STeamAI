@@ -7509,6 +7509,12 @@ func writeReviewerDispatchOperatorPackageText(out io.Writer, prefix string, pkg 
 		if _, err := fmt.Fprintf(out, "%s reviewer dispatch operator run loop：shard=%s order=%d step=%s actor=%s command=`%s` preview=`%s` apply=`%s` path=%s description=%s\n", prefix, current.ShardID, step.Order, step.StepID, step.Actor, step.Command, step.PreviewCommand, step.ApplyCommand, step.Path, step.Description); err != nil {
 			return err
 		}
+		if step.AgentToolRequest != nil {
+			request := step.AgentToolRequest
+			if _, err := fmt.Fprintf(out, "%s reviewer dispatch operator run loop agent tool：shard=%s step=%s tool=%s agentType=%s readOnly=%t promptPath=%s promptSha256=%s expectedOutput=%s\n", prefix, current.ShardID, step.StepID, request.Tool, request.AgentType, request.ReadOnly, request.PromptPath, request.PromptSHA256, request.ExpectedOutput); err != nil {
+				return err
+			}
+		}
 		for _, boundary := range step.Boundary {
 			if _, err := fmt.Fprintf(out, "%s reviewer dispatch operator run loop boundary：shard=%s step=%s boundary=%s\n", prefix, current.ShardID, step.StepID, boundary); err != nil {
 				return err

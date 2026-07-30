@@ -240,14 +240,15 @@ func TestReviewerDispatchIntakeRunbookStepsCoverReviewerLifecycle(t *testing.T) 
 }
 
 func TestReviewerDispatchOperatorPackageOnlyForOpenManagedDispatch(t *testing.T) {
-	managed := &ReviewerManagedDispatchHandoff{ShardID: "shard-01", PromptPath: "prompt.md", PromptSHA256: strings.Repeat("a", sha256.Size*2), ReviewerResultInputPath: "input.json", ReviewerResultSourcePath: "source.json", ReviewerResultCandidatePath: "candidate.json", ReviewerResultPath: "result.json", AgentToolRequest: &ReviewerAgentToolRequest{Tool: "Claude Code Agent", ReadOnly: true}}
+	managed := &ReviewerManagedDispatchHandoff{ShardID: "shard-01", PromptPath: "prompt.md", PromptSHA256: strings.Repeat("a", sha256.Size*2), ReviewerResultInputPath: "input.json", ReviewerResultSourcePath: "source.json", ReviewerResultCandidatePath: "candidate.json", ReviewerResultPath: "result.json", AgentToolRequest: &ReviewerAgentToolRequest{Tool: "Claude Code Agent", AgentType: "read-only-reviewer", ReadOnly: true, ExpectedOutput: "one ReviewerResult JSON"}}
 	base := ReviewerDispatchIntakeHandoff{PacketID: "packet-managed", PacketPath: "packet.json", TargetLane: "feature-review", ShardID: "shard-01", State: "waiting-for-reviewer-result", ManagedDispatch: managed, ReviewerResultInputPath: "input.json", ReviewerResultSourcePath: "source.json", ReviewerResultCandidatePath: "candidate.json", ReviewerResultPath: "result.json", DispatchCommand: "dispatch read-only reviewer"}
 	open := ReviewerDispatchIntakeSummaryFor([]ReviewerDispatchIntakeHandoff{base})
 	if open.OperatorPackage == nil || !open.OperatorPackage.Ready || open.OperatorPackage.Current == nil || open.OperatorPackage.Current.DispatchCommand != base.DispatchCommand || open.OperatorPackage.CurrentRunLoopStepID != "spawn-reviewer" {
 		t.Fatalf("open managed dispatch did not generate operator package: %+v", open.OperatorPackage)
 	}
-	if len(open.OperatorPackage.RunLoop) != 9 || open.OperatorPackage.RunLoop[0].StepID != "verify-prompt" || open.OperatorPackage.RunLoop[1].StepID != "spawn-reviewer" || open.OperatorPackage.RunLoop[8].StepID != "intake-results" || open.OperatorPackage.RunLoop[1].Command != base.DispatchCommand || !reviewerDispatchTestContainsSubstring(open.OperatorPackage.RunLoop[1].Boundary, "Go runtime does not spawn") || !reviewerDispatchTestContainsSubstring(open.OperatorPackage.RunLoop[8].Boundary, "WhatIf before Apply") {
-		t.Fatalf("open managed dispatch omitted ordered run loop: %+v", open.OperatorPackage.RunLoop)
+	spawnStep := open.OperatorPackage.RunLoop[1]
+	if len(open.OperatorPackage.RunLoop) != 9 || open.OperatorPackage.RunLoop[0].StepID != "verify-prompt" || spawnStep.StepID != "spawn-reviewer" || open.OperatorPackage.RunLoop[8].StepID != "intake-results" || spawnStep.Command != base.DispatchCommand || spawnStep.AgentToolRequest == nil || spawnStep.AgentToolRequest != open.OperatorPackage.Current.AgentToolRequest || spawnStep.AgentToolRequest.AgentType != "read-only-reviewer" || spawnStep.AgentToolRequest.PromptPath != "prompt.md" || spawnStep.AgentToolRequest.PromptSHA256 != managed.PromptSHA256 || spawnStep.AgentToolRequest.ExpectedOutput != "one ReviewerResult JSON" || !reviewerDispatchTestContainsSubstring(spawnStep.Boundary, "Go runtime does not spawn") || !reviewerDispatchTestContainsSubstring(spawnStep.Boundary, "agentToolRequest is a read-only handoff") || !reviewerDispatchTestContainsSubstring(open.OperatorPackage.RunLoop[8].Boundary, "WhatIf before Apply") {
+		t.Fatalf("open managed dispatch omitted ordered run loop agent handoff: %+v", open.OperatorPackage.RunLoop)
 	}
 	unmanaged := base
 	unmanaged.ManagedDispatch = nil
