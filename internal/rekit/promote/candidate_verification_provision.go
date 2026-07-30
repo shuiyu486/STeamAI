@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/doctor"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	syncpkg "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 )
 
@@ -37,31 +38,33 @@ type CandidateVerificationProvisionCase struct {
 }
 
 type CandidateVerificationProvisionResult struct {
-	SchemaVersion              int                                  `json:"schemaVersion"`
-	Kind                       string                               `json:"kind"`
-	Mode                       string                               `json:"mode"`
-	RepoRoot                   string                               `json:"repoRoot"`
-	SourceCaseRoot             string                               `json:"sourceCaseRoot"`
-	Pack                       string                               `json:"pack"`
-	PacketPath                 string                               `json:"packetPath"`
-	PacketSHA256               string                               `json:"packetSha256"`
-	DecisionPath               string                               `json:"decisionPath"`
-	DecisionSHA256             string                               `json:"decisionSha256"`
-	DecisionReceiptPath        string                               `json:"decisionReceiptPath"`
-	DecisionReceiptSHA256      string                               `json:"decisionReceiptSha256"`
-	ProvisionID                string                               `json:"provisionId"`
-	ProvisionSHA256            string                               `json:"provisionSha256"`
-	WorkspaceRoot              string                               `json:"workspaceRoot"`
-	IntentPath                 string                               `json:"intentPath"`
-	ReceiptPath                string                               `json:"receiptPath"`
-	IsMutation                 bool                                 `json:"isMutation"`
-	Applied                    bool                                 `json:"applied"`
-	Replay                     bool                                 `json:"replay"`
-	Cases                      []CandidateVerificationProvisionCase `json:"cases"`
-	ApplyCommand               string                               `json:"applyCommand,omitempty"`
-	VerificationPreviewCommand string                               `json:"verificationPreviewCommand"`
-	NextSteps                  []string                             `json:"nextSteps"`
-	Boundary                   []string                             `json:"boundary"`
+	SchemaVersion               int                                  `json:"schemaVersion"`
+	Kind                        string                               `json:"kind"`
+	Mode                        string                               `json:"mode"`
+	RepoRoot                    string                               `json:"repoRoot"`
+	SourceCaseRoot              string                               `json:"sourceCaseRoot"`
+	Pack                        string                               `json:"pack"`
+	PacketPath                  string                               `json:"packetPath"`
+	PacketSHA256                string                               `json:"packetSha256"`
+	DecisionPath                string                               `json:"decisionPath"`
+	DecisionSHA256              string                               `json:"decisionSha256"`
+	DecisionReceiptPath         string                               `json:"decisionReceiptPath"`
+	DecisionReceiptSHA256       string                               `json:"decisionReceiptSha256"`
+	ProvisionID                 string                               `json:"provisionId"`
+	ProvisionSHA256             string                               `json:"provisionSha256"`
+	WorkspaceRoot               string                               `json:"workspaceRoot"`
+	IntentPath                  string                               `json:"intentPath"`
+	ReceiptPath                 string                               `json:"receiptPath"`
+	IsMutation                  bool                                 `json:"isMutation"`
+	Applied                     bool                                 `json:"applied"`
+	Replay                      bool                                 `json:"replay"`
+	Cases                       []CandidateVerificationProvisionCase `json:"cases"`
+	ApplyCommand                string                               `json:"applyCommand,omitempty"`
+	VerificationPreviewCommand  string                               `json:"verificationPreviewCommand"`
+	MissionCommanderAction      *mission.MissionCommanderAction      `json:"missionCommanderAction,omitempty"`
+	MissionCommanderActionQueue *mission.MissionCommanderActionQueue `json:"missionCommanderActionQueue,omitempty"`
+	NextSteps                   []string                             `json:"nextSteps"`
+	Boundary                    []string                             `json:"boundary"`
 }
 
 type candidateVerificationProvisionReceipt struct {
@@ -113,7 +116,7 @@ func ProvisionCandidateVerificationCases(repoRoot, sourceCaseRoot, pack string, 
 		prepared.result.Mode = "previewed"
 		prepared.result.ApplyCommand = candidateVerificationProvisionCommand(prepared.result, true)
 		prepared.result.NextSteps = []string{"inspect the exact case roots and no-overwrite write sets, then run the returned expected-hash Apply command"}
-		return prepared.result, nil
+		return finalizeCandidateVerificationProvisionResult(prepared.result), nil
 	}
 	expected := strings.TrimSpace(opt.ExpectedProvisionSHA256)
 	decoded, decodeErr := hex.DecodeString(expected)
@@ -167,7 +170,7 @@ func ProvisionCandidateVerificationCases(repoRoot, sourceCaseRoot, pack string, 
 			prepared.result.Cases[i].Replay = true
 		}
 		prepared.result.NextSteps = []string{"run the returned candidate decision verification WhatIf command"}
-		return prepared.result, nil
+		return finalizeCandidateVerificationProvisionResult(prepared.result), nil
 	}
 	if err := revalidateCandidateVerificationWorkspace(prepared); err != nil {
 		return CandidateVerificationProvisionResult{}, err
@@ -258,7 +261,7 @@ func ProvisionCandidateVerificationCases(repoRoot, sourceCaseRoot, pack string, 
 		return CandidateVerificationProvisionResult{}, err
 	}
 	prepared.result.NextSteps = []string{"run the returned candidate decision verification WhatIf command; provisioning does not write the final verification proof"}
-	return prepared.result, nil
+	return finalizeCandidateVerificationProvisionResult(prepared.result), nil
 }
 
 func prepareCandidateVerificationProvision(repoRoot, sourceCaseRoot, pack string, opt CandidateVerificationProvisionOptions) (preparedCandidateVerificationProvision, error) {
@@ -356,6 +359,8 @@ func candidateVerificationProvisionHash(result CandidateVerificationProvisionRes
 	copy := result
 	copy.ProvisionSHA256 = ""
 	copy.ApplyCommand = ""
+	copy.MissionCommanderAction = nil
+	copy.MissionCommanderActionQueue = nil
 	copy.NextSteps = nil
 	data, _ := json.Marshal(copy)
 	return sha256Hex(data)

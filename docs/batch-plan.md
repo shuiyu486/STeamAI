@@ -27,6 +27,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 736：pack-memory post-decision driver-request closure
+
+状态：已完成本机实现、focused validation、相邻 package validation 与完整本机 release minimum；implementation commit/push 与 release inspection 尚未完成。当前选题延续 pack-memory product UX，但避免单字段投影：已把 candidate decision Apply 后的 merge/provision/verify/retire post-decision 链路，从 `nextSteps` / ad-hoc command 字段升级为 replacement executor / harness 可按 returned `missionCommanderActionQueue.currentDriverRequest` 串起的 product path。
+
+目标：当主 Agent 或 harness 已从 status/release handoff 消费 pack-memory proof/draft driver request 并写出 reviewed candidate decision 后，后续不应再手工读取 `NextSteps`、`ApplyCommand`、`VerificationPreviewCommand` 或 `RetirementPreviewCommand` 拼命令；`ApplyCandidateDecisions`、verification provision、verification apply 与 retirement result 应返回同源 Mission Commander action queue，使 executor 能从 returned JSON 的 current driver request 进入下一步，按 WhatIf→hash-bound Apply→refresh 的节奏完成 post-decision closure。
+
+已实现：新增 `candidate_post_decision_mission.go`，为 candidate decision preview/apply/recovery、verification provision preview/apply/replay、candidate verification preview/apply/replay 与 verification retirement preview/apply/replay 统一返回 `missionCommanderAction` 和 `missionCommanderActionQueue.currentDriverRequest`。`TestPackMemoryReviewFirstCrossCaseConsumptionClosure` 现在断言每个 post-decision handoff 点都从 returned `currentDriverRequest` 获得下一条 command：candidate decision Apply、provision Apply、verification preview/apply、retirement preview/apply 与最终 status refresh。verification proof 写盘前会剥离 returned-only `packetPath` / `decisionPath` 与 Mission Commander envelope，保持 durable proof strict schema 和 release/status scanner 兼容。
+
+边界：不新增 public command、PowerShell runtime logic、自动 accept tooling candidate、自动 merge/cleanup/provision/verify/retire、case sync/promote 写回、authority/confirmed 写入或 heavy-tool 执行。Go runtime 只返回 read-only next-action/receipt queue；实际 merge/provision/verify/retire 仍由显式 promote subcommands 和既有 WhatIf/hash-bound Apply 执行，verification 仍要求外部 prepared fresh/attached cases 与 doctor/reconsume evidence，不运行 doctor/init/reconsume 之外的 heavy action。
+
+验证结果：focused `go test ./internal/rekit/promote -run TestPackMemoryReviewFirstCrossCaseConsumptionClosure -count=1` 通过；failed regression replay `go test ./internal/rekit/cli -run TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply -count=1` 通过；promote package `go test ./internal/rekit/promote -count=1` 通过；相邻 package validation `go test ./internal/rekit/promote ./internal/rekit/cli ./internal/rekit/releasecheck` 通过（CLI 300.965s）；完整本机 release minimum 已通过：`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`，`git diff --check` 仅有 Windows LF→CRLF working-copy warning。completion evidence 写入前 `go run ./cmd/rekit -- -Command release-check -Format json` 按预期返回 `ready=false` / `summary=release gate inventory has warnings`，因为 implementation commit/push 与 remote release-gate inspection 尚未记录。
+
 ### Batch 735：pack-memory proof driver-request closure
 
 状态：已完成本机实现、focused validation、相邻 package validation、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `cf51541` 已推送。Push run `30538767581` completed failure；Windows/macOS/Linux jobs `90858307718`/`90858307727`/`90858307786` 均 `steps=[]`，`gh run view 30538767581 --log-failed` 返回 `log not found: 90858307718`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。本批把 pack-memory candidate proof/draft 从 proof primitives 推进为 Mission Commander / replacement executor 可直接消费的 driver-request product path。

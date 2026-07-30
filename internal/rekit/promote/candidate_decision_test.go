@@ -447,21 +447,34 @@ func candidateDecisionDraftNextActionForTest(items []mission.MissionCommanderNex
 
 func assertCandidateDraftDriverRequestForTest(t *testing.T, queue mission.MissionCommanderActionQueue, state, command, kind, stepID string, requiresReview bool) {
 	t.Helper()
+	assertMissionCommanderDriverRequestForTest(t, "candidate draft", &queue, state, command, kind, stepID, requiresReview)
+}
+
+func assertCandidatePostDecisionDriverRequestForTest(t *testing.T, queue *mission.MissionCommanderActionQueue, state, command, kind, stepID string, requiresReview bool) {
+	t.Helper()
+	assertMissionCommanderDriverRequestForTest(t, "candidate post-decision", queue, state, command, kind, stepID, requiresReview)
+}
+
+func assertMissionCommanderDriverRequestForTest(t *testing.T, label string, queue *mission.MissionCommanderActionQueue, state, command, kind, stepID string, requiresReview bool) {
+	t.Helper()
+	if queue == nil {
+		t.Fatalf("%s action queue omitted", label)
+	}
 	if queue.CurrentAction == nil {
-		t.Fatalf("candidate draft action queue omitted current action: %+v", queue)
+		t.Fatalf("%s action queue omitted current action: %+v", label, queue)
 	}
 	if queue.CurrentAction.State != state || queue.CurrentAction.Command != command || queue.CurrentAction.RequiresReview != requiresReview {
-		t.Fatalf("candidate draft current action mismatch: %+v", queue.CurrentAction)
+		t.Fatalf("%s current action mismatch: %+v", label, queue.CurrentAction)
 	}
 	request := queue.CurrentDriverRequest
 	if request == nil {
-		t.Fatalf("candidate draft action queue omitted current driver request: %+v", queue)
+		t.Fatalf("%s action queue omitted current driver request: %+v", label, queue)
 	}
 	if request.State != state || request.Command != command || request.Kind != kind || request.RunLoopStepID != stepID || request.RequiresReview != requiresReview || !request.CommandExecutable || request.Blocked {
-		t.Fatalf("candidate draft driver request mismatch: %+v", request)
+		t.Fatalf("%s driver request mismatch: %+v", label, request)
 	}
 	if request.ExpectedReceipt.State != "refresh-required" {
-		t.Fatalf("candidate draft driver request should require refresh receipt: %+v", request.ExpectedReceipt)
+		t.Fatalf("%s driver request should require refresh receipt: %+v", label, request.ExpectedReceipt)
 	}
 }
 
@@ -751,6 +764,7 @@ func TestPackMemoryReviewFirstCrossCaseConsumptionClosure(t *testing.T) {
 	if decisionPreview.IsMutation || decisionPreview.Applied || decisionPreview.Accepted != 1 || decisionPreview.Rejected != 1 || len(decisionPreview.Actions) != 2 {
 		t.Fatalf("unexpected candidate decision preview: %+v", decisionPreview)
 	}
+	assertCandidatePostDecisionDriverRequestForTest(t, decisionPreview.MissionCommanderActionQueue, "ready-for-pack-memory-candidate-decision-apply", candidateDecisionApplyCommand(decisionPreview), "preview-command", "preview-current", true)
 	decisionApplied, err := ApplyCandidateDecisions(repoRoot, sourceCase, pack, CandidateDecisionOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath})
 	if err != nil {
 		t.Fatal(err)
@@ -758,6 +772,7 @@ func TestPackMemoryReviewFirstCrossCaseConsumptionClosure(t *testing.T) {
 	if !decisionApplied.Applied || decisionApplied.Receipt == nil || !decisionApplied.Receipt.VerificationPending || decisionApplied.Receipt.VerificationWorkspaceRoot == "" || !strings.Contains(decisionApplied.Receipt.VerificationProvisionCommand, "-ProvisionCandidateVerificationCases") {
 		t.Fatalf("candidate decision apply omitted provisionable verification handoff: %+v", decisionApplied)
 	}
+	assertCandidatePostDecisionDriverRequestForTest(t, decisionApplied.MissionCommanderActionQueue, "ready-for-pack-memory-verification-provision-preview", candidatePromoteCommandWithTarget(decisionApplied.Receipt.VerificationProvisionCommand, sourceCase), "preview-command", "preview-current", true)
 	if got := string(readCandidateDecisionTestFile(t, managed.PackTarget)); got != "# README\n\nReview-first cross-case reusable candidate.\n" {
 		t.Fatalf("accepted managed candidate was not consumed by pack target: %q", got)
 	}
@@ -776,6 +791,7 @@ func TestPackMemoryReviewFirstCrossCaseConsumptionClosure(t *testing.T) {
 	if provisionPreview.IsMutation || provisionPreview.Applied || provisionPreview.ProvisionSHA256 == "" || len(provisionPreview.Cases) != 2 || !strings.Contains(provisionPreview.ApplyCommand, "-ExpectedProvisionSha256") {
 		t.Fatalf("unexpected verification provisioning preview: %+v", provisionPreview)
 	}
+	assertCandidatePostDecisionDriverRequestForTest(t, provisionPreview.MissionCommanderActionQueue, "ready-for-pack-memory-verification-provision-apply", provisionPreview.ApplyCommand, "preview-command", "preview-current", true)
 	if _, err := os.Stat(workspace); !os.IsNotExist(err) {
 		t.Fatalf("verification provisioning WhatIf wrote workspace: %v", err)
 	}
@@ -788,6 +804,7 @@ func TestPackMemoryReviewFirstCrossCaseConsumptionClosure(t *testing.T) {
 	if !provisionApplied.Applied || provisionApplied.Mode != "provisioned" || provisionApplied.Replay || provisionApplied.Cases[0].DoctorRows == 0 || provisionApplied.Cases[1].DoctorRows == 0 || provisionApplied.VerificationPreviewCommand == "" {
 		t.Fatalf("unexpected verification provisioning apply: %+v", provisionApplied)
 	}
+	assertCandidatePostDecisionDriverRequestForTest(t, provisionApplied.MissionCommanderActionQueue, "ready-for-pack-memory-candidate-verification-preview", candidatePromoteCommandWithTarget(provisionApplied.VerificationPreviewCommand, sourceCase), "preview-command", "preview-current", true)
 
 	verificationPreview, err := VerifyCandidateDecision(repoRoot, sourceCase, pack, CandidateDecisionVerificationOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, FreshCaseRoot: freshRoot, AttachedCaseRoot: attachedRoot, WhatIf: true})
 	if err != nil {
@@ -796,6 +813,7 @@ func TestPackMemoryReviewFirstCrossCaseConsumptionClosure(t *testing.T) {
 	if verificationPreview.IsMutation || verificationPreview.Applied || !verificationPreview.Ready || verificationPreview.ProvisionIntentSHA256 == "" || verificationPreview.ProvisionReceiptSHA256 == "" {
 		t.Fatalf("unexpected accepted-candidate verification preview: %+v", verificationPreview)
 	}
+	assertCandidatePostDecisionDriverRequestForTest(t, verificationPreview.MissionCommanderActionQueue, "ready-for-pack-memory-candidate-verification-apply", candidateDecisionVerificationApplyCommand(verificationPreview), "preview-command", "preview-current", true)
 	verificationApplied, err := VerifyCandidateDecision(repoRoot, sourceCase, pack, CandidateDecisionVerificationOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, FreshCaseRoot: freshRoot, AttachedCaseRoot: attachedRoot})
 	if err != nil {
 		t.Fatal(err)
@@ -803,6 +821,7 @@ func TestPackMemoryReviewFirstCrossCaseConsumptionClosure(t *testing.T) {
 	if !verificationApplied.Applied || !verificationApplied.Ready || verificationApplied.RetirementPreviewCommand == "" || len(verificationApplied.VerifiedActions) != len(decisionApplied.Actions) {
 		t.Fatalf("unexpected accepted-candidate verification apply: %+v", verificationApplied)
 	}
+	assertCandidatePostDecisionDriverRequestForTest(t, verificationApplied.MissionCommanderActionQueue, "ready-for-pack-memory-verification-retirement-preview", candidatePromoteCommandWithTarget(verificationApplied.RetirementPreviewCommand, sourceCase), "preview-command", "preview-current", true)
 	var verificationProof CandidateDecisionVerificationResult
 	if err := decodeStrictJSON(readCandidateDecisionTestFile(t, verificationApplied.VerificationProofPath), &verificationProof); err != nil {
 		t.Fatal(err)
@@ -818,6 +837,7 @@ func TestPackMemoryReviewFirstCrossCaseConsumptionClosure(t *testing.T) {
 	if retirementPreview.IsMutation || retirementPreview.Applied || retirementPreview.RetirementSHA256 == "" || len(retirementPreview.Roots) != 2 || !strings.Contains(retirementPreview.ApplyCommand, "ExpectedRetirementSha256") {
 		t.Fatalf("unexpected verification workspace retirement preview: %+v", retirementPreview)
 	}
+	assertCandidatePostDecisionDriverRequestForTest(t, retirementPreview.MissionCommanderActionQueue, "ready-for-pack-memory-verification-retirement-apply", retirementPreview.ApplyCommand, "preview-command", "preview-current", true)
 	retirementApplied, err := RetireCandidateVerificationWorkspace(repoRoot, sourceCase, pack, CandidateVerificationRetirementOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, ExpectedRetirementSHA256: retirementPreview.RetirementSHA256})
 	if err != nil {
 		t.Fatal(err)
@@ -825,6 +845,7 @@ func TestPackMemoryReviewFirstCrossCaseConsumptionClosure(t *testing.T) {
 	if !retirementApplied.Applied || retirementApplied.Mode != "retired" || retirementApplied.Replay {
 		t.Fatalf("unexpected verification workspace retirement apply: %+v", retirementApplied)
 	}
+	assertCandidatePostDecisionDriverRequestForTest(t, retirementApplied.MissionCommanderActionQueue, "pack-memory-verification-retired-refresh-required", candidatePostDecisionStatusCommand, "execute-command", "apply-or-run-current", false)
 	if _, err := os.Lstat(workspace); !os.IsNotExist(err) {
 		t.Fatalf("verification workspace was not retired: %v", err)
 	}

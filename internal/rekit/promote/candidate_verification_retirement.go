@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	syncpkg "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 )
 
@@ -32,38 +33,40 @@ type CandidateVerificationRetirementRoot struct {
 }
 
 type CandidateVerificationRetirementResult struct {
-	SchemaVersion              int                                   `json:"schemaVersion"`
-	Kind                       string                                `json:"kind"`
-	Mode                       string                                `json:"mode"`
-	RepoRoot                   string                                `json:"repoRoot"`
-	SourceCaseRoot             string                                `json:"sourceCaseRoot"`
-	Pack                       string                                `json:"pack"`
-	PacketPath                 string                                `json:"packetPath"`
-	PacketSHA256               string                                `json:"packetSha256"`
-	DecisionPath               string                                `json:"decisionPath"`
-	DecisionSHA256             string                                `json:"decisionSha256"`
-	DecisionReceiptPath        string                                `json:"decisionReceiptPath"`
-	DecisionReceiptSHA256      string                                `json:"decisionReceiptSha256"`
-	VerificationProofPath      string                                `json:"verificationProofPath"`
-	VerificationProofSHA256    string                                `json:"verificationProofSha256"`
-	ProvisionIntentPath        string                                `json:"provisionIntentPath"`
-	ProvisionIntentSHA256      string                                `json:"provisionIntentSha256"`
-	ProvisionReceiptPath       string                                `json:"provisionReceiptPath"`
-	ProvisionReceiptSHA256     string                                `json:"provisionReceiptSha256"`
-	WorkspaceRoot              string                                `json:"workspaceRoot"`
-	RetirementIntentPath       string                                `json:"retirementIntentPath"`
-	RetirementReceiptPath      string                                `json:"retirementReceiptPath"`
-	RetirementSHA256           string                                `json:"retirementSha256"`
-	IsMutation                 bool                                  `json:"isMutation"`
-	Applied                    bool                                  `json:"applied"`
-	Replay                     bool                                  `json:"replay"`
-	Roots                      []CandidateVerificationRetirementRoot `json:"roots"`
-	ProvisionArtifactsToDelete []string                              `json:"provisionArtifactsToDelete"`
-	EmptyAncestorsToRemove     []string                              `json:"emptyAncestorsToRemove"`
-	ApplyCommand               string                                `json:"applyCommand,omitempty"`
-	NextSteps                  []string                              `json:"nextSteps"`
-	Boundary                   []string                              `json:"boundary"`
-	RetirementPlans            []syncpkg.ExclusiveInitRetirementPlan `json:"retirementPlans"`
+	SchemaVersion               int                                   `json:"schemaVersion"`
+	Kind                        string                                `json:"kind"`
+	Mode                        string                                `json:"mode"`
+	RepoRoot                    string                                `json:"repoRoot"`
+	SourceCaseRoot              string                                `json:"sourceCaseRoot"`
+	Pack                        string                                `json:"pack"`
+	PacketPath                  string                                `json:"packetPath"`
+	PacketSHA256                string                                `json:"packetSha256"`
+	DecisionPath                string                                `json:"decisionPath"`
+	DecisionSHA256              string                                `json:"decisionSha256"`
+	DecisionReceiptPath         string                                `json:"decisionReceiptPath"`
+	DecisionReceiptSHA256       string                                `json:"decisionReceiptSha256"`
+	VerificationProofPath       string                                `json:"verificationProofPath"`
+	VerificationProofSHA256     string                                `json:"verificationProofSha256"`
+	ProvisionIntentPath         string                                `json:"provisionIntentPath"`
+	ProvisionIntentSHA256       string                                `json:"provisionIntentSha256"`
+	ProvisionReceiptPath        string                                `json:"provisionReceiptPath"`
+	ProvisionReceiptSHA256      string                                `json:"provisionReceiptSha256"`
+	WorkspaceRoot               string                                `json:"workspaceRoot"`
+	RetirementIntentPath        string                                `json:"retirementIntentPath"`
+	RetirementReceiptPath       string                                `json:"retirementReceiptPath"`
+	RetirementSHA256            string                                `json:"retirementSha256"`
+	IsMutation                  bool                                  `json:"isMutation"`
+	Applied                     bool                                  `json:"applied"`
+	Replay                      bool                                  `json:"replay"`
+	Roots                       []CandidateVerificationRetirementRoot `json:"roots"`
+	ProvisionArtifactsToDelete  []string                              `json:"provisionArtifactsToDelete"`
+	EmptyAncestorsToRemove      []string                              `json:"emptyAncestorsToRemove"`
+	ApplyCommand                string                                `json:"applyCommand,omitempty"`
+	MissionCommanderAction      *mission.MissionCommanderAction       `json:"missionCommanderAction,omitempty"`
+	MissionCommanderActionQueue *mission.MissionCommanderActionQueue  `json:"missionCommanderActionQueue,omitempty"`
+	NextSteps                   []string                              `json:"nextSteps"`
+	Boundary                    []string                              `json:"boundary"`
+	RetirementPlans             []syncpkg.ExclusiveInitRetirementPlan `json:"retirementPlans"`
 }
 
 type candidateVerificationRetirementArtifact struct {
@@ -120,7 +123,7 @@ func RetireCandidateVerificationWorkspace(repoRoot, sourceCaseRoot, pack string,
 		if retired, ok, err := loadCompletedCandidateVerificationRetirement(repoRoot, sourceCaseRoot, pack, opt); err != nil {
 			return CandidateVerificationRetirementResult{}, err
 		} else if ok {
-			return retired, nil
+			return finalizeCandidateVerificationRetirementResult(retired), nil
 		}
 	} else {
 		expected := strings.TrimSpace(opt.ExpectedRetirementSHA256)
@@ -134,7 +137,7 @@ func RetireCandidateVerificationWorkspace(repoRoot, sourceCaseRoot, pack string,
 			if !strings.EqualFold(expected, retired.RetirementSHA256) {
 				return CandidateVerificationRetirementResult{}, fmt.Errorf("candidate verification retirement changed after preview")
 			}
-			return retired, nil
+			return finalizeCandidateVerificationRetirementResult(retired), nil
 		}
 	}
 	prepared, err := prepareCandidateVerificationRetirement(repoRoot, sourceCaseRoot, pack, opt)
@@ -161,7 +164,7 @@ func RetireCandidateVerificationWorkspace(repoRoot, sourceCaseRoot, pack string,
 		prepared.result.Mode = "previewed"
 		prepared.result.ApplyCommand = candidateVerificationRetirementCommand(prepared.result)
 		prepared.result.NextSteps = []string{"inspect the exact canonical workspace deletion plan, then run the returned expected-hash Apply command"}
-		return prepared.result, nil
+		return finalizeCandidateVerificationRetirementResult(prepared.result), nil
 	}
 	expected := strings.TrimSpace(opt.ExpectedRetirementSHA256)
 	decoded, decodeErr := hex.DecodeString(expected)
@@ -200,7 +203,7 @@ func RetireCandidateVerificationWorkspace(repoRoot, sourceCaseRoot, pack string,
 		prepared.result.Applied = true
 		prepared.result.Replay = true
 		prepared.result.NextSteps = []string{"retain the repo-local retirement intent and receipt as final evidence"}
-		return prepared.result, nil
+		return finalizeCandidateVerificationRetirementResult(prepared.result), nil
 	}
 	intent, intentCurrent, err := readCandidateVerificationRetirementArtifact(prepared.result.RetirementIntentPath)
 	if err != nil {
@@ -299,7 +302,7 @@ func RetireCandidateVerificationWorkspace(repoRoot, sourceCaseRoot, pack string,
 	prepared.result.IsMutation = true
 	prepared.result.Applied = true
 	prepared.result.NextSteps = []string{"retain the repo-local retirement intent and receipt as final evidence"}
-	return prepared.result, nil
+	return finalizeCandidateVerificationRetirementResult(prepared.result), nil
 }
 
 func prepareCandidateVerificationRetirementFromIntent(repoRoot, sourceCaseRoot, pack string, opt CandidateVerificationRetirementOptions) (preparedCandidateVerificationRetirement, bool, error) {
@@ -549,6 +552,8 @@ func candidateVerificationRetirementHash(result CandidateVerificationRetirementR
 	stable.Applied = false
 	stable.Replay = false
 	stable.ApplyCommand = ""
+	stable.MissionCommanderAction = nil
+	stable.MissionCommanderActionQueue = nil
 	stable.NextSteps = nil
 	data, _ := json.Marshal(stable)
 	return sha256Hex(data)

@@ -127,34 +127,38 @@ func (e *CandidateDecisionApplyError) Unwrap() error {
 }
 
 type CandidateDecisionVerificationResult struct {
-	SchemaVersion            int                       `json:"schemaVersion"`
-	Kind                     string                    `json:"kind"`
-	Mode                     string                    `json:"mode,omitempty"`
-	Pack                     string                    `json:"pack"`
-	CaseRoot                 string                    `json:"caseRoot"`
-	FreshCaseRoot            string                    `json:"freshCaseRoot"`
-	AttachedCaseRoot         string                    `json:"attachedCaseRoot"`
-	PacketHash               string                    `json:"packetHash"`
-	DecisionHash             string                    `json:"decisionHash"`
-	ReceiptHash              string                    `json:"receiptHash"`
-	ReceiptPath              string                    `json:"receiptPath"`
-	VerificationProofPath    string                    `json:"verificationProofPath"`
-	ProvisionIntentPath      string                    `json:"provisionIntentPath,omitempty"`
-	ProvisionIntentSHA256    string                    `json:"provisionIntentSha256,omitempty"`
-	ProvisionReceiptPath     string                    `json:"provisionReceiptPath,omitempty"`
-	ProvisionReceiptSHA256   string                    `json:"provisionReceiptSha256,omitempty"`
-	RetirementPreviewCommand string                    `json:"retirementPreviewCommand,omitempty"`
-	IsMutation               bool                      `json:"isMutation"`
-	Applied                  bool                      `json:"applied"`
-	Replay                   bool                      `json:"replay,omitempty"`
-	Ready                    bool                      `json:"ready"`
-	PackDoctorRows           int                       `json:"packDoctorRows"`
-	FreshDoctorRows          int                       `json:"freshDoctorRows"`
-	AttachedDoctorRows       int                       `json:"attachedDoctorRows"`
-	VerifiedActions          []CandidateDecisionAction `json:"verifiedActions"`
-	VerificationRunbookSteps []string                  `json:"verificationRunbookSteps,omitempty"`
-	NextSteps                []string                  `json:"nextSteps"`
-	Boundary                 []string                  `json:"boundary"`
+	SchemaVersion               int                                  `json:"schemaVersion"`
+	Kind                        string                               `json:"kind"`
+	Mode                        string                               `json:"mode,omitempty"`
+	Pack                        string                               `json:"pack"`
+	CaseRoot                    string                               `json:"caseRoot"`
+	FreshCaseRoot               string                               `json:"freshCaseRoot"`
+	AttachedCaseRoot            string                               `json:"attachedCaseRoot"`
+	PacketPath                  string                               `json:"packetPath,omitempty"`
+	DecisionPath                string                               `json:"decisionPath,omitempty"`
+	PacketHash                  string                               `json:"packetHash"`
+	DecisionHash                string                               `json:"decisionHash"`
+	ReceiptHash                 string                               `json:"receiptHash"`
+	ReceiptPath                 string                               `json:"receiptPath"`
+	VerificationProofPath       string                               `json:"verificationProofPath"`
+	ProvisionIntentPath         string                               `json:"provisionIntentPath,omitempty"`
+	ProvisionIntentSHA256       string                               `json:"provisionIntentSha256,omitempty"`
+	ProvisionReceiptPath        string                               `json:"provisionReceiptPath,omitempty"`
+	ProvisionReceiptSHA256      string                               `json:"provisionReceiptSha256,omitempty"`
+	RetirementPreviewCommand    string                               `json:"retirementPreviewCommand,omitempty"`
+	IsMutation                  bool                                 `json:"isMutation"`
+	Applied                     bool                                 `json:"applied"`
+	Replay                      bool                                 `json:"replay,omitempty"`
+	Ready                       bool                                 `json:"ready"`
+	PackDoctorRows              int                                  `json:"packDoctorRows"`
+	FreshDoctorRows             int                                  `json:"freshDoctorRows"`
+	AttachedDoctorRows          int                                  `json:"attachedDoctorRows"`
+	VerifiedActions             []CandidateDecisionAction            `json:"verifiedActions"`
+	VerificationRunbookSteps    []string                             `json:"verificationRunbookSteps,omitempty"`
+	MissionCommanderAction      *mission.MissionCommanderAction      `json:"missionCommanderAction,omitempty"`
+	MissionCommanderActionQueue *mission.MissionCommanderActionQueue `json:"missionCommanderActionQueue,omitempty"`
+	NextSteps                   []string                             `json:"nextSteps"`
+	Boundary                    []string                             `json:"boundary"`
 }
 
 type CandidateDecisionReceipt struct {
@@ -184,32 +188,34 @@ type CandidateDecisionReceipt struct {
 }
 
 type CandidateDecisionResult struct {
-	SchemaVersion        int                       `json:"schemaVersion"`
-	Command              string                    `json:"command"`
-	Mode                 string                    `json:"mode"`
-	CaseRoot             string                    `json:"caseRoot"`
-	RepoRoot             string                    `json:"repoRoot"`
-	Pack                 string                    `json:"pack"`
-	PacketPath           string                    `json:"packetPath"`
-	DecisionPath         string                    `json:"decisionPath"`
-	PacketHash           string                    `json:"packetHash"`
-	IsMutation           bool                      `json:"isMutation"`
-	Applied              bool                      `json:"applied"`
-	RolledBack           bool                      `json:"rolledBack,omitempty"`
-	RecoveryRequired     bool                      `json:"recoveryRequired,omitempty"`
-	FailedAction         string                    `json:"failedAction,omitempty"`
-	Accepted             int                       `json:"accepted"`
-	Rejected             int                       `json:"rejected"`
-	Superseded           int                       `json:"superseded"`
-	BackupRoot           string                    `json:"backupRoot,omitempty"`
-	IndexPath            string                    `json:"indexPath,omitempty"`
-	ReceiptPath          string                    `json:"receiptPath,omitempty"`
-	Receipt              *CandidateDecisionReceipt `json:"receipt,omitempty"`
-	Actions              []CandidateDecisionAction `json:"actions"`
-	RecoveryActions      []string                  `json:"recoveryActions,omitempty"`
-	DecisionRunbookSteps []string                  `json:"decisionRunbookSteps,omitempty"`
-	NextSteps            []string                  `json:"nextSteps"`
-	Boundary             []string                  `json:"boundary"`
+	SchemaVersion               int                                  `json:"schemaVersion"`
+	Command                     string                               `json:"command"`
+	Mode                        string                               `json:"mode"`
+	CaseRoot                    string                               `json:"caseRoot"`
+	RepoRoot                    string                               `json:"repoRoot"`
+	Pack                        string                               `json:"pack"`
+	PacketPath                  string                               `json:"packetPath"`
+	DecisionPath                string                               `json:"decisionPath"`
+	PacketHash                  string                               `json:"packetHash"`
+	IsMutation                  bool                                 `json:"isMutation"`
+	Applied                     bool                                 `json:"applied"`
+	RolledBack                  bool                                 `json:"rolledBack,omitempty"`
+	RecoveryRequired            bool                                 `json:"recoveryRequired,omitempty"`
+	FailedAction                string                               `json:"failedAction,omitempty"`
+	Accepted                    int                                  `json:"accepted"`
+	Rejected                    int                                  `json:"rejected"`
+	Superseded                  int                                  `json:"superseded"`
+	BackupRoot                  string                               `json:"backupRoot,omitempty"`
+	IndexPath                   string                               `json:"indexPath,omitempty"`
+	ReceiptPath                 string                               `json:"receiptPath,omitempty"`
+	Receipt                     *CandidateDecisionReceipt            `json:"receipt,omitempty"`
+	Actions                     []CandidateDecisionAction            `json:"actions"`
+	RecoveryActions             []string                             `json:"recoveryActions,omitempty"`
+	DecisionRunbookSteps        []string                             `json:"decisionRunbookSteps,omitempty"`
+	MissionCommanderAction      *mission.MissionCommanderAction      `json:"missionCommanderAction,omitempty"`
+	MissionCommanderActionQueue *mission.MissionCommanderActionQueue `json:"missionCommanderActionQueue,omitempty"`
+	NextSteps                   []string                             `json:"nextSteps"`
+	Boundary                    []string                             `json:"boundary"`
 }
 
 type candidateDecisionPlan struct {
@@ -606,6 +612,8 @@ func VerifyCandidateDecision(repoRoot, caseRoot, pack string, opt CandidateDecis
 		CaseRoot:                 inst.CaseRoot,
 		FreshCaseRoot:            freshRoot,
 		AttachedCaseRoot:         attachedRoot,
+		PacketPath:               authority.packetPath,
+		DecisionPath:             authority.decisionPath,
 		PacketHash:               packetHash,
 		DecisionHash:             decisionHash,
 		ReceiptHash:              sha256Hex(receiptBytes),
@@ -632,11 +640,15 @@ func VerifyCandidateDecision(repoRoot, caseRoot, pack string, opt CandidateDecis
 		result.Mode = "previewed"
 		result.NextSteps = []string{"inspect doctor/reconsume validation, then rerun the identical command with -Apply"}
 		result.VerificationRunbookSteps = candidateVerificationRunbookSteps(result)
-		return result, nil
+		return finalizeCandidateDecisionVerificationResult(result), nil
 	}
 	result.Applied = true
 	result.NextSteps = []string{"run the returned retirementPreviewCommand to preview exact cleanup of the generated verification workspace", "rerun /rekit status or release-check after retirement"}
 	proofResult := result
+	proofResult.PacketPath = ""
+	proofResult.DecisionPath = ""
+	proofResult.MissionCommanderAction = nil
+	proofResult.MissionCommanderActionQueue = nil
 	data, err := json.MarshalIndent(proofResult, "", "  ")
 	if err != nil {
 		return CandidateDecisionVerificationResult{}, err
@@ -652,7 +664,7 @@ func VerifyCandidateDecision(repoRoot, caseRoot, pack string, opt CandidateDecis
 		result.NextSteps = []string{"the exact candidate verification proof already exists", "run the returned retirementPreviewCommand to preview exact cleanup of the generated verification workspace", "rerun /rekit status or release-check after retirement"}
 	}
 	result.VerificationRunbookSteps = candidateVerificationRunbookSteps(result)
-	return result, nil
+	return finalizeCandidateDecisionVerificationResult(result), nil
 }
 
 func candidateVerificationRunbookSteps(result CandidateDecisionVerificationResult) []string {
@@ -1117,7 +1129,7 @@ func ApplyCandidateDecisions(repoRoot, caseRoot, pack string, opt CandidateDecis
 			return CandidateDecisionResult{}, err
 		}
 		plan.result.DecisionRunbookSteps = candidateDecisionRunbookSteps(plan.result)
-		return plan.result, nil
+		return finalizeCandidateDecisionResult(plan.result), nil
 	}
 	m, err := manifest.Load(repoRoot, pack)
 	if err != nil {
@@ -1136,13 +1148,14 @@ func ApplyCandidateDecisions(repoRoot, caseRoot, pack string, opt CandidateDecis
 	}
 	defer unlock()
 	if result, handled, err := recoverCandidateDecisionTransaction(repoRoot, caseRoot, pack, opt, m); handled {
-		return result, err
+		return finalizeCandidateDecisionReturn(result, err)
 	}
 	plan, err := planCandidateDecisions(repoRoot, caseRoot, pack, opt)
 	if err != nil {
 		return CandidateDecisionResult{}, err
 	}
-	return applyCandidateDecisionPlan(plan)
+	result, err := applyCandidateDecisionPlan(plan)
+	return finalizeCandidateDecisionReturn(result, err)
 }
 
 func prepareCandidateDecisionPlan(opt CandidateDecisionOptions) error {
