@@ -29,7 +29,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 736：pack-memory post-decision driver-request closure
 
-状态：已完成本机实现、focused validation、相邻 package validation 与完整本机 release minimum；implementation commit/push 与 release inspection 尚未完成。当前选题延续 pack-memory product UX，但避免单字段投影：已把 candidate decision Apply 后的 merge/provision/verify/retire post-decision 链路，从 `nextSteps` / ad-hoc command 字段升级为 replacement executor / harness 可按 returned `missionCommanderActionQueue.currentDriverRequest` 串起的 product path。
+状态：已完成本机实现、focused validation、相邻 package validation、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `7a6aa9a` 已推送。Push run `30541978793` completed failure；Linux/macOS/Windows jobs `90868683546`/`90868683598`/`90868683639` 均 `steps=[]`，`gh run view 30541978793 --log-failed` 返回 `log not found: 90868683546`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。当前选题延续 pack-memory product UX，但避免单字段投影：已把 candidate decision Apply 后的 merge/provision/verify/retire post-decision 链路，从 `nextSteps` / ad-hoc command 字段升级为 replacement executor / harness 可按 returned `missionCommanderActionQueue.currentDriverRequest` 串起的 product path。
 
 目标：当主 Agent 或 harness 已从 status/release handoff 消费 pack-memory proof/draft driver request 并写出 reviewed candidate decision 后，后续不应再手工读取 `NextSteps`、`ApplyCommand`、`VerificationPreviewCommand` 或 `RetirementPreviewCommand` 拼命令；`ApplyCandidateDecisions`、verification provision、verification apply 与 retirement result 应返回同源 Mission Commander action queue，使 executor 能从 returned JSON 的 current driver request 进入下一步，按 WhatIf→hash-bound Apply→refresh 的节奏完成 post-decision closure。
 
