@@ -113,6 +113,32 @@ func TestRunNextBatchWhatIfReturnsHashBoundDocsReceipt(t *testing.T) {
 	}
 }
 
+func TestRunNextBatchWhatIfUsesSelectedDomainCandidateGuidance(t *testing.T) {
+	fixture := newCLIFixture(t, cliFixtureOptions{})
+	restore := withNextBatchReadyReleaseCheckFixture(t, "Batch 945")
+	defer restore()
+
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "next-batch", "-Domain", "replacement-executor", "-Closure", "Replacement executor status driver consumption path", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatalf("next-batch replacement-executor WhatIf failed: %v\n%s", err, out.String())
+	}
+	var result nextBatchResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("next-batch replacement-executor WhatIf JSON did not decode: %v\n%s", err, out.String())
+	}
+	if result.RepoRoot != fixture.repoRoot || result.Domain != "replacement-executor" || result.DomainActionID != "next-batch-replacement-executor-takeover" {
+		t.Fatalf("unexpected replacement-executor WhatIf envelope: %+v", result)
+	}
+	for _, text := range []string{result.CurrentBatchSection, result.ChangelogEntry} {
+		if !strings.Contains(text, "replacement executor takeover slice") || !strings.Contains(text, "status or durable handoff without prior chat context") {
+			t.Fatalf("replacement-executor receipt omitted selected candidate guidance:\n%s", text)
+		}
+		if strings.Contains(text, "next-batch selection guidance acceptance") || strings.Contains(text, "新增 `/rekit next-batch` kit review-first command") || strings.Contains(text, "PowerShell façade no-fallback delegation") {
+			t.Fatalf("replacement-executor receipt leaked previous next-batch acceptance template:\n%s", text)
+		}
+	}
+}
+
 func TestRunNextBatchApplyRequiresWhatIfHashAndRefreshesStatus(t *testing.T) {
 	fixture := newCLIFixture(t, cliFixtureOptions{})
 	restore := withNextBatchReadyReleaseCheckFixture(t, "Batch 945")
@@ -311,6 +337,43 @@ func TestStatusProjectHandoffLocalValidationActionUsesReleaseRunDriverRequest(t 
 	}
 }
 
+func TestStatusMissionControlRunbookReplacementExecutorTakeoverPackageWrapsCurrentDriver(t *testing.T) {
+	project := &statusProjectHandoff{
+		Ready:                    true,
+		LatestBatch:              "Batch 746",
+		LatestNextAction:         "run the full local release minimum and update docs/batch-plan.md",
+		LatestRemoteReleaseGate:  "not-recorded",
+		ReleaseInspectionCadence: releasecheck.ReleaseHandoffReleaseInspectionCadence{State: "implementation-pending", NextAction: "create/push the implementation commit after local validation", Boundary: []string{"normal batches stop after implementation commit/push plus one release inspection commit/push"}},
+		ValidationCommands:       []string{"go test ./..."},
+		PackMemoryCandidates:     releasecheck.ReleaseHandoffPackMemoryCandidateList{Ready: true, NextAction: "no pack-memory candidate cleanup is pending"},
+	}
+	project.MissionCommanderNextActions = statusProjectHandoffMissionCommanderNextActions(project)
+	project.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(project.MissionCommanderNextActions)
+	runbook := buildStatusMissionControlRunbook("C:/repo", nil, project)
+	pkg := runbook.ReplacementExecutorTakeover
+	if pkg == nil || !pkg.Ready || pkg.Focus != "project-current-action" || pkg.Scope != "project" || pkg.DriverKind != "preview-command" || !pkg.CommandExecutable || !pkg.RequiresReview || pkg.Command != "/rekit release-run -Format json" || pkg.CurrentDriverRequest.Command != pkg.Command || pkg.RefreshStatusCommand != runbook.RefreshStatusCommand {
+		t.Fatalf("replacement executor takeover package should wrap executable current driver request: runbook=%+v pkg=%+v", runbook, pkg)
+	}
+	if !containsSubstring(pkg.TargetDocuments, "missionControlRunbook.currentDriverRequest") || !containsSubstring(pkg.TargetDocuments, "docs/batch-plan.md") || !containsSubstring(pkg.RunbookSteps, "before using any prior chat context") || !containsSubstring(pkg.RunbookSteps, "run currentDriverRequest.command exactly") || !containsSubstring(pkg.Boundary, "read-only and self-contained") || !containsSubstring(pkg.Boundary, "do not use prior chat context") {
+		t.Fatalf("replacement executor takeover package omitted docs, runbook, or boundary: %+v", pkg)
+	}
+	var out bytes.Buffer
+	if err := writeStatusMissionControlRunbookText(&out, runbook); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"status replacement executor takeover package：ready=true focus=project-current-action scope=project",
+		"driverKind=preview-command executable=true requiresReview=true",
+		"status replacement executor takeover package target document：missionControlRunbook.currentDriverRequest",
+		"status replacement executor takeover package runbook step：read missionControlRunbook.replacementExecutorTakeoverPackage before using any prior chat context",
+		"status replacement executor takeover package boundary：replacement executor takeover package is read-only and self-contained",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("replacement executor takeover package text missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
 func TestStatusMissionControlRunbookGuidanceHandoffWrapsNextBatchSelection(t *testing.T) {
 	remoteDetail := &releasecheck.ReleaseHandoffRemoteReleaseGateDetail{
 		State:            "blocked: completed failure with jobs steps=[]",
@@ -355,6 +418,10 @@ func TestStatusMissionControlRunbookGuidanceHandoffWrapsNextBatchSelection(t *te
 	guidance := runbook.GuidanceHandoff
 	if !guidance.Ready || guidance.Kind != "review-guidance" || guidance.Scope != "project" || guidance.State != "ready-for-next-batch-selection" || guidance.Source != "releaseHandoffNextBatch" || guidance.ActionID != "next-batch-selection" || guidance.CommandExecutable || !guidance.RequiresReview {
 		t.Fatalf("guidance handoff identity drifted: %+v", guidance)
+	}
+	takeover := runbook.ReplacementExecutorTakeover
+	if takeover == nil || !takeover.Ready || takeover.DriverKind != "review-guidance" || takeover.CommandExecutable || takeover.Guidance == "" || takeover.CurrentDriverRequest.Guidance != takeover.Guidance || !containsSubstring(takeover.RunbookSteps, "review currentDriverRequest.guidance") || !containsSubstring(takeover.Boundary, "guidance must be reviewed") {
+		t.Fatalf("replacement executor takeover package should wrap guidance driver request: %+v", takeover)
 	}
 	if guidance.ExpectedReceipt.State != "guidance-accepted-refresh-required" || guidance.ExpectedReceipt.RefreshStatusCommand != runbook.RefreshStatusCommand || !containsSubstring(guidance.ExpectedReceipt.Checklist, "docs/batch-plan.md records the selected operational closure") || !containsSubstring(guidance.ExpectedReceipt.Boundary, "do not infer guidance completion") {
 		t.Fatalf("guidance handoff expected receipt drifted: %+v", guidance.ExpectedReceipt)

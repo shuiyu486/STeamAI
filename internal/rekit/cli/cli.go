@@ -1261,10 +1261,12 @@ func buildNextBatchResult(repoRoot string, opt Options) (nextBatchResult, error)
 	if pkg == nil || !pkg.Ready || pkg.StarterPackage == nil || !pkg.StarterPackage.Ready {
 		return nextBatchResult{}, fmt.Errorf("next-batch selection package is not ready; run release-check/status and finish the current batch first")
 	}
-	selectedDomain, actionID, err := nextBatchSelectDomain(pkg, domain)
+	selectedAction, err := nextBatchSelectDomain(pkg, domain)
 	if err != nil {
 		return nextBatchResult{}, err
 	}
+	selectedDomain := strings.TrimSpace(selectedAction.Label)
+	actionID := strings.TrimSpace(selectedAction.ActionID)
 	starter := pkg.StarterPackage
 	nextBatch := strings.TrimSpace(starter.SuggestedNextBatch)
 	if nextBatch == "" || strings.Contains(nextBatch, "<") {
@@ -1280,8 +1282,8 @@ func buildNextBatchResult(repoRoot string, opt Options) (nextBatchResult, error)
 	if err != nil {
 		return nextBatchResult{}, err
 	}
-	section := nextBatchCurrentBatchSection(nextBatch, selectedDomain, closure, starter.ValidationCommands)
-	entry := nextBatchChangelogEntry(nextBatch, selectedDomain, closure)
+	section := nextBatchCurrentBatchSection(nextBatch, selectedAction, closure, starter.ValidationCommands)
+	entry := nextBatchChangelogEntry(nextBatch, selectedAction, closure)
 	plannedBatchPlan, err := nextBatchInsertAfterHeading(string(batchPlanText), "### Current batch state", "### "+nextBatch+"：", section)
 	if err != nil {
 		return nextBatchResult{}, err
@@ -1369,7 +1371,7 @@ func nextBatchRefreshAction() mission.MissionCommanderNextActionItem {
 	}
 }
 
-func nextBatchSelectDomain(pkg *releasecheck.ReleaseHandoffNextBatchSelectionPackage, domain string) (string, string, error) {
+func nextBatchSelectDomain(pkg *releasecheck.ReleaseHandoffNextBatchSelectionPackage, domain string) (mission.MissionCommanderNextActionItem, error) {
 	domain = strings.TrimSpace(domain)
 	allowed := []string{}
 	for _, action := range pkg.MissionCommanderNextActions {
@@ -1382,29 +1384,46 @@ func nextBatchSelectDomain(pkg *releasecheck.ReleaseHandoffNextBatchSelectionPac
 			allowed = append(allowed, label)
 		}
 		if strings.EqualFold(domain, label) || strings.EqualFold(domain, actionID) {
-			return label, actionID, nil
+			action.Label = label
+			action.ActionID = actionID
+			action.Command = nextBatchSingleLine(action.Command)
+			action.Reasons = mission.UniqueStrings(action.Reasons)
+			action.Boundary = mission.UniqueStrings(action.Boundary)
+			return action, nil
 		}
 	}
-	return "", "", fmt.Errorf("next-batch -Domain %q is not in ready candidate domains: %s", domain, strings.Join(mission.UniqueStrings(allowed), ", "))
+	return mission.MissionCommanderNextActionItem{}, fmt.Errorf("next-batch -Domain %q is not in ready candidate domains: %s", domain, strings.Join(mission.UniqueStrings(allowed), ", "))
 }
 
-func nextBatchCurrentBatchSection(nextBatch, domain, closure string, validationCommands []string) string {
+func nextBatchCurrentBatchSection(nextBatch string, action mission.MissionCommanderNextActionItem, closure string, validationCommands []string) string {
+	domain := strings.TrimSpace(action.Label)
+	candidateCommand := nextBatchCandidateCommand(action)
 	validation := nextBatchValidationSummary(validationCommands)
 	return strings.Join([]string{
 		"### " + nextBatch + "：" + closure,
 		"",
-		"状态：进行中。本批选择 `" + domain + "`，推进 " + closure + "；上一批完成后仍需要解决的接手断点是 next-batch selection guidance acceptance 仍依赖主 Agent 手动编辑 `docs/batch-plan.md` / `CHANGELOG.md`，replacement harness 缺少 Go-native WhatIf → expected-hash Apply receipt 来把 guidance 接受写成可刷新 durable state。本批不是字段/文案/summary 微调，而是把 next-batch acceptance 变成可预览、可哈希确认、可刷新验证的产品路径。",
+		"状态：进行中。本批选择 `" + domain + "`，推进 " + closure + "；release handoff candidate guidance 是：" + candidateCommand + "。上一批完成后仍需要解决的接手断点必须落在该 domain 的可操作 product-path closure 上，并能由 status/handoff/continue/release-check 或必要临时 case 验证；本批不是字段、文案或 summary 投影微调。",
 		"",
-		"目标：新增 `/rekit next-batch` kit review-first command：`-WhatIf` 从 release handoff starter package 与 candidate domain 生成 `docs/batch-plan.md` current batch section 和 `CHANGELOG.md` Unreleased entry 的规划写入预览，并返回 `expectedNextBatchPlanSha256`；`-Apply` 必须带该 expected hash，且只写这两个 kit docs。Apply 后 replacement executor / harness 可立即 rerun `status -Format json`，从 durable docs 看到新批次 current action，而不是继续停在上一批的 guidance-only selection。",
+		"目标：把 `" + domain + "` candidate 收敛成 Windows 本机可验证的闭环：" + closure + "。实现应复用既有 typed handoff/envelope 和 deterministic runtime 边界，让 Mission Commander 或 replacement executor 能从 durable docs/status 消费结果，不依赖上一会话隐性上下文；focused work 必须证明该候选命令所描述的能力：" + candidateCommand + "。",
 		"",
-		"边界：本批不新增 PowerShell runtime logic，不执行 heavy-tool，不写 authority/confirmed，不自动执行 reviewer/adapter/pack-memory/gate/sync/promote mutation，不自动选择后续实现工作，不自动提交或声明 remote CI green；`next-batch -Apply` 只在 expected hash 匹配时写 kit repo `docs/batch-plan.md` 与 `CHANGELOG.md` planning receipt。",
+		"边界：本批不新增 PowerShell runtime logic，不执行 heavy-tool，不写 authority/confirmed，不自动执行 reviewer/adapter/pack-memory/gate/sync/promote mutation，不自动提交或声明 remote CI green；`/rekit next-batch -Apply` 只在 expected hash 匹配时写 kit repo `docs/batch-plan.md` 与 `CHANGELOG.md` planning receipt。",
 		"",
-		"验证标准：focused regressions 覆盖 `next-batch` WhatIf/Apply/hash guard、public command surface、PowerShell façade no-fallback delegation 与 status/release-check handoff refresh；随后运行完整本机 release minimum：" + validation + "。实现完成后记录 implementation commit/push 与 push-triggered remote release-gate inspection；远程 `steps=[]` 仍只记录 blocker，不声明 green。",
+		"验证标准：focused regressions 覆盖 `" + domain + "` 的 selected product-path closure、durable status/handoff refresh，以及不回归 `/rekit next-batch` WhatIf/Apply/hash guard；随后运行完整本机 release minimum：" + validation + "。实现完成后记录 implementation commit/push 与 push-triggered remote release-gate inspection；远程 `steps=[]` 仍只记录 blocker，不声明 green。",
 	}, "\n")
 }
 
-func nextBatchChangelogEntry(nextBatch, domain, closure string) string {
-	return "- " + nextBatch + " 新增 " + closure + "：`/rekit next-batch` 将 release handoff 的 next-batch guidance acceptance 收敛为 Go-native kit review-first planning receipt；`-WhatIf` 根据 selected domain `" + domain + "` 预览 `docs/batch-plan.md` / `CHANGELOG.md` 写入并返回 `expectedNextBatchPlanSha256`，`-Apply` 必须带该 hash 且只写 kit docs。该批不新增 PowerShell runtime logic、case state mutation、reviewer/adapter/pack-memory/gate/sync/promote mutation、heavy-tool、authority/confirmed 写入、自动提交或 remote CI green 声明。Focused validation、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection 待记录。"
+func nextBatchChangelogEntry(nextBatch string, action mission.MissionCommanderNextActionItem, closure string) string {
+	domain := strings.TrimSpace(action.Label)
+	candidateCommand := nextBatchCandidateCommand(action)
+	return "- " + nextBatch + " 新增 " + closure + "：选择 `" + domain + "` candidate（" + candidateCommand + "）并将其收敛为 Windows 本机可验证的 product-path planning receipt；`/rekit next-batch` 仍只负责 WhatIf → `expectedNextBatchPlanSha256` → Apply 的 kit docs receipt，不触碰 case state、不执行 reviewer/adapter/pack-memory/gate/sync/promote mutation、heavy-tool、authority/confirmed 写入、自动提交或 remote CI green 声明。Focused validation、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection 待记录。"
+}
+
+func nextBatchCandidateCommand(action mission.MissionCommanderNextActionItem) string {
+	command := nextBatchSingleLine(action.Command)
+	if command == "" {
+		return "select a Windows-verifiable product-path closure for " + strings.TrimSpace(action.Label)
+	}
+	return command
 }
 
 func nextBatchValidationSummary(commands []string) string {
@@ -2848,18 +2867,19 @@ type statusCaseShimEntrypoint struct {
 }
 
 type statusMissionControlRunbook struct {
-	Ready                bool                                   `json:"ready"`
-	Focus                string                                 `json:"focus"`
-	Scope                string                                 `json:"scope"`
-	CurrentCommand       string                                 `json:"currentCommand,omitempty"`
-	CurrentRunLoopStepID string                                 `json:"currentRunLoopStepId,omitempty"`
-	CurrentDriverRequest *mission.MissionCommanderDriverRequest `json:"currentDriverRequest,omitempty"`
-	GuidanceHandoff      *statusMissionControlGuidanceHandoff   `json:"guidanceHandoff,omitempty"`
-	RefreshStatusCommand string                                 `json:"refreshStatusCommand"`
-	Queues               []statusMissionControlRunbookQueue     `json:"queues"`
-	RoutingReasons       []string                               `json:"routingReasons,omitempty"`
-	RunLoop              []statusMissionControlRunbookStep      `json:"runLoop"`
-	Boundary             []string                               `json:"boundary,omitempty"`
+	Ready                       bool                                      `json:"ready"`
+	Focus                       string                                    `json:"focus"`
+	Scope                       string                                    `json:"scope"`
+	CurrentCommand              string                                    `json:"currentCommand,omitempty"`
+	CurrentRunLoopStepID        string                                    `json:"currentRunLoopStepId,omitempty"`
+	CurrentDriverRequest        *mission.MissionCommanderDriverRequest    `json:"currentDriverRequest,omitempty"`
+	GuidanceHandoff             *statusMissionControlGuidanceHandoff      `json:"guidanceHandoff,omitempty"`
+	ReplacementExecutorTakeover *statusReplacementExecutorTakeoverPackage `json:"replacementExecutorTakeoverPackage,omitempty"`
+	RefreshStatusCommand        string                                    `json:"refreshStatusCommand"`
+	Queues                      []statusMissionControlRunbookQueue        `json:"queues"`
+	RoutingReasons              []string                                  `json:"routingReasons,omitempty"`
+	RunLoop                     []statusMissionControlRunbookStep         `json:"runLoop"`
+	Boundary                    []string                                  `json:"boundary,omitempty"`
 }
 
 type statusMissionControlGuidanceHandoff struct {
@@ -2887,6 +2907,27 @@ type statusMissionControlGuidanceReceipt struct {
 	Description          string   `json:"description"`
 	Checklist            []string `json:"checklist,omitempty"`
 	Boundary             []string `json:"boundary,omitempty"`
+}
+
+type statusReplacementExecutorTakeoverPackage struct {
+	Ready                bool                                  `json:"ready"`
+	Focus                string                                `json:"focus"`
+	Scope                string                                `json:"scope"`
+	State                string                                `json:"state,omitempty"`
+	Source               string                                `json:"source,omitempty"`
+	Label                string                                `json:"label,omitempty"`
+	ActionID             string                                `json:"actionId,omitempty"`
+	DriverKind           string                                `json:"driverKind"`
+	CommandExecutable    bool                                  `json:"commandExecutable"`
+	RequiresReview       bool                                  `json:"requiresReview"`
+	Blocked              bool                                  `json:"blocked,omitempty"`
+	Command              string                                `json:"command,omitempty"`
+	Guidance             string                                `json:"guidance,omitempty"`
+	CurrentDriverRequest mission.MissionCommanderDriverRequest `json:"currentDriverRequest"`
+	TargetDocuments      []string                              `json:"targetDocuments,omitempty"`
+	RefreshStatusCommand string                                `json:"refreshStatusCommand"`
+	RunbookSteps         []string                              `json:"runbookSteps,omitempty"`
+	Boundary             []string                              `json:"boundary,omitempty"`
 }
 
 type statusMissionControlGuidanceStarterPackage struct {
@@ -3498,6 +3539,7 @@ func buildStatusMissionControlRunbook(target string, caseMission *statusCaseMiss
 		}
 	}
 	runbook.GuidanceHandoff = statusMissionControlGuidanceHandoffFor(runbook, projectHandoff)
+	runbook.ReplacementExecutorTakeover = statusReplacementExecutorTakeoverPackageFor(runbook, projectHandoff)
 	runbook.RunLoop = statusMissionControlRunbookSteps(runbook)
 	return runbook
 }
@@ -3554,6 +3596,97 @@ func statusMissionControlGuidanceHandoffFor(runbook *statusMissionControlRunbook
 	handoff.ExpectedReceipt.Checklist = mission.UniqueStrings(handoff.ExpectedReceipt.Checklist)
 	handoff.ExpectedReceipt.Boundary = mission.UniqueStrings(handoff.ExpectedReceipt.Boundary)
 	return handoff
+}
+
+func statusReplacementExecutorTakeoverPackageFor(runbook *statusMissionControlRunbook, projectHandoff *statusProjectHandoff) *statusReplacementExecutorTakeoverPackage {
+	if runbook == nil || runbook.CurrentDriverRequest == nil {
+		return nil
+	}
+	request := *runbook.CurrentDriverRequest
+	request.Boundary = mission.UniqueStrings(request.Boundary)
+	request.ExpectedReceipt.Boundary = mission.UniqueStrings(request.ExpectedReceipt.Boundary)
+	pkg := &statusReplacementExecutorTakeoverPackage{
+		Ready:                true,
+		Focus:                strings.TrimSpace(runbook.Focus),
+		Scope:                strings.TrimSpace(runbook.Scope),
+		State:                strings.TrimSpace(request.State),
+		Source:               strings.TrimSpace(request.Source),
+		Label:                strings.TrimSpace(request.Label),
+		ActionID:             strings.TrimSpace(request.ActionID),
+		DriverKind:           statusFirstText(request.Kind, "unknown"),
+		CommandExecutable:    request.CommandExecutable,
+		RequiresReview:       request.RequiresReview,
+		Blocked:              request.Blocked,
+		Command:              strings.TrimSpace(request.Command),
+		Guidance:             strings.TrimSpace(request.Guidance),
+		CurrentDriverRequest: request,
+		TargetDocuments:      statusReplacementExecutorTakeoverTargetDocuments(runbook.Scope, request, projectHandoff),
+		RefreshStatusCommand: strings.TrimSpace(runbook.RefreshStatusCommand),
+	}
+	pkg.RunbookSteps = statusReplacementExecutorTakeoverRunbookSteps(pkg)
+	pkg.Boundary = statusReplacementExecutorTakeoverBoundary(pkg)
+	return pkg
+}
+
+func statusReplacementExecutorTakeoverTargetDocuments(scope string, request mission.MissionCommanderDriverRequest, projectHandoff *statusProjectHandoff) []string {
+	docs := []string{"missionControlRunbook.currentDriverRequest", "missionControlRunbook.runLoop"}
+	switch strings.TrimSpace(scope) {
+	case "project", "pack-memory":
+		docs = append(docs, statusMissionControlGuidanceTargetDocuments(projectHandoff)...)
+	case "case", "reviewer":
+		docs = append(docs, ".rekit/board.json", ".rekit/facts/*.jsonl")
+		if lane := strings.TrimSpace(request.Lane); lane != "" {
+			docs = append(docs,
+				".rekit/lanes/"+lane+"/prompts/RESUME.md",
+				".rekit/lanes/"+lane+"/checkpoints/latest.json",
+				".rekit/handovers/"+lane+"-latest.md",
+			)
+		}
+	}
+	if request.RequiresReview {
+		docs = append(docs, "missionControlRunbook.currentDriverRequest.expectedReceipt")
+	}
+	return mission.UniqueStrings(docs)
+}
+
+func statusReplacementExecutorTakeoverRunbookSteps(pkg *statusReplacementExecutorTakeoverPackage) []string {
+	if pkg == nil || !pkg.Ready {
+		return nil
+	}
+	steps := []string{
+		"read missionControlRunbook.replacementExecutorTakeoverPackage before using any prior chat context",
+		"consume currentDriverRequest exactly; do not reconstruct commands from terminal prose",
+	}
+	if pkg.Blocked {
+		steps = append(steps, "resolve the currentDriverRequest blocker before running any command or follow-up")
+	} else if pkg.CommandExecutable {
+		steps = append(steps, "run currentDriverRequest.command exactly when it is still the intended focused action")
+	} else {
+		steps = append(steps, "review currentDriverRequest.guidance and targetDocuments; do not execute guidance as a shell command")
+	}
+	if pkg.RequiresReview {
+		steps = append(steps, "review expectedReceipt and boundary before any Apply or follow-up")
+	}
+	if strings.TrimSpace(pkg.RefreshStatusCommand) != "" {
+		steps = append(steps, "after the explicit outcome, run refreshStatusCommand and rebuild status before choosing follow-up work")
+	}
+	return mission.UniqueStrings(steps)
+}
+
+func statusReplacementExecutorTakeoverBoundary(pkg *statusReplacementExecutorTakeoverPackage) []string {
+	boundary := []string{
+		"replacement executor takeover package is read-only and self-contained for status/handoff resumption",
+		"do not use prior chat context to override currentDriverRequest, expectedReceipt, or boundary",
+		"do not write authority/confirmed or execute heavy tools from this package",
+		"the Go runtime does not spawn or replace executor sessions",
+	}
+	if pkg != nil {
+		boundary = append(boundary, pkg.CurrentDriverRequest.Boundary...)
+		if !pkg.CommandExecutable {
+			boundary = append(boundary, "guidance must be reviewed, not executed as a shell command")
+		}
+	}
+	return mission.UniqueStrings(boundary)
 }
 
 func statusMissionControlGuidanceTargetDocuments(projectHandoff *statusProjectHandoff) []string {
@@ -3789,6 +3922,9 @@ func writeStatusMissionControlRunbookText(out io.Writer, runbook *statusMissionC
 	if err := writeStatusMissionControlGuidanceHandoffText(out, runbook.GuidanceHandoff); err != nil {
 		return err
 	}
+	if err := writeStatusReplacementExecutorTakeoverPackageText(out, runbook.ReplacementExecutorTakeover); err != nil {
+		return err
+	}
 	for _, queue := range runbook.Queues {
 		if _, err := fmt.Fprintf(out, "status Mission Control runbook queue：scope=%s focused=%t total=%d blocked=%d requiresReview=%d currentState=%s currentSource=%s currentStep=%s currentCommand=%s\n", queue.Scope, queue.Focused, queue.Total, queue.Blocked, queue.RequiresReview, queue.CurrentState, queue.CurrentSource, queue.CurrentRunLoopStepID, queue.CurrentCommand); err != nil {
 			return err
@@ -3811,6 +3947,31 @@ func writeStatusMissionControlRunbookText(out io.Writer, runbook *statusMissionC
 	}
 	for _, boundary := range runbook.Boundary {
 		if _, err := fmt.Fprintf(out, "status Mission Control runbook boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeStatusReplacementExecutorTakeoverPackageText(out io.Writer, pkg *statusReplacementExecutorTakeoverPackage) error {
+	if pkg == nil || !pkg.Ready {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "status replacement executor takeover package：ready=%t focus=%s scope=%s state=%s source=%s actionId=%s driverKind=%s executable=%t requiresReview=%t blocked=%t command=%s guidance=%s refresh=%s\n", pkg.Ready, pkg.Focus, pkg.Scope, pkg.State, pkg.Source, pkg.ActionID, pkg.DriverKind, pkg.CommandExecutable, pkg.RequiresReview, pkg.Blocked, pkg.Command, pkg.Guidance, pkg.RefreshStatusCommand); err != nil {
+		return err
+	}
+	for _, doc := range pkg.TargetDocuments {
+		if _, err := fmt.Fprintf(out, "status replacement executor takeover package target document：%s\n", doc); err != nil {
+			return err
+		}
+	}
+	for _, step := range pkg.RunbookSteps {
+		if _, err := fmt.Fprintf(out, "status replacement executor takeover package runbook step：%s\n", step); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range pkg.Boundary {
+		if _, err := fmt.Fprintf(out, "status replacement executor takeover package boundary：%s\n", boundary); err != nil {
 			return err
 		}
 	}

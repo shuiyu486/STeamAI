@@ -29,6 +29,19 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 ### Current batch state
 
 
+
+### Batch 746：Replacement executor status driver consumption path
+
+状态：已完成本机实现、focused validation 与完整本机 release minimum，implementation commit/push 与 push-triggered remote inspection 待执行。本批选择 `replacement-executor`，推进 Replacement executor status driver consumption path；release handoff candidate guidance 是：select a replacement executor takeover slice that can be resumed from status or durable handoff without prior chat context。上一批完成后仍需要解决的接手断点必须落在该 domain 的可操作 product-path closure 上，并能由 status/handoff/continue/release-check 或必要临时 case 验证；本批不是字段、文案或 summary 投影微调。
+
+目标：把 `replacement-executor` candidate 收敛成 Windows 本机可验证的闭环：Replacement executor status driver consumption path。实现应复用既有 typed handoff/envelope 和 deterministic runtime 边界，让 Mission Commander 或 replacement executor 能从 durable docs/status 消费结果，不依赖上一会话隐性上下文；focused work 必须证明该候选命令所描述的能力：select a replacement executor takeover slice that can be resumed from status or durable handoff without prior chat context。
+
+已实现：`/rekit next-batch` planner 现在保留 selected candidate action，并用 action 的 `Command` / domain / closure 生成 domain-aware `docs/batch-plan.md` 与 `CHANGELOG.md` planning receipt，避免 `replacement-executor` 等非 `mission-commander` domain 继续复用上一批 next-batch acceptance 固定模板。`status -Format json/text` 顶层 `missionControlRunbook` 新增只读 `replacementExecutorTakeoverPackage`：直接封装 focused `currentDriverRequest`、targetDocuments、runbookSteps、refreshStatusCommand 与 boundary，replacement executor / harness 可从 status 或 durable handoff 无旧聊天上下文消费当前 driver；executable command 和 guidance-only request 都保留原有 no-spawn/no-heavy/no-authority/refresh receipt 边界。
+
+边界：本批不新增 public command、durable schema、PowerShell runtime logic、Claude Code spawner/session manager、reviewer/adapter/heavy-tool executor，不执行 heavy-tool，不写 authority/confirmed，不自动执行 reviewer/adapter/pack-memory/gate/sync/promote mutation，不自动提交或声明 remote CI green；`/rekit next-batch -Apply` 仍只在 expected hash 匹配时写 kit repo `docs/batch-plan.md` 与 `CHANGELOG.md` planning receipt。
+
+验证结果：focused regressions 已通过：`go test ./internal/rekit/cli -run "TestStatusMissionControlRunbookReplacementExecutorTakeoverPackageWrapsCurrentDriver|TestStatusMissionControlRunbookGuidanceHandoffWrapsNextBatchSelection|TestRunNextBatch" -count=1`。完整本机 release minimum 已通过：`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 通过，后者仅有 Windows LF→CRLF working-copy warning；完成状态回填前 `go run ./cmd/rekit -- -Command release-check -Format json` 按预期返回 current batch validation warning，回填后需复跑确认 ready。Implementation commit/push 与 push-triggered remote release-gate inspection 待记录；远程 `steps=[]` 仍只记录 blocker，不声明 green。
+
 ### Batch 745：Mission Control next-batch acceptance product path
 
 状态：已完成本机实现、focused validation、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `f051b17` 已推送。本批选择 `mission-commander`，推进 Mission Control next-batch acceptance product path；上一批完成后仍需要解决的接手断点是 next-batch selection guidance acceptance 仍依赖主 Agent 手动编辑 `docs/batch-plan.md` / `CHANGELOG.md`，replacement harness 缺少 Go-native WhatIf → expected-hash Apply receipt 来把 guidance 接受写成可刷新 durable state。本批不是字段/文案/summary 微调，而是把 next-batch acceptance 变成可预览、可哈希确认、可刷新验证的产品路径。Push run `30577066068` completed failure；macOS/Linux/Windows jobs `90987866347`/`90987866424`/`90987866450` 均 `steps=[]`，`gh run view 30577066068 --log-failed` 返回 `log not found: 90987866347`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。
