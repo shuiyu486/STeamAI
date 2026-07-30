@@ -27,6 +27,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 727：Mission Commander driver request consumer-loop product path
+
+状态：已完成本机实现、focused consumer-loop regression、完整 CLI package regression 与完整本机 release minimum；implementation commit/push 与 push-triggered remote inspection 待执行。
+
+目标：把 Batch 724-726 的 driver request / returned receipt contract 串成 replacement executor 可感知的最小 run loop：test harness 从 `status -Format json` 的 `missionCommanderActionQueue.currentDriverRequest` 启动，执行 explicit preview request，消费 preview 返回的 hash-bound `recordCommand`，refresh status 后取得新的 ready continuation request，再执行 `continue -Apply` 并用 returned queue / takeover package / status refresh 确认下一步，而不是从 `currentAction.command` 或 terminal text 手工推断流程。
+
+边界：不新增 public command、durable schema、PowerShell runtime logic、Claude Code session spawner、reviewer/adapter/heavy-tool executor 或生产 runtime API；Go runtime 不 spawn/poll/monitor/stop external session，不执行 reviewer/adapter/heavy tool，不写 authority/confirmed。该批仅增加 CLI product-path regression 与共享 test fixture，复用既有 status、note WhatIf→recordCommand、continue Apply 和 status refresh 路径。
+
+已实现内容：新增 `TestRunMissionCommanderDriverRequestConsumerLoopProductPath`，用本机临时 case seed 一个 main lane open decision blocker。测试 harness 只通过 `requireMissionCommanderDriverRequest` / `missionCommanderDriverRequestCommandCLIArgs` 消费 driver request：先运行 decision preview request 并断言 zero-write + returned hash-bound `recordCommand`；再执行 returned `recordCommand` 写入 closing decision；随后显式 rerun status refresh，确认 stale decision request 已替换为 ready `/rekit continue main` execute request；最后执行 continue Apply，并验证 returned `MissionCommanderActionQueue.currentDriverRequest`、`LaneTakeoverPackage.MissionCommanderActionQueue.currentDriverRequest` 和再次 status refresh 的 request 三者对齐。原 open-decision closure test 复用 `seedMainOpenDecisionCase`，减少 fixture 分叉。
+
+验证结果：focused `go test ./internal/rekit/cli -run "TestRunMissionCommanderDriverRequestConsumerLoopProductPath|TestRunOpenDecisionFirstScreenHandoffHashBoundApplyUnblocksLane" -count=1` 通过；完整 CLI package `go test ./internal/rekit/cli -count=1` 通过。完整本机 release minimum 已通过：`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./... -count=1`、`go vet ./...`、`git diff --check` 与 `go run ./cmd/rekit -- -Command release-check -Format json`，`git diff --check` 仅有 Windows LF→CRLF working-copy warning，`release-check` 返回 `ready=true` / `summary=release gate inventory ok`。
+
 ### Batch 726：Mission Commander driver receipt refresh closure
 
 状态：已完成本机实现、focused receipt-refresh regression、完整 CLI package regression、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `a4ec97b` 已推送。Push run `30519224813` completed failure；Linux/Windows/macOS jobs `90795736546`/`90795736572`/`90795736601` 均 `steps=[]`，`gh run view 30519224813 --log-failed` 返回 `log not found: 90795736546`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。

@@ -1574,23 +1574,7 @@ func TestRunStatusCaseMissionOpenDecisionFirstScreenPackage(t *testing.T) {
 
 func TestRunOpenDecisionFirstScreenHandoffHashBoundApplyUnblocksLane(t *testing.T) {
 	caseRoot := attachedCase(t)
-	for _, dir := range []string{
-		".rekit/facts",
-		".rekit/lanes/main",
-		"workspace/main/main",
-	} {
-		if err := os.MkdirAll(filepath.Join(caseRoot, filepath.FromSlash(dir)), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	board := `{"schemaVersion":1,"caseRoot":"` + filepath.ToSlash(caseRoot) + `","repoRoot":"` + filepath.ToSlash(repoRoot(t)) + `","pack":"_template","automationMode":"assist","defaultAuthorityLane":"main","lanes":[{"id":"main","type":"main","title":"Main","status":"open","authority":true,"workspace":"workspace/main/main"}],"factsRoot":".rekit/facts"}`
-	writeCaseFile(t, caseRoot, ".rekit/board.json", board)
-	writeCaseFile(t, caseRoot, ".rekit/lanes/main/lane.json", `{"schemaVersion":1,"id":"main","type":"main","title":"Main","status":"open","authority":true,"workspace":"workspace/main/main","laneRoot":".rekit/lanes/main"}`)
-	factsRoot := filepath.Join(caseRoot, ".rekit", "facts")
-	writeFactFile(t, factsRoot, "requests.jsonl", nil)
-	writeFactFile(t, factsRoot, "candidates.jsonl", []string{`{"eventId":"cand-main-open-1","kind":"candidate","lane":"main","subject":"main blocker","summary":"candidate needs decision","status":"open","confidence":"high","target":"candidate-main","evidenceRefs":"evidence/main-candidate.json"}`})
-	writeFactFile(t, factsRoot, "decisions.jsonl", nil)
-	writeFactFile(t, factsRoot, "interventions.jsonl", nil)
+	seedMainOpenDecisionCase(t, caseRoot)
 
 	var out bytes.Buffer
 	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
@@ -1902,6 +1886,206 @@ func TestRunOpenDecisionFirstScreenHandoffHashBoundApplyUnblocksLane(t *testing.
 	assertSnapshotEqual(t, factsBeforeHandoffApply, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
 	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
 	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
+}
+
+func TestRunMissionCommanderDriverRequestConsumerLoopProductPath(t *testing.T) {
+	caseRoot := attachedCase(t)
+	seedMainOpenDecisionCase(t, caseRoot)
+	factsRoot := filepath.Join(caseRoot, ".rekit", "facts")
+
+	var out bytes.Buffer
+	statusQueue := func() (missionCommanderActionQueueSnapshot, []statusOpenDecisionHandoff) {
+		t.Helper()
+		out.Reset()
+		if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+			t.Fatal(err)
+		}
+		var status struct {
+			CaseMission struct {
+				MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+				OpenDecisionHandoffs        []statusOpenDecisionHandoff         `json:"openDecisionHandoffs"`
+			} `json:"caseMission"`
+		}
+		if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+			t.Fatalf("driver request loop status JSON did not decode: %v\n%s", err, out.String())
+		}
+		return status.CaseMission.MissionCommanderActionQueue, status.CaseMission.OpenDecisionHandoffs
+	}
+	runDecisionPreviewFromRequest := func(request *missionCommanderDriverRequestSnapshot, decision string) struct {
+		IsMutation                       bool                             `json:"isMutation"`
+		Applied                          bool                             `json:"applied"`
+		Reason                           string                           `json:"reason"`
+		EventSHA256                      string                           `json:"eventSha256"`
+		RecordCommand                    string                           `json:"recordCommand"`
+		WouldMissionCommanderAction      missionCommanderActionSnapshot   `json:"wouldMissionCommanderAction"`
+		WouldMissionCommanderNextActions []missionCommanderNextActionItem `json:"wouldMissionCommanderNextActions"`
+	} {
+		t.Helper()
+		args, ok := missionCommanderDriverRequestCommandCLIArgs(t, request)
+		if !ok {
+			t.Fatalf("driver request loop expected executable decision preview request: %+v", request)
+		}
+		for i := 0; i < len(args)-1; i++ {
+			if args[i] == "-Decision" && args[i+1] == "<accept|reject|defer|supersede>" {
+				args[i+1] = decision
+			}
+		}
+		args = append(args, "-Target", caseRoot, "-Pack", "_template", "-Format", "json")
+		out.Reset()
+		if err := Run(args, &out); err != nil {
+			t.Fatal(err)
+		}
+		var preview struct {
+			IsMutation                       bool                             `json:"isMutation"`
+			Applied                          bool                             `json:"applied"`
+			Reason                           string                           `json:"reason"`
+			EventSHA256                      string                           `json:"eventSha256"`
+			RecordCommand                    string                           `json:"recordCommand"`
+			WouldMissionCommanderAction      missionCommanderActionSnapshot   `json:"wouldMissionCommanderAction"`
+			WouldMissionCommanderNextActions []missionCommanderNextActionItem `json:"wouldMissionCommanderNextActions"`
+		}
+		if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+			t.Fatalf("driver request loop decision preview JSON did not decode: %v\n%s", err, out.String())
+		}
+		return preview
+	}
+	runReturnedRecordCommand := func(command string) struct {
+		IsMutation                  bool                             `json:"isMutation"`
+		Applied                     bool                             `json:"applied"`
+		EventSHA256                 string                           `json:"eventSha256"`
+		ExpectedEventSHA256         string                           `json:"expectedEventSha256"`
+		MissionCommanderAction      missionCommanderActionSnapshot   `json:"missionCommanderAction"`
+		MissionCommanderNextActions []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
+	} {
+		t.Helper()
+		out.Reset()
+		if err := Run(rekitCommandCLIArgs(t, command), &out); err != nil {
+			t.Fatal(err)
+		}
+		var applied struct {
+			IsMutation                  bool                             `json:"isMutation"`
+			Applied                     bool                             `json:"applied"`
+			EventSHA256                 string                           `json:"eventSha256"`
+			ExpectedEventSHA256         string                           `json:"expectedEventSha256"`
+			MissionCommanderAction      missionCommanderActionSnapshot   `json:"missionCommanderAction"`
+			MissionCommanderNextActions []missionCommanderNextActionItem `json:"missionCommanderNextActions"`
+		}
+		if err := json.Unmarshal(out.Bytes(), &applied); err != nil {
+			t.Fatalf("driver request loop recordCommand JSON did not decode: %v\n%s", err, out.String())
+		}
+		return applied
+	}
+	runContinueApplyFromRequest := func(request *missionCommanderDriverRequestSnapshot) struct {
+		Command                     string                              `json:"command"`
+		IsMutation                  bool                                `json:"isMutation"`
+		Applied                     bool                                `json:"applied"`
+		Blocked                     bool                                `json:"blocked"`
+		OpenDecisionRequired        bool                                `json:"openDecisionRequired"`
+		ExecutorAction              executorActionSnapshot              `json:"executorAction"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		LaneTakeoverPackage         *laneTakeoverPackage                `json:"laneTakeoverPackage"`
+	} {
+		t.Helper()
+		args, ok := missionCommanderDriverRequestCommandCLIArgs(t, request)
+		if !ok {
+			t.Fatalf("driver request loop expected executable continue request: %+v", request)
+		}
+		args = append(args, "-Target", caseRoot, "-Pack", "_template", "-Apply", "-Format", "json")
+		out.Reset()
+		if err := Run(args, &out); err != nil {
+			t.Fatal(err)
+		}
+		var continued struct {
+			Command                     string                              `json:"command"`
+			IsMutation                  bool                                `json:"isMutation"`
+			Applied                     bool                                `json:"applied"`
+			Blocked                     bool                                `json:"blocked"`
+			OpenDecisionRequired        bool                                `json:"openDecisionRequired"`
+			ExecutorAction              executorActionSnapshot              `json:"executorAction"`
+			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+			LaneTakeoverPackage         *laneTakeoverPackage                `json:"laneTakeoverPackage"`
+		}
+		if err := json.Unmarshal(out.Bytes(), &continued); err != nil {
+			t.Fatalf("driver request loop continue apply JSON did not decode: %v\n%s", err, out.String())
+		}
+		return continued
+	}
+
+	queue, handoffs := statusQueue()
+	current := queue.CurrentAction
+	if current == nil || current.Command == "" || len(handoffs) != 1 || handoffs[0].WhatIfCommand == "" {
+		t.Fatalf("driver request loop did not start from open decision status queue: queue=%+v handoffs=%+v", queue, handoffs)
+	}
+	decisionRequest := requireMissionCommanderDriverRequest(t, queue, "preview-command", "preview-current", current.Command, true, false, true)
+	beforeDecisionPreview := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	preview := runDecisionPreviewFromRequest(decisionRequest, "accept")
+	if preview.IsMutation || preview.Applied || preview.Reason != "what-if" || len(preview.EventSHA256) != 64 || preview.RecordCommand == "" || preview.WouldMissionCommanderAction.State != "ready-to-continue" || !containsMissionCommanderNextAction(preview.WouldMissionCommanderNextActions, "missionCommanderActions", "/rekit continue main", false, false) {
+		t.Fatalf("driver request loop preview did not return hash-bound follow-up receipt: %+v", preview)
+	}
+	assertSnapshotEqual(t, beforeDecisionPreview, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	applied := runReturnedRecordCommand(preview.RecordCommand)
+	if !applied.IsMutation || !applied.Applied || applied.EventSHA256 != preview.EventSHA256 || applied.ExpectedEventSHA256 != preview.EventSHA256 || applied.MissionCommanderAction.State != "ready-to-continue" || !containsMissionCommanderNextAction(applied.MissionCommanderNextActions, "missionCommanderActions", "/rekit continue main", false, false) {
+		t.Fatalf("driver request loop did not consume returned recordCommand receipt: preview=%+v applied=%+v", preview, applied)
+	}
+	assertFileNotExists(t, filepath.Join(factsRoot, "authority.jsonl"))
+	assertFileNotExists(t, filepath.Join(factsRoot, "confirmed.jsonl"))
+
+	readyQueue, readyHandoffs := statusQueue()
+	readyCurrent := readyQueue.CurrentAction
+	if len(readyHandoffs) != 0 || readyCurrent == nil || readyCurrent.Command != "/rekit continue main" || readyCurrent.RequiresReview || readyCurrent.Blocked {
+		t.Fatalf("driver request loop refresh did not advance to ready continue queue: queue=%+v handoffs=%+v", readyQueue, readyHandoffs)
+	}
+	readyRequest := requireMissionCommanderDriverRequest(t, readyQueue, "execute-command", "apply-or-run-current", readyCurrent.Command, true, false, false)
+	if readyRequest.Command == decisionRequest.Command {
+		t.Fatalf("driver request loop reused stale decision request after refresh: decision=%+v ready=%+v", decisionRequest, readyRequest)
+	}
+
+	factsBeforeContinue := snapshotFiles(t, factsRoot)
+	continued := runContinueApplyFromRequest(readyRequest)
+	if continued.Command != "continue" || !continued.IsMutation || !continued.Applied || continued.Blocked || continued.OpenDecisionRequired || continued.ExecutorAction.Blocked || !continued.ExecutorAction.Ready {
+		t.Fatalf("driver request loop continue apply did not preserve ready lane closure: %+v", continued)
+	}
+	returnedRequest := requireMissionCommanderDriverRequest(t, continued.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue main", true, false, false)
+	if returnedRequest.Command != readyRequest.Command {
+		t.Fatalf("driver request loop returned stale continue receipt: before=%+v returned=%+v", readyRequest, returnedRequest)
+	}
+	if continued.LaneTakeoverPackage == nil || !continued.LaneTakeoverPackage.Ready || !continued.LaneTakeoverPackage.ContinueReady || continued.LaneTakeoverPackage.Blocked || continued.LaneTakeoverPackage.CurrentCommand != "/rekit continue main" {
+		t.Fatalf("driver request loop continue apply omitted takeover receipt: %+v", continued.LaneTakeoverPackage)
+	}
+	takeoverRequest := requireMissionCommanderDriverRequest(t, continued.LaneTakeoverPackage.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue main", true, false, false)
+	if takeoverRequest.Command != returnedRequest.Command {
+		t.Fatalf("driver request loop takeover receipt drifted from returned queue: returned=%+v takeover=%+v", returnedRequest, takeoverRequest)
+	}
+	finalQueue, finalHandoffs := statusQueue()
+	finalRequest := requireMissionCommanderDriverRequest(t, finalQueue, "execute-command", "apply-or-run-current", "/rekit continue main", true, false, false)
+	if len(finalHandoffs) != 0 || finalRequest.Command != returnedRequest.Command {
+		t.Fatalf("driver request loop status refresh drifted from returned continue receipt: returned=%+v final=%+v handoffs=%+v", returnedRequest, finalRequest, finalHandoffs)
+	}
+	assertSnapshotEqual(t, factsBeforeContinue, snapshotFiles(t, factsRoot))
+	assertFileNotExists(t, filepath.Join(factsRoot, "authority.jsonl"))
+	assertFileNotExists(t, filepath.Join(factsRoot, "confirmed.jsonl"))
+}
+
+func seedMainOpenDecisionCase(t *testing.T, caseRoot string) {
+	t.Helper()
+	for _, dir := range []string{
+		".rekit/facts",
+		".rekit/lanes/main",
+		"workspace/main/main",
+	} {
+		if err := os.MkdirAll(filepath.Join(caseRoot, filepath.FromSlash(dir)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	board := `{"schemaVersion":1,"caseRoot":"` + filepath.ToSlash(caseRoot) + `","repoRoot":"` + filepath.ToSlash(repoRoot(t)) + `","pack":"_template","automationMode":"assist","defaultAuthorityLane":"main","lanes":[{"id":"main","type":"main","title":"Main","status":"open","authority":true,"workspace":"workspace/main/main"}],"factsRoot":".rekit/facts"}`
+	writeCaseFile(t, caseRoot, ".rekit/board.json", board)
+	writeCaseFile(t, caseRoot, ".rekit/lanes/main/lane.json", `{"schemaVersion":1,"id":"main","type":"main","title":"Main","status":"open","authority":true,"workspace":"workspace/main/main","laneRoot":".rekit/lanes/main"}`)
+	factsRoot := filepath.Join(caseRoot, ".rekit", "facts")
+	writeFactFile(t, factsRoot, "requests.jsonl", nil)
+	writeFactFile(t, factsRoot, "candidates.jsonl", []string{`{"eventId":"cand-main-open-1","kind":"candidate","lane":"main","subject":"main blocker","summary":"candidate needs decision","status":"open","confidence":"high","target":"candidate-main","evidenceRefs":"evidence/main-candidate.json"}`})
+	writeFactFile(t, factsRoot, "decisions.jsonl", nil)
+	writeFactFile(t, factsRoot, "interventions.jsonl", nil)
 }
 
 func TestRunStatusCaseMissionIncludesExecutionEvidenceReview(t *testing.T) {
