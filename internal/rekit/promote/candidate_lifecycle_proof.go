@@ -12,33 +12,36 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
 type CandidateLifecycleProofDraftResult struct {
-	SchemaVersion  int                         `json:"schemaVersion"`
-	Command        string                      `json:"command"`
-	Kind           string                      `json:"kind"`
-	Mode           string                      `json:"mode"`
-	CaseRoot       string                      `json:"caseRoot"`
-	RepoRoot       string                      `json:"repoRoot"`
-	Pack           string                      `json:"pack"`
-	PacketPath     string                      `json:"packetPath"`
-	PacketHash     string                      `json:"packetHash"`
-	ProofPath      string                      `json:"proofPath"`
-	ProofType      string                      `json:"proofType"`
-	ProofSHA256    string                      `json:"proofSha256"`
-	CandidatePath  string                      `json:"candidatePath"`
-	PackTarget     string                      `json:"packTarget,omitempty"`
-	Reason         string                      `json:"reason"`
-	Actor          string                      `json:"actor"`
-	IsMutation     bool                        `json:"isMutation"`
-	Applied        bool                        `json:"applied"`
-	AlreadyWritten bool                        `json:"alreadyWritten,omitempty"`
-	Proof          CandidateLifecycleProofNote `json:"proof"`
-	PreviewCommand string                      `json:"previewCommand,omitempty"`
-	ApplyCommand   string                      `json:"applyCommand,omitempty"`
-	NextSteps      []string                    `json:"nextSteps"`
-	Boundary       []string                    `json:"boundary"`
+	SchemaVersion               int                                 `json:"schemaVersion"`
+	Command                     string                              `json:"command"`
+	Kind                        string                              `json:"kind"`
+	Mode                        string                              `json:"mode"`
+	CaseRoot                    string                              `json:"caseRoot"`
+	RepoRoot                    string                              `json:"repoRoot"`
+	Pack                        string                              `json:"pack"`
+	PacketPath                  string                              `json:"packetPath"`
+	PacketHash                  string                              `json:"packetHash"`
+	ProofPath                   string                              `json:"proofPath"`
+	ProofType                   string                              `json:"proofType"`
+	ProofSHA256                 string                              `json:"proofSha256"`
+	CandidatePath               string                              `json:"candidatePath"`
+	PackTarget                  string                              `json:"packTarget,omitempty"`
+	Reason                      string                              `json:"reason"`
+	Actor                       string                              `json:"actor"`
+	IsMutation                  bool                                `json:"isMutation"`
+	Applied                     bool                                `json:"applied"`
+	AlreadyWritten              bool                                `json:"alreadyWritten,omitempty"`
+	Proof                       CandidateLifecycleProofNote         `json:"proof"`
+	PreviewCommand              string                              `json:"previewCommand,omitempty"`
+	ApplyCommand                string                              `json:"applyCommand,omitempty"`
+	MissionCommanderAction      mission.MissionCommanderAction      `json:"missionCommanderAction"`
+	MissionCommanderActionQueue mission.MissionCommanderActionQueue `json:"missionCommanderActionQueue"`
+	NextSteps                   []string                            `json:"nextSteps"`
+	Boundary                    []string                            `json:"boundary"`
 }
 
 type CandidateLifecycleProofNote struct {
@@ -94,7 +97,7 @@ func DraftCandidateLifecycleProof(repoRoot, caseRoot, pack string, opt Candidate
 	}
 	result := prepared.result
 	if opt.WhatIf {
-		return result, nil
+		return finalizeCandidateLifecycleProofDraftResult(result), nil
 	}
 	if !strings.EqualFold(result.ProofSHA256, strings.TrimSpace(opt.ExpectedProofSHA256)) {
 		return CandidateLifecycleProofDraftResult{}, fmt.Errorf("candidate lifecycle proof draft changed after preview")
@@ -109,7 +112,7 @@ func DraftCandidateLifecycleProof(repoRoot, caseRoot, pack string, opt Candidate
 		result.Mode = "lifecycle-proof-drafted"
 		result.NextSteps = []string{"review the drafted lifecycle proof note", "rerun release-check or status to refresh pack-memory proof summary", "continue cleanup/reconsume flow only after required lifecycle proof is present"}
 	}
-	return result, nil
+	return finalizeCandidateLifecycleProofDraftResult(result), nil
 }
 
 func prepareCandidateLifecycleProofDraft(repoRoot, caseRoot, pack string, opt CandidateReviewProofDraftOptions) (preparedCandidateLifecycleProofDraft, error) {

@@ -13,6 +13,7 @@ import (
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
 type CandidateReviewProofDraftOptions struct {
@@ -30,33 +31,35 @@ type CandidateReviewProofDraftOptions struct {
 }
 
 type CandidateReviewProofDraftResult struct {
-	SchemaVersion  int                      `json:"schemaVersion"`
-	Command        string                   `json:"command"`
-	Kind           string                   `json:"kind"`
-	Mode           string                   `json:"mode"`
-	CaseRoot       string                   `json:"caseRoot"`
-	RepoRoot       string                   `json:"repoRoot"`
-	Pack           string                   `json:"pack"`
-	PacketPath     string                   `json:"packetPath"`
-	DecisionPath   string                   `json:"decisionPath,omitempty"`
-	PacketHash     string                   `json:"packetHash"`
-	DecisionHash   string                   `json:"decisionHash,omitempty"`
-	ProofPath      string                   `json:"proofPath"`
-	ProofType      string                   `json:"proofType"`
-	ProofSHA256    string                   `json:"proofSha256"`
-	CandidatePath  string                   `json:"candidatePath"`
-	PackTarget     string                   `json:"packTarget,omitempty"`
-	Decision       string                   `json:"decision"`
-	Reason         string                   `json:"reason"`
-	Actor          string                   `json:"actor"`
-	IsMutation     bool                     `json:"isMutation"`
-	Applied        bool                     `json:"applied"`
-	AlreadyWritten bool                     `json:"alreadyWritten,omitempty"`
-	Proof          CandidateReviewProofNote `json:"proof"`
-	PreviewCommand string                   `json:"previewCommand,omitempty"`
-	ApplyCommand   string                   `json:"applyCommand,omitempty"`
-	NextSteps      []string                 `json:"nextSteps"`
-	Boundary       []string                 `json:"boundary"`
+	SchemaVersion               int                                 `json:"schemaVersion"`
+	Command                     string                              `json:"command"`
+	Kind                        string                              `json:"kind"`
+	Mode                        string                              `json:"mode"`
+	CaseRoot                    string                              `json:"caseRoot"`
+	RepoRoot                    string                              `json:"repoRoot"`
+	Pack                        string                              `json:"pack"`
+	PacketPath                  string                              `json:"packetPath"`
+	DecisionPath                string                              `json:"decisionPath,omitempty"`
+	PacketHash                  string                              `json:"packetHash"`
+	DecisionHash                string                              `json:"decisionHash,omitempty"`
+	ProofPath                   string                              `json:"proofPath"`
+	ProofType                   string                              `json:"proofType"`
+	ProofSHA256                 string                              `json:"proofSha256"`
+	CandidatePath               string                              `json:"candidatePath"`
+	PackTarget                  string                              `json:"packTarget,omitempty"`
+	Decision                    string                              `json:"decision"`
+	Reason                      string                              `json:"reason"`
+	Actor                       string                              `json:"actor"`
+	IsMutation                  bool                                `json:"isMutation"`
+	Applied                     bool                                `json:"applied"`
+	AlreadyWritten              bool                                `json:"alreadyWritten,omitempty"`
+	Proof                       CandidateReviewProofNote            `json:"proof"`
+	PreviewCommand              string                              `json:"previewCommand,omitempty"`
+	ApplyCommand                string                              `json:"applyCommand,omitempty"`
+	MissionCommanderAction      mission.MissionCommanderAction      `json:"missionCommanderAction"`
+	MissionCommanderActionQueue mission.MissionCommanderActionQueue `json:"missionCommanderActionQueue"`
+	NextSteps                   []string                            `json:"nextSteps"`
+	Boundary                    []string                            `json:"boundary"`
 }
 
 type CandidateReviewCleanupProof struct {
@@ -129,7 +132,7 @@ func DraftCandidateReviewProof(repoRoot, caseRoot, pack string, opt CandidateRev
 	}
 	result := prepared.result
 	if opt.WhatIf {
-		return result, nil
+		return finalizeCandidateReviewProofDraftResult(result), nil
 	}
 	if !strings.EqualFold(result.ProofSHA256, strings.TrimSpace(opt.ExpectedProofSHA256)) {
 		return CandidateReviewProofDraftResult{}, fmt.Errorf("candidate review proof draft changed after preview")
@@ -144,7 +147,7 @@ func DraftCandidateReviewProof(repoRoot, caseRoot, pack string, opt CandidateRev
 		result.Mode = "proof-drafted"
 		result.NextSteps = []string{"review the drafted proof note", "rerun release-check or status to refresh pack-memory proof summary", "continue candidate decision/cleanup/reconsume flow only after required proof is present"}
 	}
-	return result, nil
+	return finalizeCandidateReviewProofDraftResult(result), nil
 }
 
 func prepareCandidateReviewProofDraft(repoRoot, caseRoot, pack string, opt CandidateReviewProofDraftOptions) (preparedCandidateReviewProofDraft, error) {

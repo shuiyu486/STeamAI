@@ -26,6 +26,7 @@ func TestDraftCandidateDecisionsPreviewsAppliesAndReplaysDecisionFile(t *testing
 	if preview.IsMutation || preview.Applied || preview.DecisionSHA256 == "" || preview.PacketHash == "" || preview.Accepted != 1 || preview.Rejected != 1 || preview.DecisionCount != 2 || len(preview.Decisions) != 2 || preview.ApplyCommand == "" || !strings.Contains(preview.ApplyCommand, "-ExpectedDecisionSha256") {
 		t.Fatalf("unexpected candidate decision draft preview: %+v", preview)
 	}
+	assertCandidateDraftDriverRequestForTest(t, preview.MissionCommanderActionQueue, "ready-for-pack-memory-decision-draft-apply", preview.ApplyCommand, "preview-command", "preview-current", true)
 	if _, err := os.Stat(decisionPath); !os.IsNotExist(err) {
 		t.Fatalf("candidate decision draft WhatIf wrote decision file: %v", err)
 	}
@@ -45,6 +46,7 @@ func TestDraftCandidateDecisionsPreviewsAppliesAndReplaysDecisionFile(t *testing
 	if !applied.IsMutation || !applied.Applied || applied.AlreadyWritten || applied.DecisionSHA256 != preview.DecisionSHA256 {
 		t.Fatalf("unexpected candidate decision draft apply: %+v", applied)
 	}
+	assertCandidateDraftDriverRequestForTest(t, applied.MissionCommanderActionQueue, "pack-memory-decision-drafted-refresh-required", candidateDraftRefreshStatusCommand, "execute-command", "apply-or-run-current", false)
 	data, err := os.ReadFile(decisionPath)
 	if err != nil {
 		t.Fatal(err)
@@ -63,6 +65,7 @@ func TestDraftCandidateDecisionsPreviewsAppliesAndReplaysDecisionFile(t *testing
 	if !replay.Applied || !replay.AlreadyWritten {
 		t.Fatalf("candidate decision draft replay was not idempotent: %+v", replay)
 	}
+	assertCandidateDraftDriverRequestForTest(t, replay.MissionCommanderActionQueue, "pack-memory-decision-already-drafted-refresh-required", candidateDraftRefreshStatusCommand, "execute-command", "apply-or-run-current", false)
 	if _, err := ApplyCandidateDecisions(repoRoot, caseRoot, pack, CandidateDecisionOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, WhatIf: true}); err != nil {
 		t.Fatalf("drafted candidate decision should be accepted by existing decision planner: %v", err)
 	}
@@ -83,6 +86,7 @@ func TestDraftCandidateReviewProofPreviewsAppliesAndReplaysProofNote(t *testing.
 	if preview.IsMutation || preview.Applied || preview.ProofSHA256 == "" || preview.PacketHash == "" || preview.ProofPath != proofPath || preview.Proof.CandidateHash == "" || preview.Proof.PackTargetHash == "" || preview.Proof.CandidatePath == managed.CandidatePath || !strings.HasPrefix(preview.Proof.CandidatePath, "packs/") || preview.ApplyCommand == "" || !strings.Contains(preview.ApplyCommand, "-ExpectedProofSha256") {
 		t.Fatalf("unexpected candidate review proof preview: %+v", preview)
 	}
+	assertCandidateDraftDriverRequestForTest(t, preview.MissionCommanderActionQueue, "ready-for-pack-memory-proof-draft-apply", preview.ApplyCommand, "preview-command", "preview-current", true)
 	if _, err := os.Stat(proofPath); !os.IsNotExist(err) {
 		t.Fatalf("candidate review proof WhatIf wrote proof file: %v", err)
 	}
@@ -94,6 +98,7 @@ func TestDraftCandidateReviewProofPreviewsAppliesAndReplaysProofNote(t *testing.
 	if !applied.IsMutation || !applied.Applied || applied.AlreadyWritten || applied.ProofSHA256 != preview.ProofSHA256 {
 		t.Fatalf("unexpected candidate review proof apply: %+v", applied)
 	}
+	assertCandidateDraftDriverRequestForTest(t, applied.MissionCommanderActionQueue, "pack-memory-proof-drafted-refresh-required", candidateDraftRefreshStatusCommand, "execute-command", "apply-or-run-current", false)
 	data, err := os.ReadFile(proofPath)
 	if err != nil {
 		t.Fatal(err)
@@ -115,6 +120,7 @@ func TestDraftCandidateReviewProofPreviewsAppliesAndReplaysProofNote(t *testing.
 	if !replay.IsMutation || !replay.Applied || !replay.AlreadyWritten || replay.Mode != "already-drafted" || replay.ApplyCommand != "" || replay.ProofSHA256 != preview.ProofSHA256 || replay.ProofPath != proofPath || !slices.Contains(replay.NextSteps, "the exact proof note already exists") || !slices.Contains(replay.NextSteps, "rerun release-check or status to refresh pack-memory proof summary") {
 		t.Fatalf("candidate review proof replay did not return already-drafted handoff: %+v", replay)
 	}
+	assertCandidateDraftDriverRequestForTest(t, replay.MissionCommanderActionQueue, "pack-memory-proof-already-drafted-refresh-required", candidateDraftRefreshStatusCommand, "execute-command", "apply-or-run-current", false)
 }
 
 func TestDraftCandidateLifecycleProofPreviewsAppliesAndReplaysProofNote(t *testing.T) {
@@ -131,6 +137,7 @@ func TestDraftCandidateLifecycleProofPreviewsAppliesAndReplaysProofNote(t *testi
 	if preview.IsMutation || preview.Applied || preview.ProofSHA256 == "" || preview.PacketHash == "" || preview.ProofPath != proofPath || preview.Proof.Kind != "pack-memory-candidate-lifecycle-proof" || preview.Proof.ProofType != "fresh-case-reconsume-proof" || preview.Proof.PackTarget != "packs/"+pack+"/references/template/README.md" || len(preview.Proof.Checks) != 2 || preview.Proof.Checks[0].Name != "fresh-case-reconsume" || preview.Proof.Checks[1].Name != "pack-doctor" || !strings.Contains(preview.ApplyCommand, "-ExpectedProofSha256") || strings.Contains(preview.ApplyCommand, "-CandidateDecisionPath") {
 		t.Fatalf("unexpected candidate lifecycle proof preview: %+v", preview)
 	}
+	assertCandidateDraftDriverRequestForTest(t, preview.MissionCommanderActionQueue, "ready-for-pack-memory-lifecycle-proof-draft-apply", preview.ApplyCommand, "preview-command", "preview-current", true)
 	if _, err := os.Stat(proofPath); !os.IsNotExist(err) {
 		t.Fatalf("candidate lifecycle proof WhatIf wrote proof file: %v", err)
 	}
@@ -142,6 +149,7 @@ func TestDraftCandidateLifecycleProofPreviewsAppliesAndReplaysProofNote(t *testi
 	if !applied.IsMutation || !applied.Applied || applied.AlreadyWritten || applied.ProofSHA256 != preview.ProofSHA256 {
 		t.Fatalf("unexpected candidate lifecycle proof apply: %+v", applied)
 	}
+	assertCandidateDraftDriverRequestForTest(t, applied.MissionCommanderActionQueue, "pack-memory-lifecycle-proof-drafted-refresh-required", candidateDraftRefreshStatusCommand, "execute-command", "apply-or-run-current", false)
 	data, err := os.ReadFile(proofPath)
 	if err != nil {
 		t.Fatal(err)
@@ -163,6 +171,7 @@ func TestDraftCandidateLifecycleProofPreviewsAppliesAndReplaysProofNote(t *testi
 	if !replay.IsMutation || !replay.Applied || !replay.AlreadyWritten || replay.Mode != "already-drafted" || replay.ApplyCommand != "" || replay.ProofSHA256 != preview.ProofSHA256 || replay.ProofPath != proofPath || !slices.Contains(replay.NextSteps, "the exact lifecycle proof note already exists") || !slices.Contains(replay.NextSteps, "rerun release-check or status to refresh pack-memory proof summary") {
 		t.Fatalf("candidate lifecycle proof replay did not return already-drafted handoff: %+v", replay)
 	}
+	assertCandidateDraftDriverRequestForTest(t, replay.MissionCommanderActionQueue, "pack-memory-lifecycle-proof-already-drafted-refresh-required", candidateDraftRefreshStatusCommand, "execute-command", "apply-or-run-current", false)
 }
 
 func TestDraftCandidateLifecycleProofRejectsUnsafeInputs(t *testing.T) {
@@ -257,6 +266,7 @@ func TestDraftCandidateCleanupReviewProofPreviewsAppliesAndReplaysProofNote(t *t
 	if preview.Proof.Cleanup.DecisionReceiptPath != candidateReviewProofRepoRelative(repoRoot, appliedDecision.ReceiptPath) || preview.Proof.CandidateHash != fileSHA256(appliedDecision.Actions[0].CandidateBackupPath) {
 		t.Fatalf("cleanup proof was not receipt/backup-bound: %+v action=%+v", preview.Proof, appliedDecision.Actions[0])
 	}
+	assertCandidateDraftDriverRequestForTest(t, preview.MissionCommanderActionQueue, "ready-for-pack-memory-proof-draft-apply", preview.ApplyCommand, "preview-command", "preview-current", true)
 	if _, err := os.Stat(proofPath); !os.IsNotExist(err) {
 		t.Fatalf("candidate cleanup proof WhatIf wrote proof file: %v", err)
 	}
@@ -268,6 +278,7 @@ func TestDraftCandidateCleanupReviewProofPreviewsAppliesAndReplaysProofNote(t *t
 	if !applied.IsMutation || !applied.Applied || applied.AlreadyWritten || applied.ProofSHA256 != preview.ProofSHA256 {
 		t.Fatalf("unexpected candidate cleanup proof apply: %+v", applied)
 	}
+	assertCandidateDraftDriverRequestForTest(t, applied.MissionCommanderActionQueue, "pack-memory-proof-drafted-refresh-required", candidateDraftRefreshStatusCommand, "execute-command", "apply-or-run-current", false)
 	data, err := os.ReadFile(proofPath)
 	if err != nil {
 		t.Fatal(err)
@@ -289,6 +300,7 @@ func TestDraftCandidateCleanupReviewProofPreviewsAppliesAndReplaysProofNote(t *t
 	if !replay.IsMutation || !replay.Applied || !replay.AlreadyWritten || replay.Mode != "already-drafted" || replay.ApplyCommand != "" || replay.ProofSHA256 != preview.ProofSHA256 || replay.ProofPath != proofPath || !slices.Contains(replay.NextSteps, "the exact cleanup proof note already exists") || !slices.Contains(replay.NextSteps, "rerun release-check or status to refresh pack-memory proof summary") {
 		t.Fatalf("candidate cleanup proof replay did not return already-drafted handoff: %+v", replay)
 	}
+	assertCandidateDraftDriverRequestForTest(t, replay.MissionCommanderActionQueue, "pack-memory-proof-already-drafted-refresh-required", candidateDraftRefreshStatusCommand, "execute-command", "apply-or-run-current", false)
 }
 
 func TestDraftCandidateCleanupReviewProofRejectsUnsafeInputs(t *testing.T) {
@@ -431,6 +443,26 @@ func candidateDecisionDraftNextActionForTest(items []mission.MissionCommanderNex
 		}
 	}
 	return false
+}
+
+func assertCandidateDraftDriverRequestForTest(t *testing.T, queue mission.MissionCommanderActionQueue, state, command, kind, stepID string, requiresReview bool) {
+	t.Helper()
+	if queue.CurrentAction == nil {
+		t.Fatalf("candidate draft action queue omitted current action: %+v", queue)
+	}
+	if queue.CurrentAction.State != state || queue.CurrentAction.Command != command || queue.CurrentAction.RequiresReview != requiresReview {
+		t.Fatalf("candidate draft current action mismatch: %+v", queue.CurrentAction)
+	}
+	request := queue.CurrentDriverRequest
+	if request == nil {
+		t.Fatalf("candidate draft action queue omitted current driver request: %+v", queue)
+	}
+	if request.State != state || request.Command != command || request.Kind != kind || request.RunLoopStepID != stepID || request.RequiresReview != requiresReview || !request.CommandExecutable || request.Blocked {
+		t.Fatalf("candidate draft driver request mismatch: %+v", request)
+	}
+	if request.ExpectedReceipt.State != "refresh-required" {
+		t.Fatalf("candidate draft driver request should require refresh receipt: %+v", request.ExpectedReceipt)
+	}
 }
 
 func assertCandidateDecisionRunbookContains(t *testing.T, steps []string, wants ...string) {

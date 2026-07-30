@@ -12335,6 +12335,68 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	decisionPath := filepath.Join(reviewRoot, "decisions.json")
 
 	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var proofRequiredStatus struct {
+		IsMutation     bool `json:"isMutation"`
+		ProjectHandoff *struct {
+			PackMemoryCandidates struct {
+				MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+				Packs                       []struct {
+					Pack          string                               `json:"pack"`
+					ReviewSummary packMemoryCandidateReviewSummaryJSON `json:"reviewSummary"`
+				} `json:"packs"`
+			} `json:"packMemoryCandidates"`
+		} `json:"projectHandoff"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &proofRequiredStatus); err != nil {
+		t.Fatalf("candidate proof-required status stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if proofRequiredStatus.IsMutation || proofRequiredStatus.ProjectHandoff == nil || len(proofRequiredStatus.ProjectHandoff.PackMemoryCandidates.Packs) != 1 {
+		t.Fatalf("candidate proof-required status omitted pack-memory handoff: %+v", proofRequiredStatus)
+	}
+	packMemoryProofRequest := requireMissionCommanderDriverRequest(t, proofRequiredStatus.ProjectHandoff.PackMemoryCandidates.MissionCommanderActionQueue, "preview-command", "preview-current", proofRequiredStatus.ProjectHandoff.PackMemoryCandidates.Packs[0].ReviewSummary.ProofSummary.NextMissingProof.DraftCommand, true, false, true)
+	if packMemoryProofRequest.State != "pack-memory-proof-required" || packMemoryProofRequest.Label != "_template" || !strings.Contains(packMemoryProofRequest.Command, "-WhatIf") || strings.Contains(packMemoryProofRequest.Command, "-ExpectedProofSha256") || !strings.Contains(packMemoryProofRequest.Command, created.ReviewWorkspace.PacketPath) || strings.Contains(packMemoryProofRequest.Command, "<packet.json>") {
+		t.Fatalf("pack-memory status did not expose packet-bound proof draft preview driver request: %+v", packMemoryProofRequest)
+	}
+	out.Reset()
+	args, ok := missionCommanderDriverRequestCommandCLIArgs(t, packMemoryProofRequest)
+	if !ok {
+		t.Fatalf("pack-memory proof driver request should be executable: %+v", packMemoryProofRequest)
+	}
+	args = fillPackMemoryProofPreviewDriverArgsForTest(args, "accept", "reviewed bounded candidate diff", "mission-commander", created.ReviewWorkspace.CombinedDiffPath)
+	args = append(args, "-Target", caseRoot, "-Pack", "_template")
+	if err := Run(args, &out); err != nil {
+		t.Fatal(err)
+	}
+	var proofPreviewFromStatus promote.CandidateReviewProofDraftResult
+	if err := json.Unmarshal(out.Bytes(), &proofPreviewFromStatus); err != nil {
+		t.Fatalf("pack-memory proof driver request preview JSON did not decode: %v\n%s", err, out.String())
+	}
+	if proofPreviewFromStatus.IsMutation || proofPreviewFromStatus.Applied || proofPreviewFromStatus.ProofSHA256 == "" || proofPreviewFromStatus.ApplyCommand == "" || !strings.Contains(proofPreviewFromStatus.ApplyCommand, "-ExpectedProofSha256") {
+		t.Fatalf("pack-memory proof driver request did not produce hash-bound preview: %+v", proofPreviewFromStatus)
+	}
+	returnedProofApplyRequest := requireTypedMissionCommanderDriverRequest(t, proofPreviewFromStatus.MissionCommanderActionQueue, "preview-command", "preview-current", proofPreviewFromStatus.ApplyCommand, true, false, true)
+	out.Reset()
+	returnedProofApplyArgs, ok := typedMissionCommanderDriverRequestCommandCLIArgs(t, returnedProofApplyRequest)
+	if !ok {
+		t.Fatalf("returned pack-memory proof apply driver request should be executable: %+v", returnedProofApplyRequest)
+	}
+	returnedProofApplyArgs = append(returnedProofApplyArgs, "-Target", caseRoot, "-Pack", "_template")
+	if err := Run(returnedProofApplyArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var proofAppliedFromDriver promote.CandidateReviewProofDraftResult
+	if err := json.Unmarshal(out.Bytes(), &proofAppliedFromDriver); err != nil {
+		t.Fatalf("returned pack-memory proof apply driver request JSON did not decode: %v\n%s", err, out.String())
+	}
+	if !proofAppliedFromDriver.IsMutation || !proofAppliedFromDriver.Applied || proofAppliedFromDriver.AlreadyWritten || proofAppliedFromDriver.ProofSHA256 != proofPreviewFromStatus.ProofSHA256 {
+		t.Fatalf("returned pack-memory proof apply driver request did not write proof: %+v", proofAppliedFromDriver)
+	}
+	requireTypedMissionCommanderDriverRequest(t, proofAppliedFromDriver.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit status -Format json", true, false, false)
+
+	out.Reset()
 	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-DraftCandidateDecision", "-Decision", "accept-managed-reject-tooling", "-Reason", "reviewed bounded candidate diff", "-Actor", "mission-commander", "-EvidenceRefs", created.ReviewWorkspace.CombinedDiffPath, "-WhatIf", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
@@ -19289,8 +19351,8 @@ type reviewerDispatchIntakeCLIItem struct {
 	ReviewerSessionReceiptFailure           string   `json:"reviewerSessionReceiptFailure"`
 	ReviewerDispatchRecordCommand           string   `json:"reviewerDispatchRecordCommand"`
 	ReviewerCompletionRecordCommand         string   `json:"reviewerCompletionRecordCommand"`
-		ReviewerResultInputSaveCommand          string   `json:"reviewerResultInputSaveCommand"`
-		ReviewerResultInputSaveApplyCommand     string   `json:"reviewerResultInputSaveApplyCommand"`
+	ReviewerResultInputSaveCommand          string   `json:"reviewerResultInputSaveCommand"`
+	ReviewerResultInputSaveApplyCommand     string   `json:"reviewerResultInputSaveApplyCommand"`
 	ReviewerResultSourceCaptureCommand      string   `json:"reviewerResultSourceCaptureCommand"`
 	ReviewerResultSourceCaptureApplyCommand string   `json:"reviewerResultSourceCaptureApplyCommand"`
 	ReviewerResultStagingCommand            string   `json:"reviewerResultStagingCommand"`
@@ -20691,23 +20753,38 @@ func requireMissionCommanderDriverRequest(t *testing.T, queue missionCommanderAc
 	if request == nil {
 		t.Fatalf("mission commander action queue omitted current driver request: %+v", queue)
 	}
-	if request.Kind != kind || request.RunLoopStepID != stepID || request.Command != command || request.CommandExecutable != executable || request.Blocked != blocked || request.RequiresReview != requiresReview {
-		t.Fatalf("mission commander driver request drifted: want kind=%s step=%s command=%q executable=%t blocked=%t requiresReview=%t got=%+v", kind, stepID, command, executable, blocked, requiresReview, request)
+	assertMissionCommanderDriverRequestFields(t, request.Kind, request.RunLoopStepID, request.Actor, request.Command, request.Guidance, request.CommandExecutable, request.Blocked, request.RequiresReview, request.ExpectedReceipt.State, request.ExpectedReceipt.Description, request.Boundary, request.ExpectedReceipt.Boundary, kind, stepID, command, executable, blocked, requiresReview)
+	return request
+}
+
+func requireTypedMissionCommanderDriverRequest(t *testing.T, queue mission.MissionCommanderActionQueue, kind, stepID, command string, executable, blocked, requiresReview bool) *mission.MissionCommanderDriverRequest {
+	t.Helper()
+	request := queue.CurrentDriverRequest
+	if request == nil {
+		t.Fatalf("mission commander action queue omitted typed current driver request: %+v", queue)
 	}
-	if request.Actor == "" || request.ExpectedReceipt.State != "refresh-required" || request.ExpectedReceipt.Description == "" || len(request.Boundary) == 0 || len(request.ExpectedReceipt.Boundary) == 0 {
-		t.Fatalf("mission commander driver request omitted actor/receipt/boundary: %+v", request)
+	assertMissionCommanderDriverRequestFields(t, request.Kind, request.RunLoopStepID, request.Actor, request.Command, request.Guidance, request.CommandExecutable, request.Blocked, request.RequiresReview, request.ExpectedReceipt.State, request.ExpectedReceipt.Description, request.Boundary, request.ExpectedReceipt.Boundary, kind, stepID, command, executable, blocked, requiresReview)
+	return request
+}
+
+func assertMissionCommanderDriverRequestFields(t *testing.T, gotKind, gotStepID, gotActor, gotCommand, gotGuidance string, gotExecutable, gotBlocked, gotRequiresReview bool, gotReceiptState, gotReceiptDescription string, gotBoundary, gotReceiptBoundary []string, kind, stepID, command string, executable, blocked, requiresReview bool) {
+	t.Helper()
+	if gotKind != kind || gotStepID != stepID || gotCommand != command || gotExecutable != executable || gotBlocked != blocked || gotRequiresReview != requiresReview {
+		t.Fatalf("mission commander driver request drifted: want kind=%s step=%s command=%q executable=%t blocked=%t requiresReview=%t got kind=%s step=%s command=%q executable=%t blocked=%t requiresReview=%t", kind, stepID, command, executable, blocked, requiresReview, gotKind, gotStepID, gotCommand, gotExecutable, gotBlocked, gotRequiresReview)
 	}
-	if !containsSubstring(request.Boundary, "driver receipt must come from the explicit command/guidance outcome after refreshed durable state") || !containsSubstring(request.ExpectedReceipt.Boundary, "do not infer completion from the driver request alone") {
-		t.Fatalf("mission commander driver request omitted refresh receipt guardrails: %+v", request)
+	if gotActor == "" || gotReceiptState != "refresh-required" || gotReceiptDescription == "" || len(gotBoundary) == 0 || len(gotReceiptBoundary) == 0 {
+		t.Fatalf("mission commander driver request omitted actor/receipt/boundary: actor=%q receiptState=%q receiptDescription=%q boundary=%+v receiptBoundary=%+v", gotActor, gotReceiptState, gotReceiptDescription, gotBoundary, gotReceiptBoundary)
+	}
+	if !containsSubstring(gotBoundary, "driver receipt must come from the explicit command/guidance outcome after refreshed durable state") || !containsSubstring(gotReceiptBoundary, "do not infer completion from the driver request alone") {
+		t.Fatalf("mission commander driver request omitted refresh receipt guardrails: boundary=%+v receiptBoundary=%+v", gotBoundary, gotReceiptBoundary)
 	}
 	if executable {
-		if strings.TrimSpace(request.Command) == "" || strings.TrimSpace(request.Guidance) != "" {
-			t.Fatalf("executable driver request must expose command only: %+v", request)
+		if strings.TrimSpace(gotCommand) == "" || strings.TrimSpace(gotGuidance) != "" {
+			t.Fatalf("executable driver request must expose command only: command=%q guidance=%q", gotCommand, gotGuidance)
 		}
-	} else if strings.TrimSpace(request.Command) != "" || strings.TrimSpace(request.Guidance) == "" {
-		t.Fatalf("guidance driver request must expose guidance only: %+v", request)
+	} else if strings.TrimSpace(gotCommand) != "" || strings.TrimSpace(gotGuidance) == "" {
+		t.Fatalf("guidance driver request must expose guidance only: command=%q guidance=%q", gotCommand, gotGuidance)
 	}
-	return request
 }
 
 func missionCommanderDriverRequestCommandCLIArgs(t *testing.T, request *missionCommanderDriverRequestSnapshot) ([]string, bool) {
@@ -20725,6 +20802,48 @@ func missionCommanderDriverRequestCommandCLIArgs(t *testing.T, request *missionC
 		t.Fatalf("executable driver request leaked guidance: %+v", request)
 	}
 	return rekitCommandCLIArgs(t, request.Command), true
+}
+
+func typedMissionCommanderDriverRequestCommandCLIArgs(t *testing.T, request *mission.MissionCommanderDriverRequest) ([]string, bool) {
+	t.Helper()
+	if request == nil {
+		t.Fatal("missing typed mission commander driver request")
+	}
+	if !request.CommandExecutable {
+		if strings.TrimSpace(request.Command) != "" {
+			t.Fatalf("non-executable typed driver request leaked command: %+v", request)
+		}
+		return nil, false
+	}
+	if strings.TrimSpace(request.Guidance) != "" {
+		t.Fatalf("executable typed driver request leaked guidance: %+v", request)
+	}
+	return rekitCommandCLIArgs(t, request.Command), true
+}
+
+func fillPackMemoryProofPreviewDriverArgsForTest(args []string, decision, reason, actor, evidenceRefs string) []string {
+	out := append([]string{}, args...)
+	for i := 0; i < len(out)-1; i++ {
+		switch out[i] {
+		case "-ProofDecision":
+			if out[i+1] == "<accept|reject|superseded>" {
+				out[i+1] = decision
+			}
+		case "-Reason":
+			if strings.Contains(out[i+1], "<") {
+				out[i+1] = reason
+			}
+		case "-Actor":
+			if strings.Contains(out[i+1], "<") {
+				out[i+1] = actor
+			}
+		case "-EvidenceRefs":
+			if strings.Contains(out[i+1], "<") {
+				out[i+1] = evidenceRefs
+			}
+		}
+	}
+	return out
 }
 
 func containsMissionCommanderNextActionsCommand(items []missionCommanderNextActionItem, want string) bool {

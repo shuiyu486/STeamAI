@@ -20,6 +20,7 @@ import (
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
 const maxCandidateDecisionBytes = 1024 * 1024
@@ -69,29 +70,31 @@ type CandidateDecisionItem struct {
 }
 
 type CandidateDecisionDraftResult struct {
-	SchemaVersion  int                     `json:"schemaVersion"`
-	Command        string                  `json:"command"`
-	Mode           string                  `json:"mode"`
-	CaseRoot       string                  `json:"caseRoot"`
-	RepoRoot       string                  `json:"repoRoot"`
-	Pack           string                  `json:"pack"`
-	PacketPath     string                  `json:"packetPath"`
-	DecisionPath   string                  `json:"decisionPath"`
-	PacketHash     string                  `json:"packetHash"`
-	DecisionSHA256 string                  `json:"decisionSha256"`
-	IsMutation     bool                    `json:"isMutation"`
-	Applied        bool                    `json:"applied"`
-	AlreadyWritten bool                    `json:"alreadyWritten,omitempty"`
-	Decision       string                  `json:"decision"`
-	DecisionCount  int                     `json:"decisionCount"`
-	Accepted       int                     `json:"accepted"`
-	Rejected       int                     `json:"rejected"`
-	Superseded     int                     `json:"superseded"`
-	Decisions      []CandidateDecisionItem `json:"decisions"`
-	PreviewCommand string                  `json:"previewCommand,omitempty"`
-	ApplyCommand   string                  `json:"applyCommand,omitempty"`
-	NextSteps      []string                `json:"nextSteps"`
-	Boundary       []string                `json:"boundary"`
+	SchemaVersion               int                                 `json:"schemaVersion"`
+	Command                     string                              `json:"command"`
+	Mode                        string                              `json:"mode"`
+	CaseRoot                    string                              `json:"caseRoot"`
+	RepoRoot                    string                              `json:"repoRoot"`
+	Pack                        string                              `json:"pack"`
+	PacketPath                  string                              `json:"packetPath"`
+	DecisionPath                string                              `json:"decisionPath"`
+	PacketHash                  string                              `json:"packetHash"`
+	DecisionSHA256              string                              `json:"decisionSha256"`
+	IsMutation                  bool                                `json:"isMutation"`
+	Applied                     bool                                `json:"applied"`
+	AlreadyWritten              bool                                `json:"alreadyWritten,omitempty"`
+	Decision                    string                              `json:"decision"`
+	DecisionCount               int                                 `json:"decisionCount"`
+	Accepted                    int                                 `json:"accepted"`
+	Rejected                    int                                 `json:"rejected"`
+	Superseded                  int                                 `json:"superseded"`
+	Decisions                   []CandidateDecisionItem             `json:"decisions"`
+	PreviewCommand              string                              `json:"previewCommand,omitempty"`
+	ApplyCommand                string                              `json:"applyCommand,omitempty"`
+	MissionCommanderAction      mission.MissionCommanderAction      `json:"missionCommanderAction"`
+	MissionCommanderActionQueue mission.MissionCommanderActionQueue `json:"missionCommanderActionQueue"`
+	NextSteps                   []string                            `json:"nextSteps"`
+	Boundary                    []string                            `json:"boundary"`
 }
 
 type CandidateDecisionEvidence struct {
@@ -721,7 +724,7 @@ func DraftCandidateDecisions(repoRoot, caseRoot, pack string, opt CandidateDecis
 	}
 	result := prepared.result
 	if opt.WhatIf {
-		return result, nil
+		return finalizeCandidateDecisionDraftResult(result), nil
 	}
 	if !strings.EqualFold(result.DecisionSHA256, strings.TrimSpace(opt.ExpectedDecisionSHA256)) {
 		return CandidateDecisionDraftResult{}, fmt.Errorf("candidate decision draft changed after preview")
@@ -732,7 +735,7 @@ func DraftCandidateDecisions(repoRoot, caseRoot, pack string, opt CandidateDecis
 	}
 	result.Applied = true
 	result.AlreadyWritten = already
-	return result, nil
+	return finalizeCandidateDecisionDraftResult(result), nil
 }
 
 func prepareCandidateDecisionDraft(repoRoot, caseRoot, pack string, opt CandidateDecisionDraftOptions) (preparedCandidateDecisionDraft, error) {

@@ -27,6 +27,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 735：pack-memory proof driver-request closure
+
+状态：已完成本机实现、focused validation、相邻 package validation 与完整本机 release minimum；implementation commit/push 与 remote inspection 待执行。本批把 pack-memory candidate proof/draft 从 proof primitives 推进为 Mission Commander / replacement executor 可直接消费的 driver-request product path。
+
+目标：当 release handoff/status 暴露 pack-memory candidate proof/draft current action 时，主 Agent、replacement executor 或 harness 不应从文本手工拼 `promote` Apply；应能从 `packMemoryCandidates.missionCommanderActionQueue.currentDriverRequest` 执行 proof/draft WhatIf，读取返回 JSON 中同源 `missionCommanderActionQueue.currentDriverRequest` 的 hash-bound Apply，再 Apply 并 refresh status/release-check 到下一 pack-memory state。
+
+已实现：candidate decision、review proof、cleanup proof 与 lifecycle proof draft result 现在返回同源 `missionCommanderAction` 与 `missionCommanderActionQueue.currentDriverRequest`。当 status/release handoff 暴露 pack-memory candidate proof/draft current action 时，replacement executor / harness 可从 `packMemoryCandidates.missionCommanderActionQueue.currentDriverRequest` 执行 proof/draft WhatIf，随后读取 preview JSON 中同源 `missionCommanderActionQueue.currentDriverRequest` 的 hash-bound Apply，再 Apply 并 refresh status/release-check 到下一 pack-memory state；主 Agent 不再需要从文本手工拼 `promote` Apply。
+
+边界：不新增 public command、PowerShell runtime logic、pack-memory merge/cleanup 自动化、case sync/promote 写回、authority/confirmed 写入或 heavy-tool 执行。Go runtime 只返回 read-only Mission Commander handoff/receipt queue；candidate proof/draft Apply 仍写既有 bounded proof/decision JSON，仍要求 explicit hash from WhatIf，仍不合并 tooling candidates、不 provision/verify/retire workspace、不运行 doctor/init/reconsume。
+
+验证结果：`go test ./internal/rekit/promote -count=1` 通过；`go test ./internal/rekit/cli -run TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply -count=1` 通过，覆盖从 status pack-memory current driver request 执行 proof WhatIf、消费 preview returned hash-bound Apply driver request、Apply 后返回 `/rekit status -Format json` refresh request；相邻 package validation `go test ./internal/rekit/promote ./internal/rekit/cli ./internal/rekit/releasecheck` 通过（CLI 303.113s）；完整本机 release minimum 已通过：`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`（CLI 301.005s）、`go vet ./...` 与 `git diff --check`，`git diff --check` 仅有 Windows LF→CRLF working-copy warning。完成记录前 `go run ./cmd/rekit -- -Command release-check -Format json` 按预期返回 `ready=false` / `summary=release gate inventory has warnings`，因为 implementation commit/push 与 remote release-gate inspection 尚未记录；implementation commit/push 后复跑。
+
 ### Batch 734：reviewer result input save driver-request closure
 
 状态：已完成本机实现、focused reviewer operator product-path regression、相邻 reviewer/subagents/workstream/CLI package regression、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `b16527c` 已推送。Push run `30534548816` completed failure；Linux/macOS/Windows jobs `90844568754`/`90844568757`/`90844568962` 均 `steps=[]`，`gh run view 30534548816 --log-failed` 返回 `log not found: 90844568754`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。当前实现新增 Go-native `plan-subagents -SaveReviewerResultInput` WhatIf→expected-hash Apply 子模式，并把 running reviewer session 的 `save-result-input` step 从纯 guidance 改为 replacement executor / harness 可执行的 `preview-command`。
