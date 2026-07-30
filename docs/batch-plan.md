@@ -29,7 +29,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 739：reviewer spawn agent-tool run-loop handoff
 
-状态：已完成本机实现、focused validation 与完整本机 release minimum；implementation commit/push 与 push-triggered remote inspection 待执行。本批选择 reviewer/session orchestration UX，推进一个 Windows 本机可验证的 replacement harness 接手 slice：reviewer operator package 已有 `agentToolRequest`，但 `spawn-reviewer` run-loop step 仍只携带自然语言/dispatch command，接手者需要跨字段拼装 Agent tool 参数。
+状态：已完成本机实现、focused validation、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `312dced` 已推送。Push run `30549433809` completed failure；Linux/Windows/macOS jobs `90893947401`/`90893947501`/`90893947531` 均 `steps=[]`，`gh run view 30549433809 --log-failed` 返回 `log not found: 90893947401`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。本批选择 reviewer/session orchestration UX，推进一个 Windows 本机可验证的 replacement harness 接手 slice：reviewer operator package 已有 `agentToolRequest`，但 `spawn-reviewer` run-loop step 仍只携带自然语言/dispatch command，接手者需要跨字段拼装 Agent tool 参数。
 
 目标：当 status/handoff/continue 暴露 managed reviewer dispatch operator package 且 current run-loop step 为 `spawn-reviewer` 时，replacement harness 应能直接从该 run-loop step 读取同源 read-only `agentToolRequest`（tool、agentType、promptPath、promptSha256、expectedOutput），而不是从 `current.agentToolRequest` 与 `dispatchCommand` 手工关联。Go runtime 仍不 spawn/poll/monitor/stop reviewer session，只返回 read-only handoff。
 
