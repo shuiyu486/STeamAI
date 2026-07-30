@@ -3241,7 +3241,9 @@ func statusMissionControlInvocationDriverRequest(target string, request mission.
 		return request
 	}
 	commandName := statusMissionControlCommandName(command)
-	command = statusMissionControlTargetQualifiedCommand(command, target)
+	if statusMissionControlCommandUsesCaseTarget(commandName) {
+		command = statusMissionControlTargetQualifiedCommand(command, target)
+	}
 	if commandName == commands.Continue && !statusMissionControlCommandHasFlag(command, "-WhatIf") && !statusMissionControlCommandHasFlag(command, "--what-if") && !statusMissionControlCommandHasFlag(command, "-Apply") && !statusMissionControlCommandHasFlag(command, "--apply") {
 		command += " -WhatIf"
 		request.Kind = "preview-command"
@@ -3271,6 +3273,15 @@ func statusMissionControlCommandName(command string) string {
 		return strings.TrimSpace(rest)
 	}
 	return strings.TrimSpace(name)
+}
+
+func statusMissionControlCommandUsesCaseTarget(commandName string) bool {
+	switch strings.TrimSpace(commandName) {
+	case commands.Attach, commands.Bootstrap, commands.Continue, commands.Gate, commands.Handoff, commands.Init, commands.Note, commands.Overview, commands.PlanSubagents, commands.Reconcile, commands.Repair, commands.Start, commands.Sync, commands.Update:
+		return true
+	default:
+		return false
+	}
 }
 
 func statusMissionControlTargetQualifiedCommand(command, target string) string {
@@ -3822,6 +3833,18 @@ func statusProjectHandoffMissionCommanderNextActions(projectHandoff *statusProje
 	return mission.UniqueCommanderNextActions([]mission.MissionCommanderNextActionItem{*current})
 }
 
+func statusProjectHandoffExecutableCurrentCommand(command string) string {
+	command = strings.TrimSpace(command)
+	if strings.EqualFold(command, "run the full local release minimum and update docs/batch-plan.md") {
+		return "/rekit release-run -Format json"
+	}
+	return command
+}
+
+func statusProjectHandoffCurrentCommandRunsReleaseRun(command string) bool {
+	return statusMissionControlCommandName(command) == commands.ReleaseRun
+}
+
 func statusProjectHandoffCurrentAction(projectHandoff *statusProjectHandoff) *mission.MissionCommanderNextActionItem {
 	if projectHandoff == nil {
 		return nil
@@ -3837,7 +3860,11 @@ func statusProjectHandoffCurrentAction(projectHandoff *statusProjectHandoff) *mi
 	if command == "" {
 		return nil
 	}
+	command = statusProjectHandoffExecutableCurrentCommand(command)
 	reasons := []string{"latest batch next action is recorded in the release handoff"}
+	if statusProjectHandoffCurrentCommandRunsReleaseRun(command) {
+		reasons = append(reasons, "local release minimum can be executed through release-run")
+	}
 	if state := strings.TrimSpace(projectHandoff.ReleaseInspectionCadence.State); state != "" {
 		reasons = append(reasons, "release inspection cadence state: "+state)
 	}
@@ -3850,6 +3877,13 @@ func statusProjectHandoffCurrentAction(projectHandoff *statusProjectHandoff) *mi
 		boundary = append(boundary, detail.Boundary...)
 	}
 	boundary = append(boundary, projectHandoff.ReleaseInspectionCadence.Boundary...)
+	if statusProjectHandoffCurrentCommandRunsReleaseRun(command) {
+		boundary = append(boundary,
+			"release-run executes the local release minimum from the kit repo and writes no repo or case state",
+			"after release-run succeeds, update docs/batch-plan.md and CHANGELOG.md with explicit validation evidence before claiming batch completion",
+			"release-run readiness is still not remote CI green; inspect the push-triggered release-gate separately after implementation commit",
+		)
+	}
 	boundary = mission.UniqueStrings(boundary)
 	if len(boundary) == 0 {
 		boundary = []string{"release handoff current action is read-only and projections only"}

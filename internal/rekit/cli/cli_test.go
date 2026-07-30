@@ -129,6 +129,51 @@ func TestStatusProjectHandoffCurrentActionPromotesCompletedCadenceToNextBatchSel
 	}
 }
 
+func TestStatusProjectHandoffLocalValidationActionUsesReleaseRunDriverRequest(t *testing.T) {
+	project := &statusProjectHandoff{
+		Ready:                       true,
+		LatestBatch:                 "Batch 744",
+		LatestNextAction:            "run the full local release minimum and update docs/batch-plan.md",
+		LatestRemoteReleaseGate:     "not-recorded",
+		ReleaseInspectionCadence:    releasecheck.ReleaseHandoffReleaseInspectionCadence{State: "implementation-pending", NextAction: "create/push the implementation commit after local validation", Boundary: []string{"normal batches stop after implementation commit/push plus one release inspection commit/push"}},
+		ValidationCommands:          []string{"go run ./cmd/rekit -- -Command release-check -Format json", "go test ./..."},
+		PackMemoryCandidates:        releasecheck.ReleaseHandoffPackMemoryCandidateList{Ready: true, NextAction: "no pack-memory candidate cleanup is pending"},
+		MissionCommanderNextActions: nil,
+	}
+	project.MissionCommanderNextActions = statusProjectHandoffMissionCommanderNextActions(project)
+	project.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(project.MissionCommanderNextActions)
+	current := project.MissionCommanderActionQueue.CurrentAction
+	if current == nil || current.Command != "/rekit release-run -Format json" || current.Source != "releaseHandoffLatestBatch" || current.State != "implementation-pending" || !current.RequiresReview || !containsSubstring(current.Reasons, "local release minimum can be executed through release-run") || !containsSubstring(current.Boundary, "release-run executes the local release minimum") {
+		t.Fatalf("implementation-pending project action should expose release-run driver command: current=%+v queue=%+v", current, project.MissionCommanderActionQueue)
+	}
+	request := requireTypedMissionCommanderDriverRequest(t, project.MissionCommanderActionQueue, "preview-command", "preview-current", "/rekit release-run -Format json", true, false, true)
+	if request.ExpectedReceipt.Command != "/rekit release-run -Format json" || !containsSubstring(request.Boundary, "review-required current actions") {
+		t.Fatalf("release-run driver request should be preview/review-required with same-command receipt: %+v", request)
+	}
+	runbook := buildStatusMissionControlRunbook("C:/case-root", nil, project)
+	if runbook == nil || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Command != "/rekit release-run -Format json" || runbook.CurrentDriverRequest.Kind != "preview-command" || strings.Contains(runbook.CurrentDriverRequest.Command, " -Target ") || runbook.GuidanceHandoff != nil {
+		t.Fatalf("status runbook should preserve kit-scoped release-run command without target qualification: %+v", runbook)
+	}
+	args, ok := typedMissionCommanderDriverRequestCommandCLIArgs(t, runbook.CurrentDriverRequest)
+	if !ok || !slices.Equal(args, []string{"-Command", "release-run", "-Format", "json"}) {
+		t.Fatalf("release-run driver request should produce CLI args: args=%+v ok=%t request=%+v", args, ok, runbook.CurrentDriverRequest)
+	}
+	var out bytes.Buffer
+	if err := writeStatusMissionControlRunbookText(&out, runbook); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"status Mission Control runbook driver：kind=preview-command",
+		"command=/rekit release-run -Format json",
+		"status Mission Control runbook step：order=2 step=consume-focused-driver-request",
+		"status Mission Control runbook step boundary：step=consume-focused-driver-request boundary=review-required current actions must be previewed or reviewed before any apply/follow-up",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("release-run status runbook text missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
 func TestStatusMissionControlRunbookGuidanceHandoffWrapsNextBatchSelection(t *testing.T) {
 	remoteDetail := &releasecheck.ReleaseHandoffRemoteReleaseGateDetail{
 		State:            "blocked: completed failure with jobs steps=[]",
@@ -989,8 +1034,11 @@ func TestRunStatusJsonKit(t *testing.T) {
 		if !statusProjectHandoffNextActionReasonContains(status.ProjectHandoff.MissionCommanderNextActions, "pack-memory candidate queue is closed: no pack-memory candidate cleanup is pending") || !statusProjectHandoffNextActionBoundaryContains(status.ProjectHandoff.MissionCommanderNextActions, "candidate-domain follow-ups are selection guidance only") {
 			t.Fatalf("project handoff next-batch candidates omitted closed-state evidence or selection boundary: %+v", status.ProjectHandoff.MissionCommanderNextActions)
 		}
-	} else if projectCurrent.Source != "releaseHandoffLatestBatch" || projectCurrent.Command != status.ProjectHandoff.LatestNextAction || projectCurrent.Label != status.ProjectHandoff.LatestBatch || status.ProjectHandoff.MissionCommanderActionQueue.Counts.RequiresReview != 1 {
-		t.Fatalf("in-progress latest batch should keep latest-batch release handoff action: current=%+v queue=%+v latest=%q", projectCurrent, status.ProjectHandoff.MissionCommanderActionQueue, status.ProjectHandoff.LatestNextAction)
+	} else {
+		wantProjectCommand := statusProjectHandoffExecutableCurrentCommand(status.ProjectHandoff.LatestNextAction)
+		if projectCurrent.Source != "releaseHandoffLatestBatch" || projectCurrent.Command != wantProjectCommand || projectCurrent.Label != status.ProjectHandoff.LatestBatch || status.ProjectHandoff.MissionCommanderActionQueue.Counts.RequiresReview != 1 {
+			t.Fatalf("in-progress latest batch should keep latest-batch release handoff action: current=%+v queue=%+v latest=%q", projectCurrent, status.ProjectHandoff.MissionCommanderActionQueue, status.ProjectHandoff.LatestNextAction)
+		}
 	}
 	if status.ProjectHandoff.LatestRemoteReleaseGateDetail.State != status.ProjectHandoff.LatestRemoteReleaseGate {
 		t.Fatalf("project handoff remote gate detail state drifted: %+v", status.ProjectHandoff.LatestRemoteReleaseGateDetail)
