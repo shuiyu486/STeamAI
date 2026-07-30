@@ -1234,8 +1234,26 @@ func TestRunStatusJsonCase(t *testing.T) {
 	if runbook := status.CaseMission.DailyMissionControlRunbook; runbook == nil || !runbook.Ready || runbook.Scope != "case" || runbook.CurrentState != "ready-to-continue" || runbook.CurrentCommand != "/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1" || runbook.CurrentRunLoopStepID != "apply-or-run-current" || runbook.RefreshStatusCommand == "" || runbook.HandoffPreviewCommand == "" || runbook.HandoffApplyCommand == "" || len(runbook.RunLoop) != 5 || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Kind != "execute-command" || runbook.CurrentDriverRequest.Command != runbook.CurrentCommand {
 		t.Fatalf("case mission daily runbook drifted: %+v", runbook)
 	}
-	if runbook := status.MissionControlRunbook; runbook == nil || !runbook.Ready || runbook.Focus != "case-current-action" || runbook.Scope != "case" || runbook.CurrentCommand != "/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1" || runbook.CurrentRunLoopStepID != "apply-or-run-current" || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Kind != "execute-command" || runbook.CurrentDriverRequest.Command != runbook.CurrentCommand || runbook.RefreshStatusCommand == "" || len(runbook.Queues) != 4 || len(runbook.RunLoop) != 3 || !containsSubstring(runbook.RoutingReasons, "deferred focus queues: project") || !containsSubstring(runbook.Boundary, "read-only") {
-		t.Fatalf("status Mission Control runbook should route to case current action: %+v", runbook)
+	if runbook := status.MissionControlRunbook; runbook == nil || !runbook.Ready || runbook.Focus != "case-current-action" || runbook.Scope != "case" || runbook.CurrentRunLoopStepID != "apply-or-run-current" || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Kind != "preview-command" || runbook.CurrentDriverRequest.Command != runbook.CurrentCommand || !strings.Contains(runbook.CurrentDriverRequest.Command, " -Target ") || !strings.Contains(runbook.CurrentDriverRequest.Command, " -WhatIf") || !strings.Contains(runbook.CurrentDriverRequest.Command, " -Format json") || !strings.Contains(runbook.CurrentDriverRequest.Command, "login -Executor session-1 -ExpectedExecutorGeneration 1") || runbook.RefreshStatusCommand == "" || len(runbook.Queues) != 4 || len(runbook.RunLoop) != 3 || !containsSubstring(runbook.CurrentDriverRequest.Boundary, "invocation-scoped") || !containsSubstring(runbook.RoutingReasons, "deferred focus queues: project") || !containsSubstring(runbook.Boundary, "read-only") {
+		t.Fatalf("status Mission Control runbook should route to invocation-scoped case current action: %+v", runbook)
+	} else {
+		args, ok := missionCommanderDriverRequestCommandCLIArgs(t, runbook.CurrentDriverRequest)
+		if !ok {
+			t.Fatalf("status Mission Control runbook current driver request should be executable: %+v", runbook.CurrentDriverRequest)
+		}
+		out.Reset()
+		if err := Run(args, &out); err != nil {
+			t.Fatalf("status Mission Control runbook invocation-scoped command failed: args=%+v err=%v\n%s", args, err, out.String())
+		}
+		var preview struct {
+			Applied bool `json:"applied"`
+		}
+		if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+			t.Fatalf("invocation-scoped continue preview stdout is not JSON: %v\n%s", err, out.String())
+		}
+		if preview.Applied {
+			t.Fatalf("invocation-scoped current driver request must preview before mutation: %+v", preview)
+		}
 	}
 
 	out.Reset()
@@ -1256,8 +1274,9 @@ func TestRunStatusJsonCase(t *testing.T) {
 		"ready=true lanes=",
 		"status case mission queue：total=4 unblocked=4 blocked=0 requiresReview=0 followUp=2 current=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
 		"status case mission queue action：bucket=current lane=feature-login label=login state=ready-to-continue source=missionCommanderActions blocked=false requiresReview=false command=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
-		"status Mission Control runbook：ready=true focus=case-current-action scope=case currentStep=apply-or-run-current currentCommand=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
-		"status Mission Control runbook driver：kind=execute-command actor=main-agent state=ready-to-continue source=missionCommanderActions executable=true blocked=false requiresReview=false command=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
+		"status Mission Control runbook：ready=true focus=case-current-action scope=case currentStep=apply-or-run-current currentCommand=/rekit continue -Target",
+		"login -Executor session-1 -ExpectedExecutorGeneration 1 -WhatIf -Format json",
+		"status Mission Control runbook driver：kind=preview-command actor=main-agent state=ready-to-continue source=missionCommanderActions executable=true blocked=false requiresReview=true command=/rekit continue -Target",
 		"status Mission Control runbook queue：scope=case focused=true total=4 blocked=0 requiresReview=0 currentState=ready-to-continue currentSource=missionCommanderActions currentStep=apply-or-run-current currentCommand=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
 		"status Mission Control runbook step：order=3 step=refresh-after-focus-result actor=main-agent",
 		"status Mission Control runbook boundary：missionControlRunbook is read-only",

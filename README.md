@@ -94,7 +94,7 @@ claude
 排障或新会话接手时再用：
 
 ```text
-/rekit          # 无子命令时默认只读 status，先确认 kit/case 绑定，并先看 compact Mission Commander first-screen strip / focus routing / queue current action 接手；kit-mode 会先投影 latest-batch project current action 与 project runbook，pack-memory focus 会先显示 evidence shortlist（含 next missing proof draft WhatIf / ExpectedProofSha256 Apply template），再回到 case/reviewer/pack-memory first-screen strip，空 case mission 会先投影 onboarding current action。status 顶层还会输出统一 missionControlRunbook，把 first-screen focus、routingReasons、focused queue/currentDriverRequest 与 refresh 节奏放在单一机器可读入口中；case mission 继续输出 daily Mission Control runbook，把 inspect status、consume currentDriverRequest、refresh after result、preview handoff 与 apply handoff 的只读接手节奏放在同一个 envelope 中。
+/rekit          # 无子命令时默认只读 status，先确认 kit/case 绑定，并先看 compact Mission Commander first-screen strip / focus routing / queue current action 接手；kit-mode 会先投影 latest-batch project current action 与 project runbook，pack-memory focus 会先显示 evidence shortlist（含 next missing proof draft WhatIf / ExpectedProofSha256 Apply template），再回到 case/reviewer/pack-memory first-screen strip，空 case mission 会先投影 onboarding current action。status 顶层还会输出统一 missionControlRunbook，把 first-screen focus、routingReasons、focused queue/currentDriverRequest 与 refresh 节奏放在单一机器可读入口中；从 kit CWD 用 `status -Target <case>` 接手时，顶层 runbook 会把可执行 case request 约束为带 `-Target` 的 `-WhatIf -Format json` 预览，先预览再刷新/显式 Apply。case mission 继续输出 daily Mission Control runbook，把 inspect status、consume currentDriverRequest、refresh after result、preview handoff 与 apply handoff 的只读接手节奏放在同一个 envelope 中。
 /rekit doctor
 ```
 

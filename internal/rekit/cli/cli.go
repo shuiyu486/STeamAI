@@ -3055,8 +3055,11 @@ func buildStatusMissionControlRunbook(target string, caseMission *statusCaseMiss
 			runbook.CurrentCommand = strings.TrimSpace(item.queue.CurrentAction.Command)
 		}
 		if item.queue.CurrentDriverRequest != nil {
-			request := *item.queue.CurrentDriverRequest
+			request := statusMissionControlInvocationDriverRequest(target, *item.queue.CurrentDriverRequest)
 			runbook.CurrentDriverRequest = &request
+			if strings.TrimSpace(request.Command) != "" {
+				runbook.CurrentCommand = strings.TrimSpace(request.Command)
+			}
 		}
 	}
 	runbook.RunLoop = statusMissionControlRunbookSteps(runbook)
@@ -3078,6 +3081,71 @@ func statusMissionControlRunbookQueueFor(scope string, queue mission.MissionComm
 		item.CurrentSource = strings.TrimSpace(queue.CurrentAction.Source)
 	}
 	return item
+}
+
+func statusMissionControlInvocationDriverRequest(target string, request mission.MissionCommanderDriverRequest) mission.MissionCommanderDriverRequest {
+	if !request.CommandExecutable {
+		return request
+	}
+	command := strings.TrimSpace(request.Command)
+	if command == "" || !strings.HasPrefix(command, "/rekit ") || !instance.LooksLikeCase(target) {
+		return request
+	}
+	commandName := statusMissionControlCommandName(command)
+	command = statusMissionControlTargetQualifiedCommand(command, target)
+	if commandName == commands.Continue && !statusMissionControlCommandHasFlag(command, "-WhatIf") && !statusMissionControlCommandHasFlag(command, "--what-if") && !statusMissionControlCommandHasFlag(command, "-Apply") && !statusMissionControlCommandHasFlag(command, "--apply") {
+		command += " -WhatIf"
+		request.Kind = "preview-command"
+		request.RequiresReview = true
+		request.Boundary = append(request.Boundary, "status missionControlRunbook qualifies continue commands as WhatIf previews for invocation-scoped handoff")
+	}
+	if !statusMissionControlCommandHasFlag(command, "-Format") && !statusMissionControlCommandHasFlag(command, "--format") {
+		command += " -Format json"
+	}
+	if command != strings.TrimSpace(request.Command) {
+		request.Command = command
+		request.Boundary = append(request.Boundary, "status missionControlRunbook currentDriverRequest.command is qualified for the status invocation target")
+		request.ExpectedReceipt.Command = statusMissionControlRefreshCommand(target)
+	}
+	request.Boundary = mission.UniqueStrings(request.Boundary)
+	request.ExpectedReceipt.Boundary = mission.UniqueStrings(request.ExpectedReceipt.Boundary)
+	return request
+}
+
+func statusMissionControlCommandName(command string) string {
+	rest := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(command), "/rekit"))
+	if rest == "" {
+		return ""
+	}
+	name, _, ok := strings.Cut(rest, " ")
+	if !ok {
+		return strings.TrimSpace(rest)
+	}
+	return strings.TrimSpace(name)
+}
+
+func statusMissionControlTargetQualifiedCommand(command, target string) string {
+	command = strings.TrimSpace(command)
+	target = strings.TrimSpace(target)
+	if command == "" || target == "" || statusMissionControlCommandHasFlag(command, "-Target") || statusMissionControlCommandHasFlag(command, "--target") {
+		return command
+	}
+	rest := strings.TrimSpace(strings.TrimPrefix(command, "/rekit"))
+	name, tail, ok := strings.Cut(rest, " ")
+	if !ok {
+		return "/rekit " + rest + " -Target " + statusQuoteCommandArg(target)
+	}
+	out := "/rekit " + strings.TrimSpace(name) + " -Target " + statusQuoteCommandArg(target)
+	if strings.TrimSpace(tail) != "" {
+		out += " " + strings.TrimSpace(tail)
+	}
+	return out
+}
+
+func statusMissionControlCommandHasFlag(command, flag string) bool {
+	command = " " + strings.ToLower(strings.TrimSpace(command)) + " "
+	flag = " " + strings.ToLower(strings.TrimSpace(flag)) + " "
+	return strings.Contains(command, flag)
 }
 
 func statusMissionControlRunbookScope(focus string, caseCurrent, reviewerCurrent *mission.MissionCommanderNextActionItem) string {

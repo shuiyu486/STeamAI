@@ -28,6 +28,16 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 742：invocation-scoped status driver request
+
+状态：实现已完成，focused product-path validation 已通过，完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection 待执行。本批继续最低可用 Mission Control 路线，但不再做纯展示投影：Batch 741 的顶层 `missionControlRunbook` 统一了 first-screen focus/currentDriverRequest，但从 kit CWD 用 `status -Target <case>` 接手时，case queue 的 current request 仍是 case-local `/rekit continue <lane> ...`，缺少 `-Target`，且 bare `continue` 在 Go JSON 默认下不能直接执行；replacement harness 仍需手工改写命令或切 cwd。
+
+目标：`status -Target <case> -Format json/text` 顶层 `missionControlRunbook.currentDriverRequest` 应提供 invocation-scoped safe preview request：对可执行 case command 补入 `-Target <case>` 与 `-Format json`，并把 bare `/rekit continue <lane>` 降级为 `-WhatIf` 预览。接手者可直接从顶层 runbook 派生 CLI args，在当前 kit CWD 下先执行 preview，再 refresh status / 显式 Apply；底层 case mission queue 与 daily runbook 仍保留 case-local原始 handoff。
+
+已实现：`buildStatusMissionControlRunbook` 在复制 focused `currentDriverRequest` 到顶层 status runbook 时，对 attached case target 的 `/rekit` executable command 做 invocation scoping；`continue` 无 `-WhatIf/-Apply` 时改为 `preview-command`、`requiresReview=true`，并追加 boundary 说明该 command 已按 status invocation target qualified。`TestRunStatusJsonCase` 现在从顶层 runbook 的 `currentDriverRequest.command` 直接生成 CLI args 并执行，证明 kit CWD 下能得到 JSON preview 且 `applied=false`。该批不新增 public command、durable schema、PowerShell runtime logic、Claude Code spawner/session manager、reviewer/adapter/heavy-tool executor、authority/confirmed 写入或自动 Apply；只把 status 顶层 handoff 调整为可预览、可刷新、可显式接续。
+
+验证结果：focused `go test ./internal/rekit/cli -run "TestRunStatusJsonCase|TestStatusMissionControlRunbookUsesCaseQueueForReviewerDispatchFocus"` 通过（8.780s）；更宽的 status focused validation `go test ./internal/rekit/cli -run "TestRunStatusJsonCase|TestRunStatusJsonKit|TestRunStatusJsonDefaultPackContract|TestRunStatusCaseMissionDoesNotInitializeMissingBoard|TestStatusMissionControlRunbookUsesCaseQueueForReviewerDispatchFocus"` 通过（21.377s）。完整本机 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true` / `summary=release gate inventory ok`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`（CLI 314.454s）、`go vet ./...` 与 `git diff --check` 通过，后者仅有 Windows LF→CRLF working-copy warning。Implementation commit/push 与 push-triggered remote inspection 待执行。
+
 ### Batch 741：status first-screen Mission Control runbook
 
 状态：已完成本机实现、focused validation、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `dd1f1d7` 已推送。Push run `30562917895` completed failure；Windows/macOS/Linux jobs `90940222164`/`90940222271`/`90940222289` 均 `steps=[]`，`gh run view 30562917895 --log-failed` 返回 `log not found: 90940222164`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。本批继续最低可用 Mission Control 路线，闭合 Batch 740 后仍存在的日常接手断点：case mission/handoff 已有 `dailyMissionControlRunbook`，但主 Agent / replacement harness 进入 `status` 后仍要先判断 focus 落在 case、reviewer、pack-memory 还是 project queue，再去不同字段读取 current driver request 与 refresh 节奏。
