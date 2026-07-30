@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 740：daily Mission Control runbook
 
-状态：实现已完成，本机验证已通过；implementation commit/push 与远程 release-gate inspection 尚未完成。本批选择最低可用 Mission Control 路线，闭合一个真实日常断点：`status`、current driver request、refresh cadence 与 handoff 接手命令分散在多个字段和文档段落中，主 Agent / replacement harness 新会话接手时仍要跨 status text、action queue 与 handoff Markdown 手工拼接日常循环。
+状态：已完成本机实现、focused validation、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `ffed83e` 已推送。Push run `30560308818` completed failure；macOS/Linux/Windows jobs `90931304167`/`90931304202`/`90931304278` 均 `steps=[]`，`gh run view 30560308818 --log-failed` 返回 `log not found: 90931304167`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。本批选择最低可用 Mission Control 路线，闭合一个真实日常断点：`status`、current driver request、refresh cadence 与 handoff 接手命令分散在多个字段和文档段落中，主 Agent / replacement harness 新会话接手时仍要跨 status text、action queue 与 handoff Markdown 手工拼接日常循环。
 
 目标：`status -Format json/text` 与 project/lane `handoff -Format json/Markdown` 应暴露同源 `dailyMissionControlRunbook`，把当前 `currentDriverRequest`、status refresh command、handoff preview/apply command 与固定日常 run loop 串为一个只读 envelope：`inspect-status → consume-current-driver-request → refresh-after-driver → preview-handoff → write-handoff-for-takeover`。接手者只能在 `commandExecutable=true` 时执行 current driver request command；guidance-only request 仍由主 Agent review，任何 preview/apply/continue/reconcile 后必须 refresh status。
 
