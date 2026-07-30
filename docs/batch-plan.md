@@ -29,7 +29,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 727：Mission Commander driver request consumer-loop product path
 
-状态：已完成本机实现、focused consumer-loop regression、完整 CLI package regression 与完整本机 release minimum；implementation commit/push 与 push-triggered remote inspection 待执行。
+状态：已完成本机实现、focused consumer-loop regression、完整 CLI package regression、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `bf83ffe` 已推送。Push run `30520239021` completed failure；macOS/Windows/Linux jobs `90798768497`/`90798768531`/`90798768555` 均 `steps=[]`，`gh run view 30520239021 --log-failed` 返回 `log not found: 90798768497`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。
 
 目标：把 Batch 724-726 的 driver request / returned receipt contract 串成 replacement executor 可感知的最小 run loop：test harness 从 `status -Format json` 的 `missionCommanderActionQueue.currentDriverRequest` 启动，执行 explicit preview request，消费 preview 返回的 hash-bound `recordCommand`，refresh status 后取得新的 ready continuation request，再执行 `continue -Apply` 并用 returned queue / takeover package / status refresh 确认下一步，而不是从 `currentAction.command` 或 terminal text 手工推断流程。
 
