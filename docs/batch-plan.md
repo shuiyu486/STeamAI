@@ -29,7 +29,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 725：reviewer operator package driver-request takeover closure
 
-状态：已完成本机实现、focused reviewer/session regressions、完整 CLI package regression 与完整本机 release minimum；implementation commit/push 与 push-triggered remote inspection 待执行。当前本机验证已通过，`git diff --check` 仅有 Windows LF→CRLF working-copy warning；远程 green 不在本机完成条件内，提交推送后只记录 implementation commit 触发的 remote run，若仍为既有 `steps=[]` runner/billing blocker 则不声明 remote green。
+状态：已完成本机实现、focused reviewer/session regressions、完整 CLI package regression、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `1ae6c2c` 已推送。Push run `30516866730` completed failure；Windows/Linux/macOS jobs `90788585670`/`90788585687`/`90788585703` 均 `steps=[]`，`gh run view 30516866730 --log-failed` 返回 `log not found: 90788585670`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。
 
 目标：把 Batch 719 的 reviewer operator package executable run-loop 从“operator package 当前命令可执行”推进为 `currentDriverRequest` consumer takeover：replacement executor / harness 从 `status -Format json` 的 `caseMission.reviewerDispatchIntakeActionQueue.currentDriverRequest` 与 first-screen Mission Commander queue 的同源 request 获取下一步，区分 `blocked-review` guidance / receipt preview 与 `preview-command` 可执行 preview，而不是从旧 operator package 字段或 `currentAction.command` 重新推断。
 
