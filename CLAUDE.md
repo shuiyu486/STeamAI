@@ -57,7 +57,7 @@ Batch 推送节奏（仅在当前 goal/session 已明确授权 commit/push 时�
 
 ## 当前推进原则
 
-当前阶段优先推进 PowerShell-free default/product path、Go-native、跨平台与 Mission Commander operational closure；近期执行优先级按用户当前使用方式校准为 Windows 本机稳定，远程 Linux/macOS/Windows CI 和 macOS/Linux product-path 在 GitHub runner/billing blocker 解除或发布前保持 known gap，不挤占本机 Windows 可验证的 executor / reviewer / Mission Commander / pack-memory 闭环迭代效率。
+当前阶段优先把已有骨架收敛到可真实日常使用：用户能用自然语言开始 case、继续推进、查看状态、人工插手纠偏、新会话接手；允许半自动，但必须顺畅、可记录、可恢复。PowerShell-free default/product path、Go-native、跨平台与 truthful release readiness 继续作为底座约束推进；远程 Linux/macOS/Windows CI 和 macOS/Linux product-path 在 GitHub runner/billing blocker 解除或发布前保持 known gap，不挤占本机 Windows 可验证的最低可用 Mission Control / executor / reviewer / pack-memory 闭环迭代效率。
 
 禁止新增 PowerShell runtime logic。PowerShell convergence batch 应实际减少 retained residue 或完成删除门禁；其它 batch 可推进 lane、reconcile、autonomy、reviewer dispatch/intake、authorized execution evidence、adapter-specific live validation、pack-memory 或文档上下文路由闭环。
 

@@ -2,15 +2,15 @@
 
 ## 读取指南
 
-本文件是给新会话和上下文压缩后的 AI 使用的**简短接手锚点**，不是给维护者人工阅读的长方案，也**不是新的限制清单**。
+本文件是给新会话和上下文压缩后的 AI 使用的**简短接手锚点**，不是新的限制清单。用户聊天里的 goal 应保持短，只负责启动长期自主推进；防跑偏的简要实施方向放在本文件和 `docs/batch-plan.md` 顶部承载。
 
-如果用户已经在聊天里给出 goal，以用户聊天里的 goal 为准；若聊天摘要与仓库文档冲突，以仓库文档为准。本文件用于防止方向偏移：继续把 `re-context-kits` 收敛为 **Lane-centric Agent Team Mission Control**，并把当前阶段重点切到 **PowerShell-free / Go-native / 跨平台** convergence。用户已确认仍希望用 goal 长期推进，但该 goal 应按 milestone 自校准：持续推进不等于无限寻找字段、summary 或投影微调。最终产品北极星见 `docs/mission-control-product-direction.md`，具体路线写回 `docs/batch-plan.md`、`docs/go-first-convergence-plan.md`、`docs/powershell-deprecation.md` 与 `docs/release-readiness.md`。
+如果用户已经在聊天里给出 goal，以用户聊天里的 goal 为启动语义；若聊天摘要与仓库文档冲突，以仓库文档为准。本文件用于防止方向偏移：继续把 `re-context-kits` 收敛为 **Lane-centric Agent Team Mission Control**。当前阶段从继续打磨底层零件切到 **尽快真实用起来**：先打通最低可用路线，让用户能用自然语言开始 case、继续推进、查看状态、人工插手纠偏、新会话接手；允许半自动，先保证路线顺畅、状态可靠、证据可追，再在真实使用中增强 lane、reviewer、executor、pack-memory 和 tool adapter。
 
-后续每批不需要过度拆小，也不要只做一两行微调。默认做一个中大型、能验证、能降低真实维护风险或提升实际可用性的 vertical slice。当前节奏校准：不要再连续推进单字段 contract / inventory / metadata 微批次；也不要连续推进字段、summary、handoff detail、text line 在不同 envelope 间的可见性投影。每批必须是用户或 Mission Commander 能感知的 operational slice。若最近 2-3 批都停留在同一子系统的 contract/projection/handoff text 层，下一批必须升级为 Mission Commander run loop、reviewer/session orchestration、adapter-specific live validation、pack-memory UX 或可维护性收敛中的一个完整闭环。若确实需要新增 contract 字段或投影 detail，必须嵌入 Mission Commander orchestration、replaceable session executor、reviewer dispatch/intake/writeback E2E、authorized execution evidence closure、adapter-specific live validation、pack-memory promote/reconsume product UX 或跨平台 product-path E2E，并由 package / CLI / 临时 case / product-path 验证证明其解决真实断点。
+后续每批不需要过度拆小，也不要只做一两行微调。默认做一个中大型、能验证、能降低真实使用阻力或提升日常可用性的 product slice。不要把短 goal 展开成路线清单、候选项、验证命令或停止条件；接手后按 `docs/context-routing.md`、本文件顶部、`docs/batch-plan.md` 顶部和真实 git/本机检查状态自主选择下一批。
 
 ## 实施摘要
 
-长期目标保持不变但阶段重点已更新：`re-context-kits` 应成为 Claude Code 中的多会话 Agent Team Mission Control 框架，而不是命令大全；Go 已是 public command surface 的 deterministic owner。Batch 359 后，主 Agent实际 spawn read-only reviewer → Go-native strict intake/writeback、本机 bounded reviewer E2E、pack-memory promote/reconsume package E2E，以及 authorized execution observation evidence + bounded adapter execution report strict intake/contract projection/read-only validation preflight（含 invalid sidecar `valid=false` envelope/failure taxonomy 与 sidecar boundary/escalation marker fail-closed validation）均已形成底座；runtime 仍不自动 spawn 或管理 session/reviewer，也不执行 heavy-tool。当前重点是 replaceable session executor / reviewer orchestration、lane executor / tool-adapter live validation hardening、pack-memory product UX、PowerShell-free product path 与跨平台验证，而不是继续扩 contract/inventory 字段。
+长期目标保持不变但阶段重点已更新：`re-context-kits` 应成为 Claude Code 中的多会话 Agent Team Mission Control 框架，而不是命令大全或单点全自动安全工具；Go 已是 public command surface 的 deterministic owner。Batch 359 后，主 Agent实际 spawn read-only reviewer → Go-native strict intake/writeback、本机 bounded reviewer E2E、pack-memory promote/reconsume package E2E，以及 authorized execution observation evidence + bounded adapter execution report strict intake/contract projection/read-only validation preflight 已形成底座；runtime 仍不自动 spawn 或管理 session/reviewer，也不执行 heavy-tool。当前优先级是把已有骨架收敛成可真实日常使用的 MVP：主 Agent 能围绕真实 case 开始任务、判断下一步、记录状态/证据、允许人工插手、支持新会话接手；再边用边增强 reviewer/session orchestration、lane executor / tool-adapter live validation、pack-memory product UX、PowerShell-free product path 与跨平台验证。
 
 核心产品形态：
 
@@ -26,22 +26,21 @@
 
 每轮自主推进按这个循环做：
 
-1. 读最近状态：`CLAUDE.md`、`docs/context-routing.md`、`docs/batch-plan.md` 顶部 current/next、`CHANGELOG.md` 顶部 `Unreleased`，并检查 git、本地 gate 与远程 CI 实际状态；再按 `docs/context-routing.md` 只读取当前场景需要的文档顶部区。
-2. 从下面大方向里选一个 coherent 中大型 vertical slice，优先选择能解决真实 Mission Commander/产品路径断点、提升当前 Windows 本机 Go-native product-path 稳定性、减少 retained PowerShell 依赖或增强 Mission Control 可用性的切片；macOS/Linux/远程三平台 CI 在 runner/billing blocker 解除前只作为 release known gap 和可延后 readiness 工作，不要让它挤占 Windows 本机可验证的 executor/reviewer/Mission Commander/pack-memory/product-path 闭环；不要继续拆 schema-field metadata 微批次，也不要让多个连续批次只扩 contract / inventory 字段或做 envelope-to-envelope summary/text 投影，而缺少 executor/reviewer/Mission Commander/pack-memory/product-path 的实际闭环。
-3. 实施时优先 Go-native；禁止新增 PowerShell runtime logic。若迁移期必须保留 PowerShell，只能作为 legacy compatibility，并写清依赖方、阻塞原因和删除条件。
-4. 完成后自审、评估：看是否更接近 Mission Control 北极星，是否减少 PowerShell 默认路径，架构是否清晰，是否有重复逻辑，是否需要顺手做低风险调整。
-5. 自行做必要调整，不因小的低风险文档/测试/invariant 补齐而停下来问用户。
-6. 验证、更新 `docs/batch-plan.md` 或相关设计文档、必要时更新 `CHANGELOG.md`，然后按用户当前会话授权直接提交并推送到 origin/main；已授权 batch 正常最多两次 push：implementation commit 覆盖代码/测试/文档、本地验证，release inspection commit 只记录 implementation commit 的远程 run，不为 inspection commit 自己触发的 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` runner/billing blocker 的新信号。
-7. 如果长期目标未整体完成，先重新校准运行事实、active milestone 和风险；无升级条件时把下一批写入 `docs/batch-plan.md` 的 active/next 区并继续，不把单个 batch、inventory ready、一次提交、本地验证通过或工作树干净视为 goal 完成。
-8. 每完成 3-5 个 batch 或一个明显 milestone 后，必须先做一次简短自评：当前是否仍在消除真实 Mission Commander / executor / reviewer / adapter / pack-memory 断点；若发现只是连续补 projection/summary/text 或局部 contract，停止该方向并选择更高层的 operational closure。该自评写入 `docs/batch-plan.md` 顶部即可，不新建长报告。
+1. 读最小接手上下文：`CLAUDE.md`、`docs/context-routing.md`、本文件顶部、`docs/batch-plan.md` 顶部 current/next、`CHANGELOG.md` 顶部 `Unreleased`，再确认 main 与 origin/main 同步、git 与必要本机状态。
+2. 自主选择一个最能让项目“马上更好用”的产品切片，优先围绕真实日常路线：开始 case、继续推进、查看状态、人工插手纠偏、新会话接手、reviewer/subagent 接手、pack-memory 复用。
+3. 实施时保持 Go-native 和 PowerShell-free 默认路径；禁止新增 PowerShell runtime logic。
+4. 完成后自审、评估，做必要验证、更新对应文档/CHANGELOG；若当前 goal/session 已授权提交推送，则按仓库 cadence 直接提交并推送到 origin/main。
+5. 如果长期 goal 未被用户明确停止，完成单批后继续选下一批；不要把单批完成、一次本机检查通过或工作树干净当作长期 goal 完成。
+6. 每 3-5 批或一个明显节点做短自评：是否已经更接近“用户能真实日常使用”；若只是连续补字段/summary/text，切回更高层的产品闭环。
 
 当前 milestone 优先级：
 
-1. **Mission Commander run loop MVP**：主 Agent/harness 负责实际 spawn/continue/resume；Go runtime 只负责 durable request、receipt、state、hash binding、恢复和审计。先做一条 Windows 本机可验证的最小 run loop，不把 Go runtime 变成 Claude Code 进程管理器。
-2. **Reviewer/session orchestration UX**：在既有 immutable reviewer dispatch/completion receipt 上，把 ready/running/failed/stale/completed/source-capture/intake 下一步做成 operator 可执行闭环，优先减少人工拼命令。
-3. **Adapter-specific live validation UX**：把 authorized gate → dispatch receipt → external report → validate → record → acknowledgement 的 managed path 做成顺滑接手流程；仍不执行 heavy tool。
+1. **最低可用 Mission Control 路线**：用户能用自然语言开始 case、继续推进、查看状态、人工插手纠偏、新会话接手；允许半自动，但必须顺畅、可记录、可恢复。
+2. **Mission Commander run loop MVP**：主 Agent/harness 负责实际 spawn/continue/resume；Go runtime 只负责 durable request、receipt、state、hash binding、恢复和审计。
+3. **Reviewer/session orchestration UX**：把 ready/running/failed/stale/completed/source-capture/intake 下一步做成 operator 可执行闭环，优先减少人工拼命令。
 4. **Pack-memory product UX**：把 review/promote/reconsume 从 proof chain 升级为跨 case 可消费流程，保持 sanitize/review-first，不写真实 case artifact。
-5. **可维护性收敛**：只在上述 vertical slice 内拆巨型 CLI/projection/test，优先类型化 action source/state 与共享 mission snapshot；不单独做大重构批次。
+5. **Adapter-specific live validation UX**：把 authorized gate → dispatch receipt → external report → validate → record → acknowledgement 做成顺滑接手流程；仍不执行 heavy tool。
+6. **嵌入式可维护性收敛**：只在上述产品切片内拆巨型 CLI/projection/test 或类型化 action source/state，不单独做大重构批。
 
 大方向只围绕八类：
 
@@ -93,7 +92,7 @@ Mission Control 相关批次还应检查：
 在发正式 goal 前，可先复制这段给新会话：
 
 ```text
-请在 re-context-kits 仓库 main 分支接手长期推进；先按仓库路由读取最小上下文，确认 main 与 origin/main 同步、工作树干净和当前状态，不要开始改动。我随后会发送正式 goal。
+请在 re-context-kits 仓库 main 分支接手长期推进；先按 CLAUDE.md、docs/context-routing.md、docs/autonomous-goal.md 顶部、docs/batch-plan.md 顶部和 CHANGELOG.md Unreleased 读取最小上下文，确认当前状态，不要开始改动。我随后会发送正式 goal。
 ```
 
 ## 给新会话的 goal 语句
@@ -101,7 +100,7 @@ Mission Control 相关批次还应检查：
 推荐复制这段短 goal。不要把上面的路线、候选项和停止条件全部塞进 goal；那些由仓库文档负责承载，模型接手后按 `docs/context-routing.md`、本文件顶部和 `docs/batch-plan.md` 顶部执行即可。
 
 ```text
-在 re-context-kits 仓库 main 分支长期自主推进项目成为可实际运行的 Lane-centric Agent Team Mission Control。接手后先读 CLAUDE.md、docs/context-routing.md、docs/autonomous-goal.md 顶部、docs/batch-plan.md 顶部和 CHANGELOG.md Unreleased 校准状态；每轮选择中大型、端到端、可验证的产品闭环，完成验证、文档、提交和推送后继续下一轮；除非遇到必须由我决策的事项，否则不要停止，也不要把单批完成当作长期 goal 完成。
+继续推进 re-context-kits，把它尽快收敛成可真实日常使用的 LLM 任务指挥台；先打通最低可用闭环，再边用边增强。每批自主选择最有价值的下一步，完成验证、提交和推送后继续推进，不要过早判定 goal 完成。
 ```
 
 如果只想启动下一批而不是长期 goal，可复制这段：
