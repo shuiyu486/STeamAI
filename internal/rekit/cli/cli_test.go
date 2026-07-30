@@ -461,6 +461,16 @@ func TestParsePlanSubagentsReviewerResultSourceCapture(t *testing.T) {
 	}
 }
 
+func TestParsePlanSubagentsReviewerResultInputSave(t *testing.T) {
+	opt, err := Parse([]string{"-Command", "plan-subagents", "-SaveReviewerResultInput", "-PacketPath", "packet.json", "-ShardId", "shard-01", "-ReviewerResultInputSourcePath", "workspace/reviewer-output.json", "-Lane", "feature-review", "-Actor", "mission-commander", "-ExpectedReviewerResultInputSha256", strings.Repeat("c", 64), "-Apply"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opt.SaveReviewerResultInput || opt.PacketPath != "packet.json" || opt.ShardID != "shard-01" || opt.ReviewerResultInputSourcePath != "workspace/reviewer-output.json" || opt.Note.Lane != "feature-review" || opt.Note.Actor != "mission-commander" || opt.ExpectedReviewerResultInputSHA256 != strings.Repeat("c", 64) || !opt.Apply {
+		t.Fatalf("unexpected reviewer result input save options: %+v", opt)
+	}
+}
+
 func TestParsePlanSubagentsReviewerResultRecovery(t *testing.T) {
 	opt, err := Parse([]string{"-Command", "plan-subagents", "-RecoverReviewerResult", "-PacketPath", "packet.json", "-ShardId", "shard-01", "-Lane", "feature-review", "-Actor", "mission-commander", "-Reason", "quarantine conflict", "-ExpectedCandidateSha256", strings.Repeat("a", 64), "-ExpectedReviewerResultSha256", strings.Repeat("b", 64), "-Apply"})
 	if err != nil {
@@ -7966,6 +7976,19 @@ func TestRunRejectsReviewerResultSourceCaptureFlagsOutsidePlanSubagents(t *testi
 		err := Run(args, &out)
 		if err == nil || !strings.Contains(err.Error(), "supported only by plan-subagents reviewer result source capture") {
 			t.Fatalf("source capture flags outside plan-subagents error = %v", err)
+		}
+	}
+}
+
+func TestRunRejectsReviewerResultInputSaveFlagsOutsidePlanSubagents(t *testing.T) {
+	for _, args := range [][]string{
+		{"-Command", "status", "-SaveReviewerResultInput"},
+		{"-Command", "status", "-ReviewerResultInputSourcePath", "reviewer-output.json"},
+	} {
+		var out bytes.Buffer
+		err := Run(args, &out)
+		if err == nil || !strings.Contains(err.Error(), "supported only by plan-subagents reviewer result input save") {
+			t.Fatalf("input save flags outside plan-subagents error = %v", err)
 		}
 	}
 }
@@ -19266,6 +19289,8 @@ type reviewerDispatchIntakeCLIItem struct {
 	ReviewerSessionReceiptFailure           string   `json:"reviewerSessionReceiptFailure"`
 	ReviewerDispatchRecordCommand           string   `json:"reviewerDispatchRecordCommand"`
 	ReviewerCompletionRecordCommand         string   `json:"reviewerCompletionRecordCommand"`
+		ReviewerResultInputSaveCommand          string   `json:"reviewerResultInputSaveCommand"`
+		ReviewerResultInputSaveApplyCommand     string   `json:"reviewerResultInputSaveApplyCommand"`
 	ReviewerResultSourceCaptureCommand      string   `json:"reviewerResultSourceCaptureCommand"`
 	ReviewerResultSourceCaptureApplyCommand string   `json:"reviewerResultSourceCaptureApplyCommand"`
 	ReviewerResultStagingCommand            string   `json:"reviewerResultStagingCommand"`
@@ -19497,10 +19522,10 @@ func assertReviewerDispatchOperatorPackage(t *testing.T, label string, summary r
 	if pkg.PacketID == "" || pkg.PacketPath == "" || pkg.TargetLane == "" || current.ShardID != shardID || current.State == "" || current.DispatchPromptPath == "" || current.DispatchPromptSHA256 != promptSHA256 || !current.DispatchPromptCurrent || current.AgentToolRequest == nil || !current.AgentToolRequest.ReadOnly || current.ExpectedReviewerResultSkeleton == "" || current.ReviewerResultDropPath == "" || current.ReviewerResultInputPath == "" || current.ReviewerResultSourcePath == "" || current.ReviewerResultCandidatePath == "" || current.ReviewerResultPath == "" || current.DispatchCommand == "" || current.NextAction == "" {
 		t.Fatalf("%s missing operator package current handoff: %+v", label, pkg)
 	}
-	if current.ReviewerResultSourceCapturePreviewCommand == "" || current.ReviewerResultSourceCaptureApplyCommand == "" || current.ReviewerResultStagingPreviewCommand == "" || current.ReviewerResultCollectionPreviewCommand == "" || current.ReviewerResultCollectionApplyCommand == "" || current.ReviewerResultIntakePreviewCommand == "" || current.ReviewerResultIntakeApplyCommand == "" {
+	if current.ReviewerResultInputSavePreviewCommand == "" || current.ReviewerResultInputSaveApplyCommand == "" || current.ReviewerResultSourceCapturePreviewCommand == "" || current.ReviewerResultSourceCaptureApplyCommand == "" || current.ReviewerResultStagingPreviewCommand == "" || current.ReviewerResultCollectionPreviewCommand == "" || current.ReviewerResultCollectionApplyCommand == "" || current.ReviewerResultIntakePreviewCommand == "" || current.ReviewerResultIntakeApplyCommand == "" {
 		t.Fatalf("%s missing operator package command chain: %+v", label, current)
 	}
-	if pkg.CurrentRunLoopStepID == "" || len(pkg.RunLoop) != 9 || pkg.RunLoop[0].StepID != "verify-prompt" || pkg.RunLoop[1].StepID != "spawn-reviewer" || pkg.RunLoop[2].StepID != "record-dispatch" || pkg.RunLoop[3].StepID != "save-result-input" || pkg.RunLoop[4].StepID != "record-completion" || pkg.RunLoop[5].StepID != "source-capture" || pkg.RunLoop[6].StepID != "stage-candidate" || pkg.RunLoop[7].StepID != "collect-result" || pkg.RunLoop[8].StepID != "intake-results" || pkg.RunLoop[1].Command == "" || pkg.RunLoop[5].PreviewCommand == "" || pkg.RunLoop[7].PreviewCommand == "" || pkg.RunLoop[8].PreviewCommand == "" || !containsSubstring(pkg.RunLoop[1].Boundary, "Go runtime does not spawn") || !containsSubstring(pkg.RunLoop[8].Boundary, "WhatIf before Apply") {
+	if pkg.CurrentRunLoopStepID == "" || len(pkg.RunLoop) != 9 || pkg.RunLoop[0].StepID != "verify-prompt" || pkg.RunLoop[1].StepID != "spawn-reviewer" || pkg.RunLoop[2].StepID != "record-dispatch" || pkg.RunLoop[3].StepID != "save-result-input" || pkg.RunLoop[4].StepID != "record-completion" || pkg.RunLoop[5].StepID != "source-capture" || pkg.RunLoop[6].StepID != "stage-candidate" || pkg.RunLoop[7].StepID != "collect-result" || pkg.RunLoop[8].StepID != "intake-results" || pkg.RunLoop[1].Command == "" || pkg.RunLoop[3].PreviewCommand == "" || pkg.RunLoop[5].PreviewCommand == "" || pkg.RunLoop[7].PreviewCommand == "" || pkg.RunLoop[8].PreviewCommand == "" || !containsSubstring(pkg.RunLoop[1].Boundary, "Go runtime does not spawn") || !containsSubstring(pkg.RunLoop[8].Boundary, "WhatIf before Apply") {
 		t.Fatalf("%s missing ordered operator run loop: %+v", label, pkg.RunLoop)
 	}
 	if !containsSubstring(pkg.RunbookSteps, "managed dispatch packet is available") || !containsSubstring(pkg.CompletionCriteria, "reviewerResultDropPath") || !containsSubstring(pkg.Boundary, "does not call Agent tool") || !containsSubstring(pkg.Boundary, "does not write facts") {

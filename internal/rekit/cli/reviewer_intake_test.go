@@ -1745,8 +1745,9 @@ func TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath(t *
 	handoff := plan.ShardHandoffs[0]
 	baseArgs := []string{"-Target", caseRoot, "-Pack", "_template"}
 	reviewerSession := "reviewer-session-operator-package"
+	reviewerOutputPath := filepath.Join(caseRoot, "workspace", "reviewer-output", "shard-01.json")
 	runtimeCommand := func(command string) string {
-		return strings.NewReplacer("<harness>", "go-cli-operator-harness", "<session-id>", reviewerSession, "<main-agent>", "mission-commander").Replace(command)
+		return strings.NewReplacer("<harness>", "go-cli-operator-harness", "<session-id>", reviewerSession, "<main-agent>", "mission-commander", "<reviewer-result-json-path>", reviewerOutputPath).Replace(command)
 	}
 	type reviewerOperatorStatus struct {
 		Summary          reviewerDispatchIntakeSummaryCLIItem
@@ -1859,19 +1860,77 @@ func TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath(t *
 	if summary.OperatorPackage.CurrentRunLoopStepID != "save-result-input" || summary.OperatorPackage.Current.State != "reviewer-session-running-unknown" || summary.OperatorPackage.Current.ReviewerDispatchID != dispatchApply.DispatchID || summary.OperatorPackage.Current.ReviewerSession != reviewerSession {
 		t.Fatalf("operator package did not advance to saved-input handoff: %+v", summary.OperatorPackage)
 	}
-	runningRequest := requireMissionCommanderDriverRequest(t, status.ReviewerQueue, "blocked-review", "inspect-current", "", false, true, true)
-	if !strings.Contains(runningRequest.Guidance, "inspect harness reviewer session") {
-		t.Fatalf("operator running driver request omitted manual harness guidance: %+v", runningRequest)
-	}
-	if args, ok := missionCommanderDriverRequestCommandCLIArgs(t, runningRequest); ok || args != nil {
-		t.Fatalf("operator running guidance must not produce executable CLI args: args=%+v request=%+v", args, runningRequest)
+	runningRequest := requireMissionCommanderDriverRequest(t, status.ReviewerQueue, "preview-command", "preview-current", summary.OperatorPackage.Current.ReviewerResultInputSavePreviewCommand, true, false, true)
+	if !strings.Contains(runningRequest.Command, "-SaveReviewerResultInput") || !strings.Contains(runningRequest.Command, "<reviewer-result-json-path>") {
+		t.Fatalf("operator running driver request omitted input-save preview: %+v", runningRequest)
 	}
 	resultData := reviewerResultForCLIPlan(t, packet, handoff, "accept", "accepted", reviewerSession)
-	if err := os.MkdirAll(filepath.Dir(summary.OperatorPackage.Current.ReviewerResultInputPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(reviewerOutputPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(summary.OperatorPackage.Current.ReviewerResultInputPath, resultData, 0o644); err != nil {
+	if err := os.WriteFile(reviewerOutputPath, resultData, 0o644); err != nil {
 		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run(driverRequestCommandArgs("operator input save", runningRequest), &out); err != nil {
+		t.Fatal(err)
+	}
+	var inputSavePreview struct {
+		IsMutation                  bool                                `json:"isMutation"`
+		Applied                     bool                                `json:"applied"`
+		Status                      string                              `json:"status"`
+		InputSourcePath             string                              `json:"inputSourcePath"`
+		InputPath                   string                              `json:"inputPath"`
+		InputSHA256                 string                              `json:"inputSha256"`
+		ReviewerDispatchID          string                              `json:"reviewerDispatchId"`
+		ReviewerDispatchSHA256      string                              `json:"reviewerDispatchReceiptSha256"`
+		AlreadySaved                bool                                `json:"alreadySaved"`
+		MissionCommanderAction      missionCommanderActionSnapshot      `json:"missionCommanderAction"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &inputSavePreview); err != nil {
+		t.Fatalf("operator input save preview JSON did not decode: %v\n%s", err, out.String())
+	}
+	if inputSavePreview.IsMutation || inputSavePreview.Applied || inputSavePreview.Status != "previewed" || inputSavePreview.InputSourcePath != reviewerOutputPath || inputSavePreview.InputPath != summary.OperatorPackage.Current.ReviewerResultInputPath || inputSavePreview.InputSHA256 == "" || inputSavePreview.ReviewerDispatchID != dispatchApply.DispatchID || inputSavePreview.ReviewerDispatchSHA256 != dispatchApply.ReceiptSHA256 || inputSavePreview.AlreadySaved || inputSavePreview.MissionCommanderAction.State != "ready-for-reviewer-result-input-save-apply" || !strings.Contains(inputSavePreview.MissionCommanderAction.PrimaryCommand, "-ExpectedReviewerResultInputSha256") {
+		t.Fatalf("unexpected operator input save preview: %+v", inputSavePreview)
+	}
+	inputSaveApplyRequest := requireMissionCommanderDriverRequest(t, inputSavePreview.MissionCommanderActionQueue, "preview-command", "preview-current", inputSavePreview.MissionCommanderAction.PrimaryCommand, true, false, true)
+	if inputSaveApplyRequest.Command == runningRequest.Command || !strings.Contains(inputSaveApplyRequest.Command, "-Apply") {
+		t.Fatalf("operator input save preview did not return apply receipt request: before=%+v after=%+v", runningRequest, inputSaveApplyRequest)
+	}
+	out.Reset()
+	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, runtimeCommand(inputSavePreview.MissionCommanderAction.PrimaryCommand)), &out); err != nil {
+		t.Fatal(err)
+	}
+	var inputSaveApply struct {
+		Applied      bool   `json:"applied"`
+		Status       string `json:"status"`
+		InputPath    string `json:"inputPath"`
+		AlreadySaved bool   `json:"alreadySaved"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &inputSaveApply); err != nil {
+		t.Fatalf("operator input save apply JSON did not decode: %v\n%s", err, out.String())
+	}
+	if !inputSaveApply.Applied || inputSaveApply.Status != "saved" || inputSaveApply.InputPath != summary.OperatorPackage.Current.ReviewerResultInputPath || inputSaveApply.AlreadySaved {
+		t.Fatalf("unexpected operator input save apply: %+v", inputSaveApply)
+	}
+	if saved, err := os.ReadFile(summary.OperatorPackage.Current.ReviewerResultInputPath); err != nil || !bytes.Equal(saved, resultData) {
+		t.Fatalf("operator input save did not publish exact packet-derived input: err=%v bytes=%q", err, string(saved))
+	}
+	out.Reset()
+	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, runtimeCommand(inputSavePreview.MissionCommanderAction.PrimaryCommand)), &out); err != nil {
+		t.Fatal(err)
+	}
+	var inputSaveReplay struct {
+		Applied      bool   `json:"applied"`
+		Status       string `json:"status"`
+		AlreadySaved bool   `json:"alreadySaved"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &inputSaveReplay); err != nil {
+		t.Fatalf("operator input save replay JSON did not decode: %v\n%s", err, out.String())
+	}
+	if !inputSaveReplay.Applied || inputSaveReplay.Status != "already-saved" || !inputSaveReplay.AlreadySaved {
+		t.Fatalf("operator input save exact replay was not idempotent: %+v", inputSaveReplay)
 	}
 
 	status = statusSnapshot("after operator input save")

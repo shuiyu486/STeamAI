@@ -39,6 +39,8 @@ type ReviewerResultStagingCommands struct {
 	SourcePath           string `json:"sourcePath,omitempty"`
 	SourcePathArgument   string `json:"sourcePathArgument"`
 	SourceCaptureInput   string `json:"sourceCaptureInput,omitempty"`
+	InputSaveCommand     string `json:"inputSaveCommand,omitempty"`
+	InputSaveApply       string `json:"inputSaveApply,omitempty"`
 	SourceCaptureCommand string `json:"sourceCaptureCommand,omitempty"`
 	SourceCaptureApply   string `json:"sourceCaptureApply,omitempty"`
 	PreviewCommand       string `json:"previewCommand"`
@@ -158,6 +160,8 @@ type ReviewerDispatchIntakeHandoff struct {
 	ReviewerDispatchRecordCommand            string                            `json:"reviewerDispatchRecordCommand,omitempty"`
 	ReviewerCompletionRecordCommand          string                            `json:"reviewerCompletionRecordCommand,omitempty"`
 	AgentToolRequest                         *ReviewerAgentToolRequest         `json:"agentToolRequest,omitempty"`
+	ReviewerResultInputSaveCommand           string                            `json:"reviewerResultInputSaveCommand,omitempty"`
+	ReviewerResultInputSaveApplyCommand      string                            `json:"reviewerResultInputSaveApplyCommand,omitempty"`
 	ReviewerResultSourceCaptureCommand       string                            `json:"reviewerResultSourceCaptureCommand,omitempty"`
 	ReviewerResultSourceCaptureApplyCommand  string                            `json:"reviewerResultSourceCaptureApplyCommand,omitempty"`
 	ReviewerResultStagingCommand             string                            `json:"reviewerResultStagingCommand,omitempty"`
@@ -216,6 +220,8 @@ type ReviewerManagedDispatchHandoff struct {
 	ReviewerResultCandidatePath string                    `json:"reviewerResultCandidatePath,omitempty"`
 	ReviewerResultInputPath     string                    `json:"reviewerResultInputPath,omitempty"`
 	ReviewerResultSourcePath    string                    `json:"reviewerResultSourcePath,omitempty"`
+	InputSavePreviewCommand     string                    `json:"inputSavePreviewCommand,omitempty"`
+	InputSaveApplyCommand       string                    `json:"inputSaveApplyCommand,omitempty"`
 	SourceCapturePreviewCommand string                    `json:"sourceCapturePreviewCommand,omitempty"`
 	SourceCaptureApplyCommand   string                    `json:"sourceCaptureApplyCommand,omitempty"`
 	StagingPreviewCommand       string                    `json:"stagingPreviewCommand,omitempty"`
@@ -295,6 +301,8 @@ type ReviewerDispatchOperatorPackageItem struct {
 	ReviewerResultPath                        string                    `json:"reviewerResultPath,omitempty"`
 	ReviewerResultState                       string                    `json:"reviewerResultState,omitempty"`
 	ReviewerResultPresent                     bool                      `json:"reviewerResultPresent,omitempty"`
+	ReviewerResultInputSavePreviewCommand     string                    `json:"reviewerResultInputSavePreviewCommand,omitempty"`
+	ReviewerResultInputSaveApplyCommand       string                    `json:"reviewerResultInputSaveApplyCommand,omitempty"`
 	ReviewerResultSourceCapturePreviewCommand string                    `json:"reviewerResultSourceCapturePreviewCommand,omitempty"`
 	ReviewerResultSourceCaptureApplyCommand   string                    `json:"reviewerResultSourceCaptureApplyCommand,omitempty"`
 	ReviewerResultStagingPreviewCommand       string                    `json:"reviewerResultStagingPreviewCommand,omitempty"`
@@ -522,6 +530,8 @@ type reviewerManagedDispatch struct {
 	ReviewerResultCandidatePath string                    `json:"reviewerResultCandidatePath"`
 	ReviewerResultInputPath     string                    `json:"reviewerResultInputPath"`
 	ReviewerResultSourcePath    string                    `json:"reviewerResultSourcePath"`
+	InputSavePreviewCommand     string                    `json:"inputSavePreviewCommand,omitempty"`
+	InputSaveApplyCommand       string                    `json:"inputSaveApplyCommand,omitempty"`
 	SourceCapturePreviewCommand string                    `json:"sourceCapturePreviewCommand"`
 	SourceCaptureApplyCommand   string                    `json:"sourceCaptureApplyCommand"`
 	StagingPreviewCommand       string                    `json:"stagingPreviewCommand"`
@@ -852,7 +862,7 @@ func MissionCommanderNextActionsWithReviewerDispatches(base []mission.MissionCom
 	for _, packetID := range packetOrder {
 		handoff := packetRepresentatives[packetID]
 		state := handoff.State
-		blocked := state != "ready-for-reviewer-result-source-capture-preview" && state != "ready-for-reviewer-result-staging-preview" && state != "ready-for-reviewer-result-collection-preview" && state != "reviewer-result-recovery-disposed-ready-for-collection-preview" && state != "ready-for-reviewer-intake-preview" && state != "reviewer-packet-owner-adoption-required" && state != "reviewer-result-recovery-required" && state != "reviewer-result-recovery-finalize-required" && !(state == "reviewer-result-recovery-ambiguous" && handoff.ReviewerResultRecoveryDispositionCommand != "") && !((state == "reviewer-dispatch-prompt-artifact-invalid" || state == "reviewer-dispatch-prompt-artifact-drift") && handoff.DispatchPromptRepairCommand != "")
+		blocked := state != "reviewer-session-running-unknown" && state != "ready-for-reviewer-result-source-capture-preview" && state != "ready-for-reviewer-result-staging-preview" && state != "ready-for-reviewer-result-collection-preview" && state != "reviewer-result-recovery-disposed-ready-for-collection-preview" && state != "ready-for-reviewer-intake-preview" && state != "reviewer-packet-owner-adoption-required" && state != "reviewer-result-recovery-required" && state != "reviewer-result-recovery-finalize-required" && !(state == "reviewer-result-recovery-ambiguous" && handoff.ReviewerResultRecoveryDispositionCommand != "") && !((state == "reviewer-dispatch-prompt-artifact-invalid" || state == "reviewer-dispatch-prompt-artifact-drift") && handoff.DispatchPromptRepairCommand != "")
 		packetActions = append(packetActions, mission.MissionCommanderNextActionItem{
 			Lane:           handoff.TargetLane,
 			Label:          packetID,
@@ -1614,6 +1624,20 @@ func reviewerDispatchStagingInputPath(dispatch reviewerDispatchPacketDispatch, e
 	return expected
 }
 
+func reviewerDispatchInputSaveCommand(packetPath, shardID, targetLane string) string {
+	return "/rekit plan-subagents -PacketPath " + reviewerDispatchQuoteCommandArg(packetPath) +
+		" -SaveReviewerResultInput -ShardId " + reviewerDispatchQuoteCommandArg(shardID) +
+		" -ReviewerResultInputSourcePath <reviewer-result-json-path> -Lane " + reviewerDispatchQuoteCommandArg(targetLane) +
+		" -Actor <main-agent> -WhatIf -Format json"
+}
+
+func reviewerDispatchInputSaveApplyCommand(packetPath, shardID, targetLane string) string {
+	return "/rekit plan-subagents -PacketPath " + reviewerDispatchQuoteCommandArg(packetPath) +
+		" -SaveReviewerResultInput -ShardId " + reviewerDispatchQuoteCommandArg(shardID) +
+		" -ReviewerResultInputSourcePath <reviewer-result-json-path> -Lane " + reviewerDispatchQuoteCommandArg(targetLane) +
+		" -Actor <main-agent> -ExpectedReviewerResultInputSha256 <inputSha256-from-WhatIf> -Apply -Format json"
+}
+
 func reviewerDispatchSourceCaptureCommand(packetPath, shardID, targetLane, inputPath string) string {
 	return "/rekit plan-subagents -PacketPath " + reviewerDispatchQuoteCommandArg(packetPath) +
 		" -CaptureReviewerResultSource -ShardId " + reviewerDispatchQuoteCommandArg(shardID) +
@@ -1887,11 +1911,15 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 		casebind.SamePath(dispatch.CollectionCommands.CandidatePath, candidatePath) &&
 		reviewerDispatchIntakeCommandAvailable(dispatch.CollectionCommands.PreviewCommand) &&
 		reviewerDispatchIntakeCommandAvailable(dispatch.CollectionCommands.ApplyCommand)
+	inputSaveCommand := ""
+	inputSaveApplyCommand := ""
 	sourceCaptureCommand := ""
 	sourceCaptureApplyCommand := ""
 	stagingCommand := ""
 	var collectionCommands *ReviewerResultCollectionCommands
 	if collectionAvailable {
+		inputSaveCommand = reviewerDispatchInputSaveCommand(packetPath, dispatch.ShardID, targetLane)
+		inputSaveApplyCommand = reviewerDispatchInputSaveApplyCommand(packetPath, dispatch.ShardID, targetLane)
 		sourceCaptureCommand = reviewerDispatchSourceCaptureCommand(packetPath, dispatch.ShardID, targetLane, inputPath)
 		sourceCaptureApplyCommand = reviewerDispatchSourceCaptureApplyCommand(packetPath, dispatch.ShardID, targetLane, inputPath)
 		stagingCommand = reviewerDispatchResultStagingCommand(packetPath, dispatch.ShardID, targetLane, sourcePath)
@@ -2130,6 +2158,8 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 		ReviewerDispatchRecordCommand:            sessionLifecycle.dispatchCommand,
 		ReviewerCompletionRecordCommand:          sessionLifecycle.completionCommand,
 		AgentToolRequest:                         dispatch.AgentToolRequest,
+		ReviewerResultInputSaveCommand:           inputSaveCommand,
+		ReviewerResultInputSaveApplyCommand:      inputSaveApplyCommand,
 		ReviewerResultSourceCaptureCommand:       sourceCaptureCommand,
 		ReviewerResultSourceCaptureApplyCommand:  sourceCaptureApplyCommand,
 		ReviewerResultStagingCommand:             stagingCommand,
@@ -2205,6 +2235,8 @@ func reviewerManagedDispatchHandoffFor(packet reviewerDispatchPacket, shardID st
 			ReviewerResultCandidatePath: dispatch.ReviewerResultCandidatePath,
 			ReviewerResultInputPath:     dispatch.ReviewerResultInputPath,
 			ReviewerResultSourcePath:    dispatch.ReviewerResultSourcePath,
+			InputSavePreviewCommand:     dispatch.InputSavePreviewCommand,
+			InputSaveApplyCommand:       dispatch.InputSaveApplyCommand,
 			SourceCapturePreviewCommand: dispatch.SourceCapturePreviewCommand,
 			SourceCaptureApplyCommand:   dispatch.SourceCaptureApplyCommand,
 			StagingPreviewCommand:       dispatch.StagingPreviewCommand,
@@ -2525,6 +2557,8 @@ func reviewerDispatchOperatorPackageFor(item ReviewerDispatchIntakeHandoff) *Rev
 		ReviewerResultPath:                        firstText(item.ReviewerResultPath, managed.ReviewerResultPath),
 		ReviewerResultState:                       item.ReviewerResultState,
 		ReviewerResultPresent:                     item.ReviewerResultPresent,
+		ReviewerResultInputSavePreviewCommand:     firstText(item.ReviewerResultInputSaveCommand, managed.InputSavePreviewCommand),
+		ReviewerResultInputSaveApplyCommand:       firstText(item.ReviewerResultInputSaveApplyCommand, managed.InputSaveApplyCommand),
 		ReviewerResultSourceCapturePreviewCommand: firstText(item.ReviewerResultSourceCaptureCommand, managed.SourceCapturePreviewCommand),
 		ReviewerResultSourceCaptureApplyCommand:   firstText(item.ReviewerResultSourceCaptureApplyCommand, managed.SourceCaptureApplyCommand),
 		ReviewerResultStagingPreviewCommand:       firstText(item.ReviewerResultStagingCommand, managed.StagingPreviewCommand),
@@ -2655,10 +2689,12 @@ func reviewerDispatchOperatorRunLoop(current ReviewerDispatchOperatorPackageItem
 		},
 	})
 	add(ReviewerDispatchRunLoopStep{
-		StepID:      "save-result-input",
-		Actor:       "main-agent",
-		Description: "save the reviewer JSON object to the packet-derived reviewer result input path",
-		Path:        firstText(current.ReviewerResultInputPath, current.ReviewerResultDropPath),
+		StepID:         "save-result-input",
+		Actor:          "main-agent",
+		Description:    "save the reviewer JSON object to the packet-derived reviewer result input path",
+		PreviewCommand: current.ReviewerResultInputSavePreviewCommand,
+		ApplyCommand:   current.ReviewerResultInputSaveApplyCommand,
+		Path:           firstText(current.ReviewerResultInputPath, current.ReviewerResultDropPath),
 		Boundary: []string{
 			"save exactly one reviewer JSON object before completion receipt, source capture, staging, collection, or intake",
 			"the saved input must contain the same reviewerSession bound to the dispatch receipt",
@@ -2774,8 +2810,8 @@ func reviewerDispatchOperatorPackageMarkdownLines(pkg *ReviewerDispatchOperatorP
 	if strings.TrimSpace(current.ExpectedReviewerResultSkeleton) != "" {
 		lines = append(lines, "  - operator expected reviewer result skeleton: `"+current.ExpectedReviewerResultSkeleton+"`")
 	}
-	if strings.TrimSpace(current.ReviewerResultSourceCapturePreviewCommand) != "" || strings.TrimSpace(current.ReviewerResultStagingPreviewCommand) != "" || strings.TrimSpace(current.ReviewerResultCollectionPreviewCommand) != "" {
-		lines = append(lines, fmt.Sprintf("  - operator result pipeline: drop=`%s` sourceCapturePreview=`%s` sourceCaptureApply=`%s` stagingPreview=`%s` collectionPreview=`%s` collectionApply=`%s`", current.ReviewerResultDropPath, current.ReviewerResultSourceCapturePreviewCommand, current.ReviewerResultSourceCaptureApplyCommand, current.ReviewerResultStagingPreviewCommand, current.ReviewerResultCollectionPreviewCommand, current.ReviewerResultCollectionApplyCommand))
+	if strings.TrimSpace(current.ReviewerResultInputSavePreviewCommand) != "" || strings.TrimSpace(current.ReviewerResultSourceCapturePreviewCommand) != "" || strings.TrimSpace(current.ReviewerResultStagingPreviewCommand) != "" || strings.TrimSpace(current.ReviewerResultCollectionPreviewCommand) != "" {
+		lines = append(lines, fmt.Sprintf("  - operator result pipeline: drop=`%s` inputSavePreview=`%s` inputSaveApply=`%s` sourceCapturePreview=`%s` sourceCaptureApply=`%s` stagingPreview=`%s` collectionPreview=`%s` collectionApply=`%s`", current.ReviewerResultDropPath, current.ReviewerResultInputSavePreviewCommand, current.ReviewerResultInputSaveApplyCommand, current.ReviewerResultSourceCapturePreviewCommand, current.ReviewerResultSourceCaptureApplyCommand, current.ReviewerResultStagingPreviewCommand, current.ReviewerResultCollectionPreviewCommand, current.ReviewerResultCollectionApplyCommand))
 	}
 	if strings.TrimSpace(current.ReviewerResultBatchIntakePreviewCommand) != "" || strings.TrimSpace(current.ReviewerResultIntakePreviewCommand) != "" {
 		lines = append(lines, fmt.Sprintf("  - operator intake: preview=`%s` apply=`%s` batchPreview=`%s` batchApply=`%s`", current.ReviewerResultIntakePreviewCommand, current.ReviewerResultIntakeApplyCommand, current.ReviewerResultBatchIntakePreviewCommand, current.ReviewerResultBatchIntakeApplyCommand))
@@ -2841,6 +2877,7 @@ func reviewerDispatchIntakeRunbookSteps(item ReviewerDispatchIntakeHandoff) []st
 		add("use the returned hash-bound Apply only after the harness has actually accepted the reviewer session")
 	case "reviewer-session-running-unknown":
 		add("the dispatch receipt is durable, but runtime has no live reviewer visibility; inspect the harness session " + firstText(item.ReviewerSession, "<reviewer-session>"))
+		add("after a successful read-only reviewer returns JSON, save it through input save preview: " + firstText(item.ReviewerResultInputSaveCommand, "<reviewer-result-input-save-WhatIf unavailable>"))
 		add("after success or failure, record a completion receipt before source capture")
 	case "ready-for-reviewer-completion-receipt-preview":
 		add("reviewer result input is ready; record successful completion preview: " + firstText(item.ReviewerCompletionRecordCommand, "<reviewer-completion-receipt-WhatIf unavailable>"))
@@ -2966,7 +3003,7 @@ func reviewerDispatchIntakeNextAction(item ReviewerDispatchIntakeHandoff) string
 	case "ready-for-reviewer-dispatch":
 		return firstText(item.ReviewerDispatchRecordCommand, item.DispatchCommand)
 	case "reviewer-session-running-unknown":
-		return "inspect harness reviewer session " + firstText(item.ReviewerSession, item.ReviewerDispatchID) + "; record completion receipt when it finishes"
+		return firstText(item.ReviewerResultInputSaveCommand, "inspect harness reviewer session "+firstText(item.ReviewerSession, item.ReviewerDispatchID)+"; save reviewer JSON input and record completion receipt when it finishes")
 	case "ready-for-reviewer-completion-receipt-preview":
 		return firstText(item.ReviewerCompletionRecordCommand, "record reviewer session completion -WhatIf for "+item.ShardID)
 	case "reviewer-session-failed":

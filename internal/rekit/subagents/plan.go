@@ -164,7 +164,7 @@ type ReviewerOrchestrationPlan struct {
 	ReviewerCount               int                                      `json:"reviewerCount"`
 	MaxParallel                 int                                      `json:"maxParallel"`
 	Summary                     ReviewerOrchestrationSummary             `json:"summary"`
-	ManagedDispatchPacket       *ReviewerManagedDispatchPacket            `json:"managedDispatchPacket,omitempty"`
+	ManagedDispatchPacket       *ReviewerManagedDispatchPacket           `json:"managedDispatchPacket,omitempty"`
 	Dispatches                  []ReviewerDispatch                       `json:"dispatches"`
 	Lifecycle                   []ReviewerOrchestrationStep              `json:"lifecycle"`
 	RuntimeBoundary             []string                                 `json:"runtimeBoundary"`
@@ -177,32 +177,32 @@ type ReviewerOrchestrationPlan struct {
 }
 
 type ReviewerOrchestrationSummary struct {
-	Mode                 string                                   `json:"mode"`
-	Scope                string                                   `json:"scope,omitempty"`
-	TargetLane           string                                   `json:"targetLane,omitempty"`
-	ReviewerCount        int                                      `json:"reviewerCount"`
-	MaxParallel          int                                      `json:"maxParallel"`
-	PacketPath           string                                   `json:"packetPath,omitempty"`
-	ResultRoot           string                                   `json:"resultRoot,omitempty"`
-	BatchPreviewCommand  string                                   `json:"batchPreviewCommand,omitempty"`
-	BatchApplyCommand    string                                   `json:"batchApplyCommand,omitempty"`
-	OwnerBinding         ReviewerOrchestrationOwnerSummary        `json:"ownerBinding"`
-	ManagedDispatchSummary *ReviewerManagedDispatchSummary        `json:"managedDispatchSummary,omitempty"`
-	DispatchCount        int                                      `json:"dispatchCount"`
-	IntakeAvailable      bool                                     `json:"intakeAvailable"`
-	CollectionAvailable  bool                                     `json:"collectionAvailable"`
-	DispatchOnly         bool                                     `json:"dispatchOnly"`
-	ActionTotal          int                                      `json:"actionTotal"`
-	ActionUnblocked      int                                      `json:"actionUnblocked"`
-	ActionBlocked        int                                      `json:"actionBlocked"`
-	ActionRequiresReview int                                      `json:"actionRequiresReview"`
-	ActionFollowUp       int                                      `json:"actionFollowUp"`
-	QueueSummary         string                                   `json:"queueSummary,omitempty"`
-	FirstDispatch        *ReviewerOrchestrationDispatchSummary    `json:"firstDispatch,omitempty"`
-	Dispatches           []ReviewerOrchestrationDispatchSummary   `json:"dispatches,omitempty"`
-	CurrentAction        *ReviewerOrchestrationNextActionSummary  `json:"currentAction,omitempty"`
-	NextActions          []ReviewerOrchestrationNextActionSummary `json:"nextActions,omitempty"`
-	Boundary             []string                                 `json:"boundary,omitempty"`
+	Mode                   string                                   `json:"mode"`
+	Scope                  string                                   `json:"scope,omitempty"`
+	TargetLane             string                                   `json:"targetLane,omitempty"`
+	ReviewerCount          int                                      `json:"reviewerCount"`
+	MaxParallel            int                                      `json:"maxParallel"`
+	PacketPath             string                                   `json:"packetPath,omitempty"`
+	ResultRoot             string                                   `json:"resultRoot,omitempty"`
+	BatchPreviewCommand    string                                   `json:"batchPreviewCommand,omitempty"`
+	BatchApplyCommand      string                                   `json:"batchApplyCommand,omitempty"`
+	OwnerBinding           ReviewerOrchestrationOwnerSummary        `json:"ownerBinding"`
+	ManagedDispatchSummary *ReviewerManagedDispatchSummary          `json:"managedDispatchSummary,omitempty"`
+	DispatchCount          int                                      `json:"dispatchCount"`
+	IntakeAvailable        bool                                     `json:"intakeAvailable"`
+	CollectionAvailable    bool                                     `json:"collectionAvailable"`
+	DispatchOnly           bool                                     `json:"dispatchOnly"`
+	ActionTotal            int                                      `json:"actionTotal"`
+	ActionUnblocked        int                                      `json:"actionUnblocked"`
+	ActionBlocked          int                                      `json:"actionBlocked"`
+	ActionRequiresReview   int                                      `json:"actionRequiresReview"`
+	ActionFollowUp         int                                      `json:"actionFollowUp"`
+	QueueSummary           string                                   `json:"queueSummary,omitempty"`
+	FirstDispatch          *ReviewerOrchestrationDispatchSummary    `json:"firstDispatch,omitempty"`
+	Dispatches             []ReviewerOrchestrationDispatchSummary   `json:"dispatches,omitempty"`
+	CurrentAction          *ReviewerOrchestrationNextActionSummary  `json:"currentAction,omitempty"`
+	NextActions            []ReviewerOrchestrationNextActionSummary `json:"nextActions,omitempty"`
+	Boundary               []string                                 `json:"boundary,omitempty"`
 }
 
 type ReviewerOrchestrationOwnerSummary struct {
@@ -234,47 +234,49 @@ type ReviewerOrchestrationNextActionSummary struct {
 }
 
 type ReviewerManagedDispatchPacket struct {
-	Mode                   string                    `json:"mode"`
-	Scope                  string                    `json:"scope"`
-	TargetLane             string                    `json:"targetLane"`
-	OwnerBinding           OwnerBinding              `json:"ownerBinding"`
-	PacketPath             string                    `json:"packetPath"`
-	PromptRoot             string                    `json:"promptRoot,omitempty"`
-	ResultRoot             string                    `json:"resultRoot"`
-	ReviewerCount          int                       `json:"reviewerCount"`
-	MaxParallel            int                       `json:"maxParallel"`
-	Dispatches             []ReviewerManagedDispatch `json:"dispatches"`
-	BatchPreviewCommand    string                    `json:"batchPreviewCommand,omitempty"`
-	BatchApplyCommand      string                    `json:"batchApplyCommand,omitempty"`
-	Runbook                []string                  `json:"runbook"`
-	Boundary               []string                  `json:"boundary"`
-	CompletionCriteria     []string                  `json:"completionCriteria"`
+	Mode                string                    `json:"mode"`
+	Scope               string                    `json:"scope"`
+	TargetLane          string                    `json:"targetLane"`
+	OwnerBinding        OwnerBinding              `json:"ownerBinding"`
+	PacketPath          string                    `json:"packetPath"`
+	PromptRoot          string                    `json:"promptRoot,omitempty"`
+	ResultRoot          string                    `json:"resultRoot"`
+	ReviewerCount       int                       `json:"reviewerCount"`
+	MaxParallel         int                       `json:"maxParallel"`
+	Dispatches          []ReviewerManagedDispatch `json:"dispatches"`
+	BatchPreviewCommand string                    `json:"batchPreviewCommand,omitempty"`
+	BatchApplyCommand   string                    `json:"batchApplyCommand,omitempty"`
+	Runbook             []string                  `json:"runbook"`
+	Boundary            []string                  `json:"boundary"`
+	CompletionCriteria  []string                  `json:"completionCriteria"`
 }
 
 type ReviewerManagedDispatch struct {
-	ShardID                     string                           `json:"shardId"`
-	ReviewerRole                string                           `json:"reviewerRole"`
-	Status                      string                           `json:"status"`
-	Items                       []string                         `json:"items"`
-	PromptPath                  string                           `json:"promptPath,omitempty"`
-	PromptSHA256                string                           `json:"promptSha256,omitempty"`
-	AgentToolRequest            ReviewerManagedAgentToolRequest  `json:"agentToolRequest"`
-	ReviewerResultPath          string                           `json:"reviewerResultPath"`
-	ReviewerResultCandidatePath string                           `json:"reviewerResultCandidatePath,omitempty"`
-	ReviewerResultInputPath     string                           `json:"reviewerResultInputPath,omitempty"`
-	ReviewerResultSourcePath    string                           `json:"reviewerResultSourcePath,omitempty"`
-	SourceCapturePreviewCommand string                           `json:"sourceCapturePreviewCommand,omitempty"`
-	SourceCaptureApplyCommand   string                           `json:"sourceCaptureApplyCommand,omitempty"`
-	StagingPreviewCommand       string                           `json:"stagingPreviewCommand,omitempty"`
-	CollectionPreviewCommand    string                           `json:"collectionPreviewCommand,omitempty"`
-	CollectionApplyCommand      string                           `json:"collectionApplyCommand,omitempty"`
-	IntakePreviewCommand        string                           `json:"intakePreviewCommand"`
-	IntakeApplyCommand          string                           `json:"intakeApplyCommand"`
-	DispatchCommand             string                           `json:"dispatchCommand"`
-	ReviewerResultSkeleton      string                           `json:"reviewerResultSkeleton"`
-	ExpectedOutput              string                           `json:"expectedOutput"`
-	NextAction                  string                           `json:"nextAction"`
-	Boundary                    []string                         `json:"boundary"`
+	ShardID                     string                          `json:"shardId"`
+	ReviewerRole                string                          `json:"reviewerRole"`
+	Status                      string                          `json:"status"`
+	Items                       []string                        `json:"items"`
+	PromptPath                  string                          `json:"promptPath,omitempty"`
+	PromptSHA256                string                          `json:"promptSha256,omitempty"`
+	AgentToolRequest            ReviewerManagedAgentToolRequest `json:"agentToolRequest"`
+	ReviewerResultPath          string                          `json:"reviewerResultPath"`
+	ReviewerResultCandidatePath string                          `json:"reviewerResultCandidatePath,omitempty"`
+	ReviewerResultInputPath     string                          `json:"reviewerResultInputPath,omitempty"`
+	ReviewerResultSourcePath    string                          `json:"reviewerResultSourcePath,omitempty"`
+	InputSavePreviewCommand     string                          `json:"inputSavePreviewCommand,omitempty"`
+	InputSaveApplyCommand       string                          `json:"inputSaveApplyCommand,omitempty"`
+	SourceCapturePreviewCommand string                          `json:"sourceCapturePreviewCommand,omitempty"`
+	SourceCaptureApplyCommand   string                          `json:"sourceCaptureApplyCommand,omitempty"`
+	StagingPreviewCommand       string                          `json:"stagingPreviewCommand,omitempty"`
+	CollectionPreviewCommand    string                          `json:"collectionPreviewCommand,omitempty"`
+	CollectionApplyCommand      string                          `json:"collectionApplyCommand,omitempty"`
+	IntakePreviewCommand        string                          `json:"intakePreviewCommand"`
+	IntakeApplyCommand          string                          `json:"intakeApplyCommand"`
+	DispatchCommand             string                          `json:"dispatchCommand"`
+	ReviewerResultSkeleton      string                          `json:"reviewerResultSkeleton"`
+	ExpectedOutput              string                          `json:"expectedOutput"`
+	NextAction                  string                          `json:"nextAction"`
+	Boundary                    []string                        `json:"boundary"`
 }
 
 type ReviewerManagedAgentToolRequest struct {
@@ -287,17 +289,17 @@ type ReviewerManagedAgentToolRequest struct {
 }
 
 type ReviewerManagedDispatchSummary struct {
-	Mode                string                                 `json:"mode"`
-	TargetLane          string                                 `json:"targetLane"`
-	PacketPath          string                                 `json:"packetPath"`
-	DispatchCount       int                                    `json:"dispatchCount"`
-	ReviewerCount       int                                    `json:"reviewerCount"`
-	MaxParallel         int                                    `json:"maxParallel"`
-	BatchPreviewCommand string                                 `json:"batchPreviewCommand,omitempty"`
-	BatchApplyCommand   string                                 `json:"batchApplyCommand,omitempty"`
-	FirstDispatch       *ReviewerManagedDispatchItemSummary     `json:"firstDispatch,omitempty"`
-	Dispatches          []ReviewerManagedDispatchItemSummary    `json:"dispatches,omitempty"`
-	Boundary            []string                               `json:"boundary,omitempty"`
+	Mode                string                               `json:"mode"`
+	TargetLane          string                               `json:"targetLane"`
+	PacketPath          string                               `json:"packetPath"`
+	DispatchCount       int                                  `json:"dispatchCount"`
+	ReviewerCount       int                                  `json:"reviewerCount"`
+	MaxParallel         int                                  `json:"maxParallel"`
+	BatchPreviewCommand string                               `json:"batchPreviewCommand,omitempty"`
+	BatchApplyCommand   string                               `json:"batchApplyCommand,omitempty"`
+	FirstDispatch       *ReviewerManagedDispatchItemSummary  `json:"firstDispatch,omitempty"`
+	Dispatches          []ReviewerManagedDispatchItemSummary `json:"dispatches,omitempty"`
+	Boundary            []string                             `json:"boundary,omitempty"`
 }
 
 type ReviewerManagedDispatchItemSummary struct {
@@ -326,6 +328,8 @@ type ReviewerResultStagingCommands struct {
 	SourcePath           string `json:"sourcePath,omitempty"`
 	SourcePathArgument   string `json:"sourcePathArgument"`
 	SourceCaptureInput   string `json:"sourceCaptureInput,omitempty"`
+	InputSaveCommand     string `json:"inputSaveCommand,omitempty"`
+	InputSaveApply       string `json:"inputSaveApply,omitempty"`
 	SourceCaptureCommand string `json:"sourceCaptureCommand,omitempty"`
 	SourceCaptureApply   string `json:"sourceCaptureApply,omitempty"`
 	PreviewCommand       string `json:"previewCommand"`
@@ -1132,12 +1136,15 @@ func reviewerBatchIntakeCommands(planRoot, pack, packetPath, targetLane string, 
 }
 
 func reviewerResultStagingCommands(packetPath, shardID, targetLane, inputPath, sourcePath string) ReviewerResultStagingCommands {
+	inputSaveBase := "/rekit plan-subagents -PacketPath " + quoteCommandArg(packetPath) + " -SaveReviewerResultInput -ShardId " + quoteCommandArg(shardID) + " -ReviewerResultInputSourcePath <reviewer-result-json-path> -Lane " + quoteCommandArg(targetLane) + " -Actor <main-agent>"
 	captureBase := "/rekit plan-subagents -PacketPath " + quoteCommandArg(packetPath) + " -CaptureReviewerResultSource -ShardId " + quoteCommandArg(shardID) + " -ReviewerResultInputPath " + quoteCommandArg(inputPath) + " -Lane " + quoteCommandArg(targetLane) + " -Actor <main-agent>"
 	base := "/rekit plan-subagents -PacketPath " + quoteCommandArg(packetPath) + " -StageReviewerResult -ShardId " + quoteCommandArg(shardID) + " -ReviewerResultSourcePath " + quoteCommandArg(sourcePath) + " -Lane " + quoteCommandArg(targetLane) + " -Actor <main-agent>"
 	return ReviewerResultStagingCommands{
 		SourcePath:           sourcePath,
 		SourcePathArgument:   sourcePath,
 		SourceCaptureInput:   inputPath,
+		InputSaveCommand:     inputSaveBase + " -WhatIf -Format json",
+		InputSaveApply:       inputSaveBase + " -ExpectedReviewerResultInputSha256 <inputSha256-from-WhatIf> -Apply -Format json",
 		SourceCaptureCommand: captureBase + " -WhatIf -Format json",
 		SourceCaptureApply:   captureBase + " -ExpectedReviewerResultInputSha256 <inputSha256-from-WhatIf> -Apply -Format json",
 		PreviewCommand:       base + " -WhatIf -Format json",
@@ -1300,30 +1307,32 @@ func newReviewerManagedDispatchPacket(mode, scope string, route Route, observabi
 	}
 	for idx, dispatch := range dispatches {
 		managed := ReviewerManagedDispatch{
-			ShardID:                dispatch.ShardID,
-			ReviewerRole:           dispatch.ReviewerRole,
-			Status:                 dispatch.Status,
-			Items:                  append([]string{}, dispatch.Items...),
-			PromptPath:             dispatch.DispatchPromptPath,
-			PromptSHA256:           dispatch.DispatchPromptSHA256,
-			AgentToolRequest:       reviewerManagedAgentToolRequest(dispatch),
-			ReviewerResultPath:     dispatch.ReviewerResultPath,
+			ShardID:                     dispatch.ShardID,
+			ReviewerRole:                dispatch.ReviewerRole,
+			Status:                      dispatch.Status,
+			Items:                       append([]string{}, dispatch.Items...),
+			PromptPath:                  dispatch.DispatchPromptPath,
+			PromptSHA256:                dispatch.DispatchPromptSHA256,
+			AgentToolRequest:            reviewerManagedAgentToolRequest(dispatch),
+			ReviewerResultPath:          dispatch.ReviewerResultPath,
 			ReviewerResultCandidatePath: dispatch.ReviewerResultCandidatePath,
-			IntakePreviewCommand:   dispatch.PreviewCommand,
-			IntakeApplyCommand:     dispatch.ApplyCommand,
-			DispatchCommand:        reviewerPlanDispatchCommand(ReviewerOrchestrationPlan{Mode: mode, Summary: ReviewerOrchestrationSummary{DispatchOnly: strings.EqualFold(mode, "dispatch-only-unattached-target")}, Dispatches: dispatches}, idx),
-			ReviewerResultSkeleton: reviewerResultSkeletonJSON("packet.packetId", Shard{ID: dispatch.ShardID, Items: append([]string{}, dispatch.Items...)}, route, reviewerRouteOutputPromptSkeleton(splitCSV(route.OutputContract), dispatch.Items)),
-			ExpectedOutput:         route.OutputContract,
-			NextAction:             "dispatch read-only reviewer, collect one JSON result, then follow this shard command chain before packet-level batch intake",
-			Boundary:               append([]string{}, packet.Boundary...),
+			IntakePreviewCommand:        dispatch.PreviewCommand,
+			IntakeApplyCommand:          dispatch.ApplyCommand,
+			DispatchCommand:             reviewerPlanDispatchCommand(ReviewerOrchestrationPlan{Mode: mode, Summary: ReviewerOrchestrationSummary{DispatchOnly: strings.EqualFold(mode, "dispatch-only-unattached-target")}, Dispatches: dispatches}, idx),
+			ReviewerResultSkeleton:      reviewerResultSkeletonJSON("packet.packetId", Shard{ID: dispatch.ShardID, Items: append([]string{}, dispatch.Items...)}, route, reviewerRouteOutputPromptSkeleton(splitCSV(route.OutputContract), dispatch.Items)),
+			ExpectedOutput:              route.OutputContract,
+			NextAction:                  "dispatch read-only reviewer, collect one JSON result, then follow this shard command chain before packet-level batch intake",
+			Boundary:                    append([]string{}, packet.Boundary...),
 		}
 		if dispatch.StagingCommands != nil {
 			managed.ReviewerResultInputPath = dispatch.StagingCommands.SourceCaptureInput
 			managed.ReviewerResultSourcePath = dispatch.StagingCommands.SourcePath
+			managed.InputSavePreviewCommand = dispatch.StagingCommands.InputSaveCommand
+			managed.InputSaveApplyCommand = dispatch.StagingCommands.InputSaveApply
 			managed.SourceCapturePreviewCommand = dispatch.StagingCommands.SourceCaptureCommand
 			managed.SourceCaptureApplyCommand = dispatch.StagingCommands.SourceCaptureApply
 			managed.StagingPreviewCommand = dispatch.StagingCommands.PreviewCommand
-			managed.NextAction = "save reviewer JSON to reviewerResultInputPath; run sourceCapturePreviewCommand, sourceCaptureApplyCommand, stagingPreviewCommand, collection preview/apply, then packet-level batch intake preview/apply"
+			managed.NextAction = "save reviewer JSON through inputSavePreviewCommand and its hash-bound apply; run sourceCapturePreviewCommand, sourceCaptureApplyCommand, stagingPreviewCommand, collection preview/apply, then packet-level batch intake preview/apply"
 		}
 		if dispatch.CollectionCommands != nil {
 			managed.CollectionPreviewCommand = dispatch.CollectionCommands.PreviewCommand
@@ -1482,15 +1491,15 @@ func orchestrationCollectionAvailable(orchestration ReviewerOrchestrationPlan) b
 
 func reviewerOrchestrationSummary(orchestration ReviewerOrchestrationPlan) ReviewerOrchestrationSummary {
 	summary := ReviewerOrchestrationSummary{
-		Mode:                orchestration.Mode,
-		Scope:               orchestration.Scope,
-		TargetLane:          orchestration.TargetLane,
-		ReviewerCount:       orchestration.ReviewerCount,
-		MaxParallel:         orchestration.MaxParallel,
-		PacketPath:          orchestration.PacketPath,
-		ResultRoot:          orchestration.ResultRoot,
-		BatchPreviewCommand: orchestration.BatchPreviewCommand,
-		BatchApplyCommand:   orchestration.BatchApplyCommand,
+		Mode:                   orchestration.Mode,
+		Scope:                  orchestration.Scope,
+		TargetLane:             orchestration.TargetLane,
+		ReviewerCount:          orchestration.ReviewerCount,
+		MaxParallel:            orchestration.MaxParallel,
+		PacketPath:             orchestration.PacketPath,
+		ResultRoot:             orchestration.ResultRoot,
+		BatchPreviewCommand:    orchestration.BatchPreviewCommand,
+		BatchApplyCommand:      orchestration.BatchApplyCommand,
 		ManagedDispatchSummary: reviewerManagedDispatchSummary(orchestration.ManagedDispatchPacket),
 		OwnerBinding: ReviewerOrchestrationOwnerSummary{
 			TargetLane:         orchestration.OwnerBinding.TargetLane,
