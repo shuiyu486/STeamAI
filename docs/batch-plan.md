@@ -29,7 +29,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 719：reviewer operator package executable run loop closure
 
-状态：已完成 CLI product-path regression、focused reviewer/session regressions、完整 CLI package regression 与本机 release minimum 代码验证；文档/CHANGELOG 收尾、implementation commit/push 与 push-triggered remote inspection 待执行。
+状态：已完成 CLI product-path regression、focused reviewer/session regressions、完整 CLI package regression、完整本机 release minimum、文档收尾、implementation commit/push 与 push-triggered remote inspection；implementation commit `4eca038` 已推送。Push run `30506394163` completed failure；macOS/Linux/Windows jobs `90756987336`/`90756987384`/`90756987416` 均 `steps=[]`，`gh run view 30506394163 --log-failed` 返回 `log not found: 90756987336`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。
 
 目标：把 reviewer/session orchestration UX 从只读 operator package/run-loop 投影推进为一条可执行产品路径：replacement executor 从 `status` first-screen 的 `ReviewerDispatchOperatorPackage` 出发，不依赖旧聊天上下文，按 runtime 暴露的当前命令逐步完成 immutable dispatch receipt、reviewer JSON input 保存、completion receipt、source capture、staging、collection 与 batch intake writeback。
 
