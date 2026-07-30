@@ -1324,7 +1324,7 @@ func TestRunStatusCaseMissionPromotesPendingGateWhatIfCurrentAction(t *testing.T
 		t.Fatalf("case status JSON did not decode: %v\n%s", err, out.String())
 	}
 	current := status.CaseMission.MissionCommanderActionQueue.CurrentAction
-	if status.CaseMission.Ready || current == nil || current.Source != "missionCommanderActions" || current.State != "needs-gate-decision" || current.Blocked || !current.RequiresReview || current.Command != "/rekit gate debug -Lane main -WhatIf" || !containsSubstring(current.Boundary, "review gate -WhatIf output before running the bounded -Apply follow-up") || !containsSubstring(status.CaseMission.MissionBriefNextActions, "follow Mission Commander current action: /rekit gate debug -Lane main -WhatIf") {
+	if status.CaseMission.Ready || current == nil || current.Source != "missionCommanderActions" || current.State != "needs-gate-decision" || current.Blocked || !current.RequiresReview || current.Command != "/rekit gate -Action debug -Lane main -WhatIf" || !containsSubstring(current.Boundary, "review gate -WhatIf output before running the bounded -Apply follow-up") || !containsSubstring(status.CaseMission.MissionBriefNextActions, "follow Mission Commander current action: /rekit gate -Action debug -Lane main -WhatIf") {
 		t.Fatalf("pending-gate status JSON did not promote concrete WhatIf current action: mission=%+v current=%+v", status.CaseMission, current)
 	}
 	if len(status.CaseMission.PendingGateHandoffs) != 1 || !strings.Contains(status.CaseMission.PendingGateHandoffs[0].WhatIfCommand, `-Action debug -Lane main -WhatIf`) || !strings.Contains(status.CaseMission.PendingGateHandoffs[0].ApplyCommand, `-Action debug -Lane main -Apply -Actor mission-commander`) {
@@ -1337,11 +1337,11 @@ func TestRunStatusCaseMissionPromotesPendingGateWhatIfCurrentAction(t *testing.T
 	}
 	for _, expected := range []string{
 		"status Mission Commander first screen：focus=case-current-action",
-		"status Mission Commander current action：scope=focus-case lane=main label=main state=needs-gate-decision source=missionCommanderActions blocked=false requiresReview=true command=/rekit gate debug -Lane main -WhatIf",
-		"status case mission queue：total=6 unblocked=3 blocked=3 requiresReview=4 followUp=4 current=/rekit gate debug -Lane main -WhatIf",
-		"status case mission queue action：bucket=current lane=main label=main state=needs-gate-decision source=missionCommanderActions blocked=false requiresReview=true command=/rekit gate debug -Lane main -WhatIf",
-		"status case mission queue action：bucket=blocked lane=main label=main state=needs-gate-decision source=missionCommanderActions.followUp blocked=true requiresReview=true command=/rekit gate debug -Lane main -Apply -Actor <actor>",
-		"status case mission brief next action：follow Mission Commander current action: /rekit gate debug -Lane main -WhatIf",
+		"status Mission Commander current action：scope=focus-case lane=main label=main state=needs-gate-decision source=missionCommanderActions blocked=false requiresReview=true command=/rekit gate -Action debug -Lane main -WhatIf",
+		"status case mission queue：total=6 unblocked=3 blocked=3 requiresReview=4 followUp=4 current=/rekit gate -Action debug -Lane main -WhatIf",
+		"status case mission queue action：bucket=current lane=main label=main state=needs-gate-decision source=missionCommanderActions blocked=false requiresReview=true command=/rekit gate -Action debug -Lane main -WhatIf",
+		"status case mission queue action：bucket=blocked lane=main label=main state=needs-gate-decision source=missionCommanderActions.followUp blocked=true requiresReview=true command=/rekit gate -Action debug -Lane main -Apply -Actor <actor>",
+		"status case mission brief next action：follow Mission Commander current action: /rekit gate -Action debug -Lane main -WhatIf",
 		"status case mission pending gate handoff：eventId= lane=main subject=debug gate action=debug target=target.bin status=pending-gate risk=high auth= profile= review=/rekit handoff main whatIf=/rekit gate -Target \"" + caseRoot + "\" -Pack _template -Action debug -Lane main -WhatIf",
 	} {
 		if !strings.Contains(out.String(), expected) {
@@ -1351,6 +1351,129 @@ func TestRunStatusCaseMissionPromotesPendingGateWhatIfCurrentAction(t *testing.T
 	if strings.Contains(out.String(), "/rekit gate <action>") {
 		t.Fatalf("pending-gate status text leaked action placeholder:\n%s", out.String())
 	}
+}
+
+func TestRunPendingGateCurrentRunLoopApplyOpensAuthorizedGateHandoff(t *testing.T) {
+	caseRoot := attachedCaseWithBoard(t)
+	factsRoot := filepath.Join(caseRoot, ".rekit", "facts")
+	if err := os.MkdirAll(factsRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFactFile(t, factsRoot, "requests.jsonl", []string{`{"kind":"request","lane":"main","subject":"debug gate","summary":"needs bounded debug decision","status":"pending-gate","risk":"high","target":"target.bin","actor":"mission-commander","gate":{"action":"debug","scope":"single function","requestedBudget":{"runtimeSeconds":30,"diskMB":64,"requests":1},"outputPaths":["workspace/main/debug/session-1"],"stopConditions":["timeout"],"authorization":{"decision":"needs-user","profileId":"manual-main"}}}`})
+	writeFactFile(t, factsRoot, "candidates.jsonl", nil)
+	writeFactFile(t, factsRoot, "decisions.jsonl", nil)
+	writeFactFile(t, factsRoot, "interventions.jsonl", nil)
+	writeCaseFile(t, caseRoot, ".rekit/lanes/main/autonomy.json", `{
+  "schemaVersion": 1,
+  "profileId": "main-debug-preauth",
+  "lane": "main",
+  "mode": "preauthorized",
+  "allowedActions": ["debug"],
+  "deniedActions": [],
+  "targetScope": [{"match":"exact","value":"target.bin"}],
+  "budget": {"runtimeSeconds": 60, "diskMB": 128, "requests": 2},
+  "stopConditions": ["timeout"],
+  "outputPaths": ["workspace/main/debug"],
+  "recordRequired": true,
+  "notifyMainOn": ["boundary-hit"],
+  "grantedBy": "user",
+  "grantedAt": "2026-07-30T00:00:00Z",
+  "expiresAt": "2999-01-01T00:00:00Z"
+}`)
+	beforePreview := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var pendingStatus struct {
+		CaseMission struct {
+			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+			PendingGateHandoffs         []statusPendingGateHandoff          `json:"pendingGateHandoffs"`
+			AuthorizedGateHandoffs      []statusAuthorizedGateHandoff       `json:"authorizedGateHandoffs"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &pendingStatus); err != nil {
+		t.Fatalf("pending-gate status JSON did not decode: %v\n%s", err, out.String())
+	}
+	pendingCurrent := pendingStatus.CaseMission.MissionCommanderActionQueue.CurrentAction
+	if pendingCurrent == nil || pendingCurrent.State != "needs-gate-decision" || pendingCurrent.Source != "missionCommanderActions" || pendingCurrent.Blocked || !pendingCurrent.RequiresReview || pendingCurrent.Command != "/rekit gate -Action debug -Lane main -WhatIf" || pendingStatus.CaseMission.MissionCommanderActionQueue.CurrentRunLoopStepID != "preview-current" || !containsMissionCommanderRunLoopStep(pendingStatus.CaseMission.MissionCommanderActionQueue.CurrentActionRunLoop, "preview-current", pendingCurrent.Command) {
+		t.Fatalf("pending gate status did not expose executable preview-current run-loop: queue=%+v", pendingStatus.CaseMission.MissionCommanderActionQueue)
+	}
+	if len(pendingStatus.CaseMission.PendingGateHandoffs) != 1 || len(pendingStatus.CaseMission.AuthorizedGateHandoffs) != 0 {
+		t.Fatalf("pending gate status handoffs drifted: %+v", pendingStatus.CaseMission)
+	}
+
+	previewArgs := append(rekitCommandCLIArgs(t, pendingCurrent.Command), "-Target", caseRoot, "-Pack", "_template", "-TargetRef", "target.bin", "-RuntimeSeconds", "30", "-DiskMB", "64", "-Requests", "1", "-OutputPaths", "workspace/main/debug/session-1", "-StopConditions", "timeout", "-Format", "json")
+	out.Reset()
+	if err := Run(previewArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var preview gate.Plan
+	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+		t.Fatalf("pending gate current preview stdout is not JSON: %v\n%s", err, out.String())
+	}
+	foundApplyNextAction := false
+	for _, item := range preview.MissionCommanderNextActions {
+		if item.Source == "missionCommanderActions" && item.Command == preview.MissionCommanderAction.PrimaryCommand && !item.Blocked && item.RequiresReview {
+			foundApplyNextAction = true
+			break
+		}
+	}
+	if preview.IsMutation || preview.ReviewRequired || preview.RequiresConfirmation || preview.EventPreview.Status != "authorized-gate" || preview.EventPreview.Gate.Authorization.Decision != "preauthorized" || preview.MissionCommanderAction.State != "needs-authorized-gate-apply" || !strings.Contains(preview.MissionCommanderAction.PrimaryCommand, "-Apply -Actor <actor>") || !foundApplyNextAction {
+		t.Fatalf("pending gate run-loop preview did not expose authorized bounded apply: %+v", preview)
+	}
+	assertSnapshotEqual(t, beforePreview, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	applyArgs := append([]string{}, previewArgs...)
+	for i := 0; i < len(applyArgs); i++ {
+		if applyArgs[i] == "-WhatIf" {
+			applyArgs[i] = "-Apply"
+		}
+	}
+	applyArgs = append(applyArgs, "-Actor", "mission-commander")
+	out.Reset()
+	if err := Run(applyArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var applied gate.ApplyResult
+	if err := json.Unmarshal(out.Bytes(), &applied); err != nil {
+		t.Fatalf("pending gate bounded apply stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if !applied.Applied || !applied.IsMutation || applied.Event == nil || applied.Event.Status != "authorized-gate" || applied.Event.Gate.Authorization.Decision != "preauthorized" || applied.MissionCommanderAction.State != "ready-for-execution-report-contract" || applied.MissionCommanderActionQueue.CurrentAction == nil || applied.MissionCommanderActionQueue.CurrentAction.Blocked || !applied.MissionCommanderActionQueue.CurrentAction.RequiresReview || !strings.Contains(applied.MissionCommanderActionQueue.CurrentAction.Command, "-ExecutionReportContract") || !strings.Contains(applied.MissionCommanderActionQueue.CurrentAction.Command, applied.EventID) {
+		t.Fatalf("pending gate bounded apply did not open authorized report-contract handoff: applied=%+v queue=%+v", applied, applied.MissionCommanderActionQueue)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var authorizedStatus struct {
+		CaseMission struct {
+			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+			PendingGateHandoffs         []statusPendingGateHandoff          `json:"pendingGateHandoffs"`
+			AuthorizedGateHandoffs      []statusAuthorizedGateHandoff       `json:"authorizedGateHandoffs"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &authorizedStatus); err != nil {
+		t.Fatalf("authorized-gate status JSON did not decode: %v\n%s", err, out.String())
+	}
+	authorizedCurrent := authorizedStatus.CaseMission.MissionCommanderActionQueue.CurrentAction
+	if len(authorizedStatus.CaseMission.AuthorizedGateHandoffs) != 1 || authorizedStatus.CaseMission.AuthorizedGateHandoffs[0].EventID != applied.EventID || authorizedStatus.CaseMission.AuthorizedGateHandoffs[0].ReportContract == "" || authorizedStatus.CaseMission.AuthorizedGateHandoffs[0].LiveValidation == nil || authorizedStatus.CaseMission.AuthorizedGateHandoffs[0].LiveValidation.CurrentRunLoopStepID == "" {
+		t.Fatalf("status did not expose authorized gate report-contract handoff: %+v", authorizedStatus.CaseMission.AuthorizedGateHandoffs)
+	}
+	if authorizedCurrent == nil || authorizedCurrent.GateEventID != applied.EventID || authorizedCurrent.State != "needs-adapter-report-validation" || authorizedCurrent.Blocked || !authorizedCurrent.RequiresReview || !strings.Contains(authorizedCurrent.Command, "-ValidateExecutionReport") || !strings.Contains(authorizedCurrent.Command, applied.EventID) || !containsMissionCommanderRunLoopStep(authorizedStatus.CaseMission.MissionCommanderActionQueue.CurrentActionRunLoop, "preview-current", authorizedCurrent.Command) {
+		t.Fatalf("authorized gate status did not select adapter validation current action: queue=%+v", authorizedStatus.CaseMission.MissionCommanderActionQueue)
+	}
+	ledger, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(ledger), `"status":"authorized-gate"`) || !strings.Contains(string(ledger), applied.EventID) {
+		t.Fatalf("requests ledger missing authorized gate event:\n%s", string(ledger))
+	}
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
 }
 
 func TestRunStatusCaseMissionOpenDecisionFirstScreenPackage(t *testing.T) {
@@ -8896,7 +9019,7 @@ func TestRunContinueBlocksPendingGateBeforeWrites(t *testing.T) {
 	if !blocked.ExecutorAction.Blocked || blocked.ExecutorAction.PendingGates != 1 || !blocked.ExecutorAction.PendingGateRequired || !slices.Contains(blocked.ExecutorAction.NextAgentActions, "resolve or keep deferred pending-gate request(s); gate records the request and never executes heavy-tool") || slices.Contains(blocked.ExecutorAction.NextAgentActions, "/rekit continue login") || !slices.Equal(blocked.NextSteps, blocked.ExecutorAction.NextAgentActions) {
 		t.Fatalf("pending gate blocked continue should expose gate-only next steps: action=%+v next=%+v", blocked.ExecutorAction, blocked.NextSteps)
 	}
-	assertCLIActionQueue(t, blocked.MissionCommanderActionQueue, 4, 1, 3, 4, 3, "/rekit gate debug -Lane feature-login -WhatIf")
+	assertCLIActionQueue(t, blocked.MissionCommanderActionQueue, 4, 1, 3, 4, 3, "/rekit gate -Action debug -Lane feature-login -WhatIf")
 	assertSnapshotEqual(t, before, snapshotFiles(t, caseRoot))
 
 	out.Reset()
@@ -8909,7 +9032,7 @@ func TestRunContinueBlocksPendingGateBeforeWrites(t *testing.T) {
 		"continue pending gate decision boundary：eventId=evt-pending-debug boundary=review with the main agent/user or update strict durable autonomy before any heavy action; apply command only replays/records the gate request decision and does not execute or approve heavy action by itself",
 		"continue pending gate continue boundary：eventId=evt-pending-debug boundary=blocked continue is zero-write and only exposes pending-gate handoff; do not continue autonomously while the pending gate remains unresolved",
 		"continue pending gate evidence：eventId=evt-pending-debug evidence=pending-gate ledger event evt-pending-debug",
-		"mission commander action queue current：state=needs-gate-decision source=missionCommanderActions blocked=false requiresReview=true command=`/rekit gate debug -Lane feature-login -WhatIf`",
+		"mission commander action queue current：state=needs-gate-decision source=missionCommanderActions blocked=false requiresReview=true command=`/rekit gate -Action debug -Lane feature-login -WhatIf`",
 	} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("pending gate blocked continue text missing %q:\n%s", expected, out.String())
@@ -8968,7 +9091,7 @@ func TestRunContinuePrioritizesLaneGateBlockerWhilePreservingReviewerDispatch(t 
 		t.Fatalf("mixed blocked continue omitted reviewer dispatch provenance: %+v", blocked.ReviewerDispatchIntakeHandoffs)
 	}
 	current := blocked.MissionCommanderActionQueue.CurrentAction
-	if current == nil || current.Source != "missionCommanderActions" || current.State != "needs-gate-decision" || current.Blocked || !current.RequiresReview || current.Command != "/rekit gate debug -Lane feature-login -WhatIf" {
+	if current == nil || current.Source != "missionCommanderActions" || current.State != "needs-gate-decision" || current.Blocked || !current.RequiresReview || current.Command != "/rekit gate -Action debug -Lane feature-login -WhatIf" {
 		t.Fatalf("mixed blocked continue should prioritize lane pending-gate current action before reviewer dispatch: %+v", blocked.MissionCommanderActionQueue)
 	}
 	if !blocked.ExecutorAction.Blocked || blocked.ExecutorAction.PendingGates != 1 || !blocked.ExecutorAction.PendingGateRequired || !slices.Contains(blocked.ExecutorAction.NextAgentActions, "resolve or keep deferred pending-gate request(s); gate records the request and never executes heavy-tool") || slices.Contains(blocked.ExecutorAction.NextAgentActions, "/rekit continue login") || !slices.Equal(blocked.NextSteps, blocked.ExecutorAction.NextAgentActions) {
@@ -8992,7 +9115,7 @@ func TestRunContinuePrioritizesLaneGateBlockerWhilePreservingReviewerDispatch(t 
 		"continue pending gate continue boundary：eventId=evt-mixed-pending-debug boundary=blocked continue is zero-write",
 		"continue reviewer dispatch intake summary：total=1 waitingForReviewerResult=1 readyForPreview=0",
 		"continue reviewer dispatch intake：lane=feature-login shard=shard-01 state=ready-for-reviewer-dispatch",
-		"mission commander action queue current：state=needs-gate-decision source=missionCommanderActions blocked=false requiresReview=true command=`/rekit gate debug -Lane feature-login -WhatIf`",
+		"mission commander action queue current：state=needs-gate-decision source=missionCommanderActions blocked=false requiresReview=true command=`/rekit gate -Action debug -Lane feature-login -WhatIf`",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("mixed blocked continue text missing %q:\n%s", expected, text)
@@ -9126,7 +9249,7 @@ func TestRunReconcileApplyProjectsGateDecisionHandoffsAfterInterventionResolutio
 	if openDecisionHandoff.EventID != "evt-open-candidate" || openDecisionHandoff.Kind != "candidate" || openDecisionHandoff.Lane != "feature-login" || openDecisionHandoff.Subject != "candidate alpha" || openDecisionHandoff.Summary != "needs decision" || openDecisionHandoff.Status != "open" || openDecisionHandoff.Target != "candidate-alpha" || openDecisionHandoff.Confidence != "high" || openDecisionHandoff.SourceKind != "candidate" || openDecisionHandoff.SourcePath != ".rekit/facts/candidates.jsonl" || openDecisionHandoff.RecordPath != ".rekit/facts/decisions.jsonl" || openDecisionHandoff.ReviewCommand != "/rekit handoff login" || openDecisionHandoff.SourceCommand != "/rekit note -List -Kind candidate -Lane feature-login" || !strings.Contains(openDecisionHandoff.WhatIfCommand, "/rekit note -Kind decision -Lane feature-login") || !strings.Contains(openDecisionHandoff.WhatIfCommand, "-Decision <accept|reject|defer|supersede>") || openDecisionHandoff.RecordCommand != "run the hash-bound recordCommand returned by note -WhatIf" || !strings.Contains(openDecisionHandoff.DecisionBoundary, "hash-bound recordCommand") || !strings.Contains(openDecisionHandoff.DecisionBoundary, "only appends case-local decision ledger state") || !strings.Contains(openDecisionHandoff.ContinueBoundary, "blocked continue is zero-write") || !containsSubstring(openDecisionHandoff.Evidence, "candidate ledger event evt-open-candidate") || !containsSubstring(openDecisionHandoff.Evidence, "sourcePath .rekit/facts/candidates.jsonl") {
 		t.Fatalf("unexpected reconcile open decision handoff: %+v", openDecisionHandoff)
 	}
-	if result.MissionCommanderActionQueue.CurrentAction == nil || result.MissionCommanderActionQueue.CurrentAction.Command != "/rekit gate debug -Lane feature-login -WhatIf" || result.MissionCommanderActionQueue.CurrentAction.Blocked || !result.MissionCommanderActionQueue.CurrentAction.RequiresReview {
+	if result.MissionCommanderActionQueue.CurrentAction == nil || result.MissionCommanderActionQueue.CurrentAction.Command != "/rekit gate -Action debug -Lane feature-login -WhatIf" || result.MissionCommanderActionQueue.CurrentAction.Blocked || !result.MissionCommanderActionQueue.CurrentAction.RequiresReview {
 		t.Fatalf("reconcile should route pending-gate review through the concrete gate preview: %+v", result.MissionCommanderActionQueue)
 	}
 	assertContinueWrite(t, result.Writes, ".rekit/facts/interventions.jsonl", "append")
@@ -9148,7 +9271,7 @@ func TestRunReconcileApplyProjectsGateDecisionHandoffsAfterInterventionResolutio
 		"reconcile open decision continue boundary：eventId=evt-open-candidate boundary=blocked continue is zero-write and only exposes open-decision handoff; do not continue autonomously while the open decision remains unresolved",
 		"executor action：blocked=true ready=false pendingGates=1 openInterventions=0 openDecisions=1",
 		"executor requirements：reconcile=false pendingGate=true openDecision=true",
-		"mission commander action queue current：state=needs-gate-decision source=missionCommanderActions blocked=false requiresReview=true command=`/rekit gate debug -Lane feature-login -WhatIf`",
+		"mission commander action queue current：state=needs-gate-decision source=missionCommanderActions blocked=false requiresReview=true command=`/rekit gate -Action debug -Lane feature-login -WhatIf`",
 	} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("reconcile text missing %q:\n%s", expected, out.String())
@@ -13103,10 +13226,10 @@ func TestRunGateApplyAppendsPendingGateRequest(t *testing.T) {
 	if !result.ExecutorAction.Blocked || result.ExecutorAction.Ready || result.ExecutorAction.PendingGates != 1 || !result.ExecutorAction.PendingGateRequired || result.ExecutorAction.ResumeCommand != "/rekit continue main" {
 		t.Fatalf("gate apply executor action drifted: %+v", result.ExecutorAction)
 	}
-	if result.ExecutorAction.MissionCommanderAction.State != "needs-gate-decision" || result.ExecutorAction.MissionCommanderAction.PrimaryCommand != "/rekit gate debug -Lane main -WhatIf" || !containsSubstring(result.ExecutorAction.MissionCommanderAction.FollowUpCommands, "/rekit gate debug -Lane main -Apply -Actor <actor>") || !containsSubstring(result.ExecutorAction.MissionCommanderAction.FollowUpCommands, "/rekit continue main -WhatIf") || !containsSubstring(result.ExecutorAction.MissionCommanderAction.Boundary, "review gate -WhatIf output before running the bounded -Apply follow-up") {
+	if result.ExecutorAction.MissionCommanderAction.State != "needs-gate-decision" || result.ExecutorAction.MissionCommanderAction.PrimaryCommand != "/rekit gate -Action debug -Lane main -WhatIf" || !containsSubstring(result.ExecutorAction.MissionCommanderAction.FollowUpCommands, "/rekit gate -Action debug -Lane main -Apply -Actor <actor>") || !containsSubstring(result.ExecutorAction.MissionCommanderAction.FollowUpCommands, "/rekit continue main -WhatIf") || !containsSubstring(result.ExecutorAction.MissionCommanderAction.Boundary, "review gate -WhatIf output before running the bounded -Apply follow-up") {
 		t.Fatalf("gate apply should expose pending-gate Mission Commander review-first projection: %+v", result.ExecutorAction.MissionCommanderAction)
 	}
-	if result.MissionCommanderAction.State != "needs-gate-decision" || result.MissionCommanderAction.PrimaryCommand != "/rekit gate debug -Lane main -WhatIf" || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit gate debug -Lane main -WhatIf", false, true) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit gate debug -Lane main -Apply -Actor <actor>", true, true) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue main -WhatIf", true, true) {
+	if result.MissionCommanderAction.State != "needs-gate-decision" || result.MissionCommanderAction.PrimaryCommand != "/rekit gate -Action debug -Lane main -WhatIf" || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions", "/rekit gate -Action debug -Lane main -WhatIf", false, true) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit gate -Action debug -Lane main -Apply -Actor <actor>", true, true) || !containsMissionCommanderNextAction(result.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue main -WhatIf", true, true) {
 		t.Fatalf("gate apply should expose top-level pending-gate concrete projection: action=%+v next=%+v", result.MissionCommanderAction, result.MissionCommanderNextActions)
 	}
 	ledger, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl"))
@@ -13149,12 +13272,12 @@ func TestRunGateTextOutputsExecutorActions(t *testing.T) {
 		"executor action：blocked=true ready=false pendingGates=1 openInterventions=0 openDecisions=0",
 		"executor action requirements：reconcile=false pendingGate=true openDecision=false",
 		"executor action handoff：continue=`/rekit continue main` handoff=`/rekit handoff main`",
-		"executor action commander action：state=needs-gate-decision primary=`/rekit gate debug -Lane main -WhatIf`",
-		"executor action commander action follow-up：/rekit gate debug -Lane main -Apply -Actor <actor>",
+		"executor action commander action：state=needs-gate-decision primary=`/rekit gate -Action debug -Lane main -WhatIf`",
+		"executor action commander action follow-up：/rekit gate -Action debug -Lane main -Apply -Actor <actor>",
 		"executor action commander action follow-up：/rekit continue main -WhatIf",
 		"executor action commander action follow-up：/rekit handoff main",
-		"mission commander next action：state=needs-gate-decision source=missionCommanderActions blocked=false requiresReview=true command=`/rekit gate debug -Lane main -WhatIf`",
-		"mission commander next action：state=needs-gate-decision source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit gate debug -Lane main -Apply -Actor <actor>`",
+		"mission commander next action：state=needs-gate-decision source=missionCommanderActions blocked=false requiresReview=true command=`/rekit gate -Action debug -Lane main -WhatIf`",
+		"mission commander next action：state=needs-gate-decision source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit gate -Action debug -Lane main -Apply -Actor <actor>`",
 		"mission commander next action：state=needs-gate-decision source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit continue main -WhatIf`",
 	} {
 		if !strings.Contains(out.String(), expected) {

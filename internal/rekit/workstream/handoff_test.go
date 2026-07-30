@@ -33,11 +33,11 @@ func TestMissionCommanderNextActionMarkdownLineIncludesIdentity(t *testing.T) {
 
 func TestMissionCommanderActionRunLoopMarkdownLinesIncludesCurrentStep(t *testing.T) {
 	queue := mission.MissionCommanderActionQueueFor([]mission.MissionCommanderNextActionItem{
-		{Lane: "main", Label: "main", State: "needs-gate-decision", Command: "/rekit gate debug -Lane main -WhatIf", Source: "missionCommanderActions", RequiresReview: true},
-		{Lane: "main", Label: "main", State: "needs-gate-decision", Command: "/rekit gate debug -Lane main -Apply -Actor <actor>", Source: "missionCommanderActions.followUp", Blocked: true, RequiresReview: true},
+		{Lane: "main", Label: "main", State: "needs-gate-decision", Command: "/rekit gate -Action debug -Lane main -WhatIf", Source: "missionCommanderActions", RequiresReview: true},
+		{Lane: "main", Label: "main", State: "needs-gate-decision", Command: "/rekit gate -Action debug -Lane main -Apply -Actor <actor>", Source: "missionCommanderActions.followUp", Blocked: true, RequiresReview: true},
 	})
 	lines := MissionCommanderActionRunLoopMarkdownLines(queue)
-	for _, want := range []string{"current run loop：currentRunLoopStep=preview-current steps=4", "run loop step：order=2 step=preview-current actor=main-agent state=needs-gate-decision source=missionCommanderActions command=`/rekit gate debug -Lane main -WhatIf`", "run loop step：order=4 step=follow-up-after-refresh", "run loop boundary：step=follow-up-after-refresh boundary=follow-up commands remain candidates until refreshed state makes them current or unblocked"} {
+	for _, want := range []string{"current run loop：currentRunLoopStep=preview-current steps=4", "run loop step：order=2 step=preview-current actor=main-agent state=needs-gate-decision source=missionCommanderActions command=`/rekit gate -Action debug -Lane main -WhatIf`", "run loop step：order=4 step=follow-up-after-refresh", "run loop boundary：step=follow-up-after-refresh boundary=follow-up commands remain candidates until refreshed state makes them current or unblocked"} {
 		if !slices.ContainsFunc(lines, func(line string) bool { return strings.Contains(line, want) }) {
 			t.Fatalf("run-loop markdown missing %q: %+v", want, lines)
 		}

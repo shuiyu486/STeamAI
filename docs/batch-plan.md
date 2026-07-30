@@ -27,6 +27,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 721：pending-gate current-action run-loop execution closure
+
+状态：已完成实现、focused/package/full regressions 与本机 validation；implementation commit/push 与 push-triggered remote inspection 待执行。
+
+目标：把 Mission Commander action queue 的 pending-gate 单项阻塞从“可见的 concrete WhatIf current action”推进为可执行 run-loop product path：replacement executor 可直接消费 `MissionCommanderActionQueue.currentActionRunLoop.preview-current` 的 `gate -Action ... -WhatIf`，review preauthorized preview 后执行 bounded `gate -Apply`，再刷新到 authorized-gate / adapter report validation handoff。
+
+边界：不新增 public command、durable schema、PowerShell runtime logic 或 pack authoring contract；`gate -Apply` 只写 pending-gate / authorized-gate request ledger decision，不执行 heavy tool，不写 authority/confirmed；adapter execution 仍由 lane executor 或 external harness 在 strict authorized-gate 范围内完成并写回 evidence/ledger。旧 pending-gate request 是 append-only ledger evidence，不能把新增 authorized-gate 误写成删除/关闭旧行。
+
+已实现内容：pending-gate Mission Commander projection 现在生成 CLI parser 可直接执行的 case-local `/rekit gate -Action <action> -Lane <lane> -WhatIf`，bounded apply follow-up 同步为 `/rekit gate -Action <action> -Lane <lane> -Apply -Actor <actor>`；多 pending-gate 或 action 不明确时仍保守走 handoff review。新增 CLI product-path 回归从 `status -Format json` 的 current run-loop 出发，执行 preview-current command，断言 WhatIf 零写入并在 preauthorized autonomy profile 下返回 authorized-gate bounded Apply；Apply 后只追加 authorized-gate request ledger，不写 authority/confirmed，刷新后的 status 暴露 authorized-gate handoff 与 adapter report validation current action（`-ValidateExecutionReport`），证明 run-loop 可交接到 adapter handoff 而不执行 heavy tool。相关 mission/gate/workstream/continue/reconcile 断言同步从旧 positional `/rekit gate <action>` 收敛为 CLI-valid `-Action` 形式。
+
+验证结果：focused `go test ./internal/rekit/cli -run TestRunPendingGateCurrentRunLoopApplyOpensAuthorizedGateHandoff -count=1` 通过；`go test ./internal/rekit/mission -count=1`、`go test ./internal/rekit/gate -count=1`、CLI gate/status focused set 与 workstream/continue/reconcile focused set 已通过；`go test ./internal/rekit/cli -count=1` 与 `go test ./... -count=1` 通过。完整本机 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true` / `summary=release gate inventory ok`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./... -count=1`、`go vet ./...` 与 `git diff --check` 已通过，后者仅有 Windows LF→CRLF working-copy warning。
+
 ### Batch 720：Mission Commander open-decision current-action run-loop execution closure
 
 状态：已完成实现、focused/package/full regressions、文档收尾、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `5469712` 已推送。Push run `30510061601` completed failure；macOS/Linux/Windows jobs `90767987243`/`90767987268`/`90767987274` 均 `steps=[]`，`gh run view 30510061601 --log-failed` 返回 `log not found: 90767987243`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。

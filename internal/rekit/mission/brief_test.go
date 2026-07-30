@@ -140,10 +140,10 @@ func TestLaneExecutorActionPendingGateUsesConcreteWhatIfBeforeApply(t *testing.T
 	brief := BuildWithOptions([]Lane{{ID: "feature-login", Label: "login", Status: "active"}}, facts, BuildOptions{MaxRows: 10})
 	action := LaneExecutorAction(Lane{ID: "feature-login", Label: "login", Status: "active"}, facts, brief)
 	commander := action.MissionCommanderAction
-	if commander.State != "needs-gate-decision" || commander.PrimaryCommand != "/rekit gate debug -Lane feature-login -WhatIf" {
+	if commander.State != "needs-gate-decision" || commander.PrimaryCommand != "/rekit gate -Action debug -Lane feature-login -WhatIf" {
 		t.Fatalf("pending gate should expose concrete gate decision preview: %+v", commander)
 	}
-	for _, command := range []string{"/rekit gate debug -Lane feature-login -Apply -Actor <actor>", "/rekit continue login -WhatIf", "/rekit handoff login"} {
+	for _, command := range []string{"/rekit gate -Action debug -Lane feature-login -Apply -Actor <actor>", "/rekit continue login -WhatIf", "/rekit handoff login"} {
 		if !slices.Contains(commander.FollowUpCommands, command) {
 			t.Fatalf("pending gate follow-up should expose %q: %+v", command, commander)
 		}
@@ -275,13 +275,13 @@ func TestMissionCommanderActionQueueAllowsIdleNextBatchGuidanceWhenAlone(t *test
 
 func TestMissionCommanderActionQueuePromotesPendingGateWhatIfOverBlockedHandoff(t *testing.T) {
 	items := []MissionCommanderNextActionItem{
-		{State: "needs-gate-decision", Command: "/rekit gate debug -Lane feature-login -WhatIf", Source: "missionCommanderActions", RequiresReview: true, Reasons: []string{"pending-gate"}},
-		{State: "needs-gate-decision", Command: "/rekit gate debug -Lane feature-login -Apply -Actor <actor>", Source: "missionCommanderActions.followUp", Blocked: true, RequiresReview: true, Reasons: []string{"pending-gate"}},
+		{State: "needs-gate-decision", Command: "/rekit gate -Action debug -Lane feature-login -WhatIf", Source: "missionCommanderActions", RequiresReview: true, Reasons: []string{"pending-gate"}},
+		{State: "needs-gate-decision", Command: "/rekit gate -Action debug -Lane feature-login -Apply -Actor <actor>", Source: "missionCommanderActions.followUp", Blocked: true, RequiresReview: true, Reasons: []string{"pending-gate"}},
 		{State: "needs-gate-decision", Command: "/rekit continue login -WhatIf", Source: "missionCommanderActions.followUp", Blocked: true, RequiresReview: true, Reasons: []string{"pending-gate"}},
 	}
 
 	queue := MissionCommanderActionQueueFor(items)
-	if queue.CurrentAction == nil || queue.CurrentAction.Command != "/rekit gate debug -Lane feature-login -WhatIf" || queue.CurrentAction.Source != "missionCommanderActions" || queue.CurrentAction.Blocked || !queue.CurrentAction.RequiresReview || queue.Summary != "total=3 unblocked=1 blocked=2 requiresReview=3 followUp=2 current=/rekit gate debug -Lane feature-login -WhatIf" {
+	if queue.CurrentAction == nil || queue.CurrentAction.Command != "/rekit gate -Action debug -Lane feature-login -WhatIf" || queue.CurrentAction.Source != "missionCommanderActions" || queue.CurrentAction.Blocked || !queue.CurrentAction.RequiresReview || queue.Summary != "total=3 unblocked=1 blocked=2 requiresReview=3 followUp=2 current=/rekit gate -Action debug -Lane feature-login -WhatIf" {
 		t.Fatalf("Mission Commander action queue did not promote pending-gate WhatIf over blocked follow-ups: %+v", queue)
 	}
 }
@@ -309,8 +309,8 @@ func TestMissionCommanderActionQueueAddsCurrentActionRunLoop(t *testing.T) {
 
 func TestMissionCommanderActionQueueRunLoopUsesPreviewForReviewRequiredWhatIf(t *testing.T) {
 	items := []MissionCommanderNextActionItem{
-		{Lane: "feature-login", Label: "login", State: "needs-gate-decision", Command: "/rekit gate debug -Lane feature-login -WhatIf", Source: "missionCommanderActions", RequiresReview: true},
-		{Lane: "feature-login", Label: "login", State: "needs-gate-decision", Command: "/rekit gate debug -Lane feature-login -Apply -Actor <actor>", Source: "missionCommanderActions.followUp", Blocked: true, RequiresReview: true},
+		{Lane: "feature-login", Label: "login", State: "needs-gate-decision", Command: "/rekit gate -Action debug -Lane feature-login -WhatIf", Source: "missionCommanderActions", RequiresReview: true},
+		{Lane: "feature-login", Label: "login", State: "needs-gate-decision", Command: "/rekit gate -Action debug -Lane feature-login -Apply -Actor <actor>", Source: "missionCommanderActions.followUp", Blocked: true, RequiresReview: true},
 	}
 
 	queue := MissionCommanderActionQueueFor(items)
@@ -319,7 +319,7 @@ func TestMissionCommanderActionQueueRunLoopUsesPreviewForReviewRequiredWhatIf(t 
 		t.Fatalf("review-required WhatIf current action should stop at preview-current: %+v", queue)
 	}
 	assertMissionCommanderRunLoopStepIDs(t, queue.CurrentActionRunLoop, []string{"inspect-current", "preview-current", "refresh-state", "follow-up-after-refresh"})
-	if queue.CurrentActionRunLoop[1].Command != "/rekit gate debug -Lane feature-login -WhatIf" || !containsSubstring(queue.CurrentActionRunLoop[1].Boundary, "review preview output") {
+	if queue.CurrentActionRunLoop[1].Command != "/rekit gate -Action debug -Lane feature-login -WhatIf" || !containsSubstring(queue.CurrentActionRunLoop[1].Boundary, "review preview output") {
 		t.Fatalf("preview run loop step lost WhatIf review boundary: %+v", queue.CurrentActionRunLoop[1])
 	}
 }
