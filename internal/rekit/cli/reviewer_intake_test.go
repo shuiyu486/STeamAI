@@ -1068,6 +1068,19 @@ func TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath(t *
 		return append(withBase, args[2:]...)
 	}
 
+	driverRequestsMatch := func(returned, refreshed *missionCommanderDriverRequestSnapshot) bool {
+		if returned == nil || refreshed == nil || returned.Kind != refreshed.Kind || returned.RunLoopStepID != refreshed.RunLoopStepID || returned.CommandExecutable != refreshed.CommandExecutable || returned.Blocked != refreshed.Blocked || returned.RequiresReview != refreshed.RequiresReview {
+			return false
+		}
+		returnedCopy := *returned
+		refreshedCopy := *refreshed
+		returnedCopy.Command = runtimeCommand(returnedCopy.Command)
+		refreshedCopy.Command = runtimeCommand(refreshedCopy.Command)
+		returnedArgs, returnedOK := missionCommanderDriverRequestCommandCLIArgs(t, &returnedCopy)
+		refreshedArgs, refreshedOK := missionCommanderDriverRequestCommandCLIArgs(t, &refreshedCopy)
+		return returnedOK && refreshedOK && slices.Equal(returnedArgs, refreshedArgs)
+	}
+
 	status := statusSnapshot("initial operator package")
 	summary := status.Summary
 	assertReviewerDispatchIntakeSummary(t, "initial operator package", summary, 1, 1, 0, "shard-01", "ready-for-reviewer-dispatch")
@@ -1187,6 +1200,10 @@ func TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath(t *
 	if sourcePreview.Status != "previewed" || sourcePreview.MissionCommanderAction.State != "ready-for-reviewer-result-source-capture-apply" || !strings.Contains(sourcePreview.MissionCommanderAction.PrimaryCommand, "-ExpectedReviewerResultInputSha256") {
 		t.Fatalf("unexpected operator source capture preview: %+v", sourcePreview)
 	}
+	sourcePreviewRequest := requireMissionCommanderDriverRequest(t, sourcePreview.MissionCommanderActionQueue, "preview-command", "preview-current", sourcePreview.MissionCommanderAction.PrimaryCommand, true, false, true)
+	if sourcePreviewRequest.Command == sourceCaptureRequest.Command || !strings.Contains(sourcePreviewRequest.Command, "-Apply") {
+		t.Fatalf("operator source capture preview did not return apply receipt request: before=%+v after=%+v", sourceCaptureRequest, sourcePreviewRequest)
+	}
 	out.Reset()
 	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, runtimeCommand(sourcePreview.MissionCommanderAction.PrimaryCommand)), &out); err != nil {
 		t.Fatal(err)
@@ -1194,6 +1211,10 @@ func TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath(t *
 	sourceApply := decodeReviewerResultSourceCaptureCLIResult(t, out.Bytes())
 	if sourceApply.Status != "captured" || !sourceApply.Applied || sourceApply.MissionCommanderAction.State != "reviewer-result-source-ready-for-staging-preview" {
 		t.Fatalf("unexpected operator source capture apply: %+v", sourceApply)
+	}
+	sourceApplyRequest := requireMissionCommanderDriverRequest(t, sourceApply.MissionCommanderActionQueue, "preview-command", "preview-current", sourceApply.MissionCommanderAction.PrimaryCommand, true, false, true)
+	if sourceApplyRequest.Command == sourcePreviewRequest.Command || !strings.Contains(sourceApplyRequest.Command, "-StageReviewerResult") {
+		t.Fatalf("operator source capture apply did not return staging receipt request: before=%+v after=%+v", sourcePreviewRequest, sourceApplyRequest)
 	}
 
 	status = statusSnapshot("after operator source capture")
@@ -1203,6 +1224,9 @@ func TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath(t *
 		t.Fatalf("operator package did not advance to staging: %+v", summary.OperatorPackage)
 	}
 	stagingRequest := requireMissionCommanderDriverRequest(t, status.ReviewerQueue, "preview-command", "preview-current", summary.OperatorPackage.Current.ReviewerResultStagingPreviewCommand, true, false, true)
+	if !driverRequestsMatch(sourceApplyRequest, stagingRequest) {
+		t.Fatalf("operator source capture refresh did not preserve returned staging receipt: returned=%+v refreshed=%+v", sourceApplyRequest, stagingRequest)
+	}
 	out.Reset()
 	if err := Run(driverRequestCommandArgs("operator staging", stagingRequest), &out); err != nil {
 		t.Fatal(err)
@@ -1210,6 +1234,10 @@ func TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath(t *
 	stagingPreview := decodeReviewerResultStagingCLIResult(t, out.Bytes())
 	if stagingPreview.Status != "previewed" || stagingPreview.MissionCommanderAction.State != "ready-for-reviewer-result-staging-apply" || !strings.Contains(stagingPreview.MissionCommanderAction.PrimaryCommand, "-ExpectedSourceSha256") {
 		t.Fatalf("unexpected operator staging preview: %+v", stagingPreview)
+	}
+	stagingPreviewRequest := requireMissionCommanderDriverRequest(t, stagingPreview.MissionCommanderActionQueue, "preview-command", "preview-current", stagingPreview.MissionCommanderAction.PrimaryCommand, true, false, true)
+	if stagingPreviewRequest.Command == stagingRequest.Command || !strings.Contains(stagingPreviewRequest.Command, "-Apply") {
+		t.Fatalf("operator staging preview did not return apply receipt request: before=%+v after=%+v", stagingRequest, stagingPreviewRequest)
 	}
 	out.Reset()
 	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, runtimeCommand(stagingPreview.MissionCommanderAction.PrimaryCommand)), &out); err != nil {
@@ -1219,6 +1247,10 @@ func TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath(t *
 	if stagingApply.Status != "staged" || !stagingApply.Applied || stagingApply.MissionCommanderAction.State != "reviewer-result-staged-ready-for-collection-preview" {
 		t.Fatalf("unexpected operator staging apply: %+v", stagingApply)
 	}
+	stagingApplyRequest := requireMissionCommanderDriverRequest(t, stagingApply.MissionCommanderActionQueue, "preview-command", "preview-current", stagingApply.MissionCommanderAction.PrimaryCommand, true, false, true)
+	if stagingApplyRequest.Command == stagingPreviewRequest.Command || !strings.Contains(stagingApplyRequest.Command, "-CollectReviewerResult") {
+		t.Fatalf("operator staging apply did not return collection receipt request: before=%+v after=%+v", stagingPreviewRequest, stagingApplyRequest)
+	}
 
 	status = statusSnapshot("after operator staging")
 	summary = status.Summary
@@ -1227,6 +1259,9 @@ func TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath(t *
 		t.Fatalf("operator package did not advance to collection: %+v", summary.OperatorPackage)
 	}
 	collectionRequest := requireMissionCommanderDriverRequest(t, status.ReviewerQueue, "preview-command", "preview-current", summary.OperatorPackage.Current.ReviewerResultCollectionPreviewCommand, true, false, true)
+	if !driverRequestsMatch(stagingApplyRequest, collectionRequest) {
+		t.Fatalf("operator staging refresh did not preserve returned collection receipt: returned=%+v refreshed=%+v", stagingApplyRequest, collectionRequest)
+	}
 	out.Reset()
 	if err := Run(driverRequestCommandArgs("operator collection", collectionRequest), &out); err != nil {
 		t.Fatal(err)
@@ -1234,6 +1269,10 @@ func TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath(t *
 	collectionPreview := decodeReviewerResultCollectionCLIResult(t, out.Bytes())
 	if collectionPreview.Status != "previewed" || collectionPreview.MissionCommanderAction.State != "ready-for-reviewer-result-collection-apply" || !strings.Contains(collectionPreview.MissionCommanderAction.PrimaryCommand, "-Apply") {
 		t.Fatalf("unexpected operator collection preview: %+v", collectionPreview)
+	}
+	collectionPreviewRequest := requireMissionCommanderDriverRequest(t, collectionPreview.MissionCommanderActionQueue, "preview-command", "preview-current", collectionPreview.MissionCommanderAction.PrimaryCommand, true, false, true)
+	if collectionPreviewRequest.Command == collectionRequest.Command || !strings.Contains(collectionPreviewRequest.Command, "-Apply") {
+		t.Fatalf("operator collection preview did not return apply receipt request: before=%+v after=%+v", collectionRequest, collectionPreviewRequest)
 	}
 	out.Reset()
 	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, runtimeCommand(collectionPreview.MissionCommanderAction.PrimaryCommand)), &out); err != nil {
@@ -1243,6 +1282,10 @@ func TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath(t *
 	if collectionApply.Status != "collected" || !collectionApply.Applied || collectionApply.MissionCommanderAction.State != "reviewer-result-collected-ready-for-batch-intake-preview" {
 		t.Fatalf("unexpected operator collection apply: %+v", collectionApply)
 	}
+	collectionApplyRequest := requireMissionCommanderDriverRequest(t, collectionApply.MissionCommanderActionQueue, "preview-command", "preview-current", collectionApply.MissionCommanderAction.PrimaryCommand, true, false, true)
+	if collectionApplyRequest.Command == collectionPreviewRequest.Command || !strings.Contains(collectionApplyRequest.Command, "-ReadyReviewerResults") {
+		t.Fatalf("operator collection apply did not return intake receipt request: before=%+v after=%+v", collectionPreviewRequest, collectionApplyRequest)
+	}
 
 	status = statusSnapshot("after operator collection")
 	summary = status.Summary
@@ -1251,6 +1294,9 @@ func TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath(t *
 		t.Fatalf("operator package did not advance to intake: %+v", summary.OperatorPackage)
 	}
 	intakeRequest := requireMissionCommanderDriverRequest(t, status.ReviewerQueue, "preview-command", "preview-current", summary.OperatorPackage.Current.ReviewerResultBatchIntakePreviewCommand, true, false, true)
+	if !driverRequestsMatch(collectionApplyRequest, intakeRequest) {
+		t.Fatalf("operator collection refresh did not preserve returned intake receipt: returned=%+v refreshed=%+v", collectionApplyRequest, intakeRequest)
+	}
 	out.Reset()
 	if err := Run(driverRequestCommandArgs("operator batch intake", intakeRequest), &out); err != nil {
 		t.Fatal(err)
@@ -1995,19 +2041,20 @@ func TestRunPlanSubagentsReviewerIntakeEmitsPartialRecoveryJSON(t *testing.T) {
 }
 
 type reviewerResultSourceCaptureCLIResult struct {
-	Mode                   string                         `json:"mode"`
-	IsMutation             bool                           `json:"isMutation"`
-	Applied                bool                           `json:"applied"`
-	Status                 string                         `json:"status"`
-	InputPath              string                         `json:"inputPath"`
-	InputSHA256            string                         `json:"inputSha256"`
-	InputBytes             int                            `json:"inputBytes"`
-	SourcePath             string                         `json:"sourcePath"`
-	SourceSHA256           string                         `json:"sourceSha256"`
-	SourceBytes            int                            `json:"sourceBytes"`
-	AlreadyCaptured        bool                           `json:"alreadyCaptured"`
-	MissionCommanderAction missionCommanderActionSnapshot `json:"missionCommanderAction"`
-	RunbookSteps           []string                       `json:"runbookSteps"`
+	Mode                        string                              `json:"mode"`
+	IsMutation                  bool                                `json:"isMutation"`
+	Applied                     bool                                `json:"applied"`
+	Status                      string                              `json:"status"`
+	InputPath                   string                              `json:"inputPath"`
+	InputSHA256                 string                              `json:"inputSha256"`
+	InputBytes                  int                                 `json:"inputBytes"`
+	SourcePath                  string                              `json:"sourcePath"`
+	SourceSHA256                string                              `json:"sourceSha256"`
+	SourceBytes                 int                                 `json:"sourceBytes"`
+	AlreadyCaptured             bool                                `json:"alreadyCaptured"`
+	MissionCommanderAction      missionCommanderActionSnapshot      `json:"missionCommanderAction"`
+	MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+	RunbookSteps                []string                            `json:"runbookSteps"`
 }
 
 func decodeReviewerResultSourceCaptureCLIResult(t *testing.T, data []byte) reviewerResultSourceCaptureCLIResult {
@@ -2020,17 +2067,18 @@ func decodeReviewerResultSourceCaptureCLIResult(t *testing.T, data []byte) revie
 }
 
 type reviewerResultStagingCLIResult struct {
-	Mode                   string                         `json:"mode"`
-	IsMutation             bool                           `json:"isMutation"`
-	Applied                bool                           `json:"applied"`
-	Status                 string                         `json:"status"`
-	SourcePath             string                         `json:"sourcePath"`
-	SourceSHA256           string                         `json:"sourceSha256"`
-	SourceBytes            int                            `json:"sourceBytes"`
-	CandidatePath          string                         `json:"candidatePath"`
-	AlreadyStaged          bool                           `json:"alreadyStaged"`
-	MissionCommanderAction missionCommanderActionSnapshot `json:"missionCommanderAction"`
-	RunbookSteps           []string                       `json:"runbookSteps"`
+	Mode                        string                              `json:"mode"`
+	IsMutation                  bool                                `json:"isMutation"`
+	Applied                     bool                                `json:"applied"`
+	Status                      string                              `json:"status"`
+	SourcePath                  string                              `json:"sourcePath"`
+	SourceSHA256                string                              `json:"sourceSha256"`
+	SourceBytes                 int                                 `json:"sourceBytes"`
+	CandidatePath               string                              `json:"candidatePath"`
+	AlreadyStaged               bool                                `json:"alreadyStaged"`
+	MissionCommanderAction      missionCommanderActionSnapshot      `json:"missionCommanderAction"`
+	MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+	RunbookSteps                []string                            `json:"runbookSteps"`
 }
 
 func decodeReviewerResultStagingCLIResult(t *testing.T, data []byte) reviewerResultStagingCLIResult {
@@ -2043,17 +2091,18 @@ func decodeReviewerResultStagingCLIResult(t *testing.T, data []byte) reviewerRes
 }
 
 type reviewerResultCollectionCLIResult struct {
-	Mode                   string                         `json:"mode"`
-	IsMutation             bool                           `json:"isMutation"`
-	Applied                bool                           `json:"applied"`
-	Status                 string                         `json:"status"`
-	CandidatePath          string                         `json:"candidatePath"`
-	CandidateSHA256        string                         `json:"candidateSha256"`
-	ReviewerResultPath     string                         `json:"reviewerResultPath"`
-	ReviewerResultSHA256   string                         `json:"reviewerResultSha256"`
-	AlreadyCollected       bool                           `json:"alreadyCollected"`
-	MissionCommanderAction missionCommanderActionSnapshot `json:"missionCommanderAction"`
-	RunbookSteps           []string                       `json:"runbookSteps"`
+	Mode                        string                              `json:"mode"`
+	IsMutation                  bool                                `json:"isMutation"`
+	Applied                     bool                                `json:"applied"`
+	Status                      string                              `json:"status"`
+	CandidatePath               string                              `json:"candidatePath"`
+	CandidateSHA256             string                              `json:"candidateSha256"`
+	ReviewerResultPath          string                              `json:"reviewerResultPath"`
+	ReviewerResultSHA256        string                              `json:"reviewerResultSha256"`
+	AlreadyCollected            bool                                `json:"alreadyCollected"`
+	MissionCommanderAction      missionCommanderActionSnapshot      `json:"missionCommanderAction"`
+	MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+	RunbookSteps                []string                            `json:"runbookSteps"`
 }
 
 func decodeReviewerResultCollectionCLIResult(t *testing.T, data []byte) reviewerResultCollectionCLIResult {

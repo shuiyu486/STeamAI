@@ -1452,6 +1452,20 @@ func TestRunPendingGateCurrentRunLoopApplyOpensAuthorizedGateHandoff(t *testing.
 	if !applied.Applied || !applied.IsMutation || applied.Event == nil || applied.Event.Status != "authorized-gate" || applied.Event.Gate.Authorization.Decision != "preauthorized" || applied.MissionCommanderAction.State != "ready-for-execution-report-contract" || applied.MissionCommanderActionQueue.CurrentAction == nil || applied.MissionCommanderActionQueue.CurrentAction.Blocked || !applied.MissionCommanderActionQueue.CurrentAction.RequiresReview || !strings.Contains(applied.MissionCommanderActionQueue.CurrentAction.Command, "-ExecutionReportContract") || !strings.Contains(applied.MissionCommanderActionQueue.CurrentAction.Command, applied.EventID) {
 		t.Fatalf("pending gate bounded apply did not open authorized report-contract handoff: applied=%+v queue=%+v", applied, applied.MissionCommanderActionQueue)
 	}
+	var appliedReceipt struct {
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &appliedReceipt); err != nil {
+		t.Fatalf("pending gate apply receipt queue did not decode: %v\n%s", err, out.String())
+	}
+	appliedCurrent := appliedReceipt.MissionCommanderActionQueue.CurrentAction
+	if appliedCurrent == nil {
+		t.Fatalf("pending gate apply omitted returned Mission Commander receipt queue: %+v", appliedReceipt.MissionCommanderActionQueue)
+	}
+	appliedRequest := requireMissionCommanderDriverRequest(t, appliedReceipt.MissionCommanderActionQueue, "preview-command", "preview-current", appliedCurrent.Command, true, false, true)
+	if appliedRequest.Command == pendingRequest.Command || !strings.Contains(appliedRequest.Command, "-ExecutionReportContract") {
+		t.Fatalf("pending gate apply returned stale or incomplete driver receipt: pending=%+v appliedRequest=%+v queue=%+v", pendingRequest, appliedRequest, appliedReceipt.MissionCommanderActionQueue)
+	}
 
 	out.Reset()
 	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
@@ -1477,6 +1491,9 @@ func TestRunPendingGateCurrentRunLoopApplyOpensAuthorizedGateHandoff(t *testing.
 	authorizedRequest := requireMissionCommanderDriverRequest(t, authorizedStatus.CaseMission.MissionCommanderActionQueue, "preview-command", "preview-current", authorizedCurrent.Command, true, false, true)
 	if authorizedRequest.GateEventID != applied.EventID || !strings.Contains(authorizedRequest.Command, "-ValidateExecutionReport") {
 		t.Fatalf("authorized gate adapter validation driver request drifted: %+v", authorizedRequest)
+	}
+	if authorizedRequest.Command == appliedRequest.Command || !strings.Contains(authorizedRequest.Command, "-ValidateExecutionReport") {
+		t.Fatalf("authorized gate status refresh did not advance from returned report-contract receipt: returned=%+v refreshed=%+v", appliedRequest, authorizedRequest)
 	}
 	ledger, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl"))
 	if err != nil {
@@ -1773,8 +1790,16 @@ func TestRunOpenDecisionFirstScreenHandoffHashBoundApplyUnblocksLane(t *testing.
 	if continued.Command != "continue" || !continued.IsMutation || !continued.Applied || continued.RequiresConfirmation || continued.Selector != "main" || continued.Lane.ID != "main" || continued.RunID == "" || continued.RunID == "run-preview" || continued.BatchID != "batch-"+continued.RunID || continued.Blocked || continued.OpenDecisionRequired || continued.ExecutorAction.Blocked || !continued.ExecutorAction.Ready || continued.ExecutorAction.OpenDecisions != 0 || len(continued.OpenDecisionHandoffs) != 0 || continuedCurrent == nil || continuedCurrent.State != "ready-to-continue" || continuedCurrent.Command != "/rekit continue main" {
 		t.Fatalf("continue apply did not persist unblocked open-decision closure: result=%+v current=%+v", continued, continuedCurrent)
 	}
+	continuedRequest := requireMissionCommanderDriverRequest(t, continued.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue main", true, false, false)
+	if continuedRequest.Command != readyRequest.Command {
+		t.Fatalf("continue apply returned a different refreshed driver receipt: before=%+v after=%+v", readyRequest, continuedRequest)
+	}
 	if continued.LaneTakeoverPackage == nil || !continued.LaneTakeoverPackage.Ready || continued.LaneTakeoverPackage.ApplyRequired || !continued.LaneTakeoverPackage.ContinueReady || continued.LaneTakeoverPackage.Blocked || continued.LaneTakeoverPackage.Lane != "main" || continued.LaneTakeoverPackage.CurrentCommand != "/rekit continue main" || continued.LaneTakeoverPackage.MissionCommanderActionQueue.CurrentAction == nil || continued.LaneTakeoverPackage.MissionCommanderActionQueue.CurrentAction.Command != "/rekit continue main" {
 		t.Fatalf("continue apply omitted ready lane takeover package after decision closure: %+v", continued.LaneTakeoverPackage)
+	}
+	takeoverRequest := requireMissionCommanderDriverRequest(t, continued.LaneTakeoverPackage.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue main", true, false, false)
+	if takeoverRequest.Command != continuedRequest.Command {
+		t.Fatalf("continue apply takeover package drifted from returned driver receipt: returned=%+v takeover=%+v", continuedRequest, takeoverRequest)
 	}
 	resumePath := assertStartWrite(t, continued.Writes, ".rekit/lanes/main/prompts/RESUME.md", "refresh").TargetPath
 	checkpointPath := assertStartWrite(t, continued.Writes, ".rekit/lanes/main/checkpoints/latest.json", "refresh").TargetPath
@@ -20379,6 +20404,9 @@ func requireMissionCommanderDriverRequest(t *testing.T, queue missionCommanderAc
 	}
 	if request.Actor == "" || request.ExpectedReceipt.State != "refresh-required" || request.ExpectedReceipt.Description == "" || len(request.Boundary) == 0 || len(request.ExpectedReceipt.Boundary) == 0 {
 		t.Fatalf("mission commander driver request omitted actor/receipt/boundary: %+v", request)
+	}
+	if !containsSubstring(request.Boundary, "driver receipt must come from the explicit command/guidance outcome after refreshed durable state") || !containsSubstring(request.ExpectedReceipt.Boundary, "do not infer completion from the driver request alone") {
+		t.Fatalf("mission commander driver request omitted refresh receipt guardrails: %+v", request)
 	}
 	if executable {
 		if strings.TrimSpace(request.Command) == "" || strings.TrimSpace(request.Guidance) != "" {

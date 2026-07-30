@@ -27,6 +27,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 726：Mission Commander driver receipt refresh closure
+
+状态：已完成本机实现、focused receipt-refresh regression、完整 CLI package regression 与完整本机 release minimum；implementation commit/push 与 push-triggered remote inspection 待执行。
+
+目标：把 `currentDriverRequest.expectedReceipt.state=refresh-required` 从只读 envelope 文案推进为 Windows 本机可验证 product-path contract：replacement executor / harness 执行 driver request 后，不能只凭 terminal output 推断完成，必须消费 returned command result handoff 中的 `missionCommanderActionQueue.currentDriverRequest`，或重新运行 `status -Format json` refresh durable state，再由刷新后的 `currentDriverRequest` / action queue 决定下一步。
+
+边界：不新增 public command、durable schema、PowerShell runtime logic、Claude Code session spawner 或 reviewer/heavy-tool executor；Go runtime 不 spawn/poll/monitor/stop reviewer session，不执行 reviewer/heavy tool，不写 authority/confirmed。`gate -Apply` 仍只写 pending/authorized gate ledger decision 或 authorized execution observation evidence，ready lane continuation 仍不写 authority/confirmed。
+
+已实现内容：`requireMissionCommanderDriverRequest` 现在强制断言 driver request 与 expected receipt 的 refresh guardrails，包括 explicit command/guidance outcome、refresh durable state、不得从 request alone 推断 completion。pending-gate regression 断言 `gate -Apply` returned receipt queue 从 pending preview 推进到 report-contract preview，随后 status refresh 再推进到 `-ValidateExecutionReport`。open-decision/ready continuation regression 断言 `continue -Apply` returned `MissionCommanderActionQueue.currentDriverRequest` 与 `LaneTakeoverPackage.MissionCommanderActionQueue.currentDriverRequest` 保持 ready `/rekit continue main` receipt 对齐。reviewer operator product path 现在在 source capture、staging、collection、batch intake 的 preview/apply 每一步都消费 returned `MissionCommanderActionQueue.currentDriverRequest`，并在 status refresh 后用 normalized CLI args 证明 reviewer dispatch/intake queue 与 returned next receipt 语义一致。
+
+验证结果：focused `go test ./internal/rekit/cli -run "TestRunPendingGateCurrentRunLoopApplyOpensAuthorizedGateHandoff|TestRunOpenDecisionFirstScreenHandoffHashBoundApplyUnblocksLane|TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath" -count=1` 通过；完整 CLI package `go test ./internal/rekit/cli -count=1` 通过。完整本机 release minimum 已通过：`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./... -count=1`、`go vet ./...`、`git diff --check` 与 `go run ./cmd/rekit -- -Command release-check -Format json`，`git diff --check` 仅有 Windows LF→CRLF working-copy warning，`release-check` 返回 `ready=true` / `summary=release gate inventory ok`。
+
 ### Batch 725：reviewer operator package driver-request takeover closure
 
 状态：已完成本机实现、focused reviewer/session regressions、完整 CLI package regression、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `1ae6c2c` 已推送。Push run `30516866730` completed failure；Windows/Linux/macOS jobs `90788585670`/`90788585687`/`90788585703` 均 `steps=[]`，`gh run view 30516866730 --log-failed` 返回 `log not found: 90788585670`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。
