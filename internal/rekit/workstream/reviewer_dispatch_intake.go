@@ -2063,6 +2063,9 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 	promptArtifact := reviewerDispatchPromptArtifactStatus(caseRoot, packetPath, dispatch)
 	currentExecutor, currentGeneration := reviewerDispatchCurrentOwner(caseRoot, targetLane)
 	sessionLifecycle := reviewerDispatchSessionLifecycle(caseRoot, packet, packetPath, targetLane, dispatch, inputPath, inputState, inputSession, inputSHA256, inputBytes, currentExecutor, currentGeneration)
+	if (sessionLifecycle.state == "reviewer-session-failed" || sessionLifecycle.state == "reviewer-session-receipt-owner-stale") && strings.TrimSpace(sessionLifecycle.dispatchCommand) == "" {
+		sessionLifecycle.dispatchCommand = reviewerDispatchSessionRecordCommand(packetPath, dispatch.ShardID, targetLane)
+	}
 	if !recoveryProjected && sessionLifecycle.state != "" && reviewerDispatchSessionLifecycleCanProject(state) {
 		switch sessionLifecycle.state {
 		case "reviewer-session-completed":
@@ -2967,9 +2970,9 @@ func reviewerDispatchIntakeNextAction(item ReviewerDispatchIntakeHandoff) string
 	case "ready-for-reviewer-completion-receipt-preview":
 		return firstText(item.ReviewerCompletionRecordCommand, "record reviewer session completion -WhatIf for "+item.ShardID)
 	case "reviewer-session-failed":
-		return "dispatch a replacement reviewer session for " + item.ShardID + "; failed attempts cannot enter source capture"
+		return firstText(item.ReviewerDispatchRecordCommand, "dispatch a replacement reviewer session for "+item.ShardID+"; failed attempts cannot enter source capture")
 	case "reviewer-session-receipt-owner-stale":
-		return "record a replacement reviewer dispatch for current lane owner generation before source capture for " + item.ShardID
+		return firstText(item.ReviewerDispatchRecordCommand, "record a replacement reviewer dispatch for current lane owner generation before source capture for "+item.ShardID)
 	case "reviewer-session-receipt-invalid":
 		return "repair or retire invalid reviewer session receipts for " + item.ShardID + ": " + item.ReviewerSessionReceiptFailure
 	case "ready-for-reviewer-result-staging-preview":

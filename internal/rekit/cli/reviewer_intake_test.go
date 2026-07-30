@@ -1001,6 +1001,241 @@ func TestRunPlanSubagentsReviewerSessionReceiptProductPath(t *testing.T) {
 	}
 }
 
+func TestRunPlanSubagentsReviewerAdoptionRedispatchDriverRequestConsumerLoop(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "review", "-Apply", "-Executor", "session-a", "-Actor", "mission-commander", "-Reason", "initial reviewer owner", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", "alpha", "-ItemsPerAgent", "1", "-MaxParallel", "1", "-Lane", "feature-review", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	plan := decodePlanSubagentsResult(t, out.Bytes())
+	packet := decodePlanSubagentsPacket(t, plan.PacketPath)
+	handoff := plan.ShardHandoffs[0]
+	baseArgs := []string{"-Target", caseRoot, "-Pack", "_template"}
+	actor := "mission-commander"
+	firstHarness := "go-cli-driver-loop-stale-harness"
+	firstSession := "reviewer-session-driver-loop-stale"
+	secondHarness := "go-cli-driver-loop-adopted-harness"
+	secondSession := "reviewer-session-driver-loop-adopted"
+	adoptionReason := "adopt-stale-driver-loop-before-redispatch"
+
+	runDispatchPreview := func(harness, session string) subagents.ReviewerSessionReceiptResult {
+		t.Helper()
+		out.Reset()
+		if err := Run(planSubagentsCLIArgs(baseArgs, "-PacketPath", plan.PacketPath, "-RecordReviewerDispatch", "-ShardId", handoff.ShardID, "-ReviewerHarness", harness, "-ReviewerSession", session, "-Lane", packet.TargetLane, "-Actor", actor, "-WhatIf", "-Format", "json"), &out); err != nil {
+			t.Fatal(err)
+		}
+		var preview subagents.ReviewerSessionReceiptResult
+		if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+			t.Fatalf("driver-loop seed dispatch preview JSON did not decode: %v\n%s", err, out.String())
+		}
+		return preview
+	}
+	runDispatchApply := func(harness, session string, bindingSHA string) subagents.ReviewerSessionReceiptResult {
+		t.Helper()
+		out.Reset()
+		if err := Run(planSubagentsCLIArgs(baseArgs, "-PacketPath", plan.PacketPath, "-RecordReviewerDispatch", "-ShardId", handoff.ShardID, "-ReviewerHarness", harness, "-ReviewerSession", session, "-Lane", packet.TargetLane, "-Actor", actor, "-ExpectedReviewerDispatchBindingSha256", bindingSHA, "-Apply", "-Format", "json"), &out); err != nil {
+			t.Fatal(err)
+		}
+		var apply subagents.ReviewerSessionReceiptResult
+		if err := json.Unmarshal(out.Bytes(), &apply); err != nil {
+			t.Fatalf("driver-loop seed dispatch apply JSON did not decode: %v\n%s", err, out.String())
+		}
+		return apply
+	}
+	driverRequestArgs := func(label string, request *missionCommanderDriverRequestSnapshot, replacements *strings.Replacer) []string {
+		t.Helper()
+		if request == nil {
+			t.Fatalf("%s missing driver request", label)
+		}
+		requestCopy := *request
+		if replacements != nil {
+			requestCopy.Command = replacements.Replace(requestCopy.Command)
+		}
+		args, ok := missionCommanderDriverRequestCommandCLIArgs(t, &requestCopy)
+		if !ok {
+			t.Fatalf("%s driver request did not expose executable command: %+v", label, request)
+		}
+		withBase := append([]string{}, args[:2]...)
+		withBase = append(withBase, baseArgs...)
+		return append(withBase, args[2:]...)
+	}
+
+	firstPreview := runDispatchPreview(firstHarness, firstSession)
+	firstDispatch := runDispatchApply(firstHarness, firstSession, firstPreview.BindingSHA256)
+	out.Reset()
+	if err := Run(planSubagentsCLIArgs(baseArgs, "-PacketPath", plan.PacketPath, "-RecordReviewerCompletion", "-ReviewerDispatchId", firstDispatch.DispatchID, "-ReviewerOutcome", "failed", "-ReviewerExitStatus", "agent-error", "-Lane", packet.TargetLane, "-Actor", actor, "-WhatIf", "-Format", "json"), &out); err != nil {
+		t.Fatal(err)
+	}
+	var completionPreview subagents.ReviewerSessionReceiptResult
+	if err := json.Unmarshal(out.Bytes(), &completionPreview); err != nil {
+		t.Fatalf("driver-loop completion preview JSON did not decode: %v\n%s", err, out.String())
+	}
+	out.Reset()
+	if err := Run(planSubagentsCLIArgs(baseArgs, "-PacketPath", plan.PacketPath, "-RecordReviewerCompletion", "-ReviewerDispatchId", firstDispatch.DispatchID, "-ReviewerOutcome", "failed", "-ReviewerExitStatus", "agent-error", "-Lane", packet.TargetLane, "-Actor", actor, "-ExpectedReviewerDispatchReceiptSha256", completionPreview.DispatchReceiptSHA256, "-Apply", "-Format", "json"), &out); err != nil {
+		t.Fatal(err)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "review", "-Apply", "-Executor", "session-b", "-Actor", actor, "-Reason", "replacement reviewer owner", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var adoptionStatus struct {
+		CaseMission struct {
+			ReviewerDispatchIntakeHandoffs    []reviewerDispatchIntakeCLIItem     `json:"reviewerDispatchIntakeHandoffs"`
+			ReviewerDispatchIntakeActionQueue missionCommanderActionQueueSnapshot `json:"reviewerDispatchIntakeActionQueue"`
+			MissionCommanderActionQueue       missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &adoptionStatus); err != nil {
+		t.Fatalf("driver-loop adoption status JSON did not decode: %v\n%s", err, out.String())
+	}
+	if len(adoptionStatus.CaseMission.ReviewerDispatchIntakeHandoffs) != 1 {
+		t.Fatalf("driver-loop adoption status should expose one handoff: %+v", adoptionStatus.CaseMission)
+	}
+	adoptionItem := adoptionStatus.CaseMission.ReviewerDispatchIntakeHandoffs[0]
+	adoptionRequest := requireMissionCommanderDriverRequest(t, adoptionStatus.CaseMission.MissionCommanderActionQueue, "preview-command", "preview-current", adoptionItem.OwnerAdoptionPreviewCommand, true, false, true)
+	if adoptionStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentDriverRequest == nil || adoptionStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentDriverRequest.Command != adoptionRequest.Command {
+		t.Fatalf("driver-loop adoption reviewer queue request drifted from first screen: first=%+v reviewer=%+v", adoptionRequest, adoptionStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentDriverRequest)
+	}
+	out.Reset()
+	if err := Run(driverRequestArgs("adoption preview", adoptionRequest, strings.NewReplacer("<actor>", actor, "<reason>", adoptionReason)), &out); err != nil {
+		t.Fatal(err)
+	}
+	var adoptionPreview struct {
+		Applied                     bool                                `json:"applied"`
+		IsMutation                  bool                                `json:"isMutation"`
+		AdoptionPath                string                              `json:"adoptionPath"`
+		MissionCommanderAction      missionCommanderActionSnapshot      `json:"missionCommanderAction"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &adoptionPreview); err != nil {
+		t.Fatalf("driver-loop adoption preview JSON did not decode: %v\n%s", err, out.String())
+	}
+	if adoptionPreview.Applied || adoptionPreview.IsMutation || adoptionPreview.AdoptionPath == "" || !strings.Contains(adoptionPreview.MissionCommanderAction.PrimaryCommand, "-Apply") {
+		t.Fatalf("driver-loop adoption preview omitted hash-bound apply handoff: %+v", adoptionPreview)
+	}
+	adoptionApplyRequest := requireMissionCommanderDriverRequest(t, adoptionPreview.MissionCommanderActionQueue, "preview-command", "preview-current", adoptionPreview.MissionCommanderAction.PrimaryCommand, true, false, true)
+	out.Reset()
+	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, adoptionApplyRequest.Command), &out); err != nil {
+		t.Fatal(err)
+	}
+	var adoptionApply struct {
+		Applied      bool   `json:"applied"`
+		AdoptionPath string `json:"adoptionPath"`
+		AdoptedOwner struct {
+			CurrentExecutor    string `json:"currentExecutor"`
+			ExecutorGeneration int    `json:"executorGeneration"`
+		} `json:"adoptedOwner"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &adoptionApply); err != nil {
+		t.Fatalf("driver-loop adoption apply JSON did not decode: %v\n%s", err, out.String())
+	}
+	if !adoptionApply.Applied || adoptionApply.AdoptionPath != adoptionPreview.AdoptionPath || adoptionApply.AdoptedOwner.CurrentExecutor != "session-b" || adoptionApply.AdoptedOwner.ExecutorGeneration != 2 {
+		t.Fatalf("driver-loop adoption apply did not bind replacement owner: %+v", adoptionApply)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var dispatchStatus struct {
+		CaseMission struct {
+			ReviewerDispatchIntakeHandoffs    []reviewerDispatchIntakeCLIItem     `json:"reviewerDispatchIntakeHandoffs"`
+			ReviewerDispatchIntakeActionQueue missionCommanderActionQueueSnapshot `json:"reviewerDispatchIntakeActionQueue"`
+			MissionCommanderActionQueue       missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &dispatchStatus); err != nil {
+		t.Fatalf("driver-loop dispatch status JSON did not decode: %v\n%s", err, out.String())
+	}
+	dispatchItem := dispatchStatus.CaseMission.ReviewerDispatchIntakeHandoffs[0]
+	if dispatchItem.State != "reviewer-session-receipt-owner-stale" || dispatchItem.ReviewerDispatchRecordCommand == "" || !dispatchItem.OwnerAdoptionCurrent || dispatchItem.OwnerAdoptionPath != adoptionApply.AdoptionPath {
+		t.Fatalf("driver-loop dispatch status omitted adopted stale-owner receipt preview: %+v", dispatchItem)
+	}
+	dispatchRequest := requireMissionCommanderDriverRequest(t, dispatchStatus.CaseMission.MissionCommanderActionQueue, "blocked-review", "inspect-current", dispatchItem.ReviewerDispatchRecordCommand, true, true, true)
+	if dispatchStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentDriverRequest == nil || dispatchStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentDriverRequest.Command != dispatchRequest.Command {
+		t.Fatalf("driver-loop dispatch reviewer queue request drifted from first screen: first=%+v reviewer=%+v", dispatchRequest, dispatchStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentDriverRequest)
+	}
+	out.Reset()
+	if err := Run(driverRequestArgs("replacement dispatch preview", dispatchRequest, strings.NewReplacer("<harness>", secondHarness, "<session-id>", secondSession, "<main-agent>", actor)), &out); err != nil {
+		t.Fatal(err)
+	}
+	var dispatchPreview struct {
+		Applied                     bool                                `json:"applied"`
+		IsMutation                  bool                                `json:"isMutation"`
+		DispatchID                  string                              `json:"dispatchId"`
+		BindingSHA256               string                              `json:"bindingSha256"`
+		ApplyCommand                string                              `json:"applyCommand"`
+		OwnerAdoptionPath           string                              `json:"ownerAdoptionPath"`
+		OwnerAdoptionSHA256         string                              `json:"ownerAdoptionSha256"`
+		MissionCommanderAction      missionCommanderActionSnapshot      `json:"missionCommanderAction"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		EffectiveOwner              struct {
+			CurrentExecutor    string `json:"currentExecutor"`
+			ExecutorGeneration int    `json:"executorGeneration"`
+		} `json:"effectiveOwner"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &dispatchPreview); err != nil {
+		t.Fatalf("driver-loop replacement dispatch preview JSON did not decode: %v\n%s", err, out.String())
+	}
+	if dispatchPreview.Applied || dispatchPreview.IsMutation || dispatchPreview.DispatchID == firstDispatch.DispatchID || dispatchPreview.BindingSHA256 == "" || dispatchPreview.OwnerAdoptionPath != adoptionApply.AdoptionPath || dispatchPreview.OwnerAdoptionSHA256 == "" || dispatchPreview.EffectiveOwner.CurrentExecutor != "session-b" || dispatchPreview.EffectiveOwner.ExecutorGeneration != 2 || !strings.Contains(dispatchPreview.ApplyCommand, "-ExpectedReviewerDispatchBindingSha256") {
+		t.Fatalf("driver-loop replacement dispatch preview did not bind adopted owner: first=%+v preview=%+v", firstDispatch, dispatchPreview)
+	}
+	dispatchApplyRequest := requireMissionCommanderDriverRequest(t, dispatchPreview.MissionCommanderActionQueue, "preview-command", "preview-current", dispatchPreview.MissionCommanderAction.PrimaryCommand, true, false, true)
+	out.Reset()
+	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, dispatchApplyRequest.Command), &out); err != nil {
+		t.Fatal(err)
+	}
+	var dispatchApply struct {
+		Applied             bool   `json:"applied"`
+		DispatchID          string `json:"dispatchId"`
+		ReviewerSession     string `json:"reviewerSession"`
+		ReceiptSHA256       string `json:"receiptSha256"`
+		OwnerAdoptionPath   string `json:"ownerAdoptionPath"`
+		OwnerAdoptionSHA256 string `json:"ownerAdoptionSha256"`
+		EffectiveOwner      struct {
+			CurrentExecutor    string `json:"currentExecutor"`
+			ExecutorGeneration int    `json:"executorGeneration"`
+		} `json:"effectiveOwner"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &dispatchApply); err != nil {
+		t.Fatalf("driver-loop replacement dispatch apply JSON did not decode: %v\n%s", err, out.String())
+	}
+	if !dispatchApply.Applied || dispatchApply.DispatchID != dispatchPreview.DispatchID || dispatchApply.ReviewerSession != secondSession || dispatchApply.ReceiptSHA256 == "" || dispatchApply.OwnerAdoptionPath != adoptionApply.AdoptionPath || dispatchApply.OwnerAdoptionSHA256 == "" || dispatchApply.EffectiveOwner.CurrentExecutor != "session-b" || dispatchApply.EffectiveOwner.ExecutorGeneration != 2 {
+		t.Fatalf("driver-loop replacement dispatch apply did not record adopted-owner receipt: %+v", dispatchApply)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var runningStatus struct {
+		CaseMission struct {
+			ReviewerDispatchIntakeSummary reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &runningStatus); err != nil {
+		t.Fatalf("driver-loop running status JSON did not decode: %v\n%s", err, out.String())
+	}
+	running := runningStatus.CaseMission.ReviewerDispatchIntakeSummary.OperatorPackage
+	if running == nil || running.Current == nil || running.CurrentRunLoopStepID != "save-result-input" || running.Current.State != "reviewer-session-running-unknown" || running.Current.ReviewerDispatchID != dispatchApply.DispatchID || running.Current.ReviewerSession != secondSession {
+		t.Fatalf("driver-loop replacement dispatch did not refresh to running adopted session: %+v", running)
+	}
+	if got := readOptionalCaseFile(t, caseRoot, ".rekit/facts/verifications.jsonl"); got != "" {
+		t.Fatalf("driver-loop adoption redispatch wrote verification facts:\n%s", got)
+	}
+	if got := readOptionalCaseFile(t, caseRoot, ".rekit/facts/decisions.jsonl"); got != "" {
+		t.Fatalf("driver-loop adoption redispatch wrote decision facts:\n%s", got)
+	}
+}
 func TestRunPlanSubagentsReviewerStaleOwnerRedispatchProductPath(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	var out bytes.Buffer
@@ -1020,6 +1255,7 @@ func TestRunPlanSubagentsReviewerStaleOwnerRedispatchProductPath(t *testing.T) {
 	firstSession := "reviewer-session-stale-owner"
 	secondHarness := "go-cli-adopted-owner-harness"
 	secondSession := "reviewer-session-adopted-owner"
+	adoptionReason := "adopt-stale-reviewer-before-redispatch"
 
 	runDispatchPreview := func(harness, session string) subagents.ReviewerSessionReceiptResult {
 		t.Helper()
@@ -1097,7 +1333,7 @@ func TestRunPlanSubagentsReviewerStaleOwnerRedispatchProductPath(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-AdoptReviewerPacket", "-Lane", packet.TargetLane, "-Actor", actor, "-Reason", "adopt stale reviewer session before redispatch", "-WhatIf", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-AdoptReviewerPacket", "-Lane", packet.TargetLane, "-Actor", actor, "-Reason", adoptionReason, "-WhatIf", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var adoptionPreview struct {
@@ -1112,7 +1348,7 @@ func TestRunPlanSubagentsReviewerStaleOwnerRedispatchProductPath(t *testing.T) {
 		t.Fatalf("stale-owner adoption preview mutated or omitted path: %+v", adoptionPreview)
 	}
 	out.Reset()
-	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-AdoptReviewerPacket", "-Lane", packet.TargetLane, "-Actor", actor, "-Reason", "adopt stale reviewer session before redispatch", "-Apply", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-AdoptReviewerPacket", "-Lane", packet.TargetLane, "-Actor", actor, "-Reason", adoptionReason, "-Apply", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var adoptionApply struct {
@@ -1295,8 +1531,8 @@ func TestRunPlanSubagentsReviewerFailedCompletionRedispatchProductPath(t *testin
 	if pkg.CurrentRunLoopStepID != "spawn-reviewer" || pkg.Current.State != "reviewer-session-failed" || pkg.Current.ReviewerSessionOutcome != "failed" || pkg.Current.ReviewerDispatchID != firstDispatch.DispatchID || pkg.Current.DispatchCommand == "" || !containsSubstring(pkg.RunbookSteps, "do not source-capture the failed attempt") || !containsSubstring(pkg.RunbookSteps, "dispatch a new reviewer session") {
 		t.Fatalf("failed reviewer operator package omitted redispatch context: %+v", pkg)
 	}
-	if !strings.Contains(pkg.Current.NextAction, "dispatch a replacement reviewer session") || !strings.Contains(pkg.Current.NextAction, "failed attempts cannot enter source capture") || status.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentAction == nil || status.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentAction.State != "reviewer-session-failed" || !strings.Contains(status.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentAction.Command, "dispatch a replacement reviewer session") || status.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || status.CaseMission.MissionCommanderActionQueue.CurrentAction.State != "reviewer-session-failed" || !strings.Contains(status.CaseMission.MissionCommanderActionQueue.CurrentAction.Command, "dispatch a replacement reviewer session") {
-		t.Fatalf("failed reviewer operator package should prioritize redispatch over result pipeline: pkg=%+v reviewerQueue=%+v firstScreen=%+v", pkg, status.CaseMission.ReviewerDispatchIntakeActionQueue, status.CaseMission.MissionCommanderActionQueue)
+	if !strings.Contains(pkg.Current.NextAction, "-RecordReviewerDispatch") || !strings.Contains(pkg.Current.ReviewerDispatchRecordCommand, "-RecordReviewerDispatch") || status.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentAction == nil || status.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentAction.State != "reviewer-session-failed" || !strings.Contains(status.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentAction.Command, "-RecordReviewerDispatch") || status.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || status.CaseMission.MissionCommanderActionQueue.CurrentAction.State != "reviewer-session-failed" || !strings.Contains(status.CaseMission.MissionCommanderActionQueue.CurrentAction.Command, "-RecordReviewerDispatch") {
+		t.Fatalf("failed reviewer operator package should prioritize redispatch receipt preview over result pipeline: pkg=%+v reviewerQueue=%+v firstScreen=%+v", pkg, status.CaseMission.ReviewerDispatchIntakeActionQueue, status.CaseMission.MissionCommanderActionQueue)
 	}
 
 	redispatchPreview := runDispatchPreview(secondHarness, secondSession)
