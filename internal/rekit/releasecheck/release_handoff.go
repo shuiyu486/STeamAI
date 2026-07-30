@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 
@@ -420,6 +421,7 @@ func releaseHandoff(repo string, check Result) ReleaseHandoff {
 	handoff.KnownGaps = releaseHandoffKnownGaps(check.KnownGaps)
 	handoff.PackMaturity = releaseHandoffPackMaturity(check.Packs, check.HeavyToolGateActions)
 	handoff.PackMemoryCandidates = releaseHandoffPackMemoryCandidates(repo, check.Packs)
+	handoff.LatestBatch = releaseHandoffLatestBatchWithCurrentInventory(handoff.LatestBatch, check)
 	handoff.Signals = releaseHandoffSignals(check, handoff.LatestBatch, handoff.ReleaseNotes, handoff.KnownGaps, handoff.PackMaturity, handoff.PackMemoryCandidates)
 	handoff.Warnings = releaseHandoffWarnings(handoff)
 	if ReleaseHandoffCountsFor(handoff).Warnings > 0 {
@@ -428,6 +430,37 @@ func releaseHandoff(repo string, check Result) ReleaseHandoff {
 	}
 	handoff.NextBatchSelectionPackage = BuildNextBatchSelectionPackage(handoff)
 	return handoff
+}
+
+func releaseHandoffLatestBatchWithCurrentInventory(latest ReleaseHandoffLatestBatch, check Result) ReleaseHandoffLatestBatch {
+	if !releaseHandoffCurrentInventoryCanCloseLatestBatch(latest, check) {
+		return latest
+	}
+	evidenceSection := latestBatchEvidenceSection(latest.BatchID, strings.Join([]string{latest.Status, latest.ValidationResult}, "\n"))
+	updated := latest.Handoff
+	updated.ReleaseCheckReady = true
+	if latestBatchHasLocalValidationCommandEvidence(evidenceSection) || latestBatchHasLocalValidationEvidenceLabels(updated.Evidence) {
+		updated.LocalValidationReady = true
+	}
+	updated.ValidationWarnings = latestBatchValidationWarnings(evidenceSection, updated)
+	updated.NextAction = latestBatchNextAction(updated)
+	latest.Handoff = updated
+	return latest
+}
+
+func releaseHandoffCurrentInventoryCanCloseLatestBatch(latest ReleaseHandoffLatestBatch, check Result) bool {
+	if !check.Ready || !latest.Present || !latest.Handoff.Completed {
+		return false
+	}
+	cadence := latest.Handoff.ReleaseInspectionCadence
+	if cadence.State != "complete" || !cadence.ImplementationCommitReady || !cadence.InspectionCommitReady || cadence.NewRemoteSignal {
+		return false
+	}
+	if !strings.HasPrefix(latest.Handoff.RemoteReleaseGate, "blocked:") || latest.Handoff.RemoteReleaseGateDetail == nil {
+		return false
+	}
+	detail := latest.Handoff.RemoteReleaseGateDetail
+	return detail.EmptySteps && !detail.CanClaimGreen
 }
 
 func releaseHandoffDocuments(repo string) []ReleaseHandoffDocument {
@@ -4207,6 +4240,11 @@ func latestBatchHasLocalValidation(text string) bool {
 	if !latestBatchReleaseCheckReady(text) {
 		return false
 	}
+	return latestBatchHasLocalValidationCommandEvidence(text)
+}
+
+func latestBatchHasLocalValidationCommandEvidence(text string) bool {
+	lower := strings.ToLower(text)
 	for _, command := range []string{
 		"go run ./cmd/rekit -- -Command status",
 		"go run ./cmd/rekit -- -Command packs",
@@ -4216,6 +4254,22 @@ func latestBatchHasLocalValidation(text string) bool {
 		"git diff --check",
 	} {
 		if !strings.Contains(lower, strings.ToLower(command)) {
+			return false
+		}
+	}
+	return true
+}
+
+func latestBatchHasLocalValidationEvidenceLabels(evidence []string) bool {
+	for _, label := range []string{
+		"status handoff recorded",
+		"packs inventory recorded",
+		"doctor validation recorded",
+		"go test ./... recorded",
+		"go vet ./... recorded",
+		"git diff --check recorded",
+	} {
+		if !slices.Contains(evidence, label) {
 			return false
 		}
 	}

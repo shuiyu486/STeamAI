@@ -186,22 +186,62 @@ func TestReleaseHandoffBuildsNextBatchSelectionPackage(t *testing.T) {
 	}
 }
 
+func TestReleaseHandoffBuildsNextBatchSelectionPackageWhenCurrentInventoryClosesStaleReleaseCheckNarrative(t *testing.T) {
+	repo := cleanReleaseRepoRoot(t)
+	writeStaleReleaseCheckNarrativeLatestBatchFixture(t, repo)
+	result, err := Build(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	latest := result.ReleaseHandoff.LatestBatch.Handoff
+	if !latest.LocalValidationReady || !latest.ReleaseCheckReady || latest.RemoteReleaseGate != "blocked: completed failure with jobs steps=[]" {
+		t.Fatalf("current ready inventory should close stale latest-batch validation narrative: %+v", latest)
+	}
+	if cadence := latest.ReleaseInspectionCadence; cadence.State != "complete" || !cadence.ImplementationCommitReady || !cadence.InspectionCommitReady || cadence.NewRemoteSignal || cadence.ThirdInspectionAllowed {
+		t.Fatalf("stale release-check narrative should not reopen completed cadence: %+v", cadence)
+	}
+	if strings.Contains(latest.NextAction, "local release minimum") || !strings.Contains(latest.NextAction, "select the next Windows-verifiable product-path batch") {
+		t.Fatalf("completed cadence should hand off to next-batch selection, got %q", latest.NextAction)
+	}
+	pkg := result.ReleaseHandoff.NextBatchSelectionPackage
+	if pkg == nil || !pkg.Ready || pkg.MissionCommanderActionQueue.CurrentAction == nil || pkg.MissionCommanderActionQueue.CurrentAction.ActionID != "next-batch-selection" {
+		t.Fatalf("completed stale-narrative handoff should expose next-batch selection package: pkg=%+v handoff=%+v warnings=%+v", pkg, latest, result.ReleaseHandoff.Warnings)
+	}
+}
+
 func writeCompletedReleaseHandoffLatestBatchFixture(t *testing.T, repo string) {
+	t.Helper()
+	writeReleaseHandoffLatestBatchFixture(t, repo, `### Batch 999：Fixture
+
+状态：已完成 fixture implementation、完整本机 release minimum、implementation commit/push 与远程 release-gate inspection；implementation commit `+"`"+`abc999d`+"`"+` 已推送。Push run `+"`"+`30399999999`+"`"+` completed failure；Linux/Windows/macOS jobs `+"`"+`90199900001`+"`"+`/`+"`"+`90199900002`+"`"+`/`+"`"+`90199900003`+"`"+` 均 `+"`"+`steps=[]`+"`"+`。
+
+目标：fixture completed goal.
+
+验证结果：完整本机 release minimum 已通过：`+"`"+`go run ./cmd/rekit -- -Command release-check -Format json`+"`"+` 返回 `+"`"+`ready=true`+"`"+` / `+"`"+`summary=release gate inventory ok`+"`"+`，`+"`"+`go run ./cmd/rekit -- -Command status`+"`"+`、`+"`"+`go run ./cmd/rekit -- -Command packs`+"`"+`、`+"`"+`go run ./cmd/rekit -- -Command doctor`+"`"+`、`+"`"+`go test ./...`+"`"+`、`+"`"+`go vet ./...`+"`"+` 与 `+"`"+`git diff --check`+"`"+` 均已运行。Implementation commit `+"`"+`abc999d`+"`"+` 已推送。Push run `+"`"+`30399999999`+"`"+` completed failure；Linux/Windows/macOS jobs `+"`"+`90199900001`+"`"+`/`+"`"+`90199900002`+"`"+`/`+"`"+`90199900003`+"`"+` 均 `+"`"+`steps=[]`+"`"+`；`+"`"+`gh run view 30399999999 --log-failed`+"`"+` 返回 `+"`"+`log not found: 90199900001`+"`"+`。
+
+`, "- Batch 999 fixture note.\n\n")
+}
+
+func writeStaleReleaseCheckNarrativeLatestBatchFixture(t *testing.T, repo string) {
+	t.Helper()
+	writeReleaseHandoffLatestBatchFixture(t, repo, `### Batch 999：Fixture
+
+状态：已完成 fixture implementation、完整本机 release minimum、implementation commit/push 与远程 release-gate inspection；implementation commit `+"`"+`abc999d`+"`"+` 已推送。Push run `+"`"+`30399999999`+"`"+` completed failure；Linux/Windows/macOS jobs `+"`"+`90199900001`+"`"+`/`+"`"+`90199900002`+"`"+`/`+"`"+`90199900003`+"`"+` 均 `+"`"+`steps=[]`+"`"+`。
+
+目标：fixture completed stale release-check narrative goal.
+
+验证结果：focused regression 已通过，完整本机 release minimum 已通过：`+"`"+`go run ./cmd/rekit -- -Command release-check -Format json`+"`"+` 在 completion evidence 写入前按预期返回 `+"`"+`ready=false`+"`"+` / `+"`"+`summary=release gate inventory has warnings`+"`"+`；随后 `+"`"+`go run ./cmd/rekit -- -Command status`+"`"+`、`+"`"+`go run ./cmd/rekit -- -Command packs`+"`"+`、`+"`"+`go run ./cmd/rekit -- -Command doctor`+"`"+`、`+"`"+`go test ./...`+"`"+`、`+"`"+`go vet ./...`+"`"+` 与 `+"`"+`git diff --check`+"`"+` 均已运行。Implementation commit `+"`"+`abc999d`+"`"+` 已推送。Push run `+"`"+`30399999999`+"`"+` completed failure；Linux/Windows/macOS jobs `+"`"+`90199900001`+"`"+`/`+"`"+`90199900002`+"`"+`/`+"`"+`90199900003`+"`"+` 均 `+"`"+`steps=[]`+"`"+`；`+"`"+`gh run view 30399999999 --log-failed`+"`"+` 返回 `+"`"+`log not found: 90199900001`+"`"+`。本机当前 `+"`"+`release-check -Format json`+"`"+` inventory 已为 `+"`"+`ready=true`+"`"+`，但这句不使用完整 Go command，避免旧 parser 只看 validation 文本时误把 pre-evidence `+"`"+`ready=false`+"`"+` 当成最终 current action。
+
+`, "- Batch 999 fixture note.\n\n")
+}
+
+func writeReleaseHandoffLatestBatchFixture(t *testing.T, repo, batchSection, changelogEntry string) {
 	t.Helper()
 	planPath := filepath.Join(repo, "docs", "batch-plan.md")
 	planData, err := os.ReadFile(planPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	insert := `### Batch 999：Fixture
-
-状态：已完成 fixture implementation、完整本机 release minimum、implementation commit/push 与远程 release-gate inspection；implementation commit ` + "`" + `abc999d` + "`" + ` 已推送。Push run ` + "`" + `30399999999` + "`" + ` completed failure；Linux/Windows/macOS jobs ` + "`" + `90199900001` + "`" + `/` + "`" + `90199900002` + "`" + `/` + "`" + `90199900003` + "`" + ` 均 ` + "`" + `steps=[]` + "`" + `。
-
-目标：fixture completed goal.
-
-验证结果：完整本机 release minimum 已通过：` + "`" + `go run ./cmd/rekit -- -Command release-check -Format json` + "`" + ` 返回 ` + "`" + `ready=true` + "`" + ` / ` + "`" + `summary=release gate inventory ok` + "`" + `，` + "`" + `go run ./cmd/rekit -- -Command status` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command packs` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command doctor` + "`" + `、` + "`" + `go test ./...` + "`" + `、` + "`" + `go vet ./...` + "`" + ` 与 ` + "`" + `git diff --check` + "`" + ` 均已运行。Implementation commit ` + "`" + `abc999d` + "`" + ` 已推送。Push run ` + "`" + `30399999999` + "`" + ` completed failure；Linux/Windows/macOS jobs ` + "`" + `90199900001` + "`" + `/` + "`" + `90199900002` + "`" + `/` + "`" + `90199900003` + "`" + ` 均 ` + "`" + `steps=[]` + "`" + `；` + "`" + `gh run view 30399999999 --log-failed` + "`" + ` 返回 ` + "`" + `log not found: 90199900001` + "`" + `。
-
-`
 	planText := string(planData)
 	planMarker := "### Current batch state"
 	planIndex := strings.Index(planText, planMarker)
@@ -217,8 +257,7 @@ func writeCompletedReleaseHandoffLatestBatchFixture(t *testing.T, repo string) {
 	default:
 		t.Fatalf("batch plan fixture heading %q is not followed by a blank line", planMarker)
 	}
-	plan := planText[:planInsertAt] + insert + planText[planInsertAt:]
-	writeFile(t, planPath, plan)
+	writeFile(t, planPath, planText[:planInsertAt]+batchSection+planText[planInsertAt:])
 	changelogPath := filepath.Join(repo, "CHANGELOG.md")
 	changelogData, err := os.ReadFile(changelogPath)
 	if err != nil {
@@ -239,8 +278,7 @@ func writeCompletedReleaseHandoffLatestBatchFixture(t *testing.T, repo string) {
 	default:
 		t.Fatalf("changelog fixture heading %q is not followed by a blank line", changelogMarker)
 	}
-	changelog := changelogText[:changelogInsertAt] + "- Batch 999 fixture note.\n\n" + changelogText[changelogInsertAt:]
-	writeFile(t, changelogPath, changelog)
+	writeFile(t, changelogPath, changelogText[:changelogInsertAt]+changelogEntry+changelogText[changelogInsertAt:])
 }
 
 func TestNextBatchSelectionPackageOnlyAfterCompleteCadence(t *testing.T) {
