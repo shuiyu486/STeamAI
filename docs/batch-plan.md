@@ -27,6 +27,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 719：reviewer operator package executable run loop closure
+
+状态：已完成 CLI product-path regression、focused reviewer/session regressions、完整 CLI package regression 与本机 release minimum 代码验证；文档/CHANGELOG 收尾、implementation commit/push 与 push-triggered remote inspection 待执行。
+
+目标：把 reviewer/session orchestration UX 从只读 operator package/run-loop 投影推进为一条可执行产品路径：replacement executor 从 `status` first-screen 的 `ReviewerDispatchOperatorPackage` 出发，不依赖旧聊天上下文，按 runtime 暴露的当前命令逐步完成 immutable dispatch receipt、reviewer JSON input 保存、completion receipt、source capture、staging、collection 与 batch intake writeback。
+
+边界：不新增 public command、durable reviewer packet/result schema、PowerShell runtime logic 或 pack authoring contract；不让 Go runtime spawn/poll/monitor/stop reviewer session，不执行 reviewer/heavy tool，不写 authority/confirmed，不自动调用 Agent tool。operator package 仍是只读 handoff；实际 reviewer session 与 JSON 输出由主 Agent/harness 执行，再用既有 WhatIf→hash-bound Apply 命令记录。
+
+已实现内容：新增 `TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath`，创建 owner-bound `feature-login` lane 与单 shard reviewer plan 后，只消费 `status -Format json` 中的 `reviewerDispatchIntakeSummary.operatorPackage` 当前命令链。测试先把 `<harness>`、`<session-id>` 与 `<main-agent>` placeholder 替换为 fixture 绑定值，执行 `-RecordReviewerDispatch` preview→`ExpectedReviewerDispatchBindingSHA256` Apply；随后 rerun status，断言 `currentRunLoopStepId` 从 `spawn-reviewer` 推进到 `save-result-input`。保存 reviewer JSON input 后，测试继续通过 operator package 的 completion receipt preview→hash-bound Apply、source capture preview→returned Apply、staging preview→returned Apply、collection preview→returned Apply、batch intake preview→returned Apply 串起完整 run-loop，并在每个 status 边界断言 `currentRunLoopStepId` 分别推进到 `record-completion`、`source-capture`、`stage-candidate`、`collect-result`、`intake-results`。最终 status 断言 reviewer dispatch/intake handoff 与 operator package 关闭，facts 中存在 reviewer session、owner binding/generation 与 lane provenance。
+
+验证结果：focused `go test ./internal/rekit/cli -run TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath -count=1` 通过；reviewer/session 相关回归 `go test ./internal/rekit/cli -run "TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath|TestRunPlanSubagentsReviewerSessionReceiptProductPath|TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath|TestRunPlanSubagentsReviewerOrchestrationE2E" -count=1` 通过；完整 CLI package `go test ./internal/rekit/cli -count=1` 通过；完整本机 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true` / `summary=release gate inventory ok`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./... -count=1`、`go vet ./...` 与 `git diff --check` 均已运行，后者仅有 Windows LF→CRLF working-copy warning。
+
 ### Batch 718：pack-memory review-first cross-case consumption closure
 
 状态：已完成 isolated E2E 实现、focused/package regressions、完整本机 release minimum、文档收尾、implementation commit/push 与 push-triggered remote inspection；implementation commit `e9e1519` 已推送。Push run `30504974215` completed failure；Windows/Linux/macOS jobs `90752633424`/`90752633448`/`90752633489` 均 `steps=[]`，`gh run view 30504974215 --log-failed` 返回 `log not found: 90752633424`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。

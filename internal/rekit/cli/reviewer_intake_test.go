@@ -1001,6 +1001,250 @@ func TestRunPlanSubagentsReviewerSessionReceiptProductPath(t *testing.T) {
 	}
 }
 
+func TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "login", "-Apply", "-Executor", "session-login", "-Actor", "mission-commander", "-Reason", "operator package executable run loop"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	writeCaseFile(t, caseRoot, "workspace/features/feature-login/review-evidence.md", "bounded operator package reviewer evidence\n")
+
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", "alpha", "-ItemsPerAgent", "1", "-MaxParallel", "1", "-Lane", "feature-login", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	plan := decodePlanSubagentsResult(t, out.Bytes())
+	packet := decodePlanSubagentsPacket(t, plan.PacketPath)
+	handoff := plan.ShardHandoffs[0]
+	baseArgs := []string{"-Target", caseRoot, "-Pack", "_template"}
+	reviewerSession := "reviewer-session-operator-package"
+	runtimeCommand := func(command string) string {
+		return strings.NewReplacer("<harness>", "go-cli-operator-harness", "<session-id>", reviewerSession, "<main-agent>", "mission-commander").Replace(command)
+	}
+	statusSummary := func(label string) reviewerDispatchIntakeSummaryCLIItem {
+		out.Reset()
+		if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+			t.Fatal(err)
+		}
+		var status struct {
+			CaseMission struct {
+				ReviewerDispatchIntakeHandoffs []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
+				ReviewerDispatchIntakeSummary  reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+				MissionCommanderActionQueue    missionCommanderActionQueueSnapshot  `json:"missionCommanderActionQueue"`
+			} `json:"caseMission"`
+		}
+		if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+			t.Fatalf("%s status JSON did not decode: %v\n%s", label, err, out.String())
+		}
+		if status.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || status.CaseMission.MissionCommanderActionQueue.CurrentAction.Source != "reviewerDispatchIntakeHandoffs" {
+			t.Fatalf("%s status omitted reviewer current action: %+v", label, status.CaseMission.MissionCommanderActionQueue)
+		}
+		return status.CaseMission.ReviewerDispatchIntakeSummary
+	}
+
+	summary := statusSummary("initial operator package")
+	assertReviewerDispatchIntakeSummary(t, "initial operator package", summary, 1, 1, 0, "shard-01", "ready-for-reviewer-dispatch")
+	assertReviewerDispatchOperatorPackage(t, "initial operator package", summary, "shard-01", handoff.DispatchPromptSHA256)
+	pkg := summary.OperatorPackage
+	if pkg.CurrentRunLoopStepID != "spawn-reviewer" || pkg.Current.ReviewerDispatchRecordCommand == "" || !strings.Contains(pkg.Current.DispatchCommand, "dispatch read-only reviewer for shard-01") {
+		t.Fatalf("initial operator package did not point at reviewer dispatch: %+v", pkg)
+	}
+
+	out.Reset()
+	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, runtimeCommand(pkg.Current.ReviewerDispatchRecordCommand)), &out); err != nil {
+		t.Fatal(err)
+	}
+	var dispatchPreview struct {
+		IsMutation    bool   `json:"isMutation"`
+		Applied       bool   `json:"applied"`
+		BindingSHA256 string `json:"bindingSha256"`
+		ApplyCommand  string `json:"applyCommand"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &dispatchPreview); err != nil {
+		t.Fatalf("operator dispatch preview JSON did not decode: %v\n%s", err, out.String())
+	}
+	if dispatchPreview.IsMutation || dispatchPreview.Applied || dispatchPreview.BindingSHA256 == "" || !strings.Contains(dispatchPreview.ApplyCommand, "-ExpectedReviewerDispatchBindingSha256") {
+		t.Fatalf("unexpected operator dispatch preview: %+v", dispatchPreview)
+	}
+	out.Reset()
+	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, runtimeCommand(dispatchPreview.ApplyCommand)), &out); err != nil {
+		t.Fatal(err)
+	}
+	var dispatchApply struct {
+		Applied       bool   `json:"applied"`
+		DispatchID    string `json:"dispatchId"`
+		ReceiptSHA256 string `json:"receiptSha256"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &dispatchApply); err != nil {
+		t.Fatalf("operator dispatch apply JSON did not decode: %v\n%s", err, out.String())
+	}
+	if !dispatchApply.Applied || dispatchApply.DispatchID == "" || dispatchApply.ReceiptSHA256 == "" {
+		t.Fatalf("unexpected operator dispatch apply: %+v", dispatchApply)
+	}
+
+	summary = statusSummary("after operator dispatch")
+	assertReviewerDispatchOperatorPackage(t, "after operator dispatch", summary, "shard-01", handoff.DispatchPromptSHA256)
+	if summary.OperatorPackage.CurrentRunLoopStepID != "save-result-input" || summary.OperatorPackage.Current.State != "reviewer-session-running-unknown" || summary.OperatorPackage.Current.ReviewerDispatchID != dispatchApply.DispatchID || summary.OperatorPackage.Current.ReviewerSession != reviewerSession {
+		t.Fatalf("operator package did not advance to saved-input handoff: %+v", summary.OperatorPackage)
+	}
+	resultData := reviewerResultForCLIPlan(t, packet, handoff, "accept", "accepted", reviewerSession)
+	if err := os.MkdirAll(filepath.Dir(summary.OperatorPackage.Current.ReviewerResultInputPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(summary.OperatorPackage.Current.ReviewerResultInputPath, resultData, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	summary = statusSummary("after operator input save")
+	assertReviewerDispatchOperatorPackage(t, "after operator input save", summary, "shard-01", handoff.DispatchPromptSHA256)
+	if summary.OperatorPackage.CurrentRunLoopStepID != "record-completion" || summary.OperatorPackage.Current.State != "ready-for-reviewer-completion-receipt-preview" || summary.OperatorPackage.Current.ReviewerCompletionRecordCommand == "" {
+		t.Fatalf("operator package did not advance to completion receipt: %+v", summary.OperatorPackage)
+	}
+	out.Reset()
+	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, runtimeCommand(summary.OperatorPackage.Current.ReviewerCompletionRecordCommand)), &out); err != nil {
+		t.Fatal(err)
+	}
+	var completionPreview struct {
+		Applied                   bool   `json:"applied"`
+		DispatchReceiptSHA256     string `json:"dispatchReceiptSha256"`
+		ReviewerResultInputSHA256 string `json:"reviewerResultInputSha256"`
+		ApplyCommand              string `json:"applyCommand"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &completionPreview); err != nil {
+		t.Fatalf("operator completion preview JSON did not decode: %v\n%s", err, out.String())
+	}
+	if completionPreview.Applied || completionPreview.DispatchReceiptSHA256 != dispatchApply.ReceiptSHA256 || completionPreview.ReviewerResultInputSHA256 == "" || !strings.Contains(completionPreview.ApplyCommand, "-ExpectedReviewerResultInputSha256") {
+		t.Fatalf("unexpected operator completion preview: %+v", completionPreview)
+	}
+	out.Reset()
+	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, runtimeCommand(completionPreview.ApplyCommand)), &out); err != nil {
+		t.Fatal(err)
+	}
+	var completionApply struct {
+		Applied bool   `json:"applied"`
+		Outcome string `json:"outcome"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &completionApply); err != nil {
+		t.Fatalf("operator completion apply JSON did not decode: %v\n%s", err, out.String())
+	}
+	if !completionApply.Applied || completionApply.Outcome != "succeeded" {
+		t.Fatalf("unexpected operator completion apply: %+v", completionApply)
+	}
+
+	summary = statusSummary("after operator completion")
+	assertReviewerDispatchOperatorPackage(t, "after operator completion", summary, "shard-01", handoff.DispatchPromptSHA256)
+	if summary.OperatorPackage.CurrentRunLoopStepID != "source-capture" || summary.OperatorPackage.Current.State != "ready-for-reviewer-result-source-capture-preview" {
+		t.Fatalf("operator package did not advance to source capture: %+v", summary.OperatorPackage)
+	}
+	out.Reset()
+	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, runtimeCommand(summary.OperatorPackage.Current.ReviewerResultSourceCapturePreviewCommand)), &out); err != nil {
+		t.Fatal(err)
+	}
+	sourcePreview := decodeReviewerResultSourceCaptureCLIResult(t, out.Bytes())
+	if sourcePreview.Status != "previewed" || sourcePreview.MissionCommanderAction.State != "ready-for-reviewer-result-source-capture-apply" || !strings.Contains(sourcePreview.MissionCommanderAction.PrimaryCommand, "-ExpectedReviewerResultInputSha256") {
+		t.Fatalf("unexpected operator source capture preview: %+v", sourcePreview)
+	}
+	out.Reset()
+	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, runtimeCommand(sourcePreview.MissionCommanderAction.PrimaryCommand)), &out); err != nil {
+		t.Fatal(err)
+	}
+	sourceApply := decodeReviewerResultSourceCaptureCLIResult(t, out.Bytes())
+	if sourceApply.Status != "captured" || !sourceApply.Applied || sourceApply.MissionCommanderAction.State != "reviewer-result-source-ready-for-staging-preview" {
+		t.Fatalf("unexpected operator source capture apply: %+v", sourceApply)
+	}
+
+	summary = statusSummary("after operator source capture")
+	assertReviewerDispatchOperatorPackage(t, "after operator source capture", summary, "shard-01", handoff.DispatchPromptSHA256)
+	if summary.OperatorPackage.CurrentRunLoopStepID != "stage-candidate" || summary.OperatorPackage.Current.State != "ready-for-reviewer-result-staging-preview" {
+		t.Fatalf("operator package did not advance to staging: %+v", summary.OperatorPackage)
+	}
+	out.Reset()
+	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, runtimeCommand(summary.OperatorPackage.Current.ReviewerResultStagingPreviewCommand)), &out); err != nil {
+		t.Fatal(err)
+	}
+	stagingPreview := decodeReviewerResultStagingCLIResult(t, out.Bytes())
+	if stagingPreview.Status != "previewed" || stagingPreview.MissionCommanderAction.State != "ready-for-reviewer-result-staging-apply" || !strings.Contains(stagingPreview.MissionCommanderAction.PrimaryCommand, "-ExpectedSourceSha256") {
+		t.Fatalf("unexpected operator staging preview: %+v", stagingPreview)
+	}
+	out.Reset()
+	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, runtimeCommand(stagingPreview.MissionCommanderAction.PrimaryCommand)), &out); err != nil {
+		t.Fatal(err)
+	}
+	stagingApply := decodeReviewerResultStagingCLIResult(t, out.Bytes())
+	if stagingApply.Status != "staged" || !stagingApply.Applied || stagingApply.MissionCommanderAction.State != "reviewer-result-staged-ready-for-collection-preview" {
+		t.Fatalf("unexpected operator staging apply: %+v", stagingApply)
+	}
+
+	summary = statusSummary("after operator staging")
+	assertReviewerDispatchOperatorPackage(t, "after operator staging", summary, "shard-01", handoff.DispatchPromptSHA256)
+	if summary.OperatorPackage.CurrentRunLoopStepID != "collect-result" || summary.OperatorPackage.Current.State != "ready-for-reviewer-result-collection-preview" {
+		t.Fatalf("operator package did not advance to collection: %+v", summary.OperatorPackage)
+	}
+	out.Reset()
+	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, runtimeCommand(summary.OperatorPackage.Current.ReviewerResultCollectionPreviewCommand)), &out); err != nil {
+		t.Fatal(err)
+	}
+	collectionPreview := decodeReviewerResultCollectionCLIResult(t, out.Bytes())
+	if collectionPreview.Status != "previewed" || collectionPreview.MissionCommanderAction.State != "ready-for-reviewer-result-collection-apply" || !strings.Contains(collectionPreview.MissionCommanderAction.PrimaryCommand, "-Apply") {
+		t.Fatalf("unexpected operator collection preview: %+v", collectionPreview)
+	}
+	out.Reset()
+	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, runtimeCommand(collectionPreview.MissionCommanderAction.PrimaryCommand)), &out); err != nil {
+		t.Fatal(err)
+	}
+	collectionApply := decodeReviewerResultCollectionCLIResult(t, out.Bytes())
+	if collectionApply.Status != "collected" || !collectionApply.Applied || collectionApply.MissionCommanderAction.State != "reviewer-result-collected-ready-for-batch-intake-preview" {
+		t.Fatalf("unexpected operator collection apply: %+v", collectionApply)
+	}
+
+	summary = statusSummary("after operator collection")
+	assertReviewerDispatchOperatorPackage(t, "after operator collection", summary, "shard-01", handoff.DispatchPromptSHA256)
+	if summary.OperatorPackage.CurrentRunLoopStepID != "intake-results" || summary.OperatorPackage.Current.State != "ready-for-reviewer-intake-preview" || summary.OperatorPackage.Current.ReviewerResultBatchIntakePreviewCommand == "" {
+		t.Fatalf("operator package did not advance to intake: %+v", summary.OperatorPackage)
+	}
+	out.Reset()
+	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, runtimeCommand(summary.OperatorPackage.Current.ReviewerResultBatchIntakePreviewCommand)), &out); err != nil {
+		t.Fatal(err)
+	}
+	batchPreview := decodeReviewerBatchIntakeResult(t, out.Bytes())
+	if batchPreview.IsMutation || batchPreview.Applied || batchPreview.Total != 1 || batchPreview.Ready != 1 || batchPreview.Processed != 1 || batchPreview.Completed != 0 || batchPreview.Waiting != 0 || batchPreview.MissionCommanderAction.State != "ready-for-reviewer-batch-intake-apply-after-preview" || !strings.Contains(batchPreview.MissionCommanderAction.PrimaryCommand, "-Apply") {
+		t.Fatalf("unexpected operator batch intake preview: %+v", batchPreview)
+	}
+	out.Reset()
+	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, runtimeCommand(batchPreview.MissionCommanderAction.PrimaryCommand)), &out); err != nil {
+		t.Fatal(err)
+	}
+	batchApply := decodeReviewerBatchIntakeResult(t, out.Bytes())
+	if !batchApply.IsMutation || !batchApply.Applied || batchApply.Total != 1 || batchApply.Completed != 1 || batchApply.AlreadyComplete != 0 || batchApply.Partial || batchApply.MissionCommanderAction.State != "reviewer-batch-intake-writeback-complete" {
+		t.Fatalf("unexpected operator batch intake apply: %+v", batchApply)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var finalStatus struct {
+		CaseMission struct {
+			ReviewerDispatchIntakeHandoffs []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
+			ReviewerDispatchIntakeSummary  reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+			ReviewerWritebackSummary       reviewerWritebackSummaryCLIItem      `json:"reviewerWritebackSummary"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &finalStatus); err != nil {
+		t.Fatalf("final operator status JSON did not decode: %v\n%s", err, out.String())
+	}
+	if len(finalStatus.CaseMission.ReviewerDispatchIntakeHandoffs) != 0 || finalStatus.CaseMission.ReviewerDispatchIntakeSummary.Total != 0 || finalStatus.CaseMission.ReviewerDispatchIntakeSummary.OperatorPackage != nil || finalStatus.CaseMission.ReviewerWritebackSummary.Total != 2 || finalStatus.CaseMission.ReviewerWritebackSummary.LatestReviewerSession != reviewerSession {
+		t.Fatalf("operator package run loop did not close reviewer handoff: %+v", finalStatus.CaseMission)
+	}
+	verifications := readOptionalCaseFile(t, caseRoot, ".rekit/facts/verifications.jsonl")
+	decisions := readOptionalCaseFile(t, caseRoot, ".rekit/facts/decisions.jsonl")
+	for _, expected := range []string{reviewerSession, "ownerBindingMode", "current-executor-generation", "feature-login"} {
+		if !strings.Contains(verifications, expected) || !strings.Contains(decisions, expected) {
+			t.Fatalf("operator reviewer provenance %q missing:\nverifications=%s\ndecisions=%s", expected, verifications, decisions)
+		}
+	}
+}
+
 func TestRunPlanSubagentsRejectsShardIDOutsideReviewerShardModes(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	var out bytes.Buffer
