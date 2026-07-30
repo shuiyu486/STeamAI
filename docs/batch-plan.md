@@ -29,7 +29,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 729：reviewer/session stale-owner takeover redispatch product path
 
-状态：已完成本机实现、focused stale-owner redispatch regression、相邻 reviewer/session/adoption regression、完整 CLI package regression 与完整本机 release minimum；implementation commit/push 与 push-triggered remote inspection 待完成。
+状态：已完成本机实现、focused stale-owner redispatch regression、相邻 reviewer/session/adoption regression、完整 CLI package regression、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `970cf39` 已推送。Push run `30522777872` completed failure；Linux/Windows/macOS jobs `90806719827`/`90806719842`/`90806719928` 均 `steps=[]`，annotations 显示 GitHub account payments/spending limit blocker，`gh run view 30522777872 --log-failed` 返回 `log not found: 90806719827`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。
 
 目标：把 lane takeover 后旧 reviewer session receipt 的 stale-owner 状态做成可验证产品路径：旧 owner 已记录 dispatch/failed completion receipt 时，新 owner 不能继续旧 session、不能 source-capture/intake，也不能误写 verification/decision；必须先 reviewer packet adoption，再从 status/operator package 回到 `spawn-reviewer` replacement dispatch，并记录绑定 adopted owner provenance 的 distinct dispatch receipt。
 
