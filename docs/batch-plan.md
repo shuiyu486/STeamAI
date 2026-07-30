@@ -29,7 +29,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 721：pending-gate current-action run-loop execution closure
 
-状态：已完成实现、focused/package/full regressions 与本机 validation；implementation commit/push 与 push-triggered remote inspection 待执行。
+状态：已完成实现、focused/package/full regressions、文档收尾、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `9ab45a6` 已推送。Push run `30511911903` completed failure；macOS/Linux/Windows jobs `90773597320`/`90773597349`/`90773597355` 均 `steps=[]`，`gh run view 30511911903 --log-failed` 返回 `log not found: 90773597320`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。
 
 目标：把 Mission Commander action queue 的 pending-gate 单项阻塞从“可见的 concrete WhatIf current action”推进为可执行 run-loop product path：replacement executor 可直接消费 `MissionCommanderActionQueue.currentActionRunLoop.preview-current` 的 `gate -Action ... -WhatIf`，review preauthorized preview 后执行 bounded `gate -Apply`，再刷新到 authorized-gate / adapter report validation handoff。
 
