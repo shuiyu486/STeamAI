@@ -29,7 +29,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 726：Mission Commander driver receipt refresh closure
 
-状态：已完成本机实现、focused receipt-refresh regression、完整 CLI package regression 与完整本机 release minimum；implementation commit/push 与 push-triggered remote inspection 待执行。
+状态：已完成本机实现、focused receipt-refresh regression、完整 CLI package regression、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `a4ec97b` 已推送。Push run `30519224813` completed failure；Linux/Windows/macOS jobs `90795736546`/`90795736572`/`90795736601` 均 `steps=[]`，`gh run view 30519224813 --log-failed` 返回 `log not found: 90795736546`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。
 
 目标：把 `currentDriverRequest.expectedReceipt.state=refresh-required` 从只读 envelope 文案推进为 Windows 本机可验证 product-path contract：replacement executor / harness 执行 driver request 后，不能只凭 terminal output 推断完成，必须消费 returned command result handoff 中的 `missionCommanderActionQueue.currentDriverRequest`，或重新运行 `status -Format json` refresh durable state，再由刷新后的 `currentDriverRequest` / action queue 决定下一步。
 
