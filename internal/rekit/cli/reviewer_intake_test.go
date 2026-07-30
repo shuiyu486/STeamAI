@@ -1021,28 +1021,55 @@ func TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath(t *
 	runtimeCommand := func(command string) string {
 		return strings.NewReplacer("<harness>", "go-cli-operator-harness", "<session-id>", reviewerSession, "<main-agent>", "mission-commander").Replace(command)
 	}
-	statusSummary := func(label string) reviewerDispatchIntakeSummaryCLIItem {
+	type reviewerOperatorStatus struct {
+		Summary          reviewerDispatchIntakeSummaryCLIItem
+		ReviewerQueue    missionCommanderActionQueueSnapshot
+		FirstScreenQueue missionCommanderActionQueueSnapshot
+	}
+	statusSnapshot := func(label string) reviewerOperatorStatus {
 		out.Reset()
 		if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
 			t.Fatal(err)
 		}
 		var status struct {
 			CaseMission struct {
-				ReviewerDispatchIntakeHandoffs []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
-				ReviewerDispatchIntakeSummary  reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
-				MissionCommanderActionQueue    missionCommanderActionQueueSnapshot  `json:"missionCommanderActionQueue"`
+				ReviewerDispatchIntakeHandoffs    []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
+				ReviewerDispatchIntakeSummary     reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+				ReviewerDispatchIntakeActionQueue missionCommanderActionQueueSnapshot  `json:"reviewerDispatchIntakeActionQueue"`
+				MissionCommanderActionQueue       missionCommanderActionQueueSnapshot  `json:"missionCommanderActionQueue"`
 			} `json:"caseMission"`
 		}
 		if err := json.Unmarshal(out.Bytes(), &status); err != nil {
 			t.Fatalf("%s status JSON did not decode: %v\n%s", label, err, out.String())
 		}
-		if status.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || status.CaseMission.MissionCommanderActionQueue.CurrentAction.Source != "reviewerDispatchIntakeHandoffs" {
-			t.Fatalf("%s status omitted reviewer current action: %+v", label, status.CaseMission.MissionCommanderActionQueue)
+		firstScreenCurrent := status.CaseMission.MissionCommanderActionQueue.CurrentAction
+		reviewerCurrent := status.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentAction
+		firstScreenRequest := status.CaseMission.MissionCommanderActionQueue.CurrentDriverRequest
+		reviewerRequest := status.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentDriverRequest
+		if firstScreenCurrent == nil || firstScreenCurrent.Source != "reviewerDispatchIntakeHandoffs" || reviewerCurrent == nil || reviewerCurrent.Label != firstScreenCurrent.Label || firstScreenRequest == nil || reviewerRequest == nil || firstScreenRequest.Kind != reviewerRequest.Kind || firstScreenRequest.Command != reviewerRequest.Command || firstScreenRequest.Guidance != reviewerRequest.Guidance {
+			t.Fatalf("%s status omitted reviewer current driver request: firstScreen=%+v reviewer=%+v", label, status.CaseMission.MissionCommanderActionQueue, status.CaseMission.ReviewerDispatchIntakeActionQueue)
 		}
-		return status.CaseMission.ReviewerDispatchIntakeSummary
+		return reviewerOperatorStatus{Summary: status.CaseMission.ReviewerDispatchIntakeSummary, ReviewerQueue: status.CaseMission.ReviewerDispatchIntakeActionQueue, FirstScreenQueue: status.CaseMission.MissionCommanderActionQueue}
 	}
 
-	summary := statusSummary("initial operator package")
+	driverRequestCommandArgs := func(label string, request *missionCommanderDriverRequestSnapshot) []string {
+		t.Helper()
+		if request == nil {
+			t.Fatalf("%s missing driver request", label)
+		}
+		requestCopy := *request
+		requestCopy.Command = runtimeCommand(requestCopy.Command)
+		args, ok := missionCommanderDriverRequestCommandCLIArgs(t, &requestCopy)
+		if !ok {
+			t.Fatalf("%s driver request did not expose executable command: %+v", label, request)
+		}
+		withBase := append([]string{}, args[:2]...)
+		withBase = append(withBase, baseArgs...)
+		return append(withBase, args[2:]...)
+	}
+
+	status := statusSnapshot("initial operator package")
+	summary := status.Summary
 	assertReviewerDispatchIntakeSummary(t, "initial operator package", summary, 1, 1, 0, "shard-01", "ready-for-reviewer-dispatch")
 	assertReviewerDispatchOperatorPackage(t, "initial operator package", summary, "shard-01", handoff.DispatchPromptSHA256)
 	pkg := summary.OperatorPackage
@@ -1050,8 +1077,12 @@ func TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath(t *
 		t.Fatalf("initial operator package did not point at reviewer dispatch: %+v", pkg)
 	}
 
+	dispatchRequest := requireMissionCommanderDriverRequest(t, status.FirstScreenQueue, "blocked-review", "inspect-current", pkg.Current.ReviewerDispatchRecordCommand, true, true, true)
+	if status.ReviewerQueue.CurrentDriverRequest == nil || status.ReviewerQueue.CurrentDriverRequest.Command != dispatchRequest.Command {
+		t.Fatalf("initial operator reviewer queue driver request drifted from first screen: firstScreen=%+v reviewer=%+v", dispatchRequest, status.ReviewerQueue.CurrentDriverRequest)
+	}
 	out.Reset()
-	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, runtimeCommand(pkg.Current.ReviewerDispatchRecordCommand)), &out); err != nil {
+	if err := Run(driverRequestCommandArgs("initial operator dispatch", dispatchRequest), &out); err != nil {
 		t.Fatal(err)
 	}
 	var dispatchPreview struct {
@@ -1082,10 +1113,18 @@ func TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath(t *
 		t.Fatalf("unexpected operator dispatch apply: %+v", dispatchApply)
 	}
 
-	summary = statusSummary("after operator dispatch")
+	status = statusSnapshot("after operator dispatch")
+	summary = status.Summary
 	assertReviewerDispatchOperatorPackage(t, "after operator dispatch", summary, "shard-01", handoff.DispatchPromptSHA256)
 	if summary.OperatorPackage.CurrentRunLoopStepID != "save-result-input" || summary.OperatorPackage.Current.State != "reviewer-session-running-unknown" || summary.OperatorPackage.Current.ReviewerDispatchID != dispatchApply.DispatchID || summary.OperatorPackage.Current.ReviewerSession != reviewerSession {
 		t.Fatalf("operator package did not advance to saved-input handoff: %+v", summary.OperatorPackage)
+	}
+	runningRequest := requireMissionCommanderDriverRequest(t, status.ReviewerQueue, "blocked-review", "inspect-current", "", false, true, true)
+	if !strings.Contains(runningRequest.Guidance, "inspect harness reviewer session") {
+		t.Fatalf("operator running driver request omitted manual harness guidance: %+v", runningRequest)
+	}
+	if args, ok := missionCommanderDriverRequestCommandCLIArgs(t, runningRequest); ok || args != nil {
+		t.Fatalf("operator running guidance must not produce executable CLI args: args=%+v request=%+v", args, runningRequest)
 	}
 	resultData := reviewerResultForCLIPlan(t, packet, handoff, "accept", "accepted", reviewerSession)
 	if err := os.MkdirAll(filepath.Dir(summary.OperatorPackage.Current.ReviewerResultInputPath), 0o755); err != nil {
@@ -1095,13 +1134,15 @@ func TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath(t *
 		t.Fatal(err)
 	}
 
-	summary = statusSummary("after operator input save")
+	status = statusSnapshot("after operator input save")
+	summary = status.Summary
 	assertReviewerDispatchOperatorPackage(t, "after operator input save", summary, "shard-01", handoff.DispatchPromptSHA256)
 	if summary.OperatorPackage.CurrentRunLoopStepID != "record-completion" || summary.OperatorPackage.Current.State != "ready-for-reviewer-completion-receipt-preview" || summary.OperatorPackage.Current.ReviewerCompletionRecordCommand == "" {
 		t.Fatalf("operator package did not advance to completion receipt: %+v", summary.OperatorPackage)
 	}
+	completionRequest := requireMissionCommanderDriverRequest(t, status.ReviewerQueue, "blocked-review", "inspect-current", summary.OperatorPackage.Current.ReviewerCompletionRecordCommand, true, true, true)
 	out.Reset()
-	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, runtimeCommand(summary.OperatorPackage.Current.ReviewerCompletionRecordCommand)), &out); err != nil {
+	if err := Run(driverRequestCommandArgs("operator completion receipt", completionRequest), &out); err != nil {
 		t.Fatal(err)
 	}
 	var completionPreview struct {
@@ -1131,13 +1172,15 @@ func TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath(t *
 		t.Fatalf("unexpected operator completion apply: %+v", completionApply)
 	}
 
-	summary = statusSummary("after operator completion")
+	status = statusSnapshot("after operator completion")
+	summary = status.Summary
 	assertReviewerDispatchOperatorPackage(t, "after operator completion", summary, "shard-01", handoff.DispatchPromptSHA256)
 	if summary.OperatorPackage.CurrentRunLoopStepID != "source-capture" || summary.OperatorPackage.Current.State != "ready-for-reviewer-result-source-capture-preview" {
 		t.Fatalf("operator package did not advance to source capture: %+v", summary.OperatorPackage)
 	}
+	sourceCaptureRequest := requireMissionCommanderDriverRequest(t, status.ReviewerQueue, "preview-command", "preview-current", summary.OperatorPackage.Current.ReviewerResultSourceCapturePreviewCommand, true, false, true)
 	out.Reset()
-	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, runtimeCommand(summary.OperatorPackage.Current.ReviewerResultSourceCapturePreviewCommand)), &out); err != nil {
+	if err := Run(driverRequestCommandArgs("operator source capture", sourceCaptureRequest), &out); err != nil {
 		t.Fatal(err)
 	}
 	sourcePreview := decodeReviewerResultSourceCaptureCLIResult(t, out.Bytes())
@@ -1153,13 +1196,15 @@ func TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath(t *
 		t.Fatalf("unexpected operator source capture apply: %+v", sourceApply)
 	}
 
-	summary = statusSummary("after operator source capture")
+	status = statusSnapshot("after operator source capture")
+	summary = status.Summary
 	assertReviewerDispatchOperatorPackage(t, "after operator source capture", summary, "shard-01", handoff.DispatchPromptSHA256)
 	if summary.OperatorPackage.CurrentRunLoopStepID != "stage-candidate" || summary.OperatorPackage.Current.State != "ready-for-reviewer-result-staging-preview" {
 		t.Fatalf("operator package did not advance to staging: %+v", summary.OperatorPackage)
 	}
+	stagingRequest := requireMissionCommanderDriverRequest(t, status.ReviewerQueue, "preview-command", "preview-current", summary.OperatorPackage.Current.ReviewerResultStagingPreviewCommand, true, false, true)
 	out.Reset()
-	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, runtimeCommand(summary.OperatorPackage.Current.ReviewerResultStagingPreviewCommand)), &out); err != nil {
+	if err := Run(driverRequestCommandArgs("operator staging", stagingRequest), &out); err != nil {
 		t.Fatal(err)
 	}
 	stagingPreview := decodeReviewerResultStagingCLIResult(t, out.Bytes())
@@ -1175,13 +1220,15 @@ func TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath(t *
 		t.Fatalf("unexpected operator staging apply: %+v", stagingApply)
 	}
 
-	summary = statusSummary("after operator staging")
+	status = statusSnapshot("after operator staging")
+	summary = status.Summary
 	assertReviewerDispatchOperatorPackage(t, "after operator staging", summary, "shard-01", handoff.DispatchPromptSHA256)
 	if summary.OperatorPackage.CurrentRunLoopStepID != "collect-result" || summary.OperatorPackage.Current.State != "ready-for-reviewer-result-collection-preview" {
 		t.Fatalf("operator package did not advance to collection: %+v", summary.OperatorPackage)
 	}
+	collectionRequest := requireMissionCommanderDriverRequest(t, status.ReviewerQueue, "preview-command", "preview-current", summary.OperatorPackage.Current.ReviewerResultCollectionPreviewCommand, true, false, true)
 	out.Reset()
-	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, runtimeCommand(summary.OperatorPackage.Current.ReviewerResultCollectionPreviewCommand)), &out); err != nil {
+	if err := Run(driverRequestCommandArgs("operator collection", collectionRequest), &out); err != nil {
 		t.Fatal(err)
 	}
 	collectionPreview := decodeReviewerResultCollectionCLIResult(t, out.Bytes())
@@ -1197,13 +1244,15 @@ func TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath(t *
 		t.Fatalf("unexpected operator collection apply: %+v", collectionApply)
 	}
 
-	summary = statusSummary("after operator collection")
+	status = statusSnapshot("after operator collection")
+	summary = status.Summary
 	assertReviewerDispatchOperatorPackage(t, "after operator collection", summary, "shard-01", handoff.DispatchPromptSHA256)
 	if summary.OperatorPackage.CurrentRunLoopStepID != "intake-results" || summary.OperatorPackage.Current.State != "ready-for-reviewer-intake-preview" || summary.OperatorPackage.Current.ReviewerResultBatchIntakePreviewCommand == "" {
 		t.Fatalf("operator package did not advance to intake: %+v", summary.OperatorPackage)
 	}
+	intakeRequest := requireMissionCommanderDriverRequest(t, status.ReviewerQueue, "preview-command", "preview-current", summary.OperatorPackage.Current.ReviewerResultBatchIntakePreviewCommand, true, false, true)
 	out.Reset()
-	if err := Run(reviewerPrimaryCommandCLIArgs(t, baseArgs, runtimeCommand(summary.OperatorPackage.Current.ReviewerResultBatchIntakePreviewCommand)), &out); err != nil {
+	if err := Run(driverRequestCommandArgs("operator batch intake", intakeRequest), &out); err != nil {
 		t.Fatal(err)
 	}
 	batchPreview := decodeReviewerBatchIntakeResult(t, out.Bytes())

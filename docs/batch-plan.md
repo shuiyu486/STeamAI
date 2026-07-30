@@ -27,6 +27,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 725：reviewer operator package driver-request takeover closure
+
+状态：已完成本机实现、focused reviewer/session regressions、完整 CLI package regression 与完整本机 release minimum；implementation commit/push 与 push-triggered remote inspection 待执行。当前本机验证已通过，`git diff --check` 仅有 Windows LF→CRLF working-copy warning；远程 green 不在本机完成条件内，提交推送后只记录 implementation commit 触发的 remote run，若仍为既有 `steps=[]` runner/billing blocker 则不声明 remote green。
+
+目标：把 Batch 719 的 reviewer operator package executable run-loop 从“operator package 当前命令可执行”推进为 `currentDriverRequest` consumer takeover：replacement executor / harness 从 `status -Format json` 的 `caseMission.reviewerDispatchIntakeActionQueue.currentDriverRequest` 与 first-screen Mission Commander queue 的同源 request 获取下一步，区分 `blocked-review` guidance / receipt preview 与 `preview-command` 可执行 preview，而不是从旧 operator package 字段或 `currentAction.command` 重新推断。
+
+边界：不新增 public command、durable schema、PowerShell runtime logic、Claude Code session spawner 或 reviewer/heavy-tool executor；Go runtime 不 spawn/poll/monitor/stop reviewer session，不调用 Agent tool，不执行 reviewer/heavy tool，不写 authority/confirmed。dispatch/completion 仍是既有 WhatIf→expected-hash Apply receipt path；running reviewer session 只给 guidance-only request，consumer helper 必须 fail-closed 为 no executable args。
+
+已实现内容：`TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath` 的 status helper 现在读取 `reviewerDispatchIntakeActionQueue` 与 first-screen `missionCommanderActionQueue`，断言二者的 `currentDriverRequest` 同源。测试通过 `requireMissionCommanderDriverRequest` 和 `missionCommanderDriverRequestCommandCLIArgs` 消费 driver request：初始 dispatch receipt 用 `blocked-review` request 执行 preview；dispatch Apply 后 refresh 到 running reviewer session 并断言 guidance-only request 不产生 CLI args；保存 reviewer JSON input 后用 completion `blocked-review` request 执行 preview；completion Apply 后依次用 source capture、staging、collection、batch intake 的 `preview-command` request 执行 preview 并消费返回的 hash-bound Apply。最终 reviewer dispatch/intake handoff 和 operator package 关闭，facts 保留 reviewer session、owner binding/generation 与 lane provenance。
+
+验证结果：focused `go test ./internal/rekit/cli -run TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath -count=1` 通过；reviewer/session focused set `go test ./internal/rekit/cli -run "TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath|TestRunPlanSubagentsReviewerSessionReceiptProductPath|TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath|TestRunPlanSubagentsReviewerOrchestrationE2E" -count=1` 通过；完整 CLI package `go test ./internal/rekit/cli -count=1` 通过。完整本机 release minimum 已通过：`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./... -count=1`、`go vet ./...`、`git diff --check` 与 `go run ./cmd/rekit -- -Command release-check -Format json`，`git diff --check` 仅有 Windows LF→CRLF working-copy warning，`release-check` 返回 `ready=true` / `summary=release gate inventory ok`。
+
 ### Batch 724：Mission Commander driver request consumer product path
 
 状态：已完成本机实现、focused/affected package regressions、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `4a432a8` 已推送。Push run `30515353212` completed failure；macOS/Windows/Linux jobs `90783830510`/`90783830522`/`90783830537` 均 `steps=[]`，`gh run view 30515353212 --log-failed` 返回 `log not found: 90783830510`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。
