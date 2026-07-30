@@ -144,6 +144,22 @@ func TestStatusMissionCommanderFirstScreenFocusRoutingReasons(t *testing.T) {
 	}
 }
 
+func TestStatusMissionControlRunbookUsesCaseQueueForReviewerDispatchFocus(t *testing.T) {
+	action := mission.MissionCommanderNextActionItem{
+		Label:          "reviewer-dispatch",
+		ActionID:       "reviewer-dispatch-preview",
+		State:          "ready-for-reviewer-dispatch",
+		Source:         "reviewerDispatchIntakeHandoffs",
+		Command:        "/rekit plan-subagents -RecordReviewerDispatch -WhatIf -Format json",
+		RequiresReview: true,
+	}
+	caseMission := &statusCaseMission{MissionCommanderActionQueue: mission.MissionCommanderActionQueueFor([]mission.MissionCommanderNextActionItem{action})}
+	runbook := buildStatusMissionControlRunbook("C:/case", caseMission, nil)
+	if runbook == nil || runbook.Focus != "reviewer-current-action" || runbook.Scope != "case" || runbook.CurrentCommand != action.Command || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Kind != "preview-command" || len(runbook.Queues) != 4 || !runbook.Queues[0].Focused || runbook.Queues[1].Focused {
+		t.Fatalf("reviewer dispatch focus should consume the case queue current request: %+v", runbook)
+	}
+}
+
 func TestStatusMissionCommanderFirstScreenFocusUsesCrossSubsystemPriority(t *testing.T) {
 	project := &mission.MissionCommanderNextActionItem{Command: "/rekit status", Source: "releaseHandoffLatestBatch", State: "complete"}
 	passiveReviewer := &mission.MissionCommanderNextActionItem{Command: "dispatch read-only reviewer", Source: "reviewerDispatchIntakeHandoffs", State: "ready-for-reviewer-dispatch", RequiresReview: true}
@@ -815,6 +831,7 @@ func TestRunStatusJsonKit(t *testing.T) {
 			NextActions        []string `json:"nextActions"`
 			ValidationCommands []string `json:"validationCommands"`
 		} `json:"projectHandoff"`
+		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
 		t.Fatalf("status JSON did not decode: %v\n%s", err, out.String())
@@ -850,6 +867,9 @@ func TestRunStatusJsonKit(t *testing.T) {
 	}
 	if projectCurrent == nil || status.ProjectHandoff.MissionCommanderActionQueue.Counts.Unblocked != status.ProjectHandoff.MissionCommanderActionQueue.Counts.Total || status.ProjectHandoff.MissionCommanderActionQueue.Counts.Blocked != 0 {
 		t.Fatalf("project handoff omitted structured current action queue: current=%+v queue=%+v actions=%+v latest=%q", projectCurrent, status.ProjectHandoff.MissionCommanderActionQueue, status.ProjectHandoff.MissionCommanderNextActions, status.ProjectHandoff.LatestNextAction)
+	}
+	if runbook := status.MissionControlRunbook; runbook == nil || !runbook.Ready || runbook.Focus != "project-current-action" || runbook.Scope != "project" || runbook.CurrentCommand != projectCurrent.Command || runbook.CurrentRunLoopStepID != status.ProjectHandoff.MissionCommanderActionQueue.CurrentRunLoopStepID || runbook.CurrentDriverRequest == nil || status.ProjectHandoff.MissionCommanderActionQueue.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Kind != status.ProjectHandoff.MissionCommanderActionQueue.CurrentDriverRequest.Kind || runbook.CurrentDriverRequest.Command != status.ProjectHandoff.MissionCommanderActionQueue.CurrentDriverRequest.Command || runbook.RefreshStatusCommand == "" || len(runbook.Queues) != 4 || len(runbook.RunLoop) != 3 || !containsSubstring(runbook.Boundary, "read-only") {
+		t.Fatalf("status Mission Control runbook should route to project current action: %+v", runbook)
 	}
 	if status.ProjectHandoff.ReleaseInspectionCadence.State == "complete" {
 		if status.ProjectHandoff.MissionCommanderActionQueue.Counts.Total != 8 || len(status.ProjectHandoff.MissionCommanderNextActions) != 8 {
@@ -932,6 +952,10 @@ func TestRunStatusJsonKit(t *testing.T) {
 	commonStatusTextExpected := []string{
 		"status Mission Commander first screen：focus=project-current-action",
 		"status Mission Commander first screen routing：focus=project-current-action reason=case, reviewer, and pack-memory focus queues are empty or lower priority",
+		"status Mission Control runbook：ready=true focus=project-current-action scope=project",
+		"status Mission Control runbook queue：scope=project focused=true",
+		"status Mission Control runbook step：order=2 step=consume-focused-driver-request actor=main-agent",
+		"status Mission Control runbook boundary：missionControlRunbook is read-only",
 		"latestStatus=",
 		"localValidationReady=",
 		"status latest batch remote gate：state=",
@@ -1173,6 +1197,7 @@ func TestRunStatusJsonCase(t *testing.T) {
 			ContinueRequiresExplicitApply string                              `json:"continueRequiresExplicitApply"`
 			MissionBriefNextActions       []string                            `json:"missionBriefNextActions"`
 		} `json:"caseMission"`
+		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
 		t.Fatalf("case status JSON did not decode: %v\n%s", err, out.String())
@@ -1209,6 +1234,9 @@ func TestRunStatusJsonCase(t *testing.T) {
 	if runbook := status.CaseMission.DailyMissionControlRunbook; runbook == nil || !runbook.Ready || runbook.Scope != "case" || runbook.CurrentState != "ready-to-continue" || runbook.CurrentCommand != "/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1" || runbook.CurrentRunLoopStepID != "apply-or-run-current" || runbook.RefreshStatusCommand == "" || runbook.HandoffPreviewCommand == "" || runbook.HandoffApplyCommand == "" || len(runbook.RunLoop) != 5 || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Kind != "execute-command" || runbook.CurrentDriverRequest.Command != runbook.CurrentCommand {
 		t.Fatalf("case mission daily runbook drifted: %+v", runbook)
 	}
+	if runbook := status.MissionControlRunbook; runbook == nil || !runbook.Ready || runbook.Focus != "case-current-action" || runbook.Scope != "case" || runbook.CurrentCommand != "/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1" || runbook.CurrentRunLoopStepID != "apply-or-run-current" || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Kind != "execute-command" || runbook.CurrentDriverRequest.Command != runbook.CurrentCommand || runbook.RefreshStatusCommand == "" || len(runbook.Queues) != 4 || len(runbook.RunLoop) != 3 || !containsSubstring(runbook.RoutingReasons, "deferred focus queues: project") || !containsSubstring(runbook.Boundary, "read-only") {
+		t.Fatalf("status Mission Control runbook should route to case current action: %+v", runbook)
+	}
 
 	out.Reset()
 	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
@@ -1228,6 +1256,11 @@ func TestRunStatusJsonCase(t *testing.T) {
 		"ready=true lanes=",
 		"status case mission queue：total=4 unblocked=4 blocked=0 requiresReview=0 followUp=2 current=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
 		"status case mission queue action：bucket=current lane=feature-login label=login state=ready-to-continue source=missionCommanderActions blocked=false requiresReview=false command=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
+		"status Mission Control runbook：ready=true focus=case-current-action scope=case currentStep=apply-or-run-current currentCommand=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
+		"status Mission Control runbook driver：kind=execute-command actor=main-agent state=ready-to-continue source=missionCommanderActions executable=true blocked=false requiresReview=false command=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
+		"status Mission Control runbook queue：scope=case focused=true total=4 blocked=0 requiresReview=0 currentState=ready-to-continue currentSource=missionCommanderActions currentStep=apply-or-run-current currentCommand=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
+		"status Mission Control runbook step：order=3 step=refresh-after-focus-result actor=main-agent",
+		"status Mission Control runbook boundary：missionControlRunbook is read-only",
 		"status case mission daily runbook：ready=true scope=case currentState=ready-to-continue currentSource=missionCommanderActions currentStep=apply-or-run-current currentCommand=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
 		"status case mission daily runbook driver：kind=execute-command actor=main-agent state=ready-to-continue source=missionCommanderActions executable=true blocked=false requiresReview=false command=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
 		"status case mission daily runbook step：order=3 step=refresh-after-driver actor=main-agent",
@@ -1925,6 +1958,7 @@ func TestRunMissionCommanderDriverRequestConsumerLoopProductPath(t *testing.T) {
 				MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
 				OpenDecisionHandoffs        []statusOpenDecisionHandoff         `json:"openDecisionHandoffs"`
 			} `json:"caseMission"`
+			MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
 		}
 		if err := json.Unmarshal(out.Bytes(), &status); err != nil {
 			t.Fatalf("driver request loop status JSON did not decode: %v\n%s", err, out.String())
@@ -19960,6 +19994,32 @@ type missionCommanderDriverRequestSnapshot struct {
 		Description string   `json:"description"`
 		Boundary    []string `json:"boundary"`
 	} `json:"expectedReceipt"`
+}
+
+type statusMissionControlRunbookSnapshot struct {
+	Ready                bool                                       `json:"ready"`
+	Focus                string                                     `json:"focus"`
+	Scope                string                                     `json:"scope"`
+	CurrentCommand       string                                     `json:"currentCommand"`
+	CurrentRunLoopStepID string                                     `json:"currentRunLoopStepId"`
+	CurrentDriverRequest *missionCommanderDriverRequestSnapshot     `json:"currentDriverRequest"`
+	RefreshStatusCommand string                                     `json:"refreshStatusCommand"`
+	Queues               []statusMissionControlRunbookQueueSnapshot `json:"queues"`
+	RoutingReasons       []string                                   `json:"routingReasons"`
+	RunLoop              []dailyMissionControlRunbookStepSnapshot   `json:"runLoop"`
+	Boundary             []string                                   `json:"boundary"`
+}
+
+type statusMissionControlRunbookQueueSnapshot struct {
+	Scope                string `json:"scope"`
+	CurrentCommand       string `json:"currentCommand"`
+	CurrentState         string `json:"currentState"`
+	CurrentSource        string `json:"currentSource"`
+	CurrentRunLoopStepID string `json:"currentRunLoopStepId"`
+	Total                int    `json:"total"`
+	Blocked              int    `json:"blocked"`
+	RequiresReview       int    `json:"requiresReview"`
+	Focused              bool   `json:"focused"`
 }
 
 type dailyMissionControlRunbookSnapshot struct {

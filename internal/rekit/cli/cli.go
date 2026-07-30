@@ -2401,21 +2401,22 @@ func writePacksText(out io.Writer, packs []manifest.PackSummary) error {
 }
 
 type statusInventory struct {
-	Command        string                 `json:"command"`
-	SchemaVersion  int                    `json:"schemaVersion"`
-	IsMutation     bool                   `json:"isMutation"`
-	RuntimeRoot    string                 `json:"runtimeRoot"`
-	TemplateRoot   string                 `json:"templateRoot"`
-	Pack           string                 `json:"pack"`
-	PackSource     string                 `json:"packSource"`
-	Target         string                 `json:"target"`
-	TargetProvided bool                   `json:"targetProvided"`
-	Mode           string                 `json:"mode"`
-	Case           *statusCase            `json:"case"`
-	Manifest       *statusManifestSummary `json:"manifest"`
-	CaseShim       statusCaseShim         `json:"caseShim"`
-	ProjectHandoff *statusProjectHandoff  `json:"projectHandoff,omitempty"`
-	CaseMission    *statusCaseMission     `json:"caseMission,omitempty"`
+	Command               string                       `json:"command"`
+	SchemaVersion         int                          `json:"schemaVersion"`
+	IsMutation            bool                         `json:"isMutation"`
+	RuntimeRoot           string                       `json:"runtimeRoot"`
+	TemplateRoot          string                       `json:"templateRoot"`
+	Pack                  string                       `json:"pack"`
+	PackSource            string                       `json:"packSource"`
+	Target                string                       `json:"target"`
+	TargetProvided        bool                         `json:"targetProvided"`
+	Mode                  string                       `json:"mode"`
+	Case                  *statusCase                  `json:"case"`
+	Manifest              *statusManifestSummary       `json:"manifest"`
+	CaseShim              statusCaseShim               `json:"caseShim"`
+	ProjectHandoff        *statusProjectHandoff        `json:"projectHandoff,omitempty"`
+	CaseMission           *statusCaseMission           `json:"caseMission,omitempty"`
+	MissionControlRunbook *statusMissionControlRunbook `json:"missionControlRunbook,omitempty"`
 }
 
 type statusCase struct {
@@ -2459,6 +2460,47 @@ type statusCaseShimEntrypoint struct {
 	DurableArtifacts            []string `json:"durableArtifacts"`
 	FirstScreenChecks           []string `json:"firstScreenChecks"`
 	Boundary                    []string `json:"boundary"`
+}
+
+type statusMissionControlRunbook struct {
+	Ready                bool                                   `json:"ready"`
+	Focus                string                                 `json:"focus"`
+	Scope                string                                 `json:"scope"`
+	CurrentCommand       string                                 `json:"currentCommand,omitempty"`
+	CurrentRunLoopStepID string                                 `json:"currentRunLoopStepId,omitempty"`
+	CurrentDriverRequest *mission.MissionCommanderDriverRequest `json:"currentDriverRequest,omitempty"`
+	RefreshStatusCommand string                                 `json:"refreshStatusCommand"`
+	Queues               []statusMissionControlRunbookQueue     `json:"queues"`
+	RoutingReasons       []string                               `json:"routingReasons,omitempty"`
+	RunLoop              []statusMissionControlRunbookStep      `json:"runLoop"`
+	Boundary             []string                               `json:"boundary,omitempty"`
+}
+
+type statusMissionControlRunbookQueue struct {
+	Scope                string `json:"scope"`
+	CurrentCommand       string `json:"currentCommand,omitempty"`
+	CurrentState         string `json:"currentState,omitempty"`
+	CurrentSource        string `json:"currentSource,omitempty"`
+	CurrentRunLoopStepID string `json:"currentRunLoopStepId,omitempty"`
+	Total                int    `json:"total"`
+	Blocked              int    `json:"blocked"`
+	RequiresReview       int    `json:"requiresReview"`
+	Focused              bool   `json:"focused"`
+}
+
+type statusMissionControlRunbookStep struct {
+	StepID            string   `json:"stepId"`
+	Order             int      `json:"order"`
+	Actor             string   `json:"actor"`
+	State             string   `json:"state,omitempty"`
+	Source            string   `json:"source,omitempty"`
+	DriverKind        string   `json:"driverKind,omitempty"`
+	Command           string   `json:"command,omitempty"`
+	Guidance          string   `json:"guidance,omitempty"`
+	CommandExecutable bool     `json:"commandExecutable"`
+	Blocked           bool     `json:"blocked"`
+	RequiresReview    bool     `json:"requiresReview"`
+	Boundary          []string `json:"boundary,omitempty"`
 }
 
 type statusManifestSummary struct {
@@ -2808,6 +2850,9 @@ func runStatusLegacyText(ctx runtime.Context, packSource string, out io.Writer) 
 		if err := writeStatusMissionCommanderFirstScreenText(out, caseMission, projectHandoff); err != nil {
 			return err
 		}
+		if err := writeStatusMissionControlRunbookText(out, buildStatusMissionControlRunbook(ctx.Target, caseMission, projectHandoff)); err != nil {
+			return err
+		}
 		if err := writeStatusCaseMissionText(out, caseMission); err != nil {
 			return err
 		}
@@ -2828,6 +2873,9 @@ func runStatusLegacyText(ctx runtime.Context, packSource string, out io.Writer) 
 	}
 	projectHandoff := buildStatusProjectHandoff(release.ReleaseHandoff)
 	if err := writeStatusMissionCommanderFirstScreenText(out, nil, projectHandoff); err != nil {
+		return err
+	}
+	if err := writeStatusMissionControlRunbookText(out, buildStatusMissionControlRunbook(ctx.Target, nil, projectHandoff)); err != nil {
 		return err
 	}
 	return writeStatusProjectHandoffText(out, projectHandoff)
@@ -2865,6 +2913,9 @@ func runStatusText(ctx runtime.Context, packSource string, out io.Writer) error 
 		return err
 	}
 	if err := writeStatusMissionCommanderFirstScreenText(out, status.CaseMission, status.ProjectHandoff); err != nil {
+		return err
+	}
+	if err := writeStatusMissionControlRunbookText(out, status.MissionControlRunbook); err != nil {
 		return err
 	}
 	if err := writeStatusCaseMissionText(out, status.CaseMission); err != nil {
@@ -2939,6 +2990,211 @@ func writeStatusCaseShimEntrypointText(out io.Writer, entry *statusCaseShimEntry
 	}
 	for _, boundary := range entry.Boundary {
 		if _, err := fmt.Fprintf(out, "status case shim boundary: %s\n", boundary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func buildStatusMissionControlRunbook(target string, caseMission *statusCaseMission, projectHandoff *statusProjectHandoff) *statusMissionControlRunbook {
+	caseQueue := mission.MissionCommanderActionQueue{}
+	caseCurrent := (*mission.MissionCommanderNextActionItem)(nil)
+	reviewerQueue := mission.MissionCommanderActionQueue{}
+	reviewerCurrent := (*mission.MissionCommanderNextActionItem)(nil)
+	if caseMission != nil {
+		caseQueue = caseMission.MissionCommanderActionQueue
+		caseCurrent = caseQueue.CurrentAction
+		reviewerQueue = caseMission.ReviewerDispatchIntakeActionQueue
+		reviewerCurrent = reviewerQueue.CurrentAction
+	}
+	packQueue := mission.MissionCommanderActionQueue{}
+	packCurrent := (*mission.MissionCommanderNextActionItem)(nil)
+	if projectHandoff != nil {
+		packQueue = projectHandoff.PackMemoryCandidates.MissionCommanderActionQueue
+		packCurrent = packQueue.CurrentAction
+	}
+	projectQueue := mission.MissionCommanderActionQueue{}
+	projectCurrent := (*mission.MissionCommanderNextActionItem)(nil)
+	if projectHandoff != nil {
+		projectQueue = projectHandoff.MissionCommanderActionQueue
+		projectCurrent = projectQueue.CurrentAction
+	}
+	focus := statusMissionCommanderFirstScreenFocus(caseCurrent, reviewerCurrent, projectCurrent, projectHandoff, packCurrent)
+	scope := statusMissionControlRunbookScope(focus, caseCurrent, reviewerCurrent)
+	runbook := &statusMissionControlRunbook{
+		Ready:                focus != "none",
+		Focus:                focus,
+		Scope:                scope,
+		RefreshStatusCommand: statusMissionControlRefreshCommand(target),
+		RoutingReasons:       statusMissionCommanderFirstScreenFocusRoutingReasons(focus, caseCurrent, reviewerCurrent, projectCurrent, projectHandoff, packCurrent),
+		Boundary: mission.UniqueStrings([]string{
+			"missionControlRunbook is read-only; it does not execute /rekit commands or spawn sessions",
+			"consume only the focused currentDriverRequest; do not reconstruct commands from terminal prose",
+			"only execute currentDriverRequest.command when commandExecutable=true",
+			"guidance-only driver requests require main-agent selection/review and must not be run as shell commands",
+			"after any preview/apply/continue/reconcile result, refresh status before choosing follow-up work",
+		}),
+	}
+	queues := []struct {
+		scope string
+		queue mission.MissionCommanderActionQueue
+	}{
+		{scope: "case", queue: caseQueue},
+		{scope: "reviewer", queue: reviewerQueue},
+		{scope: "pack-memory", queue: packQueue},
+		{scope: "project", queue: projectQueue},
+	}
+	for _, item := range queues {
+		focused := item.scope == runbook.Scope
+		runbook.Queues = append(runbook.Queues, statusMissionControlRunbookQueueFor(item.scope, item.queue, focused))
+		if !focused {
+			continue
+		}
+		runbook.CurrentRunLoopStepID = strings.TrimSpace(item.queue.CurrentRunLoopStepID)
+		if item.queue.CurrentAction != nil {
+			runbook.CurrentCommand = strings.TrimSpace(item.queue.CurrentAction.Command)
+		}
+		if item.queue.CurrentDriverRequest != nil {
+			request := *item.queue.CurrentDriverRequest
+			runbook.CurrentDriverRequest = &request
+		}
+	}
+	runbook.RunLoop = statusMissionControlRunbookSteps(runbook)
+	return runbook
+}
+
+func statusMissionControlRunbookQueueFor(scope string, queue mission.MissionCommanderActionQueue, focused bool) statusMissionControlRunbookQueue {
+	item := statusMissionControlRunbookQueue{
+		Scope:                scope,
+		CurrentRunLoopStepID: strings.TrimSpace(queue.CurrentRunLoopStepID),
+		Total:                queue.Counts.Total,
+		Blocked:              queue.Counts.Blocked,
+		RequiresReview:       queue.Counts.RequiresReview,
+		Focused:              focused,
+	}
+	if queue.CurrentAction != nil {
+		item.CurrentCommand = strings.TrimSpace(queue.CurrentAction.Command)
+		item.CurrentState = strings.TrimSpace(queue.CurrentAction.State)
+		item.CurrentSource = strings.TrimSpace(queue.CurrentAction.Source)
+	}
+	return item
+}
+
+func statusMissionControlRunbookScope(focus string, caseCurrent, reviewerCurrent *mission.MissionCommanderNextActionItem) string {
+	if strings.TrimSpace(focus) == "reviewer-current-action" && reviewerCurrent == nil && statusMissionCommanderActionIsReviewerDispatch(caseCurrent) {
+		return "case"
+	}
+	if scope, ok := strings.CutSuffix(strings.TrimSpace(focus), "-current-action"); ok && scope != "" {
+		return scope
+	}
+	return "none"
+}
+
+func statusMissionControlRefreshCommand(target string) string {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return "/rekit status -Format json"
+	}
+	return "/rekit status -Target " + statusQuoteCommandArg(target) + " -Format json"
+}
+
+func statusMissionControlRunbookSteps(runbook *statusMissionControlRunbook) []statusMissionControlRunbookStep {
+	steps := []statusMissionControlRunbookStep{{
+		StepID:            "inspect-first-screen",
+		Order:             1,
+		Actor:             "main-agent",
+		State:             statusFirstText(runbook.Focus, "none"),
+		Source:            "missionControlRunbook.firstScreen",
+		Command:           runbook.RefreshStatusCommand,
+		CommandExecutable: true,
+		Boundary: []string{
+			"read missionControlRunbook.focus and routingReasons before choosing a queue",
+			"status is read-only and does not mutate lane, board, facts, authority, confirmed, or heavy-tool state",
+		},
+	}}
+	request := runbook.CurrentDriverRequest
+	if request == nil {
+		steps = append(steps, statusMissionControlRunbookStep{
+			StepID:   "select-focus-or-refresh",
+			Order:    2,
+			Actor:    "main-agent",
+			State:    "no-focused-driver-request",
+			Source:   "missionControlRunbook.noFocusedRequest",
+			Guidance: "inspect routingReasons, then initialize/select a case lane or rerun status after state changes",
+			Boundary: []string{
+				"do not infer completion from an absent focused driver request",
+				"use -WhatIf before any case-local mutation",
+			},
+		})
+	} else {
+		steps = append(steps, statusMissionControlRunbookStep{
+			StepID:            "consume-focused-driver-request",
+			Order:             2,
+			Actor:             statusFirstText(request.Actor, "main-agent"),
+			State:             request.State,
+			Source:            request.Source,
+			DriverKind:        request.Kind,
+			Command:           request.Command,
+			Guidance:          request.Guidance,
+			CommandExecutable: request.CommandExecutable,
+			Blocked:           request.Blocked,
+			RequiresReview:    request.RequiresReview,
+			Boundary: mission.UniqueStrings(append([]string{
+				"consume exactly the focused current driver request",
+				"when requiresReview=true, review the WhatIf/receipt before Apply",
+			}, request.Boundary...)),
+		})
+	}
+	steps = append(steps, statusMissionControlRunbookStep{
+		StepID:            "refresh-after-focus-result",
+		Order:             3,
+		Actor:             "main-agent",
+		State:             "refresh-required",
+		Source:            "missionControlRunbook.refresh",
+		Command:           runbook.RefreshStatusCommand,
+		CommandExecutable: true,
+		Boundary: []string{
+			"refresh durable status after each preview/apply/continue/reconcile command result",
+			"do not choose follow-up work from stale first-screen focus data",
+		},
+	})
+	return steps
+}
+
+func writeStatusMissionControlRunbookText(out io.Writer, runbook *statusMissionControlRunbook) error {
+	if runbook == nil {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "status Mission Control runbook：ready=%t focus=%s scope=%s currentStep=%s currentCommand=%s refresh=%s steps=%d\n", runbook.Ready, runbook.Focus, runbook.Scope, runbook.CurrentRunLoopStepID, runbook.CurrentCommand, runbook.RefreshStatusCommand, len(runbook.RunLoop)); err != nil {
+		return err
+	}
+	if request := runbook.CurrentDriverRequest; request != nil {
+		if _, err := fmt.Fprintf(out, "status Mission Control runbook driver：kind=%s actor=%s state=%s source=%s executable=%t blocked=%t requiresReview=%t command=%s guidance=%s\n", request.Kind, request.Actor, request.State, request.Source, request.CommandExecutable, request.Blocked, request.RequiresReview, request.Command, request.Guidance); err != nil {
+			return err
+		}
+	}
+	for _, queue := range runbook.Queues {
+		if _, err := fmt.Fprintf(out, "status Mission Control runbook queue：scope=%s focused=%t total=%d blocked=%d requiresReview=%d currentState=%s currentSource=%s currentStep=%s currentCommand=%s\n", queue.Scope, queue.Focused, queue.Total, queue.Blocked, queue.RequiresReview, queue.CurrentState, queue.CurrentSource, queue.CurrentRunLoopStepID, queue.CurrentCommand); err != nil {
+			return err
+		}
+	}
+	for _, reason := range runbook.RoutingReasons {
+		if _, err := fmt.Fprintf(out, "status Mission Control runbook routing：focus=%s reason=%s\n", runbook.Focus, reason); err != nil {
+			return err
+		}
+	}
+	for _, step := range runbook.RunLoop {
+		if _, err := fmt.Fprintf(out, "status Mission Control runbook step：order=%d step=%s actor=%s state=%s source=%s driverKind=%s executable=%t blocked=%t requiresReview=%t command=%s guidance=%s\n", step.Order, step.StepID, step.Actor, step.State, step.Source, step.DriverKind, step.CommandExecutable, step.Blocked, step.RequiresReview, step.Command, step.Guidance); err != nil {
+			return err
+		}
+		for _, boundary := range step.Boundary {
+			if _, err := fmt.Fprintf(out, "status Mission Control runbook step boundary：step=%s boundary=%s\n", step.StepID, boundary); err != nil {
+				return err
+			}
+		}
+	}
+	for _, boundary := range runbook.Boundary {
+		if _, err := fmt.Fprintf(out, "status Mission Control runbook boundary：%s\n", boundary); err != nil {
 			return err
 		}
 	}
@@ -4631,6 +4887,7 @@ func buildStatusInventory(ctx runtime.Context, packSource string) (statusInvento
 		}
 		status.ProjectHandoff = buildStatusProjectHandoff(release.ReleaseHandoff)
 		bindStatusCaseCandidateDecisionDraftHandoffs(status.ProjectHandoff, ctx.RepoRoot, inst.CaseRoot, ctx.Pack)
+		status.MissionControlRunbook = buildStatusMissionControlRunbook(ctx.Target, status.CaseMission, status.ProjectHandoff)
 		return status, nil
 	}
 	m, err := manifest.Load(ctx.RepoRoot, ctx.Pack)
@@ -4649,6 +4906,7 @@ func buildStatusInventory(ctx runtime.Context, packSource string) (statusInvento
 		return statusInventory{}, err
 	}
 	status.ProjectHandoff = buildStatusProjectHandoff(release.ReleaseHandoff)
+	status.MissionControlRunbook = buildStatusMissionControlRunbook(ctx.Target, nil, status.ProjectHandoff)
 	return status, nil
 }
 

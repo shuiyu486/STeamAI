@@ -28,6 +28,16 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 741：status first-screen Mission Control runbook
+
+状态：实现已完成，focused status validation 已通过，完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection 待执行。本批继续最低可用 Mission Control 路线，闭合 Batch 740 后仍存在的日常接手断点：case mission/handoff 已有 `dailyMissionControlRunbook`，但主 Agent / replacement harness 进入 `status` 后仍要先判断 focus 落在 case、reviewer、pack-memory 还是 project queue，再去不同字段读取 current driver request 与 refresh 节奏。
+
+目标：`status -Format json/text` 顶层应暴露只读 `missionControlRunbook`，复用既有 Mission Commander first-screen focus routing，把 `focus`、`routingReasons`、focused queue/current action、`currentDriverRequest`、status refresh command 与 `inspect-first-screen → consume-focused-driver-request → refresh-after-focus-result` 串成单一入口。接手者仍只能在 `currentDriverRequest.commandExecutable=true` 时执行 command；guidance-only request 必须由主 Agent review，任何 preview/apply/continue/reconcile 后必须 refresh status。
+
+已实现：新增 status-only `missionControlRunbook` envelope，覆盖 kit mode project current action、case mode case current action，以及 reviewer-dispatch focus 从 case queue 提供 request 的特殊路径；text 输出同步新增 `status Mission Control runbook` summary/driver/queue/routing/step/boundary 行。该 envelope 只读、不新增 public command 或 durable schema，不改变 first-screen priority 或任何 durable state，不 spawn session、不执行 reviewer/adapter/heavy tool、不写 authority/confirmed。
+
+验证结果：focused `go test ./internal/rekit/cli -run "TestStatusMissionControlRunbookUsesCaseQueueForReviewerDispatchFocus|TestRunStatusJsonCase|TestRunStatusJsonKit|TestRunStatusJsonDefaultPackContract|TestRunStatusCaseMissionDoesNotInitializeMissingBoard"` 通过（21.115s）。完整本机 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true` / `summary=release gate inventory ok`，`go run ./cmd/rekit -- -Command status` 已实际显示顶层 `missionControlRunbook`，`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`（CLI 313.293s）、`go vet ./...` 与 `git diff --check` 通过，后者仅有 Windows LF→CRLF working-copy warning。Implementation commit/push 与 push-triggered remote inspection 待执行。
+
 ### Batch 740：daily Mission Control runbook
 
 状态：已完成本机实现、focused validation、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `ffed83e` 已推送。Push run `30560308818` completed failure；macOS/Linux/Windows jobs `90931304167`/`90931304202`/`90931304278` 均 `steps=[]`，`gh run view 30560308818 --log-failed` 返回 `log not found: 90931304167`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。本批选择最低可用 Mission Control 路线，闭合一个真实日常断点：`status`、current driver request、refresh cadence 与 handoff 接手命令分散在多个字段和文档段落中，主 Agent / replacement harness 新会话接手时仍要跨 status text、action queue 与 handoff Markdown 手工拼接日常循环。
