@@ -27,6 +27,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 717：next-batch starter run loop
+
+状态：已完成 runtime、CLI/status text、durable handoff starter package、focused regressions、完整本机 release minimum、文档收尾、implementation commit/push 与 push-triggered remote inspection；implementation commit `e80aa10` 已推送。Push run `30501192230` completed failure；Linux/macOS/Windows jobs `90741008502`/`90741008579`/`90741008590` 均 `steps=[]`，`gh run view 30501192230 --log-failed` 返回 `log not found: 90741008502`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。
+
+目标：把 release-check / status / durable handoff 的 next-batch starter package 升级为 replacement executor 可直接消费的 ordered run-loop，让当前可执行下一批的选择、batch-plan 开局、实现、发布说明、验证和推送 inspection 在同源 envelope 中呈现。
+
+边界：不新增 public command、durable schema 或 PowerShell runtime logic；starter package 仍是只读指引，不自动选择/实施下一批，不执行 reviewer/adapter/pack-memory/gate/heavy-tool/sync/promote mutation，不写 facts/authority/confirmed。
+
+已实现内容：`ReleaseHandoffNextBatchStarterPackage` 与 `ProjectNextBatchStarterPackage` 现在投影 `currentRunLoopStepId` / ordered `runLoop`，`release-check -Format json`、`status -Format text` 与 durable handoff Markdown 共享同一 starter run-loop；按 `select-candidate-domain → draft-batch-plan → implement-slice → update-release-notes → validate-local → commit-and-inspect` 的顺序暴露 candidate-domain selection、batch-plan drafting、implementation、release notes、local validation 与 release inspection cadence。CLI tests 和 releasecheck/workstream tests 通过。
+
+验证结果：focused `go test ./internal/rekit/releasecheck ./internal/rekit/cli ./internal/rekit/workstream -count=1` 通过；完整本机 release minimum `go test ./...`、`go vet ./...`、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text` 与 `git diff --check` 已通过，`git diff --check` 仅有 Windows LF→CRLF working-copy warning。
+
 ### Batch 716：pack-memory proof workflow UX
 
 状态：已完成 runtime、CLI/status text、first-screen evidence、focused regressions、完整本机 release minimum、文档收尾、implementation commit/push 与 push-triggered remote inspection；implementation commit `43b93b9` 已推送。Push run `30497395355` completed failure；Linux/macOS/Windows jobs `90729284089`/`90729284138`/`90729284151` 均 `steps=[]`，`gh run view 30497395355 --log-failed` 返回 `log not found: 90729284089`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。
