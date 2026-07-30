@@ -19199,6 +19199,19 @@ type reviewerDispatchIntakeCLIItem struct {
 	DispatchPromptActualSHA256              string   `json:"dispatchPromptActualSha256"`
 	DispatchPromptFailure                   string   `json:"dispatchPromptFailure"`
 	DispatchPromptRepairCommand             string   `json:"dispatchPromptRepairCommand"`
+	ReviewerDispatchID                      string   `json:"reviewerDispatchId"`
+	ReviewerDispatchReceiptPath             string   `json:"reviewerDispatchReceiptPath"`
+	ReviewerDispatchReceiptSHA256           string   `json:"reviewerDispatchReceiptSha256"`
+	ReviewerHarness                         string   `json:"reviewerHarness"`
+	ReviewerSession                         string   `json:"reviewerSession"`
+	ReviewerSessionOutcome                  string   `json:"reviewerSessionOutcome"`
+	ReviewerSessionExitStatus               string   `json:"reviewerSessionExitStatus"`
+	ReviewerCompletionReceiptPath           string   `json:"reviewerCompletionReceiptPath"`
+	ReviewerCompletionReceiptSHA256         string   `json:"reviewerCompletionReceiptSha256"`
+	ReviewerSessionReceiptState             string   `json:"reviewerSessionReceiptState"`
+	ReviewerSessionReceiptFailure           string   `json:"reviewerSessionReceiptFailure"`
+	ReviewerDispatchRecordCommand           string   `json:"reviewerDispatchRecordCommand"`
+	ReviewerCompletionRecordCommand         string   `json:"reviewerCompletionRecordCommand"`
 	ReviewerResultSourceCaptureCommand      string   `json:"reviewerResultSourceCaptureCommand"`
 	ReviewerResultSourceCaptureApplyCommand string   `json:"reviewerResultSourceCaptureApplyCommand"`
 	ReviewerResultStagingCommand            string   `json:"reviewerResultStagingCommand"`

@@ -1001,6 +1001,149 @@ func TestRunPlanSubagentsReviewerSessionReceiptProductPath(t *testing.T) {
 	}
 }
 
+func TestRunPlanSubagentsReviewerFailedCompletionRedispatchProductPath(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "review", "-Apply", "-Executor", "session-review", "-Actor", "mission-commander", "-Reason", "failed reviewer redispatch product path"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", "alpha", "-ItemsPerAgent", "1", "-MaxParallel", "1", "-Lane", "feature-review", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	plan := decodePlanSubagentsResult(t, out.Bytes())
+	packet := decodePlanSubagentsPacket(t, plan.PacketPath)
+	handoff := plan.ShardHandoffs[0]
+	baseArgs := []string{"-Target", caseRoot, "-Pack", "_template"}
+	actor := "mission-commander"
+	firstHarness := "go-cli-failed-harness"
+	firstSession := "reviewer-session-failed-attempt"
+	secondHarness := "go-cli-redispatch-harness"
+	secondSession := "reviewer-session-redispatch-attempt"
+
+	runDispatchPreview := func(harness, session string) subagents.ReviewerSessionReceiptResult {
+		t.Helper()
+		out.Reset()
+		if err := Run(planSubagentsCLIArgs(baseArgs, "-PacketPath", plan.PacketPath, "-RecordReviewerDispatch", "-ShardId", handoff.ShardID, "-ReviewerHarness", harness, "-ReviewerSession", session, "-Lane", packet.TargetLane, "-Actor", actor, "-WhatIf", "-Format", "json"), &out); err != nil {
+			t.Fatal(err)
+		}
+		var preview subagents.ReviewerSessionReceiptResult
+		if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+			t.Fatalf("failed reviewer dispatch preview JSON did not decode: %v\n%s", err, out.String())
+		}
+		return preview
+	}
+	runDispatchApply := func(harness, session string, bindingSHA string) subagents.ReviewerSessionReceiptResult {
+		t.Helper()
+		out.Reset()
+		if err := Run(planSubagentsCLIArgs(baseArgs, "-PacketPath", plan.PacketPath, "-RecordReviewerDispatch", "-ShardId", handoff.ShardID, "-ReviewerHarness", harness, "-ReviewerSession", session, "-Lane", packet.TargetLane, "-Actor", actor, "-ExpectedReviewerDispatchBindingSha256", bindingSHA, "-Apply", "-Format", "json"), &out); err != nil {
+			t.Fatal(err)
+		}
+		var apply subagents.ReviewerSessionReceiptResult
+		if err := json.Unmarshal(out.Bytes(), &apply); err != nil {
+			t.Fatalf("failed reviewer dispatch apply JSON did not decode: %v\n%s", err, out.String())
+		}
+		return apply
+	}
+
+	firstPreview := runDispatchPreview(firstHarness, firstSession)
+	if firstPreview.BindingSHA256 == "" || !strings.Contains(firstPreview.ApplyCommand, "-ExpectedReviewerDispatchBindingSha256") {
+		t.Fatalf("failed reviewer first dispatch preview omitted hash-bound apply: %+v", firstPreview)
+	}
+	firstDispatch := runDispatchApply(firstHarness, firstSession, firstPreview.BindingSHA256)
+	if !firstDispatch.Applied || firstDispatch.DispatchID == "" || firstDispatch.ReceiptSHA256 == "" || firstDispatch.ReviewerSession != firstSession {
+		t.Fatalf("failed reviewer first dispatch apply drifted: %+v", firstDispatch)
+	}
+
+	out.Reset()
+	if err := Run(planSubagentsCLIArgs(baseArgs, "-PacketPath", plan.PacketPath, "-RecordReviewerCompletion", "-ReviewerDispatchId", firstDispatch.DispatchID, "-ReviewerOutcome", "failed", "-ReviewerExitStatus", "agent-error", "-Lane", packet.TargetLane, "-Actor", actor, "-WhatIf", "-Format", "json"), &out); err != nil {
+		t.Fatal(err)
+	}
+	var failedCompletionPreview subagents.ReviewerSessionReceiptResult
+	if err := json.Unmarshal(out.Bytes(), &failedCompletionPreview); err != nil {
+		t.Fatalf("failed reviewer completion preview JSON did not decode: %v\n%s", err, out.String())
+	}
+	if failedCompletionPreview.Outcome != "failed" || failedCompletionPreview.DispatchReceiptSHA256 != firstDispatch.ReceiptSHA256 || failedCompletionPreview.ReviewerResultInputPath != "" || failedCompletionPreview.ReviewerResultInputBytes != 0 || !strings.Contains(failedCompletionPreview.ApplyCommand, "-ReviewerOutcome") || !strings.Contains(failedCompletionPreview.ApplyCommand, `"failed"`) || strings.Contains(failedCompletionPreview.ApplyCommand, "-ReviewerResultInputPath") || strings.Contains(failedCompletionPreview.ApplyCommand, "-ExpectedReviewerResultInputSha256") {
+		t.Fatalf("failed reviewer completion preview should be receipt-only without result input binding: %+v", failedCompletionPreview)
+	}
+	out.Reset()
+	if err := Run(planSubagentsCLIArgs(baseArgs, "-PacketPath", plan.PacketPath, "-RecordReviewerCompletion", "-ReviewerDispatchId", firstDispatch.DispatchID, "-ReviewerOutcome", "failed", "-ReviewerExitStatus", "agent-error", "-Lane", packet.TargetLane, "-Actor", actor, "-ExpectedReviewerDispatchReceiptSha256", failedCompletionPreview.DispatchReceiptSHA256, "-Apply", "-Format", "json"), &out); err != nil {
+		t.Fatal(err)
+	}
+	var failedCompletion subagents.ReviewerSessionReceiptResult
+	if err := json.Unmarshal(out.Bytes(), &failedCompletion); err != nil {
+		t.Fatalf("failed reviewer completion apply JSON did not decode: %v\n%s", err, out.String())
+	}
+	if !failedCompletion.Applied || failedCompletion.Outcome != "failed" || failedCompletion.MissionCommanderAction.State != "reviewer-session-failed-needs-redispatch" || !containsStringWith(failedCompletion.NextSteps, "dispatch a new reviewer session") {
+		t.Fatalf("failed reviewer completion apply omitted redispatch handoff: %+v", failedCompletion)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		CaseMission struct {
+			ReviewerDispatchIntakeHandoffs    []reviewerDispatchIntakeCLIItem      `json:"reviewerDispatchIntakeHandoffs"`
+			ReviewerDispatchIntakeSummary     reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+			ReviewerDispatchIntakeActionQueue missionCommanderActionQueueSnapshot  `json:"reviewerDispatchIntakeActionQueue"`
+			MissionCommanderActionQueue       missionCommanderActionQueueSnapshot  `json:"missionCommanderActionQueue"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("failed reviewer redispatch status JSON did not decode: %v\n%s", err, out.String())
+	}
+	if len(status.CaseMission.ReviewerDispatchIntakeHandoffs) != 1 {
+		t.Fatalf("failed reviewer status should keep one redispatch handoff: %+v", status.CaseMission)
+	}
+	failedItem := status.CaseMission.ReviewerDispatchIntakeHandoffs[0]
+	summary := status.CaseMission.ReviewerDispatchIntakeSummary
+	assertReviewerDispatchIntakeSummary(t, "failed reviewer redispatch", summary, 1, 0, 0, handoff.ShardID, "reviewer-session-failed")
+	assertReviewerDispatchOperatorPackage(t, "failed reviewer redispatch", summary, handoff.ShardID, handoff.DispatchPromptSHA256)
+	pkg := summary.OperatorPackage
+	if failedItem.State != "reviewer-session-failed" || failedItem.ReviewerSessionOutcome != "failed" || failedItem.ReviewerDispatchID != firstDispatch.DispatchID || failedItem.ReviewerSession != firstSession || failedItem.ReviewerCompletionReceiptSHA256 == "" || failedItem.ReviewerResultInputState == "ready" || failedItem.ReviewerResultSourceState == "ready" || failedItem.ReviewerResultCandidateState == "ready" || failedItem.ReviewerResultPresent {
+		t.Fatalf("failed reviewer status did not preserve failed receipt while keeping result pipeline closed: %+v", failedItem)
+	}
+	if pkg.CurrentRunLoopStepID != "spawn-reviewer" || pkg.Current.State != "reviewer-session-failed" || pkg.Current.ReviewerSessionOutcome != "failed" || pkg.Current.ReviewerDispatchID != firstDispatch.DispatchID || pkg.Current.DispatchCommand == "" || !containsSubstring(pkg.RunbookSteps, "do not source-capture the failed attempt") || !containsSubstring(pkg.RunbookSteps, "dispatch a new reviewer session") {
+		t.Fatalf("failed reviewer operator package omitted redispatch context: %+v", pkg)
+	}
+	if !strings.Contains(pkg.Current.NextAction, "dispatch a replacement reviewer session") || !strings.Contains(pkg.Current.NextAction, "failed attempts cannot enter source capture") || status.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentAction == nil || status.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentAction.State != "reviewer-session-failed" || !strings.Contains(status.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentAction.Command, "dispatch a replacement reviewer session") || status.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || status.CaseMission.MissionCommanderActionQueue.CurrentAction.State != "reviewer-session-failed" || !strings.Contains(status.CaseMission.MissionCommanderActionQueue.CurrentAction.Command, "dispatch a replacement reviewer session") {
+		t.Fatalf("failed reviewer operator package should prioritize redispatch over result pipeline: pkg=%+v reviewerQueue=%+v firstScreen=%+v", pkg, status.CaseMission.ReviewerDispatchIntakeActionQueue, status.CaseMission.MissionCommanderActionQueue)
+	}
+
+	redispatchPreview := runDispatchPreview(secondHarness, secondSession)
+	if redispatchPreview.DispatchID == firstDispatch.DispatchID || redispatchPreview.BindingSHA256 == "" {
+		t.Fatalf("failed reviewer redispatch preview did not create distinct dispatch binding: first=%+v second=%+v", firstDispatch, redispatchPreview)
+	}
+	redispatchApply := runDispatchApply(secondHarness, secondSession, redispatchPreview.BindingSHA256)
+	if !redispatchApply.Applied || redispatchApply.DispatchID == firstDispatch.DispatchID || redispatchApply.ReceiptSHA256 == "" || redispatchApply.ReviewerSession != secondSession {
+		t.Fatalf("failed reviewer redispatch apply did not record distinct receipt: first=%+v second=%+v", firstDispatch, redispatchApply)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var redispatchedStatus struct {
+		CaseMission struct {
+			ReviewerDispatchIntakeSummary reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+		} `json:"caseMission"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &redispatchedStatus); err != nil {
+		t.Fatalf("failed reviewer redispatched status JSON did not decode: %v\n%s", err, out.String())
+	}
+	redispatchedSummary := redispatchedStatus.CaseMission.ReviewerDispatchIntakeSummary
+	if redispatchedSummary.OperatorPackage == nil || redispatchedSummary.OperatorPackage.Current == nil || redispatchedSummary.OperatorPackage.CurrentRunLoopStepID != "save-result-input" || redispatchedSummary.OperatorPackage.Current.State != "reviewer-session-running-unknown" || redispatchedSummary.OperatorPackage.Current.ReviewerDispatchID != redispatchApply.DispatchID || redispatchedSummary.OperatorPackage.Current.ReviewerSession != secondSession {
+		t.Fatalf("failed reviewer redispatch did not advance to new running session: %+v", redispatchedSummary.OperatorPackage)
+	}
+	if got := readOptionalCaseFile(t, caseRoot, ".rekit/facts/verifications.jsonl"); got != "" {
+		t.Fatalf("failed reviewer redispatch wrote verification facts:\n%s", got)
+	}
+	if got := readOptionalCaseFile(t, caseRoot, ".rekit/facts/decisions.jsonl"); got != "" {
+		t.Fatalf("failed reviewer redispatch wrote decision facts:\n%s", got)
+	}
+}
+
 func TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	var out bytes.Buffer

@@ -27,6 +27,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 728：reviewer/session failed completion redispatch product path
+
+状态：已完成本机实现、focused failed-redispatch regression、相邻 reviewer/session regression、完整 CLI package regression 与完整本机 release minimum；implementation commit/push 与 push-triggered remote inspection 待完成。
+
+目标：把 failed reviewer completion receipt 后的 operator takeover 做成可验证产品路径：replacement executor 看到 failed receipt 后不能进入 source capture / staging / collection / intake，也不能把失败尝试误写为 reviewer verification/decision；必须从 status/operator package 回到 `spawn-reviewer` redispatch 路径，保留 failed receipt provenance，并允许同一 packet/shard 用新的 harness/session 记录 distinct dispatch receipt。
+
+边界：不新增 public command、durable schema、PowerShell runtime logic、Claude Code session spawner、reviewer/heavy-tool executor 或生产 runtime API；Go runtime 不 spawn/poll/monitor/stop reviewer session，不调用 Agent tool，不执行 reviewer/heavy tool，不写 authority/confirmed。failed completion receipt 仍是 immutable harness observation；redispatch 仍复用既有 `plan-subagents -RecordReviewerDispatch` WhatIf→expected-binding Apply。
+
+已实现内容：新增 `TestRunPlanSubagentsReviewerFailedCompletionRedispatchProductPath`，先创建单 shard reviewer packet 并记录第一轮 immutable dispatch receipt，再用 `-RecordReviewerCompletion -ReviewerOutcome failed` 记录 receipt-only failed completion，断言 completion preview 不携带 reviewer result input path/hash Apply 绑定。status refresh 后测试验证 reviewer dispatch/intake handoff 保留 failed dispatch/completion provenance，result input/source/candidate/canonical pipeline 仍关闭；`reviewerDispatchIntakeSummary.operatorPackage.currentRunLoopStepId` 回到 `spawn-reviewer`，runbook 明确禁止 source-capture failed attempt 并要求 dispatch new reviewer session；reviewer dispatch/intake action queue 与 first-screen Mission Commander queue 都优先暴露 `reviewer-session-failed` replacement dispatch action。随后测试用第二组 harness/session 对同一 packet/shard 重新走 dispatch WhatIf→expected-binding Apply，验证 distinct dispatch ID/receipt SHA，status refresh 后进入新 `reviewer-session-running-unknown` / `save-result-input`，并确认 `.rekit/facts/verifications.jsonl` 与 `decisions.jsonl` 未写入。
+
+验证结果：focused `go test ./internal/rekit/cli -run TestRunPlanSubagentsReviewerFailedCompletionRedispatchProductPath -count=1` 通过；相邻 reviewer/session regression `go test ./internal/rekit/cli -run "TestRunPlanSubagentsReviewerFailedCompletionRedispatchProductPath|TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath|TestRunPlanSubagentsReviewerSessionReceiptProductPath" -count=1` 通过；完整 CLI package `go test ./internal/rekit/cli -count=1` 通过。完整本机 release minimum 已通过：`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./... -count=1`、`go vet ./...`、`git diff --check` 与 `go run ./cmd/rekit -- -Command release-check -Format json`，`git diff --check` 仅有 Windows LF→CRLF working-copy warning，`release-check` 返回 `ready=true` / `summary=release gate inventory ok`。
+
 ### Batch 727：Mission Commander driver request consumer-loop product path
 
 状态：已完成本机实现、focused consumer-loop regression、完整 CLI package regression、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `bf83ffe` 已推送。Push run `30520239021` completed failure；macOS/Windows/Linux jobs `90798768497`/`90798768531`/`90798768555` 均 `steps=[]`，`gh run view 30520239021 --log-failed` 返回 `log not found: 90798768497`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。
