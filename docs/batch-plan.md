@@ -29,7 +29,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 720：Mission Commander open-decision current-action run-loop execution closure
 
-状态：已完成实现、focused/package/full regressions、文档收尾与完整本机 release minimum；尚未 commit/push 或做远端 release inspection。
+状态：已完成实现、focused/package/full regressions、文档收尾、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `5469712` 已推送。Push run `30510061601` completed failure；macOS/Linux/Windows jobs `90767987243`/`90767987268`/`90767987274` 均 `steps=[]`，`gh run view 30510061601 --log-failed` 返回 `log not found: 90767987243`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。
 
 目标：把 Mission Commander action queue 的 open-decision 单项阻塞从旁路 `openDecisionHandoffs[].whatIfCommand` 提升到 `currentAction` / `currentActionRunLoop` 本身，让 replacement executor 可直接从 `CurrentActionRunLoop.preview-current` 执行 concrete `note -Kind decision ... -WhatIf`，消费返回的 hash-bound `recordCommand`，再刷新回 owner-bound `/rekit continue <lane>`。
 
