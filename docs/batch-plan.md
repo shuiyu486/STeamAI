@@ -29,7 +29,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 718：pack-memory review-first cross-case consumption closure
 
-状态：已完成 isolated E2E 实现、focused/package regressions、完整本机 release minimum 与文档收尾；implementation commit/push 和 push-triggered remote inspection 待执行。
+状态：已完成 isolated E2E 实现、focused/package regressions、完整本机 release minimum、文档收尾、implementation commit/push 与 push-triggered remote inspection；implementation commit `e9e1519` 已推送。Push run `30504974215` completed failure；Windows/Linux/macOS jobs `90752633424`/`90752633448`/`90752633489` 均 `steps=[]`，`gh run view 30504974215 --log-failed` 返回 `log not found: 90752633424`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。
 
 目标：把 pack-memory product UX 从分散的 proof/provision/verification/retirement API 覆盖升级为一条 source case 视角的 review-first product-path 回归：source case 产生 reusable candidate，经 decision draft WhatIf→hash-bound Apply、candidate decision preview/apply、source-case-local fresh/attached verification provisioning、accepted candidate verification、verification workspace retirement 与 cleanup proof closure，证明 replacement executor 可按 durable handoff 串起跨 case consumption，而不是只依赖单个 API 局部测试。
 
