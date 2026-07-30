@@ -7269,7 +7269,33 @@ func writeMissionCommanderActionQueueText(out io.Writer, queue mission.MissionCo
 }
 
 func writeMissionCommanderActionQueueRunLoopText(out io.Writer, prefix string, queue mission.MissionCommanderActionQueue) error {
-	return writeMissionCommanderRunLoopStepsText(out, prefix, queue.CurrentRunLoopStepID, queue.CurrentActionRunLoop)
+	if err := writeMissionCommanderRunLoopStepsText(out, prefix, queue.CurrentRunLoopStepID, queue.CurrentActionRunLoop); err != nil {
+		return err
+	}
+	return writeMissionCommanderDriverRequestText(out, prefix, queue.CurrentDriverRequest)
+}
+
+func writeMissionCommanderDriverRequestText(out io.Writer, prefix string, request *mission.MissionCommanderDriverRequest) error {
+	if request == nil {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "%s driver request：kind=%s step=%s actor=%s executable=%t blocked=%t requiresReview=%t command=`%s` guidance=`%s` state=%s source=%s lane=%s label=%s gateEventId=%s actionId=%s\n", prefix, request.Kind, request.RunLoopStepID, request.Actor, request.CommandExecutable, request.Blocked, request.RequiresReview, request.Command, request.Guidance, request.State, request.Source, request.Lane, request.Label, request.GateEventID, request.ActionID); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "%s driver request expected receipt：state=%s command=`%s` description=%s\n", prefix, request.ExpectedReceipt.State, request.ExpectedReceipt.Command, request.ExpectedReceipt.Description); err != nil {
+		return err
+	}
+	for _, boundary := range request.Boundary {
+		if _, err := fmt.Fprintf(out, "%s driver request boundary：%s\n", prefix, boundary); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range request.ExpectedReceipt.Boundary {
+		if _, err := fmt.Fprintf(out, "%s driver receipt boundary：%s\n", prefix, boundary); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func writeMissionCommanderRunLoopStepsText(out io.Writer, prefix, currentRunLoopStepID string, runLoop []mission.MissionCommanderRunLoopStep) error {

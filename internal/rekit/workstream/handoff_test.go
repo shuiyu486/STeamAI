@@ -37,9 +37,21 @@ func TestMissionCommanderActionRunLoopMarkdownLinesIncludesCurrentStep(t *testin
 		{Lane: "main", Label: "main", State: "needs-gate-decision", Command: "/rekit gate -Action debug -Lane main -Apply -Actor <actor>", Source: "missionCommanderActions.followUp", Blocked: true, RequiresReview: true},
 	})
 	lines := MissionCommanderActionRunLoopMarkdownLines(queue)
-	for _, want := range []string{"current run loop：currentRunLoopStep=preview-current steps=4", "run loop step：order=2 step=preview-current actor=main-agent state=needs-gate-decision source=missionCommanderActions command=`/rekit gate -Action debug -Lane main -WhatIf`", "run loop step：order=4 step=follow-up-after-refresh", "run loop boundary：step=follow-up-after-refresh boundary=follow-up commands remain candidates until refreshed state makes them current or unblocked"} {
+	for _, want := range []string{"current run loop：currentRunLoopStep=preview-current steps=4", "run loop step：order=2 step=preview-current actor=main-agent state=needs-gate-decision source=missionCommanderActions command=`/rekit gate -Action debug -Lane main -WhatIf`", "run loop step：order=4 step=follow-up-after-refresh", "run loop boundary：step=follow-up-after-refresh boundary=follow-up commands remain candidates until refreshed state makes them current or unblocked", "driver request：kind=preview-command step=preview-current actor=main-agent executable=true blocked=false requiresReview=true command=`/rekit gate -Action debug -Lane main -WhatIf` guidance=``", "driver request expected receipt：state=refresh-required command=`/rekit gate -Action debug -Lane main -WhatIf`"} {
 		if !slices.ContainsFunc(lines, func(line string) bool { return strings.Contains(line, want) }) {
 			t.Fatalf("run-loop markdown missing %q: %+v", want, lines)
+		}
+	}
+}
+
+func TestMissionCommanderActionRunLoopMarkdownLinesKeepsGuidanceAsDriverGuidance(t *testing.T) {
+	queue := mission.MissionCommanderActionQueueFor([]mission.MissionCommanderNextActionItem{
+		{State: "ready-for-next-batch-selection", Command: "select the next Windows-verifiable product-path closure", Source: "releaseHandoffNextBatch"},
+	})
+	lines := MissionCommanderActionRunLoopMarkdownLines(queue)
+	for _, want := range []string{"current run loop：currentRunLoopStep=inspect-current steps=2", "driver request：kind=review-guidance step=inspect-current actor=main-agent executable=false blocked=false requiresReview=false command=`` guidance=`select the next Windows-verifiable product-path closure`", "driver request boundary：guidance text must be reviewed by the main Agent or harness, not executed as a shell command"} {
+		if !slices.ContainsFunc(lines, func(line string) bool { return strings.Contains(line, want) }) {
+			t.Fatalf("guidance driver markdown missing %q: %+v", want, lines)
 		}
 	}
 }

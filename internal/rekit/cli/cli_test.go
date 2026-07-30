@@ -863,6 +863,11 @@ func TestRunStatusJsonKit(t *testing.T) {
 		if !strings.Contains(projectCurrent.Command, "select the next Windows-verifiable product-path closure") || projectCurrent.Source != "releaseHandoffNextBatch" || projectCurrent.ActionID != "next-batch-selection" || projectCurrent.State != "ready-for-next-batch-selection" || projectCurrent.Label != "next-batch" || projectCurrent.RequiresReview || status.ProjectHandoff.MissionCommanderActionQueue.Counts.RequiresReview != 0 {
 			t.Fatalf("completed release inspection cadence should point project current action at next-batch selection: current=%+v queue=%+v", projectCurrent, status.ProjectHandoff.MissionCommanderActionQueue)
 		}
+		for _, want := range []string{`"currentDriverRequest"`, `"kind": "review-guidance"`, `"commandExecutable": false`, `"guidance": "select the next Windows-verifiable product-path closure`} {
+			if !strings.Contains(out.String(), want) {
+				t.Fatalf("status JSON driver request missing %q:\n%s", want, out.String())
+			}
+		}
 		if action := status.ProjectHandoff.MissionCommanderNextActions[0]; action.ActionID != "next-batch-selection" || action.Source != "releaseHandoffNextBatch" || len(action.Reasons) == 0 || len(action.Boundary) == 0 || !containsSubstring(action.Reasons, "ready for the next Windows-verifiable product-path batch") || !containsSubstring(action.Boundary, "avoid single-field") {
 			t.Fatalf("project handoff structured next-batch action omitted reasons/boundary: %+v", action)
 		}
@@ -956,6 +961,10 @@ func TestRunStatusJsonKit(t *testing.T) {
 			"status Mission Commander focus action run loop step：order=1 step=inspect-current actor=main-agent state=ready-for-next-batch-selection source=releaseHandoffNextBatch",
 			"status Mission Commander focus action run loop boundary：step=inspect-current boundary=not every current action command is shell-executable; guidance text must be reviewed but not run as a command",
 			"status Mission Commander focus action run loop step：order=2 step=refresh-state actor=main-agent",
+			"status Mission Commander focus action driver request：kind=review-guidance step=inspect-current actor=main-agent executable=false blocked=false requiresReview=false command=`` guidance=`select the next Windows-verifiable product-path closure from docs/context-routing.md and docs/batch-plan.md, then update docs/batch-plan.md current batch state before implementation` state=ready-for-next-batch-selection source=releaseHandoffNextBatch",
+			"status Mission Commander focus action driver request expected receipt：state=refresh-required command=`` description=inspect the selected Mission Commander current action, reasons, and boundary before running any command",
+			"status Mission Commander focus action driver request boundary：guidance text must be reviewed by the main Agent or harness, not executed as a shell command",
+			"status Mission Commander focus action driver receipt boundary：do not write authority/confirmed or execute heavy tools from this read-only request envelope",
 			"status Mission Commander focus project runbook：batch=next-batch state=ready-for-next-batch-selection",
 			"text=read docs/context-routing.md first, then only docs/batch-plan.md current/next/latest sections",
 			"text=choose a Windows-verifiable product-path closure",
@@ -19468,13 +19477,38 @@ type missionCommanderActionQueueSnapshot struct {
 		RequiresReview int `json:"requiresReview"`
 		FollowUp       int `json:"followUp"`
 	} `json:"counts"`
-	CurrentAction         *missionCommanderNextActionItem       `json:"currentAction"`
-	CurrentRunLoopStepID  string                                `json:"currentRunLoopStepId"`
-	CurrentActionRunLoop  []missionCommanderRunLoopStepSnapshot `json:"currentActionRunLoop"`
-	UnblockedActions      []missionCommanderNextActionItem      `json:"unblockedActions"`
-	BlockedActions        []missionCommanderNextActionItem      `json:"blockedActions"`
-	ReviewRequiredActions []missionCommanderNextActionItem      `json:"reviewRequiredActions"`
-	FollowUpActions       []missionCommanderNextActionItem      `json:"followUpActions"`
+	CurrentAction         *missionCommanderNextActionItem        `json:"currentAction"`
+	CurrentRunLoopStepID  string                                 `json:"currentRunLoopStepId"`
+	CurrentActionRunLoop  []missionCommanderRunLoopStepSnapshot  `json:"currentActionRunLoop"`
+	CurrentDriverRequest  *missionCommanderDriverRequestSnapshot `json:"currentDriverRequest"`
+	UnblockedActions      []missionCommanderNextActionItem       `json:"unblockedActions"`
+	BlockedActions        []missionCommanderNextActionItem       `json:"blockedActions"`
+	ReviewRequiredActions []missionCommanderNextActionItem       `json:"reviewRequiredActions"`
+	FollowUpActions       []missionCommanderNextActionItem       `json:"followUpActions"`
+}
+
+type missionCommanderDriverRequestSnapshot struct {
+	Kind              string   `json:"kind"`
+	RunLoopStepID     string   `json:"runLoopStepId"`
+	Actor             string   `json:"actor"`
+	State             string   `json:"state"`
+	Source            string   `json:"source"`
+	Lane              string   `json:"lane"`
+	Label             string   `json:"label"`
+	GateEventID       string   `json:"gateEventId"`
+	ActionID          string   `json:"actionId"`
+	Command           string   `json:"command"`
+	Guidance          string   `json:"guidance"`
+	CommandExecutable bool     `json:"commandExecutable"`
+	Blocked           bool     `json:"blocked"`
+	RequiresReview    bool     `json:"requiresReview"`
+	Boundary          []string `json:"boundary"`
+	ExpectedReceipt   struct {
+		State       string   `json:"state"`
+		Command     string   `json:"command"`
+		Description string   `json:"description"`
+		Boundary    []string `json:"boundary"`
+	} `json:"expectedReceipt"`
 }
 
 type authorizedExecutionFollowThroughSnapshot struct {

@@ -903,6 +903,16 @@ func MissionCommanderActionRunLoopMarkdownLines(queue mission.MissionCommanderAc
 			lines = append(lines, fmt.Sprintf("run loop boundary：step=%s boundary=%s", step.StepID, boundary))
 		}
 	}
+	if request := queue.CurrentDriverRequest; request != nil {
+		lines = append(lines, fmt.Sprintf("driver request：kind=%s step=%s actor=%s executable=%t blocked=%t requiresReview=%t command=`%s` guidance=`%s` state=%s source=%s lane=%s label=%s gateEventId=%s actionId=%s", request.Kind, request.RunLoopStepID, request.Actor, request.CommandExecutable, request.Blocked, request.RequiresReview, request.Command, request.Guidance, request.State, request.Source, request.Lane, request.Label, request.GateEventID, request.ActionID))
+		lines = append(lines, fmt.Sprintf("driver request expected receipt：state=%s command=`%s` description=%s", request.ExpectedReceipt.State, request.ExpectedReceipt.Command, request.ExpectedReceipt.Description))
+		for _, boundary := range request.Boundary {
+			lines = append(lines, fmt.Sprintf("driver request boundary：%s", boundary))
+		}
+		for _, boundary := range request.ExpectedReceipt.Boundary {
+			lines = append(lines, fmt.Sprintf("driver receipt boundary：%s", boundary))
+		}
+	}
 	return lines
 }
 

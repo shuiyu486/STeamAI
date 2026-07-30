@@ -328,6 +328,57 @@ func TestMissionCommanderActionQueueRunLoopKeepsGuidanceOutOfExecutableCommandSt
 	}
 }
 
+func TestMissionCommanderActionQueueBuildsReadOnlyDriverRequestForExecutableCommand(t *testing.T) {
+	items := []MissionCommanderNextActionItem{
+		{Lane: "main", Label: "main", State: "ready-to-continue", Command: "/rekit continue main", Source: "missionCommanderActions"},
+	}
+
+	queue := MissionCommanderActionQueueFor(items)
+
+	if queue.CurrentDriverRequest == nil || queue.CurrentDriverRequest.Kind != "execute-command" || queue.CurrentDriverRequest.Command != "/rekit continue main" || queue.CurrentDriverRequest.Guidance != "" || !queue.CurrentDriverRequest.CommandExecutable {
+		t.Fatalf("executable command driver request drifted: %+v", queue.CurrentDriverRequest)
+	}
+	if queue.CurrentDriverRequest.ExpectedReceipt.State != "refresh-required" || queue.CurrentDriverRequest.ExpectedReceipt.Command != "/rekit continue main" {
+		t.Fatalf("driver request should require refresh receipt after executable command: %+v", queue.CurrentDriverRequest.ExpectedReceipt)
+	}
+	if !containsSubstring(queue.CurrentDriverRequest.Boundary, "does not spawn, poll, stop, or run external sessions") || !containsSubstring(queue.CurrentDriverRequest.ExpectedReceipt.Boundary, "do not write authority/confirmed") {
+		t.Fatalf("driver request lost no-spawn/no-authority boundaries: %+v", queue.CurrentDriverRequest)
+	}
+}
+
+func TestMissionCommanderActionQueueBuildsReadOnlyDriverRequestForGuidance(t *testing.T) {
+	items := []MissionCommanderNextActionItem{
+		{State: "ready-for-next-batch-selection", Command: "select the next Windows-verifiable product-path closure", Source: "releaseHandoffNextBatch"},
+	}
+
+	queue := MissionCommanderActionQueueFor(items)
+
+	if queue.CurrentDriverRequest == nil || queue.CurrentDriverRequest.Kind != "review-guidance" || queue.CurrentDriverRequest.Command != "" || queue.CurrentDriverRequest.Guidance != "select the next Windows-verifiable product-path closure" || queue.CurrentDriverRequest.CommandExecutable {
+		t.Fatalf("guidance driver request should not expose executable command: %+v", queue.CurrentDriverRequest)
+	}
+	if queue.CurrentDriverRequest.RunLoopStepID != "inspect-current" || queue.CurrentDriverRequest.ExpectedReceipt.Command != "" {
+		t.Fatalf("guidance driver request should stop at inspect-current and require refresh: %+v", queue.CurrentDriverRequest)
+	}
+	if !containsSubstring(queue.CurrentDriverRequest.Boundary, "guidance text must be reviewed") {
+		t.Fatalf("guidance driver request lost no-run boundary: %+v", queue.CurrentDriverRequest.Boundary)
+	}
+}
+
+func TestMissionCommanderActionQueueBuildsReadOnlyDriverRequestForBlockedReview(t *testing.T) {
+	items := []MissionCommanderNextActionItem{
+		{Lane: "feature-login", Label: "login", State: "waiting-for-reviewer-result", Command: "dispatch read-only reviewer for shard-02", Source: "reviewerDispatchIntakeHandoffs", Blocked: true, RequiresReview: true},
+	}
+
+	queue := MissionCommanderActionQueueFor(items)
+
+	if queue.CurrentDriverRequest == nil || queue.CurrentDriverRequest.Kind != "blocked-review" || queue.CurrentDriverRequest.Command != "" || queue.CurrentDriverRequest.Guidance != "dispatch read-only reviewer for shard-02" {
+		t.Fatalf("blocked guidance driver request drifted: %+v", queue.CurrentDriverRequest)
+	}
+	if !queue.CurrentDriverRequest.Blocked || !queue.CurrentDriverRequest.RequiresReview || !containsSubstring(queue.CurrentDriverRequest.Boundary, "blocked current actions require blocker review") || !containsSubstring(queue.CurrentDriverRequest.Boundary, "review-required current actions") {
+		t.Fatalf("blocked driver request lost blocker/review boundaries: %+v", queue.CurrentDriverRequest)
+	}
+}
+
 func TestMissionCommanderActionQueueRunLoopUsesPreviewForReviewRequiredWhatIf(t *testing.T) {
 	items := []MissionCommanderNextActionItem{
 		{Lane: "feature-login", Label: "login", State: "needs-gate-decision", Command: "/rekit gate -Action debug -Lane feature-login -WhatIf", Source: "missionCommanderActions", RequiresReview: true},

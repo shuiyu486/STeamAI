@@ -110,12 +110,39 @@ type MissionCommanderRunLoopStep struct {
 	Boundary    []string `json:"boundary,omitempty"`
 }
 
+type MissionCommanderDriverRequest struct {
+	Kind              string                                   `json:"kind"`
+	RunLoopStepID     string                                   `json:"runLoopStepId"`
+	Actor             string                                   `json:"actor,omitempty"`
+	State             string                                   `json:"state,omitempty"`
+	Source            string                                   `json:"source,omitempty"`
+	Lane              string                                   `json:"lane,omitempty"`
+	Label             string                                   `json:"label,omitempty"`
+	GateEventID       string                                   `json:"gateEventId,omitempty"`
+	ActionID          string                                   `json:"actionId,omitempty"`
+	Command           string                                   `json:"command,omitempty"`
+	Guidance          string                                   `json:"guidance,omitempty"`
+	CommandExecutable bool                                     `json:"commandExecutable"`
+	Blocked           bool                                     `json:"blocked,omitempty"`
+	RequiresReview    bool                                     `json:"requiresReview,omitempty"`
+	ExpectedReceipt   MissionCommanderDriverReceiptExpectation `json:"expectedReceipt"`
+	Boundary          []string                                 `json:"boundary,omitempty"`
+}
+
+type MissionCommanderDriverReceiptExpectation struct {
+	State       string   `json:"state"`
+	Command     string   `json:"command,omitempty"`
+	Description string   `json:"description,omitempty"`
+	Boundary    []string `json:"boundary,omitempty"`
+}
+
 type MissionCommanderActionQueue struct {
 	Summary               string                            `json:"summary"`
 	Counts                MissionCommanderActionQueueCounts `json:"counts"`
 	CurrentAction         *MissionCommanderNextActionItem   `json:"currentAction,omitempty"`
 	CurrentRunLoopStepID  string                            `json:"currentRunLoopStepId,omitempty"`
 	CurrentActionRunLoop  []MissionCommanderRunLoopStep     `json:"currentActionRunLoop,omitempty"`
+	CurrentDriverRequest  *MissionCommanderDriverRequest    `json:"currentDriverRequest,omitempty"`
 	UnblockedActions      []MissionCommanderNextActionItem  `json:"unblockedActions,omitempty"`
 	BlockedActions        []MissionCommanderNextActionItem  `json:"blockedActions,omitempty"`
 	ReviewRequiredActions []MissionCommanderNextActionItem  `json:"reviewRequiredActions,omitempty"`
@@ -606,6 +633,7 @@ func MissionCommanderActionQueueFor(items []MissionCommanderNextActionItem) Miss
 		queue.CurrentAction = missionCommanderNextActionPtr(current)
 		queue.CurrentRunLoopStepID = missionCommanderCurrentRunLoopStepID(current)
 		queue.CurrentActionRunLoop = MissionCommanderCurrentActionRunLoop(current, queue.FollowUpActions)
+		queue.CurrentDriverRequest = MissionCommanderCurrentDriverRequest(current, queue.CurrentRunLoopStepID, queue.CurrentActionRunLoop)
 	}
 	queue.Summary = MissionCommanderActionQueueSummary(queue)
 	return queue
@@ -613,6 +641,79 @@ func MissionCommanderActionQueueFor(items []MissionCommanderNextActionItem) Miss
 
 func MissionCommanderNextActionIsFollowUp(item MissionCommanderNextActionItem) bool {
 	return strings.Contains(item.Source, ".followUp")
+}
+
+func MissionCommanderCurrentDriverRequest(current MissionCommanderNextActionItem, currentRunLoopStepID string, runLoop []MissionCommanderRunLoopStep) *MissionCommanderDriverRequest {
+	currentRunLoopStepID = strings.TrimSpace(currentRunLoopStepID)
+	if currentRunLoopStepID == "" {
+		return nil
+	}
+	executable := MissionCommanderNextActionCommandExecutable(current.Command)
+	request := &MissionCommanderDriverRequest{
+		Kind:              missionCommanderDriverRequestKind(current, executable),
+		RunLoopStepID:     currentRunLoopStepID,
+		State:             strings.TrimSpace(current.State),
+		Source:            strings.TrimSpace(current.Source),
+		Lane:              strings.TrimSpace(current.Lane),
+		Label:             strings.TrimSpace(current.Label),
+		GateEventID:       strings.TrimSpace(current.GateEventID),
+		ActionID:          strings.TrimSpace(current.ActionID),
+		CommandExecutable: executable,
+		Blocked:           current.Blocked,
+		RequiresReview:    current.RequiresReview,
+		Boundary: []string{
+			"driver request is a read-only handoff; the Go runtime does not spawn, poll, stop, or run external sessions",
+			"driver receipt must come from the explicit command/guidance outcome after refreshed durable state",
+		},
+		ExpectedReceipt: MissionCommanderDriverReceiptExpectation{
+			State:       "refresh-required",
+			Description: "rerun /rekit status or the returned command result handoff before selecting follow-up work",
+			Boundary: []string{
+				"do not infer completion from the driver request alone",
+				"do not write authority/confirmed or execute heavy tools from this read-only request envelope",
+			},
+		},
+	}
+	if executable {
+		request.Command = strings.TrimSpace(current.Command)
+	} else {
+		request.Guidance = strings.TrimSpace(current.Command)
+	}
+	for _, step := range runLoop {
+		if step.StepID != currentRunLoopStepID {
+			continue
+		}
+		request.Actor = strings.TrimSpace(step.Actor)
+		request.ExpectedReceipt.Command = strings.TrimSpace(step.Command)
+		request.ExpectedReceipt.Description = strings.TrimSpace(step.Description)
+		request.ExpectedReceipt.Boundary = UniqueStrings(append(request.ExpectedReceipt.Boundary, step.Boundary...))
+		break
+	}
+	if !executable && request.Guidance != "" {
+		request.Boundary = append(request.Boundary, "guidance text must be reviewed by the main Agent or harness, not executed as a shell command")
+	}
+	if current.Blocked {
+		request.Boundary = append(request.Boundary, "blocked current actions require blocker review before any autonomous continue/run")
+	}
+	if current.RequiresReview {
+		request.Boundary = append(request.Boundary, "review-required current actions must be previewed or reviewed before any apply/follow-up")
+	}
+	request.Boundary = UniqueStrings(request.Boundary)
+	request.ExpectedReceipt.Boundary = UniqueStrings(request.ExpectedReceipt.Boundary)
+	return request
+}
+
+func missionCommanderDriverRequestKind(current MissionCommanderNextActionItem, executable bool) string {
+	if current.Blocked {
+		return "blocked-review"
+	}
+	if !executable {
+		return "review-guidance"
+	}
+	if current.RequiresReview || strings.Contains(current.Command, " -WhatIf") {
+		return "preview-command"
+	}
+	return "execute-command"
 }
 
 func MissionCommanderCurrentActionRunLoop(current MissionCommanderNextActionItem, followUps []MissionCommanderNextActionItem) []MissionCommanderRunLoopStep {
