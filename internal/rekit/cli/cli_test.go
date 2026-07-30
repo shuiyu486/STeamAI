@@ -12550,8 +12550,13 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 		t.Fatalf("unexpected candidate decision preview: %+v", preview)
 	}
 
+	decisionApplyRequest := requireTypedMissionCommanderActionDriverRequest(t, preview.MissionCommanderActionQueue, preview.MissionCommanderAction, "ready-for-pack-memory-candidate-decision-apply", "preview-command", "preview-current", true)
+	if !strings.Contains(decisionApplyRequest.Command, "-Apply") || strings.Contains(decisionApplyRequest.Command, "-WhatIf") || !strings.Contains(decisionApplyRequest.Command, created.ReviewWorkspace.PacketPath) || !strings.Contains(decisionApplyRequest.Command, decisionPath) {
+		t.Fatalf("candidate decision preview returned non-consumable apply driver request: %+v", decisionApplyRequest)
+	}
+	decisionApplyArgs := packMemoryTypedDriverRequestCLIArgs(t, decisionApplyRequest, "_template")
 	out.Reset()
-	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-Apply", "-Format", "json"}, &out); err != nil {
+	if err := Run(decisionApplyArgs, &out); err != nil {
 		t.Fatal(err)
 	}
 	var decisionApplied promote.CandidateDecisionResult
@@ -12785,8 +12790,13 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chdir(oldwd) })
 
+	provisionPreviewRequest := requireTypedMissionCommanderActionDriverRequest(t, decisionApplied.MissionCommanderActionQueue, decisionApplied.MissionCommanderAction, "ready-for-pack-memory-verification-provision-preview", "preview-command", "preview-current", true)
+	if !strings.Contains(provisionPreviewRequest.Command, "-ProvisionCandidateVerificationCases") || !strings.Contains(provisionPreviewRequest.Command, "-WhatIf") || !strings.Contains(provisionPreviewRequest.Command, freshCase) || !strings.Contains(provisionPreviewRequest.Command, attachedCase) {
+		t.Fatalf("candidate decision apply returned non-consumable provision preview driver request: %+v", provisionPreviewRequest)
+	}
+	provisionPreviewArgs := packMemoryTypedDriverRequestCLIArgs(t, provisionPreviewRequest, "_template")
 	out.Reset()
-	if err := Run([]string{"-Command", "promote", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-ProvisionCandidateVerificationCases", "-FreshCaseRoot", freshCase, "-AttachedCaseRoot", attachedCase, "-WhatIf", "-Format", "json"}, &out); err != nil {
+	if err := Run(provisionPreviewArgs, &out); err != nil {
 		t.Fatal(err)
 	}
 	var provisionPreview promote.CandidateVerificationProvisionResult
@@ -12796,8 +12806,13 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	if provisionPreview.IsMutation || provisionPreview.Applied || provisionPreview.ProvisionSHA256 == "" || provisionPreview.WorkspaceRoot != decisionApplied.Receipt.VerificationWorkspaceRoot {
 		t.Fatalf("unexpected candidate verification provision preview: %+v", provisionPreview)
 	}
+	provisionApplyRequest := requireTypedMissionCommanderActionDriverRequest(t, provisionPreview.MissionCommanderActionQueue, provisionPreview.MissionCommanderAction, "ready-for-pack-memory-verification-provision-apply", "preview-command", "preview-current", true)
+	if !strings.Contains(provisionApplyRequest.Command, "-ExpectedProvisionSha256 "+provisionPreview.ProvisionSHA256) || !strings.Contains(provisionApplyRequest.Command, "-Apply") || strings.Contains(provisionApplyRequest.Command, "-WhatIf") {
+		t.Fatalf("candidate verification provision preview returned non-consumable apply driver request: %+v", provisionApplyRequest)
+	}
+	provisionApplyArgs := packMemoryTypedDriverRequestCLIArgs(t, provisionApplyRequest, "_template")
 	out.Reset()
-	if err := Run([]string{"-Command", "promote", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-ProvisionCandidateVerificationCases", "-FreshCaseRoot", freshCase, "-AttachedCaseRoot", attachedCase, "-ExpectedProvisionSha256", provisionPreview.ProvisionSHA256, "-Apply", "-Format", "json"}, &out); err != nil {
+	if err := Run(provisionApplyArgs, &out); err != nil {
 		t.Fatal(err)
 	}
 	var provisionApplied promote.CandidateVerificationProvisionResult
@@ -12810,7 +12825,7 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	candidateBeforeProvisionReplay := snapshotFiles(t, candidateRoot)
 	workspaceBeforeProvisionReplay := snapshotFiles(t, decisionApplied.Receipt.VerificationWorkspaceRoot)
 	out.Reset()
-	if err := Run([]string{"-Command", "promote", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-ProvisionCandidateVerificationCases", "-FreshCaseRoot", freshCase, "-AttachedCaseRoot", attachedCase, "-ExpectedProvisionSha256", provisionPreview.ProvisionSHA256, "-Apply", "-Format", "json"}, &out); err != nil {
+	if err := Run(provisionApplyArgs, &out); err != nil {
 		t.Fatal(err)
 	}
 	var provisionReplay promote.CandidateVerificationProvisionResult
@@ -12826,7 +12841,8 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	assertSnapshotEqual(t, candidateBeforeProvisionReplay, snapshotFiles(t, candidateRoot))
 	assertSnapshotEqual(t, workspaceBeforeProvisionReplay, snapshotFiles(t, decisionApplied.Receipt.VerificationWorkspaceRoot))
 	out.Reset()
-	if err := Run([]string{"-Command", "promote", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-ProvisionCandidateVerificationCases", "-FreshCaseRoot", freshCase, "-AttachedCaseRoot", attachedCase, "-ExpectedProvisionSha256", provisionPreview.ProvisionSHA256, "-Apply", "-Format", "text"}, &out); err != nil {
+	provisionReplayTextArgs := replaceCLIArgValueForTest(t, provisionApplyArgs, "-Format", "text")
+	if err := Run(provisionReplayTextArgs, &out); err != nil {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{"promote candidate verification provision：mode=already-provisioned", "replay=true", "promote candidate verification case：role=fresh", "promote candidate verification case：role=attached", "does not run final verification"} {
@@ -12863,8 +12879,13 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	assertSnapshotEqual(t, candidateBeforeProvisionStatus, snapshotFiles(t, candidateRoot))
 	assertSnapshotEqual(t, workspaceBeforeProvisionStatus, snapshotFiles(t, decisionApplied.Receipt.VerificationWorkspaceRoot))
 
+	verificationPreviewRequest := requireTypedMissionCommanderActionDriverRequest(t, provisionApplied.MissionCommanderActionQueue, provisionApplied.MissionCommanderAction, "ready-for-pack-memory-candidate-verification-preview", "preview-command", "preview-current", true)
+	if !strings.Contains(verificationPreviewRequest.Command, "-VerifyCandidateDecision") || !strings.Contains(verificationPreviewRequest.Command, "-WhatIf") || !strings.Contains(verificationPreviewRequest.Command, freshCase) || !strings.Contains(verificationPreviewRequest.Command, attachedCase) {
+		t.Fatalf("candidate verification provision apply returned non-consumable verification preview driver request: %+v", verificationPreviewRequest)
+	}
+	verificationPreviewArgs := packMemoryTypedDriverRequestCLIArgs(t, verificationPreviewRequest, "_template")
 	out.Reset()
-	if err := Run([]string{"-Command", "promote", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-VerifyCandidateDecision", "-FreshCaseRoot", freshCase, "-AttachedCaseRoot", attachedCase, "-WhatIf", "-Format", "json"}, &out); err != nil {
+	if err := Run(verificationPreviewArgs, &out); err != nil {
 		t.Fatal(err)
 	}
 	var verification promote.CandidateDecisionVerificationResult
@@ -12874,8 +12895,13 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	if verification.Mode != "previewed" || verification.IsMutation || verification.Applied || verification.Replay || !verification.Ready || verification.FreshDoctorRows == 0 || verification.AttachedDoctorRows == 0 {
 		t.Fatalf("unexpected candidate verification preview: %+v", verification)
 	}
+	verificationApplyRequest := requireTypedMissionCommanderActionDriverRequest(t, verification.MissionCommanderActionQueue, verification.MissionCommanderAction, "ready-for-pack-memory-candidate-verification-apply", "preview-command", "preview-current", true)
+	if !strings.Contains(verificationApplyRequest.Command, "-VerifyCandidateDecision") || !strings.Contains(verificationApplyRequest.Command, "-Apply") || strings.Contains(verificationApplyRequest.Command, "-WhatIf") || !strings.Contains(verificationApplyRequest.Command, freshCase) || !strings.Contains(verificationApplyRequest.Command, attachedCase) {
+		t.Fatalf("candidate verification preview returned non-consumable apply driver request: %+v", verificationApplyRequest)
+	}
+	verificationApplyArgs := packMemoryTypedDriverRequestCLIArgs(t, verificationApplyRequest, "_template")
 	out.Reset()
-	if err := Run([]string{"-Command", "promote", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-VerifyCandidateDecision", "-FreshCaseRoot", freshCase, "-AttachedCaseRoot", attachedCase, "-Apply", "-Format", "json"}, &out); err != nil {
+	if err := Run(verificationApplyArgs, &out); err != nil {
 		t.Fatal(err)
 	}
 	var verificationApplied promote.CandidateDecisionVerificationResult
@@ -12899,7 +12925,7 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	candidateBeforeVerificationReplay := snapshotFiles(t, candidateRoot)
 	workspaceBeforeVerificationReplay := snapshotFiles(t, decisionApplied.Receipt.VerificationWorkspaceRoot)
 	out.Reset()
-	if err := Run([]string{"-Command", "promote", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-VerifyCandidateDecision", "-FreshCaseRoot", freshCase, "-AttachedCaseRoot", attachedCase, "-Apply", "-Format", "json"}, &out); err != nil {
+	if err := Run(verificationApplyArgs, &out); err != nil {
 		t.Fatal(err)
 	}
 	var verificationReplay promote.CandidateDecisionVerificationResult
@@ -12912,7 +12938,8 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	assertSnapshotEqual(t, candidateBeforeVerificationReplay, snapshotFiles(t, candidateRoot))
 	assertSnapshotEqual(t, workspaceBeforeVerificationReplay, snapshotFiles(t, decisionApplied.Receipt.VerificationWorkspaceRoot))
 	out.Reset()
-	if err := Run([]string{"-Command", "promote", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-VerifyCandidateDecision", "-FreshCaseRoot", freshCase, "-AttachedCaseRoot", attachedCase, "-Apply", "-Format", "text"}, &out); err != nil {
+	verificationReplayTextArgs := replaceCLIArgValueForTest(t, verificationApplyArgs, "-Format", "text")
+	if err := Run(verificationReplayTextArgs, &out); err != nil {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{"promote candidate verification：mutation=true applied=true ready=true mode=already-verified replay=true", "freshDoctorRows=", "attachedDoctorRows=", "exact candidate verification proof already exists", "write authority/confirmed"} {
@@ -12952,8 +12979,13 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	assertSnapshotEqual(t, candidateBeforeRequiredStatus, snapshotFiles(t, candidateRoot))
 	assertSnapshotEqual(t, workspaceBeforeRequiredStatus, snapshotFiles(t, decisionApplied.Receipt.VerificationWorkspaceRoot))
 
+	retirementPreviewRequest := requireTypedMissionCommanderActionDriverRequest(t, verificationApplied.MissionCommanderActionQueue, verificationApplied.MissionCommanderAction, "ready-for-pack-memory-verification-retirement-preview", "preview-command", "preview-current", true)
+	if !strings.Contains(retirementPreviewRequest.Command, "-RetireCandidateVerificationWorkspace") || !strings.Contains(retirementPreviewRequest.Command, "-WhatIf") {
+		t.Fatalf("candidate verification apply returned non-consumable retirement preview driver request: %+v", retirementPreviewRequest)
+	}
+	retirementPreviewArgs := packMemoryTypedDriverRequestCLIArgs(t, retirementPreviewRequest, "_template")
 	out.Reset()
-	if err := Run([]string{"-Command", "promote", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-RetireCandidateVerificationWorkspace", "-WhatIf", "-Format", "json"}, &out); err != nil {
+	if err := Run(retirementPreviewArgs, &out); err != nil {
 		t.Fatal(err)
 	}
 	var retirementPreview promote.CandidateVerificationRetirementResult
@@ -12964,16 +12996,22 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 		t.Fatalf("unexpected candidate verification retirement preview: %+v", retirementPreview)
 	}
 
+	retirementApplyRequest := requireTypedMissionCommanderActionDriverRequest(t, retirementPreview.MissionCommanderActionQueue, retirementPreview.MissionCommanderAction, "ready-for-pack-memory-verification-retirement-apply", "preview-command", "preview-current", true)
+	if !strings.Contains(retirementApplyRequest.Command, "-ExpectedRetirementSha256 "+retirementPreview.RetirementSHA256) || !strings.Contains(retirementApplyRequest.Command, "-Apply") || strings.Contains(retirementApplyRequest.Command, "-WhatIf") {
+		t.Fatalf("candidate verification retirement preview returned non-consumable apply driver request: %+v", retirementApplyRequest)
+	}
+	retirementApplyArgs := packMemoryTypedDriverRequestCLIArgs(t, retirementApplyRequest, "_template")
+	wrongRetirementApplyArgs := replaceCLIArgValueForTest(t, retirementApplyArgs, "-ExpectedRetirementSha256", strings.Repeat("0", 64))
 	workspaceBeforeWrongHash := snapshotFiles(t, retirementPreview.WorkspaceRoot)
 	out.Reset()
-	err = Run([]string{"-Command", "promote", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-RetireCandidateVerificationWorkspace", "-ExpectedRetirementSha256", strings.Repeat("0", 64), "-Apply", "-Format", "json"}, &out)
+	err = Run(wrongRetirementApplyArgs, &out)
 	if err == nil || !strings.Contains(err.Error(), "changed after preview") {
 		t.Fatalf("wrong expected retirement hash error = %v", err)
 	}
 	assertSnapshotEqual(t, workspaceBeforeWrongHash, snapshotFiles(t, retirementPreview.WorkspaceRoot))
 
 	out.Reset()
-	if err := Run([]string{"-Command", "promote", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-RetireCandidateVerificationWorkspace", "-ExpectedRetirementSha256", retirementPreview.RetirementSHA256, "-Apply", "-Format", "json"}, &out); err != nil {
+	if err := Run(retirementApplyArgs, &out); err != nil {
 		t.Fatal(err)
 	}
 	var retirementApplied promote.CandidateVerificationRetirementResult
@@ -12982,6 +13020,10 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	}
 	if retirementApplied.Mode != "retired" || !retirementApplied.IsMutation || !retirementApplied.Applied || retirementApplied.Replay {
 		t.Fatalf("unexpected candidate verification retirement apply: %+v", retirementApplied)
+	}
+	retiredRefreshRequest := requireTypedMissionCommanderActionDriverRequest(t, retirementApplied.MissionCommanderActionQueue, retirementApplied.MissionCommanderAction, "pack-memory-verification-retired-refresh-required", "execute-command", "apply-or-run-current", false)
+	if retiredRefreshRequest.Command != "/rekit status -Format json" {
+		t.Fatalf("candidate verification retirement apply did not return status refresh driver request: %+v", retiredRefreshRequest)
 	}
 	if _, err := os.Stat(retirementApplied.WorkspaceRoot); !os.IsNotExist(err) {
 		t.Fatalf("canonical candidate verification workspace still exists after retirement: %v", err)
@@ -12993,9 +13035,13 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 		t.Fatalf("repo-local retirement receipt missing: %v", err)
 	}
 
+	retiredRefreshArgs, ok := typedMissionCommanderDriverRequestCommandCLIArgs(t, retiredRefreshRequest)
+	if !ok {
+		t.Fatalf("retired refresh driver request should be executable: %+v", retiredRefreshRequest)
+	}
 	candidateBeforeRetiredStatus := snapshotFiles(t, candidateRoot)
 	out.Reset()
-	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+	if err := Run(retiredRefreshArgs, &out); err != nil {
 		t.Fatal(err)
 	}
 	var retiredStatus statusInventory
@@ -13025,7 +13071,7 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 
 	candidateBeforeRetirementReplay := snapshotFiles(t, candidateRoot)
 	out.Reset()
-	if err := Run([]string{"-Command", "promote", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-RetireCandidateVerificationWorkspace", "-ExpectedRetirementSha256", retirementPreview.RetirementSHA256, "-Apply", "-Format", "json"}, &out); err != nil {
+	if err := Run(retirementApplyArgs, &out); err != nil {
 		t.Fatal(err)
 	}
 	var retirementReplay promote.CandidateVerificationRetirementResult
@@ -13125,7 +13171,8 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "promote", "-PacketPath", created.ReviewWorkspace.PacketPath, "-CandidateDecisionPath", decisionPath, "-RetireCandidateVerificationWorkspace", "-ExpectedRetirementSha256", retirementPreview.RetirementSHA256, "-Apply", "-Format", "text"}, &out); err != nil {
+	retirementReplayTextArgs := replaceCLIArgValueForTest(t, retirementApplyArgs, "-Format", "text")
+	if err := Run(retirementReplayTextArgs, &out); err != nil {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{"promote candidate verification retirement：mode=already-retired", "mutation=true", "applied=true", "replay=true", "promote candidate verification retirement root：role=fresh", "promote candidate verification retirement root：role=attached", "retain the repo-local retirement intent and receipt"} {
@@ -20819,6 +20866,55 @@ func typedMissionCommanderDriverRequestCommandCLIArgs(t *testing.T, request *mis
 		t.Fatalf("executable typed driver request leaked guidance: %+v", request)
 	}
 	return rekitCommandCLIArgs(t, request.Command), true
+}
+
+func requireTypedMissionCommanderActionDriverRequest(t *testing.T, queue *mission.MissionCommanderActionQueue, action *mission.MissionCommanderAction, state, kind, stepID string, requiresReview bool) *mission.MissionCommanderDriverRequest {
+	t.Helper()
+	if action == nil || queue == nil {
+		t.Fatalf("mission commander action queue omitted returned driver request: action=%+v queue=%+v", action, queue)
+	}
+	if action.State != state {
+		t.Fatalf("mission commander action state drifted: got %q want %q action=%+v", action.State, state, action)
+	}
+	request := requireTypedMissionCommanderDriverRequest(t, *queue, kind, stepID, action.PrimaryCommand, true, false, requiresReview)
+	if request.State != state {
+		t.Fatalf("mission commander driver request state drifted: got %q want %q request=%+v", request.State, state, request)
+	}
+	if queue.CurrentAction == nil || queue.CurrentAction.State != state || queue.CurrentAction.Command != action.PrimaryCommand || queue.CurrentAction.RequiresReview != requiresReview {
+		t.Fatalf("mission commander current action drifted from returned action/request: action=%+v queue=%+v request=%+v", action, queue, request)
+	}
+	return request
+}
+
+func packMemoryTypedDriverRequestCLIArgs(t *testing.T, request *mission.MissionCommanderDriverRequest, pack string) []string {
+	t.Helper()
+	args, ok := typedMissionCommanderDriverRequestCommandCLIArgs(t, request)
+	if !ok {
+		t.Fatalf("pack-memory driver request should be executable: %+v", request)
+	}
+	return appendCLIArgIfMissing(args, "-Pack", pack)
+}
+
+func appendCLIArgIfMissing(args []string, flag, value string) []string {
+	for _, arg := range args {
+		if strings.EqualFold(arg, flag) {
+			return args
+		}
+	}
+	return append(args, flag, value)
+}
+
+func replaceCLIArgValueForTest(t *testing.T, args []string, flag, value string) []string {
+	t.Helper()
+	out := append([]string{}, args...)
+	for i := 0; i < len(out)-1; i++ {
+		if strings.EqualFold(out[i], flag) {
+			out[i+1] = value
+			return out
+		}
+	}
+	t.Fatalf("args missing %s: %+v", flag, args)
+	return nil
 }
 
 func fillPackMemoryProofPreviewDriverArgsForTest(args []string, decision, reason, actor, evidenceRefs string) []string {

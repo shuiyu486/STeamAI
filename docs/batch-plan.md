@@ -27,6 +27,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 737：pack-memory CLI post-decision driver-request consumer loop
+
+状态：本机实现与 validation 已完成；implementation commit / push 与 release inspection 尚未完成。当前选题延续 Batch 735/736 的 pack-memory driver-request product path，但避免继续做 runtime 字段投影：已把 package-level returned queue 闭环提升为 CLI/harness 可执行 consumer loop，证明 replacement executor 能从 `promote -Format json` 返回的 `missionCommanderActionQueue.currentDriverRequest` 派生 CLI args，并串起 candidate decision Apply、verification provision、candidate verification 与 retirement closure。
+
+目标：现有 CLI E2E 已证明 promote/reconsume/verification/retirement 功能正确，但后半段仍多处直接拼接 `promote` args；本批要求测试像外部 harness 一样只消费 returned typed driver request 的 command 来进入下一步，避免回退到 `ApplyCommand`、`VerificationPreviewCommand`、`RetirementPreviewCommand` 或测试内手写命令。该闭环覆盖 candidate decision preview → returned decision Apply request → returned provision preview/apply request → returned verification preview/apply request → returned retirement preview/apply request → returned status refresh request → closed state。
+
+已实现：`TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply` 现在从 candidate decision preview 的 returned `missionCommanderActionQueue.currentDriverRequest` 执行 decision Apply，随后继续消费每个 promote JSON result 返回的 typed driver request：verification provisioning WhatIf/expected-hash Apply、candidate verification WhatIf/Apply、verification retirement WhatIf/expected-hash Apply，以及 retirement Apply 返回的 `/rekit status -Format json` refresh request。新增测试 helper 断言 returned `missionCommanderAction`、queue `currentAction` 与 `currentDriverRequest` 的 state/command/requiresReview 同源，并通过 `typedMissionCommanderDriverRequestCommandCLIArgs` 派生 CLI args；replay/text 与 wrong-hash failure 分支复用已消费 request 生成的 args，只替换 `-Format` 或 expected hash，避免重新手写 promote 命令。
+
+边界：不新增 public command、durable schema、PowerShell runtime logic、自动 merge/provision/verify/retire、Claude Code spawner、reviewer/heavy-tool executor、authority/confirmed 写入或生产 runtime API。本批只增强 CLI product-path regression 与 test helper；production runtime 未改，实际 mutation 仍由显式 promote WhatIf→hash-bound Apply 执行。
+
+验证结果：focused `go test ./internal/rekit/cli -run TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply -count=1` 通过（29.221s）；相邻 package validation `go test ./internal/rekit/promote ./internal/rekit/cli ./internal/rekit/releasecheck -count=1` 通过（CLI 301.407s）；完整本机 release minimum 已通过：`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./... -count=1`（CLI 299.848s）、`go vet ./...` 与 `git diff --check`，`git diff --check` 仅有 Windows LF→CRLF working-copy warning。completion evidence 写入前 `go run ./cmd/rekit -- -Command release-check -Format json` 按预期返回 `ready=false` / `summary=release gate inventory has warnings`，因为 implementation commit/push 与 remote release-gate inspection 尚未记录。
+
 ### Batch 736：pack-memory post-decision driver-request closure
 
 状态：已完成本机实现、focused validation、相邻 package validation、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `7a6aa9a` 已推送。Push run `30541978793` completed failure；Linux/macOS/Windows jobs `90868683546`/`90868683598`/`90868683639` 均 `steps=[]`，`gh run view 30541978793 --log-failed` 返回 `log not found: 90868683546`。这是既有 runner/billing blocker，没有新的远程 signal，不声明 remote green。当前选题延续 pack-memory product UX，但避免单字段投影：已把 candidate decision Apply 后的 merge/provision/verify/retire post-decision 链路，从 `nextSteps` / ad-hoc command 字段升级为 replacement executor / harness 可按 returned `missionCommanderActionQueue.currentDriverRequest` 串起的 product path。
