@@ -1976,14 +1976,18 @@ func TestRunMissionCommanderDriverRequestConsumerLoopProductPath(t *testing.T) {
 		return applied
 	}
 	runContinueApplyFromRequest := func(request *missionCommanderDriverRequestSnapshot) struct {
-		Command                     string                              `json:"command"`
-		IsMutation                  bool                                `json:"isMutation"`
-		Applied                     bool                                `json:"applied"`
-		Blocked                     bool                                `json:"blocked"`
-		OpenDecisionRequired        bool                                `json:"openDecisionRequired"`
-		ExecutorAction              executorActionSnapshot              `json:"executorAction"`
-		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
-		LaneTakeoverPackage         *laneTakeoverPackage                `json:"laneTakeoverPackage"`
+		Command                       string                                 `json:"command"`
+		RunID                         string                                 `json:"runId"`
+		BatchID                       string                                 `json:"batchId"`
+		IsMutation                    bool                                   `json:"isMutation"`
+		Applied                       bool                                   `json:"applied"`
+		Blocked                       bool                                   `json:"blocked"`
+		OpenDecisionRequired          bool                                   `json:"openDecisionRequired"`
+		ExecutorAction                executorActionSnapshot                 `json:"executorAction"`
+		MissionCommanderActionQueue   missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
+		MissionCommanderDriverReceipt *missionCommanderDriverReceiptSnapshot `json:"missionCommanderDriverReceipt"`
+		LaneTakeoverPackage           *laneTakeoverPackage                   `json:"laneTakeoverPackage"`
+		Writes                        []startWrite                           `json:"writes"`
 	} {
 		t.Helper()
 		args, ok := missionCommanderDriverRequestCommandCLIArgs(t, request)
@@ -1996,14 +2000,18 @@ func TestRunMissionCommanderDriverRequestConsumerLoopProductPath(t *testing.T) {
 			t.Fatal(err)
 		}
 		var continued struct {
-			Command                     string                              `json:"command"`
-			IsMutation                  bool                                `json:"isMutation"`
-			Applied                     bool                                `json:"applied"`
-			Blocked                     bool                                `json:"blocked"`
-			OpenDecisionRequired        bool                                `json:"openDecisionRequired"`
-			ExecutorAction              executorActionSnapshot              `json:"executorAction"`
-			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
-			LaneTakeoverPackage         *laneTakeoverPackage                `json:"laneTakeoverPackage"`
+			Command                       string                                 `json:"command"`
+			RunID                         string                                 `json:"runId"`
+			BatchID                       string                                 `json:"batchId"`
+			IsMutation                    bool                                   `json:"isMutation"`
+			Applied                       bool                                   `json:"applied"`
+			Blocked                       bool                                   `json:"blocked"`
+			OpenDecisionRequired          bool                                   `json:"openDecisionRequired"`
+			ExecutorAction                executorActionSnapshot                 `json:"executorAction"`
+			MissionCommanderActionQueue   missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
+			MissionCommanderDriverReceipt *missionCommanderDriverReceiptSnapshot `json:"missionCommanderDriverReceipt"`
+			LaneTakeoverPackage           *laneTakeoverPackage                   `json:"laneTakeoverPackage"`
+			Writes                        []startWrite                           `json:"writes"`
 		}
 		if err := json.Unmarshal(out.Bytes(), &continued); err != nil {
 			t.Fatalf("driver request loop continue apply JSON did not decode: %v\n%s", err, out.String())
@@ -2047,6 +2055,7 @@ func TestRunMissionCommanderDriverRequestConsumerLoopProductPath(t *testing.T) {
 		t.Fatalf("driver request loop continue apply did not preserve ready lane closure: %+v", continued)
 	}
 	returnedRequest := requireMissionCommanderDriverRequest(t, continued.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue main", true, false, false)
+	assertMissionCommanderDriverReceipt(t, "returned continue apply", continued.MissionCommanderDriverReceipt, continued.RunID, continued.BatchID, "main", returnedRequest, ".rekit/runs/"+continued.RunID+"/status.json", ".rekit/runs/"+continued.RunID+"/digest.md")
 	if returnedRequest.Command != readyRequest.Command {
 		t.Fatalf("driver request loop returned stale continue receipt: before=%+v returned=%+v", readyRequest, returnedRequest)
 	}
@@ -2057,6 +2066,33 @@ func TestRunMissionCommanderDriverRequestConsumerLoopProductPath(t *testing.T) {
 	if takeoverRequest.Command != returnedRequest.Command {
 		t.Fatalf("driver request loop takeover receipt drifted from returned queue: returned=%+v takeover=%+v", returnedRequest, takeoverRequest)
 	}
+	statusPath := assertStartWrite(t, continued.Writes, ".rekit/runs/"+continued.RunID+"/status.json", "write").TargetPath
+	digestPath := assertStartWrite(t, continued.Writes, ".rekit/runs/"+continued.RunID+"/digest.md", "write").TargetPath
+	statusBytes, err := os.ReadFile(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var runStatus struct {
+		MissionCommanderDriverReceipt *missionCommanderDriverReceiptSnapshot `json:"missionCommanderDriverReceipt"`
+		MissionCommanderActionQueue   missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(statusBytes, &runStatus); err != nil {
+		t.Fatalf("driver request loop run status JSON did not decode: %v\n%s", err, string(statusBytes))
+	}
+	assertMissionCommanderDriverReceipt(t, "run status", runStatus.MissionCommanderDriverReceipt, continued.RunID, continued.BatchID, "main", returnedRequest, ".rekit/runs/"+continued.RunID+"/status.json", ".rekit/runs/"+continued.RunID+"/digest.md")
+	if runStatus.MissionCommanderActionQueue.CurrentDriverRequest == nil || runStatus.MissionCommanderActionQueue.CurrentDriverRequest.Command != returnedRequest.Command {
+		t.Fatalf("driver request loop run status queue drifted from returned receipt: status=%+v returned=%+v", runStatus.MissionCommanderActionQueue, returnedRequest)
+	}
+	digestBytes, err := os.ReadFile(digestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digestText := string(digestBytes)
+	for _, want := range []string{"## Mission Commander driver receipt", "- state: `refreshed`", "- outcome: `explicit-command-result`", "- command: `" + returnedRequest.Command + "`", "driver receipt does not prove the Go runtime spawned"} {
+		if !strings.Contains(digestText, want) {
+			t.Fatalf("driver request loop digest omitted receipt detail %q:\n%s", want, digestText)
+		}
+	}
 	finalQueue, finalHandoffs := statusQueue()
 	finalRequest := requireMissionCommanderDriverRequest(t, finalQueue, "execute-command", "apply-or-run-current", "/rekit continue main", true, false, false)
 	if len(finalHandoffs) != 0 || finalRequest.Command != returnedRequest.Command {
@@ -2065,6 +2101,24 @@ func TestRunMissionCommanderDriverRequestConsumerLoopProductPath(t *testing.T) {
 	assertSnapshotEqual(t, factsBeforeContinue, snapshotFiles(t, factsRoot))
 	assertFileNotExists(t, filepath.Join(factsRoot, "authority.jsonl"))
 	assertFileNotExists(t, filepath.Join(factsRoot, "confirmed.jsonl"))
+}
+
+func assertMissionCommanderDriverReceipt(t *testing.T, label string, receipt *missionCommanderDriverReceiptSnapshot, runID, batchID, lane string, request *missionCommanderDriverRequestSnapshot, statusRel, digestRel string) {
+	t.Helper()
+	if receipt == nil {
+		t.Fatalf("%s omitted mission commander driver receipt", label)
+	}
+	if receipt.SchemaVersion != 1 || receipt.State != "refreshed" || receipt.Outcome != "explicit-command-result" || receipt.RunID != runID || receipt.BatchID != batchID || receipt.Lane != lane || receipt.Command != request.Command || receipt.RunStatusPath != statusRel || receipt.RunDigestPath != digestRel {
+		t.Fatalf("%s driver receipt identity mismatch: receipt=%+v request=%+v", label, receipt, request)
+	}
+	if receipt.RefreshedActionQueueSummary == "" || receipt.RefreshedCurrentRunLoopStep != request.RunLoopStepID || receipt.RefreshedCurrentDriverRequest == nil || receipt.RefreshedCurrentDriverRequest.Command != request.Command || receipt.RefreshedCurrentDriverRequest.Kind != request.Kind {
+		t.Fatalf("%s driver receipt did not bind refreshed request: receipt=%+v request=%+v", label, receipt, request)
+	}
+	for _, want := range []string{"explicit main-agent/harness command result", "does not prove the Go runtime spawned", "does not write authority/confirmed"} {
+		if !containsSubstring(receipt.Boundary, want) {
+			t.Fatalf("%s driver receipt missing boundary %q: %+v", label, want, receipt.Boundary)
+		}
+	}
 }
 
 func seedMainOpenDecisionCase(t *testing.T, caseRoot string) {
@@ -19757,6 +19811,22 @@ type missionCommanderDriverRequestSnapshot struct {
 		Description string   `json:"description"`
 		Boundary    []string `json:"boundary"`
 	} `json:"expectedReceipt"`
+}
+
+type missionCommanderDriverReceiptSnapshot struct {
+	SchemaVersion                 int                                    `json:"schemaVersion"`
+	State                         string                                 `json:"state"`
+	Outcome                       string                                 `json:"outcome"`
+	RunID                         string                                 `json:"runId"`
+	BatchID                       string                                 `json:"batchId"`
+	Lane                          string                                 `json:"lane"`
+	Command                       string                                 `json:"command"`
+	RunStatusPath                 string                                 `json:"runStatusPath"`
+	RunDigestPath                 string                                 `json:"runDigestPath"`
+	RefreshedActionQueueSummary   string                                 `json:"refreshedActionQueueSummary"`
+	RefreshedCurrentRunLoopStep   string                                 `json:"refreshedCurrentRunLoopStep"`
+	RefreshedCurrentDriverRequest *missionCommanderDriverRequestSnapshot `json:"refreshedCurrentDriverRequest"`
+	Boundary                      []string                               `json:"boundary"`
 }
 
 type authorizedExecutionFollowThroughSnapshot struct {

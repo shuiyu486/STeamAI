@@ -59,6 +59,7 @@ type ContinueResult struct {
 	AuthorizedGateAdapterHandoffs    []AuthorizedGateAdapterHandoff           `json:"authorizedGateAdapterHandoffs,omitempty"`
 	MissionCommanderNextActions      []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
 	MissionCommanderActionQueue      mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
+	MissionCommanderDriverReceipt    *MissionCommanderDriverReceipt           `json:"missionCommanderDriverReceipt,omitempty"`
 	LaneTakeoverPackage              *LaneTakeoverPackage                     `json:"laneTakeoverPackage,omitempty"`
 	ContinueOwnerGuardRecovery       *ContinueOwnerGuardRecovery              `json:"continueOwnerGuardRecovery,omitempty"`
 	Inputs                           []string                                 `json:"inputs"`
@@ -91,6 +92,22 @@ type ContinueSummary struct {
 	AuthorityWouldAppend int `json:"authorityWouldAppend"`
 	PendingUser          int `json:"pendingUser"`
 	Skipped              int `json:"skipped"`
+}
+
+type MissionCommanderDriverReceipt struct {
+	SchemaVersion                 int                                    `json:"schemaVersion"`
+	State                         string                                 `json:"state"`
+	Outcome                       string                                 `json:"outcome"`
+	RunID                         string                                 `json:"runId,omitempty"`
+	BatchID                       string                                 `json:"batchId,omitempty"`
+	Lane                          string                                 `json:"lane,omitempty"`
+	Command                       string                                 `json:"command,omitempty"`
+	RunStatusPath                 string                                 `json:"runStatusPath,omitempty"`
+	RunDigestPath                 string                                 `json:"runDigestPath,omitempty"`
+	RefreshedActionQueueSummary   string                                 `json:"refreshedActionQueueSummary,omitempty"`
+	RefreshedCurrentRunLoopStep   string                                 `json:"refreshedCurrentRunLoopStep,omitempty"`
+	RefreshedCurrentDriverRequest *mission.MissionCommanderDriverRequest `json:"refreshedCurrentDriverRequest,omitempty"`
+	Boundary                      []string                               `json:"boundary,omitempty"`
 }
 
 type ContinueReconcileHandoff struct {
@@ -473,6 +490,9 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (result
 	result.LaneTakeoverPackage = laneTakeoverPackageFor(ctx.inst.CaseRoot, ctx.lane, result.ExecutorAction, result.MissionCommanderActionQueue, false)
 	result.ExecutionEvidenceReviewSummary = ExecutionEvidenceReviewSummaryFor(result.ExecutionEvidenceReview, result.MissionCommanderActionQueue)
 	result.NextSteps = workstreamNextSteps(result.ExecutorAction, true)
+	statusRel := relJoin(".rekit", "runs", runID, "status.json")
+	digestRel := relJoin(".rekit", "runs", runID, "digest.md")
+	result.MissionCommanderDriverReceipt = newMissionCommanderDriverReceipt(result, statusRel, digestRel)
 	statusPath, digestPath, err := writeContinueRunArtifacts(runRoot, result)
 	if err != nil {
 		return ContinueResult{}, err
@@ -1460,6 +1480,33 @@ func routeContinueRequest(caseRoot, targetLane string, event map[string]any) ([]
 	}, nil
 }
 
+func newMissionCommanderDriverReceipt(result ContinueResult, statusRel, digestRel string) *MissionCommanderDriverReceipt {
+	request := result.MissionCommanderActionQueue.CurrentDriverRequest
+	command := result.Command
+	if request != nil && strings.TrimSpace(request.Command) != "" {
+		command = request.Command
+	}
+	return &MissionCommanderDriverReceipt{
+		SchemaVersion:                 1,
+		State:                         "refreshed",
+		Outcome:                       "explicit-command-result",
+		RunID:                         result.RunID,
+		BatchID:                       result.BatchID,
+		Lane:                          result.Lane.ID,
+		Command:                       command,
+		RunStatusPath:                 statusRel,
+		RunDigestPath:                 digestRel,
+		RefreshedActionQueueSummary:   result.MissionCommanderActionQueue.Summary,
+		RefreshedCurrentRunLoopStep:   result.MissionCommanderActionQueue.CurrentRunLoopStepID,
+		RefreshedCurrentDriverRequest: request,
+		Boundary: []string{
+			"driver receipt records an explicit main-agent/harness command result after durable state refresh",
+			"driver receipt does not prove the Go runtime spawned, polled, stopped, or managed an external session",
+			"continue -Apply does not write authority/confirmed state or execute heavy tools",
+		},
+	}
+}
+
 func writeContinueRunArtifacts(runRoot string, result ContinueResult) (string, string, error) {
 	if err := os.MkdirAll(runRoot, 0o755); err != nil {
 		return "", "", err
@@ -1484,6 +1531,7 @@ func writeContinueRunArtifacts(runRoot string, result ContinueResult) (string, s
 		"authorizedGateAdapterHandoffs":    result.AuthorizedGateAdapterHandoffs,
 		"missionCommanderNextActions":      result.MissionCommanderNextActions,
 		"missionCommanderActionQueue":      result.MissionCommanderActionQueue,
+		"missionCommanderDriverReceipt":    result.MissionCommanderDriverReceipt,
 		"inputs":                           result.Inputs,
 		"packetRefs":                       result.PacketRefs,
 		"openRisks":                        result.OpenRisks,
@@ -1547,6 +1595,7 @@ func continueDigestText(result ContinueResult) string {
 	lines = appendMissionBriefDigestList(lines, "commander follow-up commands", result.ExecutorAction.MissionCommanderAction.FollowUpCommands)
 	lines = appendMissionBriefDigestList(lines, "commander boundary", result.ExecutorAction.MissionCommanderAction.Boundary)
 	lines = appendMissionCommanderActionQueue(lines, result.MissionCommanderActionQueue)
+	lines = appendMissionCommanderDriverReceipt(lines, result.MissionCommanderDriverReceipt)
 	lines = appendContinueMissionCommanderNextActions(lines, result.MissionCommanderNextActions)
 	lines = appendContinueExecutionEvidenceReview(lines, result.ExecutionEvidenceReview, result.ExecutionEvidenceReviewSummary)
 	lines = appendDigestReviewerWritebacks(lines, result.ReviewerWritebacks)
@@ -1604,6 +1653,35 @@ func continueDigestText(result ContinueResult) string {
 	}
 	lines = append(lines, "")
 	return strings.Join(lines, "\r\n")
+}
+
+func appendMissionCommanderDriverReceipt(lines []string, receipt *MissionCommanderDriverReceipt) []string {
+	lines = append(lines, "", "## Mission Commander driver receipt", "")
+	if receipt == nil {
+		return append(lines, "- none")
+	}
+	lines = append(lines,
+		"- state: `"+receipt.State+"`",
+		"- outcome: `"+receipt.Outcome+"`",
+		"- runId: `"+receipt.RunID+"`",
+		"- batchId: `"+receipt.BatchID+"`",
+		"- lane: `"+receipt.Lane+"`",
+		"- command: `"+receipt.Command+"`",
+		"- run status: `"+receipt.RunStatusPath+"`",
+		"- run digest: `"+receipt.RunDigestPath+"`",
+		"- refreshed queue: "+receipt.RefreshedActionQueueSummary,
+		"- refreshed current run-loop step: `"+receipt.RefreshedCurrentRunLoopStep+"`",
+	)
+	if receipt.RefreshedCurrentDriverRequest == nil {
+		lines = append(lines, "- refreshed driver request: none")
+	} else {
+		request := receipt.RefreshedCurrentDriverRequest
+		lines = append(lines, fmt.Sprintf("- refreshed driver request: kind=%s step=%s executable=%t blocked=%t requiresReview=%t command=`%s` guidance=`%s`", request.Kind, request.RunLoopStepID, request.CommandExecutable, request.Blocked, request.RequiresReview, request.Command, request.Guidance))
+	}
+	for _, boundary := range receipt.Boundary {
+		lines = append(lines, "- boundary: "+boundary)
+	}
+	return lines
 }
 
 func appendContinueMissionCommanderNextActions(lines []string, items []mission.MissionCommanderNextActionItem) []string {
