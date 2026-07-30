@@ -683,6 +683,149 @@ func TestVerifyCandidateDecisionPreviewsAppliesAndReplays(t *testing.T) {
 	}
 }
 
+func TestPackMemoryReviewFirstCrossCaseConsumptionClosure(t *testing.T) {
+	repoRoot, sourceCase, _, pack := packMemoryReconsumeFixture(t)
+	if _, err := syncpkg.Apply(repoRoot, sourceCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "source"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceCase, filepath.FromSlash("references/template/README.md")), []byte("# README\n\nReview-first cross-case reusable candidate.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	created, _, managed := candidateDecisionFixture(t, repoRoot, sourceCase, pack, "cross-case-closure")
+	decisionPath := filepath.Join(sourceCase, ".rekit", "reviews", "candidate-cross-case-closure", "decisions.json")
+
+	draftPreview, err := DraftCandidateDecisions(repoRoot, sourceCase, pack, CandidateDecisionDraftOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, Decision: "accept-managed-reject-tooling", Reason: "reviewed source-case reusable content", Actor: "mission-commander", EvidenceRefs: created.ReviewWorkspace.CombinedDiffPath, WhatIf: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if draftPreview.IsMutation || draftPreview.Applied || draftPreview.Accepted != 1 || draftPreview.Rejected != 1 || draftPreview.DecisionSHA256 == "" || !strings.Contains(draftPreview.ApplyCommand, "-ExpectedDecisionSha256") {
+		t.Fatalf("unexpected review-first decision draft preview: %+v", draftPreview)
+	}
+	if _, err := os.Stat(decisionPath); !os.IsNotExist(err) {
+		t.Fatalf("decision draft WhatIf wrote decision file: %v", err)
+	}
+	draftApplied, err := DraftCandidateDecisions(repoRoot, sourceCase, pack, CandidateDecisionDraftOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, Decision: "accept-managed-reject-tooling", Reason: "reviewed source-case reusable content", Actor: "mission-commander", EvidenceRefs: created.ReviewWorkspace.CombinedDiffPath, ExpectedDecisionSHA256: draftPreview.DecisionSHA256})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !draftApplied.Applied || draftApplied.AlreadyWritten || draftApplied.DecisionSHA256 != draftPreview.DecisionSHA256 {
+		t.Fatalf("unexpected review-first decision draft apply: %+v", draftApplied)
+	}
+
+	decisionPreview, err := ApplyCandidateDecisions(repoRoot, sourceCase, pack, CandidateDecisionOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, WhatIf: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decisionPreview.IsMutation || decisionPreview.Applied || decisionPreview.Accepted != 1 || decisionPreview.Rejected != 1 || len(decisionPreview.Actions) != 2 {
+		t.Fatalf("unexpected candidate decision preview: %+v", decisionPreview)
+	}
+	decisionApplied, err := ApplyCandidateDecisions(repoRoot, sourceCase, pack, CandidateDecisionOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !decisionApplied.Applied || decisionApplied.Receipt == nil || !decisionApplied.Receipt.VerificationPending || decisionApplied.Receipt.VerificationWorkspaceRoot == "" || !strings.Contains(decisionApplied.Receipt.VerificationProvisionCommand, "-ProvisionCandidateVerificationCases") {
+		t.Fatalf("candidate decision apply omitted provisionable verification handoff: %+v", decisionApplied)
+	}
+	if got := string(readCandidateDecisionTestFile(t, managed.PackTarget)); got != "# README\n\nReview-first cross-case reusable candidate.\n" {
+		t.Fatalf("accepted managed candidate was not consumed by pack target: %q", got)
+	}
+	if _, err := os.Lstat(managed.CandidatePath); !os.IsNotExist(err) {
+		t.Fatalf("accepted managed candidate was not cleaned up before proof closure: %v", err)
+	}
+
+	workspace := decisionApplied.Receipt.VerificationWorkspaceRoot
+	freshRoot := filepath.Join(workspace, "fresh")
+	attachedRoot := filepath.Join(workspace, "attached")
+	provisionOpt := CandidateVerificationProvisionOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, FreshCaseRoot: freshRoot, AttachedCaseRoot: attachedRoot, WhatIf: true}
+	provisionPreview, err := ProvisionCandidateVerificationCases(repoRoot, sourceCase, pack, provisionOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provisionPreview.IsMutation || provisionPreview.Applied || provisionPreview.ProvisionSHA256 == "" || len(provisionPreview.Cases) != 2 || !strings.Contains(provisionPreview.ApplyCommand, "-ExpectedProvisionSha256") {
+		t.Fatalf("unexpected verification provisioning preview: %+v", provisionPreview)
+	}
+	if _, err := os.Stat(workspace); !os.IsNotExist(err) {
+		t.Fatalf("verification provisioning WhatIf wrote workspace: %v", err)
+	}
+	provisionOpt.WhatIf = false
+	provisionOpt.ExpectedProvisionSHA256 = provisionPreview.ProvisionSHA256
+	provisionApplied, err := ProvisionCandidateVerificationCases(repoRoot, sourceCase, pack, provisionOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !provisionApplied.Applied || provisionApplied.Mode != "provisioned" || provisionApplied.Replay || provisionApplied.Cases[0].DoctorRows == 0 || provisionApplied.Cases[1].DoctorRows == 0 || provisionApplied.VerificationPreviewCommand == "" {
+		t.Fatalf("unexpected verification provisioning apply: %+v", provisionApplied)
+	}
+
+	verificationPreview, err := VerifyCandidateDecision(repoRoot, sourceCase, pack, CandidateDecisionVerificationOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, FreshCaseRoot: freshRoot, AttachedCaseRoot: attachedRoot, WhatIf: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verificationPreview.IsMutation || verificationPreview.Applied || !verificationPreview.Ready || verificationPreview.ProvisionIntentSHA256 == "" || verificationPreview.ProvisionReceiptSHA256 == "" {
+		t.Fatalf("unexpected accepted-candidate verification preview: %+v", verificationPreview)
+	}
+	verificationApplied, err := VerifyCandidateDecision(repoRoot, sourceCase, pack, CandidateDecisionVerificationOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, FreshCaseRoot: freshRoot, AttachedCaseRoot: attachedRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !verificationApplied.Applied || !verificationApplied.Ready || verificationApplied.RetirementPreviewCommand == "" || len(verificationApplied.VerifiedActions) != len(decisionApplied.Actions) {
+		t.Fatalf("unexpected accepted-candidate verification apply: %+v", verificationApplied)
+	}
+	var verificationProof CandidateDecisionVerificationResult
+	if err := decodeStrictJSON(readCandidateDecisionTestFile(t, verificationApplied.VerificationProofPath), &verificationProof); err != nil {
+		t.Fatal(err)
+	}
+	if verificationProof.PacketHash != verificationApplied.PacketHash || verificationProof.DecisionHash != verificationApplied.DecisionHash || verificationProof.ProvisionIntentSHA256 == "" || verificationProof.ProvisionReceiptSHA256 == "" || !sameCandidateDecisionPath(verificationProof.ProvisionIntentPath, provisionApplied.IntentPath) || !sameCandidateDecisionPath(verificationProof.ProvisionReceiptPath, provisionApplied.ReceiptPath) {
+		t.Fatalf("verification proof was not bound to provisioned reconsume cases: %+v provision=%+v", verificationProof, provisionApplied)
+	}
+
+	retirementPreview, err := RetireCandidateVerificationWorkspace(repoRoot, sourceCase, pack, CandidateVerificationRetirementOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, WhatIf: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retirementPreview.IsMutation || retirementPreview.Applied || retirementPreview.RetirementSHA256 == "" || len(retirementPreview.Roots) != 2 || !strings.Contains(retirementPreview.ApplyCommand, "ExpectedRetirementSha256") {
+		t.Fatalf("unexpected verification workspace retirement preview: %+v", retirementPreview)
+	}
+	retirementApplied, err := RetireCandidateVerificationWorkspace(repoRoot, sourceCase, pack, CandidateVerificationRetirementOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, ExpectedRetirementSHA256: retirementPreview.RetirementSHA256})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !retirementApplied.Applied || retirementApplied.Mode != "retired" || retirementApplied.Replay {
+		t.Fatalf("unexpected verification workspace retirement apply: %+v", retirementApplied)
+	}
+	if _, err := os.Lstat(workspace); !os.IsNotExist(err) {
+		t.Fatalf("verification workspace was not retired: %v", err)
+	}
+	if _, err := os.Stat(retirementApplied.RetirementIntentPath); err != nil {
+		t.Fatalf("retirement intent was not retained: %v", err)
+	}
+	if _, err := os.Stat(retirementApplied.RetirementReceiptPath); err != nil {
+		t.Fatalf("retirement receipt was not retained: %v", err)
+	}
+
+	cleanupProofPath := filepath.Join(repoRoot, "packs", pack, "promote-candidates", "review-artifacts", "cross-case-closure.candidate-cleanup-proof.json")
+	cleanupPreview, err := DraftCandidateReviewProof(repoRoot, sourceCase, pack, CandidateReviewProofDraftOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, ProofPath: cleanupProofPath, ProofType: "candidate-cleanup-proof", CandidatePath: managed.CandidatePath, Reason: "review-first cross-case consumption cleanup verified", Actor: "mission-commander", WhatIf: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleanupPreview.IsMutation || cleanupPreview.Applied || cleanupPreview.ProofSHA256 == "" || cleanupPreview.Proof.Cleanup == nil || !cleanupPreview.Proof.Cleanup.CandidateAbsent || !cleanupPreview.Proof.Cleanup.IndexEntryAbsent {
+		t.Fatalf("unexpected cleanup proof preview: %+v", cleanupPreview)
+	}
+	cleanupApplied, err := DraftCandidateReviewProof(repoRoot, sourceCase, pack, CandidateReviewProofDraftOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, ProofPath: cleanupProofPath, ProofType: "candidate-cleanup-proof", CandidatePath: managed.CandidatePath, Reason: "review-first cross-case consumption cleanup verified", Actor: "mission-commander", ExpectedProofSHA256: cleanupPreview.ProofSHA256})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cleanupApplied.Applied || cleanupApplied.AlreadyWritten || cleanupApplied.ProofSHA256 != cleanupPreview.ProofSHA256 {
+		t.Fatalf("unexpected cleanup proof apply: %+v", cleanupApplied)
+	}
+	cleanupProof := readCandidateDecisionTestFile(t, cleanupProofPath)
+	for _, forbidden := range []string{repoRoot, sourceCase, freshRoot, attachedRoot} {
+		if bytes.Contains(cleanupProof, []byte(forbidden)) {
+			t.Fatalf("cleanup proof leaked absolute path %q: %s", forbidden, string(cleanupProof))
+		}
+	}
+}
+
 func TestVerifyCandidateDecisionClosesMixedManagedAcceptAndToolingReject(t *testing.T) {
 	repoRoot, sourceCase, freshCase, pack := packMemoryReconsumeFixture(t)
 	attachedCase := filepath.Join(t.TempDir(), "attachedcase")

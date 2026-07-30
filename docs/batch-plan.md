@@ -27,6 +27,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 718：pack-memory review-first cross-case consumption closure
+
+状态：已完成 isolated E2E 实现、focused/package regressions、完整本机 release minimum 与文档收尾；implementation commit/push 和 push-triggered remote inspection 待执行。
+
+目标：把 pack-memory product UX 从分散的 proof/provision/verification/retirement API 覆盖升级为一条 source case 视角的 review-first product-path 回归：source case 产生 reusable candidate，经 decision draft WhatIf→hash-bound Apply、candidate decision preview/apply、source-case-local fresh/attached verification provisioning、accepted candidate verification、verification workspace retirement 与 cleanup proof closure，证明 replacement executor 可按 durable handoff 串起跨 case consumption，而不是只依赖单个 API 局部测试。
+
+边界：不新增 public command、durable schema、PowerShell runtime logic 或 pack authoring contract；不自动 accept tooling candidate，不执行 heavy tool，不写 authority/confirmed，不把真实 case artifact、trace、dump、capture、payload、flag、客户信息或绝对真实 case 路径写入模板仓库。本批只新增 isolated promote package E2E，复用既有 review-first、expected-hash Apply、provision/verify/retire/proof runtime。
+
+已实现内容：新增 `TestPackMemoryReviewFirstCrossCaseConsumptionClosure`，从 `packMemoryReconsumeFixture` 的临时 source case 出发，先用 `DraftCandidateDecisions` 的 WhatIf→`ExpectedDecisionSHA256` Apply 生成 bounded decision file，再用 `ApplyCandidateDecisions` 完成 managed-doc accept + tooling reject 的 review-first merge/cleanup receipt。测试随后消费 receipt 中的 canonical verification workspace，走 `ProvisionCandidateVerificationCases` WhatIf→`ExpectedProvisionSHA256` Apply 创建 fresh/attached verification cases，执行 `VerifyCandidateDecision` WhatIf→Apply 写 accepted-candidate verification proof，执行 `RetireCandidateVerificationWorkspace` WhatIf→`ExpectedRetirementSHA256` Apply 删除 source-case-local verification workspace 并保留 retirement intent/receipt，最后用 `DraftCandidateReviewProof` 写 cleanup proof并断言 cleanup proof 不泄漏临时 repo/source/fresh/attached 绝对路径。
+
+验证结果：focused `go test ./internal/rekit/promote -run "TestPackMemoryReviewFirstCrossCaseConsumptionClosure" -count=1` 通过；promote package `go test ./internal/rekit/promote -count=1` 通过；完整本机 release minimum 已通过：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true` / `summary=release gate inventory ok`，`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs -Format text`、`go run ./cmd/rekit -- -Command doctor -Format text`、`go test ./...`、`go vet ./...` 与 `git diff --check`，后者仅有 Windows LF→CRLF working-copy warning。文档 completion 记录前 `release-check -Format json` 曾按预期返回 latest batch validation result empty / implementation-pending；本节写入后复跑已恢复 ready。
+
 ### Batch 717：next-batch starter run loop
 
 状态：已完成 runtime、CLI/status text、durable handoff starter package、focused regressions、完整本机 release minimum、文档收尾、implementation commit/push 与 push-triggered remote inspection。
