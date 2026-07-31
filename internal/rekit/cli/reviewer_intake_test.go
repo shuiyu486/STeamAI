@@ -1864,6 +1864,30 @@ func TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath(t *
 	if !strings.Contains(runningRequest.Command, "-SaveReviewerResultInput") || !strings.Contains(runningRequest.Command, "<reviewer-result-json-path>") {
 		t.Fatalf("operator running driver request omitted input-save preview: %+v", runningRequest)
 	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var runningHandoff struct {
+		IsMutation                    bool                                 `json:"isMutation"`
+		Applied                       bool                                 `json:"applied"`
+		Project                       bool                                 `json:"project"`
+		ReviewerDispatchIntakeSummary reviewerDispatchIntakeSummaryCLIItem `json:"reviewerDispatchIntakeSummary"`
+		MissionCommanderActionQueue   missionCommanderActionQueueSnapshot  `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &runningHandoff); err != nil {
+		t.Fatalf("operator running handoff JSON did not decode: %v\n%s", err, out.String())
+	}
+	assertReviewerDispatchOperatorPackage(t, "running project handoff", runningHandoff.ReviewerDispatchIntakeSummary, "shard-01", handoff.DispatchPromptSHA256)
+	handoffPackage := runningHandoff.ReviewerDispatchIntakeSummary.OperatorPackage
+	if runningHandoff.IsMutation || runningHandoff.Applied || !runningHandoff.Project || handoffPackage.CurrentRunLoopStepID != "save-result-input" || handoffPackage.Current.State != "reviewer-session-running-unknown" || handoffPackage.Current.ReviewerDispatchID != dispatchApply.DispatchID || handoffPackage.Current.ReviewerSession != reviewerSession {
+		t.Fatalf("project handoff did not carry running reviewer input-save operator package: %+v", runningHandoff)
+	}
+	handoffRequest := requireMissionCommanderDriverRequest(t, runningHandoff.MissionCommanderActionQueue, "preview-command", "preview-current", runningRequest.Command, true, false, true)
+	if handoffRequest.Command != runningRequest.Command || handoffRequest.ExpectedReceipt.Command != runningRequest.ExpectedReceipt.Command || handoffRequest.ExpectedReceipt.State != "refresh-required" {
+		t.Fatalf("project handoff reviewer driver request drifted from status request: handoff=%+v status=%+v", handoffRequest, runningRequest)
+	}
 	resultData := reviewerResultForCLIPlan(t, packet, handoff, "accept", "accepted", reviewerSession)
 	if err := os.MkdirAll(filepath.Dir(reviewerOutputPath), 0o755); err != nil {
 		t.Fatal(err)
