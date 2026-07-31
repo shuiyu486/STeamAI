@@ -139,6 +139,119 @@ func TestRunNextBatchWhatIfUsesSelectedDomainCandidateGuidance(t *testing.T) {
 	}
 }
 
+func TestRunNextBatchGuidancePlanningRouteConsumerLoopProductPath(t *testing.T) {
+	fixture := newCLIFixture(t, cliFixtureOptions{})
+	restore := withNextBatchReadyReleaseCheckFixture(t, "Batch 945")
+	restored := false
+	defer func() {
+		if !restored {
+			restore()
+		}
+	}()
+	beforePlan := readFixtureFile(t, fixture.repoRoot, "docs/batch-plan.md")
+	beforeChangelog := readFixtureFile(t, fixture.repoRoot, "CHANGELOG.md")
+
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatalf("status before next-batch planning route failed: %v\n%s", err, out.String())
+	}
+	var status struct {
+		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("status JSON before next-batch planning route did not decode: %v\n%s", err, out.String())
+	}
+	guidance := status.MissionControlRunbook.GuidanceHandoff
+	if guidance == nil || !guidance.Ready || guidance.Source != "releaseHandoffNextBatch" || len(guidance.NextBatchPlanningRoutes) == 0 {
+		t.Fatalf("status guidance handoff omitted next-batch planning routes: runbook=%+v", status.MissionControlRunbook)
+	}
+	var route struct {
+		Ready                   bool     `json:"ready"`
+		Domain                  string   `json:"domain"`
+		DomainActionID          string   `json:"domainActionId"`
+		ClosurePlaceholder      string   `json:"closurePlaceholder"`
+		WhatIfCommandTemplate   string   `json:"whatIfCommandTemplate"`
+		CommandExecutable       bool     `json:"commandExecutable"`
+		RequiresReview          bool     `json:"requiresReview"`
+		RefreshStatusCommand    string   `json:"refreshStatusCommand"`
+		ExpectedApplySource     string   `json:"expectedApplySource"`
+		ExpectedApplyDriverKind string   `json:"expectedApplyDriverKind"`
+		RunbookSteps            []string `json:"runbookSteps"`
+		Boundary                []string `json:"boundary"`
+	}
+	for _, item := range guidance.NextBatchPlanningRoutes {
+		if item.Domain == "mission-commander" {
+			route = item
+			break
+		}
+	}
+	if !route.Ready || route.DomainActionID != "next-batch-mission-commander-operational-closure" || route.CommandExecutable || !route.RequiresReview || route.ExpectedApplySource != "nextBatchCommand" || route.ExpectedApplyDriverKind != "preview-command" || route.RefreshStatusCommand != status.MissionControlRunbook.RefreshStatusCommand || !strings.Contains(route.WhatIfCommandTemplate, route.ClosurePlaceholder) || !containsSubstring(route.RunbookSteps, "replace closurePlaceholder") || !containsSubstring(route.Boundary, "status does not choose a batch") {
+		t.Fatalf("mission-commander planning route drifted: %+v", route)
+	}
+	concreteClosure := "next-batch guidance driver request planning loop"
+	whatIfCommand := strings.Replace(route.WhatIfCommandTemplate, route.ClosurePlaceholder, concreteClosure, 1)
+	out.Reset()
+	if err := Run(rekitCommandCLIArgs(t, whatIfCommand), &out); err != nil {
+		t.Fatalf("next-batch WhatIf from status planning route failed: command=%s err=%v\n%s", whatIfCommand, err, out.String())
+	}
+	var preview nextBatchResult
+	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+		t.Fatalf("next-batch route WhatIf JSON did not decode: %v\n%s", err, out.String())
+	}
+	if preview.IsMutation || preview.Applied || preview.Domain != route.Domain || preview.DomainActionID != route.DomainActionID || preview.Closure != concreteClosure || len(preview.ExpectedNextBatchPlanSHA256) != 64 {
+		t.Fatalf("next-batch route WhatIf result drifted: %+v", preview)
+	}
+	if readFixtureFile(t, fixture.repoRoot, "docs/batch-plan.md") != beforePlan || readFixtureFile(t, fixture.repoRoot, "CHANGELOG.md") != beforeChangelog {
+		t.Fatal("next-batch route WhatIf mutated kit docs")
+	}
+	applyRequest := requireTypedMissionCommanderDriverRequest(t, preview.MissionCommanderActionQueue, "preview-command", "preview-current", preview.MissionCommanderAction.Command, true, false, true)
+	if !strings.Contains(applyRequest.Command, "-ExpectedNextBatchPlanSha256 "+preview.ExpectedNextBatchPlanSHA256) || !strings.Contains(applyRequest.Command, "-Apply -Format json") {
+		t.Fatalf("route WhatIf omitted hash-bound Apply driver request: request=%+v preview=%+v", applyRequest, preview)
+	}
+	applyArgs, ok := typedMissionCommanderDriverRequestCommandCLIArgs(t, applyRequest)
+	if !ok {
+		t.Fatalf("hash-bound next-batch Apply request should be executable: %+v", applyRequest)
+	}
+	out.Reset()
+	if err := Run(applyArgs, &out); err != nil {
+		t.Fatalf("next-batch Apply from returned driver request failed: command=%s err=%v\n%s", applyRequest.Command, err, out.String())
+	}
+	var applied nextBatchResult
+	if err := json.Unmarshal(out.Bytes(), &applied); err != nil {
+		t.Fatalf("next-batch route Apply JSON did not decode: %v\n%s", err, out.String())
+	}
+	if !applied.IsMutation || !applied.Applied || applied.ExpectedNextBatchPlanSHA256 != preview.ExpectedNextBatchPlanSHA256 {
+		t.Fatalf("next-batch route Apply result drifted: %+v", applied)
+	}
+	statusRequest := requireTypedMissionCommanderDriverRequest(t, applied.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit status -Format json", true, false, false)
+	statusArgs, ok := typedMissionCommanderDriverRequestCommandCLIArgs(t, statusRequest)
+	if !ok {
+		t.Fatalf("next-batch Apply returned status refresh request should be executable: %+v", statusRequest)
+	}
+
+	restore()
+	restored = true
+	out.Reset()
+	if err := Run(statusArgs, &out); err != nil {
+		t.Fatalf("status refresh from next-batch Apply driver request failed: %v\n%s", err, out.String())
+	}
+	var refreshed struct {
+		ProjectHandoff struct {
+			LatestBatch                 string                              `json:"latestBatch"`
+			LatestBatchStatus           string                              `json:"latestBatchStatus"`
+			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		} `json:"projectHandoff"`
+		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &refreshed); err != nil {
+		t.Fatalf("status refresh after route Apply did not decode: %v\n%s", err, out.String())
+	}
+	current := refreshed.ProjectHandoff.MissionCommanderActionQueue.CurrentAction
+	if refreshed.ProjectHandoff.LatestBatch != "Batch 946" || !strings.Contains(refreshed.ProjectHandoff.LatestBatchStatus, "进行中") || current == nil || current.ActionID != "latest-batch-next-action" || refreshed.MissionControlRunbook == nil || refreshed.MissionControlRunbook.GuidanceHandoff == nil || refreshed.MissionControlRunbook.GuidanceHandoff.Source == "releaseHandoffNextBatch" {
+		t.Fatalf("status refresh should consume durable route Apply docs as current in-progress batch: project=%+v runbook=%+v", refreshed.ProjectHandoff, refreshed.MissionControlRunbook)
+	}
+}
+
 func TestRunNextBatchApplyRequiresWhatIfHashAndRefreshesStatus(t *testing.T) {
 	fixture := newCLIFixture(t, cliFixtureOptions{})
 	restore := withNextBatchReadyReleaseCheckFixture(t, "Batch 945")
@@ -433,6 +546,9 @@ func TestStatusMissionControlRunbookGuidanceHandoffWrapsNextBatchSelection(t *te
 	if len(guidance.CandidateDomains) != 7 || !statusMissionControlGuidanceDomainContainsTyped(guidance.CandidateDomains, "next-batch-mission-commander-operational-closure") || !statusMissionControlGuidanceDomainContainsTyped(guidance.CandidateDomains, "next-batch-go-native-product-path") {
 		t.Fatalf("guidance handoff candidate domains drifted: %+v", guidance.CandidateDomains)
 	}
+	if len(guidance.NextBatchPlanningRoutes) != 7 || guidance.NextBatchPlanningRoutes[0].Domain != "mission-commander" || guidance.NextBatchPlanningRoutes[0].CommandExecutable || !guidance.NextBatchPlanningRoutes[0].RequiresReview || !strings.Contains(guidance.NextBatchPlanningRoutes[0].WhatIfCommandTemplate, guidance.NextBatchPlanningRoutes[0].ClosurePlaceholder) || !containsSubstring(guidance.NextBatchPlanningRoutes[0].Boundary, "status does not choose a batch") {
+		t.Fatalf("guidance handoff planning routes drifted: %+v", guidance.NextBatchPlanningRoutes)
+	}
 	var out bytes.Buffer
 	if err := writeStatusMissionControlRunbookText(&out, runbook); err != nil {
 		t.Fatal(err)
@@ -442,6 +558,7 @@ func TestStatusMissionControlRunbookGuidanceHandoffWrapsNextBatchSelection(t *te
 		"status Mission Control guidance handoff expected receipt：state=guidance-accepted-refresh-required",
 		"status Mission Control guidance handoff starter current batch section：### Batch 652",
 		"status Mission Control guidance handoff candidate domain：label=mission-commander actionId=next-batch-mission-commander-operational-closure",
+		"status Mission Control guidance handoff next-batch planning route：domain=mission-commander actionId=next-batch-mission-commander-operational-closure executable=false requiresReview=true",
 		"status Mission Control guidance handoff boundary：guidanceHandoff is read-only",
 	} {
 		if !strings.Contains(out.String(), want) {
@@ -1222,7 +1339,10 @@ func TestRunStatusJsonKit(t *testing.T) {
 		if len(guidance.CandidateDomains) != 7 || !statusMissionControlGuidanceDomainContains(guidance.CandidateDomains, "next-batch-mission-commander-operational-closure") || !statusMissionControlGuidanceDomainContains(guidance.CandidateDomains, "next-batch-pack-memory-ux") {
 			t.Fatalf("guidance handoff should carry candidate domains: %+v", guidance.CandidateDomains)
 		}
-		for _, want := range []string{`"currentDriverRequest"`, `"kind": "review-guidance"`, `"commandExecutable": false`, `"guidance": "select the next Windows-verifiable product-path closure`, `"guidanceHandoff"`, `"expectedReceipt"`, `"candidateDomains"`} {
+		if len(guidance.NextBatchPlanningRoutes) != 7 || guidance.NextBatchPlanningRoutes[0].Domain != "mission-commander" || guidance.NextBatchPlanningRoutes[0].CommandExecutable || !guidance.NextBatchPlanningRoutes[0].RequiresReview || guidance.NextBatchPlanningRoutes[0].ExpectedApplySource != "nextBatchCommand" || guidance.NextBatchPlanningRoutes[0].ExpectedApplyDriverKind != "preview-command" || !strings.Contains(guidance.NextBatchPlanningRoutes[0].WhatIfCommandTemplate, guidance.NextBatchPlanningRoutes[0].ClosurePlaceholder) || !containsSubstring(guidance.NextBatchPlanningRoutes[0].RunbookSteps, "replace closurePlaceholder") {
+			t.Fatalf("guidance handoff should carry next-batch planning routes: %+v", guidance.NextBatchPlanningRoutes)
+		}
+		for _, want := range []string{`"currentDriverRequest"`, `"kind": "review-guidance"`, `"commandExecutable": false`, `"guidance": "select the next Windows-verifiable product-path closure`, `"guidanceHandoff"`, `"expectedReceipt"`, `"candidateDomains"`, `"nextBatchPlanningRoutes"`} {
 			if !strings.Contains(out.String(), want) {
 				t.Fatalf("status JSON driver request missing %q:\n%s", want, out.String())
 			}
@@ -21070,6 +21190,20 @@ type statusMissionControlGuidanceHandoffSnapshot struct {
 		Reasons  []string `json:"reasons"`
 		Boundary []string `json:"boundary"`
 	} `json:"candidateDomains"`
+	NextBatchPlanningRoutes []struct {
+		Ready                   bool     `json:"ready"`
+		Domain                  string   `json:"domain"`
+		DomainActionID          string   `json:"domainActionId"`
+		ClosurePlaceholder      string   `json:"closurePlaceholder"`
+		WhatIfCommandTemplate   string   `json:"whatIfCommandTemplate"`
+		CommandExecutable       bool     `json:"commandExecutable"`
+		RequiresReview          bool     `json:"requiresReview"`
+		RefreshStatusCommand    string   `json:"refreshStatusCommand"`
+		ExpectedApplySource     string   `json:"expectedApplySource"`
+		ExpectedApplyDriverKind string   `json:"expectedApplyDriverKind"`
+		RunbookSteps            []string `json:"runbookSteps"`
+		Boundary                []string `json:"boundary"`
+	} `json:"nextBatchPlanningRoutes"`
 	Boundary []string `json:"boundary"`
 }
 

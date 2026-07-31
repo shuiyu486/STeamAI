@@ -2885,22 +2885,23 @@ type statusMissionControlRunbook struct {
 }
 
 type statusMissionControlGuidanceHandoff struct {
-	Ready               bool                                          `json:"ready"`
-	Kind                string                                        `json:"kind"`
-	Scope               string                                        `json:"scope"`
-	State               string                                        `json:"state,omitempty"`
-	Source              string                                        `json:"source,omitempty"`
-	ActionID            string                                        `json:"actionId,omitempty"`
-	Label               string                                        `json:"label,omitempty"`
-	Guidance            string                                        `json:"guidance,omitempty"`
-	CommandExecutable   bool                                          `json:"commandExecutable"`
-	RequiresReview      bool                                          `json:"requiresReview"`
-	TargetDocuments     []string                                      `json:"targetDocuments,omitempty"`
-	AcceptanceChecklist []string                                      `json:"acceptanceChecklist,omitempty"`
-	ExpectedReceipt     statusMissionControlGuidanceReceipt           `json:"expectedReceipt"`
-	StarterPackage      *statusMissionControlGuidanceStarterPackage   `json:"starterPackage,omitempty"`
-	CandidateDomains    []statusMissionControlGuidanceCandidateDomain `json:"candidateDomains,omitempty"`
-	Boundary            []string                                      `json:"boundary,omitempty"`
+	Ready                   bool                                          `json:"ready"`
+	Kind                    string                                        `json:"kind"`
+	Scope                   string                                        `json:"scope"`
+	State                   string                                        `json:"state,omitempty"`
+	Source                  string                                        `json:"source,omitempty"`
+	ActionID                string                                        `json:"actionId,omitempty"`
+	Label                   string                                        `json:"label,omitempty"`
+	Guidance                string                                        `json:"guidance,omitempty"`
+	CommandExecutable       bool                                          `json:"commandExecutable"`
+	RequiresReview          bool                                          `json:"requiresReview"`
+	TargetDocuments         []string                                      `json:"targetDocuments,omitempty"`
+	AcceptanceChecklist     []string                                      `json:"acceptanceChecklist,omitempty"`
+	ExpectedReceipt         statusMissionControlGuidanceReceipt           `json:"expectedReceipt"`
+	StarterPackage          *statusMissionControlGuidanceStarterPackage   `json:"starterPackage,omitempty"`
+	CandidateDomains        []statusMissionControlGuidanceCandidateDomain `json:"candidateDomains,omitempty"`
+	NextBatchPlanningRoutes []statusMissionControlNextBatchPlanningRoute  `json:"nextBatchPlanningRoutes,omitempty"`
+	Boundary                []string                                      `json:"boundary,omitempty"`
 }
 
 type statusMissionControlGuidanceReceipt struct {
@@ -2931,6 +2932,21 @@ type statusMissionControlGuidanceCandidateDomain struct {
 	Command  string   `json:"command"`
 	Reasons  []string `json:"reasons,omitempty"`
 	Boundary []string `json:"boundary,omitempty"`
+}
+
+type statusMissionControlNextBatchPlanningRoute struct {
+	Ready                   bool     `json:"ready"`
+	Domain                  string   `json:"domain"`
+	DomainActionID          string   `json:"domainActionId"`
+	ClosurePlaceholder      string   `json:"closurePlaceholder"`
+	WhatIfCommandTemplate   string   `json:"whatIfCommandTemplate"`
+	CommandExecutable       bool     `json:"commandExecutable"`
+	RequiresReview          bool     `json:"requiresReview"`
+	RefreshStatusCommand    string   `json:"refreshStatusCommand,omitempty"`
+	ExpectedApplySource     string   `json:"expectedApplySource,omitempty"`
+	ExpectedApplyDriverKind string   `json:"expectedApplyDriverKind,omitempty"`
+	RunbookSteps            []string `json:"runbookSteps,omitempty"`
+	Boundary                []string `json:"boundary,omitempty"`
 }
 
 type statusMissionControlRunbookQueue struct {
@@ -3577,6 +3593,7 @@ func statusMissionControlGuidanceHandoffFor(runbook *statusMissionControlRunbook
 		if pkg := projectHandoff.NextBatchSelectionPackage; pkg != nil && pkg.Ready {
 			handoff.StarterPackage = statusMissionControlGuidanceStarterPackageFor(pkg.StarterPackage)
 			handoff.CandidateDomains = statusMissionControlGuidanceCandidateDomains(pkg.MissionCommanderNextActions)
+			handoff.NextBatchPlanningRoutes = statusMissionControlNextBatchPlanningRoutes(handoff.CandidateDomains, handoff.StarterPackage, runbook.RefreshStatusCommand)
 		}
 	}
 	handoff.ExpectedReceipt.Checklist = mission.UniqueStrings(handoff.ExpectedReceipt.Checklist)
@@ -3660,6 +3677,45 @@ func statusMissionControlGuidanceCandidateDomains(actions []mission.MissionComma
 		})
 	}
 	return domains
+}
+
+func statusMissionControlNextBatchPlanningRoutes(domains []statusMissionControlGuidanceCandidateDomain, starter *statusMissionControlGuidanceStarterPackage, refreshStatusCommand string) []statusMissionControlNextBatchPlanningRoute {
+	if starter == nil || !starter.Ready || len(domains) == 0 {
+		return nil
+	}
+	placeholder := "<Windows-verifiable product-path closure>"
+	routes := make([]statusMissionControlNextBatchPlanningRoute, 0, len(domains))
+	for _, domain := range domains {
+		label := strings.TrimSpace(domain.Label)
+		if label == "" {
+			continue
+		}
+		routes = append(routes, statusMissionControlNextBatchPlanningRoute{
+			Ready:                   true,
+			Domain:                  label,
+			DomainActionID:          strings.TrimSpace(domain.ActionID),
+			ClosurePlaceholder:      placeholder,
+			WhatIfCommandTemplate:   "/rekit next-batch -Domain " + statusQuoteCommandArg(label) + " -Closure " + statusQuoteCommandArg(placeholder) + " -WhatIf -Format json",
+			CommandExecutable:       false,
+			RequiresReview:          true,
+			RefreshStatusCommand:    strings.TrimSpace(refreshStatusCommand),
+			ExpectedApplySource:     "nextBatchCommand",
+			ExpectedApplyDriverKind: "preview-command",
+			RunbookSteps: []string{
+				"choose exactly one nextBatchPlanningRoutes[] item and replace closurePlaceholder with a concrete product-path closure",
+				"run whatIfCommandTemplate only after replacing the closure placeholder; do not execute the placeholder template verbatim",
+				"review the returned expectedNextBatchPlanSha256, then consume the returned missionCommanderActionQueue.currentDriverRequest for hash-bound Apply",
+				"after Apply, run refreshStatusCommand and rebuild status before implementation",
+			},
+			Boundary: []string{
+				"nextBatchPlanningRoutes are read-only templates; status does not choose a batch or edit docs",
+				"the placeholder template is not commandExecutable until closurePlaceholder is replaced with a concrete closure",
+				"WhatIf is read-only and Apply writes only docs/batch-plan.md plus CHANGELOG.md when the expected hash matches",
+				"planning routes do not execute reviewer, adapter, pack-memory, gate, sync, promote, heavy-tool, authority, confirmed, commit, push, or remote CI actions",
+			},
+		})
+	}
+	return routes
 }
 
 func statusMissionControlRunbookQueueFor(scope string, queue mission.MissionCommanderActionQueue, focused bool) statusMissionControlRunbookQueue {
@@ -4048,6 +4104,21 @@ func writeStatusMissionControlGuidanceHandoffText(out io.Writer, handoff *status
 		}
 		for _, boundary := range domain.Boundary {
 			if _, err := fmt.Fprintf(out, "status Mission Control guidance handoff candidate domain boundary：label=%s boundary=%s\n", domain.Label, boundary); err != nil {
+				return err
+			}
+		}
+	}
+	for _, route := range handoff.NextBatchPlanningRoutes {
+		if _, err := fmt.Fprintf(out, "status Mission Control guidance handoff next-batch planning route：domain=%s actionId=%s executable=%t requiresReview=%t closurePlaceholder=%s whatIfCommandTemplate=%s\n", route.Domain, route.DomainActionID, route.CommandExecutable, route.RequiresReview, route.ClosurePlaceholder, route.WhatIfCommandTemplate); err != nil {
+			return err
+		}
+		for _, step := range route.RunbookSteps {
+			if _, err := fmt.Fprintf(out, "status Mission Control guidance handoff next-batch planning route step：domain=%s step=%s\n", route.Domain, step); err != nil {
+				return err
+			}
+		}
+		for _, boundary := range route.Boundary {
+			if _, err := fmt.Fprintf(out, "status Mission Control guidance handoff next-batch planning route boundary：domain=%s boundary=%s\n", route.Domain, boundary); err != nil {
 				return err
 			}
 		}

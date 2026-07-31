@@ -40,6 +40,19 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 
 
+
+### Batch 757：next-batch guidance driver request planning loop
+
+状态：本机实现与 focused validation 已完成，完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection 待记录。本批选择 `mission-commander`，推进 next-batch guidance driver request planning loop；release handoff candidate guidance 是：select a Mission Commander operational closure slice with status/handoff/continue product-path verification。上一批完成后仍需要解决的接手断点必须落在该 domain 的可操作 product-path closure 上，并能由 status/handoff/continue/release-check 或必要临时 case 验证；本批不是字段、文案或 summary 投影微调。
+
+目标：把 `mission-commander` candidate 收敛成 Windows 本机可验证的闭环：next-batch guidance driver request planning loop。实现复用既有 typed handoff/envelope 和 deterministic runtime 边界，让 Mission Commander 或 replacement executor 能从 durable docs/status 消费结果，不依赖上一会话隐性上下文；focused work 证明该候选命令所描述的能力：select a Mission Commander operational closure slice with status/handoff/continue product-path verification。
+
+已实现：`status` 顶层 `missionControlRunbook.guidanceHandoff` 现在在 next-batch selection guidance 下输出只读 `nextBatchPlanningRoutes[]`。每个 route 绑定 candidate `domain` / `domainActionId`、非 executable `whatIfCommandTemplate`、`closurePlaceholder`、`refreshStatusCommand`、expected returned Apply source/kind、runbook steps 与 no-auto-select/no-heavy/no-authority boundary；replacement executor 或主 Agent 可选择一个 route、把 placeholder 替换成具体 Windows-verifiable product-path closure、执行 read-only `next-batch -WhatIf`，再只从 returned `missionCommanderActionQueue.currentDriverRequest` 消费 hash-bound Apply，最后刷新 status 进入当前 Batch。新增 product-path regression `TestRunNextBatchGuidancePlanningRouteConsumerLoopProductPath` 覆盖 status guidance route → filled WhatIf → zero-write preview → returned hash-bound Apply driver request → Apply → returned status refresh request → status durable Batch current action。
+
+边界：本批不新增 PowerShell runtime logic，不新增 public command，不执行 heavy-tool，不写 authority/confirmed，不自动选择 batch，不自动执行 reviewer/adapter/pack-memory/gate/sync/promote mutation，不自动提交或声明 remote CI green；`nextBatchPlanningRoutes[]` 是 read-only template envelope，placeholder 未替换前 `commandExecutable=false`，实际写入仍只来自显式 `next-batch -Apply` 且必须匹配 WhatIf 返回的 `expectedNextBatchPlanSha256`。
+
+验证结果：focused regressions 已通过：`go test ./internal/rekit/cli -run "Test(StatusMissionControlRunbookGuidanceHandoffWrapsNextBatchSelection|RunStatusJsonKit|RunNextBatchGuidancePlanningRouteConsumerLoopProductPath|RunNextBatchApplyRequiresWhatIfHashAndRefreshesStatus)$" -count=1`（19.424s）。完整本机 release minimum 已执行：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true` / `summary=release gate inventory ok`；`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`（CLI 338.447s）、`go vet ./...` 与 `git diff --check` 已通过，`git diff --check` 仅有 Windows LF→CRLF warning。completion evidence 写回后的 release-check、implementation commit/push 与 push-triggered remote release-gate inspection 待记录；远程 `steps=[]` 仍只记录 blocker，不声明 green。
+
 ### Batch 756：intervention reconcile driver request loop
 
 状态：本机实现、focused validation、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection 已完成；implementation commit `4a7bbc7` 已推送。Push run `30599074113` completed failure；Linux/Windows/macOS jobs `91057676908`/`91057676911`/`91057676947` 均 `steps=[]`，`gh run view 30599074113 --log-failed` 返回 `log not found: 91057676908`，job annotations API 均返回 404。仍是既有 runner/billing blocker signal，不声明 remote green。本批选择 `mission-commander`，推进 intervention reconcile driver request loop；release handoff candidate guidance 是：select a Mission Commander operational closure slice with status/handoff/continue product-path verification。上一批完成后仍需要解决的接手断点必须落在该 domain 的可操作 product-path closure 上，并能由 status/handoff/continue/release-check 或必要临时 case 验证；本批不是字段、文案或 summary 投影微调。
