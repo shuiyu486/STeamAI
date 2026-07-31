@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 783：reviewer operator step runner
 
-状态：已完成 runtime/test/doc 工作树实现、focused reviewer/release/façade validation、首轮独立审查修复、最终独立复审（无阻断项）与完整本机 release minimum；implementation commit/push与push-triggered remote inspection待完成。本批选择`reviewer-orchestration`，补齐主Agent/harness实际消费reviewer operator package的持续调度闭环，不做单字段或文案投影微调。
+状态：已完成 runtime/test/doc 工作树实现、focused reviewer/release/façade validation、首轮独立审查修复、最终独立复审（无阻断项）、完整本机 release minimum、implementation commit/push与push-triggered remote inspection；implementation commit `c46381a` 已推送。Push run `30667880621` completed failure；macOS/Windows/Linux jobs `91279012719`/`91279012736`/`91279012750` 均未启动且 `steps=[]`，`gh run view 30667880621 --log-failed` 返回 `log not found: 91279012719`；三个annotations均明确报告recent account payments failed或spending limit需提高。这是既有runner/billing blocker，不声明remote green。本批选择`reviewer-orchestration`，补齐主Agent/harness实际消费reviewer operator package的持续调度闭环，不做单字段或文案投影微调。
 
 目标：让主Agent/harness从durable reviewer operator request接手reviewer lifecycle，把外部reviewer dispatch/result observation与deterministic writeback pipeline串成一个review-first runner，同时保持Go runtime不调用Agent tool、不spawn/poll/stop reviewer session、不伪造reviewer output。
 
