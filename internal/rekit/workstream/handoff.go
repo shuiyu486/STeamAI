@@ -108,7 +108,13 @@ func HandoffPreview(repoRoot, caseRoot, pack string, opt HandoffOptions) (Handof
 	if err != nil {
 		return HandoffResult{}, err
 	}
-	return ctx.result(false, false, true, writes), nil
+	result := ctx.result(false, false, true, writes)
+	takeoverWrites, err := ctx.replacementExecutorTakeoverPackageArtifactWrites(false, result.ReplacementExecutorTakeoverPackage)
+	if err != nil {
+		return HandoffResult{}, err
+	}
+	result.Writes = append(result.Writes, takeoverWrites...)
+	return result, nil
 }
 
 func MissingBoardOnboardingAction(caseRoot string) mission.MissionCommanderNextActionItem {
@@ -169,7 +175,7 @@ func missingBoardHandoffPreview(repoRoot, caseRoot, pack string) (HandoffResult,
 	action := MissingBoardOnboardingAction(inst.CaseRoot)
 	queue := mission.MissionCommanderActionQueueFor([]mission.MissionCommanderNextActionItem{action})
 	runbook := DailyMissionControlRunbookFor(inst.CaseRoot, "case-onboarding", queue, handoffPreviewCommand(inst.CaseRoot, ""), handoffApplyCommand(inst.CaseRoot, ""))
-	takeover := handoffReplacementExecutorTakeoverPackage(inst.CaseRoot, "case-onboarding", nil, queue, runbook, nil)
+	takeover := handoffReplacementExecutorTakeoverPackage(inst.CaseRoot, "case-onboarding", nil, queue, runbook, nil, relJoin(".rekit", "handovers", "latest-replacement-executor-takeover.json"))
 	return HandoffResult{
 		SchemaVersion:                      1,
 		Command:                            "handoff",
@@ -234,6 +240,11 @@ func HandoffApply(repoRoot, caseRoot, pack string, opt HandoffOptions) (result H
 		return HandoffResult{}, err
 	}
 	result = ctx.result(true, true, false, writes)
+	takeoverWrites, err := ctx.writeReplacementExecutorTakeoverPackageArtifacts(result.ReplacementExecutorTakeoverPackage)
+	if err != nil {
+		return HandoffResult{}, err
+	}
+	result.Writes = append(result.Writes, takeoverWrites...)
 	return result, nil
 }
 
@@ -366,7 +377,7 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 	runbookScope := handoffRunbookScope(ctx.project, ctx.selector)
 	dailyRunbook := DailyMissionControlRunbookForWithHandoffApplyReady(ctx.inst.CaseRoot, runbookScope, missionCommanderActionQueue, handoffPreviewCommand(ctx.inst.CaseRoot, ctx.selector), handoffApplyCommand(ctx.inst.CaseRoot, ctx.selector), true)
 	latestDriverReceiptHandoff, _ := latestDriverReceiptHandoffFor(ctx.inst.CaseRoot, lane)
-	replacementExecutorTakeoverPackage := handoffReplacementExecutorTakeoverPackage(ctx.inst.CaseRoot, runbookScope, lane, missionCommanderActionQueue, dailyRunbook, latestDriverReceiptHandoff)
+	replacementExecutorTakeoverPackage := handoffReplacementExecutorTakeoverPackage(ctx.inst.CaseRoot, runbookScope, lane, missionCommanderActionQueue, dailyRunbook, latestDriverReceiptHandoff, ctx.replacementExecutorTakeoverPackageLatestRel())
 	var laneTakeoverPackage *LaneTakeoverPackage
 	if lane != nil && executorAction != nil {
 		laneTakeoverPackage = laneTakeoverPackageFor(ctx.inst.CaseRoot, *lane, *executorAction, missionCommanderActionQueue, false)
@@ -454,22 +465,26 @@ func handoffCommand(caseRoot, selector string, apply bool) string {
 	return strings.Join(parts, " ")
 }
 
-func handoffReplacementExecutorTakeoverPackage(caseRoot, scope string, lane *Lane, queue mission.MissionCommanderActionQueue, runbook *DailyMissionControlRunbook, latestReceipt *LatestDriverReceiptHandoff) *mission.ReplacementExecutorTakeoverPackage {
+func handoffReplacementExecutorTakeoverPackage(caseRoot, scope string, lane *Lane, queue mission.MissionCommanderActionQueue, runbook *DailyMissionControlRunbook, latestReceipt *LatestDriverReceiptHandoff, packagePath string) *mission.ReplacementExecutorTakeoverPackage {
 	refresh := dailyMissionControlStatusCommand(caseRoot)
 	if runbook != nil && strings.TrimSpace(runbook.RefreshStatusCommand) != "" {
 		refresh = runbook.RefreshStatusCommand
+	}
+	packagePath = strings.TrimSpace(packagePath)
+	if packagePath == "" {
+		packagePath = "replacementExecutorTakeoverPackage"
 	}
 	return mission.ReplacementExecutorTakeoverPackageFor(queue.CurrentDriverRequest, mission.ReplacementExecutorTakeoverOptions{
 		Focus:                "durable-handoff-current-action",
 		Scope:                scope,
 		RefreshStatusCommand: refresh,
-		PackagePath:          "replacementExecutorTakeoverPackage",
-		TargetDocuments:      handoffReplacementExecutorTakeoverTargetDocuments(lane, queue.CurrentDriverRequest, latestReceipt),
+		PackagePath:          packagePath,
+		TargetDocuments:      handoffReplacementExecutorTakeoverTargetDocuments(lane, queue.CurrentDriverRequest, latestReceipt, packagePath),
 	})
 }
 
-func handoffReplacementExecutorTakeoverTargetDocuments(lane *Lane, request *mission.MissionCommanderDriverRequest, latestReceipt *LatestDriverReceiptHandoff) []string {
-	docs := []string{"replacementExecutorTakeoverPackage", "missionCommanderActionQueue.currentDriverRequest", "dailyMissionControlRunbook.currentDriverRequest"}
+func handoffReplacementExecutorTakeoverTargetDocuments(lane *Lane, request *mission.MissionCommanderDriverRequest, latestReceipt *LatestDriverReceiptHandoff, packagePath string) []string {
+	docs := []string{strings.TrimSpace(packagePath), "replacementExecutorTakeoverPackage", "missionCommanderActionQueue.currentDriverRequest", "dailyMissionControlRunbook.currentDriverRequest"}
 	if lane == nil {
 		docs = append(docs, ".rekit/handovers/latest.md")
 	} else {
@@ -859,7 +874,7 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 	projectActionQueue := mission.MissionCommanderActionQueueFor(projectMissionCommanderNext)
 	latestDriverReceiptHandoff, _ := latestDriverReceiptHandoffFor(ctx.inst.CaseRoot, nil)
 	writeLatestDriverReceiptHandoff(&out, latestDriverReceiptHandoff)
-	writeReplacementExecutorTakeoverPackage(&out, handoffReplacementExecutorTakeoverPackage(ctx.inst.CaseRoot, "project", nil, projectActionQueue, nil, latestDriverReceiptHandoff))
+	writeReplacementExecutorTakeoverPackage(&out, handoffReplacementExecutorTakeoverPackage(ctx.inst.CaseRoot, "project", nil, projectActionQueue, nil, latestDriverReceiptHandoff, ctx.replacementExecutorTakeoverPackageLatestRel()))
 	writeProjectNextBatchStarterPackage(&out, ctx.projectNextBatchStarterPackage)
 	fmt.Fprintln(&out, "## 工作线")
 	fmt.Fprintln(&out)
@@ -1477,7 +1492,7 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 	writeDailyMissionControlRunbook(&out, dailyRunbook)
 	latestDriverReceiptHandoff, _ := latestDriverReceiptHandoffFor(ctx.inst.CaseRoot, &lane)
 	writeLatestDriverReceiptHandoff(&out, latestDriverReceiptHandoff)
-	writeReplacementExecutorTakeoverPackage(&out, handoffReplacementExecutorTakeoverPackage(ctx.inst.CaseRoot, "lane:"+label, &lane, missionCommanderActionQueue, dailyRunbook, latestDriverReceiptHandoff))
+	writeReplacementExecutorTakeoverPackage(&out, handoffReplacementExecutorTakeoverPackage(ctx.inst.CaseRoot, "lane:"+label, &lane, missionCommanderActionQueue, dailyRunbook, latestDriverReceiptHandoff, ctx.replacementExecutorTakeoverPackageLatestRel()))
 	writeLaneMissionCommanderNextActions(&out, missionCommanderNextActions)
 	for _, line := range appendLaneTakeoverPackage(nil, laneTakeoverPackageFor(ctx.inst.CaseRoot, lane, executorAction, missionCommanderActionQueue, false)) {
 		fmt.Fprintln(&out, line)
@@ -1560,6 +1575,75 @@ func (ctx handoffContext) laneHandoffPaths(laneID string) (string, string, error
 		return "", "", err
 	}
 	return stampPath, latestPath, nil
+}
+
+func (ctx handoffContext) replacementExecutorTakeoverPackageLatestRel() string {
+	if ctx.project || ctx.lane == nil {
+		return relJoin(".rekit", "handovers", "latest-replacement-executor-takeover.json")
+	}
+	return relJoin(".rekit", "handovers", ctx.lane.ID+"-latest-replacement-executor-takeover.json")
+}
+
+func (ctx handoffContext) replacementExecutorTakeoverPackagePaths() (string, string, error) {
+	if ctx.project || ctx.lane == nil {
+		stampPath, err := refsf.SafeJoin(ctx.handovers, ctx.stamp+"-replacement-executor-takeover.json")
+		if err != nil {
+			return "", "", err
+		}
+		latestPath, err := refsf.SafeJoin(ctx.handovers, "latest-replacement-executor-takeover.json")
+		if err != nil {
+			return "", "", err
+		}
+		return stampPath, latestPath, nil
+	}
+	if err := validateLaneIDSegment(ctx.lane.ID); err != nil {
+		return "", "", err
+	}
+	stampPath, err := refsf.SafeJoin(ctx.handovers, ctx.lane.ID+"-"+ctx.stamp+"-replacement-executor-takeover.json")
+	if err != nil {
+		return "", "", err
+	}
+	latestPath, err := refsf.SafeJoin(ctx.handovers, ctx.lane.ID+"-latest-replacement-executor-takeover.json")
+	if err != nil {
+		return "", "", err
+	}
+	return stampPath, latestPath, nil
+}
+
+func (ctx handoffContext) replacementExecutorTakeoverPackageArtifactWrites(apply bool, pkg *mission.ReplacementExecutorTakeoverPackage) ([]StartWrite, error) {
+	if pkg == nil || !pkg.Ready {
+		return nil, nil
+	}
+	stampPath, latestPath, err := ctx.replacementExecutorTakeoverPackagePaths()
+	if err != nil {
+		return nil, err
+	}
+	prefix := "would-"
+	if apply {
+		prefix = ""
+	}
+	return []StartWrite{
+		{Path: relativePath(ctx.inst.CaseRoot, stampPath), Kind: "replacement-executor-takeover-package", Action: prefix + "write-replacement-executor-takeover-package", TargetPath: stampPath},
+		{Path: relativePath(ctx.inst.CaseRoot, latestPath), Kind: "replacement-executor-takeover-package", Action: prefix + "write-latest-replacement-executor-takeover-package", TargetPath: latestPath},
+	}, nil
+}
+
+func (ctx handoffContext) writeReplacementExecutorTakeoverPackageArtifacts(pkg *mission.ReplacementExecutorTakeoverPackage) ([]StartWrite, error) {
+	writes, err := ctx.replacementExecutorTakeoverPackageArtifactWrites(true, pkg)
+	if err != nil || len(writes) == 0 {
+		return writes, err
+	}
+	data, err := json.MarshalIndent(pkg, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	text := string(data) + "\n"
+	for _, write := range writes {
+		if err := writeText(write.TargetPath, text); err != nil {
+			return nil, err
+		}
+	}
+	return writes, nil
 }
 
 func readBoard(caseRoot string) (board, error) {

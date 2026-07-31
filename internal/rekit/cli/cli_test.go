@@ -10053,8 +10053,20 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 	if laneHandoff.LaneTakeoverPackage == nil || !laneHandoff.LaneTakeoverPackage.Ready || !laneHandoff.LaneTakeoverPackage.ContinueReady || laneHandoff.LaneTakeoverPackage.CurrentExecutor != "session-main-replacement" || laneHandoff.LaneTakeoverPackage.ExecutorGeneration != 2 || laneHandoff.LaneTakeoverPackage.HandoffPath != ".rekit/handovers/main-latest.md" || laneHandoff.LaneTakeoverPackage.CurrentCommand != "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2" || !containsSubstring(laneHandoff.LaneTakeoverPackage.RunbookSteps, "owner-bound continue") {
 		t.Fatalf("lane handoff omitted lane takeover package: %+v", laneHandoff.LaneTakeoverPackage)
 	}
-	if takeoverPackage := laneHandoff.ReplacementExecutorTakeoverPackage; takeoverPackage == nil || !takeoverPackage.Ready || takeoverPackage.Focus != "durable-handoff-current-action" || takeoverPackage.Scope != "lane:main" || takeoverPackage.DriverKind != "execute-command" || !takeoverPackage.CommandExecutable || takeoverPackage.RequiresReview || takeoverPackage.Command != "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2" || takeoverPackage.CurrentDriverRequest.Command != takeoverPackage.Command || takeoverPackage.CurrentDriverRequest.ExpectedReceipt.Command != takeoverPackage.Command || takeoverPackage.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != takeoverPackage.RefreshStatusCommand || !containsSubstring(takeoverPackage.TargetDocuments, ".rekit/handovers/main-latest.md") || !containsSubstring(takeoverPackage.TargetDocuments, "missionCommanderActionQueue.currentDriverRequest") || !containsSubstring(takeoverPackage.RunbookSteps, "read replacementExecutorTakeoverPackage before using any prior chat context") || !containsSubstring(takeoverPackage.RunbookSteps, "run currentDriverRequest.command exactly") || !containsSubstring(takeoverPackage.RunbookSteps, "run refreshStatusCommand") || !containsSubstring(takeoverPackage.Boundary, "read-only and self-contained") {
+	if takeoverPackage := laneHandoff.ReplacementExecutorTakeoverPackage; takeoverPackage == nil || !takeoverPackage.Ready || takeoverPackage.Focus != "durable-handoff-current-action" || takeoverPackage.Scope != "lane:main" || takeoverPackage.DriverKind != "execute-command" || !takeoverPackage.CommandExecutable || takeoverPackage.RequiresReview || takeoverPackage.Command != "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2" || takeoverPackage.CurrentDriverRequest.Command != takeoverPackage.Command || takeoverPackage.CurrentDriverRequest.ExpectedReceipt.Command != takeoverPackage.Command || takeoverPackage.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != takeoverPackage.RefreshStatusCommand || !containsSubstring(takeoverPackage.TargetDocuments, ".rekit/handovers/main-latest-replacement-executor-takeover.json") || !containsSubstring(takeoverPackage.TargetDocuments, "missionCommanderActionQueue.currentDriverRequest") || !containsSubstring(takeoverPackage.RunbookSteps, "read .rekit/handovers/main-latest-replacement-executor-takeover.json before using any prior chat context") || !containsSubstring(takeoverPackage.RunbookSteps, "run currentDriverRequest.command exactly") || !containsSubstring(takeoverPackage.RunbookSteps, "run refreshStatusCommand") || !containsSubstring(takeoverPackage.Boundary, "read-only and self-contained") {
 		t.Fatalf("lane handoff omitted replacement executor takeover package with refresh receipt: %+v", takeoverPackage)
+	}
+	takeoverLatest := assertStartWrite(t, laneHandoff.Writes, ".rekit/handovers/main-latest-replacement-executor-takeover.json", "write-latest-replacement-executor-takeover-package")
+	takeoverBytes, err := os.ReadFile(takeoverLatest.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var takeoverFromDisk replacementExecutorTakeoverPackageSnapshot
+	if err := json.Unmarshal(takeoverBytes, &takeoverFromDisk); err != nil {
+		t.Fatalf("replacement executor takeover artifact did not decode: %v\n%s", err, string(takeoverBytes))
+	}
+	if !takeoverFromDisk.Ready || takeoverFromDisk.Command != laneHandoff.ReplacementExecutorTakeoverPackage.Command || takeoverFromDisk.CurrentDriverRequest.Command != takeoverFromDisk.Command || !containsSubstring(takeoverFromDisk.TargetDocuments, ".rekit/handovers/main-latest-replacement-executor-takeover.json") || !containsSubstring(takeoverFromDisk.RunbookSteps, "read .rekit/handovers/main-latest-replacement-executor-takeover.json before using any prior chat context") {
+		t.Fatalf("durable replacement executor takeover artifact drifted from handoff result: disk=%+v result=%+v", takeoverFromDisk, laneHandoff.ReplacementExecutorTakeoverPackage)
 	}
 	laneLatest := assertStartWrite(t, laneHandoff.Writes, ".rekit/handovers/main-latest.md", "write-latest-lane-handoff")
 	laneHandoffText, err := os.ReadFile(laneLatest.TargetPath)
@@ -10075,8 +10087,8 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 		"- focus: durable-handoff-current-action scope=lane:main",
 		"- current driver request expected receipt: state=refresh-required command=`/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2` refreshStatusCommand=`",
 		"- target document: missionCommanderActionQueue.currentDriverRequest",
-		"- target document: .rekit/handovers/main-latest.md",
-		"- runbook step 1: read replacementExecutorTakeoverPackage before using any prior chat context",
+		"- target document: .rekit/handovers/main-latest-replacement-executor-takeover.json",
+		"- runbook step 1: read .rekit/handovers/main-latest-replacement-executor-takeover.json before using any prior chat context",
 		"- boundary: replacement executor takeover package is read-only and self-contained",
 	} {
 		if !strings.Contains(string(laneHandoffText), expected) {
@@ -10369,7 +10381,7 @@ func TestRunHandoffApplyWritesNextBatchCandidateDomains(t *testing.T) {
 		t.Fatalf("project handoff JSON omitted replacement-executor candidate-domain follow-up: %+v", result.MissionCommanderNextActions)
 	}
 	takeover := result.ReplacementExecutorTakeoverPackage
-	if takeover == nil || !takeover.Ready || takeover.Focus != "durable-handoff-current-action" || takeover.Scope != "project" || takeover.DriverKind != "execute-command" || !takeover.CommandExecutable || takeover.RequiresReview || takeover.Command != "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 1" || takeover.CurrentDriverRequest.Command != takeover.Command || !containsSubstring(takeover.TargetDocuments, ".rekit/handovers/latest.md") || !containsSubstring(takeover.TargetDocuments, "missionCommanderActionQueue.currentDriverRequest") || !containsSubstring(takeover.RunbookSteps, "read replacementExecutorTakeoverPackage before using any prior chat context") || !containsSubstring(takeover.Boundary, "read-only and self-contained") {
+	if takeover == nil || !takeover.Ready || takeover.Focus != "durable-handoff-current-action" || takeover.Scope != "project" || takeover.DriverKind != "execute-command" || !takeover.CommandExecutable || takeover.RequiresReview || takeover.Command != "/rekit continue main -Executor session-main -ExpectedExecutorGeneration 1" || takeover.CurrentDriverRequest.Command != takeover.Command || !containsSubstring(takeover.TargetDocuments, ".rekit/handovers/latest-replacement-executor-takeover.json") || !containsSubstring(takeover.TargetDocuments, "missionCommanderActionQueue.currentDriverRequest") || !containsSubstring(takeover.RunbookSteps, "read .rekit/handovers/latest-replacement-executor-takeover.json before using any prior chat context") || !containsSubstring(takeover.Boundary, "read-only and self-contained") {
 		t.Fatalf("project handoff JSON omitted replacement executor takeover package: %+v", takeover)
 	}
 	starter := result.ProjectNextBatchStarterPackage
@@ -10407,7 +10419,7 @@ func TestRunHandoffApplyWritesNextBatchCandidateDomains(t *testing.T) {
 		"focus: durable-handoff-current-action scope=project",
 		"target document: missionCommanderActionQueue.currentDriverRequest",
 		"target document: .rekit/handovers/latest.md",
-		"runbook step 1: read replacementExecutorTakeoverPackage before using any prior chat context",
+		"runbook step 1: read .rekit/handovers/latest-replacement-executor-takeover.json before using any prior chat context",
 		"boundary: replacement executor takeover package is read-only and self-contained",
 		"## Project next-batch starter package",
 		"latestCompletedBatch: Batch 682",
@@ -10651,7 +10663,7 @@ func TestRunInstalledCaseShimDurableNextBatchTakeoverProductPath(t *testing.T) {
 		"focus: durable-handoff-current-action scope=project",
 		"target document: missionCommanderActionQueue.currentDriverRequest",
 		"target document: .rekit/handovers/latest.md",
-		"runbook step 1: read replacementExecutorTakeoverPackage before using any prior chat context",
+		"runbook step 1: read .rekit/handovers/latest-replacement-executor-takeover.json before using any prior chat context",
 		"boundary: replacement executor takeover package is read-only and self-contained",
 		"## Project next-batch starter package",
 		"latestCompletedBatch: Batch 683",

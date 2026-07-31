@@ -1,6 +1,7 @@
 package workstream
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,6 +11,17 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
+
+func findStartWrite(t *testing.T, writes []StartWrite, path, action string) StartWrite {
+	t.Helper()
+	for _, write := range writes {
+		if write.Path == path && write.Action == action {
+			return write
+		}
+	}
+	t.Fatalf("missing write path=%s action=%s in %+v", path, action, writes)
+	return StartWrite{}
+}
 
 func TestLaneExecutorActionUsesTypedLaneFactsForBlockers(t *testing.T) {
 	lane := Lane{ID: "main", Authority: true, Status: "open"}
@@ -136,6 +148,22 @@ func TestTakeoverRefreshesDurableResumeCheckpointHandoffAndDigestCommands(t *tes
 		if !strings.Contains(text, want) || strings.Contains(text, "-Executor executor-one -ExpectedExecutorGeneration 1") {
 			t.Fatalf("durable artifact did not use only current authority command %s:\n%s", path, text)
 		}
+	}
+	takeoverWrite := findStartWrite(t, before.Writes, ".rekit/handovers/devirt-main-latest-replacement-executor-takeover.json", "write-latest-replacement-executor-takeover-package")
+	data, err := os.ReadFile(takeoverWrite.TargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var takeover mission.ReplacementExecutorTakeoverPackage
+	if err := json.Unmarshal(data, &takeover); err != nil {
+		t.Fatalf("replacement executor takeover package JSON did not decode: %v\n%s", err, string(data))
+	}
+	if !takeover.Ready || takeover.Focus != "durable-handoff-current-action" || takeover.Scope != "lane:devirt-main" || takeover.DriverKind != "execute-command" || !takeover.CommandExecutable || takeover.Command != "/rekit continue main -Executor executor-one -ExpectedExecutorGeneration 1" || takeover.CurrentDriverRequest.Command != takeover.Command || takeover.RefreshStatusCommand == "" || !slices.ContainsFunc(takeover.TargetDocuments, func(doc string) bool {
+		return doc == ".rekit/handovers/devirt-main-latest-replacement-executor-takeover.json"
+	}) || !slices.ContainsFunc(takeover.RunbookSteps, func(step string) bool {
+		return strings.Contains(step, "read .rekit/handovers/devirt-main-latest-replacement-executor-takeover.json before using any prior chat context")
+	}) {
+		t.Fatalf("durable replacement executor takeover package drifted: %+v", takeover)
 	}
 }
 
