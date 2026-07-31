@@ -1458,6 +1458,84 @@ func TestRunStatusJsonDefaultPackContract(t *testing.T) {
 	}
 }
 
+func TestRunStatusJsonCaseStartBootstrapDriverRequest(t *testing.T) {
+	caseRoot := attachedCase(t)
+	writeCaseFile(t, caseRoot, ".rekit/board.json", `{"schemaVersion":1,"caseRoot":"`+filepath.ToSlash(caseRoot)+`","repoRoot":"`+filepath.ToSlash(repoRoot(t))+`","pack":"_template","automationMode":"assist","defaultAuthorityLane":"main","lanes":[],"factsRoot":".rekit/facts"}`)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		CaseMission struct {
+			Ready                         bool                                `json:"ready"`
+			LaneCount                     int                                 `json:"laneCount"`
+			MissionCommanderActionQueue   missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+			MissionCommanderNextActions   []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
+			DailyMissionControlRunbook    *dailyMissionControlRunbookSnapshot `json:"dailyMissionControlRunbook"`
+			HandoffPreviewCommand         string                              `json:"handoffPreviewCommand"`
+			HandoffApplyCommand           string                              `json:"handoffApplyCommand"`
+			ContinueRequiresExplicitApply string                              `json:"continueRequiresExplicitApply"`
+		} `json:"caseMission"`
+		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("empty-lane case status JSON did not decode: %v\n%s", err, out.String())
+	}
+	queue := status.CaseMission.MissionCommanderActionQueue
+	request := queue.CurrentDriverRequest
+	if !status.CaseMission.Ready || status.CaseMission.LaneCount != 0 || queue.Counts.Total != 1 || queue.Counts.RequiresReview != 1 || queue.CurrentAction == nil || queue.CurrentAction.ActionID != "case-start-bootstrap" || queue.CurrentAction.State != "start-bootstrap-preview-required" || queue.CurrentAction.Source != "caseMissionStartBootstrap" || queue.CurrentAction.Command != "/rekit start -Target \""+caseRoot+"\" -Name triage -WhatIf -Format json" || request == nil || request.Kind != "preview-command" || request.Command != queue.CurrentAction.Command || !request.CommandExecutable || !request.RequiresReview || request.ExpectedReceipt.Command != request.Command || !containsSubstring(request.Boundary, "review-required current actions") {
+		t.Fatalf("empty-lane case mission should expose start bootstrap preview driver request: queue=%+v request=%+v actions=%+v", queue, request, status.CaseMission.MissionCommanderNextActions)
+	}
+	if runbook := status.CaseMission.DailyMissionControlRunbook; runbook == nil || !runbook.Ready || runbook.Scope != "case" || runbook.CurrentState != "start-bootstrap-preview-required" || runbook.CurrentCommand != request.Command || runbook.CurrentRunLoopStepID != "preview-current" || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Command != request.Command || runbook.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != runbook.RefreshStatusCommand || len(runbook.RunLoop) != 5 || !containsSubstring(runbook.Boundary, "read-only") {
+		t.Fatalf("daily runbook should wrap start bootstrap driver request: %+v", runbook)
+	}
+	if runbook := status.MissionControlRunbook; runbook == nil || !runbook.Ready || runbook.Focus != "case-current-action" || runbook.Scope != "case" || runbook.CurrentRunLoopStepID != "preview-current" || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Command != request.Command || runbook.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != runbook.RefreshStatusCommand || runbook.GuidanceHandoff != nil || len(runbook.Queues) != 4 || !runbook.Queues[0].Focused || !containsSubstring(runbook.RoutingReasons, "case current action needs attention") {
+		t.Fatalf("status Mission Control runbook should focus empty-lane start bootstrap request: %+v", runbook)
+	}
+	beforePreview := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	args, ok := missionCommanderDriverRequestCommandCLIArgs(t, request)
+	if !ok {
+		t.Fatalf("start bootstrap request should be executable: %+v", request)
+	}
+	out.Reset()
+	if err := Run(args, &out); err != nil {
+		t.Fatalf("start bootstrap preview failed: args=%+v err=%v\n%s", args, err, out.String())
+	}
+	var preview struct {
+		Command string `json:"command"`
+		Applied bool   `json:"applied"`
+		Lane    struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"lane"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+		t.Fatalf("start bootstrap preview stdout is not JSON: %v\n%s", err, out.String())
+	}
+	if preview.Command != "start" || preview.Applied || preview.Lane.ID != "feature-triage" || preview.Lane.Name != "triage" || preview.MissionCommanderActionQueue.CurrentDriverRequest == nil || preview.MissionCommanderActionQueue.CurrentDriverRequest.Kind != "preview-command" || !strings.Contains(preview.MissionCommanderActionQueue.CurrentDriverRequest.Command, "-Apply") {
+		t.Fatalf("start bootstrap preview should return hashless bounded start apply handoff: %+v", preview)
+	}
+	assertSnapshotEqual(t, beforePreview, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"status Mission Commander first screen：focus=case-current-action",
+		"status case mission queue driver request：kind=preview-command step=preview-current actor=main-agent executable=true blocked=false requiresReview=true command=`/rekit start -Target",
+		"status case mission queue action：bucket=unblocked lane= label=triage state=start-bootstrap-preview-required source=caseMissionStartBootstrap blocked=false requiresReview=true command=/rekit start -Target",
+		"-Name triage -WhatIf -Format json",
+		"status case mission daily runbook driver：kind=preview-command actor=main-agent state=start-bootstrap-preview-required source=caseMissionStartBootstrap executable=true blocked=false requiresReview=true command=/rekit start -Target",
+		"status Mission Control runbook driver：kind=preview-command actor=main-agent state=start-bootstrap-preview-required source=caseMissionStartBootstrap executable=true blocked=false requiresReview=true command=/rekit start -Target",
+	} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("status text missing %q:\n%s", expected, out.String())
+		}
+	}
+}
+
 func TestRunStatusJsonCase(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	var out bytes.Buffer

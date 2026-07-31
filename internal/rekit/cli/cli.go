@@ -5823,6 +5823,29 @@ func statusCaseMissionOnboardingAction(caseRoot string) mission.MissionCommander
 	}
 }
 
+func statusCaseMissionStartBootstrapAction(caseRoot string) mission.MissionCommanderNextActionItem {
+	command := "/rekit start -Target " + statusQuoteCommandArg(caseRoot) + " -Name triage -WhatIf -Format json"
+	return mission.MissionCommanderNextActionItem{
+		Label:          "triage",
+		ActionID:       "case-start-bootstrap",
+		State:          "start-bootstrap-preview-required",
+		Command:        command,
+		Source:         "caseMissionStartBootstrap",
+		RequiresReview: true,
+		Reasons: []string{
+			"case board exists but no lane current action is available",
+			"preview the first default workstream lane before writing case-local lane/board/resume/checkpoint state",
+		},
+		Boundary: []string{
+			"status is read-only; it only projects this start bootstrap preview request",
+			"start bootstrap uses the existing start WhatIf flow and does not execute start Apply automatically",
+			"start Apply only writes case-local lane/board/resume/checkpoint state after review",
+			"no authority/confirmed writes",
+			"no heavy-tool execution",
+		},
+	}
+}
+
 func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission, error) {
 	previewCommand := fmt.Sprintf("/rekit handoff -Target %s -WhatIf -Format json", statusQuoteCommandArg(caseRoot))
 	applyCommand := fmt.Sprintf("/rekit handoff -Target %s -Apply -Format json", statusQuoteCommandArg(caseRoot))
@@ -5860,9 +5883,16 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 	reviewerDispatchIntakeHandoffs := append([]workstream.ReviewerDispatchIntakeHandoff{}, inventory.ReviewerDispatchIntakeHandoffs...)
 	reviewerDispatchIntakeNextActions := workstream.MissionCommanderNextActionsWithReviewerDispatches(nil, reviewerDispatchIntakeHandoffs)
 	reviewerDispatchIntakeActionQueue := mission.MissionCommanderActionQueueFor(reviewerDispatchIntakeNextActions)
-	firstScreenLaneTakeoverPackage := statusFirstScreenLaneTakeoverPackage(caseRoot, inventory.LaneExecutorActions, inventory.MissionCommanderActionQueue)
+	caseMissionNextActions := append([]mission.MissionCommanderNextActionItem{}, inventory.MissionCommanderNextActions...)
+	caseMissionActionQueue := inventory.MissionCommanderActionQueue
+	if caseMissionActionQueue.CurrentAction == nil && reviewerDispatchIntakeActionQueue.CurrentAction == nil && len(inventory.Lanes) == 0 && len(inventory.MissionBrief.Escalations) == 0 {
+		bootstrap := statusCaseMissionStartBootstrapAction(caseRoot)
+		caseMissionNextActions = []mission.MissionCommanderNextActionItem{bootstrap}
+		caseMissionActionQueue = mission.MissionCommanderActionQueueFor(caseMissionNextActions)
+	}
+	firstScreenLaneTakeoverPackage := statusFirstScreenLaneTakeoverPackage(caseRoot, inventory.LaneExecutorActions, caseMissionActionQueue)
 	return &statusCaseMission{
-		Ready:                             inventory.MissionCommanderActionQueue.CurrentAction != nil && inventory.MissionCommanderActionQueue.Counts.Blocked == 0 && len(inventory.MissionBrief.Escalations) == 0,
+		Ready:                             caseMissionActionQueue.CurrentAction != nil && caseMissionActionQueue.Counts.Blocked == 0 && len(inventory.MissionBrief.Escalations) == 0,
 		Summary:                           inventory.MissionBrief.Summary,
 		LaneCount:                         len(inventory.Lanes),
 		ReadyLaneCount:                    len(inventory.MissionBrief.ReadyLanes),
@@ -5891,9 +5921,9 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 		ExecutionEvidenceReviewCount:      len(inventory.ExecutionEvidenceReview),
 		ExecutionEvidenceReview:           append([]workstream.ExecutionEvidenceReviewItem{}, inventory.ExecutionEvidenceReview...),
 		ExecutionEvidenceReviewSummary:    inventory.ExecutionEvidenceReviewSummary,
-		MissionCommanderActionQueue:       inventory.MissionCommanderActionQueue,
-		MissionCommanderNextActions:       append([]mission.MissionCommanderNextActionItem{}, inventory.MissionCommanderNextActions...),
-		DailyMissionControlRunbook:        workstream.DailyMissionControlRunbookFor(caseRoot, "case", inventory.MissionCommanderActionQueue, previewCommand, applyCommand),
+		MissionCommanderActionQueue:       caseMissionActionQueue,
+		MissionCommanderNextActions:       caseMissionNextActions,
+		DailyMissionControlRunbook:        workstream.DailyMissionControlRunbookFor(caseRoot, "case", caseMissionActionQueue, previewCommand, applyCommand),
 		MissionBriefNextActions:           append([]string{}, inventory.NextSteps...),
 		Escalations:                       append([]string{}, inventory.MissionBrief.Escalations...),
 		HandoffPreviewCommand:             previewCommand,

@@ -35,6 +35,19 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 
 
+
+### Batch 752：start-lane driver request bootstrap
+
+状态：本机实现、focused validation 与完整本机 release minimum 已完成；implementation commit/push 与 push-triggered remote inspection 待记录。本批选择 `mission-commander`，推进 start-lane driver request bootstrap；release handoff candidate guidance 是：select a Mission Commander operational closure slice with status/handoff/continue product-path verification。上一批完成后仍需要解决的接手断点落在该 domain 的可操作 product-path closure 上，并由 status/handoff/continue/release-check 与临时 case 验证；本批不是字段、文案或 summary 投影微调。
+
+目标：把 `mission-commander` candidate 收敛成 Windows 本机可验证的闭环：start-lane driver request bootstrap。实现复用既有 typed handoff/envelope 和 deterministic runtime 边界，让 Mission Commander 或 replacement executor 能从 durable docs/status 消费结果，不依赖上一会话隐性上下文；focused work 证明该候选命令所描述的能力：select a Mission Commander operational closure slice with status/handoff/continue product-path verification。
+
+已实现：当 case 已 attached 且 `.rekit/board.json` 存在、但没有 lane current action、reviewer dispatch intake current action 或 mission escalation 时，`status` 的 case mission queue 会投影 `case-start-bootstrap` current action：`/rekit start -Target <case> -Name triage -WhatIf -Format json`。该 action 通过既有 `MissionCommanderActionQueueFor` 自动生成 executable `preview-command` driver request，并被 case `dailyMissionControlRunbook` 与顶层 `missionControlRunbook` 聚焦；执行 preview 只返回 bounded start apply handoff，不写 `.rekit`。missing-board onboarding path 仍保持 read-only status projection，不由 status 自动初始化 board。
+
+边界：本批不新增 PowerShell runtime logic，不执行 heavy-tool，不写 authority/confirmed，不自动执行 reviewer/adapter/pack-memory/gate/sync/promote mutation，不自动提交或声明 remote CI green；start bootstrap 只投影 existing `start -WhatIf` preview request，实际 `start -Apply` 仍需 review 后显式执行，且只写 case-local lane/board/resume/checkpoint state。
+
+验证结果：focused regressions 已通过：`go test ./internal/rekit/cli -run "TestRunStatusJsonCase(StartBootstrapDriverRequest)?$" -count=1` 与 `go test ./internal/rekit/cli -run "Test(StatusMissionControlRunbook|RunStatusJsonCase|RunHandoffApplyWritesProjectAndLane|RunMissionCommanderDriverRequestConsumerLoopProductPath|RunReplaceableSessionExecutorTakeoverFromHandoffProductPath)" -count=1`。完整本机 release minimum 已执行：completion evidence 写回前 `go run ./cmd/rekit -- -Command release-check -Format json` 按预期返回 `ready=false` / `summary=release gate inventory has warnings`，因为 implementation commit/push 与 remote inspection 尚未记录；`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 已通过，`git diff --check` 仅有 Windows LF→CRLF warning。Implementation commit/push 与 push-triggered remote release-gate inspection 待记录；远程 `steps=[]` 仍只记录 blocker，不声明 green。
+
 ### Batch 751：Mission Commander current-driver refresh receipt handoff
 
 状态：本机实现、focused validation、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection 已完成；implementation commit `9013e51` 已推送。Push run `30592698232` completed failure；Linux/Windows/macOS jobs `91038229714`/`91038229730`/`91038229762` 均 `steps=[]`，`gh run view 30592698232 --log-failed` 返回 `log not found: 91038229714`，job annotations API 返回 404。仍是既有 runner/billing blocker signal，不声明 remote green。本批选择 `mission-commander`，推进 Mission Commander current-driver refresh receipt handoff；release handoff candidate guidance 是：select a Mission Commander operational closure slice with status/handoff/continue product-path verification。上一批完成后仍需要解决的接手断点落在该 domain 的可操作 product-path closure 上，并能由 status/handoff/continue/release-check 与临时 case 验证；本批不是字段、文案或 summary 投影微调。
