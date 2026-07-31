@@ -87,6 +87,8 @@ go test ./internal/rekit/cli -run '^TestRunDailyMissionControlRouteSmokeProductP
 /rekit release-run -Format text   # 执行本机 release minimum，汇总每步 exit code / duration / output tail，并输出只读 release inspection handoff（git clean/sync、latest-batch cadence、third-inspection guard）；不写 repo/case state，不联网读取远程 CI，不替代远程 CI green
 /rekit next-batch -Domain <candidate-domain> -Closure <batch-title> -WhatIf -Format json # 接受 kit-mode next-batch guidance 前预览 docs/batch-plan.md 与 CHANGELOG.md planning receipt，并返回 expectedNextBatchPlanSha256
 /rekit next-batch -Domain <candidate-domain> -Closure <batch-title> -ExpectedNextBatchPlanSha256 <hash> -Apply -Format json # 复核同一 WhatIf hash 后只写这两个 kit docs；不触碰 case state、不执行 heavy/reviewer/adapter/pack-memory/gate/sync/promote mutation、不 commit/push、不声明 remote CI green
+/rekit run-driver-step -Target <caseRoot> -WhatIf -Format json # 主 Agent/harness 只预览当前 focused case-scoped continue driver step，返回 typed Apply request 与 expectedDriverStepPlanSha256；不写 case
+/rekit run-driver-step -Target <caseRoot> -ExpectedDriverStepPlanSha256 <hash> -Apply -Format json # 复核同一 plan hash 后只执行 matching Go Apply handler并刷新 status；stale hash fail-closed，不调用 shell/session/reviewer/adapter/heavy-tool，不写 authority/confirmed
 /rekit overview -Format text # 只读显示 case Mission Commander action queue/current action、queue-aware next steps、lane/executor/evidence review summary/evidence/section handoff
 /rekit note -Kind verification -Lane main -WhatIf -Format text # 预览 ledger event 与 would-action delta
 /rekit note -Kind verification -Lane main -Format text # 写入 append-only fact event 后打印 Mission Commander handoff

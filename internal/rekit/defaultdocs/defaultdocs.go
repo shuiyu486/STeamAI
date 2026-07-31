@@ -131,7 +131,7 @@ var requiredPhrases = []requiredPhrase{
 	{path: "docs/vision.md", phrase: "优先运行 Go-native 检查"},
 	{path: "docs/reference-absorption.md", phrase: "Go-native release readiness 子集"},
 	{path: "docs/reference-absorption.md", phrase: "不能宣称已具备自动脱壳/逆向引擎"},
-	{path: "docs/agent-team-rollout-plan.md", phrase: "公共 `/rekit` 默认路径已由 22 个 Go-owned/no-fallback public commands 支撑"},
+	{path: "docs/agent-team-rollout-plan.md", phrase: "公共 `/rekit` 默认路径已由 23 个 Go-owned/no-fallback public commands 支撑"},
 	{path: "docs/agent-team-rollout-plan.md", phrase: "Go-native `status`、`doctor` 与 `release-check` 不回归"},
 	{path: "rekit/tests/README.md", phrase: "Go-first release gate 优先由 Go-owned `release-check` inventory"},
 	{path: "rekit/tests/README.md", phrase: "推荐最小回归组合"},

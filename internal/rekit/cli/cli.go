@@ -120,6 +120,7 @@ type Options struct {
 	NextBatchDomain                       string
 	NextBatchClosure                      string
 	ExpectedNextBatchPlanSHA256           string
+	ExpectedDriverStepPlanSHA256          string
 	Gate                                  gate.Options
 	Note                                  note.Options
 	Start                                 workstream.StartOptions
@@ -375,6 +376,12 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ExpectedNextBatchPlanSha256")
 			}
 			opt.ExpectedNextBatchPlanSHA256 = args[i]
+		case "-ExpectedDriverStepPlanSha256", "-ExpectedDriverStepPlanSHA256", "--expected-driver-step-plan-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedDriverStepPlanSha256")
+			}
+			opt.ExpectedDriverStepPlanSHA256 = args[i]
 		case "-CollectReviewerResult", "--collect-reviewer-result":
 			opt.CollectReviewerResult = true
 		case "-RecordReviewerDispatch", "--record-reviewer-dispatch":
@@ -951,6 +958,9 @@ func Run(args []string, stdout io.Writer) error {
 	if (strings.TrimSpace(opt.NextBatchDomain) != "" || strings.TrimSpace(opt.NextBatchClosure) != "" || strings.TrimSpace(opt.ExpectedNextBatchPlanSHA256) != "") && opt.Command != commands.NextBatch {
 		return fmt.Errorf("next-batch planning receipt flags are supported only by next-batch")
 	}
+	if strings.TrimSpace(opt.ExpectedDriverStepPlanSHA256) != "" && opt.Command != commands.RunDriverStep {
+		return fmt.Errorf("-ExpectedDriverStepPlanSha256 is supported only by run-driver-step")
+	}
 	if (strings.TrimSpace(opt.Note.CreatedAt) != "" || strings.TrimSpace(opt.Note.ExpectedEventSHA256) != "") && opt.Command != commands.Note {
 		return fmt.Errorf("note event currentness flags are supported only by note")
 	}
@@ -990,6 +1000,8 @@ func Run(args []string, stdout io.Writer) error {
 		return runReleaseCheck(ctx, opt, stdout)
 	case commands.ReleaseRun:
 		return runReleaseRun(ctx, opt, stdout)
+	case commands.RunDriverStep:
+		return runDriverStep(ctx, opt, stdout)
 	case commands.NextBatch:
 		return runNextBatch(ctx, opt, stdout)
 	case commands.Doctor, commands.Validate:

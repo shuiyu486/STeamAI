@@ -654,6 +654,7 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 		"packs",
 		"release-check",
 		"release-run",
+		"run-driver-step",
 		"next-batch",
 		"doctor",
 		"validate",

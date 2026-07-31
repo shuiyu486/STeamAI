@@ -189,6 +189,16 @@ try {
   Assert-FakeDefaultDelegation -Arguments @('-Command','status') -CommandName 'status' -Label 'default status fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','packs') -CommandName 'packs' -Label 'default packs fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','release-check','-Format','json') -CommandName 'release-check' -Label 'default release-check fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','run-driver-step','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'run-driver-step' -Label 'default run-driver-step preview fake delegation'
+  $driverStepHash = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+  $driverStepCapturePath = Join-Path $matrixRoot 'run-driver-step-args.txt'
+  Write-CapturingFakeGoBackend -Path $fakeGo -CapturePath $driverStepCapturePath
+  $driverStepApplyOut = Invoke-RekitSmoke -Arguments @('-Command','run-driver-step','-Target',$CaseRoot,'-Pack',$Pack,'-ExpectedDriverStepPlanSha256',$driverStepHash,'-Apply','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $driverStepApplyOut -Expected '"delegatedByFake":true' -Label 'default run-driver-step apply fake delegation'
+  $capturedDriverStepArgs = [System.IO.File]::ReadAllText($driverStepCapturePath, [System.Text.Encoding]::Default)
+  Assert-ContainsText -Text $capturedDriverStepArgs -Expected "-ExpectedDriverStepPlanSha256 $driverStepHash" -Label 'run-driver-step hash-bound facade args'
+  $driverStepDisabledOut = Invoke-RekitSmoke -Arguments @('-Command','run-driver-step','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf','-Format','json') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $driverStepDisabledOut -Expected 'PowerShell fallback has been retired' -Label 'disabled run-driver-step no-fallback remains retired'
   Assert-FakeDefaultDelegation -Arguments @('-Command','doctor','-Target',$CaseRoot,'-Pack',$Pack) -CommandName 'doctor' -Label 'default doctor fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','validate','-Target',$CaseRoot,'-Pack',$Pack) -CommandName 'validate' -Label 'default validate fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','attach','-Target',(Join-Path $matrixRoot 'default-attach'),'-Pack',$Pack,'-Apply') -CommandName 'attach' -Label 'default attach apply fake delegation'
@@ -255,9 +265,10 @@ try {
     Assert-ContainsText -Text $nestedContractOut -Expected '"isMutation": false' -Label 'facade nested workspace contract product path'
     Assert-ContainsText -Text $nestedContractOut -Expected '"liveValidation": {' -Label 'facade nested workspace contract live-validation handoff'
     Assert-ContainsText -Text $nestedContractOut -Expected '"validateCommand": "rekit -Command gate' -Label 'facade nested workspace contract live-validation handoff'
-    Assert-ContainsText -Text $nestedContractOut -Expected '"recordCommand": "rekit -Command gate' -Label 'facade nested workspace contract live-validation handoff'
     Assert-ContainsText -Text $nestedContractOut -Expected '"validateArgs": ' -Label 'facade nested workspace contract live-validation handoff'
-    Assert-ContainsText -Text $nestedContractOut -Expected '"recordArgs": ' -Label 'facade nested workspace contract live-validation handoff'
+    Assert-NotContainsText -Text $nestedContractOut -Unexpected '"recordCommand": "rekit -Command gate' -Label 'facade nested workspace pre-validation contract record guard'
+    Assert-ContainsText -Text $nestedValidationOut -Expected '"recordExpectedReportSha256": ' -Label 'facade nested workspace valid validation hash handoff'
+    Assert-ContainsText -Text $nestedValidationOut -Expected '"primaryCommand": "/rekit gate' -Label 'facade nested workspace valid validation record handoff'
     Assert-ContainsText -Text $nestedContractOut -Expected '"refPathRequires": ' -Label 'facade nested workspace contract live-validation handoff'
     Assert-ContainsText -Text $nestedContractOut -Expected 'evidenceRefs must stay under authorized outputPaths' -Label 'facade nested workspace contract live-validation handoff'
     Assert-ContainsText -Text $nestedContractOut -Expected '"statusSummaryRequires": ' -Label 'facade nested workspace contract live-validation handoff'

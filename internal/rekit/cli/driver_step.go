@@ -1,0 +1,601 @@
+package cli
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"path/filepath"
+	"strings"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
+)
+
+type driverStepPlan struct {
+	SchemaVersion                   int                                   `json:"schemaVersion"`
+	Command                         string                                `json:"command"`
+	CaseRoot                        string                                `json:"caseRoot"`
+	Pack                            string                                `json:"pack"`
+	IsMutation                      bool                                  `json:"isMutation"`
+	Applied                         bool                                  `json:"applied"`
+	ReviewRequired                  bool                                  `json:"reviewRequired"`
+	RequiresConfirmation            bool                                  `json:"requiresConfirmation"`
+	CurrentDriverRequest            mission.MissionCommanderDriverRequest `json:"currentDriverRequest"`
+	PreviewResult                   any                                   `json:"previewResult"`
+	ApplyDriverRequest              mission.MissionCommanderDriverRequest `json:"applyDriverRequest"`
+	ExpectedDriverStepPlanSHA256    string                                `json:"expectedDriverStepPlanSha256"`
+	ExpectedDriverStepPreviewSHA256 string                                `json:"expectedDriverStepPreviewSha256"`
+	MissionCommanderActionQueue     mission.MissionCommanderActionQueue   `json:"missionCommanderActionQueue"`
+	Receipt                         *driverStepReceipt                    `json:"receipt,omitempty"`
+	RefreshedStatus                 *statusInventory                      `json:"refreshedStatus,omitempty"`
+	Boundary                        []string                              `json:"boundary"`
+}
+
+type driverStepReceipt struct {
+	State                         string                                 `json:"state"`
+	Outcome                       string                                 `json:"outcome"`
+	RequestedCommand              string                                 `json:"requestedCommand"`
+	ExecutedCommand               string                                 `json:"executedCommand"`
+	CommandResultCommand          string                                 `json:"commandResultCommand"`
+	ExpectedReceiptCommand        string                                 `json:"expectedReceiptCommand"`
+	ExpectedReceiptCommandMatched bool                                   `json:"expectedReceiptCommandMatched"`
+	RefreshStatusCommand          string                                 `json:"refreshStatusCommand"`
+	RefreshStatusCommandMatched   bool                                   `json:"refreshStatusCommandMatched"`
+	RefreshedCurrentDriverRequest *mission.MissionCommanderDriverRequest `json:"refreshedCurrentDriverRequest,omitempty"`
+	Boundary                      []string                               `json:"boundary"`
+}
+
+type driverStepPlanIdentity struct {
+	CurrentDriverRequest mission.MissionCommanderDriverRequest `json:"currentDriverRequest"`
+	ApplyDriverRequest   mission.MissionCommanderDriverRequest `json:"applyDriverRequest"`
+	PreviewResult        any                                   `json:"previewResult"`
+}
+
+func runDriverStep(ctx runtime.Context, opt Options, out io.Writer) error {
+	if !ctx.TargetProvided {
+		return fmt.Errorf("run-driver-step requires -Target for an attached case")
+	}
+	if opt.WhatIf && opt.Apply {
+		return fmt.Errorf("run-driver-step cannot combine -WhatIf and -Apply")
+	}
+	if !opt.WhatIf && !opt.Apply {
+		return fmt.Errorf("run-driver-step requires -WhatIf or -Apply")
+	}
+	if strings.ToLower(strings.TrimSpace(opt.Format)) != "json" {
+		return fmt.Errorf("run-driver-step supports only -Format json")
+	}
+	if err := validateDriverStepOuterArgs(opt); err != nil {
+		return err
+	}
+	plan, err := buildDriverStepPlan(ctx, opt)
+	if err != nil {
+		return err
+	}
+	if opt.WhatIf {
+		if strings.TrimSpace(opt.ExpectedDriverStepPlanSHA256) != "" {
+			return fmt.Errorf("run-driver-step -WhatIf does not accept -ExpectedDriverStepPlanSha256")
+		}
+		return writeJSON(out, plan)
+	}
+	expected := strings.TrimSpace(opt.ExpectedDriverStepPlanSHA256)
+	if expected == "" {
+		return fmt.Errorf("run-driver-step -Apply requires -ExpectedDriverStepPlanSha256 from -WhatIf")
+	}
+	if !strings.EqualFold(expected, plan.ExpectedDriverStepPlanSHA256) {
+		return fmt.Errorf("run-driver-step expected plan sha256 mismatch: got %s want %s", expected, plan.ExpectedDriverStepPlanSHA256)
+	}
+	result, err := applyDriverStep(ctx, plan.ApplyDriverRequest, plan.ExpectedDriverStepPreviewSHA256)
+	if err != nil {
+		return err
+	}
+	refreshed, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+	if err != nil {
+		return fmt.Errorf("refresh status after driver step: %w", err)
+	}
+	receipt, err := driverStepReceiptFor(ctx, plan.CurrentDriverRequest, plan.ApplyDriverRequest, result, refreshed)
+	if err != nil {
+		return err
+	}
+	plan.IsMutation = true
+	plan.Applied = driverStepResultApplied(result)
+	plan.ReviewRequired = false
+	plan.RequiresConfirmation = false
+	plan.PreviewResult = result
+	plan.Receipt = &receipt
+	plan.RefreshedStatus = &refreshed
+	plan.MissionCommanderActionQueue = driverStepResultQueue(result)
+	return writeJSON(out, plan)
+}
+
+func buildDriverStepPlan(ctx runtime.Context, opt Options) (driverStepPlan, error) {
+	status, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+	if err != nil {
+		return driverStepPlan{}, err
+	}
+	if status.MissionControlRunbook == nil || status.MissionControlRunbook.CurrentDriverRequest == nil {
+		return driverStepPlan{}, fmt.Errorf("run-driver-step requires missionControlRunbook.currentDriverRequest")
+	}
+	if status.MissionControlRunbook.Scope != "case" {
+		return driverStepPlan{}, fmt.Errorf("run-driver-step supports only case-scoped current driver requests; got %q", status.MissionControlRunbook.Scope)
+	}
+	request := *status.MissionControlRunbook.CurrentDriverRequest
+	previewOpt, err := parseBoundedDriverRequest(ctx, request, false)
+	if err != nil {
+		return driverStepPlan{}, err
+	}
+	preview, err := previewDriverStep(ctx, previewOpt)
+	if err != nil {
+		return driverStepPlan{}, err
+	}
+	applyRequest, err := driverStepApplyRequest(preview)
+	if err != nil {
+		return driverStepPlan{}, err
+	}
+	applyRequest, err = qualifyDriverStepApplyRequest(ctx, applyRequest)
+	if err != nil {
+		return driverStepPlan{}, err
+	}
+	if _, err := parseBoundedDriverRequest(ctx, applyRequest, true); err != nil {
+		return driverStepPlan{}, fmt.Errorf("returned apply driver request: %w", err)
+	}
+	if !strings.EqualFold(driverStepCommandName(request.Command), driverStepCommandName(applyRequest.Command)) {
+		return driverStepPlan{}, fmt.Errorf("returned apply driver request command differs from current preview request")
+	}
+	previewEncoded, err := json.Marshal(preview)
+	if err != nil {
+		return driverStepPlan{}, err
+	}
+	previewSum := sha256.Sum256(previewEncoded)
+	previewSHA256 := hex.EncodeToString(previewSum[:])
+	identity := driverStepPlanIdentity{CurrentDriverRequest: request, ApplyDriverRequest: applyRequest, PreviewResult: preview}
+	encoded, err := json.Marshal(identity)
+	if err != nil {
+		return driverStepPlan{}, err
+	}
+	sum := sha256.Sum256(encoded)
+	return driverStepPlan{
+		SchemaVersion:                   1,
+		Command:                         commands.RunDriverStep,
+		CaseRoot:                        ctx.Target,
+		Pack:                            ctx.Pack,
+		IsMutation:                      false,
+		Applied:                         false,
+		ReviewRequired:                  true,
+		RequiresConfirmation:            true,
+		CurrentDriverRequest:            request,
+		PreviewResult:                   preview,
+		ApplyDriverRequest:              applyRequest,
+		ExpectedDriverStepPlanSHA256:    hex.EncodeToString(sum[:]),
+		ExpectedDriverStepPreviewSHA256: previewSHA256,
+		MissionCommanderActionQueue:     driverStepResultQueue(preview),
+		Boundary: []string{
+			"runner accepts only the exact current continue WhatIf request and its returned typed Apply request",
+			"Apply is hash-bound to the reviewed current request, returned Apply request, and deterministic continue preview result",
+			"the Go runtime does not invoke a shell, spawn or poll sessions, execute reviewer/adapter/heavy tools, or write authority/confirmed state",
+			"status is rebuilt after Apply before follow-up work is selected",
+		},
+	}, nil
+}
+
+func validateDriverStepOuterArgs(opt Options) error {
+	valueFlags := map[string]bool{
+		"-command": true, "--command": true,
+		"-target": true, "--target": true,
+		"-pack": true, "--pack": true,
+		"-format": true, "--format": true,
+		"-expecteddriverstepplansha256": true, "--expected-driver-step-plan-sha256": true,
+	}
+	switchFlags := map[string]bool{
+		"-whatif": true, "--what-if": true,
+		"-apply": true, "--apply": true,
+	}
+	seen := map[string]bool{}
+	separatorSeen := false
+	for i := 0; i < len(opt.rawArgs); i++ {
+		token := opt.rawArgs[i]
+		if token == "--" {
+			if i != 0 || separatorSeen {
+				return fmt.Errorf("run-driver-step accepts -- only once at the start of the argument list")
+			}
+			separatorSeen = true
+			continue
+		}
+		key := strings.ToLower(strings.SplitN(token, "=", 2)[0])
+		if !strings.HasPrefix(key, "-") {
+			return fmt.Errorf("run-driver-step contains unsupported positional argument %s", token)
+		}
+		canonical := key
+		switch key {
+		case "--command":
+			canonical = "-command"
+		case "--target":
+			canonical = "-target"
+		case "--pack":
+			canonical = "-pack"
+		case "--format":
+			canonical = "-format"
+		case "--expected-driver-step-plan-sha256":
+			canonical = "-expecteddriverstepplansha256"
+		case "--what-if":
+			canonical = "-whatif"
+		case "--apply":
+			canonical = "-apply"
+		}
+		if seen[canonical] {
+			return fmt.Errorf("run-driver-step repeats flag %s", token)
+		}
+		seen[canonical] = true
+		if switchFlags[key] {
+			continue
+		}
+		if !valueFlags[key] {
+			return fmt.Errorf("run-driver-step contains unsupported flag %s", token)
+		}
+		if !strings.Contains(token, "=") {
+			if i+1 >= len(opt.rawArgs) || strings.HasPrefix(opt.rawArgs[i+1], "-") {
+				return fmt.Errorf("run-driver-step flag %s is missing a value", token)
+			}
+			i++
+		}
+	}
+	return nil
+}
+
+func qualifyDriverStepApplyRequest(ctx runtime.Context, request mission.MissionCommanderDriverRequest) (mission.MissionCommanderDriverRequest, error) {
+	fields, err := splitDriverCommand(request.Command)
+	if err != nil {
+		return mission.MissionCommanderDriverRequest{}, err
+	}
+	if len(fields) < 2 || fields[0] != "/rekit" || !boundedDriverStepCommand(fields[1]) {
+		return mission.MissionCommanderDriverRequest{}, fmt.Errorf("returned Apply request is outside the bounded driver command allowlist")
+	}
+	args := fields[2:]
+	if !driverCommandHasFlag(args, "-Apply", "--apply") && !driverCommandHasFlag(args, "-WhatIf", "--what-if") {
+		fields = append(fields, "-Apply")
+		args = fields[2:]
+	}
+	if !driverCommandHasFlag(args, "-Target", "--target") {
+		fields = append(fields, "-Target", ctx.Target)
+	}
+	if !driverCommandHasFlag(args, "-Pack", "--pack") {
+		fields = append(fields, "-Pack", ctx.Pack)
+	}
+	if !driverCommandHasFlag(args, "-Format", "--format") {
+		fields = append(fields, "-Format", "json")
+	}
+	request.Command = joinDriverCommand(fields)
+	return request, nil
+}
+
+func parseBoundedDriverRequest(ctx runtime.Context, request mission.MissionCommanderDriverRequest, apply bool) (Options, error) {
+	if !request.CommandExecutable || request.Blocked {
+		return Options{}, fmt.Errorf("current driver request is not runnable: executable=%t blocked=%t kind=%s", request.CommandExecutable, request.Blocked, request.Kind)
+	}
+	if !apply && !request.RequiresReview {
+		return Options{}, fmt.Errorf("current driver request is outside the review-first runner boundary")
+	}
+	fields, err := splitDriverCommand(request.Command)
+	if err != nil {
+		return Options{}, err
+	}
+	if len(fields) < 2 || fields[0] != "/rekit" {
+		return Options{}, fmt.Errorf("driver request command must start with /rekit")
+	}
+	if !boundedDriverStepCommand(fields[1]) {
+		return Options{}, fmt.Errorf("driver request command %q is outside the run-driver-step allowlist", fields[1])
+	}
+	if err := validateBoundedDriverTokens(fields[1], fields[2:], apply); err != nil {
+		return Options{}, err
+	}
+	inner, err := Parse(append([]string{"-Command", fields[1]}, fields[2:]...))
+	if err != nil {
+		return Options{}, err
+	}
+	if apply {
+		if !inner.Apply || inner.WhatIf {
+			return Options{}, fmt.Errorf("returned driver request must be Apply-only")
+		}
+	} else if !inner.WhatIf || inner.Apply {
+		return Options{}, fmt.Errorf("current driver request must be WhatIf-only")
+	}
+	if strings.TrimSpace(inner.Target) == "" || !sameDriverStepPath(inner.Target, ctx.Target) {
+		return Options{}, fmt.Errorf("driver request target must match the attached case")
+	}
+	if inner.PackProvided && !strings.EqualFold(strings.TrimSpace(inner.Pack), strings.TrimSpace(ctx.Pack)) {
+		return Options{}, fmt.Errorf("driver request pack must match the attached case pack")
+	}
+	if strings.ToLower(strings.TrimSpace(inner.Format)) != "json" {
+		return Options{}, fmt.Errorf("driver request must use -Format json")
+	}
+	if inner.CreateCandidates || inner.Review || inner.Force || inner.List || wantsReviewArtifacts(inner) {
+		return Options{}, fmt.Errorf("driver request contains flags outside the bounded runner contract")
+	}
+	return inner, nil
+}
+
+func validateBoundedDriverTokens(command string, fields []string, apply bool) error {
+	valueFlags := map[string]bool{
+		"-target": true, "--target": true,
+		"-pack": true, "--pack": true,
+		"-format": true, "--format": true,
+		"-lane": true, "--lane": true,
+		"-executor": true, "--executor": true,
+		"-expectedexecutorgeneration": true, "--expected-executor-generation": true,
+	}
+	switchFlags := map[string]bool{
+		"-whatif": true, "--what-if": true,
+		"-apply": true, "--apply": true,
+	}
+	canonicalFlag := func(key string) string {
+		key = strings.ToLower(strings.TrimSpace(key))
+		switch key {
+		case "--target":
+			return "-target"
+		case "--pack":
+			return "-pack"
+		case "--format":
+			return "-format"
+		case "--lane":
+			return "-lane"
+		case "--executor":
+			return "-executor"
+		case "--expected-executor-generation":
+			return "-expectedexecutorgeneration"
+		case "--what-if":
+			return "-whatif"
+		case "--apply":
+			return "-apply"
+		default:
+			return key
+		}
+	}
+	seen := map[string]bool{}
+	positionals := 0
+	for i := 0; i < len(fields); i++ {
+		field := fields[i]
+		if !strings.HasPrefix(field, "-") {
+			positionals++
+			if positionals > 1 {
+				return fmt.Errorf("driver request has too many positional arguments")
+			}
+			continue
+		}
+		key := canonicalFlag(field)
+		if seen[key] {
+			return fmt.Errorf("driver request repeats flag %s", field)
+		}
+		seen[key] = true
+		if switchFlags[strings.ToLower(field)] || switchFlags[key] {
+			continue
+		}
+		if !valueFlags[strings.ToLower(field)] && !valueFlags[key] {
+			return fmt.Errorf("driver request contains unsupported flag %s", field)
+		}
+		if i+1 >= len(fields) || strings.HasPrefix(fields[i+1], "-") {
+			return fmt.Errorf("driver request flag %s is missing a value", field)
+		}
+		i++
+	}
+	if command != commands.Continue {
+		return fmt.Errorf("driver request command %q is outside the run-driver-step MVP allowlist", command)
+	}
+	selectorKinds := positionals
+	if seen["-lane"] {
+		selectorKinds++
+	}
+	if selectorKinds != 1 {
+		return fmt.Errorf("continue driver request requires exactly one lane selector")
+	}
+	hasWhatIf := seen["-whatif"]
+	hasApply := seen["-apply"]
+	if apply && (!hasApply || hasWhatIf) {
+		return fmt.Errorf("returned driver request must be Apply-only")
+	}
+	if !apply && (!hasWhatIf || hasApply) {
+		return fmt.Errorf("current driver request must be WhatIf-only")
+	}
+	return nil
+}
+
+func previewDriverStep(ctx runtime.Context, opt Options) (any, error) {
+	if opt.Command != commands.Continue {
+		return nil, fmt.Errorf("unsupported bounded driver preview: %s", opt.Command)
+	}
+	return workstream.ContinuePreview(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Continue)
+}
+
+var (
+	driverStepApplyBeforeContinueHook    func() error
+	driverStepAfterPreviewValidationHook func() error
+)
+
+func applyDriverStep(ctx runtime.Context, request mission.MissionCommanderDriverRequest, expectedPreviewSHA256 string) (any, error) {
+	opt, err := parseBoundedDriverRequest(ctx, request, true)
+	if err != nil {
+		return nil, err
+	}
+	switch opt.Command {
+	case commands.Continue:
+		if driverStepApplyBeforeContinueHook != nil {
+			if err := driverStepApplyBeforeContinueHook(); err != nil {
+				return nil, err
+			}
+		}
+		opt.Continue.ExpectedPreviewSHA256 = expectedPreviewSHA256
+		opt.Continue.AfterPreviewValidation = driverStepAfterPreviewValidationHook
+		return workstream.ContinueApply(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Continue)
+	default:
+		return nil, fmt.Errorf("unsupported bounded driver apply: %s", opt.Command)
+	}
+}
+
+func driverStepApplyRequest(result any) (mission.MissionCommanderDriverRequest, error) {
+	var request *mission.MissionCommanderDriverRequest
+	if value, ok := result.(workstream.ContinueResult); ok {
+		request = value.MissionCommanderActionQueue.CurrentDriverRequest
+	}
+	if request == nil {
+		return mission.MissionCommanderDriverRequest{}, fmt.Errorf("driver preview omitted a typed Apply driver request")
+	}
+	return *request, nil
+}
+
+func driverStepResultQueue(result any) mission.MissionCommanderActionQueue {
+	if value, ok := result.(workstream.ContinueResult); ok {
+		return value.MissionCommanderActionQueue
+	}
+	return mission.MissionCommanderActionQueue{}
+}
+
+func driverStepResultApplied(result any) bool {
+	if value, ok := result.(workstream.ContinueResult); ok {
+		return value.Applied
+	}
+	return false
+}
+
+func driverStepResultCommand(result any) string {
+	if value, ok := result.(workstream.ContinueResult); ok {
+		return value.Command
+	}
+	return ""
+}
+
+func driverStepReceiptFor(ctx runtime.Context, current, apply mission.MissionCommanderDriverRequest, result any, refreshed statusInventory) (driverStepReceipt, error) {
+	resultCommand := driverStepResultCommand(result)
+	if resultCommand == "" || !strings.EqualFold(resultCommand, driverStepCommandName(apply.Command)) {
+		return driverStepReceipt{}, fmt.Errorf("driver step command result identity mismatch: result=%q apply=%q", resultCommand, apply.Command)
+	}
+	expectedCommandMatched := strings.TrimSpace(current.ExpectedReceipt.Command) == strings.TrimSpace(current.Command)
+	refreshMatched := driverStepRefreshCommandMatches(ctx, current.ExpectedReceipt.RefreshStatusCommand)
+	if !expectedCommandMatched || !refreshMatched {
+		return driverStepReceipt{}, fmt.Errorf("driver step expected receipt mismatch: commandMatched=%t refreshMatched=%t", expectedCommandMatched, refreshMatched)
+	}
+	var refreshedRequest *mission.MissionCommanderDriverRequest
+	if refreshed.MissionControlRunbook != nil {
+		refreshedRequest = refreshed.MissionControlRunbook.CurrentDriverRequest
+	}
+	outcome := "not-applied"
+	if driverStepResultApplied(result) {
+		outcome = "applied"
+	}
+	return driverStepReceipt{
+		State:                         "refreshed",
+		Outcome:                       outcome,
+		RequestedCommand:              current.Command,
+		ExecutedCommand:               apply.Command,
+		CommandResultCommand:          resultCommand,
+		ExpectedReceiptCommand:        current.ExpectedReceipt.Command,
+		ExpectedReceiptCommandMatched: true,
+		RefreshStatusCommand:          current.ExpectedReceipt.RefreshStatusCommand,
+		RefreshStatusCommandMatched:   true,
+		RefreshedCurrentDriverRequest: refreshedRequest,
+		Boundary: []string{
+			"receipt validates the current request identity, returned Apply request result, and explicit status refresh route",
+			"receipt does not imply authority/confirmed state or heavy-tool execution",
+		},
+	}, nil
+}
+
+func driverStepRefreshCommandMatches(ctx runtime.Context, command string) bool {
+	fields, err := splitDriverCommand(command)
+	if err != nil || len(fields) < 2 || fields[0] != "/rekit" {
+		return false
+	}
+	opt, err := Parse(append([]string{"-Command", fields[1]}, fields[2:]...))
+	return err == nil && opt.Command == commands.Status && strings.TrimSpace(opt.Target) != "" && sameDriverStepPath(opt.Target, ctx.Target) && strings.EqualFold(strings.TrimSpace(opt.Format), "json") && !opt.Apply && !opt.WhatIf
+}
+
+func boundedDriverStepCommand(command string) bool {
+	return strings.EqualFold(strings.TrimSpace(command), commands.Continue)
+}
+
+func driverStepCommandName(command string) string {
+	fields, err := splitDriverCommand(command)
+	if err != nil || len(fields) < 2 {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(fields[1]))
+}
+
+func sameDriverStepPath(left, right string) bool {
+	leftAbs, leftErr := filepath.Abs(left)
+	rightAbs, rightErr := filepath.Abs(right)
+	return leftErr == nil && rightErr == nil && strings.EqualFold(filepath.Clean(leftAbs), filepath.Clean(rightAbs))
+}
+
+func driverCommandHasFlag(fields []string, names ...string) bool {
+	for _, field := range fields {
+		for _, name := range names {
+			if strings.EqualFold(field, name) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func joinDriverCommand(fields []string) string {
+	out := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if strings.ContainsAny(field, " \t\r\n\"") {
+			out = append(out, `"`+strings.ReplaceAll(field, `"`, `\"`)+`"`)
+		} else {
+			out = append(out, field)
+		}
+	}
+	return strings.Join(out, " ")
+}
+
+func splitDriverCommand(command string) ([]string, error) {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return nil, fmt.Errorf("driver request command is empty")
+	}
+	fields := []string{}
+	var current strings.Builder
+	inQuote := false
+	inField := false
+	for i := 0; i < len(command); i++ {
+		ch := command[i]
+		if inQuote {
+			inField = true
+			if ch == '\\' && i+1 < len(command) && command[i+1] == '"' {
+				current.WriteByte('"')
+				i++
+				continue
+			}
+			if ch == '"' {
+				inQuote = false
+				continue
+			}
+			current.WriteByte(ch)
+			continue
+		}
+		switch ch {
+		case ' ', '\t', '\n', '\r':
+			if inField {
+				fields = append(fields, current.String())
+				current.Reset()
+				inField = false
+			}
+		case '"':
+			inQuote = true
+			inField = true
+		default:
+			inField = true
+			current.WriteByte(ch)
+		}
+	}
+	if inQuote {
+		return nil, fmt.Errorf("unterminated quote in driver request command")
+	}
+	if inField {
+		fields = append(fields, current.String())
+	}
+	return fields, nil
+}

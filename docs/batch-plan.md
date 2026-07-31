@@ -64,6 +64,19 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 
 
+
+### Batch 781：current driver step runner MVP
+
+状态：实现、focused validation、独立审查修复与完整本机 release minimum 已完成，implementation commit/push 与 push-triggered remote inspection 进行中。本批选择 `mission-commander`，推进 current driver step runner MVP；release handoff candidate guidance 是：select a Mission Commander operational closure slice with status/handoff/continue product-path verification。上一批完成后仍需要解决的接手断点必须落在该 domain 的可操作 product-path closure 上，并能由 status/handoff/continue/release-check 或必要临时 case 验证；本批不是字段、文案或 summary 投影微调。
+
+目标：把 `mission-commander` candidate 收敛成 Windows 本机可验证的闭环：current driver step runner MVP。实现应复用既有 typed handoff/envelope 和 deterministic runtime 边界，让 Mission Commander 或 replacement executor 能从 durable docs/status 消费结果，不依赖上一会话隐性上下文；focused work 必须证明该候选命令所描述的能力：select a Mission Commander operational closure slice with status/handoff/continue product-path verification。
+
+已实现：新增 Go-owned/no-fallback public command `run-driver-step`。外层 `-WhatIf -Format json` 重建 status，只接受唯一 focused、case-scoped且 executable/review-first 的 `continue` preview request，直接调用 matching Go preview handler并从 typed result提取 bounded Apply request，以 current request、Apply request与完整 deterministic preview identity计算 `expectedDriverStepPlanSha256`，并在lane mutation lease内复验preview SHA，保持零写入；外层 `-Apply` 必须提供 exact hash，会重建同一 preview plan、stale drift时fail-closed、只调用一个matching Go Apply handler，随后刷新status并返回校验command identity、expected receipt command与refresh route的typed runner receipt。PowerShell compatibility façade只增加参数验证和Go-only/no-fallback透传；public command/profile/symbol/handler/release inventory均已同步。focused continue product path锁定WhatIf no-write、stale hash no-write、single Apply、refreshed status/receipt和no authority/confirmed；fail-closed tests覆盖onboarding、gate、unknown flag与duplicate phase，daily Mission Control smoke和focused release inventory亦已通过。
+
+边界：本批不新增 PowerShell runtime logic，不执行 heavy-tool，不写 authority/confirmed，不自动执行 reviewer/adapter/pack-memory/gate/sync/promote mutation，不自动提交或声明 remote CI green；`/rekit next-batch -Apply` 只在 expected hash 匹配时写 kit repo `docs/batch-plan.md` 与 `CHANGELOG.md` planning receipt。
+
+验证结果：focused runner tests最终通过（26.709s），覆盖continue happy path、WhatIf no-write、stale outer hash、lane lease内preview drift、validation后late outbox immutable snapshot、首位单个`--` WhatIf/Apply、outer strict args、nested unsupported flags/duplicate selector/phase和non-MVP command拒绝；daily Mission Control、release inventory、commands/defaultdocs/manifest/workstream相邻回归均通过，`facade-smoke.ps1`通过。独立审查两轮发现并已修复preview plan未纳入hash、outer/nested ignored args、不可达四命令allowlist、Go-run separator与post-validation outbox TOCTOU，最终复核无阻塞发现。完整本机 release minimum已通过：`status`、`packs`（pack validation ok）、`doctor`、`go test ./...`（CLI 446.433s）、`go vet ./...`与`git diff --check`；`git diff --check`仅有Windows LF→CRLF warning。提交前`release-check -Format json`复跑返回`ready=true` / `summary=release gate inventory ok`；implementation commit/push与push-triggered remote release-gate inspection待记录，远程`steps=[]`仍只记录blocker、不声明green。
+
 ### Batch 780：daily mission control route smoke
 
 状态：已完成实现、focused validation、完整本机 release minimum、文档收尾、独立审查修复、implementation commit/push 与 push-triggered remote inspection；implementation commit `9b7cf20` 已推送。Push run `30643703989` completed failure；Windows/macOS/Linux jobs `91199714301`/`91199714374`/`91199714391` 均未启动且 `steps=[]`，`gh run view 30643703989 --log-failed` 返回 `log not found: 91199714301`。三个 job annotations 均明确报告 recent account payments failed or spending limit needs increase；这是既有 runner/billing blocker 的明确远程信号，不声明 remote green。本批选择 `mission-commander`，推进 daily mission control route smoke；release handoff candidate guidance 是：select a Mission Commander operational closure slice with status/handoff/continue product-path verification。上一批完成后仍需要解决的接手断点必须落在该 domain 的可操作 product-path closure 上，并能由 status/handoff/continue/release-check 或必要临时 case 验证；本批不是字段、文案或 summary 投影微调。

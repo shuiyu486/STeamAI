@@ -42,7 +42,7 @@ func TestInspectRepoPublicDefaultDocsReady(t *testing.T) {
 	assertPhrase(t, readiness, "docs/powershell-deprecation.md", "Go CLI/backend 是 canonical runtime")
 	assertPhrase(t, readiness, "docs/vision.md", "优先运行 Go-native 检查")
 	assertPhrase(t, readiness, "docs/reference-absorption.md", "Go-native release readiness 子集")
-	assertPhrase(t, readiness, "docs/agent-team-rollout-plan.md", "公共 `/rekit` 默认路径已由 22 个 Go-owned/no-fallback public commands 支撑")
+	assertPhrase(t, readiness, "docs/agent-team-rollout-plan.md", "公共 `/rekit` 默认路径已由 23 个 Go-owned/no-fallback public commands 支撑")
 	assertPhrase(t, readiness, "rekit/tests/README.md", "推荐最小回归组合")
 	if counts.ForbiddenCommands != 0 {
 		t.Fatalf("unexpected forbidden public default commands: %+v", readiness.ForbiddenCommands)
@@ -268,7 +268,7 @@ Go-native release readiness 子集。
 
 const readyAgentTeamRollout = `# rollout
 
-公共 ` + "`/rekit`" + ` 默认路径已由 22 个 Go-owned/no-fallback public commands 支撑。
+公共 ` + "`/rekit`" + ` 默认路径已由 23 个 Go-owned/no-fallback public commands 支撑。
 Go-native ` + "`status`" + `、` + "`doctor`" + ` 与 ` + "`release-check`" + ` 不回归。
 `
 

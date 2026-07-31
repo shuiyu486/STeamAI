@@ -29,6 +29,8 @@ type ContinueOptions struct {
 	Selector                   string
 	Executor                   string
 	ExpectedExecutorGeneration int
+	ExpectedPreviewSHA256      string
+	AfterPreviewValidation     func() error
 }
 
 type ContinueResult struct {
@@ -228,6 +230,10 @@ func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (Cont
 	if err != nil {
 		return ContinueResult{}, err
 	}
+	return continuePreviewFromSnapshot(ctx, known, inputs, packets, rawEvents)
+}
+
+func continuePreviewFromSnapshot(ctx continueContext, known map[string]bool, inputs, packets []string, rawEvents []map[string]any) (ContinueResult, error) {
 	executorAction := ctx.executorAction()
 	executionEvidenceReview := ctx.executionEvidenceReview()
 	reviewerWritebacks := ctx.reviewerWritebacks()
@@ -264,7 +270,6 @@ func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (Cont
 		MissionCommanderNextActions:      commanderNextActions,
 		MissionCommanderActionQueue:      commanderActionQueue,
 		LaneTakeoverPackage:              laneTakeoverPackageFor(ctx.inst.CaseRoot, ctx.lane, executorAction, commanderActionQueue, false),
-		ContinueOwnerGuardRecovery:       nil,
 		Inputs:                           uniqueStrings(inputs),
 		PacketRefs:                       uniqueStrings(packets),
 		BlockedActions:                   []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution without a valid current authorization decision"},
@@ -374,6 +379,26 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (result
 	rawEvents, err := laneOutputEvents(ctx.inst.CaseRoot, ctx.lane, ctx.manifest)
 	if err != nil {
 		return ContinueResult{}, err
+	}
+	if strings.TrimSpace(opt.ExpectedPreviewSHA256) != "" {
+		preview, err := continuePreviewFromSnapshot(ctx, known, inputs, packets, rawEvents)
+		if err != nil {
+			return ContinueResult{}, err
+		}
+		encoded, err := json.Marshal(preview)
+		if err != nil {
+			return ContinueResult{}, err
+		}
+		sum := sha256.Sum256(encoded)
+		actual := hex.EncodeToString(sum[:])
+		if !strings.EqualFold(strings.TrimSpace(opt.ExpectedPreviewSHA256), actual) {
+			return ContinueResult{}, fmt.Errorf("continue preview sha256 mismatch: got %s want %s", opt.ExpectedPreviewSHA256, actual)
+		}
+		if opt.AfterPreviewValidation != nil {
+			if err := opt.AfterPreviewValidation(); err != nil {
+				return ContinueResult{}, err
+			}
+		}
 	}
 	stamp := time.Now().UTC().Format("20060102-150405000")
 	runID := "run-" + stamp
