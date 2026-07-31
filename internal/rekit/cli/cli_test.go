@@ -1804,11 +1804,11 @@ func TestRunStatusJsonCaseStartBootstrapDriverRequest(t *testing.T) {
 	if !status.CaseMission.Ready || status.CaseMission.LaneCount != 0 || queue.Counts.Total != 1 || queue.Counts.RequiresReview != 1 || queue.CurrentAction == nil || queue.CurrentAction.ActionID != "case-start-bootstrap" || queue.CurrentAction.State != "start-bootstrap-preview-required" || queue.CurrentAction.Source != "caseMissionStartBootstrap" || queue.CurrentAction.Command != "/rekit start -Target \""+caseRoot+"\" -Name triage -WhatIf -Format json" || request == nil || request.Kind != "preview-command" || request.Command != queue.CurrentAction.Command || !request.CommandExecutable || !request.RequiresReview || request.ExpectedReceipt.Command != request.Command || !containsSubstring(request.Boundary, "review-required current actions") {
 		t.Fatalf("empty-lane case mission should expose start bootstrap preview driver request: queue=%+v request=%+v actions=%+v", queue, request, status.CaseMission.MissionCommanderNextActions)
 	}
-	if runbook := status.CaseMission.DailyMissionControlRunbook; runbook == nil || !runbook.Ready || runbook.Scope != "case" || runbook.CurrentState != "start-bootstrap-preview-required" || runbook.CurrentCommand != request.Command || runbook.CurrentRunLoopStepID != "preview-current" || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Command != request.Command || runbook.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != runbook.RefreshStatusCommand || len(runbook.RunLoop) != 5 || !containsSubstring(runbook.Boundary, "read-only") {
-		t.Fatalf("daily runbook should wrap start bootstrap driver request: %+v", runbook)
+	if runbook := status.CaseMission.DailyMissionControlRunbook; runbook == nil || !runbook.Ready || runbook.Scope != "case" || runbook.CurrentState != "start-bootstrap-preview-required" || runbook.CurrentCommand != request.Command || runbook.CurrentRunLoopStepID != "preview-current" || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Command != request.Command || runbook.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != runbook.RefreshStatusCommand || runbook.HandoffPreviewDriverRequest == nil || runbook.HandoffPreviewDriverRequest.Kind != "preview-command" || runbook.HandoffPreviewDriverRequest.RunLoopStepID != "preview-handoff" || runbook.HandoffPreviewDriverRequest.Command != runbook.HandoffPreviewCommand || runbook.HandoffPreviewDriverRequest.ExpectedReceipt.RefreshStatusCommand != runbook.RefreshStatusCommand || runbook.HandoffApplyDriverRequest == nil || runbook.HandoffApplyDriverRequest.Kind != "review-guidance" || runbook.HandoffApplyDriverRequest.CommandExecutable || !strings.Contains(runbook.HandoffApplyDriverRequest.Guidance, runbook.HandoffApplyCommand) || len(runbook.RunLoop) != 5 || !containsSubstring(runbook.Boundary, "read-only") {
+		t.Fatalf("daily runbook should wrap start bootstrap and handoff driver requests: %+v", runbook)
 	}
-	if runbook := status.MissionControlRunbook; runbook == nil || !runbook.Ready || runbook.Focus != "case-current-action" || runbook.Scope != "case" || runbook.CurrentRunLoopStepID != "preview-current" || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Command != request.Command || runbook.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != runbook.RefreshStatusCommand || runbook.GuidanceHandoff != nil || len(runbook.Queues) != 4 || !runbook.Queues[0].Focused || !containsSubstring(runbook.RoutingReasons, "case current action needs attention") {
-		t.Fatalf("status Mission Control runbook should focus empty-lane start bootstrap request: %+v", runbook)
+	if runbook := status.MissionControlRunbook; runbook == nil || !runbook.Ready || runbook.Focus != "case-current-action" || runbook.Scope != "case" || runbook.CurrentRunLoopStepID != "preview-current" || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Command != request.Command || runbook.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != runbook.RefreshStatusCommand || runbook.HandoffPreviewDriverRequest == nil || runbook.HandoffPreviewDriverRequest.Command != status.CaseMission.DailyMissionControlRunbook.HandoffPreviewDriverRequest.Command || runbook.HandoffApplyDriverRequest == nil || runbook.HandoffApplyDriverRequest.CommandExecutable || runbook.GuidanceHandoff != nil || len(runbook.Queues) != 4 || !runbook.Queues[0].Focused || !containsSubstring(runbook.RoutingReasons, "case current action needs attention") {
+		t.Fatalf("status Mission Control runbook should focus empty-lane start bootstrap and handoff requests: %+v", runbook)
 	}
 	beforePreview := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 	args, ok := missionCommanderDriverRequestCommandCLIArgs(t, request)
@@ -1996,6 +1996,36 @@ func TestRunStartBootstrapDriverRequestConsumerLoopProductPath(t *testing.T) {
 		t.Fatalf("continue preview should return case-local follow-up request, not reuse invocation-scoped preview command: top=%+v returned=%+v", topLevelContinueRequest, previewRequest)
 	}
 	assertSnapshotEqual(t, beforeContinuePreview, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	beforeTypedHandoffPreview := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	handoffPreviewArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, refreshed.MissionControlRunbook.HandoffPreviewDriverRequest)
+	if !ok {
+		t.Fatalf("status runbook handoff preview request should be executable: %+v", refreshed.MissionControlRunbook.HandoffPreviewDriverRequest)
+	}
+	out.Reset()
+	if err := Run(handoffPreviewArgs, &out); err != nil {
+		t.Fatalf("status runbook handoff preview request failed: args=%+v err=%v\n%s", handoffPreviewArgs, err, out.String())
+	}
+	var previewHandoff struct {
+		Command                            string                                      `json:"command"`
+		IsMutation                         bool                                        `json:"isMutation"`
+		Applied                            bool                                        `json:"applied"`
+		RequiresConfirmation               bool                                        `json:"requiresConfirmation"`
+		Project                            bool                                        `json:"project"`
+		MissionCommanderActionQueue        missionCommanderActionQueueSnapshot         `json:"missionCommanderActionQueue"`
+		DailyMissionControlRunbook         *dailyMissionControlRunbookSnapshot         `json:"dailyMissionControlRunbook"`
+		ReplacementExecutorTakeoverPackage *replacementExecutorTakeoverPackageSnapshot `json:"replacementExecutorTakeoverPackage"`
+		Writes                             []startWrite                                `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &previewHandoff); err != nil {
+		t.Fatalf("status runbook handoff preview JSON did not decode: %v\n%s", err, out.String())
+	}
+	previewHandoffRequest := requireMissionCommanderDriverRequest(t, previewHandoff.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", previewRequest.Command, true, false, false)
+	if previewHandoff.Command != "handoff" || previewHandoff.IsMutation || previewHandoff.Applied || !previewHandoff.RequiresConfirmation || !previewHandoff.Project || previewHandoff.DailyMissionControlRunbook == nil || previewHandoff.DailyMissionControlRunbook.HandoffApplyDriverRequest == nil || !previewHandoff.DailyMissionControlRunbook.HandoffApplyDriverRequest.CommandExecutable || previewHandoff.DailyMissionControlRunbook.HandoffApplyDriverRequest.Command != previewHandoff.DailyMissionControlRunbook.HandoffApplyCommand || previewHandoff.ReplacementExecutorTakeoverPackage == nil || previewHandoff.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command != previewHandoffRequest.Command {
+		t.Fatalf("status handoff preview request should return durable takeover and executable handoff apply request: handoff=%+v request=%+v", previewHandoff, previewHandoffRequest)
+	}
+	assertStartWrite(t, previewHandoff.Writes, ".rekit/handovers/latest.md", "would-write-latest-project-handoff")
+	assertSnapshotEqual(t, beforeTypedHandoffPreview, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 
 	factsBeforeContinueApply := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
 	continueApplyArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, previewRequest)
@@ -22000,6 +22030,8 @@ type statusMissionControlRunbookSnapshot struct {
 	RefreshStatusCommand               string                                       `json:"refreshStatusCommand"`
 	HandoffPreviewCommand              string                                       `json:"handoffPreviewCommand"`
 	HandoffApplyCommand                string                                       `json:"handoffApplyCommand"`
+	HandoffPreviewDriverRequest        *missionCommanderDriverRequestSnapshot       `json:"handoffPreviewDriverRequest"`
+	HandoffApplyDriverRequest          *missionCommanderDriverRequestSnapshot       `json:"handoffApplyDriverRequest"`
 	Queues                             []statusMissionControlRunbookQueueSnapshot   `json:"queues"`
 	RoutingReasons                     []string                                     `json:"routingReasons"`
 	RunLoop                            []dailyMissionControlRunbookStepSnapshot     `json:"runLoop"`
@@ -22076,18 +22108,20 @@ type statusMissionControlRunbookQueueSnapshot struct {
 }
 
 type dailyMissionControlRunbookSnapshot struct {
-	Ready                 bool                                     `json:"ready"`
-	Scope                 string                                   `json:"scope"`
-	CurrentState          string                                   `json:"currentState"`
-	CurrentSource         string                                   `json:"currentSource"`
-	CurrentCommand        string                                   `json:"currentCommand"`
-	CurrentRunLoopStepID  string                                   `json:"currentRunLoopStepId"`
-	CurrentDriverRequest  *missionCommanderDriverRequestSnapshot   `json:"currentDriverRequest"`
-	RefreshStatusCommand  string                                   `json:"refreshStatusCommand"`
-	HandoffPreviewCommand string                                   `json:"handoffPreviewCommand"`
-	HandoffApplyCommand   string                                   `json:"handoffApplyCommand"`
-	RunLoop               []dailyMissionControlRunbookStepSnapshot `json:"runLoop"`
-	Boundary              []string                                 `json:"boundary"`
+	Ready                       bool                                     `json:"ready"`
+	Scope                       string                                   `json:"scope"`
+	CurrentState                string                                   `json:"currentState"`
+	CurrentSource               string                                   `json:"currentSource"`
+	CurrentCommand              string                                   `json:"currentCommand"`
+	CurrentRunLoopStepID        string                                   `json:"currentRunLoopStepId"`
+	CurrentDriverRequest        *missionCommanderDriverRequestSnapshot   `json:"currentDriverRequest"`
+	RefreshStatusCommand        string                                   `json:"refreshStatusCommand"`
+	HandoffPreviewCommand       string                                   `json:"handoffPreviewCommand"`
+	HandoffApplyCommand         string                                   `json:"handoffApplyCommand"`
+	HandoffPreviewDriverRequest *missionCommanderDriverRequestSnapshot   `json:"handoffPreviewDriverRequest"`
+	HandoffApplyDriverRequest   *missionCommanderDriverRequestSnapshot   `json:"handoffApplyDriverRequest"`
+	RunLoop                     []dailyMissionControlRunbookStepSnapshot `json:"runLoop"`
+	Boundary                    []string                                 `json:"boundary"`
 }
 
 type dailyMissionControlRunbookStepSnapshot struct {

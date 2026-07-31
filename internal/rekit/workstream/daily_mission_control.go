@@ -10,18 +10,20 @@ import (
 // external harness. It summarizes the current Mission Commander driver request
 // and the safe refresh/handoff cadence without executing any command.
 type DailyMissionControlRunbook struct {
-	Ready                 bool                                   `json:"ready"`
-	Scope                 string                                 `json:"scope"`
-	CurrentState          string                                 `json:"currentState,omitempty"`
-	CurrentSource         string                                 `json:"currentSource,omitempty"`
-	CurrentCommand        string                                 `json:"currentCommand,omitempty"`
-	CurrentRunLoopStepID  string                                 `json:"currentRunLoopStepId,omitempty"`
-	CurrentDriverRequest  *mission.MissionCommanderDriverRequest `json:"currentDriverRequest,omitempty"`
-	RefreshStatusCommand  string                                 `json:"refreshStatusCommand"`
-	HandoffPreviewCommand string                                 `json:"handoffPreviewCommand,omitempty"`
-	HandoffApplyCommand   string                                 `json:"handoffApplyCommand,omitempty"`
-	RunLoop               []DailyMissionControlRunbookStep       `json:"runLoop"`
-	Boundary              []string                               `json:"boundary,omitempty"`
+	Ready                       bool                                   `json:"ready"`
+	Scope                       string                                 `json:"scope"`
+	CurrentState                string                                 `json:"currentState,omitempty"`
+	CurrentSource               string                                 `json:"currentSource,omitempty"`
+	CurrentCommand              string                                 `json:"currentCommand,omitempty"`
+	CurrentRunLoopStepID        string                                 `json:"currentRunLoopStepId,omitempty"`
+	CurrentDriverRequest        *mission.MissionCommanderDriverRequest `json:"currentDriverRequest,omitempty"`
+	RefreshStatusCommand        string                                 `json:"refreshStatusCommand"`
+	HandoffPreviewCommand       string                                 `json:"handoffPreviewCommand,omitempty"`
+	HandoffApplyCommand         string                                 `json:"handoffApplyCommand,omitempty"`
+	HandoffPreviewDriverRequest *mission.MissionCommanderDriverRequest `json:"handoffPreviewDriverRequest,omitempty"`
+	HandoffApplyDriverRequest   *mission.MissionCommanderDriverRequest `json:"handoffApplyDriverRequest,omitempty"`
+	RunLoop                     []DailyMissionControlRunbookStep       `json:"runLoop"`
+	Boundary                    []string                               `json:"boundary,omitempty"`
 }
 
 type DailyMissionControlRunbookStep struct {
@@ -40,6 +42,10 @@ type DailyMissionControlRunbookStep struct {
 }
 
 func DailyMissionControlRunbookFor(caseRoot, scope string, queue mission.MissionCommanderActionQueue, handoffPreviewCommand, handoffApplyCommand string) *DailyMissionControlRunbook {
+	return DailyMissionControlRunbookForWithHandoffApplyReady(caseRoot, scope, queue, handoffPreviewCommand, handoffApplyCommand, false)
+}
+
+func DailyMissionControlRunbookForWithHandoffApplyReady(caseRoot, scope string, queue mission.MissionCommanderActionQueue, handoffPreviewCommand, handoffApplyCommand string, handoffApplyReady bool) *DailyMissionControlRunbook {
 	refreshCommand := dailyMissionControlStatusCommand(caseRoot)
 	scope = strings.TrimSpace(scope)
 	if scope == "" {
@@ -70,7 +76,68 @@ func DailyMissionControlRunbookFor(caseRoot, scope string, queue mission.Mission
 		runbook.CurrentDriverRequest = &request
 	}
 	runbook.RunLoop = dailyMissionControlRunLoop(runbook)
+	runbook.HandoffPreviewDriverRequest = dailyMissionControlHandoffDriverRequest(runbook, "preview-handoff", runbook.HandoffPreviewCommand, false, true)
+	runbook.HandoffApplyDriverRequest = dailyMissionControlHandoffDriverRequest(runbook, "write-handoff-for-takeover", runbook.HandoffApplyCommand, true, handoffApplyReady)
 	return runbook
+}
+
+func dailyMissionControlHandoffDriverRequest(runbook *DailyMissionControlRunbook, stepID, command string, apply, executable bool) *mission.MissionCommanderDriverRequest {
+	if runbook == nil || strings.TrimSpace(command) == "" {
+		return nil
+	}
+	action := mission.MissionCommanderNextActionItem{
+		Label:          firstNonEmpty(runbook.Scope, "case"),
+		State:          "handoff-preview-available",
+		Command:        strings.TrimSpace(command),
+		Source:         "dailyMissionControlRunbook.handoffPreview",
+		RequiresReview: true,
+		Reasons: []string{
+			"daily Mission Control handoff request is typed; do not reconstruct handoff commands from run-loop prose",
+		},
+		Boundary: []string{
+			"handoff preview is read-only and should use -WhatIf -Format json",
+			"handoff requests do not execute reviewer, adapter, heavy-tool, authority, or confirmed actions",
+		},
+	}
+	if apply {
+		action.State = "handoff-apply-available"
+		action.Source = "dailyMissionControlRunbook.handoffApply"
+		action.Boundary = append(action.Boundary,
+			"handoff apply writes case-local handoff/resume/checkpoint files only",
+			"run handoff apply only after reviewing the current status and handoff preview",
+		)
+	}
+	if !executable {
+		action.Command = "review handoff preview before running " + strings.TrimSpace(command)
+		action.Boundary = append(action.Boundary, "this handoff apply request is review guidance until a handoff preview/apply result marks it executable")
+	}
+	request := mission.MissionCommanderCurrentDriverRequest(action, stepID, dailyMissionControlMissionRunLoop(runbook.RunLoop))
+	if request == nil {
+		return nil
+	}
+	refreshed := mission.MissionCommanderDriverRequestWithRefreshStatusCommand(*request, runbook.RefreshStatusCommand)
+	if !executable {
+		refreshed.ExpectedReceipt.Command = ""
+	}
+	refreshed.Boundary = mission.UniqueStrings(append(refreshed.Boundary, action.Boundary...))
+	return &refreshed
+}
+
+func dailyMissionControlMissionRunLoop(steps []DailyMissionControlRunbookStep) []mission.MissionCommanderRunLoopStep {
+	out := make([]mission.MissionCommanderRunLoopStep, 0, len(steps))
+	for _, step := range steps {
+		out = append(out, mission.MissionCommanderRunLoopStep{
+			StepID:      step.StepID,
+			Order:       step.Order,
+			Actor:       step.Actor,
+			Description: firstNonEmpty(step.State, step.Source, step.StepID),
+			Command:     step.Command,
+			State:       step.State,
+			Source:      step.Source,
+			Boundary:    append([]string{}, step.Boundary...),
+		})
+	}
+	return out
 }
 
 func dailyMissionControlStatusCommand(caseRoot string) string {

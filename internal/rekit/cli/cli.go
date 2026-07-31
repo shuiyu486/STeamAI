@@ -3085,6 +3085,8 @@ type statusMissionControlRunbook struct {
 	RefreshStatusCommand        string                                      `json:"refreshStatusCommand"`
 	HandoffPreviewCommand       string                                      `json:"handoffPreviewCommand,omitempty"`
 	HandoffApplyCommand         string                                      `json:"handoffApplyCommand,omitempty"`
+	HandoffPreviewDriverRequest *mission.MissionCommanderDriverRequest      `json:"handoffPreviewDriverRequest,omitempty"`
+	HandoffApplyDriverRequest   *mission.MissionCommanderDriverRequest      `json:"handoffApplyDriverRequest,omitempty"`
 	Queues                      []statusMissionControlRunbookQueue          `json:"queues"`
 	RoutingReasons              []string                                    `json:"routingReasons,omitempty"`
 	RunLoop                     []statusMissionControlRunbookStep           `json:"runLoop"`
@@ -3705,6 +3707,10 @@ func buildStatusMissionControlRunbook(target string, caseMission *statusCaseMiss
 	if caseMission != nil {
 		runbook.HandoffPreviewCommand = strings.TrimSpace(caseMission.HandoffPreviewCommand)
 		runbook.HandoffApplyCommand = strings.TrimSpace(caseMission.HandoffApplyCommand)
+		if daily := caseMission.DailyMissionControlRunbook; daily != nil {
+			runbook.HandoffPreviewDriverRequest = statusMissionControlInvocationDriverRequestPtr(target, daily.HandoffPreviewDriverRequest)
+			runbook.HandoffApplyDriverRequest = statusMissionControlInvocationDriverRequestPtr(target, daily.HandoffApplyDriverRequest)
+		}
 	}
 	queues := []struct {
 		scope string
@@ -3908,6 +3914,14 @@ func statusMissionControlRunbookQueueFor(scope string, queue mission.MissionComm
 		item.CurrentSource = strings.TrimSpace(queue.CurrentAction.Source)
 	}
 	return item
+}
+
+func statusMissionControlInvocationDriverRequestPtr(target string, request *mission.MissionCommanderDriverRequest) *mission.MissionCommanderDriverRequest {
+	if request == nil {
+		return nil
+	}
+	qualified := statusMissionControlInvocationDriverRequest(target, *request)
+	return &qualified
 }
 
 func statusMissionControlInvocationDriverRequest(target string, request mission.MissionCommanderDriverRequest) mission.MissionCommanderDriverRequest {
@@ -4116,6 +4130,12 @@ func writeStatusMissionControlRunbookText(out io.Writer, runbook *statusMissionC
 		if _, err := fmt.Fprintf(out, "status Mission Control runbook driver request expected receipt：state=%s command=`%s` refreshStatusCommand=`%s` description=%s\n", request.ExpectedReceipt.State, request.ExpectedReceipt.Command, request.ExpectedReceipt.RefreshStatusCommand, request.ExpectedReceipt.Description); err != nil {
 			return err
 		}
+	}
+	if err := writeMissionCommanderDriverRequestText(out, "status Mission Control runbook handoff preview", runbook.HandoffPreviewDriverRequest); err != nil {
+		return err
+	}
+	if err := writeMissionCommanderDriverRequestText(out, "status Mission Control runbook handoff apply", runbook.HandoffApplyDriverRequest); err != nil {
+		return err
 	}
 	if err := writeStatusMissionControlGuidanceHandoffText(out, runbook.GuidanceHandoff); err != nil {
 		return err
@@ -5648,6 +5668,12 @@ func writeStatusDailyMissionControlRunbookText(out io.Writer, runbook *workstrea
 		if _, err := fmt.Fprintf(out, "status case mission daily runbook driver：kind=%s actor=%s state=%s source=%s executable=%t blocked=%t requiresReview=%t command=%s guidance=%s\n", request.Kind, request.Actor, request.State, request.Source, request.CommandExecutable, request.Blocked, request.RequiresReview, request.Command, request.Guidance); err != nil {
 			return err
 		}
+	}
+	if err := writeMissionCommanderDriverRequestText(out, "status case mission daily runbook handoff preview", runbook.HandoffPreviewDriverRequest); err != nil {
+		return err
+	}
+	if err := writeMissionCommanderDriverRequestText(out, "status case mission daily runbook handoff apply", runbook.HandoffApplyDriverRequest); err != nil {
+		return err
 	}
 	for _, step := range runbook.RunLoop {
 		if _, err := fmt.Fprintf(out, "status case mission daily runbook step：order=%d step=%s actor=%s state=%s source=%s driverKind=%s executable=%t blocked=%t requiresReview=%t command=%s guidance=%s\n", step.Order, step.StepID, step.Actor, step.State, step.Source, step.DriverKind, step.CommandExecutable, step.Blocked, step.RequiresReview, step.Command, step.Guidance); err != nil {

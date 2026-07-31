@@ -364,7 +364,7 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 	}
 	missionCommanderActionQueue := mission.MissionCommanderActionQueueFor(missionCommanderNext)
 	runbookScope := handoffRunbookScope(ctx.project, ctx.selector)
-	dailyRunbook := DailyMissionControlRunbookFor(ctx.inst.CaseRoot, runbookScope, missionCommanderActionQueue, handoffPreviewCommand(ctx.inst.CaseRoot, ctx.selector), handoffApplyCommand(ctx.inst.CaseRoot, ctx.selector))
+	dailyRunbook := DailyMissionControlRunbookForWithHandoffApplyReady(ctx.inst.CaseRoot, runbookScope, missionCommanderActionQueue, handoffPreviewCommand(ctx.inst.CaseRoot, ctx.selector), handoffApplyCommand(ctx.inst.CaseRoot, ctx.selector), true)
 	latestDriverReceiptHandoff, _ := latestDriverReceiptHandoffFor(ctx.inst.CaseRoot, lane)
 	replacementExecutorTakeoverPackage := handoffReplacementExecutorTakeoverPackage(ctx.inst.CaseRoot, runbookScope, lane, missionCommanderActionQueue, dailyRunbook, latestDriverReceiptHandoff)
 	var laneTakeoverPackage *LaneTakeoverPackage
@@ -978,6 +978,20 @@ func writeReplacementExecutorTakeoverPackage(out *bytes.Buffer, pkg *mission.Rep
 	fmt.Fprintln(out)
 }
 
+func writeDailyMissionControlDriverRequest(out *bytes.Buffer, label string, request *mission.MissionCommanderDriverRequest) {
+	if request == nil {
+		return
+	}
+	fmt.Fprintf(out, "- %s: kind=%s executable=%t blocked=%t requiresReview=%t command=`%s` guidance=`%s`\n", label, request.Kind, request.CommandExecutable, request.Blocked, request.RequiresReview, request.Command, request.Guidance)
+	fmt.Fprintf(out, "- %s expected receipt: state=%s command=`%s` refreshStatusCommand=`%s`\n", label, request.ExpectedReceipt.State, request.ExpectedReceipt.Command, request.ExpectedReceipt.RefreshStatusCommand)
+	for _, boundary := range request.Boundary {
+		fmt.Fprintf(out, "  - %s boundary: %s\n", label, boundary)
+	}
+	for _, boundary := range request.ExpectedReceipt.Boundary {
+		fmt.Fprintf(out, "  - %s receipt boundary: %s\n", label, boundary)
+	}
+}
+
 func writeDailyMissionControlRunbook(out *bytes.Buffer, runbook *DailyMissionControlRunbook) {
 	if runbook == nil || len(runbook.RunLoop) == 0 {
 		return
@@ -994,6 +1008,8 @@ func writeDailyMissionControlRunbook(out *bytes.Buffer, runbook *DailyMissionCon
 	if strings.TrimSpace(runbook.HandoffApplyCommand) != "" {
 		fmt.Fprintf(out, "- handoff apply: `%s`\n", runbook.HandoffApplyCommand)
 	}
+	writeDailyMissionControlDriverRequest(out, "handoff preview driver request", runbook.HandoffPreviewDriverRequest)
+	writeDailyMissionControlDriverRequest(out, "handoff apply driver request", runbook.HandoffApplyDriverRequest)
 	if request := runbook.CurrentDriverRequest; request != nil {
 		fmt.Fprintf(out, "- current driver request: kind=%s executable=%t blocked=%t requiresReview=%t command=`%s` guidance=`%s`\n", request.Kind, request.CommandExecutable, request.Blocked, request.RequiresReview, request.Command, request.Guidance)
 		fmt.Fprintf(out, "- current driver request expected receipt: state=%s command=`%s` refreshStatusCommand=`%s`\n", request.ExpectedReceipt.State, request.ExpectedReceipt.Command, request.ExpectedReceipt.RefreshStatusCommand)

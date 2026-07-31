@@ -56,6 +56,31 @@ func TestMissionCommanderActionRunLoopMarkdownLinesKeepsGuidanceAsDriverGuidance
 	}
 }
 
+func TestDailyMissionControlRunbookHandoffDriverRequestsGateApply(t *testing.T) {
+	contains := func(items []string, want string) bool {
+		return slices.ContainsFunc(items, func(item string) bool { return strings.Contains(item, want) })
+	}
+	queue := mission.MissionCommanderActionQueueFor([]mission.MissionCommanderNextActionItem{{
+		Lane:    "feature-triage",
+		Label:   "triage",
+		State:   "ready-to-continue",
+		Source:  "missionCommanderActions",
+		Command: "/rekit continue triage",
+	}})
+	statusRunbook := DailyMissionControlRunbookFor("C:/case", "case", queue, `/rekit handoff -Target "C:/case" -WhatIf -Format json`, `/rekit handoff -Target "C:/case" -Apply -Format json`)
+	if statusRunbook.HandoffPreviewDriverRequest == nil || statusRunbook.HandoffPreviewDriverRequest.Kind != "preview-command" || !statusRunbook.HandoffPreviewDriverRequest.CommandExecutable || statusRunbook.HandoffPreviewDriverRequest.Command != statusRunbook.HandoffPreviewCommand || statusRunbook.HandoffPreviewDriverRequest.ExpectedReceipt.RefreshStatusCommand != statusRunbook.RefreshStatusCommand {
+		t.Fatalf("status runbook should expose executable typed handoff preview request: %+v", statusRunbook.HandoffPreviewDriverRequest)
+	}
+	if statusRunbook.HandoffApplyDriverRequest == nil || statusRunbook.HandoffApplyDriverRequest.Kind != "review-guidance" || statusRunbook.HandoffApplyDriverRequest.CommandExecutable || statusRunbook.HandoffApplyDriverRequest.Command != "" || !strings.Contains(statusRunbook.HandoffApplyDriverRequest.Guidance, statusRunbook.HandoffApplyCommand) || statusRunbook.HandoffApplyDriverRequest.ExpectedReceipt.Command != "" || !contains(statusRunbook.HandoffApplyDriverRequest.Boundary, "review guidance until a handoff preview/apply result marks it executable") {
+		t.Fatalf("status runbook should gate handoff apply as review guidance: %+v", statusRunbook.HandoffApplyDriverRequest)
+	}
+
+	handoffRunbook := DailyMissionControlRunbookForWithHandoffApplyReady("C:/case", "case", queue, `/rekit handoff -Target "C:/case" -WhatIf -Format json`, `/rekit handoff -Target "C:/case" -Apply -Format json`, true)
+	if handoffRunbook.HandoffApplyDriverRequest == nil || handoffRunbook.HandoffApplyDriverRequest.Kind != "preview-command" || !handoffRunbook.HandoffApplyDriverRequest.CommandExecutable || handoffRunbook.HandoffApplyDriverRequest.Command != handoffRunbook.HandoffApplyCommand || handoffRunbook.HandoffApplyDriverRequest.ExpectedReceipt.Command != handoffRunbook.HandoffApplyCommand || handoffRunbook.HandoffApplyDriverRequest.ExpectedReceipt.RefreshStatusCommand != handoffRunbook.RefreshStatusCommand || !contains(handoffRunbook.HandoffApplyDriverRequest.Boundary, "handoff apply writes case-local handoff/resume/checkpoint files only") {
+		t.Fatalf("handoff result runbook should expose executable typed handoff apply request: %+v", handoffRunbook.HandoffApplyDriverRequest)
+	}
+}
+
 func TestLimitProjectMissionCommanderNextActionItemsKeepsNextBatchCandidateQueue(t *testing.T) {
 	items := []mission.MissionCommanderNextActionItem{
 		{Label: "next-batch", ActionID: "next-batch-selection", State: "ready-for-next-batch-selection", Source: "releaseHandoffNextBatch", Command: "select the next batch"},
