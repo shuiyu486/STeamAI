@@ -2543,6 +2543,78 @@ func TestRunStatusCaseMissionDoesNotInitializeMissingBoard(t *testing.T) {
 	}
 }
 
+func TestRunHandoffMissingBoardOnboardingTakeoverRequestProductPath(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var handoff struct {
+		Command                            string                                      `json:"command"`
+		IsMutation                         bool                                        `json:"isMutation"`
+		Applied                            bool                                        `json:"applied"`
+		RequiresConfirmation               bool                                        `json:"requiresConfirmation"`
+		Project                            bool                                        `json:"project"`
+		MissionBrief                       missionBrief                                `json:"missionBrief"`
+		MissionCommanderActionQueue        missionCommanderActionQueueSnapshot         `json:"missionCommanderActionQueue"`
+		DailyMissionControlRunbook         *dailyMissionControlRunbookSnapshot         `json:"dailyMissionControlRunbook"`
+		ReplacementExecutorTakeoverPackage *replacementExecutorTakeoverPackageSnapshot `json:"replacementExecutorTakeoverPackage"`
+		Writes                             []startWrite                                `json:"writes"`
+		BlockedActions                     []string                                    `json:"blockedActions"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &handoff); err != nil {
+		t.Fatalf("missing-board handoff preview JSON did not decode: %v\n%s", err, out.String())
+	}
+	onboardingCommand := "/rekit overview -Target " + statusQuoteCommandArg(caseRoot) + " -Format text"
+	handoffRequest := requireMissionCommanderDriverRequest(t, handoff.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", onboardingCommand, true, false, false)
+	if handoff.Command != "handoff" || handoff.IsMutation || handoff.Applied || !handoff.RequiresConfirmation || !handoff.Project || !containsSubstring(handoff.MissionBrief.NextAgentActions, "follow Mission Commander current action: "+onboardingCommand) || len(handoff.Writes) != 0 || !containsSubstring(handoff.BlockedActions, "handoff apply until .rekit/board.json exists") {
+		t.Fatalf("missing-board handoff preview should be read-only onboarding handoff: %+v", handoff)
+	}
+	if handoff.DailyMissionControlRunbook == nil || handoff.DailyMissionControlRunbook.Scope != "case-onboarding" || handoff.DailyMissionControlRunbook.CurrentDriverRequest == nil || handoff.DailyMissionControlRunbook.CurrentDriverRequest.Command != handoffRequest.Command || handoff.DailyMissionControlRunbook.HandoffPreviewCommand == "" || handoff.DailyMissionControlRunbook.HandoffApplyCommand == "" {
+		t.Fatalf("missing-board handoff omitted onboarding daily runbook: %+v", handoff.DailyMissionControlRunbook)
+	}
+	if handoff.ReplacementExecutorTakeoverPackage == nil || !handoff.ReplacementExecutorTakeoverPackage.Ready || handoff.ReplacementExecutorTakeoverPackage.Scope != "case-onboarding" || handoff.ReplacementExecutorTakeoverPackage.Command != handoffRequest.Command || handoff.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command != handoffRequest.Command || !containsSubstring(handoff.ReplacementExecutorTakeoverPackage.TargetDocuments, ".rekit/handovers/latest.md") || !containsSubstring(handoff.ReplacementExecutorTakeoverPackage.Boundary, "does not spawn or replace executor sessions") {
+		t.Fatalf("missing-board handoff omitted replacement executor onboarding package: package=%+v request=%+v", handoff.ReplacementExecutorTakeoverPackage, handoffRequest)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "board.json")); !os.IsNotExist(err) {
+		t.Fatalf("handoff preview should not initialize missing board, err=%v", err)
+	}
+
+	onboardingArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, &handoff.ReplacementExecutorTakeoverPackage.CurrentDriverRequest)
+	if !ok {
+		t.Fatalf("missing-board handoff takeover request should be executable: %+v", handoff.ReplacementExecutorTakeoverPackage.CurrentDriverRequest)
+	}
+	out.Reset()
+	if err := Run(onboardingArgs, &out); err != nil {
+		t.Fatalf("missing-board handoff onboarding request failed: args=%+v err=%v\n%s", onboardingArgs, err, out.String())
+	}
+	if !strings.Contains(out.String(), "overview：mutation=true caseRoot="+caseRoot) || !strings.Contains(out.String(), "/rekit continue main") {
+		t.Fatalf("missing-board handoff onboarding did not initialize overview route:\n%s", out.String())
+	}
+	assertFileExists(t, filepath.Join(caseRoot, ".rekit", "board.json"))
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var refreshed struct {
+		CaseMission struct {
+			Ready                       bool                                `json:"ready"`
+			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		} `json:"caseMission"`
+		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &refreshed); err != nil {
+		t.Fatalf("missing-board handoff refreshed status JSON did not decode: %v\n%s", err, out.String())
+	}
+	caseContinueRequest := requireMissionCommanderDriverRequest(t, refreshed.CaseMission.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue main", true, false, false)
+	if !refreshed.CaseMission.Ready || refreshed.MissionControlRunbook == nil || refreshed.MissionControlRunbook.CurrentDriverRequest == nil || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "/rekit continue -Target "+statusQuoteCommandArg(caseRoot)+" main") || refreshed.MissionControlRunbook.ReplacementExecutorTakeoverPackage == nil || refreshed.MissionControlRunbook.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command != refreshed.MissionControlRunbook.CurrentDriverRequest.Command || caseContinueRequest.Command == refreshed.MissionControlRunbook.CurrentDriverRequest.Command {
+		t.Fatalf("missing-board handoff refresh did not advance to invocation-scoped continue preview: status=%+v request=%+v", refreshed, caseContinueRequest)
+	}
+}
+
 func TestRunMissingBoardOnboardingDriverRequestConsumerLoopProductPath(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	var out bytes.Buffer
@@ -6493,7 +6565,7 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 	if err := Run([]string{"-Command", "status"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"pack source: case-metadata", "case shim: case shim readiness ok ready=true", "status case shim entrypoint: caseLocal=/rekit", "status case shim durable artifact: .rekit/handovers/<lane>-latest.md", "status case shim first-screen check: status case mission queue/current action", "status Mission Commander first screen：focus=case-current-action", "state=case-board-missing source=caseMissionOnboarding", "status Mission Commander current action：scope=focus-case lane= label= state=case-board-missing source=caseMissionOnboarding blocked=false requiresReview=false command=/rekit overview -Target", "status Mission Commander focus action boundary：scope=case boundary=status is read-only; it only projects this onboarding action", "status case mission brief next action：follow Mission Commander current action: /rekit overview -Target", "status case mission handoff：preview=/rekit handoff"} {
+	for _, expected := range []string{"pack source: case-metadata", "case shim: case shim readiness ok ready=true", "status case shim entrypoint: caseLocal=/rekit", "status case shim durable artifact: .rekit/handovers/<lane>-latest.md", "status case shim first-screen check: status case mission queue/current action", "status Mission Commander first screen：focus=case-current-action", "state=case-board-missing source=caseMissionOnboarding", "status Mission Commander current action：scope=focus-case lane= label= state=case-board-missing source=caseMissionOnboarding blocked=false requiresReview=false command=/rekit overview -Target", "status Mission Commander focus action boundary：scope=case boundary=status and handoff previews are read-only; they only project this onboarding action", "status case mission brief next action：follow Mission Commander current action: /rekit overview -Target", "status case mission handoff：preview=/rekit handoff"} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("installed entrypoint default status missing %q:\n%s", expected, out.String())
 		}
@@ -10495,11 +10567,28 @@ func TestRunHandoffMissionBriefBlocksOpenDecisions(t *testing.T) {
 func TestRunHandoffRequiresModeAndBoard(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	var out bytes.Buffer
-	err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-WhatIf"}, &out)
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatalf("missing-board handoff preview should expose onboarding takeover request: %v", err)
+	}
+	var preview struct {
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		Writes                      []startWrite                        `json:"writes"`
+		BlockedActions              []string                            `json:"blockedActions"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+		t.Fatalf("missing-board handoff preview JSON did not decode: %v\n%s", err, out.String())
+	}
+	if preview.MissionCommanderActionQueue.CurrentDriverRequest == nil || !strings.Contains(preview.MissionCommanderActionQueue.CurrentDriverRequest.Command, "/rekit overview -Target") || len(preview.Writes) != 0 || !containsSubstring(preview.BlockedActions, "handoff apply until .rekit/board.json exists") {
+		t.Fatalf("missing-board handoff preview should be read-only onboarding takeover request: %+v", preview)
+	}
+
+	out.Reset()
+	err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply"}, &out)
 	if err == nil || !strings.Contains(err.Error(), "board.json") {
-		t.Fatalf("error = %v, want missing board guard", err)
+		t.Fatalf("error = %v, want missing board apply guard", err)
 	}
 	writeHandoffFixture(t, caseRoot)
+	out.Reset()
 	err = Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template"}, &out)
 	if err == nil {
 		t.Fatal("Run returned nil error for handoff without mode")

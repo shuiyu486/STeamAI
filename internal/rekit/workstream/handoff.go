@@ -98,6 +98,9 @@ type HandoffResult struct {
 
 func HandoffPreview(repoRoot, caseRoot, pack string, opt HandoffOptions) (HandoffResult, error) {
 	ctx, err := newHandoffContext(repoRoot, caseRoot, pack, opt)
+	if errors.Is(err, os.ErrNotExist) && strings.TrimSpace(opt.Selector) == "" {
+		return missingBoardHandoffPreview(repoRoot, caseRoot, pack)
+	}
 	if err != nil {
 		return HandoffResult{}, err
 	}
@@ -106,6 +109,71 @@ func HandoffPreview(repoRoot, caseRoot, pack string, opt HandoffOptions) (Handof
 		return HandoffResult{}, err
 	}
 	return ctx.result(false, false, true, writes), nil
+}
+
+func MissingBoardOnboardingAction(caseRoot string) mission.MissionCommanderNextActionItem {
+	command := "/rekit overview -Target " + quoteAlwaysCommandArg(caseRoot) + " -Format text"
+	return mission.MissionCommanderNextActionItem{
+		State:    "case-board-missing",
+		Command:  command,
+		Source:   "caseMissionOnboarding",
+		ActionID: "case-mission-onboarding",
+		Reasons: []string{
+			"case-local Mission Commander board is missing",
+			"initialize bounded case-local board before continue/start",
+		},
+		Boundary: []string{
+			"status and handoff previews are read-only; they only project this onboarding action",
+			"overview may bootstrap case-local Mission Commander board and does not execute heavy tools",
+			"after onboarding, use -WhatIf before start/continue apply",
+		},
+	}
+}
+
+func quoteAlwaysCommandArg(value string) string {
+	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
+}
+
+func missingBoardHandoffPreview(repoRoot, caseRoot, pack string) (HandoffResult, error) {
+	inst, err := instance.AssertAttached(caseRoot, repoRoot, pack)
+	if err != nil {
+		return HandoffResult{}, err
+	}
+	m, err := manifest.Load(repoRoot, pack)
+	if err != nil {
+		return HandoffResult{}, err
+	}
+	action := MissingBoardOnboardingAction(inst.CaseRoot)
+	queue := mission.MissionCommanderActionQueueFor([]mission.MissionCommanderNextActionItem{action})
+	runbook := DailyMissionControlRunbookFor(inst.CaseRoot, "case-onboarding", queue, handoffPreviewCommand(inst.CaseRoot, ""), handoffApplyCommand(inst.CaseRoot, ""))
+	takeover := handoffReplacementExecutorTakeoverPackage(inst.CaseRoot, "case-onboarding", nil, queue, runbook, nil)
+	return HandoffResult{
+		SchemaVersion:                      1,
+		Command:                            "handoff",
+		CaseRoot:                           inst.CaseRoot,
+		RepoRoot:                           m.RepoRoot,
+		Pack:                               m.Pack,
+		IsMutation:                         false,
+		Applied:                            false,
+		RequiresConfirmation:               true,
+		Project:                            true,
+		MissionBrief:                       mission.Brief{Summary: "case board missing; run overview to initialize Mission Commander state", NextAgentActions: []string{"follow Mission Commander current action: " + action.Command}},
+		MissionCommanderNextActions:        []mission.MissionCommanderNextActionItem{action},
+		MissionCommanderActionQueue:        queue,
+		DailyMissionControlRunbook:         runbook,
+		ReplacementExecutorTakeoverPackage: takeover,
+		Writes:                             []StartWrite{},
+		BlockedActions: []string{
+			"handoff apply until .rekit/board.json exists",
+			"board/facts/lane creation must go through /rekit overview onboarding",
+			"authority/confirmed writes",
+			"heavy-tool execution without a valid current authorization decision",
+		},
+		NextSteps: []string{
+			"consume replacementExecutorTakeoverPackage.currentDriverRequest.command to run /rekit overview once",
+			"refresh status after overview before start/continue apply",
+		},
+	}, nil
 }
 
 func HandoffApply(repoRoot, caseRoot, pack string, opt HandoffOptions) (result HandoffResult, err error) {
@@ -170,7 +238,7 @@ func newHandoffContext(repoRoot, caseRoot, pack string, opt HandoffOptions) (han
 	}
 	b, err := readBoard(inst.CaseRoot)
 	if os.IsNotExist(err) {
-		return handoffContext{}, fmt.Errorf("handoff requires existing .rekit/board.json; run start -Apply or /rekit overview once to initialize the case-local board")
+		return handoffContext{}, fmt.Errorf("handoff requires existing .rekit/board.json; run start -Apply or /rekit overview once to initialize the case-local board: %w", err)
 	}
 	if err != nil {
 		return handoffContext{}, err

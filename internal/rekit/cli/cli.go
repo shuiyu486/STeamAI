@@ -5860,21 +5860,7 @@ func statusFirstScreenLaneTakeoverPackage(caseRoot string, actions []mission.Lan
 }
 
 func statusCaseMissionOnboardingAction(caseRoot string) mission.MissionCommanderNextActionItem {
-	command := "/rekit overview -Target " + statusQuoteCommandArg(caseRoot) + " -Format text"
-	return mission.MissionCommanderNextActionItem{
-		State:   "case-board-missing",
-		Command: command,
-		Source:  "caseMissionOnboarding",
-		Reasons: []string{
-			"case-local Mission Commander board is missing",
-			"initialize bounded case-local board before continue/start",
-		},
-		Boundary: []string{
-			"status is read-only; it only projects this onboarding action",
-			"overview may bootstrap case-local Mission Commander board and does not execute heavy tools",
-			"after onboarding, use -WhatIf before start/continue apply",
-		},
-	}
+	return workstream.MissingBoardOnboardingAction(caseRoot)
 }
 
 func statusCaseMissionStartBootstrapAction(caseRoot string) mission.MissionCommanderNextActionItem {
