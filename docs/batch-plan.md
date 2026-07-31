@@ -58,6 +58,19 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 
 
+
+### Batch 775：driver request consumer loop status receipt
+
+状态：已完成本机实现与 focused validation；完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection 待记录。本批选择 `mission-commander`，推进 driver request consumer loop status receipt；release handoff candidate guidance 是：select a Mission Commander operational closure slice with status/handoff/continue product-path verification。上一批完成后仍需要解决的接手断点必须落在该 domain 的可操作 product-path closure 上，并能由 status/handoff/continue/release-check 或必要临时 case 验证；本批不是字段、文案或 summary 投影微调。
+
+目标：把 `mission-commander` candidate 收敛成 Windows 本机可验证的闭环：driver request consumer loop status receipt。实现应复用既有 typed handoff/envelope 和 deterministic runtime 边界，让 Mission Commander 或 replacement executor 能从 durable docs/status 消费结果，不依赖上一会话隐性上下文；focused work 必须证明该候选命令所描述的能力：select a Mission Commander operational closure slice with status/handoff/continue product-path verification。
+
+已实现：`status.missionControlRunbook` 现在携带只读 `currentDriverReceipt`，复用 `workstream.MissionCommanderDriverReceipt` envelope，把本次 `status` refresh 记录为 `state=refreshed` / `outcome=status-refresh-result`，并绑定 `command=<refreshStatusCommand>`、focused queue summary、current run-loop step 与 `refreshedCurrentDriverRequest`。Mission Commander / replacement executor 可从该 receipt 明确知道“当前 durable state 已刷新、下一跳仍是 refreshed driver request 或 expected receipt refresh route”，不再只靠 terminal text 判断 request 是否已消费。CLI text 同步输出 `status Mission Control runbook driver receipt`、refreshed driver request 与 boundary。
+
+边界：本批不新增 PowerShell runtime logic，不新增 public command，不执行 currentDriverRequest、不 spawn/poll/stop sessions、不执行 heavy-tool，不写 authority/confirmed，不自动执行 reviewer/adapter/pack-memory/gate/sync/promote mutation，不自动提交或声明 remote CI green；`currentDriverReceipt` 只是 status refresh 的只读 receipt，不证明 Go runtime 执行了原 currentDriverRequest，也不替代 request 的 review/apply/hash/refresh 边界。
+
+验证结果：focused regressions 已通过：`go test ./internal/rekit/cli -run "TestStatusProjectHandoffLocalValidationActionUsesReleaseRunDriverRequest|TestRunStatusJsonKit|TestStatusMissionControlRunbookReplacementExecutorTakeoverPackageWrapsCurrentDriver" -count=1`（7.216s）与 `go test ./internal/rekit/cli -run "TestStatusMissionControlRunbookGuidanceHandoffWrapsNextBatchSelection|TestRunNextBatchGuidancePlanningRouteConsumerLoopProductPath" -count=1`（6.889s）。完整本机 release minimum 已执行：`release-check -Format json` 返回 `ready=true` / `summary=release gate inventory ok`；`status`、`packs`（pack validation ok）、`doctor`、`go test ./...`（CLI 383.204s）、`go vet ./...` 与 `git diff --check` 已通过，`git diff --check` 仅有 Windows LF→CRLF warning。Implementation commit/push 与 push-triggered remote release-gate inspection 待记录；远程 `steps=[]` 仍只记录 blocker，不声明 remote green。
+
 ### Batch 774：completed batch release handoff validation recovery loop
 
 状态：已完成本机实现、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `2276325` 已推送。Push run `30628229757` completed failure；macOS/Windows/Linux jobs `91148316904`/`91148316914`/`91148316944` 均 `steps=[]`，`gh run view 30628229757 --log-failed` 返回 `log not found: 91148316904`，job annotations API 均返回 404。仍是既有 runner/billing blocker signal，不声明 remote green。本批选择 `mission-commander`，推进 completed batch release handoff validation recovery loop；release handoff candidate guidance 是：select a Mission Commander operational closure slice with status/handoff/continue product-path verification。上一批完成后仍需要解决的接手断点必须落在该 domain 的可操作 product-path closure 上，并能由 status/handoff/continue/release-check 或必要临时 case 验证；本批不是字段、文案或 summary 投影微调。

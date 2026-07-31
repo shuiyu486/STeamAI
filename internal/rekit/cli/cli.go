@@ -3080,6 +3080,7 @@ type statusMissionControlRunbook struct {
 	CurrentCommand              string                                      `json:"currentCommand,omitempty"`
 	CurrentRunLoopStepID        string                                      `json:"currentRunLoopStepId,omitempty"`
 	CurrentDriverRequest        *mission.MissionCommanderDriverRequest      `json:"currentDriverRequest,omitempty"`
+	CurrentDriverReceipt        *workstream.MissionCommanderDriverReceipt   `json:"currentDriverReceipt,omitempty"`
 	GuidanceHandoff             *statusMissionControlGuidanceHandoff        `json:"guidanceHandoff,omitempty"`
 	ReplacementExecutorTakeover *mission.ReplacementExecutorTakeoverPackage `json:"replacementExecutorTakeoverPackage,omitempty"`
 	RefreshStatusCommand        string                                      `json:"refreshStatusCommand"`
@@ -3740,10 +3741,46 @@ func buildStatusMissionControlRunbook(target string, caseMission *statusCaseMiss
 			}
 		}
 	}
+	runbook.CurrentDriverReceipt = statusMissionControlCurrentDriverReceipt(runbook)
 	runbook.GuidanceHandoff = statusMissionControlGuidanceHandoffFor(runbook, projectHandoff)
 	runbook.ReplacementExecutorTakeover = statusReplacementExecutorTakeoverPackageFor(target, runbook, projectHandoff)
 	runbook.RunLoop = statusMissionControlRunbookSteps(runbook)
 	return runbook
+}
+
+func statusMissionControlCurrentDriverReceipt(runbook *statusMissionControlRunbook) *workstream.MissionCommanderDriverReceipt {
+	if runbook == nil || runbook.CurrentDriverRequest == nil {
+		return nil
+	}
+	request := runbook.CurrentDriverRequest
+	receipt := &workstream.MissionCommanderDriverReceipt{
+		SchemaVersion:                 1,
+		State:                         "refreshed",
+		Outcome:                       "status-refresh-result",
+		Command:                       strings.TrimSpace(runbook.RefreshStatusCommand),
+		RefreshedActionQueueSummary:   statusMissionControlFocusedQueueSummary(runbook),
+		RefreshedCurrentRunLoopStep:   strings.TrimSpace(runbook.CurrentRunLoopStepID),
+		RefreshedCurrentDriverRequest: request,
+		Boundary: mission.UniqueStrings([]string{
+			"driver receipt records this status refresh as the durable state handoff after an explicit main-agent/harness result",
+			"driver receipt does not prove the Go runtime spawned, polled, stopped, or managed an external session",
+			"status is read-only and does not write authority/confirmed state or execute heavy tools",
+			"after consuming this receipt, run currentDriverReceipt.refreshedCurrentDriverRequest or expectedReceipt.refreshStatusCommand only under the request boundary",
+		}),
+	}
+	return receipt
+}
+
+func statusMissionControlFocusedQueueSummary(runbook *statusMissionControlRunbook) string {
+	if runbook == nil {
+		return ""
+	}
+	for _, queue := range runbook.Queues {
+		if queue.Focused {
+			return fmt.Sprintf("scope=%s total=%d blocked=%d requiresReview=%d current=%s", queue.Scope, queue.Total, queue.Blocked, queue.RequiresReview, queue.CurrentCommand)
+		}
+	}
+	return ""
 }
 
 func statusMissionControlGuidanceHandoffFor(runbook *statusMissionControlRunbook, projectHandoff *statusProjectHandoff) *statusMissionControlGuidanceHandoff {
@@ -4381,6 +4418,9 @@ func writeStatusMissionControlRunbookText(out io.Writer, runbook *statusMissionC
 	if err := writeMissionCommanderDriverRequestText(out, "status Mission Control runbook handoff apply", runbook.HandoffApplyDriverRequest); err != nil {
 		return err
 	}
+	if err := writeStatusMissionCommanderDriverReceiptText(out, "status Mission Control runbook", runbook.CurrentDriverReceipt); err != nil {
+		return err
+	}
 	if err := writeStatusMissionControlGuidanceHandoffText(out, runbook.GuidanceHandoff); err != nil {
 		return err
 	}
@@ -4409,6 +4449,24 @@ func writeStatusMissionControlRunbookText(out io.Writer, runbook *statusMissionC
 	}
 	for _, boundary := range runbook.Boundary {
 		if _, err := fmt.Fprintf(out, "status Mission Control runbook boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeStatusMissionCommanderDriverReceiptText(out io.Writer, prefix string, receipt *workstream.MissionCommanderDriverReceipt) error {
+	if receipt == nil {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "%s driver receipt：state=%s outcome=%s command=`%s` refreshedQueue=%s refreshedStep=%s\n", prefix, receipt.State, receipt.Outcome, receipt.Command, receipt.RefreshedActionQueueSummary, receipt.RefreshedCurrentRunLoopStep); err != nil {
+		return err
+	}
+	if err := writeMissionCommanderDriverRequestText(out, prefix+" driver receipt refreshed", receipt.RefreshedCurrentDriverRequest); err != nil {
+		return err
+	}
+	for _, boundary := range receipt.Boundary {
+		if _, err := fmt.Fprintf(out, "%s driver receipt boundary：%s\n", prefix, boundary); err != nil {
 			return err
 		}
 	}

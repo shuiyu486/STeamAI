@@ -676,6 +676,10 @@ func TestStatusProjectHandoffLocalValidationActionUsesReleaseRunDriverRequest(t 
 	if runbook == nil || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Command != "/rekit release-run -Format json" || runbook.CurrentDriverRequest.Kind != "preview-command" || strings.Contains(runbook.CurrentDriverRequest.Command, " -Target ") || runbook.CurrentDriverRequest.ExpectedReceipt.Command != "/rekit release-run -Format json" || runbook.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != runbook.RefreshStatusCommand || runbook.GuidanceHandoff != nil {
 		t.Fatalf("status runbook should preserve kit-scoped release-run command with refresh receipt: %+v", runbook)
 	}
+	receipt := runbook.CurrentDriverReceipt
+	if receipt == nil || receipt.State != "refreshed" || receipt.Outcome != "status-refresh-result" || receipt.Command != runbook.RefreshStatusCommand || receipt.RefreshedCurrentRunLoopStep != runbook.CurrentRunLoopStepID || receipt.RefreshedCurrentDriverRequest == nil || receipt.RefreshedCurrentDriverRequest.Command != runbook.CurrentDriverRequest.Command || receipt.RefreshedCurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != runbook.RefreshStatusCommand || !containsSubstring(receipt.Boundary, "does not prove the Go runtime spawned") || !containsSubstring(receipt.Boundary, "status is read-only") {
+		t.Fatalf("status runbook should expose a read-only current driver receipt: %+v", receipt)
+	}
 	args, ok := typedMissionCommanderDriverRequestCommandCLIArgs(t, runbook.CurrentDriverRequest)
 	if !ok || !slices.Equal(args, []string{"-Command", "release-run", "-Format", "json"}) {
 		t.Fatalf("release-run driver request should produce CLI args: args=%+v ok=%t request=%+v", args, ok, runbook.CurrentDriverRequest)
@@ -689,6 +693,9 @@ func TestStatusProjectHandoffLocalValidationActionUsesReleaseRunDriverRequest(t 
 		"command=/rekit release-run -Format json",
 		"status Mission Control runbook step：order=2 step=consume-focused-driver-request",
 		"status Mission Control runbook driver request expected receipt：state=refresh-required command=`/rekit release-run -Format json` refreshStatusCommand=`" + runbook.RefreshStatusCommand + "`",
+		"status Mission Control runbook driver receipt：state=refreshed outcome=status-refresh-result command=`" + runbook.RefreshStatusCommand + "`",
+		"status Mission Control runbook driver receipt refreshed driver request：kind=preview-command",
+		"status Mission Control runbook driver receipt boundary：driver receipt does not prove the Go runtime spawned",
 		"status Mission Control runbook step boundary：step=consume-focused-driver-request boundary=review-required current actions must be previewed or reviewed before any apply/follow-up",
 	} {
 		if !strings.Contains(out.String(), want) {
@@ -1614,6 +1621,10 @@ func TestRunStatusJsonKit(t *testing.T) {
 	}
 	if runbook := status.MissionControlRunbook; runbook == nil || !runbook.Ready || runbook.Focus != "project-current-action" || runbook.Scope != "project" || runbook.CurrentCommand != projectCurrent.Command || runbook.CurrentRunLoopStepID != status.ProjectHandoff.MissionCommanderActionQueue.CurrentRunLoopStepID || runbook.CurrentDriverRequest == nil || status.ProjectHandoff.MissionCommanderActionQueue.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Kind != status.ProjectHandoff.MissionCommanderActionQueue.CurrentDriverRequest.Kind || runbook.CurrentDriverRequest.Command != status.ProjectHandoff.MissionCommanderActionQueue.CurrentDriverRequest.Command || runbook.RefreshStatusCommand == "" || len(runbook.Queues) != 4 || len(runbook.RunLoop) != 3 || !containsSubstring(runbook.Boundary, "read-only") {
 		t.Fatalf("status Mission Control runbook should route to project current action: %+v", runbook)
+	}
+	statusReceipt := status.MissionControlRunbook.CurrentDriverReceipt
+	if statusReceipt == nil || statusReceipt.SchemaVersion != 1 || statusReceipt.State != "refreshed" || statusReceipt.Outcome != "status-refresh-result" || statusReceipt.Command != status.MissionControlRunbook.RefreshStatusCommand || statusReceipt.RefreshedCurrentRunLoopStep != status.MissionControlRunbook.CurrentRunLoopStepID || statusReceipt.RefreshedCurrentDriverRequest == nil || statusReceipt.RefreshedCurrentDriverRequest.Kind != status.MissionControlRunbook.CurrentDriverRequest.Kind || statusReceipt.RefreshedCurrentDriverRequest.Command != status.MissionControlRunbook.CurrentDriverRequest.Command || statusReceipt.RefreshedCurrentDriverRequest.Guidance != status.MissionControlRunbook.CurrentDriverRequest.Guidance || statusReceipt.RefreshedCurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != status.MissionControlRunbook.RefreshStatusCommand || !containsSubstring(statusReceipt.Boundary, "does not prove the Go runtime spawned") || !containsSubstring(statusReceipt.Boundary, "status is read-only") {
+		t.Fatalf("status JSON should carry a read-only current driver receipt bound to refreshed state: receipt=%+v runbook=%+v", statusReceipt, status.MissionControlRunbook)
 	}
 	if status.ProjectHandoff.ReleaseInspectionCadence.State == "complete" {
 		if status.ProjectHandoff.MissionCommanderActionQueue.Counts.Total != 8 || len(status.ProjectHandoff.MissionCommanderNextActions) != 8 {
@@ -22254,6 +22265,7 @@ type statusMissionControlRunbookSnapshot struct {
 	CurrentCommand                     string                                       `json:"currentCommand"`
 	CurrentRunLoopStepID               string                                       `json:"currentRunLoopStepId"`
 	CurrentDriverRequest               *missionCommanderDriverRequestSnapshot       `json:"currentDriverRequest"`
+	CurrentDriverReceipt               *missionCommanderDriverReceiptSnapshot       `json:"currentDriverReceipt"`
 	GuidanceHandoff                    *statusMissionControlGuidanceHandoffSnapshot `json:"guidanceHandoff"`
 	ReplacementExecutorTakeoverPackage *replacementExecutorTakeoverPackageSnapshot  `json:"replacementExecutorTakeoverPackage"`
 	RefreshStatusCommand               string                                       `json:"refreshStatusCommand"`
