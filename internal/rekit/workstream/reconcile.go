@@ -466,6 +466,7 @@ func (ctx reconcileContext) result(mutating, applied, confirm bool, writes []Sta
 	commanderNextActions := reconcileMissionCommanderNextActions(ctx.lane, executorAction, applied)
 	commanderNextActions = MissionCommanderNextActionsWithAuthorizedGateAdapters(commanderNextActions, authorizedGateAdapterHandoffs)
 	commanderNextActions = MissionCommanderNextActionsWithReviewerDispatches(commanderNextActions, reviewerDispatchIntakeHandoffs)
+	commanderActionQueue := reconcileActionQueueWithRefresh(mission.MissionCommanderActionQueueFor(commanderNextActions), ctx.inst.CaseRoot)
 	if applied {
 		executorAction = withReviewerDispatchBlocker(executorAction, reviewerDispatchIntakeHandoffs)
 		commanderAction = executorAction.MissionCommanderAction
@@ -497,7 +498,7 @@ func (ctx reconcileContext) result(mutating, applied, confirm bool, writes []Sta
 		ExecutorAction:                   executorAction,
 		MissionCommanderAction:           commanderAction,
 		MissionCommanderNextActions:      commanderNextActions,
-		MissionCommanderActionQueue:      mission.MissionCommanderActionQueueFor(commanderNextActions),
+		MissionCommanderActionQueue:      commanderActionQueue,
 		BlockedActions:                   []string{"authority/confirmed writes", "heavy-tool execution", "external side effects"},
 		NextSteps: []string{
 			"review this reconcile plan, then re-run reconcile with -Apply to write case-local ledger and lane state",
@@ -512,6 +513,15 @@ func (ctx reconcileContext) result(mutating, applied, confirm bool, writes []Sta
 		result.WouldWrites = writes
 	}
 	return result
+}
+
+func reconcileActionQueueWithRefresh(queue mission.MissionCommanderActionQueue, caseRoot string) mission.MissionCommanderActionQueue {
+	if queue.CurrentDriverRequest == nil {
+		return queue
+	}
+	refreshed := mission.MissionCommanderDriverRequestWithRefreshStatusCommand(*queue.CurrentDriverRequest, dailyMissionControlStatusCommand(caseRoot))
+	queue.CurrentDriverRequest = &refreshed
+	return queue
 }
 
 func reconcileMissionCommanderDriverReceipt(result ReconcileResult) *MissionCommanderDriverReceipt {

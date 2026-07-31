@@ -145,7 +145,11 @@ func dailyMissionControlStatusCommand(caseRoot string) string {
 	if caseRoot == "" {
 		return "/rekit status -Format json"
 	}
-	return "/rekit status -Target " + quoteCommandArg(caseRoot) + " -Format json"
+	return "/rekit status -Target " + quoteCommandArgAlways(caseRoot) + " -Format json"
+}
+
+func quoteCommandArgAlways(arg string) string {
+	return `"` + strings.ReplaceAll(arg, `"`, `\"`) + `"`
 }
 
 func dailyMissionControlRunLoop(runbook *DailyMissionControlRunbook) []DailyMissionControlRunbookStep {
