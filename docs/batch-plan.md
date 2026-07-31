@@ -38,6 +38,19 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 
 
+
+### Batch 755：latest driver receipt handoff verification
+
+状态：本机实现与 focused validation 已完成；完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection 待记录。本批选择 `replacement-executor`，推进 latest driver receipt handoff verification；release handoff candidate guidance 是：select a replacement executor takeover slice that can be resumed from status or durable handoff without prior chat context。上一批完成后仍需要解决的接手断点必须落在该 domain 的可操作 product-path closure 上，并能由 status/handoff/continue/release-check 或必要临时 case 验证；本批不是字段、文案或 summary 投影微调。
+
+目标：把 `replacement-executor` candidate 收敛成 Windows 本机可验证的闭环：latest driver receipt handoff verification。实现应复用既有 typed handoff/envelope 和 deterministic runtime 边界，让 Mission Commander 或 replacement executor 能从 durable docs/status 消费结果，不依赖上一会话隐性上下文；focused work 必须证明该候选命令所描述的能力：select a replacement executor takeover slice that can be resumed from status or durable handoff without prior chat context。
+
+已实现：`handoff` 现在输出只读 `latestDriverReceiptHandoff` envelope，会从 `.rekit/runs/<runId>/status.json` 读取最新 matching `missionCommanderDriverReceipt`；project handoff 接收最新任意 lane receipt，lane handoff 只接收同 lane receipt，缺失或 lane mismatch 时不输出伪证据。该 envelope 绑定 `runId`、`batchId`、lane、consumed command、run status/digest path、原始 typed receipt、target documents 与 no-spawn/no-authority/no-stale-inference boundary；durable Markdown 同步输出 `## Latest driver receipt handoff`，`replacementExecutorTakeoverPackage.targetDocuments` 也纳入 `latestDriverReceiptHandoff`、run status 与 digest，让 replacement executor 能在新会话 handoff 中验证上一条 driver request 已产生 run artifact receipt，再选择后续 current request。
+
+边界：本批不新增 public command、PowerShell runtime logic、Claude Code spawner/session manager、reviewer/adapter/heavy-tool executor、authority/confirmed 写入或自动 Apply；`latestDriverReceiptHandoff` 只是 read-only handoff verification envelope，actual mutation 仍只来自显式 `handoff -Apply` 写 handoff/resume/checkpoint 与显式 `continue -Apply` 写 run artifacts，不推断 remote CI green。
+
+验证结果：focused regressions 已通过：`go test ./internal/rekit/cli -run TestRunStartBootstrapDriverRequestConsumerLoopProductPath -count=1`、`go test ./internal/rekit/cli -run "TestRun(StartBootstrapDriverRequestConsumerLoopProductPath|HandoffApplyWritesProjectAndLane|ReplaceableSessionExecutorTakeoverFromHandoffProductPath)$" -count=1` 与 `go test ./internal/rekit/workstream ./internal/rekit/mission -run "ReplacementExecutor|Handoff|MissionCommander" -count=1`。完整本机 release minimum 已执行：`go run ./cmd/rekit -- -Command release-check -Format json` 返回 `ready=true` / `summary=release gate inventory ok`；`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 已通过，`git diff --check` 仅有 Windows LF→CRLF warning。Implementation commit/push 与 push-triggered remote release-gate inspection 待记录；远程 `steps=[]` 仍只记录 blocker，不声明 green。
+
 ### Batch 754：continue driver request run artifact loop
 
 状态：本机实现、focused validation、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection 已完成；implementation commit `c61ffa4` 已推送。Push run `30596052452` completed failure；macOS/Linux/Windows jobs `91048539289`/`91048539309`/`91048539350` 均 `steps=[]`，`gh run view 30596052452 --log-failed` 返回 `log not found: 91048539289`，job annotations 显示 GitHub account payments/spending limit blocker。仍是既有 runner/billing blocker signal，不声明 remote green。本批选择 `mission-commander`，推进 continue driver request run artifact loop；release handoff candidate guidance 是：select a Mission Commander operational closure slice with status/handoff/continue product-path verification。上一批完成后仍需要解决的接手断点必须落在该 domain 的可操作 product-path closure 上，并能由 status/handoff/continue/release-check 或必要临时 case 验证；本批不是字段、文案或 summary 投影微调。

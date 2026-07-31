@@ -1759,6 +1759,55 @@ func TestRunStartBootstrapDriverRequestConsumerLoopProductPath(t *testing.T) {
 	assertSnapshotEqual(t, factsBeforeContinueApply, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
 	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
 	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
+
+	factsBeforeHandoffApply := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "triage", "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var laneHandoff struct {
+		Command                            string                                      `json:"command"`
+		IsMutation                         bool                                        `json:"isMutation"`
+		Applied                            bool                                        `json:"applied"`
+		Project                            bool                                        `json:"project"`
+		Lane                               *startLane                                  `json:"lane"`
+		MissionCommanderActionQueue        missionCommanderActionQueueSnapshot         `json:"missionCommanderActionQueue"`
+		LatestDriverReceiptHandoff         *latestDriverReceiptHandoffSnapshot         `json:"latestDriverReceiptHandoff"`
+		ReplacementExecutorTakeoverPackage *replacementExecutorTakeoverPackageSnapshot `json:"replacementExecutorTakeoverPackage"`
+		Writes                             []startWrite                                `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &laneHandoff); err != nil {
+		t.Fatalf("latest receipt handoff JSON did not decode: %v\n%s", err, out.String())
+	}
+	if laneHandoff.Command != "handoff" || !laneHandoff.IsMutation || !laneHandoff.Applied || laneHandoff.Project || laneHandoff.Lane == nil || laneHandoff.Lane.ID != "feature-triage" {
+		t.Fatalf("latest receipt lane handoff did not preserve triage handoff envelope: %+v", laneHandoff)
+	}
+	handoffRequest := requireMissionCommanderDriverRequest(t, laneHandoff.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue triage", true, false, false)
+	if handoffRequest.Command != returnedRequest.Command {
+		t.Fatalf("latest receipt handoff queue drifted from continue receipt: returned=%+v handoff=%+v", returnedRequest, handoffRequest)
+	}
+	latestReceipt := laneHandoff.LatestDriverReceiptHandoff
+	if latestReceipt == nil || !latestReceipt.Ready || latestReceipt.State != "latest-driver-receipt-ready" || latestReceipt.RunID != continued.RunID || latestReceipt.BatchID != continued.BatchID || latestReceipt.Lane != "feature-triage" || latestReceipt.Command != returnedRequest.Command || latestReceipt.RunStatusPath != ".rekit/runs/"+continued.RunID+"/status.json" || latestReceipt.RunDigestPath != ".rekit/runs/"+continued.RunID+"/digest.md" || !containsSubstring(latestReceipt.TargetDocuments, "latestDriverReceiptHandoff") || !containsSubstring(latestReceipt.TargetDocuments, latestReceipt.RunStatusPath) || !containsSubstring(latestReceipt.TargetDocuments, latestReceipt.RunDigestPath) || !containsSubstring(latestReceipt.Boundary, "read-only evidence") {
+		t.Fatalf("latest receipt handoff did not expose run artifact verification envelope: %+v", latestReceipt)
+	}
+	assertMissionCommanderDriverReceipt(t, "latest receipt handoff", latestReceipt.MissionCommanderDriverReceipt, continued.RunID, continued.BatchID, "feature-triage", returnedRequest, latestReceipt.RunStatusPath, latestReceipt.RunDigestPath)
+	if laneHandoff.ReplacementExecutorTakeoverPackage == nil || !laneHandoff.ReplacementExecutorTakeoverPackage.Ready || !containsSubstring(laneHandoff.ReplacementExecutorTakeoverPackage.TargetDocuments, "latestDriverReceiptHandoff") || !containsSubstring(laneHandoff.ReplacementExecutorTakeoverPackage.TargetDocuments, latestReceipt.RunStatusPath) || !containsSubstring(laneHandoff.ReplacementExecutorTakeoverPackage.TargetDocuments, latestReceipt.RunDigestPath) {
+		t.Fatalf("replacement takeover package omitted latest receipt target documents: package=%+v latest=%+v", laneHandoff.ReplacementExecutorTakeoverPackage, latestReceipt)
+	}
+	handoffPath := assertStartWrite(t, laneHandoff.Writes, ".rekit/handovers/feature-triage-latest.md", "write-latest-lane-handoff").TargetPath
+	handoffBytes, err := os.ReadFile(handoffPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handoffText := string(handoffBytes)
+	for _, want := range []string{"## Latest driver receipt handoff", "- state: latest-driver-receipt-ready", "- runId: " + continued.RunID, "- command: `" + returnedRequest.Command + "`", "- run status: `" + latestReceipt.RunStatusPath + "`", "- run digest: `" + latestReceipt.RunDigestPath + "`", "latest driver receipt handoff is read-only evidence"} {
+		if !strings.Contains(handoffText, want) {
+			t.Fatalf("lane handoff markdown omitted latest receipt detail %q:\n%s", want, handoffText)
+		}
+	}
+	assertSnapshotEqual(t, factsBeforeHandoffApply, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
 }
 
 func TestRunStatusJsonCase(t *testing.T) {
@@ -20891,6 +20940,20 @@ type missionCommanderDriverReceiptSnapshot struct {
 	RefreshedActionQueueSummary   string                                 `json:"refreshedActionQueueSummary"`
 	RefreshedCurrentRunLoopStep   string                                 `json:"refreshedCurrentRunLoopStep"`
 	RefreshedCurrentDriverRequest *missionCommanderDriverRequestSnapshot `json:"refreshedCurrentDriverRequest"`
+	Boundary                      []string                               `json:"boundary"`
+}
+
+type latestDriverReceiptHandoffSnapshot struct {
+	Ready                         bool                                   `json:"ready"`
+	State                         string                                 `json:"state"`
+	RunID                         string                                 `json:"runId"`
+	BatchID                       string                                 `json:"batchId"`
+	Lane                          string                                 `json:"lane"`
+	Command                       string                                 `json:"command"`
+	RunStatusPath                 string                                 `json:"runStatusPath"`
+	RunDigestPath                 string                                 `json:"runDigestPath"`
+	MissionCommanderDriverReceipt *missionCommanderDriverReceiptSnapshot `json:"missionCommanderDriverReceipt"`
+	TargetDocuments               []string                               `json:"targetDocuments"`
 	Boundary                      []string                               `json:"boundary"`
 }
 

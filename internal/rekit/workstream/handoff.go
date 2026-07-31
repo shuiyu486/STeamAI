@@ -2,6 +2,7 @@ package workstream
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -45,6 +46,20 @@ type ProjectNextBatchStarterPackage struct {
 	RunLoop                 []mission.MissionCommanderRunLoopStep `json:"runLoop,omitempty"`
 }
 
+type LatestDriverReceiptHandoff struct {
+	Ready                         bool                           `json:"ready"`
+	State                         string                         `json:"state"`
+	RunID                         string                         `json:"runId,omitempty"`
+	BatchID                       string                         `json:"batchId,omitempty"`
+	Lane                          string                         `json:"lane,omitempty"`
+	Command                       string                         `json:"command,omitempty"`
+	RunStatusPath                 string                         `json:"runStatusPath,omitempty"`
+	RunDigestPath                 string                         `json:"runDigestPath,omitempty"`
+	MissionCommanderDriverReceipt *MissionCommanderDriverReceipt `json:"missionCommanderDriverReceipt,omitempty"`
+	TargetDocuments               []string                       `json:"targetDocuments,omitempty"`
+	Boundary                      []string                       `json:"boundary,omitempty"`
+}
+
 type HandoffResult struct {
 	SchemaVersion                      int                                         `json:"schemaVersion"`
 	Command                            string                                      `json:"command"`
@@ -58,6 +73,7 @@ type HandoffResult struct {
 	Project                            bool                                        `json:"project"`
 	Lane                               *Lane                                       `json:"lane,omitempty"`
 	LaneTakeoverPackage                *LaneTakeoverPackage                        `json:"laneTakeoverPackage,omitempty"`
+	LatestDriverReceiptHandoff         *LatestDriverReceiptHandoff                 `json:"latestDriverReceiptHandoff,omitempty"`
 	MissionBrief                       mission.Brief                               `json:"missionBrief"`
 	ExecutorAction                     *laneExecutorAction                         `json:"executorAction,omitempty"`
 	LaneExecutorActions                []mission.LaneExecutorActionSnapshot        `json:"laneExecutorActions,omitempty"`
@@ -258,7 +274,8 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 	missionCommanderActionQueue := mission.MissionCommanderActionQueueFor(missionCommanderNext)
 	runbookScope := handoffRunbookScope(ctx.project, ctx.selector)
 	dailyRunbook := DailyMissionControlRunbookFor(ctx.inst.CaseRoot, runbookScope, missionCommanderActionQueue, handoffPreviewCommand(ctx.inst.CaseRoot, ctx.selector), handoffApplyCommand(ctx.inst.CaseRoot, ctx.selector))
-	replacementExecutorTakeoverPackage := handoffReplacementExecutorTakeoverPackage(ctx.inst.CaseRoot, runbookScope, lane, missionCommanderActionQueue, dailyRunbook)
+	latestDriverReceiptHandoff, _ := latestDriverReceiptHandoffFor(ctx.inst.CaseRoot, lane)
+	replacementExecutorTakeoverPackage := handoffReplacementExecutorTakeoverPackage(ctx.inst.CaseRoot, runbookScope, lane, missionCommanderActionQueue, dailyRunbook, latestDriverReceiptHandoff)
 	var laneTakeoverPackage *LaneTakeoverPackage
 	if lane != nil && executorAction != nil {
 		laneTakeoverPackage = laneTakeoverPackageFor(ctx.inst.CaseRoot, *lane, *executorAction, missionCommanderActionQueue, false)
@@ -288,6 +305,7 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 		Project:                            ctx.project,
 		Lane:                               lane,
 		LaneTakeoverPackage:                laneTakeoverPackage,
+		LatestDriverReceiptHandoff:         latestDriverReceiptHandoff,
 		MissionBrief:                       brief,
 		ExecutorAction:                     executorAction,
 		LaneExecutorActions:                laneExecutorActions,
@@ -345,7 +363,7 @@ func handoffCommand(caseRoot, selector string, apply bool) string {
 	return strings.Join(parts, " ")
 }
 
-func handoffReplacementExecutorTakeoverPackage(caseRoot, scope string, lane *Lane, queue mission.MissionCommanderActionQueue, runbook *DailyMissionControlRunbook) *mission.ReplacementExecutorTakeoverPackage {
+func handoffReplacementExecutorTakeoverPackage(caseRoot, scope string, lane *Lane, queue mission.MissionCommanderActionQueue, runbook *DailyMissionControlRunbook, latestReceipt *LatestDriverReceiptHandoff) *mission.ReplacementExecutorTakeoverPackage {
 	refresh := dailyMissionControlStatusCommand(caseRoot)
 	if runbook != nil && strings.TrimSpace(runbook.RefreshStatusCommand) != "" {
 		refresh = runbook.RefreshStatusCommand
@@ -355,11 +373,11 @@ func handoffReplacementExecutorTakeoverPackage(caseRoot, scope string, lane *Lan
 		Scope:                scope,
 		RefreshStatusCommand: refresh,
 		PackagePath:          "replacementExecutorTakeoverPackage",
-		TargetDocuments:      handoffReplacementExecutorTakeoverTargetDocuments(lane, queue.CurrentDriverRequest),
+		TargetDocuments:      handoffReplacementExecutorTakeoverTargetDocuments(lane, queue.CurrentDriverRequest, latestReceipt),
 	})
 }
 
-func handoffReplacementExecutorTakeoverTargetDocuments(lane *Lane, request *mission.MissionCommanderDriverRequest) []string {
+func handoffReplacementExecutorTakeoverTargetDocuments(lane *Lane, request *mission.MissionCommanderDriverRequest, latestReceipt *LatestDriverReceiptHandoff) []string {
 	docs := []string{"replacementExecutorTakeoverPackage", "missionCommanderActionQueue.currentDriverRequest", "dailyMissionControlRunbook.currentDriverRequest"}
 	if lane == nil {
 		docs = append(docs, ".rekit/handovers/latest.md")
@@ -369,6 +387,9 @@ func handoffReplacementExecutorTakeoverTargetDocuments(lane *Lane, request *miss
 			relJoin(lane.LaneRoot, "prompts", "RESUME.md"),
 			relJoin(lane.LaneRoot, "checkpoints", "latest.json"),
 		)
+	}
+	if latestReceipt != nil && latestReceipt.Ready {
+		docs = append(docs, latestReceipt.TargetDocuments...)
 	}
 	if request != nil && request.RequiresReview {
 		docs = append(docs, "replacementExecutorTakeoverPackage.currentDriverRequest.expectedReceipt")
@@ -745,7 +766,9 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 	}
 	writeProjectMissionCommanderActionQueue(&out, projectMissionCommanderNext)
 	projectActionQueue := mission.MissionCommanderActionQueueFor(projectMissionCommanderNext)
-	writeReplacementExecutorTakeoverPackage(&out, handoffReplacementExecutorTakeoverPackage(ctx.inst.CaseRoot, "project", nil, projectActionQueue, nil))
+	latestDriverReceiptHandoff, _ := latestDriverReceiptHandoffFor(ctx.inst.CaseRoot, nil)
+	writeLatestDriverReceiptHandoff(&out, latestDriverReceiptHandoff)
+	writeReplacementExecutorTakeoverPackage(&out, handoffReplacementExecutorTakeoverPackage(ctx.inst.CaseRoot, "project", nil, projectActionQueue, nil, latestDriverReceiptHandoff))
 	writeProjectNextBatchStarterPackage(&out, ctx.projectNextBatchStarterPackage)
 	fmt.Fprintln(&out, "## 工作线")
 	fmt.Fprintln(&out)
@@ -817,6 +840,27 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 	}
 	fmt.Fprintln(&out, "- 多工作线时不要使用无参数 `/rekit continue` 盲目继续，应使用 `/rekit continue main` 或 `/rekit continue <name>`。")
 	return out.String(), writes, nil
+}
+
+func writeLatestDriverReceiptHandoff(out *bytes.Buffer, handoff *LatestDriverReceiptHandoff) {
+	if handoff == nil || !handoff.Ready || handoff.MissionCommanderDriverReceipt == nil {
+		return
+	}
+	fmt.Fprintln(out, "## Latest driver receipt handoff")
+	fmt.Fprintln(out)
+	fmt.Fprintf(out, "- ready: %t\n", handoff.Ready)
+	fmt.Fprintf(out, "- state: %s\n", handoff.State)
+	fmt.Fprintf(out, "- runId: %s batchId=%s lane=%s\n", handoff.RunID, handoff.BatchID, handoff.Lane)
+	fmt.Fprintf(out, "- command: `%s`\n", handoff.Command)
+	fmt.Fprintf(out, "- run status: `%s`\n", handoff.RunStatusPath)
+	fmt.Fprintf(out, "- run digest: `%s`\n", handoff.RunDigestPath)
+	for _, doc := range handoff.TargetDocuments {
+		fmt.Fprintf(out, "- target document: %s\n", doc)
+	}
+	for _, boundary := range handoff.Boundary {
+		fmt.Fprintf(out, "- boundary: %s\n", boundary)
+	}
+	fmt.Fprintln(out)
 }
 
 func writeReplacementExecutorTakeoverPackage(out *bytes.Buffer, pkg *mission.ReplacementExecutorTakeoverPackage) {
@@ -1324,7 +1368,9 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 	writeLaneMissionCommanderActionQueue(&out, missionCommanderActionQueue)
 	dailyRunbook := DailyMissionControlRunbookFor(ctx.inst.CaseRoot, "lane:"+label, missionCommanderActionQueue, handoffPreviewCommand(ctx.inst.CaseRoot, label), handoffApplyCommand(ctx.inst.CaseRoot, label))
 	writeDailyMissionControlRunbook(&out, dailyRunbook)
-	writeReplacementExecutorTakeoverPackage(&out, handoffReplacementExecutorTakeoverPackage(ctx.inst.CaseRoot, "lane:"+label, &lane, missionCommanderActionQueue, dailyRunbook))
+	latestDriverReceiptHandoff, _ := latestDriverReceiptHandoffFor(ctx.inst.CaseRoot, &lane)
+	writeLatestDriverReceiptHandoff(&out, latestDriverReceiptHandoff)
+	writeReplacementExecutorTakeoverPackage(&out, handoffReplacementExecutorTakeoverPackage(ctx.inst.CaseRoot, "lane:"+label, &lane, missionCommanderActionQueue, dailyRunbook, latestDriverReceiptHandoff))
 	writeLaneMissionCommanderNextActions(&out, missionCommanderNextActions)
 	for _, line := range appendLaneTakeoverPackage(nil, laneTakeoverPackageFor(ctx.inst.CaseRoot, lane, executorAction, missionCommanderActionQueue, false)) {
 		fmt.Fprintln(&out, line)
@@ -1516,6 +1562,75 @@ func latestRunDigest(caseRoot string) (string, error) {
 		}
 	}
 	return "", nil
+}
+
+func latestDriverReceiptHandoffFor(caseRoot string, lane *Lane) (*LatestDriverReceiptHandoff, error) {
+	runs, err := refsf.SafeJoin(caseRoot, ".rekit/runs")
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(runs)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	names := []string{}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			names = append(names, entry.Name())
+		}
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(names)))
+	for _, name := range names {
+		statusPath := filepath.Join(runs, name, "status.json")
+		b, err := os.ReadFile(statusPath)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		var status struct {
+			RunID                         string                         `json:"runId"`
+			BatchID                       string                         `json:"batchId"`
+			MissionCommanderDriverReceipt *MissionCommanderDriverReceipt `json:"missionCommanderDriverReceipt"`
+		}
+		if err := json.Unmarshal(b, &status); err != nil {
+			continue
+		}
+		receipt := status.MissionCommanderDriverReceipt
+		if receipt == nil || strings.TrimSpace(receipt.RunID) == "" || strings.TrimSpace(receipt.RunStatusPath) == "" || strings.TrimSpace(receipt.RunDigestPath) == "" {
+			continue
+		}
+		if lane != nil && strings.TrimSpace(receipt.Lane) != strings.TrimSpace(lane.ID) {
+			continue
+		}
+		return &LatestDriverReceiptHandoff{
+			Ready:                         true,
+			State:                         "latest-driver-receipt-ready",
+			RunID:                         firstText(receipt.RunID, status.RunID, name),
+			BatchID:                       firstText(receipt.BatchID, status.BatchID),
+			Lane:                          receipt.Lane,
+			Command:                       receipt.Command,
+			RunStatusPath:                 receipt.RunStatusPath,
+			RunDigestPath:                 receipt.RunDigestPath,
+			MissionCommanderDriverReceipt: receipt,
+			TargetDocuments: mission.UniqueStrings([]string{
+				"latestDriverReceiptHandoff",
+				receipt.RunStatusPath,
+				receipt.RunDigestPath,
+			}),
+			Boundary: []string{
+				"latest driver receipt handoff is read-only evidence from the latest matching continue -Apply run artifact",
+				"use this receipt to verify the previously consumed driver request before choosing follow-up work",
+				"driver receipt does not prove the Go runtime spawned, polled, stopped, or managed an external session",
+				"absence or lane mismatch means refresh status and inspect currentDriverRequest; do not infer completion from stale handoff text",
+			},
+		}, nil
+	}
+	return nil, nil
 }
 
 func writeWorkspacePackets(out *bytes.Buffer, caseRoot string, lane Lane) error {
