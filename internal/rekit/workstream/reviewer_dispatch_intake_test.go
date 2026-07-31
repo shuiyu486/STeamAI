@@ -241,7 +241,7 @@ func TestReviewerDispatchIntakeRunbookStepsCoverReviewerLifecycle(t *testing.T) 
 
 func TestReviewerDispatchOperatorPackageOnlyForOpenManagedDispatch(t *testing.T) {
 	managed := &ReviewerManagedDispatchHandoff{ShardID: "shard-01", PromptPath: "prompt.md", PromptSHA256: strings.Repeat("a", sha256.Size*2), ReviewerResultInputPath: "input.json", ReviewerResultSourcePath: "source.json", ReviewerResultCandidatePath: "candidate.json", ReviewerResultPath: "result.json", AgentToolRequest: &ReviewerAgentToolRequest{Tool: "Claude Code Agent", AgentType: "read-only-reviewer", ReadOnly: true, ExpectedOutput: "one ReviewerResult JSON"}}
-	base := ReviewerDispatchIntakeHandoff{PacketID: "packet-managed", PacketPath: "packet.json", TargetLane: "feature-review", ShardID: "shard-01", State: "waiting-for-reviewer-result", ManagedDispatch: managed, ReviewerResultInputPath: "input.json", ReviewerResultSourcePath: "source.json", ReviewerResultCandidatePath: "candidate.json", ReviewerResultPath: "result.json", DispatchCommand: "dispatch read-only reviewer"}
+	base := ReviewerDispatchIntakeHandoff{PacketID: "packet-managed", PacketPath: "packet.json", TargetLane: "feature-review", ShardID: "shard-01", State: "waiting-for-reviewer-result", ManagedDispatch: managed, ReviewerResultInputPath: "input.json", ReviewerResultSourcePath: "source.json", ReviewerResultCandidatePath: "candidate.json", ReviewerResultPath: "result.json", DispatchCommand: "dispatch read-only reviewer", RefreshStatusCommand: "/rekit status -Target \"C:/case\" -Format json"}
 	open := ReviewerDispatchIntakeSummaryFor([]ReviewerDispatchIntakeHandoff{base})
 	if open.OperatorPackage == nil || !open.OperatorPackage.Ready || open.OperatorPackage.Current == nil || open.OperatorPackage.Current.DispatchCommand != base.DispatchCommand || open.OperatorPackage.CurrentRunLoopStepID != "spawn-reviewer" {
 		t.Fatalf("open managed dispatch did not generate operator package: %+v", open.OperatorPackage)
@@ -251,8 +251,11 @@ func TestReviewerDispatchOperatorPackageOnlyForOpenManagedDispatch(t *testing.T)
 		t.Fatalf("open managed dispatch omitted ordered run loop agent handoff: %+v", open.OperatorPackage.RunLoop)
 	}
 	request := open.OperatorPackage.CurrentDriverRequest
-	if request == nil || request.Kind != "review-guidance" || request.RunLoopStepID != "spawn-reviewer" || request.CommandExecutable || request.Guidance != base.DispatchCommand || request.Command != "" || request.ExpectedReceipt.Command != base.DispatchCommand || request.Actor != "main-agent-harness" || request.Source != "reviewerDispatchOperatorPackage" || request.Lane != "feature-review" || request.Label != "packet-managed" || request.ActionID != "packet-managed:shard-01" || !request.RequiresReview || !reviewerDispatchTestContainsSubstring(request.Boundary, "read-only handoff") || !reviewerDispatchTestContainsSubstring(request.ExpectedReceipt.Boundary, "Go runtime does not spawn") {
+	if request == nil || request.Kind != "review-guidance" || request.RunLoopStepID != "spawn-reviewer" || request.CommandExecutable || request.Guidance != base.DispatchCommand || request.Command != "" || request.ExpectedReceipt.Command != base.DispatchCommand || request.ExpectedReceipt.RefreshStatusCommand != base.RefreshStatusCommand || request.Actor != "main-agent-harness" || request.Source != "reviewerDispatchOperatorPackage" || request.Lane != "feature-review" || request.Label != "packet-managed" || request.ActionID != "packet-managed:shard-01" || !request.RequiresReview || !reviewerDispatchTestContainsSubstring(request.Boundary, "read-only handoff") || !reviewerDispatchTestContainsSubstring(request.ExpectedReceipt.Boundary, "Go runtime does not spawn") || !reviewerDispatchTestContainsSubstring(request.ExpectedReceipt.Boundary, "after the explicit outcome") {
 		t.Fatalf("open managed dispatch omitted typed operator driver request: %+v", request)
+	}
+	if open.OperatorPackage.RefreshStatusCommand != base.RefreshStatusCommand {
+		t.Fatalf("open managed dispatch omitted package refresh command: %+v", open.OperatorPackage)
 	}
 	unmanaged := base
 	unmanaged.ManagedDispatch = nil
@@ -277,6 +280,8 @@ func TestReviewerDispatchOperatorPackageCurrentRunLoopStepTracksLifecycle(t *tes
 		{state: "reviewer-dispatch-prompt-artifact-invalid", want: "verify-prompt", wantCommand: "/rekit plan-subagents -RepairReviewerPromptArtifact -WhatIf -Format json"},
 		{state: "reviewer-dispatch-prompt-artifact-drift", want: "verify-prompt", wantCommand: "/rekit plan-subagents -RepairReviewerPromptArtifact -WhatIf -Format json"},
 		{state: "ready-for-reviewer-dispatch", want: "spawn-reviewer", wantCommand: "dispatch read-only reviewer"},
+		{state: "reviewer-session-failed", want: "spawn-reviewer", wantCommand: "dispatch read-only reviewer"},
+		{state: "reviewer-session-receipt-owner-stale", want: "spawn-reviewer", wantCommand: "dispatch read-only reviewer"},
 		{state: "reviewer-session-running-unknown", want: "save-result-input", wantCommand: "/rekit plan-subagents -SaveReviewerResultInput -WhatIf -Format json"},
 		{state: "ready-for-reviewer-completion-receipt-preview", want: "record-completion", wantCommand: "/rekit plan-subagents -RecordReviewerCompletion -WhatIf -Format json"},
 		{state: "ready-for-reviewer-result-source-capture-preview", want: "source-capture", wantCommand: "/rekit plan-subagents -CaptureReviewerResultSource -WhatIf -Format json"},
@@ -286,13 +291,14 @@ func TestReviewerDispatchOperatorPackageCurrentRunLoopStepTracksLifecycle(t *tes
 	}
 	for _, tc := range tests {
 		t.Run(tc.state, func(t *testing.T) {
-			item := ReviewerDispatchIntakeHandoff{PacketID: "packet-managed", PacketPath: "packet.json", TargetLane: "feature-review", ShardID: "shard-01", State: tc.state, ManagedDispatch: managed, ReviewerResultInputPath: "input.json", ReviewerResultSourcePath: "source.json", ReviewerResultCandidatePath: "candidate.json", ReviewerResultPath: "result.json", DispatchCommand: "dispatch read-only reviewer", DispatchPromptPath: "prompt.md", DispatchPromptCurrent: true, DispatchPromptRepairCommand: "/rekit plan-subagents -RepairReviewerPromptArtifact -WhatIf -Format json", ReviewerResultInputSaveCommand: "/rekit plan-subagents -SaveReviewerResultInput -WhatIf -Format json", ReviewerCompletionRecordCommand: "/rekit plan-subagents -RecordReviewerCompletion -WhatIf -Format json", ReviewerResultSourceCaptureCommand: "/rekit plan-subagents -CaptureReviewerResultSource -WhatIf -Format json", ReviewerResultStagingCommand: "/rekit plan-subagents -StageReviewerResult -WhatIf -Format json", ReviewerResultCollectionCommands: &ReviewerResultCollectionCommands{PreviewCommand: "/rekit plan-subagents -CollectReviewerResult -WhatIf -Format json"}, BatchPreviewCommand: "/rekit plan-subagents -ReadyReviewerResults -WhatIf -Format json"}
+			refreshStatusCommand := "/rekit status -Target \"C:/case\" -Format json"
+			item := ReviewerDispatchIntakeHandoff{PacketID: "packet-managed", PacketPath: "packet.json", TargetLane: "feature-review", ShardID: "shard-01", State: tc.state, ManagedDispatch: managed, ReviewerResultInputPath: "input.json", ReviewerResultSourcePath: "source.json", ReviewerResultCandidatePath: "candidate.json", ReviewerResultPath: "result.json", DispatchCommand: "dispatch read-only reviewer", DispatchPromptPath: "prompt.md", DispatchPromptCurrent: true, DispatchPromptRepairCommand: "/rekit plan-subagents -RepairReviewerPromptArtifact -WhatIf -Format json", ReviewerResultInputSaveCommand: "/rekit plan-subagents -SaveReviewerResultInput -WhatIf -Format json", ReviewerCompletionRecordCommand: "/rekit plan-subagents -RecordReviewerCompletion -WhatIf -Format json", ReviewerResultSourceCaptureCommand: "/rekit plan-subagents -CaptureReviewerResultSource -WhatIf -Format json", ReviewerResultStagingCommand: "/rekit plan-subagents -StageReviewerResult -WhatIf -Format json", ReviewerResultCollectionCommands: &ReviewerResultCollectionCommands{PreviewCommand: "/rekit plan-subagents -CollectReviewerResult -WhatIf -Format json"}, BatchPreviewCommand: "/rekit plan-subagents -ReadyReviewerResults -WhatIf -Format json", RefreshStatusCommand: refreshStatusCommand}
 			pkg := ReviewerDispatchIntakeSummaryFor([]ReviewerDispatchIntakeHandoff{item}).OperatorPackage
-			if pkg == nil || pkg.CurrentRunLoopStepID != tc.want || len(pkg.RunLoop) != 9 {
+			if pkg == nil || pkg.CurrentRunLoopStepID != tc.want || pkg.RefreshStatusCommand != refreshStatusCommand || len(pkg.RunLoop) != 9 {
 				t.Fatalf("state %s run loop step = %+v", tc.state, pkg)
 			}
 			request := pkg.CurrentDriverRequest
-			if request == nil || request.RunLoopStepID != tc.want || request.ExpectedReceipt.Command != tc.wantCommand || request.Source != "reviewerDispatchOperatorPackage" {
+			if request == nil || request.RunLoopStepID != tc.want || request.ExpectedReceipt.Command != tc.wantCommand || request.ExpectedReceipt.RefreshStatusCommand != refreshStatusCommand || request.Source != "reviewerDispatchOperatorPackage" {
 				t.Fatalf("state %s driver request = %+v", tc.state, request)
 			}
 			if strings.HasPrefix(tc.wantCommand, "/rekit") {

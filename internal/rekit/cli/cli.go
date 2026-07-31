@@ -9190,6 +9190,11 @@ func writeReviewerDispatchOperatorPackageText(out io.Writer, prefix string, pkg 
 			return err
 		}
 	}
+	if strings.TrimSpace(pkg.RefreshStatusCommand) != "" {
+		if _, err := fmt.Fprintf(out, "%s reviewer dispatch operator refresh：command=`%s`\n", prefix, pkg.RefreshStatusCommand); err != nil {
+			return err
+		}
+	}
 	if strings.TrimSpace(current.ReviewerSessionReceiptState) != "" {
 		if _, err := fmt.Fprintf(out, "%s reviewer dispatch operator session：shard=%s state=%s dispatchId=%s harness=%s session=%s outcome=%s exitStatus=%s dispatchReceipt=%s dispatchSha256=%s completionReceipt=%s completionSha256=%s failure=%s\n", prefix, current.ShardID, current.ReviewerSessionReceiptState, current.ReviewerDispatchID, current.ReviewerHarness, current.ReviewerSession, current.ReviewerSessionOutcome, current.ReviewerSessionExitStatus, current.ReviewerDispatchReceiptPath, current.ReviewerDispatchReceiptSHA256, current.ReviewerCompletionReceiptPath, current.ReviewerCompletionReceiptSHA256, current.ReviewerSessionReceiptFailure); err != nil {
 			return err

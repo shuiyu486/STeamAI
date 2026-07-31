@@ -21602,6 +21602,7 @@ type reviewerDispatchIntakeCLIItem struct {
 	ApplyCommand                             string                        `json:"applyCommand"`
 	BatchPreviewCommand                      string                        `json:"batchPreviewCommand"`
 	BatchApplyCommand                        string                        `json:"batchApplyCommand"`
+	RefreshStatusCommand                     string                        `json:"refreshStatusCommand"`
 	OwnerExecutor                            string                        `json:"ownerExecutor"`
 	OwnerGeneration                          int                           `json:"ownerGeneration"`
 	OwnerBindingMode                         string                        `json:"ownerBindingMode"`
@@ -21820,7 +21821,7 @@ func assertReviewerDispatchOperatorPackage(t *testing.T, label string, summary r
 		t.Fatalf("%s missing ordered operator run loop agent handoff: %+v", label, pkg.RunLoop)
 	}
 	request := pkg.CurrentDriverRequest
-	if request == nil || request.RunLoopStepID != pkg.CurrentRunLoopStepID || request.Source != "reviewerDispatchOperatorPackage" || request.Lane != pkg.TargetLane || request.Label != pkg.PacketID || request.Actor == "" || request.ExpectedReceipt.State != "refresh-required" || request.ExpectedReceipt.Command == "" || !request.RequiresReview || !containsSubstring(request.Boundary, "driver request is a read-only handoff") || !containsSubstring(request.ExpectedReceipt.Boundary, "do not infer completion") {
+	if request == nil || request.RunLoopStepID != pkg.CurrentRunLoopStepID || request.Source != "reviewerDispatchOperatorPackage" || request.Lane != pkg.TargetLane || request.Label != pkg.PacketID || request.Actor == "" || request.ExpectedReceipt.State != "refresh-required" || request.ExpectedReceipt.Command == "" || pkg.RefreshStatusCommand == "" || request.ExpectedReceipt.RefreshStatusCommand != pkg.RefreshStatusCommand || !request.RequiresReview || !containsSubstring(request.Boundary, "driver request is a read-only handoff") || !containsSubstring(request.ExpectedReceipt.Boundary, "do not infer completion") || !containsSubstring(request.ExpectedReceipt.Boundary, "after the explicit outcome") {
 		t.Fatalf("%s missing operator package current driver request: %+v", label, request)
 	}
 	if pkg.CurrentRunLoopStepID == "spawn-reviewer" {

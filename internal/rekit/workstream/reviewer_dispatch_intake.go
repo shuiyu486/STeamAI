@@ -180,6 +180,7 @@ type ReviewerDispatchIntakeHandoff struct {
 	ApplyCommand                             string                            `json:"applyCommand,omitempty"`
 	BatchPreviewCommand                      string                            `json:"batchPreviewCommand,omitempty"`
 	BatchApplyCommand                        string                            `json:"batchApplyCommand,omitempty"`
+	RefreshStatusCommand                     string                            `json:"refreshStatusCommand,omitempty"`
 	OwnerExecutor                            string                            `json:"ownerExecutor,omitempty"`
 	OwnerGeneration                          int                               `json:"ownerGeneration,omitempty"`
 	OwnerBindingMode                         string                            `json:"ownerBindingMode,omitempty"`
@@ -245,6 +246,7 @@ type ReviewerDispatchOperatorPackage struct {
 	Current              *ReviewerDispatchOperatorPackageItem   `json:"current,omitempty"`
 	CurrentRunLoopStepID string                                 `json:"currentRunLoopStepId,omitempty"`
 	CurrentDriverRequest *mission.MissionCommanderDriverRequest `json:"currentDriverRequest,omitempty"`
+	RefreshStatusCommand string                                 `json:"refreshStatusCommand,omitempty"`
 	RunLoop              []ReviewerDispatchRunLoopStep          `json:"runLoop,omitempty"`
 	RunbookSteps         []string                               `json:"runbookSteps,omitempty"`
 	CompletionCriteria   []string                               `json:"completionCriteria,omitempty"`
@@ -2179,6 +2181,7 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 		ApplyCommand:                             dispatch.ApplyCommand,
 		BatchPreviewCommand:                      packet.ReviewerOrchestration.BatchPreviewCommand,
 		BatchApplyCommand:                        packet.ReviewerOrchestration.BatchApplyCommand,
+		RefreshStatusCommand:                     reviewerDispatchStatusCommand(caseRoot),
 		OwnerExecutor:                            packet.ReviewerOrchestration.OwnerBinding.CurrentExecutor,
 		OwnerGeneration:                          packet.ReviewerOrchestration.OwnerBinding.ExecutorGeneration,
 		OwnerBindingMode:                         packet.ReviewerOrchestration.OwnerBinding.BindingMode,
@@ -2603,6 +2606,7 @@ func reviewerDispatchOperatorPackageFor(item ReviewerDispatchIntakeHandoff) *Rev
 		Current:              &current,
 		CurrentRunLoopStepID: currentRunLoopStepID,
 		CurrentDriverRequest: reviewerDispatchOperatorCurrentDriverRequest(item, current, currentRunLoopStepID, runLoop, boundary),
+		RefreshStatusCommand: strings.TrimSpace(item.RefreshStatusCommand),
 		RunLoop:              runLoop,
 		RunbookSteps:         mission.UniqueStrings(runbook),
 		CompletionCriteria:   mission.UniqueStrings(criteria),
@@ -2636,7 +2640,12 @@ func reviewerDispatchOperatorCurrentDriverRequest(item ReviewerDispatchIntakeHan
 		},
 		Boundary: boundary,
 	}
-	return mission.MissionCommanderCurrentDriverRequest(action, currentRunLoopStepID, reviewerDispatchOperatorMissionRunLoop(runLoop))
+	request := mission.MissionCommanderCurrentDriverRequest(action, currentRunLoopStepID, reviewerDispatchOperatorMissionRunLoop(runLoop))
+	if request == nil {
+		return nil
+	}
+	refreshed := mission.MissionCommanderDriverRequestWithRefreshStatusCommand(*request, item.RefreshStatusCommand)
+	return &refreshed
 }
 
 func reviewerDispatchOperatorRunLoopStepCommand(stepID string, runLoop []ReviewerDispatchRunLoopStep) string {
@@ -2873,6 +2882,9 @@ func reviewerDispatchOperatorPackageMarkdownLines(pkg *ReviewerDispatchOperatorP
 	if request := pkg.CurrentDriverRequest; request != nil {
 		lines = append(lines, fmt.Sprintf("  - driver request：kind=%s step=%s actor=%s executable=%t blocked=%t requiresReview=%t command=`%s` guidance=`%s` state=%s source=%s lane=%s label=%s gateEventId=%s actionId=%s", request.Kind, request.RunLoopStepID, request.Actor, request.CommandExecutable, request.Blocked, request.RequiresReview, request.Command, request.Guidance, request.State, request.Source, request.Lane, request.Label, request.GateEventID, request.ActionID))
 		lines = append(lines, fmt.Sprintf("  - driver request expected receipt：state=%s command=`%s` refreshStatusCommand=`%s` description=%s", request.ExpectedReceipt.State, request.ExpectedReceipt.Command, request.ExpectedReceipt.RefreshStatusCommand, request.ExpectedReceipt.Description))
+		if strings.TrimSpace(pkg.RefreshStatusCommand) != "" {
+			lines = append(lines, "  - operator refresh status command：`"+pkg.RefreshStatusCommand+"`")
+		}
 		for _, boundary := range mission.LimitStrings(request.Boundary, maxHandoffRows) {
 			lines = append(lines, "  - driver request boundary："+boundary)
 		}
@@ -3171,6 +3183,14 @@ func reviewerDispatchPromptArtifactRef(promptPath, promptSHA256 string, request 
 		return "reviewerOrchestration.dispatches[" + strconv.Itoa(idx) + "].agentToolRequest.prompt"
 	}
 	return "reviewerOrchestration.dispatches[" + strconv.Itoa(idx) + "].dispatchPrompt"
+}
+
+func reviewerDispatchStatusCommand(caseRoot string) string {
+	caseRoot = strings.TrimSpace(caseRoot)
+	if caseRoot == "" {
+		return "/rekit status -Format json"
+	}
+	return "/rekit status -Target " + quoteCommandArg(caseRoot) + " -Format json"
 }
 
 func reviewerDispatchQuoteCommandArg(value string) string {
