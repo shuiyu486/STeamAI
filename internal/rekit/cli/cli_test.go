@@ -13591,6 +13591,146 @@ func TestRunPromoteCreateCandidatesWritesDurableReviewWorkspace(t *testing.T) {
 	}
 }
 
+func TestRunProjectHandoffPackMemoryDecisionDraftProofConsumerLoopProductPath(t *testing.T) {
+	fixture := newCLIFixture(t, cliFixtureOptions{caseMode: "full"})
+	caseRoot := fixture.caseRoot
+	root := fixture.repoRoot
+	writeCaseFile(t, caseRoot, ".rekit/board.json", `{"lanes":[{"id":"main"}]}`)
+	candidateRoot := filepath.Join(root, "packs", "_template", "promote-candidates")
+	toolingRoot := filepath.Join(root, "packs", "_template", "tooling", "candidates")
+	candidateBefore := snapshotFiles(t, candidateRoot)
+	toolingBefore := snapshotFiles(t, toolingRoot)
+	t.Cleanup(func() {
+		removeNewFiles(t, candidateRoot, candidateBefore)
+		removeNewFiles(t, toolingRoot, toolingBefore)
+	})
+	writeCaseFile(t, caseRoot, "references/template/README.md", "# Durable handoff candidate\n\nReusable safe update.\n")
+	writeCaseFile(t, caseRoot, "references/template/toolchain-router.md", "# Tooling\n\nCase root: "+caseRoot+"\nTrace: artifacts/run/durable-handoff-trace.csv\n")
+	reviewRoot := filepath.Join(caseRoot, ".rekit", "reviews", "pack-memory-durable-handoff")
+
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-CreateCandidates", "-Review", "-ReviewOutputDir", reviewRoot, "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	created := decodeCandidateResult(t, out.Bytes())
+	if created.ReviewWorkspace == nil || created.ReviewPlan.DecisionDraftHandoff == nil || len(created.ReviewPlan.DecisionDraftHandoff.PreviewCommands) == 0 {
+		t.Fatalf("candidate review workspace omitted packet-bound decision draft handoff: %+v", created)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status statusInventory
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("pack-memory status JSON did not decode: %v\n%s", err, out.String())
+	}
+	if status.IsMutation || status.ProjectHandoff == nil || len(status.ProjectHandoff.PackMemoryCandidates.Packs) != 1 {
+		t.Fatalf("status omitted durable project pack-memory handoff: %+v", status)
+	}
+	pack := status.ProjectHandoff.PackMemoryCandidates.Packs[0]
+	draftHandoff := pack.DecisionDraftHandoff
+	if draftHandoff == nil || draftHandoff.Mode != "candidate-decision-draft-handoff" || draftHandoff.PacketPath != created.ReviewWorkspace.PacketPath || !strings.Contains(draftHandoff.NextAction, "-Target "+statusQuoteCommandArg(caseRoot)) || len(draftHandoff.PreviewCommands) == 0 || !strings.Contains(draftHandoff.PreviewCommands[0].PreviewCommand, created.ReviewWorkspace.PacketPath) || !containsSubstring(draftHandoff.Boundary, "draft Apply writes only the case-local decisionPath JSON") {
+		t.Fatalf("status project handoff did not bind case-local decision draft commands: %+v", draftHandoff)
+	}
+	proof := pack.ReviewSummary.ProofSummary.NextMissingProof
+	if proof == nil || proof.PacketPath != created.ReviewWorkspace.PacketPath || proof.SourceCaseRoot != caseRoot || proof.CurrentRunLoopStepID != "draft-proof-whatif" || strings.Contains(proof.DraftCommand, "<packet.json>") || !strings.Contains(proof.DraftCommand, "-Target "+statusQuoteCommandArg(caseRoot)) || !containsSubstring(proof.Boundary, "case-local status bound this next missing proof") {
+		t.Fatalf("status project handoff did not bind packet-derived proof command: %+v", proof)
+	}
+	statusProofRequest := requireTypedMissionCommanderDriverRequest(t, status.ProjectHandoff.PackMemoryCandidates.MissionCommanderActionQueue, "preview-command", "preview-current", proof.DraftCommand, true, false, true)
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	handoff := decodeHandoffResult(t, out.Bytes())
+	if handoff.IsMutation || handoff.Applied || !handoff.Project || handoff.MissionCommanderActionQueue.CurrentAction == nil {
+		t.Fatalf("project handoff preview omitted durable pack-memory action queue: %+v", handoff)
+	}
+	handoffProofRequest := requireMissionCommanderDriverRequest(t, handoff.MissionCommanderActionQueue, "preview-command", "preview-current", statusProofRequest.Command, true, false, true)
+	if handoffProofRequest.ActionID != "pack-memory-decision-proof-required" || handoffProofRequest.Source != "packMemoryCandidates._template" || handoff.ReplacementExecutorTakeoverPackage == nil || handoff.ReplacementExecutorTakeoverPackage.Command != handoffProofRequest.Command {
+		t.Fatalf("project handoff did not expose replacement-executor consumable proof request: handoff=%+v request=%+v", handoff, handoffProofRequest)
+	}
+
+	draftArgs := appendCLIArgIfMissing(rekitCommandCLIArgs(t, draftHandoff.PreviewCommands[0].PreviewCommand), "-Pack", "_template")
+	out.Reset()
+	if err := Run(draftArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var draftPreview promote.CandidateDecisionDraftResult
+	if err := json.Unmarshal(out.Bytes(), &draftPreview); err != nil {
+		t.Fatalf("status decision draft preview JSON did not decode: %v\n%s", err, out.String())
+	}
+	if draftPreview.IsMutation || draftPreview.Applied || draftPreview.DecisionSHA256 == "" || !strings.Contains(draftPreview.ApplyCommand, "-ExpectedDecisionSha256") {
+		t.Fatalf("status decision draft preview did not return hash-bound Apply request: %+v", draftPreview)
+	}
+	draftApplyRequest := requireTypedMissionCommanderDriverRequest(t, draftPreview.MissionCommanderActionQueue, "preview-command", "preview-current", draftPreview.ApplyCommand, true, false, true)
+	draftApplyArgs, ok := typedMissionCommanderDriverRequestCommandCLIArgs(t, draftApplyRequest)
+	if !ok {
+		t.Fatalf("returned decision draft apply request should be executable: %+v", draftApplyRequest)
+	}
+	draftApplyArgs = appendCLIArgIfMissing(draftApplyArgs, "-Target", caseRoot)
+	draftApplyArgs = appendCLIArgIfMissing(draftApplyArgs, "-Pack", "_template")
+	out.Reset()
+	if err := Run(draftApplyArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var draftApplied promote.CandidateDecisionDraftResult
+	if err := json.Unmarshal(out.Bytes(), &draftApplied); err != nil {
+		t.Fatalf("decision draft apply JSON did not decode: %v\n%s", err, out.String())
+	}
+	if !draftApplied.IsMutation || !draftApplied.Applied || draftApplied.AlreadyWritten || draftApplied.DecisionSHA256 != draftPreview.DecisionSHA256 {
+		t.Fatalf("decision draft apply did not write exact hash-bound draft: %+v", draftApplied)
+	}
+	out.Reset()
+	if err := Run(draftApplyArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var draftReplay promote.CandidateDecisionDraftResult
+	if err := json.Unmarshal(out.Bytes(), &draftReplay); err != nil {
+		t.Fatalf("decision draft replay JSON did not decode: %v\n%s", err, out.String())
+	}
+	if !draftReplay.Applied || !draftReplay.AlreadyWritten || draftReplay.DecisionSHA256 != draftPreview.DecisionSHA256 {
+		t.Fatalf("decision draft apply was not idempotent for replacement executor replay: %+v", draftReplay)
+	}
+
+	proofArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, handoffProofRequest)
+	if !ok {
+		t.Fatalf("project handoff proof request should be executable: %+v", handoffProofRequest)
+	}
+	proofArgs = appendCLIArgIfMissing(proofArgs, "-Pack", "_template")
+	proofArgs = fillPackMemoryProofPreviewDriverArgsForTest(proofArgs, "accept", "reviewed durable project handoff proof command", "mission-commander", created.ReviewWorkspace.CombinedDiffPath)
+	out.Reset()
+	if err := Run(proofArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var proofPreview promote.CandidateReviewProofDraftResult
+	if err := json.Unmarshal(out.Bytes(), &proofPreview); err != nil {
+		t.Fatalf("project handoff proof preview JSON did not decode: %v\n%s", err, out.String())
+	}
+	if proofPreview.IsMutation || proofPreview.Applied || proofPreview.ProofSHA256 == "" || !strings.Contains(proofPreview.ApplyCommand, "-ExpectedProofSha256") {
+		t.Fatalf("project handoff proof preview did not return hash-bound Apply request: %+v", proofPreview)
+	}
+	proofApplyRequest := requireTypedMissionCommanderDriverRequest(t, proofPreview.MissionCommanderActionQueue, "preview-command", "preview-current", proofPreview.ApplyCommand, true, false, true)
+	proofApplyArgs, ok := typedMissionCommanderDriverRequestCommandCLIArgs(t, proofApplyRequest)
+	if !ok {
+		t.Fatalf("returned proof apply request should be executable: %+v", proofApplyRequest)
+	}
+	proofApplyArgs = appendCLIArgIfMissing(proofApplyArgs, "-Target", caseRoot)
+	proofApplyArgs = appendCLIArgIfMissing(proofApplyArgs, "-Pack", "_template")
+	out.Reset()
+	if err := Run(proofApplyArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var proofApplied promote.CandidateReviewProofDraftResult
+	if err := json.Unmarshal(out.Bytes(), &proofApplied); err != nil {
+		t.Fatalf("project handoff proof apply JSON did not decode: %v\n%s", err, out.String())
+	}
+	if !proofApplied.IsMutation || !proofApplied.Applied || proofApplied.AlreadyWritten || proofApplied.ProofSHA256 != proofPreview.ProofSHA256 {
+		t.Fatalf("project handoff proof apply did not write exact hash-bound proof: %+v", proofApplied)
+	}
+}
+
 func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	fixture := newCLIFixture(t, cliFixtureOptions{caseMode: "full"})
 	caseRoot := fixture.caseRoot
