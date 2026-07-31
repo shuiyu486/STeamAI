@@ -60,6 +60,17 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 
 
+
+### Batch 777：adapter validation record run loop receipt
+
+状态：进行中。本批选择 `adapter-live-validation`，推进 adapter validation record run loop receipt；release handoff candidate guidance 是：select an adapter live validation slice with strict authorized-gate scope and machine-readable repair evidence。上一批完成后仍需要解决的接手断点必须落在该 domain 的可操作 product-path closure 上，并能由 status/handoff/continue/release-check 或必要临时 case 验证；本批不是字段、文案或 summary 投影微调。
+
+目标：把 `adapter-live-validation` candidate 收敛成 Windows 本机可验证的闭环：adapter validation record run loop receipt。实现应复用既有 typed handoff/envelope 和 deterministic runtime 边界，让 Mission Commander 或 replacement executor 能从 durable docs/status 消费结果，不依赖上一会话隐性上下文；focused work 必须证明该候选命令所描述的能力：select an adapter live validation slice with strict authorized-gate scope and machine-readable repair evidence。
+
+边界：本批不新增 PowerShell runtime logic，不执行 heavy-tool，不写 authority/confirmed，不自动执行 reviewer/adapter/pack-memory/gate/sync/promote mutation，不自动提交或声明 remote CI green；`/rekit next-batch -Apply` 只在 expected hash 匹配时写 kit repo `docs/batch-plan.md` 与 `CHANGELOG.md` planning receipt。
+
+验证标准：focused regressions 覆盖 `adapter-live-validation` 的 selected product-path closure、durable status/handoff refresh，以及不回归 `/rekit next-batch` WhatIf/Apply/hash guard；随后运行完整本机 release minimum：`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、`git diff --check`。实现完成后记录 implementation commit/push 与 push-triggered remote release-gate inspection；远程 `steps=[]` 仍只记录 blocker，不声明 green。
+
 ### Batch 776：reviewer ready result intake run loop receipt
 
 状态：已完成本机实现、focused validation、完整本机 release minimum、API 使用说明收尾、implementation commit/push 与 push-triggered remote inspection；implementation commit `478ffc9` 已推送。Push run `30633283991` completed failure；macOS/Windows/Linux jobs `91164543143`/`91164543163`/`91164543259` 均 `steps=[]`，`gh run view 30633283991 --log-failed` 返回 `log not found: 91164543143`，job annotations API 均返回 404。仍是既有 runner/billing blocker signal，不声明 remote green。本批选择 `reviewer-orchestration`，推进 reviewer ready result intake run loop receipt；release handoff candidate guidance 是：select a reviewer orchestration slice that improves bounded dispatch, intake, writeback, or recovery without auto-spawning reviewers。上一批完成后仍需要解决的接手断点必须落在该 domain 的可操作 product-path closure 上，并能由 status/handoff/continue/release-check 或必要临时 case 验证；本批不是字段、文案或 summary 投影微调。
