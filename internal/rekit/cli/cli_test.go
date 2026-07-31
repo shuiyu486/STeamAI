@@ -67,6 +67,19 @@ func TestParseDefaults(t *testing.T) {
 	}
 }
 
+func TestStatusTakeoverComparableCommandIgnoresInvocationOnlyFlags(t *testing.T) {
+	artifact := `/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1`
+	current := `/rekit continue -Target "C:\cases\demo case" login -Executor session-1 -ExpectedExecutorGeneration 1 -WhatIf -Format json`
+	if statusTakeoverComparableCommand(artifact) != statusTakeoverComparableCommand(current) {
+		t.Fatalf("invocation-only flags should not affect takeover freshness comparison: artifact=%q current=%q", statusTakeoverComparableCommand(artifact), statusTakeoverComparableCommand(current))
+	}
+
+	stale := `/rekit continue -Target "C:\cases\demo case" login -Executor session-2 -ExpectedExecutorGeneration 2 -WhatIf -Format json`
+	if statusTakeoverComparableCommand(artifact) == statusTakeoverComparableCommand(stale) {
+		t.Fatalf("executor generation changes should still make takeover artifacts stale: artifact=%q stale=%q", statusTakeoverComparableCommand(artifact), statusTakeoverComparableCommand(stale))
+	}
+}
+
 func TestParseNextBatchPlanningReceiptFlags(t *testing.T) {
 	opt, err := Parse([]string{"next-batch", "-Domain", "mission-commander", "-Closure", "Mission Control next-batch acceptance", "-ExpectedNextBatchPlanSha256", "abc123", "-Apply", "-Format", "json"})
 	if err != nil {
@@ -2667,8 +2680,8 @@ func TestRunStatusJsonCase(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &takeoverStatus); err != nil {
 		t.Fatalf("status takeover artifact JSON did not decode: %v\n%s", err, out.String())
 	}
-	if runbook := takeoverStatus.MissionControlRunbook; runbook == nil || runbook.ReplacementExecutorTakeoverPackage == nil || !containsSubstring(runbook.ReplacementExecutorTakeoverPackage.TargetDocuments, ".rekit/handovers/feature-login-latest-replacement-executor-takeover.json") || !containsSubstring(runbook.ReplacementExecutorTakeoverPackage.RunbookSteps, "read .rekit/handovers/feature-login-latest-replacement-executor-takeover.json before using any prior chat context") || runbook.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command != runbook.CurrentDriverRequest.Command {
-		t.Fatalf("status runbook did not discover durable takeover artifact: %+v", runbook)
+	if runbook := takeoverStatus.MissionControlRunbook; runbook == nil || runbook.ReplacementExecutorTakeoverPackage == nil || runbook.ReplacementExecutorTakeoverPackage.DurableArtifactPath != ".rekit/handovers/feature-login-latest-replacement-executor-takeover.json" || !runbook.ReplacementExecutorTakeoverPackage.DurableArtifactFresh || runbook.ReplacementExecutorTakeoverPackage.DurableArtifactState != "fresh" || len(runbook.ReplacementExecutorTakeoverPackage.DurableArtifactWarnings) != 0 || !containsSubstring(runbook.ReplacementExecutorTakeoverPackage.TargetDocuments, ".rekit/handovers/feature-login-latest-replacement-executor-takeover.json") || !containsSubstring(runbook.ReplacementExecutorTakeoverPackage.RunbookSteps, "read .rekit/handovers/feature-login-latest-replacement-executor-takeover.json before using any prior chat context") || runbook.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command != runbook.CurrentDriverRequest.Command {
+		t.Fatalf("status runbook did not discover fresh durable takeover artifact: %+v", runbook)
 	}
 
 	out.Reset()
@@ -2700,6 +2713,7 @@ func TestRunStatusJsonCase(t *testing.T) {
 		"status Mission Control runbook step：order=4 step=preview-handoff actor=main-agent",
 		"status Mission Control runbook step：order=5 step=write-handoff-for-takeover actor=main-agent",
 		"status Mission Control runbook boundary：missionControlRunbook is read-only",
+		"status replacement executor takeover package durable artifact：path=.rekit/handovers/feature-login-latest-replacement-executor-takeover.json fresh=true state=fresh",
 		"status replacement executor takeover package target document：.rekit/handovers/feature-login-latest-replacement-executor-takeover.json",
 		"status replacement executor takeover package runbook step：read .rekit/handovers/feature-login-latest-replacement-executor-takeover.json before using any prior chat context",
 		"status case mission daily runbook：ready=true scope=case currentState=ready-to-continue currentSource=missionCommanderActions currentStep=apply-or-run-current currentCommand=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
@@ -2739,6 +2753,24 @@ func TestRunStatusJsonCase(t *testing.T) {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("status case default text missing %q:\n%s", expected, out.String())
 		}
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "login", "-Apply", "-Executor", "session-2", "-Actor", "mission-commander", "-Reason", "replacement takeover freshness guard", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var staleStatus struct {
+		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &staleStatus); err != nil {
+		t.Fatalf("stale takeover artifact status JSON did not decode: %v\n%s", err, out.String())
+	}
+	if runbook := staleStatus.MissionControlRunbook; runbook == nil || runbook.CurrentDriverRequest == nil || !strings.Contains(runbook.CurrentDriverRequest.Command, "session-2") || runbook.ReplacementExecutorTakeoverPackage == nil || runbook.ReplacementExecutorTakeoverPackage.DurableArtifactPath != ".rekit/handovers/feature-login-latest-replacement-executor-takeover.json" || runbook.ReplacementExecutorTakeoverPackage.DurableArtifactFresh || runbook.ReplacementExecutorTakeoverPackage.DurableArtifactState != "stale-current-driver-request" || !containsSubstring(runbook.ReplacementExecutorTakeoverPackage.DurableArtifactWarnings, "currentDriverRequest does not match refreshed status") || !containsSubstring(runbook.ReplacementExecutorTakeoverPackage.RunbookSteps, "read missionControlRunbook.replacementExecutorTakeoverPackage before using any prior chat context") || containsSubstring(runbook.ReplacementExecutorTakeoverPackage.RunbookSteps, "read .rekit/handovers/feature-login-latest-replacement-executor-takeover.json before using any prior chat context") || !containsSubstring(runbook.ReplacementExecutorTakeoverPackage.RunbookSteps, "do not consume stale durable takeover artifact .rekit/handovers/feature-login-latest-replacement-executor-takeover.json") || !containsSubstring(runbook.ReplacementExecutorTakeoverPackage.Boundary, "durable takeover artifact is stale or invalid") {
+		t.Fatalf("status runbook did not guard stale durable takeover artifact: %+v", runbook)
 	}
 }
 
@@ -20401,24 +20433,28 @@ type projectNextBatchStarterPackage struct {
 }
 
 type replacementExecutorTakeoverPackageSnapshot struct {
-	Ready                bool                                  `json:"ready"`
-	Focus                string                                `json:"focus"`
-	Scope                string                                `json:"scope"`
-	State                string                                `json:"state"`
-	Source               string                                `json:"source"`
-	Label                string                                `json:"label"`
-	ActionID             string                                `json:"actionId"`
-	DriverKind           string                                `json:"driverKind"`
-	CommandExecutable    bool                                  `json:"commandExecutable"`
-	RequiresReview       bool                                  `json:"requiresReview"`
-	Blocked              bool                                  `json:"blocked"`
-	Command              string                                `json:"command"`
-	Guidance             string                                `json:"guidance"`
-	CurrentDriverRequest missionCommanderDriverRequestSnapshot `json:"currentDriverRequest"`
-	TargetDocuments      []string                              `json:"targetDocuments"`
-	RefreshStatusCommand string                                `json:"refreshStatusCommand"`
-	RunbookSteps         []string                              `json:"runbookSteps"`
-	Boundary             []string                              `json:"boundary"`
+	Ready                   bool                                  `json:"ready"`
+	Focus                   string                                `json:"focus"`
+	Scope                   string                                `json:"scope"`
+	State                   string                                `json:"state"`
+	Source                  string                                `json:"source"`
+	Label                   string                                `json:"label"`
+	ActionID                string                                `json:"actionId"`
+	DriverKind              string                                `json:"driverKind"`
+	CommandExecutable       bool                                  `json:"commandExecutable"`
+	RequiresReview          bool                                  `json:"requiresReview"`
+	Blocked                 bool                                  `json:"blocked"`
+	Command                 string                                `json:"command"`
+	Guidance                string                                `json:"guidance"`
+	CurrentDriverRequest    missionCommanderDriverRequestSnapshot `json:"currentDriverRequest"`
+	TargetDocuments         []string                              `json:"targetDocuments"`
+	RefreshStatusCommand    string                                `json:"refreshStatusCommand"`
+	DurableArtifactPath     string                                `json:"durableArtifactPath"`
+	DurableArtifactFresh    bool                                  `json:"durableArtifactFresh"`
+	DurableArtifactState    string                                `json:"durableArtifactState"`
+	DurableArtifactWarnings []string                              `json:"durableArtifactWarnings"`
+	RunbookSteps            []string                              `json:"runbookSteps"`
+	Boundary                []string                              `json:"boundary"`
 }
 
 type laneTakeoverPackage struct {
