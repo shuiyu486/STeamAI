@@ -2653,6 +2653,25 @@ func TestRunStatusJsonCase(t *testing.T) {
 	}
 
 	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "login", "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	assertFileExists(t, filepath.Join(caseRoot, ".rekit", "handovers", "feature-login-latest-replacement-executor-takeover.json"))
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var takeoverStatus struct {
+		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &takeoverStatus); err != nil {
+		t.Fatalf("status takeover artifact JSON did not decode: %v\n%s", err, out.String())
+	}
+	if runbook := takeoverStatus.MissionControlRunbook; runbook == nil || runbook.ReplacementExecutorTakeoverPackage == nil || !containsSubstring(runbook.ReplacementExecutorTakeoverPackage.TargetDocuments, ".rekit/handovers/feature-login-latest-replacement-executor-takeover.json") || !containsSubstring(runbook.ReplacementExecutorTakeoverPackage.RunbookSteps, "read .rekit/handovers/feature-login-latest-replacement-executor-takeover.json before using any prior chat context") || runbook.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command != runbook.CurrentDriverRequest.Command {
+		t.Fatalf("status runbook did not discover durable takeover artifact: %+v", runbook)
+	}
+
+	out.Reset()
 	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
@@ -2681,6 +2700,8 @@ func TestRunStatusJsonCase(t *testing.T) {
 		"status Mission Control runbook step：order=4 step=preview-handoff actor=main-agent",
 		"status Mission Control runbook step：order=5 step=write-handoff-for-takeover actor=main-agent",
 		"status Mission Control runbook boundary：missionControlRunbook is read-only",
+		"status replacement executor takeover package target document：.rekit/handovers/feature-login-latest-replacement-executor-takeover.json",
+		"status replacement executor takeover package runbook step：read .rekit/handovers/feature-login-latest-replacement-executor-takeover.json before using any prior chat context",
 		"status case mission daily runbook：ready=true scope=case currentState=ready-to-continue currentSource=missionCommanderActions currentStep=apply-or-run-current currentCommand=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
 		"status case mission daily runbook driver：kind=execute-command actor=main-agent state=ready-to-continue source=missionCommanderActions executable=true blocked=false requiresReview=false command=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
 		"status case mission daily runbook step：order=3 step=refresh-after-driver actor=main-agent",

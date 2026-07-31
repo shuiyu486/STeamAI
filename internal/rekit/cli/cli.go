@@ -3741,7 +3741,7 @@ func buildStatusMissionControlRunbook(target string, caseMission *statusCaseMiss
 		}
 	}
 	runbook.GuidanceHandoff = statusMissionControlGuidanceHandoffFor(runbook, projectHandoff)
-	runbook.ReplacementExecutorTakeover = statusReplacementExecutorTakeoverPackageFor(runbook, projectHandoff)
+	runbook.ReplacementExecutorTakeover = statusReplacementExecutorTakeoverPackageFor(target, runbook, projectHandoff)
 	runbook.RunLoop = statusMissionControlRunbookSteps(runbook)
 	return runbook
 }
@@ -3801,21 +3801,29 @@ func statusMissionControlGuidanceHandoffFor(runbook *statusMissionControlRunbook
 	return handoff
 }
 
-func statusReplacementExecutorTakeoverPackageFor(runbook *statusMissionControlRunbook, projectHandoff *statusProjectHandoff) *mission.ReplacementExecutorTakeoverPackage {
+func statusReplacementExecutorTakeoverPackageFor(target string, runbook *statusMissionControlRunbook, projectHandoff *statusProjectHandoff) *mission.ReplacementExecutorTakeoverPackage {
 	if runbook == nil || runbook.CurrentDriverRequest == nil {
 		return nil
+	}
+	artifact := statusReplacementExecutorTakeoverArtifactTargetDocument(target, runbook.Scope, *runbook.CurrentDriverRequest)
+	packagePath := "missionControlRunbook.replacementExecutorTakeoverPackage"
+	if artifact != "" {
+		packagePath = artifact
 	}
 	return mission.ReplacementExecutorTakeoverPackageFor(runbook.CurrentDriverRequest, mission.ReplacementExecutorTakeoverOptions{
 		Focus:                runbook.Focus,
 		Scope:                runbook.Scope,
 		RefreshStatusCommand: runbook.RefreshStatusCommand,
-		PackagePath:          "missionControlRunbook.replacementExecutorTakeoverPackage",
-		TargetDocuments:      statusReplacementExecutorTakeoverTargetDocuments(runbook.Scope, *runbook.CurrentDriverRequest, projectHandoff),
+		PackagePath:          packagePath,
+		TargetDocuments:      statusReplacementExecutorTakeoverTargetDocuments(runbook.Scope, *runbook.CurrentDriverRequest, projectHandoff, artifact),
 	})
 }
 
-func statusReplacementExecutorTakeoverTargetDocuments(scope string, request mission.MissionCommanderDriverRequest, projectHandoff *statusProjectHandoff) []string {
+func statusReplacementExecutorTakeoverTargetDocuments(scope string, request mission.MissionCommanderDriverRequest, projectHandoff *statusProjectHandoff, artifact string) []string {
 	docs := []string{"missionControlRunbook.currentDriverRequest", "missionControlRunbook.runLoop"}
+	if artifact = strings.TrimSpace(artifact); artifact != "" {
+		docs = append(docs, artifact)
+	}
 	switch strings.TrimSpace(scope) {
 	case "project", "pack-memory":
 		docs = append(docs, statusMissionControlGuidanceTargetDocuments(projectHandoff)...)
@@ -3833,6 +3841,40 @@ func statusReplacementExecutorTakeoverTargetDocuments(scope string, request miss
 		docs = append(docs, "missionControlRunbook.currentDriverRequest.expectedReceipt")
 	}
 	return mission.UniqueStrings(docs)
+}
+
+func statusReplacementExecutorTakeoverArtifactTargetDocument(target, scope string, request mission.MissionCommanderDriverRequest) string {
+	target = strings.TrimSpace(target)
+	if target == "" || !instance.LooksLikeCase(target) {
+		return ""
+	}
+	var rel string
+	switch strings.TrimSpace(scope) {
+	case "project", "pack-memory":
+		rel = filepath.ToSlash(filepath.Join(".rekit", "handovers", "latest-replacement-executor-takeover.json"))
+	case "case", "reviewer":
+		lane := strings.TrimSpace(request.Lane)
+		if !statusSafePathSegment(lane) {
+			return ""
+		}
+		rel = filepath.ToSlash(filepath.Join(".rekit", "handovers", lane+"-latest-replacement-executor-takeover.json"))
+	default:
+		return ""
+	}
+	if !statusRegularFileExists(filepath.Join(target, filepath.FromSlash(rel))) {
+		return ""
+	}
+	return rel
+}
+
+func statusSafePathSegment(value string) bool {
+	value = strings.TrimSpace(value)
+	return value != "" && value != "." && value != ".." && !strings.ContainsAny(value, `/\\`)
+}
+
+func statusRegularFileExists(path string) bool {
+	st, err := os.Lstat(path)
+	return err == nil && st.Mode().IsRegular() && st.Mode()&os.ModeSymlink == 0
 }
 
 func statusMissionControlGuidanceTargetDocuments(projectHandoff *statusProjectHandoff) []string {
