@@ -130,6 +130,29 @@ func MissingBoardOnboardingAction(caseRoot string) mission.MissionCommanderNextA
 	}
 }
 
+func StartBootstrapAction(caseRoot string) mission.MissionCommanderNextActionItem {
+	command := "/rekit start -Target " + quoteAlwaysCommandArg(caseRoot) + " -Name triage -WhatIf -Format json"
+	return mission.MissionCommanderNextActionItem{
+		Label:          "triage",
+		ActionID:       "case-start-bootstrap",
+		State:          "start-bootstrap-preview-required",
+		Command:        command,
+		Source:         "caseMissionStartBootstrap",
+		RequiresReview: true,
+		Reasons: []string{
+			"case board exists but no lane current action is available",
+			"preview the first default workstream lane before writing case-local lane/board/resume/checkpoint state",
+		},
+		Boundary: []string{
+			"status and handoff previews are read-only; they only project this start bootstrap preview request",
+			"start bootstrap uses the existing start WhatIf flow and does not execute start Apply automatically",
+			"start Apply only writes case-local lane/board/resume/checkpoint state after review",
+			"no authority/confirmed writes",
+			"no heavy-tool execution",
+		},
+	}
+}
+
 func quoteAlwaysCommandArg(value string) string {
 	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
 }

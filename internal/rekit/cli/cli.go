@@ -5864,26 +5864,7 @@ func statusCaseMissionOnboardingAction(caseRoot string) mission.MissionCommander
 }
 
 func statusCaseMissionStartBootstrapAction(caseRoot string) mission.MissionCommanderNextActionItem {
-	command := "/rekit start -Target " + statusQuoteCommandArg(caseRoot) + " -Name triage -WhatIf -Format json"
-	return mission.MissionCommanderNextActionItem{
-		Label:          "triage",
-		ActionID:       "case-start-bootstrap",
-		State:          "start-bootstrap-preview-required",
-		Command:        command,
-		Source:         "caseMissionStartBootstrap",
-		RequiresReview: true,
-		Reasons: []string{
-			"case board exists but no lane current action is available",
-			"preview the first default workstream lane before writing case-local lane/board/resume/checkpoint state",
-		},
-		Boundary: []string{
-			"status is read-only; it only projects this start bootstrap preview request",
-			"start bootstrap uses the existing start WhatIf flow and does not execute start Apply automatically",
-			"start Apply only writes case-local lane/board/resume/checkpoint state after review",
-			"no authority/confirmed writes",
-			"no heavy-tool execution",
-		},
-	}
+	return workstream.StartBootstrapAction(caseRoot)
 }
 
 func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission, error) {
@@ -8202,9 +8183,21 @@ func bindProjectHandoffMissionCommanderActions(repoRoot, target, pack string, op
 	if project == nil {
 		return nil
 	}
+	caseMission, err := buildStatusCaseMission(repoRoot, target, pack)
+	if err != nil {
+		return err
+	}
 	opt.ProjectMissionCommanderNextActions = projectHandoffMissionCommanderActionsForDurableHandoff(project)
+	opt.ProjectMissionCommanderNextActions = mission.UniqueCommanderNextActions(append(caseHandoffMissionCommanderActionsForDurableHandoff(caseMission), opt.ProjectMissionCommanderNextActions...))
 	opt.ProjectNextBatchStarterPackage = projectHandoffNextBatchStarterPackageForDurableHandoff(project)
 	return nil
+}
+
+func caseHandoffMissionCommanderActionsForDurableHandoff(caseMission *statusCaseMission) []mission.MissionCommanderNextActionItem {
+	if caseMission == nil || caseMission.MissionCommanderActionQueue.CurrentAction == nil {
+		return nil
+	}
+	return []mission.MissionCommanderNextActionItem{*caseMission.MissionCommanderActionQueue.CurrentAction}
 }
 
 func projectHandoffNextBatchStarterPackageForDurableHandoff(project *statusProjectHandoff) *workstream.ProjectNextBatchStarterPackage {

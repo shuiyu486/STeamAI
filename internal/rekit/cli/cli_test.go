@@ -2079,6 +2079,160 @@ func TestRunStartBootstrapDriverRequestConsumerLoopProductPath(t *testing.T) {
 	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
 }
 
+func TestRunHandoffStartContinueTakeoverRunLoopProductPath(t *testing.T) {
+	caseRoot := attachedCase(t)
+	seedEmptyLaneCaseBoard(t, caseRoot)
+	var out bytes.Buffer
+
+	beforeHandoffPreview := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var handoff struct {
+		Command                            string                                      `json:"command"`
+		IsMutation                         bool                                        `json:"isMutation"`
+		Applied                            bool                                        `json:"applied"`
+		RequiresConfirmation               bool                                        `json:"requiresConfirmation"`
+		Project                            bool                                        `json:"project"`
+		MissionCommanderActionQueue        missionCommanderActionQueueSnapshot         `json:"missionCommanderActionQueue"`
+		DailyMissionControlRunbook         *dailyMissionControlRunbookSnapshot         `json:"dailyMissionControlRunbook"`
+		ReplacementExecutorTakeoverPackage *replacementExecutorTakeoverPackageSnapshot `json:"replacementExecutorTakeoverPackage"`
+		Writes                             []startWrite                                `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &handoff); err != nil {
+		t.Fatalf("handoff start takeover preview JSON did not decode: %v\n%s", err, out.String())
+	}
+	startCommand := "/rekit start -Target " + statusQuoteCommandArg(caseRoot) + " -Name triage -WhatIf -Format json"
+	startRequest := requireMissionCommanderDriverRequest(t, handoff.MissionCommanderActionQueue, "preview-command", "preview-current", startCommand, true, false, true)
+	if handoff.Command != "handoff" || handoff.IsMutation || handoff.Applied || !handoff.RequiresConfirmation || !handoff.Project {
+		t.Fatalf("handoff preview should stay read-only project handoff: %+v", handoff)
+	}
+	assertStartWrite(t, handoff.Writes, ".rekit/handovers/latest.md", "would-write-latest-project-handoff")
+	if handoff.DailyMissionControlRunbook == nil || !handoff.DailyMissionControlRunbook.Ready || handoff.DailyMissionControlRunbook.Scope != "project" || handoff.DailyMissionControlRunbook.CurrentDriverRequest == nil || handoff.DailyMissionControlRunbook.CurrentDriverRequest.Command != startRequest.Command || handoff.DailyMissionControlRunbook.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != handoff.DailyMissionControlRunbook.RefreshStatusCommand || !containsSubstring(handoff.DailyMissionControlRunbook.Boundary, "read-only") {
+		t.Fatalf("handoff preview omitted daily runbook start takeover request: runbook=%+v request=%+v", handoff.DailyMissionControlRunbook, startRequest)
+	}
+	if handoff.ReplacementExecutorTakeoverPackage == nil || !handoff.ReplacementExecutorTakeoverPackage.Ready || handoff.ReplacementExecutorTakeoverPackage.Scope != "project" || handoff.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command != startRequest.Command || !containsSubstring(handoff.ReplacementExecutorTakeoverPackage.TargetDocuments, ".rekit/handovers/latest.md") || !containsSubstring(handoff.ReplacementExecutorTakeoverPackage.RunbookSteps, "run currentDriverRequest.command exactly") || !containsSubstring(handoff.ReplacementExecutorTakeoverPackage.Boundary, "does not spawn or replace executor sessions") {
+		t.Fatalf("handoff preview omitted replacement executor start takeover package: package=%+v request=%+v", handoff.ReplacementExecutorTakeoverPackage, startRequest)
+	}
+	assertSnapshotEqual(t, beforeHandoffPreview, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	startPreviewArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, &handoff.ReplacementExecutorTakeoverPackage.CurrentDriverRequest)
+	if !ok {
+		t.Fatalf("handoff start takeover request should be executable: %+v", handoff.ReplacementExecutorTakeoverPackage.CurrentDriverRequest)
+	}
+	beforeStartPreview := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	out.Reset()
+	if err := Run(startPreviewArgs, &out); err != nil {
+		t.Fatalf("handoff start takeover preview failed: args=%+v err=%v\n%s", startPreviewArgs, err, out.String())
+	}
+	var preview struct {
+		Command                     string                              `json:"command"`
+		Applied                     bool                                `json:"applied"`
+		RequiresConfirmation        bool                                `json:"requiresConfirmation"`
+		Lane                        startLane                           `json:"lane"`
+		LaneTakeoverPackage         *laneTakeoverPackage                `json:"laneTakeoverPackage"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+		t.Fatalf("handoff start takeover preview result did not decode: %v\n%s", err, out.String())
+	}
+	applyRequest := requireMissionCommanderDriverRequest(t, preview.MissionCommanderActionQueue, "preview-command", "preview-current", "/rekit start triage -Apply", true, false, true)
+	if preview.Command != "start" || preview.Applied || !preview.RequiresConfirmation || preview.Lane.ID != "feature-triage" || preview.LaneTakeoverPackage == nil || !preview.LaneTakeoverPackage.Ready || !preview.LaneTakeoverPackage.ApplyRequired || preview.LaneTakeoverPackage.MissionCommanderActionQueue.CurrentDriverRequest == nil || preview.LaneTakeoverPackage.MissionCommanderActionQueue.CurrentDriverRequest.Command != applyRequest.Command {
+		t.Fatalf("handoff start takeover preview should return apply driver request: preview=%+v request=%+v", preview, applyRequest)
+	}
+	assertSnapshotEqual(t, beforeStartPreview, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	applyArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, applyRequest)
+	if !ok {
+		t.Fatalf("handoff start takeover apply request should be executable: %+v", applyRequest)
+	}
+	applyArgs = append(applyArgs, "-Target", caseRoot, "-Pack", "_template", "-Format", "json")
+	out.Reset()
+	if err := Run(applyArgs, &out); err != nil {
+		t.Fatalf("handoff start takeover apply failed: args=%+v err=%v\n%s", applyArgs, err, out.String())
+	}
+	var applied struct {
+		Command                     string                              `json:"command"`
+		Applied                     bool                                `json:"applied"`
+		RequiresConfirmation        bool                                `json:"requiresConfirmation"`
+		Lane                        startLane                           `json:"lane"`
+		LaneTakeoverPackage         *laneTakeoverPackage                `json:"laneTakeoverPackage"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		Writes                      []startWrite                        `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &applied); err != nil {
+		t.Fatalf("handoff start takeover apply result did not decode: %v\n%s", err, out.String())
+	}
+	continueRequest := requireMissionCommanderDriverRequest(t, applied.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue triage", true, false, false)
+	if applied.Command != "start" || !applied.Applied || applied.RequiresConfirmation || applied.Lane.ID != "feature-triage" || applied.LaneTakeoverPackage == nil || !applied.LaneTakeoverPackage.Ready || !applied.LaneTakeoverPackage.ContinueReady || applied.LaneTakeoverPackage.MissionCommanderActionQueue.CurrentDriverRequest == nil || applied.LaneTakeoverPackage.MissionCommanderActionQueue.CurrentDriverRequest.Command != continueRequest.Command {
+		t.Fatalf("handoff start takeover apply should return continue driver request: applied=%+v request=%+v", applied, continueRequest)
+	}
+	assertStartWrite(t, applied.Writes, ".rekit/lanes/feature-triage/lane.json", "create-lane")
+
+	beforeContinueHandoffPreview := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var continueHandoff struct {
+		MissionCommanderActionQueue        missionCommanderActionQueueSnapshot         `json:"missionCommanderActionQueue"`
+		DailyMissionControlRunbook         *dailyMissionControlRunbookSnapshot         `json:"dailyMissionControlRunbook"`
+		ReplacementExecutorTakeoverPackage *replacementExecutorTakeoverPackageSnapshot `json:"replacementExecutorTakeoverPackage"`
+		Writes                             []startWrite                                `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &continueHandoff); err != nil {
+		t.Fatalf("handoff continue takeover preview result did not decode: %v\n%s", err, out.String())
+	}
+	continueHandoffRequest := requireMissionCommanderDriverRequest(t, continueHandoff.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", continueRequest.Command, true, false, false)
+	assertStartWrite(t, continueHandoff.Writes, ".rekit/handovers/latest.md", "would-write-latest-project-handoff")
+	if continueHandoff.DailyMissionControlRunbook == nil || continueHandoff.DailyMissionControlRunbook.CurrentDriverRequest == nil || continueHandoff.DailyMissionControlRunbook.CurrentDriverRequest.Command != continueHandoffRequest.Command || continueHandoff.ReplacementExecutorTakeoverPackage == nil || !continueHandoff.ReplacementExecutorTakeoverPackage.Ready || continueHandoff.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command != continueHandoffRequest.Command || continueHandoff.ReplacementExecutorTakeoverPackage.RefreshStatusCommand == "" {
+		t.Fatalf("handoff continue takeover should expose durable continue request and refresh route: handoff=%+v request=%+v", continueHandoff, continueHandoffRequest)
+	}
+	assertSnapshotEqual(t, beforeContinueHandoffPreview, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	refreshArgs := rekitCommandCLIArgs(t, continueHandoff.ReplacementExecutorTakeoverPackage.RefreshStatusCommand)
+	out.Reset()
+	if err := Run(refreshArgs, &out); err != nil {
+		t.Fatalf("handoff refresh command failed: args=%+v err=%v\n%s", refreshArgs, err, out.String())
+	}
+	var refreshed struct {
+		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &refreshed); err != nil {
+		t.Fatalf("handoff refresh status JSON did not decode: %v\n%s", err, out.String())
+	}
+	if refreshed.MissionControlRunbook == nil || refreshed.MissionControlRunbook.CurrentDriverRequest == nil || refreshed.MissionControlRunbook.CurrentDriverRequest.Kind != "preview-command" || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "/rekit continue -Target "+statusQuoteCommandArg(caseRoot)+" triage -WhatIf -Format json") || refreshed.MissionControlRunbook.ReplacementExecutorTakeoverPackage == nil || refreshed.MissionControlRunbook.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command != refreshed.MissionControlRunbook.CurrentDriverRequest.Command {
+		t.Fatalf("handoff refresh should advance to invocation-scoped continue preview: %+v", refreshed.MissionControlRunbook)
+	}
+
+	beforeContinuePreview := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	continuePreviewArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, refreshed.MissionControlRunbook.CurrentDriverRequest)
+	if !ok {
+		t.Fatalf("refreshed continue preview request should be executable: %+v", refreshed.MissionControlRunbook.CurrentDriverRequest)
+	}
+	out.Reset()
+	if err := Run(continuePreviewArgs, &out); err != nil {
+		t.Fatalf("refreshed continue preview request failed: args=%+v err=%v\n%s", continuePreviewArgs, err, out.String())
+	}
+	var continuation struct {
+		Command                     string                              `json:"command"`
+		Applied                     bool                                `json:"applied"`
+		Blocked                     bool                                `json:"blocked"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		LaneTakeoverPackage         *laneTakeoverPackage                `json:"laneTakeoverPackage"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &continuation); err != nil {
+		t.Fatalf("refreshed continue preview JSON did not decode: %v\n%s", err, out.String())
+	}
+	returnedRequest := requireMissionCommanderDriverRequest(t, continuation.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", continueRequest.Command, true, false, false)
+	if continuation.Command != "continue" || continuation.Applied || continuation.Blocked || continuation.LaneTakeoverPackage == nil || !continuation.LaneTakeoverPackage.Ready || continuation.LaneTakeoverPackage.CurrentCommand != continueRequest.Command || returnedRequest.Command == refreshed.MissionControlRunbook.CurrentDriverRequest.Command {
+		t.Fatalf("refreshed continue preview should return case-local continue handoff: result=%+v returned=%+v", continuation, returnedRequest)
+	}
+	assertSnapshotEqual(t, beforeContinuePreview, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
+}
+
 func TestRunInterventionReconcileDriverRequestClosureProductPath(t *testing.T) {
 	caseRoot := attachedCase(t)
 	for _, dir := range []string{
