@@ -237,17 +237,18 @@ type ReviewerManagedDispatchHandoff struct {
 }
 
 type ReviewerDispatchOperatorPackage struct {
-	Ready                bool                                 `json:"ready"`
-	Summary              string                               `json:"summary,omitempty"`
-	PacketID             string                               `json:"packetId,omitempty"`
-	PacketPath           string                               `json:"packetPath,omitempty"`
-	TargetLane           string                               `json:"targetLane,omitempty"`
-	Current              *ReviewerDispatchOperatorPackageItem `json:"current,omitempty"`
-	CurrentRunLoopStepID string                               `json:"currentRunLoopStepId,omitempty"`
-	RunLoop              []ReviewerDispatchRunLoopStep        `json:"runLoop,omitempty"`
-	RunbookSteps         []string                             `json:"runbookSteps,omitempty"`
-	CompletionCriteria   []string                             `json:"completionCriteria,omitempty"`
-	Boundary             []string                             `json:"boundary,omitempty"`
+	Ready                bool                                   `json:"ready"`
+	Summary              string                                 `json:"summary,omitempty"`
+	PacketID             string                                 `json:"packetId,omitempty"`
+	PacketPath           string                                 `json:"packetPath,omitempty"`
+	TargetLane           string                                 `json:"targetLane,omitempty"`
+	Current              *ReviewerDispatchOperatorPackageItem   `json:"current,omitempty"`
+	CurrentRunLoopStepID string                                 `json:"currentRunLoopStepId,omitempty"`
+	CurrentDriverRequest *mission.MissionCommanderDriverRequest `json:"currentDriverRequest,omitempty"`
+	RunLoop              []ReviewerDispatchRunLoopStep          `json:"runLoop,omitempty"`
+	RunbookSteps         []string                               `json:"runbookSteps,omitempty"`
+	CompletionCriteria   []string                               `json:"completionCriteria,omitempty"`
+	Boundary             []string                               `json:"boundary,omitempty"`
 }
 
 type ReviewerDispatchRunLoopStep struct {
@@ -2591,6 +2592,8 @@ func reviewerDispatchOperatorPackageFor(item ReviewerDispatchIntakeHandoff) *Rev
 		"operator package does not write facts, authority, confirmed state, or execute heavy tools",
 	)
 	runLoop := reviewerDispatchOperatorRunLoop(current)
+	currentRunLoopStepID := reviewerDispatchCurrentRunLoopStepID(item)
+	boundary = mission.UniqueStrings(boundary)
 	return &ReviewerDispatchOperatorPackage{
 		Ready:                true,
 		Summary:              fmt.Sprintf("managed reviewer dispatch operator package ready: packet=%s shard=%s state=%s", firstText(item.PacketID, item.PacketPath), item.ShardID, item.State),
@@ -2598,12 +2601,81 @@ func reviewerDispatchOperatorPackageFor(item ReviewerDispatchIntakeHandoff) *Rev
 		PacketPath:           firstText(item.PacketPath, managed.PacketPath),
 		TargetLane:           firstText(item.TargetLane, managed.TargetLane),
 		Current:              &current,
-		CurrentRunLoopStepID: reviewerDispatchCurrentRunLoopStepID(item),
+		CurrentRunLoopStepID: currentRunLoopStepID,
+		CurrentDriverRequest: reviewerDispatchOperatorCurrentDriverRequest(item, current, currentRunLoopStepID, runLoop, boundary),
 		RunLoop:              runLoop,
 		RunbookSteps:         mission.UniqueStrings(runbook),
 		CompletionCriteria:   mission.UniqueStrings(criteria),
-		Boundary:             mission.UniqueStrings(boundary),
+		Boundary:             boundary,
 	}
+}
+
+func reviewerDispatchOperatorCurrentDriverRequest(item ReviewerDispatchIntakeHandoff, current ReviewerDispatchOperatorPackageItem, currentRunLoopStepID string, runLoop []ReviewerDispatchRunLoopStep, boundary []string) *mission.MissionCommanderDriverRequest {
+	currentRunLoopStepID = strings.TrimSpace(currentRunLoopStepID)
+	if currentRunLoopStepID == "" {
+		return nil
+	}
+	command := reviewerDispatchOperatorRunLoopStepCommand(currentRunLoopStepID, runLoop)
+	label := firstText(item.PacketID, item.PacketPath, current.ShardID)
+	actionID := strings.TrimSpace(firstText(item.PacketID, item.PacketPath))
+	if actionID == "" {
+		actionID = strings.TrimSpace(current.ShardID)
+	} else if strings.TrimSpace(current.ShardID) != "" {
+		actionID = strings.TrimSpace(actionID + ":" + current.ShardID)
+	}
+	action := mission.MissionCommanderNextActionItem{
+		Lane:           item.TargetLane,
+		Label:          label,
+		ActionID:       actionID,
+		State:          current.State,
+		Command:        command,
+		Source:         "reviewerDispatchOperatorPackage",
+		RequiresReview: true,
+		Reasons: []string{
+			"consume the current reviewer dispatch operator run-loop step from this typed driver request",
+		},
+		Boundary: boundary,
+	}
+	return mission.MissionCommanderCurrentDriverRequest(action, currentRunLoopStepID, reviewerDispatchOperatorMissionRunLoop(runLoop))
+}
+
+func reviewerDispatchOperatorRunLoopStepCommand(stepID string, runLoop []ReviewerDispatchRunLoopStep) string {
+	stepID = strings.TrimSpace(stepID)
+	for _, step := range runLoop {
+		if step.StepID != stepID {
+			continue
+		}
+		return firstText(step.Command, step.PreviewCommand, step.ApplyCommand)
+	}
+	return ""
+}
+
+func reviewerDispatchOperatorMissionRunLoop(runLoop []ReviewerDispatchRunLoopStep) []mission.MissionCommanderRunLoopStep {
+	steps := []mission.MissionCommanderRunLoopStep{}
+	for _, step := range runLoop {
+		steps = append(steps, mission.MissionCommanderRunLoopStep{
+			StepID:      strings.TrimSpace(step.StepID),
+			Order:       step.Order,
+			Actor:       strings.TrimSpace(step.Actor),
+			Description: strings.TrimSpace(step.Description),
+			Command:     firstText(step.Command, step.PreviewCommand, step.ApplyCommand),
+			Source:      "reviewerDispatchOperatorPackage.runLoop",
+			Boundary:    mission.UniqueStrings(step.Boundary),
+		})
+	}
+	return steps
+}
+
+func reviewerDispatchOperatorPromptRepairCommand(current ReviewerDispatchOperatorPackageItem) string {
+	switch strings.TrimSpace(current.State) {
+	case "reviewer-dispatch-prompt-artifact-invalid", "reviewer-dispatch-prompt-artifact-drift":
+		return current.DispatchPromptRepairCommand
+	}
+	state := strings.TrimSpace(current.DispatchPromptState)
+	if current.DispatchPromptCurrent && (state == "" || state == "ready") {
+		return ""
+	}
+	return current.DispatchPromptRepairCommand
 }
 
 func reviewerDispatchRunLoopRequiresCurrentPrompt(state string) bool {
@@ -2658,10 +2730,11 @@ func reviewerDispatchOperatorRunLoop(current ReviewerDispatchOperatorPackageItem
 	}
 	if strings.TrimSpace(current.DispatchPromptPath) != "" {
 		add(ReviewerDispatchRunLoopStep{
-			StepID:      "verify-prompt",
-			Actor:       "main-agent",
-			Description: "verify the packet-derived reviewer prompt artifact is current before reviewer dispatch",
-			Path:        current.DispatchPromptPath,
+			StepID:         "verify-prompt",
+			Actor:          "main-agent",
+			Description:    "verify the packet-derived reviewer prompt artifact is current before reviewer dispatch",
+			PreviewCommand: reviewerDispatchOperatorPromptRepairCommand(current),
+			Path:           current.DispatchPromptPath,
 			Boundary: []string{
 				"prompt artifact must be present, non-symlink, non-empty, and match dispatchPromptSha256 before dispatch",
 				"if promptCurrent is false, run the prompt repair WhatIf/Apply path before invoking the Agent tool",
@@ -2797,6 +2870,16 @@ func reviewerDispatchOperatorPackageMarkdownLines(pkg *ReviewerDispatchOperatorP
 	}
 	current := *pkg.Current
 	lines := []string{fmt.Sprintf("- operator package: ready=%t packet=%s lane=%s shard=%s state=%s currentRunLoopStep=%s prompt=`%s` promptSha256=%s input=`%s` source=`%s` candidate=`%s` result=`%s` nextAction=`%s`", pkg.Ready, firstText(pkg.PacketID, pkg.PacketPath), pkg.TargetLane, current.ShardID, current.State, pkg.CurrentRunLoopStepID, current.DispatchPromptPath, current.DispatchPromptSHA256, current.ReviewerResultInputPath, current.ReviewerResultSourcePath, current.ReviewerResultCandidatePath, current.ReviewerResultPath, current.NextAction)}
+	if request := pkg.CurrentDriverRequest; request != nil {
+		lines = append(lines, fmt.Sprintf("  - driver request：kind=%s step=%s actor=%s executable=%t blocked=%t requiresReview=%t command=`%s` guidance=`%s` state=%s source=%s lane=%s label=%s gateEventId=%s actionId=%s", request.Kind, request.RunLoopStepID, request.Actor, request.CommandExecutable, request.Blocked, request.RequiresReview, request.Command, request.Guidance, request.State, request.Source, request.Lane, request.Label, request.GateEventID, request.ActionID))
+		lines = append(lines, fmt.Sprintf("  - driver request expected receipt：state=%s command=`%s` refreshStatusCommand=`%s` description=%s", request.ExpectedReceipt.State, request.ExpectedReceipt.Command, request.ExpectedReceipt.RefreshStatusCommand, request.ExpectedReceipt.Description))
+		for _, boundary := range mission.LimitStrings(request.Boundary, maxHandoffRows) {
+			lines = append(lines, "  - driver request boundary："+boundary)
+		}
+		for _, boundary := range mission.LimitStrings(request.ExpectedReceipt.Boundary, maxHandoffRows) {
+			lines = append(lines, "  - driver request expected receipt boundary："+boundary)
+		}
+	}
 	if current.AgentToolRequest != nil {
 		request := current.AgentToolRequest
 		lines = append(lines, fmt.Sprintf("  - operator agent tool: tool=%s agentType=%s readOnly=%t promptPath=`%s` promptSha256=%s expectedOutput=%s", request.Tool, request.AgentType, request.ReadOnly, request.PromptPath, request.PromptSHA256, request.ExpectedOutput))

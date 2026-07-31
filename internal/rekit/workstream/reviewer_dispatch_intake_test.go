@@ -250,6 +250,10 @@ func TestReviewerDispatchOperatorPackageOnlyForOpenManagedDispatch(t *testing.T)
 	if len(open.OperatorPackage.RunLoop) != 9 || open.OperatorPackage.RunLoop[0].StepID != "verify-prompt" || spawnStep.StepID != "spawn-reviewer" || open.OperatorPackage.RunLoop[8].StepID != "intake-results" || spawnStep.Command != base.DispatchCommand || spawnStep.AgentToolRequest == nil || spawnStep.AgentToolRequest != open.OperatorPackage.Current.AgentToolRequest || spawnStep.AgentToolRequest.AgentType != "read-only-reviewer" || spawnStep.AgentToolRequest.PromptPath != "prompt.md" || spawnStep.AgentToolRequest.PromptSHA256 != managed.PromptSHA256 || spawnStep.AgentToolRequest.ExpectedOutput != "one ReviewerResult JSON" || !reviewerDispatchTestContainsSubstring(spawnStep.Boundary, "Go runtime does not spawn") || !reviewerDispatchTestContainsSubstring(spawnStep.Boundary, "agentToolRequest is a read-only handoff") || !reviewerDispatchTestContainsSubstring(open.OperatorPackage.RunLoop[8].Boundary, "WhatIf before Apply") {
 		t.Fatalf("open managed dispatch omitted ordered run loop agent handoff: %+v", open.OperatorPackage.RunLoop)
 	}
+	request := open.OperatorPackage.CurrentDriverRequest
+	if request == nil || request.Kind != "review-guidance" || request.RunLoopStepID != "spawn-reviewer" || request.CommandExecutable || request.Guidance != base.DispatchCommand || request.Command != "" || request.ExpectedReceipt.Command != base.DispatchCommand || request.Actor != "main-agent-harness" || request.Source != "reviewerDispatchOperatorPackage" || request.Lane != "feature-review" || request.Label != "packet-managed" || request.ActionID != "packet-managed:shard-01" || !request.RequiresReview || !reviewerDispatchTestContainsSubstring(request.Boundary, "read-only handoff") || !reviewerDispatchTestContainsSubstring(request.ExpectedReceipt.Boundary, "Go runtime does not spawn") {
+		t.Fatalf("open managed dispatch omitted typed operator driver request: %+v", request)
+	}
 	unmanaged := base
 	unmanaged.ManagedDispatch = nil
 	if pkg := ReviewerDispatchIntakeSummaryFor([]ReviewerDispatchIntakeHandoff{unmanaged}).OperatorPackage; pkg != nil {
@@ -266,25 +270,37 @@ func TestReviewerDispatchOperatorPackageOnlyForOpenManagedDispatch(t *testing.T)
 func TestReviewerDispatchOperatorPackageCurrentRunLoopStepTracksLifecycle(t *testing.T) {
 	managed := &ReviewerManagedDispatchHandoff{ShardID: "shard-01", PromptPath: "prompt.md", PromptSHA256: strings.Repeat("a", sha256.Size*2), ReviewerResultInputPath: "input.json", ReviewerResultSourcePath: "source.json", ReviewerResultCandidatePath: "candidate.json", ReviewerResultPath: "result.json", AgentToolRequest: &ReviewerAgentToolRequest{Tool: "Claude Code Agent", ReadOnly: true}}
 	tests := []struct {
-		state string
-		want  string
+		state       string
+		want        string
+		wantCommand string
 	}{
-		{state: "reviewer-dispatch-prompt-artifact-invalid", want: "verify-prompt"},
-		{state: "reviewer-dispatch-prompt-artifact-drift", want: "verify-prompt"},
-		{state: "ready-for-reviewer-dispatch", want: "spawn-reviewer"},
-		{state: "reviewer-session-running-unknown", want: "save-result-input"},
-		{state: "ready-for-reviewer-completion-receipt-preview", want: "record-completion"},
-		{state: "ready-for-reviewer-result-source-capture-preview", want: "source-capture"},
-		{state: "ready-for-reviewer-result-staging-preview", want: "stage-candidate"},
-		{state: "ready-for-reviewer-result-collection-preview", want: "collect-result"},
-		{state: "ready-for-reviewer-intake-preview", want: "intake-results"},
+		{state: "reviewer-dispatch-prompt-artifact-invalid", want: "verify-prompt", wantCommand: "/rekit plan-subagents -RepairReviewerPromptArtifact -WhatIf -Format json"},
+		{state: "reviewer-dispatch-prompt-artifact-drift", want: "verify-prompt", wantCommand: "/rekit plan-subagents -RepairReviewerPromptArtifact -WhatIf -Format json"},
+		{state: "ready-for-reviewer-dispatch", want: "spawn-reviewer", wantCommand: "dispatch read-only reviewer"},
+		{state: "reviewer-session-running-unknown", want: "save-result-input", wantCommand: "/rekit plan-subagents -SaveReviewerResultInput -WhatIf -Format json"},
+		{state: "ready-for-reviewer-completion-receipt-preview", want: "record-completion", wantCommand: "/rekit plan-subagents -RecordReviewerCompletion -WhatIf -Format json"},
+		{state: "ready-for-reviewer-result-source-capture-preview", want: "source-capture", wantCommand: "/rekit plan-subagents -CaptureReviewerResultSource -WhatIf -Format json"},
+		{state: "ready-for-reviewer-result-staging-preview", want: "stage-candidate", wantCommand: "/rekit plan-subagents -StageReviewerResult -WhatIf -Format json"},
+		{state: "ready-for-reviewer-result-collection-preview", want: "collect-result", wantCommand: "/rekit plan-subagents -CollectReviewerResult -WhatIf -Format json"},
+		{state: "ready-for-reviewer-intake-preview", want: "intake-results", wantCommand: "/rekit plan-subagents -ReadyReviewerResults -WhatIf -Format json"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.state, func(t *testing.T) {
-			item := ReviewerDispatchIntakeHandoff{PacketID: "packet-managed", PacketPath: "packet.json", TargetLane: "feature-review", ShardID: "shard-01", State: tc.state, ManagedDispatch: managed, ReviewerResultInputPath: "input.json", ReviewerResultSourcePath: "source.json", ReviewerResultCandidatePath: "candidate.json", ReviewerResultPath: "result.json", DispatchCommand: "dispatch read-only reviewer", DispatchPromptPath: "prompt.md", DispatchPromptCurrent: true}
+			item := ReviewerDispatchIntakeHandoff{PacketID: "packet-managed", PacketPath: "packet.json", TargetLane: "feature-review", ShardID: "shard-01", State: tc.state, ManagedDispatch: managed, ReviewerResultInputPath: "input.json", ReviewerResultSourcePath: "source.json", ReviewerResultCandidatePath: "candidate.json", ReviewerResultPath: "result.json", DispatchCommand: "dispatch read-only reviewer", DispatchPromptPath: "prompt.md", DispatchPromptCurrent: true, DispatchPromptRepairCommand: "/rekit plan-subagents -RepairReviewerPromptArtifact -WhatIf -Format json", ReviewerResultInputSaveCommand: "/rekit plan-subagents -SaveReviewerResultInput -WhatIf -Format json", ReviewerCompletionRecordCommand: "/rekit plan-subagents -RecordReviewerCompletion -WhatIf -Format json", ReviewerResultSourceCaptureCommand: "/rekit plan-subagents -CaptureReviewerResultSource -WhatIf -Format json", ReviewerResultStagingCommand: "/rekit plan-subagents -StageReviewerResult -WhatIf -Format json", ReviewerResultCollectionCommands: &ReviewerResultCollectionCommands{PreviewCommand: "/rekit plan-subagents -CollectReviewerResult -WhatIf -Format json"}, BatchPreviewCommand: "/rekit plan-subagents -ReadyReviewerResults -WhatIf -Format json"}
 			pkg := ReviewerDispatchIntakeSummaryFor([]ReviewerDispatchIntakeHandoff{item}).OperatorPackage
 			if pkg == nil || pkg.CurrentRunLoopStepID != tc.want || len(pkg.RunLoop) != 9 {
 				t.Fatalf("state %s run loop step = %+v", tc.state, pkg)
+			}
+			request := pkg.CurrentDriverRequest
+			if request == nil || request.RunLoopStepID != tc.want || request.ExpectedReceipt.Command != tc.wantCommand || request.Source != "reviewerDispatchOperatorPackage" {
+				t.Fatalf("state %s driver request = %+v", tc.state, request)
+			}
+			if strings.HasPrefix(tc.wantCommand, "/rekit") {
+				if !request.CommandExecutable || request.Kind != "preview-command" || request.Command != tc.wantCommand || request.Guidance != "" || !request.RequiresReview {
+					t.Fatalf("state %s should expose executable preview driver request: %+v", tc.state, request)
+				}
+			} else if request.CommandExecutable || request.Kind != "review-guidance" || request.Guidance != tc.wantCommand || request.Command != "" || !request.RequiresReview {
+				t.Fatalf("state %s should expose non-executable reviewer guidance: %+v", tc.state, request)
 			}
 		})
 	}
