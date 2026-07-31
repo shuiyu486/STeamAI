@@ -28,42 +28,17 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 782：unified daily driver step loop
 
+状态：本机实现与验证已完成，等待 implementation commit/push 和 push-triggered remote inspection。本批选择 `mission-commander`，把 Batch 781 的 continue-only runner 扩展为可推进日常任务创建、继续执行和人工纠偏的统一安全步骤；不是字段或文案投影微调。
 
+目标：让主 Agent/harness 从同一 `run-driver-step` review-first API 消费当前 focused `start`、`continue` 或 `reconcile` request，并在每次 Apply 后刷新 durable status，形成 `start → continue → reconcile → continue` 的可恢复日常 run loop；保持 Go runtime 不 spawn session、不执行 heavy-tool、不写 authority/confirmed。
 
+已实现：`run-driver-step` 的 nested request parser 与 command-level contract 现在只允许精确的 `start`、`continue`、`reconcile` 参数组合，三类 preview/apply 都直接调用 matching Go handler，并统一从 typed Mission Commander action queue 提取 Apply request与返回 command/applied 状态。`StartApply` 与 `ReconcileApply` 新增和 `ContinueApply` 同级的 expected preview SHA 校验，在 lane mutation lease 内重建 deterministic preview 后才允许写入；外层 plan hash仍绑定 current request、returned Apply request和完整 preview result。新增真实临时 case product path串联 empty-lane start preview/apply、continue preview/apply、open intervention、reconcile preview/apply和恢复后的 continue request，并覆盖 WhatIf no-write、outer stale plan zero-write、三类 mutation 的 concurrent state drift fail-closed、unsupported command/flag拒绝与 no authority/confirmed。
 
+边界：runner仍不处理 missing-board `overview` onboarding、handoff、gate、note、reviewer/adapter/pack-memory/sync/promote/next-batch，不调用 shell或递归 public runtime，不 spawn/poll/stop session，不执行 heavy-tool，不写 authority/confirmed；actual session executor/reviewer orchestration仍由主 Agent/harness负责。
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+验证结果：focused unified runner set 已通过（CLI 76.901s，workstream 0.220s），最终 strict runner set 在收紧 `start` 交叉参数后再次通过（57.003s）；完整 `go test ./...` 已通过（CLI 487.026s），`status`、`packs`、`doctor`、`release-check -Format json`、`facade-smoke.ps1`、`go vet ./...` 与 `git diff --check` 均通过，`git diff --check` 仅报告 Windows LF→CRLF warning。独立 reviewer 定向检查参数绕过、preview hash稳定性、TOCTOU、权限/heavy-action边界和测试真实性，未发现高置信问题。
 
 ### Batch 781：current driver step runner MVP
 

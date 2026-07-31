@@ -46,12 +46,13 @@ askUserWhen: conflict,overwriteAuthority,deleteAuthority,confidenceBelowThreshol
 var safeLaneIDSegment = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$`)
 
 type StartOptions struct {
-	Name           string
-	Selector       string
-	Force          bool
-	Actor          string
-	Executor       string
-	TakeoverReason string
+	Name                  string
+	Selector              string
+	Force                 bool
+	Actor                 string
+	Executor              string
+	TakeoverReason        string
+	ExpectedPreviewSHA256 string
 }
 
 type StartWrite struct {
@@ -280,6 +281,23 @@ func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (result Start
 	claim, err := startExecutorClaim(opt, laneID)
 	if err != nil {
 		return StartResult{}, err
+	}
+	if strings.TrimSpace(opt.ExpectedPreviewSHA256) != "" {
+		previewOpt := opt
+		previewOpt.ExpectedPreviewSHA256 = ""
+		preview, err := StartPreview(repoRoot, caseRoot, pack, previewOpt)
+		if err != nil {
+			return StartResult{}, err
+		}
+		encoded, err := json.Marshal(preview)
+		if err != nil {
+			return StartResult{}, err
+		}
+		sum := sha256.Sum256(encoded)
+		actual := hex.EncodeToString(sum[:])
+		if !strings.EqualFold(strings.TrimSpace(opt.ExpectedPreviewSHA256), actual) {
+			return StartResult{}, fmt.Errorf("start preview sha256 mismatch: got %s want %s", opt.ExpectedPreviewSHA256, actual)
+		}
 	}
 	writes := []StartWrite{}
 	if err := ensureWorkstreamState(inst.CaseRoot, m, &writes); err != nil {

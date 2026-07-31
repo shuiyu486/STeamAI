@@ -88,11 +88,14 @@ func TestRunDriverStepRevalidatesPreviewInsideMutationLease(t *testing.T) {
 	}
 	var preview driverStepPlan
 	decodeJSONStrict(t, out.Bytes(), &preview)
-	driverStepApplyBeforeContinueHook = func() error {
+	driverStepApplyBeforeMutationHook = func(command string) error {
+		if command != "continue" {
+			t.Fatalf("unexpected mutation command: %s", command)
+		}
 		writeCaseFile(t, caseRoot, ".rekit/lanes/main/outbox.jsonl", `{"eventId":"evt-driver-step-toctou","kind":"observation","subject":"changed before continue lock","summary":"must invalidate in-lock preview","evidence":"evt-driver-step-toctou"}`+"\n")
 		return nil
 	}
-	t.Cleanup(func() { driverStepApplyBeforeContinueHook = nil })
+	t.Cleanup(func() { driverStepApplyBeforeMutationHook = nil })
 	out.Reset()
 	err := Run([]string{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-ExpectedDriverStepPlanSha256", preview.ExpectedDriverStepPlanSHA256, "-Apply", "-Format", "json"}, &out)
 	if err == nil || !strings.Contains(err.Error(), "continue preview sha256 mismatch") {
@@ -107,6 +110,75 @@ func TestRunDriverStepRevalidatesPreviewInsideMutationLease(t *testing.T) {
 	}
 	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
 	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
+}
+
+func TestRunDriverStepRevalidatesStartAndReconcileInsideMutationLease(t *testing.T) {
+	t.Run("start", func(t *testing.T) {
+		caseRoot := attachedCase(t)
+		seedEmptyLaneCaseBoard(t, caseRoot)
+		var out bytes.Buffer
+		if err := Run([]string{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, &out); err != nil {
+			t.Fatal(err)
+		}
+		var preview driverStepPlan
+		decodeJSONStrict(t, out.Bytes(), &preview)
+		driverStepApplyBeforeMutationHook = func(command string) error {
+			if command != "start" {
+				t.Fatalf("unexpected mutation command: %s", command)
+			}
+			var nested bytes.Buffer
+			return Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "triage", "-Apply", "-Format", "json"}, &nested)
+		}
+		t.Cleanup(func() { driverStepApplyBeforeMutationHook = nil })
+		out.Reset()
+		err := Run([]string{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-ExpectedDriverStepPlanSha256", preview.ExpectedDriverStepPlanSHA256, "-Apply", "-Format", "json"}, &out)
+		if err == nil || !strings.Contains(err.Error(), "start preview sha256 mismatch") {
+			t.Fatalf("in-lock start preview drift should fail closed: err=%v output=%s", err, out.String())
+		}
+		laneEventsPath := filepath.Join(caseRoot, ".rekit", "lanes", "feature-triage", "events.jsonl")
+		laneEvents, readErr := os.ReadFile(laneEventsPath)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if lines := strings.Count(strings.TrimSpace(string(laneEvents)), "\n") + 1; lines != 1 {
+			t.Fatalf("stale runner appended another start event: %s", laneEvents)
+		}
+	})
+
+	t.Run("reconcile", func(t *testing.T) {
+		caseRoot := fullAttachedCase(t)
+		var out bytes.Buffer
+		if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+			t.Fatal(err)
+		}
+		writeCaseFile(t, caseRoot, ".rekit\\facts\\interventions.jsonl", `{"kind":"intervention","eventId":"int-reconcile-toctou","lane":"main","subject":"reconcile drift","summary":"must invalidate reconcile preview","action":"override","target":"batch-toctou","approvedBy":"lead","scope":"metadata","status":"open","batchId":"batch-toctou"}`+"\n")
+		out.Reset()
+		if err := Run([]string{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, &out); err != nil {
+			t.Fatal(err)
+		}
+		var preview driverStepPlan
+		decodeJSONStrict(t, out.Bytes(), &preview)
+		driverStepApplyBeforeMutationHook = func(command string) error {
+			if command != "reconcile" {
+				t.Fatalf("unexpected mutation command: %s", command)
+			}
+			var nested bytes.Buffer
+			return Run([]string{"-Command", "reconcile", "-Target", caseRoot, "-Pack", "_template", "main", "-InterventionId", "int-reconcile-toctou", "-Apply", "-Format", "json"}, &nested)
+		}
+		t.Cleanup(func() { driverStepApplyBeforeMutationHook = nil })
+		out.Reset()
+		err := Run([]string{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-ExpectedDriverStepPlanSha256", preview.ExpectedDriverStepPlanSHA256, "-Apply", "-Format", "json"}, &out)
+		if err == nil || (!strings.Contains(err.Error(), "reconcile preview sha256 mismatch") && !strings.Contains(err.Error(), "not an effective open intervention")) {
+			t.Fatalf("in-lock reconcile preview drift should fail closed: err=%v output=%s", err, out.String())
+		}
+		interventions, readErr := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "interventions.jsonl"))
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if strings.Count(string(interventions), `"resolvesEventId":"int-reconcile-toctou"`) != 1 {
+			t.Fatalf("stale runner appended another reconcile resolution: %s", interventions)
+		}
+	})
 }
 
 func TestRunDriverStepUsesValidatedImmutableInputSnapshot(t *testing.T) {
@@ -195,6 +267,9 @@ func TestRunDriverStepRejectsOnboardingAndUnsupportedNestedRequests(t *testing.T
 		{name: "handoff outside MVP", command: `/rekit handoff -Target "` + caseRoot + `" -WhatIf -Format json`, want: "outside the run-driver-step allowlist"},
 		{name: "unknown flag", command: `/rekit continue -Target "` + caseRoot + `" main -WhatIf -Format json -Unexpected value`, want: "unsupported flag"},
 		{name: "cross command actor", command: `/rekit continue -Target "` + caseRoot + `" main -Actor other -WhatIf -Format json`, want: "unsupported flag"},
+		{name: "start lane alias", command: `/rekit start -Target "` + caseRoot + `" -Lane triage -WhatIf -Format json`, want: "outside its bounded contract"},
+		{name: "start actor without executor", command: `/rekit start -Target "` + caseRoot + `" -Name triage -Actor other -WhatIf -Format json`, want: "outside its bounded contract"},
+		{name: "start reason without executor", command: `/rekit start -Target "` + caseRoot + `" -Name triage -Reason other -WhatIf -Format json`, want: "outside its bounded contract"},
 		{name: "duplicate selector", command: `/rekit continue -Target "` + caseRoot + `" main -Lane other -WhatIf -Format json`, want: "exactly one lane selector"},
 		{name: "duplicate phase", command: `/rekit continue -Target "` + caseRoot + `" main -WhatIf -WhatIf -Format json`, want: "repeats flag"},
 	} {
@@ -205,6 +280,149 @@ func TestRunDriverStepRejectsOnboardingAndUnsupportedNestedRequests(t *testing.T
 			}
 		})
 	}
+}
+
+func TestRunDriverStepStartContinueReconcileProductPath(t *testing.T) {
+	caseRoot := attachedCase(t)
+	seedEmptyLaneCaseBoard(t, caseRoot)
+	var out bytes.Buffer
+
+	beforeStart := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	if err := Run([]string{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatalf("preview current start step: %v\n%s", err, out.String())
+	}
+	var startPreview driverStepPlan
+	decodeJSONStrict(t, out.Bytes(), &startPreview)
+	if driverStepCommandName(startPreview.CurrentDriverRequest.Command) != "start" || driverStepCommandName(startPreview.ApplyDriverRequest.Command) != "start" || !strings.Contains(startPreview.ApplyDriverRequest.Command, "-Apply") {
+		t.Fatalf("unexpected start driver preview: %+v", startPreview)
+	}
+	assertSnapshotEqual(t, beforeStart, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-ExpectedDriverStepPlanSha256", startPreview.ExpectedDriverStepPlanSHA256, "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatalf("apply current start step: %v\n%s", err, out.String())
+	}
+	var startApplied driverStepPlan
+	decodeJSONStrict(t, out.Bytes(), &startApplied)
+	if !startApplied.Applied || startApplied.Receipt == nil || startApplied.Receipt.CommandResultCommand != "start" || startApplied.Receipt.RefreshedCurrentDriverRequest == nil || driverStepCommandName(startApplied.Receipt.RefreshedCurrentDriverRequest.Command) != "continue" {
+		t.Fatalf("start driver apply did not advance to continue: %+v", startApplied)
+	}
+	assertFileExists(t, filepath.Join(caseRoot, ".rekit", "lanes", "feature-triage", "lane.json"))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatalf("preview current continue step: %v\n%s", err, out.String())
+	}
+	var continuePreview driverStepPlan
+	decodeJSONStrict(t, out.Bytes(), &continuePreview)
+	if driverStepCommandName(continuePreview.CurrentDriverRequest.Command) != "continue" {
+		t.Fatalf("start refresh did not focus continue: %+v", continuePreview.CurrentDriverRequest)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-ExpectedDriverStepPlanSha256", continuePreview.ExpectedDriverStepPlanSHA256, "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatalf("apply current continue step: %v\n%s", err, out.String())
+	}
+	var continueApplied driverStepPlan
+	decodeJSONStrict(t, out.Bytes(), &continueApplied)
+	if !continueApplied.Applied || continueApplied.Receipt == nil || continueApplied.Receipt.CommandResultCommand != "continue" {
+		t.Fatalf("continue driver apply failed: %+v", continueApplied)
+	}
+
+	interventionsPath := filepath.Join(caseRoot, ".rekit", "facts", "interventions.jsonl")
+	interventionsFile, err := os.OpenFile(interventionsPath, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := interventionsFile.WriteString(`{"kind":"intervention","eventId":"int-driver-loop-1","lane":"feature-triage","subject":"redirect triage","summary":"operator changed the current direction","action":"override","target":"batch-driver-loop","approvedBy":"lead","scope":"metadata","status":"open","batchId":"batch-driver-loop"}` + "\n"); err != nil {
+		_ = interventionsFile.Close()
+		t.Fatal(err)
+	}
+	if err := interventionsFile.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	beforeReconcile := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	out.Reset()
+	if err := Run([]string{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatalf("preview current reconcile step: %v\n%s", err, out.String())
+	}
+	var reconcilePreview driverStepPlan
+	decodeJSONStrict(t, out.Bytes(), &reconcilePreview)
+	if driverStepCommandName(reconcilePreview.CurrentDriverRequest.Command) != "reconcile" || driverStepCommandName(reconcilePreview.ApplyDriverRequest.Command) != "reconcile" || !strings.Contains(reconcilePreview.ApplyDriverRequest.Command, "int-driver-loop-1") {
+		t.Fatalf("unexpected reconcile driver preview: %+v", reconcilePreview)
+	}
+	assertSnapshotEqual(t, beforeReconcile, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-ExpectedDriverStepPlanSha256", reconcilePreview.ExpectedDriverStepPlanSHA256, "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatalf("apply current reconcile step: %v\n%s", err, out.String())
+	}
+	var reconcileApplied driverStepPlan
+	decodeJSONStrict(t, out.Bytes(), &reconcileApplied)
+	if !reconcileApplied.Applied || reconcileApplied.Receipt == nil || reconcileApplied.Receipt.CommandResultCommand != "reconcile" || reconcileApplied.Receipt.RefreshedCurrentDriverRequest == nil || driverStepCommandName(reconcileApplied.Receipt.RefreshedCurrentDriverRequest.Command) != "continue" {
+		t.Fatalf("reconcile driver apply did not restore continue: %+v", reconcileApplied)
+	}
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
+}
+
+func TestRunDriverStepStartAndReconcileRejectStateDrift(t *testing.T) {
+	t.Run("start", func(t *testing.T) {
+		caseRoot := attachedCase(t)
+		seedEmptyLaneCaseBoard(t, caseRoot)
+		var out bytes.Buffer
+		if err := Run([]string{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, &out); err != nil {
+			t.Fatal(err)
+		}
+		var preview driverStepPlan
+		decodeJSONStrict(t, out.Bytes(), &preview)
+		if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "triage", "-Apply", "-Format", "json"}, &out); err != nil {
+			t.Fatal(err)
+		}
+		beforeApply := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+		out.Reset()
+		err := Run([]string{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-ExpectedDriverStepPlanSha256", preview.ExpectedDriverStepPlanSHA256, "-Apply", "-Format", "json"}, &out)
+		if err == nil || !strings.Contains(err.Error(), "expected plan sha256 mismatch") {
+			t.Fatalf("stale start plan should fail closed: err=%v output=%s", err, out.String())
+		}
+		assertSnapshotEqual(t, beforeApply, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+	})
+
+	t.Run("reconcile", func(t *testing.T) {
+		caseRoot := fullAttachedCase(t)
+		var out bytes.Buffer
+		if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+			t.Fatal(err)
+		}
+		path := filepath.Join(caseRoot, ".rekit", "facts", "interventions.jsonl")
+		file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := file.WriteString(`{"kind":"intervention","eventId":"int-driver-stale","lane":"main","subject":"stale reconcile","summary":"must invalidate","action":"override","target":"batch-stale","approvedBy":"lead","scope":"metadata","status":"open","batchId":"batch-stale"}` + "\n"); err != nil {
+			_ = file.Close()
+			t.Fatal(err)
+		}
+		if err := file.Close(); err != nil {
+			t.Fatal(err)
+		}
+		out.Reset()
+		if err := Run([]string{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, &out); err != nil {
+			t.Fatal(err)
+		}
+		var preview driverStepPlan
+		decodeJSONStrict(t, out.Bytes(), &preview)
+		if err := Run([]string{"-Command", "reconcile", "-Target", caseRoot, "-Pack", "_template", "main", "-InterventionId", "int-driver-stale", "-Apply", "-Format", "json"}, &out); err != nil {
+			t.Fatal(err)
+		}
+		beforeApply := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+		out.Reset()
+		err = Run([]string{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-ExpectedDriverStepPlanSha256", preview.ExpectedDriverStepPlanSHA256, "-Apply", "-Format", "json"}, &out)
+		if err == nil || (!strings.Contains(err.Error(), "expected plan sha256 mismatch") && !strings.Contains(err.Error(), "not runnable")) {
+			t.Fatalf("stale reconcile plan should fail closed: err=%v output=%s", err, out.String())
+		}
+		assertSnapshotEqual(t, beforeApply, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+	})
 }
 
 func decodeJSONStrict(t *testing.T, data []byte, target any) {

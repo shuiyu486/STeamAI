@@ -4,6 +4,7 @@
 
 ### Changed
 
+- Batch 782 将 Go-owned/no-fallback `run-driver-step` 从 focused `continue` 扩展为统一日常 driver loop：同一 review-first runner 现在可消费当前 focused、case-scoped `start`、`continue` 或 `reconcile` preview request，直接调用 matching Go preview/apply handler，从 typed action queue 提取 exact Apply request，以 current request、returned Apply request和完整 deterministic preview绑定 outer plan hash，并在 Apply 后刷新 status返回统一 receipt。`StartApply` 与 `ReconcileApply` 新增 lane mutation lease 内 expected preview SHA复验，与既有 continue guard共同阻止审核后并发状态变化落入旧计划。真实临时 case回归串联 `start → continue → open intervention → reconcile → continue`，并覆盖 WhatIf no-write、outer stale plan zero-write、三类 mutation concurrent drift fail-closed、strict command/flag allowlist与 no authority/confirmed。runner仍不处理 missing-board onboarding、handoff、gate、note、reviewer/adapter/pack-memory/sync/promote/next-batch，不调用shell、不管理session、不执行heavy-tool。
 
 
 

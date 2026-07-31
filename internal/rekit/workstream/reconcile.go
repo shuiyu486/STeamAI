@@ -1,6 +1,9 @@
 package workstream
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -13,12 +16,13 @@ import (
 )
 
 type ReconcileOptions struct {
-	Selector       string
-	InterventionID string
-	Actor          string
-	Executor       string
-	Reason         string
-	Summary        string
+	Selector              string
+	InterventionID        string
+	Actor                 string
+	Executor              string
+	Reason                string
+	Summary               string
+	ExpectedPreviewSHA256 string
 }
 
 type InterventionSummary struct {
@@ -115,6 +119,23 @@ func ReconcileApply(repoRoot, caseRoot, pack string, opt ReconcileOptions) (resu
 	}
 	if err := lease.Validate(); err != nil {
 		return ReconcileResult{}, err
+	}
+	if strings.TrimSpace(opt.ExpectedPreviewSHA256) != "" {
+		previewOpt := opt
+		previewOpt.ExpectedPreviewSHA256 = ""
+		preview, err := ReconcilePreview(repoRoot, caseRoot, pack, previewOpt)
+		if err != nil {
+			return ReconcileResult{}, err
+		}
+		encoded, err := json.Marshal(preview)
+		if err != nil {
+			return ReconcileResult{}, err
+		}
+		sum := sha256.Sum256(encoded)
+		actual := hex.EncodeToString(sum[:])
+		if !strings.EqualFold(strings.TrimSpace(opt.ExpectedPreviewSHA256), actual) {
+			return ReconcileResult{}, fmt.Errorf("reconcile preview sha256 mismatch: got %s want %s", opt.ExpectedPreviewSHA256, actual)
+		}
 	}
 	now := isoNow()
 	writes := []StartWrite{}

@@ -173,8 +173,8 @@ func buildDriverStepPlan(ctx runtime.Context, opt Options) (driverStepPlan, erro
 		ExpectedDriverStepPreviewSHA256: previewSHA256,
 		MissionCommanderActionQueue:     driverStepResultQueue(preview),
 		Boundary: []string{
-			"runner accepts only the exact current continue WhatIf request and its returned typed Apply request",
-			"Apply is hash-bound to the reviewed current request, returned Apply request, and deterministic continue preview result",
+			"runner accepts only the exact current start, continue, or reconcile WhatIf request and its returned typed Apply request",
+			"Apply is hash-bound to the reviewed current request, returned Apply request, and deterministic preview result",
 			"the Go runtime does not invoke a shell, spawn or poll sessions, execute reviewer/adapter/heavy tools, or write authority/confirmed state",
 			"status is rebuilt after Apply before follow-up work is selected",
 		},
@@ -322,8 +322,13 @@ func validateBoundedDriverTokens(command string, fields []string, apply bool) er
 		"-target": true, "--target": true,
 		"-pack": true, "--pack": true,
 		"-format": true, "--format": true,
+		"-name": true, "--name": true,
 		"-lane": true, "--lane": true,
+		"-interventionid": true, "--intervention-id": true,
 		"-executor": true, "--executor": true,
+		"-actor": true, "--actor": true,
+		"-reason": true, "--reason": true,
+		"-summary": true, "--summary": true,
 		"-expectedexecutorgeneration": true, "--expected-executor-generation": true,
 	}
 	switchFlags := map[string]bool{
@@ -339,10 +344,20 @@ func validateBoundedDriverTokens(command string, fields []string, apply bool) er
 			return "-pack"
 		case "--format":
 			return "-format"
+		case "--name":
+			return "-name"
 		case "--lane":
 			return "-lane"
+		case "--intervention-id":
+			return "-interventionid"
 		case "--executor":
 			return "-executor"
+		case "--actor":
+			return "-actor"
+		case "--reason":
+			return "-reason"
+		case "--summary":
+			return "-summary"
 		case "--expected-executor-generation":
 			return "-expectedexecutorgeneration"
 		case "--what-if":
@@ -380,15 +395,40 @@ func validateBoundedDriverTokens(command string, fields []string, apply bool) er
 		}
 		i++
 	}
-	if command != commands.Continue {
-		return fmt.Errorf("driver request command %q is outside the run-driver-step MVP allowlist", command)
-	}
 	selectorKinds := positionals
 	if seen["-lane"] {
 		selectorKinds++
 	}
-	if selectorKinds != 1 {
-		return fmt.Errorf("continue driver request requires exactly one lane selector")
+	switch command {
+	case commands.Start:
+		if seen["-name"] {
+			selectorKinds++
+		}
+		if selectorKinds != 1 {
+			return fmt.Errorf("start driver request requires exactly one lane selector")
+		}
+		if seen["-lane"] || seen["-interventionid"] || seen["-expectedexecutorgeneration"] || seen["-summary"] || (seen["-actor"] || seen["-reason"]) && !seen["-executor"] {
+			return fmt.Errorf("start driver request contains flags outside its bounded contract")
+		}
+	case commands.Continue:
+		if selectorKinds != 1 {
+			return fmt.Errorf("continue driver request requires exactly one lane selector")
+		}
+		if seen["-name"] || seen["-interventionid"] || seen["-actor"] || seen["-reason"] || seen["-summary"] {
+			return fmt.Errorf("continue driver request contains unsupported flag(s) for its bounded contract")
+		}
+	case commands.Reconcile:
+		if selectorKinds != 1 {
+			return fmt.Errorf("reconcile driver request requires exactly one lane selector")
+		}
+		if !seen["-interventionid"] {
+			return fmt.Errorf("reconcile driver request requires -InterventionId")
+		}
+		if seen["-name"] || seen["-expectedexecutorgeneration"] {
+			return fmt.Errorf("reconcile driver request contains flags outside its bounded contract")
+		}
+	default:
+		return fmt.Errorf("driver request command %q is outside the run-driver-step allowlist", command)
 	}
 	hasWhatIf := seen["-whatif"]
 	hasApply := seen["-apply"]
@@ -402,14 +442,20 @@ func validateBoundedDriverTokens(command string, fields []string, apply bool) er
 }
 
 func previewDriverStep(ctx runtime.Context, opt Options) (any, error) {
-	if opt.Command != commands.Continue {
+	switch opt.Command {
+	case commands.Start:
+		return workstream.StartPreview(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Start)
+	case commands.Continue:
+		return workstream.ContinuePreview(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Continue)
+	case commands.Reconcile:
+		return workstream.ReconcilePreview(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Reconcile)
+	default:
 		return nil, fmt.Errorf("unsupported bounded driver preview: %s", opt.Command)
 	}
-	return workstream.ContinuePreview(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Continue)
 }
 
 var (
-	driverStepApplyBeforeContinueHook    func() error
+	driverStepApplyBeforeMutationHook    func(string) error
 	driverStepAfterPreviewValidationHook func() error
 )
 
@@ -418,26 +464,29 @@ func applyDriverStep(ctx runtime.Context, request mission.MissionCommanderDriver
 	if err != nil {
 		return nil, err
 	}
-	switch opt.Command {
-	case commands.Continue:
-		if driverStepApplyBeforeContinueHook != nil {
-			if err := driverStepApplyBeforeContinueHook(); err != nil {
-				return nil, err
-			}
+	if driverStepApplyBeforeMutationHook != nil {
+		if err := driverStepApplyBeforeMutationHook(opt.Command); err != nil {
+			return nil, err
 		}
+	}
+	switch opt.Command {
+	case commands.Start:
+		opt.Start.ExpectedPreviewSHA256 = expectedPreviewSHA256
+		return workstream.StartApply(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Start)
+	case commands.Continue:
 		opt.Continue.ExpectedPreviewSHA256 = expectedPreviewSHA256
 		opt.Continue.AfterPreviewValidation = driverStepAfterPreviewValidationHook
 		return workstream.ContinueApply(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Continue)
+	case commands.Reconcile:
+		opt.Reconcile.ExpectedPreviewSHA256 = expectedPreviewSHA256
+		return workstream.ReconcileApply(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Reconcile)
 	default:
 		return nil, fmt.Errorf("unsupported bounded driver apply: %s", opt.Command)
 	}
 }
 
 func driverStepApplyRequest(result any) (mission.MissionCommanderDriverRequest, error) {
-	var request *mission.MissionCommanderDriverRequest
-	if value, ok := result.(workstream.ContinueResult); ok {
-		request = value.MissionCommanderActionQueue.CurrentDriverRequest
-	}
+	request := driverStepResultQueue(result).CurrentDriverRequest
 	if request == nil {
 		return mission.MissionCommanderDriverRequest{}, fmt.Errorf("driver preview omitted a typed Apply driver request")
 	}
@@ -445,24 +494,42 @@ func driverStepApplyRequest(result any) (mission.MissionCommanderDriverRequest, 
 }
 
 func driverStepResultQueue(result any) mission.MissionCommanderActionQueue {
-	if value, ok := result.(workstream.ContinueResult); ok {
+	switch value := result.(type) {
+	case workstream.StartResult:
 		return value.MissionCommanderActionQueue
+	case workstream.ContinueResult:
+		return value.MissionCommanderActionQueue
+	case workstream.ReconcileResult:
+		return value.MissionCommanderActionQueue
+	default:
+		return mission.MissionCommanderActionQueue{}
 	}
-	return mission.MissionCommanderActionQueue{}
 }
 
 func driverStepResultApplied(result any) bool {
-	if value, ok := result.(workstream.ContinueResult); ok {
+	switch value := result.(type) {
+	case workstream.StartResult:
 		return value.Applied
+	case workstream.ContinueResult:
+		return value.Applied
+	case workstream.ReconcileResult:
+		return value.Applied
+	default:
+		return false
 	}
-	return false
 }
 
 func driverStepResultCommand(result any) string {
-	if value, ok := result.(workstream.ContinueResult); ok {
+	switch value := result.(type) {
+	case workstream.StartResult:
 		return value.Command
+	case workstream.ContinueResult:
+		return value.Command
+	case workstream.ReconcileResult:
+		return value.Command
+	default:
+		return ""
 	}
-	return ""
 }
 
 func driverStepReceiptFor(ctx runtime.Context, current, apply mission.MissionCommanderDriverRequest, result any, refreshed statusInventory) (driverStepReceipt, error) {
@@ -511,7 +578,12 @@ func driverStepRefreshCommandMatches(ctx runtime.Context, command string) bool {
 }
 
 func boundedDriverStepCommand(command string) bool {
-	return strings.EqualFold(strings.TrimSpace(command), commands.Continue)
+	switch strings.ToLower(strings.TrimSpace(command)) {
+	case commands.Start, commands.Continue, commands.Reconcile:
+		return true
+	default:
+		return false
+	}
 }
 
 func driverStepCommandName(command string) string {
