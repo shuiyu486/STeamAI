@@ -2565,6 +2565,21 @@ func writeNextBatchSelectionPackageText(out io.Writer, prefix string, pkg *relea
 			}
 		}
 	}
+	for _, route := range pkg.NextBatchPlanningRoutes {
+		if _, err := fmt.Fprintf(out, "%s next-batch planning route：domain=%s actionId=%s executable=%t requiresReview=%t closurePlaceholder=%s whatIfCommandTemplate=%s\n", prefix, route.Domain, route.DomainActionID, route.CommandExecutable, route.RequiresReview, route.ClosurePlaceholder, route.WhatIfCommandTemplate); err != nil {
+			return err
+		}
+		for _, step := range route.RunbookSteps {
+			if _, err := fmt.Fprintf(out, "%s next-batch planning route step：domain=%s step=%s\n", prefix, route.Domain, step); err != nil {
+				return err
+			}
+		}
+		for _, boundary := range route.Boundary {
+			if _, err := fmt.Fprintf(out, "%s next-batch planning route boundary：domain=%s boundary=%s\n", prefix, route.Domain, boundary); err != nil {
+				return err
+			}
+		}
+	}
 	for _, boundary := range pkg.Boundary {
 		if _, err := fmt.Fprintf(out, "%s next-batch selection package boundary：%s\n", prefix, boundary); err != nil {
 			return err
@@ -2934,20 +2949,7 @@ type statusMissionControlGuidanceCandidateDomain struct {
 	Boundary []string `json:"boundary,omitempty"`
 }
 
-type statusMissionControlNextBatchPlanningRoute struct {
-	Ready                   bool     `json:"ready"`
-	Domain                  string   `json:"domain"`
-	DomainActionID          string   `json:"domainActionId"`
-	ClosurePlaceholder      string   `json:"closurePlaceholder"`
-	WhatIfCommandTemplate   string   `json:"whatIfCommandTemplate"`
-	CommandExecutable       bool     `json:"commandExecutable"`
-	RequiresReview          bool     `json:"requiresReview"`
-	RefreshStatusCommand    string   `json:"refreshStatusCommand,omitempty"`
-	ExpectedApplySource     string   `json:"expectedApplySource,omitempty"`
-	ExpectedApplyDriverKind string   `json:"expectedApplyDriverKind,omitempty"`
-	RunbookSteps            []string `json:"runbookSteps,omitempty"`
-	Boundary                []string `json:"boundary,omitempty"`
-}
+type statusMissionControlNextBatchPlanningRoute = releasecheck.ReleaseHandoffNextBatchPlanningRoute
 
 type statusMissionControlRunbookQueue struct {
 	Scope                string `json:"scope"`
@@ -3593,7 +3595,7 @@ func statusMissionControlGuidanceHandoffFor(runbook *statusMissionControlRunbook
 		if pkg := projectHandoff.NextBatchSelectionPackage; pkg != nil && pkg.Ready {
 			handoff.StarterPackage = statusMissionControlGuidanceStarterPackageFor(pkg.StarterPackage)
 			handoff.CandidateDomains = statusMissionControlGuidanceCandidateDomains(pkg.MissionCommanderNextActions)
-			handoff.NextBatchPlanningRoutes = statusMissionControlNextBatchPlanningRoutes(handoff.CandidateDomains, handoff.StarterPackage, runbook.RefreshStatusCommand)
+			handoff.NextBatchPlanningRoutes = statusMissionControlNextBatchPlanningRoutes(pkg.NextBatchPlanningRoutes, runbook.RefreshStatusCommand)
 		}
 	}
 	handoff.ExpectedReceipt.Checklist = mission.UniqueStrings(handoff.ExpectedReceipt.Checklist)
@@ -3679,41 +3681,22 @@ func statusMissionControlGuidanceCandidateDomains(actions []mission.MissionComma
 	return domains
 }
 
-func statusMissionControlNextBatchPlanningRoutes(domains []statusMissionControlGuidanceCandidateDomain, starter *statusMissionControlGuidanceStarterPackage, refreshStatusCommand string) []statusMissionControlNextBatchPlanningRoute {
-	if starter == nil || !starter.Ready || len(domains) == 0 {
+func statusMissionControlNextBatchPlanningRoutes(source []releasecheck.ReleaseHandoffNextBatchPlanningRoute, refreshStatusCommand string) []statusMissionControlNextBatchPlanningRoute {
+	if len(source) == 0 {
 		return nil
 	}
-	placeholder := "<Windows-verifiable product-path closure>"
-	routes := make([]statusMissionControlNextBatchPlanningRoute, 0, len(domains))
-	for _, domain := range domains {
-		label := strings.TrimSpace(domain.Label)
-		if label == "" {
+	routes := make([]statusMissionControlNextBatchPlanningRoute, 0, len(source))
+	for _, route := range source {
+		if !route.Ready || strings.TrimSpace(route.Domain) == "" {
 			continue
 		}
-		routes = append(routes, statusMissionControlNextBatchPlanningRoute{
-			Ready:                   true,
-			Domain:                  label,
-			DomainActionID:          strings.TrimSpace(domain.ActionID),
-			ClosurePlaceholder:      placeholder,
-			WhatIfCommandTemplate:   "/rekit next-batch -Domain " + statusQuoteCommandArg(label) + " -Closure " + statusQuoteCommandArg(placeholder) + " -WhatIf -Format json",
-			CommandExecutable:       false,
-			RequiresReview:          true,
-			RefreshStatusCommand:    strings.TrimSpace(refreshStatusCommand),
-			ExpectedApplySource:     "nextBatchCommand",
-			ExpectedApplyDriverKind: "preview-command",
-			RunbookSteps: []string{
-				"choose exactly one nextBatchPlanningRoutes[] item and replace closurePlaceholder with a concrete product-path closure",
-				"run whatIfCommandTemplate only after replacing the closure placeholder; do not execute the placeholder template verbatim",
-				"review the returned expectedNextBatchPlanSha256, then consume the returned missionCommanderActionQueue.currentDriverRequest for hash-bound Apply",
-				"after Apply, run refreshStatusCommand and rebuild status before implementation",
-			},
-			Boundary: []string{
-				"nextBatchPlanningRoutes are read-only templates; status does not choose a batch or edit docs",
-				"the placeholder template is not commandExecutable until closurePlaceholder is replaced with a concrete closure",
-				"WhatIf is read-only and Apply writes only docs/batch-plan.md plus CHANGELOG.md when the expected hash matches",
-				"planning routes do not execute reviewer, adapter, pack-memory, gate, sync, promote, heavy-tool, authority, confirmed, commit, push, or remote CI actions",
-			},
-		})
+		clone := route
+		if refresh := strings.TrimSpace(refreshStatusCommand); refresh != "" {
+			clone.RefreshStatusCommand = refresh
+		}
+		clone.RunbookSteps = mission.UniqueStrings(clone.RunbookSteps)
+		clone.Boundary = mission.UniqueStrings(clone.Boundary)
+		routes = append(routes, clone)
 	}
 	return routes
 }

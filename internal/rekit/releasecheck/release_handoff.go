@@ -165,7 +165,23 @@ type ReleaseHandoffNextBatchSelectionPackage struct {
 	StarterPackage              *ReleaseHandoffNextBatchStarterPackage   `json:"starterPackage,omitempty"`
 	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
 	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
+	NextBatchPlanningRoutes     []ReleaseHandoffNextBatchPlanningRoute   `json:"nextBatchPlanningRoutes,omitempty"`
 	Boundary                    []string                                 `json:"boundary,omitempty"`
+}
+
+type ReleaseHandoffNextBatchPlanningRoute struct {
+	Ready                   bool     `json:"ready"`
+	Domain                  string   `json:"domain"`
+	DomainActionID          string   `json:"domainActionId"`
+	ClosurePlaceholder      string   `json:"closurePlaceholder"`
+	WhatIfCommandTemplate   string   `json:"whatIfCommandTemplate"`
+	CommandExecutable       bool     `json:"commandExecutable"`
+	RequiresReview          bool     `json:"requiresReview"`
+	RefreshStatusCommand    string   `json:"refreshStatusCommand,omitempty"`
+	ExpectedApplySource     string   `json:"expectedApplySource,omitempty"`
+	ExpectedApplyDriverKind string   `json:"expectedApplyDriverKind,omitempty"`
+	RunbookSteps            []string `json:"runbookSteps,omitempty"`
+	Boundary                []string `json:"boundary,omitempty"`
 }
 
 type ReleaseHandoffNextBatchStarterPackage struct {
@@ -3789,12 +3805,14 @@ func BuildNextBatchSelectionPackage(handoff ReleaseHandoff) *ReleaseHandoffNextB
 	actions := append([]mission.MissionCommanderNextActionItem{current}, releaseHandoffNextBatchCandidateActions(handoff)...)
 	actions = mission.UniqueCommanderNextActions(actions)
 	queue := mission.MissionCommanderActionQueueFor(actions)
+	starter := releaseHandoffNextBatchStarterPackage(handoff)
 	return &ReleaseHandoffNextBatchSelectionPackage{
 		Ready:                       true,
 		Summary:                     queue.Summary,
-		StarterPackage:              releaseHandoffNextBatchStarterPackage(handoff),
+		StarterPackage:              starter,
 		MissionCommanderNextActions: append([]mission.MissionCommanderNextActionItem{}, actions...),
 		MissionCommanderActionQueue: queue,
+		NextBatchPlanningRoutes:     releaseHandoffNextBatchPlanningRoutes(actions, starter),
 		Boundary:                    append([]string{}, current.Boundary...),
 	}
 }
@@ -3876,6 +3894,48 @@ func releaseHandoffNextBatchStarterRunLoop(validationCommands []string) []missio
 	add(mission.MissionCommanderRunLoopStep{StepID: "validate-local", Actor: "main-agent", Description: "run focused regressions for the selected slice and then the local release minimum", Command: validationCommand, State: "ready-for-next-batch-selection", Source: "releaseHandoffNextBatch.starter.validation", Boundary: []string{"focused regressions should prove the operational closure before full release validation", "release-check inventory ready is not remote CI green"}})
 	add(mission.MissionCommanderRunLoopStep{StepID: "commit-and-inspect", Actor: "main-agent", Description: "commit and push the implementation, inspect the push-triggered release gate, and record only real remote signals", Command: "commit/push implementation, inspect remote release-gate, then record inspection if it is still the known steps=[] blocker", State: "ready-for-next-batch-selection", Source: "releaseHandoffNextBatch.starter.releaseCadence", Boundary: []string{"normal batches stop after implementation commit/push plus one release inspection commit/push", "do not create a third inspection record for the release inspection commit's own CI run unless a new remote signal appears"}})
 	return steps
+}
+
+func releaseHandoffNextBatchPlanningRoutes(actions []mission.MissionCommanderNextActionItem, starter *ReleaseHandoffNextBatchStarterPackage) []ReleaseHandoffNextBatchPlanningRoute {
+	if starter == nil || !starter.Ready || len(actions) == 0 {
+		return nil
+	}
+	placeholder := "<Windows-verifiable product-path closure>"
+	routes := []ReleaseHandoffNextBatchPlanningRoute{}
+	for _, action := range actions {
+		if strings.TrimSpace(action.State) != "next-batch-candidate-domain" {
+			continue
+		}
+		domain := strings.TrimSpace(action.Label)
+		if domain == "" {
+			continue
+		}
+		routes = append(routes, ReleaseHandoffNextBatchPlanningRoute{
+			Ready:                   true,
+			Domain:                  domain,
+			DomainActionID:          strings.TrimSpace(action.ActionID),
+			ClosurePlaceholder:      placeholder,
+			WhatIfCommandTemplate:   "/rekit next-batch -Domain " + quoteReleaseHandoffCommandArg(domain) + " -Closure " + quoteReleaseHandoffCommandArg(placeholder) + " -WhatIf -Format json",
+			CommandExecutable:       false,
+			RequiresReview:          true,
+			RefreshStatusCommand:    "/rekit status -Format json",
+			ExpectedApplySource:     "nextBatchCommand",
+			ExpectedApplyDriverKind: "preview-command",
+			RunbookSteps: []string{
+				"choose exactly one nextBatchPlanningRoutes[] item and replace closurePlaceholder with a concrete product-path closure",
+				"run whatIfCommandTemplate only after replacing the closure placeholder; do not execute the placeholder template verbatim",
+				"review the returned expectedNextBatchPlanSha256, then consume the returned missionCommanderActionQueue.currentDriverRequest for hash-bound Apply",
+				"after Apply, run refreshStatusCommand and rebuild status before implementation",
+			},
+			Boundary: []string{
+				"nextBatchPlanningRoutes are read-only durable handoff templates; release-check/status does not choose a batch or edit docs",
+				"the placeholder template is not commandExecutable until closurePlaceholder is replaced with a concrete closure",
+				"WhatIf is read-only and Apply writes only docs/batch-plan.md plus CHANGELOG.md when the expected hash matches",
+				"planning routes do not execute reviewer, adapter, pack-memory, gate, sync, promote, heavy-tool, authority, confirmed, commit, push, or remote CI actions",
+			},
+		})
+	}
+	return routes
 }
 
 func releaseHandoffValidationCommands(validation []ReleaseHandoffValidation) []string {

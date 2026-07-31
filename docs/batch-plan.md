@@ -41,6 +41,19 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 
 
+
+### Batch 758：durable handoff next-batch planning route
+
+状态：本机实现、focused validation 与完整本机 release minimum 已完成；implementation commit/push 与 push-triggered remote inspection 待记录。本批选择 `replacement-executor`，推进 durable handoff next-batch planning route；release handoff candidate guidance 是：select a replacement executor takeover slice that can be resumed from status or durable handoff without prior chat context。上一批完成后仍需要解决的接手断点必须落在该 domain 的可操作 product-path closure 上，并能由 status/handoff/continue/release-check 或必要临时 case 验证；本批不是字段、文案或 summary 投影微调。
+
+目标：把 `replacement-executor` candidate 收敛成 Windows 本机可验证的闭环：durable handoff next-batch planning route。实现应复用既有 typed handoff/envelope 和 deterministic runtime 边界，让 Mission Commander 或 replacement executor 能从 durable docs/status 消费结果，不依赖上一会话隐性上下文；focused work 必须证明该候选命令所描述的能力：select a replacement executor takeover slice that can be resumed from status or durable handoff without prior chat context。
+
+已实现：`releasecheck.ReleaseHandoffNextBatchSelectionPackage` 现在持久携带只读 `nextBatchPlanningRoutes[]`，每个 route 绑定 candidate `domain` / `domainActionId`、非 executable `whatIfCommandTemplate`、`closurePlaceholder`、`refreshStatusCommand`、expected returned Apply source/kind、runbook steps 与 durable handoff template boundary。`release-check -Format json/text`、`status.projectHandoff.nextBatchSelectionPackage` 与 `status.missionControlRunbook.guidanceHandoff` 同源投影该 durable package；status 只覆盖 invocation-scoped `refreshStatusCommand`，不再复制 route 生成逻辑。replacement executor 或主 Agent 可从 release-check/status durable handoff 选择 route、替换 placeholder、运行 read-only `next-batch -WhatIf`，再只消费 returned hash-bound Apply driver request 并刷新 status，不依赖上一会话隐性上下文。
+
+边界：本批不新增 PowerShell runtime logic，不执行 heavy-tool，不写 authority/confirmed，不自动执行 reviewer/adapter/pack-memory/gate/sync/promote mutation，不自动提交或声明 remote CI green；`nextBatchPlanningRoutes[]` 是 read-only durable handoff template，placeholder 未替换前 `commandExecutable=false`，实际写入仍只来自显式 `next-batch -Apply` 且必须匹配 WhatIf 返回的 `expectedNextBatchPlanSha256`。
+
+验证结果：focused regressions 已通过：`go test ./internal/rekit/releasecheck -run TestReleaseHandoffBuildsNextBatchSelectionPackage -count=1`（4.095s）与 `go test ./internal/rekit/cli -run "TestRunReleaseCheckExposesNextBatchSelectionPackage|TestRunStatusJsonKit|TestStatusMissionControlRunbookGuidanceHandoffWrapsNextBatchSelection|TestRunNextBatchGuidancePlanningRouteConsumerLoopProductPath" -count=1`（13.352s）。完整本机 release minimum 已执行：completion evidence 写回前 `go run ./cmd/rekit -- -Command release-check -Format json` 按预期返回 `ready=false` / `summary=release gate inventory has warnings`，因为 implementation commit/push 与 remote inspection 尚未记录；`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`（CLI 338.086s）、`go vet ./...` 与 `git diff --check` 已通过，`git diff --check` 仅有 Windows LF→CRLF warning。Implementation commit/push 与 push-triggered remote release-gate inspection 待记录；远程 `steps=[]` 仍只记录 blocker，不声明 green。
+
 ### Batch 757：next-batch guidance driver request planning loop
 
 状态：本机实现、focused validation、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection 已完成；implementation commit `2bcf5d5` 已推送。Push run `30600049560` completed failure；Windows/macOS/Linux jobs `91060540840`/`91060540847`/`91060540863` 均 `steps=[]`，`gh run view 30600049560 --log-failed` 返回 `log not found: 91060540840`，job annotations API 均返回 404。仍是既有 runner/billing blocker signal，不声明 remote green。本批选择 `mission-commander`，推进 next-batch guidance driver request planning loop；release handoff candidate guidance 是：select a Mission Commander operational closure slice with status/handoff/continue product-path verification。上一批完成后仍需要解决的接手断点必须落在该 domain 的可操作 product-path closure 上，并能由 status/handoff/continue/release-check 或必要临时 case 验证；本批不是字段、文案或 summary 投影微调。

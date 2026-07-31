@@ -184,6 +184,9 @@ func TestReleaseHandoffBuildsNextBatchSelectionPackage(t *testing.T) {
 	if !foundReplacementExecutor {
 		t.Fatalf("release-check Build omitted replacement executor candidate-domain action: %+v", pkg.MissionCommanderNextActions)
 	}
+	if len(pkg.NextBatchPlanningRoutes) != 7 || pkg.NextBatchPlanningRoutes[1].Domain != "replacement-executor" || pkg.NextBatchPlanningRoutes[1].DomainActionID != "next-batch-replacement-executor-takeover" || pkg.NextBatchPlanningRoutes[1].CommandExecutable || !pkg.NextBatchPlanningRoutes[1].RequiresReview || pkg.NextBatchPlanningRoutes[1].ExpectedApplySource != "nextBatchCommand" || pkg.NextBatchPlanningRoutes[1].ExpectedApplyDriverKind != "preview-command" || !strings.Contains(pkg.NextBatchPlanningRoutes[1].WhatIfCommandTemplate, pkg.NextBatchPlanningRoutes[1].ClosurePlaceholder) || !releaseHandoffStringsContain(pkg.NextBatchPlanningRoutes[1].RunbookSteps, "replace closurePlaceholder") || !releaseHandoffStringsContain(pkg.NextBatchPlanningRoutes[1].Boundary, "durable handoff templates") {
+		t.Fatalf("release-check Build omitted durable next-batch planning routes: %+v", pkg.NextBatchPlanningRoutes)
+	}
 }
 
 func TestReleaseHandoffBuildsNextBatchSelectionPackageWhenCurrentInventoryClosesStaleReleaseCheckNarrative(t *testing.T) {

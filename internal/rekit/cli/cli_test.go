@@ -1234,7 +1234,23 @@ func TestRunStatusJsonKit(t *testing.T) {
 				Boundary       []string `json:"boundary"`
 			} `json:"missionCommanderNextActions"`
 			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
-			PackMemoryCandidates        struct {
+			NextBatchSelectionPackage   struct {
+				NextBatchPlanningRoutes []struct {
+					Ready                   bool     `json:"ready"`
+					Domain                  string   `json:"domain"`
+					DomainActionID          string   `json:"domainActionId"`
+					ClosurePlaceholder      string   `json:"closurePlaceholder"`
+					WhatIfCommandTemplate   string   `json:"whatIfCommandTemplate"`
+					CommandExecutable       bool     `json:"commandExecutable"`
+					RequiresReview          bool     `json:"requiresReview"`
+					RefreshStatusCommand    string   `json:"refreshStatusCommand"`
+					ExpectedApplySource     string   `json:"expectedApplySource"`
+					ExpectedApplyDriverKind string   `json:"expectedApplyDriverKind"`
+					RunbookSteps            []string `json:"runbookSteps"`
+					Boundary                []string `json:"boundary"`
+				} `json:"nextBatchPlanningRoutes"`
+			} `json:"nextBatchSelectionPackage"`
+			PackMemoryCandidates struct {
 				Ready                       bool `json:"ready"`
 				Total                       int  `json:"total"`
 				MissionCommanderActionQueue struct {
@@ -1339,8 +1355,12 @@ func TestRunStatusJsonKit(t *testing.T) {
 		if len(guidance.CandidateDomains) != 7 || !statusMissionControlGuidanceDomainContains(guidance.CandidateDomains, "next-batch-mission-commander-operational-closure") || !statusMissionControlGuidanceDomainContains(guidance.CandidateDomains, "next-batch-pack-memory-ux") {
 			t.Fatalf("guidance handoff should carry candidate domains: %+v", guidance.CandidateDomains)
 		}
-		if len(guidance.NextBatchPlanningRoutes) != 7 || guidance.NextBatchPlanningRoutes[0].Domain != "mission-commander" || guidance.NextBatchPlanningRoutes[0].CommandExecutable || !guidance.NextBatchPlanningRoutes[0].RequiresReview || guidance.NextBatchPlanningRoutes[0].ExpectedApplySource != "nextBatchCommand" || guidance.NextBatchPlanningRoutes[0].ExpectedApplyDriverKind != "preview-command" || !strings.Contains(guidance.NextBatchPlanningRoutes[0].WhatIfCommandTemplate, guidance.NextBatchPlanningRoutes[0].ClosurePlaceholder) || !containsSubstring(guidance.NextBatchPlanningRoutes[0].RunbookSteps, "replace closurePlaceholder") {
-			t.Fatalf("guidance handoff should carry next-batch planning routes: %+v", guidance.NextBatchPlanningRoutes)
+		packageRoutes := status.ProjectHandoff.NextBatchSelectionPackage.NextBatchPlanningRoutes
+		if len(packageRoutes) != 7 || packageRoutes[1].Domain != "replacement-executor" || packageRoutes[1].CommandExecutable || !packageRoutes[1].RequiresReview || packageRoutes[1].ExpectedApplySource != "nextBatchCommand" || packageRoutes[1].ExpectedApplyDriverKind != "preview-command" || packageRoutes[1].RefreshStatusCommand != "/rekit status -Format json" || !strings.Contains(packageRoutes[1].WhatIfCommandTemplate, packageRoutes[1].ClosurePlaceholder) || !containsSubstring(packageRoutes[1].Boundary, "durable handoff templates") {
+			t.Fatalf("project handoff durable package should carry next-batch planning routes: %+v", packageRoutes)
+		}
+		if len(guidance.NextBatchPlanningRoutes) != len(packageRoutes) || guidance.NextBatchPlanningRoutes[0].Domain != packageRoutes[0].Domain || guidance.NextBatchPlanningRoutes[0].CommandExecutable || !guidance.NextBatchPlanningRoutes[0].RequiresReview || guidance.NextBatchPlanningRoutes[0].ExpectedApplySource != "nextBatchCommand" || guidance.NextBatchPlanningRoutes[0].ExpectedApplyDriverKind != "preview-command" || guidance.NextBatchPlanningRoutes[0].RefreshStatusCommand != status.MissionControlRunbook.RefreshStatusCommand || !strings.Contains(guidance.NextBatchPlanningRoutes[0].WhatIfCommandTemplate, guidance.NextBatchPlanningRoutes[0].ClosurePlaceholder) || !containsSubstring(guidance.NextBatchPlanningRoutes[0].RunbookSteps, "replace closurePlaceholder") {
+			t.Fatalf("guidance handoff should project durable next-batch planning routes: guidance=%+v package=%+v", guidance.NextBatchPlanningRoutes, packageRoutes)
 		}
 		for _, want := range []string{`"currentDriverRequest"`, `"kind": "review-guidance"`, `"commandExecutable": false`, `"guidance": "select the next Windows-verifiable product-path closure`, `"guidanceHandoff"`, `"expectedReceipt"`, `"candidateDomains"`, `"nextBatchPlanningRoutes"`} {
 			if !strings.Contains(out.String(), want) {
@@ -9789,6 +9809,10 @@ func TestRunReleaseCheckExposesNextBatchSelectionPackage(t *testing.T) {
 	if starter.CurrentRunLoopStepID != "select-candidate-domain" || len(starter.RunLoop) < 6 || starter.RunLoop[0].StepID != "select-candidate-domain" || starter.RunLoop[len(starter.RunLoop)-1].StepID != "commit-and-inspect" {
 		t.Fatalf("release-check JSON omitted next-batch starter run loop: %+v", starter)
 	}
+	routes := pkg.NextBatchPlanningRoutes
+	if len(routes) != 7 || routes[1].Domain != "replacement-executor" || routes[1].DomainActionID != "next-batch-replacement-executor-takeover" || routes[1].CommandExecutable || !routes[1].RequiresReview || routes[1].RefreshStatusCommand != "/rekit status -Format json" || routes[1].ExpectedApplySource != "nextBatchCommand" || routes[1].ExpectedApplyDriverKind != "preview-command" || !strings.Contains(routes[1].WhatIfCommandTemplate, routes[1].ClosurePlaceholder) || !containsSubstring(routes[1].RunbookSteps, "replace closurePlaceholder") || !containsSubstring(routes[1].Boundary, "durable handoff templates") {
+		t.Fatalf("release-check JSON omitted durable next-batch planning routes: %+v", routes)
+	}
 
 	out.Reset()
 	if err := Run([]string{"-Command", "release-check", "-Format", "text"}, &out); err != nil {
@@ -9812,6 +9836,9 @@ func TestRunReleaseCheckExposesNextBatchSelectionPackage(t *testing.T) {
 		"release-check next-batch starter run loop boundary：step=select-candidate-domain boundary=do not choose a single-field, summary, or projection-only micro-batch",
 		"release-check next-batch starter release cadence step：不要为 release inspection commit 自己触发的 CI 追加第三个记录",
 		"release-check next-batch starter boundary：starter package is read-only guidance",
+		"release-check next-batch planning route：domain=replacement-executor actionId=next-batch-replacement-executor-takeover executable=false requiresReview=true closurePlaceholder=<Windows-verifiable product-path closure>",
+		"release-check next-batch planning route step：domain=replacement-executor step=choose exactly one nextBatchPlanningRoutes[] item and replace closurePlaceholder with a concrete product-path closure",
+		"release-check next-batch planning route boundary：domain=replacement-executor boundary=nextBatchPlanningRoutes are read-only durable handoff templates",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("release-check text omitted next-batch selection package %q:\n%s", expected, text)
