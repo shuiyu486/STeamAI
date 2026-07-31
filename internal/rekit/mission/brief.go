@@ -137,6 +137,22 @@ type MissionCommanderDriverReceiptExpectation struct {
 	Boundary             []string `json:"boundary,omitempty"`
 }
 
+type MissionCommanderDriverReceipt struct {
+	SchemaVersion                 int                            `json:"schemaVersion"`
+	State                         string                         `json:"state"`
+	Outcome                       string                         `json:"outcome"`
+	RunID                         string                         `json:"runId,omitempty"`
+	BatchID                       string                         `json:"batchId,omitempty"`
+	Lane                          string                         `json:"lane,omitempty"`
+	Command                       string                         `json:"command,omitempty"`
+	RunStatusPath                 string                         `json:"runStatusPath,omitempty"`
+	RunDigestPath                 string                         `json:"runDigestPath,omitempty"`
+	RefreshedActionQueueSummary   string                         `json:"refreshedActionQueueSummary,omitempty"`
+	RefreshedCurrentRunLoopStep   string                         `json:"refreshedCurrentRunLoopStep,omitempty"`
+	RefreshedCurrentDriverRequest *MissionCommanderDriverRequest `json:"refreshedCurrentDriverRequest,omitempty"`
+	Boundary                      []string                       `json:"boundary,omitempty"`
+}
+
 type MissionCommanderActionQueue struct {
 	Summary               string                            `json:"summary"`
 	Counts                MissionCommanderActionQueueCounts `json:"counts"`

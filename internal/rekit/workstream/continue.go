@@ -94,21 +94,7 @@ type ContinueSummary struct {
 	Skipped              int `json:"skipped"`
 }
 
-type MissionCommanderDriverReceipt struct {
-	SchemaVersion                 int                                    `json:"schemaVersion"`
-	State                         string                                 `json:"state"`
-	Outcome                       string                                 `json:"outcome"`
-	RunID                         string                                 `json:"runId,omitempty"`
-	BatchID                       string                                 `json:"batchId,omitempty"`
-	Lane                          string                                 `json:"lane,omitempty"`
-	Command                       string                                 `json:"command,omitempty"`
-	RunStatusPath                 string                                 `json:"runStatusPath,omitempty"`
-	RunDigestPath                 string                                 `json:"runDigestPath,omitempty"`
-	RefreshedActionQueueSummary   string                                 `json:"refreshedActionQueueSummary,omitempty"`
-	RefreshedCurrentRunLoopStep   string                                 `json:"refreshedCurrentRunLoopStep,omitempty"`
-	RefreshedCurrentDriverRequest *mission.MissionCommanderDriverRequest `json:"refreshedCurrentDriverRequest,omitempty"`
-	Boundary                      []string                               `json:"boundary,omitempty"`
-}
+type MissionCommanderDriverReceipt = mission.MissionCommanderDriverReceipt
 
 type ContinueReconcileHandoff struct {
 	EventID          string   `json:"eventId,omitempty"`

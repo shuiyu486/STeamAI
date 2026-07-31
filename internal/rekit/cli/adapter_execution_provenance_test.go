@@ -252,6 +252,20 @@ func TestRunGateAdapterExecutionReceiptProductPath(t *testing.T) {
 	if !validation.Valid || !validation.ProvenanceValid || validation.AdapterExecutionDispatch == nil || validation.AdapterExecutionDispatchPath != dispatch.DispatchPath || validation.AdapterExecutionDispatchSHA256 != dispatch.DispatchSHA256 || !strings.Contains(validation.MissionCommanderAction.PrimaryCommand, "-ExpectedAdapterExecutionReceiptSha256") {
 		t.Fatalf("CLI validation omitted dispatch/completion-backed record command: %+v", validation)
 	}
+	validationReceipt := validation.MissionCommanderDriverReceipt
+	validationDriver := validation.MissionCommanderActionQueue.CurrentDriverRequest
+	if validationReceipt == nil || validationReceipt.SchemaVersion != 1 || validationReceipt.State != "refreshed" || validationReceipt.Outcome != "adapter-report-validation-valid-result" || validationReceipt.Lane != "main" || !strings.Contains(validationReceipt.Command, "-ValidateExecutionReport") || validationReceipt.RefreshedActionQueueSummary != validation.MissionCommanderActionQueue.Summary || validationReceipt.RefreshedCurrentRunLoopStep != validation.MissionCommanderActionQueue.CurrentRunLoopStepID || validationReceipt.RefreshedCurrentDriverRequest == nil || validationDriver == nil || validationReceipt.RefreshedCurrentDriverRequest.Command != validationDriver.Command || !strings.Contains(validationReceipt.RefreshedCurrentDriverRequest.Command, "-ExpectedExecutionReportSha256") || validationReceipt.RefreshedCurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand == "" || !strings.Contains(validationReceipt.RefreshedCurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand, caseRoot) || !containsSubstring(validationReceipt.Boundary, "validation is read-only") || !containsSubstring(validationReceipt.Boundary, "does not write authority/confirmed") {
+		t.Fatalf("CLI validation omitted adapter validation run-loop receipt: receipt=%+v queue=%+v", validationReceipt, validation.MissionCommanderActionQueue)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "gate", "-Target", caseRoot, "-Pack", pack, "-GateEventId", authorized.EventID, "-ValidateExecutionReport", "-ExecutionReportPath", "workspace/main/debug/session-1/adapter-report.json", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"gate adapter report validation driver receipt：state=refreshed outcome=adapter-report-validation-valid-result", "gate adapter report validation driver receipt refreshed driver request：kind=preview-command", "refreshStatusCommand=`/rekit status -Target", "gate adapter report validation driver receipt boundary：driver receipt does not prove /rekit executed an adapter"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("adapter validation text omitted receipt %q:\n%s", expected, out.String())
+		}
+	}
 
 	recordArgs := []string{"-Command", "gate", "-Target", caseRoot, "-Pack", pack, "-Apply", "-GateEventId", authorized.EventID, "-ExecutionReportPath", validation.ReportPath, "-ExpectedExecutionReportSha256", validation.RecordExpectedReportSHA256, "-AdapterExecutionReceiptPath", validation.AdapterExecutionReceiptPath, "-ExpectedAdapterExecutionReceiptSha256", validation.AdapterExecutionReceiptSHA256, "-Executor", "executor-a", "-ExpectedExecutorGeneration", "1", "-Actor", "mission-commander", "-Format", "json"}
 	out.Reset()
@@ -264,6 +278,21 @@ func TestRunGateAdapterExecutionReceiptProductPath(t *testing.T) {
 	}
 	if !result.Applied || result.ExecutionEvidence == nil || result.ExecutionEvidence.Execution.AdapterExecution == nil || result.ExecutionEvidence.Execution.AdapterExecutionDispatch == nil || result.ExecutionEvidence.Execution.AdapterExecutionDispatchPath != dispatch.DispatchPath || result.ExecutionEvidence.Execution.AdapterExecutionDispatchSHA256 != dispatch.DispatchSHA256 {
 		t.Fatalf("CLI record omitted adapter execution dispatch/completion lineage: %+v", result)
+	}
+	recordReceipt := result.MissionCommanderDriverReceipt
+	recordDriver := result.MissionCommanderActionQueue.CurrentDriverRequest
+	if recordReceipt == nil || recordReceipt.SchemaVersion != 1 || recordReceipt.State != "refreshed" || recordReceipt.Outcome != "adapter-execution-record-apply-result" || recordReceipt.Lane != "main" || !strings.Contains(recordReceipt.Command, "-ExpectedExecutionReportSha256") || recordReceipt.RefreshedActionQueueSummary != result.MissionCommanderActionQueue.Summary || recordReceipt.RefreshedCurrentRunLoopStep != result.MissionCommanderActionQueue.CurrentRunLoopStepID || recordReceipt.RefreshedCurrentDriverRequest == nil || recordDriver == nil || recordReceipt.RefreshedCurrentDriverRequest.Command != recordDriver.Command || recordReceipt.RefreshedCurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand == "" || !strings.Contains(recordReceipt.RefreshedCurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand, caseRoot) || !containsSubstring(recordReceipt.Boundary, "does not prove /rekit executed an adapter") || !containsSubstring(recordReceipt.Boundary, "does not write authority/confirmed") {
+		t.Fatalf("CLI record omitted adapter record run-loop receipt: receipt=%+v queue=%+v", recordReceipt, result.MissionCommanderActionQueue)
+	}
+	textRecordArgs := append(append([]string{}, recordArgs[:len(recordArgs)-2]...), "-Format", "text")
+	out.Reset()
+	if err := Run(textRecordArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"gate execution evidence driver receipt：state=refreshed outcome=adapter-execution-record-duplicate-result", "gate execution evidence driver receipt refreshed driver request：kind=preview-command", "refreshStatusCommand=`/rekit status -Target", "gate execution evidence driver receipt boundary：driver receipt does not prove /rekit executed an adapter"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("adapter record text omitted receipt %q:\n%s", expected, out.String())
+		}
 	}
 	facts, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl"))
 	if err != nil || !strings.Contains(string(facts), "cli-session-a") || !strings.Contains(string(facts), receipt.ReceiptSHA256) {

@@ -79,6 +79,7 @@ type Options struct {
 	AdapterHarness                                string
 	AdapterSession                                string
 	ExecutionExitStatus                           string
+	EmitDriverReceipt                             bool
 }
 
 type Plan struct {
@@ -490,6 +491,7 @@ type AdapterExecutionReportValidation struct {
 	MissionCommanderAction           mission.MissionCommanderAction           `json:"missionCommanderAction"`
 	MissionCommanderNextActions      []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
 	MissionCommanderActionQueue      mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
+	MissionCommanderDriverReceipt    *mission.MissionCommanderDriverReceipt   `json:"missionCommanderDriverReceipt,omitempty"`
 	RunbookSteps                     []string                                 `json:"runbookSteps,omitempty"`
 	NextSteps                        []string                                 `json:"nextSteps"`
 }
@@ -1125,6 +1127,7 @@ type ApplyResult struct {
 	AuthorizedExecutionFollowThrough AuthorizedExecutionFollowThrough         `json:"authorizedExecutionFollowThrough"`
 	MissionCommanderNextActions      []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
 	MissionCommanderActionQueue      mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
+	MissionCommanderDriverReceipt    *mission.MissionCommanderDriverReceipt   `json:"missionCommanderDriverReceipt,omitempty"`
 	RunbookSteps                     []string                                 `json:"runbookSteps,omitempty"`
 	NextSteps                        []string                                 `json:"nextSteps"`
 }
@@ -1322,6 +1325,7 @@ func RecordExecution(repoRoot, caseRoot, pack string, opt Options) (_ ApplyResul
 		result.AuthorizedExecutionFollowThrough = authorizedExecutionFollowThrough(gateEvent, result.MissionCommanderAction.State, execution.Execution.ExecutionReportPath, result.MissionCommanderAction, result.MissionCommanderNextActions, nil, false, true)
 		result.RunbookSteps = adapterReportRunbookSteps("record", result.MissionCommanderAction.State, execution.Execution.ExecutionReportPath, execution.Execution.ExecutionReportSHA256, true, false, result.Applied, true, result.NextSteps, result.MissionCommanderAction.Boundary, result.MissionCommanderAction)
 		result.Reason = "duplicate eventId"
+		result = finalizeAdapterExecutionRecordResult(result, gateEvent)
 		return result, nil
 	}
 	if _, _, err := mission.AppendFact(inst.CaseRoot, "observation", execution); err != nil {
@@ -1340,7 +1344,46 @@ func RecordExecution(repoRoot, caseRoot, pack string, opt Options) (_ ApplyResul
 	result.ExecutionEvidenceReviewSummary = mission.ExecutionEvidenceReviewSummaryFor(result.ExecutionEvidenceReview, result.MissionCommanderActionQueue)
 	result.AuthorizedExecutionFollowThrough = authorizedExecutionFollowThrough(gateEvent, result.MissionCommanderAction.State, execution.Execution.ExecutionReportPath, result.MissionCommanderAction, result.MissionCommanderNextActions, nil, true, false)
 	result.RunbookSteps = adapterReportRunbookSteps("record", result.MissionCommanderAction.State, execution.Execution.ExecutionReportPath, execution.Execution.ExecutionReportSHA256, true, false, result.Applied, false, result.NextSteps, result.MissionCommanderAction.Boundary, result.MissionCommanderAction)
-	return result, nil
+	return finalizeAdapterExecutionRecordResult(result, gateEvent), nil
+}
+
+func finalizeAdapterExecutionRecordResult(result ApplyResult, gateEvent EventPreview) ApplyResult {
+	result.MissionCommanderActionQueue = adapterReportActionQueueWithRefresh(result.MissionCommanderActionQueue, result.CaseRoot)
+	result.ExecutionEvidenceReviewSummary = mission.ExecutionEvidenceReviewSummaryFor(result.ExecutionEvidenceReview, result.MissionCommanderActionQueue)
+	result.AuthorizedExecutionFollowThrough.ActionQueue = result.MissionCommanderActionQueue
+	result.MissionCommanderDriverReceipt = adapterExecutionRecordMissionCommanderDriverReceipt(result, gateEvent)
+	return result
+}
+
+func adapterExecutionRecordMissionCommanderDriverReceipt(result ApplyResult, gateEvent EventPreview) *mission.MissionCommanderDriverReceipt {
+	command := ""
+	if result.ExecutionEvidence != nil {
+		command = adapterReportRecordSlashCommandWithExpectedHash(result.Pack, gateEvent.EventID, result.ExecutionEvidence.Execution.ExecutionReportPath, result.ExecutionEvidence.Execution.ExecutionReportSHA256, result.ExecutionEvidence.Execution.AdapterExecutionReceiptSHA256, result.ExecutionEvidence.Execution.AdapterExecution)
+	}
+	return &mission.MissionCommanderDriverReceipt{
+		SchemaVersion:                 1,
+		State:                         "refreshed",
+		Outcome:                       adapterExecutionRecordDriverReceiptOutcome(result),
+		Lane:                          gateEvent.Lane,
+		Command:                       command,
+		RefreshedActionQueueSummary:   result.MissionCommanderActionQueue.Summary,
+		RefreshedCurrentRunLoopStep:   result.MissionCommanderActionQueue.CurrentRunLoopStepID,
+		RefreshedCurrentDriverRequest: result.MissionCommanderActionQueue.CurrentDriverRequest,
+		Boundary: mission.UniqueStrings([]string{
+			"driver receipt records the adapter execution observation record command result after deterministic ledger evaluation",
+			"driver receipt does not prove /rekit executed an adapter or heavy tool",
+			"record command writes bounded observation evidence only and does not write authority/confirmed state",
+			"duplicate record receipt does not append observation evidence or authorize replay",
+			"after consuming this receipt, run refreshedCurrentDriverRequest or expectedReceipt.refreshStatusCommand only under the request boundary",
+		}),
+	}
+}
+
+func adapterExecutionRecordDriverReceiptOutcome(result ApplyResult) string {
+	if result.Applied {
+		return "adapter-execution-record-apply-result"
+	}
+	return "adapter-execution-record-duplicate-result"
 }
 
 func authorizedGateEvent(repoRoot, caseRoot, pack string, opt Options) (instance.Instance, EventPreview, error) {
@@ -1419,6 +1462,65 @@ func AdapterReportLiveSnapshot(repoRoot, caseRoot, pack string, opt Options) (Ad
 		applyRecordedAdapterReportSnapshot(&validation)
 	}
 	return validation, true, nil
+}
+
+func finalizeAdapterExecutionReportValidation(pack, caseRoot string, gateEvent EventPreview, validation AdapterExecutionReportValidation, emitReceipt bool) AdapterExecutionReportValidation {
+	applyAdapterReportValidationLiveState(pack, gateEvent, &validation)
+	if emitReceipt {
+		validation.MissionCommanderActionQueue = adapterReportActionQueueWithRefresh(validation.MissionCommanderActionQueue, caseRoot)
+		validation.AuthorizedExecutionFollowThrough.ActionQueue = validation.MissionCommanderActionQueue
+		validation.ReportSummary.ActionQueueSummary = validation.MissionCommanderActionQueue.Summary
+		if validation.MissionCommanderActionQueue.CurrentAction != nil {
+			validation.ReportSummary.CurrentAction = validation.MissionCommanderActionQueue.CurrentAction.Command
+		}
+		validation.MissionCommanderDriverReceipt = adapterReportValidationMissionCommanderDriverReceipt(pack, gateEvent, validation)
+	}
+	return validation
+}
+
+func adapterReportActionQueueWithRefresh(queue mission.MissionCommanderActionQueue, caseRoot string) mission.MissionCommanderActionQueue {
+	if queue.CurrentDriverRequest == nil {
+		return queue
+	}
+	refreshed := mission.MissionCommanderDriverRequestWithRefreshStatusCommand(*queue.CurrentDriverRequest, adapterReportStatusCommand(caseRoot))
+	queue.CurrentDriverRequest = &refreshed
+	return queue
+}
+
+func adapterReportValidationMissionCommanderDriverReceipt(pack string, gateEvent EventPreview, validation AdapterExecutionReportValidation) *mission.MissionCommanderDriverReceipt {
+	command := adapterReportValidateSlashCommand(pack, gateEvent.EventID, adapterReportFirstText(validation.ReportPath, validation.ReportSummary.ReportPath))
+	return &mission.MissionCommanderDriverReceipt{
+		SchemaVersion:                 1,
+		State:                         "refreshed",
+		Outcome:                       adapterReportValidationDriverReceiptOutcome(validation),
+		Lane:                          gateEvent.Lane,
+		Command:                       command,
+		RefreshedActionQueueSummary:   validation.MissionCommanderActionQueue.Summary,
+		RefreshedCurrentRunLoopStep:   validation.MissionCommanderActionQueue.CurrentRunLoopStepID,
+		RefreshedCurrentDriverRequest: validation.MissionCommanderActionQueue.CurrentDriverRequest,
+		Boundary: mission.UniqueStrings([]string{
+			"driver receipt records the adapter report validation command result after deterministic read-only validation",
+			"driver receipt does not prove /rekit executed an adapter or heavy tool",
+			"adapter report validation is read-only and must return valid=true before observation evidence record",
+			"record command writes bounded observation evidence only and does not write authority/confirmed state",
+			"after consuming this receipt, run refreshedCurrentDriverRequest or expectedReceipt.refreshStatusCommand only under the request boundary",
+		}),
+	}
+}
+
+func adapterReportValidationDriverReceiptOutcome(validation AdapterExecutionReportValidation) string {
+	if validation.Valid && validation.ReportSummary.RecordReady && !validation.ReportSummary.RecordBlocked {
+		return "adapter-report-validation-valid-result"
+	}
+	return "adapter-report-validation-repair-result"
+}
+
+func adapterReportStatusCommand(caseRoot string) string {
+	caseRoot = strings.TrimSpace(caseRoot)
+	if caseRoot == "" {
+		return "/rekit status -Format json"
+	}
+	return "/rekit status -Target " + quoteAdapterReportCommandArg(caseRoot) + " -Format json"
 }
 
 func applyAdapterReportValidationLiveState(pack string, gateEvent EventPreview, validation *AdapterExecutionReportValidation) {
@@ -1744,7 +1846,6 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 		GateEventID:   gateEvent.EventID,
 		Contract:      adapterReportContract(repoRoot, inst.CaseRoot, pack, gateEvent, m),
 	}
-	defer applyAdapterReportValidationLiveState(pack, gateEvent, &validation)
 	reportRel, reportSHA256, adapterReport, err := readAdapterExecutionReport(inst.CaseRoot, gateEvent, opt.ExecutionReportCwd, opt.ExecutionReportPath)
 	if reportRel != "" {
 		validation.ReportPath = reportRel
@@ -1777,7 +1878,7 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 		validation.ReportSummary = adapterReportHandoffSummary(gateEvent, validation.MissionCommanderAction.State, validation.ReportPath, validation.ReportSHA256, validation.Report, validation.Contract.AllowedStatuses, validation.Contract.AllowedOutputPaths, adapterCandidates, validation.Contract.StopConditions, validation.RepairHints, validation.AuthorizedExecutionFollowThrough, validation.MissionCommanderActionQueue, validation.MissionCommanderNextActions, false, validation.FailureCode, validation.FailureStage)
 		validation.NextSteps = adapterReportRepairNextSteps(validation.RepairHints)
 		validation.RunbookSteps = adapterReportRunbookSteps("validation", validation.MissionCommanderAction.State, validation.ReportSummary.ReportPath, validation.ReportSHA256, false, validation.ReportSummary.RecordReady, false, false, validation.NextSteps, validation.MissionCommanderAction.Boundary, validation.MissionCommanderAction)
-		return validation, nil
+		return finalizeAdapterExecutionReportValidation(pack, inst.CaseRoot, gateEvent, validation, opt.EmitDriverReceipt), nil
 	}
 	if adapterReport == nil {
 		validation.Valid = false
@@ -1791,7 +1892,7 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 		validation.ReportSummary = adapterReportHandoffSummary(gateEvent, validation.MissionCommanderAction.State, validation.ReportPath, validation.ReportSHA256, validation.Report, validation.Contract.AllowedStatuses, validation.Contract.AllowedOutputPaths, adapterCandidates, validation.Contract.StopConditions, validation.RepairHints, validation.AuthorizedExecutionFollowThrough, validation.MissionCommanderActionQueue, validation.MissionCommanderNextActions, false, validation.FailureCode, validation.FailureStage)
 		validation.NextSteps = adapterReportRepairNextSteps(validation.RepairHints)
 		validation.RunbookSteps = adapterReportRunbookSteps("validation", validation.MissionCommanderAction.State, validation.ReportSummary.ReportPath, validation.ReportSHA256, false, validation.ReportSummary.RecordReady, false, false, validation.NextSteps, validation.MissionCommanderAction.Boundary, validation.MissionCommanderAction)
-		return validation, nil
+		return finalizeAdapterExecutionReportValidation(pack, inst.CaseRoot, gateEvent, validation, opt.EmitDriverReceipt), nil
 	}
 	validation.Valid = true
 	validation.RecordExpectedReportSHA256 = validation.ReportSHA256
@@ -1809,7 +1910,7 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 		validation.ReportSummary.RecordReady = false
 		validation.ReportSummary.RecordBlocked = true
 		validation.NextSteps = []string{"repair the declared tooling catalog", "rerun read-only report validation", "do not record observation evidence while adapter capability provenance is invalid"}
-		return validation, nil
+		return finalizeAdapterExecutionReportValidation(pack, inst.CaseRoot, gateEvent, validation, opt.EmitDriverReceipt), nil
 	}
 	if validation.ReceiptRequired {
 		dispatch, dispatchPath, dispatchSHA, _, dispatchErr := readCurrentAdapterExecutionDispatch(inst.CaseRoot, pack, gateEvent, m)
@@ -1832,7 +1933,7 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 			validation.ReportSummary.RecordReady = false
 			validation.ReportSummary.RecordBlocked = true
 			validation.NextSteps = []string{"run the returned WhatIf command for a distinct gate", "record its dispatch before external execution", "do not run completion or observation for the unbound report"}
-			return validation, nil
+			return finalizeAdapterExecutionReportValidation(pack, inst.CaseRoot, gateEvent, validation, opt.EmitDriverReceipt), nil
 		}
 		validation.AdapterExecutionDispatchPath = dispatchPath
 		validation.AdapterExecutionDispatchSHA256 = dispatchSHA
@@ -1873,7 +1974,7 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 			validation.ReportSummary.RecordReady = false
 			validation.ReportSummary.RecordBlocked = true
 			validation.RunbookSteps = adapterReportRunbookSteps("provenance", validation.MissionCommanderAction.State, validation.ReportPath, validation.ReportSHA256, false, false, false, false, validation.NextSteps, validation.MissionCommanderAction.Boundary, validation.MissionCommanderAction)
-			return validation, nil
+			return finalizeAdapterExecutionReportValidation(pack, inst.CaseRoot, gateEvent, validation, opt.EmitDriverReceipt), nil
 		}
 		validation.AdapterExecutionDispatchPath = dispatchPath
 		validation.AdapterExecutionDispatchSHA256 = dispatchSHA
@@ -1888,7 +1989,7 @@ func ValidateAdapterExecutionReport(repoRoot, caseRoot, pack string, opt Options
 	validation.ReportSummary = adapterReportHandoffSummary(gateEvent, validation.MissionCommanderAction.State, validation.ReportPath, validation.ReportSHA256, validation.Report, validation.Contract.AllowedStatuses, validation.Contract.AllowedOutputPaths, adapterCandidates, validation.Contract.StopConditions, nil, validation.AuthorizedExecutionFollowThrough, validation.MissionCommanderActionQueue, validation.MissionCommanderNextActions, true, "", "")
 	validation.NextSteps = adapterReportValidationNextSteps(pack, gateEvent, validation.ReportPath, validation.RecordExpectedReportSHA256)
 	validation.RunbookSteps = adapterReportRunbookSteps("validation", validation.MissionCommanderAction.State, validation.ReportSummary.ReportPath, validation.ReportSHA256, validation.Valid, validation.ReportSummary.RecordReady, false, false, validation.NextSteps, validation.MissionCommanderAction.Boundary, validation.MissionCommanderAction)
-	return validation, nil
+	return finalizeAdapterExecutionReportValidation(pack, inst.CaseRoot, gateEvent, validation, opt.EmitDriverReceipt), nil
 }
 
 func findAuthorizedGateEvent(caseRoot, gateEventID string) (EventPreview, error) {

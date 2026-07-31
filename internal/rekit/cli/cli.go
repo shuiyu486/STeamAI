@@ -12039,6 +12039,7 @@ func runGate(ctx runtime.Context, opt Options, out io.Writer) error {
 			return fmt.Errorf("gate -ValidateExecutionReport cannot be combined with execution evidence fields other than -ExecutionReportPath")
 		}
 		opt.Gate.ExecutionReportCwd = ctx.Cwd
+		opt.Gate.EmitDriverReceipt = true
 		validation, err := gate.ValidateAdapterExecutionReport(ctx.RepoRoot, target, ctx.Pack, opt.Gate)
 		if err != nil {
 			return err
@@ -12781,6 +12782,9 @@ func writeGateAdapterReportValidationText(out io.Writer, validation gate.Adapter
 	if err := writeMissionCommanderActionQueueText(out, validation.MissionCommanderActionQueue); err != nil {
 		return err
 	}
+	if err := writeStatusMissionCommanderDriverReceiptText(out, "gate adapter report validation", validation.MissionCommanderDriverReceipt); err != nil {
+		return err
+	}
 	return writeMissionCommanderNextActionsText(out, validation.MissionCommanderNextActions)
 }
 
@@ -12840,6 +12844,9 @@ func writeGateApplyText(out io.Writer, result gate.ApplyResult) error {
 			return err
 		}
 		if err := writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue); err != nil {
+			return err
+		}
+		if err := writeStatusMissionCommanderDriverReceiptText(out, "gate execution evidence", result.MissionCommanderDriverReceipt); err != nil {
 			return err
 		}
 		if err := writeMissionCommanderNextActionsText(out, result.MissionCommanderNextActions); err != nil {
