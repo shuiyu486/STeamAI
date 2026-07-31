@@ -1097,14 +1097,31 @@ type releaseRunStepResult struct {
 }
 
 type releaseRunInspectionHandoff struct {
-	Ready                bool                                   `json:"ready"`
-	Summary              string                                 `json:"summary"`
-	LocalReleaseRunReady bool                                   `json:"localReleaseRunReady"`
-	Git                  releaseRunInspectionGitState           `json:"git"`
-	LatestBatch          releasecheck.ReleaseHandoffLatestBatch `json:"latestBatch"`
-	NextActions          []string                               `json:"nextActions"`
-	Boundary             []string                               `json:"boundary"`
-	Warnings             []string                               `json:"warnings,omitempty"`
+	Ready                              bool                                        `json:"ready"`
+	Summary                            string                                      `json:"summary"`
+	LocalReleaseRunReady               bool                                        `json:"localReleaseRunReady"`
+	Git                                releaseRunInspectionGitState                `json:"git"`
+	LatestBatch                        releasecheck.ReleaseHandoffLatestBatch      `json:"latestBatch"`
+	NextActions                        []string                                    `json:"nextActions"`
+	MissionCommanderActionQueue        mission.MissionCommanderActionQueue         `json:"missionCommanderActionQueue"`
+	MissionCommanderDriverReceipt      *releaseRunMissionCommanderReceipt          `json:"missionCommanderDriverReceipt,omitempty"`
+	ReplacementExecutorTakeoverPackage *mission.ReplacementExecutorTakeoverPackage `json:"replacementExecutorTakeoverPackage,omitempty"`
+	Boundary                           []string                                    `json:"boundary"`
+	Warnings                           []string                                    `json:"warnings,omitempty"`
+}
+
+type releaseRunMissionCommanderReceipt struct {
+	SchemaVersion                 int                                    `json:"schemaVersion"`
+	State                         string                                 `json:"state"`
+	Outcome                       string                                 `json:"outcome"`
+	Command                       string                                 `json:"command"`
+	LocalReleaseRunReady          bool                                   `json:"localReleaseRunReady"`
+	ReleaseInspectionReady        bool                                   `json:"releaseInspectionReady"`
+	RefreshedActionQueueSummary   string                                 `json:"refreshedActionQueueSummary,omitempty"`
+	RefreshedCurrentRunLoopStep   string                                 `json:"refreshedCurrentRunLoopStep,omitempty"`
+	RefreshedCurrentDriverRequest *mission.MissionCommanderDriverRequest `json:"refreshedCurrentDriverRequest,omitempty"`
+	TargetDocuments               []string                               `json:"targetDocuments,omitempty"`
+	Boundary                      []string                               `json:"boundary,omitempty"`
 }
 
 type releaseRunInspectionGitState struct {
@@ -1692,13 +1709,18 @@ func releaseRunInspectionHandoffFor(repoRoot string, inventory releasecheck.Resu
 		warnings = append(warnings, "latest batch handoff is missing from docs/batch-plan.md")
 	}
 	ready := len(warnings) == 0
+	queue := releaseRunInspectionMissionCommanderActionQueue(git, latest, localReady, ready)
+	receipt := releaseRunMissionCommanderDriverReceipt(queue, localReady, ready)
 	return releaseRunInspectionHandoff{
-		Ready:                ready,
-		Summary:              releaseRunInspectionSummary(ready, latest),
-		LocalReleaseRunReady: localReady,
-		Git:                  git,
-		LatestBatch:          latest,
-		NextActions:          releaseRunInspectionNextActions(git, latest, localReady),
+		Ready:                              ready,
+		Summary:                            releaseRunInspectionSummary(ready, latest),
+		LocalReleaseRunReady:               localReady,
+		Git:                                git,
+		LatestBatch:                        latest,
+		NextActions:                        releaseRunInspectionNextActions(git, latest, localReady),
+		MissionCommanderActionQueue:        queue,
+		MissionCommanderDriverReceipt:      receipt,
+		ReplacementExecutorTakeoverPackage: releaseRunReplacementExecutorTakeoverPackage(queue),
 		Boundary: []string{
 			"does not fetch GitHub or inspect remote Actions live state",
 			"uses local git refs, docs/batch-plan.md latest-batch handoff, and release-check inventory only",
@@ -1707,6 +1729,112 @@ func releaseRunInspectionHandoffFor(repoRoot string, inventory releasecheck.Resu
 		},
 		Warnings: warnings,
 	}
+}
+
+func releaseRunInspectionMissionCommanderActionQueue(git releaseRunInspectionGitState, latest releasecheck.ReleaseHandoffLatestBatch, localReady, inspectionReady bool) mission.MissionCommanderActionQueue {
+	actions := []mission.MissionCommanderNextActionItem{}
+	add := func(command, actionID, state string, requiresReview bool, reasons, boundary []string) {
+		command = strings.TrimSpace(command)
+		if command == "" {
+			return
+		}
+		label := strings.TrimSpace(latest.BatchID)
+		if label == "" {
+			label = "latest-batch"
+		}
+		actions = append(actions, mission.MissionCommanderNextActionItem{
+			Label:          label,
+			ActionID:       strings.TrimSpace(actionID),
+			State:          strings.TrimSpace(state),
+			Command:        command,
+			Source:         "releaseRun.releaseInspection",
+			RequiresReview: requiresReview,
+			Reasons:        mission.UniqueStrings(reasons),
+			Boundary:       mission.UniqueStrings(boundary),
+		})
+	}
+	baseBoundary := []string{
+		"release-run result is a read-only Mission Commander receipt; it does not write repo or case state",
+		"record local validation evidence in docs before claiming batch completion",
+		"remote release-gate must be inspected separately after the implementation commit; release-run never claims remote green",
+	}
+	if !localReady {
+		add("/rekit release-run -Format json", "release-run-local-validation-retry", "local-release-run-not-ready", true, []string{"local release-run did not pass", "inspect failed step output before retrying"}, append(baseBoundary, "fix the failed local release minimum step before release inspection"))
+	}
+	if localReady && (!latest.Handoff.LocalValidationReady || !latest.Handoff.ReleaseCheckReady) {
+		add("record this release-run result in docs/batch-plan.md before final release handoff", "release-run-local-validation-record", "local-release-run-record-required", true, []string{"local release-run passed", "latest batch docs have not recorded local release validation yet"}, append(baseBoundary, "update CHANGELOG.md alongside docs/batch-plan.md when the user-visible batch result changes"))
+	}
+	if strings.TrimSpace(git.Branch) != "main" {
+		add("switch to main before release inspection handoff", "release-run-git-main-required", "release-inspection-git-blocked", true, []string{"release inspection must run from main", "current branch is " + emptyAs(git.Branch, "<unknown>")}, baseBoundary)
+	}
+	if !git.WorkingTreeClean {
+		add("commit or revert working tree changes before declaring release inspection complete", "release-run-git-clean-required", "release-inspection-git-blocked", true, []string{"release inspection needs a clean working tree", fmt.Sprintf("status entries=%d", len(git.StatusShort))}, baseBoundary)
+	}
+	if !git.Synchronized {
+		add("fetch/pull/push until local main and origin/main point at the same commit", "release-run-git-sync-required", "release-inspection-git-blocked", true, []string{"local main and origin/main are not synchronized"}, baseBoundary)
+	}
+	cadence := latest.Handoff.ReleaseInspectionCadence
+	if strings.TrimSpace(cadence.NextAction) != "" {
+		add(cadence.NextAction, "release-run-cadence-next-action", strings.TrimSpace(cadence.State), true, []string{"release inspection cadence next action is recorded", "cadence state: " + strings.TrimSpace(cadence.State)}, append(baseBoundary, cadence.Boundary...))
+	} else if strings.TrimSpace(latest.Handoff.NextAction) != "" {
+		add(latest.Handoff.NextAction, "release-run-latest-batch-next-action", "release-handoff-next-action", true, []string{"latest batch next action is recorded in the release handoff"}, baseBoundary)
+	}
+	if detail := latest.Handoff.RemoteReleaseGateDetail; detail != nil && !detail.CanClaimGreen {
+		add("keep remote CI status truthful: inventory ready is not remote green", "release-run-remote-truthfulness", "remote-release-gate-not-green", true, []string{"remote release-gate detail is recorded", "canClaimGreen=false"}, append(baseBoundary, detail.Boundary...))
+	}
+	if len(actions) == 0 && inspectionReady {
+		add("refresh status before selecting follow-up release work", "release-run-status-refresh", "release-run-refresh-required", false, []string{"release-run completed and release inspection handoff has no blockers"}, append(baseBoundary, "refresh status so the next current action is derived from durable docs"))
+	}
+	return mission.MissionCommanderActionQueueFor(actions)
+}
+
+func releaseRunMissionCommanderDriverReceipt(queue mission.MissionCommanderActionQueue, localReady, inspectionReady bool) *releaseRunMissionCommanderReceipt {
+	request := queue.CurrentDriverRequest
+	if request != nil {
+		refreshed := mission.MissionCommanderDriverRequestWithRefreshStatusCommand(*request, "/rekit status -Format json")
+		request = &refreshed
+	}
+	return &releaseRunMissionCommanderReceipt{
+		SchemaVersion:                 1,
+		State:                         "refreshed",
+		Outcome:                       "release-run-local-validation-result",
+		Command:                       "/rekit release-run -Format json",
+		LocalReleaseRunReady:          localReady,
+		ReleaseInspectionReady:        inspectionReady,
+		RefreshedActionQueueSummary:   queue.Summary,
+		RefreshedCurrentRunLoopStep:   queue.CurrentRunLoopStepID,
+		RefreshedCurrentDriverRequest: request,
+		TargetDocuments: []string{
+			"releaseInspection.missionCommanderActionQueue.currentDriverRequest",
+			"releaseInspection.missionCommanderDriverReceipt",
+			"releaseInspection.replacementExecutorTakeoverPackage",
+			"docs/batch-plan.md",
+			"CHANGELOG.md",
+			"docs/release-readiness.md",
+		},
+		Boundary: []string{
+			"driver receipt records the explicit release-run result after local gateProfile commands finished",
+			"driver receipt does not prove remote GitHub Actions status and does not claim remote CI green",
+			"release-run does not write repo state, case state, authority/confirmed, or heavy-tool output",
+			"refresh status after recording local validation evidence before choosing commit/push follow-up work",
+		},
+	}
+}
+
+func releaseRunReplacementExecutorTakeoverPackage(queue mission.MissionCommanderActionQueue) *mission.ReplacementExecutorTakeoverPackage {
+	return mission.ReplacementExecutorTakeoverPackageFor(queue.CurrentDriverRequest, mission.ReplacementExecutorTakeoverOptions{
+		Focus:                "release-run-current-action",
+		Scope:                "project",
+		RefreshStatusCommand: "/rekit status -Format json",
+		PackagePath:          "releaseInspection.replacementExecutorTakeoverPackage",
+		TargetDocuments: []string{
+			"releaseInspection.missionCommanderActionQueue.currentDriverRequest",
+			"releaseInspection.missionCommanderDriverReceipt",
+			"docs/batch-plan.md",
+			"CHANGELOG.md",
+			"docs/release-readiness.md",
+		},
+	})
 }
 
 func releaseRunInspectionGitStateFor(repoRoot string, executor releaseRunGitCommandExecutor) releaseRunInspectionGitState {
@@ -1911,6 +2039,15 @@ func writeReleaseRunInspectionText(out io.Writer, handoff releaseRunInspectionHa
 			return err
 		}
 	}
+	if err := writeStatusMissionCommanderActionQueueText(out, "release-run release inspection mission commander queue", handoff.MissionCommanderActionQueue); err != nil {
+		return err
+	}
+	if err := writeReleaseRunMissionCommanderReceiptText(out, handoff.MissionCommanderDriverReceipt); err != nil {
+		return err
+	}
+	if err := writeReleaseRunReplacementExecutorTakeoverPackageText(out, handoff.ReplacementExecutorTakeoverPackage); err != nil {
+		return err
+	}
 	for _, boundary := range handoff.Boundary {
 		if _, err := fmt.Fprintf(out, "release-run release inspection boundary：%s\n", boundary); err != nil {
 			return err
@@ -1918,6 +2055,57 @@ func writeReleaseRunInspectionText(out io.Writer, handoff releaseRunInspectionHa
 	}
 	for _, warning := range handoff.Warnings {
 		if _, err := fmt.Fprintf(out, "release-run release inspection warning：%s\n", warning); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeReleaseRunMissionCommanderReceiptText(out io.Writer, receipt *releaseRunMissionCommanderReceipt) error {
+	if receipt == nil {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "release-run mission commander driver receipt：state=%s outcome=%s command=%s localReleaseRunReady=%t releaseInspectionReady=%t refreshedSummary=%s refreshedStep=%s\n", receipt.State, receipt.Outcome, receipt.Command, receipt.LocalReleaseRunReady, receipt.ReleaseInspectionReady, receipt.RefreshedActionQueueSummary, receipt.RefreshedCurrentRunLoopStep); err != nil {
+		return err
+	}
+	if err := writeMissionCommanderDriverRequestText(out, "release-run mission commander refreshed", receipt.RefreshedCurrentDriverRequest); err != nil {
+		return err
+	}
+	for _, doc := range receipt.TargetDocuments {
+		if _, err := fmt.Fprintf(out, "release-run mission commander driver receipt target document：%s\n", doc); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range receipt.Boundary {
+		if _, err := fmt.Fprintf(out, "release-run mission commander driver receipt boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeReleaseRunReplacementExecutorTakeoverPackageText(out io.Writer, pkg *mission.ReplacementExecutorTakeoverPackage) error {
+	if pkg == nil || !pkg.Ready {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "release-run replacement executor takeover package：ready=%t focus=%s scope=%s state=%s source=%s actionId=%s driverKind=%s executable=%t requiresReview=%t blocked=%t command=%s guidance=%s refresh=%s\n", pkg.Ready, pkg.Focus, pkg.Scope, pkg.State, pkg.Source, pkg.ActionID, pkg.DriverKind, pkg.CommandExecutable, pkg.RequiresReview, pkg.Blocked, pkg.Command, pkg.Guidance, pkg.RefreshStatusCommand); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "release-run replacement executor takeover package current driver expected receipt：state=%s command=`%s` refreshStatusCommand=`%s`\n", pkg.CurrentDriverRequest.ExpectedReceipt.State, pkg.CurrentDriverRequest.ExpectedReceipt.Command, pkg.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand); err != nil {
+		return err
+	}
+	for _, doc := range pkg.TargetDocuments {
+		if _, err := fmt.Fprintf(out, "release-run replacement executor takeover package target document：%s\n", doc); err != nil {
+			return err
+		}
+	}
+	for _, step := range pkg.RunbookSteps {
+		if _, err := fmt.Fprintf(out, "release-run replacement executor takeover package runbook step：%s\n", step); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range pkg.Boundary {
+		if _, err := fmt.Fprintf(out, "release-run replacement executor takeover package boundary：%s\n", boundary); err != nil {
 			return err
 		}
 	}

@@ -4448,6 +4448,22 @@ func TestRunReleaseRunIncludesReleaseInspectionHandoff(t *testing.T) {
 	}
 	assertStringContains(t, inspection.Boundary, "ciReleaseGate.ready remains workflow inventory readiness, not remote green")
 	assertStringContains(t, inspection.NextActions, "keep remote CI status truthful: inventory ready is not remote green")
+	current := inspection.MissionCommanderActionQueue.CurrentAction
+	if current == nil || current.ActionID != "release-run-cadence-next-action" || current.Source != "releaseRun.releaseInspection" || current.State != "complete" || !current.RequiresReview || !containsSubstring(current.Boundary, "release-run never claims remote green") {
+		t.Fatalf("release-run inspection should expose typed cadence current action: current=%+v queue=%+v", current, inspection.MissionCommanderActionQueue)
+	}
+	request := requireTypedMissionCommanderDriverRequest(t, inspection.MissionCommanderActionQueue, "review-guidance", "inspect-current", "", false, false, true)
+	if request.Guidance != "do not create a third inspection record for the release inspection commit's own CI; continue the next batch" || request.ExpectedReceipt.RefreshStatusCommand != "" {
+		t.Fatalf("raw release-run queue request should preserve guidance before receipt refresh binding: %+v", request)
+	}
+	receipt := inspection.MissionCommanderDriverReceipt
+	if receipt == nil || receipt.Outcome != "release-run-local-validation-result" || !receipt.LocalReleaseRunReady || !receipt.ReleaseInspectionReady || receipt.RefreshedCurrentDriverRequest == nil || receipt.RefreshedCurrentDriverRequest.Guidance != request.Guidance || receipt.RefreshedCurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != "/rekit status -Format json" || !containsSubstring(receipt.TargetDocuments, "releaseInspection.replacementExecutorTakeoverPackage") || !containsSubstring(receipt.Boundary, "does not prove remote GitHub Actions status") {
+		t.Fatalf("release-run inspection omitted refreshed driver receipt: %+v", receipt)
+	}
+	pkg := inspection.ReplacementExecutorTakeoverPackage
+	if pkg == nil || !pkg.Ready || pkg.DriverKind != "review-guidance" || pkg.CommandExecutable || pkg.Guidance != request.Guidance || pkg.RefreshStatusCommand != "/rekit status -Format json" || !containsSubstring(pkg.TargetDocuments, "releaseInspection.missionCommanderDriverReceipt") || !containsSubstring(pkg.RunbookSteps, "before using any prior chat context") || !containsSubstring(pkg.Boundary, "guidance must be reviewed") {
+		t.Fatalf("release-run inspection omitted replacement executor takeover package: %+v", pkg)
+	}
 
 	out.Reset()
 	if err := Run([]string{"-Command", "release-run", "-Format", "text"}, &out); err != nil {
@@ -4457,11 +4473,89 @@ func TestRunReleaseRunIncludesReleaseInspectionHandoff(t *testing.T) {
 		"release-run release inspection：ready=true summary=release inspection handoff ok; remote gate not green",
 		"release-run release inspection git：branch=main clean=true synchronized=true head=abc123 originMain=abc123",
 		"release-run release inspection next action：keep remote CI status truthful: inventory ready is not remote green",
+		"release-run release inspection mission commander queue：total=2 unblocked=2 blocked=0 requiresReview=2 followUp=0 current=do not create a third inspection record for the release inspection commit's own CI; continue the next batch",
+		"release-run mission commander driver receipt：state=refreshed outcome=release-run-local-validation-result command=/rekit release-run -Format json localReleaseRunReady=true releaseInspectionReady=true",
+		"release-run mission commander refreshed driver request：kind=review-guidance step=inspect-current",
+		"release-run replacement executor takeover package：ready=true focus=release-run-current-action scope=project state=complete source=releaseRun.releaseInspection actionId=release-run-cadence-next-action driverKind=review-guidance executable=false requiresReview=true",
+		"release-run replacement executor takeover package runbook step：read releaseInspection.replacementExecutorTakeoverPackage before using any prior chat context",
 		"release-run release inspection boundary：does not fetch GitHub or inspect remote Actions live state",
 	} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("release-run release inspection text missing %q:\n%s", expected, out.String())
 		}
+	}
+}
+
+func TestRunReleaseRunImplementationPendingGuidanceReturnsRetryReceipt(t *testing.T) {
+	previousCommand := releaseRunExecuteCommand
+	previousGit := releaseRunExecuteGitCommand
+	previousBuild := releaseCheckBuild
+	defer func() {
+		releaseRunExecuteCommand = previousCommand
+		releaseRunExecuteGitCommand = previousGit
+		releaseCheckBuild = previousBuild
+	}()
+	releaseCheckBuild = func(repoRoot string) (releasecheck.Result, error) {
+		result, err := previousBuild(repoRoot)
+		if err != nil {
+			return releasecheck.Result{}, err
+		}
+		handoff := readyReleaseHandoffFixture(result.ReleaseHandoff)
+		handoff.Ready = false
+		handoff.Summary = "release handoff summary has warnings"
+		handoff.LatestBatch.BatchID = "Batch 765"
+		handoff.LatestBatch.Title = "Batch 765：release-run current action consumer loop"
+		handoff.LatestBatch.Status = "进行中。"
+		handoff.LatestBatch.Handoff.Completed = false
+		handoff.LatestBatch.Handoff.LocalValidationReady = false
+		handoff.LatestBatch.Handoff.ReleaseCheckReady = false
+		handoff.LatestBatch.Handoff.RemoteReleaseGate = "not-recorded"
+		handoff.LatestBatch.Handoff.RemoteReleaseGateDetail = &releasecheck.ReleaseHandoffRemoteReleaseGateDetail{State: "not-recorded", CanClaimGreen: false, Boundary: []string{"release-check inventory ready is not remote CI green"}}
+		handoff.LatestBatch.Handoff.ReleaseInspectionCadence = releasecheck.ReleaseHandoffReleaseInspectionCadence{MaxPushes: 2, State: "implementation-pending", NextAction: "create/push the implementation commit after local validation", Boundary: []string{"normal batches stop after implementation commit/push plus one release inspection commit/push"}}
+		handoff.LatestBatch.Handoff.NextAction = "finish the current batch before treating status as a handoff"
+		handoff.NextBatchSelectionPackage = nil
+		result.ReleaseHandoff = handoff
+		result.Ready = true
+		result.Summary = "release gate inventory ok"
+		result.Warnings = nil
+		return result, nil
+	}
+	releaseRunExecuteCommand = func(ctx context.Context, repoRoot, command string) (int, string, error) {
+		return 1, "local failure", errors.New("exit status 1")
+	}
+	releaseRunExecuteGitCommand = fakeReleaseRunGit(map[string]fakeReleaseRunGitResult{
+		"rev-parse --abbrev-ref HEAD":               {output: "main\n"},
+		"rev-parse HEAD":                            {output: "abc123\n"},
+		"rev-parse origin/main":                     {output: "abc123\n"},
+		"status --short":                            {output: ""},
+		"merge-base --is-ancestor HEAD origin/main": {output: ""},
+		"merge-base --is-ancestor origin/main HEAD": {output: ""},
+	})
+
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "release-run", "-Format", "json"}, &out)
+	if err == nil || !strings.Contains(err.Error(), "release-run not ready") {
+		t.Fatalf("release-run implementation-pending error = %v, want not ready", err)
+	}
+	var result releaseRunResult
+	if decodeErr := json.Unmarshal(out.Bytes(), &result); decodeErr != nil {
+		t.Fatalf("release-run JSON did not decode: %v\n%s", decodeErr, out.String())
+	}
+	inspection := result.ReleaseInspection
+	if inspection.Ready || inspection.LocalReleaseRunReady || inspection.MissionCommanderDriverReceipt == nil || inspection.ReplacementExecutorTakeoverPackage == nil {
+		t.Fatalf("failed release-run should return non-ready inspection receipt and takeover package: %+v", inspection)
+	}
+	request := requireTypedMissionCommanderDriverRequest(t, inspection.MissionCommanderActionQueue, "preview-command", "preview-current", "/rekit release-run -Format json", true, false, true)
+	if request.ActionID != "release-run-local-validation-retry" || !containsSubstring(request.Boundary, "review-required current actions") {
+		t.Fatalf("failed release-run should expose retry preview request: %+v", request)
+	}
+	receipt := inspection.MissionCommanderDriverReceipt
+	if receipt.LocalReleaseRunReady || receipt.ReleaseInspectionReady || receipt.RefreshedCurrentDriverRequest == nil || receipt.RefreshedCurrentDriverRequest.Command != "/rekit release-run -Format json" || receipt.RefreshedCurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != "/rekit status -Format json" || !containsSubstring(receipt.Boundary, "does not prove remote GitHub Actions status") {
+		t.Fatalf("failed release-run receipt drifted: %+v", receipt)
+	}
+	pkg := inspection.ReplacementExecutorTakeoverPackage
+	if !pkg.Ready || !pkg.CommandExecutable || pkg.Command != "/rekit release-run -Format json" || pkg.DriverKind != "preview-command" || pkg.RefreshStatusCommand != "/rekit status -Format json" || !containsSubstring(pkg.TargetDocuments, "docs/release-readiness.md") {
+		t.Fatalf("failed release-run takeover package drifted: %+v", pkg)
 	}
 }
 
