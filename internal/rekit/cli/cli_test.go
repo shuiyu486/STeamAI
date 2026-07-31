@@ -2769,8 +2769,62 @@ func TestRunStatusJsonCase(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &staleStatus); err != nil {
 		t.Fatalf("stale takeover artifact status JSON did not decode: %v\n%s", err, out.String())
 	}
-	if runbook := staleStatus.MissionControlRunbook; runbook == nil || runbook.CurrentDriverRequest == nil || !strings.Contains(runbook.CurrentDriverRequest.Command, "session-2") || runbook.ReplacementExecutorTakeoverPackage == nil || runbook.ReplacementExecutorTakeoverPackage.DurableArtifactPath != ".rekit/handovers/feature-login-latest-replacement-executor-takeover.json" || runbook.ReplacementExecutorTakeoverPackage.DurableArtifactFresh || runbook.ReplacementExecutorTakeoverPackage.DurableArtifactState != "stale-current-driver-request" || !containsSubstring(runbook.ReplacementExecutorTakeoverPackage.DurableArtifactWarnings, "currentDriverRequest does not match refreshed status") || !containsSubstring(runbook.ReplacementExecutorTakeoverPackage.RunbookSteps, "read missionControlRunbook.replacementExecutorTakeoverPackage before using any prior chat context") || containsSubstring(runbook.ReplacementExecutorTakeoverPackage.RunbookSteps, "read .rekit/handovers/feature-login-latest-replacement-executor-takeover.json before using any prior chat context") || !containsSubstring(runbook.ReplacementExecutorTakeoverPackage.RunbookSteps, "do not consume stale durable takeover artifact .rekit/handovers/feature-login-latest-replacement-executor-takeover.json") || !containsSubstring(runbook.ReplacementExecutorTakeoverPackage.Boundary, "durable takeover artifact is stale or invalid") {
+	runbook := staleStatus.MissionControlRunbook
+	if runbook == nil || runbook.CurrentDriverRequest == nil || !strings.Contains(runbook.CurrentDriverRequest.Command, "session-2") || runbook.ReplacementExecutorTakeoverPackage == nil || runbook.ReplacementExecutorTakeoverPackage.DurableArtifactPath != ".rekit/handovers/feature-login-latest-replacement-executor-takeover.json" || runbook.ReplacementExecutorTakeoverPackage.DurableArtifactFresh || runbook.ReplacementExecutorTakeoverPackage.DurableArtifactState != "stale-current-driver-request" || !containsSubstring(runbook.ReplacementExecutorTakeoverPackage.DurableArtifactWarnings, "currentDriverRequest does not match refreshed status") || !containsSubstring(runbook.ReplacementExecutorTakeoverPackage.RunbookSteps, "read missionControlRunbook.replacementExecutorTakeoverPackage before using any prior chat context") || containsSubstring(runbook.ReplacementExecutorTakeoverPackage.RunbookSteps, "read .rekit/handovers/feature-login-latest-replacement-executor-takeover.json before using any prior chat context") || !containsSubstring(runbook.ReplacementExecutorTakeoverPackage.RunbookSteps, "do not consume stale durable takeover artifact .rekit/handovers/feature-login-latest-replacement-executor-takeover.json") || !containsSubstring(runbook.ReplacementExecutorTakeoverPackage.RunbookSteps, "run durableArtifactRefreshDriverRequest.command as a handoff preview") || !containsSubstring(runbook.ReplacementExecutorTakeoverPackage.Boundary, "durable takeover artifact is stale or invalid") {
 		t.Fatalf("status runbook did not guard stale durable takeover artifact: %+v", runbook)
+	}
+	refreshRequest := runbook.ReplacementExecutorTakeoverPackage.DurableArtifactRefreshDriverRequest
+	if refreshRequest == nil || refreshRequest.Kind != "preview-command" || refreshRequest.RunLoopStepID != "preview-handoff" || !refreshRequest.CommandExecutable || !refreshRequest.RequiresReview || !strings.Contains(refreshRequest.Command, "handoff") || !strings.Contains(refreshRequest.Command, "-WhatIf") || !strings.Contains(refreshRequest.Command, "-Format json") || !containsSubstring(refreshRequest.Boundary, "durable takeover artifact is stale or invalid") {
+		t.Fatalf("stale durable artifact should expose a handoff preview refresh driver request: %+v", refreshRequest)
+	}
+	beforeRefreshPreview := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	refreshArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, refreshRequest)
+	if !ok {
+		t.Fatalf("durable artifact refresh preview request should be executable: %+v", refreshRequest)
+	}
+	out.Reset()
+	if err := Run(refreshArgs, &out); err != nil {
+		t.Fatalf("durable artifact refresh preview failed: args=%+v err=%v\n%s", refreshArgs, err, out.String())
+	}
+	var refreshPreview handoffResult
+	if err := json.Unmarshal(out.Bytes(), &refreshPreview); err != nil {
+		t.Fatalf("durable artifact refresh preview JSON did not decode: %v\n%s", err, out.String())
+	}
+	applyRequest := (*missionCommanderDriverRequestSnapshot)(nil)
+	if refreshPreview.DailyMissionControlRunbook != nil {
+		applyRequest = refreshPreview.DailyMissionControlRunbook.HandoffApplyDriverRequest
+	}
+	if refreshPreview.Applied || !refreshPreview.RequiresConfirmation || refreshPreview.Project || refreshPreview.Lane == nil || refreshPreview.ReplacementExecutorTakeoverPackage == nil || refreshPreview.ReplacementExecutorTakeoverPackage.DurableArtifactRefreshDriverRequest != nil || applyRequest == nil || !strings.Contains(applyRequest.Command, "-Apply") {
+		t.Fatalf("durable artifact refresh preview should return a lane-scoped reviewed apply request without mutation: preview=%+v applyRequest=%+v", refreshPreview, applyRequest)
+	}
+	assertSnapshotEqual(t, beforeRefreshPreview, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+	applyArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, applyRequest)
+	if !ok {
+		t.Fatalf("durable artifact refresh apply request should be executable: %+v", applyRequest)
+	}
+	out.Reset()
+	if err := Run(applyArgs, &out); err != nil {
+		t.Fatalf("durable artifact refresh apply failed: args=%+v err=%v\n%s", applyArgs, err, out.String())
+	}
+	var refreshApply handoffResult
+	if err := json.Unmarshal(out.Bytes(), &refreshApply); err != nil {
+		t.Fatalf("durable artifact refresh apply JSON did not decode: %v\n%s", err, out.String())
+	}
+	if !refreshApply.Applied || refreshApply.ReplacementExecutorTakeoverPackage == nil || refreshApply.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command == "" || !strings.Contains(refreshApply.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command, "session-2") {
+		t.Fatalf("durable artifact refresh apply should rewrite takeover package for current driver: %+v", refreshApply)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var refreshedArtifactStatus struct {
+		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &refreshedArtifactStatus); err != nil {
+		t.Fatalf("refreshed takeover artifact status JSON did not decode: %v\n%s", err, out.String())
+	}
+	if refreshed := refreshedArtifactStatus.MissionControlRunbook; refreshed == nil || refreshed.ReplacementExecutorTakeoverPackage == nil || !refreshed.ReplacementExecutorTakeoverPackage.DurableArtifactFresh || refreshed.ReplacementExecutorTakeoverPackage.DurableArtifactState != "fresh" || refreshed.ReplacementExecutorTakeoverPackage.DurableArtifactRefreshDriverRequest != nil || !strings.Contains(refreshed.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command, "session-2") {
+		t.Fatalf("status should treat refreshed durable takeover artifact as fresh: %+v", refreshed)
 	}
 }
 
@@ -20433,28 +20487,29 @@ type projectNextBatchStarterPackage struct {
 }
 
 type replacementExecutorTakeoverPackageSnapshot struct {
-	Ready                   bool                                  `json:"ready"`
-	Focus                   string                                `json:"focus"`
-	Scope                   string                                `json:"scope"`
-	State                   string                                `json:"state"`
-	Source                  string                                `json:"source"`
-	Label                   string                                `json:"label"`
-	ActionID                string                                `json:"actionId"`
-	DriverKind              string                                `json:"driverKind"`
-	CommandExecutable       bool                                  `json:"commandExecutable"`
-	RequiresReview          bool                                  `json:"requiresReview"`
-	Blocked                 bool                                  `json:"blocked"`
-	Command                 string                                `json:"command"`
-	Guidance                string                                `json:"guidance"`
-	CurrentDriverRequest    missionCommanderDriverRequestSnapshot `json:"currentDriverRequest"`
-	TargetDocuments         []string                              `json:"targetDocuments"`
-	RefreshStatusCommand    string                                `json:"refreshStatusCommand"`
-	DurableArtifactPath     string                                `json:"durableArtifactPath"`
-	DurableArtifactFresh    bool                                  `json:"durableArtifactFresh"`
-	DurableArtifactState    string                                `json:"durableArtifactState"`
-	DurableArtifactWarnings []string                              `json:"durableArtifactWarnings"`
-	RunbookSteps            []string                              `json:"runbookSteps"`
-	Boundary                []string                              `json:"boundary"`
+	Ready                               bool                                   `json:"ready"`
+	Focus                               string                                 `json:"focus"`
+	Scope                               string                                 `json:"scope"`
+	State                               string                                 `json:"state"`
+	Source                              string                                 `json:"source"`
+	Label                               string                                 `json:"label"`
+	ActionID                            string                                 `json:"actionId"`
+	DriverKind                          string                                 `json:"driverKind"`
+	CommandExecutable                   bool                                   `json:"commandExecutable"`
+	RequiresReview                      bool                                   `json:"requiresReview"`
+	Blocked                             bool                                   `json:"blocked"`
+	Command                             string                                 `json:"command"`
+	Guidance                            string                                 `json:"guidance"`
+	CurrentDriverRequest                missionCommanderDriverRequestSnapshot  `json:"currentDriverRequest"`
+	TargetDocuments                     []string                               `json:"targetDocuments"`
+	RefreshStatusCommand                string                                 `json:"refreshStatusCommand"`
+	DurableArtifactPath                 string                                 `json:"durableArtifactPath"`
+	DurableArtifactFresh                bool                                   `json:"durableArtifactFresh"`
+	DurableArtifactState                string                                 `json:"durableArtifactState"`
+	DurableArtifactWarnings             []string                               `json:"durableArtifactWarnings"`
+	DurableArtifactRefreshDriverRequest *missionCommanderDriverRequestSnapshot `json:"durableArtifactRefreshDriverRequest"`
+	RunbookSteps                        []string                               `json:"runbookSteps"`
+	Boundary                            []string                               `json:"boundary"`
 }
 
 type laneTakeoverPackage struct {

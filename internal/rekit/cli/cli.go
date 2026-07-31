@@ -3818,16 +3818,101 @@ func statusReplacementExecutorTakeoverPackageFor(target string, runbook *statusM
 		packagePath = discovery.Path
 	}
 	return mission.ReplacementExecutorTakeoverPackageFor(runbook.CurrentDriverRequest, mission.ReplacementExecutorTakeoverOptions{
-		Focus:                   runbook.Focus,
-		Scope:                   runbook.Scope,
-		RefreshStatusCommand:    runbook.RefreshStatusCommand,
-		PackagePath:             packagePath,
-		TargetDocuments:         statusReplacementExecutorTakeoverTargetDocuments(runbook.Scope, *runbook.CurrentDriverRequest, projectHandoff, discovery.Path),
-		DurableArtifactPath:     discovery.Path,
-		DurableArtifactFresh:    discovery.Fresh,
-		DurableArtifactState:    discovery.State,
-		DurableArtifactWarnings: discovery.Warnings,
+		Focus:                               runbook.Focus,
+		Scope:                               runbook.Scope,
+		RefreshStatusCommand:                runbook.RefreshStatusCommand,
+		PackagePath:                         packagePath,
+		TargetDocuments:                     statusReplacementExecutorTakeoverTargetDocuments(runbook.Scope, *runbook.CurrentDriverRequest, projectHandoff, discovery.Path),
+		DurableArtifactPath:                 discovery.Path,
+		DurableArtifactFresh:                discovery.Fresh,
+		DurableArtifactState:                discovery.State,
+		DurableArtifactWarnings:             discovery.Warnings,
+		DurableArtifactRefreshDriverRequest: statusReplacementExecutorTakeoverArtifactRefreshDriverRequest(target, discovery, runbook),
 	})
+}
+
+func statusReplacementExecutorTakeoverArtifactRefreshDriverRequest(target string, discovery statusTakeoverArtifactDiscovery, runbook *statusMissionControlRunbook) *mission.MissionCommanderDriverRequest {
+	if runbook == nil || discovery.Fresh || strings.TrimSpace(discovery.Path) == "" || strings.TrimSpace(discovery.State) == "" {
+		return nil
+	}
+	var request *mission.MissionCommanderDriverRequest
+	switch strings.TrimSpace(runbook.Scope) {
+	case "case", "reviewer":
+		request = statusReplacementExecutorTakeoverLaneHandoffPreviewDriverRequest(target, runbook)
+	default:
+		request = cloneStatusMissionCommanderDriverRequest(runbook.HandoffPreviewDriverRequest)
+	}
+	if request == nil || !request.CommandExecutable || strings.TrimSpace(request.Command) == "" {
+		return nil
+	}
+	request.Boundary = mission.UniqueStrings(append(request.Boundary,
+		"durable takeover artifact is stale or invalid; run this handoff preview before any artifact refresh apply",
+		"preview is read-only; consume the returned handoff apply driver request before trusting refreshed artifacts",
+	))
+	request.ExpectedReceipt.Boundary = mission.UniqueStrings(append(request.ExpectedReceipt.Boundary,
+		"handoff preview result should be reviewed before executing any returned apply request to refresh durable takeover artifacts",
+	))
+	return request
+}
+
+func statusReplacementExecutorTakeoverLaneHandoffPreviewDriverRequest(target string, runbook *statusMissionControlRunbook) *mission.MissionCommanderDriverRequest {
+	if runbook == nil || runbook.CurrentDriverRequest == nil {
+		return nil
+	}
+	target = strings.TrimSpace(target)
+	if target == "" || !instance.LooksLikeCase(target) {
+		return nil
+	}
+	current := runbook.CurrentDriverRequest
+	label := statusFirstText(current.Label, statusLaneCommandLabel(current.Lane))
+	if strings.TrimSpace(label) == "" || !statusSafePathSegment(label) {
+		return nil
+	}
+	command := "/rekit handoff -Target " + statusQuoteCommandArg(target) + " " + statusQuoteCommandArg(label) + " -WhatIf -Format json"
+	action := mission.MissionCommanderNextActionItem{
+		Lane:           strings.TrimSpace(current.Lane),
+		Label:          strings.TrimSpace(label),
+		ActionID:       strings.TrimSpace(statusFirstText(current.ActionID, current.Label, current.Lane, label)),
+		State:          "handoff-preview-available",
+		Command:        command,
+		Source:         "missionControlRunbook.durableArtifactRefreshHandoffPreview",
+		RequiresReview: true,
+		Reasons: []string{
+			"durable takeover artifact is stale or invalid for the focused lane",
+			"refresh the lane-scoped handoff artifact before trusting durable takeover JSON",
+		},
+		Boundary: []string{
+			"handoff preview is read-only and should use -WhatIf -Format json",
+			"handoff preview does not write authority/confirmed or execute heavy tools",
+		},
+	}
+	runLoop := []mission.MissionCommanderRunLoopStep{{
+		StepID:      "preview-handoff",
+		Order:       1,
+		Actor:       "main-agent",
+		Description: "preview lane-scoped handoff before refreshing stale durable takeover artifact",
+		Command:     command,
+		State:       action.State,
+		Source:      action.Source,
+		Boundary:    append([]string{}, action.Boundary...),
+	}}
+	request := mission.MissionCommanderCurrentDriverRequest(action, "preview-handoff", runLoop)
+	if request == nil {
+		return nil
+	}
+	refreshed := mission.MissionCommanderDriverRequestWithRefreshStatusCommand(*request, runbook.RefreshStatusCommand)
+	refreshed.Boundary = mission.UniqueStrings(append(refreshed.Boundary, action.Boundary...))
+	return &refreshed
+}
+
+func cloneStatusMissionCommanderDriverRequest(request *mission.MissionCommanderDriverRequest) *mission.MissionCommanderDriverRequest {
+	if request == nil {
+		return nil
+	}
+	clone := *request
+	clone.Boundary = mission.UniqueStrings(clone.Boundary)
+	clone.ExpectedReceipt.Boundary = mission.UniqueStrings(clone.ExpectedReceipt.Boundary)
+	return &clone
 }
 
 func statusReplacementExecutorTakeoverTargetDocuments(scope string, request mission.MissionCommanderDriverRequest, projectHandoff *statusProjectHandoff, artifact string) []string {
@@ -4349,6 +4434,9 @@ func writeStatusReplacementExecutorTakeoverPackageText(out io.Writer, pkg *missi
 		if _, err := fmt.Fprintf(out, "status replacement executor takeover package durable artifact warning：%s\n", warning); err != nil {
 			return err
 		}
+	}
+	if err := writeMissionCommanderDriverRequestText(out, "status replacement executor takeover package durable artifact refresh", pkg.DurableArtifactRefreshDriverRequest); err != nil {
+		return err
 	}
 	for _, doc := range pkg.TargetDocuments {
 		if _, err := fmt.Fprintf(out, "status replacement executor takeover package target document：%s\n", doc); err != nil {
