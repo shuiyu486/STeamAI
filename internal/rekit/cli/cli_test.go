@@ -2543,6 +2543,162 @@ func TestRunStatusCaseMissionDoesNotInitializeMissingBoard(t *testing.T) {
 	}
 }
 
+func TestRunMissingBoardOnboardingDriverRequestConsumerLoopProductPath(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		CaseMission struct {
+			Ready                       bool                                `json:"ready"`
+			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+			DailyMissionControlRunbook  *dailyMissionControlRunbookSnapshot `json:"dailyMissionControlRunbook"`
+		} `json:"caseMission"`
+		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("missing-board onboarding status JSON did not decode: %v\n%s", err, out.String())
+	}
+	onboardingCommand := "/rekit overview -Target " + statusQuoteCommandArg(caseRoot) + " -Format text"
+	onboardingRequest := requireMissionCommanderDriverRequest(t, status.CaseMission.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", onboardingCommand, true, false, false)
+	if status.CaseMission.Ready || status.CaseMission.DailyMissionControlRunbook == nil || status.CaseMission.DailyMissionControlRunbook.Scope != "case-onboarding" || status.CaseMission.DailyMissionControlRunbook.CurrentDriverRequest == nil || status.CaseMission.DailyMissionControlRunbook.CurrentDriverRequest.Command != onboardingRequest.Command {
+		t.Fatalf("missing-board status did not expose case onboarding daily runbook: mission=%+v request=%+v", status.CaseMission, onboardingRequest)
+	}
+	if runbook := status.MissionControlRunbook; runbook == nil || !runbook.Ready || runbook.Focus != "case-current-action" || runbook.Scope != "case" || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Command != onboardingRequest.Command || runbook.CurrentRunLoopStepID != "apply-or-run-current" || runbook.ReplacementExecutorTakeoverPackage == nil || !runbook.ReplacementExecutorTakeoverPackage.Ready || runbook.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command != onboardingRequest.Command || !containsSubstring(runbook.ReplacementExecutorTakeoverPackage.RunbookSteps, "run currentDriverRequest.command exactly") || !containsSubstring(runbook.ReplacementExecutorTakeoverPackage.Boundary, "does not spawn or replace executor sessions") {
+		t.Fatalf("missing-board status runbook did not expose replacement-executor onboarding request: runbook=%+v request=%+v", runbook, onboardingRequest)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "board.json")); !os.IsNotExist(err) {
+		t.Fatalf("status should not create board before onboarding command, err=%v", err)
+	}
+
+	onboardingArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, onboardingRequest)
+	if !ok {
+		t.Fatalf("missing-board onboarding request should be executable: %+v", onboardingRequest)
+	}
+	out.Reset()
+	if err := Run(onboardingArgs, &out); err != nil {
+		t.Fatalf("missing-board onboarding request failed: args=%+v err=%v\n%s", onboardingArgs, err, out.String())
+	}
+	for _, want := range []string{"overview：mutation=true caseRoot=" + caseRoot, "overview mission commander action queue", "ready-to-continue", "/rekit continue main"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("onboarding overview output omitted %q:\n%s", want, out.String())
+		}
+	}
+	for _, rel := range []string{
+		".rekit/board.json",
+		".rekit/policy.yml",
+		".rekit/facts/observations.jsonl",
+		".rekit/facts/candidates.jsonl",
+		".rekit/facts/requests.jsonl",
+		".rekit/facts/publications.jsonl",
+		".rekit/facts/decisions.jsonl",
+		".rekit/facts/hypotheses.jsonl",
+		".rekit/facts/verifications.jsonl",
+		".rekit/facts/interventions.jsonl",
+		".rekit/facts/rollbacks.jsonl",
+		".rekit/lanes/main/lane.json",
+	} {
+		assertFileExists(t, filepath.Join(caseRoot, filepath.FromSlash(rel)))
+	}
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var refreshed struct {
+		CaseMission struct {
+			Ready                          bool                                `json:"ready"`
+			LaneCount                      int                                 `json:"laneCount"`
+			ReadyLaneCount                 int                                 `json:"readyLaneCount"`
+			ReadyLanes                     []string                            `json:"readyLanes"`
+			FirstScreenLaneTakeoverPackage *laneTakeoverPackage                `json:"firstScreenLaneTakeoverPackage"`
+			MissionCommanderActionQueue    missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		} `json:"caseMission"`
+		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &refreshed); err != nil {
+		t.Fatalf("missing-board refreshed status JSON did not decode: %v\n%s", err, out.String())
+	}
+	caseContinueRequest := requireMissionCommanderDriverRequest(t, refreshed.CaseMission.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue main", true, false, false)
+	if !refreshed.CaseMission.Ready || refreshed.CaseMission.LaneCount != 1 || refreshed.CaseMission.ReadyLaneCount != 1 || !slices.Contains(refreshed.CaseMission.ReadyLanes, "main") || refreshed.CaseMission.FirstScreenLaneTakeoverPackage == nil || !refreshed.CaseMission.FirstScreenLaneTakeoverPackage.Ready || refreshed.CaseMission.FirstScreenLaneTakeoverPackage.CurrentCommand != caseContinueRequest.Command {
+		t.Fatalf("status refresh did not advance onboarding case to durable main continue: refreshed=%+v request=%+v", refreshed.CaseMission, caseContinueRequest)
+	}
+	if refreshed.MissionControlRunbook == nil || refreshed.MissionControlRunbook.CurrentDriverRequest == nil || refreshed.MissionControlRunbook.CurrentDriverRequest.Kind != "preview-command" || !refreshed.MissionControlRunbook.CurrentDriverRequest.CommandExecutable || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "/rekit continue -Target "+statusQuoteCommandArg(caseRoot)+" main") || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "-WhatIf") || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "-Format json") || !containsSubstring(refreshed.MissionControlRunbook.CurrentDriverRequest.Boundary, "qualified for the status invocation target") || refreshed.MissionControlRunbook.ReplacementExecutorTakeoverPackage == nil || refreshed.MissionControlRunbook.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command != refreshed.MissionControlRunbook.CurrentDriverRequest.Command {
+		t.Fatalf("status refresh did not expose invocation-scoped continue preview takeover: runbook=%+v", refreshed.MissionControlRunbook)
+	}
+	topLevelContinueRequest := refreshed.MissionControlRunbook.CurrentDriverRequest
+	beforeContinuePreview := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	continuePreviewArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, topLevelContinueRequest)
+	if !ok {
+		t.Fatalf("status runbook continue preview request should be executable: %+v", topLevelContinueRequest)
+	}
+	out.Reset()
+	if err := Run(continuePreviewArgs, &out); err != nil {
+		t.Fatalf("missing-board status runbook continue preview failed: args=%+v err=%v\n%s", continuePreviewArgs, err, out.String())
+	}
+	var continuation struct {
+		Command                     string                              `json:"command"`
+		Applied                     bool                                `json:"applied"`
+		Blocked                     bool                                `json:"blocked"`
+		RequiresConfirmation        bool                                `json:"requiresConfirmation"`
+		Selector                    string                              `json:"selector"`
+		Lane                        startLane                           `json:"lane"`
+		RunID                       string                              `json:"runId"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		LaneTakeoverPackage         *laneTakeoverPackage                `json:"laneTakeoverPackage"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &continuation); err != nil {
+		t.Fatalf("missing-board continue preview JSON did not decode: %v\n%s", err, out.String())
+	}
+	returnedContinueRequest := requireMissionCommanderDriverRequest(t, continuation.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue main", true, false, false)
+	if continuation.Command != "continue" || continuation.Applied || continuation.Blocked || !continuation.RequiresConfirmation || continuation.Selector != "main" || continuation.Lane.ID != "main" || continuation.RunID != "run-preview" || continuation.LaneTakeoverPackage == nil || !continuation.LaneTakeoverPackage.Ready || !continuation.LaneTakeoverPackage.ContinueReady || continuation.LaneTakeoverPackage.CurrentCommand != returnedContinueRequest.Command || returnedContinueRequest.Command == topLevelContinueRequest.Command {
+		t.Fatalf("missing-board continue preview did not return case-local durable driver request: result=%+v returned=%+v top=%+v", continuation, returnedContinueRequest, topLevelContinueRequest)
+	}
+	assertSnapshotEqual(t, beforeContinuePreview, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	continueApplyArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, returnedContinueRequest)
+	if !ok {
+		t.Fatalf("continue preview returned request should be executable: %+v", returnedContinueRequest)
+	}
+	continueApplyArgs = append(continueApplyArgs, "-Target", caseRoot, "-Pack", "_template", "-Apply", "-Format", "json")
+	out.Reset()
+	if err := Run(continueApplyArgs, &out); err != nil {
+		t.Fatalf("missing-board continue apply failed: args=%+v err=%v\n%s", continueApplyArgs, err, out.String())
+	}
+	var continued struct {
+		Command                       string                                 `json:"command"`
+		RunID                         string                                 `json:"runId"`
+		BatchID                       string                                 `json:"batchId"`
+		IsMutation                    bool                                   `json:"isMutation"`
+		Applied                       bool                                   `json:"applied"`
+		RequiresConfirmation          bool                                   `json:"requiresConfirmation"`
+		Selector                      string                                 `json:"selector"`
+		Lane                          startLane                              `json:"lane"`
+		Blocked                       bool                                   `json:"blocked"`
+		MissionCommanderActionQueue   missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
+		MissionCommanderDriverReceipt *missionCommanderDriverReceiptSnapshot `json:"missionCommanderDriverReceipt"`
+		LaneTakeoverPackage           *laneTakeoverPackage                   `json:"laneTakeoverPackage"`
+		Writes                        []startWrite                           `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &continued); err != nil {
+		t.Fatalf("missing-board continue apply JSON did not decode: %v\n%s", err, out.String())
+	}
+	appliedRequest := requireMissionCommanderDriverRequest(t, continued.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", returnedContinueRequest.Command, true, false, false)
+	if continued.Command != "continue" || continued.RunID == "" || continued.RunID == "run-preview" || continued.BatchID != "batch-"+continued.RunID || !continued.IsMutation || !continued.Applied || continued.RequiresConfirmation || continued.Selector != "main" || continued.Lane.ID != "main" || continued.Blocked || continued.LaneTakeoverPackage == nil || !continued.LaneTakeoverPackage.Ready || !continued.LaneTakeoverPackage.ContinueReady || continued.LaneTakeoverPackage.CurrentCommand != returnedContinueRequest.Command {
+		t.Fatalf("missing-board continue apply did not persist durable run closure: result=%+v request=%+v", continued, appliedRequest)
+	}
+	assertMissionCommanderDriverReceipt(t, "missing-board continue apply", continued.MissionCommanderDriverReceipt, continued.RunID, continued.BatchID, "main", appliedRequest, ".rekit/runs/"+continued.RunID+"/status.json", ".rekit/runs/"+continued.RunID+"/digest.md")
+	assertStartWrite(t, continued.Writes, ".rekit/lanes/main/prompts/RESUME.md", "refresh")
+	assertStartWrite(t, continued.Writes, ".rekit/lanes/main/checkpoints/latest.json", "refresh")
+	assertStartWrite(t, continued.Writes, ".rekit/runs/"+continued.RunID+"/status.json", "write")
+	assertStartWrite(t, continued.Writes, ".rekit/runs/"+continued.RunID+"/digest.md", "write")
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
+}
+
 func TestRunStatusCaseMissionPromotesPendingGateWhatIfCurrentAction(t *testing.T) {
 	caseRoot := attachedCaseWithBoard(t)
 	factsRoot := filepath.Join(caseRoot, ".rekit", "facts")
