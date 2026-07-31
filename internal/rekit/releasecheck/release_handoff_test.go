@@ -892,6 +892,33 @@ func TestReleaseHandoffPackMemoryCandidatesDetectsOpenResidue(t *testing.T) {
 	}
 }
 
+func TestPackMemoryCandidateNextMissingProofExposesDriverRequest(t *testing.T) {
+	next := ReleaseHandoffPackMemoryCandidateReviewNextMissingProof{
+		Stage:              "reconsume-proof-required",
+		ProofType:          "fresh-case-reconsume-proof",
+		Path:               "packs/fixture/promote-candidates/review-artifacts/tool.fresh-case-reconsume-proof.md",
+		CandidatePath:      "packs/fixture/tooling/candidates/tool.candidate.md",
+		PackTarget:         "packs/fixture/tooling",
+		SourceCaseRoot:     "C:/case",
+		PacketPath:         "C:/case/.rekit/reviews/packet.json",
+		DraftCommand:       `/rekit promote -Target "C:/case" -PacketPath "C:/case/.rekit/reviews/packet.json" -DraftReviewProof -ProofPath "packs/fixture/promote-candidates/review-artifacts/tool.fresh-case-reconsume-proof.md" -ProofType "fresh-case-reconsume-proof" -CandidatePath "packs/fixture/tooling/candidates/tool.candidate.md" -Reason <lifecycle-proof-reason> -Actor <actor> -EvidenceRefs <repo-local-lifecycle-evidence-ref> -WhatIf -Format json`,
+		DraftApplyTemplate: `/rekit promote -Target "C:/case" -PacketPath "C:/case/.rekit/reviews/packet.json" -DraftReviewProof -ProofPath "packs/fixture/promote-candidates/review-artifacts/tool.fresh-case-reconsume-proof.md" -ProofType "fresh-case-reconsume-proof" -CandidatePath "packs/fixture/tooling/candidates/tool.candidate.md" -Reason <lifecycle-proof-reason> -Actor <actor> -EvidenceRefs <repo-local-lifecycle-evidence-ref> -ExpectedProofSha256 <proofSha256-from-WhatIf> -Apply -Format json`,
+		RequiresPacket:     true,
+		Boundary:           []string{"fixture boundary"},
+	}
+	RefreshPackMemoryCandidateNextMissingProofWorkflow(&next)
+	request := next.CurrentDriverRequest
+	if request == nil || request.Kind != "preview-command" || request.RunLoopStepID != "draft-proof-whatif" || request.Actor != "main-agent" || !request.CommandExecutable || !request.RequiresReview || request.Command != next.DraftCommand || request.ExpectedReceipt.Command != next.DraftCommand || request.ExpectedReceipt.RefreshStatusCommand != `/rekit status -Target "C:/case" -Format json` {
+		t.Fatalf("next missing proof driver request drifted: %+v", request)
+	}
+	if request.ActionID != "pack-memory-reconsume-proof-required" || request.Label != "fresh-case-reconsume-proof" || request.State != "pack-memory-proof-required" || request.Source != "packMemoryCandidateProof.nextMissingProof" {
+		t.Fatalf("reconsume driver identity drifted: %+v", request)
+	}
+	if !releaseHandoffStringsContain(request.Boundary, "typed durable consumer request") || !releaseHandoffStringsContain(request.Boundary, "reconsume proof requests record bounded proof workflow") || !releaseHandoffStringsContain(request.ExpectedReceipt.Boundary, "after the explicit outcome") {
+		t.Fatalf("reconsume driver request boundaries drifted: %+v expected=%+v", request.Boundary, request.ExpectedReceipt.Boundary)
+	}
+}
+
 func TestReleaseHandoffPackMemoryCandidateDecisionVerificationReceipt(t *testing.T) {
 	repo := t.TempDir()
 	proofRoot := filepath.Join(repo, "packs", "fixture", "promote-candidates", "review-artifacts")

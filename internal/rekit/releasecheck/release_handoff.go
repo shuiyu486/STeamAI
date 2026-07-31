@@ -224,27 +224,28 @@ type ReleaseHandoffPackMemoryCandidateReviewSummary struct {
 }
 
 type ReleaseHandoffPackMemoryCandidateReviewNextMissingProof struct {
-	Stage                     string                                `json:"stage,omitempty"`
-	ProofType                 string                                `json:"proofType,omitempty"`
-	Path                      string                                `json:"path,omitempty"`
-	CandidatePath             string                                `json:"candidatePath,omitempty"`
-	PackTarget                string                                `json:"packTarget,omitempty"`
-	SourceCaseRoot            string                                `json:"sourceCaseRoot,omitempty"`
-	When                      string                                `json:"when,omitempty"`
-	Action                    string                                `json:"action,omitempty"`
-	Format                    string                                `json:"format,omitempty"`
-	PacketPath                string                                `json:"packetPath,omitempty"`
-	CandidateDecisionPath     string                                `json:"candidateDecisionPath,omitempty"`
-	EvidenceRefs              []string                              `json:"evidenceRefs,omitempty"`
-	DraftCommand              string                                `json:"draftCommand,omitempty"`
-	DraftApplyTemplate        string                                `json:"draftApplyTemplate,omitempty"`
-	CurrentRunLoopStepID      string                                `json:"currentRunLoopStepId,omitempty"`
-	RunLoop                   []mission.MissionCommanderRunLoopStep `json:"runLoop,omitempty"`
-	RequiresPacket            bool                                  `json:"requiresPacket,omitempty"`
-	RequiresCandidateDecision bool                                  `json:"requiresCandidateDecision,omitempty"`
-	RequiresExplicitReview    bool                                  `json:"requiresExplicitReview,omitempty"`
-	Evidence                  []string                              `json:"evidence,omitempty"`
-	Boundary                  []string                              `json:"boundary,omitempty"`
+	Stage                     string                                 `json:"stage,omitempty"`
+	ProofType                 string                                 `json:"proofType,omitempty"`
+	Path                      string                                 `json:"path,omitempty"`
+	CandidatePath             string                                 `json:"candidatePath,omitempty"`
+	PackTarget                string                                 `json:"packTarget,omitempty"`
+	SourceCaseRoot            string                                 `json:"sourceCaseRoot,omitempty"`
+	When                      string                                 `json:"when,omitempty"`
+	Action                    string                                 `json:"action,omitempty"`
+	Format                    string                                 `json:"format,omitempty"`
+	PacketPath                string                                 `json:"packetPath,omitempty"`
+	CandidateDecisionPath     string                                 `json:"candidateDecisionPath,omitempty"`
+	EvidenceRefs              []string                               `json:"evidenceRefs,omitempty"`
+	DraftCommand              string                                 `json:"draftCommand,omitempty"`
+	DraftApplyTemplate        string                                 `json:"draftApplyTemplate,omitempty"`
+	CurrentRunLoopStepID      string                                 `json:"currentRunLoopStepId,omitempty"`
+	RunLoop                   []mission.MissionCommanderRunLoopStep  `json:"runLoop,omitempty"`
+	CurrentDriverRequest      *mission.MissionCommanderDriverRequest `json:"currentDriverRequest,omitempty"`
+	RequiresPacket            bool                                   `json:"requiresPacket,omitempty"`
+	RequiresCandidateDecision bool                                   `json:"requiresCandidateDecision,omitempty"`
+	RequiresExplicitReview    bool                                   `json:"requiresExplicitReview,omitempty"`
+	Evidence                  []string                               `json:"evidence,omitempty"`
+	Boundary                  []string                               `json:"boundary,omitempty"`
 }
 
 type ReleaseHandoffPackMemoryCandidateReviewProofSummary struct {
@@ -2192,6 +2193,75 @@ func RefreshPackMemoryCandidateNextMissingProofWorkflow(next *ReleaseHandoffPack
 	}
 	next.CurrentRunLoopStepID = packMemoryCandidateNextMissingProofCurrentRunLoopStepID(*next)
 	next.RunLoop = packMemoryCandidateNextMissingProofRunLoop(*next)
+	next.CurrentDriverRequest = packMemoryCandidateNextMissingProofCurrentDriverRequest(*next)
+}
+
+func packMemoryCandidateNextMissingProofCurrentDriverRequest(next ReleaseHandoffPackMemoryCandidateReviewNextMissingProof) *mission.MissionCommanderDriverRequest {
+	currentRunLoopStepID := strings.TrimSpace(next.CurrentRunLoopStepID)
+	if currentRunLoopStepID == "" {
+		return nil
+	}
+	actionID := packMemoryCandidateProofActionID(next)
+	label := strings.TrimSpace(next.ProofType)
+	if label == "" {
+		label = strings.TrimSpace(next.CandidatePath)
+	}
+	if label == "" {
+		label = strings.TrimSpace(next.Path)
+	}
+	action := mission.MissionCommanderNextActionItem{
+		Label:          label,
+		ActionID:       actionID,
+		State:          "pack-memory-proof-required",
+		Command:        packMemoryCandidateCurrentProofCommand(next),
+		Source:         "packMemoryCandidateProof.nextMissingProof",
+		RequiresReview: true,
+		Reasons:        packMemoryCandidateNextMissingProofDriverReasons(next, actionID),
+		Boundary:       packMemoryCandidateNextMissingProofDriverBoundary(next),
+	}
+	request := mission.MissionCommanderCurrentDriverRequest(action, currentRunLoopStepID, next.RunLoop)
+	if request == nil {
+		return nil
+	}
+	request.Boundary = mission.UniqueStrings(append(request.Boundary, action.Boundary...))
+	refreshed := mission.MissionCommanderDriverRequestWithRefreshStatusCommand(*request, packMemoryCandidateNextMissingProofStatusCommand(next))
+	return &refreshed
+}
+
+func packMemoryCandidateNextMissingProofDriverReasons(next ReleaseHandoffPackMemoryCandidateReviewNextMissingProof, actionID string) []string {
+	reasons := []string{"actionId=" + actionID}
+	if stage := strings.TrimSpace(next.Stage); stage != "" {
+		reasons = append(reasons, "proofStage="+stage)
+	}
+	if proofType := strings.TrimSpace(next.ProofType); proofType != "" {
+		reasons = append(reasons, "proofType="+proofType)
+	}
+	if proofPath := strings.TrimSpace(next.Path); proofPath != "" {
+		reasons = append(reasons, "proof path="+proofPath)
+	}
+	if candidate := strings.TrimSpace(next.CandidatePath); candidate != "" {
+		reasons = append(reasons, "candidate="+candidate)
+	}
+	if packTarget := strings.TrimSpace(next.PackTarget); packTarget != "" {
+		reasons = append(reasons, "packTarget="+packTarget)
+	}
+	if sourceCase := strings.TrimSpace(next.SourceCaseRoot); sourceCase != "" {
+		reasons = append(reasons, "sourceCaseRoot="+sourceCase)
+	}
+	return mission.UniqueStrings(reasons)
+}
+
+func packMemoryCandidateNextMissingProofDriverBoundary(next ReleaseHandoffPackMemoryCandidateReviewNextMissingProof) []string {
+	boundary := append([]string{}, next.Boundary...)
+	boundary = append(boundary,
+		"nextMissingProof.currentDriverRequest is the typed durable consumer request; do not reconstruct proof workflow commands from terminal prose",
+		"run only the currentDriverRequest command when commandExecutable=true; otherwise treat guidance as main-agent review input",
+		"status/release-check do not create proof files, merge candidates, cleanup paths, reconsume cases, write authority/confirmed, or execute heavy tools",
+	)
+	if strings.TrimSpace(next.Stage) == "reconsume-proof-required" || packMemoryCandidateLifecycleProofType(next.ProofType) {
+		boundary = append(boundary, "reconsume proof requests record bounded proof workflow only; they do not run doctor/init/reconsume or create fresh/attached cases automatically")
+	}
+	return mission.UniqueStrings(boundary)
 }
 
 func packMemoryCandidateNextMissingProofCurrentRunLoopStepID(next ReleaseHandoffPackMemoryCandidateReviewNextMissingProof) string {

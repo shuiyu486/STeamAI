@@ -2619,6 +2619,10 @@ func writePackMemoryCandidateReviewSummaryText(out io.Writer, prefix, pack strin
 			if err := writeMissionCommanderRunLoopStepsText(out, workflowPrefix, next.CurrentRunLoopStepID, next.RunLoop); err != nil {
 				return err
 			}
+			requestPrefix := fmt.Sprintf("%s pack-memory next missing proof", prefix)
+			if err := writeMissionCommanderDriverRequestText(out, requestPrefix, next.CurrentDriverRequest); err != nil {
+				return err
+			}
 			for _, evidenceRef := range next.EvidenceRefs {
 				if _, err := fmt.Fprintf(out, "%s pack-memory next missing proof evidence ref：pack=%s evidence=%s\n", prefix, pack, evidenceRef); err != nil {
 					return err

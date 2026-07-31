@@ -901,6 +901,50 @@ func TestStatusMissionCommanderFirstScreenPackMemoryEvidenceKeepsHighValueHead(t
 	}
 }
 
+func TestWritePackMemoryCandidateReviewSummaryTextIncludesNextMissingProofDriverRequest(t *testing.T) {
+	next := releasecheck.ReleaseHandoffPackMemoryCandidateReviewNextMissingProof{
+		Stage:              "reconsume-proof-required",
+		ProofType:          "fresh-case-reconsume-proof",
+		Path:               "packs/_template/promote-candidates/review-artifacts/tool.fresh-case-reconsume-proof.md",
+		CandidatePath:      "packs/_template/tooling/candidates/tool.candidate.md",
+		PackTarget:         "packs/_template/tooling",
+		SourceCaseRoot:     "C:/case",
+		PacketPath:         "C:/case/.rekit/reviews/packet.json",
+		DraftCommand:       `/rekit promote -Target "C:/case" -PacketPath "C:/case/.rekit/reviews/packet.json" -DraftReviewProof -ProofType "fresh-case-reconsume-proof" -WhatIf -Format json`,
+		DraftApplyTemplate: `/rekit promote -Target "C:/case" -PacketPath "C:/case/.rekit/reviews/packet.json" -DraftReviewProof -ProofType "fresh-case-reconsume-proof" -ExpectedProofSha256 <proofSha256-from-WhatIf> -Apply -Format json`,
+		RequiresPacket:     true,
+	}
+	releasecheck.RefreshPackMemoryCandidateNextMissingProofWorkflow(&next)
+	summary := releasecheck.ReleaseHandoffPackMemoryCandidateReviewSummary{
+		Total: 1,
+		ProofSummary: releasecheck.ReleaseHandoffPackMemoryCandidateReviewProofSummary{
+			Total:            1,
+			Missing:          1,
+			ReconsumeMissing: 1,
+			ProofProgress:    "0/1",
+			CurrentStage:     "reconsume-proof-required",
+			NextMissingProof: &next,
+		},
+		CandidateRoot: "packs/_template/promote-candidates",
+		ToolingRoot:   "packs/_template/tooling/candidates",
+	}
+	var out bytes.Buffer
+	if err := writePackMemoryCandidateReviewSummaryText(&out, "status", "_template", summary); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	for _, expected := range []string{
+		"status pack-memory next missing proof driver request：kind=preview-command step=draft-proof-whatif",
+		"status pack-memory next missing proof driver request expected receipt：state=refresh-required",
+		"refreshStatusCommand=`/rekit status -Target \"C:/case\" -Format json`",
+		"status pack-memory next missing proof driver request boundary：reconsume proof requests record bounded proof workflow only",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("pack-memory proof driver request text missing %q in:\n%s", expected, text)
+		}
+	}
+}
+
 func TestParseContinueOwnerGuardOptions(t *testing.T) {
 	for _, args := range [][]string{
 		{"-Command", "continue", "main", "-Executor", "session-a", "-ExpectedExecutorGeneration", "2"},
