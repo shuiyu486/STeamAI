@@ -830,6 +830,7 @@ func writeReplacementExecutorTakeoverPackage(out *bytes.Buffer, pkg *mission.Rep
 	fmt.Fprintf(out, "- driver: kind=%s executable=%t requiresReview=%t blocked=%t command=`%s` guidance=`%s`\n", pkg.DriverKind, pkg.CommandExecutable, pkg.RequiresReview, pkg.Blocked, pkg.Command, pkg.Guidance)
 	fmt.Fprintf(out, "- refresh: `%s`\n", pkg.RefreshStatusCommand)
 	fmt.Fprintf(out, "- current driver request: kind=%s step=%s actor=%s executable=%t blocked=%t requiresReview=%t command=`%s` guidance=`%s`\n", pkg.CurrentDriverRequest.Kind, pkg.CurrentDriverRequest.RunLoopStepID, pkg.CurrentDriverRequest.Actor, pkg.CurrentDriverRequest.CommandExecutable, pkg.CurrentDriverRequest.Blocked, pkg.CurrentDriverRequest.RequiresReview, pkg.CurrentDriverRequest.Command, pkg.CurrentDriverRequest.Guidance)
+	fmt.Fprintf(out, "- current driver request expected receipt: state=%s command=`%s` refreshStatusCommand=`%s`\n", pkg.CurrentDriverRequest.ExpectedReceipt.State, pkg.CurrentDriverRequest.ExpectedReceipt.Command, pkg.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand)
 	for _, doc := range pkg.TargetDocuments {
 		fmt.Fprintf(out, "- target document: %s\n", doc)
 	}
@@ -860,6 +861,7 @@ func writeDailyMissionControlRunbook(out *bytes.Buffer, runbook *DailyMissionCon
 	}
 	if request := runbook.CurrentDriverRequest; request != nil {
 		fmt.Fprintf(out, "- current driver request: kind=%s executable=%t blocked=%t requiresReview=%t command=`%s` guidance=`%s`\n", request.Kind, request.CommandExecutable, request.Blocked, request.RequiresReview, request.Command, request.Guidance)
+		fmt.Fprintf(out, "- current driver request expected receipt: state=%s command=`%s` refreshStatusCommand=`%s`\n", request.ExpectedReceipt.State, request.ExpectedReceipt.Command, request.ExpectedReceipt.RefreshStatusCommand)
 	}
 	fmt.Fprintf(out, "- run loop: steps=%d\n", len(runbook.RunLoop))
 	for _, step := range runbook.RunLoop {
@@ -1047,7 +1049,7 @@ func MissionCommanderActionRunLoopMarkdownLines(queue mission.MissionCommanderAc
 	}
 	if request := queue.CurrentDriverRequest; request != nil {
 		lines = append(lines, fmt.Sprintf("driver request：kind=%s step=%s actor=%s executable=%t blocked=%t requiresReview=%t command=`%s` guidance=`%s` state=%s source=%s lane=%s label=%s gateEventId=%s actionId=%s", request.Kind, request.RunLoopStepID, request.Actor, request.CommandExecutable, request.Blocked, request.RequiresReview, request.Command, request.Guidance, request.State, request.Source, request.Lane, request.Label, request.GateEventID, request.ActionID))
-		lines = append(lines, fmt.Sprintf("driver request expected receipt：state=%s command=`%s` description=%s", request.ExpectedReceipt.State, request.ExpectedReceipt.Command, request.ExpectedReceipt.Description))
+		lines = append(lines, fmt.Sprintf("driver request expected receipt：state=%s command=`%s` refreshStatusCommand=`%s` description=%s", request.ExpectedReceipt.State, request.ExpectedReceipt.Command, request.ExpectedReceipt.RefreshStatusCommand, request.ExpectedReceipt.Description))
 		for _, boundary := range request.Boundary {
 			lines = append(lines, fmt.Sprintf("driver request boundary：%s", boundary))
 		}

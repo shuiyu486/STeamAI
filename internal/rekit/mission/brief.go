@@ -130,10 +130,11 @@ type MissionCommanderDriverRequest struct {
 }
 
 type MissionCommanderDriverReceiptExpectation struct {
-	State       string   `json:"state"`
-	Command     string   `json:"command,omitempty"`
-	Description string   `json:"description,omitempty"`
-	Boundary    []string `json:"boundary,omitempty"`
+	State                string   `json:"state"`
+	Command              string   `json:"command,omitempty"`
+	RefreshStatusCommand string   `json:"refreshStatusCommand,omitempty"`
+	Description          string   `json:"description,omitempty"`
+	Boundary             []string `json:"boundary,omitempty"`
 }
 
 type MissionCommanderActionQueue struct {
@@ -642,6 +643,16 @@ func MissionCommanderActionQueueFor(items []MissionCommanderNextActionItem) Miss
 
 func MissionCommanderNextActionIsFollowUp(item MissionCommanderNextActionItem) bool {
 	return strings.Contains(item.Source, ".followUp")
+}
+
+func MissionCommanderDriverRequestWithRefreshStatusCommand(request MissionCommanderDriverRequest, refreshStatusCommand string) MissionCommanderDriverRequest {
+	refreshStatusCommand = strings.TrimSpace(refreshStatusCommand)
+	if refreshStatusCommand == "" {
+		return request
+	}
+	request.ExpectedReceipt.RefreshStatusCommand = refreshStatusCommand
+	request.ExpectedReceipt.Boundary = UniqueStrings(append(request.ExpectedReceipt.Boundary, "after the explicit outcome, run expectedReceipt.refreshStatusCommand before choosing follow-up work"))
+	return request
 }
 
 func MissionCommanderCurrentDriverRequest(current MissionCommanderNextActionItem, currentRunLoopStepID string, runLoop []MissionCommanderRunLoopStep) *MissionCommanderDriverRequest {

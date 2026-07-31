@@ -66,7 +66,7 @@ func DailyMissionControlRunbookFor(caseRoot, scope string, queue mission.Mission
 		runbook.CurrentCommand = strings.TrimSpace(queue.CurrentAction.Command)
 	}
 	if queue.CurrentDriverRequest != nil {
-		request := *queue.CurrentDriverRequest
+		request := mission.MissionCommanderDriverRequestWithRefreshStatusCommand(*queue.CurrentDriverRequest, refreshCommand)
 		runbook.CurrentDriverRequest = &request
 	}
 	runbook.RunLoop = dailyMissionControlRunLoop(runbook)

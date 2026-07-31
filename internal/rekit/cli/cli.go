@@ -3517,6 +3517,7 @@ func buildStatusMissionControlRunbook(target string, caseMission *statusCaseMiss
 		}
 		if item.queue.CurrentDriverRequest != nil {
 			request := statusMissionControlInvocationDriverRequest(target, *item.queue.CurrentDriverRequest)
+			request = mission.MissionCommanderDriverRequestWithRefreshStatusCommand(request, runbook.RefreshStatusCommand)
 			runbook.CurrentDriverRequest = &request
 			if strings.TrimSpace(request.Command) != "" {
 				runbook.CurrentCommand = strings.TrimSpace(request.Command)
@@ -3701,8 +3702,8 @@ func statusMissionControlInvocationDriverRequest(target string, request mission.
 	}
 	if command != strings.TrimSpace(request.Command) {
 		request.Command = command
+		request.ExpectedReceipt.Command = command
 		request.Boundary = append(request.Boundary, "status missionControlRunbook currentDriverRequest.command is qualified for the status invocation target")
-		request.ExpectedReceipt.Command = statusMissionControlRefreshCommand(target)
 	}
 	request.Boundary = mission.UniqueStrings(request.Boundary)
 	request.ExpectedReceipt.Boundary = mission.UniqueStrings(request.ExpectedReceipt.Boundary)
@@ -3881,6 +3882,9 @@ func writeStatusMissionControlRunbookText(out io.Writer, runbook *statusMissionC
 		if _, err := fmt.Fprintf(out, "status Mission Control runbook driver：kind=%s actor=%s state=%s source=%s executable=%t blocked=%t requiresReview=%t command=%s guidance=%s\n", request.Kind, request.Actor, request.State, request.Source, request.CommandExecutable, request.Blocked, request.RequiresReview, request.Command, request.Guidance); err != nil {
 			return err
 		}
+		if _, err := fmt.Fprintf(out, "status Mission Control runbook driver request expected receipt：state=%s command=`%s` refreshStatusCommand=`%s` description=%s\n", request.ExpectedReceipt.State, request.ExpectedReceipt.Command, request.ExpectedReceipt.RefreshStatusCommand, request.ExpectedReceipt.Description); err != nil {
+			return err
+		}
 	}
 	if err := writeStatusMissionControlGuidanceHandoffText(out, runbook.GuidanceHandoff); err != nil {
 		return err
@@ -3923,6 +3927,9 @@ func writeStatusReplacementExecutorTakeoverPackageText(out io.Writer, pkg *missi
 	if _, err := fmt.Fprintf(out, "status replacement executor takeover package：ready=%t focus=%s scope=%s state=%s source=%s actionId=%s driverKind=%s executable=%t requiresReview=%t blocked=%t command=%s guidance=%s refresh=%s\n", pkg.Ready, pkg.Focus, pkg.Scope, pkg.State, pkg.Source, pkg.ActionID, pkg.DriverKind, pkg.CommandExecutable, pkg.RequiresReview, pkg.Blocked, pkg.Command, pkg.Guidance, pkg.RefreshStatusCommand); err != nil {
 		return err
 	}
+	if _, err := fmt.Fprintf(out, "status replacement executor takeover package current driver expected receipt：state=%s command=`%s` refreshStatusCommand=`%s`\n", pkg.CurrentDriverRequest.ExpectedReceipt.State, pkg.CurrentDriverRequest.ExpectedReceipt.Command, pkg.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand); err != nil {
+		return err
+	}
 	for _, doc := range pkg.TargetDocuments {
 		if _, err := fmt.Fprintf(out, "status replacement executor takeover package target document：%s\n", doc); err != nil {
 			return err
@@ -3946,6 +3953,9 @@ func writeHandoffReplacementExecutorTakeoverPackageText(out io.Writer, pkg *miss
 		return nil
 	}
 	if _, err := fmt.Fprintf(out, "handoff replacement executor takeover package：ready=%t focus=%s scope=%s state=%s source=%s actionId=%s driverKind=%s executable=%t requiresReview=%t blocked=%t command=%s guidance=%s refresh=%s\n", pkg.Ready, pkg.Focus, pkg.Scope, pkg.State, pkg.Source, pkg.ActionID, pkg.DriverKind, pkg.CommandExecutable, pkg.RequiresReview, pkg.Blocked, pkg.Command, pkg.Guidance, pkg.RefreshStatusCommand); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(out, "handoff replacement executor takeover package current driver expected receipt：state=%s command=`%s` refreshStatusCommand=`%s`\n", pkg.CurrentDriverRequest.ExpectedReceipt.State, pkg.CurrentDriverRequest.ExpectedReceipt.Command, pkg.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand); err != nil {
 		return err
 	}
 	for _, doc := range pkg.TargetDocuments {
@@ -8461,7 +8471,7 @@ func writeMissionCommanderDriverRequestText(out io.Writer, prefix string, reques
 	if _, err := fmt.Fprintf(out, "%s driver request：kind=%s step=%s actor=%s executable=%t blocked=%t requiresReview=%t command=`%s` guidance=`%s` state=%s source=%s lane=%s label=%s gateEventId=%s actionId=%s\n", prefix, request.Kind, request.RunLoopStepID, request.Actor, request.CommandExecutable, request.Blocked, request.RequiresReview, request.Command, request.Guidance, request.State, request.Source, request.Lane, request.Label, request.GateEventID, request.ActionID); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(out, "%s driver request expected receipt：state=%s command=`%s` description=%s\n", prefix, request.ExpectedReceipt.State, request.ExpectedReceipt.Command, request.ExpectedReceipt.Description); err != nil {
+	if _, err := fmt.Fprintf(out, "%s driver request expected receipt：state=%s command=`%s` refreshStatusCommand=`%s` description=%s\n", prefix, request.ExpectedReceipt.State, request.ExpectedReceipt.Command, request.ExpectedReceipt.RefreshStatusCommand, request.ExpectedReceipt.Description); err != nil {
 		return err
 	}
 	for _, boundary := range request.Boundary {

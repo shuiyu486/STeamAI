@@ -314,8 +314,8 @@ func TestStatusProjectHandoffLocalValidationActionUsesReleaseRunDriverRequest(t 
 		t.Fatalf("release-run driver request should be preview/review-required with same-command receipt: %+v", request)
 	}
 	runbook := buildStatusMissionControlRunbook("C:/case-root", nil, project)
-	if runbook == nil || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Command != "/rekit release-run -Format json" || runbook.CurrentDriverRequest.Kind != "preview-command" || strings.Contains(runbook.CurrentDriverRequest.Command, " -Target ") || runbook.GuidanceHandoff != nil {
-		t.Fatalf("status runbook should preserve kit-scoped release-run command without target qualification: %+v", runbook)
+	if runbook == nil || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Command != "/rekit release-run -Format json" || runbook.CurrentDriverRequest.Kind != "preview-command" || strings.Contains(runbook.CurrentDriverRequest.Command, " -Target ") || runbook.CurrentDriverRequest.ExpectedReceipt.Command != "/rekit release-run -Format json" || runbook.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != runbook.RefreshStatusCommand || runbook.GuidanceHandoff != nil {
+		t.Fatalf("status runbook should preserve kit-scoped release-run command with refresh receipt: %+v", runbook)
 	}
 	args, ok := typedMissionCommanderDriverRequestCommandCLIArgs(t, runbook.CurrentDriverRequest)
 	if !ok || !slices.Equal(args, []string{"-Command", "release-run", "-Format", "json"}) {
@@ -329,6 +329,7 @@ func TestStatusProjectHandoffLocalValidationActionUsesReleaseRunDriverRequest(t 
 		"status Mission Control runbook driver：kind=preview-command",
 		"command=/rekit release-run -Format json",
 		"status Mission Control runbook step：order=2 step=consume-focused-driver-request",
+		"status Mission Control runbook driver request expected receipt：state=refresh-required command=`/rekit release-run -Format json` refreshStatusCommand=`" + runbook.RefreshStatusCommand + "`",
 		"status Mission Control runbook step boundary：step=consume-focused-driver-request boundary=review-required current actions must be previewed or reviewed before any apply/follow-up",
 	} {
 		if !strings.Contains(out.String(), want) {
@@ -351,8 +352,8 @@ func TestStatusMissionControlRunbookReplacementExecutorTakeoverPackageWrapsCurre
 	project.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(project.MissionCommanderNextActions)
 	runbook := buildStatusMissionControlRunbook("C:/repo", nil, project)
 	pkg := runbook.ReplacementExecutorTakeover
-	if pkg == nil || !pkg.Ready || pkg.Focus != "project-current-action" || pkg.Scope != "project" || pkg.DriverKind != "preview-command" || !pkg.CommandExecutable || !pkg.RequiresReview || pkg.Command != "/rekit release-run -Format json" || pkg.CurrentDriverRequest.Command != pkg.Command || pkg.RefreshStatusCommand != runbook.RefreshStatusCommand {
-		t.Fatalf("replacement executor takeover package should wrap executable current driver request: runbook=%+v pkg=%+v", runbook, pkg)
+	if pkg == nil || !pkg.Ready || pkg.Focus != "project-current-action" || pkg.Scope != "project" || pkg.DriverKind != "preview-command" || !pkg.CommandExecutable || !pkg.RequiresReview || pkg.Command != "/rekit release-run -Format json" || pkg.CurrentDriverRequest.Command != pkg.Command || pkg.CurrentDriverRequest.ExpectedReceipt.Command != pkg.Command || pkg.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != runbook.RefreshStatusCommand || pkg.RefreshStatusCommand != runbook.RefreshStatusCommand {
+		t.Fatalf("replacement executor takeover package should wrap executable current driver request with refresh receipt: runbook=%+v pkg=%+v", runbook, pkg)
 	}
 	if !containsSubstring(pkg.TargetDocuments, "missionControlRunbook.currentDriverRequest") || !containsSubstring(pkg.TargetDocuments, "docs/batch-plan.md") || !containsSubstring(pkg.RunbookSteps, "before using any prior chat context") || !containsSubstring(pkg.RunbookSteps, "run currentDriverRequest.command exactly") || !containsSubstring(pkg.Boundary, "read-only and self-contained") || !containsSubstring(pkg.Boundary, "do not use prior chat context") {
 		t.Fatalf("replacement executor takeover package omitted docs, runbook, or boundary: %+v", pkg)
@@ -1570,8 +1571,8 @@ func TestRunStatusJsonCase(t *testing.T) {
 		t.Fatalf("ready case mission should not include evidence review items: %+v", status.CaseMission.ExecutionEvidenceReview)
 	}
 
-	if runbook := status.CaseMission.DailyMissionControlRunbook; runbook == nil || !runbook.Ready || runbook.Scope != "case" || runbook.CurrentState != "ready-to-continue" || runbook.CurrentCommand != "/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1" || runbook.CurrentRunLoopStepID != "apply-or-run-current" || runbook.RefreshStatusCommand == "" || runbook.HandoffPreviewCommand == "" || runbook.HandoffApplyCommand == "" || len(runbook.RunLoop) != 5 || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Kind != "execute-command" || runbook.CurrentDriverRequest.Command != runbook.CurrentCommand {
-		t.Fatalf("case mission daily runbook drifted: %+v", runbook)
+	if runbook := status.CaseMission.DailyMissionControlRunbook; runbook == nil || !runbook.Ready || runbook.Scope != "case" || runbook.CurrentState != "ready-to-continue" || runbook.CurrentCommand != "/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1" || runbook.CurrentRunLoopStepID != "apply-or-run-current" || runbook.RefreshStatusCommand == "" || runbook.HandoffPreviewCommand == "" || runbook.HandoffApplyCommand == "" || len(runbook.RunLoop) != 5 || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Kind != "execute-command" || runbook.CurrentDriverRequest.Command != runbook.CurrentCommand || runbook.CurrentDriverRequest.ExpectedReceipt.Command != runbook.CurrentCommand || runbook.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != runbook.RefreshStatusCommand {
+		t.Fatalf("case mission daily runbook should bind current driver receipt refresh command: %+v", runbook)
 	}
 	if !strings.Contains(status.CaseMission.HandoffPreviewCommand, " -WhatIf") || !strings.Contains(status.CaseMission.HandoffPreviewCommand, " -Format json") || strings.Contains(status.CaseMission.HandoffPreviewCommand, " -Apply") || !strings.Contains(status.CaseMission.HandoffApplyCommand, " -Apply") || !strings.Contains(status.CaseMission.HandoffApplyCommand, " -Format json") {
 		t.Fatalf("case mission handoff commands should expose safe JSON preview/apply route: preview=%q apply=%q", status.CaseMission.HandoffPreviewCommand, status.CaseMission.HandoffApplyCommand)
@@ -1592,8 +1593,8 @@ func TestRunStatusJsonCase(t *testing.T) {
 		t.Fatalf("status handoff preview route should be read-only project handoff preview: %+v", handoffPreview)
 	}
 	assertSnapshotEqual(t, beforeHandoffPreview, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
-	if runbook := status.MissionControlRunbook; runbook == nil || !runbook.Ready || runbook.Focus != "case-current-action" || runbook.Scope != "case" || runbook.CurrentRunLoopStepID != "apply-or-run-current" || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Kind != "preview-command" || runbook.CurrentDriverRequest.Command != runbook.CurrentCommand || !strings.Contains(runbook.CurrentDriverRequest.Command, " -Target ") || !strings.Contains(runbook.CurrentDriverRequest.Command, " -WhatIf") || !strings.Contains(runbook.CurrentDriverRequest.Command, " -Format json") || !strings.Contains(runbook.CurrentDriverRequest.Command, "login -Executor session-1 -ExpectedExecutorGeneration 1") || runbook.RefreshStatusCommand == "" || runbook.HandoffPreviewCommand != status.CaseMission.HandoffPreviewCommand || runbook.HandoffApplyCommand != status.CaseMission.HandoffApplyCommand || !strings.Contains(runbook.HandoffPreviewCommand, " -WhatIf") || !strings.Contains(runbook.HandoffPreviewCommand, " -Format json") || strings.Contains(runbook.HandoffPreviewCommand, " -Apply") || !strings.Contains(runbook.HandoffApplyCommand, " -Apply") || !strings.Contains(runbook.HandoffApplyCommand, " -Format json") || len(runbook.Queues) != 4 || len(runbook.RunLoop) != 5 || !containsSubstring(runbook.CurrentDriverRequest.Boundary, "invocation-scoped") || !containsSubstring(runbook.RoutingReasons, "deferred focus queues: project") || !containsSubstring(runbook.Boundary, "read-only") {
-		t.Fatalf("status Mission Control runbook should route to invocation-scoped case current action: %+v", runbook)
+	if runbook := status.MissionControlRunbook; runbook == nil || !runbook.Ready || runbook.Focus != "case-current-action" || runbook.Scope != "case" || runbook.CurrentRunLoopStepID != "apply-or-run-current" || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Kind != "preview-command" || runbook.CurrentDriverRequest.Command != runbook.CurrentCommand || runbook.CurrentDriverRequest.ExpectedReceipt.Command != runbook.CurrentCommand || runbook.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != runbook.RefreshStatusCommand || !strings.Contains(runbook.CurrentDriverRequest.Command, " -Target ") || !strings.Contains(runbook.CurrentDriverRequest.Command, " -WhatIf") || !strings.Contains(runbook.CurrentDriverRequest.Command, " -Format json") || !strings.Contains(runbook.CurrentDriverRequest.Command, "login -Executor session-1 -ExpectedExecutorGeneration 1") || runbook.RefreshStatusCommand == "" || !strings.Contains(runbook.RefreshStatusCommand, " -Target ") || runbook.HandoffPreviewCommand != status.CaseMission.HandoffPreviewCommand || runbook.HandoffApplyCommand != status.CaseMission.HandoffApplyCommand || !strings.Contains(runbook.HandoffPreviewCommand, " -WhatIf") || !strings.Contains(runbook.HandoffPreviewCommand, " -Format json") || strings.Contains(runbook.HandoffPreviewCommand, " -Apply") || !strings.Contains(runbook.HandoffApplyCommand, " -Apply") || !strings.Contains(runbook.HandoffApplyCommand, " -Format json") || len(runbook.Queues) != 4 || len(runbook.RunLoop) != 5 || !containsSubstring(runbook.CurrentDriverRequest.Boundary, "invocation-scoped") || !containsSubstring(runbook.CurrentDriverRequest.ExpectedReceipt.Boundary, "expectedReceipt.refreshStatusCommand") || !containsSubstring(runbook.RoutingReasons, "deferred focus queues: project") || !containsSubstring(runbook.Boundary, "read-only") {
+		t.Fatalf("status Mission Control runbook should route to invocation-scoped case current action with refresh receipt: %+v", runbook)
 	} else {
 		args, ok := missionCommanderDriverRequestCommandCLIArgs(t, runbook.CurrentDriverRequest)
 		if !ok {
@@ -8693,8 +8694,8 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 	if laneHandoff.LaneTakeoverPackage == nil || !laneHandoff.LaneTakeoverPackage.Ready || !laneHandoff.LaneTakeoverPackage.ContinueReady || laneHandoff.LaneTakeoverPackage.CurrentExecutor != "session-main-replacement" || laneHandoff.LaneTakeoverPackage.ExecutorGeneration != 2 || laneHandoff.LaneTakeoverPackage.HandoffPath != ".rekit/handovers/main-latest.md" || laneHandoff.LaneTakeoverPackage.CurrentCommand != "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2" || !containsSubstring(laneHandoff.LaneTakeoverPackage.RunbookSteps, "owner-bound continue") {
 		t.Fatalf("lane handoff omitted lane takeover package: %+v", laneHandoff.LaneTakeoverPackage)
 	}
-	if takeoverPackage := laneHandoff.ReplacementExecutorTakeoverPackage; takeoverPackage == nil || !takeoverPackage.Ready || takeoverPackage.Focus != "durable-handoff-current-action" || takeoverPackage.Scope != "lane:main" || takeoverPackage.DriverKind != "execute-command" || !takeoverPackage.CommandExecutable || takeoverPackage.RequiresReview || takeoverPackage.Command != "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2" || takeoverPackage.CurrentDriverRequest.Command != takeoverPackage.Command || !containsSubstring(takeoverPackage.TargetDocuments, ".rekit/handovers/main-latest.md") || !containsSubstring(takeoverPackage.TargetDocuments, "missionCommanderActionQueue.currentDriverRequest") || !containsSubstring(takeoverPackage.RunbookSteps, "read replacementExecutorTakeoverPackage before using any prior chat context") || !containsSubstring(takeoverPackage.RunbookSteps, "run currentDriverRequest.command exactly") || !containsSubstring(takeoverPackage.Boundary, "read-only and self-contained") {
-		t.Fatalf("lane handoff omitted replacement executor takeover package: %+v", takeoverPackage)
+	if takeoverPackage := laneHandoff.ReplacementExecutorTakeoverPackage; takeoverPackage == nil || !takeoverPackage.Ready || takeoverPackage.Focus != "durable-handoff-current-action" || takeoverPackage.Scope != "lane:main" || takeoverPackage.DriverKind != "execute-command" || !takeoverPackage.CommandExecutable || takeoverPackage.RequiresReview || takeoverPackage.Command != "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2" || takeoverPackage.CurrentDriverRequest.Command != takeoverPackage.Command || takeoverPackage.CurrentDriverRequest.ExpectedReceipt.Command != takeoverPackage.Command || takeoverPackage.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != takeoverPackage.RefreshStatusCommand || !containsSubstring(takeoverPackage.TargetDocuments, ".rekit/handovers/main-latest.md") || !containsSubstring(takeoverPackage.TargetDocuments, "missionCommanderActionQueue.currentDriverRequest") || !containsSubstring(takeoverPackage.RunbookSteps, "read replacementExecutorTakeoverPackage before using any prior chat context") || !containsSubstring(takeoverPackage.RunbookSteps, "run currentDriverRequest.command exactly") || !containsSubstring(takeoverPackage.RunbookSteps, "run refreshStatusCommand") || !containsSubstring(takeoverPackage.Boundary, "read-only and self-contained") {
+		t.Fatalf("lane handoff omitted replacement executor takeover package with refresh receipt: %+v", takeoverPackage)
 	}
 	laneLatest := assertStartWrite(t, laneHandoff.Writes, ".rekit/handovers/main-latest.md", "write-latest-lane-handoff")
 	laneHandoffText, err := os.ReadFile(laneLatest.TargetPath)
@@ -8704,7 +8705,21 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 	if !strings.Contains(string(laneHandoffText), "current executor：session-main-replacement") || !strings.Contains(string(laneHandoffText), "executor generation：2") || !strings.Contains(string(laneHandoffText), "直接说：按 `.rekit/handovers/main-latest.md` 接手，然后执行 `/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2`。") {
 		t.Fatalf("lane handoff omitted replacement executor handoff text:\n%s", string(laneHandoffText))
 	}
-	for _, expected := range []string{"## Lane takeover package", "- resume: `.rekit/lanes/main/prompts/RESUME.md`", "- checkpoint: `.rekit/lanes/main/checkpoints/latest.json`", "- handoff: `.rekit/handovers/main-latest.md`", "- continue command: `/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2`", "- boundary: lane takeover package is read-only guidance; it does not claim a new executor", "## Replacement executor takeover package", "- focus: durable-handoff-current-action scope=lane:main", "- target document: missionCommanderActionQueue.currentDriverRequest", "- target document: .rekit/handovers/main-latest.md", "- runbook step 1: read replacementExecutorTakeoverPackage before using any prior chat context", "- boundary: replacement executor takeover package is read-only and self-contained"} {
+	for _, expected := range []string{
+		"## Lane takeover package",
+		"- resume: `.rekit/lanes/main/prompts/RESUME.md`",
+		"- checkpoint: `.rekit/lanes/main/checkpoints/latest.json`",
+		"- handoff: `.rekit/handovers/main-latest.md`",
+		"- continue command: `/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2`",
+		"- boundary: lane takeover package is read-only guidance; it does not claim a new executor",
+		"## Replacement executor takeover package",
+		"- focus: durable-handoff-current-action scope=lane:main",
+		"- current driver request expected receipt: state=refresh-required command=`/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2` refreshStatusCommand=`",
+		"- target document: missionCommanderActionQueue.currentDriverRequest",
+		"- target document: .rekit/handovers/main-latest.md",
+		"- runbook step 1: read replacementExecutorTakeoverPackage before using any prior chat context",
+		"- boundary: replacement executor takeover package is read-only and self-contained",
+	} {
 		if !strings.Contains(string(laneHandoffText), expected) {
 			t.Fatalf("lane handoff missing takeover package text %q:\n%s", expected, string(laneHandoffText))
 		}
@@ -20449,10 +20464,11 @@ type missionCommanderDriverRequestSnapshot struct {
 	RequiresReview    bool     `json:"requiresReview"`
 	Boundary          []string `json:"boundary"`
 	ExpectedReceipt   struct {
-		State       string   `json:"state"`
-		Command     string   `json:"command"`
-		Description string   `json:"description"`
-		Boundary    []string `json:"boundary"`
+		State                string   `json:"state"`
+		Command              string   `json:"command"`
+		RefreshStatusCommand string   `json:"refreshStatusCommand"`
+		Description          string   `json:"description"`
+		Boundary             []string `json:"boundary"`
 	} `json:"expectedReceipt"`
 }
 

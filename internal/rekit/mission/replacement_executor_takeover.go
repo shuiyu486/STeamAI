@@ -40,7 +40,7 @@ func ReplacementExecutorTakeoverPackageFor(request *MissionCommanderDriverReques
 	if request == nil {
 		return nil
 	}
-	current := *request
+	current := MissionCommanderDriverRequestWithRefreshStatusCommand(*request, opt.RefreshStatusCommand)
 	current.Boundary = UniqueStrings(current.Boundary)
 	current.ExpectedReceipt.Boundary = UniqueStrings(current.ExpectedReceipt.Boundary)
 	pkg := &ReplacementExecutorTakeoverPackage{
