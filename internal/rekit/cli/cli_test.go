@@ -252,6 +252,135 @@ func TestRunNextBatchGuidancePlanningRouteConsumerLoopProductPath(t *testing.T) 
 	}
 }
 
+func TestRunDurableNextBatchRouteConsumerLoopProductPath(t *testing.T) {
+	fixture := newCLIFixture(t, cliFixtureOptions{})
+	restore := withNextBatchReadyReleaseCheckFixture(t, "Batch 955")
+	restored := false
+	defer func() {
+		if !restored {
+			restore()
+		}
+	}()
+	beforePlan := readFixtureFile(t, fixture.repoRoot, "docs/batch-plan.md")
+	beforeChangelog := readFixtureFile(t, fixture.repoRoot, "CHANGELOG.md")
+	routeFor := func(routes []releasecheck.ReleaseHandoffNextBatchPlanningRoute, domain string) releasecheck.ReleaseHandoffNextBatchPlanningRoute {
+		t.Helper()
+		for _, route := range routes {
+			if route.Domain == domain {
+				return route
+			}
+		}
+		t.Fatalf("durable next-batch planning route not found: domain=%s routes=%+v", domain, routes)
+		return releasecheck.ReleaseHandoffNextBatchPlanningRoute{}
+	}
+
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "release-check", "-Format", "json"}, &out); err != nil {
+		t.Fatalf("release-check before durable next-batch route failed: %v\n%s", err, out.String())
+	}
+	var releaseResult releasecheck.Result
+	if err := json.Unmarshal(out.Bytes(), &releaseResult); err != nil {
+		t.Fatalf("release-check JSON before durable next-batch route did not decode: %v\n%s", err, out.String())
+	}
+	releasePackage := releaseResult.ReleaseHandoff.NextBatchSelectionPackage
+	if releasePackage == nil || !releasePackage.Ready || len(releasePackage.NextBatchPlanningRoutes) == 0 {
+		t.Fatalf("release-check omitted durable next-batch planning routes: handoff=%+v", releaseResult.ReleaseHandoff)
+	}
+	releaseRoute := routeFor(releasePackage.NextBatchPlanningRoutes, "mission-commander")
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatalf("status before durable next-batch route failed: %v\n%s", err, out.String())
+	}
+	var status struct {
+		ProjectHandoff struct {
+			NextBatchSelectionPackage *releasecheck.ReleaseHandoffNextBatchSelectionPackage `json:"nextBatchSelectionPackage"`
+		} `json:"projectHandoff"`
+		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("status JSON before durable next-batch route did not decode: %v\n%s", err, out.String())
+	}
+	projectPackage := status.ProjectHandoff.NextBatchSelectionPackage
+	if projectPackage == nil || !projectPackage.Ready || len(projectPackage.NextBatchPlanningRoutes) == 0 {
+		t.Fatalf("status project handoff omitted durable next-batch planning routes: %+v", status.ProjectHandoff)
+	}
+	projectRoute := routeFor(projectPackage.NextBatchPlanningRoutes, "mission-commander")
+	guidance := status.MissionControlRunbook.GuidanceHandoff
+	if guidance == nil || !guidance.Ready || len(guidance.NextBatchPlanningRoutes) == 0 {
+		t.Fatalf("status guidance should still project durable next-batch routes: runbook=%+v", status.MissionControlRunbook)
+	}
+	if projectRoute.DomainActionID != releaseRoute.DomainActionID || projectRoute.WhatIfCommandTemplate != releaseRoute.WhatIfCommandTemplate || projectRoute.CommandExecutable || !projectRoute.RequiresReview || projectRoute.ExpectedApplySource != "nextBatchCommand" || projectRoute.ExpectedApplyDriverKind != "preview-command" || !strings.Contains(projectRoute.WhatIfCommandTemplate, projectRoute.ClosurePlaceholder) || !containsSubstring(projectRoute.RunbookSteps, "replace closurePlaceholder") || !containsSubstring(projectRoute.Boundary, "durable handoff templates") {
+		t.Fatalf("status durable project route drifted from release-check package: project=%+v release=%+v", projectRoute, releaseRoute)
+	}
+
+	concreteClosure := "durable next-batch route consumer loop fixture"
+	whatIfCommand := strings.Replace(projectRoute.WhatIfCommandTemplate, projectRoute.ClosurePlaceholder, concreteClosure, 1)
+	if strings.Contains(whatIfCommand, projectRoute.ClosurePlaceholder) || !strings.Contains(whatIfCommand, concreteClosure) {
+		t.Fatalf("durable route placeholder replacement failed: route=%+v command=%s", projectRoute, whatIfCommand)
+	}
+	out.Reset()
+	if err := Run(rekitCommandCLIArgs(t, whatIfCommand), &out); err != nil {
+		t.Fatalf("next-batch WhatIf from durable project route failed: command=%s err=%v\n%s", whatIfCommand, err, out.String())
+	}
+	var preview nextBatchResult
+	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+		t.Fatalf("durable route WhatIf JSON did not decode: %v\n%s", err, out.String())
+	}
+	if preview.IsMutation || preview.Applied || preview.Domain != projectRoute.Domain || preview.DomainActionID != projectRoute.DomainActionID || preview.Closure != concreteClosure || len(preview.ExpectedNextBatchPlanSHA256) != 64 {
+		t.Fatalf("durable route WhatIf result drifted: %+v", preview)
+	}
+	if readFixtureFile(t, fixture.repoRoot, "docs/batch-plan.md") != beforePlan || readFixtureFile(t, fixture.repoRoot, "CHANGELOG.md") != beforeChangelog {
+		t.Fatal("durable route WhatIf mutated kit docs")
+	}
+	applyRequest := requireTypedMissionCommanderDriverRequest(t, preview.MissionCommanderActionQueue, projectRoute.ExpectedApplyDriverKind, "preview-current", preview.MissionCommanderAction.Command, true, false, true)
+	if !strings.Contains(applyRequest.Command, "-ExpectedNextBatchPlanSha256 "+preview.ExpectedNextBatchPlanSHA256) || !strings.Contains(applyRequest.Command, "-Apply -Format json") {
+		t.Fatalf("durable route WhatIf omitted hash-bound Apply driver request: request=%+v preview=%+v", applyRequest, preview)
+	}
+	applyArgs, ok := typedMissionCommanderDriverRequestCommandCLIArgs(t, applyRequest)
+	if !ok {
+		t.Fatalf("hash-bound durable route Apply request should be executable: %+v", applyRequest)
+	}
+	out.Reset()
+	if err := Run(applyArgs, &out); err != nil {
+		t.Fatalf("next-batch Apply from durable route returned driver request failed: command=%s err=%v\n%s", applyRequest.Command, err, out.String())
+	}
+	var applied nextBatchResult
+	if err := json.Unmarshal(out.Bytes(), &applied); err != nil {
+		t.Fatalf("durable route Apply JSON did not decode: %v\n%s", err, out.String())
+	}
+	if !applied.IsMutation || !applied.Applied || applied.ExpectedNextBatchPlanSHA256 != preview.ExpectedNextBatchPlanSHA256 {
+		t.Fatalf("durable route Apply result drifted: %+v", applied)
+	}
+	statusRequest := requireTypedMissionCommanderDriverRequest(t, applied.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", projectRoute.RefreshStatusCommand, true, false, false)
+	statusArgs, ok := typedMissionCommanderDriverRequestCommandCLIArgs(t, statusRequest)
+	if !ok {
+		t.Fatalf("durable route Apply returned status refresh request should be executable: %+v", statusRequest)
+	}
+
+	restore()
+	restored = true
+	out.Reset()
+	if err := Run(statusArgs, &out); err != nil {
+		t.Fatalf("status refresh from durable route Apply driver request failed: %v\n%s", err, out.String())
+	}
+	var refreshed struct {
+		ProjectHandoff struct {
+			LatestBatch                 string                              `json:"latestBatch"`
+			LatestBatchStatus           string                              `json:"latestBatchStatus"`
+			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		} `json:"projectHandoff"`
+		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &refreshed); err != nil {
+		t.Fatalf("status refresh after durable route Apply did not decode: %v\n%s", err, out.String())
+	}
+	current := refreshed.ProjectHandoff.MissionCommanderActionQueue.CurrentAction
+	if refreshed.ProjectHandoff.LatestBatch != "Batch 956" || !strings.Contains(refreshed.ProjectHandoff.LatestBatchStatus, "进行中") || current == nil || current.ActionID != "latest-batch-next-action" || refreshed.MissionControlRunbook == nil || refreshed.MissionControlRunbook.GuidanceHandoff == nil || refreshed.MissionControlRunbook.GuidanceHandoff.Source == "releaseHandoffNextBatch" {
+		t.Fatalf("status refresh should consume durable project route Apply docs as current in-progress batch: project=%+v runbook=%+v", refreshed.ProjectHandoff, refreshed.MissionControlRunbook)
+	}
+}
+
 func TestRunNextBatchApplyRequiresWhatIfHashAndRefreshesStatus(t *testing.T) {
 	fixture := newCLIFixture(t, cliFixtureOptions{})
 	restore := withNextBatchReadyReleaseCheckFixture(t, "Batch 945")
