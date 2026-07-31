@@ -166,6 +166,10 @@ func TestIntakeReadyReviewerResultsPreviewsAndAppliesAllReadyShards(t *testing.T
 	if preview.MissionCommanderAction.State != "ready-for-reviewer-batch-intake-apply-after-preview" || !strings.Contains(preview.MissionCommanderAction.PrimaryCommand, "-ReadyReviewerResults") || !strings.Contains(preview.MissionCommanderAction.PrimaryCommand, "-Apply -Format json") || len(preview.MissionCommanderNextActions) != 1 || preview.MissionCommanderActionQueue.CurrentAction == nil || preview.MissionCommanderActionQueue.CurrentAction.Command != preview.MissionCommanderAction.PrimaryCommand {
 		t.Fatalf("reviewer batch preview omitted Mission Commander apply handoff: action=%+v next=%+v queue=%+v", preview.MissionCommanderAction, preview.MissionCommanderNextActions, preview.MissionCommanderActionQueue)
 	}
+	previewReceipt := preview.MissionCommanderDriverReceipt
+	if previewReceipt == nil || previewReceipt.SchemaVersion != 1 || previewReceipt.State != "refreshed" || previewReceipt.Outcome != "reviewer-batch-intake-preview-result" || previewReceipt.Lane != "feature-intake" || previewReceipt.Command != reviewerPacketBatchPreviewCommand(plan.PacketPath, "feature-intake", "mission-commander") || previewReceipt.RefreshedActionQueueSummary != preview.MissionCommanderActionQueue.Summary || previewReceipt.RefreshedCurrentRunLoopStep != preview.MissionCommanderActionQueue.CurrentRunLoopStepID || previewReceipt.RefreshedCurrentDriverRequest == nil || previewReceipt.RefreshedCurrentDriverRequest.Command != preview.MissionCommanderAction.PrimaryCommand || previewReceipt.RefreshedCurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != reviewerBatchIntakeStatusCommand(caseRoot) || !slices.ContainsFunc(previewReceipt.Boundary, func(boundary string) bool { return strings.Contains(boundary, "does not prove the Go runtime spawned") }) {
+		t.Fatalf("reviewer batch preview omitted ready-result run-loop receipt: receipt=%+v queue=%+v", previewReceipt, preview.MissionCommanderActionQueue)
+	}
 	if got := readOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl")); got != "" {
 		t.Fatalf("reviewer batch WhatIf wrote verification ledger:\n%s", got)
 	}
@@ -179,6 +183,10 @@ func TestIntakeReadyReviewerResultsPreviewsAndAppliesAllReadyShards(t *testing.T
 	}
 	if applied.MissionCommanderAction.State != "reviewer-batch-intake-writeback-complete" || len(applied.MissionCommanderNextActions) == 0 || applied.MissionCommanderActionQueue.CurrentAction == nil || !strings.HasPrefix(applied.MissionCommanderActionQueue.CurrentAction.Source, "reviewerBatchIntake.reviewerIntake.postValidation.") {
 		t.Fatalf("reviewer batch apply omitted post-validation Mission Commander handoff: action=%+v next=%+v queue=%+v", applied.MissionCommanderAction, applied.MissionCommanderNextActions, applied.MissionCommanderActionQueue)
+	}
+	appliedReceipt := applied.MissionCommanderDriverReceipt
+	if appliedReceipt == nil || appliedReceipt.SchemaVersion != 1 || appliedReceipt.State != "refreshed" || appliedReceipt.Outcome != "reviewer-batch-intake-apply-result" || appliedReceipt.Command != reviewerPacketBatchApplyCommand(plan.PacketPath, "feature-intake", "mission-commander") || appliedReceipt.RefreshedCurrentRunLoopStep != applied.MissionCommanderActionQueue.CurrentRunLoopStepID || appliedReceipt.RefreshedCurrentDriverRequest == nil || appliedReceipt.RefreshedCurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != reviewerBatchIntakeStatusCommand(caseRoot) || !slices.ContainsFunc(appliedReceipt.Boundary, func(boundary string) bool { return strings.Contains(boundary, "does not write authority/confirmed") }) {
+		t.Fatalf("reviewer batch apply omitted ready-result run-loop receipt: receipt=%+v queue=%+v", appliedReceipt, applied.MissionCommanderActionQueue)
 	}
 	if got := strings.Count(readOptionalFile(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl")), `"shardId"`); got != 2 {
 		t.Fatalf("verification shard writeback count = %d, want 2", got)

@@ -110,37 +110,38 @@ type ReviewerPacketAdoptionResult struct {
 }
 
 type ReviewerBatchIntakeResult struct {
-	SchemaVersion               int                                      `json:"schemaVersion"`
-	Command                     string                                   `json:"command"`
-	Mode                        string                                   `json:"mode"`
-	CaseRoot                    string                                   `json:"caseRoot"`
-	RepoRoot                    string                                   `json:"repoRoot"`
-	Pack                        string                                   `json:"pack"`
-	IsMutation                  bool                                     `json:"isMutation"`
-	Applied                     bool                                     `json:"applied"`
-	PacketPath                  string                                   `json:"packetPath"`
-	Lane                        string                                   `json:"lane"`
-	Actor                       string                                   `json:"actor"`
-	Total                       int                                      `json:"total"`
-	Ready                       int                                      `json:"ready"`
-	Waiting                     int                                      `json:"waiting"`
-	Processed                   int                                      `json:"processed"`
-	Completed                   int                                      `json:"completed"`
-	AlreadyComplete             int                                      `json:"alreadyComplete"`
-	Stopped                     bool                                     `json:"stopped"`
-	StopShardID                 string                                   `json:"stopShardId,omitempty"`
-	StopReason                  string                                   `json:"stopReason,omitempty"`
-	Partial                     bool                                     `json:"partial"`
-	NextOpenShardID             string                                   `json:"nextOpenShardId,omitempty"`
-	RemainingShardIDs           []string                                 `json:"remainingShardIds,omitempty"`
-	RerunCommand                string                                   `json:"rerunCommand,omitempty"`
-	RecoveryAction              *mission.MissionCommanderNextActionItem  `json:"recoveryAction,omitempty"`
-	Results                     []ReviewerIntakeResult                   `json:"results"`
-	NextSteps                   []string                                 `json:"nextSteps"`
-	MissionCommanderAction      mission.MissionCommanderAction           `json:"missionCommanderAction"`
-	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
-	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
-	Boundary                    []string                                 `json:"boundary"`
+	SchemaVersion                 int                                       `json:"schemaVersion"`
+	Command                       string                                    `json:"command"`
+	Mode                          string                                    `json:"mode"`
+	CaseRoot                      string                                    `json:"caseRoot"`
+	RepoRoot                      string                                    `json:"repoRoot"`
+	Pack                          string                                    `json:"pack"`
+	IsMutation                    bool                                      `json:"isMutation"`
+	Applied                       bool                                      `json:"applied"`
+	PacketPath                    string                                    `json:"packetPath"`
+	Lane                          string                                    `json:"lane"`
+	Actor                         string                                    `json:"actor"`
+	Total                         int                                       `json:"total"`
+	Ready                         int                                       `json:"ready"`
+	Waiting                       int                                       `json:"waiting"`
+	Processed                     int                                       `json:"processed"`
+	Completed                     int                                       `json:"completed"`
+	AlreadyComplete               int                                       `json:"alreadyComplete"`
+	Stopped                       bool                                      `json:"stopped"`
+	StopShardID                   string                                    `json:"stopShardId,omitempty"`
+	StopReason                    string                                    `json:"stopReason,omitempty"`
+	Partial                       bool                                      `json:"partial"`
+	NextOpenShardID               string                                    `json:"nextOpenShardId,omitempty"`
+	RemainingShardIDs             []string                                  `json:"remainingShardIds,omitempty"`
+	RerunCommand                  string                                    `json:"rerunCommand,omitempty"`
+	RecoveryAction                *mission.MissionCommanderNextActionItem   `json:"recoveryAction,omitempty"`
+	Results                       []ReviewerIntakeResult                    `json:"results"`
+	NextSteps                     []string                                  `json:"nextSteps"`
+	MissionCommanderAction        mission.MissionCommanderAction            `json:"missionCommanderAction"`
+	MissionCommanderNextActions   []mission.MissionCommanderNextActionItem  `json:"missionCommanderNextActions,omitempty"`
+	MissionCommanderActionQueue   mission.MissionCommanderActionQueue       `json:"missionCommanderActionQueue"`
+	MissionCommanderDriverReceipt *workstream.MissionCommanderDriverReceipt `json:"missionCommanderDriverReceipt,omitempty"`
+	Boundary                      []string                                  `json:"boundary"`
 }
 
 type ReviewerIntakeResult struct {
@@ -621,8 +622,57 @@ func finalizeReviewerBatchIntakeResult(result ReviewerBatchIntakeResult) Reviewe
 	action := reviewerBatchIntakeMissionCommanderAction(result)
 	result.MissionCommanderAction = action
 	result.MissionCommanderNextActions = reviewerBatchIntakeMissionCommanderNextActions(result, action)
-	result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
+	result.MissionCommanderActionQueue = reviewerBatchIntakeActionQueueWithRefresh(mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions), result.CaseRoot)
+	result.MissionCommanderDriverReceipt = reviewerBatchIntakeMissionCommanderDriverReceipt(result)
 	return result
+}
+
+func reviewerBatchIntakeActionQueueWithRefresh(queue mission.MissionCommanderActionQueue, caseRoot string) mission.MissionCommanderActionQueue {
+	if queue.CurrentDriverRequest == nil {
+		return queue
+	}
+	refreshed := mission.MissionCommanderDriverRequestWithRefreshStatusCommand(*queue.CurrentDriverRequest, reviewerBatchIntakeStatusCommand(caseRoot))
+	queue.CurrentDriverRequest = &refreshed
+	return queue
+}
+
+func reviewerBatchIntakeMissionCommanderDriverReceipt(result ReviewerBatchIntakeResult) *workstream.MissionCommanderDriverReceipt {
+	command := reviewerPacketBatchCommand(result.PacketPath, result.Lane, result.Actor, result.IsMutation)
+	if strings.TrimSpace(command) == "" {
+		command = result.Command
+	}
+	return &workstream.MissionCommanderDriverReceipt{
+		SchemaVersion:                 1,
+		State:                         "refreshed",
+		Outcome:                       reviewerBatchIntakeDriverReceiptOutcome(result),
+		Lane:                          result.Lane,
+		Command:                       command,
+		RefreshedActionQueueSummary:   result.MissionCommanderActionQueue.Summary,
+		RefreshedCurrentRunLoopStep:   result.MissionCommanderActionQueue.CurrentRunLoopStepID,
+		RefreshedCurrentDriverRequest: result.MissionCommanderActionQueue.CurrentDriverRequest,
+		Boundary: mission.UniqueStrings([]string{
+			"driver receipt records the reviewer batch intake command result after deterministic ready-result intake evaluation",
+			"driver receipt does not prove the Go runtime spawned, polled, stopped, or managed reviewer sessions",
+			"reviewer batch intake preserves WhatIf-before-Apply and stops at the first blocked, partial, or invalid shard",
+			"reviewer batch intake does not write authority/confirmed state or execute heavy tools",
+			"after consuming this receipt, run refreshedCurrentDriverRequest or expectedReceipt.refreshStatusCommand only under the request boundary",
+		}),
+	}
+}
+
+func reviewerBatchIntakeDriverReceiptOutcome(result ReviewerBatchIntakeResult) string {
+	if result.IsMutation {
+		return "reviewer-batch-intake-apply-result"
+	}
+	return "reviewer-batch-intake-preview-result"
+}
+
+func reviewerBatchIntakeStatusCommand(caseRoot string) string {
+	caseRoot = strings.TrimSpace(caseRoot)
+	if caseRoot == "" {
+		return "/rekit status -Format json"
+	}
+	return "/rekit status -Target " + quoteReviewerCommandArg(caseRoot) + " -Format json"
 }
 
 func reviewerBatchIntakeOpenShardProgress(result ReviewerBatchIntakeResult) (string, []string) {

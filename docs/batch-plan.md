@@ -59,6 +59,19 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 
 
+
+### Batch 776：reviewer ready result intake run loop receipt
+
+状态：本机实现、focused validation、完整本机 release minimum 与 API 使用说明收尾已完成；implementation commit/push 与 push-triggered remote inspection 待记录。本批选择 `reviewer-orchestration`，推进 reviewer ready result intake run loop receipt；release handoff candidate guidance 是：select a reviewer orchestration slice that improves bounded dispatch, intake, writeback, or recovery without auto-spawning reviewers。上一批完成后仍需要解决的接手断点必须落在该 domain 的可操作 product-path closure 上，并能由 status/handoff/continue/release-check 或必要临时 case 验证；本批不是字段、文案或 summary 投影微调。
+
+目标：把 `reviewer-orchestration` candidate 收敛成 Windows 本机可验证的闭环：reviewer ready result intake run loop receipt。实现应复用既有 typed handoff/envelope 和 deterministic runtime 边界，让 Mission Commander 或 replacement executor 能从 durable docs/status 消费结果，不依赖上一会话隐性上下文；focused work 必须证明该候选命令所描述的能力：select a reviewer orchestration slice that improves bounded dispatch, intake, writeback, or recovery without auto-spawning reviewers。
+
+已实现：`plan-subagents -ReadyReviewerResults` 的 JSON result 现在携带 `missionCommanderDriverReceipt`，复用 `workstream.MissionCommanderDriverReceipt` envelope，把本次 reviewer batch intake preview/apply outcome、命令、refreshed Mission Commander action queue summary、refreshed current run-loop step 与 refreshed current driver request 收敛到同一可机读 receipt。`ReadyReviewerResults -WhatIf` receipt 指向 preview 后的 apply driver request，`ReadyReviewerResults -Apply` receipt 指向 apply 后刷新得到的后续 request；两者都会通过 `expectedReceipt.refreshStatusCommand` 绑定 case-local `/rekit status -Target <case> -Format json` refresh route。CLI text 同步输出 `reviewer batch intake driver receipt`、refreshed driver request 与 boundary；`docs/agent-team-usage.md` 的 plan-subagents command reference 已同步说明 receipt 语义。
+
+边界：本批不新增 PowerShell runtime logic，不新增 public command，不执行 reviewer/adapter/pack-memory/gate/sync/promote mutation，不 spawn/poll/stop reviewer session，不执行 heavy-tool，不写 authority/confirmed，不自动提交或声明 remote CI green；batch intake 仍保持 WhatIf-before-Apply、packet order、fail-fast、strict reviewer result validation 与 verification-before-decision writeback boundary。`missionCommanderDriverReceipt` 只是 intake command result 的 run-loop receipt，不证明 Go runtime 管理了 reviewer session 或执行了刷新后的 driver request。
+
+验证结果：focused regressions 已通过：`go test ./internal/rekit/subagents -run "TestIntakeReadyReviewerResults" -count=1`（0.907s）与 `go test ./internal/rekit/cli -run "TestRunPlanSubagentsReviewer(PacketAdoptionCaseLocalProductPath|OrchestrationE2E|MultiPacketLifecyclePriorityE2E)" -count=1`（27.790s）。完整本机 release minimum 已执行：提交前 `release-check -Format json` 按预期返回 `ready=false` / `summary=release gate inventory has warnings`，因为最新 batch implementation commit/push 与 remote inspection 尚未记录；`status`、`packs`（pack validation ok）、`doctor`、`go test ./...`（CLI 381.497s）、`go vet ./...` 与 `git diff --check` 已通过，`git diff --check` 仅有 Windows LF→CRLF warning。
+
 ### Batch 775：driver request consumer loop status receipt
 
 状态：已完成本机实现、focused validation、完整本机 release minimum、README/API 说明收尾、implementation commit/push 与 push-triggered remote inspection；implementation commit `58dc84d` 已推送。Push run `30629550899` completed failure；Linux/Windows/macOS jobs `91152478676`/`91152478692`/`91152478773` 均 `steps=[]`，`gh run view 30629550899 --log-failed` 返回 `log not found: 91152478676`，job annotations API 均返回 404。仍是既有 runner/billing blocker signal，不声明 remote green。本批选择 `mission-commander`，推进 driver request consumer loop status receipt；release handoff candidate guidance 是：select a Mission Commander operational closure slice with status/handoff/continue product-path verification。上一批完成后仍需要解决的接手断点必须落在该 domain 的可操作 product-path closure 上，并能由 status/handoff/continue/release-check 或必要临时 case 验证；本批不是字段、文案或 summary 投影微调。

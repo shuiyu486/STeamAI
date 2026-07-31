@@ -451,8 +451,25 @@ func TestRunPlanSubagentsReviewerPacketAdoptionCaseLocalProductPath(t *testing.T
 	if ready.Total != 1 || ready.Ready != 1 || ready.Waiting != 0 || ready.Processed != 1 || ready.Stopped || len(ready.Results) != 1 || ready.Results[0].WritebackStatus != "previewed" || !ready.Results[0].ReadyForWriteback || ready.Results[0].Verification == nil || ready.Results[0].Decision == nil || mission.Value(ready.Results[0].Verification.Event, "ownerExecutor") != "session-b" || mission.Value(ready.Results[0].Decision.Event, "ownerExecutor") != "session-b" {
 		t.Fatalf("ready reviewer results did not use adopted owner: %+v", ready)
 	}
+	readyReceipt := ready.MissionCommanderDriverReceipt
+	readyDriver := ready.MissionCommanderActionQueue.CurrentDriverRequest
+	if readyReceipt == nil || readyReceipt.SchemaVersion != 1 || readyReceipt.State != "refreshed" || readyReceipt.Outcome != "reviewer-batch-intake-preview-result" || readyReceipt.Lane != "feature-review" || !strings.Contains(readyReceipt.Command, "-ReadyReviewerResults") || !strings.Contains(readyReceipt.Command, "-WhatIf -Format json") || readyReceipt.RefreshedActionQueueSummary != ready.MissionCommanderActionQueue.Summary || readyReceipt.RefreshedCurrentRunLoopStep != ready.MissionCommanderActionQueue.CurrentRunLoopStepID || readyReceipt.RefreshedCurrentDriverRequest == nil || readyDriver == nil || readyReceipt.RefreshedCurrentDriverRequest.Command != readyDriver.Command || readyReceipt.RefreshedCurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand == "" || !strings.Contains(readyReceipt.RefreshedCurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand, caseRoot) || !containsSubstring(readyReceipt.Boundary, "does not prove the Go runtime spawned") || !containsSubstring(readyReceipt.Boundary, "does not write authority/confirmed") {
+		t.Fatalf("ready reviewer results omitted run-loop receipt: receipt=%+v queue=%+v", readyReceipt, ready.MissionCommanderActionQueue)
+	}
 	if got := readOptionalCaseFile(t, caseRoot, ".rekit/facts/verifications.jsonl"); got != "" {
 		t.Fatalf("post-adoption batch intake WhatIf wrote verification facts:\n%s", got)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-ReadyReviewerResults", "-Lane", "feature-review", "-Actor", "mission-commander", "-WhatIf", "-Format", "text"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"reviewer batch intake driver receipt：state=refreshed outcome=reviewer-batch-intake-preview-result", "reviewer batch intake driver receipt refreshed driver request：kind=preview-command", "refreshStatusCommand=`/rekit status -Target", "reviewer batch intake driver receipt boundary：driver receipt does not prove the Go runtime spawned"} {
+		if !strings.Contains(out.String(), expected) {
+			t.Fatalf("ready reviewer batch intake text omitted receipt %q:\n%s", expected, out.String())
+		}
+	}
+	if got := readOptionalCaseFile(t, caseRoot, ".rekit/facts/verifications.jsonl"); got != "" {
+		t.Fatalf("post-adoption batch intake text WhatIf wrote verification facts:\n%s", got)
 	}
 
 	out.Reset()
@@ -3207,30 +3224,31 @@ func planSubagentsCLIArgs(baseArgs []string, extra ...string) []string {
 }
 
 type reviewerBatchIntakeCLIResult struct {
-	Command                     string                              `json:"command"`
-	Mode                        string                              `json:"mode"`
-	CaseRoot                    string                              `json:"caseRoot"`
-	Pack                        string                              `json:"pack"`
-	IsMutation                  bool                                `json:"isMutation"`
-	Applied                     bool                                `json:"applied"`
-	Total                       int                                 `json:"total"`
-	Ready                       int                                 `json:"ready"`
-	Waiting                     int                                 `json:"waiting"`
-	Processed                   int                                 `json:"processed"`
-	Completed                   int                                 `json:"completed"`
-	AlreadyComplete             int                                 `json:"alreadyComplete"`
-	Stopped                     bool                                `json:"stopped"`
-	StopShardID                 string                              `json:"stopShardId"`
-	StopReason                  string                              `json:"stopReason"`
-	Partial                     bool                                `json:"partial"`
-	NextOpenShardID             string                              `json:"nextOpenShardId"`
-	RemainingShardIDs           []string                            `json:"remainingShardIds"`
-	RerunCommand                string                              `json:"rerunCommand"`
-	RecoveryAction              *missionCommanderNextActionItem     `json:"recoveryAction"`
-	Results                     []reviewerIntakeCLIResult           `json:"results"`
-	MissionCommanderAction      missionCommanderActionSnapshot      `json:"missionCommanderAction"`
-	MissionCommanderNextActions []missionCommanderNextActionItem    `json:"missionCommanderNextActions"`
-	MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+	Command                       string                                 `json:"command"`
+	Mode                          string                                 `json:"mode"`
+	CaseRoot                      string                                 `json:"caseRoot"`
+	Pack                          string                                 `json:"pack"`
+	IsMutation                    bool                                   `json:"isMutation"`
+	Applied                       bool                                   `json:"applied"`
+	Total                         int                                    `json:"total"`
+	Ready                         int                                    `json:"ready"`
+	Waiting                       int                                    `json:"waiting"`
+	Processed                     int                                    `json:"processed"`
+	Completed                     int                                    `json:"completed"`
+	AlreadyComplete               int                                    `json:"alreadyComplete"`
+	Stopped                       bool                                   `json:"stopped"`
+	StopShardID                   string                                 `json:"stopShardId"`
+	StopReason                    string                                 `json:"stopReason"`
+	Partial                       bool                                   `json:"partial"`
+	NextOpenShardID               string                                 `json:"nextOpenShardId"`
+	RemainingShardIDs             []string                               `json:"remainingShardIds"`
+	RerunCommand                  string                                 `json:"rerunCommand"`
+	RecoveryAction                *missionCommanderNextActionItem        `json:"recoveryAction"`
+	Results                       []reviewerIntakeCLIResult              `json:"results"`
+	MissionCommanderAction        missionCommanderActionSnapshot         `json:"missionCommanderAction"`
+	MissionCommanderNextActions   []missionCommanderNextActionItem       `json:"missionCommanderNextActions"`
+	MissionCommanderActionQueue   missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
+	MissionCommanderDriverReceipt *missionCommanderDriverReceiptSnapshot `json:"missionCommanderDriverReceipt"`
 }
 
 func decodeReviewerBatchIntakeResult(t *testing.T, data []byte) reviewerBatchIntakeCLIResult {

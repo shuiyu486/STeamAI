@@ -11494,6 +11494,9 @@ func writePlanSubagentsReviewerBatchIntakeText(out io.Writer, result subagents.R
 	if err := writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue); err != nil {
 		return err
 	}
+	if err := writeStatusMissionCommanderDriverReceiptText(out, "reviewer batch intake", result.MissionCommanderDriverReceipt); err != nil {
+		return err
+	}
 	return writeMissionCommanderNextActionsText(out, result.MissionCommanderNextActions)
 }
 
