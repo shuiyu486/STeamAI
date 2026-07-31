@@ -36,6 +36,19 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 
 
+
+### Batch 753：start bootstrap driver request consumer loop
+
+状态：本机实现、focused validation 与完整本机 release minimum 已完成；implementation commit/push 与 push-triggered remote inspection 待记录。本批选择 `replacement-executor`，推进 start bootstrap driver request consumer loop；release handoff candidate guidance 是：select a replacement executor takeover slice that can be resumed from status or durable handoff without prior chat context。上一批完成后仍需要解决的接手断点落在该 domain 的可操作 product-path closure 上，并由 status/handoff/continue/release-check 与临时 case 验证；本批不是字段、文案或 summary 投影微调。
+
+目标：把 `replacement-executor` candidate 收敛成 Windows 本机可验证的闭环：start bootstrap driver request consumer loop。实现复用既有 typed handoff/envelope 和 deterministic runtime 边界，让 Mission Commander 或 replacement executor 能从 durable docs/status 消费结果，不依赖上一会话隐性上下文；focused work 证明该候选命令所描述的能力：select a replacement executor takeover slice that can be resumed from status or durable handoff without prior chat context。
+
+已实现：新增 CLI product-path regression `TestRunStartBootstrapDriverRequestConsumerLoopProductPath`，模拟 replacement executor 只从 `status` 顶层 `missionControlRunbook.currentDriverRequest` / `replacementExecutorTakeoverPackage.currentDriverRequest` 消费 start bootstrap preview request，不手工拼命令；执行 preview 后再从 returned `missionCommanderActionQueue.currentDriverRequest` 消费 `/rekit start triage -Apply` request；Apply 后断言 returned lane takeover package、case-local action queue 与 status refresh 均推进到 triage 的 continue driver request。该闭环同时证明 preview 不写 `.rekit`、start apply 只写 case-local board/lane/resume/checkpoint，并且顶层 status runbook 会把 case-local `/rekit continue triage` 规范为 invocation-scoped `-Target ... -WhatIf -Format json` preview request。
+
+边界：本批不新增 production runtime API、PowerShell runtime logic、Claude Code spawner/session manager、reviewer/adapter/heavy-tool executor、authority/confirmed 写入或自动 Apply；Go runtime 仍只返回 typed handoff/receipt queue，actual mutation 仅由显式 `start -Apply` 执行且只写 case-local lane/board/resume/checkpoint state。
+
+验证结果：focused regressions 已通过：`go test ./internal/rekit/cli -run "TestRun(StatusJsonCaseStartBootstrapDriverRequest|StartBootstrapDriverRequestConsumerLoopProductPath)$" -count=1` 与 `go test ./internal/rekit/cli -run "Test(StatusMissionControlRunbook|RunStatusJsonCase|RunStartBootstrapDriverRequestConsumerLoopProductPath|RunHandoffApplyWritesProjectAndLane|RunMissionCommanderDriverRequestConsumerLoopProductPath|RunReplaceableSessionExecutorTakeoverFromHandoffProductPath)" -count=1`。完整本机 release minimum 已执行：completion evidence 写回前 `go run ./cmd/rekit -- -Command release-check -Format json` 按预期返回 `ready=false` / `summary=release gate inventory has warnings`，因为 implementation commit/push 与 remote inspection 尚未记录；`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check` 已通过，`git diff --check` 仅有 Windows LF→CRLF warning。Implementation commit/push 与 push-triggered remote release-gate inspection 待记录；远程 `steps=[]` 仍只记录 blocker，不声明 green。
+
 ### Batch 752：start-lane driver request bootstrap
 
 状态：本机实现、focused validation、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection 已完成；implementation commit `77fe988` 已推送。Push run `30594197832` completed failure；macOS/Windows/Linux jobs `91042878321`/`91042878394`/`91042878457` 均 `steps=[]`，`gh run view 30594197832 --log-failed` 返回 `log not found: 91042878321`，job annotations API 均返回 404。仍是既有 runner/billing blocker signal，不声明 remote green。本批选择 `mission-commander`，推进 start-lane driver request bootstrap；release handoff candidate guidance 是：select a Mission Commander operational closure slice with status/handoff/continue product-path verification。上一批完成后仍需要解决的接手断点落在该 domain 的可操作 product-path closure 上，并由 status/handoff/continue/release-check 与临时 case 验证；本批不是字段、文案或 summary 投影微调。

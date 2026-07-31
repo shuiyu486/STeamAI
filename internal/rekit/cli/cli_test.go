@@ -1458,9 +1458,14 @@ func TestRunStatusJsonDefaultPackContract(t *testing.T) {
 	}
 }
 
+func seedEmptyLaneCaseBoard(t *testing.T, caseRoot string) {
+	t.Helper()
+	writeCaseFile(t, caseRoot, ".rekit/board.json", `{"schemaVersion":1,"caseRoot":"`+filepath.ToSlash(caseRoot)+`","repoRoot":"`+filepath.ToSlash(repoRoot(t))+`","pack":"_template","automationMode":"assist","defaultAuthorityLane":"main","lanes":[],"factsRoot":".rekit/facts"}`)
+}
+
 func TestRunStatusJsonCaseStartBootstrapDriverRequest(t *testing.T) {
 	caseRoot := attachedCase(t)
-	writeCaseFile(t, caseRoot, ".rekit/board.json", `{"schemaVersion":1,"caseRoot":"`+filepath.ToSlash(caseRoot)+`","repoRoot":"`+filepath.ToSlash(repoRoot(t))+`","pack":"_template","automationMode":"assist","defaultAuthorityLane":"main","lanes":[],"factsRoot":".rekit/facts"}`)
+	seedEmptyLaneCaseBoard(t, caseRoot)
 	var out bytes.Buffer
 	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
@@ -1533,6 +1538,115 @@ func TestRunStatusJsonCaseStartBootstrapDriverRequest(t *testing.T) {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("status text missing %q:\n%s", expected, out.String())
 		}
+	}
+}
+
+func TestRunStartBootstrapDriverRequestConsumerLoopProductPath(t *testing.T) {
+	caseRoot := attachedCase(t)
+	seedEmptyLaneCaseBoard(t, caseRoot)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		CaseMission struct {
+			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		} `json:"caseMission"`
+		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("bootstrap consumer status JSON did not decode: %v\n%s", err, out.String())
+	}
+	statusRequest := requireMissionCommanderDriverRequest(t, status.CaseMission.MissionCommanderActionQueue, "preview-command", "preview-current", "/rekit start -Target \""+caseRoot+"\" -Name triage -WhatIf -Format json", true, false, true)
+	if status.MissionControlRunbook == nil || status.MissionControlRunbook.CurrentDriverRequest == nil || status.MissionControlRunbook.CurrentDriverRequest.Command != statusRequest.Command || status.MissionControlRunbook.ReplacementExecutorTakeoverPackage == nil || !status.MissionControlRunbook.ReplacementExecutorTakeoverPackage.Ready || status.MissionControlRunbook.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command != statusRequest.Command {
+		t.Fatalf("status runbook/takeover package did not expose bootstrap request: statusRequest=%+v runbook=%+v", statusRequest, status.MissionControlRunbook)
+	}
+	beforePreview := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	previewArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, statusRequest)
+	if !ok {
+		t.Fatalf("bootstrap status request should be executable: %+v", statusRequest)
+	}
+	out.Reset()
+	if err := Run(previewArgs, &out); err != nil {
+		t.Fatalf("bootstrap preview request failed: args=%+v err=%v\n%s", previewArgs, err, out.String())
+	}
+	var preview struct {
+		Command                     string                              `json:"command"`
+		Applied                     bool                                `json:"applied"`
+		RequiresConfirmation        bool                                `json:"requiresConfirmation"`
+		Lane                        startLane                           `json:"lane"`
+		LaneTakeoverPackage         *laneTakeoverPackage                `json:"laneTakeoverPackage"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		Writes                      []startWrite                        `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+		t.Fatalf("bootstrap preview JSON did not decode: %v\n%s", err, out.String())
+	}
+	applyRequest := requireMissionCommanderDriverRequest(t, preview.MissionCommanderActionQueue, "preview-command", "preview-current", "/rekit start triage -Apply", true, false, true)
+	if preview.Command != "start" || preview.Applied || !preview.RequiresConfirmation || preview.Lane.ID != "feature-triage" || preview.Lane.Name != "triage" || preview.LaneTakeoverPackage == nil || !preview.LaneTakeoverPackage.Ready || !preview.LaneTakeoverPackage.ApplyRequired || preview.LaneTakeoverPackage.MissionCommanderActionQueue.CurrentDriverRequest == nil || preview.LaneTakeoverPackage.MissionCommanderActionQueue.CurrentDriverRequest.Command != applyRequest.Command {
+		t.Fatalf("bootstrap preview should return apply-required takeover package and driver request: preview=%+v applyRequest=%+v", preview, applyRequest)
+	}
+	assertSnapshotEqual(t, beforePreview, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	applyArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, applyRequest)
+	if !ok {
+		t.Fatalf("bootstrap apply request should be executable: %+v", applyRequest)
+	}
+	applyArgs = append(applyArgs, "-Target", caseRoot, "-Pack", "_template", "-Format", "json")
+	out.Reset()
+	if err := Run(applyArgs, &out); err != nil {
+		t.Fatalf("bootstrap apply request failed: args=%+v err=%v\n%s", applyArgs, err, out.String())
+	}
+	var applied struct {
+		Command                     string                              `json:"command"`
+		Applied                     bool                                `json:"applied"`
+		RequiresConfirmation        bool                                `json:"requiresConfirmation"`
+		Lane                        startLane                           `json:"lane"`
+		LaneTakeoverPackage         *laneTakeoverPackage                `json:"laneTakeoverPackage"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		Writes                      []startWrite                        `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &applied); err != nil {
+		t.Fatalf("bootstrap apply JSON did not decode: %v\n%s", err, out.String())
+	}
+	continueRequest := requireMissionCommanderDriverRequest(t, applied.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue triage", true, false, false)
+	if applied.Command != "start" || !applied.Applied || applied.RequiresConfirmation || applied.Lane.ID != "feature-triage" || applied.Lane.Name != "triage" || applied.LaneTakeoverPackage == nil || !applied.LaneTakeoverPackage.Ready || applied.LaneTakeoverPackage.ApplyRequired || !applied.LaneTakeoverPackage.ContinueReady || applied.LaneTakeoverPackage.MissionCommanderActionQueue.CurrentDriverRequest == nil || applied.LaneTakeoverPackage.MissionCommanderActionQueue.CurrentDriverRequest.Command != continueRequest.Command {
+		t.Fatalf("bootstrap apply should return ready continue driver request: applied=%+v continueRequest=%+v", applied, continueRequest)
+	}
+	assertStartWrite(t, applied.Writes, ".rekit/board.json", "refresh")
+	assertStartWrite(t, applied.Writes, ".rekit/lanes/feature-triage/lane.json", "create-lane")
+	assertStartWrite(t, applied.Writes, ".rekit/lanes/feature-triage/prompts/RESUME.md", "refresh")
+	assertStartWrite(t, applied.Writes, ".rekit/lanes/feature-triage/checkpoints/latest.json", "refresh")
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var refreshed struct {
+		CaseMission struct {
+			Ready                          bool                                `json:"ready"`
+			LaneCount                      int                                 `json:"laneCount"`
+			FirstScreenLaneTakeoverPackage *laneTakeoverPackage                `json:"firstScreenLaneTakeoverPackage"`
+			MissionCommanderActionQueue    missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		} `json:"caseMission"`
+		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &refreshed); err != nil {
+		t.Fatalf("bootstrap refresh status JSON did not decode: %v\n%s", err, out.String())
+	}
+	refreshedRequest := requireMissionCommanderDriverRequest(t, refreshed.CaseMission.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue triage", true, false, false)
+	if !refreshed.CaseMission.Ready || refreshed.CaseMission.LaneCount != 2 || refreshedRequest.Command != continueRequest.Command {
+		t.Fatalf("status refresh should expose triage as the case-local current request: refreshed=%+v request=%+v", refreshed, refreshedRequest)
+	}
+	packageRequest := (*missionCommanderDriverRequestSnapshot)(nil)
+	if refreshed.CaseMission.FirstScreenLaneTakeoverPackage != nil {
+		packageRequest = refreshed.CaseMission.FirstScreenLaneTakeoverPackage.MissionCommanderActionQueue.CurrentDriverRequest
+	}
+	if refreshed.CaseMission.FirstScreenLaneTakeoverPackage == nil || !refreshed.CaseMission.FirstScreenLaneTakeoverPackage.Ready || refreshed.CaseMission.FirstScreenLaneTakeoverPackage.ApplyRequired || refreshed.CaseMission.FirstScreenLaneTakeoverPackage.Lane != "feature-triage" || packageRequest == nil || packageRequest.Command != continueRequest.Command {
+		t.Fatalf("status refresh should expose durable triage takeover package: package=%+v request=%+v", refreshed.CaseMission.FirstScreenLaneTakeoverPackage, packageRequest)
+	}
+	if refreshed.MissionControlRunbook == nil || refreshed.MissionControlRunbook.CurrentDriverRequest == nil || refreshed.MissionControlRunbook.CurrentDriverRequest.Kind != "preview-command" || !refreshed.MissionControlRunbook.CurrentDriverRequest.CommandExecutable || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "/rekit continue -Target") || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, " triage") || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "-WhatIf") || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "-Format json") {
+		t.Fatalf("status runbook should expose invocation-scoped triage preview request after refresh: %+v", refreshed.MissionControlRunbook)
 	}
 }
 
@@ -20551,20 +20665,21 @@ type missionCommanderDriverRequestSnapshot struct {
 }
 
 type statusMissionControlRunbookSnapshot struct {
-	Ready                 bool                                         `json:"ready"`
-	Focus                 string                                       `json:"focus"`
-	Scope                 string                                       `json:"scope"`
-	CurrentCommand        string                                       `json:"currentCommand"`
-	CurrentRunLoopStepID  string                                       `json:"currentRunLoopStepId"`
-	CurrentDriverRequest  *missionCommanderDriverRequestSnapshot       `json:"currentDriverRequest"`
-	GuidanceHandoff       *statusMissionControlGuidanceHandoffSnapshot `json:"guidanceHandoff"`
-	RefreshStatusCommand  string                                       `json:"refreshStatusCommand"`
-	HandoffPreviewCommand string                                       `json:"handoffPreviewCommand"`
-	HandoffApplyCommand   string                                       `json:"handoffApplyCommand"`
-	Queues                []statusMissionControlRunbookQueueSnapshot   `json:"queues"`
-	RoutingReasons        []string                                     `json:"routingReasons"`
-	RunLoop               []dailyMissionControlRunbookStepSnapshot     `json:"runLoop"`
-	Boundary              []string                                     `json:"boundary"`
+	Ready                              bool                                         `json:"ready"`
+	Focus                              string                                       `json:"focus"`
+	Scope                              string                                       `json:"scope"`
+	CurrentCommand                     string                                       `json:"currentCommand"`
+	CurrentRunLoopStepID               string                                       `json:"currentRunLoopStepId"`
+	CurrentDriverRequest               *missionCommanderDriverRequestSnapshot       `json:"currentDriverRequest"`
+	GuidanceHandoff                    *statusMissionControlGuidanceHandoffSnapshot `json:"guidanceHandoff"`
+	ReplacementExecutorTakeoverPackage *replacementExecutorTakeoverPackageSnapshot  `json:"replacementExecutorTakeoverPackage"`
+	RefreshStatusCommand               string                                       `json:"refreshStatusCommand"`
+	HandoffPreviewCommand              string                                       `json:"handoffPreviewCommand"`
+	HandoffApplyCommand                string                                       `json:"handoffApplyCommand"`
+	Queues                             []statusMissionControlRunbookQueueSnapshot   `json:"queues"`
+	RoutingReasons                     []string                                     `json:"routingReasons"`
+	RunLoop                            []dailyMissionControlRunbookStepSnapshot     `json:"runLoop"`
+	Boundary                           []string                                     `json:"boundary"`
 }
 
 type statusMissionControlGuidanceHandoffSnapshot struct {
