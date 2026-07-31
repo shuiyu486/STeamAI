@@ -35,38 +35,40 @@ type InterventionSummary struct {
 }
 
 type ReconcileResult struct {
-	SchemaVersion                    int                                      `json:"schemaVersion"`
-	Command                          string                                   `json:"command"`
-	CaseRoot                         string                                   `json:"caseRoot"`
-	RepoRoot                         string                                   `json:"repoRoot"`
-	Pack                             string                                   `json:"pack"`
-	IsMutation                       bool                                     `json:"isMutation"`
-	Applied                          bool                                     `json:"applied"`
-	RequiresConfirmation             bool                                     `json:"requiresConfirmation"`
-	Selector                         string                                   `json:"selector"`
-	Lane                             Lane                                     `json:"lane"`
-	Intervention                     InterventionSummary                      `json:"intervention"`
-	ResolutionEventID                string                                   `json:"resolutionEventId,omitempty"`
-	Actor                            string                                   `json:"actor"`
-	Executor                         string                                   `json:"executor"`
-	PreviousExecutor                 string                                   `json:"previousExecutor,omitempty"`
-	ExecutorGeneration               int                                      `json:"executorGeneration"`
-	MissionBrief                     mission.Brief                            `json:"missionBrief"`
-	AuthorizedGateAdapterHandoffs    []AuthorizedGateAdapterHandoff           `json:"authorizedGateAdapterHandoffs,omitempty"`
-	ReviewerDispatchIntakeHandoffs   []ReviewerDispatchIntakeHandoff          `json:"reviewerDispatchIntakeHandoffs,omitempty"`
-	ReviewerDispatchIntakeSummary    ReviewerDispatchIntakeSummary            `json:"reviewerDispatchIntakeSummary"`
-	ReviewerPacketRetirementHandoffs []ReviewerPacketRetirementHandoff        `json:"reviewerPacketRetirementHandoffs,omitempty"`
-	ReviewerPacketRetirementSummary  ReviewerPacketRetirementSummary          `json:"reviewerPacketRetirementSummary"`
-	PendingGateHandoffs              []ContinuePendingGateHandoff             `json:"pendingGateHandoffs,omitempty"`
-	OpenDecisionHandoffs             []ContinueOpenDecisionHandoff            `json:"openDecisionHandoffs,omitempty"`
-	ExecutorAction                   laneExecutorAction                       `json:"executorAction"`
-	MissionCommanderAction           mission.MissionCommanderAction           `json:"missionCommanderAction"`
-	MissionCommanderNextActions      []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
-	MissionCommanderActionQueue      mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
-	WouldWrites                      []StartWrite                             `json:"wouldWrites,omitempty"`
-	Writes                           []StartWrite                             `json:"writes,omitempty"`
-	BlockedActions                   []string                                 `json:"blockedActions"`
-	NextSteps                        []string                                 `json:"nextSteps"`
+	SchemaVersion                      int                                         `json:"schemaVersion"`
+	Command                            string                                      `json:"command"`
+	CaseRoot                           string                                      `json:"caseRoot"`
+	RepoRoot                           string                                      `json:"repoRoot"`
+	Pack                               string                                      `json:"pack"`
+	IsMutation                         bool                                        `json:"isMutation"`
+	Applied                            bool                                        `json:"applied"`
+	RequiresConfirmation               bool                                        `json:"requiresConfirmation"`
+	Selector                           string                                      `json:"selector"`
+	Lane                               Lane                                        `json:"lane"`
+	Intervention                       InterventionSummary                         `json:"intervention"`
+	ResolutionEventID                  string                                      `json:"resolutionEventId,omitempty"`
+	Actor                              string                                      `json:"actor"`
+	Executor                           string                                      `json:"executor"`
+	PreviousExecutor                   string                                      `json:"previousExecutor,omitempty"`
+	ExecutorGeneration                 int                                         `json:"executorGeneration"`
+	MissionBrief                       mission.Brief                               `json:"missionBrief"`
+	AuthorizedGateAdapterHandoffs      []AuthorizedGateAdapterHandoff              `json:"authorizedGateAdapterHandoffs,omitempty"`
+	ReviewerDispatchIntakeHandoffs     []ReviewerDispatchIntakeHandoff             `json:"reviewerDispatchIntakeHandoffs,omitempty"`
+	ReviewerDispatchIntakeSummary      ReviewerDispatchIntakeSummary               `json:"reviewerDispatchIntakeSummary"`
+	ReviewerPacketRetirementHandoffs   []ReviewerPacketRetirementHandoff           `json:"reviewerPacketRetirementHandoffs,omitempty"`
+	ReviewerPacketRetirementSummary    ReviewerPacketRetirementSummary             `json:"reviewerPacketRetirementSummary"`
+	PendingGateHandoffs                []ContinuePendingGateHandoff                `json:"pendingGateHandoffs,omitempty"`
+	OpenDecisionHandoffs               []ContinueOpenDecisionHandoff               `json:"openDecisionHandoffs,omitempty"`
+	ExecutorAction                     laneExecutorAction                          `json:"executorAction"`
+	MissionCommanderAction             mission.MissionCommanderAction              `json:"missionCommanderAction"`
+	MissionCommanderNextActions        []mission.MissionCommanderNextActionItem    `json:"missionCommanderNextActions,omitempty"`
+	MissionCommanderActionQueue        mission.MissionCommanderActionQueue         `json:"missionCommanderActionQueue"`
+	MissionCommanderDriverReceipt      *MissionCommanderDriverReceipt              `json:"missionCommanderDriverReceipt,omitempty"`
+	ReplacementExecutorTakeoverPackage *mission.ReplacementExecutorTakeoverPackage `json:"replacementExecutorTakeoverPackage,omitempty"`
+	WouldWrites                        []StartWrite                                `json:"wouldWrites,omitempty"`
+	Writes                             []StartWrite                                `json:"writes,omitempty"`
+	BlockedActions                     []string                                    `json:"blockedActions"`
+	NextSteps                          []string                                    `json:"nextSteps"`
 }
 
 type reconcileContext struct {
@@ -502,12 +504,58 @@ func (ctx reconcileContext) result(mutating, applied, confirm bool, writes []Sta
 			"reconcile never executes heavy-tool and never writes authority/confirmed state",
 		},
 	}
+	result.MissionCommanderDriverReceipt = reconcileMissionCommanderDriverReceipt(result)
+	result.ReplacementExecutorTakeoverPackage = reconcileReplacementExecutorTakeoverPackage(result)
 	if applied {
 		result.Writes = writes
 	} else {
 		result.WouldWrites = writes
 	}
 	return result
+}
+
+func reconcileMissionCommanderDriverReceipt(result ReconcileResult) *MissionCommanderDriverReceipt {
+	request := result.MissionCommanderActionQueue.CurrentDriverRequest
+	command := result.Command
+	if request != nil && strings.TrimSpace(request.Command) != "" {
+		command = request.Command
+	}
+	receipt := &MissionCommanderDriverReceipt{
+		SchemaVersion:                 1,
+		State:                         "refreshed",
+		Outcome:                       "explicit-command-result",
+		Lane:                          result.Lane.ID,
+		Command:                       command,
+		RefreshedActionQueueSummary:   result.MissionCommanderActionQueue.Summary,
+		RefreshedCurrentRunLoopStep:   result.MissionCommanderActionQueue.CurrentRunLoopStepID,
+		RefreshedCurrentDriverRequest: request,
+		Boundary: []string{
+			"driver receipt records an explicit main-agent/harness reconcile result after durable state refresh",
+			"driver receipt does not prove the Go runtime spawned, polled, stopped, or managed an external session",
+			"reconcile does not write authority/confirmed state or execute heavy tools",
+		},
+	}
+	if result.Applied {
+		receipt.RunID = "reconcile-" + firstText(result.ResolutionEventID, result.Intervention.EventID)
+		receipt.BatchID = "batch-" + receipt.RunID
+	}
+	return receipt
+}
+
+func reconcileReplacementExecutorTakeoverPackage(result ReconcileResult) *mission.ReplacementExecutorTakeoverPackage {
+	return mission.ReplacementExecutorTakeoverPackageFor(result.MissionCommanderActionQueue.CurrentDriverRequest, mission.ReplacementExecutorTakeoverOptions{
+		Focus:                "reconcile-current-action",
+		Scope:                "lane:" + workstreamLabel(result.Lane),
+		RefreshStatusCommand: dailyMissionControlStatusCommand(result.CaseRoot),
+		PackagePath:          "replacementExecutorTakeoverPackage",
+		TargetDocuments: []string{
+			"missionCommanderActionQueue.currentDriverRequest",
+			"missionCommanderDriverReceipt",
+			relJoin(result.Lane.LaneRoot, "prompts", "RESUME.md"),
+			relJoin(result.Lane.LaneRoot, "checkpoints", "latest.json"),
+			relJoin(".rekit", "handovers", result.Lane.ID+"-latest.md"),
+		},
+	})
 }
 
 func (ctx reconcileContext) reconcileApplyCommanderAction() mission.MissionCommanderAction {

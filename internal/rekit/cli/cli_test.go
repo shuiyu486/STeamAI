@@ -1810,6 +1810,194 @@ func TestRunStartBootstrapDriverRequestConsumerLoopProductPath(t *testing.T) {
 	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
 }
 
+func TestRunInterventionReconcileDriverRequestClosureProductPath(t *testing.T) {
+	caseRoot := attachedCase(t)
+	for _, dir := range []string{
+		".rekit/facts",
+		".rekit/lanes/main",
+		"workspace/main/main",
+	} {
+		if err := os.MkdirAll(filepath.Join(caseRoot, filepath.FromSlash(dir)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	board := `{"schemaVersion":1,"caseRoot":"` + filepath.ToSlash(caseRoot) + `","repoRoot":"` + filepath.ToSlash(repoRoot(t)) + `","pack":"_template","automationMode":"assist","defaultAuthorityLane":"main","lanes":[{"id":"main","type":"main","title":"Main","status":"open","authority":true,"workspace":"workspace/main/main"}],"factsRoot":".rekit/facts"}`
+	writeCaseFile(t, caseRoot, ".rekit/board.json", board)
+	writeCaseFile(t, caseRoot, ".rekit/lanes/main/lane.json", `{"schemaVersion":1,"id":"main","type":"main","title":"Main","status":"open","authority":true,"workspace":"workspace/main/main","laneRoot":".rekit/lanes/main"}`)
+	factsRoot := filepath.Join(caseRoot, ".rekit", "facts")
+	writeFactFile(t, factsRoot, "observations.jsonl", nil)
+	writeFactFile(t, factsRoot, "requests.jsonl", nil)
+	writeFactFile(t, factsRoot, "candidates.jsonl", nil)
+	writeFactFile(t, factsRoot, "publications.jsonl", nil)
+	writeFactFile(t, factsRoot, "decisions.jsonl", nil)
+	writeFactFile(t, factsRoot, "hypotheses.jsonl", nil)
+	writeFactFile(t, factsRoot, "verifications.jsonl", nil)
+	writeFactFile(t, factsRoot, "interventions.jsonl", []string{`{"kind":"intervention","eventId":"int-main-1","lane":"main","subject":"manual override","summary":"needs human","action":"override","target":"batch-reconcile","approvedBy":"lead","scope":"metadata","status":"open","batchId":"batch-reconcile"}`})
+	writeFactFile(t, factsRoot, "rollbacks.jsonl", nil)
+
+	beforeStatus := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		CaseMission struct {
+			Ready                          bool                                `json:"ready"`
+			InterventionHandoffs           []statusInterventionHandoff         `json:"interventionHandoffs"`
+			FirstScreenLaneTakeoverPackage *laneTakeoverPackage                `json:"firstScreenLaneTakeoverPackage"`
+			MissionCommanderActionQueue    missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		} `json:"caseMission"`
+		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("intervention status JSON did not decode: %v\n%s", err, out.String())
+	}
+	statusRequest := requireMissionCommanderDriverRequest(t, status.CaseMission.MissionCommanderActionQueue, "preview-command", "preview-current", "/rekit reconcile main -InterventionId int-main-1 -WhatIf", true, false, true)
+	if status.CaseMission.Ready || len(status.CaseMission.InterventionHandoffs) != 1 || status.CaseMission.FirstScreenLaneTakeoverPackage == nil || !status.CaseMission.FirstScreenLaneTakeoverPackage.Ready || !status.CaseMission.FirstScreenLaneTakeoverPackage.Blocked || status.CaseMission.FirstScreenLaneTakeoverPackage.ContinueReady || status.CaseMission.FirstScreenLaneTakeoverPackage.CurrentCommand != statusRequest.Command {
+		t.Fatalf("status should expose intervention reconcile current request and blocked takeover package: status=%+v request=%+v", status.CaseMission, statusRequest)
+	}
+	topRequest := status.MissionControlRunbook.CurrentDriverRequest
+	if status.MissionControlRunbook == nil || topRequest == nil || topRequest.Kind != "preview-command" || !topRequest.CommandExecutable || !topRequest.RequiresReview || !strings.Contains(topRequest.Command, `/rekit reconcile -Target "`+caseRoot+`" main -InterventionId int-main-1 -WhatIf -Format json`) || status.MissionControlRunbook.ReplacementExecutorTakeoverPackage == nil || status.MissionControlRunbook.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command != topRequest.Command {
+		t.Fatalf("status runbook/takeover package should expose invocation-scoped reconcile preview request: runbook=%+v", status.MissionControlRunbook)
+	}
+	assertSnapshotEqual(t, beforeStatus, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	beforePreview := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	previewArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, topRequest)
+	if !ok {
+		t.Fatalf("status reconcile preview request should be executable: %+v", topRequest)
+	}
+	out.Reset()
+	if err := Run(previewArgs, &out); err != nil {
+		t.Fatalf("reconcile preview request failed: args=%+v err=%v\n%s", previewArgs, err, out.String())
+	}
+	var preview struct {
+		Command                            string                                      `json:"command"`
+		Applied                            bool                                        `json:"applied"`
+		RequiresConfirmation               bool                                        `json:"requiresConfirmation"`
+		Intervention                       workstream.InterventionSummary              `json:"intervention"`
+		ExecutorAction                     executorActionSnapshot                      `json:"executorAction"`
+		MissionCommanderActionQueue        missionCommanderActionQueueSnapshot         `json:"missionCommanderActionQueue"`
+		MissionCommanderDriverReceipt      *missionCommanderDriverReceiptSnapshot      `json:"missionCommanderDriverReceipt"`
+		ReplacementExecutorTakeoverPackage *replacementExecutorTakeoverPackageSnapshot `json:"replacementExecutorTakeoverPackage"`
+		WouldWrites                        []startWrite                                `json:"wouldWrites"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+		t.Fatalf("reconcile preview JSON did not decode: %v\n%s", err, out.String())
+	}
+	applyRequest := preview.MissionCommanderActionQueue.CurrentDriverRequest
+	if preview.Command != "reconcile" || preview.Applied || !preview.RequiresConfirmation || preview.Intervention.EventID != "int-main-1" || len(preview.WouldWrites) == 0 || !preview.ExecutorAction.Blocked || !preview.ExecutorAction.ReconcileRequired || applyRequest == nil || applyRequest.Kind != "preview-command" || applyRequest.RunLoopStepID != "preview-current" || !applyRequest.CommandExecutable || !applyRequest.RequiresReview || applyRequest.Blocked || !strings.Contains(applyRequest.Command, "/rekit reconcile main -InterventionId int-main-1 -Apply") {
+		t.Fatalf("reconcile preview should return bounded apply driver request: preview=%+v applyRequest=%+v", preview, applyRequest)
+	}
+	if preview.MissionCommanderDriverReceipt == nil || preview.MissionCommanderDriverReceipt.Command != applyRequest.Command || preview.MissionCommanderDriverReceipt.RefreshedCurrentDriverRequest == nil || preview.MissionCommanderDriverReceipt.RefreshedCurrentDriverRequest.Command != applyRequest.Command || !containsSubstring(preview.MissionCommanderDriverReceipt.Boundary, "reconcile result") {
+		t.Fatalf("reconcile preview omitted driver receipt for returned apply request: receipt=%+v request=%+v", preview.MissionCommanderDriverReceipt, applyRequest)
+	}
+	if preview.ReplacementExecutorTakeoverPackage == nil || !preview.ReplacementExecutorTakeoverPackage.Ready || !preview.ReplacementExecutorTakeoverPackage.RequiresReview || preview.ReplacementExecutorTakeoverPackage.Command != applyRequest.Command || !containsSubstring(preview.ReplacementExecutorTakeoverPackage.TargetDocuments, "missionCommanderDriverReceipt") {
+		t.Fatalf("reconcile preview omitted replacement executor takeover package: package=%+v request=%+v", preview.ReplacementExecutorTakeoverPackage, applyRequest)
+	}
+	assertSnapshotEqual(t, beforePreview, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	applyArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, applyRequest)
+	if !ok {
+		t.Fatalf("reconcile preview returned apply request should be executable: %+v", applyRequest)
+	}
+	applyArgs = append(applyArgs, "-Target", caseRoot, "-Pack", "_template", "-Format", "json")
+	out.Reset()
+	if err := Run(applyArgs, &out); err != nil {
+		t.Fatalf("reconcile apply request failed: args=%+v err=%v\n%s", applyArgs, err, out.String())
+	}
+	var applied struct {
+		Command                            string                                      `json:"command"`
+		IsMutation                         bool                                        `json:"isMutation"`
+		Applied                            bool                                        `json:"applied"`
+		RequiresConfirmation               bool                                        `json:"requiresConfirmation"`
+		Lane                               startLane                                   `json:"lane"`
+		Intervention                       workstream.InterventionSummary              `json:"intervention"`
+		ResolutionEventID                  string                                      `json:"resolutionEventId"`
+		ExecutorAction                     executorActionSnapshot                      `json:"executorAction"`
+		MissionCommanderActionQueue        missionCommanderActionQueueSnapshot         `json:"missionCommanderActionQueue"`
+		MissionCommanderDriverReceipt      *missionCommanderDriverReceiptSnapshot      `json:"missionCommanderDriverReceipt"`
+		ReplacementExecutorTakeoverPackage *replacementExecutorTakeoverPackageSnapshot `json:"replacementExecutorTakeoverPackage"`
+		Writes                             []startWrite                                `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &applied); err != nil {
+		t.Fatalf("reconcile apply JSON did not decode: %v\n%s", err, out.String())
+	}
+	returnedRequest := requireMissionCommanderDriverRequest(t, applied.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue main -Executor main-agent -ExpectedExecutorGeneration 1", true, false, false)
+	if applied.Command != "reconcile" || !applied.IsMutation || !applied.Applied || applied.RequiresConfirmation || applied.Lane.ID != "main" || applied.Lane.LastReconciledIntervention != "int-main-1" || applied.ResolutionEventID == "" || applied.ExecutorAction.Blocked || !applied.ExecutorAction.Ready || applied.ExecutorAction.OpenInterventions != 0 {
+		t.Fatalf("reconcile apply should close intervention and restore ready current request: applied=%+v request=%+v", applied, returnedRequest)
+	}
+	if applied.MissionCommanderDriverReceipt == nil || applied.MissionCommanderDriverReceipt.Command != returnedRequest.Command || applied.MissionCommanderDriverReceipt.RefreshedCurrentDriverRequest == nil || applied.MissionCommanderDriverReceipt.RefreshedCurrentDriverRequest.Command != returnedRequest.Command || !containsSubstring(applied.MissionCommanderDriverReceipt.Boundary, "reconcile does not write authority/confirmed") {
+		t.Fatalf("reconcile apply omitted driver receipt for restored continue request: receipt=%+v request=%+v", applied.MissionCommanderDriverReceipt, returnedRequest)
+	}
+	if applied.ReplacementExecutorTakeoverPackage == nil || !applied.ReplacementExecutorTakeoverPackage.Ready || applied.ReplacementExecutorTakeoverPackage.RequiresReview || applied.ReplacementExecutorTakeoverPackage.Command != returnedRequest.Command || !containsSubstring(applied.ReplacementExecutorTakeoverPackage.TargetDocuments, ".rekit/lanes/main/prompts/RESUME.md") || !containsSubstring(applied.ReplacementExecutorTakeoverPackage.TargetDocuments, "missionCommanderDriverReceipt") {
+		t.Fatalf("reconcile apply omitted ready replacement executor takeover package: package=%+v request=%+v", applied.ReplacementExecutorTakeoverPackage, returnedRequest)
+	}
+	assertStartWrite(t, applied.Writes, ".rekit/facts/interventions.jsonl", "append")
+	assertStartWrite(t, applied.Writes, ".rekit/lanes/main/events.jsonl", "append-intervention-reconciled")
+	assertStartWrite(t, applied.Writes, ".rekit/lanes/main/lane.json", "update-reconcile-state")
+	assertStartWrite(t, applied.Writes, ".rekit/lanes/main/prompts/RESUME.md", "refresh")
+	checkpointPath := assertStartWrite(t, applied.Writes, ".rekit/lanes/main/checkpoints/latest.json", "refresh").TargetPath
+	assertStartWrite(t, applied.Writes, ".rekit/board.json", "refresh")
+	checkpointBytes, err := os.ReadFile(checkpointPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var checkpoint struct {
+		LastReconciledIntervention  string                              `json:"lastReconciledIntervention"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(checkpointBytes, &checkpoint); err != nil {
+		t.Fatalf("reconcile checkpoint JSON did not decode: %v\n%s", err, string(checkpointBytes))
+	}
+	checkpointRequest := requireMissionCommanderDriverRequest(t, checkpoint.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", returnedRequest.Command, true, false, false)
+	if checkpoint.LastReconciledIntervention != "int-main-1" || checkpointRequest.Command != returnedRequest.Command {
+		t.Fatalf("reconcile checkpoint did not persist restored current request: checkpoint=%+v returned=%+v", checkpoint, returnedRequest)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var finalStatus struct {
+		CaseMission struct {
+			Ready                          bool                                `json:"ready"`
+			InterventionHandoffs           []statusInterventionHandoff         `json:"interventionHandoffs"`
+			FirstScreenLaneTakeoverPackage *laneTakeoverPackage                `json:"firstScreenLaneTakeoverPackage"`
+			MissionCommanderActionQueue    missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		} `json:"caseMission"`
+		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &finalStatus); err != nil {
+		t.Fatalf("post-reconcile status JSON did not decode: %v\n%s", err, out.String())
+	}
+	finalRequest := requireMissionCommanderDriverRequest(t, finalStatus.CaseMission.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", returnedRequest.Command, true, false, false)
+	if !finalStatus.CaseMission.Ready || len(finalStatus.CaseMission.InterventionHandoffs) != 0 || finalStatus.CaseMission.FirstScreenLaneTakeoverPackage == nil || !finalStatus.CaseMission.FirstScreenLaneTakeoverPackage.ContinueReady || finalStatus.CaseMission.FirstScreenLaneTakeoverPackage.CurrentCommand != returnedRequest.Command || finalRequest.Command != returnedRequest.Command {
+		t.Fatalf("status refresh did not restore ready continue request after reconcile: status=%+v returned=%+v", finalStatus.CaseMission, returnedRequest)
+	}
+	if finalStatus.MissionControlRunbook == nil || finalStatus.MissionControlRunbook.CurrentDriverRequest == nil || finalStatus.MissionControlRunbook.CurrentDriverRequest.Kind != "preview-command" || !strings.Contains(finalStatus.MissionControlRunbook.CurrentDriverRequest.Command, `/rekit continue -Target "`+caseRoot+`" main -Executor main-agent -ExpectedExecutorGeneration 1 -WhatIf -Format json`) || finalStatus.MissionControlRunbook.ReplacementExecutorTakeoverPackage == nil || finalStatus.MissionControlRunbook.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command != finalStatus.MissionControlRunbook.CurrentDriverRequest.Command {
+		t.Fatalf("status runbook did not expose invocation-scoped continue request after reconcile: %+v", finalStatus.MissionControlRunbook)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "main", "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var handoff struct {
+		MissionCommanderActionQueue        missionCommanderActionQueueSnapshot         `json:"missionCommanderActionQueue"`
+		ReplacementExecutorTakeoverPackage *replacementExecutorTakeoverPackageSnapshot `json:"replacementExecutorTakeoverPackage"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &handoff); err != nil {
+		t.Fatalf("post-reconcile handoff JSON did not decode: %v\n%s", err, out.String())
+	}
+	handoffRequest := requireMissionCommanderDriverRequest(t, handoff.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", returnedRequest.Command, true, false, false)
+	if handoff.ReplacementExecutorTakeoverPackage == nil || !handoff.ReplacementExecutorTakeoverPackage.Ready || handoff.ReplacementExecutorTakeoverPackage.Command != handoffRequest.Command || !containsSubstring(handoff.ReplacementExecutorTakeoverPackage.TargetDocuments, ".rekit/handovers/main-latest.md") || !containsSubstring(handoff.ReplacementExecutorTakeoverPackage.TargetDocuments, ".rekit/lanes/main/checkpoints/latest.json") {
+		t.Fatalf("handoff did not persist replacement executor continue package after reconcile: handoff=%+v request=%+v", handoff, handoffRequest)
+	}
+	assertFileNotExists(t, filepath.Join(factsRoot, "authority.jsonl"))
+	assertFileNotExists(t, filepath.Join(factsRoot, "confirmed.jsonl"))
+}
+
 func TestRunStatusJsonCase(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	var out bytes.Buffer
