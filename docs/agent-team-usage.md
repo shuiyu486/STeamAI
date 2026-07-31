@@ -64,7 +64,13 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 把这次可复用经验整理成 promote 候选。
 ```
 
-主 Agent 会按需组合底层 runtime API：
+主 Agent 会按需组合底层 runtime API。维护这条日常路线时，可运行跨平台 Go-native smoke：
+
+```text
+go test ./internal/rekit/cli -run '^TestRunDailyMissionControlRouteSmokeProductPath$' -count=1
+```
+
+该 smoke 在单个临时 case 中验证 `missing-board status → typed onboarding → quickstart continue preview/apply → 读回 durable run receipt/artifacts → intervention reconcile preview/apply → status refresh → typed project handoff preview/apply → explicit lane handoff preview + returned typed Apply → lane-scoped durable takeover → new-session status`；它不执行 heavy-tool、不 spawn session、不写 authority/confirmed。
 
 ```text
 /rekit overview              # 看项目总览，不选择工作线

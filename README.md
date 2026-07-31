@@ -158,6 +158,14 @@ Adapter execution report lifecycle 的 contract、dispatch、scaffold、draft、
 
 ## 日常工作流
 
+维护 onboarding、status quickstart、continue/reconcile、handoff 或 replacement executor takeover 路线时，可用一条跨平台 Go-native smoke 覆盖完整日常闭环：
+
+```text
+go test ./internal/rekit/cli -run '^TestRunDailyMissionControlRouteSmokeProductPath$' -count=1
+```
+
+具体场景与安全边界见 `rekit/tests/README.md`；正常 case 用户不需要手动运行该维护命令。
+
 ### 1. 看当前项目状态
 
 ```text

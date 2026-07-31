@@ -1,0 +1,291 @@
+package cli
+
+import (
+	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestRunDailyMissionControlRouteSmokeProductPath(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+
+	var onboardingStatus struct {
+		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
+	}
+	runDailyMissionControlRouteJSON(t, &out, []string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &onboardingStatus)
+	onboardingRunbook := onboardingStatus.MissionControlRunbook
+	if onboardingRunbook == nil || onboardingRunbook.Quickstart == nil || !onboardingRunbook.Quickstart.Ready || !onboardingRunbook.Quickstart.CommandExecutable || onboardingRunbook.Quickstart.CurrentDriverRequest == nil || !strings.Contains(onboardingRunbook.Quickstart.Command, "/rekit overview -Target ") {
+		t.Fatalf("daily route should start from executable case-onboarding quickstart: %+v", onboardingRunbook)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "board.json")); !os.IsNotExist(err) {
+		t.Fatalf("onboarding status should stay read-only, err=%v", err)
+	}
+	onboardingArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, onboardingRunbook.Quickstart.CurrentDriverRequest)
+	if !ok {
+		t.Fatalf("case-onboarding quickstart should be executable: %+v", onboardingRunbook.Quickstart.CurrentDriverRequest)
+	}
+	out.Reset()
+	if err := Run(onboardingArgs, &out); err != nil {
+		t.Fatalf("case-onboarding quickstart failed: args=%+v err=%v\n%s", onboardingArgs, err, out.String())
+	}
+	assertFileExists(t, filepath.Join(caseRoot, ".rekit", "board.json"))
+
+	var readyStatus struct {
+		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
+	}
+	runDailyMissionControlRouteJSON(t, &out, []string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &readyStatus)
+	readyRunbook := readyStatus.MissionControlRunbook
+	if readyRunbook == nil || readyRunbook.Quickstart == nil || readyRunbook.Quickstart.CurrentDriverRequest == nil || readyRunbook.Quickstart.DriverKind != "preview-command" || !readyRunbook.Quickstart.CommandExecutable || !strings.Contains(readyRunbook.Quickstart.Command, "/rekit continue -Target ") || !strings.Contains(readyRunbook.Quickstart.Command, " main") || !strings.Contains(readyRunbook.Quickstart.Command, "-WhatIf -Format json") {
+		t.Fatalf("onboarding refresh should advance to main continue preview: %+v", readyRunbook)
+	}
+	beforeContinuePreview := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	continuePreviewArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, readyRunbook.Quickstart.CurrentDriverRequest)
+	if !ok {
+		t.Fatalf("main continue quickstart should be executable: %+v", readyRunbook.Quickstart.CurrentDriverRequest)
+	}
+	var continuePreview struct {
+		Command                     string                              `json:"command"`
+		Applied                     bool                                `json:"applied"`
+		Blocked                     bool                                `json:"blocked"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+	}
+	runDailyMissionControlRouteJSON(t, &out, continuePreviewArgs, &continuePreview)
+	continueApplyRequest := requireMissionCommanderDriverRequest(t, continuePreview.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue main", true, false, false)
+	if continuePreview.Command != "continue" || continuePreview.Applied || continuePreview.Blocked || continueApplyRequest.Command == readyRunbook.Quickstart.Command {
+		t.Fatalf("continue preview should return a case-local apply request: preview=%+v request=%+v", continuePreview, continueApplyRequest)
+	}
+	assertSnapshotEqual(t, beforeContinuePreview, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	continueApplyArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, continueApplyRequest)
+	if !ok {
+		t.Fatalf("continue preview returned request should be executable: %+v", continueApplyRequest)
+	}
+	continueApplyArgs = append(continueApplyArgs, "-Target", caseRoot, "-Pack", "_template", "-Apply", "-Format", "json")
+	var continued struct {
+		Command                       string                                 `json:"command"`
+		RunID                         string                                 `json:"runId"`
+		BatchID                       string                                 `json:"batchId"`
+		Applied                       bool                                   `json:"applied"`
+		Blocked                       bool                                   `json:"blocked"`
+		MissionCommanderActionQueue   missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
+		MissionCommanderDriverReceipt *missionCommanderDriverReceiptSnapshot `json:"missionCommanderDriverReceipt"`
+		Writes                        []startWrite                           `json:"writes"`
+	}
+	runDailyMissionControlRouteJSON(t, &out, continueApplyArgs, &continued)
+	continuedRequest := requireMissionCommanderDriverRequest(t, continued.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue main", true, false, false)
+	if continued.Command != "continue" || !continued.Applied || continued.Blocked || continued.RunID == "" || continued.BatchID != "batch-"+continued.RunID || continued.MissionCommanderDriverReceipt == nil || continued.MissionCommanderDriverReceipt.RefreshedCurrentDriverRequest == nil || continued.MissionCommanderDriverReceipt.RefreshedCurrentDriverRequest.Command != continuedRequest.Command {
+		t.Fatalf("continue apply should persist a durable run receipt: result=%+v request=%+v", continued, continuedRequest)
+	}
+	statusPath := assertStartWrite(t, continued.Writes, ".rekit/runs/"+continued.RunID+"/status.json", "write").TargetPath
+	digestPath := assertStartWrite(t, continued.Writes, ".rekit/runs/"+continued.RunID+"/digest.md", "write").TargetPath
+	statusBytes, err := os.ReadFile(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var runStatus struct {
+		RunID                         string                                 `json:"runId"`
+		BatchID                       string                                 `json:"batchId"`
+		MissionCommanderDriverReceipt *missionCommanderDriverReceiptSnapshot `json:"missionCommanderDriverReceipt"`
+	}
+	if err := json.Unmarshal(statusBytes, &runStatus); err != nil {
+		t.Fatalf("daily route run status did not decode: %v\n%s", err, string(statusBytes))
+	}
+	if runStatus.RunID != continued.RunID || runStatus.BatchID != continued.BatchID || runStatus.MissionCommanderDriverReceipt == nil || runStatus.MissionCommanderDriverReceipt.RefreshedCurrentDriverRequest == nil || runStatus.MissionCommanderDriverReceipt.RefreshedCurrentDriverRequest.Command != continuedRequest.Command || !containsSubstring(runStatus.MissionCommanderDriverReceipt.Boundary, "continue -Apply does not write authority/confirmed state or execute heavy tools") {
+		t.Fatalf("daily route run status omitted durable receipt identity or boundary: %+v", runStatus)
+	}
+	digestBytes, err := os.ReadFile(digestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digestText := string(digestBytes)
+	for _, want := range []string{"## Mission Commander driver receipt", "- runId: `" + continued.RunID + "`", "- batchId: `" + continued.BatchID + "`", "- command: `" + continuedRequest.Command + "`", "continue -Apply does not write authority/confirmed state or execute heavy tools"} {
+		if !strings.Contains(digestText, want) {
+			t.Fatalf("daily route run digest omitted %q:\n%s", want, digestText)
+		}
+	}
+
+	interventionsPath := filepath.Join(caseRoot, ".rekit", "facts", "interventions.jsonl")
+	interventionsFile, err := os.OpenFile(interventionsPath, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := interventionsFile.WriteString(`{"kind":"intervention","eventId":"int-daily-route-1","lane":"main","subject":"manual route correction","summary":"operator redirected the current mission","action":"override","target":"batch-daily-route","approvedBy":"lead","scope":"metadata","status":"open","batchId":"batch-daily-route"}` + "\n"); err != nil {
+		_ = interventionsFile.Close()
+		t.Fatal(err)
+	}
+	if err := interventionsFile.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	var blockedStatus struct {
+		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
+	}
+	runDailyMissionControlRouteJSON(t, &out, []string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &blockedStatus)
+	blockedRunbook := blockedStatus.MissionControlRunbook
+	if blockedRunbook == nil || blockedRunbook.Quickstart == nil || blockedRunbook.Quickstart.CurrentDriverRequest == nil || !blockedRunbook.Quickstart.RequiresReview || !strings.Contains(blockedRunbook.Quickstart.Command, "/rekit reconcile -Target ") || !strings.Contains(blockedRunbook.Quickstart.Command, " main -InterventionId int-daily-route-1 -WhatIf -Format json") {
+		t.Fatalf("open intervention should replace continue with reconcile quickstart: %+v", blockedRunbook)
+	}
+	beforeReconcilePreview := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	reconcilePreviewArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, blockedRunbook.Quickstart.CurrentDriverRequest)
+	if !ok {
+		t.Fatalf("reconcile quickstart should be executable: %+v", blockedRunbook.Quickstart.CurrentDriverRequest)
+	}
+	var reconcilePreview struct {
+		Command                       string                                 `json:"command"`
+		Applied                       bool                                   `json:"applied"`
+		RequiresConfirmation          bool                                   `json:"requiresConfirmation"`
+		MissionCommanderActionQueue   missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
+		MissionCommanderDriverReceipt *missionCommanderDriverReceiptSnapshot `json:"missionCommanderDriverReceipt"`
+	}
+	runDailyMissionControlRouteJSON(t, &out, reconcilePreviewArgs, &reconcilePreview)
+	reconcileApplyRequest := reconcilePreview.MissionCommanderActionQueue.CurrentDriverRequest
+	if reconcilePreview.Command != "reconcile" || reconcilePreview.Applied || !reconcilePreview.RequiresConfirmation || reconcileApplyRequest == nil || !reconcileApplyRequest.CommandExecutable || !reconcileApplyRequest.RequiresReview || !strings.Contains(reconcileApplyRequest.Command, "/rekit reconcile main -InterventionId int-daily-route-1 -Apply") || reconcileApplyRequest.ExpectedReceipt.RefreshStatusCommand != blockedRunbook.Quickstart.RefreshStatusCommand || reconcilePreview.MissionCommanderDriverReceipt == nil || reconcilePreview.MissionCommanderDriverReceipt.RefreshedCurrentDriverRequest == nil || reconcilePreview.MissionCommanderDriverReceipt.RefreshedCurrentDriverRequest.Command != reconcileApplyRequest.Command {
+		t.Fatalf("reconcile preview should return typed apply request and refresh route: preview=%+v request=%+v", reconcilePreview, reconcileApplyRequest)
+	}
+	assertSnapshotEqual(t, beforeReconcilePreview, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	reconcileApplyArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, reconcileApplyRequest)
+	if !ok {
+		t.Fatalf("reconcile apply request should be executable: %+v", reconcileApplyRequest)
+	}
+	reconcileApplyArgs = append(reconcileApplyArgs, "-Target", caseRoot, "-Pack", "_template", "-Format", "json")
+	var reconciled struct {
+		Command                       string                                 `json:"command"`
+		Applied                       bool                                   `json:"applied"`
+		ResolutionEventID             string                                 `json:"resolutionEventId"`
+		MissionCommanderActionQueue   missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
+		MissionCommanderDriverReceipt *missionCommanderDriverReceiptSnapshot `json:"missionCommanderDriverReceipt"`
+		Writes                        []startWrite                           `json:"writes"`
+	}
+	runDailyMissionControlRouteJSON(t, &out, reconcileApplyArgs, &reconciled)
+	reconciledRequest := requireMissionCommanderDriverRequest(t, reconciled.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue main -Executor main-agent -ExpectedExecutorGeneration 1", true, false, false)
+	if reconciled.Command != "reconcile" || !reconciled.Applied || reconciled.ResolutionEventID == "" || reconciled.MissionCommanderDriverReceipt == nil || reconciled.MissionCommanderDriverReceipt.RefreshedCurrentDriverRequest == nil || reconciled.MissionCommanderDriverReceipt.RefreshedCurrentDriverRequest.Command != reconciledRequest.Command || reconciledRequest.ExpectedReceipt.RefreshStatusCommand != blockedRunbook.Quickstart.RefreshStatusCommand {
+		t.Fatalf("reconcile apply should restore the durable continue request: result=%+v request=%+v", reconciled, reconciledRequest)
+	}
+	assertStartWrite(t, reconciled.Writes, ".rekit/facts/interventions.jsonl", "append")
+
+	var reconciledStatus struct {
+		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
+	}
+	runDailyMissionControlRouteJSON(t, &out, rekitCommandCLIArgs(t, blockedRunbook.Quickstart.RefreshStatusCommand), &reconciledStatus)
+	reconciledRunbook := reconciledStatus.MissionControlRunbook
+	if reconciledRunbook == nil || reconciledRunbook.Quickstart == nil || reconciledRunbook.Quickstart.CurrentDriverRequest == nil || !strings.Contains(reconciledRunbook.Quickstart.Command, "/rekit continue -Target ") || !strings.Contains(reconciledRunbook.Quickstart.Command, " main -Executor main-agent -ExpectedExecutorGeneration 1 -WhatIf -Format json") || reconciledRunbook.HandoffPreviewDriverRequest == nil {
+		t.Fatalf("reconcile refresh should restore continue quickstart and handoff route: %+v", reconciledRunbook)
+	}
+
+	beforeHandoffPreview := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	handoffPreviewArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, reconciledRunbook.HandoffPreviewDriverRequest)
+	if !ok {
+		t.Fatalf("handoff preview request should be executable: %+v", reconciledRunbook.HandoffPreviewDriverRequest)
+	}
+	var handoffPreview struct {
+		Command                    string                              `json:"command"`
+		Applied                    bool                                `json:"applied"`
+		Project                    bool                                `json:"project"`
+		DailyMissionControlRunbook *dailyMissionControlRunbookSnapshot `json:"dailyMissionControlRunbook"`
+		Writes                     []startWrite                        `json:"writes"`
+	}
+	runDailyMissionControlRouteJSON(t, &out, handoffPreviewArgs, &handoffPreview)
+	if handoffPreview.Command != "handoff" || handoffPreview.Applied || !handoffPreview.Project || handoffPreview.DailyMissionControlRunbook == nil || handoffPreview.DailyMissionControlRunbook.HandoffApplyDriverRequest == nil || !handoffPreview.DailyMissionControlRunbook.HandoffApplyDriverRequest.CommandExecutable {
+		t.Fatalf("handoff preview should return executable durable handoff apply request: %+v", handoffPreview)
+	}
+	assertStartWrite(t, handoffPreview.Writes, ".rekit/handovers/latest.md", "would-write-latest-project-handoff")
+	assertSnapshotEqual(t, beforeHandoffPreview, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	handoffApplyArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, handoffPreview.DailyMissionControlRunbook.HandoffApplyDriverRequest)
+	if !ok {
+		t.Fatalf("handoff apply request should be executable: %+v", handoffPreview.DailyMissionControlRunbook.HandoffApplyDriverRequest)
+	}
+	var handoffApplied struct {
+		Command                            string                                      `json:"command"`
+		Applied                            bool                                        `json:"applied"`
+		Project                            bool                                        `json:"project"`
+		ReplacementExecutorTakeoverPackage *replacementExecutorTakeoverPackageSnapshot `json:"replacementExecutorTakeoverPackage"`
+		Writes                             []startWrite                                `json:"writes"`
+	}
+	runDailyMissionControlRouteJSON(t, &out, handoffApplyArgs, &handoffApplied)
+	if handoffApplied.Command != "handoff" || !handoffApplied.Applied || !handoffApplied.Project || handoffApplied.ReplacementExecutorTakeoverPackage == nil || !handoffApplied.ReplacementExecutorTakeoverPackage.Ready || handoffApplied.ReplacementExecutorTakeoverPackage.RefreshStatusCommand == "" {
+		t.Fatalf("handoff apply should return replacement executor takeover package: %+v", handoffApplied)
+	}
+	projectArtifactPath := assertStartWrite(t, handoffApplied.Writes, ".rekit/handovers/latest-replacement-executor-takeover.json", "write-latest-replacement-executor-takeover-package").TargetPath
+	assertDailyMissionControlTakeoverArtifact(t, projectArtifactPath, reconciledRequest.Command, handoffApplied.ReplacementExecutorTakeoverPackage.RefreshStatusCommand, ".rekit/handovers/latest-replacement-executor-takeover.json")
+
+	beforeLaneHandoffPreview := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	var laneHandoffPreview struct {
+		Command                    string                              `json:"command"`
+		Applied                    bool                                `json:"applied"`
+		Project                    bool                                `json:"project"`
+		DailyMissionControlRunbook *dailyMissionControlRunbookSnapshot `json:"dailyMissionControlRunbook"`
+		Writes                     []startWrite                        `json:"writes"`
+	}
+	runDailyMissionControlRouteJSON(t, &out, []string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "main", "-WhatIf", "-Format", "json"}, &laneHandoffPreview)
+	if laneHandoffPreview.Command != "handoff" || laneHandoffPreview.Applied || laneHandoffPreview.Project || laneHandoffPreview.DailyMissionControlRunbook == nil || laneHandoffPreview.DailyMissionControlRunbook.HandoffApplyDriverRequest == nil || !laneHandoffPreview.DailyMissionControlRunbook.HandoffApplyDriverRequest.CommandExecutable {
+		t.Fatalf("lane handoff preview should return executable durable handoff apply request: %+v", laneHandoffPreview)
+	}
+	assertStartWrite(t, laneHandoffPreview.Writes, ".rekit/handovers/main-latest.md", "would-write-latest-lane-handoff")
+	assertSnapshotEqual(t, beforeLaneHandoffPreview, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	laneHandoffApplyArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, laneHandoffPreview.DailyMissionControlRunbook.HandoffApplyDriverRequest)
+	if !ok {
+		t.Fatalf("lane handoff apply request should be executable: %+v", laneHandoffPreview.DailyMissionControlRunbook.HandoffApplyDriverRequest)
+	}
+	var laneHandoffApplied struct {
+		Command                            string                                      `json:"command"`
+		Applied                            bool                                        `json:"applied"`
+		Project                            bool                                        `json:"project"`
+		ReplacementExecutorTakeoverPackage *replacementExecutorTakeoverPackageSnapshot `json:"replacementExecutorTakeoverPackage"`
+		Writes                             []startWrite                                `json:"writes"`
+	}
+	runDailyMissionControlRouteJSON(t, &out, laneHandoffApplyArgs, &laneHandoffApplied)
+	if laneHandoffApplied.Command != "handoff" || !laneHandoffApplied.Applied || laneHandoffApplied.Project || laneHandoffApplied.ReplacementExecutorTakeoverPackage == nil || !laneHandoffApplied.ReplacementExecutorTakeoverPackage.Ready {
+		t.Fatalf("lane handoff apply should return replacement executor takeover package: %+v", laneHandoffApplied)
+	}
+	laneArtifactPath := assertStartWrite(t, laneHandoffApplied.Writes, ".rekit/handovers/main-latest-replacement-executor-takeover.json", "write-latest-replacement-executor-takeover-package").TargetPath
+	laneArtifact := assertDailyMissionControlTakeoverArtifact(t, laneArtifactPath, reconciledRequest.Command, laneHandoffApplied.ReplacementExecutorTakeoverPackage.RefreshStatusCommand, ".rekit/handovers/main-latest-replacement-executor-takeover.json")
+
+	var takeoverStatus struct {
+		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
+	}
+	runDailyMissionControlRouteJSON(t, &out, rekitCommandCLIArgs(t, laneArtifact.RefreshStatusCommand), &takeoverStatus)
+	takeoverRunbook := takeoverStatus.MissionControlRunbook
+	if takeoverRunbook == nil || takeoverRunbook.Quickstart == nil || takeoverRunbook.Quickstart.CurrentDriverRequest == nil || takeoverRunbook.ReplacementExecutorTakeoverPackage == nil || !takeoverRunbook.ReplacementExecutorTakeoverPackage.Ready || !takeoverRunbook.ReplacementExecutorTakeoverPackage.DurableArtifactFresh || takeoverRunbook.ReplacementExecutorTakeoverPackage.DurableArtifactPath != ".rekit/handovers/main-latest-replacement-executor-takeover.json" || takeoverRunbook.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command != takeoverRunbook.Quickstart.CurrentDriverRequest.Command {
+		var takeoverPackage *replacementExecutorTakeoverPackageSnapshot
+		if takeoverRunbook != nil {
+			takeoverPackage = takeoverRunbook.ReplacementExecutorTakeoverPackage
+		}
+		t.Fatalf("new-session status should consume the fresh durable takeover route: runbook=%+v package=%+v", takeoverRunbook, takeoverPackage)
+	}
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
+}
+
+func assertDailyMissionControlTakeoverArtifact(t *testing.T, path, command, refreshCommand, relativePath string) replacementExecutorTakeoverPackageSnapshot {
+	t.Helper()
+	artifactBytes, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var artifact replacementExecutorTakeoverPackageSnapshot
+	if err := json.Unmarshal(artifactBytes, &artifact); err != nil {
+		t.Fatalf("durable takeover artifact did not decode: %v\n%s", err, string(artifactBytes))
+	}
+	if !artifact.Ready || artifact.CurrentDriverRequest.Command != command || artifact.RefreshStatusCommand != refreshCommand || !containsSubstring(artifact.RunbookSteps, "read "+relativePath+" before using any prior chat context") {
+		t.Fatalf("durable takeover artifact should preserve the current request and refresh route: %+v", artifact)
+	}
+	return artifact
+}
+
+func runDailyMissionControlRouteJSON(t *testing.T, out *bytes.Buffer, args []string, target any) {
+	t.Helper()
+	out.Reset()
+	if err := Run(args, out); err != nil {
+		t.Fatalf("daily Mission Control route command failed: args=%+v err=%v\n%s", args, err, out.String())
+	}
+	if err := json.Unmarshal(out.Bytes(), target); err != nil {
+		t.Fatalf("daily Mission Control route result did not decode: args=%+v err=%v\n%s", args, err, out.String())
+	}
+}
