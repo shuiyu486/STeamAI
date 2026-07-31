@@ -121,6 +121,7 @@ type Options struct {
 	NextBatchClosure                      string
 	ExpectedNextBatchPlanSHA256           string
 	ExpectedDriverStepPlanSHA256          string
+	ExpectedReviewerStepPlanSHA256        string
 	Gate                                  gate.Options
 	Note                                  note.Options
 	Start                                 workstream.StartOptions
@@ -382,6 +383,12 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ExpectedDriverStepPlanSha256")
 			}
 			opt.ExpectedDriverStepPlanSHA256 = args[i]
+		case "-ExpectedReviewerStepPlanSha256", "-ExpectedReviewerStepPlanSHA256", "--expected-reviewer-step-plan-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedReviewerStepPlanSha256")
+			}
+			opt.ExpectedReviewerStepPlanSHA256 = args[i]
 		case "-CollectReviewerResult", "--collect-reviewer-result":
 			opt.CollectReviewerResult = true
 		case "-RecordReviewerDispatch", "--record-reviewer-dispatch":
@@ -961,6 +968,9 @@ func Run(args []string, stdout io.Writer) error {
 	if strings.TrimSpace(opt.ExpectedDriverStepPlanSHA256) != "" && opt.Command != commands.RunDriverStep {
 		return fmt.Errorf("-ExpectedDriverStepPlanSha256 is supported only by run-driver-step")
 	}
+	if strings.TrimSpace(opt.ExpectedReviewerStepPlanSHA256) != "" && opt.Command != commands.RunReviewerStep {
+		return fmt.Errorf("-ExpectedReviewerStepPlanSha256 is supported only by run-reviewer-step")
+	}
 	if (strings.TrimSpace(opt.Note.CreatedAt) != "" || strings.TrimSpace(opt.Note.ExpectedEventSHA256) != "") && opt.Command != commands.Note {
 		return fmt.Errorf("note event currentness flags are supported only by note")
 	}
@@ -970,8 +980,8 @@ func Run(args []string, stdout io.Writer) error {
 	if (opt.StageReviewerResult || strings.TrimSpace(opt.ReviewerResultSourcePath) != "" || strings.TrimSpace(opt.ExpectedSourceSHA256) != "") && opt.Command != commands.PlanSubagents {
 		return fmt.Errorf("reviewer result staging flags are supported only by plan-subagents reviewer result staging")
 	}
-	if (opt.SaveReviewerResultInput || strings.TrimSpace(opt.ReviewerResultInputSourcePath) != "") && opt.Command != commands.PlanSubagents {
-		return fmt.Errorf("reviewer result input save flags are supported only by plan-subagents reviewer result input save")
+	if (opt.SaveReviewerResultInput || strings.TrimSpace(opt.ReviewerResultInputSourcePath) != "") && opt.Command != commands.PlanSubagents && opt.Command != commands.RunReviewerStep {
+		return fmt.Errorf("reviewer result input save flags are supported only by plan-subagents reviewer result input save or run-reviewer-step external handoff")
 	}
 	if (opt.CaptureReviewerResultSource || strings.TrimSpace(opt.ReviewerResultInputPath) != "" || strings.TrimSpace(opt.ExpectedReviewerResultInputSHA256) != "") && opt.Command != commands.PlanSubagents {
 		return fmt.Errorf("reviewer result source capture flags are supported only by plan-subagents reviewer result source capture")
@@ -988,8 +998,11 @@ func Run(args []string, stdout io.Writer) error {
 	if (opt.RetireInvalidReviewerPacket || strings.TrimSpace(opt.ExpectedPacketSHA256) != "" || strings.TrimSpace(opt.ExpectedIntegritySHA256) != "") && opt.Command != commands.PlanSubagents {
 		return fmt.Errorf("reviewer packet retirement flags are supported only by plan-subagents reviewer packet retirement")
 	}
-	if (opt.RecoverReviewerResult || strings.TrimSpace(opt.ExpectedCandidateSHA256) != "" || strings.TrimSpace(opt.ExpectedReviewerResultSHA256) != "") && opt.Command != commands.PlanSubagents {
+	if (opt.RecoverReviewerResult || strings.TrimSpace(opt.ExpectedReviewerResultSHA256) != "") && opt.Command != commands.PlanSubagents {
 		return fmt.Errorf("reviewer result recovery flags are supported only by plan-subagents reviewer result recovery")
+	}
+	if strings.TrimSpace(opt.ExpectedCandidateSHA256) != "" && opt.Command != commands.PlanSubagents {
+		return fmt.Errorf("expected candidate hash is supported only by plan-subagents reviewer result collection or recovery")
 	}
 	switch opt.Command {
 	case commands.Status:
@@ -1002,6 +1015,8 @@ func Run(args []string, stdout io.Writer) error {
 		return runReleaseRun(ctx, opt, stdout)
 	case commands.RunDriverStep:
 		return runDriverStep(ctx, opt, stdout)
+	case commands.RunReviewerStep:
+		return runReviewerStep(ctx, opt, stdout)
 	case commands.NextBatch:
 		return runNextBatch(ctx, opt, stdout)
 	case commands.Doctor, commands.Validate:
@@ -10325,8 +10340,11 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 	if !opt.RetireInvalidReviewerPacket && (strings.TrimSpace(opt.ExpectedPacketSHA256) != "" || strings.TrimSpace(opt.ExpectedIntegritySHA256) != "") {
 		return fmt.Errorf("expected packet/integrity hashes are supported only with -RetireInvalidReviewerPacket -Apply")
 	}
-	if !opt.RecoverReviewerResult && (strings.TrimSpace(opt.ExpectedCandidateSHA256) != "" || strings.TrimSpace(opt.ExpectedReviewerResultSHA256) != "") {
-		return fmt.Errorf("expected candidate/result hashes are supported only with -RecoverReviewerResult -Apply")
+	if strings.TrimSpace(opt.ExpectedCandidateSHA256) != "" && !opt.RecoverReviewerResult && !opt.CollectReviewerResult {
+		return fmt.Errorf("expected candidate hash is supported only with -CollectReviewerResult or -RecoverReviewerResult -Apply")
+	}
+	if !opt.RecoverReviewerResult && strings.TrimSpace(opt.ExpectedReviewerResultSHA256) != "" {
+		return fmt.Errorf("expected reviewer result hash is supported only with -RecoverReviewerResult -Apply")
 	}
 	if !opt.RetireReviewerResultRecovery && (strings.TrimSpace(opt.ExpectedIntentSHA256) != "" || strings.TrimSpace(opt.ExpectedCanonicalSHA256) != "") {
 		return fmt.Errorf("expected intent/canonical hashes are supported only with -RetireReviewerResultRecovery -Apply")
@@ -10513,6 +10531,12 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 		if opt.Apply == opt.WhatIf {
 			return fmt.Errorf("plan-subagents reviewer result collection requires exactly one of -WhatIf or -Apply")
 		}
+		if opt.WhatIf && strings.TrimSpace(opt.ExpectedCandidateSHA256) != "" {
+			return fmt.Errorf("plan-subagents reviewer result collection WhatIf does not accept -ExpectedCandidateSha256")
+		}
+		if opt.Apply && strings.TrimSpace(opt.ExpectedCandidateSHA256) == "" {
+			return fmt.Errorf("plan-subagents reviewer result collection Apply requires -ExpectedCandidateSha256 from WhatIf")
+		}
 		if strings.TrimSpace(opt.PacketPath) == "" || strings.TrimSpace(opt.ShardID) == "" {
 			return fmt.Errorf("plan-subagents reviewer result collection requires -PacketPath and -ShardId")
 		}
@@ -10520,7 +10544,7 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("unsupported plan-subagents format: %s", opt.Format)
 		}
-		result, err := subagents.CollectReviewerResult(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerResultCollectionOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, WhatIf: opt.WhatIf})
+		result, err := subagents.CollectReviewerResult(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerResultCollectionOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedCandidateSHA256: opt.ExpectedCandidateSHA256, WhatIf: opt.WhatIf})
 		if err != nil {
 			return err
 		}

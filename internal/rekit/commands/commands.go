@@ -8,29 +8,30 @@ import (
 )
 
 const (
-	Attach        = "attach"
-	Bootstrap     = "bootstrap"
-	Continue      = "continue"
-	Doctor        = "doctor"
-	Gate          = "gate"
-	Handoff       = "handoff"
-	Init          = "init"
-	NextBatch     = "next-batch"
-	Note          = "note"
-	Overview      = "overview"
-	Packs         = "packs"
-	PlanSubagents = "plan-subagents"
-	Promote       = "promote"
-	Reconcile     = "reconcile"
-	ReleaseCheck  = "release-check"
-	ReleaseRun    = "release-run"
-	Repair        = "repair"
-	RunDriverStep = "run-driver-step"
-	Start         = "start"
-	Status        = "status"
-	Sync          = "sync"
-	Update        = "update"
-	Validate      = "validate"
+	Attach          = "attach"
+	Bootstrap       = "bootstrap"
+	Continue        = "continue"
+	Doctor          = "doctor"
+	Gate            = "gate"
+	Handoff         = "handoff"
+	Init            = "init"
+	NextBatch       = "next-batch"
+	Note            = "note"
+	Overview        = "overview"
+	Packs           = "packs"
+	PlanSubagents   = "plan-subagents"
+	Promote         = "promote"
+	Reconcile       = "reconcile"
+	ReleaseCheck    = "release-check"
+	ReleaseRun      = "release-run"
+	Repair          = "repair"
+	RunDriverStep   = "run-driver-step"
+	RunReviewerStep = "run-reviewer-step"
+	Start           = "start"
+	Status          = "status"
+	Sync            = "sync"
+	Update          = "update"
+	Validate        = "validate"
 )
 
 const (
@@ -127,6 +128,7 @@ var publicCommands = []string{
 	ReleaseRun,
 	Repair,
 	RunDriverStep,
+	RunReviewerStep,
 	Start,
 	Status,
 	Sync,
@@ -153,6 +155,7 @@ var publicProfiles = []PublicProfile{
 	{Command: ReleaseRun, MutationBoundary: BoundaryReadOnly},
 	{Command: Repair, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
 	{Command: RunDriverStep, MutationBoundary: BoundaryCaseLocalReviewFirst, IsMutation: true, WritesCase: true, ReviewFirst: true, ApplyRequired: true},
+	{Command: RunReviewerStep, MutationBoundary: BoundaryCaseLocalReviewFirst, IsMutation: true, WritesCase: true, ReviewFirst: true, ApplyRequired: true},
 	{Command: Start, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
 	{Command: Status, MutationBoundary: BoundaryReadOnly},
 	{Command: Sync, MutationBoundary: BoundaryCaseLocalReviewFirst, IsMutation: true, WritesCase: true, ReviewFirst: true, ApplyRequired: true},
@@ -176,29 +179,30 @@ func PublicSet() map[string]bool {
 
 func SymbolValues() map[string]string {
 	return map[string]string{
-		"Attach":        Attach,
-		"Bootstrap":     Bootstrap,
-		"Continue":      Continue,
-		"Doctor":        Doctor,
-		"Gate":          Gate,
-		"Handoff":       Handoff,
-		"Init":          Init,
-		"NextBatch":     NextBatch,
-		"Note":          Note,
-		"Overview":      Overview,
-		"Packs":         Packs,
-		"PlanSubagents": PlanSubagents,
-		"Promote":       Promote,
-		"Reconcile":     Reconcile,
-		"ReleaseCheck":  ReleaseCheck,
-		"ReleaseRun":    ReleaseRun,
-		"Repair":        Repair,
-		"RunDriverStep": RunDriverStep,
-		"Start":         Start,
-		"Status":        Status,
-		"Sync":          Sync,
-		"Update":        Update,
-		"Validate":      Validate,
+		"Attach":          Attach,
+		"Bootstrap":       Bootstrap,
+		"Continue":        Continue,
+		"Doctor":          Doctor,
+		"Gate":            Gate,
+		"Handoff":         Handoff,
+		"Init":            Init,
+		"NextBatch":       NextBatch,
+		"Note":            Note,
+		"Overview":        Overview,
+		"Packs":           Packs,
+		"PlanSubagents":   PlanSubagents,
+		"Promote":         Promote,
+		"Reconcile":       Reconcile,
+		"ReleaseCheck":    ReleaseCheck,
+		"ReleaseRun":      ReleaseRun,
+		"Repair":          Repair,
+		"RunDriverStep":   RunDriverStep,
+		"RunReviewerStep": RunReviewerStep,
+		"Start":           Start,
+		"Status":          Status,
+		"Sync":            Sync,
+		"Update":          Update,
+		"Validate":        Validate,
 	}
 }
 

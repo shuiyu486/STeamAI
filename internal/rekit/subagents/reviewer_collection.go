@@ -14,11 +14,12 @@ import (
 )
 
 type ReviewerResultCollectionOptions struct {
-	PacketPath string
-	ShardID    string
-	Lane       string
-	Actor      string
-	WhatIf     bool
+	PacketPath              string
+	ShardID                 string
+	Lane                    string
+	Actor                   string
+	ExpectedCandidateSHA256 string
+	WhatIf                  bool
 }
 
 type ReviewerResultCollectionResult struct {
@@ -90,6 +91,9 @@ func CollectReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerResultCo
 	}
 	result := newReviewerResultCollectionResult(repoRoot, caseRoot, pack, opt, prepared)
 	if opt.WhatIf {
+		if strings.TrimSpace(opt.ExpectedCandidateSHA256) != "" {
+			return ReviewerResultCollectionResult{}, fmt.Errorf("reviewer result collection WhatIf does not accept an expected candidate sha256")
+		}
 		result.Status = "previewed"
 		result.AlreadyCollected = prepared.alreadyCollected
 		if prepared.alreadyCollected {
@@ -108,7 +112,7 @@ func CollectReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerResultCo
 		} else {
 			result.MissionCommanderAction = mission.MissionCommanderAction{
 				State:          "ready-for-reviewer-result-collection-apply",
-				PrimaryCommand: reviewerResultCollectionCommand(prepared.packetPath, prepared.handoff.ShardID, prepared.lane, prepared.actor, true),
+				PrimaryCommand: reviewerResultCollectionCommand(prepared.packetPath, prepared.handoff.ShardID, prepared.lane, prepared.actor, result.CandidateSHA256, true),
 				Boundary:       result.Boundary,
 			}
 		}
@@ -125,6 +129,13 @@ func CollectReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerResultCo
 		return ReviewerResultCollectionResult{}, err
 	}
 	result = newReviewerResultCollectionResult(repoRoot, caseRoot, pack, opt, prepared)
+	expectedCandidateSHA256 := strings.TrimSpace(opt.ExpectedCandidateSHA256)
+	if expectedCandidateSHA256 == "" {
+		return ReviewerResultCollectionResult{}, fmt.Errorf("reviewer result collection Apply requires expected candidate sha256 from WhatIf")
+	}
+	if !strings.EqualFold(expectedCandidateSHA256, result.CandidateSHA256) {
+		return ReviewerResultCollectionResult{}, fmt.Errorf("reviewer result collection expected candidate sha256 mismatch: got %s want %s", expectedCandidateSHA256, result.CandidateSHA256)
+	}
 	already, err := publishReviewerResult(prepared.packet.ReviewerOrchestration.ResultRoot, prepared.handoff.ReviewerResultPath, prepared.candidate)
 	if err != nil {
 		return ReviewerResultCollectionResult{}, err
@@ -399,9 +410,10 @@ func finalizeReviewerResultCollectionResult(result ReviewerResultCollectionResul
 	return result
 }
 
-func reviewerResultCollectionCommand(packetPath, shardID, lane, actor string, apply bool) string {
+func reviewerResultCollectionCommand(packetPath, shardID, lane, actor, expectedCandidateSHA256 string, apply bool) string {
 	command := "/rekit plan-subagents -PacketPath " + quoteCommandArg(packetPath) + " -CollectReviewerResult -ShardId " + quoteCommandArg(shardID) + " -Lane " + quoteCommandArg(lane) + " -Actor " + quoteCommandArg(actor)
 	if apply {
+		command += " -ExpectedCandidateSha256 " + quoteCommandArg(expectedCandidateSHA256)
 		return command + " -Apply -Format json"
 	}
 	return command + " -WhatIf -Format json"

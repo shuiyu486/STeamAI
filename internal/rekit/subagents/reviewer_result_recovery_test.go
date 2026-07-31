@@ -86,6 +86,7 @@ func TestRecoverReviewerResultWhatIfApplyCollectionAndIntake(t *testing.T) {
 		t.Fatalf("collection preview after recovery: %+v err=%v", collectionPreview, err)
 	}
 	collectionOpt.WhatIf = false
+	collectionOpt.ExpectedCandidateSHA256 = collectionPreview.CandidateSHA256
 	if _, err := CollectReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, collectionOpt); err != nil {
 		t.Fatal(err)
 	}

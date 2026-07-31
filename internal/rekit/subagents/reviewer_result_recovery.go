@@ -285,7 +285,7 @@ func RecoverReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerResultRe
 	result.NextSteps = []string{"run reviewer result collection -WhatIf again; apply collection only after confirming the candidate remains correct"}
 	result.MissionCommanderAction = mission.MissionCommanderAction{
 		State:          "reviewer-result-recovered-ready-for-collection-preview",
-		PrimaryCommand: reviewerResultCollectionCommand(prepared.packetPath, prepared.handoff.ShardID, prepared.lane, prepared.actor, false),
+		PrimaryCommand: reviewerResultCollectionCommand(prepared.packetPath, prepared.handoff.ShardID, prepared.lane, prepared.actor, "", false),
 		Boundary:       result.Boundary,
 	}
 	return finalizeReviewerResultRecoveryResult(result), nil
@@ -352,7 +352,7 @@ func finalizeReviewerResultRecoveryResult(result ReviewerResultRecoveryResult) R
 		result.NextSteps = []string{"the exact reviewer result recovery is already recorded; run collection -WhatIf if the canonical result remains absent"}
 		result.MissionCommanderAction = mission.MissionCommanderAction{
 			State:          "reviewer-result-recovery-already-applied",
-			PrimaryCommand: reviewerResultCollectionCommand(result.PacketPath, result.ShardID, result.Lane, result.Actor, false),
+			PrimaryCommand: reviewerResultCollectionCommand(result.PacketPath, result.ShardID, result.Lane, result.Actor, "", false),
 			Boundary:       result.Boundary,
 		}
 	}

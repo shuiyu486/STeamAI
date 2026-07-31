@@ -968,6 +968,19 @@ func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) Rev
 	summary := ReviewerDispatchIntakeSummary{}
 	lanes := map[string]bool{}
 	packets := map[string]bool{}
+	packetReadyForIntake := map[string]bool{}
+	for _, item := range items {
+		packetKey := firstText(item.PacketID, item.PacketPath)
+		if packetKey == "" {
+			continue
+		}
+		if _, ok := packetReadyForIntake[packetKey]; !ok {
+			packetReadyForIntake[packetKey] = true
+		}
+		if item.State != "ready-for-reviewer-intake-preview" {
+			packetReadyForIntake[packetKey] = false
+		}
+	}
 	var nextAction *ReviewerDispatchIntakeHandoff
 	for idx := range items {
 		item := items[idx]
@@ -994,7 +1007,11 @@ func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) Rev
 		if item.State == "attach-required-before-reviewer-intake" || item.State == "reviewer-packet-owner-adoption-required" {
 			summary.AttachRequired++
 		}
-		if nextAction == nil || reviewerDispatchActionPriority(item) < reviewerDispatchActionPriority(*nextAction) {
+		eligible := true
+		if item.State == "ready-for-reviewer-intake-preview" {
+			eligible = packetReadyForIntake[firstText(item.PacketID, item.PacketPath)]
+		}
+		if eligible && (nextAction == nil || reviewerDispatchActionPriority(item) < reviewerDispatchActionPriority(*nextAction)) {
 			nextAction = &items[idx]
 		}
 	}

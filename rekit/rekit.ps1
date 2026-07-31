@@ -1,7 +1,7 @@
 [CmdletBinding(PositionalBinding=$false)]
 param(
   [Parameter(Position=0)]
-  [ValidateSet('status','packs','release-check','release-run','run-driver-step','next-batch','attach','repair','init','bootstrap','sync','update','promote','validate','doctor','plan-subagents','overview','continue','reconcile','start','handoff','note','gate')]
+  [ValidateSet('status','packs','release-check','release-run','run-driver-step','run-reviewer-step','next-batch','attach','repair','init','bootstrap','sync','update','promote','validate','doctor','plan-subagents','overview','continue','reconcile','start','handoff','note','gate')]
   [string]$Command = 'status',
   [string]$Target = '',
   [string]$Pack = 'vmp-re',
@@ -14,6 +14,11 @@ param(
   [string]$ReviewOutputDir = '',
   [string]$PacketPath = '',
   [string]$ReviewerResultPath = '',
+  [string]$ReviewerResultInputSourcePath = '',
+  [string]$ReviewerHarness = '',
+  [string]$ReviewerSession = '',
+  [string]$ReviewerOutcome = '',
+  [string]$ReviewerExitStatus = '',
   [string]$DiffPath = '',
   [string]$Action = '',
   [string]$Lane = '',
@@ -56,6 +61,7 @@ param(
   [string]$Closure = '',
   [string]$ExpectedNextBatchPlanSha256 = '',
   [string]$ExpectedDriverStepPlanSha256 = '',
+  [string]$ExpectedReviewerStepPlanSha256 = '',
   [string]$CreatedAt = '',
   [string]$ExpectedNoteEventSha256 = '',
   [Parameter(ValueFromRemainingArguments=$true)]
@@ -155,12 +161,12 @@ function Test-RekitEnvTruthy {
 
 function Test-RekitGoDefaultDelegationCommand {
   param([string]$Name)
-  return (@('status','packs','release-check','release-run','run-driver-step','next-batch','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff','continue','reconcile','plan-subagents') -contains $Name)
+  return (@('status','packs','release-check','release-run','run-driver-step','run-reviewer-step','next-batch','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff','continue','reconcile','plan-subagents') -contains $Name)
 }
 
 function Test-RekitNoPowerShellFallbackCommand {
   param([string]$Name)
-  return (@('release-check','release-run','run-driver-step','next-batch','status','packs','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff','continue','reconcile','plan-subagents') -contains $Name)
+  return (@('release-check','release-run','run-driver-step','run-reviewer-step','next-batch','status','packs','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff','continue','reconcile','plan-subagents') -contains $Name)
 }
 
 function Test-RekitGoDelegationEnabled {
@@ -188,6 +194,19 @@ function Test-RekitGoDelegationSafe {
       if ($WhatIf -and -not [string]::IsNullOrWhiteSpace($ExpectedDriverStepPlanSha256)) { return $false }
       if ($Apply -and [string]::IsNullOrWhiteSpace($ExpectedDriverStepPlanSha256)) { return $false }
       if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
+      $caseRoot = Resolve-RekitTarget $Target
+      if (-not (Test-RekitLooksLikeCase $caseRoot)) { return $false }
+      return (([string]$Format).Trim().ToLowerInvariant() -eq 'json')
+    }
+    'run-reviewer-step' {
+      foreach ($key in $script:PSBoundParameters.Keys) {
+        if (@('Command','Target','Pack','WhatIf','Apply','Format','ExpectedReviewerStepPlanSha256','Actor','ReviewerResultInputSourcePath','ReviewerHarness','ReviewerSession','ReviewerOutcome','ReviewerExitStatus') -notcontains [string]$key) { return $false }
+      }
+      if ([string]::IsNullOrWhiteSpace($Target)) { return $false }
+      if ($WhatIf -and $Apply) { return $false }
+      if ((-not $WhatIf) -and (-not $Apply)) { return $false }
+      if ($WhatIf -and -not [string]::IsNullOrWhiteSpace($ExpectedReviewerStepPlanSha256)) { return $false }
+      if ($Apply -and [string]::IsNullOrWhiteSpace($ExpectedReviewerStepPlanSha256)) { return $false }
       $caseRoot = Resolve-RekitTarget $Target
       if (-not (Test-RekitLooksLikeCase $caseRoot)) { return $false }
       return (([string]$Format).Trim().ToLowerInvariant() -eq 'json')
@@ -403,7 +422,7 @@ function Add-RekitGoSwitch {
 
 function Get-RekitGoTarget {
   switch ($Command) {
-    { $_ -in @('status','packs','release-check','release-run','run-driver-step','next-batch') } { return (Resolve-RekitTarget $Target) }
+    { $_ -in @('status','packs','release-check','release-run','run-driver-step','run-reviewer-step','next-batch') } { return (Resolve-RekitTarget $Target) }
     'gate' {
       if ([string]::IsNullOrWhiteSpace($Target)) { return '' }
       return (Resolve-RekitTarget $Target)
@@ -436,9 +455,18 @@ function Get-RekitGoArgs {
   Add-RekitGoArg ([ref]$goArgs) '-DiffPath' (Resolve-RekitCallerPath $DiffPath)
   $goFormat = $Format
   if ($Command -in @('start','handoff','continue','reconcile') -and (-not $Apply.IsPresent) -and [string]::IsNullOrWhiteSpace([string]$goFormat)) { $goFormat = 'text' }
-  if ($Command -in @('status','packs','release-check','release-run','run-driver-step','next-batch','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff','continue','reconcile')) { Add-RekitGoArg ([ref]$goArgs) '-Format' $goFormat }
+  if ($Command -in @('status','packs','release-check','release-run','run-driver-step','run-reviewer-step','next-batch','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff','continue','reconcile')) { Add-RekitGoArg ([ref]$goArgs) '-Format' $goFormat }
   if ($Command -eq 'run-driver-step') {
     Add-RekitGoArg ([ref]$goArgs) '-ExpectedDriverStepPlanSha256' $ExpectedDriverStepPlanSha256
+  }
+  if ($Command -eq 'run-reviewer-step') {
+    Add-RekitGoArg ([ref]$goArgs) '-ExpectedReviewerStepPlanSha256' $ExpectedReviewerStepPlanSha256
+    Add-RekitGoArg ([ref]$goArgs) '-Actor' $Actor
+    Add-RekitGoArg ([ref]$goArgs) '-ReviewerResultInputSourcePath' (Resolve-RekitCallerPath $ReviewerResultInputSourcePath)
+    Add-RekitGoArg ([ref]$goArgs) '-ReviewerHarness' $ReviewerHarness
+    Add-RekitGoArg ([ref]$goArgs) '-ReviewerSession' $ReviewerSession
+    Add-RekitGoArg ([ref]$goArgs) '-ReviewerOutcome' $ReviewerOutcome
+    Add-RekitGoArg ([ref]$goArgs) '-ReviewerExitStatus' $ReviewerExitStatus
   }
   if ($Command -eq 'next-batch') {
     Add-RekitGoArg ([ref]$goArgs) '-Domain' $Domain

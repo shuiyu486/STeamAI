@@ -88,8 +88,12 @@ func TestRunPlanSubagentsReviewerResultRecoveryCaseLocalE2E(t *testing.T) {
 	if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-CollectReviewerResult", "-ShardId", handoff.ShardID, "-Lane", "feature-review", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
+	var collectionPreview subagents.ReviewerResultCollectionResult
+	if err := json.Unmarshal(out.Bytes(), &collectionPreview); err != nil {
+		t.Fatal(err)
+	}
 	out.Reset()
-	if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-CollectReviewerResult", "-ShardId", handoff.ShardID, "-Lane", "feature-review", "-Actor", "mission-commander", "-Apply", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-CollectReviewerResult", "-ShardId", handoff.ShardID, "-Lane", "feature-review", "-Actor", "mission-commander", "-ExpectedCandidateSha256", collectionPreview.CandidateSHA256, "-Apply", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	recordReviewerSessionReceiptsForCLIPlan(t, &out, nil, plan.PacketPath, handoff, "feature-review", "mission-commander", "go-cli-recovery-harness", candidate)

@@ -376,7 +376,7 @@ func StageReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerResultStag
 			result.NextSteps = []string{"the exact source bytes are already staged; run reviewer result collection -WhatIf"}
 			result.MissionCommanderAction = mission.MissionCommanderAction{
 				State:          "reviewer-result-staged-ready-for-collection-preview",
-				PrimaryCommand: reviewerResultCollectionCommand(prepared.packetPath, prepared.handoff.ShardID, prepared.lane, prepared.actor, false),
+				PrimaryCommand: reviewerResultCollectionCommand(prepared.packetPath, prepared.handoff.ShardID, prepared.lane, prepared.actor, "", false),
 				Boundary:       result.Boundary,
 			}
 		} else {
@@ -420,7 +420,7 @@ func StageReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerResultStag
 	result.NextSteps = []string{"run reviewer result collection -WhatIf, inspect its candidate/result bindings, then use its explicit -Apply command"}
 	result.MissionCommanderAction = mission.MissionCommanderAction{
 		State:          "reviewer-result-staged-ready-for-collection-preview",
-		PrimaryCommand: reviewerResultCollectionCommand(prepared.packetPath, prepared.handoff.ShardID, prepared.lane, prepared.actor, false),
+		PrimaryCommand: reviewerResultCollectionCommand(prepared.packetPath, prepared.handoff.ShardID, prepared.lane, prepared.actor, "", false),
 		Boundary:       result.Boundary,
 	}
 	return finalizeReviewerResultStagingResult(result), nil

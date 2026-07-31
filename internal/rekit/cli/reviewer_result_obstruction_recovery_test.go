@@ -157,8 +157,12 @@ func TestRunPlanSubagentsReviewerResultObstructionRecoveryCaseLocalE2E(t *testin
 	if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-CollectReviewerResult", "-ShardId", handoff.ShardID, "-Lane", "feature-review", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
+	var collectionPreview subagents.ReviewerResultCollectionResult
+	if err := json.Unmarshal(out.Bytes(), &collectionPreview); err != nil {
+		t.Fatal(err)
+	}
 	out.Reset()
-	if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-CollectReviewerResult", "-ShardId", handoff.ShardID, "-Lane", "feature-review", "-Actor", "mission-commander", "-Apply", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-CollectReviewerResult", "-ShardId", handoff.ShardID, "-Lane", "feature-review", "-Actor", "mission-commander", "-ExpectedCandidateSha256", collectionPreview.CandidateSHA256, "-Apply", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	recordReviewerSessionReceiptsForCLIPlan(t, &out, nil, plan.PacketPath, handoff, "feature-review", "mission-commander", "go-cli-obstruction-recovery-harness", candidate)
@@ -379,7 +383,7 @@ func TestRunPlanSubagentsReviewerResultRecoveryDispositionCaseLocalE2E(t *testin
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-CollectReviewerResult", "-ShardId", handoff.ShardID, "-Lane", "feature-review", "-Actor", "mission-commander", "-Apply", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", plan.PacketPath, "-CollectReviewerResult", "-ShardId", handoff.ShardID, "-Lane", "feature-review", "-Actor", "mission-commander", "-ExpectedCandidateSha256", collectionPreview.CandidateSHA256, "-Apply", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var collectionApplied subagents.ReviewerResultCollectionResult

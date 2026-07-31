@@ -43,7 +43,7 @@ func TestCollectReviewerResultWhatIfApplyAndReplay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if preview.Status != "previewed" || preview.IsMutation || preview.Applied || preview.CandidateSHA256 == "" || preview.CandidateBytes == 0 {
+	if preview.Status != "previewed" || preview.IsMutation || preview.Applied || preview.CandidateSHA256 == "" || preview.CandidateBytes == 0 || !strings.Contains(preview.MissionCommanderAction.PrimaryCommand, "-ExpectedCandidateSha256") || !strings.Contains(preview.MissionCommanderAction.PrimaryCommand, preview.CandidateSHA256) {
 		t.Fatalf("unexpected collection preview: %+v", preview)
 	}
 	assertReviewerRunbookContains(t, preview.RunbookSteps, "-CollectReviewerResult")
@@ -52,6 +52,7 @@ func TestCollectReviewerResultWhatIfApplyAndReplay(t *testing.T) {
 		t.Fatalf("collection WhatIf wrote canonical result: %v", err)
 	}
 	opt.WhatIf = false
+	opt.ExpectedCandidateSHA256 = preview.CandidateSHA256
 	applied, err := CollectReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, opt)
 	if err != nil {
 		t.Fatal(err)
@@ -73,6 +74,56 @@ func TestCollectReviewerResultWhatIfApplyAndReplay(t *testing.T) {
 	}
 	if !replay.Applied || replay.Status != "already-collected" || !replay.AlreadyCollected {
 		t.Fatalf("collection replay was not idempotent: %+v", replay)
+	}
+}
+
+func TestCollectReviewerResultApplyRejectsCandidateDriftWithoutPublishing(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	writeReviewerIntakeCase(t, repoRoot, caseRoot)
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet := readReviewerPacket(t, plan.PacketPath)
+	if err := os.MkdirAll(filepath.Join(caseRoot, "workspace"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caseRoot, "workspace", "review-evidence.md"), []byte("bounded reviewer evidence\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	handoff := packet.ShardHandoffs[0]
+	if err := os.MkdirAll(filepath.Dir(handoff.ReviewerResultCandidatePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	original := reviewerResultForPacket(t, packet, "accept", "accepted", nil)
+	if err := os.WriteFile(handoff.ReviewerResultCandidatePath, original, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opt := ReviewerResultCollectionOptions{PacketPath: plan.PacketPath, ShardID: handoff.ShardID, Lane: packet.TargetLane, Actor: "mission-commander", WhatIf: true}
+	preview, err := CollectReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changedValue, err := decodeReviewerResult(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changedValue.Summary = "changed after collection preview"
+	changed, err := json.Marshal(changedValue)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(handoff.ReviewerResultCandidatePath, changed, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opt.WhatIf = false
+	opt.ExpectedCandidateSHA256 = preview.CandidateSHA256
+	if _, err := CollectReviewerResult(repoRoot, caseRoot, defaults.DefaultPack, opt); err == nil || !strings.Contains(err.Error(), "expected candidate sha256 mismatch") {
+		t.Fatalf("candidate drift apply error = %v", err)
+	}
+	if _, err := os.Stat(handoff.ReviewerResultPath); !os.IsNotExist(err) {
+		t.Fatalf("candidate drift published canonical reviewer result: %v", err)
 	}
 }
 

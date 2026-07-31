@@ -159,7 +159,7 @@ func RetireAmbiguousReviewerResultRecovery(repoRoot, caseRoot, pack string, opt 
 	result = reviewerResultRecoveryDispositionResult(prepared, false, boundary)
 	result.Applied = true
 	result.NextSteps = []string{"run reviewer result collection -WhatIf, then explicit -Apply before reviewer intake"}
-	result.MissionCommanderAction = mission.MissionCommanderAction{State: "reviewer-result-recovery-disposed-ready-for-collection-preview", PrimaryCommand: reviewerResultCollectionCommand(prepared.packetPath, prepared.handoff.ShardID, prepared.lane, prepared.actor, false), Boundary: boundary}
+	result.MissionCommanderAction = mission.MissionCommanderAction{State: "reviewer-result-recovery-disposed-ready-for-collection-preview", PrimaryCommand: reviewerResultCollectionCommand(prepared.packetPath, prepared.handoff.ShardID, prepared.lane, prepared.actor, "", false), Boundary: boundary}
 	return finalizeReviewerResultRecoveryDispositionResult(result), nil
 }
 

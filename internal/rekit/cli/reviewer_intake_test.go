@@ -2365,7 +2365,7 @@ func TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath(t *testing.T) 
 		}
 
 		out.Reset()
-		if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-CollectReviewerResult", "-ShardId", handoff.ShardID, "-Lane", "feature-review", "-Actor", "mission-commander", "-Apply", "-Format", "json"}, &out); err != nil {
+		if err := Run([]string{"-Command", "plan-subagents", "-PacketPath", plan.PacketPath, "-CollectReviewerResult", "-ShardId", handoff.ShardID, "-Lane", "feature-review", "-Actor", "mission-commander", "-ExpectedCandidateSha256", collectionPreview.CandidateSHA256, "-Apply", "-Format", "json"}, &out); err != nil {
 			t.Fatal(err)
 		}
 		collectionApply := decodeReviewerResultCollectionCLIResult(t, out.Bytes())
@@ -3123,7 +3123,7 @@ func stageAndCollectReviewerResultForCLIPlan(t *testing.T, out *bytes.Buffer, ba
 		t.Fatal(err)
 	}
 	collectionPreview := decodeReviewerResultCollectionCLIResult(t, out.Bytes())
-	if collectionPreview.Mode != "reviewer-result-collection" || collectionPreview.Status != "previewed" || collectionPreview.IsMutation || collectionPreview.Applied || collectionPreview.CandidatePath != handoff.ReviewerResultCandidatePath || collectionPreview.ReviewerResultPath != handoff.ReviewerResultPath || collectionPreview.MissionCommanderAction.State != "ready-for-reviewer-result-collection-apply" || !strings.Contains(collectionPreview.MissionCommanderAction.PrimaryCommand, "-Apply") {
+	if collectionPreview.Mode != "reviewer-result-collection" || collectionPreview.Status != "previewed" || collectionPreview.IsMutation || collectionPreview.Applied || collectionPreview.CandidatePath != handoff.ReviewerResultCandidatePath || collectionPreview.ReviewerResultPath != handoff.ReviewerResultPath || collectionPreview.MissionCommanderAction.State != "ready-for-reviewer-result-collection-apply" || !strings.Contains(collectionPreview.MissionCommanderAction.PrimaryCommand, "-ExpectedCandidateSha256") || !strings.Contains(collectionPreview.MissionCommanderAction.PrimaryCommand, collectionPreview.CandidateSHA256) || !strings.Contains(collectionPreview.MissionCommanderAction.PrimaryCommand, "-Apply") {
 		t.Fatalf("unexpected reviewer result collection preview: %+v", collectionPreview)
 	}
 	assertStringContains(t, collectionPreview.RunbookSteps, "run current Mission Commander command")

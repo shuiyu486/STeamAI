@@ -153,6 +153,32 @@ func TestReviewerDispatchIntakeSummaryPrefersReadyPacketBatchCommand(t *testing.
 	}
 }
 
+func TestReviewerDispatchIntakeSummaryDefersBatchUntilPacketReady(t *testing.T) {
+	batchPreview := "/rekit plan-subagents -PacketPath packet.json -ReadyReviewerResults -Lane feature-review -Actor mission-commander -WhatIf -Format json"
+	items := []ReviewerDispatchIntakeHandoff{
+		{
+			PacketID:            "packet-mixed",
+			PacketPath:          "packet.json",
+			TargetLane:          "feature-review",
+			ShardID:             "shard-01",
+			State:               "ready-for-reviewer-intake-preview",
+			BatchPreviewCommand: batchPreview,
+		},
+		{
+			PacketID:   "packet-mixed",
+			PacketPath: "packet.json",
+			TargetLane: "feature-review",
+			ShardID:    "shard-02",
+			State:      "reviewer-session-running-unknown",
+		},
+	}
+
+	summary := ReviewerDispatchIntakeSummaryFor(items)
+	if summary.NextActionShardID != "shard-02" || summary.NextActionState != "reviewer-session-running-unknown" || summary.NextAction == batchPreview {
+		t.Fatalf("summary selected packet batch intake while another shard remained running: %+v", summary)
+	}
+}
+
 func TestReviewerDispatchIntakeSummaryProjectsPartialPacketRecovery(t *testing.T) {
 	batchPreview := "/rekit plan-subagents -PacketPath packet.json -ReadyReviewerResults -Lane feature-review -Actor mission-commander -WhatIf -Format json"
 	items := []ReviewerDispatchIntakeHandoff{

@@ -199,6 +199,21 @@ try {
   Assert-ContainsText -Text $capturedDriverStepArgs -Expected "-ExpectedDriverStepPlanSha256 $driverStepHash" -Label 'run-driver-step hash-bound facade args'
   $driverStepDisabledOut = Invoke-RekitSmoke -Arguments @('-Command','run-driver-step','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf','-Format','json') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
   Assert-ContainsText -Text $driverStepDisabledOut -Expected 'PowerShell fallback has been retired' -Label 'disabled run-driver-step no-fallback remains retired'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','run-reviewer-step','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'run-reviewer-step' -Label 'default run-reviewer-step preview fake delegation'
+  $reviewerStepHash = 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789'
+  $reviewerStepCapturePath = Join-Path $matrixRoot 'run-reviewer-step-args.txt'
+  $reviewerResultInputSourcePath = Join-Path $matrixRoot 'reviewer-result-input.json'
+  [System.IO.File]::WriteAllText($reviewerResultInputSourcePath, '{}', [System.Text.UTF8Encoding]::new($false))
+  Write-CapturingFakeGoBackend -Path $fakeGo -CapturePath $reviewerStepCapturePath
+  $reviewerStepApplyOut = Invoke-RekitSmoke -Arguments @('-Command','run-reviewer-step','-Target',$CaseRoot,'-Pack',$Pack,'-ExpectedReviewerStepPlanSha256',$reviewerStepHash,'-ReviewerHarness','facade-reviewer-harness','-ReviewerSession','facade-reviewer-session','-ReviewerResultInputSourcePath',$reviewerResultInputSourcePath,'-ReviewerOutcome','failed','-ReviewerExitStatus','exit-1','-Actor','facade-smoke','-Apply','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $reviewerStepApplyOut -Expected '"delegatedByFake":true' -Label 'default run-reviewer-step apply fake delegation'
+  $capturedReviewerStepArgs = [System.IO.File]::ReadAllText($reviewerStepCapturePath, [System.Text.Encoding]::Default)
+  foreach ($expectedReviewerStepArg in @("-ExpectedReviewerStepPlanSha256 $reviewerStepHash",'-ReviewerHarness facade-reviewer-harness','-ReviewerSession facade-reviewer-session','-ReviewerOutcome failed','-ReviewerExitStatus exit-1','-Actor facade-smoke','-Apply','-Format json')) {
+    Assert-ContainsText -Text $capturedReviewerStepArgs -Expected $expectedReviewerStepArg -Label 'run-reviewer-step facade args'
+  }
+  Assert-ContainsText -Text $capturedReviewerStepArgs -Expected '-ReviewerResultInputSourcePath ' -Label 'run-reviewer-step result input facade args'
+  $reviewerStepDisabledOut = Invoke-RekitSmoke -Arguments @('-Command','run-reviewer-step','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf','-Format','json') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $reviewerStepDisabledOut -Expected 'PowerShell fallback has been retired' -Label 'disabled run-reviewer-step no-fallback remains retired'
   Assert-FakeDefaultDelegation -Arguments @('-Command','doctor','-Target',$CaseRoot,'-Pack',$Pack) -CommandName 'doctor' -Label 'default doctor fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','validate','-Target',$CaseRoot,'-Pack',$Pack) -CommandName 'validate' -Label 'default validate fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','attach','-Target',(Join-Path $matrixRoot 'default-attach'),'-Pack',$Pack,'-Apply') -CommandName 'attach' -Label 'default attach apply fake delegation'
