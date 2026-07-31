@@ -4374,20 +4374,33 @@ func latestBatchHasLocalValidation(text string) bool {
 }
 
 func latestBatchHasLocalValidationCommandEvidence(text string) bool {
+	if latestBatchHasLocalValidationEvidenceLabels(latestBatchEvidence(text)) {
+		return true
+	}
 	lower := strings.ToLower(text)
-	for _, command := range []string{
-		"go run ./cmd/rekit -- -Command status",
-		"go run ./cmd/rekit -- -Command packs",
-		"go run ./cmd/rekit -- -Command doctor",
-		"go test ./...",
-		"go vet ./...",
-		"git diff --check",
+	for _, aliases := range [][]string{
+		{"go run ./cmd/rekit -- -command status", "`status`", "status-step"},
+		{"go run ./cmd/rekit -- -command packs", "`packs`", "packs-step"},
+		{"go run ./cmd/rekit -- -command doctor", "`doctor`", "doctor-step"},
+		{"go test ./..."},
+		{"go vet ./..."},
+		{"git diff --check"},
 	} {
-		if !strings.Contains(lower, strings.ToLower(command)) {
+		if !latestBatchContainsAny(lower, aliases...) {
 			return false
 		}
 	}
 	return true
+}
+
+func latestBatchContainsAny(lower string, aliases ...string) bool {
+	for _, alias := range aliases {
+		alias = strings.ToLower(strings.TrimSpace(alias))
+		if alias != "" && strings.Contains(lower, alias) {
+			return true
+		}
+	}
+	return false
 }
 
 func latestBatchHasLocalValidationEvidenceLabels(evidence []string) bool {
@@ -4930,13 +4943,17 @@ func latestBatchEvidence(text string) []string {
 	}{
 		{match: "public cli", label: "public CLI product-path validation recorded"},
 		{match: "go run ./cmd/rekit -- -command release-check -format json", label: "release-check -Format json recorded"},
+		{match: "release-check -format json", label: "release-check -Format json recorded"},
 		{match: "releasecheck-ready", label: "release-check -Format json recorded"},
 		{match: "releasecheck-step", label: "release-check -Format json recorded"},
 		{match: "go run ./cmd/rekit -- -command status", label: "status handoff recorded"},
+		{match: "`status`", label: "status handoff recorded"},
 		{match: "status-step", label: "status handoff recorded"},
 		{match: "go run ./cmd/rekit -- -command packs", label: "packs inventory recorded"},
+		{match: "`packs`", label: "packs inventory recorded"},
 		{match: "packs-step", label: "packs inventory recorded"},
 		{match: "go run ./cmd/rekit -- -command doctor", label: "doctor validation recorded"},
+		{match: "`doctor`", label: "doctor validation recorded"},
 		{match: "doctor-step", label: "doctor validation recorded"},
 		{match: "go test ./...", label: "go test ./... recorded"},
 		{match: "go vet ./...", label: "go vet ./... recorded"},

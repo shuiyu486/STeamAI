@@ -152,6 +152,49 @@ func TestRunNextBatchWhatIfUsesSelectedDomainCandidateGuidance(t *testing.T) {
 	}
 }
 
+func TestRunNextBatchWhatIfRecoversCompletedBatchShortValidationEvidenceProductPath(t *testing.T) {
+	fixture := newCLIFixture(t, cliFixtureOptions{})
+	writeShortValidationEvidenceBatchFixture(t, fixture.repoRoot, "Batch 945")
+	beforePlan := readFixtureFile(t, fixture.repoRoot, "docs/batch-plan.md")
+	beforeChangelog := readFixtureFile(t, fixture.repoRoot, "CHANGELOG.md")
+
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+		t.Fatalf("status with short local validation evidence failed: %v\n%s", err, out.String())
+	}
+	var status struct {
+		ProjectHandoff struct {
+			LatestBatch                 string                              `json:"latestBatch"`
+			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		} `json:"projectHandoff"`
+		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("status with short local validation evidence JSON did not decode: %v\n%s", err, out.String())
+	}
+	if status.ProjectHandoff.LatestBatch != "Batch 945" || status.MissionControlRunbook == nil || status.MissionControlRunbook.GuidanceHandoff == nil || status.MissionControlRunbook.GuidanceHandoff.Source != "releaseHandoffNextBatch" || len(status.MissionControlRunbook.GuidanceHandoff.NextBatchPlanningRoutes) == 0 {
+		t.Fatalf("short local validation evidence should route to next-batch guidance: project=%+v runbook=%+v", status.ProjectHandoff, status.MissionControlRunbook)
+	}
+	if current := status.ProjectHandoff.MissionCommanderActionQueue.CurrentAction; current == nil || current.ActionID != "next-batch-selection" || strings.Contains(current.Command, "release-run") {
+		t.Fatalf("short local validation evidence should not reopen release-run current action: %+v", status.ProjectHandoff.MissionCommanderActionQueue)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "next-batch", "-Domain", "mission-commander", "-Closure", "completed batch release handoff validation recovery loop", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatalf("next-batch WhatIf should recover from completed short validation evidence: %v\n%s", err, out.String())
+	}
+	var preview nextBatchResult
+	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+		t.Fatalf("next-batch short-evidence WhatIf JSON did not decode: %v\n%s", err, out.String())
+	}
+	if preview.IsMutation || preview.Applied || preview.LatestCompletedBatch != "Batch 945" || preview.NextBatch != "Batch 946" || preview.Domain != "mission-commander" || preview.Closure != "completed batch release handoff validation recovery loop" || len(preview.ExpectedNextBatchPlanSHA256) != 64 {
+		t.Fatalf("unexpected short-evidence next-batch WhatIf result: %+v", preview)
+	}
+	if strings.Contains(out.String(), "next-batch selection package is not ready") || readFixtureFile(t, fixture.repoRoot, "docs/batch-plan.md") != beforePlan || readFixtureFile(t, fixture.repoRoot, "CHANGELOG.md") != beforeChangelog {
+		t.Fatalf("short-evidence next-batch WhatIf should be read-only and not blocked: output=%s", out.String())
+	}
+}
+
 func TestRunNextBatchGuidancePlanningRouteConsumerLoopProductPath(t *testing.T) {
 	fixture := newCLIFixture(t, cliFixtureOptions{})
 	restore := withNextBatchReadyReleaseCheckFixture(t, "Batch 945")
@@ -473,6 +516,67 @@ func TestRunNextBatchApplyRequiresWhatIfHashAndRefreshesStatus(t *testing.T) {
 	current := status.ProjectHandoff.MissionCommanderActionQueue.CurrentAction
 	if status.ProjectHandoff.LatestBatch != "Batch 946" || !strings.Contains(status.ProjectHandoff.LatestBatchStatus, "进行中") || !strings.Contains(status.ProjectHandoff.LatestNextAction, "finish the current batch") || current == nil || current.Command == "" || current.ActionID != "latest-batch-next-action" || current.Source != "releaseHandoffLatestBatch" || status.MissionControlRunbook == nil || status.MissionControlRunbook.GuidanceHandoff == nil || status.MissionControlRunbook.GuidanceHandoff.Source == "releaseHandoffNextBatch" {
 		t.Fatalf("status refresh should consume durable next-batch docs as current in-progress batch: project=%+v runbook=%+v", status.ProjectHandoff, status.MissionControlRunbook)
+	}
+}
+
+func writeShortValidationEvidenceBatchFixture(t *testing.T, repoRoot, batchID string) {
+	t.Helper()
+	q := "`"
+	batchID = strings.TrimSpace(batchID)
+	if batchID == "" {
+		batchID = "Batch 945"
+	}
+	batchSection := "### " + batchID + "：short validation evidence fixture\n\n" +
+		"状态：已完成 fixture implementation、focused validation、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit " + q + "abc945d" + q + " 已推送。Push run " + q + "30394599999" + q + " completed failure；macOS/Linux/Windows jobs " + q + "90194500001" + q + "/" + q + "90194500002" + q + "/" + q + "90194500003" + q + " 均 " + q + "steps=[]" + q + "。\n\n" +
+		"目标：fixture completed short validation evidence goal.\n\n" +
+		"验证结果：focused regressions 已通过。完整本机 release minimum 已执行：completion evidence 写回前 " + q + "release-check -Format json" + q + " 按预期返回 " + q + "ready=false" + q + " / " + q + "summary=release gate inventory has warnings" + q + "；" + q + "status" + q + "、" + q + "packs" + q + "（pack validation ok）、" + q + "doctor" + q + "、" + q + "go test ./..." + q + "、" + q + "go vet ./..." + q + " 与 " + q + "git diff --check" + q + " 已通过；记录本机证据后复跑 " + q + "release-check -Format json" + q + " 返回 " + q + "ready=true" + q + " / " + q + "summary=release gate inventory ok" + q + "。Implementation commit " + q + "abc945d" + q + " 已推送；push-triggered release-gate run " + q + "30394599999" + q + " completed failure，macOS/Linux/Windows jobs " + q + "90194500001" + q + "/" + q + "90194500002" + q + "/" + q + "90194500003" + q + " 均 " + q + "steps=[]" + q + "，" + q + "gh run view 30394599999 --log-failed" + q + " 返回 " + q + "log not found: 90194500001" + q + "，job annotations API 均返回 404；仍是既有 runner/billing blocker signal，不声明 remote green。\n\n"
+	insertFixtureBatchSection(t, repoRoot, batchSection)
+	insertFixtureChangelogEntry(t, repoRoot, "- "+batchID+" fixture short validation evidence note.\n\n")
+}
+
+func insertFixtureBatchSection(t *testing.T, repoRoot, section string) {
+	t.Helper()
+	path := filepath.Join(repoRoot, "docs", "batch-plan.md")
+	text := readFixtureFile(t, repoRoot, "docs/batch-plan.md")
+	marker := "### Current batch state"
+	idx := strings.Index(text, marker)
+	if idx < 0 {
+		t.Fatalf("fixture batch plan missing %q", marker)
+	}
+	insertAt := idx + len(marker)
+	switch {
+	case strings.HasPrefix(text[insertAt:], "\r\n\r\n"):
+		insertAt += len("\r\n\r\n")
+	case strings.HasPrefix(text[insertAt:], "\n\n"):
+		insertAt += len("\n\n")
+	default:
+		t.Fatalf("fixture batch plan marker %q is not followed by a blank line", marker)
+	}
+	if err := os.WriteFile(path, []byte(text[:insertAt]+section+text[insertAt:]), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func insertFixtureChangelogEntry(t *testing.T, repoRoot, entry string) {
+	t.Helper()
+	path := filepath.Join(repoRoot, "CHANGELOG.md")
+	text := readFixtureFile(t, repoRoot, "CHANGELOG.md")
+	marker := "### Changed"
+	idx := strings.Index(text, marker)
+	if idx < 0 {
+		t.Fatalf("fixture changelog missing %q", marker)
+	}
+	insertAt := idx + len(marker)
+	switch {
+	case strings.HasPrefix(text[insertAt:], "\r\n\r\n"):
+		insertAt += len("\r\n\r\n")
+	case strings.HasPrefix(text[insertAt:], "\n\n"):
+		insertAt += len("\n\n")
+	default:
+		t.Fatalf("fixture changelog marker %q is not followed by a blank line", marker)
+	}
+	if err := os.WriteFile(path, []byte(text[:insertAt]+entry+text[insertAt:]), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 

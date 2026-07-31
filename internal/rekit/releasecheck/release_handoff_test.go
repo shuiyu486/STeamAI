@@ -212,6 +212,34 @@ func TestReleaseHandoffBuildsNextBatchSelectionPackageWhenCurrentInventoryCloses
 	}
 }
 
+func TestReleaseHandoffBuildsNextBatchSelectionPackageWithShortLocalValidationEvidence(t *testing.T) {
+	repo := cleanReleaseRepoRoot(t)
+	writeShortLocalValidationEvidenceLatestBatchFixture(t, repo)
+	result, err := Build(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	latest := result.ReleaseHandoff.LatestBatch.Handoff
+	if !latest.LocalValidationReady || !latest.ReleaseCheckReady || latest.RemoteReleaseGate != "blocked: completed failure with jobs steps=[]" {
+		t.Fatalf("short local validation evidence should close latest-batch handoff: %+v", latest)
+	}
+	for _, evidence := range []string{"release-check -Format json recorded", "status handoff recorded", "packs inventory recorded", "doctor validation recorded", "go test ./... recorded", "go vet ./... recorded", "git diff --check recorded", "remote release-gate jobs steps=[] recorded"} {
+		if !slices.Contains(latest.Evidence, evidence) {
+			t.Fatalf("short local validation evidence missing %q: %+v", evidence, latest.Evidence)
+		}
+	}
+	if cadence := latest.ReleaseInspectionCadence; cadence.State != "complete" || !cadence.ImplementationCommitReady || !cadence.InspectionCommitReady || cadence.NewRemoteSignal || cadence.ThirdInspectionAllowed {
+		t.Fatalf("short local validation evidence should keep completed cadence: %+v", cadence)
+	}
+	if strings.Contains(latest.NextAction, "local release minimum") || !strings.Contains(latest.NextAction, "select the next Windows-verifiable product-path batch") {
+		t.Fatalf("short local validation evidence should hand off to next-batch selection, got %q", latest.NextAction)
+	}
+	pkg := result.ReleaseHandoff.NextBatchSelectionPackage
+	if pkg == nil || !pkg.Ready || pkg.MissionCommanderActionQueue.CurrentAction == nil || pkg.MissionCommanderActionQueue.CurrentAction.ActionID != "next-batch-selection" {
+		t.Fatalf("short local validation evidence should expose next-batch selection package: pkg=%+v handoff=%+v warnings=%+v", pkg, latest, result.ReleaseHandoff.Warnings)
+	}
+}
+
 func writeCompletedReleaseHandoffLatestBatchFixture(t *testing.T, repo string) {
 	t.Helper()
 	writeReleaseHandoffLatestBatchFixture(t, repo, `### Batch 999：Fixture
@@ -236,6 +264,16 @@ func writeStaleReleaseCheckNarrativeLatestBatchFixture(t *testing.T, repo string
 验证结果：focused regression 已通过，完整本机 release minimum 已通过：`+"`"+`go run ./cmd/rekit -- -Command release-check -Format json`+"`"+` 在 completion evidence 写入前按预期返回 `+"`"+`ready=false`+"`"+` / `+"`"+`summary=release gate inventory has warnings`+"`"+`；随后 `+"`"+`go run ./cmd/rekit -- -Command status`+"`"+`、`+"`"+`go run ./cmd/rekit -- -Command packs`+"`"+`、`+"`"+`go run ./cmd/rekit -- -Command doctor`+"`"+`、`+"`"+`go test ./...`+"`"+`、`+"`"+`go vet ./...`+"`"+` 与 `+"`"+`git diff --check`+"`"+` 均已运行。Implementation commit `+"`"+`abc999d`+"`"+` 已推送。Push run `+"`"+`30399999999`+"`"+` completed failure；Linux/Windows/macOS jobs `+"`"+`90199900001`+"`"+`/`+"`"+`90199900002`+"`"+`/`+"`"+`90199900003`+"`"+` 均 `+"`"+`steps=[]`+"`"+`；`+"`"+`gh run view 30399999999 --log-failed`+"`"+` 返回 `+"`"+`log not found: 90199900001`+"`"+`。本机当前 `+"`"+`release-check -Format json`+"`"+` inventory 已为 `+"`"+`ready=true`+"`"+`，但这句不使用完整 Go command，避免旧 parser 只看 validation 文本时误把 pre-evidence `+"`"+`ready=false`+"`"+` 当成最终 current action。
 
 `, "- Batch 999 fixture note.\n\n")
+}
+
+func writeShortLocalValidationEvidenceLatestBatchFixture(t *testing.T, repo string) {
+	t.Helper()
+	q := "`"
+	batchSection := "### Batch 999：Fixture\n\n" +
+		"状态：已完成 fixture implementation、focused validation、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit " + q + "abc999d" + q + " 已推送。Push run " + q + "30399999999" + q + " completed failure；macOS/Linux/Windows jobs " + q + "90199900001" + q + "/" + q + "90199900002" + q + "/" + q + "90199900003" + q + " 均 " + q + "steps=[]" + q + "。\n\n" +
+		"目标：fixture completed short validation evidence goal.\n\n" +
+		"验证结果：focused regressions 已通过。完整本机 release minimum 已执行：completion evidence 写回前 " + q + "release-check -Format json" + q + " 按预期返回 " + q + "ready=false" + q + " / " + q + "summary=release gate inventory has warnings" + q + "；" + q + "status" + q + "、" + q + "packs" + q + "（pack validation ok）、" + q + "doctor" + q + "、" + q + "go test ./..." + q + "、" + q + "go vet ./..." + q + " 与 " + q + "git diff --check" + q + " 已通过；记录本机证据后复跑 " + q + "release-check -Format json" + q + " 返回 " + q + "ready=true" + q + " / " + q + "summary=release gate inventory ok" + q + "。Implementation commit " + q + "abc999d" + q + " 已推送；push-triggered release-gate run " + q + "30399999999" + q + " completed failure，macOS/Linux/Windows jobs " + q + "90199900001" + q + "/" + q + "90199900002" + q + "/" + q + "90199900003" + q + " 均 " + q + "steps=[]" + q + "，" + q + "gh run view 30399999999 --log-failed" + q + " 返回 " + q + "log not found: 90199900001" + q + "，job annotations API 均返回 404；仍是既有 runner/billing blocker signal，不声明 remote green。\n\n"
+	writeReleaseHandoffLatestBatchFixture(t, repo, batchSection, "- Batch 999 fixture note.\n\n")
 }
 
 func writeReleaseHandoffLatestBatchFixture(t *testing.T, repo, batchSection, changelogEntry string) {

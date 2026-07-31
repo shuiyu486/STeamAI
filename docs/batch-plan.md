@@ -57,6 +57,19 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 
 
+
+### Batch 774：completed batch release handoff validation recovery loop
+
+状态：已完成本机实现与完整本机 release minimum；implementation commit/push 与 push-triggered remote inspection 待记录。本批选择 `mission-commander`，推进 completed batch release handoff validation recovery loop；release handoff candidate guidance 是：select a Mission Commander operational closure slice with status/handoff/continue product-path verification。上一批完成后仍需要解决的接手断点必须落在该 domain 的可操作 product-path closure 上，并能由 status/handoff/continue/release-check 或必要临时 case 验证；本批不是字段、文案或 summary 投影微调。
+
+目标：把 `mission-commander` candidate 收敛成 Windows 本机可验证的闭环：completed batch release handoff validation recovery loop。实现应复用既有 typed handoff/envelope 和 deterministic runtime 边界，让 Mission Commander 或 replacement executor 能从 durable docs/status 消费结果，不依赖上一会话隐性上下文；focused work 必须证明该候选命令所描述的能力：select a Mission Commander operational closure slice with status/handoff/continue product-path verification。
+
+已实现：`releasecheck` 的 latest batch local validation evidence parser 现在同时接受真实 batch completion evidence 中常用的短命令写法：`release-check -Format json`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`。短 evidence 会映射到既有 release handoff evidence labels，让已完成 batch 不再被误判为 `localValidationReady=false`，从而让 `status` / `release-check` 稳定暴露 ready 的 `nextBatchSelectionPackage` 与 next-batch planning route；新增 releasecheck focused regression 与 CLI product-path regression 覆盖 completed short validation evidence → status guidance → read-only `next-batch -WhatIf` 的恢复闭环，并验证 WhatIf 不改 docs。
+
+边界：本批不新增 PowerShell runtime logic，不执行 heavy-tool，不写 authority/confirmed，不自动执行 reviewer/adapter/pack-memory/gate/sync/promote mutation，不自动提交或声明 remote CI green；`/rekit next-batch -Apply` 只在 expected hash 匹配时写 kit repo `docs/batch-plan.md` 与 `CHANGELOG.md` planning receipt；本批只增强 release handoff 对已有 durable docs evidence 的只读解析，不改变 release gate inventory 与 remote CI truthful boundary。
+
+验证结果：focused regressions 已通过：`go test ./internal/rekit/releasecheck -run "TestReleaseHandoffBuildsNextBatchSelectionPackage" -count=1`（6.001s）与 `go test ./internal/rekit/cli -run "TestRunNextBatchWhatIfRecoversCompletedBatchShortValidationEvidenceProductPath|TestRunNextBatchGuidancePlanningRouteConsumerLoopProductPath" -count=1`（9.962s）。完整本机 release minimum 已执行：completion evidence 写回前 `release-check -Format json` 按预期返回 `ready=false` / `summary=release gate inventory has warnings`，因为最新 batch validation result、implementation commit/push 与 remote inspection 尚未记录；`status`、`packs`（pack validation ok）、`doctor`、`go test ./...`（CLI 380.536s）、`go vet ./...` 与 `git diff --check` 已通过，`git diff --check` 仅有 Windows LF→CRLF warning。记录本机证据后将复跑 `release-check -Format json`，随后记录 implementation commit/push 与 push-triggered remote release-gate inspection；远程 `steps=[]` 仍只记录 blocker，不声明 remote green。
+
 ### Batch 773：reviewer session recovery handoff consumer loop
 
 状态：已完成本机实现、focused validation、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit `7b9a872` 已推送。Push run `30626590687` completed failure；macOS/Linux/Windows jobs `91143175932`/`91143175962`/`91143175998` 均 `steps=[]`，`gh run view 30626590687 --log-failed` 返回 `log not found: 91143175932`，job annotations API 均返回 404。仍是既有 runner/billing blocker signal，不声明 remote green。本批选择 `reviewer-orchestration`，推进 reviewer session recovery handoff consumer loop；release handoff candidate guidance 是：select a reviewer orchestration slice that improves bounded dispatch, intake, writeback, or recovery without auto-spawning reviewers。上一批完成后仍需要解决的接手断点必须落在该 domain 的可操作 product-path closure 上，并能由 status/handoff/continue/release-check 或必要临时 case 验证；本批不是字段、文案或 summary 投影微调。
