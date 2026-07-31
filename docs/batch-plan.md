@@ -30,7 +30,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 782：unified daily driver step loop
 
-状态：本机实现与验证已完成，等待 implementation commit/push 和 push-triggered remote inspection。本批选择 `mission-commander`，把 Batch 781 的 continue-only runner 扩展为可推进日常任务创建、继续执行和人工纠偏的统一安全步骤；不是字段或文案投影微调。
+状态：已完成实现、focused/full validation、独立审查、implementation commit/push 与 push-triggered remote inspection；implementation commit `07d96f6` 已推送。Push run `30657061087` completed failure；macOS/Linux/Windows jobs `91243987468`/`91243987478`/`91243987514` 均未启动且 `steps=[]`，`gh run view 30657061087 --log-failed` 返回 `log not found: 91243987468`；三个 annotations 均明确报告 recent account payments failed or spending limit needs increase。这是既有 runner/billing blocker，不声明 remote green。本批选择 `mission-commander`，把 Batch 781 的 continue-only runner 扩展为可推进日常任务创建、继续执行和人工纠偏的统一安全步骤；不是字段或文案投影微调。
 
 目标：让主 Agent/harness 从同一 `run-driver-step` review-first API 消费当前 focused `start`、`continue` 或 `reconcile` request，并在每次 Apply 后刷新 durable status，形成 `start → continue → reconcile → continue` 的可恢复日常 run loop；保持 Go runtime 不 spawn session、不执行 heavy-tool、不写 authority/confirmed。
 
