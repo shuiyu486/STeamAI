@@ -3081,6 +3081,7 @@ type statusMissionControlRunbook struct {
 	CurrentRunLoopStepID        string                                      `json:"currentRunLoopStepId,omitempty"`
 	CurrentDriverRequest        *mission.MissionCommanderDriverRequest      `json:"currentDriverRequest,omitempty"`
 	CurrentDriverReceipt        *workstream.MissionCommanderDriverReceipt   `json:"currentDriverReceipt,omitempty"`
+	Quickstart                  *statusMissionControlQuickstart             `json:"quickstart,omitempty"`
 	GuidanceHandoff             *statusMissionControlGuidanceHandoff        `json:"guidanceHandoff,omitempty"`
 	ReplacementExecutorTakeover *mission.ReplacementExecutorTakeoverPackage `json:"replacementExecutorTakeoverPackage,omitempty"`
 	RefreshStatusCommand        string                                      `json:"refreshStatusCommand"`
@@ -3092,6 +3093,30 @@ type statusMissionControlRunbook struct {
 	RoutingReasons              []string                                    `json:"routingReasons,omitempty"`
 	RunLoop                     []statusMissionControlRunbookStep           `json:"runLoop"`
 	Boundary                    []string                                    `json:"boundary,omitempty"`
+}
+
+type statusMissionControlQuickstart struct {
+	Ready                bool                                      `json:"ready"`
+	Summary              string                                    `json:"summary"`
+	Focus                string                                    `json:"focus,omitempty"`
+	Scope                string                                    `json:"scope,omitempty"`
+	NextStepID           string                                    `json:"nextStepId,omitempty"`
+	Actor                string                                    `json:"actor,omitempty"`
+	DriverKind           string                                    `json:"driverKind,omitempty"`
+	State                string                                    `json:"state,omitempty"`
+	Source               string                                    `json:"source,omitempty"`
+	Command              string                                    `json:"command,omitempty"`
+	Guidance             string                                    `json:"guidance,omitempty"`
+	CommandExecutable    bool                                      `json:"commandExecutable"`
+	Blocked              bool                                      `json:"blocked,omitempty"`
+	RequiresReview       bool                                      `json:"requiresReview,omitempty"`
+	CurrentDriverRequest *mission.MissionCommanderDriverRequest    `json:"currentDriverRequest,omitempty"`
+	CurrentDriverReceipt *workstream.MissionCommanderDriverReceipt `json:"currentDriverReceipt,omitempty"`
+	RefreshStatusCommand string                                    `json:"refreshStatusCommand"`
+	TargetDocuments      []string                                  `json:"targetDocuments,omitempty"`
+	RunbookSteps         []string                                  `json:"runbookSteps,omitempty"`
+	AcceptanceChecklist  []string                                  `json:"acceptanceChecklist,omitempty"`
+	Boundary             []string                                  `json:"boundary,omitempty"`
 }
 
 type statusMissionControlGuidanceHandoff struct {
@@ -3745,6 +3770,7 @@ func buildStatusMissionControlRunbook(target string, caseMission *statusCaseMiss
 	runbook.GuidanceHandoff = statusMissionControlGuidanceHandoffFor(runbook, projectHandoff)
 	runbook.ReplacementExecutorTakeover = statusReplacementExecutorTakeoverPackageFor(target, runbook, projectHandoff)
 	runbook.RunLoop = statusMissionControlRunbookSteps(runbook)
+	runbook.Quickstart = statusMissionControlQuickstartFor(runbook, projectHandoff)
 	return runbook
 }
 
@@ -3781,6 +3807,157 @@ func statusMissionControlFocusedQueueSummary(runbook *statusMissionControlRunboo
 		}
 	}
 	return ""
+}
+
+func statusMissionControlQuickstartFor(runbook *statusMissionControlRunbook, projectHandoff *statusProjectHandoff) *statusMissionControlQuickstart {
+	if runbook == nil {
+		return nil
+	}
+	quickstart := &statusMissionControlQuickstart{
+		Ready:                runbook.CurrentDriverRequest != nil,
+		Summary:              statusMissionControlQuickstartSummary(runbook),
+		Focus:                strings.TrimSpace(runbook.Focus),
+		Scope:                strings.TrimSpace(runbook.Scope),
+		RefreshStatusCommand: strings.TrimSpace(runbook.RefreshStatusCommand),
+		CurrentDriverRequest: cloneStatusMissionCommanderDriverRequest(runbook.CurrentDriverRequest),
+		CurrentDriverReceipt: runbook.CurrentDriverReceipt,
+		TargetDocuments:      statusMissionControlQuickstartTargetDocuments(runbook, projectHandoff),
+		RunbookSteps:         statusMissionControlQuickstartRunbookSteps(runbook),
+		AcceptanceChecklist:  statusMissionControlQuickstartAcceptanceChecklist(runbook),
+		Boundary: mission.UniqueStrings([]string{
+			"missionControlRunbook.quickstart is read-only and only packages the focused status → driver request → refresh loop",
+			"consume quickstart.currentDriverRequest exactly; do not reconstruct commands from terminal prose",
+			"only run quickstart.command when commandExecutable=true and blocked=false",
+			"guidance-only quickstart entries must be reviewed by the main Agent or harness, not executed as shell commands",
+			"after the explicit outcome, run quickstart.refreshStatusCommand before choosing follow-up work",
+			"quickstart does not write authority/confirmed state, execute heavy tools, or spawn/poll/stop external sessions",
+		}),
+	}
+	if request := runbook.CurrentDriverRequest; request != nil {
+		quickstart.NextStepID = strings.TrimSpace(request.RunLoopStepID)
+		quickstart.Actor = strings.TrimSpace(request.Actor)
+		quickstart.DriverKind = strings.TrimSpace(request.Kind)
+		quickstart.State = strings.TrimSpace(request.State)
+		quickstart.Source = strings.TrimSpace(request.Source)
+		quickstart.Command = strings.TrimSpace(request.Command)
+		quickstart.Guidance = strings.TrimSpace(request.Guidance)
+		quickstart.CommandExecutable = request.CommandExecutable
+		quickstart.Blocked = request.Blocked
+		quickstart.RequiresReview = statusMissionControlQuickstartRequiresReview(request)
+	} else {
+		quickstart.NextStepID = "select-focus-or-refresh"
+		quickstart.Actor = "main-agent"
+		quickstart.State = "no-focused-driver-request"
+		quickstart.Source = "missionControlRunbook.quickstart"
+		quickstart.Guidance = "inspect missionControlRunbook.routingReasons, then initialize/select a case lane or rerun status after state changes"
+	}
+	return quickstart
+}
+
+func statusMissionControlQuickstartRequiresReview(request *mission.MissionCommanderDriverRequest) bool {
+	if request == nil {
+		return false
+	}
+	if request.RequiresReview {
+		return true
+	}
+	return !request.CommandExecutable && strings.TrimSpace(request.Guidance) != ""
+}
+
+func statusMissionControlQuickstartSummary(runbook *statusMissionControlRunbook) string {
+	if runbook == nil {
+		return "ready=false"
+	}
+	request := runbook.CurrentDriverRequest
+	if request == nil {
+		return fmt.Sprintf("ready=false focus=%s scope=%s next=select-focus-or-refresh refresh=%s", runbook.Focus, runbook.Scope, runbook.RefreshStatusCommand)
+	}
+	next := strings.TrimSpace(request.Command)
+	if next == "" {
+		next = strings.TrimSpace(request.Guidance)
+	}
+	return fmt.Sprintf("ready=true focus=%s scope=%s nextStep=%s executable=%t blocked=%t requiresReview=%t next=%s refresh=%s", runbook.Focus, runbook.Scope, request.RunLoopStepID, request.CommandExecutable, request.Blocked, statusMissionControlQuickstartRequiresReview(request), next, runbook.RefreshStatusCommand)
+}
+
+func statusMissionControlQuickstartTargetDocuments(runbook *statusMissionControlRunbook, projectHandoff *statusProjectHandoff) []string {
+	if runbook == nil {
+		return nil
+	}
+	docs := []string{
+		"missionControlRunbook.quickstart",
+		"missionControlRunbook.currentDriverRequest",
+		"missionControlRunbook.currentDriverReceipt",
+		"missionControlRunbook.runLoop",
+	}
+	if runbook.GuidanceHandoff != nil {
+		docs = append(docs, "missionControlRunbook.guidanceHandoff")
+		docs = append(docs, runbook.GuidanceHandoff.TargetDocuments...)
+	} else if projectHandoff != nil && (runbook.Scope == "project" || runbook.Scope == "pack-memory") {
+		docs = append(docs, statusMissionControlGuidanceTargetDocuments(projectHandoff)...)
+	}
+	if runbook.ReplacementExecutorTakeover != nil {
+		docs = append(docs, "missionControlRunbook.replacementExecutorTakeoverPackage")
+		docs = append(docs, runbook.ReplacementExecutorTakeover.TargetDocuments...)
+	}
+	if runbook.HandoffPreviewDriverRequest != nil {
+		docs = append(docs, "missionControlRunbook.handoffPreviewDriverRequest")
+	}
+	if runbook.HandoffApplyDriverRequest != nil {
+		docs = append(docs, "missionControlRunbook.handoffApplyDriverRequest")
+	}
+	return mission.UniqueStrings(docs)
+}
+
+func statusMissionControlQuickstartRunbookSteps(runbook *statusMissionControlRunbook) []string {
+	if runbook == nil {
+		return nil
+	}
+	steps := []string{
+		"read missionControlRunbook.quickstart first; use focus and scope to confirm the selected queue",
+		"consume quickstart.currentDriverRequest exactly when ready=true",
+	}
+	request := runbook.CurrentDriverRequest
+	if request == nil {
+		steps = append(steps, "no currentDriverRequest is ready; inspect routingReasons and refreshStatusCommand before choosing a case lane")
+	} else if request.Blocked {
+		steps = append(steps, "resolve quickstart.currentDriverRequest blocker before running any command or follow-up")
+	} else if request.CommandExecutable {
+		steps = append(steps, "run quickstart.command exactly as the next bounded step")
+	} else {
+		steps = append(steps, "review quickstart.guidance and targetDocuments; do not execute guidance as a shell command")
+	}
+	if request != nil && statusMissionControlQuickstartRequiresReview(request) {
+		steps = append(steps, "review quickstart.currentDriverRequest.expectedReceipt and boundary before any Apply or follow-up")
+	}
+	steps = append(steps, "after the explicit outcome, run quickstart.refreshStatusCommand and consume the refreshed currentDriverReceipt/refreshedCurrentDriverRequest")
+	if runbook.HandoffPreviewDriverRequest != nil {
+		steps = append(steps, "if a new session must take over, run missionControlRunbook.handoffPreviewDriverRequest before any handoff Apply")
+	}
+	return mission.UniqueStrings(steps)
+}
+
+func statusMissionControlQuickstartAcceptanceChecklist(runbook *statusMissionControlRunbook) []string {
+	if runbook == nil {
+		return nil
+	}
+	checklist := []string{
+		"quickstart.focus and quickstart.scope match the focused Mission Commander queue",
+		"quickstart.currentDriverReceipt reflects the same refreshed currentDriverRequest",
+		"quickstart.refreshStatusCommand is run after each explicit command, preview, apply, or guidance outcome",
+	}
+	if request := runbook.CurrentDriverRequest; request != nil {
+		if request.CommandExecutable {
+			checklist = append(checklist, "quickstart.command is executable and should be run exactly, without reconstructing it from prose")
+		} else {
+			checklist = append(checklist, "quickstart.commandExecutable=false means review guidance only; do not run guidance as a shell command")
+		}
+		if request.RequiresReview {
+			checklist = append(checklist, "review quickstart.currentDriverRequest.expectedReceipt before any Apply or follow-up")
+		}
+	} else {
+		checklist = append(checklist, "quickstart.ready=false means inspect routingReasons or initialize/select a lane before running follow-up work")
+	}
+	return mission.UniqueStrings(checklist)
 }
 
 func statusMissionControlGuidanceHandoffFor(runbook *statusMissionControlRunbook, projectHandoff *statusProjectHandoff) *statusMissionControlGuidanceHandoff {
@@ -4421,6 +4598,9 @@ func writeStatusMissionControlRunbookText(out io.Writer, runbook *statusMissionC
 	if err := writeStatusMissionCommanderDriverReceiptText(out, "status Mission Control runbook", runbook.CurrentDriverReceipt); err != nil {
 		return err
 	}
+	if err := writeStatusMissionControlQuickstartText(out, runbook.Quickstart); err != nil {
+		return err
+	}
 	if err := writeStatusMissionControlGuidanceHandoffText(out, runbook.GuidanceHandoff); err != nil {
 		return err
 	}
@@ -4449,6 +4629,42 @@ func writeStatusMissionControlRunbookText(out io.Writer, runbook *statusMissionC
 	}
 	for _, boundary := range runbook.Boundary {
 		if _, err := fmt.Fprintf(out, "status Mission Control runbook boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeStatusMissionControlQuickstartText(out io.Writer, quickstart *statusMissionControlQuickstart) error {
+	if quickstart == nil {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "status Mission Control quickstart：ready=%t focus=%s scope=%s nextStep=%s driverKind=%s executable=%t blocked=%t requiresReview=%t command=%s guidance=%s refresh=%s summary=%s\n", quickstart.Ready, quickstart.Focus, quickstart.Scope, quickstart.NextStepID, quickstart.DriverKind, quickstart.CommandExecutable, quickstart.Blocked, quickstart.RequiresReview, quickstart.Command, quickstart.Guidance, quickstart.RefreshStatusCommand, quickstart.Summary); err != nil {
+		return err
+	}
+	if err := writeMissionCommanderDriverRequestText(out, "status Mission Control quickstart current", quickstart.CurrentDriverRequest); err != nil {
+		return err
+	}
+	if err := writeStatusMissionCommanderDriverReceiptText(out, "status Mission Control quickstart current", quickstart.CurrentDriverReceipt); err != nil {
+		return err
+	}
+	for _, doc := range quickstart.TargetDocuments {
+		if _, err := fmt.Fprintf(out, "status Mission Control quickstart target document：%s\n", doc); err != nil {
+			return err
+		}
+	}
+	for _, step := range quickstart.RunbookSteps {
+		if _, err := fmt.Fprintf(out, "status Mission Control quickstart runbook step：%s\n", step); err != nil {
+			return err
+		}
+	}
+	for _, item := range quickstart.AcceptanceChecklist {
+		if _, err := fmt.Fprintf(out, "status Mission Control quickstart acceptance：%s\n", item); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range quickstart.Boundary {
+		if _, err := fmt.Fprintf(out, "status Mission Control quickstart boundary：%s\n", boundary); err != nil {
 			return err
 		}
 	}

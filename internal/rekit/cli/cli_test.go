@@ -680,6 +680,10 @@ func TestStatusProjectHandoffLocalValidationActionUsesReleaseRunDriverRequest(t 
 	if receipt == nil || receipt.State != "refreshed" || receipt.Outcome != "status-refresh-result" || receipt.Command != runbook.RefreshStatusCommand || receipt.RefreshedCurrentRunLoopStep != runbook.CurrentRunLoopStepID || receipt.RefreshedCurrentDriverRequest == nil || receipt.RefreshedCurrentDriverRequest.Command != runbook.CurrentDriverRequest.Command || receipt.RefreshedCurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != runbook.RefreshStatusCommand || !containsSubstring(receipt.Boundary, "does not prove the Go runtime spawned") || !containsSubstring(receipt.Boundary, "status is read-only") {
 		t.Fatalf("status runbook should expose a read-only current driver receipt: %+v", receipt)
 	}
+	quickstart := runbook.Quickstart
+	if quickstart == nil || !quickstart.Ready || quickstart.Focus != "project-current-action" || quickstart.Scope != "project" || quickstart.NextStepID != "preview-current" || quickstart.DriverKind != "preview-command" || !quickstart.CommandExecutable || !quickstart.RequiresReview || quickstart.Command != runbook.CurrentDriverRequest.Command || quickstart.CurrentDriverRequest == nil || quickstart.CurrentDriverRequest.Command != runbook.CurrentDriverRequest.Command || quickstart.CurrentDriverReceipt == nil || quickstart.CurrentDriverReceipt.RefreshedCurrentDriverRequest == nil || quickstart.CurrentDriverReceipt.RefreshedCurrentDriverRequest.Command != quickstart.CurrentDriverRequest.Command || quickstart.RefreshStatusCommand != runbook.RefreshStatusCommand || !containsSubstring(quickstart.TargetDocuments, "missionControlRunbook.quickstart") || !containsSubstring(quickstart.RunbookSteps, "run quickstart.command exactly") || !containsSubstring(quickstart.AcceptanceChecklist, "quickstart.command is executable") || !containsSubstring(quickstart.Boundary, "quickstart does not write authority/confirmed") {
+		t.Fatalf("status runbook should expose executable quickstart path: %+v", quickstart)
+	}
 	args, ok := typedMissionCommanderDriverRequestCommandCLIArgs(t, runbook.CurrentDriverRequest)
 	if !ok || !slices.Equal(args, []string{"-Command", "release-run", "-Format", "json"}) {
 		t.Fatalf("release-run driver request should produce CLI args: args=%+v ok=%t request=%+v", args, ok, runbook.CurrentDriverRequest)
@@ -696,6 +700,12 @@ func TestStatusProjectHandoffLocalValidationActionUsesReleaseRunDriverRequest(t 
 		"status Mission Control runbook driver receipt：state=refreshed outcome=status-refresh-result command=`" + runbook.RefreshStatusCommand + "`",
 		"status Mission Control runbook driver receipt refreshed driver request：kind=preview-command",
 		"status Mission Control runbook driver receipt boundary：driver receipt does not prove the Go runtime spawned",
+		"status Mission Control quickstart：ready=true focus=project-current-action scope=project nextStep=preview-current driverKind=preview-command executable=true",
+		"status Mission Control quickstart current driver request：kind=preview-command",
+		"status Mission Control quickstart current driver receipt：state=refreshed outcome=status-refresh-result",
+		"status Mission Control quickstart target document：missionControlRunbook.quickstart",
+		"status Mission Control quickstart runbook step：run quickstart.command exactly as the next bounded step",
+		"status Mission Control quickstart boundary：quickstart does not write authority/confirmed state",
 		"status Mission Control runbook step boundary：step=consume-focused-driver-request boundary=review-required current actions must be previewed or reviewed before any apply/follow-up",
 	} {
 		if !strings.Contains(out.String(), want) {
@@ -793,6 +803,10 @@ func TestStatusMissionControlRunbookGuidanceHandoffWrapsNextBatchSelection(t *te
 	if guidance.ExpectedReceipt.State != "guidance-accepted-refresh-required" || guidance.ExpectedReceipt.RefreshStatusCommand != runbook.RefreshStatusCommand || !containsSubstring(guidance.ExpectedReceipt.Checklist, "docs/batch-plan.md records the selected operational closure") || !containsSubstring(guidance.ExpectedReceipt.Boundary, "do not infer guidance completion") {
 		t.Fatalf("guidance handoff expected receipt drifted: %+v", guidance.ExpectedReceipt)
 	}
+	quickstart := runbook.Quickstart
+	if quickstart == nil || !quickstart.Ready || quickstart.Focus != "project-current-action" || quickstart.Scope != "project" || quickstart.DriverKind != "review-guidance" || quickstart.CommandExecutable || !quickstart.RequiresReview || quickstart.Guidance != runbook.CurrentDriverRequest.Guidance || quickstart.CurrentDriverRequest == nil || quickstart.CurrentDriverRequest.Guidance != quickstart.Guidance || quickstart.CurrentDriverReceipt == nil || quickstart.RefreshStatusCommand != runbook.RefreshStatusCommand || !containsSubstring(quickstart.TargetDocuments, "missionControlRunbook.guidanceHandoff") || !containsSubstring(quickstart.TargetDocuments, "docs/batch-plan.md") || !containsSubstring(quickstart.RunbookSteps, "review quickstart.guidance") || !containsSubstring(quickstart.AcceptanceChecklist, "quickstart.commandExecutable=false") || !containsSubstring(quickstart.Boundary, "guidance-only quickstart entries") {
+		t.Fatalf("guidance status runbook should expose non-executable quickstart path: %+v", quickstart)
+	}
 	if guidance.StarterPackage == nil || !guidance.StarterPackage.Ready || guidance.StarterPackage.LatestCompletedBatch != "Batch 651" || guidance.StarterPackage.SuggestedNextBatch != "Batch 652" || !strings.Contains(guidance.StarterPackage.CurrentBatchSection, "### Batch 652") || !strings.Contains(guidance.StarterPackage.ChangelogEntry, "Batch 652") || !slices.Contains(guidance.StarterPackage.ValidationCommands, "go test ./...") {
 		t.Fatalf("guidance handoff starter package drifted: %+v", guidance.StarterPackage)
 	}
@@ -807,6 +821,10 @@ func TestStatusMissionControlRunbookGuidanceHandoffWrapsNextBatchSelection(t *te
 		t.Fatal(err)
 	}
 	for _, want := range []string{
+		"status Mission Control quickstart：ready=true focus=project-current-action scope=project nextStep=inspect-current driverKind=review-guidance executable=false",
+		"status Mission Control quickstart runbook step：review quickstart.guidance and targetDocuments; do not execute guidance as a shell command",
+		"status Mission Control quickstart acceptance：quickstart.commandExecutable=false means review guidance only; do not run guidance as a shell command",
+		"status Mission Control quickstart boundary：guidance-only quickstart entries must be reviewed by the main Agent or harness",
 		"status Mission Control guidance handoff：ready=true kind=review-guidance scope=project",
 		"status Mission Control guidance handoff expected receipt：state=guidance-accepted-refresh-required",
 		"status Mission Control guidance handoff starter current batch section：### Batch 652",
@@ -1937,11 +1955,11 @@ func TestRunStatusJsonCaseStartBootstrapDriverRequest(t *testing.T) {
 	if runbook := status.CaseMission.DailyMissionControlRunbook; runbook == nil || !runbook.Ready || runbook.Scope != "case" || runbook.CurrentState != "start-bootstrap-preview-required" || runbook.CurrentCommand != request.Command || runbook.CurrentRunLoopStepID != "preview-current" || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Command != request.Command || runbook.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != runbook.RefreshStatusCommand || runbook.HandoffPreviewDriverRequest == nil || runbook.HandoffPreviewDriverRequest.Kind != "preview-command" || runbook.HandoffPreviewDriverRequest.RunLoopStepID != "preview-handoff" || runbook.HandoffPreviewDriverRequest.Command != runbook.HandoffPreviewCommand || runbook.HandoffPreviewDriverRequest.ExpectedReceipt.RefreshStatusCommand != runbook.RefreshStatusCommand || runbook.HandoffApplyDriverRequest == nil || runbook.HandoffApplyDriverRequest.Kind != "review-guidance" || runbook.HandoffApplyDriverRequest.CommandExecutable || !strings.Contains(runbook.HandoffApplyDriverRequest.Guidance, runbook.HandoffApplyCommand) || len(runbook.RunLoop) != 5 || !containsSubstring(runbook.Boundary, "read-only") {
 		t.Fatalf("daily runbook should wrap start bootstrap and handoff driver requests: %+v", runbook)
 	}
-	if runbook := status.MissionControlRunbook; runbook == nil || !runbook.Ready || runbook.Focus != "case-current-action" || runbook.Scope != "case" || runbook.CurrentRunLoopStepID != "preview-current" || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Command != request.Command || runbook.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != runbook.RefreshStatusCommand || runbook.HandoffPreviewDriverRequest == nil || runbook.HandoffPreviewDriverRequest.Command != status.CaseMission.DailyMissionControlRunbook.HandoffPreviewDriverRequest.Command || runbook.HandoffApplyDriverRequest == nil || runbook.HandoffApplyDriverRequest.CommandExecutable || runbook.GuidanceHandoff != nil || len(runbook.Queues) != 4 || !runbook.Queues[0].Focused || !containsSubstring(runbook.RoutingReasons, "case current action needs attention") {
-		t.Fatalf("status Mission Control runbook should focus empty-lane start bootstrap and handoff requests: %+v", runbook)
+	if runbook := status.MissionControlRunbook; runbook == nil || !runbook.Ready || runbook.Focus != "case-current-action" || runbook.Scope != "case" || runbook.CurrentRunLoopStepID != "preview-current" || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Command != request.Command || runbook.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != runbook.RefreshStatusCommand || runbook.Quickstart == nil || !runbook.Quickstart.Ready || runbook.Quickstart.Command != request.Command || runbook.Quickstart.CurrentDriverRequest == nil || runbook.Quickstart.CurrentDriverRequest.Command != request.Command || runbook.Quickstart.CurrentDriverReceipt == nil || runbook.Quickstart.RefreshStatusCommand != runbook.RefreshStatusCommand || !containsSubstring(runbook.Quickstart.RunbookSteps, "run quickstart.command exactly") || !containsSubstring(runbook.Quickstart.TargetDocuments, "missionControlRunbook.quickstart") || runbook.HandoffPreviewDriverRequest == nil || runbook.HandoffPreviewDriverRequest.Command != status.CaseMission.DailyMissionControlRunbook.HandoffPreviewDriverRequest.Command || runbook.HandoffApplyDriverRequest == nil || runbook.HandoffApplyDriverRequest.CommandExecutable || runbook.GuidanceHandoff != nil || len(runbook.Queues) != 4 || !runbook.Queues[0].Focused || !containsSubstring(runbook.RoutingReasons, "case current action needs attention") {
+		t.Fatalf("status Mission Control runbook should focus empty-lane start bootstrap quickstart and handoff requests: %+v", runbook)
 	}
 	beforePreview := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
-	args, ok := missionCommanderDriverRequestCommandCLIArgs(t, request)
+	args, ok := missionCommanderDriverRequestCommandCLIArgs(t, status.MissionControlRunbook.Quickstart.CurrentDriverRequest)
 	if !ok {
 		t.Fatalf("start bootstrap request should be executable: %+v", request)
 	}
@@ -1977,6 +1995,8 @@ func TestRunStatusJsonCaseStartBootstrapDriverRequest(t *testing.T) {
 		"-Name triage -WhatIf -Format json",
 		"status case mission daily runbook driver：kind=preview-command actor=main-agent state=start-bootstrap-preview-required source=caseMissionStartBootstrap executable=true blocked=false requiresReview=true command=/rekit start -Target",
 		"status Mission Control runbook driver：kind=preview-command actor=main-agent state=start-bootstrap-preview-required source=caseMissionStartBootstrap executable=true blocked=false requiresReview=true command=/rekit start -Target",
+		"status Mission Control quickstart：ready=true focus=case-current-action scope=case nextStep=preview-current driverKind=preview-command executable=true blocked=false requiresReview=true command=/rekit start -Target",
+		"status Mission Control quickstart runbook step：run quickstart.command exactly as the next bounded step",
 	} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("status text missing %q:\n%s", expected, out.String())
@@ -2088,10 +2108,10 @@ func TestRunStartBootstrapDriverRequestConsumerLoopProductPath(t *testing.T) {
 	if refreshed.CaseMission.FirstScreenLaneTakeoverPackage == nil || !refreshed.CaseMission.FirstScreenLaneTakeoverPackage.Ready || refreshed.CaseMission.FirstScreenLaneTakeoverPackage.ApplyRequired || refreshed.CaseMission.FirstScreenLaneTakeoverPackage.Lane != "feature-triage" || packageRequest == nil || packageRequest.Command != continueRequest.Command {
 		t.Fatalf("status refresh should expose durable triage takeover package: package=%+v request=%+v", refreshed.CaseMission.FirstScreenLaneTakeoverPackage, packageRequest)
 	}
-	if refreshed.MissionControlRunbook == nil || refreshed.MissionControlRunbook.CurrentDriverRequest == nil || refreshed.MissionControlRunbook.CurrentDriverRequest.Kind != "preview-command" || !refreshed.MissionControlRunbook.CurrentDriverRequest.CommandExecutable || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "/rekit continue -Target") || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, " triage") || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "-WhatIf") || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "-Format json") {
-		t.Fatalf("status runbook should expose invocation-scoped triage preview request after refresh: %+v", refreshed.MissionControlRunbook)
+	if refreshed.MissionControlRunbook == nil || refreshed.MissionControlRunbook.CurrentDriverRequest == nil || refreshed.MissionControlRunbook.CurrentDriverRequest.Kind != "preview-command" || !refreshed.MissionControlRunbook.CurrentDriverRequest.CommandExecutable || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "/rekit continue -Target") || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, " triage") || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "-WhatIf") || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "-Format json") || refreshed.MissionControlRunbook.Quickstart == nil || !refreshed.MissionControlRunbook.Quickstart.Ready || refreshed.MissionControlRunbook.Quickstart.Command != refreshed.MissionControlRunbook.CurrentDriverRequest.Command || refreshed.MissionControlRunbook.Quickstart.CurrentDriverRequest == nil || refreshed.MissionControlRunbook.Quickstart.CurrentDriverRequest.Command != refreshed.MissionControlRunbook.CurrentDriverRequest.Command || refreshed.MissionControlRunbook.Quickstart.CurrentDriverReceipt == nil || refreshed.MissionControlRunbook.Quickstart.CurrentDriverReceipt.RefreshedCurrentDriverRequest == nil || refreshed.MissionControlRunbook.Quickstart.CurrentDriverReceipt.RefreshedCurrentDriverRequest.Command != refreshed.MissionControlRunbook.Quickstart.CurrentDriverRequest.Command {
+		t.Fatalf("status runbook should expose invocation-scoped triage quickstart preview request after refresh: %+v", refreshed.MissionControlRunbook)
 	}
-	topLevelContinueRequest := refreshed.MissionControlRunbook.CurrentDriverRequest
+	topLevelContinueRequest := refreshed.MissionControlRunbook.Quickstart.CurrentDriverRequest
 	if topLevelContinueRequest.ExpectedReceipt.RefreshStatusCommand == "" || !strings.Contains(topLevelContinueRequest.ExpectedReceipt.RefreshStatusCommand, "/rekit status -Target") || !strings.Contains(topLevelContinueRequest.ExpectedReceipt.RefreshStatusCommand, "-Format json") {
 		t.Fatalf("status runbook continue request should bind refresh command: %+v", topLevelContinueRequest)
 	}
@@ -22268,6 +22288,7 @@ type statusMissionControlRunbookSnapshot struct {
 	CurrentRunLoopStepID               string                                       `json:"currentRunLoopStepId"`
 	CurrentDriverRequest               *missionCommanderDriverRequestSnapshot       `json:"currentDriverRequest"`
 	CurrentDriverReceipt               *missionCommanderDriverReceiptSnapshot       `json:"currentDriverReceipt"`
+	Quickstart                         *statusMissionControlQuickstartSnapshot      `json:"quickstart"`
 	GuidanceHandoff                    *statusMissionControlGuidanceHandoffSnapshot `json:"guidanceHandoff"`
 	ReplacementExecutorTakeoverPackage *replacementExecutorTakeoverPackageSnapshot  `json:"replacementExecutorTakeoverPackage"`
 	RefreshStatusCommand               string                                       `json:"refreshStatusCommand"`
@@ -22279,6 +22300,30 @@ type statusMissionControlRunbookSnapshot struct {
 	RoutingReasons                     []string                                     `json:"routingReasons"`
 	RunLoop                            []dailyMissionControlRunbookStepSnapshot     `json:"runLoop"`
 	Boundary                           []string                                     `json:"boundary"`
+}
+
+type statusMissionControlQuickstartSnapshot struct {
+	Ready                bool                                   `json:"ready"`
+	Summary              string                                 `json:"summary"`
+	Focus                string                                 `json:"focus"`
+	Scope                string                                 `json:"scope"`
+	NextStepID           string                                 `json:"nextStepId"`
+	Actor                string                                 `json:"actor"`
+	DriverKind           string                                 `json:"driverKind"`
+	State                string                                 `json:"state"`
+	Source               string                                 `json:"source"`
+	Command              string                                 `json:"command"`
+	Guidance             string                                 `json:"guidance"`
+	CommandExecutable    bool                                   `json:"commandExecutable"`
+	Blocked              bool                                   `json:"blocked"`
+	RequiresReview       bool                                   `json:"requiresReview"`
+	CurrentDriverRequest *missionCommanderDriverRequestSnapshot `json:"currentDriverRequest"`
+	CurrentDriverReceipt *missionCommanderDriverReceiptSnapshot `json:"currentDriverReceipt"`
+	RefreshStatusCommand string                                 `json:"refreshStatusCommand"`
+	TargetDocuments      []string                               `json:"targetDocuments"`
+	RunbookSteps         []string                               `json:"runbookSteps"`
+	AcceptanceChecklist  []string                               `json:"acceptanceChecklist"`
+	Boundary             []string                               `json:"boundary"`
 }
 
 type statusMissionControlGuidanceHandoffSnapshot struct {
