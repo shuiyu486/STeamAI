@@ -1648,6 +1648,117 @@ func TestRunStartBootstrapDriverRequestConsumerLoopProductPath(t *testing.T) {
 	if refreshed.MissionControlRunbook == nil || refreshed.MissionControlRunbook.CurrentDriverRequest == nil || refreshed.MissionControlRunbook.CurrentDriverRequest.Kind != "preview-command" || !refreshed.MissionControlRunbook.CurrentDriverRequest.CommandExecutable || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "/rekit continue -Target") || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, " triage") || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "-WhatIf") || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "-Format json") {
 		t.Fatalf("status runbook should expose invocation-scoped triage preview request after refresh: %+v", refreshed.MissionControlRunbook)
 	}
+	topLevelContinueRequest := refreshed.MissionControlRunbook.CurrentDriverRequest
+	if topLevelContinueRequest.ExpectedReceipt.RefreshStatusCommand == "" || !strings.Contains(topLevelContinueRequest.ExpectedReceipt.RefreshStatusCommand, "/rekit status -Target") || !strings.Contains(topLevelContinueRequest.ExpectedReceipt.RefreshStatusCommand, "-Format json") {
+		t.Fatalf("status runbook continue request should bind refresh command: %+v", topLevelContinueRequest)
+	}
+
+	beforeContinuePreview := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	continuePreviewArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, topLevelContinueRequest)
+	if !ok {
+		t.Fatalf("status runbook continue preview request should be executable: %+v", topLevelContinueRequest)
+	}
+	out.Reset()
+	if err := Run(continuePreviewArgs, &out); err != nil {
+		t.Fatalf("status runbook continue preview request failed: args=%+v err=%v\n%s", continuePreviewArgs, err, out.String())
+	}
+	var continuation struct {
+		Command                     string                              `json:"command"`
+		Applied                     bool                                `json:"applied"`
+		Blocked                     bool                                `json:"blocked"`
+		OpenDecisionRequired        bool                                `json:"openDecisionRequired"`
+		ExecutorAction              executorActionSnapshot              `json:"executorAction"`
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+		LaneTakeoverPackage         *laneTakeoverPackage                `json:"laneTakeoverPackage"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &continuation); err != nil {
+		t.Fatalf("status runbook continue preview JSON did not decode: %v\n%s", err, out.String())
+	}
+	previewCurrent := continuation.MissionCommanderActionQueue.CurrentAction
+	previewRequest := requireMissionCommanderDriverRequest(t, continuation.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue triage", true, false, false)
+	if continuation.Command != "continue" || continuation.Applied || continuation.Blocked || continuation.OpenDecisionRequired || continuation.ExecutorAction.Blocked || !continuation.ExecutorAction.Ready || previewCurrent == nil || previewCurrent.State != "ready-to-continue" || previewCurrent.Command != "/rekit continue triage" || continuation.LaneTakeoverPackage == nil || !continuation.LaneTakeoverPackage.Ready || !continuation.LaneTakeoverPackage.ContinueReady || continuation.LaneTakeoverPackage.CurrentCommand != "/rekit continue triage" {
+		t.Fatalf("status runbook continue preview should return ready case-local driver request: result=%+v current=%+v request=%+v", continuation, previewCurrent, previewRequest)
+	}
+	if previewRequest.Command == topLevelContinueRequest.Command {
+		t.Fatalf("continue preview should return case-local follow-up request, not reuse invocation-scoped preview command: top=%+v returned=%+v", topLevelContinueRequest, previewRequest)
+	}
+	assertSnapshotEqual(t, beforeContinuePreview, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	factsBeforeContinueApply := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
+	continueApplyArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, previewRequest)
+	if !ok {
+		t.Fatalf("continue preview returned request should be executable: %+v", previewRequest)
+	}
+	continueApplyArgs = append(continueApplyArgs, "-Target", caseRoot, "-Pack", "_template", "-Apply", "-Format", "json")
+	out.Reset()
+	if err := Run(continueApplyArgs, &out); err != nil {
+		t.Fatalf("continue apply request failed: args=%+v err=%v\n%s", continueApplyArgs, err, out.String())
+	}
+	var continued struct {
+		Command                       string                                 `json:"command"`
+		RunID                         string                                 `json:"runId"`
+		BatchID                       string                                 `json:"batchId"`
+		IsMutation                    bool                                   `json:"isMutation"`
+		Applied                       bool                                   `json:"applied"`
+		RequiresConfirmation          bool                                   `json:"requiresConfirmation"`
+		Selector                      string                                 `json:"selector"`
+		Lane                          startLane                              `json:"lane"`
+		Blocked                       bool                                   `json:"blocked"`
+		OpenDecisionRequired          bool                                   `json:"openDecisionRequired"`
+		ExecutorAction                executorActionSnapshot                 `json:"executorAction"`
+		MissionCommanderActionQueue   missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
+		MissionCommanderDriverReceipt *missionCommanderDriverReceiptSnapshot `json:"missionCommanderDriverReceipt"`
+		LaneTakeoverPackage           *laneTakeoverPackage                   `json:"laneTakeoverPackage"`
+		Writes                        []startWrite                           `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &continued); err != nil {
+		t.Fatalf("continue apply JSON did not decode: %v\n%s", err, out.String())
+	}
+	if continued.Command != "continue" || continued.RunID == "" || continued.RunID == "run-preview" || continued.BatchID != "batch-"+continued.RunID || !continued.IsMutation || !continued.Applied || continued.RequiresConfirmation || continued.Selector != "triage" || continued.Lane.ID != "feature-triage" || continued.Blocked || continued.OpenDecisionRequired || continued.ExecutorAction.Blocked || !continued.ExecutorAction.Ready {
+		t.Fatalf("continue apply should persist triage run artifact closure: %+v", continued)
+	}
+	returnedRequest := requireMissionCommanderDriverRequest(t, continued.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue triage", true, false, false)
+	assertMissionCommanderDriverReceipt(t, "bootstrap continue apply", continued.MissionCommanderDriverReceipt, continued.RunID, continued.BatchID, "feature-triage", returnedRequest, ".rekit/runs/"+continued.RunID+"/status.json", ".rekit/runs/"+continued.RunID+"/digest.md")
+	if returnedRequest.Command != previewRequest.Command {
+		t.Fatalf("continue apply returned stale driver receipt: before=%+v after=%+v", previewRequest, returnedRequest)
+	}
+	if continued.LaneTakeoverPackage == nil || !continued.LaneTakeoverPackage.Ready || !continued.LaneTakeoverPackage.ContinueReady || continued.LaneTakeoverPackage.Blocked || continued.LaneTakeoverPackage.CurrentCommand != "/rekit continue triage" {
+		t.Fatalf("continue apply omitted triage takeover receipt: %+v", continued.LaneTakeoverPackage)
+	}
+	takeoverRequest := requireMissionCommanderDriverRequest(t, continued.LaneTakeoverPackage.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue triage", true, false, false)
+	if takeoverRequest.Command != returnedRequest.Command {
+		t.Fatalf("continue apply takeover receipt drifted from returned queue: returned=%+v takeover=%+v", returnedRequest, takeoverRequest)
+	}
+	statusPath := assertStartWrite(t, continued.Writes, ".rekit/runs/"+continued.RunID+"/status.json", "write").TargetPath
+	digestPath := assertStartWrite(t, continued.Writes, ".rekit/runs/"+continued.RunID+"/digest.md", "write").TargetPath
+	statusBytes, err := os.ReadFile(statusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var runStatus struct {
+		MissionCommanderDriverReceipt *missionCommanderDriverReceiptSnapshot `json:"missionCommanderDriverReceipt"`
+		MissionCommanderActionQueue   missionCommanderActionQueueSnapshot    `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(statusBytes, &runStatus); err != nil {
+		t.Fatalf("continue apply run status JSON did not decode: %v\n%s", err, string(statusBytes))
+	}
+	assertMissionCommanderDriverReceipt(t, "bootstrap run status", runStatus.MissionCommanderDriverReceipt, continued.RunID, continued.BatchID, "feature-triage", returnedRequest, ".rekit/runs/"+continued.RunID+"/status.json", ".rekit/runs/"+continued.RunID+"/digest.md")
+	if runStatus.MissionCommanderActionQueue.CurrentDriverRequest == nil || runStatus.MissionCommanderActionQueue.CurrentDriverRequest.Command != returnedRequest.Command {
+		t.Fatalf("continue apply run status queue drifted from returned receipt: status=%+v returned=%+v", runStatus.MissionCommanderActionQueue, returnedRequest)
+	}
+	digestBytes, err := os.ReadFile(digestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digestText := string(digestBytes)
+	for _, want := range []string{"## Mission Commander driver receipt", "- state: `refreshed`", "- outcome: `explicit-command-result`", "- command: `" + returnedRequest.Command + "`", "driver receipt does not prove the Go runtime spawned"} {
+		if !strings.Contains(digestText, want) {
+			t.Fatalf("continue apply digest omitted receipt detail %q:\n%s", want, digestText)
+		}
+	}
+	assertSnapshotEqual(t, factsBeforeContinueApply, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
+	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
 }
 
 func TestRunStatusJsonCase(t *testing.T) {
