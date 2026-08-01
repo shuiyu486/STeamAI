@@ -37,6 +37,7 @@ type currentLoopPlan struct {
 	Steps                         []currentLoopStepReceipt               `json:"steps"`
 	StopReason                    currentLoopStopReason                  `json:"stopReason"`
 	ResumeCommand                 string                                 `json:"resumeCommand"`
+	ContinuationRequest           *currentLoopContinuationRequest        `json:"continuationRequest,omitempty"`
 	FinalStatus                   *statusInventory                       `json:"finalStatus,omitempty"`
 	Boundary                      []string                               `json:"boundary"`
 }
@@ -58,6 +59,21 @@ type currentLoopStopReason struct {
 	Message              string                                 `json:"message"`
 	CurrentDriverRequest *mission.MissionCommanderDriverRequest `json:"currentDriverRequest,omitempty"`
 	ExternalHandoff      *reviewerStepExternalHandoff           `json:"externalHandoff,omitempty"`
+}
+
+type currentLoopContinuationRequest struct {
+	Kind                  string                          `json:"kind"`
+	State                 string                          `json:"state"`
+	SegmentMaxSteps       int                             `json:"segmentMaxSteps"`
+	AppliedStepsInSegment int                             `json:"appliedStepsInSegment"`
+	RemainingMaxSteps     int                             `json:"remainingMaxSteps"`
+	ExpectedRoute         string                          `json:"expectedRoute"`
+	ExpectedLane          string                          `json:"expectedLane"`
+	WhatIfCommand         string                          `json:"whatIfCommand"`
+	ObservationContract   reviewerStepObservationContract `json:"observationContract"`
+	FreshPreviewRequired  bool                            `json:"freshPreviewRequired"`
+	CumulativeReceipts    bool                            `json:"cumulativeReceipts"`
+	Boundary              []string                        `json:"boundary"`
 }
 
 type currentLoopPlanIdentity struct {
@@ -140,6 +156,7 @@ func buildCurrentLoopPlan(ctx runtime.Context, opt Options) (currentLoopPlan, st
 			"every later step is rebuilt from refreshed durable status and retains the current-step and nested runner hash, lease, packet, artifact, and lock guards",
 			"the loop stops before external session work, newly surfaced Human-in-the-Lane reconciliation, guidance-only or blocked actions, route or lane changes, repeated exact step plans, and the configured step limit",
 			"the loop is not transactional; completed step receipts remain valid if a later step cannot continue",
+			"an external reviewer stop returns a typed fresh continuation request whose maxSteps is the remaining deterministic budget; receipts remain segment-local and are not accumulated across invocations",
 			"the Go runtime does not invoke a shell or Agent tool, spawn, poll, or stop sessions, fabricate reviewer output, execute heavy tools, or write authority/confirmed state",
 		},
 	}
@@ -161,6 +178,10 @@ func buildCurrentLoopPlan(ctx runtime.Context, opt Options) (currentLoopPlan, st
 	plan.InitialCurrentStep = &step
 	if step.ExpectedCurrentStepPlanSHA256 == "" {
 		plan.StopReason = currentLoopExternalStop(step, request)
+		plan.ContinuationRequest = currentLoopContinuationFor(ctx, opt.MaxSteps, 0, route, plan.InitialLane, plan.StopReason)
+		if plan.ContinuationRequest != nil {
+			plan.ResumeCommand = plan.ContinuationRequest.WhatIfCommand
+		}
 		plan.FinalStatus = &status
 		return plan, status, nil
 	}
@@ -212,6 +233,10 @@ func applyCurrentLoopPlan(ctx runtime.Context, opt Options, plan currentLoopPlan
 		}
 		if step.ExpectedCurrentStepPlanSHA256 == "" {
 			plan.StopReason = currentLoopExternalStop(step, request)
+			plan.ContinuationRequest = currentLoopContinuationFor(ctx, plan.MaxSteps, plan.AppliedSteps, route, strings.TrimSpace(request.Lane), plan.StopReason)
+			if plan.ContinuationRequest != nil {
+				plan.ResumeCommand = plan.ContinuationRequest.WhatIfCommand
+			}
 			break
 		}
 		requestKey, err := currentLoopRequestKey(route, *request, step.ExpectedCurrentStepPlanSHA256)
@@ -361,6 +386,35 @@ func currentLoopRequestKey(route string, request mission.MissionCommanderDriverR
 
 func currentLoopResumeCommand(ctx runtime.Context, maxSteps int) string {
 	return fmt.Sprintf("/rekit run-current-loop -Target %s -Pack %s -MaxSteps %d -WhatIf -Format json", statusQuoteCommandArg(ctx.Target), statusQuoteCommandArg(ctx.Pack), maxSteps)
+}
+
+func currentLoopContinuationFor(ctx runtime.Context, segmentMaxSteps, appliedSteps int, route, lane string, stop currentLoopStopReason) *currentLoopContinuationRequest {
+	if stop.Code != "external-reviewer-handoff" || stop.ExternalHandoff == nil {
+		return nil
+	}
+	remaining := segmentMaxSteps - appliedSteps
+	if remaining < 1 {
+		return nil
+	}
+	return &currentLoopContinuationRequest{
+		Kind:                  "current-loop-external-reviewer-resume",
+		State:                 "awaiting-external-observation",
+		SegmentMaxSteps:       segmentMaxSteps,
+		AppliedStepsInSegment: appliedSteps,
+		RemainingMaxSteps:     remaining,
+		ExpectedRoute:         route,
+		ExpectedLane:          lane,
+		WhatIfCommand:         currentLoopResumeCommand(ctx, remaining),
+		ObservationContract:   stop.ExternalHandoff.ObservationContract,
+		FreshPreviewRequired:  true,
+		CumulativeReceipts:    false,
+		Boundary: []string{
+			"consume one observation alternative by adding its exact flags to whatIfCommand; do not execute guidance text as a shell command",
+			"the continuation starts a fresh hash-bound loop segment with only the remaining deterministic step budget; receipts are retained in the previous segment result and are not accumulated across invocations",
+			"without this typed result, status may start a fresh loop preview but cannot claim recovery of the previous segment budget",
+			"the continuation request is an orchestration handoff, not authority or a durable authorization token",
+		},
+	}
 }
 
 func currentLoopFollowupOptions(opt Options) Options {

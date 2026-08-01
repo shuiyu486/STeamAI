@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -9,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/subagents"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
 func TestRunReviewerStepDispatchInputAndDeterministicPipeline(t *testing.T) {
@@ -54,6 +58,12 @@ func TestRunReviewerStepDispatchInputAndDeterministicPipeline(t *testing.T) {
 	if waiting.ExternalHandoff == nil || waiting.ExternalHandoff.RunLoopStepID != "save-result-input" {
 		t.Fatalf("running reviewer did not return result-input handoff: %+v", waiting)
 	}
+	if waiting.ExternalHandoff.ReviewerResultDropPathRole != "canonical-reviewer-input-destination" || waiting.ExternalHandoff.ReviewerResultDropPath == "" || waiting.ExternalHandoff.ReviewerResultDropPath != waiting.ExternalHandoff.ReviewerResultInputPath || len(waiting.ExternalHandoff.ObservationContract.Alternatives) != 2 {
+		t.Fatalf("result-input handoff omitted source/destination contract: %+v", waiting.ExternalHandoff)
+	}
+	if !containsSubstring(waiting.ExternalHandoff.Boundary, "must use a separate existing case-local ReviewerResultInputSourcePath") {
+		t.Fatalf("result-input handoff did not warn against canonical destination reuse: %+v", waiting.ExternalHandoff.Boundary)
+	}
 	evidencePath := filepath.Join(caseRoot, "workspace", "review-evidence.md")
 	if err := os.WriteFile(evidencePath, []byte("bounded reviewer evidence\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -72,6 +82,15 @@ func TestRunReviewerStepDispatchInputAndDeterministicPipeline(t *testing.T) {
 	}
 	if err := os.WriteFile(resultSource, data, 0o644); err != nil {
 		t.Fatal(err)
+	}
+
+	out.Reset()
+	err = Run(append(append([]string{}, base...), "-ReviewerResultInputSourcePath", waiting.ExternalHandoff.ReviewerResultDropPath, "-Actor", actor), &out)
+	if err == nil || !strings.Contains(err.Error(), "separate from packet-derived input/source paths") {
+		t.Fatalf("canonical reviewer input destination was accepted as external source: %v", err)
+	}
+	if _, statErr := os.Stat(handoff.ReviewerStagingCommands.SourceCaptureInput); !os.IsNotExist(statErr) {
+		t.Fatalf("rejected canonical destination source wrote reviewer input: %v", statErr)
 	}
 
 	out.Reset()
@@ -107,6 +126,152 @@ func TestRunReviewerStepDispatchInputAndDeterministicPipeline(t *testing.T) {
 	for _, forbidden := range []string{"authority.jsonl", "confirmed.jsonl"} {
 		if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", forbidden)); !os.IsNotExist(err) {
 			t.Fatalf("reviewer runner created forbidden ledger %s: %v", forbidden, err)
+		}
+	}
+}
+
+func TestReviewerStepExternalDistinguishesDirectResultDestination(t *testing.T) {
+	pkg := &workstream.ReviewerDispatchOperatorPackage{
+		CurrentRunLoopStepID: "save-result-input",
+		Current: &workstream.ReviewerDispatchOperatorPackageItem{
+			State:                  "reviewer-session-running-unknown",
+			ReviewerResultDropPath: "C:/case/result.json",
+			ReviewerResultPath:     "C:/case/result.json",
+		},
+	}
+	handoff := reviewerStepExternal(pkg, []string{"wait for direct reviewer result"})
+	if handoff.ReviewerResultDropPathRole != "direct-reviewer-result-destination" || len(handoff.ObservationContract.Alternatives) != 2 || handoff.ObservationContract.Alternatives[0].Kind != "reviewer-result-direct-write" || len(handoff.ObservationContract.Alternatives[0].RequiredFlags) != 0 {
+		t.Fatalf("direct reviewer result handoff = %+v", handoff)
+	}
+	if !containsSubstring(handoff.Boundary, "write exactly one ReviewerResult JSON object directly") {
+		t.Fatalf("direct reviewer result boundary = %+v", handoff.Boundary)
+	}
+}
+
+func TestRunReviewerStepIntakesDirectResultAfterDispatchReceipt(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "review", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", "alpha", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	plan := decodePlanSubagentsResult(t, out.Bytes())
+	packetData, err := os.ReadFile(plan.PacketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var canonical subagents.Packet
+	if err := json.Unmarshal(packetData, &canonical); err != nil {
+		t.Fatal(err)
+	}
+	for idx := range canonical.ShardHandoffs {
+		canonical.ShardHandoffs[idx].ReviewerStagingCommands = nil
+		canonical.ShardHandoffs[idx].ReviewerCollectionCommands = nil
+		canonical.ShardHandoffs[idx].ReviewerResultCandidatePath = ""
+	}
+	for idx := range canonical.ReviewerOrchestration.Dispatches {
+		canonical.ReviewerOrchestration.Dispatches[idx].StagingCommands = nil
+		canonical.ReviewerOrchestration.Dispatches[idx].CollectionCommands = nil
+		canonical.ReviewerOrchestration.Dispatches[idx].ReviewerResultCandidatePath = ""
+	}
+	if canonical.ReviewerOrchestration.ManagedDispatchPacket != nil {
+		for idx := range canonical.ReviewerOrchestration.ManagedDispatchPacket.Dispatches {
+			dispatch := &canonical.ReviewerOrchestration.ManagedDispatchPacket.Dispatches[idx]
+			dispatch.ReviewerResultCandidatePath = ""
+			dispatch.ReviewerResultInputPath = ""
+			dispatch.ReviewerResultSourcePath = ""
+			dispatch.InputSavePreviewCommand = ""
+			dispatch.InputSaveApplyCommand = ""
+			dispatch.SourceCapturePreviewCommand = ""
+			dispatch.SourceCaptureApplyCommand = ""
+			dispatch.StagingPreviewCommand = ""
+			dispatch.CollectionPreviewCommand = ""
+			dispatch.CollectionApplyCommand = ""
+		}
+	}
+	canonical.PacketID = ""
+	identityData, err := json.Marshal(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity := sha256.Sum256(identityData)
+	canonical.PacketID = "packet-" + hex.EncodeToString(identity[:])[:16]
+	updated, err := json.MarshalIndent(canonical, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated = append(updated, '\n')
+	if err := os.WriteFile(plan.PacketPath, updated, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if canonical.PacketIntegrity != nil {
+		packetSHA := sha256.Sum256(updated)
+		integrity := map[string]any{
+			"schemaVersion": 1,
+			"kind":          "reviewer-packet-integrity",
+			"algorithm":     canonical.PacketIntegrity.Algorithm,
+			"packetId":      canonical.PacketID,
+			"targetLane":    canonical.TargetLane,
+			"packetPath":    plan.PacketPath,
+			"packetSha256":  hex.EncodeToString(packetSHA[:]),
+			"packetBytes":   len(updated),
+		}
+		integrityData, err := json.MarshalIndent(integrity, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(canonical.PacketIntegrity.Path, append(integrityData, '\n'), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	packet := decodePlanSubagentsPacket(t, plan.PacketPath)
+	handoff := packet.ShardHandoffs[0]
+	if handoff.ReviewerStagingCommands != nil || handoff.ReviewerCollectionCommands != nil {
+		t.Fatalf("direct packet unexpectedly exposed managed result pipeline: %+v", handoff)
+	}
+	actor := "mission-commander"
+	base := []string{"-Command", "run-reviewer-step", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}
+	dispatchPreview := runReviewerStepPreview(t, append(base,
+		"-ReviewerHarness", "go-cli-direct-harness",
+		"-ReviewerSession", "reviewer-session-direct",
+		"-Actor", actor,
+	))
+	if dispatchPreview.ApplyDriverRequest == nil || !strings.Contains(dispatchPreview.ApplyDriverRequest.Command, "-RecordReviewerDispatch") {
+		t.Fatalf("direct dispatch did not return receipt apply: %+v", dispatchPreview)
+	}
+	runReviewerStepApply(t, caseRoot, dispatchPreview, "-ReviewerHarness", "go-cli-direct-harness", "-ReviewerSession", "reviewer-session-direct", "-Actor", actor)
+
+	waiting := runReviewerStepPreview(t, base)
+	if waiting.ExternalHandoff == nil || waiting.ExternalHandoff.RunLoopStepID != "save-result-input" || waiting.ExternalHandoff.ReviewerResultDropPathRole != "direct-reviewer-result-destination" {
+		t.Fatalf("direct reviewer did not return direct-write handoff: %+v", waiting)
+	}
+	if len(waiting.ExternalHandoff.ObservationContract.Alternatives) != 2 || waiting.ExternalHandoff.ObservationContract.Alternatives[0].Kind != "reviewer-result-direct-write" || len(waiting.ExternalHandoff.ObservationContract.Alternatives[0].RequiredFlags) != 0 {
+		t.Fatalf("direct-write handoff omitted typed no-flag success alternative: %+v", waiting.ExternalHandoff)
+	}
+	evidencePath := filepath.Join(caseRoot, "workspace", "features", "feature-login", "review-evidence.md")
+	if err := os.MkdirAll(filepath.Dir(evidencePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(evidencePath, []byte("bounded direct reviewer evidence\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result := reviewerResultForCLIPlan(t, packet, handoff, "accept", "accepted", "reviewer-session-direct")
+	if err := os.WriteFile(waiting.ExternalHandoff.ReviewerResultDropPath, result, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	intakePreview := runReviewerStepPreview(t, append(base, "-Actor", actor))
+	if intakePreview.ExternalHandoff != nil || intakePreview.CurrentDriverRequest.RunLoopStepID != "intake-results" || intakePreview.ApplyDriverRequest == nil {
+		t.Fatalf("direct result write looped instead of reaching intake: %+v", intakePreview)
+	}
+	runReviewerStepApply(t, caseRoot, intakePreview, "-Actor", actor)
+	for _, ledger := range []string{"verifications.jsonl", "decisions.jsonl"} {
+		data, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", ledger))
+		if err != nil || !strings.Contains(string(data), packet.PacketID) {
+			t.Fatalf("direct reviewer intake did not bind %s to packet %s: %v", ledger, packet.PacketID, err)
 		}
 	}
 }

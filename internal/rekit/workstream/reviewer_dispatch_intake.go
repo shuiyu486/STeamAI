@@ -1757,7 +1757,9 @@ type reviewerSessionLifecycle struct {
 }
 
 func reviewerDispatchSessionLifecycle(caseRoot string, packet reviewerDispatchPacket, packetPath, targetLane string, dispatch reviewerDispatchPacketDispatch, inputPath, inputState, inputSession, inputSHA256 string, inputBytes int, currentExecutor string, currentGeneration int) reviewerSessionLifecycle {
-	if dispatch.AgentToolRequest == nil || strings.TrimSpace(dispatch.DispatchPromptPath) == "" || strings.TrimSpace(dispatch.DispatchPromptSHA256) == "" || dispatch.StagingCommands == nil || strings.TrimSpace(dispatch.ReviewerResultCandidatePath) == "" {
+	managedResultPipeline := dispatch.StagingCommands != nil && strings.TrimSpace(dispatch.ReviewerResultCandidatePath) != ""
+	typedDirectDispatch := packet.ReviewerOrchestration.ManagedDispatchPacket != nil
+	if dispatch.AgentToolRequest == nil || strings.TrimSpace(dispatch.DispatchPromptPath) == "" || strings.TrimSpace(dispatch.DispatchPromptSHA256) == "" || (!managedResultPipeline && !typedDirectDispatch) {
 		return reviewerSessionLifecycle{}
 	}
 	packetBytes, err := readStableReviewerWorkstreamArtifact(caseRoot, packetPath, "reviewer packet")
@@ -2129,6 +2131,10 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 		case "reviewer-session-completed":
 			if !present && inputState == "ready" && sourceCaptureCommand != "" {
 				state = "ready-for-reviewer-result-source-capture-preview"
+			}
+		case "reviewer-session-running-unknown":
+			if state != "ready-for-reviewer-intake-preview" || collectionAvailable {
+				state = sessionLifecycle.state
 			}
 		default:
 			state = sessionLifecycle.state

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -115,19 +116,26 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", "alpha"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	external := runCurrentLoopPreview(t, caseRoot, 5)
+	external := runCurrentLoopPreview(t, caseRoot, 10)
 	if external.ExpectedCurrentLoopPlanSHA256 != "" || external.StopReason.Code != "external-reviewer-handoff" || external.StopReason.ExternalHandoff == nil || external.StopReason.ExternalHandoff.RunLoopStepID != "spawn-reviewer" {
 		t.Fatalf("current-loop did not stop for reviewer handoff: %+v", external)
 	}
+	if external.ContinuationRequest == nil || external.ContinuationRequest.RemainingMaxSteps != 10 || external.ContinuationRequest.AppliedStepsInSegment != 0 || external.ContinuationRequest.WhatIfCommand != external.ResumeCommand || external.ContinuationRequest.CumulativeReceipts || len(external.ContinuationRequest.ObservationContract.Alternatives) != 1 {
+		t.Fatalf("spawn handoff omitted typed continuation request: %+v", external.ContinuationRequest)
+	}
+	spawnObservation := external.ContinuationRequest.ObservationContract.Alternatives[0]
+	if spawnObservation.Kind != "reviewer-session-accepted" || !slices.Equal(spawnObservation.RequiredFlags, []string{"-ReviewerHarness", "-ReviewerSession", "-Actor"}) {
+		t.Fatalf("spawn continuation observation contract = %+v", spawnObservation)
+	}
 	out.Reset()
-	err := Run([]string{"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", "_template", "-MaxSteps", "5", "-ExpectedCurrentLoopPlanSha256", strings.Repeat("0", 64), "-Apply", "-Format", "json"}, &out)
+	err := Run([]string{"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", "_template", "-MaxSteps", "10", "-ExpectedCurrentLoopPlanSha256", strings.Repeat("0", 64), "-Apply", "-Format", "json"}, &out)
 	if err == nil || !strings.Contains(err.Error(), "external or reviewed action") {
 		t.Fatalf("external reviewer handoff accepted Apply: %v", err)
 	}
 
 	actor := "mission-commander"
 	dispatchInputs := []string{"-ReviewerHarness", "go-cli-test-harness", "-ReviewerSession", "reviewer-session-runner", "-Actor", actor}
-	dispatchPreview := runCurrentLoopPreviewWith(t, caseRoot, 10, dispatchInputs...)
+	dispatchPreview := runCurrentLoopPreviewWith(t, caseRoot, external.ContinuationRequest.RemainingMaxSteps, dispatchInputs...)
 	if dispatchPreview.ExpectedCurrentLoopPlanSHA256 == "" || dispatchPreview.InitialRoute != "reviewer" {
 		t.Fatalf("reviewer deterministic loop preview missing: %+v", dispatchPreview)
 	}
@@ -144,6 +152,61 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	dispatchApplied := runCurrentLoopApplyWith(t, caseRoot, dispatchPreview, dispatchInputs...)
 	if dispatchApplied.AppliedSteps != 1 || dispatchApplied.StopReason.Code != "external-reviewer-handoff" {
 		t.Fatalf("reviewer loop did not stop after deterministic dispatch: %+v", dispatchApplied)
+	}
+	continuation := dispatchApplied.ContinuationRequest
+	if continuation == nil || continuation.RemainingMaxSteps != dispatchPreview.MaxSteps-1 || continuation.AppliedStepsInSegment != 1 || continuation.SegmentMaxSteps != dispatchPreview.MaxSteps || continuation.CumulativeReceipts || !strings.Contains(continuation.WhatIfCommand, "-MaxSteps 9") {
+		t.Fatalf("dispatch result omitted decremented continuation budget: %+v", continuation)
+	}
+	if dispatchApplied.StopReason.ExternalHandoff.ReviewerResultDropPathRole != "canonical-reviewer-input-destination" || dispatchApplied.StopReason.ExternalHandoff.ReviewerResultInputPath == "" || dispatchApplied.StopReason.ExternalHandoff.ReviewerResultDropPath != dispatchApplied.StopReason.ExternalHandoff.ReviewerResultInputPath {
+		t.Fatalf("result handoff did not distinguish canonical input destination: %+v", dispatchApplied.StopReason.ExternalHandoff)
+	}
+	if len(continuation.ObservationContract.Alternatives) != 2 || continuation.ObservationContract.Alternatives[0].Kind != "reviewer-result-returned" || continuation.ObservationContract.Alternatives[1].Kind != "reviewer-session-failed" {
+		t.Fatalf("result handoff observation alternatives = %+v", continuation.ObservationContract)
+	}
+
+	plan := decodePlanSubagentsPacket(t, dispatchApplied.FinalStatus.CaseMission.ReviewerDispatchIntakeSummary.LatestPacketPath)
+	handoff := plan.ShardHandoffs[0]
+	evidencePath := filepath.Join(caseRoot, "workspace", "features", "feature-login", "review-evidence.md")
+	if err := os.MkdirAll(filepath.Dir(evidencePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(evidencePath, []byte("bounded current-loop reviewer evidence\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resultSource := filepath.Join(caseRoot, "workspace", "current-loop-reviewer-result.json")
+	if err := os.WriteFile(resultSource, reviewerResultForCLIPlan(t, plan, handoff, "accept", "accepted", "reviewer-session-runner"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resultInputs := []string{"-ReviewerResultInputSourcePath", resultSource, "-Actor", actor}
+	resultPreview := runCurrentLoopPreviewWith(t, caseRoot, continuation.RemainingMaxSteps, resultInputs...)
+	if resultPreview.ExpectedCurrentLoopPlanSHA256 == "" || resultPreview.InitialRoute != "reviewer" {
+		t.Fatalf("typed result continuation did not rebuild a fresh preview: %+v", resultPreview)
+	}
+	resultApplied := runCurrentLoopApplyWith(t, caseRoot, resultPreview, resultInputs...)
+	if !resultApplied.Applied || resultApplied.AppliedSteps != 6 || resultApplied.StopReason.Code != "route-policy" || resultApplied.FinalStatus == nil || resultApplied.FinalStatus.MissionControlRunbook == nil || resultApplied.FinalStatus.MissionControlRunbook.Scope != "case" {
+		t.Fatalf("reviewer result continuation did not finish deterministic pipeline: %+v", resultApplied)
+	}
+	expectedSteps := []string{"save-result-input", "record-completion", "source-capture", "stage-candidate", "collect-result", "intake-results"}
+	if resultApplied.ContinuationRequest != nil || len(resultApplied.Steps) != len(expectedSteps) {
+		t.Fatalf("fresh continuation segment receipts or terminal state are invalid: %+v", resultApplied)
+	}
+	for index, expected := range expectedSteps {
+		if resultApplied.Steps[index].Step != index+1 || resultApplied.Steps[index].RunLoopStepID != expected {
+			t.Fatalf("reviewer continuation step %d = %+v, want %s", index+1, resultApplied.Steps[index], expected)
+		}
+	}
+	verifications, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl"))
+	if err != nil || !strings.Contains(string(verifications), plan.PacketID) {
+		t.Fatalf("reviewer continuation omitted verification writeback: %v\n%s", err, verifications)
+	}
+	decisions, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "decisions.jsonl"))
+	if err != nil || !strings.Contains(string(decisions), plan.PacketID) {
+		t.Fatalf("reviewer continuation omitted decision writeback: %v\n%s", err, decisions)
+	}
+	for _, forbidden := range []string{"authority.jsonl", "confirmed.jsonl"} {
+		if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", forbidden)); !os.IsNotExist(err) {
+			t.Fatalf("reviewer continuation created forbidden ledger %s: %v", forbidden, err)
+		}
 	}
 }
 
@@ -265,15 +328,17 @@ func appendCurrentLoopOpenIntervention(t *testing.T, caseRoot, eventID string) {
 }
 
 type currentLoopTestPlan struct {
-	MaxSteps                      int                      `json:"maxSteps"`
-	InitialRoute                  string                   `json:"initialRoute"`
-	Applied                       bool                     `json:"applied"`
-	AppliedSteps                  int                      `json:"appliedSteps"`
-	InitialCurrentStep            *currentStepPlan         `json:"initialCurrentStep"`
-	ExpectedCurrentLoopPlanSHA256 string                   `json:"expectedCurrentLoopPlanSha256"`
-	Steps                         []currentLoopStepReceipt `json:"steps"`
-	StopReason                    currentLoopStopReason    `json:"stopReason"`
-	FinalStatus                   *statusInventory         `json:"finalStatus"`
+	MaxSteps                      int                             `json:"maxSteps"`
+	InitialRoute                  string                          `json:"initialRoute"`
+	Applied                       bool                            `json:"applied"`
+	AppliedSteps                  int                             `json:"appliedSteps"`
+	InitialCurrentStep            *currentStepPlan                `json:"initialCurrentStep"`
+	ExpectedCurrentLoopPlanSHA256 string                          `json:"expectedCurrentLoopPlanSha256"`
+	Steps                         []currentLoopStepReceipt        `json:"steps"`
+	StopReason                    currentLoopStopReason           `json:"stopReason"`
+	ResumeCommand                 string                          `json:"resumeCommand"`
+	ContinuationRequest           *currentLoopContinuationRequest `json:"continuationRequest"`
+	FinalStatus                   *statusInventory                `json:"finalStatus"`
 }
 
 func runCurrentLoopPreview(t *testing.T, caseRoot string, maxSteps int) currentLoopTestPlan {

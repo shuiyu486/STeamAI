@@ -841,14 +841,95 @@ func reviewerBatchIntakePostValidationCommands(result ReviewerBatchIntakeResult)
 	return primary, mission.UniqueStrings(followUp)
 }
 
+func validateDirectReviewerSessionReceiptsForIntake(caseRoot, packetPath string, packet Packet, packetBytes []byte, handoff ShardHandoff, _ []byte, result ReviewerResult, effectiveOwner OwnerBinding, adoption *ReviewerPacketAdoption) error {
+	dispatchRoot := filepath.Join(reviewerSessionRoot(packetPath, handoff.ShardID), "dispatches")
+	if !reviewpath.CollectionNamespacePathSafe(caseRoot, dispatchRoot, true) {
+		return fmt.Errorf("direct reviewer session dispatch receipt namespace is not symlink-free and case-local")
+	}
+	entries, err := os.ReadDir(dispatchRoot)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read direct reviewer session dispatch receipts for intake: %w", err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".json") {
+			continue
+		}
+		names = append(names, entry.Name())
+	}
+	sort.Strings(names)
+	if len(names) == 0 {
+		return fmt.Errorf("direct reviewer session receipt namespace exists without a valid dispatch receipt")
+	}
+	adoptionPath, adoptionSHA256 := reviewerSessionAdoptionProvenance(caseRoot, packet.PacketID, adoption)
+	matchingDispatches := 0
+	for _, name := range names {
+		dispatchPath := filepath.Join(dispatchRoot, name)
+		dispatchBytes, readErr := readReviewerSessionReceiptBytes(caseRoot, dispatchPath, "direct reviewer session dispatch receipt")
+		if readErr != nil {
+			return readErr
+		}
+		dispatch, decodeErr := reviewersession.DecodeDispatch(dispatchBytes)
+		if decodeErr != nil {
+			return decodeErr
+		}
+		if !reviewerSessionDispatchMatchesCurrent(packetPath, dispatchPath, packet, packetBytes, handoff, dispatch, effectiveOwner, adoptionPath, adoptionSHA256) {
+			return fmt.Errorf("direct reviewer session dispatch receipt does not match current immutable packet, prompt, owner, and adoption bindings")
+		}
+		completionPath := reviewerSessionCompletionPath(packetPath, handoff.ShardID, dispatch.DispatchID)
+		if !reviewpath.CollectionNamespacePathSafe(caseRoot, completionPath, true) {
+			return fmt.Errorf("direct reviewer session completion receipt path is not symlink-free and case-local")
+		}
+		completionState, stateErr := refsf.ClassifyNonEmptyRegularFile(completionPath)
+		if stateErr != nil || (completionState != refsf.RegularFileMissing && completionState != refsf.RegularFileReady) {
+			return fmt.Errorf("direct reviewer session completion receipt must be a non-empty regular file")
+		}
+		if completionState == refsf.RegularFileReady {
+			completionBytes, readErr := readReviewerSessionReceiptBytes(caseRoot, completionPath, "direct reviewer session completion receipt")
+			if readErr != nil {
+				return readErr
+			}
+			completion, decodeErr := reviewersession.DecodeCompletion(completionBytes)
+			if decodeErr != nil || reviewersession.ValidateCompletionDispatchLineage(completion, dispatch, dispatchPath, sha256Hex(dispatchBytes)) != nil {
+				return fmt.Errorf("direct reviewer session completion receipt does not match its current dispatch lineage")
+			}
+			if dispatch.ReviewerSession == result.ReviewerSession {
+				if completion.Outcome == "failed" {
+					return fmt.Errorf("direct reviewer result session has a failed completion receipt")
+				}
+				return fmt.Errorf("direct reviewer result session has an unsupported successful completion receipt")
+			}
+		}
+		if dispatch.ReviewerSession == result.ReviewerSession {
+			matchingDispatches++
+		}
+	}
+	if matchingDispatches == 1 {
+		return nil
+	}
+	if matchingDispatches > 1 {
+		return fmt.Errorf("direct reviewer result session matches multiple current durable dispatch receipts")
+	}
+	return fmt.Errorf("direct reviewer result session is not bound to a current durable dispatch receipt")
+}
+
 func reviewerSessionProvenanceForIntake(caseRoot, packetPath string, packet Packet, packetBytes []byte, handoff ShardHandoff, resultBytes []byte, result ReviewerResult, effectiveOwner OwnerBinding, adoption *ReviewerPacketAdoption) (reviewerSessionWritebackProvenance, error) {
+	if !reviewerSessionReceiptsRequired(handoff) {
+		if packet.ReviewerOrchestration.ManagedDispatchPacket == nil {
+			return reviewerSessionWritebackProvenance{}, nil
+		}
+		if err := validateDirectReviewerSessionReceiptsForIntake(caseRoot, packetPath, packet, packetBytes, handoff, resultBytes, result, effectiveOwner, adoption); err != nil {
+			return reviewerSessionWritebackProvenance{}, err
+		}
+		return reviewerSessionWritebackProvenance{}, nil
+	}
 	dispatchRoot := filepath.Join(reviewerSessionRoot(packetPath, handoff.ShardID), "dispatches")
 	entries, err := os.ReadDir(dispatchRoot)
 	if os.IsNotExist(err) {
-		if reviewerSessionReceiptsRequired(handoff) {
-			return reviewerSessionWritebackProvenance{}, fmt.Errorf("managed reviewer intake requires a durable dispatch and successful completion receipt")
-		}
-		return reviewerSessionWritebackProvenance{}, nil
+		return reviewerSessionWritebackProvenance{}, fmt.Errorf("managed reviewer intake requires a durable dispatch and successful completion receipt")
 	}
 	if err != nil {
 		return reviewerSessionWritebackProvenance{}, fmt.Errorf("read reviewer session dispatch receipts for intake: %w", err)

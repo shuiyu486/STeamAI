@@ -12,6 +12,312 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
+func TestTypedDirectReviewerIntakeRejectsUnhealthySessionReceipts(t *testing.T) {
+	tests := []struct {
+		name          string
+		resultSession string
+		mutate        func(*testing.T, string, string, Result, Packet, ShardHandoff, ReviewerSessionReceiptResult)
+	}{
+		{
+			name: "failed completion",
+			mutate: func(t *testing.T, repoRoot, caseRoot string, plan Result, packet Packet, _ ShardHandoff, dispatch ReviewerSessionReceiptResult) {
+				opt := ReviewerSessionCompletionOptions{PacketPath: plan.PacketPath, DispatchID: dispatch.DispatchID, Lane: packet.TargetLane, Actor: "mission-commander", Outcome: "failed", ExitStatus: "agent-error", WhatIf: true}
+				preview, err := RecordReviewerSessionCompletion(repoRoot, caseRoot, defaults.DefaultPack, opt)
+				if err != nil {
+					t.Fatal(err)
+				}
+				opt.WhatIf = false
+				opt.ExpectedDispatchReceiptSHA256 = preview.DispatchReceiptSHA256
+				if _, err := RecordReviewerSessionCompletion(repoRoot, caseRoot, defaults.DefaultPack, opt); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "stale owner",
+			mutate: func(t *testing.T, repoRoot, caseRoot string, plan Result, packet Packet, _ ShardHandoff, _ ReviewerSessionReceiptResult) {
+				root, err := filepath.Abs(repoRoot)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := workstream.StartApply(root, caseRoot, defaults.DefaultPack, workstream.StartOptions{Name: "intake", Executor: "session-replacement", Actor: "mission-commander", TakeoverReason: "replace direct reviewer receipt owner"}); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := AdoptReviewerPacket(repoRoot, caseRoot, defaults.DefaultPack, ReviewerPacketAdoptionOptions{PacketPath: plan.PacketPath, Lane: packet.TargetLane, Actor: "mission-commander", Reason: "adopt typed direct reviewer packet"}); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "tampered dispatch",
+			mutate: func(t *testing.T, _, _ string, _ Result, _ Packet, _ ShardHandoff, dispatch ReviewerSessionReceiptResult) {
+				data, err := os.ReadFile(dispatch.ReceiptPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var receipt ReviewerSessionDispatchReceipt
+				if err := json.Unmarshal(data, &receipt); err != nil {
+					t.Fatal(err)
+				}
+				receipt.Items = []string{"tampered-item"}
+				if err := writeJSON(dispatch.ReceiptPath, receipt); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "tampered completion",
+			mutate: func(t *testing.T, _, _ string, plan Result, _ Packet, handoff ShardHandoff, dispatch ReviewerSessionReceiptResult) {
+				path := reviewerSessionCompletionPath(plan.PacketPath, handoff.ShardID, dispatch.DispatchID)
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte("{\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "failed completion rewritten as succeeded",
+			mutate: func(t *testing.T, repoRoot, caseRoot string, plan Result, packet Packet, _ ShardHandoff, dispatch ReviewerSessionReceiptResult) {
+				opt := ReviewerSessionCompletionOptions{PacketPath: plan.PacketPath, DispatchID: dispatch.DispatchID, Lane: packet.TargetLane, Actor: "mission-commander", Outcome: "failed", ExitStatus: "agent-error", WhatIf: true}
+				preview, err := RecordReviewerSessionCompletion(repoRoot, caseRoot, defaults.DefaultPack, opt)
+				if err != nil {
+					t.Fatal(err)
+				}
+				opt.WhatIf = false
+				opt.ExpectedDispatchReceiptSHA256 = preview.DispatchReceiptSHA256
+				completion, err := RecordReviewerSessionCompletion(repoRoot, caseRoot, defaults.DefaultPack, opt)
+				if err != nil {
+					t.Fatal(err)
+				}
+				data, err := os.ReadFile(completion.ReceiptPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var receipt ReviewerSessionCompletionReceipt
+				if err := json.Unmarshal(data, &receipt); err != nil {
+					t.Fatal(err)
+				}
+				receipt.Outcome = "succeeded"
+				receipt.ReviewerResultInputPath = filepath.Join(caseRoot, "workspace", "forged-direct-input.json")
+				receipt.ReviewerResultInputSHA256 = strings.Repeat("0", 64)
+				receipt.ReviewerResultInputBytes = 1
+				if err := writeJSON(completion.ReceiptPath, receipt); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "completion leaf directory",
+			mutate: func(t *testing.T, _, _ string, plan Result, _ Packet, handoff ShardHandoff, dispatch ReviewerSessionReceiptResult) {
+				path := reviewerSessionCompletionPath(plan.PacketPath, handoff.ShardID, dispatch.DispatchID)
+				if err := os.MkdirAll(path, 0o755); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{name: "result session mismatch", resultSession: "reviewer-session-other"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+			caseRoot := filepath.Join(t.TempDir(), "case")
+			writeReviewerIntakeCase(t, repoRoot, caseRoot)
+			plan, packet, handoff := writeTypedDirectReviewerPlan(t, repoRoot, caseRoot)
+			if err := os.MkdirAll(filepath.Join(caseRoot, "workspace"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(caseRoot, "workspace", "review-evidence.md"), []byte("bounded direct reviewer evidence\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			dispatch := recordTypedDirectReviewerDispatch(t, repoRoot, caseRoot, plan, packet, handoff, "reviewer-session-direct")
+			if tt.mutate != nil {
+				tt.mutate(t, repoRoot, caseRoot, plan, packet, handoff, dispatch)
+			}
+			session := tt.resultSession
+			if session == "" {
+				session = "reviewer-session-direct"
+			}
+			result := reviewerResultForPacket(t, packet, "accept", "accepted", nil)
+			var decoded ReviewerResult
+			if err := json.Unmarshal(result, &decoded); err != nil {
+				t.Fatal(err)
+			}
+			decoded.ReviewerSession = session
+			result, err := json.Marshal(decoded)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(handoff.ReviewerResultPath, result, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			verificationPath := filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl")
+			decisionPath := filepath.Join(caseRoot, ".rekit", "facts", "decisions.jsonl")
+			verificationBefore := readOptionalFile(t, verificationPath)
+			decisionBefore := readOptionalFile(t, decisionPath)
+			for _, whatIf := range []bool{true, false} {
+				_, intakeErr := IntakeReadyReviewerResults(repoRoot, caseRoot, defaults.DefaultPack, ReviewerBatchIntakeOptions{PacketPath: plan.PacketPath, Lane: packet.TargetLane, Actor: "mission-commander", WhatIf: whatIf})
+				if intakeErr == nil {
+					t.Fatalf("typed direct intake accepted unhealthy receipt state with WhatIf=%v", whatIf)
+				}
+			}
+			if readOptionalFile(t, verificationPath) != verificationBefore || readOptionalFile(t, decisionPath) != decisionBefore {
+				t.Fatal("typed direct receipt rejection changed verification or decision facts")
+			}
+		})
+	}
+}
+
+func TestTypedDirectReviewerIntakeRejectsSymlinkedReceiptNamespaces(t *testing.T) {
+	if err := requireSymlinkSupport(t); err != nil {
+		t.Skip(err.Error())
+	}
+	tests := []struct {
+		name   string
+		mutate func(*testing.T, string, Result, ShardHandoff, ReviewerSessionReceiptResult)
+	}{
+		{
+			name: "dangling dispatch namespace",
+			mutate: func(t *testing.T, _ string, plan Result, handoff ShardHandoff, _ ReviewerSessionReceiptResult) {
+				dispatchRoot := filepath.Join(reviewerSessionRoot(plan.PacketPath, handoff.ShardID), "dispatches")
+				if err := os.RemoveAll(dispatchRoot); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(filepath.Join(t.TempDir(), "missing-dispatches"), dispatchRoot); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "symlinked completion namespace",
+			mutate: func(t *testing.T, _ string, plan Result, handoff ShardHandoff, _ ReviewerSessionReceiptResult) {
+				completionRoot := filepath.Join(reviewerSessionRoot(plan.PacketPath, handoff.ShardID), "completions")
+				if err := os.MkdirAll(filepath.Dir(completionRoot), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(t.TempDir(), completionRoot); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+			caseRoot := filepath.Join(t.TempDir(), "case")
+			writeReviewerIntakeCase(t, repoRoot, caseRoot)
+			plan, packet, handoff := writeTypedDirectReviewerPlan(t, repoRoot, caseRoot)
+			if err := os.MkdirAll(filepath.Join(caseRoot, "workspace"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(caseRoot, "workspace", "review-evidence.md"), []byte("bounded direct reviewer evidence\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			dispatch := recordTypedDirectReviewerDispatch(t, repoRoot, caseRoot, plan, packet, handoff, "reviewer-session-direct")
+			tt.mutate(t, caseRoot, plan, handoff, dispatch)
+			result := reviewerResultForPacket(t, packet, "accept", "accepted", nil)
+			var decoded ReviewerResult
+			if err := json.Unmarshal(result, &decoded); err != nil {
+				t.Fatal(err)
+			}
+			decoded.ReviewerSession = "reviewer-session-direct"
+			result, err := json.Marshal(decoded)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(handoff.ReviewerResultPath, result, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			verificationPath := filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl")
+			decisionPath := filepath.Join(caseRoot, ".rekit", "facts", "decisions.jsonl")
+			verificationBefore := readOptionalFile(t, verificationPath)
+			decisionBefore := readOptionalFile(t, decisionPath)
+			for _, whatIf := range []bool{true, false} {
+				if _, err := IntakeReadyReviewerResults(repoRoot, caseRoot, defaults.DefaultPack, ReviewerBatchIntakeOptions{PacketPath: plan.PacketPath, Lane: packet.TargetLane, Actor: "mission-commander", WhatIf: whatIf}); err == nil {
+					t.Fatalf("typed direct intake accepted symlinked receipt namespace with WhatIf=%v", whatIf)
+				}
+			}
+			if readOptionalFile(t, verificationPath) != verificationBefore || readOptionalFile(t, decisionPath) != decisionBefore {
+				t.Fatal("symlinked typed direct receipt rejection changed verification or decision facts")
+			}
+		})
+	}
+}
+
+func requireSymlinkSupport(t *testing.T) error {
+	t.Helper()
+	root := t.TempDir()
+	target := filepath.Join(root, "target")
+	link := filepath.Join(root, "link")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		return err
+	}
+	return os.Symlink(target, link)
+}
+
+func writeTypedDirectReviewerPlan(t *testing.T, repoRoot, caseRoot string) (Result, Packet, ShardHandoff) {
+	t.Helper()
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet := readReviewerPacket(t, plan.PacketPath)
+	for idx := range packet.ShardHandoffs {
+		packet.ShardHandoffs[idx].ReviewerStagingCommands = nil
+		packet.ShardHandoffs[idx].ReviewerCollectionCommands = nil
+		packet.ShardHandoffs[idx].ReviewerResultCandidatePath = ""
+	}
+	for idx := range packet.ReviewerOrchestration.Dispatches {
+		packet.ReviewerOrchestration.Dispatches[idx].StagingCommands = nil
+		packet.ReviewerOrchestration.Dispatches[idx].CollectionCommands = nil
+		packet.ReviewerOrchestration.Dispatches[idx].ReviewerResultCandidatePath = ""
+	}
+	for idx := range packet.ReviewerOrchestration.ManagedDispatchPacket.Dispatches {
+		dispatch := &packet.ReviewerOrchestration.ManagedDispatchPacket.Dispatches[idx]
+		dispatch.ReviewerResultCandidatePath = ""
+		dispatch.ReviewerResultInputPath = ""
+		dispatch.ReviewerResultSourcePath = ""
+		dispatch.InputSavePreviewCommand = ""
+		dispatch.InputSaveApplyCommand = ""
+		dispatch.SourceCapturePreviewCommand = ""
+		dispatch.SourceCaptureApplyCommand = ""
+		dispatch.StagingPreviewCommand = ""
+		dispatch.CollectionPreviewCommand = ""
+		dispatch.CollectionApplyCommand = ""
+	}
+	packet.PacketID = packetIdentity(packet)
+	data, err := json.MarshalIndent(packet, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = append(data, '\n')
+	if err := os.WriteFile(plan.PacketPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	integrity := reviewerPacketIntegrity{SchemaVersion: 1, Kind: "reviewer-packet-integrity", Algorithm: packet.PacketIntegrity.Algorithm, PacketID: packet.PacketID, TargetLane: packet.TargetLane, PacketPath: plan.PacketPath, PacketSHA256: sha256Hex(data), PacketBytes: len(data)}
+	if err := writeJSON(packet.PacketIntegrity.Path, integrity); err != nil {
+		t.Fatal(err)
+	}
+	return plan, packet, packet.ShardHandoffs[0]
+}
+
+func recordTypedDirectReviewerDispatch(t *testing.T, repoRoot, caseRoot string, plan Result, packet Packet, handoff ShardHandoff, session string) ReviewerSessionReceiptResult {
+	t.Helper()
+	opt := ReviewerSessionDispatchOptions{PacketPath: plan.PacketPath, ShardID: handoff.ShardID, Lane: packet.TargetLane, Actor: "mission-commander", ReviewerHarness: "go-test-direct-harness", ReviewerSession: session, WhatIf: true}
+	preview, err := RecordReviewerSessionDispatch(repoRoot, caseRoot, defaults.DefaultPack, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opt.WhatIf = false
+	opt.ExpectedBindingSHA256 = preview.BindingSHA256
+	dispatch, err := RecordReviewerSessionDispatch(repoRoot, caseRoot, defaults.DefaultPack, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dispatch
+}
+
 func TestReviewerSessionReceiptDispatchCompletionAndSourceCapture(t *testing.T) {
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")

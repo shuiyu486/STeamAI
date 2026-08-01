@@ -40,12 +40,27 @@ type reviewerStepExternalHandoff struct {
 	State                         string                               `json:"state"`
 	RunLoopStepID                 string                               `json:"runLoopStepId"`
 	RequiredInputs                []string                             `json:"requiredInputs"`
+	ObservationContract           reviewerStepObservationContract      `json:"observationContract"`
 	AgentToolRequest              *workstream.ReviewerAgentToolRequest `json:"agentToolRequest,omitempty"`
 	DispatchPromptPath            string                               `json:"dispatchPromptPath,omitempty"`
 	DispatchPromptSHA256          string                               `json:"dispatchPromptSha256,omitempty"`
 	ReviewerResultDropPath        string                               `json:"reviewerResultDropPath,omitempty"`
+	ReviewerResultDropPathRole    string                               `json:"reviewerResultDropPathRole,omitempty"`
+	ReviewerResultInputPath       string                               `json:"reviewerResultInputPath,omitempty"`
+	ReviewerResultSourcePath      string                               `json:"reviewerResultSourcePath,omitempty"`
 	RecordDispatchPreviewTemplate string                               `json:"recordDispatchPreviewTemplate,omitempty"`
 	Boundary                      []string                             `json:"boundary"`
+}
+
+type reviewerStepObservationContract struct {
+	Alternatives []reviewerStepObservationAlternative `json:"alternatives"`
+	Boundary     []string                             `json:"boundary"`
+}
+
+type reviewerStepObservationAlternative struct {
+	Kind          string   `json:"kind"`
+	RequiredFlags []string `json:"requiredFlags"`
+	Constraints   []string `json:"constraints"`
 }
 
 type reviewerStepReceipt struct {
@@ -283,8 +298,15 @@ func reviewerStepPreparedRequest(ctx runtime.Context, opt Options, pkg *workstre
 			})
 		} else {
 			sourcePath := strings.TrimSpace(opt.ReviewerResultInputSourcePath)
+			if !reviewerStepManagedResultSaveAvailable(current) {
+				if sourcePath != "" {
+					return mission.MissionCommanderDriverRequest{}, nil, fmt.Errorf("run-reviewer-step save-result-input does not accept -ReviewerResultInputSourcePath when the packet omits a managed input-save command")
+				}
+				required = []string{"wait for the external reviewer session to return exactly one ReviewerResult JSON object", "save the JSON directly to reviewerResultDropPath because this packet does not provide a managed input-save command", "rerun the fresh WhatIf command after the direct result exists; or use -ReviewerOutcome failed with -ReviewerExitStatus and -Actor"}
+				return mission.MissionCommanderDriverRequest{}, reviewerStepExternal(pkg, required), nil
+			}
 			if sourcePath == "" || actor == "" {
-				required = []string{"wait for the external reviewer session to return exactly one ReviewerResult JSON object", "save the JSON to a case-local source path", "rerun with -ReviewerResultInputSourcePath and -Actor; or use -ReviewerOutcome failed with -ReviewerExitStatus and -Actor"}
+				required = []string{"wait for the external reviewer session to return exactly one ReviewerResult JSON object", "save the JSON to an existing case-local source file separate from reviewerResultDropPath, reviewerResultInputPath, and reviewerResultSourcePath", "rerun with -ReviewerResultInputSourcePath and -Actor; or use -ReviewerOutcome failed with -ReviewerExitStatus and -Actor"}
 				return mission.MissionCommanderDriverRequest{}, reviewerStepExternal(pkg, required), nil
 			}
 			command = current.ReviewerResultInputSavePreviewCommand
@@ -353,23 +375,90 @@ func validateReviewerStepObservationInputs(opt Options, stepID string) error {
 	return nil
 }
 
+func reviewerStepManagedResultSaveAvailable(current *workstream.ReviewerDispatchOperatorPackageItem) bool {
+	return current != nil && strings.TrimSpace(current.ReviewerResultInputPath) != "" && strings.TrimSpace(current.ReviewerResultInputSavePreviewCommand) != ""
+}
+
 func reviewerStepExternal(pkg *workstream.ReviewerDispatchOperatorPackage, required []string) *reviewerStepExternalHandoff {
 	current := pkg.Current
+	managedSave := reviewerStepManagedResultSaveAvailable(current)
+	boundary := []string{
+		"external handoff is read-only and cannot be passed to run-reviewer-step -Apply",
+		"only the external main-agent harness invokes Agent tool and supplies real harness/session observations or reviewer JSON",
+		"reviewer work remains read-only and must not write case files, facts, authority, confirmed state, or execute heavy tools",
+	}
+	dropPathRole := "direct-reviewer-result-destination"
+	if managedSave {
+		dropPathRole = "canonical-reviewer-input-destination"
+		boundary = append(boundary, "reviewerResultDropPath is the packet-derived canonical input destination; a managed save must use a separate existing case-local ReviewerResultInputSourcePath")
+	} else if strings.TrimSpace(current.ReviewerResultDropPath) != "" {
+		boundary = append(boundary, "this packet omits a managed input-save command; the external harness may write exactly one ReviewerResult JSON object directly to reviewerResultDropPath, then rerun a fresh WhatIf preview")
+	}
 	return &reviewerStepExternalHandoff{
 		State:                         current.State,
 		RunLoopStepID:                 pkg.CurrentRunLoopStepID,
 		RequiredInputs:                required,
+		ObservationContract:           reviewerStepObservationContractFor(pkg),
 		AgentToolRequest:              current.AgentToolRequest,
 		DispatchPromptPath:            current.DispatchPromptPath,
 		DispatchPromptSHA256:          current.DispatchPromptSHA256,
 		ReviewerResultDropPath:        current.ReviewerResultDropPath,
+		ReviewerResultDropPathRole:    dropPathRole,
+		ReviewerResultInputPath:       current.ReviewerResultInputPath,
+		ReviewerResultSourcePath:      current.ReviewerResultSourcePath,
 		RecordDispatchPreviewTemplate: current.ReviewerDispatchRecordCommand,
+		Boundary:                      boundary,
+	}
+}
+
+func reviewerStepObservationContractFor(pkg *workstream.ReviewerDispatchOperatorPackage) reviewerStepObservationContract {
+	contract := reviewerStepObservationContract{
+		Alternatives: []reviewerStepObservationAlternative{},
 		Boundary: []string{
-			"external handoff is read-only and cannot be passed to run-reviewer-step -Apply",
-			"only the external main-agent harness invokes Agent tool and supplies real harness/session observations or reviewer JSON",
-			"reviewer work remains read-only and must not write case files, facts, authority, confirmed state, or execute heavy tools",
+			"submit exactly one observation alternative to a fresh WhatIf preview",
+			"external observations are bound by the fresh reviewer/current-step/loop plan hash and do not authorize session management, heavy tools, or authority/confirmed writes",
 		},
 	}
+	switch strings.TrimSpace(pkg.CurrentRunLoopStepID) {
+	case "spawn-reviewer":
+		contract.Alternatives = append(contract.Alternatives, reviewerStepObservationAlternative{
+			Kind:          "reviewer-session-accepted",
+			RequiredFlags: []string{"-ReviewerHarness", "-ReviewerSession", "-Actor"},
+			Constraints:   []string{"ReviewerHarness and ReviewerSession must identify the real external harness acceptance receipt"},
+		})
+	case "save-result-input":
+		if reviewerStepManagedResultSaveAvailable(pkg.Current) {
+			contract.Alternatives = append(contract.Alternatives, reviewerStepObservationAlternative{
+				Kind:          "reviewer-result-returned",
+				RequiredFlags: []string{"-ReviewerResultInputSourcePath", "-Actor"},
+				Constraints: []string{
+					"ReviewerResultInputSourcePath must be an existing symlink-free case-local file",
+					"ReviewerResultInputSourcePath must be separate from reviewerResultDropPath, reviewerResultInputPath, and reviewerResultSourcePath",
+				},
+			})
+		} else {
+			contract.Alternatives = append(contract.Alternatives, reviewerStepObservationAlternative{
+				Kind:          "reviewer-result-direct-write",
+				RequiredFlags: []string{},
+				Constraints: []string{
+					"write exactly one ReviewerResult JSON object directly to reviewerResultDropPath",
+					"rerun a fresh WhatIf preview after the direct result exists; do not pass ReviewerResultInputSourcePath",
+				},
+			})
+		}
+		contract.Alternatives = append(contract.Alternatives, reviewerStepObservationAlternative{
+			Kind:          "reviewer-session-failed",
+			RequiredFlags: []string{"-ReviewerOutcome", "-ReviewerExitStatus", "-Actor"},
+			Constraints:   []string{"ReviewerOutcome must be failed", "do not combine failed outcome flags with ReviewerResultInputSourcePath"},
+		})
+	default:
+		contract.Alternatives = append(contract.Alternatives, reviewerStepObservationAlternative{
+			Kind:          "reviewer-operation-owner",
+			RequiredFlags: []string{"-Actor"},
+			Constraints:   []string{"Actor must identify the main Agent that owns the explicit reviewer operation"},
+		})
+	}
+	return contract
 }
 
 func replaceReviewerStepToken(command, placeholder, value string) string {
