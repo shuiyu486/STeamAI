@@ -20,6 +20,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/caseshim"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/currentloop"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaultdocs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/doctor"
@@ -3149,6 +3150,7 @@ type statusMissionControlRunbook struct {
 	Quickstart                  *statusMissionControlQuickstart             `json:"quickstart,omitempty"`
 	GuidanceHandoff             *statusMissionControlGuidanceHandoff        `json:"guidanceHandoff,omitempty"`
 	ReplacementExecutorTakeover *mission.ReplacementExecutorTakeoverPackage `json:"replacementExecutorTakeoverPackage,omitempty"`
+	CurrentLoopSegment          *currentloop.Inspection                     `json:"currentLoopSegment,omitempty"`
 	RefreshStatusCommand        string                                      `json:"refreshStatusCommand"`
 	HandoffPreviewCommand       string                                      `json:"handoffPreviewCommand,omitempty"`
 	HandoffApplyCommand         string                                      `json:"handoffApplyCommand,omitempty"`
@@ -3841,6 +3843,10 @@ func buildStatusMissionControlRunbook(target string, caseMission *statusCaseMiss
 	runbook.CurrentDriverReceipt = statusMissionControlCurrentDriverReceipt(runbook)
 	runbook.GuidanceHandoff = statusMissionControlGuidanceHandoffFor(runbook, projectHandoff)
 	runbook.ReplacementExecutorTakeover = statusReplacementExecutorTakeoverPackageFor(target, runbook, projectHandoff)
+	if instance.LooksLikeCase(target) {
+		inspection := currentloop.InspectAttached(target, runbook.CurrentDriverRequest)
+		runbook.CurrentLoopSegment = &inspection
+	}
 	runbook.RunLoop = statusMissionControlRunbookSteps(runbook)
 	runbook.Quickstart = statusMissionControlQuickstartFor(runbook, projectHandoff)
 	return runbook
@@ -4679,6 +4685,9 @@ func writeStatusMissionControlRunbookText(out io.Writer, runbook *statusMissionC
 	if err := writeStatusReplacementExecutorTakeoverPackageText(out, runbook.ReplacementExecutorTakeover); err != nil {
 		return err
 	}
+	if err := writeCurrentLoopSegmentInspectionText(out, "status Mission Control", runbook.CurrentLoopSegment); err != nil {
+		return err
+	}
 	for _, queue := range runbook.Queues {
 		if _, err := fmt.Fprintf(out, "status Mission Control runbook queue：scope=%s focused=%t total=%d blocked=%d requiresReview=%d currentState=%s currentSource=%s currentStep=%s currentCommand=%s\n", queue.Scope, queue.Focused, queue.Total, queue.Blocked, queue.RequiresReview, queue.CurrentState, queue.CurrentSource, queue.CurrentRunLoopStepID, queue.CurrentCommand); err != nil {
 			return err
@@ -4701,6 +4710,31 @@ func writeStatusMissionControlRunbookText(out io.Writer, runbook *statusMissionC
 	}
 	for _, boundary := range runbook.Boundary {
 		if _, err := fmt.Fprintf(out, "status Mission Control runbook boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeCurrentLoopSegmentInspectionText(out io.Writer, prefix string, inspection *currentloop.Inspection) error {
+	if inspection == nil {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "%s current-loop segment checkpoint：state=%s ready=%t path=%s stop=%s phase=%s route=%s lane=%s applied=%d max=%d remaining=%d expectedRoute=%s expectedLane=%s\n", prefix, inspection.State, inspection.Ready, inspection.ArtifactPath, inspection.StopCode, inspection.StopPhase, inspection.SegmentRoute, inspection.SegmentLane, inspection.AppliedSteps, inspection.SegmentMaxSteps, inspection.RemainingMaxSteps, inspection.ExpectedRoute, inspection.ExpectedLane); err != nil {
+		return err
+	}
+	if continuation := inspection.Continuation; continuation != nil {
+		if _, err := fmt.Fprintf(out, "%s current-loop segment continuation：state=%s stop=%s max=%d applied=%d remaining=%d transition=%s/%s->%s/%s command=`%s`\n", prefix, continuation.State, continuation.StopCode, continuation.SegmentMaxSteps, continuation.AppliedStepsInSegment, continuation.RemainingMaxSteps, continuation.SegmentRoute, continuation.SegmentLane, continuation.ExpectedRoute, continuation.ExpectedLane, continuation.WhatIfCommand); err != nil {
+			return err
+		}
+	}
+	for _, warning := range inspection.Warnings {
+		if _, err := fmt.Fprintf(out, "%s current-loop segment warning：%s\n", prefix, warning); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range inspection.Boundary {
+		if _, err := fmt.Fprintf(out, "%s current-loop segment boundary：%s\n", prefix, boundary); err != nil {
 			return err
 		}
 	}
@@ -8976,6 +9010,14 @@ func runHandoff(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err := bindProjectHandoffMissionCommanderActions(ctx.RepoRoot, target, ctx.Pack, &handoffOpt); err != nil {
 		return err
 	}
+	status, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+	if err != nil {
+		return err
+	}
+	var currentRequest *mission.MissionCommanderDriverRequest
+	if status.MissionControlRunbook != nil {
+		currentRequest = status.MissionControlRunbook.CurrentDriverRequest
+	}
 	var result workstream.HandoffResult
 	if opt.WhatIf {
 		result, err = workstream.HandoffPreview(ctx.RepoRoot, target, ctx.Pack, handoffOpt)
@@ -8985,6 +9027,8 @@ func runHandoff(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	inspection := currentloop.Inspect(ctx.RepoRoot, target, ctx.Pack, currentRequest)
+	result.CurrentLoopSegment = &inspection
 	if format == "json" {
 		return writeJSON(out, result)
 	}
@@ -9507,6 +9551,9 @@ func writeHandoffText(out io.Writer, result workstream.HandoffResult) error {
 		return err
 	}
 	if err := writeHandoffReplacementExecutorTakeoverPackageText(out, result.ReplacementExecutorTakeoverPackage); err != nil {
+		return err
+	}
+	if err := writeCurrentLoopSegmentInspectionText(out, "handoff", result.CurrentLoopSegment); err != nil {
 		return err
 	}
 	if err := writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue); err != nil {

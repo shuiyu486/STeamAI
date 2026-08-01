@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/currentloop"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 )
 
@@ -25,8 +26,11 @@ func TestRunCurrentLoopAppliesBoundedCaseSteps(t *testing.T) {
 	if preview.ExpectedCurrentLoopPlanSHA256 == "" || preview.InitialRoute != "case" || preview.InitialCurrentStep == nil || preview.StopReason.Code != "ready" {
 		t.Fatalf("unexpected current-loop preview: %+v", preview)
 	}
-	if preview.Applied || preview.AppliedSteps != 0 || len(preview.Steps) != 0 {
+	if preview.Applied || preview.AppliedSteps != 0 || len(preview.Steps) != 0 || preview.SegmentCheckpoint != nil {
 		t.Fatalf("current-loop preview mutated: %+v", preview)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "runs", "current-loop-segments")); !os.IsNotExist(err) {
+		t.Fatalf("current-loop WhatIf created checkpoint namespace: %v", err)
 	}
 
 	out.Reset()
@@ -69,6 +73,112 @@ func TestRunCurrentLoopAppliesTwoDistinctCaseStepsToLimit(t *testing.T) {
 	}
 }
 
+func TestRunCurrentLoopTerminalCheckpointProductPath(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	preview := runCurrentLoopPreview(t, caseRoot, 2)
+	applied := runCurrentLoopApply(t, caseRoot, preview)
+	if !applied.Applied || applied.AppliedSteps != 1 || applied.SegmentCheckpoint == nil {
+		t.Fatalf("terminal fixture did not create a segment checkpoint: %+v", applied)
+	}
+	artifactPath := filepath.Join(caseRoot, filepath.FromSlash(applied.SegmentCheckpoint.ArtifactPath))
+	artifactData, err := os.ReadFile(artifactPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var artifact struct {
+		Payload json.RawMessage `json:"payload"`
+	}
+	if err := json.Unmarshal(artifactData, &artifact); err != nil {
+		t.Fatal(err)
+	}
+	var payload currentloop.Payload
+	if err := json.Unmarshal(artifact.Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	payload.StatusAvailable = true
+	payload.RefreshedCurrentDriverRequest = nil
+	payload.RefreshedCurrentDriverRequestSHA256 = ""
+	payload.Continuation = nil
+	last := &payload.StepReceipts[len(payload.StepReceipts)-1]
+	last.RequestAfter = nil
+	last.RequestAfterSHA256 = ""
+	last.CurrentStepReceipt.RefreshedCurrentDriverRequest = nil
+	last.CurrentStepReceiptSHA256, _ = currentloop.ValueSHA256(last.CurrentStepReceipt)
+	if err := os.Remove(artifactPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := currentloop.Write(repoRoot(t), caseRoot, "_template", payload); err != nil {
+		t.Fatal(err)
+	}
+	terminal := currentloop.Inspect(repoRoot(t), caseRoot, "_template", nil)
+	if terminal.Ready || terminal.State != "terminal" || terminal.Continuation != nil {
+		t.Fatalf("terminal checkpoint exposed recoverable continuation: %+v", terminal)
+	}
+
+	boardPath := filepath.Join(caseRoot, ".rekit", "board.json")
+	boardData, err := os.ReadFile(boardPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var board map[string]any
+	if err := json.Unmarshal(boardData, &board); err != nil {
+		t.Fatal(err)
+	}
+	lanes, _ := board["lanes"].([]any)
+	for _, item := range lanes {
+		if lane, ok := item.(map[string]any); ok {
+			lane["status"] = "closed"
+		}
+	}
+	boardData, _ = json.Marshal(board)
+	if err := os.WriteFile(boardPath, boardData, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, lanePath := range []string{filepath.Join(caseRoot, ".rekit", "lanes", "main", "lane.json")} {
+		if data, err := os.ReadFile(lanePath); err == nil {
+			var lane map[string]any
+			if json.Unmarshal(data, &lane) == nil {
+				lane["status"] = "closed"
+				data, _ = json.Marshal(lane)
+				if err := os.WriteFile(lanePath, data, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+	}
+
+	var statusOut bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &statusOut); err != nil {
+		t.Fatal(err)
+	}
+	var fresh statusInventory
+	if err := json.Unmarshal(statusOut.Bytes(), &fresh); err != nil {
+		t.Fatalf("terminal new-session status did not decode: %v\n%s", err, statusOut.String())
+	}
+	durable := fresh.MissionControlRunbook.CurrentLoopSegment
+	if durable == nil || durable.Ready || durable.State != "stale-current-driver-request" || durable.Continuation != nil {
+		t.Fatalf("new-session status recovered terminal budget after durable request drift: runbook=%+v checkpoint=%+v", fresh.MissionControlRunbook, durable)
+	}
+
+	var handoffOut bytes.Buffer
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, &handoffOut); err != nil {
+		t.Fatal(err)
+	}
+	var handoff struct {
+		CurrentLoopSegment *currentloop.Inspection `json:"currentLoopSegment"`
+	}
+	if err := json.Unmarshal(handoffOut.Bytes(), &handoff); err != nil {
+		t.Fatalf("terminal drift handoff did not decode: %v\n%s", err, handoffOut.String())
+	}
+	if handoff.CurrentLoopSegment == nil || handoff.CurrentLoopSegment.Ready || handoff.CurrentLoopSegment.State != "stale-current-driver-request" || handoff.CurrentLoopSegment.Continuation != nil {
+		t.Fatalf("new-session handoff recovered terminal budget after durable request drift: %+v", handoff.CurrentLoopSegment)
+	}
+}
+
 func TestRunCurrentLoopPreservesCompletedReceiptWhenSecondStepFails(t *testing.T) {
 	caseRoot := currentLoopCaseWithOpenIntervention(t, "int-current-loop-partial")
 	preview := runCurrentLoopPreview(t, caseRoot, 2)
@@ -103,8 +213,33 @@ func TestRunCurrentLoopReportsAppliedStepWhenStatusRefreshFails(t *testing.T) {
 	}
 	t.Cleanup(func() { currentStepBeforeStatusRefreshHook = nil })
 	applied := runCurrentLoopApply(t, caseRoot, preview)
-	if !applied.Applied || applied.AppliedSteps != 1 || len(applied.Steps) != 1 || applied.Steps[0].CurrentStepReceipt == nil || applied.Steps[0].CurrentStepReceipt.State != "refresh-failed" || applied.StopReason.Code != "error" || applied.StopReason.Phase != "refresh-status" || applied.FinalStatus != nil {
+	if !applied.Applied || applied.AppliedSteps != 1 || len(applied.Steps) != 1 || applied.Steps[0].CurrentStepReceipt == nil || applied.Steps[0].CurrentStepReceipt.State != "refresh-failed" || applied.StopReason.Code != "error" || applied.StopReason.Phase != "refresh-status" || applied.FinalStatus != nil || applied.SegmentCheckpoint == nil || applied.SegmentCheckpoint.State != "status-unavailable" || applied.SegmentCheckpoint.Ready || applied.SegmentCheckpoint.Continuation != nil {
 		t.Fatalf("applied step with refresh failure was not reported truthfully: %+v", applied)
+	}
+	var statusOut bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &statusOut); err != nil {
+		t.Fatal(err)
+	}
+	var fresh statusInventory
+	if err := json.Unmarshal(statusOut.Bytes(), &fresh); err != nil {
+		t.Fatalf("status-unavailable fresh status did not decode: %v\n%s", err, statusOut.String())
+	}
+	durable := fresh.MissionControlRunbook.CurrentLoopSegment
+	if durable == nil || durable.State != "status-unavailable" || durable.Ready || durable.Continuation != nil || durable.ArtifactPath != applied.SegmentCheckpoint.ArtifactPath {
+		t.Fatalf("fresh status recovered status-unavailable budget: %+v", durable)
+	}
+	var handoffOut bytes.Buffer
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, &handoffOut); err != nil {
+		t.Fatal(err)
+	}
+	var handoff struct {
+		CurrentLoopSegment *currentloop.Inspection `json:"currentLoopSegment"`
+	}
+	if err := json.Unmarshal(handoffOut.Bytes(), &handoff); err != nil {
+		t.Fatalf("status-unavailable handoff did not decode: %v\n%s", err, handoffOut.String())
+	}
+	if handoff.CurrentLoopSegment == nil || handoff.CurrentLoopSegment.State != "status-unavailable" || handoff.CurrentLoopSegment.Ready || handoff.CurrentLoopSegment.Continuation != nil || handoff.CurrentLoopSegment.ArtifactPath != applied.SegmentCheckpoint.ArtifactPath {
+		t.Fatalf("fresh handoff recovered status-unavailable budget: %+v", handoff.CurrentLoopSegment)
 	}
 }
 
@@ -192,6 +327,21 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	campaign := resultApplied.ContinuationRequest
 	if campaign == nil || campaign.StopCode != "route-policy" || campaign.SegmentRoute != "reviewer" || campaign.ExpectedRoute != "case" || campaign.RemainingMaxSteps != resultPreview.MaxSteps-len(expectedSteps) || campaign.ObservationContract != nil || !strings.Contains(campaign.WhatIfCommand, "-MaxSteps 3") || len(resultApplied.Steps) != len(expectedSteps) {
 		t.Fatalf("fresh cross-route campaign continuation or segment receipts are invalid: %+v", resultApplied)
+	}
+	if resultApplied.SegmentCheckpoint == nil || !resultApplied.SegmentCheckpoint.Ready || resultApplied.SegmentCheckpoint.Continuation == nil || resultApplied.SegmentCheckpoint.SegmentRoute != "reviewer" || resultApplied.SegmentCheckpoint.ExpectedRoute != "case" || resultApplied.SegmentCheckpoint.RemainingMaxSteps != campaign.RemainingMaxSteps {
+		t.Fatalf("reviewer-to-case segment checkpoint is invalid: %+v", resultApplied.SegmentCheckpoint)
+	}
+	var campaignStatusOut bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &campaignStatusOut); err != nil {
+		t.Fatal(err)
+	}
+	var campaignStatus statusInventory
+	if err := json.Unmarshal(campaignStatusOut.Bytes(), &campaignStatus); err != nil {
+		t.Fatalf("campaign status did not decode: %v\n%s", err, campaignStatusOut.String())
+	}
+	durableCampaign := campaignStatus.MissionControlRunbook.CurrentLoopSegment
+	if durableCampaign == nil || !durableCampaign.Ready || durableCampaign.ArtifactPath != resultApplied.SegmentCheckpoint.ArtifactPath || durableCampaign.Continuation == nil || durableCampaign.Continuation.ExpectedRoute != "case" || durableCampaign.Continuation.RemainingMaxSteps != campaign.RemainingMaxSteps {
+		t.Fatalf("new-session status did not recover latest reviewer-to-case segment: %+v", durableCampaign)
 	}
 	for index, expected := range expectedSteps {
 		if resultApplied.Steps[index].Step != index+1 || resultApplied.Steps[index].RunLoopStepID != expected {
@@ -286,6 +436,9 @@ func TestRunCurrentLoopStopsBeforeReconcileSurfacedByFirstStepRefresh(t *testing
 	if applied.AppliedSteps != 1 || len(applied.Steps) != 1 || applied.StopReason.Code != "human-intervention" || applied.StopReason.Phase != "before-step" || applied.FinalStatus == nil || applied.FinalStatus.MissionControlRunbook == nil {
 		t.Fatalf("refreshed intervention was not stopped before reconcile: %+v", applied)
 	}
+	if applied.SegmentCheckpoint == nil || !applied.SegmentCheckpoint.Ready || applied.SegmentCheckpoint.State != "ready" || applied.SegmentCheckpoint.Continuation == nil || applied.SegmentCheckpoint.Continuation.RemainingMaxSteps != 1 || applied.SegmentCheckpoint.ArtifactPath == "" {
+		t.Fatalf("applied Human-in-the-Lane segment omitted durable checkpoint: %+v", applied.SegmentCheckpoint)
+	}
 	continuation := applied.ContinuationRequest
 	if continuation == nil || continuation.StopCode != "human-intervention" || continuation.State != "awaiting-fresh-segment-review" || continuation.SegmentRoute != "case" || continuation.ExpectedRoute != "case" || continuation.RemainingMaxSteps != 1 || continuation.AppliedStepsInSegment != 1 || continuation.ObservationContract != nil || !strings.Contains(continuation.WhatIfCommand, "-MaxSteps 1") {
 		t.Fatalf("refreshed intervention omitted fresh review continuation: %+v", continuation)
@@ -301,8 +454,49 @@ func TestRunCurrentLoopStopsBeforeReconcileSurfacedByFirstStepRefresh(t *testing
 	if strings.Contains(string(interventions), `"resolvesEventId":"int-current-loop-refresh"`) {
 		t.Fatalf("old loop authorization resolved the fresh intervention: %s", interventions)
 	}
+	var statusOut bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &statusOut); err != nil {
+		t.Fatal(err)
+	}
+	var newSessionStatus statusInventory
+	if err := json.Unmarshal(statusOut.Bytes(), &newSessionStatus); err != nil {
+		t.Fatalf("new-session status did not decode: %v\n%s", err, statusOut.String())
+	}
+	durable := newSessionStatus.MissionControlRunbook.CurrentLoopSegment
+	if durable == nil || !durable.Ready || durable.Continuation == nil || durable.Continuation.RemainingMaxSteps != continuation.RemainingMaxSteps || durable.Continuation.WhatIfCommand != continuation.WhatIfCommand || durable.ArtifactPath != applied.SegmentCheckpoint.ArtifactPath {
+		t.Fatalf("new-session status did not recover exact campaign checkpoint: %+v", durable)
+	}
+	var handoffOut bytes.Buffer
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, &handoffOut); err != nil {
+		t.Fatal(err)
+	}
+	var handoff struct {
+		CurrentLoopSegment *currentloop.Inspection `json:"currentLoopSegment"`
+	}
+	if err := json.Unmarshal(handoffOut.Bytes(), &handoff); err != nil {
+		t.Fatalf("handoff did not decode: %v\n%s", err, handoffOut.String())
+	}
+	if handoff.CurrentLoopSegment == nil || !handoff.CurrentLoopSegment.Ready || handoff.CurrentLoopSegment.ArtifactPath != durable.ArtifactPath || handoff.CurrentLoopSegment.Continuation == nil {
+		t.Fatalf("handoff did not project strict campaign checkpoint: %+v", handoff.CurrentLoopSegment)
+	}
+	artifactPath := filepath.Join(caseRoot, filepath.FromSlash(durable.ArtifactPath))
+	if err := os.WriteFile(artifactPath, []byte(`{"tampered":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	statusOut.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &statusOut); err != nil {
+		t.Fatal(err)
+	}
+	var tamperedStatus statusInventory
+	if err := json.Unmarshal(statusOut.Bytes(), &tamperedStatus); err != nil {
+		t.Fatalf("tampered status did not decode: %v\n%s", err, statusOut.String())
+	}
+	tampered := tamperedStatus.MissionControlRunbook.CurrentLoopSegment
+	if tampered == nil || tampered.Ready || tampered.State != "invalid" || tampered.Continuation != nil || tampered.ArtifactPath != durable.ArtifactPath {
+		t.Fatalf("tampered latest segment did not fail closed: %+v", tampered)
+	}
 	fresh := runCurrentLoopPreview(t, caseRoot, continuation.RemainingMaxSteps)
-	if fresh.InitialRoute != "case" || fresh.InitialLane != continuation.ExpectedLane || fresh.InitialCurrentStep == nil || driverStepCommandName(fresh.InitialCurrentStep.CurrentDriverRequest.Command) != "reconcile" || fresh.ExpectedCurrentLoopPlanSHA256 == "" || len(fresh.Steps) != 0 {
+	if fresh.InitialRoute != "case" || fresh.InitialLane != durable.Continuation.ExpectedLane || fresh.InitialCurrentStep == nil || driverStepCommandName(fresh.InitialCurrentStep.CurrentDriverRequest.Command) != "reconcile" || fresh.ExpectedCurrentLoopPlanSHA256 == "" || len(fresh.Steps) != 0 {
 		t.Fatalf("Human-in-the-Lane continuation did not rebuild a fresh reconcile segment: %+v", fresh)
 	}
 }
@@ -385,6 +579,7 @@ type currentLoopTestPlan struct {
 	StopReason                    currentLoopStopReason           `json:"stopReason"`
 	ResumeCommand                 string                          `json:"resumeCommand"`
 	ContinuationRequest           *currentLoopContinuationRequest `json:"continuationRequest"`
+	SegmentCheckpoint             *currentloop.Inspection         `json:"segmentCheckpoint"`
 	FinalStatus                   *statusInventory                `json:"finalStatus"`
 }
 

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/currentloop"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 )
@@ -22,6 +23,7 @@ type currentLoopPlan struct {
 	Command                       string                                 `json:"command"`
 	CaseRoot                      string                                 `json:"caseRoot"`
 	Pack                          string                                 `json:"pack"`
+	Actor                         string                                 `json:"actor"`
 	RoutePolicy                   string                                 `json:"routePolicy"`
 	MaxSteps                      int                                    `json:"maxSteps"`
 	AppliedSteps                  int                                    `json:"appliedSteps"`
@@ -38,6 +40,7 @@ type currentLoopPlan struct {
 	StopReason                    currentLoopStopReason                  `json:"stopReason"`
 	ResumeCommand                 string                                 `json:"resumeCommand"`
 	ContinuationRequest           *currentLoopContinuationRequest        `json:"continuationRequest,omitempty"`
+	SegmentCheckpoint             *currentloop.Inspection                `json:"segmentCheckpoint,omitempty"`
 	FinalStatus                   *statusInventory                       `json:"finalStatus,omitempty"`
 	Boundary                      []string                               `json:"boundary"`
 }
@@ -135,6 +138,15 @@ func runCurrentLoop(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if plan.AppliedSteps > 0 {
+		inspection, checkpointErr := writeCurrentLoopSegmentCheckpoint(ctx, plan)
+		plan.SegmentCheckpoint = &inspection
+		if checkpointErr != nil {
+			plan.Boundary = append(plan.Boundary,
+				"durable current-loop segment checkpoint publication failed; this invocation result remains the only receipt and status must not recover its budget",
+			)
+		}
+	}
 	return writeJSON(out, plan)
 }
 
@@ -148,6 +160,7 @@ func buildCurrentLoopPlan(ctx runtime.Context, opt Options) (currentLoopPlan, st
 		Command:              commands.RunCurrentLoop,
 		CaseRoot:             ctx.Target,
 		Pack:                 ctx.Pack,
+		Actor:                strings.TrimSpace(opt.Start.Actor),
 		RoutePolicy:          currentLoopRoutePolicy,
 		MaxSteps:             opt.MaxSteps,
 		ReviewRequired:       true,
@@ -307,6 +320,7 @@ func applyCurrentLoopPlan(ctx runtime.Context, opt Options, plan currentLoopPlan
 		stepOpt = currentLoopFollowupOptions(stepOpt)
 		if status.MissionControlRunbook != nil {
 			receipt.RequestAfter = status.MissionControlRunbook.CurrentDriverRequest
+			receipt.CurrentStepReceipt.RefreshedCurrentDriverRequest = status.MissionControlRunbook.CurrentDriverRequest
 		}
 		plan.Steps = append(plan.Steps, receipt)
 		plan.AppliedSteps++
@@ -445,6 +459,126 @@ func currentLoopContinuationFor(ctx runtime.Context, segmentMaxSteps, appliedSte
 		continuation.Boundary = append([]string{
 			"review the refreshed Human-in-the-Lane intervention in the fresh segment before applying reconcile",
 		}, continuation.Boundary...)
+	}
+	return continuation
+}
+
+func writeCurrentLoopSegmentCheckpoint(ctx runtime.Context, plan currentLoopPlan) (currentloop.Inspection, error) {
+	payload := currentloop.Payload{
+		Actor:                         plan.Actor,
+		RoutePolicy:                   plan.RoutePolicy,
+		InitialCurrentDriverRequest:   *plan.InitialCurrentDriverRequest,
+		ExpectedCurrentLoopPlanSHA256: plan.ExpectedCurrentLoopPlanSHA256,
+		SegmentMaxSteps:               plan.MaxSteps,
+		AppliedStepsInSegment:         plan.AppliedSteps,
+		RemainingMaxSteps:             plan.MaxSteps - plan.AppliedSteps,
+		SegmentRoute:                  plan.InitialRoute,
+		SegmentLane:                   plan.InitialLane,
+		Stop: currentloop.Stop{
+			Code:  plan.StopReason.Code,
+			Phase: plan.StopReason.Phase,
+		},
+		StepReceipts:    make([]currentloop.StepReceiptBinding, 0, len(plan.Steps)),
+		StatusAvailable: plan.FinalStatus != nil,
+		Boundary: []string{
+			"checkpoint records one completed outer current-loop segment and exact receipt hashes; it does not carry executable nested receipts into a fresh invocation",
+			"only a strict fresh status match may expose the typed continuation and remaining budget",
+			"checkpoint publication does not execute a continuation or write authority/confirmed state",
+		},
+	}
+	initialRequestSHA256, err := currentloop.RequestSHA256(payload.InitialCurrentDriverRequest)
+	if err != nil {
+		return currentloop.FailedInspection(err.Error()), err
+	}
+	payload.InitialCurrentDriverRequestSHA256 = initialRequestSHA256
+	for _, receipt := range plan.Steps {
+		requestBeforeSHA256, err := currentloop.RequestSHA256(receipt.RequestBefore)
+		if err != nil {
+			return currentloop.FailedInspection(err.Error()), err
+		}
+		currentStepReceiptSHA256, err := currentloop.ValueSHA256(receipt.CurrentStepReceipt)
+		if err != nil {
+			return currentloop.FailedInspection(err.Error()), err
+		}
+		binding := currentloop.StepReceiptBinding{
+			Step:                          receipt.Step,
+			Route:                         receipt.Route,
+			Lane:                          receipt.Lane,
+			RunLoopStepID:                 receipt.RunLoopStepID,
+			ExpectedCurrentStepPlanSHA256: receipt.ExpectedCurrentStepPlanSHA256,
+			RequestBefore:                 receipt.RequestBefore,
+			RequestBeforeSHA256:           requestBeforeSHA256,
+			CurrentStepReceipt: currentloop.StepReceipt{
+				State:                         receipt.CurrentStepReceipt.State,
+				Outcome:                       receipt.CurrentStepReceipt.Outcome,
+				Route:                         receipt.CurrentStepReceipt.Route,
+				NestedCommand:                 receipt.CurrentStepReceipt.NestedCommand,
+				RefreshedCurrentDriverRequest: receipt.CurrentStepReceipt.RefreshedCurrentDriverRequest,
+				Boundary:                      append([]string(nil), receipt.CurrentStepReceipt.Boundary...),
+			},
+			CurrentStepReceiptSHA256: currentStepReceiptSHA256,
+			RequestAfter:             receipt.RequestAfter,
+		}
+		if receipt.RequestAfter != nil {
+			binding.RequestAfterSHA256, err = currentloop.RequestSHA256(*receipt.RequestAfter)
+			if err != nil {
+				return currentloop.FailedInspection(err.Error()), err
+			}
+		}
+		payload.StepReceipts = append(payload.StepReceipts, binding)
+	}
+	if plan.FinalStatus != nil && plan.FinalStatus.MissionControlRunbook != nil {
+		payload.RefreshedCurrentDriverRequest = plan.FinalStatus.MissionControlRunbook.CurrentDriverRequest
+	}
+	if payload.RefreshedCurrentDriverRequest != nil {
+		requestSHA256, err := currentloop.RequestSHA256(*payload.RefreshedCurrentDriverRequest)
+		if err != nil {
+			return currentloop.FailedInspection(err.Error()), err
+		}
+		payload.RefreshedCurrentDriverRequestSHA256 = requestSHA256
+	}
+	if plan.ContinuationRequest != nil {
+		payload.Continuation = currentLoopCheckpointContinuation(plan.ContinuationRequest)
+	}
+	inspection, err := currentloop.Write(ctx.RepoRoot, ctx.Target, ctx.Pack, payload)
+	if err != nil {
+		return currentloop.FailedInspection(err.Error()), err
+	}
+	return inspection, nil
+}
+
+func currentLoopCheckpointContinuation(source *currentLoopContinuationRequest) *currentloop.Continuation {
+	if source == nil {
+		return nil
+	}
+	continuation := &currentloop.Continuation{
+		Kind:                  source.Kind,
+		State:                 source.State,
+		StopCode:              source.StopCode,
+		SegmentMaxSteps:       source.SegmentMaxSteps,
+		AppliedStepsInSegment: source.AppliedStepsInSegment,
+		RemainingMaxSteps:     source.RemainingMaxSteps,
+		SegmentRoute:          source.SegmentRoute,
+		SegmentLane:           source.SegmentLane,
+		ExpectedRoute:         source.ExpectedRoute,
+		ExpectedLane:          source.ExpectedLane,
+		WhatIfCommand:         source.WhatIfCommand,
+		FreshPreviewRequired:  source.FreshPreviewRequired,
+		CumulativeReceipts:    source.CumulativeReceipts,
+		Boundary:              append([]string{}, source.Boundary...),
+	}
+	if source.ObservationContract != nil {
+		observation := &currentloop.ObservationContract{
+			Boundary: append([]string{}, source.ObservationContract.Boundary...),
+		}
+		for _, alternative := range source.ObservationContract.Alternatives {
+			observation.Alternatives = append(observation.Alternatives, currentloop.ObservationAlternative{
+				Kind:          alternative.Kind,
+				RequiredFlags: append([]string{}, alternative.RequiredFlags...),
+				Constraints:   append([]string{}, alternative.Constraints...),
+			})
+		}
+		continuation.ObservationContract = observation
 	}
 	return continuation
 }

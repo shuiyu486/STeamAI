@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/autonomy"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/currentloop"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
@@ -90,6 +91,7 @@ type HandoffResult struct {
 	MissionCommanderActionQueue        mission.MissionCommanderActionQueue         `json:"missionCommanderActionQueue"`
 	DailyMissionControlRunbook         *DailyMissionControlRunbook                 `json:"dailyMissionControlRunbook,omitempty"`
 	ReplacementExecutorTakeoverPackage *mission.ReplacementExecutorTakeoverPackage `json:"replacementExecutorTakeoverPackage,omitempty"`
+	CurrentLoopSegment                 *currentloop.Inspection                     `json:"currentLoopSegment,omitempty"`
 	ProjectNextBatchStarterPackage     *ProjectNextBatchStarterPackage             `json:"projectNextBatchStarterPackage,omitempty"`
 	Writes                             []StartWrite                                `json:"writes"`
 	BlockedActions                     []string                                    `json:"blockedActions"`
