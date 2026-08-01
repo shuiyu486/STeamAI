@@ -589,6 +589,33 @@ func readFixtureFile(t *testing.T, root, rel string) string {
 	return string(data)
 }
 
+func TestStatusProjectHandoffReleaseRunBoundaryKeepsRemoteNonBlocking(t *testing.T) {
+	project := &statusProjectHandoff{
+		Ready:                   false,
+		LatestBatch:             "Batch 650",
+		LatestNextAction:        "/rekit release-run -Format json",
+		LatestRemoteReleaseGate: "not-recorded",
+		LatestRemoteReleaseGateDetail: &releasecheck.ReleaseHandoffRemoteReleaseGateDetail{
+			State:         "not-recorded",
+			CanClaimGreen: false,
+			Boundary:      []string{"release-check inventory ready is not remote CI green"},
+		},
+		ReleaseInspectionCadence: releasecheck.ReleaseHandoffReleaseInspectionCadence{
+			MaxPushes:  1,
+			State:      "implementation-pending",
+			NextAction: "create/push the implementation commit after Windows local validation",
+			Boundary:   []string{"remote Linux/macOS/Windows workflow is asynchronous and non-blocking for normal batches"},
+		},
+	}
+	action := statusProjectHandoffCurrentAction(project)
+	if action == nil || action.Command != "/rekit release-run -Format json" || !action.RequiresReview {
+		t.Fatalf("release-run current action fixture drifted: %+v", action)
+	}
+	if containsSubstring(action.Boundary, "inspect the push-triggered release-gate") || !containsSubstring(action.Boundary, "continue after implementation push without polling or waiting for remote CI") {
+		t.Fatalf("release-run status boundary must keep remote workflow asynchronous and non-blocking: %+v", action.Boundary)
+	}
+}
+
 func TestStatusProjectHandoffCurrentActionPromotesCompletedCadenceToNextBatchSelection(t *testing.T) {
 	remoteDetail := &releasecheck.ReleaseHandoffRemoteReleaseGateDetail{
 		State:            "blocked: completed failure with jobs steps=[]",
@@ -601,7 +628,7 @@ func TestStatusProjectHandoffCurrentActionPromotesCompletedCadenceToNextBatchSel
 		State:                     "complete",
 		ImplementationCommitReady: true,
 		InspectionCommitReady:     true,
-		Boundary:                  []string{"do not add a third record commit for the release inspection commit's own CI run"},
+		Boundary:                  []string{"remote Linux/macOS/Windows workflow is asynchronous and non-blocking for normal batches"},
 	}
 	pkg := releasecheck.BuildNextBatchSelectionPackage(releasecheck.ReleaseHandoff{
 		Ready: true,
@@ -644,7 +671,7 @@ func TestStatusProjectHandoffCurrentActionPromotesCompletedCadenceToNextBatchSel
 		t.Fatalf("next-batch action omitted reasons/boundary: %+v", action)
 	}
 	steps := statusProjectHandoffRunbookSteps(project, action)
-	for _, want := range []string{"confirm git status is clean", "choose a Windows-verifiable product-path closure", "write the selected Batch state", "full local release minimum", "steps=[] blocker"} {
+	for _, want := range []string{"confirm git status is clean", "choose a Windows-verifiable product-path closure", "write the selected Batch state", "full local release minimum", "asynchronous non-green evidence"} {
 		if !containsSubstring(steps, want) {
 			t.Fatalf("next-batch runbook missing %q: %+v", want, steps)
 		}
@@ -657,7 +684,7 @@ func TestStatusProjectHandoffLocalValidationActionUsesReleaseRunDriverRequest(t 
 		LatestBatch:                 "Batch 744",
 		LatestNextAction:            "run the full local release minimum and update docs/batch-plan.md",
 		LatestRemoteReleaseGate:     "not-recorded",
-		ReleaseInspectionCadence:    releasecheck.ReleaseHandoffReleaseInspectionCadence{State: "implementation-pending", NextAction: "create/push the implementation commit after local validation", Boundary: []string{"normal batches stop after implementation commit/push plus one release inspection commit/push"}},
+		ReleaseInspectionCadence:    releasecheck.ReleaseHandoffReleaseInspectionCadence{State: "implementation-pending", NextAction: "create/push the implementation commit after Windows local validation", Boundary: []string{"normal Windows-first batches stop after one implementation commit/push"}},
 		ValidationCommands:          []string{"go run ./cmd/rekit -- -Command release-check -Format json", "go test ./..."},
 		PackMemoryCandidates:        releasecheck.ReleaseHandoffPackMemoryCandidateList{Ready: true, NextAction: "no pack-memory candidate cleanup is pending"},
 		MissionCommanderNextActions: nil,
@@ -720,7 +747,7 @@ func TestStatusMissionControlRunbookReplacementExecutorTakeoverPackageWrapsCurre
 		LatestBatch:              "Batch 746",
 		LatestNextAction:         "run the full local release minimum and update docs/batch-plan.md",
 		LatestRemoteReleaseGate:  "not-recorded",
-		ReleaseInspectionCadence: releasecheck.ReleaseHandoffReleaseInspectionCadence{State: "implementation-pending", NextAction: "create/push the implementation commit after local validation", Boundary: []string{"normal batches stop after implementation commit/push plus one release inspection commit/push"}},
+		ReleaseInspectionCadence: releasecheck.ReleaseHandoffReleaseInspectionCadence{State: "implementation-pending", NextAction: "create/push the implementation commit after Windows local validation", Boundary: []string{"normal Windows-first batches stop after one implementation commit/push"}},
 		ValidationCommands:       []string{"go test ./..."},
 		PackMemoryCandidates:     releasecheck.ReleaseHandoffPackMemoryCandidateList{Ready: true, NextAction: "no pack-memory candidate cleanup is pending"},
 	}
@@ -777,7 +804,7 @@ func TestStatusMissionControlRunbookGuidanceHandoffWrapsNextBatchSelection(t *te
 					State:                     "complete",
 					ImplementationCommitReady: true,
 					InspectionCommitReady:     true,
-					Boundary:                  []string{"do not add a third record commit for the release inspection commit's own CI run"},
+					Boundary:                  []string{"remote Linux/macOS/Windows workflow is asynchronous and non-blocking for normal batches"},
 				},
 				CommitRefs: []string{"def651a"},
 			},
@@ -905,7 +932,7 @@ func TestStatusProjectHandoffNextBatchCandidateDomainsOnlyAfterCompleteCadence(t
 					State:                     "complete",
 					ImplementationCommitReady: true,
 					InspectionCommitReady:     true,
-					Boundary:                  []string{"do not add a third record commit"},
+					Boundary:                  []string{"remote workflow is asynchronous and non-blocking"},
 				},
 			},
 		},
@@ -915,7 +942,7 @@ func TestStatusProjectHandoffNextBatchCandidateDomainsOnlyAfterCompleteCadence(t
 		t.Fatalf("complete cadence should bind release-check next-batch selection package with starter: %+v", complete.NextBatchSelectionPackage)
 	}
 	starter := complete.NextBatchSelectionPackage.StarterPackage
-	if starter.CurrentRunLoopStepID != "select-candidate-domain" || len(starter.RunLoop) < 6 || starter.RunLoop[0].StepID != "select-candidate-domain" || starter.RunLoop[len(starter.RunLoop)-1].StepID != "commit-and-inspect" {
+	if starter.CurrentRunLoopStepID != "select-candidate-domain" || len(starter.RunLoop) < 6 || starter.RunLoop[0].StepID != "select-candidate-domain" || starter.RunLoop[len(starter.RunLoop)-1].StepID != "commit-and-continue" {
 		t.Fatalf("complete cadence should expose ordered starter run loop: %+v", starter)
 	}
 	if complete.MissionCommanderActionQueue.CurrentAction == nil || complete.MissionCommanderActionQueue.CurrentAction.ActionID != "next-batch-selection" || complete.MissionCommanderActionQueue.Counts.Total != 8 || complete.MissionCommanderActionQueue.Counts.FollowUp != 7 {
@@ -1668,7 +1695,7 @@ func TestRunStatusJsonKit(t *testing.T) {
 		if !slices.Contains(guidance.TargetDocuments, "docs/context-routing.md") || !slices.Contains(guidance.TargetDocuments, "docs/batch-plan.md") || !slices.Contains(guidance.TargetDocuments, "CHANGELOG.md") || !containsSubstring(guidance.AcceptanceChecklist, "write docs/batch-plan.md current batch state") || !containsSubstring(guidance.Boundary, "guidanceHandoff is read-only") {
 			t.Fatalf("guidance handoff omitted target docs, acceptance checklist, or boundary: %+v", guidance)
 		}
-		if guidance.StarterPackage == nil || !guidance.StarterPackage.Ready || !strings.HasPrefix(guidance.StarterPackage.SuggestedNextBatch, "Batch ") || !strings.Contains(guidance.StarterPackage.CurrentBatchSection, "### Batch ") || !strings.Contains(guidance.StarterPackage.ChangelogEntry, "Batch ") || !slices.Contains(guidance.StarterPackage.ValidationCommands, "go test ./...") || !containsSubstring(guidance.StarterPackage.ReleaseCadenceSteps, "不要为 release inspection commit") || !containsSubstring(guidance.StarterPackage.Boundary, "starter package is read-only guidance") {
+		if guidance.StarterPackage == nil || !guidance.StarterPackage.Ready || !strings.HasPrefix(guidance.StarterPackage.SuggestedNextBatch, "Batch ") || !strings.Contains(guidance.StarterPackage.CurrentBatchSection, "### Batch ") || !strings.Contains(guidance.StarterPackage.ChangelogEntry, "Batch ") || !slices.Contains(guidance.StarterPackage.ValidationCommands, "go test ./...") || !containsSubstring(guidance.StarterPackage.ReleaseCadenceSteps, "不轮询或等待 remote release-gate") || !containsSubstring(guidance.StarterPackage.Boundary, "starter package is read-only guidance") {
 			t.Fatalf("guidance handoff should carry starter package: %+v", guidance.StarterPackage)
 		}
 		if len(guidance.CandidateDomains) != 7 || !statusMissionControlGuidanceDomainContains(guidance.CandidateDomains, "next-batch-mission-commander-operational-closure") || !statusMissionControlGuidanceDomainContains(guidance.CandidateDomains, "next-batch-pack-memory-ux") {
@@ -1710,8 +1737,8 @@ func TestRunStatusJsonKit(t *testing.T) {
 	if len(status.ProjectHandoff.LatestRemoteReleaseGateDetail.Boundary) == 0 {
 		t.Fatalf("project handoff remote gate detail omitted boundary: %+v", status.ProjectHandoff.LatestRemoteReleaseGateDetail)
 	}
-	if cadence := status.ProjectHandoff.ReleaseInspectionCadence; cadence.MaxPushes != 2 || cadence.State == "" || cadence.NextAction == "" || cadence.ThirdInspectionAllowed != cadence.NewRemoteSignal || len(cadence.Boundary) == 0 || !containsSubstring(cadence.Boundary, "do not add a third record commit") {
-		t.Fatalf("project handoff release inspection cadence drifted: %+v", cadence)
+	if cadence := status.ProjectHandoff.ReleaseInspectionCadence; cadence.MaxPushes != 1 || cadence.State == "" || cadence.NextAction == "" || cadence.ThirdInspectionAllowed || len(cadence.Boundary) == 0 || !containsSubstring(cadence.Boundary, "asynchronous and non-blocking") {
+		t.Fatalf("project handoff Windows-first release cadence drifted: %+v", cadence)
 	}
 	if status.ProjectHandoff.LatestLocalValidationReady {
 		for _, want := range []string{"release-check -Format json recorded", "status handoff recorded", "go test ./... recorded", "git diff --check recorded"} {
@@ -1760,11 +1787,11 @@ func TestRunStatusJsonKit(t *testing.T) {
 		"status latest batch remote gate：state=",
 		"status latest batch remote gate boundary：",
 		"status latest batch release inspection cadence：state=",
-		"maxPushes=2",
+		"maxPushes=1",
 		"thirdInspectionAllowed=",
-		"status latest batch release inspection cadence boundary：do not add a third record commit",
+		"status latest batch release inspection cadence boundary：remote Linux/macOS/Windows workflow is asynchronous and non-blocking for normal batches",
 		"status latest batch next action：",
-		"status latest batch release inspection cadence boundary：normal batches stop after implementation commit/push plus one release inspection commit/push",
+		"status latest batch release inspection cadence boundary：normal Windows-first batches stop after one implementation commit/push",
 		"status pack-memory candidates：summary=pack-memory candidate inventory ok ready=true total=0 packs=0 nextAction=no pack-memory candidate cleanup is pending",
 		"status latest batch goal：",
 		"status read first：docs/context-routing.md",
@@ -1779,7 +1806,7 @@ func TestRunStatusJsonKit(t *testing.T) {
 			"status project handoff current action queue：total=8 unblocked=8 blocked=0",
 			"status latest batch validation：",
 			"status Mission Commander current action：scope=focus-project lane= label=next-batch state=ready-for-next-batch-selection source=releaseHandoffNextBatch blocked=false requiresReview=false command=select the next Windows-verifiable product-path closure",
-			"status Mission Commander focus action reason：scope=project reason=latest batch release inspection cadence is complete",
+			"status Mission Commander focus action reason：scope=project reason=latest batch Windows local validation is complete",
 			"status Mission Commander focus action reason：scope=project reason=project is ready for the next Windows-verifiable product-path batch",
 			"status Mission Commander focus action boundary：scope=project boundary=avoid single-field, summary, text, or handoff projection micro-batches; choose an operational closure with runtime or product-path verification",
 			"status Mission Commander focus action run loop：currentRunLoopStep=inspect-current steps=2",
@@ -1802,12 +1829,12 @@ func TestRunStatusJsonKit(t *testing.T) {
 			"status Mission Commander focus project next-batch starter validation command：go test ./...",
 			"status Mission Commander focus project next-batch starter run loop：currentRunLoopStep=select-candidate-domain steps=6",
 			"status Mission Commander focus project next-batch starter run loop step：order=1 step=select-candidate-domain actor=main-agent state=ready-for-next-batch-selection source=releaseHandoffNextBatch.starter.select",
-			"status Mission Commander focus project next-batch starter run loop step：order=6 step=commit-and-inspect actor=main-agent state=ready-for-next-batch-selection source=releaseHandoffNextBatch.starter.releaseCadence",
+			"status Mission Commander focus project next-batch starter run loop step：order=6 step=commit-and-continue actor=main-agent state=ready-for-next-batch-selection source=releaseHandoffNextBatch.starter.releaseCadence",
 			"status Mission Commander focus project next-batch starter run loop boundary：step=select-candidate-domain boundary=do not choose a single-field, summary, or projection-only micro-batch",
-			"status Mission Commander focus project next-batch starter release cadence step：不要为 release inspection commit 自己触发的 CI 追加第三个记录",
+			"status Mission Commander focus project next-batch starter release cadence step：推送成功后立即继续下一批，不轮询或等待 remote release-gate",
 			"status Mission Commander focus project next-batch starter boundary：starter package is read-only guidance",
 			"status project handoff current action queue action：bucket=current lane= label=next-batch state=ready-for-next-batch-selection source=releaseHandoffNextBatch blocked=false requiresReview=false command=select the next Windows-verifiable product-path closure",
-			"status project handoff current action queue action reason：bucket=current lane= reason=latest batch release inspection cadence is complete",
+			"status project handoff current action queue action reason：bucket=current lane= reason=latest batch Windows local validation is complete",
 			"status project handoff current action queue action boundary：bucket=current lane= boundary=avoid single-field, summary, text, or handoff projection micro-batches; choose an operational closure with runtime or product-path verification",
 			"status Mission Commander focus project next-batch candidate：label=mission-commander actionId=next-batch-mission-commander-operational-closure state=next-batch-candidate-domain",
 			"status Mission Commander focus project next-batch candidate reason：label=pack-memory-ux reason=pack-memory candidate queue is closed: no pack-memory candidate cleanup is pending",
@@ -1822,13 +1849,13 @@ func TestRunStatusJsonKit(t *testing.T) {
 			"status Mission Commander current action：scope=focus-project lane= label=Batch ",
 			"source=releaseHandoffLatestBatch blocked=false requiresReview=",
 			"status Mission Commander focus action reason：scope=project reason=latest batch next action is recorded in the release handoff",
-			"status Mission Commander focus action boundary：scope=project boundary=normal batches stop after implementation commit/push plus one release inspection commit/push",
+			"status Mission Commander focus action boundary：scope=project boundary=normal Windows-first batches stop after one implementation commit/push",
 			"status Mission Commander focus project runbook：batch=Batch ",
 			"text=read docs/context-routing.md first, then only the current batch section in docs/batch-plan.md",
 			"text=before handoff or release claims, rerun the listed local validation commands",
 			"status project handoff current action queue action：bucket=current lane= label=Batch ",
 			"status project handoff current action queue action reason：bucket=current lane= reason=latest batch next action is recorded in the release handoff",
-			"status project handoff current action queue action boundary：bucket=current lane= boundary=normal batches stop after implementation commit/push plus one release inspection commit/push",
+			"status project handoff current action queue action boundary：bucket=current lane= boundary=normal Windows-first batches stop after one implementation commit/push",
 		}
 	}
 	statusTextExpected := append(append([]string{}, commonStatusTextExpected...), projectActionTextExpected...)
@@ -4775,7 +4802,7 @@ func TestRunReleaseRunIncludesReleaseInspectionHandoff(t *testing.T) {
 		t.Fatalf("release-run inspection should expose typed cadence current action: current=%+v queue=%+v", current, inspection.MissionCommanderActionQueue)
 	}
 	request := requireTypedMissionCommanderDriverRequest(t, inspection.MissionCommanderActionQueue, "review-guidance", "inspect-current", "", false, false, true)
-	if request.Guidance != "do not create a third inspection record for the release inspection commit's own CI; continue the next batch" || request.ExpectedReceipt.RefreshStatusCommand != "" {
+	if request.Guidance != "continue the next batch without polling or waiting for remote CI" || request.ExpectedReceipt.RefreshStatusCommand != "" {
 		t.Fatalf("raw release-run queue request should preserve guidance before receipt refresh binding: %+v", request)
 	}
 	receipt := inspection.MissionCommanderDriverReceipt
@@ -4795,12 +4822,14 @@ func TestRunReleaseRunIncludesReleaseInspectionHandoff(t *testing.T) {
 		"release-run release inspection：ready=true summary=release inspection handoff ok; remote gate not green",
 		"release-run release inspection git：branch=main clean=true synchronized=true head=abc123 originMain=abc123",
 		"release-run release inspection next action：keep remote CI status truthful: inventory ready is not remote green",
-		"release-run release inspection mission commander queue：total=2 unblocked=2 blocked=0 requiresReview=2 followUp=0 current=do not create a third inspection record for the release inspection commit's own CI; continue the next batch",
+		"release-run release inspection mission commander queue：total=2 unblocked=2 blocked=0 requiresReview=2 followUp=0 current=continue the next batch without polling or waiting for remote CI",
 		"release-run mission commander driver receipt：state=refreshed outcome=release-run-local-validation-result command=/rekit release-run -Format json localReleaseRunReady=true releaseInspectionReady=true",
 		"release-run mission commander refreshed driver request：kind=review-guidance step=inspect-current",
 		"release-run replacement executor takeover package：ready=true focus=release-run-current-action scope=project state=complete source=releaseRun.releaseInspection actionId=release-run-cadence-next-action driverKind=review-guidance executable=false requiresReview=true",
 		"release-run replacement executor takeover package runbook step：read releaseInspection.replacementExecutorTakeoverPackage before using any prior chat context",
 		"release-run release inspection boundary：does not fetch GitHub or inspect remote Actions live state",
+		"release-run release inspection boundary：normal Windows-first batches do not create a release inspection commit or wait for remote CI",
+		"release-run release inspection next action：continue the next batch without polling remote CI or creating a release inspection commit",
 	} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("release-run release inspection text missing %q:\n%s", expected, out.String())
@@ -4833,7 +4862,7 @@ func TestRunReleaseRunImplementationPendingGuidanceReturnsRetryReceipt(t *testin
 		handoff.LatestBatch.Handoff.ReleaseCheckReady = false
 		handoff.LatestBatch.Handoff.RemoteReleaseGate = "not-recorded"
 		handoff.LatestBatch.Handoff.RemoteReleaseGateDetail = &releasecheck.ReleaseHandoffRemoteReleaseGateDetail{State: "not-recorded", CanClaimGreen: false, Boundary: []string{"release-check inventory ready is not remote CI green"}}
-		handoff.LatestBatch.Handoff.ReleaseInspectionCadence = releasecheck.ReleaseHandoffReleaseInspectionCadence{MaxPushes: 2, State: "implementation-pending", NextAction: "create/push the implementation commit after local validation", Boundary: []string{"normal batches stop after implementation commit/push plus one release inspection commit/push"}}
+		handoff.LatestBatch.Handoff.ReleaseInspectionCadence = releasecheck.ReleaseHandoffReleaseInspectionCadence{MaxPushes: 1, State: "implementation-pending", NextAction: "create/push the implementation commit after Windows local validation", Boundary: []string{"normal Windows-first batches stop after one implementation commit/push"}}
 		handoff.LatestBatch.Handoff.NextAction = "finish the current batch before treating status as a handoff"
 		handoff.NextBatchSelectionPackage = nil
 		result.ReleaseHandoff = handoff
@@ -5209,9 +5238,9 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 		"release-check latest batch remote gate：state=",
 		"release-check latest batch remote gate boundary：",
 		"release-check latest batch release inspection cadence：state=",
-		"maxPushes=2",
+		"maxPushes=1",
 		"thirdInspectionAllowed=",
-		"release-check latest batch release inspection cadence boundary：do not add a third record commit",
+		"release-check latest batch release inspection cadence boundary：remote Linux/macOS/Windows workflow is asynchronous and non-blocking for normal batches",
 		"release-check latest batch release inspection cadence：state=",
 		"release-check release notes：path=CHANGELOG.md present=true",
 		"release-check read first：path=docs/context-routing.md present=true",
@@ -5817,7 +5846,7 @@ func assertReleaseCheckPublicDefaultDocs(t *testing.T, docs defaultdocs.Readines
 	assertPublicDefaultPhrase(t, docs, ".claude/skills/rekit/SKILL.md", "底层 Go CLI 是 canonical runtime")
 	assertPublicDefaultPhrase(t, docs, "docs/context-routing.md", "按需路由")
 	assertPublicDefaultPhrase(t, docs, "docs/batch-plan.md", "完整历史已拆到 `docs/batch-history.md`")
-	assertPublicDefaultPhrase(t, docs, "CLAUDE.md", "PowerShell-free default/product path、Go-native、跨平台")
+	assertPublicDefaultPhrase(t, docs, "CLAUDE.md", "当前支持与日常完成门槛以 Windows 本机为准")
 	assertPublicDefaultPhrase(t, docs, "docs/autonomous-goal.md", "默认继续自主推进")
 	assertPublicDefaultPhrase(t, docs, "docs/release-readiness.md", "默认本机验证路径不依赖 PowerShell")
 	assertPublicDefaultPhrase(t, docs, "docs/go-first-convergence-plan.md", "不要把大型 PowerShell matrix 作为默认必跑")
@@ -10544,7 +10573,7 @@ func TestProjectHandoffDurableActionInjectionSelectsClosedNextBatchOnly(t *testi
 					State:                     "complete",
 					ImplementationCommitReady: true,
 					InspectionCommitReady:     true,
-					Boundary:                  []string{"do not add a third record commit"},
+					Boundary:                  []string{"remote workflow is asynchronous and non-blocking"},
 				},
 			},
 		},
@@ -10610,7 +10639,7 @@ func TestRunHandoffApplyWritesNextBatchCandidateDomains(t *testing.T) {
 					State:                     "complete",
 					ImplementationCommitReady: true,
 					InspectionCommitReady:     true,
-					Boundary:                  []string{"do not add a third record commit"},
+					Boundary:                  []string{"remote workflow is asynchronous and non-blocking"},
 				},
 			},
 		},
@@ -10636,7 +10665,7 @@ func TestRunHandoffApplyWritesNextBatchCandidateDomains(t *testing.T) {
 	if starter == nil || !starter.Ready || starter.LatestCompletedBatch != "Batch 682" || starter.SuggestedNextBatch != "Batch 683" || !strings.Contains(starter.CurrentBatchSection, "### Batch 683") || !strings.Contains(starter.CurrentBatchSection, "验证标准：") || !strings.Contains(starter.ChangelogEntry, "Batch 683") || !containsSubstring(starter.ValidationCommands, "go test ./...") || !containsSubstring(starter.ReleaseCadenceSteps, "implementation commit") || !containsSubstring(starter.Boundary, "starter package is read-only guidance") {
 		t.Fatalf("project handoff JSON omitted durable next-batch starter package: %+v", starter)
 	}
-	if starter.CurrentRunLoopStepID != "select-candidate-domain" || len(starter.RunLoop) < 6 || starter.RunLoop[0].StepID != "select-candidate-domain" || starter.RunLoop[len(starter.RunLoop)-1].StepID != "commit-and-inspect" {
+	if starter.CurrentRunLoopStepID != "select-candidate-domain" || len(starter.RunLoop) < 6 || starter.RunLoop[0].StepID != "select-candidate-domain" || starter.RunLoop[len(starter.RunLoop)-1].StepID != "commit-and-continue" {
 		t.Fatalf("project handoff JSON omitted durable next-batch starter run loop: %+v", starter)
 	}
 
@@ -10678,9 +10707,9 @@ func TestRunHandoffApplyWritesNextBatchCandidateDomains(t *testing.T) {
 		"validation command: go test ./...",
 		"starter run loop: currentRunLoopStep=select-candidate-domain steps=6",
 		"starter run loop step: order=1 step=select-candidate-domain actor=main-agent state=ready-for-next-batch-selection source=releaseHandoffNextBatch.starter.select",
-		"starter run loop step: order=6 step=commit-and-inspect actor=main-agent state=ready-for-next-batch-selection source=releaseHandoffNextBatch.starter.releaseCadence",
+		"starter run loop step: order=6 step=commit-and-continue actor=main-agent state=ready-for-next-batch-selection source=releaseHandoffNextBatch.starter.releaseCadence",
 		"starter run loop boundary: step=select-candidate-domain boundary=do not choose a single-field, summary, or projection-only micro-batch",
-		"release cadence step: 先提交并推送 implementation commit",
+		"release cadence step: 提交并推送一次 implementation commit",
 		"boundary: starter package is read-only guidance",
 	} {
 		if !bytes.Contains(text, []byte(expected)) {
@@ -10713,7 +10742,7 @@ func TestRunReleaseCheckExposesNextBatchSelectionPackage(t *testing.T) {
 						State:                     "complete",
 						ImplementationCommitReady: true,
 						InspectionCommitReady:     true,
-						Boundary:                  []string{"do not add a third record commit"},
+						Boundary:                  []string{"remote workflow is asynchronous and non-blocking"},
 					},
 				},
 			},
@@ -10745,7 +10774,7 @@ func TestRunReleaseCheckExposesNextBatchSelectionPackage(t *testing.T) {
 	if starter == nil || !starter.Ready || starter.LatestCompletedBatch != "Batch 684" || starter.SuggestedNextBatch != "Batch 685" || !strings.Contains(starter.CurrentBatchSection, "### Batch 685") || !strings.Contains(starter.CurrentBatchSection, "验证标准：") || !strings.Contains(starter.ChangelogEntry, "Batch 685") || !containsSubstring(starter.ValidationCommands, "go test ./...") || !containsSubstring(starter.Boundary, "starter package is read-only guidance") {
 		t.Fatalf("release-check JSON omitted next-batch starter package: %+v", starter)
 	}
-	if starter.CurrentRunLoopStepID != "select-candidate-domain" || len(starter.RunLoop) < 6 || starter.RunLoop[0].StepID != "select-candidate-domain" || starter.RunLoop[len(starter.RunLoop)-1].StepID != "commit-and-inspect" {
+	if starter.CurrentRunLoopStepID != "select-candidate-domain" || len(starter.RunLoop) < 6 || starter.RunLoop[0].StepID != "select-candidate-domain" || starter.RunLoop[len(starter.RunLoop)-1].StepID != "commit-and-continue" {
 		t.Fatalf("release-check JSON omitted next-batch starter run loop: %+v", starter)
 	}
 	routes := pkg.NextBatchPlanningRoutes
@@ -10771,9 +10800,9 @@ func TestRunReleaseCheckExposesNextBatchSelectionPackage(t *testing.T) {
 		"release-check next-batch starter validation command：go test ./...",
 		"release-check next-batch starter run loop：currentRunLoopStep=select-candidate-domain steps=6",
 		"release-check next-batch starter run loop step：order=1 step=select-candidate-domain actor=main-agent state=ready-for-next-batch-selection source=releaseHandoffNextBatch.starter.select",
-		"release-check next-batch starter run loop step：order=6 step=commit-and-inspect actor=main-agent state=ready-for-next-batch-selection source=releaseHandoffNextBatch.starter.releaseCadence",
+		"release-check next-batch starter run loop step：order=6 step=commit-and-continue actor=main-agent state=ready-for-next-batch-selection source=releaseHandoffNextBatch.starter.releaseCadence",
 		"release-check next-batch starter run loop boundary：step=select-candidate-domain boundary=do not choose a single-field, summary, or projection-only micro-batch",
-		"release-check next-batch starter release cadence step：不要为 release inspection commit 自己触发的 CI 追加第三个记录",
+		"release-check next-batch starter release cadence step：推送成功后立即继续下一批，不轮询或等待 remote release-gate",
 		"release-check next-batch starter boundary：starter package is read-only guidance",
 		"release-check next-batch planning route：domain=replacement-executor actionId=next-batch-replacement-executor-takeover executable=false requiresReview=true closurePlaceholder=<Windows-verifiable product-path closure>",
 		"release-check next-batch planning route step：domain=replacement-executor step=choose exactly one nextBatchPlanningRoutes[] item and replace closurePlaceholder with a concrete product-path closure",
@@ -10802,7 +10831,7 @@ func TestRunInstalledCaseShimDurableNextBatchTakeoverProductPath(t *testing.T) {
 					State:                     "complete",
 					ImplementationCommitReady: true,
 					InspectionCommitReady:     true,
-					Boundary:                  []string{"do not add a third record commit"},
+					Boundary:                  []string{"remote workflow is asynchronous and non-blocking"},
 				},
 			},
 		},
@@ -24450,20 +24479,20 @@ func readyReleaseHandoffFixture(base releasecheck.ReleaseHandoff) releasecheck.R
 		},
 	}
 	cadence := releasecheck.ReleaseHandoffReleaseInspectionCadence{
-		MaxPushes:                 2,
+		MaxPushes:                 1,
 		ImplementationCommitReady: true,
 		InspectionCommitReady:     true,
 		State:                     "complete",
-		NextAction:                "do not create a third inspection record for the release inspection commit's own CI; continue the next batch",
+		NextAction:                "continue the next batch without polling or waiting for remote CI",
 		Evidence: []string{
 			"implementation commit/push recorded",
-			"release inspection commit/run recorded",
+			"asynchronous remote release-gate observation recorded",
 			"remote release-gate steps=[] blocker recorded",
 		},
 		Boundary: []string{
-			"normal batches stop after implementation commit/push plus one release inspection commit/push",
-			"do not add a third record commit for the release inspection commit's own CI run",
-			"only a remote signal different from the existing steps=[] runner/billing blocker may justify another inspection record",
+			"normal Windows-first batches stop after one implementation commit/push",
+			"remote Linux/macOS/Windows workflow is asynchronous and non-blocking for normal batches",
+			"wait for and record remote results only for release, cross-platform work, or periodic review",
 		},
 	}
 	handoff := base
@@ -24496,7 +24525,7 @@ func readyReleaseHandoffFixture(base releasecheck.ReleaseHandoff) releasecheck.R
 				"git diff --check recorded",
 				"remote release-gate jobs steps=[] recorded",
 			},
-			NextAction: "select the next Windows-verifiable product-path batch from docs/context-routing.md and docs/batch-plan.md; do not create a third inspection record for the release inspection commit's own CI unless a new remote signal appears",
+			NextAction: "select the next Windows-verifiable product-path batch from docs/context-routing.md and docs/batch-plan.md without waiting for remote CI",
 		},
 	}
 	handoff.ReleaseNotes.Path = "CHANGELOG.md"
@@ -24515,7 +24544,7 @@ func readyReleaseHandoffFixture(base releasecheck.ReleaseHandoff) releasecheck.R
 	handoff.NextActions = mission.UniqueStrings(append(handoff.NextActions,
 		"Read docs/context-routing.md first, then docs/batch-plan.md current batch state before choosing next work",
 		"select the next Windows-verifiable product-path batch",
-		"do not create a third inspection record unless a new remote signal appears",
+		"continue the next Windows-verifiable product-path batch without waiting for remote CI",
 	))
 	for i := range handoff.Signals {
 		switch handoff.Signals[i].Name {

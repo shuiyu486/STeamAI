@@ -29,7 +29,7 @@
 1. 读最小接手上下文：`CLAUDE.md`、`docs/context-routing.md`、本文件顶部、`docs/batch-plan.md` 顶部 current/next、`CHANGELOG.md` 顶部 `Unreleased`，再确认 main 与 origin/main 同步、git 与必要本机状态。
 2. 自主选择一个最能让项目“马上更好用”的产品切片，优先围绕真实日常路线：开始 case、继续推进、查看状态、人工插手纠偏、新会话接手、reviewer/subagent 接手、pack-memory 复用。
 3. 实施时保持 Go-native 和 PowerShell-free 默认路径；禁止新增 PowerShell runtime logic。
-4. 完成后自审、评估，做必要验证、更新对应文档/CHANGELOG；若当前 goal/session 已授权提交推送，则按仓库 cadence 直接提交并推送到 origin/main。
+4. 完成后自审、评估，做必要验证、更新对应文档/CHANGELOG；若当前 goal/session 已授权提交推送，则在 Windows 本机完整验证后做一次 implementation commit/push，并立即继续下一批，不等待远程 CI。
 5. 如果长期 goal 未被用户明确停止，完成单批后继续选下一批；不要把单批完成、一次本机检查通过、工作树干净或当前候选暂时做完当作长期 goal 完成。只有产品已经能稳定承担真实日常任务，且复审后没有仍值得推进的明显能力断点时，才把长期 goal 视为可能完成。
 6. 每 3-5 批或一个明显节点做短自评：是否已经更接近“用户能真实日常使用”、是否出现方向偏移；若只是连续补字段/summary/text，切回更高层的产品闭环，并把新的阶段重点留在本文件或 `docs/batch-plan.md` 顶部，而不是扩写聊天 goal。
 
@@ -51,7 +51,7 @@
 5. **Pre-authorized lane autonomy**：把 heavy/debug/patch/dump/hook/network/exploit-replay 的授权边界做成可记录、可审计、可止损的 lane contract。
 6. **Pack-based team memory**：把复用经验 review/promote 回 pack/common，使 Agent Team 越用越强。
 7. **Go-first deterministic substrate / PowerShell-free Go-native convergence**：继续收束 Go backend ownership、release readiness、PowerShell replacement/removal、pack-neutral hardening 和 policy / ledger hardening。
-8. **Cross-platform readiness**：让默认入口、验证、release gate、case shim 和文档路径逐步不依赖 PowerShell；短期以 Windows 本机稳定可用为优先，远程 Linux/macOS/Windows CI 与 macOS/Linux product-path 在 runner/billing blocker 解除或需要发布前再提高优先级。
+8. **Cross-platform readiness**：让默认入口、验证、release gate、case shim 和文档路径逐步不依赖 PowerShell；当前产品支持和日常完成门槛以 Windows 本机为准，远程 Linux/macOS/Windows CI 与 macOS/Linux product-path 只在正式发布、跨平台专项或每 3–5 批周期复审时提高优先级，不阻塞普通迭代。
 
 ## 验证标准
 

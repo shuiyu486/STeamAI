@@ -31,13 +31,13 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 792：repair completed-batch next-step routing
 
-状态：已完成 release handoff parser 修复、正反回归、真实 status→next-batch 交棒、独立审查修复、README/长期自主 goal 接手锚点更新和完整本机 release minimum；implementation commit/push 与 remote inspection 待执行。Batch 791 的 implementation commit 已有真实三平台 green，随后 release inspection commit 只把 `release-run -Format json` 的成功结果写成“以 7/7 通过”；latest-batch parser 只接受 `ready=true` 或 `passed=7 failed=0 skipped=0`，于是把已完成批次重新路由到 `/rekit release-run`，并令 `next-batch` fail-closed。
+状态：已完成 release handoff parser 修复、正反回归、真实 status→next-batch 交棒、独立审查修复、README/长期自主 goal 接手锚点更新和完整 Windows 本机 release minimum；implementation commit `860790d` 已推送。推送后远程 workflow 超过十分钟仍未出现对应 run，暴露普通 batch 同步等待三平台结果的效率断点；当前 cadence 已改为 Windows-first：一次 implementation push 后立即继续，remote CI 异步、非阻塞，不再创建专门的 release inspection commit。Batch 791 的 implementation commit 已有真实三平台 green，随后 release inspection commit 只把 `release-run -Format json` 的成功结果写成“以 7/7 通过”；latest-batch parser 只接受 `ready=true` 或 `passed=7 failed=0 skipped=0`，于是把已完成批次重新路由到 `/rekit release-run`，并令 `next-batch` fail-closed。
 
 目标：让 release handoff 接受 canonical `release-run ... 以 7/7 通过`完成证据，使 `status` 在 completed cadence 后直接暴露 next-batch selection 与 candidate domains，`next-batch -WhatIf` 能生成下一批 planning receipt，不再重复本机检查。
 
-边界：只扩展明确成功证据的兼容解析；包含“未通过”“待执行”“待完成”“失败”“failed”或 `ready=false` 的 7/7 文案继续 fail-closed。不中断既有 `ready=true` / step-count contract，不改 release cadence、远程 green 判定、case state、authority/confirmed 或 heavy-tool 边界。
+边界：7/7 解析只扩展明确成功证据；包含“未通过”“待执行”“待完成”“失败”“failed”或 `ready=false` 的文案继续 fail-closed。普通 batch cadence 改为一次 implementation push 后即可继续，但不删除远程 workflow、不把 inventory ready 当 remote green；远程结果仍按事实保留，正式发布/跨平台专项/周期复审时再消费。不改 case state、authority/confirmed 或 heavy-tool 边界。
 
-验证结果：新增 releasecheck 正反回归覆盖 canonical `以 7/7 通过`、空格差异，以及失败、待执行、目标、计划、预期、历史、不能证明、尚未执行等非完成文案；独立审查发现的目标性误判窗口已通过按中文句号/分号切 clause、要求明确完成结果并扩充反例关闭。原 `ready=true` 与 split local minimum 回归通过。当前仓库 `TestRunStatusJsonKit` 已从失败恢复通过，真实 `next-batch -Domain mission-commander -Closure "repair completed-batch next-step routing" -WhatIf -Format json` 已返回 Batch 792 planning receipt，不写文件；Batch 792 进入进行中后再次请求 Batch 793 会正确 fail-closed。`docs/autonomous-goal.md` 同步强化长期接手锚点并更新短 goal：默认中大型产品闭环，小断点并入相邻闭环，单批完成或当前候选做完不等于长期 goal 完成，每 3-5 批复审方向并把阶段重点写回 durable docs，而不是扩写聊天 goal。README `release-check` 命令说明同步记录明确 7/7 成功证据、completed cadence next-batch 交棒与非完成文案 fail-closed 行为；根 `CLAUDE.md` 已有中大型闭环原则，pack reference、配置和示例不涉及本批解析或 goal 行为，无需修改。最终 releasecheck package、status/next-batch CLI focused 回归和两轮完整 `go test ./...` 均通过（最终 CLI 117.692 秒），`go vet ./...`、`release-check -Format json` ready、`status`、`packs`、`doctor` 与 `git diff --check` 通过；文档收尾后统一 `release-run -Format json` 以 7/7 通过。implementation commit/push 与 remote inspection 待执行。
+验证结果：新增 releasecheck 正反回归覆盖 canonical `以 7/7 通过`、空格差异，以及失败、待执行、目标、计划、预期、历史、不能证明、尚未执行等非完成文案；独立审查发现的目标性误判窗口已通过按中文句号/分号切 clause、要求明确完成结果并扩充反例关闭。原 `ready=true` 与 split local minimum 回归通过。当前仓库 `TestRunStatusJsonKit` 已从失败恢复通过，真实 `next-batch -Domain mission-commander -Closure "repair completed-batch next-step routing" -WhatIf -Format json` 已返回 Batch 792 planning receipt，不写文件；Batch 792 进入进行中后再次请求 Batch 793 会正确 fail-closed。`docs/autonomous-goal.md` 同步强化长期接手锚点并更新短 goal：默认中大型产品闭环，小断点并入相邻闭环，单批完成或当前候选做完不等于长期 goal 完成，每 3-5 批复审方向并把阶段重点写回 durable docs，而不是扩写聊天 goal。README `release-check` 命令说明同步记录明确 7/7 成功证据、completed cadence next-batch 交棒与非完成文案 fail-closed 行为；根 `CLAUDE.md` 已有中大型闭环原则，pack reference、配置和示例不涉及本批解析或 goal 行为，无需修改。最终 releasecheck package、status/next-batch CLI focused 回归和两轮完整 `go test ./...` 均通过（最终 CLI 117.692 秒），`go vet ./...`、`release-check -Format json` ready、`status`、`packs`、`doctor` 与 `git diff --check` 通过；文档收尾后统一 `release-run -Format json` 以 7/7 通过。Implementation commit `860790d` 已推送并与 origin/main 同步；普通 batch 不再等待该 push 的远程 run。Windows-first cadence 配套回归证明 remote `not-recorded` 或异步新 signal 均不阻塞 next-batch，starter run loop 以 `commit-and-continue` 结束。
 
 ### Batch 791：durable current-loop campaign operator resume closure
 
@@ -3613,7 +3613,7 @@ Batch 630 强制选择端到端能力闭环：不要再把单字段、summary、
 
 每个 active batch 记录实际执行过的命令及结果；`release-check`/`ciReleaseGate.ready` 只算 inventory readiness，不能替代本地命令执行或远程 job conclusions。优先保持 coherent vertical slice，不用逐字段 metadata batch 维持连续推进。
 
-Batch 推送节奏默认收敛为最多两次 push：先用 implementation commit 覆盖代码、测试、文档与本地验证，再用 release inspection commit 只记录 implementation commit 的远程 run。不要继续为 release inspection commit 自己触发的 CI 追加第三个记录提交；除非出现不同于既有 `steps=[]` runner/billing blocker 的新远程信号，否则保持该 blocker 为已记录 known gap。
+历史上普通 batch 曾使用两次 push（implementation + release inspection）；自 Batch 792 起，日常节奏改为 Windows 本机完整验证后只做一次 implementation push 并立即继续，远程 workflow 异步、非阻塞。旧批次中的 inspection 记录保留为历史事实，不作为当前 cadence。
 
 ## 风险与注意事项
 

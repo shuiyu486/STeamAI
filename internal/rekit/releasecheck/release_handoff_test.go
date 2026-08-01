@@ -31,8 +31,8 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	if counts.ReadFirst != 4 || counts.Signals != 13 || counts.KnownGaps == 0 || counts.PackMaturity.Total == 0 || counts.Validation == 0 || counts.NextActions == 0 {
 		t.Fatalf("release handoff omitted required sections: %+v", handoff)
 	}
-	if !releaseHandoffStringsContain(handoff.NextActions, "select the next Windows-verifiable product-path batch") || !releaseHandoffStringsContain(handoff.NextActions, "do not create a third inspection record") {
-		t.Fatalf("release handoff next actions should expose next-batch selection guard: %+v", handoff.NextActions)
+	if !releaseHandoffStringsContain(handoff.NextActions, "select the next Windows-verifiable product-path batch") || !releaseHandoffStringsContain(handoff.NextActions, "without polling or waiting for remote CI") {
+		t.Fatalf("release handoff next actions should expose Windows-first next-batch guard: %+v", handoff.NextActions)
 	}
 	assertHandoffReadFirst(t, handoff, "docs/context-routing.md")
 	assertHandoffReadFirst(t, handoff, "docs/batch-plan.md")
@@ -148,8 +148,8 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	if !latestHandoff.Completed || strings.TrimSpace(latestHandoff.RemoteReleaseGate) == "" || latestHandoff.RemoteReleaseGateDetail == nil || strings.TrimSpace(latestHandoff.RemoteReleaseGateDetail.State) == "" || strings.TrimSpace(latestHandoff.NextAction) == "" {
 		t.Fatalf("unexpected latest batch handoff: %+v", latestHandoff)
 	}
-	if cadence := latestHandoff.ReleaseInspectionCadence; cadence.MaxPushes != 2 || cadence.State == "" || cadence.NextAction == "" || cadence.ThirdInspectionAllowed != cadence.NewRemoteSignal || len(cadence.Boundary) == 0 || !releaseHandoffStringsContain(cadence.Boundary, "do not add a third record commit") {
-		t.Fatalf("latest batch release inspection cadence drifted: %+v", cadence)
+	if cadence := latestHandoff.ReleaseInspectionCadence; cadence.MaxPushes != 1 || cadence.State == "" || cadence.NextAction == "" || cadence.ThirdInspectionAllowed || len(cadence.Boundary) == 0 || !releaseHandoffStringsContain(cadence.Boundary, "asynchronous and non-blocking") {
+		t.Fatalf("latest batch Windows-first release cadence drifted: %+v", cadence)
 	}
 	if latestHandoff.RemoteReleaseGateDetail.State != latestHandoff.RemoteReleaseGate {
 		t.Fatalf("remote gate detail state drifted from summary: %+v", latestHandoff.RemoteReleaseGateDetail)
@@ -237,6 +237,39 @@ func TestReleaseHandoffBuildsNextBatchSelectionPackageWithShortLocalValidationEv
 	pkg := result.ReleaseHandoff.NextBatchSelectionPackage
 	if pkg == nil || !pkg.Ready || pkg.MissionCommanderActionQueue.CurrentAction == nil || pkg.MissionCommanderActionQueue.CurrentAction.ActionID != "next-batch-selection" {
 		t.Fatalf("short local validation evidence should expose next-batch selection package: pkg=%+v handoff=%+v warnings=%+v", pkg, latest, result.ReleaseHandoff.Warnings)
+	}
+}
+
+func TestReleaseHandoffBuildsNextBatchAfterSevenOfSevenPushWithRemoteNotRecorded(t *testing.T) {
+	repo := cleanReleaseRepoRoot(t)
+	writeReleaseHandoffLatestBatchFixture(t, repo, `### Batch 999：Fixture
+
+状态：已完成 Windows 本机验证与 implementation commit/push；implementation commit `+"`"+`abc999d`+"`"+` 已推送。远程 workflow 异步运行，当前尚未记录对应 run。
+
+目标：普通 batch 在 canonical 7/7 与 implementation push 后立即交棒下一批，不等待 remote CI。
+
+验证结果：完成态写回后统一 `+"`"+`release-run -Format json`+"`"+` 以 7/7 通过。Implementation commit `+"`"+`abc999d`+"`"+` 已推送；未轮询或等待远程 workflow。
+
+`, "- Batch 999 fixture note.\n\n")
+
+	result, err := Build(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	latest := result.ReleaseHandoff.LatestBatch.Handoff
+	if !result.Ready || !latest.LocalValidationReady || !latest.ReleaseCheckReady || latest.RemoteReleaseGate != "not-recorded" {
+		t.Fatalf("canonical 7/7 pushed batch should be locally ready with remote not recorded: ready=%t warnings=%+v latest=%+v", result.Ready, result.Warnings, latest)
+	}
+	cadence := latest.ReleaseInspectionCadence
+	if cadence.MaxPushes != 1 || cadence.State != "complete" || !cadence.ImplementationCommitReady || cadence.InspectionCommitReady || cadence.NewRemoteSignal || cadence.ThirdInspectionAllowed || !strings.Contains(cadence.NextAction, "without polling or waiting for remote CI") {
+		t.Fatalf("canonical 7/7 pushed batch should complete Windows-first cadence: %+v", cadence)
+	}
+	pkg := result.ReleaseHandoff.NextBatchSelectionPackage
+	if pkg == nil || !pkg.Ready || pkg.MissionCommanderActionQueue.CurrentAction == nil || pkg.MissionCommanderActionQueue.CurrentAction.ActionID != "next-batch-selection" {
+		t.Fatalf("canonical 7/7 pushed batch should expose next-batch selection without remote evidence: %+v", pkg)
+	}
+	if !strings.Contains(latest.NextAction, "without waiting for remote CI") {
+		t.Fatalf("canonical 7/7 pushed batch should not route to remote inspection: %q", latest.NextAction)
 	}
 }
 
@@ -340,10 +373,10 @@ func TestNextBatchSelectionPackageOnlyAfterCompleteCadence(t *testing.T) {
 					Boundary:         []string{"release-check inventory ready is not remote CI green"},
 				},
 				ReleaseInspectionCadence: ReleaseHandoffReleaseInspectionCadence{
+					MaxPushes:                 1,
 					State:                     "complete",
 					ImplementationCommitReady: true,
-					InspectionCommitReady:     true,
-					Boundary:                  []string{"do not add a third record commit"},
+					Boundary:                  []string{"remote workflow is asynchronous and non-blocking"},
 				},
 			},
 		},
@@ -364,15 +397,15 @@ func TestNextBatchSelectionPackageOnlyAfterCompleteCadence(t *testing.T) {
 	if !foundReplacementExecutor {
 		t.Fatalf("next-batch selection package omitted replacement executor takeover action: %+v", pkg.MissionCommanderNextActions)
 	}
-	if !releaseHandoffStringsContain(pkg.Boundary, "do not create a third inspection record") || !releaseHandoffStringsContain(pkg.Boundary, "release-check inventory ready is not remote CI green") {
-		t.Fatalf("next-batch selection package omitted remote/cadence boundaries: %+v", pkg.Boundary)
+	if !releaseHandoffStringsContain(pkg.Boundary, "asynchronous and non-blocking") || !releaseHandoffStringsContain(pkg.Boundary, "do not poll or wait for remote CI") {
+		t.Fatalf("next-batch selection package omitted Windows-first remote/cadence boundaries: %+v", pkg.Boundary)
 	}
 	starter := pkg.StarterPackage
 	if starter == nil || !starter.Ready || starter.LatestCompletedBatch != "Batch 684" || starter.SuggestedNextBatch != "Batch 685" || !strings.Contains(starter.CurrentBatchSection, "### Batch 685") || !strings.Contains(starter.CurrentBatchSection, "验证标准：") || !strings.Contains(starter.ChangelogEntry, "Batch 685") || !releaseHandoffStringsContain(starter.ReleaseCadenceSteps, "implementation commit") || !releaseHandoffStringsContain(starter.Boundary, "starter package is read-only guidance") {
 		t.Fatalf("next-batch selection package omitted starter package: %+v", starter)
 	}
-	if starter.CurrentRunLoopStepID != "select-candidate-domain" || len(starter.RunLoop) < 6 || starter.RunLoop[0].StepID != "select-candidate-domain" || starter.RunLoop[len(starter.RunLoop)-1].StepID != "commit-and-inspect" || !releaseHandoffRunLoopBoundaryContains(starter.RunLoop, "do not choose a single-field") {
-		t.Fatalf("next-batch starter package omitted ordered run loop: %+v", starter)
+	if starter.CurrentRunLoopStepID != "select-candidate-domain" || len(starter.RunLoop) < 6 || starter.RunLoop[0].StepID != "select-candidate-domain" || starter.RunLoop[len(starter.RunLoop)-1].StepID != "commit-and-continue" || !releaseHandoffRunLoopBoundaryContains(starter.RunLoop, "do not choose a single-field") {
+		t.Fatalf("next-batch starter package omitted ordered Windows-first run loop: %+v", starter)
 	}
 
 	incomplete := base
@@ -387,8 +420,8 @@ func TestNextBatchSelectionPackageOnlyAfterCompleteCadence(t *testing.T) {
 	}
 	newRemoteSignal := base
 	newRemoteSignal.LatestBatch.Handoff.ReleaseInspectionCadence.NewRemoteSignal = true
-	if pkg := BuildNextBatchSelectionPackage(newRemoteSignal); pkg != nil {
-		t.Fatalf("new remote signal must not expose next-batch selection package: %+v", pkg)
+	if pkg := BuildNextBatchSelectionPackage(newRemoteSignal); pkg == nil || !pkg.Ready {
+		t.Fatalf("asynchronous new remote signal must not block normal next-batch selection: %+v", pkg)
 	}
 }
 
@@ -475,8 +508,8 @@ func TestLatestBatchHandoffDoesNotTreatFailedReleaseRunRetryAsReady(t *testing.T
 	if handoff.LocalValidationReady || handoff.ReleaseCheckReady || handoff.ReleaseInspectionCadence.ImplementationCommitReady || !slices.Contains(handoff.Evidence, "release-run transient retry recorded") {
 		t.Fatalf("failed release-run retry should remain not ready while retaining retry evidence: %+v", handoff)
 	}
-	if handoff.NextAction != "run the full local release minimum and update docs/batch-plan.md" {
-		t.Fatalf("failed release-run retry should ask for local validation: %+v", handoff)
+	if handoff.NextAction != "run the full Windows local release minimum and update docs/batch-plan.md" {
+		t.Fatalf("failed release-run retry should ask for Windows local validation: %+v", handoff)
 	}
 }
 
@@ -487,11 +520,11 @@ func TestLatestBatchHandoffExtractsValidationEvidence(t *testing.T) {
 
 	latest := ReleaseHandoffLatestBatch{Status: "已完成 fixture", ValidationResult: "fixture validation"}
 	handoff := latestBatchHandoff(latest, section)
-	if !handoff.Completed || !handoff.LocalValidationReady || !handoff.ReleaseCheckReady || handoff.RemoteReleaseGate != "blocked: completed failure with jobs steps=[]" || !strings.Contains(handoff.NextAction, "third inspection") {
-		t.Fatalf("unexpected latest batch handoff: %+v", handoff)
+	if !handoff.Completed || !handoff.LocalValidationReady || !handoff.ReleaseCheckReady || handoff.RemoteReleaseGate != "blocked: completed failure with jobs steps=[]" || !strings.Contains(handoff.NextAction, "without waiting for remote CI") {
+		t.Fatalf("unexpected latest batch Windows-first handoff: %+v", handoff)
 	}
-	if cadence := handoff.ReleaseInspectionCadence; cadence.MaxPushes != 2 || cadence.State != "complete" || !cadence.ImplementationCommitReady || !cadence.InspectionCommitReady || cadence.ThirdInspectionAllowed || cadence.NewRemoteSignal || !strings.Contains(cadence.NextAction, "third inspection") || !releaseHandoffStringsContain(cadence.Evidence, "implementation commit/push recorded") || !releaseHandoffStringsContain(cadence.Evidence, "release inspection commit/run recorded") || !releaseHandoffStringsContain(cadence.Boundary, "only a remote signal different") {
-		t.Fatalf("unexpected release inspection cadence: %+v", cadence)
+	if cadence := handoff.ReleaseInspectionCadence; cadence.MaxPushes != 1 || cadence.State != "complete" || !cadence.ImplementationCommitReady || !cadence.InspectionCommitReady || cadence.ThirdInspectionAllowed || cadence.NewRemoteSignal || !strings.Contains(cadence.NextAction, "without polling or waiting for remote CI") || !releaseHandoffStringsContain(cadence.Evidence, "implementation commit/push recorded") || !releaseHandoffStringsContain(cadence.Evidence, "asynchronous remote release-gate observation recorded") || !releaseHandoffStringsContain(cadence.Boundary, "asynchronous and non-blocking") {
+		t.Fatalf("unexpected Windows-first release cadence: %+v", cadence)
 	}
 	for _, evidence := range []string{"public CLI product-path validation recorded", "release-check -Format json recorded", "status handoff recorded", "packs inventory recorded", "doctor validation recorded", "go test ./... recorded", "go vet ./... recorded", "git diff --check recorded", "release-check ready=true recorded", "remote release-gate jobs steps=[] recorded"} {
 		if !slices.Contains(handoff.Evidence, evidence) {
@@ -534,8 +567,8 @@ func TestLatestBatchHandoffAcceptsReleaseRunLocalMinimum(t *testing.T) {
 	if cadence := handoff.ReleaseInspectionCadence; cadence.State != "complete" || !cadence.ImplementationCommitReady || !cadence.InspectionCommitReady {
 		t.Fatalf("release-run completed batch should have complete cadence: %+v", cadence)
 	}
-	if strings.Contains(handoff.NextAction, "local release minimum") || !strings.Contains(handoff.NextAction, "select the next Windows-verifiable product-path batch") || !strings.Contains(handoff.NextAction, "third inspection") {
-		t.Fatalf("completed release-run batch should point to guarded next-batch selection, got %q", handoff.NextAction)
+	if strings.Contains(handoff.NextAction, "local release minimum") || !strings.Contains(handoff.NextAction, "select the next Windows-verifiable product-path batch") || !strings.Contains(handoff.NextAction, "without waiting for remote CI") {
+		t.Fatalf("completed release-run batch should point to non-blocking next-batch selection, got %q", handoff.NextAction)
 	}
 	for _, evidence := range []string{"release-run local release minimum recorded", "release-check ready=true recorded", "go test ./... recorded", "git diff --check recorded"} {
 		if !slices.Contains(handoff.Evidence, evidence) {
@@ -556,8 +589,8 @@ func TestLatestBatchHandoffAcceptsReleaseRunSevenOfSevenLocalMinimum(t *testing.
 	if cadence := handoff.ReleaseInspectionCadence; cadence.State != "complete" || !cadence.ImplementationCommitReady || !cadence.InspectionCommitReady {
 		t.Fatalf("release-run 7/7 completed batch should have complete cadence: %+v", cadence)
 	}
-	if strings.Contains(handoff.NextAction, "local release minimum") || !strings.Contains(handoff.NextAction, "select the next batch") {
-		t.Fatalf("release-run 7/7 completed batch should point to next-batch selection, got %q", handoff.NextAction)
+	if strings.Contains(handoff.NextAction, "local release minimum") || !strings.Contains(handoff.NextAction, "select the next Windows-verifiable product-path batch") || !strings.Contains(handoff.NextAction, "without waiting for remote CI") {
+		t.Fatalf("release-run 7/7 completed batch should point to non-blocking next-batch selection, got %q", handoff.NextAction)
 	}
 }
 
@@ -649,6 +682,27 @@ func TestLatestBatchCommitRefsIgnoreRemoteRefsInSameEvidenceClause(t *testing.T)
 		if slices.Contains(handoff.CommitRefs, remoteRef) {
 			t.Fatalf("remote ref %q should not be treated as a commit ref: %+v", remoteRef, handoff.CommitRefs)
 		}
+	}
+}
+
+func TestLatestBatchReleaseCadenceRejectsCommitReferenceWithoutPush(t *testing.T) {
+	section := `状态：已完成 Windows 本机验证；implementation commit ` + "`" + `abc123d` + "`" + ` 已创建，但尚未推送。
+
+验证结果：完成态写回后统一 ` + "`" + `release-run -Format json` + "`" + ` 以 7/7 通过。Implementation commit ` + "`" + `abc123d` + "`" + ` 尚未推送。`
+	handoff := latestBatchHandoff(ReleaseHandoffLatestBatch{Status: "已完成 fixture"}, section)
+	cadence := handoff.ReleaseInspectionCadence
+	if !handoff.LocalValidationReady || !handoff.ReleaseCheckReady || cadence.State != "implementation-pending" || cadence.ImplementationCommitReady || cadence.InspectionCommitReady {
+		t.Fatalf("commit reference without push must remain implementation-pending: %+v", handoff)
+	}
+	ready := BuildNextBatchSelectionPackage(ReleaseHandoff{
+		Ready:       true,
+		LatestBatch: ReleaseHandoffLatestBatch{BatchID: "Batch 998", Handoff: handoff},
+		PackMemoryCandidates: ReleaseHandoffPackMemoryCandidateList{
+			Ready: true,
+		},
+	})
+	if ready != nil {
+		t.Fatalf("commit reference without push must not expose next-batch selection: %+v", ready)
 	}
 }
 
@@ -759,8 +813,8 @@ func TestLatestBatchRemoteGateKeepsSplitCompletedFailureAsNewSignal(t *testing.T
 		}
 	}
 	cadence := handoff.ReleaseInspectionCadence
-	if cadence.State != "new-remote-signal" || !cadence.ImplementationCommitReady || !cadence.InspectionCommitReady || !cadence.NewRemoteSignal || !cadence.ThirdInspectionAllowed || !releaseHandoffStringsContain(cadence.Evidence, "new remote signal differs from existing steps=[] blocker") {
-		t.Fatalf("split non-empty completed failure should keep new remote signal cadence: %+v", cadence)
+	if cadence.State != "complete" || !cadence.ImplementationCommitReady || !cadence.InspectionCommitReady || !cadence.NewRemoteSignal || cadence.ThirdInspectionAllowed || !releaseHandoffStringsContain(cadence.Evidence, "asynchronous new remote signal recorded") {
+		t.Fatalf("split non-empty completed failure should remain asynchronous and non-blocking: %+v", cadence)
 	}
 }
 
@@ -793,25 +847,28 @@ func TestLatestBatchReleaseReadinessIgnoresBoundaryOnlyCommitAndInspectionWords(
 		t.Fatalf("boundary-only remote words should not become remote evidence: %+v", handoff.RemoteReleaseGateDetail)
 	}
 	cadence := handoff.ReleaseInspectionCadence
-	if cadence.State != "implementation-pending" || cadence.ImplementationCommitReady || cadence.InspectionCommitReady || releaseHandoffStringsContain(cadence.Evidence, "implementation commit/push recorded") || releaseHandoffStringsContain(cadence.Evidence, "release inspection commit/run recorded") || releaseHandoffStringsContain(cadence.Evidence, "remote release-gate steps=[] blocker recorded") {
+	if cadence.State != "implementation-pending" || cadence.ImplementationCommitReady || cadence.InspectionCommitReady || releaseHandoffStringsContain(cadence.Evidence, "implementation commit/push recorded") || releaseHandoffStringsContain(cadence.Evidence, "asynchronous remote release-gate observation recorded") || releaseHandoffStringsContain(cadence.Evidence, "remote release-gate steps=[] blocker recorded") {
 		t.Fatalf("boundary-only commit/inspection words should not become cadence evidence: %+v", cadence)
 	}
 }
 
-func TestLatestBatchReleaseReadinessWaitsForRemoteInspectionAfterImplementationPush(t *testing.T) {
-	section := `状态：已完成 runtime/test/doc 工作树实现、完整本地 release minimum 与 implementation commit/push；implementation commit ` + "`" + `abc123d` + "`" + ` 已推送。尚未检查本批对应的远程 workflow run。
+func TestLatestBatchReleaseReadinessContinuesAfterImplementationPushWithoutRemoteInspection(t *testing.T) {
+	section := `状态：已完成 runtime/test/doc 工作树实现、完整 Windows 本机 release minimum 与 implementation commit/push；implementation commit ` + "`" + `abc123d` + "`" + ` 已推送。尚未检查本批对应的远程 workflow run。
 
-目标：release inspection commit/push 只记录 implementation run；若后续 CI 为 jobs ` + "`" + `steps=[]` + "`" + `，按既有 blocker 处理，不要追加第三个记录提交。
+目标：普通批次只需一次 implementation commit/push；remote workflow 异步运行，不轮询、不等待，也不创建 release inspection commit。
 
 验证结果：完整本地 release minimum 已通过：` + "`" + `go run ./cmd/rekit -- -Command release-check -Format json` + "`" + ` 返回 ` + "`" + `ready=true` + "`" + `，` + "`" + `go run ./cmd/rekit -- -Command status` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command packs` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command doctor` + "`" + `、` + "`" + `go test ./...` + "`" + `、` + "`" + `go vet ./...` + "`" + ` 与 ` + "`" + `git diff --check` + "`" + ` 均通过。`
 
 	handoff := latestBatchHandoff(ReleaseHandoffLatestBatch{Status: "已完成 fixture"}, section)
 	if handoff.RemoteReleaseGate != "not-recorded" || handoff.RemoteReleaseGateDetail == nil || handoff.RemoteReleaseGateDetail.EmptySteps || slices.Contains(handoff.Evidence, "remote release-gate jobs steps=[] recorded") {
-		t.Fatalf("remote inspection should stay not-recorded before run evidence: %+v evidence=%+v", handoff.RemoteReleaseGateDetail, handoff.Evidence)
+		t.Fatalf("remote observation should stay not-recorded before asynchronous evidence: %+v evidence=%+v", handoff.RemoteReleaseGateDetail, handoff.Evidence)
 	}
 	cadence := handoff.ReleaseInspectionCadence
-	if cadence.State != "inspection-pending" || !cadence.ImplementationCommitReady || cadence.InspectionCommitReady || !releaseHandoffStringsContain(cadence.Evidence, "implementation commit/push recorded") || releaseHandoffStringsContain(cadence.Evidence, "release inspection commit/run recorded") {
-		t.Fatalf("implementation push should wait for scoped remote inspection evidence: %+v", cadence)
+	if cadence.MaxPushes != 1 || cadence.State != "complete" || !cadence.ImplementationCommitReady || cadence.InspectionCommitReady || cadence.ThirdInspectionAllowed || !releaseHandoffStringsContain(cadence.Evidence, "implementation commit/push recorded") || !strings.Contains(cadence.NextAction, "without polling or waiting for remote CI") {
+		t.Fatalf("implementation push should complete Windows-first cadence without remote inspection: %+v", cadence)
+	}
+	if !strings.Contains(handoff.NextAction, "without waiting for remote CI") {
+		t.Fatalf("completed Windows-first batch should hand off immediately: %+v", handoff)
 	}
 }
 
@@ -830,7 +887,7 @@ func TestLatestBatchReleaseReadinessRecognizesPushRunRemoteInspection(t *testing
 		}
 	}
 	cadence := handoff.ReleaseInspectionCadence
-	if cadence.State != "complete" || !cadence.ImplementationCommitReady || !cadence.InspectionCommitReady || !releaseHandoffStringsContain(cadence.Evidence, "release inspection commit/run recorded") || !releaseHandoffStringsContain(cadence.Evidence, "remote release-gate steps=[] blocker recorded") {
+	if cadence.State != "complete" || !cadence.ImplementationCommitReady || !cadence.InspectionCommitReady || !releaseHandoffStringsContain(cadence.Evidence, "asynchronous remote release-gate observation recorded") || !releaseHandoffStringsContain(cadence.Evidence, "remote release-gate steps=[] blocker recorded") {
 		t.Fatalf("push run remote evidence should complete release inspection cadence: %+v", cadence)
 	}
 }
@@ -845,7 +902,7 @@ func TestLatestBatchReleaseReadinessPrefersExplicitRemoteEvidenceOverStalePendin
 		t.Fatalf("explicit remote evidence should win over stale pending wording: %+v", handoff.RemoteReleaseGateDetail)
 	}
 	cadence := handoff.ReleaseInspectionCadence
-	if cadence.State != "complete" || !cadence.ImplementationCommitReady || !cadence.InspectionCommitReady || !releaseHandoffStringsContain(cadence.Evidence, "release inspection commit/run recorded") || !releaseHandoffStringsContain(cadence.Evidence, "remote release-gate steps=[] blocker recorded") {
+	if cadence.State != "complete" || !cadence.ImplementationCommitReady || !cadence.InspectionCommitReady || !releaseHandoffStringsContain(cadence.Evidence, "asynchronous remote release-gate observation recorded") || !releaseHandoffStringsContain(cadence.Evidence, "remote release-gate steps=[] blocker recorded") {
 		t.Fatalf("explicit remote evidence should complete cadence: %+v", cadence)
 	}
 }

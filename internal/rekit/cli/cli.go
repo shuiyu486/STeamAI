@@ -1801,7 +1801,7 @@ func releaseRunInspectionHandoffFor(repoRoot string, inventory releasecheck.Resu
 			"does not fetch GitHub or inspect remote Actions live state",
 			"uses local git refs, docs/batch-plan.md latest-batch handoff, and release-check inventory only",
 			"ciReleaseGate.ready remains workflow inventory readiness, not remote green",
-			"do not add a third release inspection record unless latest-batch cadence reports a new remote signal",
+			"normal Windows-first batches do not create a release inspection commit or wait for remote CI",
 		},
 		Warnings: warnings,
 	}
@@ -1831,8 +1831,8 @@ func releaseRunInspectionMissionCommanderActionQueue(git releaseRunInspectionGit
 	}
 	baseBoundary := []string{
 		"release-run result is a read-only Mission Commander receipt; it does not write repo or case state",
-		"record local validation evidence in docs before claiming batch completion",
-		"remote release-gate must be inspected separately after the implementation commit; release-run never claims remote green",
+		"record Windows local validation evidence in docs before claiming batch completion",
+		"remote release-gate is asynchronous and non-blocking for normal batches; release-run never claims remote green",
 	}
 	if !localReady {
 		add("/rekit release-run -Format json", "release-run-local-validation-retry", "local-release-run-not-ready", true, []string{"local release-run did not pass", "inspect failed step output before retrying"}, append(baseBoundary, "fix the failed local release minimum step before release inspection"))
@@ -1975,8 +1975,8 @@ func releaseRunInspectionNextActions(git releaseRunInspectionGitState, latest re
 		actions = append(actions, "record this release-run result in docs/batch-plan.md before final release handoff")
 	}
 	cadence := latest.Handoff.ReleaseInspectionCadence
-	if cadence.State == "complete" && !cadence.ThirdInspectionAllowed {
-		actions = append(actions, "do not create a third release inspection record unless a new remote signal differs from the known steps=[] runner/billing blocker")
+	if cadence.State == "complete" {
+		actions = append(actions, "continue the next batch without polling remote CI or creating a release inspection commit")
 	}
 	if strings.TrimSpace(cadence.NextAction) != "" {
 		actions = append(actions, cadence.NextAction)
@@ -5346,7 +5346,7 @@ func statusProjectHandoffCurrentAction(projectHandoff *statusProjectHandoff) *mi
 		boundary = append(boundary,
 			"release-run executes the local release minimum from the kit repo and writes no repo or case state",
 			"after release-run succeeds, update docs/batch-plan.md and CHANGELOG.md with explicit validation evidence before claiming batch completion",
-			"release-run readiness is still not remote CI green; inspect the push-triggered release-gate separately after implementation commit",
+			"release-run readiness is still not remote CI green; normal batches continue after implementation push without polling or waiting for remote CI",
 		)
 	}
 	boundary = mission.UniqueStrings(boundary)
@@ -5686,7 +5686,7 @@ func statusProjectHandoffRunbookSteps(projectHandoff *statusProjectHandoff, curr
 			"run focused regressions during implementation and the full local release minimum before the next implementation commit",
 		)
 		if detail := projectHandoff.LatestRemoteReleaseGateDetail; detail != nil && !detail.CanClaimGreen {
-			steps = append(steps, "carry forward the previous remote release-gate steps=[] blocker as non-green; do not inspect the inspection commit's own run without a new signal")
+			steps = append(steps, "carry forward any previous remote release-gate result as asynchronous non-green evidence; do not wait for it during the next normal batch")
 		}
 		return mission.UniqueStrings(steps)
 	}
@@ -5698,7 +5698,7 @@ func statusProjectHandoffRunbookSteps(projectHandoff *statusProjectHandoff, curr
 		steps = append(steps, "follow the project current action from this first-screen handoff")
 	}
 	if strings.TrimSpace(projectHandoff.ReleaseInspectionCadence.NextAction) != "" {
-		steps = append(steps, "apply the latest batch release inspection cadence nextAction; do not create a third inspection record without a new remote signal")
+		steps = append(steps, "apply the latest batch Windows-first cadence nextAction; do not poll remote CI or create a release inspection commit")
 	}
 	if len(projectHandoff.ValidationCommands) > 0 {
 		steps = append(steps, "before handoff or release claims, rerun the listed local validation commands")

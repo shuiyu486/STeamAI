@@ -20,7 +20,7 @@
 4. `CHANGELOG.md` 顶部 `Unreleased`。
 5. 真实状态：`git status --short`、必要 focused tests、本机 release gate；远程 CI 只在需要 release 判断时检查。
 
-Batch 推送节奏（仅在当前 goal/session 已明确授权 commit/push 时适用）：若 goal 指定在 `main` 接手，先确认 `main` 与 `origin/main` 同步且工作树干净，再在 `main` 上提交并推送到 `origin/main`。正常最多两次 push，先推 implementation commit（代码、测试、文档、本地验证），再推 release inspection commit（只记录 implementation commit 触发的远程 run）。不要为 release inspection commit 自己触发的 CI 再追加第三个记录提交；除非出现不同于既有 GitHub Actions runner/billing `steps=[]` blocker 的新远程信号，否则只在当前上下文或下一批 planning 中引用既有 blocker。
+Batch 推送节奏（仅在当前 goal/session 已明确授权 commit/push 时适用）：若 goal 指定在 `main` 接手，先确认 `main` 与 `origin/main` 同步且工作树干净，再在 `main` 上提交并推送到 `origin/main`。普通 batch 默认只做一次 implementation commit/push，覆盖代码、测试、文档与 Windows 本机验证；推送成功后立即继续下一批，不轮询或等待远程 workflow，也不创建专门的 release inspection commit。远程 Linux/macOS/Windows CI 继续异步运行，只在正式发布、跨平台专项或每 3–5 批周期复审时等待并记录实际结果。
 
 按需路由：
 
@@ -57,7 +57,7 @@ Batch 推送节奏（仅在当前 goal/session 已明确授权 commit/push 时�
 
 ## 当前推进原则
 
-当前阶段优先把已有骨架收敛到可真实日常使用：用户能用自然语言开始 case、继续推进、查看状态、人工插手纠偏、新会话接手；允许半自动，但必须顺畅、可记录、可恢复。PowerShell-free default/product path、Go-native、跨平台与 truthful release readiness 继续作为底座约束推进；远程 Linux/macOS/Windows CI 和 macOS/Linux product-path 在 GitHub runner/billing blocker 解除或发布前保持 known gap，不挤占本机 Windows 可验证的最低可用 Mission Control / executor / reviewer / pack-memory 闭环迭代效率。
+当前阶段优先把已有骨架收敛到可真实日常使用：用户能用自然语言开始 case、继续推进、查看状态、人工插手纠偏、新会话接手；允许半自动，但必须顺畅、可记录、可恢复。当前支持与日常完成门槛以 Windows 本机为准；PowerShell-free default/product path 与 Go-native 继续作为底座约束推进。跨平台 portability 和远程 Linux/macOS/Windows CI 保留为发布/专项/周期复审信号，不作为普通 batch 的同步阻塞门槛，不挤占本机 Windows 可验证的最低可用 Mission Control / executor / reviewer / pack-memory 闭环迭代效率。
 
 禁止新增 PowerShell runtime logic。PowerShell convergence batch 应实际减少 retained residue 或完成删除门禁；其它 batch 可推进 lane、reconcile、autonomy、reviewer dispatch/intake、authorized execution evidence、adapter-specific live validation、pack-memory 或文档上下文路由闭环。
 
@@ -91,6 +91,6 @@ go vet ./...
 git diff --check
 ```
 
-默认远程 CI workflow 是 `.github/workflows/release-gate.yml`，定义 Linux、Windows、macOS Go-native release checks，并先运行`go vet`再运行Go tests；`release-check` 的 `ciReleaseGate.ready=true` 只验证 workflow/inventory 定义，不代表远程 jobs 已获得 runner 或实际通过。`status`使用lightweight project handoff，不执行完整release audit，不能替代`release-check`。2026-08-01 run `30674507300` 已恢复真实三平台runner执行，但CLI package均在600秒test timeout处失败，并暴露Windows跨盘符/namespace、macOS canonical path与Linux文件错误契约差异；Batch 785 implementation run `30687208204`三平台均在`Release inventory`因latest batch未标记`已完成`而fail-closed；Batch 786 run `30690553758`证明三平台inventory/status/packs/doctor/vet通过，并把剩余Go test差异收敛为macOS system temp alias fixture、Linux反斜杠fixture路径和Windows CRLF workflow mutation fixture。Batch 787 implementation run `30692412838`已真实完成并在Linux/macOS/Windows全部通过inventory/status/packs/doctor/vet与完整Go tests，当前默认三平台Go-native release workflow已有remote green证据。发布结论仍必须读取GitHub Actions实际状态，不能仅凭inventory ready或沿用旧`steps=[]`判断。
+默认远程 CI workflow 是 `.github/workflows/release-gate.yml`，仍异步定义 Linux、Windows、macOS Go-native checks，并先运行`go vet`再运行Go tests；当前普通 batch 不等待它。`release-check` 的 `ciReleaseGate.ready=true` 只验证 workflow/inventory 定义，不代表远程 jobs 已获得 runner 或实际通过；`status`使用lightweight project handoff，不执行完整release audit。2026-08-01 Batch 787 implementation run `30692412838`已在Linux/macOS/Windows全部通过inventory/status/packs/doctor/vet与完整Go tests，保留为最近一次三平台remote green证据。只有正式发布、跨平台专项或周期复审需要远程结论时，才读取GitHub Actions实际状态；日常迭代以 Windows 本机 focused tests 和完整 release minimum 为完成依据。
 
 按需追加：改 façade/compatibility 时运行 `rekit/tests/facade-smoke.ps1`；改 pack wrapper 时运行对应 pack validate/smoke；涉及 workstream/ledger/gate/sync/promote 写入时用临时 case 验证。

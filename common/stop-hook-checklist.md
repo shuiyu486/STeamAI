@@ -8,4 +8,4 @@
 4. 若 confirmed CSV 变更，重建 routine IR / superinstruction。
 5. 运行 `/rekit doctor`，验证 Markdown 大小不超预算。
 6. 如果当前目录不是 git 仓库，在最终回复说明无法 commit/push。
-7. 涉及 batch release inspection 或 CI 记录时，遵守最多两次 push cadence：implementation commit + 只记录该 implementation run 的 release inspection commit；不要为 inspection commit 自己触发的 CI 追加第三个记录提交，除非出现不同于既有 `steps=[]` runner/billing blocker 的新信号。
+7. 普通 batch 在 Windows 本机验证完成后只做一次 implementation commit/push，并立即继续下一批；不轮询或等待远程 workflow，不创建 release inspection commit。只有正式发布、跨平台专项或每 3–5 批周期复审才等待并记录异步远程结果。

@@ -3955,10 +3955,10 @@ func releaseHandoffNextBatchStarterPackage(handoff ReleaseHandoff) *ReleaseHando
 		ChangelogEntry:       changelogEntry,
 		ValidationCommands:   validationCommands,
 		ReleaseCadenceSteps: []string{
-			"先提交并推送 implementation commit（代码、测试、文档、本机验证）。",
-			"只检查 implementation commit 触发的 remote release-gate run。",
-			"若 run 仍是 steps=[] / no logs runner-billing blocker，记录为 inspection commit 且不声明 remote green。",
-			"不要为 release inspection commit 自己触发的 CI 追加第三个记录，除非出现不同于既有 steps=[] blocker 的新远程信号。",
+			"先在 Windows 本机完成 focused regressions 与完整 release minimum。",
+			"提交并推送一次 implementation commit（代码、测试、文档、本机验证）。",
+			"推送成功后立即继续下一批，不轮询或等待 remote release-gate。",
+			"远程 Linux/macOS/Windows workflow 只作为异步信号；仅在正式发布、跨平台专项或周期复审时等待并记录结果。",
 		},
 		RecommendedStarterSteps: []string{
 			"从 next-batch candidate-domain 中选择一个中型 product-path closure。",
@@ -3998,7 +3998,7 @@ func releaseHandoffNextBatchStarterRunLoop(validationCommands []string) []missio
 	add(mission.MissionCommanderRunLoopStep{StepID: "implement-slice", Actor: "main-agent", Description: "implement only the selected runtime, CLI, test, or documentation support needed for that closure", Command: "implement the selected Windows-verifiable product-path slice", State: "ready-for-next-batch-selection", Source: "releaseHandoffNextBatch.starter.implementation", Boundary: []string{"do not add PowerShell runtime logic or a parallel runtime path", "do not execute reviewer, adapter, pack-memory, gate, heavy-tool, sync, or promote mutation from starter guidance"}})
 	add(mission.MissionCommanderRunLoopStep{StepID: "update-release-notes", Actor: "main-agent", Description: "update CHANGELOG.md Unreleased with the selected Batch entry, boundaries, and validation result", Command: "update CHANGELOG.md Unreleased for the selected Batch", State: "ready-for-next-batch-selection", Source: "releaseHandoffNextBatch.starter.releaseNotes", Boundary: []string{"CHANGELOG should record user-visible change and release truth, not full implementation history"}})
 	add(mission.MissionCommanderRunLoopStep{StepID: "validate-local", Actor: "main-agent", Description: "run focused regressions for the selected slice and then the local release minimum", Command: validationCommand, State: "ready-for-next-batch-selection", Source: "releaseHandoffNextBatch.starter.validation", Boundary: []string{"focused regressions should prove the operational closure before full release validation", "release-check inventory ready is not remote CI green"}})
-	add(mission.MissionCommanderRunLoopStep{StepID: "commit-and-inspect", Actor: "main-agent", Description: "commit and push the implementation, inspect the push-triggered release gate, and record only real remote signals", Command: "commit/push implementation, inspect remote release-gate, then record inspection if it is still the known steps=[] blocker", State: "ready-for-next-batch-selection", Source: "releaseHandoffNextBatch.starter.releaseCadence", Boundary: []string{"normal batches stop after implementation commit/push plus one release inspection commit/push", "do not create a third inspection record for the release inspection commit's own CI run unless a new remote signal appears"}})
+	add(mission.MissionCommanderRunLoopStep{StepID: "commit-and-continue", Actor: "main-agent", Description: "commit and push the Windows-validated implementation, then continue the next batch without waiting for remote CI", Command: "commit/push the implementation once, then continue without polling remote release-gate", State: "ready-for-next-batch-selection", Source: "releaseHandoffNextBatch.starter.releaseCadence", Boundary: []string{"normal batches use one implementation commit/push after the Windows local release minimum", "remote Linux/macOS/Windows workflow is asynchronous and non-blocking outside release, cross-platform work, or periodic review"}})
 	return steps
 }
 
@@ -4067,7 +4067,7 @@ func releaseHandoffReadyForNextBatchSelection(handoff ReleaseHandoff) bool {
 		return false
 	}
 	cadence := handoff.LatestBatch.Handoff.ReleaseInspectionCadence
-	if cadence.State != "complete" || !cadence.ImplementationCommitReady || !cadence.InspectionCommitReady || cadence.NewRemoteSignal {
+	if cadence.State != "complete" || !cadence.ImplementationCommitReady {
 		return false
 	}
 	packCandidates := handoff.PackMemoryCandidates
@@ -4076,25 +4076,25 @@ func releaseHandoffReadyForNextBatchSelection(handoff ReleaseHandoff) bool {
 
 func releaseHandoffNextBatchSelectionAction(handoff ReleaseHandoff) mission.MissionCommanderNextActionItem {
 	reasons := []string{
-		"latest batch release inspection cadence is complete",
-		"implementation and release inspection evidence are recorded",
-		"project is ready for the next Windows-verifiable product-path batch",
+		"latest batch Windows local validation is complete",
+		"implementation commit/push evidence is recorded",
+		"project is ready for the next Windows-verifiable product-path batch without waiting for remote CI",
 	}
 	if latest := strings.TrimSpace(handoff.LatestBatch.BatchID); latest != "" {
 		reasons = append(reasons, "latest completed batch: "+latest)
 	}
-	if gate := strings.TrimSpace(handoff.LatestBatch.Handoff.RemoteReleaseGate); gate != "" {
-		reasons = append(reasons, "latest remote release gate: "+gate)
+	if gate := strings.TrimSpace(handoff.LatestBatch.Handoff.RemoteReleaseGate); gate != "" && gate != "not-recorded" {
+		reasons = append(reasons, "latest asynchronous remote release gate: "+gate)
 	}
 	boundary := []string{
-		"do not create a third inspection record for the previous release inspection commit unless a new remote signal appears",
+		"do not poll or wait for remote CI during a normal Windows-first batch",
 		"do not claim remote CI green unless latest batch evidence explicitly records green jobs",
-		"select only Windows-verifiable local product-path work while remote runner/billing blocker remains",
+		"consume remote Linux/macOS/Windows results only for release, cross-platform work, or periodic review",
 		"avoid single-field, summary, text, or handoff projection micro-batches; choose an operational closure with runtime or product-path verification",
-		"run focused regressions and the local release minimum before the next implementation commit",
+		"run focused regressions and the Windows local release minimum before the next implementation commit",
 	}
-	if detail := handoff.LatestBatch.Handoff.RemoteReleaseGateDetail; detail != nil {
-		reasons = append(reasons, "previous remote release-gate detail recorded")
+	if detail := handoff.LatestBatch.Handoff.RemoteReleaseGateDetail; detail != nil && detail.State != "not-recorded" {
+		reasons = append(reasons, "previous asynchronous remote release-gate detail recorded")
 		boundary = append(boundary, detail.Boundary...)
 	}
 	boundary = append(boundary, handoff.LatestBatch.Handoff.ReleaseInspectionCadence.Boundary...)
@@ -4146,7 +4146,7 @@ func releaseHandoffNextBatchCandidateActions(handoff ReleaseHandoff) []mission.M
 
 func releaseHandoffNextBatchCandidateReasons(handoff ReleaseHandoff) []string {
 	reasons := []string{
-		"latest batch release inspection cadence is complete",
+		"latest batch Windows local validation and implementation push cadence is complete",
 		"candidate domains are offered only after release handoff is ready for next-batch selection",
 	}
 	packCandidates := handoff.PackMemoryCandidates
@@ -4184,7 +4184,7 @@ func releaseHandoffNextBatchCandidateBoundary(handoff ReleaseHandoff) []string {
 
 func releaseHandoffNextActions() []string {
 	return []string{
-		"When latestBatch.handoff.releaseInspectionCadence.state=complete, select the next Windows-verifiable product-path batch; do not create a third inspection record unless a new remote signal appears.",
+		"When latestBatch.handoff.releaseInspectionCadence.state=complete, select the next Windows-verifiable product-path batch without polling or waiting for remote CI.",
 		"Read docs/context-routing.md first, then use releaseHandoff.signals[] to decide which detailed document is needed.",
 		"Read only docs/batch-plan.md current/next/latest sections for routine continuation; search docs/batch-history.md only for old-batch archaeology.",
 		"Use releaseHandoff.validation[] or gateProfile.steps[] as the local/CI minimum before tagging or handing off.",
@@ -4742,66 +4742,53 @@ func latestBatchRemoteHasEmptySteps(text, lower string) bool {
 func latestBatchReleaseInspectionCadence(text string, handoff ReleaseHandoffLatestBatchHandoff) ReleaseHandoffReleaseInspectionCadence {
 	lower := strings.ToLower(text)
 	cadence := ReleaseHandoffReleaseInspectionCadence{
-		MaxPushes:                 2,
+		MaxPushes:                 1,
 		ImplementationCommitReady: latestBatchImplementationCommitReady(text),
 		InspectionCommitReady:     latestBatchInspectionCommitReady(text, handoff),
 		NewRemoteSignal:           latestBatchHasNewRemoteSignal(lower, handoff),
 		Boundary: []string{
-			"normal batches stop after implementation commit/push plus one release inspection commit/push",
-			"do not add a third record commit for the release inspection commit's own CI run",
-			"only a remote signal different from the existing steps=[] runner/billing blocker may justify another inspection record",
+			"normal Windows-first batches stop after one implementation commit/push",
+			"remote Linux/macOS/Windows workflow is asynchronous and non-blocking for normal batches",
+			"wait for and record remote results only for release, cross-platform work, or periodic review",
 		},
 	}
-	cadence.ThirdInspectionAllowed = cadence.NewRemoteSignal
 	if cadence.ImplementationCommitReady {
 		cadence.Evidence = append(cadence.Evidence, "implementation commit/push recorded")
 	}
 	if cadence.InspectionCommitReady {
-		cadence.Evidence = append(cadence.Evidence, "release inspection commit/run recorded")
+		cadence.Evidence = append(cadence.Evidence, "asynchronous remote release-gate observation recorded")
 	}
 	if handoff.RemoteReleaseGateDetail != nil && handoff.RemoteReleaseGateDetail.EmptySteps {
 		cadence.Evidence = append(cadence.Evidence, "remote release-gate steps=[] blocker recorded")
 	}
 	if cadence.NewRemoteSignal {
-		cadence.Evidence = append(cadence.Evidence, "new remote signal differs from existing steps=[] blocker")
+		cadence.Evidence = append(cadence.Evidence, "asynchronous new remote signal recorded")
 	}
-	switch {
-	case !cadence.ImplementationCommitReady:
+	if !cadence.ImplementationCommitReady {
 		cadence.State = "implementation-pending"
-		cadence.NextAction = "create/push the implementation commit after local validation"
-	case !cadence.InspectionCommitReady:
-		cadence.State = "inspection-pending"
-		cadence.NextAction = "inspect the implementation commit's remote release-gate run and record exactly one release inspection commit"
-	case cadence.NewRemoteSignal:
-		cadence.State = "new-remote-signal"
-		cadence.NextAction = "review the new remote signal before deciding whether another inspection record is justified"
-	default:
+		cadence.NextAction = "create/push the implementation commit after Windows local validation"
+	} else {
 		cadence.State = "complete"
-		cadence.NextAction = "do not create a third inspection record for the release inspection commit's own CI; continue the next batch"
+		cadence.NextAction = "continue the next batch without polling or waiting for remote CI"
 	}
 	return cadence
 }
 
 func latestBatchImplementationCommitReady(text string) bool {
-	if latestBatchImplementationCommitEvidence(text) {
-		return true
-	}
-	lower := strings.ToLower(text)
-	for _, pending := range []string{"待 implementation commit/push", "implementation commit/push 待", "implementation commit/push 与远程 release-gate inspection 待", "pending implementation commit/push", "implementation commit/push and remote release-gate inspection pending", "after implementation commit/push", "尚未创建本批代码提交", "尚未提交推送"} {
-		if strings.Contains(lower, pending) || strings.Contains(text, pending) {
-			return false
-		}
-	}
-	return false
+	return latestBatchImplementationCommitEvidence(text)
 }
 
 func latestBatchImplementationCommitEvidence(text string) bool {
 	for _, clause := range latestBatchEvidenceClauses(text) {
 		clauseLower := strings.ToLower(clause)
-		if strings.Contains(clauseLower, "do not") || strings.Contains(clauseLower, "不要") || strings.Contains(clauseLower, "不为") {
+		if latestBatchContainsAny(clauseLower,
+			"do not", "不要", "不为",
+			"尚未推送", "未推送", "待推送", "推送待", "push pending", "pending push", "not pushed", "without push",
+			"尚未提交推送", "尚未创建本批代码提交",
+		) {
 			continue
 		}
-		if strings.Contains(clause, "已推送") || strings.Contains(clause, "已提交并推送") || strings.Contains(clauseLower, "implementation commit/push recorded") || strings.Contains(clauseLower, "implementation commit `") || strings.Contains(clauseLower, "implementation commits `") {
+		if strings.Contains(clause, "已推送") || strings.Contains(clause, "已提交并推送") || strings.Contains(clauseLower, "implementation commit/push recorded") {
 			return true
 		}
 	}
@@ -5054,19 +5041,11 @@ func latestBatchNextAction(handoff ReleaseHandoffLatestBatchHandoff) string {
 	case !handoff.Completed:
 		return "finish the current batch before treating status as a handoff"
 	case !handoff.LocalValidationReady:
-		return "run the full local release minimum and update docs/batch-plan.md"
+		return "run the full Windows local release minimum and update docs/batch-plan.md"
 	case handoff.ReleaseInspectionCadence.State == "implementation-pending":
 		return handoff.ReleaseInspectionCadence.NextAction
-	case handoff.ReleaseInspectionCadence.State == "inspection-pending":
-		return handoff.ReleaseInspectionCadence.NextAction
-	case handoff.ReleaseInspectionCadence.State == "new-remote-signal":
-		return handoff.ReleaseInspectionCadence.NextAction
-	case handoff.RemoteReleaseGate == "not-recorded":
-		return "inspect the remote release-gate run before claiming remote CI status"
-	case strings.HasPrefix(handoff.RemoteReleaseGate, "blocked:"):
-		return "select the next Windows-verifiable product-path batch from docs/context-routing.md and docs/batch-plan.md; do not create a third inspection record for the release inspection commit's own CI unless a new remote signal appears"
 	default:
-		return "select the next batch from docs/context-routing.md and docs/batch-plan.md"
+		return "select the next Windows-verifiable product-path batch from docs/context-routing.md and docs/batch-plan.md without waiting for remote CI"
 	}
 }
 

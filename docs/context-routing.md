@@ -20,8 +20,9 @@
 
 ### Batch push cadence
 
-- 一个正常 batch 最多两次 push：implementation commit（代码、测试、文档、本地验证）和 release inspection commit（只记录 implementation commit 触发的远程 run）。
-- 不要再为 release inspection commit 自己触发的 CI 追加第三个记录提交；除非该 run 出现不同于既有 GitHub Actions runner/billing `steps=[]` blocker 的新信号，否则只在当前上下文或下一批 planning 中引用既有 blocker。
+- 普通 batch 以 Windows 本机 focused tests 与完整 release minimum 为完成门槛；已授权时只做一次 implementation commit/push，覆盖代码、测试、文档与本机验证。
+- implementation push 成功后立即继续下一批，不轮询或等待远程 workflow，不默认创建 release inspection commit。
+- 远程 Linux/macOS/Windows CI 保持异步、非阻塞；只在正式发布、跨平台专项或每 3–5 批周期复审时等待并记录实际结果。
 - 若用户 goal 尚未授权 commit/push，仍只维护工作树和验证结果；不要为了满足 cadence 规则自行 push。
 
 ### 批次选题防局部最优
@@ -76,5 +77,5 @@
 
 - 渐进式披露不是删除事实；只是把事实放到正确层级，并通过路由按需读取。
 - 不要把历史归档重新并回 `docs/batch-plan.md`。
-- 当前用户短期优先 Windows 本机稳定；远程 Linux/macOS/Windows CI 因 runner/billing blocker 只保持 known gap 记录，不阻塞本机 Mission Control 闭环。
+- 当前产品支持和普通 batch 完成门槛以 Windows 本机为准；远程 Linux/macOS/Windows CI 是异步发布/专项/周期复审信号，不阻塞本机 Mission Control 闭环或下一批选择。
 - actual heavy-tool、authority/confirmed、sync/promote 写回、runtime schema 迁移和公共 façade 删除仍按对应 gate 升级。

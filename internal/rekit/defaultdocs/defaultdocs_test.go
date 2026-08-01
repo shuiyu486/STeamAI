@@ -34,7 +34,7 @@ func TestInspectRepoPublicDefaultDocsReady(t *testing.T) {
 	assertPhrase(t, readiness, "docs/context-routing.md", "按需路由")
 	assertPhrase(t, readiness, "docs/context-routing.md", "不要默认读取 `docs/batch-history.md` 全文")
 	assertPhrase(t, readiness, "docs/batch-plan.md", "完整历史已拆到 `docs/batch-history.md`")
-	assertPhrase(t, readiness, "CLAUDE.md", "PowerShell-free default/product path、Go-native、跨平台")
+	assertPhrase(t, readiness, "CLAUDE.md", "当前支持与日常完成门槛以 Windows 本机为准")
 	assertPhrase(t, readiness, "docs/autonomous-goal.md", "默认继续自主推进")
 	assertPhrase(t, readiness, "docs/release-readiness.md", "默认本机验证路径不依赖 PowerShell")
 	assertPhrase(t, readiness, "docs/go-first-convergence-plan.md", "不要把大型 PowerShell matrix 作为默认必跑")
@@ -197,7 +197,7 @@ const readySkill = `# skill
 
 const readyClaude = `# CLAUDE
 
-PowerShell-free default/product path、Go-native、跨平台。
+当前支持与日常完成门槛以 Windows 本机为准。
 PowerShell replacement/removal 不再因“删除 PowerShell”本身停下询问。
 默认远程 CI workflow 是 ` + "`.github/workflows/release-gate.yml`" + `，定义 Linux、Windows、macOS Go-native release checks。
 `
@@ -230,7 +230,7 @@ PowerShell-free / Go-native / 跨平台。
 
 const readyReleaseReadiness = `# release
 
-发布门禁默认依赖 Go-owned ` + "`release-check`" + ` inventory。
+普通 batch 默认依赖 Go-owned ` + "`release-check`" + ` inventory。
 默认本机验证路径不依赖 PowerShell。
 `
 
