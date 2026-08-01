@@ -67,11 +67,14 @@ func TestCIReleaseGateInventoryRequiresVetBeforeTests(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := string(workflow)
+	text := strings.ReplaceAll(string(workflow), "\r\n", "\n")
 	old := "      - name: Go vet\n        run: go vet ./...\n\n      - name: Go tests\n        run: go test ./..."
 	new := "      - name: Go tests\n        run: go test ./...\n\n      - name: Go vet\n        run: go vet ./..."
-	text = strings.Replace(text, old, new, 1)
-	writeFile(t, filepath.Join(repo, ".github", "workflows", "release-gate.yml"), text)
+	prefix, suffix, ok := strings.Cut(text, old)
+	if !ok {
+		t.Fatal("failed to locate vet-before-tests workflow fixture block")
+	}
+	writeFile(t, filepath.Join(repo, ".github", "workflows", "release-gate.yml"), prefix+new+suffix)
 
 	gate := ciReleaseGate(repo)
 	if gate.Ready {

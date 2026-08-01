@@ -151,13 +151,16 @@ func TestRunDriverStepRevalidatesStartAndReconcileInsideMutationLease(t *testing
 		if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
 			t.Fatal(err)
 		}
-		writeCaseFile(t, caseRoot, ".rekit\\facts\\interventions.jsonl", `{"kind":"intervention","eventId":"int-reconcile-toctou","lane":"main","subject":"reconcile drift","summary":"must invalidate reconcile preview","action":"override","target":"batch-toctou","approvedBy":"lead","scope":"metadata","status":"open","batchId":"batch-toctou"}`+"\n")
+		writeCaseFile(t, caseRoot, ".rekit/facts/interventions.jsonl", `{"kind":"intervention","eventId":"int-reconcile-toctou","lane":"main","subject":"reconcile drift","summary":"must invalidate reconcile preview","action":"override","target":"batch-toctou","approvedBy":"lead","scope":"metadata","status":"open","batchId":"batch-toctou"}`+"\n")
 		out.Reset()
 		if err := Run([]string{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, &out); err != nil {
 			t.Fatal(err)
 		}
 		var preview driverStepPlan
 		decodeJSONStrict(t, out.Bytes(), &preview)
+		if command := driverStepCommandName(preview.CurrentDriverRequest.Command); command != "reconcile" {
+			t.Fatalf("unexpected preview command: %s", command)
+		}
 		driverStepApplyBeforeMutationHook = func(command string) error {
 			if command != "reconcile" {
 				t.Fatalf("unexpected mutation command: %s", command)

@@ -24048,6 +24048,9 @@ func cliTestFileSHA256(t *testing.T, path string) string {
 
 func writeCaseFile(t *testing.T, caseRoot, rel, text string) {
 	t.Helper()
+	if strings.Contains(rel, `\`) {
+		t.Fatalf("writeCaseFile relative path must use slash separators: %s", rel)
+	}
 	path := filepath.Join(caseRoot, filepath.FromSlash(rel))
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)

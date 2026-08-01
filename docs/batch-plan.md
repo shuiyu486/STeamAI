@@ -28,6 +28,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 787：cross-platform Go test contract stabilization
+
+状态：已完成三类远程失败的共享fixture修复、focused/完整package与全仓验证、独立审查修复、文档基线更新及最终统一release minimum；本机7/7 release steps已通过，下一步按cadence提交/push并读取新的真实三平台run。尚未由新remote run证明Go tests green。
+
+目标：让Linux、macOS、Windows在同一Go-native release workflow中稳定通过完整`go test ./...`，并保持Batch 785建立的lexical namespace、existing filesystem identity、containment、lane mutation lease与vet-before-tests fail-closed contract；本机Windows和远程三平台必须使用同一测试语义，不再出现本机green而平台fixture静默未生效。
+
+已实现：新增共享`internal/rekit/testenv.ConfigureCanonicalTempRoot`，只在受影响package的`TestMain`中解析system temp真实identity，并同时设置`TMPDIR`/`TMP`/`TEMP`；回归实际验证`os.TempDir()`与`t.TempDir()`使用canonical root。这样macOS `/var`→`/private/var`不会污染严格fixture identity，测试显式创建的任意ancestor symlink仍由production guard拒绝。Linux reconcile lease fixture改用slash-separated intervention ledger路径，并在安装mutation hook前断言preview确为`reconcile`；共享`writeCaseFile`对反斜杠相对路径fail-fast。Windows vet-before-tests fixture先归一化CRLF，再用`strings.Cut`确保目标block真实被交换，避免静默no-op后误报parser通过。
+
+边界：不放宽symlink/containment/currentness/lease guards，不用platform skip掩盖应跨平台成立的契约，不提高CI timeout代替修复，不新增PowerShell runtime logic，不执行heavy-tool，不写authority/confirmed。测试用全局hook保持test-scoped且没有并行污染；workflow mutation fixture显式处理LF/CRLF并证明目标顺序被改变。
+
+验证结果：Windows/Linux两个focused regressions重复20次通过；driver/current-loop集合重复10次通过；完整CLI package通过（最终101.203秒），`promote`/`releasecheck`/`runtime`/`sync`及新增`testenv`完整packages通过。首次全仓`go test ./...`通过（CLI 104.179秒），`go vet ./...`与`git diff --check`通过。独立审查发现仅设置`TMPDIR`未覆盖Windows temp语义，抽取共享helper并增加`TMP`/`TEMP`与实际`t.TempDir()`回归后复核确认finding关闭，未发现新高置信阻断项。最终统一`release-run -Format json`以7/7通过（171.968秒），包含`release-check ready=true`、`status`、`packs`、`doctor`、`go test ./...`（169.267秒）、`go vet ./...`和`git diff --check`；release inspection仅因implementation尚未提交、工作树未清洁及remote run未记录而保持未就绪。真实三平台push run仍待完成；只有三平台jobs的Go tests均通过才声明remote green。
+
 ### Batch 786：bounded current-loop execution closure
 
 状态：已完成Go runtime、26-command inventory、retained PowerShell façade透传、公共入口文档、真实multi-step/partial receipt/Human-in-the-Lane/reviewer result-input产品路径、独立复审、完整本机release minimum、implementation commit/push与真实三平台inspection。Implementation commit `d56b7ee`已推送；push-triggered run `30690553758` completed failure，三平台均通过inventory/status/packs/doctor/vet后在Go tests失败，不声明remote green。
