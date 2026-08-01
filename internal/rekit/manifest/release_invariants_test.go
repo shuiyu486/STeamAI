@@ -299,7 +299,7 @@ func TestReleaseReadinessChecklistInvariants(t *testing.T) {
 	}
 
 	for _, gap := range []string{
-		"billing/spending limit",
+		"真实三平台runner",
 		"cross-platform",
 		"session/reviewer orchestrator",
 		"多 reviewer orchestration",

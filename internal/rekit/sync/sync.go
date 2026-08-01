@@ -334,7 +334,7 @@ func readApplyInstance(caseRoot, repoRoot, pack string, createLocalFiles bool) (
 	if strings.TrimSpace(inst.TemplateRoot) == "" {
 		return instance.Instance{}, fmt.Errorf("missing templateRoot in case metadata: %s", caseRoot)
 	}
-	if !casebind.SamePath(inst.TemplateRoot, repoRoot) {
+	if !casebind.SameExistingPath(inst.TemplateRoot, repoRoot) {
 		return instance.Instance{}, fmt.Errorf("case is attached to a different templateRoot: %s", inst.TemplateRoot)
 	}
 	if strings.TrimSpace(inst.TemplatePack) != "" && !strings.EqualFold(inst.TemplatePack, pack) {

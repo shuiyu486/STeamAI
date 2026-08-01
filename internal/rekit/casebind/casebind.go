@@ -234,15 +234,10 @@ func ProjectNameFromRoot(caseRoot string) string {
 }
 
 func SamePath(a, b string) bool {
-	left, err := filepath.Abs(a)
-	if err != nil {
-		return false
-	}
-	right, err := filepath.Abs(b)
-	if err != nil {
-		return false
-	}
-	left = strings.TrimRight(filepath.Clean(left), string(filepath.Separator))
-	right = strings.TrimRight(filepath.Clean(right), string(filepath.Separator))
-	return strings.EqualFold(left, right)
+	return refsf.SamePath(a, b)
+}
+
+func SameExistingPath(a, b string) bool {
+	same, err := refsf.SameExistingPath(a, b)
+	return err == nil && same
 }

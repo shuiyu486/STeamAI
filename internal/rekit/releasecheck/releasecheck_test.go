@@ -61,6 +61,25 @@ func TestCIReleaseGateInventoryFromRepo(t *testing.T) {
 	}
 }
 
+func TestCIReleaseGateInventoryRequiresVetBeforeTests(t *testing.T) {
+	repo := t.TempDir()
+	workflow, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", "release-gate.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(workflow)
+	old := "      - name: Go vet\n        run: go vet ./...\n\n      - name: Go tests\n        run: go test ./..."
+	new := "      - name: Go tests\n        run: go test ./...\n\n      - name: Go vet\n        run: go vet ./..."
+	text = strings.Replace(text, old, new, 1)
+	writeFile(t, filepath.Join(repo, ".github", "workflows", "release-gate.yml"), text)
+
+	gate := ciReleaseGate(repo)
+	if gate.Ready {
+		t.Fatalf("CI release gate accepted tests before vet: %+v", gate)
+	}
+	assertWarningContains(t, gate.Warnings, "must run go vet before go test in go-checks-linux")
+}
+
 func TestCIReleaseGateInventoryDetectsDrift(t *testing.T) {
 	repo := t.TempDir()
 	writeFile(t, filepath.Join(repo, ".github", "workflows", "release-gate.yml"), `name: release-gate
@@ -291,6 +310,18 @@ func TestPublicFacadeRemovalImpactDetectsUnclassifiedReference(t *testing.T) {
 		t.Fatalf("public facade removal impact unexpectedly ready: %+v", impact)
 	}
 	assertWarningContains(t, impact.Warnings, "misc.txt")
+}
+
+func TestPublicFacadeRemovalImpactIgnoresClaudeWorktrees(t *testing.T) {
+	repo := t.TempDir()
+	writeFile(t, filepath.Join(repo, "rekit", "rekit.ps1"), "# facade\n")
+	writeFile(t, filepath.Join(repo, "rekit", "tests", "facade-smoke.ps1"), "# facade-smoke.ps1\n")
+	writeFile(t, filepath.Join(repo, ".claude", "worktrees", "agent-review", "misc.txt"), "generated rekit.ps1 reference\n")
+
+	impact := publicFacadeRemovalImpact(repo)
+	if !impact.Ready || impact.Summary != "public facade removal impact inventory ok" || len(impact.UnclassifiedReferences) != 0 {
+		t.Fatalf("generated Claude worktree affected public facade removal impact: %+v", impact)
+	}
 }
 
 func assertCommandOwner(t *testing.T, inventory PowerShellDeprecation, areaContains string, wantGoDefault, wantBlocked bool) {

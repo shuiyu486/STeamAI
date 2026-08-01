@@ -424,6 +424,42 @@ var releaseHandoffReadFirst = []ReleaseHandoffDocument{
 	{Path: "CHANGELOG.md", Purpose: "user-visible changes and boundaries"},
 }
 
+func BuildProjectHandoff(repoRoot string) (ReleaseHandoff, error) {
+	repo, err := filepath.Abs(repoRoot)
+	if err != nil {
+		return ReleaseHandoff{}, err
+	}
+	cat, err := loadCatalog(repo)
+	if err != nil {
+		return ReleaseHandoff{}, err
+	}
+	packs, err := manifest.List(repo)
+	if err != nil {
+		return ReleaseHandoff{}, err
+	}
+	actions := heavyToolGateActions(packs)
+	handoff := ReleaseHandoff{
+		Ready:       true,
+		Summary:     "release handoff summary ok",
+		ReadFirst:   releaseHandoffDocuments(repo),
+		LatestBatch: latestBatchSummary(repo),
+		Validation:  releaseHandoffValidation(gateProfile(catalogGateSteps(repo, cat.RecommendedMinimum)).Steps),
+		NextActions: releaseHandoffNextActions(),
+		Warnings:    []string{},
+	}
+	handoff.ReleaseNotes = latestReleaseNotes(repo, handoff.LatestBatch)
+	handoff.KnownGaps = releaseHandoffKnownGaps(knownGaps(repo))
+	handoff.PackMaturity = releaseHandoffPackMaturity(packs, actions)
+	handoff.PackMemoryCandidates = releaseHandoffPackMemoryCandidates(repo, packs)
+	handoff.Warnings = releaseHandoffWarnings(handoff)
+	if len(handoff.Warnings) > 0 {
+		handoff.Ready = false
+		handoff.Summary = "release handoff summary has warnings"
+	}
+	handoff.NextBatchSelectionPackage = BuildNextBatchSelectionPackage(handoff)
+	return handoff, nil
+}
+
 func releaseHandoff(repo string, check Result) ReleaseHandoff {
 	handoff := ReleaseHandoff{
 		Ready:       true,

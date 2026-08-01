@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"fmt"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"unsafe"
 )
@@ -25,10 +24,8 @@ const (
 )
 
 var (
-	reviewerObstructionNTDLL                    = syscall.NewLazyDLL("ntdll.dll")
-	reviewerObstructionKernel32                 = syscall.NewLazyDLL("kernel32.dll")
-	reviewerObstructionNtSetInformationFile     = reviewerObstructionNTDLL.NewProc("NtSetInformationFile")
-	reviewerObstructionGetFinalPathNameByHandle = reviewerObstructionKernel32.NewProc("GetFinalPathNameByHandleW")
+	reviewerObstructionNTDLL                = syscall.NewLazyDLL("ntdll.dll")
+	reviewerObstructionNtSetInformationFile = reviewerObstructionNTDLL.NewProc("NtSetInformationFile")
 )
 
 type reviewerObstructionIOStatusBlock struct {
@@ -47,37 +44,54 @@ type reviewerObstructionFileRenameInformation struct {
 	FileName        [syscall.MAX_PATH]uint16
 }
 
-func reviewerObstructionCanonicalHandlePath(path string) string {
-	const extendedUNC = `\\?\UNC\`
-	if len(path) >= len(extendedUNC) && strings.EqualFold(path[:len(extendedUNC)], extendedUNC) {
-		return `\\` + path[len(extendedUNC):]
-	}
-	return strings.TrimPrefix(path, `\\?\`)
-}
-
 func reviewerObstructionHandleMatchesPath(handle syscall.Handle, expectedPath string) error {
-	buffer := make([]uint16, 32768)
-	length, _, callErr := reviewerObstructionGetFinalPathNameByHandle.Call(
-		uintptr(handle),
-		uintptr(unsafe.Pointer(&buffer[0])),
-		uintptr(len(buffer)),
-		0,
-	)
-	if length == 0 {
-		return callErr
-	}
-	if length >= uintptr(len(buffer)) {
-		return syscall.ENAMETOOLONG
-	}
-	actual := reviewerObstructionCanonicalHandlePath(syscall.UTF16ToString(buffer[:length]))
-	expected, err := filepath.Abs(expectedPath)
+	expectedPath16, err := syscall.UTF16PtrFromString(expectedPath)
 	if err != nil {
 		return err
 	}
-	if !strings.EqualFold(filepath.Clean(actual), filepath.Clean(expected)) {
+	expectedHandle, err := syscall.CreateFile(
+		expectedPath16,
+		reviewerObstructionReadAttributes,
+		reviewerObstructionShareRead|reviewerObstructionShareWrite|reviewerObstructionShareDelete,
+		nil,
+		reviewerObstructionOpenExisting,
+		reviewerObstructionOpenReparsePoint|reviewerObstructionBackupSemantics,
+		0,
+	)
+	if err != nil {
+		return err
+	}
+	defer syscall.CloseHandle(expectedHandle)
+	actual, err := readReviewerObstructionFileIdentity(handle)
+	if err != nil {
+		return err
+	}
+	expected, err := readReviewerObstructionFileIdentity(expectedHandle)
+	if err != nil {
+		return err
+	}
+	if actual != expected {
 		return fmt.Errorf("reviewer result recovery namespace guard moved outside its canonical path")
 	}
 	return nil
+}
+
+type reviewerObstructionFileIdentity struct {
+	VolumeSerialNumber uint32
+	FileIndexHigh      uint32
+	FileIndexLow       uint32
+}
+
+func readReviewerObstructionFileIdentity(handle syscall.Handle) (reviewerObstructionFileIdentity, error) {
+	var info syscall.ByHandleFileInformation
+	if err := syscall.GetFileInformationByHandle(handle, &info); err != nil {
+		return reviewerObstructionFileIdentity{}, err
+	}
+	return reviewerObstructionFileIdentity{
+		VolumeSerialNumber: info.VolumeSerialNumber,
+		FileIndexHigh:      info.FileIndexHigh,
+		FileIndexLow:       info.FileIndexLow,
+	}, nil
 }
 
 func moveReviewerResultExact(resultPath, quarantinePath, namespaceGuardPath string, expected reviewerResultExactMoveExpectation, validate func() error) error {

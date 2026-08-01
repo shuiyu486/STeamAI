@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
@@ -109,12 +108,8 @@ func AssertAttached(target, repoRoot, pack string) (Instance, error) {
 }
 
 func samePath(left, right string) bool {
-	left = strings.TrimRight(filepath.Clean(left), string(filepath.Separator))
-	right = strings.TrimRight(filepath.Clean(right), string(filepath.Separator))
-	if runtime.GOOS == "windows" {
-		return strings.EqualFold(left, right)
-	}
-	return left == right
+	same, err := refsf.SameExistingPath(left, right)
+	return err == nil && same
 }
 
 func readScalarFile(path string) (map[string]string, error) {

@@ -100,20 +100,20 @@ var ciRequiredCommands = []ciRequiredCommand{
 	{job: "go-checks-linux", command: "go run ./cmd/rekit -- -Command status"},
 	{job: "go-checks-linux", command: "go run ./cmd/rekit -- -Command packs"},
 	{job: "go-checks-linux", command: "go run ./cmd/rekit -- -Command doctor"},
-	{job: "go-checks-linux", command: "go test ./..."},
 	{job: "go-checks-linux", command: "go vet ./..."},
+	{job: "go-checks-linux", command: "go test ./..."},
 	{job: "go-checks-windows", command: "go run ./cmd/rekit -- -Command release-check -Format json"},
 	{job: "go-checks-windows", command: "go run ./cmd/rekit -- -Command status"},
 	{job: "go-checks-windows", command: "go run ./cmd/rekit -- -Command packs"},
 	{job: "go-checks-windows", command: "go run ./cmd/rekit -- -Command doctor"},
-	{job: "go-checks-windows", command: "go test ./..."},
 	{job: "go-checks-windows", command: "go vet ./..."},
+	{job: "go-checks-windows", command: "go test ./..."},
 	{job: "go-checks-macos", command: "go run ./cmd/rekit -- -Command release-check -Format json"},
 	{job: "go-checks-macos", command: "go run ./cmd/rekit -- -Command status"},
 	{job: "go-checks-macos", command: "go run ./cmd/rekit -- -Command packs"},
 	{job: "go-checks-macos", command: "go run ./cmd/rekit -- -Command doctor"},
-	{job: "go-checks-macos", command: "go test ./..."},
 	{job: "go-checks-macos", command: "go vet ./..."},
+	{job: "go-checks-macos", command: "go test ./..."},
 }
 
 var ciForbiddenStrings = []string{
@@ -153,6 +153,7 @@ func ciReleaseGate(repo string) CIReleaseGate {
 	gate.RequiredCommands = ciCommandReadiness(jobs)
 	gate.ForbiddenStrings = ciForbiddenReadiness(text)
 	gate.Warnings = append(gate.Warnings, ciReleaseGateWarnings(gate)...)
+	gate.Warnings = append(gate.Warnings, ciCommandOrderWarnings(jobs)...)
 	if CIReleaseGateCountsFor(gate).Warnings > 0 {
 		gate.Ready = false
 		gate.Summary = "CI release gate inventory has warnings"
@@ -203,6 +204,32 @@ func ciForbiddenReadiness(text string) []CIReleaseForbidden {
 		out = append(out, CIReleaseForbidden{Pattern: pattern, Present: strings.Contains(text, pattern)})
 	}
 	return out
+}
+
+func ciCommandOrderWarnings(jobs map[string]ciParsedJob) []string {
+	warnings := []string{}
+	for _, required := range ciRequiredJobs {
+		job, present := jobs[required.id]
+		if !present {
+			continue
+		}
+		vetIndex := ciJobCommandIndex(job, "go vet ./...")
+		testIndex := ciJobCommandIndex(job, "go test ./...")
+		if vetIndex >= 0 && testIndex >= 0 && vetIndex > testIndex {
+			warnings = append(warnings, fmt.Sprintf("CI workflow must run go vet before go test in %s", required.id))
+		}
+	}
+	return warnings
+}
+
+func ciJobCommandIndex(job ciParsedJob, command string) int {
+	want := normalizeCommand(command)
+	for index, actual := range job.commands {
+		if normalizeCommand(actual) == want {
+			return index
+		}
+	}
+	return -1
 }
 
 func ciReleaseGateWarnings(gate CIReleaseGate) []string {

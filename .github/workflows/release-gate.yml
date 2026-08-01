@@ -34,11 +34,11 @@ jobs:
       - name: Doctor
         run: go run ./cmd/rekit -- -Command doctor
 
-      - name: Go tests
-        run: go test ./...
-
       - name: Go vet
         run: go vet ./...
+
+      - name: Go tests
+        run: go test ./...
 
   go-checks-windows:
     name: Go release checks (Windows)
@@ -65,11 +65,11 @@ jobs:
       - name: Doctor
         run: go run ./cmd/rekit -- -Command doctor
 
-      - name: Go tests
-        run: go test ./...
-
       - name: Go vet
         run: go vet ./...
+
+      - name: Go tests
+        run: go test ./...
 
   go-checks-macos:
     name: Go release checks (macOS)
@@ -96,8 +96,8 @@ jobs:
       - name: Doctor
         run: go run ./cmd/rekit -- -Command doctor
 
-      - name: Go tests
-        run: go test ./...
-
       - name: Go vet
         run: go vet ./...
+
+      - name: Go tests
+        run: go test ./...

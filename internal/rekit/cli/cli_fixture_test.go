@@ -113,7 +113,11 @@ func (f *cliFixture) attachedCaseWithPack(t *testing.T, pack string, full bool) 
 
 func copyCLIFixtureRepo(t *testing.T, sourceRoot, targetRoot string) {
 	t.Helper()
-	if cliFixtureTargetWithinSource(sourceRoot, targetRoot) {
+	within, err := cliFixtureTargetWithinSource(sourceRoot, targetRoot)
+	if err != nil {
+		t.Fatalf("resolve CLI fixture containment: %v", err)
+	}
+	if within {
 		t.Fatalf("CLI fixture target must be outside source repo: source=%s target=%s", sourceRoot, targetRoot)
 	}
 	if err := filepath.WalkDir(sourceRoot, func(path string, entry fs.DirEntry, walkErr error) error {
@@ -153,26 +157,44 @@ func copyCLIFixtureRepo(t *testing.T, sourceRoot, targetRoot string) {
 	}
 }
 
-func cliFixtureTargetWithinSource(sourceRoot, targetRoot string) bool {
-	source, sourceErr := filepath.Abs(sourceRoot)
-	target, targetErr := filepath.Abs(targetRoot)
-	if sourceErr != nil || targetErr != nil {
-		return true
+func cliFixtureTargetWithinSource(sourceRoot, targetRoot string) (bool, error) {
+	source, err := filepath.Abs(sourceRoot)
+	if err != nil {
+		return false, err
+	}
+	target, err := filepath.Abs(targetRoot)
+	if err != nil {
+		return false, err
+	}
+	if sourceVolume, targetVolume := filepath.VolumeName(source), filepath.VolumeName(target); sourceVolume != "" && targetVolume != "" && !strings.EqualFold(sourceVolume, targetVolume) {
+		return false, nil
 	}
 	rel, err := filepath.Rel(source, target)
-	return err != nil || rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+	if err != nil {
+		return false, err
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))), nil
 }
 
 func TestCLIFixtureTargetWithinSource(t *testing.T) {
 	root := t.TempDir()
-	if !cliFixtureTargetWithinSource(root, filepath.Join(root, "tmp", "fixture")) {
-		t.Fatal("nested fixture target should be rejected")
-	}
-	if !cliFixtureTargetWithinSource(root, root) {
-		t.Fatal("source root as fixture target should be rejected")
-	}
-	if cliFixtureTargetWithinSource(root, filepath.Join(filepath.Dir(root), "sibling-fixture")) {
-		t.Fatal("sibling fixture target should be accepted")
+	for name, target := range map[string]struct {
+		target string
+		want   bool
+	}{
+		"nested":  {filepath.Join(root, "tmp", "fixture"), true},
+		"same":    {root, true},
+		"sibling": {filepath.Join(filepath.Dir(root), "sibling-fixture"), false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := cliFixtureTargetWithinSource(root, target.target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != target.want {
+				t.Fatalf("within = %t, want %t", got, target.want)
+			}
+		})
 	}
 }
 

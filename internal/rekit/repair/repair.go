@@ -123,7 +123,7 @@ func buildPlan(repoRoot, target, pack string, opt Options) (Plan, error) {
 	if strings.TrimSpace(inst.TemplateRoot) == "" {
 		return Plan{}, fmt.Errorf("missing templateRoot in case metadata: %s", caseRoot)
 	}
-	if !casebind.SamePath(inst.TemplateRoot, repoFull) {
+	if !casebind.SameExistingPath(inst.TemplateRoot, repoFull) {
 		return Plan{}, fmt.Errorf("case is attached to a different templateRoot: %s", inst.TemplateRoot)
 	}
 	if strings.TrimSpace(inst.TemplatePack) != "" && !strings.EqualFold(inst.TemplatePack, pack) {

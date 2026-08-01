@@ -10788,35 +10788,36 @@ func TestRunReleaseCheckExposesNextBatchSelectionPackage(t *testing.T) {
 func TestRunInstalledCaseShimDurableNextBatchTakeoverProductPath(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	writeHandoffFixture(t, caseRoot)
-	originalReleaseCheckBuild := releaseCheckBuild
-	releaseCheckBuild = func(repoRoot string) (releasecheck.Result, error) {
-		return releasecheck.Result{
-			RepoRoot: repoRoot,
-			Ready:    true,
-			Summary:  "release gate inventory ok",
-			ReleaseHandoff: releasecheck.ReleaseHandoff{
-				Ready:      true,
-				Summary:    "release handoff summary ok",
-				Validation: []releasecheck.ReleaseHandoffValidation{{Command: "go test ./...", Required: true, Present: true, Resolved: true}},
-				LatestBatch: releasecheck.ReleaseHandoffLatestBatch{
-					BatchID: "Batch 683",
-					Handoff: releasecheck.ReleaseHandoffLatestBatchHandoff{
-						LocalValidationReady: true,
-						ReleaseCheckReady:    true,
-						RemoteReleaseGate:    "blocked: completed failure with jobs steps=[]",
-						ReleaseInspectionCadence: releasecheck.ReleaseHandoffReleaseInspectionCadence{
-							State:                     "complete",
-							ImplementationCommitReady: true,
-							InspectionCommitReady:     true,
-							Boundary:                  []string{"do not add a third record commit"},
-						},
-					},
+	handoffFixture := releasecheck.ReleaseHandoff{
+		Ready:      true,
+		Summary:    "project handoff inventory ok",
+		Validation: []releasecheck.ReleaseHandoffValidation{{Command: "go test ./...", Required: true, Present: true, Resolved: true}},
+		LatestBatch: releasecheck.ReleaseHandoffLatestBatch{
+			BatchID: "Batch 683",
+			Handoff: releasecheck.ReleaseHandoffLatestBatchHandoff{
+				LocalValidationReady: true,
+				ReleaseCheckReady:    true,
+				RemoteReleaseGate:    "blocked: completed failure with jobs steps=[]",
+				ReleaseInspectionCadence: releasecheck.ReleaseHandoffReleaseInspectionCadence{
+					State:                     "complete",
+					ImplementationCommitReady: true,
+					InspectionCommitReady:     true,
+					Boundary:                  []string{"do not add a third record commit"},
 				},
-				PackMemoryCandidates: releasecheck.ReleaseHandoffPackMemoryCandidateList{Ready: true, Summary: "pack-memory candidate inventory ok", NextAction: "no pack-memory candidate cleanup is pending"},
 			},
-		}, nil
+		},
+		PackMemoryCandidates: releasecheck.ReleaseHandoffPackMemoryCandidateList{Ready: true, Summary: "pack-memory candidate inventory ok", NextAction: "no pack-memory candidate cleanup is pending"},
 	}
-	t.Cleanup(func() { releaseCheckBuild = originalReleaseCheckBuild })
+	originalProjectHandoffBuild := projectHandoffBuild
+	originalReleaseCheckBuild := releaseCheckBuild
+	projectHandoffBuild = func(string) (releasecheck.ReleaseHandoff, error) { return handoffFixture, nil }
+	releaseCheckBuild = func(repoRoot string) (releasecheck.Result, error) {
+		return releasecheck.Result{RepoRoot: repoRoot, Ready: true, Summary: "release gate inventory ok", ReleaseHandoff: handoffFixture}, nil
+	}
+	t.Cleanup(func() {
+		projectHandoffBuild = originalProjectHandoffBuild
+		releaseCheckBuild = originalReleaseCheckBuild
+	})
 
 	nested := filepath.Join(caseRoot, "workspace", "main", "main")
 	oldwd, err := os.Getwd()
@@ -24396,13 +24397,10 @@ func withReadyReleaseCheckFixture(t *testing.T) func() {
 
 func withNextBatchReadyReleaseCheckFixture(t *testing.T, latestBatch string) func() {
 	t.Helper()
-	previous := releaseCheckBuild
-	releaseCheckBuild = func(repoRoot string) (releasecheck.Result, error) {
-		result, err := previous(repoRoot)
-		if err != nil {
-			return releasecheck.Result{}, err
-		}
-		handoff := readyReleaseHandoffFixture(result.ReleaseHandoff)
+	previousRelease := releaseCheckBuild
+	previousProject := projectHandoffBuild
+	readyHandoff := func(base releasecheck.ReleaseHandoff) releasecheck.ReleaseHandoff {
+		handoff := readyReleaseHandoffFixture(base)
 		latestBatch = strings.TrimSpace(latestBatch)
 		if latestBatch != "" {
 			handoff.LatestBatch.BatchID = latestBatch
@@ -24411,13 +24409,30 @@ func withNextBatchReadyReleaseCheckFixture(t *testing.T, latestBatch string) fun
 			handoff.ReleaseNotes.LatestBatchID = latestBatch
 		}
 		handoff.NextBatchSelectionPackage = releasecheck.BuildNextBatchSelectionPackage(handoff)
-		result.ReleaseHandoff = handoff
+		return handoff
+	}
+	projectHandoffBuild = func(repoRoot string) (releasecheck.ReleaseHandoff, error) {
+		base, err := previousProject(repoRoot)
+		if err != nil {
+			return releasecheck.ReleaseHandoff{}, err
+		}
+		return readyHandoff(base), nil
+	}
+	releaseCheckBuild = func(repoRoot string) (releasecheck.Result, error) {
+		result, err := previousRelease(repoRoot)
+		if err != nil {
+			return releasecheck.Result{}, err
+		}
+		result.ReleaseHandoff = readyHandoff(result.ReleaseHandoff)
 		result.Ready = true
 		result.Summary = "release gate inventory ok"
 		result.Warnings = nil
 		return result, nil
 	}
-	return func() { releaseCheckBuild = previous }
+	return func() {
+		releaseCheckBuild = previousRelease
+		projectHandoffBuild = previousProject
+	}
 }
 
 func readyReleaseHandoffFixture(base releasecheck.ReleaseHandoff) releasecheck.ReleaseHandoff {

@@ -124,6 +124,10 @@ func buildDriverStepPlan(ctx runtime.Context, opt Options) (driverStepPlan, erro
 	if err != nil {
 		return driverStepPlan{}, err
 	}
+	return buildDriverStepPlanFromStatus(ctx, status)
+}
+
+func buildDriverStepPlanFromStatus(ctx runtime.Context, status statusInventory) (driverStepPlan, error) {
 	if status.MissionControlRunbook == nil || status.MissionControlRunbook.CurrentDriverRequest == nil {
 		return driverStepPlan{}, fmt.Errorf("run-driver-step requires missionControlRunbook.currentDriverRequest")
 	}

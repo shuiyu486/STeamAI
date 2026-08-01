@@ -9,25 +9,6 @@ import (
 	"testing"
 )
 
-func TestReviewerObstructionCanonicalHandlePath(t *testing.T) {
-	for _, test := range []struct {
-		name string
-		in   string
-		want string
-	}{
-		{name: "local", in: `\\?\C:\cases\review.json`, want: `C:\cases\review.json`},
-		{name: "unc", in: `\\?\UNC\server\share\cases\review.json`, want: `\\server\share\cases\review.json`},
-		{name: "unc-case-insensitive", in: `\\?\unc\server\share\review.json`, want: `\\server\share\review.json`},
-		{name: "plain-unc", in: `\\server\share\review.json`, want: `\\server\share\review.json`},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			if got := reviewerObstructionCanonicalHandlePath(test.in); got != test.want {
-				t.Fatalf("canonical handle path = %q, want %q", got, test.want)
-			}
-		})
-	}
-}
-
 func TestMoveReviewerResultExactRegularPinsSourceIdentity(t *testing.T) {
 	root := t.TempDir()
 	resultPath := filepath.Join(root, "result.json")

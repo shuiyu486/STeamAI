@@ -109,7 +109,7 @@ func buildPlan(repoRoot, target, pack string, opt Options) (PreviewPlan, error) 
 		if inst.Moved() {
 			return PreviewPlan{}, instance.MovedRepairPreviewError(caseRoot, pack)
 		}
-		if strings.TrimSpace(inst.TemplateRoot) != "" && !samePath(inst.TemplateRoot, repoFull) {
+		if strings.TrimSpace(inst.TemplateRoot) != "" && !casebind.SameExistingPath(inst.TemplateRoot, repoFull) {
 			return PreviewPlan{}, fmt.Errorf("case is attached to a different templateRoot: %s", inst.TemplateRoot)
 		}
 		if strings.TrimSpace(inst.TemplatePack) != "" && !strings.EqualFold(inst.TemplatePack, pack) {

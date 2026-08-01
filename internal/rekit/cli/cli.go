@@ -39,7 +39,10 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
-var releaseCheckBuild = releasecheck.Build
+var (
+	releaseCheckBuild   = releasecheck.Build
+	projectHandoffBuild = releasecheck.BuildProjectHandoff
+)
 
 type Options struct {
 	rawArgs                               []string
@@ -3575,11 +3578,11 @@ func runStatusLegacyText(ctx runtime.Context, packSource string, out io.Writer) 
 		if err != nil {
 			return err
 		}
-		release, err := releaseCheckBuild(ctx.RepoRoot)
+		handoff, err := projectHandoffBuild(ctx.RepoRoot)
 		if err != nil {
 			return err
 		}
-		projectHandoff := buildStatusProjectHandoff(release.ReleaseHandoff)
+		projectHandoff := buildStatusProjectHandoff(handoff)
 		bindStatusCaseCandidateDecisionDraftHandoffs(projectHandoff, ctx.RepoRoot, inst.CaseRoot, ctx.Pack)
 		if err := writeStatusMissionCommanderFirstScreenText(out, caseMission, projectHandoff); err != nil {
 			return err
@@ -3601,11 +3604,11 @@ func runStatusLegacyText(ctx runtime.Context, packSource string, out io.Writer) 
 	fmt.Fprintf(out, "managed files: %d\n", len(m.ManagedFiles))
 	fmt.Fprintf(out, "promote files: %d\n", len(m.PromoteFiles))
 	fmt.Fprintf(out, "tooling files: %d\n", len(m.ToolingFiles))
-	release, err := releaseCheckBuild(ctx.RepoRoot)
+	handoff, err := projectHandoffBuild(ctx.RepoRoot)
 	if err != nil {
 		return err
 	}
-	projectHandoff := buildStatusProjectHandoff(release.ReleaseHandoff)
+	projectHandoff := buildStatusProjectHandoff(handoff)
 	if err := writeStatusMissionCommanderFirstScreenText(out, nil, projectHandoff); err != nil {
 		return err
 	}
@@ -6612,11 +6615,11 @@ func buildStatusInventory(ctx runtime.Context, packSource string) (statusInvento
 		if err != nil {
 			return statusInventory{}, err
 		}
-		release, err := releaseCheckBuild(ctx.RepoRoot)
+		handoff, err := projectHandoffBuild(ctx.RepoRoot)
 		if err != nil {
 			return statusInventory{}, err
 		}
-		status.ProjectHandoff = buildStatusProjectHandoff(release.ReleaseHandoff)
+		status.ProjectHandoff = buildStatusProjectHandoff(handoff)
 		bindStatusCaseCandidateDecisionDraftHandoffs(status.ProjectHandoff, ctx.RepoRoot, inst.CaseRoot, ctx.Pack)
 		status.MissionControlRunbook = buildStatusMissionControlRunbook(ctx.Target, status.CaseMission, status.ProjectHandoff)
 		return status, nil
@@ -6632,11 +6635,11 @@ func buildStatusInventory(ctx runtime.Context, packSource string) (statusInvento
 		PromoteFiles:  len(m.PromoteFiles),
 		ToolingFiles:  len(m.ToolingFiles),
 	}
-	release, err := releaseCheckBuild(ctx.RepoRoot)
+	handoff, err := projectHandoffBuild(ctx.RepoRoot)
 	if err != nil {
 		return statusInventory{}, err
 	}
-	status.ProjectHandoff = buildStatusProjectHandoff(release.ReleaseHandoff)
+	status.ProjectHandoff = buildStatusProjectHandoff(handoff)
 	status.MissionControlRunbook = buildStatusMissionControlRunbook(ctx.Target, nil, status.ProjectHandoff)
 	return status, nil
 }

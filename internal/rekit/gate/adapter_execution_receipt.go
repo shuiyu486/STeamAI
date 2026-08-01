@@ -920,6 +920,9 @@ func adapterArtifactBindings(caseRoot string, gateEvent EventPreview, report *Ad
 		}
 		file, err := stableFileBinding(caseRoot, full, rel)
 		if err != nil {
+			if os.IsNotExist(err) {
+				return nil, fmt.Errorf("read adapter execution artifact %s: missing artifact", rel)
+			}
 			return nil, fmt.Errorf("read adapter execution artifact %s: %w", rel, err)
 		}
 		itemRoles := []string{}

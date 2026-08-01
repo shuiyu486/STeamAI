@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -14,6 +15,41 @@ func FullPath(path string) (string, error) {
 		return filepath.Abs(".")
 	}
 	return filepath.Abs(path)
+}
+
+func SamePath(left, right string) bool {
+	left, err := lexicalPath(left)
+	if err != nil {
+		return false
+	}
+	right, err = lexicalPath(right)
+	if err != nil {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(left, right)
+	}
+	return left == right
+}
+
+func SameExistingPath(left, right string) (bool, error) {
+	leftInfo, err := os.Stat(left)
+	if err != nil {
+		return false, err
+	}
+	rightInfo, err := os.Stat(right)
+	if err != nil {
+		return false, err
+	}
+	return os.SameFile(leftInfo, rightInfo), nil
+}
+
+func lexicalPath(path string) (string, error) {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimRight(filepath.Clean(absolute), string(filepath.Separator)), nil
 }
 
 func SafeJoin(root, rel string) (string, error) {

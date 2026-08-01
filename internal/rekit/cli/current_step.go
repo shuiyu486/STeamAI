@@ -126,7 +126,7 @@ func buildCurrentStepPlan(ctx runtime.Context, opt Options) (currentStepPlan, er
 		if currentStepHasReviewerObservation(opt) {
 			return currentStepPlan{}, fmt.Errorf("run-current-step case route does not accept reviewer observation inputs")
 		}
-		nested, err := buildDriverStepPlan(ctx, opt)
+		nested, err := buildDriverStepPlanFromStatus(ctx, status)
 		if err != nil {
 			return currentStepPlan{}, fmt.Errorf("run-current-step case route: %w", err)
 		}

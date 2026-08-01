@@ -83,9 +83,11 @@ func CollectReviewerResult(repoRoot, caseRoot, pack string, opt ReviewerResultCo
 	prepared, err := prepareReviewerResultCollection(repoRoot, caseRoot, pack, opt)
 	if err != nil {
 		if opt.WhatIf && reviewerResultCollectionRecoveryHandoffCandidate(err) {
-			if recoveryResult, recoveryErr := reviewerResultCollectionRecoveryRequiredResult(repoRoot, caseRoot, pack, opt); recoveryErr == nil {
-				return recoveryResult, nil
+			recoveryResult, recoveryErr := reviewerResultCollectionRecoveryRequiredResult(repoRoot, caseRoot, pack, opt)
+			if recoveryErr != nil {
+				return ReviewerResultCollectionResult{}, recoveryErr
 			}
+			return recoveryResult, nil
 		}
 		return ReviewerResultCollectionResult{}, err
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -12,6 +13,9 @@ import (
 )
 
 func TestRunPlanSubagentsReviewerResultObstructionRecoveryCaseLocalE2E(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("exact reviewer result recovery requires the Windows handle-validated move primitive")
+	}
 	caseRoot := fullAttachedCase(t)
 	var out bytes.Buffer
 	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "review", "-Apply"}, &out); err != nil {
@@ -173,6 +177,9 @@ func TestRunPlanSubagentsReviewerResultObstructionRecoveryCaseLocalE2E(t *testin
 }
 
 func TestRunPlanSubagentsReviewerResultRecoveryDispositionCaseLocalE2E(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("exact reviewer result recovery requires the Windows handle-validated move primitive")
+	}
 	caseRoot := fullAttachedCase(t)
 	var out bytes.Buffer
 	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "review", "-Apply"}, &out); err != nil {

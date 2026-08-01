@@ -12,7 +12,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current milestone
 
-**最低可用 Mission Control 收敛 + truthful release readiness**：当前阶段从继续打磨底层零件切到尽快真实用起来。优先让用户能用自然语言开始 case、继续推进、查看状态、人工插手纠偏、新会话接手；允许半自动，但必须顺畅、可记录、可恢复。继续区分 inventory ready、本地 gate executed 与远程 CI green；远程 Linux/macOS/Windows CI 因 runner/billing blocker 继续记录为 known gap，不阻塞 Windows 本机 Mission Control 闭环。
+**最低可用 Mission Control 收敛 + truthful release readiness**：当前阶段从继续打磨底层零件切到尽快真实用起来。优先让用户能用自然语言开始 case、继续推进、查看状态、人工插手纠偏、新会话接手；允许半自动，但必须顺畅、可记录、可恢复。继续区分 inventory ready、本地 gate executed 与远程 CI green；2026-08-01 已恢复真实 Linux/macOS/Windows runner，本批先收敛其暴露的跨平台 product path 与测试预算失败，再继续 Mission Control 长期 run-loop。
 
 ### Next candidates / goal guardrails
 
@@ -28,6 +28,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+
+### Batch 785：cross-platform release product-path and test-budget stabilization
+
+状态：implementation ready，runtime/tests/workflow与文档实现、独立审查和完整本机release minimum均已通过，等待implementation commit/push与真实三平台inspection。基于Batch 784 push-triggered run `30674507300`首次恢复的真实三平台runner信号，本批优先修复Windows跨盘符/namespace、macOS canonical path、Linux文件错误契约与CLI package 600秒timeout，不在remote release gate已真实失败的底座上继续叠加run-loop功能。
+
+目标：让Linux、Windows、macOS release jobs都能稳定运行完整Go tests与`go vet`，使case metadata、fixture containment、reviewer recovery和artifact validation在平台路径/文件语义差异下保持同一fail-closed contract；同时降低CLI package重复status/release inventory成本，避免仅靠放大timeout掩盖测试架构问题。
+
+已实现：路径语义拆为lexical canonical namespace与existing filesystem identity；`instance`/attach/repair/sync用`os.SameFile`接受macOS `/var`/`/private/var`及目录alias，但reviewer canonical geometry继续拒绝symlink alias。Windows fixture containment显式识别不同volume为outside，其他`Abs`/`Rel`错误向上传播而非fail-open；reviewer exact move用volume serial + file index比较handle identity，不再比较final path字符串，也不把原handle交给`os.File`。adapter artifact missing错误统一为平台无关`missing artifact`；非Windows exact recovery产品测试只跳过Windows专属成功路径，direct WhatIf/Apply unsupported与zero-write由build-tag shared tests锁定。daily `status`改用lightweight project handoff，不再每次运行PowerShell/public façade全仓release audit；`release-check`仍保留完整inventory，并忽略Claude Code生成的`.claude/worktrees`，不会因并行审查污染façade inventory。`run-current-step` case route复用outer status snapshot。CLI package从Batch 784的约590秒降到本机107.449秒，未提高Go timeout；workflow把`go vet`移到`go test`前，CI inventory也显式拒绝tests-before-vet漂移。
+
+边界：不降低symlink/namespace/containment guards，不把platform-specific unsupported behavior伪装为通过，不删减默认release覆盖，不新增PowerShell runtime logic，不执行heavy-tool，不写authority/confirmed；`status`是daily handoff，不声称执行了full release audit，发布判断仍必须单独运行`release-check`并读取远程jobs。
+
+验证结果：filesystem alias/lexical identity、Windows cross-volume compile、Windows handle identity compile、Linux non-Windows recovery build-tag compile、reviewer unsupported zero-write、artifact missing error、current-step snapshot、CI vet-before-tests与Claude worktree inventory focused tests通过。独立审查发现的CI顺序门禁和non-Windows direct recovery覆盖缺口均已修复；最终`release-run -Format json`以7/7通过（172.592秒），包含完整`release-check`、daily `status`/`packs`/`doctor`、`go test ./...`（169.788秒）、`go vet ./...`和`git diff --check`。implementation push后读取真实三平台jobs/steps/log并如实记录，不把inventory ready当作remote green。
 
 ### Batch 784：unified current-step router across lane and reviewer operator requests
 

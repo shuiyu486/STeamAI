@@ -455,7 +455,7 @@ func TestAdapterExecutionReceiptRejectsInvalidArtifactFiles(t *testing.T) {
 					t.Fatal(err)
 				}
 			},
-			want: "cannot find the file",
+			want: "missing artifact",
 		},
 		{
 			name: "directory",

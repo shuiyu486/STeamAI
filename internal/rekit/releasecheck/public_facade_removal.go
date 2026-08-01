@@ -2644,7 +2644,13 @@ func publicFacadeRemovalReferences(repo string) ([]PublicFacadeRemovalImpactRefe
 		}
 		name := entry.Name()
 		if entry.IsDir() {
-			if name == ".git" || name == ".codegraph" || name == ".rekit" || name == "node_modules" || name == "vendor" {
+			rel, relErr := filepath.Rel(repo, path)
+			if relErr != nil {
+				warnings = append(warnings, relErr.Error())
+				return filepath.SkipDir
+			}
+			rel = filepath.ToSlash(rel)
+			if name == ".git" || name == ".codegraph" || name == ".rekit" || name == "node_modules" || name == "vendor" || rel == ".claude/worktrees" {
 				return filepath.SkipDir
 			}
 			return nil
