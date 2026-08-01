@@ -62,18 +62,21 @@ type currentLoopStopReason struct {
 }
 
 type currentLoopContinuationRequest struct {
-	Kind                  string                          `json:"kind"`
-	State                 string                          `json:"state"`
-	SegmentMaxSteps       int                             `json:"segmentMaxSteps"`
-	AppliedStepsInSegment int                             `json:"appliedStepsInSegment"`
-	RemainingMaxSteps     int                             `json:"remainingMaxSteps"`
-	ExpectedRoute         string                          `json:"expectedRoute"`
-	ExpectedLane          string                          `json:"expectedLane"`
-	WhatIfCommand         string                          `json:"whatIfCommand"`
-	ObservationContract   reviewerStepObservationContract `json:"observationContract"`
-	FreshPreviewRequired  bool                            `json:"freshPreviewRequired"`
-	CumulativeReceipts    bool                            `json:"cumulativeReceipts"`
-	Boundary              []string                        `json:"boundary"`
+	Kind                  string                           `json:"kind"`
+	State                 string                           `json:"state"`
+	StopCode              string                           `json:"stopCode"`
+	SegmentMaxSteps       int                              `json:"segmentMaxSteps"`
+	AppliedStepsInSegment int                              `json:"appliedStepsInSegment"`
+	RemainingMaxSteps     int                              `json:"remainingMaxSteps"`
+	SegmentRoute          string                           `json:"segmentRoute"`
+	SegmentLane           string                           `json:"segmentLane"`
+	ExpectedRoute         string                           `json:"expectedRoute"`
+	ExpectedLane          string                           `json:"expectedLane"`
+	WhatIfCommand         string                           `json:"whatIfCommand"`
+	ObservationContract   *reviewerStepObservationContract `json:"observationContract,omitempty"`
+	FreshPreviewRequired  bool                             `json:"freshPreviewRequired"`
+	CumulativeReceipts    bool                             `json:"cumulativeReceipts"`
+	Boundary              []string                         `json:"boundary"`
 }
 
 type currentLoopPlanIdentity struct {
@@ -156,7 +159,8 @@ func buildCurrentLoopPlan(ctx runtime.Context, opt Options) (currentLoopPlan, st
 			"every later step is rebuilt from refreshed durable status and retains the current-step and nested runner hash, lease, packet, artifact, and lock guards",
 			"the loop stops before external session work, newly surfaced Human-in-the-Lane reconciliation, guidance-only or blocked actions, route or lane changes, repeated exact step plans, and the configured step limit",
 			"the loop is not transactional; completed step receipts remain valid if a later step cannot continue",
-			"an external reviewer stop returns a typed fresh continuation request whose maxSteps is the remaining deterministic budget; receipts remain segment-local and are not accumulated across invocations",
+			"route or lane drift, a refreshed Human-in-the-Lane review, and external reviewer handoff return a typed campaign continuation when deterministic budget remains; every continuation starts a fresh reviewed segment",
+			"campaign receipts remain segment-local and are not accumulated across invocations",
 			"the Go runtime does not invoke a shell or Agent tool, spawn, poll, or stop sessions, fabricate reviewer output, execute heavy tools, or write authority/confirmed state",
 		},
 	}
@@ -178,7 +182,7 @@ func buildCurrentLoopPlan(ctx runtime.Context, opt Options) (currentLoopPlan, st
 	plan.InitialCurrentStep = &step
 	if step.ExpectedCurrentStepPlanSHA256 == "" {
 		plan.StopReason = currentLoopExternalStop(step, request)
-		plan.ContinuationRequest = currentLoopContinuationFor(ctx, opt.MaxSteps, 0, route, plan.InitialLane, plan.StopReason)
+		plan.ContinuationRequest = currentLoopContinuationFor(ctx, opt.MaxSteps, 0, route, plan.InitialLane, route, plan.StopReason)
 		if plan.ContinuationRequest != nil {
 			plan.ResumeCommand = plan.ContinuationRequest.WhatIfCommand
 		}
@@ -220,10 +224,18 @@ func applyCurrentLoopPlan(ctx runtime.Context, opt Options, plan currentLoopPlan
 		}
 		if route != initialRoute || strings.TrimSpace(request.Lane) != initialLane {
 			plan.StopReason = currentLoopStopReason{Code: "route-policy", Phase: "before-step", Message: "refreshed route or lane changed; review a fresh loop preview", CurrentDriverRequest: request}
+			plan.ContinuationRequest = currentLoopContinuationFor(ctx, plan.MaxSteps, plan.AppliedSteps, initialRoute, initialLane, route, plan.StopReason)
+			if plan.ContinuationRequest != nil {
+				plan.ResumeCommand = plan.ContinuationRequest.WhatIfCommand
+			}
 			break
 		}
 		if policyStop := currentLoopBeforeStepPolicyStop(stepNumber, route, request); policyStop.Code != "" {
 			plan.StopReason = policyStop
+			plan.ContinuationRequest = currentLoopContinuationFor(ctx, plan.MaxSteps, plan.AppliedSteps, initialRoute, initialLane, route, plan.StopReason)
+			if plan.ContinuationRequest != nil {
+				plan.ResumeCommand = plan.ContinuationRequest.WhatIfCommand
+			}
 			break
 		}
 		step, err := buildCurrentStepPlanFromStatus(ctx, stepOpt, status)
@@ -233,7 +245,7 @@ func applyCurrentLoopPlan(ctx runtime.Context, opt Options, plan currentLoopPlan
 		}
 		if step.ExpectedCurrentStepPlanSHA256 == "" {
 			plan.StopReason = currentLoopExternalStop(step, request)
-			plan.ContinuationRequest = currentLoopContinuationFor(ctx, plan.MaxSteps, plan.AppliedSteps, route, strings.TrimSpace(request.Lane), plan.StopReason)
+			plan.ContinuationRequest = currentLoopContinuationFor(ctx, plan.MaxSteps, plan.AppliedSteps, initialRoute, initialLane, route, plan.StopReason)
 			if plan.ContinuationRequest != nil {
 				plan.ResumeCommand = plan.ContinuationRequest.WhatIfCommand
 			}
@@ -388,33 +400,53 @@ func currentLoopResumeCommand(ctx runtime.Context, maxSteps int) string {
 	return fmt.Sprintf("/rekit run-current-loop -Target %s -Pack %s -MaxSteps %d -WhatIf -Format json", statusQuoteCommandArg(ctx.Target), statusQuoteCommandArg(ctx.Pack), maxSteps)
 }
 
-func currentLoopContinuationFor(ctx runtime.Context, segmentMaxSteps, appliedSteps int, route, lane string, stop currentLoopStopReason) *currentLoopContinuationRequest {
-	if stop.Code != "external-reviewer-handoff" || stop.ExternalHandoff == nil {
+func currentLoopContinuationFor(ctx runtime.Context, segmentMaxSteps, appliedSteps int, segmentRoute, segmentLane, expectedRoute string, stop currentLoopStopReason) *currentLoopContinuationRequest {
+	if stop.Code != "external-reviewer-handoff" && stop.Code != "route-policy" && stop.Code != "human-intervention" {
+		return nil
+	}
+	if stop.Code == "external-reviewer-handoff" && stop.ExternalHandoff == nil {
 		return nil
 	}
 	remaining := segmentMaxSteps - appliedSteps
-	if remaining < 1 {
+	if remaining < 1 || stop.CurrentDriverRequest == nil {
 		return nil
 	}
-	return &currentLoopContinuationRequest{
-		Kind:                  "current-loop-external-reviewer-resume",
-		State:                 "awaiting-external-observation",
+	continuation := &currentLoopContinuationRequest{
+		Kind:                  "current-loop-campaign-continuation",
+		State:                 "awaiting-fresh-segment-review",
+		StopCode:              stop.Code,
 		SegmentMaxSteps:       segmentMaxSteps,
 		AppliedStepsInSegment: appliedSteps,
 		RemainingMaxSteps:     remaining,
-		ExpectedRoute:         route,
-		ExpectedLane:          lane,
+		SegmentRoute:          segmentRoute,
+		SegmentLane:           segmentLane,
+		ExpectedRoute:         expectedRoute,
+		ExpectedLane:          strings.TrimSpace(stop.CurrentDriverRequest.Lane),
 		WhatIfCommand:         currentLoopResumeCommand(ctx, remaining),
-		ObservationContract:   stop.ExternalHandoff.ObservationContract,
 		FreshPreviewRequired:  true,
 		CumulativeReceipts:    false,
 		Boundary: []string{
-			"consume one observation alternative by adding its exact flags to whatIfCommand; do not execute guidance text as a shell command",
-			"the continuation starts a fresh hash-bound loop segment with only the remaining deterministic step budget; receipts are retained in the previous segment result and are not accumulated across invocations",
+			"the continuation starts a fresh hash-bound loop segment from refreshed durable status; it does not carry the previous segment hash across the boundary",
+			"the continuation retains only the remaining deterministic step budget; receipts stay in the previous segment result and are not accumulated across invocations",
+			"the expected route and lane describe the reviewed transition target and must be revalidated by the fresh preview",
 			"without this typed result, status may start a fresh loop preview but cannot claim recovery of the previous segment budget",
 			"the continuation request is an orchestration handoff, not authority or a durable authorization token",
 		},
 	}
+	if stop.Code == "external-reviewer-handoff" && stop.ExternalHandoff != nil {
+		observation := stop.ExternalHandoff.ObservationContract
+		continuation.State = "awaiting-external-observation"
+		continuation.ObservationContract = &observation
+		continuation.Boundary = append([]string{
+			"consume one observation alternative by adding its exact flags to whatIfCommand; do not execute guidance text as a shell command",
+		}, continuation.Boundary...)
+	}
+	if stop.Code == "human-intervention" {
+		continuation.Boundary = append([]string{
+			"review the refreshed Human-in-the-Lane intervention in the fresh segment before applying reconcile",
+		}, continuation.Boundary...)
+	}
+	return continuation
 }
 
 func currentLoopFollowupOptions(opt Options) Options {

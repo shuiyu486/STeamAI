@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 )
 
 func TestRunCurrentLoopAppliesBoundedCaseSteps(t *testing.T) {
@@ -120,7 +122,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	if external.ExpectedCurrentLoopPlanSHA256 != "" || external.StopReason.Code != "external-reviewer-handoff" || external.StopReason.ExternalHandoff == nil || external.StopReason.ExternalHandoff.RunLoopStepID != "spawn-reviewer" {
 		t.Fatalf("current-loop did not stop for reviewer handoff: %+v", external)
 	}
-	if external.ContinuationRequest == nil || external.ContinuationRequest.RemainingMaxSteps != 10 || external.ContinuationRequest.AppliedStepsInSegment != 0 || external.ContinuationRequest.WhatIfCommand != external.ResumeCommand || external.ContinuationRequest.CumulativeReceipts || len(external.ContinuationRequest.ObservationContract.Alternatives) != 1 {
+	if external.ContinuationRequest == nil || external.ContinuationRequest.Kind != "current-loop-campaign-continuation" || external.ContinuationRequest.StopCode != "external-reviewer-handoff" || external.ContinuationRequest.SegmentRoute != "reviewer" || external.ContinuationRequest.ExpectedRoute != "reviewer" || external.ContinuationRequest.RemainingMaxSteps != 10 || external.ContinuationRequest.AppliedStepsInSegment != 0 || external.ContinuationRequest.WhatIfCommand != external.ResumeCommand || external.ContinuationRequest.CumulativeReceipts || external.ContinuationRequest.ObservationContract == nil || len(external.ContinuationRequest.ObservationContract.Alternatives) != 1 {
 		t.Fatalf("spawn handoff omitted typed continuation request: %+v", external.ContinuationRequest)
 	}
 	spawnObservation := external.ContinuationRequest.ObservationContract.Alternatives[0]
@@ -154,7 +156,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		t.Fatalf("reviewer loop did not stop after deterministic dispatch: %+v", dispatchApplied)
 	}
 	continuation := dispatchApplied.ContinuationRequest
-	if continuation == nil || continuation.RemainingMaxSteps != dispatchPreview.MaxSteps-1 || continuation.AppliedStepsInSegment != 1 || continuation.SegmentMaxSteps != dispatchPreview.MaxSteps || continuation.CumulativeReceipts || !strings.Contains(continuation.WhatIfCommand, "-MaxSteps 9") {
+	if continuation == nil || continuation.Kind != "current-loop-campaign-continuation" || continuation.StopCode != "external-reviewer-handoff" || continuation.SegmentRoute != "reviewer" || continuation.ExpectedRoute != "reviewer" || continuation.RemainingMaxSteps != dispatchPreview.MaxSteps-1 || continuation.AppliedStepsInSegment != 1 || continuation.SegmentMaxSteps != dispatchPreview.MaxSteps || continuation.CumulativeReceipts || !strings.Contains(continuation.WhatIfCommand, "-MaxSteps 9") {
 		t.Fatalf("dispatch result omitted decremented continuation budget: %+v", continuation)
 	}
 	if dispatchApplied.StopReason.ExternalHandoff.ReviewerResultDropPathRole != "canonical-reviewer-input-destination" || dispatchApplied.StopReason.ExternalHandoff.ReviewerResultInputPath == "" || dispatchApplied.StopReason.ExternalHandoff.ReviewerResultDropPath != dispatchApplied.StopReason.ExternalHandoff.ReviewerResultInputPath {
@@ -187,13 +189,23 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		t.Fatalf("reviewer result continuation did not finish deterministic pipeline: %+v", resultApplied)
 	}
 	expectedSteps := []string{"save-result-input", "record-completion", "source-capture", "stage-candidate", "collect-result", "intake-results"}
-	if resultApplied.ContinuationRequest != nil || len(resultApplied.Steps) != len(expectedSteps) {
-		t.Fatalf("fresh continuation segment receipts or terminal state are invalid: %+v", resultApplied)
+	campaign := resultApplied.ContinuationRequest
+	if campaign == nil || campaign.StopCode != "route-policy" || campaign.SegmentRoute != "reviewer" || campaign.ExpectedRoute != "case" || campaign.RemainingMaxSteps != resultPreview.MaxSteps-len(expectedSteps) || campaign.ObservationContract != nil || !strings.Contains(campaign.WhatIfCommand, "-MaxSteps 3") || len(resultApplied.Steps) != len(expectedSteps) {
+		t.Fatalf("fresh cross-route campaign continuation or segment receipts are invalid: %+v", resultApplied)
 	}
 	for index, expected := range expectedSteps {
 		if resultApplied.Steps[index].Step != index+1 || resultApplied.Steps[index].RunLoopStepID != expected {
 			t.Fatalf("reviewer continuation step %d = %+v, want %s", index+1, resultApplied.Steps[index], expected)
 		}
+	}
+	casePreview := runCurrentLoopPreview(t, caseRoot, campaign.RemainingMaxSteps)
+	if casePreview.InitialRoute != "case" || casePreview.InitialLane != campaign.ExpectedLane || casePreview.ExpectedCurrentLoopPlanSHA256 == "" || len(casePreview.Steps) != 0 || casePreview.ContinuationRequest != nil {
+		t.Fatalf("campaign continuation did not rebuild a fresh case segment: %+v", casePreview)
+	}
+	out.Reset()
+	err = Run([]string{"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", "_template", "-MaxSteps", stringInt(campaign.RemainingMaxSteps), "-ExpectedCurrentLoopPlanSha256", resultPreview.ExpectedCurrentLoopPlanSHA256, "-Apply", "-Format", "json"}, &out)
+	if err == nil || !strings.Contains(err.Error(), "expected plan sha256 mismatch") {
+		t.Fatalf("previous reviewer segment hash crossed the route boundary: %v", err)
 	}
 	verifications, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl"))
 	if err != nil || !strings.Contains(string(verifications), plan.PacketID) {
@@ -232,13 +244,39 @@ func TestCurrentLoopStopsBeforeNewHumanIntervention(t *testing.T) {
 	}
 }
 
+func TestCurrentLoopRouteDriftReturnsTypedCampaignContinuation(t *testing.T) {
+	request := missionDriverRequestForTest(`/rekit continue verifier -WhatIf -Format json`)
+	request.Lane = "feature-verifier"
+	stop := currentLoopStopReason{
+		Code:                 "route-policy",
+		Phase:                "before-step",
+		Message:              "refreshed route or lane changed; review a fresh loop preview",
+		CurrentDriverRequest: &request,
+	}
+	continuation := currentLoopContinuationFor(runtime.Context{Target: `C:\cases\campaign`, Pack: "_template"}, 8, 3, "case", "feature-triage", "case", stop)
+	if continuation == nil || continuation.StopCode != "route-policy" || continuation.SegmentRoute != "case" || continuation.SegmentLane != "feature-triage" || continuation.ExpectedRoute != "case" || continuation.ExpectedLane != "feature-verifier" || continuation.RemainingMaxSteps != 5 || continuation.ObservationContract != nil || continuation.CumulativeReceipts {
+		t.Fatalf("lane drift continuation = %+v", continuation)
+	}
+	if !strings.Contains(continuation.WhatIfCommand, "-MaxSteps 5") || !continuation.FreshPreviewRequired {
+		t.Fatalf("lane drift continuation command = %+v", continuation)
+	}
+	if got := currentLoopContinuationFor(runtime.Context{}, 3, 3, "case", "main", "reviewer", stop); got != nil {
+		t.Fatalf("exhausted segment created continuation: %+v", got)
+	}
+	forgedExternal := stop
+	forgedExternal.Code = "external-reviewer-handoff"
+	if got := currentLoopContinuationFor(runtime.Context{}, 8, 3, "case", "main", "reviewer", forgedExternal); got != nil {
+		t.Fatalf("external stop without a typed handoff created continuation: %+v", got)
+	}
+}
+
 func TestRunCurrentLoopStopsBeforeReconcileSurfacedByFirstStepRefresh(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	var out bytes.Buffer
 	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	preview := runCurrentLoopPreview(t, caseRoot, 1)
+	preview := runCurrentLoopPreview(t, caseRoot, 2)
 	driverStepAfterPreviewValidationHook = func() error {
 		appendCurrentLoopOpenIntervention(t, caseRoot, "int-current-loop-refresh")
 		return nil
@@ -247,6 +285,10 @@ func TestRunCurrentLoopStopsBeforeReconcileSurfacedByFirstStepRefresh(t *testing
 	applied := runCurrentLoopApply(t, caseRoot, preview)
 	if applied.AppliedSteps != 1 || len(applied.Steps) != 1 || applied.StopReason.Code != "human-intervention" || applied.StopReason.Phase != "before-step" || applied.FinalStatus == nil || applied.FinalStatus.MissionControlRunbook == nil {
 		t.Fatalf("refreshed intervention was not stopped before reconcile: %+v", applied)
+	}
+	continuation := applied.ContinuationRequest
+	if continuation == nil || continuation.StopCode != "human-intervention" || continuation.State != "awaiting-fresh-segment-review" || continuation.SegmentRoute != "case" || continuation.ExpectedRoute != "case" || continuation.RemainingMaxSteps != 1 || continuation.AppliedStepsInSegment != 1 || continuation.ObservationContract != nil || !strings.Contains(continuation.WhatIfCommand, "-MaxSteps 1") {
+		t.Fatalf("refreshed intervention omitted fresh review continuation: %+v", continuation)
 	}
 	request := applied.FinalStatus.MissionControlRunbook.CurrentDriverRequest
 	if request == nil || driverStepCommandName(request.Command) != "reconcile" || !strings.Contains(request.Command, "int-current-loop-refresh") {
@@ -258,6 +300,10 @@ func TestRunCurrentLoopStopsBeforeReconcileSurfacedByFirstStepRefresh(t *testing
 	}
 	if strings.Contains(string(interventions), `"resolvesEventId":"int-current-loop-refresh"`) {
 		t.Fatalf("old loop authorization resolved the fresh intervention: %s", interventions)
+	}
+	fresh := runCurrentLoopPreview(t, caseRoot, continuation.RemainingMaxSteps)
+	if fresh.InitialRoute != "case" || fresh.InitialLane != continuation.ExpectedLane || fresh.InitialCurrentStep == nil || driverStepCommandName(fresh.InitialCurrentStep.CurrentDriverRequest.Command) != "reconcile" || fresh.ExpectedCurrentLoopPlanSHA256 == "" || len(fresh.Steps) != 0 {
+		t.Fatalf("Human-in-the-Lane continuation did not rebuild a fresh reconcile segment: %+v", fresh)
 	}
 }
 
@@ -330,6 +376,7 @@ func appendCurrentLoopOpenIntervention(t *testing.T, caseRoot, eventID string) {
 type currentLoopTestPlan struct {
 	MaxSteps                      int                             `json:"maxSteps"`
 	InitialRoute                  string                          `json:"initialRoute"`
+	InitialLane                   string                          `json:"initialLane"`
 	Applied                       bool                            `json:"applied"`
 	AppliedSteps                  int                             `json:"appliedSteps"`
 	InitialCurrentStep            *currentStepPlan                `json:"initialCurrentStep"`
