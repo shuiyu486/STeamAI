@@ -315,13 +315,22 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		t.Fatal(err)
 	}
 	resultInputs := []string{"-ReviewerResultInputSourcePath", resultSource, "-Actor", actor}
-	resultPreview := runCurrentLoopPreviewWith(t, caseRoot, continuation.RemainingMaxSteps, resultInputs...)
-	if resultPreview.ExpectedCurrentLoopPlanSHA256 == "" || resultPreview.InitialRoute != "reviewer" {
-		t.Fatalf("typed result continuation did not rebuild a fresh preview: %+v", resultPreview)
+	resultPreview := runCurrentLoopResumePreviewWith(t, caseRoot, dispatchApplied.SegmentCheckpoint.ArtifactSHA256, resultInputs...)
+	if resultPreview.ExpectedCurrentLoopPlanSHA256 == "" || resultPreview.InitialRoute != "reviewer" || resultPreview.MaxSteps != continuation.RemainingMaxSteps || resultPreview.ResumeSource == nil || resultPreview.ApplyCommand == "" || !strings.Contains(resultPreview.ApplyCommand, "-ReviewerResultInputSourcePath") || !strings.Contains(resultPreview.ApplyCommand, resultSource) {
+		t.Fatalf("typed durable result continuation did not rebuild a fresh preview and exact apply command: %+v", resultPreview)
 	}
-	resultApplied := runCurrentLoopApplyWith(t, caseRoot, resultPreview, resultInputs...)
+	resultApplyFields, err := splitDriverCommand(resultPreview.ApplyCommand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resultApplied := runCurrentLoopResult(t, append([]string{"-Command", resultApplyFields[1]}, resultApplyFields[2:]...))
 	if !resultApplied.Applied || resultApplied.AppliedSteps != 6 || resultApplied.StopReason.Code != "route-policy" || resultApplied.FinalStatus == nil || resultApplied.FinalStatus.MissionControlRunbook == nil || resultApplied.FinalStatus.MissionControlRunbook.Scope != "case" {
-		t.Fatalf("reviewer result continuation did not finish deterministic pipeline: %+v", resultApplied)
+		var finalScope, finalStep string
+		if resultApplied.FinalStatus != nil && resultApplied.FinalStatus.MissionControlRunbook != nil {
+			finalScope = resultApplied.FinalStatus.MissionControlRunbook.Scope
+			finalStep = resultApplied.FinalStatus.MissionControlRunbook.CurrentRunLoopStepID
+		}
+		t.Fatalf("reviewer result continuation did not finish deterministic pipeline: applied=%t steps=%d stop=%+v finalScope=%s finalStep=%s", resultApplied.Applied, resultApplied.AppliedSteps, resultApplied.StopReason, finalScope, finalStep)
 	}
 	expectedSteps := []string{"save-result-input", "record-completion", "source-capture", "stage-candidate", "collect-result", "intake-results"}
 	campaign := resultApplied.ContinuationRequest
@@ -348,9 +357,9 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 			t.Fatalf("reviewer continuation step %d = %+v, want %s", index+1, resultApplied.Steps[index], expected)
 		}
 	}
-	casePreview := runCurrentLoopPreview(t, caseRoot, campaign.RemainingMaxSteps)
-	if casePreview.InitialRoute != "case" || casePreview.InitialLane != campaign.ExpectedLane || casePreview.ExpectedCurrentLoopPlanSHA256 == "" || len(casePreview.Steps) != 0 || casePreview.ContinuationRequest != nil {
-		t.Fatalf("campaign continuation did not rebuild a fresh case segment: %+v", casePreview)
+	casePreview := runCurrentLoopResumePreview(t, caseRoot, durableCampaign.ArtifactSHA256)
+	if casePreview.InitialRoute != "case" || casePreview.InitialLane != campaign.ExpectedLane || casePreview.MaxSteps != campaign.RemainingMaxSteps || casePreview.ExpectedCurrentLoopPlanSHA256 == "" || casePreview.ResumeSource == nil || casePreview.ResumeSource.ArtifactSHA256 != durableCampaign.ArtifactSHA256 || casePreview.ExpectedResumeCheckpointSHA256 != durableCampaign.ArtifactSHA256 || casePreview.ApplyCommand == "" || len(casePreview.Steps) != 0 || casePreview.ContinuationRequest != nil {
+		t.Fatalf("durable campaign operator did not rebuild a checkpoint-bound fresh case segment: %+v", casePreview)
 	}
 	out.Reset()
 	err = Run([]string{"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", "_template", "-MaxSteps", stringInt(campaign.RemainingMaxSteps), "-ExpectedCurrentLoopPlanSha256", resultPreview.ExpectedCurrentLoopPlanSHA256, "-Apply", "-Format", "json"}, &out)
@@ -463,8 +472,8 @@ func TestRunCurrentLoopStopsBeforeReconcileSurfacedByFirstStepRefresh(t *testing
 		t.Fatalf("new-session status did not decode: %v\n%s", err, statusOut.String())
 	}
 	durable := newSessionStatus.MissionControlRunbook.CurrentLoopSegment
-	if durable == nil || !durable.Ready || durable.Continuation == nil || durable.Continuation.RemainingMaxSteps != continuation.RemainingMaxSteps || durable.Continuation.WhatIfCommand != continuation.WhatIfCommand || durable.ArtifactPath != applied.SegmentCheckpoint.ArtifactPath {
-		t.Fatalf("new-session status did not recover exact campaign checkpoint: %+v", durable)
+	if durable == nil || !durable.Ready || durable.Continuation == nil || durable.Continuation.RemainingMaxSteps != continuation.RemainingMaxSteps || durable.Continuation.WhatIfCommand != "" || durable.LegacyUnboundWhatIfCommand != continuation.WhatIfCommand || durable.ArtifactPath != applied.SegmentCheckpoint.ArtifactPath || durable.ResumeDriverRequest == nil || durable.ResumeDriverRequest.RunLoopStepID != "resume-current-loop" || !durable.ResumeDriverRequest.CommandExecutable || !strings.Contains(durable.ResumeDriverRequest.Command, "-ResumeCurrentLoop") || !strings.Contains(durable.ResumeDriverRequest.Command, durable.ArtifactSHA256) {
+		t.Fatalf("new-session status did not recover exact campaign checkpoint and resume request: %+v", durable)
 	}
 	var handoffOut bytes.Buffer
 	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, &handoffOut); err != nil {
@@ -476,8 +485,24 @@ func TestRunCurrentLoopStopsBeforeReconcileSurfacedByFirstStepRefresh(t *testing
 	if err := json.Unmarshal(handoffOut.Bytes(), &handoff); err != nil {
 		t.Fatalf("handoff did not decode: %v\n%s", err, handoffOut.String())
 	}
-	if handoff.CurrentLoopSegment == nil || !handoff.CurrentLoopSegment.Ready || handoff.CurrentLoopSegment.ArtifactPath != durable.ArtifactPath || handoff.CurrentLoopSegment.Continuation == nil {
+	if handoff.CurrentLoopSegment == nil || !handoff.CurrentLoopSegment.Ready || handoff.CurrentLoopSegment.ArtifactPath != durable.ArtifactPath || handoff.CurrentLoopSegment.Continuation == nil || handoff.CurrentLoopSegment.ResumeDriverRequest == nil {
 		t.Fatalf("handoff did not project strict campaign checkpoint: %+v", handoff.CurrentLoopSegment)
+	}
+	var statusText bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &statusText); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"current-loop resume source：artifactSha256=" + durable.ArtifactSHA256, "current-loop checkpoint-bound resume driver request", "-ResumeCurrentLoop", "legacyUnboundCommand="} {
+		if !strings.Contains(statusText.String(), expected) {
+			t.Fatalf("status text omitted checkpoint-bound resume detail %q:\n%s", expected, statusText.String())
+		}
+	}
+	var handoffText bytes.Buffer
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "text"}, &handoffText); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(handoffText.String(), "current-loop checkpoint-bound resume driver request") || !strings.Contains(handoffText.String(), durable.ArtifactSHA256) {
+		t.Fatalf("handoff text omitted checkpoint-bound resume detail:\n%s", handoffText.String())
 	}
 	artifactPath := filepath.Join(caseRoot, filepath.FromSlash(durable.ArtifactPath))
 	if err := os.WriteFile(artifactPath, []byte(`{"tampered":true}`), 0o600); err != nil {
@@ -495,9 +520,89 @@ func TestRunCurrentLoopStopsBeforeReconcileSurfacedByFirstStepRefresh(t *testing
 	if tampered == nil || tampered.Ready || tampered.State != "invalid" || tampered.Continuation != nil || tampered.ArtifactPath != durable.ArtifactPath {
 		t.Fatalf("tampered latest segment did not fail closed: %+v", tampered)
 	}
-	fresh := runCurrentLoopPreview(t, caseRoot, continuation.RemainingMaxSteps)
-	if fresh.InitialRoute != "case" || fresh.InitialLane != durable.Continuation.ExpectedLane || fresh.InitialCurrentStep == nil || driverStepCommandName(fresh.InitialCurrentStep.CurrentDriverRequest.Command) != "reconcile" || fresh.ExpectedCurrentLoopPlanSHA256 == "" || len(fresh.Steps) != 0 {
-		t.Fatalf("Human-in-the-Lane continuation did not rebuild a fresh reconcile segment: %+v", fresh)
+	if previewErr := runCurrentLoopError(caseRoot, []string{"-ResumeCurrentLoop", "-ExpectedCurrentLoopCheckpointSha256", durable.ArtifactSHA256, "-WhatIf"}); previewErr == nil || !strings.Contains(previewErr.Error(), "state=ready") {
+		t.Fatalf("tampered checkpoint resume did not fail closed: %v", previewErr)
+	}
+}
+
+func TestRunCurrentLoopDurableResumeDriverRequestProductPath(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	initial := runCurrentLoopPreview(t, caseRoot, 3)
+	driverStepAfterPreviewValidationHook = func() error {
+		appendCurrentLoopOpenIntervention(t, caseRoot, "int-current-loop-resume")
+		return nil
+	}
+	applied := runCurrentLoopApply(t, caseRoot, initial)
+	driverStepAfterPreviewValidationHook = nil
+	if applied.SegmentCheckpoint == nil || !applied.SegmentCheckpoint.Ready || applied.SegmentCheckpoint.ResumeDriverRequest == nil || applied.SegmentCheckpoint.RemainingMaxSteps != 2 {
+		t.Fatalf("initial segment did not expose a durable resume request: %+v", applied.SegmentCheckpoint)
+	}
+	previewArgs, err := splitDriverCommand(applied.SegmentCheckpoint.ResumeDriverRequest.Command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resumedPreview := runCurrentLoopResult(t, append([]string{"-Command", previewArgs[1]}, previewArgs[2:]...))
+	if resumedPreview.MaxSteps != 2 || resumedPreview.ResumeSource == nil || resumedPreview.ResumeSource.ArtifactSHA256 != applied.SegmentCheckpoint.ArtifactSHA256 || resumedPreview.ExpectedResumeCheckpointSHA256 != applied.SegmentCheckpoint.ArtifactSHA256 || driverStepCommandName(resumedPreview.InitialCurrentStep.CurrentDriverRequest.Command) != "reconcile" || resumedPreview.ApplyCommand == "" {
+		t.Fatalf("resume driver request did not produce the exact fresh reconcile preview: %+v", resumedPreview)
+	}
+	applyArgs, err := splitDriverCommand(resumedPreview.ApplyCommand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resumedApplied := runCurrentLoopResult(t, append([]string{"-Command", applyArgs[1]}, applyArgs[2:]...))
+	if !resumedApplied.Applied || resumedApplied.AppliedSteps < 1 || resumedApplied.SegmentCheckpoint == nil || resumedApplied.SegmentCheckpoint.Sequence != applied.SegmentCheckpoint.Sequence+1 || resumedApplied.SegmentCheckpoint.ResumeSourceSHA256 != applied.SegmentCheckpoint.ArtifactSHA256 {
+		t.Fatalf("checkpoint-bound resume did not publish linked successor segment: %+v", resumedApplied)
+	}
+	if err := Run(append([]string{"-Command", applyArgs[1]}, applyArgs[2:]...), &bytes.Buffer{}); err == nil || (!strings.Contains(err.Error(), "latest checkpoint to be state=ready") && !strings.Contains(err.Error(), "consumed")) {
+		t.Fatalf("stale resume apply was not rejected after successor publication: %v", err)
+	}
+	latest := currentloop.Inspect(repoRoot(t), caseRoot, "_template", resumedApplied.FinalStatus.MissionControlRunbook.CurrentDriverRequest)
+	if latest.ArtifactSHA256 != resumedApplied.SegmentCheckpoint.ArtifactSHA256 || latest.Sequence != resumedApplied.SegmentCheckpoint.Sequence {
+		t.Fatalf("stale resume apply mutated the checkpoint chain: %+v", latest)
+	}
+}
+
+func TestRunCurrentLoopResumeClaimRemainsConsumedAfterNestedFailure(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	initial := runCurrentLoopPreview(t, caseRoot, 3)
+	driverStepAfterPreviewValidationHook = func() error {
+		appendCurrentLoopOpenIntervention(t, caseRoot, "int-current-loop-consumed")
+		return nil
+	}
+	first := runCurrentLoopApply(t, caseRoot, initial)
+	driverStepAfterPreviewValidationHook = nil
+	if first.SegmentCheckpoint == nil || first.SegmentCheckpoint.ResumeDriverRequest == nil {
+		t.Fatalf("initial segment did not expose resume request: %+v", first.SegmentCheckpoint)
+	}
+	previewArgs, err := splitDriverCommand(first.SegmentCheckpoint.ResumeDriverRequest.Command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview := runCurrentLoopResult(t, append([]string{"-Command", previewArgs[1]}, previewArgs[2:]...))
+	applyArgs, err := splitDriverCommand(preview.ApplyCommand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentLoopBeforeApplyStepHook = func(int) error { return os.ErrPermission }
+	t.Cleanup(func() {
+		currentLoopBeforeApplyStepHook = nil
+		driverStepAfterPreviewValidationHook = nil
+	})
+	failed := runCurrentLoopResult(t, append([]string{"-Command", applyArgs[1]}, applyArgs[2:]...))
+	if failed.Applied || failed.AppliedSteps != 0 || failed.StopReason.Code != "error" {
+		t.Fatalf("resume nested failure was not returned without progress: %+v", failed)
+	}
+	consumed := currentloop.Inspect(repoRoot(t), caseRoot, "_template", failed.FinalStatus.MissionControlRunbook.CurrentDriverRequest)
+	if consumed.Ready || consumed.State != "consumed" || consumed.ArtifactSHA256 != first.SegmentCheckpoint.ArtifactSHA256 || consumed.Continuation != nil || consumed.ResumeDriverRequest != nil {
+		t.Fatalf("nested failure restored claimed resume budget: %+v", consumed)
 	}
 }
 
@@ -528,6 +633,8 @@ func TestRunCurrentLoopValidatesOuterContract(t *testing.T) {
 	}{
 		{args: []string{"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, want: "requires -MaxSteps"},
 		{args: []string{"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", "_template", "-MaxSteps", "21", "-WhatIf", "-Format", "json"}, want: "between 1 and 20"},
+		{args: []string{"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", "_template", "-ResumeCurrentLoop", "-MaxSteps", "2", "-WhatIf", "-Format", "json"}, want: "does not accept -MaxSteps"},
+		{args: []string{"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", "_template", "-ResumeCurrentLoop", "-WhatIf", "-Format", "json"}, want: "requires -ExpectedCurrentLoopCheckpointSha256"},
 		{args: []string{"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", "_template", "-MaxSteps", "2", "-Lane", "unexpected", "-WhatIf", "-Format", "json"}, want: "unsupported flag"},
 	}
 	for _, tc := range cases {
@@ -568,19 +675,22 @@ func appendCurrentLoopOpenIntervention(t *testing.T, caseRoot, eventID string) {
 }
 
 type currentLoopTestPlan struct {
-	MaxSteps                      int                             `json:"maxSteps"`
-	InitialRoute                  string                          `json:"initialRoute"`
-	InitialLane                   string                          `json:"initialLane"`
-	Applied                       bool                            `json:"applied"`
-	AppliedSteps                  int                             `json:"appliedSteps"`
-	InitialCurrentStep            *currentStepPlan                `json:"initialCurrentStep"`
-	ExpectedCurrentLoopPlanSHA256 string                          `json:"expectedCurrentLoopPlanSha256"`
-	Steps                         []currentLoopStepReceipt        `json:"steps"`
-	StopReason                    currentLoopStopReason           `json:"stopReason"`
-	ResumeCommand                 string                          `json:"resumeCommand"`
-	ContinuationRequest           *currentLoopContinuationRequest `json:"continuationRequest"`
-	SegmentCheckpoint             *currentloop.Inspection         `json:"segmentCheckpoint"`
-	FinalStatus                   *statusInventory                `json:"finalStatus"`
+	MaxSteps                       int                             `json:"maxSteps"`
+	InitialRoute                   string                          `json:"initialRoute"`
+	InitialLane                    string                          `json:"initialLane"`
+	Applied                        bool                            `json:"applied"`
+	AppliedSteps                   int                             `json:"appliedSteps"`
+	InitialCurrentStep             *currentStepPlan                `json:"initialCurrentStep"`
+	ExpectedCurrentLoopPlanSHA256  string                          `json:"expectedCurrentLoopPlanSha256"`
+	Steps                          []currentLoopStepReceipt        `json:"steps"`
+	StopReason                     currentLoopStopReason           `json:"stopReason"`
+	ResumeCommand                  string                          `json:"resumeCommand"`
+	ContinuationRequest            *currentLoopContinuationRequest `json:"continuationRequest"`
+	ResumeSource                   *currentloop.Inspection         `json:"resumeSource"`
+	ExpectedResumeCheckpointSHA256 string                          `json:"expectedResumeCheckpointSha256"`
+	ApplyCommand                   string                          `json:"applyCommand"`
+	SegmentCheckpoint              *currentloop.Inspection         `json:"segmentCheckpoint"`
+	FinalStatus                    *statusInventory                `json:"finalStatus"`
 }
 
 func runCurrentLoopPreview(t *testing.T, caseRoot string, maxSteps int) currentLoopTestPlan {
@@ -594,6 +704,26 @@ func runCurrentLoopPreviewWith(t *testing.T, caseRoot string, maxSteps int, inpu
 	args = append(args, inputs...)
 	args = append(args, "-WhatIf", "-Format", "json")
 	return runCurrentLoopResult(t, args)
+}
+
+func runCurrentLoopResumePreview(t *testing.T, caseRoot, checkpointSHA256 string) currentLoopTestPlan {
+	t.Helper()
+	return runCurrentLoopResumePreviewWith(t, caseRoot, checkpointSHA256)
+}
+
+func runCurrentLoopResumePreviewWith(t *testing.T, caseRoot, checkpointSHA256 string, inputs ...string) currentLoopTestPlan {
+	t.Helper()
+	args := []string{"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", "_template", "-ResumeCurrentLoop", "-ExpectedCurrentLoopCheckpointSha256", checkpointSHA256}
+	args = append(args, inputs...)
+	args = append(args, "-WhatIf", "-Format", "json")
+	return runCurrentLoopResult(t, args)
+}
+
+func runCurrentLoopError(caseRoot string, inputs []string) error {
+	args := []string{"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", "_template"}
+	args = append(args, inputs...)
+	args = append(args, "-Format", "json")
+	return Run(args, &bytes.Buffer{})
 }
 
 func runCurrentLoopApply(t *testing.T, caseRoot string, preview currentLoopTestPlan) currentLoopTestPlan {

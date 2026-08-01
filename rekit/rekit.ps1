@@ -62,6 +62,8 @@ param(
   [string]$Closure = '',
   [string]$ExpectedNextBatchPlanSha256 = '',
   [string]$ExpectedCurrentLoopPlanSha256 = '',
+  [string]$ExpectedCurrentLoopCheckpointSha256 = '',
+  [switch]$ResumeCurrentLoop,
   [string]$ExpectedCurrentStepPlanSha256 = '',
   [string]$ExpectedDriverStepPlanSha256 = '',
   [string]$ExpectedReviewerStepPlanSha256 = '',
@@ -189,14 +191,16 @@ function Test-RekitGoDelegationSafe {
     }
     'run-current-loop' {
       foreach ($key in $script:PSBoundParameters.Keys) {
-        if (@('Command','Target','Pack','MaxSteps','WhatIf','Apply','Format','ExpectedCurrentLoopPlanSha256','Actor','ReviewerResultInputSourcePath','ReviewerHarness','ReviewerSession','ReviewerOutcome','ReviewerExitStatus') -notcontains [string]$key) { return $false }
+        if (@('Command','Target','Pack','MaxSteps','WhatIf','Apply','Format','ExpectedCurrentLoopPlanSha256','ExpectedCurrentLoopCheckpointSha256','ResumeCurrentLoop','Actor','ReviewerResultInputSourcePath','ReviewerHarness','ReviewerSession','ReviewerOutcome','ReviewerExitStatus') -notcontains [string]$key) { return $false }
       }
       if ([string]::IsNullOrWhiteSpace($Target)) { return $false }
-      if ($MaxSteps -lt 1 -or $MaxSteps -gt 20) { return $false }
+      if ((-not $ResumeCurrentLoop) -and ($MaxSteps -lt 1 -or $MaxSteps -gt 20)) { return $false }
+      if ($ResumeCurrentLoop -and $script:PSBoundParameters.ContainsKey('MaxSteps')) { return $false }
       if ($WhatIf -and $Apply) { return $false }
       if ((-not $WhatIf) -and (-not $Apply)) { return $false }
       if ($WhatIf -and -not [string]::IsNullOrWhiteSpace($ExpectedCurrentLoopPlanSha256)) { return $false }
       if ($Apply -and [string]::IsNullOrWhiteSpace($ExpectedCurrentLoopPlanSha256)) { return $false }
+      if ($ResumeCurrentLoop -and $Apply -and [string]::IsNullOrWhiteSpace($ExpectedCurrentLoopCheckpointSha256)) { return $false }
       $caseRoot = Resolve-RekitTarget $Target
       if (-not (Test-RekitLooksLikeCase $caseRoot)) { return $false }
       return (([string]$Format).Trim().ToLowerInvariant() -eq 'json')
@@ -487,8 +491,10 @@ function Get-RekitGoArgs {
   if ($Command -in @('start','handoff','continue','reconcile') -and (-not $Apply.IsPresent) -and [string]::IsNullOrWhiteSpace([string]$goFormat)) { $goFormat = 'text' }
   if ($Command -in @('status','packs','release-check','release-run','run-current-loop','run-current-step','run-driver-step','run-reviewer-step','next-batch','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff','continue','reconcile')) { Add-RekitGoArg ([ref]$goArgs) '-Format' $goFormat }
   if ($Command -eq 'run-current-loop') {
-    Add-RekitGoArg ([ref]$goArgs) '-MaxSteps' ([string]$MaxSteps)
+    if (-not $ResumeCurrentLoop) { Add-RekitGoArg ([ref]$goArgs) '-MaxSteps' ([string]$MaxSteps) }
     Add-RekitGoArg ([ref]$goArgs) '-ExpectedCurrentLoopPlanSha256' $ExpectedCurrentLoopPlanSha256
+    Add-RekitGoArg ([ref]$goArgs) '-ExpectedCurrentLoopCheckpointSha256' $ExpectedCurrentLoopCheckpointSha256
+    Add-RekitGoSwitch ([ref]$goArgs) '-ResumeCurrentLoop' $ResumeCurrentLoop.IsPresent
     Add-RekitGoArg ([ref]$goArgs) '-Actor' $Actor
     Add-RekitGoArg ([ref]$goArgs) '-ReviewerResultInputSourcePath' (Resolve-RekitCallerPath $ReviewerResultInputSourcePath)
     Add-RekitGoArg ([ref]$goArgs) '-ReviewerHarness' $ReviewerHarness

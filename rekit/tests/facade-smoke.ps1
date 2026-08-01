@@ -202,6 +202,16 @@ try {
     Assert-ContainsText -Text $capturedCurrentLoopArgs -Expected $expectedCurrentLoopArg -Label 'run-current-loop facade args'
   }
   Assert-ContainsText -Text $capturedCurrentLoopArgs -Expected '-ReviewerResultInputSourcePath ' -Label 'run-current-loop result input facade args'
+  $currentLoopCheckpointHash = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+  $currentLoopResumeCapturePath = Join-Path $matrixRoot 'run-current-loop-resume-args.txt'
+  Write-CapturingFakeGoBackend -Path $fakeGo -CapturePath $currentLoopResumeCapturePath
+  $currentLoopResumeOut = Invoke-RekitSmoke -Arguments @('-Command','run-current-loop','-Target',$CaseRoot,'-Pack',$Pack,'-ResumeCurrentLoop','-ExpectedCurrentLoopCheckpointSha256',$currentLoopCheckpointHash,'-WhatIf','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $currentLoopResumeOut -Expected '"delegatedByFake":true' -Label 'default run-current-loop resume fake delegation'
+  $capturedCurrentLoopResumeArgs = [System.IO.File]::ReadAllText($currentLoopResumeCapturePath, [System.Text.Encoding]::Default)
+  foreach ($expectedCurrentLoopResumeArg in @('-ResumeCurrentLoop',"-ExpectedCurrentLoopCheckpointSha256 $currentLoopCheckpointHash",'-WhatIf','-Format json')) {
+    Assert-ContainsText -Text $capturedCurrentLoopResumeArgs -Expected $expectedCurrentLoopResumeArg -Label 'run-current-loop resume facade args'
+  }
+  Assert-NotContainsText -Text $capturedCurrentLoopResumeArgs -Unexpected '-MaxSteps' -Label 'run-current-loop resume derives budget in Go'
   $currentLoopDisabledOut = Invoke-RekitSmoke -Arguments @('-Command','run-current-loop','-Target',$CaseRoot,'-Pack',$Pack,'-MaxSteps','3','-WhatIf','-Format','json') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
   Assert-ContainsText -Text $currentLoopDisabledOut -Expected 'PowerShell fallback has been retired' -Label 'disabled run-current-loop no-fallback remains retired'
   Assert-FakeDefaultDelegation -Arguments @('-Command','run-current-step','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'run-current-step' -Label 'default run-current-step preview fake delegation'

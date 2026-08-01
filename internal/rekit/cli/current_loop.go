@@ -19,30 +19,33 @@ const currentLoopRoutePolicy = "fixed-initial-route-and-lane"
 var currentLoopBeforeApplyStepHook func(int) error
 
 type currentLoopPlan struct {
-	SchemaVersion                 int                                    `json:"schemaVersion"`
-	Command                       string                                 `json:"command"`
-	CaseRoot                      string                                 `json:"caseRoot"`
-	Pack                          string                                 `json:"pack"`
-	Actor                         string                                 `json:"actor"`
-	RoutePolicy                   string                                 `json:"routePolicy"`
-	MaxSteps                      int                                    `json:"maxSteps"`
-	AppliedSteps                  int                                    `json:"appliedSteps"`
-	IsMutation                    bool                                   `json:"isMutation"`
-	Applied                       bool                                   `json:"applied"`
-	ReviewRequired                bool                                   `json:"reviewRequired"`
-	RequiresConfirmation          bool                                   `json:"requiresConfirmation"`
-	InitialRoute                  string                                 `json:"initialRoute"`
-	InitialLane                   string                                 `json:"initialLane"`
-	InitialCurrentDriverRequest   *mission.MissionCommanderDriverRequest `json:"initialCurrentDriverRequest,omitempty"`
-	InitialCurrentStep            *currentStepPlan                       `json:"initialCurrentStep,omitempty"`
-	ExpectedCurrentLoopPlanSHA256 string                                 `json:"expectedCurrentLoopPlanSha256,omitempty"`
-	Steps                         []currentLoopStepReceipt               `json:"steps"`
-	StopReason                    currentLoopStopReason                  `json:"stopReason"`
-	ResumeCommand                 string                                 `json:"resumeCommand"`
-	ContinuationRequest           *currentLoopContinuationRequest        `json:"continuationRequest,omitempty"`
-	SegmentCheckpoint             *currentloop.Inspection                `json:"segmentCheckpoint,omitempty"`
-	FinalStatus                   *statusInventory                       `json:"finalStatus,omitempty"`
-	Boundary                      []string                               `json:"boundary"`
+	SchemaVersion                  int                                    `json:"schemaVersion"`
+	Command                        string                                 `json:"command"`
+	CaseRoot                       string                                 `json:"caseRoot"`
+	Pack                           string                                 `json:"pack"`
+	Actor                          string                                 `json:"actor"`
+	RoutePolicy                    string                                 `json:"routePolicy"`
+	MaxSteps                       int                                    `json:"maxSteps"`
+	AppliedSteps                   int                                    `json:"appliedSteps"`
+	IsMutation                     bool                                   `json:"isMutation"`
+	Applied                        bool                                   `json:"applied"`
+	ReviewRequired                 bool                                   `json:"reviewRequired"`
+	RequiresConfirmation           bool                                   `json:"requiresConfirmation"`
+	InitialRoute                   string                                 `json:"initialRoute"`
+	InitialLane                    string                                 `json:"initialLane"`
+	InitialCurrentDriverRequest    *mission.MissionCommanderDriverRequest `json:"initialCurrentDriverRequest,omitempty"`
+	InitialCurrentStep             *currentStepPlan                       `json:"initialCurrentStep,omitempty"`
+	ExpectedCurrentLoopPlanSHA256  string                                 `json:"expectedCurrentLoopPlanSha256,omitempty"`
+	Steps                          []currentLoopStepReceipt               `json:"steps"`
+	StopReason                     currentLoopStopReason                  `json:"stopReason"`
+	ResumeCommand                  string                                 `json:"resumeCommand"`
+	ContinuationRequest            *currentLoopContinuationRequest        `json:"continuationRequest,omitempty"`
+	ResumeSource                   *currentloop.Inspection                `json:"resumeSource,omitempty"`
+	ExpectedResumeCheckpointSHA256 string                                 `json:"expectedResumeCheckpointSha256,omitempty"`
+	ApplyCommand                   string                                 `json:"applyCommand,omitempty"`
+	SegmentCheckpoint              *currentloop.Inspection                `json:"segmentCheckpoint,omitempty"`
+	FinalStatus                    *statusInventory                       `json:"finalStatus,omitempty"`
+	Boundary                       []string                               `json:"boundary"`
 }
 
 type currentLoopStepReceipt struct {
@@ -93,6 +96,7 @@ type currentLoopPlanIdentity struct {
 	InitialLane                   string                                `json:"initialLane"`
 	InitialCurrentDriverRequest   mission.MissionCommanderDriverRequest `json:"initialCurrentDriverRequest"`
 	ExpectedCurrentStepPlanSHA256 string                                `json:"expectedCurrentStepPlanSha256"`
+	ResumeSourceArtifactSHA256    string                                `json:"resumeSourceArtifactSha256,omitempty"`
 }
 
 func runCurrentLoop(ctx runtime.Context, opt Options, out io.Writer) error {
@@ -108,8 +112,14 @@ func runCurrentLoop(ctx runtime.Context, opt Options, out io.Writer) error {
 	if strings.ToLower(strings.TrimSpace(opt.Format)) != "json" {
 		return fmt.Errorf("run-current-loop supports only -Format json")
 	}
-	if opt.MaxSteps < 1 || opt.MaxSteps > 20 {
+	if !opt.ResumeCurrentLoop && (opt.MaxSteps < 1 || opt.MaxSteps > 20) {
 		return fmt.Errorf("run-current-loop requires -MaxSteps between 1 and 20")
+	}
+	if opt.ResumeCurrentLoop && opt.MaxSteps != 0 {
+		return fmt.Errorf("run-current-loop -ResumeCurrentLoop derives remaining budget and does not accept -MaxSteps")
+	}
+	if opt.ResumeCurrentLoop && strings.TrimSpace(opt.ExpectedCurrentLoopCheckpointSHA256) == "" {
+		return fmt.Errorf("run-current-loop -ResumeCurrentLoop requires -ExpectedCurrentLoopCheckpointSha256 from status or handoff")
 	}
 	if err := validateCurrentLoopOuterArgs(opt); err != nil {
 		return err
@@ -134,6 +144,20 @@ func runCurrentLoop(ctx runtime.Context, opt Options, out io.Writer) error {
 	if !strings.EqualFold(expected, plan.ExpectedCurrentLoopPlanSHA256) {
 		return fmt.Errorf("run-current-loop expected plan sha256 mismatch: got %s want %s", expected, plan.ExpectedCurrentLoopPlanSHA256)
 	}
+	if plan.ResumeSource != nil {
+		requestSHA256, hashErr := currentloop.RequestSHA256(*plan.InitialCurrentDriverRequest)
+		if hashErr != nil {
+			return hashErr
+		}
+		if claimErr := currentloop.ClaimResume(ctx.RepoRoot, ctx.Target, ctx.Pack, currentloop.Claim{
+			SourceArtifactSHA256:          plan.ExpectedResumeCheckpointSHA256,
+			ExpectedCurrentLoopPlanSHA256: plan.ExpectedCurrentLoopPlanSHA256,
+			CurrentDriverRequestSHA256:    requestSHA256,
+			Actor:                         plan.Actor,
+		}); claimErr != nil {
+			return claimErr
+		}
+	}
 	plan, err = applyCurrentLoopPlan(ctx, opt, plan, status)
 	if err != nil {
 		return err
@@ -155,6 +179,25 @@ func buildCurrentLoopPlan(ctx runtime.Context, opt Options) (currentLoopPlan, st
 	if err != nil {
 		return currentLoopPlan{}, statusInventory{}, err
 	}
+	var resumeSource *currentloop.Inspection
+	if opt.ResumeCurrentLoop {
+		if status.MissionControlRunbook == nil || status.MissionControlRunbook.CurrentLoopSegment == nil {
+			return currentLoopPlan{}, statusInventory{}, fmt.Errorf("run-current-loop -ResumeCurrentLoop requires a durable current-loop checkpoint")
+		}
+		inspection := status.MissionControlRunbook.CurrentLoopSegment
+		if !inspection.Ready || inspection.State != "ready" || inspection.Continuation == nil || inspection.RemainingMaxSteps < 1 || inspection.ArtifactSHA256 == "" {
+			return currentLoopPlan{}, statusInventory{}, fmt.Errorf("run-current-loop -ResumeCurrentLoop requires the latest checkpoint to be state=ready")
+		}
+		if strings.TrimSpace(status.MissionControlRunbook.Scope) != inspection.ExpectedRoute || status.MissionControlRunbook.CurrentDriverRequest == nil || strings.TrimSpace(status.MissionControlRunbook.CurrentDriverRequest.Lane) != inspection.ExpectedLane {
+			return currentLoopPlan{}, statusInventory{}, fmt.Errorf("run-current-loop ready checkpoint expected route or lane does not match refreshed status")
+		}
+		if strings.TrimSpace(opt.ExpectedCurrentLoopCheckpointSHA256) != "" && !strings.EqualFold(strings.TrimSpace(opt.ExpectedCurrentLoopCheckpointSHA256), inspection.ArtifactSHA256) {
+			return currentLoopPlan{}, statusInventory{}, fmt.Errorf("run-current-loop expected checkpoint sha256 mismatch: got %s want %s", strings.TrimSpace(opt.ExpectedCurrentLoopCheckpointSHA256), inspection.ArtifactSHA256)
+		}
+		opt.MaxSteps = inspection.RemainingMaxSteps
+		copy := *inspection
+		resumeSource = &copy
+	}
 	plan := currentLoopPlan{
 		SchemaVersion:        1,
 		Command:              commands.RunCurrentLoop,
@@ -163,6 +206,7 @@ func buildCurrentLoopPlan(ctx runtime.Context, opt Options) (currentLoopPlan, st
 		Actor:                strings.TrimSpace(opt.Start.Actor),
 		RoutePolicy:          currentLoopRoutePolicy,
 		MaxSteps:             opt.MaxSteps,
+		ResumeSource:         resumeSource,
 		ReviewRequired:       true,
 		RequiresConfirmation: true,
 		Steps:                []currentLoopStepReceipt{},
@@ -214,12 +258,22 @@ func buildCurrentLoopPlan(ctx runtime.Context, opt Options) (currentLoopPlan, st
 		InitialCurrentDriverRequest:   *request,
 		ExpectedCurrentStepPlanSHA256: step.ExpectedCurrentStepPlanSHA256,
 	}
+	if resumeSource != nil {
+		identity.ResumeSourceArtifactSHA256 = resumeSource.ArtifactSHA256
+	}
 	encoded, err := json.Marshal(identity)
 	if err != nil {
 		return currentLoopPlan{}, statusInventory{}, err
 	}
 	sum := sha256.Sum256(encoded)
 	plan.ExpectedCurrentLoopPlanSHA256 = hex.EncodeToString(sum[:])
+	if resumeSource != nil {
+		plan.ExpectedResumeCheckpointSHA256 = resumeSource.ArtifactSHA256
+		plan.ApplyCommand = currentLoopResumeApplyCommand(ctx, plan, opt)
+		plan.Boundary = append(plan.Boundary,
+			"resume preview binds the latest ready checkpoint artifact and its remaining budget; Apply revalidates that exact checkpoint before executing the new segment",
+		)
+	}
 	plan.StopReason = currentLoopStopReason{Code: "ready", Phase: "preview", Message: "bounded current loop is ready for hash-bound Apply", CurrentDriverRequest: request}
 	return plan, status, nil
 }
@@ -414,6 +468,29 @@ func currentLoopResumeCommand(ctx runtime.Context, maxSteps int) string {
 	return fmt.Sprintf("/rekit run-current-loop -Target %s -Pack %s -MaxSteps %d -WhatIf -Format json", statusQuoteCommandArg(ctx.Target), statusQuoteCommandArg(ctx.Pack), maxSteps)
 }
 
+func currentLoopResumeApplyCommand(ctx runtime.Context, plan currentLoopPlan, opt Options) string {
+	args := []string{
+		"/rekit", "run-current-loop",
+		"-Target", statusQuoteCommandArg(ctx.Target),
+		"-Pack", statusQuoteCommandArg(ctx.Pack),
+		"-ResumeCurrentLoop",
+		"-ExpectedCurrentLoopCheckpointSha256", plan.ExpectedResumeCheckpointSHA256,
+	}
+	appendValue := func(flag, value string) {
+		if strings.TrimSpace(value) != "" {
+			args = append(args, flag, statusQuoteCommandArg(value))
+		}
+	}
+	appendValue("-Actor", opt.Start.Actor)
+	appendValue("-ReviewerResultInputSourcePath", opt.ReviewerResultInputSourcePath)
+	appendValue("-ReviewerHarness", opt.ReviewerHarness)
+	appendValue("-ReviewerSession", opt.ReviewerSession)
+	appendValue("-ReviewerOutcome", opt.ReviewerOutcome)
+	appendValue("-ReviewerExitStatus", opt.ReviewerExitStatus)
+	args = append(args, "-ExpectedCurrentLoopPlanSha256", plan.ExpectedCurrentLoopPlanSHA256, "-Apply", "-Format", "json")
+	return strings.Join(args, " ")
+}
+
 func currentLoopContinuationFor(ctx runtime.Context, segmentMaxSteps, appliedSteps int, segmentRoute, segmentLane, expectedRoute string, stop currentLoopStopReason) *currentLoopContinuationRequest {
 	if stop.Code != "external-reviewer-handoff" && stop.Code != "route-policy" && stop.Code != "human-intervention" {
 		return nil
@@ -440,7 +517,7 @@ func currentLoopContinuationFor(ctx runtime.Context, segmentMaxSteps, appliedSte
 		FreshPreviewRequired:  true,
 		CumulativeReceipts:    false,
 		Boundary: []string{
-			"the continuation starts a fresh hash-bound loop segment from refreshed durable status; it does not carry the previous segment hash across the boundary",
+			"the continuation starts a fresh hash-bound loop segment from refreshed durable status; it does not carry the previous segment plan hash across the boundary",
 			"the continuation retains only the remaining deterministic step budget; receipts stay in the previous segment result and are not accumulated across invocations",
 			"the expected route and lane describe the reviewed transition target and must be revalidated by the fresh preview",
 			"without this typed result, status may start a fresh loop preview but cannot claim recovery of the previous segment budget",
@@ -469,6 +546,7 @@ func writeCurrentLoopSegmentCheckpoint(ctx runtime.Context, plan currentLoopPlan
 		RoutePolicy:                   plan.RoutePolicy,
 		InitialCurrentDriverRequest:   *plan.InitialCurrentDriverRequest,
 		ExpectedCurrentLoopPlanSHA256: plan.ExpectedCurrentLoopPlanSHA256,
+		ResumeSourceArtifactSHA256:    plan.ExpectedResumeCheckpointSHA256,
 		SegmentMaxSteps:               plan.MaxSteps,
 		AppliedStepsInSegment:         plan.AppliedSteps,
 		RemainingMaxSteps:             plan.MaxSteps - plan.AppliedSteps,
@@ -600,6 +678,7 @@ func validateCurrentLoopOuterArgs(opt Options) error {
 		"-format": true, "--format": true,
 		"-maxsteps": true, "--max-steps": true,
 		"-expectedcurrentloopplansha256": true, "--expected-current-loop-plan-sha256": true,
+		"-expectedcurrentloopcheckpointsha256": true, "--expected-current-loop-checkpoint-sha256": true,
 		"-actor": true, "--actor": true,
 		"-reviewerresultinputsourcepath": true, "--reviewer-result-input-source-path": true,
 		"-reviewerharness": true, "--reviewer-harness": true,
@@ -610,6 +689,7 @@ func validateCurrentLoopOuterArgs(opt Options) error {
 	switchFlags := map[string]bool{
 		"-whatif": true, "--what-if": true,
 		"-apply": true, "--apply": true,
+		"-resumecurrentloop": true, "--resume-current-loop": true,
 	}
 	seen := map[string]bool{}
 	separatorSeen := false
@@ -664,6 +744,10 @@ func currentLoopCanonicalOuterFlag(key string) string {
 		return "-maxsteps"
 	case "--expected-current-loop-plan-sha256":
 		return "-expectedcurrentloopplansha256"
+	case "--expected-current-loop-checkpoint-sha256":
+		return "-expectedcurrentloopcheckpointsha256"
+	case "--resume-current-loop":
+		return "-resumecurrentloop"
 	case "--what-if":
 		return "-whatif"
 	case "--apply":

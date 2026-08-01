@@ -126,6 +126,8 @@ type Options struct {
 	NextBatchClosure                      string
 	ExpectedNextBatchPlanSHA256           string
 	ExpectedCurrentLoopPlanSHA256         string
+	ExpectedCurrentLoopCheckpointSHA256   string
+	ResumeCurrentLoop                     bool
 	ExpectedCurrentStepPlanSHA256         string
 	ExpectedDriverStepPlanSHA256          string
 	ExpectedReviewerStepPlanSHA256        string
@@ -390,6 +392,14 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ExpectedCurrentLoopPlanSha256")
 			}
 			opt.ExpectedCurrentLoopPlanSHA256 = args[i]
+		case "-ExpectedCurrentLoopCheckpointSha256", "-ExpectedCurrentLoopCheckpointSHA256", "--expected-current-loop-checkpoint-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedCurrentLoopCheckpointSha256")
+			}
+			opt.ExpectedCurrentLoopCheckpointSHA256 = args[i]
+		case "-ResumeCurrentLoop", "--resume-current-loop":
+			opt.ResumeCurrentLoop = true
 		case "-ExpectedCurrentStepPlanSha256", "-ExpectedCurrentStepPlanSHA256", "--expected-current-step-plan-sha256":
 			i++
 			if i >= len(args) {
@@ -4724,7 +4734,15 @@ func writeCurrentLoopSegmentInspectionText(out io.Writer, prefix string, inspect
 		return err
 	}
 	if continuation := inspection.Continuation; continuation != nil {
-		if _, err := fmt.Fprintf(out, "%s current-loop segment continuation：state=%s stop=%s max=%d applied=%d remaining=%d transition=%s/%s->%s/%s command=`%s`\n", prefix, continuation.State, continuation.StopCode, continuation.SegmentMaxSteps, continuation.AppliedStepsInSegment, continuation.RemainingMaxSteps, continuation.SegmentRoute, continuation.SegmentLane, continuation.ExpectedRoute, continuation.ExpectedLane, continuation.WhatIfCommand); err != nil {
+		if _, err := fmt.Fprintf(out, "%s current-loop segment continuation：state=%s stop=%s max=%d applied=%d remaining=%d transition=%s/%s->%s/%s legacyUnboundCommand=`%s`\n", prefix, continuation.State, continuation.StopCode, continuation.SegmentMaxSteps, continuation.AppliedStepsInSegment, continuation.RemainingMaxSteps, continuation.SegmentRoute, continuation.SegmentLane, continuation.ExpectedRoute, continuation.ExpectedLane, inspection.LegacyUnboundWhatIfCommand); err != nil {
+			return err
+		}
+	}
+	if inspection.ResumeDriverRequest != nil {
+		if _, err := fmt.Fprintf(out, "%s current-loop resume source：artifactSha256=%s\n", prefix, inspection.ArtifactSHA256); err != nil {
+			return err
+		}
+		if err := writeMissionCommanderDriverRequestText(out, prefix+" current-loop checkpoint-bound resume", inspection.ResumeDriverRequest); err != nil {
 			return err
 		}
 	}

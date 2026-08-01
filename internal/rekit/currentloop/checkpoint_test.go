@@ -102,6 +102,128 @@ func TestCheckpointWriteBindsIdentityAfterPublicationLease(t *testing.T) {
 	}
 }
 
+func TestCheckpointResumeClaimNamespaceSwapFailsBeforeConsumption(t *testing.T) {
+	repoRoot, caseRoot := checkpointAttachedCase(t)
+	request := checkpointRequest("/rekit continue main -WhatIf -Format json")
+	written, err := Write(repoRoot, caseRoot, "_template", checkpointPayload(t, caseRoot, request))
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestSHA256, err := RequestSHA256(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalSync := syncClaimDirectory
+	syncClaimDirectory = func(root *os.Root) error {
+		claimPath := filepath.Join(caseRoot, ".rekit", "runs", "current-loop-segment-claims")
+		movedPath := claimPath + "-moved"
+		if err := os.Rename(claimPath, movedPath); err != nil {
+			return err
+		}
+		if err := os.Mkdir(claimPath, 0o700); err != nil {
+			return err
+		}
+		return syncCurrentLoopRoot(root)
+	}
+	t.Cleanup(func() { syncClaimDirectory = originalSync })
+	err = ClaimResume(repoRoot, caseRoot, "_template", Claim{
+		SourceArtifactSHA256:          written.ArtifactSHA256,
+		ExpectedCurrentLoopPlanSHA256: strings.Repeat("c", 64),
+		CurrentDriverRequestSHA256:    requestSHA256,
+	})
+	if err == nil || !strings.Contains(err.Error(), "namespace changed") {
+		t.Fatalf("resume claim namespace swap was accepted: %v", err)
+	}
+	inspection := Inspect(repoRoot, caseRoot, "_template", &request)
+	if !inspection.Ready || inspection.State != "ready" || inspection.ResumeDriverRequest == nil {
+		t.Fatalf("namespace swap consumed source in canonical namespace: %+v", inspection)
+	}
+}
+
+func TestCheckpointResumeClaimSyncFailureDoesNotConsumeSource(t *testing.T) {
+	repoRoot, caseRoot := checkpointAttachedCase(t)
+	request := checkpointRequest("/rekit continue main -WhatIf -Format json")
+	written, err := Write(repoRoot, caseRoot, "_template", checkpointPayload(t, caseRoot, request))
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestSHA256, err := RequestSHA256(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalSync := syncClaimDirectory
+	syncClaimDirectory = func(*os.Root) error { return os.ErrPermission }
+	t.Cleanup(func() { syncClaimDirectory = originalSync })
+	err = ClaimResume(repoRoot, caseRoot, "_template", Claim{
+		SourceArtifactSHA256:          written.ArtifactSHA256,
+		ExpectedCurrentLoopPlanSHA256: strings.Repeat("c", 64),
+		CurrentDriverRequestSHA256:    requestSHA256,
+	})
+	if err == nil || !strings.Contains(err.Error(), "persist current-loop resume claim directory") {
+		t.Fatalf("claim directory sync failure was accepted: %v", err)
+	}
+	inspection := Inspect(repoRoot, caseRoot, "_template", &request)
+	if !inspection.Ready || inspection.State != "ready" || inspection.ResumeDriverRequest == nil {
+		t.Fatalf("failed claim persistence consumed source: %+v", inspection)
+	}
+}
+
+func TestCheckpointResumeClaimIsOneShotAndFailsClosed(t *testing.T) {
+	repoRoot, caseRoot := checkpointAttachedCase(t)
+	request := checkpointRequest("/rekit continue main -WhatIf -Format json")
+	payload := checkpointPayload(t, caseRoot, request)
+	written, err := Write(repoRoot, caseRoot, "_template", payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestSHA256, err := RequestSHA256(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim := Claim{
+		SourceArtifactSHA256:          written.ArtifactSHA256,
+		ExpectedCurrentLoopPlanSHA256: strings.Repeat("c", 64),
+		CurrentDriverRequestSHA256:    requestSHA256,
+		Actor:                         "main-agent",
+	}
+	if err := ClaimResume(repoRoot, caseRoot, "_template", claim); err != nil {
+		t.Fatal(err)
+	}
+	consumed := Inspect(repoRoot, caseRoot, "_template", &request)
+	if consumed.Ready || consumed.State != "consumed" || consumed.Continuation != nil || consumed.ResumeDriverRequest != nil {
+		t.Fatalf("durably claimed checkpoint remained recoverable: %+v", consumed)
+	}
+	if err := ClaimResume(repoRoot, caseRoot, "_template", claim); err == nil || !strings.Contains(err.Error(), "consumed") {
+		t.Fatalf("duplicate resume claim was accepted: %v", err)
+	}
+}
+
+func TestCheckpointResumeSourceMustBeLatestBeforePublication(t *testing.T) {
+	repoRoot, caseRoot := checkpointAttachedCase(t)
+	request := checkpointRequest("/rekit continue main -WhatIf -Format json")
+	payload := checkpointPayload(t, caseRoot, request)
+	first, err := Write(repoRoot, caseRoot, "_template", payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Write(repoRoot, caseRoot, "_template", payload); err != nil {
+		t.Fatal(err)
+	}
+	payload.ResumeSourceArtifactSHA256 = first.ArtifactSHA256
+	if _, err := Write(repoRoot, caseRoot, "_template", payload); err == nil || !strings.Contains(err.Error(), "no longer the latest") {
+		t.Fatalf("stale resume source published a successor: %v", err)
+	}
+	root := filepath.Join(caseRoot, filepath.FromSlash(artifactRelRoot))
+	entries, err := os.ReadDir(root)
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("stale resume publication changed chain length: %v entries=%d", err, len(entries))
+	}
+	inspection := Inspect(repoRoot, caseRoot, "_template", &request)
+	if !inspection.Ready || inspection.Sequence != 2 {
+		t.Fatalf("stale resume publication polluted valid chain: %+v", inspection)
+	}
+}
+
 func TestCheckpointLatestArtifactFailsClosedWithoutFallback(t *testing.T) {
 	repoRoot, caseRoot := checkpointAttachedCase(t)
 	request := checkpointRequest("/rekit continue main -WhatIf -Format json")
@@ -348,6 +470,61 @@ func TestCheckpointNamespaceAndTerminalStatesFailClosed(t *testing.T) {
 			t.Fatalf("symlink namespace was accepted: %+v", inspection)
 		}
 	})
+
+	for _, test := range []struct {
+		name  string
+		write func(t *testing.T, path string)
+	}{
+		{
+			name: "invalid-resume-claim-json",
+			write: func(t *testing.T, path string) {
+				t.Helper()
+				if err := os.WriteFile(path, []byte("{\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "non-regular-resume-claim",
+			write: func(t *testing.T, path string) {
+				t.Helper()
+				if err := os.Mkdir(path, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "symlink-resume-claim",
+			write: func(t *testing.T, path string) {
+				t.Helper()
+				outside := filepath.Join(t.TempDir(), "claim.json")
+				if err := os.WriteFile(outside, []byte("{}\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(outside, path); err != nil {
+					t.Skipf("symlink unavailable: %v", err)
+				}
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repoRoot, caseRoot := checkpointAttachedCase(t)
+			request := checkpointRequest("/rekit continue main -WhatIf -Format json")
+			written, err := Write(repoRoot, caseRoot, "_template", checkpointPayload(t, caseRoot, request))
+			if err != nil {
+				t.Fatal(err)
+			}
+			claimRoot := filepath.Join(caseRoot, ".rekit", "runs", "current-loop-segment-claims")
+			if err := os.MkdirAll(claimRoot, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			test.write(t, filepath.Join(claimRoot, strings.ToLower(written.ArtifactSHA256)+".json"))
+			inspection := Inspect(repoRoot, caseRoot, "_template", &request)
+			if inspection.Ready || inspection.State != "invalid" || inspection.Continuation != nil || inspection.ResumeDriverRequest != nil {
+				t.Fatalf("invalid resume claim was accepted: %+v", inspection)
+			}
+		})
+	}
 
 	t.Run("terminal", func(t *testing.T) {
 		repoRoot, caseRoot := checkpointAttachedCase(t)

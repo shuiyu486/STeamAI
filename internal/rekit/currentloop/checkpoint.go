@@ -33,6 +33,7 @@ var (
 	artifactNamePattern = regexp.MustCompile(`^([0-9]{20})\.json$`)
 	tempNamePattern     = regexp.MustCompile(`^\.[0-9]{20}\.[a-f0-9]{32}\.json\.tmp$`)
 	acquireProject      = lanemutation.AcquireProject
+	syncClaimDirectory  = syncCurrentLoopRoot
 	nowUTC              = func() time.Time { return time.Now().UTC() }
 )
 
@@ -58,7 +59,7 @@ type Continuation struct {
 	SegmentLane           string               `json:"segmentLane"`
 	ExpectedRoute         string               `json:"expectedRoute"`
 	ExpectedLane          string               `json:"expectedLane"`
-	WhatIfCommand         string               `json:"whatIfCommand"`
+	WhatIfCommand         string               `json:"whatIfCommand,omitempty"`
 	ObservationContract   *ObservationContract `json:"observationContract,omitempty"`
 	FreshPreviewRequired  bool                 `json:"freshPreviewRequired"`
 	CumulativeReceipts    bool                 `json:"cumulativeReceipts"`
@@ -105,6 +106,7 @@ type Payload struct {
 	InitialCurrentDriverRequest         mission.MissionCommanderDriverRequest  `json:"initialCurrentDriverRequest"`
 	InitialCurrentDriverRequestSHA256   string                                 `json:"initialCurrentDriverRequestSha256"`
 	ExpectedCurrentLoopPlanSHA256       string                                 `json:"expectedCurrentLoopPlanSha256"`
+	ResumeSourceArtifactSHA256          string                                 `json:"resumeSourceArtifactSha256,omitempty"`
 	SegmentMaxSteps                     int                                    `json:"segmentMaxSteps"`
 	AppliedStepsInSegment               int                                    `json:"appliedStepsInSegment"`
 	RemainingMaxSteps                   int                                    `json:"remainingMaxSteps"`
@@ -132,27 +134,41 @@ type envelope struct {
 	Payload       json.RawMessage `json:"payload"`
 }
 
+type Claim struct {
+	SchemaVersion                 int    `json:"schemaVersion"`
+	Kind                          string `json:"kind"`
+	SourceArtifactSHA256          string `json:"sourceArtifactSha256"`
+	ExpectedCurrentLoopPlanSHA256 string `json:"expectedCurrentLoopPlanSha256"`
+	CurrentDriverRequestSHA256    string `json:"currentDriverRequestSha256"`
+	Actor                         string `json:"actor,omitempty"`
+	NoAuthority                   bool   `json:"noAuthorityOrConfirmed"`
+	NoAutoApply                   bool   `json:"noAutoApply"`
+}
+
 type Inspection struct {
-	State             string        `json:"state"`
-	Ready             bool          `json:"ready"`
-	Sequence          uint64        `json:"sequence,omitempty"`
-	ArtifactPath      string        `json:"artifactPath,omitempty"`
-	ArtifactSHA256    string        `json:"artifactSha256,omitempty"`
-	ArtifactBytes     int           `json:"artifactBytes,omitempty"`
-	PayloadSHA256     string        `json:"payloadSha256,omitempty"`
-	RecordedAt        string        `json:"recordedAt,omitempty"`
-	StopCode          string        `json:"stopCode,omitempty"`
-	StopPhase         string        `json:"stopPhase,omitempty"`
-	SegmentMaxSteps   int           `json:"segmentMaxSteps,omitempty"`
-	AppliedSteps      int           `json:"appliedStepsInSegment,omitempty"`
-	RemainingMaxSteps int           `json:"remainingMaxSteps,omitempty"`
-	SegmentRoute      string        `json:"segmentRoute,omitempty"`
-	SegmentLane       string        `json:"segmentLane,omitempty"`
-	ExpectedRoute     string        `json:"expectedRoute,omitempty"`
-	ExpectedLane      string        `json:"expectedLane,omitempty"`
-	Continuation      *Continuation `json:"continuation,omitempty"`
-	Warnings          []string      `json:"warnings,omitempty"`
-	Boundary          []string      `json:"boundary"`
+	State                      string                                 `json:"state"`
+	Ready                      bool                                   `json:"ready"`
+	Sequence                   uint64                                 `json:"sequence,omitempty"`
+	ArtifactPath               string                                 `json:"artifactPath,omitempty"`
+	ArtifactSHA256             string                                 `json:"artifactSha256,omitempty"`
+	ArtifactBytes              int                                    `json:"artifactBytes,omitempty"`
+	PayloadSHA256              string                                 `json:"payloadSha256,omitempty"`
+	RecordedAt                 string                                 `json:"recordedAt,omitempty"`
+	StopCode                   string                                 `json:"stopCode,omitempty"`
+	StopPhase                  string                                 `json:"stopPhase,omitempty"`
+	SegmentMaxSteps            int                                    `json:"segmentMaxSteps,omitempty"`
+	AppliedSteps               int                                    `json:"appliedStepsInSegment,omitempty"`
+	RemainingMaxSteps          int                                    `json:"remainingMaxSteps,omitempty"`
+	SegmentRoute               string                                 `json:"segmentRoute,omitempty"`
+	SegmentLane                string                                 `json:"segmentLane,omitempty"`
+	ExpectedRoute              string                                 `json:"expectedRoute,omitempty"`
+	ExpectedLane               string                                 `json:"expectedLane,omitempty"`
+	ResumeSourceSHA256         string                                 `json:"resumeSourceSha256,omitempty"`
+	ResumeDriverRequest        *mission.MissionCommanderDriverRequest `json:"resumeDriverRequest,omitempty"`
+	Continuation               *Continuation                          `json:"continuation,omitempty"`
+	LegacyUnboundWhatIfCommand string                                 `json:"legacyUnboundWhatIfCommand,omitempty"`
+	Warnings                   []string                               `json:"warnings,omitempty"`
+	Boundary                   []string                               `json:"boundary"`
 }
 
 func RequestSHA256(request mission.MissionCommanderDriverRequest) (string, error) {
@@ -204,6 +220,9 @@ func Write(repoRoot, caseRoot, pack string, payload Payload) (inspection Inspect
 		payload.PreviousArtifactSHA256 = records[len(records)-1].artifactSHA256
 	} else {
 		payload.PreviousArtifactSHA256 = ""
+	}
+	if payload.ResumeSourceArtifactSHA256 != "" && !strings.EqualFold(payload.ResumeSourceArtifactSHA256, payload.PreviousArtifactSHA256) {
+		return Inspection{}, fmt.Errorf("current-loop resume source is no longer the latest checkpoint")
 	}
 	payload.CaseIdentitySHA256 = identity
 	payload.Pack = strings.TrimSpace(pack)
@@ -284,6 +303,98 @@ func Write(repoRoot, caseRoot, pack string, payload Payload) (inspection Inspect
 	return inspection, nil
 }
 
+func ClaimResume(repoRoot, caseRoot, pack string, claim Claim) (resultErr error) {
+	if !isSHA256(claim.SourceArtifactSHA256) || !isSHA256(claim.ExpectedCurrentLoopPlanSHA256) || !isSHA256(claim.CurrentDriverRequestSHA256) {
+		return fmt.Errorf("current-loop resume claim hashes are invalid")
+	}
+	claim.SchemaVersion = 1
+	claim.Kind = "current-loop-segment-resume-claim"
+	claim.NoAuthority = true
+	claim.NoAutoApply = true
+	lease, err := acquireProject(caseRoot)
+	if err != nil {
+		return fmt.Errorf("acquire current-loop resume claim lease: %w", err)
+	}
+	defer func() {
+		if unlockErr := lease.Unlock(); unlockErr != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("release current-loop resume claim lease: %w", unlockErr))
+		}
+	}()
+	identity, err := caseIdentity(repoRoot, caseRoot, pack)
+	if err != nil {
+		return err
+	}
+	artifactRoot, err := openArtifactRoot(caseRoot, false)
+	if err != nil {
+		return err
+	}
+	records, err := readArtifactChain(artifactRoot, caseRoot)
+	_ = artifactRoot.Close()
+	if err != nil || len(records) == 0 || !strings.EqualFold(records[len(records)-1].artifactSHA256, claim.SourceArtifactSHA256) {
+		return fmt.Errorf("current-loop resume source is no longer the latest strict checkpoint")
+	}
+	latest := records[len(records)-1]
+	if !strings.EqualFold(latest.payload.CaseIdentitySHA256, identity) || !strings.EqualFold(latest.payload.Pack, strings.TrimSpace(pack)) || latest.payload.Continuation == nil || latest.payload.RemainingMaxSteps < 1 {
+		return fmt.Errorf("current-loop resume source is not ready for a claim")
+	}
+	claimRoot, err := openClaimRoot(caseRoot, true)
+	if err != nil {
+		return err
+	}
+	defer claimRoot.Close()
+	name := strings.ToLower(claim.SourceArtifactSHA256) + ".json"
+	data, err := json.Marshal(claim)
+	if err != nil {
+		return err
+	}
+	if existing, existingErr := claimRoot.Lstat(name); existingErr == nil {
+		if existing.Mode()&os.ModeSymlink != 0 || !existing.Mode().IsRegular() {
+			return fmt.Errorf("current-loop resume claim namespace is invalid")
+		}
+		return fmt.Errorf("current-loop resume source has already been consumed")
+	} else if !os.IsNotExist(existingErr) {
+		return existingErr
+	}
+	file, err := claimRoot.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		if os.IsExist(err) {
+			return fmt.Errorf("current-loop resume source has already been consumed")
+		}
+		return err
+	}
+	if _, err := file.Write(append(data, '\n')); err != nil {
+		_ = file.Close()
+		_ = claimRoot.Remove(name)
+		return err
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		_ = claimRoot.Remove(name)
+		return err
+	}
+	if err := file.Close(); err != nil {
+		_ = claimRoot.Remove(name)
+		return err
+	}
+	if err := syncClaimDirectory(claimRoot); err != nil {
+		_ = claimRoot.Remove(name)
+		return fmt.Errorf("persist current-loop resume claim directory: %w", err)
+	}
+	canonicalClaimRoot, err := openClaimRoot(caseRoot, false)
+	if err != nil {
+		_ = claimRoot.Remove(name)
+		return fmt.Errorf("reopen canonical current-loop resume claim namespace: %w", err)
+	}
+	heldInfo, heldErr := claimRoot.Stat(".")
+	canonicalInfo, canonicalErr := canonicalClaimRoot.Stat(".")
+	_ = canonicalClaimRoot.Close()
+	if heldErr != nil || canonicalErr != nil || !os.SameFile(heldInfo, canonicalInfo) {
+		_ = claimRoot.Remove(name)
+		return fmt.Errorf("current-loop resume claim namespace changed before claim publication completed")
+	}
+	return nil
+}
+
 func InspectAttached(caseRoot string, current *mission.MissionCommanderDriverRequest) Inspection {
 	inst, err := instance.Read(caseRoot)
 	if err != nil {
@@ -334,6 +445,7 @@ func inspectRoot(root *os.Root, identity, caseRoot, pack string, current *missio
 	base.Sequence = payload.Sequence
 	base.ArtifactPath = filepath.ToSlash(filepath.Join(artifactRelRoot, name))
 	base.ArtifactSHA256 = latest.artifactSHA256
+	base.ResumeSourceSHA256 = payload.ResumeSourceArtifactSHA256
 	base.ArtifactBytes = len(latest.data)
 	base.PayloadSHA256 = artifact.PayloadSHA256
 	base.RecordedAt = artifact.RecordedAt
@@ -385,10 +497,97 @@ func inspectRoot(root *os.Root, identity, caseRoot, pack string, current *missio
 		base.Warnings = []string{"latest current-loop checkpoint is valid history, but its stop does not permit recovery of previous segment budget"}
 		return base
 	}
+	claimed, claimErr := resumeClaimExists(caseRoot, latest.artifactSHA256)
+	if claimErr != nil {
+		return invalidInspection(base, "latest current-loop checkpoint resume claim cannot be validated: "+claimErr.Error())
+	}
+	if claimed {
+		base.State = "consumed"
+		base.Warnings = []string{"latest current-loop checkpoint budget has a durable resume claim and cannot be recovered again; inspect the active invocation result or refresh status for its successor"}
+		return base
+	}
 	base.State = "ready"
 	base.Ready = true
-	base.Continuation = payload.Continuation
+	continuation := *payload.Continuation
+	base.LegacyUnboundWhatIfCommand = continuation.WhatIfCommand
+	continuation.WhatIfCommand = ""
+	continuation.Boundary = append(append([]string(nil), continuation.Boundary...),
+		"legacy unbound WhatIf command is diagnostic-only; execute resumeDriverRequest.command for checkpoint-bound recovery",
+	)
+	base.Continuation = &continuation
+	base.ResumeDriverRequest = resumeDriverRequest(caseRoot, pack, latest.artifactSHA256, payload)
 	return base
+}
+
+func resumeDriverRequest(caseRoot, pack, artifactSHA256 string, payload Payload) *mission.MissionCommanderDriverRequest {
+	if payload.Continuation == nil || payload.Continuation.RemainingMaxSteps < 1 || strings.TrimSpace(artifactSHA256) == "" {
+		return nil
+	}
+	command := fmt.Sprintf("/rekit run-current-loop -Target %s -Pack %s -ResumeCurrentLoop -ExpectedCurrentLoopCheckpointSha256 %s -WhatIf -Format json", quoteCommandArg(caseRoot), quoteCommandArg(pack), artifactSHA256)
+	return &mission.MissionCommanderDriverRequest{
+		Kind:              "preview-command",
+		RunLoopStepID:     "resume-current-loop",
+		Actor:             "main-agent",
+		State:             "durable-campaign-resume-review-required",
+		Source:            "currentLoopSegment.resumeDriverRequest",
+		Lane:              payload.Continuation.ExpectedLane,
+		ActionID:          "resume-current-loop-segment-" + sequenceText(payload.Sequence),
+		Command:           command,
+		CommandExecutable: true,
+		RequiresReview:    true,
+		ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
+			State:                "previewed",
+			Command:              command,
+			RefreshStatusCommand: fmt.Sprintf("/rekit status -Target %s -Pack %s -Format json", quoteCommandArg(caseRoot), quoteCommandArg(pack)),
+			Boundary: []string{
+				"review the fresh loop plan and use only its exact applyCommand",
+				"preview must revalidate this checkpoint artifact, expected route/lane, current request, and remaining budget",
+			},
+		},
+		Boundary: []string{
+			"resume request is executable only while this exact checkpoint remains the latest strict ready artifact",
+			"resume preview does not execute a segment, reuse the previous plan hash, or grant authority/confirmed state",
+		},
+	}
+}
+
+func quoteCommandArg(value string) string {
+	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
+}
+
+func resumeClaimExists(caseRoot, artifactSHA256 string) (bool, error) {
+	root, err := openClaimRoot(caseRoot, false)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	defer root.Close()
+	name := strings.ToLower(artifactSHA256) + ".json"
+	info, err := root.Lstat(name)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return false, fmt.Errorf("resume claim must be a regular non-symlink file")
+	}
+	data, err := readStableRegular(root, name, maxArtifactBytes)
+	if err != nil {
+		return false, err
+	}
+	var claim Claim
+	if err := decodeStrict(data, &claim); err != nil {
+		return false, err
+	}
+	canonical, err := json.Marshal(claim)
+	if err != nil || !bytes.Equal(data, append(canonical, '\n')) || claim.SchemaVersion != 1 || claim.Kind != "current-loop-segment-resume-claim" || !strings.EqualFold(claim.SourceArtifactSHA256, artifactSHA256) || !isSHA256(claim.ExpectedCurrentLoopPlanSHA256) || !isSHA256(claim.CurrentDriverRequestSHA256) || !claim.NoAuthority || !claim.NoAutoApply {
+		return false, fmt.Errorf("resume claim contract is invalid")
+	}
+	return true, nil
 }
 
 type artifactRecord struct {
@@ -487,6 +686,9 @@ func readArtifactChain(root *os.Root, caseRoot string) ([]artifactRecord, error)
 		if err := validatePayloadForCase(payload, caseRoot); err != nil {
 			return nil, &artifactChainError{name: name, err: fmt.Errorf("current-loop checkpoint payload lineage is invalid: %w", err)}
 		}
+		if payload.ResumeSourceArtifactSHA256 != "" && !strings.EqualFold(payload.ResumeSourceArtifactSHA256, previousSHA256) {
+			return nil, fmt.Errorf("artifact resume source does not match its immediate predecessor: %s", name)
+		}
 		if !strings.EqualFold(payload.PreviousArtifactSHA256, previousSHA256) {
 			return nil, fmt.Errorf("artifact previous hash chain is broken: %s", name)
 		}
@@ -571,6 +773,7 @@ func validatePayloadForCase(payload Payload, caseRoot string) error {
 		InitialLane                   string                                `json:"initialLane"`
 		InitialCurrentDriverRequest   mission.MissionCommanderDriverRequest `json:"initialCurrentDriverRequest"`
 		ExpectedCurrentStepPlanSHA256 string                                `json:"expectedCurrentStepPlanSha256"`
+		ResumeSourceArtifactSHA256    string                                `json:"resumeSourceArtifactSha256,omitempty"`
 	}{
 		SchemaVersion:                 1,
 		CaseRoot:                      caseRoot,
@@ -582,6 +785,7 @@ func validatePayloadForCase(payload Payload, caseRoot string) error {
 		InitialLane:                   payload.SegmentLane,
 		InitialCurrentDriverRequest:   payload.InitialCurrentDriverRequest,
 		ExpectedCurrentStepPlanSHA256: payload.StepReceipts[0].ExpectedCurrentStepPlanSHA256,
+		ResumeSourceArtifactSHA256:    payload.ResumeSourceArtifactSHA256,
 	}
 	encoded, err := json.Marshal(identity)
 	if err != nil {
@@ -599,6 +803,9 @@ func validatePayload(payload Payload) error {
 	}
 	if payload.Sequence == 0 || payload.Sequence == 1 && payload.PreviousArtifactSHA256 != "" || payload.Sequence > 1 && !isSHA256(payload.PreviousArtifactSHA256) {
 		return fmt.Errorf("segment sequence or previous artifact hash is invalid")
+	}
+	if payload.ResumeSourceArtifactSHA256 != "" && (payload.Sequence < 2 || !isSHA256(payload.ResumeSourceArtifactSHA256)) {
+		return fmt.Errorf("resume source artifact hash is invalid")
 	}
 	if !isSHA256(payload.CaseIdentitySHA256) || strings.TrimSpace(payload.Pack) == "" || strings.TrimSpace(payload.RoutePolicy) == "" || !isSHA256(payload.InitialCurrentDriverRequestSHA256) || !isSHA256(payload.ExpectedCurrentLoopPlanSHA256) {
 		return fmt.Errorf("case, pack, route policy, initial request, and loop plan identity must be present")
@@ -734,6 +941,14 @@ func caseIdentity(repoRoot, caseRoot, pack string) (string, error) {
 }
 
 func openArtifactRoot(caseRoot string, create bool) (*os.Root, error) {
+	return openCaseNamespaceRoot(caseRoot, []string{".rekit", "runs", "current-loop-segments"}, create)
+}
+
+func openClaimRoot(caseRoot string, create bool) (*os.Root, error) {
+	return openCaseNamespaceRoot(caseRoot, []string{".rekit", "runs", "current-loop-segment-claims"}, create)
+}
+
+func openCaseNamespaceRoot(caseRoot string, components []string, create bool) (*os.Root, error) {
 	caseRoot, err := filepath.Abs(caseRoot)
 	if err != nil {
 		return nil, err
@@ -749,13 +964,17 @@ func openArtifactRoot(caseRoot string, create bool) (*os.Root, error) {
 	if err != nil {
 		return nil, err
 	}
-	components := []string{".rekit", "runs", "current-loop-segments"}
+	currentPath := caseRoot
 	for index, component := range components {
 		before, statErr := current.Lstat(component)
 		if os.IsNotExist(statErr) && create && index > 0 {
 			if err := current.Mkdir(component, 0o700); err != nil && !os.IsExist(err) {
 				_ = current.Close()
 				return nil, err
+			}
+			if err := syncCurrentLoopDirectory(currentPath); err != nil {
+				_ = current.Close()
+				return nil, fmt.Errorf("persist current-loop checkpoint namespace component %s: %w", strings.Join(components[:index+1], "/"), err)
 			}
 			before, statErr = current.Lstat(component)
 		}
@@ -784,6 +1003,7 @@ func openArtifactRoot(caseRoot string, create bool) (*os.Root, error) {
 			return nil, err
 		}
 		current = next
+		currentPath = filepath.Join(currentPath, component)
 	}
 	return current, nil
 }
