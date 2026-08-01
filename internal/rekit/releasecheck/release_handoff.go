@@ -4456,13 +4456,31 @@ func latestBatchHasLocalValidationEvidenceLabels(evidence []string) bool {
 }
 
 func latestBatchHasReleaseRunSuccess(lower string) bool {
-	if !strings.Contains(lower, "release-run") || !strings.Contains(lower, "ready=true") {
+	if !strings.Contains(lower, "release-run") {
 		return false
 	}
-	if strings.Contains(lower, "summary=release run ok") || strings.Contains(lower, "release run ok") {
+	if strings.Contains(lower, "ready=true") {
+		if strings.Contains(lower, "summary=release run ok") || strings.Contains(lower, "release run ok") {
+			return true
+		}
+		if strings.Contains(lower, "passed=7") && strings.Contains(lower, "failed=0") && strings.Contains(lower, "skipped=0") {
+			return true
+		}
+	}
+	for _, clause := range latestBatchEvidenceClauses(lower) {
+		compact := strings.NewReplacer(" ", "", "\t", "").Replace(clause)
+		if !strings.Contains(compact, "release-run") || (!strings.Contains(compact, "以7/7通过") && !strings.Contains(compact, "7/7均通过") && !strings.Contains(compact, "7/7全部通过")) {
+			continue
+		}
+		if latestBatchContainsAny(compact, "未通过", "待执行", "待完成", "尚未执行", "失败", "failed", "ready=false", "目标", "计划", "预期", "应达到", "不能证明", "并非", "历史", "旧文案") {
+			continue
+		}
+		if !latestBatchContainsAny(compact, "完成态", "最终", "已通过", "成功") {
+			continue
+		}
 		return true
 	}
-	return strings.Contains(lower, "passed=7") && strings.Contains(lower, "failed=0") && strings.Contains(lower, "skipped=0")
+	return false
 }
 
 func latestBatchHasReleaseRunTransientRetry(lower string) bool {

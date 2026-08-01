@@ -544,6 +544,42 @@ func TestLatestBatchHandoffAcceptsReleaseRunLocalMinimum(t *testing.T) {
 	}
 }
 
+func TestLatestBatchHandoffAcceptsReleaseRunSevenOfSevenLocalMinimum(t *testing.T) {
+	section := `状态：已完成 runtime/test/doc 工作树实现、完整本机 release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit ` + "`" + `bfc2dc2` + "`" + ` 已推送。Push run ` + "`" + `30707662890` + "`" + ` completed success，Linux/macOS/Windows 全部 release steps 与完整 Go tests 通过。
+
+验证结果：完成态写回后统一 ` + "`" + `release-run -Format json` + "`" + ` 以 7/7 通过（419.598 秒，其中完整 Go tests 416.905 秒）。`
+
+	handoff := latestBatchHandoff(ReleaseHandoffLatestBatch{Status: "已完成 fixture"}, section)
+	if !handoff.LocalValidationReady || !handoff.ReleaseCheckReady {
+		t.Fatalf("release-run 7/7 success should satisfy local release minimum: %+v", handoff)
+	}
+	if cadence := handoff.ReleaseInspectionCadence; cadence.State != "complete" || !cadence.ImplementationCommitReady || !cadence.InspectionCommitReady {
+		t.Fatalf("release-run 7/7 completed batch should have complete cadence: %+v", cadence)
+	}
+	if strings.Contains(handoff.NextAction, "local release minimum") || !strings.Contains(handoff.NextAction, "select the next batch") {
+		t.Fatalf("release-run 7/7 completed batch should point to next-batch selection, got %q", handoff.NextAction)
+	}
+}
+
+func TestLatestBatchHandoffRejectsNonSuccessReleaseRunSevenOfSevenNarrative(t *testing.T) {
+	for _, section := range []string{
+		"验证结果：release-run 7/7 待执行。",
+		"验证结果：release-run 未通过 7/7。",
+		"验证结果：release-run 7/7 failed。",
+		"验证结果：release-run ready=false，目标是 7/7 通过。",
+		"验证结果：修复后 release-run 应达到 7/7 通过。",
+		"目标是让 release-run 以 7/7 通过。",
+		"现有记录不能证明 release-run 以 7/7 通过。",
+		"历史文案称 release-run 以 7/7 通过。",
+		"目标：release-run 以 7/7 通过；当前尚未执行。",
+	} {
+		handoff := latestBatchHandoff(ReleaseHandoffLatestBatch{Status: "已完成 fixture"}, section)
+		if handoff.LocalValidationReady || handoff.ReleaseCheckReady {
+			t.Fatalf("non-success release-run 7/7 narrative should remain not ready: section=%q handoff=%+v", section, handoff)
+		}
+	}
+}
+
 func TestLatestBatchHandoffWarnsForStalePendingValidationAfterCompleteCadence(t *testing.T) {
 	section := `状态：已完成 runtime/test/doc 工作树实现、完整本机 release minimum、implementation commit/push 与 push-triggered remote release-gate inspection；implementation commit ` + "`" + `b460a5c` + "`" + ` 已推送。Push run ` + "`" + `30308624088` + "`" + ` completed failure；Windows/macOS/Linux jobs ` + "`" + `90118781570` + "`" + `/` + "`" + `90118781609` + "`" + `/` + "`" + `90118781685` + "`" + ` 均 ` + "`" + `steps=[]` + "`" + `；` + "`" + `gh run view 30308624088 --log-failed` + "`" + ` 返回 ` + "`" + `log not found: 90118781570` + "`" + `。
 

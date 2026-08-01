@@ -28,6 +28,17 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+
+### Batch 792：repair completed-batch next-step routing
+
+状态：已完成 release handoff parser 修复、正反回归、真实 status→next-batch 交棒、独立审查修复、README/长期自主 goal 接手锚点更新和完整本机 release minimum；implementation commit/push 与 remote inspection 待执行。Batch 791 的 implementation commit 已有真实三平台 green，随后 release inspection commit 只把 `release-run -Format json` 的成功结果写成“以 7/7 通过”；latest-batch parser 只接受 `ready=true` 或 `passed=7 failed=0 skipped=0`，于是把已完成批次重新路由到 `/rekit release-run`，并令 `next-batch` fail-closed。
+
+目标：让 release handoff 接受 canonical `release-run ... 以 7/7 通过`完成证据，使 `status` 在 completed cadence 后直接暴露 next-batch selection 与 candidate domains，`next-batch -WhatIf` 能生成下一批 planning receipt，不再重复本机检查。
+
+边界：只扩展明确成功证据的兼容解析；包含“未通过”“待执行”“待完成”“失败”“failed”或 `ready=false` 的 7/7 文案继续 fail-closed。不中断既有 `ready=true` / step-count contract，不改 release cadence、远程 green 判定、case state、authority/confirmed 或 heavy-tool 边界。
+
+验证结果：新增 releasecheck 正反回归覆盖 canonical `以 7/7 通过`、空格差异，以及失败、待执行、目标、计划、预期、历史、不能证明、尚未执行等非完成文案；独立审查发现的目标性误判窗口已通过按中文句号/分号切 clause、要求明确完成结果并扩充反例关闭。原 `ready=true` 与 split local minimum 回归通过。当前仓库 `TestRunStatusJsonKit` 已从失败恢复通过，真实 `next-batch -Domain mission-commander -Closure "repair completed-batch next-step routing" -WhatIf -Format json` 已返回 Batch 792 planning receipt，不写文件；Batch 792 进入进行中后再次请求 Batch 793 会正确 fail-closed。`docs/autonomous-goal.md` 同步强化长期接手锚点并更新短 goal：默认中大型产品闭环，小断点并入相邻闭环，单批完成或当前候选做完不等于长期 goal 完成，每 3-5 批复审方向并把阶段重点写回 durable docs，而不是扩写聊天 goal。README `release-check` 命令说明同步记录明确 7/7 成功证据、completed cadence next-batch 交棒与非完成文案 fail-closed 行为；根 `CLAUDE.md` 已有中大型闭环原则，pack reference、配置和示例不涉及本批解析或 goal 行为，无需修改。最终 releasecheck package、status/next-batch CLI focused 回归和两轮完整 `go test ./...` 均通过（最终 CLI 117.692 秒），`go vet ./...`、`release-check -Format json` ready、`status`、`packs`、`doctor` 与 `git diff --check` 通过；文档收尾后统一 `release-run -Format json` 以 7/7 通过。implementation commit/push 与 remote inspection 待执行。
+
 ### Batch 791：durable current-loop campaign operator resume closure
 
 状态：已完成核心runtime、durable one-shot claim、checkpoint-bound status/handoff operator、真实Human/reviewer产品路径、PowerShell façade透传、文档收尾、focused/完整Go tests、vet、doctor、三平台currentloop交叉编译、两轮终轮独立复核、本机统一release minimum、implementation commit/push与真实三平台inspection。Implementation commit `bfc2dc2`已推送；push-triggered run `30707662890` completed success，Linux/macOS/Windows全部release steps与完整Go tests通过，当前remote release gate真实green。Batch 790让replacement Mission Commander能从durable status/handoff看到可信remaining budget和typed continuation，但仍需手工复制预算、route/lane、checkpoint SHA和fresh Apply参数；并发或崩溃边界下也缺少source budget的durable one-shot消费。这个断点会让长期campaign在新会话接手时绕开checkpoint binding，或在publication失败后重复恢复已执行预算。
