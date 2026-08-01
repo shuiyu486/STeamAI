@@ -28,7 +28,7 @@
 - `Go release checks (macOS)` 在 `macos-latest` 上运行同一组 Go-native checks，验证 macOS 默认路径。
 - CI 不默认运行 `rekit.ps1`、`facade-smoke.ps1`、`pack-smoke-matrix.ps1`、真实临时 case Agent Team smoke 或 heavy-tool gate；这些仍按下面“选择性追加”规则手动选择。
 
-`ciReleaseGate.ready=true` 只说明 workflow 的 jobs、commands 与 forbidden-step inventory 符合预期。发布时还必须读取 GitHub Actions 实际 job conclusions。2026-08-01 run `30674507300` 已获得真实三平台runner，但CLI package均在600秒timeout失败，因此旧billing/`steps=[]`判断不再适用于当前release状态。Batch 785已在本机把CLI package从约590秒降到107.449秒并修复已知平台路径/文件契约，仍须由implementation push后的新remote run证明三平台green。历史latest-batch release handoff仍应正确解析`steps=[]` blocker，但不能用历史blocker覆盖新的真实job/test信号。
+`ciReleaseGate.ready=true` 只说明 workflow 的 jobs、commands、vet-before-tests顺序与 forbidden-step inventory 符合预期。发布时还必须读取 GitHub Actions 实际 job conclusions。2026-08-01 run `30674507300` 已获得真实三平台runner，但CLI package均在600秒timeout失败，因此旧billing/`steps=[]`判断不再适用于当前release状态。Batch 785已在本机把CLI package从约590秒降到107.449秒并修复已知平台路径/文件契约；implementation push run `30687208204`的三平台jobs也均获得runner，但共同在第一步`Release inventory`因latest batch尚标记`implementation ready`而fail-closed，后续status/packs/doctor/vet/tests均skipped。该run不证明平台修复通过，仍须后续remote run验证三平台tests；历史latest-batch handoff仍应正确解析`steps=[]` blocker，但不能用历史blocker覆盖新的真实job/inventory信号。
 
 跨平台完成度分三级记录：
 

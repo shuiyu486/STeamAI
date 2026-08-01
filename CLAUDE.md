@@ -91,6 +91,6 @@ go vet ./...
 git diff --check
 ```
 
-默认远程 CI workflow 是 `.github/workflows/release-gate.yml`，定义 Linux、Windows、macOS Go-native release checks，并先运行`go vet`再运行Go tests；`release-check` 的 `ciReleaseGate.ready=true` 只验证 workflow/inventory 定义，不代表远程 jobs 已获得 runner 或实际通过。`status`使用lightweight project handoff，不执行完整release audit，不能替代`release-check`。2026-08-01 run `30674507300` 已恢复真实三平台runner执行，但CLI package均在600秒test timeout处失败，并暴露Windows跨盘符/namespace、macOS canonical path与Linux文件错误契约差异；发布结论必须另外读取GitHub Actions实际状态，不能继续沿用旧`steps=[]` billing blocker判断。
+默认远程 CI workflow 是 `.github/workflows/release-gate.yml`，定义 Linux、Windows、macOS Go-native release checks，并先运行`go vet`再运行Go tests；`release-check` 的 `ciReleaseGate.ready=true` 只验证 workflow/inventory 定义，不代表远程 jobs 已获得 runner 或实际通过。`status`使用lightweight project handoff，不执行完整release audit，不能替代`release-check`。2026-08-01 run `30674507300` 已恢复真实三平台runner执行，但CLI package均在600秒test timeout处失败，并暴露Windows跨盘符/namespace、macOS canonical path与Linux文件错误契约差异；Batch 785 implementation run `30687208204`三平台均在`Release inventory`因latest batch未标记`已完成`而fail-closed，后续vet/tests被跳过，尚未证明平台修复通过。发布结论必须另外读取GitHub Actions实际状态，不能继续沿用旧`steps=[]` billing blocker判断。
 
 按需追加：改 façade/compatibility 时运行 `rekit/tests/facade-smoke.ps1`；改 pack wrapper 时运行对应 pack validate/smoke；涉及 workstream/ledger/gate/sync/promote 写入时用临时 case 验证。

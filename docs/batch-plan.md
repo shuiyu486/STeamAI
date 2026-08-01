@@ -31,7 +31,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Batch 785：cross-platform release product-path and test-budget stabilization
 
-状态：implementation ready，runtime/tests/workflow与文档实现、独立审查和完整本机release minimum均已通过，等待implementation commit/push与真实三平台inspection。基于Batch 784 push-triggered run `30674507300`首次恢复的真实三平台runner信号，本批优先修复Windows跨盘符/namespace、macOS canonical path、Linux文件错误契约与CLI package 600秒timeout，不在remote release gate已真实失败的底座上继续叠加run-loop功能。
+状态：已完成runtime/tests/workflow与文档实现、独立审查、完整本机release minimum、implementation commit/push与真实三平台inspection。Implementation commit `6b612ac`已推送；push-triggered run `30687208204`的Linux/macOS/Windows jobs `91335300923`/`91335300927`/`91335300945`均获得runner，但都在`Release inventory`以non-empty steps失败，后续status/packs/doctor/vet/tests被跳过。共同原因是implementation文档状态`implementation ready`未满足latest-batch parser的`已完成`contract，而非平台代码测试结果；remote仍不green，三平台tests需由后续run继续证明。
 
 目标：让Linux、Windows、macOS release jobs都能稳定运行完整Go tests与`go vet`，使case metadata、fixture containment、reviewer recovery和artifact validation在平台路径/文件语义差异下保持同一fail-closed contract；同时降低CLI package重复status/release inventory成本，避免仅靠放大timeout掩盖测试架构问题。
 
@@ -39,7 +39,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：不降低symlink/namespace/containment guards，不把platform-specific unsupported behavior伪装为通过，不删减默认release覆盖，不新增PowerShell runtime logic，不执行heavy-tool，不写authority/confirmed；`status`是daily handoff，不声称执行了full release audit，发布判断仍必须单独运行`release-check`并读取远程jobs。
 
-验证结果：filesystem alias/lexical identity、Windows cross-volume compile、Windows handle identity compile、Linux non-Windows recovery build-tag compile、reviewer unsupported zero-write、artifact missing error、current-step snapshot、CI vet-before-tests与Claude worktree inventory focused tests通过。独立审查发现的CI顺序门禁和non-Windows direct recovery覆盖缺口均已修复；最终`release-run -Format json`以7/7通过（172.592秒），包含完整`release-check`、daily `status`/`packs`/`doctor`、`go test ./...`（169.788秒）、`go vet ./...`和`git diff --check`。implementation push后读取真实三平台jobs/steps/log并如实记录，不把inventory ready当作remote green。
+验证结果：filesystem alias/lexical identity、Windows cross-volume compile、Windows handle identity compile、Linux non-Windows recovery build-tag compile、reviewer unsupported zero-write、artifact missing error、current-step snapshot、CI vet-before-tests与Claude worktree inventory focused tests通过。独立审查发现的CI顺序门禁和non-Windows direct recovery覆盖缺口均已修复；最终本机`release-run -Format json`以7/7通过（172.592秒），包含完整`release-check`、daily `status`/`packs`/`doctor`、`go test ./...`（169.788秒）、`go vet ./...`和`git diff --check`。Implementation commit `6b612ac`已推送。Push run `30687208204` completed failure，三平台jobs均实际启动且workflow显示vet-before-tests，但共同在`Release inventory`失败：`release handoff latest batch is not completed`；后续steps均skipped，因此本次remote不证明平台修复通过，也不把inventory/workflow ready当作remote green。该non-empty-steps新信号已在唯一release inspection记录；不为inspection commit自身CI追加第三次记录。
 
 ### Batch 784：unified current-step router across lane and reviewer operator requests
 
