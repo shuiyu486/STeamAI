@@ -28,6 +28,19 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+
+### Batch 784：unified current-step router across lane and reviewer operator requests
+
+状态：已完成核心runtime、真实临时case product path、25-command release/façade inventory同步、独立审查与完整本机release minimum；implementation commit/push和push-triggered remote inspection待完成。本批选择`mission-commander`，解决主Agent必须先自行判断调用`run-driver-step`还是`run-reviewer-step`的日常接手断点，不做字段、文案或summary投影微调。
+
+目标：提供一个统一、可恢复的current-step入口，让Mission Commander或replacement executor从refreshed durable status自动选择lane或reviewer operator request，执行单个review-first deterministic step后直接消费refreshed request；reviewer spawn/result等待仍明确交给外部harness。
+
+已实现：新增Go-owned/no-fallback public command`run-current-step`。`-WhatIf -Format json`从`missionControlRunbook.scope/currentDriverRequest`选择case或reviewer route并复用现有nested runner；deterministic nested step会返回同时绑定selected route、current request与nested plan SHA的`expectedCurrentStepPlanSha256`，`-Apply`必须携带同一hash，复核后只执行所选runner的一步并返回selected route、nested command和refreshed current request receipt。reviewer spawn或等待result时仅返回nested typed external handoff，不生成outer Apply hash。lane route保留`run-driver-step`的lane mutation lease和preview currentness；reviewer route保留`run-reviewer-step`的packet/artifact/receipt/candidate hash与reviewer intake lock，统一入口不复制业务逻辑也不合并锁。真实临时case测试串联`lane → reviewer spawn/dispatch/result/completion/source-capture/staging/collection/intake → lane`，并覆盖stale outer hash、route-specific input拒绝、unknown flag和no authority/confirmed。PowerShell compatibility façade只验证/透传统一runner参数；public commands/handlers/symbols/profiles与Go-default/no-fallback façade基线扩展到25。
+
+边界：runtime不调用shell或Agent tool，不spawn/poll/stop session，不伪造reviewer result，不执行heavy-tool，不写authority/confirmed；external reviewer handoff不允许Apply。`sync`/`promote`、gate、adapter、pack-memory仍不由统一runner自动执行；PowerShell不新增业务runtime逻辑。
+
+验证结果：focused current-step临时case与guard测试通过；commands/manifest/releasecheck、current-step/reviewer-step/workstream focused回归和`facade-smoke.ps1`通过，25-command inventory ready。独立审查发现并已修复两项高置信边界问题：reviewer-focused runbook现在直接复用packet-aware operator package request，outer identity绑定routed request、nested request与nested plan SHA，mixed ready/running packet不会提前intake或静默换shard；reviewer observation按当前run-loop step严格校验，spawn/result/failure互斥组合fail-closed。最终独立复审无阻断项。完整本机minimum的直接命令已通过：`release-check -Format json` ready、`status`、`packs`、`doctor`、`go test ./...`（最终CLI 590.197s）、`go vet ./...`和`git diff --check`；统一`release-run -Format json`随后以`passed=7 failed=0 skipped=0 ready=true`完成。首次`go test ./...`在10分钟默认超时边缘退出并暴露一条旧的“任一shard ready即提前intake”断言，合并重复fixture、更新为all-shards-ready语义并压缩canonical skill回到32 KiB门禁内后，完整重跑和统一release minimum均通过。下一步提交并推送implementation，再记录push-triggered remote inspection；远程`steps=[]`仍只记录blocker、不声明green。
+
 ### Batch 783：reviewer operator step runner
 
 状态：已完成 runtime/test/doc 工作树实现、focused reviewer/release/façade validation、首轮独立审查修复、最终独立复审（无阻断项）、完整本机 release minimum、implementation commit/push与push-triggered remote inspection；implementation commit `c46381a` 已推送。Push run `30667880621` completed failure；macOS/Windows/Linux jobs `91279012719`/`91279012736`/`91279012750` 均未启动且 `steps=[]`，`gh run view 30667880621 --log-failed` 返回 `log not found: 91279012719`；三个annotations均明确报告recent account payments failed或spending limit需提高。这是既有runner/billing blocker，不声明remote green。本批选择`reviewer-orchestration`，补齐主Agent/harness实际消费reviewer operator package的持续调度闭环，不做单字段或文案投影微调。

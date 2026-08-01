@@ -30,7 +30,7 @@ disable-model-invocation: true
 - 不要读取或修改用户级 `~/.claude/skills`。
 - `status` 只读检测迁移；需要修复路径时必须由用户确认后运行 canonical `repair`。
 - `sync` / `promote` 只允许作用于已经绑定的 case；不要对普通目录或拼错路径隐式创建 case 或生成回流候选。
-- `overview/continue/start/handoff` 是当前推荐的日常入口；优先让 canonical runtime 处理，不要在 shim 中复制逻辑，不要在 shim 中维护 fallback 或命令执行细节。
+- `overview/continue/start/handoff` 是当前推荐的用户日常入口；主 Agent / harness 可按 canonical skill 使用 `run-current-step` 统一推进当前 lane 或 reviewer request。优先让 canonical runtime 处理，不要在 shim 中复制逻辑，包括 route、nested runner、fallback 或命令执行细节。
 - `overview` 只是项目总览；多工作线时应使用 `continue main` 或 `continue <name>` 明确接手对象。
 - `handoff` 无参数生成项目级索引；`handoff main` 或 `handoff <name>` 生成指定工作线接手文档。
 - `continue <name>` 可以自动发布低风险事实、路由 request、处理 verifier 通过的 candidate；覆盖/删除 authority、冲突、schema change、外部副作用或破坏性动作仍必须问用户。

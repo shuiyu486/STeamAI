@@ -388,15 +388,15 @@ func TestReviewerDispatchIntakeSummaryProjectsWaitingNextAction(t *testing.T) {
 	}
 }
 
-func TestMissionCommanderReviewerDispatchSelectsActionablePacketRepresentative(t *testing.T) {
-	readyCommand := "/rekit plan-subagents -PacketPath packet.json -ReadyReviewerResults -WhatIf -Format json"
+func TestMissionCommanderReviewerDispatchDefersPacketIntakeUntilAllShardsReady(t *testing.T) {
+	waitingCommand := "collect read-only reviewer JSON for shard-waiting at"
 	items := MissionCommanderNextActionsWithReviewerDispatches(nil, []ReviewerDispatchIntakeHandoff{
 		{PacketID: "packet-mixed", TargetLane: "feature-review", ShardID: "shard-waiting", State: "waiting-for-reviewer-result"},
-		{PacketID: "packet-mixed", TargetLane: "feature-review", ShardID: "shard-ready", State: "ready-for-reviewer-intake-preview", BatchPreviewCommand: readyCommand},
+		{PacketID: "packet-mixed", TargetLane: "feature-review", ShardID: "shard-ready", State: "ready-for-reviewer-intake-preview", BatchPreviewCommand: "/rekit plan-subagents -PacketPath packet.json -ReadyReviewerResults -WhatIf -Format json"},
 	})
 	queue := mission.MissionCommanderActionQueueFor(items)
-	if len(items) != 1 || queue.CurrentAction == nil || queue.CurrentAction.Command != readyCommand || queue.CurrentAction.Blocked {
-		t.Fatalf("mixed packet did not promote ready reviewer intake: items=%+v queue=%+v", items, queue)
+	if len(items) != 1 || queue.CurrentAction == nil || queue.CurrentAction.Command != waitingCommand || !queue.CurrentAction.Blocked || queue.CurrentAction.State != "waiting-for-reviewer-result" {
+		t.Fatalf("mixed packet promoted intake before all shards were ready: items=%+v queue=%+v", items, queue)
 	}
 }
 

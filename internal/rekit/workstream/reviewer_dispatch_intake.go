@@ -849,9 +849,13 @@ func MissionCommanderNextActionsWithReviewerDispatches(base []mission.MissionCom
 	}
 	packetOrder := []string{}
 	packetRepresentatives := map[string]ReviewerDispatchIntakeHandoff{}
+	packetReadyForIntake := reviewerDispatchPacketReadyForIntake(handoffs)
 	for _, handoff := range handoffs {
 		packetID := firstText(handoff.PacketID, handoff.PacketPath)
 		if packetID == "" {
+			continue
+		}
+		if handoff.State == "ready-for-reviewer-intake-preview" && !packetReadyForIntake[packetID] {
 			continue
 		}
 		current, seen := packetRepresentatives[packetID]
@@ -964,23 +968,28 @@ func reviewerDispatchActionPriority(item ReviewerDispatchIntakeHandoff) int {
 	}
 }
 
-func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) ReviewerDispatchIntakeSummary {
-	summary := ReviewerDispatchIntakeSummary{}
-	lanes := map[string]bool{}
-	packets := map[string]bool{}
-	packetReadyForIntake := map[string]bool{}
+func reviewerDispatchPacketReadyForIntake(items []ReviewerDispatchIntakeHandoff) map[string]bool {
+	ready := map[string]bool{}
 	for _, item := range items {
 		packetKey := firstText(item.PacketID, item.PacketPath)
 		if packetKey == "" {
 			continue
 		}
-		if _, ok := packetReadyForIntake[packetKey]; !ok {
-			packetReadyForIntake[packetKey] = true
+		if _, ok := ready[packetKey]; !ok {
+			ready[packetKey] = true
 		}
 		if item.State != "ready-for-reviewer-intake-preview" {
-			packetReadyForIntake[packetKey] = false
+			ready[packetKey] = false
 		}
 	}
+	return ready
+}
+
+func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) ReviewerDispatchIntakeSummary {
+	summary := ReviewerDispatchIntakeSummary{}
+	lanes := map[string]bool{}
+	packets := map[string]bool{}
+	packetReadyForIntake := reviewerDispatchPacketReadyForIntake(items)
 	var nextAction *ReviewerDispatchIntakeHandoff
 	for idx := range items {
 		item := items[idx]

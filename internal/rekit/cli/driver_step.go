@@ -88,17 +88,25 @@ func runDriverStep(ctx runtime.Context, opt Options, out io.Writer) error {
 	if !strings.EqualFold(expected, plan.ExpectedDriverStepPlanSHA256) {
 		return fmt.Errorf("run-driver-step expected plan sha256 mismatch: got %s want %s", expected, plan.ExpectedDriverStepPlanSHA256)
 	}
-	result, err := applyDriverStep(ctx, plan.ApplyDriverRequest, plan.ExpectedDriverStepPreviewSHA256)
+	plan, err = applyDriverStepPlan(ctx, opt, plan)
 	if err != nil {
 		return err
+	}
+	return writeJSON(out, plan)
+}
+
+func applyDriverStepPlan(ctx runtime.Context, opt Options, plan driverStepPlan) (driverStepPlan, error) {
+	result, err := applyDriverStep(ctx, plan.ApplyDriverRequest, plan.ExpectedDriverStepPreviewSHA256)
+	if err != nil {
+		return driverStepPlan{}, err
 	}
 	refreshed, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
 	if err != nil {
-		return fmt.Errorf("refresh status after driver step: %w", err)
+		return driverStepPlan{}, fmt.Errorf("refresh status after driver step: %w", err)
 	}
 	receipt, err := driverStepReceiptFor(ctx, plan.CurrentDriverRequest, plan.ApplyDriverRequest, result, refreshed)
 	if err != nil {
-		return err
+		return driverStepPlan{}, err
 	}
 	plan.IsMutation = true
 	plan.Applied = driverStepResultApplied(result)
@@ -108,7 +116,7 @@ func runDriverStep(ctx runtime.Context, opt Options, out io.Writer) error {
 	plan.Receipt = &receipt
 	plan.RefreshedStatus = &refreshed
 	plan.MissionCommanderActionQueue = driverStepResultQueue(result)
-	return writeJSON(out, plan)
+	return plan, nil
 }
 
 func buildDriverStepPlan(ctx runtime.Context, opt Options) (driverStepPlan, error) {

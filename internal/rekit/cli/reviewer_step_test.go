@@ -31,6 +31,11 @@ func TestRunReviewerStepDispatchInputAndDeterministicPipeline(t *testing.T) {
 	if preview.ExternalHandoff == nil || preview.ExternalHandoff.RunLoopStepID != "spawn-reviewer" || preview.ExternalHandoff.AgentToolRequest == nil || !preview.ExternalHandoff.AgentToolRequest.ReadOnly || preview.ExpectedReviewerStepPlanSHA256 != "" {
 		t.Fatalf("spawn step did not return external harness handoff: %+v", preview)
 	}
+	out.Reset()
+	err := Run(append(append([]string{}, base...), "-ReviewerHarness", "go-cli-test-harness", "-ReviewerSession", "reviewer-session-runner", "-ReviewerOutcome", "failed", "-ReviewerExitStatus", "exit-1", "-Actor", actor), &out)
+	if err == nil || !strings.Contains(err.Error(), "spawn-reviewer accepts only") {
+		t.Fatalf("spawn-reviewer accepted unrelated completion observation: %v", err)
+	}
 	if _, err := os.Stat(handoff.ReviewerStagingCommands.SourceCaptureInput); !os.IsNotExist(err) {
 		t.Fatalf("external reviewer preview wrote reviewer input: %v", err)
 	}
@@ -69,6 +74,11 @@ func TestRunReviewerStepDispatchInputAndDeterministicPipeline(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	out.Reset()
+	err = Run(append(append([]string{}, base...), "-ReviewerResultInputSourcePath", resultSource, "-ReviewerOutcome", "failed", "-ReviewerExitStatus", "exit-1", "-Actor", actor), &out)
+	if err == nil || !strings.Contains(err.Error(), "either a result source or a failed outcome observation, not both") {
+		t.Fatalf("save-result-input accepted mutually exclusive observations: %v", err)
+	}
 	inputPreview := runReviewerStepPreview(t, append(base, "-ReviewerResultInputSourcePath", resultSource, "-Actor", actor))
 	if inputPreview.ApplyDriverRequest == nil || !strings.Contains(inputPreview.ApplyDriverRequest.Command, "-SaveReviewerResultInput") {
 		t.Fatalf("result input preview did not return save apply: %+v", inputPreview)
@@ -146,6 +156,10 @@ func TestRunReviewerStepDefersBatchIntakeWhileAnotherShardRuns(t *testing.T) {
 	preview := runReviewerStepPreview(t, []string{"-Command", "run-reviewer-step", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"})
 	if preview.CurrentDriverRequest.RunLoopStepID != "save-result-input" || preview.ExternalHandoff == nil || preview.ExternalHandoff.RunLoopStepID != "save-result-input" || preview.ApplyDriverRequest != nil {
 		t.Fatalf("mixed ready/running shards selected batch intake instead of running reviewer handoff: %+v", preview)
+	}
+	current := runCurrentStepPreview(t, []string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"})
+	if current.Route != "reviewer" || current.ReviewerStep == nil || current.ReviewerStep.CurrentDriverRequest.RunLoopStepID != "save-result-input" || current.ReviewerStep.ExternalHandoff == nil || current.ExpectedCurrentStepPlanSHA256 != "" {
+		t.Fatalf("mixed ready/running shards drifted between unified route and reviewer operator package: %+v", current)
 	}
 }
 

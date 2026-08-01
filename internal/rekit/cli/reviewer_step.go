@@ -106,17 +106,28 @@ func runReviewerStep(ctx runtime.Context, opt Options, out io.Writer) error {
 	if plan.ApplyDriverRequest == nil {
 		return fmt.Errorf("run-reviewer-step preview omitted a typed Apply driver request")
 	}
-	result, err := applyReviewerStep(ctx, *plan.ApplyDriverRequest)
+	plan, err = applyReviewerStepPlan(ctx, opt, plan)
 	if err != nil {
 		return err
+	}
+	return writeJSON(out, plan)
+}
+
+func applyReviewerStepPlan(ctx runtime.Context, opt Options, plan reviewerStepPlan) (reviewerStepPlan, error) {
+	if plan.ApplyDriverRequest == nil {
+		return reviewerStepPlan{}, fmt.Errorf("run-reviewer-step preview omitted a typed Apply driver request")
+	}
+	result, err := applyReviewerStep(ctx, *plan.ApplyDriverRequest)
+	if err != nil {
+		return reviewerStepPlan{}, err
 	}
 	refreshed, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
 	if err != nil {
-		return fmt.Errorf("refresh status after reviewer step: %w", err)
+		return reviewerStepPlan{}, fmt.Errorf("refresh status after reviewer step: %w", err)
 	}
 	receipt, err := reviewerStepReceiptFor(ctx, plan.CurrentDriverRequest, *plan.ApplyDriverRequest, result, refreshed)
 	if err != nil {
-		return err
+		return reviewerStepPlan{}, err
 	}
 	plan.IsMutation = true
 	plan.Applied = reviewerStepResultApplied(result)
@@ -126,7 +137,7 @@ func runReviewerStep(ctx runtime.Context, opt Options, out io.Writer) error {
 	plan.Receipt = &receipt
 	plan.RefreshedStatus = &refreshed
 	plan.MissionCommanderActionQueue = reviewerStepResultQueue(result)
-	return writeJSON(out, plan)
+	return plan, nil
 }
 
 func buildReviewerStepPlan(ctx runtime.Context, opt Options) (reviewerStepPlan, error) {
@@ -134,6 +145,10 @@ func buildReviewerStepPlan(ctx runtime.Context, opt Options) (reviewerStepPlan, 
 	if err != nil {
 		return reviewerStepPlan{}, err
 	}
+	return buildReviewerStepPlanFromStatus(ctx, opt, status)
+}
+
+func buildReviewerStepPlanFromStatus(ctx runtime.Context, opt Options, status statusInventory) (reviewerStepPlan, error) {
 	pkg, err := reviewerStepOperatorPackage(status)
 	if err != nil {
 		return reviewerStepPlan{}, err
@@ -225,6 +240,9 @@ func reviewerStepOperatorPackage(status statusInventory) (*workstream.ReviewerDi
 func reviewerStepPreparedRequest(ctx runtime.Context, opt Options, pkg *workstream.ReviewerDispatchOperatorPackage) (mission.MissionCommanderDriverRequest, *reviewerStepExternalHandoff, error) {
 	current := pkg.Current
 	stepID := strings.TrimSpace(pkg.CurrentRunLoopStepID)
+	if err := validateReviewerStepObservationInputs(opt, stepID); err != nil {
+		return mission.MissionCommanderDriverRequest{}, nil, err
+	}
 	actor := strings.TrimSpace(opt.Note.Actor)
 	command := ""
 	required := []string{}
@@ -291,6 +309,43 @@ func reviewerStepPreparedRequest(ctx runtime.Context, opt Options, pkg *workstre
 		return mission.MissionCommanderDriverRequest{}, nil, err
 	}
 	return qualified, nil, nil
+}
+
+func validateReviewerStepObservationInputs(opt Options, stepID string) error {
+	hasActor := strings.TrimSpace(opt.Note.Actor) != ""
+	hasResultSource := strings.TrimSpace(opt.ReviewerResultInputSourcePath) != ""
+	hasHarness := strings.TrimSpace(opt.ReviewerHarness) != ""
+	hasSession := strings.TrimSpace(opt.ReviewerSession) != ""
+	hasOutcome := strings.TrimSpace(opt.ReviewerOutcome) != ""
+	hasExitStatus := strings.TrimSpace(opt.ReviewerExitStatus) != ""
+
+	switch strings.TrimSpace(stepID) {
+	case "spawn-reviewer":
+		if hasResultSource || hasOutcome || hasExitStatus {
+			return fmt.Errorf("run-reviewer-step spawn-reviewer accepts only -ReviewerHarness, -ReviewerSession, and -Actor observations")
+		}
+		if hasHarness != hasSession {
+			return fmt.Errorf("run-reviewer-step spawn-reviewer requires -ReviewerHarness and -ReviewerSession together")
+		}
+	case "save-result-input":
+		if hasHarness || hasSession {
+			return fmt.Errorf("run-reviewer-step save-result-input does not accept reviewer dispatch harness/session observations")
+		}
+		if hasResultSource && (hasOutcome || hasExitStatus) {
+			return fmt.Errorf("run-reviewer-step save-result-input requires either a result source or a failed outcome observation, not both")
+		}
+		if hasOutcome != hasExitStatus {
+			return fmt.Errorf("run-reviewer-step save-result-input requires -ReviewerOutcome and -ReviewerExitStatus together")
+		}
+	case "verify-prompt", "record-completion", "source-capture", "stage-candidate", "collect-result", "intake-results":
+		if hasResultSource || hasHarness || hasSession || hasOutcome || hasExitStatus {
+			return fmt.Errorf("run-reviewer-step %s accepts only -Actor as an external observation", stepID)
+		}
+	}
+	if !hasActor && (hasResultSource || hasHarness || hasSession || hasOutcome || hasExitStatus) {
+		return fmt.Errorf("run-reviewer-step reviewer observations require -Actor")
+	}
+	return nil
 }
 
 func reviewerStepExternal(pkg *workstream.ReviewerDispatchOperatorPackage, required []string) *reviewerStepExternalHandoff {

@@ -120,6 +120,7 @@ type Options struct {
 	NextBatchDomain                       string
 	NextBatchClosure                      string
 	ExpectedNextBatchPlanSHA256           string
+	ExpectedCurrentStepPlanSHA256         string
 	ExpectedDriverStepPlanSHA256          string
 	ExpectedReviewerStepPlanSHA256        string
 	Gate                                  gate.Options
@@ -377,6 +378,12 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ExpectedNextBatchPlanSha256")
 			}
 			opt.ExpectedNextBatchPlanSHA256 = args[i]
+		case "-ExpectedCurrentStepPlanSha256", "-ExpectedCurrentStepPlanSHA256", "--expected-current-step-plan-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedCurrentStepPlanSha256")
+			}
+			opt.ExpectedCurrentStepPlanSHA256 = args[i]
 		case "-ExpectedDriverStepPlanSha256", "-ExpectedDriverStepPlanSHA256", "--expected-driver-step-plan-sha256":
 			i++
 			if i >= len(args) {
@@ -965,6 +972,9 @@ func Run(args []string, stdout io.Writer) error {
 	if (strings.TrimSpace(opt.NextBatchDomain) != "" || strings.TrimSpace(opt.NextBatchClosure) != "" || strings.TrimSpace(opt.ExpectedNextBatchPlanSHA256) != "") && opt.Command != commands.NextBatch {
 		return fmt.Errorf("next-batch planning receipt flags are supported only by next-batch")
 	}
+	if strings.TrimSpace(opt.ExpectedCurrentStepPlanSHA256) != "" && opt.Command != commands.RunCurrentStep {
+		return fmt.Errorf("-ExpectedCurrentStepPlanSha256 is supported only by run-current-step")
+	}
 	if strings.TrimSpace(opt.ExpectedDriverStepPlanSHA256) != "" && opt.Command != commands.RunDriverStep {
 		return fmt.Errorf("-ExpectedDriverStepPlanSha256 is supported only by run-driver-step")
 	}
@@ -980,8 +990,8 @@ func Run(args []string, stdout io.Writer) error {
 	if (opt.StageReviewerResult || strings.TrimSpace(opt.ReviewerResultSourcePath) != "" || strings.TrimSpace(opt.ExpectedSourceSHA256) != "") && opt.Command != commands.PlanSubagents {
 		return fmt.Errorf("reviewer result staging flags are supported only by plan-subagents reviewer result staging")
 	}
-	if (opt.SaveReviewerResultInput || strings.TrimSpace(opt.ReviewerResultInputSourcePath) != "") && opt.Command != commands.PlanSubagents && opt.Command != commands.RunReviewerStep {
-		return fmt.Errorf("reviewer result input save flags are supported only by plan-subagents reviewer result input save or run-reviewer-step external handoff")
+	if (opt.SaveReviewerResultInput || strings.TrimSpace(opt.ReviewerResultInputSourcePath) != "") && opt.Command != commands.PlanSubagents && opt.Command != commands.RunReviewerStep && opt.Command != commands.RunCurrentStep {
+		return fmt.Errorf("reviewer result input save flags are supported only by plan-subagents reviewer result input save or a reviewer runner external handoff")
 	}
 	if (opt.CaptureReviewerResultSource || strings.TrimSpace(opt.ReviewerResultInputPath) != "" || strings.TrimSpace(opt.ExpectedReviewerResultInputSHA256) != "") && opt.Command != commands.PlanSubagents {
 		return fmt.Errorf("reviewer result source capture flags are supported only by plan-subagents reviewer result source capture")
@@ -1013,6 +1023,8 @@ func Run(args []string, stdout io.Writer) error {
 		return runReleaseCheck(ctx, opt, stdout)
 	case commands.ReleaseRun:
 		return runReleaseRun(ctx, opt, stdout)
+	case commands.RunCurrentStep:
+		return runCurrentStep(ctx, opt, stdout)
 	case commands.RunDriverStep:
 		return runDriverStep(ctx, opt, stdout)
 	case commands.RunReviewerStep:
@@ -3784,12 +3796,19 @@ func buildStatusMissionControlRunbook(target string, caseMission *statusCaseMiss
 		if item.queue.CurrentAction != nil {
 			runbook.CurrentCommand = strings.TrimSpace(item.queue.CurrentAction.Command)
 		}
-		if item.queue.CurrentDriverRequest != nil {
-			request := statusMissionControlInvocationDriverRequest(target, *item.queue.CurrentDriverRequest)
-			request = mission.MissionCommanderDriverRequestWithRefreshStatusCommand(request, runbook.RefreshStatusCommand)
-			runbook.CurrentDriverRequest = &request
-			if strings.TrimSpace(request.Command) != "" {
-				runbook.CurrentCommand = strings.TrimSpace(request.Command)
+		request := item.queue.CurrentDriverRequest
+		if item.scope == "reviewer" && caseMission != nil {
+			if pkg := caseMission.ReviewerDispatchIntakeSummary.OperatorPackage; pkg != nil && pkg.CurrentDriverRequest != nil {
+				request = pkg.CurrentDriverRequest
+				runbook.CurrentRunLoopStepID = strings.TrimSpace(pkg.CurrentRunLoopStepID)
+			}
+		}
+		if request != nil {
+			invocationRequest := statusMissionControlInvocationDriverRequest(target, *request)
+			invocationRequest = mission.MissionCommanderDriverRequestWithRefreshStatusCommand(invocationRequest, runbook.RefreshStatusCommand)
+			runbook.CurrentDriverRequest = &invocationRequest
+			if strings.TrimSpace(invocationRequest.Command) != "" {
+				runbook.CurrentCommand = strings.TrimSpace(invocationRequest.Command)
 			}
 		}
 	}
