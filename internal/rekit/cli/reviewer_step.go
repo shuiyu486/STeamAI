@@ -121,22 +121,27 @@ func applyReviewerStepPlan(ctx runtime.Context, opt Options, plan reviewerStepPl
 	if err != nil {
 		return reviewerStepPlan{}, err
 	}
-	refreshed, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
-	if err != nil {
-		return reviewerStepPlan{}, fmt.Errorf("refresh status after reviewer step: %w", err)
-	}
-	receipt, err := reviewerStepReceiptFor(ctx, plan.CurrentDriverRequest, *plan.ApplyDriverRequest, result, refreshed)
-	if err != nil {
-		return reviewerStepPlan{}, err
-	}
 	plan.IsMutation = true
 	plan.Applied = reviewerStepResultApplied(result)
 	plan.ReviewRequired = false
 	plan.RequiresConfirmation = false
 	plan.PreviewResult = result
+	plan.MissionCommanderActionQueue = reviewerStepResultQueue(result)
+	if currentStepBeforeStatusRefreshHook != nil {
+		if err := currentStepBeforeStatusRefreshHook(commands.RunReviewerStep); err != nil {
+			return plan, fmt.Errorf("refresh status after reviewer step: %w", err)
+		}
+	}
+	refreshed, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+	if err != nil {
+		return plan, fmt.Errorf("refresh status after reviewer step: %w", err)
+	}
+	receipt, err := reviewerStepReceiptFor(ctx, plan.CurrentDriverRequest, *plan.ApplyDriverRequest, result, refreshed)
+	if err != nil {
+		return plan, err
+	}
 	plan.Receipt = &receipt
 	plan.RefreshedStatus = &refreshed
-	plan.MissionCommanderActionQueue = reviewerStepResultQueue(result)
 	return plan, nil
 }
 

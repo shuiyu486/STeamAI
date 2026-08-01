@@ -28,6 +28,17 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 786：bounded current-loop execution closure
+
+状态：已完成Go runtime、26-command inventory、retained PowerShell façade透传、公共入口文档、真实multi-step/partial receipt/Human-in-the-Lane/reviewer result-input产品路径、独立复审与完整本机release minimum。implementation commit/push与真实三平台inspection按release cadence继续执行。
+
+目标：让主Agent/harness不再手工重复“刷新status → 选择case/reviewer route → 运行一个current step → 保存receipt → 判断是否继续”。新增一次review-first WhatIf + hash-bound Apply的bounded loop，在固定initial route/lane内最多推进N个deterministic current steps，并以typed stop reason、per-step receipts、final refreshed status和fresh resume command结束。
+
+已实现：新增Go-owned/no-fallback public command`run-current-loop`。`-WhatIf -MaxSteps 1..20 -Format json`绑定exact initial current step、route/lane、actor、loop policy与step bound；`-Apply`必须携带同一`expectedCurrentLoopPlanSha256`和`MaxSteps`。每个后续step从refreshed durable status重建并复用`run-current-step`及nested driver/reviewer的hash、lease、packet、artifact和lock guards；route/lane drift、external reviewer handoff、guidance/blocker、新出现的Human-in-the-Lane reconcile、no-progress、limit或nested error均以typed stop结束。已成功步骤不回滚，outer result保留receipts/appliedSteps/final status；首步reviewer observation后清除transient harness/session/result输入，actor继续绑定后续deterministic pipeline。PowerShell façade只校验并透传MaxSteps、loop hash与reviewer observation，public surface扩展到26 commands。
+
+边界：loop不跨lane，不调用shell或Agent tool，不spawn/poll/stop session，不伪造reviewer output，不执行heavy-tool，不写authority/confirmed；后续刷新才出现的Human-in-the-Lane intervention必须fresh preview，不能由旧loop authorization自动reconcile。`sync`/`promote`、gate、adapter、pack-memory和next-batch仍不由loop自动执行。loop非事务性，先前成功的case-local durable mutation在后续stop/error时保持有效并由receipt如实报告。
+
+验证结果：真实临时case回归覆盖两步`reconcile → continue`至`limit-reached`、第二步故障保留首步receipt、首步刷新出现Human-in-the-Lane intervention时优先typed stop且不写resolution、mutation已完成但status refresh失败时保留`refresh-failed` receipt并令`finalStatus` unavailable，以及reviewer external handoff/dispatch observation、no-progress、MaxSteps/hash/outer allowlist与no authority/confirmed。focused current-loop/current-step/driver/reviewer tests、完整CLI package（113.839秒）、commands/releasecheck/manifest packages、26-command inventory、`facade-smoke.ps1`、`catalog-smoke.ps1`均通过；新增四个关键边界测试以`-count=10`重复通过。最终独立复审确认partial-mutation/status-refresh finding已关闭且无高置信阻断项。完整`go test ./...`通过（196.989秒），`go vet ./...`与`git diff --check`通过；首轮统一`release-run -Format json`如实返回6/7，唯一失败是写回完成态前latest batch仍标记`implementation in progress`，其余`status`、`packs`、`doctor`、完整tests、vet和diff门禁均通过。完成态写回后最终统一`release-run -Format json`以7/7通过（333.651秒），包含`release-check ready=true`、`status`、`packs`、`doctor`、`go test ./...`（331.139秒）、`go vet ./...`和`git diff --check`；remote结果待implementation push后检查。
 
 ### Batch 785：cross-platform release product-path and test-budget stabilization
 

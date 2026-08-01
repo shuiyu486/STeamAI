@@ -48,6 +48,8 @@ type currentStepPlanIdentity struct {
 	ExpectedNestedStepPlanSHA256 string                                `json:"expectedNestedStepPlanSha256"`
 }
 
+var currentStepBeforeStatusRefreshHook func(string) error
+
 func runCurrentStep(ctx runtime.Context, opt Options, out io.Writer) error {
 	if !ctx.TargetProvided {
 		return fmt.Errorf("run-current-step requires -Target for an attached case")
@@ -96,6 +98,10 @@ func buildCurrentStepPlan(ctx runtime.Context, opt Options) (currentStepPlan, er
 	if err != nil {
 		return currentStepPlan{}, err
 	}
+	return buildCurrentStepPlanFromStatus(ctx, opt, status)
+}
+
+func buildCurrentStepPlanFromStatus(ctx runtime.Context, opt Options, status statusInventory) (currentStepPlan, error) {
 	if status.MissionControlRunbook == nil || status.MissionControlRunbook.CurrentDriverRequest == nil {
 		return currentStepPlan{}, fmt.Errorf("run-current-step requires missionControlRunbook.currentDriverRequest")
 	}
@@ -173,25 +179,31 @@ func applyCurrentStepPlan(ctx runtime.Context, opt Options, plan currentStepPlan
 			return currentStepPlan{}, fmt.Errorf("run-current-step case route omitted driver step plan")
 		}
 		nested, err := applyDriverStepPlan(ctx, opt, *plan.DriverStep)
-		if err != nil {
-			return currentStepPlan{}, err
-		}
 		plan.DriverStep = &nested
 		plan.Applied = nested.Applied
 		refreshed = nested.RefreshedStatus
 		nestedCommand = commands.RunDriverStep
+		if err != nil {
+			if plan.Applied {
+				return currentStepPartialResult(plan, nestedCommand), err
+			}
+			return currentStepPlan{}, err
+		}
 	case "reviewer":
 		if plan.ReviewerStep == nil || plan.ReviewerStep.ExternalHandoff != nil {
 			return currentStepPlan{}, fmt.Errorf("run-current-step reviewer route requires a deterministic reviewer step plan")
 		}
 		nested, err := applyReviewerStepPlan(ctx, opt, *plan.ReviewerStep)
-		if err != nil {
-			return currentStepPlan{}, err
-		}
 		plan.ReviewerStep = &nested
 		plan.Applied = nested.Applied
 		refreshed = nested.RefreshedStatus
 		nestedCommand = commands.RunReviewerStep
+		if err != nil {
+			if plan.Applied {
+				return currentStepPartialResult(plan, nestedCommand), err
+			}
+			return currentStepPlan{}, err
+		}
 	default:
 		return currentStepPlan{}, fmt.Errorf("run-current-step route %q is unsupported", plan.Route)
 	}
@@ -214,6 +226,32 @@ func applyCurrentStepPlan(ctx runtime.Context, opt Options, plan currentStepPlan
 		plan.Receipt.RefreshedCurrentDriverRequest = refreshed.MissionControlRunbook.CurrentDriverRequest
 	}
 	return plan, nil
+}
+
+func currentStepPartialResult(plan currentStepPlan, nestedCommand string) currentStepPlan {
+	state := "refresh-failed"
+	outcome := "current-step-applied-status-refresh-failed"
+	boundary := "the nested mutation was applied, but refreshed durable status is unavailable"
+	if plan.RefreshedStatus != nil {
+		state = "receipt-failed"
+		outcome = "current-step-applied-receipt-finalization-failed"
+		boundary = "the nested mutation and status refresh completed, but receipt finalization failed"
+	}
+	plan.IsMutation = true
+	plan.ReviewRequired = false
+	plan.RequiresConfirmation = false
+	plan.Receipt = &currentStepReceipt{
+		State:         state,
+		Outcome:       outcome,
+		Route:         plan.Route,
+		NestedCommand: nestedCommand,
+		Boundary: []string{
+			boundary,
+			"do not infer follow-up work from an incomplete receipt; run the returned fresh loop resume command after repairing the reported error",
+			"no authority/confirmed state or heavy-tool execution is produced by this router",
+		},
+	}
+	return plan
 }
 
 func validateCurrentStepOuterArgs(opt Options) error {

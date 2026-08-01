@@ -100,22 +100,27 @@ func applyDriverStepPlan(ctx runtime.Context, opt Options, plan driverStepPlan) 
 	if err != nil {
 		return driverStepPlan{}, err
 	}
-	refreshed, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
-	if err != nil {
-		return driverStepPlan{}, fmt.Errorf("refresh status after driver step: %w", err)
-	}
-	receipt, err := driverStepReceiptFor(ctx, plan.CurrentDriverRequest, plan.ApplyDriverRequest, result, refreshed)
-	if err != nil {
-		return driverStepPlan{}, err
-	}
 	plan.IsMutation = true
 	plan.Applied = driverStepResultApplied(result)
 	plan.ReviewRequired = false
 	plan.RequiresConfirmation = false
 	plan.PreviewResult = result
+	plan.MissionCommanderActionQueue = driverStepResultQueue(result)
+	if currentStepBeforeStatusRefreshHook != nil {
+		if err := currentStepBeforeStatusRefreshHook(commands.RunDriverStep); err != nil {
+			return plan, fmt.Errorf("refresh status after driver step: %w", err)
+		}
+	}
+	refreshed, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+	if err != nil {
+		return plan, fmt.Errorf("refresh status after driver step: %w", err)
+	}
+	receipt, err := driverStepReceiptFor(ctx, plan.CurrentDriverRequest, plan.ApplyDriverRequest, result, refreshed)
+	if err != nil {
+		return plan, err
+	}
 	plan.Receipt = &receipt
 	plan.RefreshedStatus = &refreshed
-	plan.MissionCommanderActionQueue = driverStepResultQueue(result)
 	return plan, nil
 }
 

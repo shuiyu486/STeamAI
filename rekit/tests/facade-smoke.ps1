@@ -189,6 +189,21 @@ try {
   Assert-FakeDefaultDelegation -Arguments @('-Command','status') -CommandName 'status' -Label 'default status fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','packs') -CommandName 'packs' -Label 'default packs fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','release-check','-Format','json') -CommandName 'release-check' -Label 'default release-check fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','run-current-loop','-Target',$CaseRoot,'-Pack',$Pack,'-MaxSteps','3','-WhatIf','-Format','json') -CommandName 'run-current-loop' -Label 'default run-current-loop preview fake delegation'
+  $currentLoopHash = 'fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210'
+  $currentLoopCapturePath = Join-Path $matrixRoot 'run-current-loop-args.txt'
+  $currentLoopResultInputSourcePath = Join-Path $matrixRoot 'current-loop-reviewer-result.json'
+  [System.IO.File]::WriteAllText($currentLoopResultInputSourcePath, '{}', [System.Text.UTF8Encoding]::new($false))
+  Write-CapturingFakeGoBackend -Path $fakeGo -CapturePath $currentLoopCapturePath
+  $currentLoopApplyOut = Invoke-RekitSmoke -Arguments @('-Command','run-current-loop','-Target',$CaseRoot,'-Pack',$Pack,'-MaxSteps','3','-ExpectedCurrentLoopPlanSha256',$currentLoopHash,'-ReviewerResultInputSourcePath',$currentLoopResultInputSourcePath,'-Actor','facade-smoke','-Apply','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $currentLoopApplyOut -Expected '"delegatedByFake":true' -Label 'default run-current-loop apply fake delegation'
+  $capturedCurrentLoopArgs = [System.IO.File]::ReadAllText($currentLoopCapturePath, [System.Text.Encoding]::Default)
+  foreach ($expectedCurrentLoopArg in @('-MaxSteps 3',"-ExpectedCurrentLoopPlanSha256 $currentLoopHash",'-Actor facade-smoke','-Apply','-Format json')) {
+    Assert-ContainsText -Text $capturedCurrentLoopArgs -Expected $expectedCurrentLoopArg -Label 'run-current-loop facade args'
+  }
+  Assert-ContainsText -Text $capturedCurrentLoopArgs -Expected '-ReviewerResultInputSourcePath ' -Label 'run-current-loop result input facade args'
+  $currentLoopDisabledOut = Invoke-RekitSmoke -Arguments @('-Command','run-current-loop','-Target',$CaseRoot,'-Pack',$Pack,'-MaxSteps','3','-WhatIf','-Format','json') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $currentLoopDisabledOut -Expected 'PowerShell fallback has been retired' -Label 'disabled run-current-loop no-fallback remains retired'
   Assert-FakeDefaultDelegation -Arguments @('-Command','run-current-step','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'run-current-step' -Label 'default run-current-step preview fake delegation'
   $currentStepHash = '123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0'
   $currentStepCapturePath = Join-Path $matrixRoot 'run-current-step-args.txt'

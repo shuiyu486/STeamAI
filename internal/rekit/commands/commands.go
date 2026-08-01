@@ -25,6 +25,7 @@ const (
 	ReleaseCheck    = "release-check"
 	ReleaseRun      = "release-run"
 	Repair          = "repair"
+	RunCurrentLoop  = "run-current-loop"
 	RunCurrentStep  = "run-current-step"
 	RunDriverStep   = "run-driver-step"
 	RunReviewerStep = "run-reviewer-step"
@@ -128,6 +129,7 @@ var publicCommands = []string{
 	ReleaseCheck,
 	ReleaseRun,
 	Repair,
+	RunCurrentLoop,
 	RunCurrentStep,
 	RunDriverStep,
 	RunReviewerStep,
@@ -156,6 +158,7 @@ var publicProfiles = []PublicProfile{
 	{Command: ReleaseCheck, MutationBoundary: BoundaryReadOnly},
 	{Command: ReleaseRun, MutationBoundary: BoundaryReadOnly},
 	{Command: Repair, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
+	{Command: RunCurrentLoop, MutationBoundary: BoundaryCaseLocalReviewFirst, IsMutation: true, WritesCase: true, ReviewFirst: true, ApplyRequired: true},
 	{Command: RunCurrentStep, MutationBoundary: BoundaryCaseLocalReviewFirst, IsMutation: true, WritesCase: true, ReviewFirst: true, ApplyRequired: true},
 	{Command: RunDriverStep, MutationBoundary: BoundaryCaseLocalReviewFirst, IsMutation: true, WritesCase: true, ReviewFirst: true, ApplyRequired: true},
 	{Command: RunReviewerStep, MutationBoundary: BoundaryCaseLocalReviewFirst, IsMutation: true, WritesCase: true, ReviewFirst: true, ApplyRequired: true},
@@ -199,6 +202,7 @@ func SymbolValues() map[string]string {
 		"ReleaseCheck":    ReleaseCheck,
 		"ReleaseRun":      ReleaseRun,
 		"Repair":          Repair,
+		"RunCurrentLoop":  RunCurrentLoop,
 		"RunCurrentStep":  RunCurrentStep,
 		"RunDriverStep":   RunDriverStep,
 		"RunReviewerStep": RunReviewerStep,

@@ -119,10 +119,12 @@ type Options struct {
 	ItemsFile                             string
 	ItemsPerAgent                         int
 	MaxParallel                           int
+	MaxSteps                              int
 	Format                                string
 	NextBatchDomain                       string
 	NextBatchClosure                      string
 	ExpectedNextBatchPlanSHA256           string
+	ExpectedCurrentLoopPlanSHA256         string
 	ExpectedCurrentStepPlanSHA256         string
 	ExpectedDriverStepPlanSHA256          string
 	ExpectedReviewerStepPlanSHA256        string
@@ -381,6 +383,12 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ExpectedNextBatchPlanSha256")
 			}
 			opt.ExpectedNextBatchPlanSHA256 = args[i]
+		case "-ExpectedCurrentLoopPlanSha256", "-ExpectedCurrentLoopPlanSHA256", "--expected-current-loop-plan-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedCurrentLoopPlanSha256")
+			}
+			opt.ExpectedCurrentLoopPlanSHA256 = args[i]
 		case "-ExpectedCurrentStepPlanSha256", "-ExpectedCurrentStepPlanSHA256", "--expected-current-step-plan-sha256":
 			i++
 			if i >= len(args) {
@@ -893,6 +901,16 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("invalid -MaxParallel: %s", args[i])
 			}
 			opt.MaxParallel = n
+		case "-MaxSteps", "--max-steps":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -MaxSteps")
+			}
+			n, err := strconv.Atoi(args[i])
+			if err != nil {
+				return opt, fmt.Errorf("invalid -MaxSteps: %s", args[i])
+			}
+			opt.MaxSteps = n
 		default:
 			if i == 0 && args[i] != "" && args[i][0] != '-' {
 				opt.Command = args[i]
@@ -975,6 +993,9 @@ func Run(args []string, stdout io.Writer) error {
 	if (strings.TrimSpace(opt.NextBatchDomain) != "" || strings.TrimSpace(opt.NextBatchClosure) != "" || strings.TrimSpace(opt.ExpectedNextBatchPlanSHA256) != "") && opt.Command != commands.NextBatch {
 		return fmt.Errorf("next-batch planning receipt flags are supported only by next-batch")
 	}
+	if (opt.MaxSteps != 0 || strings.TrimSpace(opt.ExpectedCurrentLoopPlanSHA256) != "") && opt.Command != commands.RunCurrentLoop {
+		return fmt.Errorf("current loop flags are supported only by run-current-loop")
+	}
 	if strings.TrimSpace(opt.ExpectedCurrentStepPlanSHA256) != "" && opt.Command != commands.RunCurrentStep {
 		return fmt.Errorf("-ExpectedCurrentStepPlanSha256 is supported only by run-current-step")
 	}
@@ -993,7 +1014,7 @@ func Run(args []string, stdout io.Writer) error {
 	if (opt.StageReviewerResult || strings.TrimSpace(opt.ReviewerResultSourcePath) != "" || strings.TrimSpace(opt.ExpectedSourceSHA256) != "") && opt.Command != commands.PlanSubagents {
 		return fmt.Errorf("reviewer result staging flags are supported only by plan-subagents reviewer result staging")
 	}
-	if (opt.SaveReviewerResultInput || strings.TrimSpace(opt.ReviewerResultInputSourcePath) != "") && opt.Command != commands.PlanSubagents && opt.Command != commands.RunReviewerStep && opt.Command != commands.RunCurrentStep {
+	if (opt.SaveReviewerResultInput || strings.TrimSpace(opt.ReviewerResultInputSourcePath) != "") && opt.Command != commands.PlanSubagents && opt.Command != commands.RunReviewerStep && opt.Command != commands.RunCurrentStep && opt.Command != commands.RunCurrentLoop {
 		return fmt.Errorf("reviewer result input save flags are supported only by plan-subagents reviewer result input save or a reviewer runner external handoff")
 	}
 	if (opt.CaptureReviewerResultSource || strings.TrimSpace(opt.ReviewerResultInputPath) != "" || strings.TrimSpace(opt.ExpectedReviewerResultInputSHA256) != "") && opt.Command != commands.PlanSubagents {
@@ -1026,6 +1047,8 @@ func Run(args []string, stdout io.Writer) error {
 		return runReleaseCheck(ctx, opt, stdout)
 	case commands.ReleaseRun:
 		return runReleaseRun(ctx, opt, stdout)
+	case commands.RunCurrentLoop:
+		return runCurrentLoop(ctx, opt, stdout)
 	case commands.RunCurrentStep:
 		return runCurrentStep(ctx, opt, stdout)
 	case commands.RunDriverStep:
