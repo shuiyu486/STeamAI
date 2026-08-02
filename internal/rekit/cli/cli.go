@@ -7742,6 +7742,8 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 		caseMissionActionQueue = mission.MissionCommanderActionQueueFor(caseMissionNextActions)
 	}
 	firstScreenLaneTakeoverPackage := statusFirstScreenLaneTakeoverPackage(caseRoot, inventory.LaneExecutorActions, caseMissionActionQueue)
+	reviewerDispatchIntakeSummary := workstream.ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs)
+	pauseReviewerWaveForOpenIntervention(&reviewerDispatchIntakeSummary, ledgerFacts.Facts)
 	return &statusCaseMission{
 		Ready:                             caseMissionActionQueue.CurrentAction != nil && caseMissionActionQueue.Counts.Blocked == 0 && len(inventory.MissionBrief.Escalations) == 0,
 		Summary:                           inventory.MissionBrief.Summary,
@@ -7765,7 +7767,7 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 		ReviewerWritebacks:                reviewerWritebacks,
 		ReviewerWritebackSummary:          workstream.ReviewerWritebackSummaryFor(reviewerWritebacks),
 		ReviewerDispatchIntakeHandoffs:    reviewerDispatchIntakeHandoffs,
-		ReviewerDispatchIntakeSummary:     workstream.ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs),
+		ReviewerDispatchIntakeSummary:     reviewerDispatchIntakeSummary,
 		ReviewerPacketRetirementHandoffs:  append([]workstream.ReviewerPacketRetirementHandoff{}, inventory.ReviewerPacketRetirementHandoffs...),
 		ReviewerPacketRetirementSummary:   inventory.ReviewerPacketRetirementSummary,
 		ReviewerDispatchIntakeActionQueue: reviewerDispatchIntakeActionQueue,
@@ -11486,7 +11488,9 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 			if opt.Apply && strings.TrimSpace(opt.ExpectedReviewerDispatchBindingSHA256) == "" {
 				return fmt.Errorf("reviewer session dispatch apply requires expected binding hash from WhatIf")
 			}
-			result, err = subagents.RecordReviewerSessionDispatch(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerSessionDispatchOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ReviewerHarness: opt.ReviewerHarness, ReviewerSession: opt.ReviewerSession, ExpectedBindingSHA256: opt.ExpectedReviewerDispatchBindingSHA256, WhatIf: opt.WhatIf})
+			result, err = executeReviewerMutationWithInterventionGuard(target, opt.Note.Lane, opt.WhatIf, func() (subagents.ReviewerSessionReceiptResult, error) {
+				return subagents.RecordReviewerSessionDispatch(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerSessionDispatchOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ReviewerHarness: opt.ReviewerHarness, ReviewerSession: opt.ReviewerSession, ExpectedBindingSHA256: opt.ExpectedReviewerDispatchBindingSHA256, WhatIf: opt.WhatIf})
+			})
 		} else {
 			if strings.TrimSpace(opt.ReviewerDispatchID) == "" || strings.TrimSpace(opt.ReviewerOutcome) == "" || strings.TrimSpace(opt.ReviewerExitStatus) == "" {
 				return fmt.Errorf("reviewer session completion requires -ReviewerDispatchId, -ReviewerOutcome, and -ReviewerExitStatus")
@@ -11500,7 +11504,9 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 			if opt.Apply && strings.EqualFold(strings.TrimSpace(opt.ReviewerOutcome), "succeeded") && strings.TrimSpace(opt.ExpectedReviewerResultInputSHA256) == "" {
 				return fmt.Errorf("successful reviewer session completion apply requires expected result input hash from WhatIf")
 			}
-			result, err = subagents.RecordReviewerSessionCompletion(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerSessionCompletionOptions{PacketPath: opt.PacketPath, DispatchID: opt.ReviewerDispatchID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, Outcome: opt.ReviewerOutcome, ExitStatus: opt.ReviewerExitStatus, ReviewerResultInputPath: opt.ReviewerResultInputPath, ExpectedDispatchReceiptSHA256: opt.ExpectedReviewerDispatchReceiptSHA256, ExpectedReviewerResultSHA256: opt.ExpectedReviewerResultInputSHA256, WhatIf: opt.WhatIf})
+			result, err = executeReviewerMutationWithInterventionGuard(target, opt.Note.Lane, opt.WhatIf, func() (subagents.ReviewerSessionReceiptResult, error) {
+				return subagents.RecordReviewerSessionCompletion(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerSessionCompletionOptions{PacketPath: opt.PacketPath, DispatchID: opt.ReviewerDispatchID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, Outcome: opt.ReviewerOutcome, ExitStatus: opt.ReviewerExitStatus, ReviewerResultInputPath: opt.ReviewerResultInputPath, ExpectedDispatchReceiptSHA256: opt.ExpectedReviewerDispatchReceiptSHA256, ExpectedReviewerResultSHA256: opt.ExpectedReviewerResultInputSHA256, WhatIf: opt.WhatIf})
+			})
 		}
 		if err != nil {
 			return err
@@ -11533,7 +11539,9 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("unsupported plan-subagents format: %s", opt.Format)
 		}
-		result, err := subagents.SaveReviewerResultInput(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerResultInputSaveOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, SourcePath: opt.ReviewerResultInputSourcePath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedReviewerResultSHA256: opt.ExpectedReviewerResultInputSHA256, WhatIf: opt.WhatIf})
+		result, err := executeReviewerMutationWithInterventionGuard(target, opt.Note.Lane, opt.WhatIf, func() (subagents.ReviewerResultInputSaveResult, error) {
+			return subagents.SaveReviewerResultInput(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerResultInputSaveOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, SourcePath: opt.ReviewerResultInputSourcePath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedReviewerResultSHA256: opt.ExpectedReviewerResultInputSHA256, WhatIf: opt.WhatIf})
+		})
 		if err != nil {
 			return err
 		}
@@ -11565,7 +11573,9 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("unsupported plan-subagents format: %s", opt.Format)
 		}
-		result, err := subagents.CaptureReviewerResultSource(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerResultSourceCaptureOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, InputPath: opt.ReviewerResultInputPath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedReviewerResultSHA256: opt.ExpectedReviewerResultInputSHA256, WhatIf: opt.WhatIf})
+		result, err := executeReviewerMutationWithInterventionGuard(target, opt.Note.Lane, opt.WhatIf, func() (subagents.ReviewerResultSourceCaptureResult, error) {
+			return subagents.CaptureReviewerResultSource(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerResultSourceCaptureOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, InputPath: opt.ReviewerResultInputPath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedReviewerResultSHA256: opt.ExpectedReviewerResultInputSHA256, WhatIf: opt.WhatIf})
+		})
 		if err != nil {
 			return err
 		}
@@ -11597,7 +11607,9 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("unsupported plan-subagents format: %s", opt.Format)
 		}
-		result, err := subagents.StageReviewerResult(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerResultStagingOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, SourcePath: opt.ReviewerResultSourcePath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedSourceSHA256: opt.ExpectedSourceSHA256, WhatIf: opt.WhatIf})
+		result, err := executeReviewerMutationWithInterventionGuard(target, opt.Note.Lane, opt.WhatIf, func() (subagents.ReviewerResultStagingResult, error) {
+			return subagents.StageReviewerResult(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerResultStagingOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, SourcePath: opt.ReviewerResultSourcePath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedSourceSHA256: opt.ExpectedSourceSHA256, WhatIf: opt.WhatIf})
+		})
 		if err != nil {
 			return err
 		}
@@ -11629,7 +11641,9 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("unsupported plan-subagents format: %s", opt.Format)
 		}
-		result, err := subagents.CollectReviewerResult(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerResultCollectionOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedCandidateSHA256: opt.ExpectedCandidateSHA256, WhatIf: opt.WhatIf})
+		result, err := executeReviewerMutationWithInterventionGuard(target, opt.Note.Lane, opt.WhatIf, func() (subagents.ReviewerResultCollectionResult, error) {
+			return subagents.CollectReviewerResult(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerResultCollectionOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedCandidateSHA256: opt.ExpectedCandidateSHA256, WhatIf: opt.WhatIf})
+		})
 		if err != nil {
 			return err
 		}
@@ -11757,7 +11771,9 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("unsupported plan-subagents format: %s", opt.Format)
 		}
-		result, err := subagents.RepairReviewerPromptArtifact(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerPromptArtifactRepairOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedPromptSHA256: opt.ExpectedPromptSHA256, WhatIf: opt.WhatIf})
+		result, err := executeReviewerMutationWithInterventionGuard(target, opt.Note.Lane, opt.WhatIf, func() (subagents.ReviewerPromptArtifactRepairResult, error) {
+			return subagents.RepairReviewerPromptArtifact(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerPromptArtifactRepairOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedPromptSHA256: opt.ExpectedPromptSHA256, WhatIf: opt.WhatIf})
+		})
 		if err != nil {
 			return err
 		}
@@ -11818,7 +11834,9 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("unsupported plan-subagents format: %s", opt.Format)
 		}
-		result, err := subagents.IntakeReadyReviewerResults(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerBatchIntakeOptions{PacketPath: opt.PacketPath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, WhatIf: opt.WhatIf})
+		result, err := executeReviewerMutationWithInterventionGuard(target, opt.Note.Lane, opt.WhatIf, func() (subagents.ReviewerBatchIntakeResult, error) {
+			return subagents.IntakeReadyReviewerResults(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerBatchIntakeOptions{PacketPath: opt.PacketPath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, WhatIf: opt.WhatIf})
+		})
 		if err != nil {
 			if result.Mode != "" {
 				var writeErr error
@@ -11852,7 +11870,9 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 		if err != nil {
 			return fmt.Errorf("unsupported plan-subagents format: %s", opt.Format)
 		}
-		result, err := intakeReviewerResult(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerIntakeOptions{PacketPath: opt.PacketPath, ReviewerResultPath: opt.ReviewerResultPath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, WhatIf: opt.WhatIf})
+		result, err := executeReviewerMutationWithInterventionGuard(target, opt.Note.Lane, opt.WhatIf, func() (subagents.ReviewerIntakeResult, error) {
+			return intakeReviewerResult(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerIntakeOptions{PacketPath: opt.PacketPath, ReviewerResultPath: opt.ReviewerResultPath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, WhatIf: opt.WhatIf})
+		})
 		if err != nil {
 			if result.WritebackStatus != "" {
 				var writeErr error

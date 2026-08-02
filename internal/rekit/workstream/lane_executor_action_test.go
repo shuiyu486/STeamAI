@@ -211,6 +211,37 @@ func TestStartMissionCommanderNextActionsKeepBlockedLaneTakeoverApplyConsumable(
 	}
 }
 
+func TestMissionCommanderActionQueuePrioritizesReconcileBeforeOtherLaneContinue(t *testing.T) {
+	items := mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{
+		{
+			Lane:  "feature-review",
+			Label: "review",
+			ExecutorAction: mission.ExecutorAction{
+				Blocked: true,
+				MissionCommanderAction: mission.MissionCommanderAction{
+					State:          "needs-reconcile",
+					PrimaryCommand: "/rekit reconcile review -InterventionId intervention-1 -WhatIf",
+				},
+			},
+		},
+		{
+			Lane:  "main",
+			Label: "main",
+			ExecutorAction: mission.ExecutorAction{
+				Ready: true,
+				MissionCommanderAction: mission.MissionCommanderAction{
+					State:          "ready-to-continue",
+					PrimaryCommand: "/rekit continue main",
+				},
+			},
+		},
+	}, nil, true)
+	queue := mission.MissionCommanderActionQueueFor(items)
+	if queue.CurrentAction == nil || queue.CurrentAction.State != "needs-reconcile" || queue.CurrentAction.Blocked || !queue.CurrentAction.RequiresReview {
+		t.Fatalf("open intervention reconcile should preempt unrelated lane continuation: %+v", queue)
+	}
+}
+
 func TestStartMissionCommanderNextActionsKeepReadyApplyConsumable(t *testing.T) {
 	lane := Lane{ID: "feature-login", Name: "login", Status: "open"}
 	action := laneExecutorAction{

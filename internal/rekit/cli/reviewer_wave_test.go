@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
 func TestRunReviewerWaveRecordsParallelAcceptances(t *testing.T) {
@@ -119,6 +120,237 @@ func TestRunReviewerWaveRecordsReturnedAndFailedObservations(t *testing.T) {
 	if !applied.Applied || applied.AppliedCount != 2 || applied.RefreshedWave == nil || applied.RefreshedWave.ActiveSlots != 0 || len(applied.RefreshedWave.Returned) != 1 || len(applied.RefreshedWave.Failed) != 1 || len(applied.RefreshedWave.SpawnWave) != 1 || applied.RefreshedWave.SpawnWave[0].ShardID != activeWave.Active[1].ShardID {
 		t.Fatalf("terminal reviewer wave apply = %+v", applied)
 	}
+}
+
+func TestRunReviewerWavePausesForOpenInterventionAndRejectsStalePreview(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "review", "-Executor", "executor-a", "-Actor", "mission-commander", "-Reason", "initial reviewer owner", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", "alpha,beta", "-ItemsPerAgent", "1", "-MaxParallel", "2", "-Lane", "feature-review", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	wave := reviewerWaveFromStatus(reviewerWaveStatus(t, caseRoot))
+	observationPath := filepath.Join(caseRoot, "workspace", "wave-intervention-stale-preview.json")
+	writeReviewerWaveObservations(t, observationPath, reviewerWaveObservationFile{SchemaVersion: 1, PacketID: wave.PacketID, Observations: []reviewerWaveObservation{{ShardID: wave.SpawnWave[0].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "stale-session"}}})
+	args := []string{"-Command", "run-reviewer-wave", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", wave.PacketPath, "-Lane", wave.TargetLane, "-Actor", "mission-commander", "-ReviewerWaveObservationsPath", observationPath, "-Format", "json"}
+	preview := reviewerWavePreview(t, append(args, "-WhatIf")...)
+	if err := appendReviewerWaveIntervention(t, caseRoot, wave.TargetLane, "wave-intervention-stale-preview"); err != nil {
+		t.Fatal(err)
+	}
+	pausedStatus := reviewerWaveStatus(t, caseRoot)
+	paused := reviewerWaveFromStatus(pausedStatus)
+	pkg := pausedStatus.CaseMission.ReviewerDispatchIntakeSummary.OperatorPackage
+	if paused == nil || paused.Ready || !paused.Paused || paused.InterventionID != "wave-intervention-stale-preview" || paused.SnapshotSHA256 != "" || paused.AvailableSlots != 0 || len(paused.SpawnWave) != 0 || pkg == nil || pkg.Ready || !pkg.Paused || pkg.CurrentDriverRequest != nil || pkg.Current == nil || reviewerOperatorItemExposesExecutableAction(*pkg.Current) || reviewerRunLoopExposesExecutableAction(pkg.RunLoop) || reviewerWaveExposesExecutableAction(paused) {
+		t.Fatalf("open intervention did not pause reviewer wave: package=%+v wave=%+v", pkg, paused)
+	}
+	if len(pausedStatus.CaseMission.ReviewerDispatchIntakeHandoffs) == 0 {
+		t.Fatal("paused status omitted diagnostic reviewer handoffs")
+	}
+	for _, handoff := range pausedStatus.CaseMission.ReviewerDispatchIntakeHandoffs {
+		if !handoff.Paused || handoff.InterventionID != "wave-intervention-stale-preview" || reviewerHandoffExposesExecutableAction(handoff) {
+			t.Fatalf("paused raw reviewer handoff exposed executable action: %+v", handoff)
+		}
+	}
+	if queue := pausedStatus.CaseMission.ReviewerDispatchIntakeActionQueue; queue.CurrentAction != nil || queue.CurrentDriverRequest != nil || queue.Counts.Total != 0 || len(queue.UnblockedActions) != 0 || len(queue.BlockedActions) != 0 {
+		t.Fatalf("paused reviewer action queue exposed stale action: %+v", queue)
+	}
+	out.Reset()
+	err := Run(append(args, "-ExpectedReviewerWavePlanSha256", preview.ExpectedReviewerWavePlanSHA256, "-Apply"), &out)
+	if err == nil || !strings.Contains(err.Error(), "paused by open intervention") || !strings.Contains(err.Error(), "wave-intervention-stale-preview") {
+		t.Fatalf("stale preview intervention error = %v", err)
+	}
+	refreshed := reviewerWaveFromStatus(reviewerWaveStatus(t, caseRoot))
+	if len(refreshed.Active) != 0 || len(refreshed.SpawnWave) != 0 {
+		t.Fatalf("stale preview wrote reviewer receipt: %+v", refreshed)
+	}
+
+	directArgs := []string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", wave.PacketPath, "-ShardId", wave.Shards[0].ShardID, "-RecordReviewerDispatch", "-ReviewerHarness", "go-test-harness", "-ReviewerSession", "direct-stale-session", "-Lane", wave.TargetLane, "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}
+	out.Reset()
+	err = Run(directArgs, &out)
+	if err == nil || !strings.Contains(err.Error(), "paused by open intervention") || !strings.Contains(err.Error(), "wave-intervention-stale-preview") {
+		t.Fatalf("direct reviewer dispatch bypassed intervention: %v", err)
+	}
+	out.Reset()
+	err = Run([]string{"-Command", "run-reviewer-step", "-Target", caseRoot, "-Pack", "_template", "-ReviewerHarness", "go-test-harness", "-ReviewerSession", "single-step-stale-session", "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out)
+	if err == nil || !strings.Contains(err.Error(), "ready reviewer operator package") {
+		t.Fatalf("single reviewer step bypassed intervention: %v", err)
+	}
+}
+
+func reviewerHandoffExposesExecutableAction(item workstream.ReviewerDispatchIntakeHandoff) bool {
+	if item.AgentToolRequest != nil || item.DispatchPromptRepairCommand != "" || item.ReviewerDispatchRecordCommand != "" || item.ReviewerCompletionRecordCommand != "" || item.ReviewerResultInputSaveCommand != "" || item.ReviewerResultInputSaveApplyCommand != "" || item.ReviewerResultSourceCaptureCommand != "" || item.ReviewerResultSourceCaptureApplyCommand != "" || item.ReviewerResultStagingCommand != "" || item.ReviewerResultCollectionCommands != nil || item.PreviewCommand != "" || item.ApplyCommand != "" || item.BatchPreviewCommand != "" || item.BatchApplyCommand != "" || item.DispatchCommand != "" {
+		return true
+	}
+	managed := item.ManagedDispatch
+	return managed != nil && (managed.AgentToolRequest != nil || managed.InputSavePreviewCommand != "" || managed.InputSaveApplyCommand != "" || managed.SourceCapturePreviewCommand != "" || managed.SourceCaptureApplyCommand != "" || managed.StagingPreviewCommand != "" || managed.CollectionPreviewCommand != "" || managed.CollectionApplyCommand != "" || managed.IntakePreviewCommand != "" || managed.IntakeApplyCommand != "" || managed.DispatchCommand != "" || managed.NextAction != "")
+}
+
+func reviewerOperatorItemExposesExecutableAction(item workstream.ReviewerDispatchOperatorPackageItem) bool {
+	return item.AgentToolRequest != nil || item.DispatchPromptRepairCommand != "" || item.ReviewerDispatchRecordCommand != "" || item.ReviewerCompletionRecordCommand != "" || item.ReviewerResultInputSavePreviewCommand != "" || item.ReviewerResultInputSaveApplyCommand != "" || item.ReviewerResultSourceCapturePreviewCommand != "" || item.ReviewerResultSourceCaptureApplyCommand != "" || item.ReviewerResultStagingPreviewCommand != "" || item.ReviewerResultCollectionPreviewCommand != "" || item.ReviewerResultCollectionApplyCommand != "" || item.ReviewerResultIntakePreviewCommand != "" || item.ReviewerResultIntakeApplyCommand != "" || item.ReviewerResultBatchIntakePreviewCommand != "" || item.ReviewerResultBatchIntakeApplyCommand != "" || item.DispatchCommand != "" || item.NextAction != ""
+}
+
+func reviewerRunLoopExposesExecutableAction(steps []workstream.ReviewerDispatchRunLoopStep) bool {
+	for _, step := range steps {
+		if step.AgentToolRequest != nil || step.Command != "" || step.PreviewCommand != "" || step.ApplyCommand != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func reviewerWaveExposesExecutableAction(wave *workstream.ReviewerDispatchWavePackage) bool {
+	groups := [][]workstream.ReviewerDispatchWavePackageItem{wave.Shards, wave.Active, wave.Returned, wave.Failed, wave.Blocked, wave.Complete}
+	for _, group := range groups {
+		for _, item := range group {
+			if item.AgentToolRequest != nil || item.RecordDispatchCommand != "" || item.RecordCompletionCommand != "" || item.CurrentDriverRequest != nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func TestRunReviewerWaveStopsBundleWhenInterventionArrivesBetweenObservations(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "review", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", "alpha,beta", "-ItemsPerAgent", "1", "-MaxParallel", "2", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	wave := reviewerWaveFromStatus(reviewerWaveStatus(t, caseRoot))
+	observationPath := filepath.Join(caseRoot, "workspace", "wave-intervention-partial.json")
+	writeReviewerWaveObservations(t, observationPath, reviewerWaveObservationFile{SchemaVersion: 1, PacketID: wave.PacketID, Observations: []reviewerWaveObservation{
+		{ShardID: wave.SpawnWave[0].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "wave-before-intervention"},
+		{ShardID: wave.SpawnWave[1].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "wave-after-intervention"},
+	}})
+	args := []string{"-Command", "run-reviewer-wave", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", wave.PacketPath, "-Lane", wave.TargetLane, "-Actor", "mission-commander", "-ReviewerWaveObservationsPath", observationPath, "-Format", "json"}
+	preview := reviewerWavePreview(t, append(args, "-WhatIf")...)
+	reviewerWaveBeforeObservationInterventionCheckHook = func(index int) error {
+		if index == 2 {
+			return appendReviewerWaveIntervention(t, caseRoot, wave.TargetLane, "wave-intervention-partial")
+		}
+		return nil
+	}
+	defer func() { reviewerWaveBeforeObservationInterventionCheckHook = nil }()
+	out.Reset()
+	if err := Run(append(args, "-ExpectedReviewerWavePlanSha256", preview.ExpectedReviewerWavePlanSHA256, "-Apply"), &out); err != nil {
+		t.Fatal(err)
+	}
+	var partial reviewerWavePlan
+	if err := json.Unmarshal(out.Bytes(), &partial); err != nil {
+		t.Fatal(err)
+	}
+	if !partial.Applied || partial.AppliedCount != 1 || partial.FailedIndex != 2 || !strings.Contains(partial.Failure, "wave-intervention-partial") || partial.RefreshedWave == nil || !partial.RefreshedWave.Paused || len(partial.RefreshedWave.Active) != 1 || partial.RefreshedWave.Active[0].ShardID != wave.SpawnWave[0].ShardID || len(partial.RefreshedWave.SpawnWave) != 0 {
+		t.Fatalf("intervention partial receipt = %+v", partial)
+	}
+}
+
+func TestRunReviewerWaveResumesThroughReplacementExecutorTakeover(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "review", "-Executor", "executor-a", "-Actor", "mission-commander", "-Reason", "initial reviewer owner", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", "alpha", "-ItemsPerAgent", "1", "-MaxParallel", "1", "-Lane", "feature-review", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	wave := reviewerWaveFromStatus(reviewerWaveStatus(t, caseRoot))
+	packet := decodePlanSubagentsPacket(t, wave.PacketPath)
+	applyWave := func(name string, observations []reviewerWaveObservation) reviewerWavePlan {
+		path := filepath.Join(caseRoot, "workspace", name+".json")
+		writeReviewerWaveObservations(t, path, reviewerWaveObservationFile{SchemaVersion: 1, PacketID: wave.PacketID, Observations: observations})
+		args := []string{"-Command", "run-reviewer-wave", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", wave.PacketPath, "-Lane", wave.TargetLane, "-Actor", "mission-commander", "-ReviewerWaveObservationsPath", path, "-Format", "json"}
+		preview := reviewerWavePreview(t, append(args, "-WhatIf")...)
+		out.Reset()
+		if err := Run(append(args, "-ExpectedReviewerWavePlanSha256", preview.ExpectedReviewerWavePlanSHA256, "-Apply"), &out); err != nil {
+			t.Fatal(err)
+		}
+		var applied reviewerWavePlan
+		if err := json.Unmarshal(out.Bytes(), &applied); err != nil {
+			t.Fatal(err)
+		}
+		wave = applied.RefreshedWave
+		return applied
+	}
+	applyWave("wave-takeover-initial-accept", []reviewerWaveObservation{{ShardID: wave.SpawnWave[0].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "reviewer-session-a"}})
+	oldDispatchID := wave.Active[0].ReviewerDispatchID
+	if err := appendReviewerWaveIntervention(t, caseRoot, wave.TargetLane, "wave-intervention-takeover"); err != nil {
+		t.Fatal(err)
+	}
+	pausedStatus := reviewerWaveStatus(t, caseRoot)
+	if pausedStatus.CaseMission == nil || pausedStatus.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || pausedStatus.CaseMission.MissionCommanderActionQueue.CurrentAction.State != "needs-reconcile" || reviewerWaveFromStatus(pausedStatus) == nil || !reviewerWaveFromStatus(pausedStatus).Paused {
+		t.Fatalf("intervention did not route active wave to reconcile: %+v", pausedStatus.CaseMission)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "reconcile", "-Target", caseRoot, "-Pack", "_template", "-Apply", "review", "-InterventionId", "wave-intervention-takeover", "-Executor", "executor-b", "-Actor", "mission-commander", "-Reason", "accept human reviewer correction", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", wave.PacketPath, "-RecordReviewerCompletion", "-ReviewerDispatchId", oldDispatchID, "-ReviewerOutcome", "failed", "-ReviewerExitStatus", "stale-session", "-Lane", wave.TargetLane, "-Actor", "mission-commander", "-WhatIf", "-Format", "json"}, &out)
+	if err == nil || (!strings.Contains(err.Error(), "stale lane owner generation") && !strings.Contains(err.Error(), "ownerBinding is stale")) {
+		t.Fatalf("old reviewer completion survived replacement takeover: %v", err)
+	}
+	takeoverStatus := reviewerWaveStatus(t, caseRoot)
+	if takeoverStatus.CaseMission == nil || len(takeoverStatus.CaseMission.ReviewerDispatchIntakeHandoffs) != 1 || takeoverStatus.CaseMission.ReviewerDispatchIntakeHandoffs[0].State != "reviewer-packet-owner-adoption-required" {
+		t.Fatalf("replacement takeover did not require packet adoption: %+v", takeoverStatus.CaseMission)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", wave.PacketPath, "-AdoptReviewerPacket", "-Lane", wave.TargetLane, "-Actor", "mission-commander", "-Reason", "adopt reviewer packet after intervention takeover", "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	wave = reviewerWaveFromStatus(reviewerWaveStatus(t, caseRoot))
+	if wave == nil || !wave.Ready || wave.Paused || len(wave.SpawnWave) != 1 || wave.SpawnWave[0].ShardID != packet.ShardHandoffs[0].ShardID || wave.SpawnWave[0].ReviewerDispatchID != oldDispatchID {
+		t.Fatalf("adopted packet did not expose replacement spawn wave: %+v", wave)
+	}
+	applyWave("wave-takeover-replacement-accept", []reviewerWaveObservation{{ShardID: wave.SpawnWave[0].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "reviewer-session-b"}})
+	if len(wave.Active) != 1 || wave.Active[0].ReviewerDispatchID == oldDispatchID || wave.Active[0].ReviewerSession != "reviewer-session-b" {
+		t.Fatalf("replacement dispatch did not supersede stale session: %+v", wave)
+	}
+	evidencePath := filepath.Join(caseRoot, "workspace", "features", "feature-login", "review-evidence.md")
+	if err := os.MkdirAll(filepath.Dir(evidencePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(evidencePath, []byte("bounded reviewer evidence\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resultPath := filepath.Join(caseRoot, "workspace", "wave-takeover-result.json")
+	if err := os.WriteFile(resultPath, reviewerResultForCLIPlan(t, packet, packet.ShardHandoffs[0], "accept", "accepted", "reviewer-session-b"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	applyWave("wave-takeover-replacement-return", []reviewerWaveObservation{{ShardID: wave.Active[0].ShardID, Kind: "returned", ReviewerExitStatus: "completed", ReviewerResultInputSourcePath: resultPath}})
+	loopPreview := runCurrentLoopPreviewWith(t, caseRoot, 8, "-Actor", "mission-commander")
+	loopApplied := runCurrentLoopApplyWith(t, caseRoot, loopPreview, "-Actor", "mission-commander")
+	if !loopApplied.Applied || loopApplied.AppliedSteps != 4 || loopApplied.StopReason.Code != "route-policy" {
+		t.Fatalf("replacement reviewer result did not drain to writeback: %+v", loopApplied)
+	}
+	for _, kind := range []string{"verification", "decision"} {
+		facts, err := mission.ReadStrictFact(caseRoot, kind)
+		if err != nil {
+			t.Fatal(err)
+		}
+		matched := 0
+		for _, fact := range facts {
+			if mission.Value(fact, "packetId") == packet.PacketID && mission.Value(fact, "shardId") == packet.ShardHandoffs[0].ShardID && mission.Value(fact, "ownerExecutor") == "executor-b" {
+				matched++
+			}
+		}
+		if matched != 1 {
+			t.Fatalf("replacement takeover wrote %d matching %s facts: %+v", matched, kind, facts)
+		}
+	}
+}
+
+func appendReviewerWaveIntervention(t *testing.T, caseRoot, lane, eventID string) error {
+	t.Helper()
+	var out bytes.Buffer
+	return Run([]string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-Kind", "intervention", "-Lane", lane, "-Subject", "pause reviewer wave", "-Summary", "human changed reviewer direction", "-Action", "override", "-Status", "open", "-Actor", "human", "-EventId", eventID, "-CreatedAt", "2026-08-03T00:00:00Z", "-Format", "json"}, &out)
 }
 
 func TestRunReviewerWaveRejectsInvalidObservationContracts(t *testing.T) {

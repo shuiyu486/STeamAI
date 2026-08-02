@@ -28,6 +28,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+
+### Batch 803：active reviewer wave intervention and replacement takeover closure
+
+状态：已完成active reviewer wave intervention pause、replacement executor takeover、canonical raw handoff净化、产品路径回归、独立审查与Windows本机完整release minimum；implementation commit/push待本批统一完成。本批选择`replacement-executor`，关闭active multi-shard reviewer wave在Human-in-the-Lane中途改向后仍可能继续dispatch/记录旧session观察，且replacement executor需手工重建adoption→fresh dispatch→writeback路线的日常断点；本批不是字段、文案或summary投影微调。
+
+用户断点：变更前，active wave生成后即使human写入open intervention，旧`run-reviewer-wave`preview或direct`plan-subagents`receipt/result命令仍可能继续写入；status中的分类副本和run loop也可能保留可执行Agent/command。reconcile切换owner generation后，replacement executor还要从旧聊天拼出packet adoption、新session dispatch与结果drain顺序；全局queue甚至可能先运行另一个ready lane而不是处理intervention。
+
+目标：关闭active reviewer wave在Human-in-the-Lane intervention后继续写入旧session观察，并让replacement executor从durable status完成reconcile→packet adoption→fresh dispatch→result writeback，不依赖旧聊天重建顺序。
+
+操作变化：变更后`note -Kind intervention`、每条wave observation、single-step/direct reviewer mutation与reconcile/takeover共享lane mutation lease；effective open intervention立即让status wave/operator进入paused，清空snapshot、spawnWave、runLoop、Agent request以及dispatch/completion/save/capture/stage/collect/intake命令，active/returned/failed/blocked/complete仅保留诊断。全局Mission Commander current action优先concrete`reconcile -WhatIf`；reconcile切换executor后旧dispatch/result因stale owner拒绝，显式packet adoption才产生replacement spawn wave，fresh reviewer result随后由bounded current loop完成source→stage→collect→packet intake/writeback。bundle中若intervention在两项之间提交，已写immutable observation保留并返回truthful partial receipt，后续项zero-write停止。
+
+E2E验收：双shardwave的旧preview在intervention后Apply拒绝且direct dispatch/single-step均不可绕过；intervention在bundle第一项后到达时只记录第一shard并返回`appliedCount=1/failedIndex=2`。完整replacement路线证明`executor-a active session → intervention → global reconcile → executor-b takeover → old completion stale → packet adoption → distinct replacement dispatch/session → valid ReviewerResult → run-current-loop 4 deterministic steps → verification/decision各一次且ownerExecutor=executor-b → route-policy stop`。额外回归锁定reconcile优先于无关ready lane/evidence review，同时后者仍保留在unblocked queue中。
+
+边界：runtime不调用Agent tool，不spawn/poll/stop reviewer session，不伪造ReviewerResult，不自动执行reconcile/adoption或跨WhatIf/Apply，不执行heavy-tool、不写authority/confirmed；packet、prompt、owner、receipt、result、path、hash与currentness guards不放宽。packet adoption和invalid/recovery处置仍是可用控制面，不因intervention封死恢复。未新增PowerShell runtime logic；普通batch不等待或声明remote CI green。
+
+验证结果：focused intervention/wave/replacement regressions和`cli`/`mission`/`note`/`subagents`/`workstream`完整packages通过；相关旧status/overview/handoff回归已更新为intervention-first current action，并验证evidence review、ready lane与next-batch guidance仍留在队列。独立审查发现paused canonical operator/wave虽已净化，但raw handoff及其独立action queue仍泄漏Agent/dispatch/result-pipeline action的一项Important；修复下沉到canonical`ReviewerDispatchIntakeHandoffs`构造层，status/overview/handoff/continue等消费者统一取得diagnostic-only paused handoff，paused handoff不再生成reviewer action，完整envelope回归锁定raw/managed字段及queue均无可执行动作；定向复核确认finding关闭且无剩余高置信Critical/Important。修复后全仓`go test ./... -count=1`通过（CLI 150.166秒），`go vet ./...`、10-pack inventory、doctor（canonical skill 32688/32768 bytes）、`status -Format json`、完成态`release-check -Format json`与`git diff --check`通过；统一`release-run -Format json`以7/7通过（270.866秒，其中完整Go tests 268.393秒）。普通batch不等待或声明remote CI green。
+
 ### Batch 802：deterministic reviewer wave drain before failed retry
 
 状态：已完成 deterministic reviewer wave drain priority、跨packet failed retry handoff、distinct-shard writeback proof、文档、独立审查与Windows本机完整release minimum；implementation commit/push待本批统一完成。

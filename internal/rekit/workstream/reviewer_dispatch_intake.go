@@ -112,6 +112,9 @@ type reviewerResultRecoveryRecord struct {
 }
 
 type ReviewerDispatchIntakeHandoff struct {
+	Paused                                   bool                              `json:"paused,omitempty"`
+	PauseReason                              string                            `json:"pauseReason,omitempty"`
+	InterventionID                           string                            `json:"interventionId,omitempty"`
 	PacketID                                 string                            `json:"packetId,omitempty"`
 	PacketPath                               string                            `json:"packetPath"`
 	RouteID                                  string                            `json:"routeId,omitempty"`
@@ -240,6 +243,9 @@ type ReviewerManagedDispatchHandoff struct {
 
 type ReviewerDispatchOperatorPackage struct {
 	Ready                bool                                   `json:"ready"`
+	Paused               bool                                   `json:"paused,omitempty"`
+	PauseReason          string                                 `json:"pauseReason,omitempty"`
+	InterventionID       string                                 `json:"interventionId,omitempty"`
 	Summary              string                                 `json:"summary,omitempty"`
 	PacketID             string                                 `json:"packetId,omitempty"`
 	PacketPath           string                                 `json:"packetPath,omitempty"`
@@ -258,6 +264,9 @@ type ReviewerDispatchOperatorPackage struct {
 
 type ReviewerDispatchWavePackage struct {
 	Ready          bool                              `json:"ready"`
+	Paused         bool                              `json:"paused,omitempty"`
+	PauseReason    string                            `json:"pauseReason,omitempty"`
+	InterventionID string                            `json:"interventionId,omitempty"`
 	SnapshotSHA256 string                            `json:"snapshotSha256,omitempty"`
 	PacketID       string                            `json:"packetId"`
 	PacketPath     string                            `json:"packetPath"`
@@ -692,7 +701,60 @@ func ReviewerDispatchIntakeHandoffs(caseRoot string, facts mission.LedgerFacts, 
 		}
 		items = append(items, reviewerDispatchIntakeHandoffsForPacket(caseRoot, facts, packet, packetPath, packetTargetLane)...)
 	}
-	return limitReviewerDispatchIntakeHandoffs(items, maxHandoffRows), nil
+	items = limitReviewerDispatchIntakeHandoffs(items, maxHandoffRows)
+	PauseReviewerDispatchesForOpenInterventions(items, facts.Facts)
+	return items, nil
+}
+
+func PauseReviewerDispatchesForOpenInterventions(items []ReviewerDispatchIntakeHandoff, facts mission.Facts) {
+	for idx := range items {
+		interventions := mission.EffectiveOpenLaneInterventions(facts, items[idx].TargetLane)
+		if len(interventions) == 0 {
+			continue
+		}
+		interventionID := mission.Value(interventions[0], "eventId")
+		reason := fmt.Sprintf("reviewer work is paused by open intervention %q on lane %q; reconcile the intervention and refresh status before dispatching or recording reviewer observations", interventionID, items[idx].TargetLane)
+		pauseReviewerDispatchHandoff(&items[idx], interventionID, reason)
+	}
+}
+
+func pauseReviewerDispatchHandoff(item *ReviewerDispatchIntakeHandoff, interventionID, reason string) {
+	if item == nil {
+		return
+	}
+	item.Paused = true
+	item.PauseReason = reason
+	item.InterventionID = interventionID
+	item.DispatchPromptRepairCommand = ""
+	item.ReviewerDispatchRecordCommand = ""
+	item.ReviewerCompletionRecordCommand = ""
+	item.AgentToolRequest = nil
+	item.ReviewerResultInputSaveCommand = ""
+	item.ReviewerResultInputSaveApplyCommand = ""
+	item.ReviewerResultSourceCaptureCommand = ""
+	item.ReviewerResultSourceCaptureApplyCommand = ""
+	item.ReviewerResultStagingCommand = ""
+	item.ReviewerResultCollectionCommands = nil
+	item.PreviewCommand = ""
+	item.ApplyCommand = ""
+	item.BatchPreviewCommand = ""
+	item.BatchApplyCommand = ""
+	item.DispatchCommand = ""
+	if item.ManagedDispatch != nil {
+		item.ManagedDispatch.AgentToolRequest = nil
+		item.ManagedDispatch.InputSavePreviewCommand = ""
+		item.ManagedDispatch.InputSaveApplyCommand = ""
+		item.ManagedDispatch.SourceCapturePreviewCommand = ""
+		item.ManagedDispatch.SourceCaptureApplyCommand = ""
+		item.ManagedDispatch.StagingPreviewCommand = ""
+		item.ManagedDispatch.CollectionPreviewCommand = ""
+		item.ManagedDispatch.CollectionApplyCommand = ""
+		item.ManagedDispatch.IntakePreviewCommand = ""
+		item.ManagedDispatch.IntakeApplyCommand = ""
+		item.ManagedDispatch.DispatchCommand = ""
+		item.ManagedDispatch.NextAction = ""
+	}
+	item.Boundary = mission.UniqueStrings(append(item.Boundary, "open lane intervention makes this reviewer handoff diagnostic only; reconcile before reviewer dispatch or result-pipeline work"))
 }
 
 func ReviewerPacketRetirementHandoffs(caseRoot, laneID string) ([]ReviewerPacketRetirementHandoff, error) {
@@ -905,6 +967,9 @@ func MissionCommanderNextActionsWithReviewerDispatches(base []mission.MissionCom
 	packetRepresentatives := map[string]ReviewerDispatchIntakeHandoff{}
 	packetReadyForIntake := reviewerDispatchPacketReadyForIntake(handoffs)
 	for _, handoff := range handoffs {
+		if handoff.Paused {
+			continue
+		}
 		packetID := firstText(handoff.PacketID, handoff.PacketPath)
 		if packetID == "" {
 			continue

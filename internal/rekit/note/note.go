@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
@@ -185,7 +187,7 @@ func ListEvents(repoRoot, caseRoot, pack string, opt Options) (ListResult, error
 	return result, nil
 }
 
-func Append(repoRoot, caseRoot, pack string, opt Options, whatIf bool) (AppendResult, error) {
+func Append(repoRoot, caseRoot, pack string, opt Options, whatIf bool) (result AppendResult, err error) {
 	inst, err := instance.AssertAttached(caseRoot, repoRoot, pack)
 	if err != nil {
 		return AppendResult{}, err
@@ -232,7 +234,7 @@ func Append(repoRoot, caseRoot, pack string, opt Options, whatIf bool) (AppendRe
 	if err != nil {
 		return AppendResult{}, err
 	}
-	result := AppendResult{
+	result = AppendResult{
 		SchemaVersion:               1,
 		Command:                     "note",
 		CaseRoot:                    inst.CaseRoot,
@@ -276,6 +278,30 @@ func Append(repoRoot, caseRoot, pack string, opt Options, whatIf bool) (AppendRe
 		result.WouldMissionCommanderNextActions = noteMissionCommanderNextActions(boardLane, wouldAction)
 		result.Reason = "what-if"
 		return result, nil
+	}
+	var interventionLease *lanemutation.Lease
+	if kind == "intervention" {
+		interventionLease, err = lanemutation.AcquireLane(inst.CaseRoot, lane)
+		if err != nil {
+			return AppendResult{}, err
+		}
+		defer func() {
+			if unlockErr := interventionLease.Unlock(); unlockErr != nil {
+				err = errors.Join(err, unlockErr)
+				result = AppendResult{}
+			}
+		}()
+		if err := interventionLease.Validate(); err != nil {
+			return AppendResult{}, err
+		}
+		exists, err = eventIDExists(inst.CaseRoot, eventID)
+		if err != nil {
+			return AppendResult{}, err
+		}
+		if exists {
+			result.Reason = "duplicate eventId"
+			return result, nil
+		}
 	}
 	if _, _, err := mission.AppendFact(inst.CaseRoot, kind, event); err != nil {
 		return AppendResult{}, err

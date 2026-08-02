@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,6 +12,8 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewpath"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/subagents"
@@ -18,6 +21,7 @@ import (
 )
 
 var reviewerWaveBeforeApplyObservationHook func(int) error
+var reviewerWaveBeforeObservationInterventionCheckHook func(int) error
 var reviewerWaveBeforeObservationOpenHook func() error
 var reviewerWaveBeforeReturnedCompletionHook func() error
 
@@ -118,15 +122,15 @@ func runReviewerWave(ctx runtime.Context, opt Options, out io.Writer) error {
 	for idx, observation := range observations {
 		if reviewerWaveBeforeApplyObservationHook != nil {
 			if err := reviewerWaveBeforeApplyObservationHook(idx + 1); err != nil {
-				plan.Applied = plan.AppliedCount > 0
-				plan.FailedIndex = idx + 1
-				plan.Failure = err.Error()
-				refreshed, _ := buildStatusInventory(ctx, statusPackSource(ctx, opt))
-				plan.RefreshedWave = reviewerWaveFromStatus(refreshed)
-				return writeJSON(out, plan)
+				return writeReviewerWavePartialFailure(ctx, opt, out, &plan, idx+1, err)
 			}
 		}
-		result, err := applyReviewerWaveObservation(ctx, opt, observation, plan.Previews[idx])
+		if reviewerWaveBeforeObservationInterventionCheckHook != nil {
+			if err := reviewerWaveBeforeObservationInterventionCheckHook(idx + 1); err != nil {
+				return writeReviewerWavePartialFailure(ctx, opt, out, &plan, idx+1, err)
+			}
+		}
+		result, err := applyReviewerWaveObservationWithInterventionGuard(ctx, opt, observation, plan.Previews[idx])
 		if err != nil {
 			plan.Applied = plan.AppliedCount > 0 || result.Mutated
 			plan.FailedIndex = idx + 1
@@ -146,17 +150,43 @@ func runReviewerWave(ctx runtime.Context, opt Options, out io.Writer) error {
 	return writeJSON(out, plan)
 }
 
+func writeReviewerWavePartialFailure(ctx runtime.Context, opt Options, out io.Writer, plan *reviewerWavePlan, failedIndex int, cause error) error {
+	plan.Applied = plan.AppliedCount > 0
+	plan.FailedIndex = failedIndex
+	plan.Failure = cause.Error()
+	refreshed, _ := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+	plan.RefreshedWave = reviewerWaveFromStatus(refreshed)
+	return writeJSON(out, plan)
+}
+
+func ensureReviewerWaveLaneNotIntervened(caseRoot, lane string) error {
+	facts, err := mission.ReadStrictLedgerFacts(caseRoot)
+	if err != nil {
+		return err
+	}
+	if interventions := mission.EffectiveOpenLaneInterventions(facts.Facts, lane); len(interventions) > 0 {
+		return fmt.Errorf("run-reviewer-wave is paused by open intervention %q on lane %q; reconcile the intervention and refresh status before recording reviewer observations", mission.Value(interventions[0], "eventId"), lane)
+	}
+	return nil
+}
+
 func buildReviewerWavePlan(ctx runtime.Context, opt Options) (reviewerWavePlan, []reviewerWaveObservation, error) {
 	status, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
 	if err != nil {
 		return reviewerWavePlan{}, nil, err
 	}
 	wave := reviewerWaveFromStatus(status)
-	if wave == nil || !wave.Ready {
+	if wave == nil {
 		return reviewerWavePlan{}, nil, fmt.Errorf("run-reviewer-wave requires a ready reviewerDispatch operator wave")
 	}
 	if !sameReviewerWavePath(opt.PacketPath, wave.PacketPath) || strings.TrimSpace(opt.Note.Lane) != strings.TrimSpace(wave.TargetLane) {
 		return reviewerWavePlan{}, nil, fmt.Errorf("run-reviewer-wave packet or lane does not match the current reviewer wave")
+	}
+	if err := ensureReviewerWaveLaneNotIntervened(ctx.Target, wave.TargetLane); err != nil {
+		return reviewerWavePlan{}, nil, err
+	}
+	if !wave.Ready {
+		return reviewerWavePlan{}, nil, fmt.Errorf("run-reviewer-wave requires a ready reviewerDispatch operator wave")
 	}
 	path, data, observations, err := readReviewerWaveObservations(ctx.Target, opt.ReviewerWaveObservationsPath)
 	if err != nil {
@@ -221,6 +251,109 @@ func reviewerWaveFromStatus(status statusInventory) *workstream.ReviewerDispatch
 		return nil
 	}
 	return status.CaseMission.ReviewerDispatchIntakeSummary.OperatorPackage.Wave
+}
+
+func pauseReviewerWaveForOpenIntervention(summary *workstream.ReviewerDispatchIntakeSummary, facts mission.Facts) {
+	if summary == nil || summary.OperatorPackage == nil || summary.OperatorPackage.Wave == nil {
+		return
+	}
+	pkg := summary.OperatorPackage
+	wave := pkg.Wave
+	interventions := mission.EffectiveOpenLaneInterventions(facts, wave.TargetLane)
+	if len(interventions) == 0 {
+		return
+	}
+	interventionID := mission.Value(interventions[0], "eventId")
+	reason := fmt.Sprintf("reviewer wave is paused by open intervention %q on lane %q; reconcile the intervention and refresh status before dispatching or recording reviewer observations", interventionID, wave.TargetLane)
+	pkg.Ready = false
+	pkg.Paused = true
+	pkg.PauseReason = reason
+	pkg.InterventionID = interventionID
+	pkg.CurrentDriverRequest = nil
+	pkg.Summary = reason
+	pkg.Boundary = mission.UniqueStrings(append(pkg.Boundary, "open lane intervention pauses reviewer dispatch and observation recording; active, returned, failed, blocked, and complete shards remain diagnostic only"))
+	pauseReviewerOperatorItem(pkg.Current)
+	for idx := range pkg.RunLoop {
+		pkg.RunLoop[idx].Command = ""
+		pkg.RunLoop[idx].PreviewCommand = ""
+		pkg.RunLoop[idx].ApplyCommand = ""
+		pkg.RunLoop[idx].AgentToolRequest = nil
+	}
+	wave.Ready = false
+	wave.Paused = true
+	wave.PauseReason = reason
+	wave.InterventionID = interventionID
+	wave.SnapshotSHA256 = ""
+	wave.AvailableSlots = 0
+	wave.SpawnWave = nil
+	wave.Boundary = mission.UniqueStrings(append(wave.Boundary, "open lane intervention pauses new reviewer dispatch and observation recording; reconcile before using this wave"))
+	pauseReviewerWaveItems(wave.Shards)
+	pauseReviewerWaveItems(wave.Active)
+	pauseReviewerWaveItems(wave.Returned)
+	pauseReviewerWaveItems(wave.Failed)
+	pauseReviewerWaveItems(wave.Blocked)
+	pauseReviewerWaveItems(wave.Complete)
+}
+
+func pauseReviewerWaveItems(items []workstream.ReviewerDispatchWavePackageItem) {
+	for idx := range items {
+		items[idx].AgentToolRequest = nil
+		items[idx].RecordDispatchCommand = ""
+		items[idx].RecordCompletionCommand = ""
+		items[idx].CurrentDriverRequest = nil
+	}
+}
+
+func pauseReviewerOperatorItem(item *workstream.ReviewerDispatchOperatorPackageItem) {
+	if item == nil {
+		return
+	}
+	item.DispatchPromptRepairCommand = ""
+	item.ReviewerDispatchRecordCommand = ""
+	item.ReviewerCompletionRecordCommand = ""
+	item.AgentToolRequest = nil
+	item.ReviewerResultInputSavePreviewCommand = ""
+	item.ReviewerResultInputSaveApplyCommand = ""
+	item.ReviewerResultSourceCapturePreviewCommand = ""
+	item.ReviewerResultSourceCaptureApplyCommand = ""
+	item.ReviewerResultStagingPreviewCommand = ""
+	item.ReviewerResultCollectionPreviewCommand = ""
+	item.ReviewerResultCollectionApplyCommand = ""
+	item.ReviewerResultIntakePreviewCommand = ""
+	item.ReviewerResultIntakeApplyCommand = ""
+	item.ReviewerResultBatchIntakePreviewCommand = ""
+	item.ReviewerResultBatchIntakeApplyCommand = ""
+	item.DispatchCommand = ""
+	item.NextAction = ""
+}
+
+func executeReviewerMutationWithInterventionGuard[T any](caseRoot, lane string, whatIf bool, execute func() (T, error)) (result T, err error) {
+	lane = strings.TrimSpace(lane)
+	if lane == "" {
+		return execute()
+	}
+	if whatIf {
+		if err := ensureReviewerWaveLaneNotIntervened(caseRoot, lane); err != nil {
+			return result, err
+		}
+		return execute()
+	}
+	lease, err := lanemutation.AcquireLane(caseRoot, lane)
+	if err != nil {
+		return result, err
+	}
+	defer func() {
+		if unlockErr := lease.Unlock(); unlockErr != nil {
+			err = errors.Join(err, unlockErr)
+		}
+	}()
+	if err := lease.Validate(); err != nil {
+		return result, err
+	}
+	if err := ensureReviewerWaveLaneNotIntervened(caseRoot, lane); err != nil {
+		return result, err
+	}
+	return execute()
 }
 
 func readReviewerWaveObservations(caseRoot, requested string) (string, []byte, reviewerWaveObservationFile, error) {
@@ -345,6 +478,25 @@ func previewReviewerWaveObservation(ctx runtime.Context, opt Options, observatio
 		return preview, fmt.Errorf("kind must be accepted, returned, or failed")
 	}
 	return preview, nil
+}
+
+func applyReviewerWaveObservationWithInterventionGuard(ctx runtime.Context, opt Options, observation reviewerWaveObservation, preview reviewerWaveObservationPreview) (result reviewerWaveObservationApplyResult, err error) {
+	lease, err := lanemutation.AcquireLane(ctx.Target, strings.TrimSpace(opt.Note.Lane))
+	if err != nil {
+		return reviewerWaveObservationApplyResult{}, err
+	}
+	defer func() {
+		if unlockErr := lease.Unlock(); unlockErr != nil {
+			err = errors.Join(err, unlockErr)
+		}
+	}()
+	if err := lease.Validate(); err != nil {
+		return reviewerWaveObservationApplyResult{}, err
+	}
+	if err := ensureReviewerWaveLaneNotIntervened(ctx.Target, strings.TrimSpace(opt.Note.Lane)); err != nil {
+		return reviewerWaveObservationApplyResult{}, err
+	}
+	return applyReviewerWaveObservation(ctx, opt, observation, preview)
 }
 
 func applyReviewerWaveObservation(ctx runtime.Context, opt Options, observation reviewerWaveObservation, preview reviewerWaveObservationPreview) (reviewerWaveObservationApplyResult, error) {

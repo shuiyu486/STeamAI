@@ -645,26 +645,28 @@ func applyReviewerStep(ctx runtime.Context, request mission.MissionCommanderDriv
 }
 
 func executeReviewerStep(ctx runtime.Context, opt Options) (any, error) {
-	switch reviewerStepMode(opt) {
-	case "repair-prompt":
-		return subagents.RepairReviewerPromptArtifact(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerPromptArtifactRepairOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedPromptSHA256: opt.ExpectedPromptSHA256, WhatIf: opt.WhatIf})
-	case "record-dispatch":
-		return subagents.RecordReviewerSessionDispatch(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerSessionDispatchOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ReviewerHarness: opt.ReviewerHarness, ReviewerSession: opt.ReviewerSession, ExpectedBindingSHA256: opt.ExpectedReviewerDispatchBindingSHA256, WhatIf: opt.WhatIf})
-	case "record-completion":
-		return subagents.RecordReviewerSessionCompletion(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerSessionCompletionOptions{PacketPath: opt.PacketPath, DispatchID: opt.ReviewerDispatchID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, Outcome: opt.ReviewerOutcome, ExitStatus: opt.ReviewerExitStatus, ReviewerResultInputPath: opt.ReviewerResultInputPath, ExpectedDispatchReceiptSHA256: opt.ExpectedReviewerDispatchReceiptSHA256, ExpectedReviewerResultSHA256: opt.ExpectedReviewerResultInputSHA256, WhatIf: opt.WhatIf})
-	case "save-result-input":
-		return subagents.SaveReviewerResultInput(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerResultInputSaveOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, SourcePath: opt.ReviewerResultInputSourcePath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedReviewerResultSHA256: opt.ExpectedReviewerResultInputSHA256, WhatIf: opt.WhatIf})
-	case "source-capture":
-		return subagents.CaptureReviewerResultSource(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerResultSourceCaptureOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, InputPath: opt.ReviewerResultInputPath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedReviewerResultSHA256: opt.ExpectedReviewerResultInputSHA256, WhatIf: opt.WhatIf})
-	case "stage-candidate":
-		return subagents.StageReviewerResult(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerResultStagingOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, SourcePath: opt.ReviewerResultSourcePath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedSourceSHA256: opt.ExpectedSourceSHA256, WhatIf: opt.WhatIf})
-	case "collect-result":
-		return subagents.CollectReviewerResult(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerResultCollectionOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedCandidateSHA256: opt.ExpectedCandidateSHA256, WhatIf: opt.WhatIf})
-	case "intake-results":
-		return subagents.IntakeReadyReviewerResults(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerBatchIntakeOptions{PacketPath: opt.PacketPath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, WhatIf: opt.WhatIf})
-	default:
-		return nil, fmt.Errorf("unsupported bounded reviewer step")
-	}
+	return executeReviewerMutationWithInterventionGuard(ctx.Target, opt.Note.Lane, opt.WhatIf, func() (any, error) {
+		switch reviewerStepMode(opt) {
+		case "repair-prompt":
+			return subagents.RepairReviewerPromptArtifact(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerPromptArtifactRepairOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedPromptSHA256: opt.ExpectedPromptSHA256, WhatIf: opt.WhatIf})
+		case "record-dispatch":
+			return subagents.RecordReviewerSessionDispatch(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerSessionDispatchOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ReviewerHarness: opt.ReviewerHarness, ReviewerSession: opt.ReviewerSession, ExpectedBindingSHA256: opt.ExpectedReviewerDispatchBindingSHA256, WhatIf: opt.WhatIf})
+		case "record-completion":
+			return subagents.RecordReviewerSessionCompletion(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerSessionCompletionOptions{PacketPath: opt.PacketPath, DispatchID: opt.ReviewerDispatchID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, Outcome: opt.ReviewerOutcome, ExitStatus: opt.ReviewerExitStatus, ReviewerResultInputPath: opt.ReviewerResultInputPath, ExpectedDispatchReceiptSHA256: opt.ExpectedReviewerDispatchReceiptSHA256, ExpectedReviewerResultSHA256: opt.ExpectedReviewerResultInputSHA256, WhatIf: opt.WhatIf})
+		case "save-result-input":
+			return subagents.SaveReviewerResultInput(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerResultInputSaveOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, SourcePath: opt.ReviewerResultInputSourcePath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedReviewerResultSHA256: opt.ExpectedReviewerResultInputSHA256, WhatIf: opt.WhatIf})
+		case "source-capture":
+			return subagents.CaptureReviewerResultSource(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerResultSourceCaptureOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, InputPath: opt.ReviewerResultInputPath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedReviewerResultSHA256: opt.ExpectedReviewerResultInputSHA256, WhatIf: opt.WhatIf})
+		case "stage-candidate":
+			return subagents.StageReviewerResult(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerResultStagingOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, SourcePath: opt.ReviewerResultSourcePath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedSourceSHA256: opt.ExpectedSourceSHA256, WhatIf: opt.WhatIf})
+		case "collect-result":
+			return subagents.CollectReviewerResult(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerResultCollectionOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedCandidateSHA256: opt.ExpectedCandidateSHA256, WhatIf: opt.WhatIf})
+		case "intake-results":
+			return subagents.IntakeReadyReviewerResults(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerBatchIntakeOptions{PacketPath: opt.PacketPath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, WhatIf: opt.WhatIf})
+		default:
+			return nil, fmt.Errorf("unsupported bounded reviewer step")
+		}
+	})
 }
 
 func reviewerStepApplyRequest(result any) (mission.MissionCommanderDriverRequest, error) {

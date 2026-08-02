@@ -1000,7 +1000,8 @@ func missionCommanderNextActionIsActiveProjectWork(item MissionCommanderNextActi
 }
 
 func missionCommanderNextActionIsBoundedLanePrimary(item MissionCommanderNextActionItem) bool {
-	return item.Source == "missionCommanderActions" && item.State == "needs-start-apply"
+	return item.Source == "missionCommanderActions" &&
+		(item.State == "needs-start-apply" || item.State == "needs-reconcile")
 }
 
 func MissionCommanderActionQueueSummary(queue MissionCommanderActionQueue) string {

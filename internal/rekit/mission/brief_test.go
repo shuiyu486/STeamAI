@@ -219,7 +219,7 @@ func TestMissionCommanderNextActionsIncludeLaneFollowUps(t *testing.T) {
 		t.Fatalf("blocked lane continue follow-up should remain blocked with reason/boundary: %+v", items)
 	}
 	queue := MissionCommanderActionQueueFor(items)
-	if queue.Summary != "total=6 unblocked=3 blocked=3 requiresReview=4 followUp=4 current=/rekit continue main" || queue.Counts.Total != 6 || queue.Counts.Unblocked != 3 || queue.Counts.Blocked != 3 || queue.Counts.RequiresReview != 4 || queue.Counts.FollowUp != 4 || queue.CurrentAction == nil || queue.CurrentAction.Command != "/rekit continue main" || len(queue.UnblockedActions) != 3 || len(queue.BlockedActions) != 3 || len(queue.ReviewRequiredActions) != 4 || len(queue.FollowUpActions) != 4 {
+	if queue.Summary != "total=6 unblocked=3 blocked=3 requiresReview=4 followUp=4 current=/rekit reconcile login -InterventionId evt-open -WhatIf" || queue.Counts.Total != 6 || queue.Counts.Unblocked != 3 || queue.Counts.Blocked != 3 || queue.Counts.RequiresReview != 4 || queue.Counts.FollowUp != 4 || queue.CurrentAction == nil || queue.CurrentAction.Command != "/rekit reconcile login -InterventionId evt-open -WhatIf" || len(queue.UnblockedActions) != 3 || len(queue.BlockedActions) != 3 || len(queue.ReviewRequiredActions) != 4 || len(queue.FollowUpActions) != 4 {
 		t.Fatalf("Mission Commander action queue drifted: %+v", queue)
 	}
 }
