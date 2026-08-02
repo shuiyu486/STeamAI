@@ -774,7 +774,7 @@ func TestRunCurrentLoopDurableResumeDriverRequestProductPath(t *testing.T) {
 	}
 }
 
-func TestRunCurrentLoopResumeClaimRemainsConsumedAfterNestedFailure(t *testing.T) {
+func TestRunCurrentLoopResumePublishesRetryCheckpointAfterZeroWriteFailure(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	var out bytes.Buffer
 	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
@@ -782,7 +782,7 @@ func TestRunCurrentLoopResumeClaimRemainsConsumedAfterNestedFailure(t *testing.T
 	}
 	initial := runCurrentLoopPreview(t, caseRoot, 3)
 	driverStepAfterPreviewValidationHook = func() error {
-		appendCurrentLoopOpenIntervention(t, caseRoot, "int-current-loop-consumed")
+		appendCurrentLoopOpenIntervention(t, caseRoot, "int-current-loop-retry")
 		return nil
 	}
 	first := runCurrentLoopApply(t, caseRoot, initial)
@@ -799,30 +799,137 @@ func TestRunCurrentLoopResumeClaimRemainsConsumedAfterNestedFailure(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	currentLoopBeforeApplyStepHook = func(int) error { return os.ErrPermission }
+	driverStepApplyBeforeMutationHook = func(string) error { return os.ErrPermission }
 	t.Cleanup(func() {
-		currentLoopBeforeApplyStepHook = nil
+		driverStepApplyBeforeMutationHook = nil
 		driverStepAfterPreviewValidationHook = nil
 	})
 	failed := runCurrentLoopResult(t, append([]string{"-Command", applyArgs[1]}, applyArgs[2:]...))
-	if failed.Applied || failed.AppliedSteps != 0 || failed.StopReason.Code != "error" {
-		t.Fatalf("resume nested failure was not returned without progress: %+v", failed)
+	if failed.Applied || failed.AppliedSteps != 0 || failed.StopReason.Code != "zero-progress-retry" || failed.SegmentCheckpoint == nil || !strings.Contains(failed.StopReason.Message, "permission denied") {
+		t.Fatalf("resume pre-mutation failure did not return a retry checkpoint: %+v", failed)
 	}
-	consumed := currentloop.Inspect(repoRoot(t), caseRoot, "_template", failed.FinalStatus.MissionControlRunbook.CurrentDriverRequest)
-	if consumed.Ready || consumed.State != "consumed" || consumed.ArtifactSHA256 != first.SegmentCheckpoint.ArtifactSHA256 || consumed.Continuation != nil || consumed.ResumeDriverRequest != nil {
-		t.Fatalf("nested failure restored claimed resume budget: %+v", consumed)
+	if !failed.SegmentCheckpoint.Ready || failed.SegmentCheckpoint.State != "ready" || failed.SegmentCheckpoint.ResumeSourceSHA256 != first.SegmentCheckpoint.ArtifactSHA256 || failed.SegmentCheckpoint.RemainingMaxSteps != first.SegmentCheckpoint.RemainingMaxSteps || failed.SegmentCheckpoint.ResumeDriverRequest == nil {
+		t.Fatalf("resume zero-write retry checkpoint did not preserve the remaining budget: %+v", failed.SegmentCheckpoint)
+	}
+	if failed.SegmentCheckpoint.Sequence != first.SegmentCheckpoint.Sequence+1 {
+		t.Fatalf("resume zero-write retry checkpoint did not append to the chain: first=%+v retry=%+v", first.SegmentCheckpoint, failed.SegmentCheckpoint)
+	}
+	if err := Run(append([]string{"-Command", applyArgs[1]}, applyArgs[2:]...), &bytes.Buffer{}); err == nil || (!strings.Contains(err.Error(), "expected checkpoint sha256 mismatch") && !strings.Contains(err.Error(), "latest checkpoint")) {
+		t.Fatalf("original claimed resume Apply remained executable after retry checkpoint publication: %v", err)
 	}
 	var statusOut bytes.Buffer
 	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &statusOut); err != nil {
 		t.Fatal(err)
 	}
-	var consumedStatus statusInventory
-	if err := json.Unmarshal(statusOut.Bytes(), &consumedStatus); err != nil {
-		t.Fatalf("consumed operator status did not decode: %v\n%s", err, statusOut.String())
+	var retryStatus statusInventory
+	if err := json.Unmarshal(statusOut.Bytes(), &retryStatus); err != nil {
+		t.Fatalf("retry operator status did not decode: %v\n%s", err, statusOut.String())
 	}
-	consumedOperator := consumedStatus.MissionControlRunbook.CurrentLoopOperator
-	if consumedOperator == nil || consumedOperator.Ready || consumedOperator.State != "checkpoint-consumed" || consumedOperator.SelectedDriverRequest != nil || consumedOperator.StartDriverRequest != nil || consumedOperator.ResumeDriverRequest != nil || consumedOperator.ExternalReviewerHandoff != nil {
-		t.Fatalf("consumed checkpoint exposed an executable current-loop operator: %+v", consumedOperator)
+	retryOperator := retryStatus.MissionControlRunbook.CurrentLoopOperator
+	if retryOperator == nil || !retryOperator.Ready || retryOperator.State != "checkpoint-resume-review-required" || retryOperator.SelectedDriverRequest == nil || retryOperator.ResumeDriverRequest == nil || retryOperator.RemainingMaxSteps != first.SegmentCheckpoint.RemainingMaxSteps {
+		t.Fatalf("replacement status did not expose the retry checkpoint: %+v", retryOperator)
+	}
+	driverStepApplyBeforeMutationHook = nil
+	retryPreviewArgs, err := splitDriverCommand(retryOperator.SelectedDriverRequest.Command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retryPreview := runCurrentLoopResult(t, append([]string{"-Command", retryPreviewArgs[1]}, retryPreviewArgs[2:]...))
+	retryApplyArgs, err := splitDriverCommand(retryPreview.ApplyCommand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retried := runCurrentLoopResult(t, append([]string{"-Command", retryApplyArgs[1]}, retryApplyArgs[2:]...))
+	if !retried.Applied || retried.AppliedSteps < 1 || retried.SegmentCheckpoint == nil || retried.SegmentCheckpoint.ResumeSourceSHA256 != failed.SegmentCheckpoint.ArtifactSHA256 {
+		t.Fatalf("replacement session did not continue from the zero-write retry checkpoint: %+v", retried)
+	}
+}
+
+func TestRunCurrentLoopResumeDoesNotRecoverZeroWriteFailureAfterRequestDrift(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	initial := runCurrentLoopPreview(t, caseRoot, 3)
+	driverStepAfterPreviewValidationHook = func() error {
+		appendCurrentLoopOpenIntervention(t, caseRoot, "int-current-loop-drift")
+		return nil
+	}
+	first := runCurrentLoopApply(t, caseRoot, initial)
+	driverStepAfterPreviewValidationHook = nil
+	previewArgs, err := splitDriverCommand(first.SegmentCheckpoint.ResumeDriverRequest.Command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview := runCurrentLoopResult(t, append([]string{"-Command", previewArgs[1]}, previewArgs[2:]...))
+	applyArgs, err := splitDriverCommand(preview.ApplyCommand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	driverStepApplyBeforeMutationHook = func(string) error {
+		appendCurrentLoopOpenIntervention(t, caseRoot, "int-current-loop-drift-after-claim")
+		return os.ErrPermission
+	}
+	t.Cleanup(func() {
+		driverStepApplyBeforeMutationHook = nil
+		driverStepAfterPreviewValidationHook = nil
+	})
+	failed := runCurrentLoopResult(t, append([]string{"-Command", applyArgs[1]}, applyArgs[2:]...))
+	if failed.Applied || failed.AppliedSteps != 0 || failed.StopReason.Code != "error" || failed.SegmentCheckpoint != nil || !strings.Contains(strings.Join(failed.Boundary, " "), "claim remains consumed") {
+		t.Fatalf("zero-write failure recovered budget after durable request drift: %+v", failed)
+	}
+	inspection := currentloop.Inspect(repoRoot(t), caseRoot, "_template", failed.FinalStatus.MissionControlRunbook.CurrentDriverRequest)
+	if inspection.Ready || inspection.State != "consumed" || inspection.ArtifactSHA256 != first.SegmentCheckpoint.ArtifactSHA256 || inspection.ResumeDriverRequest != nil {
+		t.Fatalf("request drift after claim exposed a retry checkpoint: %+v", inspection)
+	}
+}
+
+func TestRunCurrentLoopResumeDoesNotRecoverAppliedMutationFailure(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	initial := runCurrentLoopPreview(t, caseRoot, 3)
+	driverStepAfterPreviewValidationHook = func() error {
+		appendCurrentLoopOpenIntervention(t, caseRoot, "int-current-loop-partial-resume")
+		return nil
+	}
+	first := runCurrentLoopApply(t, caseRoot, initial)
+	driverStepAfterPreviewValidationHook = nil
+	if first.SegmentCheckpoint == nil || first.SegmentCheckpoint.ResumeDriverRequest == nil {
+		t.Fatalf("initial segment did not expose resume request: %+v", first.SegmentCheckpoint)
+	}
+	previewArgs, err := splitDriverCommand(first.SegmentCheckpoint.ResumeDriverRequest.Command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview := runCurrentLoopResult(t, append([]string{"-Command", previewArgs[1]}, previewArgs[2:]...))
+	applyArgs, err := splitDriverCommand(preview.ApplyCommand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentStepBeforeStatusRefreshHook = func(string) error { return os.ErrPermission }
+	t.Cleanup(func() {
+		currentStepBeforeStatusRefreshHook = nil
+		driverStepAfterPreviewValidationHook = nil
+	})
+	failed := runCurrentLoopResult(t, append([]string{"-Command", applyArgs[1]}, applyArgs[2:]...))
+	if !failed.Applied || failed.AppliedSteps != 1 || failed.StopReason.Code != "error" || failed.StopReason.Phase != "refresh-status" || failed.SegmentCheckpoint == nil || failed.SegmentCheckpoint.State != "status-unavailable" || failed.SegmentCheckpoint.Ready || failed.SegmentCheckpoint.Continuation != nil || failed.SegmentCheckpoint.ResumeSourceSHA256 != first.SegmentCheckpoint.ArtifactSHA256 {
+		t.Fatalf("resume applied mutation failure recovered consumed budget: %+v", failed)
+	}
+	var statusOut bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &statusOut); err != nil {
+		t.Fatal(err)
+	}
+	var fresh statusInventory
+	if err := json.Unmarshal(statusOut.Bytes(), &fresh); err != nil {
+		t.Fatal(err)
+	}
+	operator := fresh.MissionControlRunbook.CurrentLoopOperator
+	if operator == nil || !operator.Ready || operator.State != "fresh-loop-review-required" || operator.StartDriverRequest == nil || operator.SelectedDriverRequest == nil || operator.ResumeDriverRequest != nil || operator.RemainingMaxSteps != 0 {
+		t.Fatalf("replacement status recovered prior budget instead of requiring a fresh campaign: %+v", operator)
 	}
 }
 
@@ -911,6 +1018,7 @@ type currentLoopTestPlan struct {
 	ApplyCommand                   string                          `json:"applyCommand"`
 	SegmentCheckpoint              *currentloop.Inspection         `json:"segmentCheckpoint"`
 	FinalStatus                    *statusInventory                `json:"finalStatus"`
+	Boundary                       []string                        `json:"boundary"`
 }
 
 func runCurrentLoopPreview(t *testing.T, caseRoot string, maxSteps int) currentLoopTestPlan {

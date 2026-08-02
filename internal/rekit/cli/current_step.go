@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -12,6 +13,23 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 )
+
+type currentStepZeroProgressError struct {
+	cause error
+}
+
+func (e currentStepZeroProgressError) Error() string {
+	return e.cause.Error()
+}
+
+func (e currentStepZeroProgressError) Unwrap() error {
+	return e.cause
+}
+
+func currentStepErrorIsZeroProgress(err error) bool {
+	var zeroProgress currentStepZeroProgressError
+	return errors.As(err, &zeroProgress)
+}
 
 type currentStepPlan struct {
 	SchemaVersion                 int                                   `json:"schemaVersion"`
@@ -176,7 +194,7 @@ func applyCurrentStepPlan(ctx runtime.Context, opt Options, plan currentStepPlan
 	switch plan.Route {
 	case "case":
 		if plan.DriverStep == nil {
-			return currentStepPlan{}, fmt.Errorf("run-current-step case route omitted driver step plan")
+			return currentStepPlan{}, currentStepZeroProgressError{cause: fmt.Errorf("run-current-step case route omitted driver step plan")}
 		}
 		nested, err := applyDriverStepPlan(ctx, opt, *plan.DriverStep)
 		plan.DriverStep = &nested
@@ -191,7 +209,7 @@ func applyCurrentStepPlan(ctx runtime.Context, opt Options, plan currentStepPlan
 		}
 	case "reviewer":
 		if plan.ReviewerStep == nil || plan.ReviewerStep.ExternalHandoff != nil {
-			return currentStepPlan{}, fmt.Errorf("run-current-step reviewer route requires a deterministic reviewer step plan")
+			return currentStepPlan{}, currentStepZeroProgressError{cause: fmt.Errorf("run-current-step reviewer route requires a deterministic reviewer step plan")}
 		}
 		nested, err := applyReviewerStepPlan(ctx, opt, *plan.ReviewerStep)
 		plan.ReviewerStep = &nested

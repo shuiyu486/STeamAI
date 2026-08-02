@@ -340,7 +340,7 @@ func executeReviewerMutationWithInterventionGuard[T any](caseRoot, lane string, 
 	}
 	lease, err := lanemutation.AcquireLane(caseRoot, lane)
 	if err != nil {
-		return result, err
+		return result, currentStepZeroProgressError{cause: err}
 	}
 	defer func() {
 		if unlockErr := lease.Unlock(); unlockErr != nil {
@@ -348,10 +348,10 @@ func executeReviewerMutationWithInterventionGuard[T any](caseRoot, lane string, 
 		}
 	}()
 	if err := lease.Validate(); err != nil {
-		return result, err
+		return result, currentStepZeroProgressError{cause: err}
 	}
 	if err := ensureReviewerWaveLaneNotIntervened(caseRoot, lane); err != nil {
-		return result, err
+		return result, currentStepZeroProgressError{cause: err}
 	}
 	return execute()
 }

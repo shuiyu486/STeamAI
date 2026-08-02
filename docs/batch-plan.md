@@ -30,6 +30,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 
 
+
+### Batch 805：durable current-loop failure recovery closure
+
+状态：已完成durable current-loop零写入失败恢复、replacement takeover E2E、strict currentness与schema guards、独立审查和Windows本机release minimum；implementation commit/push待本批统一完成。本批选择`mission-commander`，关闭strict resume claim在首个nested mutation零写入失败后让replacement executor永久卡在`checkpoint-consumed`的日常断点；本批不是字段、文案或summary投影微调。
+
+用户断点：变更前，replacement session从status消费ready checkpoint并完成one-shot claim后，若首个nested runner在任何durable write前因lease/preflight/hash/本机错误失败，结果是`AppliedSteps=0`且没有successor checkpoint；旧checkpoint仍被claim永久消费，status撤销selected/start/resume driver request，下一会话既不能恢复remaining budget，也不能安全区分“零写入可重试”与“写入结果未知”。
+
+目标：保留resume claim的one-shot并发安全，同时让可证明未进入durable write的失败生成strict successor，使Mission Commander或replacement executor从fresh status恢复同一remaining budget；任何partial/unknown mutation继续fail-closed且不得恢复prior budget。
+
+操作变化：变更后claim仍在nested mutation前append-only持久化且绝不删除；workstream start/continue/reconcile在首个durable write调用前返回typed zero-progress error，current-loop只在strict resume、零receipt、fresh request未变化且该typed边界成立时发布`zero-progress-retry` successor checkpoint。Successor必须绑定immediate predecessor、原claim中的exact outer plan/current request/actor和initial current-step hash，保留全部remaining budget但要求fresh preview；旧Apply因latest checkpoint变化立即失效。进入首个write、partial receipt、status refresh failure或结果不明仍不恢复旧预算，只允许status从当前durable state开启全新campaign。
+
+E2E验收：临时case执行`initial segment → Human-in-the-Lane continuation checkpoint → replacement resume preview → one-shot claim → pre-mutation failure → append-only retry checkpoint → status/replacement selected resume → fresh preview → successful deterministic continuation`；断言successor sequence递增、`resumeSourceSha256`绑定旧artifact、remaining budget不变、旧Apply不可重放。配套反向E2E在resume nested mutation已落盘但status refresh失败时返回`status-unavailable`，replacement status不得暴露prior resume budget，只能选择fresh campaign。Currentloop contract测试同时拒绝无matching claim、错误stop/step hash/request或非零receipt的伪recovery payload，并验证claim request hash必须匹配source checkpoint。
+
+边界：runtime不撤销或覆盖claim，不把普通`error`或测试hook失败自动视为零写入；只有workstream明确在首写前证明的typed error可恢复。Checkpoint仍是no-auto-apply/no-authority append-only provenance；fresh segment继续重建status、route/lane、current-step/nested hashes。Runtime不调用Agent tool，不spawn/poll/stop session，不执行heavy-tool、不写authority/confirmed；未新增PowerShell runtime logic，普通batch不等待或声明remote CI green。
+
+验证结果：`currentloop`/`workstream`/`cli`完整focused packages通过（最终CLI 150.413秒）；零写入retry、strict claim lineage、旧Apply rejection、replacement status接手、claim后request drift、publication-window currentness、partial mutation不恢复和status-unavailable无panic回归通过。独立审查发现fresh revalidation与publication间TOCTOU、zero-receipt unavailable payload panic两项Important；修复后publication在project mutation lease内二次重建request/current-step并发布，schema与索引前双重防御，定向复核确认两项关闭且无残余高置信场景。修复后全仓`go test ./... -count=1`通过（CLI 151.958秒），`go vet ./...`、10-pack inventory、doctor（canonical skill 32688/32768 bytes）、`status -Format json`、`release-check -Format json`与`git diff --check`通过。统一`release-run -Format json`以7/7通过（274.655秒，其中完整Go tests 272.217秒）；implementation commit/push待统一完成，普通batch不等待或声明remote CI green。
+
 ### Batch 804：replacement reviewer result lineage closure
 
 状态：已完成 replacement reviewer result lineage修复、完整产品路径回归、独立审查与Windows本机完整release minimum；implementation commit/push待本批统一完成。本批选择`mission-commander`，关闭external reviewer retry在durable current-loop中的结果归属断点；这不是字段、文案或summary投影微调。

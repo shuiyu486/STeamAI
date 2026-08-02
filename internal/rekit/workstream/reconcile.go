@@ -99,6 +99,12 @@ func ReconcilePreview(repoRoot, caseRoot, pack string, opt ReconcileOptions) (Re
 }
 
 func ReconcileApply(repoRoot, caseRoot, pack string, opt ReconcileOptions) (result ReconcileResult, err error) {
+	mutationStarted := false
+	defer func() {
+		if err != nil && !mutationStarted {
+			err = MarkZeroProgress(err)
+		}
+	}()
 	ctx, err := newReconcileContext(repoRoot, caseRoot, pack, opt, true)
 	if err != nil {
 		return ReconcileResult{}, err
@@ -165,9 +171,11 @@ func ReconcileApply(repoRoot, caseRoot, pack string, opt ReconcileOptions) (resu
 			return ReconcileResult{}, err
 		}
 		writes = append(writes, StartWrite{Path: rel, Kind: "fact-jsonl", Action: "already-appended", TargetPath: path})
+		mutationStarted = true
 	} else {
 		resolutionID = eventID(ctx.lane.ID, "intervention-resolved-"+sourceID, now)
 		resolution := ctx.reconcileResolution(sourceID, resolutionID, now)
+		mutationStarted = true
 		rel, path, err := mission.AppendFact(ctx.inst.CaseRoot, "intervention", resolution)
 		if err != nil {
 			return ReconcileResult{}, err

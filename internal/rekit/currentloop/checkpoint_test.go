@@ -2,6 +2,7 @@ package currentloop
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -195,6 +196,116 @@ func TestCheckpointResumeClaimIsOneShotAndFailsClosed(t *testing.T) {
 	}
 	if err := ClaimResume(repoRoot, caseRoot, "_template", claim); err == nil || !strings.Contains(err.Error(), "consumed") {
 		t.Fatalf("duplicate resume claim was accepted: %v", err)
+	}
+}
+
+func TestCheckpointZeroProgressRecoveryRequiresStrictClaimedLineage(t *testing.T) {
+	repoRoot, caseRoot := checkpointAttachedCase(t)
+	request := checkpointRequest("/rekit continue main -WhatIf -Format json")
+	firstPayload := checkpointPayload(t, caseRoot, request)
+	first, err := Write(repoRoot, caseRoot, "_template", firstPayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestSHA256, err := RequestSHA256(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recovery := checkpointZeroProgressPayload(t, caseRoot, request, first.ArtifactSHA256)
+	claim := Claim{
+		SourceArtifactSHA256:          first.ArtifactSHA256,
+		ExpectedCurrentLoopPlanSHA256: recovery.ExpectedCurrentLoopPlanSHA256,
+		CurrentDriverRequestSHA256:    requestSHA256,
+		Actor:                         "main-agent",
+	}
+	if err := ClaimResume(repoRoot, caseRoot, "_template", claim); err != nil {
+		t.Fatal(err)
+	}
+	written, err := Write(repoRoot, caseRoot, "_template", recovery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !written.Ready || written.State != "ready" || written.Sequence != first.Sequence+1 || written.ResumeSourceSHA256 != first.ArtifactSHA256 || written.AppliedSteps != 0 || written.RemainingMaxSteps != recovery.SegmentMaxSteps {
+		t.Fatalf("zero-progress recovery did not preserve strict remaining budget: %+v", written)
+	}
+
+	missingClaim := checkpointZeroProgressPayload(t, caseRoot, request, written.ArtifactSHA256)
+	missingClaim.ExpectedCurrentLoopPlanSHA256 = strings.Repeat("e", 64)
+	if _, err := Write(repoRoot, caseRoot, "_template", missingClaim); err == nil || !strings.Contains(err.Error(), "durable resume claim") {
+		t.Fatalf("zero-progress recovery without an exact matching claim was accepted: %v", err)
+	}
+
+	for name, mutate := range map[string]func(*Payload){
+		"not-zero-progress": func(payload *Payload) { payload.ZeroProgressRecovery = false },
+		"status-unavailable": func(payload *Payload) {
+			payload.StatusAvailable = false
+			payload.RefreshedCurrentDriverRequest = nil
+			payload.RefreshedCurrentDriverRequestSHA256 = ""
+			payload.Continuation = nil
+		},
+		"missing-step-hash": func(payload *Payload) { payload.ExpectedInitialCurrentStepSHA256 = "" },
+		"wrong-stop":        func(payload *Payload) { payload.Stop.Code = "error" },
+		"changed-request": func(payload *Payload) {
+			changed := checkpointRequest("/rekit continue other -WhatIf -Format json")
+			payload.RefreshedCurrentDriverRequest = &changed
+			payload.RefreshedCurrentDriverRequestSHA256, _ = RequestSHA256(changed)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			candidate := checkpointZeroProgressPayload(t, caseRoot, request, written.ArtifactSHA256)
+			mutate(&candidate)
+			candidate.SchemaVersion = 1
+			candidate.Kind = "current-loop-segment-checkpoint"
+			candidate.Sequence = 3
+			candidate.PreviousArtifactSHA256 = written.ArtifactSHA256
+			candidate.CaseIdentitySHA256 = strings.Repeat("a", 64)
+			candidate.Pack = "_template"
+			candidate.NoAutoApply = true
+			candidate.NoAuthority = true
+			if err := validatePayload(candidate); err == nil {
+				t.Fatalf("invalid zero-progress recovery payload was accepted: %+v", candidate)
+			}
+		})
+	}
+}
+
+func TestCheckpointWriteValidatedRejectsPublicationCurrentnessDrift(t *testing.T) {
+	repoRoot, caseRoot := checkpointAttachedCase(t)
+	request := checkpointRequest("/rekit continue main -WhatIf -Format json")
+	payload := checkpointPayload(t, caseRoot, request)
+	called := false
+	inspection, err := WriteValidated(repoRoot, caseRoot, "_template", payload, func() error {
+		called = true
+		return errors.New("current request drifted")
+	})
+	if err == nil || !called || !strings.Contains(err.Error(), "publication currentness") || inspection.ArtifactPath != "" {
+		t.Fatalf("publication currentness drift was accepted: inspection=%+v err=%v", inspection, err)
+	}
+	root := filepath.Join(caseRoot, filepath.FromSlash(artifactRelRoot))
+	if entries, readErr := os.ReadDir(root); !os.IsNotExist(readErr) && (readErr != nil || len(entries) != 0) {
+		t.Fatalf("rejected publication currentness drift wrote an artifact: err=%v entries=%v", readErr, entries)
+	}
+}
+
+func TestCheckpointResumeClaimBindsSourceCurrentRequest(t *testing.T) {
+	repoRoot, caseRoot := checkpointAttachedCase(t)
+	request := checkpointRequest("/rekit continue main -WhatIf -Format json")
+	written, err := Write(repoRoot, caseRoot, "_template", checkpointPayload(t, caseRoot, request))
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim := Claim{
+		SourceArtifactSHA256:          written.ArtifactSHA256,
+		ExpectedCurrentLoopPlanSHA256: strings.Repeat("c", 64),
+		CurrentDriverRequestSHA256:    strings.Repeat("d", 64),
+		Actor:                         "main-agent",
+	}
+	if err := ClaimResume(repoRoot, caseRoot, "_template", claim); err == nil || !strings.Contains(err.Error(), "current driver request") {
+		t.Fatalf("resume claim accepted a request hash not bound to the source checkpoint: %v", err)
+	}
+	inspection := Inspect(repoRoot, caseRoot, "_template", &request)
+	if !inspection.Ready || inspection.State != "ready" || inspection.ResumeDriverRequest == nil {
+		t.Fatalf("rejected request mismatch consumed the checkpoint: %+v", inspection)
 	}
 }
 
@@ -650,6 +761,65 @@ func checkpointPayload(t *testing.T, caseRoot string, request mission.MissionCom
 		InitialCurrentDriverRequest   mission.MissionCommanderDriverRequest `json:"initialCurrentDriverRequest"`
 		ExpectedCurrentStepPlanSHA256 string                                `json:"expectedCurrentStepPlanSha256"`
 	}{1, caseRoot, "_template", payload.RoutePolicy, payload.SegmentMaxSteps, payload.Actor, payload.SegmentRoute, payload.SegmentLane, payload.InitialCurrentDriverRequest, steps[0].ExpectedCurrentStepPlanSHA256}
+	encoded, err := json.Marshal(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload.ExpectedCurrentLoopPlanSHA256 = sha256Hex(encoded)
+	return payload
+}
+
+func checkpointZeroProgressPayload(t *testing.T, caseRoot string, request mission.MissionCommanderDriverRequest, resumeSourceSHA256 string) Payload {
+	t.Helper()
+	requestSHA256, err := RequestSHA256(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stepSHA256 := strings.Repeat("d", 64)
+	payload := Payload{
+		Actor:                               request.Actor,
+		RoutePolicy:                         "fixed-initial-route-and-lane",
+		InitialCurrentDriverRequest:         request,
+		InitialCurrentDriverRequestSHA256:   requestSHA256,
+		ExpectedInitialCurrentStepSHA256:    stepSHA256,
+		ResumeSourceArtifactSHA256:          resumeSourceSHA256,
+		ZeroProgressRecovery:                true,
+		SegmentMaxSteps:                     3,
+		RemainingMaxSteps:                   3,
+		SegmentRoute:                        "case",
+		SegmentLane:                         "main",
+		Stop:                                Stop{Code: "zero-progress-retry", Phase: "apply-step"},
+		StepReceipts:                        []StepReceiptBinding{},
+		StatusAvailable:                     true,
+		RefreshedCurrentDriverRequest:       &request,
+		RefreshedCurrentDriverRequestSHA256: requestSHA256,
+		Continuation: &Continuation{
+			Kind:                 "current-loop-campaign-continuation",
+			State:                "awaiting-fresh-segment-review",
+			StopCode:             "zero-progress-retry",
+			SegmentMaxSteps:      3,
+			RemainingMaxSteps:    3,
+			SegmentRoute:         "case",
+			SegmentLane:          "main",
+			ExpectedRoute:        "case",
+			ExpectedLane:         "main",
+			WhatIfCommand:        `/rekit run-current-loop -Target "case" -Pack _template -MaxSteps 3 -WhatIf -Format json`,
+			FreshPreviewRequired: true,
+		},
+	}
+	identity := struct {
+		SchemaVersion                 int                                   `json:"schemaVersion"`
+		CaseRoot                      string                                `json:"caseRoot"`
+		Pack                          string                                `json:"pack"`
+		RoutePolicy                   string                                `json:"routePolicy"`
+		MaxSteps                      int                                   `json:"maxSteps"`
+		Actor                         string                                `json:"actor"`
+		InitialRoute                  string                                `json:"initialRoute"`
+		InitialLane                   string                                `json:"initialLane"`
+		InitialCurrentDriverRequest   mission.MissionCommanderDriverRequest `json:"initialCurrentDriverRequest"`
+		ExpectedCurrentStepPlanSHA256 string                                `json:"expectedCurrentStepPlanSha256"`
+		ResumeSourceArtifactSHA256    string                                `json:"resumeSourceArtifactSha256,omitempty"`
+	}{1, caseRoot, "_template", payload.RoutePolicy, payload.SegmentMaxSteps, payload.Actor, payload.SegmentRoute, payload.SegmentLane, payload.InitialCurrentDriverRequest, stepSHA256, resumeSourceSHA256}
 	encoded, err := json.Marshal(identity)
 	if err != nil {
 		t.Fatal(err)

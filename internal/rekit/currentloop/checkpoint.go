@@ -108,7 +108,9 @@ type Payload struct {
 	InitialCurrentDriverRequest         mission.MissionCommanderDriverRequest  `json:"initialCurrentDriverRequest"`
 	InitialCurrentDriverRequestSHA256   string                                 `json:"initialCurrentDriverRequestSha256"`
 	ExpectedCurrentLoopPlanSHA256       string                                 `json:"expectedCurrentLoopPlanSha256"`
+	ExpectedInitialCurrentStepSHA256    string                                 `json:"expectedInitialCurrentStepSha256,omitempty"`
 	ResumeSourceArtifactSHA256          string                                 `json:"resumeSourceArtifactSha256,omitempty"`
+	ZeroProgressRecovery                bool                                   `json:"zeroProgressRecovery,omitempty"`
 	SegmentMaxSteps                     int                                    `json:"segmentMaxSteps"`
 	AppliedStepsInSegment               int                                    `json:"appliedStepsInSegment"`
 	RemainingMaxSteps                   int                                    `json:"remainingMaxSteps"`
@@ -189,7 +191,11 @@ func ValueSHA256(value any) (string, error) {
 	return sha256Hex(data), nil
 }
 
-func Write(repoRoot, caseRoot, pack string, payload Payload) (inspection Inspection, resultErr error) {
+func Write(repoRoot, caseRoot, pack string, payload Payload) (Inspection, error) {
+	return WriteValidated(repoRoot, caseRoot, pack, payload, nil)
+}
+
+func WriteValidated(repoRoot, caseRoot, pack string, payload Payload, validate func() error) (inspection Inspection, resultErr error) {
 	lease, err := acquireProject(caseRoot)
 	if err != nil {
 		return Inspection{}, fmt.Errorf("acquire current-loop checkpoint publication lease: %w", err)
@@ -199,6 +205,11 @@ func Write(repoRoot, caseRoot, pack string, payload Payload) (inspection Inspect
 			resultErr = errors.Join(resultErr, fmt.Errorf("release current-loop checkpoint publication lease: %w", unlockErr))
 		}
 	}()
+	if validate != nil {
+		if err := validate(); err != nil {
+			return Inspection{}, fmt.Errorf("validate current-loop checkpoint publication currentness: %w", err)
+		}
+	}
 	identity, err := caseIdentity(repoRoot, caseRoot, pack)
 	if err != nil {
 		return Inspection{}, err
@@ -225,6 +236,15 @@ func Write(repoRoot, caseRoot, pack string, payload Payload) (inspection Inspect
 	}
 	if payload.ResumeSourceArtifactSHA256 != "" && !strings.EqualFold(payload.ResumeSourceArtifactSHA256, payload.PreviousArtifactSHA256) {
 		return Inspection{}, fmt.Errorf("current-loop resume source is no longer the latest checkpoint")
+	}
+	if payload.ZeroProgressRecovery {
+		claim, exists, err := readResumeClaim(caseRoot, payload.ResumeSourceArtifactSHA256)
+		if err != nil {
+			return Inspection{}, fmt.Errorf("validate zero-progress recovery claim: %w", err)
+		}
+		if !exists || !strings.EqualFold(claim.ExpectedCurrentLoopPlanSHA256, payload.ExpectedCurrentLoopPlanSHA256) || !strings.EqualFold(claim.CurrentDriverRequestSHA256, payload.InitialCurrentDriverRequestSHA256) || strings.TrimSpace(claim.Actor) != strings.TrimSpace(payload.Actor) {
+			return Inspection{}, fmt.Errorf("zero-progress recovery does not match the durable resume claim")
+		}
 	}
 	payload.CaseIdentitySHA256 = identity
 	payload.Pack = strings.TrimSpace(pack)
@@ -338,6 +358,9 @@ func ClaimResume(repoRoot, caseRoot, pack string, claim Claim) (resultErr error)
 	latest := records[len(records)-1]
 	if !strings.EqualFold(latest.payload.CaseIdentitySHA256, identity) || !strings.EqualFold(latest.payload.Pack, strings.TrimSpace(pack)) || latest.payload.Continuation == nil || latest.payload.RemainingMaxSteps < 1 {
 		return fmt.Errorf("current-loop resume source is not ready for a claim")
+	}
+	if !strings.EqualFold(claim.CurrentDriverRequestSHA256, latest.payload.RefreshedCurrentDriverRequestSHA256) {
+		return fmt.Errorf("current-loop resume claim current driver request does not match the source checkpoint")
 	}
 	claimRoot, err := openClaimRoot(caseRoot, true)
 	if err != nil {
@@ -558,38 +581,43 @@ func quoteCommandArg(value string) string {
 }
 
 func resumeClaimExists(caseRoot, artifactSHA256 string) (bool, error) {
+	_, exists, err := readResumeClaim(caseRoot, artifactSHA256)
+	return exists, err
+}
+
+func readResumeClaim(caseRoot, artifactSHA256 string) (Claim, bool, error) {
 	root, err := openClaimRoot(caseRoot, false)
 	if os.IsNotExist(err) {
-		return false, nil
+		return Claim{}, false, nil
 	}
 	if err != nil {
-		return false, err
+		return Claim{}, false, err
 	}
 	defer root.Close()
 	name := strings.ToLower(artifactSHA256) + ".json"
 	info, err := root.Lstat(name)
 	if os.IsNotExist(err) {
-		return false, nil
+		return Claim{}, false, nil
 	}
 	if err != nil {
-		return false, err
+		return Claim{}, false, err
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return false, fmt.Errorf("resume claim must be a regular non-symlink file")
+		return Claim{}, false, fmt.Errorf("resume claim must be a regular non-symlink file")
 	}
 	data, err := readStableRegular(root, name, maxArtifactBytes)
 	if err != nil {
-		return false, err
+		return Claim{}, false, err
 	}
 	var claim Claim
 	if err := decodeStrict(data, &claim); err != nil {
-		return false, err
+		return Claim{}, false, err
 	}
 	canonical, err := json.Marshal(claim)
 	if err != nil || !bytes.Equal(data, append(canonical, '\n')) || claim.SchemaVersion != 1 || claim.Kind != "current-loop-segment-resume-claim" || !strings.EqualFold(claim.SourceArtifactSHA256, artifactSHA256) || !isSHA256(claim.ExpectedCurrentLoopPlanSHA256) || !isSHA256(claim.CurrentDriverRequestSHA256) || !claim.NoAuthority || !claim.NoAutoApply {
-		return false, fmt.Errorf("resume claim contract is invalid")
+		return Claim{}, false, fmt.Errorf("resume claim contract is invalid")
 	}
-	return true, nil
+	return claim, true, nil
 }
 
 type artifactRecord struct {
@@ -786,8 +814,11 @@ func validatePayloadForCase(payload Payload, caseRoot string) error {
 		InitialRoute:                  payload.SegmentRoute,
 		InitialLane:                   payload.SegmentLane,
 		InitialCurrentDriverRequest:   payload.InitialCurrentDriverRequest,
-		ExpectedCurrentStepPlanSHA256: payload.StepReceipts[0].ExpectedCurrentStepPlanSHA256,
+		ExpectedCurrentStepPlanSHA256: payload.ExpectedInitialCurrentStepSHA256,
 		ResumeSourceArtifactSHA256:    payload.ResumeSourceArtifactSHA256,
+	}
+	if len(payload.StepReceipts) > 0 {
+		identity.ExpectedCurrentStepPlanSHA256 = payload.StepReceipts[0].ExpectedCurrentStepPlanSHA256
 	}
 	encoded, err := json.Marshal(identity)
 	if err != nil {
@@ -816,11 +847,18 @@ func validatePayload(payload Payload) error {
 	if err != nil || !strings.EqualFold(initialSHA256, payload.InitialCurrentDriverRequestSHA256) {
 		return fmt.Errorf("initial current driver request hash does not match")
 	}
-	if payload.SegmentMaxSteps < 1 || payload.SegmentMaxSteps > 20 || payload.AppliedStepsInSegment < 1 || payload.AppliedStepsInSegment > payload.SegmentMaxSteps || payload.RemainingMaxSteps != payload.SegmentMaxSteps-payload.AppliedStepsInSegment {
+	if payload.SegmentMaxSteps < 1 || payload.SegmentMaxSteps > 20 || payload.AppliedStepsInSegment < 0 || payload.AppliedStepsInSegment > payload.SegmentMaxSteps || payload.RemainingMaxSteps != payload.SegmentMaxSteps-payload.AppliedStepsInSegment {
 		return fmt.Errorf("segment budget is inconsistent")
 	}
 	if len(payload.StepReceipts) != payload.AppliedStepsInSegment || strings.TrimSpace(payload.SegmentRoute) == "" || strings.TrimSpace(payload.SegmentLane) == "" || strings.TrimSpace(payload.Stop.Code) == "" || strings.TrimSpace(payload.Stop.Phase) == "" {
 		return fmt.Errorf("segment identity, stop, or receipt count is inconsistent")
+	}
+	if payload.ZeroProgressRecovery {
+		if payload.AppliedStepsInSegment != 0 || len(payload.StepReceipts) != 0 || payload.Stop.Code != "zero-progress-retry" || payload.Stop.Phase != "apply-step" || payload.ResumeSourceArtifactSHA256 == "" || !isSHA256(payload.ExpectedInitialCurrentStepSHA256) || !payload.StatusAvailable || payload.RefreshedCurrentDriverRequest == nil || payload.Continuation == nil {
+			return fmt.Errorf("zero-progress recovery checkpoint is inconsistent")
+		}
+	} else if payload.AppliedStepsInSegment == 0 || payload.ExpectedInitialCurrentStepSHA256 != "" {
+		return fmt.Errorf("completed segment checkpoint requires applied receipts")
 	}
 	for index, receipt := range payload.StepReceipts {
 		if receipt.Step != index+1 || receipt.Route != payload.SegmentRoute || receipt.Lane != payload.SegmentLane || strings.TrimSpace(receipt.RunLoopStepID) == "" || !isSHA256(receipt.ExpectedCurrentStepPlanSHA256) || !isSHA256(receipt.RequestBeforeSHA256) || !isSHA256(receipt.CurrentStepReceiptSHA256) || receipt.RequestAfterSHA256 != "" && !isSHA256(receipt.RequestAfterSHA256) {
@@ -885,14 +923,23 @@ func validatePayload(payload Payload) error {
 			if err != nil || !strings.EqualFold(requestSHA256, payload.RefreshedCurrentDriverRequestSHA256) {
 				return fmt.Errorf("refreshed current driver request hash does not match")
 			}
-			last := payload.StepReceipts[len(payload.StepReceipts)-1]
-			if last.RequestAfter == nil || !requestsEqual(*last.RequestAfter, *payload.RefreshedCurrentDriverRequest) {
-				return fmt.Errorf("last step request-after does not match refreshed status request")
+			if payload.ZeroProgressRecovery {
+				if !requestsEqual(payload.InitialCurrentDriverRequest, *payload.RefreshedCurrentDriverRequest) {
+					return fmt.Errorf("zero-progress recovery request changed without a receipt")
+				}
+			} else {
+				last := payload.StepReceipts[len(payload.StepReceipts)-1]
+				if last.RequestAfter == nil || !requestsEqual(*last.RequestAfter, *payload.RefreshedCurrentDriverRequest) {
+					return fmt.Errorf("last step request-after does not match refreshed status request")
+				}
 			}
 		}
 	} else {
 		if payload.RefreshedCurrentDriverRequest != nil || payload.RefreshedCurrentDriverRequestSHA256 != "" || payload.Continuation != nil {
 			return fmt.Errorf("unavailable status cannot expose a current request or continuation")
+		}
+		if len(payload.StepReceipts) == 0 {
+			return fmt.Errorf("unavailable status requires an applied receipt")
 		}
 		last := payload.StepReceipts[len(payload.StepReceipts)-1]
 		if last.CurrentStepReceipt.State != "refresh-failed" {
@@ -905,7 +952,7 @@ func validatePayload(payload Payload) error {
 			return fmt.Errorf("campaign continuation does not match its segment checkpoint")
 		}
 		switch continuation.StopCode {
-		case "route-policy", "human-intervention", "external-reviewer-handoff":
+		case "route-policy", "human-intervention", "external-reviewer-handoff", "zero-progress-retry":
 		default:
 			return fmt.Errorf("campaign continuation stop code is unsupported")
 		}

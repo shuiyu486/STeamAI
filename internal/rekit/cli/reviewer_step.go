@@ -649,7 +649,7 @@ func previewReviewerStep(ctx runtime.Context, opt Options) (any, error) {
 func applyReviewerStep(ctx runtime.Context, request mission.MissionCommanderDriverRequest) (any, error) {
 	opt, err := parseBoundedReviewerRequest(ctx, request, true)
 	if err != nil {
-		return nil, err
+		return nil, currentStepZeroProgressError{cause: err}
 	}
 	return executeReviewerStep(ctx, opt)
 }

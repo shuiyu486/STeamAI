@@ -253,6 +253,12 @@ func StartPreview(repoRoot, caseRoot, pack string, opt StartOptions) (StartResul
 }
 
 func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (result StartResult, err error) {
+	mutationStarted := false
+	defer func() {
+		if err != nil && !mutationStarted {
+			err = MarkZeroProgress(err)
+		}
+	}()
 	inst, m, laneType, laneID, name, err := startContext(repoRoot, caseRoot, pack, opt)
 	if err != nil {
 		return StartResult{}, err
@@ -300,6 +306,7 @@ func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (result Start
 		}
 	}
 	writes := []StartWrite{}
+	mutationStarted = true
 	if err := ensureWorkstreamState(inst.CaseRoot, m, &writes); err != nil {
 		return StartResult{}, err
 	}

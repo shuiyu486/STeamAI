@@ -46,6 +46,7 @@ type currentLoopPlan struct {
 	SegmentCheckpoint              *currentloop.Inspection                `json:"segmentCheckpoint,omitempty"`
 	FinalStatus                    *statusInventory                       `json:"finalStatus,omitempty"`
 	Boundary                       []string                               `json:"boundary"`
+	zeroProgressVerified           bool                                   `json:"-"`
 }
 
 type currentLoopStepReceipt struct {
@@ -163,8 +164,30 @@ func runCurrentLoop(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if plan.AppliedSteps > 0 {
-		inspection, checkpointErr := writeCurrentLoopSegmentCheckpoint(ctx, plan)
+	if plan.ResumeSource != nil && plan.AppliedSteps == 0 && plan.zeroProgressVerified {
+		fresh, refreshErr := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+		freshRequest, freshRoute, freshStop := currentLoopStatusCandidate(fresh)
+		initialRequestSHA256, initialHashErr := currentloop.RequestSHA256(*plan.InitialCurrentDriverRequest)
+		freshRequestSHA256 := ""
+		if freshRequest != nil {
+			freshRequestSHA256, _ = currentloop.RequestSHA256(*freshRequest)
+		}
+		if refreshErr == nil && initialHashErr == nil && freshStop.Code == "" && freshRoute == plan.InitialRoute && strings.TrimSpace(freshRequest.Lane) == plan.InitialLane && strings.EqualFold(freshRequestSHA256, initialRequestSHA256) {
+			plan.FinalStatus = &fresh
+			plan.StopReason.Code = "zero-progress-retry"
+			plan.StopReason.Message = "resume claim succeeded, but the nested step failed before mutation: " + plan.StopReason.Message
+			plan.ContinuationRequest = currentLoopContinuationFor(ctx, plan.MaxSteps, 0, plan.InitialRoute, plan.InitialLane, freshRoute, plan.Actor, plan.StopReason)
+			if plan.ContinuationRequest != nil {
+				plan.ResumeCommand = plan.ContinuationRequest.WhatIfCommand
+			}
+		} else {
+			plan.Boundary = append(plan.Boundary,
+				"the nested step failed before mutation, but refreshed status did not preserve the claimed route, lane, and exact current request; the claim remains consumed and no retry checkpoint is published",
+			)
+		}
+	}
+	if plan.AppliedSteps > 0 || plan.StopReason.Code == "zero-progress-retry" {
+		inspection, checkpointErr := writeCurrentLoopSegmentCheckpoint(ctx, opt, plan)
 		plan.SegmentCheckpoint = &inspection
 		if checkpointErr != nil {
 			plan.Boundary = append(plan.Boundary,
@@ -339,6 +362,9 @@ func applyCurrentLoopPlan(ctx runtime.Context, opt Options, plan currentLoopPlan
 		}
 		applied, err := applyCurrentStepPlan(ctx, stepOpt, step)
 		if err != nil {
+			if currentStepErrorIsZeroProgress(err) {
+				plan.zeroProgressVerified = true
+			}
 			if applied.Applied && applied.Receipt != nil {
 				plan.Steps = append(plan.Steps, currentLoopStepReceipt{
 					Step:                          stepNumber,
@@ -530,7 +556,7 @@ func currentLoopResumeApplyCommand(ctx runtime.Context, plan currentLoopPlan, op
 }
 
 func currentLoopContinuationFor(ctx runtime.Context, segmentMaxSteps, appliedSteps int, segmentRoute, segmentLane, expectedRoute, actor string, stop currentLoopStopReason) *currentLoopContinuationRequest {
-	if stop.Code != "external-reviewer-handoff" && stop.Code != "route-policy" && stop.Code != "human-intervention" {
+	if stop.Code != "external-reviewer-handoff" && stop.Code != "route-policy" && stop.Code != "human-intervention" && stop.Code != "zero-progress-retry" {
 		return nil
 	}
 	if stop.Code == "external-reviewer-handoff" && stop.ExternalHandoff == nil {
@@ -595,13 +621,14 @@ func currentLoopContinuationFor(ctx runtime.Context, segmentMaxSteps, appliedSte
 	return continuation
 }
 
-func writeCurrentLoopSegmentCheckpoint(ctx runtime.Context, plan currentLoopPlan) (currentloop.Inspection, error) {
+func writeCurrentLoopSegmentCheckpoint(ctx runtime.Context, opt Options, plan currentLoopPlan) (currentloop.Inspection, error) {
 	payload := currentloop.Payload{
 		Actor:                         plan.Actor,
 		RoutePolicy:                   plan.RoutePolicy,
 		InitialCurrentDriverRequest:   *plan.InitialCurrentDriverRequest,
 		ExpectedCurrentLoopPlanSHA256: plan.ExpectedCurrentLoopPlanSHA256,
 		ResumeSourceArtifactSHA256:    plan.ExpectedResumeCheckpointSHA256,
+		ZeroProgressRecovery:          plan.StopReason.Code == "zero-progress-retry",
 		SegmentMaxSteps:               plan.MaxSteps,
 		AppliedStepsInSegment:         plan.AppliedSteps,
 		RemainingMaxSteps:             plan.MaxSteps - plan.AppliedSteps,
@@ -618,6 +645,9 @@ func writeCurrentLoopSegmentCheckpoint(ctx runtime.Context, plan currentLoopPlan
 			"only a strict fresh status match may expose the typed continuation and remaining budget",
 			"checkpoint publication does not execute a continuation or write authority/confirmed state",
 		},
+	}
+	if payload.ZeroProgressRecovery && plan.InitialCurrentStep != nil {
+		payload.ExpectedInitialCurrentStepSHA256 = plan.InitialCurrentStep.ExpectedCurrentStepPlanSHA256
 	}
 	initialRequestSHA256, err := currentloop.RequestSHA256(payload.InitialCurrentDriverRequest)
 	if err != nil {
@@ -673,7 +703,29 @@ func writeCurrentLoopSegmentCheckpoint(ctx runtime.Context, plan currentLoopPlan
 	if plan.ContinuationRequest != nil {
 		payload.Continuation = currentLoopCheckpointContinuation(plan.ContinuationRequest)
 	}
-	inspection, err := currentloop.Write(ctx.RepoRoot, ctx.Target, ctx.Pack, payload)
+	validate := (func() error)(nil)
+	if payload.ZeroProgressRecovery {
+		validate = func() error {
+			fresh, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+			if err != nil {
+				return err
+			}
+			request, route, stop := currentLoopStatusCandidate(fresh)
+			if stop.Code != "" || request == nil || route != plan.InitialRoute || strings.TrimSpace(request.Lane) != plan.InitialLane {
+				return fmt.Errorf("refreshed route or lane changed after zero-progress recovery review")
+			}
+			requestSHA256, err := currentloop.RequestSHA256(*request)
+			if err != nil || !strings.EqualFold(requestSHA256, payload.InitialCurrentDriverRequestSHA256) {
+				return fmt.Errorf("refreshed current driver request changed after zero-progress recovery review")
+			}
+			step, err := buildCurrentStepPlanFromStatus(ctx, currentLoopFollowupOptions(opt), fresh)
+			if err != nil || plan.InitialCurrentStep == nil || !strings.EqualFold(step.ExpectedCurrentStepPlanSHA256, plan.InitialCurrentStep.ExpectedCurrentStepPlanSHA256) {
+				return fmt.Errorf("refreshed current step changed after zero-progress recovery review")
+			}
+			return nil
+		}
+	}
+	inspection, err := currentloop.WriteValidated(ctx.RepoRoot, ctx.Target, ctx.Pack, payload, validate)
 	if err != nil {
 		return currentloop.FailedInspection(err.Error()), err
 	}

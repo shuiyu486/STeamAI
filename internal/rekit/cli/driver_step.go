@@ -479,24 +479,36 @@ var (
 func applyDriverStep(ctx runtime.Context, request mission.MissionCommanderDriverRequest, expectedPreviewSHA256 string) (any, error) {
 	opt, err := parseBoundedDriverRequest(ctx, request, true)
 	if err != nil {
-		return nil, err
+		return nil, currentStepZeroProgressError{cause: err}
 	}
 	if driverStepApplyBeforeMutationHook != nil {
 		if err := driverStepApplyBeforeMutationHook(opt.Command); err != nil {
-			return nil, err
+			return nil, currentStepZeroProgressError{cause: err}
 		}
 	}
 	switch opt.Command {
 	case commands.Start:
 		opt.Start.ExpectedPreviewSHA256 = expectedPreviewSHA256
-		return workstream.StartApply(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Start)
+		result, err := workstream.StartApply(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Start)
+		if workstream.IsZeroProgress(err) {
+			return nil, currentStepZeroProgressError{cause: err}
+		}
+		return result, err
 	case commands.Continue:
 		opt.Continue.ExpectedPreviewSHA256 = expectedPreviewSHA256
 		opt.Continue.AfterPreviewValidation = driverStepAfterPreviewValidationHook
-		return workstream.ContinueApply(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Continue)
+		result, err := workstream.ContinueApply(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Continue)
+		if workstream.IsZeroProgress(err) {
+			return nil, currentStepZeroProgressError{cause: err}
+		}
+		return result, err
 	case commands.Reconcile:
 		opt.Reconcile.ExpectedPreviewSHA256 = expectedPreviewSHA256
-		return workstream.ReconcileApply(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Reconcile)
+		result, err := workstream.ReconcileApply(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Reconcile)
+		if workstream.IsZeroProgress(err) {
+			return nil, currentStepZeroProgressError{cause: err}
+		}
+		return result, err
 	default:
 		return nil, fmt.Errorf("unsupported bounded driver apply: %s", opt.Command)
 	}

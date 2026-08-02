@@ -328,6 +328,12 @@ func continuePreviewFromSnapshot(ctx continueContext, known map[string]bool, inp
 }
 
 func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (result ContinueResult, err error) {
+	mutationStarted := false
+	defer func() {
+		if err != nil && !mutationStarted {
+			err = MarkZeroProgress(err)
+		}
+	}()
 	ctx, err := newContinueContextAllowingOwnerGuardRecovery(repoRoot, caseRoot, pack, opt)
 	if err != nil {
 		return ContinueResult{}, err
@@ -407,6 +413,7 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (result
 	if err != nil {
 		return ContinueResult{}, err
 	}
+	mutationStarted = true
 	if err := os.MkdirAll(runRoot, 0o755); err != nil {
 		return ContinueResult{}, err
 	}
