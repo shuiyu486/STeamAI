@@ -34,9 +34,16 @@ func TestCurrentLoopOperatorPackagesDirectReviewerResultHandoff(t *testing.T) {
 	if handoff == nil || handoff.ReviewerResultDropPathRole != "direct-reviewer-result-destination" || len(handoff.ObservationContract.Alternatives) != 2 {
 		t.Fatalf("direct reviewer result handoff = %+v", handoff)
 	}
+	attempt := handoff.Attempt
+	if attempt == nil || attempt.SchemaVersion != 1 || !strings.HasPrefix(attempt.AttemptID, "reviewer-attempt-") || len(attempt.AttemptSnapshotSHA256) != 64 || attempt.SelectedAction.Kind != "observe-reviewer-terminal-state" || attempt.DurableContinuationDriverRequest == nil || attempt.DurableContinuationDriverRequest.Command != selected.Command || attempt.ReviewerResultDropPathRole != "direct-reviewer-result-destination" {
+		t.Fatalf("direct reviewer attempt package = %+v", attempt)
+	}
+	if actual := statusCurrentLoopReviewerAttemptSHA256(attempt); actual != attempt.AttemptSnapshotSHA256 {
+		t.Fatalf("direct reviewer attempt snapshot sha = %s, want %s", attempt.AttemptSnapshotSHA256, actual)
+	}
 	direct := handoff.ObservationContract.Alternatives[0]
 	failed := handoff.ObservationContract.Alternatives[1]
-	if direct.Kind != "reviewer-result-direct-write" || direct.PreviewCommandTemplate != selected.Command || len(direct.RequiredFlags) != 0 {
+	if direct.Kind != "reviewer-result-direct-write" || direct.Transition != "external-write-then-refresh-status" || direct.PreviewCommandTemplate != selected.Command || len(direct.RequiredFlags) != 0 {
 		t.Fatalf("direct reviewer result observation = %+v", direct)
 	}
 	if failed.Kind != "reviewer-session-failed" || !strings.Contains(failed.PreviewCommandTemplate, "-ReviewerOutcome failed") || !strings.Contains(failed.PreviewCommandTemplate, "-ReviewerExitStatus <exit-status>") {
@@ -315,15 +322,22 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		t.Fatalf("spawn handoff omitted typed continuation request: %+v", external.ContinuationRequest)
 	}
 	spawnObservation := external.ContinuationRequest.ObservationContract.Alternatives[0]
-	if spawnObservation.Kind != "reviewer-session-accepted" || !slices.Equal(spawnObservation.RequiredFlags, []string{"-ReviewerHarness", "-ReviewerSession", "-Actor"}) {
+	if spawnObservation.Kind != "reviewer-session-accepted" || !slices.Equal(spawnObservation.RequiredFlags, []string{"-ExpectedCurrentLoopReviewerAttemptSha256", "-ReviewerHarness", "-ReviewerSession", "-Actor"}) || !strings.Contains(spawnObservation.PreviewCommandTemplate, "-ExpectedCurrentLoopReviewerAttemptSha256 ") || spawnObservation.Transition != "refresh-status:save-result-input" {
 		t.Fatalf("spawn continuation observation contract = %+v", spawnObservation)
+	}
+	if strings.Contains(external.ContinuationRequest.WhatIfCommand, "-ExpectedCurrentLoopReviewerAttemptSha256") {
+		t.Fatalf("spawn continuation shared command carried alternative-specific attempt guard: %s", external.ContinuationRequest.WhatIfCommand)
 	}
 	statusOperator := external.FinalStatus.MissionControlRunbook.CurrentLoopOperator
 	if statusOperator == nil || !statusOperator.Ready || statusOperator.State != "fresh-loop-review-required" || statusOperator.SelectedDriverRequest == nil || driverStepCommandName(statusOperator.SelectedDriverRequest.Command) != "run-current-loop" || statusOperator.SourceCurrentDriverRequest == nil || driverStepCommandName(statusOperator.SourceCurrentDriverRequest.Command) == "run-current-loop" || statusOperator.ExternalReviewerHandoff == nil || statusOperator.ExternalReviewerHandoff.AgentToolRequest == nil || !statusOperator.ExternalReviewerHandoff.AgentToolRequest.ReadOnly || len(statusOperator.ExternalReviewerHandoff.ObservationContract.Alternatives) != 1 {
 		t.Fatalf("status current-loop operator did not package the reviewer spawn closure: %+v", statusOperator)
 	}
+	spawnAttempt := statusOperator.ExternalReviewerHandoff.Attempt
+	if spawnAttempt == nil || spawnAttempt.SelectedAction.Kind != "invoke-reviewer-and-record-acceptance" || spawnAttempt.SelectedAction.Actor != "main-agent-harness" || spawnAttempt.Identity.PacketID == "" || spawnAttempt.Identity.RouteID == "" || spawnAttempt.Identity.ShardID == "" || spawnAttempt.Identity.Lane == "" || spawnAttempt.Identity.PromptSHA256 == "" || spawnAttempt.Identity.OwnerBindingMode == "" || spawnAttempt.Identity.CurrentExecutor != spawnAttempt.Identity.OwnerExecutor || spawnAttempt.Identity.CurrentGeneration != spawnAttempt.Identity.OwnerGeneration || spawnAttempt.CurrentReviewerDriverRequest == nil || spawnAttempt.DurableContinuationDriverRequest == nil || len(spawnAttempt.AttemptSnapshotSHA256) != 64 {
+		t.Fatalf("status current-loop operator omitted reviewer attempt identity: %+v", spawnAttempt)
+	}
 	operatorSpawn := statusOperator.ExternalReviewerHandoff.ObservationContract.Alternatives[0]
-	if operatorSpawn.Kind != "reviewer-session-accepted" || !strings.Contains(operatorSpawn.PreviewCommandTemplate, "-ReviewerHarness <harness>") || !strings.Contains(operatorSpawn.PreviewCommandTemplate, "-ReviewerSession <session-id>") || !strings.Contains(operatorSpawn.PreviewCommandTemplate, "-Actor <main-agent>") {
+	if operatorSpawn.Kind != "reviewer-session-accepted" || operatorSpawn.Transition != "refresh-status:save-result-input" || !strings.Contains(operatorSpawn.PreviewCommandTemplate, "-ExpectedCurrentLoopReviewerAttemptSha256 "+spawnAttempt.AttemptSnapshotSHA256) || !strings.Contains(operatorSpawn.PreviewCommandTemplate, "-ReviewerHarness <harness>") || !strings.Contains(operatorSpawn.PreviewCommandTemplate, "-ReviewerSession <session-id>") || !strings.Contains(operatorSpawn.PreviewCommandTemplate, "-Actor <main-agent>") {
 		t.Fatalf("status current-loop operator spawn template = %+v", operatorSpawn)
 	}
 	if external.FinalStatus.MissionControlRunbook.Quickstart == nil || external.FinalStatus.MissionControlRunbook.Quickstart.CurrentLoopOperator == nil || external.FinalStatus.MissionControlRunbook.ReplacementExecutorTakeover == nil || external.FinalStatus.MissionControlRunbook.ReplacementExecutorTakeover.CurrentLoopOperator == nil {
@@ -348,7 +362,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"## Current-loop operator", "selected driver request:", "Agent request:", "reviewer-session-accepted"} {
+	for _, expected := range []string{"## Current-loop operator", "selected driver request:", "reviewer attempt: id=", "snapshotSha256=", "Agent request:", "reviewer-session-accepted", "transition=refresh-status:save-result-input"} {
 		if !strings.Contains(string(durableHandoff), expected) {
 			t.Fatalf("durable handoff omitted current-loop operator detail %q:\n%s", expected, durableHandoff)
 		}
@@ -360,13 +374,23 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	}
 
 	actor := "mission-commander"
-	dispatchInputs := []string{"-ReviewerHarness", "go-cli-test-harness", "-ReviewerSession", "reviewer-session-runner", "-Actor", actor}
+	dispatchInputs := []string{"-ExpectedCurrentLoopReviewerAttemptSha256", spawnAttempt.AttemptSnapshotSHA256, "-ReviewerHarness", "go-cli-test-harness", "-ReviewerSession", "reviewer-session-runner", "-Actor", actor}
+	staleDispatchInputs := append([]string{}, dispatchInputs...)
+	staleDispatchInputs[1] = strings.Repeat("0", 64)
+	out.Reset()
+	err = Run(append([]string{"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", "_template", "-MaxSteps", "10", "-WhatIf", "-Format", "json"}, staleDispatchInputs...), &out)
+	if err == nil || !strings.Contains(err.Error(), "expected reviewer attempt sha256 mismatch") {
+		t.Fatalf("stale reviewer attempt observation was not rejected before preview: %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(filepath.Dir(spawnAttempt.Identity.PacketPath), "sessions", spawnAttempt.Identity.ShardID)); !os.IsNotExist(statErr) {
+		t.Fatalf("stale reviewer attempt observation wrote a session receipt: %v", statErr)
+	}
 	dispatchPreview := runCurrentLoopPreviewWith(t, caseRoot, external.ContinuationRequest.RemainingMaxSteps, dispatchInputs...)
 	if dispatchPreview.ExpectedCurrentLoopPlanSHA256 == "" || dispatchPreview.InitialRoute != "reviewer" {
 		t.Fatalf("reviewer deterministic loop preview missing: %+v", dispatchPreview)
 	}
 	out.Reset()
-	driftInputs := []string{"-ReviewerHarness", "go-cli-test-harness", "-ReviewerSession", "reviewer-session-runner", "-Actor", "replacement-commander"}
+	driftInputs := []string{"-ExpectedCurrentLoopReviewerAttemptSha256", spawnAttempt.AttemptSnapshotSHA256, "-ReviewerHarness", "go-cli-test-harness", "-ReviewerSession", "reviewer-session-runner", "-Actor", "replacement-commander"}
 	driftArgs := []string{"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", "_template", "-MaxSteps", stringInt(dispatchPreview.MaxSteps)}
 	driftArgs = append(driftArgs, driftInputs...)
 	driftArgs = append(driftArgs, "-ExpectedCurrentLoopPlanSha256", dispatchPreview.ExpectedCurrentLoopPlanSHA256, "-Apply", "-Format", "json")
@@ -389,6 +413,11 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	if len(continuation.ObservationContract.Alternatives) != 2 || continuation.ObservationContract.Alternatives[0].Kind != "reviewer-result-returned" || continuation.ObservationContract.Alternatives[1].Kind != "reviewer-session-failed" {
 		t.Fatalf("result handoff observation alternatives = %+v", continuation.ObservationContract)
 	}
+	returnedContinuation := continuation.ObservationContract.Alternatives[0]
+	failedContinuation := continuation.ObservationContract.Alternatives[1]
+	if strings.Contains(continuation.WhatIfCommand, "-ExpectedCurrentLoopReviewerAttemptSha256") || !strings.Contains(returnedContinuation.PreviewCommandTemplate, "-ExpectedCurrentLoopReviewerAttemptSha256 "+dispatchApplied.StopReason.ExpectedReviewerAttemptSHA256) || !strings.Contains(failedContinuation.PreviewCommandTemplate, "-ExpectedCurrentLoopReviewerAttemptSha256 "+dispatchApplied.StopReason.ExpectedReviewerAttemptSHA256) || failedContinuation.Transition != "refresh-status:spawn-reviewer" {
+		t.Fatalf("result continuation did not separate shared command from guarded alternatives: shared=%s returned=%+v failed=%+v", continuation.WhatIfCommand, returnedContinuation, failedContinuation)
+	}
 	var operatorStatusOut bytes.Buffer
 	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &operatorStatusOut); err != nil {
 		t.Fatal(err)
@@ -401,9 +430,16 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	if resultOperator == nil || resultOperator.State != "checkpoint-resume-review-required" || resultOperator.ResumeDriverRequest == nil || resultOperator.ExternalReviewerHandoff == nil || resultOperator.ExternalReviewerHandoff.ReviewerResultDropPathRole != "canonical-reviewer-input-destination" || len(resultOperator.ExternalReviewerHandoff.ObservationContract.Alternatives) != 2 {
 		t.Fatalf("status current-loop operator did not package the reviewer result closure: %+v", resultOperator)
 	}
+	resultAttempt := resultOperator.ExternalReviewerHandoff.Attempt
+	if resultAttempt == nil || resultAttempt.AttemptID == spawnAttempt.AttemptID || resultAttempt.AttemptSnapshotSHA256 == spawnAttempt.AttemptSnapshotSHA256 || resultAttempt.RunLoopStepID != "save-result-input" || resultAttempt.SelectedAction.Kind != "observe-reviewer-terminal-state" || resultAttempt.Receipt.DispatchID == "" || resultAttempt.Receipt.Harness != "go-cli-test-harness" || resultAttempt.Receipt.Session != "reviewer-session-runner" || resultAttempt.Receipt.SessionLifecycleState == "" || resultAttempt.DurableContinuationDriverRequest == nil || !strings.Contains(resultAttempt.DurableContinuationDriverRequest.Command, dispatchApplied.SegmentCheckpoint.ArtifactSHA256) {
+		t.Fatalf("checkpoint reviewer attempt did not preserve lifecycle identity: spawn=%+v result=%+v", spawnAttempt, resultAttempt)
+	}
+	if resultAttempt.SelectedAction.ObservationContract.Alternatives[0].Transition != "refresh-status:record-completion" || resultAttempt.SelectedAction.ObservationContract.Alternatives[1].Transition != "refresh-status:spawn-reviewer" {
+		t.Fatalf("reviewer attempt transition contract = %+v", resultAttempt.SelectedAction.ObservationContract)
+	}
 	returnedTemplate := resultOperator.ExternalReviewerHandoff.ObservationContract.Alternatives[0].PreviewCommandTemplate
 	failedTemplate := resultOperator.ExternalReviewerHandoff.ObservationContract.Alternatives[1].PreviewCommandTemplate
-	if !strings.Contains(returnedTemplate, "-ResumeCurrentLoop") || !strings.Contains(returnedTemplate, dispatchApplied.SegmentCheckpoint.ArtifactSHA256) || !strings.Contains(returnedTemplate, "-ReviewerResultInputSourcePath <reviewer-result-source-path>") || !strings.Contains(failedTemplate, "-ReviewerOutcome failed") || !strings.Contains(failedTemplate, "-ReviewerExitStatus <exit-status>") {
+	if !strings.Contains(returnedTemplate, "-ResumeCurrentLoop") || !strings.Contains(returnedTemplate, dispatchApplied.SegmentCheckpoint.ArtifactSHA256) || !strings.Contains(returnedTemplate, "-ExpectedCurrentLoopReviewerAttemptSha256 "+resultAttempt.AttemptSnapshotSHA256) || !strings.Contains(returnedTemplate, "-ReviewerResultInputSourcePath <reviewer-result-source-path>") || !strings.Contains(failedTemplate, "-ReviewerOutcome failed") || !strings.Contains(failedTemplate, "-ReviewerExitStatus <exit-status>") {
 		t.Fatalf("checkpoint-bound reviewer result templates are incomplete: returned=%s failed=%s", returnedTemplate, failedTemplate)
 	}
 
@@ -420,7 +456,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	if err := os.WriteFile(resultSource, reviewerResultForCLIPlan(t, plan, handoff, "accept", "accepted", "reviewer-session-runner"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	resultInputs := []string{"-ReviewerResultInputSourcePath", resultSource, "-Actor", actor}
+	resultInputs := []string{"-ExpectedCurrentLoopReviewerAttemptSha256", resultAttempt.AttemptSnapshotSHA256, "-ReviewerResultInputSourcePath", resultSource, "-Actor", actor}
 	resultPreview := runCurrentLoopResumePreviewWith(t, caseRoot, dispatchApplied.SegmentCheckpoint.ArtifactSHA256, resultInputs...)
 	if resultPreview.ExpectedCurrentLoopPlanSHA256 == "" || resultPreview.InitialRoute != "reviewer" || resultPreview.MaxSteps != continuation.RemainingMaxSteps || resultPreview.ResumeSource == nil || resultPreview.ApplyCommand == "" || !strings.Contains(resultPreview.ApplyCommand, "-ReviewerResultInputSourcePath") || !strings.Contains(resultPreview.ApplyCommand, resultSource) {
 		t.Fatalf("typed durable result continuation did not rebuild a fresh preview and exact apply command: %+v", resultPreview)
@@ -518,19 +554,19 @@ func TestCurrentLoopRouteDriftReturnsTypedCampaignContinuation(t *testing.T) {
 		Message:              "refreshed route or lane changed; review a fresh loop preview",
 		CurrentDriverRequest: &request,
 	}
-	continuation := currentLoopContinuationFor(runtime.Context{Target: `C:\cases\campaign`, Pack: "_template"}, 8, 3, "case", "feature-triage", "case", stop)
+	continuation := currentLoopContinuationFor(runtime.Context{Target: `C:\cases\campaign`, Pack: "_template"}, 8, 3, "case", "feature-triage", "case", "", stop)
 	if continuation == nil || continuation.StopCode != "route-policy" || continuation.SegmentRoute != "case" || continuation.SegmentLane != "feature-triage" || continuation.ExpectedRoute != "case" || continuation.ExpectedLane != "feature-verifier" || continuation.RemainingMaxSteps != 5 || continuation.ObservationContract != nil || continuation.CumulativeReceipts {
 		t.Fatalf("lane drift continuation = %+v", continuation)
 	}
 	if !strings.Contains(continuation.WhatIfCommand, "-MaxSteps 5") || !continuation.FreshPreviewRequired {
 		t.Fatalf("lane drift continuation command = %+v", continuation)
 	}
-	if got := currentLoopContinuationFor(runtime.Context{}, 3, 3, "case", "main", "reviewer", stop); got != nil {
+	if got := currentLoopContinuationFor(runtime.Context{}, 3, 3, "case", "main", "reviewer", "", stop); got != nil {
 		t.Fatalf("exhausted segment created continuation: %+v", got)
 	}
 	forgedExternal := stop
 	forgedExternal.Code = "external-reviewer-handoff"
-	if got := currentLoopContinuationFor(runtime.Context{}, 8, 3, "case", "main", "reviewer", forgedExternal); got != nil {
+	if got := currentLoopContinuationFor(runtime.Context{}, 8, 3, "case", "main", "reviewer", "", forgedExternal); got != nil {
 		t.Fatalf("external stop without a typed handoff created continuation: %+v", got)
 	}
 }

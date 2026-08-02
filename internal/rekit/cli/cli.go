@@ -48,97 +48,98 @@ var (
 )
 
 type Options struct {
-	rawArgs                               []string
-	Command                               string
-	Target                                string
-	Pack                                  string
-	PackProvided                          bool
-	Review                                bool
-	Apply                                 bool
-	CreateCandidates                      bool
-	WhatIf                                bool
-	Force                                 bool
-	List                                  bool
-	ReviewOutputDir                       string
-	PacketPath                            string
-	CandidateDecisionPath                 string
-	DraftCandidateDecision                bool
-	DraftReviewProof                      bool
-	ReviewProofPath                       string
-	ReviewProofType                       string
-	ReviewProofCandidatePath              string
-	ExpectedReviewProofSHA256             string
-	CandidateDecision                     string
-	CandidateDecisionReason               string
-	CandidateDecisionActor                string
-	CandidateDecisionEvidenceRefs         string
-	ExpectedDecisionSHA256                string
-	VerifyCandidateDecision               bool
-	ProvisionCandidateVerificationCases   bool
-	ExpectedProvisionSHA256               string
-	RetireCandidateVerificationWorkspace  bool
-	ExpectedRetirementSHA256              string
-	FreshCaseRoot                         string
-	AttachedCaseRoot                      string
-	ReviewerResultPath                    string
-	ReadyReviewerResults                  bool
-	AdoptReviewerPacket                   bool
-	RetireInvalidReviewerPacket           bool
-	RetireReviewerResultRecovery          bool
-	StageReviewerResult                   bool
-	CaptureReviewerResultSource           bool
-	SaveReviewerResultInput               bool
-	RepairReviewerPromptArtifact          bool
-	ReviewerResultSourcePath              string
-	ReviewerResultInputPath               string
-	ReviewerResultInputSourcePath         string
-	ExpectedSourceSHA256                  string
-	ExpectedReviewerResultInputSHA256     string
-	ExpectedPromptSHA256                  string
-	ExpectedPacketSHA256                  string
-	ExpectedIntegritySHA256               string
-	RecoverReviewerResult                 bool
-	ExpectedCandidateSHA256               string
-	ExpectedReviewerResultSHA256          string
-	ExpectedIntentSHA256                  string
-	ExpectedCanonicalSHA256               string
-	ExpectedExecutorGenerationProvided    bool
-	CollectReviewerResult                 bool
-	RecordReviewerDispatch                bool
-	RecordReviewerCompletion              bool
-	ReviewerHarness                       string
-	ReviewerSession                       string
-	ReviewerDispatchID                    string
-	ReviewerOutcome                       string
-	ReviewerExitStatus                    string
-	ExpectedReviewerDispatchBindingSHA256 string
-	ExpectedReviewerDispatchReceiptSHA256 string
-	ShardID                               string
-	DiffPath                              string
-	ProjectName                           string
-	Route                                 string
-	TaskType                              string
-	Items                                 string
-	ItemsFile                             string
-	ItemsPerAgent                         int
-	MaxParallel                           int
-	MaxSteps                              int
-	Format                                string
-	NextBatchDomain                       string
-	NextBatchClosure                      string
-	ExpectedNextBatchPlanSHA256           string
-	ExpectedCurrentLoopPlanSHA256         string
-	ExpectedCurrentLoopCheckpointSHA256   string
-	ResumeCurrentLoop                     bool
-	ExpectedCurrentStepPlanSHA256         string
-	ExpectedDriverStepPlanSHA256          string
-	ExpectedReviewerStepPlanSHA256        string
-	Gate                                  gate.Options
-	Note                                  note.Options
-	Start                                 workstream.StartOptions
-	Handoff                               workstream.HandoffOptions
-	Continue                              workstream.ContinueOptions
-	Reconcile                             workstream.ReconcileOptions
+	rawArgs                                  []string
+	Command                                  string
+	Target                                   string
+	Pack                                     string
+	PackProvided                             bool
+	Review                                   bool
+	Apply                                    bool
+	CreateCandidates                         bool
+	WhatIf                                   bool
+	Force                                    bool
+	List                                     bool
+	ReviewOutputDir                          string
+	PacketPath                               string
+	CandidateDecisionPath                    string
+	DraftCandidateDecision                   bool
+	DraftReviewProof                         bool
+	ReviewProofPath                          string
+	ReviewProofType                          string
+	ReviewProofCandidatePath                 string
+	ExpectedReviewProofSHA256                string
+	CandidateDecision                        string
+	CandidateDecisionReason                  string
+	CandidateDecisionActor                   string
+	CandidateDecisionEvidenceRefs            string
+	ExpectedDecisionSHA256                   string
+	VerifyCandidateDecision                  bool
+	ProvisionCandidateVerificationCases      bool
+	ExpectedProvisionSHA256                  string
+	RetireCandidateVerificationWorkspace     bool
+	ExpectedRetirementSHA256                 string
+	FreshCaseRoot                            string
+	AttachedCaseRoot                         string
+	ReviewerResultPath                       string
+	ReadyReviewerResults                     bool
+	AdoptReviewerPacket                      bool
+	RetireInvalidReviewerPacket              bool
+	RetireReviewerResultRecovery             bool
+	StageReviewerResult                      bool
+	CaptureReviewerResultSource              bool
+	SaveReviewerResultInput                  bool
+	RepairReviewerPromptArtifact             bool
+	ReviewerResultSourcePath                 string
+	ReviewerResultInputPath                  string
+	ReviewerResultInputSourcePath            string
+	ExpectedSourceSHA256                     string
+	ExpectedReviewerResultInputSHA256        string
+	ExpectedPromptSHA256                     string
+	ExpectedPacketSHA256                     string
+	ExpectedIntegritySHA256                  string
+	RecoverReviewerResult                    bool
+	ExpectedCandidateSHA256                  string
+	ExpectedReviewerResultSHA256             string
+	ExpectedIntentSHA256                     string
+	ExpectedCanonicalSHA256                  string
+	ExpectedExecutorGenerationProvided       bool
+	CollectReviewerResult                    bool
+	RecordReviewerDispatch                   bool
+	RecordReviewerCompletion                 bool
+	ReviewerHarness                          string
+	ReviewerSession                          string
+	ReviewerDispatchID                       string
+	ReviewerOutcome                          string
+	ReviewerExitStatus                       string
+	ExpectedReviewerDispatchBindingSHA256    string
+	ExpectedReviewerDispatchReceiptSHA256    string
+	ShardID                                  string
+	DiffPath                                 string
+	ProjectName                              string
+	Route                                    string
+	TaskType                                 string
+	Items                                    string
+	ItemsFile                                string
+	ItemsPerAgent                            int
+	MaxParallel                              int
+	MaxSteps                                 int
+	Format                                   string
+	NextBatchDomain                          string
+	NextBatchClosure                         string
+	ExpectedNextBatchPlanSHA256              string
+	ExpectedCurrentLoopPlanSHA256            string
+	ExpectedCurrentLoopCheckpointSHA256      string
+	ExpectedCurrentLoopReviewerAttemptSHA256 string
+	ResumeCurrentLoop                        bool
+	ExpectedCurrentStepPlanSHA256            string
+	ExpectedDriverStepPlanSHA256             string
+	ExpectedReviewerStepPlanSHA256           string
+	Gate                                     gate.Options
+	Note                                     note.Options
+	Start                                    workstream.StartOptions
+	Handoff                                  workstream.HandoffOptions
+	Continue                                 workstream.ContinueOptions
+	Reconcile                                workstream.ReconcileOptions
 }
 
 func Parse(args []string) (Options, error) {
@@ -412,6 +413,12 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ExpectedCurrentLoopCheckpointSha256")
 			}
 			opt.ExpectedCurrentLoopCheckpointSHA256 = args[i]
+		case "-ExpectedCurrentLoopReviewerAttemptSha256", "-ExpectedCurrentLoopReviewerAttemptSHA256", "--expected-current-loop-reviewer-attempt-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedCurrentLoopReviewerAttemptSha256")
+			}
+			opt.ExpectedCurrentLoopReviewerAttemptSHA256 = args[i]
 		case "-ResumeCurrentLoop", "--resume-current-loop":
 			opt.ResumeCurrentLoop = true
 		case "-ExpectedCurrentStepPlanSha256", "-ExpectedCurrentStepPlanSHA256", "--expected-current-step-plan-sha256":
@@ -1018,7 +1025,7 @@ func Run(args []string, stdout io.Writer) error {
 	if (strings.TrimSpace(opt.NextBatchDomain) != "" || strings.TrimSpace(opt.NextBatchClosure) != "" || strings.TrimSpace(opt.ExpectedNextBatchPlanSHA256) != "") && opt.Command != commands.NextBatch {
 		return fmt.Errorf("next-batch planning receipt flags are supported only by next-batch")
 	}
-	if (opt.MaxSteps != 0 || strings.TrimSpace(opt.ExpectedCurrentLoopPlanSHA256) != "") && opt.Command != commands.RunCurrentLoop {
+	if (opt.MaxSteps != 0 || strings.TrimSpace(opt.ExpectedCurrentLoopPlanSHA256) != "" || strings.TrimSpace(opt.ExpectedCurrentLoopReviewerAttemptSHA256) != "") && opt.Command != commands.RunCurrentLoop {
 		return fmt.Errorf("current loop flags are supported only by run-current-loop")
 	}
 	if strings.TrimSpace(opt.ExpectedCurrentStepPlanSHA256) != "" && opt.Command != commands.RunCurrentStep {
@@ -3941,7 +3948,7 @@ func statusCurrentLoopOperatorPackage(target string, caseMission *statusCaseMiss
 		if reviewerPackage.Ready && reviewerPackage.Current != nil && reviewerPackage.CurrentDriverRequest != nil &&
 			strings.TrimSpace(reviewerPackage.CurrentDriverRequest.RunLoopStepID) == strings.TrimSpace(reviewerPackage.CurrentRunLoopStepID) &&
 			currentStepReviewerRequestsMatch(*runbook.CurrentDriverRequest, *reviewerPackage.CurrentDriverRequest) {
-			pkg.ExternalReviewerHandoff = statusCurrentLoopExternalReviewerHandoff(reviewerPackage, pkg.SelectedDriverRequest)
+			pkg.ExternalReviewerHandoff = statusCurrentLoopExternalReviewerHandoff(reviewerPackage, pkg.SelectedDriverRequest, statusCurrentLoopDirectObservationPreviewCommand(inspection))
 		}
 	}
 	return pkg
@@ -3974,6 +3981,20 @@ func statusCurrentLoopOperatorPack(target string) string {
 		return strings.TrimSpace(inst.TemplatePack)
 	}
 	return defaults.DefaultPack
+}
+
+func statusCurrentLoopDirectObservationPreviewCommand(inspection currentloop.Inspection) string {
+	if inspection.Continuation == nil || strings.TrimSpace(inspection.LegacyUnboundWhatIfCommand) == "" {
+		return ""
+	}
+	if inspection.Continuation.ObservationContract != nil {
+		for _, alternative := range inspection.Continuation.ObservationContract.Alternatives {
+			if alternative.Kind == "reviewer-result-direct-write" && strings.TrimSpace(alternative.PreviewCommandTemplate) != "" {
+				return strings.TrimSpace(alternative.PreviewCommandTemplate)
+			}
+		}
+	}
+	return strings.TrimSpace(inspection.LegacyUnboundWhatIfCommand)
 }
 
 func statusCurrentLoopStartActionID(actionID string) string {
@@ -4015,7 +4036,7 @@ func statusCurrentLoopStartDriverRequest(target, pack string, maxSteps int, curr
 	}
 }
 
-func statusCurrentLoopExternalReviewerHandoff(pkg *workstream.ReviewerDispatchOperatorPackage, selected *mission.MissionCommanderDriverRequest) *mission.CurrentLoopExternalReviewerHandoff {
+func statusCurrentLoopExternalReviewerHandoff(pkg *workstream.ReviewerDispatchOperatorPackage, selected *mission.MissionCommanderDriverRequest, directPreviewCommand ...string) *mission.CurrentLoopExternalReviewerHandoff {
 	external := reviewerStepExternal(pkg, statusCurrentLoopExternalReviewerRequiredInputs(pkg))
 	if external == nil {
 		return nil
@@ -4046,17 +4067,231 @@ func statusCurrentLoopExternalReviewerHandoff(pkg *workstream.ReviewerDispatchOp
 		}
 	}
 	for _, alternative := range external.ObservationContract.Alternatives {
+		requiredFlags := append([]string{}, alternative.RequiredFlags...)
+		previewCommand := statusCurrentLoopObservationPreviewCommand(selected, alternative.Kind, "<reviewer-attempt-sha256>")
+		if alternative.Kind != "reviewer-result-direct-write" {
+			requiredFlags = append([]string{"-ExpectedCurrentLoopReviewerAttemptSha256"}, requiredFlags...)
+		} else if len(directPreviewCommand) > 0 && strings.TrimSpace(directPreviewCommand[0]) != "" {
+			previewCommand = strings.TrimSpace(directPreviewCommand[0])
+		}
 		result.ObservationContract.Alternatives = append(result.ObservationContract.Alternatives, mission.CurrentLoopObservationAlternative{
 			Kind:                   alternative.Kind,
-			RequiredFlags:          append([]string{}, alternative.RequiredFlags...),
-			PreviewCommandTemplate: statusCurrentLoopObservationPreviewCommand(selected, alternative.Kind),
+			RequiredFlags:          requiredFlags,
+			PreviewCommandTemplate: previewCommand,
+			Transition:             statusCurrentLoopReviewerAttemptTransition(alternative.Kind),
 			Constraints:            append([]string{}, alternative.Constraints...),
 		})
+	}
+	result.Attempt = statusCurrentLoopReviewerAttempt(pkg, selected, result)
+	if result.Attempt != nil {
+		statusMaterializeCurrentLoopReviewerAttemptContract(&result.ObservationContract, result.Attempt.AttemptSnapshotSHA256)
+		statusMaterializeCurrentLoopReviewerAttemptContract(&result.Attempt.SelectedAction.ObservationContract, result.Attempt.AttemptSnapshotSHA256)
+		for idx := range result.ObservationContract.Alternatives {
+			if result.ObservationContract.Alternatives[idx].Kind == "reviewer-result-direct-write" {
+				result.ObservationContract.Alternatives[idx].Transition = "external-write-then-refresh-status"
+			}
+		}
+		for idx := range result.Attempt.SelectedAction.ObservationContract.Alternatives {
+			if result.Attempt.SelectedAction.ObservationContract.Alternatives[idx].Kind == "reviewer-result-direct-write" {
+				result.Attempt.SelectedAction.ObservationContract.Alternatives[idx].Transition = "external-write-then-refresh-status"
+			}
+		}
 	}
 	return result
 }
 
-func statusCurrentLoopObservationPreviewCommand(selected *mission.MissionCommanderDriverRequest, kind string) string {
+func statusCurrentLoopReviewerAttempt(pkg *workstream.ReviewerDispatchOperatorPackage, selected *mission.MissionCommanderDriverRequest, handoff *mission.CurrentLoopExternalReviewerHandoff) *mission.CurrentLoopReviewerAttempt {
+	if pkg == nil || pkg.Current == nil || handoff == nil {
+		return nil
+	}
+	current := pkg.Current
+	identity := mission.CurrentLoopReviewerAttemptIdentity{
+		PacketID:          strings.TrimSpace(pkg.PacketID),
+		PacketPath:        strings.TrimSpace(pkg.PacketPath),
+		RouteID:           strings.TrimSpace(pkg.RouteID),
+		ShardID:           strings.TrimSpace(current.ShardID),
+		Lane:              strings.TrimSpace(pkg.TargetLane),
+		PromptPath:        strings.TrimSpace(current.DispatchPromptPath),
+		PromptSHA256:      strings.TrimSpace(current.DispatchPromptSHA256),
+		OwnerExecutor:     strings.TrimSpace(current.OwnerExecutor),
+		OwnerGeneration:   current.OwnerGeneration,
+		OwnerBindingMode:  strings.TrimSpace(current.OwnerBindingMode),
+		CurrentExecutor:   strings.TrimSpace(current.CurrentExecutor),
+		CurrentGeneration: current.CurrentGeneration,
+	}
+	attemptDispatchID := current.ReviewerDispatchID
+	if strings.TrimSpace(handoff.RunLoopStepID) == "spawn-reviewer" {
+		attemptDispatchID = ""
+	}
+	attempt := &mission.CurrentLoopReviewerAttempt{
+		SchemaVersion: 1,
+		AttemptID:     statusCurrentLoopReviewerAttemptID(identity, attemptDispatchID),
+		State:         strings.TrimSpace(handoff.State),
+		RunLoopStepID: strings.TrimSpace(handoff.RunLoopStepID),
+		Identity:      identity,
+		Receipt: mission.CurrentLoopReviewerAttemptReceipt{
+			DispatchID:              strings.TrimSpace(current.ReviewerDispatchID),
+			DispatchPath:            strings.TrimSpace(current.ReviewerDispatchReceiptPath),
+			DispatchSHA256:          strings.TrimSpace(current.ReviewerDispatchReceiptSHA256),
+			Harness:                 strings.TrimSpace(current.ReviewerHarness),
+			Session:                 strings.TrimSpace(current.ReviewerSession),
+			CompletionPath:          strings.TrimSpace(current.ReviewerCompletionReceiptPath),
+			CompletionSHA256:        strings.TrimSpace(current.ReviewerCompletionReceiptSHA256),
+			CompletionOutcome:       strings.TrimSpace(current.ReviewerSessionOutcome),
+			CompletionExitStatus:    strings.TrimSpace(current.ReviewerSessionExitStatus),
+			SessionLifecycleState:   strings.TrimSpace(current.ReviewerSessionReceiptState),
+			SessionLifecycleFailure: strings.TrimSpace(current.ReviewerSessionReceiptFailure),
+		},
+		SelectedAction: mission.CurrentLoopReviewerAttemptAction{
+			Kind:                statusCurrentLoopReviewerAttemptActionKind(handoff.RunLoopStepID),
+			Actor:               statusCurrentLoopReviewerAttemptActor(pkg, handoff.RunLoopStepID),
+			Description:         statusCurrentLoopReviewerAttemptDescription(pkg, handoff.RunLoopStepID),
+			RequiredInputs:      append([]string{}, handoff.RequiredInputs...),
+			ObservationContract: handoff.ObservationContract,
+			AgentToolRequest:    handoff.AgentToolRequest,
+		},
+		CurrentReviewerDriverRequest:     cloneStatusMissionCommanderDriverRequest(pkg.CurrentDriverRequest),
+		DurableContinuationDriverRequest: cloneStatusMissionCommanderDriverRequest(selected),
+		RefreshStatusCommand:             strings.TrimSpace(pkg.RefreshStatusCommand),
+		ReviewerResultDropPath:           strings.TrimSpace(current.ReviewerResultDropPath),
+		ReviewerResultDropPathRole:       strings.TrimSpace(handoff.ReviewerResultDropPathRole),
+		ReviewerResultInputPath:          strings.TrimSpace(current.ReviewerResultInputPath),
+		ReviewerResultSourcePath:         strings.TrimSpace(current.ReviewerResultSourcePath),
+		ReviewerResultCandidatePath:      strings.TrimSpace(current.ReviewerResultCandidatePath),
+		ReviewerResultPath:               strings.TrimSpace(current.ReviewerResultPath),
+		CompletionCriteria:               append([]string{}, pkg.CompletionCriteria...),
+		Boundary: mission.UniqueStrings(append(append([]string{}, pkg.Boundary...),
+			"attempt identity binds packet, route, shard, prompt, lane owner generation, and current executor generation",
+			"selectedAction is the only current external action; submit one listed observation to its checkpoint-bound durable continuation and refresh status before another action",
+			"the Go runtime does not invoke, poll, stop, or manage the reviewer session and does not fabricate ReviewerResult JSON",
+		)),
+	}
+	attempt.AttemptSnapshotSHA256 = statusCurrentLoopReviewerAttemptSHA256(attempt)
+	return attempt
+}
+
+func statusCurrentLoopReviewerAttemptID(identity mission.CurrentLoopReviewerAttemptIdentity, reviewerDispatchID string) string {
+	encoded, _ := json.Marshal(struct {
+		Identity           mission.CurrentLoopReviewerAttemptIdentity `json:"identity"`
+		ReviewerDispatchID string                                     `json:"reviewerDispatchId,omitempty"`
+	}{Identity: identity, ReviewerDispatchID: strings.TrimSpace(reviewerDispatchID)})
+	return "reviewer-attempt-" + statusSHA256Hex(encoded)[:16]
+}
+
+func statusCurrentLoopReviewerAttemptSHA256(attempt *mission.CurrentLoopReviewerAttempt) string {
+	if attempt == nil {
+		return ""
+	}
+	encoded, _ := json.Marshal(struct {
+		SchemaVersion               int                                          `json:"schemaVersion"`
+		AttemptID                   string                                       `json:"attemptId"`
+		State                       string                                       `json:"state"`
+		RunLoopStepID               string                                       `json:"runLoopStepId"`
+		Identity                    mission.CurrentLoopReviewerAttemptIdentity   `json:"identity"`
+		Receipt                     mission.CurrentLoopReviewerAttemptReceipt    `json:"receipt"`
+		SelectedActionKind          string                                       `json:"selectedActionKind"`
+		SelectedActionActor         string                                       `json:"selectedActionActor"`
+		SelectedActionRequiredFlags [][]string                                   `json:"selectedActionRequiredFlags"`
+		AgentToolRequest            *mission.CurrentLoopReviewerAgentToolRequest `json:"agentToolRequest,omitempty"`
+		ReviewerResultDropPath      string                                       `json:"reviewerResultDropPath,omitempty"`
+		ReviewerResultDropPathRole  string                                       `json:"reviewerResultDropPathRole,omitempty"`
+		ReviewerResultInputPath     string                                       `json:"reviewerResultInputPath,omitempty"`
+		ReviewerResultSourcePath    string                                       `json:"reviewerResultSourcePath,omitempty"`
+		ReviewerResultCandidatePath string                                       `json:"reviewerResultCandidatePath,omitempty"`
+		ReviewerResultPath          string                                       `json:"reviewerResultPath,omitempty"`
+	}{
+		SchemaVersion:               attempt.SchemaVersion,
+		AttemptID:                   attempt.AttemptID,
+		State:                       attempt.State,
+		RunLoopStepID:               attempt.RunLoopStepID,
+		Identity:                    attempt.Identity,
+		Receipt:                     attempt.Receipt,
+		SelectedActionKind:          attempt.SelectedAction.Kind,
+		SelectedActionActor:         attempt.SelectedAction.Actor,
+		SelectedActionRequiredFlags: statusCurrentLoopReviewerAttemptRequiredFlags(attempt.SelectedAction.ObservationContract),
+		AgentToolRequest:            attempt.SelectedAction.AgentToolRequest,
+		ReviewerResultDropPath:      attempt.ReviewerResultDropPath,
+		ReviewerResultDropPathRole:  attempt.ReviewerResultDropPathRole,
+		ReviewerResultInputPath:     attempt.ReviewerResultInputPath,
+		ReviewerResultSourcePath:    attempt.ReviewerResultSourcePath,
+		ReviewerResultCandidatePath: attempt.ReviewerResultCandidatePath,
+		ReviewerResultPath:          attempt.ReviewerResultPath,
+	})
+	return statusSHA256Hex(encoded)
+}
+
+func statusCurrentLoopReviewerAttemptRequiredFlags(contract mission.CurrentLoopObservationContract) [][]string {
+	flags := make([][]string, 0, len(contract.Alternatives))
+	for _, alternative := range contract.Alternatives {
+		flags = append(flags, append([]string{}, alternative.RequiredFlags...))
+	}
+	return flags
+}
+
+func statusCurrentLoopReviewerAttemptActionKind(stepID string) string {
+	switch strings.TrimSpace(stepID) {
+	case "spawn-reviewer":
+		return "invoke-reviewer-and-record-acceptance"
+	case "save-result-input":
+		return "observe-reviewer-terminal-state"
+	default:
+		return "perform-bounded-reviewer-operation"
+	}
+}
+
+func statusCurrentLoopReviewerAttemptActor(pkg *workstream.ReviewerDispatchOperatorPackage, stepID string) string {
+	stepID = strings.TrimSpace(stepID)
+	if pkg != nil {
+		for _, step := range pkg.RunLoop {
+			if strings.TrimSpace(step.StepID) == stepID {
+				return strings.TrimSpace(step.Actor)
+			}
+		}
+	}
+	return "main-agent"
+}
+
+func statusCurrentLoopReviewerAttemptDescription(pkg *workstream.ReviewerDispatchOperatorPackage, stepID string) string {
+	stepID = strings.TrimSpace(stepID)
+	if pkg != nil {
+		for _, step := range pkg.RunLoop {
+			if strings.TrimSpace(step.StepID) == stepID {
+				return strings.TrimSpace(step.Description)
+			}
+		}
+	}
+	return "perform the selected reviewer attempt action"
+}
+
+func statusCurrentLoopReviewerAttemptTransition(kind string) string {
+	switch strings.TrimSpace(kind) {
+	case "reviewer-session-accepted":
+		return "refresh-status:save-result-input"
+	case "reviewer-result-returned":
+		return "refresh-status:record-completion"
+	case "reviewer-result-direct-write":
+		return "refresh-status:next-reviewer-run-loop-step"
+	case "reviewer-session-failed":
+		return "refresh-status:spawn-reviewer"
+	default:
+		return "refresh-status:next-reviewer-run-loop-step"
+	}
+}
+
+func statusMaterializeCurrentLoopReviewerAttemptContract(contract *mission.CurrentLoopObservationContract, attemptSHA256 string) {
+	if contract == nil || strings.TrimSpace(attemptSHA256) == "" {
+		return
+	}
+	for idx := range contract.Alternatives {
+		contract.Alternatives[idx].PreviewCommandTemplate = strings.ReplaceAll(
+			contract.Alternatives[idx].PreviewCommandTemplate,
+			"<reviewer-attempt-sha256>",
+			attemptSHA256,
+		)
+	}
+}
+
+func statusCurrentLoopObservationPreviewCommand(selected *mission.MissionCommanderDriverRequest, kind, attemptSHA256 string) string {
 	if selected == nil || strings.TrimSpace(selected.Command) == "" {
 		return ""
 	}
@@ -4064,18 +4299,18 @@ func statusCurrentLoopObservationPreviewCommand(selected *mission.MissionCommand
 	if err != nil || len(fields) < 2 {
 		return ""
 	}
-	insert := []string{}
+	insert := []string{"-ExpectedCurrentLoopReviewerAttemptSha256", attemptSHA256}
 	switch strings.TrimSpace(kind) {
 	case "reviewer-session-accepted":
-		insert = []string{"-ReviewerHarness", "<harness>", "-ReviewerSession", "<session-id>", "-Actor", "<main-agent>"}
+		insert = append(insert, "-ReviewerHarness", "<harness>", "-ReviewerSession", "<session-id>", "-Actor", "<main-agent>")
 	case "reviewer-result-returned":
-		insert = []string{"-ReviewerResultInputSourcePath", "<reviewer-result-source-path>", "-Actor", "<main-agent>"}
+		insert = append(insert, "-ReviewerResultInputSourcePath", "<reviewer-result-source-path>", "-Actor", "<main-agent>")
 	case "reviewer-session-failed":
-		insert = []string{"-ReviewerOutcome", "failed", "-ReviewerExitStatus", "<exit-status>", "-Actor", "<main-agent>"}
+		insert = append(insert, "-ReviewerOutcome", "failed", "-ReviewerExitStatus", "<exit-status>", "-Actor", "<main-agent>")
 	case "reviewer-result-direct-write":
 		return strings.TrimSpace(selected.Command)
 	default:
-		insert = []string{"-Actor", "<main-agent>"}
+		insert = append(insert, "-Actor", "<main-agent>")
 	}
 	index := len(fields)
 	for idx, field := range fields {
@@ -5313,13 +5548,18 @@ func writeCurrentLoopOperatorPackageText(out io.Writer, prefix string, pkg *miss
 		if _, err := fmt.Fprintf(out, "%s current-loop reviewer handoff：state=%s step=%s dropPath=%s dropRole=%s promptPath=%s promptSha256=%s\n", prefix, handoff.State, handoff.RunLoopStepID, handoff.ReviewerResultDropPath, handoff.ReviewerResultDropPathRole, handoff.DispatchPromptPath, handoff.DispatchPromptSHA256); err != nil {
 			return err
 		}
+		if attempt := handoff.Attempt; attempt != nil {
+			if _, err := fmt.Fprintf(out, "%s current-loop reviewer attempt：id=%s snapshotSha256=%s action=%s packet=%s route=%s shard=%s owner=%s/%d current=%s/%d dispatch=%s session=%s lifecycle=%s\n", prefix, attempt.AttemptID, attempt.AttemptSnapshotSHA256, attempt.SelectedAction.Kind, attempt.Identity.PacketID, attempt.Identity.RouteID, attempt.Identity.ShardID, attempt.Identity.OwnerExecutor, attempt.Identity.OwnerGeneration, attempt.Identity.CurrentExecutor, attempt.Identity.CurrentGeneration, attempt.Receipt.DispatchID, attempt.Receipt.Session, attempt.Receipt.SessionLifecycleState); err != nil {
+				return err
+			}
+		}
 		if handoff.AgentToolRequest != nil {
 			if _, err := fmt.Fprintf(out, "%s current-loop reviewer Agent request：tool=%s agentType=%s readOnly=%t expectedOutput=%s\n", prefix, handoff.AgentToolRequest.Tool, handoff.AgentToolRequest.AgentType, handoff.AgentToolRequest.ReadOnly, handoff.AgentToolRequest.ExpectedOutput); err != nil {
 				return err
 			}
 		}
 		for _, alternative := range handoff.ObservationContract.Alternatives {
-			if _, err := fmt.Fprintf(out, "%s current-loop reviewer observation：kind=%s requiredFlags=%s previewCommandTemplate=`%s` constraints=%s\n", prefix, alternative.Kind, strings.Join(alternative.RequiredFlags, ","), alternative.PreviewCommandTemplate, strings.Join(alternative.Constraints, "; ")); err != nil {
+			if _, err := fmt.Fprintf(out, "%s current-loop reviewer observation：kind=%s transition=%s requiredFlags=%s previewCommandTemplate=`%s` constraints=%s\n", prefix, alternative.Kind, alternative.Transition, strings.Join(alternative.RequiredFlags, ","), alternative.PreviewCommandTemplate, strings.Join(alternative.Constraints, "; ")); err != nil {
 				return err
 			}
 		}

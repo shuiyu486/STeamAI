@@ -167,6 +167,7 @@ type CurrentLoopObservationAlternative struct {
 	Kind                   string   `json:"kind"`
 	RequiredFlags          []string `json:"requiredFlags"`
 	PreviewCommandTemplate string   `json:"previewCommandTemplate"`
+	Transition             string   `json:"transition,omitempty"`
 	Constraints            []string `json:"constraints"`
 }
 
@@ -175,7 +176,68 @@ type CurrentLoopObservationContract struct {
 	Boundary     []string                            `json:"boundary"`
 }
 
+type CurrentLoopReviewerAttemptIdentity struct {
+	PacketID          string `json:"packetId"`
+	PacketPath        string `json:"packetPath"`
+	RouteID           string `json:"routeId"`
+	ShardID           string `json:"shardId"`
+	Lane              string `json:"lane"`
+	PromptPath        string `json:"promptPath"`
+	PromptSHA256      string `json:"promptSha256"`
+	OwnerExecutor     string `json:"ownerExecutor"`
+	OwnerGeneration   int    `json:"ownerGeneration"`
+	OwnerBindingMode  string `json:"ownerBindingMode"`
+	CurrentExecutor   string `json:"currentExecutor"`
+	CurrentGeneration int    `json:"currentGeneration"`
+}
+
+type CurrentLoopReviewerAttemptReceipt struct {
+	DispatchID              string `json:"dispatchId,omitempty"`
+	DispatchPath            string `json:"dispatchPath,omitempty"`
+	DispatchSHA256          string `json:"dispatchSha256,omitempty"`
+	Harness                 string `json:"harness,omitempty"`
+	Session                 string `json:"session,omitempty"`
+	CompletionPath          string `json:"completionPath,omitempty"`
+	CompletionSHA256        string `json:"completionSha256,omitempty"`
+	CompletionOutcome       string `json:"completionOutcome,omitempty"`
+	CompletionExitStatus    string `json:"completionExitStatus,omitempty"`
+	SessionLifecycleState   string `json:"sessionLifecycleState,omitempty"`
+	SessionLifecycleFailure string `json:"sessionLifecycleFailure,omitempty"`
+}
+
+type CurrentLoopReviewerAttemptAction struct {
+	Kind                string                               `json:"kind"`
+	Actor               string                               `json:"actor"`
+	Description         string                               `json:"description"`
+	RequiredInputs      []string                             `json:"requiredInputs"`
+	ObservationContract CurrentLoopObservationContract       `json:"observationContract"`
+	AgentToolRequest    *CurrentLoopReviewerAgentToolRequest `json:"agentToolRequest,omitempty"`
+}
+
+type CurrentLoopReviewerAttempt struct {
+	SchemaVersion                    int                                `json:"schemaVersion"`
+	AttemptID                        string                             `json:"attemptId"`
+	AttemptSnapshotSHA256            string                             `json:"attemptSnapshotSha256"`
+	State                            string                             `json:"state"`
+	RunLoopStepID                    string                             `json:"runLoopStepId"`
+	Identity                         CurrentLoopReviewerAttemptIdentity `json:"identity"`
+	Receipt                          CurrentLoopReviewerAttemptReceipt  `json:"receipt"`
+	SelectedAction                   CurrentLoopReviewerAttemptAction   `json:"selectedAction"`
+	CurrentReviewerDriverRequest     *MissionCommanderDriverRequest     `json:"currentReviewerDriverRequest,omitempty"`
+	DurableContinuationDriverRequest *MissionCommanderDriverRequest     `json:"durableContinuationDriverRequest,omitempty"`
+	RefreshStatusCommand             string                             `json:"refreshStatusCommand,omitempty"`
+	ReviewerResultDropPath           string                             `json:"reviewerResultDropPath,omitempty"`
+	ReviewerResultDropPathRole       string                             `json:"reviewerResultDropPathRole,omitempty"`
+	ReviewerResultInputPath          string                             `json:"reviewerResultInputPath,omitempty"`
+	ReviewerResultSourcePath         string                             `json:"reviewerResultSourcePath,omitempty"`
+	ReviewerResultCandidatePath      string                             `json:"reviewerResultCandidatePath,omitempty"`
+	ReviewerResultPath               string                             `json:"reviewerResultPath,omitempty"`
+	CompletionCriteria               []string                           `json:"completionCriteria"`
+	Boundary                         []string                           `json:"boundary"`
+}
+
 type CurrentLoopExternalReviewerHandoff struct {
+	Attempt                       *CurrentLoopReviewerAttempt          `json:"attempt,omitempty"`
 	State                         string                               `json:"state"`
 	RunLoopStepID                 string                               `json:"runLoopStepId"`
 	RequiredInputs                []string                             `json:"requiredInputs"`

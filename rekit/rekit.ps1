@@ -65,6 +65,7 @@ param(
   [string]$HandoffPublicationStamp = '',
   [string]$ExpectedCurrentLoopPlanSha256 = '',
   [string]$ExpectedCurrentLoopCheckpointSha256 = '',
+  [string]$ExpectedCurrentLoopReviewerAttemptSha256 = '',
   [switch]$ResumeCurrentLoop,
   [string]$ExpectedCurrentStepPlanSha256 = '',
   [string]$ExpectedDriverStepPlanSha256 = '',
@@ -193,7 +194,7 @@ function Test-RekitGoDelegationSafe {
     }
     'run-current-loop' {
       foreach ($key in $script:PSBoundParameters.Keys) {
-        if (@('Command','Target','Pack','MaxSteps','WhatIf','Apply','Format','ExpectedCurrentLoopPlanSha256','ExpectedCurrentLoopCheckpointSha256','ResumeCurrentLoop','Actor','ReviewerResultInputSourcePath','ReviewerHarness','ReviewerSession','ReviewerOutcome','ReviewerExitStatus') -notcontains [string]$key) { return $false }
+        if (@('Command','Target','Pack','MaxSteps','WhatIf','Apply','Format','ExpectedCurrentLoopPlanSha256','ExpectedCurrentLoopCheckpointSha256','ExpectedCurrentLoopReviewerAttemptSha256','ResumeCurrentLoop','Actor','ReviewerResultInputSourcePath','ReviewerHarness','ReviewerSession','ReviewerOutcome','ReviewerExitStatus') -notcontains [string]$key) { return $false }
       }
       if ([string]::IsNullOrWhiteSpace($Target)) { return $false }
       if ((-not $ResumeCurrentLoop) -and ($MaxSteps -lt 1 -or $MaxSteps -gt 20)) { return $false }
@@ -496,6 +497,7 @@ function Get-RekitGoArgs {
     if (-not $ResumeCurrentLoop) { Add-RekitGoArg ([ref]$goArgs) '-MaxSteps' ([string]$MaxSteps) }
     Add-RekitGoArg ([ref]$goArgs) '-ExpectedCurrentLoopPlanSha256' $ExpectedCurrentLoopPlanSha256
     Add-RekitGoArg ([ref]$goArgs) '-ExpectedCurrentLoopCheckpointSha256' $ExpectedCurrentLoopCheckpointSha256
+    Add-RekitGoArg ([ref]$goArgs) '-ExpectedCurrentLoopReviewerAttemptSha256' $ExpectedCurrentLoopReviewerAttemptSha256
     Add-RekitGoSwitch ([ref]$goArgs) '-ResumeCurrentLoop' $ResumeCurrentLoop.IsPresent
     Add-RekitGoArg ([ref]$goArgs) '-Actor' $Actor
     Add-RekitGoArg ([ref]$goArgs) '-ReviewerResultInputSourcePath' (Resolve-RekitCallerPath $ReviewerResultInputSourcePath)

@@ -60,11 +60,12 @@ type currentLoopStepReceipt struct {
 }
 
 type currentLoopStopReason struct {
-	Code                 string                                 `json:"code"`
-	Phase                string                                 `json:"phase"`
-	Message              string                                 `json:"message"`
-	CurrentDriverRequest *mission.MissionCommanderDriverRequest `json:"currentDriverRequest,omitempty"`
-	ExternalHandoff      *reviewerStepExternalHandoff           `json:"externalHandoff,omitempty"`
+	Code                          string                                 `json:"code"`
+	Phase                         string                                 `json:"phase"`
+	Message                       string                                 `json:"message"`
+	CurrentDriverRequest          *mission.MissionCommanderDriverRequest `json:"currentDriverRequest,omitempty"`
+	ExternalHandoff               *reviewerStepExternalHandoff           `json:"externalHandoff,omitempty"`
+	ExpectedReviewerAttemptSHA256 string                                 `json:"expectedReviewerAttemptSha256,omitempty"`
 }
 
 type currentLoopContinuationRequest struct {
@@ -179,6 +180,9 @@ func buildCurrentLoopPlan(ctx runtime.Context, opt Options) (currentLoopPlan, st
 	if err != nil {
 		return currentLoopPlan{}, statusInventory{}, err
 	}
+	if err := validateCurrentLoopReviewerAttemptObservation(opt, status); err != nil {
+		return currentLoopPlan{}, statusInventory{}, err
+	}
 	var resumeSource *currentloop.Inspection
 	if opt.ResumeCurrentLoop {
 		if status.MissionControlRunbook == nil || status.MissionControlRunbook.CurrentLoopSegment == nil {
@@ -238,8 +242,8 @@ func buildCurrentLoopPlan(ctx runtime.Context, opt Options) (currentLoopPlan, st
 	}
 	plan.InitialCurrentStep = &step
 	if step.ExpectedCurrentStepPlanSHA256 == "" {
-		plan.StopReason = currentLoopExternalStop(step, request)
-		plan.ContinuationRequest = currentLoopContinuationFor(ctx, opt.MaxSteps, 0, route, plan.InitialLane, route, plan.StopReason)
+		plan.StopReason = currentLoopExternalStop(step, request, status)
+		plan.ContinuationRequest = currentLoopContinuationFor(ctx, opt.MaxSteps, 0, route, plan.InitialLane, route, plan.Actor, plan.StopReason)
 		if plan.ContinuationRequest != nil {
 			plan.ResumeCommand = plan.ContinuationRequest.WhatIfCommand
 		}
@@ -291,7 +295,7 @@ func applyCurrentLoopPlan(ctx runtime.Context, opt Options, plan currentLoopPlan
 		}
 		if route != initialRoute || strings.TrimSpace(request.Lane) != initialLane {
 			plan.StopReason = currentLoopStopReason{Code: "route-policy", Phase: "before-step", Message: "refreshed route or lane changed; review a fresh loop preview", CurrentDriverRequest: request}
-			plan.ContinuationRequest = currentLoopContinuationFor(ctx, plan.MaxSteps, plan.AppliedSteps, initialRoute, initialLane, route, plan.StopReason)
+			plan.ContinuationRequest = currentLoopContinuationFor(ctx, plan.MaxSteps, plan.AppliedSteps, initialRoute, initialLane, route, plan.Actor, plan.StopReason)
 			if plan.ContinuationRequest != nil {
 				plan.ResumeCommand = plan.ContinuationRequest.WhatIfCommand
 			}
@@ -299,7 +303,7 @@ func applyCurrentLoopPlan(ctx runtime.Context, opt Options, plan currentLoopPlan
 		}
 		if policyStop := currentLoopBeforeStepPolicyStop(stepNumber, route, request); policyStop.Code != "" {
 			plan.StopReason = policyStop
-			plan.ContinuationRequest = currentLoopContinuationFor(ctx, plan.MaxSteps, plan.AppliedSteps, initialRoute, initialLane, route, plan.StopReason)
+			plan.ContinuationRequest = currentLoopContinuationFor(ctx, plan.MaxSteps, plan.AppliedSteps, initialRoute, initialLane, route, plan.Actor, plan.StopReason)
 			if plan.ContinuationRequest != nil {
 				plan.ResumeCommand = plan.ContinuationRequest.WhatIfCommand
 			}
@@ -311,8 +315,8 @@ func applyCurrentLoopPlan(ctx runtime.Context, opt Options, plan currentLoopPlan
 			break
 		}
 		if step.ExpectedCurrentStepPlanSHA256 == "" {
-			plan.StopReason = currentLoopExternalStop(step, request)
-			plan.ContinuationRequest = currentLoopContinuationFor(ctx, plan.MaxSteps, plan.AppliedSteps, initialRoute, initialLane, route, plan.StopReason)
+			plan.StopReason = currentLoopExternalStop(step, request, status)
+			plan.ContinuationRequest = currentLoopContinuationFor(ctx, plan.MaxSteps, plan.AppliedSteps, initialRoute, initialLane, route, plan.Actor, plan.StopReason)
 			if plan.ContinuationRequest != nil {
 				plan.ResumeCommand = plan.ContinuationRequest.WhatIfCommand
 			}
@@ -398,6 +402,34 @@ func applyCurrentLoopPlan(ctx runtime.Context, opt Options, plan currentLoopPlan
 	return plan, nil
 }
 
+func validateCurrentLoopReviewerAttemptObservation(opt Options, status statusInventory) error {
+	hasObservation := strings.TrimSpace(opt.ReviewerResultInputSourcePath) != "" ||
+		strings.TrimSpace(opt.ReviewerHarness) != "" ||
+		strings.TrimSpace(opt.ReviewerSession) != "" ||
+		strings.TrimSpace(opt.ReviewerOutcome) != "" ||
+		strings.TrimSpace(opt.ReviewerExitStatus) != ""
+	expected := strings.TrimSpace(opt.ExpectedCurrentLoopReviewerAttemptSHA256)
+	if !hasObservation {
+		if expected != "" {
+			return fmt.Errorf("run-current-loop -ExpectedCurrentLoopReviewerAttemptSha256 requires a reviewer observation")
+		}
+		return nil
+	}
+	if expected == "" {
+		return fmt.Errorf("run-current-loop reviewer observations require -ExpectedCurrentLoopReviewerAttemptSha256 from status or handoff")
+	}
+	if status.MissionControlRunbook == nil || status.MissionControlRunbook.CurrentLoopOperator == nil ||
+		status.MissionControlRunbook.CurrentLoopOperator.ExternalReviewerHandoff == nil ||
+		status.MissionControlRunbook.CurrentLoopOperator.ExternalReviewerHandoff.Attempt == nil {
+		return fmt.Errorf("run-current-loop reviewer observation requires a fresh current-loop reviewer attempt")
+	}
+	attempt := status.MissionControlRunbook.CurrentLoopOperator.ExternalReviewerHandoff.Attempt
+	if !strings.EqualFold(expected, strings.TrimSpace(attempt.AttemptSnapshotSHA256)) {
+		return fmt.Errorf("run-current-loop expected reviewer attempt sha256 mismatch: got %s want %s", expected, attempt.AttemptSnapshotSHA256)
+	}
+	return nil
+}
+
 func currentLoopStatusCandidate(status statusInventory) (*mission.MissionCommanderDriverRequest, string, currentLoopStopReason) {
 	if status.MissionControlRunbook == nil || status.MissionControlRunbook.CurrentDriverRequest == nil {
 		return nil, "", currentLoopStopReason{Code: "no-current-request", Phase: "status", Message: "refreshed status has no current driver request"}
@@ -441,12 +473,17 @@ func currentLoopRefreshErrorStop(stepNumber int, request *mission.MissionCommand
 	}
 }
 
-func currentLoopExternalStop(step currentStepPlan, request *mission.MissionCommanderDriverRequest) currentLoopStopReason {
+func currentLoopExternalStop(step currentStepPlan, request *mission.MissionCommanderDriverRequest, status statusInventory) currentLoopStopReason {
 	stop := currentLoopStopReason{Code: "requires-review", Phase: "before-step", Message: "current step has no deterministic Apply hash", CurrentDriverRequest: request}
 	if step.ReviewerStep != nil && step.ReviewerStep.ExternalHandoff != nil {
 		stop.Code = "external-reviewer-handoff"
 		stop.Message = "reviewer lifecycle requires an external harness action before the loop can resume"
 		stop.ExternalHandoff = step.ReviewerStep.ExternalHandoff
+		if status.MissionControlRunbook != nil && status.MissionControlRunbook.CurrentLoopOperator != nil &&
+			status.MissionControlRunbook.CurrentLoopOperator.ExternalReviewerHandoff != nil &&
+			status.MissionControlRunbook.CurrentLoopOperator.ExternalReviewerHandoff.Attempt != nil {
+			stop.ExpectedReviewerAttemptSHA256 = status.MissionControlRunbook.CurrentLoopOperator.ExternalReviewerHandoff.Attempt.AttemptSnapshotSHA256
+		}
 	}
 	return stop
 }
@@ -482,6 +519,7 @@ func currentLoopResumeApplyCommand(ctx runtime.Context, plan currentLoopPlan, op
 		}
 	}
 	appendValue("-Actor", opt.Start.Actor)
+	appendValue("-ExpectedCurrentLoopReviewerAttemptSha256", opt.ExpectedCurrentLoopReviewerAttemptSHA256)
 	appendValue("-ReviewerResultInputSourcePath", opt.ReviewerResultInputSourcePath)
 	appendValue("-ReviewerHarness", opt.ReviewerHarness)
 	appendValue("-ReviewerSession", opt.ReviewerSession)
@@ -491,7 +529,7 @@ func currentLoopResumeApplyCommand(ctx runtime.Context, plan currentLoopPlan, op
 	return strings.Join(args, " ")
 }
 
-func currentLoopContinuationFor(ctx runtime.Context, segmentMaxSteps, appliedSteps int, segmentRoute, segmentLane, expectedRoute string, stop currentLoopStopReason) *currentLoopContinuationRequest {
+func currentLoopContinuationFor(ctx runtime.Context, segmentMaxSteps, appliedSteps int, segmentRoute, segmentLane, expectedRoute, actor string, stop currentLoopStopReason) *currentLoopContinuationRequest {
 	if stop.Code != "external-reviewer-handoff" && stop.Code != "route-policy" && stop.Code != "human-intervention" {
 		return nil
 	}
@@ -501,6 +539,10 @@ func currentLoopContinuationFor(ctx runtime.Context, segmentMaxSteps, appliedSte
 	remaining := segmentMaxSteps - appliedSteps
 	if remaining < 1 || stop.CurrentDriverRequest == nil {
 		return nil
+	}
+	whatIfCommand := currentLoopResumeCommand(ctx, remaining)
+	if strings.TrimSpace(actor) != "" {
+		whatIfCommand = strings.Replace(whatIfCommand, " -WhatIf", " -Actor "+statusQuoteCommandArg(actor)+" -WhatIf", 1)
 	}
 	continuation := &currentLoopContinuationRequest{
 		Kind:                  "current-loop-campaign-continuation",
@@ -513,7 +555,7 @@ func currentLoopContinuationFor(ctx runtime.Context, segmentMaxSteps, appliedSte
 		SegmentLane:           segmentLane,
 		ExpectedRoute:         expectedRoute,
 		ExpectedLane:          strings.TrimSpace(stop.CurrentDriverRequest.Lane),
-		WhatIfCommand:         currentLoopResumeCommand(ctx, remaining),
+		WhatIfCommand:         whatIfCommand,
 		FreshPreviewRequired:  true,
 		CumulativeReceipts:    false,
 		Boundary: []string{
@@ -526,10 +568,23 @@ func currentLoopContinuationFor(ctx runtime.Context, segmentMaxSteps, appliedSte
 	}
 	if stop.Code == "external-reviewer-handoff" && stop.ExternalHandoff != nil {
 		observation := stop.ExternalHandoff.ObservationContract
+		previewRequest := &mission.MissionCommanderDriverRequest{Command: continuation.WhatIfCommand}
+		for idx := range observation.Alternatives {
+			alternative := &observation.Alternatives[idx]
+			if strings.TrimSpace(stop.ExpectedReviewerAttemptSHA256) != "" && alternative.Kind != "reviewer-result-direct-write" {
+				alternative.RequiredFlags = append([]string{"-ExpectedCurrentLoopReviewerAttemptSha256"}, alternative.RequiredFlags...)
+			}
+			alternative.PreviewCommandTemplate = statusCurrentLoopObservationPreviewCommand(previewRequest, alternative.Kind, stop.ExpectedReviewerAttemptSHA256)
+			alternative.Transition = statusCurrentLoopReviewerAttemptTransition(alternative.Kind)
+			if alternative.Kind == "reviewer-result-direct-write" {
+				alternative.Transition = "external-write-then-refresh-status"
+			}
+		}
 		continuation.State = "awaiting-external-observation"
 		continuation.ObservationContract = &observation
 		continuation.Boundary = append([]string{
-			"consume one observation alternative by adding its exact flags to whatIfCommand; do not execute guidance text as a shell command",
+			"consume exactly one observation alternative through its previewCommandTemplate; alternatives with different attempt-guard requirements do not share observation flags",
+			"reviewer-result-direct-write performs the external write first and then uses its unguarded fresh-preview template; do not carry the predecessor attempt snapshot into the successor state",
 		}, continuation.Boundary...)
 	}
 	if stop.Code == "human-intervention" {
@@ -651,9 +706,11 @@ func currentLoopCheckpointContinuation(source *currentLoopContinuationRequest) *
 		}
 		for _, alternative := range source.ObservationContract.Alternatives {
 			observation.Alternatives = append(observation.Alternatives, currentloop.ObservationAlternative{
-				Kind:          alternative.Kind,
-				RequiredFlags: append([]string{}, alternative.RequiredFlags...),
-				Constraints:   append([]string{}, alternative.Constraints...),
+				Kind:                   alternative.Kind,
+				RequiredFlags:          append([]string{}, alternative.RequiredFlags...),
+				PreviewCommandTemplate: alternative.PreviewCommandTemplate,
+				Transition:             alternative.Transition,
+				Constraints:            append([]string{}, alternative.Constraints...),
 			})
 		}
 		continuation.ObservationContract = observation
@@ -662,6 +719,7 @@ func currentLoopCheckpointContinuation(source *currentLoopContinuationRequest) *
 }
 
 func currentLoopFollowupOptions(opt Options) Options {
+	opt.ExpectedCurrentLoopReviewerAttemptSHA256 = ""
 	opt.ReviewerResultInputSourcePath = ""
 	opt.ReviewerHarness = ""
 	opt.ReviewerSession = ""
@@ -679,6 +737,7 @@ func validateCurrentLoopOuterArgs(opt Options) error {
 		"-maxsteps": true, "--max-steps": true,
 		"-expectedcurrentloopplansha256": true, "--expected-current-loop-plan-sha256": true,
 		"-expectedcurrentloopcheckpointsha256": true, "--expected-current-loop-checkpoint-sha256": true,
+		"-expectedcurrentloopreviewerattemptsha256": true, "--expected-current-loop-reviewer-attempt-sha256": true,
 		"-actor": true, "--actor": true,
 		"-reviewerresultinputsourcepath": true, "--reviewer-result-input-source-path": true,
 		"-reviewerharness": true, "--reviewer-harness": true,

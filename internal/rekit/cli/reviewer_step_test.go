@@ -234,15 +234,24 @@ func TestRunReviewerStepIntakesDirectResultAfterDispatchReceipt(t *testing.T) {
 	}
 	actor := "mission-commander"
 	base := []string{"-Command", "run-reviewer-step", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}
-	dispatchPreview := runReviewerStepPreview(t, append(base,
-		"-ReviewerHarness", "go-cli-direct-harness",
-		"-ReviewerSession", "reviewer-session-direct",
-		"-Actor", actor,
-	))
-	if dispatchPreview.ApplyDriverRequest == nil || !strings.Contains(dispatchPreview.ApplyDriverRequest.Command, "-RecordReviewerDispatch") {
-		t.Fatalf("direct dispatch did not return receipt apply: %+v", dispatchPreview)
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
 	}
-	runReviewerStepApply(t, caseRoot, dispatchPreview, "-ReviewerHarness", "go-cli-direct-harness", "-ReviewerSession", "reviewer-session-direct", "-Actor", actor)
+	var spawnStatus statusInventory
+	if err := json.Unmarshal(out.Bytes(), &spawnStatus); err != nil {
+		t.Fatal(err)
+	}
+	spawnAttempt := spawnStatus.MissionControlRunbook.CurrentLoopOperator.ExternalReviewerHandoff.Attempt
+	if spawnAttempt == nil || spawnAttempt.RunLoopStepID != "spawn-reviewer" {
+		t.Fatalf("direct reviewer current-loop dispatch omitted spawn attempt: %+v", spawnStatus.MissionControlRunbook.CurrentLoopOperator)
+	}
+	dispatchInputs := []string{"-ExpectedCurrentLoopReviewerAttemptSha256", spawnAttempt.AttemptSnapshotSHA256, "-ReviewerHarness", "go-cli-direct-harness", "-ReviewerSession", "reviewer-session-direct", "-Actor", actor}
+	dispatchLoop := runCurrentLoopPreviewWith(t, caseRoot, 2, dispatchInputs...)
+	dispatchApplied := runCurrentLoopApplyWith(t, caseRoot, dispatchLoop, dispatchInputs...)
+	if dispatchApplied.AppliedSteps != 1 || dispatchApplied.SegmentCheckpoint == nil || !dispatchApplied.SegmentCheckpoint.Ready || dispatchApplied.ContinuationRequest == nil {
+		t.Fatalf("direct dispatch did not publish a ready current-loop checkpoint: %+v", dispatchApplied)
+	}
 
 	waiting := runReviewerStepPreview(t, base)
 	if waiting.ExternalHandoff == nil || waiting.ExternalHandoff.RunLoopStepID != "save-result-input" || waiting.ExternalHandoff.ReviewerResultDropPathRole != "direct-reviewer-result-destination" {
@@ -250,6 +259,35 @@ func TestRunReviewerStepIntakesDirectResultAfterDispatchReceipt(t *testing.T) {
 	}
 	if len(waiting.ExternalHandoff.ObservationContract.Alternatives) != 2 || waiting.ExternalHandoff.ObservationContract.Alternatives[0].Kind != "reviewer-result-direct-write" || len(waiting.ExternalHandoff.ObservationContract.Alternatives[0].RequiredFlags) != 0 {
 		t.Fatalf("direct-write handoff omitted typed no-flag success alternative: %+v", waiting.ExternalHandoff)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var waitingStatus statusInventory
+	if err := json.Unmarshal(out.Bytes(), &waitingStatus); err != nil {
+		t.Fatal(err)
+	}
+	waitingOperator := waitingStatus.MissionControlRunbook.CurrentLoopOperator
+	waitingAttempt := waitingOperator.ExternalReviewerHandoff.Attempt
+	if waitingAttempt == nil || waitingAttempt.RunLoopStepID != "save-result-input" || waitingOperator.State != "checkpoint-resume-review-required" || waitingOperator.ResumeDriverRequest == nil {
+		t.Fatalf("direct-write status omitted checkpoint-bound waiting attempt: %+v", waitingOperator)
+	}
+	if len(waitingOperator.ExternalReviewerHandoff.ObservationContract.Alternatives) != 2 {
+		t.Fatalf("direct-write status omitted mixed alternatives: %+v", waitingOperator.ExternalReviewerHandoff)
+	}
+	directContinuation := waitingOperator.ExternalReviewerHandoff.ObservationContract.Alternatives[0]
+	failedContinuation := waitingOperator.ExternalReviewerHandoff.ObservationContract.Alternatives[1]
+	if strings.Contains(directContinuation.PreviewCommandTemplate, "-ExpectedCurrentLoopReviewerAttemptSha256") || strings.Contains(directContinuation.PreviewCommandTemplate, "-ResumeCurrentLoop") || strings.Contains(directContinuation.PreviewCommandTemplate, "-ExpectedCurrentLoopCheckpointSha256") || !strings.Contains(directContinuation.PreviewCommandTemplate, "-MaxSteps 1") || directContinuation.Transition != "external-write-then-refresh-status" || !strings.Contains(failedContinuation.PreviewCommandTemplate, "-ExpectedCurrentLoopReviewerAttemptSha256 "+waitingAttempt.AttemptSnapshotSHA256) || !strings.Contains(failedContinuation.PreviewCommandTemplate, "-ExpectedCurrentLoopCheckpointSha256 "+dispatchApplied.SegmentCheckpoint.ArtifactSHA256) || !strings.Contains(failedContinuation.PreviewCommandTemplate, "-ReviewerOutcome failed") {
+		t.Fatalf("checkpoint-bound direct-write status did not separate unguarded success from guarded failure: direct=%+v failed=%+v", directContinuation, failedContinuation)
+	}
+	failedFields, err := splitDriverCommand(failedContinuation.PreviewCommandTemplate)
+	if err != nil || len(failedFields) < 2 || failedFields[0] != "/rekit" {
+		t.Fatalf("guarded failure preview template is not consumable: %q: %v", failedContinuation.PreviewCommandTemplate, err)
+	}
+	out.Reset()
+	if err := Run(append([]string{"-Command", failedFields[1]}, failedFields[2:]...), &out); err != nil {
+		t.Fatalf("guarded failure preview failed before direct result write: %v", err)
 	}
 	evidencePath := filepath.Join(caseRoot, "workspace", "features", "feature-login", "review-evidence.md")
 	if err := os.MkdirAll(filepath.Dir(evidencePath), 0o755); err != nil {
@@ -263,11 +301,28 @@ func TestRunReviewerStepIntakesDirectResultAfterDispatchReceipt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	intakePreview := runReviewerStepPreview(t, append(base, "-Actor", actor))
-	if intakePreview.ExternalHandoff != nil || intakePreview.CurrentDriverRequest.RunLoopStepID != "intake-results" || intakePreview.ApplyDriverRequest == nil {
-		t.Fatalf("direct result write looped instead of reaching intake: %+v", intakePreview)
+	out.Reset()
+	err = Run([]string{"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", "_template", "-MaxSteps", "1", "-ExpectedCurrentLoopReviewerAttemptSha256", waitingAttempt.AttemptSnapshotSHA256, "-Actor", actor, "-WhatIf", "-Format", "json"}, &out)
+	if err == nil || !strings.Contains(err.Error(), "requires a reviewer observation") {
+		t.Fatalf("direct result fresh preview incorrectly required the predecessor attempt: %v", err)
 	}
-	runReviewerStepApply(t, caseRoot, intakePreview, "-Actor", actor)
+	continuationFields, err := splitDriverCommand(directContinuation.PreviewCommandTemplate)
+	if err != nil || len(continuationFields) < 2 || continuationFields[0] != "/rekit" {
+		t.Fatalf("direct continuation preview template is not consumable: %q: %v", directContinuation.PreviewCommandTemplate, err)
+	}
+	continuationArgs := append([]string{"-Command", continuationFields[1]}, continuationFields[2:]...)
+	out.Reset()
+	if err := Run(continuationArgs, &out); err != nil {
+		t.Fatalf("direct result continuation preview failed: %v", err)
+	}
+	var intakeLoop currentLoopTestPlan
+	if err := json.Unmarshal(out.Bytes(), &intakeLoop); err != nil {
+		t.Fatalf("direct result continuation preview did not decode: %v\n%s", err, out.String())
+	}
+	if intakeLoop.ExpectedCurrentLoopPlanSHA256 == "" || intakeLoop.InitialCurrentStep == nil || intakeLoop.InitialCurrentStep.CurrentDriverRequest.RunLoopStepID != "intake-results" {
+		t.Fatalf("direct result did not enter fresh current-loop intake: %+v", intakeLoop)
+	}
+	runCurrentLoopApplyWith(t, caseRoot, intakeLoop, "-Actor", actor)
 	for _, ledger := range []string{"verifications.jsonl", "decisions.jsonl"} {
 		data, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", ledger))
 		if err != nil || !strings.Contains(string(data), packet.PacketID) {

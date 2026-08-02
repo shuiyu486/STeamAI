@@ -38,9 +38,11 @@ var (
 )
 
 type ObservationAlternative struct {
-	Kind          string   `json:"kind"`
-	RequiredFlags []string `json:"requiredFlags"`
-	Constraints   []string `json:"constraints"`
+	Kind                   string   `json:"kind"`
+	RequiredFlags          []string `json:"requiredFlags"`
+	PreviewCommandTemplate string   `json:"previewCommandTemplate,omitempty"`
+	Transition             string   `json:"transition,omitempty"`
+	Constraints            []string `json:"constraints"`
 }
 
 type ObservationContract struct {

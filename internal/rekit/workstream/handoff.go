@@ -1602,11 +1602,14 @@ func writeCurrentLoopOperatorPackage(out *bytes.Buffer, pkg *mission.CurrentLoop
 	}
 	if handoff := pkg.ExternalReviewerHandoff; handoff != nil {
 		fmt.Fprintf(out, "- external reviewer: state=%s step=%s dropPath=`%s` dropRole=%s\n", handoff.State, handoff.RunLoopStepID, handoff.ReviewerResultDropPath, handoff.ReviewerResultDropPathRole)
+		if attempt := handoff.Attempt; attempt != nil {
+			fmt.Fprintf(out, "- reviewer attempt: id=%s snapshotSha256=%s state=%s step=%s action=%s packet=%s route=%s shard=%s owner=%s/%d current=%s/%d dispatch=%s session=%s lifecycle=%s\n", attempt.AttemptID, attempt.AttemptSnapshotSHA256, attempt.State, attempt.RunLoopStepID, attempt.SelectedAction.Kind, attempt.Identity.PacketID, attempt.Identity.RouteID, attempt.Identity.ShardID, attempt.Identity.OwnerExecutor, attempt.Identity.OwnerGeneration, attempt.Identity.CurrentExecutor, attempt.Identity.CurrentGeneration, attempt.Receipt.DispatchID, attempt.Receipt.Session, attempt.Receipt.SessionLifecycleState)
+		}
 		if request := handoff.AgentToolRequest; request != nil {
 			fmt.Fprintf(out, "- Agent request: tool=%s agentType=%s readOnly=%t promptPath=`%s` promptSha256=%s expectedOutput=%s\n", request.Tool, request.AgentType, request.ReadOnly, request.PromptPath, request.PromptSHA256, request.ExpectedOutput)
 		}
 		for _, alternative := range handoff.ObservationContract.Alternatives {
-			fmt.Fprintf(out, "- observation: kind=%s requiredFlags=%s previewCommandTemplate=`%s` constraints=%s\n", alternative.Kind, strings.Join(alternative.RequiredFlags, ","), alternative.PreviewCommandTemplate, strings.Join(alternative.Constraints, "; "))
+			fmt.Fprintf(out, "- observation: kind=%s transition=%s requiredFlags=%s previewCommandTemplate=`%s` constraints=%s\n", alternative.Kind, alternative.Transition, strings.Join(alternative.RequiredFlags, ","), alternative.PreviewCommandTemplate, strings.Join(alternative.Constraints, "; "))
 		}
 	}
 	for _, step := range pkg.RunbookSteps {

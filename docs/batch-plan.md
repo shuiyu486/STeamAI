@@ -34,6 +34,17 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 
 
+
+### Batch 798：external reviewer attempt orchestration and durable resume closure
+
+状态：已完成 external reviewer attempt typed package、fresh snapshot observation guard、mixed direct/failure alternative独立continuation、durable checkpoint resume、真实managed/direct product path、文档与独立复核；完整本机release minimum在本批统一完成态验证中记录。Implementation commit/push在本批统一提交后记录；普通batch不等待或声明remote CI green。本批选择`reviewer-orchestration`，将原本分散在current-loop handoff、reviewer operator、session receipts和result pipeline中的一次external reviewer attempt收敛成durable typed package；本批不是字段或summary投影微调。
+
+目标：`externalReviewerHandoff.attempt`现在以stable attempt ID绑定packet/route/shard/lane/prompt、owner/current executor generation和可选immutable dispatch ID，以`attemptSnapshotSha256`绑定当前state、receipt、唯一`selectedAction`、result paths、completion criteria及checkpoint-bound durable continuation。pre-dispatch plan与真实session acceptance后的attempt ID不同；同一accepted attempt的lifecycle变化刷新snapshot SHA。Mission Commander或replacement executor只消费fresh status/handoff中的selected action及一项observation transition，不再跨`ReviewerDispatchOperatorPackage`、current-loop checkpoint和旧聊天手工拼装阶段/flags。
+
+边界：runtime仍不调用Agent tool，不spawn/poll/stop reviewer session，不伪造ReviewerResult，不自动跨WhatIf/Apply，不执行heavy-tool、不写authority/confirmed；session-accepted、managed result returned与failed observation必须携带fresh attempt snapshot guard，owner、prompt、receipt、checkpoint或snapshot drift均在preview前zero-write fail-closed；direct result是显式external write target，写后通过保留remaining budget但不绑定predecessor checkpoint/attempt的fresh preview进入successor strict intake；同一mixed handoff中的failed alternative继续绑定checkpoint SHA与current attempt snapshot。未新增PowerShell runtime logic，也不自动执行adapter/pack-memory/gate/sync/promote mutation。
+
+验证结果：focused package tests与真实临时case product path通过，覆盖direct result、Agent request、session accepted、managed result returned、failed observation、dispatch receipt、checkpoint-bound resume、完整save/completion/source/stage/collect/intake pipeline、durable handoff Markdown和replacement executor owner takeover fail-closed。三轮独立审查先后发现旧attempt observation归属、direct success被predecessor guard卡死、mixed continuation共享guard，以及checkpoint-bound direct模板写后必然stale四项Important；修复后最终复核确认全部关闭、无剩余Important/Critical。最终direct E2E真实执行`current-loop dispatch Apply → ready checkpoint → guarded failed WhatIf → direct external write → exact unguarded alternative template → successor intake/writeback`。`go test ./internal/rekit/cli ./internal/rekit/workstream ./internal/rekit/mission ./internal/rekit/currentloop -count=1`、`go test ./... -count=1`（最终CLI 160.589秒）、`go vet ./...`、PowerShell `facade-smoke.ps1`、`doctor -Format json`（canonical skill 32128/32768 bytes）与`git diff --check`已通过；统一`release-run -Format json`最终以7/7通过（283.427秒，其中完整Go tests 280.733秒）。普通batch不等待或声明remote CI green。
+
 ### Batch 797：committed handoff generation and mixed-publication rejection closure
 
 状态：已完成 committed handoff generation and mixed-publication rejection closure 的 scope-local generation contract、显式最终 commit point、整组 exact-byte复核、mixed-generation fail-closed、稳定 takeover snapshot消费、崩溃窗口回归与本机完成态验证；implementation commit/push 在本批统一完成态提交中记录。普通 batch 不等待或轮询 remote CI，也不声明 remote green。

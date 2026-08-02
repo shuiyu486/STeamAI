@@ -114,6 +114,7 @@ type reviewerResultRecoveryRecord struct {
 type ReviewerDispatchIntakeHandoff struct {
 	PacketID                                 string                            `json:"packetId,omitempty"`
 	PacketPath                               string                            `json:"packetPath"`
+	RouteID                                  string                            `json:"routeId,omitempty"`
 	SummaryPath                              string                            `json:"summaryPath,omitempty"`
 	ResultRoot                               string                            `json:"resultRoot,omitempty"`
 	TargetLane                               string                            `json:"targetLane,omitempty"`
@@ -242,6 +243,7 @@ type ReviewerDispatchOperatorPackage struct {
 	Summary              string                                 `json:"summary,omitempty"`
 	PacketID             string                                 `json:"packetId,omitempty"`
 	PacketPath           string                                 `json:"packetPath,omitempty"`
+	RouteID              string                                 `json:"routeId,omitempty"`
 	TargetLane           string                                 `json:"targetLane,omitempty"`
 	Current              *ReviewerDispatchOperatorPackageItem   `json:"current,omitempty"`
 	CurrentRunLoopStepID string                                 `json:"currentRunLoopStepId,omitempty"`
@@ -269,6 +271,11 @@ type ReviewerDispatchRunLoopStep struct {
 type ReviewerDispatchOperatorPackageItem struct {
 	ShardID                                   string                    `json:"shardId"`
 	State                                     string                    `json:"state,omitempty"`
+	OwnerExecutor                             string                    `json:"ownerExecutor,omitempty"`
+	OwnerGeneration                           int                       `json:"ownerGeneration,omitempty"`
+	OwnerBindingMode                          string                    `json:"ownerBindingMode,omitempty"`
+	CurrentExecutor                           string                    `json:"currentExecutor,omitempty"`
+	CurrentGeneration                         int                       `json:"currentGeneration,omitempty"`
 	ReviewerRole                              string                    `json:"reviewerRole,omitempty"`
 	Status                                    string                    `json:"status,omitempty"`
 	Items                                     []string                  `json:"items,omitempty"`
@@ -749,6 +756,7 @@ func reviewerPacketIntegrityInvalidHandoff(caseRoot string, packet reviewerDispa
 	item := ReviewerDispatchIntakeHandoff{
 		PacketID:      packet.PacketID,
 		PacketPath:    packetPath,
+		RouteID:       packet.Route.ID,
 		SummaryPath:   packet.Observability.SummaryPath,
 		ResultRoot:    packet.ReviewerOrchestration.ResultRoot,
 		TargetLane:    targetLane,
@@ -2157,6 +2165,7 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 	item := ReviewerDispatchIntakeHandoff{
 		PacketID:                                 packet.PacketID,
 		PacketPath:                               packetPath,
+		RouteID:                                  packet.Route.ID,
 		SummaryPath:                              packet.Observability.SummaryPath,
 		ResultRoot:                               packet.ReviewerOrchestration.ResultRoot,
 		TargetLane:                               targetLane,
@@ -2558,6 +2567,11 @@ func reviewerDispatchOperatorPackageFor(item ReviewerDispatchIntakeHandoff) *Rev
 	current := ReviewerDispatchOperatorPackageItem{
 		ShardID:                                   item.ShardID,
 		State:                                     item.State,
+		OwnerExecutor:                             item.OwnerExecutor,
+		OwnerGeneration:                           item.OwnerGeneration,
+		OwnerBindingMode:                          item.OwnerBindingMode,
+		CurrentExecutor:                           item.CurrentExecutor,
+		CurrentGeneration:                         item.CurrentGeneration,
 		ReviewerRole:                              managed.ReviewerRole,
 		Status:                                    managed.Status,
 		Items:                                     append([]string{}, managed.Items...),
@@ -2634,6 +2648,7 @@ func reviewerDispatchOperatorPackageFor(item ReviewerDispatchIntakeHandoff) *Rev
 		Summary:              fmt.Sprintf("managed reviewer dispatch operator package ready: packet=%s shard=%s state=%s", firstText(item.PacketID, item.PacketPath), item.ShardID, item.State),
 		PacketID:             item.PacketID,
 		PacketPath:           firstText(item.PacketPath, managed.PacketPath),
+		RouteID:              item.RouteID,
 		TargetLane:           firstText(item.TargetLane, managed.TargetLane),
 		Current:              &current,
 		CurrentRunLoopStepID: currentRunLoopStepID,
