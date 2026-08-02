@@ -28,6 +28,22 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 802：deterministic reviewer wave drain before failed retry
+
+状态：已完成 deterministic reviewer wave drain priority、跨packet failed retry handoff、distinct-shard writeback proof、文档、独立审查与Windows本机完整release minimum；implementation commit/push待本批统一完成。
+
+用户断点：Batch 801已让主Agent按`maxParallel`并行运行多个reviewer shard并批量记录returned/failed观察，但混合wave中`reviewer-session-failed`原来与安全型invalid/stale receipt同处高优先级。一个可重试失败会抢占另一个已返回shard的source capture、staging和collection，迫使主Agent先重复外部调用，已成功且可确定持久化的ReviewerResult则滞留在中间态；replacement executor也会继续看到failed retry而不是先收敛已有成果。
+
+目标：不新增命令或平行业务runner，复用现有`run-current-loop`，让混合reviewer wave先drain已返回的确定成果，再以typed external reviewer handoff交棒失败shard重试；所有shard均returned时，一个bounded loop应完成完整source→stage→collect→packet intake/writeback闭环。
+
+操作变化：变更前是`returned shard + failed shard → failed retry抢占 → 再次外部reviewer → 之后才处理已返回结果`；变更后是`returned shard + failed shard → source capture → staging → collection → refreshed external-reviewer-handoff定位failed shard retry`。若全部shard returned，则同一次reviewed `run-current-loop`按packet顺序完成每个shard的source/stage/collect，待packet整体ready后只执行一次packet intake。`reviewer-session-receipt-invalid`与`reviewer-session-receipt-owner-stale`仍保持高优先级安全blocker；只有retryable `reviewer-session-failed`降到collection/staging/source capture之后、普通dispatch/waiting之前。
+
+E2E验收：双returned shard从fresh wave经一个`run-current-loop -MaxSteps 10`执行7个deterministic steps（source capture×2、staging×2、collection×2、packet intake×1），写入两条verification与两条decision facts后以`route-policy`回到case route。returned+failed混合wave先执行returned shard的3步source/stage/collect，再以`external-reviewer-handoff`停止并将failed shard设为下一current action；packet未全ready时不得提前写当前packet的verification/decision。Direct priority regression同时锁定invalid/stale blocker先于drain、collection/staging/source先于failed retry、failed retry先于普通dispatch/waiting。
+
+边界：优先级变化不放宽packet、prompt、owner、receipt、result lineage、path、hash或currentness guards；runtime不调用Agent tool，不spawn/poll/stop reviewer session，不伪造ReviewerResult，不自动重试failed shard，不跨fresh external handoff自动Apply，不执行heavy-tool、不写authority/confirmed。每个deterministic mutation继续复用原WhatIf/hash-bound Apply及独立receipt；packet intake仅在所有shard ready时发生。
+
+验证结果：focused workstream/CLI regressions通过，覆盖双returned完整7步drain、returned+failed先3步持久化再typed retry handoff、无premature packet writeback及安全/成果/重试/普通等待优先级边界。相关workstream/mission/CLI完整packages通过（CLI 148.369秒）。独立审查发现failed与running同优先级可在跨packet稳定排序中饿死retry，以及双returned E2E只计packet ID不能证明distinct shard两项Important；修复后failed严格先于running/dispatch/waiting且packet action为actionable handoff，新回归锁定earlier running packet + later failed packet的summary与Mission Commander current action；facts断言改为strict逐行读取并精确验证两个shard各一条verification/decision，定向复核确认两项关闭且无剩余Critical/Important。全仓`go test ./... -count=1`通过（CLI 148.886秒），`go vet ./...`、10-pack inventory、doctor（canonical skill 32730/32768 bytes）、`status -Format json` handoff、`release-check -Format json` ready与`git diff --check`通过。完成态统一`release-run -Format json`以7/7通过（265.034秒，其中完整Go tests 262.577秒）；普通batch不等待或声明remote CI green。
+
 ### Batch 801：multi-shard reviewer wave orchestration closure
 
 状态：已完成多shard reviewer wave、packet-level observation bundle、strict lifecycle/path/current-dispatch guards、PowerShell纯转发、产品路径回归、文档、独立终审与Windows本机完整release minimum；implementation commit/push待本批统一完成。该批来自真实临时case日常路线审计，不是继续做parser、summary、projection或单字段contract微调。

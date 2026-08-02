@@ -94,6 +94,7 @@ go test ./internal/rekit/cli -run '^TestRunDailyMissionControlRouteSmokeProductP
 /rekit run-current-step -Target <caseRoot> -ExpectedCurrentStepPlanSha256 <hash> -Apply -Format json # 复核绑定route/current request/nested plan的hash后复用所选runner执行一步并返回refreshed request；不合并lane/reviewer锁、不调用Agent tool、不执行heavy-tool、不写authority/confirmed
 # 日常主Agent不必跨对象重建reviewer lifecycle：currentLoopOperator.selectedDriverRequest已选择fresh start或strict resume；externalReviewerHandoff.wave一次给出maxParallel、active/available slots、spawnWave与全部shard状态
 # 多shard外部Agent完成一轮状态变化后，将accepted/returned/failed observations写入case-local JSON，再一次WhatIf审核wave/file/per-shard bindings并hash-bound Apply；partial failure保留已成功项并返回refreshed wave
+# returned与failed混合时，fresh run-current-loop先drain returned shard的source/stage/collect，再以typed external handoff停在failed retry；全部returned时可继续到packet intake/writeback，packet未全ready不得提前intake，invalid/stale receipt安全blocker仍优先
 /rekit run-reviewer-wave -Target <caseRoot> -PacketPath <packet> -Lane <lane> -Actor <actor> -ReviewerWaveObservationsPath <case-local-wave.json> -WhatIf -Format json
 /rekit run-reviewer-wave -Target <caseRoot> -PacketPath <packet> -Lane <lane> -Actor <actor> -ReviewerWaveObservationsPath <case-local-wave.json> -ExpectedReviewerWavePlanSha256 <hash> -Apply -Format json
 /rekit run-current-loop -Target <caseRoot> -MaxSteps 10 -WhatIf -Format json # 预览固定initial route/lane、exact首步与bounded loop policy；deterministic首步返回expectedCurrentLoopPlanSha256，external reviewer首步返回campaign continuation

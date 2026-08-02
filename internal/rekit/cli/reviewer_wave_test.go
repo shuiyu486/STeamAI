@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
 func TestRunReviewerWaveRecordsParallelAcceptances(t *testing.T) {
@@ -384,6 +386,156 @@ func TestRunReviewerWaveReturnedPartialReportsInputMutation(t *testing.T) {
 	}
 	if !partial.Applied || partial.AppliedCount != 0 || partial.FailedIndex != 1 || partial.Failure == "" || partial.RefreshedWave == nil || len(partial.RefreshedWave.Returned) != 1 {
 		t.Fatalf("returned partial receipt = %+v", partial)
+	}
+}
+
+func TestRunCurrentLoopDrainsReturnedShardBeforeRetryingFailedShard(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "review", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", "alpha,beta", "-ItemsPerAgent", "1", "-MaxParallel", "2", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	wave := reviewerWaveFromStatus(reviewerWaveStatus(t, caseRoot))
+	applyWave := func(path string, observations []reviewerWaveObservation) {
+		writeReviewerWaveObservations(t, path, reviewerWaveObservationFile{SchemaVersion: 1, PacketID: wave.PacketID, Observations: observations})
+		args := []string{"-Command", "run-reviewer-wave", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", wave.PacketPath, "-Lane", wave.TargetLane, "-Actor", "mission-commander", "-ReviewerWaveObservationsPath", path, "-Format", "json"}
+		preview := reviewerWavePreview(t, append(args, "-WhatIf")...)
+		out.Reset()
+		if err := Run(append(args, "-ExpectedReviewerWavePlanSha256", preview.ExpectedReviewerWavePlanSHA256, "-Apply"), &out); err != nil {
+			t.Fatal(err)
+		}
+		var applied reviewerWavePlan
+		if err := json.Unmarshal(out.Bytes(), &applied); err != nil {
+			t.Fatal(err)
+		}
+		wave = applied.RefreshedWave
+	}
+	applyWave(filepath.Join(caseRoot, "workspace", "wave-mixed-drain-accept.json"), []reviewerWaveObservation{
+		{ShardID: wave.SpawnWave[0].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "wave-mixed-drain-01"},
+		{ShardID: wave.SpawnWave[1].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "wave-mixed-drain-02"},
+	})
+	packet := decodePlanSubagentsPacket(t, wave.PacketPath)
+	evidencePath := filepath.Join(caseRoot, "workspace", "features", "feature-login", "review-evidence.md")
+	if err := os.MkdirAll(filepath.Dir(evidencePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(evidencePath, []byte("bounded reviewer evidence\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resultPath := filepath.Join(caseRoot, "workspace", "wave-mixed-drain-result.json")
+	if err := os.WriteFile(resultPath, reviewerResultForCLIPlan(t, packet, packet.ShardHandoffs[0], "accept", "accepted", "wave-mixed-drain-01"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	applyWave(filepath.Join(caseRoot, "workspace", "wave-mixed-drain-terminal.json"), []reviewerWaveObservation{
+		{ShardID: packet.ShardHandoffs[0].ShardID, Kind: "returned", ReviewerExitStatus: "completed", ReviewerResultInputSourcePath: resultPath},
+		{ShardID: packet.ShardHandoffs[1].ShardID, Kind: "failed", ReviewerDispatchID: wave.Active[1].ReviewerDispatchID, ReviewerExitStatus: "reviewer-error"},
+	})
+	status := reviewerWaveStatus(t, caseRoot)
+	if status.CaseMission == nil || status.CaseMission.ReviewerDispatchIntakeSummary.NextActionShardID != packet.ShardHandoffs[0].ShardID || status.CaseMission.ReviewerDispatchIntakeSummary.NextActionState != "ready-for-reviewer-result-source-capture-preview" {
+		t.Fatalf("mixed returned/failed wave did not prioritize durable result drain: %+v", status.CaseMission.ReviewerDispatchIntakeSummary)
+	}
+	preview := runCurrentLoopPreviewWith(t, caseRoot, 5, "-Actor", "mission-commander")
+	applied := runCurrentLoopApplyWith(t, caseRoot, preview, "-Actor", "mission-commander")
+	if !applied.Applied || applied.AppliedSteps != 3 || applied.StopReason.Code != "external-reviewer-handoff" || applied.FinalStatus == nil || applied.FinalStatus.CaseMission == nil || applied.FinalStatus.CaseMission.ReviewerDispatchIntakeSummary.NextActionShardID != packet.ShardHandoffs[1].ShardID {
+		t.Fatalf("mixed reviewer wave drain result = %+v", applied)
+	}
+	for _, ledger := range []string{"verifications.jsonl", "decisions.jsonl"} {
+		data, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", ledger))
+		if err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(data), packet.PacketID) {
+			t.Fatalf("partial packet drain wrote premature %s for packet %s", ledger, packet.PacketID)
+		}
+	}
+}
+
+func TestRunCurrentLoopDrainsReturnedReviewerWave(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "review", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", "alpha,beta", "-ItemsPerAgent", "1", "-MaxParallel", "2", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	wave := reviewerWaveFromStatus(reviewerWaveStatus(t, caseRoot))
+	applyWave := func(path string, observations []reviewerWaveObservation) reviewerWavePlan {
+		writeReviewerWaveObservations(t, path, reviewerWaveObservationFile{SchemaVersion: 1, PacketID: wave.PacketID, Observations: observations})
+		args := []string{"-Command", "run-reviewer-wave", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", wave.PacketPath, "-Lane", wave.TargetLane, "-Actor", "mission-commander", "-ReviewerWaveObservationsPath", path, "-Format", "json"}
+		preview := reviewerWavePreview(t, append(args, "-WhatIf")...)
+		out.Reset()
+		if err := Run(append(args, "-ExpectedReviewerWavePlanSha256", preview.ExpectedReviewerWavePlanSHA256, "-Apply"), &out); err != nil {
+			t.Fatal(err)
+		}
+		var applied reviewerWavePlan
+		if err := json.Unmarshal(out.Bytes(), &applied); err != nil {
+			t.Fatal(err)
+		}
+		wave = applied.RefreshedWave
+		return applied
+	}
+	applyWave(filepath.Join(caseRoot, "workspace", "wave-drain-accept.json"), []reviewerWaveObservation{
+		{ShardID: wave.SpawnWave[0].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "wave-drain-01"},
+		{ShardID: wave.SpawnWave[1].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "wave-drain-02"},
+	})
+	packet := decodePlanSubagentsPacket(t, wave.PacketPath)
+	evidencePath := filepath.Join(caseRoot, "workspace", "features", "feature-login", "review-evidence.md")
+	if err := os.MkdirAll(filepath.Dir(evidencePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(evidencePath, []byte("bounded reviewer evidence\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	terminal := make([]reviewerWaveObservation, 0, 2)
+	for idx, handoff := range packet.ShardHandoffs {
+		session := "wave-drain-0" + string(rune('1'+idx))
+		resultPath := filepath.Join(caseRoot, "workspace", "wave-drain-result-0"+string(rune('1'+idx))+".json")
+		if err := os.WriteFile(resultPath, reviewerResultForCLIPlan(t, packet, handoff, "accept", "accepted", session), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		terminal = append(terminal, reviewerWaveObservation{ShardID: handoff.ShardID, Kind: "returned", ReviewerExitStatus: "completed", ReviewerResultInputSourcePath: resultPath})
+	}
+	applyWave(filepath.Join(caseRoot, "workspace", "wave-drain-return.json"), terminal)
+	if len(wave.Returned) != 2 || wave.ActiveSlots != 0 {
+		t.Fatalf("returned reviewer wave = %+v", wave)
+	}
+	preview := runCurrentLoopPreviewWith(t, caseRoot, 10, "-Actor", "mission-commander")
+	if preview.ExpectedCurrentLoopPlanSHA256 == "" || preview.InitialCurrentStep == nil {
+		t.Fatalf("returned wave did not enter deterministic drain loop: %+v", preview)
+	}
+	applied := runCurrentLoopApplyWith(t, caseRoot, preview, "-Actor", "mission-commander")
+	if !applied.Applied || applied.AppliedSteps != 7 || applied.StopReason.Code != "route-policy" || applied.FinalStatus == nil || applied.FinalStatus.MissionControlRunbook == nil || applied.FinalStatus.MissionControlRunbook.Scope != "case" {
+		t.Fatalf("reviewer wave drain result = %+v", applied)
+	}
+	wantShards := map[string]int{}
+	for _, handoff := range packet.ShardHandoffs {
+		wantShards[handoff.ShardID] = 1
+	}
+	for _, kind := range []string{"verification", "decision"} {
+		facts, err := mission.ReadStrictFact(caseRoot, kind)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gotShards := map[string]int{}
+		for _, fact := range facts {
+			if mission.Value(fact, "packetId") == packet.PacketID {
+				gotShards[mission.Value(fact, "shardId")]++
+			}
+		}
+		if len(gotShards) != len(wantShards) {
+			t.Fatalf("reviewer wave drain wrote wrong %s shard set: got=%v want=%v facts=%+v", kind, gotShards, wantShards, facts)
+		}
+		for shardID, wantCount := range wantShards {
+			if gotShards[shardID] != wantCount {
+				t.Fatalf("reviewer wave drain wrote %s shard %s %d times, want %d: %+v", kind, shardID, gotShards[shardID], wantCount, facts)
+			}
+		}
 	}
 }
 

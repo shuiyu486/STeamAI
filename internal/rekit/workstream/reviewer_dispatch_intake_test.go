@@ -179,6 +179,73 @@ func TestReviewerDispatchIntakeSummaryDefersBatchUntilPacketReady(t *testing.T) 
 	}
 }
 
+func TestReviewerDispatchIntakeSummaryDrainsReturnedShardBeforeFailedRetry(t *testing.T) {
+	items := []ReviewerDispatchIntakeHandoff{
+		{
+			PacketID:                           "packet-01",
+			PacketPath:                         "packet.json",
+			TargetLane:                         "feature-review",
+			ShardID:                            "shard-01",
+			State:                              "ready-for-reviewer-result-source-capture-preview",
+			ReviewerResultSourceCaptureCommand: "/rekit capture shard-01",
+		},
+		{
+			PacketID:   "packet-01",
+			PacketPath: "packet.json",
+			TargetLane: "feature-review",
+			ShardID:    "shard-02",
+			State:      "reviewer-session-failed",
+		},
+	}
+
+	summary := ReviewerDispatchIntakeSummaryFor(items)
+	if summary.NextActionShardID != "shard-01" || summary.NextActionState != "ready-for-reviewer-result-source-capture-preview" || summary.NextAction != "/rekit capture shard-01" {
+		t.Fatalf("summary did not drain returned reviewer result before failed retry: %+v", summary)
+	}
+}
+
+func TestReviewerDispatchFailedRetryPreemptsEarlierRunningPacket(t *testing.T) {
+	items := []ReviewerDispatchIntakeHandoff{
+		{PacketID: "packet-running", PacketPath: "running.json", TargetLane: "feature-review", ShardID: "shard-running", State: "reviewer-session-running-unknown"},
+		{PacketID: "packet-failed", PacketPath: "failed.json", TargetLane: "feature-review", ShardID: "shard-failed", State: "reviewer-session-failed", ReviewerDispatchRecordCommand: "/rekit retry shard-failed"},
+	}
+
+	summary := ReviewerDispatchIntakeSummaryFor(items)
+	if summary.NextActionShardID != "shard-failed" || summary.NextActionState != "reviewer-session-failed" || summary.NextAction != "/rekit retry shard-failed" {
+		t.Fatalf("failed retry was starved by an earlier running packet: %+v", summary)
+	}
+	actions := MissionCommanderNextActionsWithReviewerDispatches(nil, items)
+	queue := mission.MissionCommanderActionQueueFor(actions)
+	if queue.CurrentAction == nil || queue.CurrentAction.State != "reviewer-session-failed" || queue.CurrentAction.Label != "packet-failed" || queue.CurrentAction.Blocked {
+		t.Fatalf("Mission Commander did not select retryable failed packet: actions=%+v queue=%+v", actions, queue)
+	}
+}
+
+func TestReviewerDispatchActionPriorityPreservesSafetyAndDrainOrder(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		before string
+		after  string
+	}{
+		{name: "invalid receipt before collection", before: "reviewer-session-receipt-invalid", after: "ready-for-reviewer-result-collection-preview"},
+		{name: "stale owner before source capture", before: "reviewer-session-receipt-owner-stale", after: "ready-for-reviewer-result-source-capture-preview"},
+		{name: "collection before failed retry", before: "ready-for-reviewer-result-collection-preview", after: "reviewer-session-failed"},
+		{name: "staging before failed retry", before: "ready-for-reviewer-result-staging-preview", after: "reviewer-session-failed"},
+		{name: "source capture before failed retry", before: "ready-for-reviewer-result-source-capture-preview", after: "reviewer-session-failed"},
+		{name: "failed retry before running wait", before: "reviewer-session-failed", after: "reviewer-session-running-unknown"},
+		{name: "failed retry before ordinary dispatch", before: "reviewer-session-failed", after: "ready-for-reviewer-dispatch"},
+		{name: "failed retry before waiting", before: "reviewer-session-failed", after: "waiting-for-reviewer-result"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			before := reviewerDispatchActionPriority(ReviewerDispatchIntakeHandoff{State: test.before})
+			after := reviewerDispatchActionPriority(ReviewerDispatchIntakeHandoff{State: test.after})
+			if before >= after {
+				t.Fatalf("reviewer action priority drifted: %s=%d, %s=%d", test.before, before, test.after, after)
+			}
+		})
+	}
+}
+
 func TestReviewerDispatchIntakeSummaryProjectsPartialPacketRecovery(t *testing.T) {
 	batchPreview := "/rekit plan-subagents -PacketPath packet.json -ReadyReviewerResults -Lane feature-review -Actor mission-commander -WhatIf -Format json"
 	items := []ReviewerDispatchIntakeHandoff{

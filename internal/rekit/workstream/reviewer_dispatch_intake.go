@@ -924,7 +924,7 @@ func MissionCommanderNextActionsWithReviewerDispatches(base []mission.MissionCom
 	for _, packetID := range packetOrder {
 		handoff := packetRepresentatives[packetID]
 		state := handoff.State
-		blocked := state != "reviewer-session-running-unknown" && state != "ready-for-reviewer-result-source-capture-preview" && state != "ready-for-reviewer-result-staging-preview" && state != "ready-for-reviewer-result-collection-preview" && state != "reviewer-result-recovery-disposed-ready-for-collection-preview" && state != "ready-for-reviewer-intake-preview" && state != "reviewer-packet-owner-adoption-required" && state != "reviewer-result-recovery-required" && state != "reviewer-result-recovery-finalize-required" && !(state == "reviewer-result-recovery-ambiguous" && handoff.ReviewerResultRecoveryDispositionCommand != "") && !((state == "reviewer-dispatch-prompt-artifact-invalid" || state == "reviewer-dispatch-prompt-artifact-drift") && handoff.DispatchPromptRepairCommand != "")
+		blocked := state != "reviewer-session-running-unknown" && state != "reviewer-session-failed" && state != "ready-for-reviewer-result-source-capture-preview" && state != "ready-for-reviewer-result-staging-preview" && state != "ready-for-reviewer-result-collection-preview" && state != "reviewer-result-recovery-disposed-ready-for-collection-preview" && state != "ready-for-reviewer-intake-preview" && state != "reviewer-packet-owner-adoption-required" && state != "reviewer-result-recovery-required" && state != "reviewer-result-recovery-finalize-required" && !(state == "reviewer-result-recovery-ambiguous" && handoff.ReviewerResultRecoveryDispositionCommand != "") && !((state == "reviewer-dispatch-prompt-artifact-invalid" || state == "reviewer-dispatch-prompt-artifact-drift") && handoff.DispatchPromptRepairCommand != "")
 		packetActions = append(packetActions, mission.MissionCommanderNextActionItem{
 			Lane:           handoff.TargetLane,
 			Label:          packetID,
@@ -999,8 +999,10 @@ func reviewerDispatchActionPriority(item ReviewerDispatchIntakeHandoff) int {
 		return 1
 	case "reviewer-result-recovery-required", "reviewer-result-recovery-ambiguous":
 		return 2
-	case "reviewer-session-receipt-invalid", "reviewer-session-receipt-owner-stale", "reviewer-session-failed":
+	case "reviewer-session-receipt-invalid", "reviewer-session-receipt-owner-stale":
 		return 3
+	case "reviewer-session-failed":
+		return 8
 	case "ready-for-reviewer-intake-preview":
 		return 3
 	case "ready-for-reviewer-result-collection-preview", "reviewer-result-recovery-disposed-ready-for-collection-preview":
@@ -1014,7 +1016,7 @@ func reviewerDispatchActionPriority(item ReviewerDispatchIntakeHandoff) int {
 	case "ready-for-reviewer-completion-receipt-preview":
 		return 7
 	case "reviewer-session-running-unknown":
-		return 8
+		return 9
 	case "ready-for-reviewer-dispatch", "waiting-for-reviewer-result", "dispatch-only-waiting-for-result":
 		return 9
 	default:
