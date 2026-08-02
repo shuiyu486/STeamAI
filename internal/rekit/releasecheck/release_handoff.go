@@ -4881,18 +4881,70 @@ func latestBatchHasReleaseRunSuccess(lower string) bool {
 	}
 	for _, clause := range latestBatchEvidenceClauses(lower) {
 		compact := strings.NewReplacer(" ", "", "\t", "").Replace(clause)
-		if !strings.Contains(compact, "release-run") || (!strings.Contains(compact, "以7/7通过") && !strings.Contains(compact, "7/7均通过") && !strings.Contains(compact, "7/7全部通过")) {
+		beforeReleaseRun, afterReleaseRun, found := strings.Cut(compact, "release-run")
+		if !found {
+			continue
+		}
+		beforeSuccess, afterSuccess, successMarker, found := latestBatchReleaseRunSuccessParts(afterReleaseRun)
+		if !found {
 			continue
 		}
 		if latestBatchContainsAny(compact, "未通过", "待执行", "待完成", "尚未执行", "失败", "failed", "ready=false", "目标", "计划", "预期", "应达到", "不能证明", "并非", "历史", "旧文案") {
 			continue
 		}
-		if !latestBatchContainsAny(compact, "完成态", "最终", "已通过", "成功") {
+		assertion := beforeReleaseRun + "release-run" + beforeSuccess + successMarker
+		if latestBatchContainsAny(assertion, "待统一", "是否", "待确认", "要求", "定义", "标准", "条件", "？", "?") || latestBatchReleaseRunPendingSuffix(afterSuccess) {
 			continue
 		}
-		return true
+		if latestBatchContainsAny(assertion, "完成态", "最终", "已通过", "成功") {
+			return true
+		}
+		if (beforeReleaseRun == "统一" || beforeReleaseRun == "统一`") && latestBatchReleaseRunTimingSuffix(afterSuccess) {
+			return true
+		}
 	}
 	return false
+}
+
+func latestBatchReleaseRunSuccessParts(text string) (string, string, string, bool) {
+	for _, marker := range []string{"以7/7通过", "7/7均通过", "7/7全部通过"} {
+		before, after, found := strings.Cut(text, marker)
+		if found {
+			return before, after, marker, true
+		}
+	}
+	return "", "", "", false
+}
+
+func latestBatchReleaseRunPendingSuffix(text string) bool {
+	text = strings.TrimLeft(text, "`，,:：")
+	return strings.HasPrefix(text, "结果待确认") ||
+		strings.HasPrefix(text, "结果待核实") ||
+		strings.HasPrefix(text, "尚待确认") ||
+		strings.HasPrefix(text, "待确认") ||
+		strings.HasPrefix(text, "待核实") ||
+		strings.HasPrefix(text, "？") ||
+		strings.HasPrefix(text, "?")
+}
+
+func latestBatchReleaseRunTimingSuffix(text string) bool {
+	text = strings.Trim(text, "`")
+	if text == "" {
+		return true
+	}
+	var inner string
+	switch {
+	case strings.HasPrefix(text, "（") && strings.HasSuffix(text, "）"):
+		inner = strings.TrimSuffix(strings.TrimPrefix(text, "（"), "）")
+	case strings.HasPrefix(text, "(") && strings.HasSuffix(text, ")"):
+		inner = strings.TrimSuffix(strings.TrimPrefix(text, "("), ")")
+	default:
+		return false
+	}
+	if latestBatchContainsAny(inner, "待确认", "待核实", "尚待", "失败", "failed", "？", "?") {
+		return false
+	}
+	return latestBatchContainsAny(inner, "秒", "ms", "毫秒") && strings.ContainsAny(inner, "0123456789")
 }
 
 func latestBatchHasReleaseRunTransientRetry(lower string) bool {

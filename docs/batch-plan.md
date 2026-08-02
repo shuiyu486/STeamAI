@@ -36,6 +36,17 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 
 
+
+### Batch 800：full-field latest batch validation parsing closure
+
+状态：已完成 full-field latest batch validation parsing closure、canonical next-batch planning receipt、正反 parser 回归、独立审查与 Windows 本机完成态验证；implementation commit/push 在本批统一提交后由 post-push receipt 只读协调。本批关闭 Batch 799 已真实完成并推送但 durable handoff 仍错误停在 `implementation-pending`、阻断下一批规划的接手断点；这不是后续继续做 parser/summary/projection 微调的方向。
+
+目标：latest-batch parser 现在继续用完整 operational `状态`/`验证结果` 字段判断 completion evidence，公开 `status/goal/validationResult` 仍保持 compact display；现有 canonical `统一 release-run ... 以7/7通过` 完成句可恢复 local readiness，而计划、目标、验收条件、定义、疑问、待确认、失败或历史叙述继续 fail-closed。成功断言后的独立 implementation/remote 待办不会反向污染已经成立的本机验证。Mission Commander 因而能从 durable status 恢复 Batch 799 post-push receipt并经 WhatIf → expected-hash Apply生成 Batch 800 planning receipt，不依赖旧聊天或手工绕过 readiness。
+
+边界：兼容路径只接受严格相邻的 `统一[反引号]release-run` canonical 结构，并且成功后仅允许空后缀或数字耗时括号；明确完成 marker按 release-run assertion scope 判断，结果待确认仍拒绝。Runtime不新增 PowerShell logic，不执行 heavy-tool、不写 authority/confirmed、不自动执行 reviewer/adapter/pack-memory/gate/sync/promote mutation、不自动提交或查询/声明 remote CI green。下一批先做真实临时 case 的完整日常产品路径审计，再选择最大用户可感知断点实施中大型闭环；不把 parser、summary、projection、单字段 contract、hash/receipt 或 operator 可见性单独立批。
+
+验证结果：focused regressions覆盖超长验证字段在240字符后才出现 canonical release-run证据、公开compact display、完整Build生成next-batch package，以及计划/目标/定义/标准/疑问/待确认等负向语境和成功后独立待办正向语境；受影响`releasecheck`与`cli`完整package tests通过（最终CLI 163.077秒），两轮全仓`go test ./... -count=1`均通过（最终CLI 163.239秒），`go vet ./...`、packs（10个pack全部schema valid）、doctor与`git diff --check`通过。独立审查发现bare `统一`误判、全clause否定词污染、条件定义误判、任意括号后缀及remote待办漏判等Important；逐项收紧为assertion-scope canonical结构并补正反回归，终审确认全部关闭、无剩余Critical/Important。完成态`release-check -Format json`与`status -Format json`只读成功；最终统一`release-run -Format json`以7/7通过（407.761秒，其中完整Go tests 404.372秒）。本批未修改PowerShell façade，无需额外façade smoke；普通batch不等待或声明remote CI green。
+
 ### Batch 799：pack-memory reviewed candidate reconsume operator closure
 
 状态：已完成 reviewed candidate reconsume typed operator、sanitized canonical proof、strict canonical evidence authority、post-retirement三类lifecycle proof序列、最终closed status、文档、独立审查和Windows本机完成态验证；implementation commit/push在本批统一提交后记录。Reviewed accepted candidate在verification workspace retirement后不再被错误视为terminal closed。

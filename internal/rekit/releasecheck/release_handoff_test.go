@@ -458,13 +458,14 @@ func TestReleaseHandoffBuildsNextBatchSelectionPackageWithShortLocalValidationEv
 
 func TestReleaseHandoffBuildsNextBatchAfterSevenOfSevenPushWithRemoteNotRecorded(t *testing.T) {
 	repo := cleanReleaseRepoRoot(t)
+	longValidationPrefix := strings.Repeat("reviewed candidate reconsume operator evidence recorded; ", 12)
 	writeReleaseHandoffLatestBatchFixture(t, repo, `### Batch 999：Fixture
 
 状态：已完成 Windows 本机验证与 implementation commit/push；implementation commit `+"`"+`abc999d`+"`"+` 已推送。远程 workflow 异步运行，当前尚未记录对应 run。
 
 目标：普通 batch 在 canonical 7/7 与 implementation push 后立即交棒下一批，不等待 remote CI。
 
-验证结果：完成态写回后统一 `+"`"+`release-run -Format json`+"`"+` 以 7/7 通过。Implementation commit `+"`"+`abc999d`+"`"+` 已推送；未轮询或等待远程 workflow。
+验证结果：`+longValidationPrefix+`完成态 `+"`"+`release-check -Format json`+"`"+` 返回 `+"`"+`ready=true`+"`"+`；统一 `+"`"+`release-run -Format json`+"`"+` 以 7/7 通过。Implementation commit `+"`"+`abc999d`+"`"+` 已推送；未轮询或等待远程 workflow。
 
 `, "- Batch 999 fixture note.\n\n")
 
@@ -472,7 +473,11 @@ func TestReleaseHandoffBuildsNextBatchAfterSevenOfSevenPushWithRemoteNotRecorded
 	if err != nil {
 		t.Fatal(err)
 	}
-	latest := result.ReleaseHandoff.LatestBatch.Handoff
+	latestBatch := result.ReleaseHandoff.LatestBatch
+	latest := latestBatch.Handoff
+	if !strings.HasSuffix(latestBatch.ValidationResult, "…") || strings.Contains(latestBatch.ValidationResult, "release-run") {
+		t.Fatalf("public latest validation should remain compact while full evidence drives readiness: %q", latestBatch.ValidationResult)
+	}
 	if !result.Ready || !latest.LocalValidationReady || !latest.ReleaseCheckReady || latest.RemoteReleaseGate != "not-recorded" {
 		t.Fatalf("canonical 7/7 pushed batch should be locally ready with remote not recorded: ready=%t warnings=%+v latest=%+v", result.Ready, result.Warnings, latest)
 	}
@@ -810,6 +815,22 @@ func TestLatestBatchHandoffAcceptsReleaseRunSevenOfSevenLocalMinimum(t *testing.
 	}
 }
 
+func TestLatestBatchSummaryUsesFullValidationEvidenceAfterDisplayCompaction(t *testing.T) {
+	prefix := strings.Repeat("reviewed candidate reconsume operator evidence recorded; ", 12)
+	data := "### Batch 799：fixture\n\n" +
+		"状态：已完成 fixture runtime/test/docs。\n\n" +
+		"目标：fixture。\n\n" +
+		"验证结果：" + prefix + "完成态 `release-check -Format json` 返回 `ready=true`；统一 `release-run -Format json` 以 7/7 通过。\n"
+
+	latest := latestBatchSummaryFromData("docs/batch-plan.md", []byte(data))
+	if !strings.HasSuffix(latest.ValidationResult, "…") || len([]rune(latest.ValidationResult)) != 240 || strings.Contains(latest.ValidationResult, "release-run") {
+		t.Fatalf("public validation result should remain compact without late evidence: %q", latest.ValidationResult)
+	}
+	if !latest.Handoff.Completed || !latest.Handoff.LocalValidationReady || !latest.Handoff.ReleaseCheckReady {
+		t.Fatalf("full operational validation field should remain authoritative after display compaction: %+v", latest.Handoff)
+	}
+}
+
 func TestLatestBatchHandoffRejectsNonSuccessReleaseRunSevenOfSevenNarrative(t *testing.T) {
 	for _, section := range []string{
 		"验证结果：release-run 7/7 待执行。",
@@ -821,10 +842,39 @@ func TestLatestBatchHandoffRejectsNonSuccessReleaseRunSevenOfSevenNarrative(t *t
 		"现有记录不能证明 release-run 以 7/7 通过。",
 		"历史文案称 release-run 以 7/7 通过。",
 		"目标：release-run 以 7/7 通过；当前尚未执行。",
+		"验证结果：计划统一 release-run 以 7/7 通过。",
+		"验证结果：目标是统一 release-run 以 7/7 通过。",
+		"验证结果：待统一验证 release-run 是否以 7/7 通过。",
+		"验证结果：将 release-run 以 7/7 通过定义为统一完成口径。",
+		"验证结果：release-run 以 7/7 通过？统一口径仍需确认。",
+		"验证结果：将统一 release-run 以 7/7 通过作为完成口径。",
+		"验证结果：准备统一 release-run 以 7/7 通过。",
+		"验证结果：统一验收标准为 release-run 以 7/7 通过。",
+		"验证结果：统一要求 release-run 以 7/7 通过。",
+		"验证结果：是否已达到完成态 release-run 以 7/7 通过仍待确认。",
+		"验证结果：待统一确认最终 release-run 以 7/7 通过。",
+		"验证结果：验收完成态要求：release-run 以 7/7 通过。",
+		"验证结果：完成态定义为 release-run 以 7/7 通过。",
+		"验证结果：最终标准为 release-run 以 7/7 通过。",
+		"验证结果：完成态 release-run 以 7/7 通过，结果待确认。",
+		"验证结果：统一 release-run 以 7/7 通过（结果待确认）。",
 	} {
 		handoff := latestBatchHandoff(ReleaseHandoffLatestBatch{Status: "已完成 fixture"}, section)
 		if handoff.LocalValidationReady || handoff.ReleaseCheckReady {
 			t.Fatalf("non-success release-run 7/7 narrative should remain not ready: section=%q handoff=%+v", section, handoff)
+		}
+	}
+}
+
+func TestLatestBatchHandoffKeepsExplicitSuccessWhenLaterClauseTextIsPendingOrQuestioning(t *testing.T) {
+	for _, section := range []string{
+		"验证结果：完成态 release-run 以 7/7 通过，implementation commit/push 待统一记录。",
+		"验证结果：最终 release-run 以 7/7 通过，随后检查是否需要 PowerShell façade smoke，结论为无需。",
+		"验证结果：最终 release-run 以 7/7 通过，remote release-gate inspection 尚待记录。",
+	} {
+		handoff := latestBatchHandoff(ReleaseHandoffLatestBatch{Status: "已完成 fixture"}, section)
+		if !handoff.LocalValidationReady || !handoff.ReleaseCheckReady {
+			t.Fatalf("explicit release-run success should not be invalidated by unrelated later text: section=%q handoff=%+v", section, handoff)
 		}
 	}
 }
