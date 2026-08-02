@@ -30,6 +30,17 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 
 
+
+### Batch 794：post-push implementation receipt reconciliation
+
+状态：已完成 post-push implementation receipt reconciliation 的 typed receipt、release-check/status/next-batch 共用 handoff、CLI JSON/text 投影、snapshot/路径 fail-closed 回归、真实临时 git repo product-path、独立审查修复、release readiness 文档与 Windows 本机完整验证；implementation commit/push 在本批统一完成态提交中记录。普通 batch 不等待或轮询 remote CI，也不声明 remote green。
+
+目标：解决普通 batch 一次 implementation commit/push 后 durable docs 无法在同一 commit 中预写自身 SHA、fresh status 因而仍停在 `implementation-pending` 的自指断点。Fresh `release-check` / `status` 现在从同源 release handoff 读取 typed `postPushReceipt`；只有 clean `main`、`HEAD` 与本地已知 `origin/main` tracking ref 相等、captured SHA 的父/当前 plan 恰为连续已完成 batch，且 commit 同时包含 batch plan、CHANGELOG 与明确产品 owner 路径时，cadence 才动态关闭并开放 next-batch selection。
+
+边界：receipt 只执行本地只读 git 查询，不 fetch、pull、push、commit 或读取 remote workflow；本地 tracking ref 对齐不冒充 remote CI green。`show` / `diff-tree` 全部绑定 captured SHA，ready 前复核 branch/HEAD/origin-main/status；dirty、非 main、缺 ref、未推送/分叉、移动 snapshot、docs-only、非连续或未完成 transition 均保持 `implementation-pending`。Runtime 不执行 heavy-tool、不写 authority/confirmed、不触碰 case state，也不自动执行 reviewer/adapter/pack-memory/gate/sync/promote mutation；本批不新增 PowerShell runtime logic。
+
+验证结果：deterministic fixture 与真实临时 git repo 回归覆盖 ready transition、cadence/next-batch promotion、dirty、unpublished ref、root/owner-root docs-only、错误 parent、移动 repository snapshot、captured SHA 命令绑定和明确 implementation owner 分类；releasecheck focused tests（11.668 秒）与 CLI status/release-check/next-batch focused tests（30.896 秒）通过。独立审查发现并关闭 symbolic HEAD snapshot TOCTOU 与 README/docs-only implementation path 两项高置信 finding，终轮复核无新 blocker。完整 `go test ./...` 通过（CLI 141.097 秒，releasecheck 17.595 秒），`go vet ./...`、`packs -Format json`、`doctor -Format json`（canonical skill 32545/32768 bytes）与 `git diff --check` 通过；完成态 `release-check -Format json` 恢复 `ready=true`。统一 `release-run -Format json` 最终以 7/7 通过（445.978 秒，其中完整 Go tests 443.083 秒）；remote CI 保持异步、非阻塞。
+
 ### Batch 793：natural-language current-loop operator closure
 
 状态：已完成 natural-language current-loop operator closure 的 typed package、status/quickstart/replacement takeover/handoff durable projection、reviewer observation templates、fail-closed checkpoint 分类、产品路径回归、文档与 Windows 本机完整验证；implementation commit/push 在本批统一完成态提交中记录。普通 batch 不等待或轮询 remote CI，也不声明 remote green。

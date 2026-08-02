@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -15,6 +16,221 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/promote"
 	syncpkg "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 )
+
+func TestPostPushReceiptClosesImplementationPendingCadence(t *testing.T) {
+	latest := latestBatchSummaryFromData("docs/batch-plan.md", []byte(`### Batch 794：post-push closure
+
+状态：已完成 fixture runtime/test/docs 与完整 Windows 本机验证。
+
+目标：fixture。
+
+验证结果：release-run 以 7/7 通过。
+`))
+	latest.Handoff.ReleaseInspectionCadence.State = "implementation-pending"
+	latest.Handoff.ReleaseInspectionCadence.ImplementationCommitReady = false
+	latest.Handoff.NextAction = latestBatchNextAction(latest.Handoff)
+	executor := postPushGitFixture(map[string]string{
+		"rev-parse --abbrev-ref HEAD":                     "main\n",
+		"rev-parse HEAD":                                  "abc7940\n",
+		"rev-parse origin/main":                           "abc7940\n",
+		"status --short":                                  "",
+		"show abc7940^:docs/batch-plan.md":                "### Batch 793：previous\n\n状态：已完成 previous。\n\n目标：previous。\n\n验证结果：release-run 以 7/7 通过。\n",
+		"show abc7940:docs/batch-plan.md":                 "### Batch 794：post-push closure\n\n状态：已完成 fixture。\n\n目标：fixture。\n\n验证结果：release-run 以 7/7 通过。\n",
+		"diff-tree --no-commit-id --name-only -r abc7940": "CHANGELOG.md\ndocs/batch-plan.md\ninternal/rekit/releasecheck/release_handoff.go\n",
+	})
+	receipt := releaseHandoffPostPushReceiptFor(t.TempDir(), latest, executor)
+	if !receipt.Ready || receipt.State != "post-push-complete" || !receipt.WorkingTreeClean || !receipt.Synchronized || receipt.ParentBatchID != "Batch 793" || receipt.HeadBatchID != "Batch 794" {
+		t.Fatalf("post-push receipt did not close the implementation commit: %+v", receipt)
+	}
+}
+
+func TestLatestBatchPostPushReceiptPromotesNextBatchSelection(t *testing.T) {
+	latest := latestBatchSummaryFromData("docs/batch-plan.md", []byte("### Batch 794：fixture\n\n状态：已完成 fixture。\n\n目标：fixture。\n\n验证结果：release-run 以 7/7 通过。\n"))
+	latest.Handoff.LocalValidationReady = true
+	latest.Handoff.ReleaseCheckReady = true
+	latest.Handoff.ReleaseInspectionCadence.State = "implementation-pending"
+	latest.Handoff.ReleaseInspectionCadence.ImplementationCommitReady = false
+	values := map[string]string{
+		"rev-parse --abbrev-ref HEAD":                     "main\n",
+		"rev-parse HEAD":                                  "abc7940\n",
+		"rev-parse origin/main":                           "abc7940\n",
+		"status --short":                                  "",
+		"show abc7940^:docs/batch-plan.md":                "### Batch 793：previous\n\n状态：已完成 previous。\n\n目标：previous。\n\n验证结果：release-run 以 7/7 通过。\n",
+		"show abc7940:docs/batch-plan.md":                 "### Batch 794：fixture\n\n状态：已完成 fixture。\n\n目标：fixture。\n\n验证结果：release-run 以 7/7 通过。\n",
+		"diff-tree --no-commit-id --name-only -r abc7940": "CHANGELOG.md\ndocs/batch-plan.md\ninternal/rekit/releasecheck/release_handoff.go\n",
+	}
+	updated := releaseHandoffLatestBatchWithPostPushReceiptUsing(t.TempDir(), latest, postPushGitFixture(values))
+	if updated.Handoff.PostPushReceipt == nil || !updated.Handoff.PostPushReceipt.Ready || updated.Handoff.ReleaseInspectionCadence.State != "complete" || !updated.Handoff.ReleaseInspectionCadence.ImplementationCommitReady || updated.Handoff.NextAction == "" || !strings.Contains(updated.Handoff.NextAction, "select the next") || !slices.Contains(updated.Handoff.CommitRefs, "abc7940") {
+		t.Fatalf("post-push wrapper did not promote next-batch handoff: %+v", updated.Handoff)
+	}
+}
+
+func TestPostPushReceiptFailsClosed(t *testing.T) {
+	latest := latestBatchSummaryFromData("docs/batch-plan.md", []byte("### Batch 794：fixture\n\n状态：已完成 fixture。\n\n目标：fixture。\n\n验证结果：release-run 以 7/7 通过。\n"))
+	base := map[string]string{
+		"rev-parse --abbrev-ref HEAD":                     "main\n",
+		"rev-parse HEAD":                                  "abc7940\n",
+		"rev-parse origin/main":                           "abc7940\n",
+		"status --short":                                  "",
+		"show abc7940^:docs/batch-plan.md":                "### Batch 793：previous\n\n状态：已完成 previous。\n\n目标：previous。\n\n验证结果：release-run 以 7/7 通过。\n",
+		"show abc7940:docs/batch-plan.md":                 "### Batch 794：fixture\n\n状态：已完成 fixture。\n\n目标：fixture。\n\n验证结果：release-run 以 7/7 通过。\n",
+		"diff-tree --no-commit-id --name-only -r abc7940": "CHANGELOG.md\ndocs/batch-plan.md\ninternal/rekit/releasecheck/release_handoff.go\n",
+	}
+	for _, fixture := range []struct {
+		name   string
+		change func(map[string]string)
+		state  string
+	}{
+		{name: "dirty", change: func(values map[string]string) { values["status --short"] = " M docs/batch-plan.md\n" }, state: "dirty"},
+		{name: "unpushed", change: func(values map[string]string) { values["rev-parse origin/main"] = "abc7930\n" }, state: "unsynchronized"},
+		{name: "docs-only", change: func(values map[string]string) {
+			values["diff-tree --no-commit-id --name-only -r abc7940"] = "CHANGELOG.md\ndocs/batch-plan.md\nREADME.md\nCLAUDE.md\n"
+		}, state: "incomplete-implementation-commit"},
+		{name: "wrong-parent", change: func(values map[string]string) {
+			values["show abc7940^:docs/batch-plan.md"] = "### Batch 792：older\n\n状态：已完成 older。\n\n目标：older。\n\n验证结果：release-run 以 7/7 通过。\n"
+		}, state: "ambiguous-batch-transition"},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			values := map[string]string{}
+			for key, value := range base {
+				values[key] = value
+			}
+			fixture.change(values)
+			receipt := releaseHandoffPostPushReceiptFor(t.TempDir(), latest, postPushGitFixture(values))
+			if receipt.Ready || receipt.State != fixture.state {
+				t.Fatalf("post-push receipt should fail closed: %+v", receipt)
+			}
+		})
+	}
+}
+
+func TestPostPushReceiptRejectsMovingRepositorySnapshot(t *testing.T) {
+	latest := latestBatchSummaryFromData("docs/batch-plan.md", []byte("### Batch 794：fixture\n\n状态：已完成 fixture。\n\n目标：fixture。\n\n验证结果：release-run 以 7/7 通过。\n"))
+	values := map[string]string{
+		"rev-parse --abbrev-ref HEAD":                     "main\n",
+		"rev-parse HEAD":                                  "abc7940\n",
+		"rev-parse origin/main":                           "abc7940\n",
+		"status --short":                                  "",
+		"show abc7940^:docs/batch-plan.md":                "### Batch 793：previous\n\n状态：已完成 previous。\n\n目标：previous。\n\n验证结果：release-run 以 7/7 通过。\n",
+		"show abc7940:docs/batch-plan.md":                 "### Batch 794：fixture\n\n状态：已完成 fixture。\n\n目标：fixture。\n\n验证结果：release-run 以 7/7 通过。\n",
+		"diff-tree --no-commit-id --name-only -r abc7940": "CHANGELOG.md\ndocs/batch-plan.md\ninternal/rekit/releasecheck/release_handoff.go\n",
+	}
+	calls := map[string]int{}
+	executor := func(_ string, args ...string) (int, string, error) {
+		key := strings.Join(args, " ")
+		calls[key]++
+		if key == "rev-parse HEAD" && calls[key] == 2 {
+			return 0, "abc7950\n", nil
+		}
+		value, ok := values[key]
+		if !ok {
+			return 1, "", fmt.Errorf("unexpected git command: %s", key)
+		}
+		return 0, value, nil
+	}
+	receipt := releaseHandoffPostPushReceiptFor(t.TempDir(), latest, executor)
+	if receipt.Ready || receipt.State != "stale-repository-snapshot" {
+		t.Fatalf("moving repository snapshot should fail closed: %+v", receipt)
+	}
+}
+
+func TestReleaseHandoffImplementationPathClassification(t *testing.T) {
+	for _, fixture := range []struct {
+		path string
+		want bool
+	}{
+		{path: "README.md", want: false},
+		{path: "CLAUDE.md", want: false},
+		{path: "docs/release-readiness.md", want: false},
+		{path: "rekit/tests/README.md", want: false},
+		{path: "common/policies/README.md", want: false},
+		{path: "packs/vmp-re/policies/README.md", want: false},
+		{path: "internal/rekit/releasecheck/release_handoff.go", want: true},
+		{path: "cmd/rekit/main.go", want: true},
+		{path: ".claude/skills/rekit/SKILL.md", want: true},
+		{path: "packs/vmp-re/tooling/catalog.yml", want: true},
+		{path: "go.mod", want: true},
+	} {
+		t.Run(strings.ReplaceAll(fixture.path, "/", "_"), func(t *testing.T) {
+			if got := releaseHandoffHasImplementationPath([]string{fixture.path}); got != fixture.want {
+				t.Fatalf("implementation path classification for %q = %t, want %t", fixture.path, got, fixture.want)
+			}
+		})
+	}
+}
+
+func postPushGitFixture(values map[string]string) releaseHandoffGitCommandExecutor {
+	return func(_ string, args ...string) (int, string, error) {
+		key := strings.Join(args, " ")
+		value, ok := values[key]
+		if !ok {
+			return 1, "", fmt.Errorf("unexpected git command: %s", key)
+		}
+		return 0, value, nil
+	}
+}
+
+func TestPostPushReceiptUsesRealLocalGitRepository(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "repo")
+	if err := os.MkdirAll(filepath.Join(repo, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runPostPushGit(t, repo, "init", "-b", "main")
+	runPostPushGit(t, repo, "config", "user.name", "rekit-test")
+	runPostPushGit(t, repo, "config", "user.email", "rekit-test@example.invalid")
+
+	writePostPushTestFile(t, repo, "docs/batch-plan.md", "### Batch 793：previous\n\n状态：已完成 previous。\n\n目标：previous。\n\n验证结果：release-run 以 7/7 通过。\n")
+	writePostPushTestFile(t, repo, "CHANGELOG.md", "# Changelog\n\n- Batch 793 completed.\n")
+	writePostPushTestFile(t, repo, "internal/rekit/fixture.go", "package rekit\n")
+	runPostPushGit(t, repo, "add", ".")
+	runPostPushGit(t, repo, "commit", "-m", "Complete Batch 793")
+
+	writePostPushTestFile(t, repo, "docs/batch-plan.md", "### Batch 794：post-push closure\n\n状态：已完成 fixture。\n\n目标：fixture。\n\n验证结果：release-run 以 7/7 通过。\n")
+	writePostPushTestFile(t, repo, "CHANGELOG.md", "# Changelog\n\n- Batch 794 completed.\n")
+	writePostPushTestFile(t, repo, "internal/rekit/fixture.go", "package rekit\n\nconst batch = 794\n")
+	runPostPushGit(t, repo, "add", ".")
+	runPostPushGit(t, repo, "commit", "-m", "Complete Batch 794")
+	head := strings.TrimSpace(runPostPushGit(t, repo, "rev-parse", "HEAD"))
+	runPostPushGit(t, repo, "update-ref", "refs/remotes/origin/main", head)
+
+	latest := latestBatchSummary(repo)
+	latest.Handoff.LocalValidationReady = true
+	latest.Handoff.ReleaseCheckReady = true
+	latest.Handoff.ReleaseInspectionCadence.State = "implementation-pending"
+	latest.Handoff.ReleaseInspectionCadence.ImplementationCommitReady = false
+	updated := releaseHandoffLatestBatchWithPostPushReceipt(repo, latest)
+	if updated.Handoff.PostPushReceipt == nil || !updated.Handoff.PostPushReceipt.Ready || updated.Handoff.PostPushReceipt.Head != head || updated.Handoff.ReleaseInspectionCadence.State != "complete" {
+		t.Fatalf("real local git repository did not produce a ready post-push receipt: %+v", updated.Handoff)
+	}
+
+	writePostPushTestFile(t, repo, "internal/rekit/fixture.go", "package rekit\n\nconst batch = 795\n")
+	dirty := releaseHandoffPostPushReceiptFor(repo, latest, defaultReleaseHandoffGitCommand)
+	if dirty.Ready || dirty.State != "dirty" {
+		t.Fatalf("dirty real repository should remain implementation-pending: %+v", dirty)
+	}
+}
+
+func runPostPushGit(t *testing.T, repo string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = repo
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, output)
+	}
+	return string(output)
+}
+
+func writePostPushTestFile(t *testing.T, repo, rel, content string) {
+	t.Helper()
+	path := filepath.Join(repo, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	repo := cleanReleaseRepoRoot(t)

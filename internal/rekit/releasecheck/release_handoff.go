@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -93,6 +94,7 @@ type ReleaseHandoffLatestBatchHandoff struct {
 	RemoteReleaseGate        string                                 `json:"remoteReleaseGate,omitempty"`
 	RemoteReleaseGateDetail  *ReleaseHandoffRemoteReleaseGateDetail `json:"remoteReleaseGateDetail,omitempty"`
 	ReleaseInspectionCadence ReleaseHandoffReleaseInspectionCadence `json:"releaseInspectionCadence"`
+	PostPushReceipt          *ReleaseHandoffPostPushReceipt         `json:"postPushReceipt,omitempty"`
 	CommitRefs               []string                               `json:"commitRefs,omitempty"`
 	Evidence                 []string                               `json:"evidence,omitempty"`
 	ValidationWarnings       []string                               `json:"validationWarnings,omitempty"`
@@ -109,6 +111,24 @@ type ReleaseHandoffReleaseInspectionCadence struct {
 	NextAction                string   `json:"nextAction"`
 	Evidence                  []string `json:"evidence,omitempty"`
 	Boundary                  []string `json:"boundary,omitempty"`
+}
+
+type ReleaseHandoffPostPushReceipt struct {
+	Ready               bool     `json:"ready"`
+	State               string   `json:"state"`
+	Branch              string   `json:"branch,omitempty"`
+	Head                string   `json:"head,omitempty"`
+	OriginMain          string   `json:"originMain,omitempty"`
+	WorkingTreeClean    bool     `json:"workingTreeClean"`
+	Synchronized        bool     `json:"synchronized"`
+	ParentBatchID       string   `json:"parentBatchId,omitempty"`
+	ParentBatchComplete bool     `json:"parentBatchComplete"`
+	HeadBatchID         string   `json:"headBatchId,omitempty"`
+	HeadBatchComplete   bool     `json:"headBatchComplete"`
+	ChangedPaths        []string `json:"changedPaths,omitempty"`
+	Evidence            []string `json:"evidence,omitempty"`
+	Boundary            []string `json:"boundary,omitempty"`
+	Warnings            []string `json:"warnings,omitempty"`
 }
 
 type ReleaseHandoffRemoteReleaseGateDetail struct {
@@ -442,7 +462,7 @@ func BuildProjectHandoff(repoRoot string) (ReleaseHandoff, error) {
 		Ready:       true,
 		Summary:     "release handoff summary ok",
 		ReadFirst:   releaseHandoffDocuments(repo),
-		LatestBatch: latestBatchSummary(repo),
+		LatestBatch: releaseHandoffLatestBatchWithPostPushReceipt(repo, latestBatchSummary(repo)),
 		Validation:  releaseHandoffValidation(gateProfile(catalogGateSteps(repo, cat.RecommendedMinimum)).Steps),
 		NextActions: releaseHandoffNextActions(),
 		Warnings:    []string{},
@@ -465,7 +485,7 @@ func releaseHandoff(repo string, check Result) ReleaseHandoff {
 		Ready:       true,
 		Summary:     "release handoff summary ok",
 		ReadFirst:   releaseHandoffDocuments(repo),
-		LatestBatch: latestBatchSummary(repo),
+		LatestBatch: releaseHandoffLatestBatchWithPostPushReceipt(repo, latestBatchSummary(repo)),
 		Validation:  releaseHandoffValidation(check.GateProfile.Steps),
 		NextActions: releaseHandoffNextActions(),
 		Warnings:    []string{},
@@ -4235,14 +4255,184 @@ func releaseHandoffWarnings(handoff ReleaseHandoff) []string {
 	return warnings
 }
 
-func latestBatchSummary(repo string) ReleaseHandoffLatestBatch {
-	const planPath = "docs/batch-plan.md"
-	latest := ReleaseHandoffLatestBatch{PlanPath: planPath}
-	data, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(planPath)))
-	if err != nil {
+type releaseHandoffGitCommandExecutor func(string, ...string) (int, string, error)
+
+func releaseHandoffLatestBatchWithPostPushReceipt(repo string, latest ReleaseHandoffLatestBatch) ReleaseHandoffLatestBatch {
+	return releaseHandoffLatestBatchWithPostPushReceiptUsing(repo, latest, defaultReleaseHandoffGitCommand)
+}
+
+func releaseHandoffLatestBatchWithPostPushReceiptUsing(repo string, latest ReleaseHandoffLatestBatch, executor releaseHandoffGitCommandExecutor) ReleaseHandoffLatestBatch {
+	cadence := latest.Handoff.ReleaseInspectionCadence
+	if !latest.Handoff.Completed || !latest.Handoff.LocalValidationReady || !latest.Handoff.ReleaseCheckReady || cadence.State != "implementation-pending" {
 		return latest
 	}
-	latest.Present = true
+	receipt := releaseHandoffPostPushReceiptFor(repo, latest, executor)
+	latest.Handoff.PostPushReceipt = &receipt
+	if !receipt.Ready {
+		return latest
+	}
+	latest.Handoff.ReleaseInspectionCadence.ImplementationCommitReady = true
+	latest.Handoff.ReleaseInspectionCadence.State = "complete"
+	latest.Handoff.ReleaseInspectionCadence.NextAction = "continue the next batch without polling or waiting for remote CI"
+	latest.Handoff.ReleaseInspectionCadence.Evidence = mission.UniqueStrings(append(latest.Handoff.ReleaseInspectionCadence.Evidence,
+		"implementation commit reconciled with the locally known origin/main ref",
+	))
+	latest.Handoff.CommitRefs = mission.UniqueStrings(append(latest.Handoff.CommitRefs, receipt.Head))
+	latest.Handoff.Evidence = mission.UniqueStrings(append(latest.Handoff.Evidence, receipt.Evidence...))
+	latest.Handoff.NextAction = latestBatchNextAction(latest.Handoff)
+	return latest
+}
+
+func releaseHandoffPostPushReceiptFor(repo string, latest ReleaseHandoffLatestBatch, executor releaseHandoffGitCommandExecutor) ReleaseHandoffPostPushReceipt {
+	receipt := ReleaseHandoffPostPushReceipt{
+		State: "unavailable",
+		Boundary: []string{
+			"post-push receipt is read-only and uses only local git refs; it does not fetch, pull, push, commit, or inspect remote workflow status",
+			"a synchronized HEAD proves only implementation commit publication to the currently known origin/main ref; it does not prove remote CI green",
+			"dirty, non-main, missing-ref, diverged, docs-only, or ambiguous batch transitions remain implementation-pending",
+		},
+	}
+	run := func(args ...string) (string, bool) {
+		exitCode, output, err := executor(repo, args...)
+		if err != nil || exitCode != 0 {
+			receipt.Warnings = append(receipt.Warnings, fmt.Sprintf("git %s failed: exitCode=%d error=%v", strings.Join(args, " "), exitCode, err))
+			return "", false
+		}
+		return strings.TrimSpace(output), true
+	}
+	var ok bool
+	if receipt.Branch, ok = run("rev-parse", "--abbrev-ref", "HEAD"); !ok {
+		return receipt
+	}
+	if receipt.Head, ok = run("rev-parse", "HEAD"); !ok {
+		return receipt
+	}
+	if receipt.OriginMain, ok = run("rev-parse", "origin/main"); !ok {
+		return receipt
+	}
+	status, statusOK := run("status", "--short")
+	if !statusOK {
+		return receipt
+	}
+	receipt.WorkingTreeClean = strings.TrimSpace(status) == ""
+	receipt.Synchronized = receipt.Head != "" && strings.EqualFold(receipt.Head, receipt.OriginMain)
+	parentPlan, parentOK := run("show", receipt.Head+"^:docs/batch-plan.md")
+	headPlan, headOK := run("show", receipt.Head+":docs/batch-plan.md")
+	changed, changedOK := run("diff-tree", "--no-commit-id", "--name-only", "-r", receipt.Head)
+	if !parentOK || !headOK || !changedOK {
+		return receipt
+	}
+	parent := latestBatchSummaryFromData("docs/batch-plan.md", []byte(parentPlan))
+	head := latestBatchSummaryFromData("docs/batch-plan.md", []byte(headPlan))
+	receipt.ParentBatchID = parent.BatchID
+	receipt.ParentBatchComplete = parent.Handoff.Completed
+	receipt.HeadBatchID = head.BatchID
+	receipt.HeadBatchComplete = head.Handoff.Completed
+	receipt.ChangedPaths = mission.UniqueStrings(nonEmptyReleaseHandoffLines(changed))
+	finalBranch, branchOK := run("rev-parse", "--abbrev-ref", "HEAD")
+	finalHead, headOK := run("rev-parse", "HEAD")
+	finalOriginMain, originOK := run("rev-parse", "origin/main")
+	finalStatus, finalStatusOK := run("status", "--short")
+	if !branchOK || !headOK || !originOK || !finalStatusOK {
+		return receipt
+	}
+	if finalBranch != receipt.Branch || !strings.EqualFold(finalHead, receipt.Head) || !strings.EqualFold(finalOriginMain, receipt.OriginMain) || finalStatus != status {
+		receipt.State = "stale-repository-snapshot"
+		return receipt
+	}
+	if strings.TrimSpace(receipt.Branch) != "main" {
+		receipt.State = "non-main"
+		return receipt
+	}
+	if !receipt.WorkingTreeClean {
+		receipt.State = "dirty"
+		return receipt
+	}
+	if !receipt.Synchronized {
+		receipt.State = "unsynchronized"
+		return receipt
+	}
+	if parent.BatchID == "" || releaseHandoffNextBatchID(parent.BatchID) != latest.BatchID || head.BatchID != latest.BatchID || !parent.Handoff.Completed || !head.Handoff.Completed {
+		receipt.State = "ambiguous-batch-transition"
+		return receipt
+	}
+	if !slices.Contains(receipt.ChangedPaths, "docs/batch-plan.md") || !slices.Contains(receipt.ChangedPaths, "CHANGELOG.md") || !releaseHandoffHasImplementationPath(receipt.ChangedPaths) {
+		receipt.State = "incomplete-implementation-commit"
+		return receipt
+	}
+	receipt.Ready = true
+	receipt.State = "post-push-complete"
+	receipt.Evidence = []string{
+		"post-push implementation receipt validated",
+		"main HEAD equals the locally known origin/main ref",
+		"implementation commit introduced the next completed batch after the completed parent batch",
+		"implementation commit includes batch plan, changelog, and product implementation paths",
+	}
+	return receipt
+}
+
+func defaultReleaseHandoffGitCommand(repo string, args ...string) (int, string, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = repo
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		return 0, string(output), nil
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		return exitErr.ExitCode(), string(output), err
+	}
+	return -1, string(output), err
+}
+
+func nonEmptyReleaseHandoffLines(text string) []string {
+	lines := []string{}
+	for line := range strings.SplitSeq(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
+		if line = filepath.ToSlash(strings.TrimSpace(line)); line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}
+
+func releaseHandoffHasImplementationPath(paths []string) bool {
+	implementationRoots := []string{
+		".claude/skills/",
+		".github/",
+		"cmd/",
+		"common/",
+		"internal/",
+		"packs/",
+		"rekit/",
+	}
+	implementationFiles := []string{"go.mod", "go.sum", "go.work", "go.work.sum"}
+	for _, path := range paths {
+		path = filepath.ToSlash(strings.TrimSpace(path))
+		if strings.EqualFold(filepath.Base(path), "README.md") {
+			continue
+		}
+		if slices.Contains(implementationFiles, path) {
+			return true
+		}
+		for _, root := range implementationRoots {
+			if strings.HasPrefix(path, root) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func latestBatchSummary(repo string) ReleaseHandoffLatestBatch {
+	const planPath = "docs/batch-plan.md"
+	data, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(planPath)))
+	if err != nil {
+		return ReleaseHandoffLatestBatch{PlanPath: planPath}
+	}
+	return latestBatchSummaryFromData(planPath, data)
+}
+
+func latestBatchSummaryFromData(planPath string, data []byte) ReleaseHandoffLatestBatch {
+	latest := ReleaseHandoffLatestBatch{PlanPath: planPath, Present: true}
 	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
 	start, title, batchID := latestBatchSummarySelection(lines)
 	if start < 0 {

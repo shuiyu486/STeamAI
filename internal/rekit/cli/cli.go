@@ -2885,6 +2885,11 @@ func writeReleaseHandoffText(out io.Writer, handoff releasecheck.ReleaseHandoff)
 			return err
 		}
 	}
+	if receipt := latestHandoff.PostPushReceipt; receipt != nil {
+		if _, err := fmt.Fprintf(out, "release-check latest batch post-push receipt：ready=%t state=%s branch=%s head=%s originMain=%s clean=%t synchronized=%t parentBatch=%s headBatch=%s\n", receipt.Ready, receipt.State, receipt.Branch, receipt.Head, receipt.OriginMain, receipt.WorkingTreeClean, receipt.Synchronized, receipt.ParentBatchID, receipt.HeadBatchID); err != nil {
+			return err
+		}
+	}
 	for _, boundary := range cadence.Boundary {
 		if _, err := fmt.Fprintf(out, "release-check latest batch release inspection cadence boundary：%s\n", boundary); err != nil {
 			return err
@@ -3298,6 +3303,7 @@ type statusProjectHandoff struct {
 	LatestRemoteReleaseGate       string                                                `json:"latestRemoteReleaseGate"`
 	LatestRemoteReleaseGateDetail *releasecheck.ReleaseHandoffRemoteReleaseGateDetail   `json:"latestRemoteReleaseGateDetail,omitempty"`
 	ReleaseInspectionCadence      releasecheck.ReleaseHandoffReleaseInspectionCadence   `json:"releaseInspectionCadence"`
+	PostPushReceipt               *releasecheck.ReleaseHandoffPostPushReceipt           `json:"postPushReceipt,omitempty"`
 	LatestNextAction              string                                                `json:"latestNextAction"`
 	LatestEvidence                []string                                              `json:"latestEvidence,omitempty"`
 	LatestValidationWarnings      []string                                              `json:"latestValidationWarnings,omitempty"`
@@ -6791,6 +6797,11 @@ func writeStatusProjectHandoffText(out io.Writer, handoff *statusProjectHandoff)
 			return err
 		}
 	}
+	if receipt := handoff.PostPushReceipt; receipt != nil {
+		if _, err := fmt.Fprintf(out, "status latest batch post-push receipt：ready=%t state=%s branch=%s head=%s originMain=%s clean=%t synchronized=%t parentBatch=%s headBatch=%s\n", receipt.Ready, receipt.State, receipt.Branch, receipt.Head, receipt.OriginMain, receipt.WorkingTreeClean, receipt.Synchronized, receipt.ParentBatchID, receipt.HeadBatchID); err != nil {
+			return err
+		}
+	}
 	for _, boundary := range cadence.Boundary {
 		if _, err := fmt.Fprintf(out, "status latest batch release inspection cadence boundary：%s\n", boundary); err != nil {
 			return err
@@ -8129,6 +8140,7 @@ func buildStatusProjectHandoff(handoff releasecheck.ReleaseHandoff) *statusProje
 		LatestRemoteReleaseGate:       handoff.LatestBatch.Handoff.RemoteReleaseGate,
 		LatestRemoteReleaseGateDetail: handoff.LatestBatch.Handoff.RemoteReleaseGateDetail,
 		ReleaseInspectionCadence:      handoff.LatestBatch.Handoff.ReleaseInspectionCadence,
+		PostPushReceipt:               handoff.LatestBatch.Handoff.PostPushReceipt,
 		LatestNextAction:              handoff.LatestBatch.Handoff.NextAction,
 		LatestEvidence:                append([]string{}, handoff.LatestBatch.Handoff.Evidence...),
 		LatestValidationWarnings:      append([]string{}, handoff.LatestBatch.Handoff.ValidationWarnings...),

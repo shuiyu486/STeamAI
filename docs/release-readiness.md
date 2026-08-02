@@ -40,7 +40,7 @@
 
 ### Windows-first 普通 batch cadence
 
-已授权 commit/push 的普通 batch 默认只有一次 implementation commit/push，覆盖代码、测试、文档与 Windows 本机验证。本机 focused regressions 和完整 release minimum 通过、完成态写回并推送后即可进入下一批；不轮询或等待远程 workflow，不创建专门的 release inspection commit。远程 Linux/macOS/Windows jobs 保持异步，只在正式发布、跨平台专项或每 3–5 批周期复审时等待、判断并记录实际结果。
+已授权 commit/push 的普通 batch 默认只有一次 implementation commit/push，覆盖代码、测试、文档与 Windows 本机验证。本机 focused regressions 和完整 release minimum 通过、完成态写回并推送后即可进入下一批；不轮询或等待远程 workflow，不创建专门的 release inspection commit。若完成态文档因同一 implementation commit 无法预写自身 SHA，fresh `release-check` / `status` 会生成只读 `postPushReceipt`：仅当工作树 clean、branch 为 `main`、`HEAD` 与本地已知 `origin/main` tracking ref 相等、captured SHA 的父/当前 batch 恰好是连续且已完成的 transition，并且该 commit 同时包含 batch plan、CHANGELOG 与明确产品 owner 路径时关闭 `implementation-pending`；查询绑定同一 captured SHA 并在 ready 前复核 refs/status，dirty、非 main、缺 ref、不同步、移动 snapshot、docs-only 或歧义 transition 均 fail-closed。该 receipt 不 fetch/pull/push/commit，也不查询或证明 remote CI green。远程 Linux/macOS/Windows jobs 保持异步，只在正式发布、跨平台专项或每 3–5 批周期复审时等待、判断并记录实际结果。
 
 ### Windows 本机 release gate（普通 batch 推荐最小集）
 
