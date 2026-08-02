@@ -991,6 +991,10 @@ func writeReplacementExecutorTakeoverPackage(out *bytes.Buffer, pkg *mission.Rep
 	fmt.Fprintf(out, "- driver: kind=%s executable=%t requiresReview=%t blocked=%t command=`%s` guidance=`%s`\n", pkg.DriverKind, pkg.CommandExecutable, pkg.RequiresReview, pkg.Blocked, pkg.Command, pkg.Guidance)
 	fmt.Fprintf(out, "- refresh: `%s`\n", pkg.RefreshStatusCommand)
 	fmt.Fprintf(out, "- current driver request: kind=%s step=%s actor=%s executable=%t blocked=%t requiresReview=%t command=`%s` guidance=`%s`\n", pkg.CurrentDriverRequest.Kind, pkg.CurrentDriverRequest.RunLoopStepID, pkg.CurrentDriverRequest.Actor, pkg.CurrentDriverRequest.CommandExecutable, pkg.CurrentDriverRequest.Blocked, pkg.CurrentDriverRequest.RequiresReview, pkg.CurrentDriverRequest.Command, pkg.CurrentDriverRequest.Guidance)
+	fmt.Fprintf(out, "- current driver request identity: sha256=%s\n", pkg.CurrentDriverRequestSHA256)
+	if pkg.DurableArtifactPath != "" {
+		fmt.Fprintf(out, "- durable artifact: path=%s fresh=%t state=%s sha256=%s requestSha256=%s\n", pkg.DurableArtifactPath, pkg.DurableArtifactFresh, pkg.DurableArtifactState, pkg.DurableArtifactSHA256, pkg.DurableArtifactRequestSHA256)
+	}
 	fmt.Fprintf(out, "- current driver request expected receipt: state=%s command=`%s` refreshStatusCommand=`%s`\n", pkg.CurrentDriverRequest.ExpectedReceipt.State, pkg.CurrentDriverRequest.ExpectedReceipt.Command, pkg.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand)
 	for _, doc := range pkg.TargetDocuments {
 		fmt.Fprintf(out, "- target document: %s\n", doc)
@@ -1685,7 +1689,7 @@ func (ctx handoffContext) writeReplacementExecutorTakeoverPackageArtifacts(pkg *
 	}
 	text := string(data) + "\n"
 	for _, write := range writes {
-		if err := writeText(write.TargetPath, text); err != nil {
+		if err := writeTextAtomic(write.TargetPath, text); err != nil {
 			return nil, err
 		}
 	}
@@ -2373,6 +2377,44 @@ func writeText(path, text string) error {
 		return err
 	}
 	return os.WriteFile(path, []byte(text), 0o644)
+}
+
+func writeTextAtomic(path, text string) (resultErr error) {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	temp, err := os.CreateTemp(dir, ".rekit-takeover-*.tmp")
+	if err != nil {
+		return err
+	}
+	tempPath := temp.Name()
+	defer func() {
+		if tempPath == "" {
+			return
+		}
+		if closeErr := temp.Close(); closeErr != nil && resultErr == nil {
+			resultErr = closeErr
+		}
+		_ = os.Remove(tempPath)
+	}()
+	if err := temp.Chmod(0o644); err != nil {
+		return err
+	}
+	if _, err := temp.WriteString(text); err != nil {
+		return err
+	}
+	if err := temp.Sync(); err != nil {
+		return err
+	}
+	if err := temp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		return err
+	}
+	tempPath = ""
+	return nil
 }
 
 func handoffTimestamp() string {

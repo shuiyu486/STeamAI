@@ -2167,6 +2167,9 @@ func writeReleaseRunReplacementExecutorTakeoverPackageText(out io.Writer, pkg *m
 	if _, err := fmt.Fprintf(out, "release-run replacement executor takeover package：ready=%t focus=%s scope=%s state=%s source=%s actionId=%s driverKind=%s executable=%t requiresReview=%t blocked=%t command=%s guidance=%s refresh=%s\n", pkg.Ready, pkg.Focus, pkg.Scope, pkg.State, pkg.Source, pkg.ActionID, pkg.DriverKind, pkg.CommandExecutable, pkg.RequiresReview, pkg.Blocked, pkg.Command, pkg.Guidance, pkg.RefreshStatusCommand); err != nil {
 		return err
 	}
+	if _, err := fmt.Fprintf(out, "release-run replacement executor takeover package identity：currentDriverRequestSha256=%s artifactSha256=%s artifactRequestSha256=%s\n", pkg.CurrentDriverRequestSHA256, pkg.DurableArtifactSHA256, pkg.DurableArtifactRequestSHA256); err != nil {
+		return err
+	}
 	if _, err := fmt.Fprintf(out, "release-run replacement executor takeover package current driver expected receipt：state=%s command=`%s` refreshStatusCommand=`%s`\n", pkg.CurrentDriverRequest.ExpectedReceipt.State, pkg.CurrentDriverRequest.ExpectedReceipt.Command, pkg.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand); err != nil {
 		return err
 	}
@@ -4331,17 +4334,28 @@ func statusMissionControlGuidanceHandoffFor(runbook *statusMissionControlRunbook
 }
 
 type statusTakeoverArtifactDiscovery struct {
-	Path     string
-	Fresh    bool
-	State    string
-	Warnings []string
+	Path           string
+	Fresh          bool
+	State          string
+	ArtifactSHA256 string
+	RequestSHA256  string
+	Warnings       []string
 }
 
 func statusReplacementExecutorTakeoverPackageFor(target string, runbook *statusMissionControlRunbook, projectHandoff *statusProjectHandoff) *mission.ReplacementExecutorTakeoverPackage {
 	if runbook == nil || runbook.CurrentDriverRequest == nil {
 		return nil
 	}
-	discovery := statusReplacementExecutorTakeoverArtifactDiscovery(target, runbook.Scope, *runbook.CurrentDriverRequest)
+	artifact := statusReplacementExecutorTakeoverArtifactRel(runbook.Scope, *runbook.CurrentDriverRequest)
+	expectedArtifact := mission.ReplacementExecutorTakeoverPackageFor(runbook.CurrentDriverRequest, mission.ReplacementExecutorTakeoverOptions{
+		Focus:                "durable-handoff-current-action",
+		Scope:                statusReplacementExecutorTakeoverArtifactScope(runbook.Scope, *runbook.CurrentDriverRequest),
+		RefreshStatusCommand: runbook.RefreshStatusCommand,
+		PackagePath:          artifact,
+		TargetDocuments:      statusReplacementExecutorTakeoverArtifactTargetDocuments(runbook.Scope, *runbook.CurrentDriverRequest, artifact),
+		CurrentLoopOperator:  runbook.CurrentLoopOperator,
+	})
+	discovery := statusReplacementExecutorTakeoverArtifactDiscovery(target, runbook.Scope, *runbook.CurrentDriverRequest, expectedArtifact)
 	packagePath := "missionControlRunbook.replacementExecutorTakeoverPackage"
 	if discovery.Fresh {
 		packagePath = discovery.Path
@@ -4355,6 +4369,8 @@ func statusReplacementExecutorTakeoverPackageFor(target string, runbook *statusM
 		DurableArtifactPath:                 discovery.Path,
 		DurableArtifactFresh:                discovery.Fresh,
 		DurableArtifactState:                discovery.State,
+		DurableArtifactSHA256:               discovery.ArtifactSHA256,
+		DurableArtifactRequestSHA256:        discovery.RequestSHA256,
 		DurableArtifactWarnings:             discovery.Warnings,
 		DurableArtifactRefreshDriverRequest: statusReplacementExecutorTakeoverArtifactRefreshDriverRequest(target, discovery, runbook),
 		CurrentLoopOperator:                 runbook.CurrentLoopOperator,
@@ -4469,7 +4485,47 @@ func statusReplacementExecutorTakeoverTargetDocuments(scope string, request miss
 	return mission.UniqueStrings(docs)
 }
 
-func statusReplacementExecutorTakeoverArtifactDiscovery(target, scope string, request mission.MissionCommanderDriverRequest) statusTakeoverArtifactDiscovery {
+func statusReplacementExecutorTakeoverArtifactScope(scope string, request mission.MissionCommanderDriverRequest) string {
+	scope = strings.TrimSpace(scope)
+	if scope == "project" || scope == "pack-memory" {
+		return "project"
+	}
+	if strings.HasPrefix(scope, "lane:") {
+		return scope
+	}
+	if scope == "case" || scope == "reviewer" {
+		if lane := strings.TrimSpace(request.Lane); lane != "" {
+			label := strings.TrimSpace(request.Label)
+			if label == "" {
+				label = strings.TrimPrefix(lane, "feature-")
+			}
+			return "lane:" + label
+		}
+	}
+	return scope
+}
+
+func statusReplacementExecutorTakeoverArtifactTargetDocuments(scope string, request mission.MissionCommanderDriverRequest, artifact string) []string {
+	docs := []string{strings.TrimSpace(artifact), "replacementExecutorTakeoverPackage", "missionCommanderActionQueue.currentDriverRequest", "dailyMissionControlRunbook.currentDriverRequest"}
+	scope = strings.TrimSpace(scope)
+	if scope == "project" || scope == "pack-memory" {
+		docs = append(docs, ".rekit/handovers/latest.md")
+	} else if scope == "case" || scope == "reviewer" || strings.HasPrefix(scope, "lane:") {
+		if lane := strings.TrimSpace(request.Lane); lane != "" {
+			docs = append(docs,
+				".rekit/handovers/"+lane+"-latest.md",
+				".rekit/lanes/"+lane+"/prompts/RESUME.md",
+				".rekit/lanes/"+lane+"/checkpoints/latest.json",
+			)
+		}
+	}
+	if request.RequiresReview {
+		docs = append(docs, "replacementExecutorTakeoverPackage.currentDriverRequest.expectedReceipt")
+	}
+	return mission.UniqueStrings(docs)
+}
+
+func statusReplacementExecutorTakeoverArtifactDiscovery(target, scope string, request mission.MissionCommanderDriverRequest, expectedArtifact *mission.ReplacementExecutorTakeoverPackage) statusTakeoverArtifactDiscovery {
 	target = strings.TrimSpace(target)
 	if target == "" || !instance.LooksLikeCase(target) {
 		return statusTakeoverArtifactDiscovery{}
@@ -4486,17 +4542,48 @@ func statusReplacementExecutorTakeoverArtifactDiscovery(target, scope string, re
 	if state != "readable" {
 		return statusTakeoverArtifactDiscovery{Path: rel, State: state, Warnings: warnings}
 	}
+	artifactSHA256 := statusSHA256Hex(data)
 	var pkg mission.ReplacementExecutorTakeoverPackage
-	if err := json.Unmarshal(data, &pkg); err != nil {
-		return statusTakeoverArtifactDiscovery{Path: rel, State: "invalid-json", Warnings: []string{"durable takeover artifact JSON is invalid; refresh handoff before using it"}}
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&pkg); err != nil {
+		return statusTakeoverArtifactDiscovery{Path: rel, State: "invalid-json", ArtifactSHA256: artifactSHA256, Warnings: []string{"durable takeover artifact JSON is invalid or contains unknown fields; refresh handoff before using it"}}
 	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return statusTakeoverArtifactDiscovery{Path: rel, State: "invalid-json", ArtifactSHA256: artifactSHA256, Warnings: []string{"durable takeover artifact JSON contains trailing data; refresh handoff before using it"}}
+	}
+	rawArtifactRequestSHA256 := mission.ReplacementExecutorDriverRequestSHA256(pkg.CurrentDriverRequest)
+	rawCanonicalPackage := statusCanonicalTakeoverArtifactPackage(pkg.CurrentDriverRequest, pkg, rel)
+	artifactRequest := statusMissionControlInvocationDriverRequest(target, pkg.CurrentDriverRequest)
+	artifactRequest = mission.MissionCommanderDriverRequestWithRefreshStatusCommand(artifactRequest, statusMissionControlRefreshCommand(target))
+	artifactRequestSHA256 := mission.ReplacementExecutorDriverRequestSHA256(artifactRequest)
+	currentRequestSHA256 := mission.ReplacementExecutorDriverRequestSHA256(request)
 	if !pkg.Ready {
-		return statusTakeoverArtifactDiscovery{Path: rel, State: "not-ready", Warnings: []string{"durable takeover artifact is not ready; refresh handoff before using it"}}
+		return statusTakeoverArtifactDiscovery{Path: rel, State: "not-ready", ArtifactSHA256: artifactSHA256, RequestSHA256: artifactRequestSHA256, Warnings: []string{"durable takeover artifact is not ready; refresh handoff before using it"}}
 	}
-	if !statusTakeoverArtifactMatchesCurrentDriver(pkg.CurrentDriverRequest, request) {
-		return statusTakeoverArtifactDiscovery{Path: rel, State: "stale-current-driver-request", Warnings: []string{"durable takeover artifact currentDriverRequest does not match refreshed status; use missionControlRunbook.currentDriverRequest and refresh handoff before takeover"}}
+	if !statusTakeoverArtifactPackageMatchesRequest(pkg, pkg.CurrentDriverRequest, rawArtifactRequestSHA256) || rawCanonicalPackage == nil || !strings.EqualFold(mission.ReplacementExecutorTakeoverArtifactIdentitySHA256(pkg), mission.ReplacementExecutorTakeoverArtifactIdentitySHA256(*rawCanonicalPackage)) {
+		return statusTakeoverArtifactDiscovery{Path: rel, State: "invalid-package-identity", ArtifactSHA256: artifactSHA256, RequestSHA256: artifactRequestSHA256, Warnings: []string{"durable takeover artifact package fields do not match the canonical package derived from its full currentDriverRequest identity; refresh handoff before takeover"}}
 	}
-	return statusTakeoverArtifactDiscovery{Path: rel, Fresh: true, State: "fresh"}
+	if artifactRequestSHA256 == "" || currentRequestSHA256 == "" || !strings.EqualFold(artifactRequestSHA256, currentRequestSHA256) {
+		return statusTakeoverArtifactDiscovery{Path: rel, State: "stale-current-driver-request", ArtifactSHA256: artifactSHA256, RequestSHA256: artifactRequestSHA256, Warnings: []string{"durable takeover artifact full currentDriverRequest identity does not match refreshed status; use missionControlRunbook.currentDriverRequest and refresh handoff before takeover"}}
+	}
+	qualifiedArtifact := statusCanonicalTakeoverArtifactPackage(artifactRequest, pkg, rel)
+	artifactIdentitySHA256 := ""
+	if qualifiedArtifact != nil {
+		artifactIdentitySHA256 = mission.ReplacementExecutorTakeoverArtifactIdentitySHA256(*qualifiedArtifact)
+	}
+	expectedIdentitySHA256 := ""
+	if expectedArtifact != nil {
+		expectedIdentitySHA256 = mission.ReplacementExecutorTakeoverArtifactIdentitySHA256(*expectedArtifact)
+	}
+	if artifactIdentitySHA256 == "" || expectedIdentitySHA256 == "" || !strings.EqualFold(artifactIdentitySHA256, expectedIdentitySHA256) {
+		return statusTakeoverArtifactDiscovery{Path: rel, State: "stale-package-identity", ArtifactSHA256: artifactSHA256, RequestSHA256: artifactRequestSHA256, Warnings: []string{"durable takeover artifact full executable package identity does not match the canonical package rebuilt from refreshed status; refresh handoff before takeover"}}
+	}
+	if !statusTakeoverArtifactCurrentLoopOperatorValid(pkg.CurrentLoopOperator, pkg.CurrentDriverRequest) {
+		return statusTakeoverArtifactDiscovery{Path: rel, State: "invalid-current-loop-operator", ArtifactSHA256: artifactSHA256, RequestSHA256: artifactRequestSHA256, Warnings: []string{"durable takeover artifact currentLoopOperator is not bound to its full currentDriverRequest; refresh handoff before takeover"}}
+	}
+	return statusTakeoverArtifactDiscovery{Path: rel, Fresh: true, State: "fresh", ArtifactSHA256: artifactSHA256, RequestSHA256: artifactRequestSHA256}
 }
 
 func statusReplacementExecutorTakeoverArtifactRel(scope string, request mission.MissionCommanderDriverRequest) string {
@@ -4515,93 +4602,120 @@ func statusReplacementExecutorTakeoverArtifactRel(scope string, request mission.
 }
 
 func statusReadTakeoverArtifact(path string) ([]byte, string, []string) {
-	st, err := os.Lstat(path)
+	return statusReadTakeoverArtifactWithHooks(path, nil, nil)
+}
+
+func statusReadTakeoverArtifactWithHook(path string, afterRead func()) ([]byte, string, []string) {
+	return statusReadTakeoverArtifactWithHooks(path, nil, afterRead)
+}
+
+func statusReadTakeoverArtifactWithHooks(path string, afterInspect, afterRead func()) ([]byte, string, []string) {
+	pathInfo, err := os.Lstat(path)
 	if os.IsNotExist(err) {
 		return nil, "", nil
 	}
 	if err != nil {
 		return nil, "unreadable", []string{"durable takeover artifact cannot be inspected; refresh handoff before using it"}
 	}
-	if st.Mode()&os.ModeSymlink != 0 || !st.Mode().IsRegular() {
+	if pathInfo.Mode()&os.ModeSymlink != 0 || !pathInfo.Mode().IsRegular() {
 		return nil, "not-regular", []string{"durable takeover artifact path is not a regular file; refresh handoff before using it"}
 	}
-	if st.Size() > 1<<20 {
+	if pathInfo.Size() > 1<<20 {
 		return nil, "too-large", []string{"durable takeover artifact is too large to inspect safely; refresh handoff before using it"}
 	}
-	data, err := os.ReadFile(path)
+	if afterInspect != nil {
+		afterInspect()
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, "unreadable", []string{"durable takeover artifact cannot be opened; refresh handoff before using it"}
+	}
+	defer file.Close()
+	openedInfo, err := file.Stat()
+	if err != nil || !openedInfo.Mode().IsRegular() || !os.SameFile(pathInfo, openedInfo) ||
+		pathInfo.Size() != openedInfo.Size() || !pathInfo.ModTime().Equal(openedInfo.ModTime()) {
+		return nil, "stale-file-snapshot", []string{"durable takeover artifact changed while it was opened; refresh handoff before using it"}
+	}
+	data, err := io.ReadAll(io.LimitReader(file, (1<<20)+1))
 	if err != nil {
 		return nil, "unreadable", []string{"durable takeover artifact cannot be read; refresh handoff before using it"}
+	}
+	if len(data) > 1<<20 {
+		return nil, "too-large", []string{"durable takeover artifact is too large to inspect safely; refresh handoff before using it"}
+	}
+	if afterRead != nil {
+		afterRead()
+	}
+	finalOpenedInfo, openedErr := file.Stat()
+	finalPathInfo, pathErr := os.Lstat(path)
+	if openedErr != nil || pathErr != nil || finalPathInfo.Mode()&os.ModeSymlink != 0 || !finalPathInfo.Mode().IsRegular() ||
+		!os.SameFile(openedInfo, finalOpenedInfo) || !os.SameFile(finalOpenedInfo, finalPathInfo) ||
+		openedInfo.Size() != finalOpenedInfo.Size() || !openedInfo.ModTime().Equal(finalOpenedInfo.ModTime()) {
+		return nil, "stale-file-snapshot", []string{"durable takeover artifact changed while it was read; refresh handoff before using it"}
 	}
 	return data, "readable", nil
 }
 
-func statusTakeoverArtifactMatchesCurrentDriver(artifact, current mission.MissionCommanderDriverRequest) bool {
-	if strings.TrimSpace(artifact.State) != strings.TrimSpace(current.State) || strings.TrimSpace(artifact.Source) != strings.TrimSpace(current.Source) || strings.TrimSpace(artifact.Lane) != strings.TrimSpace(current.Lane) || strings.TrimSpace(artifact.Label) != strings.TrimSpace(current.Label) {
+func statusCanonicalTakeoverArtifactPackage(request mission.MissionCommanderDriverRequest, source mission.ReplacementExecutorTakeoverPackage, artifact string) *mission.ReplacementExecutorTakeoverPackage {
+	return mission.ReplacementExecutorTakeoverPackageFor(&request, mission.ReplacementExecutorTakeoverOptions{
+		Focus:                "durable-handoff-current-action",
+		Scope:                statusReplacementExecutorTakeoverArtifactScope(source.Scope, request),
+		RefreshStatusCommand: strings.TrimSpace(source.RefreshStatusCommand),
+		PackagePath:          artifact,
+		TargetDocuments:      statusReplacementExecutorTakeoverArtifactTargetDocuments(source.Scope, request, artifact),
+		CurrentLoopOperator:  source.CurrentLoopOperator,
+	})
+}
+
+func statusTakeoverArtifactCurrentLoopOperatorValid(operator *mission.CurrentLoopOperatorPackage, request mission.MissionCommanderDriverRequest) bool {
+	if operator == nil {
+		return true
+	}
+	if operator.SourceCurrentDriverRequest == nil {
 		return false
 	}
-	return statusTakeoverComparableCommand(artifact.Command) == statusTakeoverComparableCommand(current.Command)
+	source := *operator.SourceCurrentDriverRequest
+	if strings.TrimSpace(source.Lane) != strings.TrimSpace(request.Lane) ||
+		strings.TrimSpace(source.Label) != strings.TrimSpace(request.Label) ||
+		strings.TrimSpace(source.ActionID) != strings.TrimSpace(request.ActionID) ||
+		strings.TrimSpace(source.Source) != strings.TrimSpace(request.Source) ||
+		strings.TrimSpace(source.State) != strings.TrimSpace(request.State) {
+		return false
+	}
+	selected := operator.SelectedDriverRequest
+	if selected == nil {
+		return operator.StartDriverRequest == nil && operator.ResumeDriverRequest == nil
+	}
+	selectedSHA256 := mission.ReplacementExecutorDriverRequestSHA256(*selected)
+	if selectedSHA256 == "" {
+		return false
+	}
+	if operator.StartDriverRequest != nil && mission.ReplacementExecutorDriverRequestSHA256(*operator.StartDriverRequest) != selectedSHA256 {
+		return false
+	}
+	if operator.ResumeDriverRequest != nil && mission.ReplacementExecutorDriverRequestSHA256(*operator.ResumeDriverRequest) != selectedSHA256 {
+		return false
+	}
+	return true
 }
 
-func statusTakeoverComparableCommand(command string) string {
-	fields := statusTakeoverCommandFields(command)
-	if len(fields) == 0 {
-		return ""
-	}
-	out := make([]string, 0, len(fields))
-	for i := 0; i < len(fields); i++ {
-		field := strings.TrimSpace(fields[i])
-		switch strings.ToLower(field) {
-		case "-target", "--target", "-format", "--format":
-			i++
-			continue
-		case "-whatif", "--what-if":
-			continue
-		}
-		if field != "" {
-			out = append(out, field)
-		}
-	}
-	return strings.Join(out, "\x00")
+func statusTakeoverArtifactPackageMatchesRequest(pkg mission.ReplacementExecutorTakeoverPackage, request mission.MissionCommanderDriverRequest, requestSHA256 string) bool {
+	return strings.TrimSpace(pkg.State) == strings.TrimSpace(request.State) &&
+		strings.TrimSpace(pkg.Source) == strings.TrimSpace(request.Source) &&
+		strings.TrimSpace(pkg.Label) == strings.TrimSpace(request.Label) &&
+		strings.TrimSpace(pkg.ActionID) == strings.TrimSpace(request.ActionID) &&
+		strings.TrimSpace(pkg.DriverKind) == strings.TrimSpace(request.Kind) &&
+		pkg.CommandExecutable == request.CommandExecutable &&
+		pkg.RequiresReview == request.RequiresReview &&
+		pkg.Blocked == request.Blocked &&
+		strings.TrimSpace(pkg.Command) == strings.TrimSpace(request.Command) &&
+		strings.TrimSpace(pkg.Guidance) == strings.TrimSpace(request.Guidance) &&
+		strings.EqualFold(strings.TrimSpace(pkg.CurrentDriverRequestSHA256), requestSHA256)
 }
 
-func statusTakeoverCommandFields(command string) []string {
-	command = strings.TrimSpace(command)
-	if command == "" {
-		return nil
-	}
-	fields := []string{}
-	var current strings.Builder
-	fieldStarted := false
-	inQuote := false
-	runes := []rune(command)
-	for i := 0; i < len(runes); i++ {
-		r := runes[i]
-		if inQuote && r == '\\' && i+1 < len(runes) && runes[i+1] == '"' {
-			current.WriteRune('"')
-			fieldStarted = true
-			i++
-			continue
-		}
-		if r == '"' {
-			inQuote = !inQuote
-			fieldStarted = true
-			continue
-		}
-		if !inQuote && strings.ContainsRune(" \t\r\n", r) {
-			if fieldStarted {
-				fields = append(fields, current.String())
-				current.Reset()
-				fieldStarted = false
-			}
-			continue
-		}
-		current.WriteRune(r)
-		fieldStarted = true
-	}
-	if fieldStarted {
-		fields = append(fields, current.String())
-	}
-	return fields
+func statusSHA256Hex(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 func statusSafePathSegment(value string) bool {
@@ -5092,11 +5206,14 @@ func writeStatusReplacementExecutorTakeoverPackageText(out io.Writer, pkg *missi
 	if _, err := fmt.Fprintf(out, "status replacement executor takeover package：ready=%t focus=%s scope=%s state=%s source=%s actionId=%s driverKind=%s executable=%t requiresReview=%t blocked=%t command=%s guidance=%s refresh=%s\n", pkg.Ready, pkg.Focus, pkg.Scope, pkg.State, pkg.Source, pkg.ActionID, pkg.DriverKind, pkg.CommandExecutable, pkg.RequiresReview, pkg.Blocked, pkg.Command, pkg.Guidance, pkg.RefreshStatusCommand); err != nil {
 		return err
 	}
+	if _, err := fmt.Fprintf(out, "status replacement executor takeover package current driver identity：sha256=%s\n", pkg.CurrentDriverRequestSHA256); err != nil {
+		return err
+	}
 	if _, err := fmt.Fprintf(out, "status replacement executor takeover package current driver expected receipt：state=%s command=`%s` refreshStatusCommand=`%s`\n", pkg.CurrentDriverRequest.ExpectedReceipt.State, pkg.CurrentDriverRequest.ExpectedReceipt.Command, pkg.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand); err != nil {
 		return err
 	}
 	if strings.TrimSpace(pkg.DurableArtifactPath) != "" || strings.TrimSpace(pkg.DurableArtifactState) != "" {
-		if _, err := fmt.Fprintf(out, "status replacement executor takeover package durable artifact：path=%s fresh=%t state=%s\n", pkg.DurableArtifactPath, pkg.DurableArtifactFresh, pkg.DurableArtifactState); err != nil {
+		if _, err := fmt.Fprintf(out, "status replacement executor takeover package durable artifact：path=%s fresh=%t state=%s sha256=%s requestSha256=%s\n", pkg.DurableArtifactPath, pkg.DurableArtifactFresh, pkg.DurableArtifactState, pkg.DurableArtifactSHA256, pkg.DurableArtifactRequestSHA256); err != nil {
 			return err
 		}
 	}

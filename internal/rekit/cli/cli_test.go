@@ -67,19 +67,6 @@ func TestParseDefaults(t *testing.T) {
 	}
 }
 
-func TestStatusTakeoverComparableCommandIgnoresInvocationOnlyFlags(t *testing.T) {
-	artifact := `/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1`
-	current := `/rekit continue -Target "C:\cases\demo case" login -Executor session-1 -ExpectedExecutorGeneration 1 -WhatIf -Format json`
-	if statusTakeoverComparableCommand(artifact) != statusTakeoverComparableCommand(current) {
-		t.Fatalf("invocation-only flags should not affect takeover freshness comparison: artifact=%q current=%q", statusTakeoverComparableCommand(artifact), statusTakeoverComparableCommand(current))
-	}
-
-	stale := `/rekit continue -Target "C:\cases\demo case" login -Executor session-2 -ExpectedExecutorGeneration 2 -WhatIf -Format json`
-	if statusTakeoverComparableCommand(artifact) == statusTakeoverComparableCommand(stale) {
-		t.Fatalf("executor generation changes should still make takeover artifacts stale: artifact=%q stale=%q", statusTakeoverComparableCommand(artifact), statusTakeoverComparableCommand(stale))
-	}
-}
-
 func TestParseNextBatchPlanningReceiptFlags(t *testing.T) {
 	opt, err := Parse([]string{"next-batch", "-Domain", "mission-commander", "-Closure", "Mission Control next-batch acceptance", "-ExpectedNextBatchPlanSha256", "abc123", "-Apply", "-Format", "json"})
 	if err != nil {
@@ -2938,7 +2925,7 @@ func TestRunStatusJsonCase(t *testing.T) {
 		t.Fatalf("stale takeover artifact status JSON did not decode: %v\n%s", err, out.String())
 	}
 	runbook := staleStatus.MissionControlRunbook
-	if runbook == nil || runbook.CurrentDriverRequest == nil || !strings.Contains(runbook.CurrentDriverRequest.Command, "session-2") || runbook.ReplacementExecutorTakeoverPackage == nil || runbook.ReplacementExecutorTakeoverPackage.DurableArtifactPath != ".rekit/handovers/feature-login-latest-replacement-executor-takeover.json" || runbook.ReplacementExecutorTakeoverPackage.DurableArtifactFresh || runbook.ReplacementExecutorTakeoverPackage.DurableArtifactState != "stale-current-driver-request" || !containsSubstring(runbook.ReplacementExecutorTakeoverPackage.DurableArtifactWarnings, "currentDriverRequest does not match refreshed status") || !containsSubstring(runbook.ReplacementExecutorTakeoverPackage.RunbookSteps, "read missionControlRunbook.replacementExecutorTakeoverPackage before using any prior chat context") || containsSubstring(runbook.ReplacementExecutorTakeoverPackage.RunbookSteps, "read .rekit/handovers/feature-login-latest-replacement-executor-takeover.json before using any prior chat context") || !containsSubstring(runbook.ReplacementExecutorTakeoverPackage.RunbookSteps, "do not consume stale durable takeover artifact .rekit/handovers/feature-login-latest-replacement-executor-takeover.json") || !containsSubstring(runbook.ReplacementExecutorTakeoverPackage.RunbookSteps, "run durableArtifactRefreshDriverRequest.command as a handoff preview") || !containsSubstring(runbook.ReplacementExecutorTakeoverPackage.Boundary, "durable takeover artifact is stale or invalid") {
+	if runbook == nil || runbook.CurrentDriverRequest == nil || !strings.Contains(runbook.CurrentDriverRequest.Command, "session-2") || runbook.ReplacementExecutorTakeoverPackage == nil || runbook.ReplacementExecutorTakeoverPackage.DurableArtifactPath != ".rekit/handovers/feature-login-latest-replacement-executor-takeover.json" || runbook.ReplacementExecutorTakeoverPackage.DurableArtifactFresh || runbook.ReplacementExecutorTakeoverPackage.DurableArtifactState != "stale-current-driver-request" || !containsSubstring(runbook.ReplacementExecutorTakeoverPackage.DurableArtifactWarnings, "full currentDriverRequest identity does not match refreshed status") || !containsSubstring(runbook.ReplacementExecutorTakeoverPackage.RunbookSteps, "read missionControlRunbook.replacementExecutorTakeoverPackage before using any prior chat context") || containsSubstring(runbook.ReplacementExecutorTakeoverPackage.RunbookSteps, "read .rekit/handovers/feature-login-latest-replacement-executor-takeover.json before using any prior chat context") || !containsSubstring(runbook.ReplacementExecutorTakeoverPackage.RunbookSteps, "do not consume stale durable takeover artifact .rekit/handovers/feature-login-latest-replacement-executor-takeover.json") || !containsSubstring(runbook.ReplacementExecutorTakeoverPackage.RunbookSteps, "run durableArtifactRefreshDriverRequest.command as a handoff preview") || !containsSubstring(runbook.ReplacementExecutorTakeoverPackage.Boundary, "durable takeover artifact is stale or invalid") {
 		t.Fatalf("status runbook did not guard stale durable takeover artifact: %+v", runbook)
 	}
 	refreshRequest := runbook.ReplacementExecutorTakeoverPackage.DurableArtifactRefreshDriverRequest
@@ -20672,11 +20659,14 @@ type replacementExecutorTakeoverPackageSnapshot struct {
 	Command                             string                                 `json:"command"`
 	Guidance                            string                                 `json:"guidance"`
 	CurrentDriverRequest                missionCommanderDriverRequestSnapshot  `json:"currentDriverRequest"`
+	CurrentDriverRequestSHA256          string                                 `json:"currentDriverRequestSha256"`
 	TargetDocuments                     []string                               `json:"targetDocuments"`
 	RefreshStatusCommand                string                                 `json:"refreshStatusCommand"`
 	DurableArtifactPath                 string                                 `json:"durableArtifactPath"`
 	DurableArtifactFresh                bool                                   `json:"durableArtifactFresh"`
 	DurableArtifactState                string                                 `json:"durableArtifactState"`
+	DurableArtifactSHA256               string                                 `json:"durableArtifactSha256"`
+	DurableArtifactRequestSHA256        string                                 `json:"durableArtifactRequestSha256"`
 	DurableArtifactWarnings             []string                               `json:"durableArtifactWarnings"`
 	DurableArtifactRefreshDriverRequest *missionCommanderDriverRequestSnapshot `json:"durableArtifactRefreshDriverRequest"`
 	RunbookSteps                        []string                               `json:"runbookSteps"`

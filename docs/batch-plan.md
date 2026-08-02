@@ -31,6 +31,17 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 
 
+
+### Batch 795：strict durable takeover artifact identity and hash-addressed freshness closure
+
+状态：已完成 strict durable takeover artifact identity and hash-addressed freshness closure 的 stable regular-file reader、原子 latest artifact 发布、strict JSON decode、完整 request/operator/package identity、fresh status qualification、tamper fail-closed 与 handoff refresh preview；implementation commit/push 在本批统一完成态提交中记录。普通 batch 不等待或轮询 remote CI，也不声明 remote green。
+
+目标：解决 durable takeover artifact 只比较少量 request 镜像字段、未知/尾随 JSON 可被接受、路径检查与实际读取未绑定同一文件，以及 `CurrentLoopOperator` / runbook 等可消费行为字段未纳入 freshness 的接手断点。Fresh status 现在只在 exact artifact bytes 来自稳定 regular-file snapshot、strict decode 成功、artifact 自身 canonical package identity 完整、raw request 经 invocation qualification 后与 refreshed request identity 一致，且完整 qualified operator/package identity 与 refreshed expected artifact 一致时返回 `fresh=true`。
+
+边界：artifact bytes SHA 只标识本次实际检查的 exact bytes，不冒充外部签名；request/package freshness 由 refreshed durable status 重建的 canonical expected identity证明。缺失、旧版、unknown/trailing JSON、symlink/non-regular、超限、读取中替换、request/operator/runbook/boundary/refresh-command 漂移均 fail-closed，并给出 typed handoff preview refresh request。Runtime 不新增 PowerShell logic，不执行 heavy-tool、不写 authority/confirmed、不自动执行 reviewer/adapter/pack-memory/gate/sync/promote mutation；普通 batch 不查询或声明 remote CI green。
+
+验证结果：focused product path 覆盖 fresh project/lane handoff → new-session status、nested expectedReceipt/boundary 篡改、同步 operator selected/start/resume 篡改、runbook 篡改、unknown field、文件读中变化与 `Lstat → Open` 替换；artifact writer 使用同目录 temp、Sync、close、rename。两轮独立只读审查先后发现 stable-read TOCTOU 与未绑定完整 operator/package 两项 blocker，修复后终轮复核明确无 remaining blocker。最终 mission/workstream/CLI focused suite 通过（CLI 40.552 秒），三个相关 package 完整测试通过（CLI 133.189 秒），全仓 `go vet ./...` 与 `git diff --check` 通过；完成态统一 `release-run -Format json` 以 7/7 通过（221.723 秒，其中完整 Go tests 219.049 秒）。Remote CI 保持异步、非阻塞。
+
 ### Batch 794：post-push implementation receipt reconciliation
 
 状态：已完成 post-push implementation receipt reconciliation 的 typed receipt、release-check/status/next-batch 共用 handoff、CLI JSON/text 投影、snapshot/路径 fail-closed 回归、真实临时 git repo product-path、独立审查修复、release readiness 文档与 Windows 本机完整验证；implementation commit/push 在本批统一完成态提交中记录。普通 batch 不等待或轮询 remote CI，也不声明 remote green。

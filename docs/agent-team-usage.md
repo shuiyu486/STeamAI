@@ -65,7 +65,7 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 把这次可复用经验整理成 promote 候选。
 ```
 
-主 Agent 会按需组合底层 runtime API。收到“继续推进当前 mission”时，优先读取 `status.missionControlRunbook.quickstart.currentLoopOperator`：`selectedDriverRequest` 已在 fresh `startDriverRequest` 与 strict checkpoint-bound `resumeDriverRequest` 之间完成选择；若存在 `externalReviewerHandoff`，主 Agent 只调用其中的 read-only `agentToolRequest`，并从 `observationContract.alternatives[]` 选择一个与真实结果相符的 `previewCommandTemplate`，替换明确占位符后重新预览，不自行拼接 reviewer flags。该 package 同时写入 replacement executor takeover、handoff JSON 与 durable Markdown；它不改变 canonical `currentDriverRequest`，也不放宽 checkpoint、packet、lease、hash 或 currentness guards。
+主 Agent 会按需组合底层 runtime API。收到“继续推进当前 mission”时，优先读取 `status.missionControlRunbook.quickstart.currentLoopOperator`：`selectedDriverRequest` 已在 fresh `startDriverRequest` 与 strict checkpoint-bound `resumeDriverRequest` 之间完成选择；若存在 `externalReviewerHandoff`，主 Agent 只调用其中的 read-only `agentToolRequest`，并从 `observationContract.alternatives[]` 选择一个与真实结果相符的 `previewCommandTemplate`，替换明确占位符后重新预览，不自行拼接 reviewer flags。该 package 同时写入 replacement executor takeover、handoff JSON 与 durable Markdown；durable takeover artifact 只有在 stable regular-file exact bytes、strict JSON、完整 raw/qualified request、`CurrentLoopOperator`、runbook/boundary 与 refreshed expected package identity 全部匹配时才标为 fresh，失败时给出 typed handoff preview refresh request。它不改变 canonical `currentDriverRequest`，也不放宽 checkpoint、packet、lease、hash 或 currentness guards。
 
 维护这条日常路线时，可运行跨平台 Go-native smoke：
 
@@ -73,7 +73,7 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 go test ./internal/rekit/cli -run '^TestRunDailyMissionControlRouteSmokeProductPath$' -count=1
 ```
 
-该 smoke 在单个临时 case 中验证 `missing-board status → typed onboarding → quickstart continue preview/apply → 读回 durable run receipt/artifacts → intervention reconcile preview/apply → status refresh → typed project handoff preview/apply → explicit lane handoff preview + returned typed Apply → lane-scoped durable takeover → new-session status`；它不执行 heavy-tool、不 spawn session、不写 authority/confirmed。
+该 smoke 在单个临时 case 中验证 `missing-board status → typed onboarding → quickstart continue preview/apply → 读回 durable run receipt/artifacts → intervention reconcile preview/apply → status refresh → typed project handoff preview/apply → explicit lane handoff preview + returned typed Apply → lane-scoped durable takeover → new-session status`；durable takeover artifact 采用 strict JSON decode，绑定完整 `currentDriverRequest` identity SHA 与 exact artifact bytes SHA，fresh status 会先验证 artifact 顶层镜像、再按当前 invocation 补齐 target/WhatIf/format/refresh route 后比较完整 request identity；unknown/trailing JSON、action/driver/expectedReceipt/boundary drift 均 fail-closed 并给出 handoff refresh preview。它不执行 heavy-tool、不 spawn session、不写 authority/confirmed。
 
 ```text
 /rekit overview              # 看项目总览，不选择工作线
