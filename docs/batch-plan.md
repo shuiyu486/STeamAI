@@ -33,6 +33,17 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 
 
+
+### Batch 797：committed handoff generation and mixed-publication rejection closure
+
+状态：已完成 committed handoff generation and mixed-publication rejection closure 的 scope-local generation contract、显式最终 commit point、整组 exact-byte复核、mixed-generation fail-closed、稳定 takeover snapshot消费、崩溃窗口回归与本机完成态验证；implementation commit/push 在本批统一完成态提交中记录。普通 batch 不等待或轮询 remote CI，也不声明 remote green。
+
+目标：解决逐文件原子 handoff publication 在进程崩溃或中途失败后仍可能留下混合 RESUME/checkpoint/handoff/takeover，而 replacement executor 把其中最新 takeover 当作可信新会话入口的断点。每次 project/lane handoff现在生成 scope-local generation manifest，绑定 publication plan SHA、毫秒级 stamp、typed target role、canonical exact bytes、SHA与 plan-SHA出现次数；普通 targets与 stamped generation发布后，`latest-generation.json`作为唯一最终 commit point最后原子切换。
+
+边界：status在提升 durable takeover artifact为 fresh前，按 scope/stamp与 durable board重建完整精确 target set，稳定读取 generation和每个 regular-file target，拒绝遗漏、额外、重复、错 role、路径逃逸/symlink ancestor、literal marker、final SHA次数错误及任一 bytes/hash不一致；整组验证后再次复核 generation未变化，并直接消费同次验证得到的 takeover bytes，不重新打开路径。中途 publication失败不会推进 latest generation；若新 latest target已切换而旧 commit仍有效则返回 `mixed-generation`，不得消费混合代际。Runtime不执行heavy-tool、不写authority/confirmed、不自动执行reviewer/adapter/pack-memory/gate/sync/promote mutation；PowerShell无新增runtime logic。
+
+验证结果：workstream/CLI focused suites通过（最终CLI 158.338秒）；新增确定性失败注入证明首次完整generation提交后，下一代在ordinary publication阶段中断不会推进latest-generation且旧commit对混合targets失配。Strict consumer regressions覆盖错误scope、非hex SHA、非法stamp、遗漏/重复target、错role、literal marker、generation读后替换，以及targets验证后takeover路径被替换时继续只消费verified snapshot。独立终审发现takeover二次打开TOCTOU、literal marker冒充final SHA、manifest可省略canonical targets三项Important blocker；修复后针对性复核确认三项与最终commit顺序全部关闭，无剩余高置信Important/Critical。`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...`、PowerShell façade smoke与`git diff --check`均已运行；首轮完成态`release-run -Format json`以6/7失败，定位为完成证据遗漏status/tests/diff命令使`TestRunStatusJsonKit` fail-closed，并非runtime回归；补齐truthful evidence后完整Go tests通过，最终统一`release-run -Format json`以7/7通过。Remote CI保持异步、非阻塞。
+
 ### Batch 796：hash-bound handoff publication and stale-preview rejection closure
 
 状态：已完成 hash-bound handoff publication and stale-preview rejection closure 的 exact write manifest、preview stamp、lease 内重建、stale input/owner/operator 拒绝、两阶段 exact-byte 原子发布、Go CLI/PowerShell façade 产品入口与完成态本机验证；implementation commit/push 在本批统一完成态提交中记录。普通 batch 不等待或轮询 remote CI，也不声明 remote green。

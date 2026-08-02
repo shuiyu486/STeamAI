@@ -32,6 +32,7 @@ var (
 	continueOwnerBindingPattern = regexp.MustCompile(`\s+-Executor\s+(?:"(?:\\.|[^"])*"|\S+)\s+-ExpectedExecutorGeneration\s+\d+`)
 	handoffApplyBeforeLockHook  func()
 	handoffApplyBeforeWriteHook func()
+	handoffApplyAfterWriteHook  func(path string, generation bool) error
 )
 
 type HandoffOptions struct {
@@ -328,7 +329,7 @@ func newHandoffContext(repoRoot, caseRoot, pack string, opt HandoffOptions) (han
 	if stamp == "" {
 		stamp = handoffTimestamp()
 	}
-	if !regexp.MustCompile(`^[0-9]{8}-[0-9]{9}$`).MatchString(stamp) {
+	if _, err := ParseHandoffPublicationStamp(stamp); err != nil {
 		return handoffContext{}, fmt.Errorf("handoff publication stamp is invalid: %s", stamp)
 	}
 	ctx := handoffContext{inst: inst, manifest: m, board: b, selector: selector, project: selector == "", stamp: stamp, currentLoopOperator: opt.CurrentLoopOperator}
@@ -504,8 +505,36 @@ type handoffPublicationWriteIdentity struct {
 }
 
 type handoffPublicationWrite struct {
-	Path  string
-	Bytes []byte
+	Path             string
+	Bytes            []byte
+	Role             string
+	Generation       bool
+	GenerationCommit bool
+}
+
+const (
+	HandoffPublicationRoleResume          = "lane-resume"
+	HandoffPublicationRoleCheckpoint      = "lane-checkpoint"
+	HandoffPublicationRoleHandoffStamped  = "handoff-stamped"
+	HandoffPublicationRoleHandoffLatest   = "handoff-latest"
+	HandoffPublicationRoleTakeoverStamped = "takeover-stamped"
+	HandoffPublicationRoleTakeoverLatest  = "takeover-latest"
+)
+
+type HandoffPublicationGenerationEntry struct {
+	Path                  string `json:"path"`
+	Role                  string `json:"role"`
+	Bytes                 int    `json:"bytes"`
+	CanonicalSHA256       string `json:"canonicalSha256"`
+	PlanSHA256Occurrences int    `json:"planSha256Occurrences,omitempty"`
+}
+
+type HandoffPublicationGeneration struct {
+	SchemaVersion         int                                 `json:"schemaVersion"`
+	Scope                 string                              `json:"scope"`
+	PublicationPlanSHA256 string                              `json:"publicationPlanSha256"`
+	PublicationStamp      string                              `json:"publicationStamp"`
+	Entries               []HandoffPublicationGenerationEntry `json:"entries"`
 }
 
 type handoffPublicationPlan struct {
@@ -555,14 +584,14 @@ func (ctx handoffContext) buildPublicationPlan() (handoffPublicationPlan, error)
 	publications := make([]handoffPublicationWrite, 0, len(resumeArtifacts)*2+4)
 	for _, artifact := range resumeArtifacts {
 		publications = append(publications,
-			handoffPublicationWrite{Path: artifact.ResumePath, Bytes: artifact.ResumeBytes},
-			handoffPublicationWrite{Path: artifact.CheckpointPath, Bytes: artifact.CheckpointBytes},
+			handoffPublicationWrite{Path: artifact.ResumePath, Bytes: artifact.ResumeBytes, Role: HandoffPublicationRoleResume},
+			handoffPublicationWrite{Path: artifact.CheckpointPath, Bytes: artifact.CheckpointBytes, Role: HandoffPublicationRoleCheckpoint},
 		)
 	}
 	markerMarkdown := []byte(ctx.bindHandoffPublicationMarkdown(markdown, handoffPublicationPlanSHA256Marker))
 	publications = append(publications,
-		handoffPublicationWrite{Path: stampPath, Bytes: markerMarkdown},
-		handoffPublicationWrite{Path: latestPath, Bytes: markerMarkdown},
+		handoffPublicationWrite{Path: stampPath, Bytes: markerMarkdown, Role: HandoffPublicationRoleHandoffStamped},
+		handoffPublicationWrite{Path: latestPath, Bytes: markerMarkdown, Role: HandoffPublicationRoleHandoffLatest},
 	)
 	if preview.ReplacementExecutorTakeoverPackage != nil && preview.ReplacementExecutorTakeoverPackage.Ready {
 		takeoverJSON, err := json.MarshalIndent(preview.ReplacementExecutorTakeoverPackage, "", "  ")
@@ -575,11 +604,31 @@ func (ctx handoffContext) buildPublicationPlan() (handoffPublicationPlan, error)
 			return handoffPublicationPlan{}, err
 		}
 		publications = append(publications,
-			handoffPublicationWrite{Path: takeoverStamp, Bytes: takeoverJSON},
-			handoffPublicationWrite{Path: takeoverLatest, Bytes: takeoverJSON},
+			handoffPublicationWrite{Path: takeoverStamp, Bytes: takeoverJSON, Role: HandoffPublicationRoleTakeoverStamped},
+			handoffPublicationWrite{Path: takeoverLatest, Bytes: takeoverJSON, Role: HandoffPublicationRoleTakeoverLatest},
 		)
 	}
 	sort.Slice(publications, func(i, j int) bool { return publications[i].Path < publications[j].Path })
+	generation, err := ctx.buildPublicationGeneration(publications)
+	if err != nil {
+		return handoffPublicationPlan{}, err
+	}
+	generationBytes, err := marshalHandoffPublicationGeneration(generation)
+	if err != nil {
+		return handoffPublicationPlan{}, err
+	}
+	generationStamp, generationLatest, err := ctx.publicationGenerationPaths()
+	if err != nil {
+		return handoffPublicationPlan{}, err
+	}
+	publications = append(publications,
+		handoffPublicationWrite{Path: generationStamp, Bytes: generationBytes, Generation: true},
+		handoffPublicationWrite{Path: generationLatest, Bytes: generationBytes, Generation: true, GenerationCommit: true},
+	)
+	preview.Writes = append(preview.Writes,
+		StartWrite{Path: relativePath(ctx.inst.CaseRoot, generationStamp), Kind: "handoff-publication-generation", Action: "would-write-handoff-publication-generation", TargetPath: generationStamp},
+		StartWrite{Path: relativePath(ctx.inst.CaseRoot, generationLatest), Kind: "handoff-publication-generation", Action: "would-write-latest-handoff-publication-generation", TargetPath: generationLatest},
+	)
 	inputs, err := ctx.publicationInputIdentity()
 	if err != nil {
 		return handoffPublicationPlan{}, err
@@ -607,8 +656,86 @@ func (ctx handoffContext) buildPublicationPlan() (handoffPublicationPlan, error)
 	}, nil
 }
 
+func CanonicalHandoffPublicationBytes(data []byte, publicationPlanSHA256 string, expectedOccurrences int) ([]byte, bool) {
+	publicationPlanSHA256 = strings.TrimSpace(publicationPlanSHA256)
+	if expectedOccurrences < 0 || bytes.Contains(data, []byte(handoffPublicationPlanSHA256Marker)) {
+		return nil, false
+	}
+	if expectedOccurrences == 0 {
+		return data, true
+	}
+	if publicationPlanSHA256 == "" || bytes.Count(data, []byte(publicationPlanSHA256)) != expectedOccurrences {
+		return nil, false
+	}
+	return bytes.ReplaceAll(data, []byte(publicationPlanSHA256), []byte(handoffPublicationPlanSHA256Marker)), true
+}
+
+func marshalHandoffPublicationGeneration(generation HandoffPublicationGeneration) ([]byte, error) {
+	var out bytes.Buffer
+	encoder := json.NewEncoder(&out)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(generation); err != nil {
+		return nil, err
+	}
+	return out.Bytes(), nil
+}
+
+func (ctx handoffContext) buildPublicationGeneration(publications []handoffPublicationWrite) (HandoffPublicationGeneration, error) {
+	entries := make([]HandoffPublicationGenerationEntry, 0, len(publications))
+	for _, publication := range publications {
+		canonicalBytes := publication.Bytes
+		sum := sha256.Sum256(canonicalBytes)
+		entries = append(entries, HandoffPublicationGenerationEntry{
+			Path:                  relativePath(ctx.inst.CaseRoot, publication.Path),
+			Role:                  publication.Role,
+			Bytes:                 len(canonicalBytes),
+			CanonicalSHA256:       hex.EncodeToString(sum[:]),
+			PlanSHA256Occurrences: bytes.Count(canonicalBytes, []byte(handoffPublicationPlanSHA256Marker)),
+		})
+	}
+	scope := "project"
+	if !ctx.project && ctx.lane != nil {
+		scope = "lane:" + ctx.lane.ID
+	}
+	return HandoffPublicationGeneration{
+		SchemaVersion:         1,
+		Scope:                 scope,
+		PublicationPlanSHA256: handoffPublicationPlanSHA256Marker,
+		PublicationStamp:      ctx.stamp,
+		Entries:               entries,
+	}, nil
+}
+
+func (ctx handoffContext) publicationGenerationPaths() (string, string, error) {
+	name := "project"
+	if !ctx.project && ctx.lane != nil {
+		if err := validateLaneIDSegment(ctx.lane.ID); err != nil {
+			return "", "", err
+		}
+		name = ctx.lane.ID
+	}
+	stampPath, err := refsf.SafeJoin(ctx.handovers, name+"-"+ctx.stamp+"-generation.json")
+	if err != nil {
+		return "", "", err
+	}
+	latestPath, err := refsf.SafeJoin(ctx.handovers, name+"-latest-generation.json")
+	if err != nil {
+		return "", "", err
+	}
+	return stampPath, latestPath, nil
+}
+
+func ParseHandoffPublicationStamp(value string) (time.Time, error) {
+	value = strings.TrimSpace(value)
+	if !regexp.MustCompile(`^[0-9]{8}-[0-9]{9}$`).MatchString(value) {
+		return time.Time{}, fmt.Errorf("invalid handoff publication stamp")
+	}
+	return time.Parse("20060102-150405.000", value[:15]+"."+value[15:])
+}
+
 func (ctx handoffContext) publicationTime() string {
-	value, err := time.Parse("20060102-150405000", ctx.stamp)
+	value, err := ParseHandoffPublicationStamp(ctx.stamp)
 	if err != nil {
 		return ""
 	}
@@ -651,9 +778,26 @@ func (ctx handoffContext) publishPublicationPlan(plan handoffPublicationPlan) er
 			return fmt.Errorf("handoff publication inputs changed before first write; rerun handoff -WhatIf")
 		}
 	}
-	for _, publication := range plan.Publications {
-		if err := writePublicationBytes(publication.Path, publication.Bytes); err != nil {
-			return err
+	for phase := range 3 {
+		for _, publication := range plan.Publications {
+			publicationPhase := 0
+			if publication.Generation {
+				publicationPhase = 1
+			}
+			if publication.GenerationCommit {
+				publicationPhase = 2
+			}
+			if publicationPhase != phase {
+				continue
+			}
+			if err := writePublicationBytes(publication.Path, publication.Bytes); err != nil {
+				return err
+			}
+			if handoffApplyAfterWriteHook != nil {
+				if err := handoffApplyAfterWriteHook(publication.Path, publication.Generation); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return nil
@@ -2748,7 +2892,7 @@ func writeText(path, text string) error {
 }
 
 func handoffTimestamp() string {
-	return time.Now().UTC().Format("20060102-150405000")
+	return strings.ReplaceAll(time.Now().UTC().Format("20060102-150405.000"), ".", "")
 }
 
 func isoNow() string {

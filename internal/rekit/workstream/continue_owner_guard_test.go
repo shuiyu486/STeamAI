@@ -2,6 +2,9 @@ package workstream
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -721,6 +724,88 @@ func TestLaneHandoffApplyRejectsInputDriftBeforeFirstWrite(t *testing.T) {
 			t.Fatalf("pre-write drift handoff published %s: %v", path, statErr)
 		}
 	}
+}
+
+func TestLaneHandoffApplyFailureDoesNotAdvanceCommittedGeneration(t *testing.T) {
+	repoRoot, caseRoot := setupOwnedContinueCase(t)
+	firstPreview, err := HandoffPreview(repoRoot, caseRoot, defaults.DefaultPack, HandoffOptions{Selector: "devirt-main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := HandoffApply(repoRoot, caseRoot, defaults.DefaultPack, HandoffOptions{
+		Selector:                      "devirt-main",
+		ExpectedPublicationPlanSHA256: firstPreview.PublicationPlanSHA256,
+		PublicationStamp:              firstPreview.PublicationStamp,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	generationPath := filepath.Join(caseRoot, ".rekit", "handovers", "devirt-main-latest-generation.json")
+	generationBefore, err := os.ReadFile(generationPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := StartApply(repoRoot, caseRoot, defaults.DefaultPack, StartOptions{
+		Selector:       "devirt-main",
+		Executor:       "executor-two",
+		Actor:          "main-agent",
+		TakeoverReason: "next committed generation",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	secondPreview, err := HandoffPreview(repoRoot, caseRoot, defaults.DefaultPack, HandoffOptions{Selector: "devirt-main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handoffApplyAfterWriteHook = func(path string, generation bool) error {
+		if !generation && strings.HasSuffix(filepath.ToSlash(path), "/devirt-main-latest-replacement-executor-takeover.json") {
+			handoffApplyAfterWriteHook = nil
+			return fmt.Errorf("injected publication failure before generation commit")
+		}
+		return nil
+	}
+	t.Cleanup(func() { handoffApplyAfterWriteHook = nil })
+	_, err = HandoffApply(repoRoot, caseRoot, defaults.DefaultPack, HandoffOptions{
+		Selector:                      "devirt-main",
+		ExpectedPublicationPlanSHA256: secondPreview.PublicationPlanSHA256,
+		PublicationStamp:              secondPreview.PublicationStamp,
+	})
+	if err == nil || !strings.Contains(err.Error(), "injected publication failure before generation commit") {
+		t.Fatalf("mid-publication handoff error = %v", err)
+	}
+	generationAfter, err := os.ReadFile(generationPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(generationBefore, generationAfter) {
+		t.Fatal("failed publication advanced latest generation commit")
+	}
+	if !generationTargetMismatch(t, caseRoot, generationBefore) {
+		t.Fatal("failed publication did not leave an observable mixed generation")
+	}
+}
+
+func generationTargetMismatch(t *testing.T, caseRoot string, data []byte) bool {
+	t.Helper()
+	var generation HandoffPublicationGeneration
+	if err := json.Unmarshal(data, &generation); err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range generation.Entries {
+		path := filepath.Join(caseRoot, filepath.FromSlash(entry.Path))
+		published, err := os.ReadFile(path)
+		if err != nil {
+			return true
+		}
+		canonical, ready := CanonicalHandoffPublicationBytes(published, generation.PublicationPlanSHA256, entry.PlanSHA256Occurrences)
+		if !ready {
+			return true
+		}
+		sum := sha256.Sum256(canonical)
+		if len(canonical) != entry.Bytes || !strings.EqualFold(hex.EncodeToString(sum[:]), entry.CanonicalSHA256) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestProjectHandoffApplySerializesAndRejectsStalePreviewWithoutWrites(t *testing.T) {

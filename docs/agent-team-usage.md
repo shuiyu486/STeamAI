@@ -149,6 +149,12 @@ go test ./internal/rekit/cli -run '^TestRunDailyMissionControlRouteSmokeProductP
 /rekit promote -Apply -Format text         # 确认 review scope 后写回 pack，并打印 validation / backup handoff
 ```
 
+### Handoff publication generation 与 replacement executor 接手
+
+项目级与lane级`handoff -WhatIf -Format json`都是零写入preview，返回`publicationPlanSha256`、`publicationStamp`和同源exact Apply request；不要手工重建Apply参数。Apply在mutation lease内重建同一计划，先原子发布RESUME/checkpoint、stamped/latest handoff与stamped/latest takeover，再发布stamped generation，最后才切换scope-local`latest-generation.json` commit point。
+
+Replacement executor应以fresh `status.missionControlRunbook.replacementExecutorTakeoverPackage`为入口。Status会按scope、stamp与durable board复核generation声明的完整typed target set和canonical exact bytes，并直接消费同次稳定验证的takeover snapshot；missing/invalid/`mixed-generation`都不得使用durable takeover覆盖fresh current driver request，应运行返回的handoff preview refresh request并消费其hash/stamp-bound Apply。中途失败不会推进latest generation；runtime不自动spawn/replace session、不执行heavy tool、不写authority/confirmed。
+
 ### Adapter execution report handoff identity
 
 `gate -ExecutionReportContract`、`gate -ValidateExecutionReport`、scaffold/draft live snapshot 与 recorded evidence snapshot 的 Mission Commander next-action/current-action 行会直接显示 `lane`、`label`、`gateEventId`、`actionId`。这些 contract、scaffold、draft、validation、record 与 status/handoff envelope 还会输出 `runbookSteps[]`（text 中为对应 runbook 行），并共享 adapter live-validation `currentRunLoopStepId` / `runLoop`（text 中为 live run-loop 行），replacement executor 应优先消费这些 typed fields、runbook 与 live run-loop 来确认当前步骤是 inspect contract、record dispatch、等待/写 report、validate、record receipt、record observation、review evidence 还是 repair：先确认 state/path/hash/owner/provenance，再运行当前 Mission Commander command；record 前必须先做 read-only validation，并只使用 validation/status 返回的 `-ExpectedExecutionReportSha256` hash-bound record Apply；record 后只进入 bounded observation evidence review。显式 `gate -ValidateExecutionReport` 与 `gate -Apply -ExecutionReportPath ...` result 还会返回 `missionCommanderDriverReceipt`，把本次 validation/record outcome、refreshed action queue/current run-loop step、下一跳 driver request 与 `expectedReceipt.refreshStatusCommand` 绑定到同一 envelope；status/handoff 的 live snapshot 仍只是只读 handoff，不伪造 explicit command receipt。不要把 contract 阶段的 handoff 当作已授权执行 adapter/heavy tool，也不要在缺少 matching `gateEventId`/`actionId`、current dispatch/report hash 或 current owner/provenance 时手工拼接 record。

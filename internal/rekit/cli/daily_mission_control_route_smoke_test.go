@@ -299,7 +299,7 @@ func TestRunDailyMissionControlRouteSmokeProductPath(t *testing.T) {
 	}
 	runDailyMissionControlRouteJSON(t, &out, rekitCommandCLIArgs(t, laneArtifact.RefreshStatusCommand), &tamperedStatus)
 	tamperedPackage := tamperedStatus.MissionControlRunbook.ReplacementExecutorTakeoverPackage
-	if tamperedPackage == nil || tamperedPackage.DurableArtifactFresh || tamperedPackage.DurableArtifactState != "invalid-package-identity" || tamperedPackage.DurableArtifactSHA256 == "" || tamperedPackage.DurableArtifactRefreshDriverRequest == nil {
+	if tamperedPackage == nil || tamperedPackage.DurableArtifactFresh || tamperedPackage.DurableArtifactState != "mixed-generation" || tamperedPackage.DurableArtifactRefreshDriverRequest == nil {
 		t.Fatalf("tampered nested takeover request should fail closed with a refresh route: %+v", tamperedPackage)
 	}
 
@@ -320,7 +320,7 @@ func TestRunDailyMissionControlRouteSmokeProductPath(t *testing.T) {
 	}
 	runDailyMissionControlRouteJSON(t, &out, rekitCommandCLIArgs(t, laneArtifact.RefreshStatusCommand), &packageTamperedStatus)
 	packageTamperedResult := packageTamperedStatus.MissionControlRunbook.ReplacementExecutorTakeoverPackage
-	if packageTamperedResult == nil || packageTamperedResult.DurableArtifactFresh || packageTamperedResult.DurableArtifactState != "invalid-package-identity" || packageTamperedResult.DurableArtifactRefreshDriverRequest == nil {
+	if packageTamperedResult == nil || packageTamperedResult.DurableArtifactFresh || packageTamperedResult.DurableArtifactState != "mixed-generation" || packageTamperedResult.DurableArtifactRefreshDriverRequest == nil {
 		t.Fatalf("tampered takeover package behavior should fail closed with a refresh route: %+v", packageTamperedResult)
 	}
 
@@ -351,7 +351,7 @@ func TestRunDailyMissionControlRouteSmokeProductPath(t *testing.T) {
 	}
 	runDailyMissionControlRouteJSON(t, &out, rekitCommandCLIArgs(t, laneArtifact.RefreshStatusCommand), &operatorTamperedStatus)
 	operatorTamperedResult := operatorTamperedStatus.MissionControlRunbook.ReplacementExecutorTakeoverPackage
-	if operatorTamperedResult == nil || operatorTamperedResult.DurableArtifactFresh || operatorTamperedResult.DurableArtifactState != "stale-package-identity" || operatorTamperedResult.DurableArtifactRefreshDriverRequest == nil {
+	if operatorTamperedResult == nil || operatorTamperedResult.DurableArtifactFresh || operatorTamperedResult.DurableArtifactState != "mixed-generation" || operatorTamperedResult.DurableArtifactRefreshDriverRequest == nil {
 		t.Fatalf("tampered current-loop operator request should fail closed with a refresh route: %+v", operatorTamperedResult)
 	}
 
@@ -365,7 +365,7 @@ func TestRunDailyMissionControlRouteSmokeProductPath(t *testing.T) {
 	}
 	runDailyMissionControlRouteJSON(t, &out, rekitCommandCLIArgs(t, laneArtifact.RefreshStatusCommand), &unknownStatus)
 	unknownPackage := unknownStatus.MissionControlRunbook.ReplacementExecutorTakeoverPackage
-	if unknownPackage == nil || unknownPackage.DurableArtifactFresh || unknownPackage.DurableArtifactState != "invalid-json" || unknownPackage.DurableArtifactSHA256 == "" {
+	if unknownPackage == nil || unknownPackage.DurableArtifactFresh || unknownPackage.DurableArtifactState != "mixed-generation" {
 		t.Fatalf("unknown takeover artifact fields should fail strict decoding: %+v", unknownPackage)
 	}
 

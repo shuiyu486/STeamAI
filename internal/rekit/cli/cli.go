@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -41,8 +42,9 @@ import (
 )
 
 var (
-	releaseCheckBuild   = releasecheck.Build
-	projectHandoffBuild = releasecheck.BuildProjectHandoff
+	releaseCheckBuild                           = releasecheck.Build
+	projectHandoffBuild                         = releasecheck.BuildProjectHandoff
+	statusHandoffGenerationAfterTargetsReadHook func()
 )
 
 type Options struct {
@@ -4546,13 +4548,9 @@ func statusReplacementExecutorTakeoverArtifactDiscovery(target, scope string, re
 	if rel == "" {
 		return statusTakeoverArtifactDiscovery{}
 	}
-	path := filepath.Join(target, filepath.FromSlash(rel))
-	data, state, warnings := statusReadTakeoverArtifact(path)
-	if state == "" {
-		return statusTakeoverArtifactDiscovery{}
-	}
-	if state != "readable" {
-		return statusTakeoverArtifactDiscovery{Path: rel, State: state, Warnings: warnings}
+	generationState, generationWarnings, data := statusHandoffPublicationGenerationState(target, scope, request, rel)
+	if generationState != "fresh" {
+		return statusTakeoverArtifactDiscovery{Path: rel, State: generationState, Warnings: generationWarnings}
 	}
 	artifactSHA256 := statusSHA256Hex(data)
 	var pkg mission.ReplacementExecutorTakeoverPackage
@@ -4596,6 +4594,191 @@ func statusReplacementExecutorTakeoverArtifactDiscovery(target, scope string, re
 		return statusTakeoverArtifactDiscovery{Path: rel, State: "invalid-current-loop-operator", ArtifactSHA256: artifactSHA256, RequestSHA256: artifactRequestSHA256, Warnings: []string{"durable takeover artifact currentLoopOperator is not bound to its full currentDriverRequest; refresh handoff before takeover"}}
 	}
 	return statusTakeoverArtifactDiscovery{Path: rel, Fresh: true, State: "fresh", ArtifactSHA256: artifactSHA256, RequestSHA256: artifactRequestSHA256}
+}
+
+func statusHandoffPublicationGenerationState(target, scope string, request mission.MissionCommanderDriverRequest, takeoverRel string) (generationState string, generationWarnings []string, verifiedTakeoverBytes []byte) {
+	generationRel := statusHandoffPublicationGenerationRel(scope, request)
+	expectedScope := statusHandoffPublicationGenerationScope(scope, request)
+	if generationRel == "" || expectedScope == "" {
+		return "missing-generation", []string{"durable handoff publication generation cannot be resolved; refresh handoff before takeover"}, nil
+	}
+	generationPath, pathReady := statusCaseLocalPublicationPath(target, generationRel)
+	if !pathReady {
+		return "invalid-generation", []string{"durable handoff publication generation path is not case-local; refresh handoff before takeover"}, nil
+	}
+	data, state, warnings := statusReadTakeoverArtifact(generationPath)
+	if state == "" {
+		return "missing-generation", []string{"durable handoff publication generation is missing; refresh handoff before takeover"}, nil
+	}
+	if state != "readable" {
+		return "invalid-generation", append(warnings, "durable handoff publication generation is unreadable; refresh handoff before takeover"), nil
+	}
+	var generation workstream.HandoffPublicationGeneration
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&generation); err != nil {
+		return "invalid-generation", []string{"durable handoff publication generation JSON is invalid or contains unknown fields; refresh handoff before takeover"}, nil
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return "invalid-generation", []string{"durable handoff publication generation JSON contains trailing data; refresh handoff before takeover"}, nil
+	}
+	publicationPlanSHA256 := strings.TrimSpace(generation.PublicationPlanSHA256)
+	publicationStamp := strings.TrimSpace(generation.PublicationStamp)
+	if generation.SchemaVersion != 1 || generation.Scope != expectedScope || !statusValidSHA256(publicationPlanSHA256) || !statusValidHandoffPublicationStamp(publicationStamp) {
+		return "invalid-generation", []string{"durable handoff publication generation identity is incomplete; refresh handoff before takeover"}, nil
+	}
+	expectedTargets, expectedReady := statusExpectedHandoffPublicationTargets(target, expectedScope, publicationStamp)
+	if !expectedReady || len(generation.Entries) != len(expectedTargets) {
+		return "invalid-generation", []string{"durable handoff publication generation does not declare the complete target set; refresh handoff before takeover"}, nil
+	}
+	takeoverRel = filepath.ToSlash(filepath.Clean(takeoverRel))
+	seen := map[string]bool{}
+	for _, entry := range generation.Entries {
+		originalRel := filepath.ToSlash(strings.TrimSpace(entry.Path))
+		rel := filepath.ToSlash(filepath.Clean(originalRel))
+		expectedRole, declared := expectedTargets[rel]
+		if originalRel != rel || !declared || strings.TrimSpace(entry.Role) != expectedRole || !statusValidSHA256(entry.CanonicalSHA256) || entry.Bytes < 0 || entry.PlanSHA256Occurrences < 0 || seen[rel] {
+			return "invalid-generation", []string{"durable handoff publication generation contains an invalid target entry; refresh handoff before takeover"}, nil
+		}
+		seen[rel] = true
+		entryPath, pathReady := statusCaseLocalPublicationPath(target, rel)
+		if !pathReady {
+			return "invalid-generation", []string{"durable handoff publication generation target is not case-local: " + rel + "; refresh handoff before takeover"}, nil
+		}
+		entryBytes, entryState, _ := statusReadTakeoverArtifact(entryPath)
+		if entryState != "readable" {
+			return "mixed-generation", []string{"durable handoff publication target is missing or unreadable for the committed generation: " + rel + "; refresh handoff before takeover"}, nil
+		}
+		canonicalBytes, canonical := workstream.CanonicalHandoffPublicationBytes(entryBytes, publicationPlanSHA256, entry.PlanSHA256Occurrences)
+		if !canonical || len(canonicalBytes) != entry.Bytes || !strings.EqualFold(statusSHA256Hex(canonicalBytes), entry.CanonicalSHA256) {
+			return "mixed-generation", []string{"durable handoff publication target does not match the committed generation: " + rel + "; refresh handoff before takeover"}, nil
+		}
+		if rel == takeoverRel {
+			verifiedTakeoverBytes = append([]byte{}, entryBytes...)
+		}
+	}
+	if len(verifiedTakeoverBytes) == 0 {
+		return "invalid-generation", []string{"durable handoff publication generation does not bind the focused takeover artifact; refresh handoff before takeover"}, nil
+	}
+	if statusHandoffGenerationAfterTargetsReadHook != nil {
+		statusHandoffGenerationAfterTargetsReadHook()
+	}
+	currentGeneration, currentState, _ := statusReadTakeoverArtifact(generationPath)
+	if currentState != "readable" || !bytes.Equal(data, currentGeneration) {
+		return "mixed-generation", []string{"durable handoff publication generation changed while its targets were verified; refresh handoff before takeover"}, nil
+	}
+	return "fresh", nil, verifiedTakeoverBytes
+}
+
+func statusExpectedHandoffPublicationTargets(target, generationScope, publicationStamp string) (map[string]string, bool) {
+	targets := map[string]string{}
+	addLaneArtifacts := func(lane string) bool {
+		if !statusSafePathSegment(lane) {
+			return false
+		}
+		targets[filepath.ToSlash(filepath.Join(".rekit", "lanes", lane, "prompts", "RESUME.md"))] = workstream.HandoffPublicationRoleResume
+		targets[filepath.ToSlash(filepath.Join(".rekit", "lanes", lane, "checkpoints", "latest.json"))] = workstream.HandoffPublicationRoleCheckpoint
+		return true
+	}
+	if lane, ok := strings.CutPrefix(generationScope, "lane:"); ok {
+		if !addLaneArtifacts(lane) {
+			return nil, false
+		}
+		targets[filepath.ToSlash(filepath.Join(".rekit", "handovers", lane+"-"+publicationStamp+".md"))] = workstream.HandoffPublicationRoleHandoffStamped
+		targets[filepath.ToSlash(filepath.Join(".rekit", "handovers", lane+"-latest.md"))] = workstream.HandoffPublicationRoleHandoffLatest
+		targets[filepath.ToSlash(filepath.Join(".rekit", "handovers", lane+"-"+publicationStamp+"-replacement-executor-takeover.json"))] = workstream.HandoffPublicationRoleTakeoverStamped
+		targets[filepath.ToSlash(filepath.Join(".rekit", "handovers", lane+"-latest-replacement-executor-takeover.json"))] = workstream.HandoffPublicationRoleTakeoverLatest
+		return targets, true
+	}
+	if generationScope != "project" {
+		return nil, false
+	}
+	board, err := mission.ReadBoard(target)
+	if err != nil {
+		return nil, false
+	}
+	for _, lane := range board.Lanes {
+		if !addLaneArtifacts(lane.ID) {
+			return nil, false
+		}
+	}
+	targets[filepath.ToSlash(filepath.Join(".rekit", "handovers", publicationStamp+".md"))] = workstream.HandoffPublicationRoleHandoffStamped
+	targets[filepath.ToSlash(filepath.Join(".rekit", "handovers", "latest.md"))] = workstream.HandoffPublicationRoleHandoffLatest
+	targets[filepath.ToSlash(filepath.Join(".rekit", "handovers", publicationStamp+"-replacement-executor-takeover.json"))] = workstream.HandoffPublicationRoleTakeoverStamped
+	targets[filepath.ToSlash(filepath.Join(".rekit", "handovers", "latest-replacement-executor-takeover.json"))] = workstream.HandoffPublicationRoleTakeoverLatest
+	return targets, true
+}
+
+func statusCaseLocalPublicationPath(target, rel string) (string, bool) {
+	target, err := filepath.Abs(target)
+	if err != nil {
+		return "", false
+	}
+	path := filepath.Join(target, filepath.FromSlash(rel))
+	path, err = filepath.Abs(path)
+	if err != nil {
+		return "", false
+	}
+	current := filepath.Dir(path)
+	for {
+		if current == target {
+			return path, true
+		}
+		info, err := os.Lstat(current)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return "", false
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", false
+		}
+		current = parent
+	}
+}
+
+func statusHandoffPublicationGenerationScope(scope string, request mission.MissionCommanderDriverRequest) string {
+	switch strings.TrimSpace(scope) {
+	case "project", "pack-memory":
+		return "project"
+	case "case", "reviewer":
+		lane := strings.TrimSpace(request.Lane)
+		if !statusSafePathSegment(lane) {
+			return ""
+		}
+		return "lane:" + lane
+	default:
+		return ""
+	}
+}
+
+func statusValidSHA256(value string) bool {
+	value = strings.TrimSpace(value)
+	if len(value) != sha256.Size*2 {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
+}
+
+func statusValidHandoffPublicationStamp(value string) bool {
+	_, err := workstream.ParseHandoffPublicationStamp(value)
+	return err == nil
+}
+
+func statusHandoffPublicationGenerationRel(scope string, request mission.MissionCommanderDriverRequest) string {
+	switch strings.TrimSpace(scope) {
+	case "project", "pack-memory":
+		return filepath.ToSlash(filepath.Join(".rekit", "handovers", "project-latest-generation.json"))
+	case "case", "reviewer":
+		lane := strings.TrimSpace(request.Lane)
+		if !statusSafePathSegment(lane) {
+			return ""
+		}
+		return filepath.ToSlash(filepath.Join(".rekit", "handovers", lane+"-latest-generation.json"))
+	default:
+		return ""
+	}
 }
 
 func statusReplacementExecutorTakeoverArtifactRel(scope string, request mission.MissionCommanderDriverRequest) string {
