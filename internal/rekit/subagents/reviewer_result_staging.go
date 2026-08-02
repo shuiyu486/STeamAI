@@ -44,6 +44,7 @@ type ReviewerResultInputSaveOptions struct {
 	SourcePath                   string
 	Lane                         string
 	Actor                        string
+	ExpectedReviewerDispatchID   string
 	ExpectedReviewerResultSHA256 string
 	WhatIf                       bool
 }
@@ -235,7 +236,7 @@ func SaveReviewerResultInput(repoRoot, caseRoot, pack string, opt ReviewerResult
 			result.NextSteps = []string{"inspect the reviewer JSON, dispatch receipt binding, packet-derived input path, and exact input SHA-256, then run the returned save command with -Apply"}
 			result.MissionCommanderAction = mission.MissionCommanderAction{
 				State:          "ready-for-reviewer-result-input-save-apply",
-				PrimaryCommand: reviewerResultInputSaveCommand(prepared.packetPath, prepared.handoff.ShardID, prepared.inputSourcePath, prepared.lane, prepared.actor, result.InputSourceSHA256, true),
+				PrimaryCommand: reviewerResultInputSaveCommand(prepared.packetPath, prepared.handoff.ShardID, prepared.inputSourcePath, prepared.lane, prepared.actor, prepared.dispatch.DispatchID, result.InputSourceSHA256, true),
 				Boundary:       result.Boundary,
 			}
 		}
@@ -515,6 +516,17 @@ func prepareReviewerResultInputSave(repoRoot, caseRoot, pack string, opt Reviewe
 	dispatchPath, dispatchBytes, dispatch, err := findReviewerResultInputDispatch(caseRoot, packetPath, packet, packetData, handoff, reviewerResult)
 	if err != nil {
 		return preparedReviewerResultInputSave{}, err
+	}
+	if expectedDispatchID := strings.TrimSpace(opt.ExpectedReviewerDispatchID); expectedDispatchID != "" && dispatch.DispatchID != expectedDispatchID {
+		return preparedReviewerResultInputSave{}, fmt.Errorf("reviewer result input source dispatch %q does not match current reviewer dispatch %q", dispatch.DispatchID, expectedDispatchID)
+	}
+	completionPath := reviewerSessionCompletionPath(packetPath, handoff.ShardID, dispatch.DispatchID)
+	if completion, completionErr := readReviewerSessionCompletion(caseRoot, completionPath); completionErr == nil {
+		if completion.Outcome == "failed" {
+			return preparedReviewerResultInputSave{}, fmt.Errorf("reviewer result input source belongs to failed reviewer dispatch %q", dispatch.DispatchID)
+		}
+	} else if _, statErr := os.Lstat(completionPath); statErr == nil || !os.IsNotExist(statErr) {
+		return preparedReviewerResultInputSave{}, fmt.Errorf("reviewer result input source dispatch %q has an invalid completion receipt", dispatch.DispatchID)
 	}
 	existingInput, inputPresent, err := existingReviewerResultInputAnchored(caseRoot, namespace.ResultRoot, inputPath)
 	if err != nil {
@@ -1643,12 +1655,15 @@ func uniqueReviewerResultRunbookSteps(values []string) []string {
 	return out
 }
 
-func reviewerResultInputSaveCommand(packetPath, shardID, sourcePath, lane, actor, expectedInputSHA256 string, apply bool) string {
+func reviewerResultInputSaveCommand(packetPath, shardID, sourcePath, lane, actor, dispatchID, expectedInputSHA256 string, apply bool) string {
 	command := "/rekit plan-subagents -PacketPath " + quoteCommandArg(packetPath) +
 		" -SaveReviewerResultInput -ShardId " + quoteCommandArg(shardID) +
 		" -ReviewerResultInputSourcePath " + quoteCommandArg(sourcePath) +
 		" -Lane " + quoteCommandArg(lane) +
 		" -Actor " + quoteCommandArg(actor)
+	if strings.TrimSpace(dispatchID) != "" {
+		command += " -ReviewerDispatchId " + quoteCommandArg(dispatchID)
+	}
 	if apply {
 		return command + " -ExpectedReviewerResultInputSha256 " + quoteCommandArg(expectedInputSHA256) + " -Apply -Format json"
 	}

@@ -29,6 +29,23 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 ### Current batch state
 
 
+
+### Batch 804：replacement reviewer result lineage closure
+
+状态：已完成 replacement reviewer result lineage修复、完整产品路径回归、独立审查与Windows本机完整release minimum；implementation commit/push待本批统一完成。本批选择`mission-commander`，关闭external reviewer retry在durable current-loop中的结果归属断点；这不是字段、文案或summary投影微调。
+
+用户断点：变更前，reviewer session A 已 accepted 后失败，replacement session B accepted 并生成 fresh attempt SHA；此时 A 的迟到 ReviewerResult 只要携带 B 的 attempt SHA，canonical input-save 仍会从历史 dispatch 中匹配 A。A 的 bytes 一旦先占 immutable packet input，B 的真实结果无法覆盖，`retry → completion → source/stage/collect/intake/writeback` 永久卡死。
+
+目标：将 ReviewerResult input 精确绑定当前 replacement dispatch，并在 canonical input-save 层拒绝已记录 failed completion 的 dispatch。Mission Commander/replacement executor 应能从 durable failed handoff直接记录 B acceptance，拒绝 A 迟到结果且保持 canonical input缺失，再由 B 的真实结果完成完整 deterministic writeback。
+
+操作变化：status/operator 生成的 managed input-save WhatIf/Apply命令现在携带当前 `ReviewerDispatchId`；`run-reviewer-step` 将该 ID 纳入 nested preview与returned hash-bound Apply request，`run-reviewer-wave`同样从 current active shard传入精确 dispatch。Canonical `SaveReviewerResultInput`在 preview与Apply锁内重建时同时验证 result session找到的dispatch等于expected current dispatch，且该dispatch不存在failed或invalid completion receipt；返回的exact Apply命令继续携带同一dispatch ID。Direct callers即使未提供expected ID，也不能保存已有failed completion的迟到结果。
+
+E2E验收：真实临时case执行`A accepted → A failed → durable replacement spawn handoff → B accepted → fresh B result attempt`；A 的迟到ReviewerResult携带B fresh attempt SHA后必须在input-save preview前进入`requires-review`且canonical input仍不存在；随后B结果执行`save-result-input → record-completion → source-capture → stage-candidate → collect-result → intake-results`六步，verification/decision写回后回到case route。现有wave旧dispatch回归同时证明current active dispatch精确绑定。
+
+边界：runtime不调用Agent tool，不spawn/poll/stop reviewer session，不伪造ReviewerResult，不自动重试或跨WhatIf/Apply，不执行heavy-tool、不写authority/confirmed。Packet、prompt、owner/adoption、receipt、path、hash、immutable publication、intervention与checkpoint guards不放宽；resume claim零进度消费继续保持既有明确fail-closed语义。本批不新增PowerShell runtime logic，普通batch不等待或声明remote CI green。
+
+验证结果：replacement current-loop E2E、wave prior-dispatch回归以及`subagents`/`workstream`/`cli`完整packages通过（最终CLI 149.608秒）；全仓`go test ./... -count=1`通过（CLI 150.917秒），`go vet ./...`、10-pack inventory、doctor（canonical skill 32688/32768 bytes）、`status -Format json`、完成态`release-check -Format json`与`git diff --check`通过。独立审查确认expected dispatch ID覆盖direct`plan-subagents`、single-step与wave路径，failed completion guard处于canonical publication前，且未发现高置信Critical/Important。统一`release-run -Format json`以7/7通过（271.590秒，其中完整Go tests 269.175秒）。普通batch不等待或声明remote CI green。
+
 ### Batch 803：active reviewer wave intervention and replacement takeover closure
 
 状态：已完成active reviewer wave intervention pause、replacement executor takeover、canonical raw handoff净化、产品路径回归、独立审查与Windows本机完整release minimum；implementation commit/push待本批统一完成。本批选择`replacement-executor`，关闭active multi-shard reviewer wave在Human-in-the-Lane中途改向后仍可能继续dispatch/记录旧session观察，且replacement executor需手工重建adoption→fresh dispatch→writeback路线的日常断点；本批不是字段、文案或summary投影微调。

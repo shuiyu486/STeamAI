@@ -1778,18 +1778,26 @@ func reviewerDispatchStagingInputPath(dispatch reviewerDispatchPacketDispatch, e
 	return expected
 }
 
-func reviewerDispatchInputSaveCommand(packetPath, shardID, targetLane string) string {
-	return "/rekit plan-subagents -PacketPath " + reviewerDispatchQuoteCommandArg(packetPath) +
+func reviewerDispatchInputSaveCommand(packetPath, shardID, targetLane, dispatchID string) string {
+	command := "/rekit plan-subagents -PacketPath " + reviewerDispatchQuoteCommandArg(packetPath) +
 		" -SaveReviewerResultInput -ShardId " + reviewerDispatchQuoteCommandArg(shardID) +
 		" -ReviewerResultInputSourcePath <reviewer-result-json-path> -Lane " + reviewerDispatchQuoteCommandArg(targetLane) +
-		" -Actor <main-agent> -WhatIf -Format json"
+		" -Actor <main-agent>"
+	if strings.TrimSpace(dispatchID) != "" {
+		command += " -ReviewerDispatchId " + reviewerDispatchQuoteCommandArg(dispatchID)
+	}
+	return command + " -WhatIf -Format json"
 }
 
-func reviewerDispatchInputSaveApplyCommand(packetPath, shardID, targetLane string) string {
-	return "/rekit plan-subagents -PacketPath " + reviewerDispatchQuoteCommandArg(packetPath) +
+func reviewerDispatchInputSaveApplyCommand(packetPath, shardID, targetLane, dispatchID string) string {
+	command := "/rekit plan-subagents -PacketPath " + reviewerDispatchQuoteCommandArg(packetPath) +
 		" -SaveReviewerResultInput -ShardId " + reviewerDispatchQuoteCommandArg(shardID) +
 		" -ReviewerResultInputSourcePath <reviewer-result-json-path> -Lane " + reviewerDispatchQuoteCommandArg(targetLane) +
-		" -Actor <main-agent> -ExpectedReviewerResultInputSha256 <inputSha256-from-WhatIf> -Apply -Format json"
+		" -Actor <main-agent>"
+	if strings.TrimSpace(dispatchID) != "" {
+		command += " -ReviewerDispatchId " + reviewerDispatchQuoteCommandArg(dispatchID)
+	}
+	return command + " -ExpectedReviewerResultInputSha256 <inputSha256-from-WhatIf> -Apply -Format json"
 }
 
 func reviewerDispatchSourceCaptureCommand(packetPath, shardID, targetLane, inputPath string) string {
@@ -2074,8 +2082,8 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 	stagingCommand := ""
 	var collectionCommands *ReviewerResultCollectionCommands
 	if collectionAvailable {
-		inputSaveCommand = reviewerDispatchInputSaveCommand(packetPath, dispatch.ShardID, targetLane)
-		inputSaveApplyCommand = reviewerDispatchInputSaveApplyCommand(packetPath, dispatch.ShardID, targetLane)
+		inputSaveCommand = reviewerDispatchInputSaveCommand(packetPath, dispatch.ShardID, targetLane, "")
+		inputSaveApplyCommand = reviewerDispatchInputSaveApplyCommand(packetPath, dispatch.ShardID, targetLane, "")
 		sourceCaptureCommand = reviewerDispatchSourceCaptureCommand(packetPath, dispatch.ShardID, targetLane, inputPath)
 		sourceCaptureApplyCommand = reviewerDispatchSourceCaptureApplyCommand(packetPath, dispatch.ShardID, targetLane, inputPath)
 		stagingCommand = reviewerDispatchResultStagingCommand(packetPath, dispatch.ShardID, targetLane, sourcePath)
@@ -2247,6 +2255,10 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 	promptArtifact := reviewerDispatchPromptArtifactStatus(caseRoot, packetPath, dispatch)
 	currentExecutor, currentGeneration := reviewerDispatchCurrentOwner(caseRoot, targetLane)
 	sessionLifecycle := reviewerDispatchSessionLifecycle(caseRoot, packet, packetPath, targetLane, dispatch, inputPath, inputState, inputSession, inputSHA256, inputBytes, currentExecutor, currentGeneration)
+	if collectionAvailable && strings.TrimSpace(sessionLifecycle.dispatchID) != "" {
+		inputSaveCommand = reviewerDispatchInputSaveCommand(packetPath, dispatch.ShardID, targetLane, sessionLifecycle.dispatchID)
+		inputSaveApplyCommand = reviewerDispatchInputSaveApplyCommand(packetPath, dispatch.ShardID, targetLane, sessionLifecycle.dispatchID)
+	}
 	if (sessionLifecycle.state == "reviewer-session-failed" || sessionLifecycle.state == "reviewer-session-receipt-owner-stale") && strings.TrimSpace(sessionLifecycle.dispatchCommand) == "" {
 		sessionLifecycle.dispatchCommand = reviewerDispatchSessionRecordCommand(packetPath, dispatch.ShardID, targetLane)
 	}

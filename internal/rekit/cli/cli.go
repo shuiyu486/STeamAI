@@ -11454,8 +11454,11 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 	if !opt.RecordReviewerDispatch && (strings.TrimSpace(opt.ReviewerHarness) != "" || strings.TrimSpace(opt.ReviewerSession) != "" || strings.TrimSpace(opt.ExpectedReviewerDispatchBindingSHA256) != "") {
 		return fmt.Errorf("reviewer harness/session/dispatch binding hash are supported only with -RecordReviewerDispatch")
 	}
-	if !opt.RecordReviewerCompletion && (strings.TrimSpace(opt.ReviewerDispatchID) != "" || strings.TrimSpace(opt.ReviewerOutcome) != "" || strings.TrimSpace(opt.ReviewerExitStatus) != "" || strings.TrimSpace(opt.ExpectedReviewerDispatchReceiptSHA256) != "") {
-		return fmt.Errorf("reviewer dispatch ID/outcome/exit status/receipt hash are supported only with -RecordReviewerCompletion")
+	if !opt.RecordReviewerCompletion && !opt.SaveReviewerResultInput && (strings.TrimSpace(opt.ReviewerDispatchID) != "" || strings.TrimSpace(opt.ReviewerOutcome) != "" || strings.TrimSpace(opt.ReviewerExitStatus) != "" || strings.TrimSpace(opt.ExpectedReviewerDispatchReceiptSHA256) != "") {
+		return fmt.Errorf("reviewer dispatch ID/outcome/exit status/receipt hash are supported only with -RecordReviewerCompletion or input-save dispatch binding")
+	}
+	if opt.SaveReviewerResultInput && (strings.TrimSpace(opt.ReviewerOutcome) != "" || strings.TrimSpace(opt.ReviewerExitStatus) != "" || strings.TrimSpace(opt.ExpectedReviewerDispatchReceiptSHA256) != "") {
+		return fmt.Errorf("reviewer result input save accepts only -ReviewerDispatchId as optional session lineage")
 	}
 	if opt.RecordReviewerDispatch || opt.RecordReviewerCompletion {
 		if opt.RecordReviewerDispatch && opt.RecordReviewerCompletion {
@@ -11540,7 +11543,7 @@ func runPlanSubagents(ctx runtime.Context, opt Options, out io.Writer) error {
 			return fmt.Errorf("unsupported plan-subagents format: %s", opt.Format)
 		}
 		result, err := executeReviewerMutationWithInterventionGuard(target, opt.Note.Lane, opt.WhatIf, func() (subagents.ReviewerResultInputSaveResult, error) {
-			return subagents.SaveReviewerResultInput(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerResultInputSaveOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, SourcePath: opt.ReviewerResultInputSourcePath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedReviewerResultSHA256: opt.ExpectedReviewerResultInputSHA256, WhatIf: opt.WhatIf})
+			return subagents.SaveReviewerResultInput(ctx.RepoRoot, target, ctx.Pack, subagents.ReviewerResultInputSaveOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, SourcePath: opt.ReviewerResultInputSourcePath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedReviewerDispatchID: opt.ReviewerDispatchID, ExpectedReviewerResultSHA256: opt.ExpectedReviewerResultInputSHA256, WhatIf: opt.WhatIf})
 		})
 		if err != nil {
 			return err

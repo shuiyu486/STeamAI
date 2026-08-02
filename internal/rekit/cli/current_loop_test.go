@@ -464,14 +464,64 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	if err := os.WriteFile(evidencePath, []byte("bounded current-loop reviewer evidence\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	resultSource := filepath.Join(caseRoot, "workspace", "current-loop-reviewer-result.json")
-	if err := os.WriteFile(resultSource, reviewerResultForCLIPlan(t, plan, handoff, "accept", "accepted", "reviewer-session-runner"), 0o644); err != nil {
+
+	failedInputs := []string{"-ExpectedCurrentLoopReviewerAttemptSha256", resultAttempt.AttemptSnapshotSHA256, "-ReviewerOutcome", "failed", "-ReviewerExitStatus", "reviewer-error", "-Actor", actor}
+	failedPreview := runCurrentLoopResumePreviewWith(t, caseRoot, dispatchApplied.SegmentCheckpoint.ArtifactSHA256, failedInputs...)
+	failedApplyFields, err := splitDriverCommand(failedPreview.ApplyCommand)
+	if err != nil {
 		t.Fatal(err)
 	}
-	resultInputs := []string{"-ExpectedCurrentLoopReviewerAttemptSha256", resultAttempt.AttemptSnapshotSHA256, "-ReviewerResultInputSourcePath", resultSource, "-Actor", actor}
-	resultPreview := runCurrentLoopResumePreviewWith(t, caseRoot, dispatchApplied.SegmentCheckpoint.ArtifactSHA256, resultInputs...)
-	if resultPreview.ExpectedCurrentLoopPlanSHA256 == "" || resultPreview.InitialRoute != "reviewer" || resultPreview.MaxSteps != continuation.RemainingMaxSteps || resultPreview.ResumeSource == nil || resultPreview.ApplyCommand == "" || !strings.Contains(resultPreview.ApplyCommand, "-ReviewerResultInputSourcePath") || !strings.Contains(resultPreview.ApplyCommand, resultSource) {
-		t.Fatalf("typed durable result continuation did not rebuild a fresh preview and exact apply command: %+v", resultPreview)
+	failedApplied := runCurrentLoopResult(t, append([]string{"-Command", failedApplyFields[1]}, failedApplyFields[2:]...))
+	if failedApplied.AppliedSteps != 1 || failedApplied.StopReason.Code != "external-reviewer-handoff" || failedApplied.SegmentCheckpoint == nil {
+		t.Fatalf("failed reviewer attempt did not return a replacement handoff: %+v", failedApplied)
+	}
+	replacementOperator := failedApplied.FinalStatus.MissionControlRunbook.CurrentLoopOperator
+	if replacementOperator == nil || replacementOperator.ExternalReviewerHandoff == nil || replacementOperator.ExternalReviewerHandoff.Attempt == nil {
+		t.Fatalf("failed reviewer attempt omitted replacement spawn attempt: %+v", replacementOperator)
+	}
+	replacementSpawnAttempt := replacementOperator.ExternalReviewerHandoff.Attempt
+	if replacementSpawnAttempt.RunLoopStepID != "spawn-reviewer" || replacementSpawnAttempt.Receipt.DispatchID != resultAttempt.Receipt.DispatchID || replacementSpawnAttempt.Receipt.CompletionOutcome != "failed" {
+		t.Fatalf("failed reviewer attempt did not advance to fresh spawn while preserving prior receipt provenance: %+v", replacementSpawnAttempt)
+	}
+	replacementDispatchInputs := []string{"-ExpectedCurrentLoopReviewerAttemptSha256", replacementSpawnAttempt.AttemptSnapshotSHA256, "-ReviewerHarness", "go-cli-test-harness", "-ReviewerSession", "reviewer-session-replacement", "-Actor", actor}
+	replacementDispatchPreview := runCurrentLoopResumePreviewWith(t, caseRoot, failedApplied.SegmentCheckpoint.ArtifactSHA256, replacementDispatchInputs...)
+	replacementDispatchApplyFields, err := splitDriverCommand(replacementDispatchPreview.ApplyCommand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacementDispatchApplied := runCurrentLoopResult(t, append([]string{"-Command", replacementDispatchApplyFields[1]}, replacementDispatchApplyFields[2:]...))
+	if replacementDispatchApplied.AppliedSteps != 1 || replacementDispatchApplied.StopReason.Code != "external-reviewer-handoff" || replacementDispatchApplied.SegmentCheckpoint == nil {
+		t.Fatalf("replacement reviewer dispatch did not reach result handoff: %+v", replacementDispatchApplied)
+	}
+	replacementResultAttempt := replacementDispatchApplied.FinalStatus.MissionControlRunbook.CurrentLoopOperator.ExternalReviewerHandoff.Attempt
+	if replacementResultAttempt == nil || replacementResultAttempt.RunLoopStepID != "save-result-input" || replacementResultAttempt.Receipt.Session != "reviewer-session-replacement" || replacementResultAttempt.Receipt.DispatchID == resultAttempt.Receipt.DispatchID {
+		t.Fatalf("replacement result attempt did not bind the fresh reviewer session: prior=%+v replacement=%+v", resultAttempt, replacementResultAttempt)
+	}
+
+	staleResultSource := filepath.Join(caseRoot, "workspace", "current-loop-stale-reviewer-result.json")
+	if err := os.WriteFile(staleResultSource, reviewerResultForCLIPlan(t, plan, handoff, "accept", "accepted", "reviewer-session-runner"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	staleResultPreview := runCurrentLoopResumePreviewWith(t, caseRoot, replacementDispatchApplied.SegmentCheckpoint.ArtifactSHA256,
+		"-ExpectedCurrentLoopReviewerAttemptSha256", replacementResultAttempt.AttemptSnapshotSHA256,
+		"-ReviewerResultInputSourcePath", staleResultSource,
+		"-Actor", actor,
+	)
+	if staleResultPreview.ExpectedCurrentLoopPlanSHA256 != "" || staleResultPreview.StopReason.Code != "requires-review" || !strings.Contains(staleResultPreview.StopReason.Message, "current reviewer dispatch") {
+		t.Fatalf("late failed-session reviewer result was not rejected before input save: %+v", staleResultPreview)
+	}
+	if _, err := os.Stat(replacementResultAttempt.ReviewerResultInputPath); !os.IsNotExist(err) {
+		t.Fatalf("late failed-session reviewer result occupied canonical input: %v", err)
+	}
+
+	resultSource := filepath.Join(caseRoot, "workspace", "current-loop-reviewer-result.json")
+	if err := os.WriteFile(resultSource, reviewerResultForCLIPlan(t, plan, handoff, "accept", "accepted", "reviewer-session-replacement"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resultInputs := []string{"-ExpectedCurrentLoopReviewerAttemptSha256", replacementResultAttempt.AttemptSnapshotSHA256, "-ReviewerResultInputSourcePath", resultSource, "-Actor", actor}
+	resultPreview := runCurrentLoopResumePreviewWith(t, caseRoot, replacementDispatchApplied.SegmentCheckpoint.ArtifactSHA256, resultInputs...)
+	if resultPreview.ExpectedCurrentLoopPlanSHA256 == "" || resultPreview.InitialRoute != "reviewer" || resultPreview.MaxSteps != replacementDispatchPreview.MaxSteps-1 || resultPreview.ResumeSource == nil || resultPreview.ApplyCommand == "" || !strings.Contains(resultPreview.ApplyCommand, "-ReviewerResultInputSourcePath") || !strings.Contains(resultPreview.ApplyCommand, resultSource) {
+		t.Fatalf("typed durable replacement result continuation did not rebuild a fresh preview and exact apply command: %+v", resultPreview)
 	}
 	resultApplyFields, err := splitDriverCommand(resultPreview.ApplyCommand)
 	if err != nil {
@@ -488,7 +538,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	}
 	expectedSteps := []string{"save-result-input", "record-completion", "source-capture", "stage-candidate", "collect-result", "intake-results"}
 	campaign := resultApplied.ContinuationRequest
-	if campaign == nil || campaign.StopCode != "route-policy" || campaign.SegmentRoute != "reviewer" || campaign.ExpectedRoute != "case" || campaign.RemainingMaxSteps != resultPreview.MaxSteps-len(expectedSteps) || campaign.ObservationContract != nil || !strings.Contains(campaign.WhatIfCommand, "-MaxSteps 3") || len(resultApplied.Steps) != len(expectedSteps) {
+	if campaign == nil || campaign.StopCode != "route-policy" || campaign.SegmentRoute != "reviewer" || campaign.ExpectedRoute != "case" || campaign.RemainingMaxSteps != resultPreview.MaxSteps-len(expectedSteps) || campaign.ObservationContract != nil || !strings.Contains(campaign.WhatIfCommand, "-MaxSteps "+stringInt(campaign.RemainingMaxSteps)) || len(resultApplied.Steps) != len(expectedSteps) {
 		t.Fatalf("fresh cross-route campaign continuation or segment receipts are invalid: %+v", resultApplied)
 	}
 	if resultApplied.SegmentCheckpoint == nil || !resultApplied.SegmentCheckpoint.Ready || resultApplied.SegmentCheckpoint.Continuation == nil || resultApplied.SegmentCheckpoint.SegmentRoute != "reviewer" || resultApplied.SegmentCheckpoint.ExpectedRoute != "case" || resultApplied.SegmentCheckpoint.RemainingMaxSteps != campaign.RemainingMaxSteps {

@@ -311,8 +311,18 @@ func reviewerStepPreparedRequest(ctx runtime.Context, opt Options, pkg *workstre
 				required = []string{"wait for the external reviewer session to return exactly one ReviewerResult JSON object", "save the JSON to an existing case-local source file separate from reviewerResultDropPath, reviewerResultInputPath, and reviewerResultSourcePath", "rerun with -ReviewerResultInputSourcePath and -Actor; or use -ReviewerOutcome failed with -ReviewerExitStatus and -Actor"}
 				return mission.MissionCommanderDriverRequest{}, reviewerStepExternal(pkg, required), nil
 			}
+			if strings.TrimSpace(current.ReviewerDispatchID) == "" {
+				return mission.MissionCommanderDriverRequest{}, nil, fmt.Errorf("run-reviewer-step cannot save reviewer result input without a current reviewer dispatch id")
+			}
 			command = current.ReviewerResultInputSavePreviewCommand
 			command = replaceReviewerStepToken(command, "<reviewer-result-json-path>", sourcePath)
+			fields, splitErr := splitDriverCommand(command)
+			if splitErr != nil {
+				return mission.MissionCommanderDriverRequest{}, nil, splitErr
+			}
+			if !driverCommandHasFlag(fields, "-ReviewerDispatchId", "--reviewer-dispatch-id") {
+				command = joinDriverCommand(append(fields, "-ReviewerDispatchId", current.ReviewerDispatchID))
+			}
 		}
 	case "verify-prompt", "record-completion", "source-capture", "stage-candidate", "collect-result", "intake-results":
 		if actor == "" {
@@ -654,7 +664,7 @@ func executeReviewerStep(ctx runtime.Context, opt Options) (any, error) {
 		case "record-completion":
 			return subagents.RecordReviewerSessionCompletion(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerSessionCompletionOptions{PacketPath: opt.PacketPath, DispatchID: opt.ReviewerDispatchID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, Outcome: opt.ReviewerOutcome, ExitStatus: opt.ReviewerExitStatus, ReviewerResultInputPath: opt.ReviewerResultInputPath, ExpectedDispatchReceiptSHA256: opt.ExpectedReviewerDispatchReceiptSHA256, ExpectedReviewerResultSHA256: opt.ExpectedReviewerResultInputSHA256, WhatIf: opt.WhatIf})
 		case "save-result-input":
-			return subagents.SaveReviewerResultInput(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerResultInputSaveOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, SourcePath: opt.ReviewerResultInputSourcePath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedReviewerResultSHA256: opt.ExpectedReviewerResultInputSHA256, WhatIf: opt.WhatIf})
+			return subagents.SaveReviewerResultInput(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerResultInputSaveOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, SourcePath: opt.ReviewerResultInputSourcePath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedReviewerDispatchID: opt.ReviewerDispatchID, ExpectedReviewerResultSHA256: opt.ExpectedReviewerResultInputSHA256, WhatIf: opt.WhatIf})
 		case "source-capture":
 			return subagents.CaptureReviewerResultSource(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerResultSourceCaptureOptions{PacketPath: opt.PacketPath, ShardID: opt.ShardID, InputPath: opt.ReviewerResultInputPath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedReviewerResultSHA256: opt.ExpectedReviewerResultInputSHA256, WhatIf: opt.WhatIf})
 		case "stage-candidate":

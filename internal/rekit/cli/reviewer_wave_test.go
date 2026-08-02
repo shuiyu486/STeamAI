@@ -561,7 +561,7 @@ func TestRunReviewerWaveRejectsReturnedResultFromPriorDispatch(t *testing.T) {
 	writeReviewerWaveObservations(t, observationPath, reviewerWaveObservationFile{SchemaVersion: 1, PacketID: wave.PacketID, Observations: []reviewerWaveObservation{{ShardID: wave.Active[0].ShardID, Kind: "returned", ReviewerExitStatus: "completed", ReviewerResultInputSourcePath: resultSource}}})
 	args := []string{"-Command", "run-reviewer-wave", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", wave.PacketPath, "-Lane", wave.TargetLane, "-Actor", "mission-commander", "-ReviewerWaveObservationsPath", observationPath, "-WhatIf", "-Format", "json"}
 	out.Reset()
-	if err := Run(args, &out); err == nil || !strings.Contains(err.Error(), "returned result dispatch does not match") {
+	if err := Run(args, &out); err == nil || (!strings.Contains(err.Error(), "returned result dispatch does not match") && !strings.Contains(err.Error(), "belongs to failed reviewer dispatch") && !strings.Contains(err.Error(), "does not match current reviewer dispatch")) {
 		t.Fatalf("prior dispatch returned result error = %v", err)
 	}
 	refreshed := reviewerWaveFromStatus(reviewerWaveStatus(t, caseRoot))

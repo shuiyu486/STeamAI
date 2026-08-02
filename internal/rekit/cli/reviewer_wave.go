@@ -231,7 +231,7 @@ func buildReviewerWavePlan(ctx runtime.Context, opt Options) (reviewerWavePlan, 
 				return reviewerWavePlan{}, nil, fmt.Errorf("reviewer wave observation %d shard %s: failed observation dispatch does not match the current active shard", idx+1, shardID)
 			}
 		}
-		preview, err := previewReviewerWaveObservation(ctx, opt, observation, idx)
+		preview, err := previewReviewerWaveObservation(ctx, opt, observation, idx, active[shardID].ReviewerDispatchID)
 		if err != nil {
 			return reviewerWavePlan{}, nil, fmt.Errorf("reviewer wave observation %d shard %s: %w", idx+1, observation.ShardID, err)
 		}
@@ -447,7 +447,7 @@ func validateReviewerWaveObservationShape(observation reviewerWaveObservation) e
 	return nil
 }
 
-func previewReviewerWaveObservation(ctx runtime.Context, opt Options, observation reviewerWaveObservation, idx int) (reviewerWaveObservationPreview, error) {
+func previewReviewerWaveObservation(ctx runtime.Context, opt Options, observation reviewerWaveObservation, idx int, currentDispatchID string) (reviewerWaveObservationPreview, error) {
 	preview := reviewerWaveObservationPreview{Index: idx + 1, ShardID: strings.TrimSpace(observation.ShardID), Kind: strings.TrimSpace(observation.Kind), Status: "previewed"}
 	if preview.ShardID == "" {
 		return preview, fmt.Errorf("shardId is required")
@@ -460,7 +460,7 @@ func previewReviewerWaveObservation(ctx runtime.Context, opt Options, observatio
 		}
 		preview.ExpectedBindingSHA256, preview.DispatchID = result.BindingSHA256, result.DispatchID
 	case "returned":
-		save, err := subagents.SaveReviewerResultInput(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerResultInputSaveOptions{PacketPath: opt.PacketPath, ShardID: preview.ShardID, SourcePath: observation.ReviewerResultInputSourcePath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, WhatIf: true})
+		save, err := subagents.SaveReviewerResultInput(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerResultInputSaveOptions{PacketPath: opt.PacketPath, ShardID: preview.ShardID, SourcePath: observation.ReviewerResultInputSourcePath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedReviewerDispatchID: currentDispatchID, WhatIf: true})
 		if err != nil {
 			return preview, err
 		}
@@ -505,7 +505,7 @@ func applyReviewerWaveObservation(ctx runtime.Context, opt Options, observation 
 		_, err := subagents.RecordReviewerSessionDispatch(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerSessionDispatchOptions{PacketPath: opt.PacketPath, ShardID: preview.ShardID, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ReviewerHarness: observation.ReviewerHarness, ReviewerSession: observation.ReviewerSession, ExpectedBindingSHA256: preview.ExpectedBindingSHA256})
 		return reviewerWaveObservationApplyResult{Mutated: err == nil}, err
 	case "returned":
-		save, err := subagents.SaveReviewerResultInput(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerResultInputSaveOptions{PacketPath: opt.PacketPath, ShardID: preview.ShardID, SourcePath: observation.ReviewerResultInputSourcePath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedReviewerResultSHA256: preview.ExpectedInputSaveSHA256})
+		save, err := subagents.SaveReviewerResultInput(ctx.RepoRoot, ctx.Target, ctx.Pack, subagents.ReviewerResultInputSaveOptions{PacketPath: opt.PacketPath, ShardID: preview.ShardID, SourcePath: observation.ReviewerResultInputSourcePath, Lane: opt.Note.Lane, Actor: opt.Note.Actor, ExpectedReviewerDispatchID: preview.DispatchID, ExpectedReviewerResultSHA256: preview.ExpectedInputSaveSHA256})
 		if err != nil {
 			return reviewerWaveObservationApplyResult{}, err
 		}
