@@ -2269,7 +2269,7 @@ func TestRunStartBootstrapDriverRequestConsumerLoopProductPath(t *testing.T) {
 
 	factsBeforeHandoffApply := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "triage", "-Apply", "-Format", "json"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "triage", "-Apply", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var laneHandoff struct {
@@ -2645,7 +2645,7 @@ func TestRunInterventionReconcileDriverRequestClosureProductPath(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "main", "-Apply", "-Format", "json"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "main", "-Apply", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var handoff struct {
@@ -2821,7 +2821,7 @@ func TestRunStatusJsonCase(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "login", "-Apply", "-Format", "json"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "login", "-Apply", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	assertFileExists(t, filepath.Join(caseRoot, ".rekit", "handovers", "feature-login-latest-replacement-executor-takeover.json"))
@@ -2958,7 +2958,7 @@ func TestRunStatusJsonCase(t *testing.T) {
 		t.Fatalf("durable artifact refresh apply request should be executable: %+v", applyRequest)
 	}
 	out.Reset()
-	if err := Run(applyArgs, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, applyArgs, &out); err != nil {
 		t.Fatalf("durable artifact refresh apply failed: args=%+v err=%v\n%s", applyArgs, err, out.String())
 	}
 	var refreshApply handoffResult
@@ -3807,7 +3807,7 @@ func TestRunOpenDecisionFirstScreenHandoffHashBoundApplyUnblocksLane(t *testing.
 
 	factsBeforeHandoffApply := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "main", "-Apply", "-Format", "json"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "main", "-Apply", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var laneHandoff struct {
@@ -6658,7 +6658,7 @@ tools:
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "main", "-Apply", "-Format", "json"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "main", "-Apply", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	handoff := decodeHandoffResult(t, out.Bytes())
@@ -7036,7 +7036,7 @@ tools:
 		}
 	}
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "main", "-Apply", "-Format", "json"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "main", "-Apply", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	retryHandoff := decodeHandoffResult(t, out.Bytes())
@@ -8302,7 +8302,7 @@ func TestRunCaseLocalProductPathUsesCaseMetadataRuntime(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "-Pack", "_template", "-Apply", "login"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Pack", "_template", "-Apply", "login"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	laneHandoff := decodeHandoffResult(t, out.Bytes())
@@ -10210,7 +10210,7 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 	caseRoot := fullAttachedCase(t)
 	writeHandoffFixture(t, caseRoot)
 	var out bytes.Buffer
-	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	project := decodeHandoffResult(t, out.Bytes())
@@ -10304,7 +10304,7 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "main"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "main"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	laneHandoff := decodeHandoffResult(t, out.Bytes())
@@ -10487,6 +10487,30 @@ func TestRunStartRequiresMode(t *testing.T) {
 	}
 }
 
+func TestRunHandoffTextPreviewReturnsHashStampAndExactApply(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	writeHandoffFixture(t, caseRoot)
+	before := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	var jsonOut bytes.Buffer
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, &jsonOut); err != nil {
+		t.Fatal(err)
+	}
+	preview := decodeHandoffResult(t, jsonOut.Bytes())
+	var textOut bytes.Buffer
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "text", "-HandoffPublicationStamp", preview.PublicationStamp}, &textOut); err == nil || !strings.Contains(err.Error(), "cannot use -HandoffPublicationStamp") {
+		t.Fatalf("text WhatIf accepted caller-supplied publication stamp: %v", err)
+	}
+	textOut.Reset()
+	if err := writeHandoffText(&textOut, workstream.HandoffResult{PublicationPlanSHA256: preview.PublicationPlanSHA256, PublicationStamp: preview.PublicationStamp, ApplyCommand: preview.ApplyCommand}); err != nil {
+		t.Fatal(err)
+	}
+	text := textOut.String()
+	if !strings.Contains(text, "sha256="+preview.PublicationPlanSHA256) || !strings.Contains(text, "stamp="+preview.PublicationStamp) || !strings.Contains(text, "apply=`"+preview.ApplyCommand+"`") {
+		t.Fatalf("handoff text preview omitted hash-bound publication route:\n%s", text)
+	}
+	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+}
+
 func TestRunHandoffPreviewDoesNotWrite(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	writeHandoffFixture(t, caseRoot)
@@ -10498,6 +10522,9 @@ func TestRunHandoffPreviewDoesNotWrite(t *testing.T) {
 	result := decodeHandoffResult(t, out.Bytes())
 	if result.Command != "handoff" || result.IsMutation || result.Applied || !result.Project || !result.RequiresConfirmation {
 		t.Fatalf("unexpected handoff preview result: %+v", result)
+	}
+	if len(result.PublicationPlanSHA256) != 64 || result.PublicationStamp == "" || !strings.Contains(result.ApplyCommand, "-ExpectedHandoffPlanSha256 "+result.PublicationPlanSHA256) || !strings.Contains(result.ApplyCommand, "-HandoffPublicationStamp "+result.PublicationStamp) || result.DailyMissionControlRunbook == nil || result.DailyMissionControlRunbook.HandoffApplyDriverRequest == nil || result.DailyMissionControlRunbook.HandoffApplyDriverRequest.Command != result.ApplyCommand {
+		t.Fatalf("handoff preview omitted exact hash-bound Apply route: sha256=%q apply=%q runbook=%+v", result.PublicationPlanSHA256, result.ApplyCommand, result.DailyMissionControlRunbook)
 	}
 	assertStartWrite(t, result.Writes, ".rekit/handovers/latest.md", "would-write-latest-project-handoff")
 	if result.MissionBrief.Summary == "" || !slices.Contains(result.MissionBrief.BlockedLanes, "login (pending-gate,intervention,open-decision)") || len(result.MissionBrief.PendingGates) == 0 || len(result.MissionBrief.OpenDecisions) == 0 || len(result.MissionBrief.Interventions) == 0 {
@@ -10632,7 +10659,14 @@ func TestRunHandoffApplyWritesNextBatchCandidateDomains(t *testing.T) {
 		},
 		PackMemoryCandidates: releasecheck.ReleaseHandoffPackMemoryCandidateList{Ready: true, Summary: "pack-memory candidate inventory ok", NextAction: "no pack-memory candidate cleanup is pending"},
 	})
-	result, err := workstream.HandoffApply(repoRoot(t), caseRoot, "_template", workstream.HandoffOptions{ProjectMissionCommanderNextActions: projectHandoffMissionCommanderActionsForDurableHandoff(project), ProjectNextBatchStarterPackage: projectHandoffNextBatchStarterPackageForDurableHandoff(project)})
+	handoffOpt := workstream.HandoffOptions{ProjectMissionCommanderNextActions: projectHandoffMissionCommanderActionsForDurableHandoff(project), ProjectNextBatchStarterPackage: projectHandoffNextBatchStarterPackageForDurableHandoff(project)}
+	preview, err := workstream.HandoffPreview(repoRoot(t), caseRoot, "_template", handoffOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handoffOpt.ExpectedPublicationPlanSHA256 = preview.PublicationPlanSHA256
+	handoffOpt.PublicationStamp = preview.PublicationStamp
+	result, err := workstream.HandoffApply(repoRoot(t), caseRoot, "_template", handoffOpt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -10894,7 +10928,7 @@ func TestRunInstalledCaseShimDurableNextBatchTakeoverProductPath(t *testing.T) {
 
 	factsBeforeHandoff := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "-Apply", "-Format", "json"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Apply", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	handoff := decodeHandoffResult(t, out.Bytes())
@@ -10954,7 +10988,7 @@ func TestRunHandoffApplyWritesProjectAndLane(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	writeHandoffFixture(t, caseRoot)
 	var out bytes.Buffer
-	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	project := decodeHandoffResult(t, out.Bytes())
@@ -11012,7 +11046,7 @@ func TestRunHandoffApplyWritesProjectAndLane(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	lane := decodeHandoffResult(t, out.Bytes())
@@ -11069,7 +11103,7 @@ func TestRunProjectHandoffMissionBriefBlocksOpenDecisions(t *testing.T) {
 	writeFactFile(t, factsRoot, "interventions.jsonl", nil)
 
 	var out bytes.Buffer
-	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	project := decodeHandoffResult(t, out.Bytes())
@@ -11123,7 +11157,7 @@ func TestRunHandoffMissionBriefBlocksOpenDecisions(t *testing.T) {
 			writeFactFile(t, factsRoot, "interventions.jsonl", nil)
 
 			var out bytes.Buffer
-			if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login"}, &out); err != nil {
+			if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login"}, &out); err != nil {
 				t.Fatal(err)
 			}
 			lane := decodeHandoffResult(t, out.Bytes())
@@ -11182,7 +11216,7 @@ func TestRunHandoffRequiresModeAndBoard(t *testing.T) {
 	}
 
 	out.Reset()
-	err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply"}, &out)
+	err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply"}, &out)
 	if err == nil || !strings.Contains(err.Error(), "board.json") {
 		t.Fatalf("error = %v, want missing board apply guard", err)
 	}
@@ -11202,7 +11236,7 @@ func TestRunHandoffRejectsUnsafeLaneMetadata(t *testing.T) {
 	writeHandoffFixture(t, caseRoot)
 	writeCaseFile(t, caseRoot, ".rekit/lanes/feature-login/lane.json", `{"schemaVersion":1,"id":"../../outside","type":"feature","name":"login","title":"功能分析: login","status":"open","authority":false,"workspace":"workspace/features/feature-login","laneRoot":".rekit/lanes/feature-login"}`)
 	var out bytes.Buffer
-	err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login"}, &out)
+	err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login"}, &out)
 	if err == nil || !strings.Contains(err.Error(), "lane id mismatch") {
 		t.Fatalf("error = %v, want lane id mismatch guard", err)
 	}
@@ -11216,7 +11250,7 @@ func TestRunHandoffFallsBackToDerivedLaneRoot(t *testing.T) {
 	writeHandoffFixture(t, caseRoot)
 	writeCaseFile(t, caseRoot, ".rekit/lanes/feature-login/lane.json", `{"schemaVersion":1,"id":"feature-login","type":"feature","name":"login","title":"功能分析: login","status":"open","authority":false,"workspace":"workspace/features/feature-login"}`)
 	var out bytes.Buffer
-	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	result := decodeHandoffResult(t, out.Bytes())
@@ -12088,7 +12122,7 @@ func TestRunGoWorkstreamE2EStartNoteContinueHandoff(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	laneHandoff := decodeHandoffResult(t, out.Bytes())
@@ -12107,7 +12141,7 @@ func TestRunGoWorkstreamE2EStartNoteContinueHandoff(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	projectHandoff := decodeHandoffResult(t, out.Bytes())
@@ -12411,7 +12445,7 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login", "-Format", "json"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	repairedHandoff := decodeHandoffResult(t, out.Bytes())
@@ -12556,7 +12590,7 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login", "-Format", "json"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	sourceReadyHandoff := decodeHandoffResult(t, out.Bytes())
@@ -12739,7 +12773,7 @@ func TestRunPlanSubagentsReviewerOrchestrationE2E(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	handoffResult := decodeHandoffResult(t, out.Bytes())
@@ -12879,7 +12913,7 @@ func TestRunGoGateDispatchE2EPlanGateOverviewHandoff(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	handoff := decodeHandoffResult(t, out.Bytes())
@@ -13035,7 +13069,7 @@ func TestRunGoReviewerDecisionE2ENoteOverviewHandoff(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "login"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	handoff := decodeHandoffResult(t, out.Bytes())
@@ -13200,7 +13234,7 @@ func TestRunGoGenericBinaryPackNeutralE2EStartPlanGateOverviewHandoff(t *testing
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", pack, "-Apply", "sample"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Target", caseRoot, "-Pack", pack, "-Apply", "sample"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	handoff := decodeHandoffResult(t, out.Bytes())
@@ -13370,7 +13404,7 @@ func TestRunGoWebSecurityPackNeutralE2EStartPlanGateOverviewHandoff(t *testing.T
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", pack, "-Apply", "authz"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Target", caseRoot, "-Pack", pack, "-Apply", "authz"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	handoff := decodeHandoffResult(t, out.Bytes())
@@ -14912,7 +14946,7 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 		}
 	}
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Apply", "-Format", "json"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Target", caseRoot, "-Apply", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	cleanupPendingHandoff := decodeHandoffResult(t, out.Bytes())
@@ -15408,7 +15442,7 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 
 	factsBeforeRetiredHandoff := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Apply", "-Format", "json"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Target", caseRoot, "-Apply", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	retiredHandoff := decodeHandoffResult(t, out.Bytes())
@@ -17099,7 +17133,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	project := decodeHandoffResult(t, out.Bytes())
@@ -17129,7 +17163,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "main"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "main"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	lane := decodeHandoffResult(t, out.Bytes())
@@ -18331,7 +18365,7 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	assertSnapshotEqual(t, beforeHandoff, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 	beforeHandoffApplyFacts := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "main", "-Format", "json", "-Apply"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "main", "-Format", "json", "-Apply"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var handoffApply handoffResult
@@ -19508,7 +19542,7 @@ func TestRunGateAdapterReportBoundaryHitNoPackProductPathSuppressesContinue(t *t
 
 	beforeHandoffApplyFacts := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "main", "-Format", "json", "-Apply"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "main", "-Format", "json", "-Apply"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var handoffApply handoffResult
@@ -20250,7 +20284,7 @@ func TestRunGateProjectsPackToolingAdapterCandidateProductPath(t *testing.T) {
 
 	beforeDurableFacts := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "main", "-Target", caseRoot, "-Pack", "generic-binary-re", "-Format", "json", "-Apply"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "main", "-Target", caseRoot, "-Pack", "generic-binary-re", "-Format", "json", "-Apply"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var handoffApply handoffResult
@@ -20628,6 +20662,9 @@ type handoffResult struct {
 	DailyMissionControlRunbook         *dailyMissionControlRunbookSnapshot         `json:"dailyMissionControlRunbook"`
 	ReplacementExecutorTakeoverPackage *replacementExecutorTakeoverPackageSnapshot `json:"replacementExecutorTakeoverPackage"`
 	ProjectNextBatchStarterPackage     *projectNextBatchStarterPackage             `json:"projectNextBatchStarterPackage"`
+	PublicationPlanSHA256              string                                      `json:"publicationPlanSha256"`
+	PublicationStamp                   string                                      `json:"publicationStamp"`
+	ApplyCommand                       string                                      `json:"applyCommand"`
 	Writes                             []startWrite                                `json:"writes"`
 	NextSteps                          []string                                    `json:"nextSteps"`
 }
@@ -21027,7 +21064,7 @@ func assertAdapterReportDriftRepairContinuation(t *testing.T, caseRoot, eventID 
 
 	factsBeforeHandoffApply := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "main", "-Format", "json", "-Apply"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "main", "-Format", "json", "-Apply"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var repairHandoffApply handoffResult
@@ -21293,7 +21330,7 @@ func assertMultiGateAcknowledgedAndRepairContinuation(t *testing.T, caseRoot, ac
 
 	factsBeforeHandoffApply := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "main", "-Format", "json", "-Apply"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "main", "-Format", "json", "-Apply"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var handoffApply handoffResult
@@ -21547,7 +21584,7 @@ func assertMaxRowAuthorizedAdapterRepairSurvivorship(t *testing.T, caseRoot, rep
 
 	factsBeforeHandoffApply := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "main", "-Format", "json", "-Apply"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "main", "-Format", "json", "-Apply"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var handoffApply handoffResult

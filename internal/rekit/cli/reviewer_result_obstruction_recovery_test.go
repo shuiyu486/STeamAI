@@ -341,7 +341,7 @@ func TestRunPlanSubagentsReviewerResultRecoveryDispositionCaseLocalE2E(t *testin
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Apply", "-Format", "json"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Target", caseRoot, "-Apply", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	disposedHandoff := decodeHandoffResult(t, out.Bytes())

@@ -188,12 +188,15 @@ func TestRunDailyMissionControlRouteSmokeProductPath(t *testing.T) {
 		Command                    string                              `json:"command"`
 		Applied                    bool                                `json:"applied"`
 		Project                    bool                                `json:"project"`
+		PublicationPlanSHA256      string                              `json:"publicationPlanSha256"`
+		PublicationStamp           string                              `json:"publicationStamp"`
+		ApplyCommand               string                              `json:"applyCommand"`
 		DailyMissionControlRunbook *dailyMissionControlRunbookSnapshot `json:"dailyMissionControlRunbook"`
 		Writes                     []startWrite                        `json:"writes"`
 	}
 	runDailyMissionControlRouteJSON(t, &out, handoffPreviewArgs, &handoffPreview)
-	if handoffPreview.Command != "handoff" || handoffPreview.Applied || !handoffPreview.Project || handoffPreview.DailyMissionControlRunbook == nil || handoffPreview.DailyMissionControlRunbook.HandoffApplyDriverRequest == nil || !handoffPreview.DailyMissionControlRunbook.HandoffApplyDriverRequest.CommandExecutable {
-		t.Fatalf("handoff preview should return executable durable handoff apply request: %+v", handoffPreview)
+	if handoffPreview.Command != "handoff" || handoffPreview.Applied || !handoffPreview.Project || len(handoffPreview.PublicationPlanSHA256) != 64 || handoffPreview.PublicationStamp == "" || !strings.Contains(handoffPreview.ApplyCommand, "-ExpectedHandoffPlanSha256 "+handoffPreview.PublicationPlanSHA256) || !strings.Contains(handoffPreview.ApplyCommand, "-HandoffPublicationStamp "+handoffPreview.PublicationStamp) || handoffPreview.DailyMissionControlRunbook == nil || handoffPreview.DailyMissionControlRunbook.HandoffApplyDriverRequest == nil || !handoffPreview.DailyMissionControlRunbook.HandoffApplyDriverRequest.CommandExecutable || handoffPreview.DailyMissionControlRunbook.HandoffApplyDriverRequest.Command != handoffPreview.ApplyCommand {
+		t.Fatalf("handoff preview should return executable exact hash-bound durable handoff apply request: %+v", handoffPreview)
 	}
 	assertStartWrite(t, handoffPreview.Writes, ".rekit/handovers/latest.md", "would-write-latest-project-handoff")
 	assertSnapshotEqual(t, beforeHandoffPreview, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
@@ -209,9 +212,23 @@ func TestRunDailyMissionControlRouteSmokeProductPath(t *testing.T) {
 		ReplacementExecutorTakeoverPackage *replacementExecutorTakeoverPackageSnapshot `json:"replacementExecutorTakeoverPackage"`
 		Writes                             []startWrite                                `json:"writes"`
 	}
-	runDailyMissionControlRouteJSON(t, &out, handoffApplyArgs, &handoffApplied)
+	out.Reset()
+	if err := runHashBoundHandoffApply(t, handoffApplyArgs, &out); err != nil {
+		t.Fatalf("daily Mission Control handoff apply failed: args=%+v err=%v", handoffApplyArgs, err)
+	}
+	if err := json.Unmarshal(out.Bytes(), &handoffApplied); err != nil {
+		t.Fatalf("daily Mission Control handoff apply stdout is not JSON: %v\n%s", err, out.String())
+	}
 	if handoffApplied.Command != "handoff" || !handoffApplied.Applied || !handoffApplied.Project || handoffApplied.ReplacementExecutorTakeoverPackage == nil || !handoffApplied.ReplacementExecutorTakeoverPackage.Ready || handoffApplied.ReplacementExecutorTakeoverPackage.RefreshStatusCommand == "" {
 		t.Fatalf("handoff apply should return replacement executor takeover package: %+v", handoffApplied)
+	}
+	projectHandoffPath := assertStartWrite(t, handoffApplied.Writes, ".rekit/handovers/latest.md", "write-latest-project-handoff").TargetPath
+	projectHandoffText, err := os.ReadFile(projectHandoffPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(projectHandoffText), handoffPreview.ApplyCommand) {
+		t.Fatalf("durable project handoff omitted exact hash-bound Apply route %q:\n%s", handoffPreview.ApplyCommand, string(projectHandoffText))
 	}
 	projectArtifactPath := assertStartWrite(t, handoffApplied.Writes, ".rekit/handovers/latest-replacement-executor-takeover.json", "write-latest-replacement-executor-takeover-package").TargetPath
 	assertDailyMissionControlTakeoverArtifact(t, projectArtifactPath, reconciledRequest.Command, handoffApplied.ReplacementExecutorTakeoverPackage.RefreshStatusCommand, ".rekit/handovers/latest-replacement-executor-takeover.json")

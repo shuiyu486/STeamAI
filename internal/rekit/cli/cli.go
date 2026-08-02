@@ -386,6 +386,18 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ExpectedNextBatchPlanSha256")
 			}
 			opt.ExpectedNextBatchPlanSHA256 = args[i]
+		case "-ExpectedHandoffPlanSha256", "-ExpectedHandoffPlanSHA256", "--expected-handoff-plan-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedHandoffPlanSha256")
+			}
+			opt.Handoff.ExpectedPublicationPlanSHA256 = args[i]
+		case "-HandoffPublicationStamp", "--handoff-publication-stamp":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -HandoffPublicationStamp")
+			}
+			opt.Handoff.PublicationStamp = args[i]
 		case "-ExpectedCurrentLoopPlanSha256", "-ExpectedCurrentLoopPlanSHA256", "--expected-current-loop-plan-sha256":
 			i++
 			if i >= len(args) {
@@ -9425,6 +9437,12 @@ func runHandoff(ctx runtime.Context, opt Options, out io.Writer) error {
 	if !opt.WhatIf && !opt.Apply && format == "json" {
 		return fmt.Errorf("handoff write requires -Apply; use -WhatIf for preview")
 	}
+	if opt.WhatIf && strings.TrimSpace(opt.Handoff.ExpectedPublicationPlanSHA256) != "" {
+		return fmt.Errorf("handoff -WhatIf cannot use -ExpectedHandoffPlanSha256")
+	}
+	if opt.WhatIf && strings.TrimSpace(opt.Handoff.PublicationStamp) != "" {
+		return fmt.Errorf("handoff -WhatIf cannot use -HandoffPublicationStamp")
+	}
 	handoffOpt := opt.Handoff
 	if err := bindProjectHandoffMissionCommanderActions(ctx.RepoRoot, target, ctx.Pack, &handoffOpt); err != nil {
 		return err
@@ -9936,6 +9954,11 @@ func writeStartExecutorActionText(out io.Writer, result workstream.StartResult) 
 }
 
 func writeHandoffText(out io.Writer, result workstream.HandoffResult) error {
+	if !result.Applied && result.PublicationPlanSHA256 != "" {
+		if _, err := fmt.Fprintf(out, "handoff publication plan：sha256=%s stamp=%s apply=`%s`\n", result.PublicationPlanSHA256, result.PublicationStamp, result.ApplyCommand); err != nil {
+			return err
+		}
+	}
 	if !result.Applied {
 		if result.Project {
 			if _, err := fmt.Fprintln(out, "would write project handoff index: .rekit/handovers/latest.md"); err != nil {

@@ -61,6 +61,8 @@ param(
   [string]$Domain = '',
   [string]$Closure = '',
   [string]$ExpectedNextBatchPlanSha256 = '',
+  [string]$ExpectedHandoffPlanSha256 = '',
+  [string]$HandoffPublicationStamp = '',
   [string]$ExpectedCurrentLoopPlanSha256 = '',
   [string]$ExpectedCurrentLoopCheckpointSha256 = '',
   [switch]$ResumeCurrentLoop,
@@ -580,6 +582,10 @@ function Get-RekitGoArgs {
       Add-RekitGoArg ([ref]$goArgs) '-Actor' $Actor
       Add-RekitGoArg ([ref]$goArgs) '-Executor' $Executor
       Add-RekitGoArg ([ref]$goArgs) '-Reason' $Reason
+    }
+    if ($Command -eq 'handoff') {
+      Add-RekitGoArg ([ref]$goArgs) '-ExpectedHandoffPlanSha256' $ExpectedHandoffPlanSha256
+      Add-RekitGoArg ([ref]$goArgs) '-HandoffPublicationStamp' $HandoffPublicationStamp
     }
   }
   if ($Command -eq 'reconcile') {

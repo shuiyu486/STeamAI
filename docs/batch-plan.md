@@ -32,6 +32,17 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 
 
+
+### Batch 796：hash-bound handoff publication and stale-preview rejection closure
+
+状态：已完成 hash-bound handoff publication and stale-preview rejection closure 的 exact write manifest、preview stamp、lease 内重建、stale input/owner/operator 拒绝、两阶段 exact-byte 原子发布、Go CLI/PowerShell façade 产品入口与完成态本机验证；implementation commit/push 在本批统一完成态提交中记录。普通 batch 不等待或轮询 remote CI，也不声明 remote green。
+
+目标：解决 `handoff -WhatIf` 返回的 Apply 路由未绑定已审核 publication，以及 Apply 在 preview 后可能重新读取 durable state并发布不同 queue/operator/takeover/Markdown/RESUME/checkpoint 的接手断点。Preview 现在返回 `publicationPlanSha256`、`publicationStamp` 与完整 exact Apply command/request；Apply 必须同时携带 expected SHA 与同一 stamp，并在 project/lane mutation lease 内重建计划，任何 mismatch 都在 publication 前 fail-closed。
+
+边界：plan SHA 对排序后的全部目标 path、marker-form exact bytes、每项 bytes SHA 和稳定 `.rekit` input snapshot计算；checkpoint 在 plan 阶段预编码，发布阶段只消费 immutable plan bytes。SHA 自引用仅允许 Markdown 中固定 marker，计算后替换为最终 SHA。输入使用 stable regular-file read，并在 plan 构造结束与首写前复核；RESUME/checkpoint/handoff/takeover 都使用同目录 temp、Sync、close、rename 原子替换，Unix 同步目录项。Runtime 不执行 heavy-tool、不写 authority/confirmed、不自动执行 reviewer/adapter/pack-memory/gate/sync/promote mutation；PowerShell 只透传参数，默认 text preview也明确输出 hash、stamp与 exact Apply。
+
+验证结果：workstream/CLI focused suites通过（最终 CLI 159.045 秒）；新增回归覆盖 takeover、inbox与 project drift的旧 preview拒绝，以及 plan 构造后、首写前 input漂移时已有 RESUME/checkpoint exact bytes不变且 handoff/takeover零写入；daily Mission Control product path读回 durable Markdown并确认同一 hash/stamp Apply route。PowerShell `facade-smoke.ps1`通过并真实覆盖默认无 `-Format` handoff WhatIf。独立终审发现统一 publisher降级非原子写入与 façade默认 text preview缺少强制 Apply参数两项 blocker，修复后复核均关闭且无新 Important blocker。完整 `go test ./...`通过（CLI 161.510 秒），`go vet ./...`与`git diff --check`通过；统一完成态 `release-run -Format json` 以 7/7 通过（560.682 秒，其中完整 Go tests 557.948 秒）。Remote CI保持异步、非阻塞。
+
 ### Batch 795：strict durable takeover artifact identity and hash-addressed freshness closure
 
 状态：已完成 strict durable takeover artifact identity and hash-addressed freshness closure 的 stable regular-file reader、原子 latest artifact 发布、strict JSON decode、完整 request/operator/package identity、fresh status qualification、tamper fail-closed 与 handoff refresh preview；implementation commit/push 在本批统一完成态提交中记录。普通 batch 不等待或轮询 remote CI，也不声明 remote green。

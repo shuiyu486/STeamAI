@@ -112,7 +112,11 @@ func TestBindLaneContinueCommandsTakeoverReplacesStaleDurableCommand(t *testing.
 
 func TestTakeoverRefreshesDurableResumeCheckpointHandoffAndDigestCommands(t *testing.T) {
 	repoRoot, caseRoot := setupContinueCase(t, "executor-one")
-	before, err := HandoffApply(repoRoot, caseRoot, defaults.DefaultPack, HandoffOptions{Selector: "devirt-main"})
+	beforePreview, err := HandoffPreview(repoRoot, caseRoot, defaults.DefaultPack, HandoffOptions{Selector: "devirt-main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := HandoffApply(repoRoot, caseRoot, defaults.DefaultPack, HandoffOptions{Selector: "devirt-main", ExpectedPublicationPlanSHA256: beforePreview.PublicationPlanSHA256, PublicationStamp: beforePreview.PublicationStamp})
 	if err != nil {
 		t.Fatal(err)
 	}

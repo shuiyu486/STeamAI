@@ -341,7 +341,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		t.Fatalf("handoff JSON omitted current-loop operator: %+v", handoffPreview)
 	}
 	var handoffApplyOut bytes.Buffer
-	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-Format", "json"}, &handoffApplyOut); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-Format", "json"}, &handoffApplyOut); err != nil {
 		t.Fatal(err)
 	}
 	durableHandoff, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "handovers", "latest.md"))

@@ -2,9 +2,12 @@ package workstream
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -20,15 +23,21 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
-const maxHandoffRows = 5
+const (
+	maxHandoffRows                     = 5
+	handoffPublicationPlanSHA256Marker = "<handoff-publication-plan-sha256>"
+)
 
 var (
 	continueOwnerBindingPattern = regexp.MustCompile(`\s+-Executor\s+(?:"(?:\\.|[^"])*"|\S+)\s+-ExpectedExecutorGeneration\s+\d+`)
 	handoffApplyBeforeLockHook  func()
+	handoffApplyBeforeWriteHook func()
 )
 
 type HandoffOptions struct {
 	Selector                           string
+	ExpectedPublicationPlanSHA256      string
+	PublicationStamp                   string
 	ProjectMissionCommanderNextActions []mission.MissionCommanderNextActionItem
 	ProjectNextBatchStarterPackage     *ProjectNextBatchStarterPackage
 	CurrentLoopOperator                *mission.CurrentLoopOperatorPackage
@@ -95,6 +104,9 @@ type HandoffResult struct {
 	CurrentLoopSegment                 *currentloop.Inspection                     `json:"currentLoopSegment,omitempty"`
 	CurrentLoopOperator                *mission.CurrentLoopOperatorPackage         `json:"currentLoopOperator,omitempty"`
 	ProjectNextBatchStarterPackage     *ProjectNextBatchStarterPackage             `json:"projectNextBatchStarterPackage,omitempty"`
+	PublicationPlanSHA256              string                                      `json:"publicationPlanSha256,omitempty"`
+	PublicationStamp                   string                                      `json:"publicationStamp,omitempty"`
+	ApplyCommand                       string                                      `json:"applyCommand,omitempty"`
 	Writes                             []StartWrite                                `json:"writes"`
 	BlockedActions                     []string                                    `json:"blockedActions"`
 	NextSteps                          []string                                    `json:"nextSteps"`
@@ -118,6 +130,15 @@ func HandoffPreview(repoRoot, caseRoot, pack string, opt HandoffOptions) (Handof
 		return HandoffResult{}, err
 	}
 	result.Writes = append(result.Writes, takeoverWrites...)
+	plan, err := ctx.buildPublicationPlan()
+	if err != nil {
+		return HandoffResult{}, err
+	}
+	result = plan.Preview
+	result.PublicationPlanSHA256 = plan.PublicationSHA256
+	result.PublicationStamp = ctx.stamp
+	result.ApplyCommand = handoffApplyCommand(ctx.inst.CaseRoot, ctx.selector, result.PublicationPlanSHA256, ctx.stamp)
+	bindHandoffApplyRoute(&result, result.ApplyCommand)
 	return result, nil
 }
 
@@ -210,9 +231,16 @@ func missingBoardHandoffPreview(repoRoot, caseRoot, pack string) (HandoffResult,
 }
 
 func HandoffApply(repoRoot, caseRoot, pack string, opt HandoffOptions) (result HandoffResult, err error) {
+	expected := strings.TrimSpace(opt.ExpectedPublicationPlanSHA256)
 	ctx, err := newHandoffContext(repoRoot, caseRoot, pack, opt)
 	if err != nil {
 		return HandoffResult{}, err
+	}
+	if expected == "" {
+		return HandoffResult{}, fmt.Errorf("handoff apply requires -ExpectedHandoffPlanSha256 from a fresh WhatIf preview")
+	}
+	if strings.TrimSpace(opt.PublicationStamp) == "" {
+		return HandoffResult{}, fmt.Errorf("handoff apply requires -HandoffPublicationStamp from the same WhatIf preview")
 	}
 	if handoffApplyBeforeLockHook != nil {
 		handoffApplyBeforeLockHook()
@@ -239,16 +267,26 @@ func HandoffApply(repoRoot, caseRoot, pack string, opt HandoffOptions) (result H
 	if err := lease.Validate(); err != nil {
 		return HandoffResult{}, err
 	}
-	writes, err := ctx.write()
+	plan, err := ctx.buildPublicationPlan()
 	if err != nil {
 		return HandoffResult{}, err
 	}
-	result = ctx.result(true, true, false, writes)
-	takeoverWrites, err := ctx.writeReplacementExecutorTakeoverPackageArtifacts(result.ReplacementExecutorTakeoverPackage)
-	if err != nil {
+	if !strings.EqualFold(expected, plan.PublicationSHA256) {
+		return HandoffResult{}, fmt.Errorf("handoff publication plan sha256 mismatch: got %s want %s; rerun handoff -WhatIf", expected, plan.PublicationSHA256)
+	}
+	if err := ctx.publishPublicationPlan(plan); err != nil {
 		return HandoffResult{}, err
 	}
-	result.Writes = append(result.Writes, takeoverWrites...)
+	result = plan.Preview
+	result.IsMutation = true
+	result.Applied = true
+	result.RequiresConfirmation = false
+	result.PublicationPlanSHA256 = plan.PublicationSHA256
+	result.PublicationStamp = ctx.stamp
+	result.ApplyCommand = handoffApplyCommand(ctx.inst.CaseRoot, ctx.selector, plan.PublicationSHA256, ctx.stamp)
+	bindHandoffApplyRoute(&result, result.ApplyCommand)
+	result.Writes = appliedHandoffWrites(plan.Writes)
+	result.NextSteps = mission.UniqueStrings(append([]string{"use /rekit as the Mission Commander entrypoint; JSON preview/apply is Go-owned by default"}, appliedHandoffNextSteps(result)...))
 	return result, nil
 }
 
@@ -286,7 +324,14 @@ func newHandoffContext(repoRoot, caseRoot, pack string, opt HandoffOptions) (han
 		b.DefaultAuthorityLane = m.WorkstreamDefaults["defaultAuthorityLane"]
 	}
 	selector := strings.TrimSpace(opt.Selector)
-	ctx := handoffContext{inst: inst, manifest: m, board: b, selector: selector, project: selector == "", stamp: handoffTimestamp(), currentLoopOperator: opt.CurrentLoopOperator}
+	stamp := strings.TrimSpace(opt.PublicationStamp)
+	if stamp == "" {
+		stamp = handoffTimestamp()
+	}
+	if !regexp.MustCompile(`^[0-9]{8}-[0-9]{9}$`).MatchString(stamp) {
+		return handoffContext{}, fmt.Errorf("handoff publication stamp is invalid: %s", stamp)
+	}
+	ctx := handoffContext{inst: inst, manifest: m, board: b, selector: selector, project: selector == "", stamp: stamp, currentLoopOperator: opt.CurrentLoopOperator}
 	if ctx.project {
 		ctx.projectMissionCommanderNextActions = mission.UniqueCommanderNextActions(opt.ProjectMissionCommanderNextActions)
 		ctx.projectNextBatchStarterPackage = cloneProjectNextBatchStarterPackage(opt.ProjectNextBatchStarterPackage)
@@ -440,6 +485,372 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 	}
 }
 
+type handoffPublicationPlanIdentity struct {
+	SchemaVersion int                               `json:"schemaVersion"`
+	Publications  []handoffPublicationWriteIdentity `json:"publications"`
+	Inputs        []handoffPublicationInputIdentity `json:"inputs"`
+}
+
+type handoffPublicationInputIdentity struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+	Bytes  int    `json:"bytes"`
+}
+
+type handoffPublicationWriteIdentity struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+	Bytes  []byte `json:"bytes"`
+}
+
+type handoffPublicationWrite struct {
+	Path  string
+	Bytes []byte
+}
+
+type handoffPublicationPlan struct {
+	Preview           HandoffResult
+	Writes            []StartWrite
+	Publications      []handoffPublicationWrite
+	Inputs            []handoffPublicationInputIdentity
+	PublicationSHA256 string
+}
+
+func (ctx handoffContext) buildPublicationPlan() (handoffPublicationPlan, error) {
+	initialInputs, err := ctx.publicationInputIdentity()
+	if err != nil {
+		return handoffPublicationPlan{}, err
+	}
+	resumeArtifacts, err := ctx.buildResumePublications()
+	if err != nil {
+		return handoffPublicationPlan{}, err
+	}
+	markdown, writes, err := ctx.renderPublication(false)
+	if err != nil {
+		return handoffPublicationPlan{}, err
+	}
+	stampPath, latestPath, err := ctx.projectHandoffPaths()
+	if !ctx.project && ctx.lane != nil {
+		stampPath, latestPath, err = ctx.laneHandoffPaths(ctx.lane.ID)
+	}
+	if err != nil {
+		return handoffPublicationPlan{}, err
+	}
+	scope := "project"
+	if !ctx.project {
+		scope = "lane"
+	}
+	writes = append(writes,
+		StartWrite{Path: relativePath(ctx.inst.CaseRoot, stampPath), Kind: "handoff", Action: "would-write-" + scope + "-handoff", TargetPath: stampPath},
+		StartWrite{Path: relativePath(ctx.inst.CaseRoot, latestPath), Kind: "handoff", Action: "would-write-latest-" + scope + "-handoff", TargetPath: latestPath},
+	)
+	preview := ctx.result(false, false, true, writes)
+	bindHandoffApplyRoute(&preview, handoffApplyCommand(ctx.inst.CaseRoot, ctx.selector, handoffPublicationPlanSHA256Marker, ctx.stamp))
+	takeoverWrites, err := ctx.replacementExecutorTakeoverPackageArtifactWrites(false, preview.ReplacementExecutorTakeoverPackage)
+	if err != nil {
+		return handoffPublicationPlan{}, err
+	}
+	preview.Writes = append(preview.Writes, takeoverWrites...)
+
+	publications := make([]handoffPublicationWrite, 0, len(resumeArtifacts)*2+4)
+	for _, artifact := range resumeArtifacts {
+		publications = append(publications,
+			handoffPublicationWrite{Path: artifact.ResumePath, Bytes: artifact.ResumeBytes},
+			handoffPublicationWrite{Path: artifact.CheckpointPath, Bytes: artifact.CheckpointBytes},
+		)
+	}
+	markerMarkdown := []byte(ctx.bindHandoffPublicationMarkdown(markdown, handoffPublicationPlanSHA256Marker))
+	publications = append(publications,
+		handoffPublicationWrite{Path: stampPath, Bytes: markerMarkdown},
+		handoffPublicationWrite{Path: latestPath, Bytes: markerMarkdown},
+	)
+	if preview.ReplacementExecutorTakeoverPackage != nil && preview.ReplacementExecutorTakeoverPackage.Ready {
+		takeoverJSON, err := json.MarshalIndent(preview.ReplacementExecutorTakeoverPackage, "", "  ")
+		if err != nil {
+			return handoffPublicationPlan{}, err
+		}
+		takeoverJSON = append(takeoverJSON, '\n')
+		takeoverStamp, takeoverLatest, err := ctx.replacementExecutorTakeoverPackagePaths()
+		if err != nil {
+			return handoffPublicationPlan{}, err
+		}
+		publications = append(publications,
+			handoffPublicationWrite{Path: takeoverStamp, Bytes: takeoverJSON},
+			handoffPublicationWrite{Path: takeoverLatest, Bytes: takeoverJSON},
+		)
+	}
+	sort.Slice(publications, func(i, j int) bool { return publications[i].Path < publications[j].Path })
+	inputs, err := ctx.publicationInputIdentity()
+	if err != nil {
+		return handoffPublicationPlan{}, err
+	}
+	if !handoffPublicationInputsEqual(initialInputs, inputs) {
+		return handoffPublicationPlan{}, fmt.Errorf("handoff publication inputs changed while constructing plan; rerun handoff -WhatIf")
+	}
+	publicationSHA256, err := handoffPublicationPlanSHA256(publications, inputs)
+	if err != nil {
+		return handoffPublicationPlan{}, err
+	}
+	for idx := range publications {
+		publications[idx].Bytes = bytes.ReplaceAll(
+			publications[idx].Bytes,
+			[]byte(handoffPublicationPlanSHA256Marker),
+			[]byte(publicationSHA256),
+		)
+	}
+	return handoffPublicationPlan{
+		Preview:           preview,
+		Writes:            preview.Writes,
+		Publications:      publications,
+		Inputs:            inputs,
+		PublicationSHA256: publicationSHA256,
+	}, nil
+}
+
+func (ctx handoffContext) publicationTime() string {
+	value, err := time.Parse("20060102-150405000", ctx.stamp)
+	if err != nil {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339Nano)
+}
+
+func (ctx handoffContext) buildResumePublications() ([]laneResumePublication, error) {
+	lanes := []Lane{}
+	if ctx.project {
+		lanes = ctx.currentLanes()
+	} else if ctx.lane != nil {
+		lanes = []Lane{*ctx.lane}
+	}
+	artifacts := make([]laneResumePublication, 0, len(lanes))
+	for _, lane := range lanes {
+		artifact, err := buildLaneResumePublication(ctx.inst.CaseRoot, ctx.manifest, lane, ctx.publicationTime())
+		if err != nil {
+			return nil, err
+		}
+		artifacts = append(artifacts, artifact)
+	}
+	return artifacts, nil
+}
+
+func (ctx handoffContext) publishPublicationPlan(plan handoffPublicationPlan) error {
+	currentInputs, err := ctx.publicationInputIdentity()
+	if err != nil {
+		return err
+	}
+	if !handoffPublicationInputsEqual(plan.Inputs, currentInputs) {
+		return fmt.Errorf("handoff publication inputs changed after plan construction; rerun handoff -WhatIf")
+	}
+	if handoffApplyBeforeWriteHook != nil {
+		handoffApplyBeforeWriteHook()
+		currentInputs, err = ctx.publicationInputIdentity()
+		if err != nil {
+			return err
+		}
+		if !handoffPublicationInputsEqual(plan.Inputs, currentInputs) {
+			return fmt.Errorf("handoff publication inputs changed before first write; rerun handoff -WhatIf")
+		}
+	}
+	for _, publication := range plan.Publications {
+		if err := writePublicationBytes(publication.Path, publication.Bytes); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writePublicationBytes(path string, data []byte) (resultErr error) {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	temp, err := os.CreateTemp(dir, ".rekit-handoff-*.tmp")
+	if err != nil {
+		return err
+	}
+	tempPath := temp.Name()
+	defer func() {
+		if tempPath == "" {
+			return
+		}
+		if closeErr := temp.Close(); closeErr != nil && resultErr == nil {
+			resultErr = closeErr
+		}
+		_ = os.Remove(tempPath)
+	}()
+	if err := temp.Chmod(0o644); err != nil {
+		return err
+	}
+	if _, err := temp.Write(data); err != nil {
+		return err
+	}
+	if err := temp.Sync(); err != nil {
+		return err
+	}
+	if err := temp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		return err
+	}
+	tempPath = ""
+	return syncHandoffPublicationDirectory(dir)
+}
+
+func handoffPublicationInputsEqual(left, right []handoffPublicationInputIdentity) bool {
+	leftJSON, leftErr := json.Marshal(left)
+	rightJSON, rightErr := json.Marshal(right)
+	return leftErr == nil && rightErr == nil && bytes.Equal(leftJSON, rightJSON)
+}
+
+func appliedHandoffWrites(writes []StartWrite) []StartWrite {
+	out := append([]StartWrite{}, writes...)
+	for idx := range out {
+		out[idx].Action = strings.TrimPrefix(out[idx].Action, "would-")
+	}
+	return out
+}
+
+func appliedHandoffNextSteps(result HandoffResult) []string {
+	includeEvidenceContinue := result.ExecutorAction != nil && !result.ExecutorAction.Blocked
+	next := ExecutionEvidenceReviewNextSteps(result.ExecutionEvidenceReview, includeEvidenceContinue)
+	if result.Project {
+		return append(next, "open .rekit/handovers/latest.md in the case to continue")
+	}
+	if result.ExecutorAction != nil && !ExecutionEvidenceReviewNeedsMainReview(result.ExecutionEvidenceReview) {
+		return append(next, result.ExecutorAction.NextAgentActions...)
+	}
+	return next
+}
+
+func handoffPublicationPlanSHA256(publications []handoffPublicationWrite, inputs []handoffPublicationInputIdentity) (string, error) {
+	identityWrites := make([]handoffPublicationWriteIdentity, 0, len(publications))
+	for _, publication := range publications {
+		sum := sha256.Sum256(publication.Bytes)
+		identityWrites = append(identityWrites, handoffPublicationWriteIdentity{
+			Path:   filepath.Clean(publication.Path),
+			SHA256: hex.EncodeToString(sum[:]),
+			Bytes:  publication.Bytes,
+		})
+	}
+	identity := handoffPublicationPlanIdentity{
+		SchemaVersion: 2,
+		Publications:  identityWrites,
+		Inputs:        inputs,
+	}
+	data, err := json.Marshal(identity)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func (ctx handoffContext) renderPublication(apply bool) (string, []StartWrite, error) {
+	if ctx.project {
+		return ctx.renderProject(apply)
+	}
+	return ctx.renderLane(*ctx.lane, apply)
+}
+
+func (ctx handoffContext) publicationInputIdentity() ([]handoffPublicationInputIdentity, error) {
+	root, err := refsf.SafeJoin(ctx.inst.CaseRoot, ".rekit")
+	if err != nil {
+		return nil, err
+	}
+	inputs := []handoffPublicationInputIdentity{}
+	err = filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if info.IsDir() {
+			if rel == "handovers" || rel == "locks" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasSuffix(rel, "/prompts/RESUME.md") || strings.HasSuffix(rel, "/checkpoints/latest.json") {
+			return nil
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("handoff publication input is not a regular file: %s", rel)
+		}
+		data, err := readStableHandoffPublicationInput(path, info)
+		if err != nil {
+			return err
+		}
+		sum := sha256.Sum256(data)
+		inputs = append(inputs, handoffPublicationInputIdentity{Path: rel, SHA256: hex.EncodeToString(sum[:]), Bytes: len(data)})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(inputs, func(i, j int) bool { return inputs[i].Path < inputs[j].Path })
+	return inputs, nil
+}
+
+func readStableHandoffPublicationInput(path string, before os.FileInfo) ([]byte, error) {
+	if before == nil || !before.Mode().IsRegular() {
+		return nil, fmt.Errorf("handoff publication input must be a regular file: %s", path)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	opened, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !opened.Mode().IsRegular() || !os.SameFile(before, opened) {
+		return nil, fmt.Errorf("handoff publication input changed while opening: %s", path)
+	}
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return nil, err
+	}
+	after, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !after.Mode().IsRegular() || !os.SameFile(opened, after) || after.Size() != int64(len(data)) {
+		return nil, fmt.Errorf("handoff publication input changed while reading: %s", path)
+	}
+	return data, nil
+}
+
+func (ctx handoffContext) bindHandoffPublicationMarkdown(markdown, publicationPlanSHA256 string) string {
+	generic := handoffApplyCommand(ctx.inst.CaseRoot, ctx.selector)
+	bound := handoffApplyCommand(ctx.inst.CaseRoot, ctx.selector, publicationPlanSHA256, ctx.stamp)
+	markdown = strings.ReplaceAll(markdown, generic, bound)
+	if !strings.Contains(markdown, bound) {
+		markdown += "\n## Handoff publication plan\n\n"
+		markdown += "- sha256: " + strings.TrimSpace(publicationPlanSHA256) + "\n"
+		markdown += "- exact apply: `" + bound + "`\n"
+	}
+	return markdown
+}
+
+func bindHandoffApplyRoute(result *HandoffResult, command string) {
+	if result == nil || strings.TrimSpace(command) == "" || result.DailyMissionControlRunbook == nil {
+		return
+	}
+	runbook := result.DailyMissionControlRunbook
+	runbook.HandoffApplyCommand = command
+	for idx := range runbook.RunLoop {
+		if runbook.RunLoop[idx].StepID == "write-handoff-for-takeover" {
+			runbook.RunLoop[idx].Command = command
+		}
+	}
+	runbook.HandoffApplyDriverRequest = dailyMissionControlHandoffDriverRequest(runbook, "write-handoff-for-takeover", command, true, true)
+}
+
 func handoffRunbookScope(project bool, selector string) string {
 	selector = strings.TrimSpace(selector)
 	if project || selector == "" {
@@ -449,17 +860,31 @@ func handoffRunbookScope(project bool, selector string) string {
 }
 
 func handoffPreviewCommand(caseRoot, selector string) string {
-	return handoffCommand(caseRoot, selector, false)
+	return handoffCommand(caseRoot, selector, false, "", "")
 }
 
-func handoffApplyCommand(caseRoot, selector string) string {
-	return handoffCommand(caseRoot, selector, true)
+func handoffApplyCommand(caseRoot, selector string, expected ...string) string {
+	sha256 := ""
+	stamp := ""
+	if len(expected) > 0 {
+		sha256 = strings.TrimSpace(expected[0])
+	}
+	if len(expected) > 1 {
+		stamp = strings.TrimSpace(expected[1])
+	}
+	return handoffCommand(caseRoot, selector, true, sha256, stamp)
 }
 
-func handoffCommand(caseRoot, selector string, apply bool) string {
+func handoffCommand(caseRoot, selector string, apply bool, expectedSHA256, publicationStamp string) string {
 	parts := []string{"/rekit", "handoff", "-Target", caseRoot}
 	if apply {
 		parts = append(parts, "-Apply")
+		if expectedSHA256 != "" {
+			parts = append(parts, "-ExpectedHandoffPlanSha256", expectedSHA256)
+		}
+		if publicationStamp != "" {
+			parts = append(parts, "-HandoffPublicationStamp", publicationStamp)
+		}
 	} else {
 		parts = append(parts, "-WhatIf")
 	}
@@ -741,45 +1166,6 @@ func (ctx handoffContext) plannedWrites(apply bool) ([]StartWrite, error) {
 	return ctx.laneWrites(apply, *ctx.lane)
 }
 
-func (ctx handoffContext) write() ([]StartWrite, error) {
-	if ctx.project {
-		text, writes, err := ctx.renderProject(true)
-		if err != nil {
-			return nil, err
-		}
-		stampPath, latestPath, err := ctx.projectHandoffPaths()
-		if err != nil {
-			return nil, err
-		}
-		if err := writeText(stampPath, text); err != nil {
-			return nil, err
-		}
-		if err := writeText(latestPath, text); err != nil {
-			return nil, err
-		}
-		writes = append(writes, StartWrite{Path: relativePath(ctx.inst.CaseRoot, stampPath), Kind: "handoff", Action: "write-project-handoff", TargetPath: stampPath})
-		writes = append(writes, StartWrite{Path: relativePath(ctx.inst.CaseRoot, latestPath), Kind: "handoff", Action: "write-latest-project-handoff", TargetPath: latestPath})
-		return writes, nil
-	}
-	text, writes, err := ctx.renderLane(*ctx.lane, true)
-	if err != nil {
-		return nil, err
-	}
-	stampPath, latestPath, err := ctx.laneHandoffPaths(ctx.lane.ID)
-	if err != nil {
-		return nil, err
-	}
-	if err := writeText(stampPath, text); err != nil {
-		return nil, err
-	}
-	if err := writeText(latestPath, text); err != nil {
-		return nil, err
-	}
-	writes = append(writes, StartWrite{Path: relativePath(ctx.inst.CaseRoot, stampPath), Kind: "handoff", Action: "write-lane-handoff", TargetPath: stampPath})
-	writes = append(writes, StartWrite{Path: relativePath(ctx.inst.CaseRoot, latestPath), Kind: "handoff", Action: "write-latest-lane-handoff", TargetPath: latestPath})
-	return writes, nil
-}
-
 func (ctx handoffContext) projectWrites(apply bool) ([]StartWrite, error) {
 	_, writes, err := ctx.renderProject(apply)
 	if err != nil {
@@ -840,7 +1226,7 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 	var out bytes.Buffer
 	fmt.Fprintln(&out, "# rekit 项目接手索引")
 	fmt.Fprintln(&out)
-	fmt.Fprintf(&out, "生成时间：%s\n", isoNow())
+	fmt.Fprintf(&out, "生成时间：%s\n", ctx.publicationTime())
 	fmt.Fprintf(&out, "case：%s\n", ctx.inst.CaseRoot)
 	fmt.Fprintf(&out, "pack：%s\n", ctx.manifest.Pack)
 	fmt.Fprintln(&out)
@@ -1487,7 +1873,7 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 	var out bytes.Buffer
 	fmt.Fprintf(&out, "# rekit 工作线接手：%s\n", lane.ID)
 	fmt.Fprintln(&out)
-	fmt.Fprintf(&out, "生成时间：%s\n", isoNow())
+	fmt.Fprintf(&out, "生成时间：%s\n", ctx.publicationTime())
 	fmt.Fprintf(&out, "case：%s\n", ctx.inst.CaseRoot)
 	fmt.Fprintf(&out, "pack：%s\n", ctx.manifest.Pack)
 	fmt.Fprintf(&out, "类型：%s\n", kind)
@@ -1676,24 +2062,6 @@ func (ctx handoffContext) replacementExecutorTakeoverPackageArtifactWrites(apply
 		{Path: relativePath(ctx.inst.CaseRoot, stampPath), Kind: "replacement-executor-takeover-package", Action: prefix + "write-replacement-executor-takeover-package", TargetPath: stampPath},
 		{Path: relativePath(ctx.inst.CaseRoot, latestPath), Kind: "replacement-executor-takeover-package", Action: prefix + "write-latest-replacement-executor-takeover-package", TargetPath: latestPath},
 	}, nil
-}
-
-func (ctx handoffContext) writeReplacementExecutorTakeoverPackageArtifacts(pkg *mission.ReplacementExecutorTakeoverPackage) ([]StartWrite, error) {
-	writes, err := ctx.replacementExecutorTakeoverPackageArtifactWrites(true, pkg)
-	if err != nil || len(writes) == 0 {
-		return writes, err
-	}
-	data, err := json.MarshalIndent(pkg, "", "  ")
-	if err != nil {
-		return nil, err
-	}
-	text := string(data) + "\n"
-	for _, write := range writes {
-		if err := writeTextAtomic(write.TargetPath, text); err != nil {
-			return nil, err
-		}
-	}
-	return writes, nil
 }
 
 func readBoard(caseRoot string) (board, error) {
@@ -2377,44 +2745,6 @@ func writeText(path, text string) error {
 		return err
 	}
 	return os.WriteFile(path, []byte(text), 0o644)
-}
-
-func writeTextAtomic(path, text string) (resultErr error) {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	temp, err := os.CreateTemp(dir, ".rekit-takeover-*.tmp")
-	if err != nil {
-		return err
-	}
-	tempPath := temp.Name()
-	defer func() {
-		if tempPath == "" {
-			return
-		}
-		if closeErr := temp.Close(); closeErr != nil && resultErr == nil {
-			resultErr = closeErr
-		}
-		_ = os.Remove(tempPath)
-	}()
-	if err := temp.Chmod(0o644); err != nil {
-		return err
-	}
-	if _, err := temp.WriteString(text); err != nil {
-		return err
-	}
-	if err := temp.Sync(); err != nil {
-		return err
-	}
-	if err := temp.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tempPath, path); err != nil {
-		return err
-	}
-	tempPath = ""
-	return nil
 }
 
 func handoffTimestamp() string {

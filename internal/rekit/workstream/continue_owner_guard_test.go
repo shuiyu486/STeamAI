@@ -1,6 +1,7 @@
 package workstream
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -467,7 +468,11 @@ func TestLegacyAttachedCaseMutationLeaseUsesLegacyInstanceBinding(t *testing.T) 
 	if err := lease.Unlock(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := HandoffApply(repoRoot, caseRoot, defaults.DefaultPack, HandoffOptions{Selector: "devirt-main"}); err != nil {
+	preview, err := HandoffPreview(repoRoot, caseRoot, defaults.DefaultPack, HandoffOptions{Selector: "devirt-main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := HandoffApply(repoRoot, caseRoot, defaults.DefaultPack, HandoffOptions{Selector: "devirt-main", ExpectedPublicationPlanSHA256: preview.PublicationPlanSHA256, PublicationStamp: preview.PublicationStamp}); err != nil {
 		t.Fatalf("legacy attached case handoff failed: %v", err)
 	}
 }
@@ -607,29 +612,123 @@ func TestConcurrentTakeoverAndContinueRejectsStaleCallerBeforeRunWrite(t *testin
 	}
 }
 
-func TestLaneHandoffApplyRereadsAfterTakeoverAndDoesNotPublishStaleOwner(t *testing.T) {
+func TestLaneHandoffApplyRejectsPreviewAfterTakeoverWithoutPublishing(t *testing.T) {
 	repoRoot, caseRoot := setupOwnedContinueCase(t)
+	preview, err := HandoffPreview(repoRoot, caseRoot, defaults.DefaultPack, HandoffOptions{Selector: "devirt-main"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var hookErr error
 	handoffApplyBeforeLockHook = func() {
 		handoffApplyBeforeLockHook = nil
 		_, hookErr = StartApply(repoRoot, caseRoot, defaults.DefaultPack, StartOptions{Selector: "devirt-main", Executor: "executor-two", Actor: "main-agent", TakeoverReason: "replacement during handoff"})
 	}
 	t.Cleanup(func() { handoffApplyBeforeLockHook = nil })
-	result, err := HandoffApply(repoRoot, caseRoot, defaults.DefaultPack, HandoffOptions{Selector: "devirt-main"})
+	_, err = HandoffApply(repoRoot, caseRoot, defaults.DefaultPack, HandoffOptions{Selector: "devirt-main", ExpectedPublicationPlanSHA256: preview.PublicationPlanSHA256, PublicationStamp: preview.PublicationStamp})
 	if hookErr != nil {
 		t.Fatal(hookErr)
 	}
+	if err == nil || !strings.Contains(err.Error(), "publication plan sha256 mismatch") {
+		t.Fatalf("stale handoff error = %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(caseRoot, ".rekit", "handovers", "devirt-main-latest.md")); !os.IsNotExist(statErr) {
+		t.Fatalf("stale handoff published latest markdown: %v", statErr)
+	}
+	if _, statErr := os.Stat(filepath.Join(caseRoot, ".rekit", "handovers", "devirt-main-latest-replacement-executor-takeover.json")); !os.IsNotExist(statErr) {
+		t.Fatalf("stale handoff published latest takeover artifact: %v", statErr)
+	}
+}
+
+func TestLaneHandoffApplyRejectsInboxDriftWithoutPublishing(t *testing.T) {
+	repoRoot, caseRoot := setupOwnedContinueCase(t)
+	preview, err := HandoffPreview(repoRoot, caseRoot, defaults.DefaultPack, HandoffOptions{Selector: "devirt-main"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Lane == nil || result.Lane.CurrentExecutor != "executor-two" || result.Lane.ExecutorGeneration != 2 {
-		t.Fatalf("handoff result retained stale owner: %+v", result.Lane)
+	inbox := filepath.Join(caseRoot, ".rekit", "lanes", "devirt-main", "inbox.jsonl")
+	file, err := os.OpenFile(inbox, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
 	}
-	assertCurrentOwnerArtifacts(t, caseRoot, "executor-two", 2, "executor-one", 1, filepath.Join(".rekit", "handovers", "devirt-main-latest.md"))
+	if _, err := file.WriteString(`{"eventId":"evt-preview-drift","kind":"message","summary":"changed after preview"}` + "\n"); err != nil {
+		_ = file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, err = HandoffApply(repoRoot, caseRoot, defaults.DefaultPack, HandoffOptions{Selector: "devirt-main", ExpectedPublicationPlanSHA256: preview.PublicationPlanSHA256, PublicationStamp: preview.PublicationStamp})
+	if err == nil || !strings.Contains(err.Error(), "publication plan sha256 mismatch") {
+		t.Fatalf("inbox drift handoff error = %v", err)
+	}
+	for _, path := range []string{
+		filepath.Join(caseRoot, ".rekit", "handovers", "devirt-main-latest.md"),
+		filepath.Join(caseRoot, ".rekit", "handovers", "devirt-main-latest-replacement-executor-takeover.json"),
+	} {
+		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+			t.Fatalf("inbox drift handoff published %s: %v", path, statErr)
+		}
+	}
 }
 
-func TestProjectHandoffApplySerializesWithoutDeadlockAndRereadsAllLanes(t *testing.T) {
+func TestLaneHandoffApplyRejectsInputDriftBeforeFirstWrite(t *testing.T) {
 	repoRoot, caseRoot := setupOwnedContinueCase(t)
+	preview, err := HandoffPreview(repoRoot, caseRoot, defaults.DefaultPack, HandoffOptions{Selector: "devirt-main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inbox := filepath.Join(caseRoot, ".rekit", "lanes", "devirt-main", "inbox.jsonl")
+	resumePath := filepath.Join(caseRoot, ".rekit", "lanes", "devirt-main", "prompts", "RESUME.md")
+	checkpointPath := filepath.Join(caseRoot, ".rekit", "lanes", "devirt-main", "checkpoints", "latest.json")
+	resumeBefore, err := os.ReadFile(resumePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpointBefore, err := os.ReadFile(checkpointPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handoffApplyBeforeWriteHook = func() {
+		handoffApplyBeforeWriteHook = nil
+		file, hookErr := os.OpenFile(inbox, os.O_APPEND|os.O_WRONLY, 0o600)
+		if hookErr != nil {
+			t.Error(hookErr)
+			return
+		}
+		defer file.Close()
+		if _, hookErr := file.WriteString(`{"eventId":"evt-plan-write-drift","kind":"message","summary":"changed before first write"}` + "\n"); hookErr != nil {
+			t.Error(hookErr)
+		}
+	}
+	t.Cleanup(func() { handoffApplyBeforeWriteHook = nil })
+	_, err = HandoffApply(repoRoot, caseRoot, defaults.DefaultPack, HandoffOptions{Selector: "devirt-main", ExpectedPublicationPlanSHA256: preview.PublicationPlanSHA256, PublicationStamp: preview.PublicationStamp})
+	if err == nil || !strings.Contains(err.Error(), "inputs changed before first write") {
+		t.Fatalf("pre-write drift handoff error = %v", err)
+	}
+	resumeAfter, readErr := os.ReadFile(resumePath)
+	if readErr != nil || !bytes.Equal(resumeBefore, resumeAfter) {
+		t.Fatalf("pre-write drift changed RESUME.md: err=%v", readErr)
+	}
+	checkpointAfter, readErr := os.ReadFile(checkpointPath)
+	if readErr != nil || !bytes.Equal(checkpointBefore, checkpointAfter) {
+		t.Fatalf("pre-write drift changed checkpoint: err=%v", readErr)
+	}
+	for _, path := range []string{
+		filepath.Join(caseRoot, ".rekit", "handovers", "devirt-main-latest.md"),
+		filepath.Join(caseRoot, ".rekit", "handovers", "devirt-main-latest-replacement-executor-takeover.json"),
+	} {
+		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+			t.Fatalf("pre-write drift handoff published %s: %v", path, statErr)
+		}
+	}
+}
+
+func TestProjectHandoffApplySerializesAndRejectsStalePreviewWithoutWrites(t *testing.T) {
+	repoRoot, caseRoot := setupOwnedContinueCase(t)
+	preview, err := HandoffPreview(repoRoot, caseRoot, defaults.DefaultPack, HandoffOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	var hookErr error
 	handoffApplyBeforeLockHook = func() {
 		handoffApplyBeforeLockHook = nil
@@ -638,7 +737,7 @@ func TestProjectHandoffApplySerializesWithoutDeadlockAndRereadsAllLanes(t *testi
 	t.Cleanup(func() { handoffApplyBeforeLockHook = nil })
 	done := make(chan error, 1)
 	go func() {
-		_, err := HandoffApply(repoRoot, caseRoot, defaults.DefaultPack, HandoffOptions{})
+		_, err := HandoffApply(repoRoot, caseRoot, defaults.DefaultPack, HandoffOptions{ExpectedPublicationPlanSHA256: preview.PublicationPlanSHA256, PublicationStamp: preview.PublicationStamp})
 		done <- err
 	}()
 	select {
@@ -646,30 +745,18 @@ func TestProjectHandoffApplySerializesWithoutDeadlockAndRereadsAllLanes(t *testi
 		if hookErr != nil {
 			t.Fatal(hookErr)
 		}
-		if err != nil {
-			t.Fatal(err)
+		if err == nil || !strings.Contains(err.Error(), "publication plan sha256 mismatch") {
+			t.Fatalf("stale project handoff error = %v", err)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("project handoff deadlocked with lane takeover serialization")
 	}
-	assertCurrentOwnerArtifacts(t, caseRoot, "executor-two", 2, "executor-one", 1,
-		filepath.Join(".rekit", "handovers", "latest.md"),
-		filepath.Join(".rekit", "lanes", "devirt-main", "prompts", "RESUME.md"),
-		filepath.Join(".rekit", "lanes", "devirt-main", "checkpoints", "latest.json"),
-	)
-}
-
-func assertCurrentOwnerArtifacts(t *testing.T, caseRoot, current string, generation int, stale string, staleGeneration int, paths ...string) {
-	t.Helper()
-	currentBinding := "-Executor " + current + " -ExpectedExecutorGeneration " + fmt.Sprintf("%d", generation)
-	staleBinding := "-Executor " + stale + " -ExpectedExecutorGeneration " + fmt.Sprintf("%d", staleGeneration)
-	for _, rel := range paths {
-		data, err := os.ReadFile(filepath.Join(caseRoot, rel))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !strings.Contains(string(data), currentBinding) || strings.Contains(string(data), staleBinding) {
-			t.Fatalf("artifact %s does not contain only current owner binding:\n%s", rel, data)
+	for _, path := range []string{
+		filepath.Join(caseRoot, ".rekit", "handovers", "latest.md"),
+		filepath.Join(caseRoot, ".rekit", "handovers", "latest-replacement-executor-takeover.json"),
+	} {
+		if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+			t.Fatalf("stale project handoff published %s: %v", path, statErr)
 		}
 	}
 }

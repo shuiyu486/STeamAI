@@ -186,6 +186,12 @@ try {
   $caseDoctor = Invoke-RekitSmoke -Arguments @('-Command','doctor','-Target',$CaseRoot,'-Pack',$Pack)
   Assert-ContainsText -Text $caseDoctor -Expected 'instance validation ok' -Label 'default go case doctor'
 
+  $handoffTextPreview = Invoke-RekitSmoke -Arguments @('-Command','handoff','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf')
+  Assert-ContainsText -Text $handoffTextPreview -Expected 'sha256=' -Label 'default handoff text preview plan hash'
+  Assert-ContainsText -Text $handoffTextPreview -Expected ' stamp=' -Label 'default handoff text preview publication stamp'
+  Assert-ContainsText -Text $handoffTextPreview -Expected '-ExpectedHandoffPlanSha256' -Label 'default handoff text preview exact apply hash'
+  Assert-ContainsText -Text $handoffTextPreview -Expected '-HandoffPublicationStamp' -Label 'default handoff text preview exact apply stamp'
+
   Assert-FakeDefaultDelegation -Arguments @('-Command','status') -CommandName 'status' -Label 'default status fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','packs') -CommandName 'packs' -Label 'default packs fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','release-check','-Format','json') -CommandName 'release-check' -Label 'default release-check fake delegation'

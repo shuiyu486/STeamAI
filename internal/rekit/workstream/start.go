@@ -944,36 +944,43 @@ func saveBoard(caseRoot string, m *manifest.Manifest) (string, error) {
 	return path, writeJSON(path, b)
 }
 
-func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, string, error) {
+type laneResumePublication struct {
+	ResumePath      string
+	ResumeBytes     []byte
+	CheckpointPath  string
+	CheckpointBytes []byte
+}
+
+func buildLaneResumePublication(caseRoot string, m *manifest.Manifest, lane Lane, updatedAt ...string) (laneResumePublication, error) {
 	laneRoot, err := laneRootPath(caseRoot, lane)
 	if err != nil {
-		return "", "", err
+		return laneResumePublication{}, err
 	}
 	inbox, err := mission.ReadJSONLineObjects(LaneInboxJSONLPath(laneRoot))
 	if err != nil {
-		return "", "", err
+		return laneResumePublication{}, err
 	}
 	tasks, err := mission.ReadJSONLineObjects(LaneTasksJSONLPath(laneRoot))
 	if err != nil {
-		return "", "", err
+		return laneResumePublication{}, err
 	}
 	openInterventions, err := openLaneInterventionSummaries(caseRoot, lane.ID)
 	if err != nil {
-		return "", "", err
+		return laneResumePublication{}, err
 	}
 	ledgerFacts, err := mission.ReadLedgerFacts(caseRoot)
 	if err != nil {
-		return "", "", err
+		return laneResumePublication{}, err
 	}
 	laneFacts := mission.LaneFacts(ledgerFacts.Facts, lane.ID)
 	reviewerWritebacks := ReviewerWritebackItems(ledgerFacts, lane.ID)
 	reviewerDispatchIntakeHandoffs, err := ReviewerDispatchIntakeHandoffs(caseRoot, ledgerFacts, lane.ID)
 	if err != nil {
-		return "", "", err
+		return laneResumePublication{}, err
 	}
 	reviewerPacketRetirementHandoffs, err := ReviewerPacketRetirementHandoffs(caseRoot, lane.ID)
 	if err != nil {
-		return "", "", err
+		return laneResumePublication{}, err
 	}
 	brief := laneMissionBrief(lane, ledgerFacts)
 	pendingGateLines := missionLines(mission.FilterLane(laneFacts.Requests, lane.ID, "pending-gate"), mission.LaneGateLine)
@@ -1108,13 +1115,11 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 	}
 	resume := strings.Join(append(lines, ""), "\r\n")
 	resumePath := filepath.Join(laneRoot, "prompts", "RESUME.md")
-	if err := os.MkdirAll(filepath.Dir(resumePath), 0o755); err != nil {
-		return "", "", err
-	}
-	if err := os.WriteFile(resumePath, []byte(resume), 0o644); err != nil {
-		return "", "", err
-	}
 	checkpointPath := filepath.Join(laneRoot, "checkpoints", "latest.json")
+	checkpointUpdatedAt := time.Now().UTC().Format(time.RFC3339Nano)
+	if len(updatedAt) > 0 && strings.TrimSpace(updatedAt[0]) != "" {
+		checkpointUpdatedAt = strings.TrimSpace(updatedAt[0])
+	}
 	checkpoint := laneCheckpoint{
 		SchemaVersion:                    1,
 		Lane:                             lane.ID,
@@ -1147,13 +1152,43 @@ func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, 
 		OpenInterventions:                openInterventions,
 		Inbox:                            len(inbox),
 		Tasks:                            len(tasks),
-		UpdatedAt:                        time.Now().UTC().Format(time.RFC3339Nano),
+		UpdatedAt:                        checkpointUpdatedAt,
 		Resume:                           relativePath(caseRoot, resumePath),
 	}
-	if err := writeJSON(checkpointPath, checkpoint); err != nil {
+	checkpointBytes, err := json.MarshalIndent(checkpoint, "", "  ")
+	if err != nil {
+		return laneResumePublication{}, err
+	}
+	return laneResumePublication{
+		ResumePath:      resumePath,
+		ResumeBytes:     []byte(resume),
+		CheckpointPath:  checkpointPath,
+		CheckpointBytes: append(checkpointBytes, '\n'),
+	}, nil
+}
+
+func writeLaneResumePublication(publication laneResumePublication) error {
+	if err := os.MkdirAll(filepath.Dir(publication.ResumePath), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(publication.ResumePath, publication.ResumeBytes, 0o644); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(publication.CheckpointPath), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(publication.CheckpointPath, publication.CheckpointBytes, 0o644)
+}
+
+func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, string, error) {
+	publication, err := buildLaneResumePublication(caseRoot, m, lane)
+	if err != nil {
 		return "", "", err
 	}
-	return resumePath, checkpointPath, nil
+	if err := writeLaneResumePublication(publication); err != nil {
+		return "", "", err
+	}
+	return publication.ResumePath, publication.CheckpointPath, nil
 }
 
 func laneExecutorActionFor(lane Lane, laneFacts mission.Facts, brief mission.Brief) laneExecutorAction {

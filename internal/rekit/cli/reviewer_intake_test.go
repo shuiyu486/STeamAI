@@ -837,7 +837,7 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "main", "-Apply", "-Format", "json"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "main", "-Apply", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	handoffApply := decodeHandoffResult(t, out.Bytes())
