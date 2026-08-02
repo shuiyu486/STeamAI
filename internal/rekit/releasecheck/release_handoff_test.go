@@ -1388,33 +1388,26 @@ func TestReleaseHandoffPackMemoryCandidateDecisionVerificationReceipt(t *testing
 	}
 	verificationCommand := assertReleaseHandoffPackMemoryCurrentAction(t, provisionComplete, "fixture", "pack-memory-verification-run-required", "pack-memory-verification-required", "-FreshCaseRoot")
 	assertReleaseHandoffCommandTargetsSource(t, verificationCommand, caseRoot)
-	retirementPreviewCommand := "/rekit promote -PacketPath " + packetPath + " -CandidateDecisionPath " + decisionPath + " -RetireCandidateVerificationWorkspace -WhatIf -Format json"
 	proof := map[string]any{
-		"schemaVersion":            1,
-		"kind":                     "pack-memory-candidate-decision-verification",
-		"pack":                     "fixture",
-		"caseRoot":                 caseRoot,
-		"freshCaseRoot":            freshCaseRoot,
-		"attachedCaseRoot":         attachedCaseRoot,
-		"packetHash":               packetHash,
-		"decisionHash":             decisionHash,
-		"receiptHash":              sha256ReleaseHandoff(append(data, '\n')),
-		"receiptPath":              receiptPath,
-		"verificationProofPath":    proofPath,
-		"provisionIntentPath":      provisionIntentPath,
-		"provisionIntentSha256":    fileSHA256ReleaseHandoff(provisionIntentPath),
-		"provisionReceiptPath":     provisionReceiptPath,
-		"provisionReceiptSha256":   fileSHA256ReleaseHandoff(provisionReceiptPath),
-		"retirementPreviewCommand": retirementPreviewCommand,
-		"isMutation":               true,
-		"applied":                  true,
-		"ready":                    true,
-		"packDoctorRows":           1,
-		"freshDoctorRows":          1,
-		"attachedDoctorRows":       1,
-		"verifiedActions":          actions,
-		"nextSteps":                []string{"rerun release-check"},
-		"boundary":                 []string{"fixture boundary"},
+		"schemaVersion":          1,
+		"kind":                   "pack-memory-candidate-decision-verification",
+		"pack":                   "fixture",
+		"packetHash":             packetHash,
+		"decisionHash":           decisionHash,
+		"receiptHash":            sha256ReleaseHandoff(append(data, '\n')),
+		"provisionIntentSha256":  fileSHA256ReleaseHandoff(provisionIntentPath),
+		"provisionReceiptSha256": fileSHA256ReleaseHandoff(provisionReceiptPath),
+		"isMutation":             true,
+		"applied":                true,
+		"ready":                  true,
+		"packDoctorRows":         1,
+		"freshDoctorRows":        1,
+		"attachedDoctorRows":     1,
+		"verifiedActionsSha256": candidateDecisionActionsSHA256([]candidateDecisionActionInventory{{
+			CandidatePath: candidatePath, Kind: "managed-doc", Decision: "accept", PackTarget: filepath.Join(repo, "packs", "fixture", "memory.md"), Action: "replace pack target with reviewed candidate", CandidateBackupPath: candidateBackupPath, EvidenceRefs: []string{},
+		}}),
+		"nextSteps": []string{"rerun release-check"},
+		"boundary":  []string{"fixture boundary"},
 	}
 	assertProofRejected := func(name, content string) {
 		t.Helper()
@@ -1432,26 +1425,22 @@ func TestReleaseHandoffPackMemoryCandidateDecisionVerificationReceipt(t *testing
 	}
 	assertProofRejected("wrong hash", string(wrongHashData)+"\n")
 	proof["packetHash"] = "packet-hash"
-	proof["receiptPath"] = filepath.Join(proofRoot, "wrong-receipt.json")
+	proof["receiptHash"] = "wrong-receipt-hash"
 	wrongReceiptData, err := json.MarshalIndent(proof, "", "  ")
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertProofRejected("wrong receipt", string(wrongReceiptData)+"\n")
-	proof["receiptPath"] = receiptPath
-	proof["verifiedActions"] = []map[string]any{{
-		"candidatePath": candidatePath,
-		"kind":          "managed-doc",
-		"decision":      "reject",
-		"action":        "reject candidate",
-		"evidenceRefs":  []string{},
-	}}
+	proof["receiptHash"] = sha256ReleaseHandoff(append(data, '\n'))
+	proof["verifiedActionsSha256"] = "wrong-actions-hash"
 	wrongActionsData, err := json.MarshalIndent(proof, "", "  ")
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertProofRejected("wrong actions", string(wrongActionsData)+"\n")
-	proof["verifiedActions"] = actions
+	proof["verifiedActionsSha256"] = candidateDecisionActionsSHA256([]candidateDecisionActionInventory{{
+		CandidatePath: candidatePath, Kind: "managed-doc", Decision: "accept", PackTarget: filepath.Join(repo, "packs", "fixture", "memory.md"), Action: "replace pack target with reviewed candidate", CandidateBackupPath: candidateBackupPath, EvidenceRefs: []string{},
+	}})
 	proofData, err := json.MarshalIndent(proof, "", "  ")
 	if err != nil {
 		t.Fatal(err)
@@ -1689,15 +1678,14 @@ func TestReleaseHandoffPackMemoryCandidateVerificationRetirementLifecycle(t *tes
 	}
 	receiptData = append(receiptData, '\n')
 	writeFile(t, receiptPath, string(receiptData))
-	previewCommand := "/rekit promote -PacketPath " + packetPath + " -CandidateDecisionPath " + decisionPath + " -RetireCandidateVerificationWorkspace -WhatIf -Format json"
 	proof := map[string]any{
-		"schemaVersion": 1, "kind": "pack-memory-candidate-decision-verification", "pack": "fixture", "caseRoot": caseRoot,
-		"freshCaseRoot": freshRoot, "attachedCaseRoot": attachedRoot, "packetHash": packetHash, "decisionHash": decisionHash,
-		"receiptHash": sha256ReleaseHandoff(receiptData), "receiptPath": receiptPath, "verificationProofPath": proofPath,
-		"provisionIntentPath": provisionIntentPath, "provisionIntentSha256": fileSHA256ReleaseHandoff(provisionIntentPath),
-		"provisionReceiptPath": provisionReceiptPath, "provisionReceiptSha256": fileSHA256ReleaseHandoff(provisionReceiptPath),
-		"retirementPreviewCommand": previewCommand, "isMutation": true, "applied": true, "ready": true,
-		"packDoctorRows": 1, "freshDoctorRows": 1, "attachedDoctorRows": 1, "verifiedActions": actions,
+		"schemaVersion": 1, "kind": "pack-memory-candidate-decision-verification", "pack": "fixture",
+		"packetHash": packetHash, "decisionHash": decisionHash, "receiptHash": sha256ReleaseHandoff(receiptData),
+		"provisionIntentSha256": fileSHA256ReleaseHandoff(provisionIntentPath), "provisionReceiptSha256": fileSHA256ReleaseHandoff(provisionReceiptPath),
+		"isMutation": true, "applied": true, "ready": true, "packDoctorRows": 1, "freshDoctorRows": 1, "attachedDoctorRows": 1,
+		"verifiedActionsSha256": candidateDecisionActionsSHA256([]candidateDecisionActionInventory{{
+			CandidatePath: actions[0]["candidatePath"].(string), Kind: "managed-doc", Decision: "accept", PackTarget: actions[0]["packTarget"].(string), Action: "replace pack target with reviewed candidate", CandidateBackupPath: actions[0]["candidateBackupPath"].(string), EvidenceRefs: []string{},
+		}}),
 		"nextSteps": []string{"preview retirement"}, "boundary": []string{"fixture boundary"},
 	}
 	proofData, err := json.MarshalIndent(proof, "", "  ")
@@ -1860,8 +1848,19 @@ func TestReleaseHandoffPackMemoryCandidateVerificationRetirementLifecycle(t *tes
 		}
 	}
 	retired := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
-	if !retired.Ready || retired.Total != 0 || len(retired.Packs) != 0 || len(retired.Warnings) != 0 {
-		t.Fatalf("exact retirement receipt did not close handoff: %+v", retired)
+	if retired.Ready || retired.Total != 3 || len(retired.Packs) != 1 || len(retired.Warnings) != 1 || !retired.Packs[0].DecisionReceipts[0].Retired || retired.Packs[0].ReconsumeOperator == nil || retired.Packs[0].ProofSummary.NextMissingProof == nil || retired.Packs[0].ProofSummary.NextMissingProof.ProofType != "pack-doctor-output" {
+		t.Fatalf("exact retirement receipt did not expose lifecycle proof closure: %+v", retired)
+	}
+	arbitraryEvidence := filepath.Join(proofRoot, "arbitrary-evidence.md")
+	writeFile(t, arbitraryEvidence, "not canonical verification evidence\n")
+	arbitraryProofPath := filepath.Join(proofRoot, "memory.pack-doctor-output.md")
+	writeCandidateLifecycleProof(t, repo, arbitraryProofPath, "fixture", "pack-doctor-output", actions[0]["candidatePath"].(string), actions[0]["packTarget"].(string), []map[string]any{{"name": "pack-doctor", "status": "passed", "summary": "claimed doctor passed"}}, arbitraryEvidence)
+	invalidEvidence := releaseHandoffPackMemoryCandidates(repo, []manifest.PackSummary{{ID: "fixture", Maturity: "skeleton"}})
+	if invalidEvidence.Ready || invalidEvidence.Summary != "pack-memory candidate inventory has warnings" || len(invalidEvidence.Warnings) == 0 || !strings.Contains(fmt.Sprint(invalidEvidence.Warnings), "not the canonical verification proof") {
+		t.Fatalf("arbitrary lifecycle proof evidence was not rejected: %+v", invalidEvidence)
+	}
+	if err := os.Remove(arbitraryProofPath); err != nil {
+		t.Fatal(err)
 	}
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)

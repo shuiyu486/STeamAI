@@ -15254,8 +15254,13 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	if err := json.Unmarshal(verificationProofBytes, &durableVerificationProof); err != nil {
 		t.Fatal(err)
 	}
-	if durableVerificationProof.Mode != "" || durableVerificationProof.Replay || len(durableVerificationProof.VerificationRunbookSteps) != 0 {
-		t.Fatalf("verification proof persisted transient handoff fields: %+v", durableVerificationProof)
+	if durableVerificationProof.Mode != "" || durableVerificationProof.Replay || durableVerificationProof.CaseRoot != "" || durableVerificationProof.FreshCaseRoot != "" || durableVerificationProof.AttachedCaseRoot != "" || durableVerificationProof.ReceiptPath != "" || durableVerificationProof.VerificationProofPath != "" || durableVerificationProof.ProvisionIntentPath != "" || durableVerificationProof.ProvisionReceiptPath != "" || durableVerificationProof.RetirementPreviewCommand != "" || durableVerificationProof.VerifiedActionsSHA256 == "" || len(durableVerificationProof.VerifiedActions) != 0 || len(durableVerificationProof.VerificationRunbookSteps) != 0 {
+		t.Fatalf("verification proof persisted transient or case-local handoff fields: %+v", durableVerificationProof)
+	}
+	for _, caseLocalPath := range []string{caseRoot, decisionApplied.Receipt.VerificationWorkspaceRoot, verificationApplied.FreshCaseRoot, verificationApplied.AttachedCaseRoot} {
+		if bytes.Contains(verificationProofBytes, []byte(caseLocalPath)) {
+			t.Fatalf("verification proof persisted case-local path %q: %s", caseLocalPath, string(verificationProofBytes))
+		}
 	}
 	candidateBeforeVerificationReplay := snapshotFiles(t, candidateRoot)
 	workspaceBeforeVerificationReplay := snapshotFiles(t, decisionApplied.Receipt.VerificationWorkspaceRoot)
@@ -15383,14 +15388,93 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &retiredStatus); err != nil {
 		t.Fatalf("retired status stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if retiredStatus.IsMutation || retiredStatus.ProjectHandoff == nil || !retiredStatus.ProjectHandoff.PackMemoryCandidates.Ready || retiredStatus.ProjectHandoff.PackMemoryCandidates.Total != 0 || len(retiredStatus.ProjectHandoff.PackMemoryCandidates.Packs) != 0 || retiredStatus.ProjectHandoff.PackMemoryCandidates.NextAction != "no pack-memory candidate cleanup is pending" {
-		t.Fatalf("status did not close retired candidate verification handoff: %+v", retiredStatus.ProjectHandoff)
+	if retiredStatus.IsMutation || retiredStatus.ProjectHandoff == nil || retiredStatus.ProjectHandoff.PackMemoryCandidates.Ready || retiredStatus.ProjectHandoff.PackMemoryCandidates.Total == 0 || len(retiredStatus.ProjectHandoff.PackMemoryCandidates.Packs) != 1 {
+		t.Fatalf("status did not expose post-retirement reconsume proof operator: %+v", retiredStatus.ProjectHandoff)
 	}
 	assertSnapshotEqual(t, candidateBeforeRetiredStatus, snapshotFiles(t, candidateRoot))
 	if _, err := os.Stat(retirementApplied.WorkspaceRoot); !os.IsNotExist(err) {
 		t.Fatalf("retired status recreated canonical candidate verification workspace: %v", err)
 	}
 
+	verificationProofRel, err := filepath.Rel(root, verificationApplied.VerificationProofPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	verificationProofRel = filepath.ToSlash(verificationProofRel)
+	for _, proofType := range []string{"pack-doctor-output", "fresh-case-reconsume-proof", "attached-case-reconsume-proof"} {
+		packStatus := retiredStatus.ProjectHandoff.PackMemoryCandidates.Packs[0]
+		operator := packStatus.ReconsumeOperator
+		next := packStatus.ProofSummary.NextMissingProof
+		if operator == nil {
+			t.Fatalf("status omitted typed %s reconsume operator: pack=%+v next=%+v", proofType, packStatus, next)
+		}
+		if operator.Kind != "pack-memory-reviewed-candidate-reconsume-operator" {
+			t.Fatalf("unexpected %s reconsume operator kind: %q", proofType, operator.Kind)
+		}
+		if operator.OperatorID == "" || operator.OperatorSnapshotSHA256 == "" {
+			t.Fatalf("%s reconsume operator omitted stable identity: %+v", proofType, operator)
+		}
+		if operator.VerificationState != "verified" || operator.VerificationProofPath != verificationProofRel {
+			t.Fatalf("unexpected %s reconsume verification binding: state=%q proof=%q want=%q", proofType, operator.VerificationState, operator.VerificationProofPath, verificationProofRel)
+		}
+		if operator.CurrentDriverRequest == nil || operator.CurrentRunLoopStepID != "draft-lifecycle-proof" {
+			t.Fatalf("unexpected %s reconsume current step: step=%q request=%+v", proofType, operator.CurrentRunLoopStepID, operator.CurrentDriverRequest)
+		}
+		if next == nil || next.ProofType != proofType {
+			t.Fatalf("unexpected next reconsume proof: got=%+v want=%q", next, proofType)
+		}
+		if next.ReconsumeOperator == nil || next.ReconsumeOperator.OperatorSnapshotSHA256 != operator.OperatorSnapshotSHA256 {
+			t.Fatalf("next %s proof omitted matching operator snapshot: top=%+v nested=%+v", proofType, operator, next.ReconsumeOperator)
+		}
+		if len(operator.EvidenceRefs) != 1 || operator.EvidenceRefs[0] != verificationProofRel || strings.Contains(operator.CurrentDriverRequest.Command, "<repo-local-lifecycle-evidence-ref>") || strings.Contains(operator.CurrentDriverRequest.Command, "<lifecycle-proof-reason>") || strings.Contains(operator.CurrentDriverRequest.Command, "<actor>") {
+			t.Fatalf("reconsume operator did not bind canonical verification evidence and deterministic draft inputs: %+v", operator)
+		}
+		beforePreview := snapshotFiles(t, candidateRoot)
+		previewArgs := packMemoryTypedDriverRequestCLIArgs(t, operator.CurrentDriverRequest, "_template")
+		out.Reset()
+		if err := Run(previewArgs, &out); err != nil {
+			t.Fatal(err)
+		}
+		var lifecyclePreview promote.CandidateLifecycleProofDraftResult
+		if err := json.Unmarshal(out.Bytes(), &lifecyclePreview); err != nil {
+			t.Fatalf("%s reconsume proof preview JSON did not decode: %v\n%s", proofType, err, out.String())
+		}
+		if lifecyclePreview.IsMutation || lifecyclePreview.Applied || lifecyclePreview.ProofType != proofType || lifecyclePreview.ProofSHA256 == "" || len(lifecyclePreview.Proof.EvidenceRefs) != 1 || lifecyclePreview.Proof.EvidenceRefs[0].Path != verificationProofRel || lifecyclePreview.Proof.EvidenceRefs[0].SHA256 == "" {
+			t.Fatalf("unexpected %s reconsume proof preview: %+v", proofType, lifecyclePreview)
+		}
+		assertSnapshotEqual(t, beforePreview, snapshotFiles(t, candidateRoot))
+		applyRequest := requireTypedMissionCommanderDriverRequest(t, lifecyclePreview.MissionCommanderActionQueue, "preview-command", "preview-current", lifecyclePreview.ApplyCommand, true, false, true)
+		applyArgs := packMemoryTypedDriverRequestCLIArgs(t, applyRequest, "_template")
+		out.Reset()
+		if err := Run(applyArgs, &out); err != nil {
+			t.Fatal(err)
+		}
+		var lifecycleApplied promote.CandidateLifecycleProofDraftResult
+		if err := json.Unmarshal(out.Bytes(), &lifecycleApplied); err != nil {
+			t.Fatalf("%s reconsume proof Apply JSON did not decode: %v\n%s", proofType, err, out.String())
+		}
+		if !lifecycleApplied.IsMutation || !lifecycleApplied.Applied || lifecycleApplied.ProofSHA256 != lifecyclePreview.ProofSHA256 {
+			t.Fatalf("unexpected %s reconsume proof Apply: %+v", proofType, lifecycleApplied)
+		}
+		proofBytes, err := os.ReadFile(lifecycleApplied.ProofPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(proofBytes, []byte(caseRoot)) || bytes.Contains(proofBytes, []byte(retirementApplied.WorkspaceRoot)) {
+			t.Fatalf("%s reconsume proof persisted case-local absolute path: %s", proofType, string(proofBytes))
+		}
+		out.Reset()
+		if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+			t.Fatal(err)
+		}
+		if err := json.Unmarshal(out.Bytes(), &retiredStatus); err != nil {
+			t.Fatalf("post-%s status JSON did not decode: %v\n%s", proofType, err, out.String())
+		}
+	}
+	if retiredStatus.ProjectHandoff == nil || !retiredStatus.ProjectHandoff.PackMemoryCandidates.Ready || retiredStatus.ProjectHandoff.PackMemoryCandidates.Total != 0 || len(retiredStatus.ProjectHandoff.PackMemoryCandidates.Packs) != 0 || retiredStatus.ProjectHandoff.PackMemoryCandidates.NextAction != "no pack-memory candidate cleanup is pending" {
+		t.Fatalf("status did not close reviewed candidate reconsume operator: %+v", retiredStatus.ProjectHandoff)
+	}
+	candidateBeforeRetiredStatus = snapshotFiles(t, candidateRoot)
 	out.Reset()
 	if err := Run([]string{"-Command", "status", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)

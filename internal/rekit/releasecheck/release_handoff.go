@@ -244,28 +244,53 @@ type ReleaseHandoffPackMemoryCandidateReviewSummary struct {
 }
 
 type ReleaseHandoffPackMemoryCandidateReviewNextMissingProof struct {
-	Stage                     string                                 `json:"stage,omitempty"`
-	ProofType                 string                                 `json:"proofType,omitempty"`
-	Path                      string                                 `json:"path,omitempty"`
-	CandidatePath             string                                 `json:"candidatePath,omitempty"`
-	PackTarget                string                                 `json:"packTarget,omitempty"`
-	SourceCaseRoot            string                                 `json:"sourceCaseRoot,omitempty"`
-	When                      string                                 `json:"when,omitempty"`
-	Action                    string                                 `json:"action,omitempty"`
-	Format                    string                                 `json:"format,omitempty"`
-	PacketPath                string                                 `json:"packetPath,omitempty"`
-	CandidateDecisionPath     string                                 `json:"candidateDecisionPath,omitempty"`
-	EvidenceRefs              []string                               `json:"evidenceRefs,omitempty"`
-	DraftCommand              string                                 `json:"draftCommand,omitempty"`
-	DraftApplyTemplate        string                                 `json:"draftApplyTemplate,omitempty"`
-	CurrentRunLoopStepID      string                                 `json:"currentRunLoopStepId,omitempty"`
-	RunLoop                   []mission.MissionCommanderRunLoopStep  `json:"runLoop,omitempty"`
-	CurrentDriverRequest      *mission.MissionCommanderDriverRequest `json:"currentDriverRequest,omitempty"`
-	RequiresPacket            bool                                   `json:"requiresPacket,omitempty"`
-	RequiresCandidateDecision bool                                   `json:"requiresCandidateDecision,omitempty"`
-	RequiresExplicitReview    bool                                   `json:"requiresExplicitReview,omitempty"`
-	Evidence                  []string                               `json:"evidence,omitempty"`
-	Boundary                  []string                               `json:"boundary,omitempty"`
+	Stage                     string                                                     `json:"stage,omitempty"`
+	ProofType                 string                                                     `json:"proofType,omitempty"`
+	Path                      string                                                     `json:"path,omitempty"`
+	CandidatePath             string                                                     `json:"candidatePath,omitempty"`
+	PackTarget                string                                                     `json:"packTarget,omitempty"`
+	SourceCaseRoot            string                                                     `json:"sourceCaseRoot,omitempty"`
+	When                      string                                                     `json:"when,omitempty"`
+	Action                    string                                                     `json:"action,omitempty"`
+	Format                    string                                                     `json:"format,omitempty"`
+	PacketPath                string                                                     `json:"packetPath,omitempty"`
+	CandidateDecisionPath     string                                                     `json:"candidateDecisionPath,omitempty"`
+	EvidenceRefs              []string                                                   `json:"evidenceRefs,omitempty"`
+	DraftCommand              string                                                     `json:"draftCommand,omitempty"`
+	DraftApplyTemplate        string                                                     `json:"draftApplyTemplate,omitempty"`
+	CurrentRunLoopStepID      string                                                     `json:"currentRunLoopStepId,omitempty"`
+	RunLoop                   []mission.MissionCommanderRunLoopStep                      `json:"runLoop,omitempty"`
+	CurrentDriverRequest      *mission.MissionCommanderDriverRequest                     `json:"currentDriverRequest,omitempty"`
+	ReconsumeOperator         *ReleaseHandoffPackMemoryCandidateReconsumeOperatorPackage `json:"reconsumeOperator,omitempty"`
+	RequiresPacket            bool                                                       `json:"requiresPacket,omitempty"`
+	RequiresCandidateDecision bool                                                       `json:"requiresCandidateDecision,omitempty"`
+	RequiresExplicitReview    bool                                                       `json:"requiresExplicitReview,omitempty"`
+	Evidence                  []string                                                   `json:"evidence,omitempty"`
+	Boundary                  []string                                                   `json:"boundary,omitempty"`
+}
+
+type ReleaseHandoffPackMemoryCandidateReconsumeOperatorPackage struct {
+	SchemaVersion           int                                    `json:"schemaVersion"`
+	Kind                    string                                 `json:"kind"`
+	OperatorID              string                                 `json:"operatorId"`
+	OperatorSnapshotSHA256  string                                 `json:"operatorSnapshotSha256"`
+	Pack                    string                                 `json:"pack"`
+	SourceCaseRoot          string                                 `json:"sourceCaseRoot"`
+	PacketPath              string                                 `json:"packetPath"`
+	PacketSHA256            string                                 `json:"packetSha256"`
+	CandidateDecisionPath   string                                 `json:"candidateDecisionPath"`
+	CandidateDecisionSHA256 string                                 `json:"candidateDecisionSha256"`
+	DecisionReceiptPath     string                                 `json:"decisionReceiptPath"`
+	DecisionReceiptSHA256   string                                 `json:"decisionReceiptSha256"`
+	CandidatePath           string                                 `json:"candidatePath"`
+	PackTarget              string                                 `json:"packTarget,omitempty"`
+	VerificationState       string                                 `json:"verificationState"`
+	VerificationProofPath   string                                 `json:"verificationProofPath,omitempty"`
+	EvidenceRefs            []string                               `json:"evidenceRefs,omitempty"`
+	CurrentRunLoopStepID    string                                 `json:"currentRunLoopStepId"`
+	RunLoop                 []mission.MissionCommanderRunLoopStep  `json:"runLoop"`
+	CurrentDriverRequest    *mission.MissionCommanderDriverRequest `json:"currentDriverRequest,omitempty"`
+	Boundary                []string                               `json:"boundary"`
 }
 
 type ReleaseHandoffPackMemoryCandidateReviewProofSummary struct {
@@ -292,32 +317,33 @@ type ReleaseHandoffPackMemoryCandidateReviewProofSummary struct {
 }
 
 type ReleaseHandoffPackMemoryCandidateStatus struct {
-	Pack                   string                                              `json:"pack"`
-	Maturity               string                                              `json:"maturity"`
-	CandidateRoot          string                                              `json:"candidateRoot"`
-	ToolingRoot            string                                              `json:"toolingRoot"`
-	IndexPath              string                                              `json:"indexPath,omitempty"`
-	CandidateFiles         int                                                 `json:"candidateFiles"`
-	ToolingFiles           int                                                 `json:"toolingFiles"`
-	IndexEntries           int                                                 `json:"indexEntries"`
-	CandidatePaths         []string                                            `json:"candidatePaths,omitempty"`
-	ToolingPaths           []string                                            `json:"toolingPaths,omitempty"`
-	IndexCandidates        []ReleaseHandoffPackMemoryCandidateIndexEntry       `json:"indexCandidates,omitempty"`
-	ReviewArtifacts        []ReleaseHandoffPackMemoryCandidateReviewArtifact   `json:"reviewArtifacts,omitempty"`
-	ReviewSummary          ReleaseHandoffPackMemoryCandidateReviewSummary      `json:"reviewSummary"`
-	ProofSummary           ReleaseHandoffPackMemoryCandidateReviewProofSummary `json:"proofSummary"`
-	DecisionReceipts       []ReleaseHandoffPackMemoryCandidateDecisionReceipt  `json:"decisionReceipts,omitempty"`
-	DecisionDraftHandoff   *promote.CandidateDecisionDraftHandoff              `json:"decisionDraftHandoff,omitempty"`
-	PendingVerifications   int                                                 `json:"pendingVerifications"`
-	CompletedVerifications int                                                 `json:"completedVerifications"`
-	ProofRoot              string                                              `json:"proofRoot,omitempty"`
-	HasOpenWork            bool                                                `json:"hasOpenWork"`
-	RequiresReview         bool                                                `json:"requiresReview"`
-	RequiresCleanup        bool                                                `json:"requiresCleanup"`
-	RequiresVerification   bool                                                `json:"requiresVerification"`
-	Action                 string                                              `json:"action,omitempty"`
-	Evidence               []string                                            `json:"evidence,omitempty"`
-	Boundary               []string                                            `json:"boundary,omitempty"`
+	Pack                   string                                                     `json:"pack"`
+	Maturity               string                                                     `json:"maturity"`
+	CandidateRoot          string                                                     `json:"candidateRoot"`
+	ToolingRoot            string                                                     `json:"toolingRoot"`
+	IndexPath              string                                                     `json:"indexPath,omitempty"`
+	CandidateFiles         int                                                        `json:"candidateFiles"`
+	ToolingFiles           int                                                        `json:"toolingFiles"`
+	IndexEntries           int                                                        `json:"indexEntries"`
+	CandidatePaths         []string                                                   `json:"candidatePaths,omitempty"`
+	ToolingPaths           []string                                                   `json:"toolingPaths,omitempty"`
+	IndexCandidates        []ReleaseHandoffPackMemoryCandidateIndexEntry              `json:"indexCandidates,omitempty"`
+	ReviewArtifacts        []ReleaseHandoffPackMemoryCandidateReviewArtifact          `json:"reviewArtifacts,omitempty"`
+	ReviewSummary          ReleaseHandoffPackMemoryCandidateReviewSummary             `json:"reviewSummary"`
+	ProofSummary           ReleaseHandoffPackMemoryCandidateReviewProofSummary        `json:"proofSummary"`
+	DecisionReceipts       []ReleaseHandoffPackMemoryCandidateDecisionReceipt         `json:"decisionReceipts,omitempty"`
+	DecisionDraftHandoff   *promote.CandidateDecisionDraftHandoff                     `json:"decisionDraftHandoff,omitempty"`
+	ReconsumeOperator      *ReleaseHandoffPackMemoryCandidateReconsumeOperatorPackage `json:"reconsumeOperator,omitempty"`
+	PendingVerifications   int                                                        `json:"pendingVerifications"`
+	CompletedVerifications int                                                        `json:"completedVerifications"`
+	ProofRoot              string                                                     `json:"proofRoot,omitempty"`
+	HasOpenWork            bool                                                       `json:"hasOpenWork"`
+	RequiresReview         bool                                                       `json:"requiresReview"`
+	RequiresCleanup        bool                                                       `json:"requiresCleanup"`
+	RequiresVerification   bool                                                       `json:"requiresVerification"`
+	Action                 string                                                     `json:"action,omitempty"`
+	Evidence               []string                                                   `json:"evidence,omitempty"`
+	Boundary               []string                                                   `json:"boundary,omitempty"`
 
 	repoRootFull string
 }
@@ -374,6 +400,7 @@ type ReleaseHandoffPackMemoryCandidateDecisionReceipt struct {
 	receiptHash    string
 	packetHash     string
 	decisionHash   string
+	actionsHash    string
 	caseRootFull   string
 	backupRootFull string
 	indexPathFull  string
@@ -397,6 +424,7 @@ type ReleaseHandoffPackMemoryCandidateReviewArtifact struct {
 	ExpectedProofs        []string `json:"expectedProofs,omitempty"`
 	ProofPath             string   `json:"proofPath,omitempty"`
 	ProofPresent          bool     `json:"proofPresent"`
+	EvidenceRefs          []string `json:"evidenceRefs,omitempty"`
 	Evidence              []string `json:"evidence,omitempty"`
 	Boundary              []string `json:"boundary,omitempty"`
 }
@@ -753,8 +781,8 @@ func releaseHandoffPackMemoryCandidates(repo string, packs []manifest.PackSummar
 		if openUnits == 0 && status.IndexPath != "" {
 			openUnits = 1
 		}
-		if openUnits == 0 && status.ProofSummary.CleanupMissing > 0 {
-			openUnits = status.ProofSummary.CleanupMissing
+		if openUnits == 0 && status.ProofSummary.Missing > 0 {
+			openUnits = status.ProofSummary.Missing
 		}
 		inventory.Total += openUnits
 		inventory.Packs = append(inventory.Packs, status)
@@ -1203,17 +1231,22 @@ func releaseHandoffPackMemoryCandidateStatus(repo string, pack manifest.PackSumm
 		CompletedVerifications: completedVerifications,
 		repoRootFull:           repo,
 	}
-	receiptCleanupArtifacts, err := packMemoryCandidateDecisionCleanupArtifacts(status, proofRoot)
+	receiptReviewArtifacts, err := packMemoryCandidateDecisionCleanupArtifacts(status, proofRoot)
 	if err != nil {
-		return ReleaseHandoffPackMemoryCandidateStatus{}, fmt.Errorf("pack-memory candidate cleanup proof scan failed for %s: %w", pack.ID, err)
+		return ReleaseHandoffPackMemoryCandidateStatus{}, fmt.Errorf("pack-memory candidate post-decision proof scan failed for %s: %w", pack.ID, err)
 	}
+	receiptProofMissing := 0
 	receiptCleanupMissing := 0
-	for _, artifact := range receiptCleanupArtifacts {
-		if !artifact.ProofPresent {
+	for _, artifact := range receiptReviewArtifacts {
+		if artifact.ProofPresent {
+			continue
+		}
+		receiptProofMissing++
+		if artifact.Name == "candidate-cleanup-proof" {
 			receiptCleanupMissing++
 		}
 	}
-	status.HasOpenWork = candidateFileCount > 0 || toolingFileCount > 0 || indexEntryCount > 0 || indexExists || pendingVerifications > 0 || receiptCleanupMissing > 0
+	status.HasOpenWork = candidateFileCount > 0 || toolingFileCount > 0 || indexEntryCount > 0 || indexExists || pendingVerifications > 0 || receiptProofMissing > 0
 	if !status.HasOpenWork {
 		return status, nil
 	}
@@ -1265,16 +1298,108 @@ func releaseHandoffPackMemoryCandidateStatus(repo string, pack manifest.PackSumm
 		return ReleaseHandoffPackMemoryCandidateStatus{}, fmt.Errorf("pack-memory candidate review proof scan failed for %s: %w", pack.ID, err)
 	}
 	status.ReviewArtifacts = reviewArtifacts
-	status.ReviewArtifacts = append(status.ReviewArtifacts, receiptCleanupArtifacts...)
+	status.ReviewArtifacts = append(status.ReviewArtifacts, receiptReviewArtifacts...)
 	status.DecisionDraftHandoff = packMemoryCandidateDecisionDraftHandoff(status)
 	status.ProofSummary = packMemoryCandidateReviewProofSummary(status)
 	status.ReviewSummary = packMemoryCandidateReviewSummary(status)
+	status.ReconsumeOperator = packMemoryCandidateReconsumeOperator(status)
+	if status.ProofSummary.NextMissingProof != nil && status.ReconsumeOperator != nil && status.ProofSummary.NextMissingProof.Stage == "reconsume-proof-required" {
+		status.ProofSummary.NextMissingProof.ReconsumeOperator = status.ReconsumeOperator
+		status.ReviewSummary.ProofSummary = status.ProofSummary
+	}
 	status.Boundary = []string{
 		"release handoff inventories candidate residue and durable decision verification receipts; it does not merge, delete, or validate cases",
 		"review candidates before merge and explicitly verify accepted decisions; do not write authority/confirmed",
 		"do not promote case-specific artifacts, traces, dumps, captures, payloads, flags, or customer data",
 	}
 	return status, nil
+}
+
+func packMemoryCandidateReconsumeOperator(status ReleaseHandoffPackMemoryCandidateStatus) *ReleaseHandoffPackMemoryCandidateReconsumeOperatorPackage {
+	next := status.ProofSummary.NextMissingProof
+	if next == nil || next.Stage != "reconsume-proof-required" {
+		return nil
+	}
+	var receipt *ReleaseHandoffPackMemoryCandidateDecisionReceipt
+	for i := range status.DecisionReceipts {
+		candidate := &status.DecisionReceipts[i]
+		for _, action := range candidate.Actions {
+			if action.Decision == "accept" && action.CandidatePath == next.CandidatePath {
+				receipt = candidate
+				break
+			}
+		}
+		if receipt != nil {
+			break
+		}
+	}
+	if receipt == nil {
+		return nil
+	}
+	verificationState := "provision-required"
+	currentStep := "provision-verification-cases"
+	command := receipt.VerificationProvisionCommand
+	switch {
+	case receipt.RetirementInProgress:
+		verificationState = "retirement-in-progress"
+		currentStep = "resume-verification-retirement"
+		command = receipt.RetirementNextAction
+	case receipt.RetirementRequired:
+		verificationState = "retirement-required"
+		currentStep = "preview-verification-retirement"
+		command = receipt.RetirementPreviewCommand
+	case receipt.VerificationComplete:
+		verificationState = "verified"
+		currentStep = "draft-lifecycle-proof"
+		command = next.DraftCommand
+	case receipt.ProvisionInProgress:
+		verificationState = "provision-in-progress"
+		currentStep = "resume-verification-provision"
+		command = receipt.ProvisionApplyCommand
+	case receipt.ProvisionComplete:
+		verificationState = "verification-required"
+		currentStep = "verify-candidate-consumers"
+		command = receipt.VerificationCommand
+	}
+	if strings.TrimSpace(command) == "" {
+		command = packMemoryCandidateNextMissingProofStatusCommand(*next)
+	}
+	boundary := mission.UniqueStrings(append(append([]string{}, next.Boundary...),
+		"reconsume operator is a typed read-only handoff over existing decision, provision, verification, lifecycle proof, and retirement primitives",
+		"execute only currentDriverRequest; the operator never runs init, doctor, sync, promote, verification, or retirement automatically",
+		"every mutation remains an explicit WhatIf or expected-hash Apply followed by status refresh",
+		"canonical verification proof is the only repo-local lifecycle evidence source; do not copy raw case output or absolute case paths into kit proof",
+	))
+	steps := []mission.MissionCommanderRunLoopStep{
+		{Order: 1, StepID: "provision-verification-cases", Actor: "main-agent", Description: "preview and explicitly provision source-case-local fresh and attached verification consumers", Command: receipt.VerificationProvisionCommand, State: "pack-memory-reconsume-required", Source: "packMemoryCandidateReconsumeOperator.provision", Boundary: boundary},
+		{Order: 2, StepID: "verify-candidate-consumers", Actor: "main-agent", Description: "verify pack doctor plus fresh and attached candidate reconsume and write canonical verification proof", Command: receipt.VerificationCommand, State: "pack-memory-reconsume-required", Source: "packMemoryCandidateReconsumeOperator.verify", Boundary: boundary},
+		{Order: 3, StepID: "draft-lifecycle-proof", Actor: "main-agent", Description: "draft the next lifecycle proof with canonical verification proof evidence", Command: next.DraftCommand, State: "pack-memory-reconsume-required", Source: "packMemoryCandidateReconsumeOperator.proof", Boundary: boundary},
+		{Order: 4, StepID: "refresh-pack-memory-status", Actor: "main-agent", Description: "refresh status and select the next missing lifecycle proof or retirement step", Command: packMemoryCandidateNextMissingProofStatusCommand(*next), State: "pack-memory-reconsume-required", Source: "packMemoryCandidateReconsumeOperator.refresh", Boundary: boundary},
+		{Order: 5, StepID: "preview-verification-retirement", Actor: "main-agent", Description: "preview verification workspace retirement after all lifecycle proofs are present", Command: receipt.RetirementPreviewCommand, State: "pack-memory-reconsume-required", Source: "packMemoryCandidateReconsumeOperator.retirement", Boundary: boundary},
+	}
+	actionID := "pack-memory-reconsume-operator:" + shortReleaseHandoffHash(receipt.receiptHash+next.ProofType+next.CandidatePath)
+	action := mission.MissionCommanderNextActionItem{Label: status.Pack, ActionID: actionID, State: "pack-memory-reconsume-required", Command: command, Source: "packMemoryCandidateReconsumeOperator", RequiresReview: true, Reasons: []string{"verificationState=" + verificationState, "proofType=" + next.ProofType, "candidate=" + next.CandidatePath}, Boundary: boundary}
+	request := mission.MissionCommanderCurrentDriverRequest(action, currentStep, steps)
+	if request != nil {
+		refreshed := mission.MissionCommanderDriverRequestWithRefreshStatusCommand(*request, packMemoryCandidateNextMissingProofStatusCommand(*next))
+		request = &refreshed
+	}
+	pkg := &ReleaseHandoffPackMemoryCandidateReconsumeOperatorPackage{
+		SchemaVersion: 1, Kind: "pack-memory-reviewed-candidate-reconsume-operator", OperatorID: actionID,
+		Pack: status.Pack, SourceCaseRoot: receipt.SourceCaseRoot, PacketPath: receipt.PacketPath, PacketSHA256: receipt.packetHash,
+		CandidateDecisionPath: receipt.DecisionPath, CandidateDecisionSHA256: receipt.decisionHash, DecisionReceiptPath: receipt.Path,
+		DecisionReceiptSHA256: receipt.receiptHash, CandidatePath: next.CandidatePath, PackTarget: next.PackTarget,
+		VerificationState: verificationState, VerificationProofPath: receipt.VerificationProofPath, EvidenceRefs: append([]string{}, next.EvidenceRefs...),
+		CurrentRunLoopStepID: currentStep, RunLoop: steps, CurrentDriverRequest: request, Boundary: boundary,
+	}
+	if pkg.VerificationProofPath != "" {
+		pkg.EvidenceRefs = []string{pkg.VerificationProofPath}
+	}
+	snapshot := *pkg
+	snapshot.OperatorSnapshotSHA256 = ""
+	data, _ := json.Marshal(snapshot)
+	pkg.OperatorSnapshotSHA256 = sha256ReleaseHandoff(data)
+	return pkg
 }
 
 func packMemoryCandidateDecisionDraftHandoff(status ReleaseHandoffPackMemoryCandidateStatus) *promote.CandidateDecisionDraftHandoff {
@@ -1555,6 +1680,33 @@ func packMemoryCandidateDecisionCleanupArtifacts(status ReleaseHandoffPackMemory
 				artifact.ProofPresent = true
 			}
 			artifacts = append(artifacts, artifact)
+			if action.Decision != "accept" || action.Kind != "managed-doc" || !receipt.VerificationComplete || !receipt.Retired || strings.TrimSpace(receipt.VerificationProofPath) == "" {
+				continue
+			}
+			for _, proofType := range []string{"pack-doctor-output", "fresh-case-reconsume-proof", "attached-case-reconsume-proof"} {
+				lifecycle := ReleaseHandoffPackMemoryCandidateReviewArtifact{
+					Name:                  proofType,
+					CandidatePath:         action.CandidatePath,
+					PackTarget:            action.PackTarget,
+					SourceCaseRoot:        receipt.SourceCaseRoot,
+					PacketPath:            receipt.PacketPath,
+					CandidateDecisionPath: receipt.DecisionPath,
+					When:                  "after accepted candidate verification produced canonical repo-local proof evidence",
+					Action:                "draft deterministic lifecycle proof using the canonical candidate verification proof as hashed repo-local evidence",
+					Format:                "strict JSON pack-memory-candidate-lifecycle-proof generated by promote -DraftReviewProof",
+					EvidenceRefs:          []string{receipt.VerificationProofPath},
+					Evidence:              []string{"canonical candidate verification proof"},
+					Boundary: append(append([]string{}, baseBoundary...),
+						"reconsume operator reuses existing provision, verification, and retirement receipts; it never runs init, doctor, sync, promote, or retirement automatically",
+						"lifecycle proof must use canonical repo-local verification evidence and must not copy raw case output into the kit",
+					),
+				}
+				bound, err := packMemoryCandidateReviewArtifactWithProof(status, lifecycle, proofRoot)
+				if err != nil {
+					return nil, err
+				}
+				artifacts = append(artifacts, bound)
+			}
 		}
 	}
 	return artifacts, nil
@@ -1811,6 +1963,56 @@ func validatePackMemoryCandidateLifecycleProof(status ReleaseHandoffPackMemoryCa
 	}
 	if err := validateCandidateLifecycleProofEvidenceRefs(repo, proof.EvidenceRefs); err != nil {
 		return err
+	}
+	if packMemoryCandidateLifecycleProofType(proof.ProofType) && len(artifact.EvidenceRefs) > 0 {
+		if err := validatePackMemoryCandidateReconsumeEvidence(status, artifact, proof, path); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validatePackMemoryCandidateReconsumeEvidence(status ReleaseHandoffPackMemoryCandidateStatus, artifact ReleaseHandoffPackMemoryCandidateReviewArtifact, proof candidateLifecycleProofInventory, proofPath string) error {
+	if len(artifact.EvidenceRefs) != 1 || len(proof.EvidenceRefs) != 1 {
+		return fmt.Errorf("candidate lifecycle proof requires exactly one canonical verification evidence ref: %s", proofPath)
+	}
+	expectedPath := filepath.ToSlash(filepath.Clean(filepath.FromSlash(artifact.EvidenceRefs[0])))
+	actualPath := filepath.ToSlash(filepath.Clean(filepath.FromSlash(proof.EvidenceRefs[0].Path)))
+	if expectedPath != actualPath {
+		return fmt.Errorf("candidate lifecycle proof evidence is not the canonical verification proof: %s", proofPath)
+	}
+	var receipt *ReleaseHandoffPackMemoryCandidateDecisionReceipt
+	for i := range status.DecisionReceipts {
+		candidate := &status.DecisionReceipts[i]
+		if candidate.VerificationComplete && candidate.Retired && candidate.VerificationProofPath == expectedPath {
+			for _, action := range candidate.Actions {
+				if action.Decision == "accept" && action.Kind == "managed-doc" && action.CandidatePath == artifact.CandidatePath && action.PackTarget == artifact.PackTarget {
+					receipt = candidate
+					break
+				}
+			}
+		}
+		if receipt != nil {
+			break
+		}
+	}
+	if receipt == nil {
+		return fmt.Errorf("candidate lifecycle proof lacks current retired decision receipt authority: %s", proofPath)
+	}
+	evidencePath := filepath.Join(status.repoRootFull, filepath.FromSlash(expectedPath))
+	data, err := os.ReadFile(evidencePath)
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(proof.EvidenceRefs[0].SHA256, sha256ReleaseHandoff(data)) {
+		return fmt.Errorf("candidate lifecycle proof canonical verification evidence hash mismatch: %s", proofPath)
+	}
+	var verification candidateDecisionVerificationInventory
+	if err := decodeReleaseHandoffStrictJSON(data, &verification); err != nil {
+		return fmt.Errorf("decode canonical candidate verification proof %s: %w", evidencePath, err)
+	}
+	if verification.SchemaVersion != 1 || verification.Kind != "pack-memory-candidate-decision-verification" || verification.Pack != status.Pack || !strings.EqualFold(verification.PacketHash, receipt.packetHash) || !strings.EqualFold(verification.DecisionHash, receipt.decisionHash) || !strings.EqualFold(verification.ReceiptHash, receipt.receiptHash) || !strings.EqualFold(verification.VerifiedActionsSHA256, receipt.actionsHash) || strings.TrimSpace(verification.ProvisionIntentSHA256) == "" || strings.TrimSpace(verification.ProvisionReceiptSHA256) == "" || !verification.IsMutation || !verification.Applied || !verification.Ready || verification.PackDoctorRows <= 0 || verification.FreshDoctorRows <= 0 || verification.AttachedDoctorRows <= 0 {
+		return fmt.Errorf("candidate lifecycle proof canonical verification authority binding mismatch: %s", proofPath)
 	}
 	return nil
 }
@@ -2217,6 +2419,7 @@ func packMemoryCandidateNextMissingProof(stage, proofPath string, artifact Relea
 		When:                  artifact.When,
 		Action:                artifact.Action,
 		Format:                artifact.Format,
+		EvidenceRefs:          append([]string{}, artifact.EvidenceRefs...),
 		Evidence:              append([]string{}, artifact.Evidence...),
 		Boundary:              append([]string{}, artifact.Boundary...),
 	}
@@ -2239,6 +2442,12 @@ func packMemoryCandidateNextMissingProof(stage, proofPath string, artifact Relea
 	}
 	proof.DraftCommand = releaseHandoffPackMemoryProofCommandWithBindings(proof.DraftCommand, proof.PacketPath, proof.CandidateDecisionPath, proof.EvidenceRefs, proof.SourceCaseRoot)
 	proof.DraftApplyTemplate = releaseHandoffPackMemoryProofCommandWithBindings(proof.DraftApplyTemplate, proof.PacketPath, proof.CandidateDecisionPath, proof.EvidenceRefs, proof.SourceCaseRoot)
+	if packMemoryCandidateLifecycleProofType(proof.ProofType) && len(proof.EvidenceRefs) > 0 {
+		reason := quoteReleaseHandoffCommandArg("canonical candidate verification proof reviewed for " + proof.ProofType)
+		actor := quoteReleaseHandoffCommandArg("mission-commander")
+		proof.DraftCommand = strings.ReplaceAll(strings.ReplaceAll(proof.DraftCommand, "<lifecycle-proof-reason>", reason), "<actor>", actor)
+		proof.DraftApplyTemplate = strings.ReplaceAll(strings.ReplaceAll(proof.DraftApplyTemplate, "<lifecycle-proof-reason>", reason), "<actor>", actor)
+	}
 	RefreshPackMemoryCandidateNextMissingProofWorkflow(&proof)
 	return proof
 }
@@ -2685,14 +2894,14 @@ type candidateDecisionVerificationInventory struct {
 	SchemaVersion            int                                `json:"schemaVersion"`
 	Kind                     string                             `json:"kind"`
 	Pack                     string                             `json:"pack"`
-	CaseRoot                 string                             `json:"caseRoot"`
-	FreshCaseRoot            string                             `json:"freshCaseRoot"`
-	AttachedCaseRoot         string                             `json:"attachedCaseRoot"`
+	CaseRoot                 string                             `json:"caseRoot,omitempty"`
+	FreshCaseRoot            string                             `json:"freshCaseRoot,omitempty"`
+	AttachedCaseRoot         string                             `json:"attachedCaseRoot,omitempty"`
 	PacketHash               string                             `json:"packetHash"`
 	DecisionHash             string                             `json:"decisionHash"`
 	ReceiptHash              string                             `json:"receiptHash"`
-	ReceiptPath              string                             `json:"receiptPath"`
-	VerificationProofPath    string                             `json:"verificationProofPath"`
+	ReceiptPath              string                             `json:"receiptPath,omitempty"`
+	VerificationProofPath    string                             `json:"verificationProofPath,omitempty"`
 	ProvisionIntentPath      string                             `json:"provisionIntentPath,omitempty"`
 	ProvisionIntentSHA256    string                             `json:"provisionIntentSha256,omitempty"`
 	ProvisionReceiptPath     string                             `json:"provisionReceiptPath,omitempty"`
@@ -2704,7 +2913,8 @@ type candidateDecisionVerificationInventory struct {
 	PackDoctorRows           int                                `json:"packDoctorRows"`
 	FreshDoctorRows          int                                `json:"freshDoctorRows"`
 	AttachedDoctorRows       int                                `json:"attachedDoctorRows"`
-	VerifiedActions          []candidateDecisionActionInventory `json:"verifiedActions"`
+	VerifiedActionsSHA256    string                             `json:"verifiedActionsSha256"`
+	VerifiedActions          []candidateDecisionActionInventory `json:"verifiedActions,omitempty"`
 	NextSteps                []string                           `json:"nextSteps"`
 	Boundary                 []string                           `json:"boundary"`
 }
@@ -2835,13 +3045,11 @@ func packMemoryCandidateDecisionReceipts(repo, proofRoot, proofRootRel string) (
 				if err := decodeReleaseHandoffStrictJSON(proofData, &proof); err != nil {
 					return nil, fmt.Errorf("decode candidate verification proof %s: %w", raw.VerificationProofPath, err)
 				}
-				if proof.SchemaVersion != 1 || proof.Kind != "pack-memory-candidate-decision-verification" || proof.Pack != raw.Pack || !strings.EqualFold(proof.PacketHash, raw.PacketHash) || !strings.EqualFold(proof.DecisionHash, raw.DecisionHash) || !strings.EqualFold(proof.ReceiptHash, sha256ReleaseHandoff(data)) || !sameReleaseHandoffPath(proof.CaseRoot, raw.CaseRoot) || strings.TrimSpace(proof.FreshCaseRoot) == "" || strings.TrimSpace(proof.AttachedCaseRoot) == "" || sameReleaseHandoffPath(proof.FreshCaseRoot, proof.CaseRoot) || sameReleaseHandoffPath(proof.AttachedCaseRoot, proof.CaseRoot) || sameReleaseHandoffPath(proof.FreshCaseRoot, proof.AttachedCaseRoot) || !sameReleaseHandoffPath(proof.ReceiptPath, path) || !sameReleaseHandoffPath(proof.VerificationProofPath, raw.VerificationProofPath) || !proof.IsMutation || !proof.Applied || !proof.Ready || proof.PackDoctorRows <= 0 || proof.FreshDoctorRows <= 0 || proof.AttachedDoctorRows <= 0 || !candidateDecisionActionsEqual(proof.VerifiedActions, raw.Actions) {
+				if proof.SchemaVersion != 1 || proof.Kind != "pack-memory-candidate-decision-verification" || proof.Pack != raw.Pack || !strings.EqualFold(proof.PacketHash, raw.PacketHash) || !strings.EqualFold(proof.DecisionHash, raw.DecisionHash) || !strings.EqualFold(proof.ReceiptHash, sha256ReleaseHandoff(data)) || !strings.EqualFold(proof.VerifiedActionsSHA256, candidateDecisionActionsSHA256(raw.Actions)) || !proof.IsMutation || !proof.Applied || !proof.Ready || proof.PackDoctorRows <= 0 || proof.FreshDoctorRows <= 0 || proof.AttachedDoctorRows <= 0 {
 					return nil, fmt.Errorf("candidate verification proof binding mismatch: %s", raw.VerificationProofPath)
 				}
 				if raw.Accepted > 0 {
-					expectedIntentPath := filepath.Join(raw.VerificationWorkspaceRoot, "provision.intent.json")
-					expectedReceiptPath := filepath.Join(raw.VerificationWorkspaceRoot, "provision.receipt.json")
-					if !sameReleaseHandoffPath(proof.ProvisionIntentPath, expectedIntentPath) || !sameReleaseHandoffPath(proof.ProvisionReceiptPath, expectedReceiptPath) || strings.TrimSpace(proof.ProvisionIntentSHA256) == "" || strings.TrimSpace(proof.ProvisionReceiptSHA256) == "" || strings.TrimSpace(proof.RetirementPreviewCommand) == "" || !strings.Contains(proof.RetirementPreviewCommand, "-RetireCandidateVerificationWorkspace") || !strings.Contains(proof.RetirementPreviewCommand, "-WhatIf") || !strings.Contains(proof.RetirementPreviewCommand, raw.PacketPath) || !strings.Contains(proof.RetirementPreviewCommand, raw.DecisionPath) {
+					if strings.TrimSpace(proof.ProvisionIntentSHA256) == "" || strings.TrimSpace(proof.ProvisionReceiptSHA256) == "" {
 						return nil, fmt.Errorf("candidate verification proof retirement binding mismatch: %s", raw.VerificationProofPath)
 					}
 				}
@@ -2870,6 +3078,7 @@ func packMemoryCandidateDecisionReceipts(repo, proofRoot, proofRootRel string) (
 			receiptHash:                  sha256ReleaseHandoff(data),
 			packetHash:                   raw.PacketHash,
 			decisionHash:                 raw.DecisionHash,
+			actionsHash:                  candidateDecisionActionsSHA256(raw.Actions),
 			caseRootFull:                 raw.CaseRoot,
 			backupRootFull:               raw.BackupRoot,
 			indexPathFull:                raw.IndexPath,
@@ -3056,7 +3265,9 @@ func releaseHandoffPackMemoryProofCommandWithBindings(command, packetPath, decis
 		command = strings.ReplaceAll(command, "<candidate-decisions.json>", quoteReleaseHandoffCommandArg(decisionPath))
 	}
 	if len(evidenceRefs) > 0 {
-		command = strings.ReplaceAll(command, "<review-evidence-ref>", quoteReleaseHandoffCommandArg(strings.Join(evidenceRefs, ",")))
+		joined := quoteReleaseHandoffCommandArg(strings.Join(evidenceRefs, ","))
+		command = strings.ReplaceAll(command, "<review-evidence-ref>", joined)
+		command = strings.ReplaceAll(command, "<repo-local-lifecycle-evidence-ref>", joined)
 	}
 	return releaseHandoffPromoteCommandWithTarget(command, target)
 }
@@ -3086,7 +3297,7 @@ func populateCandidateVerificationRetirementHandoff(repo, proofRoot, decisionRec
 	retirementID := shortReleaseHandoffHash(receipt.PacketHash + receipt.DecisionHash)
 	intentPath := filepath.Join(proofRoot, retirementID+".candidate-verification-retirement-intent.json")
 	retirementReceiptPath := filepath.Join(proofRoot, retirementID+".candidate-verification-retirement-receipt.json")
-	handoff.RetirementPreviewCommand = releaseHandoffPromoteCommandWithTarget(proof.RetirementPreviewCommand, receipt.CaseRoot)
+	handoff.RetirementPreviewCommand = releaseHandoffPromoteCommandWithTarget(fmt.Sprintf("/rekit promote -PacketPath %s -CandidateDecisionPath %s -RetireCandidateVerificationWorkspace -WhatIf -Format json", quoteReleaseHandoffCommandArg(receipt.PacketPath), quoteReleaseHandoffCommandArg(receipt.DecisionPath)), receipt.CaseRoot)
 	handoff.RetirementIntentPath = releaseHandoffRepoRelative(repo, intentPath)
 	handoff.RetirementReceiptPath = releaseHandoffRepoRelative(repo, retirementReceiptPath)
 
@@ -3163,13 +3374,16 @@ func readCandidateVerificationRetirementHandoffArtifact(repo, path string) (cand
 func validateCandidateVerificationRetirementHandoffArtifact(repo, proofRoot, decisionReceiptPath string, decisionReceiptData []byte, receipt candidateDecisionReceiptInventory, proof candidateDecisionVerificationInventory, artifact candidateVerificationRetirementArtifactInventory, kindSuffix string) error {
 	retirementID := shortReleaseHandoffHash(receipt.PacketHash + receipt.DecisionHash)
 	workspace := receipt.VerificationWorkspaceRoot
+	verificationProofPath := receipt.VerificationProofPath
+	provisionIntentPath := filepath.Join(workspace, "provision.intent.json")
+	provisionReceiptPath := filepath.Join(workspace, "provision.receipt.json")
 	intentPath := filepath.Join(proofRoot, retirementID+".candidate-verification-retirement-intent.json")
 	retirementReceiptPath := filepath.Join(proofRoot, retirementID+".candidate-verification-retirement-receipt.json")
 	expectedKind := "pack-memory-candidate-verification-retirement" + kindSuffix
-	if artifact.SchemaVersion != 1 || artifact.Kind != expectedKind || artifact.Pack != receipt.Pack || !sameReleaseHandoffPath(artifact.RepoRoot, repo) || !sameReleaseHandoffPath(artifact.SourceCaseRoot, receipt.CaseRoot) || !sameReleaseHandoffPath(artifact.PacketPath, receipt.PacketPath) || !strings.EqualFold(artifact.PacketSHA256, receipt.PacketHash) || !sameReleaseHandoffPath(artifact.DecisionPath, receipt.DecisionPath) || !strings.EqualFold(artifact.DecisionSHA256, receipt.DecisionHash) || !sameReleaseHandoffPath(artifact.DecisionReceiptPath, decisionReceiptPath) || !strings.EqualFold(artifact.DecisionReceiptSHA256, sha256ReleaseHandoff(decisionReceiptData)) || !sameReleaseHandoffPath(artifact.VerificationProofPath, proof.VerificationProofPath) || !strings.EqualFold(artifact.VerificationProofSHA256, fileSHA256ReleaseHandoff(proof.VerificationProofPath)) || !sameReleaseHandoffPath(artifact.ProvisionIntentPath, proof.ProvisionIntentPath) || !strings.EqualFold(artifact.ProvisionIntentSHA256, proof.ProvisionIntentSHA256) || !sameReleaseHandoffPath(artifact.ProvisionReceiptPath, proof.ProvisionReceiptPath) || !strings.EqualFold(artifact.ProvisionReceiptSHA256, proof.ProvisionReceiptSHA256) || !sameReleaseHandoffPath(artifact.WorkspaceRoot, workspace) || !sameReleaseHandoffPath(artifact.RetirementIntentPath, intentPath) || !sameReleaseHandoffPath(artifact.RetirementReceiptPath, retirementReceiptPath) || strings.TrimSpace(artifact.RetirementSHA256) == "" || len(artifact.Roots) != 2 || len(artifact.RetirementPlans) != 2 {
+	if artifact.SchemaVersion != 1 || artifact.Kind != expectedKind || artifact.Pack != receipt.Pack || !sameReleaseHandoffPath(artifact.RepoRoot, repo) || !sameReleaseHandoffPath(artifact.SourceCaseRoot, receipt.CaseRoot) || !sameReleaseHandoffPath(artifact.PacketPath, receipt.PacketPath) || !strings.EqualFold(artifact.PacketSHA256, receipt.PacketHash) || !sameReleaseHandoffPath(artifact.DecisionPath, receipt.DecisionPath) || !strings.EqualFold(artifact.DecisionSHA256, receipt.DecisionHash) || !sameReleaseHandoffPath(artifact.DecisionReceiptPath, decisionReceiptPath) || !strings.EqualFold(artifact.DecisionReceiptSHA256, sha256ReleaseHandoff(decisionReceiptData)) || !sameReleaseHandoffPath(artifact.VerificationProofPath, verificationProofPath) || !strings.EqualFold(artifact.VerificationProofSHA256, fileSHA256ReleaseHandoff(verificationProofPath)) || !sameReleaseHandoffPath(artifact.ProvisionIntentPath, provisionIntentPath) || !strings.EqualFold(artifact.ProvisionIntentSHA256, proof.ProvisionIntentSHA256) || !sameReleaseHandoffPath(artifact.ProvisionReceiptPath, provisionReceiptPath) || !strings.EqualFold(artifact.ProvisionReceiptSHA256, proof.ProvisionReceiptSHA256) || !sameReleaseHandoffPath(artifact.WorkspaceRoot, workspace) || !sameReleaseHandoffPath(artifact.RetirementIntentPath, intentPath) || !sameReleaseHandoffPath(artifact.RetirementReceiptPath, retirementReceiptPath) || strings.TrimSpace(artifact.RetirementSHA256) == "" || len(artifact.Roots) != 2 || len(artifact.RetirementPlans) != 2 {
 		return fmt.Errorf("candidate verification retirement artifact authority binding mismatch: %s", artifact.RetirementIntentPath)
 	}
-	if len(artifact.ProvisionArtifactsToDelete) != 2 || !sameReleaseHandoffPath(artifact.ProvisionArtifactsToDelete[0], proof.ProvisionReceiptPath) || !sameReleaseHandoffPath(artifact.ProvisionArtifactsToDelete[1], proof.ProvisionIntentPath) || len(artifact.EmptyAncestorsToRemove) != 2 || !sameReleaseHandoffPath(artifact.EmptyAncestorsToRemove[0], filepath.Dir(workspace)) || !sameReleaseHandoffPath(artifact.EmptyAncestorsToRemove[1], filepath.Dir(filepath.Dir(workspace))) {
+	if len(artifact.ProvisionArtifactsToDelete) != 2 || !sameReleaseHandoffPath(artifact.ProvisionArtifactsToDelete[0], provisionReceiptPath) || !sameReleaseHandoffPath(artifact.ProvisionArtifactsToDelete[1], provisionIntentPath) || len(artifact.EmptyAncestorsToRemove) != 2 || !sameReleaseHandoffPath(artifact.EmptyAncestorsToRemove[0], filepath.Dir(workspace)) || !sameReleaseHandoffPath(artifact.EmptyAncestorsToRemove[1], filepath.Dir(filepath.Dir(workspace))) {
 		return fmt.Errorf("candidate verification retirement artifact cleanup binding mismatch: %s", artifact.RetirementIntentPath)
 	}
 	for i, role := range []string{"fresh", "attached"} {
@@ -3219,8 +3433,8 @@ func validateCandidateVerificationRetirementIntentProgress(receipt candidateDeci
 		path   string
 		sha256 string
 	}{
-		{path: proof.ProvisionIntentPath, sha256: proof.ProvisionIntentSHA256},
-		{path: proof.ProvisionReceiptPath, sha256: proof.ProvisionReceiptSHA256},
+		{path: filepath.Join(receipt.VerificationWorkspaceRoot, "provision.intent.json"), sha256: proof.ProvisionIntentSHA256},
+		{path: filepath.Join(receipt.VerificationWorkspaceRoot, "provision.receipt.json"), sha256: proof.ProvisionReceiptSHA256},
 	} {
 		if err := validateCandidateVerificationRetiringArtifact(item.path, item.sha256); err != nil {
 			return err
@@ -3269,15 +3483,15 @@ func validateCandidateVerificationRetirementWorkspaceEvidence(receipt candidateD
 		sha256 string
 		label  string
 	}{
-		{path: proof.ProvisionIntentPath, sha256: proof.ProvisionIntentSHA256, label: "provision intent"},
-		{path: proof.ProvisionReceiptPath, sha256: proof.ProvisionReceiptSHA256, label: "provision receipt"},
+		{path: filepath.Join(receipt.VerificationWorkspaceRoot, "provision.intent.json"), sha256: proof.ProvisionIntentSHA256, label: "provision intent"},
+		{path: filepath.Join(receipt.VerificationWorkspaceRoot, "provision.receipt.json"), sha256: proof.ProvisionReceiptSHA256, label: "provision receipt"},
 	} {
 		info, err := os.Lstat(item.path)
 		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || !strings.EqualFold(fileSHA256ReleaseHandoff(item.path), item.sha256) {
 			return fmt.Errorf("candidate verification %s is missing or invalid: %s", item.label, item.path)
 		}
 	}
-	for _, path := range []string{receipt.VerificationWorkspaceRoot, proof.FreshCaseRoot, proof.AttachedCaseRoot} {
+	for _, path := range []string{receipt.VerificationWorkspaceRoot, filepath.Join(receipt.VerificationWorkspaceRoot, "fresh"), filepath.Join(receipt.VerificationWorkspaceRoot, "attached")} {
 		info, err := os.Lstat(path)
 		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 			return fmt.Errorf("candidate verification workspace is missing or invalid: %s", path)
@@ -3564,6 +3778,14 @@ func decodeReleaseHandoffStrictJSON(data []byte, out any) error {
 		return err
 	}
 	return nil
+}
+
+func candidateDecisionActionsSHA256(actions []candidateDecisionActionInventory) string {
+	data, err := json.Marshal(actions)
+	if err != nil {
+		return ""
+	}
+	return sha256ReleaseHandoff(data)
 }
 
 func candidateDecisionActionsEqual(left, right []candidateDecisionActionInventory) bool {

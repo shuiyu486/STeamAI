@@ -35,6 +35,17 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 
 
+
+### Batch 799：pack-memory reviewed candidate reconsume operator closure
+
+状态：已完成 reviewed candidate reconsume typed operator、sanitized canonical proof、strict canonical evidence authority、post-retirement三类lifecycle proof序列、最终closed status、文档、独立审查和Windows本机完成态验证；implementation commit/push在本批统一提交后记录。Reviewed accepted candidate在verification workspace retirement后不再被错误视为terminal closed。
+
+目标：Mission Commander 或 replacement executor 现在从 durable pack-memory status 直接消费 stable `operatorId`/`operatorSnapshotSha256`、current run-loop step和唯一`currentDriverRequest`，按 `pack-doctor-output → fresh-case-reconsume-proof → attached-case-reconsume-proof` 顺序完成闭环。每项 proof 复用canonical verification proof作为唯一repo-local hashed evidence，并保持 WhatIf → review → expected-hash Apply → status refresh；runtime不自动运行init/doctor/sync/promote/verification/retirement。
+
+边界：canonical verification proof只持久化packet/decision/receipt/provision/action hashes、doctor计数和bounded verification结果，不含source/fresh/attached/workspace绝对case路径；retirement从strict decision authority与deterministic workspace重新派生路径并继续验证exact provision artifacts/trees。Runtime不执行heavy-tool、不写authority/confirmed，不新增PowerShell runtime logic，也不自动提交或声明remote CI green。
+
+验证结果：focused E2E真实完成decision receipt、verification provisioning、pack/fresh/attached verification、sanitized canonical proof、workspace retirement、三类operator-driven lifecycle proof及最终closed status；proof bytes回归明确拒绝绝对source/workspace路径。独立审查发现任意repo-local evidence可伪造lifecycle passed checks的一项Important；修复后proof evidence必须唯一精确匹配当前retired receipt的canonical verification proof，并strict复核pack/packet/decision/receipt/provision/action hashes、doctor计数和applied/ready，任意evidence反例现在fail-closed，定向复核确认finding关闭且无其他Important/Critical。`go test ./internal/rekit/promote ./internal/rekit/releasecheck ./internal/rekit/cli -count=1`通过（CLI 165.815秒）；修复后`go test ./... -count=1`通过（CLI 165.116秒），`go vet ./...`、packs、doctor（canonical skill 32128/32768 bytes）和`git diff --check`通过。完成态`release-check -Format json`返回`ready=true`，`status -Format json`只读成功；统一`release-run -Format json`以7/7通过（291.737秒，其中完整Go tests 289.006秒）。本批未修改PowerShell façade，无需额外façade smoke；普通batch不等待或声明remote CI green。
+
 ### Batch 798：external reviewer attempt orchestration and durable resume closure
 
 状态：已完成 external reviewer attempt typed package、fresh snapshot observation guard、mixed direct/failure alternative独立continuation、durable checkpoint resume、真实managed/direct product path、文档与独立复核；完整本机release minimum在本批统一完成态验证中记录。Implementation commit/push在本批统一提交后记录；普通batch不等待或声明remote CI green。本批选择`reviewer-orchestration`，将原本分散在current-loop handoff、reviewer operator、session receipts和result pipeline中的一次external reviewer attempt收敛成durable typed package；本批不是字段或summary投影微调。

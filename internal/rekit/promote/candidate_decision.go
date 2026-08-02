@@ -131,16 +131,16 @@ type CandidateDecisionVerificationResult struct {
 	Kind                        string                               `json:"kind"`
 	Mode                        string                               `json:"mode,omitempty"`
 	Pack                        string                               `json:"pack"`
-	CaseRoot                    string                               `json:"caseRoot"`
-	FreshCaseRoot               string                               `json:"freshCaseRoot"`
-	AttachedCaseRoot            string                               `json:"attachedCaseRoot"`
+	CaseRoot                    string                               `json:"caseRoot,omitempty"`
+	FreshCaseRoot               string                               `json:"freshCaseRoot,omitempty"`
+	AttachedCaseRoot            string                               `json:"attachedCaseRoot,omitempty"`
 	PacketPath                  string                               `json:"packetPath,omitempty"`
 	DecisionPath                string                               `json:"decisionPath,omitempty"`
 	PacketHash                  string                               `json:"packetHash"`
 	DecisionHash                string                               `json:"decisionHash"`
 	ReceiptHash                 string                               `json:"receiptHash"`
-	ReceiptPath                 string                               `json:"receiptPath"`
-	VerificationProofPath       string                               `json:"verificationProofPath"`
+	ReceiptPath                 string                               `json:"receiptPath,omitempty"`
+	VerificationProofPath       string                               `json:"verificationProofPath,omitempty"`
 	ProvisionIntentPath         string                               `json:"provisionIntentPath,omitempty"`
 	ProvisionIntentSHA256       string                               `json:"provisionIntentSha256,omitempty"`
 	ProvisionReceiptPath        string                               `json:"provisionReceiptPath,omitempty"`
@@ -153,7 +153,8 @@ type CandidateDecisionVerificationResult struct {
 	PackDoctorRows              int                                  `json:"packDoctorRows"`
 	FreshDoctorRows             int                                  `json:"freshDoctorRows"`
 	AttachedDoctorRows          int                                  `json:"attachedDoctorRows"`
-	VerifiedActions             []CandidateDecisionAction            `json:"verifiedActions"`
+	VerifiedActionsSHA256       string                               `json:"verifiedActionsSha256"`
+	VerifiedActions             []CandidateDecisionAction            `json:"verifiedActions,omitempty"`
 	VerificationRunbookSteps    []string                             `json:"verificationRunbookSteps,omitempty"`
 	MissionCommanderAction      *mission.MissionCommanderAction      `json:"missionCommanderAction,omitempty"`
 	MissionCommanderActionQueue *mission.MissionCommanderActionQueue `json:"missionCommanderActionQueue,omitempty"`
@@ -264,6 +265,14 @@ func candidateDecisionActionCounts(actions []CandidateDecisionAction) (accepted,
 		}
 	}
 	return accepted, rejected, superseded
+}
+
+func candidateDecisionActionsSHA256(actions []CandidateDecisionAction) string {
+	data, err := json.Marshal(actions)
+	if err != nil {
+		return ""
+	}
+	return sha256Hex(data)
 }
 
 type candidateDecisionAuthority struct {
@@ -630,6 +639,7 @@ func VerifyCandidateDecision(repoRoot, caseRoot, pack string, opt CandidateDecis
 		PackDoctorRows:           len(packRows),
 		FreshDoctorRows:          len(freshRows),
 		AttachedDoctorRows:       len(attachedRows),
+		VerifiedActionsSHA256:    candidateDecisionActionsSHA256(receipt.Actions),
 		VerifiedActions:          append([]CandidateDecisionAction(nil), receipt.Actions...),
 		Boundary: []string{
 			"verification reads pack and attached cases, then writes only the repo-local proof on Apply",
@@ -645,8 +655,17 @@ func VerifyCandidateDecision(repoRoot, caseRoot, pack string, opt CandidateDecis
 	result.Applied = true
 	result.NextSteps = []string{"run the returned retirementPreviewCommand to preview exact cleanup of the generated verification workspace", "rerun /rekit status or release-check after retirement"}
 	proofResult := result
+	proofResult.CaseRoot = ""
+	proofResult.FreshCaseRoot = ""
+	proofResult.AttachedCaseRoot = ""
 	proofResult.PacketPath = ""
 	proofResult.DecisionPath = ""
+	proofResult.ReceiptPath = ""
+	proofResult.VerificationProofPath = ""
+	proofResult.ProvisionIntentPath = ""
+	proofResult.ProvisionReceiptPath = ""
+	proofResult.RetirementPreviewCommand = ""
+	proofResult.VerifiedActions = nil
 	proofResult.MissionCommanderAction = nil
 	proofResult.MissionCommanderActionQueue = nil
 	data, err := json.MarshalIndent(proofResult, "", "  ")

@@ -709,8 +709,13 @@ func TestVerifyCandidateDecisionPreviewsAppliesAndReplays(t *testing.T) {
 		t.Fatal(err)
 	}
 	var proof CandidateDecisionVerificationResult
-	if err := decodeStrictJSON(proofData, &proof); err != nil || proof.PacketHash != verified.PacketHash || proof.DecisionHash != verified.DecisionHash || !sameCandidateDecisionPath(proof.ReceiptPath, applied.ReceiptPath) || len(proof.VerifiedActions) != len(applied.Actions) || len(proof.VerificationRunbookSteps) != 0 {
+	if err := decodeStrictJSON(proofData, &proof); err != nil || proof.PacketHash != verified.PacketHash || proof.DecisionHash != verified.DecisionHash || proof.ReceiptHash == "" || proof.VerifiedActionsSHA256 != candidateDecisionActionsSHA256(applied.Actions) || len(proof.VerifiedActions) != 0 || len(proof.VerificationRunbookSteps) != 0 {
 		t.Fatalf("candidate verification proof is not durably bound to receipt/actions: proof=%+v err=%v", proof, err)
+	}
+	for _, caseLocalPath := range []string{sourceCase, freshCase, attachedCase, applied.ReceiptPath} {
+		if bytes.Contains(proofData, []byte(caseLocalPath)) {
+			t.Fatalf("candidate verification proof persisted case-local path %q: %s", caseLocalPath, string(proofData))
+		}
 	}
 	replay, err := VerifyCandidateDecision(repoRoot, sourceCase, pack, CandidateDecisionVerificationOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, FreshCaseRoot: freshCase, AttachedCaseRoot: attachedCase})
 	if err != nil || !replay.Applied {
@@ -826,8 +831,14 @@ func TestPackMemoryReviewFirstCrossCaseConsumptionClosure(t *testing.T) {
 	if err := decodeStrictJSON(readCandidateDecisionTestFile(t, verificationApplied.VerificationProofPath), &verificationProof); err != nil {
 		t.Fatal(err)
 	}
-	if verificationProof.PacketHash != verificationApplied.PacketHash || verificationProof.DecisionHash != verificationApplied.DecisionHash || verificationProof.ProvisionIntentSHA256 == "" || verificationProof.ProvisionReceiptSHA256 == "" || !sameCandidateDecisionPath(verificationProof.ProvisionIntentPath, provisionApplied.IntentPath) || !sameCandidateDecisionPath(verificationProof.ProvisionReceiptPath, provisionApplied.ReceiptPath) {
+	if verificationProof.PacketHash != verificationApplied.PacketHash || verificationProof.DecisionHash != verificationApplied.DecisionHash || verificationProof.ProvisionIntentSHA256 == "" || verificationProof.ProvisionReceiptSHA256 == "" || verificationProof.VerifiedActionsSHA256 != candidateDecisionActionsSHA256(decisionApplied.Actions) {
 		t.Fatalf("verification proof was not bound to provisioned reconsume cases: %+v provision=%+v", verificationProof, provisionApplied)
+	}
+	verificationProofBytes := readCandidateDecisionTestFile(t, verificationApplied.VerificationProofPath)
+	for _, caseLocalPath := range []string{sourceCase, workspace, freshRoot, attachedRoot, provisionApplied.IntentPath, provisionApplied.ReceiptPath} {
+		if bytes.Contains(verificationProofBytes, []byte(caseLocalPath)) {
+			t.Fatalf("verification proof persisted case-local path %q: %s", caseLocalPath, string(verificationProofBytes))
+		}
 	}
 
 	retirementPreview, err := RetireCandidateVerificationWorkspace(repoRoot, sourceCase, pack, CandidateVerificationRetirementOptions{PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, WhatIf: true})
