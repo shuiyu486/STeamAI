@@ -4,14 +4,7 @@
 
 ### Changed
 
-
-
-
-
-
-
-
-
+- Batch 801 新增 multi-shard reviewer wave orchestration closure。真实临时case审计确认原packet虽有`maxParallel`和多shard，status/current-loop却只暴露单一attempt，主Agent/replacement必须手工读packet、计算slot并逐shard记录外部观察。现在status/current-loop/handoff一次返回绑定snapshot SHA的完整wave，含active/available slots、`spawnWave`及active/returned/failed/blocked/complete shard；active/returned不再暴露重复Agent request，retryable failure可在保留失败历史的同时重新进入spawn wave。新增Go-owned/no-fallback `run-reviewer-wave`，接受case-local strict observation JSON，将同轮多个`accepted|returned|failed`观察先统一WhatIf绑定current wave、exact file SHA与逐shardreceipt/result-input hashes，再以expected plan SHA顺序Apply；每项复用原独立shard guards，partial failure保留此前immutable writes并返回明确index/failure/refreshed wave。双shardacceptance、returned+failed、partial apply、stale/drift、strict contract及case-local symlink-free/bounded stable read均有E2E回归；PowerShell façade仅透传新Go命令参数。独立审查发现并关闭MaxParallel绕过、check/open TOCTOU、returned子步骤mutation低报与旧dispatch result污染四项Important，终审无剩余Critical/Important；相关完整packages、全仓tests（CLI 151.403秒）、vet、packs、doctor、façade smoke与diff check通过，统一`release-run -Format json`以7/7通过（272.002秒，其中完整Go tests 269.435秒）。Runtime不调用Agent、不spawn/poll/stop session、不伪造ReviewerResult、不执行heavy-tool、不写authority/confirmed。
 
 - Batch 800 完成 full-field latest batch validation parsing closure，关闭上一批已经完成并推送、但 durable status 因 canonical `统一 release-run ... 以7/7通过` 句式未命中而仍停在 `implementation-pending`、阻断 post-push receipt 与 next-batch planning 的接手断点。Parser继续用完整 operational 字段判断authority，公开validation仍compact；兼容只接受严格相邻的canonical结构和真实数字耗时后缀，明确完成marker按release-run assertion scope判断，计划/目标/要求/定义/标准/疑问/待确认/失败/历史叙述fail-closed，成功后的独立implementation/remote待办不污染本机完成证据。超长字段、完整Build→next-batch package及密集正反语境均有回归；canonical WhatIf → expected hash Apply已生成本批planning receipt。受影响packages与两轮全仓tests、vet、packs、doctor和diff check通过；独立审查逐项关闭bare `统一`误判、全clause污染、条件定义、任意括号及remote待办漏判，无剩余Critical/Important；最终`release-run -Format json`以7/7通过（407.761秒，其中完整Go tests 404.372秒）。Runtime不执行heavy-tool、不写authority/confirmed、不新增PowerShell logic、不自动提交或声明remote CI green。后续不延续parser/summary/projection微调，先用临时case审计完整日常产品路径并从最大用户可感知断点实施中大型闭环。
 

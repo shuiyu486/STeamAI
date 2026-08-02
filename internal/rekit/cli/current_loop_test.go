@@ -332,6 +332,10 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	if statusOperator == nil || !statusOperator.Ready || statusOperator.State != "fresh-loop-review-required" || statusOperator.SelectedDriverRequest == nil || driverStepCommandName(statusOperator.SelectedDriverRequest.Command) != "run-current-loop" || statusOperator.SourceCurrentDriverRequest == nil || driverStepCommandName(statusOperator.SourceCurrentDriverRequest.Command) == "run-current-loop" || statusOperator.ExternalReviewerHandoff == nil || statusOperator.ExternalReviewerHandoff.AgentToolRequest == nil || !statusOperator.ExternalReviewerHandoff.AgentToolRequest.ReadOnly || len(statusOperator.ExternalReviewerHandoff.ObservationContract.Alternatives) != 1 {
 		t.Fatalf("status current-loop operator did not package the reviewer spawn closure: %+v", statusOperator)
 	}
+	wave := statusOperator.ExternalReviewerHandoff.Wave
+	if wave == nil || wave.SnapshotSHA256 == "" || wave.MaxParallel != 2 || wave.TotalShards != 1 || wave.ActiveSlots != 0 || wave.AvailableSlots != 2 || len(wave.SpawnWave) != 1 || len(wave.Shards) != 1 || wave.SpawnWave[0].Identity.ShardID != wave.Shards[0].Identity.ShardID || wave.SpawnWave[0].SelectedAction.AgentToolRequest == nil {
+		t.Fatalf("status current-loop operator omitted reviewer wave closure: %+v", wave)
+	}
 	spawnAttempt := statusOperator.ExternalReviewerHandoff.Attempt
 	if spawnAttempt == nil || spawnAttempt.SelectedAction.Kind != "invoke-reviewer-and-record-acceptance" || spawnAttempt.SelectedAction.Actor != "main-agent-harness" || spawnAttempt.Identity.PacketID == "" || spawnAttempt.Identity.RouteID == "" || spawnAttempt.Identity.ShardID == "" || spawnAttempt.Identity.Lane == "" || spawnAttempt.Identity.PromptSHA256 == "" || spawnAttempt.Identity.OwnerBindingMode == "" || spawnAttempt.Identity.CurrentExecutor != spawnAttempt.Identity.OwnerExecutor || spawnAttempt.Identity.CurrentGeneration != spawnAttempt.Identity.OwnerGeneration || spawnAttempt.CurrentReviewerDriverRequest == nil || spawnAttempt.DurableContinuationDriverRequest == nil || len(spawnAttempt.AttemptSnapshotSHA256) != 64 {
 		t.Fatalf("status current-loop operator omitted reviewer attempt identity: %+v", spawnAttempt)
@@ -409,6 +413,14 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	}
 	if dispatchApplied.StopReason.ExternalHandoff.ReviewerResultDropPathRole != "canonical-reviewer-input-destination" || dispatchApplied.StopReason.ExternalHandoff.ReviewerResultInputPath == "" || dispatchApplied.StopReason.ExternalHandoff.ReviewerResultDropPath != dispatchApplied.StopReason.ExternalHandoff.ReviewerResultInputPath {
 		t.Fatalf("result handoff did not distinguish canonical input destination: %+v", dispatchApplied.StopReason.ExternalHandoff)
+	}
+	activeWaveOperator := dispatchApplied.FinalStatus.MissionControlRunbook.CurrentLoopOperator
+	if activeWaveOperator == nil || activeWaveOperator.ExternalReviewerHandoff == nil {
+		t.Fatalf("reviewer wave active status was not refreshed: %+v", activeWaveOperator)
+	}
+	resultWave := activeWaveOperator.ExternalReviewerHandoff.Wave
+	if resultWave == nil || resultWave.ActiveSlots != 1 || resultWave.AvailableSlots != 1 || len(resultWave.Active) != 1 || len(resultWave.SpawnWave) != 0 || resultWave.Active[0].Receipt.Session != "reviewer-session-runner" || resultWave.Active[0].SelectedAction.AgentToolRequest != nil {
+		t.Fatalf("reviewer wave did not project active slot after acceptance: %+v", resultWave)
 	}
 	if len(continuation.ObservationContract.Alternatives) != 2 || continuation.ObservationContract.Alternatives[0].Kind != "reviewer-result-returned" || continuation.ObservationContract.Alternatives[1].Kind != "reviewer-session-failed" {
 		t.Fatalf("result handoff observation alternatives = %+v", continuation.ObservationContract)

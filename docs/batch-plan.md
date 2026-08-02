@@ -28,14 +28,21 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 801：multi-shard reviewer wave orchestration closure
 
+状态：已完成多shard reviewer wave、packet-level observation bundle、strict lifecycle/path/current-dispatch guards、PowerShell纯转发、产品路径回归、文档、独立终审与Windows本机完整release minimum；implementation commit/push待本批统一完成。该批来自真实临时case日常路线审计，不是继续做parser、summary、projection或单字段contract微调。
 
+用户断点：review packet虽声明`maxParallel=2`并含多个shard，但原status/current-loop只暴露一个current attempt。主Agent或replacement executor必须手工打开packet寻找其余shard、计算slot、逐个记录dispatch/result/failure并在新会话重建wave；一个invalid/failed shard也容易阻断或混淆其它已成功shard。
 
+目标：关闭多shard reviewer wave在主Agent与replacement executor之间无法直接并行恢复和批量记录外部观察的日常编排断点。
 
+操作变化：变更前是`status → 手工读packet → 手工计算并行slot → 每shard分别执行receipt/result命令 → replacement重扫packet`；变更后`status/current-loop/handoff`一次返回绑定snapshot SHA的packet wave，明确`maxParallel`、active/available slots、`spawnWave`及active/returned/failed/blocked/complete全量shard。外部harness并行运行`spawnWave`后，把同一轮多个`accepted|returned|failed`观察写入一个case-local strict JSON，执行`run-reviewer-wave -WhatIf → review → expectedReviewerWavePlanSha256 Apply → refreshed status`；每项仍复用原独立shard lock/prompt/receipt/result guards，partial failure保留此前immutable writes并给出`appliedCount/failedIndex/failure/refreshedWave`，后续项不执行。
 
+E2E验收：双shard初始wave同时暴露两个spawn slots；一个active占slot后只补一个可spawn shard；returned释放slot并进入returned，retryable failed同时进入failed与下一spawn wave，complete保留只读历史且不再成为next action；active/returned shard不暴露重复Agent request。一次bundle可记录两项acceptance，也可同时保存合法returned ReviewerResult input和failed completion；observation file drift、stale wave、duplicate shard、unknown field、packet/lane mismatch、wrong lifecycle fields、case外/祖先symlink/empty/oversize文件均zero-write fail-closed。replacement/current-loop可直接取得wave snapshot与全状态，不依赖旧聊天。
 
+边界：runtime只记录外部harness显式观察，不调用Agent tool，不spawn/poll/stop session，不伪造ReviewerResult，不执行heavy-tool、不写authority/confirmed；review-first mutation保持exact observation bytes + current wave + per-shard preview hashes绑定。PowerShell façade只新增Go-owned/no-fallback参数转发与严格allowlist，不新增业务runtime。
 
-
+验证结果：focused E2E覆盖双shard并行acceptance、returned+failed、retry spawn、partial observation、旧dispatch结果拒绝、stale/file drift、strict schema/lifecycle和case-local symlink-free bounded stable read；相关CLI/workstream/commands/mission/releasecheck完整packages通过（CLI 150.601秒），PowerShell façade smoke通过。独立审查发现并关闭MaxParallel绕过、observation check/open TOCTOU、returned子步骤低报mutation及旧dispatch result污染四项Important，终审无剩余Critical/Important。最终`go test ./... -count=1`通过（CLI 151.403秒），`go vet ./...`、packs、doctor与`git diff --check`通过；统一`release-run -Format json`以7/7通过（272.002秒，其中完整Go tests 269.435秒）。普通batch不等待或声明remote CI green。
 
 ### Batch 800：full-field latest batch validation parsing closure
 

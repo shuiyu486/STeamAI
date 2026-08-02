@@ -29,6 +29,7 @@ const (
 	RunCurrentStep  = "run-current-step"
 	RunDriverStep   = "run-driver-step"
 	RunReviewerStep = "run-reviewer-step"
+	RunReviewerWave = "run-reviewer-wave"
 	Start           = "start"
 	Status          = "status"
 	Sync            = "sync"
@@ -133,6 +134,7 @@ var publicCommands = []string{
 	RunCurrentStep,
 	RunDriverStep,
 	RunReviewerStep,
+	RunReviewerWave,
 	Start,
 	Status,
 	Sync,
@@ -162,6 +164,7 @@ var publicProfiles = []PublicProfile{
 	{Command: RunCurrentStep, MutationBoundary: BoundaryCaseLocalReviewFirst, IsMutation: true, WritesCase: true, ReviewFirst: true, ApplyRequired: true},
 	{Command: RunDriverStep, MutationBoundary: BoundaryCaseLocalReviewFirst, IsMutation: true, WritesCase: true, ReviewFirst: true, ApplyRequired: true},
 	{Command: RunReviewerStep, MutationBoundary: BoundaryCaseLocalReviewFirst, IsMutation: true, WritesCase: true, ReviewFirst: true, ApplyRequired: true},
+	{Command: RunReviewerWave, MutationBoundary: BoundaryCaseLocalReviewFirst, IsMutation: true, WritesCase: true, ReviewFirst: true, ApplyRequired: true},
 	{Command: Start, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
 	{Command: Status, MutationBoundary: BoundaryReadOnly},
 	{Command: Sync, MutationBoundary: BoundaryCaseLocalReviewFirst, IsMutation: true, WritesCase: true, ReviewFirst: true, ApplyRequired: true},
@@ -206,6 +209,7 @@ func SymbolValues() map[string]string {
 		"RunCurrentStep":  RunCurrentStep,
 		"RunDriverStep":   RunDriverStep,
 		"RunReviewerStep": RunReviewerStep,
+		"RunReviewerWave": RunReviewerWave,
 		"Start":           Start,
 		"Status":          Status,
 		"Sync":            Sync,

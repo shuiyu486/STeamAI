@@ -658,6 +658,7 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 		"run-current-step",
 		"run-driver-step",
 		"run-reviewer-step",
+		"run-reviewer-wave",
 		"next-batch",
 		"doctor",
 		"validate",

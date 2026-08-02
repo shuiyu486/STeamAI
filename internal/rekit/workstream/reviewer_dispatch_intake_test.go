@@ -296,6 +296,56 @@ func TestReviewerDispatchOperatorPackageOnlyForOpenManagedDispatch(t *testing.T)
 	}
 }
 
+func TestReviewerDispatchOperatorPackageBuildsMaxParallelWave(t *testing.T) {
+	managed := func(shard string) *ReviewerManagedDispatchHandoff {
+		return &ReviewerManagedDispatchHandoff{
+			PacketPath:       "packet.json",
+			ReviewerCount:    3,
+			MaxParallel:      2,
+			ShardID:          shard,
+			PromptPath:       shard + ".prompt.md",
+			PromptSHA256:     strings.Repeat(shard[len(shard)-1:], sha256.Size*2),
+			AgentToolRequest: &ReviewerAgentToolRequest{Tool: "Claude Code Agent", AgentType: "read-only-reviewer", ReadOnly: true},
+		}
+	}
+	items := []ReviewerDispatchIntakeHandoff{
+		{PacketID: "packet-wave", PacketPath: "packet.json", RouteID: "bounded-review", TargetLane: "feature-review", ShardID: "shard-01", State: "ready-for-reviewer-dispatch", DispatchPromptCurrent: true, ManagedDispatch: managed("shard-01"), ReviewerDispatchRecordCommand: "record shard-01", RefreshStatusCommand: "/rekit status -Format json"},
+		{PacketID: "packet-wave", PacketPath: "packet.json", RouteID: "bounded-review", TargetLane: "feature-review", ShardID: "shard-02", State: "ready-for-reviewer-dispatch", DispatchPromptCurrent: true, ManagedDispatch: managed("shard-02"), ReviewerDispatchRecordCommand: "record shard-02", RefreshStatusCommand: "/rekit status -Format json"},
+		{PacketID: "packet-wave", PacketPath: "packet.json", RouteID: "bounded-review", TargetLane: "feature-review", ShardID: "shard-03", State: "reviewer-session-running-unknown", DispatchPromptCurrent: true, ManagedDispatch: managed("shard-03"), ReviewerDispatchID: "dispatch-03", ReviewerSession: "session-03", RefreshStatusCommand: "/rekit status -Format json"},
+	}
+
+	wave := ReviewerDispatchIntakeSummaryFor(items).OperatorPackage.Wave
+	if wave == nil || !wave.Ready || wave.MaxParallel != 2 || wave.TotalShards != 3 || wave.ActiveSlots != 1 || wave.AvailableSlots != 1 {
+		t.Fatalf("reviewer wave capacity = %+v", wave)
+	}
+	if len(wave.SpawnWave) != 1 || wave.SpawnWave[0].ShardID != "shard-01" || wave.SpawnWave[0].AgentToolRequest == nil || wave.SpawnWave[0].RecordDispatchCommand != "record shard-01" {
+		t.Fatalf("reviewer wave spawn selection = %+v", wave.SpawnWave)
+	}
+	if len(wave.Active) != 1 || wave.Active[0].ShardID != "shard-03" || wave.Active[0].AgentToolRequest != nil || wave.Active[0].ReviewerSession != "session-03" {
+		t.Fatalf("reviewer wave active selection = %+v", wave.Active)
+	}
+	if len(wave.Shards) != 3 || wave.Shards[1].ShardID != "shard-02" || wave.Shards[1].SlotState != "spawn-ready" {
+		t.Fatalf("reviewer wave did not preserve queued spawn-ready shard: %+v", wave.Shards)
+	}
+
+	items[2].State = "ready-for-reviewer-completion-receipt-preview"
+	wave = ReviewerDispatchIntakeSummaryFor(items).OperatorPackage.Wave
+	if wave.ActiveSlots != 0 || wave.AvailableSlots != 2 || len(wave.SpawnWave) != 2 || len(wave.Returned) != 1 || wave.Returned[0].ShardID != "shard-03" {
+		t.Fatalf("reviewer wave did not refill returned slot: %+v", wave)
+	}
+	items[2].VerificationRecorded = true
+	items[2].DecisionRecorded = true
+	wave = ReviewerDispatchIntakeSummaryFor(items).OperatorPackage.Wave
+	if len(wave.Complete) != 1 || wave.Complete[0].ShardID != "shard-03" || len(wave.Shards) != 3 {
+		t.Fatalf("reviewer wave omitted completed shard history: %+v", wave)
+	}
+	items[1].State = "reviewer-session-failed"
+	wave = ReviewerDispatchIntakeSummaryFor(items).OperatorPackage.Wave
+	if len(wave.Failed) != 1 || wave.Failed[0].ShardID != "shard-02" || len(wave.SpawnWave) != 2 || wave.SpawnWave[1].ShardID != "shard-02" {
+		t.Fatalf("reviewer wave did not isolate retryable failed shard: %+v", wave)
+	}
+}
+
 func TestReviewerDispatchOperatorPackageCurrentRunLoopStepTracksLifecycle(t *testing.T) {
 	managed := &ReviewerManagedDispatchHandoff{ShardID: "shard-01", PromptPath: "prompt.md", PromptSHA256: strings.Repeat("a", sha256.Size*2), ReviewerResultInputPath: "input.json", ReviewerResultSourcePath: "source.json", ReviewerResultCandidatePath: "candidate.json", ReviewerResultPath: "result.json", AgentToolRequest: &ReviewerAgentToolRequest{Tool: "Claude Code Agent", ReadOnly: true}}
 	tests := []struct {

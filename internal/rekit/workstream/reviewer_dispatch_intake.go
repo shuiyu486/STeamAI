@@ -246,6 +246,7 @@ type ReviewerDispatchOperatorPackage struct {
 	RouteID              string                                 `json:"routeId,omitempty"`
 	TargetLane           string                                 `json:"targetLane,omitempty"`
 	Current              *ReviewerDispatchOperatorPackageItem   `json:"current,omitempty"`
+	Wave                 *ReviewerDispatchWavePackage           `json:"wave,omitempty"`
 	CurrentRunLoopStepID string                                 `json:"currentRunLoopStepId,omitempty"`
 	CurrentDriverRequest *mission.MissionCommanderDriverRequest `json:"currentDriverRequest,omitempty"`
 	RefreshStatusCommand string                                 `json:"refreshStatusCommand,omitempty"`
@@ -253,6 +254,51 @@ type ReviewerDispatchOperatorPackage struct {
 	RunbookSteps         []string                               `json:"runbookSteps,omitempty"`
 	CompletionCriteria   []string                               `json:"completionCriteria,omitempty"`
 	Boundary             []string                               `json:"boundary,omitempty"`
+}
+
+type ReviewerDispatchWavePackage struct {
+	Ready          bool                              `json:"ready"`
+	SnapshotSHA256 string                            `json:"snapshotSha256,omitempty"`
+	PacketID       string                            `json:"packetId"`
+	PacketPath     string                            `json:"packetPath"`
+	RouteID        string                            `json:"routeId,omitempty"`
+	TargetLane     string                            `json:"targetLane"`
+	MaxParallel    int                               `json:"maxParallel"`
+	TotalShards    int                               `json:"totalShards"`
+	ActiveSlots    int                               `json:"activeSlots"`
+	AvailableSlots int                               `json:"availableSlots"`
+	SpawnWave      []ReviewerDispatchWavePackageItem `json:"spawnWave,omitempty"`
+	Active         []ReviewerDispatchWavePackageItem `json:"active,omitempty"`
+	Returned       []ReviewerDispatchWavePackageItem `json:"returned,omitempty"`
+	Failed         []ReviewerDispatchWavePackageItem `json:"failed,omitempty"`
+	Blocked        []ReviewerDispatchWavePackageItem `json:"blocked,omitempty"`
+	Complete       []ReviewerDispatchWavePackageItem `json:"complete,omitempty"`
+	Shards         []ReviewerDispatchWavePackageItem `json:"shards"`
+	Boundary       []string                          `json:"boundary"`
+}
+
+type ReviewerDispatchWavePackageItem struct {
+	ShardID                   string                                 `json:"shardId"`
+	State                     string                                 `json:"state"`
+	SlotState                 string                                 `json:"slotState"`
+	RunLoopStepID             string                                 `json:"runLoopStepId,omitempty"`
+	Items                     []string                               `json:"items,omitempty"`
+	DispatchPromptPath        string                                 `json:"dispatchPromptPath,omitempty"`
+	DispatchPromptSHA256      string                                 `json:"dispatchPromptSha256,omitempty"`
+	AgentToolRequest          *ReviewerAgentToolRequest              `json:"agentToolRequest,omitempty"`
+	ReviewerDispatchID        string                                 `json:"reviewerDispatchId,omitempty"`
+	ReviewerHarness           string                                 `json:"reviewerHarness,omitempty"`
+	ReviewerSession           string                                 `json:"reviewerSession,omitempty"`
+	ReviewerSessionOutcome    string                                 `json:"reviewerSessionOutcome,omitempty"`
+	ReviewerSessionExitStatus string                                 `json:"reviewerSessionExitStatus,omitempty"`
+	ReviewerResultInputPath   string                                 `json:"reviewerResultInputPath,omitempty"`
+	ReviewerResultSourcePath  string                                 `json:"reviewerResultSourcePath,omitempty"`
+	ReviewerResultPath        string                                 `json:"reviewerResultPath,omitempty"`
+	RecordDispatchCommand     string                                 `json:"recordDispatchCommand,omitempty"`
+	RecordCompletionCommand   string                                 `json:"recordCompletionCommand,omitempty"`
+	CurrentDriverRequest      *mission.MissionCommanderDriverRequest `json:"currentDriverRequest,omitempty"`
+	OperatorItem              *ReviewerDispatchOperatorPackageItem   `json:"-"`
+	Boundary                  []string                               `json:"boundary,omitempty"`
 }
 
 type ReviewerDispatchRunLoopStep struct {
@@ -1024,7 +1070,7 @@ func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) Rev
 		if item.State == "attach-required-before-reviewer-intake" || item.State == "reviewer-packet-owner-adoption-required" {
 			summary.AttachRequired++
 		}
-		eligible := true
+		eligible := !(item.VerificationRecorded && item.DecisionRecorded)
 		if item.State == "ready-for-reviewer-intake-preview" {
 			eligible = packetReadyForIntake[firstText(item.PacketID, item.PacketPath)]
 		}
@@ -1109,6 +1155,9 @@ func ReviewerDispatchIntakeSummaryFor(items []ReviewerDispatchIntakeHandoff) Rev
 			summary.NextAction = reviewerDispatchIntakeNextAction(*nextAction)
 			summary.NextActionRunbookSteps = reviewerDispatchIntakeRunbookSteps(*nextAction)
 			summary.OperatorPackage = reviewerDispatchOperatorPackageFor(*nextAction)
+			if summary.OperatorPackage != nil {
+				summary.OperatorPackage.Wave = reviewerDispatchWavePackageFor(*nextAction, items)
+			}
 		}
 		summary.Boundary = reviewerDispatchIntakeSummaryBoundary()
 	}
@@ -2556,6 +2605,172 @@ func reviewerDispatchIntakeSummaryBoundary() []string {
 		"runtime does not spawn, stop, monitor, or manage reviewer sessions from status/handoff/continue",
 		"dispatch reviewers only from prompt artifacts that are present, non-symlink, non-empty, and match promptSha256",
 		"run ready-result batch intake -WhatIf before -Apply; packet order, fail-fast, waiting results, no-authority, and no-heavy boundaries remain enforced",
+	}
+}
+
+func reviewerDispatchWavePackageFor(current ReviewerDispatchIntakeHandoff, items []ReviewerDispatchIntakeHandoff) *ReviewerDispatchWavePackage {
+	packetID := firstText(current.PacketID, current.PacketPath)
+	packetItems := []ReviewerDispatchIntakeHandoff{}
+	for _, item := range items {
+		if firstText(item.PacketID, item.PacketPath) != packetID || item.ManagedDispatch == nil {
+			continue
+		}
+		packetItems = append(packetItems, item)
+	}
+	if len(packetItems) == 0 {
+		return nil
+	}
+
+	maxParallel := packetItems[0].ManagedDispatch.MaxParallel
+	if maxParallel <= 0 {
+		maxParallel = 1
+	}
+	wave := &ReviewerDispatchWavePackage{
+		Ready:       true,
+		PacketID:    current.PacketID,
+		PacketPath:  current.PacketPath,
+		RouteID:     current.RouteID,
+		TargetLane:  current.TargetLane,
+		MaxParallel: maxParallel,
+		TotalShards: len(packetItems),
+		Boundary: []string{
+			"wave package is a read-only snapshot; the external main-agent harness alone invokes Agent tool and assigns reviewer sessions",
+			"each shard keeps an independent prompt binding, dispatch/completion receipt, result pipeline, and strict intake outcome",
+			"availableSlots limits only new spawnWave entries; active, returned, failed, blocked, and complete shards remain independently inspectable",
+			"runtime does not spawn, poll, stop, or manage reviewer sessions, execute heavy tools, or write authority/confirmed state",
+		},
+	}
+	spawnCandidates := []ReviewerDispatchWavePackageItem{}
+	for _, item := range packetItems {
+		if item.VerificationRecorded && item.DecisionRecorded {
+			entry := reviewerDispatchCompleteWaveItem(item)
+			wave.Shards = append(wave.Shards, entry)
+			wave.Complete = append(wave.Complete, entry)
+			continue
+		}
+		packageItem := reviewerDispatchOperatorPackageFor(item)
+		if packageItem == nil || packageItem.Current == nil {
+			continue
+		}
+		entry := reviewerDispatchWaveItemFor(item, packageItem)
+		wave.Shards = append(wave.Shards, entry)
+		if item.State == "reviewer-session-failed" {
+			wave.Failed = append(wave.Failed, entry)
+		}
+		switch entry.SlotState {
+		case "spawn-ready":
+			spawnCandidates = append(spawnCandidates, entry)
+		case "active":
+			wave.Active = append(wave.Active, entry)
+		case "returned":
+			wave.Returned = append(wave.Returned, entry)
+		case "failed":
+			wave.Failed = append(wave.Failed, entry)
+		default:
+			wave.Blocked = append(wave.Blocked, entry)
+		}
+	}
+	wave.ActiveSlots = len(wave.Active)
+	wave.AvailableSlots = max(0, wave.MaxParallel-wave.ActiveSlots)
+	if wave.AvailableSlots < len(spawnCandidates) {
+		spawnCandidates = spawnCandidates[:wave.AvailableSlots]
+	}
+	wave.SpawnWave = spawnCandidates
+	wave.SnapshotSHA256 = reviewerDispatchWaveSnapshotSHA256(wave)
+	return wave
+}
+
+func reviewerDispatchWaveSnapshotSHA256(wave *ReviewerDispatchWavePackage) string {
+	if wave == nil {
+		return ""
+	}
+	encoded, _ := json.Marshal(struct {
+		PacketID       string                            `json:"packetId"`
+		PacketPath     string                            `json:"packetPath"`
+		RouteID        string                            `json:"routeId"`
+		TargetLane     string                            `json:"targetLane"`
+		MaxParallel    int                               `json:"maxParallel"`
+		ActiveSlots    int                               `json:"activeSlots"`
+		AvailableSlots int                               `json:"availableSlots"`
+		Shards         []ReviewerDispatchWavePackageItem `json:"shards"`
+	}{wave.PacketID, wave.PacketPath, wave.RouteID, wave.TargetLane, wave.MaxParallel, wave.ActiveSlots, wave.AvailableSlots, wave.Shards})
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:])
+}
+
+func reviewerDispatchCompleteWaveItem(item ReviewerDispatchIntakeHandoff) ReviewerDispatchWavePackageItem {
+	return ReviewerDispatchWavePackageItem{
+		ShardID:                   item.ShardID,
+		State:                     item.State,
+		SlotState:                 "complete",
+		ReviewerDispatchID:        item.ReviewerDispatchID,
+		ReviewerHarness:           item.ReviewerHarness,
+		ReviewerSession:           item.ReviewerSession,
+		ReviewerSessionOutcome:    item.ReviewerSessionOutcome,
+		ReviewerSessionExitStatus: item.ReviewerSessionExitStatus,
+		ReviewerResultInputPath:   item.ReviewerResultInputPath,
+		ReviewerResultSourcePath:  item.ReviewerResultSourcePath,
+		ReviewerResultPath:        item.ReviewerResultPath,
+		Boundary: []string{
+			"strict reviewer verification and decision writeback are already complete for this shard",
+			"completed shard receipts remain immutable and do not consume a parallel reviewer slot",
+		},
+	}
+}
+
+func reviewerDispatchWaveItemFor(item ReviewerDispatchIntakeHandoff, pkg *ReviewerDispatchOperatorPackage) ReviewerDispatchWavePackageItem {
+	current := pkg.Current
+	entry := ReviewerDispatchWavePackageItem{
+		ShardID:                   item.ShardID,
+		State:                     item.State,
+		SlotState:                 reviewerDispatchWaveSlotState(item),
+		RunLoopStepID:             pkg.CurrentRunLoopStepID,
+		Items:                     append([]string{}, current.Items...),
+		DispatchPromptPath:        current.DispatchPromptPath,
+		DispatchPromptSHA256:      current.DispatchPromptSHA256,
+		AgentToolRequest:          current.AgentToolRequest,
+		ReviewerDispatchID:        current.ReviewerDispatchID,
+		ReviewerHarness:           current.ReviewerHarness,
+		ReviewerSession:           current.ReviewerSession,
+		ReviewerSessionOutcome:    current.ReviewerSessionOutcome,
+		ReviewerSessionExitStatus: current.ReviewerSessionExitStatus,
+		ReviewerResultInputPath:   current.ReviewerResultInputPath,
+		ReviewerResultSourcePath:  current.ReviewerResultSourcePath,
+		ReviewerResultPath:        current.ReviewerResultPath,
+		RecordDispatchCommand:     current.ReviewerDispatchRecordCommand,
+		RecordCompletionCommand:   current.ReviewerCompletionRecordCommand,
+		CurrentDriverRequest:      pkg.CurrentDriverRequest,
+		OperatorItem:              current,
+		Boundary: []string{
+			"invoke Agent tool only when slotState=spawn-ready and only from the external main-agent harness",
+			"record acceptance, completion, result, and failure observations through this shard's existing preview/apply pipeline",
+		},
+	}
+	if entry.SlotState != "spawn-ready" {
+		entry.AgentToolRequest = nil
+		entry.RecordDispatchCommand = ""
+	}
+	return entry
+}
+
+func reviewerDispatchWaveSlotState(item ReviewerDispatchIntakeHandoff) string {
+	if item.VerificationRecorded && item.DecisionRecorded {
+		return "complete"
+	}
+	switch item.State {
+	case "ready-for-reviewer-dispatch", "reviewer-session-failed", "reviewer-session-receipt-owner-stale":
+		if item.DispatchPromptCurrent && item.ManagedDispatch != nil && item.ManagedDispatch.AgentToolRequest != nil {
+			return "spawn-ready"
+		}
+		return "blocked"
+	case "reviewer-session-running-unknown":
+		return "active"
+	case "ready-for-reviewer-completion-receipt-preview", "ready-for-reviewer-result-source-capture-preview", "ready-for-reviewer-result-staging-preview", "ready-for-reviewer-result-collection-preview", "reviewer-result-recovery-disposed-ready-for-collection-preview", "ready-for-reviewer-intake-preview":
+		return "returned"
+	case "reviewer-session-receipt-invalid", "reviewer-result-input-invalid", "reviewer-result-source-invalid", "reviewer-result-candidate-invalid", "reviewer-result-canonical-invalid", "reviewer-result-recovery-invalid":
+		return "failed"
+	default:
+		return "blocked"
 	}
 }
 

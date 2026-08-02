@@ -236,8 +236,29 @@ type CurrentLoopReviewerAttempt struct {
 	Boundary                         []string                           `json:"boundary"`
 }
 
+type CurrentLoopReviewerWave struct {
+	SnapshotSHA256 string                        `json:"snapshotSha256"`
+	PacketID       string                        `json:"packetId"`
+	PacketPath     string                        `json:"packetPath"`
+	RouteID        string                        `json:"routeId,omitempty"`
+	Lane           string                        `json:"lane"`
+	MaxParallel    int                           `json:"maxParallel"`
+	TotalShards    int                           `json:"totalShards"`
+	ActiveSlots    int                           `json:"activeSlots"`
+	AvailableSlots int                           `json:"availableSlots"`
+	SpawnWave      []*CurrentLoopReviewerAttempt `json:"spawnWave,omitempty"`
+	Active         []*CurrentLoopReviewerAttempt `json:"active,omitempty"`
+	Returned       []*CurrentLoopReviewerAttempt `json:"returned,omitempty"`
+	Failed         []*CurrentLoopReviewerAttempt `json:"failed,omitempty"`
+	Blocked        []*CurrentLoopReviewerAttempt `json:"blocked,omitempty"`
+	Complete       []*CurrentLoopReviewerAttempt `json:"complete,omitempty"`
+	Shards         []*CurrentLoopReviewerAttempt `json:"shards"`
+	Boundary       []string                      `json:"boundary"`
+}
+
 type CurrentLoopExternalReviewerHandoff struct {
 	Attempt                       *CurrentLoopReviewerAttempt          `json:"attempt,omitempty"`
+	Wave                          *CurrentLoopReviewerWave             `json:"wave,omitempty"`
 	State                         string                               `json:"state"`
 	RunLoopStepID                 string                               `json:"runLoopStepId"`
 	RequiredInputs                []string                             `json:"requiredInputs"`

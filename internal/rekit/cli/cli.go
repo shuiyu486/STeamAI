@@ -111,6 +111,8 @@ type Options struct {
 	ReviewerDispatchID                       string
 	ReviewerOutcome                          string
 	ReviewerExitStatus                       string
+	ReviewerWaveObservationsPath             string
+	ExpectedReviewerWavePlanSHA256           string
 	ExpectedReviewerDispatchBindingSHA256    string
 	ExpectedReviewerDispatchReceiptSHA256    string
 	ShardID                                  string
@@ -475,6 +477,18 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ReviewerExitStatus")
 			}
 			opt.ReviewerExitStatus = args[i]
+		case "-ReviewerWaveObservationsPath", "--reviewer-wave-observations-path":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ReviewerWaveObservationsPath")
+			}
+			opt.ReviewerWaveObservationsPath = args[i]
+		case "-ExpectedReviewerWavePlanSha256", "-ExpectedReviewerWavePlanSHA256", "--expected-reviewer-wave-plan-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedReviewerWavePlanSha256")
+			}
+			opt.ExpectedReviewerWavePlanSHA256 = args[i]
 		case "-ExpectedReviewerDispatchBindingSha256", "--expected-reviewer-dispatch-binding-sha256":
 			i++
 			if i >= len(args) {
@@ -1087,6 +1101,8 @@ func Run(args []string, stdout io.Writer) error {
 		return runDriverStep(ctx, opt, stdout)
 	case commands.RunReviewerStep:
 		return runReviewerStep(ctx, opt, stdout)
+	case commands.RunReviewerWave:
+		return runReviewerWave(ctx, opt, stdout)
 	case commands.NextBatch:
 		return runNextBatch(ctx, opt, stdout)
 	case commands.Doctor, commands.Validate:
@@ -4037,6 +4053,14 @@ func statusCurrentLoopStartDriverRequest(target, pack string, maxSteps int, curr
 }
 
 func statusCurrentLoopExternalReviewerHandoff(pkg *workstream.ReviewerDispatchOperatorPackage, selected *mission.MissionCommanderDriverRequest, directPreviewCommand ...string) *mission.CurrentLoopExternalReviewerHandoff {
+	result := statusCurrentLoopExternalReviewerHandoffForPackage(pkg, selected, directPreviewCommand...)
+	if result != nil {
+		result.Wave = statusCurrentLoopReviewerWave(pkg, selected)
+	}
+	return result
+}
+
+func statusCurrentLoopExternalReviewerHandoffForPackage(pkg *workstream.ReviewerDispatchOperatorPackage, selected *mission.MissionCommanderDriverRequest, directPreviewCommand ...string) *mission.CurrentLoopExternalReviewerHandoff {
 	external := reviewerStepExternal(pkg, statusCurrentLoopExternalReviewerRequiredInputs(pkg))
 	if external == nil {
 		return nil
@@ -4098,6 +4122,104 @@ func statusCurrentLoopExternalReviewerHandoff(pkg *workstream.ReviewerDispatchOp
 		}
 	}
 	return result
+}
+
+func statusCurrentLoopReviewerWave(pkg *workstream.ReviewerDispatchOperatorPackage, selected *mission.MissionCommanderDriverRequest) *mission.CurrentLoopReviewerWave {
+	if pkg == nil || pkg.Wave == nil {
+		return nil
+	}
+	source := pkg.Wave
+	wave := &mission.CurrentLoopReviewerWave{
+		SnapshotSHA256: source.SnapshotSHA256,
+		PacketID:       source.PacketID,
+		PacketPath:     source.PacketPath,
+		RouteID:        source.RouteID,
+		Lane:           source.TargetLane,
+		MaxParallel:    source.MaxParallel,
+		TotalShards:    source.TotalShards,
+		ActiveSlots:    source.ActiveSlots,
+		AvailableSlots: source.AvailableSlots,
+		Boundary:       append([]string{}, source.Boundary...),
+	}
+	attempts := map[string]*mission.CurrentLoopReviewerAttempt{}
+	for _, item := range source.Shards {
+		attempt := statusCurrentLoopReviewerWaveAttempt(pkg, item, selected)
+		if attempt == nil {
+			continue
+		}
+		attempts[item.ShardID] = attempt
+		wave.Shards = append(wave.Shards, attempt)
+	}
+	appendAttempts := func(target *[]*mission.CurrentLoopReviewerAttempt, items []workstream.ReviewerDispatchWavePackageItem) {
+		for _, item := range items {
+			if attempt := attempts[item.ShardID]; attempt != nil {
+				*target = append(*target, attempt)
+			}
+		}
+	}
+	appendAttempts(&wave.SpawnWave, source.SpawnWave)
+	appendAttempts(&wave.Active, source.Active)
+	appendAttempts(&wave.Returned, source.Returned)
+	appendAttempts(&wave.Failed, source.Failed)
+	appendAttempts(&wave.Blocked, source.Blocked)
+	appendAttempts(&wave.Complete, source.Complete)
+	return wave
+}
+
+func statusCurrentLoopReviewerWaveAttempt(pkg *workstream.ReviewerDispatchOperatorPackage, item workstream.ReviewerDispatchWavePackageItem, selected *mission.MissionCommanderDriverRequest) *mission.CurrentLoopReviewerAttempt {
+	if item.SlotState == "complete" {
+		identity := mission.CurrentLoopReviewerAttemptIdentity{
+			PacketID:   strings.TrimSpace(pkg.PacketID),
+			PacketPath: strings.TrimSpace(pkg.PacketPath),
+			RouteID:    strings.TrimSpace(pkg.RouteID),
+			ShardID:    strings.TrimSpace(item.ShardID),
+			Lane:       strings.TrimSpace(pkg.TargetLane),
+		}
+		attempt := &mission.CurrentLoopReviewerAttempt{
+			SchemaVersion: 1,
+			AttemptID:     statusCurrentLoopReviewerAttemptID(identity, item.ReviewerDispatchID),
+			State:         strings.TrimSpace(item.State),
+			RunLoopStepID: "complete",
+			Identity:      identity,
+			Receipt: mission.CurrentLoopReviewerAttemptReceipt{
+				DispatchID:           strings.TrimSpace(item.ReviewerDispatchID),
+				Harness:              strings.TrimSpace(item.ReviewerHarness),
+				Session:              strings.TrimSpace(item.ReviewerSession),
+				CompletionOutcome:    strings.TrimSpace(item.ReviewerSessionOutcome),
+				CompletionExitStatus: strings.TrimSpace(item.ReviewerSessionExitStatus),
+			},
+			SelectedAction: mission.CurrentLoopReviewerAttemptAction{
+				Kind:        "none-complete",
+				Actor:       "main-agent",
+				Description: "strict reviewer verification and decision writeback are complete",
+			},
+			ReviewerResultInputPath:  strings.TrimSpace(item.ReviewerResultInputPath),
+			ReviewerResultSourcePath: strings.TrimSpace(item.ReviewerResultSourcePath),
+			ReviewerResultPath:       strings.TrimSpace(item.ReviewerResultPath),
+			CompletionCriteria:       []string{"reviewer shard has immutable verification and decision writeback"},
+			Boundary:                 append([]string{}, item.Boundary...),
+		}
+		attempt.AttemptSnapshotSHA256 = statusCurrentLoopReviewerAttemptSHA256(attempt)
+		return attempt
+	}
+	if item.OperatorItem == nil || item.CurrentDriverRequest == nil {
+		return nil
+	}
+	itemPackage := *pkg
+	itemPackage.Current = item.OperatorItem
+	itemPackage.CurrentRunLoopStepID = item.RunLoopStepID
+	itemPackage.CurrentDriverRequest = item.CurrentDriverRequest
+	itemPackage.Wave = nil
+	handoff := statusCurrentLoopExternalReviewerHandoffForPackage(&itemPackage, selected)
+	if handoff == nil || handoff.Attempt == nil {
+		return nil
+	}
+	if item.AgentToolRequest == nil {
+		handoff.Attempt.SelectedAction.AgentToolRequest = nil
+		handoff.Attempt.AttemptSnapshotSHA256 = statusCurrentLoopReviewerAttemptSHA256(handoff.Attempt)
+		statusMaterializeCurrentLoopReviewerAttemptContract(&handoff.Attempt.SelectedAction.ObservationContract, handoff.Attempt.AttemptSnapshotSHA256)
+	}
+	return handoff.Attempt
 }
 
 func statusCurrentLoopReviewerAttempt(pkg *workstream.ReviewerDispatchOperatorPackage, selected *mission.MissionCommanderDriverRequest, handoff *mission.CurrentLoopExternalReviewerHandoff) *mission.CurrentLoopReviewerAttempt {
