@@ -3161,6 +3161,7 @@ type statusMissionControlRunbook struct {
 	GuidanceHandoff             *statusMissionControlGuidanceHandoff        `json:"guidanceHandoff,omitempty"`
 	ReplacementExecutorTakeover *mission.ReplacementExecutorTakeoverPackage `json:"replacementExecutorTakeoverPackage,omitempty"`
 	CurrentLoopSegment          *currentloop.Inspection                     `json:"currentLoopSegment,omitempty"`
+	CurrentLoopOperator         *mission.CurrentLoopOperatorPackage         `json:"currentLoopOperator,omitempty"`
 	RefreshStatusCommand        string                                      `json:"refreshStatusCommand"`
 	HandoffPreviewCommand       string                                      `json:"handoffPreviewCommand,omitempty"`
 	HandoffApplyCommand         string                                      `json:"handoffApplyCommand,omitempty"`
@@ -3193,6 +3194,7 @@ type statusMissionControlQuickstart struct {
 	TargetDocuments      []string                                  `json:"targetDocuments,omitempty"`
 	RunbookSteps         []string                                  `json:"runbookSteps,omitempty"`
 	AcceptanceChecklist  []string                                  `json:"acceptanceChecklist,omitempty"`
+	CurrentLoopOperator  *mission.CurrentLoopOperatorPackage       `json:"currentLoopOperator,omitempty"`
 	Boundary             []string                                  `json:"boundary,omitempty"`
 }
 
@@ -3850,16 +3852,234 @@ func buildStatusMissionControlRunbook(target string, caseMission *statusCaseMiss
 			}
 		}
 	}
-	runbook.CurrentDriverReceipt = statusMissionControlCurrentDriverReceipt(runbook)
-	runbook.GuidanceHandoff = statusMissionControlGuidanceHandoffFor(runbook, projectHandoff)
-	runbook.ReplacementExecutorTakeover = statusReplacementExecutorTakeoverPackageFor(target, runbook, projectHandoff)
 	if instance.LooksLikeCase(target) {
 		inspection := currentloop.InspectAttached(target, runbook.CurrentDriverRequest)
 		runbook.CurrentLoopSegment = &inspection
+		runbook.CurrentLoopOperator = statusCurrentLoopOperatorPackage(target, caseMission, runbook, inspection)
 	}
+	runbook.CurrentDriverReceipt = statusMissionControlCurrentDriverReceipt(runbook)
+	runbook.GuidanceHandoff = statusMissionControlGuidanceHandoffFor(runbook, projectHandoff)
+	runbook.ReplacementExecutorTakeover = statusReplacementExecutorTakeoverPackageFor(target, runbook, projectHandoff)
 	runbook.RunLoop = statusMissionControlRunbookSteps(runbook)
 	runbook.Quickstart = statusMissionControlQuickstartFor(runbook, projectHandoff)
 	return runbook
+}
+
+func statusCurrentLoopOperatorPackage(target string, caseMission *statusCaseMission, runbook *statusMissionControlRunbook, inspection currentloop.Inspection) *mission.CurrentLoopOperatorPackage {
+	if runbook == nil || runbook.CurrentDriverRequest == nil {
+		return nil
+	}
+	sourceRequest := cloneStatusMissionCommanderDriverRequest(runbook.CurrentDriverRequest)
+	pkg := &mission.CurrentLoopOperatorPackage{
+		Ready:                      true,
+		State:                      "fresh-loop-review-required",
+		CaseRoot:                   strings.TrimSpace(target),
+		Pack:                       statusCurrentLoopOperatorPack(target),
+		Route:                      strings.TrimSpace(runbook.Scope),
+		Lane:                       strings.TrimSpace(runbook.CurrentDriverRequest.Lane),
+		DefaultMaxSteps:            10,
+		SourceCurrentDriverRequest: sourceRequest,
+		RunbookSteps: []string{
+			"consume currentLoopOperator.selectedDriverRequest instead of reconstructing a command from terminal prose",
+			"review the returned current-loop preview and execute only its exact hash-bound Apply command",
+			"when externalReviewerHandoff is present, invoke its read-only Agent tool request or wait for its result, then submit exactly one observation alternative to a fresh preview",
+			"after each segment result, refresh status and consume the next currentLoopOperator package",
+		},
+		CompletionCriteria: []string{
+			"the bounded segment reaches a typed stop with durable step receipts",
+			"external reviewer output is recorded through the strict reviewer dispatch/result/intake pipeline",
+			"replacement sessions can continue from status or handoff without prior chat context",
+		},
+		Boundary: []string{
+			"current-loop operator package is read-only and does not execute its driver request or invoke Agent tool",
+			"preview and Apply remain distinct; use only returned expected hashes and exact Apply commands",
+			"external reviewer work is read-only and does not write case state or fabricate ReviewerResult JSON",
+			"the Go runtime does not execute heavy tools or write authority/confirmed state",
+		},
+	}
+	switch strings.TrimSpace(inspection.State) {
+	case "ready":
+		if !inspection.Ready || inspection.ResumeDriverRequest == nil {
+			return statusBlockedCurrentLoopOperatorPackage(pkg, inspection)
+		}
+		pkg.State = "checkpoint-resume-review-required"
+		pkg.RemainingMaxSteps = inspection.RemainingMaxSteps
+		pkg.ResumeDriverRequest = cloneStatusMissionCommanderDriverRequest(inspection.ResumeDriverRequest)
+		pkg.SelectedDriverRequest = cloneStatusMissionCommanderDriverRequest(inspection.ResumeDriverRequest)
+	case "missing", "status-unavailable", "stale-current-driver-request", "terminal":
+		request := statusCurrentLoopStartDriverRequest(target, pkg.Pack, pkg.DefaultMaxSteps, *runbook.CurrentDriverRequest)
+		pkg.StartDriverRequest = &request
+		pkg.SelectedDriverRequest = cloneStatusMissionCommanderDriverRequest(&request)
+	default:
+		return statusBlockedCurrentLoopOperatorPackage(pkg, inspection)
+	}
+	if strings.TrimSpace(runbook.Scope) == "reviewer" && caseMission != nil && caseMission.ReviewerDispatchIntakeSummary.OperatorPackage != nil {
+		reviewerPackage := caseMission.ReviewerDispatchIntakeSummary.OperatorPackage
+		if reviewerPackage.Ready && reviewerPackage.Current != nil && reviewerPackage.CurrentDriverRequest != nil &&
+			strings.TrimSpace(reviewerPackage.CurrentDriverRequest.RunLoopStepID) == strings.TrimSpace(reviewerPackage.CurrentRunLoopStepID) &&
+			currentStepReviewerRequestsMatch(*runbook.CurrentDriverRequest, *reviewerPackage.CurrentDriverRequest) {
+			pkg.ExternalReviewerHandoff = statusCurrentLoopExternalReviewerHandoff(reviewerPackage, pkg.SelectedDriverRequest)
+		}
+	}
+	return pkg
+}
+
+func statusBlockedCurrentLoopOperatorPackage(pkg *mission.CurrentLoopOperatorPackage, inspection currentloop.Inspection) *mission.CurrentLoopOperatorPackage {
+	pkg.Ready = false
+	pkg.State = "checkpoint-" + strings.TrimSpace(inspection.State)
+	pkg.SelectedDriverRequest = nil
+	pkg.StartDriverRequest = nil
+	pkg.ResumeDriverRequest = nil
+	pkg.ExternalReviewerHandoff = nil
+	pkg.RunbookSteps = []string{
+		"review currentLoopSegment.state and warnings before attempting another bounded loop",
+		"refresh status and consume a successor checkpoint or explicitly resolve the checkpoint failure",
+	}
+	pkg.CompletionCriteria = []string{
+		"status no longer reports a consumed, invalid, write-failed, or inconsistent ready checkpoint",
+		"a fresh status exposes either a valid selected driver request or no current action",
+	}
+	pkg.Boundary = mission.UniqueStrings(append(pkg.Boundary,
+		"non-runnable checkpoint state blocks selectedDriverRequest; do not reconstruct a fresh loop command or recover prior budget",
+		strings.Join(inspection.Warnings, "; "),
+	))
+	return pkg
+}
+
+func statusCurrentLoopOperatorPack(target string) string {
+	if inst, err := instance.Read(target); err == nil && strings.TrimSpace(inst.TemplatePack) != "" {
+		return strings.TrimSpace(inst.TemplatePack)
+	}
+	return defaults.DefaultPack
+}
+
+func statusCurrentLoopStartActionID(actionID string) string {
+	actionID = strings.TrimSpace(actionID)
+	if actionID == "" {
+		return "start-current-loop"
+	}
+	return "start-current-loop-" + actionID
+}
+
+func statusCurrentLoopStartDriverRequest(target, pack string, maxSteps int, current mission.MissionCommanderDriverRequest) mission.MissionCommanderDriverRequest {
+	command := fmt.Sprintf("/rekit run-current-loop -Target %s -Pack %s -MaxSteps %d -WhatIf -Format json", statusQuoteCommandArg(target), statusQuoteCommandArg(pack), maxSteps)
+	return mission.MissionCommanderDriverRequest{
+		Kind:              "preview-command",
+		RunLoopStepID:     "start-current-loop",
+		Actor:             "main-agent",
+		State:             "fresh-loop-review-required",
+		Source:            "missionControlRunbook.currentLoopOperator.startDriverRequest",
+		Lane:              strings.TrimSpace(current.Lane),
+		Label:             strings.TrimSpace(current.Label),
+		ActionID:          statusCurrentLoopStartActionID(current.ActionID),
+		Command:           command,
+		CommandExecutable: true,
+		RequiresReview:    true,
+		ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
+			State:                "previewed",
+			Command:              command,
+			RefreshStatusCommand: statusMissionControlRefreshCommand(target),
+			Description:          "review the bounded current-loop plan and execute only its returned hash-bound Apply command",
+			Boundary: []string{
+				"preview is read-only and does not authorize a different route, lane, step budget, or nested request",
+				"external reviewer handoff requires a real Agent/harness observation before a fresh preview can become applicable",
+			},
+		},
+		Boundary: []string{
+			"startDriverRequest is a read-only orchestration request derived from the current durable status",
+			"run-current-loop retains nested runner hashes, leases, packet and artifact currentness guards",
+		},
+	}
+}
+
+func statusCurrentLoopExternalReviewerHandoff(pkg *workstream.ReviewerDispatchOperatorPackage, selected *mission.MissionCommanderDriverRequest) *mission.CurrentLoopExternalReviewerHandoff {
+	external := reviewerStepExternal(pkg, statusCurrentLoopExternalReviewerRequiredInputs(pkg))
+	if external == nil {
+		return nil
+	}
+	result := &mission.CurrentLoopExternalReviewerHandoff{
+		State:                         external.State,
+		RunLoopStepID:                 external.RunLoopStepID,
+		RequiredInputs:                append([]string{}, external.RequiredInputs...),
+		ObservationContract:           mission.CurrentLoopObservationContract{Boundary: append([]string{}, external.ObservationContract.Boundary...)},
+		DispatchPromptPath:            external.DispatchPromptPath,
+		DispatchPromptSHA256:          external.DispatchPromptSHA256,
+		ReviewerResultDropPath:        external.ReviewerResultDropPath,
+		ReviewerResultDropPathRole:    external.ReviewerResultDropPathRole,
+		ReviewerResultInputPath:       external.ReviewerResultInputPath,
+		ReviewerResultSourcePath:      external.ReviewerResultSourcePath,
+		RecordDispatchPreviewTemplate: external.RecordDispatchPreviewTemplate,
+		Boundary:                      append([]string{}, external.Boundary...),
+	}
+	if external.AgentToolRequest != nil {
+		result.AgentToolRequest = &mission.CurrentLoopReviewerAgentToolRequest{
+			Tool:           external.AgentToolRequest.Tool,
+			AgentType:      external.AgentToolRequest.AgentType,
+			ReadOnly:       external.AgentToolRequest.ReadOnly,
+			Prompt:         external.AgentToolRequest.Prompt,
+			PromptPath:     external.AgentToolRequest.PromptPath,
+			PromptSHA256:   external.AgentToolRequest.PromptSHA256,
+			ExpectedOutput: external.AgentToolRequest.ExpectedOutput,
+		}
+	}
+	for _, alternative := range external.ObservationContract.Alternatives {
+		result.ObservationContract.Alternatives = append(result.ObservationContract.Alternatives, mission.CurrentLoopObservationAlternative{
+			Kind:                   alternative.Kind,
+			RequiredFlags:          append([]string{}, alternative.RequiredFlags...),
+			PreviewCommandTemplate: statusCurrentLoopObservationPreviewCommand(selected, alternative.Kind),
+			Constraints:            append([]string{}, alternative.Constraints...),
+		})
+	}
+	return result
+}
+
+func statusCurrentLoopObservationPreviewCommand(selected *mission.MissionCommanderDriverRequest, kind string) string {
+	if selected == nil || strings.TrimSpace(selected.Command) == "" {
+		return ""
+	}
+	fields, err := splitDriverCommand(selected.Command)
+	if err != nil || len(fields) < 2 {
+		return ""
+	}
+	insert := []string{}
+	switch strings.TrimSpace(kind) {
+	case "reviewer-session-accepted":
+		insert = []string{"-ReviewerHarness", "<harness>", "-ReviewerSession", "<session-id>", "-Actor", "<main-agent>"}
+	case "reviewer-result-returned":
+		insert = []string{"-ReviewerResultInputSourcePath", "<reviewer-result-source-path>", "-Actor", "<main-agent>"}
+	case "reviewer-session-failed":
+		insert = []string{"-ReviewerOutcome", "failed", "-ReviewerExitStatus", "<exit-status>", "-Actor", "<main-agent>"}
+	case "reviewer-result-direct-write":
+		return strings.TrimSpace(selected.Command)
+	default:
+		insert = []string{"-Actor", "<main-agent>"}
+	}
+	index := len(fields)
+	for idx, field := range fields {
+		if strings.EqualFold(field, "-WhatIf") {
+			index = idx
+			break
+		}
+	}
+	fields = append(fields[:index], append(insert, fields[index:]...)...)
+	return joinDriverCommand(fields)
+}
+
+func statusCurrentLoopExternalReviewerRequiredInputs(pkg *workstream.ReviewerDispatchOperatorPackage) []string {
+	if pkg == nil {
+		return nil
+	}
+	switch strings.TrimSpace(pkg.CurrentRunLoopStepID) {
+	case "spawn-reviewer":
+		return []string{"invoke agentToolRequest in the external main-agent harness", "rerun selectedDriverRequest with -ReviewerHarness, -ReviewerSession, and -Actor after the harness accepts the session"}
+	case "save-result-input":
+		if reviewerStepManagedResultSaveAvailable(pkg.Current) {
+			return []string{"wait for exactly one ReviewerResult JSON object", "save it to a separate existing case-local source file", "rerun selectedDriverRequest with -ReviewerResultInputSourcePath and -Actor"}
+		}
+		return []string{"wait for exactly one ReviewerResult JSON object", "write it directly to reviewerResultDropPath", "rerun selectedDriverRequest without ReviewerResultInputSourcePath"}
+	default:
+		return []string{"rerun selectedDriverRequest with the explicit -Actor that owns this reviewer operation"}
+	}
 }
 
 func statusMissionControlCurrentDriverReceipt(runbook *statusMissionControlRunbook) *workstream.MissionCommanderDriverReceipt {
@@ -3912,6 +4132,7 @@ func statusMissionControlQuickstartFor(runbook *statusMissionControlRunbook, pro
 		TargetDocuments:      statusMissionControlQuickstartTargetDocuments(runbook, projectHandoff),
 		RunbookSteps:         statusMissionControlQuickstartRunbookSteps(runbook),
 		AcceptanceChecklist:  statusMissionControlQuickstartAcceptanceChecklist(runbook),
+		CurrentLoopOperator:  runbook.CurrentLoopOperator,
 		Boundary: mission.UniqueStrings([]string{
 			"missionControlRunbook.quickstart is read-only and only packages the focused status → driver request → refresh loop",
 			"consume quickstart.currentDriverRequest exactly; do not reconstruct commands from terminal prose",
@@ -4130,6 +4351,7 @@ func statusReplacementExecutorTakeoverPackageFor(target string, runbook *statusM
 		DurableArtifactState:                discovery.State,
 		DurableArtifactWarnings:             discovery.Warnings,
 		DurableArtifactRefreshDriverRequest: statusReplacementExecutorTakeoverArtifactRefreshDriverRequest(target, discovery, runbook),
+		CurrentLoopOperator:                 runbook.CurrentLoopOperator,
 	})
 }
 
@@ -4698,6 +4920,9 @@ func writeStatusMissionControlRunbookText(out io.Writer, runbook *statusMissionC
 	if err := writeCurrentLoopSegmentInspectionText(out, "status Mission Control", runbook.CurrentLoopSegment); err != nil {
 		return err
 	}
+	if err := writeCurrentLoopOperatorPackageText(out, "status Mission Control", runbook.CurrentLoopOperator); err != nil {
+		return err
+	}
 	for _, queue := range runbook.Queues {
 		if _, err := fmt.Fprintf(out, "status Mission Control runbook queue：scope=%s focused=%t total=%d blocked=%d requiresReview=%d currentState=%s currentSource=%s currentStep=%s currentCommand=%s\n", queue.Scope, queue.Focused, queue.Total, queue.Blocked, queue.RequiresReview, queue.CurrentState, queue.CurrentSource, queue.CurrentRunLoopStepID, queue.CurrentCommand); err != nil {
 			return err
@@ -4759,6 +4984,44 @@ func writeCurrentLoopSegmentInspectionText(out io.Writer, prefix string, inspect
 	return nil
 }
 
+func writeCurrentLoopOperatorPackageText(out io.Writer, prefix string, pkg *mission.CurrentLoopOperatorPackage) error {
+	if pkg == nil {
+		return nil
+	}
+	if _, err := fmt.Fprintf(out, "%s current-loop operator：ready=%t state=%s route=%s lane=%s defaultMaxSteps=%d remaining=%d\n", prefix, pkg.Ready, pkg.State, pkg.Route, pkg.Lane, pkg.DefaultMaxSteps, pkg.RemainingMaxSteps); err != nil {
+		return err
+	}
+	if err := writeMissionCommanderDriverRequestText(out, prefix+" current-loop operator selected", pkg.SelectedDriverRequest); err != nil {
+		return err
+	}
+	if handoff := pkg.ExternalReviewerHandoff; handoff != nil {
+		if _, err := fmt.Fprintf(out, "%s current-loop reviewer handoff：state=%s step=%s dropPath=%s dropRole=%s promptPath=%s promptSha256=%s\n", prefix, handoff.State, handoff.RunLoopStepID, handoff.ReviewerResultDropPath, handoff.ReviewerResultDropPathRole, handoff.DispatchPromptPath, handoff.DispatchPromptSHA256); err != nil {
+			return err
+		}
+		if handoff.AgentToolRequest != nil {
+			if _, err := fmt.Fprintf(out, "%s current-loop reviewer Agent request：tool=%s agentType=%s readOnly=%t expectedOutput=%s\n", prefix, handoff.AgentToolRequest.Tool, handoff.AgentToolRequest.AgentType, handoff.AgentToolRequest.ReadOnly, handoff.AgentToolRequest.ExpectedOutput); err != nil {
+				return err
+			}
+		}
+		for _, alternative := range handoff.ObservationContract.Alternatives {
+			if _, err := fmt.Fprintf(out, "%s current-loop reviewer observation：kind=%s requiredFlags=%s previewCommandTemplate=`%s` constraints=%s\n", prefix, alternative.Kind, strings.Join(alternative.RequiredFlags, ","), alternative.PreviewCommandTemplate, strings.Join(alternative.Constraints, "; ")); err != nil {
+				return err
+			}
+		}
+	}
+	for _, step := range pkg.RunbookSteps {
+		if _, err := fmt.Fprintf(out, "%s current-loop operator step：%s\n", prefix, step); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range pkg.Boundary {
+		if _, err := fmt.Fprintf(out, "%s current-loop operator boundary：%s\n", prefix, boundary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func writeStatusMissionControlQuickstartText(out io.Writer, quickstart *statusMissionControlQuickstart) error {
 	if quickstart == nil {
 		return nil
@@ -4770,6 +5033,9 @@ func writeStatusMissionControlQuickstartText(out io.Writer, quickstart *statusMi
 		return err
 	}
 	if err := writeStatusMissionCommanderDriverReceiptText(out, "status Mission Control quickstart current", quickstart.CurrentDriverReceipt); err != nil {
+		return err
+	}
+	if err := writeCurrentLoopOperatorPackageText(out, "status Mission Control quickstart", quickstart.CurrentLoopOperator); err != nil {
 		return err
 	}
 	for _, doc := range quickstart.TargetDocuments {
@@ -4836,6 +5102,9 @@ func writeStatusReplacementExecutorTakeoverPackageText(out io.Writer, pkg *missi
 	if err := writeMissionCommanderDriverRequestText(out, "status replacement executor takeover package durable artifact refresh", pkg.DurableArtifactRefreshDriverRequest); err != nil {
 		return err
 	}
+	if err := writeCurrentLoopOperatorPackageText(out, "status replacement executor takeover package", pkg.CurrentLoopOperator); err != nil {
+		return err
+	}
 	for _, doc := range pkg.TargetDocuments {
 		if _, err := fmt.Fprintf(out, "status replacement executor takeover package target document：%s\n", doc); err != nil {
 			return err
@@ -4862,6 +5131,9 @@ func writeHandoffReplacementExecutorTakeoverPackageText(out io.Writer, pkg *miss
 		return err
 	}
 	if _, err := fmt.Fprintf(out, "handoff replacement executor takeover package current driver expected receipt：state=%s command=`%s` refreshStatusCommand=`%s`\n", pkg.CurrentDriverRequest.ExpectedReceipt.State, pkg.CurrentDriverRequest.ExpectedReceipt.Command, pkg.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand); err != nil {
+		return err
+	}
+	if err := writeCurrentLoopOperatorPackageText(out, "handoff replacement executor takeover package", pkg.CurrentLoopOperator); err != nil {
 		return err
 	}
 	for _, doc := range pkg.TargetDocuments {
@@ -9032,6 +9304,9 @@ func runHandoff(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if status.MissionControlRunbook != nil {
+		handoffOpt.CurrentLoopOperator = status.MissionControlRunbook.CurrentLoopOperator
+	}
 	var currentRequest *mission.MissionCommanderDriverRequest
 	if status.MissionControlRunbook != nil {
 		currentRequest = status.MissionControlRunbook.CurrentDriverRequest
@@ -9572,6 +9847,9 @@ func writeHandoffText(out io.Writer, result workstream.HandoffResult) error {
 		return err
 	}
 	if err := writeCurrentLoopSegmentInspectionText(out, "handoff", result.CurrentLoopSegment); err != nil {
+		return err
+	}
+	if err := writeCurrentLoopOperatorPackageText(out, "handoff", result.CurrentLoopOperator); err != nil {
 		return err
 	}
 	if err := writeMissionCommanderActionQueueText(out, result.MissionCommanderActionQueue); err != nil {

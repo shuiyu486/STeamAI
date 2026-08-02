@@ -31,6 +31,7 @@ type HandoffOptions struct {
 	Selector                           string
 	ProjectMissionCommanderNextActions []mission.MissionCommanderNextActionItem
 	ProjectNextBatchStarterPackage     *ProjectNextBatchStarterPackage
+	CurrentLoopOperator                *mission.CurrentLoopOperatorPackage
 }
 
 type ProjectNextBatchStarterPackage struct {
@@ -92,6 +93,7 @@ type HandoffResult struct {
 	DailyMissionControlRunbook         *DailyMissionControlRunbook                 `json:"dailyMissionControlRunbook,omitempty"`
 	ReplacementExecutorTakeoverPackage *mission.ReplacementExecutorTakeoverPackage `json:"replacementExecutorTakeoverPackage,omitempty"`
 	CurrentLoopSegment                 *currentloop.Inspection                     `json:"currentLoopSegment,omitempty"`
+	CurrentLoopOperator                *mission.CurrentLoopOperatorPackage         `json:"currentLoopOperator,omitempty"`
 	ProjectNextBatchStarterPackage     *ProjectNextBatchStarterPackage             `json:"projectNextBatchStarterPackage,omitempty"`
 	Writes                             []StartWrite                                `json:"writes"`
 	BlockedActions                     []string                                    `json:"blockedActions"`
@@ -261,6 +263,7 @@ type handoffContext struct {
 	handovers                          string
 	projectMissionCommanderNextActions []mission.MissionCommanderNextActionItem
 	projectNextBatchStarterPackage     *ProjectNextBatchStarterPackage
+	currentLoopOperator                *mission.CurrentLoopOperatorPackage
 }
 
 func newHandoffContext(repoRoot, caseRoot, pack string, opt HandoffOptions) (handoffContext, error) {
@@ -283,7 +286,7 @@ func newHandoffContext(repoRoot, caseRoot, pack string, opt HandoffOptions) (han
 		b.DefaultAuthorityLane = m.WorkstreamDefaults["defaultAuthorityLane"]
 	}
 	selector := strings.TrimSpace(opt.Selector)
-	ctx := handoffContext{inst: inst, manifest: m, board: b, selector: selector, project: selector == "", stamp: handoffTimestamp()}
+	ctx := handoffContext{inst: inst, manifest: m, board: b, selector: selector, project: selector == "", stamp: handoffTimestamp(), currentLoopOperator: opt.CurrentLoopOperator}
 	if ctx.project {
 		ctx.projectMissionCommanderNextActions = mission.UniqueCommanderNextActions(opt.ProjectMissionCommanderNextActions)
 		ctx.projectNextBatchStarterPackage = cloneProjectNextBatchStarterPackage(opt.ProjectNextBatchStarterPackage)
@@ -380,6 +383,9 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 	dailyRunbook := DailyMissionControlRunbookForWithHandoffApplyReady(ctx.inst.CaseRoot, runbookScope, missionCommanderActionQueue, handoffPreviewCommand(ctx.inst.CaseRoot, ctx.selector), handoffApplyCommand(ctx.inst.CaseRoot, ctx.selector), true)
 	latestDriverReceiptHandoff, _ := latestDriverReceiptHandoffFor(ctx.inst.CaseRoot, lane)
 	replacementExecutorTakeoverPackage := handoffReplacementExecutorTakeoverPackage(ctx.inst.CaseRoot, runbookScope, lane, missionCommanderActionQueue, dailyRunbook, latestDriverReceiptHandoff, ctx.replacementExecutorTakeoverPackageLatestRel())
+	if replacementExecutorTakeoverPackage != nil {
+		replacementExecutorTakeoverPackage.CurrentLoopOperator = ctx.currentLoopOperator
+	}
 	var laneTakeoverPackage *LaneTakeoverPackage
 	if lane != nil && executorAction != nil {
 		laneTakeoverPackage = laneTakeoverPackageFor(ctx.inst.CaseRoot, *lane, *executorAction, missionCommanderActionQueue, false)
@@ -426,6 +432,7 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 		MissionCommanderActionQueue:        missionCommanderActionQueue,
 		DailyMissionControlRunbook:         dailyRunbook,
 		ReplacementExecutorTakeoverPackage: replacementExecutorTakeoverPackage,
+		CurrentLoopOperator:                ctx.currentLoopOperator,
 		ProjectNextBatchStarterPackage:     cloneProjectNextBatchStarterPackage(ctx.projectNextBatchStarterPackage),
 		Writes:                             writes,
 		BlockedActions:                     []string{"authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "continue auto-apply", "board/facts/lane creation"},
@@ -877,6 +884,7 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 	latestDriverReceiptHandoff, _ := latestDriverReceiptHandoffFor(ctx.inst.CaseRoot, nil)
 	writeLatestDriverReceiptHandoff(&out, latestDriverReceiptHandoff)
 	writeReplacementExecutorTakeoverPackage(&out, handoffReplacementExecutorTakeoverPackage(ctx.inst.CaseRoot, "project", nil, projectActionQueue, nil, latestDriverReceiptHandoff, ctx.replacementExecutorTakeoverPackageLatestRel()))
+	writeCurrentLoopOperatorPackage(&out, ctx.currentLoopOperator)
 	writeProjectNextBatchStarterPackage(&out, ctx.projectNextBatchStarterPackage)
 	fmt.Fprintln(&out, "## 工作线")
 	fmt.Fprintln(&out)
@@ -917,6 +925,7 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 		writeProjectLaneExecutionEvidenceReviewSummary(&out, executionEvidenceReviewSummary)
 		writeProjectLaneMissionCommanderActionQueue(&out, missionCommanderActionQueue)
 		writeDailyMissionControlRunbook(&out, DailyMissionControlRunbookFor(ctx.inst.CaseRoot, "lane:"+workstreamLabel(lane), missionCommanderActionQueue, handoffPreviewCommand(ctx.inst.CaseRoot, workstreamLabel(lane)), handoffApplyCommand(ctx.inst.CaseRoot, workstreamLabel(lane))))
+		writeCurrentLoopOperatorPackage(&out, ctx.currentLoopOperator)
 		writeProjectLaneMissionCommanderNextActions(&out, missionCommanderNextActions)
 		if !evidenceNeedsMainReview {
 			writeProjectLaneNextActions(&out, executorAction.NextAgentActions)
@@ -1039,6 +1048,40 @@ func writeDailyMissionControlRunbook(out *bytes.Buffer, runbook *DailyMissionCon
 		}
 	}
 	for _, boundary := range runbook.Boundary {
+		fmt.Fprintf(out, "- boundary: %s\n", boundary)
+	}
+	fmt.Fprintln(out)
+}
+
+func writeCurrentLoopOperatorPackage(out *bytes.Buffer, pkg *mission.CurrentLoopOperatorPackage) {
+	if pkg == nil {
+		return
+	}
+	fmt.Fprintln(out, "## Current-loop operator")
+	fmt.Fprintln(out)
+	fmt.Fprintf(out, "- state: %s\n", pkg.State)
+	fmt.Fprintf(out, "- route/lane: %s / %s\n", pkg.Route, firstText(pkg.Lane, "none"))
+	fmt.Fprintf(out, "- budget: default=%d remaining=%d\n", pkg.DefaultMaxSteps, pkg.RemainingMaxSteps)
+	if request := pkg.SelectedDriverRequest; request != nil {
+		fmt.Fprintf(out, "- selected driver request: kind=%s state=%s source=%s command=`%s`\n", request.Kind, request.State, request.Source, request.Command)
+		fmt.Fprintf(out, "- expected receipt: state=%s refresh=`%s`\n", request.ExpectedReceipt.State, request.ExpectedReceipt.RefreshStatusCommand)
+	}
+	if handoff := pkg.ExternalReviewerHandoff; handoff != nil {
+		fmt.Fprintf(out, "- external reviewer: state=%s step=%s dropPath=`%s` dropRole=%s\n", handoff.State, handoff.RunLoopStepID, handoff.ReviewerResultDropPath, handoff.ReviewerResultDropPathRole)
+		if request := handoff.AgentToolRequest; request != nil {
+			fmt.Fprintf(out, "- Agent request: tool=%s agentType=%s readOnly=%t promptPath=`%s` promptSha256=%s expectedOutput=%s\n", request.Tool, request.AgentType, request.ReadOnly, request.PromptPath, request.PromptSHA256, request.ExpectedOutput)
+		}
+		for _, alternative := range handoff.ObservationContract.Alternatives {
+			fmt.Fprintf(out, "- observation: kind=%s requiredFlags=%s previewCommandTemplate=`%s` constraints=%s\n", alternative.Kind, strings.Join(alternative.RequiredFlags, ","), alternative.PreviewCommandTemplate, strings.Join(alternative.Constraints, "; "))
+		}
+	}
+	for _, step := range pkg.RunbookSteps {
+		fmt.Fprintf(out, "- operator step: %s\n", step)
+	}
+	for _, criterion := range pkg.CompletionCriteria {
+		fmt.Fprintf(out, "- completion criterion: %s\n", criterion)
+	}
+	for _, boundary := range pkg.Boundary {
 		fmt.Fprintf(out, "- boundary: %s\n", boundary)
 	}
 	fmt.Fprintln(out)
@@ -1492,6 +1535,7 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 	writeLaneMissionCommanderActionQueue(&out, missionCommanderActionQueue)
 	dailyRunbook := DailyMissionControlRunbookFor(ctx.inst.CaseRoot, "lane:"+label, missionCommanderActionQueue, handoffPreviewCommand(ctx.inst.CaseRoot, label), handoffApplyCommand(ctx.inst.CaseRoot, label))
 	writeDailyMissionControlRunbook(&out, dailyRunbook)
+	writeCurrentLoopOperatorPackage(&out, ctx.currentLoopOperator)
 	latestDriverReceiptHandoff, _ := latestDriverReceiptHandoffFor(ctx.inst.CaseRoot, &lane)
 	writeLatestDriverReceiptHandoff(&out, latestDriverReceiptHandoff)
 	writeReplacementExecutorTakeoverPackage(&out, handoffReplacementExecutorTakeoverPackage(ctx.inst.CaseRoot, "lane:"+label, &lane, missionCommanderActionQueue, dailyRunbook, latestDriverReceiptHandoff, ctx.replacementExecutorTakeoverPackageLatestRel()))

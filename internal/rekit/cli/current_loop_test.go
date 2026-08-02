@@ -12,8 +12,62 @@ import (
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/currentloop"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
+
+func TestCurrentLoopOperatorPackagesDirectReviewerResultHandoff(t *testing.T) {
+	selected := &mission.MissionCommanderDriverRequest{
+		Command: "/rekit run-current-loop -Target case -ResumeCurrentLoop -ExpectedCurrentLoopCheckpointSha256 checkpoint -WhatIf -Format json",
+	}
+	pkg := &workstream.ReviewerDispatchOperatorPackage{
+		Ready:                true,
+		CurrentRunLoopStepID: "save-result-input",
+		Current: &workstream.ReviewerDispatchOperatorPackageItem{
+			State:                  "awaiting-reviewer-result",
+			ReviewerResultDropPath: ".rekit/reviews/review/results/shard.json",
+		},
+	}
+
+	handoff := statusCurrentLoopExternalReviewerHandoff(pkg, selected)
+	if handoff == nil || handoff.ReviewerResultDropPathRole != "direct-reviewer-result-destination" || len(handoff.ObservationContract.Alternatives) != 2 {
+		t.Fatalf("direct reviewer result handoff = %+v", handoff)
+	}
+	direct := handoff.ObservationContract.Alternatives[0]
+	failed := handoff.ObservationContract.Alternatives[1]
+	if direct.Kind != "reviewer-result-direct-write" || direct.PreviewCommandTemplate != selected.Command || len(direct.RequiredFlags) != 0 {
+		t.Fatalf("direct reviewer result observation = %+v", direct)
+	}
+	if failed.Kind != "reviewer-session-failed" || !strings.Contains(failed.PreviewCommandTemplate, "-ReviewerOutcome failed") || !strings.Contains(failed.PreviewCommandTemplate, "-ReviewerExitStatus <exit-status>") {
+		t.Fatalf("direct reviewer failure observation = %+v", failed)
+	}
+}
+
+func TestCurrentLoopOperatorOmitsUnfocusedReviewerHandoff(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "review", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", "alpha"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	appendCurrentLoopOpenIntervention(t, caseRoot, "int-current-loop-reviewer-unfocused")
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status statusInventory
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatalf("unfocused reviewer status did not decode: %v\n%s", err, out.String())
+	}
+	operator := status.MissionControlRunbook.CurrentLoopOperator
+	if status.MissionControlRunbook.Scope != "case" || operator == nil || operator.ExternalReviewerHandoff != nil || operator.SourceCurrentDriverRequest == nil || driverStepCommandName(operator.SourceCurrentDriverRequest.Command) != "reconcile" {
+		t.Fatalf("unfocused reviewer handoff leaked into case operator: scope=%s operator=%+v", status.MissionControlRunbook.Scope, operator)
+	}
+}
 
 func TestRunCurrentLoopAppliesBoundedCaseSteps(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
@@ -264,8 +318,43 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	if spawnObservation.Kind != "reviewer-session-accepted" || !slices.Equal(spawnObservation.RequiredFlags, []string{"-ReviewerHarness", "-ReviewerSession", "-Actor"}) {
 		t.Fatalf("spawn continuation observation contract = %+v", spawnObservation)
 	}
+	statusOperator := external.FinalStatus.MissionControlRunbook.CurrentLoopOperator
+	if statusOperator == nil || !statusOperator.Ready || statusOperator.State != "fresh-loop-review-required" || statusOperator.SelectedDriverRequest == nil || driverStepCommandName(statusOperator.SelectedDriverRequest.Command) != "run-current-loop" || statusOperator.SourceCurrentDriverRequest == nil || driverStepCommandName(statusOperator.SourceCurrentDriverRequest.Command) == "run-current-loop" || statusOperator.ExternalReviewerHandoff == nil || statusOperator.ExternalReviewerHandoff.AgentToolRequest == nil || !statusOperator.ExternalReviewerHandoff.AgentToolRequest.ReadOnly || len(statusOperator.ExternalReviewerHandoff.ObservationContract.Alternatives) != 1 {
+		t.Fatalf("status current-loop operator did not package the reviewer spawn closure: %+v", statusOperator)
+	}
+	operatorSpawn := statusOperator.ExternalReviewerHandoff.ObservationContract.Alternatives[0]
+	if operatorSpawn.Kind != "reviewer-session-accepted" || !strings.Contains(operatorSpawn.PreviewCommandTemplate, "-ReviewerHarness <harness>") || !strings.Contains(operatorSpawn.PreviewCommandTemplate, "-ReviewerSession <session-id>") || !strings.Contains(operatorSpawn.PreviewCommandTemplate, "-Actor <main-agent>") {
+		t.Fatalf("status current-loop operator spawn template = %+v", operatorSpawn)
+	}
+	if external.FinalStatus.MissionControlRunbook.Quickstart == nil || external.FinalStatus.MissionControlRunbook.Quickstart.CurrentLoopOperator == nil || external.FinalStatus.MissionControlRunbook.ReplacementExecutorTakeover == nil || external.FinalStatus.MissionControlRunbook.ReplacementExecutorTakeover.CurrentLoopOperator == nil {
+		t.Fatalf("current-loop operator was not projected to quickstart and replacement takeover: %+v", external.FinalStatus.MissionControlRunbook)
+	}
+	var handoffPreviewOut bytes.Buffer
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, &handoffPreviewOut); err != nil {
+		t.Fatal(err)
+	}
+	var handoffPreview workstream.HandoffResult
+	if err := json.Unmarshal(handoffPreviewOut.Bytes(), &handoffPreview); err != nil {
+		t.Fatalf("current-loop operator handoff preview did not decode: %v\n%s", err, handoffPreviewOut.String())
+	}
+	if handoffPreview.CurrentLoopOperator == nil || handoffPreview.ReplacementExecutorTakeoverPackage == nil || handoffPreview.ReplacementExecutorTakeoverPackage.CurrentLoopOperator == nil || handoffPreview.CurrentLoopOperator.ExternalReviewerHandoff == nil {
+		t.Fatalf("handoff JSON omitted current-loop operator: %+v", handoffPreview)
+	}
+	var handoffApplyOut bytes.Buffer
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-Format", "json"}, &handoffApplyOut); err != nil {
+		t.Fatal(err)
+	}
+	durableHandoff, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "handovers", "latest.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"## Current-loop operator", "selected driver request:", "Agent request:", "reviewer-session-accepted"} {
+		if !strings.Contains(string(durableHandoff), expected) {
+			t.Fatalf("durable handoff omitted current-loop operator detail %q:\n%s", expected, durableHandoff)
+		}
+	}
 	out.Reset()
-	err := Run([]string{"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", "_template", "-MaxSteps", "10", "-ExpectedCurrentLoopPlanSha256", strings.Repeat("0", 64), "-Apply", "-Format", "json"}, &out)
+	err = Run([]string{"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", "_template", "-MaxSteps", "10", "-ExpectedCurrentLoopPlanSha256", strings.Repeat("0", 64), "-Apply", "-Format", "json"}, &out)
 	if err == nil || !strings.Contains(err.Error(), "external or reviewed action") {
 		t.Fatalf("external reviewer handoff accepted Apply: %v", err)
 	}
@@ -299,6 +388,23 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	}
 	if len(continuation.ObservationContract.Alternatives) != 2 || continuation.ObservationContract.Alternatives[0].Kind != "reviewer-result-returned" || continuation.ObservationContract.Alternatives[1].Kind != "reviewer-session-failed" {
 		t.Fatalf("result handoff observation alternatives = %+v", continuation.ObservationContract)
+	}
+	var operatorStatusOut bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &operatorStatusOut); err != nil {
+		t.Fatal(err)
+	}
+	var operatorStatus statusInventory
+	if err := json.Unmarshal(operatorStatusOut.Bytes(), &operatorStatus); err != nil {
+		t.Fatalf("reviewer operator status did not decode: %v\n%s", err, operatorStatusOut.String())
+	}
+	resultOperator := operatorStatus.MissionControlRunbook.CurrentLoopOperator
+	if resultOperator == nil || resultOperator.State != "checkpoint-resume-review-required" || resultOperator.ResumeDriverRequest == nil || resultOperator.ExternalReviewerHandoff == nil || resultOperator.ExternalReviewerHandoff.ReviewerResultDropPathRole != "canonical-reviewer-input-destination" || len(resultOperator.ExternalReviewerHandoff.ObservationContract.Alternatives) != 2 {
+		t.Fatalf("status current-loop operator did not package the reviewer result closure: %+v", resultOperator)
+	}
+	returnedTemplate := resultOperator.ExternalReviewerHandoff.ObservationContract.Alternatives[0].PreviewCommandTemplate
+	failedTemplate := resultOperator.ExternalReviewerHandoff.ObservationContract.Alternatives[1].PreviewCommandTemplate
+	if !strings.Contains(returnedTemplate, "-ResumeCurrentLoop") || !strings.Contains(returnedTemplate, dispatchApplied.SegmentCheckpoint.ArtifactSHA256) || !strings.Contains(returnedTemplate, "-ReviewerResultInputSourcePath <reviewer-result-source-path>") || !strings.Contains(failedTemplate, "-ReviewerOutcome failed") || !strings.Contains(failedTemplate, "-ReviewerExitStatus <exit-status>") {
+		t.Fatalf("checkpoint-bound reviewer result templates are incomplete: returned=%s failed=%s", returnedTemplate, failedTemplate)
 	}
 
 	plan := decodePlanSubagentsPacket(t, dispatchApplied.FinalStatus.CaseMission.ReviewerDispatchIntakeSummary.LatestPacketPath)
@@ -520,6 +626,10 @@ func TestRunCurrentLoopStopsBeforeReconcileSurfacedByFirstStepRefresh(t *testing
 	if tampered == nil || tampered.Ready || tampered.State != "invalid" || tampered.Continuation != nil || tampered.ArtifactPath != durable.ArtifactPath {
 		t.Fatalf("tampered latest segment did not fail closed: %+v", tampered)
 	}
+	tamperedOperator := tamperedStatus.MissionControlRunbook.CurrentLoopOperator
+	if tamperedOperator == nil || tamperedOperator.Ready || tamperedOperator.State != "checkpoint-invalid" || tamperedOperator.SelectedDriverRequest != nil || tamperedOperator.StartDriverRequest != nil || tamperedOperator.ResumeDriverRequest != nil || tamperedOperator.ExternalReviewerHandoff != nil {
+		t.Fatalf("tampered checkpoint exposed an executable current-loop operator: %+v", tamperedOperator)
+	}
 	if previewErr := runCurrentLoopError(caseRoot, []string{"-ResumeCurrentLoop", "-ExpectedCurrentLoopCheckpointSha256", durable.ArtifactSHA256, "-WhatIf"}); previewErr == nil || !strings.Contains(previewErr.Error(), "state=ready") {
 		t.Fatalf("tampered checkpoint resume did not fail closed: %v", previewErr)
 	}
@@ -603,6 +713,18 @@ func TestRunCurrentLoopResumeClaimRemainsConsumedAfterNestedFailure(t *testing.T
 	consumed := currentloop.Inspect(repoRoot(t), caseRoot, "_template", failed.FinalStatus.MissionControlRunbook.CurrentDriverRequest)
 	if consumed.Ready || consumed.State != "consumed" || consumed.ArtifactSHA256 != first.SegmentCheckpoint.ArtifactSHA256 || consumed.Continuation != nil || consumed.ResumeDriverRequest != nil {
 		t.Fatalf("nested failure restored claimed resume budget: %+v", consumed)
+	}
+	var statusOut bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &statusOut); err != nil {
+		t.Fatal(err)
+	}
+	var consumedStatus statusInventory
+	if err := json.Unmarshal(statusOut.Bytes(), &consumedStatus); err != nil {
+		t.Fatalf("consumed operator status did not decode: %v\n%s", err, statusOut.String())
+	}
+	consumedOperator := consumedStatus.MissionControlRunbook.CurrentLoopOperator
+	if consumedOperator == nil || consumedOperator.Ready || consumedOperator.State != "checkpoint-consumed" || consumedOperator.SelectedDriverRequest != nil || consumedOperator.StartDriverRequest != nil || consumedOperator.ResumeDriverRequest != nil || consumedOperator.ExternalReviewerHandoff != nil {
+		t.Fatalf("consumed checkpoint exposed an executable current-loop operator: %+v", consumedOperator)
 	}
 }
 

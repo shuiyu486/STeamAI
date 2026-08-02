@@ -28,6 +28,7 @@ type ReplacementExecutorTakeoverPackage struct {
 	DurableArtifactState                string                         `json:"durableArtifactState,omitempty"`
 	DurableArtifactWarnings             []string                       `json:"durableArtifactWarnings,omitempty"`
 	DurableArtifactRefreshDriverRequest *MissionCommanderDriverRequest `json:"durableArtifactRefreshDriverRequest,omitempty"`
+	CurrentLoopOperator                 *CurrentLoopOperatorPackage    `json:"currentLoopOperator,omitempty"`
 	RunbookSteps                        []string                       `json:"runbookSteps,omitempty"`
 	Boundary                            []string                       `json:"boundary,omitempty"`
 	packagePath                         string
@@ -44,6 +45,7 @@ type ReplacementExecutorTakeoverOptions struct {
 	DurableArtifactState                string
 	DurableArtifactWarnings             []string
 	DurableArtifactRefreshDriverRequest *MissionCommanderDriverRequest
+	CurrentLoopOperator                 *CurrentLoopOperatorPackage
 }
 
 func ReplacementExecutorTakeoverPackageFor(request *MissionCommanderDriverRequest, opt ReplacementExecutorTakeoverOptions) *ReplacementExecutorTakeoverPackage {
@@ -75,6 +77,7 @@ func ReplacementExecutorTakeoverPackageFor(request *MissionCommanderDriverReques
 		DurableArtifactState:                strings.TrimSpace(opt.DurableArtifactState),
 		DurableArtifactWarnings:             UniqueStrings(opt.DurableArtifactWarnings),
 		DurableArtifactRefreshDriverRequest: cloneMissionCommanderDriverRequest(opt.DurableArtifactRefreshDriverRequest),
+		CurrentLoopOperator:                 opt.CurrentLoopOperator,
 		packagePath:                         strings.TrimSpace(opt.PackagePath),
 	}
 	pkg.RunbookSteps = replacementExecutorTakeoverRunbookSteps(pkg)

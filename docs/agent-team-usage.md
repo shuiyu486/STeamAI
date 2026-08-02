@@ -65,7 +65,9 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 把这次可复用经验整理成 promote 候选。
 ```
 
-主 Agent 会按需组合底层 runtime API。维护这条日常路线时，可运行跨平台 Go-native smoke：
+主 Agent 会按需组合底层 runtime API。收到“继续推进当前 mission”时，优先读取 `status.missionControlRunbook.quickstart.currentLoopOperator`：`selectedDriverRequest` 已在 fresh `startDriverRequest` 与 strict checkpoint-bound `resumeDriverRequest` 之间完成选择；若存在 `externalReviewerHandoff`，主 Agent 只调用其中的 read-only `agentToolRequest`，并从 `observationContract.alternatives[]` 选择一个与真实结果相符的 `previewCommandTemplate`，替换明确占位符后重新预览，不自行拼接 reviewer flags。该 package 同时写入 replacement executor takeover、handoff JSON 与 durable Markdown；它不改变 canonical `currentDriverRequest`，也不放宽 checkpoint、packet、lease、hash 或 currentness guards。
+
+维护这条日常路线时，可运行跨平台 Go-native smoke：
 
 ```text
 go test ./internal/rekit/cli -run '^TestRunDailyMissionControlRouteSmokeProductPath$' -count=1
@@ -90,6 +92,7 @@ go test ./internal/rekit/cli -run '^TestRunDailyMissionControlRouteSmokeProductP
 /rekit next-batch -Domain <candidate-domain> -Closure <batch-title> -ExpectedNextBatchPlanSha256 <hash> -Apply -Format json # 复核同一 WhatIf hash 后只写这两个 kit docs；不触碰 case state、不执行 heavy/reviewer/adapter/pack-memory/gate/sync/promote mutation、不 commit/push、不声明 remote CI green
 /rekit run-current-step -Target <caseRoot> -WhatIf -Format json # 主 Agent/harness统一刷新并选择当前focused case或reviewer route；外部reviewer动作返回typed handoff，deterministic step返回expectedCurrentStepPlanSha256
 /rekit run-current-step -Target <caseRoot> -ExpectedCurrentStepPlanSha256 <hash> -Apply -Format json # 复核绑定route/current request/nested plan的hash后复用所选runner执行一步并返回refreshed request；不合并lane/reviewer锁、不调用Agent tool、不执行heavy-tool、不写authority/confirmed
+# 日常主Agent不必重建以下命令：status.missionControlRunbook.quickstart.currentLoopOperator.selectedDriverRequest 已选择fresh start或strict resume；externalReviewerHandoff给出Agent请求、result destination和observation preview模板
 /rekit run-current-loop -Target <caseRoot> -MaxSteps 10 -WhatIf -Format json # 预览固定initial route/lane、exact首步与bounded loop policy；deterministic首步返回expectedCurrentLoopPlanSha256，external reviewer首步返回campaign continuation
 /rekit run-current-loop -Target <caseRoot> -MaxSteps 10 -ExpectedCurrentLoopPlanSha256 <hash> -Apply -Format json # 最多推进10个deterministic步骤；每步刷新并留receipt，route/lane drift、fresh人工干预或external reviewer在剩余预算内返回fresh segment continuation；no-progress/limit/error停止，成功步骤不回滚
 /rekit run-current-loop -Target <caseRoot> -ResumeCurrentLoop -ExpectedCurrentLoopCheckpointSha256 <status.currentLoopSegment.artifactSha256> -WhatIf -Format json # replacement Mission Commander直接消费strict ready checkpoint；runtime派生remaining budget并返回绑定source artifact、fresh route/lane/current-step/nested hash与observation inputs的exact applyCommand

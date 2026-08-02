@@ -29,6 +29,17 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 ### Current batch state
 
 
+
+### Batch 793：natural-language current-loop operator closure
+
+状态：已完成 natural-language current-loop operator closure 的 typed package、status/quickstart/replacement takeover/handoff durable projection、reviewer observation templates、fail-closed checkpoint 分类、产品路径回归、文档与 Windows 本机完整验证；implementation commit/push 在本批统一完成态提交中记录。普通 batch 不等待或轮询 remote CI，也不声明 remote green。
+
+目标：用户只说“继续推进当前 mission”时，主 Agent 或 replacement executor 可直接消费 `missionControlRunbook.quickstart.currentLoopOperator.selectedDriverRequest`：无可恢复 checkpoint 时选择 fresh bounded start，strict ready checkpoint 时选择 hash-bound resume；external reviewer handoff 同时携带 read-only Agent request、prompt identity、result destination、managed/direct result role，以及 session accepted/result returned/direct write/failed 的自包含 observation preview template，不再跨多处字段手工重建命令。
+
+边界：canonical `missionControlRunbook.currentDriverRequest` 仍是 runtime 唯一 focused request，operator request 不反向覆盖它；reviewer handoff 只在 `scope=reviewer` 且 current request identity 一致时暴露。`consumed`、`invalid`、`write-failed` 或未知 checkpoint 返回 `Ready=false` 且不暴露 selected/start/resume/external request，保持 one-shot、tamper 与 currentness fail-closed。Go runtime 不调用 Agent、不自动跨界 Apply、不执行 heavy-tool、不写 authority/confirmed；本批不新增 PowerShell runtime logic。
+
+验证结果：真实临时 case 回归覆盖 reviewer spawn、managed result、direct result、failed observation、strict checkpoint resume、higher-priority case intervention 抢占、consumed/invalid checkpoint、status quickstart、replacement takeover、handoff JSON 与 durable Markdown；focused mission/workstream/CLI/defaultdocs/caseshim 回归通过。独立审查发现并修复非 ready checkpoint 被错误降级为 fresh loop、以及 unfocused reviewer handoff 漂移，两项复核均关闭。完整 `go test ./...` 通过（CLI 121.877 秒），`go vet ./...`、`doctor -Format json`（canonical skill 32545/32768 bytes）与 `git diff --check` 通过；完成态统一 `release-run -Format json` 以 7/7 通过（410.213 秒，其中完整 Go tests 407.470 秒）。Remote CI 保持异步、非阻塞。
+
 ### Batch 792：repair completed-batch next-step routing
 
 状态：已完成 release handoff parser 修复、正反回归、真实 status→next-batch 交棒、独立审查修复、README/长期自主 goal 接手锚点更新和完整 Windows 本机 release minimum；implementation commit `860790d` 已推送。推送后远程 workflow 超过十分钟仍未出现对应 run，暴露普通 batch 同步等待三平台结果的效率断点；当前 cadence 已改为 Windows-first：一次 implementation push 后立即继续，remote CI 异步、非阻塞，不再创建专门的 release inspection commit。Batch 791 的 implementation commit 已有真实三平台 green，随后 release inspection commit 只把 `release-run -Format json` 的成功结果写成“以 7/7 通过”；latest-batch parser 只接受 `ready=true` 或 `passed=7 failed=0 skipped=0`，于是把已完成批次重新路由到 `/rekit release-run`，并令 `next-batch` fail-closed。

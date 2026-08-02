@@ -153,6 +153,63 @@ type MissionCommanderDriverReceipt struct {
 	Boundary                      []string                       `json:"boundary,omitempty"`
 }
 
+type CurrentLoopReviewerAgentToolRequest struct {
+	Tool           string `json:"tool"`
+	AgentType      string `json:"agentType"`
+	ReadOnly       bool   `json:"readOnly"`
+	Prompt         string `json:"prompt"`
+	PromptPath     string `json:"promptPath,omitempty"`
+	PromptSHA256   string `json:"promptSha256,omitempty"`
+	ExpectedOutput string `json:"expectedOutput"`
+}
+
+type CurrentLoopObservationAlternative struct {
+	Kind                   string   `json:"kind"`
+	RequiredFlags          []string `json:"requiredFlags"`
+	PreviewCommandTemplate string   `json:"previewCommandTemplate"`
+	Constraints            []string `json:"constraints"`
+}
+
+type CurrentLoopObservationContract struct {
+	Alternatives []CurrentLoopObservationAlternative `json:"alternatives"`
+	Boundary     []string                            `json:"boundary"`
+}
+
+type CurrentLoopExternalReviewerHandoff struct {
+	State                         string                               `json:"state"`
+	RunLoopStepID                 string                               `json:"runLoopStepId"`
+	RequiredInputs                []string                             `json:"requiredInputs"`
+	ObservationContract           CurrentLoopObservationContract       `json:"observationContract"`
+	AgentToolRequest              *CurrentLoopReviewerAgentToolRequest `json:"agentToolRequest,omitempty"`
+	DispatchPromptPath            string                               `json:"dispatchPromptPath,omitempty"`
+	DispatchPromptSHA256          string                               `json:"dispatchPromptSha256,omitempty"`
+	ReviewerResultDropPath        string                               `json:"reviewerResultDropPath,omitempty"`
+	ReviewerResultDropPathRole    string                               `json:"reviewerResultDropPathRole,omitempty"`
+	ReviewerResultInputPath       string                               `json:"reviewerResultInputPath,omitempty"`
+	ReviewerResultSourcePath      string                               `json:"reviewerResultSourcePath,omitempty"`
+	RecordDispatchPreviewTemplate string                               `json:"recordDispatchPreviewTemplate,omitempty"`
+	Boundary                      []string                             `json:"boundary"`
+}
+
+type CurrentLoopOperatorPackage struct {
+	Ready                      bool                                `json:"ready"`
+	State                      string                              `json:"state"`
+	CaseRoot                   string                              `json:"caseRoot"`
+	Pack                       string                              `json:"pack"`
+	Route                      string                              `json:"route"`
+	Lane                       string                              `json:"lane,omitempty"`
+	DefaultMaxSteps            int                                 `json:"defaultMaxSteps,omitempty"`
+	RemainingMaxSteps          int                                 `json:"remainingMaxSteps,omitempty"`
+	SourceCurrentDriverRequest *MissionCommanderDriverRequest      `json:"sourceCurrentDriverRequest,omitempty"`
+	SelectedDriverRequest      *MissionCommanderDriverRequest      `json:"selectedDriverRequest,omitempty"`
+	StartDriverRequest         *MissionCommanderDriverRequest      `json:"startDriverRequest,omitempty"`
+	ResumeDriverRequest        *MissionCommanderDriverRequest      `json:"resumeDriverRequest,omitempty"`
+	ExternalReviewerHandoff    *CurrentLoopExternalReviewerHandoff `json:"externalReviewerHandoff,omitempty"`
+	RunbookSteps               []string                            `json:"runbookSteps"`
+	CompletionCriteria         []string                            `json:"completionCriteria"`
+	Boundary                   []string                            `json:"boundary"`
+}
+
 type MissionCommanderActionQueue struct {
 	Summary               string                            `json:"summary"`
 	Counts                MissionCommanderActionQueueCounts `json:"counts"`
