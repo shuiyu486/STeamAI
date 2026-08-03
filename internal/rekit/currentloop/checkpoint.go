@@ -976,7 +976,7 @@ func validatePayload(payload Payload) error {
 			return fmt.Errorf("campaign continuation does not match its segment checkpoint")
 		}
 		switch continuation.StopCode {
-		case "route-policy", "human-intervention", "external-reviewer-handoff", "zero-progress-retry":
+		case "route-policy", "human-intervention", "external-reviewer-handoff", "external-member-handoff", "zero-progress-retry":
 		default:
 			return fmt.Errorf("campaign continuation stop code is unsupported")
 		}

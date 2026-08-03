@@ -140,6 +140,12 @@ type Options struct {
 	ExpectedCurrentLoopReviewerAttemptSHA256 string
 	ResumeCurrentLoop                        bool
 	ExpectedCurrentStepPlanSHA256            string
+	ExpectedMemberExecutionPlanSHA256        string
+	MemberExecutionAttemptID                 string
+	MemberExecutionOutcome                   string
+	MemberExecutionReason                    string
+	MemberExecutionObservedAt                string
+	skipMemberExecutionDispatch              bool
 	ExpectedDriverStepPlanSHA256             string
 	ExpectedReviewerStepPlanSHA256           string
 	Gate                                     gate.Options
@@ -479,6 +485,36 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ExpectedCurrentStepPlanSha256")
 			}
 			opt.ExpectedCurrentStepPlanSHA256 = args[i]
+		case "-ExpectedMemberExecutionPlanSha256", "-ExpectedMemberExecutionPlanSHA256", "--expected-member-execution-plan-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedMemberExecutionPlanSha256")
+			}
+			opt.ExpectedMemberExecutionPlanSHA256 = args[i]
+		case "-MemberExecutionAttemptId", "--member-execution-attempt-id":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -MemberExecutionAttemptId")
+			}
+			opt.MemberExecutionAttemptID = args[i]
+		case "-MemberExecutionOutcome", "--member-execution-outcome":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -MemberExecutionOutcome")
+			}
+			opt.MemberExecutionOutcome = args[i]
+		case "-MemberExecutionReason", "--member-execution-reason":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -MemberExecutionReason")
+			}
+			opt.MemberExecutionReason = args[i]
+		case "-MemberExecutionObservedAt", "--member-execution-observed-at":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -MemberExecutionObservedAt")
+			}
+			opt.MemberExecutionObservedAt = args[i]
 		case "-ExpectedDriverStepPlanSha256", "-ExpectedDriverStepPlanSHA256", "--expected-driver-step-plan-sha256":
 			i++
 			if i >= len(args) {
@@ -1120,6 +1156,9 @@ func Run(args []string, stdout io.Writer) error {
 	}
 	if strings.TrimSpace(opt.ExpectedCurrentStepPlanSHA256) != "" && opt.Command != commands.RunCurrentStep {
 		return fmt.Errorf("-ExpectedCurrentStepPlanSha256 is supported only by run-current-step")
+	}
+	if (strings.TrimSpace(opt.ExpectedMemberExecutionPlanSHA256) != "" || currentStepHasMemberObservation(opt)) && opt.Command != commands.RunCurrentStep && opt.Command != commands.RunCurrentLoop {
+		return fmt.Errorf("member execution flags are supported only by run-current-step and run-current-loop")
 	}
 	if strings.TrimSpace(opt.ExpectedDriverStepPlanSHA256) != "" && opt.Command != commands.RunDriverStep {
 		return fmt.Errorf("-ExpectedDriverStepPlanSha256 is supported only by run-driver-step")
@@ -3235,6 +3274,7 @@ type statusInventory struct {
 	CaseMission           *statusCaseMission           `json:"caseMission,omitempty"`
 	Onboarding            *missionintent.Inspection    `json:"onboarding,omitempty"`
 	MissionControlRunbook *statusMissionControlRunbook `json:"missionControlRunbook,omitempty"`
+	MemberExecution       *memberExecutionStatus       `json:"memberExecution,omitempty"`
 }
 
 type statusCase struct {
@@ -7769,6 +7809,7 @@ func buildStatusInventory(ctx runtime.Context, packSource string) (statusInvento
 		status.ProjectHandoff = buildStatusProjectHandoff(handoff)
 		bindStatusCaseCandidateDecisionDraftHandoffs(status.ProjectHandoff, ctx.RepoRoot, inst.CaseRoot, ctx.Pack)
 		status.MissionControlRunbook = buildStatusMissionControlRunbook(ctx.Target, status.CaseMission, status.ProjectHandoff)
+		bindStatusMemberExecution(&status)
 		return status, nil
 	}
 	m, err := manifest.Load(ctx.RepoRoot, ctx.Pack)

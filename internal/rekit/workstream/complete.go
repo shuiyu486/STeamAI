@@ -6,18 +6,22 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanecompletion"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewerresult"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewersession"
 )
 
 const (
@@ -25,7 +29,22 @@ const (
 	completionCommitFile = "completion.json"
 )
 
-var completionAfterIntentHook func() error
+var (
+	completionAfterIntentHook  func() error
+	completionBeforeCommitHook func() error
+)
+
+func SetCompletionAfterIntentHookForTest(hook func() error) func() {
+	previous := completionAfterIntentHook
+	completionAfterIntentHook = hook
+	return func() { completionAfterIntentHook = previous }
+}
+
+func SetCompletionBeforeCommitHookForTest(hook func() error) func() {
+	previous := completionBeforeCommitHook
+	completionBeforeCommitHook = hook
+	return func() { completionBeforeCommitHook = previous }
+}
 
 type CompleteOptions struct {
 	Selector              string
@@ -139,21 +158,22 @@ type MissionCompletionHandoff struct {
 }
 
 type completeContext struct {
-	inst         instance.Instance
-	manifest     *manifest.Manifest
-	board        board
-	lane         Lane
-	selector     string
-	actor        string
-	reason       string
-	evidenceRefs []string
-	evidence     []CompletionEvidence
-	facts        mission.LedgerFacts
-	blockers     []CompletionBlocker
-	lifecycle    lanecompletion.Inspection
-	sequence     int
-	previousSHA  string
-	intent       *completionIntent
+	inst                instance.Instance
+	manifest            *manifest.Manifest
+	board               board
+	lane                Lane
+	selector            string
+	actor               string
+	reason              string
+	evidenceRefs        []string
+	evidence            []CompletionEvidence
+	facts               mission.LedgerFacts
+	blockers            []CompletionBlocker
+	lifecycle           lanecompletion.Inspection
+	sequence            int
+	previousSHA         string
+	intent              *completionIntent
+	memberReviewBlocker string
 }
 
 func CompletePreview(repoRoot, caseRoot, pack string, opt CompleteOptions) (CompleteResult, error) {
@@ -235,13 +255,17 @@ func CompleteApply(repoRoot, caseRoot, pack string, opt CompleteOptions) (result
 			}
 		}
 	} else {
-		if len(ctx.blockers) > 0 {
-			return CompleteResult{}, fmt.Errorf("complete recovery is blocked: %s", completionBlockerSummary(ctx.blockers))
-		}
-		if err := ctx.validateIntent(expected); err != nil {
-			return CompleteResult{}, err
-		}
 		mutationStarted = true
+	}
+	ctx, err = newCompleteContext(repoRoot, caseRoot, pack, opt, true)
+	if err != nil {
+		return CompleteResult{}, err
+	}
+	if len(ctx.blockers) > 0 {
+		return CompleteResult{}, fmt.Errorf("complete recovery is blocked: %s", completionBlockerSummary(ctx.blockers))
+	}
+	if err := ctx.validateIntent(expected); err != nil {
+		return CompleteResult{}, err
 	}
 	if err := lease.Validate(); err != nil {
 		return CompleteResult{}, err
@@ -301,7 +325,59 @@ func newCompleteContext(repoRoot, caseRoot, pack string, opt CompleteOptions, al
 	if err != nil {
 		return completeContext{}, err
 	}
+	if latest, ok, inspectErr := memberexecution.Latest(inst.CaseRoot, lane.ID); inspectErr != nil {
+		return completeContext{}, fmt.Errorf("complete member execution intake: %w", inspectErr)
+	} else if ok {
+		if latest.State != "intake-ready" || latest.Manifest == nil || latest.Latest == nil || latest.Latest.Outcome != "returned" {
+			return completeContext{}, fmt.Errorf("complete requires latest durable member execution to be intake-ready; got %s", latest.State)
+		}
+		entry, found := mission.LookupBoardLane(b.Lanes, lane.ID, false)
+		if !found || latest.Owner.Executor != entry.CurrentExecutor || latest.Owner.ExecutorGeneration != entry.ExecutorGeneration {
+			return completeContext{}, fmt.Errorf("complete member execution owner is stale")
+		}
+		manifestRef := relativePath(inst.CaseRoot, latest.ManifestPath)
+		bound := false
+		for _, item := range evidence {
+			if completionEvidencePathsEqual(strings.SplitN(item.Ref, "#", 2)[0], manifestRef) && strings.EqualFold(item.SHA256, latest.ManifestSHA256) {
+				bound = true
+				break
+			}
+		}
+		if !bound {
+			return completeContext{}, fmt.Errorf("complete evidence must bind latest member result manifest %s at sha256 %s", manifestRef, latest.ManifestSHA256)
+		}
+		for _, output := range latest.Manifest.Outputs {
+			outputRef := relativePath(inst.CaseRoot, filepath.Join(latest.OutputsRoot, filepath.FromSlash(output.Path)))
+			refs = append(refs, outputRef)
+		}
+		refs = mission.UniqueStrings(refs)
+		refs, evidence, err = validateCompletionEvidenceRefs(inst.CaseRoot, strings.Join(refs, ","))
+		if err != nil {
+			return completeContext{}, fmt.Errorf("complete member result snapshot: %w", err)
+		}
+		if err := validateMemberCompletionNamespace(inst.CaseRoot, lane.ID, evidence); err != nil {
+			return completeContext{}, err
+		}
+		memberReviewBlocker := ""
+		reviewerInput, reviewErr := requireMemberManifestReviewerWriteback(inst.CaseRoot, lane.ID, manifestRef, facts)
+		if reviewErr != nil {
+			memberReviewBlocker = reviewErr.Error()
+		} else {
+			refs = mission.UniqueStrings(append(refs, reviewerInput.Ref))
+			refs, evidence, err = validateCompletionEvidenceRefs(inst.CaseRoot, strings.Join(refs, ","))
+			if err != nil {
+				return completeContext{}, fmt.Errorf("complete reviewer input snapshot: %w", err)
+			}
+		}
+		ctx := completeContext{inst: inst, manifest: m, board: b, lane: lane, selector: selector, actor: actor, reason: reason, evidenceRefs: refs, evidence: evidence, facts: facts, memberReviewBlocker: memberReviewBlocker}
+		return finishCompleteContext(ctx, allowPending)
+	}
 	ctx := completeContext{inst: inst, manifest: m, board: b, lane: lane, selector: selector, actor: actor, reason: reason, evidenceRefs: refs, evidence: evidence, facts: facts}
+	return finishCompleteContext(ctx, allowPending)
+}
+
+func finishCompleteContext(ctx completeContext, allowPending bool) (completeContext, error) {
+	inst, lane := ctx.inst, ctx.lane
 	operations, operationErr := lanecompletion.InspectOperations(inst.CaseRoot)
 	if operationErr != nil {
 		return completeContext{}, operationErr
@@ -345,6 +421,7 @@ func newCompleteContext(repoRoot, caseRoot, pack string, opt CompleteOptions, al
 	if status == "archived" || status == "paused" {
 		return completeContext{}, fmt.Errorf("target lane is not open: %s", lane.ID)
 	}
+	var err error
 	ctx.blockers, err = ctx.completionBlockers()
 	if err != nil {
 		return completeContext{}, err
@@ -352,9 +429,217 @@ func newCompleteContext(repoRoot, caseRoot, pack string, opt CompleteOptions, al
 	return ctx, nil
 }
 
+func requireMemberManifestReviewerWriteback(caseRoot, laneID, manifestRef string, facts mission.LedgerFacts) (CompletionEvidence, error) {
+	manifestFull := filepath.Join(caseRoot, filepath.FromSlash(manifestRef))
+	verificationByPacket := map[string]map[string]any{}
+	for _, event := range facts.Verifications {
+		packetID := mission.Value(event, "packetId")
+		if packetID == "" || mission.Value(event, "lane") != laneID || !strings.EqualFold(mission.Value(event, "verdict"), "accepted") || !eventEvidenceBindsPath(event, manifestRef, manifestFull) {
+			continue
+		}
+		verificationByPacket[packetID] = event
+	}
+	if len(verificationByPacket) == 0 {
+		return CompletionEvidence{}, fmt.Errorf("complete requires a reviewer packet verification accepted for current member manifest %s", manifestRef)
+	}
+	for _, event := range facts.Decisions {
+		packetID := mission.Value(event, "packetId")
+		verification, ok := verificationByPacket[packetID]
+		if !ok || mission.Value(event, "lane") != laneID || !strings.EqualFold(mission.Value(event, "decision"), "accept") || !strings.EqualFold(mission.Value(event, "reviewerDecision"), "accept") || !eventEvidenceReferences(event, mission.Value(verification, "eventId")) {
+			continue
+		}
+		if mission.Value(event, "shardId") == mission.Value(verification, "shardId") && mission.Value(event, "packetPath") == mission.Value(verification, "packetPath") && mission.Value(event, "reviewerResultInputSha256") == mission.Value(verification, "reviewerResultInputSha256") {
+			input, err := validateReviewerWritebackPacket(caseRoot, laneID, packetID, mission.Value(event, "shardId"), mission.Value(event, "packetPath"), mission.Value(event, "reviewerResultInputSha256"))
+			if err != nil {
+				return CompletionEvidence{}, fmt.Errorf("complete reviewer packet binding is invalid: %w", err)
+			}
+			return input, nil
+		}
+	}
+	return CompletionEvidence{}, fmt.Errorf("complete requires an accepted reviewer decision/writeback bound to current member manifest %s", manifestRef)
+}
+
+func validateReviewerWritebackPacket(caseRoot, laneID, packetID, shardID, packetRef, inputSHA256 string) (CompletionEvidence, error) {
+	packetPath := filepath.FromSlash(strings.TrimSpace(packetRef))
+	if !filepath.IsAbs(packetPath) {
+		packetPath = filepath.Join(caseRoot, packetPath)
+	}
+	packet, err := readReviewerDispatchPacket(caseRoot, packetPath)
+	if err != nil {
+		return CompletionEvidence{}, err
+	}
+	if err := validateReviewerPacketIntegrity(caseRoot, packetPath, packet); err != nil {
+		return CompletionEvidence{}, err
+	}
+	if packet.PacketID != packetID || firstText(packet.ReviewerOrchestration.TargetLane, packet.TargetLane, packet.ReviewerOrchestration.OwnerBinding.TargetLane) != laneID || !casebind.SamePath(packet.ReviewerOrchestration.PacketPath, packetPath) || packet.ReviewerOrchestration.OwnerBinding != packet.OwnerBinding {
+		return CompletionEvidence{}, fmt.Errorf("reviewer packet identity does not match accepted writeback")
+	}
+	var shard *reviewerDispatchPacketDispatch
+	for idx := range packet.ReviewerOrchestration.Dispatches {
+		if packet.ReviewerOrchestration.Dispatches[idx].ShardID == shardID {
+			shard = &packet.ReviewerOrchestration.Dispatches[idx]
+			break
+		}
+	}
+	if shard == nil {
+		return CompletionEvidence{}, fmt.Errorf("reviewer packet does not contain accepted shard %s", shardID)
+	}
+	inputPath := ""
+	if shard.StagingCommands != nil {
+		inputPath = strings.TrimSpace(shard.StagingCommands.SourceCaptureInput)
+	}
+	if inputPath == "" {
+		inputPath = filepath.Join(packet.ReviewerOrchestration.ResultRoot, "inputs", shardID+".reviewer-input.json")
+	}
+	input, err := refsf.ReadStableRegularFileAnchored(caseRoot, inputPath, "reviewer result input", 64<<10)
+	if err != nil {
+		return CompletionEvidence{}, err
+	}
+	inputEvidence := CompletionEvidence{Ref: relativePath(caseRoot, inputPath), SHA256: reviewerDispatchBytesSHA256(input), Bytes: int64(len(input))}
+	if !strings.EqualFold(inputEvidence.SHA256, strings.TrimSpace(inputSHA256)) {
+		return CompletionEvidence{}, fmt.Errorf("reviewer result input sha256 does not match accepted writeback")
+	}
+	result, err := reviewerresult.Decode(input)
+	if err != nil {
+		return CompletionEvidence{}, err
+	}
+	if result.PacketID != packetID || result.RouteID != packet.Route.ID || result.ShardID != shardID || strings.TrimSpace(result.ReviewerSession) == "" {
+		return CompletionEvidence{}, fmt.Errorf("reviewer result input does not match packet/route/shard/session bindings")
+	}
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		return CompletionEvidence{}, err
+	}
+	owner, found := mission.LookupBoardLane(board.Lanes, laneID, false)
+	if !found {
+		return CompletionEvidence{}, fmt.Errorf("reviewer packet lane is not present in current board")
+	}
+	packetBytes, err := refsf.ReadStableRegularFileAnchored(caseRoot, packetPath, "reviewer packet", 4<<20)
+	if err != nil {
+		return CompletionEvidence{}, err
+	}
+	dispatchRoot := filepath.Join(filepath.Dir(packetPath), "sessions", shardID, "dispatches")
+	entries, err := os.ReadDir(dispatchRoot)
+	if err != nil {
+		return CompletionEvidence{}, fmt.Errorf("read reviewer session dispatch receipts: %w", err)
+	}
+	names := []string{}
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(strings.ToLower(entry.Name()), ".json") {
+			names = append(names, entry.Name())
+		}
+	}
+	sort.Strings(names)
+	exact := 0
+	for _, name := range names {
+		dispatchPath := filepath.Join(dispatchRoot, name)
+		dispatchBytes, readErr := refsf.ReadStableRegularFileAnchored(caseRoot, dispatchPath, "reviewer session dispatch receipt", 256<<10)
+		if readErr != nil {
+			continue
+		}
+		dispatch, decodeErr := reviewersession.DecodeDispatch(dispatchBytes)
+		if decodeErr != nil || !reviewerDispatchSessionStaticBindingsCurrent(packet, packetPath, packetBytes, laneID, *shard, dispatch, dispatchPath) || dispatch.ReviewerSession != result.ReviewerSession || !reviewerDispatchSessionCurrentOwnerBindings(caseRoot, packet, packetPath, dispatch, owner.CurrentExecutor, owner.ExecutorGeneration) {
+			continue
+		}
+		completionPath := reviewersession.CompletionPath(packetPath, shardID, dispatch.DispatchID)
+		completionBytes, readErr := refsf.ReadStableRegularFileAnchored(caseRoot, completionPath, "reviewer session completion receipt", 256<<10)
+		if readErr != nil {
+			continue
+		}
+		completion, decodeErr := reviewersession.DecodeCompletion(completionBytes)
+		if decodeErr != nil || reviewersession.ValidateCompletionDispatchLineage(completion, dispatch, dispatchPath, reviewerDispatchBytesSHA256(dispatchBytes)) != nil || completion.Outcome != "succeeded" || !casebind.SamePath(completion.ReviewerResultInputPath, inputPath) || !strings.EqualFold(completion.ReviewerResultInputSHA256, inputSHA256) || completion.ReviewerResultInputBytes != len(input) || completion.CompletionOwner != dispatch.EffectiveOwner {
+			continue
+		}
+		exact++
+	}
+	if exact != 1 {
+		return CompletionEvidence{}, fmt.Errorf("reviewer result input requires exactly one current successful dispatch/completion receipt lineage; got %d", exact)
+	}
+	return inputEvidence, nil
+}
+
+func completionEvidencePathKey(path string) string {
+	path, _, _ = strings.Cut(strings.TrimSpace(path), "#")
+	key := filepath.ToSlash(filepath.Clean(filepath.FromSlash(path)))
+	if runtime.GOOS == "windows" {
+		key = strings.ToLower(key)
+	}
+	return key
+}
+
+func completionEvidencePathsEqual(left, right string) bool {
+	return completionEvidencePathKey(left) == completionEvidencePathKey(right)
+}
+
+func eventEvidenceBindsPath(event map[string]any, rel, full string) bool {
+	for _, ref := range eventStringList(event["evidenceRefs"]) {
+		path, _, _ := strings.Cut(ref, "#")
+		if completionEvidencePathsEqual(path, rel) || casebind.SamePath(path, full) {
+			return true
+		}
+	}
+	return false
+}
+
+func eventEvidenceReferences(event map[string]any, expected string) bool {
+	for _, ref := range eventStringList(event["evidenceRefs"]) {
+		if strings.EqualFold(strings.TrimSpace(ref), strings.TrimSpace(expected)) {
+			return true
+		}
+	}
+	return false
+}
+
+func eventStringList(value any) []string {
+	switch typed := value.(type) {
+	case []any:
+		out := make([]string, 0, len(typed))
+		for _, item := range typed {
+			if text, ok := item.(string); ok && strings.TrimSpace(text) != "" {
+				out = append(out, strings.TrimSpace(text))
+			}
+		}
+		return out
+	case []string:
+		return typed
+	case string:
+		return strings.FieldsFunc(typed, func(r rune) bool { return r == ',' || r == ';' || r == '\n' || r == '\r' })
+	default:
+		return nil
+	}
+}
+
+func (ctx completeContext) validateMemberReviewerLineage(evidence []CompletionEvidence) error {
+	latest, ok, err := memberexecution.Latest(ctx.inst.CaseRoot, ctx.lane.ID)
+	if err != nil || !ok {
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+	facts, err := mission.ReadStrictLedgerFacts(ctx.inst.CaseRoot)
+	if err != nil {
+		return err
+	}
+	manifestRef := relativePath(ctx.inst.CaseRoot, latest.ManifestPath)
+	input, err := requireMemberManifestReviewerWriteback(ctx.inst.CaseRoot, ctx.lane.ID, manifestRef, facts)
+	if err != nil {
+		return err
+	}
+	for _, item := range evidence {
+		if completionEvidencePathsEqual(strings.SplitN(item.Ref, "#", 2)[0], input.Ref) && strings.EqualFold(item.SHA256, input.SHA256) && item.Bytes == input.Bytes {
+			return nil
+		}
+	}
+	return fmt.Errorf("completion evidence does not bind canonical reviewer input %s", input.Ref)
+}
+
 func (ctx completeContext) completionBlockers() ([]CompletionBlocker, error) {
 	blockers := []CompletionBlocker{}
 	add := func(kind, detail string) { blockers = append(blockers, CompletionBlocker{Kind: kind, Detail: detail}) }
+	if ctx.memberReviewBlocker != "" {
+		add("member-manifest-review", ctx.memberReviewBlocker)
+	}
 	laneFacts := mission.LaneFacts(ctx.facts.Facts, ctx.lane.ID)
 	for _, item := range mission.EffectiveOpenLaneInterventions(ctx.facts.Facts, ctx.lane.ID) {
 		add("open-intervention", firstText(mission.Value(item, "eventId"), mission.Value(item, "subject")))
@@ -556,6 +841,17 @@ func (ctx completeContext) publishCompletion() ([]StartWrite, CompletionReceipt,
 		PreviewSHA256: intent.PreviewSHA256, IntentSHA256: intentSHA, LaneSHA256: laneSHA, BoardLaneSHA256: boardLaneSHA,
 		ResumeSHA256: resumeSHA, CheckpointSHA256: checkpointSHA, NoAuthority: true, NoConfirmed: true, NoHeavyTool: true,
 	}
+	if completionBeforeCommitHook != nil {
+		if err := completionBeforeCommitHook(); err != nil {
+			return nil, CompletionReceipt{}, err
+		}
+	}
+	if err := validateMemberCompletionNamespace(ctx.inst.CaseRoot, ctx.lane.ID, intent.Evidence); err != nil {
+		return nil, CompletionReceipt{}, fmt.Errorf("lane completion member evidence changed before final commit: %w", err)
+	}
+	if err := ctx.validateMemberReviewerLineage(intent.Evidence); err != nil {
+		return nil, CompletionReceipt{}, fmt.Errorf("lane completion reviewer lineage changed before final commit: %w", err)
+	}
 	if err := writeCompletionExclusive(ctx.inst.CaseRoot, ctx.commitPath(), receipt); err != nil {
 		if existing, inspectErr := InspectLaneCompletion(ctx.inst.CaseRoot, ctx.lane.ID); inspectErr != nil || !completionReceiptsEqual(existing, receipt) {
 			return nil, CompletionReceipt{}, err
@@ -589,6 +885,12 @@ func InspectLaneCompletion(caseRoot, laneID string) (CompletionReceipt, error) {
 	if err != nil || !equalCompletionEvidence(currentEvidence, receipt.Evidence) {
 		return CompletionReceipt{}, fmt.Errorf("lane completion evidence content mismatch: %s", laneID)
 	}
+	if err := validateMemberCompletionNamespace(caseRoot, laneID, receipt.Evidence); err != nil {
+		return CompletionReceipt{}, err
+	}
+	if err := validateCommittedMemberReviewerLineage(caseRoot, laneID, receipt.Evidence); err != nil {
+		return CompletionReceipt{}, err
+	}
 	if !equalStrings(intent.EvidenceRefs, receipt.EvidenceRefs) || !equalCompletionEvidence(intent.Evidence, receipt.Evidence) {
 		return CompletionReceipt{}, fmt.Errorf("lane completion evidence identity mismatch: %s", laneID)
 	}
@@ -620,6 +922,80 @@ func InspectLaneCompletion(caseRoot, laneID string) (CompletionReceipt, error) {
 		return CompletionReceipt{}, fmt.Errorf("lane completion board projection mismatch: %s", laneID)
 	}
 	return receipt, nil
+}
+
+func validateCommittedMemberReviewerLineage(caseRoot, laneID string, evidence []CompletionEvidence) error {
+	latest, ok, err := memberexecution.Latest(caseRoot, laneID)
+	if err != nil {
+		return fmt.Errorf("lane completion reviewer lineage member inspection failed: %s: %w", laneID, err)
+	}
+	if !ok {
+		return nil
+	}
+	facts, err := mission.ReadStrictLedgerFacts(caseRoot)
+	if err != nil {
+		return err
+	}
+	manifestRef := relativePath(caseRoot, latest.ManifestPath)
+	input, err := requireMemberManifestReviewerWriteback(caseRoot, laneID, manifestRef, facts)
+	if err != nil {
+		return fmt.Errorf("lane completion reviewer lineage mismatch: %s: %w", laneID, err)
+	}
+	for _, item := range evidence {
+		if completionEvidencePathsEqual(strings.SplitN(item.Ref, "#", 2)[0], input.Ref) && strings.EqualFold(item.SHA256, input.SHA256) && item.Bytes == input.Bytes {
+			return nil
+		}
+	}
+	return fmt.Errorf("lane completion reviewer input evidence mismatch: %s", laneID)
+}
+
+func validateMemberCompletionNamespace(caseRoot, laneID string, evidence []CompletionEvidence) error {
+	latest, ok, err := memberexecution.Latest(caseRoot, laneID)
+	if err != nil {
+		return fmt.Errorf("lane completion member execution inspection failed: %s: %w", laneID, err)
+	}
+	if !ok {
+		return nil
+	}
+	if latest.State != "intake-ready" || latest.Manifest == nil || latest.Latest == nil || latest.Latest.Outcome != "returned" {
+		return fmt.Errorf("lane completion latest member execution is not intake-ready: %s", laneID)
+	}
+	expected := map[string]CompletionEvidence{}
+	manifestRef := relativePath(caseRoot, latest.ManifestPath)
+	manifestBytes, err := refsf.ReadStableRegularFileAnchored(caseRoot, latest.ManifestPath, "member execution manifest", 4<<20)
+	if err != nil || !strings.EqualFold(reviewerDispatchBytesSHA256(manifestBytes), latest.ManifestSHA256) {
+		return fmt.Errorf("lane completion member manifest identity mismatch: %s", laneID)
+	}
+	expected[completionEvidencePathKey(manifestRef)] = CompletionEvidence{Ref: manifestRef, SHA256: latest.ManifestSHA256, Bytes: int64(len(manifestBytes))}
+	for _, output := range latest.Manifest.Outputs {
+		ref := relativePath(caseRoot, filepath.Join(latest.OutputsRoot, filepath.FromSlash(output.Path)))
+		expected[completionEvidencePathKey(ref)] = CompletionEvidence{Ref: ref, SHA256: output.SHA256, Bytes: output.Bytes}
+	}
+	actual := map[string]CompletionEvidence{}
+	memberRootPrefix := completionEvidencePathKey(relativePath(caseRoot, filepath.Dir(latest.AttemptRoot))) + "/"
+	memberPrefix := completionEvidencePathKey(relativePath(caseRoot, latest.AttemptRoot)) + "/evidence/"
+	for _, item := range evidence {
+		key := completionEvidencePathKey(item.Ref)
+		if strings.HasPrefix(key, memberRootPrefix) && !strings.HasPrefix(key, memberPrefix) {
+			return fmt.Errorf("lane completion member evidence references a non-current or non-canonical member namespace: %s", item.Ref)
+		}
+		if strings.HasPrefix(key, memberPrefix) {
+			if _, duplicate := actual[key]; duplicate {
+				return fmt.Errorf("lane completion member evidence contains duplicate path: %s", item.Ref)
+			}
+			actual[key] = item
+		}
+	}
+	if len(actual) != len(expected) {
+		return fmt.Errorf("lane completion member evidence namespace mismatch: %s", laneID)
+	}
+	for path, want := range expected {
+		got, ok := actual[path]
+		if !ok || !strings.EqualFold(got.SHA256, want.SHA256) || got.Bytes != want.Bytes {
+			return fmt.Errorf("lane completion member evidence identity mismatch: %s", path)
+		}
+	}
+	return nil
 }
 
 func InspectMissionCompletion(caseRoot string) (MissionCompletionHandoff, error) {
@@ -707,10 +1083,6 @@ func validateCompletionEvidenceRefs(caseRoot, value string) ([]string, []Complet
 	if len(refs) == 0 {
 		return nil, nil, fmt.Errorf("complete requires at least one case-local non-empty -EvidenceRefs file")
 	}
-	caseReal, err := filepath.EvalSymlinks(caseRoot)
-	if err != nil {
-		return nil, nil, err
-	}
 	evidence := make([]CompletionEvidence, 0, len(refs))
 	for _, ref := range refs {
 		pathPart := strings.TrimSpace(strings.SplitN(ref, "#", 2)[0])
@@ -721,36 +1093,9 @@ func validateCompletionEvidenceRefs(caseRoot, value string) ([]string, []Complet
 		if err != nil {
 			return nil, nil, err
 		}
-		pathReal, err := filepath.EvalSymlinks(path)
+		data, err := refsf.ReadStableRegularFileAnchored(caseRoot, path, "completion evidence ref", maxEvidenceBytes)
 		if err != nil {
 			return nil, nil, fmt.Errorf("completion evidence ref is unreadable: %s: %w", ref, err)
-		}
-		rel, err := filepath.Rel(caseReal, pathReal)
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return nil, nil, fmt.Errorf("completion evidence ref escapes case root: %s", ref)
-		}
-		before, err := os.Lstat(pathReal)
-		if err != nil || !before.Mode().IsRegular() || before.Mode()&os.ModeSymlink != 0 || before.Size() == 0 || before.Size() > maxEvidenceBytes {
-			return nil, nil, fmt.Errorf("completion evidence ref must be a bounded non-empty regular file: %s", ref)
-		}
-		file, err := os.Open(pathReal)
-		if err != nil {
-			return nil, nil, fmt.Errorf("completion evidence ref is unreadable: %s: %w", ref, err)
-		}
-		opened, statErr := file.Stat()
-		if statErr != nil || !opened.Mode().IsRegular() || !os.SameFile(before, opened) {
-			file.Close()
-			return nil, nil, fmt.Errorf("completion evidence ref changed while opening: %s", ref)
-		}
-		data, readErr := io.ReadAll(io.LimitReader(file, maxEvidenceBytes+1))
-		closeErr := file.Close()
-		if readErr != nil || closeErr != nil || len(data) == 0 || len(data) > maxEvidenceBytes {
-			return nil, nil, fmt.Errorf("completion evidence ref could not be read stably: %s", ref)
-		}
-		post, err := os.Lstat(pathReal)
-		currentReal, realErr := filepath.EvalSymlinks(path)
-		if err != nil || realErr != nil || !post.Mode().IsRegular() || post.Mode()&os.ModeSymlink != 0 || !os.SameFile(opened, post) || !strings.EqualFold(filepath.Clean(currentReal), filepath.Clean(pathReal)) {
-			return nil, nil, fmt.Errorf("completion evidence ref changed while reading: %s", ref)
 		}
 		sum := sha256.Sum256(data)
 		evidence = append(evidence, CompletionEvidence{Ref: ref, SHA256: hex.EncodeToString(sum[:]), Bytes: int64(len(data))})

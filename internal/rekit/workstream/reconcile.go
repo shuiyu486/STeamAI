@@ -76,6 +76,14 @@ type ReconcileResult struct {
 	NextSteps                          []string                                    `json:"nextSteps"`
 }
 
+var reconcileLeaseHook func(string, string) error
+
+func SetReconcileLeaseHookForTest(hook func(string, string) error) func() {
+	previous := reconcileLeaseHook
+	reconcileLeaseHook = hook
+	return func() { reconcileLeaseHook = previous }
+}
+
 type reconcileContext struct {
 	inst               instance.Instance
 	manifest           *manifest.Manifest
@@ -120,6 +128,11 @@ func ReconcileApply(repoRoot, caseRoot, pack string, opt ReconcileOptions) (resu
 			result = ReconcileResult{}
 		}
 	}()
+	if reconcileLeaseHook != nil {
+		if err := reconcileLeaseHook(ctx.inst.CaseRoot, ctx.lane.ID); err != nil {
+			return ReconcileResult{}, err
+		}
+	}
 	ctx, err = newReconcileContext(repoRoot, caseRoot, pack, opt, true)
 	if err != nil {
 		return ReconcileResult{}, err

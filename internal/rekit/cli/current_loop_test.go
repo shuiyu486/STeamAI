@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/currentloop"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
@@ -1024,6 +1025,83 @@ func runCurrentLoopResumePreviewWith(t *testing.T, caseRoot, checkpointSHA256 st
 	args = append(args, inputs...)
 	args = append(args, "-WhatIf", "-Format", "json")
 	return runCurrentLoopResult(t, args)
+}
+
+func TestRunCurrentLoopMemberExecutionCheckpoint(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	board.Lanes[0].CurrentExecutor = "loop-member"
+	board.Lanes[0].ExecutorGeneration = 1
+	board.Lanes[0].UpdatedAt = "2026-08-03T03:00:00Z"
+	boardData, _ := json.MarshalIndent(board, "", "  ")
+	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "board.json"), append(boardData, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	preview := runCurrentLoopPreview(t, caseRoot, 3)
+	if preview.InitialCurrentStep == nil || preview.InitialCurrentStep.MemberExecution == nil || preview.ExpectedCurrentLoopPlanSHA256 == "" {
+		t.Fatalf("member loop did not bind external handoff: %+v", preview)
+	}
+	memberPlan := preview.InitialCurrentStep.MemberExecution
+	applied := runCurrentLoopApplyWith(t, caseRoot, preview, "-ExpectedMemberExecutionPlanSha256", memberPlan.ExpectedPlanSHA256)
+	if !applied.Applied || applied.AppliedSteps != 1 || applied.SegmentCheckpoint == nil || applied.Steps[0].CurrentStepReceipt.Outcome != "current-step-applied" || !strings.Contains(strings.Join(applied.Steps[0].CurrentStepReceipt.Boundary, "\n"), "member execution outcome: handoff-ready") {
+		t.Fatalf("member loop did not checkpoint dispatch receipt: %+v", applied)
+	}
+	if applied.StopReason.Code != "external-member-handoff" {
+		t.Fatalf("unexpected member loop stop: %+v", applied.StopReason)
+	}
+	if !applied.SegmentCheckpoint.Ready || applied.SegmentCheckpoint.State != "ready" || applied.SegmentCheckpoint.RemainingMaxSteps != 2 {
+		t.Fatalf("member loop checkpoint is not resumable with preserved budget: %+v", applied.SegmentCheckpoint)
+	}
+	accepted := runCurrentLoopResumePreviewWith(t, caseRoot, applied.SegmentCheckpoint.ArtifactSHA256,
+		"-MemberExecutionAttemptId", memberPlan.AttemptID,
+		"-MemberExecutionOutcome", "accepted",
+		"-MemberExecutionObservedAt", "2026-08-03T03:01:00Z",
+		"-Actor", "harness",
+	)
+	if accepted.MaxSteps != 2 || accepted.ResumeSource == nil || accepted.InitialCurrentStep == nil || accepted.InitialCurrentStep.MemberExecution == nil || accepted.InitialCurrentStep.MemberExecution.Outcome != "accepted" {
+		t.Fatalf("member observation did not resume exact checkpoint budget: %+v", accepted)
+	}
+	for _, required := range []string{"-MemberExecutionAttemptId \"" + memberPlan.AttemptID + "\"", "-MemberExecutionOutcome \"accepted\"", "-MemberExecutionObservedAt \"2026-08-03T03:01:00Z\"", "-ExpectedMemberExecutionPlanSha256 \"" + accepted.InitialCurrentStep.MemberExecution.ExpectedPlanSHA256 + "\""} {
+		if !strings.Contains(accepted.ApplyCommand, required) {
+			t.Fatalf("member resume apply command omitted %q: %s", required, accepted.ApplyCommand)
+		}
+	}
+	acceptedApplied := runCurrentLoopResult(t, rekitCommandCLIArgs(t, accepted.ApplyCommand))
+	if !acceptedApplied.Applied || acceptedApplied.InitialCurrentStep == nil || acceptedApplied.InitialCurrentStep.MemberExecution == nil || acceptedApplied.InitialCurrentStep.MemberExecution.Inspection.State != "accepted" {
+		t.Fatalf("member accepted resume apply command did not persist observation: %+v", acceptedApplied)
+	}
+	inspection := acceptedApplied.InitialCurrentStep.MemberExecution.Inspection
+	output := []byte("member-result\n")
+	if err := os.MkdirAll(inspection.OutputsRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(inspection.OutputsRoot, "result.txt"), output, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := memberexecution.ResultManifest{SchemaVersion: 1, Kind: memberexecution.KindManifest, AttemptID: memberPlan.AttemptID, Owner: memberPlan.Owner, Summary: "returned through resume", Outputs: []memberexecution.Output{{Path: "result.txt", SHA256: sha256Text(output), Bytes: int64(len(output))}}, NoAuthority: true, NoConfirmed: true, NoHeavyTool: true}
+	manifestData, _ := memberexecution.MarshalResultManifest(manifest)
+	if err := os.WriteFile(inspection.ManifestPath, manifestData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	returnedSource := acceptedApplied.SegmentCheckpoint
+	returned := runCurrentLoopResumePreviewWith(t, caseRoot, returnedSource.ArtifactSHA256,
+		"-MemberExecutionAttemptId", memberPlan.AttemptID,
+		"-MemberExecutionOutcome", "returned",
+		"-MemberExecutionReason", "bounded result complete",
+		"-MemberExecutionObservedAt", "2026-08-03T03:02:00Z",
+		"-Actor", "harness",
+	)
+	returnedApplied := runCurrentLoopResult(t, rekitCommandCLIArgs(t, returned.ApplyCommand))
+	if !returnedApplied.Applied || returnedApplied.InitialCurrentStep == nil || returnedApplied.InitialCurrentStep.MemberExecution == nil || returnedApplied.InitialCurrentStep.MemberExecution.Inspection.State != "intake-ready" {
+		t.Fatalf("member returned resume apply command did not persist intake: %+v", returnedApplied)
+	}
 }
 
 func runCurrentLoopError(caseRoot string, inputs []string) error {

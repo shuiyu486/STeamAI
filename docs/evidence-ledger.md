@@ -83,6 +83,10 @@ managed adapter execution 的 `observation` 不是执行授权本身，也不是
 
 同一 authorized gate只允许一个immutable attempt。report先于dispatch存在、same-gate owner/generation/session/catalog/report drift，或旧attempt与retry attempt交叉引用时都必须fail-closed；retry需使用distinct authorized gate和新的`adapter-executions/<gateEventId>/` namespace。该lineage只证明外部harness observation可追溯，不执行heavy tool，也不授予confirmed/authority。
 
+### Durable member execution provenance
+
+普通member lane的外部Agent执行使用独立于reviewer receipt和authorized adapter gate的case-local lineage：`intent.json → handoff.json → commit.json`先以exact prefix publication固定attempt、lane、executor generation、request SHA与result paths；随后append-only observations只允许`accepted → returned|failed`，或dispatch后直接`failed`。`returned`必须绑定strict canonical result manifest SHA；manifest中的每个bounded output必须位于该attempt的outputs root，并精确绑定relative path、bytes与SHA-256。只有inspection验证为`intake-ready`的manifest可作为continue/reviewer relay/completion evidence；raw manifest、hash/size drift、路径逃逸、symlink/reparse、大小写重复、旧generation迟到结果或partial/non-prefix publication都fail-closed。该lineage不代表runtime启动/轮询/停止session，不授权heavy tool，也不写confirmed/authority。
+
 ## Candidate 字段
 
 ```json

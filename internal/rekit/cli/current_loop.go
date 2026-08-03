@@ -139,6 +139,15 @@ func runCurrentLoop(ctx runtime.Context, opt Options, out io.Writer) error {
 	if plan.ExpectedCurrentLoopPlanSHA256 == "" {
 		return fmt.Errorf("run-current-loop current route requires an external or reviewed action before Apply")
 	}
+	if plan.InitialCurrentStep != nil && plan.InitialCurrentStep.MemberExecution != nil {
+		expectedMember := strings.TrimSpace(opt.ExpectedMemberExecutionPlanSHA256)
+		if expectedMember == "" {
+			return fmt.Errorf("run-current-loop member execution -Apply requires -ExpectedMemberExecutionPlanSha256 from -WhatIf")
+		}
+		if !strings.EqualFold(expectedMember, plan.InitialCurrentStep.MemberExecution.ExpectedPlanSHA256) {
+			return fmt.Errorf("run-current-loop expected member execution plan sha256 mismatch: got %s want %s", expectedMember, plan.InitialCurrentStep.MemberExecution.ExpectedPlanSHA256)
+		}
+	}
 	expected := strings.TrimSpace(opt.ExpectedCurrentLoopPlanSHA256)
 	if expected == "" {
 		return fmt.Errorf("run-current-loop -Apply requires -ExpectedCurrentLoopPlanSha256 from -WhatIf")
@@ -387,6 +396,33 @@ func applyCurrentLoopPlan(ctx runtime.Context, opt Options, plan currentLoopPlan
 			plan.StopReason = currentLoopApplyErrorStop(stepNumber, request, err)
 			break
 		}
+		if applied.Applied && applied.Receipt != nil && applied.MemberExecution != nil {
+			receipt := currentLoopStepReceipt{Step: stepNumber, Route: route, Lane: strings.TrimSpace(request.Lane), RunLoopStepID: strings.TrimSpace(request.RunLoopStepID), ExpectedCurrentStepPlanSHA256: step.ExpectedCurrentStepPlanSHA256, RequestBefore: *request, CurrentStepReceipt: applied.Receipt}
+			if applied.RefreshedStatus == nil {
+				receipt.CurrentStepReceipt.State = "refresh-failed"
+				receipt.CurrentStepReceipt.Outcome = "current-step-applied-status-refresh-failed"
+				plan.Steps = append(plan.Steps, receipt)
+				plan.AppliedSteps++
+				plan.Applied = true
+				plan.FinalStatus = nil
+				plan.StopReason = currentLoopRefreshErrorStop(stepNumber, request, fmt.Errorf("current-step member execution omitted refreshed status"))
+				break
+			}
+			status = *applied.RefreshedStatus
+			if status.MissionControlRunbook != nil {
+				receipt.RequestAfter = status.MissionControlRunbook.CurrentDriverRequest
+			}
+			plan.Steps = append(plan.Steps, receipt)
+			plan.AppliedSteps++
+			plan.Applied = true
+			plan.FinalStatus = &status
+			plan.StopReason = currentLoopStopReason{Code: "external-member-handoff", Phase: "after-step", Message: "durable member execution handoff or observation was recorded; refresh status before continuing", CurrentDriverRequest: receipt.RequestAfter}
+			plan.ContinuationRequest = currentLoopContinuationFor(ctx, plan.MaxSteps, plan.AppliedSteps, initialRoute, initialLane, route, plan.Actor, plan.StopReason)
+			if plan.ContinuationRequest != nil {
+				plan.ResumeCommand = plan.ContinuationRequest.WhatIfCommand
+			}
+			break
+		}
 		if !applied.Applied || applied.Receipt == nil || applied.RefreshedStatus == nil {
 			plan.StopReason = currentLoopStopReason{Code: "no-progress", Phase: "after-step", Message: "current step did not produce an applied receipt and refreshed status", CurrentDriverRequest: request}
 			break
@@ -429,6 +465,9 @@ func applyCurrentLoopPlan(ctx runtime.Context, opt Options, plan currentLoopPlan
 }
 
 func validateCurrentLoopReviewerAttemptObservation(opt Options, status statusInventory) error {
+	if currentStepHasMemberObservation(opt) && (strings.TrimSpace(opt.ReviewerResultInputSourcePath) != "" || strings.TrimSpace(opt.ReviewerHarness) != "" || strings.TrimSpace(opt.ReviewerSession) != "" || strings.TrimSpace(opt.ReviewerOutcome) != "" || strings.TrimSpace(opt.ReviewerExitStatus) != "") {
+		return fmt.Errorf("run-current-loop cannot combine member and reviewer observations")
+	}
 	hasObservation := strings.TrimSpace(opt.ReviewerResultInputSourcePath) != "" ||
 		strings.TrimSpace(opt.ReviewerHarness) != "" ||
 		strings.TrimSpace(opt.ReviewerSession) != "" ||
@@ -545,6 +584,13 @@ func currentLoopResumeApplyCommand(ctx runtime.Context, plan currentLoopPlan, op
 		}
 	}
 	appendValue("-Actor", opt.Start.Actor)
+	appendValue("-MemberExecutionAttemptId", opt.MemberExecutionAttemptID)
+	appendValue("-MemberExecutionOutcome", opt.MemberExecutionOutcome)
+	appendValue("-MemberExecutionReason", opt.MemberExecutionReason)
+	appendValue("-MemberExecutionObservedAt", opt.MemberExecutionObservedAt)
+	if plan.InitialCurrentStep != nil && plan.InitialCurrentStep.MemberExecution != nil {
+		appendValue("-ExpectedMemberExecutionPlanSha256", plan.InitialCurrentStep.MemberExecution.ExpectedPlanSHA256)
+	}
 	appendValue("-ExpectedCurrentLoopReviewerAttemptSha256", opt.ExpectedCurrentLoopReviewerAttemptSHA256)
 	appendValue("-ReviewerResultInputSourcePath", opt.ReviewerResultInputSourcePath)
 	appendValue("-ReviewerHarness", opt.ReviewerHarness)
@@ -556,7 +602,7 @@ func currentLoopResumeApplyCommand(ctx runtime.Context, plan currentLoopPlan, op
 }
 
 func currentLoopContinuationFor(ctx runtime.Context, segmentMaxSteps, appliedSteps int, segmentRoute, segmentLane, expectedRoute, actor string, stop currentLoopStopReason) *currentLoopContinuationRequest {
-	if stop.Code != "external-reviewer-handoff" && stop.Code != "route-policy" && stop.Code != "human-intervention" && stop.Code != "zero-progress-retry" {
+	if stop.Code != "external-reviewer-handoff" && stop.Code != "external-member-handoff" && stop.Code != "route-policy" && stop.Code != "human-intervention" && stop.Code != "zero-progress-retry" {
 		return nil
 	}
 	if stop.Code == "external-reviewer-handoff" && stop.ExternalHandoff == nil {
@@ -771,6 +817,12 @@ func currentLoopCheckpointContinuation(source *currentLoopContinuationRequest) *
 }
 
 func currentLoopFollowupOptions(opt Options) Options {
+	opt.skipMemberExecutionDispatch = true
+	opt.ExpectedMemberExecutionPlanSHA256 = ""
+	opt.MemberExecutionAttemptID = ""
+	opt.MemberExecutionOutcome = ""
+	opt.MemberExecutionReason = ""
+	opt.MemberExecutionObservedAt = ""
 	opt.ExpectedCurrentLoopReviewerAttemptSHA256 = ""
 	opt.ReviewerResultInputSourcePath = ""
 	opt.ReviewerHarness = ""
@@ -791,6 +843,11 @@ func validateCurrentLoopOuterArgs(opt Options) error {
 		"-expectedcurrentloopcheckpointsha256": true, "--expected-current-loop-checkpoint-sha256": true,
 		"-expectedcurrentloopreviewerattemptsha256": true, "--expected-current-loop-reviewer-attempt-sha256": true,
 		"-actor": true, "--actor": true,
+		"-expectedmemberexecutionplansha256": true, "--expected-member-execution-plan-sha256": true,
+		"-memberexecutionattemptid": true, "--member-execution-attempt-id": true,
+		"-memberexecutionoutcome": true, "--member-execution-outcome": true,
+		"-memberexecutionreason": true, "--member-execution-reason": true,
+		"-memberexecutionobservedat": true, "--member-execution-observed-at": true,
 		"-reviewerresultinputsourcepath": true, "--reviewer-result-input-source-path": true,
 		"-reviewerharness": true, "--reviewer-harness": true,
 		"-reviewersession": true, "--reviewer-session": true,
@@ -865,6 +922,16 @@ func currentLoopCanonicalOuterFlag(key string) string {
 		return "-apply"
 	case "--actor":
 		return "-actor"
+	case "--expected-member-execution-plan-sha256":
+		return "-expectedmemberexecutionplansha256"
+	case "--member-execution-attempt-id":
+		return "-memberexecutionattemptid"
+	case "--member-execution-outcome":
+		return "-memberexecutionoutcome"
+	case "--member-execution-reason":
+		return "-memberexecutionreason"
+	case "--member-execution-observed-at":
+		return "-memberexecutionobservedat"
 	case "--reviewer-result-input-source-path":
 		return "-reviewerresultinputsourcepath"
 	case "--reviewer-harness":

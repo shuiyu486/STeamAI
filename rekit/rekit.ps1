@@ -75,6 +75,11 @@ param(
   [string]$ExpectedCurrentLoopReviewerAttemptSha256 = '',
   [switch]$ResumeCurrentLoop,
   [string]$ExpectedCurrentStepPlanSha256 = '',
+  [string]$ExpectedMemberExecutionPlanSha256 = '',
+  [string]$MemberExecutionAttemptId = '',
+  [string]$MemberExecutionOutcome = '',
+  [string]$MemberExecutionReason = '',
+  [string]$MemberExecutionObservedAt = '',
   [string]$ExpectedDriverStepPlanSha256 = '',
   [string]$ExpectedReviewerStepPlanSha256 = '',
   [string]$ReviewerWaveObservationsPath = '',
@@ -203,7 +208,7 @@ function Test-RekitGoDelegationSafe {
     }
     'run-current-loop' {
       foreach ($key in $script:PSBoundParameters.Keys) {
-        if (@('Command','Target','Pack','MaxSteps','WhatIf','Apply','Format','ExpectedCurrentLoopPlanSha256','ExpectedCurrentLoopCheckpointSha256','ExpectedCurrentLoopReviewerAttemptSha256','ResumeCurrentLoop','Actor','ReviewerResultInputSourcePath','ReviewerHarness','ReviewerSession','ReviewerOutcome','ReviewerExitStatus') -notcontains [string]$key) { return $false }
+        if (@('Command','Target','Pack','MaxSteps','WhatIf','Apply','Format','ExpectedCurrentLoopPlanSha256','ExpectedCurrentLoopCheckpointSha256','ExpectedCurrentLoopReviewerAttemptSha256','ResumeCurrentLoop','ExpectedMemberExecutionPlanSha256','MemberExecutionAttemptId','MemberExecutionOutcome','MemberExecutionReason','MemberExecutionObservedAt','Actor','ReviewerResultInputSourcePath','ReviewerHarness','ReviewerSession','ReviewerOutcome','ReviewerExitStatus') -notcontains [string]$key) { return $false }
       }
       if ([string]::IsNullOrWhiteSpace($Target)) { return $false }
       if ((-not $ResumeCurrentLoop) -and ($MaxSteps -lt 1 -or $MaxSteps -gt 20)) { return $false }
@@ -219,7 +224,7 @@ function Test-RekitGoDelegationSafe {
     }
     'run-current-step' {
       foreach ($key in $script:PSBoundParameters.Keys) {
-        if (@('Command','Target','Pack','WhatIf','Apply','Format','ExpectedCurrentStepPlanSha256','Actor','ReviewerResultInputSourcePath','ReviewerHarness','ReviewerSession','ReviewerOutcome','ReviewerExitStatus') -notcontains [string]$key) { return $false }
+        if (@('Command','Target','Pack','WhatIf','Apply','Format','ExpectedCurrentStepPlanSha256','ExpectedMemberExecutionPlanSha256','MemberExecutionAttemptId','MemberExecutionOutcome','MemberExecutionReason','MemberExecutionObservedAt','Actor','ReviewerResultInputSourcePath','ReviewerHarness','ReviewerSession','ReviewerOutcome','ReviewerExitStatus') -notcontains [string]$key) { return $false }
       }
       if ([string]::IsNullOrWhiteSpace($Target)) { return $false }
       if ($WhatIf -and $Apply) { return $false }
@@ -568,6 +573,11 @@ function Get-RekitGoArgs {
     Add-RekitGoArg ([ref]$goArgs) '-ExpectedCurrentLoopCheckpointSha256' $ExpectedCurrentLoopCheckpointSha256
     Add-RekitGoArg ([ref]$goArgs) '-ExpectedCurrentLoopReviewerAttemptSha256' $ExpectedCurrentLoopReviewerAttemptSha256
     Add-RekitGoSwitch ([ref]$goArgs) '-ResumeCurrentLoop' $ResumeCurrentLoop.IsPresent
+    Add-RekitGoArg ([ref]$goArgs) '-ExpectedMemberExecutionPlanSha256' $ExpectedMemberExecutionPlanSha256
+    Add-RekitGoArg ([ref]$goArgs) '-MemberExecutionAttemptId' $MemberExecutionAttemptId
+    Add-RekitGoArg ([ref]$goArgs) '-MemberExecutionOutcome' $MemberExecutionOutcome
+    Add-RekitGoArg ([ref]$goArgs) '-MemberExecutionReason' $MemberExecutionReason
+    Add-RekitGoArg ([ref]$goArgs) '-MemberExecutionObservedAt' $MemberExecutionObservedAt
     Add-RekitGoArg ([ref]$goArgs) '-Actor' $Actor
     Add-RekitGoArg ([ref]$goArgs) '-ReviewerResultInputSourcePath' (Resolve-RekitCallerPath $ReviewerResultInputSourcePath)
     Add-RekitGoArg ([ref]$goArgs) '-ReviewerHarness' $ReviewerHarness
@@ -577,6 +587,11 @@ function Get-RekitGoArgs {
   }
   if ($Command -eq 'run-current-step') {
     Add-RekitGoArg ([ref]$goArgs) '-ExpectedCurrentStepPlanSha256' $ExpectedCurrentStepPlanSha256
+    Add-RekitGoArg ([ref]$goArgs) '-ExpectedMemberExecutionPlanSha256' $ExpectedMemberExecutionPlanSha256
+    Add-RekitGoArg ([ref]$goArgs) '-MemberExecutionAttemptId' $MemberExecutionAttemptId
+    Add-RekitGoArg ([ref]$goArgs) '-MemberExecutionOutcome' $MemberExecutionOutcome
+    Add-RekitGoArg ([ref]$goArgs) '-MemberExecutionReason' $MemberExecutionReason
+    Add-RekitGoArg ([ref]$goArgs) '-MemberExecutionObservedAt' $MemberExecutionObservedAt
     Add-RekitGoArg ([ref]$goArgs) '-Actor' $Actor
     Add-RekitGoArg ([ref]$goArgs) '-ReviewerResultInputSourcePath' (Resolve-RekitCallerPath $ReviewerResultInputSourcePath)
     Add-RekitGoArg ([ref]$goArgs) '-ReviewerHarness' $ReviewerHarness

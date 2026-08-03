@@ -97,7 +97,7 @@ claude
 把这次可复用经验整理成 promote 候选。
 ```
 
-主 Agent 会把这些意图翻译成 `/rekit overview`、`continue`、`start`、`handoff`、`gate`、`note`、`sync`、`promote` 等底层 runtime 操作。用户不需要把 `/rekit` 子命令当成主要交互界面；它们主要是主 Agent、维护者、自动化和排障使用的确定性 API。
+主 Agent 会把这些意图翻译成 `/rekit overview`、`continue`、`start`、`handoff`、`gate`、`note`、`sync`、`promote` 等底层 runtime 操作。claimed lane需要实际工作时，Mission Commander会先返回durable external member handoff，让外部Agent在限定result路径写bounded outputs与strict manifest；Go只记录`accepted/returned/failed` observation并验证owner generation与output hashes，验证通过后才进入既有continue→reviewer→complete路线。用户不需要把 `/rekit` 子命令当成主要交互界面；它们主要是主 Agent、维护者、自动化和排障使用的确定性 API。
 
 排障或新会话接手时再用：
 

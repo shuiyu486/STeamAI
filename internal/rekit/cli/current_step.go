@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 )
@@ -44,6 +45,7 @@ type currentStepPlan struct {
 	CurrentDriverRequest          mission.MissionCommanderDriverRequest `json:"currentDriverRequest"`
 	DriverStep                    *driverStepPlan                       `json:"driverStep,omitempty"`
 	ReviewerStep                  *reviewerStepPlan                     `json:"reviewerStep,omitempty"`
+	MemberExecution               *memberexecution.Plan                 `json:"memberExecution,omitempty"`
 	ExpectedCurrentStepPlanSHA256 string                                `json:"expectedCurrentStepPlanSha256,omitempty"`
 	Receipt                       *currentStepReceipt                   `json:"receipt,omitempty"`
 	RefreshedStatus               *statusInventory                      `json:"refreshedStatus,omitempty"`
@@ -64,6 +66,7 @@ type currentStepPlanIdentity struct {
 	RoutedDriverRequest          mission.MissionCommanderDriverRequest `json:"routedDriverRequest"`
 	NestedDriverRequest          mission.MissionCommanderDriverRequest `json:"nestedDriverRequest"`
 	ExpectedNestedStepPlanSHA256 string                                `json:"expectedNestedStepPlanSha256"`
+	ExpectedMemberPlanSHA256     string                                `json:"expectedMemberPlanSha256,omitempty"`
 }
 
 var currentStepBeforeStatusRefreshHook func(string) error
@@ -94,6 +97,15 @@ func runCurrentStep(ctx runtime.Context, opt Options, out io.Writer) error {
 		}
 		return writeJSON(out, plan)
 	}
+	if plan.MemberExecution != nil {
+		expectedMember := strings.TrimSpace(opt.ExpectedMemberExecutionPlanSHA256)
+		if expectedMember == "" {
+			return fmt.Errorf("run-current-step member execution -Apply requires -ExpectedMemberExecutionPlanSha256 from -WhatIf")
+		}
+		if !strings.EqualFold(expectedMember, plan.MemberExecution.ExpectedPlanSHA256) {
+			return fmt.Errorf("run-current-step expected member execution plan sha256 mismatch: got %s want %s", expectedMember, plan.MemberExecution.ExpectedPlanSHA256)
+		}
+	}
 	if plan.ExpectedCurrentStepPlanSHA256 == "" {
 		return fmt.Errorf("run-current-step current route requires an external harness action before Apply")
 	}
@@ -106,6 +118,11 @@ func runCurrentStep(ctx runtime.Context, opt Options, out io.Writer) error {
 	}
 	plan, err = applyCurrentStepPlan(ctx, opt, plan)
 	if err != nil {
+		if plan.Applied {
+			if writeErr := writeJSON(out, plan); writeErr != nil {
+				return errors.Join(err, writeErr)
+			}
+		}
 		return err
 	}
 	return writeJSON(out, plan)
@@ -150,6 +167,17 @@ func buildCurrentStepPlanFromStatus(ctx runtime.Context, opt Options, status sta
 		if currentStepHasReviewerObservation(opt) {
 			return currentStepPlan{}, fmt.Errorf("run-current-step case route does not accept reviewer observation inputs")
 		}
+		member, intake, err := buildMemberExecutionStep(ctx, opt, routedRequest)
+		if err != nil {
+			return currentStepPlan{}, fmt.Errorf("run-current-step member execution: %w", err)
+		}
+		if member != nil {
+			plan.MemberExecution = member
+			if !intake {
+				nestedSHA256 = member.ExpectedPlanSHA256
+				break
+			}
+		}
 		nested, err := buildDriverStepPlanFromStatus(ctx, status)
 		if err != nil {
 			return currentStepPlan{}, fmt.Errorf("run-current-step case route: %w", err)
@@ -179,6 +207,9 @@ func buildCurrentStepPlanFromStatus(ctx runtime.Context, opt Options, status sta
 		NestedDriverRequest:          plan.CurrentDriverRequest,
 		ExpectedNestedStepPlanSHA256: nestedSHA256,
 	}
+	if plan.MemberExecution != nil {
+		identity.ExpectedMemberPlanSHA256 = plan.MemberExecution.ExpectedPlanSHA256
+	}
 	encoded, err := json.Marshal(identity)
 	if err != nil {
 		return currentStepPlan{}, err
@@ -193,6 +224,36 @@ func applyCurrentStepPlan(ctx runtime.Context, opt Options, plan currentStepPlan
 	nestedCommand := ""
 	switch plan.Route {
 	case "case":
+		if plan.MemberExecution != nil {
+			memberResult, err := memberexecution.Apply(*plan.MemberExecution, opt.ExpectedMemberExecutionPlanSHA256)
+			if err != nil {
+				return currentStepPlan{}, currentStepZeroProgressError{cause: err}
+			}
+			plan.MemberExecution = &memberResult.Plan
+			plan.IsMutation = memberResult.Applied
+			plan.Applied = memberResult.Applied
+			plan.ReviewRequired = false
+			plan.RequiresConfirmation = false
+			nestedCommand = commands.RunCurrentStep
+			plan.Receipt = &currentStepReceipt{State: "refreshed", Outcome: "current-step-applied", Route: plan.Route, NestedCommand: nestedCommand, Boundary: append([]string{"member execution outcome: " + memberResult.Inspection.State}, boundariesForMemberReceipt()...)}
+			if !plan.Applied {
+				return plan, nil
+			}
+			if currentStepBeforeStatusRefreshHook != nil {
+				if err := currentStepBeforeStatusRefreshHook(nestedCommand); err != nil {
+					return currentStepPartialResult(plan, nestedCommand), fmt.Errorf("refresh status after member execution: %w", err)
+				}
+			}
+			fresh, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+			if err != nil {
+				return currentStepPartialResult(plan, nestedCommand), fmt.Errorf("refresh status after member execution: %w", err)
+			}
+			plan.RefreshedStatus = &fresh
+			if fresh.MissionControlRunbook != nil {
+				plan.Receipt.RefreshedCurrentDriverRequest = fresh.MissionControlRunbook.CurrentDriverRequest
+			}
+			return plan, nil
+		}
 		if plan.DriverStep == nil {
 			return currentStepPlan{}, currentStepZeroProgressError{cause: fmt.Errorf("run-current-step case route omitted driver step plan")}
 		}
@@ -280,6 +341,11 @@ func validateCurrentStepOuterArgs(opt Options) error {
 		"-format": true, "--format": true,
 		"-expectedcurrentstepplansha256": true, "--expected-current-step-plan-sha256": true,
 		"-actor": true, "--actor": true,
+		"-expectedmemberexecutionplansha256": true, "--expected-member-execution-plan-sha256": true,
+		"-memberexecutionattemptid": true, "--member-execution-attempt-id": true,
+		"-memberexecutionoutcome": true, "--member-execution-outcome": true,
+		"-memberexecutionreason": true, "--member-execution-reason": true,
+		"-memberexecutionobservedat": true, "--member-execution-observed-at": true,
 		"-reviewerresultinputsourcepath": true, "--reviewer-result-input-source-path": true,
 		"-reviewerharness": true, "--reviewer-harness": true,
 		"-reviewersession": true, "--reviewer-session": true,
@@ -347,6 +413,16 @@ func currentStepCanonicalOuterFlag(key string) string {
 		return "-apply"
 	case "--actor":
 		return "-actor"
+	case "--expected-member-execution-plan-sha256":
+		return "-expectedmemberexecutionplansha256"
+	case "--member-execution-attempt-id":
+		return "-memberexecutionattemptid"
+	case "--member-execution-outcome":
+		return "-memberexecutionoutcome"
+	case "--member-execution-reason":
+		return "-memberexecutionreason"
+	case "--member-execution-observed-at":
+		return "-memberexecutionobservedat"
 	case "--reviewer-result-input-source-path":
 		return "-reviewerresultinputsourcepath"
 	case "--reviewer-harness":
@@ -393,8 +469,7 @@ func currentStepReviewerCommandIdentity(command string) string {
 }
 
 func currentStepHasReviewerObservation(opt Options) bool {
-	return strings.TrimSpace(opt.Note.Actor) != "" ||
-		strings.TrimSpace(opt.ReviewerResultInputSourcePath) != "" ||
+	return strings.TrimSpace(opt.ReviewerResultInputSourcePath) != "" ||
 		strings.TrimSpace(opt.ReviewerHarness) != "" ||
 		strings.TrimSpace(opt.ReviewerSession) != "" ||
 		strings.TrimSpace(opt.ReviewerOutcome) != "" ||
