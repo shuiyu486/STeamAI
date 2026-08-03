@@ -180,36 +180,15 @@ func TestRunCurrentLoopTerminalCheckpointProductPath(t *testing.T) {
 		t.Fatalf("terminal checkpoint exposed recoverable continuation: %+v", terminal)
 	}
 
-	boardPath := filepath.Join(caseRoot, ".rekit", "board.json")
-	boardData, err := os.ReadFile(boardPath)
-	if err != nil {
-		t.Fatal(err)
+	completionEvidence := filepath.Join(caseRoot, ".rekit", "lanes", "main", "workspace", "completion-evidence.md")
+	writeCompletionEvidence(t, completionEvidence, "reviewed terminal current-loop evidence")
+	completionPreview := previewCompletion(t, &out, caseRoot, "main", ".rekit/lanes/main/workspace/completion-evidence.md")
+	if completionPreview.Blocked || completionPreview.CompletionPlanSHA256 == "" {
+		t.Fatalf("terminal current-loop completion preview is blocked: %+v", completionPreview)
 	}
-	var board map[string]any
-	if err := json.Unmarshal(boardData, &board); err != nil {
-		t.Fatal(err)
-	}
-	lanes, _ := board["lanes"].([]any)
-	for _, item := range lanes {
-		if lane, ok := item.(map[string]any); ok {
-			lane["status"] = "closed"
-		}
-	}
-	boardData, _ = json.Marshal(board)
-	if err := os.WriteFile(boardPath, boardData, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	for _, lanePath := range []string{filepath.Join(caseRoot, ".rekit", "lanes", "main", "lane.json")} {
-		if data, err := os.ReadFile(lanePath); err == nil {
-			var lane map[string]any
-			if json.Unmarshal(data, &lane) == nil {
-				lane["status"] = "closed"
-				data, _ = json.Marshal(lane)
-				if err := os.WriteFile(lanePath, data, 0o644); err != nil {
-					t.Fatal(err)
-				}
-			}
-		}
+	completionApplied := applyCompletion(t, &out, caseRoot, completionPreview)
+	if !completionApplied.Applied || completionApplied.CompletionReceipt == nil {
+		t.Fatalf("terminal current-loop completion did not commit: %+v", completionApplied)
 	}
 
 	var statusOut bytes.Buffer

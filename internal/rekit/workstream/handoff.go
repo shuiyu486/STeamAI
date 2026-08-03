@@ -19,6 +19,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/currentloop"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/lanecompletion"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
@@ -314,6 +315,13 @@ func newHandoffContext(repoRoot, caseRoot, pack string, opt HandoffOptions) (han
 	m, err := manifest.Load(repoRoot, pack)
 	if err != nil {
 		return handoffContext{}, err
+	}
+	operations, err := lanecompletion.InspectOperations(inst.CaseRoot)
+	if err != nil {
+		return handoffContext{}, fmt.Errorf("handoff refuses invalid reopen operation lifecycle: %w", err)
+	}
+	if operations.Pending {
+		return handoffContext{}, fmt.Errorf("handoff refuses pending reopen operation; recover the exact reopen Apply before publishing replacement takeover state")
 	}
 	b, err := readBoard(inst.CaseRoot)
 	if os.IsNotExist(err) {

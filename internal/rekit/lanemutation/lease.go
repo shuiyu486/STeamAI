@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/lanecompletion"
 )
 
 var safeLaneIDSegment = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$`)
@@ -74,27 +75,34 @@ func AssertLaneOpen(caseRoot, laneID, command string) error {
 	if err != nil {
 		return err
 	}
-	intentPath, err := refsf.SafeJoin(caseRoot, filepath.Join(".rekit", "lanes", laneID, "completion.intent.json"))
+	operations, err := lanecompletion.InspectOperations(caseRoot)
 	if err != nil {
-		return err
+		return fmt.Errorf("%s refuses case with invalid reopen operation lifecycle: %w", command, err)
 	}
-	commitPath, err := refsf.SafeJoin(caseRoot, filepath.Join(".rekit", "lanes", laneID, "completion.json"))
+	if operations.Pending {
+		return fmt.Errorf("%s refuses lane %s while reopen operation publication is incomplete; recover the exact reopen Apply before any other lane mutation", command, laneID)
+	}
+	lifecycle, err := lanecompletion.Inspect(caseRoot, laneID)
 	if err != nil {
-		return err
+		return fmt.Errorf("%s refuses lane %s with invalid completion lifecycle: %w", command, laneID, err)
 	}
-	intentExists, err := regularFileExists(intentPath)
-	if err != nil {
-		return err
-	}
-	commitExists, err := regularFileExists(commitPath)
-	if err != nil {
-		return err
-	}
-	if intentExists != commitExists {
-		return fmt.Errorf("%s refuses lane %s while completion publication is incomplete; recover the exact completion Apply before any other lane mutation", command, laneID)
-	}
-	if intentExists || strings.EqualFold(strings.TrimSpace(status), "closed") {
-		return fmt.Errorf("%s refuses closed lane %s; reopening requires a separate review-first mutation", command, laneID)
+	switch lifecycle.State {
+	case lanecompletion.StatePending:
+		publication := lifecycle.PendingKind + " publication"
+		if lifecycle.PendingKind == "complete" {
+			publication = "completion publication"
+		}
+		return fmt.Errorf("%s refuses lane %s while %s is incomplete; recover the exact %s Apply before any other lane mutation", command, laneID, publication, lifecycle.PendingKind)
+	case lanecompletion.StateComplete:
+		return fmt.Errorf("%s refuses closed lane %s; reopening requires the dedicated review-first reopen mutation", command, laneID)
+	case lanecompletion.StateReopened:
+		if !strings.EqualFold(strings.TrimSpace(status), "open") {
+			return fmt.Errorf("%s refuses lane %s because committed reopen is not projected as open", command, laneID)
+		}
+	case lanecompletion.StateNone:
+		if strings.EqualFold(strings.TrimSpace(status), "closed") {
+			return fmt.Errorf("%s refuses uncommitted closed lane %s", command, laneID)
+		}
 	}
 	switch strings.ToLower(strings.TrimSpace(status)) {
 	case "archived", "paused":
@@ -140,20 +148,6 @@ func laneStatus(caseRoot, laneID, lanePath string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("unknown lane %q in board", laneID)
-}
-
-func regularFileExists(path string) (bool, error) {
-	info, err := os.Lstat(path)
-	if os.IsNotExist(err) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return false, fmt.Errorf("lane completion artifact must be a regular file and not a symlink: %s", path)
-	}
-	return true, nil
 }
 
 func acquire(caseRoot, laneID string) (*Lease, error) {

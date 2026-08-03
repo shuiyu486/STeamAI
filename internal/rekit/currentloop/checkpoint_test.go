@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/lanecompletion"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
@@ -44,6 +45,90 @@ func TestCheckpointWriteInspectAndStaleCurrentness(t *testing.T) {
 	stale := Inspect(repoRoot, caseRoot, "_template", &drift)
 	if stale.Ready || stale.State != "stale-current-driver-request" || stale.Continuation != nil || len(stale.Warnings) == 0 {
 		t.Fatalf("stale checkpoint exposed continuation: %+v", stale)
+	}
+}
+
+func TestCheckpointInspectRejectsPendingReopenLifecycle(t *testing.T) {
+	repoRoot, caseRoot := checkpointAttachedCase(t)
+	request := checkpointRequest("/rekit continue main -WhatIf -Format json")
+	written, err := Write(repoRoot, caseRoot, "_template", checkpointPayload(t, caseRoot, request))
+	if err != nil {
+		t.Fatal(err)
+	}
+	operationDir := filepath.Join(caseRoot, ".rekit", "reopen-operations", "00000000000000000001")
+	if err := os.MkdirAll(operationDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	intent := map[string]any{
+		"schemaVersion":     1,
+		"kind":              "lane-reopen-operation-intent",
+		"operationId":       "operation-1",
+		"sequence":          1,
+		"requestedLane":     "main",
+		"requestedSelector": "main",
+		"actor":             "main-agent",
+		"reason":            "review requires fresh work",
+		"evidenceRefs":      []string{},
+		"evidence":          []any{},
+		"targets": []map[string]any{{
+			"lane": "main", "sequence": 2, "previousReceiptSha256": strings.Repeat("a", 64),
+			"supersededCompletionSequence": 1,
+			"intentPath":                   ".rekit/lanes/main/completion-lifecycle/00000000000000000002.reopen.intent.json",
+			"receiptPath":                  ".rekit/lanes/main/completion-lifecycle/00000000000000000002.reopen.json",
+			"reason":                       "requested lane completion is being superseded",
+			"publications": []map[string]any{
+				{"path": ".rekit/lanes/main/completion-lifecycle/00000000000000000002.reopen.intent.json", "role": "lane-reopen-intent", "mode": "create-exclusive", "beforeExists": false, "afterSha256": strings.Repeat("d", 64), "bytes": []byte("intent")},
+				{"path": ".rekit/lanes/main/events.jsonl", "role": "lane-event", "mode": "replace-exact", "beforeExists": true, "beforeSha256": strings.Repeat("c", 64), "afterSha256": strings.Repeat("d", 64), "bytes": []byte("event")},
+				{"path": ".rekit/lanes/main/lane.json", "role": "lane", "mode": "replace-exact", "beforeExists": true, "beforeSha256": strings.Repeat("c", 64), "afterSha256": strings.Repeat("d", 64), "bytes": []byte("lane")},
+				{"path": ".rekit/lanes/main/prompts/RESUME.md", "role": "lane-resume", "mode": "replace-exact", "beforeExists": true, "beforeSha256": strings.Repeat("c", 64), "afterSha256": strings.Repeat("d", 64), "bytes": []byte("resume")},
+				{"path": ".rekit/lanes/main/checkpoints/latest.json", "role": "lane-checkpoint", "mode": "replace-exact", "beforeExists": true, "beforeSha256": strings.Repeat("c", 64), "afterSha256": strings.Repeat("d", 64), "bytes": []byte("checkpoint")},
+				{"path": ".rekit/lanes/main/completion-lifecycle/00000000000000000002.reopen.json", "role": "lane-reopen-commit", "mode": "create-exclusive", "beforeExists": false, "afterSha256": strings.Repeat("d", 64), "bytes": []byte("{}")},
+			},
+		}},
+		"publications":           []map[string]any{{"path": ".rekit/board.json", "role": "board", "mode": "replace-exact", "beforeExists": true, "beforeSha256": strings.Repeat("e", 64), "afterSha256": strings.Repeat("f", 64), "bytes": []byte("board")}},
+		"createdAt":              "2026-08-03T00:00:00Z",
+		"previewSha256":          strings.Repeat("b", 64),
+		"exactPublicationSha256": strings.Repeat("9", 64),
+		"noAuthority":            true,
+		"noConfirmed":            true,
+		"noHeavyTool":            true,
+		"noAutoResume":           true,
+	}
+	for _, target := range intent["targets"].([]map[string]any) {
+		for _, publication := range target["publications"].([]map[string]any) {
+			publication["afterSha256"] = lanecompletion.SHA256Bytes(publication["bytes"].([]byte))
+		}
+	}
+	for _, publication := range intent["publications"].([]map[string]any) {
+		publication["afterSha256"] = lanecompletion.SHA256Bytes(publication["bytes"].([]byte))
+	}
+	rawIntent, err := json.Marshal(intent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var typedIntent lanecompletion.OperationIntent
+	if err := json.Unmarshal(rawIntent, &typedIntent); err != nil {
+		t.Fatal(err)
+	}
+	planSHA, err := lanecompletion.ExactPublicationSHA256(typedIntent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	intent["previewSha256"], intent["exactPublicationSha256"] = planSHA, planSHA
+	data, err := json.Marshal(intent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(operationDir, "intent.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	inspection := Inspect(repoRoot, caseRoot, "_template", &request)
+	if inspection.Ready || inspection.State != "stale-reopen-lifecycle" || inspection.Continuation != nil || inspection.ResumeDriverRequest != nil || inspection.ArtifactSHA256 != written.ArtifactSHA256 || !strings.Contains(strings.Join(inspection.Warnings, " "), "lane reopen operation") {
+		t.Fatalf("pre-reopen checkpoint remained recoverable during pending reopen: %+v", inspection)
+	}
+	if _, err := Write(repoRoot, caseRoot, "_template", checkpointPayload(t, caseRoot, request)); err == nil || !strings.Contains(err.Error(), "pending reopen operation") {
+		t.Fatalf("checkpoint publication was accepted during pending reopen: %v", err)
 	}
 }
 

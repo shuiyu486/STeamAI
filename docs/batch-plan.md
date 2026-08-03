@@ -28,13 +28,21 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+### Batch 807：review-first mission/lane reopen and completion supersession closure
 
+状态：已完成review-first mission/lane reopen、append-only supersession lifecycle、compound final commit、immutable exact publication recovery、Windows reparse containment、committed replay、完整产品路径回归与独立终审；implementation commit/push待本批统一完成。本批选择`mission-commander`，关闭误完成、补充证据或事后发现新工作时只能手改`lane.json`、board和completion artifacts，导致审计链断裂、terminal guard与current routing互相矛盾的日常断点；本批不是字段、文案、summary或receipt投影微调。
 
+目标：提供唯一Go-owned review-first `reopen` owner。原completion intent/receipt与`lane-completed`事实保持immutable；reopen以actor/reason、被supersede的exact completion identity、目标open状态与fresh durable snapshot生成WhatIf hash，Apply在project lease内重建并以可恢复publication发布supersession event/receipt、lane/board/RESUME/checkpoint，最后切换commit marker。fresh status必须只把未supersede的current completion计入terminal mission，恢复唯一open lane路由；ordinary`start`及其它lane mutation仍不得绕过专用reopen。
 
+用户操作变化：变更前`mission-complete → 新工作/误关 → 手改JSON或新建case`；变更后`status → reopen <lane> -Actor ... -Reason ... -WhatIf → review exact superseded receipt/effective targets/write set → expected-hash Apply → refreshed status/continue`。terminal mission请求复开feature时，同一preview显式展开`effectiveTargets=[main, feature]`，因为main aggregate completion也已失效；两条lane只有operation-level final commit成功后才共同生效，不是隐式未审核级联。请求main只恢复main。再次complete生成新的completion generation，旧completion/reopen历史继续可审计。
+
+E2E验收：真实临时case完成feature→main→mission-complete后，分别验证feature和main专用复开、fresh continue route、再次completion、replacement status接手、普通start零写入拒绝。旧preview在completion/evidence/lane/board/owner变化后失效；intent后中断可exact恢复但恢复时重新验证current supersession target；仅intent/commit存在一方或hash/receipt/event不一致时所有普通lane mutation与terminal判断fail-closed。Runtime不执行heavy-tool、不spawn/poll/stop session、不写或推断authority/confirmed；PowerShell仅参数校验和Go透传。
+
+验证结果：`go test ./... -count=1`通过（CLI 159.833秒），`go vet ./...`、`git diff --check`、PowerShell façade smoke、`status`、10-pack inventory与doctor通过；独立终审确认全部Important关闭且无剩余高置信Critical/Important。完成态`release-check -Format json`通过，统一`release-run -Format json`以7/7通过（302.861秒，其中完整Go tests 300.256秒）；普通batch不等待或声明remote CI green。
 
 ### Batch 806：durable lane completion and next-action closure
 
-状态：已完成 durable lane completion owner、next-open-lane routing、typed mission-complete terminal handoff、partial-publication recovery、closed/pending-completion mutation guards、真实临时 case E2E、独立审查修复、façade smoke与Windows本机release minimum；implementation commit/push待统一完成。本批选择`mission-commander`，关闭lane只能手改JSON、全部工作结束后Mission Commander仍继续建议start/continue、replacement executor无法区分operational closure与authority/confirmed的日常断点；本批不是字段、文案或summary投影微调。
+状态：已完成 durable lane completion owner、next-open-lane routing、typed mission-complete terminal handoff、partial-publication recovery、closed/pending-completion mutation guards、真实临时 case E2E、独立审查修复、façade smoke与Windows本机release minimum；implementation commit `731a199`已推送到`origin/main`，post-push receipt确认clean `main`且`HEAD == origin/main`。本批选择`mission-commander`，关闭lane只能手改JSON、全部工作结束后Mission Commander仍继续建议start/continue、replacement executor无法区分operational closure与authority/confirmed的日常断点；本批不是字段、文案或summary投影微调。
 
 目标：提供唯一Go-owned review-first lane completion owner，使Mission Commander可从reviewed case-local evidence关闭feature并路由下一open lane，最后关闭main并产生typed durable mission-complete handoff；partial publication、replacement recovery、terminal start与所有lane-scoped mutation必须对同一completion状态给出一致、可恢复、fail-closed的解释。
 
@@ -44,7 +52,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 E2E与审查：真实临时case走通`init→overview/main→start verifier→evidence-bound complete WhatIf/exact Apply→next main route→main complete→status mission-complete`并清理临时目录；产品回归覆盖evidence drift zero-write、pending intent恢复时main-last blocker重验、terminal start拒绝、legacy closed兼容、publication/hash mismatch、closed lane continue/handoff/note/gate/plan-subagents拒绝及reviewer-wave preview→Apply间completion race零dispatch。独立审查最初发现evidence bytes未绑定、intent恢复忽略新blocker、terminal start可重启mission、reviewer mutation旁路四项Important；全部修复后终复核无剩余高置信Critical/Important。
 
-验证结果：完整affected packages通过（CLI 151.169秒），direct temporary completion E2E与`facade-smoke.ps1`通过；全仓`go test ./... -count=1`通过（CLI 151.900秒），`go vet ./...`、status、10-pack inventory、doctor（canonical skill 32703/32768 bytes）、完成态`release-check -Format json`与`git diff --check`通过。独立终复核无剩余高置信Critical/Important；统一`release-run -Format json`以7/7通过（542.949秒，其中完整Go tests 151.900秒）。Implementation commit/push待统一完成，普通batch不等待或声明remote CI green。
+验证结果：完整affected packages通过（CLI 151.169秒），direct temporary completion E2E与`facade-smoke.ps1`通过；全仓`go test ./... -count=1`通过（CLI 151.900秒），`go vet ./...`、status、10-pack inventory、doctor（canonical skill 32703/32768 bytes）、完成态`release-check -Format json`与`git diff --check`通过。独立终复核无剩余高置信Critical/Important；统一`release-run -Format json`以7/7通过（542.949秒，其中完整Go tests 151.900秒）。Implementation commit `731a199`已推送，post-push durable receipt验证通过；普通batch未等待或声明本批remote CI green。
 
 ### Batch 805：durable current-loop failure recovery closure
 

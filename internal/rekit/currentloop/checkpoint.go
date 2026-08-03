@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/lanecompletion"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
@@ -110,6 +111,8 @@ type Payload struct {
 	ExpectedCurrentLoopPlanSHA256       string                                 `json:"expectedCurrentLoopPlanSha256"`
 	ExpectedInitialCurrentStepSHA256    string                                 `json:"expectedInitialCurrentStepSha256,omitempty"`
 	ResumeSourceArtifactSHA256          string                                 `json:"resumeSourceArtifactSha256,omitempty"`
+	ReopenOperationSequence             int                                    `json:"reopenOperationSequence,omitempty"`
+	ReopenOperationCommitSHA256         string                                 `json:"reopenOperationCommitSha256,omitempty"`
 	ZeroProgressRecovery                bool                                   `json:"zeroProgressRecovery,omitempty"`
 	SegmentMaxSteps                     int                                    `json:"segmentMaxSteps"`
 	AppliedStepsInSegment               int                                    `json:"appliedStepsInSegment"`
@@ -246,6 +249,15 @@ func WriteValidated(repoRoot, caseRoot, pack string, payload Payload, validate f
 			return Inspection{}, fmt.Errorf("zero-progress recovery does not match the durable resume claim")
 		}
 	}
+	operations, err := lanecompletion.InspectOperations(caseRoot)
+	if err != nil {
+		return Inspection{}, fmt.Errorf("validate current-loop checkpoint reopen lifecycle: %w", err)
+	}
+	if operations.Pending {
+		return Inspection{}, fmt.Errorf("current-loop checkpoint publication refuses pending reopen operation")
+	}
+	payload.ReopenOperationSequence = operations.LatestSequence
+	payload.ReopenOperationCommitSHA256 = operations.LatestCommitSHA
 	payload.CaseIdentitySHA256 = identity
 	payload.Pack = strings.TrimSpace(pack)
 	payload.NoAutoApply = true
@@ -487,6 +499,15 @@ func inspectRoot(root *os.Root, identity, caseRoot, pack string, current *missio
 	}
 	if !strings.EqualFold(payload.Pack, strings.TrimSpace(pack)) || !strings.EqualFold(payload.CaseIdentitySHA256, identity) {
 		return invalidInspection(base, "latest current-loop checkpoint case or pack identity does not match the attached case")
+	}
+	operations, operationErr := lanecompletion.InspectOperations(caseRoot)
+	if operationErr != nil {
+		return invalidInspection(base, "current reopen operation lifecycle cannot be validated: "+operationErr.Error())
+	}
+	if operations.Pending || payload.ReopenOperationSequence != operations.LatestSequence || !strings.EqualFold(payload.ReopenOperationCommitSHA256, operations.LatestCommitSHA) {
+		base.State = "stale-reopen-lifecycle"
+		base.Warnings = []string{"latest current-loop checkpoint predates or overlaps a lane reopen operation; do not recover its remaining budget"}
+		return base
 	}
 	if !payload.StatusAvailable {
 		base.State = "status-unavailable"
@@ -839,6 +860,9 @@ func validatePayload(payload Payload) error {
 	}
 	if payload.ResumeSourceArtifactSHA256 != "" && (payload.Sequence < 2 || !isSHA256(payload.ResumeSourceArtifactSHA256)) {
 		return fmt.Errorf("resume source artifact hash is invalid")
+	}
+	if payload.ReopenOperationSequence < 0 || payload.ReopenOperationSequence == 0 && payload.ReopenOperationCommitSHA256 != "" || payload.ReopenOperationSequence > 0 && !isSHA256(payload.ReopenOperationCommitSHA256) {
+		return fmt.Errorf("reopen operation watermark is invalid")
 	}
 	if !isSHA256(payload.CaseIdentitySHA256) || strings.TrimSpace(payload.Pack) == "" || strings.TrimSpace(payload.RoutePolicy) == "" || !isSHA256(payload.InitialCurrentDriverRequestSHA256) || !isSHA256(payload.ExpectedCurrentLoopPlanSHA256) {
 		return fmt.Errorf("case, pack, route policy, initial request, and loop plan identity must be present")

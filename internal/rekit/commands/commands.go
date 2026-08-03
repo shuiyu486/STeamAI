@@ -23,6 +23,7 @@ const (
 	PlanSubagents   = "plan-subagents"
 	Promote         = "promote"
 	Reconcile       = "reconcile"
+	Reopen          = "reopen"
 	ReleaseCheck    = "release-check"
 	ReleaseRun      = "release-run"
 	Repair          = "repair"
@@ -129,6 +130,7 @@ var publicCommands = []string{
 	PlanSubagents,
 	Promote,
 	Reconcile,
+	Reopen,
 	ReleaseCheck,
 	ReleaseRun,
 	Repair,
@@ -160,6 +162,7 @@ var publicProfiles = []PublicProfile{
 	{Command: PlanSubagents, MutationBoundary: BoundaryCaseLocalReviewWriteback, IsMutation: true, WritesCase: true, ApplyRequired: true},
 	{Command: Promote, MutationBoundary: BoundaryKitReviewFirst, IsMutation: true, WritesKit: true, ReviewFirst: true, ApplyRequired: true},
 	{Command: Reconcile, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
+	{Command: Reopen, MutationBoundary: BoundaryCaseLocalReviewFirst, IsMutation: true, WritesCase: true, ReviewFirst: true, ApplyRequired: true},
 	{Command: ReleaseCheck, MutationBoundary: BoundaryReadOnly},
 	{Command: ReleaseRun, MutationBoundary: BoundaryReadOnly},
 	{Command: Repair, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
@@ -206,6 +209,7 @@ func SymbolValues() map[string]string {
 		"PlanSubagents":   PlanSubagents,
 		"Promote":         Promote,
 		"Reconcile":       Reconcile,
+		"Reopen":          Reopen,
 		"ReleaseCheck":    ReleaseCheck,
 		"ReleaseRun":      ReleaseRun,
 		"Repair":          Repair,

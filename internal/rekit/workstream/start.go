@@ -950,7 +950,7 @@ func plannedLane(caseRoot string, laneType manifest.LaneType, id, name, now stri
 	}, nil
 }
 
-func saveBoard(caseRoot string, m *manifest.Manifest) (string, error) {
+func saveBoard(caseRoot string, m *manifest.Manifest, updatedAt ...string) (string, error) {
 	lanesRoot, err := refsf.SafeJoin(caseRoot, ".rekit/lanes")
 	if err != nil {
 		return "", err
@@ -978,7 +978,11 @@ func saveBoard(caseRoot string, m *manifest.Manifest) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	b := board{SchemaVersion: 1, CaseRoot: caseRoot, RepoRoot: m.RepoRoot, Pack: m.Pack, AutomationMode: readAutomationMode(caseRoot), DefaultAuthorityLane: m.WorkstreamDefaults["defaultAuthorityLane"], Lanes: lanes, FactsRoot: ".rekit/facts", UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+	boardUpdatedAt := time.Now().UTC().Format(time.RFC3339Nano)
+	if len(updatedAt) > 0 && strings.TrimSpace(updatedAt[0]) != "" {
+		boardUpdatedAt = strings.TrimSpace(updatedAt[0])
+	}
+	b := board{SchemaVersion: 1, CaseRoot: caseRoot, RepoRoot: m.RepoRoot, Pack: m.Pack, AutomationMode: readAutomationMode(caseRoot), DefaultAuthorityLane: m.WorkstreamDefaults["defaultAuthorityLane"], Lanes: lanes, FactsRoot: ".rekit/facts", UpdatedAt: boardUpdatedAt}
 	return path, writeJSON(path, b)
 }
 
@@ -1218,8 +1222,8 @@ func writeLaneResumePublication(publication laneResumePublication) error {
 	return os.WriteFile(publication.CheckpointPath, publication.CheckpointBytes, 0o644)
 }
 
-func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane) (string, string, error) {
-	publication, err := buildLaneResumePublication(caseRoot, m, lane)
+func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane, updatedAt ...string) (string, string, error) {
+	publication, err := buildLaneResumePublication(caseRoot, m, lane, updatedAt...)
 	if err != nil {
 		return "", "", err
 	}

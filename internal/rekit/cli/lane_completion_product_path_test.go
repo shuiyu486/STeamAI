@@ -34,6 +34,7 @@ type completionProductLane struct {
 type completionProductReceipt struct {
 	State         string                      `json:"state"`
 	Lane          string                      `json:"lane"`
+	Sequence      int                         `json:"sequence"`
 	NoAuthority   bool                        `json:"noAuthority"`
 	NoConfirmed   bool                        `json:"noConfirmed"`
 	NoHeavyTool   bool                        `json:"noHeavyTool"`

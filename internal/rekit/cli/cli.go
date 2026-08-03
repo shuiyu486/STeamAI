@@ -141,6 +141,7 @@ type Options struct {
 	Start                                    workstream.StartOptions
 	Handoff                                  workstream.HandoffOptions
 	Complete                                 workstream.CompleteOptions
+	Reopen                                   workstream.ReopenOptions
 	Continue                                 workstream.ContinueOptions
 	Reconcile                                workstream.ReconcileOptions
 }
@@ -404,12 +405,24 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ExpectedCompletePlanSha256")
 			}
 			opt.Complete.ExpectedPreviewSHA256 = args[i]
+		case "-ExpectedReopenPlanSha256", "-ExpectedReopenPlanSHA256", "--expected-reopen-plan-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedReopenPlanSha256")
+			}
+			opt.Reopen.ExpectedPreviewSHA256 = args[i]
 		case "-HandoffPublicationStamp", "--handoff-publication-stamp":
 			i++
 			if i >= len(args) {
 				return opt, fmt.Errorf("missing value for -HandoffPublicationStamp")
 			}
 			opt.Handoff.PublicationStamp = args[i]
+		case "-ReopenPublicationStamp", "--reopen-publication-stamp":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ReopenPublicationStamp")
+			}
+			opt.Reopen.PublicationStamp = args[i]
 		case "-ExpectedCurrentLoopPlanSha256", "-ExpectedCurrentLoopPlanSHA256", "--expected-current-loop-plan-sha256":
 			i++
 			if i >= len(args) {
@@ -535,6 +548,7 @@ func Parse(args []string) (Options, error) {
 			opt.Gate.Lane = args[i]
 			opt.Note.Lane = args[i]
 			opt.Complete.Selector = args[i]
+			opt.Reopen.Selector = args[i]
 			opt.Continue.Selector = args[i]
 			opt.Reconcile.Selector = args[i]
 		case "-Kind", "--kind":
@@ -575,6 +589,7 @@ func Parse(args []string) (Options, error) {
 			}
 			opt.Note.Reason = args[i]
 			opt.Complete.Reason = args[i]
+			opt.Reopen.Reason = args[i]
 			opt.Reconcile.Reason = args[i]
 			opt.Start.TakeoverReason = args[i]
 			opt.CandidateDecisionReason = args[i]
@@ -615,6 +630,7 @@ func Parse(args []string) (Options, error) {
 			}
 			opt.Note.EvidenceRefs = args[i]
 			opt.Complete.EvidenceRefs = args[i]
+			opt.Reopen.EvidenceRefs = args[i]
 			opt.CandidateDecisionEvidenceRefs = args[i]
 		case "-EventId", "--event-id":
 			i++
@@ -685,6 +701,7 @@ func Parse(args []string) (Options, error) {
 			opt.Gate.Actor = args[i]
 			opt.Note.Actor = args[i]
 			opt.Complete.Actor = args[i]
+			opt.Reopen.Actor = args[i]
 			opt.Reconcile.Actor = args[i]
 			opt.Start.Actor = args[i]
 			opt.CandidateDecisionActor = args[i]
@@ -991,6 +1008,12 @@ func Parse(args []string) (Options, error) {
 				} else {
 					opt.Complete.Selector += "-" + args[i]
 				}
+			} else if strings.EqualFold(opt.Command, "reopen") && args[i] != "" && args[i][0] != '-' {
+				if opt.Reopen.Selector == "" {
+					opt.Reopen.Selector = args[i]
+				} else {
+					opt.Reopen.Selector += "-" + args[i]
+				}
 			} else if strings.EqualFold(opt.Command, "continue") && args[i] != "" && args[i][0] != '-' {
 				if opt.Continue.Selector == "" {
 					opt.Continue.Selector = args[i]
@@ -1058,6 +1081,9 @@ func Run(args []string, stdout io.Writer) error {
 	}
 	if strings.TrimSpace(opt.Complete.ExpectedPreviewSHA256) != "" && opt.Command != commands.Complete {
 		return fmt.Errorf("-ExpectedCompletePlanSha256 is supported only by complete")
+	}
+	if (strings.TrimSpace(opt.Reopen.ExpectedPreviewSHA256) != "" || strings.TrimSpace(opt.Reopen.PublicationStamp) != "") && opt.Command != commands.Reopen {
+		return fmt.Errorf("reopen publication flags are supported only by reopen")
 	}
 	if (opt.MaxSteps != 0 || strings.TrimSpace(opt.ExpectedCurrentLoopPlanSHA256) != "" || strings.TrimSpace(opt.ExpectedCurrentLoopReviewerAttemptSHA256) != "") && opt.Command != commands.RunCurrentLoop {
 		return fmt.Errorf("current loop flags are supported only by run-current-loop")
@@ -1145,6 +1171,8 @@ func Run(args []string, stdout io.Writer) error {
 		return runHandoff(ctx, opt, stdout)
 	case commands.Complete:
 		return runComplete(ctx, opt, stdout)
+	case commands.Reopen:
+		return runReopen(ctx, opt, stdout)
 	case commands.Continue:
 		return runContinue(ctx, opt, stdout)
 	case commands.Reconcile:
@@ -7767,8 +7795,8 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 	caseMissionNextActions := append([]mission.MissionCommanderNextActionItem{}, inventory.MissionCommanderNextActions...)
 	caseMissionActionQueue := inventory.MissionCommanderActionQueue
 	missionCompletion, completionErr := workstream.InspectMissionCompletion(caseRoot)
-	if completionErr != nil && missionCompletion.State == "completion-publication-incomplete" {
-		return nil, fmt.Errorf("completion-publication-incomplete: %w", completionErr)
+	if completionErr != nil && (missionCompletion.State == "completion-publication-incomplete" || missionCompletion.State == "reopen-publication-incomplete") {
+		return nil, fmt.Errorf("%s: %w", missionCompletion.State, completionErr)
 	}
 	if !missionCompletion.Ready {
 		missionCompletion = workstream.MissionCompletionHandoff{}
@@ -10206,6 +10234,45 @@ func runComplete(ctx runtime.Context, opt Options, out io.Writer) error {
 	return writeCompleteText(out, result)
 }
 
+func runReopen(ctx runtime.Context, opt Options, out io.Writer) error {
+	target, err := commandTarget(ctx, "reopen", "attached case")
+	if err != nil {
+		return err
+	}
+	if opt.CreateCandidates || opt.Review || opt.Force {
+		return fmt.Errorf("reopen does not support -CreateCandidates, -Review, or -Force")
+	}
+	if opt.WhatIf && opt.Apply {
+		return fmt.Errorf("reopen cannot combine -WhatIf and -Apply")
+	}
+	if wantsReviewArtifacts(opt) {
+		return fmt.Errorf("reopen does not support review artifact options")
+	}
+	format, err := workstreamFormat(opt.Format)
+	if err != nil {
+		return fmt.Errorf("unsupported reopen format: %s", opt.Format)
+	}
+	if !opt.WhatIf && !opt.Apply {
+		return fmt.Errorf("reopen write requires -Apply; use -WhatIf for preview")
+	}
+	if opt.WhatIf && strings.TrimSpace(opt.Reopen.PublicationStamp) != "" {
+		return fmt.Errorf("reopen preview creates its own publication stamp")
+	}
+	var result workstream.ReopenResult
+	if opt.WhatIf {
+		result, err = workstream.ReopenPreview(ctx.RepoRoot, target, ctx.Pack, opt.Reopen)
+	} else {
+		result, err = workstream.ReopenApply(ctx.RepoRoot, target, ctx.Pack, opt.Reopen)
+	}
+	if err != nil {
+		return err
+	}
+	if format == "json" {
+		return writeJSON(out, result)
+	}
+	return writeReopenText(out, result)
+}
+
 func runContinue(ctx runtime.Context, opt Options, out io.Writer) error {
 	target, err := commandTarget(ctx, "continue", "attached case")
 	if err != nil {
@@ -10361,6 +10428,23 @@ func writeCompleteText(out io.Writer, result workstream.CompleteResult) error {
 		return err
 	}
 	_, err := fmt.Fprintf(out, "lane operationally complete: %s\nnext: run /rekit status\n", result.Lane.ID)
+	return err
+}
+
+func writeReopenText(out io.Writer, result workstream.ReopenResult) error {
+	if !result.Applied {
+		if _, err := fmt.Fprintf(out, "lane reopen preview: %s\nplan sha256: %s\n", result.RequestedLane, result.ReopenPlanSHA256); err != nil {
+			return err
+		}
+		for _, target := range result.EffectiveTargets {
+			if _, err := fmt.Fprintf(out, "effective target: %s — %s\n", target.Lane.ID, target.Reason); err != nil {
+				return err
+			}
+		}
+		_, err := fmt.Fprintf(out, "apply: %s\n", result.ApplyCommand)
+		return err
+	}
+	_, err := fmt.Fprintf(out, "lane reopen operation committed: %s\nnext: run /rekit status\n", result.OperationID)
 	return err
 }
 

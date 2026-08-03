@@ -15,6 +15,7 @@ import (
 
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/lanecompletion"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
@@ -49,6 +50,8 @@ type CompletionReceipt struct {
 	SchemaVersion      int                  `json:"schemaVersion"`
 	Kind               string               `json:"kind"`
 	State              string               `json:"state"`
+	Sequence           int                  `json:"sequence,omitempty"`
+	PreviousReceiptSHA string               `json:"previousReceiptSha256,omitempty"`
 	Lane               string               `json:"lane"`
 	Label              string               `json:"label"`
 	Authority          bool                 `json:"authority"`
@@ -75,6 +78,8 @@ type CompletionReceipt struct {
 type completionIntent struct {
 	SchemaVersion      int                  `json:"schemaVersion"`
 	Kind               string               `json:"kind"`
+	Sequence           int                  `json:"sequence,omitempty"`
+	PreviousReceiptSHA string               `json:"previousReceiptSha256,omitempty"`
 	Lane               string               `json:"lane"`
 	Label              string               `json:"label"`
 	Authority          bool                 `json:"authority"`
@@ -145,6 +150,9 @@ type completeContext struct {
 	evidence     []CompletionEvidence
 	facts        mission.LedgerFacts
 	blockers     []CompletionBlocker
+	lifecycle    lanecompletion.Inspection
+	sequence     int
+	previousSHA  string
 	intent       *completionIntent
 }
 
@@ -217,7 +225,7 @@ func CompleteApply(repoRoot, caseRoot, pack string, opt CompleteOptions) (result
 		}
 		intent := ctx.newIntent(expected, isoNow())
 		mutationStarted = true
-		if err := writeCompletionExclusive(ctx.intentPath(), intent); err != nil {
+		if err := writeCompletionExclusive(ctx.inst.CaseRoot, ctx.intentPath(), intent); err != nil {
 			return CompleteResult{}, err
 		}
 		ctx.intent = &intent
@@ -294,6 +302,36 @@ func newCompleteContext(repoRoot, caseRoot, pack string, opt CompleteOptions, al
 		return completeContext{}, err
 	}
 	ctx := completeContext{inst: inst, manifest: m, board: b, lane: lane, selector: selector, actor: actor, reason: reason, evidenceRefs: refs, evidence: evidence, facts: facts}
+	operations, operationErr := lanecompletion.InspectOperations(inst.CaseRoot)
+	if operationErr != nil {
+		return completeContext{}, operationErr
+	}
+	if operations.Pending {
+		return completeContext{}, fmt.Errorf("complete refuses case while reopen operation publication is incomplete; recover the exact reopen Apply")
+	}
+	lifecycle, lifecycleErr := lanecompletion.Inspect(inst.CaseRoot, lane.ID)
+	if lifecycleErr != nil {
+		return completeContext{}, lifecycleErr
+	}
+	ctx.lifecycle = lifecycle
+	switch lifecycle.State {
+	case lanecompletion.StateNone:
+		ctx.sequence = 1
+	case lanecompletion.StateReopened:
+		ctx.sequence = lifecycle.HeadSequence + 1
+		ctx.previousSHA = lifecycle.HeadReceiptSHA256
+	case lanecompletion.StateComplete:
+		return completeContext{}, fmt.Errorf("lane is already complete: %s", lane.ID)
+	case lanecompletion.StatePending:
+		if lifecycle.PendingKind != "complete" {
+			return completeContext{}, fmt.Errorf("lane %s has pending reopen publication; recover with the original hash-bound reopen apply", lane.ID)
+		}
+		if !allowPending {
+			return completeContext{}, fmt.Errorf("lane %s has pending completion publication; recover with the original hash-bound complete apply", lane.ID)
+		}
+		ctx.sequence = lifecycle.PendingSequence
+		ctx.previousSHA = lifecycle.HeadReceiptSHA256
+	}
 	intent, intentErr := readCompletionIntent(ctx.intentPath())
 	if intentErr == nil {
 		ctx.intent = &intent
@@ -301,15 +339,10 @@ func newCompleteContext(repoRoot, caseRoot, pack string, opt CompleteOptions, al
 		return completeContext{}, intentErr
 	}
 	status := strings.ToLower(strings.TrimSpace(lane.Status))
-	switch status {
-	case "closed":
-		if _, err := InspectLaneCompletion(inst.CaseRoot, lane.ID); err == nil {
-			return completeContext{}, fmt.Errorf("lane is already complete: %s", lane.ID)
-		}
-		if !allowPending || ctx.intent == nil {
-			return completeContext{}, fmt.Errorf("lane %s has uncommitted closed state; recover with the original hash-bound complete apply", lane.ID)
-		}
-	case "archived", "paused":
+	if status == "closed" && (ctx.intent == nil || lifecycle.State != lanecompletion.StatePending) {
+		return completeContext{}, fmt.Errorf("lane %s has uncommitted closed state; recover with the original hash-bound complete apply", lane.ID)
+	}
+	if status == "archived" || status == "paused" {
 		return completeContext{}, fmt.Errorf("target lane is not open: %s", lane.ID)
 	}
 	ctx.blockers, err = ctx.completionBlockers()
@@ -435,7 +468,7 @@ func (ctx completeContext) plannedWrites() []StartWrite {
 
 func (ctx completeContext) newIntent(previewSHA, now string) completionIntent {
 	return completionIntent{
-		SchemaVersion: 1, Kind: "lane-completion-intent", Lane: ctx.lane.ID, Label: workstreamLabel(ctx.lane), Authority: ctx.lane.Authority,
+		SchemaVersion: 1, Kind: "lane-completion-intent", Sequence: ctx.sequence, PreviousReceiptSHA: ctx.previousSHA, Lane: ctx.lane.ID, Label: workstreamLabel(ctx.lane), Authority: ctx.lane.Authority,
 		PreviousStatus: strings.ToLower(strings.TrimSpace(ctx.lane.Status)), Actor: ctx.actor, Reason: ctx.reason, EvidenceRefs: append([]string{}, ctx.evidenceRefs...), Evidence: append([]CompletionEvidence{}, ctx.evidence...),
 		CurrentExecutor: ctx.lane.CurrentExecutor, ExecutorGeneration: ctx.lane.ExecutorGeneration, CreatedAt: now,
 		EventID: eventID(ctx.lane.ID, "lane-completed", now), PreviewSHA256: previewSHA, NoAuthority: true, NoConfirmed: true, NoHeavyTool: true,
@@ -444,7 +477,7 @@ func (ctx completeContext) newIntent(previewSHA, now string) completionIntent {
 
 func (ctx completeContext) validateIntent(expected string) error {
 	intent := ctx.intent
-	if intent == nil || intent.SchemaVersion != 1 || intent.Kind != "lane-completion-intent" || intent.Lane != ctx.lane.ID ||
+	if intent == nil || intent.SchemaVersion != 1 || intent.Kind != "lane-completion-intent" || intent.Sequence != ctx.sequence || !strings.EqualFold(intent.PreviousReceiptSHA, ctx.previousSHA) || intent.Lane != ctx.lane.ID ||
 		intent.Actor != ctx.actor || intent.Reason != ctx.reason || !equalStrings(intent.EvidenceRefs, ctx.evidenceRefs) || !equalCompletionEvidence(intent.Evidence, ctx.evidence) ||
 		!strings.EqualFold(intent.PreviewSHA256, expected) || !intent.NoAuthority || !intent.NoConfirmed || !intent.NoHeavyTool {
 		return fmt.Errorf("existing lane completion intent does not match the requested actor, reason, evidence, lane, or preview hash")
@@ -517,13 +550,13 @@ func (ctx completeContext) publishCompletion() ([]StartWrite, CompletionReceipt,
 		return nil, CompletionReceipt{}, err
 	}
 	receipt := CompletionReceipt{
-		SchemaVersion: 1, Kind: "lane-completion", State: "committed", Lane: intent.Lane, Label: intent.Label, Authority: intent.Authority,
+		SchemaVersion: 1, Kind: "lane-completion", State: "committed", Sequence: intent.Sequence, PreviousReceiptSHA: intent.PreviousReceiptSHA, Lane: intent.Lane, Label: intent.Label, Authority: intent.Authority,
 		PreviousStatus: intent.PreviousStatus, Actor: intent.Actor, Reason: intent.Reason, EvidenceRefs: append([]string{}, intent.EvidenceRefs...), Evidence: append([]CompletionEvidence{}, intent.Evidence...),
 		CurrentExecutor: intent.CurrentExecutor, ExecutorGeneration: intent.ExecutorGeneration, CompletedAt: intent.CreatedAt, EventID: intent.EventID,
 		PreviewSHA256: intent.PreviewSHA256, IntentSHA256: intentSHA, LaneSHA256: laneSHA, BoardLaneSHA256: boardLaneSHA,
 		ResumeSHA256: resumeSHA, CheckpointSHA256: checkpointSHA, NoAuthority: true, NoConfirmed: true, NoHeavyTool: true,
 	}
-	if err := writeCompletionExclusive(ctx.commitPath(), receipt); err != nil {
+	if err := writeCompletionExclusive(ctx.inst.CaseRoot, ctx.commitPath(), receipt); err != nil {
 		if existing, inspectErr := InspectLaneCompletion(ctx.inst.CaseRoot, ctx.lane.ID); inspectErr != nil || !completionReceiptsEqual(existing, receipt) {
 			return nil, CompletionReceipt{}, err
 		}
@@ -536,25 +569,19 @@ func InspectLaneCompletion(caseRoot, laneID string) (CompletionReceipt, error) {
 	if err := validateLaneIDSegment(laneID); err != nil {
 		return CompletionReceipt{}, err
 	}
-	root, err := refsf.SafeJoin(caseRoot, relJoin(".rekit", "lanes", laneID))
+	lifecycle, err := lanecompletion.Inspect(caseRoot, laneID)
 	if err != nil {
 		return CompletionReceipt{}, err
 	}
-	commitPath := filepath.Join(root, completionCommitFile)
-	data, err := os.ReadFile(commitPath)
-	if err != nil {
-		return CompletionReceipt{}, err
+	if lifecycle.State != lanecompletion.StateComplete || lifecycle.CurrentCompletion == nil || len(lifecycle.Transitions) == 0 {
+		return CompletionReceipt{}, fmt.Errorf("lane has no current committed completion: %s state=%s", laneID, lifecycle.State)
 	}
 	var receipt CompletionReceipt
-	if err := json.Unmarshal(data, &receipt); err != nil {
-		return CompletionReceipt{}, fmt.Errorf("invalid lane completion commit %s: %w", commitPath, err)
+	if err := convertCompletionJSON(lifecycle.CurrentCompletion, &receipt); err != nil {
+		return CompletionReceipt{}, err
 	}
-	if receipt.SchemaVersion != 1 || receipt.Kind != "lane-completion" || receipt.State != "committed" || receipt.Lane != laneID ||
-		strings.TrimSpace(receipt.Actor) == "" || strings.TrimSpace(receipt.Reason) == "" || len(receipt.EvidenceRefs) == 0 || len(receipt.Evidence) != len(receipt.EvidenceRefs) ||
-		!receipt.NoAuthority || !receipt.NoConfirmed || !receipt.NoHeavyTool {
-		return CompletionReceipt{}, fmt.Errorf("lane completion commit has invalid identity or boundary: %s", laneID)
-	}
-	intent, err := readCompletionIntent(filepath.Join(root, completionIntentFile))
+	transition := lifecycle.Transitions[len(lifecycle.Transitions)-1]
+	intent, err := readCompletionIntent(transition.IntentPath)
 	if err != nil {
 		return CompletionReceipt{}, err
 	}
@@ -568,6 +595,10 @@ func InspectLaneCompletion(caseRoot, laneID string) (CompletionReceipt, error) {
 	intentSHA, err := hashJSON(intent)
 	if err != nil || intentSHA != receipt.IntentSHA256 {
 		return CompletionReceipt{}, fmt.Errorf("lane completion intent hash mismatch: %s", laneID)
+	}
+	root, err := refsf.SafeJoin(caseRoot, relJoin(".rekit", "lanes", laneID))
+	if err != nil {
+		return CompletionReceipt{}, err
 	}
 	checks := []struct{ path, want, label string }{
 		{filepath.Join(root, "lane.json"), receipt.LaneSHA256, "lane"},
@@ -597,29 +628,56 @@ func InspectMissionCompletion(caseRoot string) (MissionCompletionHandoff, error)
 		return MissionCompletionHandoff{}, err
 	}
 	out := MissionCompletionHandoff{State: "active", OpenLaneCount: len(mission.OpenBoardLanes(b.Lanes)), Boundary: completionBoundary()}
+	operations, operationErr := lanecompletion.InspectOperations(caseRoot)
+	if operationErr != nil {
+		out.State = "reopen-publication-incomplete"
+		out.Summary = "lane reopen operation lifecycle is invalid"
+		return out, operationErr
+	}
+	if operations.Pending {
+		out.State = "reopen-publication-incomplete"
+		out.Summary = fmt.Sprintf("lane reopen operation publication is pending: sequence=%d", operations.PendingSequence)
+		return out, fmt.Errorf("lane reopen operation publication is incomplete: sequence=%d", operations.PendingSequence)
+	}
 	for _, lane := range b.Lanes {
-		laneRoot, pathErr := refsf.SafeJoin(caseRoot, relJoin(".rekit", "lanes", lane.ID))
-		if pathErr != nil {
-			return out, pathErr
+		lifecycle, lifecycleErr := lanecompletion.Inspect(caseRoot, lane.ID)
+		if lifecycleErr != nil {
+			out.State = "completion-publication-incomplete"
+			out.Summary = "lane completion lifecycle is invalid: " + lane.ID
+			return out, lifecycleErr
 		}
-		intentExists := refsf.Exists(filepath.Join(laneRoot, completionIntentFile))
-		commitExists := refsf.Exists(filepath.Join(laneRoot, completionCommitFile))
 		closed := strings.EqualFold(strings.TrimSpace(lane.Status), "closed")
-		if !intentExists && !commitExists {
-			continue
-		}
-		if !closed || intentExists != commitExists {
+		switch lifecycle.State {
+		case lanecompletion.StateNone:
+			if closed {
+				out.State = "completion-publication-incomplete"
+				out.Summary = "closed lane lacks a committed completion publication: " + lane.ID
+				return out, fmt.Errorf("closed lane lacks committed completion: %s", lane.ID)
+			}
+		case lanecompletion.StatePending:
 			out.State = "completion-publication-incomplete"
-			out.Summary = "lane completion publication is not committed consistently: " + lane.ID
-			return out, fmt.Errorf("lane completion publication is incomplete: %s", lane.ID)
+			out.Summary = "lane completion lifecycle publication is pending: " + lane.ID
+			return out, fmt.Errorf("lane completion publication is incomplete: %s transition=%s sequence=%d", lane.ID, lifecycle.PendingKind, lifecycle.PendingSequence)
+		case lanecompletion.StateReopened:
+			if closed {
+				out.State = "completion-publication-incomplete"
+				out.Summary = "reopened lane remains closed: " + lane.ID
+				return out, fmt.Errorf("lane reopen projection is incomplete: %s", lane.ID)
+			}
+		case lanecompletion.StateComplete:
+			if !closed {
+				out.State = "completion-publication-incomplete"
+				out.Summary = "completed lane is not closed: " + lane.ID
+				return out, fmt.Errorf("lane completion projection is incomplete: %s", lane.ID)
+			}
+			receipt, err := InspectLaneCompletion(caseRoot, lane.ID)
+			if err != nil {
+				out.State = "completion-publication-incomplete"
+				out.Summary = "closed lane lacks a current committed completion publication: " + lane.ID
+				return out, err
+			}
+			out.Receipts = append(out.Receipts, receipt)
 		}
-		receipt, err := InspectLaneCompletion(caseRoot, lane.ID)
-		if err != nil {
-			out.State = "completion-publication-incomplete"
-			out.Summary = "closed lane lacks a current committed completion publication: " + lane.ID
-			return out, err
-		}
-		out.Receipts = append(out.Receipts, receipt)
 	}
 	sort.Slice(out.Receipts, func(i, j int) bool { return out.Receipts[i].Lane < out.Receipts[j].Lane })
 	out.CompletedLaneCount = len(out.Receipts)
@@ -637,7 +695,7 @@ func completionBoundary() []string {
 		"operational completion is derived only from current committed lane-completion receipts",
 		"completion does not write or infer authority/confirmed conclusions",
 		"completion does not execute heavy tools or manage external sessions",
-		"closed lanes are not reopened by start, continue, gate, note, reviewer, or executor takeover",
+		"closed lanes are reopened only by the dedicated review-first reopen owner, never by start, continue, gate, note, reviewer, or executor takeover",
 	}
 }
 
@@ -735,13 +793,11 @@ func completionBlockerSummary(items []CompletionBlocker) string {
 }
 
 func (ctx completeContext) intentPath() string {
-	path, _ := refsf.SafeJoin(ctx.inst.CaseRoot, relJoin(".rekit", "lanes", ctx.lane.ID, completionIntentFile))
-	return path
+	return lanecompletion.IntentPath(ctx.inst.CaseRoot, ctx.lane.ID, ctx.sequence, "complete")
 }
 
 func (ctx completeContext) commitPath() string {
-	path, _ := refsf.SafeJoin(ctx.inst.CaseRoot, relJoin(".rekit", "lanes", ctx.lane.ID, completionCommitFile))
-	return path
+	return lanecompletion.ReceiptPath(ctx.inst.CaseRoot, ctx.lane.ID, ctx.sequence, "complete")
 }
 
 func readCompletionIntent(path string) (completionIntent, error) {
@@ -756,30 +812,8 @@ func readCompletionIntent(path string) (completionIntent, error) {
 	return intent, nil
 }
 
-func writeCompletionExclusive(path string, value any) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(value, "", "  ")
-	if err != nil {
-		return err
-	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return err
-	}
-	data = append(data, '\n')
-	if _, err := file.Write(data); err != nil {
-		file.Close()
-		_ = os.Remove(path)
-		return err
-	}
-	if err := file.Sync(); err != nil {
-		file.Close()
-		_ = os.Remove(path)
-		return err
-	}
-	return file.Close()
+func writeCompletionExclusive(caseRoot, path string, value any) error {
+	return lanecompletion.WriteExclusiveJSON(caseRoot, path, value)
 }
 
 func appendCompletionLaneEvent(caseRoot, path string, event map[string]any) (StartWrite, error) {
@@ -841,6 +875,14 @@ func completionReceiptsEqual(left, right CompletionReceipt) bool {
 	leftData, _ := json.Marshal(left)
 	rightData, _ := json.Marshal(right)
 	return string(leftData) == string(rightData)
+}
+
+func convertCompletionJSON(source, target any) error {
+	data, err := json.Marshal(source)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, target)
 }
 
 func equalCompletionEvidence(left, right []CompletionEvidence) bool {
