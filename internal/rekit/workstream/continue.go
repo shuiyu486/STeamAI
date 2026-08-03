@@ -19,6 +19,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/autonomy"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
@@ -568,9 +569,8 @@ func newContinueContextCore(repoRoot, caseRoot, pack string, opt ContinueOptions
 	if err != nil {
 		return continueContext{}, err
 	}
-	status := strings.ToLower(strings.TrimSpace(lane.Status))
-	if status == "archived" || status == "paused" || status == "closed" {
-		return continueContext{}, fmt.Errorf("target lane is not open: %s", lane.ID)
+	if err := lanemutation.AssertLaneOpen(inst.CaseRoot, lane.ID, "continue"); err != nil {
+		return continueContext{}, err
 	}
 	policy, err := readContinuePolicy(inst.CaseRoot)
 	if err != nil {

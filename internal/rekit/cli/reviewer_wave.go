@@ -333,12 +333,15 @@ func executeReviewerMutationWithInterventionGuard[T any](caseRoot, lane string, 
 		return execute()
 	}
 	if whatIf {
+		if err := lanemutation.AssertLaneOpen(caseRoot, lane, "reviewer mutation"); err != nil {
+			return result, err
+		}
 		if err := ensureReviewerWaveLaneNotIntervened(caseRoot, lane); err != nil {
 			return result, err
 		}
 		return execute()
 	}
-	lease, err := lanemutation.AcquireLane(caseRoot, lane)
+	lease, err := lanemutation.AcquireOpenLane(caseRoot, lane, "reviewer mutation")
 	if err != nil {
 		return result, currentStepZeroProgressError{cause: err}
 	}
@@ -481,7 +484,7 @@ func previewReviewerWaveObservation(ctx runtime.Context, opt Options, observatio
 }
 
 func applyReviewerWaveObservationWithInterventionGuard(ctx runtime.Context, opt Options, observation reviewerWaveObservation, preview reviewerWaveObservationPreview) (result reviewerWaveObservationApplyResult, err error) {
-	lease, err := lanemutation.AcquireLane(ctx.Target, strings.TrimSpace(opt.Note.Lane))
+	lease, err := lanemutation.AcquireOpenLane(ctx.Target, strings.TrimSpace(opt.Note.Lane), "run-reviewer-wave")
 	if err != nil {
 		return reviewerWaveObservationApplyResult{}, err
 	}

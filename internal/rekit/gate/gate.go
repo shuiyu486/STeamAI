@@ -4514,6 +4514,9 @@ func buildPreview(repoRoot, caseRoot, pack string, opt Options) (instance.Instan
 	if err != nil {
 		return instance.Instance{}, EventPreview{}, nil, err
 	}
+	if err := lanemutation.AssertLaneOpen(inst.CaseRoot, lane, "gate"); err != nil {
+		return instance.Instance{}, EventPreview{}, nil, err
+	}
 	requestedBudget := autonomy.Budget{RuntimeSeconds: opt.RuntimeSeconds, DiskMB: opt.DiskMB, Requests: opt.Requests}
 	target := strings.TrimSpace(opt.TargetRef)
 	authorization := authorizationDecision(inst.CaseRoot, lane, m, autonomy.Request{

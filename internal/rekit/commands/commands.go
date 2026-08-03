@@ -10,6 +10,7 @@ import (
 const (
 	Attach          = "attach"
 	Bootstrap       = "bootstrap"
+	Complete        = "complete"
 	Continue        = "continue"
 	Doctor          = "doctor"
 	Gate            = "gate"
@@ -115,6 +116,7 @@ type PublicProfilePolicy struct {
 var publicCommands = []string{
 	Attach,
 	Bootstrap,
+	Complete,
 	Continue,
 	Doctor,
 	Gate,
@@ -145,6 +147,7 @@ var publicCommands = []string{
 var publicProfiles = []PublicProfile{
 	{Command: Attach, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
 	{Command: Bootstrap, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
+	{Command: Complete, MutationBoundary: BoundaryCaseLocalReviewFirst, IsMutation: true, WritesCase: true, ReviewFirst: true, ApplyRequired: true},
 	{Command: Continue, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
 	{Command: Doctor, MutationBoundary: BoundaryReadOnly},
 	{Command: Gate, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
@@ -190,6 +193,7 @@ func SymbolValues() map[string]string {
 	return map[string]string{
 		"Attach":          Attach,
 		"Bootstrap":       Bootstrap,
+		"Complete":        Complete,
 		"Continue":        Continue,
 		"Doctor":          Doctor,
 		"Gate":            Gate,

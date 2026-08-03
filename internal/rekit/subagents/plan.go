@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewerresult"
@@ -531,6 +533,27 @@ func WritePlan(repoRoot, target, pack string, opt Options) (Result, error) {
 		maxParallel = opt.MaxParallel
 	}
 	shards := newShards(items, itemsPerAgent)
+	var planningLease *lanemutation.Lease
+	if caseTarget && refsf.Exists(filepath.Join(planRoot, ".rekit", "board.json")) {
+		ownerBinding, err := resolveOwnerBinding(planRoot, m, opt, true)
+		if err != nil {
+			return Result{}, err
+		}
+		planningLease, err = lanemutation.AcquireOpenLane(planRoot, ownerBinding.TargetLane, commandName)
+		if err != nil {
+			return Result{}, err
+		}
+		defer func() {
+			if planningLease != nil {
+				_ = planningLease.Unlock()
+			}
+		}()
+		if err := planningLease.Validate(); err != nil {
+			unlockErr := planningLease.Unlock()
+			planningLease = nil
+			return Result{}, errors.Join(err, unlockErr)
+		}
+	}
 	paths, err := makeArtifactPaths(planRoot, opt)
 	if err != nil {
 		return Result{}, err

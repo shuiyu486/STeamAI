@@ -31,6 +31,21 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 
 
+
+### Batch 806：durable lane completion and next-action closure
+
+状态：已完成 durable lane completion owner、next-open-lane routing、typed mission-complete terminal handoff、partial-publication recovery、closed/pending-completion mutation guards、真实临时 case E2E、独立审查修复、façade smoke与Windows本机release minimum；implementation commit/push待统一完成。本批选择`mission-commander`，关闭lane只能手改JSON、全部工作结束后Mission Commander仍继续建议start/continue、replacement executor无法区分operational closure与authority/confirmed的日常断点；本批不是字段、文案或summary投影微调。
+
+目标：提供唯一Go-owned review-first lane completion owner，使Mission Commander可从reviewed case-local evidence关闭feature并路由下一open lane，最后关闭main并产生typed durable mission-complete handoff；partial publication、replacement recovery、terminal start与所有lane-scoped mutation必须对同一completion状态给出一致、可恢复、fail-closed的解释。
+
+用户断点：变更前没有public completion mutation owner，feature/main lane无法review-first关闭，全部lane完成后没有durable terminal state；`start -Force`、reviewer planning/wave或其它lane mutation还可能在closed/pending publication后继续写入。变更后新增Go-owned/no-fallback`complete`：actor/reason、case-local evidence `Ref+SHA256+Bytes`、typed blockers与exact写集进入WhatIf hash，Apply在project lease内重建并要求`ExpectedCompletePlanSha256`；intent→lane event/state→board→RESUME/checkpoint→final commit marker按可恢复顺序发布，恢复时重新验证evidence、owner与当前blockers。feature完成后fresh queue路由下一open lane，main必须最后关闭；全部current receipts一致时status返回`mission-complete`只读runbook并撤销case start/continue/handoff current request。
+
+安全边界：completion拒绝open intervention、pending gate、open candidate/decision/task、reviewer dispatch/intake/invalid packet、execution evidence review、authorized adapter handoff及main-before-feature。ordinary start不能重启terminal mission；start/continue/reconcile/lane handoff/note/gate、reviewer planning/direct/wave mutation对closed或pending-completion lane fail-closed。Reopen保留为未来独立review-first primitive。Runtime不执行heavy-tool、不spawn/poll/stop session、不写或推断authority/confirmed；PowerShell只做参数校验与Go透传，未新增业务runtime logic；普通batch不等待或声明remote CI green。
+
+E2E与审查：真实临时case走通`init→overview/main→start verifier→evidence-bound complete WhatIf/exact Apply→next main route→main complete→status mission-complete`并清理临时目录；产品回归覆盖evidence drift zero-write、pending intent恢复时main-last blocker重验、terminal start拒绝、legacy closed兼容、publication/hash mismatch、closed lane continue/handoff/note/gate/plan-subagents拒绝及reviewer-wave preview→Apply间completion race零dispatch。独立审查最初发现evidence bytes未绑定、intent恢复忽略新blocker、terminal start可重启mission、reviewer mutation旁路四项Important；全部修复后终复核无剩余高置信Critical/Important。
+
+验证结果：完整affected packages通过（CLI 151.169秒），direct temporary completion E2E与`facade-smoke.ps1`通过；全仓`go test ./... -count=1`通过（CLI 151.900秒），`go vet ./...`、status、10-pack inventory、doctor（canonical skill 32703/32768 bytes）、完成态`release-check -Format json`与`git diff --check`通过。独立终复核无剩余高置信Critical/Important；统一`release-run -Format json`以7/7通过（542.949秒，其中完整Go tests 151.900秒）。Implementation commit/push待统一完成，普通batch不等待或声明remote CI green。
+
 ### Batch 805：durable current-loop failure recovery closure
 
 状态：已完成durable current-loop零写入失败恢复、replacement takeover E2E、strict currentness与schema guards、独立审查和Windows本机release minimum；implementation commit/push待本批统一完成。本批选择`mission-commander`，关闭strict resume claim在首个nested mutation零写入失败后让replacement executor永久卡在`checkpoint-consumed`的日常断点；本批不是字段、文案或summary投影微调。

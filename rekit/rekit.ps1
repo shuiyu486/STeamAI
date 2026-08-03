@@ -1,7 +1,7 @@
 [CmdletBinding(PositionalBinding=$false)]
 param(
   [Parameter(Position=0)]
-  [ValidateSet('status','packs','release-check','release-run','run-current-loop','run-current-step','run-driver-step','run-reviewer-step','run-reviewer-wave','next-batch','attach','repair','init','bootstrap','sync','update','promote','validate','doctor','plan-subagents','overview','continue','reconcile','start','handoff','note','gate')]
+  [ValidateSet('status','packs','release-check','release-run','run-current-loop','run-current-step','run-driver-step','run-reviewer-step','run-reviewer-wave','next-batch','attach','repair','init','bootstrap','sync','update','promote','validate','doctor','plan-subagents','overview','complete','continue','reconcile','start','handoff','note','gate')]
   [string]$Command = 'status',
   [string]$Target = '',
   [string]$Pack = 'vmp-re',
@@ -44,6 +44,7 @@ param(
   [int]$ActualDiskMB = 0,
   [int]$ActualRequests = 0,
   [string]$OutputRefs = '',
+  [string]$EvidenceRefs = '',
   [string]$ExecutionEvidenceRefs = '',
   [string]$BoundaryHits = '',
   [string]$Escalation = '',
@@ -61,6 +62,7 @@ param(
   [string]$Domain = '',
   [string]$Closure = '',
   [string]$ExpectedNextBatchPlanSha256 = '',
+  [string]$ExpectedCompletePlanSha256 = '',
   [string]$ExpectedHandoffPlanSha256 = '',
   [string]$HandoffPublicationStamp = '',
   [string]$ExpectedCurrentLoopPlanSha256 = '',
@@ -171,12 +173,12 @@ function Test-RekitEnvTruthy {
 
 function Test-RekitGoDefaultDelegationCommand {
   param([string]$Name)
-  return (@('status','packs','release-check','release-run','run-current-loop','run-current-step','run-driver-step','run-reviewer-step','run-reviewer-wave','next-batch','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff','continue','reconcile','plan-subagents') -contains $Name)
+  return (@('status','packs','release-check','release-run','run-current-loop','run-current-step','run-driver-step','run-reviewer-step','run-reviewer-wave','next-batch','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff','complete','continue','reconcile','plan-subagents') -contains $Name)
 }
 
 function Test-RekitNoPowerShellFallbackCommand {
   param([string]$Name)
-  return (@('release-check','release-run','run-current-loop','run-current-step','run-driver-step','run-reviewer-step','run-reviewer-wave','next-batch','status','packs','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff','continue','reconcile','plan-subagents') -contains $Name)
+  return (@('release-check','release-run','run-current-loop','run-current-step','run-driver-step','run-reviewer-step','run-reviewer-wave','next-batch','status','packs','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff','complete','continue','reconcile','plan-subagents') -contains $Name)
 }
 
 function Test-RekitGoDelegationEnabled {
@@ -396,6 +398,23 @@ function Test-RekitGoDelegationSafe {
       $formatValue = ([string]$Format).Trim().ToLowerInvariant()
       return ([string]::IsNullOrWhiteSpace($formatValue) -or @('json','text','table','tsv') -contains $formatValue)
     }
+    'complete' {
+      if ($CreateCandidates -or $Review -or $Force) { return $false }
+      if ($WhatIf -and $Apply) { return $false }
+      if ((-not $WhatIf) -and (-not $Apply)) { return $false }
+      if ($WhatIf -and -not [string]::IsNullOrWhiteSpace($ExpectedCompletePlanSha256)) { return $false }
+      if ($Apply -and [string]::IsNullOrWhiteSpace($ExpectedCompletePlanSha256)) { return $false }
+      if ([string]::IsNullOrWhiteSpace($Actor) -or [string]::IsNullOrWhiteSpace($Reason) -or [string]::IsNullOrWhiteSpace($EvidenceRefs)) { return $false }
+      if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
+      $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs
+      $caseRoot = [string]$resolved.Target
+      if (-not (Test-RekitLooksLikeCase $caseRoot)) { return $false }
+      if (-not (Test-Path -LiteralPath (Join-Path $caseRoot '.rekit\board.json'))) { return $false }
+      $selector = ((@($resolved.Args) | ForEach-Object { [string]$_ }) -join '-').Trim('-')
+      if ([string]::IsNullOrWhiteSpace($selector) -and [string]::IsNullOrWhiteSpace($Lane)) { return $false }
+      $formatValue = ([string]$Format).Trim().ToLowerInvariant()
+      return ([string]::IsNullOrWhiteSpace($formatValue) -or @('json','text','table','tsv') -contains $formatValue)
+    }
     'continue' {
       if ($CreateCandidates -or $Review -or $Force) { return $false }
       if ($WhatIf -and $Apply) { return $false }
@@ -493,7 +512,7 @@ function Get-RekitGoTarget {
 function Get-RekitGoArgs {
   $goArgs = @('-Command', $Command, '-Pack', $Pack)
   $goTarget = Get-RekitGoTarget
-  if ($Command -notin @('start','handoff','continue','reconcile','release-check','release-run','next-batch')) { Add-RekitGoArg ([ref]$goArgs) '-Target' $goTarget }
+  if ($Command -notin @('start','handoff','complete','continue','reconcile','release-check','release-run','next-batch')) { Add-RekitGoArg ([ref]$goArgs) '-Target' $goTarget }
   $goReview = $Review.IsPresent
   if ($Command -in @('sync','update') -and (-not $Apply) -and (-not $WhatIf)) { $goReview = $true }
   if ($Command -eq 'promote' -and (-not $Apply) -and (-not $CreateCandidates) -and (-not $WhatIf)) { $goReview = $true }
@@ -506,8 +525,8 @@ function Get-RekitGoArgs {
   Add-RekitGoArg ([ref]$goArgs) '-ReviewerResultPath' (Resolve-RekitCallerPath $ReviewerResultPath)
   Add-RekitGoArg ([ref]$goArgs) '-DiffPath' (Resolve-RekitCallerPath $DiffPath)
   $goFormat = $Format
-  if ($Command -in @('start','handoff','continue','reconcile') -and (-not $Apply.IsPresent) -and [string]::IsNullOrWhiteSpace([string]$goFormat)) { $goFormat = 'text' }
-  if ($Command -in @('status','packs','release-check','release-run','run-current-loop','run-current-step','run-driver-step','run-reviewer-step','run-reviewer-wave','next-batch','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff','continue','reconcile')) { Add-RekitGoArg ([ref]$goArgs) '-Format' $goFormat }
+  if ($Command -in @('start','handoff','complete','continue','reconcile') -and (-not $Apply.IsPresent) -and [string]::IsNullOrWhiteSpace([string]$goFormat)) { $goFormat = 'text' }
+  if ($Command -in @('status','packs','release-check','release-run','run-current-loop','run-current-step','run-driver-step','run-reviewer-step','run-reviewer-wave','next-batch','doctor','validate','attach','repair','init','bootstrap','sync','update','promote','overview','note','gate','start','handoff','complete','continue','reconcile')) { Add-RekitGoArg ([ref]$goArgs) '-Format' $goFormat }
   if ($Command -eq 'run-current-loop') {
     if (-not $ResumeCurrentLoop) { Add-RekitGoArg ([ref]$goArgs) '-MaxSteps' ([string]$MaxSteps) }
     Add-RekitGoArg ([ref]$goArgs) '-ExpectedCurrentLoopPlanSha256' $ExpectedCurrentLoopPlanSha256
@@ -592,7 +611,7 @@ function Get-RekitGoArgs {
       Add-RekitGoArg ([ref]$goArgs) ('-' + $name) ([string]$noteValues[$name])
     }
   }
-  if ($Command -in @('start','handoff','continue','reconcile')) {
+  if ($Command -in @('start','handoff','complete','continue','reconcile')) {
     $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs
     Add-RekitGoArg ([ref]$goArgs) '-Target' ([string]$resolved.Target)
     foreach ($arg in @($resolved.Args)) {
@@ -609,6 +628,13 @@ function Get-RekitGoArgs {
     if ($Command -eq 'handoff') {
       Add-RekitGoArg ([ref]$goArgs) '-ExpectedHandoffPlanSha256' $ExpectedHandoffPlanSha256
       Add-RekitGoArg ([ref]$goArgs) '-HandoffPublicationStamp' $HandoffPublicationStamp
+    }
+    if ($Command -eq 'complete') {
+      Add-RekitGoArg ([ref]$goArgs) '-Lane' $Lane
+      Add-RekitGoArg ([ref]$goArgs) '-Actor' $Actor
+      Add-RekitGoArg ([ref]$goArgs) '-Reason' $Reason
+      Add-RekitGoArg ([ref]$goArgs) '-EvidenceRefs' $EvidenceRefs
+      Add-RekitGoArg ([ref]$goArgs) '-ExpectedCompletePlanSha256' $ExpectedCompletePlanSha256
     }
   }
   if ($Command -eq 'reconcile') {

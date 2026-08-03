@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
@@ -329,9 +330,8 @@ func newReconcileContext(repoRoot, caseRoot, pack string, opt ReconcileOptions, 
 	if err != nil {
 		return reconcileContext{}, err
 	}
-	status := strings.ToLower(strings.TrimSpace(lane.Status))
-	if status == "archived" || status == "paused" || status == "closed" {
-		return reconcileContext{}, fmt.Errorf("target lane is not open: %s", lane.ID)
+	if err := lanemutation.AssertLaneOpen(inst.CaseRoot, lane.ID, "reconcile"); err != nil {
+		return reconcileContext{}, err
 	}
 	facts, err := readHandoffFacts(inst.CaseRoot)
 	if err != nil {

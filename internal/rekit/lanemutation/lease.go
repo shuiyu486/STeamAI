@@ -3,6 +3,7 @@ package lanemutation
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -45,8 +46,114 @@ func AcquireLane(caseRoot, laneID string) (*Lease, error) {
 	return acquire(caseRoot, laneID)
 }
 
+func AcquireOpenLane(caseRoot, laneID, command string) (*Lease, error) {
+	lease, err := AcquireLane(caseRoot, laneID)
+	if err != nil {
+		return nil, err
+	}
+	if err := AssertLaneOpen(caseRoot, laneID, command); err != nil {
+		return nil, errors.Join(err, lease.Unlock())
+	}
+	return lease, nil
+}
+
 func AcquireProject(caseRoot string) (*Lease, error) {
 	return acquire(caseRoot, "")
+}
+
+func AssertLaneOpen(caseRoot, laneID, command string) error {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		command = "lane mutation"
+	}
+	lanePath, err := refsf.SafeJoin(caseRoot, filepath.Join(".rekit", "lanes", laneID, "lane.json"))
+	if err != nil {
+		return err
+	}
+	status, err := laneStatus(caseRoot, laneID, lanePath)
+	if err != nil {
+		return err
+	}
+	intentPath, err := refsf.SafeJoin(caseRoot, filepath.Join(".rekit", "lanes", laneID, "completion.intent.json"))
+	if err != nil {
+		return err
+	}
+	commitPath, err := refsf.SafeJoin(caseRoot, filepath.Join(".rekit", "lanes", laneID, "completion.json"))
+	if err != nil {
+		return err
+	}
+	intentExists, err := regularFileExists(intentPath)
+	if err != nil {
+		return err
+	}
+	commitExists, err := regularFileExists(commitPath)
+	if err != nil {
+		return err
+	}
+	if intentExists != commitExists {
+		return fmt.Errorf("%s refuses lane %s while completion publication is incomplete; recover the exact completion Apply before any other lane mutation", command, laneID)
+	}
+	if intentExists || strings.EqualFold(strings.TrimSpace(status), "closed") {
+		return fmt.Errorf("%s refuses closed lane %s; reopening requires a separate review-first mutation", command, laneID)
+	}
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "archived", "paused":
+		return fmt.Errorf("%s requires an open lane: %s status=%s", command, laneID, status)
+	}
+	return nil
+}
+
+func laneStatus(caseRoot, laneID, lanePath string) (string, error) {
+	data, err := os.ReadFile(lanePath)
+	if err == nil {
+		var lane struct {
+			Status string `json:"status"`
+		}
+		if err := json.Unmarshal(data, &lane); err != nil {
+			return "", fmt.Errorf("invalid lane json %s: %w", lanePath, err)
+		}
+		return lane.Status, nil
+	}
+	if !os.IsNotExist(err) {
+		return "", err
+	}
+	boardPath, err := refsf.SafeJoin(caseRoot, filepath.Join(".rekit", "board.json"))
+	if err != nil {
+		return "", err
+	}
+	data, err = os.ReadFile(boardPath)
+	if err != nil {
+		return "", err
+	}
+	var board struct {
+		Lanes []struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		} `json:"lanes"`
+	}
+	if err := json.Unmarshal(data, &board); err != nil {
+		return "", fmt.Errorf("invalid board json %s: %w", boardPath, err)
+	}
+	for _, lane := range board.Lanes {
+		if strings.EqualFold(strings.TrimSpace(lane.ID), strings.TrimSpace(laneID)) {
+			return lane.Status, nil
+		}
+	}
+	return "", fmt.Errorf("unknown lane %q in board", laneID)
+}
+
+func regularFileExists(path string) (bool, error) {
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return false, fmt.Errorf("lane completion artifact must be a regular file and not a symlink: %s", path)
+	}
+	return true, nil
 }
 
 func acquire(caseRoot, laneID string) (*Lease, error) {

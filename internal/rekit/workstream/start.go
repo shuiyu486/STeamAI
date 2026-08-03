@@ -181,9 +181,17 @@ func StartPreview(repoRoot, caseRoot, pack string, opt StartOptions) (StartResul
 		return StartResult{}, err
 	}
 	action := "would-create-lane"
+	if !refsf.Exists(laneFile) {
+		if err := assertMissionAcceptsNewLane(inst.CaseRoot); err != nil {
+			return StartResult{}, err
+		}
+	}
 	if refsf.Exists(laneFile) {
 		existingLane, err := readLane(laneFile)
 		if err != nil {
+			return StartResult{}, err
+		}
+		if err := lanemutation.AssertLaneOpen(inst.CaseRoot, existingLane.ID, "start"); err != nil {
 			return StartResult{}, err
 		}
 		action = "would-enter-existing-lane"
@@ -288,6 +296,15 @@ func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (result Start
 	if err != nil {
 		return StartResult{}, err
 	}
+	if _, readErr := readLaneByID(inst.CaseRoot, laneID); readErr == nil {
+		if err := lanemutation.AssertLaneOpen(inst.CaseRoot, laneID, "start"); err != nil {
+			return StartResult{}, err
+		}
+	} else if !os.IsNotExist(readErr) {
+		return StartResult{}, readErr
+	} else if err := assertMissionAcceptsNewLane(inst.CaseRoot); err != nil {
+		return StartResult{}, err
+	}
 	if strings.TrimSpace(opt.ExpectedPreviewSHA256) != "" {
 		previewOpt := opt
 		previewOpt.ExpectedPreviewSHA256 = ""
@@ -367,6 +384,20 @@ func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (result Start
 		BlockedActions:                   []string{"authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "handoff writes", "continue auto-apply"},
 		NextSteps:                        workstreamNextSteps(executorAction, true),
 	}, nil
+}
+
+func assertMissionAcceptsNewLane(caseRoot string) error {
+	completion, err := InspectMissionCompletion(caseRoot)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if completion.Ready {
+		return fmt.Errorf("start refuses mission-complete case; reopening requires a separate review-first mutation")
+	}
+	return nil
 }
 
 func workstreamNextSteps(action laneExecutorAction, includeDoctor bool) []string {

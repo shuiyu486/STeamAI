@@ -42,7 +42,8 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 4. 执行 `/rekit status` 和 `/rekit overview`。
 5. 用 `/rekit continue main` 接手主线。
 6. 需要专项分析时，用 `/rekit start <name>` 创建功能支线。
-7. 每轮结束用 `/rekit handoff` 或 `/rekit handoff <name>` 生成接手文档。
+7. lane 的 evidence 与 blockers 已审核闭合时，用 `/rekit complete <name> -Actor <actor> -Reason <reason> -EvidenceRefs <case-relative-file> -WhatIf -Format json` 预览，再执行返回的 exact-hash Apply；功能支线关闭后继续下一条 open lane，main 最后关闭。
+8. 需要中途换会话时用 `/rekit handoff` 或 `/rekit handoff <name>`；全部 lane committed closed 后 status 返回 `mission-complete`，不再建议 start/continue/handoff。
 
 ### 旧 case
 
@@ -163,12 +164,6 @@ Replacement executor应以fresh `status.missionControlRunbook.replacementExecuto
 ### Adapter execution report handoff identity
 
 `gate -ExecutionReportContract`、`gate -ValidateExecutionReport`、scaffold/draft live snapshot 与 recorded evidence snapshot 的 Mission Commander next-action/current-action 行会直接显示 `lane`、`label`、`gateEventId`、`actionId`。这些 contract、scaffold、draft、validation、record 与 status/handoff envelope 还会输出 `runbookSteps[]`（text 中为对应 runbook 行），并共享 adapter live-validation `currentRunLoopStepId` / `runLoop`（text 中为 live run-loop 行），replacement executor 应优先消费这些 typed fields、runbook 与 live run-loop 来确认当前步骤是 inspect contract、record dispatch、等待/写 report、validate、record receipt、record observation、review evidence 还是 repair：先确认 state/path/hash/owner/provenance，再运行当前 Mission Commander command；record 前必须先做 read-only validation，并只使用 validation/status 返回的 `-ExpectedExecutionReportSha256` hash-bound record Apply；record 后只进入 bounded observation evidence review。显式 `gate -ValidateExecutionReport` 与 `gate -Apply -ExecutionReportPath ...` result 还会返回 `missionCommanderDriverReceipt`，把本次 validation/record outcome、refreshed action queue/current run-loop step、下一跳 driver request 与 `expectedReceipt.refreshStatusCommand` 绑定到同一 envelope；status/handoff 的 live snapshot 仍只是只读 handoff，不伪造 explicit command receipt。不要把 contract 阶段的 handoff 当作已授权执行 adapter/heavy tool，也不要在缺少 matching `gateEventId`/`actionId`、current dispatch/report hash 或 current owner/provenance 时手工拼接 record。
-
-### Batch 561 当前实施边界
-
-Batch 561 为 `continue` executor-generation stale-writer guard，当前状态是 implementation in progress，不能当作已验证 runtime 行为。计划中的调用方 contract 是：选定lane后，`continue -WhatIf`与`continue -Apply`都提供当前`-Executor <executor-id>`和`-ExpectedExecutorGeneration <generation>`；runtime在创建run、追加facts、刷新lane `RESUME.md`/checkpoint或修改board前，strict比对durable `currentExecutor`与`executorGeneration`，Apply在mutation边界内再次比对。缺失、不匹配或takeover后的旧generation均fail-closed且zero-write。
-
-该guard只防止旧executor继续写durable lane state。executor takeover仍通过显式`start <name> -Apply -Executor ...`或`reconcile <name> ... -Apply`记录；runtime不自动spawn、停止、轮询或管理session，不执行heavy action，不写authority/confirmed。在runtime与product-path验证完成前，不应把上述参数要求描述为已发布能力。
 
 ## 验证标准
 

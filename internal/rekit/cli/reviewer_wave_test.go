@@ -771,6 +771,44 @@ func TestRunCurrentLoopDrainsReturnedReviewerWave(t *testing.T) {
 	}
 }
 
+func TestRunReviewerWaveApplyRejectsCompletionIntentBeforeObservation(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "review", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-Lane", "feature-review", "-TaskType", "feature-analysis", "-Items", "alpha", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	wave := reviewerWaveFromStatus(reviewerWaveStatus(t, caseRoot))
+	observationPath := filepath.Join(caseRoot, "workspace", "wave-completion-race.json")
+	writeReviewerWaveObservations(t, observationPath, reviewerWaveObservationFile{SchemaVersion: 1, PacketID: wave.PacketID, Observations: []reviewerWaveObservation{{ShardID: wave.SpawnWave[0].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "wave-session-closed"}}})
+	args := []string{"-Command", "run-reviewer-wave", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", wave.PacketPath, "-Lane", wave.TargetLane, "-Actor", "mission-commander", "-ReviewerWaveObservationsPath", observationPath, "-Format", "json"}
+	preview := reviewerWavePreview(t, append(args, "-WhatIf")...)
+	reviewerWaveBeforeApplyObservationHook = func(index int) error {
+		intentPath := filepath.Join(caseRoot, ".rekit", "lanes", wave.TargetLane, "completion.intent.json")
+		return os.WriteFile(intentPath, []byte("{}\n"), 0o600)
+	}
+	defer func() { reviewerWaveBeforeApplyObservationHook = nil }()
+	out.Reset()
+	err := Run(append(args, "-ExpectedReviewerWavePlanSha256", preview.ExpectedReviewerWavePlanSHA256, "-Apply"), &out)
+	if err != nil {
+		t.Fatalf("reviewer wave should return a typed partial failure envelope: %v\n%s", err, out.String())
+	}
+	var blocked reviewerWavePlan
+	if err := json.Unmarshal(out.Bytes(), &blocked); err != nil {
+		t.Fatal(err)
+	}
+	if blocked.Applied || blocked.AppliedCount != 0 || blocked.FailedIndex != 1 || !strings.Contains(blocked.Failure, "completion publication is incomplete") {
+		t.Fatalf("reviewer wave did not fail closed on completion intent: %+v", blocked)
+	}
+	dispatchPath := filepath.Join(filepath.Dir(wave.PacketPath), "sessions", wave.SpawnWave[0].ShardID, "dispatch.json")
+	if _, err := os.Stat(dispatchPath); !os.IsNotExist(err) {
+		t.Fatalf("completion-raced reviewer dispatch was written: %v", err)
+	}
+}
+
 func TestRunReviewerWavePartialFailurePreservesEarlierObservation(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	var out bytes.Buffer

@@ -674,6 +674,7 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 		"gate",
 		"start",
 		"handoff",
+		"complete",
 		"continue",
 		"reconcile",
 		"plan-subagents",
@@ -698,7 +699,7 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 	for _, required := range []string{
 		"if ($Command -in @('release-check','release-run') -and -not [string]::IsNullOrWhiteSpace($Target)) { return $false }",
 		"if (-not [string]::IsNullOrWhiteSpace($Target)) { return $false }",
-		"if ($Command -notin @('start','handoff','continue','reconcile','release-check','release-run','next-batch'))",
+		"if ($Command -notin @('start','handoff','complete','continue','reconcile','release-check','release-run','next-batch'))",
 		"Add-RekitGoArg ([ref]$goArgs) '-ExpectedNextBatchPlanSha256' $ExpectedNextBatchPlanSha256",
 		"Add-RekitGoArg ([ref]$goArgs) '-MaxSteps' ([string]$MaxSteps)",
 		"Add-RekitGoArg ([ref]$goArgs) '-ExpectedCurrentLoopPlanSha256' $ExpectedCurrentLoopPlanSha256",

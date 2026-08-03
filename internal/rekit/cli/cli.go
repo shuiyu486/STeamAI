@@ -140,6 +140,7 @@ type Options struct {
 	Note                                     note.Options
 	Start                                    workstream.StartOptions
 	Handoff                                  workstream.HandoffOptions
+	Complete                                 workstream.CompleteOptions
 	Continue                                 workstream.ContinueOptions
 	Reconcile                                workstream.ReconcileOptions
 }
@@ -397,6 +398,12 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ExpectedHandoffPlanSha256")
 			}
 			opt.Handoff.ExpectedPublicationPlanSHA256 = args[i]
+		case "-ExpectedCompletePlanSha256", "-ExpectedCompletePlanSHA256", "--expected-complete-plan-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedCompletePlanSha256")
+			}
+			opt.Complete.ExpectedPreviewSHA256 = args[i]
 		case "-HandoffPublicationStamp", "--handoff-publication-stamp":
 			i++
 			if i >= len(args) {
@@ -527,6 +534,7 @@ func Parse(args []string) (Options, error) {
 			}
 			opt.Gate.Lane = args[i]
 			opt.Note.Lane = args[i]
+			opt.Complete.Selector = args[i]
 			opt.Continue.Selector = args[i]
 			opt.Reconcile.Selector = args[i]
 		case "-Kind", "--kind":
@@ -566,6 +574,7 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -Reason")
 			}
 			opt.Note.Reason = args[i]
+			opt.Complete.Reason = args[i]
 			opt.Reconcile.Reason = args[i]
 			opt.Start.TakeoverReason = args[i]
 			opt.CandidateDecisionReason = args[i]
@@ -605,6 +614,7 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -EvidenceRefs")
 			}
 			opt.Note.EvidenceRefs = args[i]
+			opt.Complete.EvidenceRefs = args[i]
 			opt.CandidateDecisionEvidenceRefs = args[i]
 		case "-EventId", "--event-id":
 			i++
@@ -674,6 +684,7 @@ func Parse(args []string) (Options, error) {
 			}
 			opt.Gate.Actor = args[i]
 			opt.Note.Actor = args[i]
+			opt.Complete.Actor = args[i]
 			opt.Reconcile.Actor = args[i]
 			opt.Start.Actor = args[i]
 			opt.CandidateDecisionActor = args[i]
@@ -974,6 +985,12 @@ func Parse(args []string) (Options, error) {
 				} else {
 					opt.Handoff.Selector += "-" + args[i]
 				}
+			} else if strings.EqualFold(opt.Command, "complete") && args[i] != "" && args[i][0] != '-' {
+				if opt.Complete.Selector == "" {
+					opt.Complete.Selector = args[i]
+				} else {
+					opt.Complete.Selector += "-" + args[i]
+				}
 			} else if strings.EqualFold(opt.Command, "continue") && args[i] != "" && args[i][0] != '-' {
 				if opt.Continue.Selector == "" {
 					opt.Continue.Selector = args[i]
@@ -1038,6 +1055,9 @@ func Run(args []string, stdout io.Writer) error {
 	}
 	if (strings.TrimSpace(opt.NextBatchDomain) != "" || strings.TrimSpace(opt.NextBatchClosure) != "" || strings.TrimSpace(opt.ExpectedNextBatchPlanSHA256) != "") && opt.Command != commands.NextBatch {
 		return fmt.Errorf("next-batch planning receipt flags are supported only by next-batch")
+	}
+	if strings.TrimSpace(opt.Complete.ExpectedPreviewSHA256) != "" && opt.Command != commands.Complete {
+		return fmt.Errorf("-ExpectedCompletePlanSha256 is supported only by complete")
 	}
 	if (opt.MaxSteps != 0 || strings.TrimSpace(opt.ExpectedCurrentLoopPlanSHA256) != "" || strings.TrimSpace(opt.ExpectedCurrentLoopReviewerAttemptSHA256) != "") && opt.Command != commands.RunCurrentLoop {
 		return fmt.Errorf("current loop flags are supported only by run-current-loop")
@@ -1123,6 +1143,8 @@ func Run(args []string, stdout io.Writer) error {
 		return runStart(ctx, opt, stdout)
 	case commands.Handoff:
 		return runHandoff(ctx, opt, stdout)
+	case commands.Complete:
+		return runComplete(ctx, opt, stdout)
 	case commands.Continue:
 		return runContinue(ctx, opt, stdout)
 	case commands.Reconcile:
@@ -3534,6 +3556,7 @@ type statusCaseMission struct {
 	HandoffPreviewCommand             string                                       `json:"handoffPreviewCommand"`
 	HandoffApplyCommand               string                                       `json:"handoffApplyCommand"`
 	ContinueRequiresExplicitApply     string                                       `json:"continueRequiresExplicitApply"`
+	MissionCompletion                 *workstream.MissionCompletionHandoff         `json:"missionCompletion,omitempty"`
 }
 
 func runStatus(ctx runtime.Context, opt Options, out io.Writer) error {
@@ -7676,6 +7699,13 @@ func buildStatusInventory(ctx runtime.Context, packSource string) (statusInvento
 	return status, nil
 }
 
+func missionCompletionPtr(value workstream.MissionCompletionHandoff) *workstream.MissionCompletionHandoff {
+	if !value.Ready {
+		return nil
+	}
+	return &value
+}
+
 func statusFirstScreenLaneTakeoverPackage(caseRoot string, actions []mission.LaneExecutorActionSnapshot, queue mission.MissionCommanderActionQueue) *workstream.LaneTakeoverPackage {
 	current := queue.CurrentAction
 	if current == nil || strings.TrimSpace(current.Lane) == "" {
@@ -7736,6 +7766,16 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 	reviewerDispatchIntakeActionQueue := mission.MissionCommanderActionQueueFor(reviewerDispatchIntakeNextActions)
 	caseMissionNextActions := append([]mission.MissionCommanderNextActionItem{}, inventory.MissionCommanderNextActions...)
 	caseMissionActionQueue := inventory.MissionCommanderActionQueue
+	missionCompletion, completionErr := workstream.InspectMissionCompletion(caseRoot)
+	if completionErr != nil && missionCompletion.State == "completion-publication-incomplete" {
+		return nil, fmt.Errorf("completion-publication-incomplete: %w", completionErr)
+	}
+	if !missionCompletion.Ready {
+		missionCompletion = workstream.MissionCompletionHandoff{}
+	} else {
+		caseMissionNextActions = nil
+		caseMissionActionQueue = mission.MissionCommanderActionQueueFor(nil)
+	}
 	if caseMissionActionQueue.CurrentAction == nil && reviewerDispatchIntakeActionQueue.CurrentAction == nil && len(inventory.Lanes) == 0 && len(inventory.MissionBrief.Escalations) == 0 {
 		bootstrap := statusCaseMissionStartBootstrapAction(caseRoot)
 		caseMissionNextActions = []mission.MissionCommanderNextActionItem{bootstrap}
@@ -7744,6 +7784,10 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 	firstScreenLaneTakeoverPackage := statusFirstScreenLaneTakeoverPackage(caseRoot, inventory.LaneExecutorActions, caseMissionActionQueue)
 	reviewerDispatchIntakeSummary := workstream.ReviewerDispatchIntakeSummaryFor(reviewerDispatchIntakeHandoffs)
 	pauseReviewerWaveForOpenIntervention(&reviewerDispatchIntakeSummary, ledgerFacts.Facts)
+	dailyRunbook := workstream.DailyMissionControlRunbookFor(caseRoot, "case", caseMissionActionQueue, previewCommand, applyCommand)
+	if missionCompletion.Ready {
+		dailyRunbook = workstream.DailyMissionControlRunbookForMissionComplete(caseRoot)
+	}
 	return &statusCaseMission{
 		Ready:                             caseMissionActionQueue.CurrentAction != nil && caseMissionActionQueue.Counts.Blocked == 0 && len(inventory.MissionBrief.Escalations) == 0,
 		Summary:                           inventory.MissionBrief.Summary,
@@ -7776,12 +7820,13 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 		ExecutionEvidenceReviewSummary:    inventory.ExecutionEvidenceReviewSummary,
 		MissionCommanderActionQueue:       caseMissionActionQueue,
 		MissionCommanderNextActions:       caseMissionNextActions,
-		DailyMissionControlRunbook:        workstream.DailyMissionControlRunbookFor(caseRoot, "case", caseMissionActionQueue, previewCommand, applyCommand),
+		DailyMissionControlRunbook:        dailyRunbook,
 		MissionBriefNextActions:           append([]string{}, inventory.NextSteps...),
 		Escalations:                       append([]string{}, inventory.MissionBrief.Escalations...),
 		HandoffPreviewCommand:             previewCommand,
 		HandoffApplyCommand:               applyCommand,
 		ContinueRequiresExplicitApply:     continueBoundary,
+		MissionCompletion:                 missionCompletionPtr(missionCompletion),
 	}, nil
 }
 
@@ -10125,6 +10170,42 @@ func runReconcile(ctx runtime.Context, opt Options, out io.Writer) error {
 	return writeReconcileText(out, result)
 }
 
+func runComplete(ctx runtime.Context, opt Options, out io.Writer) error {
+	target, err := commandTarget(ctx, "complete", "attached case")
+	if err != nil {
+		return err
+	}
+	if opt.CreateCandidates || opt.Review || opt.Force {
+		return fmt.Errorf("complete does not support -CreateCandidates, -Review, or -Force")
+	}
+	if opt.WhatIf && opt.Apply {
+		return fmt.Errorf("complete cannot combine -WhatIf and -Apply")
+	}
+	if wantsReviewArtifacts(opt) {
+		return fmt.Errorf("complete does not support review artifact options")
+	}
+	format, err := workstreamFormat(opt.Format)
+	if err != nil {
+		return fmt.Errorf("unsupported complete format: %s", opt.Format)
+	}
+	if !opt.WhatIf && !opt.Apply {
+		return fmt.Errorf("complete write requires -Apply; use -WhatIf for preview")
+	}
+	var result workstream.CompleteResult
+	if opt.WhatIf {
+		result, err = workstream.CompletePreview(ctx.RepoRoot, target, ctx.Pack, opt.Complete)
+	} else {
+		result, err = workstream.CompleteApply(ctx.RepoRoot, target, ctx.Pack, opt.Complete)
+	}
+	if err != nil {
+		return err
+	}
+	if format == "json" {
+		return writeJSON(out, result)
+	}
+	return writeCompleteText(out, result)
+}
+
 func runContinue(ctx runtime.Context, opt Options, out io.Writer) error {
 	target, err := commandTarget(ctx, "continue", "attached case")
 	if err != nil {
@@ -10261,6 +10342,26 @@ func writeStartText(out io.Writer, result workstream.StartResult) error {
 		return err
 	}
 	return writeStartExecutorActionText(out, result)
+}
+
+func writeCompleteText(out io.Writer, result workstream.CompleteResult) error {
+	if result.Blocked {
+		if _, err := fmt.Fprintf(out, "lane completion blocked: %s\n", result.Lane.ID); err != nil {
+			return err
+		}
+		for _, blocker := range result.Blockers {
+			if _, err := fmt.Fprintf(out, "blocker: %s | %s\n", blocker.Kind, blocker.Detail); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if !result.Applied {
+		_, err := fmt.Fprintf(out, "lane completion preview: %s\nplan sha256: %s\napply: %s\n", result.Lane.ID, result.CompletionPlanSHA256, result.ApplyCommand)
+		return err
+	}
+	_, err := fmt.Fprintf(out, "lane operationally complete: %s\nnext: run /rekit status\n", result.Lane.ID)
+	return err
 }
 
 func writeExecutorNextActionsText(out io.Writer, action mission.ExecutorAction) error {

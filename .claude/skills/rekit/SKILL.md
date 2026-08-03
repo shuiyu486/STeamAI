@@ -18,7 +18,7 @@ disable-model-invocation: true
 
 产品方向是 Mission Control：用户用自然语言指挥主 Agent；当前优先打通开始 case、继续推进、总览、纠偏、新会话接手最低可用路线。`/rekit` 是 API；底层 Go CLI 是 canonical runtime；`rekit.ps1` 只是 retained compatibility façade。
 
-可给用户展示的日常表达优先是：
+示例：
 
 ```text
 开始这个 case，目标是还原核心逻辑。
@@ -26,6 +26,7 @@ disable-model-invocation: true
 总体怎么样？哪些 lane 卡住了？
 让我进入 verifier lane 帮它纠错。
 这个 lane 上下文污染了，生成接手包，让新会话接手。
+证据已审核，关闭 verifier；全部完成后给出 mission-complete。
 把这次可复用经验整理成 promote 候选。
 ```
 
@@ -39,6 +40,7 @@ disable-model-invocation: true
 /rekit overview
 /rekit continue
 /rekit start <name>
+/rekit complete <name>
 /rekit handoff
 /rekit sync
 /rekit promote
@@ -65,7 +67,8 @@ disable-model-invocation: true
 | `/rekit continue main` | 明确接手主线并整理相关状态；多工作线时无参数 `continue` 只列选择，不盲猜；`-WhatIf -Format json` 输出机器可读非写入 continue preview 和结构化 `missionBrief`；每轮 digest 记录 inputs/route/packet refs/Mission Control brief（含 pending gates 与非阻塞 authorized gates）/outputs/decisions/open risks，并在存在 execution evidence review 时直接列出 compact `executionEvidenceReviewSummary`、recorded adapterContext detail 与 follow-through outcome 的 `when` / `evidence`。 |
 | `/rekit continue <name>` | 明确接手某条功能支线，只整理该支线的 workspace/outbox、路由 request、刷新接续提示；`-WhatIf -Format json` 预览收集、路由、authority append 计划并输出结构化 `missionBrief` 与 `executorAction`；显式 `-Apply` 的 JSON envelope、run `status.json`、digest（含 compact `executionEvidenceReviewSummary` 与 execution evidence review follow-through outcome 的 `when` / `evidence`）、lane `RESUME.md` 与 typed `checkpoints/latest.json` 记录 apply 后 `missionBrief` / lane-local Mission Control brief / executor action snapshot / gate snapshot，让 lane executor 直接看到 blocked/ready、基于 typed facts 的 pending gate / open intervention / open decision counts、blocker reasons、reconcile/pending-gate/open-decision requirements、resume/handoff command、pending gates 与非阻塞 authorized gates；apply 后若新产生 open decision，JSON `nextSteps` 与 text 只建议 lane-local blocker resolution，不再建议 continue；若该 lane 存在 effective open intervention、pending-gate request 或 open candidate/decision，则 fail-closed，并在 blocked JSON/text 直接给出 `reconcileHandoffs[]` / `pendingGateHandoffs[]` / `openDecisionHandoffs[]` 与 `continue reconcile/pending gate/open decision handoff` 的 concrete WhatIf/Apply/record、boundary 与 evidence；blocked `continue` 保持 zero-write，先 review 对应 handoff，不创建 run、不刷新 lane artifacts。 |
 | `/rekit reconcile <name>` | 显式把 Human-in-the-Lane 干预 reconcile 到 durable lane state；`-WhatIf -Format json` 预览 resolution event、lane event、executor takeover、resume/checkpoint/board 刷新与 `executorAction`；显式 `-Apply` 只写 case-local interventions ledger、lane events、lane.json、RESUME/checkpoint 和 board，刷新 lane-local pending/authorized gate snapshot，并在 JSON/text 输出 apply 后 `executorAction`、`pendingGateHandoffs[]` 与 `openDecisionHandoffs[]`，让 lane executor 看到 intervention 是否清除、剩余 blocker counts、requirements、resume/handoff command 以及下一条 gate/note handoff；不执行 heavy-tool、不写 authority/confirmed。 |
-| `/rekit start <name>` | 创建或进入功能支线，例如 `login`；当 `<name>` 解析到已有工作线（如 `main` 或 `feature-login`）时进入该 durable lane，不新建并行 lane；`-WhatIf -Format json` 输出机器可读非写入 start preview 和结构化 `missionBrief` / `executorAction`，显式 `-Apply` 输出含 apply 后 `missionBrief` / `executorAction` / `pendingGateHandoffs[]` / `openDecisionHandoffs[]` 的 Go JSON envelope，text output 也显示 executor blocker counts、requirements、resume/handoff command 与 start-prefixed gate/decision handoff；主 Agent 可用 `start main -Apply -Executor <new-session> -Actor <actor> -Reason <reason>` 让替换会话接手主线并刷新 lane resume/checkpoint/events；runtime 只写 durable executor metadata，不自动 spawn 或管理 session。 |
+| `/rekit start <name>` | 创建或进入功能支线，例如 `login`；当 `<name>` 解析到已有工作线（如 `main` 或 `feature-login`）时进入该 durable lane，不新建并行 lane；`-WhatIf -Format json` 输出机器可读非写入 start preview 和结构化 `missionBrief` / `executorAction`，显式 `-Apply` 输出含 apply 后 `missionBrief` / `executorAction` / `pendingGateHandoffs[]` / `openDecisionHandoffs[]` 的 Go JSON envelope，text output 也显示 executor blocker counts、requirements、resume/handoff command 与 start-prefixed gate/decision handoff；主 Agent 可用 `start main -Apply -Executor <new-session> -Actor <actor> -Reason <reason>` 让替换会话接手主线并刷新 lane resume/checkpoint/events；runtime 只写 durable executor metadata，不自动 spawn 或管理 session。mission-complete 后普通 start 不会隐式重开 mission。 |
+| `/rekit complete <name>` | lane evidence审核后先用`-Actor/-Reason/-EvidenceRefs -WhatIf`预览，再执行返回的exact-hash Apply；hash绑定evidence bytes与blockers。feature关闭后路由下一open lane，main最后关闭；全部receipts一致时status返回`mission-complete`。closed/pending lane拒绝后续mutation，重开需独立review-first操作；不写authority/confirmed、不执行heavy-tool。 |
 | `/rekit handoff` | 生成项目级接手索引 `.rekit/handovers/latest.md`；索引和 Go JSON envelope 都包含 Mission Control brief，汇总 ready/blocked lanes、pending gates、authorized gates、open decisions、interventions、next agent actions 与 escalations；项目 handoff JSON 还包含 `laneExecutorActions[]`。`-WhatIf -Format json` 零写入返回 `publicationPlanSha256`、`publicationStamp` 与 exact Apply request，Apply必须使用同一hash/stamp。整组RESUME/checkpoint/handoff/takeover发布后，`latest-generation.json`最后提交；status只在整组exact bytes匹配时信任durable takeover，`mixed-generation`必须刷新handoff。 |
 | `/rekit handoff <name>` | 生成指定工作线接手文档，例如 `/rekit handoff main` 或 `/rekit handoff login`；使用与项目handoff相同的hash/stamp Apply和lane-local generation commit，中途失败不推进latest generation，replacement executor只能消费status标记fresh的committed takeover。文档包含该工作线Mission Control brief、executor action snapshot与最近verification/decision/gate摘要；pending gate、open intervention、open candidate/decision会标记lane blocked，ready lane才建议continue；`authorized-gate`与execution evidence review继续按既有边界投影。 |
 | `/rekit sync` | 默认先生成 LLM 审查包；用户确认具体范围后才执行写入型 sync。 |
@@ -76,8 +79,6 @@ disable-model-invocation: true
 | `/rekit note` | 账本写入/查询入口：向 `.rekit/facts/*.jsonl` append observation/hypothesis/candidate/verification/decision/intervention/rollback/publication/request 事件，用于 heavy-tool gate 登记、decision/observation 手动落账。attached case 的 append 与 `-WhatIf` 默认经 Go façade并输出机器可读 JSON envelope：`-WhatIf` 返回当前 `executorAction` 和内存模拟 append 后的 `wouldExecutorAction`，实际 append 返回写入后的 `executorAction`，duplicate eventId 只返回未改变的当前 action；candidate、defer/open decision、open intervention 与 pending-gate request 会按 shared typed facts 投影对应 blocker。该路径只写 facts JSONL 或预览，不写 authority/confirmed；`-List` 进入只读查询模式，默认经 Go façade 按 `-Kind`/`-Lane` 过滤列出事件；`-List -Format json` 输出机器可读 ledger events。写入受 strict JSONL 与 schema 校验（confidence/decision/status 枚举、evidenceRefs 非空、lane 存在性）。 |
 
 如果用户没有显式给 `Target`，在 case 模式下使用当前目录向上找到的最近 attached case root；如果没有显式给 `Pack`，attached case 使用 metadata `templatePack`，kit 模式仍使用默认 pack。`status` 会投影 `packSource`，用于区分显式参数、case metadata 与 repo default；case 模式还会投影当前 pack 是否匹配 metadata `templatePack`，显式 pack 不一致时只给诊断，不静默改写 pack。`status` 只读检测迁移与 shim drift，并在需要时给出 bounded next steps；`repair -WhatIf` 只是预览，`repair -Apply` 写入前必须得到用户确认。
-
-Batch 561处于implementation in progress：计划要求`continue -WhatIf/-Apply`提供当前`-Executor`与`-ExpectedExecutorGeneration`，并在写run/facts/lane RESUME/checkpoint/board前比对durable `currentExecutor`/`executorGeneration`；missing/mismatch/stale均fail-closed且zero-write，Apply在mutation边界重验。takeover仍由显式`start`/`reconcile`拥有；不自动管理session、不执行heavy action、不写authority/confirmed。在runtime与product-path验证完成前，不把该guard宣称为已发布能力。
 
 ## LLM-first review 规则
 
@@ -104,7 +105,7 @@ Batch 561处于implementation in progress：计划要求`continue -WhatIf/-Apply
 11. 覆盖/删除 authority、冲突、schema change、changesProjectBaseline、externalSideEffect、destructiveAction 必须停下来问用户；不要自动执行。
 12. 新功能分析使用 `/rekit start <name>`；不要再建议用户使用旧的底层工作线命令。
 13. `plan-subagents` 不是日常用户入口。planning mode 只写 review artifacts，不自动 spawn reviewer；主 Agent 用 packet typed handoff 调度 read-only reviewer。调用 Agent tool request 后先运行 `-RecordReviewerDispatch -WhatIf`，仅在 harness 实际接受 session 后执行 returned hash-bound Apply；reviewer session 结束后保存唯一 JSON 到 packet/status/handoff 投影的 `reviewerStagingCommands.sourceCaptureInput`，运行 `-RecordReviewerCompletion -WhatIf` 并执行 returned hash-bound Apply。只有 current lane owner generation 下、绑定 exact packet/prompt/harness/session/result input hash/bytes 的 successful completion receipt 才可继续：`-CaptureReviewerResultSource -WhatIf` → 用 `-ExpectedReviewerResultInputSha256` Apply 发布 packet-derived source → staging WhatIf/`-ExpectedSourceSha256` Apply → collection WhatIf/Apply → packet-level intake WhatIf/Apply。failed/partial/stale-owner receipt 不得进入 source capture；runtime 只记录 harness observations，不 spawn/poll/monitor/stop Agent。custom/noncanonical packet 保留 direct/batch intake；out-of-case packet attach/init 后重生 canonical packet。recovery/adoption/repair blocker 按 runtime handoff 操作。status/handoff/continue、RESUME、checkpoint、digest 会投影 current runbook/writeback summary；不要误述为 reviewer 自行写 ledger、runtime 自动 dispatch，或执行 heavy/authority/confirmed。
-14. Go façade 接管全部26个public commands；细节见`docs/powershell-deprecation.md`/`rekit/tests/README.md`。`run-current-loop`成功Apply按sequence写hash-chain checkpoint；新会话只消费完整chain/lineage/current request均匹配且`ready`的`resumeDriverRequest`，执行fresh WhatIf后只用返回的checkpoint-bound`applyCommand`，successor的`resumeSourceSha256`绑定前驱。tamper/gap/stale/terminal/status-unavailable不回退或恢复预算；不从prose拼命令、重置预算或复用旧plan hash。external reviewer先将一个observation alternative交给resume preview；managed ReviewerResult用独立case-local source。所有commands no-fallback；heavy-tool与authority/confirmed仍走显式gate或人工路径。
+14. Go façade 接管全部28个public commands；细节见`docs/powershell-deprecation.md`/`rekit/tests/README.md`。`run-current-loop`成功Apply按sequence写hash-chain checkpoint；新会话只消费完整chain/lineage/current request均匹配且`ready`的`resumeDriverRequest`，执行fresh WhatIf后只用返回的checkpoint-bound`applyCommand`，successor的`resumeSourceSha256`绑定前驱。tamper/gap/stale/terminal/status-unavailable不回退或恢复预算；不从prose拼命令、重置预算或复用旧plan hash。external reviewer先将一个observation alternative交给resume preview；managed ReviewerResult用独立case-local source。所有commands no-fallback；heavy-tool与authority/confirmed仍走显式gate或人工路径。
 15. manifest 中所有文件路径必须是相对路径，并且不能越出 case root 或 pack root。
 16. 所有写操作后都运行对应 doctor；失败时如实报告错误与下一步。
 

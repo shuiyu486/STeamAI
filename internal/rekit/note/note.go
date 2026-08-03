@@ -209,6 +209,9 @@ func Append(repoRoot, caseRoot, pack string, opt Options, whatIf bool) (result A
 	if err := validateAppendOptions(kind, opt); err != nil {
 		return AppendResult{}, err
 	}
+	if err := lanemutation.AssertLaneOpen(inst.CaseRoot, lane, "note"); err != nil {
+		return AppendResult{}, err
+	}
 	createdAt, err := noteCreatedAt(opt.CreatedAt)
 	if err != nil {
 		return AppendResult{}, err

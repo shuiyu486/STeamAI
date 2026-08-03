@@ -8,10 +8,10 @@ import (
 
 func TestPublicCommandCatalog(t *testing.T) {
 	commands := Public()
-	if len(commands) != 27 || !slices.IsSorted(commands) {
+	if len(commands) != 28 || !slices.IsSorted(commands) {
 		t.Fatalf("unexpected public command catalog: %v", commands)
 	}
-	for _, command := range []string{"attach", "bootstrap", "continue", "doctor", "gate", "handoff", "init", "next-batch", "note", "overview", "packs", "plan-subagents", "promote", "reconcile", "release-check", "release-run", "repair", "run-current-loop", "run-current-step", "run-driver-step", "run-reviewer-step", "run-reviewer-wave", "start", "status", "sync", "update", "validate"} {
+	for _, command := range []string{"attach", "bootstrap", "complete", "continue", "doctor", "gate", "handoff", "init", "next-batch", "note", "overview", "packs", "plan-subagents", "promote", "reconcile", "release-check", "release-run", "repair", "run-current-loop", "run-current-step", "run-driver-step", "run-reviewer-step", "run-reviewer-wave", "start", "status", "sync", "update", "validate"} {
 		if !slices.Contains(commands, command) || !IsPublic(command) || !IsPublic(" "+command+" ") {
 			t.Fatalf("public command %s missing or not recognized: %v", command, commands)
 		}
@@ -41,7 +41,7 @@ func TestPublicCommandProfiles(t *testing.T) {
 			t.Fatalf("read-only command %s has mutating profile: %+v", command, profile)
 		}
 	}
-	for _, command := range []string{NextBatch, Sync, Update, Promote, RunCurrentLoop, RunCurrentStep, RunDriverStep, RunReviewerStep, RunReviewerWave} {
+	for _, command := range []string{Complete, NextBatch, Sync, Update, Promote, RunCurrentLoop, RunCurrentStep, RunDriverStep, RunReviewerStep, RunReviewerWave} {
 		profile := profileMap[command]
 		if !profile.IsMutation || !profile.ReviewFirst || !profile.ApplyRequired {
 			t.Fatalf("review-first command %s missing mutation guards: %+v", command, profile)
@@ -51,11 +51,11 @@ func TestPublicCommandProfiles(t *testing.T) {
 		t.Fatalf("unexpected kit/case write boundaries: next-batch=%+v promote=%+v sync=%+v", profileMap[NextBatch], profileMap[Promote], profileMap[Sync])
 	}
 	summary := PublicProfileSummaryBaseline()
-	if summary.Total != 27 || summary.ReadOnly != 6 || summary.Mutating != 21 || summary.WritesCase != 19 || summary.WritesKit != 2 || summary.ReviewFirst != 9 || summary.ApplyRequired != 19 || summary.HeavyTool != 0 || summary.AuthorityConfirmed != 0 || summary.Boundaries[BoundaryCaseLocalApply] != 9 || summary.Boundaries[BoundaryCaseLocalReviewWriteback] != 1 || summary.Boundaries[BoundaryCaseLocalReviewFirst] != 7 || summary.Boundaries[BoundaryKitReviewFirst] != 2 || summary.Boundaries[BoundaryReadOnly] != 6 {
+	if summary.Total != 28 || summary.ReadOnly != 6 || summary.Mutating != 22 || summary.WritesCase != 20 || summary.WritesKit != 2 || summary.ReviewFirst != 10 || summary.ApplyRequired != 20 || summary.HeavyTool != 0 || summary.AuthorityConfirmed != 0 || summary.Boundaries[BoundaryCaseLocalApply] != 9 || summary.Boundaries[BoundaryCaseLocalReviewWriteback] != 1 || summary.Boundaries[BoundaryCaseLocalReviewFirst] != 8 || summary.Boundaries[BoundaryKitReviewFirst] != 2 || summary.Boundaries[BoundaryReadOnly] != 6 {
 		t.Fatalf("unexpected public command profile summary: %+v", summary)
 	}
 	groups := PublicProfileGroupsBaseline()
-	if strings.Join(groups.ReadOnly, ",") != "doctor,packs,release-check,release-run,status,validate" || strings.Join(groups.WritesKit, ",") != "next-batch,promote" || strings.Join(groups.ReviewFirst, ",") != "next-batch,promote,run-current-loop,run-current-step,run-driver-step,run-reviewer-step,run-reviewer-wave,sync,update" || len(groups.HeavyTool) != 0 || len(groups.AuthorityConfirmed) != 0 || len(groups.ByBoundary[BoundaryCaseLocalApply]) != 9 || strings.Join(groups.ByBoundary[BoundaryCaseLocalReviewWriteback], ",") != PlanSubagents || strings.Join(groups.ByBoundary[BoundaryCaseLocalReviewFirst], ",") != "run-current-loop,run-current-step,run-driver-step,run-reviewer-step,run-reviewer-wave,sync,update" || strings.Join(groups.ByBoundary[BoundaryKitReviewFirst], ",") != "next-batch,promote" {
+	if strings.Join(groups.ReadOnly, ",") != "doctor,packs,release-check,release-run,status,validate" || strings.Join(groups.WritesKit, ",") != "next-batch,promote" || strings.Join(groups.ReviewFirst, ",") != "complete,next-batch,promote,run-current-loop,run-current-step,run-driver-step,run-reviewer-step,run-reviewer-wave,sync,update" || len(groups.HeavyTool) != 0 || len(groups.AuthorityConfirmed) != 0 || len(groups.ByBoundary[BoundaryCaseLocalApply]) != 9 || strings.Join(groups.ByBoundary[BoundaryCaseLocalReviewWriteback], ",") != PlanSubagents || strings.Join(groups.ByBoundary[BoundaryCaseLocalReviewFirst], ",") != "complete,run-current-loop,run-current-step,run-driver-step,run-reviewer-step,run-reviewer-wave,sync,update" || strings.Join(groups.ByBoundary[BoundaryKitReviewFirst], ",") != "next-batch,promote" {
 		t.Fatalf("unexpected public command profile groups: %+v", groups)
 	}
 	boundaries := PublicProfileBoundariesBaseline()
@@ -72,7 +72,7 @@ func TestPublicCommandProfiles(t *testing.T) {
 
 func TestPublicCommandHandlerCoverageHelpers(t *testing.T) {
 	symbols := SymbolValues()
-	if len(symbols) != len(Public()) || symbols["PlanSubagents"] != "plan-subagents" || symbols["ReleaseCheck"] != "release-check" || symbols["RunCurrentLoop"] != "run-current-loop" || symbols["RunCurrentStep"] != "run-current-step" || symbols["RunDriverStep"] != "run-driver-step" || symbols["RunReviewerStep"] != "run-reviewer-step" || symbols["RunReviewerWave"] != "run-reviewer-wave" {
+	if len(symbols) != len(Public()) || symbols["Complete"] != "complete" || symbols["PlanSubagents"] != "plan-subagents" || symbols["ReleaseCheck"] != "release-check" || symbols["RunCurrentLoop"] != "run-current-loop" || symbols["RunCurrentStep"] != "run-current-step" || symbols["RunDriverStep"] != "run-driver-step" || symbols["RunReviewerStep"] != "run-reviewer-step" || symbols["RunReviewerWave"] != "run-reviewer-wave" {
 		t.Fatalf("unexpected public command symbols: %+v", symbols)
 	}
 	if missing := MissingPublicHandlers([]string{"status", "packs", "unknown"}); !slices.Contains(missing, "release-check") || slices.Contains(missing, "unknown") {

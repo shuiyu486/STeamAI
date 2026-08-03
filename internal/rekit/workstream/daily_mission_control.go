@@ -45,6 +45,36 @@ func DailyMissionControlRunbookFor(caseRoot, scope string, queue mission.Mission
 	return DailyMissionControlRunbookForWithHandoffApplyReady(caseRoot, scope, queue, handoffPreviewCommand, handoffApplyCommand, false)
 }
 
+func DailyMissionControlRunbookForMissionComplete(caseRoot string) *DailyMissionControlRunbook {
+	refreshCommand := dailyMissionControlStatusCommand(caseRoot)
+	return &DailyMissionControlRunbook{
+		Ready:                false,
+		Scope:                "case",
+		CurrentState:         "mission-complete",
+		RefreshStatusCommand: refreshCommand,
+		RunLoop: []DailyMissionControlRunbookStep{
+			{
+				StepID:            "inspect-terminal-status",
+				Order:             1,
+				Actor:             "main-agent",
+				State:             "mission-complete",
+				Source:            "missionCompletion",
+				Command:           refreshCommand,
+				CommandExecutable: true,
+				Boundary: []string{
+					"mission completion is operational only; it does not write or imply authority or confirmed findings",
+					"refresh status to inspect committed lane completion receipts; do not continue, start, or reopen a lane implicitly",
+				},
+			},
+		},
+		Boundary: []string{
+			"all durable lanes have committed completion receipts and no executable case action remains",
+			"reopening requires a separate review-first mutation",
+			"terminal runbook is read-only and does not execute commands or spawn sessions",
+		},
+	}
+}
+
 func DailyMissionControlRunbookForWithHandoffApplyReady(caseRoot, scope string, queue mission.MissionCommanderActionQueue, handoffPreviewCommand, handoffApplyCommand string, handoffApplyReady bool) *DailyMissionControlRunbook {
 	refreshCommand := dailyMissionControlStatusCommand(caseRoot)
 	scope = strings.TrimSpace(scope)

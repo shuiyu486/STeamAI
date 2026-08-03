@@ -19,6 +19,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/currentloop"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
@@ -344,6 +345,9 @@ func newHandoffContext(repoRoot, caseRoot, pack string, opt HandoffOptions) (han
 	if !ctx.project {
 		lane, err := resolveHandoffLane(inst.CaseRoot, b, selector)
 		if err != nil {
+			return handoffContext{}, err
+		}
+		if err := lanemutation.AssertLaneOpen(inst.CaseRoot, lane.ID, "handoff"); err != nil {
 			return handoffContext{}, err
 		}
 		ctx.lane = &lane
