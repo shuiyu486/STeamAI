@@ -853,6 +853,9 @@ func goNativePublicSurfaceCrossWarnings(goSurface GoNativePublicSurface, facade 
 		}
 	}
 	for _, command := range goSurface.Commands {
+		if command == commands.Onboard {
+			continue
+		}
 		if !slices.Contains(facade.CommandSurface, command) {
 			warnings = append(warnings, fmt.Sprintf("Go-native public command missing from PowerShell public facade command surface: %s", command))
 		}

@@ -30,37 +30,18 @@ disable-model-invocation: true
 把这次可复用经验整理成 promote 候选。
 ```
 
-需要说明 runtime API 时，再展示 `/rekit` 形式：
-
-```text
-/rekit init -Target <caseRoot> -Pack vmp-re -ProjectName <caseName> -Apply
-/rekit attach -Target <caseRoot> -Pack vmp-re -Apply
-/rekit status
-/rekit packs
-/rekit overview
-/rekit continue
-/rekit start <name>
-/rekit complete <name>
-/rekit reopen <name>
-/rekit handoff
-/rekit sync
-/rekit promote
-/rekit doctor
-/rekit repair
-/rekit note
-```
-
-底层 runtime 只作为 `/rekit` 的内部实现；除非用户明确要求排障，不在日常说明中展示。
+需要说明 runtime API 时再展示 `/rekit`。新 case 先由主 Agent把自然语言收敛为显式 identity，运行 `/rekit onboard ... -WhatIf -Format json`，再原样消费返回的 `applyArgs[]`；已有 case 用`attach`。后续按status的typed request使用`overview/start/continue/note/reconcile/handoff/complete/reopen`，维护时再用`packs/sync/promote/doctor/repair`。底层 runtime 只作为 `/rekit` 的内部实现，除非排障不展示。
 
 ## 命令语义
 
 | 用户意图 | 行为 |
 |---|---|
-| `/rekit` / `/rekit status` | 无子命令时默认只读 status；attached case 未显式传`-Pack`时使用metadata `templatePack`。第一屏显示pack来源与mismatch诊断、kit/case绑定和shim readiness；moved metadata、shim drift/missing等只给status recheck或`repair -WhatIf` bounded next step，不自动修复。case模式汇总Mission Commander queue/current action、pending/authorized gate、open decision/intervention、execution evidence review及其review/record/reconcile handoff；active reviewer/evidence/adapter review blocker 会优先于普通 handoff/continue follow-up，terminal `note -Kind decision -Related <candidateEventId>` 会关闭对应 open candidate blocker；kit模式显示latest-batch本地验证与remote gate真实性边界。project handoff 会同时投影 pack-memory 与 next-batch action queues，让 replacement executor 从 case-local shim / nested cwd / durable handoff 接手时不依赖旧聊天上下文。已记录 execution evidence 后，终结性的 related verification / decision note 会闭合 review queue，避免 exact `evidence-already-recorded` current action 回流。`-Format json`保留机器可读status envelope、case handoff、evidence review、shim与project handoff；默认 `/rekit` 先列 current/onboarding action strip。 |
+| `/rekit` / `/rekit status` | 默认只读；attached case未显式传`-Pack`时使用metadata。第一屏给pack/binding/shim诊断与唯一Mission Commander current action；moved/shim/onboarding/reviewer/evidence/adapter问题只给bounded repair/review request，不自动写入。JSON保留case/project handoff、quickstart、replacement takeover与release truthfulness。 |
 | `/rekit packs` | 维护者只读查看当前 kit 内 pack 矩阵：成熟度、schema、route、managed/tooling 和 authority lane 概览；`-Format json` 输出机器可读 inventory。 |
+| `/rekit onboard` | 新case的Go-owned/no-fallback入口。主Agent把自然语言收敛为七个显式identity字段；WhatIf零写入返回immutable intent、exact stamp/hash、writes与`applyArgs[]`，Apply原样消费并intent-first/commit-last发布。partial exact恢复、committed replay、status→overview→committed initial start均不依赖旧聊天。它不解释Goal、不创建board/lane、不管理session、不执行heavy-tool、不写authority/confirmed。 |
 | `/rekit attach` | 将已有 case 绑定到当前 template root 和 pack。 |
 | `/rekit repair` | 预览迁移后的 metadata 修复；用户确认后才写入。 |
-| `/rekit init` / `/rekit bootstrap` | 初始化 case metadata、case-local shim 和模板文件。 |
+| `/rekit init` / `/rekit bootstrap` | 兼容/维护入口：初始化 case metadata、case-local shim 和模板文件；新 Mission Control case 默认使用 `onboard`。 |
 | `/rekit run-current-step` | 主Agent/harness推进focused Mission Commander request的统一单步review-first runtime入口。每次WhatIf从refreshed status自动选择case或reviewer route；deterministic step返回绑定routed request、nested request与nested plan的hash，Apply只执行所选runner的一步并返回refreshed request。reviewer spawn/result等待仍是typed external handoff；runtime不调用Agent tool、不管理session、不执行heavy action、不写authority/confirmed。 |
 | `/rekit run-current-loop` | 用户自然语言要求“继续推进当前 mission”时，主Agent优先消费`missionControlRunbook.quickstart.currentLoopOperator`：执行`selectedDriverRequest`的fresh start或strict checkpoint resume preview；若有`externalReviewerHandoff.wave`，按其`maxParallel`、active/available slots和`spawnWave[]`并行调用外部read-only Agent，并用wave snapshot恢复running/returned/failed/complete shard，不再只消费单一attempt或重扫packet。单attempt observation仍可走`selectedAction`；多个shard优先汇总为`run-reviewer-wave` strict observation file。returned与failed混合时，loop先完成returned shard的source/stage/collect，再以fresh handoff重试failed shard；全部returned时继续packet intake/writeback，packet未全ready不得intake。invalid/stale receipt安全blocker仍优先。底层仍以WhatIf→hash-bound Apply推进bounded loop；旧wave/attempt/hash/receipts不跨调用复用。runtime不调用Agent、不自动跨界Apply、不管理session、不执行heavy action、不写authority/confirmed。 |
 | `/rekit run-reviewer-wave` | 主Agent/harness用case-local strict JSON批量记录current wave的`accepted|returned|failed`观察，先WhatIf审核wave/file/shard绑定，再按expected SHA Apply；partial failure保留已成功项。open intervention暂停wave/operator并撤销全部可执行动作；wave、single-step和direct reviewer mutation共享lane lease重验。takeover后旧session/result保持stale，adoption后才生成replacement dispatch。Runtime不调用Agent、不管理session、不执行heavy action、不写authority/confirmed。 |
@@ -107,7 +88,7 @@ disable-model-invocation: true
 11. 覆盖/删除 authority、冲突、schema change、changesProjectBaseline、externalSideEffect、destructiveAction 必须停下来问用户；不要自动执行。
 12. 新功能分析使用 `/rekit start <name>`；不要再建议用户使用旧的底层工作线命令。
 13. `plan-subagents` 不是日常用户入口。planning mode 只写 review artifacts，不自动 spawn reviewer；主 Agent 用 packet typed handoff 调度 read-only reviewer。调用 Agent tool request 后先运行 `-RecordReviewerDispatch -WhatIf`，仅在 harness 实际接受 session 后执行 returned hash-bound Apply；reviewer session 结束后保存唯一 JSON 到 packet/status/handoff 投影的 `reviewerStagingCommands.sourceCaptureInput`，运行 `-RecordReviewerCompletion -WhatIf` 并执行 returned hash-bound Apply。只有 current lane owner generation 下、绑定 exact packet/prompt/harness/session/result input hash/bytes 的 successful completion receipt 才可继续：`-CaptureReviewerResultSource -WhatIf` → 用 `-ExpectedReviewerResultInputSha256` Apply 发布 packet-derived source → staging WhatIf/`-ExpectedSourceSha256` Apply → collection WhatIf/Apply → packet-level intake WhatIf/Apply。failed/partial/stale-owner receipt 不得进入 source capture；runtime 只记录 harness observations，不 spawn/poll/monitor/stop Agent。custom/noncanonical packet 保留 direct/batch intake；out-of-case packet attach/init 后重生 canonical packet。recovery/adoption/repair blocker 按 runtime handoff 操作。status/handoff/continue、RESUME、checkpoint、digest 会投影 current runbook/writeback summary；不要误述为 reviewer 自行写 ledger、runtime 自动 dispatch，或执行 heavy/authority/confirmed。
-14. Go façade 接管全部29个public commands，均no-fallback；细节见`docs/powershell-deprecation.md`。新会话只消费strict `ready` checkpoint的`resumeDriverRequest`和返回的hash-bound Apply；tamper/gap/stale/terminal/status-unavailable不恢复预算。external reviewer observation/result仍经typed handoff；heavy-tool与authority/confirmed走显式gate或人工路径。
+14. Go façade 接管全部30个public commands，均no-fallback；`onboard` 也只由 retained PowerShell façade 薄透传，不得 fallback 或在 PowerShell 重建 mission intent。细节见`docs/powershell-deprecation.md`。新会话只消费strict `ready` checkpoint的`resumeDriverRequest`和返回的hash-bound Apply；tamper/gap/stale/terminal/status-unavailable不恢复预算。external reviewer observation/result仍经typed handoff；heavy-tool与authority/confirmed走显式gate或人工路径。
 15. manifest 中所有文件路径必须是相对路径，并且不能越出 case root 或 pack root。
 16. 所有写操作后都运行对应 doctor；失败时如实报告错误与下一步。
 
@@ -116,8 +97,8 @@ disable-model-invocation: true
 对用户解释时优先这样说：
 
 ```text
-第一次 clone 后，在 kit 仓库启动 Claude Code，然后用 /rekit init 或 /rekit attach。
-以后在 case 里优先用 /rekit overview 看项目概览，再用 /rekit continue main 或 /rekit continue <name> 明确选择工作线；需要新功能支线时用 /rekit start <name>。
+第一次 clone 后，在 kit 仓库启动 Claude Code；新 case 让主 Agent把自然语言转为显式 mission identity，先运行 /rekit onboard -WhatIf -Format json，再原样消费返回的 applyArgs；已有 case 用 /rekit attach。
+onboard committed 后先刷新 /rekit status，再用 /rekit overview 看项目概览，并按 committed initial lane/executor/actor 用 /rekit start <name> 接手；后续继续用 public note/reconcile/handoff/complete/reopen。
 /rekit handoff 生成项目级索引，/rekit handoff main 或 /rekit handoff <name> 生成指定工作线接手文档。
 sync/promote 仍会先生成审查报告，确认后才写入模板；底层脚本只是内部实现，不需要手动执行。
 ```

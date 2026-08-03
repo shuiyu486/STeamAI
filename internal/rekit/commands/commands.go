@@ -18,6 +18,7 @@ const (
 	Init            = "init"
 	NextBatch       = "next-batch"
 	Note            = "note"
+	Onboard         = "onboard"
 	Overview        = "overview"
 	Packs           = "packs"
 	PlanSubagents   = "plan-subagents"
@@ -125,6 +126,7 @@ var publicCommands = []string{
 	Init,
 	NextBatch,
 	Note,
+	Onboard,
 	Overview,
 	Packs,
 	PlanSubagents,
@@ -157,6 +159,7 @@ var publicProfiles = []PublicProfile{
 	{Command: Init, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
 	{Command: NextBatch, MutationBoundary: BoundaryKitReviewFirst, IsMutation: true, WritesKit: true, ReviewFirst: true, ApplyRequired: true},
 	{Command: Note, MutationBoundary: BoundaryCaseLocalAppend, IsMutation: true, WritesCase: true},
+	{Command: Onboard, MutationBoundary: BoundaryCaseLocalReviewFirst, IsMutation: true, WritesCase: true, ReviewFirst: true, ApplyRequired: true},
 	{Command: Overview, MutationBoundary: BoundaryCaseLocalReadOrBootstrap, IsMutation: true, WritesCase: true},
 	{Command: Packs, MutationBoundary: BoundaryReadOnly},
 	{Command: PlanSubagents, MutationBoundary: BoundaryCaseLocalReviewWriteback, IsMutation: true, WritesCase: true, ApplyRequired: true},
@@ -204,6 +207,7 @@ func SymbolValues() map[string]string {
 		"Init":            Init,
 		"NextBatch":       NextBatch,
 		"Note":            Note,
+		"Onboard":         Onboard,
 		"Overview":        Overview,
 		"Packs":           Packs,
 		"PlanSubagents":   PlanSubagents,

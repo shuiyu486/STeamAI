@@ -175,7 +175,7 @@ try {
 
   Assert-FacadeRuntimeNoLegacyDependency
 
-  # Low-risk read-only commands, overview/note reads, note append/what-if, gate what-if/apply request paths, bounded case lifecycle writes, sync review/apply, promote review/candidate/apply writes, promote JSON previews, start/handoff JSON preview/apply paths, continue JSON preview/apply, and plan-subagents review artifacts default to Go; retired groups fail instead of using PowerShell fallback.
+  # Low-risk read-only commands, review-first onboard, overview/note reads, note append/what-if, gate what-if/apply request paths, bounded case lifecycle writes, sync review/apply, promote review/candidate/apply writes, promote JSON previews, start/handoff JSON preview/apply paths, continue JSON preview/apply, and plan-subagents review artifacts default to Go; retired groups fail instead of using PowerShell fallback.
   $out = Invoke-RekitSmoke -Arguments @('-Command','status')
   Assert-ContainsText -Text $out -Expected 'rekit go backend:' -Label 'default go status'
 
@@ -266,6 +266,19 @@ try {
   Assert-FakeDefaultDelegation -Arguments @('-Command','repair','-Target',$CaseRoot,'-Pack',$Pack,'-Apply') -CommandName 'repair' -Label 'default repair apply fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','init','-Target',(Join-Path $matrixRoot 'default-init'),'-Pack',$Pack,'-ProjectName',"default-init-$suffix",'-Apply') -CommandName 'init' -Label 'default init apply fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','bootstrap','-Target',(Join-Path $matrixRoot 'default-bootstrap'),'-Pack',$Pack,'-ProjectName',"default-bootstrap-$suffix",'-Apply') -CommandName 'bootstrap' -Label 'default bootstrap apply fake delegation'
+  $onboardTarget = Join-Path $matrixRoot 'default-onboard'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','onboard','-Target',$onboardTarget,'-Pack',$Pack,'-ProjectName',"default-onboard-$suffix",'-Goal','recover the daily mission journey','-Actor','facade-smoke','-Executor','facade-session','-InitialLane','main','-WhatIf','-Format','json') -CommandName 'onboard' -Label 'default onboard preview fake delegation'
+  $onboardHash = 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789'
+  $onboardCapturePath = Join-Path $matrixRoot 'onboard-args.txt'
+  Write-CapturingFakeGoBackend -Path $fakeGo -CapturePath $onboardCapturePath
+  $onboardApplyOut = Invoke-RekitSmoke -Arguments @('-Command','onboard','-Target',$onboardTarget,'-Pack',$Pack,'-ProjectName',"default-onboard-$suffix",'-Goal','recover the daily mission journey','-Actor','facade-smoke','-Executor','facade-session','-InitialLane','main','-OnboardingPublicationStamp','20260803-010203004','-ExpectedOnboardingPlanSha256',$onboardHash,'-Apply','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $onboardApplyOut -Expected '"delegatedByFake":true' -Label 'default onboard apply fake delegation'
+  $capturedOnboardArgs = [System.IO.File]::ReadAllText($onboardCapturePath, [System.Text.Encoding]::Default)
+  foreach ($expectedOnboardArg in @('-Goal "recover the daily mission journey"','-Actor facade-smoke','-Executor facade-session','-InitialLane main','-OnboardingPublicationStamp 20260803-010203004',"-ExpectedOnboardingPlanSha256 $onboardHash",'-Apply','-Format json')) {
+    Assert-ContainsText -Text $capturedOnboardArgs -Expected $expectedOnboardArg -Label 'onboard facade args'
+  }
+  $onboardDisabledOut = Invoke-RekitSmoke -Arguments @('-Command','onboard','-Target',$onboardTarget,'-Pack',$Pack,'-ProjectName',"default-onboard-$suffix",'-Goal','recover the daily mission journey','-Actor','facade-smoke','-Executor','facade-session','-InitialLane','main','-WhatIf','-Format','json') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $onboardDisabledOut -Expected 'PowerShell fallback has been retired' -Label 'disabled onboard no-fallback remains retired'
   Assert-FakeDefaultDelegation -Arguments @('-Command','sync','-Target',$CaseRoot,'-Pack',$Pack) -CommandName 'sync' -Label 'default sync review fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','sync','-Target',$CaseRoot,'-Pack',$Pack,'-Apply') -CommandName 'sync' -Label 'default sync apply fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','update','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-Format','json') -CommandName 'update' -Label 'default update apply fake delegation'

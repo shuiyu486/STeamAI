@@ -28,9 +28,26 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
+
+### Batch 808：review-first mission intent onboarding and public daily journey through intervention, replacement takeover, completion, reopen, and recompletion
+
+状态：已完成review-first immutable mission intent onboarding、完整public daily journey、exact partial recovery、trusted generation contract、Windows pinned namespace containment、文档收尾、独立终审与Windows本机release minimum；implementation commit/push待本批统一完成。本批选择`mission-commander`，把开始case、公开纠偏、replacement takeover、完成、复开与再次完成串成一条public daily journey；本批不是parser、字段、文案、summary或projection微调。
+
+用户断点：变更前，`init/overview/start/continue/note/reconcile/handoff/complete/reopen`各有owner，但“开始这个case，目标是……”仍依赖主Agent在旧聊天中临时记住Goal、initial lane、executor和actor；daily smoke甚至直接append interventions JSONL。中断或换会话后没有immutable mission intent、exact onboarding recovery或一条纯public CLI旅程证明，replacement executor容易重新猜测初始参数或绕过public intervention入口。
+
+目标：新增唯一Go-owned/no-fallback`onboard`owner。主Agent只把自然语言转成显式`Target/Pack/ProjectName/Goal/Actor/Executor/InitialLane`；Go不解释Goal语义。WhatIf零写入返回immutable mission intent、完整exact write set、publication stamp/hash及machine-readable`applyArgs[]`；Apply必须消费同一stamp/hash，以intent-first、ordinary leaves、commit-last顺序no-overwrite发布。partial exact publication可恢复，committed response-loss replay零写入；fresh status从durable intent恢复overview，再恢复selected initial lane/executor/actor的start preview，不依赖旧聊天。
+
+用户操作变化：变更前是`自然语言 → 主Agent手工init/记参数 → 分散smoke/直接ledger写入 → 换会话重建`；变更后是`自然语言 → onboard WhatIf → review exact intent/applyArgs → hash-bound Apply → status/overview → status选择committed initial start → continue → public note intervention → reconcile replacement → handoff/new-session status → complete → reopen → recomplete`。Replacement takeover target documents包含`.rekit/mission-intent.json`，pending intent即使尚未发布instance metadata也能由status给出exact recovery。
+
+E2E验收：真实临时missing target走通onboard preview/apply、missing-board status、overview、selected initial lane claim、continue、public note intervention、replacement reconcile/handoff与fresh status、feature+main completion、terminal feature+main compound reopen、fresh route及第二轮completion；断言WhatIf零写入、stale hash/input drift零写入、invalid UTF-8/oversize Goal和invalid lane拒绝、marker/hash/exact plan来自同一immutable ordinary snapshot、intent-only中断后即使同一canonical kit root内live pack source不可用仍从bounded durable exact envelope恢复原preview bytes、different kit root Apply零写入拒绝、envelope只能承载append-only trusted generation覆盖的exact canonical onboarding write set且ordinary writes强制phase 1确保commit-last、pending/committed artifacts移植到另一case root均fail-closed且不生成跨case Apply、commit finality、committed replay、Windows一次Inspect持续持有同一组pinned case-root、`.rekit`与`.rekit/onboarding` handles，确保mission/intent/commit来自单一稳定internal namespace，并拒绝ancestor/leaf reparse/junction、case-root/internal-parent检查后rebind及跨artifact读取切换`.rekit`，且全程不产生authority/confirmed。
+
+边界：runtime不解析自然语言、不spawn/poll/stop Claude Code/reviewer/adapter session、不执行heavy-tool、不写或推断authority/confirmed；`onboard`不复制overview/start/note/reconcile/handoff/complete/reopen业务。普通attached mutation在pending/corrupt onboarding时fail-closed。PowerShell compatibility façade只做严格参数校验和Go透传，不计算plan/hash、不解析Goal、不实现recovery或fallback。普通batch不等待remote CI，也不创建release inspection commit。
+
+验证结果：missionintent/onboarding/sync/CLI focused packages通过（最终CLI 163.675秒）；Windows pinned namespace专项回归、30-command PowerShell façade smoke、status、10-pack inventory与doctor通过（canonical skill 32585/32768 bytes）。独立终审确认RecoveryEnvelope任意写入、hash A发布B和跨artifact mixed namespace三项Important全部关闭，且无剩余confirmed Critical/Important。全仓`go test ./...`通过（CLI 166.924秒），`go vet ./...`无输出，`git diff --check`无whitespace error（仅LF/CRLF提示）；首次全仓测试发现新增recovery contract直接使用默认pack literal，已统一改用`defaults.DefaultPack`并由manifest invariant复验通过。完成态`go run ./cmd/rekit -- -Command release-check -Format json`、`status -Format json`、`packs -Format json`与`doctor -Format json`通过；统一`release-run -Format json`最终以7/7通过（1007.767秒，其中完整Go tests 1004.762秒）；所有步骤均首次通过，无retry。普通batch不等待或声明remote CI green。
+
 ### Batch 807：review-first mission/lane reopen and completion supersession closure
 
-状态：已完成review-first mission/lane reopen、append-only supersession lifecycle、compound final commit、immutable exact publication recovery、Windows reparse containment、committed replay、完整产品路径回归与独立终审；implementation commit/push待本批统一完成。本批选择`mission-commander`，关闭误完成、补充证据或事后发现新工作时只能手改`lane.json`、board和completion artifacts，导致审计链断裂、terminal guard与current routing互相矛盾的日常断点；本批不是字段、文案、summary或receipt投影微调。
+状态：已完成review-first mission/lane reopen、append-only supersession lifecycle、compound final commit、immutable exact publication recovery、Windows reparse containment、committed replay、完整产品路径回归与独立终审；implementation commit `687e603`已推送到`origin/main`，post-push确认clean `main`且`HEAD == origin/main`。本批选择`mission-commander`，关闭误完成、补充证据或事后发现新工作时只能手改`lane.json`、board和completion artifacts，导致审计链断裂、terminal guard与current routing互相矛盾的日常断点；本批不是字段、文案、summary或receipt投影微调。
 
 目标：提供唯一Go-owned review-first `reopen` owner。原completion intent/receipt与`lane-completed`事实保持immutable；reopen以actor/reason、被supersede的exact completion identity、目标open状态与fresh durable snapshot生成WhatIf hash，Apply在project lease内重建并以可恢复publication发布supersession event/receipt、lane/board/RESUME/checkpoint，最后切换commit marker。fresh status必须只把未supersede的current completion计入terminal mission，恢复唯一open lane路由；ordinary`start`及其它lane mutation仍不得绕过专用reopen。
 

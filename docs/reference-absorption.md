@@ -55,7 +55,7 @@ git diff --check
 
 - 外部参考只能作为设计来源，不能替代本项目的 manifest、runtime 和 pack 边界。
 - `ida-agent-bridge` 当前是 candidate，不是必装工具。
-- `clark-utov` 风格的 batch/ledger/intervention 已从文档推进到 runtime ledger（`/rekit note` 9 种 kind + auto decision 字段对齐 `docs/evidence-ledger.md`），但 batch 模型（`batchId`/整体接受/回滚）与 intervention runtime 强制门禁仍未实现，不能误导为 runtime 已完整实现。
+- `clark-utov` 风格的 batch/ledger/intervention 已从文档推进到 runtime ledger（`/rekit note` 9 种 kind + auto decision 字段对齐 `docs/evidence-ledger.md`）；effective open intervention 的 durable blocker、显式 `reconcile`、reviewer-wave pause 与 stale mutation fail-closed 门禁已实现。尚未实现的是 batch 模型（`batchId`/整体接受/回滚）、由 `continue` 自动生成 intervention/rollback 以及完整 batch-level replay，不能误导为 runtime 已完整实现。
 - lane 文档/packet 只表达授权意图；heavy trace、dynamic debug、inject、patch、dump、symex、网络/外部副作用只有在 strict durable autonomy profile + `authorized-gate` decision 完全覆盖时才可由 executor 执行；未授权、越界、出现新风险或需要 confirmed/authority/promote 时必须升级给用户。
 - confirmed / authority 写入仍必须经 evidence、verifier、schema、backup、diff、无冲突等 gate。
 

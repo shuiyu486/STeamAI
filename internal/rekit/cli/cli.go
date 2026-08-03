@@ -29,7 +29,9 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/note"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/onboarding"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/overview"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/promote"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/releasecheck"
@@ -118,6 +120,10 @@ type Options struct {
 	ShardID                                  string
 	DiffPath                                 string
 	ProjectName                              string
+	Goal                                     string
+	InitialLane                              string
+	OnboardingPublicationStamp               string
+	ExpectedOnboardingPlanSHA256             string
 	Route                                    string
 	TaskType                                 string
 	Items                                    string
@@ -178,6 +184,30 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ProjectName")
 			}
 			opt.ProjectName = args[i]
+		case "-Goal", "--goal":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -Goal")
+			}
+			opt.Goal = args[i]
+		case "-InitialLane", "--initial-lane":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -InitialLane")
+			}
+			opt.InitialLane = args[i]
+		case "-OnboardingPublicationStamp", "--onboarding-publication-stamp":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -OnboardingPublicationStamp")
+			}
+			opt.OnboardingPublicationStamp = args[i]
+		case "-ExpectedOnboardingPlanSha256", "-ExpectedOnboardingPlanSHA256", "--expected-onboarding-plan-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedOnboardingPlanSha256")
+			}
+			opt.ExpectedOnboardingPlanSHA256 = args[i]
 		case "-Name", "--name":
 			i++
 			if i >= len(args) {
@@ -1130,6 +1160,9 @@ func Run(args []string, stdout io.Writer) error {
 	if strings.TrimSpace(opt.ExpectedCandidateSHA256) != "" && opt.Command != commands.PlanSubagents {
 		return fmt.Errorf("expected candidate hash is supported only by plan-subagents reviewer result collection or recovery")
 	}
+	if (strings.TrimSpace(opt.Goal) != "" || strings.TrimSpace(opt.InitialLane) != "" || strings.TrimSpace(opt.OnboardingPublicationStamp) != "" || strings.TrimSpace(opt.ExpectedOnboardingPlanSHA256) != "") && opt.Command != commands.Onboard {
+		return fmt.Errorf("mission onboarding flags are supported only by onboard")
+	}
 	switch opt.Command {
 	case commands.Status:
 		return runStatus(ctx, opt, stdout)
@@ -1151,6 +1184,8 @@ func Run(args []string, stdout io.Writer) error {
 		return runReviewerWave(ctx, opt, stdout)
 	case commands.NextBatch:
 		return runNextBatch(ctx, opt, stdout)
+	case commands.Onboard:
+		return runOnboard(ctx, opt, stdout)
 	case commands.Doctor, commands.Validate:
 		return runDoctor(ctx, opt, stdout)
 	case commands.Attach:
@@ -3198,6 +3233,7 @@ type statusInventory struct {
 	CaseShim              statusCaseShim               `json:"caseShim"`
 	ProjectHandoff        *statusProjectHandoff        `json:"projectHandoff,omitempty"`
 	CaseMission           *statusCaseMission           `json:"caseMission,omitempty"`
+	Onboarding            *missionintent.Inspection    `json:"onboarding,omitempty"`
 	MissionControlRunbook *statusMissionControlRunbook `json:"missionControlRunbook,omitempty"`
 }
 
@@ -4892,7 +4928,7 @@ func statusReplacementExecutorTakeoverTargetDocuments(scope string, request miss
 	case "project", "pack-memory":
 		docs = append(docs, statusMissionControlGuidanceTargetDocuments(projectHandoff)...)
 	case "case", "reviewer":
-		docs = append(docs, ".rekit/board.json", ".rekit/facts/*.jsonl")
+		docs = append(docs, ".rekit/mission-intent.json", ".rekit/board.json", ".rekit/facts/*.jsonl")
 		if lane := strings.TrimSpace(request.Lane); lane != "" {
 			docs = append(docs,
 				".rekit/lanes/"+lane+"/prompts/RESUME.md",
@@ -4933,6 +4969,7 @@ func statusReplacementExecutorTakeoverArtifactTargetDocuments(scope string, requ
 	if scope == "project" || scope == "pack-memory" {
 		docs = append(docs, ".rekit/handovers/latest.md")
 	} else if scope == "case" || scope == "reviewer" || strings.HasPrefix(scope, "lane:") {
+		docs = append(docs, ".rekit/mission-intent.json")
 		if lane := strings.TrimSpace(request.Lane); lane != "" {
 			docs = append(docs,
 				".rekit/handovers/"+lane+"-latest.md",
@@ -7670,6 +7707,25 @@ func buildStatusInventory(ctx runtime.Context, packSource string) (statusInvento
 		Mode:           "kit",
 		CaseShim:       buildStatusCaseShim(ctx.RepoRoot, ""),
 	}
+	if !instance.LooksLikeCase(ctx.Target) {
+		inspection, inspectErr := missionintent.Inspect(ctx.Target)
+		if inspectErr != nil || inspection.State == "pending" || inspection.State == "corrupt" {
+			if inspection.State == "pending" {
+				inspection.ApplyArgs = onboardingApplyArgs(inspection.Identity, inspection.PublicationStamp, inspection.OnboardingPlanSHA256)
+			}
+			status.Mode = "case-onboarding-pending"
+			status.Onboarding = &inspection
+			summary := "onboarding state is corrupt"
+			if inspectErr != nil {
+				summary += ": " + inspectErr.Error()
+			} else if inspection.State == "pending" {
+				summary = fmt.Sprintf("onboarding publication is pending; execute onboarding.applyArgs exactly with stamp %s and plan hash %s", inspection.PublicationStamp, inspection.OnboardingPlanSHA256)
+			}
+			status.CaseMission = statusOnboardingBlockedMission(ctx.Target, summary)
+			status.MissionControlRunbook = buildStatusMissionControlRunbook(ctx.Target, status.CaseMission, nil)
+			return status, nil
+		}
+	}
 	if instance.LooksLikeCase(ctx.Target) {
 		inst, err := instance.Read(ctx.Target)
 		if err != nil {
@@ -7694,9 +7750,17 @@ func buildStatusInventory(ctx runtime.Context, packSource string) (statusInvento
 			ShimPath:            caseShim.InstalledShimPath,
 			ShimMatchesTemplate: boolPtrValue(caseShim.InstalledShimMatches),
 		}
-		status.CaseMission, err = buildStatusCaseMission(ctx.RepoRoot, inst.CaseRoot, ctx.Pack)
-		if err != nil {
-			return statusInventory{}, err
+		onboardingInspection, onboardingErr := missionintent.Inspect(inst.CaseRoot)
+		status.Onboarding = &onboardingInspection
+		if onboardingErr != nil {
+			status.CaseMission = statusOnboardingBlockedMission(inst.CaseRoot, "onboarding state is corrupt: "+onboardingErr.Error())
+		} else if onboardingInspection.State == "pending" {
+			status.CaseMission = statusOnboardingBlockedMission(inst.CaseRoot, fmt.Sprintf("onboarding publication is pending; rerun exact onboard Apply with stamp %s and plan hash %s", onboardingInspection.PublicationStamp, onboardingInspection.OnboardingPlanSHA256))
+		} else {
+			status.CaseMission, err = buildStatusCaseMission(ctx.RepoRoot, inst.CaseRoot, ctx.Pack, onboardingInspection)
+			if err != nil {
+				return statusInventory{}, err
+			}
 		}
 		handoff, err := projectHandoffBuild(ctx.RepoRoot)
 		if err != nil {
@@ -7751,11 +7815,57 @@ func statusCaseMissionOnboardingAction(caseRoot string) mission.MissionCommander
 	return workstream.MissingBoardOnboardingAction(caseRoot)
 }
 
+func onboardingApplyArgs(identity missionintent.Identity, stamp, hash string) []string {
+	return []string{"-Command", "onboard", "-Target", identity.Target, "-Pack", identity.Pack, "-ProjectName", identity.ProjectName, "-Goal", identity.Goal, "-Actor", identity.Actor, "-Executor", identity.Executor, "-InitialLane", identity.InitialLane, "-OnboardingPublicationStamp", stamp, "-ExpectedOnboardingPlanSha256", hash, "-Apply", "-Format", "json"}
+}
+
+func statusOnboardingBlockedMission(caseRoot, summary string) *statusCaseMission {
+	return &statusCaseMission{
+		Ready:                         false,
+		Summary:                       summary,
+		DailyMissionControlRunbook:    workstream.DailyMissionControlRunbookFor(caseRoot, "onboarding-publication-blocked", mission.MissionCommanderActionQueue{}, "", ""),
+		ContinueRequiresExplicitApply: "status is read-only; ordinary attached commands remain blocked until exact onboarding recovery commits",
+		MissionBriefNextActions:       []string{summary},
+	}
+}
+
 func statusCaseMissionStartBootstrapAction(caseRoot string) mission.MissionCommanderNextActionItem {
 	return workstream.StartBootstrapAction(caseRoot)
 }
 
-func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission, error) {
+func statusCaseMissionIntentStartAction(repoRoot, caseRoot, pack string, identity missionintent.Identity) (mission.MissionCommanderNextActionItem, error) {
+	m, err := manifest.Load(repoRoot, pack)
+	if err != nil {
+		return mission.MissionCommanderNextActionItem{}, err
+	}
+	label := identity.InitialLane
+	defaultType := strings.TrimSpace(m.WorkstreamDefaults["defaultStartLaneType"])
+	if prefix := defaultType + "-"; strings.HasPrefix(identity.InitialLane, prefix) {
+		label = strings.TrimPrefix(identity.InitialLane, prefix)
+	}
+	command := fmt.Sprintf("/rekit start -Target %s %s -Executor %s -Actor %s -WhatIf -Format json", statusQuoteCommandArg(caseRoot), statusQuoteCommandArg(label), statusQuoteCommandArg(identity.Executor), statusQuoteCommandArg(identity.Actor))
+	return mission.MissionCommanderNextActionItem{
+		Lane:           identity.InitialLane,
+		Label:          label,
+		ActionID:       "case-mission-intent-start",
+		State:          "start-bootstrap-preview-required",
+		Command:        command,
+		Source:         "committedMissionIntent",
+		RequiresReview: true,
+		Reasons: []string{
+			"committed mission intent selects the initial lane and durable executor owner",
+			"preview the exact start before creating and claiming the initial lane",
+		},
+		Boundary: []string{
+			"status recovers InitialLane, Executor, and Actor from .rekit/mission-intent.json",
+			"start preview is read-only and start Apply performs only bounded case-local lane state writes",
+			"no authority/confirmed writes",
+			"no heavy-tool execution",
+		},
+	}, nil
+}
+
+func buildStatusCaseMission(repoRoot, caseRoot, pack string, onboarding ...missionintent.Inspection) (*statusCaseMission, error) {
 	previewCommand := fmt.Sprintf("/rekit handoff -Target %s -WhatIf -Format json", statusQuoteCommandArg(caseRoot))
 	applyCommand := fmt.Sprintf("/rekit handoff -Target %s -Apply -Format json", statusQuoteCommandArg(caseRoot))
 	continueBoundary := "status is read-only; run continue with -WhatIf first, then -Apply only after reviewing blockers/evidence"
@@ -7783,6 +7893,36 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string) (*statusCaseMission
 	inventory, err := overview.BuildInventory(repoRoot, caseRoot, pack)
 	if err != nil {
 		return nil, err
+	}
+	if len(onboarding) > 0 && onboarding[0].Committed {
+		identity := onboarding[0].Identity
+		initialLaneExists := false
+		for _, lane := range inventory.Lanes {
+			if strings.EqualFold(strings.TrimSpace(lane.ID), strings.TrimSpace(identity.InitialLane)) {
+				initialLaneExists = true
+				break
+			}
+		}
+		if !initialLaneExists {
+			action, err := statusCaseMissionIntentStartAction(repoRoot, caseRoot, pack, identity)
+			if err != nil {
+				return nil, err
+			}
+			actions := []mission.MissionCommanderNextActionItem{action}
+			queue := mission.MissionCommanderActionQueueFor(actions)
+			return &statusCaseMission{
+				Ready:                         true,
+				Summary:                       "committed mission intent requires reviewed initial lane start",
+				LaneCount:                     len(inventory.Lanes),
+				MissionCommanderActionQueue:   queue,
+				MissionCommanderNextActions:   actions,
+				DailyMissionControlRunbook:    workstream.DailyMissionControlRunbookFor(caseRoot, "mission-intent-start", queue, previewCommand, applyCommand),
+				HandoffPreviewCommand:         previewCommand,
+				HandoffApplyCommand:           applyCommand,
+				ContinueRequiresExplicitApply: continueBoundary,
+				MissionBriefNextActions:       []string{"consume the single typed start preview request recovered from durable mission intent"},
+			}, nil
+		}
 	}
 	ledgerFacts, err := mission.ReadStrictLedgerFacts(caseRoot)
 	if err != nil {
@@ -9139,6 +9279,44 @@ func runRepair(ctx runtime.Context, opt Options, out io.Writer) error {
 		return writeJSON(out, result)
 	}
 	return writeRepairPlanText(out, result)
+}
+
+func runOnboard(ctx runtime.Context, opt Options, out io.Writer) error {
+	if !ctx.TargetProvided {
+		return fmt.Errorf("onboard requires an explicit -Target fresh case directory")
+	}
+	if opt.WhatIf == opt.Apply {
+		return fmt.Errorf("onboard requires exactly one of -WhatIf or -Apply")
+	}
+	format, err := workstreamFormat(opt.Format)
+	if err != nil {
+		return fmt.Errorf("unsupported onboard format: %s", opt.Format)
+	}
+	onboardOpt := onboarding.Options{
+		Target: ctx.Target, Pack: ctx.Pack, ProjectName: opt.ProjectName, Goal: opt.Goal,
+		Actor: opt.Note.Actor, Executor: opt.Start.Executor, InitialLane: opt.InitialLane,
+		PublicationStamp: opt.OnboardingPublicationStamp, ExpectedOnboardingPlanSHA256: opt.ExpectedOnboardingPlanSHA256,
+	}
+	if opt.WhatIf {
+		plan, err := onboarding.Preview(ctx.RepoRoot, onboardOpt)
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return writeJSON(out, plan)
+		}
+		_, err = fmt.Fprintf(out, "onboard plan：mutation=false reviewRequired=true stamp=%s planSha256=%s writes=%d\nonboard exact apply：%s\n", plan.PublicationStamp, plan.OnboardingPlanSHA256, len(plan.Writes), plan.ApplyCommand)
+		return err
+	}
+	result, err := onboarding.Apply(ctx.RepoRoot, onboardOpt)
+	if err != nil {
+		return err
+	}
+	if format == "json" {
+		return writeJSON(out, result)
+	}
+	_, err = fmt.Fprintf(out, "onboard apply：applied=%t replay=%t state=%s stamp=%s planSha256=%s writes=%d\n", result.Applied, result.Replay, result.Inspection.State, result.PublicationStamp, result.OnboardingPlanSHA256, len(result.Writes))
+	return err
 }
 
 func runInitBootstrap(ctx runtime.Context, opt Options, out io.Writer) error {

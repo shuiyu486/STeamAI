@@ -12,7 +12,8 @@
 
 新方案不是替换旧 case 的大迁移，而是在现有 `/rekit`、pack、case shim、工作线机制上增加 Agent Team 的组织方式：
 
-- 用户日常入口优先是自然语言主 Agent / Mission Commander；`/rekit` 仍是主 Agent、维护者、自动化和排障使用的 deterministic runtime API。
+- 用户日常入口优先是自然语言主 Agent / Mission Commander；新 case 由主 Agent把自然语言显式收敛为 `Target` / `Pack` / `ProjectName` / opaque bounded `Goal` / `Actor` / `Executor` / `InitialLane`，再调用 public Go-owned/no-fallback `onboard`。`/rekit` 仍是主 Agent、维护者、自动化和排障使用的 deterministic runtime API。
+- `onboard -WhatIf -Format json` 零写入返回 immutable mission intent、exact publication stamp/hash 与机器可读 `applyArgs[]`；Apply 必须消费 exact stamp/hash 和 identity，按 intent-first / commit-last 发布，支持 partial recovery 与 committed exact replay。提交后先 status，再 overview，最后按 committed initial lane/executor/actor start；后续仍走 public note/reconcile/handoff/complete/reopen。Runtime 不解析自然语言、不执行 heavy-tool、不写 authority/confirmed，也不 spawn/poll session。
 - 旧 case 可继续使用 `.re-template.yml`，也可以通过 `/rekit attach` / `/rekit repair` 补齐 `.rekit/instance.yml`。
 - 主线和功能支线仍然保留，而且是新架构的核心协作单元。
 - `sync` / `promote` 仍然 review-first，写入前需要确认具体范围。
@@ -36,15 +37,14 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 
 ### 新安全 case（当前以 `vmp-re` 为例）
 
-1. 在 kit 仓库启动 Claude Code。
-2. 使用 `/rekit init -Target <caseRoot> -Pack vmp-re -ProjectName <caseName> -Apply`。
-3. 进入 case 目录启动 Claude Code。
-4. 执行 `/rekit status` 和 `/rekit overview`。
-5. 用 `/rekit continue main` 接手主线。
-6. 需要专项分析时，用 `/rekit start <name>` 创建功能支线。
-7. lane 的 evidence 与 blockers 已审核闭合时，用 `/rekit complete <name> -Actor <actor> -Reason <reason> -EvidenceRefs <case-relative-file> -WhatIf -Format json` 预览，再执行返回的 exact-hash Apply；功能支线关闭后继续下一条 open lane，main 最后关闭。
-8. 若误完成、补充证据或事后发现新工作，用 `/rekit reopen <name> -Actor <actor> -Reason <reason> -EvidenceRefs <case-relative-file> -WhatIf -Format json` 审核superseded receipt、effective targets和写集，再执行返回的exact-hash Apply；不要手改lane/board/completion artifacts。
-9. 需要中途换会话时用 `/rekit handoff` 或 `/rekit handoff <name>`；全部 lane committed closed 后 status 返回 `mission-complete`，不再建议 start/continue/handoff。
+1. 在 kit 仓库启动 Claude Code，用自然语言说明目标、pack 与希望由谁接手。
+2. 主 Agent把自然语言显式收敛为 `Target` / `Pack` / `ProjectName` / opaque bounded `Goal` / `Actor` / `Executor` / `InitialLane`，运行 `/rekit onboard ... -WhatIf -Format json`。
+3. 复核 immutable mission intent、writes、`publicationStamp` 与 `onboardingPlanSha256`，再原样执行 preview 返回的机器可读 `applyArgs[]`；不要从文本手工重建 Apply。若 intent 发布后中断，只用同一 exact stamp/hash/identity 从 durable bounded exact envelope 恢复，不重新消费可能变化的 live kit/pack；committed replay 不重复写入。
+4. committed 后执行 `/rekit status`，先消费 onboarding overview route，再运行 `/rekit overview`；随后按 committed `InitialLane` / `Executor` / `Actor` 用 `/rekit start <lane>` 登记接手。
+5. 需要专项分析时，用 `/rekit start <name>` 创建功能支线；日常记录、纠偏与接手继续使用 public `note` / `reconcile` / `handoff`。
+6. lane 的 evidence 与 blockers 已审核闭合时，用 `/rekit complete <name> -Actor <actor> -Reason <reason> -EvidenceRefs <case-relative-file> -WhatIf -Format json` 预览，再执行返回的 exact-hash Apply；功能支线关闭后继续下一条 open lane，main 最后关闭。
+7. 若误完成、补充证据或事后发现新工作，用 `/rekit reopen <name> -Actor <actor> -Reason <reason> -EvidenceRefs <case-relative-file> -WhatIf -Format json` 审核superseded receipt、effective targets和写集，再执行返回的exact-hash Apply；不要手改lane/board/completion artifacts。
+8. 需要中途换会话时用 `/rekit handoff` 或 `/rekit handoff <name>`；全部 lane committed closed 后 status 返回 `mission-complete`，不再建议 start/continue/handoff。
 
 ### 旧 case
 
@@ -116,8 +116,9 @@ go test ./internal/rekit/cli -run '^TestRunDailyMissionControlRouteSmokeProductP
 /rekit attach -Target <caseRoot> -Pack <pack> -Apply -Format text  # 写入 binding metadata/shim/state，并打印 next steps
 /rekit repair -Target <caseRoot> -Pack <pack> -WhatIf -Format text # case 移动后预览 metadata/shim refresh
 /rekit repair -Target <caseRoot> -Pack <pack> -Apply -Format text  # 在 WhatIf preview 与显式确认后修复 moved case 绑定，并打印 handoff
-/rekit init -Target <caseRoot> -Pack <pack> -WhatIf -Format text   # 新 case 初始化前预览 managed/template writes
-/rekit init -Target <caseRoot> -Pack <pack> -Apply -Format text    # 初始化完整 case，并打印 doctor handoff
+/rekit onboard -Target <caseRoot> -Pack <pack> -ProjectName <name> -Goal <opaqueGoal> -Actor <actor> -Executor <executor> -InitialLane <lane> -WhatIf -Format json # 新Mission Control case先审查immutable intent、stamp/hash与applyArgs；Apply只原样消费applyArgs
+/rekit init -Target <caseRoot> -Pack <pack> -WhatIf -Format text   # 兼容/维护初始化入口：预览 managed/template writes
+/rekit init -Target <caseRoot> -Pack <pack> -Apply -Format text    # 兼容/维护初始化入口：初始化完整 case，并打印 doctor handoff
 /rekit bootstrap -Target <caseRoot> -Pack <pack> -WhatIf -Format text # compat bootstrap 预览，保持 bootstrap identity
 /rekit sync                  # kit -> case，默认只生成 JSON review
 /rekit sync -Format text     # kit -> case review plan 的 terminal handoff
@@ -222,13 +223,13 @@ Replacement executor应以fresh `status.missionControlRunbook.replacementExecuto
 
 ### 1.2 接入新安全 case（当前以 `vmp-re` 为例）
 
-从 kit 仓库启动 Claude Code，然后：
+从 kit 仓库启动 Claude Code，先让主 Agent把自然语言目标收敛为显式 mission identity，然后：
 
 ```text
-/rekit init -Target <workspaceRoot>\cases\<caseName> -Pack vmp-re -ProjectName <caseName> -Apply
+/rekit onboard -Target <workspaceRoot>\cases\<caseName> -Pack vmp-re -ProjectName <caseName> -Goal <opaqueGoal> -Actor <actor> -Executor <executor> -InitialLane <lane> -WhatIf -Format json
 ```
 
-`init` 会创建：
+复核 preview 后原样消费返回的 `applyArgs[]`。`onboard` committed 后形成 immutable mission intent 与 case scaffold，但不创建 board/lane；status 会先路由 overview，再由 committed initial lane/executor/actor 驱动 start。兼容/维护场景仍可使用 `init`；其创建内容包括：
 
 ```text
 <caseRoot>\.rekit\instance.yml
@@ -367,7 +368,7 @@ Replacement executor应以fresh `status.missionControlRunbook.replacementExecuto
 | 你现在的情况 | 推荐动作 |
 |---|---|
 | 只维护本仓库 | 读 `CLAUDE.md` 与 `docs/context-routing.md`，再按场景读本文件顶部或其它入口；不要 init case |
-| 新建安全 case（当前成熟示例：`vmp-re` RE case） | 在 kit 仓库用 `/rekit init -Target ... -Pack vmp-re -Apply` |
+| 新建安全 case（当前成熟示例：`vmp-re` RE case） | 在 kit 仓库让主 Agent显式收敛 mission identity，运行 `/rekit onboard ... -WhatIf -Format json`，复核后原样消费 `applyArgs[]` |
 | 已有 case 接入新架构 | 用 `/rekit attach`，再 `/rekit sync` review |
 | 旧 case 移动了目录 | `/rekit status` -> `/rekit repair` -> 确认后 `repair -Apply` -> `/rekit doctor` |
 | 想看项目全局状态 | `/rekit overview` |

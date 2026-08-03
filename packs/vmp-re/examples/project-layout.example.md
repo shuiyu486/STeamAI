@@ -13,7 +13,7 @@ C:\AI\m_projects\RE\
   cases\
     sample-vmp-case\              # 具体 RE 项目实例
       .claude\skills\rekit\       # case-local 薄 shim
-      .rekit\                     # instance.yml / state.json
+      .rekit\                     # instance.yml / state.json / mission-intent.json / onboarding publication
       CLAUDE.local.md
       .re-template.yml             # 兼容旧入口，逐步迁移到 .rekit
       references\vmp-re\...

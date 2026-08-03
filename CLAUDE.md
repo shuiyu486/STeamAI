@@ -6,7 +6,7 @@
 
 产品北极星见 `docs/mission-control-product-direction.md`：用户主要指挥主 Agent；`/rekit` 与 Go backend 是底层 deterministic runtime/API；`rekit.ps1` 只作为 retained compatibility façade；长期成员身份绑定 lane，不绑定旧聊天窗口。lane 文档/packet 只能表达授权意图；heavy action 的确定性授权依据是 strict validated `.rekit/lanes/<lane>/autonomy.json` 加 `gate` 记录的 `authorized-gate` decision。
 
-本仓库不是具体安全 case、RE case、自动脱壳器、逆向引擎、漏洞挖掘器或渗透执行器。不要因为 README 的 case 初始化示例而在 kit 仓库内创建无关 case；只有验证 `init`、`attach`、`sync`、`promote` 或 workstream 行为时才创建临时 case。
+本仓库不是具体安全 case、RE case、自动脱壳器、逆向引擎、漏洞挖掘器或渗透执行器。不要因为 README 的 case 初始化示例而在 kit 仓库内创建无关 case；只有验证 `onboard`、`init`、`attach`、`sync`、`promote` 或 workstream 行为时才创建临时 case。
 
 ## 上下文路由 / 渐进式披露
 

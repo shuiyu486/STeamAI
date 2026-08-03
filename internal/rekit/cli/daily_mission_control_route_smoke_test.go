@@ -110,16 +110,19 @@ func TestRunDailyMissionControlRouteSmokeProductPath(t *testing.T) {
 		}
 	}
 
-	interventionsPath := filepath.Join(caseRoot, ".rekit", "facts", "interventions.jsonl")
-	interventionsFile, err := os.OpenFile(interventionsPath, os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		t.Fatal(err)
+	noteArgs := []string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-Kind", "intervention", "-Lane", "main", "-Subject", "manual route correction", "-Summary", "operator redirected the current mission", "-Action", "override", "-Status", "open", "-Actor", "lead", "-EventId", "int-daily-route-1", "-CreatedAt", "2026-08-03T00:00:00Z", "-Format", "json"}
+	out.Reset()
+	var notePreview struct {
+		Applied       bool   `json:"applied"`
+		EventSHA256   string `json:"eventSha256"`
+		RecordCommand string `json:"recordCommand"`
 	}
-	if _, err := interventionsFile.WriteString(`{"kind":"intervention","eventId":"int-daily-route-1","lane":"main","subject":"manual route correction","summary":"operator redirected the current mission","action":"override","target":"batch-daily-route","approvedBy":"lead","scope":"metadata","status":"open","batchId":"batch-daily-route"}` + "\n"); err != nil {
-		_ = interventionsFile.Close()
-		t.Fatal(err)
+	runDailyMissionControlRouteJSON(t, &out, append(append([]string{}, noteArgs...), "-WhatIf"), &notePreview)
+	if notePreview.Applied || notePreview.EventSHA256 == "" || !strings.Contains(notePreview.RecordCommand, "-ExpectedNoteEventSha256 "+notePreview.EventSHA256) {
+		t.Fatalf("public note preview omitted exact record route: %+v", notePreview)
 	}
-	if err := interventionsFile.Close(); err != nil {
+	out.Reset()
+	if err := Run(rekitCommandCLIArgs(t, notePreview.RecordCommand), &out); err != nil {
 		t.Fatal(err)
 	}
 

@@ -6,7 +6,7 @@
 
 当前项目不是全自动脱壳器、自动逆向引擎、自动漏洞挖掘器、自动恶意样本分析平台或通用自动渗透平台；它优先提供可审计、可交接、review-first 的 Agent Team 底座。lane 文档/packet 只能表达授权意图；heavy action 的确定性预授权来自 strict durable autonomy profile 与 `authorized-gate` decision。
 
-一句话：**用户主要指挥主 Agent / Mission Commander；主 Agent 调度 durable member lanes、可替换会话执行体和短命 tactical subagents；`/rekit`、Go CLI/backend 是背后的 canonical deterministic runtime/API，`rekit.ps1` 仅作为 retained compatibility façade，不承载业务 runtime，也没有 PowerShell 业务 fallback。当前阶段先把骨架收敛成可真实日常使用的最低可用 Mission Control：开始 case、继续推进、状态总览、人工插手纠偏、新会话接手要顺畅、可记录、可恢复；底层 `status`、`overview`、handoff、`continue` artifacts、lane-local `RESUME.md`、typed checkpoint、reviewer/session handoff、authorized-gate adapter live validation 与 pack-memory flow 继续作为支撑，边用边增强，而不是让用户在多份 JSON/Markdown 或命令细节间手工拼接。默认路径继续向 PowerShell-free / Go-native / 跨平台收敛，并保持 truthful release readiness。**
+一句话：**用户主要指挥主 Agent / Mission Commander；主 Agent 把“开始 case”的自然语言显式收敛为 `Target` / `Pack` / `ProjectName` / opaque bounded `Goal` / `Actor` / `Executor` / `InitialLane`，再通过 public Go-owned/no-fallback `onboard` 发布 immutable mission intent；随后调度 durable member lanes、可替换会话执行体和短命 tactical subagents。`/rekit`、Go CLI/backend 是背后的 canonical deterministic runtime/API，`rekit.ps1` 仅作为 retained compatibility façade，不承载业务 runtime，也没有 PowerShell 业务 fallback。当前阶段先把骨架收敛成可真实日常使用的最低可用 Mission Control：开始 case、继续推进、状态总览、人工插手纠偏、新会话接手要顺畅、可记录、可恢复；底层 `status`、`overview`、handoff、`continue` artifacts、lane-local `RESUME.md`、typed checkpoint、reviewer/session handoff、authorized-gate adapter live validation 与 pack-memory flow 继续作为支撑，边用边增强，而不是让用户在多份 JSON/Markdown 或命令细节间手工拼接。默认路径继续向 PowerShell-free / Go-native / 跨平台收敛，并保持 truthful release readiness。**
 
 ## 项目路线（按需文档索引）
 
@@ -55,19 +55,27 @@ cd <workspaceRoot>\kits\re-context-kits
 claude
 ```
 
-然后直接对 Claude 说：
+然后直接用自然语言告诉主 Agent：
 
 ```text
-/rekit init -Target <workspaceRoot>\cases\<caseName> -Pack vmp-re -ProjectName <caseName> -Apply
+开始这个 case，目标是还原核心逻辑；使用 vmp-re pack，由当前 Mission Commander 会话接手主线。
 ```
 
-或已有 case 接入：
+主 Agent 会先把意图显式收敛为 `Target`、`Pack`、`ProjectName`、opaque bounded `Goal`、`Actor`、`Executor` 与 `InitialLane`，再运行：
+
+```text
+/rekit onboard -Target <workspaceRoot>\cases\<caseName> -Pack vmp-re -ProjectName <caseName> -Goal <opaqueGoal> -Actor <actor> -Executor <executor> -InitialLane <lane> -WhatIf -Format json
+```
+
+preview 是零写入的 immutable mission-intent 审查包，返回 exact `publicationStamp`、`onboardingPlanSha256` 和机器可读 `applyArgs[]`。主 Agent 复核后必须原样消费 `applyArgs[]`；不能手工重建或更换 identity/stamp/hash。Marker、hash 与 exact plan 来自同一 immutable ordinary snapshot，Apply 按 intent-first / commit-last 发布；intent 已发布后的 partial recovery 只消费受 canonical onboarding write contract 约束的 durable bounded exact envelope 与同一组参数，不重新读取可能已变化的 live kit/pack，也不能夹带 authority/confirmed、lane/board/ledger、heavy-tool 或伪造 case-local skill 写入；已 committed 的 exact replay 不重复写入。提交后先刷新 `/rekit status`，再执行 `/rekit overview`，最后按 committed `InitialLane` / `Executor` / `Actor` 运行 `/rekit start <lane>` 接手。
+
+已有 case 仍可用兼容入口接入：
 
 ```text
 /rekit attach -Target <workspaceRoot>\cases\<caseName> -Pack vmp-re -Apply
 ```
 
-> 这里不需要你手动执行底层脚本。`/rekit` 会调用内部 runtime。
+> `onboard` 不解析自然语言、不执行 heavy-tool、不写 authority/confirmed，也不 spawn、poll 或管理 session；自然语言到显式字段的收敛与 applyArgs 审核由主 Agent完成。这里不需要你手动执行底层脚本。
 
 ### 2. 之后每天在 case 里
 
@@ -124,7 +132,7 @@ claude
 <caseRoot>\.rekit\state.json
 ```
 
-所以第一次需要在 kit 仓库里使用 canonical `/rekit` 完成 `init/attach`。
+所以第一次需要在 kit 仓库里使用 canonical `/rekit`：新 Mission Control case 走 review-first `onboard`，已有 case 走 `attach`；`init` 仅保留为兼容/维护初始化入口。
 
 完成后，case 里会有 thin shim。以后你在 case 根目录或其下的 lane/workspace 子目录启动 Claude Code，也能直接使用 `/rekit`；未显式传 `-Target` 时，Go runtime 会向上寻找最近的 attached case root，再用 metadata 中的 `templateRoot` 定位 canonical runtime。
 
@@ -141,6 +149,7 @@ Adapter execution report lifecycle 的 contract、dispatch、scaffold、draft、
 | `/rekit release-check` | 只读 | 维护者查看 release inventory、gateProfile、latest-batch handoff 与 CI truthfulness boundary；只枚举门禁，不执行测试。latest-batch handoff 会识别明确记录的 `release-run` 7/7 成功结果，并在 completed release cadence 后把 current action 交棒给 next-batch selection；目标、计划、待执行、失败或历史叙述不会被当作成功证据。已记录的 transient retry 仍作为 evidence / validation warning 暴露，但不替代完整本机 release minimum，也不代表远程 CI green。 |
 | `/rekit release-run` | 只读本机验证 | 顺序执行 `release-check` gateProfile 已解析的 local release minimum steps，汇总每步 exit code / duration / attempts / output tail，并附带只读 release inspection handoff（local git clean/sync、latest-batch cadence、third-inspection guard 与 remote non-green boundary）；Windows 上若 `go test ./...` 首次只失败于 Go 临时 `*.test.exe` cleanup lock 且无真实测试失败信号，会对该 step 可审计重试一次并记录 first-attempt exit/error/tail；不写 repo/case state，不联网读取 GitHub Actions，不执行 heavy tool，不写 authority/confirmed。 |
 | `/rekit next-batch` | kit review-first planning receipt | 接受 `status` / `release-check` 的 next-batch guidance 时使用；`-WhatIf -Format json` 只预览 `docs/batch-plan.md` 与 `CHANGELOG.md` planning receipt，并返回 `expectedNextBatchPlanSha256`；`-Apply` 必须带同一 hash，只写这两个 kit docs，随后要求刷新 `/rekit status -Format json`。不触碰 case state，不执行 reviewer/adapter/pack-memory/gate/sync/promote mutation，不 commit/push，也不声明 remote CI green。 |
+| `/rekit onboard` | new-case review-first mission intent | 新 case 的 public Go-owned/no-fallback Mission Control 入口。主 Agent先把自然语言显式映射为 `Target` / `Pack` / `ProjectName` / opaque bounded `Goal` / `Actor` / `Executor` / `InitialLane`；`-WhatIf -Format json` 零写入返回 immutable mission intent、exact `publicationStamp` / `onboardingPlanSha256` 与机器可读 `applyArgs[]`。`-Apply` 必须消费同一 stamp/hash 和 identity，按 intent-first / commit-last 发布；partial publication 用 exact Apply 恢复，committed exact replay 幂等。提交后先 `status`，再 `overview`，最后按 committed lane/executor/actor `start`；后续继续使用 public `note` / `reconcile` / `handoff` / `complete` / `reopen`。Runtime 不解析自然语言、不创建 board/lane、不执行 heavy-tool、不写 authority/confirmed，也不 spawn/poll session。 |
 | `/rekit run-current-step` | case-local unified review-first runner | 主 Agent/harness推进当前 focused Mission Commander request 的首选单步入口。每次 `-WhatIf -Format json` 都从 refreshed `missionControlRunbook.scope/currentDriverRequest` 自动选择 case 或 reviewer route，返回对应 nested runner plan；有 deterministic nested step 时同时返回绑定 route、current request 与 nested hash 的 `expectedCurrentStepPlanSha256`，复核后用 `-Apply -ExpectedCurrentStepPlanSha256 <hash>` 执行一步并读取 refreshed receipt。reviewer spawn/result wait 等外部动作只返回 typed handoff，不生成可 Apply hash；lane/reviewer各自原有lease、packet、artifact、candidate与intake锁保持不变。runtime不调用Agent tool、不管理session、不执行heavy-tool、不写authority/confirmed；必须显式`-Target`且只支持JSON。 |
 | `/rekit run-current-loop` | case-local bounded review-first loop | 主 Agent/harness在同一初始 route/lane 上连续推进最多 `-MaxSteps 1..20` 个 deterministic current steps。先运行 `-WhatIf -Format json`，再以返回的 `expectedCurrentLoopPlanSha256` 和相同 `MaxSteps` 显式 Apply；每步都刷新 durable status、重建 exact nested plan并留下 receipt。route/lane漂移、fresh Human-in-the-Lane reconcile和external reviewer stop在预算尚有剩余时都会返回统一 `kind=current-loop-campaign-continuation`：`segmentRoute/segmentLane → expectedRoute/expectedLane`、按本段已执行步数扣减后的 `remainingMaxSteps` 与fresh WhatIf command；external reviewer另带单一typed `attempt`：稳定绑定packet/route/shard/prompt/owner/current executor与dispatch receipt，提供`attemptSnapshotSha256`、唯一`selectedAction`及checkpoint-bound `durableContinuationDriverRequest`。外部harness接受session后生成绑定immutable dispatch ID的新attempt；session accepted、managed result与failed observation必须携带fresh snapshot guard，stale值在preview前zero-write拒绝。direct result按typed target外部写入后刷新到successor attempt再intake，不复用predecessor snapshot；replacement executor只消费fresh status/handoff当前attempt。成功Apply还会把单段provenance按严格递增sequence写为immutable `.rekit/runs/current-loop-segments/<sequence>.json` checkpoint，并用前一个exact artifact SHA组成无gap/fork链；新会话`status.missionControlRunbook.currentLoopSegment`与`handoff.currentLoopSegment`仅在完整chain、canonical exact bytes、case/pack、重算的outer plan/request-receipt lineage及refreshed current request完全匹配时暴露typed continuation、remaining budget和可执行`resumeDriverRequest`，wall-clock回退不改变latest，tamper、chain gap/break、symlink、unknown entry、stale request、terminal或status refresh failure均fail-closed且不回退旧artifact。主Agent/harness可直接执行该request中的`-ResumeCurrentLoop -ExpectedCurrentLoopCheckpointSha256 <artifact>` fresh WhatIf；runtime从strict checkpoint派生remaining budget并复核expected route/lane/current request，preview返回同时绑定source artifact、新current-step/nested hash和observation inputs的`applyCommand`。Apply再次要求同一source artifact仍是latest ready checkpoint，并在任何nested mutation前durably one-shot claim该source；claim后source立即为`consumed`，并发、崩溃、nested/publication failure均不恢复其预算。成功后的新segment checkpoint把`resumeSourceSha256`绑定到immediate predecessor；旧source/plan hash重试zero-write失败。JSON中的旧unbound WhatIf仅以`legacyUnboundWhatIfCommand`保留诊断兼容，唯一可执行/推荐恢复入口是`resumeDriverRequest.command`。旧segment plan hash与receipts不能跨界复用或累计；没有ready durable checkpoint时不能声称恢复旧预算。managed packet把`reviewerResultDropPath`标为canonical input destination，result save必须从与drop/input/source paths分离的现有case-local `ReviewerResultInputSourcePath`进入；无managed input-save capability的direct packet则把drop path标为direct result destination，外部harness写入唯一ReviewerResult后fresh preview进入strict intake。guidance/blocker、no-progress、step limit或nested error仍停止且不扩容预算；已成功步骤不回滚。runtime不自动跨lane/route Apply、不调用Agent tool、不管理session、不执行heavy-tool、不写authority/confirmed；必须显式`-Target`且只支持JSON。 |
 | `/rekit run-driver-step` | case-local review-first runner | 主 Agent/harness 消费唯一 focused、case-scoped `missionControlRunbook.currentDriverRequest` 时使用。外层 `-WhatIf -Format json` 允许当前 `start`、`continue` 或 `reconcile` preview request，直接调用对应 Go preview handler并返回 typed Apply request与 `expectedDriverStepPlanSha256`，不写 case；复核后外层 `-Apply -ExpectedDriverStepPlanSha256 <hash> -Format json` 会重新构建同一 preview plan，hash drift 时 fail-closed，只调用一个 matching Go Apply handler，随后刷新 status并返回 typed runner receipt。三类写入都会在 lane mutation lease 内重验 preview currentness；必须显式 `-Target`。runner 不调用 shell、不递归调用 public runtime、不 spawn/poll/stop session、不执行 reviewer/adapter/heavy-tool、不写 authority/confirmed，也不接受 missing-board onboarding、gate、note、handoff、sync、promote、next-batch 等 request。 |

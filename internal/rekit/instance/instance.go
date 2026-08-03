@@ -8,6 +8,7 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
 )
 
 type Instance struct {
@@ -76,6 +77,10 @@ func quoteCommandArg(value string) string {
 }
 
 func AssertAttached(target, repoRoot, pack string) (Instance, error) {
+	return assertAttached(target, repoRoot, pack)
+}
+
+func assertAttached(target, repoRoot, pack string) (Instance, error) {
 	caseRoot, err := filepath.Abs(target)
 	if err != nil {
 		return Instance{}, err
@@ -103,6 +108,9 @@ func AssertAttached(target, repoRoot, pack string) (Instance, error) {
 	}
 	if !strings.EqualFold(inst.TemplatePack, pack) {
 		return Instance{}, fmt.Errorf("case is attached to a different templatePack: %s", inst.TemplatePack)
+	}
+	if err := missionintent.AssertCommittedOrAbsent(caseRoot); err != nil {
+		return Instance{}, err
 	}
 	return inst, nil
 }

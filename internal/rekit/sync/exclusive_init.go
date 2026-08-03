@@ -25,29 +25,33 @@ import (
 // ExclusiveInitOptions supplies the stable identity and optional caller-owned
 // marker used when provisioning an isolated verification case.
 type ExclusiveInitOptions struct {
-	ProjectName string
-	ProvisionID string
-	Role        string
-	CreatedAt   time.Time
-	ExtraFiles  []ExclusiveInitExtraFile
+	ProjectName             string
+	ProvisionID             string
+	Role                    string
+	CreatedAt               time.Time
+	SkipVerificationMarker  bool
+	DefaultPublicationPhase int
+	ExtraFiles              []ExclusiveInitExtraFile
 }
 
 // ExclusiveInitExtraFile adds one deterministic case-local regular file to
 // the exclusive initialization package.
 type ExclusiveInitExtraFile struct {
-	Path    string
-	Kind    string
-	Content []byte
+	Path             string
+	Kind             string
+	Content          []byte
+	PublicationPhase int
 }
 
 // ExclusiveInitWrite is an exact leaf included in an exclusive init package.
 type ExclusiveInitWrite struct {
-	Path       string `json:"path"`
-	Kind       string `json:"kind"`
-	TargetPath string `json:"targetPath"`
-	SHA256     string `json:"sha256"`
-	Size       int64  `json:"size"`
-	Content    []byte `json:"content"`
+	Path             string `json:"path"`
+	Kind             string `json:"kind"`
+	TargetPath       string `json:"targetPath"`
+	SHA256           string `json:"sha256"`
+	Size             int64  `json:"size"`
+	Content          []byte `json:"content"`
+	PublicationPhase int    `json:"publicationPhase,omitempty"`
 }
 
 // ExclusiveInitPlan is a deterministic, complete, no-overwrite case package.
@@ -102,6 +106,13 @@ var (
 	exclusiveInitLeafWriteHook      func(stage, path string) error
 )
 
+// SetExclusiveInitLeafWriteHookForTest installs a deterministic package-test seam.
+func SetExclusiveInitLeafWriteHookForTest(hook func(stage, path string) error) func() {
+	previous := exclusiveInitLeafWriteHook
+	exclusiveInitLeafWriteHook = hook
+	return func() { exclusiveInitLeafWriteHook = previous }
+}
+
 // PlanExclusiveInit builds all exact bytes required for a doctor-ready
 // attached case. It is read-only and permits planning only for a missing root.
 func PlanExclusiveInit(repoRoot, caseRoot, pack string, opt ExclusiveInitOptions) (ExclusiveInitPlan, error) {
@@ -155,7 +166,10 @@ func planExclusiveInit(repoRoot, caseRoot, pack string, opt ExclusiveInitOptions
 		return ExclusiveInitPlan{}, err
 	}
 
-	builder := exclusiveInitBuilder{caseRoot: caseFull, paths: map[string]struct{}{}}
+	if opt.DefaultPublicationPhase < 0 {
+		return ExclusiveInitPlan{}, fmt.Errorf("exclusive init requires a non-negative default publication phase")
+	}
+	builder := exclusiveInitBuilder{caseRoot: caseFull, paths: map[string]struct{}{}, defaultPhase: opt.DefaultPublicationPhase}
 	if err := builder.add(".rekit/instance.yml", "instance-metadata", []byte(casebind.InstanceText(caseFull, repoFull, pack, projectName))); err != nil {
 		return ExclusiveInitPlan{}, err
 	}
@@ -240,30 +254,40 @@ func planExclusiveInit(repoRoot, caseRoot, pack string, opt ExclusiveInitOptions
 	if err := builder.add(".rekit/state.json", "initial-state", append(stateBytes, '\n')); err != nil {
 		return ExclusiveInitPlan{}, err
 	}
-	marker := struct {
-		SchemaVersion int    `json:"schemaVersion"`
-		Kind          string `json:"kind"`
-		ProvisionID   string `json:"provisionId"`
-		Role          string `json:"role"`
-		CreatedAt     string `json:"createdAt"`
-	}{SchemaVersion: 1, Kind: "exclusive-case-provision", ProvisionID: provisionID, Role: role, CreatedAt: createdAt}
-	markerBytes, err := json.MarshalIndent(marker, "", "  ")
-	if err != nil {
-		return ExclusiveInitPlan{}, err
-	}
-	if err := builder.add(".rekit/verification-role.json", "verification-role-marker", append(markerBytes, '\n')); err != nil {
-		return ExclusiveInitPlan{}, err
+	if !opt.SkipVerificationMarker {
+		marker := struct {
+			SchemaVersion int    `json:"schemaVersion"`
+			Kind          string `json:"kind"`
+			ProvisionID   string `json:"provisionId"`
+			Role          string `json:"role"`
+			CreatedAt     string `json:"createdAt"`
+		}{SchemaVersion: 1, Kind: "exclusive-case-provision", ProvisionID: provisionID, Role: role, CreatedAt: createdAt}
+		markerBytes, err := json.MarshalIndent(marker, "", "  ")
+		if err != nil {
+			return ExclusiveInitPlan{}, err
+		}
+		if err := builder.add(".rekit/verification-role.json", "verification-role-marker", append(markerBytes, '\n'), 0); err != nil {
+			return ExclusiveInitPlan{}, err
+		}
 	}
 	for _, extra := range opt.ExtraFiles {
 		kind := strings.TrimSpace(extra.Kind)
 		if kind == "" {
 			kind = "caller-extra"
 		}
-		if err := builder.add(extra.Path, kind, append([]byte(nil), extra.Content...)); err != nil {
+		if extra.PublicationPhase < 0 {
+			return ExclusiveInitPlan{}, fmt.Errorf("exclusive init extra file has invalid publication phase: %s", extra.Path)
+		}
+		if err := builder.add(extra.Path, kind, append([]byte(nil), extra.Content...), extra.PublicationPhase); err != nil {
 			return ExclusiveInitPlan{}, err
 		}
 	}
-	sort.Slice(builder.writes, func(i, j int) bool { return builder.writes[i].Path < builder.writes[j].Path })
+	sort.Slice(builder.writes, func(i, j int) bool {
+		if builder.writes[i].PublicationPhase != builder.writes[j].PublicationPhase {
+			return builder.writes[i].PublicationPhase < builder.writes[j].PublicationPhase
+		}
+		return builder.writes[i].Path < builder.writes[j].Path
+	})
 	return ExclusiveInitPlan{
 		SchemaVersion: 1, Command: "exclusive-init", CaseRoot: caseFull, RepoRoot: repoFull, Pack: pack,
 		ProjectName: projectName, ProvisionID: provisionID, Role: role, CreatedAt: createdAt,
@@ -485,12 +509,20 @@ func verifyExclusiveInitReplayAllowPartial(root *os.Root, plan ExclusiveInitPlan
 }
 
 type exclusiveInitBuilder struct {
-	caseRoot string
-	paths    map[string]struct{}
-	writes   []ExclusiveInitWrite
+	caseRoot     string
+	paths        map[string]struct{}
+	writes       []ExclusiveInitWrite
+	defaultPhase int
 }
 
-func (b *exclusiveInitBuilder) add(rel, kind string, content []byte) error {
+func (b *exclusiveInitBuilder) add(rel, kind string, content []byte, phases ...int) error {
+	phase := b.defaultPhase
+	if len(phases) > 1 {
+		return fmt.Errorf("exclusive init write has multiple publication phases: %s", rel)
+	}
+	if len(phases) == 1 {
+		phase = phases[0]
+	}
 	rel, target, err := exclusiveInitPath(b.caseRoot, rel)
 	if err != nil {
 		return err
@@ -501,7 +533,7 @@ func (b *exclusiveInitBuilder) add(rel, kind string, content []byte) error {
 	}
 	b.paths[key] = struct{}{}
 	sum := sha256.Sum256(content)
-	b.writes = append(b.writes, ExclusiveInitWrite{Path: rel, Kind: kind, TargetPath: target, SHA256: hex.EncodeToString(sum[:]), Size: int64(len(content)), Content: append([]byte(nil), content...)})
+	b.writes = append(b.writes, ExclusiveInitWrite{Path: rel, Kind: kind, TargetPath: target, SHA256: hex.EncodeToString(sum[:]), Size: int64(len(content)), Content: append([]byte(nil), content...), PublicationPhase: phase})
 	return nil
 }
 
@@ -520,6 +552,8 @@ func validateExclusiveInitPlan(plan ExclusiveInitPlan) error {
 		return fmt.Errorf("invalid exclusive init CreatedAt: %w", err)
 	}
 	seen := map[string]struct{}{}
+	lastPhase := -1
+	lastPath := ""
 	for _, write := range plan.Writes {
 		rel, target, err := exclusiveInitPath(plan.CaseRoot, write.Path)
 		if err != nil {
@@ -528,6 +562,11 @@ func validateExclusiveInitPlan(plan ExclusiveInitPlan) error {
 		if rel != write.Path || !casebind.SamePath(target, write.TargetPath) {
 			return fmt.Errorf("exclusive init write target mismatch: %s", write.Path)
 		}
+		if write.PublicationPhase < 0 || write.PublicationPhase < lastPhase || (write.PublicationPhase == lastPhase && lastPath != "" && write.Path <= lastPath) {
+			return fmt.Errorf("exclusive init writes are not ordered by publication phase and path: %s", write.Path)
+		}
+		lastPhase = write.PublicationPhase
+		lastPath = write.Path
 		key := strings.ToLower(rel)
 		if _, ok := seen[key]; ok {
 			return fmt.Errorf("exclusive init duplicate write path: %s", rel)
@@ -562,6 +601,9 @@ func openExclusiveInitParent(parentPath string) (*os.Root, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := rejectExclusiveInitReparsePath(anchorPath); err != nil {
+		return nil, err
+	}
 	if anchorInfo.Mode()&os.ModeSymlink != 0 || !anchorInfo.IsDir() {
 		return nil, fmt.Errorf("exclusive init root parent is not a regular directory: %s", anchorPath)
 	}
@@ -594,6 +636,10 @@ func openExclusiveInitParent(parentPath string) (*os.Root, error) {
 			return nil, err
 		}
 		currentPath = filepath.Join(currentPath, component)
+		if err := rejectExclusiveInitReparsePath(currentPath); err != nil {
+			_ = current.Close()
+			return nil, err
+		}
 		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
 			_ = current.Close()
 			return nil, fmt.Errorf("exclusive init root parent is not a regular directory: %s", currentPath)
@@ -632,6 +678,9 @@ func reserveExclusiveInitRoot(parent *os.Root, name, caseRoot string) (*os.Root,
 		if created {
 			_ = parent.Remove(name)
 		}
+		return nil, nil, false, err
+	}
+	if err := rejectExclusiveInitReparsePath(caseRoot); err != nil {
 		return nil, nil, false, err
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
@@ -682,6 +731,9 @@ func verifyExclusiveInitReplay(root *os.Root, plan ExclusiveInitPlan) error {
 		if err != nil {
 			return err
 		}
+		if err := rejectExclusiveInitReparsePath(filepath.Join(plan.CaseRoot, filepath.FromSlash(rel))); err != nil {
+			return err
+		}
 		if info.Mode()&os.ModeSymlink != 0 {
 			return fmt.Errorf("exclusive init replay rejects symlink: %s", rel)
 		}
@@ -717,10 +769,21 @@ func verifyExclusiveInitReplay(root *os.Root, plan ExclusiveInitPlan) error {
 	if err != nil {
 		return err
 	}
-	for rel := range planned {
+	firstMissing := ""
+	for _, write := range plan.Writes {
+		rel := path.Clean(write.Path)
 		if _, ok := seen[rel]; !ok {
-			return &exclusiveInitReplayError{message: fmt.Sprintf("exclusive init replay is partial exact; missing planned leaf: %s", rel), partialExact: true}
+			if firstMissing == "" {
+				firstMissing = rel
+			}
+			continue
 		}
+		if firstMissing != "" {
+			return fmt.Errorf("exclusive init replay rejects non-prefix publication: planned leaf %s exists after missing predecessor %s", rel, firstMissing)
+		}
+	}
+	if firstMissing != "" {
+		return &exclusiveInitReplayError{message: fmt.Sprintf("exclusive init replay is partial exact; missing planned leaf: %s", firstMissing), partialExact: true}
 	}
 	return nil
 }
@@ -736,6 +799,9 @@ func completeExclusiveInitReplay(root *os.Root, plan ExclusiveInitPlan) error {
 			continue
 		}
 		if err != nil {
+			return err
+		}
+		if err := rejectExclusiveInitReparsePath(filepath.Join(plan.CaseRoot, name)); err != nil {
 			return err
 		}
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
@@ -878,6 +944,9 @@ func removeExclusiveInitTempForFinal(root *os.Root, tempName, name string, write
 func verifyExclusiveInitLeafBytes(root *os.Root, name string, write ExclusiveInitWrite) error {
 	before, err := root.Lstat(name)
 	if err != nil {
+		return err
+	}
+	if err := rejectExclusiveInitReparsePath(filepath.Join(root.Name(), name)); err != nil {
 		return err
 	}
 	if before.Mode()&os.ModeSymlink != 0 || !before.Mode().IsRegular() {
