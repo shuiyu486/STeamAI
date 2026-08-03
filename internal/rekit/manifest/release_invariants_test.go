@@ -462,6 +462,31 @@ func TestReleaseGateWorkflowInvariants(t *testing.T) {
 	}
 }
 
+func TestActiveBatchPlanRemainsBounded(t *testing.T) {
+	repo := repoRoot(t)
+	plan := readRepoText(t, repo, "docs/batch-plan.md")
+	history := readRepoText(t, repo, "docs/batch-history.md")
+	batchHeading := regexp.MustCompile(`(?m)^### Batch [0-9]+`)
+	active := batchHeading.FindAllString(plan, -1)
+	if len(active) == 0 || len(active) > 2 {
+		t.Fatalf("docs/batch-plan.md active batch count = %d, want 1..2: %v", len(active), active)
+	}
+	for _, required := range []string{
+		"## 活动文档维护规则",
+		"常态最多出现 2 个",
+		"docs/batch-history.md",
+		"阶段方向变化只更新本文件顶部",
+	} {
+		assertTextContains(t, plan, required, "bounded active batch plan")
+	}
+	for _, batch := range []string{"### Batch 537：", "### Batch 808："} {
+		assertTextContains(t, history, batch, "archived batch range")
+		if strings.Contains(plan, batch) {
+			t.Fatalf("docs/batch-plan.md still contains archived %s", batch)
+		}
+	}
+}
+
 func TestAutonomousGoalGuideInvariants(t *testing.T) {
 	repo := repoRoot(t)
 	guide := readRepoText(t, repo, "docs/autonomous-goal.md")
@@ -498,6 +523,8 @@ func TestAutonomousGoalGuideInvariants(t *testing.T) {
 		"完成后自审、评估",
 		"默认继续自主推进",
 		"heavy-tool、动态调试、patch、dump、hook、网络、exploit replay",
+		"聊天 goal 保持简短",
+		"逐轮过程与旧批次细节归档到 `docs/batch-history.md`",
 	} {
 		assertTextContains(t, guide, required, "autonomous goal guide autonomy guard")
 	}

@@ -31,7 +31,7 @@
 3. 实施时保持 Go-native 和 PowerShell-free 默认路径；禁止新增 PowerShell runtime logic。
 4. 完成后自审、评估，做必要验证、更新对应文档/CHANGELOG；若当前 goal/session 已授权提交推送，则在 Windows 本机完整验证后做一次 implementation commit/push，并立即继续下一批，不等待远程 CI。
 5. 如果长期 goal 未被用户明确停止，完成单批后继续选下一批；不要把单批完成、一次本机检查通过、工作树干净或当前候选暂时做完当作长期 goal 完成。只有产品已经能稳定承担真实日常任务，且复审后没有仍值得推进的明显能力断点时，才把长期 goal 视为可能完成。
-6. 每 3-5 批或一个明显节点做短自评：是否已经更接近“用户能真实日常使用”、是否出现方向偏移；若只是连续补字段/summary/text，切回更高层的产品闭环，并把新的阶段重点留在本文件或 `docs/batch-plan.md` 顶部，而不是扩写聊天 goal。
+6. 每 3-5 批或一个明显节点做短自评：是否已经更接近“用户能真实日常使用”、是否出现方向偏移；若只是连续补字段/summary/text，切回更高层的产品闭环。阶段方向变化时只更新本文件顶部实施区和 `docs/batch-plan.md` 顶部 current/next；聊天 goal 保持简短，逐轮过程与旧批次细节归档到 `docs/batch-history.md`，不要堆回长期方向文档。
 
 当前 milestone 优先级：
 

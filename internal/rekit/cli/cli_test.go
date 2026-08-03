@@ -82,6 +82,7 @@ func TestRunNextBatchWhatIfReturnsHashBoundDocsReceipt(t *testing.T) {
 	restore := withNextBatchReadyReleaseCheckFixture(t, "Batch 945")
 	defer restore()
 	beforePlan := readFixtureFile(t, fixture.repoRoot, "docs/batch-plan.md")
+	beforeHistory := readFixtureFile(t, fixture.repoRoot, "docs/batch-history.md")
 	beforeChangelog := readFixtureFile(t, fixture.repoRoot, "CHANGELOG.md")
 
 	var out bytes.Buffer
@@ -95,10 +96,10 @@ func TestRunNextBatchWhatIfReturnsHashBoundDocsReceipt(t *testing.T) {
 	if result.Command != commands.NextBatch || result.RepoRoot != fixture.repoRoot || result.IsMutation || result.Applied || !result.ReviewRequired || !result.RequiresConfirmation || result.LatestCompletedBatch != "Batch 945" || result.NextBatch != "Batch 946" || result.Domain != "mission-commander" || result.DomainActionID != "next-batch-mission-commander-operational-closure" || result.Closure != "Mission Control next-batch acceptance product path" {
 		t.Fatalf("unexpected next-batch WhatIf envelope: %+v", result)
 	}
-	if len(result.ExpectedNextBatchPlanSHA256) != 64 || len(result.Writes) != 2 || result.Writes[0].Path != "docs/batch-plan.md" || result.Writes[0].Action != "insert-current-batch-section" || !result.Writes[0].Changed || result.Writes[1].Path != "CHANGELOG.md" || result.Writes[1].Action != "insert-unreleased-changelog-entry" || !result.Writes[1].Changed {
+	if len(result.ExpectedNextBatchPlanSHA256) != 64 || len(result.Writes) != 3 || result.Writes[0].Path != "docs/batch-history.md" || result.Writes[0].Action != "archive-completed-batch-sections" || result.Writes[1].Path != "CHANGELOG.md" || result.Writes[1].Action != "insert-unreleased-changelog-entry" || !result.Writes[1].Changed || result.Writes[2].Path != "docs/batch-plan.md" || result.Writes[2].Action != "rotate-and-insert-current-batch-section" || !result.Writes[2].Changed {
 		t.Fatalf("unexpected next-batch write plan: sha=%q writes=%+v", result.ExpectedNextBatchPlanSHA256, result.Writes)
 	}
-	if !strings.Contains(result.CurrentBatchSection, "### Batch 946：Mission Control next-batch acceptance product path") || !strings.Contains(result.CurrentBatchSection, "`/rekit next-batch`") || !strings.Contains(result.ChangelogEntry, "Batch 946") || !strings.Contains(result.ChangelogEntry, "expectedNextBatchPlanSha256") || !containsSubstring(result.Boundary, "writes only kit docs") {
+	if !strings.Contains(result.CurrentBatchSection, "### Batch 946：Mission Control next-batch acceptance product path") || !strings.Contains(result.CurrentBatchSection, "`/rekit next-batch`") || !strings.Contains(result.ChangelogEntry, "Batch 946") || !strings.Contains(result.ChangelogEntry, "expectedNextBatchPlanSha256") || !containsSubstring(result.Boundary, "three kit docs") {
 		t.Fatalf("next-batch receipt omitted section/changelog/boundary: section=%s changelog=%s boundary=%+v", result.CurrentBatchSection, result.ChangelogEntry, result.Boundary)
 	}
 	request := result.MissionCommanderActionQueue.CurrentDriverRequest
@@ -108,8 +109,225 @@ func TestRunNextBatchWhatIfReturnsHashBoundDocsReceipt(t *testing.T) {
 	if afterPlan := readFixtureFile(t, fixture.repoRoot, "docs/batch-plan.md"); afterPlan != beforePlan {
 		t.Fatal("next-batch WhatIf mutated docs/batch-plan.md")
 	}
+	if afterHistory := readFixtureFile(t, fixture.repoRoot, "docs/batch-history.md"); afterHistory != beforeHistory {
+		t.Fatal("next-batch WhatIf mutated docs/batch-history.md")
+	}
 	if afterChangelog := readFixtureFile(t, fixture.repoRoot, "CHANGELOG.md"); afterChangelog != beforeChangelog {
 		t.Fatal("next-batch WhatIf mutated CHANGELOG.md")
+	}
+}
+
+func TestNextBatchRotateActiveHistoryKeepsLatestAndArchivesOlderSections(t *testing.T) {
+	plan := "# plan\n\n### Current batch state\n\n### Batch 945：latest\n\n状态：已完成 latest。\n\n目标：latest。\n\n验证结果：release-run 以7/7通过。\n\n### Batch 944：older\n\n状态：已完成 older。\n\n目标：older。\n\n验证结果：release-run 以7/7通过。\n\n## 活动文档维护规则\n\nkeep bounded.\n"
+	history := "# history\n"
+	rotated, archivedHistory, archived, err := nextBatchRotateActiveHistory(plan, history)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(archived) != 1 || !strings.Contains(archived[0], "### Batch 944：older") || strings.Contains(rotated, "Batch 944") || !strings.Contains(rotated, "### Batch 945：latest") || !strings.Contains(rotated, "## 活动文档维护规则") || !strings.Contains(archivedHistory, archived[0]) {
+		t.Fatalf("active history rotation drifted: archived=%+v\nrotated=%s\nhistory=%s", archived, rotated, archivedHistory)
+	}
+	rotatedAgain, historyAgain, archivedAgain, err := nextBatchRotateActiveHistory(rotated, archivedHistory)
+	if err != nil || len(archivedAgain) != 0 || rotatedAgain != rotated || historyAgain != archivedHistory {
+		t.Fatalf("bounded active plan should replay without mutation: err=%v archived=%+v", err, archivedAgain)
+	}
+}
+
+func TestNextBatchRotateActiveHistoryRejectsConflictingArchive(t *testing.T) {
+	plan := "# plan\n\n### Current batch state\n\n### Batch 945：latest\n\n状态：已完成 latest。\n\n### Batch 944：active title\n\n状态：已完成 active bytes。\n\n## 验证标准\n"
+	history := "# history\n\n### Batch 944：different title\n\n状态：已完成 different bytes。\n"
+	if _, _, _, err := nextBatchRotateActiveHistory(plan, history); err == nil || !strings.Contains(err.Error(), "different content") {
+		t.Fatalf("same batch id with conflicting title/content should fail closed, err=%v", err)
+	}
+}
+
+func TestApplyNextBatchWritesRecoversExactPrefix(t *testing.T) {
+	root := t.TempDir()
+	paths := []string{filepath.Join(root, "history.md"), filepath.Join(root, "changelog.md"), filepath.Join(root, "plan.md")}
+	writes := make([]nextBatchWritePlan, 0, len(paths))
+	for i, path := range paths {
+		before := fmt.Appendf(nil, "before-%d\n", i)
+		after := fmt.Sprintf("after-%d\n", i)
+		if err := os.WriteFile(path, before, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		writes = append(writes, nextBatchWrite(filepath.Base(path), "test", path, "", before, after, after))
+	}
+	if err := os.WriteFile(paths[0], []byte(writes[0].PlannedText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths[1], []byte(writes[1].PlannedText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := applyNextBatchWrites(writes); err != nil {
+		t.Fatalf("exact-prefix recovery failed: %v", err)
+	}
+	for i, write := range writes {
+		data, err := os.ReadFile(paths[i])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := string(data); got != write.PlannedText {
+			t.Fatalf("recovered write %d = %q, want %q", i, got, write.PlannedText)
+		}
+	}
+	if err := applyNextBatchWrites(writes); err != nil {
+		t.Fatalf("committed exact replay failed: %v", err)
+	}
+}
+
+func TestApplyNextBatchWritesRejectsDriftBeforeFinalValidation(t *testing.T) {
+	root := t.TempDir()
+	historyPath := filepath.Join(root, "history.md")
+	changelogPath := filepath.Join(root, "changelog.md")
+	planPath := filepath.Join(root, "plan.md")
+	paths := []string{historyPath, changelogPath, planPath}
+	writes := make([]nextBatchWritePlan, 0, len(paths))
+	for i, path := range paths {
+		before := fmt.Appendf(nil, "before-%d\n", i)
+		after := fmt.Sprintf("after-%d\n", i)
+		if err := os.WriteFile(path, before, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		writes = append(writes, nextBatchWrite(filepath.Base(path), "test", path, "", before, after, after))
+	}
+	previousHook := nextBatchAfterWritePassHook
+	nextBatchAfterWritePassHook = func() {
+		if err := os.WriteFile(historyPath, []byte("external drift\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	defer func() { nextBatchAfterWritePassHook = previousHook }()
+	if err := applyNextBatchWrites(writes); err == nil || !strings.Contains(err.Error(), "drifted before final exact-byte validation") {
+		t.Fatalf("post-write external drift should fail final validation, err=%v", err)
+	}
+}
+
+func TestNextBatchPlanningSHA256UsesUnambiguousLengths(t *testing.T) {
+	left := []nextBatchWritePlan{{Path: "a", PlannedText: "b\x00c\x00d"}}
+	right := []nextBatchWritePlan{{Path: "a", PlannedText: "b"}, {Path: "c", PlannedText: "d"}}
+	if got, wantNot := nextBatchPlanningSHA256(left), nextBatchPlanningSHA256(right); got == wantNot {
+		t.Fatalf("length-prefixed planning hashes collided across write boundaries: %s", got)
+	}
+}
+
+func TestApplyNextBatchWritesRejectsNonPrefixDrift(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "plan.md")
+	before := []byte("before\n")
+	if err := os.WriteFile(path, []byte("drift\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	write := nextBatchWrite("docs/batch-plan.md", "test", path, "", before, "after\n", "after")
+	if err := applyNextBatchWrites([]nextBatchWritePlan{write}); err == nil || !strings.Contains(err.Error(), "drifted from reviewed before/after bytes") {
+		t.Fatalf("non-prefix drift should fail closed, err=%v", err)
+	}
+}
+
+func TestRunNextBatchApplyRecoversEveryExactWritePrefix(t *testing.T) {
+	for completedPrefix := 0; completedPrefix <= 3; completedPrefix++ {
+		t.Run(fmt.Sprintf("prefix-%d", completedPrefix), func(t *testing.T) {
+			fixture := newCLIFixture(t, cliFixtureOptions{})
+			restore := withNextBatchReadyReleaseCheckFixture(t, "Batch 945")
+			t.Cleanup(restore)
+			args := []string{"-Command", "next-batch", "-Domain", "replacement-executor", "-Closure", "replacement executor exact-prefix recovery", "-WhatIf", "-Format", "json"}
+
+			var out bytes.Buffer
+			if err := Run(args, &out); err != nil {
+				t.Fatalf("next-batch WhatIf failed: %v\n%s", err, out.String())
+			}
+			var preview nextBatchResult
+			if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+				t.Fatalf("next-batch WhatIf JSON did not decode: %v\n%s", err, out.String())
+			}
+			opt, err := Parse(args)
+			if err != nil {
+				t.Fatal(err)
+			}
+			planned, err := buildNextBatchResult(fixture.repoRoot, opt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if planned.ExpectedNextBatchPlanSHA256 != preview.ExpectedNextBatchPlanSHA256 || len(planned.Writes) != 3 {
+				t.Fatalf("internal plan drifted from public WhatIf: public=%s internal=%s writes=%d", preview.ExpectedNextBatchPlanSHA256, planned.ExpectedNextBatchPlanSHA256, len(planned.Writes))
+			}
+			for i := 0; i < completedPrefix; i++ {
+				if err := os.WriteFile(planned.Writes[i].TargetPath, []byte(planned.Writes[i].PlannedText), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			out.Reset()
+			applyArgs := []string{"-Command", "next-batch", "-Domain", "replacement-executor", "-Closure", "replacement executor exact-prefix recovery", "-ExpectedNextBatchPlanSha256", preview.ExpectedNextBatchPlanSHA256, "-Apply", "-Format", "json"}
+			if err := Run(applyArgs, &out); err != nil {
+				t.Fatalf("next-batch Apply exact-prefix recovery failed after %d writes: %v\n%s", completedPrefix, err, out.String())
+			}
+			var applied nextBatchResult
+			if err := json.Unmarshal(out.Bytes(), &applied); err != nil {
+				t.Fatalf("next-batch Apply JSON did not decode: %v\n%s", err, out.String())
+			}
+			if !applied.Applied || applied.ExpectedNextBatchPlanSHA256 != preview.ExpectedNextBatchPlanSHA256 {
+				t.Fatalf("unexpected recovered Apply envelope: %+v", applied)
+			}
+			for i, write := range planned.Writes {
+				data, err := os.ReadFile(write.TargetPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := nextBatchSHA256(data); got != write.AfterSHA256 {
+					t.Fatalf("recovered write %d sha256=%s, want %s", i, got, write.AfterSHA256)
+				}
+			}
+		})
+	}
+}
+
+func TestBuildNextBatchResultRejectsArchivedNextBatchID(t *testing.T) {
+	fixture := newCLIFixture(t, cliFixtureOptions{})
+	restore := withNextBatchReadyReleaseCheckFixture(t, "Batch 945")
+	defer restore()
+	historyPath := filepath.Join(fixture.repoRoot, "docs", "batch-history.md")
+	history := readFixtureFile(t, fixture.repoRoot, "docs/batch-history.md") + "\n\n### Batch 946：conflicting archived batch\n\n状态：已完成 unrelated work。\n"
+	if err := os.WriteFile(historyPath, []byte(history), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "next-batch", "-Domain", "replacement-executor", "-Closure", "replacement executor archived id collision", "-WhatIf", "-Format", "json"}, &out)
+	if err == nil || !strings.Contains(err.Error(), "refusing an active/history batch id collision") {
+		t.Fatalf("archived next batch id should fail closed, err=%v stdout=%s", err, out.String())
+	}
+}
+
+func TestRunNextBatchCommittedReplayBypassesClosedSelectionPackage(t *testing.T) {
+	fixture := newCLIFixture(t, cliFixtureOptions{})
+	restore := withNextBatchReadyReleaseCheckFixture(t, "Batch 945")
+
+	var out bytes.Buffer
+	args := []string{"-Command", "next-batch", "-Domain", "replacement-executor", "-Closure", "replacement executor committed replay", "-WhatIf", "-Format", "json"}
+	if err := Run(args, &out); err != nil {
+		t.Fatalf("next-batch WhatIf failed: %v\n%s", err, out.String())
+	}
+	var preview nextBatchResult
+	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	applyArgs := []string{"-Command", "next-batch", "-Domain", "replacement-executor", "-Closure", "replacement executor committed replay", "-ExpectedNextBatchPlanSha256", preview.ExpectedNextBatchPlanSHA256, "-Apply", "-Format", "json"}
+	if err := Run(applyArgs, &out); err != nil {
+		t.Fatalf("initial next-batch Apply failed: %v\n%s", err, out.String())
+	}
+	restore()
+
+	out.Reset()
+	if err := Run(applyArgs, &out); err != nil {
+		t.Fatalf("committed replay should bypass now-closed next-batch selection package: %v\n%s", err, out.String())
+	}
+	var replay nextBatchResult
+	if err := json.Unmarshal(out.Bytes(), &replay); err != nil {
+		t.Fatal(err)
+	}
+	if !replay.Applied || replay.ExpectedNextBatchPlanSHA256 != preview.ExpectedNextBatchPlanSHA256 || replay.RepoRoot != fixture.repoRoot {
+		t.Fatalf("unexpected committed replay envelope: %+v", replay)
 	}
 }
 
@@ -5444,8 +5662,8 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releasecheck.ReleaseHandoff
 	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "removalImpact=true impactReferences=")
 	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "workItems=")
 	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "validationCommands=")
-	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "migrationTargets=76")
-	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "migrationValidationCommands=608")
+	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "migrationTargets=75")
+	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "migrationValidationCommands=600")
 	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "smokeMigrationTargets=29")
 	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "smokeMigrationValidationCommands=232")
 	assertReleaseHandoffSignalDetail(t, handoff, "public facade removal prerequisites", "public-facade-retained-boundary ready=true publicFacadeReady=true present=true retained=true migrationBoundary=true removalBoundary=true")
@@ -5670,7 +5888,7 @@ func assertReleaseCheckPublicFacadeRemoval(t *testing.T, inventory releasecheck.
 	if !inventory.RemovalPlan.Ready || inventory.RemovalPlan.Document != "docs/powershell-deprecation.md" || planCounts.Warnings != 0 || planCounts.RequiredPhrases != 9 || planCounts.ReplacementEntrypoints != 4 || planCounts.ReplacementValidationCommands != 32 || deletionGateCounts.Gates != 5 || deletionGateCounts.ValidationCommands != 40 || deletionGateCounts.ExitCriteria != 15 || deletionGateCounts.FailureSignals != 15 || deletionGateCounts.EscalationTriggers != 15 || deletionGateCounts.EscalationEvidence != 15 || deletionGateCounts.EscalationRecipients != 15 || deletionGateCounts.EscalationHandoffSteps != 15 || deletionGateCounts.EscalationDecisionOptions != 15 || deletionGateCounts.EscalationRetryConditions != 15 || deletionGateCounts.EscalationStopConditions != 15 || deletionGateCounts.EscalationResolutionArtifacts != 15 || deletionGateCounts.EscalationClosureChecks != 15 || deletionGateCounts.EscalationReopenConditions != 15 || deletionGateCounts.EscalationLedgerEvents != 15 || deletionGateCounts.EscalationStateTransitions != 15 || deletionGateCounts.EscalationBoundaryGuards != 15 || deletionGateCounts.EscalationAuditChecks != 15 || deletionGateCounts.VerificationArtifacts != 15 || deletionGateCounts.BlockedExecutionSteps != 10 || deletionGateCounts.RemediationActions != 15 || executionCounts.Steps != 5 || executionCounts.FailureSignals != 15 || executionCounts.RemediationActions != 15 || executionCounts.VerificationArtifacts != 15 || executionCounts.LedgerEvents != 15 || executionCounts.StateTransitions != 15 || executionCounts.EscalationTriggers != 15 || executionCounts.EscalationEvidence != 15 || executionCounts.EscalationRecipients != 15 || executionCounts.EscalationHandoffSteps != 15 || executionCounts.EscalationDecisionOptions != 15 || executionCounts.EscalationRetryConditions != 15 || executionCounts.EscalationStopConditions != 15 || executionCounts.EscalationResolutionArtifacts != 15 || executionCounts.EscalationClosureChecks != 15 || executionCounts.EscalationReopenConditions != 15 || executionCounts.EscalationLedgerEvents != 15 || executionCounts.EscalationStateTransitions != 15 || executionCounts.EscalationBoundaryGuards != 15 || executionCounts.EscalationAuditChecks != 15 || executionCounts.BoundaryGuards != 15 || executionCounts.AuditChecks != 15 || executionCounts.ValidationCommands != 40 || planCounts.BoundaryChecks != 6 || planCounts.BoundaryValidationCommands != 48 || planCounts.RecoverySteps != 4 || planCounts.RecoveryValidationCommands != 32 || planCounts.DocumentationTargets != 9 || planCounts.DocumentationValidationCommands != 72 || !releaseCheckPublicFacadeRemovalHasReplacementEntrypoint(inventory.RemovalPlan, "canonical-rekit-skill") || !releaseCheckPublicFacadeRemovalHasReplacementEntrypoint(inventory.RemovalPlan, "direct-go-cli") || !releaseCheckPublicFacadeRemovalHasDeletionGate(inventory.RemovalPlan, "go-native-alternatives-ready") || !releaseCheckPublicFacadeRemovalHasDeletionGate(inventory.RemovalPlan, "release-gate-green") || !releaseCheckPublicFacadeRemovalHasExecutionStep(inventory.RemovalPlan, "delete-public-facade") || !releaseCheckPublicFacadeRemovalHasExecutionStep(inventory.RemovalPlan, "rerun-release-gate") || !releaseCheckPublicFacadeRemovalHasBoundaryCheck(inventory.RemovalPlan, "no-powershell-runtime-logic") || !releaseCheckPublicFacadeRemovalHasBoundaryCheck(inventory.RemovalPlan, "no-external-effects") || !releaseCheckPublicFacadeRemovalHasRecoveryStep(inventory.RemovalPlan, "restore-public-facade") || !releaseCheckPublicFacadeRemovalHasDocumentationTarget(inventory.RemovalPlan, "docs/release-readiness.md") || !releaseCheckPublicFacadeRemovalHasDocumentationTarget(inventory.RemovalPlan, "CHANGELOG.md") {
 		t.Fatalf("public facade removal plan drifted: %+v", inventory.RemovalPlan)
 	}
-	if !inventory.RemovalImpact.Ready || inventory.RemovalImpact.FacadePath != "rekit/rekit.ps1" || !inventory.RemovalImpact.FacadePresent || impactCounts.Warnings != 0 || impactCounts.References == 0 || impactCounts.ReferenceCategories == 0 || impactCounts.WorkItems != impactCounts.ReferenceCategories || impactCounts.WorkItemValidationCommands != impactCounts.WorkItems*8 || impactCounts.MigrationTargets != 76 || impactCounts.MigrationValidationCommands != 608 || impactCounts.SmokeMigrationTargets != 29 || impactCounts.SmokeMigrationValidationCommands != 232 || impactCounts.UnclassifiedReferences != 0 || !releaseCheckPublicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "public-facade-entrypoint") || !releaseCheckPublicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "facade-compatibility-smoke") || !releaseCheckPublicFacadeRemovalHasImpactWorkItem(inventory.RemovalImpact, "release-inventory-and-tests") || !releaseCheckPublicFacadeRemovalHasMigrationTarget(inventory.RemovalImpact, "rekit/rekit.ps1") || !releaseCheckPublicFacadeRemovalHasMigrationTarget(inventory.RemovalImpact, "docs/powershell-deprecation.md") || !releaseCheckPublicFacadeRemovalHasSmokeMigrationTarget(inventory.RemovalImpact, "rekit/tests/facade-smoke.ps1") || !releaseCheckPublicFacadeRemovalHasSmokeMigrationTarget(inventory.RemovalImpact, "rekit/tests/continue-whatif-smoke.ps1") {
+	if !inventory.RemovalImpact.Ready || inventory.RemovalImpact.FacadePath != "rekit/rekit.ps1" || !inventory.RemovalImpact.FacadePresent || impactCounts.Warnings != 0 || impactCounts.References == 0 || impactCounts.ReferenceCategories == 0 || impactCounts.WorkItems != impactCounts.ReferenceCategories || impactCounts.WorkItemValidationCommands != impactCounts.WorkItems*8 || impactCounts.MigrationTargets != 75 || impactCounts.MigrationValidationCommands != 600 || impactCounts.SmokeMigrationTargets != 29 || impactCounts.SmokeMigrationValidationCommands != 232 || impactCounts.UnclassifiedReferences != 0 || !releaseCheckPublicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "public-facade-entrypoint") || !releaseCheckPublicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "facade-compatibility-smoke") || !releaseCheckPublicFacadeRemovalHasImpactWorkItem(inventory.RemovalImpact, "release-inventory-and-tests") || !releaseCheckPublicFacadeRemovalHasMigrationTarget(inventory.RemovalImpact, "rekit/rekit.ps1") || !releaseCheckPublicFacadeRemovalHasMigrationTarget(inventory.RemovalImpact, "docs/powershell-deprecation.md") || !releaseCheckPublicFacadeRemovalHasSmokeMigrationTarget(inventory.RemovalImpact, "rekit/tests/facade-smoke.ps1") || !releaseCheckPublicFacadeRemovalHasSmokeMigrationTarget(inventory.RemovalImpact, "rekit/tests/continue-whatif-smoke.ps1") {
 		t.Fatalf("public facade removal impact drifted: %+v", inventory.RemovalImpact)
 	}
 }
@@ -6050,7 +6268,7 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"public facade removal: public facade removal prerequisites ok ready=true prerequisites=8 removalPlan=true planChecks=9 replacementEntrypoints=4 replacementValidationCommands=32 deletionGates=5 deletionGateValidationCommands=40 deletionGateExitCriteria=15 deletionGateFailureSignals=15 deletionGateEscalationTriggers=15 deletionGateEscalationEvidence=15 deletionGateEscalationRecipients=15 deletionGateEscalationHandoffSteps=15 deletionGateEscalationDecisionOptions=15 deletionGateEscalationRetryConditions=15 deletionGateEscalationStopConditions=15 deletionGateEscalationResolutionArtifacts=15 deletionGateEscalationClosureChecks=15 deletionGateEscalationReopenConditions=15 deletionGateEscalationLedgerEvents=15 deletionGateEscalationStateTransitions=15 deletionGateEscalationBoundaryGuards=15 deletionGateEscalationAuditChecks=15 deletionGateVerificationArtifacts=15 deletionGateBlockedExecutionSteps=10 deletionGateRemediationActions=15 recoverySteps=4 recoveryValidationCommands=32 documentationTargets=9 documentationValidationCommands=72 executionSteps=5 executionFailureSignals=15 executionRemediationActions=15 executionVerificationArtifacts=15 executionLedgerEvents=15 executionStateTransitions=15 executionEscalationTriggers=15 executionEscalationEvidence=15 executionEscalationRecipients=15 executionEscalationHandoffSteps=15 executionEscalationDecisionOptions=15 executionEscalationRetryConditions=15 executionEscalationStopConditions=15 executionEscalationResolutionArtifacts=15 executionEscalationClosureChecks=15 executionEscalationReopenConditions=15 executionEscalationLedgerEvents=15 executionEscalationStateTransitions=15 executionEscalationBoundaryGuards=15 executionEscalationAuditChecks=15 executionBoundaryGuards=15 executionAuditChecks=15 executionValidationCommands=40 boundaryChecks=6 boundaryValidationCommands=48 removalImpact=true impactReferences=",
 		"workItems=",
 		"validationCommands=",
-		"migrationTargets=76 migrationValidationCommands=608",
+		"migrationTargets=75 migrationValidationCommands=600",
 		"smokeMigrationTargets=29 smokeMigrationValidationCommands=232",
 		"release handoff: release handoff summary ok ready=true readFirst=4 signals=13 knownGaps=5 packMaturity=10 packMemoryCandidates=0",
 		"releaseNotes=true",

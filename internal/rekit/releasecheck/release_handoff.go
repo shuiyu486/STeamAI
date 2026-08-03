@@ -4278,7 +4278,7 @@ func releaseHandoffNextBatchPlanningRoutes(actions []mission.MissionCommanderNex
 			Boundary: []string{
 				"nextBatchPlanningRoutes are read-only durable handoff templates; release-check/status does not choose a batch or edit docs",
 				"the placeholder template is not commandExecutable until closurePlaceholder is replaced with a concrete closure",
-				"WhatIf is read-only and Apply writes only docs/batch-plan.md plus CHANGELOG.md when the expected hash matches",
+				"WhatIf is read-only and Apply writes only docs/batch-history.md, CHANGELOG.md, and docs/batch-plan.md when the expected hash matches",
 				"planning routes do not execute reviewer, adapter, pack-memory, gate, sync, promote, heavy-tool, authority, confirmed, commit, push, or remote CI actions",
 			},
 		})

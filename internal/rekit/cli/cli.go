@@ -27,6 +27,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/doctor"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/kitmutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
@@ -47,6 +48,7 @@ var (
 	releaseCheckBuild                           = releasecheck.Build
 	projectHandoffBuild                         = releasecheck.BuildProjectHandoff
 	statusHandoffGenerationAfterTargetsReadHook func()
+	nextBatchAfterWritePassHook                 func()
 )
 
 type Options struct {
@@ -1444,7 +1446,7 @@ type nextBatchWritePlan struct {
 	PlannedText  string `json:"-"`
 }
 
-func runNextBatch(ctx runtime.Context, opt Options, out io.Writer) error {
+func runNextBatch(ctx runtime.Context, opt Options, out io.Writer) (resultErr error) {
 	if ctx.TargetProvided {
 		return fmt.Errorf("next-batch writes kit repo docs; omit -Target")
 	}
@@ -1464,18 +1466,34 @@ func runNextBatch(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("unsupported next-batch format: %s", opt.Format)
 	}
-	result, err := buildNextBatchResult(ctx.RepoRoot, opt)
-	if err != nil {
-		return err
+	var lease *kitmutation.Lease
+	if opt.Apply {
+		lease, err = kitmutation.Acquire(ctx.RepoRoot)
+		if err != nil {
+			return err
+		}
+		defer func() { resultErr = errors.Join(resultErr, lease.Unlock()) }()
+	}
+	result := nextBatchResult{}
+	committedReplay := false
+	if opt.Apply {
+		result, committedReplay, err = buildNextBatchCommittedReplayResult(ctx.RepoRoot, opt)
+		if err != nil {
+			return err
+		}
+	}
+	if !committedReplay {
+		result, err = buildNextBatchResult(ctx.RepoRoot, opt)
+		if err != nil {
+			return err
+		}
 	}
 	if opt.Apply {
 		if !strings.EqualFold(strings.TrimSpace(opt.ExpectedNextBatchPlanSHA256), result.ExpectedNextBatchPlanSHA256) {
 			return fmt.Errorf("next-batch expected plan sha256 mismatch: got %s want %s", strings.TrimSpace(opt.ExpectedNextBatchPlanSHA256), result.ExpectedNextBatchPlanSHA256)
 		}
-		for _, write := range result.Writes {
-			if err := os.WriteFile(write.TargetPath, []byte(write.PlannedText), 0o644); err != nil {
-				return err
-			}
+		if err := applyNextBatchWrites(result.Writes); err != nil {
+			return err
 		}
 		result.IsMutation = true
 		result.Applied = true
@@ -1484,7 +1502,7 @@ func runNextBatch(ctx runtime.Context, opt Options, out io.Writer) error {
 		result.MissionCommanderAction = nextBatchRefreshAction()
 		result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor([]mission.MissionCommanderNextActionItem{result.MissionCommanderAction})
 		result.NextSteps = []string{
-			"next-batch planning receipt applied to docs/batch-plan.md and CHANGELOG.md only",
+			"next-batch planning receipt applied to docs/batch-history.md, CHANGELOG.md, and docs/batch-plan.md only",
 			"rerun /rekit status -Format json to refresh Mission Commander current action from durable docs",
 			"implement the selected Windows-verifiable product-path slice, then run focused regressions and the full local release minimum",
 		}
@@ -1493,6 +1511,130 @@ func runNextBatch(ctx runtime.Context, opt Options, out io.Writer) error {
 		return writeJSON(out, result)
 	}
 	return writeNextBatchText(out, result)
+}
+
+func buildNextBatchCommittedReplayResult(repoRoot string, opt Options) (nextBatchResult, bool, error) {
+	domain := nextBatchSingleLine(opt.NextBatchDomain)
+	closure := nextBatchSingleLine(opt.NextBatchClosure)
+	if domain == "" || closure == "" {
+		return nextBatchResult{}, false, nil
+	}
+	batchPlanPath := filepath.Join(repoRoot, filepath.FromSlash("docs/batch-plan.md"))
+	batchHistoryPath := filepath.Join(repoRoot, filepath.FromSlash("docs/batch-history.md"))
+	changelogPath := filepath.Join(repoRoot, "CHANGELOG.md")
+	batchPlanText, err := os.ReadFile(batchPlanPath)
+	if err != nil {
+		return nextBatchResult{}, false, err
+	}
+	batchHistoryText, err := os.ReadFile(batchHistoryPath)
+	if err != nil {
+		return nextBatchResult{}, false, err
+	}
+	changelogText, err := os.ReadFile(changelogPath)
+	if err != nil {
+		return nextBatchResult{}, false, err
+	}
+	section, title, batchID, found := nextBatchFirstDocumentSection(string(batchPlanText))
+	if !found || title != "### "+batchID+"："+closure {
+		return nextBatchResult{}, false, nil
+	}
+	selectedDomain := nextBatchTextBetween(section, "本批选择 `", "`")
+	if selectedDomain == "" || !strings.EqualFold(domain, selectedDomain) {
+		return nextBatchResult{}, false, nil
+	}
+	if _, historyFound, historyDuplicate := nextBatchHistorySection(string(batchHistoryText), batchID); historyDuplicate || historyFound {
+		return nextBatchResult{}, false, fmt.Errorf("next-batch committed replay conflicts with archived %s", batchID)
+	}
+	entryPrefix := "- " + batchID + " 新增 " + closure + "：选择 `" + selectedDomain + "` candidate（"
+	entry, entryFound, entryDuplicate := nextBatchLineWithPrefix(string(changelogText), entryPrefix)
+	if entryDuplicate {
+		return nextBatchResult{}, false, fmt.Errorf("next-batch committed replay found duplicate %s changelog entries", batchID)
+	}
+	if !entryFound {
+		return nextBatchResult{}, false, nil
+	}
+	writes := []nextBatchWritePlan{
+		nextBatchWrite("docs/batch-history.md", "archive-completed-batch-sections", batchHistoryPath, "", batchHistoryText, string(batchHistoryText), ""),
+		nextBatchWrite("CHANGELOG.md", "insert-unreleased-changelog-entry", changelogPath, "### Changed", changelogText, string(changelogText), entry),
+		nextBatchWrite("docs/batch-plan.md", "rotate-and-insert-current-batch-section", batchPlanPath, "### Current batch state", batchPlanText, string(batchPlanText), section),
+	}
+	expectedSHA := nextBatchPlanningSHA256(writes)
+	if !strings.EqualFold(strings.TrimSpace(opt.ExpectedNextBatchPlanSHA256), expectedSHA) {
+		return nextBatchResult{}, false, nil
+	}
+	current := nextBatchApplyAction(batchID, selectedDomain, closure, expectedSHA)
+	return nextBatchResult{
+		SchemaVersion:               1,
+		Command:                     commands.NextBatch,
+		RepoRoot:                    repoRoot,
+		ReviewRequired:              true,
+		RequiresConfirmation:        true,
+		NextBatch:                   batchID,
+		Domain:                      selectedDomain,
+		Closure:                     closure,
+		ExpectedNextBatchPlanSHA256: expectedSHA,
+		CurrentBatchSection:         section,
+		ChangelogEntry:              entry,
+		Writes:                      writes,
+		MissionCommanderAction:      current,
+		MissionCommanderActionQueue: mission.MissionCommanderActionQueueFor([]mission.MissionCommanderNextActionItem{current}),
+		Boundary: []string{
+			"next-batch committed replay is accepted only when all three current document bytes match the reviewed expected hash",
+			"committed replay does not reopen next-batch selection or mutate case state, authority/confirmed, heavy tools, commits, pushes, or remote CI",
+		},
+	}, true, nil
+}
+
+func nextBatchTextBetween(text, prefix, suffix string) string {
+	start := strings.Index(text, prefix)
+	if start < 0 {
+		return ""
+	}
+	start += len(prefix)
+	end := strings.Index(text[start:], suffix)
+	if end < 0 {
+		return ""
+	}
+	return strings.TrimSpace(text[start : start+end])
+}
+
+func nextBatchFirstDocumentSection(text string) (string, string, string, bool) {
+	normalized := strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n")
+	start := strings.Index(normalized, "### Batch ")
+	if start < 0 || (start > 0 && normalized[start-1] != '\n') {
+		return "", "", "", false
+	}
+	end := len(normalized)
+	for _, marker := range []string{"\n### Batch ", "\n## "} {
+		if idx := strings.Index(normalized[start+1:], marker); idx >= 0 && start+1+idx < end {
+			end = start + 1 + idx
+		}
+	}
+	section := strings.TrimSpace(normalized[start:end])
+	titleEnd := strings.IndexByte(section, '\n')
+	if titleEnd < 0 {
+		titleEnd = len(section)
+	}
+	title := strings.TrimSpace(section[:titleEnd])
+	batchID := nextBatchSectionID(title)
+	return section, title, batchID, batchID != ""
+}
+
+func nextBatchLineWithPrefix(text, prefix string) (string, bool, bool) {
+	matched := ""
+	found := false
+	for line := range strings.SplitSeq(strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n"), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, prefix) {
+			continue
+		}
+		if found {
+			return "", true, true
+		}
+		matched = line
+		found = true
+	}
+	return matched, found, false
 }
 
 func buildNextBatchResult(repoRoot string, opt Options) (nextBatchResult, error) {
@@ -1527,8 +1669,13 @@ func buildNextBatchResult(repoRoot string, opt Options) (nextBatchResult, error)
 		return nextBatchResult{}, fmt.Errorf("next-batch starter package did not provide a concrete suggested batch id")
 	}
 	batchPlanPath := filepath.Join(repoRoot, filepath.FromSlash("docs/batch-plan.md"))
+	batchHistoryPath := filepath.Join(repoRoot, filepath.FromSlash("docs/batch-history.md"))
 	changelogPath := filepath.Join(repoRoot, "CHANGELOG.md")
 	batchPlanText, err := os.ReadFile(batchPlanPath)
+	if err != nil {
+		return nextBatchResult{}, err
+	}
+	batchHistoryText, err := os.ReadFile(batchHistoryPath)
 	if err != nil {
 		return nextBatchResult{}, err
 	}
@@ -1536,9 +1683,33 @@ func buildNextBatchResult(repoRoot string, opt Options) (nextBatchResult, error)
 	if err != nil {
 		return nextBatchResult{}, err
 	}
+	if _, found, duplicate := nextBatchHistorySection(string(batchHistoryText), nextBatch); duplicate {
+		return nextBatchResult{}, fmt.Errorf("next-batch history contains duplicate %s sections", nextBatch)
+	} else if found {
+		return nextBatchResult{}, fmt.Errorf("next-batch history already contains %s; refusing an active/history batch id collision", nextBatch)
+	}
 	section := nextBatchCurrentBatchSection(nextBatch, selectedAction, closure, starter.ValidationCommands)
 	entry := nextBatchChangelogEntry(nextBatch, selectedAction, closure)
-	plannedBatchPlan, err := nextBatchInsertAfterHeading(string(batchPlanText), "### Current batch state", "### "+nextBatch+"：", section)
+	plannedBatchHistory := strings.ReplaceAll(strings.ReplaceAll(string(batchHistoryText), "\r\n", "\n"), "\r", "\n")
+	archivedSections := []string{}
+	batchNeedle := "### " + nextBatch + "："
+	plannedBatchPlan := ""
+	existingBatchSection, batchFound, batchDuplicate := nextBatchHistorySection(string(batchPlanText), nextBatch)
+	if batchDuplicate {
+		return nextBatchResult{}, fmt.Errorf("next-batch active plan contains duplicate %s sections", nextBatch)
+	}
+	if batchFound {
+		if strings.TrimSpace(existingBatchSection) != strings.TrimSpace(section) {
+			return nextBatchResult{}, fmt.Errorf("next-batch active plan already contains %s with different content", nextBatch)
+		}
+		plannedBatchPlan = strings.ReplaceAll(strings.ReplaceAll(string(batchPlanText), "\r\n", "\n"), "\r", "\n")
+	} else {
+		var rotatedBatchPlan string
+		rotatedBatchPlan, plannedBatchHistory, archivedSections, err = nextBatchRotateActiveHistory(string(batchPlanText), string(batchHistoryText))
+		if err == nil {
+			plannedBatchPlan, err = nextBatchInsertAfterHeading(rotatedBatchPlan, "### Current batch state", batchNeedle, section)
+		}
+	}
 	if err != nil {
 		return nextBatchResult{}, err
 	}
@@ -1546,9 +1717,18 @@ func buildNextBatchResult(repoRoot string, opt Options) (nextBatchResult, error)
 	if err != nil {
 		return nextBatchResult{}, err
 	}
+	beforeBatchHistory := batchHistoryText
+	beforeBatchPlan := batchPlanText
+	beforeChangelog := changelogText
+	if batchFound {
+		beforeBatchHistory = []byte(plannedBatchHistory)
+		beforeBatchPlan = []byte(plannedBatchPlan)
+		beforeChangelog = []byte(plannedChangelog)
+	}
 	writes := []nextBatchWritePlan{
-		nextBatchWrite("docs/batch-plan.md", "insert-current-batch-section", batchPlanPath, "### Current batch state", batchPlanText, plannedBatchPlan, section),
-		nextBatchWrite("CHANGELOG.md", "insert-unreleased-changelog-entry", changelogPath, "### Changed", changelogText, plannedChangelog, entry),
+		nextBatchWrite("docs/batch-history.md", "archive-completed-batch-sections", batchHistoryPath, "", beforeBatchHistory, plannedBatchHistory, strings.Join(archivedSections, "\n\n")),
+		nextBatchWrite("CHANGELOG.md", "insert-unreleased-changelog-entry", changelogPath, "### Changed", beforeChangelog, plannedChangelog, entry),
+		nextBatchWrite("docs/batch-plan.md", "rotate-and-insert-current-batch-section", batchPlanPath, "### Current batch state", beforeBatchPlan, plannedBatchPlan, section),
 	}
 	current := nextBatchApplyAction(nextBatch, selectedDomain, closure, nextBatchPlanningSHA256(writes))
 	queue := mission.MissionCommanderActionQueueFor([]mission.MissionCommanderNextActionItem{current})
@@ -1575,8 +1755,8 @@ func buildNextBatchResult(repoRoot string, opt Options) (nextBatchResult, error)
 		MissionCommanderActionQueue: queue,
 		Boundary: []string{
 			"next-batch is a kit review-first planning receipt command",
-			"WhatIf reads release handoff and previews docs/batch-plan.md plus CHANGELOG.md writes without mutation",
-			"Apply requires the exact ExpectedNextBatchPlanSha256 from WhatIf and writes only kit docs",
+			"WhatIf reads release handoff and previews docs/batch-history.md, CHANGELOG.md, and docs/batch-plan.md writes without mutation",
+			"Apply requires the exact ExpectedNextBatchPlanSha256 from WhatIf and writes only those three kit docs",
 			"next-batch does not touch case state, authority/confirmed, reviewer/adapter/pack-memory/gate/sync/promote mutation, heavy tools, commits, pushes, or remote CI",
 		},
 		NextSteps: []string{
@@ -1597,11 +1777,11 @@ func nextBatchApplyAction(nextBatch, domain, closure, expectedSHA string) missio
 		RequiresReview: true,
 		Reasons: []string{
 			"release handoff next-batch selection package is ready",
-			"planning receipt writes only kit docs before implementation",
+			"planning receipt writes only the bounded active/history/changelog kit docs before implementation",
 		},
 		Boundary: []string{
 			"review the next-batch WhatIf output before Apply",
-			"Apply writes only docs/batch-plan.md and CHANGELOG.md in the kit repo",
+			"Apply writes only docs/batch-history.md, CHANGELOG.md, and docs/batch-plan.md in the kit repo",
 			"Apply does not execute reviewer, adapter, pack-memory, gate, sync, promote, heavy-tool, commit, push, or remote CI inspection",
 		},
 	}
@@ -1660,7 +1840,7 @@ func nextBatchCurrentBatchSection(nextBatch string, action mission.MissionComman
 		"",
 		"目标：把 `" + domain + "` candidate 收敛成 Windows 本机可验证的闭环：" + closure + "。实现应复用既有 typed handoff/envelope 和 deterministic runtime 边界，让 Mission Commander 或 replacement executor 能从 durable docs/status 消费结果，不依赖上一会话隐性上下文；focused work 必须证明该候选命令所描述的能力：" + candidateCommand + "。",
 		"",
-		"边界：本批不新增 PowerShell runtime logic，不执行 heavy-tool，不写 authority/confirmed，不自动执行 reviewer/adapter/pack-memory/gate/sync/promote mutation，不自动提交或声明 remote CI green；`/rekit next-batch -Apply` 只在 expected hash 匹配时写 kit repo `docs/batch-plan.md` 与 `CHANGELOG.md` planning receipt。",
+		"边界：本批不新增 PowerShell runtime logic，不执行 heavy-tool，不写 authority/confirmed，不自动执行 reviewer/adapter/pack-memory/gate/sync/promote mutation，不自动提交或声明 remote CI green；`/rekit next-batch -Apply` 只在 expected hash 匹配时归档更早 active batch，并写 kit repo `docs/batch-history.md`、`CHANGELOG.md` 与 `docs/batch-plan.md` planning receipt。",
 		"",
 		"验证标准：focused regressions 覆盖 `" + domain + "` 的 selected product-path closure、durable status/handoff refresh，以及不回归 `/rekit next-batch` WhatIf/Apply/hash guard；随后运行完整本机 release minimum：" + validation + "。实现完成后记录 implementation commit/push 与 push-triggered remote release-gate inspection；远程 `steps=[]` 仍只记录 blocker，不声明 green。",
 	}, "\n")
@@ -1669,7 +1849,7 @@ func nextBatchCurrentBatchSection(nextBatch string, action mission.MissionComman
 func nextBatchChangelogEntry(nextBatch string, action mission.MissionCommanderNextActionItem, closure string) string {
 	domain := strings.TrimSpace(action.Label)
 	candidateCommand := nextBatchCandidateCommand(action)
-	return "- " + nextBatch + " 新增 " + closure + "：选择 `" + domain + "` candidate（" + candidateCommand + "）并将其收敛为 Windows 本机可验证的 product-path planning receipt；`/rekit next-batch` 仍只负责 WhatIf → `expectedNextBatchPlanSha256` → Apply 的 kit docs receipt，不触碰 case state、不执行 reviewer/adapter/pack-memory/gate/sync/promote mutation、heavy-tool、authority/confirmed 写入、自动提交或 remote CI green 声明。Focused validation、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection 待记录。"
+	return "- " + nextBatch + " 新增 " + closure + "：选择 `" + domain + "` candidate（" + candidateCommand + "）并将其收敛为 Windows 本机可验证的 product-path planning receipt；`/rekit next-batch` 仍只负责 WhatIf → `expectedNextBatchPlanSha256` → Apply 的 bounded kit docs receipt，并在写入新批次前归档更早 active batch，不触碰 case state、不执行 reviewer/adapter/pack-memory/gate/sync/promote mutation、heavy-tool、authority/confirmed 写入、自动提交或 remote CI green 声明。Focused validation、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection 待记录。"
 }
 
 func nextBatchCandidateCommand(action mission.MissionCommanderNextActionItem) string {
@@ -1692,10 +1872,203 @@ func nextBatchValidationSummary(commands []string) string {
 	return strings.Join(quoted, "、")
 }
 
+func applyNextBatchWrites(writes []nextBatchWritePlan) error {
+	for _, write := range writes {
+		current, err := os.ReadFile(write.TargetPath)
+		if err != nil {
+			return err
+		}
+		currentSHA := nextBatchSHA256(current)
+		switch {
+		case strings.EqualFold(currentSHA, write.AfterSHA256):
+			continue
+		case strings.EqualFold(currentSHA, write.BeforeSHA256):
+			if err := writeNextBatchFileAtomic(write.TargetPath, []byte(write.PlannedText)); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("next-batch write %s drifted from reviewed before/after bytes", write.Path)
+		}
+	}
+	if nextBatchAfterWritePassHook != nil {
+		nextBatchAfterWritePassHook()
+	}
+	for _, write := range writes {
+		current, err := os.ReadFile(write.TargetPath)
+		if err != nil {
+			return err
+		}
+		if currentSHA := nextBatchSHA256(current); !strings.EqualFold(currentSHA, write.AfterSHA256) {
+			return fmt.Errorf("next-batch write %s drifted before final exact-byte validation", write.Path)
+		}
+	}
+	return nil
+}
+
+func writeNextBatchFileAtomic(path string, data []byte) error {
+	temp, err := os.CreateTemp(filepath.Dir(path), ".next-batch-*.tmp")
+	if err != nil {
+		return err
+	}
+	tempPath := temp.Name()
+	defer os.Remove(tempPath)
+	if err := temp.Chmod(0o644); err != nil {
+		temp.Close()
+		return err
+	}
+	if _, err := temp.Write(data); err != nil {
+		temp.Close()
+		return err
+	}
+	if err := temp.Sync(); err != nil {
+		temp.Close()
+		return err
+	}
+	if err := temp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		return err
+	}
+	return nil
+}
+
+func nextBatchRotateActiveHistory(planText, historyText string) (string, string, []string, error) {
+	plan := strings.ReplaceAll(strings.ReplaceAll(planText, "\r\n", "\n"), "\r", "\n")
+	history := strings.ReplaceAll(strings.ReplaceAll(historyText, "\r\n", "\n"), "\r", "\n")
+	starts := []int{}
+	for offset := 0; offset < len(plan); {
+		idx := strings.Index(plan[offset:], "### Batch ")
+		if idx < 0 {
+			break
+		}
+		idx += offset
+		if idx == 0 || plan[idx-1] == '\n' {
+			starts = append(starts, idx)
+		}
+		offset = idx + len("### Batch ")
+	}
+	if len(starts) <= 1 {
+		return plan, history, nil, nil
+	}
+	archiveStart := starts[1]
+	archiveEnd := len(plan)
+	for _, marker := range []string{"\n## 活动文档维护规则", "\n## 验证标准"} {
+		if idx := strings.Index(plan[archiveStart:], marker); idx >= 0 && archiveStart+idx < archiveEnd {
+			archiveEnd = archiveStart + idx
+		}
+	}
+	sections := strings.TrimSpace(plan[archiveStart:archiveEnd])
+	if sections == "" {
+		return "", "", nil, fmt.Errorf("next-batch active batch rotation found no sections to archive")
+	}
+	archived := []string{}
+	sectionStarts := []int{}
+	for offset := 0; offset < len(sections); {
+		idx := strings.Index(sections[offset:], "### Batch ")
+		if idx < 0 {
+			break
+		}
+		idx += offset
+		if idx == 0 || sections[idx-1] == '\n' {
+			sectionStarts = append(sectionStarts, idx)
+		}
+		offset = idx + len("### Batch ")
+	}
+	for i, start := range sectionStarts {
+		end := len(sections)
+		if i+1 < len(sectionStarts) {
+			end = sectionStarts[i+1]
+		}
+		section := strings.TrimSpace(sections[start:end])
+		titleEnd := strings.IndexByte(section, '\n')
+		if titleEnd < 0 {
+			titleEnd = len(section)
+		}
+		title := strings.TrimSpace(section[:titleEnd])
+		batchID := nextBatchSectionID(title)
+		if batchID == "" {
+			return "", "", nil, fmt.Errorf("next-batch active batch rotation found an invalid batch title %q", title)
+		}
+		historySection, found, duplicate := nextBatchHistorySection(history, batchID)
+		if duplicate {
+			return "", "", nil, fmt.Errorf("next-batch history contains duplicate %s sections", batchID)
+		}
+		if found {
+			if strings.TrimSpace(historySection) != section {
+				return "", "", nil, fmt.Errorf("next-batch history already contains %q with different content", title)
+			}
+			continue
+		}
+		archived = append(archived, section)
+	}
+	rotatedPlan := strings.TrimSpace(plan[:archiveStart]) + "\n\n" + strings.TrimLeft(plan[archiveEnd:], "\n")
+	if len(archived) > 0 {
+		history = strings.TrimRight(history, "\n") + "\n\n" + strings.Join(archived, "\n\n") + "\n"
+	}
+	return rotatedPlan, history, archived, nil
+}
+
+func nextBatchSectionID(title string) string {
+	value := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(title), "### "))
+	if !strings.HasPrefix(value, "Batch ") {
+		return ""
+	}
+	value = strings.TrimPrefix(value, "Batch ")
+	end := 0
+	for end < len(value) && value[end] >= '0' && value[end] <= '9' {
+		end++
+	}
+	if end == 0 || end >= len(value) || (value[end] != ':' && value[end:] != "：" && !strings.HasPrefix(value[end:], "：")) {
+		return ""
+	}
+	return "Batch " + value[:end]
+}
+
+func nextBatchHistorySection(history, batchID string) (string, bool, bool) {
+	starts := []int{}
+	for offset := 0; offset < len(history); {
+		idx := strings.Index(history[offset:], "### Batch ")
+		if idx < 0 {
+			break
+		}
+		idx += offset
+		if idx == 0 || history[idx-1] == '\n' {
+			starts = append(starts, idx)
+		}
+		offset = idx + len("### Batch ")
+	}
+	matched := ""
+	found := false
+	for i, start := range starts {
+		end := len(history)
+		if i+1 < len(starts) {
+			end = starts[i+1]
+		}
+		section := strings.TrimSpace(history[start:end])
+		titleEnd := strings.IndexByte(section, '\n')
+		if titleEnd < 0 {
+			titleEnd = len(section)
+		}
+		if nextBatchSectionID(section[:titleEnd]) != batchID {
+			continue
+		}
+		if found {
+			return "", true, true
+		}
+		matched = section
+		found = true
+	}
+	return matched, found, false
+}
+
 func nextBatchInsertAfterHeading(text, heading, duplicateNeedle, insert string) (string, error) {
 	normalized := strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n")
 	if strings.Contains(normalized, duplicateNeedle) {
-		return "", fmt.Errorf("next-batch target already contains %q", strings.TrimSpace(duplicateNeedle))
+		if strings.Contains(normalized, strings.TrimSpace(insert)) {
+			return normalized, nil
+		}
+		return "", fmt.Errorf("next-batch target already contains %q with different content", strings.TrimSpace(duplicateNeedle))
 	}
 	idx := strings.Index(normalized, heading)
 	if idx < 0 {
@@ -1730,13 +2103,23 @@ func nextBatchWrite(path, action, targetPath, insertAfter string, before []byte,
 
 func nextBatchPlanningSHA256(writes []nextBatchWritePlan) string {
 	h := sha256.New()
+	nextBatchHashLength(h, len(writes))
 	for _, write := range writes {
+		nextBatchHashLength(h, len(write.Path))
 		_, _ = io.WriteString(h, write.Path)
-		_, _ = h.Write([]byte{0})
+		nextBatchHashLength(h, len(write.PlannedText))
 		_, _ = io.WriteString(h, write.PlannedText)
-		_, _ = h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+func nextBatchHashLength(out io.Writer, value int) {
+	var encoded [8]byte
+	for i := len(encoded) - 1; i >= 0; i-- {
+		encoded[i] = byte(value)
+		value >>= 8
+	}
+	_, _ = out.Write(encoded[:])
 }
 
 func nextBatchSHA256(data []byte) string {
