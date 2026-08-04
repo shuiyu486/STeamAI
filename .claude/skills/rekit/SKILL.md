@@ -36,8 +36,9 @@ disable-model-invocation: true
 
 | 用户意图 | 行为 |
 |---|---|
-| `/rekit` / `/rekit status` | 默认只读；attached case未显式传`-Pack`时使用metadata。第一屏给pack/binding/shim诊断与唯一Mission Commander current action；moved/shim/onboarding/reviewer/evidence/adapter问题只给bounded repair/review request，不自动写入。JSON保留case/project handoff、quickstart、replacement takeover与release truthfulness。 |
-| `/rekit packs` | 维护者只读查看当前 kit 内 pack 矩阵：成熟度、schema、route、managed/tooling 和 authority lane 概览；`-Format json` 输出机器可读 inventory。 |
+| `/rekit` / `/rekit status` | 默认只读；attached case默认用metadata pack。第一屏给binding/shim诊断与唯一Mission Commander current action；问题只给bounded repair/review request。JSON保留handoff、takeover与release truthfulness。 |
+| `/rekit packs` | 只读查看pack成熟度、schema、route和tooling。 |
+| `/rekit release-run` | 跑本机release minimum；待提交时仅换Git-local receipt，绑定HEAD、steps与exact artifacts。只接受唯一direct matching commit；drift/tamper/extra commit拒绝。不写tracked repo/case、不查远程CI。 |
 | `/rekit onboard` | 新case的Go-owned/no-fallback入口。主Agent把自然语言收敛为七个显式identity字段；WhatIf零写入返回immutable intent、exact stamp/hash、writes与`applyArgs[]`，Apply原样消费并intent-first/commit-last发布。partial exact恢复、committed replay、status→overview→committed initial start均不依赖旧聊天。它不解释Goal、不创建board/lane、不管理session、不执行heavy-tool、不写authority/confirmed。 |
 | `/rekit attach` | 将已有 case 绑定到当前 template root 和 pack。 |
 | `/rekit repair` | 预览迁移后的 metadata 修复；用户确认后才写入。 |

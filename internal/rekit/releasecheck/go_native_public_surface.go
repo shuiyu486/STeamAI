@@ -149,6 +149,7 @@ type GoNativePublicSurfaceProfileSummaryCounts struct {
 	BoundaryCaseLocalWriteback int
 	BoundaryCaseLocalReview    int
 	BoundaryKitReview          int
+	BoundaryLocalValidation    int
 	BoundaryReadOnly           int
 }
 
@@ -167,6 +168,7 @@ type GoNativePublicSurfaceGroupCounts struct {
 	CaseLocalReviewWriteback int
 	CaseLocalReviewFirst     int
 	KitReviewFirst           int
+	LocalValidationReceipt   int
 	BoundaryReadOnly         int
 }
 
@@ -332,6 +334,7 @@ func GoNativePublicSurfaceProfileSummaryCountsFor(summary commands.PublicProfile
 		BoundaryCaseLocalWriteback: summary.Boundaries[commands.BoundaryCaseLocalReviewWriteback],
 		BoundaryCaseLocalReview:    summary.Boundaries[commands.BoundaryCaseLocalReviewFirst],
 		BoundaryKitReview:          summary.Boundaries[commands.BoundaryKitReviewFirst],
+		BoundaryLocalValidation:    summary.Boundaries[commands.BoundaryLocalValidationReceipt],
 		BoundaryReadOnly:           summary.Boundaries[commands.BoundaryReadOnly],
 	}
 }
@@ -352,6 +355,7 @@ func goNativePublicSurfaceProfileSummaryCountsMatch(left, right GoNativePublicSu
 		left.BoundaryCaseLocalWriteback == right.BoundaryCaseLocalWriteback &&
 		left.BoundaryCaseLocalReview == right.BoundaryCaseLocalReview &&
 		left.BoundaryKitReview == right.BoundaryKitReview &&
+		left.BoundaryLocalValidation == right.BoundaryLocalValidation &&
 		left.BoundaryReadOnly == right.BoundaryReadOnly
 }
 
@@ -384,6 +388,8 @@ func goNativePublicSurfaceProfileSummaryBoundaryCountFor(counts GoNativePublicSu
 		return counts.BoundaryCaseLocalReview
 	case commands.BoundaryKitReviewFirst:
 		return counts.BoundaryKitReview
+	case commands.BoundaryLocalValidationReceipt:
+		return counts.BoundaryLocalValidation
 	case commands.BoundaryReadOnly:
 		return counts.BoundaryReadOnly
 	default:
@@ -458,6 +464,7 @@ func GoNativePublicSurfaceGroupCountsFor(groups commands.PublicProfileGroups) Go
 		CaseLocalReviewWriteback: len(groups.ByBoundary[commands.BoundaryCaseLocalReviewWriteback]),
 		CaseLocalReviewFirst:     len(groups.ByBoundary[commands.BoundaryCaseLocalReviewFirst]),
 		KitReviewFirst:           len(groups.ByBoundary[commands.BoundaryKitReviewFirst]),
+		LocalValidationReceipt:   len(groups.ByBoundary[commands.BoundaryLocalValidationReceipt]),
 		BoundaryReadOnly:         len(groups.ByBoundary[commands.BoundaryReadOnly]),
 	}
 }

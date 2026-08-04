@@ -34,6 +34,18 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 
 
+### Batch 817：machine-bound local validation receipt and post-push autonomous continuation closure
+
+状态：已完成。
+
+目标：关闭完整 Windows 本机验证和 implementation push 已真实完成，但 fresh `status` 因自然语言验证句式未命中而继续停在 `implementation-pending`、`next-batch` 无法接手的长期自主推进断点。完整链为成功 `release-run` → exact pre-commit artifact receipt → direct implementation commit/push → clean synchronized status → strict receipt rebuild → post-push receipt → next-batch selection。
+
+实现方向：成功 `release-run` 为已完成且待 implementation commit 的 latest batch 写一份 Git-local strict canonical validation receipt，绑定 baseline HEAD、catalog gate profile完整有序步骤、全部success exit/attempt、latest Batch ID、exact changed/untracked artifact path/state/mode/SHA/bytes；tracked工作树不因此变化。Fresh release handoff仅在当前HEAD是validated baseline之后唯一direct commit，且commit changed set、file status/mode/bytes与receipt完全一致时，才用machine receipt恢复`LocalValidationReady/ReleaseCheckReady`并继续既有post-push reconciliation。旧prose parser保留legacy兼容，但不再是新批唯一真值来源。
+
+边界：receipt不进入commit、不写case、不执行heavy-tool、不写authority/confirmed、不查询远程CI；missing/malformed/tampered/stale receipt，验证后任意编辑，额外/压缩/merge commit，path/mode/bytes/deletion漂移均fail-closed。普通batch仍只做一次implementation commit/push且不等待remote workflow。
+
+验证结果：临时真实Git repo覆盖pre-run snapshot、Git-local零tracked污染、direct commit acceptance、Batch 817+无receipt/prose-complete/tamper/stale/artifact drift/extra commit fail-closed及Batch 816 legacy prose兼容；Windows原子替换成功与失败保留旧receipt均有专项回归。Focused受影响包、完整`go test ./... -count=1`（CLI 215.294秒）、`go vet ./...`、status、10-pack packs、doctor、PowerShell façade smoke、canonical skill预算32756/32768 bytes与`git diff --check`通过。独立终审发现的prose fallback、publication truthfulness、validation→snapshot TOCTOU和Windows非原子replace四项Important均已关闭并三轮复核，无剩余高置信Critical/Important。普通batch不等待或声明remote CI green；implementation commit/push待记录。
+
 ### Batch 816：daily mission campaign orchestration and replacement takeover closure
 
 状态：已完成。
@@ -45,18 +57,6 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 边界：Go runtime不spawn/poll/stop member或reviewer session，不调用shell/Agent tool，不执行heavy-tool，不写或推断authority/confirmed。PowerShell façade仅验证参数组合并逐字透传；WhatIf零写入，Apply按exact hash/currentness/owner/lease guards fail-closed。External turn明确non-transactional：已提交relay在后续拒绝时保留为可验证恢复事实。普通batch不等待或声明remote CI green。
 
 验证结果：member/reviewer composite turn、reviewer snapshot path/SHA/bytes drift、Apply filesystem-only、relay后Human intervention claim门禁、pending dispatch corruption、completion discovery/replacement takeover/double hash与typed mission-complete focused回归通过；受影响`currentloop/mission/memberexecution/externalsession/subagents/workstream/cli`完整包测试最终通过（CLI 209.641秒）。独立终审发现relay非前缀补齐与pending handoff非exact两项Important，已增加全写集preflight、canonical dispatch重建及反例并由原审查者逐项复核关闭，无剩余高置信Critical/Important。修复后完整`go test ./... -count=1`通过（CLI 210.838秒），`go vet ./...`、status、10-pack packs、doctor、PowerShell façade smoke、canonical skill预算32742/32768 bytes与`git diff --check`通过。完成态`release-check -Format json`返回`ready=true` / `summary=release gate inventory ok`；implementation commit/push待记录，普通batch不等待或声明remote CI green。
-
-### Batch 815：review-first cross-case pack-memory discovery, selection, sync, and reconsume proof closure
-
-状态：已完成。
-
-目标：关闭 Case A 已将经验 promote、验证并退休后，另一个显式 attached Case B 仍无法从自己的 status/handoff 发现、审核、同步并证明实际消费同一变化的日常断点。闭环为 completed verified promotion catalog → attached target discovery → explicit single change selection → exact hash-bound WhatIf/Apply → target-case reconsume verification → case-local durable receipt → fresh status/handoff closure。
-
-实现：Go-native completed catalog 只纳入 accepted managed-doc、current pack source及 decision/verification/retirement/cleanup/doctor/fresh+attached reconsume proofs 完整的变化，并给出稳定完整 change ID。`status`与durable handoff仅检查当前显式 target，区分available、content-current-no-receipt、already-consumed、local-conflict和invalid-receipt；Mission Commander/replacement executor获得同一review-first selected `sync` action。WhatIf只规划一个managed path并返回exact plan SHA，Apply在共享case-root mutation lease内重建计划，按durable intent→backup→target→state→doctor→final receipt发布；exact-prefix恢复和strict receipt replay不依赖之后可能演进的producer catalog/source。Intent/receipt以同目录synced temp加no-overwrite atomic commit避免torn final artifact，并绑定pinned root及跨调用稳定filesystem identity（Unix dev+inode、Windows volume serial+file index），拒绝把pending intent或receipt-only case复制回同路径新root后继续。PowerShell façade只验证selected path参数组合并逐字透传，public surface仍为30 commands。
-
-边界：discovery不扫描磁盘或建立central case registry；producer proof不是target mutation授权，Apply仍要求同一WhatIf的exact hash。Consumer receipt只留在目标case；本地target自上次sync后漂移时fail-closed，backup不替代review authority，tooling candidate不能绕过accepted decision。Runtime不自动执行sync/promote/heavy-tool，不管理session，不写authority/confirmed；未新增PowerShell runtime logic，普通batch不等待或声明remote CI green。
-
-验证结果：真实producer→第二attached consumer临时case走通status发现、handoff审核、selected WhatIf、exact Apply、backup/target/state/receipt与fresh consumed closure；focused `releasecheck/packmemoryconsumption/cli/workstream/sync`及façade smoke通过。两轮独立事务审查发现的reparse/TOCTOU、partial recovery、strict replay、shared lease/unlock、producer drift、root rebind与torn publication问题均已关闭，终复核无Critical/Important残余。最终完整`go test ./... -count=1`通过（CLI 208.766秒），`go vet ./...`、`status`、10-pack `packs`、`doctor`、canonical skill预算32699/32768 bytes及Linux/Darwin/WASM交叉编译通过；完成态`release-check -Format json`返回`ready=true` / `summary=release gate inventory ok`，`git diff --check`通过。Implementation commit/push待记录；普通batch不等待或声明remote CI green。
 
 ## 活动文档维护规则
 

@@ -262,10 +262,10 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	assertHandoffSignalDetail(t, handoff, "PowerShell deprecation", "moduleRemoval=true candidates=0 retired=13 facadeDeps=0 undocumented=0")
 	assertHandoffSignalDetail(t, handoff, "PowerShell deprecation", "moduleReferences=true activeTests=0 fixtures=0 blockers=0 unclassified=0")
 	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "entrypoint=cmd/rekit present=true catalog=internal/rekit/commands/commands.go catalogPresent=true")
-	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "default=status commands=30 handlers=30 symbols=30 profiles=30 boundaries=7 alternative=go run ./cmd/rekit -- -Command <command>")
-	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "profileSummary total=30 readOnly=6 mutating=24 writesCase=22 writesKit=2 reviewFirst=12 applyRequired=22 heavyTool=0 authorityConfirmed=0")
-	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "profileGroups readOnly=doctor,packs,release-check,release-run,status,validate reviewFirst=complete,next-batch,onboard,promote,reopen,run-current-loop,run-current-step,run-driver-step,run-reviewer-step,run-reviewer-wave,sync,update writesKit=next-batch,promote")
-	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "profileBoundaries rows=7 caseLocalApply=attach,bootstrap,continue,gate,handoff,init,reconcile,repair,start caseLocalReviewWriteback=plan-subagents caseLocalReviewFirst=complete,onboard,reopen,run-current-loop,run-current-step,run-driver-step,run-reviewer-step,run-reviewer-wave,sync,update kitReviewFirst=next-batch,promote readOnly=doctor,packs,release-check,release-run,status,validate")
+	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "default=status commands=30 handlers=30 symbols=30 profiles=30 boundaries=8 alternative=go run ./cmd/rekit -- -Command <command>")
+	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "profileSummary total=30 readOnly=5 mutating=25 writesCase=22 writesKit=2 reviewFirst=12 applyRequired=22 heavyTool=0 authorityConfirmed=0")
+	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "profileGroups readOnly=doctor,packs,release-check,status,validate reviewFirst=complete,next-batch,onboard,promote,reopen,run-current-loop,run-current-step,run-driver-step,run-reviewer-step,run-reviewer-wave,sync,update writesKit=next-batch,promote")
+	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "profileBoundaries rows=8 caseLocalApply=attach,bootstrap,continue,gate,handoff,init,reconcile,repair,start caseLocalReviewWriteback=plan-subagents caseLocalReviewFirst=complete,onboard,reopen,run-current-loop,run-current-step,run-driver-step,run-reviewer-step,run-reviewer-wave,sync,update kitReviewFirst=next-batch,promote readOnly=doctor,packs,release-check,status,validate")
 	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "profilePolicies rows=5 violations=0")
 	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "facadeRemovalReady=true prerequisites=5")
 	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "unsupportedDiagnostic=true")
@@ -459,7 +459,7 @@ func TestReleaseHandoffBuildsNextBatchSelectionPackageWithShortLocalValidationEv
 func TestReleaseHandoffBuildsNextBatchAfterSevenOfSevenPushWithRemoteNotRecorded(t *testing.T) {
 	repo := cleanReleaseRepoRoot(t)
 	longValidationPrefix := strings.Repeat("reviewed candidate reconsume operator evidence recorded; ", 12)
-	writeReleaseHandoffLatestBatchFixture(t, repo, `### Batch 999：Fixture
+	writeReleaseHandoffLatestBatchFixture(t, repo, `### Batch 816：Fixture
 
 状态：已完成 Windows 本机验证与 implementation commit/push；implementation commit `+"`"+`abc999d`+"`"+` 已推送。远程 workflow 异步运行，当前尚未记录对应 run。
 
@@ -467,7 +467,7 @@ func TestReleaseHandoffBuildsNextBatchAfterSevenOfSevenPushWithRemoteNotRecorded
 
 验证结果：`+longValidationPrefix+`完成态 `+"`"+`release-check -Format json`+"`"+` 返回 `+"`"+`ready=true`+"`"+`；统一 `+"`"+`release-run -Format json`+"`"+` 以 7/7 通过。Implementation commit `+"`"+`abc999d`+"`"+` 已推送；未轮询或等待远程 workflow。
 
-`, "- Batch 999 fixture note.\n\n")
+`, "- Batch 816 fixture note.\n\n")
 
 	result, err := Build(repo)
 	if err != nil {
@@ -496,7 +496,7 @@ func TestReleaseHandoffBuildsNextBatchAfterSevenOfSevenPushWithRemoteNotRecorded
 
 func writeCompletedReleaseHandoffLatestBatchFixture(t *testing.T, repo string) {
 	t.Helper()
-	writeReleaseHandoffLatestBatchFixture(t, repo, `### Batch 999：Fixture
+	writeReleaseHandoffLatestBatchFixture(t, repo, `### Batch 816：Fixture
 
 状态：已完成 fixture implementation、完整本机 release minimum、implementation commit/push 与远程 release-gate inspection；implementation commit `+"`"+`abc999d`+"`"+` 已推送。Push run `+"`"+`30399999999`+"`"+` completed failure；Linux/Windows/macOS jobs `+"`"+`90199900001`+"`"+`/`+"`"+`90199900002`+"`"+`/`+"`"+`90199900003`+"`"+` 均 `+"`"+`steps=[]`+"`"+`。
 
@@ -504,12 +504,12 @@ func writeCompletedReleaseHandoffLatestBatchFixture(t *testing.T, repo string) {
 
 验证结果：完整本机 release minimum 已通过：`+"`"+`go run ./cmd/rekit -- -Command release-check -Format json`+"`"+` 返回 `+"`"+`ready=true`+"`"+` / `+"`"+`summary=release gate inventory ok`+"`"+`，`+"`"+`go run ./cmd/rekit -- -Command status`+"`"+`、`+"`"+`go run ./cmd/rekit -- -Command packs`+"`"+`、`+"`"+`go run ./cmd/rekit -- -Command doctor`+"`"+`、`+"`"+`go test ./...`+"`"+`、`+"`"+`go vet ./...`+"`"+` 与 `+"`"+`git diff --check`+"`"+` 均已运行。Implementation commit `+"`"+`abc999d`+"`"+` 已推送。Push run `+"`"+`30399999999`+"`"+` completed failure；Linux/Windows/macOS jobs `+"`"+`90199900001`+"`"+`/`+"`"+`90199900002`+"`"+`/`+"`"+`90199900003`+"`"+` 均 `+"`"+`steps=[]`+"`"+`；`+"`"+`gh run view 30399999999 --log-failed`+"`"+` 返回 `+"`"+`log not found: 90199900001`+"`"+`。
 
-`, "- Batch 999 fixture note.\n\n")
+`, "- Batch 816 fixture note.\n\n")
 }
 
 func writeStaleReleaseCheckNarrativeLatestBatchFixture(t *testing.T, repo string) {
 	t.Helper()
-	writeReleaseHandoffLatestBatchFixture(t, repo, `### Batch 999：Fixture
+	writeReleaseHandoffLatestBatchFixture(t, repo, `### Batch 816：Fixture
 
 状态：已完成 fixture implementation、完整本机 release minimum、implementation commit/push 与远程 release-gate inspection；implementation commit `+"`"+`abc999d`+"`"+` 已推送。Push run `+"`"+`30399999999`+"`"+` completed failure；Linux/Windows/macOS jobs `+"`"+`90199900001`+"`"+`/`+"`"+`90199900002`+"`"+`/`+"`"+`90199900003`+"`"+` 均 `+"`"+`steps=[]`+"`"+`。
 
@@ -517,17 +517,17 @@ func writeStaleReleaseCheckNarrativeLatestBatchFixture(t *testing.T, repo string
 
 验证结果：focused regression 已通过，完整本机 release minimum 已通过：`+"`"+`go run ./cmd/rekit -- -Command release-check -Format json`+"`"+` 在 completion evidence 写入前按预期返回 `+"`"+`ready=false`+"`"+` / `+"`"+`summary=release gate inventory has warnings`+"`"+`；随后 `+"`"+`go run ./cmd/rekit -- -Command status`+"`"+`、`+"`"+`go run ./cmd/rekit -- -Command packs`+"`"+`、`+"`"+`go run ./cmd/rekit -- -Command doctor`+"`"+`、`+"`"+`go test ./...`+"`"+`、`+"`"+`go vet ./...`+"`"+` 与 `+"`"+`git diff --check`+"`"+` 均已运行。Implementation commit `+"`"+`abc999d`+"`"+` 已推送。Push run `+"`"+`30399999999`+"`"+` completed failure；Linux/Windows/macOS jobs `+"`"+`90199900001`+"`"+`/`+"`"+`90199900002`+"`"+`/`+"`"+`90199900003`+"`"+` 均 `+"`"+`steps=[]`+"`"+`；`+"`"+`gh run view 30399999999 --log-failed`+"`"+` 返回 `+"`"+`log not found: 90199900001`+"`"+`。本机当前 `+"`"+`release-check -Format json`+"`"+` inventory 已为 `+"`"+`ready=true`+"`"+`，但这句不使用完整 Go command，避免旧 parser 只看 validation 文本时误把 pre-evidence `+"`"+`ready=false`+"`"+` 当成最终 current action。
 
-`, "- Batch 999 fixture note.\n\n")
+`, "- Batch 816 fixture note.\n\n")
 }
 
 func writeShortLocalValidationEvidenceLatestBatchFixture(t *testing.T, repo string) {
 	t.Helper()
 	q := "`"
-	batchSection := "### Batch 999：Fixture\n\n" +
+	batchSection := "### Batch 816：Fixture\n\n" +
 		"状态：已完成 fixture implementation、focused validation、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection；implementation commit " + q + "abc999d" + q + " 已推送。Push run " + q + "30399999999" + q + " completed failure；macOS/Linux/Windows jobs " + q + "90199900001" + q + "/" + q + "90199900002" + q + "/" + q + "90199900003" + q + " 均 " + q + "steps=[]" + q + "。\n\n" +
 		"目标：fixture completed short validation evidence goal.\n\n" +
 		"验证结果：focused regressions 已通过。完整本机 release minimum 已执行：completion evidence 写回前 " + q + "release-check -Format json" + q + " 按预期返回 " + q + "ready=false" + q + " / " + q + "summary=release gate inventory has warnings" + q + "；" + q + "status" + q + "、" + q + "packs" + q + "（pack validation ok）、" + q + "doctor" + q + "、" + q + "go test ./..." + q + "、" + q + "go vet ./..." + q + " 与 " + q + "git diff --check" + q + " 已通过；记录本机证据后复跑 " + q + "release-check -Format json" + q + " 返回 " + q + "ready=true" + q + " / " + q + "summary=release gate inventory ok" + q + "。Implementation commit " + q + "abc999d" + q + " 已推送；push-triggered release-gate run " + q + "30399999999" + q + " completed failure，macOS/Linux/Windows jobs " + q + "90199900001" + q + "/" + q + "90199900002" + q + "/" + q + "90199900003" + q + " 均 " + q + "steps=[]" + q + "，" + q + "gh run view 30399999999 --log-failed" + q + " 返回 " + q + "log not found: 90199900001" + q + "，job annotations API 均返回 404；仍是既有 runner/billing blocker signal，不声明 remote green。\n\n"
-	writeReleaseHandoffLatestBatchFixture(t, repo, batchSection, "- Batch 999 fixture note.\n\n")
+	writeReleaseHandoffLatestBatchFixture(t, repo, batchSection, "- Batch 816 fixture note.\n\n")
 }
 
 func writeReleaseHandoffLatestBatchFixture(t *testing.T, repo, batchSection, changelogEntry string) {
@@ -552,7 +552,13 @@ func writeReleaseHandoffLatestBatchFixture(t *testing.T, repo, batchSection, cha
 	default:
 		t.Fatalf("batch plan fixture heading %q is not followed by a blank line", planMarker)
 	}
-	writeFile(t, planPath, planText[:planInsertAt]+batchSection+planText[planInsertAt:])
+	tail := planText[planInsertAt:]
+	if strings.Contains(batchSection, "### Batch 816：Fixture") {
+		if rules := strings.Index(tail, "## 活动文档维护规则"); rules >= 0 {
+			tail = tail[rules:]
+		}
+	}
+	writeFile(t, planPath, planText[:planInsertAt]+batchSection+tail)
 	changelogPath := filepath.Join(repo, "CHANGELOG.md")
 	changelogData, err := os.ReadFile(changelogPath)
 	if err != nil {

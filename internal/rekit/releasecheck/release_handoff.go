@@ -91,6 +91,7 @@ type ReleaseHandoffLatestBatchHandoff struct {
 	Completed                bool                                   `json:"completed"`
 	LocalValidationReady     bool                                   `json:"localValidationReady"`
 	ReleaseCheckReady        bool                                   `json:"releaseCheckReady"`
+	LocalValidationReceipt   *LocalValidationReceiptInspection      `json:"localValidationReceipt,omitempty"`
 	RemoteReleaseGate        string                                 `json:"remoteReleaseGate,omitempty"`
 	RemoteReleaseGateDetail  *ReleaseHandoffRemoteReleaseGateDetail `json:"remoteReleaseGateDetail,omitempty"`
 	ReleaseInspectionCadence ReleaseHandoffReleaseInspectionCadence `json:"releaseInspectionCadence"`
@@ -4485,7 +4486,38 @@ func releaseHandoffLatestBatchWithPostPushReceipt(repo string, latest ReleaseHan
 
 func releaseHandoffLatestBatchWithPostPushReceiptUsing(repo string, latest ReleaseHandoffLatestBatch, executor releaseHandoffGitCommandExecutor) ReleaseHandoffLatestBatch {
 	cadence := latest.Handoff.ReleaseInspectionCadence
-	if !latest.Handoff.Completed || !latest.Handoff.LocalValidationReady || !latest.Handoff.ReleaseCheckReady || cadence.State != "implementation-pending" {
+	if !latest.Handoff.Completed {
+		return latest
+	}
+	machineReceiptRequired := latestBatchIDNumber(latest.BatchID) >= 817
+	if cadence.State != "implementation-pending" && !machineReceiptRequired {
+		return latest
+	}
+	validation := InspectLocalValidationReceipt(repo, latest)
+	latest.Handoff.LocalValidationReceipt = &validation
+	if validation.Ready {
+		latest.Handoff.LocalValidationReady = true
+		latest.Handoff.ReleaseCheckReady = true
+		latest.Handoff.Evidence = mission.UniqueStrings(append(latest.Handoff.Evidence, validation.Evidence...))
+		if machineReceiptRequired {
+			cadence.State = "implementation-pending"
+			cadence.ImplementationCommitReady = false
+			latest.Handoff.ReleaseInspectionCadence = cadence
+		}
+	} else if machineReceiptRequired {
+		latest.Handoff.LocalValidationReady = false
+		latest.Handoff.ReleaseCheckReady = false
+		latest.Handoff.PostPushReceipt = nil
+		if cadence.State == "complete" {
+			cadence.State = "implementation-pending"
+			cadence.ImplementationCommitReady = false
+			cadence.NextAction = "rerun the full Windows local release minimum and publish a machine validation receipt before next-batch selection"
+			latest.Handoff.ReleaseInspectionCadence = cadence
+			latest.Handoff.NextAction = cadence.NextAction
+		}
+		return latest
+	}
+	if !latest.Handoff.LocalValidationReady || !latest.Handoff.ReleaseCheckReady {
 		return latest
 	}
 	receipt := releaseHandoffPostPushReceiptFor(repo, latest, executor)

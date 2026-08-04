@@ -54,6 +54,7 @@ const (
 	BoundaryCaseLocalReviewWriteback = "case-local-review-writeback"
 	BoundaryCaseLocalReviewFirst     = "case-local-review-first"
 	BoundaryKitReviewFirst           = "kit-review-first"
+	BoundaryLocalValidationReceipt   = "local-validation-receipt"
 )
 
 const (
@@ -167,7 +168,7 @@ var publicProfiles = []PublicProfile{
 	{Command: Reconcile, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
 	{Command: Reopen, MutationBoundary: BoundaryCaseLocalReviewFirst, IsMutation: true, WritesCase: true, ReviewFirst: true, ApplyRequired: true},
 	{Command: ReleaseCheck, MutationBoundary: BoundaryReadOnly},
-	{Command: ReleaseRun, MutationBoundary: BoundaryReadOnly},
+	{Command: ReleaseRun, MutationBoundary: BoundaryLocalValidationReceipt, IsMutation: true},
 	{Command: Repair, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
 	{Command: RunCurrentLoop, MutationBoundary: BoundaryCaseLocalReviewFirst, IsMutation: true, WritesCase: true, ReviewFirst: true, ApplyRequired: true},
 	{Command: RunCurrentStep, MutationBoundary: BoundaryCaseLocalReviewFirst, IsMutation: true, WritesCase: true, ReviewFirst: true, ApplyRequired: true},
@@ -417,6 +418,7 @@ func KnownMutationBoundaries() []string {
 		BoundaryCaseLocalReviewWriteback,
 		BoundaryCaseLocalReviewFirst,
 		BoundaryKitReviewFirst,
+		BoundaryLocalValidationReceipt,
 		BoundaryReadOnly,
 	}
 }

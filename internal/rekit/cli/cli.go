@@ -1365,21 +1365,22 @@ func runReleaseCheck(ctx runtime.Context, opt Options, out io.Writer) error {
 }
 
 type releaseRunResult struct {
-	Command           string                      `json:"command"`
-	SchemaVersion     int                         `json:"schemaVersion"`
-	IsMutation        bool                        `json:"isMutation"`
-	RepoRoot          string                      `json:"repoRoot"`
-	Ready             bool                        `json:"ready"`
-	Summary           string                      `json:"summary"`
-	GateProfile       releasecheck.GateProfile    `json:"gateProfile"`
-	StepCount         int                         `json:"stepCount"`
-	Passed            int                         `json:"passed"`
-	Failed            int                         `json:"failed"`
-	Skipped           int                         `json:"skipped"`
-	DurationMS        int64                       `json:"durationMs"`
-	Steps             []releaseRunStepResult      `json:"steps"`
-	Boundary          []string                    `json:"boundary"`
-	ReleaseInspection releaseRunInspectionHandoff `json:"releaseInspection"`
+	Command                string                                         `json:"command"`
+	SchemaVersion          int                                            `json:"schemaVersion"`
+	IsMutation             bool                                           `json:"isMutation"`
+	RepoRoot               string                                         `json:"repoRoot"`
+	Ready                  bool                                           `json:"ready"`
+	Summary                string                                         `json:"summary"`
+	GateProfile            releasecheck.GateProfile                       `json:"gateProfile"`
+	StepCount              int                                            `json:"stepCount"`
+	Passed                 int                                            `json:"passed"`
+	Failed                 int                                            `json:"failed"`
+	Skipped                int                                            `json:"skipped"`
+	DurationMS             int64                                          `json:"durationMs"`
+	Steps                  []releaseRunStepResult                         `json:"steps"`
+	Boundary               []string                                       `json:"boundary"`
+	ReleaseInspection      releaseRunInspectionHandoff                    `json:"releaseInspection"`
+	LocalValidationReceipt *releasecheck.LocalValidationReceiptInspection `json:"localValidationReceipt,omitempty"`
 }
 
 type releaseRunStepResult struct {
@@ -1446,6 +1447,8 @@ type releaseRunGitCommandExecutor func(context.Context, string, ...string) (int,
 
 var releaseRunExecuteCommand releaseRunCommandExecutor = executeReleaseRunCommand
 var releaseRunExecuteGitCommand releaseRunGitCommandExecutor = executeReleaseRunGitCommand
+var releaseRunCaptureLocalValidationSnapshot = releasecheck.CaptureLocalValidationSnapshot
+var releaseRunPublishLocalValidationReceipt = releasecheck.PublishLocalValidationReceipt
 
 func runReleaseRun(ctx runtime.Context, opt Options, out io.Writer) error {
 	if ctx.TargetProvided {
@@ -1458,8 +1461,48 @@ func runReleaseRun(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	latest := inventory.ReleaseHandoff.LatestBatch
+	receiptRequired := latest.Handoff.Completed && latest.Handoff.ReleaseInspectionCadence.State == "implementation-pending"
+	var snapshot releasecheck.LocalValidationSnapshot
+	if receiptRequired {
+		snapshot, err = releaseRunCaptureLocalValidationSnapshot(ctx.RepoRoot)
+		if err != nil {
+			result := releaseRunResult{
+				Command: commands.ReleaseRun, SchemaVersion: 1, IsMutation: true,
+				RepoRoot: ctx.RepoRoot, Summary: "local validation snapshot failed",
+				GateProfile:            inventory.GateProfile,
+				Boundary:               []string{"release-run requires one stable pre-run artifact snapshot before executing validation steps"},
+				LocalValidationReceipt: &releasecheck.LocalValidationReceiptInspection{State: "not-recorded", Warnings: []string{err.Error()}},
+			}
+			return writeFailedReleaseRunResult(out, opt, result, err)
+		}
+	}
 	result := runReleaseRunSteps(ctx.RepoRoot, inventory.GateProfile, releaseRunExecuteCommand)
 	result.ReleaseInspection = releaseRunInspectionHandoffFor(ctx.RepoRoot, inventory, result.Ready, releaseRunExecuteGitCommand)
+	if result.Ready && receiptRequired {
+		steps := make([]releasecheck.LocalValidationReceiptStep, 0, len(result.Steps))
+		for _, step := range result.Steps {
+			steps = append(steps, releasecheck.LocalValidationReceiptStep{
+				Index: step.Index, Command: step.Command, Status: step.Status,
+				ExitCode: step.ExitCode, Attempts: step.Attempts,
+			})
+		}
+		receipt, receiptErr := releaseRunPublishLocalValidationReceipt(ctx.RepoRoot, releasecheck.LocalValidationReceiptInput{
+			BatchID: inventory.ReleaseHandoff.LatestBatch.BatchID, GateProfile: result.GateProfile.Name,
+			Passed: result.Passed, Failed: result.Failed, Skipped: result.Skipped,
+			ReleaseCheckReady: inventory.Ready, Steps: steps, Snapshot: snapshot,
+		})
+		if receiptErr != nil {
+			receipt.State = "not-recorded"
+			receipt.Warnings = append(receipt.Warnings, receiptErr.Error())
+			result.Ready = false
+			result.Summary = "local validation receipt publication failed"
+			result.ReleaseInspection = releaseRunInspectionHandoffFor(ctx.RepoRoot, inventory, false, releaseRunExecuteGitCommand)
+			result.ReleaseInspection.Summary = "release inspection handoff blocked by validation receipt publication failure"
+			result.ReleaseInspection.Warnings = append(result.ReleaseInspection.Warnings, receiptErr.Error())
+		}
+		result.LocalValidationReceipt = &receipt
+	}
 	format := strings.ToLower(strings.TrimSpace(opt.Format))
 	if format == "" {
 		format = "table"
@@ -1471,6 +1514,17 @@ func runReleaseRun(ctx runtime.Context, opt Options, out io.Writer) error {
 		return nil
 	}
 	return fmt.Errorf("release-run not ready: passed=%d failed=%d skipped=%d", result.Passed, result.Failed, result.Skipped)
+}
+
+func writeFailedReleaseRunResult(out io.Writer, opt Options, result releaseRunResult, cause error) error {
+	format := strings.ToLower(strings.TrimSpace(opt.Format))
+	if format == "" {
+		format = "table"
+	}
+	if err := writeReleaseRunResult(out, result, format); err != nil {
+		return err
+	}
+	return fmt.Errorf("release-run not ready: %w", cause)
 }
 
 type nextBatchResult struct {
@@ -2235,7 +2289,7 @@ func runReleaseRunSteps(repoRoot string, profile releasecheck.GateProfile, execu
 	result := releaseRunResult{
 		Command:       commands.ReleaseRun,
 		SchemaVersion: 1,
-		IsMutation:    false,
+		IsMutation:    true,
 		RepoRoot:      repoRoot,
 		Ready:         true,
 		Summary:       "release run ok",
@@ -2244,7 +2298,7 @@ func runReleaseRunSteps(repoRoot string, profile releasecheck.GateProfile, execu
 		Steps:         []releaseRunStepResult{},
 		Boundary: []string{
 			"runs only release-check gateProfile steps from the kit repo",
-			"does not write repo or case state",
+			"does not write repo or case state; successful runs replace only one untracked Git-local validation receipt",
 			"does not execute heavy tools or authority/confirmed writes",
 		},
 	}
@@ -2440,7 +2494,7 @@ func releaseRunInspectionMissionCommanderActionQueue(git releaseRunInspectionGit
 		})
 	}
 	baseBoundary := []string{
-		"release-run result is a read-only Mission Commander receipt; it does not write repo or case state",
+		"release-run Mission Commander handoff is read-only; successful command execution may replace only the Git-local validation receipt and does not write tracked repo or case state",
 		"record Windows local validation evidence in docs before claiming batch completion",
 		"remote release-gate is asynchronous and non-blocking for normal batches; release-run never claims remote green",
 	}
@@ -2669,6 +2723,11 @@ func writeReleaseRunResult(out io.Writer, result releaseRunResult, format string
 func writeReleaseRunText(out io.Writer, result releaseRunResult) error {
 	if _, err := fmt.Fprintf(out, "release-run：mutation=%t ready=%t summary=%s repoRoot=%s gateProfile=%s steps=%d passed=%d failed=%d skipped=%d durationMs=%d\n", result.IsMutation, result.Ready, result.Summary, result.RepoRoot, result.GateProfile.Name, result.StepCount, result.Passed, result.Failed, result.Skipped, result.DurationMS); err != nil {
 		return err
+	}
+	if receipt := result.LocalValidationReceipt; receipt != nil {
+		if _, err := fmt.Fprintf(out, "release-run local validation receipt：present=%t ready=%t state=%s path=%s sha256=%s validatedHead=%s\n", receipt.Present, receipt.Ready, receipt.State, receipt.Path, receipt.SHA256, receipt.ValidatedHead); err != nil {
+			return err
+		}
 	}
 	for _, step := range result.Steps {
 		if _, err := fmt.Fprintf(out, "release-run step：index=%d status=%s exitCode=%d durationMs=%d attempts=%d command=%s kind=%s repoPath=%s required=%t resolved=%t\n", step.Index, step.Status, step.ExitCode, step.DurationMS, step.Attempts, step.Command, step.Kind, step.RepoPath, step.Required, step.Resolved); err != nil {
