@@ -56,6 +56,32 @@ func TestSamePathKeepsMissingPathsDistinct(t *testing.T) {
 	}
 }
 
+func TestListRegularFilesAnchoredRejectsInvalidNamespaceEntries(t *testing.T) {
+	caseRoot := t.TempDir()
+	inbox := filepath.Join(caseRoot, ".rekit", "external-session-observations", "inbox")
+	if files, err := ListRegularFilesAnchored(caseRoot, ".rekit/external-session-observations/inbox", "observation inbox", 16); err != nil || len(files) != 0 {
+		t.Fatalf("missing inbox files=%v err=%v", files, err)
+	}
+	if err := os.MkdirAll(inbox, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"b.json", "a.json"} {
+		if err := os.WriteFile(filepath.Join(inbox, name), []byte("{}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	files, err := ListRegularFilesAnchored(caseRoot, ".rekit/external-session-observations/inbox", "observation inbox", 16)
+	if err != nil || len(files) != 2 || filepath.Base(files[0]) != "a.json" || filepath.Base(files[1]) != "b.json" {
+		t.Fatalf("regular inbox files=%v err=%v", files, err)
+	}
+	if err := os.Mkdir(filepath.Join(inbox, "nested"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ListRegularFilesAnchored(caseRoot, ".rekit/external-session-observations/inbox", "observation inbox", 16); err == nil {
+		t.Fatal("anchored listing accepted a nested directory")
+	}
+}
+
 func TestReadStableRegularFileAnchoredRejectsSymlinkComponents(t *testing.T) {
 	caseRoot := t.TempDir()
 	real := filepath.Join(caseRoot, "real")

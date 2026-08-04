@@ -30,6 +30,19 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 
 
+
+### Batch 813：canonical external session observation inbox discovery and one-shot checkpoint resume handoff
+
+状态：已完成。
+
+目标：让外部member/reviewer harness只需把strict envelope写入canonical case-local inbox，fresh status即可唯一发现并生成checkpoint-bound WhatIf接力；成功Apply返回one-shot processed receipt并由successor checkpoint恢复，不再要求replacement executor记住文件路径。
+
+实现：`.rekit/external-session-observations/inbox/*.json`由case-root anchored no-follow/reparse-safe bounded枚举读取，并复用既有strict envelope decode、checkpoint/attempt/capability currentness校验。Fresh status只在恰好一个候选匹配latest ready checkpoint及exact member/reviewer attempt时返回typed `observationInbox.selectedDriverRequest`；多个匹配、任一invalid entry或namespace异常均fail-closed，旧checkpoint候选只计数且不参与选择。WhatIf与Apply继续绑定exact path/bytes SHA/source checkpoint/nested+outer hashes，Apply前再次确认同一路径/SHA仍是唯一current strict候选；legacy member/reviewer templates继续以underlying resume request为基底，不混入互斥的observation-path参数。成功Apply返回processed`observationReceipt`；successor checkpoint以可选kind/actor及既有source/path/SHA lineage供fresh status恢复完整typed receipt，旧Batch 812 path/SHA-only checkpoint仍可读取。Receipt独立投影于top-level current-loop operator，因此successor已不再等待observation时，status/replacement takeover/handoff仍可恢复处理结果。
+
+边界：inbox discovery只读，不删除/移动文件、不claim checkpoint、不自动Apply；source checkpoint one-shot claim阻断replay。Runtime不spawn/poll/stop外部session、不执行heavy-tool、不写authority/confirmed；不新增PowerShell runtime logic，旧Batch 812 checkpoint schema保持兼容。
+
+验证结果：focused regressions覆盖unique discovery、path-only preview、hash-bound Apply、processed receipt、fresh status recovery、stale/ambiguous/invalid fail-closed、anchored directory enumeration、旧legacy resume与member/reviewer campaign；受影响`fs/currentloop/mission/workstream/cli`包与完整`go test ./... -count=1`通过（CLI 347.100秒），`go vet ./...`、`status`、`packs`、`doctor`和`git diff --check`通过。独立correctness/security审查发现的exact attempt qualification、legacy template参数互斥、typed receipt完整性与Apply前唯一性重检问题均已关闭，终复核无高置信Critical/Important。完成态`release-check -Format json`返回`ready=true` / `summary=release gate inventory ok`；普通batch不等待或声明remote CI green。
+
 ### Batch 812：unified external session observation envelope intake for checkpoint-bound campaign resume
 
 状态：已完成。
@@ -41,18 +54,6 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 边界：Go runtime不spawn/poll/stop member或reviewer session，不执行heavy-tool、不写authority/confirmed；direct reviewer result write保持既有fresh refresh路径，不用predecessor envelope；不放宽member manifest/output、reviewer result、checkpoint one-shot/currentness或lane owner generation guards，不新增PowerShell runtime logic。
 
 验证结果：focused `currentloop/cli/workstream`回归、member accepted/returned E2E、reviewer accepted/returned/failed campaign E2E、strict unknown/trailing/oversize/outside-case与参数互斥、exact-byte drift、checkpoint identity tamper、status/handoff projections及PowerShell façade smoke通过。受影响四包完整测试通过（CLI 195.179秒）；修复审查项后完整`go test ./... -count=1`通过（CLI 193.498秒），`go vet ./...`、`status`、10-pack `packs`、`doctor`、façade smoke与`git diff --check`通过。独立correctness/security审查确认祖先目录namespace TOCTOU与claim后reopen烧毁remaining budget两项Important；改用pinned `os.Root` anchored no-follow/reparse-safe reader，并让claim后只消费已审核immutable materialization，定向复核确认两项关闭且无新的高置信Critical/Important。完成态`release-check -Format json`返回`ready=true` / `summary=release gate inventory ok`；implementation commit/push待统一记录，普通batch不等待或声明remote CI green。
-
-### Batch 811：bounded Mission Commander multi-segment run loop with durable external session handoff
-
-状态：已完成。本批将bounded Mission Commander current-loop从reviewer单边接力扩展为统一durable external member/reviewer session handoff；主Agent或replacement executor可从status、quickstart、handoff与strict checkpoint恢复剩余预算和下一项exact observation preview，不依赖旧聊天，也不手工拼装attempt/checkpoint flags。
-
-目标：让Mission Commander在member或reviewer外部session边界保存strict remaining-budget checkpoint，并让当前或replacement executor从统一durable operator package提交exact observation后继续下一segment。
-
-实现：`currentLoopOperator.externalMemberHandoff`绑定member attempt、lane、owner generation、handoff/manifest/output路径及accepted/returned/failed alternatives，并随segment continuation和checkpoint持久化。External member checkpoint必须提交匹配attempt的恰好一个observation，空resume不得消耗remaining budget；accepted后能力收敛为returned/failed，returned前必须写strict manifest和全部declared bounded outputs，intake-ready后撤销旧handoff。Status、replacement takeover、handoff JSON与durable Markdown消费同一operator package和checkpoint-bound模板。Strict schema拒绝attempt generation、canonical paths、state、capability set、embedded contract漂移及非member stop夹带member handoff。
-
-边界：Go runtime不spawn/poll/stop member或reviewer session，不执行heavy-tool、不写authority/confirmed；不新增PowerShell runtime logic，不自动跨external session边界Apply，不放宽既有member manifest/output、reviewer result、checkpoint one-shot/currentness或lane owner generation guards。
-
-验证结果：focused `currentloop/mission/workstream/cli`回归通过；受影响四包完整测试通过（CLI 197.849秒），覆盖dispatch→checkpoint、status/quickstart/replacement/handoff JSON/Markdown/default text投影、空resume与不同attempt resume拒绝、accepted 3→2能力收敛、strict returned intake、`member-intake-ready`无旧handoff successor保留剩余预算，以及generation/path/state/capability/embedded-contract schema tamper fail-closed。完整 `go test ./... -count=1` 通过（CLI 201.798秒），`go vet ./...`、`status`、10-pack `packs`、`doctor` 与 `git diff --check` 通过。独立correctness/security审查最初确认3项Important：checkpoint attempt替换、returned剩余预算checkpoint失败与default text遗漏；修复后逐项复核关闭，未发现新的高置信Critical/Important。完成态`release-check -Format json`返回`ready=true` / `summary=release gate inventory ok`；implementation commit/push待统一记录，普通batch不等待或声明remote CI green。
 
 ## 活动文档维护规则
 

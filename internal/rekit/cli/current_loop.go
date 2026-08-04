@@ -46,12 +46,17 @@ type currentLoopPlan struct {
 	ExpectedResumeCheckpointSHA256 string                                 `json:"expectedResumeCheckpointSha256,omitempty"`
 	ObservationPath                string                                 `json:"observationPath,omitempty"`
 	ObservationSHA256              string                                 `json:"observationSha256,omitempty"`
+	ObservationKind                string                                 `json:"observationKind,omitempty"`
+	ObservationActor               string                                 `json:"observationActor,omitempty"`
+	ObservationReceipt             *currentLoopObservationReceipt         `json:"observationReceipt,omitempty"`
 	ApplyCommand                   string                                 `json:"applyCommand,omitempty"`
 	SegmentCheckpoint              *currentloop.Inspection                `json:"segmentCheckpoint,omitempty"`
 	FinalStatus                    *statusInventory                       `json:"finalStatus,omitempty"`
 	Boundary                       []string                               `json:"boundary"`
 	zeroProgressVerified           bool                                   `json:"-"`
 }
+
+type currentLoopObservationReceipt = mission.CurrentLoopObservationReceipt
 
 type currentLoopStepReceipt struct {
 	Step                          int                                    `json:"step"`
@@ -227,6 +232,21 @@ func runCurrentLoop(ctx runtime.Context, opt Options, out io.Writer) error {
 	if plan.AppliedSteps > 0 || plan.StopReason.Code == "zero-progress-retry" {
 		inspection, checkpointErr := writeCurrentLoopSegmentCheckpoint(ctx, opt, plan)
 		plan.SegmentCheckpoint = &inspection
+		if checkpointErr == nil && plan.ObservationSHA256 != "" {
+			plan.ObservationReceipt = &currentLoopObservationReceipt{
+				State:                     "processed",
+				SourceCheckpointSHA256:    plan.ExpectedResumeCheckpointSHA256,
+				SuccessorCheckpointSHA256: inspection.ArtifactSHA256,
+				ObservationPath:           plan.ObservationPath,
+				ObservationSHA256:         plan.ObservationSHA256,
+				ObservationKind:           plan.ObservationKind,
+				Actor:                     plan.ObservationActor,
+				Boundary: []string{
+					"receipt is proven by the strict successor checkpoint that binds the exact observation bytes and consumed source checkpoint",
+					"the observation file is not deleted or mutated; replay is blocked by the one-shot source checkpoint claim",
+				},
+			}
+		}
 		if checkpointErr != nil {
 			plan.Boundary = append(plan.Boundary,
 				"durable current-loop segment checkpoint publication failed; this invocation result remains the only receipt and status must not recover its budget",
@@ -352,6 +372,10 @@ func buildCurrentLoopPlan(ctx runtime.Context, opt Options) (currentLoopPlan, st
 		plan.ExpectedResumeCheckpointSHA256 = resumeSource.ArtifactSHA256
 		plan.ObservationPath = opt.CurrentLoopObservationPath
 		plan.ObservationSHA256 = opt.ExpectedCurrentLoopObservationSHA256
+		if plan.ObservationPath != "" {
+			plan.ObservationKind = currentLoopObservationKind(opt)
+			plan.ObservationActor = strings.TrimSpace(opt.Start.Actor)
+		}
 		plan.ApplyCommand = currentLoopResumeApplyCommand(ctx, plan, opt)
 		plan.Boundary = append(plan.Boundary,
 			"resume preview binds the latest ready checkpoint artifact and its remaining budget; Apply revalidates that exact checkpoint before executing the new segment",
@@ -858,6 +882,8 @@ func writeCurrentLoopSegmentCheckpoint(ctx runtime.Context, opt Options, plan cu
 		ResumeSourceArtifactSHA256:    plan.ExpectedResumeCheckpointSHA256,
 		ObservationPath:               plan.ObservationPath,
 		ObservationSHA256:             plan.ObservationSHA256,
+		ObservationKind:               plan.ObservationKind,
+		ObservationActor:              plan.ObservationActor,
 		ZeroProgressRecovery:          plan.StopReason.Code == "zero-progress-retry",
 		SegmentMaxSteps:               plan.MaxSteps,
 		AppliedStepsInSegment:         plan.AppliedSteps,

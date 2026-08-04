@@ -114,6 +114,8 @@ type Payload struct {
 	ResumeSourceArtifactSHA256          string                                 `json:"resumeSourceArtifactSha256,omitempty"`
 	ObservationPath                     string                                 `json:"observationPath,omitempty"`
 	ObservationSHA256                   string                                 `json:"observationSha256,omitempty"`
+	ObservationKind                     string                                 `json:"observationKind,omitempty"`
+	ObservationActor                    string                                 `json:"observationActor,omitempty"`
 	ReopenOperationSequence             int                                    `json:"reopenOperationSequence,omitempty"`
 	ReopenOperationCommitSHA256         string                                 `json:"reopenOperationCommitSha256,omitempty"`
 	ZeroProgressRecovery                bool                                   `json:"zeroProgressRecovery,omitempty"`
@@ -174,6 +176,10 @@ type Inspection struct {
 	ExpectedRoute              string                                 `json:"expectedRoute,omitempty"`
 	ExpectedLane               string                                 `json:"expectedLane,omitempty"`
 	ResumeSourceSHA256         string                                 `json:"resumeSourceSha256,omitempty"`
+	ObservationPath            string                                 `json:"observationPath,omitempty"`
+	ObservationSHA256          string                                 `json:"observationSha256,omitempty"`
+	ObservationKind            string                                 `json:"observationKind,omitempty"`
+	ObservationActor           string                                 `json:"observationActor,omitempty"`
 	ResumeDriverRequest        *mission.MissionCommanderDriverRequest `json:"resumeDriverRequest,omitempty"`
 	Continuation               *Continuation                          `json:"continuation,omitempty"`
 	LegacyUnboundWhatIfCommand string                                 `json:"legacyUnboundWhatIfCommand,omitempty"`
@@ -486,6 +492,10 @@ func inspectRoot(root *os.Root, identity, caseRoot, pack string, current *missio
 	base.ArtifactPath = filepath.ToSlash(filepath.Join(artifactRelRoot, name))
 	base.ArtifactSHA256 = latest.artifactSHA256
 	base.ResumeSourceSHA256 = payload.ResumeSourceArtifactSHA256
+	base.ObservationPath = payload.ObservationPath
+	base.ObservationSHA256 = payload.ObservationSHA256
+	base.ObservationKind = payload.ObservationKind
+	base.ObservationActor = payload.ObservationActor
 	base.ArtifactBytes = len(latest.data)
 	base.PayloadSHA256 = artifact.PayloadSHA256
 	base.RecordedAt = artifact.RecordedAt
@@ -870,6 +880,19 @@ func validatePayload(payload Payload) error {
 	}
 	if (strings.TrimSpace(payload.ObservationPath) == "") != (strings.TrimSpace(payload.ObservationSHA256) == "") || payload.ObservationSHA256 != "" && (!isSHA256(payload.ObservationSHA256) || payload.ResumeSourceArtifactSHA256 == "") {
 		return fmt.Errorf("observation path, hash, or resume source binding is invalid")
+	}
+	if payload.ObservationPath == "" && (payload.ObservationKind != "" || payload.ObservationActor != "") || payload.ObservationPath != "" && ((payload.ObservationKind == "") != (payload.ObservationActor == "")) {
+		return fmt.Errorf("observation typed receipt identity is invalid")
+	}
+	if payload.ObservationKind != "" {
+		switch payload.ObservationKind {
+		case "member-session-accepted", "member-session-returned", "member-session-failed", "reviewer-session-accepted", "reviewer-result-returned", "reviewer-session-failed":
+		default:
+			return fmt.Errorf("observation typed receipt kind is invalid")
+		}
+		if strings.TrimSpace(payload.ObservationActor) == "" || payload.ObservationActor != strings.TrimSpace(payload.ObservationActor) || payload.ObservationActor != strings.TrimSpace(payload.Actor) {
+			return fmt.Errorf("observation typed receipt actor is invalid")
+		}
 	}
 	if payload.ReopenOperationSequence < 0 || payload.ReopenOperationSequence == 0 && payload.ReopenOperationCommitSHA256 != "" || payload.ReopenOperationSequence > 0 && !isSHA256(payload.ReopenOperationCommitSHA256) {
 		return fmt.Errorf("reopen operation watermark is invalid")

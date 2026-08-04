@@ -107,6 +107,12 @@ func replacementExecutorTakeoverRunbookSteps(pkg *ReplacementExecutorTakeoverPac
 		"read " + packagePath + " before using any prior chat context",
 		"consume currentDriverRequest exactly; do not reconstruct commands from terminal prose",
 	}
+	if operator := pkg.CurrentLoopOperator; operator != nil && operator.ObservationInbox != nil && operator.ObservationInbox.State == "ready" && operator.SelectedDriverRequest != nil {
+		steps = append(steps,
+			"a unique canonical inbox observation is ready; consume currentLoopOperator.selectedDriverRequest before the underlying durable action",
+			"review the returned preview and execute only its exact path-only hash-bound Apply command, then refresh status",
+		)
+	}
 	if strings.TrimSpace(pkg.DurableArtifactPath) != "" && !pkg.DurableArtifactFresh {
 		steps = append(steps, "do not consume stale durable takeover artifact "+pkg.DurableArtifactPath+"; use currentDriverRequest and refreshStatusCommand instead")
 		if pkg.DurableArtifactRefreshDriverRequest != nil {

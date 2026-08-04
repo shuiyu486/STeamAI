@@ -1005,6 +1005,9 @@ type currentLoopTestPlan struct {
 	ExpectedResumeCheckpointSHA256 string                          `json:"expectedResumeCheckpointSha256"`
 	ObservationPath                string                          `json:"observationPath"`
 	ObservationSHA256              string                          `json:"observationSha256"`
+	ObservationKind                string                          `json:"observationKind"`
+	ObservationActor               string                          `json:"observationActor"`
+	ObservationReceipt             *currentLoopObservationReceipt  `json:"observationReceipt"`
 	ApplyCommand                   string                          `json:"applyCommand"`
 	SegmentCheckpoint              *currentloop.Inspection         `json:"segmentCheckpoint"`
 	FinalStatus                    *statusInventory                `json:"finalStatus"`
@@ -1113,6 +1116,120 @@ func TestCurrentLoopObservationEnvelopeRejectsInvalidFilesAndFlags(t *testing.T)
 	}
 }
 
+func TestCurrentLoopObservationInboxFailsClosedOnAmbiguityAndInvalidEntry(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	inspection := currentloop.Inspection{
+		ArtifactSHA256: strings.Repeat("a", 64),
+		ExpectedLane:   "main",
+		Continuation: &currentloop.Continuation{
+			ObservationContract:   &currentloop.ObservationContract{Alternatives: []currentloop.ObservationAlternative{{Kind: "member-session-accepted"}}},
+			ExternalMemberHandoff: &mission.CurrentLoopExternalMemberHandoff{AttemptID: "g000001-a000001-deadbeefdeadbeef"},
+		},
+	}
+	inboxDir := filepath.Join(caseRoot, filepath.FromSlash(currentLoopObservationInboxRel))
+	if err := os.MkdirAll(inboxDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	valid := currentLoopObservationEnvelope{
+		SchemaVersion: 1, Kind: "current-loop-external-session-observation", CheckpointSHA256: inspection.ArtifactSHA256,
+		ObservationKind: "member-session-accepted", Actor: "harness", ObservedAt: "2026-08-04T00:00:00Z", MemberAttemptID: inspection.Continuation.ExternalMemberHandoff.AttemptID,
+		NoAuthorityOrConfirmed: true, NoHeavyTool: true,
+	}
+	for _, name := range []string{"one.json", "two.json"} {
+		data, err := json.Marshal(valid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(inboxDir, name), append(data, '\n'), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ambiguous := inspectCurrentLoopObservationInbox(caseRoot, inspection)
+	if ambiguous.State != "ambiguous" || ambiguous.MatchingCount != 2 || ambiguous.SelectedCandidate != nil || ambiguous.SelectedDriverRequest != nil {
+		t.Fatalf("ambiguous inbox was not blocked: %+v", ambiguous)
+	}
+	if err := os.Remove(filepath.Join(inboxDir, "two.json")); err != nil {
+		t.Fatal(err)
+	}
+	bad := valid
+	bad.Actor = ""
+	badData, err := json.Marshal(bad)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(inboxDir, "bad.json"), append(badData, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	invalid := inspectCurrentLoopObservationInbox(caseRoot, inspection)
+	if invalid.State != "invalid" || invalid.InvalidCount != 1 || invalid.SelectedCandidate != nil || invalid.SelectedDriverRequest != nil {
+		t.Fatalf("invalid inbox was not blocked: %+v", invalid)
+	}
+	if err := os.Remove(filepath.Join(inboxDir, "bad.json")); err != nil {
+		t.Fatal(err)
+	}
+	wrongAttempt := valid
+	wrongAttempt.MemberAttemptID = "g000001-a000002-deadbeefdeadbeef"
+	wrongAttemptData, err := json.Marshal(wrongAttempt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(inboxDir, "wrong-attempt.json"), append(wrongAttemptData, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	attemptMismatch := inspectCurrentLoopObservationInbox(caseRoot, inspection)
+	if attemptMismatch.State != "invalid" || attemptMismatch.InvalidCount != 1 || attemptMismatch.SelectedCandidate != nil || attemptMismatch.SelectedDriverRequest != nil {
+		t.Fatalf("attempt-mismatched inbox observation was not blocked: %+v", attemptMismatch)
+	}
+	if err := os.Remove(filepath.Join(inboxDir, "one.json")); err != nil {
+		t.Fatal(err)
+	}
+	staleOnly := inspectCurrentLoopObservationInbox(caseRoot, inspection)
+	if staleOnly.State != "invalid" || staleOnly.InvalidCount != 1 || staleOnly.MatchingCount != 0 || staleOnly.SelectedCandidate != nil {
+		t.Fatalf("attempt-mismatched observation was not invalid without another candidate: %+v", staleOnly)
+	}
+	if err := os.Remove(filepath.Join(inboxDir, "wrong-attempt.json")); err != nil {
+		t.Fatal(err)
+	}
+	reviewerAttempt := strings.Repeat("b", 64)
+	inspection.Continuation.ExternalMemberHandoff = nil
+	inspection.Continuation.ObservationContract = &currentloop.ObservationContract{Alternatives: []currentloop.ObservationAlternative{{
+		Kind:                   "reviewer-session-failed",
+		PreviewCommandTemplate: "/rekit run-current-loop -ExpectedCurrentLoopReviewerAttemptSha256 " + reviewerAttempt + " -WhatIf -Format json",
+	}}}
+	wrongReviewer := currentLoopObservationEnvelope{
+		SchemaVersion: 1, Kind: "current-loop-external-session-observation", CheckpointSHA256: inspection.ArtifactSHA256,
+		ObservationKind: "reviewer-session-failed", Actor: "harness", ReviewerAttemptSHA256: strings.Repeat("c", 64), ReviewerExitStatus: "failed",
+		NoAuthorityOrConfirmed: true, NoHeavyTool: true,
+	}
+	wrongReviewerData, err := json.Marshal(wrongReviewer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(inboxDir, "wrong-reviewer.json"), append(wrongReviewerData, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reviewerMismatch := inspectCurrentLoopObservationInbox(caseRoot, inspection)
+	if reviewerMismatch.State != "invalid" || reviewerMismatch.InvalidCount != 1 || reviewerMismatch.SelectedCandidate != nil {
+		t.Fatalf("reviewer-attempt-mismatched observation was not blocked: %+v", reviewerMismatch)
+	}
+	if err := os.Remove(filepath.Join(inboxDir, "wrong-reviewer.json")); err != nil {
+		t.Fatal(err)
+	}
+	staleCheckpoint := valid
+	staleCheckpoint.CheckpointSHA256 = strings.Repeat("d", 64)
+	staleCheckpointData, err := json.Marshal(staleCheckpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(inboxDir, "stale-checkpoint.json"), append(staleCheckpointData, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stale := inspectCurrentLoopObservationInbox(caseRoot, inspection)
+	if stale.State != "empty" || stale.StaleCount != 1 || stale.MatchingCount != 0 || stale.SelectedCandidate != nil || stale.SelectedDriverRequest != nil {
+		t.Fatalf("stale checkpoint observation was selected instead of counted: %+v", stale)
+	}
+}
+
 func TestRunCurrentLoopMemberExecutionCheckpoint(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	var out bytes.Buffer
@@ -1189,7 +1306,7 @@ func TestRunCurrentLoopMemberExecutionCheckpoint(t *testing.T) {
 	if err := runCurrentLoopError(caseRoot, []string{"-ResumeCurrentLoop", "-ExpectedCurrentLoopCheckpointSha256", applied.SegmentCheckpoint.ArtifactSHA256, "-WhatIf"}); err == nil || !strings.Contains(err.Error(), "member observation") {
 		t.Fatalf("external member checkpoint resumed without a member observation: %v", err)
 	}
-	observationDir := filepath.Join(caseRoot, ".rekit", "external-session-observations")
+	observationDir := filepath.Join(caseRoot, ".rekit", "external-session-observations", "inbox")
 	if err := os.MkdirAll(observationDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -1205,9 +1322,28 @@ func TestRunCurrentLoopMemberExecutionCheckpoint(t *testing.T) {
 	if err := os.WriteFile(observationPath, append(observationBytes, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	accepted := runCurrentLoopResumePreviewWith(t, caseRoot, applied.SegmentCheckpoint.ArtifactSHA256,
-		"-CurrentLoopObservationPath", observationPath,
-	)
+	var inboxStatusOut bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &inboxStatusOut); err != nil {
+		t.Fatal(err)
+	}
+	var inboxStatus statusInventory
+	if err := json.Unmarshal(inboxStatusOut.Bytes(), &inboxStatus); err != nil {
+		t.Fatal(err)
+	}
+	inboxOperator := inboxStatus.MissionControlRunbook.CurrentLoopOperator
+	if inboxOperator == nil || inboxOperator.ObservationInbox == nil || inboxOperator.ObservationInbox.State != "ready" || inboxOperator.SelectedDriverRequest == nil || inboxOperator.SelectedDriverRequest.Command != inboxOperator.ObservationInbox.SelectedDriverRequest.Command || !strings.Contains(inboxOperator.SelectedDriverRequest.Command, observationPath) {
+		t.Fatalf("status did not select the unique canonical inbox observation: %+v", inboxOperator)
+	}
+	for _, alternative := range inboxOperator.ExternalMemberHandoff.ObservationContract.Alternatives {
+		if strings.Contains(alternative.PreviewCommandTemplate, "-CurrentLoopObservationPath") {
+			t.Fatalf("inbox request leaked into legacy member observation template: %+v", alternative)
+		}
+		fields, err := splitDriverCommand(alternative.PreviewCommandTemplate)
+		if err != nil || len(fields) < 2 || fields[0] != "/rekit" {
+			t.Fatalf("legacy member observation template is not consumable: %q: %v", alternative.PreviewCommandTemplate, err)
+		}
+	}
+	accepted := runCurrentLoopResult(t, rekitCommandCLIArgs(t, inboxOperator.SelectedDriverRequest.Command))
 	if accepted.MaxSteps != 4 || accepted.ResumeSource == nil || accepted.InitialCurrentStep == nil || accepted.InitialCurrentStep.MemberExecution == nil || accepted.InitialCurrentStep.MemberExecution.Outcome != "accepted" {
 		t.Fatalf("member observation did not resume exact checkpoint budget: %+v", accepted)
 	}
@@ -1235,6 +1371,16 @@ func TestRunCurrentLoopMemberExecutionCheckpoint(t *testing.T) {
 	if err := os.WriteFile(observationPath, append(observationBytes, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	secondPath := filepath.Join(observationDir, "member-accepted-duplicate.json")
+	if err := os.WriteFile(secondPath, append(observationBytes, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Run(rekitCommandCLIArgs(t, accepted.ApplyCommand), &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "no longer has exactly one") {
+		t.Fatalf("member inbox ambiguity introduced after preview was not rejected before claim: %v", err)
+	}
+	if err := os.Remove(secondPath); err != nil {
+		t.Fatal(err)
+	}
 	currentLoopBeforeApplyStepHook = func(step int) error {
 		if step != 1 {
 			return nil
@@ -1250,6 +1396,9 @@ func TestRunCurrentLoopMemberExecutionCheckpoint(t *testing.T) {
 	if acceptedApplied.SegmentCheckpoint == nil || acceptedApplied.SegmentCheckpoint.ArtifactSHA256 == "" {
 		t.Fatalf("member accepted resume did not publish a checkpoint: checkpoint=%+v plan=%+v", acceptedApplied.SegmentCheckpoint, acceptedApplied)
 	}
+	if acceptedApplied.ObservationReceipt == nil || acceptedApplied.ObservationReceipt.State != "processed" || acceptedApplied.ObservationReceipt.SourceCheckpointSHA256 != applied.SegmentCheckpoint.ArtifactSHA256 || acceptedApplied.ObservationReceipt.SuccessorCheckpointSHA256 != acceptedApplied.SegmentCheckpoint.ArtifactSHA256 || acceptedApplied.ObservationReceipt.ObservationSHA256 != observationSHA256 || acceptedApplied.ObservationReceipt.ObservationKind != "member-session-accepted" {
+		t.Fatalf("member accepted resume omitted one-shot processed receipt: %+v", acceptedApplied.ObservationReceipt)
+	}
 	if acceptedApplied.ContinuationRequest == nil || acceptedApplied.ContinuationRequest.ExternalMemberHandoff == nil || acceptedApplied.ContinuationRequest.ExternalMemberHandoff.State != "accepted" || len(acceptedApplied.ContinuationRequest.ObservationContract.Alternatives) != 2 {
 		t.Fatalf("accepted member continuation did not narrow to returned/failed: %+v", acceptedApplied.ContinuationRequest)
 	}
@@ -1257,6 +1406,24 @@ func TestRunCurrentLoopMemberExecutionCheckpoint(t *testing.T) {
 		if alternative.Kind == "member-session-accepted" {
 			t.Fatalf("accepted member continuation still permits duplicate accepted: %+v", acceptedApplied.ContinuationRequest)
 		}
+	}
+	if err := os.Remove(observationPath); err != nil {
+		t.Fatal(err)
+	}
+	var receiptStatusOut bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &receiptStatusOut); err != nil {
+		t.Fatal(err)
+	}
+	var receiptStatus statusInventory
+	if err := json.Unmarshal(receiptStatusOut.Bytes(), &receiptStatus); err != nil {
+		t.Fatal(err)
+	}
+	receiptInbox := receiptStatus.MissionControlRunbook.CurrentLoopOperator.ObservationInbox
+	if receiptInbox == nil || receiptInbox.LatestReceipt == nil || receiptInbox.LatestReceipt.SourceCheckpointSHA256 != applied.SegmentCheckpoint.ArtifactSHA256 || receiptInbox.LatestReceipt.SuccessorCheckpointSHA256 != acceptedApplied.SegmentCheckpoint.ArtifactSHA256 || receiptInbox.LatestReceipt.ObservationSHA256 != observationSHA256 || receiptInbox.LatestReceipt.ObservationKind != "member-session-accepted" || receiptInbox.LatestReceipt.Actor != "harness" {
+		t.Fatalf("fresh status did not recover processed observation receipt: %+v", receiptInbox)
+	}
+	if receiptStatus.MissionControlRunbook.CurrentLoopOperator.ObservationReceipt == nil || receiptStatus.MissionControlRunbook.CurrentLoopOperator.ObservationReceipt.ObservationKind != "member-session-accepted" {
+		t.Fatalf("fresh status omitted top-level processed observation receipt: %+v", receiptStatus.MissionControlRunbook.CurrentLoopOperator)
 	}
 	inspection := acceptedApplied.InitialCurrentStep.MemberExecution.Inspection
 	output := []byte("member-result\n")
@@ -1272,16 +1439,37 @@ func TestRunCurrentLoopMemberExecutionCheckpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	returnedSource := acceptedApplied.SegmentCheckpoint
-	returned := runCurrentLoopResumePreviewWith(t, caseRoot, returnedSource.ArtifactSHA256,
-		"-MemberExecutionAttemptId", memberPlan.AttemptID,
-		"-MemberExecutionOutcome", "returned",
-		"-MemberExecutionReason", "bounded result complete",
-		"-MemberExecutionObservedAt", "2026-08-03T03:02:00Z",
-		"-Actor", "harness",
-	)
+	returnedObservationPath := filepath.Join(observationDir, "member-returned.json")
+	returnedObservationBytes, err := json.Marshal(currentLoopObservationEnvelope{
+		SchemaVersion: 1, Kind: "current-loop-external-session-observation", CheckpointSHA256: returnedSource.ArtifactSHA256,
+		ObservationKind: "member-session-returned", Actor: "harness", ObservedAt: "2026-08-03T03:02:00Z", MemberAttemptID: memberPlan.AttemptID, Reason: "bounded result complete",
+		NoAuthorityOrConfirmed: true, NoHeavyTool: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(returnedObservationPath, append(returnedObservationBytes, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var returnedInboxStatusOut bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &returnedInboxStatusOut); err != nil {
+		t.Fatal(err)
+	}
+	var returnedInboxStatus statusInventory
+	if err := json.Unmarshal(returnedInboxStatusOut.Bytes(), &returnedInboxStatus); err != nil {
+		t.Fatal(err)
+	}
+	returnedRequest := returnedInboxStatus.MissionControlRunbook.CurrentLoopOperator.SelectedDriverRequest
+	if returnedRequest == nil || !strings.Contains(returnedRequest.Command, returnedObservationPath) {
+		t.Fatalf("returned member observation was not selected from canonical inbox: %+v", returnedInboxStatus.MissionControlRunbook.CurrentLoopOperator)
+	}
+	returned := runCurrentLoopResult(t, rekitCommandCLIArgs(t, returnedRequest.Command))
 	returnedApplied := runCurrentLoopResult(t, rekitCommandCLIArgs(t, returned.ApplyCommand))
 	if !returnedApplied.Applied || returnedApplied.InitialCurrentStep == nil || returnedApplied.InitialCurrentStep.MemberExecution == nil || returnedApplied.InitialCurrentStep.MemberExecution.Inspection.State != "intake-ready" {
 		t.Fatalf("member returned resume apply command did not persist intake: %+v", returnedApplied)
+	}
+	if returnedApplied.ObservationReceipt == nil || returnedApplied.ObservationReceipt.ObservationKind != "member-session-returned" || returnedApplied.ObservationReceipt.Actor != "harness" || returnedApplied.ObservationReceipt.ObservationPath != returnedObservationPath || returnedApplied.ObservationReceipt.SourceCheckpointSHA256 != returnedSource.ArtifactSHA256 {
+		t.Fatalf("member returned resume omitted processed observation receipt: %+v", returnedApplied.ObservationReceipt)
 	}
 	if returnedApplied.AppliedSteps != 1 || returnedApplied.StopReason.Code != "member-intake-ready" || returnedApplied.SegmentCheckpoint == nil || !returnedApplied.SegmentCheckpoint.Ready || returnedApplied.SegmentCheckpoint.RemainingMaxSteps != returned.MaxSteps-returnedApplied.AppliedSteps || returnedApplied.SegmentCheckpoint.Continuation == nil || returnedApplied.SegmentCheckpoint.Continuation.ExternalMemberHandoff != nil || returnedApplied.SegmentCheckpoint.Continuation.ObservationContract != nil {
 		t.Fatalf("member returned result did not publish a clean remaining-budget continuation: %+v", returnedApplied)
@@ -1300,6 +1488,13 @@ func TestRunCurrentLoopMemberExecutionCheckpoint(t *testing.T) {
 	returnedOperator := returnedStatus.MissionControlRunbook.CurrentLoopOperator
 	if returnedOperator == nil || returnedOperator.ExternalMemberHandoff != nil {
 		t.Fatalf("intake-ready status retained a stale member handoff: %+v", returnedOperator)
+	}
+	if returnedOperator.ObservationReceipt == nil || returnedOperator.ObservationReceipt.ObservationKind != "member-session-returned" || returnedOperator.ObservationReceipt.Actor != "harness" || returnedOperator.ObservationReceipt.SourceCheckpointSHA256 != returnedSource.ArtifactSHA256 || returnedOperator.ObservationReceipt.SuccessorCheckpointSHA256 != returnedApplied.SegmentCheckpoint.ArtifactSHA256 {
+		t.Fatalf("intake-ready status omitted terminal successor observation receipt: %+v", returnedOperator)
+	}
+	returnedTakeover := returnedStatus.MissionControlRunbook.ReplacementExecutorTakeover
+	if returnedTakeover == nil || returnedTakeover.CurrentLoopOperator == nil || returnedTakeover.CurrentLoopOperator.ObservationReceipt == nil || returnedTakeover.CurrentLoopOperator.ObservationReceipt.ObservationKind != "member-session-returned" {
+		t.Fatalf("replacement takeover omitted terminal successor observation receipt: %+v", returnedTakeover)
 	}
 }
 

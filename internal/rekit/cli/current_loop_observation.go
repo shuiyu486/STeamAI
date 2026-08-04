@@ -15,7 +15,11 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 )
 
-const maxCurrentLoopObservationBytes = 64 * 1024
+const (
+	maxCurrentLoopObservationBytes        = 64 * 1024
+	maxCurrentLoopObservationInboxEntries = 128
+	currentLoopObservationInboxRel        = ".rekit/external-session-observations/inbox"
+)
 
 type currentLoopObservationEnvelope struct {
 	SchemaVersion            int    `json:"schemaVersion"`
@@ -64,6 +68,12 @@ func applyCurrentLoopObservationEnvelope(ctx runtime.Context, opt *Options, insp
 	if err := qualifyCurrentLoopObservation(&snapshot.Envelope, inspection); err != nil {
 		return err
 	}
+	if currentLoopObservationInCanonicalInbox(ctx.Target, snapshot.Path) {
+		inbox := inspectCurrentLoopObservationInbox(ctx.Target, inspection)
+		if inbox.State != "ready" || inbox.SelectedCandidate == nil || !refsf.SamePath(inbox.SelectedCandidate.Path, snapshot.Path) || !strings.EqualFold(inbox.SelectedCandidate.SHA256, snapshot.SHA256) {
+			return fmt.Errorf("run-current-loop canonical observation inbox no longer has exactly one matching strict candidate; refresh status")
+		}
+	}
 	opt.CurrentLoopObservationPath = snapshot.Path
 	opt.ExpectedCurrentLoopObservationSHA256 = snapshot.SHA256
 	observation := snapshot.Envelope
@@ -92,21 +102,63 @@ func applyCurrentLoopObservationEnvelope(ctx runtime.Context, opt *Options, insp
 	return nil
 }
 
-func qualifyCurrentLoopObservation(observation *currentLoopObservationEnvelope, inspection currentloop.Inspection) error {
-	if observation.SchemaVersion != 1 || observation.Kind != "current-loop-external-session-observation" || strings.TrimSpace(observation.Actor) == "" || !observation.NoAuthorityOrConfirmed || !observation.NoHeavyTool {
-		return fmt.Errorf("run-current-loop observation envelope boundary or identity is invalid")
+func currentLoopObservationKind(opt Options) string {
+	if strings.TrimSpace(opt.CurrentLoopObservationPath) == "" {
+		return ""
 	}
-	allowed := false
+	if outcome := strings.ToLower(strings.TrimSpace(opt.MemberExecutionOutcome)); outcome != "" {
+		return "member-session-" + outcome
+	}
+	if strings.TrimSpace(opt.ReviewerResultInputSourcePath) != "" {
+		return "reviewer-result-returned"
+	}
+	if strings.TrimSpace(opt.ReviewerOutcome) == "failed" {
+		return "reviewer-session-failed"
+	}
+	if strings.TrimSpace(opt.ReviewerHarness) != "" || strings.TrimSpace(opt.ReviewerSession) != "" {
+		return "reviewer-session-accepted"
+	}
+	return ""
+}
+
+func qualifyCurrentLoopObservation(observation *currentLoopObservationEnvelope, inspection currentloop.Inspection) error {
+	if err := validateCurrentLoopObservationEnvelopeShape(observation); err != nil {
+		return err
+	}
+	var matched *currentloop.ObservationAlternative
 	if inspection.Continuation != nil && inspection.Continuation.ObservationContract != nil {
-		for _, alternative := range inspection.Continuation.ObservationContract.Alternatives {
+		for idx := range inspection.Continuation.ObservationContract.Alternatives {
+			alternative := &inspection.Continuation.ObservationContract.Alternatives[idx]
 			if alternative.Kind == observation.ObservationKind {
-				allowed = true
+				matched = alternative
 				break
 			}
 		}
 	}
-	if !allowed {
+	if matched == nil {
 		return fmt.Errorf("run-current-loop observation kind %q is not allowed by checkpoint continuation", observation.ObservationKind)
+	}
+	if strings.HasPrefix(observation.ObservationKind, "member-session-") {
+		if inspection.Continuation.ExternalMemberHandoff == nil || observation.MemberAttemptID != inspection.Continuation.ExternalMemberHandoff.AttemptID {
+			return fmt.Errorf("run-current-loop observation member attempt does not match checkpoint continuation")
+		}
+		return nil
+	}
+	expectedReviewerAttempt := currentLoopObservationTemplateValue(matched.PreviewCommandTemplate, "-ExpectedCurrentLoopReviewerAttemptSha256")
+	if expectedReviewerAttempt == "" || !strings.EqualFold(observation.ReviewerAttemptSHA256, expectedReviewerAttempt) {
+		return fmt.Errorf("run-current-loop observation reviewer attempt does not match checkpoint continuation")
+	}
+	return nil
+}
+
+func validateCurrentLoopObservationEnvelopeShape(observation *currentLoopObservationEnvelope) error {
+	if observation.SchemaVersion != 1 || observation.Kind != "current-loop-external-session-observation" || strings.TrimSpace(observation.CheckpointSHA256) == "" || strings.TrimSpace(observation.Actor) == "" || !observation.NoAuthorityOrConfirmed || !observation.NoHeavyTool {
+		return fmt.Errorf("run-current-loop observation envelope boundary or identity is invalid")
+	}
+	switch observation.ObservationKind {
+	case "member-session-accepted", "member-session-returned", "member-session-failed", "reviewer-session-accepted", "reviewer-result-returned", "reviewer-session-failed":
+	default:
+		return fmt.Errorf("run-current-loop observation kind %q is unsupported", observation.ObservationKind)
 	}
 	memberKind := strings.HasPrefix(observation.ObservationKind, "member-session-")
 	if memberKind {
@@ -133,6 +185,138 @@ func qualifyCurrentLoopObservation(observation *currentLoopObservationEnvelope, 
 		}
 	}
 	return nil
+}
+
+func currentLoopObservationReceiptFromInspection(inspection currentloop.Inspection) *mission.CurrentLoopObservationReceipt {
+	if inspection.ResumeSourceSHA256 == "" || inspection.ObservationSHA256 == "" {
+		return nil
+	}
+	return &mission.CurrentLoopObservationReceipt{
+		State:                     "processed",
+		SourceCheckpointSHA256:    inspection.ResumeSourceSHA256,
+		SuccessorCheckpointSHA256: inspection.ArtifactSHA256,
+		ObservationPath:           inspection.ObservationPath,
+		ObservationSHA256:         inspection.ObservationSHA256,
+		ObservationKind:           inspection.ObservationKind,
+		Actor:                     inspection.ObservationActor,
+		Boundary: []string{
+			"receipt is recovered from the strict successor checkpoint and exact observation identity",
+			"older compatible checkpoints may omit observationKind and actor; replay remains blocked by the one-shot source checkpoint claim",
+		},
+	}
+}
+
+func inspectCurrentLoopObservationInbox(caseRoot string, inspection currentloop.Inspection) *mission.CurrentLoopObservationInbox {
+	inbox := &mission.CurrentLoopObservationInbox{
+		State:         "empty",
+		Path:          currentLoopObservationInboxRel,
+		LatestReceipt: currentLoopObservationReceiptFromInspection(inspection),
+		Boundary: []string{
+			"status discovery is read-only and selects only one strict envelope bound to the latest ready checkpoint",
+			"multiple matching candidates, invalid entries, or namespace errors block selection; the runtime never guesses by filename or time",
+			"processing remains WhatIf then exact hash-bound Apply; discovery does not claim the checkpoint or mutate the observation file",
+		},
+	}
+	paths, err := refsf.ListRegularFilesAnchored(caseRoot, currentLoopObservationInboxRel, "current-loop observation inbox", maxCurrentLoopObservationInboxEntries)
+	if err != nil {
+		inbox.State = "invalid"
+		inbox.InvalidCount = 1
+		inbox.Warnings = []string{err.Error()}
+		return inbox
+	}
+	inbox.CandidateCount = len(paths)
+	matches := []currentLoopObservationSnapshot{}
+	for _, path := range paths {
+		if !strings.EqualFold(filepath.Ext(path), ".json") {
+			inbox.InvalidCount++
+			inbox.Warnings = append(inbox.Warnings, "observation inbox entry must use .json: "+filepath.Base(path))
+			continue
+		}
+		snapshot, err := readCurrentLoopObservationEnvelope(caseRoot, path)
+		if err != nil {
+			inbox.InvalidCount++
+			inbox.Warnings = append(inbox.Warnings, filepath.Base(path)+": "+err.Error())
+			continue
+		}
+		if err := validateCurrentLoopObservationEnvelopeShape(&snapshot.Envelope); err != nil {
+			inbox.InvalidCount++
+			inbox.Warnings = append(inbox.Warnings, filepath.Base(path)+": "+err.Error())
+			continue
+		}
+		if !strings.EqualFold(snapshot.Envelope.CheckpointSHA256, inspection.ArtifactSHA256) {
+			inbox.StaleCount++
+			continue
+		}
+		if err := qualifyCurrentLoopObservation(&snapshot.Envelope, inspection); err != nil {
+			inbox.InvalidCount++
+			inbox.Warnings = append(inbox.Warnings, filepath.Base(path)+": "+err.Error())
+			continue
+		}
+		matches = append(matches, snapshot)
+	}
+	inbox.MatchingCount = len(matches)
+	if inbox.InvalidCount > 0 {
+		inbox.State = "invalid"
+		return inbox
+	}
+	if len(matches) == 0 {
+		return inbox
+	}
+	if len(matches) > 1 {
+		inbox.State = "ambiguous"
+		inbox.Warnings = append(inbox.Warnings, fmt.Sprintf("%d strict observations match checkpoint %s", len(matches), inspection.ArtifactSHA256))
+		return inbox
+	}
+	selected := matches[0]
+	inbox.State = "ready"
+	inbox.SelectedCandidate = &mission.CurrentLoopObservationInboxCandidate{
+		Path:            selected.Path,
+		SHA256:          selected.SHA256,
+		ObservationKind: selected.Envelope.ObservationKind,
+		Actor:           selected.Envelope.Actor,
+	}
+	request := mission.MissionCommanderDriverRequest{
+		Kind:              "preview-command",
+		RunLoopStepID:     "preview-current-loop-inbox-observation",
+		Actor:             "main-agent",
+		State:             "observation-inbox-ready",
+		Source:            "missionControlRunbook.currentLoopOperator.observationInbox.selectedDriverRequest",
+		Lane:              inspection.ExpectedLane,
+		Label:             "preview-current-loop-inbox-observation",
+		ActionID:          "preview-current-loop-inbox-observation-" + selected.SHA256[:12],
+		Command:           currentLoopObservationPreviewCommand(caseRoot, inspection.ArtifactSHA256, selected.Path),
+		CommandExecutable: true,
+		RequiresReview:    true,
+		ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
+			State:                "previewed",
+			Command:              currentLoopObservationPreviewCommand(caseRoot, inspection.ArtifactSHA256, selected.Path),
+			RefreshStatusCommand: statusMissionControlRefreshCommand(caseRoot),
+			Description:          "review the exact inbox observation preview and execute only its returned hash-bound Apply command",
+			Boundary: []string{
+				"preview binds the selected path, exact bytes SHA, source checkpoint, current attempt, and nested plan",
+				"Apply rereads the same bytes before the one-shot checkpoint claim",
+			},
+		},
+		Boundary: append([]string{}, inbox.Boundary...),
+	}
+	inbox.SelectedDriverRequest = &request
+	return inbox
+}
+
+func currentLoopObservationInCanonicalInbox(caseRoot, path string) bool {
+	inboxPath, err := refsf.SafeJoin(caseRoot, currentLoopObservationInboxRel)
+	if err != nil {
+		return false
+	}
+	parent, err := filepath.Abs(filepath.Dir(path))
+	if err != nil {
+		return false
+	}
+	return refsf.SamePath(parent, inboxPath)
+}
+
+func currentLoopObservationPreviewCommand(caseRoot, checkpointSHA256, path string) string {
+	return joinDriverCommand([]string{"/rekit", "run-current-loop", "-Target", caseRoot, "-ResumeCurrentLoop", "-ExpectedCurrentLoopCheckpointSha256", checkpointSHA256, "-CurrentLoopObservationPath", path, "-WhatIf", "-Format", "json"})
 }
 
 func materializeCurrentLoopObservationEnvelopes(caseRoot string, inspection currentloop.Inspection, contract *mission.CurrentLoopObservationContract) {

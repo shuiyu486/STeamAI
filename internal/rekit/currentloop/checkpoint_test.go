@@ -390,13 +390,31 @@ func TestCheckpointObservationIdentityBindingFailsClosed(t *testing.T) {
 	}
 	base.ExpectedCurrentLoopPlanSHA256 = sha256Hex(encoded)
 	if err := validatePayloadForCase(base, caseRoot); err != nil {
-		t.Fatalf("valid observation-bound identity rejected: %v", err)
+		t.Fatalf("valid Batch 812 observation-bound identity rejected: %v", err)
+	}
+	typed := base
+	typed.ObservationKind = "member-session-accepted"
+	typed.ObservationActor = typed.Actor
+	if err := validatePayloadForCase(typed, caseRoot); err != nil {
+		t.Fatalf("valid optional typed observation receipt rejected: %v", err)
+	}
+	for _, mutate := range []func(*Payload){
+		func(payload *Payload) { payload.ObservationKind = "unsupported" },
+		func(payload *Payload) { payload.ObservationActor = "other-actor" },
+	} {
+		candidate := typed
+		mutate(&candidate)
+		if err := validatePayloadForCase(candidate, caseRoot); err == nil {
+			t.Fatalf("tampered typed observation receipt accepted: %+v", candidate)
+		}
 	}
 	for _, mutate := range []func(*Payload){
 		func(payload *Payload) { payload.ObservationPath = "" },
 		func(payload *Payload) { payload.ObservationSHA256 = "" },
 		func(payload *Payload) { payload.ObservationSHA256 = strings.Repeat("e", 64) },
 		func(payload *Payload) { payload.ResumeSourceArtifactSHA256 = "" },
+		func(payload *Payload) { payload.ObservationKind = "member-session-accepted" },
+		func(payload *Payload) { payload.ObservationActor = "harness" },
 	} {
 		candidate := base
 		mutate(&candidate)

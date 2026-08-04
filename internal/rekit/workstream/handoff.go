@@ -1612,6 +1612,24 @@ func writeCurrentLoopOperatorPackage(out *bytes.Buffer, pkg *mission.CurrentLoop
 		fmt.Fprintf(out, "- selected driver request: kind=%s state=%s source=%s command=`%s`\n", request.Kind, request.State, request.Source, request.Command)
 		fmt.Fprintf(out, "- expected receipt: state=%s refresh=`%s`\n", request.ExpectedReceipt.State, request.ExpectedReceipt.RefreshStatusCommand)
 	}
+	if receipt := pkg.ObservationReceipt; receipt != nil {
+		fmt.Fprintf(out, "- observation receipt: state=%s kind=%s actor=%s source=%s successor=%s path=`%s` sha256=%s\n", receipt.State, receipt.ObservationKind, receipt.Actor, receipt.SourceCheckpointSHA256, receipt.SuccessorCheckpointSHA256, receipt.ObservationPath, receipt.ObservationSHA256)
+	}
+	if inbox := pkg.ObservationInbox; inbox != nil {
+		fmt.Fprintf(out, "- observation inbox: state=%s path=`%s` candidates=%d matching=%d stale=%d invalid=%d\n", inbox.State, inbox.Path, inbox.CandidateCount, inbox.MatchingCount, inbox.StaleCount, inbox.InvalidCount)
+		if candidate := inbox.SelectedCandidate; candidate != nil {
+			fmt.Fprintf(out, "- selected inbox observation: kind=%s actor=%s path=`%s` sha256=%s\n", candidate.ObservationKind, candidate.Actor, candidate.Path, candidate.SHA256)
+		}
+		if request := inbox.SelectedDriverRequest; request != nil {
+			fmt.Fprintf(out, "- inbox driver request: state=%s source=%s command=`%s`\n", request.State, request.Source, request.Command)
+		}
+		if receipt := inbox.LatestReceipt; receipt != nil && pkg.ObservationReceipt == nil {
+			fmt.Fprintf(out, "- observation receipt: state=%s kind=%s actor=%s source=%s successor=%s path=`%s` sha256=%s\n", receipt.State, receipt.ObservationKind, receipt.Actor, receipt.SourceCheckpointSHA256, receipt.SuccessorCheckpointSHA256, receipt.ObservationPath, receipt.ObservationSHA256)
+		}
+		for _, warning := range inbox.Warnings {
+			fmt.Fprintf(out, "- inbox warning: %s\n", warning)
+		}
+	}
 	if handoff := pkg.ExternalMemberHandoff; handoff != nil {
 		fmt.Fprintf(out, "- external member: state=%s attempt=%s lane=%s owner=%s/%d handoff=`%s` manifest=`%s` outputs=`%s`\n", handoff.State, handoff.AttemptID, handoff.Lane, handoff.Executor, handoff.ExecutorGeneration, handoff.HandoffPath, handoff.ManifestPath, handoff.OutputsRoot)
 		for _, alternative := range handoff.ObservationContract.Alternatives {

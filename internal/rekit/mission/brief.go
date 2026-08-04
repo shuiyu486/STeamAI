@@ -178,6 +178,38 @@ type CurrentLoopObservationContract struct {
 	Boundary     []string                            `json:"boundary"`
 }
 
+type CurrentLoopObservationReceipt struct {
+	State                     string   `json:"state"`
+	SourceCheckpointSHA256    string   `json:"sourceCheckpointSha256"`
+	SuccessorCheckpointSHA256 string   `json:"successorCheckpointSha256"`
+	ObservationPath           string   `json:"observationPath"`
+	ObservationSHA256         string   `json:"observationSha256"`
+	ObservationKind           string   `json:"observationKind"`
+	Actor                     string   `json:"actor"`
+	Boundary                  []string `json:"boundary"`
+}
+
+type CurrentLoopObservationInboxCandidate struct {
+	Path            string `json:"path"`
+	SHA256          string `json:"sha256"`
+	ObservationKind string `json:"observationKind"`
+	Actor           string `json:"actor"`
+}
+
+type CurrentLoopObservationInbox struct {
+	State                 string                                `json:"state"`
+	Path                  string                                `json:"path"`
+	CandidateCount        int                                   `json:"candidateCount"`
+	MatchingCount         int                                   `json:"matchingCount"`
+	StaleCount            int                                   `json:"staleCount"`
+	InvalidCount          int                                   `json:"invalidCount"`
+	SelectedCandidate     *CurrentLoopObservationInboxCandidate `json:"selectedCandidate,omitempty"`
+	SelectedDriverRequest *MissionCommanderDriverRequest        `json:"selectedDriverRequest,omitempty"`
+	LatestReceipt         *CurrentLoopObservationReceipt        `json:"latestReceipt,omitempty"`
+	Warnings              []string                              `json:"warnings,omitempty"`
+	Boundary              []string                              `json:"boundary"`
+}
+
 type CurrentLoopReviewerAttemptIdentity struct {
 	PacketID          string `json:"packetId"`
 	PacketPath        string `json:"packetPath"`
@@ -303,6 +335,8 @@ type CurrentLoopOperatorPackage struct {
 	SelectedDriverRequest      *MissionCommanderDriverRequest      `json:"selectedDriverRequest,omitempty"`
 	StartDriverRequest         *MissionCommanderDriverRequest      `json:"startDriverRequest,omitempty"`
 	ResumeDriverRequest        *MissionCommanderDriverRequest      `json:"resumeDriverRequest,omitempty"`
+	ObservationInbox           *CurrentLoopObservationInbox        `json:"observationInbox,omitempty"`
+	ObservationReceipt         *CurrentLoopObservationReceipt      `json:"observationReceipt,omitempty"`
 	ExternalMemberHandoff      *CurrentLoopExternalMemberHandoff   `json:"externalMemberHandoff,omitempty"`
 	ExternalReviewerHandoff    *CurrentLoopExternalReviewerHandoff `json:"externalReviewerHandoff,omitempty"`
 	RunbookSteps               []string                            `json:"runbookSteps"`

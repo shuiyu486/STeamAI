@@ -3,11 +3,13 @@ package fs
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 )
 
@@ -141,6 +143,86 @@ func ReadStableRegularFileAnchored(caseRoot, path, label string, limit int64) ([
 		return nil, err
 	}
 	return data, nil
+}
+
+func ListRegularFilesAnchored(caseRoot, rel, label string, limit int) ([]string, error) {
+	if limit < 1 {
+		return nil, fmt.Errorf("%s file limit must be positive", label)
+	}
+	rootPath, err := filepath.Abs(caseRoot)
+	if err != nil {
+		return nil, err
+	}
+	beforeRoot, err := os.Lstat(rootPath)
+	if err != nil || !beforeRoot.IsDir() || beforeRoot.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("%s case root must be a non-symlink directory: %s", label, rootPath)
+	}
+	if err := rejectReparseAncestors(rootPath); err != nil {
+		return nil, err
+	}
+	root, err := os.OpenRoot(rootPath)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	openedRoot, err := root.Lstat(".")
+	if err != nil || !openedRoot.IsDir() || !os.SameFile(beforeRoot, openedRoot) {
+		return nil, fmt.Errorf("%s case root changed while opening: %s", label, rootPath)
+	}
+	directory, err := openDirectoryNoFollow(root, filepath.FromSlash(rel), rootPath, label)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list %s: %w", label, err)
+	}
+	defer directory.Close()
+	beforeDirectory, err := directory.Lstat(".")
+	if err != nil || !beforeDirectory.IsDir() {
+		return nil, fmt.Errorf("%s directory is invalid", label)
+	}
+	file, err := directory.Open(".")
+	if err != nil {
+		return nil, err
+	}
+	openedDirectory, statErr := file.Stat()
+	entries, readErr := file.ReadDir(limit + 1)
+	closeErr := file.Close()
+	afterDirectory, afterErr := directory.Lstat(".")
+	if readErr == io.EOF {
+		readErr = nil
+	}
+	if statErr != nil || readErr != nil || closeErr != nil || afterErr != nil || !openedDirectory.IsDir() || !os.SameFile(beforeDirectory, openedDirectory) || !os.SameFile(openedDirectory, afterDirectory) {
+		return nil, fmt.Errorf("list %s: %w", label, errors.Join(statErr, readErr, closeErr, afterErr))
+	}
+	if len(entries) > limit {
+		return nil, fmt.Errorf("%s contains more than %d entries", label, limit)
+	}
+	paths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		name := entry.Name()
+		info, err := directory.Lstat(name)
+		if err != nil {
+			return nil, fmt.Errorf("inspect %s entry %s: %w", label, name, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("%s entry must be a regular non-symlink file: %s", label, name)
+		}
+		path := filepath.Join(rootPath, filepath.FromSlash(rel), name)
+		if err := rejectReparsePath(path); err != nil {
+			return nil, err
+		}
+		paths = append(paths, path)
+	}
+	currentRoot, err := os.Lstat(rootPath)
+	if err != nil || !os.SameFile(openedRoot, currentRoot) {
+		return nil, fmt.Errorf("%s case root changed while listing: %s", label, rootPath)
+	}
+	if err := rejectReparseAncestors(rootPath); err != nil {
+		return nil, err
+	}
+	sort.Slice(paths, func(i, j int) bool { return strings.ToLower(paths[i]) < strings.ToLower(paths[j]) })
+	return paths, nil
 }
 
 func openDirectoryNoFollow(root *os.Root, rel, rootPath, label string) (*os.Root, error) {

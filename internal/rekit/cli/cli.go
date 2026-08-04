@@ -4437,8 +4437,34 @@ func buildStatusMissionControlRunbook(target string, caseMission *statusCaseMiss
 }
 
 func statusCurrentLoopOperatorPackage(target string, caseMission *statusCaseMission, runbook *statusMissionControlRunbook, inspection currentloop.Inspection) *mission.CurrentLoopOperatorPackage {
-	if runbook == nil || runbook.CurrentDriverRequest == nil {
+	if runbook == nil {
 		return nil
+	}
+	receipt := currentLoopObservationReceiptFromInspection(inspection)
+	if runbook.CurrentDriverRequest == nil {
+		if receipt == nil {
+			return nil
+		}
+		return &mission.CurrentLoopOperatorPackage{
+			Ready:              false,
+			State:              "observation-processed",
+			CaseRoot:           strings.TrimSpace(target),
+			Pack:               statusCurrentLoopOperatorPack(target),
+			Route:              strings.TrimSpace(runbook.Scope),
+			DefaultMaxSteps:    10,
+			ObservationReceipt: receipt,
+			RunbookSteps: []string{
+				"retain observationReceipt as the durable one-shot processing handoff",
+				"refresh status before choosing any new current-loop action",
+			},
+			CompletionCriteria: []string{
+				"the processed observation remains recoverable from the strict successor checkpoint",
+			},
+			Boundary: []string{
+				"receipt-only current-loop operator is read-only and has no executable driver request",
+				"the Go runtime does not execute heavy tools or write authority/confirmed state",
+			},
+		}
 	}
 	sourceRequest := cloneStatusMissionCommanderDriverRequest(runbook.CurrentDriverRequest)
 	pkg := &mission.CurrentLoopOperatorPackage{
@@ -4471,6 +4497,7 @@ func statusCurrentLoopOperatorPackage(target string, caseMission *statusCaseMiss
 			"the Go runtime does not execute heavy tools or write authority/confirmed state",
 		},
 	}
+	pkg.ObservationReceipt = receipt
 	switch strings.TrimSpace(inspection.State) {
 	case "ready":
 		if !inspection.Ready || inspection.ResumeDriverRequest == nil {
@@ -4480,6 +4507,24 @@ func statusCurrentLoopOperatorPackage(target string, caseMission *statusCaseMiss
 		pkg.RemainingMaxSteps = inspection.RemainingMaxSteps
 		pkg.ResumeDriverRequest = cloneStatusMissionCommanderDriverRequest(inspection.ResumeDriverRequest)
 		pkg.SelectedDriverRequest = cloneStatusMissionCommanderDriverRequest(inspection.ResumeDriverRequest)
+		if inspection.Continuation.ObservationContract != nil {
+			pkg.ObservationInbox = inspectCurrentLoopObservationInbox(target, inspection)
+			if pkg.ObservationInbox.State == "ready" {
+				pkg.State = "observation-inbox-review-required"
+				pkg.SelectedDriverRequest = cloneStatusMissionCommanderDriverRequest(pkg.ObservationInbox.SelectedDriverRequest)
+			} else if pkg.ObservationInbox.State == "ambiguous" || pkg.ObservationInbox.State == "invalid" {
+				pkg.Ready = false
+				pkg.State = "observation-inbox-" + pkg.ObservationInbox.State
+				pkg.SelectedDriverRequest = nil
+				pkg.ResumeDriverRequest = nil
+				pkg.RunbookSteps = []string{
+					"inspect observationInbox warnings and leave exactly one strict checkpoint-bound JSON envelope in the canonical inbox",
+					"refresh status after resolving the inbox; do not reconstruct or choose a candidate manually",
+				}
+				pkg.Boundary = mission.UniqueStrings(append(pkg.Boundary, pkg.ObservationInbox.Boundary...))
+				pkg.Boundary = mission.UniqueStrings(append(pkg.Boundary, pkg.ObservationInbox.Warnings...))
+			}
+		}
 	case "missing", "status-unavailable", "stale-current-driver-request", "terminal":
 		request := statusCurrentLoopStartDriverRequest(target, pkg.Pack, pkg.DefaultMaxSteps, *runbook.CurrentDriverRequest)
 		pkg.StartDriverRequest = &request
@@ -4487,12 +4532,23 @@ func statusCurrentLoopOperatorPackage(target string, caseMission *statusCaseMiss
 	default:
 		return statusBlockedCurrentLoopOperatorPackage(pkg, inspection)
 	}
+	if pkg.ObservationInbox != nil && pkg.ObservationInbox.State == "ready" {
+		pkg.RunbookSteps = []string{
+			"execute observationInbox.selectedDriverRequest exactly to preview the unique strict checkpoint-bound envelope",
+			"review the preview and execute only its returned path-only hash-bound Apply command",
+			"refresh status and verify observationReceipt or the successor checkpoint before choosing follow-up work",
+		}
+	}
+	legacyObservationRequest := pkg.SelectedDriverRequest
+	if pkg.ObservationInbox != nil && pkg.ObservationInbox.State == "ready" && pkg.ResumeDriverRequest != nil {
+		legacyObservationRequest = pkg.ResumeDriverRequest
+	}
 	if strings.TrimSpace(runbook.Scope) == "reviewer" && caseMission != nil && caseMission.ReviewerDispatchIntakeSummary.OperatorPackage != nil {
 		reviewerPackage := caseMission.ReviewerDispatchIntakeSummary.OperatorPackage
 		if reviewerPackage.Ready && reviewerPackage.Current != nil && reviewerPackage.CurrentDriverRequest != nil &&
 			strings.TrimSpace(reviewerPackage.CurrentDriverRequest.RunLoopStepID) == strings.TrimSpace(reviewerPackage.CurrentRunLoopStepID) &&
 			currentStepReviewerRequestsMatch(*runbook.CurrentDriverRequest, *reviewerPackage.CurrentDriverRequest) {
-			pkg.ExternalReviewerHandoff = statusCurrentLoopExternalReviewerHandoff(reviewerPackage, pkg.SelectedDriverRequest, statusCurrentLoopDirectObservationPreviewCommand(inspection))
+			pkg.ExternalReviewerHandoff = statusCurrentLoopExternalReviewerHandoff(reviewerPackage, legacyObservationRequest, statusCurrentLoopDirectObservationPreviewCommand(inspection))
 			if pkg.ExternalReviewerHandoff != nil && inspection.Ready {
 				materializeCurrentLoopObservationEnvelopes(target, inspection, &pkg.ExternalReviewerHandoff.ObservationContract)
 			}
@@ -4516,12 +4572,12 @@ func statusCurrentLoopOperatorPackage(target string, caseMission *statusCaseMiss
 				))
 				return pkg
 			}
-			pkg.ExternalMemberHandoff = currentLoopExternalMemberHandoff(runtime.Context{Target: target, Pack: pkg.Pack}, memberInspection, pkg.SelectedDriverRequest)
+			pkg.ExternalMemberHandoff = currentLoopExternalMemberHandoff(runtime.Context{Target: target, Pack: pkg.Pack}, memberInspection, legacyObservationRequest)
 			if pkg.ExternalMemberHandoff != nil {
 				materializeCurrentLoopObservationEnvelopes(target, inspection, &pkg.ExternalMemberHandoff.ObservationContract)
 			}
 		} else if memberInspection, ok, err := memberexecution.Latest(target, pkg.Lane); err == nil && ok && (memberInspection.State == "handoff-ready" || memberInspection.State == "accepted") {
-			pkg.ExternalMemberHandoff = currentLoopExternalMemberHandoff(runtime.Context{Target: target, Pack: pkg.Pack}, memberInspection, pkg.SelectedDriverRequest)
+			pkg.ExternalMemberHandoff = currentLoopExternalMemberHandoff(runtime.Context{Target: target, Pack: pkg.Pack}, memberInspection, legacyObservationRequest)
 		}
 	}
 	return pkg
@@ -5803,6 +5859,12 @@ func statusTakeoverArtifactCurrentLoopOperatorValid(operator *mission.CurrentLoo
 	}
 	if operator.StartDriverRequest != nil && mission.ReplacementExecutorDriverRequestSHA256(*operator.StartDriverRequest) != selectedSHA256 {
 		return false
+	}
+	if operator.ObservationInbox != nil && operator.ObservationInbox.State == "ready" {
+		if operator.ObservationInbox.SelectedDriverRequest == nil || mission.ReplacementExecutorDriverRequestSHA256(*operator.ObservationInbox.SelectedDriverRequest) != selectedSHA256 || operator.ResumeDriverRequest == nil {
+			return false
+		}
+		return operator.StartDriverRequest == nil
 	}
 	if operator.ResumeDriverRequest != nil && mission.ReplacementExecutorDriverRequestSHA256(*operator.ResumeDriverRequest) != selectedSHA256 {
 		return false
