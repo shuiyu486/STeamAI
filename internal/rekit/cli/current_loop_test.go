@@ -1044,7 +1044,7 @@ func TestRunCurrentLoopMemberExecutionCheckpoint(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "board.json"), append(boardData, '\n'), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	preview := runCurrentLoopPreview(t, caseRoot, 3)
+	preview := runCurrentLoopPreview(t, caseRoot, 5)
 	if preview.InitialCurrentStep == nil || preview.InitialCurrentStep.MemberExecution == nil || preview.ExpectedCurrentLoopPlanSHA256 == "" {
 		t.Fatalf("member loop did not bind external handoff: %+v", preview)
 	}
@@ -1053,11 +1053,52 @@ func TestRunCurrentLoopMemberExecutionCheckpoint(t *testing.T) {
 	if !applied.Applied || applied.AppliedSteps != 1 || applied.SegmentCheckpoint == nil || applied.Steps[0].CurrentStepReceipt.Outcome != "current-step-applied" || !strings.Contains(strings.Join(applied.Steps[0].CurrentStepReceipt.Boundary, "\n"), "member execution outcome: handoff-ready") {
 		t.Fatalf("member loop did not checkpoint dispatch receipt: %+v", applied)
 	}
-	if applied.StopReason.Code != "external-member-handoff" {
+	if applied.StopReason.Code != "external-member-handoff" || applied.StopReason.ExternalMemberHandoff == nil {
 		t.Fatalf("unexpected member loop stop: %+v", applied.StopReason)
 	}
-	if !applied.SegmentCheckpoint.Ready || applied.SegmentCheckpoint.State != "ready" || applied.SegmentCheckpoint.RemainingMaxSteps != 2 {
-		t.Fatalf("member loop checkpoint is not resumable with preserved budget: %+v", applied.SegmentCheckpoint)
+	memberHandoff := applied.StopReason.ExternalMemberHandoff
+	if memberHandoff.AttemptID != memberPlan.AttemptID || memberHandoff.Lane != memberPlan.Owner.Lane || memberHandoff.Executor != memberPlan.Owner.Executor || memberHandoff.ExecutorGeneration != memberPlan.Owner.ExecutorGeneration || memberHandoff.HandoffPath == "" || memberHandoff.ManifestPath != memberPlan.ExternalHandoff.ManifestPath || memberHandoff.OutputsRoot != memberPlan.ExternalHandoff.OutputsRoot || len(memberHandoff.ObservationContract.Alternatives) != 3 {
+		t.Fatalf("member loop stop omitted durable external handoff identity: %+v", memberHandoff)
+	}
+	for _, alternative := range memberHandoff.ObservationContract.Alternatives {
+		if !strings.Contains(alternative.PreviewCommandTemplate, "-MemberExecutionAttemptId "+memberPlan.AttemptID) || !strings.Contains(alternative.PreviewCommandTemplate, "-MemberExecutionOutcome ") {
+			t.Fatalf("member observation alternative is not attempt bound: %+v", alternative)
+		}
+	}
+	if !applied.SegmentCheckpoint.Ready || applied.SegmentCheckpoint.State != "ready" || applied.SegmentCheckpoint.RemainingMaxSteps != 4 || applied.SegmentCheckpoint.Continuation == nil || applied.SegmentCheckpoint.Continuation.ExternalMemberHandoff == nil || len(applied.SegmentCheckpoint.Continuation.ObservationContract.Alternatives) != 3 {
+		t.Fatalf("member loop checkpoint is not resumable with durable observation handoff: %+v", applied.SegmentCheckpoint)
+	}
+	var statusOut bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &statusOut); err != nil {
+		t.Fatal(err)
+	}
+	var durableStatus statusInventory
+	if err := json.Unmarshal(statusOut.Bytes(), &durableStatus); err != nil {
+		t.Fatal(err)
+	}
+	operator := durableStatus.MissionControlRunbook.CurrentLoopOperator
+	if operator == nil || operator.ExternalMemberHandoff == nil || operator.SelectedDriverRequest == nil || operator.SelectedDriverRequest.Command == "" {
+		t.Fatalf("status omitted durable member current-loop operator handoff: %+v", operator)
+	}
+	for _, alternative := range operator.ExternalMemberHandoff.ObservationContract.Alternatives {
+		if !strings.Contains(alternative.PreviewCommandTemplate, "-ResumeCurrentLoop") || !strings.Contains(alternative.PreviewCommandTemplate, applied.SegmentCheckpoint.ArtifactSHA256) || !strings.Contains(alternative.PreviewCommandTemplate, memberPlan.AttemptID) {
+			t.Fatalf("status member observation alternative is not checkpoint/attempt bound: %+v", alternative)
+		}
+	}
+	var statusText bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &statusText); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"current-loop member handoff：state=handoff-ready attempt=" + memberPlan.AttemptID, "owner=loop-member/1", "current-loop member observation：kind=member-session-accepted", applied.SegmentCheckpoint.ArtifactSHA256} {
+		if !strings.Contains(statusText.String(), want) {
+			t.Fatalf("text status omitted member handoff detail %q:\n%s", want, statusText.String())
+		}
+	}
+	if err := runCurrentLoopError(caseRoot, []string{"-ResumeCurrentLoop", "-ExpectedCurrentLoopCheckpointSha256", applied.SegmentCheckpoint.ArtifactSHA256, "-MemberExecutionAttemptId", "g000001-a999999-deadbeefdeadbeef", "-MemberExecutionOutcome", "accepted", "-MemberExecutionObservedAt", "2026-08-03T03:00:30Z", "-Actor", "harness", "-WhatIf"}); err == nil || !strings.Contains(err.Error(), "does not match checkpoint attempt") {
+		t.Fatalf("external member checkpoint accepted a different attempt observation: %v", err)
+	}
+	if err := runCurrentLoopError(caseRoot, []string{"-ResumeCurrentLoop", "-ExpectedCurrentLoopCheckpointSha256", applied.SegmentCheckpoint.ArtifactSHA256, "-WhatIf"}); err == nil || !strings.Contains(err.Error(), "member observation") {
+		t.Fatalf("external member checkpoint resumed without a member observation: %v", err)
 	}
 	accepted := runCurrentLoopResumePreviewWith(t, caseRoot, applied.SegmentCheckpoint.ArtifactSHA256,
 		"-MemberExecutionAttemptId", memberPlan.AttemptID,
@@ -1065,7 +1106,7 @@ func TestRunCurrentLoopMemberExecutionCheckpoint(t *testing.T) {
 		"-MemberExecutionObservedAt", "2026-08-03T03:01:00Z",
 		"-Actor", "harness",
 	)
-	if accepted.MaxSteps != 2 || accepted.ResumeSource == nil || accepted.InitialCurrentStep == nil || accepted.InitialCurrentStep.MemberExecution == nil || accepted.InitialCurrentStep.MemberExecution.Outcome != "accepted" {
+	if accepted.MaxSteps != 4 || accepted.ResumeSource == nil || accepted.InitialCurrentStep == nil || accepted.InitialCurrentStep.MemberExecution == nil || accepted.InitialCurrentStep.MemberExecution.Outcome != "accepted" {
 		t.Fatalf("member observation did not resume exact checkpoint budget: %+v", accepted)
 	}
 	for _, required := range []string{"-MemberExecutionAttemptId \"" + memberPlan.AttemptID + "\"", "-MemberExecutionOutcome \"accepted\"", "-MemberExecutionObservedAt \"2026-08-03T03:01:00Z\"", "-ExpectedMemberExecutionPlanSha256 \"" + accepted.InitialCurrentStep.MemberExecution.ExpectedPlanSHA256 + "\""} {
@@ -1076,6 +1117,14 @@ func TestRunCurrentLoopMemberExecutionCheckpoint(t *testing.T) {
 	acceptedApplied := runCurrentLoopResult(t, rekitCommandCLIArgs(t, accepted.ApplyCommand))
 	if !acceptedApplied.Applied || acceptedApplied.InitialCurrentStep == nil || acceptedApplied.InitialCurrentStep.MemberExecution == nil || acceptedApplied.InitialCurrentStep.MemberExecution.Inspection.State != "accepted" {
 		t.Fatalf("member accepted resume apply command did not persist observation: %+v", acceptedApplied)
+	}
+	if acceptedApplied.ContinuationRequest == nil || acceptedApplied.ContinuationRequest.ExternalMemberHandoff == nil || acceptedApplied.ContinuationRequest.ExternalMemberHandoff.State != "accepted" || len(acceptedApplied.ContinuationRequest.ObservationContract.Alternatives) != 2 {
+		t.Fatalf("accepted member continuation did not narrow to returned/failed: %+v", acceptedApplied.ContinuationRequest)
+	}
+	for _, alternative := range acceptedApplied.ContinuationRequest.ObservationContract.Alternatives {
+		if alternative.Kind == "member-session-accepted" {
+			t.Fatalf("accepted member continuation still permits duplicate accepted: %+v", acceptedApplied.ContinuationRequest)
+		}
 	}
 	inspection := acceptedApplied.InitialCurrentStep.MemberExecution.Inspection
 	output := []byte("member-result\n")
@@ -1101,6 +1150,24 @@ func TestRunCurrentLoopMemberExecutionCheckpoint(t *testing.T) {
 	returnedApplied := runCurrentLoopResult(t, rekitCommandCLIArgs(t, returned.ApplyCommand))
 	if !returnedApplied.Applied || returnedApplied.InitialCurrentStep == nil || returnedApplied.InitialCurrentStep.MemberExecution == nil || returnedApplied.InitialCurrentStep.MemberExecution.Inspection.State != "intake-ready" {
 		t.Fatalf("member returned resume apply command did not persist intake: %+v", returnedApplied)
+	}
+	if returnedApplied.AppliedSteps != 1 || returnedApplied.StopReason.Code != "member-intake-ready" || returnedApplied.SegmentCheckpoint == nil || !returnedApplied.SegmentCheckpoint.Ready || returnedApplied.SegmentCheckpoint.RemainingMaxSteps != returned.MaxSteps-returnedApplied.AppliedSteps || returnedApplied.SegmentCheckpoint.Continuation == nil || returnedApplied.SegmentCheckpoint.Continuation.ExternalMemberHandoff != nil || returnedApplied.SegmentCheckpoint.Continuation.ObservationContract != nil {
+		t.Fatalf("member returned result did not publish a clean remaining-budget continuation: %+v", returnedApplied)
+	}
+	if returnedApplied.StopReason.ExternalMemberHandoff != nil || returnedApplied.ContinuationRequest != nil && returnedApplied.ContinuationRequest.ExternalMemberHandoff != nil {
+		t.Fatalf("intake-ready member result retained a stale external handoff: stop=%+v continuation=%+v", returnedApplied.StopReason, returnedApplied.ContinuationRequest)
+	}
+	var returnedStatusOut bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &returnedStatusOut); err != nil {
+		t.Fatal(err)
+	}
+	var returnedStatus statusInventory
+	if err := json.Unmarshal(returnedStatusOut.Bytes(), &returnedStatus); err != nil {
+		t.Fatal(err)
+	}
+	returnedOperator := returnedStatus.MissionControlRunbook.CurrentLoopOperator
+	if returnedOperator == nil || returnedOperator.ExternalMemberHandoff != nil {
+		t.Fatalf("intake-ready status retained a stale member handoff: %+v", returnedOperator)
 	}
 }
 

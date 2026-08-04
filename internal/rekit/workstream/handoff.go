@@ -1612,6 +1612,12 @@ func writeCurrentLoopOperatorPackage(out *bytes.Buffer, pkg *mission.CurrentLoop
 		fmt.Fprintf(out, "- selected driver request: kind=%s state=%s source=%s command=`%s`\n", request.Kind, request.State, request.Source, request.Command)
 		fmt.Fprintf(out, "- expected receipt: state=%s refresh=`%s`\n", request.ExpectedReceipt.State, request.ExpectedReceipt.RefreshStatusCommand)
 	}
+	if handoff := pkg.ExternalMemberHandoff; handoff != nil {
+		fmt.Fprintf(out, "- external member: state=%s attempt=%s lane=%s owner=%s/%d handoff=`%s` manifest=`%s` outputs=`%s`\n", handoff.State, handoff.AttemptID, handoff.Lane, handoff.Executor, handoff.ExecutorGeneration, handoff.HandoffPath, handoff.ManifestPath, handoff.OutputsRoot)
+		for _, alternative := range handoff.ObservationContract.Alternatives {
+			fmt.Fprintf(out, "- member observation: kind=%s transition=%s requiredFlags=%s previewCommandTemplate=`%s` constraints=%s\n", alternative.Kind, alternative.Transition, strings.Join(alternative.RequiredFlags, ","), alternative.PreviewCommandTemplate, strings.Join(alternative.Constraints, "; "))
+		}
+	}
 	if handoff := pkg.ExternalReviewerHandoff; handoff != nil {
 		fmt.Fprintf(out, "- external reviewer: state=%s step=%s dropPath=`%s` dropRole=%s\n", handoff.State, handoff.RunLoopStepID, handoff.ReviewerResultDropPath, handoff.ReviewerResultDropPathRole)
 		if attempt := handoff.Attempt; attempt != nil {

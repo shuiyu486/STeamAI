@@ -795,6 +795,88 @@ func TestCheckpointNamespaceAndTerminalStatesFailClosed(t *testing.T) {
 	})
 }
 
+func TestExternalMemberContinuationValidationFailsClosed(t *testing.T) {
+	caseRoot := filepath.ToSlash(t.TempDir())
+	request := checkpointRequest("/rekit continue main -WhatIf -Format json")
+	attemptID := "g000002-a000001-0123456789abcdef"
+	attemptRoot := ".rekit/lanes/main/member-executions/" + attemptID
+	alternatives := []mission.CurrentLoopObservationAlternative{
+		{Kind: "member-session-accepted", RequiredFlags: []string{"-MemberExecutionAttemptId"}, PreviewCommandTemplate: "/rekit run-current-loop -MemberExecutionAttemptId " + attemptID + " -MemberExecutionOutcome accepted -WhatIf", Transition: "handoff-ready-to-accepted"},
+		{Kind: "member-session-returned", RequiredFlags: []string{"-MemberExecutionAttemptId"}, PreviewCommandTemplate: "/rekit run-current-loop -MemberExecutionAttemptId " + attemptID + " -MemberExecutionOutcome returned -WhatIf", Transition: "handoff-ready-to-returned"},
+		{Kind: "member-session-failed", RequiredFlags: []string{"-MemberExecutionAttemptId"}, PreviewCommandTemplate: "/rekit run-current-loop -MemberExecutionAttemptId " + attemptID + " -MemberExecutionOutcome failed -WhatIf", Transition: "handoff-ready-to-failed"},
+	}
+	base := checkpointPayload(t, caseRoot, request)
+	base.SchemaVersion = 1
+	base.Kind = "current-loop-segment-checkpoint"
+	base.Sequence = 1
+	base.CaseIdentitySHA256 = strings.Repeat("b", 64)
+	base.Pack = "_template"
+	base.NoAutoApply = true
+	base.NoAuthority = true
+	base.Stop.Code = "external-member-handoff"
+	base.Continuation.StopCode = "external-member-handoff"
+	base.Continuation.ObservationContract = &ObservationContract{}
+	for _, alternative := range alternatives {
+		base.Continuation.ObservationContract.Alternatives = append(base.Continuation.ObservationContract.Alternatives, ObservationAlternative{
+			Kind: alternative.Kind, RequiredFlags: alternative.RequiredFlags, PreviewCommandTemplate: alternative.PreviewCommandTemplate, Transition: alternative.Transition, Constraints: alternative.Constraints,
+		})
+	}
+	base.Continuation.ExternalMemberHandoff = &mission.CurrentLoopExternalMemberHandoff{
+		State: "handoff-ready", AttemptID: attemptID, Lane: "main", Executor: "member-session", ExecutorGeneration: 2,
+		HandoffPath: attemptRoot + "/handoff.json", ManifestPath: attemptRoot + "/result/manifest.json", OutputsRoot: attemptRoot + "/result/outputs",
+		ObservationContract: mission.CurrentLoopObservationContract{Alternatives: alternatives},
+	}
+	if err := validatePayload(base); err != nil {
+		t.Fatalf("valid external member continuation rejected: %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*Payload)
+	}{
+		{name: "attempt-generation-drift", mutate: func(payload *Payload) { payload.Continuation.ExternalMemberHandoff.ExecutorGeneration = 3 }},
+		{name: "handoff-path-drift", mutate: func(payload *Payload) {
+			payload.Continuation.ExternalMemberHandoff.HandoffPath = ".rekit/other/handoff.json"
+		}},
+		{name: "invalid-state", mutate: func(payload *Payload) { payload.Continuation.ExternalMemberHandoff.State = "returned" }},
+		{name: "missing-failed-capability", mutate: func(payload *Payload) {
+			payload.Continuation.ObservationContract.Alternatives = payload.Continuation.ObservationContract.Alternatives[:2]
+			payload.Continuation.ExternalMemberHandoff.ObservationContract.Alternatives = payload.Continuation.ExternalMemberHandoff.ObservationContract.Alternatives[:2]
+		}},
+		{name: "duplicate-capability", mutate: func(payload *Payload) {
+			payload.Continuation.ObservationContract.Alternatives[2] = payload.Continuation.ObservationContract.Alternatives[1]
+			payload.Continuation.ExternalMemberHandoff.ObservationContract.Alternatives[2] = payload.Continuation.ExternalMemberHandoff.ObservationContract.Alternatives[1]
+		}},
+		{name: "embedded-contract-drift", mutate: func(payload *Payload) {
+			payload.Continuation.ExternalMemberHandoff.ObservationContract.Alternatives[0].Transition = "tampered"
+		}},
+		{name: "non-member-stop", mutate: func(payload *Payload) {
+			payload.Stop.Code = "human-intervention"
+			payload.Continuation.StopCode = "human-intervention"
+			payload.Continuation.ObservationContract = nil
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := base
+			continuation := *base.Continuation
+			candidate.Continuation = &continuation
+			contract := *base.Continuation.ObservationContract
+			contract.Alternatives = append([]ObservationAlternative{}, base.Continuation.ObservationContract.Alternatives...)
+			candidate.Continuation.ObservationContract = &contract
+			member := *base.Continuation.ExternalMemberHandoff
+			memberContract := base.Continuation.ExternalMemberHandoff.ObservationContract
+			memberContract.Alternatives = append([]mission.CurrentLoopObservationAlternative{}, memberContract.Alternatives...)
+			member.ObservationContract = memberContract
+			candidate.Continuation.ExternalMemberHandoff = &member
+			test.mutate(&candidate)
+			if err := validatePayload(candidate); err == nil {
+				t.Fatalf("tampered external member continuation was accepted: %+v", candidate.Continuation)
+			}
+		})
+	}
+}
+
 func checkpointPayload(t *testing.T, caseRoot string, request mission.MissionCommanderDriverRequest) Payload {
 	t.Helper()
 	requestSHA256, err := RequestSHA256(request)

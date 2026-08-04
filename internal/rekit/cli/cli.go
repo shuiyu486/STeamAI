@@ -29,6 +29,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/kitmutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/note"
@@ -4438,17 +4439,20 @@ func statusCurrentLoopOperatorPackage(target string, caseMission *statusCaseMiss
 		RunbookSteps: []string{
 			"consume currentLoopOperator.selectedDriverRequest instead of reconstructing a command from terminal prose",
 			"review the returned current-loop preview and execute only its exact hash-bound Apply command",
+			"when externalMemberHandoff is present, dispatch or observe only its durable attempt and submit exactly one accepted, returned, or failed observation alternative",
 			"when externalReviewerHandoff is present, invoke its read-only Agent tool request or wait for its result, then submit exactly one observation alternative to a fresh preview",
 			"after each segment result, refresh status and consume the next currentLoopOperator package",
 		},
 		CompletionCriteria: []string{
 			"the bounded segment reaches a typed stop with durable step receipts",
+			"external member output is recorded through the durable attempt/observation/manifest pipeline",
 			"external reviewer output is recorded through the strict reviewer dispatch/result/intake pipeline",
 			"replacement sessions can continue from status or handoff without prior chat context",
 		},
 		Boundary: []string{
 			"current-loop operator package is read-only and does not execute its driver request or invoke Agent tool",
 			"preview and Apply remain distinct; use only returned expected hashes and exact Apply commands",
+			"external member and reviewer sessions are owned by the harness; the Go runtime does not spawn, poll, or stop them",
 			"external reviewer work is read-only and does not write case state or fabricate ReviewerResult JSON",
 			"the Go runtime does not execute heavy tools or write authority/confirmed state",
 		},
@@ -4477,6 +4481,29 @@ func statusCurrentLoopOperatorPackage(target string, caseMission *statusCaseMiss
 			pkg.ExternalReviewerHandoff = statusCurrentLoopExternalReviewerHandoff(reviewerPackage, pkg.SelectedDriverRequest, statusCurrentLoopDirectObservationPreviewCommand(inspection))
 		}
 	}
+	if strings.TrimSpace(runbook.Scope) == "case" {
+		if inspection.Ready && inspection.StopCode == "external-member-handoff" && inspection.Continuation != nil && inspection.Continuation.ExternalMemberHandoff != nil {
+			expected := inspection.Continuation.ExternalMemberHandoff
+			memberInspection, err := memberexecution.Inspect(target, expected.Lane, expected.AttemptID)
+			if err != nil || memberInspection.State != expected.State || memberInspection.Owner.Lane != expected.Lane || memberInspection.Owner.Executor != expected.Executor || memberInspection.Owner.ExecutorGeneration != expected.ExecutorGeneration {
+				pkg.Ready = false
+				pkg.State = "checkpoint-stale-member-attempt"
+				pkg.SelectedDriverRequest = nil
+				pkg.ResumeDriverRequest = nil
+				pkg.ExternalMemberHandoff = nil
+				pkg.RunbookSteps = []string{
+					"refresh durable member execution state and start a fresh current-loop segment instead of consuming the stale checkpoint budget",
+				}
+				pkg.Boundary = mission.UniqueStrings(append(pkg.Boundary,
+					"the external member attempt owner or state no longer matches the checkpoint; do not substitute a newer attempt observation",
+				))
+				return pkg
+			}
+			pkg.ExternalMemberHandoff = currentLoopExternalMemberHandoff(runtime.Context{Target: target, Pack: pkg.Pack}, memberInspection, pkg.SelectedDriverRequest)
+		} else if memberInspection, ok, err := memberexecution.Latest(target, pkg.Lane); err == nil && ok && (memberInspection.State == "handoff-ready" || memberInspection.State == "accepted") {
+			pkg.ExternalMemberHandoff = currentLoopExternalMemberHandoff(runtime.Context{Target: target, Pack: pkg.Pack}, memberInspection, pkg.SelectedDriverRequest)
+		}
+	}
 	return pkg
 }
 
@@ -4486,6 +4513,7 @@ func statusBlockedCurrentLoopOperatorPackage(pkg *mission.CurrentLoopOperatorPac
 	pkg.SelectedDriverRequest = nil
 	pkg.StartDriverRequest = nil
 	pkg.ResumeDriverRequest = nil
+	pkg.ExternalMemberHandoff = nil
 	pkg.ExternalReviewerHandoff = nil
 	pkg.RunbookSteps = []string{
 		"review currentLoopSegment.state and warnings before attempting another bounded loop",
@@ -6176,6 +6204,16 @@ func writeCurrentLoopOperatorPackageText(out io.Writer, prefix string, pkg *miss
 	}
 	if err := writeMissionCommanderDriverRequestText(out, prefix+" current-loop operator selected", pkg.SelectedDriverRequest); err != nil {
 		return err
+	}
+	if handoff := pkg.ExternalMemberHandoff; handoff != nil {
+		if _, err := fmt.Fprintf(out, "%s current-loop member handoff：state=%s attempt=%s lane=%s owner=%s/%d handoff=%s manifest=%s outputs=%s\n", prefix, handoff.State, handoff.AttemptID, handoff.Lane, handoff.Executor, handoff.ExecutorGeneration, handoff.HandoffPath, handoff.ManifestPath, handoff.OutputsRoot); err != nil {
+			return err
+		}
+		for _, alternative := range handoff.ObservationContract.Alternatives {
+			if _, err := fmt.Fprintf(out, "%s current-loop member observation：kind=%s transition=%s requiredFlags=%s previewCommandTemplate=`%s` constraints=%s\n", prefix, alternative.Kind, alternative.Transition, strings.Join(alternative.RequiredFlags, ","), alternative.PreviewCommandTemplate, strings.Join(alternative.Constraints, "; ")); err != nil {
+				return err
+			}
+		}
 	}
 	if handoff := pkg.ExternalReviewerHandoff; handoff != nil {
 		if _, err := fmt.Fprintf(out, "%s current-loop reviewer handoff：state=%s step=%s dropPath=%s dropRole=%s promptPath=%s promptSha256=%s\n", prefix, handoff.State, handoff.RunLoopStepID, handoff.ReviewerResultDropPath, handoff.ReviewerResultDropPathRole, handoff.DispatchPromptPath, handoff.DispatchPromptSHA256); err != nil {

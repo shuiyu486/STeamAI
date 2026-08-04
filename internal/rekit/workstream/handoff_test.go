@@ -13,6 +13,44 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
+func TestWriteCurrentLoopOperatorPackageIncludesExternalMemberHandoff(t *testing.T) {
+	checkpointSHA256 := strings.Repeat("c", 64)
+	attemptID := "g000002-a000001-0123456789abcdef"
+	preview := `/rekit run-current-loop -ResumeCurrentLoop -ExpectedCurrentLoopCheckpointSha256 ` + checkpointSHA256 + ` -MemberExecutionAttemptId ` + attemptID + ` -MemberExecutionOutcome returned -WhatIf -Format json`
+	contract := mission.CurrentLoopObservationContract{
+		Alternatives: []mission.CurrentLoopObservationAlternative{{
+			Kind:                   "member-session-returned",
+			RequiredFlags:          []string{"-MemberExecutionAttemptId", "-MemberExecutionOutcome"},
+			PreviewCommandTemplate: preview,
+			Transition:             "accepted-to-returned",
+			Constraints:            []string{"strict manifest required"},
+		}},
+	}
+	pkg := &mission.CurrentLoopOperatorPackage{
+		State: "checkpoint-resume-review-required",
+		Route: "case",
+		Lane:  "main",
+		ExternalMemberHandoff: &mission.CurrentLoopExternalMemberHandoff{
+			State:               "accepted",
+			AttemptID:           attemptID,
+			Lane:                "main",
+			Executor:            "member-session",
+			ExecutorGeneration:  2,
+			HandoffPath:         ".rekit/lanes/main/member-executions/" + attemptID + "/handoff.json",
+			ManifestPath:        ".rekit/lanes/main/member-executions/" + attemptID + "/result/manifest.json",
+			OutputsRoot:         ".rekit/lanes/main/member-executions/" + attemptID + "/result/outputs",
+			ObservationContract: contract,
+		},
+	}
+	var out bytes.Buffer
+	writeCurrentLoopOperatorPackage(&out, pkg)
+	for _, want := range []string{"## Current-loop operator", "external member: state=accepted attempt=" + attemptID, "owner=member-session/2", "member observation: kind=member-session-returned transition=accepted-to-returned", checkpointSHA256, "strict manifest required"} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("current-loop operator Markdown missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
 func TestMissionCommanderNextActionMarkdownLineIncludesIdentity(t *testing.T) {
 	line := MissionCommanderNextActionMarkdownLine(mission.MissionCommanderNextActionItem{
 		Lane:           "main",

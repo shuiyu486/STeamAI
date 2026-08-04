@@ -157,6 +157,10 @@ go test ./internal/rekit/cli -run '^TestRunDailyMissionControlRouteSmokeProductP
 /rekit promote -Apply -Format text         # 确认 review scope 后写回 pack，并打印 validation / backup handoff
 ```
 
+### Bounded current-loop 与外部 session 接力
+
+`run-current-loop`在同一固定route/lane内连续执行deterministic步骤；遇到durable member handoff或reviewer handoff时停止并发布strict checkpoint，不跨边界自动管理session。刷新status后消费`missionControlRunbook.currentLoopOperator.externalMemberHandoff`或`externalReviewerHandoff`：member package绑定attempt、owner generation、handoff/manifest/outputs路径及accepted/returned/failed observation alternatives；checkpoint resume必须提交其中恰好一个、绑定同一attempt的observation，不能用空resume消耗remaining budget。accepted后contract只保留returned/failed；returned前必须写strict manifest和全部declared bounded outputs，进入intake-ready后旧member handoff会从status移除。显式handoff Markdown与replacement executor takeover消费同一current-loop operator package和checkpoint-bound preview template；Go runtime不spawn、poll或stop外部session，不执行heavy tool、不写authority/confirmed。
+
 ### Handoff publication generation 与 replacement executor 接手
 
 项目级与lane级`handoff -WhatIf -Format json`都是零写入preview，返回`publicationPlanSha256`、`publicationStamp`和同源exact Apply request；不要手工重建Apply参数。Apply在mutation lease内重建同一计划，先原子发布RESUME/checkpoint、stamped/latest handoff与stamped/latest takeover，再发布stamped generation，最后才切换scope-local`latest-generation.json` commit point。

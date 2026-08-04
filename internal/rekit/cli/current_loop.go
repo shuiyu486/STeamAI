@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/currentloop"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 )
@@ -61,30 +63,32 @@ type currentLoopStepReceipt struct {
 }
 
 type currentLoopStopReason struct {
-	Code                          string                                 `json:"code"`
-	Phase                         string                                 `json:"phase"`
-	Message                       string                                 `json:"message"`
-	CurrentDriverRequest          *mission.MissionCommanderDriverRequest `json:"currentDriverRequest,omitempty"`
-	ExternalHandoff               *reviewerStepExternalHandoff           `json:"externalHandoff,omitempty"`
-	ExpectedReviewerAttemptSHA256 string                                 `json:"expectedReviewerAttemptSha256,omitempty"`
+	Code                          string                                    `json:"code"`
+	Phase                         string                                    `json:"phase"`
+	Message                       string                                    `json:"message"`
+	CurrentDriverRequest          *mission.MissionCommanderDriverRequest    `json:"currentDriverRequest,omitempty"`
+	ExternalHandoff               *reviewerStepExternalHandoff              `json:"externalHandoff,omitempty"`
+	ExternalMemberHandoff         *mission.CurrentLoopExternalMemberHandoff `json:"externalMemberHandoff,omitempty"`
+	ExpectedReviewerAttemptSHA256 string                                    `json:"expectedReviewerAttemptSha256,omitempty"`
 }
 
 type currentLoopContinuationRequest struct {
-	Kind                  string                           `json:"kind"`
-	State                 string                           `json:"state"`
-	StopCode              string                           `json:"stopCode"`
-	SegmentMaxSteps       int                              `json:"segmentMaxSteps"`
-	AppliedStepsInSegment int                              `json:"appliedStepsInSegment"`
-	RemainingMaxSteps     int                              `json:"remainingMaxSteps"`
-	SegmentRoute          string                           `json:"segmentRoute"`
-	SegmentLane           string                           `json:"segmentLane"`
-	ExpectedRoute         string                           `json:"expectedRoute"`
-	ExpectedLane          string                           `json:"expectedLane"`
-	WhatIfCommand         string                           `json:"whatIfCommand"`
-	ObservationContract   *reviewerStepObservationContract `json:"observationContract,omitempty"`
-	FreshPreviewRequired  bool                             `json:"freshPreviewRequired"`
-	CumulativeReceipts    bool                             `json:"cumulativeReceipts"`
-	Boundary              []string                         `json:"boundary"`
+	Kind                  string                                    `json:"kind"`
+	State                 string                                    `json:"state"`
+	StopCode              string                                    `json:"stopCode"`
+	SegmentMaxSteps       int                                       `json:"segmentMaxSteps"`
+	AppliedStepsInSegment int                                       `json:"appliedStepsInSegment"`
+	RemainingMaxSteps     int                                       `json:"remainingMaxSteps"`
+	SegmentRoute          string                                    `json:"segmentRoute"`
+	SegmentLane           string                                    `json:"segmentLane"`
+	ExpectedRoute         string                                    `json:"expectedRoute"`
+	ExpectedLane          string                                    `json:"expectedLane"`
+	WhatIfCommand         string                                    `json:"whatIfCommand"`
+	ObservationContract   *mission.CurrentLoopObservationContract   `json:"observationContract,omitempty"`
+	ExternalMemberHandoff *mission.CurrentLoopExternalMemberHandoff `json:"externalMemberHandoff,omitempty"`
+	FreshPreviewRequired  bool                                      `json:"freshPreviewRequired"`
+	CumulativeReceipts    bool                                      `json:"cumulativeReceipts"`
+	Boundary              []string                                  `json:"boundary"`
 }
 
 type currentLoopPlanIdentity struct {
@@ -223,6 +227,14 @@ func buildCurrentLoopPlan(ctx runtime.Context, opt Options) (currentLoopPlan, st
 		inspection := status.MissionControlRunbook.CurrentLoopSegment
 		if !inspection.Ready || inspection.State != "ready" || inspection.Continuation == nil || inspection.RemainingMaxSteps < 1 || inspection.ArtifactSHA256 == "" {
 			return currentLoopPlan{}, statusInventory{}, fmt.Errorf("run-current-loop -ResumeCurrentLoop requires the latest checkpoint to be state=ready")
+		}
+		if inspection.StopCode == "external-member-handoff" {
+			if !currentStepHasMemberObservation(opt) {
+				return currentLoopPlan{}, statusInventory{}, fmt.Errorf("run-current-loop external member checkpoint resume requires one member observation from continuation.observationContract")
+			}
+			if err := validateCurrentLoopMemberCheckpointObservation(ctx, opt, *inspection); err != nil {
+				return currentLoopPlan{}, statusInventory{}, err
+			}
 		}
 		if strings.TrimSpace(status.MissionControlRunbook.Scope) != inspection.ExpectedRoute || status.MissionControlRunbook.CurrentDriverRequest == nil || strings.TrimSpace(status.MissionControlRunbook.CurrentDriverRequest.Lane) != inspection.ExpectedLane {
 			return currentLoopPlan{}, statusInventory{}, fmt.Errorf("run-current-loop ready checkpoint expected route or lane does not match refreshed status")
@@ -416,7 +428,19 @@ func applyCurrentLoopPlan(ctx runtime.Context, opt Options, plan currentLoopPlan
 			plan.AppliedSteps++
 			plan.Applied = true
 			plan.FinalStatus = &status
+			memberState := applied.MemberExecution.Inspection.State
+			if memberState == "intake-ready" {
+				plan.StopReason = currentLoopStopReason{Code: "member-intake-ready", Phase: "after-step", Message: "member result passed strict intake; review a fresh segment before continuing deterministic work", CurrentDriverRequest: receipt.RequestAfter}
+				plan.ContinuationRequest = currentLoopContinuationFor(ctx, plan.MaxSteps, plan.AppliedSteps, initialRoute, initialLane, route, plan.Actor, plan.StopReason)
+				if plan.ContinuationRequest != nil {
+					plan.ResumeCommand = plan.ContinuationRequest.WhatIfCommand
+				}
+				break
+			}
 			plan.StopReason = currentLoopStopReason{Code: "external-member-handoff", Phase: "after-step", Message: "durable member execution handoff or observation was recorded; refresh status before continuing", CurrentDriverRequest: receipt.RequestAfter}
+			if memberState == "handoff-ready" || memberState == "accepted" {
+				plan.StopReason.ExternalMemberHandoff = currentLoopExternalMemberHandoff(ctx, applied.MemberExecution.Inspection, nil)
+			}
 			plan.ContinuationRequest = currentLoopContinuationFor(ctx, plan.MaxSteps, plan.AppliedSteps, initialRoute, initialLane, route, plan.Actor, plan.StopReason)
 			if plan.ContinuationRequest != nil {
 				plan.ResumeCommand = plan.ContinuationRequest.WhatIfCommand
@@ -601,11 +625,113 @@ func currentLoopResumeApplyCommand(ctx runtime.Context, plan currentLoopPlan, op
 	return strings.Join(args, " ")
 }
 
+func validateCurrentLoopMemberCheckpointObservation(ctx runtime.Context, opt Options, inspection currentloop.Inspection) error {
+	if inspection.Continuation == nil || inspection.Continuation.ExternalMemberHandoff == nil || inspection.Continuation.ObservationContract == nil {
+		return fmt.Errorf("run-current-loop external member checkpoint omitted its durable observation contract")
+	}
+	handoff := inspection.Continuation.ExternalMemberHandoff
+	attemptID := strings.TrimSpace(opt.MemberExecutionAttemptID)
+	outcome := strings.ToLower(strings.TrimSpace(opt.MemberExecutionOutcome))
+	if attemptID != handoff.AttemptID {
+		return fmt.Errorf("run-current-loop member observation attempt %q does not match checkpoint attempt %q", attemptID, handoff.AttemptID)
+	}
+	allowed := false
+	for _, alternative := range inspection.Continuation.ObservationContract.Alternatives {
+		if alternative.Kind == "member-session-"+outcome {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return fmt.Errorf("run-current-loop member observation outcome %q is not allowed by checkpoint continuation", outcome)
+	}
+	current, err := memberexecution.Inspect(ctx.Target, handoff.Lane, handoff.AttemptID)
+	if err != nil {
+		return fmt.Errorf("inspect current-loop member checkpoint attempt: %w", err)
+	}
+	if current.Owner.Lane != handoff.Lane || current.Owner.Executor != handoff.Executor || current.Owner.ExecutorGeneration != handoff.ExecutorGeneration || current.State != handoff.State {
+		return fmt.Errorf("run-current-loop member checkpoint attempt owner or state changed; refresh status instead of consuming prior budget")
+	}
+	return nil
+}
+
+func currentLoopExternalMemberHandoff(ctx runtime.Context, inspection memberexecution.Inspection, selected *mission.MissionCommanderDriverRequest) *mission.CurrentLoopExternalMemberHandoff {
+	if inspection.Handoff == nil || inspection.AttemptID == "" || (inspection.State != "handoff-ready" && inspection.State != "accepted") {
+		return nil
+	}
+	previewCommand := currentLoopResumeCommand(ctx, 1)
+	if selected != nil && strings.TrimSpace(selected.Command) != "" {
+		previewCommand = strings.TrimSpace(selected.Command)
+	}
+	observation := mission.CurrentLoopObservationContract{
+		Boundary: []string{
+			"choose exactly one member observation matching the durable attempt and current owner generation",
+			"accepted records external harness acceptance; returned requires the strict manifest and every declared output; failed is terminal",
+		},
+	}
+	for _, outcome := range []string{"accepted", "returned", "failed"} {
+		if inspection.State == "accepted" && outcome == "accepted" {
+			continue
+		}
+		alternative := mission.CurrentLoopObservationAlternative{
+			Kind:                   "member-session-" + outcome,
+			RequiredFlags:          []string{"-MemberExecutionAttemptId", "-MemberExecutionOutcome", "-MemberExecutionObservedAt", "-Actor"},
+			PreviewCommandTemplate: currentLoopMemberObservationPreviewCommand(previewCommand, inspection.AttemptID, outcome),
+			Transition:             inspection.State + "-to-" + outcome,
+			Constraints: []string{
+				"attemptId must equal " + inspection.AttemptID,
+				"owner executor/generation must remain " + inspection.Owner.Executor + "/" + fmt.Sprint(inspection.Owner.ExecutorGeneration),
+			},
+		}
+		if outcome == "returned" {
+			alternative.Constraints = append(alternative.Constraints, "write strict manifest at "+inspection.Handoff.ManifestPath+" and bounded outputs below "+inspection.Handoff.OutputsRoot+" before preview")
+		}
+		observation.Alternatives = append(observation.Alternatives, alternative)
+	}
+	handoffPath := filepath.ToSlash(filepath.Join(".rekit", "lanes", inspection.Owner.Lane, "member-executions", inspection.AttemptID, "handoff.json"))
+	return &mission.CurrentLoopExternalMemberHandoff{
+		State:               inspection.State,
+		AttemptID:           inspection.AttemptID,
+		Lane:                inspection.Owner.Lane,
+		Executor:            inspection.Owner.Executor,
+		ExecutorGeneration:  inspection.Owner.ExecutorGeneration,
+		HandoffPath:         handoffPath,
+		ManifestPath:        inspection.Handoff.ManifestPath,
+		OutputsRoot:         inspection.Handoff.OutputsRoot,
+		NextSteps:           append([]string{}, inspection.Handoff.NextSteps...),
+		ObservationContract: observation,
+		Boundary: mission.UniqueStrings(append([]string{
+			"external harness owns the member session lifecycle; Go does not spawn, poll, or stop it",
+			"handoff and observation commands do not grant authority or confirmed state and do not execute heavy tools",
+		}, inspection.Handoff.Boundary...)),
+	}
+}
+
+func currentLoopMemberObservationPreviewCommand(command, attemptID, outcome string) string {
+	fields, err := splitDriverCommand(command)
+	if err != nil || len(fields) < 2 {
+		return ""
+	}
+	insertAt := len(fields)
+	for idx, field := range fields {
+		if strings.EqualFold(field, "-WhatIf") {
+			insertAt = idx
+			break
+		}
+	}
+	insert := []string{"-MemberExecutionAttemptId", attemptID, "-MemberExecutionOutcome", outcome, "-MemberExecutionObservedAt", "<RFC3339Nano>", "-Actor", "<harness>"}
+	fields = append(fields[:insertAt], append(insert, fields[insertAt:]...)...)
+	return joinDriverCommand(fields)
+}
+
 func currentLoopContinuationFor(ctx runtime.Context, segmentMaxSteps, appliedSteps int, segmentRoute, segmentLane, expectedRoute, actor string, stop currentLoopStopReason) *currentLoopContinuationRequest {
-	if stop.Code != "external-reviewer-handoff" && stop.Code != "external-member-handoff" && stop.Code != "route-policy" && stop.Code != "human-intervention" && stop.Code != "zero-progress-retry" {
+	if stop.Code != "external-reviewer-handoff" && stop.Code != "external-member-handoff" && stop.Code != "member-intake-ready" && stop.Code != "route-policy" && stop.Code != "human-intervention" && stop.Code != "zero-progress-retry" {
 		return nil
 	}
 	if stop.Code == "external-reviewer-handoff" && stop.ExternalHandoff == nil {
+		return nil
+	}
+	if stop.Code == "external-member-handoff" && stop.ExternalMemberHandoff == nil {
 		return nil
 	}
 	remaining := segmentMaxSteps - appliedSteps
@@ -639,10 +765,10 @@ func currentLoopContinuationFor(ctx runtime.Context, segmentMaxSteps, appliedSte
 		},
 	}
 	if stop.Code == "external-reviewer-handoff" && stop.ExternalHandoff != nil {
-		observation := stop.ExternalHandoff.ObservationContract
+		observation := mission.CurrentLoopObservationContract{Boundary: append([]string{}, stop.ExternalHandoff.ObservationContract.Boundary...)}
 		previewRequest := &mission.MissionCommanderDriverRequest{Command: continuation.WhatIfCommand}
-		for idx := range observation.Alternatives {
-			alternative := &observation.Alternatives[idx]
+		for _, source := range stop.ExternalHandoff.ObservationContract.Alternatives {
+			alternative := mission.CurrentLoopObservationAlternative{Kind: source.Kind, RequiredFlags: append([]string{}, source.RequiredFlags...), Constraints: append([]string{}, source.Constraints...)}
 			if strings.TrimSpace(stop.ExpectedReviewerAttemptSHA256) != "" && alternative.Kind != "reviewer-result-direct-write" {
 				alternative.RequiredFlags = append([]string{"-ExpectedCurrentLoopReviewerAttemptSha256"}, alternative.RequiredFlags...)
 			}
@@ -651,12 +777,23 @@ func currentLoopContinuationFor(ctx runtime.Context, segmentMaxSteps, appliedSte
 			if alternative.Kind == "reviewer-result-direct-write" {
 				alternative.Transition = "external-write-then-refresh-status"
 			}
+			observation.Alternatives = append(observation.Alternatives, alternative)
 		}
 		continuation.State = "awaiting-external-observation"
 		continuation.ObservationContract = &observation
 		continuation.Boundary = append([]string{
 			"consume exactly one observation alternative through its previewCommandTemplate; alternatives with different attempt-guard requirements do not share observation flags",
 			"reviewer-result-direct-write performs the external write first and then uses its unguarded fresh-preview template; do not carry the predecessor attempt snapshot into the successor state",
+		}, continuation.Boundary...)
+	}
+	if stop.Code == "external-member-handoff" && stop.ExternalMemberHandoff != nil {
+		observation := stop.ExternalMemberHandoff.ObservationContract
+		continuation.State = "awaiting-external-observation"
+		continuation.ObservationContract = &observation
+		continuation.ExternalMemberHandoff = stop.ExternalMemberHandoff
+		continuation.Boundary = append([]string{
+			"external member execution remains owned by the durable lane executor; use exactly one accepted, returned, or failed preview template",
+			"returned observation is valid only after the external member writes the strict manifest and all declared bounded outputs",
 		}, continuation.Boundary...)
 	}
 	if stop.Code == "human-intervention" {
@@ -794,6 +931,7 @@ func currentLoopCheckpointContinuation(source *currentLoopContinuationRequest) *
 		ExpectedRoute:         source.ExpectedRoute,
 		ExpectedLane:          source.ExpectedLane,
 		WhatIfCommand:         source.WhatIfCommand,
+		ExternalMemberHandoff: source.ExternalMemberHandoff,
 		FreshPreviewRequired:  source.FreshPreviewRequired,
 		CumulativeReceipts:    source.CumulativeReceipts,
 		Boundary:              append([]string{}, source.Boundary...),

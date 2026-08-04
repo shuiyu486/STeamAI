@@ -52,21 +52,22 @@ type ObservationContract struct {
 }
 
 type Continuation struct {
-	Kind                  string               `json:"kind"`
-	State                 string               `json:"state"`
-	StopCode              string               `json:"stopCode"`
-	SegmentMaxSteps       int                  `json:"segmentMaxSteps"`
-	AppliedStepsInSegment int                  `json:"appliedStepsInSegment"`
-	RemainingMaxSteps     int                  `json:"remainingMaxSteps"`
-	SegmentRoute          string               `json:"segmentRoute"`
-	SegmentLane           string               `json:"segmentLane"`
-	ExpectedRoute         string               `json:"expectedRoute"`
-	ExpectedLane          string               `json:"expectedLane"`
-	WhatIfCommand         string               `json:"whatIfCommand,omitempty"`
-	ObservationContract   *ObservationContract `json:"observationContract,omitempty"`
-	FreshPreviewRequired  bool                 `json:"freshPreviewRequired"`
-	CumulativeReceipts    bool                 `json:"cumulativeReceipts"`
-	Boundary              []string             `json:"boundary"`
+	Kind                  string                                    `json:"kind"`
+	State                 string                                    `json:"state"`
+	StopCode              string                                    `json:"stopCode"`
+	SegmentMaxSteps       int                                       `json:"segmentMaxSteps"`
+	AppliedStepsInSegment int                                       `json:"appliedStepsInSegment"`
+	RemainingMaxSteps     int                                       `json:"remainingMaxSteps"`
+	SegmentRoute          string                                    `json:"segmentRoute"`
+	SegmentLane           string                                    `json:"segmentLane"`
+	ExpectedRoute         string                                    `json:"expectedRoute"`
+	ExpectedLane          string                                    `json:"expectedLane"`
+	WhatIfCommand         string                                    `json:"whatIfCommand,omitempty"`
+	ObservationContract   *ObservationContract                      `json:"observationContract,omitempty"`
+	ExternalMemberHandoff *mission.CurrentLoopExternalMemberHandoff `json:"externalMemberHandoff,omitempty"`
+	FreshPreviewRequired  bool                                      `json:"freshPreviewRequired"`
+	CumulativeReceipts    bool                                      `json:"cumulativeReceipts"`
+	Boundary              []string                                  `json:"boundary"`
 }
 
 type StepReceipt struct {
@@ -976,15 +977,56 @@ func validatePayload(payload Payload) error {
 			return fmt.Errorf("campaign continuation does not match its segment checkpoint")
 		}
 		switch continuation.StopCode {
-		case "route-policy", "human-intervention", "external-reviewer-handoff", "external-member-handoff", "zero-progress-retry":
+		case "route-policy", "human-intervention", "external-reviewer-handoff", "external-member-handoff", "member-intake-ready", "zero-progress-retry":
 		default:
 			return fmt.Errorf("campaign continuation stop code is unsupported")
 		}
 		if continuation.StopCode == "external-reviewer-handoff" && (continuation.ObservationContract == nil || len(continuation.ObservationContract.Alternatives) == 0) {
 			return fmt.Errorf("external reviewer continuation requires an observation contract")
 		}
-		if continuation.StopCode != "external-reviewer-handoff" && continuation.ObservationContract != nil {
-			return fmt.Errorf("non-reviewer continuation cannot include an observation contract")
+		if continuation.StopCode == "external-member-handoff" {
+			if continuation.ObservationContract == nil || len(continuation.ObservationContract.Alternatives) < 2 || continuation.ExternalMemberHandoff == nil {
+				return fmt.Errorf("external member continuation requires its durable handoff and observation contract")
+			}
+			member := continuation.ExternalMemberHandoff
+			expectedAttemptPrefix := fmt.Sprintf("g%06d-", member.ExecutorGeneration)
+			expectedAttemptRoot := filepath.ToSlash(filepath.Join(".rekit", "lanes", member.Lane, "member-executions", member.AttemptID))
+			if member.AttemptID == "" || !strings.HasPrefix(member.AttemptID, expectedAttemptPrefix) || member.Lane != continuation.ExpectedLane || member.Executor == "" || member.ExecutorGeneration < 1 || member.HandoffPath != expectedAttemptRoot+"/handoff.json" || member.ManifestPath != expectedAttemptRoot+"/result/manifest.json" || member.OutputsRoot != expectedAttemptRoot+"/result/outputs" || member.State != "handoff-ready" && member.State != "accepted" {
+				return fmt.Errorf("external member continuation handoff identity is invalid")
+			}
+			expectedKinds := map[string]bool{
+				"member-session-returned": true,
+				"member-session-failed":   true,
+			}
+			if member.State == "handoff-ready" {
+				expectedKinds["member-session-accepted"] = true
+			}
+			if len(continuation.ObservationContract.Alternatives) != len(expectedKinds) || len(member.ObservationContract.Alternatives) != len(expectedKinds) {
+				return fmt.Errorf("external member observation alternatives do not match handoff state")
+			}
+			seen := map[string]bool{}
+			for index, alternative := range continuation.ObservationContract.Alternatives {
+				if !expectedKinds[alternative.Kind] || seen[alternative.Kind] {
+					return fmt.Errorf("external member observation capability is invalid or duplicated")
+				}
+				seen[alternative.Kind] = true
+				if alternative.PreviewCommandTemplate == "" || !strings.Contains(alternative.PreviewCommandTemplate, "-MemberExecutionAttemptId") || !strings.Contains(alternative.PreviewCommandTemplate, member.AttemptID) {
+					return fmt.Errorf("external member observation alternative is not bound to its durable attempt")
+				}
+				memberAlternative := member.ObservationContract.Alternatives[index]
+				if memberAlternative.Kind != alternative.Kind || memberAlternative.PreviewCommandTemplate != alternative.PreviewCommandTemplate || memberAlternative.Transition != alternative.Transition || strings.Join(memberAlternative.RequiredFlags, "\x00") != strings.Join(alternative.RequiredFlags, "\x00") || strings.Join(memberAlternative.Constraints, "\x00") != strings.Join(alternative.Constraints, "\x00") {
+					return fmt.Errorf("external member handoff and continuation observation contracts differ")
+				}
+			}
+			if strings.Join(member.ObservationContract.Boundary, "\x00") != strings.Join(continuation.ObservationContract.Boundary, "\x00") {
+				return fmt.Errorf("external member handoff and continuation observation boundaries differ")
+			}
+		}
+		if continuation.StopCode != "external-reviewer-handoff" && continuation.StopCode != "external-member-handoff" && continuation.ObservationContract != nil {
+			return fmt.Errorf("non-external-session continuation cannot include an observation contract")
+		}
+		if continuation.StopCode != "external-member-handoff" && continuation.ExternalMemberHandoff != nil {
+			return fmt.Errorf("non-member continuation cannot include an external member handoff")
 		}
 	}
 	return nil

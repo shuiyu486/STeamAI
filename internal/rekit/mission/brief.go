@@ -274,6 +274,20 @@ type CurrentLoopExternalReviewerHandoff struct {
 	Boundary                      []string                             `json:"boundary"`
 }
 
+type CurrentLoopExternalMemberHandoff struct {
+	State               string                         `json:"state"`
+	AttemptID           string                         `json:"attemptId"`
+	Lane                string                         `json:"lane"`
+	Executor            string                         `json:"executor"`
+	ExecutorGeneration  int                            `json:"executorGeneration"`
+	HandoffPath         string                         `json:"handoffPath"`
+	ManifestPath        string                         `json:"manifestPath"`
+	OutputsRoot         string                         `json:"outputsRoot"`
+	NextSteps           []string                       `json:"nextSteps"`
+	ObservationContract CurrentLoopObservationContract `json:"observationContract"`
+	Boundary            []string                       `json:"boundary"`
+}
+
 type CurrentLoopOperatorPackage struct {
 	Ready                      bool                                `json:"ready"`
 	State                      string                              `json:"state"`
@@ -287,6 +301,7 @@ type CurrentLoopOperatorPackage struct {
 	SelectedDriverRequest      *MissionCommanderDriverRequest      `json:"selectedDriverRequest,omitempty"`
 	StartDriverRequest         *MissionCommanderDriverRequest      `json:"startDriverRequest,omitempty"`
 	ResumeDriverRequest        *MissionCommanderDriverRequest      `json:"resumeDriverRequest,omitempty"`
+	ExternalMemberHandoff      *CurrentLoopExternalMemberHandoff   `json:"externalMemberHandoff,omitempty"`
 	ExternalReviewerHandoff    *CurrentLoopExternalReviewerHandoff `json:"externalReviewerHandoff,omitempty"`
 	RunbookSteps               []string                            `json:"runbookSteps"`
 	CompletionCriteria         []string                            `json:"completionCriteria"`
