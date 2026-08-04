@@ -202,6 +202,19 @@ func Preview(job Job) (Plan, error) {
 			writes = append(writes, manifestWrite)
 			artifacts = append(artifacts, produced...)
 			artifacts = append(artifacts, artifactFor(manifestWrite.rel, manifestWrite.data))
+			plan.memberResult = &memberexecution.ResultSnapshot{
+				ManifestPath: filepath.Join(job.CaseRoot, filepath.FromSlash(job.MemberManifestPath)),
+				ManifestData: append([]byte{}, manifestWrite.data...),
+				OutputsRoot:  filepath.Join(job.CaseRoot, filepath.FromSlash(job.MemberOutputsRoot)),
+				Outputs:      map[string][]byte{},
+			}
+			for _, write := range outputWrites {
+				rel, relErr := filepath.Rel(filepath.FromSlash(job.MemberOutputsRoot), filepath.FromSlash(write.rel))
+				if relErr != nil || rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+					return Plan{}, fmt.Errorf("external member relay output escapes destination root")
+				}
+				plan.memberResult.Outputs[strings.ToLower(filepath.ToSlash(rel))] = append([]byte{}, write.data...)
+			}
 		}
 	} else {
 		switch submission.Outcome {
@@ -228,6 +241,7 @@ func Preview(job Job) (Plan, error) {
 			write := plannedWrite{rel: job.RelayResultPath, data: resultBytes}
 			writes = append(writes, write)
 			artifacts = append(artifacts, artifactFor(write.rel, write.data))
+			plan.ReviewerResult = &ReviewerResultBinding{Path: write.rel, SHA256: hash(write.data), Bytes: int64(len(write.data)), data: append([]byte{}, write.data...)}
 			envelope.ReviewerResultSourcePath = filepath.Join(job.CaseRoot, filepath.FromSlash(job.RelayResultPath))
 		case "failed":
 			envelope.ObservationKind = "reviewer-session-failed"
@@ -253,6 +267,12 @@ func Preview(job Job) (Plan, error) {
 	writes = append(writes, plannedWrite{rel: job.PublicationPath, data: receiptBytes})
 	writes = append(writes, plannedWrite{rel: job.ObservationPath, data: envelopeBytes})
 	plan.Artifacts = append(artifacts, artifactFor(job.PublicationPath, receiptBytes), artifactFor(job.ObservationPath, envelopeBytes))
+	plan.Observation = ObservationBinding{
+		Path:   job.ObservationPath,
+		SHA256: hash(envelopeBytes),
+		Bytes:  int64(len(envelopeBytes)),
+		data:   append([]byte{}, envelopeBytes...),
+	}
 	identity := struct {
 		SchemaVersion    int        `json:"schemaVersion"`
 		JobSHA256        string     `json:"jobSha256"`
@@ -280,8 +300,33 @@ func Apply(plan Plan, expectedJobSHA256, expectedSubmissionSHA256, expectedPlanS
 			return Plan{}, fmt.Errorf("external session %s sha256 mismatch: got %s want %s", name, strings.TrimSpace(pair[0]), pair[1])
 		}
 	}
-	allReplayed := true
-	for _, write := range fresh.writes {
+	firstMissing := len(fresh.writes)
+	for index, write := range fresh.writes {
+		path := filepath.Join(fresh.Job.CaseRoot, filepath.FromSlash(write.rel))
+		info, statErr := os.Lstat(path)
+		if os.IsNotExist(statErr) {
+			if firstMissing == len(fresh.writes) {
+				firstMissing = index
+			}
+			continue
+		}
+		if statErr != nil {
+			return Plan{}, statErr
+		}
+		if firstMissing != len(fresh.writes) {
+			return Plan{}, fmt.Errorf("external session relay publication is non-prefix at %s", write.rel)
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return Plan{}, fmt.Errorf("external session relay existing artifact must be a regular non-symlink file: %s", write.rel)
+		}
+		current, readErr := rekitfs.ReadStableRegularFileAnchored(fresh.Job.CaseRoot, path, "external session relay artifact", int64(len(write.data))+1)
+		if readErr != nil || !bytes.Equal(current, write.data) {
+			return Plan{}, fmt.Errorf("external session relay existing artifact differs: %s", write.rel)
+		}
+	}
+	allReplayed := firstMissing == len(fresh.writes)
+	for index := firstMissing; index < len(fresh.writes); index++ {
+		write := fresh.writes[index]
 		replayed, err := rekitfs.WriteExclusiveRegularFileAnchored(fresh.Job.CaseRoot, write.rel, "external session relay artifact", write.data)
 		if err != nil {
 			return Plan{}, err

@@ -76,25 +76,66 @@ type Inspection struct {
 	Warnings         []string    `json:"warnings,omitempty"`
 }
 
+type ObservationBinding struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+	Bytes  int64  `json:"bytes"`
+	data   []byte
+}
+
+type ReviewerResultBinding struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+	Bytes  int64  `json:"bytes"`
+	data   []byte
+}
+
 type Plan struct {
-	SchemaVersion        int        `json:"schemaVersion"`
-	Mode                 string     `json:"mode"`
-	Job                  Job        `json:"job"`
-	JobSHA256            string     `json:"jobSha256"`
-	Submission           Submission `json:"submission"`
-	SubmissionSHA256     string     `json:"submissionSha256"`
-	ExpectedPlanSHA256   string     `json:"expectedPlanSha256"`
-	ApplyCommand         string     `json:"applyCommand,omitempty"`
-	Artifacts            []Artifact `json:"artifacts"`
-	ReviewRequired       bool       `json:"reviewRequired"`
-	RequiresConfirmation bool       `json:"requiresConfirmation"`
-	Applied              bool       `json:"applied"`
-	AlreadyApplied       bool       `json:"alreadyApplied"`
-	Boundary             []string   `json:"boundary"`
+	SchemaVersion        int                    `json:"schemaVersion"`
+	Mode                 string                 `json:"mode"`
+	Job                  Job                    `json:"job"`
+	JobSHA256            string                 `json:"jobSha256"`
+	Submission           Submission             `json:"submission"`
+	SubmissionSHA256     string                 `json:"submissionSha256"`
+	ExpectedPlanSHA256   string                 `json:"expectedPlanSha256"`
+	ApplyCommand         string                 `json:"applyCommand,omitempty"`
+	Artifacts            []Artifact             `json:"artifacts"`
+	Observation          ObservationBinding     `json:"observation"`
+	ReviewerResult       *ReviewerResultBinding `json:"reviewerResult,omitempty"`
+	ReviewRequired       bool                   `json:"reviewRequired"`
+	RequiresConfirmation bool                   `json:"requiresConfirmation"`
+	Applied              bool                   `json:"applied"`
+	AlreadyApplied       bool                   `json:"alreadyApplied"`
+	Boundary             []string               `json:"boundary"`
 	writes               []plannedWrite
+	memberResult         *memberexecution.ResultSnapshot
 }
 
 type plannedWrite struct {
 	rel  string
 	data []byte
+}
+
+func (binding ObservationBinding) Data() []byte {
+	return append([]byte{}, binding.data...)
+}
+
+func (binding ReviewerResultBinding) Data() []byte {
+	return append([]byte{}, binding.data...)
+}
+
+func (plan Plan) MemberResultSnapshot() *memberexecution.ResultSnapshot {
+	if plan.memberResult == nil {
+		return nil
+	}
+	result := &memberexecution.ResultSnapshot{
+		ManifestPath: plan.memberResult.ManifestPath,
+		ManifestData: append([]byte{}, plan.memberResult.ManifestData...),
+		OutputsRoot:  plan.memberResult.OutputsRoot,
+		Outputs:      map[string][]byte{},
+	}
+	for path, data := range plan.memberResult.Outputs {
+		result.Outputs[path] = append([]byte{}, data...)
+	}
+	return result
 }

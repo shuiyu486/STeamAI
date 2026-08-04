@@ -67,6 +67,98 @@ func TestDispatchObservationManifestAndReplay(t *testing.T) {
 	}
 }
 
+func TestReturnedCanCommitDirectlyFromHandoffReady(t *testing.T) {
+	caseRoot := memberCase(t, "executor-a", 1)
+	dispatch, err := PreviewDispatch(DispatchOptions{CaseRoot: caseRoot, Pack: "_template", Lane: "feature-analysis", RequestSHA256: strings.Repeat("f", 64), CreatedAt: "2026-08-03T01:02:03Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(dispatch, dispatch.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	output := []byte("direct returned result\n")
+	outputPath := filepath.Join(dispatch.Inspection.OutputsRoot, "result.txt")
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outputPath, output, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := ResultManifest{SchemaVersion: 1, Kind: KindManifest, AttemptID: dispatch.AttemptID, Owner: dispatch.Owner, Summary: "direct returned", Outputs: []Output{{Path: "result.txt", SHA256: hash(output), Bytes: int64(len(output))}}, NoAuthority: true, NoConfirmed: true, NoHeavyTool: true}
+	data, err := MarshalResultManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dispatch.Inspection.ManifestPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	returned, err := PreviewObservation(ObservationOptions{CaseRoot: caseRoot, Pack: "_template", Lane: "feature-analysis", AttemptID: dispatch.AttemptID, Outcome: "returned", Actor: "harness", ObservedAt: "2026-08-03T01:04:00Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	applied, err := Apply(returned, returned.ExpectedPlanSHA256)
+	if err != nil || !applied.Applied || applied.Inspection.State != "intake-ready" || applied.Inspection.Latest == nil || applied.Inspection.Latest.Sequence != 1 {
+		t.Fatalf("direct returned=%+v err=%v", applied, err)
+	}
+}
+
+func TestReturnedPreviewUsesExactPlannedResultSnapshot(t *testing.T) {
+	caseRoot := memberCase(t, "executor-a", 1)
+	dispatch, err := PreviewDispatch(DispatchOptions{CaseRoot: caseRoot, Pack: "_template", Lane: "feature-analysis", RequestSHA256: strings.Repeat("e", 64), CreatedAt: "2026-08-03T01:02:03Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(dispatch, dispatch.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	output := []byte("planned returned result\n")
+	manifest := ResultManifest{SchemaVersion: 1, Kind: KindManifest, AttemptID: dispatch.AttemptID, Owner: dispatch.Owner, Summary: "planned returned", Outputs: []Output{{Path: "result.txt", SHA256: hash(output), Bytes: int64(len(output))}}, NoAuthority: true, NoConfirmed: true, NoHeavyTool: true}
+	manifestData, err := MarshalResultManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opt := ObservationOptions{
+		CaseRoot: caseRoot, Pack: "_template", Lane: "feature-analysis", AttemptID: dispatch.AttemptID,
+		Outcome: "returned", Actor: "harness", ObservedAt: "2026-08-03T01:04:00Z",
+		ResultSnapshot: &ResultSnapshot{
+			ManifestPath: dispatch.Inspection.ManifestPath,
+			ManifestData: manifestData,
+			OutputsRoot:  dispatch.Inspection.OutputsRoot,
+			Outputs:      map[string][]byte{"result.txt": output},
+		},
+	}
+	planned, err := PreviewObservation(opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dispatch.Inspection.ManifestPath); !os.IsNotExist(err) {
+		t.Fatalf("planned snapshot preview wrote manifest: %v", err)
+	}
+	if _, err := Apply(planned, planned.ExpectedPlanSHA256); err == nil {
+		t.Fatal("Apply accepted a planned snapshot before its source was durably published")
+	}
+	if err := os.MkdirAll(dispatch.Inspection.OutputsRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dispatch.Inspection.OutputsRoot, "result.txt"), output, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dispatch.Inspection.ManifestPath, manifestData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := PreviewObservation(ObservationOptions{CaseRoot: caseRoot, Pack: "_template", Lane: "feature-analysis", AttemptID: dispatch.AttemptID, Outcome: "returned", Actor: "harness", ObservedAt: "2026-08-03T01:04:00Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fresh.ExpectedPlanSHA256 != planned.ExpectedPlanSHA256 {
+		t.Fatalf("planned snapshot hash=%s filesystem hash=%s", planned.ExpectedPlanSHA256, fresh.ExpectedPlanSHA256)
+	}
+	applied, err := Apply(planned, planned.ExpectedPlanSHA256)
+	if err != nil || !applied.Applied || applied.Inspection.State != "intake-ready" {
+		t.Fatalf("applied=%+v err=%v", applied, err)
+	}
+}
+
 func TestFailedRetryAndGenerationFence(t *testing.T) {
 	caseRoot := memberCase(t, "executor-a", 1)
 	first, err := PreviewDispatch(DispatchOptions{CaseRoot: caseRoot, Pack: "_template", Lane: "feature-analysis", RequestSHA256: strings.Repeat("b", 64), CreatedAt: "2026-08-03T01:02:03Z"})
@@ -282,6 +374,117 @@ func TestDispatchRecoversExactPrefixAndRejectsNonPrefix(t *testing.T) {
 	}
 	if _, err := os.Lstat(other.writes[0].path); !os.IsNotExist(err) {
 		t.Fatalf("non-prefix Apply wrote intent: %v", err)
+	}
+}
+
+func TestLatestClassifiesOnlyExactDispatchPrefixesAsPending(t *testing.T) {
+	for _, prefix := range []int{1, 2} {
+		t.Run(fmt.Sprintf("prefix-%d", prefix), func(t *testing.T) {
+			caseRoot := memberCase(t, "executor-a", 1)
+			plan, err := PreviewDispatch(DispatchOptions{CaseRoot: caseRoot, Pack: "_template", Lane: "feature-analysis", RequestSHA256: strings.Repeat("f", 64), CreatedAt: "2026-08-03T01:02:03Z"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for index := range prefix {
+				if err := os.MkdirAll(filepath.Dir(plan.writes[index].path), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(plan.writes[index].path, plan.writes[index].data, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, ok, err := Latest(caseRoot, "feature-analysis"); ok || !IsPendingDispatch(err) {
+				t.Fatalf("exact dispatch prefix was not typed pending: ok=%v err=%v", ok, err)
+			}
+		})
+	}
+
+	for _, test := range []struct {
+		name      string
+		published []int
+		remove    int
+		extra     string
+		mutate    func(*testing.T, Plan)
+	}{
+		{name: "commit-without-handoff", published: []int{0, 2}},
+		{name: "committed-missing-handoff", published: []int{0, 1, 2}, remove: 1},
+		{name: "committed-missing-intent", published: []int{0, 1, 2}, remove: 0},
+		{name: "intent-with-result-artifact", published: []int{0}, extra: "result"},
+		{name: "intent-with-observation-artifact", published: []int{0}, extra: "observations"},
+		{name: "handoff-next-steps-drift", published: []int{0, 1}, mutate: func(t *testing.T, plan Plan) {
+			var handoff Handoff
+			if err := json.Unmarshal(plan.writes[1].data, &handoff); err != nil {
+				t.Fatal(err)
+			}
+			handoff.NextSteps = []string{"tampered instruction"}
+			data, err := canonical(handoff)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(plan.writes[1].path, data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "handoff-boundary-drift", published: []int{0, 1}, mutate: func(t *testing.T, plan Plan) {
+			var handoff Handoff
+			if err := json.Unmarshal(plan.writes[1].data, &handoff); err != nil {
+				t.Fatal(err)
+			}
+			handoff.Boundary = []string{"tampered boundary"}
+			data, err := canonical(handoff)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(plan.writes[1].path, data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "intent-created-at-drift", published: []int{0}, mutate: func(t *testing.T, plan Plan) {
+			var intent Intent
+			if err := json.Unmarshal(plan.writes[0].data, &intent); err != nil {
+				t.Fatal(err)
+			}
+			intent.CreatedAt = "not-a-time"
+			data, err := canonical(intent)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(plan.writes[0].path, data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			caseRoot := memberCase(t, "executor-a", 1)
+			plan, err := PreviewDispatch(DispatchOptions{CaseRoot: caseRoot, Pack: "_template", Lane: "feature-analysis", RequestSHA256: strings.Repeat("e", 64), CreatedAt: "2026-08-03T01:02:03Z"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, index := range test.published {
+				if err := os.MkdirAll(filepath.Dir(plan.writes[index].path), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(plan.writes[index].path, plan.writes[index].data, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if len(test.published) == 3 && test.remove >= 0 {
+				if err := os.Remove(plan.writes[test.remove].path); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if test.extra != "" {
+				if err := os.MkdirAll(filepath.Join(plan.Inspection.AttemptRoot, test.extra), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if test.mutate != nil {
+				test.mutate(t, plan)
+			}
+			if _, ok, err := Latest(caseRoot, "feature-analysis"); err == nil || ok || IsPendingDispatch(err) {
+				t.Fatalf("corrupt dispatch was hidden as pending: ok=%v err=%v", ok, err)
+			}
+		})
 	}
 }
 

@@ -16439,3 +16439,15 @@ Batch 630 强制选择端到端能力闭环：不要再把单字段、summary、
 边界：inbox discovery只读，不删除/移动文件、不claim checkpoint、不自动Apply；source checkpoint one-shot claim阻断replay。Runtime不spawn/poll/stop外部session、不执行heavy-tool、不写authority/confirmed；不新增PowerShell runtime logic，旧Batch 812 checkpoint schema保持兼容。
 
 验证结果：focused regressions覆盖unique discovery、path-only preview、hash-bound Apply、processed receipt、fresh status recovery、stale/ambiguous/invalid fail-closed、anchored directory enumeration、旧legacy resume与member/reviewer campaign；受影响`fs/currentloop/mission/workstream/cli`包与完整`go test ./... -count=1`通过（CLI 347.100秒），`go vet ./...`、`status`、`packs`、`doctor`和`git diff --check`通过。独立correctness/security审查发现的exact attempt qualification、legacy template参数互斥、typed receipt完整性与Apply前唯一性重检问题均已关闭，终复核无高置信Critical/Important。完成态`release-check -Format json`返回`ready=true` / `summary=release gate inventory ok`；普通batch不等待或声明remote CI green。
+
+### Batch 814：unified external session job and review-first observation publisher
+
+状态：已完成。
+
+目标：让外部member/reviewer harness直接消费fresh status派生的统一typed `externalSessionJob`，按result-first/submission-last contract提交真实结果；Go-native review-first relay/publisher自动生成member manifest、canonical reviewer relay source、publication receipt和Batch 813-compatible observation envelope，使replacement executor不再手工拼严格envelope、hash/bytes manifest或临时reviewer source。
+
+实现：`externalSessionJob`精确绑定latest ready checkpoint、member attempt+owner generation或reviewer attempt+packet/route/shard、allowed outcomes和canonical submission/result/publication/inbox paths。`run-current-loop -RelayExternalSessionSubmission`复用现有public command：WhatIf严格解码submission并读取bounded symlink-free sources，绑定exact job/submission/source/destination/relay-plan hashes并返回Apply命令；Apply重建计划后通过case-root pinned no-follow/reparse-safe exclusive writes按outputs/result→generated manifest/source→publication receipt→inbox envelope顺序发布，支持exact-prefix recovery与committed replay。Status precedence保持unique inbox最高、submission-ready relay其次、awaiting submission保留旧handoff；invalid submission或ambiguous/invalid inbox撤销executable request。Apply返回refreshed status及唯一inbox selected request；quickstart、replacement takeover、text和durable Markdown消费同一typed package。
+
+边界：relay不claim或消费checkpoint，不记录session lifecycle observation，不继续current loop；真实session仍由external harness管理。Runtime不spawn/poll/stop session、不调用shell/Agent tool、不执行heavy-tool、不写authority/confirmed。PowerShell façade只做四个relay flags的safe delegation/逐字透传，public command surface保持30；legacy Batch 812/813 envelope与member/reviewer handoff继续兼容。
+
+验证结果：focused `fs/externalsession/mission/workstream`、member/reviewer临时case CLI E2E、完整CLI回归（197.479秒）和façade smoke通过；最终完整`go test ./... -count=1`通过（CLI 200.342秒），`go vet ./...`、`status`、10-pack `packs`、`doctor`（canonical skill 32441/32768 bytes）与`git diff --check`通过。独立correctness/security/architecture审查无高置信Critical/Important。完成态`release-check -Format json`返回`ready=true` / `summary=release gate inventory ok`；普通batch不等待或声明remote CI green。

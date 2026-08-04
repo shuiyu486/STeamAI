@@ -146,6 +146,13 @@ type CompleteResult struct {
 	NextSteps                   []string                                 `json:"nextSteps"`
 }
 
+type CompletePreviewCandidate struct {
+	Ready          bool           `json:"ready"`
+	Lane           Lane           `json:"lane"`
+	PreviewCommand string         `json:"previewCommand,omitempty"`
+	Preview        CompleteResult `json:"preview"`
+}
+
 type MissionCompletionHandoff struct {
 	Ready                 bool                `json:"ready"`
 	State                 string              `json:"state"`
@@ -174,6 +181,52 @@ type completeContext struct {
 	previousSHA         string
 	intent              *completionIntent
 	memberReviewBlocker string
+}
+
+func NextCompletePreviewCandidate(repoRoot, caseRoot, pack string) (CompletePreviewCandidate, error) {
+	inst, err := instance.AssertAttached(caseRoot, repoRoot, pack)
+	if err != nil {
+		return CompletePreviewCandidate{}, err
+	}
+	b, err := readBoard(inst.CaseRoot)
+	if err != nil {
+		return CompletePreviewCandidate{}, err
+	}
+	for _, entry := range mission.OpenBoardLanes(b.Lanes) {
+		if strings.TrimSpace(entry.CurrentExecutor) == "" || entry.ExecutorGeneration < 1 {
+			continue
+		}
+		latest, ok, err := memberexecution.Latest(inst.CaseRoot, entry.ID)
+		if err != nil {
+			if memberexecution.IsPendingDispatch(err) {
+				continue
+			}
+			return CompletePreviewCandidate{}, fmt.Errorf("derive completion candidate for %s: %w", entry.ID, err)
+		}
+		if !ok || latest.State != "intake-ready" || latest.Manifest == nil || latest.Latest == nil || latest.Latest.Outcome != "returned" {
+			continue
+		}
+		manifestRef := relativePath(inst.CaseRoot, latest.ManifestPath)
+		opt := CompleteOptions{
+			Selector:     workstreamLabel(Lane{ID: entry.ID, Authority: entry.Authority}),
+			Actor:        entry.CurrentExecutor,
+			Reason:       "accepted reviewer lineage completed the current durable member result",
+			EvidenceRefs: manifestRef,
+		}
+		preview, err := CompletePreview(repoRoot, inst.CaseRoot, pack, opt)
+		if err != nil {
+			return CompletePreviewCandidate{}, fmt.Errorf("derive completion candidate for %s: %w", entry.ID, err)
+		}
+		if preview.Blocked || preview.CompletionPlanSHA256 == "" || preview.ApplyCommand == "" {
+			continue
+		}
+		args := []string{"/rekit", "complete", opt.Selector, "-Target", inst.CaseRoot, "-Pack", pack, "-Actor", opt.Actor, "-Reason", opt.Reason, "-EvidenceRefs", opt.EvidenceRefs, "-WhatIf", "-Format", "json"}
+		for index := range args {
+			args[index] = quoteCompleteCommandArg(args[index])
+		}
+		return CompletePreviewCandidate{Ready: true, Lane: preview.Lane, PreviewCommand: strings.Join(args, " "), Preview: preview}, nil
+	}
+	return CompletePreviewCandidate{}, nil
 }
 
 func CompletePreview(repoRoot, caseRoot, pack string, opt CompleteOptions) (CompleteResult, error) {

@@ -18,6 +18,93 @@ func reviewerPacketSnapshotForTest(t *testing.T, caseRoot, packetPath string) re
 	return snapshot
 }
 
+func TestReviewerResultInputPlannedSnapshotIsWhatIfOnlyAndExactBound(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	writeReviewerIntakeCase(t, repoRoot, caseRoot)
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet := readReviewerPacket(t, plan.PacketPath)
+	handoff := packet.ShardHandoffs[0]
+	if err := os.MkdirAll(filepath.Join(caseRoot, "workspace"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caseRoot, "workspace", "review-evidence.md"), []byte("bounded reviewer evidence\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dispatchOpt := ReviewerSessionDispatchOptions{PacketPath: plan.PacketPath, ShardID: handoff.ShardID, Lane: packet.TargetLane, Actor: "mission-commander", ReviewerHarness: "go-test-harness", ReviewerSession: "reviewer-session-1", WhatIf: true}
+	dispatchPreview, err := RecordReviewerSessionDispatch(repoRoot, caseRoot, defaults.DefaultPack, dispatchOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatchOpt.WhatIf = false
+	dispatchOpt.ExpectedBindingSHA256 = dispatchPreview.BindingSHA256
+	dispatch, err := RecordReviewerSessionDispatch(repoRoot, caseRoot, defaults.DefaultPack, dispatchOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := reviewerResultForPacket(t, packet, "accept", "accepted", nil)
+	relayPath := filepath.Join(caseRoot, ".rekit", "runs", "external-session-relays", "reviewer-result.json")
+	base := ReviewerResultInputSaveOptions{
+		PacketPath: plan.PacketPath, ShardID: handoff.ShardID, SourcePath: relayPath,
+		Lane: packet.TargetLane, Actor: "mission-commander", ExpectedReviewerDispatchID: dispatch.DispatchID, WhatIf: true,
+		ResultSnapshot: &ReviewerResultInputSnapshot{Path: relayPath, SHA256: sha256Hex(data), Bytes: int64(len(data)), Data: data},
+	}
+	preview, err := SaveReviewerResultInput(repoRoot, caseRoot, defaults.DefaultPack, base)
+	if err != nil || preview.Status != "previewed" || preview.InputSourceSHA256 != sha256Hex(data) {
+		t.Fatalf("planned reviewer result input preview=%+v err=%v", preview, err)
+	}
+	if _, err := os.Lstat(relayPath); !os.IsNotExist(err) {
+		t.Fatalf("planned reviewer snapshot unexpectedly published relay source: %v", err)
+	}
+	if _, err := os.Lstat(handoff.ReviewerStagingCommands.SourceCaptureInput); !os.IsNotExist(err) {
+		t.Fatalf("planned reviewer snapshot preview wrote canonical input: %v", err)
+	}
+
+	for _, test := range []struct {
+		name   string
+		mutate func(*ReviewerResultInputSnapshot)
+	}{
+		{name: "path", mutate: func(snapshot *ReviewerResultInputSnapshot) { snapshot.Path += ".other" }},
+		{name: "sha", mutate: func(snapshot *ReviewerResultInputSnapshot) { snapshot.SHA256 = strings.Repeat("0", 64) }},
+		{name: "bytes", mutate: func(snapshot *ReviewerResultInputSnapshot) { snapshot.Bytes++ }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			opt := base
+			snapshot := *base.ResultSnapshot
+			test.mutate(&snapshot)
+			opt.ResultSnapshot = &snapshot
+			if _, err := SaveReviewerResultInput(repoRoot, caseRoot, defaults.DefaultPack, opt); err == nil || !strings.Contains(err.Error(), "planned source snapshot is invalid") {
+				t.Fatalf("planned reviewer snapshot drift error=%v", err)
+			}
+		})
+	}
+
+	applyWithSnapshot := base
+	applyWithSnapshot.WhatIf = false
+	applyWithSnapshot.ExpectedReviewerResultSHA256 = preview.InputSourceSHA256
+	if _, err := SaveReviewerResultInput(repoRoot, caseRoot, defaults.DefaultPack, applyWithSnapshot); err == nil || !strings.Contains(err.Error(), "planned source snapshot is invalid") {
+		t.Fatalf("Apply accepted an in-memory reviewer result snapshot: %v", err)
+	}
+	applyFromFilesystem := applyWithSnapshot
+	applyFromFilesystem.ResultSnapshot = nil
+	if _, err := SaveReviewerResultInput(repoRoot, caseRoot, defaults.DefaultPack, applyFromFilesystem); err == nil || !strings.Contains(err.Error(), "existing symlink-free case-local file") {
+		t.Fatalf("Apply did not require the durable relay source: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(relayPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(relayPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	applied, err := SaveReviewerResultInput(repoRoot, caseRoot, defaults.DefaultPack, applyFromFilesystem)
+	if err != nil || !applied.Applied || applied.InputSourceSHA256 != preview.InputSourceSHA256 {
+		t.Fatalf("durable relay reviewer input apply=%+v err=%v", applied, err)
+	}
+}
+
 func TestStageReviewerResultPublishesCandidateForCollection(t *testing.T) {
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")

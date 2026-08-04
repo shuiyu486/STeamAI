@@ -1,0 +1,267 @@
+package cli
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"path/filepath"
+	"strings"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/currentloop"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/externalsession"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/subagents"
+)
+
+var currentLoopExternalTurnBeforeClaimHook func() error
+
+type currentLoopExternalSessionTurnPlan struct {
+	SchemaVersion        int                  `json:"schemaVersion"`
+	Mode                 string               `json:"mode"`
+	CaseRoot             string               `json:"caseRoot"`
+	Pack                 string               `json:"pack"`
+	Relay                externalsession.Plan `json:"relay"`
+	Resume               currentLoopPlan      `json:"resume"`
+	ExpectedPlanSHA256   string               `json:"expectedPlanSha256"`
+	ApplyCommand         string               `json:"applyCommand,omitempty"`
+	ReviewRequired       bool                 `json:"reviewRequired"`
+	RequiresConfirmation bool                 `json:"requiresConfirmation"`
+	Applied              bool                 `json:"applied"`
+	AlreadyApplied       bool                 `json:"alreadyApplied"`
+	RefreshedStatus      *statusInventory     `json:"refreshedStatus,omitempty"`
+	Boundary             []string             `json:"boundary"`
+}
+
+type currentLoopExternalSessionTurnIdentity struct {
+	SchemaVersion  int                                    `json:"schemaVersion"`
+	CaseRoot       string                                 `json:"caseRoot"`
+	Pack           string                                 `json:"pack"`
+	JobSHA256      string                                 `json:"jobSha256"`
+	SubmissionSHA  string                                 `json:"submissionSha256"`
+	RelayPlanSHA   string                                 `json:"relayPlanSha256"`
+	Observation    externalsession.ObservationBinding     `json:"observation"`
+	CheckpointSHA  string                                 `json:"checkpointSha256"`
+	ResumePlanSHA  string                                 `json:"resumePlanSha256"`
+	InitialRequest *mission.MissionCommanderDriverRequest `json:"initialRequest,omitempty"`
+	RemainingSteps int                                    `json:"remainingSteps"`
+}
+
+func runCurrentLoopExternalSessionTurn(ctx runtime.Context, opt Options, out io.Writer) error {
+	if opt.WhatIf == opt.Apply {
+		return fmt.Errorf("run-current-loop external session turn requires exactly one of -WhatIf or -Apply")
+	}
+	if !opt.ResumeCurrentLoop || strings.TrimSpace(opt.ExpectedCurrentLoopCheckpointSHA256) == "" {
+		return fmt.Errorf("run-current-loop external session turn requires -ResumeCurrentLoop and -ExpectedCurrentLoopCheckpointSha256")
+	}
+	if opt.RelayExternalSessionSubmission || opt.MaxSteps != 0 || strings.TrimSpace(opt.ExpectedCurrentLoopPlanSHA256) != "" || strings.TrimSpace(opt.CurrentLoopObservationPath) != "" || currentStepHasMemberObservation(opt) || currentStepHasReviewerObservation(opt) || strings.TrimSpace(opt.Start.Actor) != "" {
+		return fmt.Errorf("run-current-loop external session turn cannot combine relay-only, resume execution, or legacy observation flags")
+	}
+	if strings.ToLower(strings.TrimSpace(opt.Format)) != "json" {
+		return fmt.Errorf("run-current-loop external session turn supports only -Format json")
+	}
+	if err := validateCurrentLoopOuterArgs(opt); err != nil {
+		return err
+	}
+	plan, resumeOpt, resumeStatus, err := buildCurrentLoopExternalSessionTurnPlan(ctx, opt)
+	if err != nil {
+		return err
+	}
+	if opt.WhatIf {
+		if strings.TrimSpace(opt.ExpectedExternalSessionSubmissionSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionRelayPlanSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionTurnPlanSHA256) != "" {
+			return fmt.Errorf("external session turn -WhatIf does not accept submission, relay, or turn plan hashes")
+		}
+		plan.ApplyCommand = externalSessionTurnApplyCommand(plan)
+		return writeJSON(out, plan)
+	}
+	if expected := strings.TrimSpace(opt.ExpectedExternalSessionTurnPlanSHA256); expected == "" || !strings.EqualFold(expected, plan.ExpectedPlanSHA256) {
+		return fmt.Errorf("external session turn plan sha256 mismatch: got %s want %s", expected, plan.ExpectedPlanSHA256)
+	}
+	appliedRelay, err := externalsession.Apply(plan.Relay, opt.ExpectedExternalSessionJobSHA256, opt.ExpectedExternalSessionSubmissionSHA256, opt.ExpectedExternalSessionRelayPlanSHA256)
+	if err != nil {
+		return err
+	}
+	plan.Relay = appliedRelay
+	plan.AlreadyApplied = appliedRelay.AlreadyApplied
+
+	freshResume, freshStatus, err := buildCurrentLoopPlan(ctx, resumeOpt)
+	if err != nil {
+		return fmt.Errorf("external session turn relay committed but resume reconstruction failed: %w", err)
+	}
+	if !strings.EqualFold(freshResume.ExpectedCurrentLoopPlanSHA256, plan.Resume.ExpectedCurrentLoopPlanSHA256) {
+		return fmt.Errorf("external session turn relay committed but nested resume plan changed; refresh status")
+	}
+	plan.Resume = freshResume
+	resumeStatus = freshStatus
+	resumeOpt.ExpectedCurrentLoopPlanSHA256 = freshResume.ExpectedCurrentLoopPlanSHA256
+	if freshResume.InitialCurrentStep != nil && freshResume.InitialCurrentStep.MemberExecution != nil {
+		resumeOpt.ExpectedMemberExecutionPlanSHA256 = freshResume.InitialCurrentStep.MemberExecution.ExpectedPlanSHA256
+	}
+	if err := applyCurrentLoopObservationEnvelope(ctx, &resumeOpt, *freshResume.ResumeSource); err != nil {
+		return fmt.Errorf("external session turn relay committed but observation intake failed: %w", err)
+	}
+	requestSHA256, err := currentloop.RequestSHA256(*freshResume.InitialCurrentDriverRequest)
+	if err != nil {
+		return err
+	}
+	if currentLoopExternalTurnBeforeClaimHook != nil {
+		if err := currentLoopExternalTurnBeforeClaimHook(); err != nil {
+			return fmt.Errorf("external session turn relay committed before checkpoint claim hook failed: %w", err)
+		}
+	}
+	if err := currentloop.ClaimResumeValidated(ctx.RepoRoot, ctx.Target, ctx.Pack, currentloop.Claim{
+		SourceArtifactSHA256:          freshResume.ExpectedResumeCheckpointSHA256,
+		ExpectedCurrentLoopPlanSHA256: freshResume.ExpectedCurrentLoopPlanSHA256,
+		CurrentDriverRequestSHA256:    requestSHA256,
+		Actor:                         freshResume.Actor,
+	}, func() error {
+		facts, err := mission.ReadStrictLedgerFacts(ctx.Target)
+		if err != nil {
+			return err
+		}
+		if len(mission.EffectiveOpenLaneInterventions(facts.Facts, freshResume.InitialLane)) > 0 {
+			return fmt.Errorf("external session turn refuses checkpoint claim after Human-in-the-Lane intervention")
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("external session turn relay committed but checkpoint claim failed: %w", err)
+	}
+	plan.Resume, err = applyBuiltCurrentLoop(ctx, resumeOpt, freshResume, resumeStatus)
+	if err != nil {
+		return err
+	}
+	plan.Applied = plan.Resume.Applied || plan.Relay.Applied
+	plan.ReviewRequired = false
+	plan.RequiresConfirmation = false
+	fresh, refreshErr := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+	if refreshErr == nil {
+		plan.RefreshedStatus = &fresh
+	}
+	return writeJSON(out, plan)
+}
+
+func buildCurrentLoopExternalSessionTurnPlan(ctx runtime.Context, opt Options) (currentLoopExternalSessionTurnPlan, Options, statusInventory, error) {
+	status, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+	if err != nil {
+		return currentLoopExternalSessionTurnPlan{}, Options{}, statusInventory{}, err
+	}
+	if status.MissionControlRunbook == nil || status.MissionControlRunbook.CurrentLoopOperator == nil || status.MissionControlRunbook.CurrentLoopOperator.ExternalSessionJob == nil || status.MissionControlRunbook.CurrentLoopSegment == nil {
+		return currentLoopExternalSessionTurnPlan{}, Options{}, statusInventory{}, fmt.Errorf("run-current-loop external session turn requires a current externalSessionJob")
+	}
+	inspection := status.MissionControlRunbook.CurrentLoopSegment
+	if !inspection.Ready || inspection.State != "ready" || !strings.EqualFold(inspection.ArtifactSHA256, opt.ExpectedCurrentLoopCheckpointSHA256) {
+		return currentLoopExternalSessionTurnPlan{}, Options{}, statusInventory{}, fmt.Errorf("run-current-loop external session turn checkpoint is not the latest ready checkpoint")
+	}
+	job, err := externalSessionJobFor(ctx.Target, status.MissionControlRunbook.CurrentLoopOperator, *inspection)
+	if err != nil {
+		return currentLoopExternalSessionTurnPlan{}, Options{}, statusInventory{}, err
+	}
+	relay, err := externalsession.Preview(job)
+	if err != nil {
+		return currentLoopExternalSessionTurnPlan{}, Options{}, statusInventory{}, err
+	}
+	if expected := strings.TrimSpace(opt.ExpectedExternalSessionJobSHA256); expected == "" || !strings.EqualFold(expected, relay.JobSHA256) {
+		return currentLoopExternalSessionTurnPlan{}, Options{}, statusInventory{}, fmt.Errorf("external session turn expected job sha256 mismatch: got %s want %s", expected, relay.JobSHA256)
+	}
+	observationPath := filepath.Join(ctx.Target, filepath.FromSlash(relay.Observation.Path))
+	snapshot, err := decodeCurrentLoopObservationSnapshot(observationPath, relay.Observation.Data())
+	if err != nil {
+		return currentLoopExternalSessionTurnPlan{}, Options{}, statusInventory{}, err
+	}
+	resumeOpt := opt
+	resumeOpt.AdvanceExternalSessionResult = false
+	resumeOpt.ExpectedExternalSessionJobSHA256 = ""
+	resumeOpt.ExpectedExternalSessionSubmissionSHA256 = ""
+	resumeOpt.ExpectedExternalSessionRelayPlanSHA256 = ""
+	resumeOpt.ExpectedExternalSessionTurnPlanSHA256 = ""
+	resumeOpt.CurrentLoopObservationPath = observationPath
+	resumeOpt.ExpectedCurrentLoopObservationSHA256 = snapshot.SHA256
+	resumeOpt.currentLoopObservationSnapshot = &snapshot
+	resumeOpt.currentLoopMemberResultSnapshot = relay.MemberResultSnapshot()
+	if relay.ReviewerResult != nil {
+		resumeOpt.currentLoopReviewerResultSnapshot = &subagents.ReviewerResultInputSnapshot{
+			Path:   filepath.Join(ctx.Target, filepath.FromSlash(relay.ReviewerResult.Path)),
+			SHA256: relay.ReviewerResult.SHA256,
+			Bytes:  relay.ReviewerResult.Bytes,
+			Data:   relay.ReviewerResult.Data(),
+		}
+	}
+	resumeOpt.WhatIf = true
+	resumeOpt.Apply = false
+	resumeOpt.rawArgs = nil
+	resume, resumeStatus, err := buildCurrentLoopPlan(ctx, resumeOpt)
+	if err != nil {
+		return currentLoopExternalSessionTurnPlan{}, Options{}, statusInventory{}, err
+	}
+	if resume.ResumeSource == nil || resume.InitialCurrentDriverRequest == nil || resume.InitialCurrentStep == nil || strings.TrimSpace(resume.ExpectedCurrentLoopPlanSHA256) == "" {
+		detail := strings.TrimSpace(resume.StopReason.Message)
+		if detail == "" {
+			detail = "nested resume omitted a current request, step, checkpoint, or plan hash"
+		}
+		return currentLoopExternalSessionTurnPlan{}, Options{}, statusInventory{}, fmt.Errorf("external session turn nested resume is not executable: %s; refresh status or use relay-only recovery", detail)
+	}
+	identity := currentLoopExternalSessionTurnIdentity{
+		SchemaVersion: 1, CaseRoot: ctx.Target, Pack: ctx.Pack, JobSHA256: relay.JobSHA256,
+		SubmissionSHA: relay.SubmissionSHA256, RelayPlanSHA: relay.ExpectedPlanSHA256, Observation: relay.Observation,
+		CheckpointSHA: inspection.ArtifactSHA256, ResumePlanSHA: resume.ExpectedCurrentLoopPlanSHA256,
+		InitialRequest: resume.InitialCurrentDriverRequest, RemainingSteps: inspection.RemainingMaxSteps,
+	}
+	encoded, err := json.Marshal(identity)
+	if err != nil {
+		return currentLoopExternalSessionTurnPlan{}, Options{}, statusInventory{}, err
+	}
+	sum := sha256.Sum256(encoded)
+	plan := currentLoopExternalSessionTurnPlan{
+		SchemaVersion: 1, Mode: "external-result-turn", CaseRoot: ctx.Target, Pack: ctx.Pack, Relay: relay, Resume: resume,
+		ExpectedPlanSHA256: hex.EncodeToString(sum[:]), ReviewRequired: true, RequiresConfirmation: true,
+		Boundary: []string{
+			"one reviewed turn binds the exact checkpoint, job, submission, relay artifacts, observation bytes, nested resume plan, and remaining budget",
+			"Apply revalidates every phase and stops at the next external session, Human-in-the-Lane, blocker, route/lane transition, budget, or terminal boundary",
+			"the turn is non-transactional; a committed relay remains truthful and recoverable if a later phase rejects drift",
+			"the Go runtime does not manage external sessions, invoke shell or Agent tools, execute heavy tools, or write authority/confirmed state",
+		},
+	}
+	if opt.Apply {
+		resumeOpt.WhatIf = false
+		resumeOpt.Apply = true
+		resumeOpt.ExpectedCurrentLoopObservationSHA256 = snapshot.SHA256
+		resumeOpt.currentLoopObservationSnapshot = nil
+		resumeOpt.currentLoopMemberResultSnapshot = nil
+		resumeOpt.currentLoopReviewerResultSnapshot = nil
+	}
+	return plan, resumeOpt, resumeStatus, nil
+}
+
+func externalSessionTurnApplyCommand(plan currentLoopExternalSessionTurnPlan) string {
+	return joinDriverCommand([]string{
+		"/rekit", "run-current-loop", "-Target", plan.CaseRoot, "-Pack", plan.Pack,
+		"-ResumeCurrentLoop", "-ExpectedCurrentLoopCheckpointSha256", plan.Relay.Job.CheckpointSHA256,
+		"-AdvanceExternalSessionResult", "-ExpectedExternalSessionJobSha256", plan.Relay.JobSHA256,
+		"-ExpectedExternalSessionSubmissionSha256", plan.Relay.SubmissionSHA256,
+		"-ExpectedExternalSessionRelayPlanSha256", plan.Relay.ExpectedPlanSHA256,
+		"-ExpectedExternalSessionTurnPlanSha256", plan.ExpectedPlanSHA256,
+		"-Apply", "-Format", "json",
+	})
+}
+
+func externalSessionTurnRequest(job externalsession.Job, jobSHA string) mission.MissionCommanderDriverRequest {
+	command := joinDriverCommand([]string{
+		"/rekit", "run-current-loop", "-Target", job.CaseRoot, "-Pack", job.Pack,
+		"-ResumeCurrentLoop", "-ExpectedCurrentLoopCheckpointSha256", job.CheckpointSHA256,
+		"-AdvanceExternalSessionResult", "-ExpectedExternalSessionJobSha256", jobSHA,
+		"-WhatIf", "-Format", "json",
+	})
+	return mission.MissionCommanderDriverRequest{
+		Kind: "preview-command", RunLoopStepID: "external-session-turn:" + job.JobID, Actor: "mission-commander",
+		State: "review-required", Source: "current-loop-external-session-turn", Lane: memberLane(job), Label: job.SessionKind + " session result turn",
+		Command: command, CommandExecutable: true, RequiresReview: true,
+		ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
+			State: "preview-ready", Command: command, RefreshStatusCommand: statusMissionControlRefreshCommand(job.CaseRoot),
+			Description: "returns one exact external-result turn hash binding relay and checkpoint resume",
+			Boundary:    []string{"preview publishes nothing; Apply advances only to the next typed campaign boundary"},
+		},
+		Boundary: []string{"execute only while the exact checkpoint, job, submission, and owner/reviewer attempt remain current"},
+	}
+}

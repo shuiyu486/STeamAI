@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
@@ -18,6 +19,9 @@ func buildMemberExecutionStep(ctx runtime.Context, opt Options, request mission.
 		return nil, false, fmt.Errorf("current case driver request has no durable lane")
 	}
 	hasObservation := strings.TrimSpace(opt.MemberExecutionAttemptID) != "" || strings.TrimSpace(opt.MemberExecutionOutcome) != "" || strings.TrimSpace(opt.MemberExecutionObservedAt) != "" || strings.TrimSpace(opt.MemberExecutionReason) != ""
+	if driverStepCommandName(request.Command) == commands.Complete && !hasObservation {
+		return nil, true, nil
+	}
 	if opt.skipMemberExecutionDispatch && !hasObservation {
 		return nil, true, nil
 	}
@@ -38,14 +42,15 @@ func buildMemberExecutionStep(ctx runtime.Context, opt Options, request mission.
 			return nil, false, fmt.Errorf("member observation requires -MemberExecutionAttemptId and -MemberExecutionOutcome")
 		}
 		plan, err := memberexecution.PreviewObservation(memberexecution.ObservationOptions{
-			CaseRoot:   ctx.Target,
-			Pack:       ctx.Pack,
-			Lane:       lane,
-			AttemptID:  opt.MemberExecutionAttemptID,
-			Outcome:    opt.MemberExecutionOutcome,
-			Actor:      opt.Start.Actor,
-			Reason:     opt.MemberExecutionReason,
-			ObservedAt: opt.MemberExecutionObservedAt,
+			CaseRoot:       ctx.Target,
+			Pack:           ctx.Pack,
+			Lane:           lane,
+			AttemptID:      opt.MemberExecutionAttemptID,
+			Outcome:        opt.MemberExecutionOutcome,
+			Actor:          opt.Start.Actor,
+			Reason:         opt.MemberExecutionReason,
+			ObservedAt:     opt.MemberExecutionObservedAt,
+			ResultSnapshot: opt.currentLoopMemberResultSnapshot,
 		})
 		if err != nil {
 			return nil, false, err

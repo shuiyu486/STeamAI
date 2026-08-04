@@ -38,6 +38,13 @@ type ReviewerResultSourceCaptureOptions struct {
 	WhatIf                       bool
 }
 
+type ReviewerResultInputSnapshot struct {
+	Path   string
+	SHA256 string
+	Bytes  int64
+	Data   []byte
+}
+
 type ReviewerResultInputSaveOptions struct {
 	PacketPath                   string
 	ShardID                      string
@@ -47,6 +54,7 @@ type ReviewerResultInputSaveOptions struct {
 	ExpectedReviewerDispatchID   string
 	ExpectedReviewerResultSHA256 string
 	WhatIf                       bool
+	ResultSnapshot               *ReviewerResultInputSnapshot
 }
 
 type ReviewerResultInputSaveResult struct {
@@ -492,7 +500,16 @@ func prepareReviewerResultInputSave(repoRoot, caseRoot, pack string, opt Reviewe
 		!reviewpath.CollectionNamespacePathSafe(caseRoot, inputPath, true) {
 		return preparedReviewerResultInputSave{}, fmt.Errorf("reviewer result input save target must not traverse symlinks or escape the attached case")
 	}
-	if !reviewpath.CollectionNamespacePathSafe(caseRoot, inputSourcePath, false) || samePath(inputSourcePath, inputPath) || samePath(inputSourcePath, handoff.ReviewerStagingCommands.SourcePath) {
+	plannedSource := opt.ResultSnapshot != nil
+	if plannedSource {
+		snapshot := opt.ResultSnapshot
+		if !opt.WhatIf || !samePath(snapshot.Path, inputSourcePath) || snapshot.Bytes < 1 || snapshot.Bytes != int64(len(snapshot.Data)) || !strings.EqualFold(snapshot.SHA256, sha256Hex(snapshot.Data)) {
+			return preparedReviewerResultInputSave{}, fmt.Errorf("reviewer result input planned source snapshot is invalid")
+		}
+		if !reviewpath.CollectionNamespacePathSafe(caseRoot, filepath.Dir(inputSourcePath), true) || samePath(inputSourcePath, inputPath) || samePath(inputSourcePath, handoff.ReviewerStagingCommands.SourcePath) {
+			return preparedReviewerResultInputSave{}, fmt.Errorf("reviewer result input planned source must be case-local and separate from packet-derived input/source paths")
+		}
+	} else if !reviewpath.CollectionNamespacePathSafe(caseRoot, inputSourcePath, false) || samePath(inputSourcePath, inputPath) || samePath(inputSourcePath, handoff.ReviewerStagingCommands.SourcePath) {
 		return preparedReviewerResultInputSave{}, fmt.Errorf("reviewer result input source must be an existing symlink-free case-local file separate from packet-derived input/source paths")
 	}
 	resultRootID, err := reviewerDirectoryIdentity(caseRoot, namespace.ResultRoot)
@@ -502,9 +519,14 @@ func prepareReviewerResultInputSave(repoRoot, caseRoot, pack string, opt Reviewe
 	if !reviewerPacketSnapshotCurrent(caseRoot, packetPath, packetRootID) {
 		return preparedReviewerResultInputSave{}, fmt.Errorf("review packet namespace changed while validating input save")
 	}
-	inputSource, err := readStableReviewerArtifactAnchored(caseRoot, inputSourcePath, "reviewer result input save source", maxReviewerResultBytes)
-	if err != nil {
-		return preparedReviewerResultInputSave{}, err
+	var inputSource []byte
+	if plannedSource {
+		inputSource = append([]byte{}, opt.ResultSnapshot.Data...)
+	} else {
+		inputSource, err = readStableReviewerArtifactAnchored(caseRoot, inputSourcePath, "reviewer result input save source", maxReviewerResultBytes)
+		if err != nil {
+			return preparedReviewerResultInputSave{}, err
+		}
 	}
 	reviewerResult, err := validateReviewerResultCandidate(repoRoot, caseRoot, packet, shardID, inputSource)
 	if err != nil {

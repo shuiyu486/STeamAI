@@ -324,6 +324,31 @@ func TestRunCurrentStepDurableMemberExecutionHandoffAndIntake(t *testing.T) {
 	if readyCompletion.Blocked || readyCompletion.CompletionPlanSHA256 == "" {
 		t.Fatalf("restored reviewer input did not unblock completion: %+v", readyCompletion)
 	}
+	var completionStatus statusInventory
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	decodeJSONStrict(t, out.Bytes(), &completionStatus)
+	completionRequest := completionStatus.MissionControlRunbook.CurrentDriverRequest
+	if completionRequest == nil || completionRequest.RunLoopStepID != "preview-current" || completionRequest.ActionID != "complete-reviewed-lane-feature-analysis" || completionRequest.Source != "laneCompletion.acceptedReviewerLineage" || completionRequest.Lane != "feature-analysis" || !completionRequest.CommandExecutable || !completionRequest.RequiresReview || !strings.Contains(completionRequest.Command, "/rekit complete analysis") || !strings.Contains(completionRequest.Command, status.MemberExecution.CompletionEvidence[0]) {
+		t.Fatalf("durable status did not select evidence-derived completion preview: %+v", completionRequest)
+	}
+	var completionHandoff workstream.HandoffResult
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	decodeJSONStrict(t, out.Bytes(), &completionHandoff)
+	if completionHandoff.ReplacementExecutorTakeoverPackage == nil || completionHandoff.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command != completionRequest.Command || completionHandoff.MissionCommanderActionQueue.CurrentDriverRequest == nil || completionHandoff.MissionCommanderActionQueue.CurrentDriverRequest.Command != completionRequest.Command {
+		t.Fatalf("replacement executor handoff did not preserve completion request: %+v", completionHandoff.ReplacementExecutorTakeoverPackage)
+	}
+	var statusCompletionPreview completionProductResult
+	runCompletionJSON(t, &out, rekitCommandCLIArgs(t, completionRequest.Command), &statusCompletionPreview)
+	completionStep := runCurrentStepPreview(t, reviewerBase)
+	if completionStep.Route != "case" || completionStep.DriverStep == nil || completionStep.DriverStep.CurrentDriverRequest.Command != completionRequest.Command || statusCompletionPreview.Blocked || statusCompletionPreview.CompletionPlanSHA256 == "" || completionStep.DriverStep.ExpectedDriverStepPreviewSHA256 != statusCompletionPreview.CompletionPlanSHA256 || completionStep.DriverStep.ExpectedDriverStepPlanSHA256 == "" || completionStep.ExpectedCurrentStepPlanSHA256 == "" {
+		t.Fatalf("bounded current-step did not preserve completion double hash: %+v preview=%+v", completionStep, statusCompletionPreview)
+	}
 	laneRoot := filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis")
 	lanePath := filepath.Join(laneRoot, "lane.json")
 	boardPath := filepath.Join(caseRoot, ".rekit", "board.json")

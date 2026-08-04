@@ -77,9 +77,11 @@ param(
   [string]$ExpectedCurrentLoopObservationSha256 = '',
   [switch]$ResumeCurrentLoop,
   [switch]$RelayExternalSessionSubmission,
+  [switch]$AdvanceExternalSessionResult,
   [string]$ExpectedExternalSessionJobSha256 = '',
   [string]$ExpectedExternalSessionSubmissionSha256 = '',
   [string]$ExpectedExternalSessionRelayPlanSha256 = '',
+  [string]$ExpectedExternalSessionTurnPlanSha256 = '',
   [string]$SelectPackMemoryChange = '',
   [string]$ExpectedPackMemoryConsumptionPlanSha256 = '',
   [string]$ExpectedCurrentStepPlanSha256 = '',
@@ -216,18 +218,21 @@ function Test-RekitGoDelegationSafe {
     }
     'run-current-loop' {
       foreach ($key in $script:PSBoundParameters.Keys) {
-        if (@('Command','Target','Pack','MaxSteps','WhatIf','Apply','Format','ExpectedCurrentLoopPlanSha256','ExpectedCurrentLoopCheckpointSha256','ExpectedCurrentLoopReviewerAttemptSha256','CurrentLoopObservationPath','ExpectedCurrentLoopObservationSha256','ResumeCurrentLoop','RelayExternalSessionSubmission','ExpectedExternalSessionJobSha256','ExpectedExternalSessionSubmissionSha256','ExpectedExternalSessionRelayPlanSha256','ExpectedMemberExecutionPlanSha256','MemberExecutionAttemptId','MemberExecutionOutcome','MemberExecutionReason','MemberExecutionObservedAt','Actor','ReviewerResultInputSourcePath','ReviewerHarness','ReviewerSession','ReviewerOutcome','ReviewerExitStatus') -notcontains [string]$key) { return $false }
+        if (@('Command','Target','Pack','MaxSteps','WhatIf','Apply','Format','ExpectedCurrentLoopPlanSha256','ExpectedCurrentLoopCheckpointSha256','ExpectedCurrentLoopReviewerAttemptSha256','CurrentLoopObservationPath','ExpectedCurrentLoopObservationSha256','ResumeCurrentLoop','RelayExternalSessionSubmission','AdvanceExternalSessionResult','ExpectedExternalSessionJobSha256','ExpectedExternalSessionSubmissionSha256','ExpectedExternalSessionRelayPlanSha256','ExpectedExternalSessionTurnPlanSha256','ExpectedMemberExecutionPlanSha256','MemberExecutionAttemptId','MemberExecutionOutcome','MemberExecutionReason','MemberExecutionObservedAt','Actor','ReviewerResultInputSourcePath','ReviewerHarness','ReviewerSession','ReviewerOutcome','ReviewerExitStatus') -notcontains [string]$key) { return $false }
       }
       if ([string]::IsNullOrWhiteSpace($Target)) { return $false }
       if ((-not $ResumeCurrentLoop) -and ($MaxSteps -lt 1 -or $MaxSteps -gt 20)) { return $false }
       if ($ResumeCurrentLoop -and $script:PSBoundParameters.ContainsKey('MaxSteps')) { return $false }
       if ($WhatIf -and $Apply) { return $false }
       if ((-not $WhatIf) -and (-not $Apply)) { return $false }
-      if ($RelayExternalSessionSubmission) {
+      if ($RelayExternalSessionSubmission -and $AdvanceExternalSessionResult) { return $false }
+      if ($RelayExternalSessionSubmission -or $AdvanceExternalSessionResult) {
         if (-not $ResumeCurrentLoop -or [string]::IsNullOrWhiteSpace($ExpectedCurrentLoopCheckpointSha256) -or [string]::IsNullOrWhiteSpace($ExpectedExternalSessionJobSha256)) { return $false }
         if (-not [string]::IsNullOrWhiteSpace($ExpectedCurrentLoopPlanSha256)) { return $false }
-        if ($WhatIf -and ((-not [string]::IsNullOrWhiteSpace($ExpectedExternalSessionSubmissionSha256)) -or (-not [string]::IsNullOrWhiteSpace($ExpectedExternalSessionRelayPlanSha256)))) { return $false }
+        if ($WhatIf -and ((-not [string]::IsNullOrWhiteSpace($ExpectedExternalSessionSubmissionSha256)) -or (-not [string]::IsNullOrWhiteSpace($ExpectedExternalSessionRelayPlanSha256)) -or (-not [string]::IsNullOrWhiteSpace($ExpectedExternalSessionTurnPlanSha256)))) { return $false }
         if ($Apply -and ([string]::IsNullOrWhiteSpace($ExpectedExternalSessionSubmissionSha256) -or [string]::IsNullOrWhiteSpace($ExpectedExternalSessionRelayPlanSha256))) { return $false }
+        if ($RelayExternalSessionSubmission -and -not [string]::IsNullOrWhiteSpace($ExpectedExternalSessionTurnPlanSha256)) { return $false }
+        if ($AdvanceExternalSessionResult -and $Apply -and [string]::IsNullOrWhiteSpace($ExpectedExternalSessionTurnPlanSha256)) { return $false }
       } else {
         if ($WhatIf -and -not [string]::IsNullOrWhiteSpace($ExpectedCurrentLoopPlanSha256)) { return $false }
         if ($Apply -and [string]::IsNullOrWhiteSpace($ExpectedCurrentLoopPlanSha256)) { return $false }
@@ -600,9 +605,11 @@ function Get-RekitGoArgs {
     Add-RekitGoArg ([ref]$goArgs) '-ExpectedCurrentLoopObservationSha256' $ExpectedCurrentLoopObservationSha256
     Add-RekitGoSwitch ([ref]$goArgs) '-ResumeCurrentLoop' $ResumeCurrentLoop.IsPresent
     Add-RekitGoSwitch ([ref]$goArgs) '-RelayExternalSessionSubmission' $RelayExternalSessionSubmission.IsPresent
+    Add-RekitGoSwitch ([ref]$goArgs) '-AdvanceExternalSessionResult' $AdvanceExternalSessionResult.IsPresent
     Add-RekitGoArg ([ref]$goArgs) '-ExpectedExternalSessionJobSha256' $ExpectedExternalSessionJobSha256
     Add-RekitGoArg ([ref]$goArgs) '-ExpectedExternalSessionSubmissionSha256' $ExpectedExternalSessionSubmissionSha256
     Add-RekitGoArg ([ref]$goArgs) '-ExpectedExternalSessionRelayPlanSha256' $ExpectedExternalSessionRelayPlanSha256
+    Add-RekitGoArg ([ref]$goArgs) '-ExpectedExternalSessionTurnPlanSha256' $ExpectedExternalSessionTurnPlanSha256
     Add-RekitGoArg ([ref]$goArgs) '-ExpectedMemberExecutionPlanSha256' $ExpectedMemberExecutionPlanSha256
     Add-RekitGoArg ([ref]$goArgs) '-MemberExecutionAttemptId' $MemberExecutionAttemptId
     Add-RekitGoArg ([ref]$goArgs) '-MemberExecutionOutcome' $MemberExecutionOutcome

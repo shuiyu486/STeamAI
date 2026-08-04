@@ -55,10 +55,22 @@ func applyCurrentLoopObservationEnvelope(ctx runtime.Context, opt *Options, insp
 		}
 		return nil
 	}
-	snapshot, err := readCurrentLoopObservationEnvelope(ctx.Target, path)
-	if err != nil {
-		return err
+	var snapshot currentLoopObservationSnapshot
+	var err error
+	requireCanonical := true
+	if opt.currentLoopObservationSnapshot != nil {
+		snapshot = *opt.currentLoopObservationSnapshot
+		requireCanonical = false
+	} else {
+		snapshot, err = readCurrentLoopObservationEnvelope(ctx.Target, path)
+		if err != nil {
+			return err
+		}
 	}
+	return applyCurrentLoopObservationSnapshot(ctx, opt, inspection, snapshot, expected, requireCanonical)
+}
+
+func applyCurrentLoopObservationSnapshot(ctx runtime.Context, opt *Options, inspection currentloop.Inspection, snapshot currentLoopObservationSnapshot, expected string, requireCanonical bool) error {
 	if expected != "" && snapshot.SHA256 != expected {
 		return fmt.Errorf("run-current-loop observation sha256 mismatch: got %s want %s", snapshot.SHA256, expected)
 	}
@@ -68,7 +80,7 @@ func applyCurrentLoopObservationEnvelope(ctx runtime.Context, opt *Options, insp
 	if err := qualifyCurrentLoopObservation(&snapshot.Envelope, inspection); err != nil {
 		return err
 	}
-	if currentLoopObservationInCanonicalInbox(ctx.Target, snapshot.Path) {
+	if requireCanonical && currentLoopObservationInCanonicalInbox(ctx.Target, snapshot.Path) {
 		inbox := inspectCurrentLoopObservationInbox(ctx.Target, inspection)
 		if inbox.State != "ready" || inbox.SelectedCandidate == nil || !refsf.SamePath(inbox.SelectedCandidate.Path, snapshot.Path) || !strings.EqualFold(inbox.SelectedCandidate.SHA256, snapshot.SHA256) {
 			return fmt.Errorf("run-current-loop canonical observation inbox no longer has exactly one matching strict candidate; refresh status")
@@ -399,6 +411,10 @@ func readCurrentLoopObservationEnvelope(caseRoot, requested string) (currentLoop
 	if err != nil {
 		return currentLoopObservationSnapshot{}, err
 	}
+	return decodeCurrentLoopObservationSnapshot(path, data)
+}
+
+func decodeCurrentLoopObservationSnapshot(path string, data []byte) (currentLoopObservationSnapshot, error) {
 	var envelope currentLoopObservationEnvelope
 	decoder := json.NewDecoder(strings.NewReader(string(data)))
 	decoder.DisallowUnknownFields()
@@ -409,5 +425,5 @@ func readCurrentLoopObservationEnvelope(caseRoot, requested string) (currentLoop
 		return currentLoopObservationSnapshot{}, fmt.Errorf("current-loop observation file must contain exactly one JSON object")
 	}
 	sum := sha256.Sum256(data)
-	return currentLoopObservationSnapshot{Path: path, Bytes: data, SHA256: hex.EncodeToString(sum[:]), Envelope: envelope}, nil
+	return currentLoopObservationSnapshot{Path: path, Bytes: append([]byte{}, data...), SHA256: hex.EncodeToString(sum[:]), Envelope: envelope}, nil
 }

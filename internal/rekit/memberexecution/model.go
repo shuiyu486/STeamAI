@@ -136,14 +136,22 @@ type DispatchOptions struct {
 }
 
 type ObservationOptions struct {
-	CaseRoot   string
-	Pack       string
-	Lane       string
-	AttemptID  string
-	Outcome    string
-	Actor      string
-	Reason     string
-	ObservedAt string
+	CaseRoot       string
+	Pack           string
+	Lane           string
+	AttemptID      string
+	Outcome        string
+	Actor          string
+	Reason         string
+	ObservedAt     string
+	ResultSnapshot *ResultSnapshot
+}
+
+type ResultSnapshot struct {
+	ManifestPath string
+	ManifestData []byte
+	OutputsRoot  string
+	Outputs      map[string][]byte
 }
 
 type plannedWrite struct {

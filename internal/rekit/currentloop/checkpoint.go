@@ -346,7 +346,11 @@ func WriteValidated(repoRoot, caseRoot, pack string, payload Payload, validate f
 	return inspection, nil
 }
 
-func ClaimResume(repoRoot, caseRoot, pack string, claim Claim) (resultErr error) {
+func ClaimResume(repoRoot, caseRoot, pack string, claim Claim) error {
+	return ClaimResumeValidated(repoRoot, caseRoot, pack, claim, nil)
+}
+
+func ClaimResumeValidated(repoRoot, caseRoot, pack string, claim Claim, validate func() error) (resultErr error) {
 	if !isSHA256(claim.SourceArtifactSHA256) || !isSHA256(claim.ExpectedCurrentLoopPlanSHA256) || !isSHA256(claim.CurrentDriverRequestSHA256) {
 		return fmt.Errorf("current-loop resume claim hashes are invalid")
 	}
@@ -363,6 +367,11 @@ func ClaimResume(repoRoot, caseRoot, pack string, claim Claim) (resultErr error)
 			resultErr = errors.Join(resultErr, fmt.Errorf("release current-loop resume claim lease: %w", unlockErr))
 		}
 	}()
+	if validate != nil {
+		if err := validate(); err != nil {
+			return fmt.Errorf("validate current-loop resume claim currentness: %w", err)
+		}
+	}
 	identity, err := caseIdentity(repoRoot, caseRoot, pack)
 	if err != nil {
 		return err

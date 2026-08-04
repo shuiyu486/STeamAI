@@ -1,7 +1,9 @@
 package externalsession
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,8 +33,9 @@ func TestMemberRelayPublishesManifestOutputsAndObservationLast(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.ExpectedPlanSHA256 == "" || len(plan.Artifacts) != 4 {
-		t.Fatalf("plan=%+v", plan)
+	resultSnapshot := plan.MemberResultSnapshot()
+	if plan.ExpectedPlanSHA256 == "" || len(plan.Artifacts) != 4 || plan.Observation.Path != job.ObservationPath || plan.Observation.SHA256 == "" || plan.Observation.Bytes < 1 || len(plan.Observation.Data()) != int(plan.Observation.Bytes) || resultSnapshot == nil || len(resultSnapshot.ManifestData) == 0 || string(resultSnapshot.Outputs["nested/result.txt"]) != "result\n" {
+		t.Fatalf("plan=%+v snapshot=%+v", plan, resultSnapshot)
 	}
 	applied, err := Apply(plan, plan.JobSHA256, plan.SubmissionSHA256, plan.ExpectedPlanSHA256)
 	if err != nil || !applied.Applied || applied.AlreadyApplied {
@@ -53,6 +56,74 @@ func TestMemberRelayPublishesManifestOutputsAndObservationLast(t *testing.T) {
 	replayed, err := Apply(plan, plan.JobSHA256, plan.SubmissionSHA256, plan.ExpectedPlanSHA256)
 	if err != nil || !replayed.AlreadyApplied {
 		t.Fatalf("replay=%+v err=%v", replayed, err)
+	}
+}
+
+func TestMemberRelayRecoversExactPublishedPrefix(t *testing.T) {
+	caseRoot := t.TempDir()
+	job, err := NewMemberJob(caseRoot, defaults.DefaultPack, testCheckpointSHA, "g000001-a000001-0123456789abcdef", memberexecution.Owner{Lane: "analysis", Executor: "member-a", ExecutorGeneration: 1}, ".rekit/member/manifest.json", ".rekit/member/outputs", []string{"returned"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inspection, err := Inspect(job)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, caseRoot, filepath.Join(job.SubmissionOutputs, "result.txt"), []byte("result\n"))
+	writeTestJSON(t, caseRoot, job.SubmissionPath, Submission{SchemaVersion: 1, Kind: KindSubmission, JobID: job.JobID, JobSHA256: inspection.JobSHA256, Outcome: "returned", Actor: "harness", ObservedAt: "2026-08-05T02:00:00Z", Summary: "done", NoAuthorityOrConfirmed: true, NoHeavyTool: true})
+	plan, err := Preview(job)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.writes) < 4 {
+		t.Fatalf("writes=%d", len(plan.writes))
+	}
+	writeTestFile(t, caseRoot, plan.writes[0].rel, plan.writes[0].data)
+	applied, err := Apply(plan, plan.JobSHA256, plan.SubmissionSHA256, plan.ExpectedPlanSHA256)
+	if err != nil || !applied.Applied || applied.AlreadyApplied {
+		t.Fatalf("applied=%+v err=%v", applied, err)
+	}
+	for _, artifact := range plan.Artifacts {
+		data := readTestFile(t, caseRoot, artifact.Path)
+		if int64(len(data)) != artifact.Bytes || hash(data) != artifact.SHA256 {
+			t.Fatalf("artifact drift: %+v", artifact)
+		}
+	}
+	replayed, err := Apply(plan, plan.JobSHA256, plan.SubmissionSHA256, plan.ExpectedPlanSHA256)
+	if err != nil || !replayed.AlreadyApplied {
+		t.Fatalf("replayed=%+v err=%v", replayed, err)
+	}
+}
+
+func TestMemberRelayRejectsNonPrefixPublicationBeforeWriting(t *testing.T) {
+	for _, existingIndex := range []int{1, 2, 3} {
+		t.Run(fmt.Sprintf("existing-%d", existingIndex), func(t *testing.T) {
+			caseRoot := t.TempDir()
+			job, err := NewMemberJob(caseRoot, defaults.DefaultPack, testCheckpointSHA, "g000001-a000001-abcdef0123456789", memberexecution.Owner{Lane: "analysis", Executor: "member-a", ExecutorGeneration: 1}, ".rekit/member/manifest.json", ".rekit/member/outputs", []string{"returned"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			inspection, err := Inspect(job)
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeTestFile(t, caseRoot, filepath.Join(job.SubmissionOutputs, "result.txt"), []byte("result\n"))
+			writeTestJSON(t, caseRoot, job.SubmissionPath, Submission{SchemaVersion: 1, Kind: KindSubmission, JobID: job.JobID, JobSHA256: inspection.JobSHA256, Outcome: "returned", Actor: "harness", ObservedAt: "2026-08-05T02:05:00Z", Summary: "done", NoAuthorityOrConfirmed: true, NoHeavyTool: true})
+			plan, err := Preview(job)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if existingIndex >= len(plan.writes) {
+				t.Fatalf("write index %d exceeds %d", existingIndex, len(plan.writes))
+			}
+			writeTestFile(t, caseRoot, plan.writes[existingIndex].rel, plan.writes[existingIndex].data)
+			if _, err := Apply(plan, plan.JobSHA256, plan.SubmissionSHA256, plan.ExpectedPlanSHA256); err == nil || !strings.Contains(err.Error(), "non-prefix") {
+				t.Fatalf("non-prefix relay error=%v", err)
+			}
+			if _, err := os.Lstat(filepath.Join(caseRoot, filepath.FromSlash(plan.writes[0].rel))); !os.IsNotExist(err) {
+				t.Fatalf("non-prefix preflight wrote earlier artifact: %v", err)
+			}
+		})
 	}
 }
 
@@ -94,6 +165,14 @@ func TestReviewerRelayValidatesIdentityAndPublishesCanonicalSource(t *testing.T)
 	plan, err := Preview(job)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if plan.ReviewerResult == nil || plan.ReviewerResult.Path != job.RelayResultPath || plan.ReviewerResult.SHA256 != hash(resultBytes) || plan.ReviewerResult.Bytes != int64(len(resultBytes)) || !bytes.Equal(plan.ReviewerResult.Data(), resultBytes) {
+		t.Fatalf("reviewer result binding=%+v", plan.ReviewerResult)
+	}
+	copied := plan.ReviewerResult.Data()
+	copied[0] ^= 0xff
+	if !bytes.Equal(plan.ReviewerResult.Data(), resultBytes) {
+		t.Fatal("reviewer result binding did not return a defensive copy")
 	}
 	if _, err := Apply(plan, plan.JobSHA256, plan.SubmissionSHA256, plan.ExpectedPlanSHA256); err != nil {
 		t.Fatal(err)

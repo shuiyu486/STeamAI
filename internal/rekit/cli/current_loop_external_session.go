@@ -95,15 +95,17 @@ func bindExternalSessionJob(target string, pkg *mission.CurrentLoopOperatorPacka
 	}
 	switch inspected.State {
 	case "submission-ready":
-		request := externalSessionRelayRequest(job, inspected.JobSHA256)
-		typed.RelayPreviewRequest = &request
+		relayRequest := externalSessionRelayRequest(job, inspected.JobSHA256)
+		turnRequest := externalSessionTurnRequest(job, inspected.JobSHA256)
+		typed.RelayPreviewRequest = &relayRequest
 		pkg.ExternalSessionJob = &typed
-		pkg.State = "external-session-relay-review-required"
-		pkg.SelectedDriverRequest = &request
+		pkg.State = "external-session-turn-review-required"
+		pkg.SelectedDriverRequest = &turnRequest
 		pkg.RunbookSteps = []string{
-			"review externalSessionJob and execute relayPreviewRequest exactly",
-			"review the returned artifacts and execute only its exact job/submission/relay-plan hash-bound Apply",
-			"refresh status and consume the canonical observation inbox selected request",
+			"review externalSessionJob and execute the selected external-result turn preview exactly",
+			"review the exact relay artifacts, observation, nested resume plan, and remaining budget, then execute only its hash-bound Apply",
+			"refresh status and stop at the next typed external, Human-in-the-Lane, route/lane, budget, or terminal boundary",
+			"use externalSessionJob.relayPreviewRequest only for relay-only recovery or diagnosis",
 		}
 	case "awaiting-submission":
 		pkg.RunbookSteps = mission.UniqueStrings(append(pkg.RunbookSteps,

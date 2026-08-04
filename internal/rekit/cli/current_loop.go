@@ -118,11 +118,14 @@ func runCurrentLoop(ctx runtime.Context, opt Options, out io.Writer) error {
 	if !ctx.TargetProvided {
 		return fmt.Errorf("run-current-loop requires -Target for an attached case")
 	}
+	if opt.AdvanceExternalSessionResult {
+		return runCurrentLoopExternalSessionTurn(ctx, opt, out)
+	}
 	if opt.RelayExternalSessionSubmission {
 		return runCurrentLoopExternalSessionRelay(ctx, opt, out)
 	}
-	if strings.TrimSpace(opt.ExpectedExternalSessionJobSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionSubmissionSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionRelayPlanSHA256) != "" {
-		return fmt.Errorf("external session relay hashes require -RelayExternalSessionSubmission")
+	if strings.TrimSpace(opt.ExpectedExternalSessionJobSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionSubmissionSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionRelayPlanSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionTurnPlanSHA256) != "" {
+		return fmt.Errorf("external session hashes require -AdvanceExternalSessionResult or -RelayExternalSessionSubmission")
 	}
 	if opt.WhatIf && opt.Apply {
 		return fmt.Errorf("run-current-loop cannot combine -WhatIf and -Apply")
@@ -209,9 +212,17 @@ func runCurrentLoop(ctx runtime.Context, opt Options, out io.Writer) error {
 			return claimErr
 		}
 	}
-	plan, err = applyCurrentLoopPlan(ctx, opt, plan, status)
+	plan, err = applyBuiltCurrentLoop(ctx, opt, plan, status)
 	if err != nil {
 		return err
+	}
+	return writeJSON(out, plan)
+}
+
+func applyBuiltCurrentLoop(ctx runtime.Context, opt Options, plan currentLoopPlan, status statusInventory) (currentLoopPlan, error) {
+	plan, err := applyCurrentLoopPlan(ctx, opt, plan, status)
+	if err != nil {
+		return plan, err
 	}
 	if plan.ResumeSource != nil && plan.AppliedSteps == 0 && plan.zeroProgressVerified {
 		fresh, refreshErr := buildStatusInventory(ctx, statusPackSource(ctx, opt))
@@ -259,7 +270,7 @@ func runCurrentLoop(ctx runtime.Context, opt Options, out io.Writer) error {
 			)
 		}
 	}
-	return writeJSON(out, plan)
+	return plan, nil
 }
 
 func buildCurrentLoopPlan(ctx runtime.Context, opt Options) (currentLoopPlan, statusInventory, error) {
@@ -590,6 +601,9 @@ func validateCurrentLoopReviewerAttemptObservation(opt Options, status statusInv
 }
 
 func currentLoopStatusCandidate(status statusInventory) (*mission.MissionCommanderDriverRequest, string, currentLoopStopReason) {
+	if status.CaseMission != nil && status.CaseMission.MissionCompletion != nil && status.CaseMission.MissionCompletion.Ready && status.CaseMission.MissionCompletion.State == "mission-complete" {
+		return nil, "case", currentLoopStopReason{Code: "mission-complete", Phase: "status", Message: "all durable lanes have committed completion receipts"}
+	}
 	if status.MissionControlRunbook == nil || status.MissionControlRunbook.CurrentDriverRequest == nil {
 		return nil, "", currentLoopStopReason{Code: "no-current-request", Phase: "status", Message: "refreshed status has no current driver request"}
 	}
@@ -1064,6 +1078,7 @@ func validateCurrentLoopOuterArgs(opt Options) error {
 		"-expectedexternalsessionjobsha256": true, "--expected-external-session-job-sha256": true,
 		"-expectedexternalsessionsubmissionsha256": true, "--expected-external-session-submission-sha256": true,
 		"-expectedexternalsessionrelayplansha256": true, "--expected-external-session-relay-plan-sha256": true,
+		"-expectedexternalsessionturnplansha256": true, "--expected-external-session-turn-plan-sha256": true,
 		"-actor": true, "--actor": true,
 		"-expectedmemberexecutionplansha256": true, "--expected-member-execution-plan-sha256": true,
 		"-memberexecutionattemptid": true, "--member-execution-attempt-id": true,
@@ -1081,6 +1096,7 @@ func validateCurrentLoopOuterArgs(opt Options) error {
 		"-apply": true, "--apply": true,
 		"-resumecurrentloop": true, "--resume-current-loop": true,
 		"-relayexternalsessionsubmission": true, "--relay-external-session-submission": true,
+		"-advanceexternalsessionresult": true, "--advance-external-session-result": true,
 	}
 	seen := map[string]bool{}
 	separatorSeen := false
@@ -1145,12 +1161,16 @@ func currentLoopCanonicalOuterFlag(key string) string {
 		return "-resumecurrentloop"
 	case "--relay-external-session-submission":
 		return "-relayexternalsessionsubmission"
+	case "--advance-external-session-result":
+		return "-advanceexternalsessionresult"
 	case "--expected-external-session-job-sha256":
 		return "-expectedexternalsessionjobsha256"
 	case "--expected-external-session-submission-sha256":
 		return "-expectedexternalsessionsubmissionsha256"
 	case "--expected-external-session-relay-plan-sha256":
 		return "-expectedexternalsessionrelayplansha256"
+	case "--expected-external-session-turn-plan-sha256":
+		return "-expectedexternalsessionturnplansha256"
 	case "--what-if":
 		return "-whatif"
 	case "--apply":

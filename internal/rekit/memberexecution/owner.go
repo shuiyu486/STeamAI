@@ -28,6 +28,7 @@ const (
 )
 
 var segment = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$`)
+var errPendingDispatch = errors.New("member execution dispatch publication is pending")
 var applyLeaseHook func(Plan) error
 
 func PreviewDispatch(opt DispatchOptions) (Plan, error) {
@@ -121,13 +122,11 @@ func PreviewObservation(opt ObservationOptions) (Plan, error) {
 		if outcome == "accepted" {
 			return Plan{}, fmt.Errorf("member execution accepted observation already exists")
 		}
-	} else if outcome != "accepted" && outcome != "failed" {
-		return Plan{}, fmt.Errorf("member execution returned requires accepted observation first")
 	}
 	manifestSHA := ""
 	resultWrites := []plannedWrite{}
 	if outcome == "returned" {
-		manifest, sum, writes, err := snapshotResultPlan(inspection)
+		manifest, sum, writes, err := snapshotResultPlan(inspection, opt.ResultSnapshot)
 		if err != nil {
 			return Plan{}, err
 		}
@@ -365,7 +364,7 @@ func inspectAnchored(anchor *anchoredCase, lane, attemptID string) (Inspection, 
 			return Inspection{}, err
 		}
 		expectedName := fmt.Sprintf("%020d-%s.json", index+1, observation.Outcome)
-		validTransition := (index == 0 && (observation.Outcome == "accepted" || observation.Outcome == "failed")) || (index == 1 && previous == "accepted" && (observation.Outcome == "returned" || observation.Outcome == "failed"))
+		validTransition := (index == 0 && (observation.Outcome == "accepted" || observation.Outcome == "returned" || observation.Outcome == "failed")) || (index == 1 && previous == "accepted" && (observation.Outcome == "returned" || observation.Outcome == "failed"))
 		if entry.Name() != expectedName || !validTransition || observation.SchemaVersion != SchemaVersion || observation.Kind != KindObservation || observation.AttemptID != attemptID || observation.Owner != intent.Owner || observation.Sequence != index+1 || !strings.EqualFold(observation.IntentSHA256, hash(intentBytes)) || !observation.NoAuthority || !observation.NoConfirmed || !observation.NoHeavyTool {
 			return Inspection{}, fmt.Errorf("invalid member execution observation chain")
 		}
@@ -461,7 +460,10 @@ func canonicalResultPaths(attemptRoot string) (string, string) {
 	return filepath.Join(root, "manifest.json"), filepath.Join(root, "outputs")
 }
 
-func snapshotResultPlan(inspection Inspection) (ResultManifest, string, []plannedWrite, error) {
+func snapshotResultPlan(inspection Inspection, snapshot *ResultSnapshot) (ResultManifest, string, []plannedWrite, error) {
+	if snapshot != nil {
+		return snapshotResultPlanFromSnapshot(inspection, *snapshot)
+	}
 	anchor, err := openAnchoredCase(inspection.Intent.CaseRoot)
 	if err != nil {
 		return ResultManifest{}, "", nil, err
@@ -496,6 +498,52 @@ func snapshotResultPlan(inspection Inspection) (ResultManifest, string, []planne
 	}
 	writes = append(writes, plannedWrite{manifestPath, manifestData})
 	return manifest, sum, writes, nil
+}
+
+func snapshotResultPlanFromSnapshot(inspection Inspection, snapshot ResultSnapshot) (ResultManifest, string, []plannedWrite, error) {
+	if !samePath(snapshot.ManifestPath, inspection.ManifestPath) || !samePath(snapshot.OutputsRoot, inspection.OutputsRoot) {
+		return ResultManifest{}, "", nil, fmt.Errorf("member execution result snapshot paths do not match the current handoff")
+	}
+	var manifest ResultManifest
+	if err := strictCanonical(snapshot.ManifestData, &manifest); err != nil {
+		return ResultManifest{}, "", nil, err
+	}
+	if manifest.SchemaVersion != SchemaVersion || manifest.Kind != KindManifest || manifest.AttemptID != inspection.AttemptID || manifest.Owner != inspection.Owner || strings.TrimSpace(manifest.Summary) == "" || len(manifest.Outputs) == 0 || len(manifest.Outputs) > maxOutputs || !manifest.NoAuthority || !manifest.NoConfirmed || !manifest.NoHeavyTool {
+		return ResultManifest{}, "", nil, fmt.Errorf("invalid member execution result manifest")
+	}
+	seen := map[string]bool{}
+	writes := []plannedWrite{}
+	_, outputsRoot := canonicalResultPaths(inspection.AttemptRoot)
+	for _, output := range manifest.Outputs {
+		key := strings.ToLower(output.Path)
+		if !validRelative(output.Path) || seen[key] || !validSHA(output.SHA256) || output.Bytes < 1 || output.Bytes > maxOutputBytes {
+			return ResultManifest{}, "", nil, fmt.Errorf("invalid member execution output contract: %s", output.Path)
+		}
+		seen[key] = true
+		data, ok := snapshot.Outputs[key]
+		if !ok || int64(len(data)) != output.Bytes || !strings.EqualFold(hash(data), output.SHA256) {
+			return ResultManifest{}, "", nil, fmt.Errorf("member execution output hash or size drift: %s", output.Path)
+		}
+		writes = append(writes, plannedWrite{filepath.Join(outputsRoot, filepath.FromSlash(output.Path)), append([]byte{}, data...)})
+	}
+	if len(snapshot.Outputs) != len(seen) {
+		return ResultManifest{}, "", nil, fmt.Errorf("member execution outputs do not exactly match manifest")
+	}
+	for path := range snapshot.Outputs {
+		if !seen[strings.ToLower(filepath.ToSlash(path))] {
+			return ResultManifest{}, "", nil, fmt.Errorf("member execution output component is not declared by manifest: %s", path)
+		}
+	}
+	if manifest.ReviewerItemsPath != "" && (!validRelative(manifest.ReviewerItemsPath) || !seen[strings.ToLower(manifest.ReviewerItemsPath)]) {
+		return ResultManifest{}, "", nil, fmt.Errorf("reviewerItemsPath must name a declared output")
+	}
+	manifestData, err := canonical(manifest)
+	if err != nil {
+		return ResultManifest{}, "", nil, err
+	}
+	manifestPath, _ := canonicalResultPaths(inspection.AttemptRoot)
+	writes = append(writes, plannedWrite{manifestPath, manifestData})
+	return manifest, hash(snapshot.ManifestData), writes, nil
 }
 
 func inspectManifestAnchored(anchor *anchoredCase, inspection Inspection) (ResultManifest, string, error) {
@@ -615,8 +663,16 @@ func Latest(caseRoot, lane string) (Inspection, bool, error) {
 		return Inspection{}, false, nil
 	}
 	sort.Strings(names)
-	inspection, err := inspectAnchored(anchor, lane, names[len(names)-1])
+	latestName := names[len(names)-1]
+	inspection, err := inspectAnchored(anchor, lane, latestName)
 	if err != nil {
+		pending, pendingErr := inspectPendingDispatchPrefix(anchor, lane, latestName)
+		if pendingErr != nil {
+			return Inspection{}, false, pendingErr
+		}
+		if pending {
+			return Inspection{}, false, fmt.Errorf("%w: %s", errPendingDispatch, latestName)
+		}
 		return Inspection{}, false, err
 	}
 	if err := anchor.revalidate(); err != nil {
@@ -625,12 +681,101 @@ func Latest(caseRoot, lane string) (Inspection, bool, error) {
 	return inspection, true, nil
 }
 
+func inspectPendingDispatchPrefix(anchor *anchoredCase, lane, attemptID string) (bool, error) {
+	root, err := attemptRoot(anchor.path, lane, attemptID)
+	if err != nil {
+		return false, err
+	}
+	rootRel, err := relativeToCase(anchor.path, root)
+	if err != nil {
+		return false, err
+	}
+	entries, err := anchor.readDir(rootRel)
+	if err != nil {
+		return false, err
+	}
+	entryByName := make(map[string]os.DirEntry, len(entries))
+	for _, entry := range entries {
+		if _, duplicate := entryByName[entry.Name()]; duplicate {
+			return false, fmt.Errorf("member execution pending dispatch contains duplicate entry: %s", entry.Name())
+		}
+		entryByName[entry.Name()] = entry
+	}
+	for name, entry := range entryByName {
+		if name != "intent.json" && name != "handoff.json" {
+			return false, nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() {
+			return false, fmt.Errorf("member execution pending dispatch contains invalid entry: %s", name)
+		}
+	}
+	intentEntry, hasIntent := entryByName["intent.json"]
+	if !hasIntent || intentEntry == nil {
+		return false, nil
+	}
+	intentBytes, err := anchor.readFile(filepath.Join(rootRel, "intent.json"), maxJSONBytes)
+	if err != nil {
+		return false, err
+	}
+	var intent Intent
+	if err := strictCanonical(intentBytes, &intent); err != nil || intent.SchemaVersion != SchemaVersion || intent.Kind != KindIntent || intent.AttemptID != attemptID || !samePath(intent.CaseRoot, anchor.path) || intent.Owner.Lane != lane || !validSHA(intent.RequestSHA256) || strings.TrimSpace(intent.Pack) == "" || !intent.NoSpawn || !intent.NoPoll || !intent.NoStop || !intent.NoAuthority || !intent.NoConfirmed || !intent.NoHeavyTool {
+		return false, fmt.Errorf("invalid pending member execution intent")
+	}
+	created, err := time.Parse(time.RFC3339Nano, intent.CreatedAt)
+	if err != nil || created.Format(time.RFC3339Nano) != intent.CreatedAt {
+		return false, fmt.Errorf("invalid pending member execution intent createdAt")
+	}
+	parts := strings.Split(attemptID, "-")
+	if len(parts) != 3 {
+		return false, fmt.Errorf("invalid pending member execution attempt id")
+	}
+	sequence, err := strconv.Atoi(strings.TrimPrefix(parts[1], "a"))
+	if err != nil || sequence < 1 || attemptID != fmt.Sprintf("g%06d-a%06d-%s", intent.Owner.ExecutorGeneration, sequence, strings.ToLower(intent.RequestSHA256[:16])) {
+		return false, fmt.Errorf("pending member execution attempt id does not match intent")
+	}
+	owner, err := currentOwnerAnchored(anchor, intent.Pack, lane)
+	if err != nil {
+		return false, err
+	}
+	if owner != intent.Owner {
+		return false, fmt.Errorf("pending member execution owner generation is stale")
+	}
+	if _, hasHandoff := entryByName["handoff.json"]; hasHandoff {
+		handoffBytes, err := anchor.readFile(filepath.Join(rootRel, "handoff.json"), maxJSONBytes)
+		if err != nil {
+			return false, err
+		}
+		expected := Handoff{
+			SchemaVersion: SchemaVersion,
+			Kind:          KindHandoff,
+			AttemptID:     attemptID,
+			Owner:         intent.Owner,
+			IntentSHA256:  hash(intentBytes),
+			ManifestPath:  filepath.ToSlash(filepath.Join(rootRel, "result", "manifest.json")),
+			OutputsRoot:   filepath.ToSlash(filepath.Join(rootRel, "result", "outputs")),
+			NextSteps:     []string{"external harness accepts this handoff", "external member writes bounded outputs and strict manifest", "record accepted then returned or failed observation through run-current-step"},
+			Boundary:      boundaries(),
+		}
+		expectedBytes, err := canonical(expected)
+		if err != nil {
+			return false, err
+		}
+		if !bytes.Equal(handoffBytes, expectedBytes) {
+			return false, fmt.Errorf("pending member execution handoff differs from canonical reviewed dispatch")
+		}
+	}
+	if err := anchor.revalidate(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func MarshalResultManifest(manifest ResultManifest) ([]byte, error) {
 	return canonical(manifest)
 }
 
 func IsPendingDispatch(err error) bool {
-	return os.IsNotExist(err)
+	return errors.Is(err, errPendingDispatch)
 }
 
 func nextAttemptSequence(caseRoot string, owner Owner, requestSHA string) (int, error) {

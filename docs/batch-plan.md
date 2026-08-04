@@ -33,6 +33,19 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 
 
+
+### Batch 816：daily mission campaign orchestration and replacement takeover closure
+
+状态：已完成。
+
+目标：关闭日常 Mission Commander campaign 仍需跨多个手工步骤拼接 external relay、checkpoint resume、reviewed completion和replacement takeover的断点。完整链为natural-language onboard/start → bounded current loop → external member/reviewer handoff → result-first/submission-last → one reviewed external-result turn → relay + strict intake + checkpoint claim + bounded resume → accepted reviewer lineage → evidence-derived lane completion → next lane/Human/external boundary → mission-complete → replacement executor durable takeover。
+
+实现：统一external-result turn在WhatIf中零写入绑定checkpoint、job、submission、relay artifacts、observation和nested resume；member/reviewer planned result snapshot只用于构建reviewed plan，Apply清除overlay并从durable relay filesystem重建。Apply先完成exact-prefix可恢复relay，再strict intake、one-shot claim和bounded resume；relay后若Human intervention/currentness漂移，relay保持truthful且claim在同一project lease内fail-closed。Reviewer replacement result一次Apply走完save input→completion→source→stage→collect→intake六步并产生accepted verification/decision lineage。Status从current owner的intake-ready member manifest调用唯一`CompletePreview` owner派生completion request，replacement handoff保留同一request；current-step不把complete误派为新member attempt，driver与completion plan双hash绑定。全部lane关闭后current-loop以typed`mission-complete`停止且无Apply request。Member latest inspection只把canonical intent或intent→handoff exact prefix视为pending，commit/observation/result/额外artifact缺前件均作为corruption向上报错。
+
+边界：Go runtime不spawn/poll/stop member或reviewer session，不调用shell/Agent tool，不执行heavy-tool，不写或推断authority/confirmed。PowerShell façade仅验证参数组合并逐字透传；WhatIf零写入，Apply按exact hash/currentness/owner/lease guards fail-closed。External turn明确non-transactional：已提交relay在后续拒绝时保留为可验证恢复事实。普通batch不等待或声明remote CI green。
+
+验证结果：member/reviewer composite turn、reviewer snapshot path/SHA/bytes drift、Apply filesystem-only、relay后Human intervention claim门禁、pending dispatch corruption、completion discovery/replacement takeover/double hash与typed mission-complete focused回归通过；受影响`currentloop/mission/memberexecution/externalsession/subagents/workstream/cli`完整包测试最终通过（CLI 209.641秒）。独立终审发现relay非前缀补齐与pending handoff非exact两项Important，已增加全写集preflight、canonical dispatch重建及反例并由原审查者逐项复核关闭，无剩余高置信Critical/Important。修复后完整`go test ./... -count=1`通过（CLI 210.838秒），`go vet ./...`、status、10-pack packs、doctor、PowerShell façade smoke、canonical skill预算32742/32768 bytes与`git diff --check`通过。完成态`release-check -Format json`返回`ready=true` / `summary=release gate inventory ok`；implementation commit/push待记录，普通batch不等待或声明remote CI green。
+
 ### Batch 815：review-first cross-case pack-memory discovery, selection, sync, and reconsume proof closure
 
 状态：已完成。
@@ -44,18 +57,6 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 边界：discovery不扫描磁盘或建立central case registry；producer proof不是target mutation授权，Apply仍要求同一WhatIf的exact hash。Consumer receipt只留在目标case；本地target自上次sync后漂移时fail-closed，backup不替代review authority，tooling candidate不能绕过accepted decision。Runtime不自动执行sync/promote/heavy-tool，不管理session，不写authority/confirmed；未新增PowerShell runtime logic，普通batch不等待或声明remote CI green。
 
 验证结果：真实producer→第二attached consumer临时case走通status发现、handoff审核、selected WhatIf、exact Apply、backup/target/state/receipt与fresh consumed closure；focused `releasecheck/packmemoryconsumption/cli/workstream/sync`及façade smoke通过。两轮独立事务审查发现的reparse/TOCTOU、partial recovery、strict replay、shared lease/unlock、producer drift、root rebind与torn publication问题均已关闭，终复核无Critical/Important残余。最终完整`go test ./... -count=1`通过（CLI 208.766秒），`go vet ./...`、`status`、10-pack `packs`、`doctor`、canonical skill预算32699/32768 bytes及Linux/Darwin/WASM交叉编译通过；完成态`release-check -Format json`返回`ready=true` / `summary=release gate inventory ok`，`git diff --check`通过。Implementation commit/push待记录；普通batch不等待或声明remote CI green。
-
-### Batch 814：unified external session job and review-first observation publisher
-
-状态：已完成。
-
-目标：让外部member/reviewer harness直接消费fresh status派生的统一typed `externalSessionJob`，按result-first/submission-last contract提交真实结果；Go-native review-first relay/publisher自动生成member manifest、canonical reviewer relay source、publication receipt和Batch 813-compatible observation envelope，使replacement executor不再手工拼严格envelope、hash/bytes manifest或临时reviewer source。
-
-实现：`externalSessionJob`精确绑定latest ready checkpoint、member attempt+owner generation或reviewer attempt+packet/route/shard、allowed outcomes和canonical submission/result/publication/inbox paths。`run-current-loop -RelayExternalSessionSubmission`复用现有public command：WhatIf严格解码submission并读取bounded symlink-free sources，绑定exact job/submission/source/destination/relay-plan hashes并返回Apply命令；Apply重建计划后通过case-root pinned no-follow/reparse-safe exclusive writes按outputs/result→generated manifest/source→publication receipt→inbox envelope顺序发布，支持exact-prefix recovery与committed replay。Status precedence保持unique inbox最高、submission-ready relay其次、awaiting submission保留旧handoff；invalid submission或ambiguous/invalid inbox撤销executable request。Apply返回refreshed status及唯一inbox selected request；quickstart、replacement takeover、text和durable Markdown消费同一typed package。
-
-边界：relay不claim或消费checkpoint，不记录session lifecycle observation，不继续current loop；真实session仍由external harness管理。Runtime不spawn/poll/stop session、不调用shell/Agent tool、不执行heavy-tool、不写authority/confirmed。PowerShell façade只做四个relay flags的safe delegation/逐字透传，public command surface保持30；legacy Batch 812/813 envelope与member/reviewer handoff继续兼容。
-
-验证结果：focused `fs/externalsession/mission/workstream`、member/reviewer临时case CLI E2E、完整CLI回归（197.479秒）和façade smoke通过；最终完整`go test ./... -count=1`通过（CLI 200.342秒），`go vet ./...`、`status`、10-pack `packs`、`doctor`（canonical skill 32441/32768 bytes）与`git diff --check`通过。独立correctness/security/architecture审查无高置信Critical/Important。完成态`release-check -Format json`返回`ready=true` / `summary=release gate inventory ok`；普通batch不等待或声明remote CI green。
 
 ## 活动文档维护规则
 

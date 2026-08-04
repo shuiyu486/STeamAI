@@ -145,9 +145,11 @@ type Options struct {
 	ExpectedCurrentLoopObservationSHA256     string
 	ResumeCurrentLoop                        bool
 	RelayExternalSessionSubmission           bool
+	AdvanceExternalSessionResult             bool
 	ExpectedExternalSessionJobSHA256         string
 	ExpectedExternalSessionSubmissionSHA256  string
 	ExpectedExternalSessionRelayPlanSHA256   string
+	ExpectedExternalSessionTurnPlanSHA256    string
 	SelectPackMemoryChange                   string
 	ExpectedPackMemoryConsumptionPlanSHA256  string
 	ExpectedCurrentStepPlanSHA256            string
@@ -157,6 +159,9 @@ type Options struct {
 	MemberExecutionReason                    string
 	MemberExecutionObservedAt                string
 	skipMemberExecutionDispatch              bool
+	currentLoopObservationSnapshot           *currentLoopObservationSnapshot
+	currentLoopMemberResultSnapshot          *memberexecution.ResultSnapshot
+	currentLoopReviewerResultSnapshot        *subagents.ReviewerResultInputSnapshot
 	ExpectedDriverStepPlanSHA256             string
 	ExpectedReviewerStepPlanSHA256           string
 	Gate                                     gate.Options
@@ -504,6 +509,8 @@ func Parse(args []string) (Options, error) {
 			opt.ResumeCurrentLoop = true
 		case "-RelayExternalSessionSubmission", "--relay-external-session-submission":
 			opt.RelayExternalSessionSubmission = true
+		case "-AdvanceExternalSessionResult", "--advance-external-session-result":
+			opt.AdvanceExternalSessionResult = true
 		case "-ExpectedExternalSessionJobSha256", "-ExpectedExternalSessionJobSHA256", "--expected-external-session-job-sha256":
 			i++
 			if i >= len(args) {
@@ -522,6 +529,12 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ExpectedExternalSessionRelayPlanSha256")
 			}
 			opt.ExpectedExternalSessionRelayPlanSHA256 = args[i]
+		case "-ExpectedExternalSessionTurnPlanSha256", "-ExpectedExternalSessionTurnPlanSHA256", "--expected-external-session-turn-plan-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedExternalSessionTurnPlanSha256")
+			}
+			opt.ExpectedExternalSessionTurnPlanSHA256 = args[i]
 		case "-SelectPackMemoryChange", "--select-pack-memory-change":
 			i++
 			if i >= len(args) {
@@ -8549,6 +8562,27 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string, onboarding ...missi
 	reviewerDispatchIntakeActionQueue := mission.MissionCommanderActionQueueFor(reviewerDispatchIntakeNextActions)
 	caseMissionNextActions := append([]mission.MissionCommanderNextActionItem{}, inventory.MissionCommanderNextActions...)
 	caseMissionActionQueue := inventory.MissionCommanderActionQueue
+	completionCandidate, candidateErr := workstream.NextCompletePreviewCandidate(repoRoot, caseRoot, pack)
+	if candidateErr != nil {
+		return nil, candidateErr
+	}
+	if completionCandidate.Ready {
+		completionAction := mission.MissionCommanderNextActionItem{
+			Lane:           completionCandidate.Lane.ID,
+			Label:          completionCandidate.Preview.Selector,
+			ActionID:       "complete-reviewed-lane-" + completionCandidate.Lane.ID,
+			State:          "ready-for-completion-preview",
+			Command:        completionCandidate.PreviewCommand,
+			Source:         "laneCompletion.acceptedReviewerLineage",
+			RequiresReview: true,
+			Boundary: []string{
+				"completion eligibility and exact evidence are owned by workstream CompletePreview",
+				"execute the returned completion apply request only after reviewing its plan hash and writes",
+			},
+		}
+		caseMissionNextActions = mission.UniqueCommanderNextActions(append([]mission.MissionCommanderNextActionItem{completionAction}, caseMissionNextActions...))
+		caseMissionActionQueue = mission.MissionCommanderActionQueueFor(caseMissionNextActions)
+	}
 	missionCompletion, completionErr := workstream.InspectMissionCompletion(caseRoot)
 	if completionErr != nil && (missionCompletion.State == "completion-publication-incomplete" || missionCompletion.State == "reopen-publication-incomplete") {
 		return nil, fmt.Errorf("%s: %w", missionCompletion.State, completionErr)

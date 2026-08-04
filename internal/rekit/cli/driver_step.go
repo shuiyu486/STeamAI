@@ -168,6 +168,9 @@ func buildDriverStepPlanFromStatus(ctx runtime.Context, status statusInventory) 
 	}
 	previewSum := sha256.Sum256(previewEncoded)
 	previewSHA256 := hex.EncodeToString(previewSum[:])
+	if completion, ok := preview.(workstream.CompleteResult); ok {
+		previewSHA256 = completion.CompletionPlanSHA256
+	}
 	identity := driverStepPlanIdentity{CurrentDriverRequest: request, ApplyDriverRequest: applyRequest, PreviewResult: preview}
 	encoded, err := json.Marshal(identity)
 	if err != nil {
@@ -190,7 +193,7 @@ func buildDriverStepPlanFromStatus(ctx runtime.Context, status statusInventory) 
 		ExpectedDriverStepPreviewSHA256: previewSHA256,
 		MissionCommanderActionQueue:     driverStepResultQueue(preview),
 		Boundary: []string{
-			"runner accepts only the exact current start, continue, or reconcile WhatIf request and its returned typed Apply request",
+			"runner accepts only the exact current start, continue, reconcile, or complete WhatIf request and its returned typed Apply request",
 			"Apply is hash-bound to the reviewed current request, returned Apply request, and deterministic preview result",
 			"the Go runtime does not invoke a shell, spawn or poll sessions, execute reviewer/adapter/heavy tools, or write authority/confirmed state",
 			"status is rebuilt after Apply before follow-up work is selected",
@@ -346,6 +349,8 @@ func validateBoundedDriverTokens(command string, fields []string, apply bool) er
 		"-actor": true, "--actor": true,
 		"-reason": true, "--reason": true,
 		"-summary": true, "--summary": true,
+		"-evidencerefs": true, "--evidence-refs": true,
+		"-expectedcompleteplansha256": true, "--expected-complete-plan-sha256": true,
 		"-expectedexecutorgeneration": true, "--expected-executor-generation": true,
 	}
 	switchFlags := map[string]bool{
@@ -375,6 +380,10 @@ func validateBoundedDriverTokens(command string, fields []string, apply bool) er
 			return "-reason"
 		case "--summary":
 			return "-summary"
+		case "--evidence-refs":
+			return "-evidencerefs"
+		case "--expected-complete-plan-sha256":
+			return "-expectedcompleteplansha256"
 		case "--expected-executor-generation":
 			return "-expectedexecutorgeneration"
 		case "--what-if":
@@ -434,6 +443,19 @@ func validateBoundedDriverTokens(command string, fields []string, apply bool) er
 		if seen["-name"] || seen["-interventionid"] || seen["-actor"] || seen["-reason"] || seen["-summary"] {
 			return fmt.Errorf("continue driver request contains unsupported flag(s) for its bounded contract")
 		}
+	case commands.Complete:
+		if selectorKinds != 1 {
+			return fmt.Errorf("complete driver request requires exactly one lane selector")
+		}
+		if !seen["-actor"] || !seen["-reason"] || !seen["-evidencerefs"] {
+			return fmt.Errorf("complete driver request requires -Actor, -Reason, and -EvidenceRefs")
+		}
+		if seen["-name"] || seen["-lane"] || seen["-interventionid"] || seen["-executor"] || seen["-summary"] || seen["-expectedexecutorgeneration"] {
+			return fmt.Errorf("complete driver request contains flags outside its bounded contract")
+		}
+		if apply != seen["-expectedcompleteplansha256"] {
+			return fmt.Errorf("complete driver request plan hash does not match preview/apply mode")
+		}
 	case commands.Reconcile:
 		if selectorKinds != 1 {
 			return fmt.Errorf("reconcile driver request requires exactly one lane selector")
@@ -466,6 +488,8 @@ func previewDriverStep(ctx runtime.Context, opt Options) (any, error) {
 		return workstream.ContinuePreview(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Continue)
 	case commands.Reconcile:
 		return workstream.ReconcilePreview(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Reconcile)
+	case commands.Complete:
+		return workstream.CompletePreview(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Complete)
 	default:
 		return nil, fmt.Errorf("unsupported bounded driver preview: %s", opt.Command)
 	}
@@ -509,12 +533,34 @@ func applyDriverStep(ctx runtime.Context, request mission.MissionCommanderDriver
 			return nil, currentStepZeroProgressError{cause: err}
 		}
 		return result, err
+	case commands.Complete:
+		return workstream.CompleteApply(ctx.RepoRoot, ctx.Target, ctx.Pack, opt.Complete)
 	default:
 		return nil, fmt.Errorf("unsupported bounded driver apply: %s", opt.Command)
 	}
 }
 
 func driverStepApplyRequest(result any) (mission.MissionCommanderDriverRequest, error) {
+	if completion, ok := result.(workstream.CompleteResult); ok {
+		if completion.Blocked || strings.TrimSpace(completion.ApplyCommand) == "" || strings.TrimSpace(completion.CompletionPlanSHA256) == "" {
+			return mission.MissionCommanderDriverRequest{}, fmt.Errorf("complete preview omitted an unblocked exact Apply request")
+		}
+		return mission.MissionCommanderDriverRequest{
+			Kind:              "execute-command",
+			RunLoopStepID:     "apply-lane-completion",
+			State:             "completion-apply-ready",
+			Source:            "laneCompletion.completePreview",
+			Lane:              completion.Lane.ID,
+			Label:             completion.Selector,
+			ActionID:          "apply-lane-completion-" + completion.Lane.ID,
+			Command:           completion.ApplyCommand,
+			CommandExecutable: true,
+			Boundary: []string{
+				"Apply consumes the exact CompletionPlanSHA256 returned by workstream CompletePreview",
+				"completion remains subject to owner, evidence, blocker, lease, and currentness revalidation",
+			},
+		}, nil
+	}
 	request := driverStepResultQueue(result).CurrentDriverRequest
 	if request == nil {
 		return mission.MissionCommanderDriverRequest{}, fmt.Errorf("driver preview omitted a typed Apply driver request")
@@ -530,6 +576,8 @@ func driverStepResultQueue(result any) mission.MissionCommanderActionQueue {
 		return value.MissionCommanderActionQueue
 	case workstream.ReconcileResult:
 		return value.MissionCommanderActionQueue
+	case workstream.CompleteResult:
+		return value.MissionCommanderActionQueue
 	default:
 		return mission.MissionCommanderActionQueue{}
 	}
@@ -543,6 +591,8 @@ func driverStepResultApplied(result any) bool {
 		return value.Applied
 	case workstream.ReconcileResult:
 		return value.Applied
+	case workstream.CompleteResult:
+		return value.Applied
 	default:
 		return false
 	}
@@ -555,6 +605,8 @@ func driverStepResultCommand(result any) string {
 	case workstream.ContinueResult:
 		return value.Command
 	case workstream.ReconcileResult:
+		return value.Command
+	case workstream.CompleteResult:
 		return value.Command
 	default:
 		return ""
@@ -608,7 +660,7 @@ func driverStepRefreshCommandMatches(ctx runtime.Context, command string) bool {
 
 func boundedDriverStepCommand(command string) bool {
 	switch strings.ToLower(strings.TrimSpace(command)) {
-	case commands.Start, commands.Continue, commands.Reconcile:
+	case commands.Start, commands.Continue, commands.Reconcile, commands.Complete:
 		return true
 	default:
 		return false

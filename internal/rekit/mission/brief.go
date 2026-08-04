@@ -1091,7 +1091,7 @@ func missionCommanderNextActionIsIdleGuidance(item MissionCommanderNextActionIte
 }
 
 func missionCommanderNextActionIsActiveProjectWork(item MissionCommanderNextActionItem) bool {
-	return strings.HasPrefix(item.Source, "executionEvidenceReview") || strings.HasPrefix(item.Source, "reviewerDispatch") || strings.HasPrefix(item.Source, "reviewerPacket") || strings.HasPrefix(item.Source, "packMemoryCandidates") || strings.HasPrefix(item.Source, "adapterReport")
+	return strings.HasPrefix(item.Source, "executionEvidenceReview") || strings.HasPrefix(item.Source, "reviewerDispatch") || strings.HasPrefix(item.Source, "reviewerPacket") || strings.HasPrefix(item.Source, "packMemoryCandidates") || strings.HasPrefix(item.Source, "adapterReport") || strings.HasPrefix(item.Source, "laneCompletion")
 }
 
 func missionCommanderNextActionIsBoundedLanePrimary(item MissionCommanderNextActionItem) bool {

@@ -230,6 +230,16 @@ try {
     Assert-ContainsText -Text $capturedExternalRelayArgs -Expected $expectedExternalRelayArg -Label 'external session relay facade args'
   }
   Assert-NotContainsText -Text $capturedExternalRelayArgs -Unexpected '-MaxSteps' -Label 'external session relay derives checkpoint identity in Go'
+  $externalTurnPlanHash = 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
+  $externalTurnCapturePath = Join-Path $matrixRoot 'run-current-loop-external-turn-args.txt'
+  Write-CapturingFakeGoBackend -Path $fakeGo -CapturePath $externalTurnCapturePath
+  $externalTurnOut = Invoke-RekitSmoke -Arguments @('-Command','run-current-loop','-Target',$CaseRoot,'-Pack',$Pack,'-ResumeCurrentLoop','-ExpectedCurrentLoopCheckpointSha256',$currentLoopCheckpointHash,'-AdvanceExternalSessionResult','-ExpectedExternalSessionJobSha256',$externalJobHash,'-ExpectedExternalSessionSubmissionSha256',$externalSubmissionHash,'-ExpectedExternalSessionRelayPlanSha256',$externalRelayPlanHash,'-ExpectedExternalSessionTurnPlanSha256',$externalTurnPlanHash,'-Apply','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $externalTurnOut -Expected '"delegatedByFake":true' -Label 'default external session turn fake delegation'
+  $capturedExternalTurnArgs = [System.IO.File]::ReadAllText($externalTurnCapturePath, [System.Text.Encoding]::Default)
+  foreach ($expectedExternalTurnArg in @('-ResumeCurrentLoop','-AdvanceExternalSessionResult',"-ExpectedCurrentLoopCheckpointSha256 $currentLoopCheckpointHash","-ExpectedExternalSessionJobSha256 $externalJobHash","-ExpectedExternalSessionSubmissionSha256 $externalSubmissionHash","-ExpectedExternalSessionRelayPlanSha256 $externalRelayPlanHash","-ExpectedExternalSessionTurnPlanSha256 $externalTurnPlanHash",'-Apply','-Format json')) {
+    Assert-ContainsText -Text $capturedExternalTurnArgs -Expected $expectedExternalTurnArg -Label 'external session turn facade args'
+  }
+  Assert-NotContainsText -Text $capturedExternalTurnArgs -Unexpected '-MaxSteps' -Label 'external session turn derives checkpoint identity in Go'
   $currentLoopDisabledOut = Invoke-RekitSmoke -Arguments @('-Command','run-current-loop','-Target',$CaseRoot,'-Pack',$Pack,'-MaxSteps','3','-WhatIf','-Format','json') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
   Assert-ContainsText -Text $currentLoopDisabledOut -Expected 'PowerShell fallback has been retired' -Label 'disabled run-current-loop no-fallback remains retired'
   Assert-FakeDefaultDelegation -Arguments @('-Command','run-current-step','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'run-current-step' -Label 'default run-current-step preview fake delegation'

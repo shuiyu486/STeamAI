@@ -105,6 +105,10 @@ func TestRunLaneCompletionProductPathRoutesNextLaneAndMissionComplete(t *testing
 	if status.CaseMission.DailyMissionControlRunbook == nil || status.CaseMission.DailyMissionControlRunbook.CurrentDriverRequest != nil || status.CaseMission.DailyMissionControlRunbook.Ready {
 		t.Fatalf("mission-complete case runbook must not suggest continue or bootstrap: %+v", status.CaseMission.DailyMissionControlRunbook)
 	}
+	terminalLoop := runCurrentLoopPreview(t, caseRoot, 2)
+	if terminalLoop.ExpectedCurrentLoopPlanSHA256 != "" || terminalLoop.StopReason.Code != "mission-complete" || terminalLoop.StopReason.Phase != "status" || terminalLoop.InitialCurrentDriverRequest != nil || terminalLoop.ApplyCommand != "" {
+		t.Fatalf("mission-complete did not stop the bounded loop without an executable request: %+v", terminalLoop)
+	}
 	beforeTerminalStart := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 	if err := Run([]string{"-Command", "start", "later", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-Format", "json"}, &out); err == nil || !strings.Contains(err.Error(), "start refuses mission-complete case") {
 		t.Fatalf("ordinary start must not reactivate a terminal mission, err=%v", err)
