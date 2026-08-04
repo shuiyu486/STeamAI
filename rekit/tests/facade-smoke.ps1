@@ -218,6 +218,18 @@ try {
     Assert-ContainsText -Text $capturedCurrentLoopResumeArgs -Expected $expectedCurrentLoopResumeArg -Label 'run-current-loop resume facade args'
   }
   Assert-NotContainsText -Text $capturedCurrentLoopResumeArgs -Unexpected '-MaxSteps' -Label 'run-current-loop resume derives budget in Go'
+  $externalJobHash = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+  $externalSubmissionHash = 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'
+  $externalRelayPlanHash = 'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd'
+  $externalRelayCapturePath = Join-Path $matrixRoot 'run-current-loop-relay-args.txt'
+  Write-CapturingFakeGoBackend -Path $fakeGo -CapturePath $externalRelayCapturePath
+  $externalRelayOut = Invoke-RekitSmoke -Arguments @('-Command','run-current-loop','-Target',$CaseRoot,'-Pack',$Pack,'-ResumeCurrentLoop','-ExpectedCurrentLoopCheckpointSha256',$currentLoopCheckpointHash,'-RelayExternalSessionSubmission','-ExpectedExternalSessionJobSha256',$externalJobHash,'-ExpectedExternalSessionSubmissionSha256',$externalSubmissionHash,'-ExpectedExternalSessionRelayPlanSha256',$externalRelayPlanHash,'-Apply','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $externalRelayOut -Expected '"delegatedByFake":true' -Label 'default external session relay fake delegation'
+  $capturedExternalRelayArgs = [System.IO.File]::ReadAllText($externalRelayCapturePath, [System.Text.Encoding]::Default)
+  foreach ($expectedExternalRelayArg in @('-ResumeCurrentLoop','-RelayExternalSessionSubmission',"-ExpectedCurrentLoopCheckpointSha256 $currentLoopCheckpointHash","-ExpectedExternalSessionJobSha256 $externalJobHash","-ExpectedExternalSessionSubmissionSha256 $externalSubmissionHash","-ExpectedExternalSessionRelayPlanSha256 $externalRelayPlanHash",'-Apply','-Format json')) {
+    Assert-ContainsText -Text $capturedExternalRelayArgs -Expected $expectedExternalRelayArg -Label 'external session relay facade args'
+  }
+  Assert-NotContainsText -Text $capturedExternalRelayArgs -Unexpected '-MaxSteps' -Label 'external session relay derives checkpoint identity in Go'
   $currentLoopDisabledOut = Invoke-RekitSmoke -Arguments @('-Command','run-current-loop','-Target',$CaseRoot,'-Pack',$Pack,'-MaxSteps','3','-WhatIf','-Format','json') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
   Assert-ContainsText -Text $currentLoopDisabledOut -Expected 'PowerShell fallback has been retired' -Label 'disabled run-current-loop no-fallback remains retired'
   Assert-FakeDefaultDelegation -Arguments @('-Command','run-current-step','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'run-current-step' -Label 'default run-current-step preview fake delegation'

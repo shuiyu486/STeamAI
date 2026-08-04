@@ -3,6 +3,7 @@ package fs
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -79,6 +80,87 @@ func TestListRegularFilesAnchoredRejectsInvalidNamespaceEntries(t *testing.T) {
 	}
 	if _, err := ListRegularFilesAnchored(caseRoot, ".rekit/external-session-observations/inbox", "observation inbox", 16); err == nil {
 		t.Fatal("anchored listing accepted a nested directory")
+	}
+}
+
+func TestWriteExclusiveRegularFileAnchoredPublishesOrReplaysExactBytes(t *testing.T) {
+	caseRoot := t.TempDir()
+	rel := ".rekit/external-session-relays/job-a/publication.json"
+	data := []byte("{\"ready\":true}\n")
+	replayed, err := WriteExclusiveRegularFileAnchored(caseRoot, rel, "relay receipt", data)
+	if err != nil || replayed {
+		t.Fatalf("first publication replayed=%t err=%v", replayed, err)
+	}
+	path := filepath.Join(caseRoot, filepath.FromSlash(rel))
+	if got, err := os.ReadFile(path); err != nil || string(got) != string(data) {
+		t.Fatalf("published bytes=%q err=%v", got, err)
+	}
+	replayed, err = WriteExclusiveRegularFileAnchored(caseRoot, rel, "relay receipt", data)
+	if err != nil || !replayed {
+		t.Fatalf("exact replay replayed=%t err=%v", replayed, err)
+	}
+	if _, err := WriteExclusiveRegularFileAnchored(caseRoot, rel, "relay receipt", []byte("different\n")); err == nil {
+		t.Fatal("exclusive publication accepted different existing bytes")
+	}
+}
+
+func TestWriteExclusiveRegularFileAnchoredConcurrentExactReplay(t *testing.T) {
+	caseRoot := t.TempDir()
+	rel := ".rekit/external-session-relays/job-a/publication.json"
+	data := []byte("{\"ready\":true}\n")
+	const writers = 8
+	var wg sync.WaitGroup
+	type outcome struct {
+		replayed bool
+		err      error
+	}
+	results := make(chan outcome, writers)
+	for range writers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			replayed, err := WriteExclusiveRegularFileAnchored(caseRoot, rel, "relay receipt", data)
+			results <- outcome{replayed: replayed, err: err}
+		}()
+	}
+	wg.Wait()
+	close(results)
+	created := 0
+	replayed := 0
+	for result := range results {
+		if result.err != nil {
+			t.Fatal(result.err)
+		}
+		if result.replayed {
+			replayed++
+		} else {
+			created++
+		}
+	}
+	if created != 1 || replayed != writers-1 {
+		t.Fatalf("created=%d replayed=%d", created, replayed)
+	}
+}
+
+func TestWalkRegularFilesAnchoredRejectsEmptyDirectoriesAndLimit(t *testing.T) {
+	caseRoot := t.TempDir()
+	root := filepath.Join(caseRoot, ".rekit", "external-session-jobs", "job-a", "outputs")
+	if err := os.MkdirAll(filepath.Join(root, "empty"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WalkRegularFilesAnchored(caseRoot, ".rekit/external-session-jobs/job-a/outputs", "outputs", 4); err == nil {
+		t.Fatal("walk accepted empty nested directory")
+	}
+	if err := os.Remove(filepath.Join(root, "empty")); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"a.txt", "b.txt"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(name), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := WalkRegularFilesAnchored(caseRoot, ".rekit/external-session-jobs/job-a/outputs", "outputs", 1); err == nil {
+		t.Fatal("walk accepted more files than limit")
 	}
 }
 

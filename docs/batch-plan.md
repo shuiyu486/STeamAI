@@ -31,6 +31,19 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 
 
+
+### Batch 814：unified external session job and review-first observation publisher
+
+状态：已完成。
+
+目标：让外部member/reviewer harness直接消费fresh status派生的统一typed `externalSessionJob`，按result-first/submission-last contract提交真实结果；Go-native review-first relay/publisher自动生成member manifest、canonical reviewer relay source、publication receipt和Batch 813-compatible observation envelope，使replacement executor不再手工拼严格envelope、hash/bytes manifest或临时reviewer source。
+
+实现：`externalSessionJob`精确绑定latest ready checkpoint、member attempt+owner generation或reviewer attempt+packet/route/shard、allowed outcomes和canonical submission/result/publication/inbox paths。`run-current-loop -RelayExternalSessionSubmission`复用现有public command：WhatIf严格解码submission并读取bounded symlink-free sources，绑定exact job/submission/source/destination/relay-plan hashes并返回Apply命令；Apply重建计划后通过case-root pinned no-follow/reparse-safe exclusive writes按outputs/result→generated manifest/source→publication receipt→inbox envelope顺序发布，支持exact-prefix recovery与committed replay。Status precedence保持unique inbox最高、submission-ready relay其次、awaiting submission保留旧handoff；invalid submission或ambiguous/invalid inbox撤销executable request。Apply返回refreshed status及唯一inbox selected request；quickstart、replacement takeover、text和durable Markdown消费同一typed package。
+
+边界：relay不claim或消费checkpoint，不记录session lifecycle observation，不继续current loop；真实session仍由external harness管理。Runtime不spawn/poll/stop session、不调用shell/Agent tool、不执行heavy-tool、不写authority/confirmed。PowerShell façade只做四个relay flags的safe delegation/逐字透传，public command surface保持30；legacy Batch 812/813 envelope与member/reviewer handoff继续兼容。
+
+验证结果：focused `fs/externalsession/mission/workstream`、member/reviewer临时case CLI E2E、完整CLI回归（197.479秒）和façade smoke通过；最终完整`go test ./... -count=1`通过（CLI 200.342秒），`go vet ./...`、`status`、10-pack `packs`、`doctor`（canonical skill 32441/32768 bytes）与`git diff --check`通过。独立correctness/security/architecture审查无高置信Critical/Important。完成态`release-check -Format json`返回`ready=true` / `summary=release gate inventory ok`；普通batch不等待或声明remote CI green。
+
 ### Batch 813：canonical external session observation inbox discovery and one-shot checkpoint resume handoff
 
 状态：已完成。
@@ -42,18 +55,6 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 边界：inbox discovery只读，不删除/移动文件、不claim checkpoint、不自动Apply；source checkpoint one-shot claim阻断replay。Runtime不spawn/poll/stop外部session、不执行heavy-tool、不写authority/confirmed；不新增PowerShell runtime logic，旧Batch 812 checkpoint schema保持兼容。
 
 验证结果：focused regressions覆盖unique discovery、path-only preview、hash-bound Apply、processed receipt、fresh status recovery、stale/ambiguous/invalid fail-closed、anchored directory enumeration、旧legacy resume与member/reviewer campaign；受影响`fs/currentloop/mission/workstream/cli`包与完整`go test ./... -count=1`通过（CLI 347.100秒），`go vet ./...`、`status`、`packs`、`doctor`和`git diff --check`通过。独立correctness/security审查发现的exact attempt qualification、legacy template参数互斥、typed receipt完整性与Apply前唯一性重检问题均已关闭，终复核无高置信Critical/Important。完成态`release-check -Format json`返回`ready=true` / `summary=release gate inventory ok`；普通batch不等待或声明remote CI green。
-
-### Batch 812：unified external session observation envelope intake for checkpoint-bound campaign resume
-
-状态：已完成。
-
-目标：让外部member/reviewer harness只写一次case-local strict observation envelope，Mission Commander或replacement executor即可从durable status/handoff执行checkpoint-bound WhatIf与hash-bound Apply，不再手工拼装attempt、actor和多组observation flags。
-
-实现：Status、quickstart、replacement takeover、handoff JSON/Markdown/text为member/reviewer accepted/returned/failed alternatives返回绑定exact checkpoint与attempt的`observationEnvelopeTemplate`和统一`observationPathCommand`。`run-current-loop -CurrentLoopObservationPath`以case-local、symlink-free、≤64 KiB stable read和strict JSON intake一次observation；WhatIf把absolute path与exact bytes SHA纳入outer plan identity并返回path-only Apply，Apply在resume claim前和nested mutation前重读同一文件。Envelope展开后复用既有member/reviewer runner，并重新验证member owner/state/capability与reviewer attempt currentness；successor checkpoint把observation path/SHA纳入可重算segment identity。Legacy flags仍兼容，但不能与envelope或`-Actor`混用。PowerShell façade只透传path/hash，不解析envelope。
-
-边界：Go runtime不spawn/poll/stop member或reviewer session，不执行heavy-tool、不写authority/confirmed；direct reviewer result write保持既有fresh refresh路径，不用predecessor envelope；不放宽member manifest/output、reviewer result、checkpoint one-shot/currentness或lane owner generation guards，不新增PowerShell runtime logic。
-
-验证结果：focused `currentloop/cli/workstream`回归、member accepted/returned E2E、reviewer accepted/returned/failed campaign E2E、strict unknown/trailing/oversize/outside-case与参数互斥、exact-byte drift、checkpoint identity tamper、status/handoff projections及PowerShell façade smoke通过。受影响四包完整测试通过（CLI 195.179秒）；修复审查项后完整`go test ./... -count=1`通过（CLI 193.498秒），`go vet ./...`、`status`、10-pack `packs`、`doctor`、façade smoke与`git diff --check`通过。独立correctness/security审查确认祖先目录namespace TOCTOU与claim后reopen烧毁remaining budget两项Important；改用pinned `os.Root` anchored no-follow/reparse-safe reader，并让claim后只消费已审核immutable materialization，定向复核确认两项关闭且无新的高置信Critical/Important。完成态`release-check -Format json`返回`ready=true` / `summary=release gate inventory ok`；implementation commit/push待统一记录，普通batch不等待或声明remote CI green。
 
 ## 活动文档维护规则
 

@@ -322,6 +322,49 @@ type CurrentLoopExternalMemberHandoff struct {
 	Boundary            []string                       `json:"boundary"`
 }
 
+type CurrentLoopExternalSessionJobOwner struct {
+	Lane               string `json:"lane"`
+	Executor           string `json:"executor"`
+	ExecutorGeneration int    `json:"executorGeneration"`
+}
+
+type CurrentLoopExternalSessionJobReviewer struct {
+	AttemptSHA256 string `json:"attemptSha256"`
+	PacketID      string `json:"packetId"`
+	RouteID       string `json:"routeId"`
+	ShardID       string `json:"shardId"`
+}
+
+type CurrentLoopExternalSessionJob struct {
+	SchemaVersion       int                                    `json:"schemaVersion"`
+	Kind                string                                 `json:"kind"`
+	JobID               string                                 `json:"jobId"`
+	JobSHA256           string                                 `json:"jobSha256"`
+	State               string                                 `json:"state"`
+	SessionKind         string                                 `json:"sessionKind"`
+	CheckpointSHA256    string                                 `json:"checkpointSha256"`
+	AllowedOutcomes     []string                               `json:"allowedOutcomes"`
+	SubmissionPath      string                                 `json:"submissionPath"`
+	SubmissionOutputs   string                                 `json:"submissionOutputs,omitempty"`
+	SubmissionResult    string                                 `json:"submissionResult,omitempty"`
+	MemberAttemptID     string                                 `json:"memberAttemptId,omitempty"`
+	MemberOwner         *CurrentLoopExternalSessionJobOwner    `json:"memberOwner,omitempty"`
+	MemberManifestPath  string                                 `json:"memberManifestPath,omitempty"`
+	MemberOutputsRoot   string                                 `json:"memberOutputsRoot,omitempty"`
+	Reviewer            *CurrentLoopExternalSessionJobReviewer `json:"reviewer,omitempty"`
+	RelayResultPath     string                                 `json:"relayResultPath,omitempty"`
+	PublicationPath     string                                 `json:"publicationPath"`
+	ObservationPath     string                                 `json:"observationPath"`
+	SubmissionSHA256    string                                 `json:"submissionSha256,omitempty"`
+	RelayPreviewRequest *MissionCommanderDriverRequest         `json:"relayPreviewRequest,omitempty"`
+	Warnings            []string                               `json:"warnings,omitempty"`
+	SubmissionLast      bool                                   `json:"submissionLast"`
+	NoSessionManagement bool                                   `json:"noSessionManagement"`
+	NoHeavyTool         bool                                   `json:"noHeavyTool"`
+	NoAuthority         bool                                   `json:"noAuthority"`
+	NoConfirmed         bool                                   `json:"noConfirmed"`
+}
+
 type CurrentLoopOperatorPackage struct {
 	Ready                      bool                                `json:"ready"`
 	State                      string                              `json:"state"`
@@ -337,6 +380,7 @@ type CurrentLoopOperatorPackage struct {
 	ResumeDriverRequest        *MissionCommanderDriverRequest      `json:"resumeDriverRequest,omitempty"`
 	ObservationInbox           *CurrentLoopObservationInbox        `json:"observationInbox,omitempty"`
 	ObservationReceipt         *CurrentLoopObservationReceipt      `json:"observationReceipt,omitempty"`
+	ExternalSessionJob         *CurrentLoopExternalSessionJob      `json:"externalSessionJob,omitempty"`
 	ExternalMemberHandoff      *CurrentLoopExternalMemberHandoff   `json:"externalMemberHandoff,omitempty"`
 	ExternalReviewerHandoff    *CurrentLoopExternalReviewerHandoff `json:"externalReviewerHandoff,omitempty"`
 	RunbookSteps               []string                            `json:"runbookSteps"`

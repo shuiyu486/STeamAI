@@ -118,6 +118,12 @@ func runCurrentLoop(ctx runtime.Context, opt Options, out io.Writer) error {
 	if !ctx.TargetProvided {
 		return fmt.Errorf("run-current-loop requires -Target for an attached case")
 	}
+	if opt.RelayExternalSessionSubmission {
+		return runCurrentLoopExternalSessionRelay(ctx, opt, out)
+	}
+	if strings.TrimSpace(opt.ExpectedExternalSessionJobSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionSubmissionSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionRelayPlanSHA256) != "" {
+		return fmt.Errorf("external session relay hashes require -RelayExternalSessionSubmission")
+	}
 	if opt.WhatIf && opt.Apply {
 		return fmt.Errorf("run-current-loop cannot combine -WhatIf and -Apply")
 	}
@@ -1055,6 +1061,9 @@ func validateCurrentLoopOuterArgs(opt Options) error {
 		"-expectedcurrentloopreviewerattemptsha256": true, "--expected-current-loop-reviewer-attempt-sha256": true,
 		"-currentloopobservationpath": true, "--current-loop-observation-path": true,
 		"-expectedcurrentloopobservationsha256": true, "--expected-current-loop-observation-sha256": true,
+		"-expectedexternalsessionjobsha256": true, "--expected-external-session-job-sha256": true,
+		"-expectedexternalsessionsubmissionsha256": true, "--expected-external-session-submission-sha256": true,
+		"-expectedexternalsessionrelayplansha256": true, "--expected-external-session-relay-plan-sha256": true,
 		"-actor": true, "--actor": true,
 		"-expectedmemberexecutionplansha256": true, "--expected-member-execution-plan-sha256": true,
 		"-memberexecutionattemptid": true, "--member-execution-attempt-id": true,
@@ -1071,6 +1080,7 @@ func validateCurrentLoopOuterArgs(opt Options) error {
 		"-whatif": true, "--what-if": true,
 		"-apply": true, "--apply": true,
 		"-resumecurrentloop": true, "--resume-current-loop": true,
+		"-relayexternalsessionsubmission": true, "--relay-external-session-submission": true,
 	}
 	seen := map[string]bool{}
 	separatorSeen := false
@@ -1133,6 +1143,14 @@ func currentLoopCanonicalOuterFlag(key string) string {
 		return "-expectedcurrentloopobservationsha256"
 	case "--resume-current-loop":
 		return "-resumecurrentloop"
+	case "--relay-external-session-submission":
+		return "-relayexternalsessionsubmission"
+	case "--expected-external-session-job-sha256":
+		return "-expectedexternalsessionjobsha256"
+	case "--expected-external-session-submission-sha256":
+		return "-expectedexternalsessionsubmissionsha256"
+	case "--expected-external-session-relay-plan-sha256":
+		return "-expectedexternalsessionrelayplansha256"
 	case "--what-if":
 		return "-whatif"
 	case "--apply":

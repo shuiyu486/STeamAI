@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/currentloop"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/externalsession"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
@@ -423,7 +424,14 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		t.Fatalf("status current-loop operator did not package the reviewer result closure: %+v", resultOperator)
 	}
 	resultAttempt := resultOperator.ExternalReviewerHandoff.Attempt
-	if resultAttempt == nil || resultAttempt.AttemptID == spawnAttempt.AttemptID || resultAttempt.AttemptSnapshotSHA256 == spawnAttempt.AttemptSnapshotSHA256 || resultAttempt.RunLoopStepID != "save-result-input" || resultAttempt.SelectedAction.Kind != "observe-reviewer-terminal-state" || resultAttempt.Receipt.DispatchID == "" || resultAttempt.Receipt.Harness != "go-cli-test-harness" || resultAttempt.Receipt.Session != "reviewer-session-runner" || resultAttempt.Receipt.SessionLifecycleState == "" || resultAttempt.DurableContinuationDriverRequest == nil || !strings.Contains(resultAttempt.DurableContinuationDriverRequest.Command, dispatchApplied.SegmentCheckpoint.ArtifactSHA256) {
+	if resultAttempt == nil {
+		t.Fatal("status omitted current reviewer attempt")
+	}
+	resultJob := resultOperator.ExternalSessionJob
+	if resultJob == nil || resultJob.State != "awaiting-submission" || resultJob.SessionKind != "reviewer" || resultJob.Reviewer == nil || resultJob.Reviewer.AttemptSHA256 != resultAttempt.AttemptSnapshotSHA256 || resultJob.Reviewer.PacketID != resultAttempt.Identity.PacketID || resultJob.SubmissionResult == "" || resultJob.JobSHA256 == "" || !resultJob.SubmissionLast {
+		t.Fatalf("status omitted typed external reviewer job: %+v", resultJob)
+	}
+	if resultAttempt.AttemptID == spawnAttempt.AttemptID || resultAttempt.AttemptSnapshotSHA256 == spawnAttempt.AttemptSnapshotSHA256 || resultAttempt.RunLoopStepID != "save-result-input" || resultAttempt.SelectedAction.Kind != "observe-reviewer-terminal-state" || resultAttempt.Receipt.DispatchID == "" || resultAttempt.Receipt.Harness != "go-cli-test-harness" || resultAttempt.Receipt.Session != "reviewer-session-runner" || resultAttempt.Receipt.SessionLifecycleState == "" || resultAttempt.DurableContinuationDriverRequest == nil || !strings.Contains(resultAttempt.DurableContinuationDriverRequest.Command, dispatchApplied.SegmentCheckpoint.ArtifactSHA256) {
 		t.Fatalf("checkpoint reviewer attempt did not preserve lifecycle identity: spawn=%+v result=%+v", spawnAttempt, resultAttempt)
 	}
 	if resultAttempt.SelectedAction.ObservationContract.Alternatives[0].Transition != "refresh-status:record-completion" || resultAttempt.SelectedAction.ObservationContract.Alternatives[1].Transition != "refresh-status:spawn-reviewer" {
@@ -447,6 +455,56 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(evidencePath, []byte("bounded current-loop reviewer evidence\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	reviewerSubmissionResult := reviewerResultForCLIPlan(t, plan, handoff, "accept", "accepted", "reviewer-session-runner")
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(caseRoot, filepath.FromSlash(resultJob.SubmissionResult))), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caseRoot, filepath.FromSlash(resultJob.SubmissionResult)), reviewerSubmissionResult, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reviewerSubmission := map[string]any{
+		"schemaVersion": 1, "kind": "current-loop-external-session-submission", "jobId": resultJob.JobID, "jobSha256": resultJob.JobSHA256,
+		"outcome": "returned", "actor": "go-cli-test-harness", "reviewerSession": "reviewer-session-runner", "noAuthorityOrConfirmed": true, "noHeavyTool": true,
+	}
+	reviewerSubmissionData, _ := json.MarshalIndent(reviewerSubmission, "", "  ")
+	if err := os.WriteFile(filepath.Join(caseRoot, filepath.FromSlash(resultJob.SubmissionPath)), append(reviewerSubmissionData, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var reviewerRelayStatusOut bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &reviewerRelayStatusOut); err != nil {
+		t.Fatal(err)
+	}
+	var reviewerRelayStatus statusInventory
+	if err := json.Unmarshal(reviewerRelayStatusOut.Bytes(), &reviewerRelayStatus); err != nil {
+		t.Fatal(err)
+	}
+	reviewerRelayOperator := reviewerRelayStatus.MissionControlRunbook.CurrentLoopOperator
+	if reviewerRelayOperator.ExternalSessionJob == nil || reviewerRelayOperator.ExternalSessionJob.State != "submission-ready" || reviewerRelayOperator.SelectedDriverRequest == nil || !strings.Contains(reviewerRelayOperator.SelectedDriverRequest.Command, "-RelayExternalSessionSubmission") {
+		t.Fatalf("status did not select reviewer relay preview: %+v", reviewerRelayOperator)
+	}
+	var reviewerRelayPreview externalsession.Plan
+	reviewerRelayStatusOut.Reset()
+	if err := Run(rekitCommandCLIArgs(t, reviewerRelayOperator.SelectedDriverRequest.Command), &reviewerRelayStatusOut); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(reviewerRelayStatusOut.Bytes(), &reviewerRelayPreview); err != nil || reviewerRelayPreview.ApplyCommand == "" {
+		t.Fatalf("reviewer relay preview=%+v err=%v", reviewerRelayPreview, err)
+	}
+	var reviewerRelayApplied currentLoopExternalSessionRelayResult
+	reviewerRelayStatusOut.Reset()
+	if err := Run(rekitCommandCLIArgs(t, reviewerRelayPreview.ApplyCommand), &reviewerRelayStatusOut); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(reviewerRelayStatusOut.Bytes(), &reviewerRelayApplied); err != nil || !reviewerRelayApplied.Applied || reviewerRelayApplied.RefreshedStatus == nil || reviewerRelayApplied.RefreshedStatus.MissionControlRunbook.CurrentLoopOperator.ObservationInbox.State != "ready" {
+		t.Fatalf("reviewer relay apply=%+v err=%v output=%s", reviewerRelayApplied, err, reviewerRelayStatusOut.String())
+	}
+	if got, err := os.ReadFile(filepath.Join(caseRoot, filepath.FromSlash(resultJob.RelayResultPath))); err != nil || !bytes.Equal(got, reviewerSubmissionResult) {
+		t.Fatalf("reviewer relay source bytes drifted: %v", err)
+	}
+	if err := os.Remove(filepath.Join(caseRoot, filepath.FromSlash(resultJob.ObservationPath))); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1282,6 +1340,63 @@ func TestRunCurrentLoopMemberExecutionCheckpoint(t *testing.T) {
 	operator := durableStatus.MissionControlRunbook.CurrentLoopOperator
 	if operator == nil || operator.ExternalMemberHandoff == nil || operator.SelectedDriverRequest == nil || operator.SelectedDriverRequest.Command == "" {
 		t.Fatalf("status omitted durable member current-loop operator handoff: %+v", operator)
+	}
+	job := operator.ExternalSessionJob
+	if job == nil || job.State != "awaiting-submission" || job.SessionKind != "member" || job.MemberAttemptID != memberPlan.AttemptID || job.MemberOwner == nil || job.MemberOwner.Executor != "loop-member" || job.MemberOwner.ExecutorGeneration != 1 || job.JobSHA256 == "" || job.SubmissionPath == "" || job.SubmissionOutputs == "" || !job.SubmissionLast {
+		t.Fatalf("status omitted typed external member job: %+v", job)
+	}
+	jobRoot := filepath.Join(caseRoot, filepath.Dir(filepath.FromSlash(job.SubmissionPath)))
+	if err := os.MkdirAll(filepath.Join(jobRoot, "outputs"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(jobRoot, "outputs", "result.txt"), []byte("member relay result\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	submission := map[string]any{
+		"schemaVersion": 1, "kind": "current-loop-external-session-submission", "jobId": job.JobID, "jobSha256": job.JobSHA256,
+		"outcome": "returned", "actor": "external-harness", "observedAt": "2026-08-03T03:00:30Z", "summary": "member returned via relay", "noAuthorityOrConfirmed": true, "noHeavyTool": true,
+	}
+	submissionData, _ := json.MarshalIndent(submission, "", "  ")
+	if err := os.WriteFile(filepath.Join(caseRoot, filepath.FromSlash(job.SubmissionPath)), append(submissionData, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var relayStatusOut bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &relayStatusOut); err != nil {
+		t.Fatal(err)
+	}
+	var relayStatus statusInventory
+	if err := json.Unmarshal(relayStatusOut.Bytes(), &relayStatus); err != nil {
+		t.Fatal(err)
+	}
+	relayOperator := relayStatus.MissionControlRunbook.CurrentLoopOperator
+	if relayOperator.ExternalSessionJob == nil || relayOperator.ExternalSessionJob.State != "submission-ready" || relayOperator.SelectedDriverRequest == nil || !strings.Contains(relayOperator.SelectedDriverRequest.Command, "-RelayExternalSessionSubmission") {
+		t.Fatalf("status did not select external session relay preview: %+v", relayOperator)
+	}
+	var relayPreview externalsession.Plan
+	relayStatusOut.Reset()
+	if err := Run(rekitCommandCLIArgs(t, relayOperator.SelectedDriverRequest.Command), &relayStatusOut); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(relayStatusOut.Bytes(), &relayPreview); err != nil || relayPreview.ApplyCommand == "" || relayPreview.ExpectedPlanSHA256 == "" {
+		t.Fatalf("relay preview=%+v err=%v output=%s", relayPreview, err, relayStatusOut.String())
+	}
+	var relayApplied currentLoopExternalSessionRelayResult
+	relayStatusOut.Reset()
+	if err := Run(rekitCommandCLIArgs(t, relayPreview.ApplyCommand), &relayStatusOut); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(relayStatusOut.Bytes(), &relayApplied); err != nil || !relayApplied.Applied || relayApplied.RefreshedStatus == nil || relayApplied.RefreshedStatus.MissionControlRunbook.CurrentLoopOperator.ObservationInbox.State != "ready" {
+		t.Fatalf("relay apply=%+v err=%v output=%s", relayApplied, err, relayStatusOut.String())
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, filepath.FromSlash(job.MemberManifestPath))); err != nil {
+		t.Fatalf("relay did not generate member manifest: %v", err)
+	}
+	relayObservationPath := filepath.Join(caseRoot, filepath.FromSlash(job.ObservationPath))
+	if _, err := os.Stat(relayObservationPath); err != nil {
+		t.Fatalf("relay did not publish observation inbox envelope: %v", err)
+	}
+	if err := os.Remove(relayObservationPath); err != nil {
+		t.Fatal(err)
 	}
 	for _, alternative := range operator.ExternalMemberHandoff.ObservationContract.Alternatives {
 		if !strings.Contains(alternative.PreviewCommandTemplate, "-ResumeCurrentLoop") || !strings.Contains(alternative.PreviewCommandTemplate, applied.SegmentCheckpoint.ArtifactSHA256) || !strings.Contains(alternative.PreviewCommandTemplate, memberPlan.AttemptID) {

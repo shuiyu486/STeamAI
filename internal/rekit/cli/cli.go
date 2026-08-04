@@ -144,6 +144,10 @@ type Options struct {
 	CurrentLoopObservationPath               string
 	ExpectedCurrentLoopObservationSHA256     string
 	ResumeCurrentLoop                        bool
+	RelayExternalSessionSubmission           bool
+	ExpectedExternalSessionJobSHA256         string
+	ExpectedExternalSessionSubmissionSHA256  string
+	ExpectedExternalSessionRelayPlanSHA256   string
 	ExpectedCurrentStepPlanSHA256            string
 	ExpectedMemberExecutionPlanSHA256        string
 	MemberExecutionAttemptID                 string
@@ -496,6 +500,26 @@ func Parse(args []string) (Options, error) {
 			opt.ExpectedCurrentLoopObservationSHA256 = args[i]
 		case "-ResumeCurrentLoop", "--resume-current-loop":
 			opt.ResumeCurrentLoop = true
+		case "-RelayExternalSessionSubmission", "--relay-external-session-submission":
+			opt.RelayExternalSessionSubmission = true
+		case "-ExpectedExternalSessionJobSha256", "-ExpectedExternalSessionJobSHA256", "--expected-external-session-job-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedExternalSessionJobSha256")
+			}
+			opt.ExpectedExternalSessionJobSHA256 = args[i]
+		case "-ExpectedExternalSessionSubmissionSha256", "-ExpectedExternalSessionSubmissionSHA256", "--expected-external-session-submission-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedExternalSessionSubmissionSha256")
+			}
+			opt.ExpectedExternalSessionSubmissionSHA256 = args[i]
+		case "-ExpectedExternalSessionRelayPlanSha256", "-ExpectedExternalSessionRelayPlanSHA256", "--expected-external-session-relay-plan-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedExternalSessionRelayPlanSha256")
+			}
+			opt.ExpectedExternalSessionRelayPlanSHA256 = args[i]
 		case "-ExpectedCurrentStepPlanSha256", "-ExpectedCurrentStepPlanSHA256", "--expected-current-step-plan-sha256":
 			i++
 			if i >= len(args) {
@@ -1168,7 +1192,7 @@ func Run(args []string, stdout io.Writer) error {
 	if (strings.TrimSpace(opt.Reopen.ExpectedPreviewSHA256) != "" || strings.TrimSpace(opt.Reopen.PublicationStamp) != "") && opt.Command != commands.Reopen {
 		return fmt.Errorf("reopen publication flags are supported only by reopen")
 	}
-	if (opt.MaxSteps != 0 || strings.TrimSpace(opt.ExpectedCurrentLoopPlanSHA256) != "" || strings.TrimSpace(opt.ExpectedCurrentLoopReviewerAttemptSHA256) != "" || strings.TrimSpace(opt.CurrentLoopObservationPath) != "" || strings.TrimSpace(opt.ExpectedCurrentLoopObservationSHA256) != "") && opt.Command != commands.RunCurrentLoop {
+	if (opt.MaxSteps != 0 || strings.TrimSpace(opt.ExpectedCurrentLoopPlanSHA256) != "" || strings.TrimSpace(opt.ExpectedCurrentLoopReviewerAttemptSHA256) != "" || strings.TrimSpace(opt.CurrentLoopObservationPath) != "" || strings.TrimSpace(opt.ExpectedCurrentLoopObservationSHA256) != "" || opt.RelayExternalSessionSubmission || strings.TrimSpace(opt.ExpectedExternalSessionJobSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionSubmissionSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionRelayPlanSHA256) != "") && opt.Command != commands.RunCurrentLoop {
 		return fmt.Errorf("current loop flags are supported only by run-current-loop")
 	}
 	if strings.TrimSpace(opt.ExpectedCurrentStepPlanSHA256) != "" && opt.Command != commands.RunCurrentStep {
@@ -4580,6 +4604,7 @@ func statusCurrentLoopOperatorPackage(target string, caseMission *statusCaseMiss
 			pkg.ExternalMemberHandoff = currentLoopExternalMemberHandoff(runtime.Context{Target: target, Pack: pkg.Pack}, memberInspection, legacyObservationRequest)
 		}
 	}
+	bindExternalSessionJob(target, pkg, inspection)
 	return pkg
 }
 
@@ -6286,6 +6311,19 @@ func writeCurrentLoopOperatorPackageText(out io.Writer, prefix string, pkg *miss
 	}
 	if err := writeMissionCommanderDriverRequestText(out, prefix+" current-loop operator selected", pkg.SelectedDriverRequest); err != nil {
 		return err
+	}
+	if job := pkg.ExternalSessionJob; job != nil {
+		if _, err := fmt.Fprintf(out, "%s current-loop external session job：state=%s kind=%s id=%s sha256=%s checkpoint=%s submission=%s outcomes=%s submissionLast=%t\n", prefix, job.State, job.SessionKind, job.JobID, job.JobSHA256, job.CheckpointSHA256, job.SubmissionPath, strings.Join(job.AllowedOutcomes, ","), job.SubmissionLast); err != nil {
+			return err
+		}
+		if err := writeMissionCommanderDriverRequestText(out, prefix+" current-loop external session relay", job.RelayPreviewRequest); err != nil {
+			return err
+		}
+		for _, warning := range job.Warnings {
+			if _, err := fmt.Fprintf(out, "%s current-loop external session warning：%s\n", prefix, warning); err != nil {
+				return err
+			}
+		}
 	}
 	if handoff := pkg.ExternalMemberHandoff; handoff != nil {
 		if _, err := fmt.Fprintf(out, "%s current-loop member handoff：state=%s attempt=%s lane=%s owner=%s/%d handoff=%s manifest=%s outputs=%s\n", prefix, handoff.State, handoff.AttemptID, handoff.Lane, handoff.Executor, handoff.ExecutorGeneration, handoff.HandoffPath, handoff.ManifestPath, handoff.OutputsRoot); err != nil {

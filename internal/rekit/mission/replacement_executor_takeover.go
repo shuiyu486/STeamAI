@@ -107,11 +107,25 @@ func replacementExecutorTakeoverRunbookSteps(pkg *ReplacementExecutorTakeoverPac
 		"read " + packagePath + " before using any prior chat context",
 		"consume currentDriverRequest exactly; do not reconstruct commands from terminal prose",
 	}
-	if operator := pkg.CurrentLoopOperator; operator != nil && operator.ObservationInbox != nil && operator.ObservationInbox.State == "ready" && operator.SelectedDriverRequest != nil {
-		steps = append(steps,
-			"a unique canonical inbox observation is ready; consume currentLoopOperator.selectedDriverRequest before the underlying durable action",
-			"review the returned preview and execute only its exact path-only hash-bound Apply command, then refresh status",
-		)
+	if operator := pkg.CurrentLoopOperator; operator != nil {
+		if operator.ObservationInbox != nil && operator.ObservationInbox.State == "ready" && operator.SelectedDriverRequest != nil {
+			steps = append(steps,
+				"a unique canonical inbox observation is ready; consume currentLoopOperator.selectedDriverRequest before the underlying durable action",
+				"review the returned preview and execute only its exact path-only hash-bound Apply command, then refresh status",
+			)
+		} else if job := operator.ExternalSessionJob; job != nil {
+			switch job.State {
+			case "submission-ready":
+				steps = append(steps,
+					"an external session submission is ready; consume currentLoopOperator.externalSessionJob.relayPreviewRequest exactly",
+					"review the relay preview and execute only its exact job/submission/relay-plan hash-bound Apply command, then refresh status",
+				)
+			case "awaiting-submission":
+				steps = append(steps,
+					"use currentLoopOperator.externalSessionJob as the current harness submission contract; write result artifacts first and submissionPath last",
+				)
+			}
+		}
 	}
 	if strings.TrimSpace(pkg.DurableArtifactPath) != "" && !pkg.DurableArtifactFresh {
 		steps = append(steps, "do not consume stale durable takeover artifact "+pkg.DurableArtifactPath+"; use currentDriverRequest and refreshStatusCommand instead")

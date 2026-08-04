@@ -1,6 +1,7 @@
 package fs
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -113,6 +114,9 @@ func ReadStableRegularFileAnchored(caseRoot, path, label string, limit int64) ([
 	}
 	parent, err := openDirectoryNoFollow(root, filepath.Dir(rel), rootPath, label)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, os.ErrNotExist
+		}
 		return nil, fmt.Errorf("read %s: %w", label, err)
 	}
 	defer parent.Close()
@@ -223,6 +227,231 @@ func ListRegularFilesAnchored(caseRoot, rel, label string, limit int) ([]string,
 	}
 	sort.Slice(paths, func(i, j int) bool { return strings.ToLower(paths[i]) < strings.ToLower(paths[j]) })
 	return paths, nil
+}
+
+func WalkRegularFilesAnchored(caseRoot, rel, label string, limit int) ([]string, error) {
+	if limit < 1 {
+		return nil, fmt.Errorf("%s file limit must be positive", label)
+	}
+	rootPath, err := filepath.Abs(caseRoot)
+	if err != nil {
+		return nil, err
+	}
+	beforeRoot, err := os.Lstat(rootPath)
+	if err != nil || !beforeRoot.IsDir() || beforeRoot.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("%s case root must be a non-symlink directory: %s", label, rootPath)
+	}
+	if err := rejectReparseAncestors(rootPath); err != nil {
+		return nil, err
+	}
+	root, err := os.OpenRoot(rootPath)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	openedRoot, err := root.Lstat(".")
+	if err != nil || !openedRoot.IsDir() || !os.SameFile(beforeRoot, openedRoot) {
+		return nil, fmt.Errorf("%s case root changed while opening: %s", label, rootPath)
+	}
+	clean := filepath.Clean(filepath.FromSlash(rel))
+	paths := []string{}
+	components := 0
+	var walk func(string) error
+	walk = func(directoryRel string) error {
+		directory, err := openDirectoryNoFollow(root, directoryRel, rootPath, label)
+		if err != nil {
+			return err
+		}
+		defer directory.Close()
+		file, err := directory.Open(".")
+		if err != nil {
+			return err
+		}
+		entries, readErr := file.ReadDir(-1)
+		closeErr := file.Close()
+		if readErr != nil || closeErr != nil {
+			return errors.Join(readErr, closeErr)
+		}
+		if len(entries) == 0 && directoryRel != clean {
+			return fmt.Errorf("%s contains an empty directory: %s", label, directoryRel)
+		}
+		sort.Slice(entries, func(i, j int) bool { return strings.ToLower(entries[i].Name()) < strings.ToLower(entries[j].Name()) })
+		for _, entry := range entries {
+			components++
+			if components > limit*4 {
+				return fmt.Errorf("%s contains too many path components", label)
+			}
+			name := entry.Name()
+			info, err := directory.Lstat(name)
+			if err != nil || info.Mode()&os.ModeSymlink != 0 {
+				return fmt.Errorf("%s entry is invalid: %s: %w", label, name, err)
+			}
+			entryRel := filepath.Join(directoryRel, name)
+			if err := rejectReparsePath(filepath.Join(rootPath, entryRel)); err != nil {
+				return err
+			}
+			if info.IsDir() {
+				if err := walk(entryRel); err != nil {
+					return err
+				}
+				continue
+			}
+			if !info.Mode().IsRegular() {
+				return fmt.Errorf("%s entry must be a regular file or directory: %s", label, name)
+			}
+			paths = append(paths, filepath.Join(rootPath, entryRel))
+			if len(paths) > limit {
+				return fmt.Errorf("%s contains more than %d files", label, limit)
+			}
+		}
+		return nil
+	}
+	if err := walk(clean); os.IsNotExist(err) {
+		return nil, nil
+	} else if err != nil {
+		return nil, err
+	}
+	currentRoot, err := os.Lstat(rootPath)
+	if err != nil || !os.SameFile(openedRoot, currentRoot) {
+		return nil, fmt.Errorf("%s case root changed while walking: %s", label, rootPath)
+	}
+	return paths, nil
+}
+
+func WriteExclusiveRegularFileAnchored(caseRoot, rel, label string, data []byte) (bool, error) {
+	if len(data) == 0 {
+		return false, fmt.Errorf("%s content must be non-empty", label)
+	}
+	rootPath, err := filepath.Abs(caseRoot)
+	if err != nil {
+		return false, err
+	}
+	clean := filepath.Clean(filepath.FromSlash(strings.TrimSpace(rel)))
+	if clean == "." || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return false, fmt.Errorf("%s path escapes anchored case root: %s", label, rel)
+	}
+	beforeRoot, err := os.Lstat(rootPath)
+	if err != nil || !beforeRoot.IsDir() || beforeRoot.Mode()&os.ModeSymlink != 0 {
+		return false, fmt.Errorf("%s case root must be a non-symlink directory: %s", label, rootPath)
+	}
+	if err := rejectReparseAncestors(rootPath); err != nil {
+		return false, err
+	}
+	root, err := os.OpenRoot(rootPath)
+	if err != nil {
+		return false, err
+	}
+	defer root.Close()
+	openedRoot, err := root.Lstat(".")
+	if err != nil || !openedRoot.IsDir() || !os.SameFile(beforeRoot, openedRoot) {
+		return false, fmt.Errorf("%s case root changed while opening: %s", label, rootPath)
+	}
+	parent, err := openOrCreateDirectoryNoFollow(root, filepath.Dir(clean), rootPath, label)
+	if err != nil {
+		return false, err
+	}
+	defer parent.Close()
+	name := filepath.Base(clean)
+	if existing, statErr := parent.Lstat(name); statErr == nil {
+		if existing.Mode()&os.ModeSymlink != 0 || !existing.Mode().IsRegular() {
+			return false, fmt.Errorf("%s existing path must be a regular non-symlink file: %s", label, rel)
+		}
+		path := filepath.Join(rootPath, clean)
+		if err := rejectReparsePath(path); err != nil {
+			return false, err
+		}
+		current, readErr := ReadStableRegularFileAnchored(rootPath, path, label, int64(len(data))+1)
+		if readErr != nil || !bytes.Equal(current, data) {
+			return false, fmt.Errorf("%s existing file differs: %s", label, rel)
+		}
+		return true, nil
+	} else if !os.IsNotExist(statErr) {
+		return false, statErr
+	}
+	file, err := parent.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if os.IsExist(err) {
+		path := filepath.Join(rootPath, clean)
+		current, readErr := ReadStableRegularFileAnchored(rootPath, path, label, int64(len(data))+1)
+		if readErr == nil && bytes.Equal(current, data) {
+			return true, nil
+		}
+		return false, fmt.Errorf("%s concurrent existing file differs or is incomplete: %s", label, rel)
+	}
+	if err != nil {
+		return false, err
+	}
+	written, writeErr := file.Write(data)
+	syncErr := file.Sync()
+	opened, statErr := file.Stat()
+	closeErr := file.Close()
+	after, afterErr := parent.Lstat(name)
+	if writeErr != nil || written != len(data) || syncErr != nil || statErr != nil || closeErr != nil || afterErr != nil || !opened.Mode().IsRegular() || opened.Size() != int64(len(data)) || after.Mode()&os.ModeSymlink != 0 || !after.Mode().IsRegular() || !os.SameFile(opened, after) {
+		_ = parent.Remove(name)
+		return false, fmt.Errorf("%s exclusive publication failed: %s: %w", label, rel, errors.Join(writeErr, syncErr, statErr, closeErr, afterErr))
+	}
+	currentRoot, rootErr := os.Lstat(rootPath)
+	if rootErr != nil || !os.SameFile(openedRoot, currentRoot) {
+		_ = parent.Remove(name)
+		return false, fmt.Errorf("%s case root changed while publishing: %s", label, rootPath)
+	}
+	if err := rejectReparsePath(filepath.Join(rootPath, clean)); err != nil {
+		_ = parent.Remove(name)
+		return false, err
+	}
+	return false, nil
+}
+
+func openOrCreateDirectoryNoFollow(root *os.Root, rel, rootPath, label string) (*os.Root, error) {
+	clean := filepath.Clean(rel)
+	if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return nil, fmt.Errorf("%s directory escapes anchored case root: %s", label, rel)
+	}
+	current, err := root.OpenRoot(".")
+	if err != nil {
+		return nil, err
+	}
+	if clean == "." {
+		return current, nil
+	}
+	walked := []string{}
+	for component := range strings.SplitSeq(clean, string(filepath.Separator)) {
+		if component == "" || component == "." || component == ".." {
+			current.Close()
+			return nil, fmt.Errorf("%s directory contains an invalid component: %s", label, rel)
+		}
+		walked = append(walked, component)
+		before, statErr := current.Lstat(component)
+		if os.IsNotExist(statErr) {
+			if err := current.Mkdir(component, 0o700); err != nil && !os.IsExist(err) {
+				current.Close()
+				return nil, err
+			}
+			before, statErr = current.Lstat(component)
+		}
+		if statErr != nil || !before.Mode().IsDir() || before.Mode()&os.ModeSymlink != 0 {
+			current.Close()
+			return nil, fmt.Errorf("%s directory component must be a non-symlink directory: %s", label, component)
+		}
+		if err := rejectReparsePath(filepath.Join(rootPath, filepath.Join(walked...))); err != nil {
+			current.Close()
+			return nil, err
+		}
+		next, err := current.OpenRoot(component)
+		if err != nil {
+			current.Close()
+			return nil, err
+		}
+		opened, openedErr := next.Lstat(".")
+		after, afterErr := current.Lstat(component)
+		if openedErr != nil || afterErr != nil || !opened.IsDir() || !os.SameFile(before, opened) || !os.SameFile(opened, after) {
+			next.Close()
+			current.Close()
+			return nil, fmt.Errorf("%s directory component changed while opening: %s", label, component)
+		}
+		current.Close()
+		current = next
+	}
+	return current, nil
 }
 
 func openDirectoryNoFollow(root *os.Root, rel, rootPath, label string) (*os.Root, error) {

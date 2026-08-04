@@ -1,0 +1,100 @@
+package externalsession
+
+import "github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
+
+const (
+	SchemaVersion  = 1
+	KindJob        = "current-loop-external-session-job"
+	KindSubmission = "current-loop-external-session-submission"
+	KindReceipt    = "current-loop-external-session-publication"
+)
+
+type ReviewerIdentity struct {
+	AttemptSHA256 string `json:"attemptSha256"`
+	PacketID      string `json:"packetId"`
+	RouteID       string `json:"routeId"`
+	ShardID       string `json:"shardId"`
+}
+
+type Job struct {
+	SchemaVersion       int                    `json:"schemaVersion"`
+	Kind                string                 `json:"kind"`
+	JobID               string                 `json:"jobId"`
+	CaseRoot            string                 `json:"caseRoot"`
+	Pack                string                 `json:"pack"`
+	CheckpointSHA256    string                 `json:"checkpointSha256"`
+	SessionKind         string                 `json:"sessionKind"`
+	AllowedOutcomes     []string               `json:"allowedOutcomes"`
+	SubmissionPath      string                 `json:"submissionPath"`
+	SubmissionOutputs   string                 `json:"submissionOutputs,omitempty"`
+	SubmissionResult    string                 `json:"submissionResult,omitempty"`
+	MemberAttemptID     string                 `json:"memberAttemptId,omitempty"`
+	MemberOwner         *memberexecution.Owner `json:"memberOwner,omitempty"`
+	MemberManifestPath  string                 `json:"memberManifestPath,omitempty"`
+	MemberOutputsRoot   string                 `json:"memberOutputsRoot,omitempty"`
+	Reviewer            *ReviewerIdentity      `json:"reviewer,omitempty"`
+	RelayResultPath     string                 `json:"relayResultPath,omitempty"`
+	PublicationPath     string                 `json:"publicationPath"`
+	ObservationPath     string                 `json:"observationPath"`
+	SubmissionLast      bool                   `json:"submissionLast"`
+	NoSessionManagement bool                   `json:"noSessionManagement"`
+	NoHeavyTool         bool                   `json:"noHeavyTool"`
+	NoAuthority         bool                   `json:"noAuthority"`
+	NoConfirmed         bool                   `json:"noConfirmed"`
+}
+
+type Submission struct {
+	SchemaVersion          int    `json:"schemaVersion"`
+	Kind                   string `json:"kind"`
+	JobID                  string `json:"jobId"`
+	JobSHA256              string `json:"jobSha256"`
+	Outcome                string `json:"outcome"`
+	Actor                  string `json:"actor"`
+	ObservedAt             string `json:"observedAt,omitempty"`
+	Reason                 string `json:"reason,omitempty"`
+	Summary                string `json:"summary,omitempty"`
+	ReviewerItemsPath      string `json:"reviewerItemsPath,omitempty"`
+	ReviewerHarness        string `json:"reviewerHarness,omitempty"`
+	ReviewerSession        string `json:"reviewerSession,omitempty"`
+	ReviewerExitStatus     string `json:"reviewerExitStatus,omitempty"`
+	NoAuthorityOrConfirmed bool   `json:"noAuthorityOrConfirmed"`
+	NoHeavyTool            bool   `json:"noHeavyTool"`
+}
+
+type Artifact struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+	Bytes  int64  `json:"bytes"`
+}
+
+type Inspection struct {
+	Job              Job         `json:"job"`
+	JobSHA256        string      `json:"jobSha256"`
+	State            string      `json:"state"`
+	SubmissionSHA256 string      `json:"submissionSha256,omitempty"`
+	Submission       *Submission `json:"submission,omitempty"`
+	Warnings         []string    `json:"warnings,omitempty"`
+}
+
+type Plan struct {
+	SchemaVersion        int        `json:"schemaVersion"`
+	Mode                 string     `json:"mode"`
+	Job                  Job        `json:"job"`
+	JobSHA256            string     `json:"jobSha256"`
+	Submission           Submission `json:"submission"`
+	SubmissionSHA256     string     `json:"submissionSha256"`
+	ExpectedPlanSHA256   string     `json:"expectedPlanSha256"`
+	ApplyCommand         string     `json:"applyCommand,omitempty"`
+	Artifacts            []Artifact `json:"artifacts"`
+	ReviewRequired       bool       `json:"reviewRequired"`
+	RequiresConfirmation bool       `json:"requiresConfirmation"`
+	Applied              bool       `json:"applied"`
+	AlreadyApplied       bool       `json:"alreadyApplied"`
+	Boundary             []string   `json:"boundary"`
+	writes               []plannedWrite
+}
+
+type plannedWrite struct {
+	rel  string
+	data []byte
+}

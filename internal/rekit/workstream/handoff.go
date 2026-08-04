@@ -1630,6 +1630,15 @@ func writeCurrentLoopOperatorPackage(out *bytes.Buffer, pkg *mission.CurrentLoop
 			fmt.Fprintf(out, "- inbox warning: %s\n", warning)
 		}
 	}
+	if job := pkg.ExternalSessionJob; job != nil {
+		fmt.Fprintf(out, "- external session job: state=%s kind=%s id=%s sha256=%s checkpoint=%s submission=`%s` outcomes=%s submissionLast=%t\n", job.State, job.SessionKind, job.JobID, job.JobSHA256, job.CheckpointSHA256, job.SubmissionPath, strings.Join(job.AllowedOutcomes, ","), job.SubmissionLast)
+		if request := job.RelayPreviewRequest; request != nil {
+			fmt.Fprintf(out, "- external session relay request: state=%s source=%s command=`%s`\n", request.State, request.Source, request.Command)
+		}
+		for _, warning := range job.Warnings {
+			fmt.Fprintf(out, "- external session job warning: %s\n", warning)
+		}
+	}
 	if handoff := pkg.ExternalMemberHandoff; handoff != nil {
 		fmt.Fprintf(out, "- external member: state=%s attempt=%s lane=%s owner=%s/%d handoff=`%s` manifest=`%s` outputs=`%s`\n", handoff.State, handoff.AttemptID, handoff.Lane, handoff.Executor, handoff.ExecutorGeneration, handoff.HandoffPath, handoff.ManifestPath, handoff.OutputsRoot)
 		for _, alternative := range handoff.ObservationContract.Alternatives {
