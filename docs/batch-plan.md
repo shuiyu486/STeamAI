@@ -32,6 +32,19 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 
 
+
+### Batch 815：review-first cross-case pack-memory discovery, selection, sync, and reconsume proof closure
+
+状态：已完成。
+
+目标：关闭 Case A 已将经验 promote、验证并退休后，另一个显式 attached Case B 仍无法从自己的 status/handoff 发现、审核、同步并证明实际消费同一变化的日常断点。闭环为 completed verified promotion catalog → attached target discovery → explicit single change selection → exact hash-bound WhatIf/Apply → target-case reconsume verification → case-local durable receipt → fresh status/handoff closure。
+
+实现：Go-native completed catalog 只纳入 accepted managed-doc、current pack source及 decision/verification/retirement/cleanup/doctor/fresh+attached reconsume proofs 完整的变化，并给出稳定完整 change ID。`status`与durable handoff仅检查当前显式 target，区分available、content-current-no-receipt、already-consumed、local-conflict和invalid-receipt；Mission Commander/replacement executor获得同一review-first selected `sync` action。WhatIf只规划一个managed path并返回exact plan SHA，Apply在共享case-root mutation lease内重建计划，按durable intent→backup→target→state→doctor→final receipt发布；exact-prefix恢复和strict receipt replay不依赖之后可能演进的producer catalog/source。Intent/receipt以同目录synced temp加no-overwrite atomic commit避免torn final artifact，并绑定pinned root及跨调用稳定filesystem identity（Unix dev+inode、Windows volume serial+file index），拒绝把pending intent或receipt-only case复制回同路径新root后继续。PowerShell façade只验证selected path参数组合并逐字透传，public surface仍为30 commands。
+
+边界：discovery不扫描磁盘或建立central case registry；producer proof不是target mutation授权，Apply仍要求同一WhatIf的exact hash。Consumer receipt只留在目标case；本地target自上次sync后漂移时fail-closed，backup不替代review authority，tooling candidate不能绕过accepted decision。Runtime不自动执行sync/promote/heavy-tool，不管理session，不写authority/confirmed；未新增PowerShell runtime logic，普通batch不等待或声明remote CI green。
+
+验证结果：真实producer→第二attached consumer临时case走通status发现、handoff审核、selected WhatIf、exact Apply、backup/target/state/receipt与fresh consumed closure；focused `releasecheck/packmemoryconsumption/cli/workstream/sync`及façade smoke通过。两轮独立事务审查发现的reparse/TOCTOU、partial recovery、strict replay、shared lease/unlock、producer drift、root rebind与torn publication问题均已关闭，终复核无Critical/Important残余。最终完整`go test ./... -count=1`通过（CLI 208.766秒），`go vet ./...`、`status`、10-pack `packs`、`doctor`、canonical skill预算32699/32768 bytes及Linux/Darwin/WASM交叉编译通过；完成态`release-check -Format json`返回`ready=true` / `summary=release gate inventory ok`，`git diff --check`通过。Implementation commit/push待记录；普通batch不等待或声明remote CI green。
+
 ### Batch 814：unified external session job and review-first observation publisher
 
 状态：已完成。
@@ -43,18 +56,6 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 边界：relay不claim或消费checkpoint，不记录session lifecycle observation，不继续current loop；真实session仍由external harness管理。Runtime不spawn/poll/stop session、不调用shell/Agent tool、不执行heavy-tool、不写authority/confirmed。PowerShell façade只做四个relay flags的safe delegation/逐字透传，public command surface保持30；legacy Batch 812/813 envelope与member/reviewer handoff继续兼容。
 
 验证结果：focused `fs/externalsession/mission/workstream`、member/reviewer临时case CLI E2E、完整CLI回归（197.479秒）和façade smoke通过；最终完整`go test ./... -count=1`通过（CLI 200.342秒），`go vet ./...`、`status`、10-pack `packs`、`doctor`（canonical skill 32441/32768 bytes）与`git diff --check`通过。独立correctness/security/architecture审查无高置信Critical/Important。完成态`release-check -Format json`返回`ready=true` / `summary=release gate inventory ok`；普通batch不等待或声明remote CI green。
-
-### Batch 813：canonical external session observation inbox discovery and one-shot checkpoint resume handoff
-
-状态：已完成。
-
-目标：让外部member/reviewer harness只需把strict envelope写入canonical case-local inbox，fresh status即可唯一发现并生成checkpoint-bound WhatIf接力；成功Apply返回one-shot processed receipt并由successor checkpoint恢复，不再要求replacement executor记住文件路径。
-
-实现：`.rekit/external-session-observations/inbox/*.json`由case-root anchored no-follow/reparse-safe bounded枚举读取，并复用既有strict envelope decode、checkpoint/attempt/capability currentness校验。Fresh status只在恰好一个候选匹配latest ready checkpoint及exact member/reviewer attempt时返回typed `observationInbox.selectedDriverRequest`；多个匹配、任一invalid entry或namespace异常均fail-closed，旧checkpoint候选只计数且不参与选择。WhatIf与Apply继续绑定exact path/bytes SHA/source checkpoint/nested+outer hashes，Apply前再次确认同一路径/SHA仍是唯一current strict候选；legacy member/reviewer templates继续以underlying resume request为基底，不混入互斥的observation-path参数。成功Apply返回processed`observationReceipt`；successor checkpoint以可选kind/actor及既有source/path/SHA lineage供fresh status恢复完整typed receipt，旧Batch 812 path/SHA-only checkpoint仍可读取。Receipt独立投影于top-level current-loop operator，因此successor已不再等待observation时，status/replacement takeover/handoff仍可恢复处理结果。
-
-边界：inbox discovery只读，不删除/移动文件、不claim checkpoint、不自动Apply；source checkpoint one-shot claim阻断replay。Runtime不spawn/poll/stop外部session、不执行heavy-tool、不写authority/confirmed；不新增PowerShell runtime logic，旧Batch 812 checkpoint schema保持兼容。
-
-验证结果：focused regressions覆盖unique discovery、path-only preview、hash-bound Apply、processed receipt、fresh status recovery、stale/ambiguous/invalid fail-closed、anchored directory enumeration、旧legacy resume与member/reviewer campaign；受影响`fs/currentloop/mission/workstream/cli`包与完整`go test ./... -count=1`通过（CLI 347.100秒），`go vet ./...`、`status`、`packs`、`doctor`和`git diff --check`通过。独立correctness/security审查发现的exact attempt qualification、legacy template参数互斥、typed receipt完整性与Apply前唯一性重检问题均已关闭，终复核无高置信Critical/Important。完成态`release-check -Format json`返回`ready=true` / `summary=release gate inventory ok`；普通batch不等待或声明remote CI green。
 
 ## 活动文档维护规则
 

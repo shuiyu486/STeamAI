@@ -22,6 +22,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/packmemoryconsumption"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/promote"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/releasecheck"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/review"
@@ -5662,8 +5663,8 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releasecheck.ReleaseHandoff
 	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "removalImpact=true impactReferences=")
 	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "workItems=")
 	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "validationCommands=")
-	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "migrationTargets=75")
-	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "migrationValidationCommands=600")
+	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "migrationTargets=76")
+	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "migrationValidationCommands=608")
 	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "smokeMigrationTargets=29")
 	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "smokeMigrationValidationCommands=232")
 	assertReleaseHandoffSignalDetail(t, handoff, "public facade removal prerequisites", "public-facade-retained-boundary ready=true publicFacadeReady=true present=true retained=true migrationBoundary=true removalBoundary=true")
@@ -5888,7 +5889,7 @@ func assertReleaseCheckPublicFacadeRemoval(t *testing.T, inventory releasecheck.
 	if !inventory.RemovalPlan.Ready || inventory.RemovalPlan.Document != "docs/powershell-deprecation.md" || planCounts.Warnings != 0 || planCounts.RequiredPhrases != 9 || planCounts.ReplacementEntrypoints != 4 || planCounts.ReplacementValidationCommands != 32 || deletionGateCounts.Gates != 5 || deletionGateCounts.ValidationCommands != 40 || deletionGateCounts.ExitCriteria != 15 || deletionGateCounts.FailureSignals != 15 || deletionGateCounts.EscalationTriggers != 15 || deletionGateCounts.EscalationEvidence != 15 || deletionGateCounts.EscalationRecipients != 15 || deletionGateCounts.EscalationHandoffSteps != 15 || deletionGateCounts.EscalationDecisionOptions != 15 || deletionGateCounts.EscalationRetryConditions != 15 || deletionGateCounts.EscalationStopConditions != 15 || deletionGateCounts.EscalationResolutionArtifacts != 15 || deletionGateCounts.EscalationClosureChecks != 15 || deletionGateCounts.EscalationReopenConditions != 15 || deletionGateCounts.EscalationLedgerEvents != 15 || deletionGateCounts.EscalationStateTransitions != 15 || deletionGateCounts.EscalationBoundaryGuards != 15 || deletionGateCounts.EscalationAuditChecks != 15 || deletionGateCounts.VerificationArtifacts != 15 || deletionGateCounts.BlockedExecutionSteps != 10 || deletionGateCounts.RemediationActions != 15 || executionCounts.Steps != 5 || executionCounts.FailureSignals != 15 || executionCounts.RemediationActions != 15 || executionCounts.VerificationArtifacts != 15 || executionCounts.LedgerEvents != 15 || executionCounts.StateTransitions != 15 || executionCounts.EscalationTriggers != 15 || executionCounts.EscalationEvidence != 15 || executionCounts.EscalationRecipients != 15 || executionCounts.EscalationHandoffSteps != 15 || executionCounts.EscalationDecisionOptions != 15 || executionCounts.EscalationRetryConditions != 15 || executionCounts.EscalationStopConditions != 15 || executionCounts.EscalationResolutionArtifacts != 15 || executionCounts.EscalationClosureChecks != 15 || executionCounts.EscalationReopenConditions != 15 || executionCounts.EscalationLedgerEvents != 15 || executionCounts.EscalationStateTransitions != 15 || executionCounts.EscalationBoundaryGuards != 15 || executionCounts.EscalationAuditChecks != 15 || executionCounts.BoundaryGuards != 15 || executionCounts.AuditChecks != 15 || executionCounts.ValidationCommands != 40 || planCounts.BoundaryChecks != 6 || planCounts.BoundaryValidationCommands != 48 || planCounts.RecoverySteps != 4 || planCounts.RecoveryValidationCommands != 32 || planCounts.DocumentationTargets != 9 || planCounts.DocumentationValidationCommands != 72 || !releaseCheckPublicFacadeRemovalHasReplacementEntrypoint(inventory.RemovalPlan, "canonical-rekit-skill") || !releaseCheckPublicFacadeRemovalHasReplacementEntrypoint(inventory.RemovalPlan, "direct-go-cli") || !releaseCheckPublicFacadeRemovalHasDeletionGate(inventory.RemovalPlan, "go-native-alternatives-ready") || !releaseCheckPublicFacadeRemovalHasDeletionGate(inventory.RemovalPlan, "release-gate-green") || !releaseCheckPublicFacadeRemovalHasExecutionStep(inventory.RemovalPlan, "delete-public-facade") || !releaseCheckPublicFacadeRemovalHasExecutionStep(inventory.RemovalPlan, "rerun-release-gate") || !releaseCheckPublicFacadeRemovalHasBoundaryCheck(inventory.RemovalPlan, "no-powershell-runtime-logic") || !releaseCheckPublicFacadeRemovalHasBoundaryCheck(inventory.RemovalPlan, "no-external-effects") || !releaseCheckPublicFacadeRemovalHasRecoveryStep(inventory.RemovalPlan, "restore-public-facade") || !releaseCheckPublicFacadeRemovalHasDocumentationTarget(inventory.RemovalPlan, "docs/release-readiness.md") || !releaseCheckPublicFacadeRemovalHasDocumentationTarget(inventory.RemovalPlan, "CHANGELOG.md") {
 		t.Fatalf("public facade removal plan drifted: %+v", inventory.RemovalPlan)
 	}
-	if !inventory.RemovalImpact.Ready || inventory.RemovalImpact.FacadePath != "rekit/rekit.ps1" || !inventory.RemovalImpact.FacadePresent || impactCounts.Warnings != 0 || impactCounts.References == 0 || impactCounts.ReferenceCategories == 0 || impactCounts.WorkItems != impactCounts.ReferenceCategories || impactCounts.WorkItemValidationCommands != impactCounts.WorkItems*8 || impactCounts.MigrationTargets != 75 || impactCounts.MigrationValidationCommands != 600 || impactCounts.SmokeMigrationTargets != 29 || impactCounts.SmokeMigrationValidationCommands != 232 || impactCounts.UnclassifiedReferences != 0 || !releaseCheckPublicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "public-facade-entrypoint") || !releaseCheckPublicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "facade-compatibility-smoke") || !releaseCheckPublicFacadeRemovalHasImpactWorkItem(inventory.RemovalImpact, "release-inventory-and-tests") || !releaseCheckPublicFacadeRemovalHasMigrationTarget(inventory.RemovalImpact, "rekit/rekit.ps1") || !releaseCheckPublicFacadeRemovalHasMigrationTarget(inventory.RemovalImpact, "docs/powershell-deprecation.md") || !releaseCheckPublicFacadeRemovalHasSmokeMigrationTarget(inventory.RemovalImpact, "rekit/tests/facade-smoke.ps1") || !releaseCheckPublicFacadeRemovalHasSmokeMigrationTarget(inventory.RemovalImpact, "rekit/tests/continue-whatif-smoke.ps1") {
+	if !inventory.RemovalImpact.Ready || inventory.RemovalImpact.FacadePath != "rekit/rekit.ps1" || !inventory.RemovalImpact.FacadePresent || impactCounts.Warnings != 0 || impactCounts.References == 0 || impactCounts.ReferenceCategories == 0 || impactCounts.WorkItems != impactCounts.ReferenceCategories || impactCounts.WorkItemValidationCommands != impactCounts.WorkItems*8 || impactCounts.MigrationTargets != 76 || impactCounts.MigrationValidationCommands != 608 || impactCounts.SmokeMigrationTargets != 29 || impactCounts.SmokeMigrationValidationCommands != 232 || impactCounts.UnclassifiedReferences != 0 || !releaseCheckPublicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "public-facade-entrypoint") || !releaseCheckPublicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "facade-compatibility-smoke") || !releaseCheckPublicFacadeRemovalHasImpactWorkItem(inventory.RemovalImpact, "release-inventory-and-tests") || !releaseCheckPublicFacadeRemovalHasMigrationTarget(inventory.RemovalImpact, "rekit/rekit.ps1") || !releaseCheckPublicFacadeRemovalHasMigrationTarget(inventory.RemovalImpact, "docs/powershell-deprecation.md") || !releaseCheckPublicFacadeRemovalHasSmokeMigrationTarget(inventory.RemovalImpact, "rekit/tests/facade-smoke.ps1") || !releaseCheckPublicFacadeRemovalHasSmokeMigrationTarget(inventory.RemovalImpact, "rekit/tests/continue-whatif-smoke.ps1") {
 		t.Fatalf("public facade removal impact drifted: %+v", inventory.RemovalImpact)
 	}
 }
@@ -6268,7 +6269,7 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"public facade removal: public facade removal prerequisites ok ready=true prerequisites=8 removalPlan=true planChecks=9 replacementEntrypoints=4 replacementValidationCommands=32 deletionGates=5 deletionGateValidationCommands=40 deletionGateExitCriteria=15 deletionGateFailureSignals=15 deletionGateEscalationTriggers=15 deletionGateEscalationEvidence=15 deletionGateEscalationRecipients=15 deletionGateEscalationHandoffSteps=15 deletionGateEscalationDecisionOptions=15 deletionGateEscalationRetryConditions=15 deletionGateEscalationStopConditions=15 deletionGateEscalationResolutionArtifacts=15 deletionGateEscalationClosureChecks=15 deletionGateEscalationReopenConditions=15 deletionGateEscalationLedgerEvents=15 deletionGateEscalationStateTransitions=15 deletionGateEscalationBoundaryGuards=15 deletionGateEscalationAuditChecks=15 deletionGateVerificationArtifacts=15 deletionGateBlockedExecutionSteps=10 deletionGateRemediationActions=15 recoverySteps=4 recoveryValidationCommands=32 documentationTargets=9 documentationValidationCommands=72 executionSteps=5 executionFailureSignals=15 executionRemediationActions=15 executionVerificationArtifacts=15 executionLedgerEvents=15 executionStateTransitions=15 executionEscalationTriggers=15 executionEscalationEvidence=15 executionEscalationRecipients=15 executionEscalationHandoffSteps=15 executionEscalationDecisionOptions=15 executionEscalationRetryConditions=15 executionEscalationStopConditions=15 executionEscalationResolutionArtifacts=15 executionEscalationClosureChecks=15 executionEscalationReopenConditions=15 executionEscalationLedgerEvents=15 executionEscalationStateTransitions=15 executionEscalationBoundaryGuards=15 executionEscalationAuditChecks=15 executionBoundaryGuards=15 executionAuditChecks=15 executionValidationCommands=40 boundaryChecks=6 boundaryValidationCommands=48 removalImpact=true impactReferences=",
 		"workItems=",
 		"validationCommands=",
-		"migrationTargets=75 migrationValidationCommands=600",
+		"migrationTargets=76 migrationValidationCommands=608",
 		"smokeMigrationTargets=29 smokeMigrationValidationCommands=232",
 		"release handoff: release handoff summary ok ready=true readFirst=4 signals=13 knownGaps=5 packMaturity=10 packMemoryCandidates=0",
 		"releaseNotes=true",
@@ -15697,6 +15698,109 @@ func TestRunPromoteCandidateDecisionCaseLocalPreviewAndApply(t *testing.T) {
 	if retiredStatus.ProjectHandoff == nil || !retiredStatus.ProjectHandoff.PackMemoryCandidates.Ready || retiredStatus.ProjectHandoff.PackMemoryCandidates.Total != 0 || len(retiredStatus.ProjectHandoff.PackMemoryCandidates.Packs) != 0 || retiredStatus.ProjectHandoff.PackMemoryCandidates.NextAction != "no pack-memory candidate cleanup is pending" {
 		t.Fatalf("status did not close reviewed candidate reconsume operator: %+v", retiredStatus.ProjectHandoff)
 	}
+
+	consumerRoot := fixture.fullAttachedCase(t)
+	writeCaseFile(t, consumerRoot, ".rekit/board.json", `{"lanes":[]}`)
+	consumerManagedPath := "references/template/README.md"
+	writeCaseFile(t, consumerRoot, consumerManagedPath, "# Consumer-local prior memory\n")
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", consumerRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var consumerAvailable statusInventory
+	if err := json.Unmarshal(out.Bytes(), &consumerAvailable); err != nil {
+		t.Fatalf("consumer discovery status JSON did not decode: %v\n%s", err, out.String())
+	}
+	consumption := consumerAvailable.PackMemoryConsumption
+	if consumption == nil || !consumption.Ready || len(consumption.Discovery.Available) != 1 || len(consumption.Discovery.Consumed) != 0 || consumption.MissionCommanderActionQueue.CurrentAction == nil || !consumption.MissionCommanderActionQueue.CurrentAction.RequiresReview {
+		t.Fatalf("second attached case did not discover the completed verified change: %+v", consumption)
+	}
+	availableChange := consumption.Discovery.Available[0]
+	if availableChange.ManagedPath != consumerManagedPath || !strings.Contains(availableChange.PreviewCommand, "-SelectPackMemoryChange") || !strings.Contains(availableChange.PreviewCommand, availableChange.ChangeID) {
+		t.Fatalf("consumer discovery did not bind the canonical selected change: %+v", availableChange)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", consumerRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	consumerAvailableHandoff := decodeHandoffResult(t, out.Bytes())
+	if consumerAvailableHandoff.PackMemoryConsumption == nil || consumerAvailableHandoff.PackMemoryConsumption.Available != 1 || consumerAvailableHandoff.PackMemoryConsumption.Consumed != 0 || consumerAvailableHandoff.PackMemoryConsumption.MissionCommanderActionQueue.CurrentAction == nil || !strings.Contains(consumerAvailableHandoff.PackMemoryConsumption.MissionCommanderActionQueue.CurrentAction.Command, availableChange.ChangeID) {
+		t.Fatalf("consumer handoff did not expose the selected review-first change: %+v", consumerAvailableHandoff.PackMemoryConsumption)
+	}
+	previewArgs := appendCLIArgIfMissing(rekitCommandCLIArgs(t, availableChange.PreviewCommand), "-Pack", "_template")
+	out.Reset()
+	if err := Run(previewArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var consumptionPreview packmemoryconsumption.Plan
+	if err := json.Unmarshal(out.Bytes(), &consumptionPreview); err != nil {
+		t.Fatalf("selected consumer WhatIf JSON did not decode: %v\n%s", err, out.String())
+	}
+	if consumptionPreview.IsMutation || consumptionPreview.Applied || !consumptionPreview.RequiresReview || consumptionPreview.ExpectedPlanSHA256 == "" || consumptionPreview.ChangeID != availableChange.ChangeID || !strings.Contains(consumptionPreview.ApplyCommand, "-ExpectedPackMemoryConsumptionPlanSha256") || !strings.Contains(consumptionPreview.ApplyCommand, consumptionPreview.ExpectedPlanSHA256) {
+		t.Fatalf("selected consumer WhatIf was not exact and review-bound: %+v", consumptionPreview)
+	}
+	consumerTargetPath := filepath.Join(consumerRoot, filepath.FromSlash(consumerManagedPath))
+	consumerBefore, err := os.ReadFile(consumerTargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(consumerBefore); got != "# Consumer-local prior memory\n" {
+		t.Fatalf("selected consumer WhatIf mutated the target: %q", got)
+	}
+	applyArgs := appendCLIArgIfMissing(rekitCommandCLIArgs(t, consumptionPreview.ApplyCommand), "-Pack", "_template")
+	out.Reset()
+	if err := Run(applyArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var consumed packmemoryconsumption.Result
+	if err := json.Unmarshal(out.Bytes(), &consumed); err != nil {
+		t.Fatalf("selected consumer Apply JSON did not decode: %v\n%s", err, out.String())
+	}
+	if !consumed.Plan.IsMutation || !consumed.Plan.Applied || consumed.Plan.Replay || consumed.Receipt.ChangeID != availableChange.ChangeID || consumed.Receipt.PlanSHA256 != consumptionPreview.ExpectedPlanSHA256 || consumed.Receipt.DoctorRows == 0 || len(consumed.Discovery.Consumed) != 1 {
+		t.Fatalf("selected consumer Apply did not publish an exact durable receipt: %+v", consumed)
+	}
+	consumerBytes, err := os.ReadFile(consumerTargetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	producerBytes, err := os.ReadFile(managed.PackTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(consumerBytes, producerBytes) {
+		t.Fatalf("second attached case did not receive the exact producer bytes")
+	}
+	backupBytes, err := os.ReadFile(consumed.Plan.BackupPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(backupBytes); got != "# Consumer-local prior memory\n" {
+		t.Fatalf("selected consumer backup did not retain prior bytes: %q", got)
+	}
+	if _, err := os.Stat(consumed.Plan.ReceiptPath); err != nil {
+		t.Fatalf("case-local consumption receipt missing: %v", err)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", consumerRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var consumerClosed statusInventory
+	if err := json.Unmarshal(out.Bytes(), &consumerClosed); err != nil {
+		t.Fatalf("consumed status JSON did not decode: %v\n%s", err, out.String())
+	}
+	if consumerClosed.PackMemoryConsumption == nil || len(consumerClosed.PackMemoryConsumption.Discovery.Available) != 0 || len(consumerClosed.PackMemoryConsumption.Discovery.Consumed) != 1 || consumerClosed.PackMemoryConsumption.MissionCommanderActionQueue.CurrentAction != nil {
+		t.Fatalf("fresh consumer status did not close the selected change: %+v", consumerClosed.PackMemoryConsumption)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", consumerRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	consumerHandoff := decodeHandoffResult(t, out.Bytes())
+	if consumerHandoff.PackMemoryConsumption == nil || consumerHandoff.PackMemoryConsumption.Available != 0 || consumerHandoff.PackMemoryConsumption.Consumed != 1 || consumerHandoff.PackMemoryConsumption.Conflicts != 0 {
+		t.Fatalf("consumer handoff did not durably close the consumed change: %+v", consumerHandoff.PackMemoryConsumption)
+	}
+
 	candidateBeforeRetiredStatus = snapshotFiles(t, candidateRoot)
 	out.Reset()
 	if err := Run([]string{"-Command", "status", "-Format", "text"}, &out); err != nil {
@@ -20969,6 +21073,7 @@ type handoffResult struct {
 	DailyMissionControlRunbook         *dailyMissionControlRunbookSnapshot         `json:"dailyMissionControlRunbook"`
 	ReplacementExecutorTakeoverPackage *replacementExecutorTakeoverPackageSnapshot `json:"replacementExecutorTakeoverPackage"`
 	ProjectNextBatchStarterPackage     *projectNextBatchStarterPackage             `json:"projectNextBatchStarterPackage"`
+	PackMemoryConsumption              *workstream.PackMemoryConsumptionHandoff    `json:"packMemoryConsumption"`
 	PublicationPlanSHA256              string                                      `json:"publicationPlanSha256"`
 	PublicationStamp                   string                                      `json:"publicationStamp"`
 	ApplyCommand                       string                                      `json:"applyCommand"`

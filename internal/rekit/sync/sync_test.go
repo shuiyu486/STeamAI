@@ -3,6 +3,7 @@ package sync
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -100,6 +101,24 @@ func TestApplyForceOverwritesLocalTemplateWithBackup(t *testing.T) {
 		t.Fatalf("template backup did not preserve local handoff:\n%s", backup)
 	}
 }
+
+func TestApplyPropagatesMutationLeaseUnlockError(t *testing.T) {
+	repoRoot, caseRoot, pack := syncFixture(t)
+	oldAcquire := acquireMutationLease
+	acquireMutationLease = func(string) (mutationLease, error) {
+		return syncUnlockErrorLease{}, nil
+	}
+	t.Cleanup(func() { acquireMutationLease = oldAcquire })
+
+	_, err := Apply(repoRoot, caseRoot, pack, ApplyOptions{ProjectName: "unlock-demo"})
+	if err == nil || !strings.Contains(err.Error(), "unlock fixture") {
+		t.Fatalf("mutation lease unlock error was not propagated: %v", err)
+	}
+}
+
+type syncUnlockErrorLease struct{}
+
+func (syncUnlockErrorLease) Unlock() error { return errors.New("unlock fixture") }
 
 func TestBackupCaseFileRejectsOutsideCaseRoot(t *testing.T) {
 	caseRoot := t.TempDir()

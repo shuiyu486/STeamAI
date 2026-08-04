@@ -2,6 +2,7 @@ package sync
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,9 +12,16 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/kitmutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/review"
 )
+
+var acquireMutationLease = func(caseRoot string) (mutationLease, error) {
+	return kitmutation.Acquire(caseRoot)
+}
+
+type mutationLease interface{ Unlock() error }
 
 type ApplyOptions struct {
 	ProjectName         string
@@ -359,11 +367,17 @@ func ApplyPreview(repoRoot, caseRoot, pack string, opt ApplyOptions) (ApplyResul
 	return ApplyResult{SchemaVersion: 1, Command: command, CaseRoot: caseFull, RepoRoot: repoFull, Pack: pack, IsMutation: false, Applied: false, BackupRoot: backupRoot, Writes: writes, NextSteps: []string{"review this non-writing preview, then re-run " + command + " with -Apply after confirming the exact scope", "sync/update PowerShell fallback has been retired; remove REKIT_GO_DISABLE or run the Go backend directly if facade delegation is unavailable"}}, nil
 }
 
-func Apply(repoRoot, caseRoot, pack string, opt ApplyOptions) (ApplyResult, error) {
+func Apply(repoRoot, caseRoot, pack string, opt ApplyOptions) (_ ApplyResult, retErr error) {
 	caseFull, repoFull, command, m, inst, err := prepareApply(repoRoot, caseRoot, pack, opt)
 	if err != nil {
 		return ApplyResult{}, err
 	}
+	lease, err := acquireMutationLease(caseFull)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	defer func() { retErr = errors.Join(retErr, lease.Unlock()) }()
+
 	caseRoot = caseFull
 	repoRoot = repoFull
 	projectName := applyProjectName(caseFull, inst, opt)

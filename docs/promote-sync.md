@@ -6,13 +6,13 @@
 
 ## 实施摘要
 
-`sync` 是 kit → case，`promote` 是 case → kit；两者默认 review-first。当前 Go runtime 已覆盖 review、apply、candidate、tooling candidate 与 pack-memory downstream handoff，但仍禁止把 case-specific artifact、trace、dump、capture、绝对路径或 live state 写回模板仓库。
+`sync` 是 kit → case，`promote` 是 case → kit；两者默认 review-first。当前 Go runtime 已覆盖 review、apply、candidate、tooling candidate 与 pack-memory downstream handoff。已接受、完成 canonical verification、workspace retirement 和 cleanup/doctor/fresh/attached lifecycle proofs 的 managed-doc change 会进入 completed change catalog；当前显式 attached case 的 status/handoff 可发现该 change，并只允许按单个 `changeId` 执行 hash-bound WhatIf → Apply selected sync，最终在目标 case 写入 durable consumption receipt。它不扫描其它 case、不自动 sync，也仍禁止把 case-specific artifact、trace、dump、capture、绝对路径或 live state 写回模板仓库。
 
 ## 执行清单
 
 - 改 `sync` / `promote` 前先确认 manifest `managedFiles`、`promoteFiles`、`toolingCandidateSources` 和 deny patterns。
 - 写入路径必须先 WhatIf/review，再显式 Apply 或 CreateCandidates；不要绕过 review-first。
-- pack-memory 候选只生成 guidance/proof handoff，不自动 merge、cleanup、doctor、init 或 reconsume。
+- pack-memory producer 候选只生成 guidance/proof handoff，不自动 merge、cleanup、doctor、init 或 reconsume；completed change consumer 也只在当前显式 attached case 中发现变化，必须选择一个 `changeId` 并先审核 WhatIf 返回的 exact plan hash，Apply 后以 case-local receipt 证明消费。
 - 具体实现影响面优先用 CodeGraph 查询 `internal/rekit/sync/**`、`internal/rekit/promote/**`、`internal/rekit/cli/**`。
 
 ## 验证标准
@@ -69,6 +69,7 @@ review 包写入 case-local 目录：
 - 目标必须是已经 `attach/init` 的 case；拼错路径或普通目录会失败，不会静默创建假 case。
 - review 报告应说明每项：是否会 create / overwrite / backup / skip，case 是否相对 last sync hash 有本地修改，风险与推荐动作。
 - 用户确认后，写入型 sync 才覆盖 managed files；覆盖前备份到 manifest `workstreamDefaults.backupRoot` 下的时间戳目录。
+- completed pack-memory selected sync 是同一 public `sync` 下的 bounded consumer path：status 从当前显式 attached case 返回一个具体 `previewCommand`；WhatIf 只绑定一个 completed verified `changeId`、managed path、producer authority、source/target/state hashes、backup/receipt paths，Apply 必须携带 exact `ExpectedPackMemoryConsumptionPlanSha256`。若目标相对 last sync 有本地修改、producer proof/source/state/target 漂移或 existing receipt 不同则 fail-closed；成功后目标 case 的 `.rekit/pack-memory/consumptions/<changeId>.json` 是消费 commit evidence，fresh status/handoff 应显示 consumed。Producer proof 不是目标 case 写入授权，runtime 不扫描磁盘寻找其它 case。
 - `templateFiles` 只在目标缺失时创建。
 - 不覆盖：
   - `CLAUDE.local.md` block 外内容

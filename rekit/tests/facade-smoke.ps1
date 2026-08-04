@@ -293,6 +293,14 @@ try {
   Assert-ContainsText -Text $onboardDisabledOut -Expected 'PowerShell fallback has been retired' -Label 'disabled onboard no-fallback remains retired'
   Assert-FakeDefaultDelegation -Arguments @('-Command','sync','-Target',$CaseRoot,'-Pack',$Pack) -CommandName 'sync' -Label 'default sync review fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','sync','-Target',$CaseRoot,'-Pack',$Pack,'-Apply') -CommandName 'sync' -Label 'default sync apply fake delegation'
+  $packMemoryCapturePath = Join-Path $matrixRoot 'pack-memory-selected-sync-args.txt'
+  Write-CapturingFakeGoBackend -Path $fakeGo -CapturePath $packMemoryCapturePath
+  $changeId = 'pack-memory-change-' + ('a' * 64)
+  $planHash = 'b' * 64
+  $null = Invoke-RekitSmoke -Arguments @('-Command','sync','-Target',$CaseRoot,'-Pack',$Pack,'-SelectPackMemoryChange',$changeId,'-ExpectedPackMemoryConsumptionPlanSha256',$planHash,'-Apply','-Format','json') -Env @{ REKIT_GO_ENABLE = '1'; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  $capturedPackMemoryArgs = [System.IO.File]::ReadAllText($packMemoryCapturePath, [System.Text.Encoding]::Default)
+  Assert-ContainsText -Text $capturedPackMemoryArgs -Expected "-SelectPackMemoryChange $changeId" -Label 'selected pack-memory change facade args'
+  Assert-ContainsText -Text $capturedPackMemoryArgs -Expected "-ExpectedPackMemoryConsumptionPlanSha256 $planHash" -Label 'selected pack-memory plan hash facade args'
   Assert-FakeDefaultDelegation -Arguments @('-Command','update','-Target',$CaseRoot,'-Pack',$Pack,'-Apply','-Format','json') -CommandName 'update' -Label 'default update apply fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack) -CommandName 'promote' -Label 'default promote review fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','promote','-Target',$CaseRoot,'-Pack',$Pack,'-ReviewOutputDir',(Join-Path $matrixRoot 'promote-review-default')) -CommandName 'promote' -Label 'default promote review artifacts fake delegation'

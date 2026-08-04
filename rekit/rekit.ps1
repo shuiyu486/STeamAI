@@ -80,6 +80,8 @@ param(
   [string]$ExpectedExternalSessionJobSha256 = '',
   [string]$ExpectedExternalSessionSubmissionSha256 = '',
   [string]$ExpectedExternalSessionRelayPlanSha256 = '',
+  [string]$SelectPackMemoryChange = '',
+  [string]$ExpectedPackMemoryConsumptionPlanSha256 = '',
   [string]$ExpectedCurrentStepPlanSha256 = '',
   [string]$ExpectedMemberExecutionPlanSha256 = '',
   [string]$MemberExecutionAttemptId = '',
@@ -360,6 +362,15 @@ function Test-RekitGoDelegationSafe {
     { $_ -in @('sync','update') } {
       $caseRoot = Resolve-RekitTarget $Target
       if (-not (Test-RekitLooksLikeCase $caseRoot)) { return $false }
+      $selectedPackMemory = -not [string]::IsNullOrWhiteSpace($SelectPackMemoryChange)
+      if ($selectedPackMemory) {
+        if ($Command -ne 'sync' -or $CreateCandidates -or $Review -or $Force -or -not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
+        if ($WhatIf.IsPresent -eq $Apply.IsPresent) { return $false }
+        if ($WhatIf -and -not [string]::IsNullOrWhiteSpace($ExpectedPackMemoryConsumptionPlanSha256)) { return $false }
+        if ($Apply -and [string]::IsNullOrWhiteSpace($ExpectedPackMemoryConsumptionPlanSha256)) { return $false }
+        return (([string]$Format).Trim().ToLowerInvariant() -eq 'json')
+      }
+      if (-not [string]::IsNullOrWhiteSpace($ExpectedPackMemoryConsumptionPlanSha256)) { return $false }
       if ($Apply) {
         if ($CreateCandidates -or $Review) { return $false }
         if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
@@ -650,6 +661,10 @@ function Get-RekitGoArgs {
     Add-RekitGoArg ([ref]$goArgs) '-ExpectedOnboardingPlanSha256' $ExpectedOnboardingPlanSha256
   }
   if ($Command -in @('attach','repair','init','bootstrap','onboard','sync','update')) { Add-RekitGoArg ([ref]$goArgs) '-ProjectName' $ProjectName }
+  if ($Command -in @('sync','update')) {
+    Add-RekitGoArg ([ref]$goArgs) '-SelectPackMemoryChange' $SelectPackMemoryChange
+    Add-RekitGoArg ([ref]$goArgs) '-ExpectedPackMemoryConsumptionPlanSha256' $ExpectedPackMemoryConsumptionPlanSha256
+  }
   if ($Command -in @('init','bootstrap','sync','update')) { Add-RekitGoSwitch ([ref]$goArgs) '-Force' $Force.IsPresent }
   if ($Command -eq 'note') {
     $noteArgs = Get-RekitRemainingArgMap -Tokens $RemainingArgs

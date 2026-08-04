@@ -43,7 +43,17 @@ type HandoffOptions struct {
 	PublicationStamp                   string
 	ProjectMissionCommanderNextActions []mission.MissionCommanderNextActionItem
 	ProjectNextBatchStarterPackage     *ProjectNextBatchStarterPackage
+	ProjectPackMemoryConsumption       *PackMemoryConsumptionHandoff
 	CurrentLoopOperator                *mission.CurrentLoopOperatorPackage
+}
+
+type PackMemoryConsumptionHandoff struct {
+	Available                   int                                      `json:"available"`
+	Consumed                    int                                      `json:"consumed"`
+	Conflicts                   int                                      `json:"conflicts"`
+	MissionCommanderNextActions []mission.MissionCommanderNextActionItem `json:"missionCommanderNextActions,omitempty"`
+	MissionCommanderActionQueue mission.MissionCommanderActionQueue      `json:"missionCommanderActionQueue"`
+	Boundary                    []string                                 `json:"boundary,omitempty"`
 }
 
 type ProjectNextBatchStarterPackage struct {
@@ -107,6 +117,7 @@ type HandoffResult struct {
 	CurrentLoopSegment                 *currentloop.Inspection                     `json:"currentLoopSegment,omitempty"`
 	CurrentLoopOperator                *mission.CurrentLoopOperatorPackage         `json:"currentLoopOperator,omitempty"`
 	ProjectNextBatchStarterPackage     *ProjectNextBatchStarterPackage             `json:"projectNextBatchStarterPackage,omitempty"`
+	PackMemoryConsumption              *PackMemoryConsumptionHandoff               `json:"packMemoryConsumption,omitempty"`
 	PublicationPlanSHA256              string                                      `json:"publicationPlanSha256,omitempty"`
 	PublicationStamp                   string                                      `json:"publicationStamp,omitempty"`
 	ApplyCommand                       string                                      `json:"applyCommand,omitempty"`
@@ -304,6 +315,7 @@ type handoffContext struct {
 	handovers                          string
 	projectMissionCommanderNextActions []mission.MissionCommanderNextActionItem
 	projectNextBatchStarterPackage     *ProjectNextBatchStarterPackage
+	projectPackMemoryConsumption       *PackMemoryConsumptionHandoff
 	currentLoopOperator                *mission.CurrentLoopOperatorPackage
 }
 
@@ -345,6 +357,7 @@ func newHandoffContext(repoRoot, caseRoot, pack string, opt HandoffOptions) (han
 	if ctx.project {
 		ctx.projectMissionCommanderNextActions = mission.UniqueCommanderNextActions(opt.ProjectMissionCommanderNextActions)
 		ctx.projectNextBatchStarterPackage = cloneProjectNextBatchStarterPackage(opt.ProjectNextBatchStarterPackage)
+		ctx.projectPackMemoryConsumption = clonePackMemoryConsumptionHandoff(opt.ProjectPackMemoryConsumption)
 	}
 	ctx.handovers, err = refsf.SafeJoin(inst.CaseRoot, relJoin(".rekit", "handovers"))
 	if err != nil {
@@ -361,6 +374,17 @@ func newHandoffContext(repoRoot, caseRoot, pack string, opt HandoffOptions) (han
 		ctx.lane = &lane
 	}
 	return ctx, nil
+}
+
+func clonePackMemoryConsumptionHandoff(value *PackMemoryConsumptionHandoff) *PackMemoryConsumptionHandoff {
+	if value == nil {
+		return nil
+	}
+	clone := *value
+	clone.MissionCommanderNextActions = mission.UniqueCommanderNextActions(value.MissionCommanderNextActions)
+	clone.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(clone.MissionCommanderNextActions)
+	clone.Boundary = append([]string{}, value.Boundary...)
+	return &clone
 }
 
 func cloneProjectNextBatchStarterPackage(pkg *ProjectNextBatchStarterPackage) *ProjectNextBatchStarterPackage {
@@ -492,6 +516,7 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 		ReplacementExecutorTakeoverPackage: replacementExecutorTakeoverPackage,
 		CurrentLoopOperator:                ctx.currentLoopOperator,
 		ProjectNextBatchStarterPackage:     cloneProjectNextBatchStarterPackage(ctx.projectNextBatchStarterPackage),
+		PackMemoryConsumption:              clonePackMemoryConsumptionHandoff(ctx.projectPackMemoryConsumption),
 		Writes:                             writes,
 		BlockedActions:                     []string{"authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "continue auto-apply", "board/facts/lane creation"},
 		NextSteps:                          next,
@@ -1427,6 +1452,7 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 	writeLatestDriverReceiptHandoff(&out, latestDriverReceiptHandoff)
 	writeReplacementExecutorTakeoverPackage(&out, handoffReplacementExecutorTakeoverPackage(ctx.inst.CaseRoot, "project", nil, projectActionQueue, nil, latestDriverReceiptHandoff, ctx.replacementExecutorTakeoverPackageLatestRel()))
 	writeCurrentLoopOperatorPackage(&out, ctx.currentLoopOperator)
+	writePackMemoryConsumptionHandoff(&out, ctx.projectPackMemoryConsumption)
 	writeProjectNextBatchStarterPackage(&out, ctx.projectNextBatchStarterPackage)
 	fmt.Fprintln(&out, "## 工作线")
 	fmt.Fprintln(&out)
@@ -1671,6 +1697,25 @@ func writeCurrentLoopOperatorPackage(out *bytes.Buffer, pkg *mission.CurrentLoop
 	}
 	for _, boundary := range pkg.Boundary {
 		fmt.Fprintf(out, "- boundary: %s\n", boundary)
+	}
+	fmt.Fprintln(out)
+}
+
+func writePackMemoryConsumptionHandoff(out *bytes.Buffer, handoff *PackMemoryConsumptionHandoff) {
+	if handoff == nil {
+		return
+	}
+	fmt.Fprintln(out, "## Pack-memory consumption handoff")
+	fmt.Fprintln(out)
+	fmt.Fprintf(out, "- completed changes：available=%d consumed=%d conflicts=%d\n", handoff.Available, handoff.Consumed, handoff.Conflicts)
+	if current := handoff.MissionCommanderActionQueue.CurrentAction; current != nil {
+		fmt.Fprintf(out, "- current action：%s\n", MissionCommanderNextActionMarkdownLine(*current))
+	}
+	for _, item := range handoff.MissionCommanderNextActions {
+		fmt.Fprintf(out, "- action：%s\n", MissionCommanderNextActionMarkdownLine(item))
+	}
+	for _, boundary := range handoff.Boundary {
+		fmt.Fprintf(out, "- boundary：%s\n", boundary)
 	}
 	fmt.Fprintln(out)
 }

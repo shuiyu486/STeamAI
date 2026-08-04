@@ -148,6 +148,8 @@ type Options struct {
 	ExpectedExternalSessionJobSHA256         string
 	ExpectedExternalSessionSubmissionSHA256  string
 	ExpectedExternalSessionRelayPlanSHA256   string
+	SelectPackMemoryChange                   string
+	ExpectedPackMemoryConsumptionPlanSHA256  string
 	ExpectedCurrentStepPlanSHA256            string
 	ExpectedMemberExecutionPlanSHA256        string
 	MemberExecutionAttemptID                 string
@@ -520,6 +522,18 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ExpectedExternalSessionRelayPlanSha256")
 			}
 			opt.ExpectedExternalSessionRelayPlanSHA256 = args[i]
+		case "-SelectPackMemoryChange", "--select-pack-memory-change":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -SelectPackMemoryChange")
+			}
+			opt.SelectPackMemoryChange = args[i]
+		case "-ExpectedPackMemoryConsumptionPlanSha256", "-ExpectedPackMemoryConsumptionPlanSHA256", "--expected-pack-memory-consumption-plan-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedPackMemoryConsumptionPlanSha256")
+			}
+			opt.ExpectedPackMemoryConsumptionPlanSHA256 = args[i]
 		case "-ExpectedCurrentStepPlanSha256", "-ExpectedCurrentStepPlanSHA256", "--expected-current-step-plan-sha256":
 			i++
 			if i >= len(args) {
@@ -3693,6 +3707,7 @@ type statusInventory struct {
 	Manifest              *statusManifestSummary       `json:"manifest"`
 	CaseShim              statusCaseShim               `json:"caseShim"`
 	ProjectHandoff        *statusProjectHandoff        `json:"projectHandoff,omitempty"`
+	PackMemoryConsumption *packMemoryConsumptionStatus `json:"packMemoryConsumption,omitempty"`
 	CaseMission           *statusCaseMission           `json:"caseMission,omitempty"`
 	Onboarding            *missionintent.Inspection    `json:"onboarding,omitempty"`
 	MissionControlRunbook *statusMissionControlRunbook `json:"missionControlRunbook,omitempty"`
@@ -4281,7 +4296,7 @@ func runStatusText(ctx runtime.Context, packSource string, out io.Writer) error 
 	if err := writeStatusCaseShimText(out, status.CaseShim); err != nil {
 		return err
 	}
-	if err := writeStatusMissionCommanderFirstScreenText(out, status.CaseMission, status.ProjectHandoff); err != nil {
+	if err := writeStatusMissionCommanderFirstScreenTextWithConsumption(out, status.CaseMission, status.ProjectHandoff, status.PackMemoryConsumption); err != nil {
 		return err
 	}
 	if err := writeStatusMissionControlRunbookText(out, status.MissionControlRunbook); err != nil {
@@ -4366,6 +4381,10 @@ func writeStatusCaseShimEntrypointText(out io.Writer, entry *statusCaseShimEntry
 }
 
 func buildStatusMissionControlRunbook(target string, caseMission *statusCaseMission, projectHandoff *statusProjectHandoff) *statusMissionControlRunbook {
+	return buildStatusMissionControlRunbookWithConsumption(target, caseMission, projectHandoff, nil)
+}
+
+func buildStatusMissionControlRunbookWithConsumption(target string, caseMission *statusCaseMission, projectHandoff *statusProjectHandoff, consumption *packMemoryConsumptionStatus) *statusMissionControlRunbook {
 	caseQueue := mission.MissionCommanderActionQueue{}
 	caseCurrent := (*mission.MissionCommanderNextActionItem)(nil)
 	reviewerQueue := mission.MissionCommanderActionQueue{}
@@ -4380,6 +4399,10 @@ func buildStatusMissionControlRunbook(target string, caseMission *statusCaseMiss
 	packCurrent := (*mission.MissionCommanderNextActionItem)(nil)
 	if projectHandoff != nil {
 		packQueue = projectHandoff.PackMemoryCandidates.MissionCommanderActionQueue
+		packCurrent = packQueue.CurrentAction
+	}
+	if consumption != nil && consumption.MissionCommanderActionQueue.CurrentAction != nil {
+		packQueue = consumption.MissionCommanderActionQueue
 		packCurrent = packQueue.CurrentAction
 	}
 	projectQueue := mission.MissionCommanderActionQueue{}
@@ -6603,7 +6626,11 @@ func writeStatusMissionControlGuidanceHandoffText(out io.Writer, handoff *status
 }
 
 func writeStatusMissionCommanderFirstScreenText(out io.Writer, caseMission *statusCaseMission, projectHandoff *statusProjectHandoff) error {
-	if caseMission == nil && projectHandoff == nil {
+	return writeStatusMissionCommanderFirstScreenTextWithConsumption(out, caseMission, projectHandoff, nil)
+}
+
+func writeStatusMissionCommanderFirstScreenTextWithConsumption(out io.Writer, caseMission *statusCaseMission, projectHandoff *statusProjectHandoff, consumption *packMemoryConsumptionStatus) error {
+	if caseMission == nil && projectHandoff == nil && consumption == nil {
 		return nil
 	}
 	caseQueue := mission.MissionCommanderActionQueue{}
@@ -6624,6 +6651,11 @@ func writeStatusMissionCommanderFirstScreenText(out io.Writer, caseMission *stat
 		packQueue = packCandidates.MissionCommanderActionQueue
 		packCurrent = packQueue.CurrentAction
 		packTotal = packCandidates.Total
+	}
+	if consumption != nil && consumption.MissionCommanderActionQueue.CurrentAction != nil {
+		packQueue = consumption.MissionCommanderActionQueue
+		packCurrent = packQueue.CurrentAction
+		packTotal = len(consumption.Discovery.Available)
 	}
 	projectQueue := mission.MissionCommanderActionQueue{}
 	projectCurrent := (*mission.MissionCommanderNextActionItem)(nil)
@@ -8349,7 +8381,8 @@ func buildStatusInventory(ctx runtime.Context, packSource string) (statusInvento
 		}
 		status.ProjectHandoff = buildStatusProjectHandoff(handoff)
 		bindStatusCaseCandidateDecisionDraftHandoffs(status.ProjectHandoff, ctx.RepoRoot, inst.CaseRoot, ctx.Pack)
-		status.MissionControlRunbook = buildStatusMissionControlRunbook(ctx.Target, status.CaseMission, status.ProjectHandoff)
+		status.PackMemoryConsumption = buildPackMemoryConsumptionStatus(ctx.RepoRoot, inst.CaseRoot, ctx.Pack)
+		status.MissionControlRunbook = buildStatusMissionControlRunbookWithConsumption(ctx.Target, status.CaseMission, status.ProjectHandoff, status.PackMemoryConsumption)
 		bindStatusMemberExecution(&status)
 		return status, nil
 	}
@@ -9947,6 +9980,12 @@ func runSyncReview(ctx runtime.Context, opt Options, out io.Writer) error {
 	if command == "" {
 		command = commands.Sync
 	}
+	if strings.TrimSpace(opt.SelectPackMemoryChange) != "" {
+		return runPackMemorySelectedSync(ctx, opt, out)
+	}
+	if strings.TrimSpace(opt.ExpectedPackMemoryConsumptionPlanSHA256) != "" {
+		return fmt.Errorf("%s -ExpectedPackMemoryConsumptionPlanSha256 requires -SelectPackMemoryChange", command)
+	}
 	if opt.WhatIf && !opt.Apply {
 		return fmt.Errorf("%s -WhatIf is only supported with -Apply for non-writing preview", command)
 	}
@@ -10874,6 +10913,11 @@ func bindProjectHandoffMissionCommanderActions(repoRoot, target, pack string, op
 	}
 	opt.ProjectMissionCommanderNextActions = projectHandoffMissionCommanderActionsForDurableHandoff(project)
 	opt.ProjectMissionCommanderNextActions = mission.UniqueCommanderNextActions(append(caseHandoffMissionCommanderActionsForDurableHandoff(caseMission), opt.ProjectMissionCommanderNextActions...))
+	consumption := buildPackMemoryConsumptionStatus(repoRoot, target, pack)
+	if consumption != nil {
+		opt.ProjectMissionCommanderNextActions = mission.UniqueCommanderNextActions(append(consumption.MissionCommanderNextActions, opt.ProjectMissionCommanderNextActions...))
+		opt.ProjectPackMemoryConsumption = &workstream.PackMemoryConsumptionHandoff{Available: len(consumption.Discovery.Available), Consumed: len(consumption.Discovery.Consumed), Conflicts: len(consumption.Discovery.Conflicts), MissionCommanderNextActions: consumption.MissionCommanderNextActions, MissionCommanderActionQueue: consumption.MissionCommanderActionQueue, Boundary: append([]string{}, consumption.Discovery.Boundary...)}
+	}
 	opt.ProjectNextBatchStarterPackage = projectHandoffNextBatchStarterPackageForDurableHandoff(project)
 	return nil
 }
