@@ -29,6 +29,19 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 ### Current batch state
 
 
+
+### Batch 812：unified external session observation envelope intake for checkpoint-bound campaign resume
+
+状态：已完成。
+
+目标：让外部member/reviewer harness只写一次case-local strict observation envelope，Mission Commander或replacement executor即可从durable status/handoff执行checkpoint-bound WhatIf与hash-bound Apply，不再手工拼装attempt、actor和多组observation flags。
+
+实现：Status、quickstart、replacement takeover、handoff JSON/Markdown/text为member/reviewer accepted/returned/failed alternatives返回绑定exact checkpoint与attempt的`observationEnvelopeTemplate`和统一`observationPathCommand`。`run-current-loop -CurrentLoopObservationPath`以case-local、symlink-free、≤64 KiB stable read和strict JSON intake一次observation；WhatIf把absolute path与exact bytes SHA纳入outer plan identity并返回path-only Apply，Apply在resume claim前和nested mutation前重读同一文件。Envelope展开后复用既有member/reviewer runner，并重新验证member owner/state/capability与reviewer attempt currentness；successor checkpoint把observation path/SHA纳入可重算segment identity。Legacy flags仍兼容，但不能与envelope或`-Actor`混用。PowerShell façade只透传path/hash，不解析envelope。
+
+边界：Go runtime不spawn/poll/stop member或reviewer session，不执行heavy-tool、不写authority/confirmed；direct reviewer result write保持既有fresh refresh路径，不用predecessor envelope；不放宽member manifest/output、reviewer result、checkpoint one-shot/currentness或lane owner generation guards，不新增PowerShell runtime logic。
+
+验证结果：focused `currentloop/cli/workstream`回归、member accepted/returned E2E、reviewer accepted/returned/failed campaign E2E、strict unknown/trailing/oversize/outside-case与参数互斥、exact-byte drift、checkpoint identity tamper、status/handoff projections及PowerShell façade smoke通过。受影响四包完整测试通过（CLI 195.179秒）；修复审查项后完整`go test ./... -count=1`通过（CLI 193.498秒），`go vet ./...`、`status`、10-pack `packs`、`doctor`、façade smoke与`git diff --check`通过。独立correctness/security审查确认祖先目录namespace TOCTOU与claim后reopen烧毁remaining budget两项Important；改用pinned `os.Root` anchored no-follow/reparse-safe reader，并让claim后只消费已审核immutable materialization，定向复核确认两项关闭且无新的高置信Critical/Important。完成态`release-check -Format json`返回`ready=true` / `summary=release gate inventory ok`；implementation commit/push待统一记录，普通batch不等待或声明remote CI green。
+
 ### Batch 811：bounded Mission Commander multi-segment run loop with durable external session handoff
 
 状态：已完成。本批将bounded Mission Commander current-loop从reviewer单边接力扩展为统一durable external member/reviewer session handoff；主Agent或replacement executor可从status、quickstart、handoff与strict checkpoint恢复剩余预算和下一项exact observation preview，不依赖旧聊天，也不手工拼装attempt/checkpoint flags。
@@ -40,16 +53,6 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 边界：Go runtime不spawn/poll/stop member或reviewer session，不执行heavy-tool、不写authority/confirmed；不新增PowerShell runtime logic，不自动跨external session边界Apply，不放宽既有member manifest/output、reviewer result、checkpoint one-shot/currentness或lane owner generation guards。
 
 验证结果：focused `currentloop/mission/workstream/cli`回归通过；受影响四包完整测试通过（CLI 197.849秒），覆盖dispatch→checkpoint、status/quickstart/replacement/handoff JSON/Markdown/default text投影、空resume与不同attempt resume拒绝、accepted 3→2能力收敛、strict returned intake、`member-intake-ready`无旧handoff successor保留剩余预算，以及generation/path/state/capability/embedded-contract schema tamper fail-closed。完整 `go test ./... -count=1` 通过（CLI 201.798秒），`go vet ./...`、`status`、10-pack `packs`、`doctor` 与 `git diff --check` 通过。独立correctness/security审查最初确认3项Important：checkpoint attempt替换、returned剩余预算checkpoint失败与default text遗漏；修复后逐项复核关闭，未发现新的高置信Critical/Important。完成态`release-check -Format json`返回`ready=true` / `summary=release gate inventory ok`；implementation commit/push待统一记录，普通batch不等待或声明remote CI green。
-
-### Batch 810：active batch plan bounded rotation and durable history archival
-
-状态：已完成 active batch plan bounded rotation、durable history archival、三文档 exact-prefix 恢复与独立终审；implementation commit/push 待当前统一完成。本批解决 `docs/batch-plan.md` 已重新积累 271 个旧批次、上下文压缩后接手会被历史细节淹没的问题；将迁移前实际存在的 Batch 537–808 section 原样迁入 `docs/batch-history.md`，并让后续 `next-batch` 在规划新批次时自动把更早的 active batch 归档，防止活动文档再次膨胀。
-
-目标：`docs/batch-plan.md` 顶部只承载 current milestone、next candidates、当前批次和最近完成批次；旧批次可按 Batch ID 在 `docs/batch-history.md` 找回。`docs/autonomous-goal.md` 明确方向变化写回顶部实施区、聊天 goal 保持简短，并通过仓库测试锁定 active batch 数量上限。
-
-边界：历史内容原样迁移，不删除事实；日常接手不默认读取历史全文。`next-batch` 仍保持 review-first 和 expected-hash Apply，只写三份 kit 文档，不触碰 case state、不执行 heavy-tool、不写 authority/confirmed、不自动 commit/push 或声明远程 CI green。
-
-验证结果：迁移前活动文档中实际存在的 271 个 Batch 537–808 section 已逐段按完整正文核对，全部原样进入历史归档且无遗漏/重复；原文没有独立 Batch 565 section，因此未伪造历史。活动文档现仅含 Batch 810 与 Batch 809，并由 repository invariant 锁定常态最多两个 active Batch。`next-batch` focused tests 覆盖 WhatIf 零写入、history-first rotation、同 Batch ID 内容冲突与 active/history ID collision 拒绝、无歧义长度前缀 planning hash、hash-bound Apply、0/1/2/3 exact write prefix 恢复、selection package 已关闭后的 committed response-loss replay、non-prefix drift fail-closed，并在 publication 后对三份文件做最终 exact-byte 复验；Apply 在 repo-scoped kit mutation lease 内重建计划，单文件写入使用同目录临时文件 `Sync` 后原子替换。最终 focused CLI 回归通过（41.185 秒），Linux/Darwin kit mutation lock 交叉编译通过，`releasecheck/defaultdocs/manifest` focused packages 通过，最终完整 `go test ./... -count=1` 通过（CLI 346.624 秒），`go vet ./...`、`status`、`packs`、`doctor` 与 `git diff --check` 通过；`git diff --check` 仅输出 Windows LF→CRLF 提示。完成态 `release-check -Format json` 返回 `ready=true` / `summary=release gate inventory ok`；普通 batch 不等待或声明 remote CI green。
 
 ## 活动文档维护规则
 

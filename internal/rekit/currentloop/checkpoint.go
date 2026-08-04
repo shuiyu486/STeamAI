@@ -112,6 +112,8 @@ type Payload struct {
 	ExpectedCurrentLoopPlanSHA256       string                                 `json:"expectedCurrentLoopPlanSha256"`
 	ExpectedInitialCurrentStepSHA256    string                                 `json:"expectedInitialCurrentStepSha256,omitempty"`
 	ResumeSourceArtifactSHA256          string                                 `json:"resumeSourceArtifactSha256,omitempty"`
+	ObservationPath                     string                                 `json:"observationPath,omitempty"`
+	ObservationSHA256                   string                                 `json:"observationSha256,omitempty"`
 	ReopenOperationSequence             int                                    `json:"reopenOperationSequence,omitempty"`
 	ReopenOperationCommitSHA256         string                                 `json:"reopenOperationCommitSha256,omitempty"`
 	ZeroProgressRecovery                bool                                   `json:"zeroProgressRecovery,omitempty"`
@@ -826,6 +828,8 @@ func validatePayloadForCase(payload Payload, caseRoot string) error {
 		InitialCurrentDriverRequest   mission.MissionCommanderDriverRequest `json:"initialCurrentDriverRequest"`
 		ExpectedCurrentStepPlanSHA256 string                                `json:"expectedCurrentStepPlanSha256"`
 		ResumeSourceArtifactSHA256    string                                `json:"resumeSourceArtifactSha256,omitempty"`
+		ObservationPath               string                                `json:"observationPath,omitempty"`
+		ObservationSHA256             string                                `json:"observationSha256,omitempty"`
 	}{
 		SchemaVersion:                 1,
 		CaseRoot:                      caseRoot,
@@ -838,6 +842,8 @@ func validatePayloadForCase(payload Payload, caseRoot string) error {
 		InitialCurrentDriverRequest:   payload.InitialCurrentDriverRequest,
 		ExpectedCurrentStepPlanSHA256: payload.ExpectedInitialCurrentStepSHA256,
 		ResumeSourceArtifactSHA256:    payload.ResumeSourceArtifactSHA256,
+		ObservationPath:               payload.ObservationPath,
+		ObservationSHA256:             payload.ObservationSHA256,
 	}
 	if len(payload.StepReceipts) > 0 {
 		identity.ExpectedCurrentStepPlanSHA256 = payload.StepReceipts[0].ExpectedCurrentStepPlanSHA256
@@ -861,6 +867,9 @@ func validatePayload(payload Payload) error {
 	}
 	if payload.ResumeSourceArtifactSHA256 != "" && (payload.Sequence < 2 || !isSHA256(payload.ResumeSourceArtifactSHA256)) {
 		return fmt.Errorf("resume source artifact hash is invalid")
+	}
+	if (strings.TrimSpace(payload.ObservationPath) == "") != (strings.TrimSpace(payload.ObservationSHA256) == "") || payload.ObservationSHA256 != "" && (!isSHA256(payload.ObservationSHA256) || payload.ResumeSourceArtifactSHA256 == "") {
+		return fmt.Errorf("observation path, hash, or resume source binding is invalid")
 	}
 	if payload.ReopenOperationSequence < 0 || payload.ReopenOperationSequence == 0 && payload.ReopenOperationCommitSHA256 != "" || payload.ReopenOperationSequence > 0 && !isSHA256(payload.ReopenOperationCommitSHA256) {
 		return fmt.Errorf("reopen operation watermark is invalid")

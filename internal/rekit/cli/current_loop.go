@@ -44,6 +44,8 @@ type currentLoopPlan struct {
 	ContinuationRequest            *currentLoopContinuationRequest        `json:"continuationRequest,omitempty"`
 	ResumeSource                   *currentloop.Inspection                `json:"resumeSource,omitempty"`
 	ExpectedResumeCheckpointSHA256 string                                 `json:"expectedResumeCheckpointSha256,omitempty"`
+	ObservationPath                string                                 `json:"observationPath,omitempty"`
+	ObservationSHA256              string                                 `json:"observationSha256,omitempty"`
 	ApplyCommand                   string                                 `json:"applyCommand,omitempty"`
 	SegmentCheckpoint              *currentloop.Inspection                `json:"segmentCheckpoint,omitempty"`
 	FinalStatus                    *statusInventory                       `json:"finalStatus,omitempty"`
@@ -103,6 +105,8 @@ type currentLoopPlanIdentity struct {
 	InitialCurrentDriverRequest   mission.MissionCommanderDriverRequest `json:"initialCurrentDriverRequest"`
 	ExpectedCurrentStepPlanSHA256 string                                `json:"expectedCurrentStepPlanSha256"`
 	ResumeSourceArtifactSHA256    string                                `json:"resumeSourceArtifactSha256,omitempty"`
+	ObservationPath               string                                `json:"observationPath,omitempty"`
+	ObservationSHA256             string                                `json:"observationSha256,omitempty"`
 }
 
 func runCurrentLoop(ctx runtime.Context, opt Options, out io.Writer) error {
@@ -126,6 +130,22 @@ func runCurrentLoop(ctx runtime.Context, opt Options, out io.Writer) error {
 	}
 	if opt.ResumeCurrentLoop && strings.TrimSpace(opt.ExpectedCurrentLoopCheckpointSHA256) == "" {
 		return fmt.Errorf("run-current-loop -ResumeCurrentLoop requires -ExpectedCurrentLoopCheckpointSha256 from status or handoff")
+	}
+	if strings.TrimSpace(opt.CurrentLoopObservationPath) != "" {
+		if !opt.ResumeCurrentLoop {
+			return fmt.Errorf("run-current-loop -CurrentLoopObservationPath requires -ResumeCurrentLoop")
+		}
+		if currentStepHasMemberObservation(opt) || currentStepHasReviewerObservation(opt) || strings.TrimSpace(opt.Start.Actor) != "" {
+			return fmt.Errorf("run-current-loop observation envelope cannot be combined with legacy member/reviewer observation flags or -Actor")
+		}
+		if opt.WhatIf && strings.TrimSpace(opt.ExpectedCurrentLoopObservationSHA256) != "" {
+			return fmt.Errorf("run-current-loop observation envelope -WhatIf does not accept -ExpectedCurrentLoopObservationSha256")
+		}
+		if opt.Apply && strings.TrimSpace(opt.ExpectedCurrentLoopObservationSHA256) == "" {
+			return fmt.Errorf("run-current-loop observation envelope -Apply requires -ExpectedCurrentLoopObservationSha256 from -WhatIf")
+		}
+	} else if strings.TrimSpace(opt.ExpectedCurrentLoopObservationSHA256) != "" {
+		return fmt.Errorf("run-current-loop -ExpectedCurrentLoopObservationSha256 requires -CurrentLoopObservationPath")
 	}
 	if err := validateCurrentLoopOuterArgs(opt); err != nil {
 		return err
@@ -158,6 +178,11 @@ func runCurrentLoop(ctx runtime.Context, opt Options, out io.Writer) error {
 	}
 	if !strings.EqualFold(expected, plan.ExpectedCurrentLoopPlanSHA256) {
 		return fmt.Errorf("run-current-loop expected plan sha256 mismatch: got %s want %s", expected, plan.ExpectedCurrentLoopPlanSHA256)
+	}
+	if plan.ResumeSource != nil && strings.TrimSpace(opt.CurrentLoopObservationPath) != "" {
+		if err := applyCurrentLoopObservationEnvelope(ctx, &opt, *plan.ResumeSource); err != nil {
+			return err
+		}
 	}
 	if plan.ResumeSource != nil {
 		requestSHA256, hashErr := currentloop.RequestSHA256(*plan.InitialCurrentDriverRequest)
@@ -227,6 +252,12 @@ func buildCurrentLoopPlan(ctx runtime.Context, opt Options) (currentLoopPlan, st
 		inspection := status.MissionControlRunbook.CurrentLoopSegment
 		if !inspection.Ready || inspection.State != "ready" || inspection.Continuation == nil || inspection.RemainingMaxSteps < 1 || inspection.ArtifactSHA256 == "" {
 			return currentLoopPlan{}, statusInventory{}, fmt.Errorf("run-current-loop -ResumeCurrentLoop requires the latest checkpoint to be state=ready")
+		}
+		if err := applyCurrentLoopObservationEnvelope(ctx, &opt, *inspection); err != nil {
+			return currentLoopPlan{}, statusInventory{}, err
+		}
+		if err := validateCurrentLoopReviewerAttemptObservation(opt, status); err != nil {
+			return currentLoopPlan{}, statusInventory{}, err
 		}
 		if inspection.StopCode == "external-member-handoff" {
 			if !currentStepHasMemberObservation(opt) {
@@ -308,6 +339,8 @@ func buildCurrentLoopPlan(ctx runtime.Context, opt Options) (currentLoopPlan, st
 	}
 	if resumeSource != nil {
 		identity.ResumeSourceArtifactSHA256 = resumeSource.ArtifactSHA256
+		identity.ObservationPath = opt.CurrentLoopObservationPath
+		identity.ObservationSHA256 = opt.ExpectedCurrentLoopObservationSHA256
 	}
 	encoded, err := json.Marshal(identity)
 	if err != nil {
@@ -317,10 +350,17 @@ func buildCurrentLoopPlan(ctx runtime.Context, opt Options) (currentLoopPlan, st
 	plan.ExpectedCurrentLoopPlanSHA256 = hex.EncodeToString(sum[:])
 	if resumeSource != nil {
 		plan.ExpectedResumeCheckpointSHA256 = resumeSource.ArtifactSHA256
+		plan.ObservationPath = opt.CurrentLoopObservationPath
+		plan.ObservationSHA256 = opt.ExpectedCurrentLoopObservationSHA256
 		plan.ApplyCommand = currentLoopResumeApplyCommand(ctx, plan, opt)
 		plan.Boundary = append(plan.Boundary,
 			"resume preview binds the latest ready checkpoint artifact and its remaining budget; Apply revalidates that exact checkpoint before executing the new segment",
 		)
+		if plan.ObservationSHA256 != "" {
+			plan.Boundary = append(plan.Boundary,
+				"observationPath and observationSha256 bind the exact strict case-local external session observation envelope; Apply rereads the same bytes before mutation",
+			)
+		}
 	}
 	plan.StopReason = currentLoopStopReason{Code: "ready", Phase: "preview", Message: "bounded current loop is ready for hash-bound Apply", CurrentDriverRequest: request}
 	return plan, status, nil
@@ -607,20 +647,25 @@ func currentLoopResumeApplyCommand(ctx runtime.Context, plan currentLoopPlan, op
 			args = append(args, flag, statusQuoteCommandArg(value))
 		}
 	}
-	appendValue("-Actor", opt.Start.Actor)
-	appendValue("-MemberExecutionAttemptId", opt.MemberExecutionAttemptID)
-	appendValue("-MemberExecutionOutcome", opt.MemberExecutionOutcome)
-	appendValue("-MemberExecutionReason", opt.MemberExecutionReason)
-	appendValue("-MemberExecutionObservedAt", opt.MemberExecutionObservedAt)
+	if strings.TrimSpace(opt.CurrentLoopObservationPath) != "" {
+		appendValue("-CurrentLoopObservationPath", opt.CurrentLoopObservationPath)
+		appendValue("-ExpectedCurrentLoopObservationSha256", opt.ExpectedCurrentLoopObservationSHA256)
+	} else {
+		appendValue("-Actor", opt.Start.Actor)
+		appendValue("-MemberExecutionAttemptId", opt.MemberExecutionAttemptID)
+		appendValue("-MemberExecutionOutcome", opt.MemberExecutionOutcome)
+		appendValue("-MemberExecutionReason", opt.MemberExecutionReason)
+		appendValue("-MemberExecutionObservedAt", opt.MemberExecutionObservedAt)
+		appendValue("-ExpectedCurrentLoopReviewerAttemptSha256", opt.ExpectedCurrentLoopReviewerAttemptSHA256)
+		appendValue("-ReviewerResultInputSourcePath", opt.ReviewerResultInputSourcePath)
+		appendValue("-ReviewerHarness", opt.ReviewerHarness)
+		appendValue("-ReviewerSession", opt.ReviewerSession)
+		appendValue("-ReviewerOutcome", opt.ReviewerOutcome)
+		appendValue("-ReviewerExitStatus", opt.ReviewerExitStatus)
+	}
 	if plan.InitialCurrentStep != nil && plan.InitialCurrentStep.MemberExecution != nil {
 		appendValue("-ExpectedMemberExecutionPlanSha256", plan.InitialCurrentStep.MemberExecution.ExpectedPlanSHA256)
 	}
-	appendValue("-ExpectedCurrentLoopReviewerAttemptSha256", opt.ExpectedCurrentLoopReviewerAttemptSHA256)
-	appendValue("-ReviewerResultInputSourcePath", opt.ReviewerResultInputSourcePath)
-	appendValue("-ReviewerHarness", opt.ReviewerHarness)
-	appendValue("-ReviewerSession", opt.ReviewerSession)
-	appendValue("-ReviewerOutcome", opt.ReviewerOutcome)
-	appendValue("-ReviewerExitStatus", opt.ReviewerExitStatus)
 	args = append(args, "-ExpectedCurrentLoopPlanSha256", plan.ExpectedCurrentLoopPlanSHA256, "-Apply", "-Format", "json")
 	return strings.Join(args, " ")
 }
@@ -811,6 +856,8 @@ func writeCurrentLoopSegmentCheckpoint(ctx runtime.Context, opt Options, plan cu
 		InitialCurrentDriverRequest:   *plan.InitialCurrentDriverRequest,
 		ExpectedCurrentLoopPlanSHA256: plan.ExpectedCurrentLoopPlanSHA256,
 		ResumeSourceArtifactSHA256:    plan.ExpectedResumeCheckpointSHA256,
+		ObservationPath:               plan.ObservationPath,
+		ObservationSHA256:             plan.ObservationSHA256,
 		ZeroProgressRecovery:          plan.StopReason.Code == "zero-progress-retry",
 		SegmentMaxSteps:               plan.MaxSteps,
 		AppliedStepsInSegment:         plan.AppliedSteps,
@@ -980,6 +1027,8 @@ func validateCurrentLoopOuterArgs(opt Options) error {
 		"-expectedcurrentloopplansha256": true, "--expected-current-loop-plan-sha256": true,
 		"-expectedcurrentloopcheckpointsha256": true, "--expected-current-loop-checkpoint-sha256": true,
 		"-expectedcurrentloopreviewerattemptsha256": true, "--expected-current-loop-reviewer-attempt-sha256": true,
+		"-currentloopobservationpath": true, "--current-loop-observation-path": true,
+		"-expectedcurrentloopobservationsha256": true, "--expected-current-loop-observation-sha256": true,
 		"-actor": true, "--actor": true,
 		"-expectedmemberexecutionplansha256": true, "--expected-member-execution-plan-sha256": true,
 		"-memberexecutionattemptid": true, "--member-execution-attempt-id": true,
@@ -1052,6 +1101,10 @@ func currentLoopCanonicalOuterFlag(key string) string {
 		return "-expectedcurrentloopplansha256"
 	case "--expected-current-loop-checkpoint-sha256":
 		return "-expectedcurrentloopcheckpointsha256"
+	case "--current-loop-observation-path":
+		return "-currentloopobservationpath"
+	case "--expected-current-loop-observation-sha256":
+		return "-expectedcurrentloopobservationsha256"
 	case "--resume-current-loop":
 		return "-resumecurrentloop"
 	case "--what-if":

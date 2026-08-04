@@ -434,6 +434,11 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	if !strings.Contains(returnedTemplate, "-ResumeCurrentLoop") || !strings.Contains(returnedTemplate, dispatchApplied.SegmentCheckpoint.ArtifactSHA256) || !strings.Contains(returnedTemplate, "-ExpectedCurrentLoopReviewerAttemptSha256 "+resultAttempt.AttemptSnapshotSHA256) || !strings.Contains(returnedTemplate, "-ReviewerResultInputSourcePath <reviewer-result-source-path>") || !strings.Contains(failedTemplate, "-ReviewerOutcome failed") || !strings.Contains(failedTemplate, "-ReviewerExitStatus <exit-status>") {
 		t.Fatalf("checkpoint-bound reviewer result templates are incomplete: returned=%s failed=%s", returnedTemplate, failedTemplate)
 	}
+	for _, alternative := range resultOperator.ExternalReviewerHandoff.ObservationContract.Alternatives {
+		if !strings.Contains(alternative.ObservationEnvelopeTemplate, `"checkpointSha256": "`+dispatchApplied.SegmentCheckpoint.ArtifactSHA256+`"`) || !strings.Contains(alternative.ObservationEnvelopeTemplate, `"reviewerAttemptSha256": "`+resultAttempt.AttemptSnapshotSHA256+`"`) || !strings.Contains(alternative.ObservationPathCommand, "-CurrentLoopObservationPath") {
+			t.Fatalf("checkpoint reviewer alternative omitted envelope intake: %+v", alternative)
+		}
+	}
 
 	plan := decodePlanSubagentsPacket(t, dispatchApplied.FinalStatus.CaseMission.ReviewerDispatchIntakeSummary.LatestPacketPath)
 	handoff := plan.ShardHandoffs[0]
@@ -445,13 +450,16 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	failedInputs := []string{"-ExpectedCurrentLoopReviewerAttemptSha256", resultAttempt.AttemptSnapshotSHA256, "-ReviewerOutcome", "failed", "-ReviewerExitStatus", "reviewer-error", "-Actor", actor}
-	failedPreview := runCurrentLoopResumePreviewWith(t, caseRoot, dispatchApplied.SegmentCheckpoint.ArtifactSHA256, failedInputs...)
-	failedApplyFields, err := splitDriverCommand(failedPreview.ApplyCommand)
-	if err != nil {
-		t.Fatal(err)
+	failedObservationPath := writeCurrentLoopObservation(t, caseRoot, "reviewer-failed", currentLoopObservationEnvelope{
+		SchemaVersion: 1, Kind: "current-loop-external-session-observation", CheckpointSHA256: dispatchApplied.SegmentCheckpoint.ArtifactSHA256,
+		ObservationKind: "reviewer-session-failed", Actor: actor, ReviewerAttemptSHA256: resultAttempt.AttemptSnapshotSHA256, ReviewerExitStatus: "reviewer-error",
+		NoAuthorityOrConfirmed: true, NoHeavyTool: true,
+	})
+	failedPreview := runCurrentLoopResumePreviewWith(t, caseRoot, dispatchApplied.SegmentCheckpoint.ArtifactSHA256, "-CurrentLoopObservationPath", failedObservationPath)
+	if failedPreview.ObservationSHA256 == "" || !strings.Contains(failedPreview.ApplyCommand, "-CurrentLoopObservationPath") || strings.Contains(failedPreview.ApplyCommand, "-ReviewerOutcome") || strings.Contains(failedPreview.ApplyCommand, "-Actor") {
+		t.Fatalf("failed reviewer envelope preview did not preserve path-only apply: %+v", failedPreview)
 	}
-	failedApplied := runCurrentLoopResult(t, append([]string{"-Command", failedApplyFields[1]}, failedApplyFields[2:]...))
+	failedApplied := runCurrentLoopResult(t, rekitCommandCLIArgs(t, failedPreview.ApplyCommand))
 	if failedApplied.AppliedSteps != 1 || failedApplied.StopReason.Code != "external-reviewer-handoff" || failedApplied.SegmentCheckpoint == nil {
 		t.Fatalf("failed reviewer attempt did not return a replacement handoff: %+v", failedApplied)
 	}
@@ -463,13 +471,13 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	if replacementSpawnAttempt.RunLoopStepID != "spawn-reviewer" || replacementSpawnAttempt.Receipt.DispatchID != resultAttempt.Receipt.DispatchID || replacementSpawnAttempt.Receipt.CompletionOutcome != "failed" {
 		t.Fatalf("failed reviewer attempt did not advance to fresh spawn while preserving prior receipt provenance: %+v", replacementSpawnAttempt)
 	}
-	replacementDispatchInputs := []string{"-ExpectedCurrentLoopReviewerAttemptSha256", replacementSpawnAttempt.AttemptSnapshotSHA256, "-ReviewerHarness", "go-cli-test-harness", "-ReviewerSession", "reviewer-session-replacement", "-Actor", actor}
-	replacementDispatchPreview := runCurrentLoopResumePreviewWith(t, caseRoot, failedApplied.SegmentCheckpoint.ArtifactSHA256, replacementDispatchInputs...)
-	replacementDispatchApplyFields, err := splitDriverCommand(replacementDispatchPreview.ApplyCommand)
-	if err != nil {
-		t.Fatal(err)
-	}
-	replacementDispatchApplied := runCurrentLoopResult(t, append([]string{"-Command", replacementDispatchApplyFields[1]}, replacementDispatchApplyFields[2:]...))
+	replacementDispatchObservationPath := writeCurrentLoopObservation(t, caseRoot, "reviewer-accepted", currentLoopObservationEnvelope{
+		SchemaVersion: 1, Kind: "current-loop-external-session-observation", CheckpointSHA256: failedApplied.SegmentCheckpoint.ArtifactSHA256,
+		ObservationKind: "reviewer-session-accepted", Actor: actor, ReviewerAttemptSHA256: replacementSpawnAttempt.AttemptSnapshotSHA256, ReviewerHarness: "go-cli-test-harness", ReviewerSession: "reviewer-session-replacement",
+		NoAuthorityOrConfirmed: true, NoHeavyTool: true,
+	})
+	replacementDispatchPreview := runCurrentLoopResumePreviewWith(t, caseRoot, failedApplied.SegmentCheckpoint.ArtifactSHA256, "-CurrentLoopObservationPath", replacementDispatchObservationPath)
+	replacementDispatchApplied := runCurrentLoopResult(t, rekitCommandCLIArgs(t, replacementDispatchPreview.ApplyCommand))
 	if replacementDispatchApplied.AppliedSteps != 1 || replacementDispatchApplied.StopReason.Code != "external-reviewer-handoff" || replacementDispatchApplied.SegmentCheckpoint == nil {
 		t.Fatalf("replacement reviewer dispatch did not reach result handoff: %+v", replacementDispatchApplied)
 	}
@@ -498,16 +506,16 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	if err := os.WriteFile(resultSource, reviewerResultForCLIPlan(t, plan, handoff, "accept", "accepted", "reviewer-session-replacement"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	resultInputs := []string{"-ExpectedCurrentLoopReviewerAttemptSha256", replacementResultAttempt.AttemptSnapshotSHA256, "-ReviewerResultInputSourcePath", resultSource, "-Actor", actor}
-	resultPreview := runCurrentLoopResumePreviewWith(t, caseRoot, replacementDispatchApplied.SegmentCheckpoint.ArtifactSHA256, resultInputs...)
-	if resultPreview.ExpectedCurrentLoopPlanSHA256 == "" || resultPreview.InitialRoute != "reviewer" || resultPreview.MaxSteps != replacementDispatchPreview.MaxSteps-1 || resultPreview.ResumeSource == nil || resultPreview.ApplyCommand == "" || !strings.Contains(resultPreview.ApplyCommand, "-ReviewerResultInputSourcePath") || !strings.Contains(resultPreview.ApplyCommand, resultSource) {
-		t.Fatalf("typed durable replacement result continuation did not rebuild a fresh preview and exact apply command: %+v", resultPreview)
+	resultObservationPath := writeCurrentLoopObservation(t, caseRoot, "reviewer-returned", currentLoopObservationEnvelope{
+		SchemaVersion: 1, Kind: "current-loop-external-session-observation", CheckpointSHA256: replacementDispatchApplied.SegmentCheckpoint.ArtifactSHA256,
+		ObservationKind: "reviewer-result-returned", Actor: actor, ReviewerAttemptSHA256: replacementResultAttempt.AttemptSnapshotSHA256, ReviewerResultSourcePath: resultSource,
+		NoAuthorityOrConfirmed: true, NoHeavyTool: true,
+	})
+	resultPreview := runCurrentLoopResumePreviewWith(t, caseRoot, replacementDispatchApplied.SegmentCheckpoint.ArtifactSHA256, "-CurrentLoopObservationPath", resultObservationPath)
+	if resultPreview.ExpectedCurrentLoopPlanSHA256 == "" || resultPreview.InitialRoute != "reviewer" || resultPreview.MaxSteps != replacementDispatchPreview.MaxSteps-1 || resultPreview.ResumeSource == nil || resultPreview.ApplyCommand == "" || !strings.Contains(resultPreview.ApplyCommand, "-CurrentLoopObservationPath") || strings.Contains(resultPreview.ApplyCommand, "-ReviewerResultInputSourcePath") || strings.Contains(resultPreview.ApplyCommand, "-Actor") {
+		t.Fatalf("typed durable replacement result envelope did not rebuild a path-only apply command: %+v", resultPreview)
 	}
-	resultApplyFields, err := splitDriverCommand(resultPreview.ApplyCommand)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resultApplied := runCurrentLoopResult(t, append([]string{"-Command", resultApplyFields[1]}, resultApplyFields[2:]...))
+	resultApplied := runCurrentLoopResult(t, rekitCommandCLIArgs(t, resultPreview.ApplyCommand))
 	if !resultApplied.Applied || resultApplied.AppliedSteps != 6 || resultApplied.StopReason.Code != "route-policy" || resultApplied.FinalStatus == nil || resultApplied.FinalStatus.MissionControlRunbook == nil || resultApplied.FinalStatus.MissionControlRunbook.Scope != "case" {
 		var finalScope, finalStep string
 		if resultApplied.FinalStatus != nil && resultApplied.FinalStatus.MissionControlRunbook != nil {
@@ -995,6 +1003,8 @@ type currentLoopTestPlan struct {
 	ContinuationRequest            *currentLoopContinuationRequest `json:"continuationRequest"`
 	ResumeSource                   *currentloop.Inspection         `json:"resumeSource"`
 	ExpectedResumeCheckpointSHA256 string                          `json:"expectedResumeCheckpointSha256"`
+	ObservationPath                string                          `json:"observationPath"`
+	ObservationSHA256              string                          `json:"observationSha256"`
 	ApplyCommand                   string                          `json:"applyCommand"`
 	SegmentCheckpoint              *currentloop.Inspection         `json:"segmentCheckpoint"`
 	FinalStatus                    *statusInventory                `json:"finalStatus"`
@@ -1025,6 +1035,82 @@ func runCurrentLoopResumePreviewWith(t *testing.T, caseRoot, checkpointSHA256 st
 	args = append(args, inputs...)
 	args = append(args, "-WhatIf", "-Format", "json")
 	return runCurrentLoopResult(t, args)
+}
+
+func writeCurrentLoopObservation(t *testing.T, caseRoot, name string, envelope currentLoopObservationEnvelope) string {
+	t.Helper()
+	dir := filepath.Join(caseRoot, ".rekit", "external-session-observations")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, name+".json")
+	data, err := json.Marshal(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestCurrentLoopObservationEnvelopeRejectsInvalidFilesAndFlags(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	checkpointSHA256 := strings.Repeat("a", 64)
+	valid := currentLoopObservationEnvelope{
+		SchemaVersion: 1, Kind: "current-loop-external-session-observation", CheckpointSHA256: checkpointSHA256,
+		ObservationKind: "member-session-accepted", Actor: "harness", ObservedAt: "2026-08-03T03:01:00Z", MemberAttemptID: "g000001-a000001-0123456789abcdef",
+		NoAuthorityOrConfirmed: true, NoHeavyTool: true,
+	}
+	validData, err := json.Marshal(valid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inside := writeCurrentLoopObservation(t, caseRoot, "strict-valid", valid)
+	outside := filepath.Join(t.TempDir(), "outside.json")
+	if err := os.WriteFile(outside, append(validData, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	unknown := filepath.Join(caseRoot, ".rekit", "external-session-observations", "unknown.json")
+	unknownData := append(append([]byte{}, validData[:len(validData)-1]...), []byte(",\"unknown\":true}\n")...)
+	if err := os.WriteFile(unknown, unknownData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	trailing := filepath.Join(caseRoot, ".rekit", "external-session-observations", "trailing.json")
+	if err := os.WriteFile(trailing, append(append([]byte{}, validData...), []byte("\n{}\n")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	oversize := filepath.Join(caseRoot, ".rekit", "external-session-observations", "oversize.json")
+	if err := os.WriteFile(oversize, bytes.Repeat([]byte{'x'}, maxCurrentLoopObservationBytes+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		path string
+		want string
+	}{
+		{outside, "escapes anchored case root"},
+		{unknown, "unknown field"},
+		{trailing, "exactly one JSON object"},
+		{oversize, "bounded non-empty regular file"},
+	} {
+		if _, err := readCurrentLoopObservationEnvelope(caseRoot, tc.path); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("observation file %s error = %v, want %q", tc.path, err, tc.want)
+		}
+	}
+	base := []string{"-ResumeCurrentLoop", "-ExpectedCurrentLoopCheckpointSha256", checkpointSHA256, "-CurrentLoopObservationPath", inside}
+	for _, tc := range []struct {
+		extra []string
+		want  string
+	}{
+		{[]string{"-ExpectedCurrentLoopObservationSha256", strings.Repeat("b", 64), "-WhatIf"}, "does not accept -ExpectedCurrentLoopObservationSha256"},
+		{[]string{"-Apply", "-ExpectedCurrentLoopPlanSha256", strings.Repeat("c", 64)}, "requires -ExpectedCurrentLoopObservationSha256"},
+		{[]string{"-Actor", "legacy", "-WhatIf"}, "cannot be combined"},
+		{[]string{"-MemberExecutionAttemptId", valid.MemberAttemptID, "-MemberExecutionOutcome", "accepted", "-MemberExecutionObservedAt", valid.ObservedAt, "-WhatIf"}, "cannot be combined"},
+	} {
+		if err := runCurrentLoopError(caseRoot, append(append([]string{}, base...), tc.extra...)); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("observation flag contract error = %v, want %q", err, tc.want)
+		}
+	}
 }
 
 func TestRunCurrentLoopMemberExecutionCheckpoint(t *testing.T) {
@@ -1084,12 +1170,15 @@ func TestRunCurrentLoopMemberExecutionCheckpoint(t *testing.T) {
 		if !strings.Contains(alternative.PreviewCommandTemplate, "-ResumeCurrentLoop") || !strings.Contains(alternative.PreviewCommandTemplate, applied.SegmentCheckpoint.ArtifactSHA256) || !strings.Contains(alternative.PreviewCommandTemplate, memberPlan.AttemptID) {
 			t.Fatalf("status member observation alternative is not checkpoint/attempt bound: %+v", alternative)
 		}
+		if !strings.Contains(alternative.ObservationEnvelopeTemplate, `"checkpointSha256": "`+applied.SegmentCheckpoint.ArtifactSHA256+`"`) || !strings.Contains(alternative.ObservationEnvelopeTemplate, `"memberAttemptId": "`+memberPlan.AttemptID+`"`) || !strings.Contains(alternative.ObservationPathCommand, "-CurrentLoopObservationPath") || !strings.Contains(alternative.ObservationPathCommand, applied.SegmentCheckpoint.ArtifactSHA256) {
+			t.Fatalf("status member observation alternative omitted envelope intake: %+v", alternative)
+		}
 	}
 	var statusText bytes.Buffer
 	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &statusText); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"current-loop member handoff：state=handoff-ready attempt=" + memberPlan.AttemptID, "owner=loop-member/1", "current-loop member observation：kind=member-session-accepted", applied.SegmentCheckpoint.ArtifactSHA256} {
+	for _, want := range []string{"current-loop member handoff：state=handoff-ready attempt=" + memberPlan.AttemptID, "owner=loop-member/1", "current-loop member observation：kind=member-session-accepted", "observationPathCommand=`/rekit run-current-loop", "observationEnvelopeTemplate=`{", applied.SegmentCheckpoint.ArtifactSHA256} {
 		if !strings.Contains(statusText.String(), want) {
 			t.Fatalf("text status omitted member handoff detail %q:\n%s", want, statusText.String())
 		}
@@ -1100,23 +1189,66 @@ func TestRunCurrentLoopMemberExecutionCheckpoint(t *testing.T) {
 	if err := runCurrentLoopError(caseRoot, []string{"-ResumeCurrentLoop", "-ExpectedCurrentLoopCheckpointSha256", applied.SegmentCheckpoint.ArtifactSHA256, "-WhatIf"}); err == nil || !strings.Contains(err.Error(), "member observation") {
 		t.Fatalf("external member checkpoint resumed without a member observation: %v", err)
 	}
+	observationDir := filepath.Join(caseRoot, ".rekit", "external-session-observations")
+	if err := os.MkdirAll(observationDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	observationPath := filepath.Join(observationDir, "member-accepted.json")
+	observationBytes, err := json.Marshal(currentLoopObservationEnvelope{
+		SchemaVersion: 1, Kind: "current-loop-external-session-observation", CheckpointSHA256: applied.SegmentCheckpoint.ArtifactSHA256,
+		ObservationKind: "member-session-accepted", Actor: "harness", ObservedAt: "2026-08-03T03:01:00Z", MemberAttemptID: memberPlan.AttemptID,
+		NoAuthorityOrConfirmed: true, NoHeavyTool: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(observationPath, append(observationBytes, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	accepted := runCurrentLoopResumePreviewWith(t, caseRoot, applied.SegmentCheckpoint.ArtifactSHA256,
-		"-MemberExecutionAttemptId", memberPlan.AttemptID,
-		"-MemberExecutionOutcome", "accepted",
-		"-MemberExecutionObservedAt", "2026-08-03T03:01:00Z",
-		"-Actor", "harness",
+		"-CurrentLoopObservationPath", observationPath,
 	)
 	if accepted.MaxSteps != 4 || accepted.ResumeSource == nil || accepted.InitialCurrentStep == nil || accepted.InitialCurrentStep.MemberExecution == nil || accepted.InitialCurrentStep.MemberExecution.Outcome != "accepted" {
 		t.Fatalf("member observation did not resume exact checkpoint budget: %+v", accepted)
 	}
-	for _, required := range []string{"-MemberExecutionAttemptId \"" + memberPlan.AttemptID + "\"", "-MemberExecutionOutcome \"accepted\"", "-MemberExecutionObservedAt \"2026-08-03T03:01:00Z\"", "-ExpectedMemberExecutionPlanSha256 \"" + accepted.InitialCurrentStep.MemberExecution.ExpectedPlanSHA256 + "\""} {
+	observationSHA256 := sha256Text(append(observationBytes, '\n'))
+	if accepted.ObservationPath != observationPath || accepted.ObservationSHA256 != observationSHA256 {
+		t.Fatalf("member observation preview omitted exact envelope identity: %+v", accepted)
+	}
+	for _, required := range []string{"-CurrentLoopObservationPath \"" + observationPath + "\"", "-ExpectedCurrentLoopObservationSha256 \"" + observationSHA256 + "\"", "-ExpectedMemberExecutionPlanSha256 \"" + accepted.InitialCurrentStep.MemberExecution.ExpectedPlanSHA256 + "\""} {
 		if !strings.Contains(accepted.ApplyCommand, required) {
 			t.Fatalf("member resume apply command omitted %q: %s", required, accepted.ApplyCommand)
 		}
 	}
+	for _, forbidden := range []string{"-MemberExecutionAttemptId", "-MemberExecutionOutcome", "-MemberExecutionObservedAt", "-Actor"} {
+		if strings.Contains(accepted.ApplyCommand, forbidden) {
+			t.Fatalf("member envelope apply command leaked reconstructed flag %s: %s", forbidden, accepted.ApplyCommand)
+		}
+	}
+	driftedBytes := append(append([]byte{}, observationBytes...), []byte(" \n")...)
+	if err := os.WriteFile(observationPath, driftedBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Run(rekitCommandCLIArgs(t, accepted.ApplyCommand), &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "observation sha256 mismatch") {
+		t.Fatalf("member observation byte drift was not rejected before claim: %v", err)
+	}
+	if err := os.WriteFile(observationPath, append(observationBytes, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	currentLoopBeforeApplyStepHook = func(step int) error {
+		if step != 1 {
+			return nil
+		}
+		return os.WriteFile(observationPath, append(append([]byte{}, observationBytes...), []byte(" \n")...), 0o600)
+	}
+	t.Cleanup(func() { currentLoopBeforeApplyStepHook = nil })
 	acceptedApplied := runCurrentLoopResult(t, rekitCommandCLIArgs(t, accepted.ApplyCommand))
+	currentLoopBeforeApplyStepHook = nil
 	if !acceptedApplied.Applied || acceptedApplied.InitialCurrentStep == nil || acceptedApplied.InitialCurrentStep.MemberExecution == nil || acceptedApplied.InitialCurrentStep.MemberExecution.Inspection.State != "accepted" {
 		t.Fatalf("member accepted resume apply command did not persist observation: %+v", acceptedApplied)
+	}
+	if acceptedApplied.SegmentCheckpoint == nil || acceptedApplied.SegmentCheckpoint.ArtifactSHA256 == "" {
+		t.Fatalf("member accepted resume did not publish a checkpoint: checkpoint=%+v plan=%+v", acceptedApplied.SegmentCheckpoint, acceptedApplied)
 	}
 	if acceptedApplied.ContinuationRequest == nil || acceptedApplied.ContinuationRequest.ExternalMemberHandoff == nil || acceptedApplied.ContinuationRequest.ExternalMemberHandoff.State != "accepted" || len(acceptedApplied.ContinuationRequest.ObservationContract.Alternatives) != 2 {
 		t.Fatalf("accepted member continuation did not narrow to returned/failed: %+v", acceptedApplied.ContinuationRequest)

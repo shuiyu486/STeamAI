@@ -141,6 +141,8 @@ type Options struct {
 	ExpectedCurrentLoopPlanSHA256            string
 	ExpectedCurrentLoopCheckpointSHA256      string
 	ExpectedCurrentLoopReviewerAttemptSHA256 string
+	CurrentLoopObservationPath               string
+	ExpectedCurrentLoopObservationSHA256     string
 	ResumeCurrentLoop                        bool
 	ExpectedCurrentStepPlanSHA256            string
 	ExpectedMemberExecutionPlanSHA256        string
@@ -480,6 +482,18 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ExpectedCurrentLoopReviewerAttemptSha256")
 			}
 			opt.ExpectedCurrentLoopReviewerAttemptSHA256 = args[i]
+		case "-CurrentLoopObservationPath", "--current-loop-observation-path":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -CurrentLoopObservationPath")
+			}
+			opt.CurrentLoopObservationPath = args[i]
+		case "-ExpectedCurrentLoopObservationSha256", "-ExpectedCurrentLoopObservationSHA256", "--expected-current-loop-observation-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedCurrentLoopObservationSha256")
+			}
+			opt.ExpectedCurrentLoopObservationSHA256 = args[i]
 		case "-ResumeCurrentLoop", "--resume-current-loop":
 			opt.ResumeCurrentLoop = true
 		case "-ExpectedCurrentStepPlanSha256", "-ExpectedCurrentStepPlanSHA256", "--expected-current-step-plan-sha256":
@@ -1154,7 +1168,7 @@ func Run(args []string, stdout io.Writer) error {
 	if (strings.TrimSpace(opt.Reopen.ExpectedPreviewSHA256) != "" || strings.TrimSpace(opt.Reopen.PublicationStamp) != "") && opt.Command != commands.Reopen {
 		return fmt.Errorf("reopen publication flags are supported only by reopen")
 	}
-	if (opt.MaxSteps != 0 || strings.TrimSpace(opt.ExpectedCurrentLoopPlanSHA256) != "" || strings.TrimSpace(opt.ExpectedCurrentLoopReviewerAttemptSHA256) != "") && opt.Command != commands.RunCurrentLoop {
+	if (opt.MaxSteps != 0 || strings.TrimSpace(opt.ExpectedCurrentLoopPlanSHA256) != "" || strings.TrimSpace(opt.ExpectedCurrentLoopReviewerAttemptSHA256) != "" || strings.TrimSpace(opt.CurrentLoopObservationPath) != "" || strings.TrimSpace(opt.ExpectedCurrentLoopObservationSHA256) != "") && opt.Command != commands.RunCurrentLoop {
 		return fmt.Errorf("current loop flags are supported only by run-current-loop")
 	}
 	if strings.TrimSpace(opt.ExpectedCurrentStepPlanSHA256) != "" && opt.Command != commands.RunCurrentStep {
@@ -4479,6 +4493,9 @@ func statusCurrentLoopOperatorPackage(target string, caseMission *statusCaseMiss
 			strings.TrimSpace(reviewerPackage.CurrentDriverRequest.RunLoopStepID) == strings.TrimSpace(reviewerPackage.CurrentRunLoopStepID) &&
 			currentStepReviewerRequestsMatch(*runbook.CurrentDriverRequest, *reviewerPackage.CurrentDriverRequest) {
 			pkg.ExternalReviewerHandoff = statusCurrentLoopExternalReviewerHandoff(reviewerPackage, pkg.SelectedDriverRequest, statusCurrentLoopDirectObservationPreviewCommand(inspection))
+			if pkg.ExternalReviewerHandoff != nil && inspection.Ready {
+				materializeCurrentLoopObservationEnvelopes(target, inspection, &pkg.ExternalReviewerHandoff.ObservationContract)
+			}
 		}
 	}
 	if strings.TrimSpace(runbook.Scope) == "case" {
@@ -4500,6 +4517,9 @@ func statusCurrentLoopOperatorPackage(target string, caseMission *statusCaseMiss
 				return pkg
 			}
 			pkg.ExternalMemberHandoff = currentLoopExternalMemberHandoff(runtime.Context{Target: target, Pack: pkg.Pack}, memberInspection, pkg.SelectedDriverRequest)
+			if pkg.ExternalMemberHandoff != nil {
+				materializeCurrentLoopObservationEnvelopes(target, inspection, &pkg.ExternalMemberHandoff.ObservationContract)
+			}
 		} else if memberInspection, ok, err := memberexecution.Latest(target, pkg.Lane); err == nil && ok && (memberInspection.State == "handoff-ready" || memberInspection.State == "accepted") {
 			pkg.ExternalMemberHandoff = currentLoopExternalMemberHandoff(runtime.Context{Target: target, Pack: pkg.Pack}, memberInspection, pkg.SelectedDriverRequest)
 		}
@@ -6210,7 +6230,7 @@ func writeCurrentLoopOperatorPackageText(out io.Writer, prefix string, pkg *miss
 			return err
 		}
 		for _, alternative := range handoff.ObservationContract.Alternatives {
-			if _, err := fmt.Fprintf(out, "%s current-loop member observation：kind=%s transition=%s requiredFlags=%s previewCommandTemplate=`%s` constraints=%s\n", prefix, alternative.Kind, alternative.Transition, strings.Join(alternative.RequiredFlags, ","), alternative.PreviewCommandTemplate, strings.Join(alternative.Constraints, "; ")); err != nil {
+			if _, err := fmt.Fprintf(out, "%s current-loop member observation：kind=%s transition=%s requiredFlags=%s previewCommandTemplate=`%s` observationPathCommand=`%s` observationEnvelopeTemplate=`%s` constraints=%s\n", prefix, alternative.Kind, alternative.Transition, strings.Join(alternative.RequiredFlags, ","), alternative.PreviewCommandTemplate, alternative.ObservationPathCommand, alternative.ObservationEnvelopeTemplate, strings.Join(alternative.Constraints, "; ")); err != nil {
 				return err
 			}
 		}
@@ -6230,7 +6250,7 @@ func writeCurrentLoopOperatorPackageText(out io.Writer, prefix string, pkg *miss
 			}
 		}
 		for _, alternative := range handoff.ObservationContract.Alternatives {
-			if _, err := fmt.Fprintf(out, "%s current-loop reviewer observation：kind=%s transition=%s requiredFlags=%s previewCommandTemplate=`%s` constraints=%s\n", prefix, alternative.Kind, alternative.Transition, strings.Join(alternative.RequiredFlags, ","), alternative.PreviewCommandTemplate, strings.Join(alternative.Constraints, "; ")); err != nil {
+			if _, err := fmt.Fprintf(out, "%s current-loop reviewer observation：kind=%s transition=%s requiredFlags=%s previewCommandTemplate=`%s` observationPathCommand=`%s` observationEnvelopeTemplate=`%s` constraints=%s\n", prefix, alternative.Kind, alternative.Transition, strings.Join(alternative.RequiredFlags, ","), alternative.PreviewCommandTemplate, alternative.ObservationPathCommand, alternative.ObservationEnvelopeTemplate, strings.Join(alternative.Constraints, "; ")); err != nil {
 				return err
 			}
 		}

@@ -1615,7 +1615,7 @@ func writeCurrentLoopOperatorPackage(out *bytes.Buffer, pkg *mission.CurrentLoop
 	if handoff := pkg.ExternalMemberHandoff; handoff != nil {
 		fmt.Fprintf(out, "- external member: state=%s attempt=%s lane=%s owner=%s/%d handoff=`%s` manifest=`%s` outputs=`%s`\n", handoff.State, handoff.AttemptID, handoff.Lane, handoff.Executor, handoff.ExecutorGeneration, handoff.HandoffPath, handoff.ManifestPath, handoff.OutputsRoot)
 		for _, alternative := range handoff.ObservationContract.Alternatives {
-			fmt.Fprintf(out, "- member observation: kind=%s transition=%s requiredFlags=%s previewCommandTemplate=`%s` constraints=%s\n", alternative.Kind, alternative.Transition, strings.Join(alternative.RequiredFlags, ","), alternative.PreviewCommandTemplate, strings.Join(alternative.Constraints, "; "))
+			fmt.Fprintf(out, "- member observation: kind=%s transition=%s requiredFlags=%s previewCommandTemplate=`%s` observationPathCommand=`%s` observationEnvelopeTemplate=`%s` constraints=%s\n", alternative.Kind, alternative.Transition, strings.Join(alternative.RequiredFlags, ","), alternative.PreviewCommandTemplate, alternative.ObservationPathCommand, alternative.ObservationEnvelopeTemplate, strings.Join(alternative.Constraints, "; "))
 		}
 	}
 	if handoff := pkg.ExternalReviewerHandoff; handoff != nil {
@@ -1633,7 +1633,7 @@ func writeCurrentLoopOperatorPackage(out *bytes.Buffer, pkg *mission.CurrentLoop
 			fmt.Fprintf(out, "- Agent request: tool=%s agentType=%s readOnly=%t promptPath=`%s` promptSha256=%s expectedOutput=%s\n", request.Tool, request.AgentType, request.ReadOnly, request.PromptPath, request.PromptSHA256, request.ExpectedOutput)
 		}
 		for _, alternative := range handoff.ObservationContract.Alternatives {
-			fmt.Fprintf(out, "- observation: kind=%s transition=%s requiredFlags=%s previewCommandTemplate=`%s` constraints=%s\n", alternative.Kind, alternative.Transition, strings.Join(alternative.RequiredFlags, ","), alternative.PreviewCommandTemplate, strings.Join(alternative.Constraints, "; "))
+			fmt.Fprintf(out, "- observation: kind=%s transition=%s requiredFlags=%s previewCommandTemplate=`%s` observationPathCommand=`%s` observationEnvelopeTemplate=`%s` constraints=%s\n", alternative.Kind, alternative.Transition, strings.Join(alternative.RequiredFlags, ","), alternative.PreviewCommandTemplate, alternative.ObservationPathCommand, alternative.ObservationEnvelopeTemplate, strings.Join(alternative.Constraints, "; "))
 		}
 	}
 	for _, step := range pkg.RunbookSteps {

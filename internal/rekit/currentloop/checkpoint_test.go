@@ -354,6 +354,58 @@ func TestCheckpointZeroProgressRecoveryRequiresStrictClaimedLineage(t *testing.T
 	}
 }
 
+func TestCheckpointObservationIdentityBindingFailsClosed(t *testing.T) {
+	_, caseRoot := checkpointAttachedCase(t)
+	request := checkpointRequest("/rekit continue main -WhatIf -Format json")
+	base := checkpointPayload(t, caseRoot, request)
+	base.SchemaVersion = 1
+	base.Kind = "current-loop-segment-checkpoint"
+	base.Sequence = 2
+	base.PreviousArtifactSHA256 = strings.Repeat("b", 64)
+	base.ResumeSourceArtifactSHA256 = base.PreviousArtifactSHA256
+	base.CaseIdentitySHA256 = strings.Repeat("c", 64)
+	base.Pack = "_template"
+	base.NoAutoApply = true
+	base.NoAuthority = true
+	base.ObservationPath = ".rekit/external-session-observations/member.json"
+	base.ObservationSHA256 = strings.Repeat("d", 64)
+	identity := struct {
+		SchemaVersion                 int                                   `json:"schemaVersion"`
+		CaseRoot                      string                                `json:"caseRoot"`
+		Pack                          string                                `json:"pack"`
+		RoutePolicy                   string                                `json:"routePolicy"`
+		MaxSteps                      int                                   `json:"maxSteps"`
+		Actor                         string                                `json:"actor"`
+		InitialRoute                  string                                `json:"initialRoute"`
+		InitialLane                   string                                `json:"initialLane"`
+		InitialCurrentDriverRequest   mission.MissionCommanderDriverRequest `json:"initialCurrentDriverRequest"`
+		ExpectedCurrentStepPlanSHA256 string                                `json:"expectedCurrentStepPlanSha256"`
+		ResumeSourceArtifactSHA256    string                                `json:"resumeSourceArtifactSha256,omitempty"`
+		ObservationPath               string                                `json:"observationPath,omitempty"`
+		ObservationSHA256             string                                `json:"observationSha256,omitempty"`
+	}{1, caseRoot, "_template", base.RoutePolicy, base.SegmentMaxSteps, base.Actor, base.SegmentRoute, base.SegmentLane, base.InitialCurrentDriverRequest, base.StepReceipts[0].ExpectedCurrentStepPlanSHA256, base.ResumeSourceArtifactSHA256, base.ObservationPath, base.ObservationSHA256}
+	encoded, err := json.Marshal(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base.ExpectedCurrentLoopPlanSHA256 = sha256Hex(encoded)
+	if err := validatePayloadForCase(base, caseRoot); err != nil {
+		t.Fatalf("valid observation-bound identity rejected: %v", err)
+	}
+	for _, mutate := range []func(*Payload){
+		func(payload *Payload) { payload.ObservationPath = "" },
+		func(payload *Payload) { payload.ObservationSHA256 = "" },
+		func(payload *Payload) { payload.ObservationSHA256 = strings.Repeat("e", 64) },
+		func(payload *Payload) { payload.ResumeSourceArtifactSHA256 = "" },
+	} {
+		candidate := base
+		mutate(&candidate)
+		if err := validatePayloadForCase(candidate, caseRoot); err == nil {
+			t.Fatalf("tampered observation-bound identity accepted: %+v", candidate)
+		}
+	}
+}
+
 func TestCheckpointWriteValidatedRejectsPublicationCurrentnessDrift(t *testing.T) {
 	repoRoot, caseRoot := checkpointAttachedCase(t)
 	request := checkpointRequest("/rekit continue main -WhatIf -Format json")
