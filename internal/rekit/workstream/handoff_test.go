@@ -35,6 +35,15 @@ func TestWriteCurrentLoopOperatorPackageIncludesExternalMemberHandoff(t *testing
 			SelectedCandidate: &mission.CurrentLoopObservationInboxCandidate{Path: ".rekit/external-session-observations/inbox/member.json", SHA256: strings.Repeat("d", 64), ObservationKind: "member-session-returned", Actor: "harness"},
 		},
 		ObservationReceipt: &mission.CurrentLoopObservationReceipt{State: "processed", SourceCheckpointSHA256: strings.Repeat("a", 64), SuccessorCheckpointSHA256: strings.Repeat("b", 64), ObservationPath: ".rekit/external-session-observations/inbox/prior.json", ObservationSHA256: strings.Repeat("e", 64), ObservationKind: "member-session-accepted", Actor: "harness"},
+		ExternalSessionJob: &mission.CurrentLoopExternalSessionJob{
+			State: "awaiting-submission", SessionKind: "member", JobID: "member-job", JobSHA256: strings.Repeat("f", 64), CheckpointSHA256: checkpointSHA256,
+			SubmissionPath: ".rekit/external-session-attempt-inputs/member-job/000001/submission.json", AllowedOutcomes: []string{"returned", "failed"}, SubmissionLast: true,
+			HarnessPackage: &mission.CurrentLoopExternalSessionHarnessPackage{
+				State: "running", SessionKind: "member", JobID: "member-job", JobSHA256: strings.Repeat("f", 64), RefreshStatusCommand: "/rekit status -Format json",
+				Launch: &mission.CurrentLoopExternalSessionHarnessLaunch{Ready: true, Tool: "Claude Code session", AgentType: "durable-member-executor", Input: mission.CurrentLoopExternalSessionHarnessInput{Role: "durable-member-handoff", Path: ".rekit/member/handoff.json", SHA256: strings.Repeat("1", 64)}, Attempt: mission.CurrentLoopExternalSessionAttempt{AttemptSHA256: strings.Repeat("2", 64), Generation: 1, Harness: "harness", Session: "session"}},
+				Return: &mission.CurrentLoopExternalSessionReturnContract{SubmissionPath: ".rekit/external-session-attempt-inputs/member-job/000001/submission.json", SubmissionOutputs: ".rekit/external-session-attempt-inputs/member-job/000001/outputs", SubmissionLast: true, Templates: []mission.CurrentLoopExternalSessionSubmissionTemplate{{Outcome: "returned", JSON: "{\n  \"outcome\": \"returned\",\n  \"attemptSha256\": \"" + strings.Repeat("2", 64) + "\"\n}\n", RequiredWrites: []string{".rekit/external-session-attempt-inputs/member-job/000001/outputs/**", ".rekit/external-session-attempt-inputs/member-job/000001/submission.json (last)"}, RequiredReplace: []string{"<actor>", "<summary>"}}, {Outcome: "failed", JSON: "{\n  \"outcome\": \"failed\"\n}\n", RequiredWrites: []string{".rekit/external-session-attempt-inputs/member-job/000001/submission.json (last)"}, RequiredReplace: []string{"<actor>", "<reason>"}}}},
+			},
+		},
 		ExternalMemberHandoff: &mission.CurrentLoopExternalMemberHandoff{
 			State:               "accepted",
 			AttemptID:           attemptID,
@@ -49,7 +58,7 @@ func TestWriteCurrentLoopOperatorPackageIncludesExternalMemberHandoff(t *testing
 	}
 	var out bytes.Buffer
 	writeCurrentLoopOperatorPackage(&out, pkg)
-	for _, want := range []string{"## Current-loop operator", "observation inbox: state=ready", "selected inbox observation: kind=member-session-returned actor=harness", "observation receipt: state=processed kind=member-session-accepted", "external member: state=accepted attempt=" + attemptID, "owner=member-session/2", "member observation: kind=member-session-returned transition=accepted-to-returned", checkpointSHA256, "strict manifest required"} {
+	for _, want := range []string{"## Current-loop operator", "observation inbox: state=ready", "selected inbox observation: kind=member-session-returned actor=harness", "observation receipt: state=processed kind=member-session-accepted", "harness package: state=running kind=member", "harness launch: ready=true tool=Claude Code session agentType=durable-member-executor", "inputSha256=" + strings.Repeat("1", 64), "harness return: submission=", "templates=2", "harness submission template: outcome=returned requiredWrites=.rekit/external-session-attempt-inputs/member-job/000001/outputs/**; .rekit/external-session-attempt-inputs/member-job/000001/submission.json (last) requiredReplacements=<actor>; <summary>", "```json", "\"attemptSha256\": \"" + strings.Repeat("2", 64) + "\"", "harness submission template: outcome=failed", "external member: state=accepted attempt=" + attemptID, "owner=member-session/2", "member observation: kind=member-session-returned transition=accepted-to-returned", checkpointSHA256, "strict manifest required"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatalf("current-loop operator Markdown missing %q:\n%s", want, out.String())
 		}

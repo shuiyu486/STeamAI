@@ -1658,6 +1658,30 @@ func writeCurrentLoopOperatorPackage(out *bytes.Buffer, pkg *mission.CurrentLoop
 	}
 	if job := pkg.ExternalSessionJob; job != nil {
 		fmt.Fprintf(out, "- external session job: state=%s kind=%s id=%s sha256=%s checkpoint=%s submission=`%s` outcomes=%s submissionLast=%t\n", job.State, job.SessionKind, job.JobID, job.JobSHA256, job.CheckpointSHA256, job.SubmissionPath, strings.Join(job.AllowedOutcomes, ","), job.SubmissionLast)
+		if harness := job.HarnessPackage; harness != nil {
+			fmt.Fprintf(out, "- harness package: state=%s kind=%s job=%s/%s refresh=`%s`\n", harness.State, harness.SessionKind, harness.JobID, harness.JobSHA256, harness.RefreshStatusCommand)
+			if launch := harness.Launch; launch != nil {
+				fmt.Fprintf(out, "- harness launch: ready=%t tool=%s agentType=%s readOnly=%t inputRole=%s input=`%s` inputSha256=%s attempt=%s generation=%d owner=%s/%s\n", launch.Ready, launch.Tool, launch.AgentType, launch.ReadOnly, launch.Input.Role, launch.Input.Path, launch.Input.SHA256, launch.Attempt.AttemptSHA256, launch.Attempt.Generation, launch.Attempt.Harness, launch.Attempt.Session)
+			}
+			if returned := harness.Return; returned != nil {
+				fmt.Fprintf(out, "- harness return: submission=`%s` outputs=`%s` result=`%s` submissionLast=%t templates=%d\n", returned.SubmissionPath, returned.SubmissionOutputs, returned.SubmissionResult, returned.SubmissionLast, len(returned.Templates))
+				for _, template := range returned.Templates {
+					fmt.Fprintf(out, "- harness submission template: outcome=%s requiredWrites=%s requiredReplacements=%s\n\n", template.Outcome, strings.Join(template.RequiredWrites, "; "), strings.Join(template.RequiredReplace, "; "))
+					fmt.Fprintln(out, "```json")
+					fmt.Fprint(out, template.JSON)
+					if !strings.HasSuffix(template.JSON, "\n") {
+						fmt.Fprintln(out)
+					}
+					fmt.Fprintln(out, "```")
+				}
+				if request := returned.ReviewRequest; request != nil {
+					fmt.Fprintf(out, "- harness return review: state=%s source=%s command=`%s`\n", request.State, request.Source, request.Command)
+				}
+			}
+			for _, warning := range harness.Warnings {
+				fmt.Fprintf(out, "- harness package warning: %s\n", warning)
+			}
+		}
 		if request := job.RelayPreviewRequest; request != nil {
 			fmt.Fprintf(out, "- external session relay request: state=%s source=%s command=`%s`\n", request.State, request.Source, request.Command)
 		}

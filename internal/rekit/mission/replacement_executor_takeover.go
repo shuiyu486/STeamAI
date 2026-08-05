@@ -117,12 +117,14 @@ func replacementExecutorTakeoverRunbookSteps(pkg *ReplacementExecutorTakeoverPac
 			switch job.State {
 			case "submission-ready":
 				steps = append(steps,
-					"an external session submission is ready; consume currentLoopOperator.externalSessionJob.relayPreviewRequest exactly",
-					"review the relay preview and execute only its exact job/submission/relay-plan hash-bound Apply command, then refresh status",
+					"an external session submission is ready; consume currentLoopOperator.externalSessionJob.harnessPackage.return.reviewRequest exactly",
+					"use currentLoopOperator.externalSessionJob.harnessPackage.return.relayRecoveryRequest only for relay-only recovery or diagnosis",
+					"review the returned preview and execute only its exact hash-bound Apply command, then refresh status",
 				)
 			case "awaiting-submission":
 				steps = append(steps,
-					"use currentLoopOperator.externalSessionJob as the current harness submission contract; write result artifacts first and submissionPath last",
+					"consume currentLoopOperator.externalSessionJob.harnessPackage as the current launch and return contract; launch only when launch.ready=true",
+					"use its exact input path/sha256 and attempt owner, write required result paths first, then write the selected strict submission JSON to submissionPath last",
 				)
 			}
 		}

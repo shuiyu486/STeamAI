@@ -343,7 +343,7 @@ func inspectAnchored(anchor *anchoredCase, lane, attemptID string) (Inspection, 
 	if commit.SchemaVersion != SchemaVersion || commit.Kind != KindCommit || commit.AttemptID != attemptID || !strings.EqualFold(commit.IntentSHA256, hash(intentBytes)) || !strings.EqualFold(commit.HandoffSHA256, hash(handoffBytes)) {
 		return Inspection{}, fmt.Errorf("invalid member execution commit binding")
 	}
-	inspection := Inspection{State: "handoff-ready", AttemptID: attemptID, Owner: intent.Owner, Intent: &intent, Handoff: &handoff, AttemptRoot: root, ManifestPath: filepath.Join(root, "result", "manifest.json"), OutputsRoot: filepath.Join(root, "result", "outputs")}
+	inspection := Inspection{State: "handoff-ready", AttemptID: attemptID, Owner: intent.Owner, Intent: &intent, Handoff: &handoff, HandoffSHA256: hash(handoffBytes), AttemptRoot: root, ManifestPath: filepath.Join(root, "result", "manifest.json"), OutputsRoot: filepath.Join(root, "result", "outputs")}
 	observationRel := filepath.Join(rootRel, "observations")
 	entries, err := anchor.readDir(observationRel)
 	if err != nil && !os.IsNotExist(err) {

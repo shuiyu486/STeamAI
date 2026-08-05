@@ -360,6 +360,9 @@ func TestRunNextBatchWhatIfUsesSelectedDomainCandidateGuidance(t *testing.T) {
 
 func TestRunNextBatchWhatIfRecoversCompletedBatchShortValidationEvidenceProductPath(t *testing.T) {
 	fixture := newCLIFixture(t, cliFixtureOptions{})
+	if err := os.WriteFile(filepath.Join(fixture.repoRoot, "docs", "batch-history.md"), []byte("# Batch history archive\n\n## 历史批次\n\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	writeShortValidationEvidenceBatchFixture(t, fixture.repoRoot, "Batch 816")
 	beforePlan := readFixtureFile(t, fixture.repoRoot, "docs/batch-plan.md")
 	beforeChangelog := readFixtureFile(t, fixture.repoRoot, "CHANGELOG.md")

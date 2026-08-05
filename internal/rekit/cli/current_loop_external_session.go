@@ -1,12 +1,17 @@
 package cli
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/currentloop"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/externalsession"
+	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
@@ -123,6 +128,10 @@ func bindExternalSessionJob(target string, pkg *mission.CurrentLoopOperatorPacka
 		typed.SubmissionOutputs = attempt.Current.SubmissionOutputs
 		typed.SubmissionResult = attempt.Current.SubmissionResult
 	}
+	defer func() {
+		typed.HarnessPackage = externalSessionHarnessPackage(job, inspected, attempt, pkg, typed)
+		pkg.ExternalSessionJob = &typed
+	}()
 	pkg.ExternalSessionJob = &typed
 	if pkg.ObservationInbox != nil && pkg.ObservationInbox.State != "empty" {
 		return
@@ -203,6 +212,161 @@ func externalSessionJobFor(target string, pkg *mission.CurrentLoopOperatorPackag
 		reviewer.Session = attempt.Receipt.Session
 	}
 	return externalsession.NewReviewerJob(target, pkg.Pack, inspection.ArtifactSHA256, reviewer, allowed)
+}
+
+func externalSessionHarnessPackage(job externalsession.Job, inspection externalsession.Inspection, attempt externalsession.AttemptInspection, operator *mission.CurrentLoopOperatorPackage, typed mission.CurrentLoopExternalSessionJob) *mission.CurrentLoopExternalSessionHarnessPackage {
+	pkg := &mission.CurrentLoopExternalSessionHarnessPackage{
+		SchemaVersion: 1, State: "attempt-review-required", CaseRoot: job.CaseRoot,
+		JobID: job.JobID, JobSHA256: inspection.JobSHA256, CheckpointSHA256: job.CheckpointSHA256, SessionKind: job.SessionKind,
+		AttemptReviewRequest: typed.AttemptRequest, RefreshStatusCommand: statusMissionControlRefreshCommand(job.CaseRoot),
+		Boundary: []string{
+			"the main Agent reviews and records the attempt before the external harness starts a session",
+			"the external harness owns session start, polling, stop, and result production; Go records only request, receipt, and state",
+			"write result artifacts first and the exact submissionPath last; never write authority/confirmed or execute heavy tools from this package",
+		},
+	}
+	if attempt.Current == nil {
+		return pkg
+	}
+	input := mission.CurrentLoopExternalSessionHarnessInput{Role: "durable-member-handoff"}
+	launch := &mission.CurrentLoopExternalSessionHarnessLaunch{
+		Ready: true, Tool: "Claude Code session", AgentType: "durable-member-executor", ReadOnly: false,
+		ExpectedOutput: "bounded member outputs and one strict external session submission JSON object",
+		Attempt:        *typed.CurrentAttempt,
+		Boundary:       []string{"start or reconnect idempotently by the exact harness/session identity; never create a second session for the same attempt", "execute only for the exact current attempt and owner generation", "do not reuse this launch after replacement or checkpoint drift"},
+	}
+	switch job.SessionKind {
+	case "member":
+		if operator.ExternalMemberHandoff == nil {
+			launch.Ready = false
+			pkg.Warnings = append(pkg.Warnings, "current durable member handoff is unavailable; refresh status and do not launch")
+			break
+		}
+		input.Path = operator.ExternalMemberHandoff.HandoffPath
+		data, err := rekitfs.ReadStableRegularFileAnchored(job.CaseRoot, externalSessionHarnessInputPath(job.CaseRoot, input.Path), "external member harness input", 1<<20)
+		if err != nil {
+			launch.Ready = false
+			pkg.Warnings = append(pkg.Warnings, "current durable member handoff cannot be read as a stable case-anchored regular file; refresh status and do not launch")
+			break
+		}
+		input.SHA256 = operator.ExternalMemberHandoff.HandoffSHA256
+		if input.SHA256 == "" || !strings.EqualFold(externalSessionBytesSHA(data), input.SHA256) {
+			launch.Ready = false
+			pkg.Warnings = append(pkg.Warnings, "current durable member handoff does not match its committed sha256; refresh status and do not launch")
+		}
+	case "reviewer":
+		launch.Tool = "Claude Code Agent"
+		launch.AgentType = "read-only-reviewer"
+		launch.ReadOnly = true
+		launch.ExpectedOutput = "exactly one ReviewerResult JSON object; no Markdown fence or surrounding prose"
+		input.Role = "reviewer-dispatch-prompt"
+		if operator.ExternalReviewerHandoff == nil {
+			launch.Ready = false
+			pkg.Warnings = append(pkg.Warnings, "current reviewer handoff is unavailable; refresh status and do not launch")
+			break
+		}
+		input.Path = operator.ExternalReviewerHandoff.DispatchPromptPath
+		input.SHA256 = operator.ExternalReviewerHandoff.DispatchPromptSHA256
+		if request := operator.ExternalReviewerHandoff.AgentToolRequest; request != nil {
+			launch.Tool, launch.AgentType, launch.ReadOnly = request.Tool, request.AgentType, request.ReadOnly
+			launch.ExpectedOutput = request.ExpectedOutput
+		}
+		if input.Path == "" || input.SHA256 == "" {
+			launch.Ready = false
+			pkg.Warnings = append(pkg.Warnings, "current reviewer prompt path or sha256 is unavailable; refresh status and do not launch")
+			break
+		}
+		data, err := rekitfs.ReadStableRegularFileAnchored(job.CaseRoot, externalSessionHarnessInputPath(job.CaseRoot, input.Path), "external reviewer harness input", 1<<20)
+		if err != nil || !strings.EqualFold(externalSessionBytesSHA(data), input.SHA256) {
+			launch.Ready = false
+			pkg.Warnings = append(pkg.Warnings, "current reviewer prompt is unavailable or does not match its dispatch sha256; refresh status and do not launch")
+		}
+	}
+	launch.Input = input
+	pkg.Launch = launch
+	pkg.State = "running"
+	pkg.Return = externalSessionReturnContract(job, inspection, attempt, operator, typed)
+	switch inspection.State {
+	case "submission-ready":
+		pkg.State = "return-review-required"
+		pkg.Launch.Ready = false
+	case "invalid":
+		pkg.State = "return-invalid-replacement-review"
+		pkg.Launch.Ready = false
+	}
+	return pkg
+}
+
+func externalSessionReturnContract(job externalsession.Job, inspection externalsession.Inspection, attempt externalsession.AttemptInspection, operator *mission.CurrentLoopOperatorPackage, typed mission.CurrentLoopExternalSessionJob) *mission.CurrentLoopExternalSessionReturnContract {
+	if attempt.Current == nil {
+		return nil
+	}
+	contract := &mission.CurrentLoopExternalSessionReturnContract{
+		SubmissionPath: attempt.Current.SubmissionPath, SubmissionOutputs: attempt.Current.SubmissionOutputs,
+		SubmissionResult: attempt.Current.SubmissionResult, SubmissionLast: true,
+		Boundary: []string{"select exactly one allowed outcome template", "submission must bind the exact job and attempt receipt SHA", "write all required result paths before submissionPath", "refresh status after submission; do not relay or resume without review"},
+	}
+	for _, outcome := range job.AllowedOutcomes {
+		template, replacements := externalSessionSubmissionTemplate(job, inspection.JobSHA256, attempt, outcome)
+		required := []string{attempt.Current.SubmissionPath + " (last)"}
+		if job.SessionKind == "member" && outcome == "returned" {
+			required = append([]string{attempt.Current.SubmissionOutputs + "/**"}, required...)
+		}
+		if job.SessionKind == "reviewer" && outcome == "returned" {
+			required = append([]string{attempt.Current.SubmissionResult}, required...)
+		}
+		contract.Templates = append(contract.Templates, mission.CurrentLoopExternalSessionSubmissionTemplate{Outcome: outcome, JSON: template, RequiredWrites: required, RequiredReplace: replacements})
+	}
+	if inspection.State == "submission-ready" {
+		contract.ReviewRequest = operator.SelectedDriverRequest
+		contract.RelayRecoveryRequest = typed.RelayPreviewRequest
+	}
+	return contract
+}
+
+func externalSessionSubmissionTemplate(job externalsession.Job, jobSHA string, attempt externalsession.AttemptInspection, outcome string) (string, []string) {
+	value := externalsession.Submission{
+		SchemaVersion: externalsession.SchemaVersion, Kind: externalsession.KindSubmission, JobID: job.JobID, JobSHA256: jobSHA,
+		Outcome: outcome, Actor: "<actor>", AttemptID: attempt.Current.AttemptID, AttemptSHA256: attempt.AttemptSHA256,
+		Harness: attempt.Current.Harness, Session: attempt.Current.Session, NoAuthorityOrConfirmed: true, NoHeavyTool: true,
+	}
+	replacements := []string{"<actor>"}
+	if job.SessionKind == "member" {
+		value.ObservedAt = "<rfc3339nano>"
+		replacements = append(replacements, "<rfc3339nano>")
+		switch outcome {
+		case "returned":
+			value.Summary = "<summary>"
+			replacements = append(replacements, "<summary>")
+		case "failed":
+			value.Reason = "<reason>"
+			replacements = append(replacements, "<reason>")
+		}
+	} else {
+		switch outcome {
+		case "accepted":
+			value.ReviewerHarness, value.ReviewerSession = attempt.Current.Harness, attempt.Current.Session
+		case "returned":
+			value.ReviewerSession = attempt.Current.Session
+		case "failed":
+			value.ReviewerExitStatus = "<exit-status>"
+			replacements = append(replacements, "<exit-status>")
+		}
+	}
+	data, _ := json.MarshalIndent(value, "", "  ")
+	return string(append(data, '\n')), replacements
+}
+
+func externalSessionHarnessInputPath(caseRoot, path string) string {
+	if filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(caseRoot, filepath.FromSlash(path))
+}
+
+func externalSessionBytesSHA(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 func currentLoopExternalSessionAllowedOutcomes(inspection currentloop.Inspection) []string {

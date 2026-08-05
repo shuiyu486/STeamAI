@@ -1,6 +1,9 @@
 package mission
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestReplacementExecutorDriverRequestSHA256BindsFullIdentity(t *testing.T) {
 	request := MissionCommanderDriverRequest{
@@ -99,6 +102,25 @@ func TestReplacementExecutorTakeoverArtifactIdentityBindsConsumablePackage(t *te
 	observed.TargetDocuments = append(observed.TargetDocuments, "discovery-only")
 	if got := ReplacementExecutorTakeoverArtifactIdentitySHA256(observed); got != base {
 		t.Fatalf("discovery-only fields changed durable package identity: base=%s got=%s", base, got)
+	}
+}
+
+func TestReplacementExecutorTakeoverConsumesHarnessPackage(t *testing.T) {
+	request := MissionCommanderDriverRequest{Command: "/rekit status -Format json", CommandExecutable: true}
+	operator := &CurrentLoopOperatorPackage{ExternalSessionJob: &CurrentLoopExternalSessionJob{
+		State:          "awaiting-submission",
+		HarnessPackage: &CurrentLoopExternalSessionHarnessPackage{State: "running"},
+	}}
+	pkg := ReplacementExecutorTakeoverPackageFor(&request, ReplacementExecutorTakeoverOptions{CurrentLoopOperator: operator})
+	steps := strings.Join(pkg.RunbookSteps, "\n")
+	if !strings.Contains(steps, "externalSessionJob.harnessPackage") || !strings.Contains(steps, "launch.ready=true") || !strings.Contains(steps, "input path/sha256") || !strings.Contains(steps, "submissionPath last") {
+		t.Fatalf("takeover runbook did not consume the stateful harness package: %s", steps)
+	}
+	operator.ExternalSessionJob.State = "submission-ready"
+	pkg = ReplacementExecutorTakeoverPackageFor(&request, ReplacementExecutorTakeoverOptions{CurrentLoopOperator: operator})
+	steps = strings.Join(pkg.RunbookSteps, "\n")
+	if !strings.Contains(steps, "harnessPackage.return.reviewRequest") || !strings.Contains(steps, "harnessPackage.return.relayRecoveryRequest") {
+		t.Fatalf("takeover runbook omitted harness return review paths: %s", steps)
 	}
 }
 

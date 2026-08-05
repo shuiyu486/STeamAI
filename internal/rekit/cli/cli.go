@@ -6459,6 +6459,34 @@ func writeCurrentLoopOperatorPackageText(out io.Writer, prefix string, pkg *miss
 		if _, err := fmt.Fprintf(out, "%s current-loop external session job：state=%s kind=%s id=%s sha256=%s checkpoint=%s submission=%s outcomes=%s submissionLast=%t\n", prefix, job.State, job.SessionKind, job.JobID, job.JobSHA256, job.CheckpointSHA256, job.SubmissionPath, strings.Join(job.AllowedOutcomes, ","), job.SubmissionLast); err != nil {
 			return err
 		}
+		if harness := job.HarnessPackage; harness != nil {
+			if _, err := fmt.Fprintf(out, "%s current-loop harness package：state=%s kind=%s job=%s/%s refresh=%s\n", prefix, harness.State, harness.SessionKind, harness.JobID, harness.JobSHA256, harness.RefreshStatusCommand); err != nil {
+				return err
+			}
+			if launch := harness.Launch; launch != nil {
+				if _, err := fmt.Fprintf(out, "%s current-loop harness launch：ready=%t tool=%s agentType=%s readOnly=%t inputRole=%s input=%s inputSha256=%s attempt=%s generation=%d owner=%s/%s\n", prefix, launch.Ready, launch.Tool, launch.AgentType, launch.ReadOnly, launch.Input.Role, launch.Input.Path, launch.Input.SHA256, launch.Attempt.AttemptSHA256, launch.Attempt.Generation, launch.Attempt.Harness, launch.Attempt.Session); err != nil {
+					return err
+				}
+			}
+			if returned := harness.Return; returned != nil {
+				if _, err := fmt.Fprintf(out, "%s current-loop harness return：submission=%s outputs=%s result=%s submissionLast=%t templates=%d\n", prefix, returned.SubmissionPath, returned.SubmissionOutputs, returned.SubmissionResult, returned.SubmissionLast, len(returned.Templates)); err != nil {
+					return err
+				}
+				for _, template := range returned.Templates {
+					if _, err := fmt.Fprintf(out, "%s current-loop harness submission template：outcome=%s requiredWrites=%q requiredReplacements=%q json=%q\n", prefix, template.Outcome, template.RequiredWrites, template.RequiredReplace, template.JSON); err != nil {
+						return err
+					}
+				}
+				if err := writeMissionCommanderDriverRequestText(out, prefix+" current-loop harness return review", returned.ReviewRequest); err != nil {
+					return err
+				}
+			}
+			for _, warning := range harness.Warnings {
+				if _, err := fmt.Fprintf(out, "%s current-loop harness warning：%s\n", prefix, warning); err != nil {
+					return err
+				}
+			}
+		}
 		if err := writeMissionCommanderDriverRequestText(out, prefix+" current-loop external session relay", job.RelayPreviewRequest); err != nil {
 			return err
 		}

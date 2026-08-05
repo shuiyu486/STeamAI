@@ -315,6 +315,7 @@ type CurrentLoopExternalMemberHandoff struct {
 	Executor            string                         `json:"executor"`
 	ExecutorGeneration  int                            `json:"executorGeneration"`
 	HandoffPath         string                         `json:"handoffPath"`
+	HandoffSHA256       string                         `json:"handoffSha256"`
 	ManifestPath        string                         `json:"manifestPath"`
 	OutputsRoot         string                         `json:"outputsRoot"`
 	NextSteps           []string                       `json:"nextSteps"`
@@ -353,37 +354,89 @@ type CurrentLoopExternalSessionAttempt struct {
 	SubmissionResult  string `json:"submissionResult,omitempty"`
 }
 
+type CurrentLoopExternalSessionHarnessInput struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+	Role   string `json:"role"`
+}
+
+type CurrentLoopExternalSessionHarnessLaunch struct {
+	Ready          bool                                   `json:"ready"`
+	Tool           string                                 `json:"tool"`
+	AgentType      string                                 `json:"agentType"`
+	ReadOnly       bool                                   `json:"readOnly"`
+	Input          CurrentLoopExternalSessionHarnessInput `json:"input"`
+	ExpectedOutput string                                 `json:"expectedOutput"`
+	Attempt        CurrentLoopExternalSessionAttempt      `json:"attempt"`
+	Boundary       []string                               `json:"boundary"`
+}
+
+type CurrentLoopExternalSessionSubmissionTemplate struct {
+	Outcome         string   `json:"outcome"`
+	JSON            string   `json:"json"`
+	RequiredWrites  []string `json:"requiredWrites"`
+	RequiredReplace []string `json:"requiredReplacements,omitempty"`
+}
+
+type CurrentLoopExternalSessionReturnContract struct {
+	SubmissionPath       string                                         `json:"submissionPath"`
+	SubmissionOutputs    string                                         `json:"submissionOutputs,omitempty"`
+	SubmissionResult     string                                         `json:"submissionResult,omitempty"`
+	SubmissionLast       bool                                           `json:"submissionLast"`
+	Templates            []CurrentLoopExternalSessionSubmissionTemplate `json:"templates"`
+	ReviewRequest        *MissionCommanderDriverRequest                 `json:"reviewRequest,omitempty"`
+	RelayRecoveryRequest *MissionCommanderDriverRequest                 `json:"relayRecoveryRequest,omitempty"`
+	Boundary             []string                                       `json:"boundary"`
+}
+
+type CurrentLoopExternalSessionHarnessPackage struct {
+	SchemaVersion        int                                       `json:"schemaVersion"`
+	State                string                                    `json:"state"`
+	CaseRoot             string                                    `json:"caseRoot"`
+	JobID                string                                    `json:"jobId"`
+	JobSHA256            string                                    `json:"jobSha256"`
+	CheckpointSHA256     string                                    `json:"checkpointSha256"`
+	SessionKind          string                                    `json:"sessionKind"`
+	AttemptReviewRequest *MissionCommanderDriverRequest            `json:"attemptReviewRequest,omitempty"`
+	Launch               *CurrentLoopExternalSessionHarnessLaunch  `json:"launch,omitempty"`
+	Return               *CurrentLoopExternalSessionReturnContract `json:"return,omitempty"`
+	RefreshStatusCommand string                                    `json:"refreshStatusCommand"`
+	Warnings             []string                                  `json:"warnings,omitempty"`
+	Boundary             []string                                  `json:"boundary"`
+}
+
 type CurrentLoopExternalSessionJob struct {
-	SchemaVersion       int                                    `json:"schemaVersion"`
-	Kind                string                                 `json:"kind"`
-	JobID               string                                 `json:"jobId"`
-	JobSHA256           string                                 `json:"jobSha256"`
-	State               string                                 `json:"state"`
-	SessionKind         string                                 `json:"sessionKind"`
-	CheckpointSHA256    string                                 `json:"checkpointSha256"`
-	AllowedOutcomes     []string                               `json:"allowedOutcomes"`
-	SubmissionPath      string                                 `json:"submissionPath"`
-	SubmissionOutputs   string                                 `json:"submissionOutputs,omitempty"`
-	SubmissionResult    string                                 `json:"submissionResult,omitempty"`
-	MemberAttemptID     string                                 `json:"memberAttemptId,omitempty"`
-	MemberOwner         *CurrentLoopExternalSessionJobOwner    `json:"memberOwner,omitempty"`
-	MemberManifestPath  string                                 `json:"memberManifestPath,omitempty"`
-	MemberOutputsRoot   string                                 `json:"memberOutputsRoot,omitempty"`
-	Reviewer            *CurrentLoopExternalSessionJobReviewer `json:"reviewer,omitempty"`
-	RelayResultPath     string                                 `json:"relayResultPath,omitempty"`
-	PublicationPath     string                                 `json:"publicationPath"`
-	ObservationPath     string                                 `json:"observationPath"`
-	SubmissionSHA256    string                                 `json:"submissionSha256,omitempty"`
-	AttemptState        string                                 `json:"attemptState"`
-	CurrentAttempt      *CurrentLoopExternalSessionAttempt     `json:"currentAttempt,omitempty"`
-	AttemptRequest      *MissionCommanderDriverRequest         `json:"attemptRequest,omitempty"`
-	RelayPreviewRequest *MissionCommanderDriverRequest         `json:"relayPreviewRequest,omitempty"`
-	Warnings            []string                               `json:"warnings,omitempty"`
-	SubmissionLast      bool                                   `json:"submissionLast"`
-	NoSessionManagement bool                                   `json:"noSessionManagement"`
-	NoHeavyTool         bool                                   `json:"noHeavyTool"`
-	NoAuthority         bool                                   `json:"noAuthority"`
-	NoConfirmed         bool                                   `json:"noConfirmed"`
+	SchemaVersion       int                                       `json:"schemaVersion"`
+	Kind                string                                    `json:"kind"`
+	JobID               string                                    `json:"jobId"`
+	JobSHA256           string                                    `json:"jobSha256"`
+	State               string                                    `json:"state"`
+	SessionKind         string                                    `json:"sessionKind"`
+	CheckpointSHA256    string                                    `json:"checkpointSha256"`
+	AllowedOutcomes     []string                                  `json:"allowedOutcomes"`
+	SubmissionPath      string                                    `json:"submissionPath"`
+	SubmissionOutputs   string                                    `json:"submissionOutputs,omitempty"`
+	SubmissionResult    string                                    `json:"submissionResult,omitempty"`
+	MemberAttemptID     string                                    `json:"memberAttemptId,omitempty"`
+	MemberOwner         *CurrentLoopExternalSessionJobOwner       `json:"memberOwner,omitempty"`
+	MemberManifestPath  string                                    `json:"memberManifestPath,omitempty"`
+	MemberOutputsRoot   string                                    `json:"memberOutputsRoot,omitempty"`
+	Reviewer            *CurrentLoopExternalSessionJobReviewer    `json:"reviewer,omitempty"`
+	RelayResultPath     string                                    `json:"relayResultPath,omitempty"`
+	PublicationPath     string                                    `json:"publicationPath"`
+	ObservationPath     string                                    `json:"observationPath"`
+	SubmissionSHA256    string                                    `json:"submissionSha256,omitempty"`
+	AttemptState        string                                    `json:"attemptState"`
+	CurrentAttempt      *CurrentLoopExternalSessionAttempt        `json:"currentAttempt,omitempty"`
+	AttemptRequest      *MissionCommanderDriverRequest            `json:"attemptRequest,omitempty"`
+	RelayPreviewRequest *MissionCommanderDriverRequest            `json:"relayPreviewRequest,omitempty"`
+	HarnessPackage      *CurrentLoopExternalSessionHarnessPackage `json:"harnessPackage,omitempty"`
+	Warnings            []string                                  `json:"warnings,omitempty"`
+	SubmissionLast      bool                                      `json:"submissionLast"`
+	NoSessionManagement bool                                      `json:"noSessionManagement"`
+	NoHeavyTool         bool                                      `json:"noHeavyTool"`
+	NoAuthority         bool                                      `json:"noAuthority"`
+	NoConfirmed         bool                                      `json:"noConfirmed"`
 }
 
 type CurrentLoopOperatorPackage struct {

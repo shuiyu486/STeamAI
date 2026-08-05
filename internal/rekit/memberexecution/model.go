@@ -94,6 +94,7 @@ type Inspection struct {
 	Owner          Owner           `json:"owner"`
 	Intent         *Intent         `json:"intent,omitempty"`
 	Handoff        *Handoff        `json:"handoff,omitempty"`
+	HandoffSHA256  string          `json:"handoffSha256,omitempty"`
 	Latest         *Observation    `json:"latestObservation,omitempty"`
 	Manifest       *ResultManifest `json:"manifest,omitempty"`
 	ManifestSHA256 string          `json:"manifestSha256,omitempty"`
