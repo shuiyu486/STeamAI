@@ -230,7 +230,18 @@ try {
     Assert-ContainsText -Text $capturedExternalRelayArgs -Expected $expectedExternalRelayArg -Label 'external session relay facade args'
   }
   Assert-NotContainsText -Text $capturedExternalRelayArgs -Unexpected '-MaxSteps' -Label 'external session relay derives checkpoint identity in Go'
-  $externalTurnPlanHash = 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
+  $externalDispatchHash = 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
+  $externalDispatchPlanHash = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+  $externalDispatchCapturePath = Join-Path $matrixRoot 'run-current-loop-external-dispatch-args.txt'
+  Write-CapturingFakeGoBackend -Path $fakeGo -CapturePath $externalDispatchCapturePath
+  $externalDispatchOut = Invoke-RekitSmoke -Arguments @('-Command','run-current-loop','-Target',$CaseRoot,'-Pack',$Pack,'-ResumeCurrentLoop','-ExpectedCurrentLoopCheckpointSha256',$currentLoopCheckpointHash,'-ClaimExternalSessionDispatch','-ExpectedExternalSessionJobSha256',$externalJobHash,'-ExpectedExternalSessionAttemptSha256',$externalSubmissionHash,'-ExpectedExternalSessionDispatchSha256',$externalDispatchHash,'-ExternalSessionActor','facade-dispatcher','-ExternalSessionObservedAt','2026-08-05T06:00:00Z','-ExpectedExternalSessionDispatchPlanSha256',$externalDispatchPlanHash,'-Apply','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $externalDispatchOut -Expected '"delegatedByFake":true' -Label 'default external session dispatch fake delegation'
+  $capturedExternalDispatchArgs = [System.IO.File]::ReadAllText($externalDispatchCapturePath, [System.Text.Encoding]::Default)
+  foreach ($expectedExternalDispatchArg in @('-ClaimExternalSessionDispatch',"-ExpectedExternalSessionDispatchSha256 $externalDispatchHash",'-ExternalSessionActor facade-dispatcher','-ExternalSessionObservedAt 2026-08-05T06:00:00Z',"-ExpectedExternalSessionDispatchPlanSha256 $externalDispatchPlanHash",'-Apply','-Format json')) {
+    Assert-ContainsText -Text $capturedExternalDispatchArgs -Expected $expectedExternalDispatchArg -Label 'external session dispatch facade args'
+  }
+  Assert-NotContainsText -Text $capturedExternalDispatchArgs -Unexpected '-RecordExternalSessionLaunch' -Label 'external dispatch modes remain exclusive'
+  $externalTurnPlanHash = '1111111111111111111111111111111111111111111111111111111111111111'
   $externalTurnCapturePath = Join-Path $matrixRoot 'run-current-loop-external-turn-args.txt'
   Write-CapturingFakeGoBackend -Path $fakeGo -CapturePath $externalTurnCapturePath
   $externalTurnOut = Invoke-RekitSmoke -Arguments @('-Command','run-current-loop','-Target',$CaseRoot,'-Pack',$Pack,'-ResumeCurrentLoop','-ExpectedCurrentLoopCheckpointSha256',$currentLoopCheckpointHash,'-AdvanceExternalSessionResult','-ExpectedExternalSessionJobSha256',$externalJobHash,'-ExpectedExternalSessionSubmissionSha256',$externalSubmissionHash,'-ExpectedExternalSessionRelayPlanSha256',$externalRelayPlanHash,'-ExpectedExternalSessionTurnPlanSha256',$externalTurnPlanHash,'-Apply','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }

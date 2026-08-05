@@ -118,8 +118,20 @@ func runCurrentLoop(ctx runtime.Context, opt Options, out io.Writer) error {
 	if !ctx.TargetProvided {
 		return fmt.Errorf("run-current-loop requires -Target for an attached case")
 	}
+	externalModes := 0
+	for _, selected := range []bool{opt.RecordExternalSessionAttempt, opt.ClaimExternalSessionDispatch, opt.RecordExternalSessionLaunch, opt.AdvanceExternalSessionResult, opt.RelayExternalSessionSubmission} {
+		if selected {
+			externalModes++
+		}
+	}
+	if externalModes > 1 {
+		return fmt.Errorf("run-current-loop external session modes are mutually exclusive")
+	}
 	if opt.RecordExternalSessionAttempt {
 		return runCurrentLoopExternalSessionAttempt(ctx, opt, out)
+	}
+	if opt.ClaimExternalSessionDispatch || opt.RecordExternalSessionLaunch {
+		return runCurrentLoopExternalSessionDispatch(ctx, opt, out)
 	}
 	if opt.AdvanceExternalSessionResult {
 		return runCurrentLoopExternalSessionTurn(ctx, opt, out)
@@ -127,7 +139,7 @@ func runCurrentLoop(ctx runtime.Context, opt Options, out io.Writer) error {
 	if opt.RelayExternalSessionSubmission {
 		return runCurrentLoopExternalSessionRelay(ctx, opt, out)
 	}
-	if strings.TrimSpace(opt.ExpectedExternalSessionJobSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionSubmissionSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionRelayPlanSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionTurnPlanSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionAttemptSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionAttemptPlanSHA256) != "" || strings.TrimSpace(opt.ExternalSessionHarness) != "" || strings.TrimSpace(opt.ExternalSessionID) != "" || strings.TrimSpace(opt.ExternalSessionActor) != "" || strings.TrimSpace(opt.ExternalSessionStartedAt) != "" {
+	if strings.TrimSpace(opt.ExpectedExternalSessionJobSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionSubmissionSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionRelayPlanSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionTurnPlanSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionAttemptSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionAttemptPlanSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionDispatchSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionClaimSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionDispatchPlanSHA256) != "" || strings.TrimSpace(opt.ExternalSessionHarness) != "" || strings.TrimSpace(opt.ExternalSessionID) != "" || strings.TrimSpace(opt.ExternalSessionActor) != "" || strings.TrimSpace(opt.ExternalSessionStartedAt) != "" || strings.TrimSpace(opt.ExternalSessionLaunchOutcome) != "" || strings.TrimSpace(opt.ExternalSessionObservedAt) != "" || strings.TrimSpace(opt.ExternalSessionLaunchReason) != "" {
 		return fmt.Errorf("external session fields require a result, relay, or attempt mode")
 	}
 	if opt.WhatIf && opt.Apply {
@@ -1086,6 +1098,12 @@ func validateCurrentLoopOuterArgs(opt Options) error {
 		"-externalsessionstartedat": true, "--external-session-started-at": true,
 		"-expectedexternalsessionattemptsha256": true, "--expected-external-session-attempt-sha256": true,
 		"-expectedexternalsessionattemptplansha256": true, "--expected-external-session-attempt-plan-sha256": true,
+		"-externalsessionlaunchoutcome": true, "--external-session-launch-outcome": true,
+		"-externalsessionobservedat": true, "--external-session-observed-at": true,
+		"-externalsessionlaunchreason": true, "--external-session-launch-reason": true,
+		"-expectedexternalsessiondispatchsha256": true, "--expected-external-session-dispatch-sha256": true,
+		"-expectedexternalsessionclaimsha256": true, "--expected-external-session-claim-sha256": true,
+		"-expectedexternalsessiondispatchplansha256": true, "--expected-external-session-dispatch-plan-sha256": true,
 		"-expectedexternalsessionsubmissionsha256": true, "--expected-external-session-submission-sha256": true,
 		"-expectedexternalsessionrelayplansha256": true, "--expected-external-session-relay-plan-sha256": true,
 		"-expectedexternalsessionturnplansha256": true, "--expected-external-session-turn-plan-sha256": true,
@@ -1108,6 +1126,8 @@ func validateCurrentLoopOuterArgs(opt Options) error {
 		"-relayexternalsessionsubmission": true, "--relay-external-session-submission": true,
 		"-advanceexternalsessionresult": true, "--advance-external-session-result": true,
 		"-recordexternalsessionattempt": true, "--record-external-session-attempt": true,
+		"-claimexternalsessiondispatch": true, "--claim-external-session-dispatch": true,
+		"-recordexternalsessionlaunch": true, "--record-external-session-launch": true,
 	}
 	seen := map[string]bool{}
 	separatorSeen := false
@@ -1176,6 +1196,10 @@ func currentLoopCanonicalOuterFlag(key string) string {
 		return "-advanceexternalsessionresult"
 	case "--record-external-session-attempt":
 		return "-recordexternalsessionattempt"
+	case "--claim-external-session-dispatch":
+		return "-claimexternalsessiondispatch"
+	case "--record-external-session-launch":
+		return "-recordexternalsessionlaunch"
 	case "--external-session-harness":
 		return "-externalsessionharness"
 	case "--external-session-id":
@@ -1188,6 +1212,18 @@ func currentLoopCanonicalOuterFlag(key string) string {
 		return "-expectedexternalsessionattemptsha256"
 	case "--expected-external-session-attempt-plan-sha256":
 		return "-expectedexternalsessionattemptplansha256"
+	case "--external-session-launch-outcome":
+		return "-externalsessionlaunchoutcome"
+	case "--external-session-observed-at":
+		return "-externalsessionobservedat"
+	case "--external-session-launch-reason":
+		return "-externalsessionlaunchreason"
+	case "--expected-external-session-dispatch-sha256":
+		return "-expectedexternalsessiondispatchsha256"
+	case "--expected-external-session-claim-sha256":
+		return "-expectedexternalsessionclaimsha256"
+	case "--expected-external-session-dispatch-plan-sha256":
+		return "-expectedexternalsessiondispatchplansha256"
 	case "--expected-external-session-job-sha256":
 		return "-expectedexternalsessionjobsha256"
 	case "--expected-external-session-submission-sha256":

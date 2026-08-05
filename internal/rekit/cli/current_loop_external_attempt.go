@@ -48,10 +48,22 @@ func runCurrentLoopExternalSessionAttempt(ctx runtime.Context, opt Options, out 
 	}
 	var plan externalsession.AttemptPlan
 	if opt.Apply {
-		plan, err = externalsession.ResolveAttemptApplyPlan(job, opt.ExternalSessionHarness, opt.ExternalSessionID, opt.ExternalSessionActor, opt.ExternalSessionStartedAt, opt.ExpectedExternalSessionAttemptSHA256, opt.ExpectedExternalSessionAttemptPlanSHA256)
+		plan, err = externalsession.ResolveAttemptApplyPlanUnbound(job, opt.ExternalSessionHarness, opt.ExternalSessionID, opt.ExternalSessionActor, opt.ExternalSessionStartedAt, opt.ExpectedExternalSessionAttemptSHA256)
 	} else {
 		plan, err = externalsession.PreviewAttempt(job, opt.ExternalSessionHarness, opt.ExternalSessionID, opt.ExternalSessionActor, opt.ExternalSessionStartedAt, opt.ExpectedExternalSessionAttemptSHA256)
 	}
+	if err != nil {
+		return err
+	}
+	inspection, err := externalsession.Inspect(job)
+	if err != nil {
+		return err
+	}
+	ticket, err := externalSessionDispatchTicket(job, inspection, plan, status.MissionControlRunbook.CurrentLoopOperator)
+	if err != nil {
+		return err
+	}
+	plan, err = externalsession.BindAttemptDispatch(plan, ticket)
 	if err != nil {
 		return err
 	}
@@ -77,6 +89,84 @@ func runCurrentLoopExternalSessionAttempt(ctx runtime.Context, opt Options, out 
 		result.RefreshedStatus = &fresh
 	}
 	return writeJSON(out, result)
+}
+
+func externalSessionDispatchTicket(job externalsession.Job, inspection externalsession.Inspection, plan externalsession.AttemptPlan, operator *mission.CurrentLoopOperatorPackage) (externalsession.DispatchTicket, error) {
+	attempt := externalsession.AttemptInspection{
+		State: "running", Current: &plan.Attempt, AttemptSHA256: plan.AttemptSHA256,
+		Path: plan.AttemptPath, Generations: plan.Attempt.Generation,
+	}
+	typedAttempt := &mission.CurrentLoopExternalSessionAttempt{
+		AttemptID: plan.Attempt.AttemptID, AttemptSHA256: plan.AttemptSHA256,
+		Generation: plan.Attempt.Generation, Harness: plan.Attempt.Harness, Session: plan.Attempt.Session,
+		Actor: plan.Attempt.Actor, StartedAt: plan.Attempt.StartedAt, SupersedesSHA256: plan.Attempt.SupersedesSHA256,
+		Path: plan.AttemptPath, SubmissionPath: plan.Attempt.SubmissionPath,
+		SubmissionOutputs: plan.Attempt.SubmissionOutputs, SubmissionResult: plan.Attempt.SubmissionResult,
+	}
+	typed := mission.CurrentLoopExternalSessionJob{
+		CurrentAttempt: typedAttempt, SubmissionPath: plan.Attempt.SubmissionPath,
+		SubmissionOutputs: plan.Attempt.SubmissionOutputs, SubmissionResult: plan.Attempt.SubmissionResult,
+		Dispatcher: &mission.CurrentLoopExternalSessionDispatcher{
+			Ticket: &mission.CurrentLoopExternalSessionDispatchTicket{},
+		},
+	}
+	attemptInspection := inspection
+	attemptInspection.State = "awaiting-submission"
+	attemptInspection.SubmissionSHA256 = ""
+	attemptInspection.Submission = nil
+	attemptInspection.Warnings = nil
+	pkg := externalSessionHarnessPackage(job, attemptInspection, attempt, operator, typed)
+	if pkg == nil || pkg.Launch == nil || !pkg.Launch.Ready || pkg.Return == nil {
+		return externalsession.DispatchTicket{}, fmt.Errorf("external session attempt dispatch input is not launch-ready")
+	}
+	ticket := externalsession.DispatchTicket{
+		Launch: externalsession.DispatchLaunch{
+			Ready: pkg.Launch.Ready, Tool: pkg.Launch.Tool, AgentType: pkg.Launch.AgentType,
+			ReadOnly: pkg.Launch.ReadOnly, ExpectedOutput: pkg.Launch.ExpectedOutput,
+			Input: externalsession.DispatchInput{
+				Path: pkg.Launch.Input.Path, SHA256: pkg.Launch.Input.SHA256, Role: pkg.Launch.Input.Role,
+			},
+			Boundary: append([]string{}, pkg.Launch.Boundary...),
+		},
+		Return: externalsession.DispatchReturn{
+			SubmissionPath: pkg.Return.SubmissionPath, SubmissionOutputs: pkg.Return.SubmissionOutputs,
+			SubmissionResult: pkg.Return.SubmissionResult, SubmissionLast: pkg.Return.SubmissionLast,
+			Boundary: append([]string{}, pkg.Return.Boundary...),
+		},
+		RefreshStatusCommand: pkg.RefreshStatusCommand,
+		Boundary:             append([]string{}, pkg.Boundary...),
+	}
+	for _, template := range pkg.Return.Templates {
+		replacements := append([]string{}, template.RequiredReplace...)
+		replacements = mission.UniqueStrings(append(replacements, "<attempt-receipt-sha256>"))
+		ticket.Return.Templates = append(ticket.Return.Templates, externalsession.DispatchSubmissionTemplate{
+			Outcome: template.Outcome,
+			JSON: strings.ReplaceAll(
+				template.JSON,
+				plan.AttemptSHA256,
+				"<attempt-receipt-sha256>",
+			),
+			RequiredWrites:       append([]string{}, template.RequiredWrites...),
+			RequiredReplacements: replacements,
+		})
+	}
+	return ticket, nil
+}
+
+func externalSessionPendingAttemptRequest(plan externalsession.AttemptPlan) mission.MissionCommanderDriverRequest {
+	plan.ApplyCommand = externalSessionAttemptApplyCommand(plan)
+	return mission.MissionCommanderDriverRequest{
+		Kind: "apply-command", RunLoopStepID: "external-session-attempt-recovery:" + plan.Job.JobID,
+		Actor: "mission-commander", State: "attempt-publication-pending", Source: "current-loop-external-session-dispatch",
+		Lane: memberLane(plan.Job), Label: plan.Job.SessionKind + " external session attempt recovery",
+		Command: plan.ApplyCommand, CommandExecutable: true, RequiresReview: true,
+		ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
+			State: "attempt-committed", RefreshStatusCommand: statusMissionControlRefreshCommand(plan.Job.CaseRoot),
+			Description: "completes the exact ticket-first attempt publication by writing the attempt receipt last",
+			Boundary:    []string{"immutable pending ticket fixes every attempt parameter", "different bytes or stale currentness fail closed"},
+		},
+		Boundary: []string{"recovery does not start or manage a session", "attempt receipt is the final commit point"},
+	}
 }
 
 func externalSessionAttemptRequest(job externalsession.Job, jobSHA string, inspection externalsession.AttemptInspection) mission.MissionCommanderDriverRequest {

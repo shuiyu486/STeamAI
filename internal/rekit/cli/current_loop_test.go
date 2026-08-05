@@ -512,7 +512,9 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		t.Fatalf("fresh reviewer job omitted attempt-review harness package: %+v", harness)
 	}
 	resultJob = recordCurrentLoopExternalSessionAttempt(t, resultOperator, "go-cli-test-harness", "reviewer-session-runner", "mission-commander", "2026-08-05T00:30:00Z")
-	if harness := resultJob.HarnessPackage; harness == nil || harness.State != "running" || harness.Launch == nil || !harness.Launch.Ready || harness.Launch.Tool != "Claude Code Agent" || harness.Launch.AgentType != "read-only-reviewer" || !harness.Launch.ReadOnly || harness.Launch.Input.Role != "reviewer-dispatch-prompt" || harness.Launch.Input.Path != resultOperator.ExternalReviewerHandoff.DispatchPromptPath || harness.Launch.Input.SHA256 != resultOperator.ExternalReviewerHandoff.DispatchPromptSHA256 || harness.Launch.Attempt.AttemptSHA256 != resultJob.CurrentAttempt.AttemptSHA256 || harness.Launch.Attempt.Session != "reviewer-session-runner" || harness.Return == nil || harness.Return.SubmissionResult != resultJob.SubmissionResult || !harness.Return.SubmissionLast || len(harness.Return.Templates) != len(resultJob.AllowedOutcomes) {
+	resultOperator.ExternalSessionJob = resultJob
+	resultJob = acceptCurrentLoopExternalSessionLaunch(t, resultOperator, "dispatcher", "go-cli-test-harness", "reviewer-session-runner", "2026-08-05T00:30:01Z")
+	if harness := resultJob.HarnessPackage; harness == nil || harness.State != "running" || harness.Launch == nil || harness.Launch.Ready || harness.Launch.Tool != "Claude Code Agent" || harness.Launch.AgentType != "read-only-reviewer" || !harness.Launch.ReadOnly || harness.Launch.Input.Role != "reviewer-dispatch-prompt" || harness.Launch.Input.Path != resultOperator.ExternalReviewerHandoff.DispatchPromptPath || harness.Launch.Input.SHA256 != resultOperator.ExternalReviewerHandoff.DispatchPromptSHA256 || harness.Launch.Attempt.AttemptSHA256 != resultJob.CurrentAttempt.AttemptSHA256 || harness.Launch.Attempt.Session != "reviewer-session-runner" || harness.Return == nil || harness.Return.SubmissionResult != resultJob.SubmissionResult || !harness.Return.SubmissionLast || len(harness.Return.Templates) != len(resultJob.AllowedOutcomes) {
 		t.Fatalf("running reviewer job omitted exact harness launch/return package: %+v", harness)
 	}
 	if resultAttempt.AttemptID == spawnAttempt.AttemptID || resultAttempt.AttemptSnapshotSHA256 == spawnAttempt.AttemptSnapshotSHA256 || resultAttempt.RunLoopStepID != "save-result-input" || resultAttempt.SelectedAction.Kind != "observe-reviewer-terminal-state" || resultAttempt.Receipt.DispatchID == "" || resultAttempt.Receipt.Harness != "go-cli-test-harness" || resultAttempt.Receipt.Session != "reviewer-session-runner" || resultAttempt.Receipt.SessionLifecycleState == "" || resultAttempt.DurableContinuationDriverRequest == nil || !strings.Contains(resultAttempt.DurableContinuationDriverRequest.Command, dispatchApplied.SegmentCheckpoint.ArtifactSHA256) {
@@ -660,6 +662,8 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		t.Fatalf("replacement reviewer external job is invalid: %+v", replacementResultJob)
 	}
 	replacementResultJob = recordCurrentLoopExternalSessionAttempt(t, replacementResultOperator, "go-cli-test-harness", "reviewer-session-replacement", "mission-commander", "2026-08-05T00:35:00Z")
+	replacementResultOperator.ExternalSessionJob = replacementResultJob
+	replacementResultJob = acceptCurrentLoopExternalSessionLaunch(t, replacementResultOperator, "dispatcher", "go-cli-test-harness", "reviewer-session-replacement", "2026-08-05T00:35:01Z")
 	replacementResultBytes := reviewerResultForCLIPlan(t, plan, handoff, "accept", "accepted", "reviewer-session-replacement")
 	if err := os.MkdirAll(filepath.Dir(filepath.Join(caseRoot, filepath.FromSlash(replacementResultJob.SubmissionResult))), 0o700); err != nil {
 		t.Fatal(err)
@@ -1476,15 +1480,343 @@ func recordCurrentLoopExternalSessionAttempt(t *testing.T, operator *mission.Cur
 	return applied.RefreshedStatus.MissionControlRunbook.CurrentLoopOperator.ExternalSessionJob
 }
 
+func recordCurrentLoopExternalSessionAttemptWithPendingRecovery(t *testing.T, operator *mission.CurrentLoopOperatorPackage, harness, session, actor, startedAt string) *mission.CurrentLoopExternalSessionJob {
+	t.Helper()
+	if operator == nil || operator.ExternalSessionJob == nil {
+		t.Fatalf("operator omitted external session job: %+v", operator)
+	}
+	job := operator.ExternalSessionJob
+	args := []string{
+		"-Command", "run-current-loop", "-Target", operator.CaseRoot, "-Pack", operator.Pack,
+		"-ResumeCurrentLoop", "-ExpectedCurrentLoopCheckpointSha256", job.CheckpointSHA256,
+		"-RecordExternalSessionAttempt", "-ExpectedExternalSessionJobSha256", job.JobSHA256,
+		"-ExternalSessionHarness", harness, "-ExternalSessionId", session,
+		"-ExternalSessionActor", actor, "-ExternalSessionStartedAt", startedAt,
+		"-WhatIf", "-Format", "json",
+	}
+	if job.CurrentAttempt != nil {
+		args = append(args[:len(args)-3], "-ExpectedExternalSessionAttemptSha256", job.CurrentAttempt.AttemptSHA256, "-WhatIf", "-Format", "json")
+	}
+	var out bytes.Buffer
+	if err := Run(args, &out); err != nil {
+		t.Fatal(err)
+	}
+	var plan externalsession.AttemptPlan
+	decodeJSONStrict(t, out.Bytes(), &plan)
+	if plan.Dispatch == nil || plan.DispatchPath == "" || plan.DispatchSHA256 == "" || plan.ApplyCommand == "" {
+		t.Fatalf("attempt preview omitted dispatch publication: %+v", plan)
+	}
+	if len(plan.Dispatch.Return.Templates) == 0 || !strings.Contains(plan.Dispatch.Return.Templates[0].JSON, "<attempt-receipt-sha256>") || !slices.Contains(plan.Dispatch.Return.Templates[0].RequiredReplacements, "<attempt-receipt-sha256>") {
+		t.Fatalf("immutable pre-commit ticket did not defer final attempt receipt identity: %+v", plan.Dispatch.Return.Templates)
+	}
+	var ticketSubmission externalsession.Submission
+	decodeJSONStrict(t, []byte(plan.Dispatch.Return.Templates[0].JSON), &ticketSubmission)
+	for replacement, actual := range map[string]string{
+		"<dispatch-claim-sha256>": ticketSubmission.DispatchClaimSHA256,
+		"<launch-receipt-sha256>": ticketSubmission.LaunchReceiptSHA256,
+		"<actual-harness>":        ticketSubmission.Harness,
+		"<actual-session>":        ticketSubmission.Session,
+	} {
+		if actual != replacement || !slices.Contains(plan.Dispatch.Return.Templates[0].RequiredReplacements, replacement) {
+			t.Fatalf("immutable ticket omitted accepted launch replacement %s: %+v", replacement, plan.Dispatch.Return.Templates[0])
+		}
+	}
+	dispatchData, err := json.MarshalIndent(plan.Dispatch, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatchData = append(dispatchData, '\n')
+	dispatchPath := filepath.Join(operator.CaseRoot, filepath.FromSlash(plan.DispatchPath))
+	if err := os.MkdirAll(filepath.Dir(dispatchPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dispatchPath, dispatchData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", operator.CaseRoot, "-Pack", operator.Pack, "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var pending statusInventory
+	decodeJSONStrict(t, out.Bytes(), &pending)
+	pendingOperator := pending.MissionControlRunbook.CurrentLoopOperator
+	if pendingOperator == nil || pendingOperator.State != "external-session-attempt-publication-pending" || pendingOperator.ExternalSessionJob == nil || pendingOperator.ExternalSessionJob.AttemptState != "attempt-publication-pending" || pendingOperator.ExternalSessionJob.Dispatcher == nil || pendingOperator.ExternalSessionJob.Dispatcher.State != "attempt-publication-pending" || pendingOperator.ExternalSessionJob.Dispatcher.Ticket == nil || pendingOperator.ExternalSessionJob.Dispatcher.Ticket.SHA256 != plan.DispatchSHA256 || pendingOperator.ExternalSessionJob.Dispatcher.Claim != nil || pendingOperator.ExternalSessionJob.Dispatcher.LaunchReceipt != nil {
+		t.Fatalf("fresh status omitted exact ticket-only publication prefix: %+v", pendingOperator)
+	}
+	request := pendingOperator.ExternalSessionJob.AttemptRequest
+	if request == nil || !request.CommandExecutable || request.State != "attempt-publication-pending" || request.Command != plan.ApplyCommand || pendingOperator.SelectedDriverRequest == nil || pendingOperator.SelectedDriverRequest.Command != request.Command {
+		t.Fatalf("pending publication omitted exact recovery request: %+v", pendingOperator)
+	}
+	runbook := pending.MissionControlRunbook
+	if runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Command != request.Command || runbook.CurrentRunLoopStepID != request.RunLoopStepID || runbook.CurrentCommand != request.Command {
+		t.Fatalf("ticket-only recovery was not promoted to the focused status request: %+v", runbook)
+	}
+	quickstart := runbook.Quickstart
+	takeover := runbook.ReplacementExecutorTakeover
+	requestSHA256 := mission.ReplacementExecutorDriverRequestSHA256(*runbook.CurrentDriverRequest)
+	if quickstart == nil || quickstart.CurrentDriverRequest == nil || quickstart.Command != request.Command || quickstart.CurrentDriverRequest.Command != request.Command || mission.ReplacementExecutorDriverRequestSHA256(*quickstart.CurrentDriverRequest) != requestSHA256 {
+		t.Fatalf("ticket-only recovery quickstart diverged from the focused request: %+v", quickstart)
+	}
+	if takeover == nil || takeover.Command != request.Command || takeover.CurrentDriverRequest.Command != request.Command || takeover.CurrentDriverRequestSHA256 != requestSHA256 || mission.ReplacementExecutorDriverRequestSHA256(takeover.CurrentDriverRequest) != requestSHA256 {
+		t.Fatalf("ticket-only recovery takeover diverged from the focused request: %+v", takeover)
+	}
+	out.Reset()
+	if err := Run(rekitCommandCLIArgs(t, request.Command), &out); err != nil {
+		t.Fatal(err)
+	}
+	var applied currentLoopExternalSessionAttemptResult
+	decodeJSONStrict(t, out.Bytes(), &applied)
+	if !applied.Applied || applied.AlreadyApplied || applied.RefreshedStatus == nil || applied.AttemptSHA256 != plan.AttemptSHA256 {
+		t.Fatalf("pending publication recovery did not commit receipt last: %+v", applied)
+	}
+	refreshed := applied.RefreshedStatus.MissionControlRunbook.CurrentLoopOperator.ExternalSessionJob
+	if refreshed == nil || refreshed.AttemptState != "committed" || refreshed.Dispatcher == nil || refreshed.Dispatcher.State != "queued" || refreshed.Dispatcher.ClaimRequest == nil {
+		t.Fatalf("recovered attempt did not become a committed reservation ready for dispatch: %+v", refreshed)
+	}
+	return refreshed
+}
+
+func claimCurrentLoopExternalSessionDispatch(t *testing.T, operator *mission.CurrentLoopOperatorPackage, actor, observedAt string) *statusInventory {
+	t.Helper()
+	if operator == nil || operator.ExternalSessionJob == nil || operator.ExternalSessionJob.Dispatcher == nil || operator.ExternalSessionJob.Dispatcher.ClaimRequest == nil {
+		t.Fatalf("operator omitted dispatch claim request: %+v", operator)
+	}
+	var out bytes.Buffer
+	claimArgs := rekitCommandCLIArgs(t, operator.ExternalSessionJob.Dispatcher.ClaimRequest.Command)
+	for index := range claimArgs {
+		switch strings.ToLower(claimArgs[index]) {
+		case "-externalsessionactor":
+			claimArgs[index+1] = actor
+		case "-externalsessionobservedat":
+			claimArgs[index+1] = observedAt
+		}
+	}
+	if err := Run(claimArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var claimPlan externalsession.DispatchPlan
+	decodeJSONStrict(t, out.Bytes(), &claimPlan)
+	out.Reset()
+	if err := Run(rekitCommandCLIArgs(t, claimPlan.ApplyCommand), &out); err != nil {
+		t.Fatal(err)
+	}
+	var claimed currentLoopExternalSessionDispatchResult
+	decodeJSONStrict(t, out.Bytes(), &claimed)
+	return claimed.RefreshedStatus
+}
+
+func recordCurrentLoopExternalSessionLaunch(t *testing.T, operator *mission.CurrentLoopOperatorPackage, actor, actualHarness, actualSession, observedAt string) *statusInventory {
+	t.Helper()
+	if operator == nil || operator.ExternalSessionJob == nil || operator.ExternalSessionJob.Dispatcher == nil || operator.ExternalSessionJob.Dispatcher.LaunchAcceptedRequest == nil {
+		t.Fatalf("operator omitted accepted launch request: %+v", operator)
+	}
+	request := operator.ExternalSessionJob.Dispatcher.LaunchAcceptedRequest
+	launchArgs := rekitCommandCLIArgs(t, request.Command)
+	for index := range launchArgs {
+		switch strings.ToLower(launchArgs[index]) {
+		case "-externalsessionactor":
+			launchArgs[index+1] = actor
+		case "-externalsessionobservedat":
+			launchArgs[index+1] = observedAt
+		case "-externalsessionharness":
+			launchArgs[index+1] = actualHarness
+		case "-externalsessionid":
+			launchArgs[index+1] = actualSession
+		}
+	}
+	var out bytes.Buffer
+	if err := Run(launchArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	var launchPlan externalsession.DispatchPlan
+	decodeJSONStrict(t, out.Bytes(), &launchPlan)
+	out.Reset()
+	if err := Run(rekitCommandCLIArgs(t, launchPlan.ApplyCommand), &out); err != nil {
+		t.Fatal(err)
+	}
+	var launched currentLoopExternalSessionDispatchResult
+	decodeJSONStrict(t, out.Bytes(), &launched)
+	return launched.RefreshedStatus
+}
+
+func acceptCurrentLoopExternalSessionLaunch(t *testing.T, operator *mission.CurrentLoopOperatorPackage, actor, actualHarness, actualSession, observedAt string) *mission.CurrentLoopExternalSessionJob {
+	t.Helper()
+	claimed := claimCurrentLoopExternalSessionDispatch(t, operator, actor, observedAt)
+	launched := recordCurrentLoopExternalSessionLaunch(t, claimed.MissionControlRunbook.CurrentLoopOperator, actor, actualHarness, actualSession, observedAt)
+	return launched.MissionControlRunbook.CurrentLoopOperator.ExternalSessionJob
+}
+
 func bindCurrentLoopExternalSubmissionAttempt(t *testing.T, job *mission.CurrentLoopExternalSessionJob, submission map[string]any) {
 	t.Helper()
-	if job == nil || job.CurrentAttempt == nil || job.AttemptState != "running" {
-		t.Fatalf("external session job has no running attempt: %+v", job)
+	if job == nil || job.CurrentAttempt == nil || job.AttemptState != "committed" || job.Dispatcher == nil || job.Dispatcher.State != "running" {
+		t.Fatalf("external session job has no accepted running launch: %+v", job)
 	}
 	submission["attemptId"] = job.CurrentAttempt.AttemptID
 	submission["attemptSha256"] = job.CurrentAttempt.AttemptSHA256
 	submission["harness"] = job.CurrentAttempt.Harness
 	submission["session"] = job.CurrentAttempt.Session
+	if job.Dispatcher != nil && job.Dispatcher.Ticket != nil {
+		if job.Dispatcher.Claim == nil || job.Dispatcher.LaunchReceipt == nil || job.Dispatcher.LaunchReceipt.State != "accepted" {
+			t.Fatalf("dispatcher submission requires accepted launch lineage: %+v", job.Dispatcher)
+		}
+		submission["dispatchClaimSha256"] = job.Dispatcher.Claim.SHA256
+		submission["launchReceiptSha256"] = job.Dispatcher.LaunchReceipt.SHA256
+		submission["harness"] = job.Dispatcher.LaunchReceipt.ActualHarness
+		submission["session"] = job.Dispatcher.LaunchReceipt.ActualSession
+	}
+}
+
+func TestRunCurrentLoopExternalSessionInvalidReplacementRecoversTicketOnlyPrefix(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	board.Lanes[0].CurrentExecutor = "replacement-member"
+	board.Lanes[0].ExecutorGeneration = 1
+	board.Lanes[0].UpdatedAt = "2026-08-05T07:00:00Z"
+	boardData, _ := json.MarshalIndent(board, "", "  ")
+	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "board.json"), append(boardData, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	preview := runCurrentLoopPreview(t, caseRoot, 5)
+	dispatched := runCurrentLoopApplyWith(t, caseRoot, preview, "-ExpectedMemberExecutionPlanSha256", preview.InitialCurrentStep.MemberExecution.ExpectedPlanSHA256)
+	if dispatched.SegmentCheckpoint == nil {
+		t.Fatalf("missing external checkpoint: %+v", dispatched)
+	}
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var status statusInventory
+	decodeJSONStrict(t, out.Bytes(), &status)
+	operator := status.MissionControlRunbook.CurrentLoopOperator
+	job := recordCurrentLoopExternalSessionAttempt(t, operator, "external-harness", "invalid-session", "mission-commander", "2026-08-05T07:00:00Z")
+	invalidSubmission := map[string]any{
+		"schemaVersion": 1, "kind": "current-loop-external-session-submission", "jobId": job.JobID, "jobSha256": job.JobSHA256,
+		"outcome": "failed", "actor": "external-harness", "observedAt": "2026-08-05T07:00:01Z", "reason": "invalid lineage",
+		"attemptId": job.CurrentAttempt.AttemptID, "attemptSha256": job.CurrentAttempt.AttemptSHA256,
+		"harness": job.CurrentAttempt.Harness, "session": job.CurrentAttempt.Session,
+		"noAuthorityOrConfirmed": true, "noHeavyTool": true,
+	}
+	invalidData, _ := json.MarshalIndent(invalidSubmission, "", "  ")
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(caseRoot, filepath.FromSlash(job.SubmissionPath))), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caseRoot, filepath.FromSlash(job.SubmissionPath)), append(invalidData, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	decodeJSONStrict(t, out.Bytes(), &status)
+	operator = status.MissionControlRunbook.CurrentLoopOperator
+	if operator == nil || operator.State != "external-session-submission-invalid" || operator.ExternalSessionJob == nil || operator.ExternalSessionJob.CurrentAttempt == nil {
+		t.Fatalf("invalid submission did not expose replacement review: %+v", operator)
+	}
+	recovered := recordCurrentLoopExternalSessionAttemptWithPendingRecovery(t, operator, "external-harness", "replacement-session", "mission-commander", "2026-08-05T07:00:02Z")
+	if recovered.CurrentAttempt == nil || recovered.CurrentAttempt.Generation != 2 || recovered.Dispatcher == nil || recovered.Dispatcher.State != "queued" || recovered.Dispatcher.Ticket == nil || recovered.Dispatcher.Ticket.Generation != 2 {
+		t.Fatalf("invalid replacement ticket-only prefix did not recover exact next generation: %+v", recovered)
+	}
+}
+
+func TestRunCurrentLoopObservationInboxOutranksDispatcherStates(t *testing.T) {
+	for _, dispatcherState := range []string{"queued", "claimed", "running"} {
+		t.Run(dispatcherState, func(t *testing.T) {
+			caseRoot := fullAttachedCase(t)
+			if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &bytes.Buffer{}); err != nil {
+				t.Fatal(err)
+			}
+			board, err := mission.ReadBoard(caseRoot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			board.Lanes[0].CurrentExecutor = "observation-member"
+			board.Lanes[0].ExecutorGeneration = 1
+			board.Lanes[0].UpdatedAt = "2026-08-05T07:10:00Z"
+			boardData, _ := json.MarshalIndent(board, "", "  ")
+			if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "board.json"), append(boardData, '\n'), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			preview := runCurrentLoopPreview(t, caseRoot, 5)
+			memberPlan := preview.InitialCurrentStep.MemberExecution
+			dispatched := runCurrentLoopApplyWith(t, caseRoot, preview, "-ExpectedMemberExecutionPlanSha256", memberPlan.ExpectedPlanSHA256)
+			var out bytes.Buffer
+			if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+				t.Fatal(err)
+			}
+			var status statusInventory
+			decodeJSONStrict(t, out.Bytes(), &status)
+			operator := status.MissionControlRunbook.CurrentLoopOperator
+			job := recordCurrentLoopExternalSessionAttempt(t, operator, "external-harness", "observation-session", "mission-commander", "2026-08-05T07:10:00Z")
+			operator.ExternalSessionJob = job
+			switch dispatcherState {
+			case "claimed":
+				status = *claimCurrentLoopExternalSessionDispatch(t, operator, "dispatcher", "2026-08-05T07:10:01Z")
+			case "running":
+				claimed := claimCurrentLoopExternalSessionDispatch(t, operator, "dispatcher", "2026-08-05T07:10:01Z")
+				status = *recordCurrentLoopExternalSessionLaunch(t, claimed.MissionControlRunbook.CurrentLoopOperator, "dispatcher", "actual-harness", "actual-session", "2026-08-05T07:10:02Z")
+			}
+			observationDir := filepath.Join(caseRoot, filepath.FromSlash(currentLoopObservationInboxRel))
+			if err := os.MkdirAll(observationDir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			observationPath := filepath.Join(observationDir, "member-accepted.json")
+			observationData, err := json.Marshal(currentLoopObservationEnvelope{
+				SchemaVersion: 1, Kind: "current-loop-external-session-observation", CheckpointSHA256: dispatched.SegmentCheckpoint.ArtifactSHA256,
+				ObservationKind: "member-session-accepted", Actor: "harness", ObservedAt: "2026-08-05T07:10:03Z", MemberAttemptID: memberPlan.AttemptID,
+				NoAuthorityOrConfirmed: true, NoHeavyTool: true,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(observationPath, append(observationData, '\n'), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			out.Reset()
+			if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+				t.Fatal(err)
+			}
+			decodeJSONStrict(t, out.Bytes(), &status)
+			operator = status.MissionControlRunbook.CurrentLoopOperator
+			if operator == nil || operator.ObservationInbox == nil || operator.ObservationInbox.State != "ready" || operator.SelectedDriverRequest == nil || operator.ObservationInbox.SelectedDriverRequest == nil || operator.SelectedDriverRequest.Command != operator.ObservationInbox.SelectedDriverRequest.Command || !strings.Contains(operator.SelectedDriverRequest.Command, observationPath) || operator.ExternalSessionJob == nil || operator.ExternalSessionJob.Dispatcher == nil || operator.ExternalSessionJob.Dispatcher.State != dispatcherState {
+				t.Fatalf("ready observation was not authoritative over dispatcher %s: %+v", dispatcherState, operator)
+			}
+		})
+	}
+}
+
+func TestExternalReviewerSubmissionTemplateUsesAcceptedActualIdentity(t *testing.T) {
+	job, err := externalsession.NewReviewerJob(t.TempDir(), "_template", strings.Repeat("a", 64), externalsession.ReviewerIdentity{
+		AttemptSHA256: strings.Repeat("b", 64), PacketID: "packet", RouteID: "route", ShardID: "shard",
+	}, []string{"accepted", "returned", "failed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempt := externalsession.AttemptInspection{
+		Current:       &externalsession.Attempt{AttemptID: "reviewer-attempt-g000001", Harness: "reserved-harness", Session: "reserved-session"},
+		AttemptSHA256: strings.Repeat("c", 64),
+	}
+	dispatcher := &mission.CurrentLoopExternalSessionDispatcher{
+		Ticket: &mission.CurrentLoopExternalSessionDispatchTicket{},
+		Claim:  &mission.CurrentLoopExternalSessionDispatchClaim{SHA256: strings.Repeat("d", 64)},
+		LaunchReceipt: &mission.CurrentLoopExternalSessionLaunchReceipt{
+			State: "accepted", SHA256: strings.Repeat("e", 64), ActualHarness: "actual-harness", ActualSession: "actual-session",
+		},
+	}
+	for _, outcome := range []string{"accepted", "returned"} {
+		template, _ := externalSessionSubmissionTemplate(job, strings.Repeat("f", 64), attempt, dispatcher, outcome)
+		var submission externalsession.Submission
+		decodeJSONStrict(t, []byte(template), &submission)
+		if submission.Harness != "actual-harness" || submission.Session != "actual-session" || submission.ReviewerSession != "actual-session" || (outcome == "accepted" && submission.ReviewerHarness != "actual-harness") {
+			t.Fatalf("reviewer %s template retained reservation identity: %+v", outcome, submission)
+		}
+	}
 }
 
 func TestRunCurrentLoopExternalSessionTurnAdvancesMemberResult(t *testing.T) {
@@ -1518,15 +1850,17 @@ func TestRunCurrentLoopExternalSessionTurnAdvancesMemberResult(t *testing.T) {
 	decodeJSONStrict(t, statusOut.Bytes(), &status)
 	operator := status.MissionControlRunbook.CurrentLoopOperator
 	firstJob := recordCurrentLoopExternalSessionAttempt(t, operator, "external-turn-harness", "member-session-a", "mission-commander", "2026-08-05T01:00:00Z")
-	if firstJob == nil || firstJob.State != "awaiting-submission" || firstJob.AttemptState != "running" || firstJob.CurrentAttempt == nil || firstJob.CurrentAttempt.Generation != 1 || firstJob.CurrentAttempt.AttemptSHA256 == "" || firstJob.SubmissionPath != firstJob.CurrentAttempt.SubmissionPath || firstJob.CurrentAttempt.SubmissionOutputs == "" {
+	if firstJob == nil || firstJob.State != "awaiting-submission" || firstJob.AttemptState != "committed" || firstJob.CurrentAttempt == nil || firstJob.CurrentAttempt.Generation != 1 || firstJob.CurrentAttempt.AttemptSHA256 == "" || firstJob.SubmissionPath != firstJob.CurrentAttempt.SubmissionPath || firstJob.CurrentAttempt.SubmissionOutputs == "" {
 		t.Fatalf("first member external attempt is not durably projected: %+v", firstJob)
 	}
 	operator.ExternalSessionJob = firstJob
 	job := recordCurrentLoopExternalSessionAttempt(t, operator, "external-turn-harness", "member-session-b", "mission-commander", "2026-08-05T01:00:10Z")
-	if job == nil || job.State != "awaiting-submission" || job.AttemptState != "running" || job.CurrentAttempt == nil || job.CurrentAttempt.Generation != 2 || job.CurrentAttempt.SupersedesSHA256 != firstJob.CurrentAttempt.AttemptSHA256 || job.CurrentAttempt.Session != "member-session-b" {
+	operator.ExternalSessionJob = job
+	job = acceptCurrentLoopExternalSessionLaunch(t, operator, "dispatcher", "external-turn-harness", "member-session-b", "2026-08-05T01:00:11Z")
+	if job == nil || job.State != "awaiting-submission" || job.AttemptState != "committed" || job.CurrentAttempt == nil || job.CurrentAttempt.Generation != 2 || job.CurrentAttempt.SupersedesSHA256 != firstJob.CurrentAttempt.AttemptSHA256 || job.CurrentAttempt.Session != "member-session-b" {
 		t.Fatalf("replacement member external attempt is not current: first=%+v replacement=%+v", firstJob, job)
 	}
-	if harness := job.HarnessPackage; harness == nil || harness.State != "running" || harness.Launch == nil || !harness.Launch.Ready || harness.Launch.Attempt.Generation != 2 || harness.Launch.Attempt.AttemptSHA256 != job.CurrentAttempt.AttemptSHA256 || harness.Launch.Attempt.AttemptSHA256 == firstJob.CurrentAttempt.AttemptSHA256 || harness.Launch.Attempt.Session != "member-session-b" || harness.Return == nil || harness.Return.SubmissionPath != job.SubmissionPath || strings.Contains(harness.Return.Templates[0].JSON, firstJob.CurrentAttempt.AttemptSHA256) {
+	if harness := job.HarnessPackage; harness == nil || harness.State != "running" || harness.Launch == nil || harness.Launch.Ready || harness.Launch.Attempt.Generation != 2 || harness.Launch.Attempt.AttemptSHA256 != job.CurrentAttempt.AttemptSHA256 || harness.Launch.Attempt.AttemptSHA256 == firstJob.CurrentAttempt.AttemptSHA256 || harness.Launch.Attempt.Session != "member-session-b" || harness.Return == nil || harness.Return.SubmissionPath != job.SubmissionPath || strings.Contains(harness.Return.Templates[0].JSON, firstJob.CurrentAttempt.AttemptSHA256) {
 		t.Fatalf("replacement harness package did not revoke the stale generation: first=%+v replacement=%+v", firstJob.HarnessPackage, harness)
 	}
 	staleSubmission := map[string]any{
@@ -1637,6 +1971,8 @@ func TestRunCurrentLoopExternalSessionTurnPreservesRelayButRefusesClaimAfterHuma
 	decodeJSONStrict(t, statusOut.Bytes(), &status)
 	operator := status.MissionControlRunbook.CurrentLoopOperator
 	job := recordCurrentLoopExternalSessionAttempt(t, operator, "external-turn-harness", "member-session-intervention", "mission-commander", "2026-08-05T01:05:00Z")
+	operator.ExternalSessionJob = job
+	job = acceptCurrentLoopExternalSessionLaunch(t, operator, "dispatcher", "external-turn-harness", "member-session-intervention", "2026-08-05T01:05:01Z")
 	jobRoot := filepath.Join(caseRoot, filepath.Dir(filepath.FromSlash(job.SubmissionPath)))
 	if err := os.MkdirAll(filepath.Join(jobRoot, "outputs"), 0o700); err != nil {
 		t.Fatal(err)
@@ -1725,6 +2061,8 @@ func TestRunCurrentLoopExternalSessionTurnRejectsStaleTurnHashBeforeRelay(t *tes
 	decodeJSONStrict(t, statusOut.Bytes(), &status)
 	operator := status.MissionControlRunbook.CurrentLoopOperator
 	job := recordCurrentLoopExternalSessionAttempt(t, operator, "external-turn-harness", "member-session-stale-turn", "mission-commander", "2026-08-05T01:10:00Z")
+	operator.ExternalSessionJob = job
+	job = acceptCurrentLoopExternalSessionLaunch(t, operator, "dispatcher", "external-turn-harness", "member-session-stale-turn", "2026-08-05T01:10:01Z")
 	jobRoot := filepath.Join(caseRoot, filepath.Dir(filepath.FromSlash(job.SubmissionPath)))
 	if err := os.MkdirAll(filepath.Join(jobRoot, "outputs"), 0o700); err != nil {
 		t.Fatal(err)
@@ -1830,12 +2168,14 @@ func TestRunCurrentLoopMemberExecutionCheckpoint(t *testing.T) {
 	if harness := job.HarnessPackage; harness == nil || harness.State != "attempt-review-required" || harness.AttemptReviewRequest == nil || harness.AttemptReviewRequest.Command != job.AttemptRequest.Command || harness.Launch != nil || harness.Return != nil {
 		t.Fatalf("fresh member job omitted attempt-review harness package: %+v", harness)
 	}
-	job = recordCurrentLoopExternalSessionAttempt(t, operator, "external-harness", "member-session-relay", "mission-commander", "2026-08-03T03:00:00Z")
+	job = recordCurrentLoopExternalSessionAttemptWithPendingRecovery(t, operator, "external-harness", "member-session-relay", "mission-commander", "2026-08-03T03:00:00Z")
+	operator.ExternalSessionJob = job
+	job = acceptCurrentLoopExternalSessionLaunch(t, operator, "dispatcher", "external-harness", "member-session-relay", "2026-08-03T03:00:01Z")
 	expectedHandoffData, err := os.ReadFile(filepath.Join(caseRoot, filepath.FromSlash(operator.ExternalMemberHandoff.HandoffPath)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if harness := job.HarnessPackage; harness == nil || harness.State != "running" || harness.Launch == nil || !harness.Launch.Ready || harness.Launch.Tool != "Claude Code session" || harness.Launch.AgentType != "durable-member-executor" || harness.Launch.ReadOnly || harness.Launch.Input.Role != "durable-member-handoff" || harness.Launch.Input.Path != operator.ExternalMemberHandoff.HandoffPath || harness.Launch.Input.SHA256 != operator.ExternalMemberHandoff.HandoffSHA256 || harness.Launch.Input.SHA256 != statusSHA256Hex(expectedHandoffData) || harness.Launch.Attempt.AttemptSHA256 != job.CurrentAttempt.AttemptSHA256 || harness.Launch.Attempt.Session != "member-session-relay" || harness.Return == nil || harness.Return.SubmissionOutputs != job.SubmissionOutputs || !harness.Return.SubmissionLast || len(harness.Return.Templates) != len(job.AllowedOutcomes) {
+	if harness := job.HarnessPackage; harness == nil || harness.State != "running" || harness.Launch == nil || harness.Launch.Ready || harness.Launch.Tool != "Claude Code session" || harness.Launch.AgentType != "durable-member-executor" || harness.Launch.ReadOnly || harness.Launch.Input.Role != "durable-member-handoff" || harness.Launch.Input.Path != operator.ExternalMemberHandoff.HandoffPath || harness.Launch.Input.SHA256 != operator.ExternalMemberHandoff.HandoffSHA256 || harness.Launch.Input.SHA256 != statusSHA256Hex(expectedHandoffData) || harness.Launch.Attempt.AttemptSHA256 != job.CurrentAttempt.AttemptSHA256 || harness.Launch.Attempt.Session != "member-session-relay" || harness.Return == nil || harness.Return.SubmissionOutputs != job.SubmissionOutputs || !harness.Return.SubmissionLast || len(harness.Return.Templates) != len(job.AllowedOutcomes) {
 		t.Fatalf("running member job omitted exact harness launch/return package: %+v", harness)
 	}
 	jobRoot := filepath.Join(caseRoot, filepath.Dir(filepath.FromSlash(job.SubmissionPath)))

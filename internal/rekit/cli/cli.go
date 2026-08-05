@@ -53,132 +53,140 @@ var (
 )
 
 type Options struct {
-	rawArgs                                  []string
-	Command                                  string
-	Target                                   string
-	Pack                                     string
-	PackProvided                             bool
-	Review                                   bool
-	Apply                                    bool
-	CreateCandidates                         bool
-	WhatIf                                   bool
-	Force                                    bool
-	List                                     bool
-	ReviewOutputDir                          string
-	PacketPath                               string
-	CandidateDecisionPath                    string
-	DraftCandidateDecision                   bool
-	DraftReviewProof                         bool
-	ReviewProofPath                          string
-	ReviewProofType                          string
-	ReviewProofCandidatePath                 string
-	ExpectedReviewProofSHA256                string
-	CandidateDecision                        string
-	CandidateDecisionReason                  string
-	CandidateDecisionActor                   string
-	CandidateDecisionEvidenceRefs            string
-	ExpectedDecisionSHA256                   string
-	VerifyCandidateDecision                  bool
-	ProvisionCandidateVerificationCases      bool
-	ExpectedProvisionSHA256                  string
-	RetireCandidateVerificationWorkspace     bool
-	ExpectedRetirementSHA256                 string
-	FreshCaseRoot                            string
-	AttachedCaseRoot                         string
-	ReviewerResultPath                       string
-	ReadyReviewerResults                     bool
-	AdoptReviewerPacket                      bool
-	RetireInvalidReviewerPacket              bool
-	RetireReviewerResultRecovery             bool
-	StageReviewerResult                      bool
-	CaptureReviewerResultSource              bool
-	SaveReviewerResultInput                  bool
-	RepairReviewerPromptArtifact             bool
-	ReviewerResultSourcePath                 string
-	ReviewerResultInputPath                  string
-	ReviewerResultInputSourcePath            string
-	ExpectedSourceSHA256                     string
-	ExpectedReviewerResultInputSHA256        string
-	ExpectedPromptSHA256                     string
-	ExpectedPacketSHA256                     string
-	ExpectedIntegritySHA256                  string
-	RecoverReviewerResult                    bool
-	ExpectedCandidateSHA256                  string
-	ExpectedReviewerResultSHA256             string
-	ExpectedIntentSHA256                     string
-	ExpectedCanonicalSHA256                  string
-	ExpectedExecutorGenerationProvided       bool
-	CollectReviewerResult                    bool
-	RecordReviewerDispatch                   bool
-	RecordReviewerCompletion                 bool
-	ReviewerHarness                          string
-	ReviewerSession                          string
-	ReviewerDispatchID                       string
-	ReviewerOutcome                          string
-	ReviewerExitStatus                       string
-	ReviewerWaveObservationsPath             string
-	ExpectedReviewerWavePlanSHA256           string
-	ExpectedReviewerDispatchBindingSHA256    string
-	ExpectedReviewerDispatchReceiptSHA256    string
-	ShardID                                  string
-	DiffPath                                 string
-	ProjectName                              string
-	Goal                                     string
-	InitialLane                              string
-	OnboardingPublicationStamp               string
-	ExpectedOnboardingPlanSHA256             string
-	Route                                    string
-	TaskType                                 string
-	Items                                    string
-	ItemsFile                                string
-	ItemsPerAgent                            int
-	MaxParallel                              int
-	MaxSteps                                 int
-	Format                                   string
-	NextBatchDomain                          string
-	NextBatchClosure                         string
-	ExpectedNextBatchPlanSHA256              string
-	ExpectedCurrentLoopPlanSHA256            string
-	ExpectedCurrentLoopCheckpointSHA256      string
-	ExpectedCurrentLoopReviewerAttemptSHA256 string
-	CurrentLoopObservationPath               string
-	ExpectedCurrentLoopObservationSHA256     string
-	ResumeCurrentLoop                        bool
-	RelayExternalSessionSubmission           bool
-	AdvanceExternalSessionResult             bool
-	RecordExternalSessionAttempt             bool
-	ExternalSessionHarness                   string
-	ExternalSessionID                        string
-	ExternalSessionActor                     string
-	ExternalSessionStartedAt                 string
-	ExpectedExternalSessionAttemptSHA256     string
-	ExpectedExternalSessionAttemptPlanSHA256 string
-	ExpectedExternalSessionJobSHA256         string
-	ExpectedExternalSessionSubmissionSHA256  string
-	ExpectedExternalSessionRelayPlanSHA256   string
-	ExpectedExternalSessionTurnPlanSHA256    string
-	SelectPackMemoryChange                   string
-	ExpectedPackMemoryConsumptionPlanSHA256  string
-	ExpectedCurrentStepPlanSHA256            string
-	ExpectedMemberExecutionPlanSHA256        string
-	MemberExecutionAttemptID                 string
-	MemberExecutionOutcome                   string
-	MemberExecutionReason                    string
-	MemberExecutionObservedAt                string
-	skipMemberExecutionDispatch              bool
-	currentLoopObservationSnapshot           *currentLoopObservationSnapshot
-	currentLoopMemberResultSnapshot          *memberexecution.ResultSnapshot
-	currentLoopReviewerResultSnapshot        *subagents.ReviewerResultInputSnapshot
-	ExpectedDriverStepPlanSHA256             string
-	ExpectedReviewerStepPlanSHA256           string
-	Gate                                     gate.Options
-	Note                                     note.Options
-	Start                                    workstream.StartOptions
-	Handoff                                  workstream.HandoffOptions
-	Complete                                 workstream.CompleteOptions
-	Reopen                                   workstream.ReopenOptions
-	Continue                                 workstream.ContinueOptions
-	Reconcile                                workstream.ReconcileOptions
+	rawArgs                                   []string
+	Command                                   string
+	Target                                    string
+	Pack                                      string
+	PackProvided                              bool
+	Review                                    bool
+	Apply                                     bool
+	CreateCandidates                          bool
+	WhatIf                                    bool
+	Force                                     bool
+	List                                      bool
+	ReviewOutputDir                           string
+	PacketPath                                string
+	CandidateDecisionPath                     string
+	DraftCandidateDecision                    bool
+	DraftReviewProof                          bool
+	ReviewProofPath                           string
+	ReviewProofType                           string
+	ReviewProofCandidatePath                  string
+	ExpectedReviewProofSHA256                 string
+	CandidateDecision                         string
+	CandidateDecisionReason                   string
+	CandidateDecisionActor                    string
+	CandidateDecisionEvidenceRefs             string
+	ExpectedDecisionSHA256                    string
+	VerifyCandidateDecision                   bool
+	ProvisionCandidateVerificationCases       bool
+	ExpectedProvisionSHA256                   string
+	RetireCandidateVerificationWorkspace      bool
+	ExpectedRetirementSHA256                  string
+	FreshCaseRoot                             string
+	AttachedCaseRoot                          string
+	ReviewerResultPath                        string
+	ReadyReviewerResults                      bool
+	AdoptReviewerPacket                       bool
+	RetireInvalidReviewerPacket               bool
+	RetireReviewerResultRecovery              bool
+	StageReviewerResult                       bool
+	CaptureReviewerResultSource               bool
+	SaveReviewerResultInput                   bool
+	RepairReviewerPromptArtifact              bool
+	ReviewerResultSourcePath                  string
+	ReviewerResultInputPath                   string
+	ReviewerResultInputSourcePath             string
+	ExpectedSourceSHA256                      string
+	ExpectedReviewerResultInputSHA256         string
+	ExpectedPromptSHA256                      string
+	ExpectedPacketSHA256                      string
+	ExpectedIntegritySHA256                   string
+	RecoverReviewerResult                     bool
+	ExpectedCandidateSHA256                   string
+	ExpectedReviewerResultSHA256              string
+	ExpectedIntentSHA256                      string
+	ExpectedCanonicalSHA256                   string
+	ExpectedExecutorGenerationProvided        bool
+	CollectReviewerResult                     bool
+	RecordReviewerDispatch                    bool
+	RecordReviewerCompletion                  bool
+	ReviewerHarness                           string
+	ReviewerSession                           string
+	ReviewerDispatchID                        string
+	ReviewerOutcome                           string
+	ReviewerExitStatus                        string
+	ReviewerWaveObservationsPath              string
+	ExpectedReviewerWavePlanSHA256            string
+	ExpectedReviewerDispatchBindingSHA256     string
+	ExpectedReviewerDispatchReceiptSHA256     string
+	ShardID                                   string
+	DiffPath                                  string
+	ProjectName                               string
+	Goal                                      string
+	InitialLane                               string
+	OnboardingPublicationStamp                string
+	ExpectedOnboardingPlanSHA256              string
+	Route                                     string
+	TaskType                                  string
+	Items                                     string
+	ItemsFile                                 string
+	ItemsPerAgent                             int
+	MaxParallel                               int
+	MaxSteps                                  int
+	Format                                    string
+	NextBatchDomain                           string
+	NextBatchClosure                          string
+	ExpectedNextBatchPlanSHA256               string
+	ExpectedCurrentLoopPlanSHA256             string
+	ExpectedCurrentLoopCheckpointSHA256       string
+	ExpectedCurrentLoopReviewerAttemptSHA256  string
+	CurrentLoopObservationPath                string
+	ExpectedCurrentLoopObservationSHA256      string
+	ResumeCurrentLoop                         bool
+	RelayExternalSessionSubmission            bool
+	AdvanceExternalSessionResult              bool
+	RecordExternalSessionAttempt              bool
+	ClaimExternalSessionDispatch              bool
+	RecordExternalSessionLaunch               bool
+	ExternalSessionHarness                    string
+	ExternalSessionID                         string
+	ExternalSessionActor                      string
+	ExternalSessionStartedAt                  string
+	ExternalSessionLaunchOutcome              string
+	ExternalSessionObservedAt                 string
+	ExternalSessionLaunchReason               string
+	ExpectedExternalSessionAttemptSHA256      string
+	ExpectedExternalSessionAttemptPlanSHA256  string
+	ExpectedExternalSessionDispatchSHA256     string
+	ExpectedExternalSessionClaimSHA256        string
+	ExpectedExternalSessionDispatchPlanSHA256 string
+	ExpectedExternalSessionJobSHA256          string
+	ExpectedExternalSessionSubmissionSHA256   string
+	ExpectedExternalSessionRelayPlanSHA256    string
+	ExpectedExternalSessionTurnPlanSHA256     string
+	SelectPackMemoryChange                    string
+	ExpectedPackMemoryConsumptionPlanSHA256   string
+	ExpectedCurrentStepPlanSHA256             string
+	ExpectedMemberExecutionPlanSHA256         string
+	MemberExecutionAttemptID                  string
+	MemberExecutionOutcome                    string
+	MemberExecutionReason                     string
+	MemberExecutionObservedAt                 string
+	skipMemberExecutionDispatch               bool
+	currentLoopObservationSnapshot            *currentLoopObservationSnapshot
+	currentLoopMemberResultSnapshot           *memberexecution.ResultSnapshot
+	currentLoopReviewerResultSnapshot         *subagents.ReviewerResultInputSnapshot
+	ExpectedDriverStepPlanSHA256              string
+	ExpectedReviewerStepPlanSHA256            string
+	Gate                                      gate.Options
+	Note                                      note.Options
+	Start                                     workstream.StartOptions
+	Handoff                                   workstream.HandoffOptions
+	Complete                                  workstream.CompleteOptions
+	Reopen                                    workstream.ReopenOptions
+	Continue                                  workstream.ContinueOptions
+	Reconcile                                 workstream.ReconcileOptions
 }
 
 func Parse(args []string) (Options, error) {
@@ -520,6 +528,10 @@ func Parse(args []string) (Options, error) {
 			opt.AdvanceExternalSessionResult = true
 		case "-RecordExternalSessionAttempt", "--record-external-session-attempt":
 			opt.RecordExternalSessionAttempt = true
+		case "-ClaimExternalSessionDispatch", "--claim-external-session-dispatch":
+			opt.ClaimExternalSessionDispatch = true
+		case "-RecordExternalSessionLaunch", "--record-external-session-launch":
+			opt.RecordExternalSessionLaunch = true
 		case "-ExternalSessionHarness", "--external-session-harness":
 			i++
 			if i >= len(args) {
@@ -544,6 +556,24 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ExternalSessionStartedAt")
 			}
 			opt.ExternalSessionStartedAt = args[i]
+		case "-ExternalSessionLaunchOutcome", "--external-session-launch-outcome":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExternalSessionLaunchOutcome")
+			}
+			opt.ExternalSessionLaunchOutcome = args[i]
+		case "-ExternalSessionObservedAt", "--external-session-observed-at":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExternalSessionObservedAt")
+			}
+			opt.ExternalSessionObservedAt = args[i]
+		case "-ExternalSessionLaunchReason", "--external-session-launch-reason":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExternalSessionLaunchReason")
+			}
+			opt.ExternalSessionLaunchReason = args[i]
 		case "-ExpectedExternalSessionAttemptSha256", "-ExpectedExternalSessionAttemptSHA256", "--expected-external-session-attempt-sha256":
 			i++
 			if i >= len(args) {
@@ -556,6 +586,24 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ExpectedExternalSessionAttemptPlanSha256")
 			}
 			opt.ExpectedExternalSessionAttemptPlanSHA256 = args[i]
+		case "-ExpectedExternalSessionDispatchSha256", "-ExpectedExternalSessionDispatchSHA256", "--expected-external-session-dispatch-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedExternalSessionDispatchSha256")
+			}
+			opt.ExpectedExternalSessionDispatchSHA256 = args[i]
+		case "-ExpectedExternalSessionClaimSha256", "-ExpectedExternalSessionClaimSHA256", "--expected-external-session-claim-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedExternalSessionClaimSha256")
+			}
+			opt.ExpectedExternalSessionClaimSHA256 = args[i]
+		case "-ExpectedExternalSessionDispatchPlanSha256", "-ExpectedExternalSessionDispatchPlanSHA256", "--expected-external-session-dispatch-plan-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedExternalSessionDispatchPlanSha256")
+			}
+			opt.ExpectedExternalSessionDispatchPlanSHA256 = args[i]
 		case "-ExpectedExternalSessionJobSha256", "-ExpectedExternalSessionJobSHA256", "--expected-external-session-job-sha256":
 			i++
 			if i >= len(args) {
@@ -1264,7 +1312,7 @@ func Run(args []string, stdout io.Writer) error {
 	if (strings.TrimSpace(opt.Reopen.ExpectedPreviewSHA256) != "" || strings.TrimSpace(opt.Reopen.PublicationStamp) != "") && opt.Command != commands.Reopen {
 		return fmt.Errorf("reopen publication flags are supported only by reopen")
 	}
-	if (opt.MaxSteps != 0 || strings.TrimSpace(opt.ExpectedCurrentLoopPlanSHA256) != "" || strings.TrimSpace(opt.ExpectedCurrentLoopReviewerAttemptSHA256) != "" || strings.TrimSpace(opt.CurrentLoopObservationPath) != "" || strings.TrimSpace(opt.ExpectedCurrentLoopObservationSHA256) != "" || opt.RelayExternalSessionSubmission || strings.TrimSpace(opt.ExpectedExternalSessionJobSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionSubmissionSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionRelayPlanSHA256) != "") && opt.Command != commands.RunCurrentLoop {
+	if (opt.MaxSteps != 0 || strings.TrimSpace(opt.ExpectedCurrentLoopPlanSHA256) != "" || strings.TrimSpace(opt.ExpectedCurrentLoopReviewerAttemptSHA256) != "" || strings.TrimSpace(opt.CurrentLoopObservationPath) != "" || strings.TrimSpace(opt.ExpectedCurrentLoopObservationSHA256) != "" || opt.RelayExternalSessionSubmission || opt.ClaimExternalSessionDispatch || opt.RecordExternalSessionLaunch || strings.TrimSpace(opt.ExpectedExternalSessionJobSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionSubmissionSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionRelayPlanSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionDispatchSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionClaimSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionDispatchPlanSHA256) != "") && opt.Command != commands.RunCurrentLoop {
 		return fmt.Errorf("current loop flags are supported only by run-current-loop")
 	}
 	if strings.TrimSpace(opt.ExpectedCurrentStepPlanSHA256) != "" && opt.Command != commands.RunCurrentStep {
@@ -4594,6 +4642,17 @@ func buildStatusMissionControlRunbookWithConsumption(target string, caseMission 
 		inspection := currentloop.InspectAttached(target, runbook.CurrentDriverRequest)
 		runbook.CurrentLoopSegment = &inspection
 		runbook.CurrentLoopOperator = statusCurrentLoopOperatorPackage(target, caseMission, runbook, inspection)
+		if operator := runbook.CurrentLoopOperator; operator != nil && externalSessionDispatcherRequestIsFocused(operator) {
+			request := mission.MissionCommanderDriverRequestWithRefreshStatusCommand(
+				*operator.SelectedDriverRequest,
+				runbook.RefreshStatusCommand,
+			)
+			runbook.CurrentDriverRequest = &request
+			runbook.CurrentRunLoopStepID = request.RunLoopStepID
+			if strings.TrimSpace(request.Command) != "" {
+				runbook.CurrentCommand = strings.TrimSpace(request.Command)
+			}
+		}
 	}
 	runbook.CurrentDriverReceipt = statusMissionControlCurrentDriverReceipt(runbook)
 	runbook.GuidanceHandoff = statusMissionControlGuidanceHandoffFor(runbook, projectHandoff)
@@ -6456,8 +6515,28 @@ func writeCurrentLoopOperatorPackageText(out io.Writer, prefix string, pkg *miss
 		return err
 	}
 	if job := pkg.ExternalSessionJob; job != nil {
-		if _, err := fmt.Fprintf(out, "%s current-loop external session job：state=%s kind=%s id=%s sha256=%s checkpoint=%s submission=%s outcomes=%s submissionLast=%t\n", prefix, job.State, job.SessionKind, job.JobID, job.JobSHA256, job.CheckpointSHA256, job.SubmissionPath, strings.Join(job.AllowedOutcomes, ","), job.SubmissionLast); err != nil {
+		if _, err := fmt.Fprintf(out, "%s current-loop external session job：state=%s attemptState=%s kind=%s id=%s sha256=%s checkpoint=%s submission=%s outcomes=%s submissionLast=%t\n", prefix, job.State, job.AttemptState, job.SessionKind, job.JobID, job.JobSHA256, job.CheckpointSHA256, job.SubmissionPath, strings.Join(job.AllowedOutcomes, ","), job.SubmissionLast); err != nil {
 			return err
+		}
+		if dispatcher := job.Dispatcher; dispatcher != nil {
+			if _, err := fmt.Fprintf(out, "%s current-loop external session dispatcher：state=%s\n", prefix, dispatcher.State); err != nil {
+				return err
+			}
+			if ticket := dispatcher.Ticket; ticket != nil {
+				if _, err := fmt.Fprintf(out, "%s current-loop dispatch ticket：path=%s sha256=%s attemptSha256=%s generation=%d\n", prefix, ticket.Path, ticket.SHA256, ticket.AttemptSHA256, ticket.Generation); err != nil {
+					return err
+				}
+			}
+			if claim := dispatcher.Claim; claim != nil {
+				if _, err := fmt.Fprintf(out, "%s current-loop dispatch claim：path=%s sha256=%s owner=%s/%s actor=%s claimedAt=%s\n", prefix, claim.Path, claim.SHA256, claim.Harness, claim.Session, claim.Actor, claim.ClaimedAt); err != nil {
+					return err
+				}
+			}
+			if launch := dispatcher.LaunchReceipt; launch != nil {
+				if _, err := fmt.Fprintf(out, "%s current-loop launch receipt：state=%s path=%s sha256=%s actual=%s/%s actor=%s observedAt=%s reason=%s\n", prefix, launch.State, launch.Path, launch.SHA256, launch.ActualHarness, launch.ActualSession, launch.Actor, launch.ObservedAt, launch.Reason); err != nil {
+					return err
+				}
+			}
 		}
 		if harness := job.HarnessPackage; harness != nil {
 			if _, err := fmt.Fprintf(out, "%s current-loop harness package：state=%s kind=%s job=%s/%s refresh=%s\n", prefix, harness.State, harness.SessionKind, harness.JobID, harness.JobSHA256, harness.RefreshStatusCommand); err != nil {

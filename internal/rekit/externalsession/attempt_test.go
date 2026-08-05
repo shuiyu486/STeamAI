@@ -28,7 +28,7 @@ func TestExternalSessionAttemptLifecycleAndStaleSubmission(t *testing.T) {
 		t.Fatal(err)
 	}
 	running, err := InspectAttempt(job)
-	if err != nil || running.State != "running" || running.Current == nil || running.Current.Session != "session-a" {
+	if err != nil || running.State != "committed" || running.Current == nil || running.Current.Session != "session-a" {
 		t.Fatalf("running=%+v err=%v", running, err)
 	}
 	if _, err := PreviewAttempt(job, "claude-code", "session-b", "replacement", "2026-08-05T03:01:00Z", strings.Repeat("0", 64)); err == nil {

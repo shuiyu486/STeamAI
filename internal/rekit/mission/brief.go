@@ -389,6 +389,45 @@ type CurrentLoopExternalSessionReturnContract struct {
 	Boundary             []string                                       `json:"boundary"`
 }
 
+type CurrentLoopExternalSessionDispatchTicket struct {
+	Path          string `json:"path"`
+	SHA256        string `json:"sha256"`
+	AttemptSHA256 string `json:"attemptSha256"`
+	Generation    int    `json:"generation"`
+}
+
+type CurrentLoopExternalSessionDispatchClaim struct {
+	Path      string `json:"path"`
+	SHA256    string `json:"sha256"`
+	Harness   string `json:"harness"`
+	Session   string `json:"session"`
+	Actor     string `json:"actor"`
+	ClaimedAt string `json:"claimedAt"`
+}
+
+type CurrentLoopExternalSessionLaunchReceipt struct {
+	State         string `json:"state"`
+	Path          string `json:"path"`
+	SHA256        string `json:"sha256"`
+	ActualHarness string `json:"actualHarness,omitempty"`
+	ActualSession string `json:"actualSession,omitempty"`
+	Actor         string `json:"actor"`
+	ObservedAt    string `json:"observedAt"`
+	Reason        string `json:"reason,omitempty"`
+}
+
+type CurrentLoopExternalSessionDispatcher struct {
+	State                 string                                    `json:"state"`
+	Ticket                *CurrentLoopExternalSessionDispatchTicket `json:"ticket,omitempty"`
+	Claim                 *CurrentLoopExternalSessionDispatchClaim  `json:"claim,omitempty"`
+	LaunchReceipt         *CurrentLoopExternalSessionLaunchReceipt  `json:"launchReceipt,omitempty"`
+	ClaimRequest          *MissionCommanderDriverRequest            `json:"claimRequest,omitempty"`
+	LaunchAcceptedRequest *MissionCommanderDriverRequest            `json:"launchAcceptedRequest,omitempty"`
+	LaunchFailedRequest   *MissionCommanderDriverRequest            `json:"launchFailedRequest,omitempty"`
+	Warnings              []string                                  `json:"warnings,omitempty"`
+	Boundary              []string                                  `json:"boundary"`
+}
+
 type CurrentLoopExternalSessionHarnessPackage struct {
 	SchemaVersion        int                                       `json:"schemaVersion"`
 	State                string                                    `json:"state"`
@@ -431,6 +470,7 @@ type CurrentLoopExternalSessionJob struct {
 	AttemptRequest      *MissionCommanderDriverRequest            `json:"attemptRequest,omitempty"`
 	RelayPreviewRequest *MissionCommanderDriverRequest            `json:"relayPreviewRequest,omitempty"`
 	HarnessPackage      *CurrentLoopExternalSessionHarnessPackage `json:"harnessPackage,omitempty"`
+	Dispatcher          *CurrentLoopExternalSessionDispatcher     `json:"dispatcher,omitempty"`
 	Warnings            []string                                  `json:"warnings,omitempty"`
 	SubmissionLast      bool                                      `json:"submissionLast"`
 	NoSessionManagement bool                                      `json:"noSessionManagement"`

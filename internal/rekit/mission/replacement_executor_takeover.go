@@ -114,6 +114,18 @@ func replacementExecutorTakeoverRunbookSteps(pkg *ReplacementExecutorTakeoverPac
 				"review the returned preview and execute only its exact path-only hash-bound Apply command, then refresh status",
 			)
 		} else if job := operator.ExternalSessionJob; job != nil {
+			if dispatcher := job.Dispatcher; dispatcher != nil {
+				switch dispatcher.State {
+				case "queued":
+					steps = append(steps, "an immutable external session ticket is ready; consume dispatcher.claimRequest before any launch")
+				case "claimed":
+					steps = append(steps, "the exact dispatch owner has claimed the ticket; actual launch is not yet recorded, so consume one launch receipt request after the external launch attempt")
+				case "running":
+					steps = append(steps, "the external session is actually running under dispatcher.launchReceipt; use its exact actual harness/session and return contract")
+				case "launch-failed":
+					steps = append(steps, "the external launch failed; record a replacement attempt generation and never reuse the old ticket or claim")
+				}
+			}
 			switch job.State {
 			case "submission-ready":
 				steps = append(steps,

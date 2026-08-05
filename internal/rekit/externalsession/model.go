@@ -40,6 +40,7 @@ type Job struct {
 	PublicationPath     string                 `json:"publicationPath"`
 	ObservationPath     string                 `json:"observationPath"`
 	SubmissionLast      bool                   `json:"submissionLast"`
+	DispatchRequired    bool                   `json:"dispatchRequired,omitempty"`
 	NoSessionManagement bool                   `json:"noSessionManagement"`
 	NoHeavyTool         bool                   `json:"noHeavyTool"`
 	NoAuthority         bool                   `json:"noAuthority"`
@@ -62,6 +63,8 @@ type Submission struct {
 	ReviewerExitStatus     string `json:"reviewerExitStatus,omitempty"`
 	AttemptID              string `json:"attemptId"`
 	AttemptSHA256          string `json:"attemptSha256"`
+	DispatchClaimSHA256    string `json:"dispatchClaimSha256,omitempty"`
+	LaunchReceiptSHA256    string `json:"launchReceiptSha256,omitempty"`
 	Harness                string `json:"harness"`
 	Session                string `json:"session"`
 	NoAuthorityOrConfirmed bool   `json:"noAuthorityOrConfirmed"`

@@ -398,6 +398,10 @@ func WriteExclusiveRegularFileAnchored(caseRoot, rel, label string, data []byte)
 		_ = parent.Remove(name)
 		return false, err
 	}
+	if err := syncPublishedDirectory(parent); err != nil {
+		_ = parent.Remove(name)
+		return false, fmt.Errorf("%s parent directory sync failed: %s: %w", label, rel, err)
+	}
 	return false, nil
 }
 
@@ -422,9 +426,21 @@ func openOrCreateDirectoryNoFollow(root *os.Root, rel, rootPath, label string) (
 		walked = append(walked, component)
 		before, statErr := current.Lstat(component)
 		if os.IsNotExist(statErr) {
-			if err := current.Mkdir(component, 0o700); err != nil && !os.IsExist(err) {
-				current.Close()
-				return nil, err
+			created := false
+			if err := current.Mkdir(component, 0o700); err != nil {
+				if !os.IsExist(err) {
+					current.Close()
+					return nil, err
+				}
+			} else {
+				created = true
+			}
+			if created {
+				if err := syncPublishedDirectory(current); err != nil {
+					_ = current.Remove(component)
+					current.Close()
+					return nil, fmt.Errorf("%s directory publication sync failed: %s: %w", label, component, err)
+				}
 			}
 			before, statErr = current.Lstat(component)
 		}

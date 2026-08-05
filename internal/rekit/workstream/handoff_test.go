@@ -65,6 +65,41 @@ func TestWriteCurrentLoopOperatorPackageIncludesExternalMemberHandoff(t *testing
 	}
 }
 
+func TestHandoffReplacementExecutorTakeoverIncludesDispatcherRunbookAtConstruction(t *testing.T) {
+	request := mission.MissionCommanderDriverRequest{
+		Kind: "preview-command-template", State: "ready-for-dispatch-claim-review", Source: "current-loop-external-session-dispatch",
+		Command: "/rekit run-current-loop -ClaimExternalSessionDispatch -WhatIf -Format json", RequiresReview: true,
+	}
+	queue := mission.MissionCommanderActionQueue{CurrentDriverRequest: &request}
+	for _, test := range []struct {
+		state string
+		want  string
+	}{
+		{state: "queued", want: "consume dispatcher.claimRequest before any launch"},
+		{state: "claimed", want: "actual launch is not yet recorded"},
+		{state: "running", want: "actually running under dispatcher.launchReceipt"},
+	} {
+		t.Run(test.state, func(t *testing.T) {
+			operator := &mission.CurrentLoopOperatorPackage{
+				SelectedDriverRequest: &request,
+				ExternalSessionJob: &mission.CurrentLoopExternalSessionJob{
+					State:      "awaiting-submission",
+					Dispatcher: &mission.CurrentLoopExternalSessionDispatcher{State: test.state},
+				},
+			}
+			pkg := handoffReplacementExecutorTakeoverPackage(
+				t.TempDir(), "project", nil, queue, nil, nil,
+				".rekit/handovers/latest-replacement-executor-takeover.json", operator,
+			)
+			if pkg == nil || pkg.CurrentLoopOperator != operator || pkg.CurrentDriverRequest.Command != operator.SelectedDriverRequest.Command || pkg.CurrentDriverRequestSHA256 != mission.ReplacementExecutorDriverRequestSHA256(pkg.CurrentDriverRequest) || !slices.ContainsFunc(pkg.RunbookSteps, func(step string) bool {
+				return strings.Contains(step, test.want)
+			}) {
+				t.Fatalf("dispatcher %s was not part of takeover construction: %+v", test.state, pkg)
+			}
+		})
+	}
+}
+
 func TestMissionCommanderNextActionMarkdownLineIncludesIdentity(t *testing.T) {
 	line := MissionCommanderNextActionMarkdownLine(mission.MissionCommanderNextActionItem{
 		Lane:           "main",

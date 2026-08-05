@@ -36,6 +36,17 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 
 
+
+### Batch 820：durable external session inbox dispatcher closure
+
+状态：已完成。
+
+目标：把Batch 819的动态harness package收敛为durable case-local external session dispatcher。Attempt Apply按ticket-first/receipt-last发布；fresh replacement Mission Commander能识别ticket-only中断并执行从immutable ticket重建的exact恢复命令。Owner reservation、exclusive dispatch claim和actual launch truth分别记录；attempt只进入`committed`，只有accepted launch receipt才能派生actual `running`。Submission绑定current attempt、claim、accepted launch receipt与actual harness/session；replacement generation隔离旧代迟到claim/launch/result。
+
+边界：Go runtime只管理deterministic request/claim/receipt/state/currentness，不spawn/poll/stop外部Claude Code session、不调用Agent、不执行heavy-tool、不写authority/confirmed。PowerShell façade只校验和透传新flags，不扫描inbox、不计算hash、不决定dispatcher state或发布receipt；public command数量、pack schema、case-local thin shim和sync/promote review-first边界不变。
+
+验证结果：dispatcher/externalsession/CLI focused回归覆盖ticket-first partial recovery、首代ticket-only status/quickstart/takeover exact request与SHA同源、exclusive concurrent claim、accepted/failed launch、actual identity lineage、dispatch-required不可降级、current/pending generation分离、replacement fence、committed replay fresh input/lineage复验、strict malformed/unknown/trailing/noncanonical JSON、tamper与non-Windows symlink拒绝；Linux/Darwin/WASM compile-only通过。受影响五包完整测试、修复后全仓`go test ./... -count=1`（CLI 230.034秒）、`go vet ./...`与façade smoke通过。独立correctness/security/architecture终审发现的ticket模板lineage、reviewer actual identity、pending/current generation、legacy降级、replay drift、takeover同源、attempt状态语义和publication durability问题均已修复；最后两轮定向复核无surviving finding。受影响文档已同步README、canonical skill、Agent Team usage、release readiness和CHANGELOG；PowerShell deprecation无需新增矩阵行，因为public ownership未变。完成态`release-check -Format json`返回`ready=true`；status、10-pack packs、doctor与diff check通过。统一`release-run -Format json`以7/7通过（551.058秒，其中完整Go tests 548.272秒），全部步骤attempts=1并生成Git-local v2 validation receipt。Implementation commit/push随后记录；普通batch不等待或声明remote CI green。
+
 ### Batch 819：external session harness launch and return package closure
 
 状态：已完成。
@@ -45,16 +56,6 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 边界：Member launch SHA绑定`memberexecution` durable commit已认证的handoff bytes，Inspect后二次读取发生替换时fail-closed；reviewer prompt bytes同样必须匹配dispatch SHA。Go runtime不spawn/poll/stop外部session，不调用Agent tool，不执行heavy-tool，不写authority/confirmed；本批不新增public command或PowerShell runtime logic，不自动执行reviewer/adapter/pack-memory/gate/sync/promote mutation，也不等待或声明remote CI green。
 
 验证结果：harness/renderer/replacement takeover focused regressions通过；受影响`externalsession/currentloop/memberexecution/subagents/workstream/mission/cli`七包完整回归通过（CLI 382.446秒）；修复后全仓`go test ./... -count=1`通过（CLI 223.115秒），`go vet ./...`、status、10-pack packs、doctor与`git diff --check`通过。独立终审发现text/Markdown遗漏strict template内容及member二次读取SHA未绑定durable commit两项Important；修复后原审查者定向确认均关闭，无剩余高置信Critical/Important。完成态`release-check -Format json`返回`ready=true`；统一`release-run -Format json`以7/7通过（511.536秒，其中完整Go tests 508.352秒），全部步骤attempts=1并生成Git-local v2 validation receipt。Implementation commit/push随后记录；普通batch不等待或声明remote CI green。
-
-### Batch 818：external session harness run-loop closure
-
-状态：已完成。
-
-目标：把外部member/reviewer session的启动所有权、replacement takeover、result-first/submission-last回传与既有reviewed external-result turn串成durable机器协议。Fresh status给出非可执行占位attempt template；具体identity经WhatIf/hash-bound Apply记录immutable generation，replacement精确supersede current receipt。每代使用独立submission/output/result namespace，旧session迟到写入不阻塞current owner；relay与replacement共享project mutation lease，terminal publication绑定exact attempt identity并继续既有strict intake/checkpoint resume。
-
-边界：Go runtime只记录request/receipt/state，不spawn/poll/stop外部session，不调用shell/Agent tool，不执行heavy-tool，不写或推断authority/confirmed。PowerShell只做参数验证和逐字透传，不解析attempt/submission、不计算generation/hash/currentness。合法current submission阻止replacement；invalid submission保留警告并允许显式下一代恢复；后半段失败保留truthful relay。
-
-验证结果：`externalsession`完整测试、external-session CLI focused suite、attempt/relay重复与fencing/invalid recovery压力回归、受影响`externalsession/currentloop/memberexecution/subagents/workstream/mission/cli`七包完整回归（最终CLI 241.894秒）及PowerShell façade smoke通过；全仓`go test ./... -count=1`通过（CLI 238.690秒），`go vet ./...`、status、10-pack packs、doctor、canonical skill预算32730/32768 bytes与`git diff --check`通过。独立终审发现并关闭lease内live job重建、accepted reviewer dispatch exact session lineage、public attempt committed replay/exact receipt SHA三项Important，定向复核无剩余高置信Critical/Important。`-race`额外检查因本机Go未启用cgo而未运行，不影响既有确定性lease竞态回归；统一`release-run -Format json`以7/7通过（482.532秒，其中完整Go tests 479.789秒），全部步骤attempts=1并生成Git-local v2 validation receipt。Implementation commit/push与fresh post-push接力随后记录，普通batch不等待或声明remote CI green。
 
 ## 活动文档维护规则
 

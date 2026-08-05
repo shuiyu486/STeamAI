@@ -455,12 +455,31 @@ func validateSubmission(job Job, jobSHA string, submission Submission) error {
 	if submission.SchemaVersion != SchemaVersion || submission.Kind != KindSubmission || submission.JobID != job.JobID || !strings.EqualFold(submission.JobSHA256, jobSHA) || !slices.Contains(job.AllowedOutcomes, submission.Outcome) {
 		return fmt.Errorf("external session submission does not match the current job and allowed outcomes")
 	}
-	if job.Reviewer != nil && job.Reviewer.DispatchID != "" && (submission.Harness != job.Reviewer.Harness || submission.Session != job.Reviewer.Session) {
-		return fmt.Errorf("external reviewer submission does not match the accepted dispatch harness and session")
-	}
 	attempt, err := InspectAttempt(job)
-	if err != nil || attempt.Current == nil || attempt.State != "running" || submission.AttemptID != attempt.Current.AttemptID || !strings.EqualFold(submission.AttemptSHA256, attempt.AttemptSHA256) || submission.Harness != attempt.Current.Harness || submission.Session != attempt.Current.Session {
+	if err != nil || attempt.Current == nil || attempt.State != "committed" || submission.AttemptID != attempt.Current.AttemptID || !strings.EqualFold(submission.AttemptSHA256, attempt.AttemptSHA256) {
 		return fmt.Errorf("external session submission does not match the current durable harness attempt")
+	}
+	dispatch, dispatchErr := InspectCurrentDispatch(job, attempt)
+	if dispatchErr != nil {
+		return dispatchErr
+	}
+	if dispatch.Ticket != nil {
+		if err := validateDispatchInput(job, *dispatch.Ticket); err != nil {
+			return err
+		}
+		if dispatch.State != "running" || dispatch.Claim == nil || dispatch.Launch == nil || !strings.EqualFold(submission.DispatchClaimSHA256, dispatch.ClaimSHA256) || !strings.EqualFold(submission.LaunchReceiptSHA256, dispatch.LaunchSHA256) || submission.Harness != dispatch.Launch.ActualHarness || submission.Session != dispatch.Launch.ActualSession {
+			return fmt.Errorf("external session submission does not match the exact accepted launch lineage")
+		}
+	} else {
+		if job.Reviewer != nil && job.Reviewer.DispatchID != "" && (submission.Harness != job.Reviewer.Harness || submission.Session != job.Reviewer.Session) {
+			return fmt.Errorf("external reviewer submission does not match the accepted dispatch harness and session")
+		}
+		if submission.Harness != attempt.Current.Harness || submission.Session != attempt.Current.Session {
+			return fmt.Errorf("external session submission does not match the current durable harness attempt")
+		}
+		if submission.DispatchClaimSHA256 != "" || submission.LaunchReceiptSHA256 != "" {
+			return fmt.Errorf("legacy external session submission cannot claim dispatch lineage")
+		}
 	}
 	if strings.TrimSpace(submission.Actor) == "" || strings.ContainsAny(submission.Actor, "\r\n") || !submission.NoAuthorityOrConfirmed || !submission.NoHeavyTool {
 		return fmt.Errorf("external session submission requires a single-line actor and strict no-authority/no-heavy-tool boundaries")

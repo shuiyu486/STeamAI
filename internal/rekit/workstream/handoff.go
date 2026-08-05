@@ -214,7 +214,7 @@ func missingBoardHandoffPreview(repoRoot, caseRoot, pack string) (HandoffResult,
 	action := MissingBoardOnboardingAction(inst.CaseRoot)
 	queue := mission.MissionCommanderActionQueueFor([]mission.MissionCommanderNextActionItem{action})
 	runbook := DailyMissionControlRunbookFor(inst.CaseRoot, "case-onboarding", queue, handoffPreviewCommand(inst.CaseRoot, ""), handoffApplyCommand(inst.CaseRoot, ""))
-	takeover := handoffReplacementExecutorTakeoverPackage(inst.CaseRoot, "case-onboarding", nil, queue, runbook, nil, relJoin(".rekit", "handovers", "latest-replacement-executor-takeover.json"))
+	takeover := handoffReplacementExecutorTakeoverPackage(inst.CaseRoot, "case-onboarding", nil, queue, runbook, nil, relJoin(".rekit", "handovers", "latest-replacement-executor-takeover.json"), nil)
 	return HandoffResult{
 		SchemaVersion:                      1,
 		Command:                            "handoff",
@@ -464,10 +464,7 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 	runbookScope := handoffRunbookScope(ctx.project, ctx.selector)
 	dailyRunbook := DailyMissionControlRunbookForWithHandoffApplyReady(ctx.inst.CaseRoot, runbookScope, missionCommanderActionQueue, handoffPreviewCommand(ctx.inst.CaseRoot, ctx.selector), handoffApplyCommand(ctx.inst.CaseRoot, ctx.selector), true)
 	latestDriverReceiptHandoff, _ := latestDriverReceiptHandoffFor(ctx.inst.CaseRoot, lane)
-	replacementExecutorTakeoverPackage := handoffReplacementExecutorTakeoverPackage(ctx.inst.CaseRoot, runbookScope, lane, missionCommanderActionQueue, dailyRunbook, latestDriverReceiptHandoff, ctx.replacementExecutorTakeoverPackageLatestRel())
-	if replacementExecutorTakeoverPackage != nil {
-		replacementExecutorTakeoverPackage.CurrentLoopOperator = ctx.currentLoopOperator
-	}
+	replacementExecutorTakeoverPackage := handoffReplacementExecutorTakeoverPackage(ctx.inst.CaseRoot, runbookScope, lane, missionCommanderActionQueue, dailyRunbook, latestDriverReceiptHandoff, ctx.replacementExecutorTakeoverPackageLatestRel(), ctx.currentLoopOperator)
 	var laneTakeoverPackage *LaneTakeoverPackage
 	if lane != nil && executorAction != nil {
 		laneTakeoverPackage = laneTakeoverPackageFor(ctx.inst.CaseRoot, *lane, *executorAction, missionCommanderActionQueue, false)
@@ -1080,7 +1077,7 @@ func handoffCommand(caseRoot, selector string, apply bool, expectedSHA256, publi
 	return strings.Join(parts, " ")
 }
 
-func handoffReplacementExecutorTakeoverPackage(caseRoot, scope string, lane *Lane, queue mission.MissionCommanderActionQueue, runbook *DailyMissionControlRunbook, latestReceipt *LatestDriverReceiptHandoff, packagePath string) *mission.ReplacementExecutorTakeoverPackage {
+func handoffReplacementExecutorTakeoverPackage(caseRoot, scope string, lane *Lane, queue mission.MissionCommanderActionQueue, runbook *DailyMissionControlRunbook, latestReceipt *LatestDriverReceiptHandoff, packagePath string, operator *mission.CurrentLoopOperatorPackage) *mission.ReplacementExecutorTakeoverPackage {
 	refresh := dailyMissionControlStatusCommand(caseRoot)
 	if runbook != nil && strings.TrimSpace(runbook.RefreshStatusCommand) != "" {
 		refresh = runbook.RefreshStatusCommand
@@ -1089,12 +1086,20 @@ func handoffReplacementExecutorTakeoverPackage(caseRoot, scope string, lane *Lan
 	if packagePath == "" {
 		packagePath = "replacementExecutorTakeoverPackage"
 	}
-	return mission.ReplacementExecutorTakeoverPackageFor(queue.CurrentDriverRequest, mission.ReplacementExecutorTakeoverOptions{
+	request := queue.CurrentDriverRequest
+	if operator != nil && operator.ExternalSessionJob != nil && operator.ExternalSessionJob.Dispatcher != nil && operator.SelectedDriverRequest != nil {
+		switch operator.ExternalSessionJob.Dispatcher.State {
+		case "attempt-publication-pending", "queued", "claimed", "launch-failed":
+			request = operator.SelectedDriverRequest
+		}
+	}
+	return mission.ReplacementExecutorTakeoverPackageFor(request, mission.ReplacementExecutorTakeoverOptions{
 		Focus:                "durable-handoff-current-action",
 		Scope:                scope,
 		RefreshStatusCommand: refresh,
 		PackagePath:          packagePath,
-		TargetDocuments:      handoffReplacementExecutorTakeoverTargetDocuments(lane, queue.CurrentDriverRequest, latestReceipt, packagePath),
+		TargetDocuments:      handoffReplacementExecutorTakeoverTargetDocuments(lane, request, latestReceipt, packagePath),
+		CurrentLoopOperator:  operator,
 	})
 }
 
@@ -1450,7 +1455,7 @@ func (ctx handoffContext) renderProject(apply bool) (string, []StartWrite, error
 	projectActionQueue := mission.MissionCommanderActionQueueFor(projectMissionCommanderNext)
 	latestDriverReceiptHandoff, _ := latestDriverReceiptHandoffFor(ctx.inst.CaseRoot, nil)
 	writeLatestDriverReceiptHandoff(&out, latestDriverReceiptHandoff)
-	writeReplacementExecutorTakeoverPackage(&out, handoffReplacementExecutorTakeoverPackage(ctx.inst.CaseRoot, "project", nil, projectActionQueue, nil, latestDriverReceiptHandoff, ctx.replacementExecutorTakeoverPackageLatestRel()))
+	writeReplacementExecutorTakeoverPackage(&out, handoffReplacementExecutorTakeoverPackage(ctx.inst.CaseRoot, "project", nil, projectActionQueue, nil, latestDriverReceiptHandoff, ctx.replacementExecutorTakeoverPackageLatestRel(), ctx.currentLoopOperator))
 	writeCurrentLoopOperatorPackage(&out, ctx.currentLoopOperator)
 	writePackMemoryConsumptionHandoff(&out, ctx.projectPackMemoryConsumption)
 	writeProjectNextBatchStarterPackage(&out, ctx.projectNextBatchStarterPackage)
@@ -1657,7 +1662,19 @@ func writeCurrentLoopOperatorPackage(out *bytes.Buffer, pkg *mission.CurrentLoop
 		}
 	}
 	if job := pkg.ExternalSessionJob; job != nil {
-		fmt.Fprintf(out, "- external session job: state=%s kind=%s id=%s sha256=%s checkpoint=%s submission=`%s` outcomes=%s submissionLast=%t\n", job.State, job.SessionKind, job.JobID, job.JobSHA256, job.CheckpointSHA256, job.SubmissionPath, strings.Join(job.AllowedOutcomes, ","), job.SubmissionLast)
+		fmt.Fprintf(out, "- external session job: state=%s attemptState=%s kind=%s id=%s sha256=%s checkpoint=%s submission=`%s` outcomes=%s submissionLast=%t\n", job.State, job.AttemptState, job.SessionKind, job.JobID, job.JobSHA256, job.CheckpointSHA256, job.SubmissionPath, strings.Join(job.AllowedOutcomes, ","), job.SubmissionLast)
+		if dispatcher := job.Dispatcher; dispatcher != nil {
+			fmt.Fprintf(out, "- external session dispatcher: state=%s\n", dispatcher.State)
+			if ticket := dispatcher.Ticket; ticket != nil {
+				fmt.Fprintf(out, "- dispatch ticket: path=`%s` sha256=%s attemptSha256=%s generation=%d\n", ticket.Path, ticket.SHA256, ticket.AttemptSHA256, ticket.Generation)
+			}
+			if claim := dispatcher.Claim; claim != nil {
+				fmt.Fprintf(out, "- dispatch claim: path=`%s` sha256=%s owner=%s/%s actor=%s claimedAt=%s\n", claim.Path, claim.SHA256, claim.Harness, claim.Session, claim.Actor, claim.ClaimedAt)
+			}
+			if launch := dispatcher.LaunchReceipt; launch != nil {
+				fmt.Fprintf(out, "- launch receipt: state=%s path=`%s` sha256=%s actual=%s/%s actor=%s observedAt=%s reason=%s\n", launch.State, launch.Path, launch.SHA256, launch.ActualHarness, launch.ActualSession, launch.Actor, launch.ObservedAt, launch.Reason)
+			}
+		}
 		if harness := job.HarnessPackage; harness != nil {
 			fmt.Fprintf(out, "- harness package: state=%s kind=%s job=%s/%s refresh=`%s`\n", harness.State, harness.SessionKind, harness.JobID, harness.JobSHA256, harness.RefreshStatusCommand)
 			if launch := harness.Launch; launch != nil {
@@ -2195,7 +2212,7 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 	writeCurrentLoopOperatorPackage(&out, ctx.currentLoopOperator)
 	latestDriverReceiptHandoff, _ := latestDriverReceiptHandoffFor(ctx.inst.CaseRoot, &lane)
 	writeLatestDriverReceiptHandoff(&out, latestDriverReceiptHandoff)
-	writeReplacementExecutorTakeoverPackage(&out, handoffReplacementExecutorTakeoverPackage(ctx.inst.CaseRoot, "lane:"+label, &lane, missionCommanderActionQueue, dailyRunbook, latestDriverReceiptHandoff, ctx.replacementExecutorTakeoverPackageLatestRel()))
+	writeReplacementExecutorTakeoverPackage(&out, handoffReplacementExecutorTakeoverPackage(ctx.inst.CaseRoot, "lane:"+label, &lane, missionCommanderActionQueue, dailyRunbook, latestDriverReceiptHandoff, ctx.replacementExecutorTakeoverPackageLatestRel(), ctx.currentLoopOperator))
 	writeLaneMissionCommanderNextActions(&out, missionCommanderNextActions)
 	for _, line := range appendLaneTakeoverPackage(nil, laneTakeoverPackageFor(ctx.inst.CaseRoot, lane, executorAction, missionCommanderActionQueue, false)) {
 		fmt.Fprintln(&out, line)

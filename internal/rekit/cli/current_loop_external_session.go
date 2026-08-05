@@ -106,6 +106,7 @@ func bindExternalSessionJob(target string, pkg *mission.CurrentLoopOperatorPacka
 	if err != nil {
 		return
 	}
+	job.DispatchRequired = true
 	inspected, err := externalsession.Inspect(job)
 	if err != nil {
 		return
@@ -114,7 +115,36 @@ func bindExternalSessionJob(target string, pkg *mission.CurrentLoopOperatorPacka
 	if err != nil {
 		return
 	}
+	dispatch, err := externalsession.InspectDispatch(job, attempt)
+	if err != nil {
+		pkg.Ready = false
+		pkg.State = "external-session-dispatch-invalid"
+		pkg.Boundary = mission.UniqueStrings(append(pkg.Boundary, err.Error()))
+		return
+	}
 	typed := missionExternalSessionJob(inspected)
+	typed.Dispatcher = externalSessionDispatcherPackage(job, attempt.AttemptSHA256, dispatch)
+	if dispatch.State == "attempt-publication-pending" && inspected.State != "submission-ready" && (pkg.ObservationInbox == nil || pkg.ObservationInbox.State == "empty") {
+		pending, pendingErr := externalsession.PendingAttemptPlan(job, dispatch)
+		if pendingErr != nil {
+			pkg.Ready = false
+			pkg.State = "external-session-dispatch-invalid"
+			pkg.Boundary = mission.UniqueStrings(append(pkg.Boundary, pendingErr.Error()))
+			return
+		}
+		request := externalSessionPendingAttemptRequest(pending)
+		typed.AttemptState = dispatch.State
+		typed.AttemptRequest = &request
+		typed.Dispatcher.ClaimRequest = nil
+		pkg.State = "external-session-attempt-publication-pending"
+		pkg.SelectedDriverRequest = &request
+		pkg.ExternalSessionJob = &typed
+		pkg.RunbookSteps = mission.UniqueStrings(append(pkg.RunbookSteps,
+			"recover the exact ticket-first attempt publication; do not choose new owner parameters",
+			"execute only the hash-bound Apply command reconstructed from the immutable pending ticket",
+		))
+		return
+	}
 	typed.AttemptState = attempt.State
 	if attempt.Current != nil {
 		typed.CurrentAttempt = &mission.CurrentLoopExternalSessionAttempt{
@@ -130,6 +160,9 @@ func bindExternalSessionJob(target string, pkg *mission.CurrentLoopOperatorPacka
 	}
 	defer func() {
 		typed.HarnessPackage = externalSessionHarnessPackage(job, inspected, attempt, pkg, typed)
+		if inspected.State == "awaiting-submission" && (pkg.ObservationInbox == nil || pkg.ObservationInbox.State == "empty") {
+			applyExternalSessionDispatchState(pkg, &typed, dispatch)
+		}
 		pkg.ExternalSessionJob = &typed
 	}()
 	pkg.ExternalSessionJob = &typed
@@ -194,7 +227,9 @@ func externalSessionJobFor(target string, pkg *mission.CurrentLoopOperatorPackag
 		if err != nil || memberInspection.Handoff == nil || memberInspection.State != expected.State || memberInspection.Owner.Lane != expected.Lane || memberInspection.Owner.Executor != expected.Executor || memberInspection.Owner.ExecutorGeneration != expected.ExecutorGeneration {
 			return externalsession.Job{}, fmt.Errorf("external session member attempt no longer matches checkpoint")
 		}
-		return externalsession.NewMemberJob(target, pkg.Pack, inspection.ArtifactSHA256, expected.AttemptID, memberInspection.Owner, memberInspection.Handoff.ManifestPath, memberInspection.Handoff.OutputsRoot, allowed)
+		job, err := externalsession.NewMemberJob(target, pkg.Pack, inspection.ArtifactSHA256, expected.AttemptID, memberInspection.Owner, memberInspection.Handoff.ManifestPath, memberInspection.Handoff.OutputsRoot, allowed)
+		job.DispatchRequired = err == nil
+		return job, err
 	}
 	if pkg.ExternalReviewerHandoff == nil || pkg.ExternalReviewerHandoff.Attempt == nil {
 		return externalsession.Job{}, fmt.Errorf("external session job requires a current member or reviewer handoff")
@@ -211,7 +246,9 @@ func externalSessionJobFor(target string, pkg *mission.CurrentLoopOperatorPackag
 		reviewer.Harness = attempt.Receipt.Harness
 		reviewer.Session = attempt.Receipt.Session
 	}
-	return externalsession.NewReviewerJob(target, pkg.Pack, inspection.ArtifactSHA256, reviewer, allowed)
+	job, err := externalsession.NewReviewerJob(target, pkg.Pack, inspection.ArtifactSHA256, reviewer, allowed)
+	job.DispatchRequired = err == nil
+	return job, err
 }
 
 func externalSessionHarnessPackage(job externalsession.Job, inspection externalsession.Inspection, attempt externalsession.AttemptInspection, operator *mission.CurrentLoopOperatorPackage, typed mission.CurrentLoopExternalSessionJob) *mission.CurrentLoopExternalSessionHarnessPackage {
@@ -307,7 +344,7 @@ func externalSessionReturnContract(job externalsession.Job, inspection externals
 		Boundary: []string{"select exactly one allowed outcome template", "submission must bind the exact job and attempt receipt SHA", "write all required result paths before submissionPath", "refresh status after submission; do not relay or resume without review"},
 	}
 	for _, outcome := range job.AllowedOutcomes {
-		template, replacements := externalSessionSubmissionTemplate(job, inspection.JobSHA256, attempt, outcome)
+		template, replacements := externalSessionSubmissionTemplate(job, inspection.JobSHA256, attempt, typed.Dispatcher, outcome)
 		required := []string{attempt.Current.SubmissionPath + " (last)"}
 		if job.SessionKind == "member" && outcome == "returned" {
 			required = append([]string{attempt.Current.SubmissionOutputs + "/**"}, required...)
@@ -324,13 +361,30 @@ func externalSessionReturnContract(job externalsession.Job, inspection externals
 	return contract
 }
 
-func externalSessionSubmissionTemplate(job externalsession.Job, jobSHA string, attempt externalsession.AttemptInspection, outcome string) (string, []string) {
+func externalSessionSubmissionTemplate(job externalsession.Job, jobSHA string, attempt externalsession.AttemptInspection, dispatcher *mission.CurrentLoopExternalSessionDispatcher, outcome string) (string, []string) {
 	value := externalsession.Submission{
 		SchemaVersion: externalsession.SchemaVersion, Kind: externalsession.KindSubmission, JobID: job.JobID, JobSHA256: jobSHA,
 		Outcome: outcome, Actor: "<actor>", AttemptID: attempt.Current.AttemptID, AttemptSHA256: attempt.AttemptSHA256,
 		Harness: attempt.Current.Harness, Session: attempt.Current.Session, NoAuthorityOrConfirmed: true, NoHeavyTool: true,
 	}
 	replacements := []string{"<actor>"}
+	if dispatcher != nil && dispatcher.Ticket != nil {
+		if dispatcher.Claim != nil && dispatcher.LaunchReceipt != nil && dispatcher.LaunchReceipt.State == "accepted" {
+			value.DispatchClaimSHA256 = dispatcher.Claim.SHA256
+			value.LaunchReceiptSHA256 = dispatcher.LaunchReceipt.SHA256
+			value.Harness = dispatcher.LaunchReceipt.ActualHarness
+			value.Session = dispatcher.LaunchReceipt.ActualSession
+		} else {
+			value.DispatchClaimSHA256 = "<dispatch-claim-sha256>"
+			value.LaunchReceiptSHA256 = "<launch-receipt-sha256>"
+			value.Harness = "<actual-harness>"
+			value.Session = "<actual-session>"
+			replacements = append(replacements,
+				"<dispatch-claim-sha256>", "<launch-receipt-sha256>",
+				"<actual-harness>", "<actual-session>",
+			)
+		}
+	}
 	if job.SessionKind == "member" {
 		value.ObservedAt = "<rfc3339nano>"
 		replacements = append(replacements, "<rfc3339nano>")
@@ -345,9 +399,9 @@ func externalSessionSubmissionTemplate(job externalsession.Job, jobSHA string, a
 	} else {
 		switch outcome {
 		case "accepted":
-			value.ReviewerHarness, value.ReviewerSession = attempt.Current.Harness, attempt.Current.Session
+			value.ReviewerHarness, value.ReviewerSession = value.Harness, value.Session
 		case "returned":
-			value.ReviewerSession = attempt.Current.Session
+			value.ReviewerSession = value.Session
 		case "failed":
 			value.ReviewerExitStatus = "<exit-status>"
 			replacements = append(replacements, "<exit-status>")
