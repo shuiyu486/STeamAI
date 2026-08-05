@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/externalsession"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
@@ -46,6 +47,7 @@ type currentStepPlan struct {
 	DriverStep                    *driverStepPlan                       `json:"driverStep,omitempty"`
 	ReviewerStep                  *reviewerStepPlan                     `json:"reviewerStep,omitempty"`
 	MemberExecution               *memberexecution.Plan                 `json:"memberExecution,omitempty"`
+	ExternalSessionStep           *currentStepExternalSessionPlan       `json:"externalSessionStep,omitempty"`
 	ExpectedCurrentStepPlanSHA256 string                                `json:"expectedCurrentStepPlanSha256,omitempty"`
 	Receipt                       *currentStepReceipt                   `json:"receipt,omitempty"`
 	RefreshedStatus               *statusInventory                      `json:"refreshedStatus,omitempty"`
@@ -61,12 +63,38 @@ type currentStepReceipt struct {
 	Boundary                      []string                               `json:"boundary"`
 }
 
+type currentStepExternalSessionPlan struct {
+	SchemaVersion        int                                               `json:"schemaVersion"`
+	Mode                 string                                            `json:"mode"`
+	State                string                                            `json:"state"`
+	InputRequired        []string                                          `json:"inputRequired,omitempty"`
+	Attempt              *externalsession.AttemptPlan                      `json:"attempt,omitempty"`
+	Dispatch             *externalsession.DispatchPlan                     `json:"dispatch,omitempty"`
+	Turn                 *currentLoopExternalSessionTurnPlan               `json:"turn,omitempty"`
+	HarnessPackage       *mission.CurrentLoopExternalSessionHarnessPackage `json:"harnessPackage,omitempty"`
+	ReplacementRequest   *mission.MissionCommanderDriverRequest            `json:"replacementRequest,omitempty"`
+	RefreshStatusCommand string                                            `json:"refreshStatusCommand"`
+	Boundary             []string                                          `json:"boundary"`
+}
+
 type currentStepPlanIdentity struct {
 	Route                        string                                `json:"route"`
 	RoutedDriverRequest          mission.MissionCommanderDriverRequest `json:"routedDriverRequest"`
 	NestedDriverRequest          mission.MissionCommanderDriverRequest `json:"nestedDriverRequest"`
 	ExpectedNestedStepPlanSHA256 string                                `json:"expectedNestedStepPlanSha256"`
 	ExpectedMemberPlanSHA256     string                                `json:"expectedMemberPlanSha256,omitempty"`
+	External                     *currentStepExternalApplyIdentity     `json:"external,omitempty"`
+}
+
+type currentStepExternalApplyIdentity struct {
+	Mode             string `json:"mode"`
+	NestedPlanSHA256 string `json:"nestedPlanSha256"`
+	JobSHA256        string `json:"jobSha256"`
+	AttemptSHA256    string `json:"attemptSha256,omitempty"`
+	DispatchSHA256   string `json:"dispatchSha256,omitempty"`
+	ClaimSHA256      string `json:"claimSha256,omitempty"`
+	SubmissionSHA256 string `json:"submissionSha256,omitempty"`
+	CheckpointSHA256 string `json:"checkpointSha256"`
 }
 
 var currentStepBeforeStatusRefreshHook func(string) error
@@ -136,6 +164,12 @@ func buildCurrentStepPlan(ctx runtime.Context, opt Options) (currentStepPlan, er
 	return buildCurrentStepPlanFromStatus(ctx, opt, status)
 }
 
+func currentStepUsesCheckpointSourceRequest(opt Options, status statusInventory) bool {
+	return (opt.currentLoopExternalTurnResume || currentStepHasMemberObservation(opt) || currentStepHasReviewerObservation(opt)) &&
+		status.MissionControlRunbook != nil && status.MissionControlRunbook.CurrentLoopOperator != nil &&
+		status.MissionControlRunbook.CurrentLoopOperator.SourceCurrentDriverRequest != nil
+}
+
 func buildCurrentStepPlanFromStatus(ctx runtime.Context, opt Options, status statusInventory) (currentStepPlan, error) {
 	if status.MissionControlRunbook == nil || status.MissionControlRunbook.CurrentDriverRequest == nil {
 		return currentStepPlan{}, fmt.Errorf("run-current-step requires missionControlRunbook.currentDriverRequest")
@@ -144,6 +178,14 @@ func buildCurrentStepPlanFromStatus(ctx runtime.Context, opt Options, status sta
 		return currentStepPlan{}, fmt.Errorf("run-current-step supports only focused case or reviewer requests; got scope %q", status.MissionControlRunbook.Scope)
 	}
 	routedRequest := *status.MissionControlRunbook.CurrentDriverRequest
+	if currentStepUsesCheckpointSourceRequest(opt, status) {
+		routedRequest = *status.MissionControlRunbook.CurrentLoopOperator.SourceCurrentDriverRequest
+		runbook := *status.MissionControlRunbook
+		runbook.CurrentDriverRequest = &routedRequest
+		runbook.CurrentRunLoopStepID = routedRequest.RunLoopStepID
+		runbook.CurrentCommand = routedRequest.Command
+		status.MissionControlRunbook = &runbook
+	}
 	plan := currentStepPlan{
 		SchemaVersion:        1,
 		Command:              commands.RunCurrentStep,
@@ -162,41 +204,54 @@ func buildCurrentStepPlanFromStatus(ctx runtime.Context, opt Options, status sta
 		},
 	}
 	nestedSHA256 := ""
-	switch plan.Route {
-	case "case":
-		if currentStepHasReviewerObservation(opt) {
-			return currentStepPlan{}, fmt.Errorf("run-current-step case route does not accept reviewer observation inputs")
+	external, externalSHA256, externalMatched, err := buildCurrentStepExternalSessionPlan(ctx, opt, status, routedRequest)
+	if err != nil {
+		return currentStepPlan{}, fmt.Errorf("run-current-step external session route: %w", err)
+	}
+	if externalMatched {
+		plan.ExternalSessionStep = external
+		plan.RequiresConfirmation = externalSHA256 != ""
+		nestedSHA256 = externalSHA256
+	} else {
+		if currentStepHasExternalSessionInputs(opt) {
+			return currentStepPlan{}, fmt.Errorf("run-current-step external session inputs require the focused external session route")
 		}
-		member, intake, err := buildMemberExecutionStep(ctx, opt, routedRequest)
-		if err != nil {
-			return currentStepPlan{}, fmt.Errorf("run-current-step member execution: %w", err)
-		}
-		if member != nil {
-			plan.MemberExecution = member
-			if !intake {
-				nestedSHA256 = member.ExpectedPlanSHA256
-				break
+		switch plan.Route {
+		case "case":
+			if currentStepHasReviewerObservation(opt) {
+				return currentStepPlan{}, fmt.Errorf("run-current-step case route does not accept reviewer observation inputs")
 			}
+			member, intake, err := buildMemberExecutionStep(ctx, opt, routedRequest)
+			if err != nil {
+				return currentStepPlan{}, fmt.Errorf("run-current-step member execution: %w", err)
+			}
+			if member != nil {
+				plan.MemberExecution = member
+				if !intake {
+					nestedSHA256 = member.ExpectedPlanSHA256
+					break
+				}
+			}
+			nested, err := buildDriverStepPlanFromStatus(ctx, status)
+			if err != nil {
+				return currentStepPlan{}, fmt.Errorf("run-current-step case route: %w", err)
+			}
+			plan.DriverStep = &nested
+			plan.CurrentDriverRequest = nested.CurrentDriverRequest
+			nestedSHA256 = nested.ExpectedDriverStepPlanSHA256
+		case "reviewer":
+			nested, err := buildReviewerStepPlanFromStatus(ctx, opt, status)
+			if err != nil {
+				return currentStepPlan{}, fmt.Errorf("run-current-step reviewer route: %w", err)
+			}
+			if !currentStepReviewerRequestsMatch(routedRequest, nested.CurrentDriverRequest) {
+				return currentStepPlan{}, fmt.Errorf("run-current-step reviewer route request drift: missionControlRunbook current request does not match reviewer operator package request")
+			}
+			plan.ReviewerStep = &nested
+			plan.CurrentDriverRequest = nested.CurrentDriverRequest
+			plan.RequiresConfirmation = nested.ExternalHandoff == nil
+			nestedSHA256 = nested.ExpectedReviewerStepPlanSHA256
 		}
-		nested, err := buildDriverStepPlanFromStatus(ctx, status)
-		if err != nil {
-			return currentStepPlan{}, fmt.Errorf("run-current-step case route: %w", err)
-		}
-		plan.DriverStep = &nested
-		plan.CurrentDriverRequest = nested.CurrentDriverRequest
-		nestedSHA256 = nested.ExpectedDriverStepPlanSHA256
-	case "reviewer":
-		nested, err := buildReviewerStepPlanFromStatus(ctx, opt, status)
-		if err != nil {
-			return currentStepPlan{}, fmt.Errorf("run-current-step reviewer route: %w", err)
-		}
-		if !currentStepReviewerRequestsMatch(routedRequest, nested.CurrentDriverRequest) {
-			return currentStepPlan{}, fmt.Errorf("run-current-step reviewer route request drift: missionControlRunbook current request does not match reviewer operator package request")
-		}
-		plan.ReviewerStep = &nested
-		plan.CurrentDriverRequest = nested.CurrentDriverRequest
-		plan.RequiresConfirmation = nested.ExternalHandoff == nil
-		nestedSHA256 = nested.ExpectedReviewerStepPlanSHA256
 	}
 	if nestedSHA256 == "" {
 		return plan, nil
@@ -210,6 +265,10 @@ func buildCurrentStepPlanFromStatus(ctx runtime.Context, opt Options, status sta
 	if plan.MemberExecution != nil {
 		identity.ExpectedMemberPlanSHA256 = plan.MemberExecution.ExpectedPlanSHA256
 	}
+	if plan.ExternalSessionStep != nil {
+		externalIdentity := currentStepExternalIdentity(plan.ExternalSessionStep)
+		identity.External = &externalIdentity
+	}
 	encoded, err := json.Marshal(identity)
 	if err != nil {
 		return currentStepPlan{}, err
@@ -220,6 +279,9 @@ func buildCurrentStepPlanFromStatus(ctx runtime.Context, opt Options, status sta
 }
 
 func applyCurrentStepPlan(ctx runtime.Context, opt Options, plan currentStepPlan) (currentStepPlan, error) {
+	if plan.ExternalSessionStep != nil {
+		return applyCurrentStepExternalSession(ctx, opt, plan)
+	}
 	var refreshed *statusInventory
 	nestedCommand := ""
 	switch plan.Route {
@@ -311,7 +373,12 @@ func currentStepPartialResult(plan currentStepPlan, nestedCommand string) curren
 	state := "refresh-failed"
 	outcome := "current-step-applied-status-refresh-failed"
 	boundary := "the nested mutation was applied, but refreshed durable status is unavailable"
-	if plan.RefreshedStatus != nil {
+	if plan.ExternalSessionStep != nil && plan.ExternalSessionStep.Turn != nil && strings.TrimSpace(plan.ExternalSessionStep.Turn.FailureStage) != "" {
+		stage := strings.TrimSpace(plan.ExternalSessionStep.Turn.FailureStage)
+		state = "nested-partial"
+		outcome = "current-step-applied-external-turn-" + stage + "-failed"
+		boundary = "the external session relay was committed, but the nested external-result turn stopped at " + stage
+	} else if plan.RefreshedStatus != nil {
 		state = "receipt-failed"
 		outcome = "current-step-applied-receipt-finalization-failed"
 		boundary = "the nested mutation and status refresh completed, but receipt finalization failed"
@@ -351,6 +418,14 @@ func validateCurrentStepOuterArgs(opt Options) error {
 		"-reviewersession": true, "--reviewer-session": true,
 		"-revieweroutcome": true, "--reviewer-outcome": true,
 		"-reviewerexitstatus": true, "--reviewer-exit-status": true,
+		"-externalsessionharness": true, "--external-session-harness": true,
+		"-externalsessionid": true, "--external-session-id": true,
+		"-externalsessionactor": true, "--external-session-actor": true,
+		"-externalsessionstartedat": true, "--external-session-started-at": true,
+		"-externalsessionlaunchoutcome": true, "--external-session-launch-outcome": true,
+		"-externalsessionobservedat": true, "--external-session-observed-at": true,
+		"-externalsessionlaunchreason": true, "--external-session-launch-reason": true,
+		"-expectedexternalsessionattemptsha256": true, "--expected-external-session-attempt-sha256": true,
 	}
 	switchFlags := map[string]bool{
 		"-whatif": true, "--what-if": true,
@@ -433,6 +508,22 @@ func currentStepCanonicalOuterFlag(key string) string {
 		return "-revieweroutcome"
 	case "--reviewer-exit-status":
 		return "-reviewerexitstatus"
+	case "--external-session-harness":
+		return "-externalsessionharness"
+	case "--external-session-id":
+		return "-externalsessionid"
+	case "--external-session-actor":
+		return "-externalsessionactor"
+	case "--external-session-started-at":
+		return "-externalsessionstartedat"
+	case "--external-session-launch-outcome":
+		return "-externalsessionlaunchoutcome"
+	case "--external-session-observed-at":
+		return "-externalsessionobservedat"
+	case "--external-session-launch-reason":
+		return "-externalsessionlaunchreason"
+	case "--expected-external-session-attempt-sha256":
+		return "-expectedexternalsessionattemptsha256"
 	default:
 		return key
 	}

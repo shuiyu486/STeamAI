@@ -14,6 +14,7 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
@@ -601,6 +602,44 @@ func TestMemberExecutionOldGenerationLosesToPublicReconcileLease(t *testing.T) {
 	}
 }
 
+func TestRunCurrentStepExternalRouteRejectsUnboundOuterInputs(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	board.Lanes[0].CurrentExecutor = "outer-input-member"
+	board.Lanes[0].ExecutorGeneration = 1
+	boardData, _ := json.MarshalIndent(board, "", "  ")
+	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "board.json"), append(boardData, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loop := runCurrentLoopPreview(t, caseRoot, 3)
+	runCurrentLoopApplyWith(t, caseRoot, loop, "-ExpectedMemberExecutionPlanSha256", loop.InitialCurrentStep.MemberExecution.ExpectedPlanSHA256)
+	for _, flag := range []string{"-Actor", "-ExpectedMemberExecutionPlanSha256"} {
+		var out bytes.Buffer
+		err := Run([]string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-ExternalSessionHarness", "harness", "-ExternalSessionId", "session", "-ExternalSessionActor", "external-actor", "-ExternalSessionStartedAt", "2026-08-05T10:00:00Z", flag, "unexpected", "-WhatIf", "-Format", "json"}, &out)
+		if err == nil || !strings.Contains(err.Error(), "external session route does not accept") {
+			t.Fatalf("external route silently accepted %s: err=%v output=%s", flag, err, out.String())
+		}
+	}
+}
+
+func TestRunCurrentStepRejectsExternalInputsOutsideExternalRoute(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-ExternalSessionActor", "unexpected", "-WhatIf", "-Format", "json"}, &out)
+	if err == nil || !strings.Contains(err.Error(), "external session inputs require the focused external session route") {
+		t.Fatalf("non-external route accepted external session input: err=%v output=%s", err, out.String())
+	}
+}
+
 func runMemberCurrentStep(t *testing.T, caseRoot string, inputs []string) currentStepTestPlan {
 	t.Helper()
 	args := []string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template"}
@@ -615,14 +654,15 @@ func sha256Text(data []byte) string {
 }
 
 type currentStepTestPlan struct {
-	Route                         string                `json:"route"`
-	Applied                       bool                  `json:"applied"`
-	DriverStep                    *driverStepPlan       `json:"driverStep"`
-	ReviewerStep                  *reviewerStepPlan     `json:"reviewerStep"`
-	MemberExecution               *memberexecution.Plan `json:"memberExecution"`
-	ExpectedCurrentStepPlanSHA256 string                `json:"expectedCurrentStepPlanSha256"`
-	Receipt                       *currentStepReceipt   `json:"receipt"`
-	RefreshedStatus               *statusInventory      `json:"refreshedStatus"`
+	Route                         string                          `json:"route"`
+	Applied                       bool                            `json:"applied"`
+	DriverStep                    *driverStepPlan                 `json:"driverStep"`
+	ReviewerStep                  *reviewerStepPlan               `json:"reviewerStep"`
+	MemberExecution               *memberexecution.Plan           `json:"memberExecution"`
+	ExternalSessionStep           *currentStepExternalSessionPlan `json:"externalSessionStep"`
+	ExpectedCurrentStepPlanSHA256 string                          `json:"expectedCurrentStepPlanSha256"`
+	Receipt                       *currentStepReceipt             `json:"receipt"`
+	RefreshedStatus               *statusInventory                `json:"refreshedStatus"`
 }
 
 func runCurrentStepPreview(t *testing.T, args []string) currentStepTestPlan {

@@ -301,8 +301,8 @@ func TestReleaseReadinessChecklistInvariants(t *testing.T) {
 	for _, gap := range []string{
 		"真实三平台runner",
 		"cross-platform",
-		"session/reviewer orchestrator",
-		"多 reviewer orchestration",
+		"统一入口",
+		"multi-reviewer",
 		"actual heavy-tool",
 		"authority/confirmed",
 		"pack-based team memory",

@@ -271,7 +271,7 @@ function Test-RekitGoDelegationSafe {
     }
     'run-current-step' {
       foreach ($key in $script:PSBoundParameters.Keys) {
-        if (@('Command','Target','Pack','WhatIf','Apply','Format','ExpectedCurrentStepPlanSha256','ExpectedMemberExecutionPlanSha256','MemberExecutionAttemptId','MemberExecutionOutcome','MemberExecutionReason','MemberExecutionObservedAt','Actor','ReviewerResultInputSourcePath','ReviewerHarness','ReviewerSession','ReviewerOutcome','ReviewerExitStatus') -notcontains [string]$key) { return $false }
+        if (@('Command','Target','Pack','WhatIf','Apply','Format','ExpectedCurrentStepPlanSha256','ExpectedMemberExecutionPlanSha256','MemberExecutionAttemptId','MemberExecutionOutcome','MemberExecutionReason','MemberExecutionObservedAt','Actor','ReviewerResultInputSourcePath','ReviewerHarness','ReviewerSession','ReviewerOutcome','ReviewerExitStatus','ExternalSessionHarness','ExternalSessionId','ExternalSessionActor','ExternalSessionStartedAt','ExternalSessionLaunchOutcome','ExternalSessionObservedAt','ExternalSessionLaunchReason','ExpectedExternalSessionAttemptSha256') -notcontains [string]$key) { return $false }
       }
       if ([string]::IsNullOrWhiteSpace($Target)) { return $false }
       if ($WhatIf -and $Apply) { return $false }
@@ -677,6 +677,14 @@ function Get-RekitGoArgs {
     Add-RekitGoArg ([ref]$goArgs) '-ReviewerSession' $ReviewerSession
     Add-RekitGoArg ([ref]$goArgs) '-ReviewerOutcome' $ReviewerOutcome
     Add-RekitGoArg ([ref]$goArgs) '-ReviewerExitStatus' $ReviewerExitStatus
+    Add-RekitGoArg ([ref]$goArgs) '-ExternalSessionHarness' $ExternalSessionHarness
+    Add-RekitGoArg ([ref]$goArgs) '-ExternalSessionId' $ExternalSessionId
+    Add-RekitGoArg ([ref]$goArgs) '-ExternalSessionActor' $ExternalSessionActor
+    Add-RekitGoArg ([ref]$goArgs) '-ExternalSessionStartedAt' $ExternalSessionStartedAt
+    Add-RekitGoArg ([ref]$goArgs) '-ExternalSessionLaunchOutcome' $ExternalSessionLaunchOutcome
+    Add-RekitGoArg ([ref]$goArgs) '-ExternalSessionObservedAt' $ExternalSessionObservedAt
+    Add-RekitGoArg ([ref]$goArgs) '-ExternalSessionLaunchReason' $ExternalSessionLaunchReason
+    Add-RekitGoArg ([ref]$goArgs) '-ExpectedExternalSessionAttemptSha256' $ExpectedExternalSessionAttemptSha256
   }
   if ($Command -eq 'run-driver-step') {
     Add-RekitGoArg ([ref]$goArgs) '-ExpectedDriverStepPlanSha256' $ExpectedDriverStepPlanSha256

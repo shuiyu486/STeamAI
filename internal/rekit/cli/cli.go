@@ -177,6 +177,7 @@ type Options struct {
 	currentLoopObservationSnapshot            *currentLoopObservationSnapshot
 	currentLoopMemberResultSnapshot           *memberexecution.ResultSnapshot
 	currentLoopReviewerResultSnapshot         *subagents.ReviewerResultInputSnapshot
+	currentLoopExternalTurnResume             bool
 	ExpectedDriverStepPlanSHA256              string
 	ExpectedReviewerStepPlanSHA256            string
 	Gate                                      gate.Options
@@ -4643,8 +4644,9 @@ func buildStatusMissionControlRunbookWithConsumption(target string, caseMission 
 		runbook.CurrentLoopSegment = &inspection
 		runbook.CurrentLoopOperator = statusCurrentLoopOperatorPackage(target, caseMission, runbook, inspection)
 		if operator := runbook.CurrentLoopOperator; operator != nil && externalSessionDispatcherRequestIsFocused(operator) {
+			wrapper := externalSessionCurrentStepRequest(operator)
 			request := mission.MissionCommanderDriverRequestWithRefreshStatusCommand(
-				*operator.SelectedDriverRequest,
+				wrapper,
 				runbook.RefreshStatusCommand,
 			)
 			runbook.CurrentDriverRequest = &request

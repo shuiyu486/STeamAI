@@ -575,6 +575,10 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	if harness := reviewerRelayOperator.ExternalSessionJob.HarnessPackage; harness == nil || harness.State != "return-review-required" || harness.Launch == nil || harness.Launch.Ready || harness.Return == nil || harness.Return.ReviewRequest == nil || harness.Return.ReviewRequest.Command != reviewerRelayOperator.SelectedDriverRequest.Command || harness.Return.RelayRecoveryRequest == nil || harness.Return.RelayRecoveryRequest.Command != reviewerRelayOperator.ExternalSessionJob.RelayPreviewRequest.Command {
 		t.Fatalf("reviewer submission-ready package omitted reviewed return and relay recovery requests: %+v", harness)
 	}
+	reviewerCurrent := runMemberCurrentStep(t, caseRoot, []string{"-WhatIf"})
+	if reviewerCurrent.Route != "reviewer" || reviewerCurrent.ExternalSessionStep == nil || reviewerCurrent.ExternalSessionStep.Mode != "result-turn" || reviewerCurrent.ExternalSessionStep.Turn == nil || reviewerCurrent.ExpectedCurrentStepPlanSHA256 == "" {
+		t.Fatalf("reviewer external result did not enter unified current-step route: %+v", reviewerCurrent)
+	}
 	var reviewerRelayPreview externalsession.Plan
 	reviewerRelayStatusOut.Reset()
 	if err := Run(rekitCommandCLIArgs(t, reviewerRelayOperator.ExternalSessionJob.RelayPreviewRequest.Command), &reviewerRelayStatusOut); err != nil {
@@ -1549,26 +1553,29 @@ func recordCurrentLoopExternalSessionAttemptWithPendingRecovery(t *testing.T, op
 		t.Fatalf("pending publication omitted exact recovery request: %+v", pendingOperator)
 	}
 	runbook := pending.MissionControlRunbook
-	if runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Command != request.Command || runbook.CurrentRunLoopStepID != request.RunLoopStepID || runbook.CurrentCommand != request.Command {
-		t.Fatalf("ticket-only recovery was not promoted to the focused status request: %+v", runbook)
+	if runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Source != "current-step-external-session" || !strings.Contains(runbook.CurrentDriverRequest.Command, "run-current-step") || runbook.CurrentRunLoopStepID != runbook.CurrentDriverRequest.RunLoopStepID || runbook.CurrentCommand != runbook.CurrentDriverRequest.Command {
+		t.Fatalf("ticket-only recovery was not promoted through the unified current-step request: %+v", runbook)
 	}
 	quickstart := runbook.Quickstart
 	takeover := runbook.ReplacementExecutorTakeover
 	requestSHA256 := mission.ReplacementExecutorDriverRequestSHA256(*runbook.CurrentDriverRequest)
-	if quickstart == nil || quickstart.CurrentDriverRequest == nil || quickstart.Command != request.Command || quickstart.CurrentDriverRequest.Command != request.Command || mission.ReplacementExecutorDriverRequestSHA256(*quickstart.CurrentDriverRequest) != requestSHA256 {
-		t.Fatalf("ticket-only recovery quickstart diverged from the focused request: %+v", quickstart)
+	if quickstart == nil || quickstart.CurrentDriverRequest == nil || quickstart.Command != runbook.CurrentDriverRequest.Command || quickstart.CurrentDriverRequest.Command != runbook.CurrentDriverRequest.Command || mission.ReplacementExecutorDriverRequestSHA256(*quickstart.CurrentDriverRequest) != requestSHA256 {
+		t.Fatalf("ticket-only recovery quickstart diverged from the unified request: %+v", quickstart)
 	}
-	if takeover == nil || takeover.Command != request.Command || takeover.CurrentDriverRequest.Command != request.Command || takeover.CurrentDriverRequestSHA256 != requestSHA256 || mission.ReplacementExecutorDriverRequestSHA256(takeover.CurrentDriverRequest) != requestSHA256 {
-		t.Fatalf("ticket-only recovery takeover diverged from the focused request: %+v", takeover)
+	if takeover == nil || takeover.Command != runbook.CurrentDriverRequest.Command || takeover.CurrentDriverRequest.Command != runbook.CurrentDriverRequest.Command || takeover.CurrentDriverRequestSHA256 != requestSHA256 || mission.ReplacementExecutorDriverRequestSHA256(takeover.CurrentDriverRequest) != requestSHA256 {
+		t.Fatalf("ticket-only recovery takeover diverged from the unified request: %+v", takeover)
 	}
-	out.Reset()
-	if err := Run(rekitCommandCLIArgs(t, request.Command), &out); err != nil {
-		t.Fatal(err)
+	unified := runMemberCurrentStep(t, operator.CaseRoot, []string{"-WhatIf"})
+	if unified.ExternalSessionStep == nil || unified.ExternalSessionStep.Mode != "attempt-publication-recovery" || unified.ExternalSessionStep.Attempt == nil {
+		t.Fatalf("unified current step omitted pending publication recovery: %+v", unified)
 	}
-	var applied currentLoopExternalSessionAttemptResult
-	decodeJSONStrict(t, out.Bytes(), &applied)
-	if !applied.Applied || applied.AlreadyApplied || applied.RefreshedStatus == nil || applied.AttemptSHA256 != plan.AttemptSHA256 {
+	applied := runCurrentStepApply(t, operator.CaseRoot, unified)
+	if applied.ExternalSessionStep == nil || applied.ExternalSessionStep.Attempt == nil || applied.ExternalSessionStep.Attempt.AlreadyApplied || applied.RefreshedStatus == nil || applied.ExternalSessionStep.Attempt.AttemptSHA256 != plan.AttemptSHA256 {
 		t.Fatalf("pending publication recovery did not commit receipt last: %+v", applied)
+	}
+	replayed := runCurrentStepApply(t, operator.CaseRoot, unified)
+	if replayed.ExternalSessionStep == nil || replayed.ExternalSessionStep.Attempt == nil || !replayed.ExternalSessionStep.Attempt.AlreadyApplied || replayed.ExternalSessionStep.Attempt.AttemptSHA256 != plan.AttemptSHA256 {
+		t.Fatalf("pending publication recovery committed replay lost exact receipt: %+v", replayed)
 	}
 	refreshed := applied.RefreshedStatus.MissionControlRunbook.CurrentLoopOperator.ExternalSessionJob
 	if refreshed == nil || refreshed.AttemptState != "committed" || refreshed.Dispatcher == nil || refreshed.Dispatcher.State != "queued" || refreshed.Dispatcher.ClaimRequest == nil {
@@ -1718,6 +1725,14 @@ func TestRunCurrentLoopExternalSessionInvalidReplacementRecoversTicketOnlyPrefix
 	operator = status.MissionControlRunbook.CurrentLoopOperator
 	if operator == nil || operator.State != "external-session-submission-invalid" || operator.ExternalSessionJob == nil || operator.ExternalSessionJob.CurrentAttempt == nil {
 		t.Fatalf("invalid submission did not expose replacement review: %+v", operator)
+	}
+	replacementInput := runMemberCurrentStep(t, caseRoot, []string{"-WhatIf"})
+	if replacementInput.ExternalSessionStep == nil || replacementInput.ExternalSessionStep.Mode != "attempt-input" || replacementInput.ExternalSessionStep.ReplacementRequest == nil || replacementInput.ExpectedCurrentStepPlanSHA256 != "" {
+		t.Fatalf("unified invalid submission route omitted typed replacement input: current=%+v external=%+v", replacementInput, replacementInput.ExternalSessionStep)
+	}
+	replacementPreview := runMemberCurrentStep(t, caseRoot, []string{"-ExternalSessionHarness", "external-harness", "-ExternalSessionId", "replacement-session-unified", "-ExternalSessionActor", "mission-commander", "-ExternalSessionStartedAt", "2026-08-05T07:00:02Z", "-ExpectedExternalSessionAttemptSha256", operator.ExternalSessionJob.CurrentAttempt.AttemptSHA256, "-WhatIf"})
+	if replacementPreview.ExternalSessionStep == nil || replacementPreview.ExternalSessionStep.Mode != "replacement-attempt" || replacementPreview.ExternalSessionStep.Attempt == nil || replacementPreview.ExpectedCurrentStepPlanSHA256 == "" {
+		t.Fatalf("unified invalid submission route omitted exact replacement plan: %+v", replacementPreview)
 	}
 	recovered := recordCurrentLoopExternalSessionAttemptWithPendingRecovery(t, operator, "external-harness", "replacement-session", "mission-commander", "2026-08-05T07:00:02Z")
 	if recovered.CurrentAttempt == nil || recovered.CurrentAttempt.Generation != 2 || recovered.Dispatcher == nil || recovered.Dispatcher.State != "queued" || recovered.Dispatcher.Ticket == nil || recovered.Dispatcher.Ticket.Generation != 2 {
@@ -1913,21 +1928,17 @@ func TestRunCurrentLoopExternalSessionTurnAdvancesMemberResult(t *testing.T) {
 		t.Fatalf("status did not select one reviewed external-result turn: %+v", operator)
 	}
 	before := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
-	statusOut.Reset()
-	if err := Run(rekitCommandCLIArgs(t, operator.SelectedDriverRequest.Command), &statusOut); err != nil {
-		t.Fatal(err)
+	current := runMemberCurrentStep(t, caseRoot, []string{"-WhatIf"})
+	if current.ExternalSessionStep == nil || current.ExternalSessionStep.Mode != "result-turn" || current.ExternalSessionStep.Turn == nil || current.ExpectedCurrentStepPlanSHA256 == "" {
+		t.Fatalf("unified current step omitted external-result turn: %+v", current)
 	}
-	var turn currentLoopExternalSessionTurnPlan
-	decodeJSONStrict(t, statusOut.Bytes(), &turn)
+	turn := current.ExternalSessionStep.Turn
 	if turn.ExpectedPlanSHA256 == "" || turn.ApplyCommand == "" || turn.Relay.Observation.SHA256 == "" || turn.Resume.ExpectedCurrentLoopPlanSHA256 == "" || turn.Resume.InitialCurrentStep == nil || turn.Resume.InitialCurrentStep.MemberExecution == nil || turn.Resume.InitialCurrentStep.MemberExecution.Outcome != "returned" {
 		t.Fatalf("external-result turn preview omitted exact relay/resume binding: %+v", turn)
 	}
 	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
-	statusOut.Reset()
-	if err := Run(rekitCommandCLIArgs(t, turn.ApplyCommand), &statusOut); err != nil {
-		t.Fatalf("apply external-result turn: %v\n%s", err, statusOut.String())
-	}
-	decodeJSONStrict(t, statusOut.Bytes(), &turn)
+	current = runCurrentStepApply(t, caseRoot, current)
+	turn = current.ExternalSessionStep.Turn
 	if !turn.Applied || !turn.Relay.Applied || !turn.Resume.Applied || turn.Resume.AppliedSteps != 1 || turn.Resume.ObservationReceipt == nil || turn.Resume.SegmentCheckpoint == nil || turn.RefreshedStatus == nil {
 		t.Fatalf("external-result turn did not relay, intake, and checkpoint in one Apply: %+v", turn)
 	}
@@ -1939,6 +1950,128 @@ func TestRunCurrentLoopExternalSessionTurnAdvancesMemberResult(t *testing.T) {
 	}
 	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "authority.jsonl"))
 	assertFileNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "confirmed.jsonl"))
+}
+
+func TestRunCurrentStepUnifiesExternalSessionCampaign(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	board.Lanes[0].CurrentExecutor = "unified-member"
+	board.Lanes[0].ExecutorGeneration = 1
+	board.Lanes[0].UpdatedAt = "2026-08-05T09:00:00Z"
+	boardData, _ := json.MarshalIndent(board, "", "  ")
+	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "board.json"), append(boardData, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loop := runCurrentLoopPreview(t, caseRoot, 5)
+	runCurrentLoopApplyWith(t, caseRoot, loop, "-ExpectedMemberExecutionPlanSha256", loop.InitialCurrentStep.MemberExecution.ExpectedPlanSHA256)
+
+	preview := runMemberCurrentStep(t, caseRoot, []string{"-ExternalSessionHarness", "unified-harness", "-ExternalSessionId", "unified-session", "-ExternalSessionActor", "mission-commander", "-ExternalSessionStartedAt", "2026-08-05T09:00:01Z", "-WhatIf"})
+	if preview.ExternalSessionStep == nil || preview.ExternalSessionStep.Mode != "attempt" || preview.ExternalSessionStep.Attempt == nil || preview.ExpectedCurrentStepPlanSHA256 == "" {
+		t.Fatalf("unified current step omitted attempt plan: %+v", preview)
+	}
+	attemptInputs := []string{"-ExternalSessionHarness", "unified-harness", "-ExternalSessionId", "unified-session", "-ExternalSessionActor", "mission-commander", "-ExternalSessionStartedAt", "2026-08-05T09:00:01Z"}
+	applied := runCurrentStepApply(t, caseRoot, preview, attemptInputs...)
+	if applied.ExternalSessionStep == nil || applied.ExternalSessionStep.Attempt == nil || applied.RefreshedStatus == nil {
+		t.Fatalf("unified attempt apply omitted refreshed dispatcher state: %+v", applied)
+	}
+	attemptReplay := runCurrentStepApply(t, caseRoot, preview, attemptInputs...)
+	if attemptReplay.ExternalSessionStep == nil || attemptReplay.ExternalSessionStep.Attempt == nil || !attemptReplay.ExternalSessionStep.Attempt.AlreadyApplied {
+		t.Fatalf("unified attempt committed replay lost exact receipt: %+v", attemptReplay)
+	}
+
+	claimInput := runMemberCurrentStep(t, caseRoot, []string{"-WhatIf"})
+	if claimInput.ExternalSessionStep == nil || claimInput.ExternalSessionStep.Mode != "dispatch-claim-input" || claimInput.ExpectedCurrentStepPlanSHA256 != "" {
+		t.Fatalf("queued dispatcher did not return typed input handoff: %+v", claimInput)
+	}
+	var wrongOut bytes.Buffer
+	wrongClaimArgs := []string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-ExternalSessionActor", "dispatcher", "-ExternalSessionObservedAt", "2026-08-05T09:00:02Z", "-ExternalSessionLaunchOutcome", "failed", "-ExternalSessionLaunchReason", "ignored", "-WhatIf", "-Format", "json"}
+	if err := Run(wrongClaimArgs, &wrongOut); err == nil {
+		t.Fatalf("queued claim silently accepted launch fields: %s", wrongOut.String())
+	}
+	claim := runMemberCurrentStep(t, caseRoot, []string{"-ExternalSessionActor", "dispatcher", "-ExternalSessionObservedAt", "2026-08-05T09:00:02Z", "-WhatIf"})
+	if claim.ExternalSessionStep == nil || claim.ExternalSessionStep.Mode != "dispatch-claim" || claim.ExternalSessionStep.Dispatch == nil {
+		t.Fatalf("unified current step omitted claim plan: %+v", claim)
+	}
+	claimInputs := []string{"-ExternalSessionActor", "dispatcher", "-ExternalSessionObservedAt", "2026-08-05T09:00:02Z"}
+	runCurrentStepApply(t, caseRoot, claim, claimInputs...)
+	claimReplay := runCurrentStepApply(t, caseRoot, claim, claimInputs...)
+	if claimReplay.ExternalSessionStep == nil || claimReplay.ExternalSessionStep.Dispatch == nil || !claimReplay.ExternalSessionStep.Dispatch.AlreadyApplied {
+		t.Fatalf("unified claim committed replay lost exact receipt: %+v", claimReplay)
+	}
+
+	launch := runMemberCurrentStep(t, caseRoot, []string{"-ExternalSessionLaunchOutcome", "accepted", "-ExternalSessionActor", "dispatcher", "-ExternalSessionObservedAt", "2026-08-05T09:00:03Z", "-ExternalSessionHarness", "actual-harness", "-ExternalSessionId", "actual-session", "-WhatIf"})
+	if launch.ExternalSessionStep == nil || launch.ExternalSessionStep.Mode != "launch-accepted" || launch.ExternalSessionStep.Dispatch == nil {
+		t.Fatalf("unified current step omitted accepted launch plan: %+v", launch)
+	}
+	launchInputs := []string{"-ExternalSessionLaunchOutcome", "accepted", "-ExternalSessionActor", "dispatcher", "-ExternalSessionObservedAt", "2026-08-05T09:00:03Z", "-ExternalSessionHarness", "actual-harness", "-ExternalSessionId", "actual-session"}
+	launched := runCurrentStepApply(t, caseRoot, launch, launchInputs...)
+	launchReplay := runCurrentStepApply(t, caseRoot, launch, launchInputs...)
+	if launchReplay.ExternalSessionStep == nil || launchReplay.ExternalSessionStep.Dispatch == nil || !launchReplay.ExternalSessionStep.Dispatch.AlreadyApplied {
+		t.Fatalf("unified accepted launch committed replay lost exact receipt: %+v", launchReplay)
+	}
+	running := launched.RefreshedStatus.MissionControlRunbook
+	if running.CurrentDriverRequest == nil || running.CurrentDriverRequest.Source != "current-step-external-session" || !running.CurrentDriverRequest.CommandExecutable || !strings.Contains(running.CurrentDriverRequest.Command, "run-current-step") || running.Quickstart == nil || running.ReplacementExecutorTakeover == nil || running.Quickstart.CurrentDriverRequest == nil || running.Quickstart.CurrentDriverRequest.ActionID != running.CurrentDriverRequest.ActionID || running.ReplacementExecutorTakeover.CurrentDriverRequest.ActionID != running.CurrentDriverRequest.ActionID {
+		t.Fatalf("running lifecycle was not the unique unified fresh-session handoff: %+v", running)
+	}
+	runningPreview := runMemberCurrentStep(t, caseRoot, []string{"-WhatIf"})
+	if runningPreview.ExternalSessionStep == nil || runningPreview.ExternalSessionStep.Mode != "running-handoff" || runningPreview.ExternalSessionStep.ReplacementRequest == nil || runningPreview.ExpectedCurrentStepPlanSHA256 != "" {
+		t.Fatalf("running current step did not preserve explicit replacement review: %+v", runningPreview)
+	}
+	currentAttemptSHA := launched.ExternalSessionStep.Dispatch.AttemptSHA256
+	replacementInputs := []string{"-ExternalSessionHarness", "replacement-harness", "-ExternalSessionId", "replacement-session", "-ExternalSessionActor", "mission-commander", "-ExternalSessionStartedAt", "2026-08-05T09:00:05Z", "-ExpectedExternalSessionAttemptSha256", currentAttemptSHA}
+	replacement := runMemberCurrentStep(t, caseRoot, append(append([]string{}, replacementInputs...), "-WhatIf"))
+	if replacement.ExternalSessionStep == nil || replacement.ExternalSessionStep.Mode != "replacement-attempt" || replacement.ExternalSessionStep.Attempt == nil || replacement.ExpectedCurrentStepPlanSHA256 == "" {
+		t.Fatalf("running current step omitted explicit replacement plan: %+v", replacement)
+	}
+	runCurrentStepApply(t, caseRoot, replacement, replacementInputs...)
+	replacementReplay := runCurrentStepApply(t, caseRoot, replacement, replacementInputs...)
+	if replacementReplay.ExternalSessionStep == nil || replacementReplay.ExternalSessionStep.Attempt == nil || !replacementReplay.ExternalSessionStep.Attempt.AlreadyApplied {
+		t.Fatalf("running replacement committed replay lost exact receipt: %+v", replacementReplay)
+	}
+}
+
+func TestRunCurrentStepExternalSessionFailedLaunchReplay(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	board.Lanes[0].CurrentExecutor = "failed-launch-member"
+	board.Lanes[0].ExecutorGeneration = 1
+	board.Lanes[0].UpdatedAt = "2026-08-05T09:10:00Z"
+	boardData, _ := json.MarshalIndent(board, "", "  ")
+	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "board.json"), append(boardData, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loop := runCurrentLoopPreview(t, caseRoot, 5)
+	runCurrentLoopApplyWith(t, caseRoot, loop, "-ExpectedMemberExecutionPlanSha256", loop.InitialCurrentStep.MemberExecution.ExpectedPlanSHA256)
+	attempt := runMemberCurrentStep(t, caseRoot, []string{"-ExternalSessionHarness", "failed-harness", "-ExternalSessionId", "failed-session", "-ExternalSessionActor", "mission-commander", "-ExternalSessionStartedAt", "2026-08-05T09:10:01Z", "-WhatIf"})
+	runCurrentStepApply(t, caseRoot, attempt, "-ExternalSessionHarness", "failed-harness", "-ExternalSessionId", "failed-session", "-ExternalSessionActor", "mission-commander", "-ExternalSessionStartedAt", "2026-08-05T09:10:01Z")
+	claim := runMemberCurrentStep(t, caseRoot, []string{"-ExternalSessionActor", "dispatcher", "-ExternalSessionObservedAt", "2026-08-05T09:10:02Z", "-WhatIf"})
+	runCurrentStepApply(t, caseRoot, claim, "-ExternalSessionActor", "dispatcher", "-ExternalSessionObservedAt", "2026-08-05T09:10:02Z")
+	failedInputs := []string{"-ExternalSessionLaunchOutcome", "failed", "-ExternalSessionActor", "dispatcher", "-ExternalSessionObservedAt", "2026-08-05T09:10:03Z", "-ExternalSessionLaunchReason", "harness refused launch"}
+	failed := runMemberCurrentStep(t, caseRoot, append(append([]string{}, failedInputs...), "-WhatIf"))
+	if failed.ExternalSessionStep == nil || failed.ExternalSessionStep.Mode != "launch-failed" || failed.ExternalSessionStep.Dispatch == nil {
+		t.Fatalf("unified current step omitted failed launch plan: %+v", failed)
+	}
+	runCurrentStepApply(t, caseRoot, failed, failedInputs...)
+	replayed := runCurrentStepApply(t, caseRoot, failed, failedInputs...)
+	if replayed.ExternalSessionStep == nil || replayed.ExternalSessionStep.Dispatch == nil || !replayed.ExternalSessionStep.Dispatch.AlreadyApplied {
+		t.Fatalf("unified failed launch committed replay lost exact receipt: %+v", replayed)
+	}
+	replacement := runMemberCurrentStep(t, caseRoot, []string{"-ExternalSessionHarness", "replacement-harness", "-ExternalSessionId", "replacement-session", "-ExternalSessionActor", "mission-commander", "-ExternalSessionStartedAt", "2026-08-05T09:10:04Z", "-ExpectedExternalSessionAttemptSha256", replayed.ExternalSessionStep.Dispatch.AttemptSHA256, "-WhatIf"})
+	if replacement.ExternalSessionStep == nil || replacement.ExternalSessionStep.Mode != "replacement-attempt" || replacement.ExpectedCurrentStepPlanSHA256 == "" {
+		t.Fatalf("failed launch did not route to exact replacement attempt: %+v", replacement)
+	}
 }
 
 func TestRunCurrentLoopExternalSessionTurnPreservesRelayButRefusesClaimAfterHumanIntervention(t *testing.T) {
@@ -1994,19 +2127,26 @@ func TestRunCurrentLoopExternalSessionTurnPreservesRelayButRefusesClaimAfterHuma
 		t.Fatal(err)
 	}
 	decodeJSONStrict(t, statusOut.Bytes(), &status)
-	statusOut.Reset()
-	if err := Run(rekitCommandCLIArgs(t, status.MissionControlRunbook.CurrentLoopOperator.SelectedDriverRequest.Command), &statusOut); err != nil {
-		t.Fatal(err)
+	current := runMemberCurrentStep(t, caseRoot, []string{"-WhatIf"})
+	if current.ExternalSessionStep == nil || current.ExternalSessionStep.Mode != "result-turn" || current.ExternalSessionStep.Turn == nil {
+		t.Fatalf("unified current step omitted intervention result turn: %+v", current)
 	}
-	var turn currentLoopExternalSessionTurnPlan
-	decodeJSONStrict(t, statusOut.Bytes(), &turn)
 	currentLoopExternalTurnBeforeClaimHook = func() error {
 		appendCurrentLoopOpenIntervention(t, caseRoot, "int-external-turn-claim")
 		return nil
 	}
 	t.Cleanup(func() { currentLoopExternalTurnBeforeClaimHook = nil })
-	if err := Run(rekitCommandCLIArgs(t, turn.ApplyCommand), &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "Human-in-the-Lane intervention") {
+	var partialOut bytes.Buffer
+	err = Run([]string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-ExpectedCurrentStepPlanSha256", current.ExpectedCurrentStepPlanSHA256, "-Apply", "-Format", "json"}, &partialOut)
+	if err == nil || !strings.Contains(err.Error(), "Human-in-the-Lane intervention") {
 		t.Fatalf("intervention before claim error=%v", err)
+	}
+	var partial currentStepTestPlan
+	if err := json.Unmarshal(partialOut.Bytes(), &partial); err != nil {
+		t.Fatalf("unified partial receipt JSON did not decode: %v\n%s", err, partialOut.String())
+	}
+	if !partial.Applied || partial.Receipt == nil || partial.Receipt.State != "nested-partial" || !strings.Contains(partial.Receipt.Outcome, "checkpoint-claim") || partial.ExternalSessionStep == nil || partial.ExternalSessionStep.Turn == nil || !partial.ExternalSessionStep.Turn.Relay.Applied || partial.ExternalSessionStep.Turn.FailureStage != "checkpoint-claim" {
+		t.Fatalf("unified partial receipt did not preserve committed relay truth: %+v", partial)
 	}
 	currentLoopExternalTurnBeforeClaimHook = nil
 	if got, err := os.ReadFile(filepath.Join(caseRoot, filepath.FromSlash(job.MemberManifestPath))); err != nil || len(got) == 0 {

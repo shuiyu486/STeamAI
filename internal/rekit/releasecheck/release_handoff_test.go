@@ -347,7 +347,6 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	assertHandoffSignal(t, handoff, "known gaps summary")
 	assertHandoffKnownGap(t, handoff, "ci-release-gate")
 	assertHandoffKnownGap(t, handoff, "cross-platform-product-path")
-	assertHandoffKnownGap(t, handoff, "session-orchestration")
 	assertHandoffKnownGap(t, handoff, "dispatch")
 	assertHandoffKnownGap(t, handoff, "heavy-tool")
 	assertHandoffKnownGap(t, handoff, "authority")

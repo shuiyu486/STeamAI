@@ -134,18 +134,31 @@ func externalSessionDispatcherPackage(job externalsession.Job, attemptSHA256 str
 }
 
 func externalSessionDispatcherRequestIsFocused(operator *mission.CurrentLoopOperatorPackage) bool {
-	if operator == nil || operator.ExternalSessionJob == nil || operator.ExternalSessionJob.Dispatcher == nil || operator.SelectedDriverRequest == nil {
+	if operator == nil || operator.ExternalSessionJob == nil || operator.ExternalSessionJob.Dispatcher == nil || operator.SelectedDriverRequest == nil || (operator.ObservationInbox != nil && operator.ObservationInbox.State != "empty") || operator.SelectedDriverRequest.Source == "current-loop-observation-inbox" {
 		return false
 	}
 	job := operator.ExternalSessionJob
 	dispatcher := job.Dispatcher
+	if job.State == "submission-ready" {
+		return job.CurrentAttempt != nil && strings.TrimSpace(operator.SelectedDriverRequest.Lane) != "" && operator.SelectedDriverRequest.Source == "current-loop-external-session-turn"
+	}
+	if dispatcher.State == "attempt-publication-pending" {
+		return job.AttemptRequest != nil && operator.SelectedDriverRequest.Command == job.AttemptRequest.Command
+	}
+	if job.State == "invalid" {
+		return job.CurrentAttempt != nil && job.AttemptRequest != nil && operator.SelectedDriverRequest.Command == job.AttemptRequest.Command
+	}
 	switch dispatcher.State {
+	case "absent":
+		return job.CurrentAttempt == nil && job.AttemptRequest != nil && operator.SelectedDriverRequest.Command == job.AttemptRequest.Command
 	case "attempt-publication-pending":
 		return job.AttemptRequest != nil && operator.SelectedDriverRequest.Command == job.AttemptRequest.Command
 	case "queued":
 		return job.CurrentAttempt != nil && dispatcher.ClaimRequest != nil && operator.SelectedDriverRequest.Command == dispatcher.ClaimRequest.Command
 	case "claimed":
 		return job.CurrentAttempt != nil && dispatcher.LaunchAcceptedRequest != nil && operator.SelectedDriverRequest.Command == dispatcher.LaunchAcceptedRequest.Command
+	case "running":
+		return job.CurrentAttempt != nil && strings.TrimSpace(operator.SelectedDriverRequest.Lane) != "" && dispatcher.Claim != nil && dispatcher.LaunchReceipt != nil && dispatcher.LaunchReceipt.State == "accepted" && operator.SelectedDriverRequest.Source == "current-loop-external-session-dispatch"
 	case "launch-failed":
 		return job.CurrentAttempt != nil && job.AttemptRequest != nil && operator.SelectedDriverRequest.Command == job.AttemptRequest.Command
 	default:
@@ -179,7 +192,11 @@ func applyExternalSessionDispatchState(operator *mission.CurrentLoopOperatorPack
 		job.HarnessPackage.State = "launch-ready"
 	case "running":
 		operator.State = "external-session-running"
-		operator.SelectedDriverRequest = nil
+		request := externalSessionRunningRequest(job)
+		if strings.TrimSpace(request.Lane) == "" {
+			request.Lane = operator.Lane
+		}
+		operator.SelectedDriverRequest = &request
 		job.HarnessPackage.State = "running"
 		if job.HarnessPackage.Launch != nil {
 			job.HarnessPackage.Launch.Ready = false
@@ -192,6 +209,57 @@ func applyExternalSessionDispatchState(operator *mission.CurrentLoopOperatorPack
 			job.HarnessPackage.Launch.Ready = false
 		}
 	}
+}
+
+func externalSessionCurrentStepRequest(operator *mission.CurrentLoopOperatorPackage) mission.MissionCommanderDriverRequest {
+	job := operator.ExternalSessionJob
+	command := joinDriverCommand([]string{
+		"/rekit", "run-current-step", "-Target", operator.CaseRoot, "-Pack", operator.Pack, "-WhatIf", "-Format", "json",
+	})
+	lane := operator.Lane
+	if strings.TrimSpace(lane) == "" {
+		lane = currentLoopExternalSessionLane(job)
+	}
+	return mission.MissionCommanderDriverRequest{
+		Kind: "preview-command", RunLoopStepID: "external-session-current-step:" + job.JobID,
+		Actor: "mission-commander", State: "external-session-current-step", Source: "current-step-external-session",
+		Lane: lane, Label: job.SessionKind + " external session current step", ActionID: job.JobSHA256 + ":" + job.CheckpointSHA256,
+		Command: command, CommandExecutable: true, RequiresReview: true,
+		ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
+			State: "preview-ready", Command: command, RefreshStatusCommand: statusMissionControlRefreshCommand(operator.CaseRoot),
+			Description: "returns the typed current external-session campaign step and exact outer Apply hash when mutation inputs are complete",
+			Boundary:    []string{"input-required and running handoffs have no Apply hash", "nested run-current-loop requests remain available only for external host, recovery, or diagnosis"},
+		},
+		Boundary: []string{"consume this stable wrapper from status, quickstart, or replacement takeover", "the wrapper does not start, poll, stop, or manage external sessions"},
+	}
+}
+
+func externalSessionRunningRequest(job *mission.CurrentLoopExternalSessionJob) mission.MissionCommanderDriverRequest {
+	dispatcher := job.Dispatcher
+	request := mission.MissionCommanderDriverRequest{
+		Kind: "external-session-lifecycle-handoff", RunLoopStepID: "external-session-running:" + job.JobID,
+		Actor: "mission-commander", State: "external-session-running", Source: "current-loop-external-session-dispatch",
+		Lane:  currentLoopExternalSessionLane(job),
+		Label: job.SessionKind + " external session running", CommandExecutable: false, RequiresReview: true,
+		Guidance: "Wait for or reconnect to the exact accepted external session; refresh status after submission. Use replacementRequest only after explicit orphan review.",
+		ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
+			State: "submission-or-replacement-review", RefreshStatusCommand: job.HarnessPackage.RefreshStatusCommand,
+			Description: "the exact accepted external session either publishes submission last or is explicitly superseded after review",
+			Boundary:    []string{"running is durable launch truth, not a liveness claim", "replacement fences this generation but does not stop an external process"},
+		},
+		Boundary: []string{"this handoff is not executable and does not poll or manage the external session", "do not resume the underlying lane or reviewer action while this generation is current"},
+	}
+	if job.CurrentAttempt != nil && dispatcher != nil && dispatcher.Claim != nil && dispatcher.LaunchReceipt != nil {
+		request.ActionID = job.CurrentAttempt.AttemptID + ":" + dispatcher.Claim.SHA256 + ":" + dispatcher.LaunchReceipt.SHA256
+	}
+	return request
+}
+
+func currentLoopExternalSessionLane(job *mission.CurrentLoopExternalSessionJob) string {
+	if job != nil && job.MemberOwner != nil {
+		return job.MemberOwner.Lane
+	}
+	return ""
 }
 
 func externalSessionDispatchRequest(job externalsession.Job, attemptSHA256 string, inspection externalsession.DispatchInspection, outcome string) mission.MissionCommanderDriverRequest {

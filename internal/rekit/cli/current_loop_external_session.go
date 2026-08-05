@@ -124,6 +124,7 @@ func bindExternalSessionJob(target string, pkg *mission.CurrentLoopOperatorPacka
 	}
 	typed := missionExternalSessionJob(inspected)
 	typed.Dispatcher = externalSessionDispatcherPackage(job, attempt.AttemptSHA256, dispatch)
+	bindExternalSessionRequestLane(&typed, pkg.Lane)
 	if dispatch.State == "attempt-publication-pending" && inspected.State != "submission-ready" && (pkg.ObservationInbox == nil || pkg.ObservationInbox.State == "empty") {
 		pending, pendingErr := externalsession.PendingAttemptPlan(job, dispatch)
 		if pendingErr != nil {
@@ -159,6 +160,7 @@ func bindExternalSessionJob(target string, pkg *mission.CurrentLoopOperatorPacka
 		typed.SubmissionResult = attempt.Current.SubmissionResult
 	}
 	defer func() {
+		bindExternalSessionRequestLane(&typed, pkg.Lane)
 		typed.HarnessPackage = externalSessionHarnessPackage(job, inspected, attempt, pkg, typed)
 		if inspected.State == "awaiting-submission" && (pkg.ObservationInbox == nil || pkg.ObservationInbox.State == "empty") {
 			applyExternalSessionDispatchState(pkg, &typed, dispatch)
@@ -173,6 +175,12 @@ func bindExternalSessionJob(target string, pkg *mission.CurrentLoopOperatorPacka
 	case "submission-ready":
 		relayRequest := externalSessionRelayRequest(job, inspected.JobSHA256)
 		turnRequest := externalSessionTurnRequest(job, inspected.JobSHA256)
+		if strings.TrimSpace(relayRequest.Lane) == "" {
+			relayRequest.Lane = pkg.Lane
+		}
+		if strings.TrimSpace(turnRequest.Lane) == "" {
+			turnRequest.Lane = pkg.Lane
+		}
 		typed.RelayPreviewRequest = &relayRequest
 		pkg.ExternalSessionJob = &typed
 		pkg.State = "external-session-turn-review-required"
@@ -249,6 +257,21 @@ func externalSessionJobFor(target string, pkg *mission.CurrentLoopOperatorPackag
 	job, err := externalsession.NewReviewerJob(target, pkg.Pack, inspection.ArtifactSHA256, reviewer, allowed)
 	job.DispatchRequired = err == nil
 	return job, err
+}
+
+func bindExternalSessionRequestLane(job *mission.CurrentLoopExternalSessionJob, lane string) {
+	if job == nil || strings.TrimSpace(lane) == "" {
+		return
+	}
+	requests := []*mission.MissionCommanderDriverRequest{job.AttemptRequest, job.RelayPreviewRequest}
+	if job.Dispatcher != nil {
+		requests = append(requests, job.Dispatcher.ClaimRequest, job.Dispatcher.LaunchAcceptedRequest, job.Dispatcher.LaunchFailedRequest)
+	}
+	for _, request := range requests {
+		if request != nil && strings.TrimSpace(request.Lane) == "" {
+			request.Lane = lane
+		}
+	}
 }
 
 func externalSessionHarnessPackage(job externalsession.Job, inspection externalsession.Inspection, attempt externalsession.AttemptInspection, operator *mission.CurrentLoopOperatorPackage, typed mission.CurrentLoopExternalSessionJob) *mission.CurrentLoopExternalSessionHarnessPackage {

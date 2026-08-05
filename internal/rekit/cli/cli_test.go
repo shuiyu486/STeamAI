@@ -5763,7 +5763,6 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releasecheck.ReleaseHandoff
 	assertReleaseHandoffSignal(t, handoff, "known gaps summary")
 	assertReleaseHandoffKnownGap(t, handoff, "ci-release-gate")
 	assertReleaseHandoffKnownGap(t, handoff, "cross-platform-product-path")
-	assertReleaseHandoffKnownGap(t, handoff, "session-orchestration")
 	assertReleaseHandoffKnownGap(t, handoff, "dispatch")
 	assertReleaseHandoffKnownGap(t, handoff, "heavy-tool")
 	assertReleaseHandoffKnownGap(t, handoff, "authority")

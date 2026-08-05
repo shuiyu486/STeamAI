@@ -308,6 +308,14 @@ func buildCurrentLoopPlan(ctx runtime.Context, opt Options) (currentLoopPlan, st
 		if err := applyCurrentLoopObservationEnvelope(ctx, &opt, *inspection); err != nil {
 			return currentLoopPlan{}, statusInventory{}, err
 		}
+		if currentStepUsesCheckpointSourceRequest(opt, status) {
+			request := *status.MissionControlRunbook.CurrentLoopOperator.SourceCurrentDriverRequest
+			runbook := *status.MissionControlRunbook
+			runbook.CurrentDriverRequest = &request
+			runbook.CurrentRunLoopStepID = request.RunLoopStepID
+			runbook.CurrentCommand = request.Command
+			status.MissionControlRunbook = &runbook
+		}
 		if err := validateCurrentLoopReviewerAttemptObservation(opt, status); err != nil {
 			return currentLoopPlan{}, statusInventory{}, err
 		}
@@ -320,7 +328,7 @@ func buildCurrentLoopPlan(ctx runtime.Context, opt Options) (currentLoopPlan, st
 			}
 		}
 		if strings.TrimSpace(status.MissionControlRunbook.Scope) != inspection.ExpectedRoute || status.MissionControlRunbook.CurrentDriverRequest == nil || strings.TrimSpace(status.MissionControlRunbook.CurrentDriverRequest.Lane) != inspection.ExpectedLane {
-			return currentLoopPlan{}, statusInventory{}, fmt.Errorf("run-current-loop ready checkpoint expected route or lane does not match refreshed status")
+			return currentLoopPlan{}, statusInventory{}, fmt.Errorf("run-current-loop ready checkpoint expected route or lane does not match refreshed status: scope=%q expectedRoute=%q lane=%q expectedLane=%q", status.MissionControlRunbook.Scope, inspection.ExpectedRoute, status.MissionControlRunbook.CurrentDriverRequest.Lane, inspection.ExpectedLane)
 		}
 		if strings.TrimSpace(opt.ExpectedCurrentLoopCheckpointSHA256) != "" && !strings.EqualFold(strings.TrimSpace(opt.ExpectedCurrentLoopCheckpointSHA256), inspection.ArtifactSHA256) {
 			return currentLoopPlan{}, statusInventory{}, fmt.Errorf("run-current-loop expected checkpoint sha256 mismatch: got %s want %s", strings.TrimSpace(opt.ExpectedCurrentLoopCheckpointSHA256), inspection.ArtifactSHA256)

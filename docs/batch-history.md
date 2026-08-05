@@ -16497,3 +16497,13 @@ Batch 630 强制选择端到端能力闭环：不要再把单字段、summary、
 边界：Go runtime只记录request/receipt/state，不spawn/poll/stop外部session，不调用shell/Agent tool，不执行heavy-tool，不写或推断authority/confirmed。PowerShell只做参数验证和逐字透传，不解析attempt/submission、不计算generation/hash/currentness。合法current submission阻止replacement；invalid submission保留警告并允许显式下一代恢复；后半段失败保留truthful relay。
 
 验证结果：`externalsession`完整测试、external-session CLI focused suite、attempt/relay重复与fencing/invalid recovery压力回归、受影响`externalsession/currentloop/memberexecution/subagents/workstream/mission/cli`七包完整回归（最终CLI 241.894秒）及PowerShell façade smoke通过；全仓`go test ./... -count=1`通过（CLI 238.690秒），`go vet ./...`、status、10-pack packs、doctor、canonical skill预算32730/32768 bytes与`git diff --check`通过。独立终审发现并关闭lease内live job重建、accepted reviewer dispatch exact session lineage、public attempt committed replay/exact receipt SHA三项Important，定向复核无剩余高置信Critical/Important。`-race`额外检查因本机Go未启用cgo而未运行，不影响既有确定性lease竞态回归；统一`release-run -Format json`以7/7通过（482.532秒，其中完整Go tests 479.789秒），全部步骤attempts=1并生成Git-local v2 validation receipt。Implementation commit/push与fresh post-push接力随后记录，普通batch不等待或声明remote CI green。
+
+### Batch 819：external session harness launch and return package closure
+
+状态：已完成。
+
+目标：把 external member/reviewer session 的外部 harness 启动、replacement owner 和回传协议收敛为同源 stateful `externalSessionJob.harnessPackage`。Fresh job只给review-first attempt request；记录immutable attempt后，running package一次提供exact launch input path/SHA、tool/agent type、current generation owner、每个outcome的strict submission JSON、result-first writes、submission-last路径和fresh status命令。Invalid/replacement与submission-ready分别撤销旧launch并路由replacement review或复合external-result turn；status JSON/text、durable Markdown和replacement takeover消费同一对象。
+
+边界：Member launch SHA绑定`memberexecution` durable commit已认证的handoff bytes，Inspect后二次读取发生替换时fail-closed；reviewer prompt bytes同样必须匹配dispatch SHA。Go runtime不spawn/poll/stop外部session，不调用Agent tool，不执行heavy-tool，不写authority/confirmed；本批不新增public command或PowerShell runtime logic，不自动执行reviewer/adapter/pack-memory/gate/sync/promote mutation，也不等待或声明remote CI green。
+
+验证结果：harness/renderer/replacement takeover focused regressions通过；受影响`externalsession/currentloop/memberexecution/subagents/workstream/mission/cli`七包完整回归通过（CLI 382.446秒）；修复后全仓`go test ./... -count=1`通过（CLI 223.115秒），`go vet ./...`、status、10-pack packs、doctor与`git diff --check`通过。独立终审发现text/Markdown遗漏strict template内容及member二次读取SHA未绑定durable commit两项Important；修复后原审查者定向确认均关闭，无剩余高置信Critical/Important。完成态`release-check -Format json`返回`ready=true`；统一`release-run -Format json`以7/7通过（511.536秒，其中完整Go tests 508.352秒），全部步骤attempts=1并生成Git-local v2 validation receipt。Implementation commit/push随后记录；普通batch不等待或声明remote CI green。

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -32,6 +33,7 @@ type currentLoopExternalSessionTurnPlan struct {
 	Applied              bool                 `json:"applied"`
 	AlreadyApplied       bool                 `json:"alreadyApplied"`
 	RefreshedStatus      *statusInventory     `json:"refreshedStatus,omitempty"`
+	FailureStage         string               `json:"failureStage,omitempty"`
 	Boundary             []string             `json:"boundary"`
 }
 
@@ -79,21 +81,42 @@ func runCurrentLoopExternalSessionTurn(ctx runtime.Context, opt Options, out io.
 	if expected := strings.TrimSpace(opt.ExpectedExternalSessionTurnPlanSHA256); expected == "" || !strings.EqualFold(expected, plan.ExpectedPlanSHA256) {
 		return fmt.Errorf("external session turn plan sha256 mismatch: got %s want %s", expected, plan.ExpectedPlanSHA256)
 	}
+	plan, err = applyCurrentLoopExternalSessionTurn(ctx, opt, plan, resumeOpt, resumeStatus)
+	if err != nil {
+		if plan.Applied {
+			if writeErr := writeJSON(out, plan); writeErr != nil {
+				return errors.Join(err, writeErr)
+			}
+		}
+		return err
+	}
+	return writeJSON(out, plan)
+}
+
+func applyCurrentLoopExternalSessionTurn(ctx runtime.Context, opt Options, plan currentLoopExternalSessionTurnPlan, resumeOpt Options, resumeStatus statusInventory) (currentLoopExternalSessionTurnPlan, error) {
+	partial := func(stage string, err error) (currentLoopExternalSessionTurnPlan, error) {
+		plan.Applied = plan.Relay.Applied || plan.Resume.Applied
+		plan.ReviewRequired = false
+		plan.RequiresConfirmation = false
+		plan.FailureStage = stage
+		return plan, err
+	}
 	appliedRelay, err := externalsession.ApplyCurrent(plan.Relay, opt.ExpectedExternalSessionJobSHA256, opt.ExpectedExternalSessionSubmissionSHA256, opt.ExpectedExternalSessionRelayPlanSHA256, func() (externalsession.Job, error) {
 		return currentExternalSessionJob(ctx, opt)
 	})
 	if err != nil {
-		return err
+		return plan, err
 	}
 	plan.Relay = appliedRelay
 	plan.AlreadyApplied = appliedRelay.AlreadyApplied
+	plan.Applied = appliedRelay.Applied
 
 	freshResume, freshStatus, err := buildCurrentLoopPlan(ctx, resumeOpt)
 	if err != nil {
-		return fmt.Errorf("external session turn relay committed but resume reconstruction failed: %w", err)
+		return partial("resume-reconstruction", fmt.Errorf("external session turn relay committed but resume reconstruction failed: %w", err))
 	}
 	if !strings.EqualFold(freshResume.ExpectedCurrentLoopPlanSHA256, plan.Resume.ExpectedCurrentLoopPlanSHA256) {
-		return fmt.Errorf("external session turn relay committed but nested resume plan changed; refresh status")
+		return partial("resume-plan-drift", fmt.Errorf("external session turn relay committed but nested resume plan changed; refresh status"))
 	}
 	plan.Resume = freshResume
 	resumeStatus = freshStatus
@@ -102,15 +125,15 @@ func runCurrentLoopExternalSessionTurn(ctx runtime.Context, opt Options, out io.
 		resumeOpt.ExpectedMemberExecutionPlanSHA256 = freshResume.InitialCurrentStep.MemberExecution.ExpectedPlanSHA256
 	}
 	if err := applyCurrentLoopObservationEnvelope(ctx, &resumeOpt, *freshResume.ResumeSource); err != nil {
-		return fmt.Errorf("external session turn relay committed but observation intake failed: %w", err)
+		return partial("observation-intake", fmt.Errorf("external session turn relay committed but observation intake failed: %w", err))
 	}
 	requestSHA256, err := currentloop.RequestSHA256(*freshResume.InitialCurrentDriverRequest)
 	if err != nil {
-		return err
+		return partial("checkpoint-identity", fmt.Errorf("external session turn relay committed but checkpoint identity failed: %w", err))
 	}
 	if currentLoopExternalTurnBeforeClaimHook != nil {
 		if err := currentLoopExternalTurnBeforeClaimHook(); err != nil {
-			return fmt.Errorf("external session turn relay committed before checkpoint claim hook failed: %w", err)
+			return partial("before-checkpoint-claim", fmt.Errorf("external session turn relay committed before checkpoint claim hook failed: %w", err))
 		}
 	}
 	if err := currentloop.ClaimResumeValidated(ctx.RepoRoot, ctx.Target, ctx.Pack, currentloop.Claim{
@@ -128,11 +151,11 @@ func runCurrentLoopExternalSessionTurn(ctx runtime.Context, opt Options, out io.
 		}
 		return nil
 	}); err != nil {
-		return fmt.Errorf("external session turn relay committed but checkpoint claim failed: %w", err)
+		return partial("checkpoint-claim", fmt.Errorf("external session turn relay committed but checkpoint claim failed: %w", err))
 	}
 	plan.Resume, err = applyBuiltCurrentLoop(ctx, resumeOpt, freshResume, resumeStatus)
 	if err != nil {
-		return err
+		return partial("nested-resume", err)
 	}
 	plan.Applied = plan.Resume.Applied || plan.Relay.Applied
 	plan.ReviewRequired = false
@@ -141,7 +164,7 @@ func runCurrentLoopExternalSessionTurn(ctx runtime.Context, opt Options, out io.
 	if refreshErr == nil {
 		plan.RefreshedStatus = &fresh
 	}
-	return writeJSON(out, plan)
+	return plan, nil
 }
 
 func buildCurrentLoopExternalSessionTurnPlan(ctx runtime.Context, opt Options) (currentLoopExternalSessionTurnPlan, Options, statusInventory, error) {
@@ -182,6 +205,7 @@ func buildCurrentLoopExternalSessionTurnPlan(ctx runtime.Context, opt Options) (
 	resumeOpt.ExpectedCurrentLoopObservationSHA256 = snapshot.SHA256
 	resumeOpt.currentLoopObservationSnapshot = &snapshot
 	resumeOpt.currentLoopMemberResultSnapshot = relay.MemberResultSnapshot()
+	resumeOpt.currentLoopExternalTurnResume = true
 	if relay.ReviewerResult != nil {
 		resumeOpt.currentLoopReviewerResultSnapshot = &subagents.ReviewerResultInputSnapshot{
 			Path:   filepath.Join(ctx.Target, filepath.FromSlash(relay.ReviewerResult.Path)),

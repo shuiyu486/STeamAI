@@ -266,6 +266,32 @@ try {
     Assert-ContainsText -Text $capturedCurrentStepArgs -Expected $expectedCurrentStepArg -Label 'run-current-step facade args'
   }
   Assert-ContainsText -Text $capturedCurrentStepArgs -Expected '-ReviewerResultInputSourcePath ' -Label 'run-current-step result input facade args'
+  $externalCurrentStepCapturePath = Join-Path $matrixRoot 'run-current-step-external-args.txt'
+  Write-CapturingFakeGoBackend -Path $fakeGo -CapturePath $externalCurrentStepCapturePath
+  $externalCurrentStepOut = Invoke-RekitSmoke -Arguments @('-Command','run-current-step','-Target',$CaseRoot,'-Pack',$Pack,'-ExternalSessionHarness','facade-harness','-ExternalSessionId','facade-session','-ExternalSessionActor','facade-actor','-ExternalSessionStartedAt','2026-08-05T09:00:00Z','-WhatIf','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $externalCurrentStepOut -Expected '"delegatedByFake":true' -Label 'external run-current-step fake delegation'
+  $capturedExternalCurrentStepArgs = [System.IO.File]::ReadAllText($externalCurrentStepCapturePath, [System.Text.Encoding]::Default)
+  foreach ($expectedExternalCurrentStepArg in @('-ExternalSessionHarness facade-harness','-ExternalSessionId facade-session','-ExternalSessionActor facade-actor','-ExternalSessionStartedAt 2026-08-05T09:00:00Z','-WhatIf','-Format json')) {
+    Assert-ContainsText -Text $capturedExternalCurrentStepArgs -Expected $expectedExternalCurrentStepArg -Label 'external run-current-step facade args'
+  }
+  $externalCurrentStepHash = 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789'
+  $externalAttemptHash = '1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef'
+  $externalClaimOut = Invoke-RekitSmoke -Arguments @('-Command','run-current-step','-Target',$CaseRoot,'-Pack',$Pack,'-ExternalSessionActor','facade-dispatcher','-ExternalSessionObservedAt','2026-08-05T09:00:01Z','-ExpectedCurrentStepPlanSha256',$externalCurrentStepHash,'-Apply','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $externalClaimOut -Expected '"delegatedByFake":true' -Label 'external claim run-current-step fake delegation'
+  $capturedExternalClaimArgs = [System.IO.File]::ReadAllText($externalCurrentStepCapturePath, [System.Text.Encoding]::Default)
+  foreach ($expectedExternalClaimArg in @('-ExternalSessionActor facade-dispatcher','-ExternalSessionObservedAt 2026-08-05T09:00:01Z',"-ExpectedCurrentStepPlanSha256 $externalCurrentStepHash",'-Apply','-Format json')) {
+    Assert-ContainsText -Text $capturedExternalClaimArgs -Expected $expectedExternalClaimArg -Label 'external claim run-current-step facade args'
+  }
+  $externalReplacementOut = Invoke-RekitSmoke -Arguments @('-Command','run-current-step','-Target',$CaseRoot,'-Pack',$Pack,'-ExternalSessionHarness','facade-harness','-ExternalSessionId','facade-replacement-session','-ExternalSessionActor','facade-actor','-ExternalSessionStartedAt','2026-08-05T09:00:02Z','-ExpectedExternalSessionAttemptSha256',$externalAttemptHash,'-WhatIf','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $externalReplacementOut -Expected '"delegatedByFake":true' -Label 'external replacement run-current-step fake delegation'
+  $capturedExternalReplacementArgs = [System.IO.File]::ReadAllText($externalCurrentStepCapturePath, [System.Text.Encoding]::Default)
+  Assert-ContainsText -Text $capturedExternalReplacementArgs -Expected "-ExpectedExternalSessionAttemptSha256 $externalAttemptHash" -Label 'external replacement run-current-step facade args'
+  $externalLaunchOut = Invoke-RekitSmoke -Arguments @('-Command','run-current-step','-Target',$CaseRoot,'-Pack',$Pack,'-ExternalSessionLaunchOutcome','accepted','-ExternalSessionActor','facade-dispatcher','-ExternalSessionObservedAt','2026-08-05T09:00:02Z','-ExternalSessionHarness','actual-harness','-ExternalSessionId','actual-session','-ExpectedCurrentStepPlanSha256',$externalCurrentStepHash,'-Apply','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $externalLaunchOut -Expected '"delegatedByFake":true' -Label 'external launch run-current-step fake delegation'
+  $capturedExternalLaunchArgs = [System.IO.File]::ReadAllText($externalCurrentStepCapturePath, [System.Text.Encoding]::Default)
+  foreach ($expectedExternalLaunchArg in @('-ExternalSessionLaunchOutcome accepted','-ExternalSessionActor facade-dispatcher','-ExternalSessionObservedAt 2026-08-05T09:00:02Z','-ExternalSessionHarness actual-harness','-ExternalSessionId actual-session','-Apply','-Format json')) {
+    Assert-ContainsText -Text $capturedExternalLaunchArgs -Expected $expectedExternalLaunchArg -Label 'external launch run-current-step facade args'
+  }
   $currentStepDisabledOut = Invoke-RekitSmoke -Arguments @('-Command','run-current-step','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf','-Format','json') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
   Assert-ContainsText -Text $currentStepDisabledOut -Expected 'PowerShell fallback has been retired' -Label 'disabled run-current-step no-fallback remains retired'
   Assert-FakeDefaultDelegation -Arguments @('-Command','run-driver-step','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'run-driver-step' -Label 'default run-driver-step preview fake delegation'
