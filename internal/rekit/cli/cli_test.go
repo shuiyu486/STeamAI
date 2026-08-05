@@ -4940,7 +4940,15 @@ type releaseCheckPowerShellDeprecation = releasecheck.PowerShellDeprecation
 
 type releaseCheckResult = releasecheck.Result
 
+func disableReleaseRunReceipt(t *testing.T) {
+	t.Helper()
+	previous := releaseRunReceiptRequired
+	releaseRunReceiptRequired = func(releasecheck.ReleaseHandoffLatestBatch) bool { return false }
+	t.Cleanup(func() { releaseRunReceiptRequired = previous })
+}
+
 func TestRunReleaseRunUsesResolvedGateProfileSteps(t *testing.T) {
+	disableReleaseRunReceipt(t)
 	previous := releaseRunExecuteCommand
 	defer func() { releaseRunExecuteCommand = previous }()
 
@@ -4987,6 +4995,7 @@ func TestRunReleaseRunUsesResolvedGateProfileSteps(t *testing.T) {
 }
 
 func TestRunReleaseRunIncludesReleaseInspectionHandoff(t *testing.T) {
+	disableReleaseRunReceipt(t)
 	previousCommand := releaseRunExecuteCommand
 	previousGit := releaseRunExecuteGitCommand
 	restoreReleaseCheck := withReadyReleaseCheckFixture(t)
@@ -5062,6 +5071,7 @@ func TestRunReleaseRunIncludesReleaseInspectionHandoff(t *testing.T) {
 }
 
 func TestRunReleaseRunImplementationPendingGuidanceReturnsRetryReceipt(t *testing.T) {
+	disableReleaseRunReceipt(t)
 	previousCommand := releaseRunExecuteCommand
 	previousGit := releaseRunExecuteGitCommand
 	previousBuild := releaseCheckBuild
@@ -5187,6 +5197,7 @@ func TestRunReleaseRunReceiptPublicationFailureIsNotReady(t *testing.T) {
 }
 
 func TestRunReleaseRunReleaseInspectionBlocksDirtyUnsyncedHandoff(t *testing.T) {
+	disableReleaseRunReceipt(t)
 	previousCommand := releaseRunExecuteCommand
 	previousGit := releaseRunExecuteGitCommand
 	defer func() {
@@ -5250,6 +5261,7 @@ func assertStringContains(t *testing.T, values []string, expected string) {
 }
 
 func TestRunReleaseRunRetriesWindowsGoTestCleanupLockOnce(t *testing.T) {
+	disableReleaseRunReceipt(t)
 	previous := releaseRunExecuteCommand
 	defer func() { releaseRunExecuteCommand = previous }()
 
@@ -5331,6 +5343,7 @@ func TestRunReleaseRunRetriesWindowsGoTestCleanupLockOnce(t *testing.T) {
 }
 
 func TestRunReleaseRunDoesNotRetryGoTestFailureWithCleanupLock(t *testing.T) {
+	disableReleaseRunReceipt(t)
 	previous := releaseRunExecuteCommand
 	defer func() { releaseRunExecuteCommand = previous }()
 
@@ -5359,6 +5372,7 @@ func TestRunReleaseRunDoesNotRetryGoTestFailureWithCleanupLock(t *testing.T) {
 }
 
 func TestRunReleaseRunReportsFailuresWithoutRetry(t *testing.T) {
+	disableReleaseRunReceipt(t)
 	previous := releaseRunExecuteCommand
 	defer func() { releaseRunExecuteCommand = previous }()
 

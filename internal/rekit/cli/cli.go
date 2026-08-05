@@ -1449,6 +1449,9 @@ var releaseRunExecuteCommand releaseRunCommandExecutor = executeReleaseRunComman
 var releaseRunExecuteGitCommand releaseRunGitCommandExecutor = executeReleaseRunGitCommand
 var releaseRunCaptureLocalValidationSnapshot = releasecheck.CaptureLocalValidationSnapshot
 var releaseRunPublishLocalValidationReceipt = releasecheck.PublishLocalValidationReceipt
+var releaseRunReceiptRequired = func(latest releasecheck.ReleaseHandoffLatestBatch) bool {
+	return latest.Handoff.Completed && latest.Handoff.ReleaseInspectionCadence.State == "implementation-pending"
+}
 
 func runReleaseRun(ctx runtime.Context, opt Options, out io.Writer) error {
 	if ctx.TargetProvided {
@@ -1462,7 +1465,7 @@ func runReleaseRun(ctx runtime.Context, opt Options, out io.Writer) error {
 		return err
 	}
 	latest := inventory.ReleaseHandoff.LatestBatch
-	receiptRequired := latest.Handoff.Completed && latest.Handoff.ReleaseInspectionCadence.State == "implementation-pending"
+	receiptRequired := releaseRunReceiptRequired(latest)
 	var snapshot releasecheck.LocalValidationSnapshot
 	if receiptRequired {
 		snapshot, err = releaseRunCaptureLocalValidationSnapshot(ctx.RepoRoot)

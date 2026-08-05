@@ -4606,7 +4606,11 @@ func releaseHandoffPostPushReceiptFor(repo string, latest ReleaseHandoffLatestBa
 		receipt.State = "unsynchronized"
 		return receipt
 	}
-	if parent.BatchID == "" || releaseHandoffNextBatchID(parent.BatchID) != latest.BatchID || head.BatchID != latest.BatchID || !parent.Handoff.Completed || !head.Handoff.Completed {
+	machineReceiptRequired := latestBatchIDNumber(latest.BatchID) >= 817
+	validatedHead := latest.Handoff.LocalValidationReceipt != nil && latest.Handoff.LocalValidationReceipt.Ready && strings.EqualFold(latest.Handoff.LocalValidationReceipt.ValidatedHead, receipt.Head)
+	nextBatchTransition := parent.BatchID != "" && releaseHandoffNextBatchID(parent.BatchID) == latest.BatchID
+	validatedSameBatchRepair := machineReceiptRequired && validatedHead && parent.BatchID == latest.BatchID && head.BatchID == latest.BatchID
+	if machineReceiptRequired && !validatedHead || (!nextBatchTransition && !validatedSameBatchRepair) || head.BatchID != latest.BatchID || !parent.Handoff.Completed || !head.Handoff.Completed {
 		receipt.State = "ambiguous-batch-transition"
 		return receipt
 	}
@@ -4619,7 +4623,7 @@ func releaseHandoffPostPushReceiptFor(repo string, latest ReleaseHandoffLatestBa
 	receipt.Evidence = []string{
 		"post-push implementation receipt validated",
 		"main HEAD equals the locally known origin/main ref",
-		"implementation commit introduced the next completed batch after the completed parent batch",
+		"implementation commit introduced the next completed batch or an exact machine-validated repair for that completed batch",
 		"implementation commit includes batch plan, changelog, and product implementation paths",
 	}
 	return receipt

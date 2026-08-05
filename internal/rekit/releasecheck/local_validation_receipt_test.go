@@ -12,14 +12,17 @@ func TestLocalValidationReceiptBindsDirectImplementationCommit(t *testing.T) {
 	runPostPushGit(t, repo, "init", "-b", "main")
 	runPostPushGit(t, repo, "config", "user.name", "rekit-test")
 	runPostPushGit(t, repo, "config", "user.email", "rekit-test@example.invalid")
-	writePostPushTestFile(t, repo, "internal/rekit/fixture.go", "package rekit\n")
+	runPostPushGit(t, repo, "config", "core.autocrlf", "true")
+	writePostPushTestFile(t, repo, ".gitattributes", "*.md text eol=crlf\n*.go -text\n")
+	writePostPushTestFile(t, repo, "internal/rekit/my fixture.go", "package rekit\n")
 	writePostPushTestFile(t, repo, "docs/batch-plan.md", "### Batch 816：previous\n\n状态：已完成 previous。\n\n目标：previous。\n\n验证结果：release-run 以 7/7 通过。\n")
 	writePostPushTestFile(t, repo, "CHANGELOG.md", "# Changelog\n\n- Batch 816 previous.\n")
 	runPostPushGit(t, repo, "add", ".")
+	runPostPushGit(t, repo, "update-index", "--chmod=+x", "internal/rekit/my fixture.go")
 	runPostPushGit(t, repo, "commit", "-m", "Complete Batch 816")
 	baseline := strings.TrimSpace(runPostPushGit(t, repo, "rev-parse", "HEAD"))
 
-	writePostPushTestFile(t, repo, "internal/rekit/fixture.go", "package rekit\n\nconst batch = 817\n")
+	writePostPushTestFile(t, repo, "internal/rekit/my fixture.go", "package rekit\n\nconst batch = 817\n")
 	writePostPushTestFile(t, repo, "docs/batch-plan.md", "### Batch 817：receipt closure\n\n状态：已完成 fixture。\n\n目标：fixture。\n\n验证结果：machine receipt owns readiness。\n")
 	writePostPushTestFile(t, repo, "CHANGELOG.md", "# Changelog\n\n- Batch 817 receipt closure.\n")
 	latest := latestBatchSummary(repo)
@@ -28,7 +31,10 @@ func TestLocalValidationReceiptBindsDirectImplementationCommit(t *testing.T) {
 	if err != nil || !published.Present || published.Ready || published.State != "recorded-for-implementation-commit" || published.Receipt == nil || published.Receipt.BaselineHead != baseline || len(published.Receipt.Artifacts) != 3 {
 		t.Fatalf("published receipt=%+v err=%v", published, err)
 	}
-	if got := strings.TrimSpace(runPostPushGit(t, repo, "status", "--short")); !strings.Contains(got, "CHANGELOG.md") || strings.Contains(got, "local-validation-v1.json") {
+	if published.Receipt.Artifacts[2].Path != "internal/rekit/my fixture.go" || published.Receipt.Artifacts[2].Mode != "100755" {
+		t.Fatalf("tracked executable mode was not preserved: %+v", published.Receipt.Artifacts)
+	}
+	if got := strings.TrimSpace(runPostPushGit(t, repo, "status", "--short")); !strings.Contains(got, "CHANGELOG.md") || strings.Contains(got, "local-validation-v2.json") {
 		t.Fatalf("Git-local receipt polluted working tree: %q", got)
 	}
 	beforeCommit := InspectLocalValidationReceipt(repo, latest)
@@ -49,6 +55,77 @@ func TestLocalValidationReceiptBindsDirectImplementationCommit(t *testing.T) {
 	extra := InspectLocalValidationReceipt(repo, latestBatchSummary(repo))
 	if extra.Ready || extra.State != "non-direct-implementation-commit" {
 		t.Fatalf("extra commit should invalidate receipt: %+v", extra)
+	}
+}
+
+func TestLocalValidationReceiptRejectsPostRunWorktreeByteDriftWithSameBlob(t *testing.T) {
+	repo := cleanReleaseRepoRoot(t)
+	runPostPushGit(t, repo, "init", "-b", "main")
+	runPostPushGit(t, repo, "config", "user.name", "rekit-test")
+	runPostPushGit(t, repo, "config", "user.email", "rekit-test@example.invalid")
+	runPostPushGit(t, repo, "config", "filter.receipt.clean", "grep -v ^DROP:")
+	writePostPushTestFile(t, repo, ".gitattributes", "internal/rekit/fixture.go filter=receipt\n")
+	writePostPushTestFile(t, repo, "internal/rekit/fixture.go", "package rekit\n")
+	writePostPushTestFile(t, repo, "docs/batch-plan.md", "### Batch 816：previous\n\n状态：已完成。\n")
+	writePostPushTestFile(t, repo, "CHANGELOG.md", "# Changelog\n")
+	runPostPushGit(t, repo, "add", ".")
+	runPostPushGit(t, repo, "commit", "-m", "Complete Batch 816")
+
+	writePostPushTestFile(t, repo, "internal/rekit/fixture.go", "package rekit\n\nconst batch = 817\n")
+	writePostPushTestFile(t, repo, "docs/batch-plan.md", "### Batch 817：receipt closure\n\n状态：已完成。\n")
+	writePostPushTestFile(t, repo, "CHANGELOG.md", "# Changelog\n\n- Batch 817.\n")
+	latest := latestBatchSummary(repo)
+	if _, err := PublishLocalValidationReceipt(repo, readyLocalValidationReceiptInput(t, repo, latest.BatchID)); err != nil {
+		t.Fatal(err)
+	}
+	writePostPushTestFile(t, repo, "internal/rekit/fixture.go", "package rekit\n\nconst batch = 817\nDROP: unvalidated worktree bytes\n")
+	runPostPushGit(t, repo, "add", ".")
+	runPostPushGit(t, repo, "commit", "-m", "Commit filtered Batch 817")
+	inspection := InspectLocalValidationReceipt(repo, latestBatchSummary(repo))
+	if inspection.Ready || inspection.State != "artifact-content-mismatch" || !strings.Contains(strings.Join(inspection.Warnings, " "), "working-tree artifact bytes changed") {
+		t.Fatalf("same blob with changed worktree bytes should fail closed: %+v", inspection)
+	}
+}
+
+func TestLocalValidationReceiptPromotesExactSameBatchRepair(t *testing.T) {
+	repo := cleanReleaseRepoRoot(t)
+	runPostPushGit(t, repo, "init", "-b", "main")
+	runPostPushGit(t, repo, "config", "user.name", "rekit-test")
+	runPostPushGit(t, repo, "config", "user.email", "rekit-test@example.invalid")
+	writePostPushTestFile(t, repo, "internal/rekit/fixture.go", "package rekit\n\nconst batch = 817\n")
+	writePostPushTestFile(t, repo, "docs/batch-plan.md", "### Batch 817：receipt closure\n\n状态：已完成 fixture。\n\n目标：fixture。\n\n验证结果：machine receipt owns readiness。\n")
+	writePostPushTestFile(t, repo, "CHANGELOG.md", "# Changelog\n\n- Batch 817 receipt closure.\n")
+	runPostPushGit(t, repo, "add", ".")
+	runPostPushGit(t, repo, "commit", "-m", "Complete Batch 817")
+
+	writePostPushTestFile(t, repo, "internal/rekit/fixture.go", "package rekit\n\nconst batch = 817\nconst receiptRepair = true\n")
+	writePostPushTestFile(t, repo, "docs/batch-plan.md", "### Batch 817：receipt closure\n\n状态：已完成 fixture repair。\n\n目标：fixture。\n\n验证结果：machine receipt owns readiness。\n")
+	writePostPushTestFile(t, repo, "CHANGELOG.md", "# Changelog\n\n- Batch 817 receipt closure and repair.\n")
+	latest := latestBatchSummary(repo)
+	if _, err := PublishLocalValidationReceipt(repo, readyLocalValidationReceiptInput(t, repo, latest.BatchID)); err != nil {
+		t.Fatal(err)
+	}
+	runPostPushGit(t, repo, "add", ".")
+	runPostPushGit(t, repo, "commit", "-m", "Repair Batch 817 receipt")
+	head := strings.TrimSpace(runPostPushGit(t, repo, "rev-parse", "HEAD"))
+	runPostPushGit(t, repo, "update-ref", "refs/remotes/origin/main", head)
+
+	latest = releaseHandoffLatestBatchWithPostPushReceipt(repo, latestBatchSummary(repo))
+	if latest.Handoff.LocalValidationReceipt == nil || !latest.Handoff.LocalValidationReceipt.Ready {
+		t.Fatalf("same-batch repair receipt did not validate: %+v", latest.Handoff.LocalValidationReceipt)
+	}
+	latest.Handoff.LocalValidationReceipt.ValidatedHead = ""
+	withoutExactReceipt := releaseHandoffPostPushReceiptFor(repo, latest, defaultReleaseHandoffGitCommand)
+	if withoutExactReceipt.Ready || withoutExactReceipt.State != "ambiguous-batch-transition" {
+		t.Fatalf("same-batch repair without exact validated HEAD should fail closed: %+v", withoutExactReceipt)
+	}
+
+	handoff, err := BuildProjectHandoff(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if handoff.LatestBatch.Handoff.LocalValidationReceipt == nil || !handoff.LatestBatch.Handoff.LocalValidationReceipt.Ready || handoff.LatestBatch.Handoff.PostPushReceipt == nil || !handoff.LatestBatch.Handoff.PostPushReceipt.Ready || handoff.LatestBatch.Handoff.ReleaseInspectionCadence.State != "complete" || handoff.NextBatchSelectionPackage == nil || !handoff.NextBatchSelectionPackage.Ready {
+		t.Fatalf("exact same-batch repair did not complete handoff: latest=%+v package=%+v", handoff.LatestBatch.Handoff, handoff.NextBatchSelectionPackage)
 	}
 }
 
