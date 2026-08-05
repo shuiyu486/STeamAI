@@ -79,7 +79,9 @@ func runCurrentLoopExternalSessionTurn(ctx runtime.Context, opt Options, out io.
 	if expected := strings.TrimSpace(opt.ExpectedExternalSessionTurnPlanSHA256); expected == "" || !strings.EqualFold(expected, plan.ExpectedPlanSHA256) {
 		return fmt.Errorf("external session turn plan sha256 mismatch: got %s want %s", expected, plan.ExpectedPlanSHA256)
 	}
-	appliedRelay, err := externalsession.Apply(plan.Relay, opt.ExpectedExternalSessionJobSHA256, opt.ExpectedExternalSessionSubmissionSHA256, opt.ExpectedExternalSessionRelayPlanSHA256)
+	appliedRelay, err := externalsession.ApplyCurrent(plan.Relay, opt.ExpectedExternalSessionJobSHA256, opt.ExpectedExternalSessionSubmissionSHA256, opt.ExpectedExternalSessionRelayPlanSHA256, func() (externalsession.Job, error) {
+		return currentExternalSessionJob(ctx, opt)
+	})
 	if err != nil {
 		return err
 	}

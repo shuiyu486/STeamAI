@@ -34,6 +34,17 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 
 
+
+### Batch 818：external session harness run-loop closure
+
+状态：已完成。
+
+目标：把外部member/reviewer session的启动所有权、replacement takeover、result-first/submission-last回传与既有reviewed external-result turn串成durable机器协议。Fresh status给出非可执行占位attempt template；具体identity经WhatIf/hash-bound Apply记录immutable generation，replacement精确supersede current receipt。每代使用独立submission/output/result namespace，旧session迟到写入不阻塞current owner；relay与replacement共享project mutation lease，terminal publication绑定exact attempt identity并继续既有strict intake/checkpoint resume。
+
+边界：Go runtime只记录request/receipt/state，不spawn/poll/stop外部session，不调用shell/Agent tool，不执行heavy-tool，不写或推断authority/confirmed。PowerShell只做参数验证和逐字透传，不解析attempt/submission、不计算generation/hash/currentness。合法current submission阻止replacement；invalid submission保留警告并允许显式下一代恢复；后半段失败保留truthful relay。
+
+验证结果：`externalsession`完整测试、external-session CLI focused suite、attempt/relay重复与fencing/invalid recovery压力回归、受影响`externalsession/currentloop/memberexecution/subagents/workstream/mission/cli`七包完整回归（最终CLI 241.894秒）及PowerShell façade smoke通过；全仓`go test ./... -count=1`通过（CLI 238.690秒），`go vet ./...`、status、10-pack packs、doctor、canonical skill预算32730/32768 bytes与`git diff --check`通过。独立终审发现并关闭lease内live job重建、accepted reviewer dispatch exact session lineage、public attempt committed replay/exact receipt SHA三项Important，定向复核无剩余高置信Critical/Important。`-race`额外检查因本机Go未启用cgo而未运行，不影响既有确定性lease竞态回归；统一`release-run -Format json`以7/7通过（482.532秒，其中完整Go tests 479.789秒），全部步骤attempts=1并生成Git-local v2 validation receipt。Implementation commit/push与fresh post-push接力随后记录，普通batch不等待或声明remote CI green。
+
 ### Batch 817：machine-bound local validation receipt and post-push autonomous continuation closure
 
 状态：已完成。
@@ -44,19 +55,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 边界：receipt不进入commit、不写case、不执行heavy-tool、不写authority/confirmed、不查询远程CI；missing/旧schema/malformed/tampered/stale receipt，验证后任意编辑，未绑定额外/压缩/merge commit，path/mode/blob/deletion漂移均fail-closed。普通batch仍默认只做一次implementation commit/push且不等待remote workflow；本批因首个已推送commit真实暴露`core.autocrlf`误拒绝，仅使用上述strict同批repair路径，不改写已推送历史。
 
-验证结果：临时真实Git repo覆盖pre-run snapshot、Git-local零tracked污染、`core.autocrlf=true`下工作树bytes→clean-filter blob→direct commit acceptance、Batch 817+无receipt/prose-complete/旧schema/tamper/stale/artifact drift/unbound extra commit fail-closed、strict同批repair acceptance及Batch 816 legacy prose兼容；Windows原子替换成功与失败保留旧receipt均有专项回归。首轮完整`release-run`以7/7通过后，implementation commit `6c680c4`已推送；fresh post-push检查真实暴露旧v1 validator把工作树bytes与normalized Git blob直接比较的Windows误拒绝，现已改为v2双绑定且不force-push。修复后focused与受影响四包完整回归通过（releasecheck 36.013秒、CLI 227.542秒），全仓`go test ./... -count=1`通过（CLI 230.267秒），`go vet ./...`、status、10-pack packs、doctor、canonical skill预算32759/32768 bytes与`git diff --check`通过。独立终审发现并关闭worktree bytes复验、Windows tracked executable mode、validated HEAD精确绑定和含空白Git路径NUL解析四项Important，终复核无剩余高置信Critical/Important。repair commit/push与最终post-push receipt待本轮完成。普通batch不等待或声明remote CI green。
-
-### Batch 816：daily mission campaign orchestration and replacement takeover closure
-
-状态：已完成。
-
-目标：关闭日常 Mission Commander campaign 仍需跨多个手工步骤拼接 external relay、checkpoint resume、reviewed completion和replacement takeover的断点。完整链为natural-language onboard/start → bounded current loop → external member/reviewer handoff → result-first/submission-last → one reviewed external-result turn → relay + strict intake + checkpoint claim + bounded resume → accepted reviewer lineage → evidence-derived lane completion → next lane/Human/external boundary → mission-complete → replacement executor durable takeover。
-
-实现：统一external-result turn在WhatIf中零写入绑定checkpoint、job、submission、relay artifacts、observation和nested resume；member/reviewer planned result snapshot只用于构建reviewed plan，Apply清除overlay并从durable relay filesystem重建。Apply先完成exact-prefix可恢复relay，再strict intake、one-shot claim和bounded resume；relay后若Human intervention/currentness漂移，relay保持truthful且claim在同一project lease内fail-closed。Reviewer replacement result一次Apply走完save input→completion→source→stage→collect→intake六步并产生accepted verification/decision lineage。Status从current owner的intake-ready member manifest调用唯一`CompletePreview` owner派生completion request，replacement handoff保留同一request；current-step不把complete误派为新member attempt，driver与completion plan双hash绑定。全部lane关闭后current-loop以typed`mission-complete`停止且无Apply request。Member latest inspection只把canonical intent或intent→handoff exact prefix视为pending，commit/observation/result/额外artifact缺前件均作为corruption向上报错。
-
-边界：Go runtime不spawn/poll/stop member或reviewer session，不调用shell/Agent tool，不执行heavy-tool，不写或推断authority/confirmed。PowerShell façade仅验证参数组合并逐字透传；WhatIf零写入，Apply按exact hash/currentness/owner/lease guards fail-closed。External turn明确non-transactional：已提交relay在后续拒绝时保留为可验证恢复事实。普通batch不等待或声明remote CI green。
-
-验证结果：member/reviewer composite turn、reviewer snapshot path/SHA/bytes drift、Apply filesystem-only、relay后Human intervention claim门禁、pending dispatch corruption、completion discovery/replacement takeover/double hash与typed mission-complete focused回归通过；受影响`currentloop/mission/memberexecution/externalsession/subagents/workstream/cli`完整包测试最终通过（CLI 209.641秒）。独立终审发现relay非前缀补齐与pending handoff非exact两项Important，已增加全写集preflight、canonical dispatch重建及反例并由原审查者逐项复核关闭，无剩余高置信Critical/Important。修复后完整`go test ./... -count=1`通过（CLI 210.838秒），`go vet ./...`、status、10-pack packs、doctor、PowerShell façade smoke、canonical skill预算32742/32768 bytes与`git diff --check`通过。完成态`release-check -Format json`返回`ready=true` / `summary=release gate inventory ok`；implementation commit/push待记录，普通batch不等待或声明remote CI green。
+验证结果：临时真实Git repo覆盖pre-run snapshot、Git-local零tracked污染、`core.autocrlf=true`下工作树bytes→clean-filter blob→direct commit acceptance、Batch 817+无receipt/prose-complete/旧schema/tamper/stale/artifact drift/unbound extra commit fail-closed、strict同批repair acceptance及Batch 816 legacy prose兼容；Windows原子替换成功与失败保留旧receipt均有专项回归。首轮完整`release-run`以7/7通过后，implementation commit `6c680c4`已推送；fresh post-push检查真实暴露旧v1 validator把工作树bytes与normalized Git blob直接比较的Windows误拒绝，现已改为v2双绑定且不force-push。修复后focused与受影响四包完整回归通过（releasecheck 36.013秒、CLI 227.542秒），全仓`go test ./... -count=1`通过（CLI 230.267秒），`go vet ./...`、status、10-pack packs、doctor、canonical skill预算32759/32768 bytes与`git diff --check`通过。独立终审发现并关闭worktree bytes复验、Windows tracked executable mode、validated HEAD精确绑定和含空白Git路径NUL解析四项Important，终复核无剩余高置信Critical/Important。repair commit `284c5ea`已推送；fresh `release-check`确认`main == origin/main`、`localValidationReceipt.ready=true`、`postPushReceipt.ready=true`、cadence=`complete`、`nextBatchSelectionPackage.ready=true`，并已无等待remote workflow地交棒Batch 818。普通batch不等待或声明remote CI green。
 
 ## 活动文档维护规则
 

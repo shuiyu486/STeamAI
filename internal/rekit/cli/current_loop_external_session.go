@@ -57,7 +57,9 @@ func runCurrentLoopExternalSessionRelay(ctx runtime.Context, opt Options, out io
 		plan.ApplyCommand = externalSessionRelayApplyCommand(plan)
 		return writeJSON(out, plan)
 	}
-	applied, err := externalsession.Apply(plan, opt.ExpectedExternalSessionJobSHA256, opt.ExpectedExternalSessionSubmissionSHA256, opt.ExpectedExternalSessionRelayPlanSHA256)
+	applied, err := externalsession.ApplyCurrent(plan, opt.ExpectedExternalSessionJobSHA256, opt.ExpectedExternalSessionSubmissionSHA256, opt.ExpectedExternalSessionRelayPlanSHA256, func() (externalsession.Job, error) {
+		return currentExternalSessionJob(ctx, opt)
+	})
 	if err != nil {
 		return err
 	}
@@ -76,6 +78,21 @@ type currentLoopExternalSessionRelayResult struct {
 	RefreshedStatus *statusInventory `json:"refreshedStatus,omitempty"`
 }
 
+func currentExternalSessionJob(ctx runtime.Context, opt Options) (externalsession.Job, error) {
+	status, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+	if err != nil {
+		return externalsession.Job{}, err
+	}
+	if status.MissionControlRunbook == nil || status.MissionControlRunbook.CurrentLoopOperator == nil || status.MissionControlRunbook.CurrentLoopOperator.ExternalSessionJob == nil || status.MissionControlRunbook.CurrentLoopSegment == nil {
+		return externalsession.Job{}, fmt.Errorf("current externalSessionJob is unavailable")
+	}
+	checkpoint := status.MissionControlRunbook.CurrentLoopSegment
+	if !checkpoint.Ready || checkpoint.State != "ready" {
+		return externalsession.Job{}, fmt.Errorf("current externalSessionJob checkpoint is not ready")
+	}
+	return externalSessionJobFor(ctx.Target, status.MissionControlRunbook.CurrentLoopOperator, *checkpoint)
+}
+
 func bindExternalSessionJob(target string, pkg *mission.CurrentLoopOperatorPackage, inspection currentloop.Inspection) {
 	if pkg == nil || !inspection.Ready || inspection.State != "ready" || inspection.Continuation == nil || inspection.Continuation.ObservationContract == nil {
 		return
@@ -88,7 +105,24 @@ func bindExternalSessionJob(target string, pkg *mission.CurrentLoopOperatorPacka
 	if err != nil {
 		return
 	}
+	attempt, err := externalsession.InspectAttempt(job)
+	if err != nil {
+		return
+	}
 	typed := missionExternalSessionJob(inspected)
+	typed.AttemptState = attempt.State
+	if attempt.Current != nil {
+		typed.CurrentAttempt = &mission.CurrentLoopExternalSessionAttempt{
+			AttemptID: attempt.Current.AttemptID, AttemptSHA256: attempt.AttemptSHA256,
+			Generation: attempt.Current.Generation, Harness: attempt.Current.Harness, Session: attempt.Current.Session,
+			Actor: attempt.Current.Actor, StartedAt: attempt.Current.StartedAt, SupersedesSHA256: attempt.Current.SupersedesSHA256,
+			Path: attempt.Path, SubmissionPath: attempt.Current.SubmissionPath,
+			SubmissionOutputs: attempt.Current.SubmissionOutputs, SubmissionResult: attempt.Current.SubmissionResult,
+		}
+		typed.SubmissionPath = attempt.Current.SubmissionPath
+		typed.SubmissionOutputs = attempt.Current.SubmissionOutputs
+		typed.SubmissionResult = attempt.Current.SubmissionResult
+	}
 	pkg.ExternalSessionJob = &typed
 	if pkg.ObservationInbox != nil && pkg.ObservationInbox.State != "empty" {
 		return
@@ -108,16 +142,37 @@ func bindExternalSessionJob(target string, pkg *mission.CurrentLoopOperatorPacka
 			"use externalSessionJob.relayPreviewRequest only for relay-only recovery or diagnosis",
 		}
 	case "awaiting-submission":
-		pkg.RunbookSteps = mission.UniqueStrings(append(pkg.RunbookSteps,
-			"use externalSessionJob as the typed producer contract for the current member/reviewer handoff",
-			"write outputs or reviewer-result first, then write submissionPath last as the commit point",
-			"refresh status; do not hand-author an observation envelope, member manifest, or reviewer relay source",
-		))
+		attemptRequest := externalSessionAttemptRequest(job, inspected.JobSHA256, attempt)
+		typed.AttemptRequest = &attemptRequest
+		pkg.ExternalSessionJob = &typed
+		pkg.SelectedDriverRequest = &attemptRequest
+		if attempt.Current == nil {
+			pkg.State = "external-session-ready-for-attempt"
+			pkg.RunbookSteps = mission.UniqueStrings(append(pkg.RunbookSteps,
+				"review the externalSessionJob attemptRequest and substitute a concrete harness/session/actor/startedAt before WhatIf",
+				"review and Apply the returned exact attempt hash; the external harness starts the session outside the Go runtime",
+				"write outputs or reviewer-result first, then write submissionPath last with the current attempt identity",
+			))
+		} else {
+			pkg.State = "external-session-running"
+			pkg.RunbookSteps = mission.UniqueStrings(append(pkg.RunbookSteps,
+				"the current durable attempt owns this job; wait for its submission or explicitly record a replacement attempt",
+				"a replacement must use attemptRequest with the exact current attempt sha256 and a distinct harness or session",
+				"write outputs or reviewer-result first, then write submissionPath last with the current attempt identity",
+			))
+		}
 	case "invalid":
 		pkg.Ready = false
 		pkg.State = "external-session-submission-invalid"
-		pkg.SelectedDriverRequest = nil
 		pkg.ResumeDriverRequest = nil
+		if attempt.Current != nil {
+			replacementRequest := externalSessionAttemptRequest(job, inspected.JobSHA256, attempt)
+			typed.AttemptRequest = &replacementRequest
+			pkg.ExternalSessionJob = &typed
+			pkg.SelectedDriverRequest = &replacementRequest
+		} else {
+			pkg.SelectedDriverRequest = nil
+		}
 		pkg.Boundary = mission.UniqueStrings(append(pkg.Boundary, inspected.Warnings...))
 	}
 }
@@ -136,12 +191,18 @@ func externalSessionJobFor(target string, pkg *mission.CurrentLoopOperatorPackag
 		return externalsession.Job{}, fmt.Errorf("external session job requires a current member or reviewer handoff")
 	}
 	attempt := pkg.ExternalReviewerHandoff.Attempt
-	return externalsession.NewReviewerJob(target, pkg.Pack, inspection.ArtifactSHA256, externalsession.ReviewerIdentity{
+	reviewer := externalsession.ReviewerIdentity{
 		AttemptSHA256: attempt.AttemptSnapshotSHA256,
 		PacketID:      attempt.Identity.PacketID,
 		RouteID:       attempt.Identity.RouteID,
 		ShardID:       attempt.Identity.ShardID,
-	}, allowed)
+	}
+	if attempt.Receipt.DispatchID != "" {
+		reviewer.DispatchID = attempt.Receipt.DispatchID
+		reviewer.Harness = attempt.Receipt.Harness
+		reviewer.Session = attempt.Receipt.Session
+	}
+	return externalsession.NewReviewerJob(target, pkg.Pack, inspection.ArtifactSHA256, reviewer, allowed)
 }
 
 func currentLoopExternalSessionAllowedOutcomes(inspection currentloop.Inspection) []string {
@@ -177,7 +238,10 @@ func missionExternalSessionJob(inspection externalsession.Inspection) mission.Cu
 		typed.MemberOwner = &mission.CurrentLoopExternalSessionJobOwner{Lane: job.MemberOwner.Lane, Executor: job.MemberOwner.Executor, ExecutorGeneration: job.MemberOwner.ExecutorGeneration}
 	}
 	if job.Reviewer != nil {
-		typed.Reviewer = &mission.CurrentLoopExternalSessionJobReviewer{AttemptSHA256: job.Reviewer.AttemptSHA256, PacketID: job.Reviewer.PacketID, RouteID: job.Reviewer.RouteID, ShardID: job.Reviewer.ShardID}
+		typed.Reviewer = &mission.CurrentLoopExternalSessionJobReviewer{
+			AttemptSHA256: job.Reviewer.AttemptSHA256, PacketID: job.Reviewer.PacketID, RouteID: job.Reviewer.RouteID, ShardID: job.Reviewer.ShardID,
+			DispatchID: job.Reviewer.DispatchID, Harness: job.Reviewer.Harness, Session: job.Reviewer.Session,
+		}
 	}
 	return typed
 }

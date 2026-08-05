@@ -76,8 +76,15 @@ param(
   [string]$CurrentLoopObservationPath = '',
   [string]$ExpectedCurrentLoopObservationSha256 = '',
   [switch]$ResumeCurrentLoop,
+  [switch]$RecordExternalSessionAttempt,
   [switch]$RelayExternalSessionSubmission,
   [switch]$AdvanceExternalSessionResult,
+  [string]$ExternalSessionHarness = '',
+  [string]$ExternalSessionId = '',
+  [string]$ExternalSessionActor = '',
+  [string]$ExternalSessionStartedAt = '',
+  [string]$ExpectedExternalSessionAttemptSha256 = '',
+  [string]$ExpectedExternalSessionAttemptPlanSha256 = '',
   [string]$ExpectedExternalSessionJobSha256 = '',
   [string]$ExpectedExternalSessionSubmissionSha256 = '',
   [string]$ExpectedExternalSessionRelayPlanSha256 = '',
@@ -218,15 +225,21 @@ function Test-RekitGoDelegationSafe {
     }
     'run-current-loop' {
       foreach ($key in $script:PSBoundParameters.Keys) {
-        if (@('Command','Target','Pack','MaxSteps','WhatIf','Apply','Format','ExpectedCurrentLoopPlanSha256','ExpectedCurrentLoopCheckpointSha256','ExpectedCurrentLoopReviewerAttemptSha256','CurrentLoopObservationPath','ExpectedCurrentLoopObservationSha256','ResumeCurrentLoop','RelayExternalSessionSubmission','AdvanceExternalSessionResult','ExpectedExternalSessionJobSha256','ExpectedExternalSessionSubmissionSha256','ExpectedExternalSessionRelayPlanSha256','ExpectedExternalSessionTurnPlanSha256','ExpectedMemberExecutionPlanSha256','MemberExecutionAttemptId','MemberExecutionOutcome','MemberExecutionReason','MemberExecutionObservedAt','Actor','ReviewerResultInputSourcePath','ReviewerHarness','ReviewerSession','ReviewerOutcome','ReviewerExitStatus') -notcontains [string]$key) { return $false }
+        if (@('Command','Target','Pack','MaxSteps','WhatIf','Apply','Format','ExpectedCurrentLoopPlanSha256','ExpectedCurrentLoopCheckpointSha256','ExpectedCurrentLoopReviewerAttemptSha256','CurrentLoopObservationPath','ExpectedCurrentLoopObservationSha256','ResumeCurrentLoop','RecordExternalSessionAttempt','RelayExternalSessionSubmission','AdvanceExternalSessionResult','ExternalSessionHarness','ExternalSessionId','ExternalSessionActor','ExternalSessionStartedAt','ExpectedExternalSessionAttemptSha256','ExpectedExternalSessionAttemptPlanSha256','ExpectedExternalSessionJobSha256','ExpectedExternalSessionSubmissionSha256','ExpectedExternalSessionRelayPlanSha256','ExpectedExternalSessionTurnPlanSha256','ExpectedMemberExecutionPlanSha256','MemberExecutionAttemptId','MemberExecutionOutcome','MemberExecutionReason','MemberExecutionObservedAt','Actor','ReviewerResultInputSourcePath','ReviewerHarness','ReviewerSession','ReviewerOutcome','ReviewerExitStatus') -notcontains [string]$key) { return $false }
       }
       if ([string]::IsNullOrWhiteSpace($Target)) { return $false }
       if ((-not $ResumeCurrentLoop) -and ($MaxSteps -lt 1 -or $MaxSteps -gt 20)) { return $false }
       if ($ResumeCurrentLoop -and $script:PSBoundParameters.ContainsKey('MaxSteps')) { return $false }
       if ($WhatIf -and $Apply) { return $false }
       if ((-not $WhatIf) -and (-not $Apply)) { return $false }
-      if ($RelayExternalSessionSubmission -and $AdvanceExternalSessionResult) { return $false }
-      if ($RelayExternalSessionSubmission -or $AdvanceExternalSessionResult) {
+      if ((@($RecordExternalSessionAttempt.IsPresent,$RelayExternalSessionSubmission.IsPresent,$AdvanceExternalSessionResult.IsPresent) | Where-Object { $_ }).Count -gt 1) { return $false }
+      if ($RecordExternalSessionAttempt) {
+        if (-not $ResumeCurrentLoop -or [string]::IsNullOrWhiteSpace($ExpectedCurrentLoopCheckpointSha256) -or [string]::IsNullOrWhiteSpace($ExpectedExternalSessionJobSha256)) { return $false }
+        if ([string]::IsNullOrWhiteSpace($ExternalSessionHarness) -or [string]::IsNullOrWhiteSpace($ExternalSessionId) -or [string]::IsNullOrWhiteSpace($ExternalSessionActor) -or [string]::IsNullOrWhiteSpace($ExternalSessionStartedAt)) { return $false }
+        if (-not [string]::IsNullOrWhiteSpace($ExpectedCurrentLoopPlanSha256)) { return $false }
+        if ($WhatIf -and -not [string]::IsNullOrWhiteSpace($ExpectedExternalSessionAttemptPlanSha256)) { return $false }
+        if ($Apply -and [string]::IsNullOrWhiteSpace($ExpectedExternalSessionAttemptPlanSha256)) { return $false }
+      } elseif ($RelayExternalSessionSubmission -or $AdvanceExternalSessionResult) {
         if (-not $ResumeCurrentLoop -or [string]::IsNullOrWhiteSpace($ExpectedCurrentLoopCheckpointSha256) -or [string]::IsNullOrWhiteSpace($ExpectedExternalSessionJobSha256)) { return $false }
         if (-not [string]::IsNullOrWhiteSpace($ExpectedCurrentLoopPlanSha256)) { return $false }
         if ($WhatIf -and ((-not [string]::IsNullOrWhiteSpace($ExpectedExternalSessionSubmissionSha256)) -or (-not [string]::IsNullOrWhiteSpace($ExpectedExternalSessionRelayPlanSha256)) -or (-not [string]::IsNullOrWhiteSpace($ExpectedExternalSessionTurnPlanSha256)))) { return $false }
@@ -604,8 +617,15 @@ function Get-RekitGoArgs {
     Add-RekitGoArg ([ref]$goArgs) '-CurrentLoopObservationPath' (Resolve-RekitCallerPath $CurrentLoopObservationPath)
     Add-RekitGoArg ([ref]$goArgs) '-ExpectedCurrentLoopObservationSha256' $ExpectedCurrentLoopObservationSha256
     Add-RekitGoSwitch ([ref]$goArgs) '-ResumeCurrentLoop' $ResumeCurrentLoop.IsPresent
+    Add-RekitGoSwitch ([ref]$goArgs) '-RecordExternalSessionAttempt' $RecordExternalSessionAttempt.IsPresent
     Add-RekitGoSwitch ([ref]$goArgs) '-RelayExternalSessionSubmission' $RelayExternalSessionSubmission.IsPresent
     Add-RekitGoSwitch ([ref]$goArgs) '-AdvanceExternalSessionResult' $AdvanceExternalSessionResult.IsPresent
+    Add-RekitGoArg ([ref]$goArgs) '-ExternalSessionHarness' $ExternalSessionHarness
+    Add-RekitGoArg ([ref]$goArgs) '-ExternalSessionId' $ExternalSessionId
+    Add-RekitGoArg ([ref]$goArgs) '-ExternalSessionActor' $ExternalSessionActor
+    Add-RekitGoArg ([ref]$goArgs) '-ExternalSessionStartedAt' $ExternalSessionStartedAt
+    Add-RekitGoArg ([ref]$goArgs) '-ExpectedExternalSessionAttemptSha256' $ExpectedExternalSessionAttemptSha256
+    Add-RekitGoArg ([ref]$goArgs) '-ExpectedExternalSessionAttemptPlanSha256' $ExpectedExternalSessionAttemptPlanSha256
     Add-RekitGoArg ([ref]$goArgs) '-ExpectedExternalSessionJobSha256' $ExpectedExternalSessionJobSha256
     Add-RekitGoArg ([ref]$goArgs) '-ExpectedExternalSessionSubmissionSha256' $ExpectedExternalSessionSubmissionSha256
     Add-RekitGoArg ([ref]$goArgs) '-ExpectedExternalSessionRelayPlanSha256' $ExpectedExternalSessionRelayPlanSha256

@@ -118,14 +118,17 @@ func runCurrentLoop(ctx runtime.Context, opt Options, out io.Writer) error {
 	if !ctx.TargetProvided {
 		return fmt.Errorf("run-current-loop requires -Target for an attached case")
 	}
+	if opt.RecordExternalSessionAttempt {
+		return runCurrentLoopExternalSessionAttempt(ctx, opt, out)
+	}
 	if opt.AdvanceExternalSessionResult {
 		return runCurrentLoopExternalSessionTurn(ctx, opt, out)
 	}
 	if opt.RelayExternalSessionSubmission {
 		return runCurrentLoopExternalSessionRelay(ctx, opt, out)
 	}
-	if strings.TrimSpace(opt.ExpectedExternalSessionJobSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionSubmissionSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionRelayPlanSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionTurnPlanSHA256) != "" {
-		return fmt.Errorf("external session hashes require -AdvanceExternalSessionResult or -RelayExternalSessionSubmission")
+	if strings.TrimSpace(opt.ExpectedExternalSessionJobSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionSubmissionSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionRelayPlanSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionTurnPlanSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionAttemptSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionAttemptPlanSHA256) != "" || strings.TrimSpace(opt.ExternalSessionHarness) != "" || strings.TrimSpace(opt.ExternalSessionID) != "" || strings.TrimSpace(opt.ExternalSessionActor) != "" || strings.TrimSpace(opt.ExternalSessionStartedAt) != "" {
+		return fmt.Errorf("external session fields require a result, relay, or attempt mode")
 	}
 	if opt.WhatIf && opt.Apply {
 		return fmt.Errorf("run-current-loop cannot combine -WhatIf and -Apply")
@@ -1076,6 +1079,12 @@ func validateCurrentLoopOuterArgs(opt Options) error {
 		"-currentloopobservationpath": true, "--current-loop-observation-path": true,
 		"-expectedcurrentloopobservationsha256": true, "--expected-current-loop-observation-sha256": true,
 		"-expectedexternalsessionjobsha256": true, "--expected-external-session-job-sha256": true,
+		"-externalsessionharness": true, "--external-session-harness": true,
+		"-externalsessionid": true, "--external-session-id": true,
+		"-externalsessionactor": true, "--external-session-actor": true,
+		"-externalsessionstartedat": true, "--external-session-started-at": true,
+		"-expectedexternalsessionattemptsha256": true, "--expected-external-session-attempt-sha256": true,
+		"-expectedexternalsessionattemptplansha256": true, "--expected-external-session-attempt-plan-sha256": true,
 		"-expectedexternalsessionsubmissionsha256": true, "--expected-external-session-submission-sha256": true,
 		"-expectedexternalsessionrelayplansha256": true, "--expected-external-session-relay-plan-sha256": true,
 		"-expectedexternalsessionturnplansha256": true, "--expected-external-session-turn-plan-sha256": true,
@@ -1097,6 +1106,7 @@ func validateCurrentLoopOuterArgs(opt Options) error {
 		"-resumecurrentloop": true, "--resume-current-loop": true,
 		"-relayexternalsessionsubmission": true, "--relay-external-session-submission": true,
 		"-advanceexternalsessionresult": true, "--advance-external-session-result": true,
+		"-recordexternalsessionattempt": true, "--record-external-session-attempt": true,
 	}
 	seen := map[string]bool{}
 	separatorSeen := false
@@ -1163,6 +1173,20 @@ func currentLoopCanonicalOuterFlag(key string) string {
 		return "-relayexternalsessionsubmission"
 	case "--advance-external-session-result":
 		return "-advanceexternalsessionresult"
+	case "--record-external-session-attempt":
+		return "-recordexternalsessionattempt"
+	case "--external-session-harness":
+		return "-externalsessionharness"
+	case "--external-session-id":
+		return "-externalsessionid"
+	case "--external-session-actor":
+		return "-externalsessionactor"
+	case "--external-session-started-at":
+		return "-externalsessionstartedat"
+	case "--expected-external-session-attempt-sha256":
+		return "-expectedexternalsessionattemptsha256"
+	case "--expected-external-session-attempt-plan-sha256":
+		return "-expectedexternalsessionattemptplansha256"
 	case "--expected-external-session-job-sha256":
 		return "-expectedexternalsessionjobsha256"
 	case "--expected-external-session-submission-sha256":

@@ -333,6 +333,24 @@ type CurrentLoopExternalSessionJobReviewer struct {
 	PacketID      string `json:"packetId"`
 	RouteID       string `json:"routeId"`
 	ShardID       string `json:"shardId"`
+	DispatchID    string `json:"dispatchId,omitempty"`
+	Harness       string `json:"harness,omitempty"`
+	Session       string `json:"session,omitempty"`
+}
+
+type CurrentLoopExternalSessionAttempt struct {
+	AttemptID         string `json:"attemptId"`
+	AttemptSHA256     string `json:"attemptSha256"`
+	Generation        int    `json:"generation"`
+	Harness           string `json:"harness"`
+	Session           string `json:"session"`
+	Actor             string `json:"actor"`
+	StartedAt         string `json:"startedAt"`
+	SupersedesSHA256  string `json:"supersedesSha256,omitempty"`
+	Path              string `json:"path"`
+	SubmissionPath    string `json:"submissionPath"`
+	SubmissionOutputs string `json:"submissionOutputs,omitempty"`
+	SubmissionResult  string `json:"submissionResult,omitempty"`
 }
 
 type CurrentLoopExternalSessionJob struct {
@@ -356,6 +374,9 @@ type CurrentLoopExternalSessionJob struct {
 	PublicationPath     string                                 `json:"publicationPath"`
 	ObservationPath     string                                 `json:"observationPath"`
 	SubmissionSHA256    string                                 `json:"submissionSha256,omitempty"`
+	AttemptState        string                                 `json:"attemptState"`
+	CurrentAttempt      *CurrentLoopExternalSessionAttempt     `json:"currentAttempt,omitempty"`
+	AttemptRequest      *MissionCommanderDriverRequest         `json:"attemptRequest,omitempty"`
 	RelayPreviewRequest *MissionCommanderDriverRequest         `json:"relayPreviewRequest,omitempty"`
 	Warnings            []string                               `json:"warnings,omitempty"`
 	SubmissionLast      bool                                   `json:"submissionLast"`

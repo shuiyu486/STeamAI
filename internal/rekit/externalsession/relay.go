@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewerresult"
 )
@@ -49,6 +51,10 @@ type publicationReceipt struct {
 	JobSHA256           string     `json:"jobSha256"`
 	CheckpointSHA256    string     `json:"checkpointSha256"`
 	SessionKind         string     `json:"sessionKind"`
+	AttemptID           string     `json:"attemptId"`
+	AttemptSHA256       string     `json:"attemptSha256"`
+	Harness             string     `json:"harness"`
+	Session             string     `json:"session"`
 	Outcome             string     `json:"outcome"`
 	Actor               string     `json:"actor"`
 	SubmissionPath      string     `json:"submissionPath"`
@@ -89,6 +95,9 @@ func NewReviewerJob(caseRoot, pack, checkpointSHA256 string, reviewer ReviewerId
 	if !validSHA(reviewer.AttemptSHA256) || reviewer.PacketID == "" || reviewer.RouteID == "" || reviewer.ShardID == "" {
 		return Job{}, fmt.Errorf("external reviewer job requires exact attempt, packet, route, and shard identity")
 	}
+	if !((reviewer.DispatchID == "" && reviewer.Harness == "" && reviewer.Session == "") || (reviewer.DispatchID != "" && reviewer.Harness != "" && reviewer.Session != "")) {
+		return Job{}, fmt.Errorf("external reviewer job dispatch identity must include dispatch, harness, and session together")
+	}
 	return job, nil
 }
 
@@ -124,7 +133,14 @@ func Inspect(job Job) (Inspection, error) {
 		return Inspection{}, err
 	}
 	inspection := Inspection{Job: job, JobSHA256: hash(jobBytes), State: "awaiting-submission"}
-	data, err := rekitfs.ReadStableRegularFileAnchored(job.CaseRoot, filepath.Join(job.CaseRoot, filepath.FromSlash(job.SubmissionPath)), "external session submission", maxSubmissionBytes)
+	attempt, err := InspectAttempt(job)
+	if err != nil {
+		return Inspection{}, err
+	}
+	if attempt.Current == nil {
+		return inspection, nil
+	}
+	data, err := rekitfs.ReadStableRegularFileAnchored(job.CaseRoot, filepath.Join(job.CaseRoot, filepath.FromSlash(attempt.Current.SubmissionPath)), "external session submission", maxSubmissionBytes)
 	if os.IsNotExist(err) {
 		return inspection, nil
 	}
@@ -161,7 +177,14 @@ func Preview(job Job) (Plan, error) {
 		return Plan{}, err
 	}
 	jobSHA := hash(jobBytes)
-	submissionPath := filepath.Join(job.CaseRoot, filepath.FromSlash(job.SubmissionPath))
+	attempt, err := InspectAttempt(job)
+	if err != nil {
+		return Plan{}, err
+	}
+	if attempt.Current == nil {
+		return Plan{}, fmt.Errorf("external session relay requires a current durable harness attempt")
+	}
+	submissionPath := filepath.Join(job.CaseRoot, filepath.FromSlash(attempt.Current.SubmissionPath))
 	submissionBytes, err := rekitfs.ReadStableRegularFileAnchored(job.CaseRoot, submissionPath, "external session submission", maxSubmissionBytes)
 	if err != nil {
 		return Plan{}, err
@@ -226,7 +249,7 @@ func Preview(job Job) (Plan, error) {
 		case "returned":
 			envelope.ObservationKind = "reviewer-result-returned"
 			envelope.ReviewerAttemptSHA256 = job.Reviewer.AttemptSHA256
-			resultPath := filepath.Join(job.CaseRoot, filepath.FromSlash(job.SubmissionResult))
+			resultPath := filepath.Join(job.CaseRoot, filepath.FromSlash(attempt.Current.SubmissionResult))
 			resultBytes, err := rekitfs.ReadStableRegularFileAnchored(job.CaseRoot, resultPath, "external reviewer result", reviewerresult.MaxBytes)
 			if err != nil {
 				return Plan{}, err
@@ -255,8 +278,10 @@ func Preview(job Job) (Plan, error) {
 	}
 	receipt := publicationReceipt{
 		SchemaVersion: SchemaVersion, Kind: KindReceipt, JobID: job.JobID, JobSHA256: jobSHA,
-		CheckpointSHA256: job.CheckpointSHA256, SessionKind: job.SessionKind, Outcome: submission.Outcome, Actor: submission.Actor,
-		SubmissionPath: job.SubmissionPath, SubmissionSHA256: plan.SubmissionSHA256, Artifacts: artifacts,
+		CheckpointSHA256: job.CheckpointSHA256, SessionKind: job.SessionKind,
+		AttemptID: submission.AttemptID, AttemptSHA256: submission.AttemptSHA256, Harness: submission.Harness, Session: submission.Session,
+		Outcome: submission.Outcome, Actor: submission.Actor,
+		SubmissionPath: attempt.Current.SubmissionPath, SubmissionSHA256: plan.SubmissionSHA256, Artifacts: artifacts,
 		ObservationPath: job.ObservationPath, ObservationSHA256: hash(envelopeBytes),
 		NoSessionManagement: true, NoHeavyTool: true, NoAuthority: true, NoConfirmed: true,
 	}
@@ -288,7 +313,26 @@ func Preview(job Job) (Plan, error) {
 	return plan, nil
 }
 
-func Apply(plan Plan, expectedJobSHA256, expectedSubmissionSHA256, expectedPlanSHA256 string) (Plan, error) {
+func Apply(plan Plan, expectedJobSHA256, expectedSubmissionSHA256, expectedPlanSHA256 string) (_ Plan, retErr error) {
+	return ApplyCurrent(plan, expectedJobSHA256, expectedSubmissionSHA256, expectedPlanSHA256, nil)
+}
+
+func ApplyCurrent(plan Plan, expectedJobSHA256, expectedSubmissionSHA256, expectedPlanSHA256 string, current func() (Job, error)) (_ Plan, retErr error) {
+	lease, err := lanemutation.AcquireProject(plan.Job.CaseRoot)
+	if err != nil {
+		return Plan{}, err
+	}
+	defer func() { retErr = errors.Join(retErr, lease.Unlock()) }()
+	if current != nil {
+		live, err := current()
+		if err != nil {
+			return Plan{}, err
+		}
+		liveSHA, err := jobSHA256(live)
+		if err != nil || !strings.EqualFold(liveSHA, plan.JobSHA256) {
+			return Plan{}, fmt.Errorf("external session relay job is no longer current")
+		}
+	}
 	fresh, err := Preview(plan.Job)
 	if err != nil {
 		return Plan{}, err
@@ -342,8 +386,12 @@ func Apply(plan Plan, expectedJobSHA256, expectedSubmissionSHA256, expectedPlanS
 }
 
 func memberResultWrites(job Job, submission Submission) ([]plannedWrite, plannedWrite, []Artifact, error) {
-	sourceRoot := filepath.Join(job.CaseRoot, filepath.FromSlash(job.SubmissionOutputs))
-	paths, err := rekitfs.WalkRegularFilesAnchored(job.CaseRoot, job.SubmissionOutputs, "external member submission outputs", maxOutputs)
+	attempt, err := InspectAttempt(job)
+	if err != nil || attempt.Current == nil {
+		return nil, plannedWrite{}, nil, fmt.Errorf("external member outputs require a current durable harness attempt")
+	}
+	sourceRoot := filepath.Join(job.CaseRoot, filepath.FromSlash(attempt.Current.SubmissionOutputs))
+	paths, err := rekitfs.WalkRegularFilesAnchored(job.CaseRoot, attempt.Current.SubmissionOutputs, "external member submission outputs", maxOutputs)
 	if err != nil {
 		return nil, plannedWrite{}, nil, err
 	}
@@ -407,6 +455,13 @@ func validateSubmission(job Job, jobSHA string, submission Submission) error {
 	if submission.SchemaVersion != SchemaVersion || submission.Kind != KindSubmission || submission.JobID != job.JobID || !strings.EqualFold(submission.JobSHA256, jobSHA) || !slices.Contains(job.AllowedOutcomes, submission.Outcome) {
 		return fmt.Errorf("external session submission does not match the current job and allowed outcomes")
 	}
+	if job.Reviewer != nil && job.Reviewer.DispatchID != "" && (submission.Harness != job.Reviewer.Harness || submission.Session != job.Reviewer.Session) {
+		return fmt.Errorf("external reviewer submission does not match the accepted dispatch harness and session")
+	}
+	attempt, err := InspectAttempt(job)
+	if err != nil || attempt.Current == nil || attempt.State != "running" || submission.AttemptID != attempt.Current.AttemptID || !strings.EqualFold(submission.AttemptSHA256, attempt.AttemptSHA256) || submission.Harness != attempt.Current.Harness || submission.Session != attempt.Current.Session {
+		return fmt.Errorf("external session submission does not match the current durable harness attempt")
+	}
 	if strings.TrimSpace(submission.Actor) == "" || strings.ContainsAny(submission.Actor, "\r\n") || !submission.NoAuthorityOrConfirmed || !submission.NoHeavyTool {
 		return fmt.Errorf("external session submission requires a single-line actor and strict no-authority/no-heavy-tool boundaries")
 	}
@@ -429,12 +484,12 @@ func validateSubmission(job Job, jobSHA string, submission Submission) error {
 	}
 	switch submission.Outcome {
 	case "accepted":
-		if strings.TrimSpace(submission.ReviewerHarness) == "" || strings.TrimSpace(submission.ReviewerSession) == "" || submission.ReviewerExitStatus != "" {
-			return fmt.Errorf("accepted reviewer submission requires harness and session")
+		if strings.TrimSpace(submission.ReviewerHarness) == "" || strings.TrimSpace(submission.ReviewerSession) == "" || submission.ReviewerHarness != submission.Harness || submission.ReviewerSession != submission.Session || submission.ReviewerExitStatus != "" {
+			return fmt.Errorf("accepted reviewer submission requires the exact attempt harness and session")
 		}
 	case "returned":
-		if strings.TrimSpace(submission.ReviewerSession) == "" || submission.ReviewerExitStatus != "" {
-			return fmt.Errorf("returned reviewer submission requires the exact reviewer session")
+		if strings.TrimSpace(submission.ReviewerSession) == "" || submission.ReviewerSession != submission.Session || submission.ReviewerExitStatus != "" {
+			return fmt.Errorf("returned reviewer submission requires the exact attempt session")
 		}
 	case "failed":
 		if strings.TrimSpace(submission.ReviewerExitStatus) == "" || submission.ReviewerSession != "" {

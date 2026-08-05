@@ -146,6 +146,13 @@ type Options struct {
 	ResumeCurrentLoop                        bool
 	RelayExternalSessionSubmission           bool
 	AdvanceExternalSessionResult             bool
+	RecordExternalSessionAttempt             bool
+	ExternalSessionHarness                   string
+	ExternalSessionID                        string
+	ExternalSessionActor                     string
+	ExternalSessionStartedAt                 string
+	ExpectedExternalSessionAttemptSHA256     string
+	ExpectedExternalSessionAttemptPlanSHA256 string
 	ExpectedExternalSessionJobSHA256         string
 	ExpectedExternalSessionSubmissionSHA256  string
 	ExpectedExternalSessionRelayPlanSHA256   string
@@ -511,6 +518,44 @@ func Parse(args []string) (Options, error) {
 			opt.RelayExternalSessionSubmission = true
 		case "-AdvanceExternalSessionResult", "--advance-external-session-result":
 			opt.AdvanceExternalSessionResult = true
+		case "-RecordExternalSessionAttempt", "--record-external-session-attempt":
+			opt.RecordExternalSessionAttempt = true
+		case "-ExternalSessionHarness", "--external-session-harness":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExternalSessionHarness")
+			}
+			opt.ExternalSessionHarness = args[i]
+		case "-ExternalSessionId", "-ExternalSessionID", "--external-session-id":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExternalSessionId")
+			}
+			opt.ExternalSessionID = args[i]
+		case "-ExternalSessionActor", "--external-session-actor":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExternalSessionActor")
+			}
+			opt.ExternalSessionActor = args[i]
+		case "-ExternalSessionStartedAt", "--external-session-started-at":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExternalSessionStartedAt")
+			}
+			opt.ExternalSessionStartedAt = args[i]
+		case "-ExpectedExternalSessionAttemptSha256", "-ExpectedExternalSessionAttemptSHA256", "--expected-external-session-attempt-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedExternalSessionAttemptSha256")
+			}
+			opt.ExpectedExternalSessionAttemptSHA256 = args[i]
+		case "-ExpectedExternalSessionAttemptPlanSha256", "-ExpectedExternalSessionAttemptPlanSHA256", "--expected-external-session-attempt-plan-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedExternalSessionAttemptPlanSha256")
+			}
+			opt.ExpectedExternalSessionAttemptPlanSHA256 = args[i]
 		case "-ExpectedExternalSessionJobSha256", "-ExpectedExternalSessionJobSHA256", "--expected-external-session-job-sha256":
 			i++
 			if i >= len(args) {

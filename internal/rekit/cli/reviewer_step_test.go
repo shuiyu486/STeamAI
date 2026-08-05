@@ -270,7 +270,7 @@ func TestRunReviewerStepIntakesDirectResultAfterDispatchReceipt(t *testing.T) {
 	}
 	waitingOperator := waitingStatus.MissionControlRunbook.CurrentLoopOperator
 	waitingAttempt := waitingOperator.ExternalReviewerHandoff.Attempt
-	if waitingAttempt == nil || waitingAttempt.RunLoopStepID != "save-result-input" || waitingOperator.State != "checkpoint-resume-review-required" || waitingOperator.ResumeDriverRequest == nil {
+	if waitingAttempt == nil || waitingAttempt.RunLoopStepID != "save-result-input" || waitingOperator.State != "external-session-ready-for-attempt" || waitingOperator.ResumeDriverRequest == nil || waitingOperator.ExternalSessionJob == nil || waitingOperator.ExternalSessionJob.AttemptRequest == nil {
 		t.Fatalf("direct-write status omitted checkpoint-bound waiting attempt: %+v", waitingOperator)
 	}
 	if len(waitingOperator.ExternalReviewerHandoff.ObservationContract.Alternatives) != 2 {

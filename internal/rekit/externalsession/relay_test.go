@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
+	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewerresult"
 )
@@ -17,7 +18,7 @@ import (
 const testCheckpointSHA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 func TestMemberRelayPublishesManifestOutputsAndObservationLast(t *testing.T) {
-	caseRoot := t.TempDir()
+	caseRoot := externalSessionTestCaseRoot(t)
 	job, err := NewMemberJob(caseRoot, defaults.DefaultPack, testCheckpointSHA, "g000001-a000001-1234567890abcdef", memberexecution.Owner{Lane: "analysis", Executor: "member-a", ExecutorGeneration: 1}, ".rekit/lanes/analysis/member-executions/attempt/result/manifest.json", ".rekit/lanes/analysis/member-executions/attempt/result/outputs", []string{"accepted", "returned", "failed"})
 	if err != nil {
 		t.Fatal(err)
@@ -28,7 +29,7 @@ func TestMemberRelayPublishesManifestOutputsAndObservationLast(t *testing.T) {
 	}
 	writeTestFile(t, caseRoot, filepath.Join(job.SubmissionOutputs, "nested", "result.txt"), []byte("result\n"))
 	submission := Submission{SchemaVersion: 1, Kind: KindSubmission, JobID: job.JobID, JobSHA256: inspection.JobSHA256, Outcome: "returned", Actor: "harness-a", ObservedAt: "2026-08-04T12:00:00.0000000Z", Summary: "member returned bounded evidence", ReviewerItemsPath: "nested/result.txt", NoAuthorityOrConfirmed: true, NoHeavyTool: true}
-	writeTestJSON(t, caseRoot, job.SubmissionPath, submission)
+	writeTestSubmission(t, caseRoot, job, submission)
 	plan, err := Preview(job)
 	if err != nil {
 		t.Fatal(err)
@@ -60,7 +61,7 @@ func TestMemberRelayPublishesManifestOutputsAndObservationLast(t *testing.T) {
 }
 
 func TestMemberRelayRecoversExactPublishedPrefix(t *testing.T) {
-	caseRoot := t.TempDir()
+	caseRoot := externalSessionTestCaseRoot(t)
 	job, err := NewMemberJob(caseRoot, defaults.DefaultPack, testCheckpointSHA, "g000001-a000001-0123456789abcdef", memberexecution.Owner{Lane: "analysis", Executor: "member-a", ExecutorGeneration: 1}, ".rekit/member/manifest.json", ".rekit/member/outputs", []string{"returned"})
 	if err != nil {
 		t.Fatal(err)
@@ -70,7 +71,7 @@ func TestMemberRelayRecoversExactPublishedPrefix(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeTestFile(t, caseRoot, filepath.Join(job.SubmissionOutputs, "result.txt"), []byte("result\n"))
-	writeTestJSON(t, caseRoot, job.SubmissionPath, Submission{SchemaVersion: 1, Kind: KindSubmission, JobID: job.JobID, JobSHA256: inspection.JobSHA256, Outcome: "returned", Actor: "harness", ObservedAt: "2026-08-05T02:00:00Z", Summary: "done", NoAuthorityOrConfirmed: true, NoHeavyTool: true})
+	writeTestSubmission(t, caseRoot, job, Submission{SchemaVersion: 1, Kind: KindSubmission, JobID: job.JobID, JobSHA256: inspection.JobSHA256, Outcome: "returned", Actor: "harness", ObservedAt: "2026-08-05T02:00:00Z", Summary: "done", NoAuthorityOrConfirmed: true, NoHeavyTool: true})
 	plan, err := Preview(job)
 	if err != nil {
 		t.Fatal(err)
@@ -98,7 +99,7 @@ func TestMemberRelayRecoversExactPublishedPrefix(t *testing.T) {
 func TestMemberRelayRejectsNonPrefixPublicationBeforeWriting(t *testing.T) {
 	for _, existingIndex := range []int{1, 2, 3} {
 		t.Run(fmt.Sprintf("existing-%d", existingIndex), func(t *testing.T) {
-			caseRoot := t.TempDir()
+			caseRoot := externalSessionTestCaseRoot(t)
 			job, err := NewMemberJob(caseRoot, defaults.DefaultPack, testCheckpointSHA, "g000001-a000001-abcdef0123456789", memberexecution.Owner{Lane: "analysis", Executor: "member-a", ExecutorGeneration: 1}, ".rekit/member/manifest.json", ".rekit/member/outputs", []string{"returned"})
 			if err != nil {
 				t.Fatal(err)
@@ -108,7 +109,7 @@ func TestMemberRelayRejectsNonPrefixPublicationBeforeWriting(t *testing.T) {
 				t.Fatal(err)
 			}
 			writeTestFile(t, caseRoot, filepath.Join(job.SubmissionOutputs, "result.txt"), []byte("result\n"))
-			writeTestJSON(t, caseRoot, job.SubmissionPath, Submission{SchemaVersion: 1, Kind: KindSubmission, JobID: job.JobID, JobSHA256: inspection.JobSHA256, Outcome: "returned", Actor: "harness", ObservedAt: "2026-08-05T02:05:00Z", Summary: "done", NoAuthorityOrConfirmed: true, NoHeavyTool: true})
+			writeTestSubmission(t, caseRoot, job, Submission{SchemaVersion: 1, Kind: KindSubmission, JobID: job.JobID, JobSHA256: inspection.JobSHA256, Outcome: "returned", Actor: "harness", ObservedAt: "2026-08-05T02:05:00Z", Summary: "done", NoAuthorityOrConfirmed: true, NoHeavyTool: true})
 			plan, err := Preview(job)
 			if err != nil {
 				t.Fatal(err)
@@ -128,19 +129,23 @@ func TestMemberRelayRejectsNonPrefixPublicationBeforeWriting(t *testing.T) {
 }
 
 func TestMemberRelayRejectsSourceDriftAndExistingDifferentDestination(t *testing.T) {
-	caseRoot := t.TempDir()
+	caseRoot := externalSessionTestCaseRoot(t)
 	job, err := NewMemberJob(caseRoot, defaults.DefaultPack, testCheckpointSHA, "g000001-a000001-fedcba0987654321", memberexecution.Owner{Lane: "analysis", Executor: "member-a", ExecutorGeneration: 1}, ".rekit/member/manifest.json", ".rekit/member/outputs", []string{"returned"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	inspection, _ := Inspect(job)
 	writeTestFile(t, caseRoot, filepath.Join(job.SubmissionOutputs, "result.txt"), []byte("before\n"))
-	writeTestJSON(t, caseRoot, job.SubmissionPath, Submission{SchemaVersion: 1, Kind: KindSubmission, JobID: job.JobID, JobSHA256: inspection.JobSHA256, Outcome: "returned", Actor: "harness", ObservedAt: "2026-08-04T12:00:00Z", Summary: "done", NoAuthorityOrConfirmed: true, NoHeavyTool: true})
+	writeTestSubmission(t, caseRoot, job, Submission{SchemaVersion: 1, Kind: KindSubmission, JobID: job.JobID, JobSHA256: inspection.JobSHA256, Outcome: "returned", Actor: "harness", ObservedAt: "2026-08-04T12:00:00Z", Summary: "done", NoAuthorityOrConfirmed: true, NoHeavyTool: true})
 	plan, err := Preview(job)
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeTestFile(t, caseRoot, filepath.Join(job.SubmissionOutputs, "result.txt"), []byte("after\n"))
+	attempt, err := InspectAttempt(job)
+	if err != nil || attempt.Current == nil {
+		t.Fatalf("inspect source drift attempt: %+v err=%v", attempt, err)
+	}
+	writeTestFile(t, caseRoot, filepath.Join(attempt.Current.SubmissionOutputs, "result.txt"), []byte("after\n"))
 	if _, err := Apply(plan, plan.JobSHA256, plan.SubmissionSHA256, plan.ExpectedPlanSHA256); err == nil || !strings.Contains(err.Error(), "relay plan sha256 mismatch") {
 		t.Fatalf("source drift err=%v", err)
 	}
@@ -148,20 +153,66 @@ func TestMemberRelayRejectsSourceDriftAndExistingDifferentDestination(t *testing
 	os.Remove(filepath.Join(caseRoot, filepath.FromSlash(job.SubmissionOutputs), "result.txt"))
 }
 
+func TestRelayApplyRejectsStaleLiveJobBeforePublication(t *testing.T) {
+	caseRoot := externalSessionTestCaseRoot(t)
+	job, err := NewReviewerJob(caseRoot, defaults.DefaultPack, testCheckpointSHA, ReviewerIdentity{AttemptSHA256: strings.Repeat("b", 64), PacketID: "packet-a", RouteID: "route-a", ShardID: "shard-a"}, []string{"accepted"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inspection, _ := Inspect(job)
+	writeTestSubmission(t, caseRoot, job, Submission{SchemaVersion: 1, Kind: KindSubmission, JobID: job.JobID, JobSHA256: inspection.JobSHA256, Outcome: "accepted", Actor: "harness", ReviewerHarness: "harness", ReviewerSession: "session-test", NoAuthorityOrConfirmed: true, NoHeavyTool: true})
+	plan, err := Preview(job)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := job
+	stale.Reviewer = &ReviewerIdentity{AttemptSHA256: strings.Repeat("c", 64), PacketID: "packet-a", RouteID: "route-a", ShardID: "shard-a"}
+	if _, err := ApplyCurrent(plan, plan.JobSHA256, plan.SubmissionSHA256, plan.ExpectedPlanSHA256, func() (Job, error) { return stale, nil }); err == nil || !strings.Contains(err.Error(), "no longer current") {
+		t.Fatalf("stale relay error=%v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(caseRoot, filepath.FromSlash(job.PublicationPath))); !os.IsNotExist(err) {
+		t.Fatalf("stale relay published terminal receipt: %v", err)
+	}
+}
+
+func TestReviewerRelayRejectsAcceptedDispatchSessionMismatch(t *testing.T) {
+	caseRoot := externalSessionTestCaseRoot(t)
+	job, err := NewReviewerJob(caseRoot, defaults.DefaultPack, testCheckpointSHA, ReviewerIdentity{AttemptSHA256: strings.Repeat("b", 64), PacketID: "packet-a", RouteID: "route-a", ShardID: "shard-a", DispatchID: "dispatch-a", Harness: "claude-code", Session: "session-a"}, []string{"returned"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := PreviewAttempt(job, "claude-code", "session-a", "harness", "2026-08-05T01:00:00Z", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ApplyAttempt(plan, plan.JobSHA256, plan.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	attempt, _ := InspectAttempt(job)
+	writeTestJSON(t, caseRoot, attempt.Current.SubmissionPath, Submission{SchemaVersion: 1, Kind: KindSubmission, JobID: job.JobID, JobSHA256: plan.JobSHA256, Outcome: "returned", Actor: "harness", ReviewerSession: "session-b", AttemptID: attempt.Current.AttemptID, AttemptSHA256: attempt.AttemptSHA256, Harness: "claude-code", Session: "session-b", NoAuthorityOrConfirmed: true, NoHeavyTool: true})
+	inspection, err := Inspect(job)
+	if err != nil || inspection.State != "invalid" {
+		t.Fatalf("dispatch mismatch inspection=%+v err=%v", inspection, err)
+	}
+	if _, err := os.Lstat(filepath.Join(caseRoot, filepath.FromSlash(job.PublicationPath))); !os.IsNotExist(err) {
+		t.Fatalf("dispatch mismatch published terminal receipt: %v", err)
+	}
+}
+
 func TestReviewerRelayValidatesIdentityAndPublishesCanonicalSource(t *testing.T) {
-	caseRoot := t.TempDir()
+	caseRoot := externalSessionTestCaseRoot(t)
 	reviewer := ReviewerIdentity{AttemptSHA256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", PacketID: "packet-a", RouteID: "route-a", ShardID: "shard-a"}
 	job, err := NewReviewerJob(caseRoot, defaults.DefaultPack, testCheckpointSHA, reviewer, []string{"accepted", "returned", "failed"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	inspection, _ := Inspect(job)
-	resultBytes := []byte(`{"packetId":"packet-a","routeId":"route-a","shardId":"shard-a","items":["item-a"],"reviewerSession":"session-a","decision":"accept","confidence":"high","summary":"reviewed","evidenceRefs":["evidence:a"],"risks":[],"conflicts":[],"recommendedVerdict":"accept","routeOutput":{}}`)
+	resultBytes := []byte(`{"packetId":"packet-a","routeId":"route-a","shardId":"shard-a","items":["item-a"],"reviewerSession":"session-test","decision":"accept","confidence":"high","summary":"reviewed","evidenceRefs":["evidence:a"],"risks":[],"conflicts":[],"recommendedVerdict":"accept","routeOutput":{}}`)
 	if decoded, err := reviewerresult.Decode(resultBytes); err != nil || decoded.PacketID != reviewer.PacketID || decoded.RouteID != reviewer.RouteID || decoded.ShardID != reviewer.ShardID {
 		t.Fatalf("fixture decode=%+v err=%v", decoded, err)
 	}
 	writeTestFile(t, caseRoot, job.SubmissionResult, resultBytes)
-	writeTestJSON(t, caseRoot, job.SubmissionPath, Submission{SchemaVersion: 1, Kind: KindSubmission, JobID: job.JobID, JobSHA256: inspection.JobSHA256, Outcome: "returned", Actor: "harness", ReviewerSession: "session-a", NoAuthorityOrConfirmed: true, NoHeavyTool: true})
+	writeTestSubmission(t, caseRoot, job, Submission{SchemaVersion: 1, Kind: KindSubmission, JobID: job.JobID, JobSHA256: inspection.JobSHA256, Outcome: "returned", Actor: "harness", ReviewerSession: "session-test", NoAuthorityOrConfirmed: true, NoHeavyTool: true})
 	plan, err := Preview(job)
 	if err != nil {
 		t.Fatal(err)
@@ -187,18 +238,86 @@ func TestReviewerRelayValidatesIdentityAndPublishesCanonicalSource(t *testing.T)
 }
 
 func TestInspectRejectsUnknownSubmissionField(t *testing.T) {
-	caseRoot := t.TempDir()
+	caseRoot := externalSessionTestCaseRoot(t)
 	job, err := NewReviewerJob(caseRoot, defaults.DefaultPack, testCheckpointSHA, ReviewerIdentity{AttemptSHA256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", PacketID: "packet-a", RouteID: "route-a", ShardID: "shard-a"}, []string{"accepted"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	inspection, _ := Inspect(job)
-	data := []byte(`{"schemaVersion":1,"kind":"current-loop-external-session-submission","jobId":"` + job.JobID + `","jobSha256":"` + inspection.JobSHA256 + `","outcome":"accepted","actor":"harness","reviewerHarness":"claude","reviewerSession":"session-a","noAuthorityOrConfirmed":true,"noHeavyTool":true,"unexpected":true}`)
-	writeTestFile(t, caseRoot, job.SubmissionPath, data)
+	plan, err := PreviewAttempt(job, "claude", "session-test", "harness", "2026-08-05T01:00:00Z", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ApplyAttempt(plan, plan.JobSHA256, plan.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	data := []byte(`{"schemaVersion":1,"kind":"current-loop-external-session-submission","jobId":"` + job.JobID + `","jobSha256":"` + inspection.JobSHA256 + `","outcome":"accepted","actor":"harness","attemptId":"` + plan.Attempt.AttemptID + `","attemptSha256":"` + hash(plan.data) + `","harness":"claude","session":"session-test","reviewerHarness":"claude","reviewerSession":"session-test","noAuthorityOrConfirmed":true,"noHeavyTool":true,"unexpected":true}`)
+	writeTestFile(t, caseRoot, plan.Attempt.SubmissionPath, data)
 	inspection, err = Inspect(job)
 	if err != nil || inspection.State != "invalid" || len(inspection.Warnings) == 0 {
 		t.Fatalf("inspection=%+v err=%v", inspection, err)
 	}
+}
+
+func bindTestSubmissionAttempt(t *testing.T, job Job, submission *Submission) {
+	t.Helper()
+	inspection, err := InspectAttempt(job)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inspection.Current == nil {
+		plan, err := PreviewAttempt(job, submission.Actor, "session-test", submission.Actor, "2026-08-05T01:00:00Z", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := ApplyAttempt(plan, plan.JobSHA256, plan.ExpectedPlanSHA256); err != nil {
+			t.Fatal(err)
+		}
+		inspection, err = InspectAttempt(job)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	submission.AttemptID = inspection.Current.AttemptID
+	submission.AttemptSHA256 = inspection.AttemptSHA256
+	submission.Harness = inspection.Current.Harness
+	submission.Session = inspection.Current.Session
+	if job.SessionKind == "member" {
+		if paths, _ := rekitfs.WalkRegularFilesAnchored(job.CaseRoot, job.SubmissionOutputs, "test submission outputs", maxOutputs); len(paths) > 0 {
+			for _, source := range paths {
+				rel, _ := filepath.Rel(filepath.Join(job.CaseRoot, filepath.FromSlash(job.SubmissionOutputs)), source)
+				writeTestFile(t, job.CaseRoot, filepath.Join(inspection.Current.SubmissionOutputs, rel), readTestFile(t, job.CaseRoot, filepath.ToSlash(strings.TrimPrefix(source, job.CaseRoot+string(filepath.Separator)))))
+			}
+		}
+	} else if job.SubmissionResult != "" {
+		if data, err := os.ReadFile(filepath.Join(job.CaseRoot, filepath.FromSlash(job.SubmissionResult))); err == nil {
+			writeTestFile(t, job.CaseRoot, inspection.Current.SubmissionResult, data)
+		}
+	}
+	if job.SessionKind == "reviewer" && submission.ReviewerSession != "" {
+		submission.Session = submission.ReviewerSession
+		if submission.Session != inspection.Current.Session {
+			t.Fatalf("reviewer test session %s differs from attempt session %s", submission.Session, inspection.Current.Session)
+		}
+	}
+}
+
+func writeTestSubmission(t *testing.T, caseRoot string, job Job, submission Submission) {
+	t.Helper()
+	bindTestSubmissionAttempt(t, job, &submission)
+	inspection, err := InspectAttempt(job)
+	if err != nil || inspection.Current == nil {
+		t.Fatalf("inspect test submission attempt: %+v err=%v", inspection, err)
+	}
+	writeTestJSON(t, caseRoot, inspection.Current.SubmissionPath, submission)
+}
+
+func externalSessionTestCaseRoot(t *testing.T) string {
+	t.Helper()
+	caseRoot := t.TempDir()
+	writeTestFile(t, caseRoot, ".re-template.yml", []byte("template: true\n"))
+	writeTestFile(t, caseRoot, ".rekit/instance.yml", []byte("projectName: test\n"))
+	return caseRoot
 }
 
 func writeTestJSON(t *testing.T, caseRoot, rel string, value any) {

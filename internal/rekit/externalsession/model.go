@@ -14,6 +14,9 @@ type ReviewerIdentity struct {
 	PacketID      string `json:"packetId"`
 	RouteID       string `json:"routeId"`
 	ShardID       string `json:"shardId"`
+	DispatchID    string `json:"dispatchId,omitempty"`
+	Harness       string `json:"harness,omitempty"`
+	Session       string `json:"session,omitempty"`
 }
 
 type Job struct {
@@ -57,6 +60,10 @@ type Submission struct {
 	ReviewerHarness        string `json:"reviewerHarness,omitempty"`
 	ReviewerSession        string `json:"reviewerSession,omitempty"`
 	ReviewerExitStatus     string `json:"reviewerExitStatus,omitempty"`
+	AttemptID              string `json:"attemptId"`
+	AttemptSHA256          string `json:"attemptSha256"`
+	Harness                string `json:"harness"`
+	Session                string `json:"session"`
 	NoAuthorityOrConfirmed bool   `json:"noAuthorityOrConfirmed"`
 	NoHeavyTool            bool   `json:"noHeavyTool"`
 }
