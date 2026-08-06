@@ -1102,6 +1102,49 @@ func TestStatusMissionCommanderFirstScreenFocusRoutingReasons(t *testing.T) {
 	}
 }
 
+func TestStatusMissionCommanderFirstScreenFocusLetsBoundedReReviewSupersedeOpenDecisionReview(t *testing.T) {
+	caseAction := &mission.MissionCommanderNextActionItem{
+		Lane:           "feature-analysis",
+		State:          "needs-open-decision-review",
+		Source:         "missionCommanderActions",
+		RequiresReview: true,
+	}
+	reviewerAction := &mission.MissionCommanderNextActionItem{
+		Lane:           "feature-analysis",
+		State:          "ready-for-reviewer-dispatch",
+		Source:         "reviewerDispatchIntakeHandoffs",
+		RequiresReview: true,
+	}
+	if focus := statusMissionCommanderFirstScreenFocus(caseAction, reviewerAction, nil, nil, nil); focus != "reviewer-current-action" {
+		t.Fatalf("bounded re-review should supersede the earlier open decision review: focus=%s", focus)
+	}
+
+	for _, state := range []string{
+		"ready-for-reviewer-dispatch",
+		"ready-for-reviewer-completion-receipt-preview",
+		"ready-for-reviewer-result-source-capture-preview",
+		"ready-for-reviewer-result-staging-preview",
+		"ready-for-reviewer-result-collection-preview",
+		"ready-for-reviewer-intake-preview",
+	} {
+		reviewerAction.State = state
+		if focus := statusMissionCommanderFirstScreenFocus(caseAction, reviewerAction, nil, nil, nil); focus != "reviewer-current-action" {
+			t.Fatalf("bounded re-review state %q should supersede the earlier open decision review: focus=%s", state, focus)
+		}
+	}
+
+	reviewerAction.Lane = "feature-other"
+	if focus := statusMissionCommanderFirstScreenFocus(caseAction, reviewerAction, nil, nil, nil); focus != "case-current-action" {
+		t.Fatalf("unrelated reviewer work must not supersede open decision review: focus=%s", focus)
+	}
+
+	reviewerAction.Lane = "feature-analysis"
+	reviewerAction.Source = "other"
+	if focus := statusMissionCommanderFirstScreenFocus(caseAction, reviewerAction, nil, nil, nil); focus != "case-current-action" {
+		t.Fatalf("non-reviewer queue work must not supersede open decision review: focus=%s", focus)
+	}
+}
+
 func TestStatusMissionControlRunbookUsesCaseQueueForReviewerDispatchFocus(t *testing.T) {
 	action := mission.MissionCommanderNextActionItem{
 		Label:          "reviewer-dispatch",
@@ -13822,7 +13865,7 @@ func TestRunPlanSubagentsWritesReviewArtifacts(t *testing.T) {
 	if !strings.Contains(packet.Shards[0].Prompt, "Return one reviewer result JSON object") || strings.Contains(packet.Shards[0].Prompt, "Return the route output contract only") {
 		t.Fatalf("unexpected shard prompt: %+v", packet.Shards[0])
 	}
-	if firstHandoff.ShardID != "shard-01" || firstHandoff.Status != "planned" || strings.Join(firstHandoff.Items, ",") != "alpha,beta" || !strings.Contains(firstHandoff.DispatchPrompt, "read-only reviewer") || !strings.Contains(firstHandoff.DispatchPrompt, "Return exactly one reviewer result JSON object; do not return routeOutput alone") || !strings.Contains(firstHandoff.DispatchPrompt, "Reviewer result JSON skeleton:") || !strings.Contains(firstHandoff.DispatchPrompt, "\"packetId\":\"packet.packetId\"") || !strings.Contains(firstHandoff.DispatchPrompt, "Route output required fields: item=alpha,beta") || !strings.Contains(firstHandoff.DispatchPrompt, "tool_scope=read-only") || !strings.Contains(firstHandoff.DispatchPrompt, "Keep routeOutput.decision and routeOutput.confidence equal to the top-level decision/confidence") || !strings.Contains(firstHandoff.DispatchPrompt, "Do not write files") || !strings.Contains(firstHandoff.ExpectedOutput, "decision") || !strings.Contains(firstHandoff.ReviewerWriteback, "plan-subagents -ReviewerResultPath") || !strings.Contains(firstHandoff.MainAgentNextAction, "reviewerResultContract") || !strings.Contains(firstHandoff.MainAgentNextAction, "previewCommand") || !strings.Contains(firstHandoff.MainAgentNextAction, "applyCommand") || !slices.Contains(firstHandoff.ReadOnlyBoundary, "runtime does not spawn subagents") || !slices.Contains(firstHandoff.CompletionCriteria, "reviewer verdicts are recorded in the ledger before main merge decisions") || firstHandoff.FailureHandling == "" {
+	if firstHandoff.ShardID != "shard-01" || firstHandoff.Status != "planned" || strings.Join(firstHandoff.Items, ",") != "alpha,beta" || !strings.Contains(firstHandoff.DispatchPrompt, "read-only reviewer") || !strings.Contains(firstHandoff.DispatchPrompt, "Return exactly one reviewer result JSON object; do not return routeOutput alone") || !strings.Contains(firstHandoff.DispatchPrompt, "Reviewer result JSON shape template:") || !strings.Contains(firstHandoff.DispatchPrompt, "\"packetId\":\"packet.packetId\"") || !strings.Contains(firstHandoff.DispatchPrompt, "Route output required fields: item=alpha,beta") || !strings.Contains(firstHandoff.DispatchPrompt, "tool_scope=read-only") || !strings.Contains(firstHandoff.DispatchPrompt, "keep routeOutput.decision and routeOutput.confidence equal to the top-level decision/confidence") || !strings.Contains(firstHandoff.DispatchPrompt, "Do not write files") || !strings.Contains(firstHandoff.ExpectedOutput, "decision") || !strings.Contains(firstHandoff.ReviewerWriteback, "plan-subagents -ReviewerResultPath") || !strings.Contains(firstHandoff.MainAgentNextAction, "reviewerResultContract") || !strings.Contains(firstHandoff.MainAgentNextAction, "previewCommand") || !strings.Contains(firstHandoff.MainAgentNextAction, "applyCommand") || !slices.Contains(firstHandoff.ReadOnlyBoundary, "runtime does not spawn subagents") || !slices.Contains(firstHandoff.CompletionCriteria, "reviewer verdicts are recorded in the ledger before main merge decisions") || firstHandoff.FailureHandling == "" {
 		t.Fatalf("unexpected shard handoff: %+v", firstHandoff)
 	}
 	if firstHandoff.ReviewerResultContract.OutputFormat == "" || !slices.Contains(firstHandoff.ReviewerResultContract.RequiredFields, "reviewerSession") || !slices.Contains(firstHandoff.ReviewerResultContract.RequiredFields, "recommendedVerdict") || !slices.Contains(firstHandoff.ReviewerResultContract.RequiredFields, "routeOutput") || !slices.Contains(firstHandoff.ReviewerResultContract.AllowedDecisions, "needs-more-evidence") || !slices.Contains(firstHandoff.ReviewerResultContract.ConflictSignals, "reviewer requests file writes, ledger append, authority/confirmed changes, heavy tools, or external effects") {

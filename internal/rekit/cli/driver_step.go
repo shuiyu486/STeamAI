@@ -704,6 +704,17 @@ func joinDriverCommand(fields []string) string {
 	return strings.Join(out, " ")
 }
 
+func SplitPublicCommand(command string) ([]string, error) {
+	fields, err := splitDriverCommand(command)
+	if err != nil {
+		return nil, err
+	}
+	if len(fields) < 2 || fields[0] != "/rekit" || strings.TrimSpace(fields[1]) == "" {
+		return nil, fmt.Errorf("public driver command must begin with /rekit <command>")
+	}
+	return append([]string{"-Command", fields[1]}, fields[2:]...), nil
+}
+
 func splitDriverCommand(command string) ([]string, error) {
 	command = strings.TrimSpace(command)
 	if command == "" {

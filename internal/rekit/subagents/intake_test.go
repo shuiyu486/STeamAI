@@ -843,7 +843,7 @@ func TestIntakeReviewerResultWhatIfAndApply(t *testing.T) {
 	if preview.Command != commandName || preview.Mode != "reviewer-intake" || preview.IsMutation || preview.Applied || preview.WritebackStatus != "previewed" || !preview.ReadyForWriteback || !preview.ReviewRequired || preview.Verification == nil || preview.Decision == nil || preview.PostValidation == nil || !preview.PostValidation.Valid {
 		t.Fatalf("unexpected intake preview: %+v", preview)
 	}
-	if preview.Verification.Applied || preview.Decision.Applied || preview.Verification.Reason != "what-if" || preview.Decision.Reason != "what-if" || preview.Verification.Event["verdict"] != "accepted" || preview.Decision.Event["decision"] != "accept" || preview.Verification.Event["reviewerSession"] != "reviewer-session-1" || preview.Verification.Event["ownerBindingMode"] != "unassigned-lane" || preview.Verification.Event["ownerBindingTarget"] != "devirt-main" {
+	if preview.Verification.Applied || preview.Decision.Applied || preview.Verification.Reason != "what-if" || preview.Decision.Reason != "what-if" || preview.Verification.Event["verdict"] != "accepted" || preview.Decision.Event["decision"] != "accept" || preview.Decision.Event["status"] != "resolved" || preview.Verification.Event["reviewerSession"] != "reviewer-session-1" || preview.Verification.Event["ownerBindingMode"] != "unassigned-lane" || preview.Verification.Event["ownerBindingTarget"] != "devirt-main" {
 		t.Fatalf("unexpected writeback previews: verification=%+v decision=%+v", preview.Verification, preview.Decision)
 	}
 	if preview.MissionCommanderAction.State != "ready-for-reviewer-intake-apply" || !strings.Contains(preview.MissionCommanderAction.PrimaryCommand, "-Apply -Format json") || !hasReviewerIntakeCommanderNextAction(preview.MissionCommanderNextActions, "reviewerIntake.previewed", preview.MissionCommanderAction.PrimaryCommand, false, true) || !hasReviewerIntakeCommanderNextAction(preview.MissionCommanderNextActions, "reviewerIntake.previewed.followUp", "/rekit handoff devirt-main", false, true) {
@@ -1019,6 +1019,16 @@ func readReviewerPacket(t *testing.T, packetPath string) Packet {
 		t.Fatal(err)
 	}
 	return packet
+}
+
+func TestReviewerDecisionStatusKeepsOnlyDeferredOutcomesOpen(t *testing.T) {
+	for decision, want := range map[string]string{
+		"accept": "resolved", "reject": "resolved", "supersede": "resolved", "defer": "open",
+	} {
+		if got := reviewerDecisionStatus(decision); got != want {
+			t.Fatalf("reviewerDecisionStatus(%q) = %q, want %q", decision, got, want)
+		}
+	}
 }
 
 func reviewerResultJSON(packetID, routeID, decision, verdict string, conflicts []string) []byte {

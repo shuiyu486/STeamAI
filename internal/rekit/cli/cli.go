@@ -28,6 +28,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/kitmutation"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/laneid"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
@@ -6987,6 +6988,7 @@ func statusMissionCommanderFirstScreenFocus(caseCurrent, reviewerCurrent, projec
 			bestPriority = priority
 		}
 	}
+	reviewerSupersedesOpenDecision := statusReviewerDispatchSupersedesOpenDecisionReview(caseCurrent, reviewerCurrent)
 	if caseCurrent != nil {
 		if statusMissionCommanderActionIsReviewerDispatch(caseCurrent) {
 			consider("reviewer-current-action", statusReviewerDispatchFirstScreenPriority(caseCurrent))
@@ -6995,7 +6997,11 @@ func statusMissionCommanderFirstScreenFocus(caseCurrent, reviewerCurrent, projec
 		}
 	}
 	if reviewerCurrent != nil {
-		consider("reviewer-current-action", statusReviewerDispatchFirstScreenPriority(reviewerCurrent))
+		priority := statusReviewerDispatchFirstScreenPriority(reviewerCurrent)
+		if reviewerSupersedesOpenDecision {
+			priority = -1
+		}
+		consider("reviewer-current-action", priority)
 	}
 	if packCurrent != nil {
 		consider("pack-memory-current-action", statusPackMemoryFirstScreenPriority(projectHandoff, packCurrent))
@@ -7142,6 +7148,15 @@ func statusMissionCommanderFirstScreenFocusRoutingReasons(focus string, caseCurr
 
 func statusMissionCommanderActionIsReviewerDispatch(action *mission.MissionCommanderNextActionItem) bool {
 	return action != nil && action.Source == "reviewerDispatchIntakeHandoffs"
+}
+
+func statusReviewerDispatchSupersedesOpenDecisionReview(caseCurrent, reviewerCurrent *mission.MissionCommanderNextActionItem) bool {
+	if caseCurrent == nil || reviewerCurrent == nil || caseCurrent.Source != "missionCommanderActions" || caseCurrent.State != "needs-open-decision-review" {
+		return false
+	}
+	return statusMissionCommanderActionIsReviewerDispatch(reviewerCurrent) &&
+		strings.TrimSpace(caseCurrent.Lane) != "" &&
+		strings.TrimSpace(caseCurrent.Lane) == strings.TrimSpace(reviewerCurrent.Lane)
 }
 
 func statusReviewerDispatchCurrentActionNeedsAttention(action *mission.MissionCommanderNextActionItem) bool {
@@ -8682,10 +8697,18 @@ func statusCaseMissionIntentStartAction(repoRoot, caseRoot, pack string, identit
 	if err != nil {
 		return mission.MissionCommanderNextActionItem{}, err
 	}
-	label := identity.InitialLane
 	defaultType := strings.TrimSpace(m.WorkstreamDefaults["defaultStartLaneType"])
-	if prefix := defaultType + "-"; strings.HasPrefix(identity.InitialLane, prefix) {
-		label = strings.TrimPrefix(identity.InitialLane, prefix)
+	label, ok := laneid.Label(defaultType, identity.InitialLane)
+	if !ok {
+		for _, laneType := range m.LaneTypes {
+			if laneType.Authority && laneType.ID == identity.InitialLane {
+				label, ok = identity.InitialLane, true
+				break
+			}
+		}
+	}
+	if !ok {
+		return mission.MissionCommanderNextActionItem{}, fmt.Errorf("committed InitialLane %q cannot round-trip through pack %q default start lane type %q", identity.InitialLane, pack, defaultType)
 	}
 	command := fmt.Sprintf("/rekit start -Target %s %s -Executor %s -Actor %s -WhatIf -Format json", statusQuoteCommandArg(caseRoot), statusQuoteCommandArg(label), statusQuoteCommandArg(identity.Executor), statusQuoteCommandArg(identity.Actor))
 	return mission.MissionCommanderNextActionItem{

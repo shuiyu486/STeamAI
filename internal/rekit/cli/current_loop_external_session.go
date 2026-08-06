@@ -302,17 +302,23 @@ func externalSessionHarnessPackage(job externalsession.Job, inspection externals
 			pkg.Warnings = append(pkg.Warnings, "current durable member handoff is unavailable; refresh status and do not launch")
 			break
 		}
-		input.Path = operator.ExternalMemberHandoff.HandoffPath
-		data, err := rekitfs.ReadStableRegularFileAnchored(job.CaseRoot, externalSessionHarnessInputPath(job.CaseRoot, input.Path), "external member harness input", 1<<20)
-		if err != nil {
+		input.Path = operator.ExternalMemberHandoff.TaskContextPath
+		input.SHA256 = operator.ExternalMemberHandoff.TaskContextSHA256
+		memberInspection, err := memberexecution.Inspect(job.CaseRoot, operator.ExternalMemberHandoff.Lane, operator.ExternalMemberHandoff.AttemptID)
+		if err != nil || memberexecution.ValidateCurrentTaskContext(job.CaseRoot, memberInspection) != nil {
 			launch.Ready = false
-			pkg.Warnings = append(pkg.Warnings, "current durable member handoff cannot be read as a stable case-anchored regular file; refresh status and do not launch")
+			pkg.Warnings = append(pkg.Warnings, "current immutable member task context is stale; refresh status and do not launch")
 			break
 		}
-		input.SHA256 = operator.ExternalMemberHandoff.HandoffSHA256
-		if input.SHA256 == "" || !strings.EqualFold(externalSessionBytesSHA(data), input.SHA256) {
+		data, err := rekitfs.ReadStableRegularFileAnchored(job.CaseRoot, externalSessionHarnessInputPath(job.CaseRoot, input.Path), "external member task context", 1<<20)
+		if err != nil {
 			launch.Ready = false
-			pkg.Warnings = append(pkg.Warnings, "current durable member handoff does not match its committed sha256; refresh status and do not launch")
+			pkg.Warnings = append(pkg.Warnings, "current immutable member task context cannot be read as a stable case-anchored regular file; refresh status and do not launch")
+			break
+		}
+		if input.Path == "" || input.SHA256 == "" || !strings.EqualFold(externalSessionBytesSHA(data), input.SHA256) {
+			launch.Ready = false
+			pkg.Warnings = append(pkg.Warnings, "current immutable member task context does not match its committed sha256; refresh status and do not launch")
 		}
 	case "reviewer":
 		launch.Tool = "Claude Code Agent"

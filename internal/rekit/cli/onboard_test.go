@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
 	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 )
@@ -127,6 +128,149 @@ func TestRunOnboardPreviewApplyStatusAndReplay(t *testing.T) {
 		t.Fatalf("committed replay not reported: %s", out.String())
 	}
 	assertSnapshotEqual(t, before, snapshotFiles(t, caseRoot))
+}
+
+func TestRunOnboardDefaultPackRoundTripsEmittedStartRoute(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "vmp-onboard-case")
+	base := []string{"-Command", "onboard", "-Target", caseRoot, "-Pack", defaults.DefaultPack, "-ProjectName", "vmp-journey", "-Goal", "opaque default-pack goal", "-Actor", "operator", "-Executor", "executor-a", "-InitialLane", "feature-analysis-live-check"}
+	var out bytes.Buffer
+	var onboard onboardCLIPlan
+	if err := Run(append(append([]string{}, base...), "-WhatIf", "-Format", "json"), &out); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(out.Bytes(), &onboard); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run(onboard.ApplyArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+
+	statusArgs := []string{"-Command", "status", "-Target", caseRoot, "-Pack", defaults.DefaultPack, "-Format", "json"}
+	var status struct {
+		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
+	}
+	out.Reset()
+	if err := Run(statusArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.MissionControlRunbook == nil || status.MissionControlRunbook.Quickstart == nil {
+		t.Fatalf("default-pack status omitted onboarding runbook: %+v", status.MissionControlRunbook)
+	}
+	overviewArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, status.MissionControlRunbook.Quickstart.CurrentDriverRequest)
+	if !ok {
+		t.Fatalf("default-pack overview route is not executable: %+v", status.MissionControlRunbook)
+	}
+	out.Reset()
+	if err := Run(overviewArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+
+	out.Reset()
+	if err := Run(statusArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.MissionControlRunbook == nil || status.MissionControlRunbook.Quickstart == nil {
+		t.Fatalf("default-pack status omitted start runbook: %+v", status.MissionControlRunbook)
+	}
+	startRequest := status.MissionControlRunbook.Quickstart.CurrentDriverRequest
+	if startRequest == nil || startRequest.Lane != "feature-analysis-live-check" || startRequest.Label != "analysis-live-check" || !strings.Contains(startRequest.Command, ` "analysis-live-check" `) {
+		t.Fatalf("default-pack status did not emit the exact round-trip start route: %+v", startRequest)
+	}
+	startPreviewArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, startRequest)
+	if !ok {
+		t.Fatalf("default-pack start preview route is not executable: %+v", startRequest)
+	}
+	var startPreview struct {
+		MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+	}
+	out.Reset()
+	if err := Run(startPreviewArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(out.Bytes(), &startPreview); err != nil {
+		t.Fatal(err)
+	}
+	startApplyArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, startPreview.MissionCommanderActionQueue.CurrentDriverRequest)
+	if !ok {
+		t.Fatalf("default-pack start preview omitted exact apply request: %+v", startPreview.MissionCommanderActionQueue)
+	}
+	startApplyArgs = append(startApplyArgs, "-Target", caseRoot, "-Pack", defaults.DefaultPack, "-Format", "json")
+	out.Reset()
+	if err := Run(startApplyArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+
+	lanePath := filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis-live-check", "lane.json")
+	laneBytes, err := os.ReadFile(lanePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lane struct {
+		ID                 string `json:"id"`
+		Type               string `json:"type"`
+		Name               string `json:"name"`
+		CurrentExecutor    string `json:"currentExecutor"`
+		ExecutorGeneration int    `json:"executorGeneration"`
+	}
+	if err := json.Unmarshal(laneBytes, &lane); err != nil {
+		t.Fatal(err)
+	}
+	if lane.ID != "feature-analysis-live-check" || lane.Type != "feature-analysis" || lane.Name != "analysis-live-check" || lane.CurrentExecutor != "executor-a" || lane.ExecutorGeneration != 1 {
+		t.Fatalf("default-pack initial lane did not preserve exact identity and owner: %+v", lane)
+	}
+
+	out.Reset()
+	if err := Run(statusArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.MissionControlRunbook == nil || status.MissionControlRunbook.Quickstart == nil {
+		t.Fatalf("default-pack status omitted post-start runbook: %+v", status.MissionControlRunbook)
+	}
+	current := status.MissionControlRunbook.Quickstart.CurrentDriverRequest
+	if current == nil || current.Lane != "feature-analysis-live-check" || !strings.Contains(current.Command, " analysis-live-check ") || !strings.Contains(current.Command, "-Executor executor-a -ExpectedExecutorGeneration 1") {
+		t.Fatalf("default-pack status did not focus the owned initial feature lane after exact lane creation: %+v", current)
+	}
+	if current.Source == "committedMissionIntent" || strings.Contains(current.Command, "/rekit start ") {
+		t.Fatalf("default-pack status repeated committed mission-intent bootstrap after exact lane creation: %+v", current)
+	}
+
+	loop := runCurrentLoopResult(t, []string{"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", defaults.DefaultPack, "-MaxSteps", "2", "-WhatIf", "-Format", "json"})
+	if loop.InitialCurrentStep == nil || loop.InitialCurrentStep.MemberExecution == nil || loop.ExpectedCurrentLoopPlanSHA256 == "" {
+		t.Fatalf("default-pack current-loop preview omitted the owned member dispatch: %+v", loop)
+	}
+	memberPlan := loop.InitialCurrentStep.MemberExecution
+	appliedLoop := runCurrentLoopResult(t, []string{
+		"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", defaults.DefaultPack, "-MaxSteps", "2",
+		"-ExpectedMemberExecutionPlanSha256", memberPlan.ExpectedPlanSHA256,
+		"-ExpectedCurrentLoopPlanSha256", loop.ExpectedCurrentLoopPlanSHA256,
+		"-Apply", "-Format", "json",
+	})
+	if !appliedLoop.Applied || appliedLoop.AppliedSteps != 1 || appliedLoop.StopReason.Code != "external-member-handoff" || appliedLoop.SegmentCheckpoint == nil || !appliedLoop.SegmentCheckpoint.Ready || appliedLoop.SegmentCheckpoint.RemainingMaxSteps != 1 || appliedLoop.SegmentCheckpoint.StopCode != "external-member-handoff" {
+		t.Fatalf("default-pack current-loop did not publish the member handoff checkpoint: %+v", appliedLoop)
+	}
+
+	var durableStatus statusInventory
+	out.Reset()
+	if err := Run(statusArgs, &out); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(out.Bytes(), &durableStatus); err != nil {
+		t.Fatal(err)
+	}
+	operator := durableStatus.MissionControlRunbook.CurrentLoopOperator
+	if operator == nil || operator.ExternalMemberHandoff == nil || operator.ExternalSessionJob == nil || operator.ExternalSessionJob.State != "awaiting-submission" || operator.ExternalSessionJob.SessionKind != "member" || operator.ExternalSessionJob.MemberAttemptID != memberPlan.AttemptID {
+		t.Fatalf("default-pack status omitted the deterministic external member job: %+v", operator)
+	}
 }
 
 func TestRunStatusRecoversIntentFirstPendingWithoutInstanceMetadata(t *testing.T) {

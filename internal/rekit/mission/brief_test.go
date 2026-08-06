@@ -248,6 +248,37 @@ func TestMissionCommanderActionQueuePromotesActiveProjectWorkOverLaneContinue(t 
 	}
 }
 
+func TestMissionCommanderActionQueuePromotesOwnedLaneOverUnassignedAuthorityLane(t *testing.T) {
+	actions := []LaneExecutorActionSnapshot{
+		{
+			Lane:  "devirt-main",
+			Label: "main",
+			ExecutorAction: ExecutorAction{Ready: true, MissionCommanderAction: MissionCommanderAction{
+				State:          "ready-to-continue",
+				PrimaryCommand: "/rekit continue main",
+			}},
+		},
+		{
+			Lane:               "feature-analysis-live-acceptance",
+			Label:              "analysis-live-acceptance",
+			CurrentExecutor:    "live-member-generation-1",
+			ExecutorGeneration: 1,
+			ExecutorAction: ExecutorAction{Ready: true, MissionCommanderAction: MissionCommanderAction{
+				State:          "ready-to-continue",
+				PrimaryCommand: `/rekit continue analysis-live-acceptance -Executor "live-member-generation-1" -ExpectedExecutorGeneration 1`,
+			}},
+		},
+	}
+
+	queue := MissionCommanderActionQueueFor(MissionCommanderNextActions(actions, nil, false))
+	if queue.CurrentAction == nil || queue.CurrentAction.Lane != "feature-analysis-live-acceptance" || queue.CurrentAction.Command != `/rekit continue analysis-live-acceptance -Executor "live-member-generation-1" -ExpectedExecutorGeneration 1` {
+		t.Fatalf("Mission Commander action queue should focus the owned feature lane before the unassigned authority lane: %+v", queue)
+	}
+	if queue.CurrentDriverRequest == nil || queue.CurrentDriverRequest.Lane != "feature-analysis-live-acceptance" {
+		t.Fatalf("Mission Commander driver request did not retain the owned feature lane focus: %+v", queue.CurrentDriverRequest)
+	}
+}
+
 func TestMissionCommanderActionQueueDefersIdleNextBatchGuidance(t *testing.T) {
 	items := []MissionCommanderNextActionItem{
 		{State: "ready-for-next-batch-selection", Command: "select the next Windows-verifiable product-path closure", Source: "releaseHandoffNextBatch"},

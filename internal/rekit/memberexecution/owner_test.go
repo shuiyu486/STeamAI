@@ -5,9 +5,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/onboarding"
 )
 
 func TestDispatchObservationManifestAndReplay(t *testing.T) {
@@ -156,6 +160,137 @@ func TestReturnedPreviewUsesExactPlannedResultSnapshot(t *testing.T) {
 	applied, err := Apply(planned, planned.ExpectedPlanSHA256)
 	if err != nil || !applied.Applied || applied.Inspection.State != "intake-ready" {
 		t.Fatalf("applied=%+v err=%v", applied, err)
+	}
+}
+
+func TestDispatchUsesCommittedNaturalLanguageMissionGoal(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	goal := "用自然语言分析目标，并只输出可复核的结论"
+	writeCommittedMissionIntent(t, caseRoot, goal)
+	if err := os.MkdirAll(filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "prompts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "checkpoints"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "prompts", "RESUME.md"), []byte("# resume\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "checkpoints", "latest.json"), []byte("{\n  \"lane\": \"feature-analysis\"\n}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeBoard(t, caseRoot, "executor-a", 1)
+	plan, err := PreviewDispatch(DispatchOptions{CaseRoot: caseRoot, Pack: "_template", Lane: "feature-analysis", RequestSHA256: strings.Repeat("3", 64), CreatedAt: "2026-08-03T01:02:03Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	context := plan.Inspection.TaskContext
+	if context == nil || context.Goal != goal || context.GoalSource != "committed-mission-intent" || context.MissionIntent == nil || context.MissionIntent.Path != missionintent.MissionIntentRel || context.MissionIntent.SHA256 == "" {
+		t.Fatalf("mission task context = %+v", context)
+	}
+}
+
+func TestDispatchBindsDurableGoalCorrectionAndRejectsContextDrift(t *testing.T) {
+	caseRoot := memberCase(t, "executor-b", 2)
+	writeBoardWithCorrection(t, caseRoot, "executor-b", 2, "int-human-correction")
+	factsRoot := filepath.Join(caseRoot, ".rekit", "facts")
+	if err := os.MkdirAll(factsRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	correctionFacts := strings.Join([]string{
+		`{"schemaVersion":1,"eventId":"int-human-correction","kind":"intervention","lane":"feature-analysis","subject":"只输出纠偏后的结论","summary":"不要沿用第一代猜测","target":"analysis.md","status":"open"}`,
+		`{"schemaVersion":1,"eventId":"int-human-correction-resolved","kind":"intervention","lane":"feature-analysis","subject":"采用人工纠偏","summary":"第二代必须按人工指示重做","action":"reconcile","status":"resolved","resolvesEventId":"int-human-correction","actor":"operator","executor":"executor-b","reason":"human correction accepted","time":"2026-08-03T01:01:00Z"}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(filepath.Join(factsRoot, "interventions.jsonl"), []byte(correctionFacts), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := PreviewDispatch(DispatchOptions{CaseRoot: caseRoot, Pack: "_template", Lane: "feature-analysis", RequestSHA256: strings.Repeat("2", 64), CreatedAt: "2026-08-03T01:02:03Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	context := plan.Inspection.TaskContext
+	if context == nil || context.GoalSource != "lane-resume-fallback" || context.Correction == nil || context.Correction.SourceEventID != "int-human-correction" || context.Correction.ResolutionReason != "human correction accepted" || context.Resume.Content == "" || context.Checkpoint.Content == "" {
+		t.Fatalf("task context = %+v", context)
+	}
+	resumePath := filepath.Join(caseRoot, filepath.FromSlash(context.Resume.Path))
+	if err := os.WriteFile(resumePath, []byte("drifted resume\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(plan, plan.ExpectedPlanSHA256); err == nil || !strings.Contains(err.Error(), "changed") {
+		t.Fatalf("task context drift error = %v", err)
+	}
+}
+
+func TestAcceptedObservationRejectsTaskContextDrift(t *testing.T) {
+	caseRoot := memberCase(t, "executor-a", 1)
+	dispatch, err := PreviewDispatch(DispatchOptions{CaseRoot: caseRoot, Pack: "_template", Lane: "feature-analysis", RequestSHA256: strings.Repeat("5", 64), CreatedAt: "2026-08-03T01:02:03Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(dispatch, dispatch.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	checkpointPath := filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "checkpoints", "latest.json")
+	if err := os.WriteFile(checkpointPath, []byte("{\n  \"lane\": \"feature-analysis\",\n  \"drifted\": true\n}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PreviewObservation(ObservationOptions{CaseRoot: caseRoot, Pack: "_template", Lane: "feature-analysis", AttemptID: dispatch.AttemptID, Outcome: "accepted", Actor: "harness", ObservedAt: "2026-08-03T01:03:00Z"}); err == nil || !strings.Contains(err.Error(), "changed") {
+		t.Fatalf("task context drift observation error=%v", err)
+	}
+}
+
+func TestReturnedAttemptRemainsInspectableAfterCheckpointRefresh(t *testing.T) {
+	caseRoot := memberCase(t, "executor-a", 1)
+	dispatch, err := PreviewDispatch(DispatchOptions{CaseRoot: caseRoot, Pack: "_template", Lane: "feature-analysis", RequestSHA256: strings.Repeat("4", 64), CreatedAt: "2026-08-03T01:02:03Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(dispatch, dispatch.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	output := []byte("stable returned result\n")
+	if err := os.MkdirAll(dispatch.Inspection.OutputsRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dispatch.Inspection.OutputsRoot, "result.txt"), output, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := ResultManifest{SchemaVersion: SchemaVersion, Kind: KindManifest, AttemptID: dispatch.AttemptID, Owner: dispatch.Owner, Summary: "stable returned result", Outputs: []Output{{Path: "result.txt", SHA256: hash(output), Bytes: int64(len(output))}}, NoAuthority: true, NoConfirmed: true, NoHeavyTool: true}
+	manifestData, err := MarshalResultManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dispatch.Inspection.ManifestPath, manifestData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	returned, err := PreviewObservation(ObservationOptions{CaseRoot: caseRoot, Pack: "_template", Lane: "feature-analysis", AttemptID: dispatch.AttemptID, Outcome: "returned", Actor: "harness", ObservedAt: "2026-08-03T01:03:00Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(returned, returned.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	checkpointPath := filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "checkpoints", "latest.json")
+	if err := os.WriteFile(checkpointPath, []byte("{\n  \"lane\": \"feature-analysis\",\n  \"refreshed\": true\n}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	inspection, err := Inspect(caseRoot, "feature-analysis", dispatch.AttemptID)
+	if err != nil || inspection.State != "intake-ready" || inspection.TaskContext == nil || inspection.Manifest == nil {
+		t.Fatalf("historical returned attempt inspection=%+v err=%v", inspection, err)
+	}
+}
+
+func TestCurrentOwnerMatchesAfterExecutorTakeover(t *testing.T) {
+	caseRoot := memberCase(t, "executor-a", 1)
+	owner := Owner{Lane: "feature-analysis", Executor: "executor-a", ExecutorGeneration: 1}
+	current, err := CurrentOwnerMatches(caseRoot, "_template", owner)
+	if err != nil || !current {
+		t.Fatalf("initial owner current=%t err=%v", current, err)
+	}
+	writeBoard(t, caseRoot, "executor-b", 2)
+	current, err = CurrentOwnerMatches(caseRoot, "_template", owner)
+	if err != nil || current {
+		t.Fatalf("replaced owner current=%t err=%v", current, err)
 	}
 }
 
@@ -638,13 +773,55 @@ func memberCase(t *testing.T, executor string, generation int) string {
 	if err := os.WriteFile(filepath.Join(root, ".rekit", "lanes", "feature-analysis", "lane.json"), []byte("{\"id\":\"feature-analysis\",\"status\":\"active\"}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	for path, data := range map[string][]byte{
+		filepath.Join(root, ".rekit", "lanes", "feature-analysis", "prompts", "RESUME.md"):       []byte("# feature-analysis\n\nContinue the durable lane task.\n"),
+		filepath.Join(root, ".rekit", "lanes", "feature-analysis", "checkpoints", "latest.json"): []byte("{\n  \"schemaVersion\": 1,\n  \"lane\": \"feature-analysis\",\n  \"status\": \"active\"\n}\n"),
+	} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	writeBoard(t, root, executor, generation)
 	return root
 }
 
+func writeCommittedMissionIntent(t *testing.T, root, goal string) {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("cannot resolve kit root")
+	}
+	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", ".."))
+	opt := onboarding.Options{Target: root, Pack: "_template", ProjectName: "demo", Goal: goal, Actor: "operator", Executor: "executor-a", InitialLane: "feature-analysis", PublicationStamp: "20260803-010203004"}
+	preview, err := onboarding.Preview(repoRoot, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opt.ExpectedOnboardingPlanSHA256 = preview.OnboardingPlanSHA256
+	if _, err := onboarding.Apply(repoRoot, opt); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func writeBoard(t *testing.T, root, executor string, generation int) {
 	t.Helper()
+	writeBoardValue(t, root, missionBoardFixture(root, executor, generation))
+}
+
+func writeBoardWithCorrection(t *testing.T, root, executor string, generation int, interventionID string) {
+	t.Helper()
 	board := missionBoardFixture(root, executor, generation)
+	lanes := board["lanes"].([]map[string]any)
+	lanes[0]["lastReconciledIntervention"] = interventionID
+	lanes[0]["lastReconcileAt"] = "2026-08-03T01:01:00Z"
+	writeBoardValue(t, root, board)
+}
+
+func writeBoardValue(t *testing.T, root string, board map[string]any) {
+	t.Helper()
 	data, err := json.MarshalIndent(board, "", "  ")
 	if err != nil {
 		t.Fatal(err)

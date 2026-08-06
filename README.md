@@ -37,7 +37,7 @@
 本仓库本身不是具体安全 case，也不是具体 RE case。维护时先看根目录 `CLAUDE.md` 与 `docs/context-routing.md`，再按需路由到对应顶部章节；不要默认串读或扩写全部 durable docs。
 
 - `/rekit` skill：`.claude/skills/rekit/SKILL.md`
-- runtime：`rekit/rekit.ps1` façade、`cmd/rekit/**`、`internal/rekit/**`；legacy `rekit/lib/*.ps1` 已删除，历史语义以 Go runtime 为准。
+- deterministic runtime：`rekit/rekit.ps1` façade、`cmd/rekit/**`、`internal/rekit/**`；真实 Claude Code session host：`cmd/rekit-host/**`、`internal/rekit/sessionhost/**`。legacy `rekit/lib/*.ps1` 已删除，历史语义以 Go runtime 为准。
 - 领域 pack：`packs/<pack>/**`
 - 通用 policy / prompt：`common/**`
 - 设计与路线：`docs/**`
@@ -76,6 +76,14 @@ preview 是零写入的 immutable mission-intent 审查包，返回 exact `publi
 ```
 
 > `onboard` 不解析自然语言、不执行 heavy-tool、不写 authority/confirmed，也不 spawn、poll 或管理 session；自然语言到显式字段的收敛与 applyArgs 审核由主 Agent完成。这里不需要你手动执行底层脚本。
+
+已 attached 的 case 需要自动消费当前 member/reviewer 工作时，可由主 Agent或外部服务启动仓库内 Go-owned host；用户不填写 session ID、时间、结果路径或 SHA：
+
+```text
+go run ./cmd/rekit-host -target <attached-case>
+```
+
+host 只启动真实 Claude Code 进程，并消费 deterministic runtime 生成的 immutable handoff、attempt/claim/launch、result-first/submission-last 与 strict intake 协议。Claude 登录、配额、模型或进程不可用时会真实失败或进入有界 replacement，不会退化为伪造 member output 或 `ReviewerResult`。
 
 ### 2. 之后每天在 case 里
 
@@ -172,6 +180,14 @@ Adapter execution report lifecycle 的 contract、dispatch、scaffold、draft、
 `validate` 和 `plan-subagents` 仍是 backend/内部命令，不是日常主入口；`plan-subagents` planning mode 默认经 Go façade 生成 review artifacts，reviewer-intake mode 由主 Agent显式执行 strict WhatIf/Apply 与 post-validation，但 runtime 不自动 spawn agent；`packs` 是维护者/排障入口，用于多 pack 发现和矩阵验证；`note -List` 文本/table/tsv 与 `note -List -Format json` 默认经 Go façade 只读查询 ledger events；`note -WhatIf` JSON envelope 输出当前 `executorAction`、内存模拟 append 后的 `wouldExecutorAction`、`eventSha256` 与可重放时的 hash-bound `recordCommand`；该 command 带 `-CreatedAt`、`-EventId` 与 `-ExpectedNoteEventSha256`，record 时若 event body drift 会 fail-closed 且不写 ledger。实际 append 输出写入后的 `executorAction`，duplicate eventId 只返回未改变的当前 action 且不写 ledger；含 reviewer-intake 内部字段等不可 CLI 重放 event 时只输出 hash、不输出 misleading record command。note 仍只写 facts JSONL 或预览，不写 authority/confirmed。
 
 ## 日常工作流
+
+维护真实 session 产品链时，普通 `go test ./...` 不会启动 Claude。只有维护者显式运行以下 live gate，才会创建无敏感内容的 fresh `vmp-re` 临时 case，依次启动两代真实 member 和独立 Reviewer，验证人工纠偏、新会话接手、strict writeback、feature-lane completion 与自动清理：
+
+```text
+go run ./cmd/rekit-host -live-acceptance -goal "<bounded-natural-language-goal>" -correction "<human-correction>" -receipt "<outside-case-receipt.json>"
+```
+
+通过 receipt 必须同时满足 `passed=true`、`manualPlaceholders=0`、`manualResultWrites=0`、两代 member 完成、至少一个独立 Reviewer 完成、completion fail-closed 边界成立且 `cleanup=removed`。receipt 将 durable owner、external attempt 与本次 host 启动顺序分别记录为 `ownerGeneration`、`attemptGeneration`、`hostRun` + `runLaunchOrdinal`，不再用一个含糊的 generation 字段混表示。
 
 维护 onboarding、status quickstart、continue/reconcile、handoff 或 replacement executor takeover 路线时，可用一条跨平台 Go-native smoke 覆盖完整日常闭环：
 

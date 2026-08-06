@@ -35,9 +35,9 @@ func TestExternalSessionHarnessPackageFailsClosedWithoutStableMemberInput(t *tes
 		AttemptID: current.AttemptID, AttemptSHA256: attempt.AttemptSHA256, Generation: current.Generation,
 		Harness: current.Harness, Session: current.Session, SubmissionPath: current.SubmissionPath, SubmissionOutputs: current.SubmissionOutputs,
 	}}
-	operator := &mission.CurrentLoopOperatorPackage{ExternalMemberHandoff: &mission.CurrentLoopExternalMemberHandoff{HandoffPath: ".rekit/member-executions/missing/handoff.json", HandoffSHA256: strings.Repeat("d", 64)}}
+	operator := &mission.CurrentLoopOperatorPackage{ExternalMemberHandoff: &mission.CurrentLoopExternalMemberHandoff{TaskContextPath: ".rekit/member-executions/missing/task-context.json", TaskContextSHA256: strings.Repeat("d", 64)}}
 	pkg := externalSessionHarnessPackage(job, externalsession.Inspection{Job: job, JobSHA256: strings.Repeat("c", 64), State: "awaiting-submission"}, attempt, operator, typed)
-	if pkg == nil || pkg.State != "running" || pkg.Launch == nil || pkg.Launch.Ready || pkg.Launch.Input.Path != operator.ExternalMemberHandoff.HandoffPath || pkg.Launch.Input.SHA256 != "" || len(pkg.Warnings) != 1 || pkg.Return == nil {
+	if pkg == nil || pkg.State != "running" || pkg.Launch == nil || pkg.Launch.Ready || pkg.Launch.Input.Path != operator.ExternalMemberHandoff.TaskContextPath || pkg.Launch.Input.SHA256 != operator.ExternalMemberHandoff.TaskContextSHA256 || len(pkg.Warnings) != 1 || pkg.Return == nil {
 		t.Fatalf("missing stable member input did not fail closed while preserving return contract: %+v", pkg)
 	}
 }
@@ -55,7 +55,7 @@ func TestExternalSessionHarnessPackageFailsClosedOnMemberHandoffCommitDrift(t *t
 	current := &externalsession.Attempt{AttemptID: "member-job-g000001", Generation: 1, Harness: "test-harness", Session: "test-session", SubmissionPath: ".rekit/external-session-attempt-inputs/member-job/000001/submission.json", SubmissionOutputs: ".rekit/external-session-attempt-inputs/member-job/000001/outputs"}
 	attempt := externalsession.AttemptInspection{State: "running", Current: current, AttemptSHA256: strings.Repeat("b", 64)}
 	typed := mission.CurrentLoopExternalSessionJob{CurrentAttempt: &mission.CurrentLoopExternalSessionAttempt{AttemptID: current.AttemptID, AttemptSHA256: attempt.AttemptSHA256, Generation: current.Generation, Harness: current.Harness, Session: current.Session, SubmissionPath: current.SubmissionPath, SubmissionOutputs: current.SubmissionOutputs}}
-	operator := &mission.CurrentLoopOperatorPackage{ExternalMemberHandoff: &mission.CurrentLoopExternalMemberHandoff{HandoffPath: handoffPath, HandoffSHA256: strings.Repeat("d", 64)}}
+	operator := &mission.CurrentLoopOperatorPackage{ExternalMemberHandoff: &mission.CurrentLoopExternalMemberHandoff{TaskContextPath: handoffPath, TaskContextSHA256: strings.Repeat("d", 64)}}
 	pkg := externalSessionHarnessPackage(job, externalsession.Inspection{Job: job, JobSHA256: strings.Repeat("c", 64), State: "awaiting-submission"}, attempt, operator, typed)
 	if pkg == nil || pkg.Launch == nil || pkg.Launch.Ready || pkg.Launch.Input.Path != handoffPath || pkg.Launch.Input.SHA256 != strings.Repeat("d", 64) || len(pkg.Warnings) != 1 || pkg.Return == nil {
 		t.Fatalf("member handoff commit drift did not fail closed while preserving return contract: %+v", pkg)
@@ -2311,12 +2311,12 @@ func TestRunCurrentLoopMemberExecutionCheckpoint(t *testing.T) {
 	job = recordCurrentLoopExternalSessionAttemptWithPendingRecovery(t, operator, "external-harness", "member-session-relay", "mission-commander", "2026-08-03T03:00:00Z")
 	operator.ExternalSessionJob = job
 	job = acceptCurrentLoopExternalSessionLaunch(t, operator, "dispatcher", "external-harness", "member-session-relay", "2026-08-03T03:00:01Z")
-	expectedHandoffData, err := os.ReadFile(filepath.Join(caseRoot, filepath.FromSlash(operator.ExternalMemberHandoff.HandoffPath)))
+	expectedTaskContextData, err := os.ReadFile(filepath.Join(caseRoot, filepath.FromSlash(operator.ExternalMemberHandoff.TaskContextPath)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if harness := job.HarnessPackage; harness == nil || harness.State != "running" || harness.Launch == nil || harness.Launch.Ready || harness.Launch.Tool != "Claude Code session" || harness.Launch.AgentType != "durable-member-executor" || harness.Launch.ReadOnly || harness.Launch.Input.Role != "durable-member-handoff" || harness.Launch.Input.Path != operator.ExternalMemberHandoff.HandoffPath || harness.Launch.Input.SHA256 != operator.ExternalMemberHandoff.HandoffSHA256 || harness.Launch.Input.SHA256 != statusSHA256Hex(expectedHandoffData) || harness.Launch.Attempt.AttemptSHA256 != job.CurrentAttempt.AttemptSHA256 || harness.Launch.Attempt.Session != "member-session-relay" || harness.Return == nil || harness.Return.SubmissionOutputs != job.SubmissionOutputs || !harness.Return.SubmissionLast || len(harness.Return.Templates) != len(job.AllowedOutcomes) {
-		t.Fatalf("running member job omitted exact harness launch/return package: %+v", harness)
+	if harness := job.HarnessPackage; harness == nil || harness.State != "running" || harness.Launch == nil || harness.Launch.Ready || harness.Launch.Tool != "Claude Code session" || harness.Launch.AgentType != "durable-member-executor" || harness.Launch.ReadOnly || harness.Launch.Input.Role != "durable-member-handoff" || harness.Launch.Input.Path != operator.ExternalMemberHandoff.TaskContextPath || harness.Launch.Input.SHA256 != operator.ExternalMemberHandoff.TaskContextSHA256 || harness.Launch.Input.SHA256 != statusSHA256Hex(expectedTaskContextData) || harness.Launch.Attempt.AttemptSHA256 != job.CurrentAttempt.AttemptSHA256 || harness.Launch.Attempt.Session != "member-session-relay" || harness.Return == nil || harness.Return.SubmissionOutputs != job.SubmissionOutputs || !harness.Return.SubmissionLast || len(harness.Return.Templates) != len(job.AllowedOutcomes) {
+		t.Fatalf("running member job omitted exact task-context launch/return package: harness=%+v launch=%+v return=%+v handoff=%+v", harness, harness.Launch, harness.Return, operator.ExternalMemberHandoff)
 	}
 	jobRoot := filepath.Join(caseRoot, filepath.Dir(filepath.FromSlash(job.SubmissionPath)))
 	if err := os.MkdirAll(filepath.Join(jobRoot, "outputs"), 0o700); err != nil {

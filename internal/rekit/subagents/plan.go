@@ -1821,13 +1821,13 @@ func reviewerResultSkeletonJSON(packetID string, shard Shard, route Route, route
 		ShardID:            shard.ID,
 		Items:              append([]string{}, shard.Items...),
 		ReviewerSession:    "reviewer-session-id",
-		Decision:           "needs-more-evidence",
-		Confidence:         "medium",
-		Summary:            "fill summary for this shard",
+		Decision:           "select after inspecting evidence",
+		Confidence:         "select after inspecting evidence",
+		Summary:            "fill evidence-based summary for this shard",
 		EvidenceRefs:       []string{evidenceRef},
 		Risks:              []string{},
 		Conflicts:          []string{},
-		RecommendedVerdict: "needs-more-evidence",
+		RecommendedVerdict: "map from the selected decision",
 		RouteOutput:        routeOutput,
 	}
 	b, err := json.Marshal(skeleton)
@@ -1856,21 +1856,21 @@ func reviewerRouteOutputSkeleton(fields []string, items []string, evidenceRef st
 		case "item":
 			routeOutput[field] = strings.Join(items, ",")
 		case "decision":
-			routeOutput[field] = "needs-more-evidence"
+			routeOutput[field] = "match the evidence-based top-level decision"
 		case "confidence":
-			routeOutput[field] = "medium"
+			routeOutput[field] = "match the evidence-based top-level confidence"
 		case "evidence":
 			routeOutput[field] = evidenceRef
 		case "risk":
-			routeOutput[field] = "unknown"
+			routeOutput[field] = "summarize evidence-based residual risk"
 		case "next_action":
-			routeOutput[field] = "defer for main-agent evidence review"
+			routeOutput[field] = "select the bounded next action implied by the decision"
 		case "tier_used":
 			routeOutput[field] = "reviewer"
 		case "tool_scope":
 			routeOutput[field] = "read-only"
 		case "defer_reason":
-			routeOutput[field] = "fill defer reason"
+			routeOutput[field] = "explain deferral or use n/a for a non-deferred decision"
 		default:
 			routeOutput[field] = "fill " + field
 		}
@@ -1895,6 +1895,15 @@ func reviewerRouteOutputFieldHintsFor(fields []string, items []string, evidenceR
 	return strings.Join(hints, "; ")
 }
 
+func reviewerEvidenceIntegrityGuidance(items []string) string {
+	for _, item := range items {
+		if strings.HasSuffix(strings.ToLower(strings.TrimSpace(item)), "/evidence/manifest.json") {
+			return "For a member evidence manifest, first read the manifest path listed in Items, then inspect every manifest output relative to that manifest's outputs root. Verify that the content supports the bounded task and that the manifest path, owner, output SHA-256, and byte-count bindings are coherent. Cite the item exactly as listed in Items plus every inspected output path in evidenceRefs, and keep routeOutput.item exactly equal to that item. The deterministic runtime revalidates declared SHA-256 and byte counts during strict completion; do not invent a missing semantic or provenance check."
+		}
+	}
+	return "Inspect every cited bounded item before selecting a verdict; do not treat the packet skeleton itself as evidence that the item passed."
+}
+
 func shardDispatchPrompt(shard Shard, route Route, readOnlyBoundary []string, reviewLoop ReviewLoop, ownerBinding OwnerBinding, resultPath, inputPath string, collectionAvailable, intakeAvailable bool) string {
 	contract := reviewerResultContract()
 	resultHandling := "Return the result to the main agent. The main agent will save it directly at reviewerResultPath for strict reviewer intake: " + resultPath + ". Do not write ledger paths yourself."
@@ -1912,11 +1921,14 @@ func shardDispatchPrompt(shard Shard, route Route, readOnlyBoundary []string, re
 		"Reviewer result contract: " + contract.OutputFormat + ".",
 		"Required result fields: " + strings.Join(contract.RequiredFields, ", ") + ".",
 		"Route output required fields: " + reviewerRouteOutputFieldHints(route.OutputContract, shard.Items) + ".",
-		"Reviewer result JSON skeleton: " + reviewerResultPromptSkeleton(shard, route) + ".",
+		"Reviewer result JSON shape template: " + reviewerResultPromptSkeleton(shard, route) + ".",
+		"The shape template contains instructions, not default verdict values: inspect the listed evidence before selecting decision, confidence, recommendedVerdict, risk, next_action, and defer_reason; do not copy instruction text into the result.",
+		"Choose accept with recommendedVerdict=accepted when the immutable evidence and its declared hashes support the bounded item; choose reject only with inspected contrary evidence; choose defer or needs-more-evidence only when a concrete evidence gap remains.",
+		reviewerEvidenceIntegrityGuidance(shard.Items),
 		"Replace packet.packetId with the packet packetId, set routeId to " + route.ID + ", shardId to " + shard.ID + ", and set reviewerSession to your session identifier supplied by the main agent.",
 		"Avoid blocked intake: provide inspectable evidenceRefs, keep conflicts empty unless unresolved, align recommendedVerdict with decision mapping, keep tool_scope read-only, and do not request writes, heavy tools, authority/confirmed, or external effects.",
 		"If blocked intake is unavoidable, return a safer needs-more-evidence/defer result and let the main agent consume reviewerIntakeCommands.repairGuidance before rerunning previewCommand.",
-		"Keep routeOutput.decision and routeOutput.confidence equal to the top-level decision/confidence; keep routeOutput.evidence inside evidenceRefs.",
+		"Return items exactly as listed in Items, keep routeOutput.item exactly equal to the reviewed item, keep routeOutput.decision and routeOutput.confidence equal to the top-level decision/confidence, and keep routeOutput.evidence inside evidenceRefs.",
 		"Allowed decisions: " + strings.Join(contract.AllowedDecisions, ", ") + ".",
 		resultHandling,
 		"Do not write files, run heavy tools, append ledgers, or change authority/confirmed state.",

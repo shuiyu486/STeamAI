@@ -28,15 +28,7 @@ Batch 359 后，Go-owned/no-fallback public command surface、durable lanes、�
 
 ### Current batch state
 
-
-
-
-
-
-
-
-
-
+本轮按 `docs/health-recovery-and-real-executor-plan.md` 执行纠偏。阶段 1–3 的实现与 focused 验证已完成：默认 `vmp-re` public emitted-route 健康恢复；deterministic runtime 外新增 `cmd/rekit-host`，自动 attempt/claim、启动真实 Claude Code structured-output session、记录 accepted launch、真实结果落盘、submission-last、strict intake、durable recovery 与失败 replacement；explicit fresh `vmp-re` live gate 已真实走通自然语言 onboarding → 第一代 member → 人工纠偏 → 第二代 member → 独立 Reviewer → strict accepted lineage → feature completion，receipt 为 `passed=true`、`manualPlaceholders=0`、`manualResultWrites=0`、`cleanup=removed`。同一 manifest 已审核后不会重复规划 Reviewer；accepted completion 会从 canonical `ReviewerResult` 重验真实 accept 语义，拒绝账本把真实 reject 结果伪称为 accepted lineage；session receipt 将 owner/attempt/host-run launch 三种身份拆分。独立定向复核确认该防篡改修复为 `FIXED`。最终 Windows 本机验证通过：完整 CLI 包 `1649.745s`；修复默认 pack literal invariant 后，全仓 `go test ./... -timeout 40m -count=1` 通过（CLI `1625.888s`），`go vet ./...` 与 `git diff --check` 通过；`release-check` 返回 `ready=true` / 7 steps，status、10-pack packs、doctor 通过。最终 fresh real-Claude gate receipt `fixed-15` 为 `passed=true`、两代 member 各一次真实 completion、一个独立 Reviewer completion、`manualPlaceholders=0`、`manualResultWrites=0`、feature lane `closed`、`cleanup=removed`；仅保留仓库外最终 receipt。测试代码不得伪造 LLM 结果。
 
 ### Batch 821：unified current-step external session campaign handoff and resume closure
 

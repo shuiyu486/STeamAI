@@ -809,6 +809,8 @@ func currentLoopExternalMemberHandoff(ctx runtime.Context, inspection memberexec
 		ExecutorGeneration:  inspection.Owner.ExecutorGeneration,
 		HandoffPath:         handoffPath,
 		HandoffSHA256:       inspection.HandoffSHA256,
+		TaskContextPath:     inspection.Handoff.TaskContextPath,
+		TaskContextSHA256:   inspection.Handoff.TaskContextSHA256,
 		ManifestPath:        inspection.Handoff.ManifestPath,
 		OutputsRoot:         inspection.Handoff.OutputsRoot,
 		NextSteps:           append([]string{}, inspection.Handoff.NextSteps...),

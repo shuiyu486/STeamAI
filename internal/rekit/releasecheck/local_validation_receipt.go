@@ -300,12 +300,31 @@ func InspectLocalValidationReceipt(repo string, latest ReleaseHandoffLatestBatch
 	inspection.Ready = true
 	inspection.State = "validated-implementation-commit"
 	inspection.ValidatedHead = head
-	inspection.Evidence = []string{
+	inspection.Evidence = append([]string{
 		"machine-readable local release-run receipt validated",
 		"validated implementation commit exactly matches the pre-commit artifact snapshot",
 		"release-check step and complete local gate profile are bound by the receipt",
-	}
+	}, localValidationReceiptStepEvidence(receipt.Steps)...)
 	return inspection
+}
+
+func localValidationReceiptStepEvidence(steps []LocalValidationReceiptStep) []string {
+	labels := map[string]string{
+		"go run ./cmd/rekit -- -Command release-check -Format json": "release-check -Format json recorded",
+		"go run ./cmd/rekit -- -Command status":                     "status handoff recorded",
+		"go run ./cmd/rekit -- -Command packs":                      "packs inventory recorded",
+		"go run ./cmd/rekit -- -Command doctor":                     "doctor validation recorded",
+		"go test ./...":                                             "go test ./... recorded",
+		"go vet ./...":                                              "go vet ./... recorded",
+		"git diff --check":                                          "git diff --check recorded",
+	}
+	evidence := make([]string, 0, len(steps))
+	for _, step := range steps {
+		if label := labels[step.Command]; label != "" {
+			evidence = append(evidence, label)
+		}
+	}
+	return evidence
 }
 
 func localValidationReceiptInspectionBase() LocalValidationReceiptInspection {

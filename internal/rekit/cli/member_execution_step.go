@@ -63,16 +63,22 @@ func buildMemberExecutionStep(ctx runtime.Context, opt Options, request mission.
 	}
 	sum := sha256.Sum256(requestBytes)
 	requestSHA := hex.EncodeToString(sum[:])
-	if latest, ok, err := memberexecution.Latest(ctx.Target, lane); err == nil && ok && latest.Intent != nil && strings.EqualFold(latest.Intent.RequestSHA256, requestSHA) {
-		if latest.State == "intake-ready" {
-			return nil, true, nil
+	if latest, ok, err := memberexecution.Latest(ctx.Target, lane); err == nil && ok {
+		ownerCurrent, err := memberexecution.CurrentOwnerMatches(ctx.Target, ctx.Pack, latest.Owner)
+		if err != nil {
+			return nil, false, err
 		}
-		if latest.State != "failed" {
-			plan, err := memberexecution.PreviewDispatch(memberexecution.DispatchOptions{CaseRoot: ctx.Target, Pack: ctx.Pack, Lane: lane, RequestSHA256: requestSHA, CreatedAt: latest.Intent.CreatedAt})
-			if err != nil {
-				return nil, false, err
+		if ownerCurrent && latest.Intent != nil && strings.EqualFold(latest.Intent.RequestSHA256, requestSHA) {
+			if latest.State == "intake-ready" {
+				return nil, true, nil
 			}
-			return &plan, false, nil
+			if latest.State != "failed" {
+				plan, err := memberexecution.PreviewDispatch(memberexecution.DispatchOptions{CaseRoot: ctx.Target, Pack: ctx.Pack, Lane: lane, RequestSHA256: requestSHA, CreatedAt: latest.Intent.CreatedAt})
+				if err != nil {
+					return nil, false, err
+				}
+				return &plan, false, nil
+			}
 		}
 	} else if err != nil && !memberexecution.IsPendingDispatch(err) {
 		return nil, false, err

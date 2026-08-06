@@ -3,6 +3,7 @@ package releasecheck
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -45,8 +46,21 @@ func TestLocalValidationReceiptBindsDirectImplementationCommit(t *testing.T) {
 	runPostPushGit(t, repo, "add", ".")
 	runPostPushGit(t, repo, "commit", "-m", "Complete Batch 817")
 	ready := InspectLocalValidationReceipt(repo, latestBatchSummary(repo))
-	if !ready.Ready || ready.State != "validated-implementation-commit" || ready.ValidatedHead == "" || len(ready.Evidence) < 3 {
+	if !ready.Ready || ready.State != "validated-implementation-commit" || ready.ValidatedHead == "" {
 		t.Fatalf("direct implementation commit did not validate: %+v", ready)
+	}
+	for _, want := range []string{
+		"release-check -Format json recorded",
+		"status handoff recorded",
+		"packs inventory recorded",
+		"doctor validation recorded",
+		"go test ./... recorded",
+		"go vet ./... recorded",
+		"git diff --check recorded",
+	} {
+		if !slices.Contains(ready.Evidence, want) {
+			t.Fatalf("validated receipt evidence missing %q: %+v", want, ready.Evidence)
+		}
 	}
 
 	writePostPushTestFile(t, repo, "internal/rekit/extra.go", "package rekit\n")

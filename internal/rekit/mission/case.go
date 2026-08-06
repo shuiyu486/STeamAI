@@ -24,18 +24,20 @@ type Board struct {
 }
 
 type BoardLane struct {
-	ID                 string `json:"id"`
-	Type               string `json:"type"`
-	Title              string `json:"title"`
-	Status             string `json:"status"`
-	Authority          bool   `json:"authority"`
-	Workspace          string `json:"workspace"`
-	CurrentExecutor    string `json:"currentExecutor,omitempty"`
-	ExecutorGeneration int    `json:"executorGeneration,omitempty"`
-	LastTakeoverAt     string `json:"lastTakeoverAt,omitempty"`
-	LastTakeoverBy     string `json:"lastTakeoverBy,omitempty"`
-	LastTakeoverReason string `json:"lastTakeoverReason,omitempty"`
-	UpdatedAt          string `json:"updatedAt"`
+	ID                         string `json:"id"`
+	Type                       string `json:"type"`
+	Title                      string `json:"title"`
+	Status                     string `json:"status"`
+	Authority                  bool   `json:"authority"`
+	Workspace                  string `json:"workspace"`
+	CurrentExecutor            string `json:"currentExecutor,omitempty"`
+	ExecutorGeneration         int    `json:"executorGeneration,omitempty"`
+	LastTakeoverAt             string `json:"lastTakeoverAt,omitempty"`
+	LastTakeoverBy             string `json:"lastTakeoverBy,omitempty"`
+	LastTakeoverReason         string `json:"lastTakeoverReason,omitempty"`
+	LastReconciledIntervention string `json:"lastReconciledIntervention,omitempty"`
+	LastReconcileAt            string `json:"lastReconcileAt,omitempty"`
+	UpdatedAt                  string `json:"updatedAt"`
 }
 
 func ReadBoard(caseRoot string) (Board, error) {

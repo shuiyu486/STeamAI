@@ -30,8 +30,9 @@ const (
 )
 
 var (
-	completionAfterIntentHook  func() error
-	completionBeforeCommitHook func() error
+	completionAfterIntentHook                  func() error
+	completionBeforeCommitHook                 func() error
+	errMemberManifestReviewerWritebackRequired = errors.New("member manifest reviewer writeback required")
 )
 
 func SetCompletionAfterIntentHookForTest(hook func() error) func() {
@@ -204,6 +205,13 @@ func NextCompletePreviewCandidate(repoRoot, caseRoot, pack string) (CompletePrev
 			return CompletePreviewCandidate{}, fmt.Errorf("derive completion candidate for %s: %w", entry.ID, err)
 		}
 		if !ok || latest.State != "intake-ready" || latest.Manifest == nil || latest.Latest == nil || latest.Latest.Outcome != "returned" {
+			continue
+		}
+		ownerCurrent, err := memberexecution.CurrentOwnerMatches(inst.CaseRoot, pack, latest.Owner)
+		if err != nil {
+			return CompletePreviewCandidate{}, fmt.Errorf("derive completion candidate owner for %s: %w", entry.ID, err)
+		}
+		if !ownerCurrent {
 			continue
 		}
 		manifestRef := relativePath(inst.CaseRoot, latest.ManifestPath)
@@ -482,6 +490,21 @@ func finishCompleteContext(ctx completeContext, allowPending bool) (completeCont
 	return ctx, nil
 }
 
+func HasAcceptedMemberManifestReviewerWriteback(caseRoot, laneID, manifestRef string) (bool, error) {
+	facts, err := mission.ReadStrictLedgerFacts(caseRoot)
+	if err != nil {
+		return false, err
+	}
+	_, err = requireMemberManifestReviewerWriteback(caseRoot, laneID, manifestRef, facts)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, errMemberManifestReviewerWritebackRequired) {
+		return false, nil
+	}
+	return false, err
+}
+
 func requireMemberManifestReviewerWriteback(caseRoot, laneID, manifestRef string, facts mission.LedgerFacts) (CompletionEvidence, error) {
 	manifestFull := filepath.Join(caseRoot, filepath.FromSlash(manifestRef))
 	verificationByPacket := map[string]map[string]any{}
@@ -493,7 +516,7 @@ func requireMemberManifestReviewerWriteback(caseRoot, laneID, manifestRef string
 		verificationByPacket[packetID] = event
 	}
 	if len(verificationByPacket) == 0 {
-		return CompletionEvidence{}, fmt.Errorf("complete requires a reviewer packet verification accepted for current member manifest %s", manifestRef)
+		return CompletionEvidence{}, fmt.Errorf("%w: complete requires a reviewer packet verification accepted for current member manifest %s", errMemberManifestReviewerWritebackRequired, manifestRef)
 	}
 	for _, event := range facts.Decisions {
 		packetID := mission.Value(event, "packetId")
@@ -509,7 +532,7 @@ func requireMemberManifestReviewerWriteback(caseRoot, laneID, manifestRef string
 			return input, nil
 		}
 	}
-	return CompletionEvidence{}, fmt.Errorf("complete requires an accepted reviewer decision/writeback bound to current member manifest %s", manifestRef)
+	return CompletionEvidence{}, fmt.Errorf("%w: complete requires an accepted reviewer decision/writeback bound to current member manifest %s", errMemberManifestReviewerWritebackRequired, manifestRef)
 }
 
 func validateReviewerWritebackPacket(caseRoot, laneID, packetID, shardID, packetRef, inputSHA256 string) (CompletionEvidence, error) {
@@ -558,6 +581,9 @@ func validateReviewerWritebackPacket(caseRoot, laneID, packetID, shardID, packet
 	}
 	if result.PacketID != packetID || result.RouteID != packet.Route.ID || result.ShardID != shardID || strings.TrimSpace(result.ReviewerSession) == "" {
 		return CompletionEvidence{}, fmt.Errorf("reviewer result input does not match packet/route/shard/session bindings")
+	}
+	if result.Decision != "accept" || result.RecommendedVerdict != "accepted" {
+		return CompletionEvidence{}, fmt.Errorf("accepted reviewer writeback does not match canonical reviewer result decision %q and recommended verdict %q", result.Decision, result.RecommendedVerdict)
 	}
 	board, err := mission.ReadBoard(caseRoot)
 	if err != nil {

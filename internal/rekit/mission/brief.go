@@ -316,6 +316,8 @@ type CurrentLoopExternalMemberHandoff struct {
 	ExecutorGeneration  int                            `json:"executorGeneration"`
 	HandoffPath         string                         `json:"handoffPath"`
 	HandoffSHA256       string                         `json:"handoffSha256"`
+	TaskContextPath     string                         `json:"taskContextPath"`
+	TaskContextSHA256   string                         `json:"taskContextSha256"`
 	ManifestPath        string                         `json:"manifestPath"`
 	OutputsRoot         string                         `json:"outputsRoot"`
 	NextSteps           []string                       `json:"nextSteps"`
@@ -783,7 +785,7 @@ func MissionCommanderNextActions(actions []LaneExecutorActionSnapshot, evidenceR
 	if evidenceNeedsMainReview {
 		return UniqueCommanderNextActions(items)
 	}
-	for _, item := range actions {
+	for _, item := range missionCommanderOrderedLaneActions(actions) {
 		action := item.ExecutorAction.MissionCommanderAction
 		if action.PrimaryCommand == "" {
 			continue
@@ -823,6 +825,23 @@ func MissionCommanderNextActions(actions []LaneExecutorActionSnapshot, evidenceR
 		}
 	}
 	return UniqueCommanderNextActions(items)
+}
+
+func missionCommanderOrderedLaneActions(actions []LaneExecutorActionSnapshot) []LaneExecutorActionSnapshot {
+	ordered := append([]LaneExecutorActionSnapshot{}, actions...)
+	slices.SortStableFunc(ordered, func(a, b LaneExecutorActionSnapshot) int {
+		aOwned := strings.TrimSpace(a.CurrentExecutor) != "" && a.ExecutorGeneration > 0
+		bOwned := strings.TrimSpace(b.CurrentExecutor) != "" && b.ExecutorGeneration > 0
+		switch {
+		case aOwned && !bOwned:
+			return -1
+		case !aOwned && bOwned:
+			return 1
+		default:
+			return 0
+		}
+	})
+	return ordered
 }
 
 func ExecutionEvidenceReviewNeedsMainReview(items []ExecutionEvidenceReviewItem) bool {
@@ -1700,8 +1719,17 @@ func stringListValue(value any) []string {
 }
 
 func OpenDecisionEvents(decisions []map[string]any) []map[string]any {
+	latest := map[string]int{}
+	for index, decision := range decisions {
+		if key := effectiveDecisionKey(decision); key != "" {
+			latest[key] = index
+		}
+	}
 	open := []map[string]any{}
-	for _, decision := range decisions {
+	for index, decision := range decisions {
+		if key := effectiveDecisionKey(decision); key != "" && latest[key] != index {
+			continue
+		}
 		status := strings.ToLower(strings.TrimSpace(Value(decision, "status")))
 		decisionValue := strings.ToLower(strings.TrimSpace(FirstText(Value(decision, "decision"), Value(decision, "action"))))
 		if (status == "" && decisionValue == "defer") || (status != "" && !IsTerminalStatus(status)) || decisionValue == "pending-user" {
@@ -1709,6 +1737,16 @@ func OpenDecisionEvents(decisions []map[string]any) []map[string]any {
 		}
 	}
 	return open
+}
+
+func effectiveDecisionKey(decision map[string]any) string {
+	lane := strings.TrimSpace(Value(decision, "lane"))
+	subject := strings.TrimSpace(Value(decision, "subject"))
+	target := strings.TrimSpace(Value(decision, "target"))
+	if lane == "" || subject == "" || target == "" {
+		return ""
+	}
+	return strings.Join([]string{lane, subject, target}, "\x00")
 }
 
 func OpenDecisionLanes(facts Facts) []string {

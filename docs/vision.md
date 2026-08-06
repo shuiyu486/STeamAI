@@ -4,7 +4,7 @@
 
 - 如果你只想使用当前仓库初始化一个安全 case（当前成熟示例是 `vmp-re` RE case），先读 `README.md` 的使用方式；本文件用于理解长期方向与阶段路线。
 - 如果你要维护或迭代本仓库，先读 `docs/context-routing.md` 与 `docs/batch-plan.md` 顶部 current/next；只有需要长期路线或历史阶段背景时，再读本文件顶部的实施摘要、执行清单、验证标准，并按章节读取细节。
-- 本文件是路线图，不代表所有能力已经实现；Batch 351 后已经落地的是 Go-owned/no-fallback public command surface、case lifecycle、durable lanes、handoff/checkpoint、显式 reconcile、typed autonomy preflight、Mission brief / executor action、review-first sync/promote、bounded reviewer contracts、首个成熟领域 pack `vmp-re` 和多领域 skeleton packs。尚未落地统一 member/reviewer session orchestration、actual heavy-tool evidence closure、pack-memory reconsume 与三平台 product-path E2E。
+- 本文件是路线图，不代表所有能力已经实现；当前已经落地的是 Go-owned/no-fallback public command surface、case lifecycle、durable lanes、handoff/checkpoint、显式 reconcile、typed autonomy preflight、Mission brief / executor action、review-first sync/promote、bounded reviewer contracts、deterministic runtime 外的 Go-owned 真实 Claude Code member/reviewer session host、authorized execution observation evidence closure、pack-memory promote/reconsume package E2E、首个成熟领域 pack `vmp-re` 和多领域 skeleton packs。尚未做到日常成熟的是更多 pack 的真实 session 产品场景、真实 lane executor/tool-adapter live validation、pack-memory 产品 UX 与三平台 product-path E2E。
 - 需要具体执行时，优先选择当前阶段的最小可验证切片，不跨阶段提前重构 runtime。
 
 ## 实施摘要

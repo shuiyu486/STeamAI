@@ -42,7 +42,8 @@ Batch 推送节奏（仅在当前 goal/session 已明确授权 commit/push 时�
 ## 维护入口
 
 - `/rekit` skill：`.claude/skills/rekit/SKILL.md`
-- Go backend：`cmd/rekit/main.go`、`internal/rekit/**`
+- Go deterministic backend：`cmd/rekit/main.go`、`internal/rekit/**`
+- Go-owned real Claude Code session host：`cmd/rekit-host/main.go`、`internal/rekit/sessionhost/**`（不替代 runtime 的 currentness、授权和 strict intake）
 - PowerShell compatibility façade：`rekit/rekit.ps1`（不新增业务 runtime）
 - pack：`packs/<pack>/**`；首个 mature pack 是 `packs/vmp-re/**`，安全领域 skeleton 包括 `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native`、`generic-binary-re`
 - pack manifest：`packs/<pack>/manifest.yml`

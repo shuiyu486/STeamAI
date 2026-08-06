@@ -48,6 +48,11 @@ type reviewerStepExternalHandoff struct {
 	ReviewerResultDropPathRole    string                               `json:"reviewerResultDropPathRole,omitempty"`
 	ReviewerResultInputPath       string                               `json:"reviewerResultInputPath,omitempty"`
 	ReviewerResultSourcePath      string                               `json:"reviewerResultSourcePath,omitempty"`
+	ReviewerDispatchID            string                               `json:"reviewerDispatchId,omitempty"`
+	ReviewerDispatchReceiptPath   string                               `json:"reviewerDispatchReceiptPath,omitempty"`
+	ReviewerDispatchReceiptSHA256 string                               `json:"reviewerDispatchReceiptSha256,omitempty"`
+	ReviewerHarness               string                               `json:"reviewerHarness,omitempty"`
+	ReviewerSession               string                               `json:"reviewerSession,omitempty"`
 	RecordDispatchPreviewTemplate string                               `json:"recordDispatchPreviewTemplate,omitempty"`
 	Boundary                      []string                             `json:"boundary"`
 }
@@ -419,6 +424,11 @@ func reviewerStepExternal(pkg *workstream.ReviewerDispatchOperatorPackage, requi
 		ReviewerResultDropPathRole:    dropPathRole,
 		ReviewerResultInputPath:       current.ReviewerResultInputPath,
 		ReviewerResultSourcePath:      current.ReviewerResultSourcePath,
+		ReviewerDispatchID:            current.ReviewerDispatchID,
+		ReviewerDispatchReceiptPath:   current.ReviewerDispatchReceiptPath,
+		ReviewerDispatchReceiptSHA256: current.ReviewerDispatchReceiptSHA256,
+		ReviewerHarness:               current.ReviewerHarness,
+		ReviewerSession:               current.ReviewerSession,
 		RecordDispatchPreviewTemplate: current.ReviewerDispatchRecordCommand,
 		Boundary:                      boundary,
 	}

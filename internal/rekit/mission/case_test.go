@@ -46,6 +46,18 @@ func TestCaseBriefReadsBoardAndFacts(t *testing.T) {
 	}
 }
 
+func TestOpenDecisionEventsUsesLatestDecisionForSameBoundedTarget(t *testing.T) {
+	decisions := []map[string]any{
+		{"lane": "feature-analysis", "subject": "main merge decision for shard-01", "target": "manifest.json", "decision": "defer", "status": "open"},
+		{"lane": "feature-other", "subject": "unrelated", "target": "other.json", "decision": "defer", "status": "open"},
+		{"lane": "feature-analysis", "subject": "main merge decision for shard-01", "target": "manifest.json", "decision": "accept", "status": "resolved"},
+	}
+	open := OpenDecisionEvents(decisions)
+	if len(open) != 1 || Value(open[0], "subject") != "unrelated" {
+		t.Fatalf("open decisions = %+v", open)
+	}
+}
+
 func TestBoardLaneLabelTreatsMainIDAsMain(t *testing.T) {
 	label := BoardLaneLabel(BoardLane{ID: "main", Authority: false})
 	if label != "main" {

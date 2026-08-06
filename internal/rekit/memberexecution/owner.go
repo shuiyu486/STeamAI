@@ -17,8 +17,10 @@ import (
 	"strings"
 	"time"
 
+	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
 )
 
 const (
@@ -67,19 +69,125 @@ func PreviewDispatch(opt DispatchOptions) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
-	handoff := Handoff{SchemaVersion: 1, Kind: KindHandoff, AttemptID: attemptID, Owner: owner, IntentSHA256: hash(intentBytes), ManifestPath: rel(caseRoot, filepath.Join(root, "result", "manifest.json")), OutputsRoot: rel(caseRoot, filepath.Join(root, "result", "outputs")), NextSteps: []string{"external harness accepts this handoff", "external member writes bounded outputs and strict manifest", "record accepted then returned or failed observation through run-current-step"}, Boundary: boundaries()}
+	taskContext, err := currentTaskContext(caseRoot, opt.Pack, owner, attemptID)
+	if err != nil {
+		return Plan{}, err
+	}
+	taskContextBytes, err := canonical(taskContext)
+	if err != nil {
+		return Plan{}, err
+	}
+	taskContextPath := rel(caseRoot, filepath.Join(root, "task-context.json"))
+	handoff := Handoff{SchemaVersion: 1, Kind: KindHandoff, AttemptID: attemptID, Owner: owner, IntentSHA256: hash(intentBytes), TaskContextPath: taskContextPath, TaskContextSHA256: hash(taskContextBytes), ManifestPath: rel(caseRoot, filepath.Join(root, "result", "manifest.json")), OutputsRoot: rel(caseRoot, filepath.Join(root, "result", "outputs")), NextSteps: []string{"external harness accepts this handoff", "external member reads the exact immutable task context and writes bounded outputs", "record accepted then returned or failed observation through run-current-step"}, Boundary: boundaries()}
 	handoffBytes, err := canonical(handoff)
 	if err != nil {
 		return Plan{}, err
 	}
-	commit := Commit{SchemaVersion: 1, Kind: KindCommit, AttemptID: attemptID, IntentSHA256: hash(intentBytes), HandoffSHA256: hash(handoffBytes)}
+	commit := Commit{SchemaVersion: 1, Kind: KindCommit, AttemptID: attemptID, IntentSHA256: hash(intentBytes), TaskContextSHA256: hash(taskContextBytes), HandoffSHA256: hash(handoffBytes)}
 	commitBytes, err := canonical(commit)
 	if err != nil {
 		return Plan{}, err
 	}
-	writes := []plannedWrite{{filepath.Join(root, "intent.json"), intentBytes}, {filepath.Join(root, "handoff.json"), handoffBytes}, {filepath.Join(root, "commit.json"), commitBytes}}
-	inspection := Inspection{State: "handoff-ready", AttemptID: attemptID, Owner: owner, Intent: &intent, Handoff: &handoff, AttemptRoot: root, ManifestPath: filepath.Join(root, "result", "manifest.json"), OutputsRoot: filepath.Join(root, "result", "outputs")}
+	writes := []plannedWrite{{filepath.Join(root, "intent.json"), intentBytes}, {filepath.Join(root, "task-context.json"), taskContextBytes}, {filepath.Join(root, "handoff.json"), handoffBytes}, {filepath.Join(root, "commit.json"), commitBytes}}
+	inspection := Inspection{State: "handoff-ready", AttemptID: attemptID, Owner: owner, Intent: &intent, TaskContext: &taskContext, TaskContextPath: filepath.Join(root, "task-context.json"), TaskContextSHA256: hash(taskContextBytes), Handoff: &handoff, HandoffSHA256: hash(handoffBytes), AttemptRoot: root, ManifestPath: filepath.Join(root, "result", "manifest.json"), OutputsRoot: filepath.Join(root, "result", "outputs")}
 	return finishPlan(Plan{SchemaVersion: 1, Mode: "dispatch", CaseRoot: caseRoot, Pack: opt.Pack, AttemptID: attemptID, Owner: owner, ExternalHandoff: &handoff, Inspection: inspection, ReviewRequired: true, RequiresConfirmation: true, Boundary: boundaries(), writes: writes})
+}
+
+func currentTaskContext(caseRoot, pack string, owner Owner, attemptID string) (TaskContext, error) {
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		return TaskContext{}, err
+	}
+	lane, ok := mission.LookupBoardLane(board.Lanes, owner.Lane, false)
+	if !ok || lane.CurrentExecutor != owner.Executor || lane.ExecutorGeneration != owner.ExecutorGeneration {
+		return TaskContext{}, fmt.Errorf("member execution task context owner changed")
+	}
+	missionInspection, err := missionintent.Inspect(caseRoot)
+	if err != nil {
+		return TaskContext{}, fmt.Errorf("inspect member execution mission intent: %w", err)
+	}
+	goal := strings.TrimSpace(missionInspection.Identity.Goal)
+	goalSource := "committed-mission-intent"
+	var missionArtifact *TaskArtifact
+	if missionInspection.Committed {
+		if !strings.EqualFold(missionInspection.Identity.Pack, pack) || !validSHA(missionInspection.MissionIntentSHA256) {
+			return TaskContext{}, fmt.Errorf("member execution mission intent identity mismatch")
+		}
+		missionArtifact = &TaskArtifact{Path: missionintent.MissionIntentRel, SHA256: strings.ToLower(missionInspection.MissionIntentSHA256)}
+	} else if missionInspection.State == "absent" {
+		goal = "Continue the exact current lane work described by the immutable resume and checkpoint artifacts."
+		goalSource = "lane-resume-fallback"
+	} else {
+		return TaskContext{}, fmt.Errorf("member execution requires a committed mission intent; state=%s", missionInspection.State)
+	}
+	resume, err := taskArtifact(caseRoot, filepath.ToSlash(filepath.Join(".rekit", "lanes", owner.Lane, "prompts", "RESUME.md")), "member execution lane resume")
+	if err != nil {
+		return TaskContext{}, err
+	}
+	checkpoint, err := taskArtifact(caseRoot, filepath.ToSlash(filepath.Join(".rekit", "lanes", owner.Lane, "checkpoints", "latest.json")), "member execution lane checkpoint")
+	if err != nil {
+		return TaskContext{}, err
+	}
+	correction, err := currentTaskCorrection(caseRoot, owner.Lane, lane.LastReconciledIntervention)
+	if err != nil {
+		return TaskContext{}, err
+	}
+	return TaskContext{
+		SchemaVersion: SchemaVersion, Kind: KindTaskContext, AttemptID: attemptID, Pack: pack,
+		ProjectName: strings.TrimSpace(missionInspection.Identity.ProjectName), Goal: goal, GoalSource: goalSource,
+		MissionIntent: missionArtifact, Owner: owner, LaneTitle: lane.Title, LaneWorkspace: lane.Workspace,
+		Resume: resume, Checkpoint: checkpoint, Correction: correction,
+		ExpectedOutput: []string{"return at least one bounded output derived from the stated goal and current lane context", "explain how the latest reconciled correction was applied when correction is present"},
+		NoHeavyTool:    true, NoAuthority: true, NoConfirmed: true,
+	}, nil
+}
+
+func taskArtifact(caseRoot, path, label string) (TaskArtifact, error) {
+	full, err := rekitfs.SafeJoin(caseRoot, path)
+	if err != nil {
+		return TaskArtifact{}, err
+	}
+	data, err := rekitfs.ReadStableRegularFileAnchored(caseRoot, full, label, maxJSONBytes)
+	if err != nil {
+		return TaskArtifact{}, err
+	}
+	return TaskArtifact{Path: path, SHA256: hash(data), Content: string(data)}, nil
+}
+
+func currentTaskCorrection(caseRoot, laneID, sourceID string) (*TaskCorrection, error) {
+	sourceID = strings.TrimSpace(sourceID)
+	if sourceID == "" {
+		return nil, nil
+	}
+	items, err := mission.ReadStrictFact(caseRoot, "intervention")
+	if err != nil {
+		return nil, err
+	}
+	var source, resolution map[string]any
+	for _, item := range items {
+		if mission.Value(item, "lane") != laneID {
+			continue
+		}
+		if mission.Value(item, "eventId") == sourceID {
+			if source != nil {
+				return nil, fmt.Errorf("member execution correction source is duplicated: %s", sourceID)
+			}
+			source = item
+		}
+		if mission.Value(item, "resolvesEventId") == sourceID && mission.Value(item, "action") == "reconcile" && strings.EqualFold(mission.Value(item, "status"), "resolved") {
+			if resolution != nil {
+				return nil, fmt.Errorf("member execution correction resolution is duplicated: %s", sourceID)
+			}
+			resolution = item
+		}
+	}
+	if source == nil || resolution == nil {
+		return nil, fmt.Errorf("member execution correction is not durably reconciled: %s", sourceID)
+	}
+	return &TaskCorrection{
+		SourceEventID: sourceID, SourceSubject: mission.Value(source, "subject"), SourceSummary: mission.Value(source, "summary"), SourceTarget: mission.Value(source, "target"),
+		ResolutionEventID: mission.Value(resolution, "eventId"), ResolutionSummary: mission.Value(resolution, "summary"), ResolutionReason: mission.Value(resolution, "reason"), ResolutionActor: mission.Value(resolution, "actor"), ResolutionTime: mission.Value(resolution, "time"),
+	}, nil
 }
 
 func PreviewObservation(opt ObservationOptions) (Plan, error) {
@@ -92,6 +200,9 @@ func PreviewObservation(opt ObservationOptions) (Plan, error) {
 	}
 	inspection, err := Inspect(caseRoot, owner.Lane, opt.AttemptID)
 	if err != nil {
+		return Plan{}, err
+	}
+	if err := ValidateCurrentTaskContext(caseRoot, inspection); err != nil {
 		return Plan{}, err
 	}
 	if inspection.Owner != owner {
@@ -313,6 +424,14 @@ func inspectAnchored(anchor *anchoredCase, lane, attemptID string) (Inspection, 
 	if err := strictCanonical(intentBytes, &intent); err != nil {
 		return Inspection{}, err
 	}
+	taskContextBytes, err := anchor.readFile(filepath.Join(rootRel, "task-context.json"), maxJSONBytes)
+	if err != nil {
+		return Inspection{}, err
+	}
+	var taskContext TaskContext
+	if err := strictCanonical(taskContextBytes, &taskContext); err != nil {
+		return Inspection{}, err
+	}
 	handoffBytes, err := anchor.readFile(filepath.Join(rootRel, "handoff.json"), maxJSONBytes)
 	if err != nil {
 		return Inspection{}, err
@@ -332,7 +451,11 @@ func inspectAnchored(anchor *anchoredCase, lane, attemptID string) (Inspection, 
 	if intent.SchemaVersion != SchemaVersion || intent.Kind != KindIntent || intent.AttemptID != attemptID || !samePath(intent.CaseRoot, anchor.path) || intent.Owner.Lane != lane || !validSHA(intent.RequestSHA256) || strings.TrimSpace(intent.Pack) == "" || !intent.NoSpawn || !intent.NoPoll || !intent.NoStop || !intent.NoAuthority || !intent.NoConfirmed || !intent.NoHeavyTool {
 		return Inspection{}, fmt.Errorf("invalid member execution intent")
 	}
-	if handoff.SchemaVersion != SchemaVersion || handoff.Kind != KindHandoff || handoff.AttemptID != attemptID || handoff.Owner != intent.Owner || !strings.EqualFold(handoff.IntentSHA256, hash(intentBytes)) {
+	taskContextRel := filepath.ToSlash(filepath.Join(rootRel, "task-context.json"))
+	if err := validateTaskContextContract(intent, taskContext); err != nil {
+		return Inspection{}, err
+	}
+	if handoff.SchemaVersion != SchemaVersion || handoff.Kind != KindHandoff || handoff.AttemptID != attemptID || handoff.Owner != intent.Owner || !strings.EqualFold(handoff.IntentSHA256, hash(intentBytes)) || handoff.TaskContextPath != taskContextRel || !strings.EqualFold(handoff.TaskContextSHA256, hash(taskContextBytes)) {
 		return Inspection{}, fmt.Errorf("invalid member execution handoff binding")
 	}
 	manifestRel := filepath.ToSlash(filepath.Join(rootRel, "result", "manifest.json"))
@@ -340,10 +463,10 @@ func inspectAnchored(anchor *anchoredCase, lane, attemptID string) (Inspection, 
 	if handoff.ManifestPath != manifestRel || handoff.OutputsRoot != outputsRel {
 		return Inspection{}, fmt.Errorf("invalid member execution handoff result paths")
 	}
-	if commit.SchemaVersion != SchemaVersion || commit.Kind != KindCommit || commit.AttemptID != attemptID || !strings.EqualFold(commit.IntentSHA256, hash(intentBytes)) || !strings.EqualFold(commit.HandoffSHA256, hash(handoffBytes)) {
+	if commit.SchemaVersion != SchemaVersion || commit.Kind != KindCommit || commit.AttemptID != attemptID || !strings.EqualFold(commit.IntentSHA256, hash(intentBytes)) || !strings.EqualFold(commit.TaskContextSHA256, hash(taskContextBytes)) || !strings.EqualFold(commit.HandoffSHA256, hash(handoffBytes)) {
 		return Inspection{}, fmt.Errorf("invalid member execution commit binding")
 	}
-	inspection := Inspection{State: "handoff-ready", AttemptID: attemptID, Owner: intent.Owner, Intent: &intent, Handoff: &handoff, HandoffSHA256: hash(handoffBytes), AttemptRoot: root, ManifestPath: filepath.Join(root, "result", "manifest.json"), OutputsRoot: filepath.Join(root, "result", "outputs")}
+	inspection := Inspection{State: "handoff-ready", AttemptID: attemptID, Owner: intent.Owner, Intent: &intent, TaskContext: &taskContext, TaskContextPath: filepath.Join(root, "task-context.json"), TaskContextSHA256: hash(taskContextBytes), Handoff: &handoff, HandoffSHA256: hash(handoffBytes), AttemptRoot: root, ManifestPath: filepath.Join(root, "result", "manifest.json"), OutputsRoot: filepath.Join(root, "result", "outputs")}
 	observationRel := filepath.Join(rootRel, "observations")
 	entries, err := anchor.readDir(observationRel)
 	if err != nil && !os.IsNotExist(err) {
@@ -391,6 +514,90 @@ func inspectAnchored(anchor *anchoredCase, lane, attemptID string) (Inspection, 
 		inspection.Manifest, inspection.ManifestSHA256, inspection.State = &manifest, sum, "intake-ready"
 	}
 	return inspection, nil
+}
+
+func ValidateCurrentTaskContext(caseRoot string, inspection Inspection) error {
+	if inspection.Intent == nil || inspection.TaskContext == nil {
+		return fmt.Errorf("member execution attempt omitted its immutable task context")
+	}
+	return validateTaskContext(caseRoot, *inspection.Intent, *inspection.TaskContext)
+}
+
+func validateTaskContextContract(intent Intent, task TaskContext) error {
+	if task.SchemaVersion != SchemaVersion || task.Kind != KindTaskContext || task.AttemptID != intent.AttemptID || task.Owner != intent.Owner || !strings.EqualFold(task.Pack, intent.Pack) || strings.TrimSpace(task.Goal) == "" || strings.TrimSpace(task.GoalSource) == "" || strings.TrimSpace(task.Resume.Content) == "" || strings.TrimSpace(task.Checkpoint.Content) == "" || !task.NoAuthority || !task.NoConfirmed || !task.NoHeavyTool || len(task.ExpectedOutput) == 0 {
+		return fmt.Errorf("invalid member execution task context")
+	}
+	for _, artifact := range []TaskArtifact{task.Resume, task.Checkpoint} {
+		if !validRelative(artifact.Path) || !validSHA(artifact.SHA256) || !strings.EqualFold(hash([]byte(artifact.Content)), artifact.SHA256) {
+			return fmt.Errorf("invalid member execution task artifact binding")
+		}
+	}
+	if task.MissionIntent != nil {
+		if task.GoalSource != "committed-mission-intent" || task.MissionIntent.Path != missionintent.MissionIntentRel || !validSHA(task.MissionIntent.SHA256) {
+			return fmt.Errorf("invalid member execution mission intent binding")
+		}
+	} else if task.GoalSource != "lane-resume-fallback" {
+		return fmt.Errorf("invalid member execution goal source")
+	}
+	return nil
+}
+
+func validateTaskContext(caseRoot string, intent Intent, task TaskContext) error {
+	if err := validateTaskContextContract(intent, task); err != nil {
+		return err
+	}
+	for _, artifact := range []TaskArtifact{task.Resume, task.Checkpoint} {
+		full, err := rekitfs.SafeJoin(caseRoot, artifact.Path)
+		if err != nil {
+			return err
+		}
+		data, err := rekitfs.ReadStableRegularFileAnchored(caseRoot, full, "member execution current task artifact", maxJSONBytes)
+		if err != nil || !strings.EqualFold(hash(data), artifact.SHA256) {
+			return fmt.Errorf("member execution task artifact changed: %s", artifact.Path)
+		}
+	}
+	if task.MissionIntent != nil {
+		if task.GoalSource != "committed-mission-intent" || task.MissionIntent.Path != missionintent.MissionIntentRel || !validSHA(task.MissionIntent.SHA256) {
+			return fmt.Errorf("invalid member execution mission intent binding")
+		}
+		inspection, err := missionintent.Inspect(caseRoot)
+		if err != nil || !inspection.Committed || inspection.Identity.Goal != task.Goal || inspection.Identity.ProjectName != task.ProjectName || !strings.EqualFold(inspection.Identity.Pack, task.Pack) || !strings.EqualFold(inspection.MissionIntentSHA256, task.MissionIntent.SHA256) {
+			return fmt.Errorf("member execution mission intent changed")
+		}
+	} else if task.GoalSource != "lane-resume-fallback" {
+		return fmt.Errorf("invalid member execution goal source")
+	}
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		return err
+	}
+	lane, ok := mission.LookupBoardLane(board.Lanes, task.Owner.Lane, false)
+	if !ok || lane.CurrentExecutor != task.Owner.Executor || lane.ExecutorGeneration != task.Owner.ExecutorGeneration {
+		return fmt.Errorf("member execution task context owner is stale")
+	}
+	currentCorrection, err := currentTaskCorrection(caseRoot, task.Owner.Lane, lane.LastReconciledIntervention)
+	if err != nil {
+		return err
+	}
+	if !equalTaskCorrection(task.Correction, currentCorrection) {
+		return fmt.Errorf("member execution correction changed")
+	}
+	return nil
+}
+
+func equalTaskCorrection(left, right *TaskCorrection) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+	return *left == *right
+}
+
+func CurrentOwnerMatches(caseRoot, pack string, owner Owner) (bool, error) {
+	_, current, err := currentOwner(caseRoot, pack, owner.Lane)
+	if err != nil {
+		return false, err
+	}
+	return current == owner, nil
 }
 
 func currentOwner(caseRoot, pack, lane string) (string, Owner, error) {
@@ -702,7 +909,7 @@ func inspectPendingDispatchPrefix(anchor *anchoredCase, lane, attemptID string) 
 		entryByName[entry.Name()] = entry
 	}
 	for name, entry := range entryByName {
-		if name != "intent.json" && name != "handoff.json" {
+		if name != "intent.json" && name != "task-context.json" && name != "handoff.json" {
 			return false, nil
 		}
 		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() {
@@ -740,21 +947,41 @@ func inspectPendingDispatchPrefix(anchor *anchoredCase, lane, attemptID string) 
 	if owner != intent.Owner {
 		return false, fmt.Errorf("pending member execution owner generation is stale")
 	}
+	taskContextEntry, hasTaskContext := entryByName["task-context.json"]
+	if !hasTaskContext || taskContextEntry == nil {
+		if _, hasHandoff := entryByName["handoff.json"]; hasHandoff {
+			return false, fmt.Errorf("pending member execution handoff exists without task context")
+		}
+		return true, nil
+	}
+	taskContextBytes, err := anchor.readFile(filepath.Join(rootRel, "task-context.json"), maxJSONBytes)
+	if err != nil {
+		return false, err
+	}
+	var taskContext TaskContext
+	if err := strictCanonical(taskContextBytes, &taskContext); err != nil {
+		return false, fmt.Errorf("invalid pending member execution task context: %w", err)
+	}
+	if err := validateTaskContext(anchor.path, intent, taskContext); err != nil {
+		return false, err
+	}
 	if _, hasHandoff := entryByName["handoff.json"]; hasHandoff {
 		handoffBytes, err := anchor.readFile(filepath.Join(rootRel, "handoff.json"), maxJSONBytes)
 		if err != nil {
 			return false, err
 		}
 		expected := Handoff{
-			SchemaVersion: SchemaVersion,
-			Kind:          KindHandoff,
-			AttemptID:     attemptID,
-			Owner:         intent.Owner,
-			IntentSHA256:  hash(intentBytes),
-			ManifestPath:  filepath.ToSlash(filepath.Join(rootRel, "result", "manifest.json")),
-			OutputsRoot:   filepath.ToSlash(filepath.Join(rootRel, "result", "outputs")),
-			NextSteps:     []string{"external harness accepts this handoff", "external member writes bounded outputs and strict manifest", "record accepted then returned or failed observation through run-current-step"},
-			Boundary:      boundaries(),
+			SchemaVersion:     SchemaVersion,
+			Kind:              KindHandoff,
+			AttemptID:         attemptID,
+			Owner:             intent.Owner,
+			IntentSHA256:      hash(intentBytes),
+			TaskContextPath:   filepath.ToSlash(filepath.Join(rootRel, "task-context.json")),
+			TaskContextSHA256: hash(taskContextBytes),
+			ManifestPath:      filepath.ToSlash(filepath.Join(rootRel, "result", "manifest.json")),
+			OutputsRoot:       filepath.ToSlash(filepath.Join(rootRel, "result", "outputs")),
+			NextSteps:         []string{"external harness accepts this handoff", "external member reads the exact immutable task context and writes bounded outputs", "record accepted then returned or failed observation through run-current-step"},
+			Boundary:          boundaries(),
 		}
 		expectedBytes, err := canonical(expected)
 		if err != nil {

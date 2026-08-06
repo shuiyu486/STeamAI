@@ -16,6 +16,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/autonomy"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/laneid"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
@@ -971,7 +972,7 @@ func saveBoard(caseRoot string, m *manifest.Manifest, updatedAt ...string) (stri
 		if err != nil {
 			return "", err
 		}
-		lanes = append(lanes, boardLane{ID: lane.ID, Type: lane.Type, Title: lane.Title, Status: lane.Status, Authority: lane.Authority, Workspace: lane.Workspace, CurrentExecutor: lane.CurrentExecutor, ExecutorGeneration: lane.ExecutorGeneration, LastTakeoverAt: lane.LastTakeoverAt, LastTakeoverBy: lane.LastTakeoverBy, LastTakeoverReason: lane.LastTakeoverReason, UpdatedAt: lane.UpdatedAt})
+		lanes = append(lanes, boardLane{ID: lane.ID, Type: lane.Type, Title: lane.Title, Status: lane.Status, Authority: lane.Authority, Workspace: lane.Workspace, CurrentExecutor: lane.CurrentExecutor, ExecutorGeneration: lane.ExecutorGeneration, LastTakeoverAt: lane.LastTakeoverAt, LastTakeoverBy: lane.LastTakeoverBy, LastTakeoverReason: lane.LastTakeoverReason, LastReconciledIntervention: lane.LastReconciledIntervention, LastReconcileAt: lane.LastReconcileAt, UpdatedAt: lane.UpdatedAt})
 	}
 	sort.SliceStable(lanes, func(i, j int) bool { return lanes[i].ID < lanes[j].ID })
 	path, err := refsf.SafeJoin(caseRoot, ".rekit/board.json")
@@ -1268,16 +1269,7 @@ func defaultStartLaneType(m *manifest.Manifest) string {
 }
 
 func laneID(laneType, name string) string {
-	raw := laneType
-	if strings.TrimSpace(name) != "" {
-		if strings.Contains(laneType, "feature") {
-			raw = "feature-" + name
-		} else {
-			raw = laneType + "-" + name
-		}
-	}
-	safe := regexp.MustCompile(`[^a-z0-9._-]+`).ReplaceAllString(strings.ToLower(strings.TrimSpace(raw)), "-")
-	return strings.Trim(safe, "-_.")
+	return laneid.Resolve(laneType, name)
 }
 
 func workstreamLabel(lane Lane) string {

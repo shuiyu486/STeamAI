@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/laneid"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
 	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
@@ -402,8 +403,8 @@ func validateInitialLane(repoRoot, pack, lane string) error {
 			return nil
 		}
 	}
-	prefix := defaultType + "-"
-	if strings.HasPrefix(lane, prefix) && len(lane) > len(prefix) && validInitialLane.MatchString(strings.TrimPrefix(lane, prefix)) {
+	label, ok := laneid.Label(defaultType, lane)
+	if ok && validInitialLane.MatchString(label) {
 		return nil
 	}
 	return fmt.Errorf("onboard InitialLane %q cannot be generated exactly by pack %q default start lane type %q", lane, pack, defaultType)

@@ -199,6 +199,25 @@ func TestPreviewPreservesOpaqueGoalInApplyArgs(t *testing.T) {
 	}
 }
 
+func TestDefaultPackInitialLaneUsesStartRoundTrip(t *testing.T) {
+	repo := testRepoRoot(t)
+	opt := testOptions(filepath.Join(t.TempDir(), "vmp-round-trip"))
+	opt.Pack = defaults.DefaultPack
+	opt.InitialLane = "feature-analysis-live-check"
+	plan, err := Preview(repo, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.InitialLane != opt.InitialLane {
+		t.Fatalf("InitialLane = %q, want %q", plan.InitialLane, opt.InitialLane)
+	}
+
+	opt.InitialLane = "feature-live-check"
+	if _, err := Preview(repo, opt); err != nil {
+		t.Fatalf("legacy canonical feature lane should remain accepted: %v", err)
+	}
+}
+
 func TestPreviewRejectsInvalidInitialLane(t *testing.T) {
 	repo := testRepoRoot(t)
 	for _, lane := range []string{"bad\nlane", "feature lane", "../feature", "analysis"} {

@@ -406,7 +406,7 @@ func assertShardHandoff(t *testing.T, handoff ShardHandoff, wantID string, wantI
 	if handoff.ShardID != wantID || handoff.Status != "planned" || strings.Join(handoff.Items, ",") != strings.Join(wantItems, ",") || filepath.Base(handoff.ReviewerResultPath) != wantID+".json" {
 		t.Fatalf("unexpected shard handoff identity: %+v", handoff)
 	}
-	for _, expected := range []string{"read-only reviewer", "Do not write files", "plan-subagents -ReviewerResultPath"} {
+	for _, expected := range []string{"read-only reviewer", "Do not write files", "plan-subagents -ReviewerResultPath", "shape template contains instructions, not default verdict values", "Choose accept with recommendedVerdict=accepted", "Return items exactly as listed in Items", "do not treat the packet skeleton itself as evidence"} {
 		if !strings.Contains(handoff.DispatchPrompt, expected) {
 			t.Fatalf("dispatch prompt missing %q: %+v", expected, handoff)
 		}

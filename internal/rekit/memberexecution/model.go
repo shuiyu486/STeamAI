@@ -3,6 +3,7 @@ package memberexecution
 const (
 	SchemaVersion   = 1
 	KindIntent      = "member-lane-execution-intent"
+	KindTaskContext = "member-lane-execution-task-context"
 	KindHandoff     = "member-lane-execution-handoff"
 	KindCommit      = "member-lane-execution-commit"
 	KindManifest    = "member-lane-execution-result-manifest"
@@ -32,24 +33,66 @@ type Intent struct {
 	NoConfirmed   bool   `json:"noConfirmed"`
 }
 
+type TaskArtifact struct {
+	Path    string `json:"path"`
+	SHA256  string `json:"sha256"`
+	Content string `json:"content,omitempty"`
+}
+
+type TaskCorrection struct {
+	SourceEventID     string `json:"sourceEventId"`
+	SourceSubject     string `json:"sourceSubject"`
+	SourceSummary     string `json:"sourceSummary"`
+	SourceTarget      string `json:"sourceTarget,omitempty"`
+	ResolutionEventID string `json:"resolutionEventId"`
+	ResolutionSummary string `json:"resolutionSummary"`
+	ResolutionReason  string `json:"resolutionReason"`
+	ResolutionActor   string `json:"resolutionActor"`
+	ResolutionTime    string `json:"resolutionTime"`
+}
+
+type TaskContext struct {
+	SchemaVersion  int             `json:"schemaVersion"`
+	Kind           string          `json:"kind"`
+	AttemptID      string          `json:"attemptId"`
+	Pack           string          `json:"pack"`
+	ProjectName    string          `json:"projectName"`
+	Goal           string          `json:"goal"`
+	GoalSource     string          `json:"goalSource"`
+	MissionIntent  *TaskArtifact   `json:"missionIntent,omitempty"`
+	Owner          Owner           `json:"owner"`
+	LaneTitle      string          `json:"laneTitle"`
+	LaneWorkspace  string          `json:"laneWorkspace"`
+	Resume         TaskArtifact    `json:"resume"`
+	Checkpoint     TaskArtifact    `json:"checkpoint"`
+	Correction     *TaskCorrection `json:"correction,omitempty"`
+	ExpectedOutput []string        `json:"expectedOutput"`
+	NoHeavyTool    bool            `json:"noHeavyTool"`
+	NoAuthority    bool            `json:"noAuthority"`
+	NoConfirmed    bool            `json:"noConfirmed"`
+}
+
 type Handoff struct {
-	SchemaVersion int      `json:"schemaVersion"`
-	Kind          string   `json:"kind"`
-	AttemptID     string   `json:"attemptId"`
-	Owner         Owner    `json:"owner"`
-	IntentSHA256  string   `json:"intentSha256"`
-	ManifestPath  string   `json:"manifestPath"`
-	OutputsRoot   string   `json:"outputsRoot"`
-	NextSteps     []string `json:"nextSteps"`
-	Boundary      []string `json:"boundary"`
+	SchemaVersion     int      `json:"schemaVersion"`
+	Kind              string   `json:"kind"`
+	AttemptID         string   `json:"attemptId"`
+	Owner             Owner    `json:"owner"`
+	IntentSHA256      string   `json:"intentSha256"`
+	TaskContextPath   string   `json:"taskContextPath"`
+	TaskContextSHA256 string   `json:"taskContextSha256"`
+	ManifestPath      string   `json:"manifestPath"`
+	OutputsRoot       string   `json:"outputsRoot"`
+	NextSteps         []string `json:"nextSteps"`
+	Boundary          []string `json:"boundary"`
 }
 
 type Commit struct {
-	SchemaVersion int    `json:"schemaVersion"`
-	Kind          string `json:"kind"`
-	AttemptID     string `json:"attemptId"`
-	IntentSHA256  string `json:"intentSha256"`
-	HandoffSHA256 string `json:"handoffSha256"`
+	SchemaVersion     int    `json:"schemaVersion"`
+	Kind              string `json:"kind"`
+	AttemptID         string `json:"attemptId"`
+	IntentSHA256      string `json:"intentSha256"`
+	TaskContextSHA256 string `json:"taskContextSha256"`
+	HandoffSHA256     string `json:"handoffSha256"`
 }
 
 type Output struct {
@@ -89,18 +132,21 @@ type Observation struct {
 }
 
 type Inspection struct {
-	State          string          `json:"state"`
-	AttemptID      string          `json:"attemptId,omitempty"`
-	Owner          Owner           `json:"owner"`
-	Intent         *Intent         `json:"intent,omitempty"`
-	Handoff        *Handoff        `json:"handoff,omitempty"`
-	HandoffSHA256  string          `json:"handoffSha256,omitempty"`
-	Latest         *Observation    `json:"latestObservation,omitempty"`
-	Manifest       *ResultManifest `json:"manifest,omitempty"`
-	ManifestSHA256 string          `json:"manifestSha256,omitempty"`
-	AttemptRoot    string          `json:"attemptRoot,omitempty"`
-	ManifestPath   string          `json:"manifestPath,omitempty"`
-	OutputsRoot    string          `json:"outputsRoot,omitempty"`
+	State             string          `json:"state"`
+	AttemptID         string          `json:"attemptId,omitempty"`
+	Owner             Owner           `json:"owner"`
+	Intent            *Intent         `json:"intent,omitempty"`
+	TaskContext       *TaskContext    `json:"taskContext,omitempty"`
+	TaskContextPath   string          `json:"taskContextPath,omitempty"`
+	TaskContextSHA256 string          `json:"taskContextSha256,omitempty"`
+	Handoff           *Handoff        `json:"handoff,omitempty"`
+	HandoffSHA256     string          `json:"handoffSha256,omitempty"`
+	Latest            *Observation    `json:"latestObservation,omitempty"`
+	Manifest          *ResultManifest `json:"manifest,omitempty"`
+	ManifestSHA256    string          `json:"manifestSha256,omitempty"`
+	AttemptRoot       string          `json:"attemptRoot,omitempty"`
+	ManifestPath      string          `json:"manifestPath,omitempty"`
+	OutputsRoot       string          `json:"outputsRoot,omitempty"`
 }
 
 type Plan struct {

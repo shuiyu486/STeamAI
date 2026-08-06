@@ -53,13 +53,13 @@
 | 架构四层模型 / stable boundary | `docs/design.md` 顶部和对应小节 | 不把 batch 日志并回架构总览 |
 | 自主短 goal / 接手 cadence | `docs/autonomous-goal.md` 顶部 80-120 行 | 不复制整段 goal 到每次总结 |
 | 2026-07-28 项目复审 / 中长期优化路线 | `docs/project-reassessment-2026-07-28.md` 顶部执行区；仅在重新评估方向或选择中大型主线时按需读取 | 不把复审报告加入每轮默认 read-first |
-| 当前 batch 和下一步 | `docs/batch-plan.md` 顶部 current/next/latest completed | 不读 `docs/batch-history.md` |
+| 当前 batch 和下一步 | `docs/batch-plan.md` 顶部 current/next/latest completed；执行真实健康恢复、Claude host 或 live gate 时再读 `docs/health-recovery-and-real-executor-plan.md` 顶部执行区 | 不读 `docs/batch-history.md`，也不默认读执行专文全文 |
 | 旧 batch 细节 / 考古 | `docs/batch-history.md` 中按 Batch ID 搜索 | 不从 Batch 0 顺序读 |
 | release / CI 判断 | `docs/release-readiness.md` 顶部和 Known gaps；再看 `release-check -Format json` | 不把 `ciReleaseGate.ready` 当远程 green |
 | PowerShell façade / removal | `docs/powershell-deprecation.md` 顶部和相关矩阵行 | 不默认运行 façade smoke |
 | Go runtime / command owner | CodeGraph 查询 `internal/rekit/**`，必要时读 `docs/go-first-convergence-plan.md` 或 `docs/go-runtime-migration.md` 顶部 | 不先读历史 migration 全文 |
 | ledger / evidence / intervention 字段 | `docs/evidence-ledger.md` 顶部和对应事件类型 | 不读取完整 case ledger 或复制大 sidecar |
-| reviewer / lane / gate product path | CodeGraph 查询相关 Go symbols + `docs/agent-team-usage.md` 顶部；长期分层按需读 `docs/orchestration-plan.md` 顶部 | 不读全部 batch 历史 |
+| reviewer / lane / gate product path | CodeGraph 查询相关 Go symbols + `docs/agent-team-usage.md` 顶部；真实 Claude host/live gate 按需读 `docs/health-recovery-and-real-executor-plan.md` 顶部；长期分层按需读 `docs/orchestration-plan.md` 顶部 | 不读全部 batch 历史 |
 | pack authoring / promote/sync | `docs/pack-authoring.md`、`docs/promote-sync.md` 对应章节 | 不把 case artifact 写回仓库 |
 | 旧 case 迁移 / moved metadata | `docs/case-migration.md` 顶部和对应步骤 | 不记录真实 case 路径或 case-specific 进度 |
 | 文档减压 / 路由审计 | 本文件 + 目标文档顶部；用搜索定位旧 read-first 列表 | 不批量重写所有历史文档、不把索引当必读清单 |

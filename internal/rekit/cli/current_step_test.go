@@ -8,11 +8,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
@@ -132,7 +134,7 @@ func TestRunCurrentStepRoutesLaneThenReviewerLifecycle(t *testing.T) {
 	}
 }
 
-func TestRunCurrentStepDurableMemberExecutionHandoffAndIntake(t *testing.T) {
+func TestRunCurrentStepDurableMemberExecutionFixtureHandoffAndIntake(t *testing.T) {
 	caseRoot := filepath.Join(t.TempDir(), "member-public-journey")
 	var out bytes.Buffer
 	baseOnboard := []string{"-Command", "onboard", "-Target", caseRoot, "-Pack", "_template", "-ProjectName", "member-public-journey", "-Goal", "bounded member result with reviewer-backed completion", "-Actor", "operator", "-Executor", "member-session-a", "-InitialLane", "feature-analysis"}
@@ -231,6 +233,40 @@ func TestRunCurrentStepDurableMemberExecutionHandoffAndIntake(t *testing.T) {
 	if status.MemberExecution == nil || status.MemberExecution.State != "intake-ready" || status.MemberExecution.ReviewerPlanCommand == "" || len(status.MemberExecution.CompletionEvidence) != 1 {
 		t.Fatalf("status omitted member reviewer/completion relay: %+v", status.MemberExecution)
 	}
+	t.Run("stale owner generation cannot plan reviewer", func(t *testing.T) {
+		boardPath := filepath.Join(caseRoot, ".rekit", "board.json")
+		original, err := os.ReadFile(boardPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			if err := os.WriteFile(boardPath, original, 0o644); err != nil {
+				t.Errorf("restore board fixture: %v", err)
+			}
+		}()
+		var board mission.Board
+		if err := json.Unmarshal(original, &board); err != nil {
+			t.Fatal(err)
+		}
+		for index := range board.Lanes {
+			if board.Lanes[index].ID == "feature-analysis" {
+				board.Lanes[index].CurrentExecutor = "replacement-session"
+				board.Lanes[index].ExecutorGeneration++
+			}
+		}
+		changed, err := json.MarshalIndent(board, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(boardPath, append(changed, '\n'), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		var staleStatus statusInventory
+		runCompletionJSON(t, &out, []string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &staleStatus)
+		if staleStatus.MemberExecution == nil || staleStatus.MemberExecution.State != "dispatch-preview-required" || staleStatus.MemberExecution.ReviewerPlanCommand != "" || len(staleStatus.MemberExecution.CompletionEvidence) != 0 {
+			t.Fatalf("stale member generation drove current reviewer planning: %+v", staleStatus.MemberExecution)
+		}
+	})
 	unreviewed := previewCompletion(t, &out, caseRoot, "analysis", status.MemberExecution.CompletionEvidence[0])
 	if !unreviewed.Blocked || !hasCompletionBlocker(unreviewed.Blockers, "member-manifest-review") || unreviewed.CompletionPlanSHA256 != "" {
 		t.Fatalf("member completion without manifest-bound reviewer writeback was not blocked: %+v", unreviewed)
@@ -252,10 +288,11 @@ func TestRunCurrentStepDurableMemberExecutionHandoffAndIntake(t *testing.T) {
 	dispatchReviewer := runCurrentStepPreview(t, append(append([]string{}, reviewerBase...), "-ReviewerHarness", "member-e2e-harness", "-ReviewerSession", "member-e2e-reviewer", "-Actor", "mission-commander"))
 	runCurrentStepApply(t, caseRoot, dispatchReviewer, "-ReviewerHarness", "member-e2e-harness", "-ReviewerSession", "member-e2e-reviewer", "-Actor", "mission-commander")
 	resultSource := filepath.Join(caseRoot, "workspace", "member-review-result.json")
+	reviewerItem := status.MemberExecution.CompletionEvidence[0]
 	resultData, _ := json.Marshal(map[string]any{
-		"packetId": packet.PacketID, "routeId": packet.Route.ID, "shardId": handoff.ShardID, "items": []string{"member-result"},
-		"reviewerSession": "member-e2e-reviewer", "decision": "accept", "confidence": "high", "summary": "member manifest reviewed", "evidenceRefs": []string{status.MemberExecution.CompletionEvidence[0]}, "risks": []string{}, "conflicts": []string{}, "recommendedVerdict": "accepted",
-		"routeOutput": map[string]any{"item": "member-result", "decision": "accept", "confidence": "high", "evidence": status.MemberExecution.CompletionEvidence[0], "risk": "low", "next_action": "main-agent-writeback", "tier_used": "light", "tool_scope": "read-only", "feature": "review", "request_id": "n/a", "candidate_path": "n/a", "defer_reason": "n/a"},
+		"packetId": packet.PacketID, "routeId": packet.Route.ID, "shardId": handoff.ShardID, "items": []string{reviewerItem},
+		"reviewerSession": "member-e2e-reviewer", "decision": "accept", "confidence": "high", "summary": "member manifest reviewed", "evidenceRefs": []string{reviewerItem}, "risks": []string{}, "conflicts": []string{}, "recommendedVerdict": "accepted",
+		"routeOutput": map[string]any{"item": reviewerItem, "decision": "accept", "confidence": "high", "evidence": reviewerItem, "risk": "low", "next_action": "main-agent-writeback", "tier_used": "light", "tool_scope": "read-only", "feature": "review", "request_id": "n/a", "candidate_path": "n/a", "defer_reason": "n/a"},
 	})
 	if err := os.WriteFile(resultSource, resultData, 0o644); err != nil {
 		t.Fatal(err)
@@ -291,6 +328,110 @@ func TestRunCurrentStepDurableMemberExecutionHandoffAndIntake(t *testing.T) {
 	if err := os.WriteFile(inputPath, inputBytes, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	t.Run("accepted writeback rejects canonical reject semantics", func(t *testing.T) {
+		completionRoot := filepath.Join(filepath.Dir(reviewerPlan.PacketPath), "sessions", handoff.ShardID, "completions")
+		entries, err := os.ReadDir(completionRoot)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(entries) != 1 || entries[0].IsDir() {
+			t.Fatalf("expected exactly one reviewer completion receipt, got %+v", entries)
+		}
+		completionPath := filepath.Join(completionRoot, entries[0].Name())
+		verificationPath := filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl")
+		decisionPath := filepath.Join(caseRoot, ".rekit", "facts", "decisions.jsonl")
+		originals := map[string][]byte{}
+		for _, path := range []string{inputPath, completionPath, verificationPath, decisionPath} {
+			data, readErr := os.ReadFile(path)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			originals[path] = data
+		}
+		defer func() {
+			for path, data := range originals {
+				if writeErr := os.WriteFile(path, data, 0o600); writeErr != nil {
+					t.Errorf("restore %s: %v", path, writeErr)
+				}
+			}
+		}()
+
+		var rejected map[string]any
+		if err := json.Unmarshal(inputBytes, &rejected); err != nil {
+			t.Fatal(err)
+		}
+		rejected["decision"] = "reject"
+		rejected["recommendedVerdict"] = "rejected"
+		rejected["routeOutput"].(map[string]any)["decision"] = "reject"
+		rejectedInput, err := json.Marshal(rejected)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(inputPath, rejectedInput, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		inputSum := sha256.Sum256(rejectedInput)
+		inputSHA := hex.EncodeToString(inputSum[:])
+
+		var completion map[string]any
+		if err := json.Unmarshal(originals[completionPath], &completion); err != nil {
+			t.Fatal(err)
+		}
+		completion["reviewerResultInputSha256"] = inputSHA
+		completion["reviewerResultInputBytes"] = len(rejectedInput)
+		completionBytes, err := json.MarshalIndent(completion, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		completionBytes = append(completionBytes, '\n')
+		if err := os.WriteFile(completionPath, completionBytes, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		completionSum := sha256.Sum256(completionBytes)
+		completionSHA := hex.EncodeToString(completionSum[:])
+
+		rewriteAcceptedLedger := func(path string) {
+			lines := bytes.Split(bytes.TrimSpace(originals[path]), []byte{'\n'})
+			out := []byte{}
+			matched := false
+			for _, line := range lines {
+				var event map[string]any
+				if err := json.Unmarshal(line, &event); err != nil {
+					t.Fatal(err)
+				}
+				if event["packetId"] == packet.PacketID {
+					event["reviewerResultInputSha256"] = inputSHA
+					event["reviewerCompletionReceiptSha256"] = completionSHA
+					event["reviewerDecision"] = "accept"
+					event["recommendedVerdict"] = "accepted"
+					matched = true
+				}
+				encoded, err := json.Marshal(event)
+				if err != nil {
+					t.Fatal(err)
+				}
+				out = append(out, encoded...)
+				out = append(out, '\n')
+			}
+			if !matched {
+				t.Fatalf("ledger %s omitted reviewer packet %s", path, packet.PacketID)
+			}
+			if err := os.WriteFile(path, out, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		rewriteAcceptedLedger(verificationPath)
+		rewriteAcceptedLedger(decisionPath)
+
+		reviewed, err := workstream.HasAcceptedMemberManifestReviewerWriteback(caseRoot, "feature-analysis", reviewerItem)
+		if err == nil || reviewed || !strings.Contains(err.Error(), "does not match canonical reviewer result decision") {
+			t.Fatalf("accepted ledger semantics overrode canonical reject result: reviewed=%t err=%v", reviewed, err)
+		}
+		tampered := previewCompletion(t, &out, caseRoot, "analysis", reviewerItem)
+		if !tampered.Blocked || !hasCompletionBlocker(tampered.Blockers, "member-manifest-review") || tampered.CompletionPlanSHA256 != "" {
+			t.Fatalf("completion accepted ledger semantics over canonical reject result: %+v", tampered)
+		}
+	})
 	if runtime.GOOS != "windows" {
 		canonicalManifest := filepath.Join(caseRoot, filepath.FromSlash(status.MemberExecution.CompletionEvidence[0]))
 		aliasManifest := filepath.Join(filepath.Dir(canonicalManifest), "MANIFEST.JSON")
@@ -334,6 +475,9 @@ func TestRunCurrentStepDurableMemberExecutionHandoffAndIntake(t *testing.T) {
 	completionRequest := completionStatus.MissionControlRunbook.CurrentDriverRequest
 	if completionRequest == nil || completionRequest.RunLoopStepID != "preview-current" || completionRequest.ActionID != "complete-reviewed-lane-feature-analysis" || completionRequest.Source != "laneCompletion.acceptedReviewerLineage" || completionRequest.Lane != "feature-analysis" || !completionRequest.CommandExecutable || !completionRequest.RequiresReview || !strings.Contains(completionRequest.Command, "/rekit complete analysis") || !strings.Contains(completionRequest.Command, status.MemberExecution.CompletionEvidence[0]) {
 		t.Fatalf("durable status did not select evidence-derived completion preview: %+v", completionRequest)
+	}
+	if completionStatus.MemberExecution == nil || completionStatus.MemberExecution.ReviewerPlanCommand != "" || len(completionStatus.MemberExecution.CompletionEvidence) != 1 {
+		t.Fatalf("accepted member manifest requested duplicate reviewer planning: %+v", completionStatus.MemberExecution)
 	}
 	var completionHandoff workstream.HandoffResult
 	out.Reset()
@@ -646,6 +790,28 @@ func runMemberCurrentStep(t *testing.T, caseRoot string, inputs []string) curren
 	args = append(args, inputs...)
 	args = append(args, "-Format", "json")
 	return runCurrentStepPreview(t, args)
+}
+
+func TestSplitPublicCommandPreservesQuotedArguments(t *testing.T) {
+	command := `/rekit plan-subagents -Target "C:\case root" -Pack ` + defaults.DefaultPack + ` -Items "manifest ref" -Format json`
+	got, err := SplitPublicCommand(command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"-Command", "plan-subagents", "-Target", `C:\case root`, "-Pack", defaults.DefaultPack, "-Items", "manifest ref", "-Format", "json"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("public command args = %q, want %q", got, want)
+	}
+	if _, err := SplitPublicCommand(`plan-subagents -Format json`); err == nil {
+		t.Fatal("command without /rekit prefix was accepted")
+	}
+}
+
+func TestMemberReviewerItemsArgsUsesCompactManifestReference(t *testing.T) {
+	manifestRef := ".rekit/lanes/feature-analysis/member-executions/g000002-a000001/result/manifest.json"
+	if got := memberReviewerItemsArgs(manifestRef); !reflect.DeepEqual(got, []string{"-Items", manifestRef}) {
+		t.Fatalf("reviewer items args = %q", got)
+	}
 }
 
 func sha256Text(data []byte) string {

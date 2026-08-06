@@ -2454,6 +2454,7 @@ func reviewerNoteOptions(packet Packet, result ReviewerResult, mapping ReviewerD
 		Confidence:                result.Confidence,
 		Decision:                  mapping.MainDecision,
 		Reason:                    "validated bounded reviewer intake " + intakeID,
+		Status:                    reviewerDecisionStatus(mapping.MainDecision),
 		BatchID:                   intakeID,
 		Target:                    target,
 		EvidenceRefs:              verificationID + "," + evidence,
@@ -2483,6 +2484,15 @@ func reviewerNoteOptions(packet Packet, result ReviewerResult, mapping ReviewerD
 		RouteOutput:               result.RouteOutput,
 	}
 	return verification, decision
+}
+
+func reviewerDecisionStatus(decision string) string {
+	switch strings.TrimSpace(decision) {
+	case "accept", "reject", "supersede":
+		return "resolved"
+	default:
+		return "open"
+	}
 }
 
 func reviewerPostValidation(repoRoot, caseRoot, pack, lane string, allowInit bool) (ReviewerPostValidation, error) {
