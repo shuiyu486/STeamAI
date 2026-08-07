@@ -360,6 +360,7 @@ func TestRunNextBatchWhatIfUsesSelectedDomainCandidateGuidance(t *testing.T) {
 
 func TestRunNextBatchWhatIfRecoversCompletedBatchShortValidationEvidenceProductPath(t *testing.T) {
 	fixture := newCLIFixture(t, cliFixtureOptions{})
+	disableCLIActiveRouteFixture(t, fixture.repoRoot)
 	if err := os.WriteFile(filepath.Join(fixture.repoRoot, "docs", "batch-history.md"), []byte("# Batch history archive\n\n## 历史批次\n\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -406,6 +407,7 @@ func TestRunNextBatchWhatIfRecoversCompletedBatchShortValidationEvidenceProductP
 
 func TestRunNextBatchGuidancePlanningRouteConsumerLoopProductPath(t *testing.T) {
 	fixture := newCLIFixture(t, cliFixtureOptions{})
+	disableCLIActiveRouteFixture(t, fixture.repoRoot)
 	restore := withNextBatchReadyReleaseCheckFixture(t, "Batch 945")
 	restored := false
 	defer func() {
@@ -519,6 +521,7 @@ func TestRunNextBatchGuidancePlanningRouteConsumerLoopProductPath(t *testing.T) 
 
 func TestRunDurableNextBatchRouteConsumerLoopProductPath(t *testing.T) {
 	fixture := newCLIFixture(t, cliFixtureOptions{})
+	disableCLIActiveRouteFixture(t, fixture.repoRoot)
 	restore := withNextBatchReadyReleaseCheckFixture(t, "Batch 955")
 	restored := false
 	defer func() {
@@ -648,6 +651,7 @@ func TestRunDurableNextBatchRouteConsumerLoopProductPath(t *testing.T) {
 
 func TestRunNextBatchApplyRequiresWhatIfHashAndRefreshesStatus(t *testing.T) {
 	fixture := newCLIFixture(t, cliFixtureOptions{})
+	disableCLIActiveRouteFixture(t, fixture.repoRoot)
 	restore := withNextBatchReadyReleaseCheckFixture(t, "Batch 945")
 	restored := false
 	defer func() {
@@ -769,9 +773,9 @@ func insertFixtureBatchSection(t *testing.T, repoRoot, section string) {
 		t.Fatalf("fixture batch plan marker %q is not followed by a blank line", marker)
 	}
 	tail := text[insertAt:]
-	if strings.Contains(section, "### Batch 816：short validation evidence fixture") {
-		if rules := strings.Index(tail, "## 活动文档维护规则"); rules >= 0 {
-			tail = tail[rules:]
+	if batchStart := strings.Index(tail, "### Batch "); batchStart >= 0 {
+		if validationStart := strings.Index(tail[batchStart:], "## 验证标准"); validationStart >= 0 {
+			tail = tail[:batchStart] + tail[batchStart+validationStart:]
 		}
 	}
 	if err := os.WriteFile(path, []byte(text[:insertAt]+section+tail), 0o644); err != nil {
@@ -1772,6 +1776,70 @@ func TestRunDoctorRejectsUnsupportedFormat(t *testing.T) {
 	}
 }
 
+func TestStatusProjectHandoffKeepsInvalidActiveRouteAsBlockedCurrentAction(t *testing.T) {
+	handoff := readyReleaseHandoffFixture(releasecheck.ReleaseHandoff{})
+	handoff.ActiveRoute = releasecheck.ReleaseHandoffActiveRoute{
+		Present:              true,
+		Ready:                false,
+		Path:                 "docs/real-usage-hardening-roadmap.md",
+		ProjectionPath:       "docs/batch-plan.md",
+		Route:                "real-usage-hardening-v1",
+		CurrentBatch:         "RH-01 普通 public 路线真实验收",
+		State:                "in_progress",
+		ExclusiveClaim:       "RH-01",
+		NextBatch:            "RH-02",
+		ProjectionConsistent: false,
+		Warnings:             []string{"active real-usage route and batch-plan projection disagree"},
+		CurrentAction: &mission.MissionCommanderNextActionItem{
+			Label:          "RH-01",
+			ActionID:       "active-route-conflict",
+			State:          "blocked-route-conflict",
+			Command:        "repair the active route projection",
+			Source:         "releaseHandoffActiveRoute",
+			Blocked:        true,
+			RequiresReview: true,
+		},
+	}
+	handoff.NextBatchSelectionPackage = nil
+	project := buildStatusProjectHandoff(handoff)
+	current := project.MissionCommanderActionQueue.CurrentAction
+	if current == nil || current.ActionID != "active-route-conflict" || current.Source != "releaseHandoffActiveRoute" || !current.Blocked || !current.RequiresReview || strings.Contains(current.Command, "select the next Windows-verifiable") {
+		t.Fatalf("invalid active route was not preserved as blocked current action: project=%+v", project)
+	}
+}
+
+func TestStatusProjectHandoffKeepsActiveRHRouteAheadOfCompletedBatch(t *testing.T) {
+	handoff := readyReleaseHandoffFixture(releasecheck.ReleaseHandoff{})
+	handoff.LatestBatch.BatchID = "Batch 999"
+	handoff.LatestBatch.Title = "Batch 999：fixture completed numbered batch"
+	handoff.LatestBatch.Goal = "让 fresh Mission Commander 通过统一 `run-current-step` 消费 durable external session campaign。"
+	handoff.ActiveRoute = releasecheck.ReleaseHandoffActiveRoute{
+		Ready:                true,
+		Present:              true,
+		Path:                 "docs/real-usage-hardening-roadmap.md",
+		ProjectionPath:       "docs/batch-plan.md",
+		Route:                "real-usage-hardening-v1",
+		CurrentBatch:         "RH-01 普通 public 路线真实验收",
+		State:                "in_progress",
+		ExclusiveClaim:       "RH-01",
+		NextBatch:            "RH-02，仅在 RH-01 全部验收与完整本机验证通过后解锁",
+		ProjectionConsistent: true,
+		CurrentAction: &mission.MissionCommanderNextActionItem{
+			Label:    "RH-01",
+			ActionID: "active-route-current-batch",
+			State:    "in_progress",
+			Command:  "continue RH-01 from docs/real-usage-hardening-roadmap.md",
+			Source:   "releaseHandoffActiveRoute",
+		},
+	}
+	handoff.NextBatchSelectionPackage = nil
+	project := buildStatusProjectHandoff(handoff)
+	current := project.MissionCommanderActionQueue.CurrentAction
+	if current == nil || current.ActionID != "active-route-current-batch" || current.Source != "releaseHandoffActiveRoute" || strings.Contains(current.Command, "select the next Windows-verifiable") || project.NextBatchSelectionPackage != nil {
+		t.Fatalf("active RH route did not own status current action: project=%+v", project)
+	}
+}
+
 func TestRunStatusJsonKit(t *testing.T) {
 	var out bytes.Buffer
 	if err := Run([]string{"-Command", "status", "-Pack", "_template", "-Format", "json"}, &out); err != nil {
@@ -1797,16 +1865,20 @@ func TestRunStatusJsonKit(t *testing.T) {
 			ToolingFiles  int    `json:"toolingFiles"`
 		} `json:"manifest"`
 		ProjectHandoff struct {
-			Ready                         bool     `json:"ready"`
-			Summary                       string   `json:"summary"`
-			ReadFirst                     []string `json:"readFirst"`
-			LatestBatch                   string   `json:"latestBatch"`
-			LatestBatchStatus             string   `json:"latestBatchStatus"`
-			LatestBatchGoal               string   `json:"latestBatchGoal"`
-			LatestValidation              string   `json:"latestValidation"`
-			LatestLocalValidationReady    bool     `json:"latestLocalValidationReady"`
-			LatestReleaseCheckReady       bool     `json:"latestReleaseCheckReady"`
-			LatestRemoteReleaseGate       string   `json:"latestRemoteReleaseGate"`
+			Ready       bool     `json:"ready"`
+			Summary     string   `json:"summary"`
+			ReadFirst   []string `json:"readFirst"`
+			ActiveRoute struct {
+				Present           bool `json:"present"`
+				NextBatchUnlocked bool `json:"nextBatchUnlocked"`
+			} `json:"activeRoute"`
+			LatestBatch                   string `json:"latestBatch"`
+			LatestBatchStatus             string `json:"latestBatchStatus"`
+			LatestBatchGoal               string `json:"latestBatchGoal"`
+			LatestValidation              string `json:"latestValidation"`
+			LatestLocalValidationReady    bool   `json:"latestLocalValidationReady"`
+			LatestReleaseCheckReady       bool   `json:"latestReleaseCheckReady"`
+			LatestRemoteReleaseGate       string `json:"latestRemoteReleaseGate"`
 			LatestRemoteReleaseGateDetail *struct {
 				State            string   `json:"state"`
 				RunRefs          []string `json:"runRefs"`
@@ -1990,6 +2062,10 @@ func TestRunStatusJsonKit(t *testing.T) {
 		if !statusProjectHandoffNextActionReasonContains(status.ProjectHandoff.MissionCommanderNextActions, "pack-memory candidate queue is closed: no pack-memory candidate cleanup is pending") || !statusProjectHandoffNextActionBoundaryContains(status.ProjectHandoff.MissionCommanderNextActions, "candidate-domain follow-ups are selection guidance only") {
 			t.Fatalf("project handoff next-batch candidates omitted closed-state evidence or selection boundary: %+v", status.ProjectHandoff.MissionCommanderNextActions)
 		}
+	} else if status.ProjectHandoff.ActiveRoute.Present && !status.ProjectHandoff.ActiveRoute.NextBatchUnlocked && status.ProjectHandoff.LatestBatch == "Batch 821" {
+		if projectCurrent.Source != "releaseHandoffActiveRoute" || projectCurrent.ActionID != "active-route-current-batch" || !strings.Contains(projectCurrent.Command, "RH-03") || status.ProjectHandoff.MissionCommanderActionQueue.Counts.RequiresReview != 0 {
+			t.Fatalf("active RH route should own the completed legacy batch current action: current=%+v queue=%+v", projectCurrent, status.ProjectHandoff.MissionCommanderActionQueue)
+		}
 	} else {
 		wantProjectCommand := statusProjectHandoffExecutableCurrentCommand(status.ProjectHandoff.LatestNextAction)
 		if projectCurrent.Source != "releaseHandoffLatestBatch" || projectCurrent.Command != wantProjectCommand || projectCurrent.Label != status.ProjectHandoff.LatestBatch || status.ProjectHandoff.MissionCommanderActionQueue.Counts.RequiresReview != 1 {
@@ -2015,10 +2091,8 @@ func TestRunStatusJsonKit(t *testing.T) {
 	if containsSubstring(status.ProjectHandoff.LatestEvidence, "transient retry") || len(status.ProjectHandoff.LatestValidationWarnings) != 0 {
 		t.Fatalf("project handoff should not infer retry warning when latest batch records attempts=1: evidence=%+v warnings=%+v", status.ProjectHandoff.LatestEvidence, status.ProjectHandoff.LatestValidationWarnings)
 	}
-	for _, want := range []string{"docs/context-routing.md", "docs/batch-plan.md", "docs/release-readiness.md", "CHANGELOG.md"} {
-		if !slices.Contains(status.ProjectHandoff.ReadFirst, want) {
-			t.Fatalf("project handoff readFirst missing %q: %+v", want, status.ProjectHandoff.ReadFirst)
-		}
+	if !slices.Equal(status.ProjectHandoff.ReadFirst, []string{"docs/context-routing.md"}) {
+		t.Fatalf("project handoff must route progressively through one canonical entry: %+v", status.ProjectHandoff.ReadFirst)
 	}
 	for _, want := range []string{"go run ./cmd/rekit -- -Command release-check -Format json", "go test ./...", "go vet ./...", "git diff --check"} {
 		if !slices.Contains(status.ProjectHandoff.ValidationCommands, want) {
@@ -2065,7 +2139,17 @@ func TestRunStatusJsonKit(t *testing.T) {
 		"status next action：Read docs/context-routing.md first",
 	}
 	projectActionTextExpected := []string{}
-	if status.ProjectHandoff.ReleaseInspectionCadence.State == "complete" {
+	if status.ProjectHandoff.ActiveRoute.Present && !status.ProjectHandoff.ActiveRoute.NextBatchUnlocked && status.ProjectHandoff.LatestBatch == "Batch 821" {
+		projectActionTextExpected = []string{
+			fmt.Sprintf("status project handoff：summary=%s ready=%t latestBatch=Batch 821", status.ProjectHandoff.Summary, status.ProjectHandoff.Ready),
+			"status project handoff current action queue：total=1 unblocked=1 blocked=0",
+			"status Mission Commander current action：scope=focus-project lane= label=RH-03 state=in_progress source=releaseHandoffActiveRoute",
+			"status Mission Commander focus action reason：scope=project reason=active durable route: real-usage-hardening-v1",
+			"status Mission Commander focus action boundary：scope=project boundary=do not generate or consume free-form candidate-domain selection while the active route is not unlocked",
+			"status Mission Commander focus project runbook：batch=RH-03 state=in_progress",
+			"status project handoff current action queue action：bucket=current lane= label=RH-03 state=in_progress source=releaseHandoffActiveRoute",
+		}
+	} else if status.ProjectHandoff.ReleaseInspectionCadence.State == "complete" {
 		projectActionTextExpected = []string{
 			"status project handoff：summary=release handoff summary ok ready=true latestBatch=Batch ",
 			"status project handoff current action queue：total=8 unblocked=8 blocked=0",
@@ -5566,9 +5650,9 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 		"release-check case shim phrase：phrase=Go-native backend present=true",
 		"release-check canonical skill phrase：phrase=底层 Go CLI 是 canonical runtime present=true",
 		"release-check case shim forbidden：pattern=PowerShell present=false",
-		"release-check public default docs：summary=public default docs readiness ok ready=true documents=15",
+		"release-check public default docs：summary=public default docs readiness ok ready=true documents=11",
 		"release-check public default doc：path=README.md present=true",
-		"release-check public default phrase：path=docs/context-routing.md present=true phrase=按需路由",
+		"release-check public default phrase：path=docs/context-routing.md present=true phrase=本项目文档必须做成按需路由、渐进式披露的样式",
 		"release-check public default docs boundary：",
 		"release-check release handoff：summary=release handoff summary ok ready=true",
 		"release-check latest batch：batch=Batch ",
@@ -5711,13 +5795,10 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releasecheck.ReleaseHandoff
 	if !handoff.Ready || handoff.Summary != "release handoff summary ok" || counts.Warnings != 0 {
 		t.Fatalf("unexpected release handoff summary: %+v", handoff)
 	}
-	if counts.ReadFirst != 4 || counts.Signals != 13 || counts.KnownGaps == 0 || counts.PackMaturity.Total == 0 || counts.Validation == 0 || counts.NextActions == 0 {
+	if counts.ReadFirst != 1 || counts.Signals != 13 || counts.KnownGaps == 0 || counts.PackMaturity.Total == 0 || counts.Validation == 0 || counts.NextActions == 0 {
 		t.Fatalf("release handoff omitted required sections: %+v", handoff)
 	}
 	assertReleaseHandoffReadFirst(t, handoff, "docs/context-routing.md")
-	assertReleaseHandoffReadFirst(t, handoff, "docs/batch-plan.md")
-	assertReleaseHandoffReadFirst(t, handoff, "docs/release-readiness.md")
-	assertReleaseHandoffReadFirst(t, handoff, "CHANGELOG.md")
 	assertReleaseHandoffSignal(t, handoff, "release-check inventory")
 	assertReleaseHandoffSignal(t, handoff, "CI release gate")
 	assertReleaseHandoffSignalDetail(t, handoff, "PowerShell deprecation", "fallbackRetirement=true noFallback=30 candidates=0 removalModules=0 retiredModules=13")
@@ -5790,8 +5871,8 @@ func assertReleaseCheckHandoff(t *testing.T, handoff releasecheck.ReleaseHandoff
 	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "removalImpact=true impactReferences=")
 	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "workItems=")
 	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "validationCommands=")
-	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "migrationTargets=76")
-	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "migrationValidationCommands=608")
+	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "migrationTargets=75")
+	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "migrationValidationCommands=600")
 	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "smokeMigrationTargets=29")
 	assertReleaseHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "smokeMigrationValidationCommands=232")
 	assertReleaseHandoffSignalDetail(t, handoff, "public facade removal prerequisites", "public-facade-retained-boundary ready=true publicFacadeReady=true present=true retained=true migrationBoundary=true removalBoundary=true")
@@ -6015,7 +6096,7 @@ func assertReleaseCheckPublicFacadeRemoval(t *testing.T, inventory releasecheck.
 	if !inventory.RemovalPlan.Ready || inventory.RemovalPlan.Document != "docs/powershell-deprecation.md" || planCounts.Warnings != 0 || planCounts.RequiredPhrases != 9 || planCounts.ReplacementEntrypoints != 4 || planCounts.ReplacementValidationCommands != 32 || deletionGateCounts.Gates != 5 || deletionGateCounts.ValidationCommands != 40 || deletionGateCounts.ExitCriteria != 15 || deletionGateCounts.FailureSignals != 15 || deletionGateCounts.EscalationTriggers != 15 || deletionGateCounts.EscalationEvidence != 15 || deletionGateCounts.EscalationRecipients != 15 || deletionGateCounts.EscalationHandoffSteps != 15 || deletionGateCounts.EscalationDecisionOptions != 15 || deletionGateCounts.EscalationRetryConditions != 15 || deletionGateCounts.EscalationStopConditions != 15 || deletionGateCounts.EscalationResolutionArtifacts != 15 || deletionGateCounts.EscalationClosureChecks != 15 || deletionGateCounts.EscalationReopenConditions != 15 || deletionGateCounts.EscalationLedgerEvents != 15 || deletionGateCounts.EscalationStateTransitions != 15 || deletionGateCounts.EscalationBoundaryGuards != 15 || deletionGateCounts.EscalationAuditChecks != 15 || deletionGateCounts.VerificationArtifacts != 15 || deletionGateCounts.BlockedExecutionSteps != 10 || deletionGateCounts.RemediationActions != 15 || executionCounts.Steps != 5 || executionCounts.FailureSignals != 15 || executionCounts.RemediationActions != 15 || executionCounts.VerificationArtifacts != 15 || executionCounts.LedgerEvents != 15 || executionCounts.StateTransitions != 15 || executionCounts.EscalationTriggers != 15 || executionCounts.EscalationEvidence != 15 || executionCounts.EscalationRecipients != 15 || executionCounts.EscalationHandoffSteps != 15 || executionCounts.EscalationDecisionOptions != 15 || executionCounts.EscalationRetryConditions != 15 || executionCounts.EscalationStopConditions != 15 || executionCounts.EscalationResolutionArtifacts != 15 || executionCounts.EscalationClosureChecks != 15 || executionCounts.EscalationReopenConditions != 15 || executionCounts.EscalationLedgerEvents != 15 || executionCounts.EscalationStateTransitions != 15 || executionCounts.EscalationBoundaryGuards != 15 || executionCounts.EscalationAuditChecks != 15 || executionCounts.BoundaryGuards != 15 || executionCounts.AuditChecks != 15 || executionCounts.ValidationCommands != 40 || planCounts.BoundaryChecks != 6 || planCounts.BoundaryValidationCommands != 48 || planCounts.RecoverySteps != 4 || planCounts.RecoveryValidationCommands != 32 || planCounts.DocumentationTargets != 9 || planCounts.DocumentationValidationCommands != 72 || !releaseCheckPublicFacadeRemovalHasReplacementEntrypoint(inventory.RemovalPlan, "canonical-rekit-skill") || !releaseCheckPublicFacadeRemovalHasReplacementEntrypoint(inventory.RemovalPlan, "direct-go-cli") || !releaseCheckPublicFacadeRemovalHasDeletionGate(inventory.RemovalPlan, "go-native-alternatives-ready") || !releaseCheckPublicFacadeRemovalHasDeletionGate(inventory.RemovalPlan, "release-gate-green") || !releaseCheckPublicFacadeRemovalHasExecutionStep(inventory.RemovalPlan, "delete-public-facade") || !releaseCheckPublicFacadeRemovalHasExecutionStep(inventory.RemovalPlan, "rerun-release-gate") || !releaseCheckPublicFacadeRemovalHasBoundaryCheck(inventory.RemovalPlan, "no-powershell-runtime-logic") || !releaseCheckPublicFacadeRemovalHasBoundaryCheck(inventory.RemovalPlan, "no-external-effects") || !releaseCheckPublicFacadeRemovalHasRecoveryStep(inventory.RemovalPlan, "restore-public-facade") || !releaseCheckPublicFacadeRemovalHasDocumentationTarget(inventory.RemovalPlan, "docs/release-readiness.md") || !releaseCheckPublicFacadeRemovalHasDocumentationTarget(inventory.RemovalPlan, "CHANGELOG.md") {
 		t.Fatalf("public facade removal plan drifted: %+v", inventory.RemovalPlan)
 	}
-	if !inventory.RemovalImpact.Ready || inventory.RemovalImpact.FacadePath != "rekit/rekit.ps1" || !inventory.RemovalImpact.FacadePresent || impactCounts.Warnings != 0 || impactCounts.References == 0 || impactCounts.ReferenceCategories == 0 || impactCounts.WorkItems != impactCounts.ReferenceCategories || impactCounts.WorkItemValidationCommands != impactCounts.WorkItems*8 || impactCounts.MigrationTargets != 76 || impactCounts.MigrationValidationCommands != 608 || impactCounts.SmokeMigrationTargets != 29 || impactCounts.SmokeMigrationValidationCommands != 232 || impactCounts.UnclassifiedReferences != 0 || !releaseCheckPublicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "public-facade-entrypoint") || !releaseCheckPublicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "facade-compatibility-smoke") || !releaseCheckPublicFacadeRemovalHasImpactWorkItem(inventory.RemovalImpact, "release-inventory-and-tests") || !releaseCheckPublicFacadeRemovalHasMigrationTarget(inventory.RemovalImpact, "rekit/rekit.ps1") || !releaseCheckPublicFacadeRemovalHasMigrationTarget(inventory.RemovalImpact, "docs/powershell-deprecation.md") || !releaseCheckPublicFacadeRemovalHasSmokeMigrationTarget(inventory.RemovalImpact, "rekit/tests/facade-smoke.ps1") || !releaseCheckPublicFacadeRemovalHasSmokeMigrationTarget(inventory.RemovalImpact, "rekit/tests/continue-whatif-smoke.ps1") {
+	if !inventory.RemovalImpact.Ready || inventory.RemovalImpact.FacadePath != "rekit/rekit.ps1" || !inventory.RemovalImpact.FacadePresent || impactCounts.Warnings != 0 || impactCounts.References == 0 || impactCounts.ReferenceCategories == 0 || impactCounts.WorkItems != impactCounts.ReferenceCategories || impactCounts.WorkItemValidationCommands != impactCounts.WorkItems*8 || impactCounts.MigrationTargets != 75 || impactCounts.MigrationValidationCommands != 600 || impactCounts.SmokeMigrationTargets != 29 || impactCounts.SmokeMigrationValidationCommands != 232 || impactCounts.UnclassifiedReferences != 0 || !releaseCheckPublicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "public-facade-entrypoint") || !releaseCheckPublicFacadeRemovalHasImpactCategory(inventory.RemovalImpact, "facade-compatibility-smoke") || !releaseCheckPublicFacadeRemovalHasImpactWorkItem(inventory.RemovalImpact, "release-inventory-and-tests") || !releaseCheckPublicFacadeRemovalHasMigrationTarget(inventory.RemovalImpact, "rekit/rekit.ps1") || !releaseCheckPublicFacadeRemovalHasMigrationTarget(inventory.RemovalImpact, "docs/powershell-deprecation.md") || !releaseCheckPublicFacadeRemovalHasSmokeMigrationTarget(inventory.RemovalImpact, "rekit/tests/facade-smoke.ps1") || !releaseCheckPublicFacadeRemovalHasSmokeMigrationTarget(inventory.RemovalImpact, "rekit/tests/continue-whatif-smoke.ps1") {
 		t.Fatalf("public facade removal impact drifted: %+v", inventory.RemovalImpact)
 	}
 }
@@ -6160,38 +6241,33 @@ func assertReleaseCheckPublicDefaultDocs(t *testing.T, docs defaultdocs.Readines
 	if !docs.Ready || docs.Summary != "public default docs readiness ok" || counts.Warnings != 0 {
 		t.Fatalf("unexpected public default docs readiness inventory: %+v", docs)
 	}
-	if counts.Documents != 15 || counts.RequiredPhrases == 0 || counts.Boundaries == 0 {
+	if counts.Documents != 11 || counts.RequiredPhrases == 0 || counts.Boundaries == 0 {
 		t.Fatalf("public default docs readiness omitted required sections: %+v", docs)
 	}
 	assertPublicDefaultDoc(t, docs, "README.md")
 	assertPublicDefaultDoc(t, docs, ".claude/skills/rekit/SKILL.md")
 	assertPublicDefaultDoc(t, docs, "CLAUDE.md")
 	assertPublicDefaultDoc(t, docs, "docs/context-routing.md")
+	assertPublicDefaultDoc(t, docs, "docs/real-usage-hardening-roadmap.md")
 	assertPublicDefaultDoc(t, docs, "docs/batch-plan.md")
 	assertPublicDefaultDoc(t, docs, "docs/mission-control-product-direction.md")
 	assertPublicDefaultDoc(t, docs, "docs/autonomous-goal.md")
 	assertPublicDefaultDoc(t, docs, "docs/release-readiness.md")
-	assertPublicDefaultDoc(t, docs, "docs/go-first-convergence-plan.md")
-	assertPublicDefaultDoc(t, docs, "docs/go-runtime-migration.md")
 	assertPublicDefaultDoc(t, docs, "docs/powershell-deprecation.md")
-	assertPublicDefaultDoc(t, docs, "docs/vision.md")
-	assertPublicDefaultDoc(t, docs, "docs/reference-absorption.md")
-	assertPublicDefaultDoc(t, docs, "docs/agent-team-rollout-plan.md")
 	assertPublicDefaultDoc(t, docs, "rekit/tests/README.md")
 	assertPublicDefaultPhrase(t, docs, "README.md", "用户主要指挥主 Agent / Mission Commander")
 	assertPublicDefaultPhrase(t, docs, "docs/mission-control-product-direction.md", "Lane-centric Agent Team Mission Control")
 	assertPublicDefaultPhrase(t, docs, ".claude/skills/rekit/SKILL.md", "底层 Go CLI 是 canonical runtime")
-	assertPublicDefaultPhrase(t, docs, "docs/context-routing.md", "按需路由")
+	assertPublicDefaultPhrase(t, docs, "docs/context-routing.md", "本项目文档必须做成按需路由、渐进式披露的样式")
+	assertPublicDefaultPhrase(t, docs, "docs/context-routing.md", "当前不再从候选池选题")
+	assertPublicDefaultPhrase(t, docs, "docs/real-usage-hardening-roadmap.md", "active source")
+	assertPublicDefaultPhrase(t, docs, "docs/real-usage-hardening-roadmap.md", "只内联当前批次卡")
 	assertPublicDefaultPhrase(t, docs, "docs/batch-plan.md", "完整历史已拆到 `docs/batch-history.md`")
+	assertPublicDefaultPhrase(t, docs, "docs/batch-plan.md", "唯一允许领取")
 	assertPublicDefaultPhrase(t, docs, "CLAUDE.md", "当前支持与日常完成门槛以 Windows 本机为准")
-	assertPublicDefaultPhrase(t, docs, "docs/autonomous-goal.md", "默认继续自主推进")
+	assertPublicDefaultPhrase(t, docs, "docs/autonomous-goal.md", "默认继续自主推进仅表示继续**已批准路线**")
 	assertPublicDefaultPhrase(t, docs, "docs/release-readiness.md", "默认本机验证路径不依赖 PowerShell")
-	assertPublicDefaultPhrase(t, docs, "docs/go-first-convergence-plan.md", "不要把大型 PowerShell matrix 作为默认必跑")
-	assertPublicDefaultPhrase(t, docs, "docs/go-runtime-migration.md", "当前默认验证应优先运行 Go-native release gate")
 	assertPublicDefaultPhrase(t, docs, "docs/powershell-deprecation.md", "Go CLI/backend 是 canonical runtime")
-	assertPublicDefaultPhrase(t, docs, "docs/vision.md", "优先运行 Go-native 检查")
-	assertPublicDefaultPhrase(t, docs, "docs/reference-absorption.md", "Go-native release readiness 子集")
-	assertPublicDefaultPhrase(t, docs, "docs/agent-team-rollout-plan.md", "公共 `/rekit` 默认路径已由 23 个 Go-owned/no-fallback public commands 支撑")
 	assertPublicDefaultPhrase(t, docs, "rekit/tests/README.md", "推荐最小回归组合")
 	for _, forbidden := range docs.ForbiddenCommands {
 		if forbidden.Present {
@@ -6391,13 +6467,13 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"commands=24 modules=14 freezeGates=10 blocked=5 fallbackRetirement=true noFallback=30 candidates=0 removalModules=0 retiredModules=13 facadeRuntime=true legacyImports=false dispatcher=false publicFacade=true retained=true facadeCommands=30 noFallback=30 moduleRemoval=true removalCandidates=0 retired=13 facadeDeps=0 undocumented=0 moduleReferences=true activeTests=0 fixtures=0 blockers=0 unclassified=0",
 		"Go-native public surface: Go-native public command surface inventory ok ready=true entrypoint=cmd/rekit present=true catalog=internal/rekit/commands/commands.go catalogPresent=true default=status commands=30 handlers=30 symbols=30 profiles=30 boundaries=8 boundaryRows=8 policyRows=5 policyViolations=0 facadeRemovalReady=true facadePrerequisites=5 readOnly=5 mutating=25 writesCase=22 writesKit=2 reviewFirst=12 applyRequired=22 heavyTool=0 authorityConfirmed=0 readOnlyCommands=doctor,packs,release-check,status,validate reviewFirstCommands=complete,next-batch,onboard,promote,reopen,run-current-loop,run-current-step,run-driver-step,run-reviewer-step,run-reviewer-wave,sync,update writesKitCommands=next-batch,promote caseLocalApplyCommands=attach,bootstrap,continue,gate,handoff,init,reconcile,repair,start caseLocalReviewWritebackCommands=plan-subagents kitReviewFirstCommands=next-batch,promote alternative=go run ./cmd/rekit -- -Command <command> unsupportedDiagnostic=true",
 		"case shim: case shim readiness ok ready=true",
-		"public default docs: public default docs readiness ok ready=true documents=15",
+		"public default docs: public default docs readiness ok ready=true documents=11",
 		"public facade removal: public facade removal prerequisites ok ready=true prerequisites=8 removalPlan=true planChecks=9 replacementEntrypoints=4 replacementValidationCommands=32 deletionGates=5 deletionGateValidationCommands=40 deletionGateExitCriteria=15 deletionGateFailureSignals=15 deletionGateEscalationTriggers=15 deletionGateEscalationEvidence=15 deletionGateEscalationRecipients=15 deletionGateEscalationHandoffSteps=15 deletionGateEscalationDecisionOptions=15 deletionGateEscalationRetryConditions=15 deletionGateEscalationStopConditions=15 deletionGateEscalationResolutionArtifacts=15 deletionGateEscalationClosureChecks=15 deletionGateEscalationReopenConditions=15 deletionGateEscalationLedgerEvents=15 deletionGateEscalationStateTransitions=15 deletionGateEscalationBoundaryGuards=15 deletionGateEscalationAuditChecks=15 deletionGateVerificationArtifacts=15 deletionGateBlockedExecutionSteps=10 deletionGateRemediationActions=15 recoverySteps=4 recoveryValidationCommands=32 documentationTargets=9 documentationValidationCommands=72 executionSteps=5 executionFailureSignals=15 executionRemediationActions=15 executionVerificationArtifacts=15 executionLedgerEvents=15 executionStateTransitions=15 executionEscalationTriggers=15 executionEscalationEvidence=15 executionEscalationRecipients=15 executionEscalationHandoffSteps=15 executionEscalationDecisionOptions=15 executionEscalationRetryConditions=15 executionEscalationStopConditions=15 executionEscalationResolutionArtifacts=15 executionEscalationClosureChecks=15 executionEscalationReopenConditions=15 executionEscalationLedgerEvents=15 executionEscalationStateTransitions=15 executionEscalationBoundaryGuards=15 executionEscalationAuditChecks=15 executionBoundaryGuards=15 executionAuditChecks=15 executionValidationCommands=40 boundaryChecks=6 boundaryValidationCommands=48 removalImpact=true impactReferences=",
 		"workItems=",
 		"validationCommands=",
-		"migrationTargets=76 migrationValidationCommands=608",
+		"migrationTargets=75 migrationValidationCommands=600",
 		"smokeMigrationTargets=29 smokeMigrationValidationCommands=232",
-		"release handoff: release handoff summary ok ready=true readFirst=4 signals=13 knownGaps=5 packMaturity=10 packMemoryCandidates=0",
+		"release handoff: release handoff summary ok ready=true readFirst=1 signals=13 knownGaps=5 packMaturity=10 packMemoryCandidates=0",
 		"releaseNotes=true",
 		"latest=Batch ",
 		"known gaps:",
@@ -24992,12 +25068,32 @@ func withReadyReleaseCheckFixture(t *testing.T) func() {
 	return withNextBatchReadyReleaseCheckFixture(t, "Batch 684")
 }
 
+func disableCLIActiveRouteFixture(t *testing.T, repoRoot string) {
+	t.Helper()
+	for _, rel := range []string{
+		"docs/real-usage-hardening-roadmap.md",
+		"docs/batch-plan.md",
+	} {
+		path := filepath.Join(repoRoot, filepath.FromSlash(rel))
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := strings.Replace(string(data), "| 状态 | `in_progress` |", "| 状态 | `completed` |", 1)
+		text = strings.Replace(text, "| 唯一允许领取 | `RH-03` |", "| 唯一允许领取 | `RH-04` |", 1)
+		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func withNextBatchReadyReleaseCheckFixture(t *testing.T, latestBatch string) func() {
 	t.Helper()
 	previousRelease := releaseCheckBuild
 	previousProject := projectHandoffBuild
 	readyHandoff := func(base releasecheck.ReleaseHandoff) releasecheck.ReleaseHandoff {
 		handoff := readyReleaseHandoffFixture(base)
+		handoff.ActiveRoute = releasecheck.ReleaseHandoffActiveRoute{}
 		latestBatch = strings.TrimSpace(latestBatch)
 		if latestBatch != "" {
 			handoff.LatestBatch.BatchID = latestBatch

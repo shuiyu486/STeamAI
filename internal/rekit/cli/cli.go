@@ -4067,6 +4067,7 @@ type statusProjectHandoff struct {
 	Ready                         bool                                                  `json:"ready"`
 	Summary                       string                                                `json:"summary"`
 	ReadFirst                     []string                                              `json:"readFirst"`
+	ActiveRoute                   releasecheck.ReleaseHandoffActiveRoute                `json:"activeRoute"`
 	LatestBatch                   string                                                `json:"latestBatch"`
 	LatestBatchStatus             string                                                `json:"latestBatchStatus"`
 	LatestBatchGoal               string                                                `json:"latestBatchGoal"`
@@ -6127,7 +6128,7 @@ func statusSafePathSegment(value string) bool {
 }
 
 func statusMissionControlGuidanceTargetDocuments(projectHandoff *statusProjectHandoff) []string {
-	docs := []string{"docs/context-routing.md", "docs/batch-plan.md", "CHANGELOG.md"}
+	docs := []string{"docs/context-routing.md", "docs/real-usage-hardening-roadmap.md", "docs/batch-plan.md", "CHANGELOG.md"}
 	if projectHandoff != nil {
 		docs = append(docs, projectHandoff.ReadFirst...)
 	}
@@ -7213,6 +7214,10 @@ func statusProjectHandoffCurrentAction(projectHandoff *statusProjectHandoff) *mi
 	}
 	if pkg := projectHandoff.NextBatchSelectionPackage; pkg != nil && pkg.Ready && pkg.MissionCommanderActionQueue.CurrentAction != nil {
 		current := *pkg.MissionCommanderActionQueue.CurrentAction
+		return &current
+	}
+	if action := projectHandoff.ActiveRoute.CurrentAction; action != nil && projectHandoff.ActiveRoute.Present && !projectHandoff.ActiveRoute.NextBatchUnlocked {
+		current := *action
 		return &current
 	}
 	command := strings.TrimSpace(projectHandoff.LatestNextAction)
@@ -9908,6 +9913,7 @@ func buildStatusProjectHandoff(handoff releasecheck.ReleaseHandoff) *statusProje
 		Ready:                         handoff.Ready,
 		Summary:                       handoff.Summary,
 		ReadFirst:                     readFirst,
+		ActiveRoute:                   handoff.ActiveRoute,
 		LatestBatch:                   handoff.LatestBatch.BatchID,
 		LatestBatchStatus:             handoff.LatestBatch.Status,
 		LatestBatchGoal:               handoff.LatestBatch.Goal,

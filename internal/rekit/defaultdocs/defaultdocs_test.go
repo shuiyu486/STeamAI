@@ -17,32 +17,29 @@ func TestInspectRepoPublicDefaultDocsReady(t *testing.T) {
 	assertDocument(t, readiness, ".claude/skills/rekit/SKILL.md")
 	assertDocument(t, readiness, "CLAUDE.md")
 	assertDocument(t, readiness, "docs/context-routing.md")
+	assertDocument(t, readiness, "docs/real-usage-hardening-roadmap.md")
 	assertDocument(t, readiness, "docs/batch-plan.md")
 	assertDocument(t, readiness, "docs/mission-control-product-direction.md")
 	assertDocument(t, readiness, "docs/autonomous-goal.md")
 	assertDocument(t, readiness, "docs/release-readiness.md")
-	assertDocument(t, readiness, "docs/go-first-convergence-plan.md")
-	assertDocument(t, readiness, "docs/go-runtime-migration.md")
 	assertDocument(t, readiness, "docs/powershell-deprecation.md")
-	assertDocument(t, readiness, "docs/vision.md")
-	assertDocument(t, readiness, "docs/reference-absorption.md")
-	assertDocument(t, readiness, "docs/agent-team-rollout-plan.md")
 	assertDocument(t, readiness, "rekit/tests/README.md")
 	assertPhrase(t, readiness, "README.md", "用户主要指挥主 Agent / Mission Commander")
 	assertPhrase(t, readiness, "docs/mission-control-product-direction.md", "Lane-centric Agent Team Mission Control")
 	assertPhrase(t, readiness, ".claude/skills/rekit/SKILL.md", "底层 Go CLI 是 canonical runtime")
-	assertPhrase(t, readiness, "docs/context-routing.md", "按需路由")
+	assertPhrase(t, readiness, "CLAUDE.md", "本项目文档必须做成按需路由、渐进式披露的样式")
+	assertPhrase(t, readiness, "docs/context-routing.md", "本项目文档必须做成按需路由、渐进式披露的样式")
 	assertPhrase(t, readiness, "docs/context-routing.md", "不要默认读取 `docs/batch-history.md` 全文")
+	assertPhrase(t, readiness, "docs/context-routing.md", "当前不再从候选池选题")
+	assertPhrase(t, readiness, "docs/real-usage-hardening-roadmap.md", "active source")
+	assertPhrase(t, readiness, "docs/real-usage-hardening-roadmap.md", "只内联当前批次卡")
 	assertPhrase(t, readiness, "docs/batch-plan.md", "完整历史已拆到 `docs/batch-history.md`")
+	assertPhrase(t, readiness, "docs/batch-plan.md", "唯一允许领取")
 	assertPhrase(t, readiness, "CLAUDE.md", "当前支持与日常完成门槛以 Windows 本机为准")
-	assertPhrase(t, readiness, "docs/autonomous-goal.md", "默认继续自主推进")
+	assertPhrase(t, readiness, "docs/autonomous-goal.md", "聊天 goal 只负责启动或继续**已批准路线**")
+	assertPhrase(t, readiness, "docs/autonomous-goal.md", "默认继续自主推进仅表示继续**已批准路线**")
 	assertPhrase(t, readiness, "docs/release-readiness.md", "默认本机验证路径不依赖 PowerShell")
-	assertPhrase(t, readiness, "docs/go-first-convergence-plan.md", "不要把大型 PowerShell matrix 作为默认必跑")
-	assertPhrase(t, readiness, "docs/go-runtime-migration.md", "当前默认验证应优先运行 Go-native release gate")
 	assertPhrase(t, readiness, "docs/powershell-deprecation.md", "Go CLI/backend 是 canonical runtime")
-	assertPhrase(t, readiness, "docs/vision.md", "优先运行 Go-native 检查")
-	assertPhrase(t, readiness, "docs/reference-absorption.md", "Go-native release readiness 子集")
-	assertPhrase(t, readiness, "docs/agent-team-rollout-plan.md", "公共 `/rekit` 默认路径已由 23 个 Go-owned/no-fallback public commands 支撑")
 	assertPhrase(t, readiness, "rekit/tests/README.md", "推荐最小回归组合")
 	if counts.ForbiddenCommands != 0 {
 		t.Fatalf("unexpected forbidden public default commands: %+v", readiness.ForbiddenCommands)
@@ -136,16 +133,12 @@ func writeReadyDocs(t *testing.T, repo string) {
 	writeFile(t, filepath.Join(repo, ".claude", "skills", "rekit", "SKILL.md"), readySkill)
 	writeFile(t, filepath.Join(repo, "CLAUDE.md"), readyClaude)
 	writeFile(t, filepath.Join(repo, "docs", "context-routing.md"), readyContextRouting)
+	writeFile(t, filepath.Join(repo, "docs", "real-usage-hardening-roadmap.md"), readyRealUsageHardeningRoadmap)
 	writeFile(t, filepath.Join(repo, "docs", "batch-plan.md"), readyBatchPlan)
 	writeFile(t, filepath.Join(repo, "docs", "mission-control-product-direction.md"), readyMissionControlProductDirection)
 	writeFile(t, filepath.Join(repo, "docs", "autonomous-goal.md"), readyAutonomousGoal)
 	writeFile(t, filepath.Join(repo, "docs", "release-readiness.md"), readyReleaseReadiness)
-	writeFile(t, filepath.Join(repo, "docs", "go-first-convergence-plan.md"), readyGoFirstConvergence)
-	writeFile(t, filepath.Join(repo, "docs", "go-runtime-migration.md"), readyGoRuntimeMigration)
 	writeFile(t, filepath.Join(repo, "docs", "powershell-deprecation.md"), readyPowerShellDeprecation)
-	writeFile(t, filepath.Join(repo, "docs", "vision.md"), readyVision)
-	writeFile(t, filepath.Join(repo, "docs", "reference-absorption.md"), readyReferenceAbsorption)
-	writeFile(t, filepath.Join(repo, "docs", "agent-team-rollout-plan.md"), readyAgentTeamRollout)
 	writeFile(t, filepath.Join(repo, "rekit", "tests", "README.md"), readyTestsReadme)
 }
 
@@ -197,6 +190,7 @@ const readySkill = `# skill
 
 const readyClaude = `# CLAUDE
 
+本项目文档必须做成按需路由、渐进式披露的样式。
 当前支持与日常完成门槛以 Windows 本机为准。
 PowerShell replacement/removal 不再因“删除 PowerShell”本身停下询问。
 默认远程 CI workflow 是 ` + "`.github/workflows/release-gate.yml`" + `，定义 Linux、Windows、macOS Go-native release checks。
@@ -204,14 +198,21 @@ PowerShell replacement/removal 不再因“删除 PowerShell”本身停下询�
 
 const readyContextRouting = `# context routing
 
-按需路由。
-渐进式披露。
+本文件是唯一完整文档路由入口。
+本项目文档必须做成按需路由、渐进式披露的样式。
 不要默认读取 ` + "`docs/batch-history.md`" + ` 全文。
+当前不再从候选池选题。
+`
+
+const readyRealUsageHardeningRoadmap = `# roadmap
+
+本文件是 active source，只内联当前批次卡。
 `
 
 const readyBatchPlan = `# batch plan
 
 完整历史已拆到 ` + "`docs/batch-history.md`" + `。
+唯一允许领取：RH-01。
 `
 
 const readyMissionControlProductDirection = `# mission
@@ -225,7 +226,7 @@ const readyAutonomousGoal = `# goal
 
 PowerShell-free / Go-native / 跨平台。
 每轮自主推进按这个循环做。
-默认继续自主推进。
+默认继续自主推进仅表示继续**已批准路线**。
 `
 
 const readyReleaseReadiness = `# release
@@ -234,42 +235,11 @@ const readyReleaseReadiness = `# release
 默认本机验证路径不依赖 PowerShell。
 `
 
-const readyGoFirstConvergence = `# go first
-
-Go backend 成为 rekit 的 deterministic runtime owner。
-不要把大型 PowerShell matrix 作为默认必跑。
-PowerShell-free / Go-native convergence。
-`
-
-const readyGoRuntimeMigration = `# runtime migration
-
-当前默认验证应优先运行 Go-native release gate。
-` + "`/rekit`" + ` remains the public ABI while the default implementation converges to the Go deterministic backend。
-`
-
 const readyPowerShellDeprecation = `# powershell
 
 PowerShell-free default/product path / Go-native / 跨平台 convergence。
 Go CLI/backend 是 canonical runtime。
 PowerShell 当前只保留 ` + "`rekit/rekit.ps1`" + ` compatibility façade 与按需 parity residue。
-`
-
-const readyVision = `# vision
-
-Claude Code Agent Team Mission Control 框架。
-优先运行 Go-native 检查。
-`
-
-const readyReferenceAbsorption = `# reference
-
-Go-native release readiness 子集。
-不能宣称已具备自动脱壳/逆向引擎。
-`
-
-const readyAgentTeamRollout = `# rollout
-
-公共 ` + "`/rekit`" + ` 默认路径已由 23 个 Go-owned/no-fallback public commands 支撑。
-Go-native ` + "`status`" + `、` + "`doctor`" + ` 与 ` + "`release-check`" + ` 不回归。
 `
 
 const readyTestsReadme = `# tests

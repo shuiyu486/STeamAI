@@ -3,8 +3,14 @@ package sessionhost
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -21,9 +27,96 @@ func TestRunLiveAcceptanceRejectsMissingInputsWithoutCreatingCase(t *testing.T) 
 	}
 }
 
+func TestRunLiveAcceptanceRejectsCustomClaudeExecutableBeforeCreatingCase(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "fresh-case")
+	fakeClaude := filepath.Join(t.TempDir(), "fake-claude")
+	if err := os.WriteFile(fakeClaude, []byte("fixture must never execute\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := RunLiveAcceptance(context.Background(), LiveAcceptanceOptions{
+		CaseRoot:   caseRoot,
+		Goal:       "goal",
+		Correction: "correction",
+		ClaudePath: fakeClaude,
+	})
+	if err == nil || !strings.Contains(err.Error(), "refuses a custom Claude executable") {
+		t.Fatalf("custom Claude executable error=%v", err)
+	}
+	if _, statErr := os.Lstat(caseRoot); !os.IsNotExist(statErr) {
+		t.Fatalf("custom executable rejection created case root: %v", statErr)
+	}
+}
+
+func TestResolveLiveAcceptanceClaudeIgnoresPATHAndRequiresSignedCanonicalInstall(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires the installed signed Claude Code executable")
+	}
+	fakeDir := t.TempDir()
+	fakeClaude := filepath.Join(fakeDir, "claude.exe")
+	if err := os.WriteFile(fakeClaude, []byte("fixture must never execute\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	identity, err := resolveLiveAcceptanceClaude("")
+	if err != nil {
+		t.Skipf("signed canonical Claude Code installation unavailable: %v", err)
+	}
+	if same, _ := filepath.Abs(fakeClaude); strings.EqualFold(identity.Path, same) {
+		t.Fatalf("trusted discovery accepted PATH-injected executable: %+v", identity)
+	}
+	if identity.Publisher != liveAcceptanceClaudePublisher || len(identity.SHA256) != 64 || !strings.HasSuffix(identity.Version, " (Claude Code)") {
+		t.Fatalf("trusted Claude identity=%+v", identity)
+	}
+}
+
+func TestAcquireClaudeExecutableLaunchBindingRejectsHashDrift(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires the installed signed Claude Code executable")
+	}
+	identity, err := resolveLiveAcceptanceClaude("")
+	if err != nil {
+		t.Skipf("signed canonical Claude Code installation unavailable: %v", err)
+	}
+	_, err = acquireClaudeExecutableLaunchBinding(Options{
+		ClaudePath:                        identity.Path,
+		ExpectedClaudeExecutableSHA256:    strings.Repeat("0", 64),
+		ExpectedClaudeExecutablePublisher: identity.Publisher,
+	})
+	if err == nil || !strings.Contains(err.Error(), "SHA-256 drift") {
+		t.Fatalf("hash drift error=%v", err)
+	}
+}
+
+func TestLockTrustedClaudeExecutableRejectsAncestorNamespaceReplacement(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows namespace binding test")
+	}
+	root := t.TempDir()
+	parent := filepath.Join(root, "install")
+	if err := os.Mkdir(parent, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	executable := filepath.Join(parent, "claude.exe")
+	if err := os.WriteFile(executable, []byte("trusted fixture\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	binding, err := lockTrustedClaudeExecutable(executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer binding.Close()
+	moved := filepath.Join(root, "install-original")
+	if err := os.Rename(parent, moved); err == nil {
+		t.Fatal("trusted namespace binding allowed ancestor directory replacement")
+	}
+	if err := binding.Validate(); err != nil {
+		t.Fatalf("trusted namespace drifted after blocked replacement: %v", err)
+	}
+}
+
 func TestRunLiveAcceptanceRejectsExistingCase(t *testing.T) {
 	caseRoot := t.TempDir()
-	if _, err := RunLiveAcceptance(context.Background(), LiveAcceptanceOptions{CaseRoot: caseRoot, Goal: "goal", Correction: "correction"}); err == nil || !strings.Contains(err.Error(), "non-existing fresh case root") {
+	if _, err := RunLiveAcceptance(context.Background(), LiveAcceptanceOptions{CaseRoot: caseRoot, Goal: "goal", Correction: "correction"}); err == nil || !strings.Contains(err.Error(), "non-existing fresh and attached case roots") {
 		t.Fatalf("existing case error=%v", err)
 	}
 }
@@ -39,13 +132,138 @@ func TestRunLiveAcceptanceRejectsReceiptInsideDisposableCase(t *testing.T) {
 	}
 }
 
-func TestAddLiveAcceptanceSessionsSeparatesLaunchesFromRecoveredCompletions(t *testing.T) {
+func TestRunDailyPublicRouteBootstrapsFreshCaseWithoutLLMResultFixtures(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "fresh-case")
+	goal := "Analyze a harmless synthetic acceptance target"
+	result, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Goal: goal, Actor: "live-public-route-test", ClaudePath: filepath.Join(t.TempDir(), "missing-claude.exe"), ExpectedClaudeExecutableSHA256: strings.Repeat("0", 64), ExpectedClaudeExecutablePublisher: liveAcceptanceClaudePublisher})
+	if err == nil || !strings.Contains(err.Error(), "validate trusted Claude Code executable") {
+		t.Fatalf("daily public route result=%+v err=%v", result, err)
+	}
+	if !result.OnboardingApplied || result.Pack != liveAcceptancePack || result.Lane == "" || result.SessionLaunches != 0 || !containsDailyStep(result.DriverSteps, "overview") || !containsDailyStep(result.DriverSteps, "start") {
+		t.Fatalf("daily public route result=%+v", result)
+	}
+	inspection, ok, inspectErr := memberexecution.Latest(caseRoot, result.Lane)
+	if inspectErr != nil {
+		t.Fatal(inspectErr)
+	}
+	if ok || inspection.Manifest != nil {
+		t.Fatalf("public start must leave member execution to the ordinary host after executable resolution fails: found=%t inspection=%+v", ok, inspection)
+	}
+}
+
+func TestLiveAcceptanceProductionPackageHasNoDirectPackageMutationSelectors(t *testing.T) {
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	violations := []string{}
+	productionFiles := 0
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		productionFiles++
+		file, err := parser.ParseFile(token.NewFileSet(), name, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, violation := range liveAcceptanceMutationSelectors(file) {
+			violations = append(violations, name+":"+violation)
+		}
+	}
+	if productionFiles == 0 {
+		t.Fatal("sessionhost production package scan found no Go files")
+	}
+	if len(violations) != 0 {
+		t.Fatalf("sessionhost production package bypasses the public route: %v", violations)
+	}
+}
+
+func TestLiveAcceptanceMutationGuardRejectsAliasedHelperSelector(t *testing.T) {
+	for _, source := range []string{
+		`package fixture
+import ws "github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
+func helper() { mutation := ws.StartApply; _ = mutation }
+`,
+		`package fixture
+import . "github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
+func helper() { mutation := StartApply; _ = mutation }
+`,
+		"package fixture\nimport ws `github.com/shuiyu486/re-context-kits/internal/rekit/workstream`\nfunc helper() { mutation := ws.StartApply; _ = mutation }\n",
+		"package fixture\nimport ws \"github.com\\x2fshuiyu486\\x2fre-context-kits\\x2finternal\\x2frekit\\x2fworkstream\"\nfunc helper() { mutation := ws.StartApply; _ = mutation }\n",
+	} {
+		file, err := parser.ParseFile(token.NewFileSet(), "fixture.go", source, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		violations := liveAcceptanceMutationSelectors(file)
+		if len(violations) != 1 || !strings.Contains(violations[0], "workstream.StartApply") {
+			t.Fatalf("alias/helper mutation violations=%v", violations)
+		}
+	}
+}
+
+func liveAcceptanceMutationSelectors(file *ast.File) []string {
+	forbidden := map[string]map[string]bool{
+		"github.com/shuiyu486/re-context-kits/internal/rekit/onboarding": {"Apply": true},
+		"github.com/shuiyu486/re-context-kits/internal/rekit/note":       {"Append": true},
+		"github.com/shuiyu486/re-context-kits/internal/rekit/workstream": {
+			"StartApply": true, "ReconcileApply": true, "CompleteApply": true,
+		},
+	}
+	aliases := map[string]string{}
+	dotImports := map[string]string{}
+	for _, spec := range file.Imports {
+		path, err := strconv.Unquote(spec.Path.Value)
+		if err != nil {
+			return []string{"invalid-import-literal:" + spec.Path.Value}
+		}
+		if forbidden[path] == nil {
+			continue
+		}
+		alias := filepath.Base(path)
+		if spec.Name != nil {
+			alias = spec.Name.Name
+		}
+		if alias == "." {
+			for name := range forbidden[path] {
+				dotImports[name] = path
+			}
+			continue
+		}
+		aliases[alias] = path
+	}
+	violations := []string{}
+	ast.Inspect(file, func(node ast.Node) bool {
+		switch typed := node.(type) {
+		case *ast.SelectorExpr:
+			ident, ok := typed.X.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			path := aliases[ident.Name]
+			if forbidden[path][typed.Sel.Name] {
+				violations = append(violations, fmt.Sprintf("%s.%s", filepath.Base(path), typed.Sel.Name))
+			}
+		case *ast.Ident:
+			path := dotImports[typed.Name]
+			if path != "" {
+				violations = append(violations, fmt.Sprintf("%s.%s", filepath.Base(path), typed.Name))
+			}
+		}
+		return true
+	})
+	return violations
+}
+
+func TestAddLiveAcceptanceSessionsCountsLaunchesWithoutInventingCompletions(t *testing.T) {
 	receipt := LiveAcceptanceReceipt{}
 	addLiveAcceptanceSessions(&receipt, Result{Sessions: []Session{
-		{Started: true, AttemptGeneration: 2, RunLaunchOrdinal: 3, SessionID: "member-session", SessionKind: "member", Outcome: "returned"},
-		{Recovered: true, AttemptGeneration: 1, SessionID: "reviewer-session", SessionKind: "reviewer", Outcome: "returned-recovered"},
+		{Started: true, AttemptGeneration: 2, RunLaunchOrdinal: 3, SessionID: "member-session", SessionKind: "member", Outcome: "host-failed"},
+		{Recovered: true, AttemptGeneration: 1, SessionID: "reviewer-session", SessionKind: "reviewer", Outcome: "intake-failed"},
 	}}, 2)
-	if receipt.MemberLaunches != 1 || receipt.MemberCompletions != 1 || receipt.ReviewerLaunches != 0 || receipt.ReviewerCompletions != 1 {
+	if receipt.MemberLaunches != 1 || receipt.MemberCompletions != 0 || receipt.ReviewerLaunches != 0 || receipt.ReviewerCompletions != 0 {
 		t.Fatalf("session lifecycle counts=%+v", receipt)
 	}
 	if len(receipt.MemberSessions) != 1 || !receipt.MemberSessions[0].Started || receipt.MemberSessions[0].AttemptGeneration != 2 || receipt.MemberSessions[0].HostRun != 2 || receipt.MemberSessions[0].RunLaunchOrdinal != 3 || len(receipt.ReviewerSessions) != 1 || !receipt.ReviewerSessions[0].Recovered || receipt.ReviewerSessions[0].Started || receipt.ReviewerSessions[0].HostRun != 2 || receipt.ReviewerSessions[0].RunLaunchOrdinal != 0 {
@@ -81,5 +299,92 @@ func TestWriteLiveAcceptanceReceiptRecordsFinalCleanupState(t *testing.T) {
 	}
 	if !decoded.Passed || decoded.Pack != liveAcceptancePack || decoded.Cleanup != "removed" {
 		t.Fatalf("receipt=%+v", decoded)
+	}
+	if err := WriteLiveAcceptanceReceipt(path, LiveAcceptanceReceipt{Passed: false}); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("receipt publication replaced existing evidence: %v", err)
+	}
+	unchanged, err := os.ReadFile(path)
+	if err != nil || string(unchanged) != string(data) {
+		t.Fatalf("existing receipt changed: err=%v bytes=%q", err, unchanged)
+	}
+}
+
+func TestWriteLiveAcceptanceReceiptRejectsAncestorSymlink(t *testing.T) {
+	base := t.TempDir()
+	realParent := filepath.Join(base, "real-parent")
+	if err := os.Mkdir(realParent, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	linkedParent := filepath.Join(base, "linked-parent")
+	if err := os.Symlink(realParent, linkedParent); err != nil {
+		t.Skipf("directory symlink unavailable: %v", err)
+	}
+	path := filepath.Join(linkedParent, "nested", "receipt.json")
+	err := WriteLiveAcceptanceReceipt(path, LiveAcceptanceReceipt{Passed: true})
+	if err == nil || (!strings.Contains(err.Error(), "symlink") && !strings.Contains(err.Error(), "reparse point")) {
+		t.Fatalf("ancestor symlink receipt error=%v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(realParent, "nested", "receipt.json")); !os.IsNotExist(err) {
+		t.Fatalf("ancestor symlink publication escaped into target: %v", err)
+	}
+}
+
+func TestRemoveLiveAcceptanceCaseRefusesReplacement(t *testing.T) {
+	parent := t.TempDir()
+	path := filepath.Join(parent, "case")
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "owned.txt"), []byte("owned\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var identity liveAcceptanceCaseIdentity
+	if err := captureLiveAcceptanceCaseRoot(path, &identity); err != nil {
+		t.Fatal(err)
+	}
+	defer identity.Close()
+	original := path + "-original"
+	if err := os.Rename(path, original); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	replacement := filepath.Join(path, "replacement.txt")
+	if err := os.WriteFile(replacement, []byte("replacement\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeLiveAcceptanceCase(path, &identity); err == nil || !strings.Contains(err.Error(), "replaced case root") {
+		t.Fatalf("replacement cleanup error=%v", err)
+	}
+	if data, err := os.ReadFile(replacement); err != nil || string(data) != "replacement\n" {
+		t.Fatalf("replacement was changed: %q err=%v", data, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(original, "owned.txt")); err != nil || string(data) != "owned\n" {
+		t.Fatalf("original identity was changed: %q err=%v", data, err)
+	}
+}
+
+func TestRemoveLiveAcceptanceCaseRemovesCapturedIdentity(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "case")
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "owned.txt"), []byte("owned\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var identity liveAcceptanceCaseIdentity
+	if err := captureLiveAcceptanceCaseRoot(path, &identity); err != nil {
+		t.Fatal(err)
+	}
+	defer identity.Close()
+	if err := removeLiveAcceptanceCase(path, &identity); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Fatalf("captured case root remains: %v", err)
+	}
+	if _, err := os.Lstat(path + ".cleanup"); !os.IsNotExist(err) {
+		t.Fatalf("cleanup quarantine remains: %v", err)
 	}
 }

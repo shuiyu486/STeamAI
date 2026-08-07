@@ -6,7 +6,7 @@
 
 当前项目不是全自动脱壳器、自动逆向引擎、自动漏洞挖掘器、自动恶意样本分析平台或通用自动渗透平台；它优先提供可审计、可交接、review-first 的 Agent Team 底座。lane 文档/packet 只能表达授权意图；heavy action 的确定性预授权来自 strict durable autonomy profile 与 `authorized-gate` decision。
 
-一句话：**用户主要指挥主 Agent / Mission Commander；主 Agent 把“开始 case”的自然语言显式收敛为 `Target` / `Pack` / `ProjectName` / opaque bounded `Goal` / `Actor` / `Executor` / `InitialLane`，再通过 public Go-owned/no-fallback `onboard` 发布 immutable mission intent；随后调度 durable member lanes、可替换会话执行体和短命 tactical subagents。`/rekit`、Go CLI/backend 是背后的 canonical deterministic runtime/API，`rekit.ps1` 仅作为 retained compatibility façade，不承载业务 runtime，也没有 PowerShell 业务 fallback。当前阶段先把骨架收敛成可真实日常使用的最低可用 Mission Control：开始 case、继续推进、状态总览、人工插手纠偏、新会话接手要顺畅、可记录、可恢复；外部 session harness可把strict observation写入canonical case-local inbox，fresh `status`只在存在唯一checkpoint-bound候选时给出可执行WhatIf接力，歧义或无效候选均fail-closed，陈旧候选只计数且不参与选择，成功Apply返回并由successor checkpoint保留one-shot processed receipt。底层 `status`、`overview`、handoff、`continue` artifacts、lane-local `RESUME.md`、typed checkpoint、reviewer/session handoff、authorized-gate adapter live validation 与 pack-memory flow继续作为支撑，边用边增强，而不是让用户在多份 JSON/Markdown 或命令细节间手工拼接。默认路径继续向 PowerShell-free / Go-native / 跨平台收敛，并保持 truthful release readiness。**
+一句话：**用户主要指挥主 Agent / Mission Commander；Go-owned `rekit-host -daily` 让主 Agent 只提交 case target + natural-language goal/correction，自动派生 pack、lane、executor、ID、时间、generation、路径和 SHA，并通过 public exact preview/Apply 路线完成 onboarding、真实 Claude member、人工纠偏、replacement、Reviewer 与 completion。`/rekit`、Go CLI/backend 是背后的 canonical deterministic runtime/API，`rekit.ps1` 仅作为 retained compatibility façade，不承载业务 runtime，也没有 PowerShell 业务 fallback。durable member identity 绑定 lane，不绑定旧聊天窗口；底层 `status`、`overview`、handoff、typed checkpoint、reviewer/session handoff、authorized-gate adapter live validation 与 pack-memory flow 继续作为可审计、可恢复支撑。默认路径继续向 PowerShell-free / Go-native / 跨平台收敛，并保持 truthful release readiness。**
 
 ## 项目路线（按需文档索引）
 
@@ -18,8 +18,9 @@
 - 长期愿景与阶段实施方案：`docs/vision.md`
 - Mission Control 最终产品方向：`docs/mission-control-product-direction.md`
 - 当前架构说明：`docs/design.md`
-- 后续批次计划：`docs/batch-plan.md`
-- 长期自主 goal 与新会话接手指南：`docs/autonomous-goal.md`
+- 后续真实使用有序路线与压缩后接手协议：`docs/real-usage-hardening-roadmap.md`
+- 当前批次和路线指针投影：`docs/batch-plan.md`
+- 启动已批准路线的短 goal 与新会话接手指南：`docs/autonomous-goal.md`
 - pack 编写指南：`docs/pack-authoring.md`（新 pack 可从 `packs/_template/` 复制；`packs/web-security/`、`packs/malware-analysis/`、`packs/vuln-research/`、`packs/ctf/`、`packs/unpack-pe/`、`packs/ollvm/`、`packs/android-native/` 与 `packs/generic-binary-re/` 是首批安全领域 pack 骨架）
 - evidence / intervention 账本草案：`docs/evidence-ledger.md`
 - 半自动 orchestration 计划：`docs/orchestration-plan.md`
@@ -61,29 +62,23 @@ claude
 开始这个 case，目标是还原核心逻辑；使用 vmp-re pack，由当前 Mission Commander 会话接手主线。
 ```
 
-主 Agent 会先把意图显式收敛为 `Target`、`Pack`、`ProjectName`、opaque bounded `Goal`、`Actor`、`Executor` 与 `InitialLane`，再运行：
+主 Agent 使用 Go-owned 日常前门，用户不填写 pack、lane、executor、session/event ID、generation、时间、路径或 SHA：
 
 ```text
-/rekit onboard -Target <workspaceRoot>\cases\<caseName> -Pack vmp-re -ProjectName <caseName> -Goal <opaqueGoal> -Actor <actor> -Executor <executor> -InitialLane <lane> -WhatIf -Format json
+go run ./cmd/rekit-host -daily -target <workspaceRoot>\cases\<caseName> -goal "还原核心逻辑"
 ```
 
-preview 是零写入的 immutable mission-intent 审查包，返回 exact `publicationStamp`、`onboardingPlanSha256` 和机器可读 `applyArgs[]`。主 Agent 复核后必须原样消费 `applyArgs[]`；不能手工重建或更换 identity/stamp/hash。Marker、hash 与 exact plan 来自同一 immutable ordinary snapshot，Apply 按 intent-first / commit-last 发布；intent 已发布后的 partial recovery 只消费受 canonical onboarding write contract 约束的 durable bounded exact envelope 与同一组参数，不重新读取可能已变化的 live kit/pack，也不能夹带 authority/confirmed、lane/board/ledger、heavy-tool 或伪造 case-local skill 写入；已 committed 的 exact replay 不重复写入。提交后先刷新 `/rekit status`，再执行 `/rekit overview`，最后按 committed `InitialLane` / `Executor` / `Actor` 运行 `/rekit start <lane>` 接手。
+fresh target 会选择默认 `vmp-re`；已通过 `attach/init` 绑定且 doctor-ready、尚无 Mission Control 状态的 existing case 会从 metadata 选择 pack，并只追加 immutable onboarding intent/mission/commit，不覆盖普通 case 文件。相同 goal 在当前真实 member 已 intake-ready 后安全 replay，不重复启动 Claude；冲突 goal 会明确拒绝。
 
-已有 case 仍可用兼容入口接入：
+人工纠偏也只提交文本：
 
 ```text
-/rekit attach -Target <workspaceRoot>\cases\<caseName> -Pack vmp-re -Apply
+go run ./cmd/rekit-host -daily -target <workspaceRoot>\cases\<caseName> -correction "优先核对控制流证据，区分 observation 与 hypothesis"
 ```
 
-> `onboard` 不解析自然语言、不执行 heavy-tool、不写 authority/confirmed，也不 spawn、poll 或管理 session；自然语言到显式字段的收敛与 applyArgs 审核由主 Agent完成。这里不需要你手动执行底层脚本。
+front door 自动记录 intervention，消费 public hash-bound reconcile，启动 replacement member 与独立 Reviewer，并在 evidence-bound 条件满足后完成 lane；terminal exact replay 零启动、零新增 mutation。Claude 登录、配额、模型或进程不可用时会真实返回 blocked/failed，不会退化为伪造 member output 或 `ReviewerResult`。
 
-已 attached 的 case 需要自动消费当前 member/reviewer 工作时，可由主 Agent或外部服务启动仓库内 Go-owned host；用户不填写 session ID、时间、结果路径或 SHA：
-
-```text
-go run ./cmd/rekit-host -target <attached-case>
-```
-
-host 只启动真实 Claude Code 进程，并消费 deterministic runtime 生成的 immutable handoff、attempt/claim/launch、result-first/submission-last 与 strict intake 协议。Claude 登录、配额、模型或进程不可用时会真实失败或进入有界 replacement，不会退化为伪造 member output 或 `ReviewerResult`。
+`/rekit onboard`、`attach/init`、普通 `rekit-host -target` 仍作为 deterministic/兼容/排障入口保留；日常不需要手工拼接 onboard/start/host/reconcile 顺序，这里不需要你手动执行底层脚本。
 
 ### 2. 之后每天在 case 里
 

@@ -103,6 +103,9 @@ func TestLocalValidationReceiptRejectsPostRunWorktreeByteDriftWithSameBlob(t *te
 
 func TestLocalValidationReceiptPromotesExactSameBatchRepair(t *testing.T) {
 	repo := cleanReleaseRepoRoot(t)
+	if err := os.Remove(filepath.Join(repo, "docs", "real-usage-hardening-roadmap.md")); err != nil {
+		t.Fatal(err)
+	}
 	runPostPushGit(t, repo, "init", "-b", "main")
 	runPostPushGit(t, repo, "config", "user.name", "rekit-test")
 	runPostPushGit(t, repo, "config", "user.email", "rekit-test@example.invalid")
@@ -139,12 +142,15 @@ func TestLocalValidationReceiptPromotesExactSameBatchRepair(t *testing.T) {
 		t.Fatal(err)
 	}
 	if handoff.LatestBatch.Handoff.LocalValidationReceipt == nil || !handoff.LatestBatch.Handoff.LocalValidationReceipt.Ready || handoff.LatestBatch.Handoff.PostPushReceipt == nil || !handoff.LatestBatch.Handoff.PostPushReceipt.Ready || handoff.LatestBatch.Handoff.ReleaseInspectionCadence.State != "complete" || handoff.NextBatchSelectionPackage == nil || !handoff.NextBatchSelectionPackage.Ready {
-		t.Fatalf("exact same-batch repair did not complete handoff: latest=%+v package=%+v", handoff.LatestBatch.Handoff, handoff.NextBatchSelectionPackage)
+		t.Fatalf("exact same-batch repair did not complete handoff: latest=%+v package=%+v active=%+v ready=%t warnings=%+v", handoff.LatestBatch.Handoff, handoff.NextBatchSelectionPackage, handoff.ActiveRoute, handoff.Ready, handoff.Warnings)
 	}
 }
 
 func TestLocalValidationReceiptPromotesPostPushNextBatchWithoutProseEvidence(t *testing.T) {
 	repo := cleanReleaseRepoRoot(t)
+	if err := os.Remove(filepath.Join(repo, "docs", "real-usage-hardening-roadmap.md")); err != nil {
+		t.Fatal(err)
+	}
 	runPostPushGit(t, repo, "init", "-b", "main")
 	runPostPushGit(t, repo, "config", "user.name", "rekit-test")
 	runPostPushGit(t, repo, "config", "user.email", "rekit-test@example.invalid")

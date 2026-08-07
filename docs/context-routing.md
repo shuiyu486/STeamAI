@@ -2,21 +2,20 @@
 
 ## 读取指南
 
-本文件是新会话、上下文压缩后接手和每轮自主推进的**第一路由入口**。新会话先确认当前在 `main` 分支、`main` 与 `origin/main` 同步且工作树干净，再读本文件，并只读它指向的少量顶部区；不要默认串读所有 durable docs，也不要默认读取 `docs/batch-history.md` 全文。
+本文件是新会话、上下文压缩后接手和每轮自主推进的**唯一完整文档路由入口**。**本项目文档必须做成按需路由、渐进式披露的样式。** 新会话先确认当前 branch、HEAD 与工作树真实状态，再由本文件选择一个当前场景入口；不要先读取路线图、batch plan、CHANGELOG、release readiness 或历史文档来猜场景，也不要默认读取 `docs/batch-history.md` 全文。
 
 ## 实施摘要
 
-当前目标不是增加更多必读文档，而是降低上下文压力：用 `docs/context-routing.md` 做按需路由，用 `docs/batch-plan.md` 顶部做 active state，用 `docs/batch-history.md` 归档旧批次。默认只加载当前决策需要的顶部摘要；历史、release 细节、PowerShell 删除门禁、pack authoring、smoke matrix 等内容都按需进入。
+当前目标不是增加更多必读文档，而是降低上下文压力并消除自由选题：用 `docs/context-routing.md` 做按需路由，用 `docs/real-usage-hardening-roadmap.md` 承载有序路线与解锁条件，用 `docs/batch-plan.md` 顶部投影 active pointer，用 `docs/batch-history.md` 归档旧批次。默认只加载当前批次需要的顶部摘要；历史、release 细节、PowerShell 删除门禁、pack authoring、smoke matrix 等内容都按需进入。
 
 ## 执行清单
 
-### 每轮默认读取（最小集）
+### 每轮默认读取（两层）
 
-1. `CLAUDE.md`：项目边界、路由规则和验证命令；只读顶部，不把它当完整设计文档。
-2. `docs/context-routing.md`：本路由表。
-3. `docs/batch-plan.md`：只读 current milestone / current batch state / next candidates / latest completed batch。
-4. `CHANGELOG.md` 顶部 `Unreleased`：确认最新用户可见变化是否覆盖当前 batch。
-5. 真实状态：`git status --short`、必要的 focused tests、本机 release gate；远程 CI 只在需要 release 判断时检查。
+1. **固定层**：根 `CLAUDE.md` 的稳定边界、本文件、`git status --short` 和当前 branch/HEAD；机器 `releaseHandoff.readFirst[]` 只列本文件。
+2. **场景层**：从下表只选择一个首选入口，并只读其指定顶部区、当前卡或目标章节；需要验证事实时优先运行 focused command 或查询 CodeGraph，而不是增加默认文档。
+
+路线实施时，当前路线文件拥有选题和验收；`docs/batch-plan.md` 只是短投影，不再作为第二份选题源。`CHANGELOG.md` 只在写 release notes 或核对用户可见变化时按需搜索 `Unreleased` 的相关条目，不默认阅读全文。
 
 ### Batch push cadence
 
@@ -25,11 +24,12 @@
 - 远程 Linux/macOS/Windows CI 保持异步、非阻塞；只在正式发布、跨平台专项或每 3–5 批周期复审时等待并记录实际结果。
 - 若用户 goal 尚未授权 commit/push，仍只维护工作树和验证结果；不要为了满足 cadence 规则自行 push。
 
-### 批次选题防局部最优
+### 有序批次防偏移
 
-- 连续多个 batch 如果都只是把字段、summary、handoff detail 或 text line 从一个 envelope 投影到另一个 envelope，就要视为“内部 contract 可见性微调”风险，而不是继续寻找下一个 `latestX` / `summaryX` / `contextX`。
-- 选题前先写清真实断点：哪个用户、Mission Commander、replacement executor、reviewer、lane executor 或 pack-memory review 流程现在不能完成下一步；没有真实断点时，不把投影补齐单独立批。
-- 字段/text/handoff 可以作为中大型 vertical slice 的支撑，但该 slice 必须能通过 package / CLI / 临时 case / product-path 验证体现用户可感知的 operational closure。
+- 当前不再从候选池选题。`docs/real-usage-hardening-roadmap.md` 当前指针是唯一允许领取的批次；它未完成时不得做其它路线项，完成后也只能领取明确解锁的下一批。
+- 连续多个 batch 如果都只是把字段、summary、handoff detail 或 text line 从一个 envelope 投影到另一个 envelope，就要视为偏移；这些支撑改动只能并入当前路线批次，不能独立立批。
+- 代码事实与路线假设冲突时，先写回路线变更记录、理由、验收和新指针，再实施；不得静默跳批、从历史猜测或用聊天摘要覆盖仓库指针。
+- 两处 current pointer 冲突、完成证据缺失、工作树来源不明时，停止实施并报告冲突；不能“选择另一个能做的候选”绕过。
 
 ### 上下文节流
 
@@ -39,11 +39,13 @@
 
 ### 文档维护时
 
-- 修改或新建 durable docs 时，同样保持按需路由：顶部保留短 `读取指南` / `实施摘要` / `执行清单` / `验证标准` / `风险与注意事项`，细节按章节或专文渐进披露。
-- 只在 `docs/context-routing.md`、`README.md` 或根 `CLAUDE.md` 放短路由指针；不要把历史、完整实施日志或长设计细节并回 active docs。
-- 文档索引、推荐话术和接手清单不是默认必读清单；若出现 5 个以上 read-first 文件，先压缩为 `docs/context-routing.md` + 当前场景入口 + 顶部区。
+- 修改或新建 durable docs 时，同样保持按需路由：active 入口顶部保留短 `读取指南` / `实施摘要` / `执行清单` / `验证标准` / `风险与注意事项`，细节按当前卡、章节、专题或 archive 渐进披露。
+- 只有本文件拥有完整路由表；README、根 `CLAUDE.md`、goal、route、batch 和 release 文档只能放一条 canonical 指针，不复制整套路由或接手清单。
+- 默认 machine `readFirst[]` 最多 2 项，且第一项必须是本文件；不得包含 `CHANGELOG.md`、`docs/batch-history.md`、archive 或完整未来 backlog。
+- active batch plan 只投影路线、current、state、next 和一句最新结果；完整验证日志必须归档。active roadmap 只内联当前批次卡；未来批次进入单一按需 backlog。
+- 文档索引、推荐话术和接手清单不是默认必读清单；若出现 5 个以上 read-first 文件、同一 current pointer 的多份长副本或单行巨型 inventory，先压缩和去重。
 - 新增文档时必须说明它的首选入口、何时按需读取、不要默认读取什么；若只是历史或 release/debug 溯源，优先放入归档或专题文档，不放进默认上下文。
-- `CHANGELOG.md` 只记录用户可见变化与关键边界；旧批次细节继续按 Batch ID 归档到 `docs/batch-history.md`。
+- `CHANGELOG.md` 只记录用户可见变化与关键边界；旧批次细节继续按 Batch ID 归档，不把逐批日志长期堆在 `Unreleased`。
 
 ### 按需路由
 
@@ -51,9 +53,10 @@
 |---|---|---|
 | 产品北极星是否偏移 | `docs/mission-control-product-direction.md` 顶部 80-120 行 | 不读全篇历史章节 |
 | 架构四层模型 / stable boundary | `docs/design.md` 顶部和对应小节 | 不把 batch 日志并回架构总览 |
-| 自主短 goal / 接手 cadence | `docs/autonomous-goal.md` 顶部 80-120 行 | 不复制整段 goal 到每次总结 |
-| 2026-07-28 项目复审 / 中长期优化路线 | `docs/project-reassessment-2026-07-28.md` 顶部执行区；仅在重新评估方向或选择中大型主线时按需读取 | 不把复审报告加入每轮默认 read-first |
-| 当前 batch 和下一步 | `docs/batch-plan.md` 顶部 current/next/latest completed；执行真实健康恢复、Claude host 或 live gate 时再读 `docs/health-recovery-and-real-executor-plan.md` 顶部执行区 | 不读 `docs/batch-history.md`，也不默认读执行专文全文 |
+| 短 goal / 接手 cadence | `docs/autonomous-goal.md` 顶部 80-120 行；goal 只启动已批准路线 | 不复制整段 goal 到每次总结，不让 goal 自由选题 |
+| 当前多批次真实使用路线 | `docs/real-usage-hardening-roadmap.md` 顶部 + 当前批次卡 | 不预读后续批次全文，不从旧复审报告替换当前顺序 |
+| 2026-07-28 项目复审 / 历史中长期建议 | `docs/project-reassessment-2026-07-28.md` 顶部执行区；仅在路线整体复审时按需读取 | 不把复审报告加入每轮默认 read-first，不用它临时选批 |
+| 当前 batch 和指针投影 | `docs/batch-plan.md` 顶部 current milestone / roadmap pointer / current state / latest completed；执行旧健康恢复考古时再读 `docs/health-recovery-and-real-executor-plan.md` 顶部 | 不读 `docs/batch-history.md`，也不默认读旧执行专文全文 |
 | 旧 batch 细节 / 考古 | `docs/batch-history.md` 中按 Batch ID 搜索 | 不从 Batch 0 顺序读 |
 | release / CI 判断 | `docs/release-readiness.md` 顶部和 Known gaps；再看 `release-check -Format json` | 不把 `ciReleaseGate.ready` 当远程 green |
 | PowerShell façade / removal | `docs/powershell-deprecation.md` 顶部和相关矩阵行 | 不默认运行 façade smoke |
@@ -67,7 +70,8 @@
 
 ## 验证标准
 
-- 新会话能从本文件和 `docs/batch-plan.md` 顶部恢复当前方向，而不需要读取 10 万 token 级历史。
+- 新会话能从本文件、路线图顶部/当前批次卡和 `docs/batch-plan.md` 顶部恢复唯一允许工作，而不需要读取 10 万 token 级历史或自行选题。
+- `docs/real-usage-hardening-roadmap.md` 与 `docs/batch-plan.md` 的路线、当前批次、状态和下一解锁批次一致；冲突时 fail-closed。
 - `docs/batch-plan.md` 只保留 active/current/latest 摘要；完整旧批次位于 `docs/batch-history.md`。
 - `release-check -Format json` 的 `releaseHandoff.readFirst[]` 优先指向本路由表和短 current state，而不是把所有长文档都列为必读。
 - README、reference、usage guide 或 handoff 话术中的文档列表应表达“按需索引”，不能绕过本文件变成新的默认 read-first 清单。

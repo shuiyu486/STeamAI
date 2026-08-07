@@ -141,7 +141,7 @@ func TestWritePlanBindsAttachedCaseLaneExecutor(t *testing.T) {
 		t.Fatalf("unexpected attached case owner binding: %+v", result.OwnerBinding)
 	}
 	packet := readPlanPacket(t, result.PacketPath)
-	if packet.OwnerBinding != result.OwnerBinding || !strings.Contains(packet.ShardHandoffs[0].DispatchPrompt, "currentExecutor=session-plan") || !slices.Contains(packet.ShardHandoffs[0].ReviewerResultContract.RequiredFields, "reviewerSession") {
+	if packet.OwnerBinding != result.OwnerBinding || !strings.Contains(packet.ShardHandoffs[0].DispatchPrompt, "currentExecutor=session-plan") || !strings.Contains(packet.ShardHandoffs[0].DispatchPrompt, "next_action exactly to main-agent review") || !strings.Contains(packet.ShardHandoffs[0].DispatchPrompt, `"next_action":"main-agent review"`) || !slices.Contains(packet.ShardHandoffs[0].ReviewerResultContract.RequiredFields, "reviewerSession") {
 		t.Fatalf("packet omitted attached owner binding: %+v", packet)
 	}
 	if packet.PacketIntegrity == nil || packet.PacketIntegrity.Algorithm != "sha256" || !samePath(packet.PacketIntegrity.Path, filepath.Join(result.ReviewRoot, "packet.integrity.json")) {

@@ -29,6 +29,9 @@ func TestAppendWhatIfDoesNotWrite(t *testing.T) {
 	if result.Command != "note" || result.IsMutation || result.Applied || result.Reason != "what-if" || result.Path != ".rekit/facts/verifications.jsonl" || result.EventID == "" {
 		t.Fatalf("unexpected note what-if result: %+v", result)
 	}
+	if len(result.RecordArgs) == 0 || result.RecordArgs[0] != "-Command" || result.RecordArgs[1] != "note" || result.RecordArgs[len(result.RecordArgs)-2] != "-Format" || result.RecordArgs[len(result.RecordArgs)-1] != "json" || !strings.Contains(result.RecordCommand, result.EventSHA256) {
+		t.Fatalf("note what-if omitted the machine-consumable record route: %+v", result)
+	}
 	if result.ExecutorAction.Blocked || !result.ExecutorAction.Ready || result.WouldExecutorAction == nil || result.WouldExecutorAction.Blocked || !result.WouldExecutorAction.Ready {
 		t.Fatalf("verification what-if should not change executor readiness: %+v", result)
 	}
@@ -64,8 +67,8 @@ func TestAppendWhatIfOmitsRecordCommandForInternalFields(t *testing.T) {
 	if result.Applied || result.IsMutation || result.Reason != "what-if" || len(result.EventSHA256) != 64 {
 		t.Fatalf("unexpected internal-field what-if result: %+v", result)
 	}
-	if result.RecordCommand != "" {
-		t.Fatalf("internal reviewer fields should not expose a non-replayable record command: %q", result.RecordCommand)
+	if result.RecordCommand != "" || len(result.RecordArgs) != 0 {
+		t.Fatalf("internal reviewer fields should not expose a non-replayable record route: command=%q args=%+v", result.RecordCommand, result.RecordArgs)
 	}
 	if stringValue(result.Event, "packetId") != "packet-1" || stringValue(result.Event, "reviewerSession") != "reviewer-session-1" || stringValue(result.Event, "reviewerDecision") != "accept" {
 		t.Fatalf("internal fields missing from event: %+v", result.Event)
@@ -176,6 +179,29 @@ func TestAppendReturnsPostActionForAppliedBlockerKinds(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAppendInterventionRechecksOpenLaneInsideLease(t *testing.T) {
+	repoRoot, caseRoot, pack := noteFixture(t)
+	previous := interventionBeforeLeaseHook
+	interventionBeforeLeaseHook = func() error {
+		writeNoteText(t, filepath.Join(caseRoot, ".rekit", "board.json"), `{"lanes":[{"id":"main","status":"closed"}]}`)
+		return nil
+	}
+	t.Cleanup(func() { interventionBeforeLeaseHook = previous })
+
+	_, err := Append(repoRoot, caseRoot, pack, Options{
+		Kind:    "intervention",
+		Lane:    "main",
+		Subject: "must not cross lane closure",
+		Action:  "override",
+		Status:  "open",
+		EventID: "evt-closed-after-preview",
+	}, false)
+	if err == nil || !strings.Contains(err.Error(), "closed lane main") {
+		t.Fatalf("closed-lane intervention error = %v", err)
+	}
+	assertNoteNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "interventions.jsonl"))
 }
 
 func TestAppendRejectsOversizedEventBeforeWrite(t *testing.T) {

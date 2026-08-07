@@ -8,47 +8,22 @@
 
 本仓库不是具体安全 case、RE case、自动脱壳器、逆向引擎、漏洞挖掘器或渗透执行器。不要因为 README 的 case 初始化示例而在 kit 仓库内创建无关 case；只有验证 `onboard`、`init`、`attach`、`sync`、`promote` 或 workstream 行为时才创建临时 case。
 
-## 上下文路由 / 渐进式披露
+## 文档不变量 / 上下文路由
 
-先读 `docs/context-routing.md`，再按需读其它文档顶部区域。不要默认串读所有 durable docs，也不要默认读取 `docs/batch-history.md` 全文。修改、创建或维护文档时也要保持按需路由与渐进披露：顶部短执行区，细节按章节/专文路由，不把历史、长日志或完整设计重新塞回 active docs。文档索引、推荐话术和接手清单不是默认必读清单；如果出现 5 个以上 read-first 文件，先压缩为 `docs/context-routing.md` + 当前场景入口 + 顶部区。
+**本项目文档必须做成按需路由、渐进式披露的样式。** `docs/context-routing.md` 是唯一完整路由表；本文件只保留稳定项目边界，不复制路线、批次、release 或历史详情。
 
-每轮默认最小集：
+默认只读本文件的必要边界、`docs/context-routing.md` 和真实仓库状态；再由 router 选择**一个**当前场景入口及其指定顶部区或章节。不要默认串读路线图、batch plan、CHANGELOG、release readiness、历史计划或 `docs/batch-history.md` 全文。机器 `readFirst[]` 也必须先指向 router，不能把索引解释成全文必读清单。
 
-1. 本文件顶部边界。
-2. `docs/context-routing.md`。
-3. `docs/batch-plan.md` 顶部 current milestone / current batch state / next candidates。
-4. `CHANGELOG.md` 顶部 `Unreleased`。
-5. 真实状态：`git status --short`、必要 focused tests、本机 release gate；远程 CI 只在需要 release 判断时检查。
-
-Batch 推送节奏（仅在当前 goal/session 已明确授权 commit/push 时适用）：若 goal 指定在 `main` 接手，先确认 `main` 与 `origin/main` 同步且工作树干净，再在 `main` 上提交并推送到 `origin/main`。普通 batch 默认只做一次 implementation commit/push，覆盖代码、测试、文档与 Windows 本机验证；推送成功后立即继续下一批，不轮询或等待远程 workflow，也不创建专门的 release inspection commit。远程 Linux/macOS/Windows CI 继续异步运行，只在正式发布、跨平台专项或每 3–5 批周期复审时等待并记录实际结果。
-
-按需路由：
-
-| 场景 | 首选入口 |
-|---|---|
-| 产品方向 | `docs/mission-control-product-direction.md` 顶部 |
-| 架构边界 / 四层模型 | `docs/design.md` 顶部和对应小节 |
-| 自主短 goal / 接手 cadence | `docs/autonomous-goal.md` 顶部 |
-| 当前批次 / 下一步 | `docs/batch-plan.md` 顶部 |
-| 旧批次考古 | `docs/batch-history.md` 中按 Batch ID 搜索 |
-| release / CI 判断 | `docs/release-readiness.md` 顶部 + `release-check -Format json` |
-| PowerShell façade / removal | `docs/powershell-deprecation.md` 顶部和相关矩阵行 |
-| runtime 调用链 / symbol 影响面 | CodeGraph MCP 优先查询 `internal/rekit/**` / `cmd/rekit/**`；legacy 迁移只按需读 `docs/go-runtime-migration.md` 顶部 |
-| ledger / evidence 字段语义 | `docs/evidence-ledger.md` 顶部和对应事件类型 |
-| 旧 case 迁移 / moved metadata | `docs/case-migration.md` 顶部和对应步骤 |
-| 文档减压 / 路由审计 | `docs/context-routing.md` + 目标文档顶部；用搜索定位旧 read-first 列表 |
-| smoke 选择 | `rekit/tests/README.md` 对应类别 |
+修改文档时，active docs 只保留当前决策、当前卡和短指针；未来批次、完整 inventory、旧验证日志与历史设计进入按需 backlog、专题或 archive。若出现 5 个以上 read-first 文件、多个完整路由表或同一 current pointer 的多份长副本，先做文档减压再继续扩写。
 
 ## 维护入口
 
 - `/rekit` skill：`.claude/skills/rekit/SKILL.md`
 - Go deterministic backend：`cmd/rekit/main.go`、`internal/rekit/**`
-- Go-owned real Claude Code session host：`cmd/rekit-host/main.go`、`internal/rekit/sessionhost/**`（不替代 runtime 的 currentness、授权和 strict intake）
+- Go-owned real Claude Code session host：`cmd/rekit-host/main.go`、`internal/rekit/sessionhost/**`；日常前门用 `-daily -target <case> -goal <text>` 或 `-correction <text>`，自动派生 lifecycle identity，但不替代 runtime 的 currentness、授权和 strict intake
 - PowerShell compatibility façade：`rekit/rekit.ps1`（不新增业务 runtime）
-- pack：`packs/<pack>/**`；首个 mature pack 是 `packs/vmp-re/**`，安全领域 skeleton 包括 `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native`、`generic-binary-re`
-- pack manifest：`packs/<pack>/manifest.yml`
-- common policies/prompts：`common/**`
-- release / docs：`docs/context-routing.md`、`docs/release-readiness.md`、`docs/powershell-deprecation.md`、`docs/batch-plan.md`、`CHANGELOG.md`
+- pack：`packs/<pack>/**`；manifest：`packs/<pack>/manifest.yml`；common policies/prompts：`common/**`
+- release/docs 入口：`docs/context-routing.md`、`docs/real-usage-hardening-roadmap.md`、`docs/release-readiness.md`、`docs/powershell-deprecation.md`、`CHANGELOG.md`
 
 ## CodeGraph 使用边界
 

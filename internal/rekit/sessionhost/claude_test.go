@@ -9,69 +9,43 @@ import (
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
-	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewerresult"
 )
 
-func TestPublishMemberOutputsCopiesValidatedFixtureBytes(t *testing.T) {
+func TestPublishValidatedMemberOutputsCopiesBoundedTransportBytes(t *testing.T) {
 	caseRoot := t.TempDir()
-	response := memberResponse{
-		Outcome: "returned",
-		Summary: "fixture result",
-		Outputs: []memberOutput{
-			{Path: "analysis/result.txt", Content: "fixture bytes\n"},
-			{Path: "review-items.txt", Content: "item-a\n"},
-		},
-		ReviewerItemsPath: "review-items.txt",
+	outputs := []validatedMemberOutput{
+		{path: ".rekit/host/outputs/analysis/result.txt", data: []byte("opaque transport bytes\n")},
+		{path: ".rekit/host/outputs/index.txt", data: []byte("opaque-index\n")},
 	}
-	if err := publishMemberOutputs(caseRoot, ".rekit/host/outputs", response); err != nil {
+	if err := publishValidatedMemberOutputs(caseRoot, outputs); err != nil {
 		t.Fatal(err)
 	}
 	for path, want := range map[string]string{
-		"analysis/result.txt": "fixture bytes\n",
-		"review-items.txt":    "item-a\n",
+		"analysis/result.txt": "opaque transport bytes\n",
+		"index.txt":           "opaque-index\n",
 	} {
 		got, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "host", "outputs", filepath.FromSlash(path)))
 		if err != nil {
 			t.Fatal(err)
 		}
 		if string(got) != want {
-			t.Fatalf("output %s = %q, want exact returned bytes %q", path, string(got), want)
+			t.Fatalf("output %s = %q, want exact bounded bytes %q", path, string(got), want)
 		}
 	}
 }
 
 func TestPublishMemberOutputsRejectsUnsafeAndPartialResults(t *testing.T) {
 	tests := []memberResponse{
-		{Outcome: "returned"},
-		{Outcome: "returned", Outputs: []memberOutput{{Path: "../escape.txt", Content: "x"}}},
-		{Outcome: "returned", Outputs: []memberOutput{{Path: "C:/escape.txt", Content: "x"}}},
-		{Outcome: "returned", Outputs: []memberOutput{{Path: "result.txt", Content: ""}}},
-		{Outcome: "returned", Outputs: []memberOutput{{Path: "result.txt", Content: "x"}}, ReviewerItemsPath: "missing.txt"},
+		{},
+		{Outputs: []memberOutput{{Path: "../escape.txt", Content: "x"}}},
+		{Outputs: []memberOutput{{Path: "C:/escape.txt", Content: "x"}}},
+		{Outputs: []memberOutput{{Path: "result.txt", Content: ""}}},
+		{Outputs: []memberOutput{{Path: "result.txt", Content: "x"}}, ReviewerItemsPath: "missing.txt"},
 	}
 	for index, response := range tests {
 		if err := publishMemberOutputs(t.TempDir(), ".rekit/host/outputs", response); err == nil {
 			t.Fatalf("unsafe response %d was accepted: %+v", index, response)
 		}
-	}
-}
-
-func TestReviewerResultFixturePreservesSessionField(t *testing.T) {
-	result := reviewerresult.Result{
-		PacketID: "packet", RouteID: "route", ShardID: "shard", Items: []string{"item"},
-		ReviewerSession: "fixture-session", Decision: "needs-more-evidence", Confidence: "low",
-		Summary: "fixture review", EvidenceRefs: []string{}, Risks: []string{}, Conflicts: []string{},
-		RecommendedVerdict: "defer", RouteOutput: map[string]any{"status": "bounded"},
-	}
-	data, err := json.Marshal(result)
-	if err != nil {
-		t.Fatal(err)
-	}
-	decoded, err := reviewerresult.Decode(data)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if decoded.ReviewerSession != "fixture-session" {
-		t.Fatalf("reviewer session = %q", decoded.ReviewerSession)
 	}
 }
 
@@ -91,7 +65,7 @@ func TestReviewerDispatchReadyRequiresExactBootstrapState(t *testing.T) {
 func TestClaudeSuccessRequiresReturnedSessionIdentity(t *testing.T) {
 	run := claudeRun{
 		envelope: claudeEnvelope{Type: "result", Subtype: "success"},
-		exitCode: 0, structuredOutput: json.RawMessage(`{"outcome":"returned"}`),
+		exitCode: 0, structuredOutput: json.RawMessage(`{"opaque":"non-empty"}`),
 	}
 	if run.success() {
 		t.Fatal("Claude success accepted a missing durable session identity")

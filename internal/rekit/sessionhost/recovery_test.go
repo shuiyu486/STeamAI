@@ -5,25 +5,28 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
 func TestClaudeRecoveryTreatsMissingArtifactAsFreshLaunch(t *testing.T) {
-	caseRoot := t.TempDir()
+	root := t.TempDir()
 	pkg := recoveryPackageForTest()
+	opt := recoveryOptionsForTest()
 
-	recovered, ok, err := recoverClaudeRun(caseRoot, pkg)
+	recovered, ok, err := recoverClaudeRun(root, opt, pkg)
 	if err != nil || ok {
 		t.Fatalf("missing recovery ok=%t err=%v run=%+v", ok, err, recovered)
 	}
 }
 
-func TestClaudeRecoveryRoundTripsExactAttemptSessionAndBytes(t *testing.T) {
-	caseRoot := t.TempDir()
+func TestClaudeRecoveryRoundTripsExactAttemptSessionExecutableAndBytes(t *testing.T) {
+	root := t.TempDir()
 	pkg := recoveryPackageForTest()
-	output := json.RawMessage(`{"outcome":"returned","summary":"fixture","reason":"","outputs":[{"path":"result.txt","content":"fixture bytes"}],"reviewerItemsPath":""}`)
+	opt := recoveryOptionsForTest()
+	output := json.RawMessage(`{"opaque":"bounded-bytes-1"}`)
 	run := claudeRun{
 		envelope:         claudeEnvelope{Type: "result", Subtype: "success", SessionID: "session-id"},
 		sessionID:        "session-id",
@@ -31,72 +34,131 @@ func TestClaudeRecoveryRoundTripsExactAttemptSessionAndBytes(t *testing.T) {
 		started:          true,
 		exitCode:         0,
 	}
-	if err := persistClaudeRecovery(caseRoot, pkg, run); err != nil {
+	if err := persistClaudeRecovery(root, opt, pkg, run); err != nil {
 		t.Fatal(err)
 	}
-	recovered, ok, err := recoverClaudeRun(caseRoot, pkg)
+	recovered, ok, err := recoverClaudeRun(root, opt, pkg)
 	if err != nil || !ok {
 		t.Fatalf("recovery ok=%t err=%v", ok, err)
 	}
 	if recovered.sessionID != run.sessionID || !recovered.success() || !recovered.recovered || recovered.started || !bytes.Equal(recovered.structuredOutput, output) {
 		t.Fatalf("recovered run drifted: %+v", recovered)
 	}
+	caseRoot := t.TempDir()
+	caseRecoveryRoot, err := claudeRecoveryRoot(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := persistClaudeRecovery(caseRecoveryRoot, opt, pkg, run); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeClaudeRecoveryForCase(caseRoot, opt, pkg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(caseRecoveryRoot, claudeRecoveryPath(pkg))); !os.IsNotExist(err) {
+		t.Fatalf("consumed recovery remains: %v", err)
+	}
 }
 
 func TestClaudeRecoveryRejectsAttemptDrift(t *testing.T) {
-	caseRoot := t.TempDir()
+	root := t.TempDir()
 	pkg := recoveryPackageForTest()
-	output := json.RawMessage(`{"outcome":"failed","summary":"","reason":"fixture","outputs":[],"reviewerItemsPath":""}`)
+	opt := recoveryOptionsForTest()
+	output := json.RawMessage(`{"opaque":"bounded-bytes-2"}`)
 	run := claudeRun{envelope: claudeEnvelope{Type: "result", Subtype: "success", SessionID: "session-id"}, sessionID: "session-id", structuredOutput: output, started: true, exitCode: 0}
-	if err := persistClaudeRecovery(caseRoot, pkg, run); err != nil {
+	if err := persistClaudeRecovery(root, opt, pkg, run); err != nil {
 		t.Fatal(err)
 	}
 	original := claudeRecoveryPath(pkg)
 	pkg.Launch.Attempt.AttemptSHA256 = "different-attempt-sha"
 	drifted := claudeRecoveryPath(pkg)
-	originalPath := filepath.Join(caseRoot, filepath.FromSlash(original))
-	driftedPath := filepath.Join(caseRoot, filepath.FromSlash(drifted))
-	if err := os.MkdirAll(filepath.Dir(driftedPath), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(originalPath)
+	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(original)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(driftedPath, data, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(drifted)), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok, err := recoverClaudeRun(caseRoot, pkg); err == nil || ok {
+	if _, ok, err := recoverClaudeRun(root, opt, pkg); err == nil || ok {
 		t.Fatalf("attempt drift recovery ok=%t err=%v", ok, err)
 	}
 }
 
-func TestClaudeReviewerRecoveryUsesDispatchAndSessionBinding(t *testing.T) {
-	caseRoot := t.TempDir()
+func TestClaudeRecoveryRejectsExecutableDrift(t *testing.T) {
+	root := t.TempDir()
 	pkg := recoveryPackageForTest()
-	pkg.SessionKind = "reviewer"
-	pkg.Launch.Attempt.AttemptID = "reviewer-dispatch-id"
-	output := json.RawMessage(`{"outcome":"returned","result":{"reviewerSession":"session-id"},"reason":""}`)
+	opt := recoveryOptionsForTest()
+	output := json.RawMessage(`{"opaque":"bounded-bytes-3"}`)
 	run := claudeRun{envelope: claudeEnvelope{Type: "result", Subtype: "success", SessionID: "session-id"}, sessionID: "session-id", structuredOutput: output, started: true, exitCode: 0}
-	if err := persistClaudeRecovery(caseRoot, pkg, run); err != nil {
+	if err := persistClaudeRecovery(root, opt, pkg, run); err != nil {
 		t.Fatal(err)
 	}
-	recovered, ok, err := recoverClaudeRun(caseRoot, pkg)
+	drifted := opt
+	drifted.ExpectedClaudeExecutableSHA256 = strings.Repeat("b", 64)
+	if _, ok, err := recoverClaudeRun(root, drifted, pkg); err == nil || ok {
+		t.Fatalf("executable drift recovery ok=%t err=%v", ok, err)
+	}
+}
+
+func TestClaudeReviewerRecoveryUsesDispatchAndSessionBinding(t *testing.T) {
+	root := t.TempDir()
+	pkg := recoveryPackageForTest()
+	opt := recoveryOptionsForTest()
+	pkg.SessionKind = "reviewer"
+	pkg.Launch.Attempt.AttemptID = "reviewer-dispatch-id"
+	output := json.RawMessage(`{"opaque":"bounded-bytes-4"}`)
+	run := claudeRun{envelope: claudeEnvelope{Type: "result", Subtype: "success", SessionID: "session-id"}, sessionID: "session-id", structuredOutput: output, started: true, exitCode: 0}
+	if err := persistClaudeRecovery(root, opt, pkg, run); err != nil {
+		t.Fatal(err)
+	}
+	recovered, ok, err := recoverClaudeRun(root, opt, pkg)
 	if err != nil || !ok || !bytes.Equal(recovered.structuredOutput, output) {
 		t.Fatalf("reviewer recovery ok=%t err=%v run=%+v", ok, err, recovered)
 	}
-	originalPath := filepath.Join(caseRoot, filepath.FromSlash(claudeRecoveryPath(pkg)))
+	originalPath := filepath.Join(root, filepath.FromSlash(claudeRecoveryPath(pkg)))
 	data, err := os.ReadFile(originalPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	pkg.Launch.Attempt.Session = "replacement-session"
-	driftedPath := filepath.Join(caseRoot, filepath.FromSlash(claudeRecoveryPath(pkg)))
+	driftedPath := filepath.Join(root, filepath.FromSlash(claudeRecoveryPath(pkg)))
 	if err := os.WriteFile(driftedPath, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok, err := recoverClaudeRun(caseRoot, pkg); err == nil || ok {
+	if _, ok, err := recoverClaudeRun(root, opt, pkg); err == nil || ok {
 		t.Fatalf("reviewer session drift recovery ok=%t err=%v", ok, err)
+	}
+}
+
+func TestClaudeRecoveryIgnoresCaseLocalForgery(t *testing.T) {
+	caseRoot := t.TempDir()
+	pkg := recoveryPackageForTest()
+	opt := recoveryOptionsForTest()
+	output := json.RawMessage(`{"opaque":"case-local-forgery"}`)
+	recovery, _, err := claudeRecoveryFor(opt, pkg, pkg.Launch.Attempt.Session, output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(recovery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyPath := filepath.Join(caseRoot, ".rekit", "session-host", "structured-results", claudeRecoveryPath(pkg))
+	if err := os.MkdirAll(filepath.Dir(legacyPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacyPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := recoverClaudeRunForCase(caseRoot, opt, pkg); err != nil || ok {
+		t.Fatalf("case-local forgery recovery ok=%t err=%v", ok, err)
+	}
+}
+
+func recoveryOptionsForTest() Options {
+	return Options{
+		ExpectedClaudeExecutableSHA256:    strings.Repeat("a", 64),
+		ExpectedClaudeExecutablePublisher: liveAcceptanceClaudePublisher,
 	}
 }
 

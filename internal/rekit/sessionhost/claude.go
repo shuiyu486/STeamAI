@@ -96,7 +96,22 @@ func runClaude(parent context.Context, opt Options, pkg mission.CurrentLoopExter
 	if strings.TrimSpace(opt.Model) != "" {
 		args = append(args, "--model", strings.TrimSpace(opt.Model))
 	}
+	launchBinding, err := acquireClaudeExecutableLaunchBinding(opt)
+	if err != nil {
+		return claudeRun{spawnErr: err, duration: time.Since(begin)}
+	}
+	if launchBinding != nil {
+		defer launchBinding.Close()
+	}
+	if launchBinding != nil {
+		if err := launchBinding.Validate(); err != nil {
+			return claudeRun{spawnErr: fmt.Errorf("revalidate trusted Claude namespace immediately before launch: %w", err), duration: time.Since(begin)}
+		}
+	}
 	cmd := exec.CommandContext(ctx, opt.ClaudePath, args...)
+	if err := configureTrustedClaudeCommand(cmd, launchBinding); err != nil {
+		return claudeRun{spawnErr: err, duration: time.Since(begin)}
+	}
 	cmd.Dir = opt.Target
 	cmd.Stdin = nil
 	var stdout limitedBuffer
@@ -104,6 +119,11 @@ func runClaude(parent context.Context, opt Options, pkg mission.CurrentLoopExter
 	stdout.limit = maxClaudeStdoutBytes
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Start(); err != nil {
+		return claudeRun{spawnErr: err, duration: time.Since(begin), stdoutTail: stdout.String(), stderrTail: stderr.String()}
+	}
+	if err := validateAndResumeTrustedClaudeProcess(cmd.Process, launchBinding); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
 		return claudeRun{spawnErr: err, duration: time.Since(begin), stdoutTail: stdout.String(), stderrTail: stderr.String()}
 	}
 	processStarted := true
@@ -211,7 +231,7 @@ func claudeRequest(caseRoot string, pkg mission.CurrentLoopExternalSessionHarnes
 		return common + " For outcome=returned provide a non-empty summary and at least one bounded output path/content pair. Set reviewerItemsPath to one returned output containing one non-empty review item per line when practical; otherwise use an empty string and the manifest will be reviewed. For outcome=failed provide a non-empty reason and no outputs.", schema, nil
 	}
 	schema := `{"type":"object","properties":{"outcome":{"type":"string","enum":["returned","failed"]},"result":{"type":["object","null"]},"reason":{"type":"string"}},"required":["outcome","result","reason"],"additionalProperties":false}`
-	return common + " For outcome=returned, result must be exactly one ReviewerResult object and reviewerSession must equal the actual session ID above. For outcome=failed, result must be null and reason must be non-empty.", schema, nil
+	return common + " For outcome=returned, result must be exactly one ReviewerResult object and reviewerSession must equal the actual session ID above. In result.routeOutput set tool_scope exactly to read-only and next_action exactly to main-agent review when those fields are required; do not request writes, heavy tools, authority/confirmed, or external effects. For outcome=failed, result must be null and reason must be non-empty.", schema, nil
 }
 
 func reviewerClaudePackage(caseRoot string, handoff reviewerExternalHandoff) (mission.CurrentLoopExternalSessionHarnessPackage, reviewersession.DispatchReceipt, error) {
@@ -412,7 +432,17 @@ func publishMemberOutputs(caseRoot, root string, response memberResponse) error 
 	if err != nil {
 		return err
 	}
-	for _, output := range validated {
+	return publishValidatedMemberOutputs(caseRoot, validated)
+}
+
+func publishValidatedMemberOutputs(caseRoot string, outputs []validatedMemberOutput) error {
+	if len(outputs) == 0 || len(outputs) > maxOutputs {
+		return fmt.Errorf("Claude member output publication requires 1..%d validated outputs", maxOutputs)
+	}
+	for _, output := range outputs {
+		if strings.TrimSpace(output.path) == "" || len(output.data) == 0 || len(output.data) > maxOutputBytes {
+			return fmt.Errorf("Claude member output publication received invalid bounded transport bytes")
+		}
 		if _, err := rekitfs.WriteExclusiveRegularFileAnchored(caseRoot, output.path, "Claude member output", output.data); err != nil {
 			return err
 		}

@@ -1,0 +1,244 @@
+package onboarding
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
+	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
+)
+
+func TestAttachedAdoptionPreviewApplyAndReplay(t *testing.T) {
+	repo := testRepoRoot(t)
+	caseRoot := provisionAttachedCase(t, repo)
+	opt := testOptions(caseRoot)
+
+	preview, err := Preview(repo, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.ExclusivePlan.Command != attachedPlanCommand || len(preview.Writes) != 3 {
+		t.Fatalf("unexpected attached adoption preview: %+v", preview)
+	}
+	for index, want := range []string{missionintent.IntentRel, missionintent.MissionIntentRel, missionintent.CommitRel} {
+		if preview.Writes[index].Path != want || preview.Writes[index].PublicationPhase != index {
+			t.Fatalf("attached write %d = %+v, want path=%s phase=%d", index, preview.Writes[index], want, index)
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(caseRoot, filepath.FromSlash(missionintent.IntentRel))); !os.IsNotExist(err) {
+		t.Fatalf("attached preview wrote intent: %v", err)
+	}
+
+	opt.PublicationStamp = preview.PublicationStamp
+	opt.ExpectedOnboardingPlanSHA256 = preview.OnboardingPlanSHA256
+	applied, err := Apply(repo, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !applied.Applied || applied.Replay || !applied.Inspection.Committed || applied.Inspection.Recovery.Mode != "attached-adoption" {
+		t.Fatalf("unexpected attached adoption Apply: %+v", applied)
+	}
+	if _, err := os.ReadFile(filepath.Join(caseRoot, "case-local.txt")); err != nil {
+		t.Fatalf("attached adoption changed ordinary case content: %v", err)
+	}
+
+	replay, err := Apply(repo, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replay.Applied || !replay.Replay {
+		t.Fatalf("unexpected attached adoption replay: %+v", replay)
+	}
+}
+
+func TestAttachedAdoptionRejectsMissionControlState(t *testing.T) {
+	for _, rel := range []string{".rekit/board.json", ".rekit/policy.yml", ".rekit/verification-role.json", ".rekit/backups/one", ".rekit/reviewer-adoptions/one", ".rekit/reopen-operations/one"} {
+		t.Run(filepath.Base(rel), func(t *testing.T) {
+			repo := testRepoRoot(t)
+			caseRoot := provisionAttachedCase(t, repo)
+			path := filepath.Join(caseRoot, filepath.FromSlash(rel))
+			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte("{}\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Preview(repo, testOptions(caseRoot)); err == nil || !strings.Contains(err.Error(), "refuses existing Mission Control state") {
+				t.Fatalf("attached active-state preview error = %v", err)
+			}
+		})
+	}
+}
+
+func TestAttachedAdoptionRejectsSnapshotDriftWithoutWriting(t *testing.T) {
+	repo := testRepoRoot(t)
+	caseRoot := provisionAttachedCase(t, repo)
+	opt := testOptions(caseRoot)
+	preview, err := Preview(repo, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(caseRoot, ".rekit", "state.json")
+	state, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(state, ' '), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	opt.PublicationStamp = preview.PublicationStamp
+	opt.ExpectedOnboardingPlanSHA256 = preview.OnboardingPlanSHA256
+	if _, err := Apply(repo, opt); err == nil || !strings.Contains(err.Error(), "snapshot changed") {
+		t.Fatalf("attached snapshot drift Apply error = %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(caseRoot, filepath.FromSlash(missionintent.IntentRel))); !os.IsNotExist(err) {
+		t.Fatalf("snapshot drift wrote intent: %v", err)
+	}
+}
+
+func TestAttachedAdoptionRejectsDoctorInvalidCaseWithoutWriting(t *testing.T) {
+	repo := testRepoRoot(t)
+	caseRoot := provisionAttachedCase(t, repo)
+	if err := os.Remove(filepath.Join(caseRoot, "CLAUDE.local.md")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Preview(repo, testOptions(caseRoot)); err == nil || !strings.Contains(err.Error(), "doctor-ready case files") {
+		t.Fatalf("doctor-invalid attached preview error = %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(caseRoot, filepath.FromSlash(missionintent.IntentRel))); !os.IsNotExist(err) {
+		t.Fatalf("doctor-invalid attached preview wrote intent: %v", err)
+	}
+}
+
+func TestAttachedAdoptionPendingRecoveryRejectsMissionControlState(t *testing.T) {
+	repo := testRepoRoot(t)
+	caseRoot := provisionAttachedCase(t, repo)
+	opt := testOptions(caseRoot)
+	preview, err := Preview(repo, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeAttachedTestArtifact(caseRoot, preview.ExclusivePlan.Writes[0]); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "board.json"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	opt.PublicationStamp = preview.PublicationStamp
+	opt.ExpectedOnboardingPlanSHA256 = preview.OnboardingPlanSHA256
+	if _, err := Apply(repo, opt); err == nil || !strings.Contains(err.Error(), "refuses existing Mission Control state") {
+		t.Fatalf("pending attached takeover error = %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(caseRoot, filepath.FromSlash(missionintent.MissionIntentRel))); !os.IsNotExist(err) {
+		t.Fatalf("pending attached takeover wrote mission intent: %v", err)
+	}
+}
+
+func TestAttachedAdoptionRevalidatesSnapshotBeforeCommit(t *testing.T) {
+	repo := testRepoRoot(t)
+	caseRoot := provisionAttachedCase(t, repo)
+	opt := testOptions(caseRoot)
+	preview, err := Preview(repo, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opt.PublicationStamp = preview.PublicationStamp
+	opt.ExpectedOnboardingPlanSHA256 = preview.OnboardingPlanSHA256
+	attachedAdoptionBeforeCommitHook = func() error {
+		path := filepath.Join(caseRoot, ".rekit", "state.json")
+		state, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(path, append(state, ' '), 0o600)
+	}
+	t.Cleanup(func() { attachedAdoptionBeforeCommitHook = nil })
+	if _, err := Apply(repo, opt); err == nil || !strings.Contains(err.Error(), "snapshot changed") {
+		t.Fatalf("attached commit-time snapshot drift error = %v", err)
+	}
+	attachedAdoptionBeforeCommitHook = nil
+	inspection, err := missionintent.Inspect(caseRoot)
+	if err != nil || inspection.State != "pending" || inspection.Committed {
+		t.Fatalf("snapshot drift should stop before commit: inspection=%+v err=%v", inspection, err)
+	}
+	if _, err := os.Lstat(filepath.Join(caseRoot, filepath.FromSlash(missionintent.CommitRel))); !os.IsNotExist(err) {
+		t.Fatalf("snapshot drift wrote commit: %v", err)
+	}
+}
+
+func TestAttachedAdoptionRevalidatesMissionControlBeforeCommit(t *testing.T) {
+	repo := testRepoRoot(t)
+	caseRoot := provisionAttachedCase(t, repo)
+	opt := testOptions(caseRoot)
+	preview, err := Preview(repo, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opt.PublicationStamp = preview.PublicationStamp
+	opt.ExpectedOnboardingPlanSHA256 = preview.OnboardingPlanSHA256
+	attachedAdoptionBeforeCommitHook = func() error {
+		return os.WriteFile(filepath.Join(caseRoot, ".rekit", "board.json"), []byte("{}\n"), 0o600)
+	}
+	t.Cleanup(func() { attachedAdoptionBeforeCommitHook = nil })
+	if _, err := Apply(repo, opt); err == nil || !strings.Contains(err.Error(), "refuses existing Mission Control state") {
+		t.Fatalf("attached commit-time Mission Control insertion error = %v", err)
+	}
+	attachedAdoptionBeforeCommitHook = nil
+	if _, err := os.Lstat(filepath.Join(caseRoot, filepath.FromSlash(missionintent.CommitRel))); !os.IsNotExist(err) {
+		t.Fatalf("Mission Control insertion wrote commit: %v", err)
+	}
+}
+
+func TestAttachedAdoptionRecoversIntentOnlyPublication(t *testing.T) {
+	repo := testRepoRoot(t)
+	caseRoot := provisionAttachedCase(t, repo)
+	opt := testOptions(caseRoot)
+	preview, err := Preview(repo, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	intent := preview.ExclusivePlan.Writes[0]
+	if err := writeAttachedTestArtifact(caseRoot, intent); err != nil {
+		t.Fatal(err)
+	}
+	inspection, err := missionintent.Inspect(caseRoot)
+	if err != nil || inspection.State != "pending" || inspection.Recovery.Mode != "attached-adoption" {
+		t.Fatalf("intent-only attached inspection = %+v err=%v", inspection, err)
+	}
+	opt.PublicationStamp = preview.PublicationStamp
+	opt.ExpectedOnboardingPlanSHA256 = preview.OnboardingPlanSHA256
+	result, err := Apply(repo, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Inspection.Committed {
+		t.Fatalf("attached pending recovery not committed: %+v", result)
+	}
+}
+
+func provisionAttachedCase(t *testing.T, repo string) string {
+	t.Helper()
+	caseRoot := filepath.Join(t.TempDir(), "attached")
+	plan, err := syncreview.PlanExclusiveInit(repo, caseRoot, "_template", syncreview.ExclusiveInitOptions{ProjectName: "demo", ProvisionID: "attached-fixture", Role: "attached-fixture", CreatedAt: time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC), SkipVerificationMarker: true, DefaultPublicationPhase: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := syncreview.ApplyExclusiveInit(plan); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caseRoot, "case-local.txt"), []byte("preserve me\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return caseRoot
+}
+
+func writeAttachedTestArtifact(caseRoot string, write syncreview.ExclusiveInitWrite) error {
+	path := filepath.Join(caseRoot, filepath.FromSlash(write.Path))
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(path, write.Content, 0o600)
+}

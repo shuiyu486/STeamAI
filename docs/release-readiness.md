@@ -2,7 +2,7 @@
 
 ## 读取指南
 
-本文件是发布前和新会话接手时的一页门禁说明，配合 `docs/mission-control-product-direction.md`、`docs/autonomous-goal.md`、`docs/go-first-convergence-plan.md` 与 `docs/powershell-deprecation.md` 使用。维护者在准备 release、合并大型批次、或需要判断当前 runtime owner 时先读本文件顶部区域；需要产品北极星时读 `docs/mission-control-product-direction.md`，需要长期自主推进 goal 时读 `docs/autonomous-goal.md`，需要历史路线时再读 go-first convergence、runtime migration 和 batch-plan。
+本文件是发布前的一页门禁说明。新会话和上下文压缩后先读 `docs/context-routing.md`；当前真实使用路线实施时，再读 `docs/real-usage-hardening-roadmap.md` 顶部和当前批次卡。维护者只有在准备 release、合并大型批次或判断 runtime owner 时才读本文件顶部；产品北极星、短 goal、历史迁移和 PowerShell removal 分别按路由读取对应专文。
 
 本文件不替代 `rekit/tests/README.md` 的 smoke 选择指南，也不是要求每次改动都运行全量 PowerShell matrix。它把 readiness 分成两层：普通迭代以 Windows 本机 focused tests + 完整 local gate 为完成门槛；正式发布、跨平台专项或周期复审才等待远程 Linux/Windows/macOS CI。`release-check` inventory ready、本地 gate 通过、远程 jobs green 仍是三种不同事实，不能互相冒充。
 
@@ -15,7 +15,7 @@
 - Agent Team dry-run 已从 `_template` package E2E 扩展到 `generic-binary-re`、`web-security` package E2E，并新增 `web-security`、`generic-binary-re`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 真实临时 case smoke。
 - 普通 batch 默认依赖 Go-owned `release-check` inventory（完整release audit）、Go-native lightweight daily `status` / `packs` / `doctor`、Go tests、`go vet` 与 `git diff --check`，并以 Windows 本机实际执行通过为完成依据；`status`只构建Mission Control所需latest-batch/known-gap/pack-memory project handoff，不执行PowerShell/public façade全仓release audit，因此不能替代`release-check`。`release-check` 只枚举并解析门禁，不执行这些命令，也不读取 GitHub Actions job conclusion。Batch 139 已让 `release-check` 输出 `gateProfile`，将 recommended minimum 解析为本机/CI 可消费的 step kind、repo-local path、present/resolved 状态；Batch 140 已新增 `.github/workflows/release-gate.yml`，Batch 217 将默认 CI / recommended minimum 收敛为 Linux、Windows、macOS 三平台 Go-native release checks，不再把 PowerShell façade smoke 或 `rekit.ps1 doctor` 放在默认 release gate 内；Batch 142 已让 `release-check` 输出 `powerShellDeprecation` inventory，解析 PowerShell 命令归属、模块状态、freeze gates 与 blocked migrations，作为 PowerShell 收缩的确定性前置检查；Batch 144 已让 `release-check` 输出 `ciReleaseGate` inventory，对照 GitHub Actions workflow 的 job、required commands 与 forbidden broad/heavy steps 发现漂移；Batch 146 已让 `release-check` 输出 `releaseHandoff`，把新会话 read-first 文档、关键 readiness signals、latest batch 摘要、验证命令和下一步接手动作放进同一个 Go-owned envelope；Batch 147 已让 `releaseHandoff.releaseNotes` 对照最新 batch 与 CHANGELOG `Unreleased`，防止完成批次但漏写 release note；Batch 148 已让 `releaseHandoff.knownGaps[]` 汇总 `docs/release-readiness.md` Known gaps 的 category/summary，便于新会话先看机器可读缺口再按需读长文档；Batch 149 已让 `releaseHandoff.packMaturity` 汇总 pack maturity、schema validity 与每 pack heavy-tool gate readiness，Batch 162 已进一步输出 pack manifest `schemaVersion` 与 `schemaVersionReady`，避免接手时必须遍历完整 `packs[]` 或 manifest 才能判断 pack 覆盖和 schema contract 版本状态。
 - Mission Control 产品北极星已集中到 `docs/mission-control-product-direction.md`：后续 release readiness 不应偏回“命令大全”、固定旧会话、短命 subagent-only 或用户盯多个会话的路线。
-- 长期自主推进和新会话接手 guidance 已集中到 `docs/autonomous-goal.md`；它保留 Mission Control 大方向、自主推进循环和可复制短 goal 语句，并把当前阶段重点更新为先真实用起来：优先打通开始 case、继续推进、状态总览、人工插手纠偏、新会话接手的最低可用路线，避免 release readiness 批次退回微批次或 PowerShell smoke/catalog 扩张，也避免用过长约束束缚模型发挥。当前 cadence 要求后续批次优先证明 operational product slice：contract / inventory / metadata 字段只能作为 Mission Commander、replaceable executor、reviewer writeback、authorized execution evidence、adapter-specific live validation、pack-memory UX 或 cross-platform product path 的支撑，不能连续独立成批。
+- 短 goal 和新会话接手 guidance 位于 `docs/autonomous-goal.md`，但 goal 只启动 `docs/real-usage-hardening-roadmap.md` 已批准的有序路线，不再让模型从候选池临时选题。路线当前只解锁 RH-01 普通 public 路线真实验收；后续批次必须依次满足 real-Claude/adapter 证据和 Windows 本机门槛。contract / inventory / metadata 字段只能作为当前批次闭环的支撑，不能独立立批；路线与 `docs/batch-plan.md` 指针冲突时 fail-closed。
 
 ## 执行清单
 
@@ -100,7 +100,7 @@ Readiness 最低标准按使用场景区分：
 - `rekit.ps1` doctor compatibility check 与 `facade-smoke.ps1` 不属于默认 release gate；只有改 retained compatibility façade、no-fallback guard 或 Windows compatibility 时按需追加。
 - `git diff --check` 没有 whitespace error；Windows LF/CRLF warning 可记录。
 - 涉及临时 case 的 smoke 必须清理自身 case root 和 review artifact。
-- 真实 Claude gate 仅显式运行：`go run ./cmd/rekit-host -live-acceptance -goal "<goal>" -correction "<correction>" -receipt "<outside-case-receipt.json>"`。通过必须有 `passed=true`、`manualPlaceholders=0`、`manualResultWrites=0`、两代 member、独立 Reviewer、canonical `ReviewerResult` 的 `decision=accept` / `recommendedVerdict=accepted` strict lineage、feature completion 与 `cleanup=removed`；普通 `go test ./...` 不调用该 gate。
+- 真实 Claude gate 仅显式运行：`go run ./cmd/rekit-host -live-acceptance -goal "<goal>" -correction "<correction>" -receipt "<outside-case-receipt.json>"`。通过必须有 `passed=true`、`manualPlaceholders=0`、`manualResultWrites=0`、fresh 两代 member、独立 Reviewer、canonical `ReviewerResult` 的 `decision=accept` / `recommendedVerdict=accepted` strict lineage、feature completion、fresh terminal zero-launch/mutation-free replay、existing attached strict adoption + real member + zero-launch exact goal replay，以及两个临时 case 均 `cleanup=removed`；普通 `go test ./...` 不调用该 gate。
 
 ## 风险与注意事项
 

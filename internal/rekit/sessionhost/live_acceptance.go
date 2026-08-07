@@ -7,23 +7,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	iofs "io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
+	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
-	"github.com/shuiyu486/re-context-kits/internal/rekit/note"
-	"github.com/shuiyu486/re-context-kits/internal/rekit/onboarding"
-	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
+	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
-const (
-	liveAcceptancePack = defaults.DefaultPack
-	liveAcceptanceLane = "feature-analysis-live-acceptance"
-)
+const liveAcceptancePack = defaults.DefaultPack
 
 type LiveAcceptanceOptions struct {
 	CaseRoot    string
@@ -42,11 +40,18 @@ type LiveAcceptanceReceipt struct {
 	SchemaVersion       int                       `json:"schemaVersion"`
 	Kind                string                    `json:"kind"`
 	Passed              bool                      `json:"passed"`
+	ReceiptPublication  string                    `json:"receiptPublication,omitempty"`
+	ReceiptError        string                    `json:"receiptError,omitempty"`
 	Pack                string                    `json:"pack"`
 	CaseRoot            string                    `json:"caseRoot"`
 	NaturalLanguageGoal string                    `json:"naturalLanguageGoal"`
 	HumanCorrection     string                    `json:"humanCorrection"`
+	Claude              LiveAcceptanceClaude      `json:"claude"`
 	ExplicitOperations  int                       `json:"explicitOperations"`
+	PublicPreviews      int                       `json:"publicPreviews"`
+	PublicMutations     int                       `json:"publicMutations"`
+	PackageMutations    int                       `json:"packageMutations"`
+	PublicRoute         string                    `json:"publicRoute"`
 	ManualPlaceholders  int                       `json:"manualPlaceholders"`
 	ManualResultWrites  int                       `json:"manualResultWrites"`
 	MemberLaunches      int                       `json:"memberLaunches"`
@@ -60,9 +65,18 @@ type LiveAcceptanceReceipt struct {
 	ReplacementMember   LiveAcceptanceMember      `json:"replacementMember"`
 	CorrectionEventID   string                    `json:"correctionEventId"`
 	Completion          *LiveAcceptanceCompletion `json:"completion,omitempty"`
+	TerminalReplay      LiveAcceptanceReplay      `json:"terminalReplay"`
+	AttachedCase        LiveAcceptanceAttached    `json:"attachedCase"`
 	LLMSource           string                    `json:"llmSource"`
 	Cleanup             string                    `json:"cleanup"`
 	Boundary            []string                  `json:"boundary"`
+}
+
+type LiveAcceptanceClaude struct {
+	Path      string `json:"path"`
+	Publisher string `json:"publisher"`
+	Version   string `json:"version"`
+	SHA256    string `json:"sha256"`
 }
 
 type LiveAcceptanceSession struct {
@@ -102,6 +116,47 @@ type LiveAcceptanceCompletion struct {
 	NoHeavyTool   bool   `json:"noHeavyTool"`
 }
 
+type LiveAcceptanceReplay struct {
+	Verified           bool   `json:"verified"`
+	FinalState         string `json:"finalState"`
+	SessionLaunches    int    `json:"sessionLaunches"`
+	SessionCompletions int    `json:"sessionCompletions"`
+	MutationSHA256     string `json:"mutationSha256"`
+}
+
+type LiveAcceptanceAttached struct {
+	Verified            bool                 `json:"verified"`
+	CaseRoot            string               `json:"caseRoot"`
+	Pack                string               `json:"pack"`
+	Lane                string               `json:"lane"`
+	OnboardingMode      string               `json:"onboardingMode"`
+	SessionLaunches     int                  `json:"sessionLaunches"`
+	SessionCompletions  int                  `json:"sessionCompletions"`
+	Member              LiveAcceptanceMember `json:"member"`
+	TerminalReplay      bool                 `json:"terminalReplay"`
+	ReplayLaunches      int                  `json:"replayLaunches"`
+	PreservedCaseSHA256 string               `json:"preservedCaseSha256"`
+	ReplayTreeSHA256    string               `json:"replayTreeSha256"`
+	Cleanup             string               `json:"cleanup"`
+}
+
+type liveAcceptanceCaseIdentity struct {
+	parent     *os.Root
+	parentPath string
+	name       string
+	parentInfo os.FileInfo
+	caseInfo   os.FileInfo
+}
+
+func (identity *liveAcceptanceCaseIdentity) Close() error {
+	if identity == nil || identity.parent == nil {
+		return nil
+	}
+	err := identity.parent.Close()
+	identity.parent = nil
+	return err
+}
+
 func RunLiveAcceptance(parent context.Context, opt LiveAcceptanceOptions) (receipt LiveAcceptanceReceipt, retErr error) {
 	goal := strings.TrimSpace(opt.Goal)
 	correction := strings.TrimSpace(opt.Correction)
@@ -112,14 +167,22 @@ func RunLiveAcceptance(parent context.Context, opt LiveAcceptanceOptions) (recei
 	if err != nil {
 		return receipt, err
 	}
+	attachedRoot, err := liveAcceptanceAttachedCaseRoot(caseRoot)
+	if err != nil {
+		return receipt, err
+	}
 	if !opt.KeepCase && strings.TrimSpace(opt.ReceiptPath) != "" {
 		receiptPath, err := filepath.Abs(strings.TrimSpace(opt.ReceiptPath))
 		if err != nil {
 			return receipt, err
 		}
-		if liveAcceptancePathWithin(caseRoot, receiptPath) {
-			return receipt, fmt.Errorf("live acceptance receipt must be outside the disposable case root: %s", receiptPath)
+		if liveAcceptancePathWithin(caseRoot, receiptPath) || liveAcceptancePathWithin(attachedRoot, receiptPath) {
+			return receipt, fmt.Errorf("live acceptance receipt must be outside the disposable case roots: %s", receiptPath)
 		}
+	}
+	claude, err := resolveLiveAcceptanceClaude(opt.ClaudePath)
+	if err != nil {
+		return receipt, err
 	}
 	actor := strings.TrimSpace(opt.Actor)
 	if actor == "" {
@@ -132,119 +195,97 @@ func RunLiveAcceptance(parent context.Context, opt LiveAcceptanceOptions) (recei
 		CaseRoot:            caseRoot,
 		NaturalLanguageGoal: goal,
 		HumanCorrection:     correction,
+		Claude:              claude,
+		PublicRoute:         "RunDaily goal + correction + exact terminal replay; RunDaily attached goal + exact goal replay",
 		ManualPlaceholders:  0,
 		ManualResultWrites:  0,
 		LLMSource:           "member outputs and ReviewerResult bytes are accepted only from spawned Claude Code JSON envelopes with exact session_id matching",
 		Cleanup:             "pending",
+		AttachedCase: LiveAcceptanceAttached{
+			CaseRoot: attachedRoot,
+			Cleanup:  "pending",
+		},
 		Boundary: []string{
 			"this gate is explicit opt-in and is never run by ordinary go test ./...",
+			"the gate calls the same Go-owned daily front door used by ordinary operation",
 			"the gate does not fabricate member output or ReviewerResult bytes",
 			"completion scope is the feature lane; the authority main lane remains outside this acceptance claim",
 			"no authority/confirmed state or heavy-tool execution is permitted",
 		},
 	}
+	var freshCaseIdentity, attachedCaseIdentity liveAcceptanceCaseIdentity
 	defer func() {
+		defer freshCaseIdentity.Close()
+		defer attachedCaseIdentity.Close()
 		if opt.KeepCase {
 			receipt.Cleanup = "retained-by-request"
+			receipt.AttachedCase.Cleanup = "retained-by-request"
 			return
 		}
-		if err := os.RemoveAll(caseRoot); err != nil {
+		var cleanupErr error
+		if err := removeLiveAcceptanceCase(caseRoot, &freshCaseIdentity); err != nil {
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("clean fresh live acceptance case: %w", err))
+		}
+		if err := removeLiveAcceptanceCase(attachedRoot, &attachedCaseIdentity); err != nil {
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("clean attached live acceptance case: %w", err))
+		}
+		if cleanupErr != nil {
 			receipt.Passed = false
-			receipt.Cleanup = "failed: " + err.Error()
-			retErr = errors.Join(retErr, fmt.Errorf("clean live acceptance case: %w", err))
+			receipt.Cleanup = "failed"
+			receipt.AttachedCase.Cleanup = "failed"
+			retErr = errors.Join(retErr, cleanupErr)
 			return
 		}
 		receipt.Cleanup = "removed"
+		receipt.AttachedCase.Cleanup = "removed"
 	}()
 
-	ctx, err := runtime.New(caseRoot, liveAcceptancePack)
+	dailyOpt := DailyOptions{
+		Target:                            caseRoot,
+		Goal:                              goal,
+		Actor:                             actor,
+		ClaudePath:                        claude.Path,
+		ExpectedClaudeExecutableSHA256:    claude.SHA256,
+		ExpectedClaudeExecutablePublisher: claude.Publisher,
+		Model:                             opt.Model,
+		Timeout:                           opt.Timeout,
+		MaxAttempts:                       opt.MaxAttempts,
+		onCaseReady: func(root string) error {
+			return captureLiveAcceptanceCaseRoot(root, &freshCaseIdentity)
+		},
+	}
+	firstResult, err := RunDaily(parent, dailyOpt)
+	addLiveAcceptanceDailyResult(&receipt, firstResult)
 	if err != nil {
-		return receipt, err
+		return receipt, fmt.Errorf("fresh daily goal and first real member session: %w", err)
 	}
-	onboardOpt := onboarding.Options{Target: caseRoot, Pack: liveAcceptancePack, ProjectName: "rekit-live-acceptance", Goal: goal, Actor: actor, Executor: "live-member-generation-1", InitialLane: liveAcceptanceLane}
-	onboardPlan, err := onboarding.Preview(ctx.RepoRoot, onboardOpt)
-	if err != nil {
-		return receipt, err
+	if !firstResult.OnboardingApplied || firstResult.Pack != liveAcceptancePack || firstResult.Lane == "" || firstResult.SessionLaunches < 1 || firstResult.SessionCompletions < 1 {
+		return receipt, fmt.Errorf("fresh daily goal did not onboard and collect a real member: %+v", firstResult)
 	}
-	receipt.ExplicitOperations++
-	onboardOpt.PublicationStamp = onboardPlan.PublicationStamp
-	onboardOpt.ExpectedOnboardingPlanSHA256 = onboardPlan.OnboardingPlanSHA256
-	if _, err := onboarding.Apply(ctx.RepoRoot, onboardOpt); err != nil {
-		return receipt, err
-	}
-	receipt.ExplicitOperations++
-
-	startPlan, err := workstream.StartPreview(ctx.RepoRoot, caseRoot, liveAcceptancePack, workstream.StartOptions{Selector: "analysis-live-acceptance", Executor: "live-member-generation-1", Actor: actor})
-	if err != nil {
-		return receipt, err
-	}
-	receipt.ExplicitOperations++
-	startPreviewBytes, err := json.Marshal(startPlan)
-	if err != nil {
-		return receipt, err
-	}
-	startOpt := workstream.StartOptions{Selector: "analysis-live-acceptance", Executor: "live-member-generation-1", Actor: actor, ExpectedPreviewSHA256: liveAcceptanceSHA(startPreviewBytes)}
-	if _, err := workstream.StartApply(ctx.RepoRoot, caseRoot, liveAcceptancePack, startOpt); err != nil {
-		return receipt, err
-	}
-	receipt.ExplicitOperations++
-
-	hostOpt := Options{Target: caseRoot, Pack: liveAcceptancePack, Actor: actor, ClaudePath: opt.ClaudePath, Model: opt.Model, Timeout: opt.Timeout, MaxAttempts: opt.MaxAttempts, StopAfterMemberIntake: true}
-	firstRun, err := Run(parent, hostOpt)
-	addLiveAcceptanceSessions(&receipt, firstRun, 1)
-	if err != nil {
-		return receipt, fmt.Errorf("first real member session: %w", err)
-	}
-	receipt.ExplicitOperations++
-	first, ok, err := memberexecution.Latest(caseRoot, liveAcceptanceLane)
+	lane := firstResult.Lane
+	first, ok, err := memberexecution.Latest(caseRoot, lane)
 	if err != nil || !ok || first.State != "intake-ready" || first.Owner.ExecutorGeneration != 1 || first.TaskContext == nil || first.Manifest == nil {
 		return receipt, fmt.Errorf("first real member was not durably intake-ready: found=%t state=%s err=%v", ok, first.State, err)
 	}
 	bindLiveAcceptanceOwnerGeneration(receipt.MemberSessions, first)
 	receipt.FirstMember = liveAcceptanceMember(first)
 
-	correctionID, err := newUUID()
+	dailyOpt.Goal = ""
+	dailyOpt.Correction = correction
+	correctedResult, err := RunDaily(parent, dailyOpt)
+	addLiveAcceptanceDailyResult(&receipt, correctedResult)
 	if err != nil {
-		return receipt, err
+		return receipt, fmt.Errorf("daily correction, replacement member, and reviewer sessions: %w", err)
 	}
-	correctionID = "live-correction-" + strings.ReplaceAll(correctionID, "-", "")
-	createdAt := nowRFC3339Nano()
-	noteOpt := note.Options{Kind: "intervention", Lane: liveAcceptanceLane, Subject: "human correction for live acceptance", Summary: correction, Actor: actor, Action: "override", Status: "open", EventID: correctionID, CreatedAt: createdAt, Target: first.ManifestPath}
-	notePreview, err := note.Append(ctx.RepoRoot, caseRoot, liveAcceptancePack, noteOpt, true)
-	if err != nil {
-		return receipt, err
+	if correctedResult.CorrectionEventID == "" || correctedResult.ExecutorGeneration != 2 || correctedResult.SessionLaunches < 2 || correctedResult.SessionCompletions < 2 || correctedResult.Completion == nil || correctedResult.Completion.Lane.Status != "closed" {
+		return receipt, fmt.Errorf("daily correction did not replace, review, and close the lane: %+v", correctedResult)
 	}
-	receipt.ExplicitOperations++
-	noteOpt.ExpectedEventSHA256 = notePreview.EventSHA256
-	if applied, err := note.Append(ctx.RepoRoot, caseRoot, liveAcceptancePack, noteOpt, false); err != nil || !applied.Applied {
-		return receipt, fmt.Errorf("record human correction: applied=%t err=%v", applied.Applied, err)
-	}
-	receipt.ExplicitOperations++
-	receipt.CorrectionEventID = correctionID
-
-	reconcileOpt := workstream.ReconcileOptions{Selector: "analysis-live-acceptance", InterventionID: correctionID, Actor: actor, Executor: "live-member-generation-2", Reason: "apply the explicit human correction and replace the prior Claude member"}
-	if _, err := workstream.ReconcilePreview(ctx.RepoRoot, caseRoot, liveAcceptancePack, reconcileOpt); err != nil {
-		return receipt, err
-	}
-	receipt.ExplicitOperations++
-	reconciled, err := workstream.ReconcileApply(ctx.RepoRoot, caseRoot, liveAcceptancePack, reconcileOpt)
-	if err != nil || !reconciled.Applied || reconciled.ExecutorGeneration != 2 {
-		return receipt, fmt.Errorf("reconcile human correction: generation=%d applied=%t err=%v", reconciled.ExecutorGeneration, reconciled.Applied, err)
-	}
-	receipt.ExplicitOperations++
-
-	hostOpt.StopAfterMemberIntake = false
-	secondRun, err := Run(parent, hostOpt)
-	addLiveAcceptanceSessions(&receipt, secondRun, 2)
-	if err != nil {
-		return receipt, fmt.Errorf("replacement member and reviewer sessions: %w", err)
-	}
-	receipt.ExplicitOperations++
-	second, ok, err := memberexecution.Latest(caseRoot, liveAcceptanceLane)
+	receipt.CorrectionEventID = correctedResult.CorrectionEventID
+	second, ok, err := memberexecution.Latest(caseRoot, lane)
 	if err != nil || !ok || second.State != "intake-ready" || second.Owner.ExecutorGeneration != 2 || second.TaskContext == nil || second.TaskContext.Correction == nil || second.Manifest == nil {
 		return receipt, fmt.Errorf("replacement member was not correction-bound and intake-ready: found=%t state=%s err=%v", ok, second.State, err)
 	}
-	if second.TaskContext.Goal != goal || second.TaskContext.GoalSource != "committed-mission-intent" || second.TaskContext.Correction.SourceEventID != correctionID {
+	if second.TaskContext.Goal != goal || second.TaskContext.GoalSource != "committed-mission-intent" || second.TaskContext.Correction.SourceEventID != correctedResult.CorrectionEventID {
 		return receipt, fmt.Errorf("replacement task context omitted the exact goal or correction")
 	}
 	bindLiveAcceptanceOwnerGeneration(receipt.MemberSessions, second)
@@ -253,19 +294,7 @@ func RunLiveAcceptance(parent context.Context, opt LiveAcceptanceOptions) (recei
 		return receipt, fmt.Errorf("no real Reviewer Claude session completed")
 	}
 
-	completeOpt := workstream.CompleteOptions{Selector: "analysis-live-acceptance", Actor: actor, Reason: "accepted real Reviewer lineage completed the corrected member result", EvidenceRefs: relativeLiveAcceptancePath(caseRoot, second.ManifestPath)}
-	completionPlan, err := workstream.CompletePreview(ctx.RepoRoot, caseRoot, liveAcceptancePack, completeOpt)
-	if err != nil || completionPlan.Blocked || completionPlan.CompletionPlanSHA256 == "" {
-		return receipt, fmt.Errorf("feature completion preview is not accepted-lineage ready: blocked=%t err=%v", completionPlan.Blocked, err)
-	}
-	receipt.ExplicitOperations++
-	completeOpt.ExpectedPreviewSHA256 = completionPlan.CompletionPlanSHA256
-	completed, err := workstream.CompleteApply(ctx.RepoRoot, caseRoot, liveAcceptancePack, completeOpt)
-	if err != nil || !completed.Applied || completed.CompletionReceipt == nil || completed.Lane.Status != "closed" {
-		return receipt, fmt.Errorf("feature completion failed: applied=%t status=%s err=%v", completed.Applied, completed.Lane.Status, err)
-	}
-	receipt.ExplicitOperations++
-	verified, err := workstream.InspectLaneCompletion(caseRoot, liveAcceptanceLane)
+	verified, err := workstream.InspectLaneCompletion(caseRoot, lane)
 	if err != nil {
 		return receipt, err
 	}
@@ -273,9 +302,329 @@ func RunLiveAcceptance(parent context.Context, opt LiveAcceptanceOptions) (recei
 	if !verified.NoAuthority || !verified.NoConfirmed || !verified.NoHeavyTool {
 		return receipt, fmt.Errorf("feature completion boundary is not fail-closed")
 	}
-	receipt.Passed = true
+	beforeReplay, err := liveAcceptanceTreeSHA256(caseRoot)
+	if err != nil {
+		return receipt, err
+	}
+	replayResult, err := RunDaily(parent, dailyOpt)
+	receipt.ExplicitOperations++
+	if err != nil {
+		return receipt, fmt.Errorf("daily terminal replay: %w", err)
+	}
+	afterReplay, err := liveAcceptanceTreeSHA256(caseRoot)
+	if err != nil {
+		return receipt, err
+	}
+	if !replayResult.Replay || replayResult.FinalState != "lane-closed" || replayResult.SessionLaunches != 0 || replayResult.SessionCompletions != 0 || len(replayResult.HostRuns) != 0 || replayResult.CorrectionEventID != correctedResult.CorrectionEventID || beforeReplay != afterReplay {
+		return receipt, fmt.Errorf("daily terminal replay was not zero-launch and mutation-free: %+v", replayResult)
+	}
+	receipt.TerminalReplay = LiveAcceptanceReplay{Verified: true, FinalState: replayResult.FinalState, SessionLaunches: replayResult.SessionLaunches, SessionCompletions: replayResult.SessionCompletions, MutationSHA256: afterReplay}
 
+	attached, err := runLiveAcceptanceAttached(parent, attachedRoot, goal, actor, claude, opt, &attachedCaseIdentity)
+	if err != nil {
+		return receipt, err
+	}
+	receipt.AttachedCase = attached.Receipt
+	receipt.PublicPreviews++
+	receipt.PublicMutations++
+	addLiveAcceptanceDailyResult(&receipt, attached.First)
+	receipt.ExplicitOperations += 3
+	if attached.Replay.SessionLaunches != 0 || !attached.Replay.Replay {
+		return receipt, fmt.Errorf("attached daily goal replay relaunched Claude: %+v", attached.Replay)
+	}
+	receipt.Passed = true
 	return receipt, nil
+}
+
+type liveAcceptanceAttachedResult struct {
+	Receipt LiveAcceptanceAttached
+	First   DailyResult
+	Replay  DailyResult
+}
+
+func runLiveAcceptanceAttached(parent context.Context, caseRoot, goal, actor string, claude LiveAcceptanceClaude, opt LiveAcceptanceOptions, identity *liveAcceptanceCaseIdentity) (liveAcceptanceAttachedResult, error) {
+	result := liveAcceptanceAttachedResult{
+		Receipt: LiveAcceptanceAttached{
+			CaseRoot: caseRoot,
+			Pack:     liveAcceptancePack,
+			Cleanup:  "pending",
+		},
+	}
+	initArgs := []string{"-Command", "init", "-Target", caseRoot, "-Pack", liveAcceptancePack, "-ProjectName", "rekit-live-attached-acceptance", "-WhatIf", "-Format", "json"}
+	var preview syncreview.InitPlan
+	if err := runPublicCLI(initArgs, &preview); err != nil {
+		return result, fmt.Errorf("public attached case init preview: %w", err)
+	}
+	if preview.IsMutation || !preview.ReviewRequired || !preview.RequiresConfirmation || len(preview.Writes) == 0 {
+		return result, fmt.Errorf("public attached case init preview omitted review-first writes")
+	}
+	initArgs[len(initArgs)-3] = "-Apply"
+	var applied syncreview.ApplyResult
+	applyErr := runPublicCLI(initArgs, &applied)
+	if identity != nil {
+		if bindErr := captureLiveAcceptanceCaseRoot(caseRoot, identity); bindErr != nil {
+			return result, errors.Join(applyErr, fmt.Errorf("bind attached live acceptance case root: %w", bindErr))
+		}
+	}
+	if applyErr != nil {
+		return result, fmt.Errorf("public attached case init Apply: %w", applyErr)
+	}
+	if !applied.Applied || !applied.IsMutation || applied.Pack != liveAcceptancePack {
+		return result, fmt.Errorf("public attached case init did not apply: %+v", applied)
+	}
+	preserved := []byte("preserve attached case content\n")
+	preservedPath := filepath.Join(caseRoot, "case-local.txt")
+	if err := os.WriteFile(preservedPath, preserved, 0o600); err != nil {
+		return result, err
+	}
+	preservedSum := sha256.Sum256(preserved)
+	result.Receipt.PreservedCaseSHA256 = hex.EncodeToString(preservedSum[:])
+
+	dailyOpt := DailyOptions{
+		Target:                            caseRoot,
+		Goal:                              goal,
+		Actor:                             actor,
+		ClaudePath:                        claude.Path,
+		ExpectedClaudeExecutableSHA256:    claude.SHA256,
+		ExpectedClaudeExecutablePublisher: claude.Publisher,
+		Model:                             opt.Model,
+		Timeout:                           opt.Timeout,
+		MaxAttempts:                       opt.MaxAttempts,
+		onCaseReady: func(root string) error {
+			return captureLiveAcceptanceCaseRoot(root, identity)
+		},
+	}
+	first, err := RunDaily(parent, dailyOpt)
+	if err != nil {
+		return result, fmt.Errorf("attached daily goal and real member session: %w", err)
+	}
+	result.First = first
+	inspection, err := missionintent.Inspect(caseRoot)
+	if err != nil || !inspection.Committed || inspection.Recovery.Mode != "attached-adoption" {
+		return result, fmt.Errorf("attached daily onboarding did not commit strict adoption: state=%s mode=%s err=%v", inspection.State, inspection.Recovery.Mode, err)
+	}
+	if !first.OnboardingApplied || first.Pack != liveAcceptancePack || first.Lane == "" || first.SessionLaunches < 1 || first.SessionCompletions < 1 {
+		return result, fmt.Errorf("attached daily goal did not launch and collect a real member: %+v", first)
+	}
+	member, ok, err := memberexecution.Latest(caseRoot, first.Lane)
+	if err != nil || !ok || member.State != "intake-ready" || member.TaskContext == nil || member.TaskContext.Goal != goal || member.TaskContext.GoalSource != "committed-mission-intent" || member.TaskContext.Correction != nil || member.Manifest == nil {
+		return result, fmt.Errorf("attached daily member was not durably intake-ready: found=%t state=%s err=%v", ok, member.State, err)
+	}
+	actual, err := os.ReadFile(preservedPath)
+	if err != nil || string(actual) != string(preserved) {
+		return result, fmt.Errorf("attached daily goal changed ordinary case content: err=%v", err)
+	}
+
+	beforeReplay, err := liveAcceptanceTreeSHA256(caseRoot)
+	if err != nil {
+		return result, err
+	}
+	replay, err := RunDaily(parent, dailyOpt)
+	if err != nil {
+		return result, fmt.Errorf("attached daily exact goal replay: %w", err)
+	}
+	result.Replay = replay
+	afterReplay, err := liveAcceptanceTreeSHA256(caseRoot)
+	if err != nil {
+		return result, err
+	}
+	if !replay.Replay || replay.FinalState != "member-intake-ready" || replay.SessionLaunches != 0 || replay.SessionCompletions != 0 || len(replay.HostRuns) != 0 || beforeReplay != afterReplay {
+		return result, fmt.Errorf("attached daily exact goal replay was not zero-launch and mutation-free: %+v", replay)
+	}
+	actual, err = os.ReadFile(preservedPath)
+	if err != nil || string(actual) != string(preserved) {
+		return result, fmt.Errorf("attached daily replay changed ordinary case content: err=%v", err)
+	}
+	result.Receipt.Verified = true
+	result.Receipt.Lane = first.Lane
+	result.Receipt.OnboardingMode = inspection.Recovery.Mode
+	result.Receipt.SessionLaunches = first.SessionLaunches
+	result.Receipt.SessionCompletions = first.SessionCompletions
+	result.Receipt.Member = liveAcceptanceMember(member)
+	result.Receipt.TerminalReplay = replay.Replay
+	result.Receipt.ReplayLaunches = replay.SessionLaunches
+	result.Receipt.ReplayTreeSHA256 = afterReplay
+	return result, nil
+}
+
+func addLiveAcceptanceDailyResult(receipt *LiveAcceptanceReceipt, result DailyResult) {
+	receipt.ExplicitOperations++
+	baseHostRun := 0
+	for _, session := range append(append([]LiveAcceptanceSession{}, receipt.MemberSessions...), receipt.ReviewerSessions...) {
+		baseHostRun = max(baseHostRun, session.HostRun)
+	}
+	for _, step := range result.DriverSteps {
+		switch step {
+		case "overview", "note-intervention":
+			receipt.PublicMutations++
+		case "start", "reconcile", "complete":
+			receipt.PublicPreviews++
+			receipt.PublicMutations++
+		}
+	}
+	if result.OnboardingApplied {
+		receipt.PublicPreviews++
+		receipt.PublicMutations++
+	}
+	for index, hostRun := range result.HostRuns {
+		addLiveAcceptanceSessions(receipt, hostRun, baseHostRun+index+1)
+	}
+}
+
+func liveAcceptanceTreeSHA256(root string) (string, error) {
+	hash := sha256.New()
+	err := filepath.WalkDir(root, func(path string, entry iofs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		if rel == "." {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("live acceptance case tree contains a symlink: %s", rel)
+		}
+		if entry.IsDir() {
+			_, _ = hash.Write([]byte("d\x00" + rel + "\x00"))
+			return nil
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("live acceptance case tree contains a non-regular file: %s", rel)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		_, _ = hash.Write([]byte("f\x00" + rel + "\x00"))
+		_, _ = hash.Write(data)
+		_, _ = hash.Write([]byte{0})
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+func captureLiveAcceptanceCaseRoot(path string, identity *liveAcceptanceCaseIdentity) error {
+	if identity == nil {
+		return fmt.Errorf("live acceptance case identity target is missing")
+	}
+	path, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	parentPath := filepath.Dir(path)
+	name := filepath.Base(path)
+	if identity.parent != nil {
+		current, err := identity.parent.Lstat(identity.name)
+		if err != nil || !current.IsDir() || current.Mode()&os.ModeSymlink != 0 || !os.SameFile(identity.caseInfo, current) {
+			return fmt.Errorf("live acceptance case root identity changed: %s", path)
+		}
+		return nil
+	}
+	parentInfo, err := os.Lstat(parentPath)
+	if err != nil || !parentInfo.IsDir() || parentInfo.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("live acceptance case parent must be a non-symlink directory: %s: %w", parentPath, err)
+	}
+	parent, err := os.OpenRoot(parentPath)
+	if err != nil {
+		return err
+	}
+	openedParent, err := parent.Lstat(".")
+	if err != nil || !openedParent.IsDir() || !os.SameFile(parentInfo, openedParent) {
+		parent.Close()
+		return fmt.Errorf("live acceptance case parent changed while opening: %s", parentPath)
+	}
+	caseInfo, err := parent.Lstat(name)
+	if err != nil || !caseInfo.IsDir() || caseInfo.Mode()&os.ModeSymlink != 0 {
+		parent.Close()
+		return fmt.Errorf("live acceptance case root must be a non-symlink directory: %s: %w", path, err)
+	}
+	identity.parent = parent
+	identity.parentPath = parentPath
+	identity.name = name
+	identity.parentInfo = openedParent
+	identity.caseInfo = caseInfo
+	return nil
+}
+
+func removeLiveAcceptanceCase(path string, identity *liveAcceptanceCaseIdentity) error {
+	if identity == nil || identity.parent == nil {
+		if _, err := os.Lstat(path); os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("live acceptance cleanup has no captured case root identity: %s", path)
+	}
+	info, err := identity.parent.Lstat(identity.name)
+	if os.IsNotExist(err) {
+		return fmt.Errorf("live acceptance case root disappeared before identity-bound cleanup: %s", path)
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || !os.SameFile(identity.caseInfo, info) {
+		return fmt.Errorf("live acceptance cleanup refuses a replaced case root: %s", path)
+	}
+	quarantine := identity.name + ".cleanup"
+	if _, err := identity.parent.Lstat(quarantine); err == nil {
+		return fmt.Errorf("live acceptance cleanup quarantine already exists: %s", filepath.Join(identity.parentPath, quarantine))
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := identity.parent.Rename(identity.name, quarantine); err != nil {
+		return err
+	}
+	moved, err := identity.parent.Lstat(quarantine)
+	if err != nil || !moved.IsDir() || moved.Mode()&os.ModeSymlink != 0 || !os.SameFile(identity.caseInfo, moved) {
+		return fmt.Errorf("live acceptance case root identity changed while quarantining cleanup: %s", path)
+	}
+	if current, err := identity.parent.Lstat(identity.name); err == nil {
+		return fmt.Errorf("live acceptance cleanup refuses a replacement created at the case root: %s mode=%s", path, current.Mode())
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := identity.parent.RemoveAll(quarantine); err != nil {
+		return err
+	}
+	currentParent, err := os.Lstat(identity.parentPath)
+	if err != nil || !os.SameFile(identity.parentInfo, currentParent) {
+		return fmt.Errorf("live acceptance case parent changed during cleanup: %s", identity.parentPath)
+	}
+	return nil
+}
+
+func liveAcceptanceAttachedCaseRoot(freshRoot string) (string, error) {
+	parent := filepath.Dir(freshRoot)
+	base := filepath.Base(freshRoot)
+	if base == "." || base == string(filepath.Separator) || base == "" {
+		return "", fmt.Errorf("invalid live acceptance case root: %s", freshRoot)
+	}
+	return filepath.Join(parent, base+"-attached"), nil
+}
+
+func resolveLiveAcceptanceClaude(requested string) (LiveAcceptanceClaude, error) {
+	if strings.TrimSpace(requested) != "" {
+		return LiveAcceptanceClaude{}, fmt.Errorf("live acceptance refuses a custom Claude executable; omit -claude so the canonical signed Claude Code installation is discovered independently of PATH")
+	}
+	identity, err := discoverTrustedClaudeExecutable()
+	if err != nil {
+		return LiveAcceptanceClaude{}, err
+	}
+	return LiveAcceptanceClaude{
+		Path:      identity.Path,
+		Publisher: identity.Publisher,
+		Version:   identity.Version,
+		SHA256:    identity.SHA256,
+	}, nil
 }
 
 func liveAcceptancePathWithin(root, path string) bool {
@@ -284,26 +633,35 @@ func liveAcceptancePathWithin(root, path string) bool {
 }
 
 func liveAcceptanceCaseRoot(requested string) (string, error) {
+	var root string
 	if strings.TrimSpace(requested) != "" {
-		root, err := filepath.Abs(strings.TrimSpace(requested))
+		resolved, err := filepath.Abs(strings.TrimSpace(requested))
 		if err != nil {
 			return "", err
 		}
-		if _, err := os.Lstat(root); err == nil {
-			return "", fmt.Errorf("live acceptance requires a non-existing fresh case root: %s", root)
-		} else if !os.IsNotExist(err) {
+		root = resolved
+	} else {
+		base, err := os.MkdirTemp("", "rekit-"+liveAcceptancePack+"-live-acceptance-")
+		if err != nil {
 			return "", err
 		}
-		return root, nil
+		if err := os.Remove(base); err != nil {
+			return "", err
+		}
+		root = base
 	}
-	base, err := os.MkdirTemp("", "rekit-"+liveAcceptancePack+"-live-acceptance-")
+	attached, err := liveAcceptanceAttachedCaseRoot(root)
 	if err != nil {
 		return "", err
 	}
-	if err := os.Remove(base); err != nil {
-		return "", err
+	for _, candidate := range []string{root, attached} {
+		if _, err := os.Lstat(candidate); err == nil {
+			return "", fmt.Errorf("live acceptance requires non-existing fresh and attached case roots: %s", candidate)
+		} else if !os.IsNotExist(err) {
+			return "", err
+		}
 	}
-	return base, nil
+	return root, nil
 }
 
 func addLiveAcceptanceSessions(receipt *LiveAcceptanceReceipt, result Result, hostRun int) {
@@ -372,23 +730,21 @@ func WriteLiveAcceptanceReceipt(path string, receipt LiveAcceptanceReceipt) erro
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+	anchorPath := filepath.VolumeName(path) + string(filepath.Separator)
+	if anchorPath == "" {
+		anchorPath = string(filepath.Separator)
+	}
+	rel, err := filepath.Rel(anchorPath, path)
+	if err != nil || filepath.IsAbs(rel) || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("live acceptance receipt path escapes its volume root: %s", path)
 	}
 	data, err := json.MarshalIndent(receipt, "", "  ")
 	if err != nil {
 		return err
 	}
 	data = append(data, '\n')
-	if info, err := os.Lstat(path); err == nil && (!info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0) {
-		return fmt.Errorf("live acceptance receipt target must be a regular non-symlink file")
-	} else if err != nil && !os.IsNotExist(err) {
-		return err
+	if err := rekitfs.WriteNewExclusiveRegularFileAnchored(anchorPath, filepath.ToSlash(rel), "live acceptance receipt", data); err != nil {
+		return fmt.Errorf("publish live acceptance receipt %s: %w", path, err)
 	}
-	return os.WriteFile(path, data, 0o600)
-}
-
-func liveAcceptanceSHA(data []byte) string {
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
+	return nil
 }

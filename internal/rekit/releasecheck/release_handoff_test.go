@@ -244,16 +244,20 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	if !handoff.Ready || handoff.Summary != "release handoff summary ok" || counts.Warnings != 0 {
 		t.Fatalf("unexpected release handoff inventory: %+v", handoff)
 	}
-	if counts.ReadFirst != 4 || counts.Signals != 13 || counts.KnownGaps == 0 || counts.PackMaturity.Total == 0 || counts.Validation == 0 || counts.NextActions == 0 {
+	if counts.ReadFirst != 1 || counts.Signals != 13 || counts.KnownGaps == 0 || counts.PackMaturity.Total == 0 || counts.Validation == 0 || counts.NextActions == 0 {
 		t.Fatalf("release handoff omitted required sections: %+v", handoff)
 	}
 	if !releaseHandoffStringsContain(handoff.NextActions, "select the next Windows-verifiable product-path batch") || !releaseHandoffStringsContain(handoff.NextActions, "without polling or waiting for remote CI") {
 		t.Fatalf("release handoff next actions should expose Windows-first next-batch guard: %+v", handoff.NextActions)
 	}
 	assertHandoffReadFirst(t, handoff, "docs/context-routing.md")
-	assertHandoffReadFirst(t, handoff, "docs/batch-plan.md")
-	assertHandoffReadFirst(t, handoff, "docs/release-readiness.md")
-	assertHandoffReadFirst(t, handoff, "CHANGELOG.md")
+	for _, path := range []string{"docs/real-usage-hardening-roadmap.md", "docs/batch-plan.md", "docs/release-readiness.md", "CHANGELOG.md"} {
+		for _, doc := range handoff.ReadFirst {
+			if doc.Path == path {
+				t.Fatalf("release handoff bypasses the progressive-disclosure router with %s: %+v", path, handoff.ReadFirst)
+			}
+		}
+	}
 	assertHandoffSignal(t, handoff, "release-check inventory")
 	assertHandoffSignal(t, handoff, "CI release gate")
 	assertHandoffSignalDetail(t, handoff, "PowerShell deprecation", "fallbackRetirement=true noFallback=30 candidates=0 removalModules=0 retiredModules=13")
@@ -326,8 +330,8 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	assertHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "removalImpact=true impactReferences=")
 	assertHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "workItems=")
 	assertHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "validationCommands=")
-	assertHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "migrationTargets=76")
-	assertHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "migrationValidationCommands=608")
+	assertHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "migrationTargets=75")
+	assertHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "migrationValidationCommands=600")
 	assertHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "smokeMigrationTargets=29")
 	assertHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "smokeMigrationValidationCommands=232")
 	assertHandoffSignalDetail(t, handoff, "public facade removal prerequisites", "public-facade-retained-boundary ready=true publicFacadeReady=true present=true retained=true migrationBoundary=true removalBoundary=true")
@@ -378,8 +382,114 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	}
 }
 
+func TestReleaseHandoffActiveRouteBlocksCompletedLegacyBatchSelection(t *testing.T) {
+	repo := cleanReleaseRepoRoot(t)
+	for _, path := range []string{
+		filepath.Join(repo, "docs", "real-usage-hardening-roadmap.md"),
+		filepath.Join(repo, "docs", "batch-plan.md"),
+	} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := strings.Replace(string(data), "`RH-03` Claude 不可用与结果失败的可操作诊断", "`RH-02` 目标/纠偏文本驱动的日常前门", 1)
+		text = strings.Replace(text, "| 唯一允许领取 | `RH-03` |", "| 唯一允许领取 | `RH-02` |", 1)
+		text = strings.Replace(text, "| 下一批 | `RH-04`，仅在 RH-03 全部验收与完整本机验证通过后解锁 |", "| 下一批 | `RH-03`，仅在 RH-02 全部验收与完整本机验证通过后解锁 |", 1)
+		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeReleaseHandoffLatestBatchFixture(t, repo, `### Batch 999：fixture completed numbered batch
+
+状态：已完成。
+
+目标：证明 active RH route 必须优先于任意已完成 numbered batch。
+
+验证结果：完成态 release-check -Format json 返回 ready=true；统一 release-run -Format json 以7/7通过；implementation commit abc999d 已推送。
+
+`, "- Batch 999 fixture note.\n\n")
+	result, err := Build(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	route := result.ReleaseHandoff.ActiveRoute
+	if !route.Present || !route.Ready || route.Route != "real-usage-hardening-v1" || !strings.HasPrefix(route.CurrentBatch, "RH-02") || route.State != "in_progress" || route.ExclusiveClaim != "RH-02" || route.NextBatchUnlocked || route.CurrentAction == nil {
+		t.Fatalf("active RH route=%+v", route)
+	}
+	if result.ReleaseHandoff.NextBatchSelectionPackage != nil {
+		t.Fatalf("in-progress RH route exposed free next-batch selection: %+v", result.ReleaseHandoff.NextBatchSelectionPackage)
+	}
+	if route.CurrentAction.ActionID != "active-route-current-batch" || route.CurrentAction.Source != "releaseHandoffActiveRoute" || !strings.Contains(route.CurrentAction.Command, "RH-02") || strings.Contains(route.CurrentAction.Command, "select the next Windows-verifiable") {
+		t.Fatalf("active route current action=%+v", route.CurrentAction)
+	}
+}
+
+func TestReleaseHandoffActiveRouteMissingProjectionFieldFailsClosed(t *testing.T) {
+	repo := cleanReleaseRepoRoot(t)
+	path := filepath.Join(repo, "docs", "batch-plan.md")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.Replace(string(data), "| 路线 | `real-usage-hardening-v1` |\n", "", 1)
+	if text == string(data) {
+		t.Fatal("fixture did not remove the route projection field")
+	}
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeCompletedReleaseHandoffLatestBatchFixture(t, repo)
+	result, err := Build(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	route := result.ReleaseHandoff.ActiveRoute
+	if route.Ready || route.ProjectionConsistent || route.CurrentAction == nil || route.CurrentAction.ActionID != "active-route-conflict" || !route.CurrentAction.Blocked || !route.CurrentAction.RequiresReview {
+		t.Fatalf("invalid route projection did not fail closed: %+v", route)
+	}
+	if result.ReleaseHandoff.NextBatchSelectionPackage != nil {
+		t.Fatalf("invalid route projection exposed next-batch selection: %+v", result.ReleaseHandoff.NextBatchSelectionPackage)
+	}
+}
+
+func TestReleaseHandoffCompletedRouteWithInvalidProjectionFailsClosed(t *testing.T) {
+	repo := cleanReleaseRepoRoot(t)
+	for _, path := range []string{
+		filepath.Join(repo, "docs", "real-usage-hardening-roadmap.md"),
+		filepath.Join(repo, "docs", "batch-plan.md"),
+	} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := strings.Replace(string(data), "| 状态 | `in_progress` |", "| 状态 | `completed` |", 1)
+		text = strings.Replace(text, "| 唯一允许领取 | `RH-03` |", "| 唯一允许领取 | `RH-04` |", 1)
+		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	projectionPath := filepath.Join(repo, "docs", "batch-plan.md")
+	projection, err := os.ReadFile(projectionPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(projectionPath, []byte(strings.Replace(string(projection), "| 路线 | `real-usage-hardening-v1` |\n", "", 1)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeCompletedReleaseHandoffLatestBatchFixture(t, repo)
+	result, err := Build(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	route := result.ReleaseHandoff.ActiveRoute
+	if route.NextBatchUnlocked || route.CurrentAction == nil || route.CurrentAction.ActionID != "active-route-conflict" || !route.CurrentAction.Blocked || result.ReleaseHandoff.NextBatchSelectionPackage != nil {
+		t.Fatalf("invalid completed route did not fail closed: route=%+v package=%+v", route, result.ReleaseHandoff.NextBatchSelectionPackage)
+	}
+}
+
 func TestReleaseHandoffBuildsNextBatchSelectionPackage(t *testing.T) {
 	repo := cleanReleaseRepoRoot(t)
+	disableReleaseHandoffActiveRouteFixture(t, repo)
 	writeCompletedReleaseHandoffLatestBatchFixture(t, repo)
 	result, err := Build(repo)
 	if err != nil {
@@ -406,6 +516,7 @@ func TestReleaseHandoffBuildsNextBatchSelectionPackage(t *testing.T) {
 
 func TestReleaseHandoffBuildsNextBatchSelectionPackageWhenCurrentInventoryClosesStaleReleaseCheckNarrative(t *testing.T) {
 	repo := cleanReleaseRepoRoot(t)
+	disableReleaseHandoffActiveRouteFixture(t, repo)
 	writeStaleReleaseCheckNarrativeLatestBatchFixture(t, repo)
 	result, err := Build(repo)
 	if err != nil {
@@ -429,6 +540,7 @@ func TestReleaseHandoffBuildsNextBatchSelectionPackageWhenCurrentInventoryCloses
 
 func TestReleaseHandoffBuildsNextBatchSelectionPackageWithShortLocalValidationEvidence(t *testing.T) {
 	repo := cleanReleaseRepoRoot(t)
+	disableReleaseHandoffActiveRouteFixture(t, repo)
 	writeShortLocalValidationEvidenceLatestBatchFixture(t, repo)
 	result, err := Build(repo)
 	if err != nil {
@@ -457,6 +569,7 @@ func TestReleaseHandoffBuildsNextBatchSelectionPackageWithShortLocalValidationEv
 
 func TestReleaseHandoffBuildsNextBatchAfterSevenOfSevenPushWithRemoteNotRecorded(t *testing.T) {
 	repo := cleanReleaseRepoRoot(t)
+	disableReleaseHandoffActiveRouteFixture(t, repo)
 	longValidationPrefix := strings.Repeat("reviewed candidate reconsume operator evidence recorded; ", 12)
 	writeReleaseHandoffLatestBatchFixture(t, repo, `### Batch 816：Fixture
 
@@ -474,8 +587,8 @@ func TestReleaseHandoffBuildsNextBatchAfterSevenOfSevenPushWithRemoteNotRecorded
 	}
 	latestBatch := result.ReleaseHandoff.LatestBatch
 	latest := latestBatch.Handoff
-	if !strings.HasSuffix(latestBatch.ValidationResult, "…") || strings.Contains(latestBatch.ValidationResult, "release-run") {
-		t.Fatalf("public latest validation should remain compact while full evidence drives readiness: %q", latestBatch.ValidationResult)
+	if len([]rune(latestBatch.ValidationResult)) > 240 {
+		t.Fatalf("public latest validation should remain compact: %q", latestBatch.ValidationResult)
 	}
 	if !result.Ready || !latest.LocalValidationReady || !latest.ReleaseCheckReady || latest.RemoteReleaseGate != "not-recorded" {
 		t.Fatalf("canonical 7/7 pushed batch should be locally ready with remote not recorded: ready=%t warnings=%+v latest=%+v", result.Ready, result.Warnings, latest)
@@ -490,6 +603,24 @@ func TestReleaseHandoffBuildsNextBatchAfterSevenOfSevenPushWithRemoteNotRecorded
 	}
 	if !strings.Contains(latest.NextAction, "without waiting for remote CI") {
 		t.Fatalf("canonical 7/7 pushed batch should not route to remote inspection: %q", latest.NextAction)
+	}
+}
+
+func disableReleaseHandoffActiveRouteFixture(t *testing.T, repo string) {
+	t.Helper()
+	for _, path := range []string{
+		filepath.Join(repo, "docs", "real-usage-hardening-roadmap.md"),
+		filepath.Join(repo, "docs", "batch-plan.md"),
+	} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := strings.Replace(string(data), "| 状态 | `in_progress` |", "| 状态 | `completed` |", 1)
+		text = strings.Replace(text, "| 唯一允许领取 | `RH-03` |", "| 唯一允许领取 | `RH-04` |", 1)
+		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
@@ -552,9 +683,9 @@ func writeReleaseHandoffLatestBatchFixture(t *testing.T, repo, batchSection, cha
 		t.Fatalf("batch plan fixture heading %q is not followed by a blank line", planMarker)
 	}
 	tail := planText[planInsertAt:]
-	if strings.Contains(batchSection, "### Batch 816：Fixture") {
-		if rules := strings.Index(tail, "## 活动文档维护规则"); rules >= 0 {
-			tail = tail[rules:]
+	if batchStart := strings.Index(tail, "### Batch "); batchStart >= 0 {
+		if validationStart := strings.Index(tail[batchStart:], "## 验证标准"); validationStart >= 0 {
+			tail = tail[:batchStart] + tail[batchStart+validationStart:]
 		}
 	}
 	writeFile(t, planPath, planText[:planInsertAt]+batchSection+tail)

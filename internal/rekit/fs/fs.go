@@ -14,6 +14,14 @@ import (
 	"strings"
 )
 
+var writeExclusiveRegularFileAfterPublishHook func() error
+
+func SetWriteExclusiveRegularFileAfterPublishHookForTest(hook func() error) func() {
+	previous := writeExclusiveRegularFileAfterPublishHook
+	writeExclusiveRegularFileAfterPublishHook = hook
+	return func() { writeExclusiveRegularFileAfterPublishHook = previous }
+}
+
 func FullPath(path string) (string, error) {
 	if strings.TrimSpace(path) == "" {
 		return filepath.Abs(".")
@@ -319,6 +327,15 @@ func WalkRegularFilesAnchored(caseRoot, rel, label string, limit int) ([]string,
 }
 
 func WriteExclusiveRegularFileAnchored(caseRoot, rel, label string, data []byte) (bool, error) {
+	return writeExclusiveRegularFileAnchored(caseRoot, rel, label, data, true)
+}
+
+func WriteNewExclusiveRegularFileAnchored(caseRoot, rel, label string, data []byte) error {
+	_, err := writeExclusiveRegularFileAnchored(caseRoot, rel, label, data, false)
+	return err
+}
+
+func writeExclusiveRegularFileAnchored(caseRoot, rel, label string, data []byte, allowReplay bool) (bool, error) {
 	if len(data) == 0 {
 		return false, fmt.Errorf("%s content must be non-empty", label)
 	}
@@ -356,6 +373,9 @@ func WriteExclusiveRegularFileAnchored(caseRoot, rel, label string, data []byte)
 		if existing.Mode()&os.ModeSymlink != 0 || !existing.Mode().IsRegular() {
 			return false, fmt.Errorf("%s existing path must be a regular non-symlink file: %s", label, rel)
 		}
+		if !allowReplay {
+			return false, fmt.Errorf("%s target already exists: %s", label, rel)
+		}
 		path := filepath.Join(rootPath, clean)
 		if err := rejectReparsePath(path); err != nil {
 			return false, err
@@ -370,6 +390,9 @@ func WriteExclusiveRegularFileAnchored(caseRoot, rel, label string, data []byte)
 	}
 	file, err := parent.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if os.IsExist(err) {
+		if !allowReplay {
+			return false, fmt.Errorf("%s target already exists: %s", label, rel)
+		}
 		path := filepath.Join(rootPath, clean)
 		current, readErr := ReadStableRegularFileAnchored(rootPath, path, label, int64(len(data))+1)
 		if readErr == nil && bytes.Equal(current, data) {
@@ -401,6 +424,23 @@ func WriteExclusiveRegularFileAnchored(caseRoot, rel, label string, data []byte)
 	if err := syncPublishedDirectory(parent); err != nil {
 		_ = parent.Remove(name)
 		return false, fmt.Errorf("%s parent directory sync failed: %s: %w", label, rel, err)
+	}
+	if writeExclusiveRegularFileAfterPublishHook != nil {
+		if err := writeExclusiveRegularFileAfterPublishHook(); err != nil {
+			_ = parent.Remove(name)
+			return false, err
+		}
+	}
+	lexicalParent, err := openDirectoryNoFollow(root, filepath.Dir(clean), rootPath, label)
+	if err != nil {
+		_ = parent.Remove(name)
+		return false, fmt.Errorf("%s lexical parent changed after publication: %s: %w", label, rel, err)
+	}
+	lexical, lexicalErr := lexicalParent.Lstat(name)
+	lexicalCloseErr := lexicalParent.Close()
+	if lexicalErr != nil || lexicalCloseErr != nil || lexical.Mode()&os.ModeSymlink != 0 || !lexical.Mode().IsRegular() || !os.SameFile(opened, lexical) {
+		_ = parent.Remove(name)
+		return false, fmt.Errorf("%s lexical target changed after publication: %s: %w", label, rel, errors.Join(lexicalErr, lexicalCloseErr))
 	}
 	return false, nil
 }

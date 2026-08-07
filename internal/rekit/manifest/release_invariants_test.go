@@ -468,14 +468,17 @@ func TestActiveBatchPlanRemainsBounded(t *testing.T) {
 	history := readRepoText(t, repo, "docs/batch-history.md")
 	batchHeading := regexp.MustCompile(`(?m)^### Batch [0-9]+`)
 	active := batchHeading.FindAllString(plan, -1)
-	if len(active) == 0 || len(active) > 2 {
-		t.Fatalf("docs/batch-plan.md active batch count = %d, want 1..2: %v", len(active), active)
+	if len(active) > 1 {
+		t.Fatalf("docs/batch-plan.md latest batch count = %d, want at most 1: %v", len(active), active)
+	}
+	if len(plan) > 6000 {
+		t.Fatalf("docs/batch-plan.md is %d bytes, want a compact projection <= 6000", len(plan))
 	}
 	for _, required := range []string{
-		"## 活动文档维护规则",
-		"常态最多出现 2 个",
+		"本文件只是当前路线的短投影",
 		"docs/batch-history.md",
-		"阶段方向变化只更新本文件顶部",
+		"docs/real-usage-hardening-roadmap.md",
+		"本文件不是第二份 roadmap",
 	} {
 		assertTextContains(t, plan, required, "bounded active batch plan")
 	}
@@ -485,6 +488,35 @@ func TestActiveBatchPlanRemainsBounded(t *testing.T) {
 			t.Fatalf("docs/batch-plan.md still contains archived %s", batch)
 		}
 	}
+}
+
+func TestDocumentationProgressiveDisclosureInvariants(t *testing.T) {
+	repo := repoRoot(t)
+	claude := readRepoText(t, repo, "CLAUDE.md")
+	router := readRepoText(t, repo, "docs/context-routing.md")
+	roadmap := readRepoText(t, repo, "docs/real-usage-hardening-roadmap.md")
+	backlog := readRepoText(t, repo, "docs/real-usage-hardening-backlog.md")
+
+	for _, text := range []string{claude, router} {
+		assertTextContains(t, text, "本项目文档必须做成按需路由、渐进式披露的样式", "canonical documentation policy")
+	}
+	if len(claude) > 8000 {
+		t.Fatalf("CLAUDE.md is %d bytes, want stable auto-loaded context <= 8000", len(claude))
+	}
+	if len(roadmap) > 10000 {
+		t.Fatalf("active roadmap is %d bytes, want current-card entry <= 10000", len(roadmap))
+	}
+	if count := len(regexp.MustCompile(`(?m)^### RH-[0-9]+`).FindAllString(roadmap, -1)); count != 1 {
+		t.Fatalf("active roadmap contains %d RH cards, want exactly current card", count)
+	}
+	for _, future := range []string{"### RH-04：", "### RH-09：", "### RH-10："} {
+		assertTextContains(t, backlog, future, "routed future roadmap backlog")
+		if strings.Contains(roadmap, future) {
+			t.Fatalf("active roadmap preloads future card %s", future)
+		}
+	}
+	assertTextContains(t, router, "machine `readFirst[]` 最多 2 项", "machine read-first budget")
+	assertTextContains(t, router, "只有本文件拥有完整路由表", "single routing owner")
 }
 
 func TestAutonomousGoalGuideInvariants(t *testing.T) {
@@ -502,41 +534,28 @@ func TestAutonomousGoalGuideInvariants(t *testing.T) {
 		assertTextContains(t, guide, section, "autonomous goal guide section")
 	}
 
-	for _, direction := range []string{
-		"Mission Control UX",
-		"Lane protocol",
-		"Replaceable session executor",
-		"Tactical subagents",
-		"Pre-authorized lane autonomy",
-		"Pack-based team memory",
-		"Go-first deterministic substrate",
-	} {
-		assertTextContains(t, guide, direction, "autonomous goal guide direction")
+	if len(guide) > 5000 {
+		t.Fatalf("docs/autonomous-goal.md is %d bytes, want a short goal anchor <= 5000", len(guide))
 	}
 	for _, required := range []string{
-		"简短接手锚点",
-		"不是新的限制清单",
-		"Lane-centric Agent Team Mission Control",
-		"main 与 origin/main 同步",
-		"做一次 implementation commit/push，并立即继续下一批，不等待远程 CI",
-		"中大型",
-		"完成后自审、评估",
-		"默认继续自主推进",
-		"heavy-tool、动态调试、patch、dump、hook、网络、exploit replay",
-		"聊天 goal 保持简短",
-		"逐轮过程与旧批次细节归档到 `docs/batch-history.md`",
+		"聊天 goal 只负责启动或继续**已批准路线**",
+		"默认继续自主推进仅表示继续**已批准路线**",
+		"docs/context-routing.md",
+		"docs/real-usage-hardening-roadmap.md",
+		"不授权 commit/push",
+		"不得从候选池",
+		"heavy/debug/patch/dump/hook/network/exploit replay",
 	} {
 		assertTextContains(t, guide, required, "autonomous goal guide autonomy guard")
 	}
-
-	for _, doc := range []string{"README.md", "CLAUDE.md", "docs/go-first-convergence-plan.md", "docs/release-readiness.md", "docs/vision.md", "docs/reference-absorption.md"} {
-		assertTextContains(t, readRepoText(t, repo, doc), "docs/autonomous-goal.md", doc+" autonomous goal link")
-		assertTextContains(t, readRepoText(t, repo, doc), "docs/mission-control-product-direction.md", doc+" mission control link")
-	}
-	for _, doc := range []string{"README.md", "CLAUDE.md", "docs/context-routing.md", "docs/autonomous-goal.md", "docs/reference-absorption.md"} {
-		text := readRepoText(t, repo, doc)
-		assertTextContains(t, text, "main", doc+" main branch handoff")
-		assertTextContains(t, text, "origin/main", doc+" origin main handoff")
+	for _, forbidden := range []string{
+		"每轮默认读取",
+		"CHANGELOG.md",
+		"go test ./...",
+		"Mission Control UX",
+		"Pack-based team memory",
+	} {
+		assertTextNotContains(t, guide, forbidden, "autonomous goal guide duplicated context")
 	}
 }
 

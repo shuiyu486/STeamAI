@@ -1864,7 +1864,7 @@ func reviewerRouteOutputSkeleton(fields []string, items []string, evidenceRef st
 		case "risk":
 			routeOutput[field] = "summarize evidence-based residual risk"
 		case "next_action":
-			routeOutput[field] = "select the bounded next action implied by the decision"
+			routeOutput[field] = "main-agent review"
 		case "tier_used":
 			routeOutput[field] = "reviewer"
 		case "tool_scope":
@@ -1926,7 +1926,7 @@ func shardDispatchPrompt(shard Shard, route Route, readOnlyBoundary []string, re
 		"Choose accept with recommendedVerdict=accepted when the immutable evidence and its declared hashes support the bounded item; choose reject only with inspected contrary evidence; choose defer or needs-more-evidence only when a concrete evidence gap remains.",
 		reviewerEvidenceIntegrityGuidance(shard.Items),
 		"Replace packet.packetId with the packet packetId, set routeId to " + route.ID + ", shardId to " + shard.ID + ", and set reviewerSession to your session identifier supplied by the main agent.",
-		"Avoid blocked intake: provide inspectable evidenceRefs, keep conflicts empty unless unresolved, align recommendedVerdict with decision mapping, keep tool_scope read-only, and do not request writes, heavy tools, authority/confirmed, or external effects.",
+		"Avoid blocked intake: provide inspectable evidenceRefs, keep conflicts empty unless unresolved, align recommendedVerdict with decision mapping, set tool_scope exactly to read-only and next_action exactly to main-agent review, and do not request writes, heavy tools, authority/confirmed, or external effects.",
 		"If blocked intake is unavoidable, return a safer needs-more-evidence/defer result and let the main agent consume reviewerIntakeCommands.repairGuidance before rerunning previewCommand.",
 		"Return items exactly as listed in Items, keep routeOutput.item exactly equal to the reviewed item, keep routeOutput.decision and routeOutput.confidence equal to the top-level decision/confidence, and keep routeOutput.evidence inside evidenceRefs.",
 		"Allowed decisions: " + strings.Join(contract.AllowedDecisions, ", ") + ".",

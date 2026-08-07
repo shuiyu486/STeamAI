@@ -28,6 +28,7 @@ type ReleaseHandoff struct {
 	Summary                   string                                   `json:"summary"`
 	ReadFirst                 []ReleaseHandoffDocument                 `json:"readFirst"`
 	Signals                   []ReleaseHandoffSignal                   `json:"signals"`
+	ActiveRoute               ReleaseHandoffActiveRoute                `json:"activeRoute"`
 	LatestBatch               ReleaseHandoffLatestBatch                `json:"latestBatch"`
 	ReleaseNotes              ReleaseHandoffReleaseNotes               `json:"releaseNotes"`
 	KnownGaps                 []ReleaseHandoffKnownGap                 `json:"knownGaps"`
@@ -37,6 +38,22 @@ type ReleaseHandoff struct {
 	Validation                []ReleaseHandoffValidation               `json:"validation"`
 	NextActions               []string                                 `json:"nextActions"`
 	Warnings                  []string                                 `json:"warnings"`
+}
+
+type ReleaseHandoffActiveRoute struct {
+	Ready                bool                                    `json:"ready"`
+	Present              bool                                    `json:"present"`
+	Path                 string                                  `json:"path"`
+	ProjectionPath       string                                  `json:"projectionPath"`
+	Route                string                                  `json:"route"`
+	CurrentBatch         string                                  `json:"currentBatch"`
+	State                string                                  `json:"state"`
+	ExclusiveClaim       string                                  `json:"exclusiveClaim"`
+	NextBatch            string                                  `json:"nextBatch"`
+	NextBatchUnlocked    bool                                    `json:"nextBatchUnlocked"`
+	ProjectionConsistent bool                                    `json:"projectionConsistent"`
+	CurrentAction        *mission.MissionCommanderNextActionItem `json:"currentAction,omitempty"`
+	Warnings             []string                                `json:"warnings,omitempty"`
 }
 
 type ReleaseHandoffCounts struct {
@@ -467,10 +484,7 @@ type ReleaseHandoffValidation struct {
 }
 
 var releaseHandoffReadFirst = []ReleaseHandoffDocument{
-	{Path: "docs/context-routing.md", Purpose: "progressive-disclosure router for deciding what to read next"},
-	{Path: "docs/batch-plan.md", Purpose: "current batch state, next candidates, and latest completed batch summary"},
-	{Path: "docs/release-readiness.md", Purpose: "release gate, current known gaps, and CI truthfulness rules"},
-	{Path: "CHANGELOG.md", Purpose: "user-visible changes and boundaries"},
+	{Path: "docs/context-routing.md", Purpose: "canonical progressive-disclosure router; select the current scenario before reading any other document"},
 }
 
 func BuildProjectHandoff(repoRoot string) (ReleaseHandoff, error) {
@@ -491,6 +505,7 @@ func BuildProjectHandoff(repoRoot string) (ReleaseHandoff, error) {
 		Ready:       true,
 		Summary:     "release handoff summary ok",
 		ReadFirst:   releaseHandoffDocuments(repo),
+		ActiveRoute: releaseHandoffActiveRoute(repo),
 		LatestBatch: releaseHandoffLatestBatchWithPostPushReceipt(repo, latestBatchSummary(repo)),
 		Validation:  releaseHandoffValidation(gateProfile(catalogGateSteps(repo, cat.RecommendedMinimum)).Steps),
 		NextActions: releaseHandoffNextActions(),
@@ -514,6 +529,7 @@ func releaseHandoff(repo string, check Result) ReleaseHandoff {
 		Ready:       true,
 		Summary:     "release handoff summary ok",
 		ReadFirst:   releaseHandoffDocuments(repo),
+		ActiveRoute: releaseHandoffActiveRoute(repo),
 		LatestBatch: releaseHandoffLatestBatchWithPostPushReceipt(repo, latestBatchSummary(repo)),
 		Validation:  releaseHandoffValidation(check.GateProfile.Steps),
 		NextActions: releaseHandoffNextActions(),
@@ -4305,7 +4321,22 @@ func releaseHandoffNextBatchID(latest string) string {
 	return fmt.Sprintf("Batch %d", n+1)
 }
 
+func releaseHandoffActiveRouteOwnsCurrentBatch(handoff ReleaseHandoff) bool {
+	current := firstReleaseHandoffToken(handoff.ActiveRoute.CurrentBatch)
+	return handoff.ActiveRoute.Present &&
+		handoff.ActiveRoute.Ready &&
+		handoff.ActiveRoute.ProjectionConsistent &&
+		!handoff.ActiveRoute.NextBatchUnlocked &&
+		handoff.ActiveRoute.Route == "real-usage-hardening-v1" &&
+		current != "" &&
+		strings.EqualFold(handoff.ActiveRoute.ExclusiveClaim, current)
+}
+
 func releaseHandoffReadyForNextBatchSelection(handoff ReleaseHandoff) bool {
+	if releaseHandoffActiveRouteOwnsCurrentBatch(handoff) ||
+		(handoff.ActiveRoute.Present && (!handoff.ActiveRoute.Ready || !handoff.ActiveRoute.ProjectionConsistent || !handoff.ActiveRoute.NextBatchUnlocked)) {
+		return false
+	}
 	if !handoff.Ready || !handoff.LatestBatch.Handoff.LocalValidationReady || !handoff.LatestBatch.Handoff.ReleaseCheckReady {
 		return false
 	}
@@ -4438,6 +4469,7 @@ func releaseHandoffNextActions() []string {
 
 func releaseHandoffWarnings(handoff ReleaseHandoff) []string {
 	warnings := []string{}
+	warnings = append(warnings, handoff.ActiveRoute.Warnings...)
 	for _, doc := range handoff.ReadFirst {
 		if !doc.Present {
 			warnings = append(warnings, fmt.Sprintf("release handoff read-first document missing: %s", doc.Path))
@@ -4678,6 +4710,115 @@ func releaseHandoffHasImplementationPath(paths []string) bool {
 		}
 	}
 	return false
+}
+
+func releaseHandoffActiveRoute(repo string) ReleaseHandoffActiveRoute {
+	const (
+		routePath      = "docs/real-usage-hardening-roadmap.md"
+		projectionPath = "docs/batch-plan.md"
+	)
+	route := ReleaseHandoffActiveRoute{Path: routePath, ProjectionPath: projectionPath}
+	routeData, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(routePath)))
+	if err != nil {
+		return route
+	}
+	route.Present = true
+	route.Route = markdownTableValue(routeData, "路线")
+	route.CurrentBatch = markdownTableValue(routeData, "当前批次")
+	route.State = strings.ToLower(markdownTableValue(routeData, "状态"))
+	route.ExclusiveClaim = markdownTableValue(routeData, "唯一允许领取")
+	route.NextBatch = markdownTableValue(routeData, "下一批")
+	projectionData, projectionErr := os.ReadFile(filepath.Join(repo, filepath.FromSlash(projectionPath)))
+	projectionRoute := ""
+	projectionCurrent := ""
+	projectionState := ""
+	projectionClaim := ""
+	projectionNext := ""
+	if projectionErr == nil {
+		projectionRoute = markdownTableValue(projectionData, "路线")
+		projectionCurrent = markdownTableValue(projectionData, "当前批次")
+		projectionState = strings.ToLower(markdownTableValue(projectionData, "状态"))
+		projectionClaim = markdownTableValue(projectionData, "唯一允许领取")
+		projectionNext = markdownTableValue(projectionData, "下一批")
+		route.ProjectionConsistent = route.Route == projectionRoute &&
+			route.CurrentBatch == projectionCurrent &&
+			route.State == projectionState &&
+			route.ExclusiveClaim == projectionClaim &&
+			route.NextBatch == projectionNext
+	}
+	if route.Route == "" || route.CurrentBatch == "" || route.State == "" || route.ExclusiveClaim == "" || route.NextBatch == "" {
+		route.Warnings = append(route.Warnings, "active real-usage route omitted route/current/state/claim/next fields")
+	}
+	if projectionErr != nil {
+		route.Warnings = append(route.Warnings, "active real-usage route batch-plan projection is unavailable")
+	} else if projectionRoute == "" || projectionCurrent == "" || projectionState == "" || projectionClaim == "" || projectionNext == "" {
+		route.Warnings = append(route.Warnings, "active real-usage route batch-plan projection omitted route/current/state/claim/next fields")
+	} else if !route.ProjectionConsistent {
+		route.Warnings = append(route.Warnings, "active real-usage route and batch-plan projection disagree")
+	}
+	current := firstReleaseHandoffToken(route.CurrentBatch)
+	if current == "" || (route.State != "completed" && !strings.EqualFold(strings.TrimSpace(route.ExclusiveClaim), current)) {
+		route.Warnings = append(route.Warnings, "active real-usage route exclusive claim does not match the current batch")
+	}
+	route.Ready = len(route.Warnings) == 0
+	route.NextBatchUnlocked = route.Ready && route.ProjectionConsistent && route.State == "completed" && current != "" && !strings.EqualFold(strings.TrimSpace(route.ExclusiveClaim), current)
+	if !route.NextBatchUnlocked {
+		route.CurrentAction = releaseHandoffActiveRouteAction(route)
+		if !route.Ready || !route.ProjectionConsistent {
+			route.CurrentAction.ActionID = "active-route-conflict"
+			route.CurrentAction.State = "blocked-route-conflict"
+			route.CurrentAction.Command = fmt.Sprintf("repair the active route projection between %s and %s before continuing or selecting another batch", route.Path, route.ProjectionPath)
+			route.CurrentAction.Blocked = true
+			route.CurrentAction.RequiresReview = true
+			route.CurrentAction.Reasons = mission.UniqueStrings(append(route.CurrentAction.Reasons, route.Warnings...))
+		}
+	}
+	return route
+}
+
+func markdownTableValue(data []byte, field string) string {
+	for _, line := range strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
+		columns := strings.Split(strings.TrimSpace(line), "|")
+		if len(columns) < 4 || strings.TrimSpace(columns[1]) != field {
+			continue
+		}
+		return strings.TrimSpace(strings.ReplaceAll(columns[2], "`", ""))
+	}
+	return ""
+}
+
+func firstReleaseHandoffToken(value string) string {
+	value = strings.TrimSpace(value)
+	if index := strings.IndexAny(value, " \t"); index >= 0 {
+		return value[:index]
+	}
+	return value
+}
+
+func releaseHandoffActiveRouteAction(route ReleaseHandoffActiveRoute) *mission.MissionCommanderNextActionItem {
+	currentID := firstReleaseHandoffToken(route.CurrentBatch)
+	if currentID == "" {
+		currentID = "active-route"
+	}
+	return &mission.MissionCommanderNextActionItem{
+		Label:          currentID,
+		ActionID:       "active-route-current-batch",
+		State:          route.State,
+		Command:        fmt.Sprintf("continue %s from %s; do not select another batch until its acceptance and local validation unlock %s", route.CurrentBatch, route.Path, route.NextBatch),
+		Source:         "releaseHandoffActiveRoute",
+		Blocked:        route.State == "blocked",
+		RequiresReview: route.State == "blocked",
+		Reasons: mission.UniqueStrings([]string{
+			"active durable route: " + route.Route,
+			"exclusive current claim: " + route.ExclusiveClaim,
+			"latest numbered batch is completed evidence only and cannot replace the active route",
+		}),
+		Boundary: []string{
+			"do not generate or consume free-form candidate-domain selection while the active route is not unlocked",
+			"read the active route current card through docs/context-routing.md before implementation",
+			"route and batch-plan projection disagreement is fail-closed",
+		},
+	}
 }
 
 func latestBatchSummary(repo string) ReleaseHandoffLatestBatch {

@@ -7,6 +7,46 @@ import (
 	"testing"
 )
 
+func TestWriteNewExclusiveRegularFileAnchoredRejectsExistingFile(t *testing.T) {
+	root := t.TempDir()
+	if err := WriteNewExclusiveRegularFileAnchored(root, "nested/receipt.json", "receipt", []byte("first\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteNewExclusiveRegularFileAnchored(root, "nested/receipt.json", "receipt", []byte("second\n")); err == nil {
+		t.Fatal("new-only anchored publication replaced an existing file")
+	}
+	data, err := os.ReadFile(filepath.Join(root, "nested", "receipt.json"))
+	if err != nil || string(data) != "first\n" {
+		t.Fatalf("existing anchored file changed: %q err=%v", data, err)
+	}
+}
+
+func TestWriteNewExclusiveRegularFileAnchoredRejectsAncestorReplacement(t *testing.T) {
+	base := t.TempDir()
+	parent := filepath.Join(base, "parent")
+	if err := os.Mkdir(parent, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	moved := filepath.Join(base, "parent-original")
+	path := filepath.Join(parent, "receipt.json")
+	restore := SetWriteExclusiveRegularFileAfterPublishHookForTest(func() error {
+		if err := os.Rename(parent, moved); err != nil {
+			return err
+		}
+		return os.Mkdir(parent, 0o700)
+	})
+	t.Cleanup(restore)
+	if err := WriteNewExclusiveRegularFileAnchored(base, "parent/receipt.json", "receipt", []byte("receipt\n")); err == nil {
+		t.Fatal("anchored publication accepted ancestor replacement")
+	}
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Fatalf("replacement namespace received receipt: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(moved, "receipt.json")); !os.IsNotExist(err) {
+		t.Fatalf("failed publication left receipt in original namespace: %v", err)
+	}
+}
+
 func TestSameExistingPathResolvesDirectoryAliasWithoutChangingLexicalIdentity(t *testing.T) {
 	root := t.TempDir()
 	target := filepath.Join(root, "target")

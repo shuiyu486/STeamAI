@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,15 +15,48 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/casehealth"
+	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/laneid"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
 	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 )
 
-const planMarker = "<onboarding-plan-sha256>"
+const (
+	planMarker          = "<onboarding-plan-sha256>"
+	attachedPlanCommand = "attached-onboarding-adoption"
+)
 
-var validInitialLane = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$`)
+var (
+	validInitialLane                 = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$`)
+	attachedAdoptionBeforeCommitHook func() error
+	attachedControlRoots             = []string{
+		".rekit/board.json",
+		".rekit/policy.yml",
+		".rekit/verification-role.json",
+		".rekit/backups",
+		".rekit/lanes",
+		".rekit/facts",
+		".rekit/runs",
+		".rekit/handovers",
+		".rekit/reviews",
+		".rekit/reviewer-adoptions",
+		".rekit/reopen-evidence",
+		".rekit/reopen-operations",
+		".rekit/member-executions",
+		".rekit/external-session-attempts",
+		".rekit/external-session-attempt-inputs",
+		".rekit/external-session-dispatch",
+		".rekit/external-session-jobs",
+		".rekit/external-session-observations",
+		".rekit/external-session-relays",
+		".rekit/pack-memory",
+		".rekit/session-host",
+	}
+)
 
 type Options struct {
 	Target                       string
@@ -103,6 +137,9 @@ func Apply(repoRoot string, opt Options) (Result, error) {
 	if !strings.EqualFold(opt.ExpectedOnboardingPlanSHA256, plan.OnboardingPlanSHA256) {
 		return Result{}, fmt.Errorf("onboarding plan hash mismatch: expected %s current %s", opt.ExpectedOnboardingPlanSHA256, plan.OnboardingPlanSHA256)
 	}
+	if plan.ExclusivePlan.Command == attachedPlanCommand {
+		return applyAttachedAdoption(plan)
+	}
 	if !plan.Replay && !plan.DurableRecovery {
 		createdAt, err := time.Parse(time.RFC3339Nano, plan.ExclusivePlan.CreatedAt)
 		if err != nil {
@@ -168,7 +205,7 @@ func build(repoRoot string, opt Options, allowExisting bool) (Plan, error) {
 			return Plan{}, inspectErr
 		}
 		if inspection.State == "absent" {
-			return Plan{}, fmt.Errorf("onboard refuses an existing case without onboarding intent: %s", identity.Target)
+			return buildAttachedAdoption(repoRoot, identity, opt)
 		}
 		if inspection.Identity != identity {
 			return Plan{}, fmt.Errorf("onboard identity differs from the immutable existing mission intent")
@@ -193,6 +230,30 @@ func build(repoRoot string, opt Options, allowExisting bool) (Plan, error) {
 		}
 		if !samePath(inspection.Recovery.RepoRoot, repoRoot) {
 			return Plan{}, fmt.Errorf("pending onboarding recovery is bound to a different canonical kit root: %s", inspection.Recovery.RepoRoot)
+		}
+		if inspection.Recovery.Mode == "attached-adoption" {
+			if err := missionintent.ValidateRecoveryEnvelope(identity, inspection.Recovery); err != nil {
+				return Plan{}, err
+			}
+			createdAt, err := time.Parse(time.RFC3339Nano, inspection.Recovery.CreatedAt)
+			if err != nil {
+				return Plan{}, err
+			}
+			marker, err := attachedPlan(repoRoot, identity, inspection.PublicationStamp, createdAt, inspection.Recovery.AttachedSnapshot, planMarker)
+			if err != nil {
+				return Plan{}, err
+			}
+			hash, err := hashExclusivePlan(marker)
+			if err != nil || !strings.EqualFold(hash, inspection.OnboardingPlanSHA256) {
+				return Plan{}, fmt.Errorf("durable attached onboarding recovery envelope does not reconstruct the reviewed plan hash")
+			}
+			exact, err := attachedPlan(repoRoot, identity, inspection.PublicationStamp, createdAt, inspection.Recovery.AttachedSnapshot, inspection.OnboardingPlanSHA256)
+			if err != nil {
+				return Plan{}, err
+			}
+			plan := publicPlan(exact, identity, inspection.PublicationStamp, inspection.OnboardingPlanSHA256, false)
+			plan.DurableRecovery = true
+			return plan, nil
 		}
 		ordinary, err := ordinaryPlanFromRecovery(identity, inspection.Recovery)
 		if err != nil {
@@ -249,6 +310,227 @@ func build(repoRoot string, opt Options, allowExisting bool) (Plan, error) {
 	}
 	plan := publicPlan(exact, identity, stamp, planSHA256, false)
 	return plan, nil
+}
+
+func buildAttachedAdoption(repoRoot string, identity missionintent.Identity, opt Options) (Plan, error) {
+	if _, err := instance.AssertAttached(identity.Target, repoRoot, identity.Pack); err != nil {
+		return Plan{}, fmt.Errorf("onboard attached adoption requires a current attached case: %w", err)
+	}
+	if err := validateInitialLane(repoRoot, identity.Pack, identity.InitialLane); err != nil {
+		return Plan{}, err
+	}
+	if err := ensureAttachedMissionControlEmpty(identity.Target); err != nil {
+		return Plan{}, err
+	}
+	rows, err := casehealth.Static(repoRoot, identity.Target, identity.Pack)
+	if err != nil {
+		return Plan{}, fmt.Errorf("onboard attached adoption requires doctor-ready case files: %w", err)
+	}
+	stamp, createdAt, err := onboardingStamp(opt.PublicationStamp)
+	if err != nil {
+		return Plan{}, err
+	}
+	snapshot, err := attachedSnapshot(identity.Target, rows)
+	if err != nil {
+		return Plan{}, err
+	}
+	if opt.PublicationStamp != "" && strings.TrimSpace(opt.ExpectedOnboardingPlanSHA256) == "" {
+		return Plan{}, fmt.Errorf("attached onboarding Apply requires the exact reviewed plan hash")
+	}
+	marker, err := attachedPlan(repoRoot, identity, stamp, createdAt, snapshot, planMarker)
+	if err != nil {
+		return Plan{}, err
+	}
+	hash, err := hashExclusivePlan(marker)
+	if err != nil {
+		return Plan{}, err
+	}
+	if expected := strings.TrimSpace(opt.ExpectedOnboardingPlanSHA256); expected != "" && !strings.EqualFold(expected, hash) {
+		return Plan{}, fmt.Errorf("attached onboarding snapshot changed after reviewed preview")
+	}
+	exact, err := attachedPlan(repoRoot, identity, stamp, createdAt, snapshot, hash)
+	if err != nil {
+		return Plan{}, err
+	}
+	return publicPlan(exact, identity, stamp, hash, false), nil
+}
+
+func attachedPlan(repoRoot string, identity missionintent.Identity, stamp string, createdAt time.Time, snapshot []missionintent.SnapshotArtifact, hash string) (syncreview.ExclusiveInitPlan, error) {
+	recovery := missionintent.RecoveryEnvelope{SchemaVersion: 1, RepoRoot: repoRoot, CreatedAt: createdAt.UTC().Format(time.RFC3339Nano), Mode: "attached-adoption", AttachedSnapshot: append([]missionintent.SnapshotArtifact{}, snapshot...)}
+	if err := missionintent.ValidateRecoveryEnvelope(identity, recovery); err != nil {
+		return syncreview.ExclusiveInitPlan{}, err
+	}
+	base := syncreview.ExclusiveInitPlan{SchemaVersion: 1, Command: attachedPlanCommand, CaseRoot: identity.Target, RepoRoot: repoRoot, Pack: identity.Pack, ProjectName: identity.ProjectName, ProvisionID: "onboarding-" + stamp, Role: "mission-onboarding-adoption", CreatedAt: recovery.CreatedAt, BlockedActions: []string{"existing case content writes", "existing Mission Control takeover", "overwrite", "backup", "force", "authority/confirmed writes", "heavy-tool execution"}}
+	missionBytes, err := missionintent.MarshalMissionIntent(identity)
+	if err != nil {
+		return syncreview.ExclusiveInitPlan{}, err
+	}
+	intentBytes, err := missionintent.MarshalIntent(missionintent.Intent{SchemaVersion: 1, Kind: "mission-onboarding-intent", PublicationStamp: stamp, OnboardingPlanSHA256: hash, Identity: identity, Recovery: recovery})
+	if err != nil {
+		return syncreview.ExclusiveInitPlan{}, err
+	}
+	commit := missionintent.Commit{SchemaVersion: 1, Kind: "mission-onboarding-commit", PublicationStamp: stamp, OnboardingPlanSHA256: hash, MissionIntentSHA256: missionintent.SHA256(missionBytes), IntentSHA256: missionintent.SHA256(intentBytes)}
+	commitBytes, err := missionintent.MarshalCommit(commit)
+	if err != nil && hash == planMarker {
+		commitBytes, err = marshalMarkerCommit(stamp, commit.MissionIntentSHA256, commit.IntentSHA256)
+	}
+	if err != nil {
+		return syncreview.ExclusiveInitPlan{}, err
+	}
+	for _, generated := range []struct {
+		path, kind string
+		content    []byte
+		phase      int
+	}{{missionintent.IntentRel, "onboarding-intent", intentBytes, 0}, {missionintent.MissionIntentRel, "mission-intent", missionBytes, 1}, {missionintent.CommitRel, "onboarding-commit", commitBytes, 2}} {
+		base.Writes = append(base.Writes, syncreview.ExclusiveInitWrite{Path: generated.path, Kind: generated.kind, TargetPath: filepath.Join(identity.Target, filepath.FromSlash(generated.path)), SHA256: missionintent.SHA256(generated.content), Size: int64(len(generated.content)), Content: generated.content, PublicationPhase: generated.phase})
+	}
+	return base, nil
+}
+
+func attachedSnapshot(caseRoot string, rows []casehealth.Row) ([]missionintent.SnapshotArtifact, error) {
+	paths := map[string]string{
+		".rekit/instance.yml":           "instance-metadata",
+		".claude/skills/rekit/SKILL.md": "case-local-thin-shim",
+		".re-template.yml":              "legacy-metadata",
+		".rekit/state.json":             "sync-state",
+	}
+	for _, row := range rows {
+		rel, err := filepath.Rel(caseRoot, row.File)
+		if err != nil || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		path := filepath.ToSlash(filepath.Clean(rel))
+		if _, fixed := paths[path]; !fixed {
+			paths[path] = "doctor-validated-artifact"
+		}
+	}
+	ordered := make([]string, 0, len(paths))
+	for path := range paths {
+		ordered = append(ordered, path)
+	}
+	sort.Strings(ordered)
+	snapshot := make([]missionintent.SnapshotArtifact, 0, len(ordered))
+	for _, rel := range ordered {
+		path := filepath.Join(caseRoot, filepath.FromSlash(rel))
+		data, err := refsf.ReadStableRegularFileAnchored(caseRoot, path, "attached onboarding snapshot", 5*1024*1024+1)
+		if err != nil {
+			return nil, err
+		}
+		snapshot = append(snapshot, missionintent.SnapshotArtifact{Path: rel, Kind: paths[rel], SHA256: missionintent.SHA256(data), Size: int64(len(data))})
+	}
+	return snapshot, nil
+}
+
+func validateAttachedSnapshot(caseRoot string, expected []missionintent.SnapshotArtifact) error {
+	for _, artifact := range expected {
+		path := filepath.Join(caseRoot, filepath.FromSlash(artifact.Path))
+		data, err := refsf.ReadStableRegularFileAnchored(caseRoot, path, "attached onboarding snapshot", artifact.Size+1)
+		if err != nil || int64(len(data)) != artifact.Size || !strings.EqualFold(missionintent.SHA256(data), artifact.SHA256) {
+			return fmt.Errorf("attached onboarding snapshot changed: %s", artifact.Path)
+		}
+	}
+	return nil
+}
+
+func ensureAttachedMissionControlEmpty(caseRoot string) error {
+	for _, rel := range attachedControlRoots {
+		if _, err := os.Lstat(filepath.Join(caseRoot, filepath.FromSlash(rel))); err == nil {
+			return fmt.Errorf("onboard attached adoption refuses existing Mission Control state: %s", rel)
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
+}
+
+func applyAttachedAdoption(plan Plan) (result Result, retErr error) {
+	lease, err := lanemutation.AcquireProject(plan.CaseRoot)
+	if err != nil {
+		return Result{}, err
+	}
+	defer func() { retErr = errors.Join(retErr, lease.Unlock()) }()
+	if err := lease.Validate(); err != nil {
+		return Result{}, err
+	}
+	inspection, err := missionintent.Inspect(plan.CaseRoot)
+	if err != nil {
+		return Result{}, err
+	}
+	if inspection.State == "committed" {
+		if inspection.Identity != plan.Identity || !strings.EqualFold(inspection.OnboardingPlanSHA256, plan.OnboardingPlanSHA256) {
+			return Result{}, fmt.Errorf("committed onboarding differs from attached adoption request")
+		}
+		return resultFor(plan, inspection, true), nil
+	}
+	if inspection.State == "absent" {
+		if _, err := instance.AssertAttached(plan.CaseRoot, plan.RepoRoot, plan.Pack); err != nil {
+			return Result{}, err
+		}
+	}
+	if err := ensureAttachedMissionControlEmpty(plan.CaseRoot); err != nil {
+		return Result{}, err
+	}
+	if err := validateAttachedSnapshot(plan.CaseRoot, recoverySnapshot(plan.ExclusivePlan)); err != nil {
+		return Result{}, err
+	}
+	snapshot := recoverySnapshot(plan.ExclusivePlan)
+	for index, write := range plan.ExclusivePlan.Writes {
+		if index == len(plan.ExclusivePlan.Writes)-1 {
+			if attachedAdoptionBeforeCommitHook != nil {
+				if err := attachedAdoptionBeforeCommitHook(); err != nil {
+					return Result{}, err
+				}
+			}
+			if err := lease.Validate(); err != nil {
+				return Result{}, err
+			}
+			if err := ensureAttachedMissionControlEmpty(plan.CaseRoot); err != nil {
+				return Result{}, err
+			}
+			if err := validateAttachedSnapshot(plan.CaseRoot, snapshot); err != nil {
+				return Result{}, err
+			}
+		}
+		if _, err := refsf.WriteExclusiveRegularFileAnchored(plan.CaseRoot, write.Path, write.Kind, write.Content); err != nil {
+			return Result{}, err
+		}
+	}
+	inspection, err = missionintent.Inspect(plan.CaseRoot)
+	if err != nil {
+		return Result{}, err
+	}
+	if !inspection.Committed || inspection.Identity != plan.Identity || !strings.EqualFold(inspection.OnboardingPlanSHA256, plan.OnboardingPlanSHA256) {
+		return Result{}, fmt.Errorf("attached onboarding publication did not reach the exact committed generation")
+	}
+	return resultFor(plan, inspection, false), nil
+}
+
+func recoverySnapshot(plan syncreview.ExclusiveInitPlan) []missionintent.SnapshotArtifact {
+	for _, write := range plan.Writes {
+		if write.Path != missionintent.IntentRel {
+			continue
+		}
+		var intent missionintent.Intent
+		if json.Unmarshal(write.Content, &intent) == nil {
+			return append([]missionintent.SnapshotArtifact{}, intent.Recovery.AttachedSnapshot...)
+		}
+	}
+	return nil
+}
+
+func onboardingStamp(value string) (string, time.Time, error) {
+	stamp := strings.TrimSpace(value)
+	if stamp == "" {
+		stamp = time.Now().UTC().Format("20060102-150405000")
+	}
+	if len(stamp) != len("20060102-150405000") {
+		return "", time.Time{}, fmt.Errorf("invalid onboarding publication stamp: %s", stamp)
+	}
+	createdAt, err := time.Parse("20060102-150405.000", stamp[:15]+"."+stamp[15:])
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("invalid onboarding publication stamp: %s", stamp)
+	}
+	return stamp, createdAt, nil
 }
 
 func ordinaryPlan(repoRoot string, identity missionintent.Identity, stamp string, createdAt time.Time, allowExisting bool) (syncreview.ExclusiveInitPlan, error) {

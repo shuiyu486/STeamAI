@@ -28,14 +28,16 @@ const (
 )
 
 type Options struct {
-	Target                string
-	Pack                  string
-	Actor                 string
-	ClaudePath            string
-	Model                 string
-	Timeout               time.Duration
-	MaxAttempts           int
-	StopAfterMemberIntake bool
+	Target                            string
+	Pack                              string
+	Actor                             string
+	ClaudePath                        string
+	ExpectedClaudeExecutableSHA256    string
+	ExpectedClaudeExecutablePublisher string
+	Model                             string
+	Timeout                           time.Duration
+	MaxAttempts                       int
+	StopAfterMemberIntake             bool
 }
 
 type Result struct {
@@ -257,7 +259,7 @@ func Run(parent context.Context, opt Options) (Result, error) {
 				if err != nil {
 					return result, err
 				}
-				run, recovered, err := recoverClaudeRun(opt.Target, pkg)
+				run, recovered, err := recoverClaudeRunForCase(opt.Target, opt, pkg)
 				if err != nil {
 					return result, err
 				}
@@ -274,7 +276,7 @@ func Run(parent context.Context, opt Options) (Result, error) {
 						result.SessionLaunches++
 					}
 					if run.success() {
-						if err := persistClaudeRecovery(opt.Target, pkg, run); err != nil {
+						if err := persistClaudeRecoveryForCase(opt.Target, opt, pkg, run); err != nil {
 							return result, fmt.Errorf("persist Claude reviewer structured output recovery: %w", err)
 						}
 					}
@@ -318,6 +320,9 @@ func Run(parent context.Context, opt Options) (Result, error) {
 				}
 				result.AppliedSteps++
 				result.SessionCompletions++
+				if err := removeClaudeRecoveryForCase(opt.Target, opt, pkg); err != nil {
+					return result, err
+				}
 				outcome := "returned"
 				if recovered {
 					outcome = "returned-recovered"
@@ -457,7 +462,7 @@ func Run(parent context.Context, opt Options) (Result, error) {
 				return result, fmt.Errorf("Claude process started without an accepted launch receipt")
 			}
 			if run.success() {
-				if err := persistClaudeRecovery(opt.Target, *step.HarnessPackage, run); err != nil {
+				if err := persistClaudeRecoveryForCase(opt.Target, opt, *step.HarnessPackage, run); err != nil {
 					return result, fmt.Errorf("persist Claude structured output recovery: %w", err)
 				}
 			}
@@ -490,6 +495,9 @@ func Run(parent context.Context, opt Options) (Result, error) {
 			if publishErr != nil {
 				return result, publishErr
 			}
+			if err := removeClaudeRecoveryForCase(opt.Target, opt, *step.HarnessPackage); err != nil {
+				return result, err
+			}
 			if run.success() {
 				result.SessionCompletions++
 			}
@@ -498,7 +506,7 @@ func Run(parent context.Context, opt Options) (Result, error) {
 			if step.HarnessPackage == nil || step.HarnessPackage.Launch == nil {
 				return result, fmt.Errorf("external session running handoff omitted recovery bindings")
 			}
-			run, recovered, err := recoverClaudeRun(opt.Target, *step.HarnessPackage)
+			run, recovered, err := recoverClaudeRunForCase(opt.Target, opt, *step.HarnessPackage)
 			if err != nil {
 				return result, err
 			}
@@ -507,6 +515,9 @@ func Run(parent context.Context, opt Options) (Result, error) {
 			}
 			outcome, err := publishClaudeResult(opt, preview, run)
 			if err != nil {
+				return result, err
+			}
+			if err := removeClaudeRecoveryForCase(opt.Target, opt, *step.HarnessPackage); err != nil {
 				return result, err
 			}
 			result.Sessions = append(result.Sessions, sessionResult(run, step.HarnessPackage.Launch.Attempt.Generation, 0, step.HarnessPackage.Launch.Attempt.Session, step.HarnessPackage.SessionKind, outcome+"-recovered"))

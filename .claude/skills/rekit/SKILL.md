@@ -30,7 +30,7 @@ disable-model-invocation: true
 把这次可复用经验整理成 promote 候选。
 ```
 
-需要说明 runtime API 时再展示 `/rekit`。新 case 先由主 Agent把自然语言收敛为显式 identity，运行 `/rekit onboard ... -WhatIf -Format json`，再原样消费返回的 `applyArgs[]`；已有 case 用`attach`。后续按status的typed request使用`overview/start/continue/note/reconcile/handoff/complete/reopen`，维护时再用`packs/sync/promote/doctor/repair`。底层 runtime 只作为 `/rekit` 的内部实现，除非排障不展示。
+日常开始/纠偏由主 Agent调用 `rekit-host -daily -target <case> -goal <text>` 或 `-correction <text>`；它自动派生 lifecycle identity并运行真实 member/reviewer。底层 runtime 只作为 `/rekit` 的内部实现，仅排障时展示。
 
 ## 命令语义
 
@@ -39,7 +39,8 @@ disable-model-invocation: true
 | `/rekit` / `/rekit status` | 默认只读；attached case默认用metadata pack。第一屏给binding/shim诊断与唯一Mission Commander current action；问题只给bounded repair/review request。JSON保留handoff、takeover与release truthfulness。 |
 | `/rekit packs` | 只读查看pack成熟度、schema、route和tooling。 |
 | `/rekit release-run` | 跑本机gate；待提交仅换Git-local v2 receipt，绑定HEAD/steps、worktree hash与clean blob。只接受direct commit或receipt绑定的同批repair；旧schema/drift/tamper/extra拒绝。不写repo/case、不查CI。 |
-| `/rekit onboard` | 新case的Go-owned/no-fallback入口。主Agent把自然语言收敛为七个显式identity字段；WhatIf零写入返回immutable intent、exact stamp/hash、writes与`applyArgs[]`，Apply原样消费并intent-first/commit-last发布。partial exact恢复、committed replay、status→overview→committed initial start均不依赖旧聊天。它不解释Goal、不创建board/lane、不管理session、不执行heavy-tool、不写authority/confirmed。 |
+| `rekit-host -daily` | target + goal/correction 的 Go-owned 前门；自动派生 identity，消费 public exact routes并运行真实 member/reviewer；exact replay 不重复启动。 |
+| `/rekit onboard` | deterministic onboarding API；WhatIf返回exact `applyArgs[]`，Apply intent-first/commit-last。doctor-ready attached case只追加三份 immutable control artifacts并拒绝已有 Mission Control state。 |
 | `/rekit attach` | 将已有 case 绑定到当前 template root 和 pack。 |
 | `/rekit repair` | 预览迁移后的 metadata 修复；用户确认后才写入。 |
 | `/rekit init` / `/rekit bootstrap` | 兼容/维护入口：初始化 case metadata、case-local shim 和模板文件；新 Mission Control case 默认使用 `onboard`。 |

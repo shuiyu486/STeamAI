@@ -29,6 +29,32 @@
 
 ## 近期已完成批次与验证
 
+### RH-02：目标/纠偏文本驱动的日常前门
+
+状态：已完成。
+
+用户断点：普通用户仍需知道 attach/onboard/start/host/reconcile 的底层顺序，`rekit-host -target` 也只能消费已准备 case；目标、纠偏和恢复还不是同一个日常产品入口。
+
+实现：新增 Go-owned `rekit-host -daily` / `RunDaily`。fresh target + goal 通过 public `onboard` exact Apply、emitted overview/start 和 real session host 自动选择默认 pack/lane/executor；doctor-ready attached case 采用 intent-first/commit-last strict adoption，保留普通 case 内容并拒绝 Mission Control residue。target + correction 绑定 current intake-ready member manifest，依次记录 public intervention、reconcile 到新 generation、启动 replacement member和独立 Reviewer，再以 accepted evidence 完成 feature lane。ID、时间、路径、generation、session identity与SHA均自动派生；exact goal/terminal correction可零启动 replay，pending completion、stale generation、immutable goal drift和无 durable archive transition均fail-closed。canonical signed Claude discovery/locked handle/actual process image binding保持开启，host recovery移至绑定case与trusted executable identity的host-owned cache。
+
+安全与恢复：真实 structured bytes 采用result-first/submission-last，Reviewer strict intake固定`read-only`与`main-agent review`，测试不构造成功member或`ReviewerResult`。Live receipt以volume-root `os.Root`逐级no-follow独占发布，写后从原anchor重走lexical path并以`SameFile`复验；existing receipt不覆盖，publication failure把stdout降为`passed=false`。Disposable case cleanup固定parent handle、绑定child identity、rename quarantine后删除，path replacement拒绝。独立终审发现的pending completion replay、receipt publication truthfulness、ancestor symlink/junction/replacement与archived误判均已关闭，终复核无高置信问题。
+
+真实验收：最终仓库外 receipt 为`passed=true`、`receiptPublication=published`、`packageMutations=0`、`manualPlaceholders=0`、`manualResultWrites=0`。signed canonical `claude.exe`（publisher `Anthropic, PBC`）真实完成3次member和1次独立Reviewer session；fresh owner generation从1变为2，feature lane以4项evidence关闭且`noAuthority/noConfirmed/noHeavyTool=true`；fresh terminal replay与attached exact-goal replay均零启动，attached普通内容SHA保持不变，fresh/attached及quarantine路径全部清理。
+
+验证结果：focused `cmd/rekit-host`、`internal/rekit/fs`、`internal/rekit/sessionhost`、onboarding、subagents tests通过；Linux/Darwin相关包compile-only通过。最终`go test ./...`、`go vet ./...`、`git diff --check`、`release-check -Format json`（`ready=true`）、`status`、10-pack `packs`和`doctor`全部通过；独立终复核无surviving finding。未新增PowerShell runtime logic，未执行heavy action，未写authority/confirmed，未提交或推送。
+
+### RH-01：普通 public 路线真实验收
+
+状态：已完成。
+
+用户断点：fixed-15 的真实 executor 验收内部使用 package-direct mutation，尚不能证明用户和 Mission Commander 实际消费的 public Go CLI / emitted route 能完成同一链。
+
+实现：explicit fresh `vmp-re` gate 改为消费 public `onboard` applyArgs、emitted overview request、hash-bound `run-driver-step` 和 public `note` recordArgs；live gate 不直接调用 onboarding/note/workstream mutation package。Intervention 与 completion 共用 canonical lane mutation lease，关闭 lane closure TOCTOU。Explicit gate 只发现 canonical Windows Claude Code 安装；Authenticode 用 `WinVerifyTrustEx` 直接验证 locked leaf handle，version 从同一 handle 的 bounded PE `VERSIONINFO` resource 读取，完整 SHA-256 也来自同一 handle。每次 launch 持有 executable 与 ancestor namespace handles，`CREATE_SUSPENDED` 后查询 kernel native image path，以 direct `NtOpenFile(\Device\...)` 绕过 DOS-device map并与 verified leaf 做 `SameFile`，一致后才恢复执行。普通可替换 host 不启用该 explicit acceptance binding。
+
+真实验收：最终 fresh 仓库外 receipt 为 `passed=true`，public previews/mutations 为 `5/6`，package mutations 为 `0`；真实 signed Claude 启动两代 member 和一个独立 Reviewer，三次 completion 均来自 session-ID-bound structured-output envelope，`manualPlaceholders=0`、`manualResultWrites=0`。人工纠偏后 owner generation 从 1 变为 2，feature lane 最终 `closed`，无 authority、confirmed 或 heavy-tool，临时 case cleanup 为 `removed`。
+
+验证结果：WinTrust signed-handle/unsigned-path 与 unsigned-handle/signed-path 双向反例、native-open `SameFile`、suspended mismatch/no-marker/Kill-Wait 回归通过；原 trusted-launch Critical 经独立安全终审关闭且无 surviving finding。`internal/rekit/sessionhost`、active-route CLI/releasecheck/defaultdocs/manifest/note focused tests、完整 `go test ./...`、`go vet ./...`、`release-check -Format json`、`status`、10-pack `packs`、`doctor` 与 `git diff --check` 通过；release handoff 的 active route / batch projection 一致，machine `readFirst[]` 只保留 `docs/context-routing.md`。文档默认 inventory 从 16 项降至 11 项，active roadmap 只内联当前卡，未来卡进入单一按需 backlog；引用审计未发现可在本批无连带删除的旧文档，因此没有混入历史删除。
+
 ### Batch 815：review-first cross-case pack-memory discovery, selection, sync, and reconsume proof closure
 
 状态：已完成。
@@ -16507,3 +16533,23 @@ Batch 630 强制选择端到端能力闭环：不要再把单字段、summary、
 边界：Member launch SHA绑定`memberexecution` durable commit已认证的handoff bytes，Inspect后二次读取发生替换时fail-closed；reviewer prompt bytes同样必须匹配dispatch SHA。Go runtime不spawn/poll/stop外部session，不调用Agent tool，不执行heavy-tool，不写authority/confirmed；本批不新增public command或PowerShell runtime logic，不自动执行reviewer/adapter/pack-memory/gate/sync/promote mutation，也不等待或声明remote CI green。
 
 验证结果：harness/renderer/replacement takeover focused regressions通过；受影响`externalsession/currentloop/memberexecution/subagents/workstream/mission/cli`七包完整回归通过（CLI 382.446秒）；修复后全仓`go test ./... -count=1`通过（CLI 223.115秒），`go vet ./...`、status、10-pack packs、doctor与`git diff --check`通过。独立终审发现text/Markdown遗漏strict template内容及member二次读取SHA未绑定durable commit两项Important；修复后原审查者定向确认均关闭，无剩余高置信Critical/Important。完成态`release-check -Format json`返回`ready=true`；统一`release-run -Format json`以7/7通过（511.536秒，其中完整Go tests 508.352秒），全部步骤attempts=1并生成Git-local v2 validation receipt。Implementation commit/push随后记录；普通batch不等待或声明remote CI green。
+
+### Batch 820：durable external session inbox dispatcher closure
+
+状态：已完成。
+
+目标：把Batch 819的动态harness package收敛为durable case-local external session dispatcher。Attempt Apply按ticket-first/receipt-last发布；fresh replacement Mission Commander能识别ticket-only中断并执行从immutable ticket重建的exact恢复命令。Owner reservation、exclusive dispatch claim和actual launch truth分别记录；attempt只进入`committed`，只有accepted launch receipt才能派生actual `running`。Submission绑定current attempt、claim、accepted launch receipt与actual harness/session；replacement generation隔离旧代迟到claim/launch/result。
+
+边界：Go runtime只管理deterministic request/claim/receipt/state/currentness，不spawn/poll/stop外部session、不调用Agent、不执行heavy-tool、不写authority/confirmed。PowerShell façade只校验和透传新flags，不扫描inbox、不计算hash、不决定dispatcher state或发布receipt；public command数量、pack schema、case-local thin shim和sync/promote review-first边界不变。
+
+验证结果：dispatcher/externalsession/CLI focused回归覆盖ticket-first partial recovery、首代ticket-only status/quickstart/takeover exact request与SHA同源、exclusive concurrent claim、accepted/failed launch、actual identity lineage、dispatch-required不可降级、current/pending generation分离、replacement fence、committed replay fresh input/lineage复验、strict malformed/unknown/trailing/noncanonical JSON、tamper与non-Windows symlink拒绝；Linux/Darwin/WASM compile-only通过。受影响五包完整测试、修复后全仓`go test ./... -count=1`（CLI 230.034秒）、`go vet ./...`与façade smoke通过。独立correctness/security/architecture终审发现的ticket模板lineage、reviewer actual identity、pending/current generation、legacy降级、replay drift、takeover同源、attempt状态语义和publication durability问题均已修复；最后两轮定向复核无surviving finding。受影响文档已同步README、canonical skill、Agent Team usage、release readiness和CHANGELOG；PowerShell deprecation无需新增矩阵行，因为public ownership未变。完成态`release-check -Format json`返回`ready=true`；status、10-pack packs、doctor与diff check通过。统一`release-run -Format json`以7/7通过（551.058秒，其中完整Go tests 548.272秒），全部步骤attempts=1并生成Git-local v2 validation receipt。Implementation commit/push随后记录；普通batch不等待或声明remote CI green。
+
+### Batch 821：unified current-step external session campaign handoff and resume closure
+
+状态：已完成。
+
+目标：Mission Commander或replacement executor从fresh status只使用`run-current-step`即可消费member/reviewer external attempt、claim、actual launch truth、running handoff与submission result resume，不再退出统一入口手工拼接nested `run-current-loop` modes。输入不足返回typed handoff；输入齐全时outer hash绑定exact nested plan；running不伪造liveness；result-ready继续到strict intake后的下一typed campaign boundary。
+
+边界：不新增PowerShell runtime logic；Go runtime不spawn/poll/stop外部session、不调用Agent、不执行heavy-tool、不写authority/confirmed。Claim不代表launch，accepted launch不代表liveness；replacement只fence generation，不声称停止旧process。Observation inbox和explicit observation保持高于dispatcher/current-step external overlay；nested `run-current-loop`保留为external host和恢复/诊断API。
+
+验证结果：Windows临时case E2E覆盖first/replacement attempt、ticket-only recovery、queued claim、accepted/failed launch、running wait/reconnect/explicit replacement、invalid submission replacement、member/reviewer result turn、observation priority与status/quickstart/takeover统一wrapper；attempt/claim/launch/recovery/replacement均覆盖成功响应丢失后的exact committed replay。External route按mode拒绝wrong flags；outer hash绑定route、stable public current request与exact nested job/checkpoint/attempt/dispatch/claim/submission identity。Result turn在relay已提交而checkpoint claim被Human-in-the-Lane拒绝时返回stage-aware、可解码`nested-partial` receipt，不否认已落盘mutation。PowerShell façade仅透传attempt/claim/launch/replacement参数，smoke通过；canonical skill精确32768 bytes。受影响六包完整测试通过（CLI 235.194秒），修复后全仓`go test ./... -count=1`（CLI 234.698秒）、`go vet ./...`与`git diff --check`通过。独立correctness/security/architecture审查发现的outer replay、priority、wrong-mode input、partial receipt、public nested route、outer identity、ticket recovery与running replacement问题均已修复；最后定向复核无surviving finding。README、canonical skill、Agent Team usage、release readiness、CHANGELOG与release invariants已同步；根CLAUDE、pack manifest/config/example无需修改，因为产品边界、schema与配置面未变。完成态`release-check -Format json`返回`ready=true`；status、10-pack packs、doctor通过。Windows `release-run -Format json`以7/7通过（581.421秒，其中完整Go tests 578.200秒），全部步骤attempts=1并生成Git-local v2 validation receipt。Implementation commit/push随后记录。普通batch不等待或声明remote CI green。

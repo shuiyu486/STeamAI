@@ -47,10 +47,12 @@ type Intent struct {
 }
 
 type RecoveryEnvelope struct {
-	SchemaVersion int             `json:"schemaVersion"`
-	RepoRoot      string          `json:"repoRoot"`
-	CreatedAt     string          `json:"createdAt"`
-	Writes        []RecoveryWrite `json:"writes"`
+	SchemaVersion    int                `json:"schemaVersion"`
+	RepoRoot         string             `json:"repoRoot"`
+	CreatedAt        string             `json:"createdAt"`
+	Mode             string             `json:"mode,omitempty"`
+	Writes           []RecoveryWrite    `json:"writes,omitempty"`
+	AttachedSnapshot []SnapshotArtifact `json:"attachedSnapshot,omitempty"`
 }
 
 type RecoveryWrite struct {
@@ -60,6 +62,13 @@ type RecoveryWrite struct {
 	Size             int64  `json:"size"`
 	Content          []byte `json:"content"`
 	PublicationPhase int    `json:"publicationPhase"`
+}
+
+type SnapshotArtifact struct {
+	Path   string `json:"path"`
+	Kind   string `json:"kind"`
+	SHA256 string `json:"sha256"`
+	Size   int64  `json:"size"`
 }
 
 type Commit struct {
@@ -148,6 +157,12 @@ func ValidateRecoveryEnvelope(identity Identity, envelope RecoveryEnvelope) erro
 	if _, err := time.Parse(time.RFC3339Nano, envelope.CreatedAt); err != nil {
 		return fmt.Errorf("invalid onboarding recovery createdAt: %w", err)
 	}
+	if envelope.Mode == "attached-adoption" {
+		return validateAttachedSnapshot(envelope)
+	}
+	if envelope.Mode != "" || len(envelope.AttachedSnapshot) != 0 {
+		return fmt.Errorf("onboarding recovery envelope has an unsupported mode")
+	}
 	if len(envelope.Writes) == 0 || len(envelope.Writes) > maxRecoveryWrites {
 		return fmt.Errorf("onboarding recovery write count is outside bounds")
 	}
@@ -162,13 +177,9 @@ func ValidateRecoveryEnvelope(identity Identity, envelope RecoveryEnvelope) erro
 	lastPhase := -1
 	lastPath := ""
 	for _, write := range envelope.Writes {
-		rel := filepath.ToSlash(filepath.Clean(filepath.FromSlash(strings.TrimSpace(write.Path))))
-		if rel == "" || rel == "." || filepath.IsAbs(filepath.FromSlash(rel)) || rel == ".." || strings.HasPrefix(rel, "../") || rel != write.Path {
-			return fmt.Errorf("invalid onboarding recovery path: %q", write.Path)
-		}
-		key := strings.ToLower(filepath.ToSlash(rel))
-		if key == strings.ToLower(filepath.ToSlash(IntentRel)) || key == strings.ToLower(filepath.ToSlash(MissionIntentRel)) || key == strings.ToLower(filepath.ToSlash(CommitRel)) {
-			return fmt.Errorf("onboarding recovery envelope must not embed generated artifact: %s", rel)
+		rel, key, err := validateRecoveryPath(write.Path)
+		if err != nil {
+			return err
 		}
 		if _, ok := seen[key]; ok {
 			return fmt.Errorf("duplicate onboarding recovery path: %s", rel)
@@ -212,6 +223,73 @@ func ValidateRecoveryEnvelope(identity Identity, envelope RecoveryEnvelope) erro
 		}
 	}
 	return nil
+}
+
+func validateAttachedSnapshot(envelope RecoveryEnvelope) error {
+	if len(envelope.Writes) != 0 || len(envelope.AttachedSnapshot) == 0 || len(envelope.AttachedSnapshot) > maxRecoveryWrites {
+		return fmt.Errorf("attached onboarding recovery snapshot count is outside bounds")
+	}
+	required := map[string]string{
+		".rekit/instance.yml":           "instance-metadata",
+		".claude/skills/rekit/skill.md": "case-local-thin-shim",
+		".re-template.yml":              "legacy-metadata",
+		".rekit/state.json":             "initial-state",
+	}
+	seen := map[string]struct{}{}
+	var total int64
+	lastPath := ""
+	for _, artifact := range envelope.AttachedSnapshot {
+		rel, key, err := validateRecoveryPath(artifact.Path)
+		if err != nil {
+			return err
+		}
+		if _, ok := seen[key]; ok {
+			return fmt.Errorf("duplicate attached onboarding snapshot path: %s", rel)
+		}
+		seen[key] = struct{}{}
+		if artifact.Path <= lastPath {
+			return fmt.Errorf("attached onboarding snapshot is not ordered: %s", rel)
+		}
+		fixedKinds := map[string]string{
+			".rekit/instance.yml":           "instance-metadata",
+			".claude/skills/rekit/skill.md": "case-local-thin-shim",
+			".re-template.yml":              "legacy-metadata",
+			".rekit/state.json":             "sync-state",
+		}
+		if expected, fixed := fixedKinds[key]; fixed {
+			if artifact.Path != canonicalRecoveryPath(key) || artifact.Kind != expected {
+				return fmt.Errorf("attached onboarding snapshot fixed artifact %s requires kind %s and canonical path casing", artifact.Path, expected)
+			}
+		} else if isRecoveryControlPath(key) || artifact.Kind != "doctor-validated-artifact" {
+			return fmt.Errorf("attached onboarding snapshot rejects artifact kind or runtime/control namespace: %s", artifact.Path)
+		}
+		if artifact.Size < 1 || artifact.Size > maxRecoveryBytes || !validSHA256(artifact.SHA256) {
+			return fmt.Errorf("attached onboarding snapshot binding is invalid: %s", rel)
+		}
+		total += artifact.Size
+		if total > maxRecoveryBytes {
+			return fmt.Errorf("attached onboarding snapshot exceeds %d bytes", maxRecoveryBytes)
+		}
+		lastPath = artifact.Path
+	}
+	for path, kind := range required {
+		if _, ok := seen[path]; !ok {
+			return fmt.Errorf("attached onboarding snapshot is missing required %s artifact: %s", kind, path)
+		}
+	}
+	return nil
+}
+
+func validateRecoveryPath(value string) (string, string, error) {
+	rel := filepath.ToSlash(filepath.Clean(filepath.FromSlash(strings.TrimSpace(value))))
+	if rel == "" || rel == "." || filepath.IsAbs(filepath.FromSlash(rel)) || rel == ".." || strings.HasPrefix(rel, "../") || rel != value {
+		return "", "", fmt.Errorf("invalid onboarding recovery path: %q", value)
+	}
+	key := strings.ToLower(rel)
+	if key == strings.ToLower(filepath.ToSlash(IntentRel)) || key == strings.ToLower(filepath.ToSlash(MissionIntentRel)) || key == strings.ToLower(filepath.ToSlash(CommitRel)) {
+		return "", "", fmt.Errorf("onboarding recovery envelope must not embed generated artifact: %s", rel)
+	}
+	return rel, key, nil
 }
 
 func validateRecoveryWrite(identity Identity, envelope RecoveryEnvelope, key string, write RecoveryWrite) error {

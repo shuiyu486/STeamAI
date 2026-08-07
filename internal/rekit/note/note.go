@@ -86,6 +86,7 @@ type AppendResult struct {
 	EventSHA256                      string                                   `json:"eventSha256"`
 	ExpectedEventSHA256              string                                   `json:"expectedEventSha256,omitempty"`
 	RecordCommand                    string                                   `json:"recordCommand,omitempty"`
+	RecordArgs                       []string                                 `json:"recordArgs,omitempty"`
 	Event                            map[string]any                           `json:"event"`
 	MissionBrief                     mission.Brief                            `json:"missionBrief"`
 	ExecutorAction                   mission.ExecutorAction                   `json:"executorAction"`
@@ -117,6 +118,8 @@ type ListGroup struct {
 }
 
 type event map[string]any
+
+var interventionBeforeLeaseHook func() error
 
 func List(repoRoot, caseRoot, pack string, opt Options) (string, error) {
 	result, err := ListEvents(repoRoot, caseRoot, pack, opt)
@@ -250,6 +253,7 @@ func Append(repoRoot, caseRoot, pack string, opt Options, whatIf bool) (result A
 		EventSHA256:                 eventSHA256,
 		ExpectedEventSHA256:         strings.TrimSpace(opt.ExpectedEventSHA256),
 		RecordCommand:               recordCommand(inst.CaseRoot, pack, event, eventSHA256),
+		RecordArgs:                  recordArgs(inst.CaseRoot, pack, event, eventSHA256),
 		Event:                       event,
 		MissionBrief:                brief,
 		ExecutorAction:              action,
@@ -284,7 +288,12 @@ func Append(repoRoot, caseRoot, pack string, opt Options, whatIf bool) (result A
 	}
 	var interventionLease *lanemutation.Lease
 	if kind == "intervention" {
-		interventionLease, err = lanemutation.AcquireLane(inst.CaseRoot, lane)
+		if interventionBeforeLeaseHook != nil {
+			if err := interventionBeforeLeaseHook(); err != nil {
+				return AppendResult{}, err
+			}
+		}
+		interventionLease, err = lanemutation.AcquireOpenLane(inst.CaseRoot, lane, "note")
 		if err != nil {
 			return AppendResult{}, err
 		}
@@ -669,10 +678,22 @@ var recordCommandReplayableKeys = map[string]bool{
 }
 
 func recordCommand(caseRoot, pack string, event map[string]any, eventSHA256 string) string {
-	if !recordCommandReplayable(event) {
+	args := recordArgs(caseRoot, pack, event, eventSHA256)
+	if len(args) == 0 {
 		return ""
 	}
-	args := []string{"/rekit", "note", "-Target", caseRoot, "-Pack", pack, "-Kind", stringValue(event, "kind"), "-Lane", stringValue(event, "lane")}
+	parts := append([]string{"/rekit", "note"}, args[2:]...)
+	for i := range parts {
+		parts[i] = quoteCommandArg(parts[i])
+	}
+	return strings.Join(parts, " ")
+}
+
+func recordArgs(caseRoot, pack string, event map[string]any, eventSHA256 string) []string {
+	if !recordCommandReplayable(event) {
+		return nil
+	}
+	args := []string{"-Command", "note", "-Target", caseRoot, "-Pack", pack, "-Kind", stringValue(event, "kind"), "-Lane", stringValue(event, "lane")}
 	for _, item := range []struct{ flag, key string }{
 		{"-Subject", "subject"},
 		{"-Summary", "summary"},
@@ -704,11 +725,7 @@ func recordCommand(caseRoot, pack string, event map[string]any, eventSHA256 stri
 			args = append(args, item.flag, value)
 		}
 	}
-	args = append(args, "-Format", "json")
-	for i := range args {
-		args[i] = quoteCommandArg(args[i])
-	}
-	return strings.Join(args, " ")
+	return append(args, "-Format", "json")
 }
 
 func quoteCommandArg(value string) string {

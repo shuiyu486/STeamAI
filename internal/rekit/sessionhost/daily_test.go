@@ -1,0 +1,462 @@
+package sessionhost
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/lanecompletion"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/note"
+	rekitruntime "github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
+	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
+)
+
+func TestRunDailyRejectsGoalAndCorrectionTogether(t *testing.T) {
+	result, err := RunDaily(context.Background(), DailyOptions{Target: filepath.Join(t.TempDir(), "case"), Goal: "goal", Correction: "correction"})
+	if err == nil || !strings.Contains(err.Error(), "either -goal or -correction") || result.Mode != "correction" {
+		t.Fatalf("RunDaily result=%+v err=%v", result, err)
+	}
+}
+
+func TestRunDailyCaseReadyHookCapturesFreshOnboardingFailure(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "fresh-hook")
+	calls := 0
+	result, err := RunDaily(context.Background(), DailyOptions{
+		Target:                            caseRoot,
+		Goal:                              "capture fresh partial onboarding",
+		ClaudePath:                        missingClaudePath(t),
+		ExpectedClaudeExecutableSHA256:    strings.Repeat("0", 64),
+		ExpectedClaudeExecutablePublisher: liveAcceptanceClaudePublisher,
+		onCaseReady: func(root string) error {
+			calls++
+			if root != caseRoot {
+				t.Fatalf("fresh hook root=%s want=%s", root, caseRoot)
+			}
+			if info, statErr := os.Lstat(root); statErr != nil || !info.IsDir() {
+				t.Fatalf("fresh hook observed invalid root: info=%v err=%v", info, statErr)
+			}
+			return nil
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "validate trusted Claude Code executable") {
+		t.Fatalf("fresh hook result=%+v err=%v", result, err)
+	}
+	if calls != 1 {
+		t.Fatalf("fresh hook calls=%d want=1", calls)
+	}
+}
+
+func TestRunDailyCaseReadyHookCapturesExistingCaseBeforeMutation(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "existing-hook")
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	inspection, err := applyDailyOnboarding(caseRoot, "existing hook goal", "daily-test", &bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	result, err := RunDaily(context.Background(), DailyOptions{
+		Target:                            caseRoot,
+		Goal:                              inspection.Identity.Goal,
+		ClaudePath:                        missingClaudePath(t),
+		ExpectedClaudeExecutableSHA256:    strings.Repeat("0", 64),
+		ExpectedClaudeExecutablePublisher: liveAcceptanceClaudePublisher,
+		onCaseReady: func(root string) error {
+			calls++
+			if root != caseRoot {
+				t.Fatalf("existing hook root=%s want=%s", root, caseRoot)
+			}
+			return nil
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "validate trusted Claude Code executable") {
+		t.Fatalf("existing hook result=%+v err=%v", result, err)
+	}
+	if calls != 1 {
+		t.Fatalf("existing hook calls=%d want=1", calls)
+	}
+}
+
+func TestRunDailyRejectsUnboundCustomClaudeBeforeMutation(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "unbound")
+	result, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Goal: "goal", ClaudePath: missingClaudePath(t)})
+	if err == nil || !strings.Contains(err.Error(), "refuses a custom or unbound Claude executable") {
+		t.Fatalf("unbound custom Claude result=%+v err=%v", result, err)
+	}
+	if result.OnboardingApplied || result.SessionLaunches != 0 {
+		t.Fatalf("unbound custom Claude mutated case: %+v", result)
+	}
+	if _, err := os.Lstat(caseRoot); !os.IsNotExist(err) {
+		t.Fatalf("unbound custom Claude created case: %v", err)
+	}
+}
+
+func TestRunDailyFreshGoalCommitsAndStartsBeforeClaudeUnavailable(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "fresh")
+	result, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Goal: "inspect the supplied research target", ClaudePath: missingClaudePath(t), ExpectedClaudeExecutableSHA256: strings.Repeat("0", 64), ExpectedClaudeExecutablePublisher: liveAcceptanceClaudePublisher})
+	if err == nil || !strings.Contains(err.Error(), "validate trusted Claude Code executable") {
+		t.Fatalf("RunDaily result=%+v err=%v", result, err)
+	}
+	if !result.OnboardingApplied || result.Pack != defaults.DefaultPack || result.Lane != "feature-mission" || result.SessionLaunches != 0 {
+		t.Fatalf("fresh daily result = %+v", result)
+	}
+	inspection, inspectErr := missionintent.Inspect(caseRoot)
+	if inspectErr != nil || !inspection.Committed || inspection.Identity.Goal != "inspect the supplied research target" {
+		t.Fatalf("fresh daily inspection=%+v err=%v", inspection, inspectErr)
+	}
+	board, boardErr := mission.ReadBoard(caseRoot)
+	if boardErr != nil {
+		t.Fatal(boardErr)
+	}
+	lane, ok := mission.LookupBoardLane(board.Lanes, result.Lane, false)
+	if !ok || lane.ExecutorGeneration != 1 || lane.CurrentExecutor == "" {
+		t.Fatalf("fresh daily lane = %+v", lane)
+	}
+}
+
+func TestRunDailyResumeContinuesCommittedLaneBeforeClaudeUnavailable(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "resume")
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	inspection, err := applyDailyOnboarding(caseRoot, "resume goal", "daily-test", &bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, ClaudePath: missingClaudePath(t), ExpectedClaudeExecutableSHA256: strings.Repeat("0", 64), ExpectedClaudeExecutablePublisher: liveAcceptanceClaudePublisher})
+	if err == nil || !strings.Contains(err.Error(), "validate trusted Claude Code executable") {
+		t.Fatalf("resume result=%+v err=%v", result, err)
+	}
+	if result.Mode != "resume" || result.Pack != inspection.Identity.Pack || result.Lane != inspection.Identity.InitialLane || result.SessionLaunches != 0 || !containsDailyStep(result.DriverSteps, "overview") || !containsDailyStep(result.DriverSteps, "start") {
+		t.Fatalf("resume result=%+v", result)
+	}
+}
+
+func TestRunDailyRejectsConflictingCommittedGoalWithoutLaunchingClaude(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "goal-conflict")
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	if _, err := applyDailyOnboarding(caseRoot, "immutable goal", "daily-test", &bootstrap); err != nil {
+		t.Fatal(err)
+	}
+	result, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Goal: "different goal", ClaudePath: missingClaudePath(t), ExpectedClaudeExecutableSHA256: strings.Repeat("0", 64), ExpectedClaudeExecutablePublisher: liveAcceptanceClaudePublisher})
+	if err == nil || !strings.Contains(err.Error(), "differs from the immutable committed mission intent") {
+		t.Fatalf("conflicting goal result=%+v err=%v", result, err)
+	}
+	if result.SessionLaunches != 0 || len(result.HostRuns) != 0 {
+		t.Fatalf("conflicting goal launched a session: %+v", result)
+	}
+}
+
+func TestRunDailyAdoptsExistingAttachedCaseBeforeClaudeUnavailable(t *testing.T) {
+	repo := sessionhostTestRepoRoot(t)
+	caseRoot := provisionSessionhostAttachedCase(t, repo, "_template")
+	result, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Goal: "analyze the attached case", ClaudePath: missingClaudePath(t), ExpectedClaudeExecutableSHA256: strings.Repeat("0", 64), ExpectedClaudeExecutablePublisher: liveAcceptanceClaudePublisher})
+	if err == nil || !strings.Contains(err.Error(), "validate trusted Claude Code executable") {
+		t.Fatalf("RunDaily result=%+v err=%v", result, err)
+	}
+	if !result.OnboardingApplied || result.Pack != "_template" || result.Lane != "feature-mission" || result.SessionLaunches != 0 {
+		t.Fatalf("attached daily result = %+v", result)
+	}
+	inspection, inspectErr := missionintent.Inspect(caseRoot)
+	if inspectErr != nil || !inspection.Committed || inspection.Recovery.Mode != "attached-adoption" {
+		t.Fatalf("attached daily inspection=%+v err=%v", inspection, inspectErr)
+	}
+	content, readErr := os.ReadFile(filepath.Join(caseRoot, "case-local.txt"))
+	if readErr != nil || string(content) != "preserve me\n" {
+		t.Fatalf("ordinary attached content changed: %q err=%v", content, readErr)
+	}
+}
+
+func TestRunDailyRefusesOrdinaryDirectoryTakeover(t *testing.T) {
+	caseRoot := t.TempDir()
+	path := filepath.Join(caseRoot, "user.txt")
+	if err := os.WriteFile(path, []byte("keep\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Goal: "goal", ClaudePath: missingClaudePath(t), ExpectedClaudeExecutableSHA256: strings.Repeat("0", 64), ExpectedClaudeExecutablePublisher: liveAcceptanceClaudePublisher})
+	if err == nil || !strings.Contains(err.Error(), "current attached case") {
+		t.Fatalf("RunDaily result=%+v err=%v", result, err)
+	}
+	if _, err := os.Lstat(filepath.Join(caseRoot, filepath.FromSlash(missionintent.IntentRel))); !os.IsNotExist(err) {
+		t.Fatalf("ordinary directory takeover wrote intent: %v", err)
+	}
+}
+
+func TestRunDailyRefusesPendingCompletionAsTerminalReplay(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "pending-completion")
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	inspection, err := applyDailyOnboarding(caseRoot, "pending completion goal", "daily-test", &bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap.Lane = inspection.Identity.InitialLane
+	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
+		t.Fatal(err)
+	}
+	boardPath := filepath.Join(caseRoot, ".rekit", "board.json")
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lane, ok := mission.LookupBoardLane(board.Lanes, bootstrap.Lane, false)
+	if !ok {
+		t.Fatalf("started lane missing from board: %+v", board.Lanes)
+	}
+	for index := range board.Lanes {
+		if board.Lanes[index].ID == bootstrap.Lane {
+			board.Lanes[index].Status = "closed"
+		}
+	}
+	boardBytes, err := json.MarshalIndent(board, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(boardPath, append(boardBytes, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	intent := lanecompletion.CompletionIntent{
+		SchemaVersion:      1,
+		Kind:               "lane-completion-intent",
+		Sequence:           1,
+		Lane:               bootstrap.Lane,
+		Label:              "mission",
+		PreviousStatus:     "active",
+		Actor:              "daily-test",
+		Reason:             "simulate interrupted publication without LLM output",
+		EvidenceRefs:       []string{},
+		Evidence:           []lanecompletion.Evidence{},
+		CurrentExecutor:    lane.CurrentExecutor,
+		ExecutorGeneration: lane.ExecutorGeneration,
+		CreatedAt:          "2026-08-07T01:02:03Z",
+		EventID:            "lane-completed-pending-test",
+		PreviewSHA256:      strings.Repeat("a", 64),
+		NoAuthority:        true,
+		NoConfirmed:        true,
+		NoHeavyTool:        true,
+	}
+	intentBytes, err := json.MarshalIndent(intent, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	intentPath := lanecompletion.IntentPath(caseRoot, bootstrap.Lane, 1, "complete")
+	if err := os.WriteFile(intentPath, append(intentBytes, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := RunDaily(context.Background(), DailyOptions{
+		Target:                            caseRoot,
+		Goal:                              inspection.Identity.Goal,
+		ClaudePath:                        missingClaudePath(t),
+		ExpectedClaudeExecutableSHA256:    strings.Repeat("0", 64),
+		ExpectedClaudeExecutablePublisher: liveAcceptanceClaudePublisher,
+	})
+	if err == nil || (!strings.Contains(err.Error(), "pending lane completion publication") && !strings.Contains(err.Error(), "completion publication is incomplete")) {
+		t.Fatalf("pending completion result=%+v err=%v", result, err)
+	}
+	if result.Replay || result.SessionLaunches != 0 || result.SessionCompletions != 0 {
+		t.Fatalf("pending completion was treated as terminal replay: %+v", result)
+	}
+	if _, err := os.Lstat(lanecompletion.ReceiptPath(caseRoot, bootstrap.Lane, 1, "complete")); !os.IsNotExist(err) {
+		t.Fatalf("daily replay wrote pending completion commit: %v", err)
+	}
+}
+
+func TestRunDailyRefusesArchivedLaneWithoutDurableArchiveTransition(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "archived-lane")
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	inspection, err := applyDailyOnboarding(caseRoot, "archived lane goal", "daily-test", &bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap.Lane = inspection.Identity.InitialLane
+	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
+		t.Fatal(err)
+	}
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := range board.Lanes {
+		if board.Lanes[index].ID == bootstrap.Lane {
+			board.Lanes[index].Status = "archived"
+		}
+	}
+	boardBytes, err := json.MarshalIndent(board, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "board.json"), append(boardBytes, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Goal: inspection.Identity.Goal})
+	if err == nil || !strings.Contains(err.Error(), "no durable archive transition is supported") {
+		t.Fatalf("archived lane result=%+v err=%v", result, err)
+	}
+	if result.Replay || result.SessionLaunches != 0 {
+		t.Fatalf("archived lane was treated as replay: %+v", result)
+	}
+}
+
+func TestRunDailyCorrectionRefusesPendingCompletionAsTerminalReplay(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "pending-correction-completion")
+	actor := "daily-test"
+	correction := "retry the durable correction without launching another member"
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	inspection, err := applyDailyOnboarding(caseRoot, "pending correction completion goal", actor, &bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap.Lane = inspection.Identity.InitialLane
+	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
+		t.Fatal(err)
+	}
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lane, ok := mission.LookupBoardLane(board.Lanes, bootstrap.Lane, false)
+	if !ok {
+		t.Fatalf("started lane missing from board: %+v", board.Lanes)
+	}
+	eventID := dailyCorrectionEventID(dailyCorrectionScope(caseRoot, inspection), bootstrap.Lane, correction)
+	correctionEvent := map[string]any{
+		"schemaVersion": 1, "eventId": eventID, "kind": "intervention", "lane": bootstrap.Lane,
+		"subject": "daily human correction", "summary": correction, "actor": actor,
+		"action": "override", "status": "open", "target": missionintent.MissionIntentRel,
+	}
+	resolutionTime := "2026-08-07T01:02:03Z"
+	resolutionEvent := map[string]any{
+		"schemaVersion": 1, "eventId": "daily-correction-resolution-pending-test", "kind": "intervention", "lane": bootstrap.Lane,
+		"subject": "reconcile pending correction", "summary": "deterministic lifecycle fixture without LLM output",
+		"action": "reconcile", "status": "resolved", "resolvesEventId": eventID,
+		"target": missionintent.MissionIntentRel, "actor": actor, "executor": lane.CurrentExecutor,
+		"reason": "simulate interrupted completion publication", "time": resolutionTime,
+	}
+	_, interventionPath, err := mission.FactPath(caseRoot, "intervention")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mission.AppendJSONLine(interventionPath, correctionEvent); err != nil {
+		t.Fatal(err)
+	}
+	if err := mission.AppendJSONLine(interventionPath, resolutionEvent); err != nil {
+		t.Fatal(err)
+	}
+	for index := range board.Lanes {
+		if board.Lanes[index].ID == bootstrap.Lane {
+			board.Lanes[index].Status = "closed"
+			board.Lanes[index].LastReconciledIntervention = eventID
+			board.Lanes[index].LastReconcileAt = resolutionTime
+		}
+	}
+	boardBytes, err := json.MarshalIndent(board, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "board.json"), append(boardBytes, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	intent := lanecompletion.CompletionIntent{
+		SchemaVersion: 1, Kind: "lane-completion-intent", Sequence: 1, Lane: bootstrap.Lane, Label: "mission",
+		PreviousStatus: "active", Actor: actor, Reason: "simulate interrupted completion publication without LLM output",
+		EvidenceRefs: []string{}, Evidence: []lanecompletion.Evidence{}, CurrentExecutor: lane.CurrentExecutor,
+		ExecutorGeneration: lane.ExecutorGeneration, CreatedAt: resolutionTime, EventID: "lane-completed-pending-correction-test",
+		PreviewSHA256: strings.Repeat("a", 64), NoAuthority: true, NoConfirmed: true, NoHeavyTool: true,
+	}
+	intentBytes, err := json.MarshalIndent(intent, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lanecompletion.IntentPath(caseRoot, bootstrap.Lane, 1, "complete"), append(intentBytes, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := RunDaily(context.Background(), DailyOptions{
+		Target: caseRoot, Correction: correction, Actor: actor, ClaudePath: missingClaudePath(t),
+		ExpectedClaudeExecutableSHA256: strings.Repeat("0", 64), ExpectedClaudeExecutablePublisher: liveAcceptanceClaudePublisher,
+	})
+	if err == nil || !strings.Contains(err.Error(), "pending lane completion publication") {
+		t.Fatalf("pending correction completion result=%+v err=%v", result, err)
+	}
+	if result.Replay || result.SessionLaunches != 0 || result.SessionCompletions != 0 {
+		t.Fatalf("pending correction completion was treated as terminal replay: %+v", result)
+	}
+}
+
+func TestRunDailyPrewrittenCorrectionCannotBypassMemberReadiness(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "correction-retry")
+	actor := "daily-source-actor"
+	goal := "inspect the supplied research target"
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	inspection, err := applyDailyOnboarding(caseRoot, goal, actor, &bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pack := inspection.Identity.Pack
+	bootstrap.Lane = inspection.Identity.InitialLane
+	if err := ensureDailyStarted(caseRoot, pack, &bootstrap); err != nil {
+		t.Fatal(err)
+	}
+
+	correction := "prioritize the recovered control-flow evidence"
+	eventID := dailyCorrectionEventID(dailyCorrectionScope(caseRoot, inspection), inspection.Identity.InitialLane, correction)
+	args := dailyCorrectionArgs(caseRoot, pack, inspection.Identity.InitialLane, correction, actor, eventID, "2026-08-07T01:02:03Z", missionintent.MissionIntentRel)
+	var preview note.AppendResult
+	if err := runPublicCLI(args, &preview); err != nil {
+		t.Fatal(err)
+	}
+	var recorded note.AppendResult
+	if err := runPublicCLI(preview.RecordArgs, &recorded); err != nil || !recorded.Applied {
+		t.Fatalf("record correction: applied=%t err=%v", recorded.Applied, err)
+	}
+
+	opt := DailyOptions{Target: caseRoot, Correction: correction, Actor: actor, ClaudePath: missingClaudePath(t), ExpectedClaudeExecutableSHA256: strings.Repeat("0", 64), ExpectedClaudeExecutablePublisher: liveAcceptanceClaudePublisher}
+	first, firstErr := RunDaily(context.Background(), opt)
+	if firstErr == nil || !strings.Contains(firstErr.Error(), "current real member result") {
+		t.Fatalf("prewritten correction result=%+v err=%v", first, firstErr)
+	}
+	if first.ExecutorGeneration != 0 || containsDailyStep(first.DriverSteps, "reconcile") || first.SessionLaunches != 0 {
+		t.Fatalf("prewritten correction bypassed member readiness: %+v", first)
+	}
+	if _, ok, inspectErr := inspectDailyCorrectionResolution(caseRoot, inspection.Identity.InitialLane, eventID); inspectErr != nil || ok {
+		t.Fatalf("prewritten correction created resolution: ok=%t err=%v", ok, inspectErr)
+	}
+}
+
+func provisionSessionhostAttachedCase(t *testing.T, repo, pack string) string {
+	t.Helper()
+	caseRoot := filepath.Join(t.TempDir(), "attached")
+	plan, err := syncreview.PlanExclusiveInit(repo, caseRoot, pack, syncreview.ExclusiveInitOptions{ProjectName: "attached-demo", ProvisionID: "sessionhost-attached-fixture", Role: "sessionhost-attached-fixture", CreatedAt: time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC), SkipVerificationMarker: true, DefaultPublicationPhase: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := syncreview.ApplyExclusiveInit(plan); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caseRoot, "case-local.txt"), []byte("preserve me\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return caseRoot
+}
+
+func sessionhostTestRepoRoot(t *testing.T) string {
+	t.Helper()
+	ctx, err := rekitruntime.New("", "_template")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ctx.RepoRoot
+}
+
+func missingClaudePath(t *testing.T) string {
+	t.Helper()
+	return filepath.Join(t.TempDir(), "missing-claude.exe")
+}
+
+func containsDailyStep(steps []string, want string) bool {
+	return slices.Contains(steps, want)
+}

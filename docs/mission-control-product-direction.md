@@ -14,7 +14,7 @@
 
 用户主要和一个 **主 Agent / Mission Commander** 会话交互。主 Agent 通过 ReKit deterministic runtime 调度长期 **member lane**，而不是依赖某个旧聊天窗口。每个 lane 可以由当前 Claude Code 会话执行，也可以在上下文污染、模型切换、会话损坏或用户希望重开时，由新的 Claude Code 会话读取 handoff / packet / evidence 后接手。主 Agent 也可以启动短命 tactical subagent 处理搜索、验证、review、小修、小调研等局部任务。
 
-`/rekit` 与 Go backend 是底层确定性 runtime / API，`rekit.ps1` 只作为 retained compatibility façade；它们都不是主要用户体验。用户体验应尽量表现为自然语言 mission control：开始任务、继续推进、查看总体状态、进入某个成员 lane、接手 lane、沉淀经验。
+`/rekit` 与 Go backend 是底层确定性 runtime / API，`rekit.ps1` 只作为 retained compatibility façade；它们都不是主要用户体验。Go-owned `rekit-host -daily` 是主 Agent 的自然语言执行前门，只接收 target + goal/correction 并自动派生 lifecycle identity；用户体验应表现为开始任务、继续推进、查看总体状态、纠偏、进入或接手成员 lane、沉淀经验，而不是手工拼底层命令。
 
 Batch 359 后，Go-owned public surface、durable lane state、显式 `reconcile`、typed autonomy preflight、Mission brief / executor action snapshot、Go-native bounded reviewer strict intake/writeback、pack-memory promote/reconsume package E2E，以及 authorized execution observation evidence + bounded adapter execution report strict intake/contract projection/read-only validation preflight（含 invalid sidecar `valid=false` envelope/failure taxonomy 与 sidecar boundary/escalation marker fail-closed validation）已形成底座；主 Agent已在本机真实 spawn 一个 read-only reviewer，并跑通 packet/result binding、evidence-ref validation、WhatIf/Apply verification-before-decision 幂等写回与 overview/handoff/doctor post-validation。runtime 仍不自动 spawn、注册或管理 reviewer/member session，也不执行 heavy-tool；当前未完成的是统一 session/reviewer orchestration、真实 lane executor / tool-adapter live validation、pack-memory product UX 与 Windows 本机 product-path 继续打磨。远程 Linux/macOS/Windows CI 和 macOS/Linux product-path E2E 仍是 release readiness known gap，但在 runner/billing blocker 解除或发布前降为低优先级，不阻塞本机 Mission Control 闭环迭代。
 
@@ -268,4 +268,4 @@ case observation / recipe / checklist / prompt / adapter candidate
 
 长期 goal 的 canonical 版本在 `docs/autonomous-goal.md`，本文件只保留产品北极星，避免两个可复制 goal 在上下文压缩后漂移。
 
-当前推荐使用 `docs/autonomous-goal.md` 的短 goal：goal 只负责启动长期自主推进，不复制路线、候选项或停止条件细则。短 goal 应点名最小接手入口（`CLAUDE.md`、`docs/context-routing.md`、`docs/autonomous-goal.md` 顶部、`docs/batch-plan.md` 顶部、`CHANGELOG.md` Unreleased），再由这些文档承载具体计划：选择中大型、端到端、可验证的 product-path closure，并避免连续补字段、summary 或 projection 微批次。
+当前推荐使用 `docs/autonomous-goal.md` 的短 goal：goal 只负责启动或继续 `docs/real-usage-hardening-roadmap.md` 已批准的有序路线，不承载路线正文，也不授权自由选题。短 goal 应点名 `docs/context-routing.md`，再由路由要求读取路线图顶部/当前批次卡、`docs/batch-plan.md` 指针投影和 `CHANGELOG.md` Unreleased；当前批未完成时不得跳批，完成后也只能领取明确解锁的下一批。

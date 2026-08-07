@@ -39,13 +39,14 @@ func writeReleaseHandoffFixture(t *testing.T, repo, batchTitle, changelogLine st
   "recommendedMinimum": ["go run ./cmd/rekit -- -Command release-check -Format json"],
   "globalBoundaries": ["boundary"]
 }`)
-	writeFile(t, filepath.Join(repo, "docs", "context-routing.md"), "# Context routing\n\n按需路由。\n渐进式披露。\n不要默认读取 `docs/batch-history.md` 全文。\n")
-	writeFile(t, filepath.Join(repo, "docs", "batch-plan.md"), "# Batch implementation plan\n\n完整历史已拆到 `docs/batch-history.md`。\n\n### "+batchTitle+"\n\n状态：已完成。\n\n目标：fixture goal.\n\n验证结果：fixture validation.\n")
+	writeFile(t, filepath.Join(repo, "docs", "context-routing.md"), "# Context routing\n\n按需路由。\n渐进式披露。\n不要默认读取 `docs/batch-history.md` 全文。\n当前不再从候选池选题。\n")
+	writeFile(t, filepath.Join(repo, "docs", "real-usage-hardening-roadmap.md"), "# Roadmap\n\n唯一有序选题来源。\n不得静默跳批。\n")
+	writeFile(t, filepath.Join(repo, "docs", "batch-plan.md"), "# Batch implementation plan\n\n完整历史已拆到 `docs/batch-history.md`。\n唯一允许领取：RH-01。\n\n### "+batchTitle+"\n\n状态：已完成。\n\n目标：fixture goal.\n\n验证结果：fixture validation.\n")
 	writeFile(t, filepath.Join(repo, "docs", "release-readiness.md"), "# Release readiness\n\n普通 batch 默认依赖 Go-owned `release-check` inventory。\n默认本机验证路径不依赖 PowerShell。\n\n## Known gaps\n\n- fixture gap\n")
 	writeFile(t, filepath.Join(repo, "README.md"), "# README\n\n用户主要指挥主 Agent / Mission Commander\nGo CLI/backend 是背后的 canonical deterministic runtime/API\n`rekit.ps1` 仅作为 retained compatibility façade\n默认路径继续向 PowerShell-free / Go-native / 跨平台收敛\n这里不需要你手动执行底层脚本\n用户不需要把 `/rekit` 子命令当成主要交互界面\n")
 	writeFile(t, filepath.Join(repo, "CLAUDE.md"), "# CLAUDE\n\n当前支持与日常完成门槛以 Windows 本机为准\nPowerShell replacement/removal 不再因“删除 PowerShell”本身停下询问\n")
 	writeFile(t, filepath.Join(repo, "docs", "mission-control-product-direction.md"), "# mission control\n\nLane-centric Agent Team Mission Control\n用户主要和一个 **主 Agent / Mission Commander** 会话交互\nGo-first deterministic substrate\n")
-	writeFile(t, filepath.Join(repo, "docs", "autonomous-goal.md"), "# autonomous goal\n\nPowerShell-free / Go-native / 跨平台\n每轮自主推进按这个循环做\n默认继续自主推进\n")
+	writeFile(t, filepath.Join(repo, "docs", "autonomous-goal.md"), "# autonomous goal\n\nPowerShell-free / Go-native / 跨平台\n每轮自主推进按这个循环做\n默认继续自主推进仅表示继续**已批准路线**\n")
 	writeFile(t, filepath.Join(repo, "docs", "go-first-convergence-plan.md"), "# go first\n\nGo backend 成为 rekit 的 deterministic runtime owner\n不要把大型 PowerShell matrix 作为默认必跑\nPowerShell-free / Go-native convergence\n")
 	writeFile(t, filepath.Join(repo, "docs", "go-runtime-migration.md"), "# runtime migration\n\n当前默认验证应优先运行 Go-native release gate\n`/rekit` remains the public ABI while the default implementation converges to the Go deterministic backend\n")
 	writeFile(t, filepath.Join(repo, "docs", "powershell-deprecation.md"), "# powershell\n\nPowerShell-free default/product path / Go-native / 跨平台 convergence\nGo CLI/backend 是 canonical runtime\nPowerShell 当前只保留 `rekit/rekit.ps1` compatibility façade 与按需 parity residue\n")
