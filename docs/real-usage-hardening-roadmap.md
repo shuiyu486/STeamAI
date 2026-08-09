@@ -13,12 +13,12 @@
 | 字段 | 当前值 |
 |---|---|
 | 路线 | `real-usage-hardening-v1` |
-| 当前批次 | `RH-03` Claude 不可用与结果失败的可操作诊断 |
-| 状态 | `in_progress` |
-| 唯一允许领取 | `RH-03` |
-| 下一批 | `RH-04`，仅在 RH-03 全部验收与完整本机验证通过后解锁 |
-| 未来卡 | `docs/real-usage-hardening-backlog.md`，日常不要默认读取 |
-| 最近完成 | `RH-02`；target + goal/correction 日常前门、真实 signed-Claude 链与完整 Windows 本机 minimum 通过 |
+| 当前批次 | `RH-09` Windows 日常试用与稳定性门槛 |
+| 状态 | `completed` |
+| 唯一允许领取 | 无；当前路线已按用户指定完成 |
+| 下一批 | 无；`RH-10` 已按用户决定保持 `deferred`，当前不实施 Linux/macOS product path |
+| 未来卡 | `docs/real-usage-hardening-backlog.md`，仅保留 deferred 指针，日常不要默认读取 |
+| 最近完成 | `RH-09`；retry-aware 最新 fresh soak 首次尝试即 3/3、100%、recovery 通过、7/7 disposable case 真实创建并删除 |
 
 ## 执行清单
 
@@ -27,23 +27,25 @@
 3. deterministic/path/schema 测试可用明确 fixture；凡声称 member output、`ReviewerResult` 或 LLM 成功的验收必须启动真实 `claude.exe`。
 4. 保留 Go-owned currentness、WhatIf/hash-bound Apply、strict intake、Human-in-the-Lane 和无未授权 heavy action 边界。
 5. 运行当前卡要求的 focused/live gate，再运行 Windows 本机 release minimum；环境不可用时如实 `blocked`/`failed`。
-6. 所有门槛通过后才标记 completed、从 future backlog 提升明确解锁的下一张卡，并同步 `docs/batch-plan.md` 短投影。
+6. 所有门槛通过后才标记 completed；只有存在明确解锁且未 deferred 的下一张卡时才从 future backlog 提升，并同步 `docs/batch-plan.md` 短投影。
 
 ## 当前批次卡
 
-### RH-03：Claude 不可用与结果失败的可操作诊断
+### RH-09：Windows 日常试用与稳定性门槛
 
-**用户断点**：当前 host 能失败/replacement，但用户面对的主要是进程错误和有界 diagnostics，尚无稳定的“发生了什么、是否已写入、下一步怎么做”故障矩阵。
+**用户断点**：单次 gate 通过不等于可连续日常使用，尤其是长路径、清理、Claude 配额波动、重复请求和多个 case 接力。
 
-**范围内**：覆盖 executable 缺失、未登录/鉴权失败、配额或模型不可用、spawn 失败、timeout、permission denial、nonzero exit、invalid envelope、session ID mismatch、invalid structured output、submission/intake 失败；返回 typed terminal/replaceable/recoverable 状态和唯一安全 next action。
+**范围内**：在 Windows 连续运行至少 3 个 bounded、无敏感真实任务，覆盖 fresh case、existing case、人工纠偏、一次故障恢复和 terminal replay；输出一份仓库外机器 receipt 汇总成功率、人工底层输入数、耗时、durable member replacement、process replacement 和 cleanup。
 
-**范围外**：不模拟 LLM success，不实现 provider fallback，不绕过权限。
+**范围外**：不为了提高成功率放宽 strict intake 或预先生成 LLM 结果；不把 receipt 中的绝对临时路径提交进仓库；不实施已 deferred 的 RH-10 Linux/macOS product path。
 
-**focused 验收**：纯进程/解析失败可用 deterministic failure fixture；任何成功分支仍用真实 Claude；至少一轮 baseline live success 证明失败分类未破坏正常链。
+**focused 验收**：完整 Windows release minimum；显式真实 soak gate。
 
-**真实证据**：每个故障都有 stable code、truthful mutation boundary、replacement/retry 判断和用户可执行恢复；attempt 上限后不会循环。
+**真实证据**：所有 case cleanup；`manualResultWrites=0`；用户仍不填写 ID/时间/路径/SHA；失败必须分类而非从统计中删除。
 
-**停止/升级条件**：环境本身无法制造某个 provider-side failure 时记录 `not-observed`，不能把预期当实测；不得用假的 LLM JSON 覆盖该缺口。
+**停止/升级条件**：若 3 次中任一产品链失败，回到对应已完成批次修复并记录 reopen 理由；RH-10 保持 `deferred`。
+
+**当前结果**：retry-aware 最新 fresh Windows soak 首次尝试即通过：task 3/3、task success=100%、attempt 3/3、attempt success=100%、`retriedTasks=0`、recovery 五个 cut point 通过、`cleanupExpected=cleanupCreated=cleanupRemoved=7`、`manualPlaceholders=0`、`manualResultWrites=0`、provider failure=`not-observed`。只有 `reviewer-semantic-or-lineage` 失败允许一次 fresh-case retry，首次失败仍进入 attempt 统计和全部历史；provider/contract/cleanup/timeout 等失败不自动 retry。此前 0/3 聚合假阴性、修复后 3/3、final2/final3 的 2/3 Reviewer reject 与单 pack 诊断均已保留在 `docs/batch-history.md`，没有用成功结果覆盖失败。RH-09 现为 `completed`，RH-10 继续 `deferred`。
 
 ## 验证标准
 
@@ -62,7 +64,7 @@
 
 ## 路线变更记录
 
-- 2026-08-07：RH-02 完成 target + natural-language goal/correction 的 Go-owned 日常前门。最终 signed `claude.exe` gate 真实覆盖 fresh、attached、generation 1→2 correction replacement、独立 Reviewer、evidence-bound completion、terminal/exact-goal zero-launch replay和 cleanup；`manualPlaceholders=0`、`manualResultWrites=0`、`packageMutations=0`。pending completion、receipt publication truthfulness、symlink/junction/ancestor replacement 和 archived fail-closed finding 均由回归与独立终复核关闭，完整 Windows minimum通过后按既定顺序提升 RH-03。
-- 2026-08-07：RH-01 将 trusted launch 修复为 handle-bound WinTrust / PE version 与 direct native `NtOpenFile` actual-image binding；mismatched path/handle、suspended mismatch、native `SameFile` 回归与独立安全终审关闭原 Critical。最终 fresh public-route real-Claude gate和完整 Windows minimum 通过后，按既定顺序提升 RH-02。
-- 2026-08-07：按文档渐进式披露不变量，将 RH-02～RH-10 移至单一按需 backlog；顺序、验收和授权边界不变。
-- 2026-08-06：建立 `real-usage-hardening-v1`，当前只解锁 RH-01。
+- 2026-08-09：RH-09 在 bounded semantic retry 与 selected-pack prompt 稳定性修复后完成；最新 fresh final4 首次尝试即 task/attempt 3/3、五阶段 recovery 与 7/7 cleanup 通过，未消费 retry。历史 0/3 与两轮 2/3 失败仍保留，RH-10 继续 `deferred`，当前路线到此结束。
+- 2026-08-09：RH-09 在 cleanup/provider truth修复后的末轮 fresh soak 出现新的真实 `web-security` replacement Reviewer rejection，结果2/3且已保留；路线按停止条件 reopen 为`in_progress`。五阶段 recovery、cleanup truth与零手写结果仍通过，RH-10继续`deferred`。
+- 2026-08-09：RH-08 完成跨 pack 真实 Claude session 兼容并提升 RH-09；完整证据见 `docs/batch-history.md`。
+- RH-01～RH-07 的完整实现、真实验收和验证历史按需读取 `docs/batch-history.md`；active 入口不重复保存。

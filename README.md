@@ -38,7 +38,7 @@
 本仓库本身不是具体安全 case，也不是具体 RE case。维护时先看根目录 `CLAUDE.md` 与 `docs/context-routing.md`，再按需路由到对应顶部章节；不要默认串读或扩写全部 durable docs。
 
 - `/rekit` skill：`.claude/skills/rekit/SKILL.md`
-- deterministic runtime：`rekit/rekit.ps1` façade、`cmd/rekit/**`、`internal/rekit/**`；真实 Claude Code session host：`cmd/rekit-host/**`、`internal/rekit/sessionhost/**`。legacy `rekit/lib/*.ps1` 已删除，历史语义以 Go runtime 为准。
+- deterministic runtime：`rekit/rekit.ps1` façade、`cmd/rekit/**`、`internal/rekit/**`；真实 Claude Code session host：`cmd/rekit-host/**`、`internal/rekit/sessionhost/**`；read-only adapter host 与显式验收门：`cmd/rekit-adapter-host/**`、`cmd/rekit-adapter-acceptance/**`、`internal/rekit/adapterhost/**`。legacy `rekit/lib/*.ps1` 已删除，历史语义以 Go runtime 为准。
 - 领域 pack：`packs/<pack>/**`
 - 通用 policy / prompt：`common/**`
 - 设计与路线：`docs/**`
@@ -76,9 +76,9 @@ fresh target 会选择默认 `vmp-re`；已通过 `attach/init` 绑定且 doctor
 go run ./cmd/rekit-host -daily -target <workspaceRoot>\cases\<caseName> -correction "优先核对控制流证据，区分 observation 与 hypothesis"
 ```
 
-front door 自动记录 intervention，消费 public hash-bound reconcile，启动 replacement member 与独立 Reviewer，并在 evidence-bound 条件满足后完成 lane；terminal exact replay 零启动、零新增 mutation。Claude 登录、配额、模型或进程不可用时会真实返回 blocked/failed，不会退化为伪造 member output 或 `ReviewerResult`。
+front door 自动记录 intervention，消费 public hash-bound reconcile，启动 replacement member 与独立 Reviewer，并在 evidence-bound 条件满足后完成 lane；terminal exact replay 零启动、零新增 mutation。trusted daily 路线还使用 host-owned durable supervisor：front host 在 Claude 启动、output 返回、result-first、submission 或 intake 后中断时，fresh host 会收取同一 attempt/session 的 exact result、从已提交边界继续或在 ownership 证据丢失时先 durable fence 再 replacement，不用 PID 单独声称 liveness，也不会重复启动成功 session。Claude 登录、配额、模型或进程不可用时会真实返回 blocked/failed，不会退化为伪造 member output 或 `ReviewerResult`。失败 JSON 的顶层 `failure` 返回 stable `code` / `stage`、`terminal|replaceable|recoverable`、真实 `mutationApplied` / `mutationBoundary`、attempt 计数和唯一 `nextAction`；达到上限后不会自动循环。完整故障矩阵与恢复语义按需见 `docs/agent-team-usage.md`。
 
-`/rekit onboard`、`attach/init`、普通 `rekit-host -target` 仍作为 deterministic/兼容/排障入口保留；日常不需要手工拼接 onboard/start/host/reconcile 顺序，这里不需要你手动执行底层脚本。
+`/rekit onboard`、`attach/init`、普通 `rekit-host -target` 仍作为 deterministic/兼容/排障入口保留；direct host 省略 `-pack` 时会在任何 status/current-step/session 操作前从 attached case metadata 解析并固定 pack，使 parent、durable supervision spec、recovered child 与启动前 currentness validator 使用同一 identity。日常不需要手工拼接 onboard/start/host/reconcile 顺序，这里不需要你手动执行底层脚本。
 
 ### 2. 之后每天在 case 里
 
@@ -143,7 +143,7 @@ claude
 
 这些命令是主 Agent 和维护者使用的确定性 runtime API，不是最终产品的主要 UX。普通日常使用优先通过自然语言让主 Agent 选择和组合这些动作。Mission Commander `currentDriverRequest.expectedReceipt` 会保留当前应执行/预览的 `command`，并在 status/handoff/daily runbook 与 replacement takeover package 中提供同源 `refreshStatusCommand`；接手者执行 driver 后应直接运行该 refresh command 重建 durable state，不再从相邻文本手工拼接。
 
-Adapter execution report lifecycle 的 contract、dispatch、scaffold、draft、validation、receipt、record 与 status/handoff 投影会输出 `runbookSteps[]` 或对应 text runbook 行；replacement executor 应优先按这些步骤确认 state/path/hash。durable lane 且当前 action 有 tooling catalog candidate 时，先按 `liveValidation.dispatchCommand` 记录 immutable dispatch，再等外部 adapter/harness 写出 bounded report；contract、validation、`status`、`overview`、project/lane `handoff` 与 durable Markdown 会共享 `currentRunLoopStepId` / `runLoop`，按 `inspect-contract → record-dispatch → run-external-adapter → draft-or-write-report → validate-report → record-receipt → record-observation → review-recorded-evidence` 显示当前步骤、命令、owner/provenance 与 boundary。随后用 validation 返回的 receipt preview 记录 current executor generation、external harness/session、catalog/report/artifact hashes 与 outcome/exit status，再使用 validation/status 返回的 report+receipt 双 hash-bound record Apply；record 后只进入 evidence review。已记录 execution evidence 且无需 main escalation 时，`status`/`handoff`/`continue` 的 Mission Commander current action 与 `currentDriverRequest.command` 会直接指向 `acknowledgementReviewCommand`（accepted `note -Kind verification ... -WhatIf -Format json`），review 后再执行该 WhatIf 返回的 hash-bound `recordCommand` 关闭 review queue；`/rekit handoff <lane>` 仍保留为 follow-up/provenance，而不是当前 primary。installed case-local `/rekit` 可从 nested lane/workspace cwd 完成同一路径；takeover 后旧 executor/generation/session receipt 会 fail-closed，acknowledgement 后的 handoff、`RESUME.md` 与 continue digest 仍保留 receipt/owner/harness/catalog/artifact lineage。Go runtime 不执行 adapter/heavy tool，也不从 contract/report/receipt 推断 authority/confirmed。
+Adapter execution report lifecycle 的 contract、dispatch、scaffold、draft、validation、receipt、record 与 status/handoff 投影会输出 `runbookSteps[]` 或对应 text runbook 行；replacement executor 应优先按这些步骤确认 state/path/hash。durable lane 且当前 action 有 tooling catalog candidate 时，先按 `liveValidation.dispatchCommand` 记录 immutable dispatch，再等外部 adapter/harness 写出 bounded report；`_template` 的 `rekit-readonly-inspector` 可由独立 Go-owned `rekit-adapter-host` 消费 exact dispatch，在 strict preauthorization 下只读一个 bounded case-local text fixture并独占写入 report/artifact；显式 Windows acceptance 会在任何 adapter bytes 执行前验证 suspended actual image、用 kill-on-close Job Object约束进程树，并以 exact-object output cleanup 与 no-replace disposable-case quarantine 收尾；canonical `/rekit gate` 本身仍不启动进程。contract、validation、`status`、`overview`、project/lane `handoff` 与 durable Markdown 会共享 `currentRunLoopStepId` / `runLoop`，按 `inspect-contract → record-dispatch → run-external-adapter → draft-or-write-report → validate-report → record-receipt → record-observation → review-recorded-evidence` 显示当前步骤、命令、owner/provenance 与 boundary。随后用 validation 返回的 receipt preview 记录 current executor generation、external harness/session、catalog/report/artifact hashes 与 outcome/exit status，再使用 validation/status 返回的 report+receipt 双 hash-bound record Apply；record 后只进入 evidence review。已记录 execution evidence 且无需 main escalation 时，`status`/`handoff`/`continue` 的 Mission Commander current action 与 `currentDriverRequest.command` 会直接指向 `acknowledgementReviewCommand`（accepted `note -Kind verification ... -WhatIf -Format json`），review 后再执行该 WhatIf 返回的 hash-bound `recordCommand` 关闭 review queue；`/rekit handoff <lane>` 仍保留为 follow-up/provenance，而不是当前 primary。installed case-local `/rekit` 可从 nested lane/workspace cwd 完成同一路径；takeover 后旧 executor/generation/session receipt 会 fail-closed，acknowledgement 后的 handoff、`RESUME.md` 与 continue digest 仍保留 receipt/owner/harness/catalog/artifact lineage。Go runtime 不执行 adapter/heavy tool，也不从 contract/report/receipt 推断 authority/confirmed。
 
 | 命令 | 方向 | 什么时候用 |
 |---|---|---|
@@ -176,13 +176,29 @@ Adapter execution report lifecycle 的 contract、dispatch、scaffold、draft、
 
 ## 日常工作流
 
-维护真实 session 产品链时，普通 `go test ./...` 不会启动 Claude。只有维护者显式运行以下 live gate，才会创建无敏感内容的 fresh `vmp-re` 临时 case，依次启动两代真实 member 和独立 Reviewer，验证人工纠偏、新会话接手、strict writeback、feature-lane completion 与自动清理：
+维护真实 session 产品链时，普通 `go test ./...` 不会启动 Claude。只有维护者显式运行以下 live gate，才会创建无敏感内容的临时 case，依次启动第一代真实 member、真实 Reviewer reject、证据绑定的人工 correction、replacement member 和独立新 Reviewer accept，验证旧 rejected manifest 不会自动复审、strict writeback、accepted-only feature-lane completion 与自动清理。省略 `-pack` 时保持 fresh 默认 `vmp-re`；RH-08 跨 pack 维护验收只允许显式选择 `_template` 或 `web-security`，ordinary `-daily` 仍拒绝 `-pack` 并只从 fresh default 或 attached metadata 派生 pack：
 
 ```text
-go run ./cmd/rekit-host -live-acceptance -goal "<bounded-natural-language-goal>" -correction "<human-correction>" -receipt "<outside-case-receipt.json>"
+go run ./cmd/rekit-host -live-acceptance -pack "<_template-or-web-security>" -goal "<bounded-natural-language-goal>" -correction "<human-correction>" -receipt "<outside-case-receipt.json>"
 ```
 
-通过 receipt 必须同时满足 `passed=true`、`manualPlaceholders=0`、`manualResultWrites=0`、两代 member 完成、至少一个独立 Reviewer 完成、completion fail-closed 边界成立且 `cleanup=removed`。receipt 将 durable owner、external attempt 与本次 host 启动顺序分别记录为 `ownerGeneration`、`attemptGeneration`、`hostRun` + `runLaunchOrdinal`，不再用一个含糊的 generation 字段混表示。
+通过 receipt 必须同时满足 `passed=true`、exact `pack`、`manualPlaceholders=0`、`manualResultWrites=0`、两代 member 完成、至少一个独立 Reviewer 完成、completion fail-closed 边界成立且 `cleanup=removed`。每个 member 还会记录从所选 pack manifest 派生的 `outputContract`（manifest path/SHA、task type、route ID 与 fields），Reviewer rejection/acceptance 必须绑定同一 exact route；completion 还会重验 packet shard 与 canonical `ReviewerResult.items` 完全一致，并都指向当前 member manifest。action-ready 路径继续要求 TaskContext 绑定当前 RESUME/checkpoint/owner/correction；终态 receipt 只把已完成 attempt 当作 immutable snapshot 验证其内部 artifact hashes、mission intent 与当前 exact pack contract，不能因 completion 合法刷新 lane 文档而误报历史快照漂移。receipt 将 durable owner、external attempt 与本次 host 启动顺序分别记录为 `ownerGeneration`、`attemptGeneration`、`hostRun` + `runLaunchOrdinal`，不再用一个含糊的 generation 字段混表示。
+
+维护 RH-09 Windows 连续试用时，使用 Go-owned 聚合 gate；它顺序运行默认 `vmp-re`、`_template`、`web-security` 三个真实任务，并追加既有真实进程中断恢复门槛，任一失败仍保留在最终仓库外 receipt 中：
+
+```text
+go run ./cmd/rekit-host -live-soak-acceptance -goal "<bounded-natural-language-goal>" -correction "<human-correction>" -receipt "<outside-repository-receipt.json>"
+```
+
+通过必须同时证明 3/3 任务成功、fresh/existing case、人工纠偏、rejection replay、replacement、独立 Reviewer、terminal replay、完整五阶段 recovery、所有 disposable case 真实创建且清理，以及 `manualResultWrites=0`。聚合 receipt 分开记录 task-level 最终成功率与 attempt-level 原始成功率，并记录总耗时、自然语言输入数、底层人工输入数、全部 member/Reviewer 启动与完成、durable member replacement、process replacement、`cleanupExpected/cleanupCreated/cleanupRemoved` 和失败分类；未创建的 case 不得计为 removed。只有 `reviewer-semantic-or-lineage` 失败允许一次 fresh-case retry，首次失败仍保留在 tasks、failure counts、session、duration 与 cleanup totals；provider/contract/cleanup/timeout 等失败不自动 retry。底层 typed provider diagnosis 即使被最外层 attempt-limit 文本遮蔽仍优先保留；provider auth/quota/model 未在现场真实触发时保持 `providerFailureObservation=not-observed`。普通 `go test ./...` 不启动该 gate。
+
+维护跨 case pack-memory 复用链时，使用另一条显式 gate：
+
+```text
+go run ./cmd/rekit-host -live-pack-memory-acceptance -goal "<bounded-generic-pack-memory-goal>" -receipt "<outside-repository-receipt.json>"
+```
+
+该 gate 在 disposable isolated kit 中依次运行真实 Claude producer、packet-bound 独立 Reviewer 和第二 fresh case consumer，验证 strict raw-output → deterministic sanitize → candidate/promoted-source hash lineage、review-first promote、verification/retirement、completed catalog、selected sync/reconsume，以及只能引用 predecessor → accepted successor 新增内容的 exact accepted-delta quote/use proof；sanitize 只能重写 predecessor 中已知的两处 `capturesPath`，其它 replacement 或 deny violation 均 fail closed。Reviewer bytes 作为 outer reviewer plan-bound 的 hash/length/bytes in-memory snapshot 进入 canonical route；shard lock 内再次校验 packet、dispatch prompt exact bytes/SHA、current dispatch/currentness 和 snapshot identity，再直接写入 canonical input，不先发布 host relay source。consumer route 也只在当前 owner generation 的 `pack-memory-consumer` binding 与 current selected-sync receipt 的 `changeId`、source/receipt/plan SHA 全部一致时开放；case scope与pack-memory下钻都必须经过同一strict validator和repo+case lease，checkpoint绑定下钻后实际执行的case request而非全局pack-memory focus，真实Claude process启动前还会在该双lease内最终重验immutable task context、target/state/receipt、catalog与promoted source，drift时零process launch。durable member attempt ID 与 external-session attempt ID 属于不同命名空间；launch通过exact task-context path/SHA和current durable inspection绑定，不要求二者字符串相等。它不向当前仓库 pack 写入测试知识；默认清理 isolated kit/cases；receipt 必须位于仓库外，且不公开本机或 disposable case 绝对路径；失败receipt保留bounded typed phase/attempt诊断，并按Windows大小写与两种路径分隔符脱敏known local paths。普通 `go test ./...` 不运行该 gate。
 
 维护 onboarding、status quickstart、continue/reconcile、handoff 或 replacement executor takeover 路线时，可用一条跨平台 Go-native smoke 覆盖完整日常闭环：
 

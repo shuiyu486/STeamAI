@@ -93,6 +93,9 @@ func TestRunDailyRejectsUnboundCustomClaudeBeforeMutation(t *testing.T) {
 	if result.OnboardingApplied || result.SessionLaunches != 0 {
 		t.Fatalf("unbound custom Claude mutated case: %+v", result)
 	}
+	if result.Failure == nil || result.Failure.Code != "claude-executable-unavailable" || result.Failure.Stage != "executable-resolution" || !result.Failure.Recoverable || result.Failure.MutationApplied || result.Failure.MutationBoundary != "none" {
+		t.Fatalf("unbound custom Claude diagnosis = %+v", result.Failure)
+	}
 	if _, err := os.Lstat(caseRoot); !os.IsNotExist(err) {
 		t.Fatalf("unbound custom Claude created case: %v", err)
 	}
@@ -106,6 +109,9 @@ func TestRunDailyFreshGoalCommitsAndStartsBeforeClaudeUnavailable(t *testing.T) 
 	}
 	if !result.OnboardingApplied || result.Pack != defaults.DefaultPack || result.Lane != "feature-mission" || result.SessionLaunches != 0 {
 		t.Fatalf("fresh daily result = %+v", result)
+	}
+	if result.Failure == nil || result.Failure.Code != "claude-executable-unavailable" || result.Failure.Stage != "executable-resolution" || !result.Failure.Recoverable || !result.Failure.MutationApplied || result.Failure.MutationBoundary != "durable-runtime-step-may-have-committed" {
+		t.Fatalf("fresh daily executable diagnosis = %+v", result.Failure)
 	}
 	inspection, inspectErr := missionintent.Inspect(caseRoot)
 	if inspectErr != nil || !inspection.Committed || inspection.Identity.Goal != "inspect the supplied research target" {
@@ -134,6 +140,35 @@ func TestRunDailyResumeContinuesCommittedLaneBeforeClaudeUnavailable(t *testing.
 	}
 	if result.Mode != "resume" || result.Pack != inspection.Identity.Pack || result.Lane != inspection.Identity.InitialLane || result.SessionLaunches != 0 || !containsDailyStep(result.DriverSteps, "overview") || !containsDailyStep(result.DriverSteps, "start") {
 		t.Fatalf("resume result=%+v", result)
+	}
+}
+
+func TestRunDailyInvokesMemberPreparationBeforeExecutableResolution(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "member-preparation")
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	inspection, err := applyDailyOnboarding(caseRoot, "member preparation goal", "daily-test", &bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	result, err := RunDaily(context.Background(), DailyOptions{
+		Target:                            caseRoot,
+		ClaudePath:                        missingClaudePath(t),
+		ExpectedClaudeExecutableSHA256:    strings.Repeat("0", 64),
+		ExpectedClaudeExecutablePublisher: liveAcceptanceClaudePublisher,
+		beforeMemberRun: func(root, pack, lane string) error {
+			called = true
+			if root != caseRoot || pack != inspection.Identity.Pack || lane != inspection.Identity.InitialLane {
+				t.Fatalf("member preparation binding drifted: root=%s pack=%s lane=%s", root, pack, lane)
+			}
+			return nil
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "validate trusted Claude Code executable") {
+		t.Fatalf("RunDaily result=%+v err=%v", result, err)
+	}
+	if !called || result.SessionLaunches != 0 {
+		t.Fatalf("member preparation was not invoked before launch: called=%t result=%+v", called, result)
 	}
 }
 
@@ -384,6 +419,198 @@ func TestRunDailyCorrectionRefusesPendingCompletionAsTerminalReplay(t *testing.T
 	}
 	if result.Replay || result.SessionLaunches != 0 || result.SessionCompletions != 0 {
 		t.Fatalf("pending correction completion was treated as terminal replay: %+v", result)
+	}
+}
+
+func TestFinishDailyCompletionPreservesReviewerRejectionState(t *testing.T) {
+	result := DailyResult{FinalState: "reviewer-rejected-awaiting-correction"}
+	if err := finishDailyCompletion(t.TempDir(), liveAcceptancePack, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.FinalState != "reviewer-rejected-awaiting-correction" || !result.Blocked {
+		t.Fatalf("typed reviewer rejection was not preserved: %+v", result)
+	}
+}
+
+func TestExistingDailyCorrectionByIDDistinguishesRepeatedTextAcrossRejections(t *testing.T) {
+	caseRoot := t.TempDir()
+	lane := "feature-mission"
+	actor := "daily-test"
+	correction := "apply the same correction text to the current rejection"
+	firstID := "daily-correction-first-rejection"
+	secondID := "daily-correction-second-rejection"
+	_, interventionPath, err := mission.FactPath(caseRoot, "intervention")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(interventionPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, eventID := range []string{firstID, secondID} {
+		event := map[string]any{
+			"schemaVersion": 1, "eventId": eventID, "kind": "intervention", "lane": lane,
+			"subject": "daily human correction", "summary": correction, "actor": actor,
+			"action": "override", "status": "open",
+			"reviewerVerificationEventId": eventID + "-verification",
+			"reviewerDecisionEventId":     eventID + "-decision",
+		}
+		if err := mission.AppendJSONLine(interventionPath, event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first, err := existingDailyCorrectionByID(caseRoot, firstID, lane, correction, actor)
+	if err != nil || mission.Value(first, "eventId") != firstID {
+		t.Fatalf("first correction event=%v err=%v", first, err)
+	}
+	second, err := existingDailyCorrectionByID(caseRoot, secondID, lane, correction, actor)
+	if err != nil || mission.Value(second, "eventId") != secondID {
+		t.Fatalf("second correction event=%v err=%v", second, err)
+	}
+}
+
+func TestDailyCorrectionLaneFindsResolvedRequestOnOpenReplacementGeneration(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "correction-replacement")
+	actor := "daily-source-actor"
+	goal := "inspect the supplied research target"
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	inspection, err := applyDailyOnboarding(caseRoot, goal, actor, &bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
+		t.Fatal(err)
+	}
+
+	correction := "apply the rejection-bound correction"
+	eventID := "daily-correction-rejection-bound"
+	_, interventionPath, err := mission.FactPath(caseRoot, "intervention")
+	if err != nil {
+		t.Fatal(err)
+	}
+	event := map[string]any{
+		"schemaVersion": 1, "eventId": eventID, "kind": "intervention", "lane": inspection.Identity.InitialLane,
+		"subject": "daily human correction", "summary": correction, "actor": actor, "action": "override", "status": "open",
+		"reviewerVerificationEventId": "verification", "reviewerDecisionEventId": "decision",
+	}
+	if err := mission.AppendJSONLine(interventionPath, event); err != nil {
+		t.Fatal(err)
+	}
+
+	lane, boardLane, existing, err := dailyCorrectionLane(caseRoot, inspection, correction, actor)
+	if err != nil || lane != inspection.Identity.InitialLane || boardLane.ID != lane || mission.Value(existing, "eventId") != eventID {
+		t.Fatalf("open replacement correction lookup: lane=%s board=%+v existing=%v err=%v", lane, boardLane, existing, err)
+	}
+}
+
+func TestDailyCorrectionLaneUsesLatestReconciledIdentityForRepeatedText(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "repeated-correction-recovery")
+	actor := "daily-source-actor"
+	goal := "inspect the supplied research target"
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	inspection, err := applyDailyOnboarding(caseRoot, goal, actor, &bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
+		t.Fatal(err)
+	}
+
+	correction := "apply the repeated rejection-bound correction"
+	firstID := "daily-correction-generation-1"
+	secondID := "daily-correction-generation-2"
+	firstTime := "2026-08-07T01:02:03Z"
+	secondTime := "2026-08-07T02:03:04Z"
+	_, interventionPath, err := mission.FactPath(caseRoot, "intervention")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for generation, eventID := range []string{firstID, secondID} {
+		event := map[string]any{
+			"schemaVersion": 1, "eventId": eventID, "kind": "intervention", "lane": inspection.Identity.InitialLane,
+			"subject": "daily human correction", "summary": correction, "actor": actor, "action": "override", "status": "open",
+			"target":                      ".rekit/member-generation-" + string(rune('1'+generation)) + "/evidence/manifest.json",
+			"reviewerVerificationEventId": "verification-" + eventID, "reviewerDecisionEventId": "decision-" + eventID,
+		}
+		if err := mission.AppendJSONLine(interventionPath, event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, resolution := range []map[string]any{
+		{
+			"schemaVersion": 1, "eventId": "resolution-generation-1", "kind": "intervention", "lane": inspection.Identity.InitialLane,
+			"subject": "reconcile first correction", "summary": "first replacement generation", "actor": actor,
+			"action": "reconcile", "status": "resolved", "resolvesEventId": firstID,
+			"executor": "replacement-generation-2", "time": firstTime,
+		},
+		{
+			"schemaVersion": 1, "eventId": "resolution-generation-2", "kind": "intervention", "lane": inspection.Identity.InitialLane,
+			"subject": "reconcile second correction", "summary": "second replacement generation", "actor": actor,
+			"action": "reconcile", "status": "resolved", "resolvesEventId": secondID,
+			"executor": "replacement-generation-3", "time": secondTime,
+		},
+	} {
+		if err := mission.AppendJSONLine(interventionPath, resolution); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := range board.Lanes {
+		if board.Lanes[index].ID == inspection.Identity.InitialLane {
+			board.Lanes[index].CurrentExecutor = "replacement-generation-3"
+			board.Lanes[index].ExecutorGeneration = 3
+			board.Lanes[index].LastReconciledIntervention = secondID
+			board.Lanes[index].LastReconcileAt = secondTime
+		}
+	}
+	writeDailyTestBoard(t, caseRoot, board)
+
+	lane, boardLane, existing, err := dailyCorrectionLane(caseRoot, inspection, correction, actor)
+	if err != nil || lane != inspection.Identity.InitialLane || boardLane.ID != lane || mission.Value(existing, "eventId") != secondID {
+		t.Fatalf("latest reconciled correction lookup: lane=%s board=%+v existing=%v err=%v", lane, boardLane, existing, err)
+	}
+	resolution, resolved, err := inspectDailyCorrectionResolution(caseRoot, lane, secondID)
+	if err != nil || !resolved || resolution.EventID != "resolution-generation-2" || resolution.Time != secondTime || resolution.Executor != "replacement-generation-3" || resolution.ExecutorGeneration != 3 {
+		t.Fatalf("latest correction resolution: resolution=%+v resolved=%t err=%v", resolution, resolved, err)
+	}
+
+	for _, mutate := range []struct {
+		name string
+		set  func(*mission.BoardLane)
+	}{
+		{name: "event-id", set: func(lane *mission.BoardLane) { lane.LastReconciledIntervention = firstID }},
+		{name: "resolution-time", set: func(lane *mission.BoardLane) { lane.LastReconcileAt = firstTime }},
+		{name: "executor", set: func(lane *mission.BoardLane) { lane.CurrentExecutor = "stale-generation" }},
+		{name: "generation", set: func(lane *mission.BoardLane) { lane.ExecutorGeneration = 0 }},
+	} {
+		t.Run(mutate.name, func(t *testing.T) {
+			tampered := board
+			tampered.Lanes = append([]mission.BoardLane{}, board.Lanes...)
+			for index := range tampered.Lanes {
+				if tampered.Lanes[index].ID == lane {
+					mutate.set(&tampered.Lanes[index])
+				}
+			}
+			writeDailyTestBoard(t, caseRoot, tampered)
+			if _, ok, err := inspectDailyCorrectionResolution(caseRoot, lane, secondID); err == nil || ok {
+				t.Fatalf("tampered resolution accepted: ok=%t err=%v", ok, err)
+			}
+			writeDailyTestBoard(t, caseRoot, board)
+		})
+	}
+}
+
+func writeDailyTestBoard(t *testing.T, caseRoot string, board mission.Board) {
+	t.Helper()
+	data, err := json.MarshalIndent(board, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "board.json"), append(data, '\n'), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 

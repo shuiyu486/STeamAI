@@ -88,7 +88,7 @@ func TestExternalSessionAttemptApplyRejectsStaleJobAndReplaysCommittedReceipt(t 
 
 func TestExternalSessionAttemptRejectsReviewerDispatchSessionMismatch(t *testing.T) {
 	caseRoot := externalSessionTestCaseRoot(t)
-	job, err := NewReviewerJob(caseRoot, defaults.DefaultPack, testCheckpointSHA, ReviewerIdentity{AttemptSHA256: strings.Repeat("b", 64), PacketID: "packet", RouteID: "route", ShardID: "shard", DispatchID: "dispatch-a", Harness: "claude-code", Session: "session-a"}, []string{"returned", "failed"})
+	job, err := NewReviewerJob(caseRoot, defaults.DefaultPack, testCheckpointSHA, ReviewerIdentity{AttemptSHA256: strings.Repeat("b", 64), PacketID: "packet", RouteID: "route", ShardID: "shard", Items: []string{"item"}, OutputFields: []string{"item"}, DispatchPath: ".rekit/dispatch.json", DispatchSHA256: strings.Repeat("c", 64), DispatchID: "dispatch-a", Harness: "claude-code", Session: "session-a"}, []string{"accepted", "failed"})
 	if err != nil {
 		t.Fatal(err)
 	}

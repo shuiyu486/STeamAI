@@ -28,6 +28,40 @@ func TestNewDiscoversRepoRoot(t *testing.T) {
 	}
 }
 
+func TestFindRepoRootUsesGoNativeIdentityWithoutFacade(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module github.com/shuiyu486/re-context-kits\n\ngo 1.26\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "packs"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(root, "internal", "rekit", "runtime")
+	if err := os.MkdirAll(nested, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	found, ok := findRepoRoot(nested)
+	if !ok || found != root {
+		t.Fatalf("Go-native repo root=%q found=%t, want %q", found, ok, root)
+	}
+	if _, err := os.Lstat(filepath.Join(root, "rekit", "rekit.ps1")); !os.IsNotExist(err) {
+		t.Fatalf("fixture unexpectedly depends on compatibility facade: %v", err)
+	}
+}
+
+func TestFindRepoRootRejectsUnrelatedGoModule(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.invalid/not-rekit\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "packs"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if found, ok := findRepoRoot(root); ok || found != "" {
+		t.Fatalf("unrelated module accepted as repo root: %q", found)
+	}
+}
+
 func TestNewWithCwdUsesCallerCwdOverride(t *testing.T) {
 	repoRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	if err != nil {

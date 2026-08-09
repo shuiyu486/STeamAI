@@ -46,12 +46,16 @@ func TestReleaseCheckIncludesManifestHeavyToolGateActions(t *testing.T) {
 	if counts.Packs == 0 || counts.HeavyToolGateActions == 0 {
 		t.Fatalf("release-check omitted pack or heavy-tool gate inventory: %+v", result)
 	}
-	if got := strings.Join(result.HeavyToolGateActions, ","); got != "debug,dump,full-trace,inject,network,patch,symex" {
+	if got := strings.Join(result.HeavyToolGateActions, ","); got != "debug,dump,full-trace,inject,inspect,network,patch,symex" {
 		t.Fatalf("HeavyToolGateActions = %q", got)
 	}
 	for _, pack := range result.Packs {
-		if pack.HeavyToolGates != 7 {
-			t.Fatalf("pack %s HeavyToolGates = %d, want 7", pack.ID, pack.HeavyToolGates)
+		want := 7
+		if pack.ID == "_template" {
+			want = 8
+		}
+		if pack.HeavyToolGates != want {
+			t.Fatalf("pack %s HeavyToolGates = %d, want %d", pack.ID, pack.HeavyToolGates, want)
 		}
 	}
 }

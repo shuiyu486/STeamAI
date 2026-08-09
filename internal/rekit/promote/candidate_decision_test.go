@@ -174,6 +174,23 @@ func TestDraftCandidateLifecycleProofPreviewsAppliesAndReplaysProofNote(t *testi
 	assertCandidateDraftDriverRequestForTest(t, replay.MissionCommanderActionQueue, "pack-memory-lifecycle-proof-already-drafted-refresh-required", candidateDraftRefreshStatusCommand, "execute-command", "apply-or-run-current", false)
 }
 
+func TestDraftCandidateLifecycleProofDefaultPathUsesCatalogStem(t *testing.T) {
+	repoRoot, caseRoot, pack := promoteFixture(t)
+	created, _, managed := candidateDecisionFixture(t, repoRoot, caseRoot, pack, "default-lifecycle-proof")
+	evidencePath := filepath.Join(repoRoot, "packs", pack, "promote-candidates", "review-artifacts", "default-lifecycle-evidence.md")
+	writeText(t, evidencePath, "pack doctor passed\n")
+	preview, err := DraftCandidateLifecycleProof(repoRoot, caseRoot, pack, CandidateReviewProofDraftOptions{PacketPath: created.ReviewWorkspace.PacketPath, ProofType: "pack-doctor-output", CandidatePath: managed.CandidatePath, Reason: "pack doctor verified", Actor: "mission-commander", EvidenceRefs: evidencePath, WhatIf: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := filepath.Base(managed.CandidatePath)
+	stem := strings.TrimSuffix(base, ".candidate.md")
+	want := filepath.Join(repoRoot, "packs", pack, "promote-candidates", "review-artifacts", stem+".pack-doctor-output.json")
+	if !sameCandidateDecisionPath(preview.ProofPath, want) {
+		t.Fatalf("default lifecycle proof path=%s, want catalog stem %s", preview.ProofPath, want)
+	}
+}
+
 func TestDraftCandidateLifecycleProofRejectsUnsafeInputs(t *testing.T) {
 	repoRoot, caseRoot, pack := promoteFixture(t)
 	created, _, managed := candidateDecisionFixture(t, repoRoot, caseRoot, pack, "lifecycle-proof-unsafe")

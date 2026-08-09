@@ -2,13 +2,18 @@ package reviewersession
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
+	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 )
 
 type Owner struct {
@@ -93,6 +98,131 @@ func DecodeDispatch(data []byte) (DispatchReceipt, error) {
 		return DispatchReceipt{}, fmt.Errorf("reviewer session dispatch recordedAt is invalid")
 	}
 	return receipt, nil
+}
+
+type packetContract struct {
+	PacketID string `json:"packetId"`
+	Route    struct {
+		ID             string `json:"id"`
+		OutputContract string `json:"outputContract"`
+	} `json:"route"`
+	Shards []struct {
+		ID    string   `json:"id"`
+		Items []string `json:"items"`
+	} `json:"shards"`
+	OutputContract string `json:"outputContract"`
+}
+
+func ReadDispatch(caseRoot, path, expectedSHA256 string) (DispatchReceipt, error) {
+	if !filepath.IsAbs(path) {
+		var err error
+		path, err = rekitfs.SafeJoin(caseRoot, path)
+		if err != nil {
+			return DispatchReceipt{}, err
+		}
+	}
+	data, err := rekitfs.ReadStableRegularFileAnchored(caseRoot, path, "reviewer dispatch receipt", 1<<20)
+	if err != nil {
+		return DispatchReceipt{}, err
+	}
+	if !validSHA256(expectedSHA256) || !strings.EqualFold(sha256Hex(data), expectedSHA256) {
+		return DispatchReceipt{}, fmt.Errorf("reviewer dispatch receipt sha256 mismatch")
+	}
+	return DecodeDispatch(data)
+}
+
+func OutputContractFields(caseRoot string, receipt DispatchReceipt) ([]string, error) {
+	packetPath := receipt.PacketPath
+	if !filepath.IsAbs(packetPath) {
+		var err error
+		packetPath, err = rekitfs.SafeJoin(caseRoot, packetPath)
+		if err != nil {
+			return nil, err
+		}
+	}
+	data, err := rekitfs.ReadStableRegularFileAnchored(caseRoot, packetPath, "reviewer dispatch packet", 4<<20)
+	if err != nil {
+		return nil, err
+	}
+	if !strings.EqualFold(sha256Hex(data), receipt.PacketSHA256) {
+		return nil, fmt.Errorf("reviewer dispatch packet sha256 mismatch")
+	}
+	var packet packetContract
+	dec := json.NewDecoder(bytes.NewReader(bytes.TrimSpace(data)))
+	if err := dec.Decode(&packet); err != nil {
+		return nil, fmt.Errorf("decode reviewer dispatch packet contract: %w", err)
+	}
+	var trailing any
+	if err := dec.Decode(&trailing); err != io.EOF {
+		return nil, fmt.Errorf("reviewer dispatch packet contract must contain exactly one JSON object")
+	}
+	if packet.PacketID != receipt.PacketID || packet.Route.ID != receipt.RouteID || packet.Route.OutputContract != packet.OutputContract {
+		return nil, fmt.Errorf("reviewer dispatch packet does not match receipt packet and route contract")
+	}
+	matchedShard := false
+	for _, shard := range packet.Shards {
+		if shard.ID == receipt.ShardID {
+			matchedShard = true
+			if !slices.Equal(shard.Items, receipt.Items) {
+				return nil, fmt.Errorf("reviewer dispatch packet shard items do not match receipt")
+			}
+			break
+		}
+	}
+	if !matchedShard {
+		return nil, fmt.Errorf("reviewer dispatch packet omitted receipt shard")
+	}
+	fields := splitOutputContract(packet.OutputContract)
+	if len(fields) == 0 {
+		return nil, fmt.Errorf("reviewer dispatch packet output contract is empty")
+	}
+	return fields, nil
+}
+
+func ValidateRouteOutput(fields []string, routeOutput map[string]any) error {
+	allowed := map[string]bool{}
+	for _, field := range fields {
+		allowed[field] = true
+		value, ok := routeOutput[field]
+		if !ok || value == nil {
+			return fmt.Errorf("reviewer result routeOutput missing required outputContract field %q", field)
+		}
+		text, ok := value.(string)
+		if !ok || strings.TrimSpace(text) == "" {
+			return fmt.Errorf("reviewer result routeOutput field %q must be a non-empty string", field)
+		}
+	}
+	for field := range routeOutput {
+		if !allowed[field] {
+			return fmt.Errorf("reviewer result routeOutput contains unknown field %q", field)
+		}
+	}
+	return nil
+}
+
+func splitOutputContract(value string) []string {
+	fields := []string{}
+	seen := map[string]bool{}
+	for _, field := range strings.FieldsFunc(value, func(r rune) bool {
+		return r == ',' || r == ';' || r == '\n' || r == '\r' || r == '\t'
+	}) {
+		field = strings.TrimSpace(field)
+		if field != "" && !seen[field] {
+			seen[field] = true
+			fields = append(fields, field)
+		}
+	}
+	return fields
+}
+
+func sha256Hex(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func validSHA256(value string) bool {
+	decoded, err := hex.DecodeString(value)
+	return err == nil && len(decoded) == sha256.Size
 }
 
 func DecodeCompletion(data []byte) (CompletionReceipt, error) {

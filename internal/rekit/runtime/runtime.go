@@ -104,7 +104,7 @@ func findRepoRoot(start string) (string, bool) {
 		dir = filepath.Dir(dir)
 	}
 	for {
-		if refsf.Exists(filepath.Join(dir, "rekit", "rekit.ps1")) && refsf.Exists(filepath.Join(dir, "packs")) {
+		if isRekitRepoRoot(dir) {
 			return dir, true
 		}
 		parent := filepath.Dir(dir)
@@ -113,6 +113,25 @@ func findRepoRoot(start string) (string, bool) {
 		}
 		dir = parent
 	}
+}
+
+func isRekitRepoRoot(dir string) bool {
+	packs, err := os.Stat(filepath.Join(dir, "packs"))
+	if err != nil || !packs.IsDir() {
+		return false
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+	if err != nil {
+		return false
+	}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "//") {
+			continue
+		}
+		return line == "module github.com/shuiyu486/re-context-kits"
+	}
+	return false
 }
 
 func findCaseRoot(start string) (string, bool) {

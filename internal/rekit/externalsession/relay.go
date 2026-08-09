@@ -18,6 +18,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewerresult"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewersession"
 )
 
 const (
@@ -95,7 +96,12 @@ func NewReviewerJob(caseRoot, pack, checkpointSHA256 string, reviewer ReviewerId
 	if !validSHA(reviewer.AttemptSHA256) || reviewer.PacketID == "" || reviewer.RouteID == "" || reviewer.ShardID == "" {
 		return Job{}, fmt.Errorf("external reviewer job requires exact attempt, packet, route, and shard identity")
 	}
-	if !((reviewer.DispatchID == "" && reviewer.Harness == "" && reviewer.Session == "") || (reviewer.DispatchID != "" && reviewer.Harness != "" && reviewer.Session != "")) {
+	if slices.Contains(job.AllowedOutcomes, "returned") {
+		if len(reviewer.Items) == 0 || len(reviewer.OutputFields) == 0 || reviewer.DispatchPath == "" || !validSHA(reviewer.DispatchSHA256) ||
+			reviewer.DispatchID == "" || reviewer.Harness == "" || reviewer.Session == "" {
+			return Job{}, fmt.Errorf("returned external reviewer job requires exact items, output contract, and durable dispatch identity")
+		}
+	} else if !((reviewer.DispatchID == "" && reviewer.Harness == "" && reviewer.Session == "") || (reviewer.DispatchID != "" && reviewer.Harness != "" && reviewer.Session != "")) {
 		return Job{}, fmt.Errorf("external reviewer job dispatch identity must include dispatch, harness, and session together")
 	}
 	return job, nil
@@ -258,8 +264,27 @@ func Preview(job Job) (Plan, error) {
 			if err != nil {
 				return Plan{}, err
 			}
-			if result.PacketID != job.Reviewer.PacketID || result.RouteID != job.Reviewer.RouteID || result.ShardID != job.Reviewer.ShardID || result.ReviewerSession != submission.ReviewerSession {
-				return Plan{}, fmt.Errorf("external reviewer result does not match the job packet, route, shard, and session")
+			receipt, err := reviewersession.ReadDispatch(job.CaseRoot, job.Reviewer.DispatchPath, job.Reviewer.DispatchSHA256)
+			if err != nil {
+				return Plan{}, err
+			}
+			fields, err := reviewersession.OutputContractFields(job.CaseRoot, receipt)
+			if err != nil {
+				return Plan{}, err
+			}
+			if receipt.PacketID != job.Reviewer.PacketID || receipt.RouteID != job.Reviewer.RouteID ||
+				receipt.ShardID != job.Reviewer.ShardID || !slices.Equal(receipt.Items, job.Reviewer.Items) ||
+				receipt.DispatchID != job.Reviewer.DispatchID || receipt.ReviewerHarness != job.Reviewer.Harness ||
+				receipt.ReviewerSession != job.Reviewer.Session || !slices.Equal(fields, job.Reviewer.OutputFields) {
+				return Plan{}, fmt.Errorf("external reviewer job does not match exact durable dispatch and output contract")
+			}
+			if result.PacketID != receipt.PacketID || result.RouteID != receipt.RouteID || result.ShardID != receipt.ShardID ||
+				!slices.Equal(result.Items, receipt.Items) || result.ReviewerSession != receipt.ReviewerSession ||
+				result.ReviewerSession != submission.ReviewerSession {
+				return Plan{}, fmt.Errorf("external reviewer result does not match exact dispatch packet, route, shard, items, and session")
+			}
+			if err := reviewersession.ValidateRouteOutput(fields, result.RouteOutput); err != nil {
+				return Plan{}, err
 			}
 			write := plannedWrite{rel: job.RelayResultPath, data: resultBytes}
 			writes = append(writes, write)

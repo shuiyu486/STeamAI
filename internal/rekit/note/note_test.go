@@ -3,6 +3,7 @@ package note
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -74,6 +75,58 @@ func TestAppendWhatIfOmitsRecordCommandForInternalFields(t *testing.T) {
 		t.Fatalf("internal fields missing from event: %+v", result.Event)
 	}
 	assertNoteNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl"))
+}
+
+func TestAppendWhatIfReplaysReviewerBoundCorrectionFields(t *testing.T) {
+	repoRoot, caseRoot, pack := noteFixture(t)
+
+	result, err := Append(repoRoot, caseRoot, pack, Options{
+		Kind:                      "intervention",
+		Lane:                      "main",
+		Subject:                   "daily human correction",
+		Summary:                   "apply reviewer correction",
+		Actor:                     "daily-actor",
+		Action:                    "override",
+		Status:                    "open",
+		Target:                    ".rekit/member/manifest.json",
+		PacketID:                  "packet-1",
+		RouteID:                   "route-1",
+		ShardID:                   "shard-1",
+		PacketPath:                ".rekit/reviewer/packet.json",
+		ReviewerResultPath:        ".rekit/reviewer/result.json",
+		ReviewerSession:           "reviewer-session-1",
+		ReviewerDispatchPath:      ".rekit/reviewer/dispatch.json",
+		ReviewerDispatchSHA256:    strings.Repeat("a", 64),
+		ReviewerCompletionPath:    ".rekit/reviewer/completion.json",
+		ReviewerCompletionSHA256:  strings.Repeat("b", 64),
+		ReviewerResultInputPath:   ".rekit/reviewer/input.json",
+		ReviewerResultInputSHA256: strings.Repeat("c", 64),
+		ReviewerResultInputBytes:  "123",
+		ReviewerResultSHA256:      strings.Repeat("d", 64),
+		ReviewerManifestSHA256:    strings.Repeat("e", 64),
+		ReviewerVerificationID:    "verification-1",
+		ReviewerDecisionID:        "decision-1",
+		OwnerExecutor:             "executor-1",
+		OwnerGeneration:           "2",
+	}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Reason != "what-if" || len(result.RecordArgs) == 0 || result.RecordCommand == "" {
+		t.Fatalf("reviewer-bound correction omitted replay route: %+v", result)
+	}
+	for _, flag := range []string{
+		"-ReviewerPacketId", "-ReviewerRouteId", "-ReviewerShardId", "-ReviewerPacketPath",
+		"-ReviewerResultLineagePath", "-ReviewerLineageSession", "-ReviewerDispatchReceiptPath",
+		"-ReviewerDispatchReceiptSha256", "-ReviewerCompletionReceiptPath", "-ReviewerCompletionReceiptSha256",
+		"-ReviewerLineageInputPath", "-ReviewerLineageInputSha256", "-ReviewerLineageInputBytes",
+		"-ReviewerLineageResultSha256", "-ReviewerManifestSha256", "-ReviewerVerificationEventId",
+		"-ReviewerDecisionEventId", "-ReviewerOwnerExecutor", "-ReviewerOwnerGeneration",
+	} {
+		if !slices.Contains(result.RecordArgs, flag) {
+			t.Fatalf("reviewer-bound correction replay args omitted %s: %+v", flag, result.RecordArgs)
+		}
+	}
 }
 
 func TestAppendWhatIfProjectsBlockerKinds(t *testing.T) {

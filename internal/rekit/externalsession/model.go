@@ -10,13 +10,17 @@ const (
 )
 
 type ReviewerIdentity struct {
-	AttemptSHA256 string `json:"attemptSha256"`
-	PacketID      string `json:"packetId"`
-	RouteID       string `json:"routeId"`
-	ShardID       string `json:"shardId"`
-	DispatchID    string `json:"dispatchId,omitempty"`
-	Harness       string `json:"harness,omitempty"`
-	Session       string `json:"session,omitempty"`
+	AttemptSHA256  string   `json:"attemptSha256"`
+	PacketID       string   `json:"packetId"`
+	RouteID        string   `json:"routeId"`
+	ShardID        string   `json:"shardId"`
+	Items          []string `json:"items"`
+	OutputFields   []string `json:"outputFields"`
+	DispatchPath   string   `json:"dispatchPath"`
+	DispatchSHA256 string   `json:"dispatchSha256"`
+	DispatchID     string   `json:"dispatchId,omitempty"`
+	Harness        string   `json:"harness,omitempty"`
+	Session        string   `json:"session,omitempty"`
 }
 
 type Job struct {

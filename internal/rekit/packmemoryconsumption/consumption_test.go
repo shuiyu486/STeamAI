@@ -14,8 +14,289 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/doctor"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/releasecheck"
 )
+
+func TestVerifyConsumerUseBindsSelectedSyncAndStrictMemberResult(t *testing.T) {
+	repo, caseRoot, change := writeConsumptionFixture(t)
+	preview, err := Preview(repo, caseRoot, "fixture", change.ChangeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(repo, caseRoot, "fixture", change.ChangeID, preview.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	attemptID := writeConsumerUseMemberResult(t, caseRoot, change, true, "accepted memory", "used as the first checklist input")
+	proof, err := VerifyConsumerUse(repo, caseRoot, "fixture", ConsumerUseOptions{ChangeID: change.ChangeID, Lane: "feature-analysis", AttemptID: attemptID, OutputPath: "consumer-use.json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !proof.Verified || !proof.ReadOnly || !proof.NoAuthority || !proof.NoConfirmed || !proof.NoHeavyTool || proof.ChangeID != change.ChangeID || proof.SourceSHA256 != change.SourceSHA256 || proof.AuthoritySHA256 != change.AuthoritySHA256 || proof.Quote != "accepted memory" || proof.ProofSHA256 == "" || proof.ConsumptionReceiptSHA256 == "" || proof.ManifestSHA256 == "" {
+		t.Fatalf("unexpected consumer-use proof: %+v", proof)
+	}
+
+	if err := os.WriteFile(filepath.Join(caseRoot, "memory.md"), []byte("target drift\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := VerifyConsumerUse(repo, caseRoot, "fixture", ConsumerUseOptions{ChangeID: change.ChangeID, Lane: "feature-analysis", AttemptID: attemptID, OutputPath: "consumer-use.json"}); err == nil || !strings.Contains(err.Error(), "valid selected sync receipt") {
+		t.Fatalf("target drift verification error = %v", err)
+	}
+}
+
+func TestVerifyConsumerUseRejectsUnboundAttemptAndHashesDiskReceiptBytes(t *testing.T) {
+	repo, caseRoot, change := writeConsumptionFixture(t)
+	preview, _ := Preview(repo, caseRoot, "fixture", change.ChangeID)
+	if _, err := Apply(repo, caseRoot, "fixture", change.ChangeID, preview.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	attemptID := writeConsumerUseMemberResult(t, caseRoot, change, true, "accepted memory", "used as a checklist")
+	proof, err := VerifyConsumerUse(repo, caseRoot, "fixture", ConsumerUseOptions{ChangeID: change.ChangeID, Lane: "feature-analysis", AttemptID: attemptID, OutputPath: "consumer-use.json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiptBytes, err := os.ReadFile(proof.ConsumptionReceiptPath)
+	if err != nil || proof.ConsumptionReceiptSHA256 != sha256Hex(receiptBytes) {
+		t.Fatalf("receipt bytes hash drifted: proof=%s err=%v", proof.ConsumptionReceiptSHA256, err)
+	}
+	writeConsumerBoard(t, caseRoot, repo, "executor-b", 2)
+	attemptID = writeConsumerUseMemberResult(t, caseRoot, change, false, "accepted memory", "claimed after an unrelated dispatch")
+	_, err = VerifyConsumerUse(repo, caseRoot, "fixture", ConsumerUseOptions{ChangeID: change.ChangeID, Lane: "feature-analysis", AttemptID: attemptID, OutputPath: "consumer-use.json"})
+	if err == nil || !strings.Contains(err.Error(), "not bound") {
+		t.Fatalf("unbound consumer attempt error = %v", err)
+	}
+}
+
+func TestValidateCurrentConsumerTaskBindsExactSelectedSyncReceipt(t *testing.T) {
+	repo, caseRoot, change := writeConsumptionFixture(t)
+	preview, err := Preview(repo, caseRoot, "fixture", change.ChangeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(repo, caseRoot, "fixture", change.ChangeID, preview.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	writeConsumerFile(t, filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "lane.json"), "{\"id\":\"feature-analysis\",\"status\":\"active\"}\n")
+	writeConsumerBoard(t, caseRoot, repo, "executor-a", 1)
+	if _, _, err := BindConsumerTask(caseRoot, "feature-analysis", change.ChangeID); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateCurrentConsumerTask(repo, caseRoot, "fixture", "feature-analysis"); err != nil {
+		t.Fatalf("exact current consumer binding was rejected: %v", err)
+	}
+
+	bindingPath := filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "member-task-bindings", "g000001.json")
+	bindingBytes, err := os.ReadFile(bindingPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(bindingBytes, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	binding := envelope["binding"].(map[string]any)
+	values := binding["values"].(map[string]any)
+	values["planSha256"] = strings.Repeat("0", 64)
+	drifted, err := json.MarshalIndent(envelope, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bindingPath, append(drifted, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateCurrentConsumerTask(repo, caseRoot, "fixture", "feature-analysis"); err == nil || !strings.Contains(err.Error(), "binding changed") {
+		t.Fatalf("selected receipt binding drift was accepted: %v", err)
+	}
+
+	if err := os.WriteFile(bindingPath, bindingBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeConsumerBoard(t, caseRoot, repo, "executor-b", 2)
+	if err := ValidateCurrentConsumerTask(repo, caseRoot, "fixture", "feature-analysis"); err == nil || !strings.Contains(err.Error(), "not a pack-memory consumer") {
+		t.Fatalf("stale owner generation binding was accepted: %v", err)
+	}
+}
+
+func TestWithCurrentConsumerTaskLeaseRevalidatesBeforeMemberPublication(t *testing.T) {
+	repo, caseRoot, change := writeConsumptionFixture(t)
+	preview, _ := Preview(repo, caseRoot, "fixture", change.ChangeID)
+	if _, err := Apply(repo, caseRoot, "fixture", change.ChangeID, preview.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	writeConsumerFile(t, filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "lane.json"), "{\"id\":\"feature-analysis\",\"status\":\"active\"}\n")
+	writeConsumerBoard(t, caseRoot, repo, "executor-a", 1)
+	if _, _, err := BindConsumerTask(caseRoot, "feature-analysis", change.ChangeID); err != nil {
+		t.Fatal(err)
+	}
+	currentConsumerBeforeFinalValidationHook = func() error {
+		return os.WriteFile(filepath.Join(caseRoot, "memory.md"), []byte("drifted after preview\n"), 0o600)
+	}
+	t.Cleanup(func() { currentConsumerBeforeFinalValidationHook = nil })
+	called := false
+	err := WithCurrentConsumerTaskLease(repo, caseRoot, "fixture", "feature-analysis", func() error {
+		called = true
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "valid selected sync receipt") || called {
+		t.Fatalf("final consumer validation err=%v publicationCalled=%t", err, called)
+	}
+}
+
+func TestWithCurrentConsumerAttemptLeaseRejectsTargetDriftBeforeLaunch(t *testing.T) {
+	repo, caseRoot, change := writeConsumptionFixture(t)
+	preview, _ := Preview(repo, caseRoot, "fixture", change.ChangeID)
+	if _, err := Apply(repo, caseRoot, "fixture", change.ChangeID, preview.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	writeConsumerFile(t, filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "lane.json"), "{\"id\":\"feature-analysis\",\"status\":\"active\"}\n")
+	writeConsumerFile(t, filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "prompts", "RESUME.md"), "# feature-analysis\n\nConsume selected pack memory.\n")
+	writeConsumerFile(t, filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "checkpoints", "latest.json"), "{\n  \"schemaVersion\": 1,\n  \"lane\": \"feature-analysis\",\n  \"status\": \"active\"\n}\n")
+	writeConsumerBoard(t, caseRoot, repo, "executor-a", 1)
+	if _, _, err := BindConsumerTask(caseRoot, "feature-analysis", change.ChangeID); err != nil {
+		t.Fatal(err)
+	}
+	dispatch, err := memberexecution.PreviewDispatch(memberexecution.DispatchOptions{CaseRoot: caseRoot, Pack: "fixture", Lane: "feature-analysis", RequestSHA256: strings.Repeat("c", 64), CreatedAt: "2026-08-08T02:00:00Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := memberexecution.Apply(dispatch, dispatch.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	inspection, err := memberexecution.Inspect(caseRoot, "feature-analysis", dispatch.AttemptID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentConsumerBeforeFinalValidationHook = func() error {
+		return os.WriteFile(filepath.Join(caseRoot, "memory.md"), []byte("drifted before launch\n"), 0o600)
+	}
+	t.Cleanup(func() { currentConsumerBeforeFinalValidationHook = nil })
+	launched := false
+	err = WithCurrentConsumerAttemptLease(repo, caseRoot, "fixture", inspection, func() error {
+		launched = true
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "valid selected sync receipt") || launched {
+		t.Fatalf("pre-launch consumer validation err=%v launched=%t", err, launched)
+	}
+}
+
+func TestWithCurrentConsumerAttemptLeaseRejectsBindingReplacement(t *testing.T) {
+	repo, caseRoot, change := writeConsumptionFixture(t)
+	preview, _ := Preview(repo, caseRoot, "fixture", change.ChangeID)
+	if _, err := Apply(repo, caseRoot, "fixture", change.ChangeID, preview.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	writeConsumerFile(t, filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "lane.json"), "{\"id\":\"feature-analysis\",\"status\":\"active\"}\n")
+	writeConsumerFile(t, filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "prompts", "RESUME.md"), "# feature-analysis\n\nConsume selected pack memory.\n")
+	writeConsumerFile(t, filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "checkpoints", "latest.json"), "{\n  \"schemaVersion\": 1,\n  \"lane\": \"feature-analysis\",\n  \"status\": \"active\"\n}\n")
+	writeConsumerBoard(t, caseRoot, repo, "executor-a", 1)
+	if _, _, err := BindConsumerTask(caseRoot, "feature-analysis", change.ChangeID); err != nil {
+		t.Fatal(err)
+	}
+	dispatch, err := memberexecution.PreviewDispatch(memberexecution.DispatchOptions{CaseRoot: caseRoot, Pack: "fixture", Lane: "feature-analysis", RequestSHA256: strings.Repeat("d", 64), CreatedAt: "2026-08-08T02:00:00Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := memberexecution.Apply(dispatch, dispatch.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	inspection, err := memberexecution.Inspect(caseRoot, "feature-analysis", dispatch.AttemptID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bindingPath := filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "member-task-bindings", "g000001.json")
+	bindingBytes, err := os.ReadFile(bindingPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(bindingBytes, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	values := envelope["binding"].(map[string]any)["values"].(map[string]any)
+	values["receiptSha256"] = strings.Repeat("0", 64)
+	drifted, err := json.MarshalIndent(envelope, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bindingPath, append(drifted, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	launched := false
+	err = WithCurrentConsumerAttemptLease(repo, caseRoot, "fixture", inspection, func() error {
+		launched = true
+		return nil
+	})
+	if err == nil || (!strings.Contains(err.Error(), "binding changed") && !strings.Contains(err.Error(), "receipt")) || launched {
+		t.Fatalf("pre-launch binding replacement err=%v launched=%t", err, launched)
+	}
+}
+
+func TestValidateCurrentConsumerTaskRejectsReceiptByteDrift(t *testing.T) {
+	repo, caseRoot, change := writeConsumptionFixture(t)
+	preview, _ := Preview(repo, caseRoot, "fixture", change.ChangeID)
+	result, err := Apply(repo, caseRoot, "fixture", change.ChangeID, preview.ExpectedPlanSHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeConsumerFile(t, filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "lane.json"), "{\"id\":\"feature-analysis\",\"status\":\"active\"}\n")
+	writeConsumerBoard(t, caseRoot, repo, "executor-a", 1)
+	if _, _, err := BindConsumerTask(caseRoot, "feature-analysis", change.ChangeID); err != nil {
+		t.Fatal(err)
+	}
+	receiptBytes, err := os.ReadFile(result.Plan.ReceiptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(result.Plan.ReceiptPath, append(receiptBytes, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateCurrentConsumerTask(repo, caseRoot, "fixture", "feature-analysis"); err == nil || !strings.Contains(err.Error(), "binding changed") {
+		t.Fatalf("receipt byte drift was accepted: %v", err)
+	}
+}
+
+func TestAcceptedDeltaChunksExcludePredecessorText(t *testing.T) {
+	chunks := acceptedDeltaChunks(
+		[]byte("existing policy\nexisting checklist\n"),
+		[]byte("existing policy\nexisting checklist\nnew reusable checklist item\n"),
+	)
+	if consumerQuoteInAcceptedDelta(chunks, []byte("existing checklist")) {
+		t.Fatal("accepted delta included predecessor text")
+	}
+	if !consumerQuoteInAcceptedDelta(chunks, []byte("reusable checklist")) {
+		t.Fatal("accepted delta omitted newly added text")
+	}
+}
+
+func TestVerifyConsumerUseRejectsFalseCitationAndStaleOwner(t *testing.T) {
+	t.Run("false citation", func(t *testing.T) {
+		repo, caseRoot, change := writeConsumptionFixture(t)
+		preview, _ := Preview(repo, caseRoot, "fixture", change.ChangeID)
+		if _, err := Apply(repo, caseRoot, "fixture", change.ChangeID, preview.ExpectedPlanSHA256); err != nil {
+			t.Fatal(err)
+		}
+		attemptID := writeConsumerUseMemberResult(t, caseRoot, change, true, "invented guidance", "claimed use")
+		_, err := VerifyConsumerUse(repo, caseRoot, "fixture", ConsumerUseOptions{ChangeID: change.ChangeID, Lane: "feature-analysis", AttemptID: attemptID, OutputPath: "consumer-use.json"})
+		if err == nil || !strings.Contains(err.Error(), "exact accepted-delta excerpt") {
+			t.Fatalf("false citation error = %v", err)
+		}
+	})
+
+	t.Run("stale owner", func(t *testing.T) {
+		repo, caseRoot, change := writeConsumptionFixture(t)
+		preview, _ := Preview(repo, caseRoot, "fixture", change.ChangeID)
+		if _, err := Apply(repo, caseRoot, "fixture", change.ChangeID, preview.ExpectedPlanSHA256); err != nil {
+			t.Fatal(err)
+		}
+		attemptID := writeConsumerUseMemberResult(t, caseRoot, change, true, "accepted memory", "used as a checklist")
+		writeConsumerBoard(t, caseRoot, repo, "executor-b", 2)
+		_, err := VerifyConsumerUse(repo, caseRoot, "fixture", ConsumerUseOptions{ChangeID: change.ChangeID, Lane: "feature-analysis", AttemptID: attemptID, OutputPath: "consumer-use.json"})
+		if err == nil || !strings.Contains(err.Error(), "stale") {
+			t.Fatalf("stale owner error = %v", err)
+		}
+	})
+}
 
 func TestSelectedSyncPreviewApplyReplayAndLocalConflict(t *testing.T) {
 	repo, caseRoot, change := writeConsumptionFixture(t)
@@ -509,6 +790,96 @@ func TestIntentBindsExactPlanAndOriginalBytes(t *testing.T) {
 	t.Cleanup(func() { doctorCase = oldDoctor })
 }
 
+func writeConsumerUseMemberResult(t *testing.T, caseRoot string, change releasecheck.CompletedPackMemoryChange, bind bool, quote, appliedAs string) string {
+	t.Helper()
+	repo := filepath.Clean(filepath.Join(caseRoot, ".."))
+	metadata, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "instance.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for line := range strings.SplitSeq(string(metadata), "\n") {
+		if value, ok := strings.CutPrefix(line, "templateRoot:"); ok {
+			repo = strings.TrimSpace(value)
+			break
+		}
+	}
+	writeConsumerFile(t, filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "lane.json"), "{\"id\":\"feature-analysis\",\"status\":\"active\"}\n")
+	writeConsumerFile(t, filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "prompts", "RESUME.md"), "# feature-analysis\n\nConsume selected pack memory.\n")
+	writeConsumerFile(t, filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "checkpoints", "latest.json"), "{\n  \"schemaVersion\": 1,\n  \"lane\": \"feature-analysis\",\n  \"status\": \"active\"\n}\n")
+	boardPath := filepath.Join(caseRoot, ".rekit", "board.json")
+	if _, err := os.Stat(boardPath); os.IsNotExist(err) {
+		writeConsumerBoard(t, caseRoot, repo, "executor-a", 1)
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	if bind {
+		if _, _, err := BindConsumerTask(caseRoot, "feature-analysis", change.ChangeID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dispatch, err := memberexecution.PreviewDispatch(memberexecution.DispatchOptions{CaseRoot: caseRoot, Pack: "fixture", Lane: "feature-analysis", RequestSHA256: strings.Repeat("c", 64), CreatedAt: "2026-08-08T02:00:00Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := memberexecution.Apply(dispatch, dispatch.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	statement := ConsumerUseStatement{SchemaVersion: 1, Kind: KindConsumerUseStatement, ChangeID: change.ChangeID, SourceSHA256: change.SourceSHA256, Quote: quote, AppliedAs: appliedAs, NoAuthority: true, NoConfirmed: true, NoHeavyTool: true}
+	output, err := json.MarshalIndent(statement, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	output = append(output, '\n')
+	outputPath := filepath.Join(dispatch.Inspection.OutputsRoot, "consumer-use.json")
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outputPath, output, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	resultManifest := memberexecution.ResultManifest{SchemaVersion: 1, Kind: memberexecution.KindManifest, AttemptID: dispatch.AttemptID, Owner: dispatch.Owner, Summary: "consumer used selected pack memory", Outputs: []memberexecution.Output{{Path: "consumer-use.json", SHA256: sha256Hex(output), Bytes: int64(len(output))}}, NoAuthority: true, NoConfirmed: true, NoHeavyTool: true}
+	manifestBytes, err := memberexecution.MarshalResultManifest(resultManifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dispatch.Inspection.ManifestPath, manifestBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	returned, err := memberexecution.PreviewObservation(memberexecution.ObservationOptions{CaseRoot: caseRoot, Pack: "fixture", Lane: "feature-analysis", AttemptID: dispatch.AttemptID, Outcome: "returned", Actor: "fixture-harness", ObservedAt: "2026-08-08T02:01:00Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	applied, err := memberexecution.Apply(returned, returned.ExpectedPlanSHA256)
+	if err != nil || applied.Inspection.State != "intake-ready" {
+		t.Fatalf("consumer result = %+v err=%v", applied, err)
+	}
+	return dispatch.AttemptID
+}
+
+func writeConsumerBoard(t *testing.T, caseRoot, repo, executor string, generation int) {
+	t.Helper()
+	board := map[string]any{
+		"schemaVersion": 1, "caseRoot": caseRoot, "repoRoot": repo, "pack": "fixture", "automationMode": "review-first", "defaultAuthorityLane": "main",
+		"lanes":     []map[string]any{{"id": "feature-analysis", "type": "feature", "title": "analysis", "status": "active", "authority": false, "workspace": ".rekit/lanes/feature-analysis/workspace", "currentExecutor": executor, "executorGeneration": generation, "updatedAt": "2026-08-08T02:00:00Z"}},
+		"factsRoot": ".rekit/facts", "updatedAt": "2026-08-08T02:00:00Z",
+	}
+	data, err := json.MarshalIndent(board, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeConsumerFile(t, filepath.Join(caseRoot, ".rekit", "board.json"), string(append(data, '\n')))
+}
+
+func writeConsumerFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func writeConsumptionFixture(t *testing.T) (string, string, releasecheck.CompletedPackMemoryChange) {
 	t.Helper()
 	repo := t.TempDir()
@@ -555,7 +926,17 @@ authorityFiles:
   - memory.md
 toolingCandidateSources:
   - memory.md
-subagentRoutes: []
+subagentRoutes:
+  - id: fixture:feature-analysis
+    taskTypes: feature-analysis
+    trigger: bounded pack-memory consumer review
+    shardBasis: item
+    targetItemsPerAgent: 1
+    maxParallel: 1
+    reference: memory.md
+    subagentPermissions: read-only
+    mainAgentOwns: validation
+    outputContract: item,decision,evidence
 heavyToolGates:
   - id: debug
     title: Debug

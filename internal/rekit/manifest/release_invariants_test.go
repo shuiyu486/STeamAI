@@ -385,7 +385,7 @@ func TestReleaseReadinessChecklistInvariants(t *testing.T) {
 	} {
 		assertTextContains(t, currentDocs[path], phrase, path+" deterministic heavy-action authorization")
 	}
-	canonicalGateActions := stringSet([]string{"full-trace", "debug", "inject", "patch", "dump", "network", "symex"})
+	canonicalGateActions := stringSet([]string{"inspect", "full-trace", "debug", "inject", "patch", "dump", "network", "symex"})
 	for path, text := range currentDocs {
 		if (!strings.Contains(path, "/tooling/recipes/") && !strings.HasSuffix(path, "/toolchain-router.md")) || !strings.Contains(text, "gate_action:") {
 			continue
@@ -509,11 +509,16 @@ func TestDocumentationProgressiveDisclosureInvariants(t *testing.T) {
 	if count := len(regexp.MustCompile(`(?m)^### RH-[0-9]+`).FindAllString(roadmap, -1)); count != 1 {
 		t.Fatalf("active roadmap contains %d RH cards, want exactly current card", count)
 	}
-	for _, future := range []string{"### RH-04：", "### RH-09：", "### RH-10："} {
-		assertTextContains(t, backlog, future, "routed future roadmap backlog")
-		if strings.Contains(roadmap, future) {
-			t.Fatalf("active roadmap preloads future card %s", future)
-		}
+	currentCards := regexp.MustCompile(`(?m)^### RH-[0-9]+：`).FindAllString(roadmap, -1)
+	currentCard := currentCards[0]
+	if strings.Contains(backlog, currentCard) {
+		t.Fatalf("future backlog duplicates active roadmap card %s", currentCard)
+	}
+	assertTextContains(t, roadmap, "### RH-09：", "active Windows soak roadmap card")
+	assertTextContains(t, backlog, "### RH-10：", "routed deferred cross-platform roadmap card")
+	assertTextContains(t, backlog, "**状态**：`deferred`", "deferred cross-platform state")
+	if strings.Contains(roadmap, "### RH-10：") {
+		t.Fatal("active roadmap preloads deferred RH-10 card")
 	}
 	assertTextContains(t, router, "machine `readFirst[]` 最多 2 项", "machine read-first budget")
 	assertTextContains(t, router, "只有本文件拥有完整路由表", "single routing owner")

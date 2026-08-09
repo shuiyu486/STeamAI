@@ -4761,8 +4761,10 @@ func releaseHandoffActiveRoute(repo string) ReleaseHandoffActiveRoute {
 		route.Warnings = append(route.Warnings, "active real-usage route exclusive claim does not match the current batch")
 	}
 	route.Ready = len(route.Warnings) == 0
-	route.NextBatchUnlocked = route.Ready && route.ProjectionConsistent && route.State == "completed" && current != "" && !strings.EqualFold(strings.TrimSpace(route.ExclusiveClaim), current)
-	if !route.NextBatchUnlocked {
+	route.NextBatchUnlocked = route.Ready && route.ProjectionConsistent && route.State == "completed" && current != "" && !strings.EqualFold(strings.TrimSpace(route.ExclusiveClaim), current) && releaseHandoffNextBatchSelectable(route.NextBatch)
+	if route.Ready && route.ProjectionConsistent && route.State == "completed" && !releaseHandoffNextBatchSelectable(route.NextBatch) {
+		route.CurrentAction = releaseHandoffCompletedRouteAction(route)
+	} else if !route.NextBatchUnlocked {
 		route.CurrentAction = releaseHandoffActiveRouteAction(route)
 		if !route.Ready || !route.ProjectionConsistent {
 			route.CurrentAction.ActionID = "active-route-conflict"
@@ -4793,6 +4795,36 @@ func firstReleaseHandoffToken(value string) string {
 		return value[:index]
 	}
 	return value
+}
+
+func releaseHandoffNextBatchSelectable(value string) bool {
+	value = strings.ToLower(strings.TrimSpace(value))
+	return value != "" && !strings.HasPrefix(value, "无") && !strings.Contains(value, "deferred")
+}
+
+func releaseHandoffCompletedRouteAction(route ReleaseHandoffActiveRoute) *mission.MissionCommanderNextActionItem {
+	label := firstReleaseHandoffToken(route.CurrentBatch)
+	if label == "" {
+		label = "completed-route"
+	}
+	return &mission.MissionCommanderNextActionItem{
+		Label:          label,
+		ActionID:       "active-route-completed",
+		State:          "completed-no-next-batch",
+		Command:        "the approved route is complete; wait for an explicit user route change before selecting further work",
+		Source:         "releaseHandoffActiveRoute",
+		Blocked:        false,
+		RequiresReview: false,
+		Reasons: mission.UniqueStrings([]string{
+			"active durable route is completed: " + route.Route,
+			"no selectable next batch is recorded: " + route.NextBatch,
+		}),
+		Boundary: []string{
+			"do not generate or consume next-batch selection guidance while the completed route has no selectable next batch",
+			"deferred work remains deferred until the user explicitly changes the active route",
+			"latest numbered batch handoff cannot reopen or replace this completed route",
+		},
+	}
 }
 
 func releaseHandoffActiveRouteAction(route ReleaseHandoffActiveRoute) *mission.MissionCommanderNextActionItem {

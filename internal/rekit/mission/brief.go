@@ -362,15 +362,32 @@ type CurrentLoopExternalSessionHarnessInput struct {
 	Role   string `json:"role"`
 }
 
+type CurrentLoopExternalSessionReviewerIdentity struct {
+	PacketID        string   `json:"packetId"`
+	RouteID         string   `json:"routeId"`
+	ShardID         string   `json:"shardId"`
+	Items           []string `json:"items"`
+	OutputFields    []string `json:"outputFields"`
+	DispatchPath    string   `json:"dispatchPath"`
+	DispatchSHA256  string   `json:"dispatchSha256"`
+	DispatchID      string   `json:"dispatchId"`
+	ReviewerSession string   `json:"reviewerSession"`
+	PromptPath      string   `json:"promptPath"`
+	PromptSHA256    string   `json:"promptSha256"`
+	NoHeavyTool     bool     `json:"noHeavyTool"`
+	NoAuthority     bool     `json:"noAuthorityOrConfirmed"`
+}
+
 type CurrentLoopExternalSessionHarnessLaunch struct {
-	Ready          bool                                   `json:"ready"`
-	Tool           string                                 `json:"tool"`
-	AgentType      string                                 `json:"agentType"`
-	ReadOnly       bool                                   `json:"readOnly"`
-	Input          CurrentLoopExternalSessionHarnessInput `json:"input"`
-	ExpectedOutput string                                 `json:"expectedOutput"`
-	Attempt        CurrentLoopExternalSessionAttempt      `json:"attempt"`
-	Boundary       []string                               `json:"boundary"`
+	Ready            bool                                        `json:"ready"`
+	Tool             string                                      `json:"tool"`
+	AgentType        string                                      `json:"agentType"`
+	ReadOnly         bool                                        `json:"readOnly"`
+	Input            CurrentLoopExternalSessionHarnessInput      `json:"input"`
+	ExpectedOutput   string                                      `json:"expectedOutput"`
+	ReviewerIdentity *CurrentLoopExternalSessionReviewerIdentity `json:"reviewerIdentity,omitempty"`
+	Attempt          CurrentLoopExternalSessionAttempt           `json:"attempt"`
+	Boundary         []string                                    `json:"boundary"`
 }
 
 type CurrentLoopExternalSessionSubmissionTemplate struct {

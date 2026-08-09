@@ -15,8 +15,15 @@ import (
 func main() {
 	var opt sessionhost.Options
 	var liveOpt sessionhost.LiveAcceptanceOptions
+	internalSupervisor := flag.String("internal-supervisor", "", "internal exact host-run supervision spec")
+	internalSupervisorSHA256 := flag.String("internal-supervisor-sha256", "", "internal exact host-run supervision spec sha256")
 	daily := flag.Bool("daily", false, "run the natural-language daily front door; implied by -goal or -correction")
-	liveAcceptance := flag.Bool("live-acceptance", false, "run the explicit default vmp-re real-Claude acceptance gate")
+	liveAcceptance := flag.Bool("live-acceptance", false, "run the explicit default or allowlisted cross-pack real-Claude acceptance gate")
+	liveSupervisionAcceptance := flag.Bool("live-supervision-acceptance", false, "run the explicit RH-04 real-Claude process-start recovery gate")
+	livePackMemoryAcceptance := flag.Bool("live-pack-memory-acceptance", false, "run the explicit RH-07 cross-case pack-memory real-Claude acceptance gate")
+	liveSoakAcceptance := flag.Bool("live-soak-acceptance", false, "run the explicit RH-09 Windows three-task real-Claude soak and recovery gate")
+	internalPackMemoryAcceptance := flag.String("internal-pack-memory-live-acceptance", "", "internal RH-07 isolated child spec")
+	internalPackMemoryAcceptanceSHA256 := flag.String("internal-pack-memory-live-acceptance-sha256", "", "internal RH-07 isolated child spec sha256")
 	flag.StringVar(&opt.Target, "target", "", "fresh or attached case root")
 	flag.StringVar(&opt.Pack, "pack", "", "optional attached pack override")
 	flag.StringVar(&opt.Actor, "actor", "rekit-claude-host", "durable host actor")
@@ -27,19 +34,78 @@ func main() {
 	flag.StringVar(&liveOpt.Goal, "goal", "", "natural-language goal for daily or explicit live acceptance mode")
 	flag.StringVar(&liveOpt.Correction, "correction", "", "human correction for daily or explicit live acceptance mode")
 	flag.BoolVar(&liveOpt.KeepCase, "keep-case", false, "retain the fresh acceptance case after the gate")
-	flag.StringVar(&liveOpt.ReceiptPath, "receipt", "", "optional machine-readable acceptance receipt path")
+	flag.StringVar(&liveOpt.ReceiptPath, "receipt", "", "machine-readable acceptance receipt path; required by -live-soak-acceptance")
 	flag.Parse()
 
-	if *liveAcceptance {
-		if *daily {
-			fmt.Fprintln(os.Stderr, "-live-acceptance and -daily are mutually exclusive")
+	if strings.TrimSpace(*internalSupervisor) != "" || strings.TrimSpace(*internalSupervisorSHA256) != "" {
+		if strings.TrimSpace(*internalSupervisor) == "" || strings.TrimSpace(*internalSupervisorSHA256) == "" || strings.TrimSpace(*internalPackMemoryAcceptance) != "" || strings.TrimSpace(*internalPackMemoryAcceptanceSHA256) != "" || publicModeRequested(*daily, *liveAcceptance, *liveSupervisionAcceptance, *livePackMemoryAcceptance, *liveSoakAcceptance) || flag.NArg() != 0 {
+			fmt.Fprintln(os.Stderr, "internal supervisor requires an exact spec path and sha256")
 			os.Exit(2)
 		}
-		if opt.Pack != "" && opt.Pack != "vmp-re" {
-			fmt.Fprintln(os.Stderr, "live acceptance always uses the default vmp-re pack")
+		if err := sessionhost.RunSupervisorChild(context.Background(), *internalSupervisor, *internalSupervisorSHA256); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if strings.TrimSpace(*internalPackMemoryAcceptance) != "" || strings.TrimSpace(*internalPackMemoryAcceptanceSHA256) != "" {
+		if strings.TrimSpace(*internalPackMemoryAcceptance) == "" || strings.TrimSpace(*internalPackMemoryAcceptanceSHA256) == "" || publicModeRequested(*daily, *liveAcceptance, *liveSupervisionAcceptance, *livePackMemoryAcceptance, *liveSoakAcceptance) || flag.NArg() != 0 {
+			fmt.Fprintln(os.Stderr, "internal pack-memory acceptance requires an exact spec path and sha256")
+			os.Exit(2)
+		}
+		result, err := sessionhost.RunPackMemoryLiveAcceptanceChild(context.Background(), *internalPackMemoryAcceptance, *internalPackMemoryAcceptanceSHA256)
+		printResult(result, err)
+		return
+	}
+
+	if *livePackMemoryAcceptance {
+		if *daily || *liveAcceptance || *liveSupervisionAcceptance || *liveSoakAcceptance {
+			fmt.Fprintln(os.Stderr, "-live-pack-memory-acceptance, -live-supervision-acceptance, -live-soak-acceptance, -live-acceptance, and -daily are mutually exclusive")
+			os.Exit(2)
+		}
+		if strings.TrimSpace(opt.Pack) != "" && !strings.EqualFold(strings.TrimSpace(opt.Pack), "vmp-re") {
+			fmt.Fprintln(os.Stderr, "pack-memory live acceptance always uses the default vmp-re pack")
+			os.Exit(2)
+		}
+		result, err := sessionhost.RunPackMemoryLiveAcceptance(context.Background(), sessionhost.PackMemoryLiveAcceptanceOptions{
+			Goal: liveOpt.Goal, ClaudePath: opt.ClaudePath, Model: opt.Model, Actor: opt.Actor,
+			Timeout: opt.Timeout, MaxAttempts: opt.MaxAttempts, KeepCase: liveOpt.KeepCase, ReceiptPath: liveOpt.ReceiptPath,
+		})
+		result, err = publishPackMemoryLiveAcceptanceReceipt(liveOpt.ReceiptPath, result, err)
+		printResult(result, err)
+		return
+	}
+
+	if *liveSupervisionAcceptance {
+		if *daily || *liveAcceptance || *liveSoakAcceptance {
+			fmt.Fprintln(os.Stderr, "-live-supervision-acceptance, -live-soak-acceptance, -live-acceptance, and -daily are mutually exclusive")
+			os.Exit(2)
+		}
+		result, err := sessionhost.RunLiveSupervisionAcceptance(context.Background(), sessionhost.LiveSupervisionAcceptanceOptions{
+			CaseRoot: opt.Target, Goal: liveOpt.Goal, Model: opt.Model, Actor: opt.Actor,
+			Timeout: opt.Timeout, MaxAttempts: opt.MaxAttempts, KeepCase: liveOpt.KeepCase, ReceiptPath: liveOpt.ReceiptPath,
+		})
+		if strings.TrimSpace(liveOpt.ReceiptPath) != "" {
+			result.ReceiptPublication = "published"
+			if writeErr := sessionhost.WriteLiveSupervisionAcceptanceReceipt(liveOpt.ReceiptPath, result); writeErr != nil {
+				result.Passed = false
+				result.ReceiptPublication = "failed"
+				result.ReceiptError = writeErr.Error()
+				err = errorsJoin(err, writeErr)
+			}
+		}
+		printResult(result, err)
+		return
+	}
+
+	if *liveAcceptance {
+		if *daily || *liveSoakAcceptance {
+			fmt.Fprintln(os.Stderr, "-live-acceptance, -live-soak-acceptance, and -daily are mutually exclusive")
 			os.Exit(2)
 		}
 		liveOpt.CaseRoot = opt.Target
+		liveOpt.Pack = opt.Pack
 		liveOpt.ClaudePath = opt.ClaudePath
 		liveOpt.Model = opt.Model
 		liveOpt.Actor = opt.Actor
@@ -47,6 +113,24 @@ func main() {
 		liveOpt.MaxAttempts = opt.MaxAttempts
 		result, err := sessionhost.RunLiveAcceptance(context.Background(), liveOpt)
 		result, err = publishLiveAcceptanceReceipt(liveOpt.ReceiptPath, result, err)
+		printResult(result, err)
+		return
+	}
+
+	if *liveSoakAcceptance {
+		if *daily {
+			fmt.Fprintln(os.Stderr, "-live-soak-acceptance and -daily are mutually exclusive")
+			os.Exit(2)
+		}
+		if strings.TrimSpace(opt.Target) != "" || strings.TrimSpace(opt.Pack) != "" || strings.TrimSpace(opt.ClaudePath) != "" || liveOpt.KeepCase {
+			fmt.Fprintln(os.Stderr, "live soak acceptance owns disposable cases and canonical Claude discovery; omit -target, -pack, -claude, and -keep-case")
+			os.Exit(2)
+		}
+		result, err := sessionhost.RunLiveSoakAcceptance(context.Background(), sessionhost.LiveSoakAcceptanceOptions{
+			Goal: liveOpt.Goal, Correction: liveOpt.Correction, Model: opt.Model, Actor: opt.Actor,
+			Timeout: opt.Timeout, MaxAttempts: opt.MaxAttempts, ReceiptPath: liveOpt.ReceiptPath,
+		})
+		result, err = publishLiveSoakAcceptanceReceipt(liveOpt.ReceiptPath, result, err)
 		printResult(result, err)
 		return
 	}
@@ -82,12 +166,40 @@ func main() {
 	printResult(result, err)
 }
 
+func publishPackMemoryLiveAcceptanceReceipt(path string, result sessionhost.PackMemoryLiveAcceptanceReceipt, err error) (sessionhost.PackMemoryLiveAcceptanceReceipt, error) {
+	if strings.TrimSpace(path) == "" {
+		return result, err
+	}
+	result.ReceiptPublication = "published"
+	if writeErr := sessionhost.WritePackMemoryLiveAcceptanceReceipt(path, result); writeErr != nil {
+		result.Passed = false
+		result.ReceiptPublication = "failed"
+		result.ReceiptError = writeErr.Error()
+		err = errorsJoin(err, writeErr)
+	}
+	return result, err
+}
+
 func publishLiveAcceptanceReceipt(path string, result sessionhost.LiveAcceptanceReceipt, err error) (sessionhost.LiveAcceptanceReceipt, error) {
 	if strings.TrimSpace(path) == "" {
 		return result, err
 	}
 	result.ReceiptPublication = "published"
 	if writeErr := sessionhost.WriteLiveAcceptanceReceipt(path, result); writeErr != nil {
+		result.Passed = false
+		result.ReceiptPublication = "failed"
+		result.ReceiptError = writeErr.Error()
+		err = errorsJoin(err, writeErr)
+	}
+	return result, err
+}
+
+func publishLiveSoakAcceptanceReceipt(path string, result sessionhost.LiveSoakAcceptanceReceipt, err error) (sessionhost.LiveSoakAcceptanceReceipt, error) {
+	if strings.TrimSpace(path) == "" {
+		return result, err
+	}
+	result.ReceiptPublication = "published"
+	if writeErr := sessionhost.WriteLiveSoakAcceptanceReceipt(path, result); writeErr != nil {
 		result.Passed = false
 		result.ReceiptPublication = "failed"
 		result.ReceiptError = writeErr.Error()
@@ -107,6 +219,15 @@ func printResult(result any, err error) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+func publicModeRequested(modes ...bool) bool {
+	for _, mode := range modes {
+		if mode {
+			return true
+		}
+	}
+	return false
 }
 
 func errorsJoin(a, b error) error {

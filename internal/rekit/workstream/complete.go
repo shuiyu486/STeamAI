@@ -506,11 +506,16 @@ func HasAcceptedMemberManifestReviewerWriteback(caseRoot, laneID, manifestRef st
 }
 
 func requireMemberManifestReviewerWriteback(caseRoot, laneID, manifestRef string, facts mission.LedgerFacts) (CompletionEvidence, error) {
+	if rejection, rejected, err := memberManifestReviewerRejection(caseRoot, laneID, manifestRef, facts); err != nil {
+		return CompletionEvidence{}, err
+	} else if rejected {
+		return CompletionEvidence{}, fmt.Errorf("%w: current member manifest %s was canonically rejected by decision %s and requires correction plus a replacement owner generation", errMemberManifestReviewerWritebackRequired, manifestRef, rejection.DecisionEventID)
+	}
 	manifestFull := filepath.Join(caseRoot, filepath.FromSlash(manifestRef))
 	verificationByPacket := map[string]map[string]any{}
 	for _, event := range facts.Verifications {
 		packetID := mission.Value(event, "packetId")
-		if packetID == "" || mission.Value(event, "lane") != laneID || !strings.EqualFold(mission.Value(event, "verdict"), "accepted") || !eventEvidenceBindsPath(event, manifestRef, manifestFull) {
+		if packetID == "" || mission.Value(event, "lane") != laneID || !strings.EqualFold(mission.Value(event, "verdict"), "accepted") || !eventTargetBindsPath(event, manifestRef, manifestFull) {
 			continue
 		}
 		verificationByPacket[packetID] = event
@@ -525,7 +530,7 @@ func requireMemberManifestReviewerWriteback(caseRoot, laneID, manifestRef string
 			continue
 		}
 		if mission.Value(event, "shardId") == mission.Value(verification, "shardId") && mission.Value(event, "packetPath") == mission.Value(verification, "packetPath") && mission.Value(event, "reviewerResultInputSha256") == mission.Value(verification, "reviewerResultInputSha256") {
-			input, err := validateReviewerWritebackPacket(caseRoot, laneID, packetID, mission.Value(event, "shardId"), mission.Value(event, "packetPath"), mission.Value(event, "reviewerResultInputSha256"))
+			input, err := validateReviewerWritebackPacket(caseRoot, laneID, manifestRef, packetID, mission.Value(event, "shardId"), mission.Value(event, "packetPath"), mission.Value(event, "reviewerResultInputSha256"))
 			if err != nil {
 				return CompletionEvidence{}, fmt.Errorf("complete reviewer packet binding is invalid: %w", err)
 			}
@@ -535,7 +540,7 @@ func requireMemberManifestReviewerWriteback(caseRoot, laneID, manifestRef string
 	return CompletionEvidence{}, fmt.Errorf("%w: complete requires an accepted reviewer decision/writeback bound to current member manifest %s", errMemberManifestReviewerWritebackRequired, manifestRef)
 }
 
-func validateReviewerWritebackPacket(caseRoot, laneID, packetID, shardID, packetRef, inputSHA256 string) (CompletionEvidence, error) {
+func validateReviewerWritebackPacket(caseRoot, laneID, manifestRef, packetID, shardID, packetRef, inputSHA256 string) (CompletionEvidence, error) {
 	packetPath := filepath.FromSlash(strings.TrimSpace(packetRef))
 	if !filepath.IsAbs(packetPath) {
 		packetPath = filepath.Join(caseRoot, packetPath)
@@ -581,6 +586,9 @@ func validateReviewerWritebackPacket(caseRoot, laneID, packetID, shardID, packet
 	}
 	if result.PacketID != packetID || result.RouteID != packet.Route.ID || result.ShardID != shardID || strings.TrimSpace(result.ReviewerSession) == "" {
 		return CompletionEvidence{}, fmt.Errorf("reviewer result input does not match packet/route/shard/session bindings")
+	}
+	if err := validateReviewerWritebackItems(caseRoot, manifestRef, shard.Items, result.Items); err != nil {
+		return CompletionEvidence{}, err
 	}
 	if result.Decision != "accept" || result.RecommendedVerdict != "accepted" {
 		return CompletionEvidence{}, fmt.Errorf("accepted reviewer writeback does not match canonical reviewer result decision %q and recommended verdict %q", result.Decision, result.RecommendedVerdict)
@@ -637,6 +645,13 @@ func validateReviewerWritebackPacket(caseRoot, laneID, packetID, shardID, packet
 	return inputEvidence, nil
 }
 
+func validateReviewerWritebackItems(caseRoot, manifestRef string, shardItems, resultItems []string) error {
+	if !reviewerResultBindsManifest(caseRoot, shardItems, manifestRef) || !reviewerResultBindsManifest(caseRoot, resultItems, manifestRef) || !equalStrings(resultItems, shardItems) {
+		return fmt.Errorf("reviewer packet shard and result input do not bind the current member manifest")
+	}
+	return nil
+}
+
 func completionEvidencePathKey(path string) string {
 	path, _, _ = strings.Cut(strings.TrimSpace(path), "#")
 	key := filepath.ToSlash(filepath.Clean(filepath.FromSlash(path)))
@@ -650,9 +665,9 @@ func completionEvidencePathsEqual(left, right string) bool {
 	return completionEvidencePathKey(left) == completionEvidencePathKey(right)
 }
 
-func eventEvidenceBindsPath(event map[string]any, rel, full string) bool {
-	for _, ref := range eventStringList(event["evidenceRefs"]) {
-		path, _, _ := strings.Cut(ref, "#")
+func eventTargetBindsPath(event map[string]any, rel, full string) bool {
+	for _, item := range eventStringList(event["target"]) {
+		path, _, _ := strings.Cut(item, "#")
 		if completionEvidencePathsEqual(path, rel) || casebind.SamePath(path, full) {
 			return true
 		}

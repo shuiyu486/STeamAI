@@ -1,14 +1,18 @@
 package sessionhost
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewersession"
 )
 
 func TestPublishValidatedMemberOutputsCopiesBoundedTransportBytes(t *testing.T) {
@@ -62,7 +66,89 @@ func TestReviewerDispatchReadyRequiresExactBootstrapState(t *testing.T) {
 	}
 }
 
-func TestClaudeSuccessRequiresReturnedSessionIdentity(t *testing.T) {
+func TestValidateClaudeMemberLaunchInputKeepsAttemptNamespacesDistinct(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	onboarding, err := applyDailyOnboarding(
+		caseRoot,
+		"inspect a bounded target",
+		"member-launch-input-test",
+		&bootstrap,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pack := onboarding.Identity.Pack
+	bootstrap.Lane = onboarding.Identity.InitialLane
+	if err := ensureDailyStarted(caseRoot, pack, &bootstrap); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := memberexecution.PreviewDispatch(
+		memberexecution.DispatchOptions{
+			CaseRoot:      caseRoot,
+			Pack:          pack,
+			Lane:          bootstrap.Lane,
+			RequestSHA256: strings.Repeat("a", 64),
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	published, err := memberexecution.Apply(
+		plan,
+		plan.ExpectedPlanSHA256,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inspection := published.Plan.Inspection
+	input, err := os.ReadFile(inspection.TaskContextPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	launch := mission.CurrentLoopExternalSessionHarnessLaunch{
+		Input: mission.CurrentLoopExternalSessionHarnessInput{
+			Path:   inspection.Handoff.TaskContextPath,
+			SHA256: bytesSHA256(input),
+		},
+		Attempt: mission.CurrentLoopExternalSessionAttempt{
+			AttemptID: "member-external-job-g000001",
+		},
+	}
+	validated, err := validateClaudeMemberLaunchInput(caseRoot, launch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if validated.AttemptID != inspection.AttemptID ||
+		validated.AttemptID == launch.Attempt.AttemptID {
+		t.Fatalf(
+			"member/external attempt namespaces collapsed: member=%q external=%q",
+			validated.AttemptID,
+			launch.Attempt.AttemptID,
+		)
+	}
+}
+
+func TestClaudeAdditionalReadDirsAreReviewerOnlyAndAttachedKitBound(t *testing.T) {
+	repo := sessionhostTestRepoRoot(t)
+	caseRoot := provisionSessionhostAttachedCase(t, repo, "_template")
+	reviewer := mission.CurrentLoopExternalSessionHarnessPackage{CaseRoot: caseRoot, SessionKind: "reviewer"}
+	dirs, err := claudeAdditionalReadDirs(Options{Target: caseRoot, Pack: "_template"}, reviewer)
+	if err != nil || len(dirs) != 1 || !casePathEqual(dirs[0], repo) {
+		t.Fatalf("reviewer additional dirs=%v err=%v", dirs, err)
+	}
+	member := reviewer
+	member.SessionKind = "member"
+	if dirs, err := claudeAdditionalReadDirs(Options{Target: caseRoot, Pack: "_template"}, member); err != nil || len(dirs) != 0 {
+		t.Fatalf("member additional dirs=%v err=%v", dirs, err)
+	}
+	reviewer.CaseRoot = t.TempDir()
+	if _, err := claudeAdditionalReadDirs(Options{Target: caseRoot, Pack: "_template"}, reviewer); err == nil || !strings.Contains(err.Error(), "case root changed") {
+		t.Fatalf("reviewer case drift error=%v", err)
+	}
+}
+
+func TestClaudeSuccessRequiresReturnedSessionIdentityAndNoPermissionDenial(t *testing.T) {
 	run := claudeRun{
 		envelope: claudeEnvelope{Type: "result", Subtype: "success"},
 		exitCode: 0, structuredOutput: json.RawMessage(`{"opaque":"non-empty"}`),
@@ -73,6 +159,89 @@ func TestClaudeSuccessRequiresReturnedSessionIdentity(t *testing.T) {
 	run.sessionID = "session-id"
 	if !run.success() {
 		t.Fatal("Claude success rejected a bound durable session identity")
+	}
+	run.envelope.PermissionDenials = []any{"Read denied"}
+	if run.success() {
+		t.Fatal("Claude success accepted a permission denial")
+	}
+}
+
+func TestClaudeFailureDiagnosisMatrix(t *testing.T) {
+	tests := []struct {
+		name  string
+		run   claudeRun
+		code  string
+		stage string
+	}{
+		{name: "auth", run: claudeRun{started: true, exitCode: 1, stderrTail: "Please log in to Claude Code"}, code: "claude-authentication-failed", stage: "provider-authentication"},
+		{name: "quota", run: claudeRun{started: true, exitCode: 1, stderrTail: "Usage limit reached"}, code: "claude-quota-unavailable", stage: "provider-availability"},
+		{name: "model", run: claudeRun{started: true, exitCode: 1, stderrTail: "model is not available"}, code: "claude-model-unavailable", stage: "provider-availability"},
+		{name: "spawn", run: claudeRun{spawnErr: errors.New("CreateProcess failed")}, code: "claude-spawn-failed", stage: "process-spawn"},
+		{name: "timeout", run: claudeRun{started: true, timedOut: true, waitErr: context.DeadlineExceeded}, code: "claude-timeout", stage: "process-wait"},
+		{name: "permission", run: claudeRun{started: true, envelope: claudeEnvelope{PermissionDenials: []any{"Read denied"}}}, code: "claude-permission-denied", stage: "tool-permission"},
+		{name: "nonzero", run: claudeRun{started: true, exitCode: 7, waitErr: errors.New("exit status 7")}, code: "claude-nonzero-exit", stage: "process-exit"},
+		{name: "envelope", run: claudeRun{started: true, failureCode: "claude-invalid-envelope", waitErr: errors.New("decode result")}, code: "claude-invalid-envelope", stage: "envelope-validation"},
+		{name: "session", run: claudeRun{started: true, failureCode: "claude-session-id-mismatch", waitErr: errors.New("session drift")}, code: "claude-session-id-mismatch", stage: "session-validation"},
+		{name: "structured", run: claudeRun{started: true, failureDetail: "unknown structured output field"}, code: "claude-invalid-structured-output", stage: "structured-output-validation"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			diagnosis := diagnosisForClaudeRun(test.run, "replacement-requested", "member", 1, 3)
+			if diagnosis == nil || diagnosis.Code != test.code || diagnosis.Stage != test.stage || diagnosis.State != failureStateReplaceable || !diagnosis.Replaceable || diagnosis.NextAction == "" {
+				t.Fatalf("diagnosis = %+v", diagnosis)
+			}
+		})
+	}
+}
+
+func TestClaudeFailureDiagnosisPrefersStructuredEvidence(t *testing.T) {
+	tests := []struct {
+		name string
+		run  claudeRun
+		code string
+	}{
+		{name: "invalid envelope before provider prose", run: claudeRun{started: true, failureCode: "claude-invalid-envelope", waitErr: errors.New("decode result"), stdoutTail: "authentication quota model not found"}, code: "claude-invalid-envelope"},
+		{name: "session mismatch before provider prose", run: claudeRun{started: true, failureCode: "claude-session-id-mismatch", waitErr: errors.New("session drift"), stderrTail: "please log in"}, code: "claude-session-id-mismatch"},
+		{name: "spawn permission is process failure", run: claudeRun{spawnErr: errors.New("permission denied")}, code: "claude-spawn-failed"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			diagnosis := diagnosisForClaudeRun(test.run, "replacement-requested", "member", 1, 3)
+			if diagnosis == nil || diagnosis.Code != test.code {
+				t.Fatalf("diagnosis = %+v", diagnosis)
+			}
+		})
+	}
+}
+
+func TestLaunchFailedDiagnosisReportsDurableRuntimeMutation(t *testing.T) {
+	run := claudeRun{spawnErr: errors.New("CreateProcess failed")}
+	diagnosis := diagnosisForClaudeRun(run, "launch-failed", "member", 1, 3)
+	if diagnosis == nil || !diagnosis.Recoverable || !diagnosis.MutationApplied || diagnosis.MutationBoundary != "durable-launch-failure-recorded" {
+		t.Fatalf("launch-failed diagnosis = %+v", diagnosis)
+	}
+}
+
+func TestClaudeAttemptLimitIsTerminalAndDoesNotRetry(t *testing.T) {
+	run := claudeRun{started: true, exitCode: 1, waitErr: errors.New("exit status 1")}
+	diagnosis := diagnosisForClaudeRun(run, "failed", "member", 3, 3)
+	if diagnosis == nil || diagnosis.State != failureStateTerminal || !diagnosis.Terminal || diagnosis.Replaceable || diagnosis.Recoverable {
+		t.Fatalf("attempt limit diagnosis = %+v", diagnosis)
+	}
+	if diagnosis.AttemptsUsed != 3 || diagnosis.AttemptsLimit != 3 || diagnosis.NextAction == "" {
+		t.Fatalf("attempt limit evidence = %+v", diagnosis)
+	}
+}
+
+func TestHostOperationFailureDiagnosisPreservesMutationTruth(t *testing.T) {
+	diagnosis := diagnosisForError(errors.New("external session turn relay committed but observation intake failed"), 1, 3, 4)
+	if diagnosis == nil || diagnosis.Code != "claude-intake-failed" || diagnosis.State != failureStateRecoverable || !diagnosis.MutationApplied || diagnosis.MutationBoundary != "durable-runtime-step-may-have-committed" {
+		t.Fatalf("intake diagnosis = %+v", diagnosis)
+	}
+	publicationErr := hostError("claude-submission-failed", "submission-publication", "result-artifact-publication-may-have-committed", "refresh status", true, errors.New("write submission failed"))
+	diagnosis = diagnosisForError(publicationErr, 1, 3, 2)
+	if diagnosis == nil || diagnosis.Code != "claude-submission-failed" || !diagnosis.Recoverable || diagnosis.Replaceable || !diagnosis.MutationApplied || diagnosis.MutationBoundary != "result-artifact-publication-may-have-committed" || diagnosis.NextAction != "refresh status" {
+		t.Fatalf("submission diagnosis = %+v", diagnosis)
 	}
 }
 
@@ -92,6 +261,128 @@ func TestLimitedBufferFailsClosedWithoutTruncationSuccess(t *testing.T) {
 	}
 }
 
+func TestClaudeReviewerRequestBindsExactDispatchIdentity(t *testing.T) {
+	caseRoot := t.TempDir()
+	inputRel := ".rekit/reviewer-prompt.md"
+	input := []byte("review bounded evidence\n")
+	inputPath := filepath.Join(caseRoot, filepath.FromSlash(inputRel))
+	if err := os.MkdirAll(filepath.Dir(inputPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(inputPath, input, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	packetRel := ".rekit/packet.json"
+	fields := []string{"item", "decision", "candidate_path"}
+	packet := []byte(`{"packetId":"packet-exact","route":{"id":"_template:lane-feature-analysis","outputContract":"item,decision,candidate_path"},"shards":[{"id":"shard-01","items":["evidence/manifest.json"]}],"outputContract":"item,decision,candidate_path"}`)
+	if err := os.WriteFile(filepath.Join(caseRoot, filepath.FromSlash(packetRel)), packet, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dispatchRel := ".rekit/reviewer-dispatch.json"
+	dispatchPath := filepath.Join(caseRoot, filepath.FromSlash(dispatchRel))
+	receipt := reviewersession.DispatchReceipt{
+		SchemaVersion: 1, Kind: "reviewer-session-dispatch",
+		DispatchID: "dispatch-exact", PacketID: "packet-exact",
+		PacketPath: packetRel, PacketSHA256: bytesSHA256(packet),
+		RouteID: "_template:lane-feature-analysis", ShardID: "shard-01",
+		Items: []string{"evidence/manifest.json"}, PromptPath: inputPath,
+		PromptSHA256: bytesSHA256(input), AgentType: "read-only-reviewer",
+		ReadOnly: true, TargetLane: "feature-mission",
+		PacketOwner:     reviewersession.Owner{CurrentExecutor: "member", ExecutorGeneration: 1, BindingMode: "current-executor-generation"},
+		EffectiveOwner:  reviewersession.Owner{CurrentExecutor: "member", ExecutorGeneration: 1, BindingMode: "current-executor-generation"},
+		ReviewerHarness: defaultHarness, ReviewerSession: "session-id",
+		Actor: "test", RecordedAt: "2026-08-09T00:00:00Z",
+		NoSpawn: true, NoHeavyTool: true, NoAuthority: true,
+	}
+	dispatch, err := json.MarshalIndent(receipt, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatch = append(dispatch, '\n')
+	if err := os.WriteFile(dispatchPath, dispatch, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pkg := hostPackageForTest(caseRoot, inputRel, input)
+	pkg.SessionKind = "reviewer"
+	pkg.Launch.ReadOnly = true
+	pkg.Launch.Input.Path = inputPath
+	pkg.Launch.ExpectedOutput = reviewerExpectedOutput(receipt, fields)
+	pkg.Launch.ReviewerIdentity = reviewerLaunchIdentity(receipt, fields, dispatchRel, bytesSHA256(dispatch))
+	prompt, _, err := claudeRequest(caseRoot, pkg, "session-id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		`packetId="packet-exact"`,
+		`routeId="_template:lane-feature-analysis"`,
+		`shardId="shard-01"`,
+		`items=["evidence/manifest.json"]`,
+		`exactly these fields: ["item","decision","candidate_path"]`,
+		"Do not copy placeholder text such as packet.packetId",
+		"Judge only the current reviewed manifest",
+		"historical rejection embedded in the replacement TaskContext is correction provenance",
+	} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("reviewer prompt omitted exact dispatch identity %q: %s", expected, prompt)
+		}
+	}
+	placeholderResponse := json.RawMessage(`{
+		"outcome":"returned",
+		"result":{
+			"packetId":"packet.packetId",
+			"routeId":"_template:lane-feature-analysis",
+			"shardId":"shard-01",
+			"items":["evidence/manifest.json"],
+			"reviewerSession":"session-id",
+			"decision":"reject",
+			"confidence":"high",
+			"summary":"bounded rejection",
+			"evidenceRefs":["evidence/manifest.json"],
+			"risks":[],
+			"conflicts":[],
+			"recommendedVerdict":"rejected",
+			"routeOutput":{"item":"evidence/manifest.json","decision":"reject","candidate_path":"bounded-candidate"}
+		},
+		"reason":""
+	}`)
+	placeholderRun := claudeRun{
+		envelope: claudeEnvelope{Type: "result", Subtype: "success"},
+		exitCode: 0, sessionID: "session-id", structuredOutput: placeholderResponse,
+	}
+	if err := validateClaudeStructuredResult(pkg, placeholderRun); err == nil || !strings.Contains(err.Error(), "exact dispatch") {
+		t.Fatalf("pre-publication validation accepted placeholder reviewer identity: %v", err)
+	}
+	pkg.Launch.ReviewerIdentity = nil
+	if _, _, err := claudeRequest(caseRoot, pkg, "session-id"); err == nil || !strings.Contains(err.Error(), "exact durable dispatch identity") {
+		t.Fatalf("reviewer request accepted missing exact durable identity: %v", err)
+	}
+}
+
+func TestClaudeRequestRejectsUnknownSessionKind(t *testing.T) {
+	caseRoot := t.TempDir()
+	inputRel := ".rekit/input.json"
+	input := []byte("{}\n")
+	inputPath := filepath.Join(caseRoot, filepath.FromSlash(inputRel))
+	if err := os.MkdirAll(filepath.Dir(inputPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(inputPath, input, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pkg := hostPackageForTest(caseRoot, inputRel, input)
+	pkg.SessionKind = "unknown"
+	if _, _, err := claudeRequest(caseRoot, pkg, "session-id"); err == nil || !strings.Contains(err.Error(), "unsupported Claude session kind") {
+		t.Fatalf("Claude request accepted unknown session kind: %v", err)
+	}
+}
+
+func TestClaudeFailureReasonPreservesStructuredValidationDetail(t *testing.T) {
+	run := claudeRun{failureDetail: `validate real Claude ReviewerResult: packetId "packet.packetId" does not match current packet`}
+	if reason := run.failureReason(); !strings.Contains(reason, "packet.packetId") || strings.Contains(reason, "did not return a successful structured result") {
+		t.Fatalf("structured validation detail was hidden: %q", reason)
+	}
+}
+
 func TestClaudeSchemasBindImmutableInputAndDurableSession(t *testing.T) {
 	caseRoot := t.TempDir()
 	inputRel := ".rekit/handoff.md"
@@ -107,7 +398,7 @@ func TestClaudeSchemasBindImmutableInputAndDurableSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(prompt, strconv.Quote(filepath.Join(caseRoot, filepath.FromSlash(inputRel)))) || !strings.Contains(prompt, strconv.Quote(caseRoot)) || !strings.Contains(prompt, "using the Read tool") || !strings.Contains(schema, `"outputs"`) {
+	if !strings.Contains(prompt, strconv.Quote(filepath.Join(caseRoot, filepath.FromSlash(inputRel)))) || !strings.Contains(prompt, strconv.Quote(caseRoot)) || !strings.Contains(prompt, "using the Read tool") || !strings.Contains(prompt, "never end the response with another Read call") || !strings.Contains(prompt, "missing bounded evidence is not a process failure") || !strings.Contains(prompt, "independent Reviewer can reject it") || !strings.Contains(prompt, "explicitly address every field") || !strings.Contains(prompt, "historical Reviewer rejection") || !strings.Contains(schema, `"outputs"`) {
 		t.Fatalf("member Claude request omitted input or output contract: prompt=%q schema=%s", prompt, schema)
 	}
 	pkg.Launch.Attempt.Session = "different"

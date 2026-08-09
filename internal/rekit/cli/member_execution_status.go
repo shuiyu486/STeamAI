@@ -2,23 +2,27 @@ package cli
 
 import (
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
 type memberExecutionStatus struct {
-	Ready               bool                        `json:"ready"`
-	State               string                      `json:"state"`
-	Lane                string                      `json:"lane,omitempty"`
-	AttemptID           string                      `json:"attemptId,omitempty"`
-	Inspection          *memberexecution.Inspection `json:"inspection,omitempty"`
-	PreviewCommand      string                      `json:"previewCommand,omitempty"`
-	ObservationCommand  string                      `json:"observationCommand,omitempty"`
-	ReviewerPlanCommand string                      `json:"reviewerPlanCommand,omitempty"`
-	CompletionEvidence  []string                    `json:"completionEvidenceRefs,omitempty"`
-	Boundary            []string                    `json:"boundary"`
+	Ready               bool                                `json:"ready"`
+	State               string                              `json:"state"`
+	Lane                string                              `json:"lane,omitempty"`
+	AttemptID           string                              `json:"attemptId,omitempty"`
+	Inspection          *memberexecution.Inspection         `json:"inspection,omitempty"`
+	ReviewerRejection   *workstream.MemberReviewerRejection `json:"reviewerRejection,omitempty"`
+	PreviewCommand      string                              `json:"previewCommand,omitempty"`
+	ObservationCommand  string                              `json:"observationCommand,omitempty"`
+	ReviewerPlanCommand string                              `json:"reviewerPlanCommand,omitempty"`
+	CorrectionCommand   string                              `json:"correctionCommand,omitempty"`
+	CompletionEvidence  []string                            `json:"completionEvidenceRefs,omitempty"`
+	Boundary            []string                            `json:"boundary"`
 }
 
 func bindStatusMemberExecution(status *statusInventory) {
@@ -63,6 +67,20 @@ func bindStatusMemberExecution(status *statusInventory) {
 		}
 		manifestRef = filepath.ToSlash(manifestRef)
 		status.MemberExecution.CompletionEvidence = []string{manifestRef}
+		rejection, rejected, err := workstream.CurrentMemberManifestReviewerRejection(status.Target, lane, manifestRef)
+		if err != nil {
+			status.MemberExecution.Ready = false
+			status.MemberExecution.State = "corrupt"
+			status.MemberExecution.Boundary = []string{err.Error(), "status remains read-only and does not repair reviewer rejection lineage"}
+			return
+		}
+		if rejected {
+			status.MemberExecution.State = "reviewer-rejected-awaiting-correction"
+			status.MemberExecution.ReviewerRejection = &rejection
+			status.MemberExecution.CorrectionCommand = joinDriverCommand([]string{"rekit-host", "-daily", "-target", status.Target, "-correction", "<human-correction>", "-actor", "<actor>"})
+			status.MemberExecution.Boundary = append(base, "the rejected member manifest cannot be reviewed again; apply a human correction bound to this canonical rejection before replacing the owner generation")
+			return
+		}
 		reviewed, err := workstream.HasAcceptedMemberManifestReviewerWriteback(status.Target, lane, manifestRef)
 		if err != nil {
 			status.MemberExecution.Ready = false
@@ -79,6 +97,51 @@ func bindStatusMemberExecution(status *statusInventory) {
 		args = append(args, "-Lane", lane, "-Format", "json")
 		status.MemberExecution.ReviewerPlanCommand = joinDriverCommand(args)
 	}
+}
+
+func bindStatusReviewerCorrection(status *statusInventory) {
+	if status == nil || status.MemberExecution == nil || status.MemberExecution.State != "reviewer-rejected-awaiting-correction" || status.MemberExecution.ReviewerRejection == nil || status.MissionControlRunbook == nil {
+		return
+	}
+	if statusReviewerCorrectionReconcilePending(status, status.MemberExecution.Lane) {
+		status.MemberExecution.Boundary = mission.UniqueStrings(append(status.MemberExecution.Boundary, "the evidence-bound correction is already recorded; reconcile the open intervention before replacement dispatch"))
+		status.MissionControlRunbook.RoutingReasons = mission.UniqueStrings(append(status.MissionControlRunbook.RoutingReasons, "the open correction intervention takes precedence over the historical reviewer rejection correction entry point"))
+		return
+	}
+	rejection := status.MemberExecution.ReviewerRejection
+	action := mission.MissionCommanderNextActionItem{
+		Lane: status.MemberExecution.Lane, Label: rejection.PacketID, ActionID: "reviewer-rejection-correction:" + rejection.DecisionEventID,
+		State: "reviewer-rejected-awaiting-correction", Command: status.MemberExecution.CorrectionCommand, Source: "memberExecution.reviewerRejection", RequiresReview: true,
+		Reasons:  []string{rejection.Summary, "verificationEventId=" + rejection.VerificationEventID, "decisionEventId=" + rejection.DecisionEventID, "reviewerSession=" + rejection.ReviewerSession, "ownerGeneration=" + strconv.Itoa(rejection.OwnerGeneration)},
+		Boundary: []string{"replace <human-correction> and <actor> explicitly; do not replay the rejected manifest", "the daily correction command revalidates packet/result/input/receipt/event bindings before reconciliation", "replacement generation and a new reviewer packet/session are required before completion"},
+	}
+	if status.CaseMission != nil {
+		queue := mission.MissionCommanderActionQueueFor([]mission.MissionCommanderNextActionItem{action})
+		status.CaseMission.Summary = "canonical reviewer rejection requires evidence-bound human correction and replacement review"
+		status.CaseMission.MissionCommanderNextActions = []mission.MissionCommanderNextActionItem{action}
+		status.CaseMission.MissionCommanderActionQueue = queue
+		status.CaseMission.DailyMissionControlRunbook = workstream.DailyMissionControlRunbookFor(status.Target, "case", queue, status.CaseMission.HandoffPreviewCommand, status.CaseMission.HandoffApplyCommand)
+	}
+	status.MissionControlRunbook = buildStatusMissionControlRunbookWithConsumption(status.Target, status.CaseMission, status.ProjectHandoff, status.PackMemoryConsumption)
+	status.MissionControlRunbook.RoutingReasons = mission.UniqueStrings(append(status.MissionControlRunbook.RoutingReasons, "canonical reviewer reject requires evidence-bound human correction before any member or reviewer redispatch"))
+}
+
+func statusReviewerCorrectionReconcilePending(status *statusInventory, lane string) bool {
+	if status == nil || status.CaseMission == nil {
+		return false
+	}
+	queue := status.CaseMission.MissionCommanderActionQueue
+	if queue.CurrentAction == nil ||
+		!strings.EqualFold(strings.TrimSpace(queue.CurrentAction.Lane), strings.TrimSpace(lane)) ||
+		queue.CurrentDriverRequest == nil ||
+		queue.CurrentDriverRequest.Blocked ||
+		!queue.CurrentDriverRequest.CommandExecutable {
+		return false
+	}
+	command, err := SplitPublicCommand(queue.CurrentDriverRequest.Command)
+	return err == nil && len(command) >= 2 &&
+		strings.EqualFold(command[0], "-Command") &&
+		strings.EqualFold(command[1], "reconcile")
 }
 
 func memberReviewerItemsArgs(manifestRef string) []string {

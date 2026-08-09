@@ -24,6 +24,9 @@ var (
 	shGetFolderPathW               = shell32DLL.NewProc("SHGetFolderPathW")
 	getFinalPathNameByHandleW      = kernel32DLL.NewProc("GetFinalPathNameByHandleW")
 	queryFullProcessImageNameW     = kernel32DLL.NewProc("QueryFullProcessImageNameW")
+	createJobObjectW               = kernel32DLL.NewProc("CreateJobObjectW")
+	setInformationJobObject        = kernel32DLL.NewProc("SetInformationJobObject")
+	assignProcessToJobObject       = kernel32DLL.NewProc("AssignProcessToJobObject")
 	getCurrentProcess              = kernel32DLL.NewProc("GetCurrentProcess")
 	readProcessMemory              = kernel32DLL.NewProc("ReadProcessMemory")
 	ntdllDLL                       = syscall.NewLazyDLL("ntdll.dll")
@@ -92,6 +95,49 @@ type objectAttributes struct {
 type ioStatusBlock struct {
 	Status      uintptr
 	Information uintptr
+}
+
+type jobObjectBasicLimitInformation struct {
+	PerProcessUserTimeLimit int64
+	PerJobUserTimeLimit     int64
+	LimitFlags              uint32
+	MinimumWorkingSetSize   uintptr
+	MaximumWorkingSetSize   uintptr
+	ActiveProcessLimit      uint32
+	Affinity                uintptr
+	PriorityClass           uint32
+	SchedulingClass         uint32
+}
+
+type ioCounters struct {
+	ReadOperationCount  uint64
+	WriteOperationCount uint64
+	OtherOperationCount uint64
+	ReadTransferCount   uint64
+	WriteTransferCount  uint64
+	OtherTransferCount  uint64
+}
+
+type jobObjectExtendedLimitInformation struct {
+	BasicLimitInformation jobObjectBasicLimitInformation
+	IOInfo                ioCounters
+	ProcessMemoryLimit    uintptr
+	JobMemoryLimit        uintptr
+	PeakProcessMemoryUsed uintptr
+	PeakJobMemoryUsed     uintptr
+}
+
+type claudeProcessContainment struct {
+	handle syscall.Handle
+}
+
+func (containment *claudeProcessContainment) Close() error {
+	if containment == nil || containment.handle == 0 {
+		return nil
+	}
+	handle := containment.handle
+	containment.handle = 0
+	return syscall.CloseHandle(handle)
 }
 
 type versionNode struct {
@@ -180,23 +226,33 @@ func configureTrustedClaudeCommand(cmd *exec.Cmd, binding *claudeExecutableLock)
 }
 
 func validateAndResumeTrustedClaudeProcess(process *os.Process, binding *claudeExecutableLock) error {
+	containment, err := validateContainAndResumeTrustedClaudeProcess(process, binding)
+	if containment != nil {
+		_ = containment.Close()
+	}
+	return err
+}
+
+func validateContainAndResumeTrustedClaudeProcess(process *os.Process, binding *claudeExecutableLock) (*claudeProcessContainment, error) {
 	if binding == nil {
-		return nil
+		return nil, nil
 	}
 	if process == nil {
-		return fmt.Errorf("trusted Claude process is missing")
+		return nil, fmt.Errorf("trusted Claude process is missing")
 	}
 	if err := binding.Validate(); err != nil {
-		return err
+		return nil, err
 	}
 	const (
 		processNameNative              = 0x1
 		processQueryLimitedInformation = 0x1000
 		processSuspendResume           = 0x0800
+		processSetQuota                = 0x0100
+		processTerminate               = 0x0001
 	)
-	handle, err := syscall.OpenProcess(processQueryLimitedInformation|processSuspendResume, false, uint32(process.Pid))
+	handle, err := syscall.OpenProcess(processQueryLimitedInformation|processSuspendResume|processSetQuota|processTerminate, false, uint32(process.Pid))
 	if err != nil {
-		return fmt.Errorf("open suspended Claude process for identity validation: %w", err)
+		return nil, fmt.Errorf("open suspended Claude process for identity validation: %w", err)
 	}
 	defer syscall.CloseHandle(handle)
 	buffer := make([]uint16, 32768)
@@ -208,36 +264,56 @@ func validateAndResumeTrustedClaudeProcess(process *os.Process, binding *claudeE
 		uintptr(unsafe.Pointer(&length)),
 	)
 	if result == 0 {
-		return fmt.Errorf("query suspended Claude process image: %v", callErr)
+		return nil, fmt.Errorf("query suspended Claude process image: %v", callErr)
 	}
 	nativePath := syscall.UTF16ToString(buffer[:length])
 	if !validClaudeNativeImagePath(nativePath) {
-		return fmt.Errorf("suspended Claude process returned an invalid native image path: %s", nativePath)
+		return nil, fmt.Errorf("suspended Claude process returned an invalid native image path: %s", nativePath)
 	}
 	if !strings.EqualFold(nativePath, binding.nativePath) {
-		return fmt.Errorf("suspended Claude process native image path does not match the verified executable")
+		return nil, fmt.Errorf("suspended Claude process native image path does not match the verified executable")
 	}
 	actual, err := openNativeClaudeExecutableReadLock(nativePath)
 	if err != nil {
-		return fmt.Errorf("open suspended Claude process image by native path: %w", err)
+		return nil, fmt.Errorf("open suspended Claude process image by native path: %w", err)
 	}
 	defer actual.Close()
 	expectedInfo, err := binding.file.Stat()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	actualInfo, err := actual.Stat()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if !os.SameFile(expectedInfo, actualInfo) {
-		return fmt.Errorf("suspended Claude process image does not match the verified executable")
+		return nil, fmt.Errorf("suspended Claude process image does not match the verified executable")
+	}
+	job, _, callErr := createJobObjectW.Call(0, 0)
+	if job == 0 {
+		return nil, fmt.Errorf("create Claude containment job: %v", callErr)
+	}
+	containment := &claudeProcessContainment{handle: syscall.Handle(job)}
+	limits := jobObjectExtendedLimitInformation{}
+	const jobObjectLimitKillOnJobClose = 0x00002000
+	const jobObjectExtendedLimitInformationClass = 9
+	limits.BasicLimitInformation.LimitFlags = jobObjectLimitKillOnJobClose
+	set, _, callErr := setInformationJobObject.Call(job, jobObjectExtendedLimitInformationClass, uintptr(unsafe.Pointer(&limits)), unsafe.Sizeof(limits))
+	if set == 0 {
+		_ = containment.Close()
+		return nil, fmt.Errorf("set Claude containment job limits: %v", callErr)
+	}
+	assigned, _, callErr := assignProcessToJobObject.Call(job, uintptr(handle))
+	if assigned == 0 {
+		_ = containment.Close()
+		return nil, fmt.Errorf("assign verified Claude process to containment job: %v", callErr)
 	}
 	status, _, callErr := ntResumeProcess.Call(uintptr(handle))
 	if int32(status) < 0 {
-		return fmt.Errorf("resume verified Claude process: NTSTATUS 0x%s: %v", strconv.FormatUint(uint64(uint32(status)), 16), callErr)
+		_ = containment.Close()
+		return nil, fmt.Errorf("resume verified Claude process: NTSTATUS 0x%s: %v", strconv.FormatUint(uint64(uint32(status)), 16), callErr)
 	}
-	return nil
+	return containment, nil
 }
 
 func openNativeClaudeExecutableReadLock(path string) (*os.File, error) {

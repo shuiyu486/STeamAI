@@ -16,8 +16,11 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/cli"
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/subagents"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
 const (
@@ -38,40 +41,53 @@ type Options struct {
 	Timeout                           time.Duration
 	MaxAttempts                       int
 	StopAfterMemberIntake             bool
+	reviewerBinding                   *reviewerBinding
+}
+
+type reviewerBinding struct {
+	PacketID             string
+	PacketPath           string
+	PacketSHA256         string
+	Lane                 string
+	ShardID              string
+	DispatchPromptPath   string
+	DispatchPromptSHA256 string
 }
 
 type Result struct {
-	SchemaVersion      int       `json:"schemaVersion"`
-	Command            string    `json:"command"`
-	CaseRoot           string    `json:"caseRoot"`
-	Pack               string    `json:"pack,omitempty"`
-	Actor              string    `json:"actor"`
-	ClaudePath         string    `json:"claudePath"`
-	SessionLaunches    int       `json:"sessionLaunches"`
-	SessionCompletions int       `json:"sessionCompletions"`
-	Replacements       int       `json:"replacements"`
-	AppliedSteps       int       `json:"appliedSteps"`
-	FinalMode          string    `json:"finalMode"`
-	Sessions           []Session `json:"sessions,omitempty"`
-	Boundary           []string  `json:"boundary"`
+	SchemaVersion      int               `json:"schemaVersion"`
+	Command            string            `json:"command"`
+	CaseRoot           string            `json:"caseRoot"`
+	Pack               string            `json:"pack,omitempty"`
+	Actor              string            `json:"actor"`
+	ClaudePath         string            `json:"claudePath"`
+	SessionLaunches    int               `json:"sessionLaunches"`
+	SessionCompletions int               `json:"sessionCompletions"`
+	Replacements       int               `json:"replacements"`
+	AppliedSteps       int               `json:"appliedSteps"`
+	FinalMode          string            `json:"finalMode"`
+	Sessions           []Session         `json:"sessions,omitempty"`
+	Failure            *FailureDiagnosis `json:"failure,omitempty"`
+	Boundary           []string          `json:"boundary"`
 }
 
 type Session struct {
-	Started           bool     `json:"started"`
-	Recovered         bool     `json:"recovered,omitempty"`
-	AttemptGeneration int      `json:"attemptGeneration,omitempty"`
-	RunLaunchOrdinal  int      `json:"runLaunchOrdinal,omitempty"`
-	ReservationID     string   `json:"reservationId"`
-	SessionID         string   `json:"sessionId,omitempty"`
-	SessionKind       string   `json:"sessionKind"`
-	Outcome           string   `json:"outcome"`
-	ExitCode          int      `json:"exitCode,omitempty"`
-	TimedOut          bool     `json:"timedOut,omitempty"`
-	ResultSubtype     string   `json:"resultSubtype,omitempty"`
-	ResultIsError     bool     `json:"resultIsError,omitempty"`
-	DurationMillis    int64    `json:"durationMillis,omitempty"`
-	PermissionDenials []any    `json:"permissionDenials,omitempty"`
-	Diagnostics       []string `json:"diagnostics,omitempty"`
+	Started           bool              `json:"started"`
+	Recovered         bool              `json:"recovered,omitempty"`
+	AttemptGeneration int               `json:"attemptGeneration,omitempty"`
+	RunLaunchOrdinal  int               `json:"runLaunchOrdinal,omitempty"`
+	ReservationID     string            `json:"reservationId"`
+	SessionID         string            `json:"sessionId,omitempty"`
+	SessionKind       string            `json:"sessionKind"`
+	Outcome           string            `json:"outcome"`
+	ExitCode          int               `json:"exitCode,omitempty"`
+	TimedOut          bool              `json:"timedOut,omitempty"`
+	ResultSubtype     string            `json:"resultSubtype,omitempty"`
+	ResultIsError     bool              `json:"resultIsError,omitempty"`
+	DurationMillis    int64             `json:"durationMillis,omitempty"`
+	PermissionDenials []any             `json:"permissionDenials,omitempty"`
+	Failure           *FailureDiagnosis `json:"failure,omitempty"`
+	Diagnostics       []string          `json:"diagnostics,omitempty"`
 }
 
 type currentStepPlan struct {
@@ -124,6 +140,22 @@ type reviewerStep struct {
 	ExternalHandoff *reviewerExternalHandoff `json:"externalHandoff,omitempty"`
 }
 
+type boundReviewerStepPlan struct {
+	PacketID                       string                          `json:"packetId"`
+	PacketPath                     string                          `json:"packetPath"`
+	TargetLane                     string                          `json:"targetLane"`
+	ShardID                        string                          `json:"shardId"`
+	ExpectedReviewerStepPlanSHA256 string                          `json:"expectedReviewerStepPlanSha256,omitempty"`
+	ReviewerResultSnapshot         *reviewerResultSnapshotIdentity `json:"reviewerResultSnapshot,omitempty"`
+	ExternalHandoff                *reviewerExternalHandoff        `json:"externalHandoff,omitempty"`
+}
+
+type reviewerResultSnapshotIdentity struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+	Bytes  int64  `json:"bytes"`
+}
+
 type reviewerExternalHandoff struct {
 	State                         string `json:"state"`
 	RunLoopStepID                 string `json:"runLoopStepId"`
@@ -156,12 +188,20 @@ type dispatchPlan struct {
 	AttemptSHA256 string `json:"attemptSha256"`
 }
 
-func Run(parent context.Context, opt Options) (Result, error) {
+func Run(parent context.Context, opt Options) (result Result, retErr error) {
 	caseRoot, err := canonicalCaseRoot(opt.Target)
 	if err != nil {
 		return Result{}, err
 	}
 	opt.Target = caseRoot
+	opt.Pack = strings.TrimSpace(opt.Pack)
+	if opt.Pack == "" && instance.LooksLikeCase(caseRoot) {
+		inst, err := instance.Read(caseRoot)
+		if err != nil {
+			return Result{}, err
+		}
+		opt.Pack = strings.TrimSpace(inst.TemplatePack)
+	}
 	opt.Actor = strings.TrimSpace(opt.Actor)
 	if opt.Actor == "" {
 		opt.Actor = defaultActor
@@ -175,31 +215,68 @@ func Run(parent context.Context, opt Options) (Result, error) {
 	if opt.MaxAttempts <= 0 {
 		opt.MaxAttempts = defaultMaxAttempts
 	}
-	if opt.MaxAttempts > 256 {
-		return Result{}, fmt.Errorf("max attempts cannot exceed 256")
-	}
-	claudePath, err := resolveClaudePath(opt.ClaudePath)
-	if err != nil {
-		return Result{}, err
-	}
-	opt.ClaudePath = claudePath
-	result := Result{
+	result = Result{
 		SchemaVersion: 1,
 		Command:       "rekit-host",
 		CaseRoot:      caseRoot,
-		Pack:          strings.TrimSpace(opt.Pack),
+		Pack:          opt.Pack,
 		Actor:         opt.Actor,
-		ClaudePath:    claudePath,
+		ClaudePath:    strings.TrimSpace(opt.ClaudePath),
 		Boundary: []string{
 			"all LLM result bytes come from a real Claude Code process; the host generates only lifecycle metadata and submission bindings",
-			"the host consumes run-current-step and does not replace deterministic runtime currentness, authorization, or strict intake",
+			"the host consumes the canonical current-step route or an explicitly bound run-reviewer-step route and does not replace deterministic runtime currentness, authorization, or strict intake",
 			"submission is published only after every required real result artifact",
 		},
+	}
+	defer func() {
+		if retErr != nil && result.Failure == nil {
+			result.Failure = diagnosisForError(retErr, len(result.Sessions), opt.MaxAttempts, result.AppliedSteps)
+		}
+		if result.Failure == nil && len(result.Sessions) > 0 {
+			result.Failure = result.Sessions[len(result.Sessions)-1].Failure
+		}
+	}()
+	if opt.MaxAttempts > 256 {
+		return result, hostError("claude-attempt-limit-invalid", "attempt-control", "none", "Set -max-attempts to a value from 1 through 256, then rerun the same host command.", false, fmt.Errorf("max attempts cannot exceed 256"))
+	}
+	if !opt.StopAfterMemberIntake {
+		rejected, err := currentReviewerRejectionAwaitingCorrection(opt.Target, opt.Pack)
+		if err != nil {
+			return result, err
+		}
+		if rejected {
+			result.FinalMode = "reviewer-rejected-awaiting-correction"
+			return result, nil
+		}
+	}
+	claudePath, err := resolveClaudePath(opt.ClaudePath)
+	if err != nil {
+		return result, hostError("claude-executable-unavailable", "executable-resolution", "none", "Install or repair the Claude Code executable, then rerun the same host command.", false, err)
+	}
+	opt.ClaudePath = claudePath
+	result.ClaudePath = claudePath
+	var control *supervisionOwnerLease
+	if trustedRecoveryProvenance(opt) {
+		control, err = acquireSupervisionControl(parent, opt.Target)
+		if err != nil {
+			return result, err
+		}
+		defer control.Close()
 	}
 
 	reservationID := ""
 	launchAttempts := 0
 	for range 64 {
+		if !opt.StopAfterMemberIntake {
+			rejected, err := currentReviewerRejectionAwaitingCorrection(opt.Target, opt.Pack)
+			if err != nil {
+				return result, err
+			}
+			if rejected {
+				result.FinalMode = "reviewer-rejected-awaiting-correction"
+				return result, nil
+			}
+		}
 		preview, err := runCurrentStep(opt, nil, false)
 		if err != nil {
 			return result, err
@@ -209,7 +286,15 @@ func Run(parent context.Context, opt Options) (Result, error) {
 			return result, nil
 		}
 		if !opt.StopAfterMemberIntake && preview.ReviewerStep == nil && preview.ExternalSessionStep == nil {
-			planned, err := applyMemberReviewerPlan(opt)
+			status, err := runStatus(opt)
+			if err != nil {
+				return result, err
+			}
+			if status.MemberExecution != nil && status.MemberExecution.State == "reviewer-rejected-awaiting-correction" {
+				result.FinalMode = "reviewer-rejected-awaiting-correction"
+				return result, nil
+			}
+			planned, err := applyMemberReviewerPlanFromStatus(status)
 			if err != nil {
 				return result, err
 			}
@@ -269,29 +354,41 @@ func Run(parent context.Context, opt Options) (Result, error) {
 					if launchAttempts >= opt.MaxAttempts {
 						return result, fmt.Errorf("external session attempt limit reached after %d attempts", launchAttempts)
 					}
-					launchAttempts++
-					launchOrdinal = launchAttempts
-					run = runClaude(parent, opt, pkg, receipt.ReviewerSession, nil)
+					launched := false
+					run, launched, err = supervisedClaudeRun(parent, opt, pkg, receipt.ReviewerSession, nil)
+					if err != nil {
+						return result, err
+					}
+					if launched {
+						launchAttempts++
+						launchOrdinal = launchAttempts
+					}
 					if run.started {
 						result.SessionLaunches++
 					}
 					if run.success() {
-						if err := persistClaudeRecoveryForCase(opt.Target, opt, pkg, run); err != nil {
+						if err := validateClaudeStructuredResult(pkg, run); err != nil {
+							run.failureDetail = err.Error()
+						} else if err := persistClaudeRecoveryForCase(opt.Target, opt, pkg, run); err != nil {
 							return result, fmt.Errorf("persist Claude reviewer structured output recovery: %w", err)
 						}
 					}
 				}
-				data, failure, resultErr := reviewerResultBytes(run)
+				data, failure, resultErr := reviewerResultBytes(pkg, run)
 				if resultErr != nil {
+					run.failureDetail = resultErr.Error()
 					failure = resultErr.Error()
 				}
 				if len(data) == 0 {
 					outcome := "failed"
 					if launchAttempts < opt.MaxAttempts {
 						outcome = "replacement-requested"
+						if run.failureDetail != "" {
+							outcome = "invalid-result-replacement"
+						}
 						result.Replacements++
 					}
-					session := sessionResult(run, attemptGeneration, launchOrdinal, receipt.ReviewerSession, "reviewer", outcome)
+					session := sessionResult(run, attemptGeneration, launchOrdinal, receipt.ReviewerSession, "reviewer", outcome, opt.MaxAttempts)
 					if resultErr != nil {
 						session.Diagnostics = append(session.Diagnostics, truncate(oneLine(resultErr.Error()), 1024))
 					}
@@ -303,19 +400,19 @@ func Run(parent context.Context, opt Options) (Result, error) {
 					reservationID = ""
 					continue
 				}
-				sourcePath, err := publishReviewerSource(opt.Target, receipt.DispatchID, data)
-				if err != nil {
-					return result, err
+				snapshotPath := filepath.Join(opt.Target, ".rekit", "session-host", "reviewer-results", receipt.DispatchID+".json")
+				snapshot := &subagents.ReviewerResultInputSnapshot{
+					Path: snapshotPath, SHA256: bytesSHA256(data), Bytes: int64(len(data)), Data: append([]byte{}, data...),
 				}
-				args := []string{"-ReviewerResultInputSourcePath", sourcePath, "-Actor", opt.Actor}
-				plan, err := runCurrentStep(opt, args, false)
+				args := []string{"-ReviewerResultInputSourcePath", snapshotPath, "-Actor", opt.Actor}
+				plan, err := runCurrentStepWithReviewerSnapshot(opt, args, false, snapshot)
 				if err != nil {
 					return result, err
 				}
 				if strings.TrimSpace(plan.ExpectedCurrentStepPlanSHA256) == "" {
 					return result, fmt.Errorf("reviewer result save preview omitted the hash-bound plan")
 				}
-				if err := applyCurrentStep(opt, plan, args); err != nil {
+				if err := applyCurrentStepWithReviewerSnapshot(opt, plan, args, snapshot); err != nil {
 					return result, err
 				}
 				result.AppliedSteps++
@@ -327,7 +424,7 @@ func Run(parent context.Context, opt Options) (Result, error) {
 				if recovered {
 					outcome = "returned-recovered"
 				}
-				result.Sessions = append(result.Sessions, sessionResult(run, attemptGeneration, launchOrdinal, receipt.ReviewerSession, "reviewer", outcome))
+				result.Sessions = append(result.Sessions, sessionResult(run, attemptGeneration, launchOrdinal, receipt.ReviewerSession, "reviewer", outcome, opt.MaxAttempts))
 				reservationID = ""
 				continue
 			}
@@ -344,6 +441,10 @@ func Run(parent context.Context, opt Options) (Result, error) {
 					return result, err
 				}
 				result.AppliedSteps++
+				if opt.reviewerBinding != nil && preview.ReviewerStep.ExternalHandoff.RunLoopStepID == "intake-results" {
+					result.FinalMode = "reviewer-intake-complete"
+					return result, nil
+				}
 				continue
 			}
 			result.FinalMode = "no-external-session"
@@ -386,6 +487,11 @@ func Run(parent context.Context, opt Options) (Result, error) {
 				return result, err
 			}
 			result.AppliedSteps++
+			if step.Mode == "result-turn" {
+				if err := observeSupervisionCut("intake"); err != nil {
+					return result, err
+				}
+			}
 		case "dispatch-claim-input":
 			args := []string{
 				"-ExternalSessionActor", opt.Actor,
@@ -410,9 +516,8 @@ func Run(parent context.Context, opt Options) (Result, error) {
 			if reservationID == "" {
 				reservationID = launch.Attempt.Session
 			}
-			launchAttempts++
 			accepted := false
-			run := runClaude(parent, opt, *step.HarnessPackage, reservationID, func() error {
+			run, launched, supervisionErr := supervisedClaudeRun(parent, opt, *step.HarnessPackage, reservationID, func() error {
 				args := []string{
 					"-ExternalSessionLaunchOutcome", "accepted",
 					"-ExternalSessionActor", opt.Actor,
@@ -431,11 +536,41 @@ func Run(parent context.Context, opt Options) (Result, error) {
 				accepted = true
 				return nil
 			})
+			if supervisionErr != nil {
+				var fencedErr *supervisionFencedError
+				if errors.As(supervisionErr, &fencedErr) {
+					if launched {
+						launchAttempts++
+					}
+					reason := truncate(oneLine(fencedErr.Error()), 1024)
+					args := []string{
+						"-ExternalSessionLaunchOutcome", "failed",
+						"-ExternalSessionActor", opt.Actor,
+						"-ExternalSessionObservedAt", nowRFC3339Nano(),
+						"-ExternalSessionLaunchReason", reason,
+					}
+					plan, planErr := runCurrentStep(opt, args, false)
+					if planErr != nil {
+						return result, errors.Join(supervisionErr, planErr)
+					}
+					if applyErr := applyCurrentStep(opt, plan, args); applyErr != nil {
+						return result, errors.Join(supervisionErr, applyErr)
+					}
+					result.AppliedSteps++
+					result.Sessions = append(result.Sessions, sessionResult(claudeRun{failureDetail: reason}, launch.Attempt.Generation, launchAttempts, reservationID, step.HarnessPackage.SessionKind, "launch-fenced", opt.MaxAttempts))
+					reservationID = ""
+					continue
+				}
+				return result, supervisionErr
+			}
+			if launched {
+				launchAttempts++
+			}
 			if run.started {
 				result.SessionLaunches++
 			}
 			if run.startCallbackErr != nil {
-				result.Sessions = append(result.Sessions, sessionResult(run, launch.Attempt.Generation, launchAttempts, reservationID, step.HarnessPackage.SessionKind, "host-failed"))
+				result.Sessions = append(result.Sessions, sessionResult(run, launch.Attempt.Generation, launchAttempts, reservationID, step.HarnessPackage.SessionKind, "host-failed", opt.MaxAttempts))
 				return result, fmt.Errorf("record accepted Claude launch: %w", run.startCallbackErr)
 			}
 			if run.spawnErr != nil {
@@ -454,7 +589,7 @@ func Run(parent context.Context, opt Options) (Result, error) {
 					return result, errors.Join(run.spawnErr, applyErr)
 				}
 				result.AppliedSteps++
-				result.Sessions = append(result.Sessions, sessionResult(run, launch.Attempt.Generation, launchAttempts, reservationID, step.HarnessPackage.SessionKind, "launch-failed"))
+				result.Sessions = append(result.Sessions, sessionResult(run, launch.Attempt.Generation, launchAttempts, reservationID, step.HarnessPackage.SessionKind, "launch-failed", opt.MaxAttempts))
 				reservationID = ""
 				continue
 			}
@@ -462,16 +597,28 @@ func Run(parent context.Context, opt Options) (Result, error) {
 				return result, fmt.Errorf("Claude process started without an accepted launch receipt")
 			}
 			if run.success() {
-				if err := persistClaudeRecoveryForCase(opt.Target, opt, *step.HarnessPackage, run); err != nil {
+				if err := validateClaudeStructuredResult(*step.HarnessPackage, run); err != nil {
+					run.failureDetail = err.Error()
+				} else if err := persistClaudeRecoveryForCase(opt.Target, opt, *step.HarnessPackage, run); err != nil {
 					return result, fmt.Errorf("persist Claude structured output recovery: %w", err)
 				}
+			}
+			if err := observeSupervisionCut("result-first"); err != nil {
+				return result, err
 			}
 			fresh, err := runCurrentStep(opt, nil, false)
 			if err != nil {
 				return result, err
 			}
+			if err := requireRunningHandoffForPackage(*step.HarnessPackage, fresh); err != nil {
+				return result, err
+			}
 			if !run.success() && launchAttempts < opt.MaxAttempts {
-				result.Sessions = append(result.Sessions, sessionResult(run, launch.Attempt.Generation, launchAttempts, reservationID, step.HarnessPackage.SessionKind, "replacement-requested"))
+				outcome := "replacement-requested"
+				if run.failureDetail != "" {
+					outcome = "invalid-result-replacement"
+				}
+				result.Sessions = append(result.Sessions, sessionResult(run, launch.Attempt.Generation, launchAttempts, reservationID, step.HarnessPackage.SessionKind, outcome, opt.MaxAttempts))
 				reservationID, err = applyReplacementAttempt(opt, fresh, opt.Actor)
 				if err != nil {
 					return result, err
@@ -481,19 +628,12 @@ func Run(parent context.Context, opt Options) (Result, error) {
 				continue
 			}
 			outcome, publishErr := publishClaudeResult(opt, fresh, run)
-			if publishErr != nil && launchAttempts < opt.MaxAttempts {
-				result.Sessions = append(result.Sessions, sessionResult(run, launch.Attempt.Generation, launchAttempts, reservationID, step.HarnessPackage.SessionKind, "invalid-result-replacement"))
-				reservationID, err = applyReplacementAttempt(opt, fresh, opt.Actor)
-				if err != nil {
-					return result, errors.Join(publishErr, err)
-				}
-				result.AppliedSteps++
-				result.Replacements++
-				continue
+			result.Sessions = append(result.Sessions, sessionResult(run, launch.Attempt.Generation, launchAttempts, reservationID, step.HarnessPackage.SessionKind, outcome, opt.MaxAttempts))
+			if publishErr == nil {
+				publishErr = observeSupervisionCut("submission")
 			}
-			result.Sessions = append(result.Sessions, sessionResult(run, launch.Attempt.Generation, launchAttempts, reservationID, step.HarnessPackage.SessionKind, outcome))
 			if publishErr != nil {
-				return result, publishErr
+				return result, hostError("claude-submission-failed", "submission-publication", "result-artifact-publication-may-have-committed", "Refresh status, preserve any already-published result artifacts, and rerun the host to recover the exact current submission step.", true, publishErr)
 			}
 			if err := removeClaudeRecoveryForCase(opt.Target, opt, *step.HarnessPackage); err != nil {
 				return result, err
@@ -511,16 +651,47 @@ func Run(parent context.Context, opt Options) (Result, error) {
 				return result, err
 			}
 			if !recovered {
-				return result, fmt.Errorf("external session is already running and has no exact host-owned structured output recovery")
+				run, _, err = supervisedClaudeRun(parent, opt, *step.HarnessPackage, step.HarnessPackage.Launch.Attempt.Session, nil)
+				if err != nil {
+					var fencedErr *supervisionFencedError
+					if errors.As(err, &fencedErr) {
+						reservationID, err = applyReplacementAttempt(opt, preview, opt.Actor)
+						if err != nil {
+							return result, errors.Join(fencedErr, err)
+						}
+						result.AppliedSteps++
+						result.Replacements++
+						continue
+					}
+					return result, err
+				}
+				if run.success() {
+					if err := validateClaudeStructuredResult(*step.HarnessPackage, run); err != nil {
+						return result, err
+					}
+				}
 			}
-			outcome, err := publishClaudeResult(opt, preview, run)
+			if err := observeSupervisionCut("result-first"); err != nil {
+				return result, err
+			}
+			fresh, err := runCurrentStep(opt, nil, false)
 			if err != nil {
+				return result, err
+			}
+			if err := requireSameRunningHandoff(preview, fresh); err != nil {
+				return result, err
+			}
+			outcome, err := publishClaudeResult(opt, fresh, run)
+			if err != nil {
+				return result, err
+			}
+			if err := observeSupervisionCut("submission"); err != nil {
 				return result, err
 			}
 			if err := removeClaudeRecoveryForCase(opt.Target, opt, *step.HarnessPackage); err != nil {
 				return result, err
 			}
-			result.Sessions = append(result.Sessions, sessionResult(run, step.HarnessPackage.Launch.Attempt.Generation, 0, step.HarnessPackage.Launch.Attempt.Session, step.HarnessPackage.SessionKind, outcome+"-recovered"))
+			result.Sessions = append(result.Sessions, sessionResult(run, step.HarnessPackage.Launch.Attempt.Generation, 0, step.HarnessPackage.Launch.Attempt.Session, step.HarnessPackage.SessionKind, outcome+"-recovered", opt.MaxAttempts))
 			result.SessionCompletions++
 			reservationID = ""
 		default:
@@ -530,11 +701,29 @@ func Run(parent context.Context, opt Options) (Result, error) {
 	return result, fmt.Errorf("external session host exceeded transition limit")
 }
 
-func applyMemberReviewerPlan(opt Options) (bool, error) {
-	status, err := runStatus(opt)
-	if err != nil {
-		return false, err
+func requireRunningHandoffForPackage(pkg mission.CurrentLoopExternalSessionHarnessPackage, fresh currentStepPlan) error {
+	before := currentStepPlan{ExternalSessionStep: &externalSessionStep{Mode: "running-handoff", HarnessPackage: &pkg}}
+	return requireSameRunningHandoff(before, fresh)
+}
+
+func requireSameRunningHandoff(before, fresh currentStepPlan) error {
+	if before.ExternalSessionStep == nil || fresh.ExternalSessionStep == nil ||
+		before.ExternalSessionStep.Mode != "running-handoff" || fresh.ExternalSessionStep.Mode != "running-handoff" ||
+		before.ExternalSessionStep.HarnessPackage == nil || fresh.ExternalSessionStep.HarnessPackage == nil ||
+		before.ExternalSessionStep.HarnessPackage.Launch == nil || fresh.ExternalSessionStep.HarnessPackage.Launch == nil {
+		return fmt.Errorf("external session changed before exact supervised result publication")
 	}
+	left := before.ExternalSessionStep.HarnessPackage.Launch.Attempt
+	right := fresh.ExternalSessionStep.HarnessPackage.Launch.Attempt
+	if left.AttemptID != right.AttemptID || left.AttemptSHA256 != right.AttemptSHA256 || left.Generation != right.Generation || left.Session != right.Session ||
+		before.ExternalSessionStep.HarnessPackage.JobSHA256 != fresh.ExternalSessionStep.HarnessPackage.JobSHA256 ||
+		before.ExternalSessionStep.HarnessPackage.CheckpointSHA256 != fresh.ExternalSessionStep.HarnessPackage.CheckpointSHA256 {
+		return fmt.Errorf("external session attempt, session, job, or checkpoint changed before exact supervised result publication")
+	}
+	return nil
+}
+
+func applyMemberReviewerPlanFromStatus(status statusPlan) (bool, error) {
 	if status.MissionControlRunbook == nil || status.MissionControlRunbook.Scope != "case" || status.MemberExecution == nil || status.MemberExecution.State != "intake-ready" || strings.TrimSpace(status.MemberExecution.ReviewerPlanCommand) == "" {
 		return false, nil
 	}
@@ -547,6 +736,47 @@ func applyMemberReviewerPlan(opt Options) (bool, error) {
 		return false, fmt.Errorf("apply member reviewer plan command: %w", err)
 	}
 	return true, nil
+}
+
+func currentReviewerRejectionAwaitingCorrection(caseRoot, pack string) (bool, error) {
+	board, err := mission.ReadBoard(caseRoot)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	for _, lane := range mission.OpenBoardLanes(board.Lanes) {
+		if lane.Authority || strings.TrimSpace(lane.CurrentExecutor) == "" || lane.ExecutorGeneration < 1 {
+			continue
+		}
+		latest, found, err := memberexecution.Latest(caseRoot, lane.ID)
+		if err != nil {
+			return false, err
+		}
+		if !found || latest.State != "intake-ready" || latest.Manifest == nil || latest.Owner.Executor != lane.CurrentExecutor || latest.Owner.ExecutorGeneration != lane.ExecutorGeneration {
+			continue
+		}
+		current, err := memberexecution.CurrentOwnerMatches(caseRoot, pack, latest.Owner)
+		if err != nil {
+			return false, err
+		}
+		if !current {
+			continue
+		}
+		manifestRef, err := filepath.Rel(caseRoot, latest.ManifestPath)
+		if err != nil {
+			return false, err
+		}
+		_, rejected, err := workstream.CurrentMemberManifestReviewerRejection(caseRoot, lane.ID, filepath.ToSlash(manifestRef))
+		if err != nil {
+			return false, err
+		}
+		if rejected {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func runStatus(opt Options) (statusPlan, error) {
@@ -632,19 +862,14 @@ func applyReviewerFailure(opt Options, reason string) error {
 	return applyCurrentStep(opt, plan, args)
 }
 
-func publishReviewerSource(caseRoot, dispatchID string, data []byte) (string, error) {
-	dispatchID = strings.TrimSpace(dispatchID)
-	if dispatchID == "" {
-		return "", fmt.Errorf("reviewer source requires a durable dispatch id")
-	}
-	rel := filepath.ToSlash(filepath.Join(".rekit", "session-host", "reviewer-results", dispatchID+".json"))
-	if _, err := rekitfs.WriteExclusiveRegularFileAnchored(caseRoot, rel, "Claude reviewer source", data); err != nil {
-		return "", err
-	}
-	return filepath.Join(caseRoot, filepath.FromSlash(rel)), nil
+func runCurrentStep(opt Options, extra []string, apply bool) (currentStepPlan, error) {
+	return runCurrentStepWithReviewerSnapshot(opt, extra, apply, nil)
 }
 
-func runCurrentStep(opt Options, extra []string, apply bool) (currentStepPlan, error) {
+func runCurrentStepWithReviewerSnapshot(opt Options, extra []string, apply bool, snapshot *subagents.ReviewerResultInputSnapshot) (currentStepPlan, error) {
+	if opt.reviewerBinding != nil {
+		return runBoundReviewerStep(opt, extra, apply, snapshot)
+	}
 	args := []string{"-Command", "run-current-step", "-Target", opt.Target}
 	if strings.TrimSpace(opt.Pack) != "" {
 		args = append(args, "-Pack", opt.Pack)
@@ -657,7 +882,7 @@ func runCurrentStep(opt Options, extra []string, apply bool) (currentStepPlan, e
 	}
 	args = append(args, "-Format", "json")
 	var out bytes.Buffer
-	if err := cli.Run(args, &out); err != nil {
+	if err := cli.RunWithReviewerResultSnapshot(args, &out, snapshot); err != nil {
 		return currentStepPlan{}, err
 	}
 	var plan currentStepPlan
@@ -670,6 +895,115 @@ func runCurrentStep(opt Options, extra []string, apply bool) (currentStepPlan, e
 		return currentStepPlan{}, fmt.Errorf("run-current-step returned trailing JSON")
 	}
 	return plan, nil
+}
+
+func runBoundReviewerStep(opt Options, extra []string, apply bool, snapshot *subagents.ReviewerResultInputSnapshot) (currentStepPlan, error) {
+	if err := validateReviewerBinding(opt); err != nil {
+		return currentStepPlan{}, err
+	}
+	args := []string{"-Command", "run-reviewer-step", "-Target", opt.Target}
+	if strings.TrimSpace(opt.Pack) != "" {
+		args = append(args, "-Pack", opt.Pack)
+	}
+	args = append(args, extra...)
+	if apply {
+		args = append(args, "-Apply")
+	} else {
+		args = append(args, "-WhatIf")
+	}
+	args = append(args, "-Format", "json")
+	var out bytes.Buffer
+	if err := cli.RunWithReviewerResultSnapshot(args, &out, snapshot); err != nil {
+		return currentStepPlan{}, err
+	}
+	var plan boundReviewerStepPlan
+	dec := json.NewDecoder(bytes.NewReader(out.Bytes()))
+	if err := dec.Decode(&plan); err != nil {
+		return currentStepPlan{}, fmt.Errorf("decode run-reviewer-step result: %w", err)
+	}
+	var trailing any
+	if err := dec.Decode(&trailing); err != io.EOF {
+		return currentStepPlan{}, fmt.Errorf("run-reviewer-step returned trailing JSON")
+	}
+	if err := requireReviewerBinding(opt, plan); err != nil {
+		return currentStepPlan{}, err
+	}
+	if err := requireReviewerResultSnapshot(snapshot, plan.ReviewerResultSnapshot); err != nil {
+		return currentStepPlan{}, err
+	}
+	return currentStepPlan{
+		Pack:                          opt.Pack,
+		ExpectedCurrentStepPlanSHA256: plan.ExpectedReviewerStepPlanSHA256,
+		ReviewerStep:                  &reviewerStep{ExternalHandoff: plan.ExternalHandoff},
+	}, nil
+}
+
+func requireReviewerResultSnapshot(snapshot *subagents.ReviewerResultInputSnapshot, identity *reviewerResultSnapshotIdentity) error {
+	if snapshot == nil {
+		if identity != nil {
+			return fmt.Errorf("reviewer step returned an unexpected result snapshot binding")
+		}
+		return nil
+	}
+	if identity == nil || !rekitfs.SamePath(identity.Path, snapshot.Path) ||
+		!strings.EqualFold(identity.SHA256, snapshot.SHA256) || identity.Bytes != snapshot.Bytes ||
+		snapshot.Bytes != int64(len(snapshot.Data)) || !strings.EqualFold(snapshot.SHA256, bytesSHA256(snapshot.Data)) {
+		return fmt.Errorf("reviewer step changed the exact result snapshot binding")
+	}
+	return nil
+}
+
+func validateReviewerBinding(opt Options) error {
+	binding := opt.reviewerBinding
+	if binding == nil {
+		return nil
+	}
+	for label, value := range map[string]string{
+		"packet id":              binding.PacketID,
+		"packet path":            binding.PacketPath,
+		"packet sha256":          binding.PacketSHA256,
+		"lane":                   binding.Lane,
+		"shard id":               binding.ShardID,
+		"dispatch prompt path":   binding.DispatchPromptPath,
+		"dispatch prompt sha256": binding.DispatchPromptSHA256,
+	} {
+		if strings.TrimSpace(value) == "" {
+			return fmt.Errorf("reviewer binding requires %s", label)
+		}
+	}
+	packet, err := rekitfs.ReadStableRegularFileAnchored(opt.Target, binding.PacketPath, "bound reviewer packet", 1<<20)
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(bytesSHA256(packet), strings.TrimSpace(binding.PacketSHA256)) {
+		return fmt.Errorf("bound reviewer packet sha256 changed")
+	}
+	prompt, err := rekitfs.ReadStableRegularFileAnchored(opt.Target, binding.DispatchPromptPath, "bound reviewer dispatch prompt", 1<<20)
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(bytesSHA256(prompt), strings.TrimSpace(binding.DispatchPromptSHA256)) {
+		return fmt.Errorf("bound reviewer dispatch prompt sha256 changed")
+	}
+	return nil
+}
+
+func requireReviewerBinding(opt Options, plan boundReviewerStepPlan) error {
+	binding := opt.reviewerBinding
+	if binding == nil {
+		return fmt.Errorf("bound reviewer step requires reviewer binding")
+	}
+	if plan.PacketID != strings.TrimSpace(binding.PacketID) ||
+		!rekitfs.SamePath(plan.PacketPath, binding.PacketPath) ||
+		plan.TargetLane != strings.TrimSpace(binding.Lane) ||
+		plan.ShardID != strings.TrimSpace(binding.ShardID) {
+		return fmt.Errorf("reviewer operator package changed from the exact packet, lane, or shard binding")
+	}
+	if plan.ExternalHandoff != nil && (!rekitfs.SamePath(plan.ExternalHandoff.DispatchPromptPath, binding.DispatchPromptPath) ||
+		!strings.EqualFold(plan.ExternalHandoff.DispatchPromptSHA256, strings.TrimSpace(binding.DispatchPromptSHA256))) {
+		return fmt.Errorf("reviewer operator package changed from the exact dispatch prompt binding")
+	}
+	return validateReviewerBinding(opt)
 }
 
 func applyMemberDispatchLoop(opt Options) error {
@@ -748,12 +1082,20 @@ func runCurrentLoop(opt Options, apply bool, expected, memberPlanSHA256 string) 
 }
 
 func applyCurrentStep(opt Options, plan currentStepPlan, transitionArgs []string) error {
+	return applyCurrentStepWithReviewerSnapshot(opt, plan, transitionArgs, nil)
+}
+
+func applyCurrentStepWithReviewerSnapshot(opt Options, plan currentStepPlan, transitionArgs []string, snapshot *subagents.ReviewerResultInputSnapshot) error {
 	if strings.TrimSpace(plan.ExpectedCurrentStepPlanSHA256) == "" {
 		return fmt.Errorf("current external session step has no deterministic apply hash")
 	}
 	args := append([]string{}, transitionArgs...)
-	args = append(args, "-ExpectedCurrentStepPlanSha256", plan.ExpectedCurrentStepPlanSHA256)
-	_, err := runCurrentStep(opt, args, true)
+	expectedFlag := "-ExpectedCurrentStepPlanSha256"
+	if opt.reviewerBinding != nil {
+		expectedFlag = "-ExpectedReviewerStepPlanSha256"
+	}
+	args = append(args, expectedFlag, plan.ExpectedCurrentStepPlanSHA256)
+	_, err := runCurrentStepWithReviewerSnapshot(opt, args, true, snapshot)
 	return err
 }
 

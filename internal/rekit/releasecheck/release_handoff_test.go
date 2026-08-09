@@ -384,21 +384,7 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 
 func TestReleaseHandoffActiveRouteBlocksCompletedLegacyBatchSelection(t *testing.T) {
 	repo := cleanReleaseRepoRoot(t)
-	for _, path := range []string{
-		filepath.Join(repo, "docs", "real-usage-hardening-roadmap.md"),
-		filepath.Join(repo, "docs", "batch-plan.md"),
-	} {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		text := strings.Replace(string(data), "`RH-03` Claude 不可用与结果失败的可操作诊断", "`RH-02` 目标/纠偏文本驱动的日常前门", 1)
-		text = strings.Replace(text, "| 唯一允许领取 | `RH-03` |", "| 唯一允许领取 | `RH-02` |", 1)
-		text = strings.Replace(text, "| 下一批 | `RH-04`，仅在 RH-03 全部验收与完整本机验证通过后解锁 |", "| 下一批 | `RH-03`，仅在 RH-02 全部验收与完整本机验证通过后解锁 |", 1)
-		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
+	setReleaseHandoffActiveRouteFixture(t, repo, "in_progress", "RH-09", "fixture-next-batch")
 	writeReleaseHandoffLatestBatchFixture(t, repo, `### Batch 999：fixture completed numbered batch
 
 状态：已完成。
@@ -413,14 +399,31 @@ func TestReleaseHandoffActiveRouteBlocksCompletedLegacyBatchSelection(t *testing
 		t.Fatal(err)
 	}
 	route := result.ReleaseHandoff.ActiveRoute
-	if !route.Present || !route.Ready || route.Route != "real-usage-hardening-v1" || !strings.HasPrefix(route.CurrentBatch, "RH-02") || route.State != "in_progress" || route.ExclusiveClaim != "RH-02" || route.NextBatchUnlocked || route.CurrentAction == nil {
+	if !route.Present || !route.Ready || route.Route != "real-usage-hardening-v1" || !strings.HasPrefix(route.CurrentBatch, route.ExclusiveClaim+" ") || route.State != "in_progress" || route.ExclusiveClaim == "" || route.NextBatchUnlocked || route.CurrentAction == nil {
 		t.Fatalf("active RH route=%+v", route)
 	}
 	if result.ReleaseHandoff.NextBatchSelectionPackage != nil {
 		t.Fatalf("in-progress RH route exposed free next-batch selection: %+v", result.ReleaseHandoff.NextBatchSelectionPackage)
 	}
-	if route.CurrentAction.ActionID != "active-route-current-batch" || route.CurrentAction.Source != "releaseHandoffActiveRoute" || !strings.Contains(route.CurrentAction.Command, "RH-02") || strings.Contains(route.CurrentAction.Command, "select the next Windows-verifiable") {
+	if route.CurrentAction.ActionID != "active-route-current-batch" || route.CurrentAction.Source != "releaseHandoffActiveRoute" || !strings.Contains(route.CurrentAction.Command, route.ExclusiveClaim) || strings.Contains(route.CurrentAction.Command, "select the next Windows-verifiable") {
 		t.Fatalf("active route current action=%+v", route.CurrentAction)
+	}
+}
+
+func TestReleaseHandoffCompletedRouteWithDeferredNextDoesNotUnlockSelection(t *testing.T) {
+	repo := cleanReleaseRepoRoot(t)
+	setReleaseHandoffActiveRouteFixture(t, repo, "completed", "无；当前路线已按用户指定完成", "无；RH-10 已按用户决定保持 deferred，当前不实施 Linux/macOS product path")
+	writeCompletedReleaseHandoffLatestBatchFixture(t, repo)
+	result, err := Build(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	route := result.ReleaseHandoff.ActiveRoute
+	if !route.Present || !route.Ready || route.State != "completed" || route.NextBatchUnlocked || route.CurrentAction == nil || route.CurrentAction.ActionID != "active-route-completed" || route.CurrentAction.State != "completed-no-next-batch" || !strings.Contains(route.CurrentAction.Command, "wait for an explicit user route change") || route.CurrentAction.Source != "releaseHandoffActiveRoute" || route.CurrentAction.Blocked || route.CurrentAction.RequiresReview {
+		t.Fatalf("completed route with deferred next drifted: %+v", route)
+	}
+	if result.ReleaseHandoff.NextBatchSelectionPackage != nil || strings.Contains(strings.ToLower(route.CurrentAction.Command), "select the next") {
+		t.Fatalf("completed route with deferred next exposed selection: route=%+v package=%+v", route, result.ReleaseHandoff.NextBatchSelectionPackage)
 	}
 }
 
@@ -431,7 +434,7 @@ func TestReleaseHandoffActiveRouteMissingProjectionFieldFailsClosed(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := strings.Replace(string(data), "| 路线 | `real-usage-hardening-v1` |\n", "", 1)
+	text := strings.Replace(string(data), "| 路线 | `real-usage-hardening-v1` |", "", 1)
 	if text == string(data) {
 		t.Fatal("fixture did not remove the route projection field")
 	}
@@ -454,26 +457,17 @@ func TestReleaseHandoffActiveRouteMissingProjectionFieldFailsClosed(t *testing.T
 
 func TestReleaseHandoffCompletedRouteWithInvalidProjectionFailsClosed(t *testing.T) {
 	repo := cleanReleaseRepoRoot(t)
-	for _, path := range []string{
-		filepath.Join(repo, "docs", "real-usage-hardening-roadmap.md"),
-		filepath.Join(repo, "docs", "batch-plan.md"),
-	} {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		text := strings.Replace(string(data), "| 状态 | `in_progress` |", "| 状态 | `completed` |", 1)
-		text = strings.Replace(text, "| 唯一允许领取 | `RH-03` |", "| 唯一允许领取 | `RH-04` |", 1)
-		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
+	setReleaseHandoffActiveRouteFixture(t, repo, "completed", "fixture-next-batch", "fixture-next-batch")
 	projectionPath := filepath.Join(repo, "docs", "batch-plan.md")
 	projection, err := os.ReadFile(projectionPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(projectionPath, []byte(strings.Replace(string(projection), "| 路线 | `real-usage-hardening-v1` |\n", "", 1)), 0o644); err != nil {
+	broken := strings.Replace(string(projection), "| 路线 | `real-usage-hardening-v1` |", "", 1)
+	if broken == string(projection) {
+		t.Fatal("fixture did not remove the completed route projection field")
+	}
+	if err := os.WriteFile(projectionPath, []byte(broken), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	writeCompletedReleaseHandoffLatestBatchFixture(t, repo)
@@ -606,7 +600,7 @@ func TestReleaseHandoffBuildsNextBatchAfterSevenOfSevenPushWithRemoteNotRecorded
 	}
 }
 
-func disableReleaseHandoffActiveRouteFixture(t *testing.T, repo string) {
+func setReleaseHandoffActiveRouteFixture(t *testing.T, repo, state, claim, next string) {
 	t.Helper()
 	for _, path := range []string{
 		filepath.Join(repo, "docs", "real-usage-hardening-roadmap.md"),
@@ -616,12 +610,29 @@ func disableReleaseHandoffActiveRouteFixture(t *testing.T, repo string) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		text := strings.Replace(string(data), "| 状态 | `in_progress` |", "| 状态 | `completed` |", 1)
-		text = strings.Replace(text, "| 唯一允许领取 | `RH-03` |", "| 唯一允许领取 | `RH-04` |", 1)
-		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+		text := string(data)
+		lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+		fields := map[string]string{"状态": state, "唯一允许领取": claim, "下一批": next}
+		for index, line := range lines {
+			columns := strings.Split(strings.TrimSpace(line), "|")
+			if len(columns) < 4 {
+				continue
+			}
+			name := strings.TrimSpace(columns[1])
+			value, ok := fields[name]
+			if ok {
+				lines[index] = "| " + name + " | `" + value + "` |"
+			}
+		}
+		if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
+}
+
+func disableReleaseHandoffActiveRouteFixture(t *testing.T, repo string) {
+	t.Helper()
+	setReleaseHandoffActiveRouteFixture(t, repo, "completed", "fixture-next-batch", "fixture-next-batch")
 }
 
 func writeCompletedReleaseHandoffLatestBatchFixture(t *testing.T, repo string) {
@@ -2676,7 +2687,7 @@ func assertHandoffPackMaturity(t *testing.T, handoff ReleaseHandoff) {
 	if inventory.MaturityCounts["template"] != 1 || inventory.MaturityCounts["mature"] != 1 || inventory.MaturityCounts["skeleton"] != 8 {
 		t.Fatalf("unexpected maturity counts: %+v", inventory.MaturityCounts)
 	}
-	if strings.Join(inventory.HeavyToolGateActions, ",") != "debug,dump,full-trace,inject,network,patch,symex" {
+	if strings.Join(inventory.HeavyToolGateActions, ",") != "debug,dump,full-trace,inject,inspect,network,patch,symex" {
 		t.Fatalf("unexpected heavy-tool gate actions: %v", inventory.HeavyToolGateActions)
 	}
 	assertHandoffMaturityPack(t, inventory, "template", "_template")

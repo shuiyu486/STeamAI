@@ -1,6 +1,7 @@
 package subagents
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,7 +19,7 @@ func reviewerPacketSnapshotForTest(t *testing.T, caseRoot, packetPath string) re
 	return snapshot
 }
 
-func TestReviewerResultInputPlannedSnapshotIsWhatIfOnlyAndExactBound(t *testing.T) {
+func TestReviewerResultInputPlannedSnapshotIsPreviewApplyExactBound(t *testing.T) {
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	writeReviewerIntakeCase(t, repoRoot, caseRoot)
@@ -85,23 +86,70 @@ func TestReviewerResultInputPlannedSnapshotIsWhatIfOnlyAndExactBound(t *testing.
 	applyWithSnapshot := base
 	applyWithSnapshot.WhatIf = false
 	applyWithSnapshot.ExpectedReviewerResultSHA256 = preview.InputSourceSHA256
-	if _, err := SaveReviewerResultInput(repoRoot, caseRoot, defaults.DefaultPack, applyWithSnapshot); err == nil || !strings.Contains(err.Error(), "planned source snapshot is invalid") {
-		t.Fatalf("Apply accepted an in-memory reviewer result snapshot: %v", err)
-	}
-	applyFromFilesystem := applyWithSnapshot
-	applyFromFilesystem.ResultSnapshot = nil
-	if _, err := SaveReviewerResultInput(repoRoot, caseRoot, defaults.DefaultPack, applyFromFilesystem); err == nil || !strings.Contains(err.Error(), "existing symlink-free case-local file") {
-		t.Fatalf("Apply did not require the durable relay source: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(relayPath), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(relayPath, data, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	applied, err := SaveReviewerResultInput(repoRoot, caseRoot, defaults.DefaultPack, applyFromFilesystem)
+	applied, err := SaveReviewerResultInput(repoRoot, caseRoot, defaults.DefaultPack, applyWithSnapshot)
 	if err != nil || !applied.Applied || applied.InputSourceSHA256 != preview.InputSourceSHA256 {
-		t.Fatalf("durable relay reviewer input apply=%+v err=%v", applied, err)
+		t.Fatalf("in-memory reviewer input apply=%+v err=%v", applied, err)
+	}
+	if _, err := os.Lstat(relayPath); !os.IsNotExist(err) {
+		t.Fatalf("snapshot Apply unexpectedly published relay source: %v", err)
+	}
+	published, err := os.ReadFile(handoff.ReviewerStagingCommands.SourceCaptureInput)
+	if err != nil || !bytes.Equal(published, data) {
+		t.Fatalf("snapshot Apply canonical input=%q err=%v", string(published), err)
+	}
+}
+
+func TestReviewerResultSnapshotApplyRejectsPromptDriftBeforePublication(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	writeReviewerIntakeCase(t, repoRoot, caseRoot)
+	plan, err := WritePlan(repoRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "feature-intake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet := readReviewerPacket(t, plan.PacketPath)
+	handoff := packet.ShardHandoffs[0]
+	if err := os.MkdirAll(filepath.Join(caseRoot, "workspace"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caseRoot, "workspace", "review-evidence.md"), []byte("bounded reviewer evidence\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dispatchOpt := ReviewerSessionDispatchOptions{PacketPath: plan.PacketPath, ShardID: handoff.ShardID, Lane: packet.TargetLane, Actor: "mission-commander", ReviewerHarness: "go-test-harness", ReviewerSession: "reviewer-session-1", WhatIf: true}
+	dispatchPreview, err := RecordReviewerSessionDispatch(repoRoot, caseRoot, defaults.DefaultPack, dispatchOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatchOpt.WhatIf = false
+	dispatchOpt.ExpectedBindingSHA256 = dispatchPreview.BindingSHA256
+	dispatch, err := RecordReviewerSessionDispatch(repoRoot, caseRoot, defaults.DefaultPack, dispatchOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := reviewerResultForPacket(t, packet, "accept", "accepted", nil)
+	snapshotPath := filepath.Join(caseRoot, ".rekit", "session-host", "reviewer-results", dispatch.DispatchID+".json")
+	base := ReviewerResultInputSaveOptions{
+		PacketPath: plan.PacketPath, ShardID: handoff.ShardID, SourcePath: snapshotPath,
+		Lane: packet.TargetLane, Actor: "mission-commander", ExpectedReviewerDispatchID: dispatch.DispatchID, WhatIf: true,
+		ResultSnapshot: &ReviewerResultInputSnapshot{Path: snapshotPath, SHA256: sha256Hex(data), Bytes: int64(len(data)), Data: data},
+	}
+	preview, err := SaveReviewerResultInput(repoRoot, caseRoot, defaults.DefaultPack, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewerResultInputBeforePublicationHook = func() error {
+		return os.WriteFile(handoff.DispatchPromptPath, []byte("drifted prompt\n"), 0o600)
+	}
+	t.Cleanup(func() { reviewerResultInputBeforePublicationHook = nil })
+	base.WhatIf = false
+	base.ExpectedReviewerResultSHA256 = preview.InputSourceSHA256
+	if _, err := SaveReviewerResultInput(repoRoot, caseRoot, defaults.DefaultPack, base); err == nil || !strings.Contains(err.Error(), "dispatch prompt changed after validation") {
+		t.Fatalf("prompt drift Apply error=%v", err)
+	}
+	for _, path := range []string{snapshotPath, handoff.ReviewerStagingCommands.SourceCaptureInput} {
+		if _, err := os.Lstat(path); !os.IsNotExist(err) {
+			t.Fatalf("prompt drift published reviewer bytes at %s: %v", path, err)
+		}
 	}
 }
 

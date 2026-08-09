@@ -6,7 +6,7 @@
 
 ## 实施摘要
 
-当前执行 `real-usage-hardening-v1`。RH-02 已完成并归档；当前唯一允许领取 RH-03，目标是把 Claude 不可用与结果失败收敛为 typed、可恢复、只有一个安全 next action 的诊断矩阵。本文件不复制路线规则、未来批次卡或旧验证长日志。
+`real-usage-hardening-v1` 已按用户指定完成到 RH-09。最新 retry-aware Windows fresh soak 首次尝试即 3/3、100%，五阶段 recovery 与 7/7 disposable case cleanup 全部通过；此前全部成功和失败 receipt 均保留。RH-10 按用户决定保持 `deferred`，不实施 Linux/macOS product path。本文件不复制路线规则、未来批次卡或旧验证长日志。
 
 ## 执行清单
 
@@ -16,14 +16,14 @@
 |---|---|
 | 路线 | `real-usage-hardening-v1` |
 | source | `docs/real-usage-hardening-roadmap.md` |
-| 当前批次 | `RH-03` Claude 不可用与结果失败的可操作诊断 |
-| 状态 | `in_progress` |
-| 唯一允许领取 | `RH-03` |
-| 下一批 | `RH-04`，仅在 RH-03 全部验收与完整本机验证通过后解锁 |
+| 当前批次 | `RH-09` Windows 日常试用与稳定性门槛 |
+| 状态 | `completed` |
+| 唯一允许领取 | 无；当前路线已按用户指定完成 |
+| 下一批 | 无；`RH-10` 已按用户决定保持 `deferred`，当前不实施 Linux/macOS product path |
 
 ### Current batch state
 
-RH-03 已按既定路线解锁。当前要把 executable/auth/quota/model/spawn/timeout/permission/envelope/session/structured-output/submission/intake 等失败收敛为 stable code、truthful mutation boundary、typed terminal/replaceable/recoverable 状态与唯一安全 next action；成功分支仍只能由真实 Claude 证明。
+RH-09 已完成。最新 retry-aware fresh soak 首次尝试即 task 3/3、attempt 3/3、`retriedTasks=0`，五阶段 recovery 通过，7/7 disposable case 真实创建并删除，`manualPlaceholders=0`、`manualResultWrites=0`；历史失败仍在 `docs/batch-history.md`。当前没有可领取的下一批，RH-10 继续 `deferred`。
 
 ### Batch 821：unified current-step external session campaign handoff and resume closure
 
@@ -31,7 +31,7 @@ RH-03 已按既定路线解锁。当前要把 executable/auth/quota/model/spawn/
 
 目标：让 fresh Mission Commander / replacement executor 通过统一 `run-current-step` 消费 durable external member/reviewer session campaign，不再手工拼 nested modes。
 
-验证结果：完成态 `release-check -Format json` 返回 `ready=true`；统一 `release-run -Format json` 以7/7通过；implementation commit `5e9c670` 已推送。完整记录已归档到 `docs/batch-history.md` 的 Batch 821。
+验证结果：完成态 `release-check -Format json` 返回 `ready=true`；统一 `release-run -Format json` 以7/7通过；implementation commit `5e9c670` 已推送。完整记录已归档到 `docs/batch-history.md` 的 Batch 821；RH-04路线完成证据另按RH ID归档。
 
 ## 验证标准
 

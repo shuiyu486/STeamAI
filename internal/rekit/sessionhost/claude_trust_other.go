@@ -23,11 +23,23 @@ func configureTrustedClaudeCommand(_ *exec.Cmd, binding *claudeExecutableLock) e
 	return nil
 }
 
-func validateAndResumeTrustedClaudeProcess(_ *os.Process, binding *claudeExecutableLock) error {
-	if binding != nil {
-		return fmt.Errorf("trusted Claude suspended process validation is unavailable on this platform")
+type claudeProcessContainment struct{}
+
+func (containment *claudeProcessContainment) Close() error { return nil }
+
+func validateAndResumeTrustedClaudeProcess(process *os.Process, binding *claudeExecutableLock) error {
+	containment, err := validateContainAndResumeTrustedClaudeProcess(process, binding)
+	if containment != nil {
+		_ = containment.Close()
 	}
-	return nil
+	return err
+}
+
+func validateContainAndResumeTrustedClaudeProcess(_ *os.Process, binding *claudeExecutableLock) (*claudeProcessContainment, error) {
+	if binding != nil {
+		return nil, fmt.Errorf("trusted Claude suspended process validation is unavailable on this platform")
+	}
+	return nil, nil
 }
 
 func trustedClaudeVersion(locked *os.File) (string, error) {

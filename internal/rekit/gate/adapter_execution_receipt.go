@@ -724,6 +724,25 @@ func inspectAdapterExecutionDispatch(caseRoot, pack string, gateEvent EventPrevi
 	return dispatch, path, sha, bytes, true, err
 }
 
+func ReadCurrentAdapterExecutionDispatch(repoRoot, caseRoot, pack, gateEventID string) (adapterexecution.DispatchReceipt, string, string, int64, error) {
+	inst, gateEvent, err := authorizedGateEvent(repoRoot, caseRoot, pack, Options{
+		GateEventID: strings.TrimSpace(gateEventID),
+	})
+	if err != nil {
+		return adapterexecution.DispatchReceipt{}, "", "", 0, err
+	}
+	m, err := manifest.Load(repoRoot, pack)
+	if err != nil {
+		return adapterexecution.DispatchReceipt{}, "", "", 0, err
+	}
+	return readCurrentAdapterExecutionDispatch(
+		inst.CaseRoot,
+		pack,
+		gateEvent,
+		m,
+	)
+}
+
 func readCurrentAdapterExecutionDispatch(caseRoot, pack string, gateEvent EventPreview, m *manifest.Manifest) (adapterexecution.DispatchReceipt, string, string, int64, error) {
 	dispatchRel, dispatchFull, err := adapterExecutionDispatchPath(caseRoot, gateEvent.Lane, gateEvent.EventID)
 	if err != nil {

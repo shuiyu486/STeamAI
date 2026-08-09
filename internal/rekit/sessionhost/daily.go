@@ -39,6 +39,7 @@ type DailyOptions struct {
 	Timeout                           time.Duration
 	MaxAttempts                       int
 	onCaseReady                       func(string) error
+	beforeMemberRun                   func(caseRoot, pack, lane string) error
 }
 
 type DailyResult struct {
@@ -61,10 +62,16 @@ type DailyResult struct {
 	SessionLaunches    int                        `json:"sessionLaunches"`
 	SessionCompletions int                        `json:"sessionCompletions"`
 	Replacements       int                        `json:"replacements"`
+	Failure            *FailureDiagnosis          `json:"failure,omitempty"`
 	Boundary           []string                   `json:"boundary"`
 }
 
 func RunDaily(parent context.Context, opt DailyOptions) (result DailyResult, retErr error) {
+	defer func() {
+		if retErr != nil && result.Failure == nil {
+			result.Failure = diagnosisForError(retErr, result.SessionLaunches, opt.MaxAttempts, len(result.DriverSteps))
+		}
+	}()
 	goal := strings.TrimSpace(opt.Goal)
 	correction := strings.TrimSpace(opt.Correction)
 	mode := "resume"
@@ -181,6 +188,18 @@ func RunDaily(parent context.Context, opt DailyOptions) (result DailyResult, ret
 	if correction != "" {
 		return runDailyCorrection(parent, hostOpt, inspection, correction, result)
 	}
+	if goal == "" {
+		rejected, err := currentReviewerRejectionAwaitingCorrection(caseRoot, pack)
+		if err != nil {
+			return result, err
+		}
+		if rejected {
+			result.FinalState = "reviewer-rejected-awaiting-correction"
+			result.Blocked = true
+			result.Replay = true
+			return result, nil
+		}
+	}
 	if err := ensureDailyStarted(caseRoot, pack, &result); err != nil {
 		return result, err
 	}
@@ -202,6 +221,11 @@ func RunDaily(parent context.Context, opt DailyOptions) (result DailyResult, ret
 			result.ExecutorGeneration = generation
 			result.Replay = true
 			return result, nil
+		}
+	}
+	if opt.beforeMemberRun != nil {
+		if err := opt.beforeMemberRun(caseRoot, pack, result.Lane); err != nil {
+			return result, fmt.Errorf("prepare daily member run: %w", err)
 		}
 	}
 	if err := bindDailyTrustedClaude(&opt); err != nil {
@@ -462,6 +486,10 @@ func runDailyCorrection(parent context.Context, hostOpt Options, inspection miss
 		if existing == nil {
 			return result, fmt.Errorf("daily correction refuses closed lane %s", lane)
 		}
+		result.CorrectionEventID = mission.Value(existing, "eventId")
+		if err := validateExistingDailyCorrectionRejection(result.CaseRoot, inspection, lane, correction, existing); err != nil {
+			return result, err
+		}
 		resolution, resolved, err := inspectDailyCorrectionResolution(result.CaseRoot, lane, result.CorrectionEventID)
 		if err != nil {
 			return result, err
@@ -482,18 +510,49 @@ func runDailyCorrection(parent context.Context, hostOpt Options, inspection miss
 		return result, nil
 	}
 
+	if existing != nil && (mission.Value(existing, "reviewerVerificationEventId") == "" || mission.Value(existing, "reviewerDecisionEventId") == "") {
+		existing = nil
+	}
+	var rejection workstream.MemberReviewerRejection
+	targetRef := ""
+	if existing != nil {
+		result.CorrectionEventID = mission.Value(existing, "eventId")
+		if err := validateExistingDailyCorrectionRejection(result.CaseRoot, inspection, lane, correction, existing); err != nil {
+			return result, err
+		}
+		targetRef = mission.Value(existing, "target")
+		var rejected bool
+		rejection, rejected, err = workstream.CurrentMemberManifestReviewerRejection(result.CaseRoot, lane, targetRef)
+		if err != nil {
+			return result, err
+		}
+		if !rejected || !dailyCorrectionBindsRejection(existing, rejection) {
+			return result, fmt.Errorf("existing daily correction does not match canonical reviewer rejection")
+		}
+	} else {
+		rejection, targetRef, err = currentDailyCorrectionMemberTarget(result.CaseRoot, boardLane)
+		if err != nil {
+			return result, err
+		}
+		result.CorrectionEventID = dailyCorrectionEventID(dailyCorrectionScope(result.CaseRoot, inspection), lane, correction, rejection)
+		existing, err = existingDailyCorrectionByID(result.CaseRoot, result.CorrectionEventID, lane, correction, hostOpt.Actor)
+		if err != nil {
+			return result, err
+		}
+	}
+	if existing != nil {
+		if err := verifyDailyCorrection(existing, lane, correction, hostOpt.Actor, result.CorrectionEventID, targetRef, rejection); err != nil {
+			return result, err
+		}
+	}
 	resolution, resolved, err := inspectDailyCorrectionResolution(result.CaseRoot, lane, result.CorrectionEventID)
 	if err != nil {
 		return result, err
 	}
 	if !resolved {
-		targetRef, err := currentDailyCorrectionMemberTarget(result.CaseRoot, boardLane)
-		if err != nil {
-			return result, err
-		}
 		if existing == nil {
 			createdAt := nowRFC3339Nano()
-			args := dailyCorrectionArgs(result.CaseRoot, result.Pack, lane, correction, hostOpt.Actor, result.CorrectionEventID, createdAt, targetRef)
+			args := dailyCorrectionArgs(result.CaseRoot, result.Pack, lane, correction, hostOpt.Actor, result.CorrectionEventID, createdAt, targetRef, rejection)
 			var preview note.AppendResult
 			if err := runPublicCLI(args, &preview); err != nil {
 				return result, fmt.Errorf("daily public correction preview: %w", err)
@@ -511,7 +570,7 @@ func runDailyCorrection(parent context.Context, hostOpt Options, inspection miss
 			result.DriverSteps = append(result.DriverSteps, "note-intervention")
 			existing = applied.Event
 		}
-		if err := verifyDailyCorrection(existing, lane, correction, hostOpt.Actor, result.CorrectionEventID, targetRef); err != nil {
+		if err := verifyDailyCorrection(existing, lane, correction, hostOpt.Actor, result.CorrectionEventID, targetRef, rejection); err != nil {
 			return result, err
 		}
 		step, err := runPublicDriverStep(result.CaseRoot, result.Pack)
@@ -568,13 +627,40 @@ func dailyCorrectionLane(caseRoot string, inspection missionintent.Inspection, c
 	if err != nil {
 		return "", mission.BoardLane{}, nil, fmt.Errorf("daily correction requires an initialized board: %w", err)
 	}
+	scope := dailyCorrectionScope(caseRoot, inspection)
 	if inspection.Committed {
 		laneID := inspection.Identity.InitialLane
 		lane, ok := mission.LookupBoardLane(board.Lanes, laneID, false)
 		if !ok {
 			return "", mission.BoardLane{}, nil, fmt.Errorf("daily committed initial lane is missing from board: %s", laneID)
 		}
-		existing, err := existingDailyCorrection(caseRoot, dailyCorrectionEventID(dailyCorrectionScope(caseRoot, inspection), laneID, correction), laneID, correction, actor)
+		latest, found, latestErr := memberexecution.Latest(caseRoot, laneID)
+		if latestErr != nil {
+			return "", mission.BoardLane{}, nil, latestErr
+		}
+		if found && latest.State == "intake-ready" && latest.Manifest != nil && latest.Owner.Executor == lane.CurrentExecutor && latest.Owner.ExecutorGeneration == lane.ExecutorGeneration {
+			targetRef := relativeLiveAcceptancePath(caseRoot, latest.ManifestPath)
+			rejection, rejected, rejectionErr := workstream.CurrentMemberManifestReviewerRejection(caseRoot, laneID, targetRef)
+			if rejectionErr != nil {
+				return "", mission.BoardLane{}, nil, rejectionErr
+			}
+			if rejected {
+				eventID := dailyCorrectionEventID(scope, laneID, correction, rejection)
+				existing, existingErr := existingDailyCorrectionByID(caseRoot, eventID, laneID, correction, actor)
+				return laneID, lane, existing, existingErr
+			}
+		}
+		if eventID := strings.TrimSpace(lane.LastReconciledIntervention); eventID != "" {
+			existing, err := existingDailyCorrectionByID(caseRoot, eventID, laneID, correction, actor)
+			if err != nil {
+				return "", mission.BoardLane{}, nil, err
+			}
+			if existing == nil {
+				return "", mission.BoardLane{}, nil, fmt.Errorf("daily correction board reconcile identity is missing from the intervention ledger: %s", eventID)
+			}
+			return laneID, lane, existing, nil
+		}
+		existing, err := existingDailyCorrectionForRequest(caseRoot, scope, laneID, correction, actor)
 		return laneID, lane, existing, err
 	}
 	matches := []struct {
@@ -582,8 +668,10 @@ func dailyCorrectionLane(caseRoot string, inspection missionintent.Inspection, c
 		event map[string]any
 	}{}
 	for _, lane := range board.Lanes {
-		id := dailyCorrectionEventID(dailyCorrectionScope(caseRoot, inspection), lane.ID, correction)
-		event, err := existingDailyCorrection(caseRoot, id, lane.ID, correction, actor)
+		if !strings.EqualFold(strings.TrimSpace(lane.Status), "closed") && !strings.EqualFold(strings.TrimSpace(lane.Status), "archived") {
+			continue
+		}
+		event, err := existingDailyCorrectionForRequest(caseRoot, scope, lane.ID, correction, actor)
 		if err != nil {
 			return "", mission.BoardLane{}, nil, err
 		}
@@ -616,26 +704,49 @@ func dailyCorrectionLane(caseRoot string, inspection missionintent.Inspection, c
 	return candidates[0].ID, candidates[0], nil, nil
 }
 
-func currentDailyCorrectionMemberTarget(caseRoot string, boardLane mission.BoardLane) (string, error) {
+func currentDailyCorrectionMemberTarget(caseRoot string, boardLane mission.BoardLane) (workstream.MemberReviewerRejection, string, error) {
 	latest, ok, err := memberexecution.Latest(caseRoot, boardLane.ID)
 	if err != nil {
-		return "", err
+		return workstream.MemberReviewerRejection{}, "", err
 	}
 	if !ok || latest.State != "intake-ready" || latest.Manifest == nil || latest.Owner.Executor != boardLane.CurrentExecutor || latest.Owner.ExecutorGeneration != boardLane.ExecutorGeneration {
-		return "", fmt.Errorf("daily correction requires the current real member result to be durably intake-ready")
+		return workstream.MemberReviewerRejection{}, "", fmt.Errorf("daily correction requires the current real member result to be durably intake-ready")
 	}
-	return relativeLiveAcceptancePath(caseRoot, latest.ManifestPath), nil
+	targetRef := relativeLiveAcceptancePath(caseRoot, latest.ManifestPath)
+	rejection, rejected, err := workstream.CurrentMemberManifestReviewerRejection(caseRoot, boardLane.ID, targetRef)
+	if err != nil {
+		return workstream.MemberReviewerRejection{}, "", err
+	}
+	if !rejected {
+		return workstream.MemberReviewerRejection{}, "", fmt.Errorf("daily correction requires a canonical reviewer rejection for the current member manifest")
+	}
+	return rejection, targetRef, nil
 }
 
-func dailyCorrectionArgs(caseRoot, pack, lane, correction, actor, eventID, createdAt, targetRef string) []string {
-	return []string{
+func dailyCorrectionArgs(caseRoot, pack, lane, correction, actor, eventID, createdAt, targetRef string, rejections ...workstream.MemberReviewerRejection) []string {
+	args := []string{
 		"-Command", "note", "-Target", caseRoot, "-Pack", pack,
 		"-Kind", "intervention", "-Lane", lane,
 		"-Subject", "daily human correction", "-Summary", correction,
 		"-Actor", actor, "-Action", "override", "-Status", "open",
 		"-EventId", eventID, "-CreatedAt", createdAt, "-TargetRef", targetRef,
-		"-WhatIf", "-Format", "json",
 	}
+	if len(rejections) > 0 {
+		rejection := rejections[0]
+		args = append(args,
+			"-Related", rejection.VerificationEventID+","+rejection.DecisionEventID,
+			"-EvidenceRefs", strings.Join(rejection.EvidenceRefs, ","),
+			"-ReviewerPacketId", rejection.PacketID, "-ReviewerRouteId", rejection.RouteID, "-ReviewerShardId", rejection.ShardID,
+			"-ReviewerPacketPath", rejection.PacketPath, "-ReviewerResultLineagePath", rejection.ReviewerResultPath, "-ReviewerLineageSession", rejection.ReviewerSession,
+			"-ReviewerDispatchReceiptPath", rejection.ReviewerDispatchPath, "-ReviewerDispatchReceiptSha256", rejection.ReviewerDispatchSHA256,
+			"-ReviewerCompletionReceiptPath", rejection.ReviewerCompletionPath, "-ReviewerCompletionReceiptSha256", rejection.ReviewerCompletionSHA256,
+			"-ReviewerLineageInputPath", rejection.ReviewerResultInputPath, "-ReviewerLineageInputSha256", rejection.ReviewerResultInputSHA256,
+			"-ReviewerLineageInputBytes", fmt.Sprint(rejection.ReviewerResultInputBytes), "-ReviewerLineageResultSha256", rejection.ReviewerResultSHA256,
+			"-ReviewerManifestSha256", rejection.ManifestSHA256, "-ReviewerVerificationEventId", rejection.VerificationEventID, "-ReviewerDecisionEventId", rejection.DecisionEventID,
+			"-ReviewerOwnerExecutor", rejection.OwnerExecutor, "-ReviewerOwnerGeneration", fmt.Sprint(rejection.OwnerGeneration),
+		)
+	}
+	return append(args, "-WhatIf", "-Format", "json")
 }
 
 func dailyCorrectionScope(caseRoot string, inspection missionintent.Inspection) string {
@@ -645,12 +756,17 @@ func dailyCorrectionScope(caseRoot string, inspection missionintent.Inspection) 
 	return strings.ToLower(filepath.Clean(caseRoot))
 }
 
-func dailyCorrectionEventID(scope, lane, correction string) string {
-	sum := sha256.Sum256([]byte(strings.Join([]string{"daily-correction-v1", scope, lane, correction}, "\x00")))
+func dailyCorrectionEventID(scope, lane, correction string, rejection ...workstream.MemberReviewerRejection) string {
+	identity := []string{"daily-correction-v1", scope, lane, correction}
+	if len(rejection) > 0 {
+		item := rejection[0]
+		identity = []string{"daily-correction-v2", scope, lane, correction, item.ManifestRef, item.ManifestSHA256, item.PacketID, item.ShardID, item.ReviewerResultInputSHA256, item.VerificationEventID, item.DecisionEventID, item.ReviewerSession, item.OwnerExecutor, fmt.Sprint(item.OwnerGeneration)}
+	}
+	sum := sha256.Sum256([]byte(strings.Join(identity, "\x00")))
 	return "daily-correction-" + hex.EncodeToString(sum[:12])
 }
 
-func existingDailyCorrection(caseRoot, eventID, lane, correction, actor string) (map[string]any, error) {
+func existingDailyCorrectionByID(caseRoot, eventID, lane, correction, actor string) (map[string]any, error) {
 	items, err := mission.ReadStrictFact(caseRoot, "intervention")
 	if err != nil {
 		return nil, err
@@ -663,24 +779,96 @@ func existingDailyCorrection(caseRoot, eventID, lane, correction, actor string) 
 		if found != nil {
 			return nil, fmt.Errorf("daily correction event is duplicated: %s", eventID)
 		}
-		found = item
-	}
-	if found != nil {
-		if err := verifyDailyCorrection(found, lane, correction, actor, eventID); err != nil {
+		if err := verifyDailyCorrection(item, lane, correction, actor, eventID); err != nil {
 			return nil, err
 		}
+		found = item
 	}
 	return found, nil
 }
 
-func verifyDailyCorrection(event map[string]any, lane, correction, actor, eventID string, targetRef ...string) error {
+func validateExistingDailyCorrectionRejection(caseRoot string, inspection missionintent.Inspection, lane, correction string, event map[string]any) error {
+	if event == nil || mission.Value(event, "reviewerVerificationEventId") == "" || mission.Value(event, "reviewerDecisionEventId") == "" {
+		return nil
+	}
+	targetRef := mission.Value(event, "target")
+	rejection, rejected, err := workstream.CurrentMemberManifestReviewerRejection(caseRoot, lane, targetRef)
+	if err != nil {
+		return err
+	}
+	if !rejected || dailyCorrectionEventID(dailyCorrectionScope(caseRoot, inspection), lane, correction, rejection) != mission.Value(event, "eventId") || !dailyCorrectionBindsRejection(event, rejection) {
+		return fmt.Errorf("existing daily correction does not match its canonical reviewer rejection")
+	}
+	return nil
+}
+
+func existingDailyCorrectionForRequest(caseRoot, scope, lane, correction, actor string) (map[string]any, error) {
+	items, err := mission.ReadStrictFact(caseRoot, "intervention")
+	if err != nil {
+		return nil, err
+	}
+	legacyID := dailyCorrectionEventID(scope, lane, correction)
+	var found map[string]any
+	for _, item := range items {
+		if mission.Value(item, "lane") != lane || mission.Value(item, "subject") != "daily human correction" || mission.Value(item, "summary") != correction || mission.Value(item, "actor") != actor || mission.Value(item, "action") != "override" || !strings.EqualFold(mission.Value(item, "status"), "open") {
+			continue
+		}
+		eventID := mission.Value(item, "eventId")
+		isLegacy := eventID == legacyID
+		isRejectionBound := mission.Value(item, "reviewerVerificationEventId") != "" && mission.Value(item, "reviewerDecisionEventId") != ""
+		if !isLegacy && !isRejectionBound {
+			continue
+		}
+		if found != nil {
+			return nil, fmt.Errorf("daily correction logical request matches multiple durable events for lane %s", lane)
+		}
+		if err := verifyDailyCorrection(item, lane, correction, actor, eventID); err != nil {
+			return nil, err
+		}
+		found = item
+	}
+	return found, nil
+}
+
+func verifyDailyCorrection(event map[string]any, lane, correction, actor, eventID string, bindings ...any) error {
 	if event == nil || mission.Value(event, "eventId") != eventID || mission.Value(event, "kind") != "intervention" || mission.Value(event, "lane") != lane || mission.Value(event, "subject") != "daily human correction" || mission.Value(event, "summary") != correction || mission.Value(event, "actor") != actor || mission.Value(event, "action") != "override" || !strings.EqualFold(mission.Value(event, "status"), "open") {
 		return fmt.Errorf("existing daily correction does not match the exact logical request: %s", eventID)
 	}
-	if len(targetRef) > 0 && mission.Value(event, "target") != targetRef[0] {
-		return fmt.Errorf("existing daily correction does not match the exact logical request: %s", eventID)
+	if len(bindings) > 0 {
+		targetRef, ok := bindings[0].(string)
+		if !ok || mission.Value(event, "target") != targetRef {
+			return fmt.Errorf("existing daily correction does not match the exact logical request: %s", eventID)
+		}
+	}
+	if len(bindings) > 1 {
+		rejection, ok := bindings[1].(workstream.MemberReviewerRejection)
+		if !ok || !dailyCorrectionBindsRejection(event, rejection) {
+			return fmt.Errorf("existing daily correction does not match canonical reviewer rejection: %s", eventID)
+		}
 	}
 	return nil
+}
+
+func dailyCorrectionBindsRejection(event map[string]any, rejection workstream.MemberReviewerRejection) bool {
+	return mission.Value(event, "packetId") == rejection.PacketID &&
+		mission.Value(event, "routeId") == rejection.RouteID &&
+		mission.Value(event, "shardId") == rejection.ShardID &&
+		mission.Value(event, "packetPath") == rejection.PacketPath &&
+		mission.Value(event, "reviewerResultPath") == rejection.ReviewerResultPath &&
+		mission.Value(event, "reviewerSession") == rejection.ReviewerSession &&
+		mission.Value(event, "reviewerDispatchReceiptPath") == rejection.ReviewerDispatchPath &&
+		strings.EqualFold(mission.Value(event, "reviewerDispatchReceiptSha256"), rejection.ReviewerDispatchSHA256) &&
+		mission.Value(event, "reviewerCompletionReceiptPath") == rejection.ReviewerCompletionPath &&
+		strings.EqualFold(mission.Value(event, "reviewerCompletionReceiptSha256"), rejection.ReviewerCompletionSHA256) &&
+		mission.Value(event, "reviewerResultInputPath") == rejection.ReviewerResultInputPath &&
+		strings.EqualFold(mission.Value(event, "reviewerResultInputSha256"), rejection.ReviewerResultInputSHA256) &&
+		mission.Value(event, "reviewerResultInputBytes") == fmt.Sprint(rejection.ReviewerResultInputBytes) &&
+		strings.EqualFold(mission.Value(event, "reviewerResultSha256"), rejection.ReviewerResultSHA256) &&
+		strings.EqualFold(mission.Value(event, "reviewerManifestSha256"), rejection.ManifestSHA256) &&
+		mission.Value(event, "reviewerVerificationEventId") == rejection.VerificationEventID &&
+		mission.Value(event, "reviewerDecisionEventId") == rejection.DecisionEventID &&
+		mission.Value(event, "ownerExecutor") == rejection.OwnerExecutor &&
+		mission.Value(event, "ownerGeneration") == fmt.Sprint(rejection.OwnerGeneration)
 }
 
 type dailyCorrectionResolution struct {
@@ -798,6 +986,10 @@ func dailyLaneTerminal(caseRoot, laneID string) (string, int, bool, error) {
 }
 
 func finishDailyCompletion(caseRoot, pack string, result *DailyResult) error {
+	if result != nil && result.FinalState == "reviewer-rejected-awaiting-correction" {
+		result.Blocked = true
+		return nil
+	}
 	status, err := runPublicStatus(caseRoot, pack)
 	if err != nil {
 		return err
@@ -842,6 +1034,7 @@ func addDailyHostRun(result *DailyResult, host Result) {
 	result.SessionLaunches += host.SessionLaunches
 	result.SessionCompletions += host.SessionCompletions
 	result.Replacements += host.Replacements
+	result.Failure = host.Failure
 }
 
 func dailyExecutorID(caseRoot string, generation int) string {

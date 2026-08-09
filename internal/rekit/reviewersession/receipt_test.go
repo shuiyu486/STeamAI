@@ -1,10 +1,59 @@
 package reviewersession
 
 import (
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestOutputContractFieldsBindsExactPacketRouteShardAndItems(t *testing.T) {
+	caseRoot := t.TempDir()
+	packetRel := ".rekit/reviews/packet/packet.json"
+	packetPath := filepath.Join(caseRoot, filepath.FromSlash(packetRel))
+	if err := os.MkdirAll(filepath.Dir(packetPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	packet := map[string]any{
+		"packetId":             "packet-a",
+		"route":                map[string]any{"id": "route-a", "outputContract": "item,decision,candidate_path"},
+		"shards":               []any{map[string]any{"id": "shard-01", "items": []string{"item-a"}}},
+		"outputContract":       "item,decision,candidate_path",
+		"unrelatedPacketField": true,
+	}
+	data, err := json.Marshal(packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(packetPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	receipt := DispatchReceipt{PacketID: "packet-a", PacketPath: packetRel, PacketSHA256: sha256Hex(data), RouteID: "route-a", ShardID: "shard-01", Items: []string{"item-a"}}
+	fields, err := OutputContractFields(caseRoot, receipt)
+	if err != nil || strings.Join(fields, ",") != "item,decision,candidate_path" {
+		t.Fatalf("fields=%v err=%v", fields, err)
+	}
+	if err := ValidateRouteOutput(fields, map[string]any{"item": "item-a", "decision": "accept", "candidate_path": "candidate"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, drift := range []struct {
+		name   string
+		mutate func(*DispatchReceipt)
+	}{
+		{name: "packet hash", mutate: func(value *DispatchReceipt) { value.PacketSHA256 = strings.Repeat("a", 64) }},
+		{name: "route", mutate: func(value *DispatchReceipt) { value.RouteID = "route-b" }},
+		{name: "items", mutate: func(value *DispatchReceipt) { value.Items = []string{"item-b"} }},
+	} {
+		t.Run(drift.name, func(t *testing.T) {
+			changed := receipt
+			drift.mutate(&changed)
+			if _, err := OutputContractFields(caseRoot, changed); err == nil {
+				t.Fatal("drifted packet contract was accepted")
+			}
+		})
+	}
+}
 
 func TestValidateCompletionDispatchLineageRejectsDrift(t *testing.T) {
 	dispatchPath := filepath.Join(t.TempDir(), "dispatch.json")

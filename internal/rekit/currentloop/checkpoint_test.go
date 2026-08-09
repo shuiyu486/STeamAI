@@ -26,7 +26,7 @@ func TestCheckpointWriteInspectAndStaleCurrentness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !inspection.Ready || inspection.State != "ready" || inspection.Sequence != 1 || inspection.Continuation == nil || inspection.Continuation.RemainingMaxSteps != 3 || inspection.AppliedSteps != 2 || !strings.HasSuffix(inspection.ArtifactPath, "/00000000000000000001.json") {
+	if !inspection.Ready || inspection.State != "ready" || inspection.Sequence != 1 || inspection.Continuation == nil || inspection.Continuation.RemainingMaxSteps != 3 || inspection.AppliedSteps != 2 || inspection.RefreshedCurrentDriverRequest == nil || inspection.RefreshedCurrentDriverRequest.Command != request.Command || !strings.HasSuffix(inspection.ArtifactPath, "/00000000000000000001.json") {
 		t.Fatalf("unexpected checkpoint inspection: %+v", inspection)
 	}
 	if _, err := os.Stat(filepath.Join(caseRoot, filepath.FromSlash(inspection.ArtifactPath))); err != nil {
@@ -43,7 +43,7 @@ func TestCheckpointWriteInspectAndStaleCurrentness(t *testing.T) {
 	}
 	drift := checkpointRequest("/rekit continue main -WhatIf -Format json")
 	stale := Inspect(repoRoot, caseRoot, "_template", &drift)
-	if stale.Ready || stale.State != "stale-current-driver-request" || stale.Continuation != nil || len(stale.Warnings) == 0 {
+	if stale.Ready || stale.State != "stale-current-driver-request" || stale.Continuation != nil || stale.RefreshedCurrentDriverRequest != nil || len(stale.Warnings) == 0 {
 		t.Fatalf("stale checkpoint exposed continuation: %+v", stale)
 	}
 }

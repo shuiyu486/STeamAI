@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -45,7 +46,7 @@ func TestLoadTemplateManifestSchema(t *testing.T) {
 	if m.WorkstreamDefaults["defaultAuthorityLane"] != "main" {
 		t.Fatalf("defaultAuthorityLane = %q, want main", m.WorkstreamDefaults["defaultAuthorityLane"])
 	}
-	assertHeavyToolGateSet(t, m)
+	assertHeavyToolGateSet(t, m, "inspect")
 }
 
 func TestLoadWebSecurityManifestSchema(t *testing.T) {
@@ -68,9 +69,69 @@ func TestLoadWebSecurityManifestSchema(t *testing.T) {
 	assertHeavyToolGateSet(t, m)
 }
 
-func assertHeavyToolGateSet(t *testing.T, m *Manifest) {
+func TestSubagentRouteForTaskType(t *testing.T) {
+	m := &Manifest{ManifestPath: "packs/unit/manifest.yml", SubagentRoutes: []SubagentRoute{
+		{ID: "unit:fallback", TaskTypes: "bounded-review; candidate-review"},
+		{ID: "unit:feature", TaskTypes: "feature-analysis, endpoint-analysis"},
+	}}
+	for _, test := range []struct {
+		name     string
+		taskType string
+		wantID   string
+	}{
+		{name: "exact", taskType: "feature-analysis", wantID: "unit:feature"},
+		{name: "case insensitive", taskType: " FEATURE-ANALYSIS ", wantID: "unit:feature"},
+		{name: "fallback", taskType: "unknown", wantID: "unit:fallback"},
+		{name: "empty fallback", wantID: "unit:fallback"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			route, err := m.SubagentRouteForTaskType(test.taskType)
+			if err != nil || route.ID != test.wantID {
+				t.Fatalf("route=%+v err=%v want=%s", route, err, test.wantID)
+			}
+		})
+	}
+	if _, err := m.ExactSubagentRouteForTaskType("unknown"); err == nil || !strings.Contains(err.Error(), "no exact subagent route") {
+		t.Fatalf("missing exact route error = %v", err)
+	}
+	m.SubagentRoutes = nil
+	if _, err := m.SubagentRouteForTaskType("feature-analysis"); err == nil || !strings.Contains(err.Error(), "no subagentRoutes") {
+		t.Fatalf("missing routes error = %v", err)
+	}
+	if _, err := m.ExactSubagentRouteForTaskType("feature-analysis"); err == nil || !strings.Contains(err.Error(), "no subagentRoutes") {
+		t.Fatalf("missing exact routes error = %v", err)
+	}
+}
+
+func TestFeatureAnalysisRouteComesFromSelectedPack(t *testing.T) {
+	for _, test := range []struct {
+		pack  string
+		route string
+		field string
+	}{
+		{pack: "_template", route: "_template:lane-feature-analysis", field: "feature"},
+		{pack: "web-security", route: "web-security:feature-analysis", field: "endpoint"},
+	} {
+		t.Run(test.pack, func(t *testing.T) {
+			m, err := Load(repoRoot(t), test.pack)
+			if err != nil {
+				t.Fatal(err)
+			}
+			route, err := m.SubagentRouteForTaskType("feature-analysis")
+			if err != nil || route.ID != test.route || !slices.Contains(splitScalarList(route.OutputContract), test.field) {
+				t.Fatalf("route=%+v err=%v", route, err)
+			}
+		})
+	}
+}
+
+func assertHeavyToolGateSet(t *testing.T, m *Manifest, additional ...string) {
 	t.Helper()
-	want := "debug,dump,full-trace,inject,network,patch,symex"
+	wantItems := append([]string{
+		"debug", "dump", "full-trace", "inject", "network", "patch", "symex",
+	}, additional...)
+	slices.Sort(wantItems)
+	want := strings.Join(wantItems, ",")
 	if got := strings.Join(m.HeavyToolGateIDs(), ","); got != want {
 		t.Fatalf("HeavyToolGateIDs() = %q, want %q", got, want)
 	}
@@ -1749,7 +1810,7 @@ func TestListPackSummaries(t *testing.T) {
 			t.Fatalf("pack summary schema invalid: %+v", pack)
 		}
 	}
-	if byID["_template"].Maturity != "template" || byID["_template"].SchemaVersion != "1" || byID["_template"].SubagentRoutes != 2 || byID["_template"].HeavyToolGates != 7 {
+	if byID["_template"].Maturity != "template" || byID["_template"].SchemaVersion != "1" || byID["_template"].SubagentRoutes != 2 || byID["_template"].HeavyToolGates != 8 {
 		t.Fatalf("unexpected template summary: %+v", byID["_template"])
 	}
 	if byID["vmp-re"].Maturity != "mature" || byID["vmp-re"].SchemaVersion != "1" || byID["vmp-re"].DefaultAuthorityLane != "devirt-main" || byID["vmp-re"].HeavyToolGates != 7 {

@@ -14,9 +14,11 @@ import (
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/currentloop"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	rekitruntime "github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
@@ -131,6 +133,53 @@ func TestRunCurrentStepRoutesLaneThenReviewerLifecycle(t *testing.T) {
 	err = Run([]string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-ExpectedCurrentStepPlanSha256", driftPreview.ExpectedCurrentStepPlanSHA256, "-Apply", "-Format", "json"}, &out)
 	if err == nil || !strings.Contains(err.Error(), "expected plan sha256 mismatch") {
 		t.Fatalf("valid current-step plan survived durable state drift: %v", err)
+	}
+}
+
+func TestRunCurrentStepMemberDispatchExactReplayDoesNotClaimProgress(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	board.Lanes[0].CurrentExecutor = "replay-member"
+	board.Lanes[0].ExecutorGeneration = 1
+	board.Lanes[0].UpdatedAt = "2026-08-08T01:00:00Z"
+	boardData, err := json.MarshalIndent(board, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "board.json"), append(boardData, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	base := []string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}
+	preview := runCurrentStepPreview(t, base)
+	if preview.MemberExecution == nil {
+		t.Fatalf("member dispatch preview missing: %+v", preview)
+	}
+	if _, err := memberexecution.Apply(*preview.MemberExecution, preview.MemberExecution.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	var replayOut bytes.Buffer
+	err = Run([]string{
+		"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template",
+		"-ExpectedMemberExecutionPlanSha256", preview.MemberExecution.ExpectedPlanSHA256,
+		"-ExpectedCurrentStepPlanSha256", preview.ExpectedCurrentStepPlanSHA256,
+		"-Apply", "-Format", "json",
+	}, &replayOut)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var replay currentStepTestPlan
+	if err := json.Unmarshal(replayOut.Bytes(), &replay); err != nil {
+		t.Fatalf("exact replay JSON did not decode: %v\n%s", err, replayOut.String())
+	}
+	if replay.Applied || replay.Receipt == nil || replay.Receipt.Outcome != "current-step-applied" || replay.RefreshedStatus != nil {
+		t.Fatalf("exact member replay claimed new progress: %+v", replay)
 	}
 }
 
@@ -321,12 +370,19 @@ func TestRunCurrentStepDurableMemberExecutionFixtureHandoffAndIntake(t *testing.
 	if err := os.WriteFile(inputPath, append(append([]byte{}, inputBytes...), ' '), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if _, accepted, acceptanceErr := workstream.CurrentMemberManifestReviewerAcceptance(caseRoot, "feature-analysis", reviewerItem); acceptanceErr == nil || accepted {
+		t.Fatalf("canonical acceptance survived replaced reviewer input: accepted=%t err=%v", accepted, acceptanceErr)
+	}
 	replacedInput := previewCompletion(t, &out, caseRoot, "analysis", status.MemberExecution.CompletionEvidence[0])
 	if !replacedInput.Blocked || !hasCompletionBlocker(replacedInput.Blockers, "member-manifest-review") || replacedInput.CompletionPlanSHA256 != "" {
 		t.Fatalf("completion survived replaced canonical reviewer input: %+v", replacedInput)
 	}
 	if err := os.WriteFile(inputPath, inputBytes, 0o600); err != nil {
 		t.Fatal(err)
+	}
+	acceptance, accepted, err := workstream.CurrentMemberManifestReviewerAcceptance(caseRoot, "feature-analysis", reviewerItem)
+	if err != nil || !accepted || acceptance.ManifestRef != reviewerItem || acceptance.ManifestSHA256 != sha256Text(manifestData) || acceptance.PacketID != packet.PacketID || acceptance.RouteID != packet.Route.ID || acceptance.ShardID != handoff.ShardID || acceptance.ReviewerSession != "member-e2e-reviewer" || acceptance.OwnerExecutor != acceptedApply.MemberExecution.Owner.Executor || acceptance.OwnerGeneration != acceptedApply.MemberExecution.Owner.ExecutorGeneration || acceptance.VerificationEventID == "" || acceptance.DecisionEventID == "" {
+		t.Fatalf("canonical reviewer acceptance identity mismatch: accepted=%t acceptance=%+v err=%v", accepted, acceptance, err)
 	}
 	t.Run("accepted writeback rejects canonical reject semantics", func(t *testing.T) {
 		completionRoot := filepath.Join(filepath.Dir(reviewerPlan.PacketPath), "sessions", handoff.ShardID, "completions")
@@ -516,6 +572,9 @@ func TestRunCurrentStepDurableMemberExecutionFixtureHandoffAndIntake(t *testing.
 	}
 	if err := os.WriteFile(reviewerPlan.PacketPath, append(packetBytes, ' '), 0o600); err != nil {
 		t.Fatal(err)
+	}
+	if _, accepted, acceptanceErr := workstream.CurrentMemberManifestReviewerAcceptance(caseRoot, "feature-analysis", reviewerItem); acceptanceErr == nil || accepted {
+		t.Fatalf("canonical acceptance survived reviewer packet drift: accepted=%t err=%v", accepted, acceptanceErr)
 	}
 	packetDrift := previewCompletion(t, &out, caseRoot, "analysis", status.MemberExecution.CompletionEvidence[0])
 	if !packetDrift.Blocked || !hasCompletionBlocker(packetDrift.Blockers, "member-manifest-review") || packetDrift.CompletionPlanSHA256 != "" {
@@ -743,6 +802,273 @@ func TestMemberExecutionOldGenerationLosesToPublicReconcileLease(t *testing.T) {
 	}
 	if _, found, err := memberexecution.Latest(caseRoot, "feature-analysis"); err != nil || found {
 		t.Fatalf("reconcile race corrupted or published old member execution: found=%v err=%v", found, err)
+	}
+}
+
+func TestCurrentStepPackMemoryConsumerRequestUsesCaseQueueAndStrictGuard(t *testing.T) {
+	original := currentStepValidatePackMemoryConsumerTask
+	t.Cleanup(func() { currentStepValidatePackMemoryConsumerTask = original })
+	globalRequest := &mission.MissionCommanderDriverRequest{Lane: "", RunLoopStepID: "preview-current", Command: "/rekit sync -WhatIf"}
+	caseRequest := &mission.MissionCommanderDriverRequest{Lane: "feature-mission", RunLoopStepID: "preview-current", Command: "/rekit continue mission -WhatIf"}
+	status := statusInventory{
+		MissionControlRunbook: &statusMissionControlRunbook{Scope: "pack-memory", CurrentDriverRequest: globalRequest},
+		CaseMission:           &statusCaseMission{MissionCommanderActionQueue: mission.MissionCommanderActionQueue{CurrentDriverRequest: caseRequest}},
+	}
+	var gotLane string
+	currentStepValidatePackMemoryConsumerTask = func(repoRoot, caseRoot, pack, lane string) error {
+		gotLane = lane
+		return nil
+	}
+	request, err := currentStepPackMemoryConsumerRequest("repo", "case", "_template", status)
+	if err != nil || request == caseRequest || request.Lane != "feature-mission" || request.Command != caseRequest.Command || gotLane != "feature-mission" {
+		t.Fatalf("consumer request=%+v lane=%q err=%v", request, gotLane, err)
+	}
+
+	currentStepValidatePackMemoryConsumerTask = func(_, _, _, _ string) error { return errors.New("receipt drift") }
+	if _, err := currentStepPackMemoryConsumerRequest("repo", "case", "_template", status); err == nil || !strings.Contains(err.Error(), "receipt drift") {
+		t.Fatalf("consumer request accepted strict guard failure: %v", err)
+	}
+	status.MissionControlRunbook.Scope = "project"
+	if _, err := currentStepPackMemoryConsumerRequest("repo", "case", "_template", status); err == nil || !strings.Contains(err.Error(), "no case member request") {
+		t.Fatalf("ordinary non-case focus entered consumer route: %v", err)
+	}
+}
+
+func TestBuildCurrentStepCaseScopePackMemoryConsumerUsesStrictGuard(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	board.Lanes[0].CurrentExecutor = "consumer-member"
+	board.Lanes[0].ExecutorGeneration = 1
+	board.Lanes[0].UpdatedAt = "2026-08-08T02:00:00Z"
+	boardData, err := json.MarshalIndent(board, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "board.json"), append(boardData, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := memberexecution.WriteTaskBinding(caseRoot, board.Lanes[0].ID, memberexecution.TaskBinding{
+		Kind: "pack-memory-consumer",
+		Values: map[string]string{
+			"changeId": "change", "sourceSha256": strings.Repeat("a", 64),
+			"receiptSha256": strings.Repeat("b", 64), "planSha256": strings.Repeat("c", 64),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	originalValidate := currentStepValidatePackMemoryConsumerTask
+	originalLease := currentStepWithPackMemoryConsumerTaskLease
+	validated, leased := false, false
+	currentStepValidatePackMemoryConsumerTask = func(_, target, pack, lane string) error {
+		validated = target == caseRoot && pack == "_template" && lane == board.Lanes[0].ID
+		return nil
+	}
+	currentStepWithPackMemoryConsumerTaskLease = func(_, target, pack, lane string, apply func() error) error {
+		leased = target == caseRoot && pack == "_template" && lane == board.Lanes[0].ID
+		return apply()
+	}
+	t.Cleanup(func() {
+		currentStepValidatePackMemoryConsumerTask = originalValidate
+		currentStepWithPackMemoryConsumerTaskLease = originalLease
+	})
+	preview := runCurrentStepPreview(t, []string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"})
+	if !validated || preview.MemberExecution == nil {
+		t.Fatalf("case-scope consumer omitted strict preview validation: validated=%t preview=%+v", validated, preview)
+	}
+	applied := runMemberCurrentStep(t, caseRoot, []string{
+		"-ExpectedMemberExecutionPlanSha256", preview.MemberExecution.ExpectedPlanSHA256,
+		"-ExpectedCurrentStepPlanSha256", preview.ExpectedCurrentStepPlanSHA256,
+		"-Apply",
+	})
+	if !applied.Applied || !leased {
+		t.Fatalf("case-scope consumer bypassed strict Apply lease: leased=%t applied=%+v", leased, applied)
+	}
+}
+
+func TestCaseScopePackMemoryConsumerDispatchPublishesFocusedExternalSession(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	board.Lanes[0].CurrentExecutor = "consumer-member"
+	board.Lanes[0].ExecutorGeneration = 1
+	board.Lanes[0].UpdatedAt = "2026-08-08T02:00:00Z"
+	boardData, err := json.MarshalIndent(board, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "board.json"), append(boardData, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := memberexecution.WriteTaskBinding(caseRoot, board.Lanes[0].ID, memberexecution.TaskBinding{
+		Kind: "pack-memory-consumer",
+		Values: map[string]string{
+			"changeId": "change", "sourceSha256": strings.Repeat("a", 64),
+			"receiptSha256": strings.Repeat("b", 64), "planSha256": strings.Repeat("c", 64),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	originalValidate := currentStepValidatePackMemoryConsumerTask
+	originalLease := currentStepWithPackMemoryConsumerTaskLease
+	currentStepValidatePackMemoryConsumerTask = func(_, _, _, _ string) error { return nil }
+	currentStepWithPackMemoryConsumerTaskLease = func(_, _, _, _ string, apply func() error) error { return apply() }
+	t.Cleanup(func() {
+		currentStepValidatePackMemoryConsumerTask = originalValidate
+		currentStepWithPackMemoryConsumerTaskLease = originalLease
+	})
+
+	loop := runCurrentLoopPreview(t, caseRoot, 2)
+	if loop.InitialCurrentStep == nil || loop.InitialCurrentStep.MemberExecution == nil {
+		t.Fatalf("consumer loop preview omitted member dispatch: %+v", loop)
+	}
+	applied := runCurrentLoopApplyWith(
+		t,
+		caseRoot,
+		loop,
+		"-ExpectedMemberExecutionPlanSha256",
+		loop.InitialCurrentStep.MemberExecution.ExpectedPlanSHA256,
+	)
+	if !applied.Applied || applied.SegmentCheckpoint == nil || !applied.SegmentCheckpoint.Ready || applied.SegmentCheckpoint.State != "ready" || applied.StopReason.Code != "external-member-handoff" {
+		t.Fatalf("consumer dispatch omitted ready checkpoint: %+v", applied)
+	}
+
+	ctx, err := rekitruntime.New(caseRoot, "_template")
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, err := buildStatusInventory(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := status.MissionControlRunbook.CurrentDriverRequest
+	if request == nil || request.Source != "current-step-external-session" || request.Lane != board.Lanes[0].ID || status.MissionControlRunbook.CurrentLoopOperator == nil || status.MissionControlRunbook.CurrentLoopOperator.ExternalSessionJob == nil {
+		t.Fatalf("consumer status repeated member dispatch instead of focusing external session: request=%+v segment=%+v operator=%+v", request, status.MissionControlRunbook.CurrentLoopSegment, status.MissionControlRunbook.CurrentLoopOperator)
+	}
+}
+
+func TestBuildCurrentStepStrictPackMemoryConsumerUsesCheckpointExternalSessionWrapper(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	board.Lanes[0].CurrentExecutor = "consumer-member"
+	board.Lanes[0].ExecutorGeneration = 1
+	board.Lanes[0].UpdatedAt = "2026-08-08T02:00:00Z"
+	boardData, err := json.MarshalIndent(board, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "board.json"), append(boardData, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	loop := runCurrentLoopPreview(t, caseRoot, 3)
+	if loop.InitialCurrentStep == nil || loop.InitialCurrentStep.MemberExecution == nil {
+		t.Fatalf("member loop preview omitted dispatch: %+v", loop)
+	}
+	memberPlan := loop.InitialCurrentStep.MemberExecution
+	applied := runCurrentLoopApplyWith(t, caseRoot, loop, "-ExpectedMemberExecutionPlanSha256", memberPlan.ExpectedPlanSHA256)
+	if applied.SegmentCheckpoint == nil || !applied.SegmentCheckpoint.Ready || applied.StopReason.Code != "external-member-handoff" {
+		t.Fatalf("member loop did not publish ready external checkpoint: %+v", applied)
+	}
+
+	ctx, err := rekitruntime.New(caseRoot, "_template")
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, err := buildStatusInventory(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	caseRequest := status.CaseMission.MissionCommanderActionQueue.CurrentDriverRequest
+	if caseRequest == nil || caseRequest.Lane == "" {
+		t.Fatalf("status omitted case queue request: %+v", status.CaseMission)
+	}
+	globalRequest := missionDriverRequestForTest(`/rekit sync -SelectPackMemoryChange change -WhatIf -Format json`)
+	status.MissionControlRunbook.Scope = "pack-memory"
+	status.MissionControlRunbook.CurrentDriverRequest = &globalRequest
+
+	original := currentStepValidatePackMemoryConsumerTask
+	currentStepValidatePackMemoryConsumerTask = func(repoRoot, target, pack, lane string) error {
+		if repoRoot != ctx.RepoRoot || target != caseRoot || pack != "_template" || lane != caseRequest.Lane {
+			t.Fatalf("strict consumer binding drifted: repo=%s target=%s pack=%s lane=%s", repoRoot, target, pack, lane)
+		}
+		return nil
+	}
+	t.Cleanup(func() { currentStepValidatePackMemoryConsumerTask = original })
+
+	plan, err := buildCurrentStepPlanFromStatus(ctx, Options{WhatIf: true, Pack: "_template"}, status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Route != "case" || plan.MemberExecution != nil || plan.ExternalSessionStep == nil || plan.CurrentDriverRequest.Source != "current-step-external-session" || plan.CurrentDriverRequest.Lane != caseRequest.Lane {
+		t.Fatalf("strict consumer checkpoint repeated member dispatch instead of selecting external session: plan=%+v segment=%+v operator=%+v", plan, status.MissionControlRunbook.CurrentLoopSegment, status.MissionControlRunbook.CurrentLoopOperator)
+	}
+	if plan.ExternalSessionStep.Mode != "attempt-input" || len(plan.ExternalSessionStep.InputRequired) == 0 {
+		t.Fatalf("strict consumer external session preview omitted launch input contract: %+v", plan.ExternalSessionStep)
+	}
+}
+
+func TestBuildCurrentStepStrictConsumerExternalTurnUsesCheckpointSourceRequest(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, err := rekitruntime.New(caseRoot, "_template")
+	if err != nil {
+		t.Fatal(err)
+	}
+	caseRequest := missionDriverRequestForTest(`/rekit continue main -WhatIf -Format json`)
+	caseRequest.Lane = "feature-mission"
+	wrapper := missionDriverRequestForTest(`/rekit run-current-step -Target case -WhatIf -Format json`)
+	wrapper.Lane = caseRequest.Lane
+	wrapper.Source = "current-step-external-session"
+	status := statusInventory{
+		TemplateRoot: ctx.RepoRoot, Target: caseRoot, Pack: "_template",
+		MissionControlRunbook: &statusMissionControlRunbook{
+			Scope:                "pack-memory",
+			CurrentDriverRequest: &wrapper,
+			CurrentLoopSegment: &currentloop.Inspection{
+				State: "ready", Ready: true,
+				ResumeDriverRequest:           &wrapper,
+				RefreshedCurrentDriverRequest: &caseRequest,
+				Continuation:                  &currentloop.Continuation{},
+			},
+		},
+		CaseMission: &statusCaseMission{MissionCommanderActionQueue: mission.MissionCommanderActionQueue{CurrentDriverRequest: &caseRequest}},
+	}
+	status.MissionControlRunbook.CurrentLoopOperator = statusCurrentLoopOperatorPackage(caseRoot, status.CaseMission, &statusMissionControlRunbook{Scope: "case", CurrentDriverRequest: &wrapper}, *status.MissionControlRunbook.CurrentLoopSegment)
+	original := currentStepValidatePackMemoryConsumerTask
+	currentStepValidatePackMemoryConsumerTask = func(_, _, _, lane string) error {
+		if lane != caseRequest.Lane {
+			t.Fatalf("strict consumer source validation lane=%q", lane)
+		}
+		return nil
+	}
+	t.Cleanup(func() { currentStepValidatePackMemoryConsumerTask = original })
+	plan, err := buildCurrentStepPlanFromStatus(ctx, Options{WhatIf: true, Pack: "_template", currentLoopExternalTurnResume: true}, status)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Route != "case" || plan.PackMemoryConsumerLane != caseRequest.Lane || plan.DriverStep == nil || driverStepCommandName(plan.CurrentDriverRequest.Command) != "continue" {
+		t.Fatalf("strict consumer result-turn did not restore checkpoint source request under consumer lease: %+v", plan)
 	}
 }
 

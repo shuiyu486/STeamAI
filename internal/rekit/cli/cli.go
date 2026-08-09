@@ -62,6 +62,11 @@ type Options struct {
 	Review                                    bool
 	Apply                                     bool
 	CreateCandidates                          bool
+	StageMemberOutput                         bool
+	MemberOutputStagingLane                   string
+	MemberOutputPath                          string
+	ManagedTargetPath                         string
+	ExpectedMemberOutputStagingPlanSHA256     string
 	WhatIf                                    bool
 	Force                                     bool
 	List                                      bool
@@ -167,6 +172,8 @@ type Options struct {
 	ExpectedExternalSessionRelayPlanSHA256    string
 	ExpectedExternalSessionTurnPlanSHA256     string
 	SelectPackMemoryChange                    string
+	VerifyPackMemoryConsumerUse               bool
+	PackMemoryConsumerOutputPath              string
 	ExpectedPackMemoryConsumptionPlanSHA256   string
 	ExpectedCurrentStepPlanSHA256             string
 	ExpectedMemberExecutionPlanSHA256         string
@@ -178,6 +185,7 @@ type Options struct {
 	currentLoopObservationSnapshot            *currentLoopObservationSnapshot
 	currentLoopMemberResultSnapshot           *memberexecution.ResultSnapshot
 	currentLoopReviewerResultSnapshot         *subagents.ReviewerResultInputSnapshot
+	bindReviewerResultSnapshot                bool
 	currentLoopExternalTurnResume             bool
 	ExpectedDriverStepPlanSHA256              string
 	ExpectedReviewerStepPlanSHA256            string
@@ -260,6 +268,26 @@ func Parse(args []string) (Options, error) {
 			opt.Apply = true
 		case "-CreateCandidates", "--create-candidates":
 			opt.CreateCandidates = true
+		case "-StageMemberOutput", "--stage-member-output":
+			opt.StageMemberOutput = true
+		case "-MemberOutputPath", "--member-output-path":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -MemberOutputPath")
+			}
+			opt.MemberOutputPath = args[i]
+		case "-ManagedTargetPath", "--managed-target-path":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ManagedTargetPath")
+			}
+			opt.ManagedTargetPath = args[i]
+		case "-ExpectedMemberOutputStagingPlanSha256", "-ExpectedMemberOutputStagingPlanSHA256", "--expected-member-output-staging-plan-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedMemberOutputStagingPlanSha256")
+			}
+			opt.ExpectedMemberOutputStagingPlanSHA256 = args[i]
 		case "-WhatIf", "--what-if":
 			opt.WhatIf = true
 		case "-Force", "--force":
@@ -636,6 +664,14 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -SelectPackMemoryChange")
 			}
 			opt.SelectPackMemoryChange = args[i]
+		case "-VerifyPackMemoryConsumerUse", "--verify-pack-memory-consumer-use":
+			opt.VerifyPackMemoryConsumerUse = true
+		case "-PackMemoryConsumerOutputPath", "--pack-memory-consumer-output-path":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -PackMemoryConsumerOutputPath")
+			}
+			opt.PackMemoryConsumerOutputPath = args[i]
 		case "-ExpectedPackMemoryConsumptionPlanSha256", "-ExpectedPackMemoryConsumptionPlanSHA256", "--expected-pack-memory-consumption-plan-sha256":
 			i++
 			if i >= len(args) {
@@ -756,6 +792,120 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ShardId")
 			}
 			opt.ShardID = args[i]
+		case "-ReviewerPacketId", "--reviewer-packet-id":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ReviewerPacketId")
+			}
+			opt.Note.PacketID = args[i]
+		case "-ReviewerRouteId", "--reviewer-route-id":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ReviewerRouteId")
+			}
+			opt.Note.RouteID = args[i]
+		case "-ReviewerShardId", "--reviewer-shard-id":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ReviewerShardId")
+			}
+			opt.Note.ShardID = args[i]
+		case "-ReviewerPacketPath", "--reviewer-packet-path":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ReviewerPacketPath")
+			}
+			opt.Note.PacketPath = args[i]
+		case "-ReviewerResultLineagePath", "--reviewer-result-lineage-path":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ReviewerResultLineagePath")
+			}
+			opt.Note.ReviewerResultPath = args[i]
+		case "-ReviewerLineageSession", "--reviewer-lineage-session":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ReviewerLineageSession")
+			}
+			opt.Note.ReviewerSession = args[i]
+		case "-ReviewerDispatchReceiptPath", "--reviewer-dispatch-receipt-path":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ReviewerDispatchReceiptPath")
+			}
+			opt.Note.ReviewerDispatchPath = args[i]
+		case "-ReviewerDispatchReceiptSha256", "--reviewer-dispatch-receipt-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ReviewerDispatchReceiptSha256")
+			}
+			opt.Note.ReviewerDispatchSHA256 = args[i]
+		case "-ReviewerCompletionReceiptPath", "--reviewer-completion-receipt-path":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ReviewerCompletionReceiptPath")
+			}
+			opt.Note.ReviewerCompletionPath = args[i]
+		case "-ReviewerCompletionReceiptSha256", "--reviewer-completion-receipt-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ReviewerCompletionReceiptSha256")
+			}
+			opt.Note.ReviewerCompletionSHA256 = args[i]
+		case "-ReviewerLineageInputPath", "--reviewer-lineage-input-path":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ReviewerLineageInputPath")
+			}
+			opt.Note.ReviewerResultInputPath = args[i]
+		case "-ReviewerLineageInputSha256", "--reviewer-lineage-input-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ReviewerLineageInputSha256")
+			}
+			opt.Note.ReviewerResultInputSHA256 = args[i]
+		case "-ReviewerLineageInputBytes", "--reviewer-lineage-input-bytes":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ReviewerLineageInputBytes")
+			}
+			opt.Note.ReviewerResultInputBytes = args[i]
+		case "-ReviewerLineageResultSha256", "--reviewer-lineage-result-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ReviewerLineageResultSha256")
+			}
+			opt.Note.ReviewerResultSHA256 = args[i]
+		case "-ReviewerManifestSha256", "--reviewer-manifest-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ReviewerManifestSha256")
+			}
+			opt.Note.ReviewerManifestSHA256 = args[i]
+		case "-ReviewerVerificationEventId", "--reviewer-verification-event-id":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ReviewerVerificationEventId")
+			}
+			opt.Note.ReviewerVerificationID = args[i]
+		case "-ReviewerDecisionEventId", "--reviewer-decision-event-id":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ReviewerDecisionEventId")
+			}
+			opt.Note.ReviewerDecisionID = args[i]
+		case "-ReviewerOwnerExecutor", "--reviewer-owner-executor":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ReviewerOwnerExecutor")
+			}
+			opt.Note.OwnerExecutor = args[i]
+		case "-ReviewerOwnerGeneration", "--reviewer-owner-generation":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ReviewerOwnerGeneration")
+			}
+			opt.Note.OwnerGeneration = args[i]
 		case "-DiffPath", "--diff-path":
 			i++
 			if i >= len(args) {
@@ -774,6 +924,7 @@ func Parse(args []string) (Options, error) {
 			if i >= len(args) {
 				return opt, fmt.Errorf("missing value for -Lane")
 			}
+			opt.MemberOutputStagingLane = args[i]
 			opt.Gate.Lane = args[i]
 			opt.Note.Lane = args[i]
 			opt.Complete.Selector = args[i]
@@ -1275,10 +1426,20 @@ func runtimeCwdOverride(opt Options) string {
 }
 
 func Run(args []string, stdout io.Writer) error {
+	return runWithOptions(args, stdout, nil)
+}
+
+func RunWithReviewerResultSnapshot(args []string, stdout io.Writer, snapshot *subagents.ReviewerResultInputSnapshot) error {
+	return runWithOptions(args, stdout, snapshot)
+}
+
+func runWithOptions(args []string, stdout io.Writer, snapshot *subagents.ReviewerResultInputSnapshot) error {
 	opt, err := Parse(args)
 	if err != nil {
 		return err
 	}
+	opt.currentLoopReviewerResultSnapshot = snapshot
+	opt.bindReviewerResultSnapshot = snapshot != nil
 	if opt.ExpectedExecutorGenerationProvided && opt.Command != commands.Continue && opt.Command != commands.Gate {
 		return fmt.Errorf("-ExpectedExecutorGeneration is supported only by continue and gate adapter execution provenance")
 	}
@@ -1295,6 +1456,15 @@ func Run(args []string, stdout io.Writer) error {
 			ctx.Pack = inst.TemplatePack
 			opt.Pack = inst.TemplatePack
 		}
+	}
+	if (opt.VerifyPackMemoryConsumerUse || strings.TrimSpace(opt.PackMemoryConsumerOutputPath) != "") && opt.Command != commands.Sync {
+		return fmt.Errorf("pack-memory consumer-use verification flags are supported only by sync")
+	}
+	if (strings.TrimSpace(opt.SelectPackMemoryChange) != "" || strings.TrimSpace(opt.ExpectedPackMemoryConsumptionPlanSHA256) != "") && opt.Command != commands.Sync {
+		return fmt.Errorf("pack-memory selected sync flags are supported only by sync")
+	}
+	if (opt.StageMemberOutput || strings.TrimSpace(opt.MemberOutputPath) != "" || strings.TrimSpace(opt.ManagedTargetPath) != "" || strings.TrimSpace(opt.ExpectedMemberOutputStagingPlanSHA256) != "") && opt.Command != commands.Promote {
+		return fmt.Errorf("member output staging flags are supported only by promote")
 	}
 	if (opt.ProvisionCandidateVerificationCases || strings.TrimSpace(opt.ExpectedProvisionSHA256) != "") && opt.Command != commands.Promote {
 		return fmt.Errorf("candidate verification provisioning flags are supported only by promote")
@@ -1320,8 +1490,8 @@ func Run(args []string, stdout io.Writer) error {
 	if strings.TrimSpace(opt.ExpectedCurrentStepPlanSHA256) != "" && opt.Command != commands.RunCurrentStep {
 		return fmt.Errorf("-ExpectedCurrentStepPlanSha256 is supported only by run-current-step")
 	}
-	if (strings.TrimSpace(opt.ExpectedMemberExecutionPlanSHA256) != "" || currentStepHasMemberObservation(opt)) && opt.Command != commands.RunCurrentStep && opt.Command != commands.RunCurrentLoop {
-		return fmt.Errorf("member execution flags are supported only by run-current-step and run-current-loop")
+	if (strings.TrimSpace(opt.ExpectedMemberExecutionPlanSHA256) != "" || currentStepHasMemberObservation(opt)) && opt.Command != commands.RunCurrentStep && opt.Command != commands.RunCurrentLoop && !(opt.Command == commands.Promote && opt.StageMemberOutput) && !(opt.Command == commands.Sync && opt.VerifyPackMemoryConsumerUse) {
+		return fmt.Errorf("member execution flags are supported only by run-current-step, run-current-loop, promote member output staging, and sync pack-memory consumer-use verification")
 	}
 	if strings.TrimSpace(opt.ExpectedDriverStepPlanSHA256) != "" && opt.Command != commands.RunDriverStep {
 		return fmt.Errorf("-ExpectedDriverStepPlanSha256 is supported only by run-driver-step")
@@ -4642,7 +4812,12 @@ func buildStatusMissionControlRunbookWithConsumption(target string, caseMission 
 		}
 	}
 	if instance.LooksLikeCase(target) {
-		inspection := currentloop.InspectAttached(target, runbook.CurrentDriverRequest)
+		inspectionRequest := statusCurrentLoopInspectionRequest(
+			target,
+			caseMission,
+			runbook,
+		)
+		inspection := currentloop.InspectAttached(target, inspectionRequest)
 		runbook.CurrentLoopSegment = &inspection
 		runbook.CurrentLoopOperator = statusCurrentLoopOperatorPackage(target, caseMission, runbook, inspection)
 		if operator := runbook.CurrentLoopOperator; operator != nil && externalSessionDispatcherRequestIsFocused(operator) {
@@ -4664,6 +4839,41 @@ func buildStatusMissionControlRunbookWithConsumption(target string, caseMission 
 	runbook.RunLoop = statusMissionControlRunbookSteps(runbook)
 	runbook.Quickstart = statusMissionControlQuickstartFor(runbook, projectHandoff)
 	return runbook
+}
+
+func statusCurrentLoopInspectionRequest(
+	target string,
+	caseMission *statusCaseMission,
+	runbook *statusMissionControlRunbook,
+) *mission.MissionCommanderDriverRequest {
+	if runbook == nil || runbook.CurrentDriverRequest == nil ||
+		strings.TrimSpace(runbook.Scope) != "pack-memory" {
+		if runbook == nil {
+			return nil
+		}
+		return runbook.CurrentDriverRequest
+	}
+	inst, err := instance.Read(target)
+	if err != nil {
+		return runbook.CurrentDriverRequest
+	}
+	status := statusInventory{
+		TemplateRoot:          inst.TemplateRoot,
+		Target:                target,
+		Pack:                  inst.TemplatePack,
+		MissionControlRunbook: runbook,
+		CaseMission:           caseMission,
+	}
+	request, err := currentStepPackMemoryConsumerRequest(
+		inst.TemplateRoot,
+		target,
+		inst.TemplatePack,
+		status,
+	)
+	if err != nil {
+		return runbook.CurrentDriverRequest
+	}
+	return request
 }
 
 func statusCurrentLoopOperatorPackage(target string, caseMission *statusCaseMission, runbook *statusMissionControlRunbook, inspection currentloop.Inspection) *mission.CurrentLoopOperatorPackage {
@@ -4730,9 +4940,10 @@ func statusCurrentLoopOperatorPackage(target string, caseMission *statusCaseMiss
 	pkg.ObservationReceipt = receipt
 	switch strings.TrimSpace(inspection.State) {
 	case "ready":
-		if !inspection.Ready || inspection.ResumeDriverRequest == nil {
+		if !inspection.Ready || inspection.ResumeDriverRequest == nil || inspection.RefreshedCurrentDriverRequest == nil {
 			return statusBlockedCurrentLoopOperatorPackage(pkg, inspection)
 		}
+		pkg.SourceCurrentDriverRequest = cloneStatusMissionCommanderDriverRequest(inspection.RefreshedCurrentDriverRequest)
 		pkg.State = "checkpoint-resume-review-required"
 		pkg.RemainingMaxSteps = inspection.RemainingMaxSteps
 		pkg.ResumeDriverRequest = cloneStatusMissionCommanderDriverRequest(inspection.ResumeDriverRequest)
@@ -5499,6 +5710,9 @@ func statusMissionControlGuidanceHandoffFor(runbook *statusMissionControlRunbook
 		return nil
 	}
 	request := runbook.CurrentDriverRequest
+	if request.Source == "releaseHandoffActiveRoute" && request.ActionID == "active-route-completed" && request.State == "completed-no-next-batch" {
+		return nil
+	}
 	handoff := &statusMissionControlGuidanceHandoff{
 		Ready:             true,
 		Kind:              statusFirstText(request.Kind, "review-guidance"),
@@ -8633,6 +8847,7 @@ func buildStatusInventory(ctx runtime.Context, packSource string) (statusInvento
 		status.PackMemoryConsumption = buildPackMemoryConsumptionStatus(ctx.RepoRoot, inst.CaseRoot, ctx.Pack)
 		status.MissionControlRunbook = buildStatusMissionControlRunbookWithConsumption(ctx.Target, status.CaseMission, status.ProjectHandoff, status.PackMemoryConsumption)
 		bindStatusMemberExecution(&status)
+		bindStatusReviewerCorrection(&status)
 		return status, nil
 	}
 	m, err := manifest.Load(ctx.RepoRoot, ctx.Pack)
@@ -10258,6 +10473,12 @@ func runSyncReview(ctx runtime.Context, opt Options, out io.Writer) error {
 	command := strings.TrimSpace(opt.Command)
 	if command == "" {
 		command = commands.Sync
+	}
+	if opt.VerifyPackMemoryConsumerUse {
+		return runPackMemoryConsumerUseVerification(ctx, opt, out)
+	}
+	if strings.TrimSpace(opt.PackMemoryConsumerOutputPath) != "" {
+		return fmt.Errorf("sync -PackMemoryConsumerOutputPath requires -VerifyPackMemoryConsumerUse")
 	}
 	if strings.TrimSpace(opt.SelectPackMemoryChange) != "" {
 		return runPackMemorySelectedSync(ctx, opt, out)
@@ -14298,6 +14519,41 @@ func runPromoteReview(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if opt.StageMemberOutput {
+		if strings.TrimSpace(opt.MemberOutputStagingLane) == "" || strings.TrimSpace(opt.MemberExecutionAttemptID) == "" || strings.TrimSpace(opt.MemberOutputPath) == "" || strings.TrimSpace(opt.ManagedTargetPath) == "" {
+			return fmt.Errorf("promote -StageMemberOutput requires -Lane, -MemberExecutionAttemptId, -MemberOutputPath, and -ManagedTargetPath")
+		}
+		if opt.Apply == opt.WhatIf {
+			return fmt.Errorf("promote -StageMemberOutput requires exactly one of -WhatIf or -Apply")
+		}
+		if opt.Apply && strings.TrimSpace(opt.ExpectedMemberOutputStagingPlanSHA256) == "" {
+			return fmt.Errorf("promote member output staging Apply requires -ExpectedMemberOutputStagingPlanSha256 from WhatIf")
+		}
+		if opt.WhatIf && strings.TrimSpace(opt.ExpectedMemberOutputStagingPlanSHA256) != "" {
+			return fmt.Errorf("promote member output staging WhatIf does not accept -ExpectedMemberOutputStagingPlanSha256")
+		}
+		if opt.Force || strings.TrimSpace(opt.SelectPackMemoryChange) != "" || strings.TrimSpace(opt.ExpectedPackMemoryConsumptionPlanSHA256) != "" || opt.VerifyPackMemoryConsumerUse || strings.TrimSpace(opt.PackMemoryConsumerOutputPath) != "" {
+			return fmt.Errorf("promote -StageMemberOutput cannot be combined with Force or pack-memory consumption options")
+		}
+		if opt.CreateCandidates || opt.Review || strings.TrimSpace(opt.ReviewOutputDir) != "" || strings.TrimSpace(opt.PacketPath) != "" || strings.TrimSpace(opt.CandidateDecisionPath) != "" || opt.DraftCandidateDecision || opt.DraftReviewProof || opt.VerifyCandidateDecision || opt.ProvisionCandidateVerificationCases || opt.RetireCandidateVerificationWorkspace || wantsReviewProofDetails(opt) || strings.TrimSpace(opt.DiffPath) != "" {
+			return fmt.Errorf("promote -StageMemberOutput cannot be combined with candidate decision/proof/verification/create/review artifact options")
+		}
+		format, err := workstreamFormat(opt.Format)
+		if err != nil {
+			return fmt.Errorf("unsupported promote member output staging format: %s", opt.Format)
+		}
+		result, err := promote.StageMemberOutput(ctx.RepoRoot, target, ctx.Pack, promote.MemberOutputStagingOptions{Lane: opt.MemberOutputStagingLane, AttemptID: opt.MemberExecutionAttemptID, OutputPath: opt.MemberOutputPath, ManagedTargetPath: opt.ManagedTargetPath, ExpectedPlanSHA256: opt.ExpectedMemberOutputStagingPlanSHA256, WhatIf: opt.WhatIf})
+		if err != nil {
+			return err
+		}
+		if format == "json" {
+			return writeJSON(out, result)
+		}
+		return writePromoteMemberOutputStagingText(out, result)
+	}
+	if strings.TrimSpace(opt.MemberExecutionAttemptID) != "" || strings.TrimSpace(opt.MemberOutputPath) != "" || strings.TrimSpace(opt.ManagedTargetPath) != "" || strings.TrimSpace(opt.ExpectedMemberOutputStagingPlanSHA256) != "" {
+		return fmt.Errorf("promote member output staging fields require -StageMemberOutput")
+	}
 	if opt.RetireCandidateVerificationWorkspace {
 		if strings.TrimSpace(opt.PacketPath) == "" || strings.TrimSpace(opt.CandidateDecisionPath) == "" {
 			return fmt.Errorf("promote -RetireCandidateVerificationWorkspace requires -PacketPath and -CandidateDecisionPath")
@@ -14553,6 +14809,39 @@ func runPromoteReview(ctx runtime.Context, opt Options, out io.Writer) error {
 		return writeReviewPlan(out, plan)
 	}
 	return writeReviewPlanText(out, plan)
+}
+
+func writePromoteMemberOutputStagingText(out io.Writer, result promote.MemberOutputStagingResult) error {
+	if _, err := fmt.Fprintf(out, "member output staging：%s\n", result.Mode); err != nil {
+		return err
+	}
+	for _, row := range []struct{ label, value string }{
+		{"attempt", result.AttemptID},
+		{"manifest SHA-256", result.ManifestSHA256},
+		{"output", result.OutputPath},
+		{"output SHA-256", result.OutputSHA256},
+		{"managed target", result.ManagedTargetPath},
+		{"target predecessor SHA-256", result.TargetBeforeSHA256},
+		{"sanitized SHA-256", result.SanitizedSHA256},
+		{"plan SHA-256", result.PlanSHA256},
+		{"intent", result.IntentPath},
+		{"receipt", result.ReceiptPath},
+	} {
+		if _, err := fmt.Fprintf(out, "%s：%s\n", row.label, row.value); err != nil {
+			return err
+		}
+	}
+	if result.ApplyCommand != "" {
+		if _, err := fmt.Fprintf(out, "reviewed apply：%s\n", result.ApplyCommand); err != nil {
+			return err
+		}
+	}
+	for _, boundary := range result.Boundary {
+		if _, err := fmt.Fprintf(out, "boundary：%s\n", boundary); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func runGate(ctx runtime.Context, opt Options, out io.Writer) error {

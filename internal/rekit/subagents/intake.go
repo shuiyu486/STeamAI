@@ -1848,24 +1848,7 @@ func decodeReviewerResult(data []byte) (ReviewerResult, error) {
 }
 
 func validateRouteOutput(outputContract string, routeOutput map[string]any) error {
-	allowed := map[string]bool{}
-	for _, field := range splitCSV(outputContract) {
-		allowed[field] = true
-		value, ok := routeOutput[field]
-		if !ok || value == nil {
-			return fmt.Errorf("reviewer result routeOutput missing required outputContract field %q", field)
-		}
-		text, ok := value.(string)
-		if !ok || strings.TrimSpace(text) == "" {
-			return fmt.Errorf("reviewer result routeOutput field %q must be a non-empty string", field)
-		}
-	}
-	for field := range routeOutput {
-		if !allowed[field] {
-			return fmt.Errorf("reviewer result routeOutput contains unknown field %q", field)
-		}
-	}
-	return nil
+	return reviewersession.ValidateRouteOutput(splitCSV(outputContract), routeOutput)
 }
 
 func validateRouteOutputBindings(result ReviewerResult) error {

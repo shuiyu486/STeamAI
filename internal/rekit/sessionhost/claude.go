@@ -12,14 +12,18 @@ import (
 	"io"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/packmemoryconsumption"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewerresult"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewersession"
+	rekitruntime "github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 )
 
 const (
@@ -33,6 +37,8 @@ type claudeRun struct {
 	envelope         claudeEnvelope
 	sessionID        string
 	structuredOutput json.RawMessage
+	failureCode      string
+	failureDetail    string
 	spawnErr         error
 	waitErr          error
 	startCallbackErr error
@@ -41,6 +47,7 @@ type claudeRun struct {
 	exitCode         int
 	timedOut         bool
 	duration         time.Duration
+	observedAt       string
 	stdoutTail       string
 	stderrTail       string
 }
@@ -90,11 +97,18 @@ func runClaude(parent context.Context, opt Options, pkg mission.CurrentLoopExter
 		"--output-format", "json",
 		"--json-schema", schema,
 		"--permission-mode", "dontAsk",
-		"--tools", "Read,Glob,Grep",
+		"--tools", "Read",
 		"--max-budget-usd", "2.00",
 	}
 	if strings.TrimSpace(opt.Model) != "" {
 		args = append(args, "--model", strings.TrimSpace(opt.Model))
+	}
+	additionalReadDirs, err := claudeAdditionalReadDirs(opt, pkg)
+	if err != nil {
+		return claudeRun{spawnErr: err, duration: time.Since(begin)}
+	}
+	for _, dir := range additionalReadDirs {
+		args = append(args, "--add-dir", dir)
 	}
 	launchBinding, err := acquireClaudeExecutableLaunchBinding(opt)
 	if err != nil {
@@ -102,11 +116,6 @@ func runClaude(parent context.Context, opt Options, pkg mission.CurrentLoopExter
 	}
 	if launchBinding != nil {
 		defer launchBinding.Close()
-	}
-	if launchBinding != nil {
-		if err := launchBinding.Validate(); err != nil {
-			return claudeRun{spawnErr: fmt.Errorf("revalidate trusted Claude namespace immediately before launch: %w", err), duration: time.Since(begin)}
-		}
 	}
 	cmd := exec.CommandContext(ctx, opt.ClaudePath, args...)
 	if err := configureTrustedClaudeCommand(cmd, launchBinding); err != nil {
@@ -118,13 +127,43 @@ func runClaude(parent context.Context, opt Options, pkg mission.CurrentLoopExter
 	var stderr boundedBuffer
 	stdout.limit = maxClaudeStdoutBytes
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	if err := cmd.Start(); err != nil {
+	var containment *claudeProcessContainment
+	startProcess := func() error {
+		if launchBinding != nil {
+			if err := launchBinding.Validate(); err != nil {
+				return fmt.Errorf("revalidate trusted Claude namespace immediately before launch: %w", err)
+			}
+		}
+		if err := cmd.Start(); err != nil {
+			return err
+		}
+		var err error
+		containment, err = validateContainAndResumeTrustedClaudeProcess(cmd.Process, launchBinding)
+		if err != nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+			return err
+		}
+		return nil
+	}
+	if pkg.SessionKind == "member" {
+		inspection, err := validateClaudeMemberLaunchInput(opt.Target, *pkg.Launch)
+		if err != nil {
+			return claudeRun{spawnErr: err, duration: time.Since(begin)}
+		}
+		ctx, err := rekitruntime.NewWithCwd(opt.Target, opt.Pack, opt.Target)
+		if err != nil {
+			return claudeRun{spawnErr: err, duration: time.Since(begin)}
+		}
+		err = packmemoryconsumption.WithCurrentConsumerAttemptLease(ctx.RepoRoot, opt.Target, ctx.Pack, inspection, startProcess)
+		if err != nil {
+			return claudeRun{spawnErr: err, duration: time.Since(begin), stdoutTail: stdout.String(), stderrTail: stderr.String()}
+		}
+	} else if err := startProcess(); err != nil {
 		return claudeRun{spawnErr: err, duration: time.Since(begin), stdoutTail: stdout.String(), stderrTail: stderr.String()}
 	}
-	if err := validateAndResumeTrustedClaudeProcess(cmd.Process, launchBinding); err != nil {
-		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
-		return claudeRun{spawnErr: err, duration: time.Since(begin), stdoutTail: stdout.String(), stderrTail: stderr.String()}
+	if containment != nil {
+		defer containment.Close()
 	}
 	processStarted := true
 	if started != nil {
@@ -143,10 +182,12 @@ func runClaude(parent context.Context, opt Options, pkg mission.CurrentLoopExter
 		run.exitCode = cmd.ProcessState.ExitCode()
 	}
 	if stdout.exceeded {
+		run.failureCode = "claude-invalid-envelope"
 		run.waitErr = errors.Join(run.waitErr, fmt.Errorf("Claude Code JSON result exceeded %d bytes", maxClaudeStdoutBytes))
 		return run
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &run.envelope); err != nil {
+		run.failureCode = "claude-invalid-envelope"
 		if waitErr == nil {
 			run.waitErr = fmt.Errorf("decode Claude Code JSON result: %w", err)
 		} else {
@@ -156,22 +197,96 @@ func runClaude(parent context.Context, opt Options, pkg mission.CurrentLoopExter
 	}
 	run.sessionID = strings.TrimSpace(run.envelope.SessionID)
 	if run.sessionID == "" {
+		run.failureCode = "claude-session-id-mismatch"
 		run.waitErr = errors.Join(run.waitErr, fmt.Errorf("Claude Code result omitted the requested session id"))
 	} else if run.sessionID != sessionID {
+		run.failureCode = "claude-session-id-mismatch"
 		run.waitErr = errors.Join(run.waitErr, fmt.Errorf("Claude Code session id drift: got %s want %s", run.sessionID, sessionID))
 	}
 	run.structuredOutput = append([]byte{}, run.envelope.StructuredOutput...)
 	return run
 }
 
+func validateClaudeMemberLaunchInput(
+	caseRoot string,
+	launch mission.CurrentLoopExternalSessionHarnessLaunch,
+) (memberexecution.Inspection, error) {
+	inputPath, err := anchoredPath(caseRoot, launch.Input.Path)
+	if err != nil {
+		return memberexecution.Inspection{}, err
+	}
+	input, err := rekitfs.ReadStableRegularFileAnchored(
+		caseRoot,
+		inputPath,
+		"Claude member task context",
+		1<<20,
+	)
+	if err != nil {
+		return memberexecution.Inspection{}, err
+	}
+	if !strings.EqualFold(bytesSHA256(input), launch.Input.SHA256) {
+		return memberexecution.Inspection{}, fmt.Errorf(
+			"Claude member task context sha256 changed before launch",
+		)
+	}
+	var task memberexecution.TaskContext
+	if err := strictJSON(input, &task); err != nil {
+		return memberexecution.Inspection{}, fmt.Errorf(
+			"decode Claude member task context before launch: %w",
+			err,
+		)
+	}
+	inspection, err := memberexecution.Inspect(
+		caseRoot,
+		task.Owner.Lane,
+		task.AttemptID,
+	)
+	if err != nil {
+		return memberexecution.Inspection{}, err
+	}
+	if !casePathEqual(inspection.TaskContextPath, inputPath) ||
+		!strings.EqualFold(
+			inspection.TaskContextSHA256,
+			launch.Input.SHA256,
+		) {
+		return memberexecution.Inspection{}, fmt.Errorf(
+			"Claude member launch input does not match the durable task context",
+		)
+	}
+	if err := memberexecution.ValidateActionableTaskContext(
+		caseRoot,
+		inspection,
+	); err != nil {
+		return memberexecution.Inspection{}, err
+	}
+	return inspection, nil
+}
+
+func claudeAdditionalReadDirs(opt Options, pkg mission.CurrentLoopExternalSessionHarnessPackage) ([]string, error) {
+	if pkg.SessionKind != "reviewer" {
+		return nil, nil
+	}
+	if !casePathEqual(opt.Target, pkg.CaseRoot) {
+		return nil, fmt.Errorf("Claude reviewer case root changed before launch")
+	}
+	ctx, err := rekitruntime.NewWithCwd(opt.Target, opt.Pack, opt.Target)
+	if err != nil {
+		return nil, fmt.Errorf("resolve Claude reviewer attached kit root: %w", err)
+	}
+	return []string{ctx.RepoRoot}, nil
+}
+
 func (run claudeRun) success() bool {
-	return run.spawnErr == nil && run.waitErr == nil && !run.timedOut && run.exitCode == 0 &&
+	return run.failureDetail == "" && run.spawnErr == nil && run.waitErr == nil && !run.timedOut && run.exitCode == 0 &&
 		run.sessionID != "" && run.envelope.Type == "result" && run.envelope.Subtype == "success" && !run.envelope.IsError &&
-		len(bytes.TrimSpace(run.structuredOutput)) > 0
+		len(run.envelope.PermissionDenials) == 0 && len(bytes.TrimSpace(run.structuredOutput)) > 0
 }
 
 func (run claudeRun) failureReason() string {
 	parts := []string{}
+	if strings.TrimSpace(run.failureDetail) != "" {
+		parts = append(parts, strings.TrimSpace(run.failureDetail))
+	}
 	for _, value := range []string{errorText(run.spawnErr), errorText(run.waitErr)} {
 		if value != "" {
 			parts = append(parts, value)
@@ -189,13 +304,20 @@ func (run claudeRun) failureReason() string {
 	return truncate(strings.Join(parts, "; "), 1024)
 }
 
-func sessionResult(run claudeRun, attemptGeneration, launchOrdinal int, reservationID, kind, outcome string) Session {
+func sessionResult(run claudeRun, attemptGeneration, launchOrdinal int, reservationID, kind, outcome string, attemptsLimit int) Session {
 	diagnostics := []string{}
+	if detail := run.failureReason(); !run.success() && detail != "" {
+		diagnostics = append(diagnostics, "failure: "+truncate(oneLine(detail), 1024))
+	}
 	if run.stdoutTail != "" && !run.success() {
 		diagnostics = append(diagnostics, "stdout: "+truncate(oneLine(run.stdoutTail), 1024))
 	}
 	if run.stderrTail != "" {
 		diagnostics = append(diagnostics, "stderr: "+truncate(oneLine(run.stderrTail), 1024))
+	}
+	failure := diagnosisForClaudeRun(run, outcome, kind, launchOrdinal, attemptsLimit)
+	if failure == nil && run.failureDetail != "" {
+		failure = diagnosisForStructuredResult(kind, errors.New(run.failureDetail), launchOrdinal, attemptsLimit)
 	}
 	return Session{
 		Started: run.started, Recovered: run.recovered, AttemptGeneration: attemptGeneration, RunLaunchOrdinal: launchOrdinal,
@@ -203,7 +325,7 @@ func sessionResult(run claudeRun, attemptGeneration, launchOrdinal int, reservat
 		Outcome: outcome, ExitCode: run.exitCode, TimedOut: run.timedOut,
 		ResultSubtype: run.envelope.Subtype, ResultIsError: run.envelope.IsError,
 		DurationMillis: run.duration.Milliseconds(), PermissionDenials: run.envelope.PermissionDenials,
-		Diagnostics: diagnostics,
+		Failure: failure, Diagnostics: diagnostics,
 	}
 }
 
@@ -225,13 +347,111 @@ func claudeRequest(caseRoot string, pkg mission.CurrentLoopExternalSessionHarnes
 	if !strings.EqualFold(bytesSHA256(input), pkg.Launch.Input.SHA256) {
 		return "", "", fmt.Errorf("Claude host input sha256 mismatch")
 	}
-	common := fmt.Sprintf("Read the immutable task input at the exact absolute path %q using the Read tool before answering. Follow it exactly within its no-authority/no-heavy-tool boundary. Resolve any case-relative evidence paths inside that input from the current case root %q. Your actual Claude Code session ID is %s. Return only the requested structured output through the schema. Do not write external-session result or submission files; the host will persist your real returned bytes.", inputPath, caseRoot, sessionID)
+	common := fmt.Sprintf("Read the immutable task input at the exact absolute path %q using the Read tool before answering. Follow it exactly within its no-authority/no-heavy-tool boundary. Resolve any case-relative evidence paths inside that input from the current case root %q. Your actual Claude Code session ID is %s. Return only the requested structured output through the schema. Use Read only for the immutable input and the minimum listed evidence needed for the verdict; do not explore unrelated files or repeat reads. After those bounded reads, immediately return the structured output and never end the response with another Read call. Do not write external-session result or submission files; the host will persist your real returned bytes.", inputPath, caseRoot, sessionID)
 	if pkg.SessionKind == "member" {
 		schema := `{"type":"object","properties":{"outcome":{"type":"string","enum":["returned","failed"]},"summary":{"type":"string"},"reason":{"type":"string"},"outputs":{"type":"array","maxItems":64,"items":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}},"reviewerItemsPath":{"type":"string"}},"required":["outcome","summary","reason","outputs","reviewerItemsPath"],"additionalProperties":false}`
-		return common + " For outcome=returned provide a non-empty summary and at least one bounded output path/content pair. Set reviewerItemsPath to one returned output containing one non-empty review item per line when practical; otherwise use an empty string and the manifest will be reviewed. For outcome=failed provide a non-empty reason and no outputs.", schema, nil
+		return common + " For outcome=returned provide a non-empty summary and at least one bounded output path/content pair. Read the task context outputContract.fields and make the returned analysis explicitly address every field using the currently inspected evidence; use a clear unknown, none, or not-applicable value when the evidence supports no stronger claim, and never invent a value. If the task context contains a correction and historical Reviewer rejection, treat them as instructions and provenance for replacing the old result: cite the current correction evidence path and report the corrected current analysis rather than repeating the historical gap as current. An unmet semantic acceptance requirement or missing bounded evidence is not a process failure: return a bounded output that states the concrete gap so an independent Reviewer can reject it; use outcome=failed only when you cannot return any bounded output. Set reviewerItemsPath to one returned output containing one non-empty review item per line when practical; otherwise use an empty string and the manifest will be reviewed. For outcome=failed provide a non-empty reason and no outputs.", schema, nil
+	}
+	if pkg.SessionKind != "reviewer" {
+		return "", "", fmt.Errorf("unsupported Claude session kind %q", pkg.SessionKind)
 	}
 	schema := `{"type":"object","properties":{"outcome":{"type":"string","enum":["returned","failed"]},"result":{"type":["object","null"]},"reason":{"type":"string"}},"required":["outcome","result","reason"],"additionalProperties":false}`
-	return common + " For outcome=returned, result must be exactly one ReviewerResult object and reviewerSession must equal the actual session ID above. In result.routeOutput set tool_scope exactly to read-only and next_action exactly to main-agent review when those fields are required; do not request writes, heavy tools, authority/confirmed, or external effects. For outcome=failed, result must be null and reason must be non-empty.", schema, nil
+	receipt, fields, err := validateReviewerLaunchIdentity(caseRoot, *pkg.Launch)
+	if err != nil {
+		return "", "", err
+	}
+	identity := reviewerExpectedOutput(receipt, fields)
+	return common + " " + identity + " For outcome=returned, result must be exactly one ReviewerResult object and reviewerSession must equal the actual session ID above. Judge only the current reviewed manifest, its current output bytes, and currently accessible bounded evidence. A historical rejection embedded in the replacement TaskContext is correction provenance, not evidence that the current replacement still has the old defect; reject only if the current output fails to address it. Route fields with evidence-supported unknown, none, or not-applicable values satisfy presence but must not be upgraded into unsupported positive claims. In result.routeOutput set tool_scope exactly to read-only and next_action exactly to main-agent review when those fields are required; do not request writes, heavy tools, authority/confirmed, or external effects. For outcome=failed, result must be null and reason must be non-empty.", schema, nil
+}
+
+func validateReviewerLaunchIdentity(
+	caseRoot string,
+	launch mission.CurrentLoopExternalSessionHarnessLaunch,
+) (reviewersession.DispatchReceipt, []string, error) {
+	identity := launch.ReviewerIdentity
+	if identity == nil || strings.TrimSpace(identity.DispatchPath) == "" ||
+		strings.TrimSpace(identity.DispatchSHA256) == "" {
+		return reviewersession.DispatchReceipt{}, nil, fmt.Errorf(
+			"Claude reviewer launch package omitted its exact durable dispatch identity",
+		)
+	}
+	receipt, err := reviewersession.ReadDispatch(caseRoot, identity.DispatchPath, identity.DispatchSHA256)
+	if err != nil {
+		return reviewersession.DispatchReceipt{}, nil, err
+	}
+	fields, err := reviewersession.OutputContractFields(caseRoot, receipt)
+	if err != nil {
+		return reviewersession.DispatchReceipt{}, nil, err
+	}
+	if receipt.PacketID != identity.PacketID || receipt.RouteID != identity.RouteID ||
+		receipt.ShardID != identity.ShardID || !slices.Equal(receipt.Items, identity.Items) ||
+		receipt.DispatchID != identity.DispatchID ||
+		receipt.ReviewerSession != identity.ReviewerSession ||
+		!casePathEqual(receipt.PromptPath, identity.PromptPath) ||
+		!strings.EqualFold(receipt.PromptSHA256, identity.PromptSHA256) ||
+		receipt.NoHeavyTool != identity.NoHeavyTool ||
+		receipt.NoAuthority != identity.NoAuthority ||
+		launch.Attempt.Session != receipt.ReviewerSession ||
+		!casePathEqual(launch.Input.Path, receipt.PromptPath) ||
+		!strings.EqualFold(launch.Input.SHA256, receipt.PromptSHA256) ||
+		!slices.Equal(fields, identity.OutputFields) ||
+		!launch.ReadOnly || !receipt.ReadOnly || !receipt.NoHeavyTool || !receipt.NoAuthority {
+		return reviewersession.DispatchReceipt{}, nil, fmt.Errorf(
+			"Claude reviewer launch package does not match its exact durable dispatch identity",
+		)
+	}
+	return receipt, fields, nil
+}
+
+func validateReviewerResultIdentity(
+	result reviewerresult.Result,
+	receipt reviewersession.DispatchReceipt,
+	fields []string,
+) error {
+	if result.PacketID != receipt.PacketID || result.RouteID != receipt.RouteID ||
+		result.ShardID != receipt.ShardID || !slices.Equal(result.Items, receipt.Items) ||
+		result.ReviewerSession != receipt.ReviewerSession {
+		return fmt.Errorf(
+			"real Claude ReviewerResult does not match exact dispatch packet/route/shard/items/session identity",
+		)
+	}
+	return reviewersession.ValidateRouteOutput(fields, result.RouteOutput)
+}
+
+func reviewerLaunchIdentity(
+	receipt reviewersession.DispatchReceipt,
+	fields []string,
+	dispatchPath,
+	dispatchSHA256 string,
+) *mission.CurrentLoopExternalSessionReviewerIdentity {
+	return &mission.CurrentLoopExternalSessionReviewerIdentity{
+		PacketID: receipt.PacketID, RouteID: receipt.RouteID,
+		ShardID: receipt.ShardID, Items: append([]string{}, receipt.Items...),
+		OutputFields: append([]string{}, fields...),
+		DispatchPath: dispatchPath, DispatchSHA256: dispatchSHA256,
+		DispatchID: receipt.DispatchID, ReviewerSession: receipt.ReviewerSession,
+		PromptPath: receipt.PromptPath, PromptSHA256: receipt.PromptSHA256,
+		NoHeavyTool: receipt.NoHeavyTool, NoAuthority: receipt.NoAuthority,
+	}
+}
+
+func reviewerExpectedOutput(receipt reviewersession.DispatchReceipt, fields []string) string {
+	items, err := json.Marshal(receipt.Items)
+	if err != nil {
+		panic(err)
+	}
+	outputFields, err := json.Marshal(fields)
+	if err != nil {
+		panic(err)
+	}
+	return fmt.Sprintf(
+		"Copy these immutable dispatch values exactly into result: packetId=%q, routeId=%q, shardId=%q, and items=%s. Set result.routeOutput to exactly these fields: %s; every listed field must be a non-empty string and no other routeOutput fields are allowed. Do not copy placeholder text such as packet.packetId from the prompt template.",
+		receipt.PacketID,
+		receipt.RouteID,
+		receipt.ShardID,
+		items,
+		outputFields,
+	)
 }
 
 func reviewerClaudePackage(caseRoot string, handoff reviewerExternalHandoff) (mission.CurrentLoopExternalSessionHarnessPackage, reviewersession.DispatchReceipt, error) {
@@ -274,6 +494,10 @@ func reviewerClaudePackage(caseRoot string, handoff reviewerExternalHandoff) (mi
 	if !strings.EqualFold(bytesSHA256(input), receipt.PromptSHA256) {
 		return mission.CurrentLoopExternalSessionHarnessPackage{}, reviewersession.DispatchReceipt{}, fmt.Errorf("reviewer dispatch prompt sha256 mismatch")
 	}
+	fields, err := reviewersession.OutputContractFields(caseRoot, receipt)
+	if err != nil {
+		return mission.CurrentLoopExternalSessionHarnessPackage{}, reviewersession.DispatchReceipt{}, err
+	}
 	return mission.CurrentLoopExternalSessionHarnessPackage{
 		SchemaVersion: 1,
 		State:         "launch-ready",
@@ -281,14 +505,18 @@ func reviewerClaudePackage(caseRoot string, handoff reviewerExternalHandoff) (mi
 		SessionKind:   "reviewer",
 		Launch: &mission.CurrentLoopExternalSessionHarnessLaunch{
 			Ready: true, Tool: "Claude Code Agent", AgentType: receipt.AgentType, ReadOnly: receipt.ReadOnly,
-			Input:          mission.CurrentLoopExternalSessionHarnessInput{Path: receipt.PromptPath, SHA256: receipt.PromptSHA256, Role: "reviewer-dispatch-prompt"},
-			ExpectedOutput: "exactly one ReviewerResult JSON object; no Markdown fence or surrounding prose",
-			Attempt:        mission.CurrentLoopExternalSessionAttempt{AttemptID: receipt.DispatchID, AttemptSHA256: handoff.ReviewerDispatchReceiptSHA256, Generation: 1, Harness: receipt.ReviewerHarness, Session: receipt.ReviewerSession, Actor: receipt.Actor, StartedAt: receipt.RecordedAt},
+			Input:            mission.CurrentLoopExternalSessionHarnessInput{Path: receipt.PromptPath, SHA256: receipt.PromptSHA256, Role: "reviewer-dispatch-prompt"},
+			ExpectedOutput:   reviewerExpectedOutput(receipt, fields),
+			ReviewerIdentity: reviewerLaunchIdentity(receipt, fields, handoff.ReviewerDispatchReceiptPath, handoff.ReviewerDispatchReceiptSHA256),
+			Attempt:          mission.CurrentLoopExternalSessionAttempt{AttemptID: receipt.DispatchID, AttemptSHA256: handoff.ReviewerDispatchReceiptSHA256, Generation: 1, Harness: receipt.ReviewerHarness, Session: receipt.ReviewerSession, Actor: receipt.Actor, StartedAt: receipt.RecordedAt},
 		},
 	}, receipt, nil
 }
 
-func reviewerResultBytes(run claudeRun) ([]byte, string, error) {
+func reviewerResultBytes(
+	pkg mission.CurrentLoopExternalSessionHarnessPackage,
+	run claudeRun,
+) ([]byte, string, error) {
 	if !run.success() {
 		return nil, run.failureReason(), nil
 	}
@@ -310,8 +538,12 @@ func reviewerResultBytes(run claudeRun) ([]byte, string, error) {
 	if err != nil {
 		return nil, "", fmt.Errorf("validate real Claude ReviewerResult: %w", err)
 	}
-	if result.ReviewerSession != run.sessionID {
-		return nil, "", fmt.Errorf("real Claude ReviewerResult session mismatch")
+	receipt, fields, err := validateReviewerLaunchIdentity(pkg.CaseRoot, *pkg.Launch)
+	if err != nil {
+		return nil, "", err
+	}
+	if err := validateReviewerResultIdentity(result, receipt, fields); err != nil {
+		return nil, "", err
 	}
 	return canonicalJSON(response.Result), "", nil
 }
@@ -320,6 +552,53 @@ func casePathEqual(left, right string) bool {
 	leftPath, leftErr := filepath.Abs(left)
 	rightPath, rightErr := filepath.Abs(right)
 	return leftErr == nil && rightErr == nil && strings.EqualFold(filepath.Clean(leftPath), filepath.Clean(rightPath))
+}
+
+func validateClaudeStructuredResult(pkg mission.CurrentLoopExternalSessionHarnessPackage, run claudeRun) error {
+	if !run.success() {
+		return nil
+	}
+	switch pkg.SessionKind {
+	case "member":
+		var response memberResponse
+		if err := strictJSON(run.structuredOutput, &response); err != nil {
+			return fmt.Errorf("invalid Claude member structured output: %w", err)
+		}
+		if response.Outcome != "returned" {
+			return nil
+		}
+		if strings.TrimSpace(response.Summary) == "" {
+			return fmt.Errorf("Claude member returned an empty summary")
+		}
+		if _, err := validateMemberOutputs(pkg.Return.SubmissionOutputs, response); err != nil {
+			return err
+		}
+	case "reviewer":
+		receipt, fields, err := validateReviewerLaunchIdentity(pkg.CaseRoot, *pkg.Launch)
+		if err != nil {
+			return err
+		}
+		var response reviewerResponse
+		if err := strictJSON(run.structuredOutput, &response); err != nil {
+			return fmt.Errorf("invalid Claude reviewer structured output: %w", err)
+		}
+		if response.Outcome != "returned" {
+			return nil
+		}
+		if len(bytes.TrimSpace(response.Result)) == 0 || bytes.Equal(bytes.TrimSpace(response.Result), []byte("null")) {
+			return fmt.Errorf("Claude reviewer returned no ReviewerResult")
+		}
+		result, err := reviewerresult.Decode(response.Result)
+		if err != nil {
+			return fmt.Errorf("validate real Claude ReviewerResult: %w", err)
+		}
+		if err := validateReviewerResultIdentity(result, receipt, fields); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("unsupported Claude session kind %q", pkg.SessionKind)
+	}
+	return nil
 }
 
 func publishClaudeResult(opt Options, plan currentStepPlan, run claudeRun) (string, error) {
@@ -361,6 +640,11 @@ func publishClaudeResult(opt Options, plan currentStepPlan, run claudeRun) (stri
 				}
 			}
 		case "reviewer":
+			receipt, fields, err := validateReviewerLaunchIdentity(pkg.CaseRoot, *pkg.Launch)
+			if err != nil {
+				reason = err.Error()
+				break
+			}
 			var response reviewerResponse
 			if err := strictJSON(run.structuredOutput, &response); err != nil {
 				reason = "invalid Claude reviewer structured output: " + err.Error()
@@ -376,8 +660,8 @@ func publishClaudeResult(opt Options, plan currentStepPlan, run claudeRun) (stri
 					reason = "validate real Claude ReviewerResult: " + err.Error()
 					break
 				}
-				if reviewerResult.ReviewerSession != run.sessionID {
-					reason = "real Claude ReviewerResult session mismatch"
+				if err := validateReviewerResultIdentity(reviewerResult, receipt, fields); err != nil {
+					reason = err.Error()
 					break
 				}
 				if _, err := rekitfs.WriteExclusiveRegularFileAnchored(opt.Target, pkg.Return.SubmissionResult, "Claude reviewer result", canonicalJSON(response.Result)); err != nil {

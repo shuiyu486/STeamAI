@@ -327,8 +327,8 @@ func buildCurrentLoopPlan(ctx runtime.Context, opt Options) (currentLoopPlan, st
 				return currentLoopPlan{}, statusInventory{}, err
 			}
 		}
-		if strings.TrimSpace(status.MissionControlRunbook.Scope) != inspection.ExpectedRoute || status.MissionControlRunbook.CurrentDriverRequest == nil || strings.TrimSpace(status.MissionControlRunbook.CurrentDriverRequest.Lane) != inspection.ExpectedLane {
-			return currentLoopPlan{}, statusInventory{}, fmt.Errorf("run-current-loop ready checkpoint expected route or lane does not match refreshed status: scope=%q expectedRoute=%q lane=%q expectedLane=%q", status.MissionControlRunbook.Scope, inspection.ExpectedRoute, status.MissionControlRunbook.CurrentDriverRequest.Lane, inspection.ExpectedLane)
+		if err := validateCurrentLoopResumeStatus(status, *inspection); err != nil {
+			return currentLoopPlan{}, statusInventory{}, err
 		}
 		if strings.TrimSpace(opt.ExpectedCurrentLoopCheckpointSHA256) != "" && !strings.EqualFold(strings.TrimSpace(opt.ExpectedCurrentLoopCheckpointSHA256), inspection.ArtifactSHA256) {
 			return currentLoopPlan{}, statusInventory{}, fmt.Errorf("run-current-loop expected checkpoint sha256 mismatch: got %s want %s", strings.TrimSpace(opt.ExpectedCurrentLoopCheckpointSHA256), inspection.ArtifactSHA256)
@@ -525,9 +525,7 @@ func applyCurrentLoopPlan(ctx runtime.Context, opt Options, plan currentLoopPlan
 				break
 			}
 			status = *applied.RefreshedStatus
-			if status.MissionControlRunbook != nil {
-				receipt.RequestAfter = status.MissionControlRunbook.CurrentDriverRequest
-			}
+			bindCurrentLoopReceiptStatus(&receipt, status)
 			plan.Steps = append(plan.Steps, receipt)
 			plan.AppliedSteps++
 			plan.Applied = true
@@ -566,10 +564,7 @@ func applyCurrentLoopPlan(ctx runtime.Context, opt Options, plan currentLoopPlan
 		}
 		status = *applied.RefreshedStatus
 		stepOpt = currentLoopFollowupOptions(stepOpt)
-		if status.MissionControlRunbook != nil {
-			receipt.RequestAfter = status.MissionControlRunbook.CurrentDriverRequest
-			receipt.CurrentStepReceipt.RefreshedCurrentDriverRequest = status.MissionControlRunbook.CurrentDriverRequest
-		}
+		bindCurrentLoopReceiptStatus(&receipt, status)
 		plan.Steps = append(plan.Steps, receipt)
 		plan.AppliedSteps++
 		plan.Applied = true
@@ -590,6 +585,18 @@ func applyCurrentLoopPlan(ctx runtime.Context, opt Options, plan currentLoopPlan
 	plan.RequiresConfirmation = false
 	plan.FinalStatus = &status
 	return plan, nil
+}
+
+func bindCurrentLoopReceiptStatus(
+	receipt *currentLoopStepReceipt,
+	status statusInventory,
+) {
+	if receipt == nil || receipt.CurrentStepReceipt == nil {
+		return
+	}
+	request, _, _ := currentLoopStatusCandidate(status)
+	receipt.RequestAfter = request
+	receipt.CurrentStepReceipt.RefreshedCurrentDriverRequest = request
 }
 
 func validateCurrentLoopReviewerAttemptObservation(opt Options, status statusInventory) error {
@@ -623,6 +630,18 @@ func validateCurrentLoopReviewerAttemptObservation(opt Options, status statusInv
 	return nil
 }
 
+func validateCurrentLoopResumeStatus(status statusInventory, inspection currentloop.Inspection) error {
+	request, route, stop := currentLoopStatusCandidate(status)
+	lane := ""
+	if request != nil {
+		lane = strings.TrimSpace(request.Lane)
+	}
+	if stop.Code != "" || request == nil || route != inspection.ExpectedRoute || lane != inspection.ExpectedLane {
+		return fmt.Errorf("run-current-loop ready checkpoint expected route or lane does not match refreshed status: scope=%q expectedRoute=%q lane=%q expectedLane=%q", route, inspection.ExpectedRoute, lane, inspection.ExpectedLane)
+	}
+	return nil
+}
+
 func currentLoopStatusCandidate(status statusInventory) (*mission.MissionCommanderDriverRequest, string, currentLoopStopReason) {
 	if status.CaseMission != nil && status.CaseMission.MissionCompletion != nil && status.CaseMission.MissionCompletion.Ready && status.CaseMission.MissionCompletion.State == "mission-complete" {
 		return nil, "case", currentLoopStopReason{Code: "mission-complete", Phase: "status", Message: "all durable lanes have committed completion receipts"}
@@ -632,6 +651,12 @@ func currentLoopStatusCandidate(status statusInventory) (*mission.MissionCommand
 	}
 	request := status.MissionControlRunbook.CurrentDriverRequest
 	route := strings.TrimSpace(status.MissionControlRunbook.Scope)
+	if route == "pack-memory" {
+		if consumerRequest, err := currentStepPackMemoryConsumerRequest(status.TemplateRoot, status.Target, status.Pack, status); err == nil {
+			request = consumerRequest
+			route = "case"
+		}
+	}
 	if route != "case" && route != "reviewer" {
 		return request, route, currentLoopStopReason{Code: "route-policy", Phase: "status", Message: fmt.Sprintf("focused scope %q is outside the bounded case/reviewer loop", route), CurrentDriverRequest: request}
 	}
@@ -992,8 +1017,9 @@ func writeCurrentLoopSegmentCheckpoint(ctx runtime.Context, opt Options, plan cu
 		}
 		payload.StepReceipts = append(payload.StepReceipts, binding)
 	}
-	if plan.FinalStatus != nil && plan.FinalStatus.MissionControlRunbook != nil {
-		payload.RefreshedCurrentDriverRequest = plan.FinalStatus.MissionControlRunbook.CurrentDriverRequest
+	if plan.FinalStatus != nil {
+		request, _, _ := currentLoopStatusCandidate(*plan.FinalStatus)
+		payload.RefreshedCurrentDriverRequest = request
 	}
 	if payload.RefreshedCurrentDriverRequest != nil {
 		requestSHA256, err := currentloop.RequestSHA256(*payload.RefreshedCurrentDriverRequest)

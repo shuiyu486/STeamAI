@@ -20,7 +20,8 @@
 
 - `/rekit` skill：`.claude/skills/rekit/SKILL.md`
 - Go deterministic backend：`cmd/rekit/main.go`、`internal/rekit/**`
-- Go-owned real Claude Code session host：`cmd/rekit-host/main.go`、`internal/rekit/sessionhost/**`；日常前门用 `-daily -target <case> -goal <text>` 或 `-correction <text>`，自动派生 lifecycle identity，但不替代 runtime 的 currentness、授权和 strict intake
+- Claude session host：`cmd/rekit-host/main.go`、`internal/rekit/sessionhost/**`；日常用 `-daily`；维护 gate 为 `-live-acceptance`（默认 `vmp-re`，或 `_template` / `web-security`）、Windows `-live-soak-acceptance` 和 `-live-pack-memory-acceptance`。Soak 仅对 typed Reviewer semantic/lineage failure 保留首败并 fresh retry 一次；均不替代 currentness、授权或 strict intake
+- Read-only adapter/验收：`cmd/rekit-adapter-{host,acceptance}/**`、`internal/rekit/adapterhost/**`；只消费 strict gate/dispatch，`gate` 不启动进程
 - PowerShell compatibility façade：`rekit/rekit.ps1`（不新增业务 runtime）
 - pack：`packs/<pack>/**`；manifest：`packs/<pack>/manifest.yml`；common policies/prompts：`common/**`
 - release/docs 入口：`docs/context-routing.md`、`docs/real-usage-hardening-roadmap.md`、`docs/release-readiness.md`、`docs/powershell-deprecation.md`、`CHANGELOG.md`
@@ -67,6 +68,6 @@ go vet ./...
 git diff --check
 ```
 
-默认远程 CI workflow 是 `.github/workflows/release-gate.yml`，仍异步定义 Linux、Windows、macOS Go-native checks，并先运行`go vet`再运行Go tests；当前普通 batch 不等待它。`release-check` 的 `ciReleaseGate.ready=true` 只验证 workflow/inventory 定义，不代表远程 jobs 已获得 runner 或实际通过；`status`使用lightweight project handoff，不执行完整release audit。2026-08-01 Batch 787 implementation run `30692412838`已在Linux/macOS/Windows全部通过inventory/status/packs/doctor/vet与完整Go tests，保留为最近一次三平台remote green证据。只有正式发布、跨平台专项或周期复审需要远程结论时，才读取GitHub Actions实际状态；日常迭代以 Windows 本机 focused tests 和完整 release minimum 为完成依据。
+默认远程 CI workflow 是 `.github/workflows/release-gate.yml`，异步定义 Linux、Windows、macOS Go-native checks，并先运行 `go vet` 再运行 Go tests；普通 batch 不等待它。`release-check` 的 `ciReleaseGate.ready=true` 只验证 workflow/inventory 定义，不代表远程 jobs 实际通过；`status` 使用 lightweight project handoff，不执行完整 release audit。仅正式发布、跨平台专项或周期复审读取 GitHub Actions 实际状态；日常迭代以 Windows 本机 focused tests 和完整 release minimum 为完成依据。
 
 按需追加：改 façade/compatibility 时运行 `rekit/tests/facade-smoke.ps1`；改 pack wrapper 时运行对应 pack validate/smoke；涉及 workstream/ledger/gate/sync/promote 写入时用临时 case 验证。

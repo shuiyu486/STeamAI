@@ -13,6 +13,7 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/currentloop"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/externalsession"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
@@ -514,7 +515,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	resultJob = recordCurrentLoopExternalSessionAttempt(t, resultOperator, "go-cli-test-harness", "reviewer-session-runner", "mission-commander", "2026-08-05T00:30:00Z")
 	resultOperator.ExternalSessionJob = resultJob
 	resultJob = acceptCurrentLoopExternalSessionLaunch(t, resultOperator, "dispatcher", "go-cli-test-harness", "reviewer-session-runner", "2026-08-05T00:30:01Z")
-	if harness := resultJob.HarnessPackage; harness == nil || harness.State != "running" || harness.Launch == nil || harness.Launch.Ready || harness.Launch.Tool != "Claude Code Agent" || harness.Launch.AgentType != "read-only-reviewer" || !harness.Launch.ReadOnly || harness.Launch.Input.Role != "reviewer-dispatch-prompt" || harness.Launch.Input.Path != resultOperator.ExternalReviewerHandoff.DispatchPromptPath || harness.Launch.Input.SHA256 != resultOperator.ExternalReviewerHandoff.DispatchPromptSHA256 || harness.Launch.Attempt.AttemptSHA256 != resultJob.CurrentAttempt.AttemptSHA256 || harness.Launch.Attempt.Session != "reviewer-session-runner" || harness.Return == nil || harness.Return.SubmissionResult != resultJob.SubmissionResult || !harness.Return.SubmissionLast || len(harness.Return.Templates) != len(resultJob.AllowedOutcomes) {
+	if harness := resultJob.HarnessPackage; harness == nil || harness.State != "running" || harness.Launch == nil || harness.Launch.Ready || harness.Launch.Tool != "Claude Code Agent" || harness.Launch.AgentType != "read-only-reviewer" || !harness.Launch.ReadOnly || harness.Launch.Input.Role != "reviewer-dispatch-prompt" || harness.Launch.Input.Path != resultOperator.ExternalReviewerHandoff.DispatchPromptPath || harness.Launch.Input.SHA256 != resultOperator.ExternalReviewerHandoff.DispatchPromptSHA256 || harness.Launch.Attempt.AttemptSHA256 != resultJob.CurrentAttempt.AttemptSHA256 || harness.Launch.Attempt.Session != "reviewer-session-runner" || harness.Launch.ReviewerIdentity == nil || harness.Launch.ReviewerIdentity.PacketID != resultAttempt.Identity.PacketID || harness.Launch.ReviewerIdentity.RouteID != resultAttempt.Identity.RouteID || harness.Launch.ReviewerIdentity.ShardID != resultAttempt.Identity.ShardID || harness.Launch.ReviewerIdentity.DispatchID != resultAttempt.Receipt.DispatchID || harness.Launch.ReviewerIdentity.DispatchSHA256 != resultAttempt.Receipt.DispatchSHA256 || harness.Return == nil || harness.Return.SubmissionResult != resultJob.SubmissionResult || !harness.Return.SubmissionLast || len(harness.Return.Templates) != len(resultJob.AllowedOutcomes) {
 		t.Fatalf("running reviewer job omitted exact harness launch/return package: %+v", harness)
 	}
 	if resultAttempt.AttemptID == spawnAttempt.AttemptID || resultAttempt.AttemptSnapshotSHA256 == spawnAttempt.AttemptSnapshotSHA256 || resultAttempt.RunLoopStepID != "save-result-input" || resultAttempt.SelectedAction.Kind != "observe-reviewer-terminal-state" || resultAttempt.Receipt.DispatchID == "" || resultAttempt.Receipt.Harness != "go-cli-test-harness" || resultAttempt.Receipt.Session != "reviewer-session-runner" || resultAttempt.Receipt.SessionLifecycleState == "" || resultAttempt.DurableContinuationDriverRequest == nil || !strings.Contains(resultAttempt.DurableContinuationDriverRequest.Command, dispatchApplied.SegmentCheckpoint.ArtifactSHA256) {
@@ -775,6 +776,107 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	for _, forbidden := range []string{"authority.jsonl", "confirmed.jsonl"} {
 		if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", forbidden)); !os.IsNotExist(err) {
 			t.Fatalf("reviewer continuation created forbidden ledger %s: %v", forbidden, err)
+		}
+	}
+}
+
+func TestStatusCurrentLoopInspectionRequestUsesStrictConsumerCaseRequest(t *testing.T) {
+	original := currentStepValidatePackMemoryConsumerTask
+	t.Cleanup(func() { currentStepValidatePackMemoryConsumerTask = original })
+	caseRoot := fullAttachedCase(t)
+	inst, err := instance.Read(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packRequest := missionDriverRequestForTest(`/rekit sync -SelectPackMemoryChange change -WhatIf -Format json`)
+	caseRequest := missionDriverRequestForTest(`/rekit continue mission -WhatIf -Format json`)
+	caseRequest.Lane = "feature-mission"
+	runbook := &statusMissionControlRunbook{
+		Scope:                "pack-memory",
+		CurrentDriverRequest: &packRequest,
+	}
+	caseMission := &statusCaseMission{
+		MissionCommanderActionQueue: mission.MissionCommanderActionQueue{
+			CurrentDriverRequest: &caseRequest,
+		},
+	}
+	currentStepValidatePackMemoryConsumerTask = func(repoRoot, target, pack, lane string) error {
+		if repoRoot != inst.TemplateRoot || target != caseRoot || pack != inst.TemplatePack || lane != caseRequest.Lane {
+			t.Fatalf("strict inspection identity drifted: repo=%q target=%q pack=%q lane=%q", repoRoot, target, pack, lane)
+		}
+		return nil
+	}
+	request := statusCurrentLoopInspectionRequest(caseRoot, caseMission, runbook)
+	if request == nil || request == &caseRequest || request.RunLoopStepID != caseRequest.RunLoopStepID || request.Lane != caseRequest.Lane || !strings.Contains(request.Command, "continue") {
+		t.Fatalf("checkpoint inspection retained global pack-memory request: %+v", request)
+	}
+	currentStepValidatePackMemoryConsumerTask = func(_, _, _, _ string) error {
+		return errors.New("stale selected sync")
+	}
+	if request := statusCurrentLoopInspectionRequest(caseRoot, caseMission, runbook); request != &packRequest {
+		t.Fatalf("stale consumer unexpectedly replaced global request: %+v", request)
+	}
+}
+
+func TestCurrentLoopStatusCandidateNarrowsOnlyStrictPackMemoryConsumer(t *testing.T) {
+	original := currentStepValidatePackMemoryConsumerTask
+	t.Cleanup(func() { currentStepValidatePackMemoryConsumerTask = original })
+	packRequest := missionDriverRequestForTest(`/rekit sync -SelectPackMemoryChange change -WhatIf -Format json`)
+	caseRequest := missionDriverRequestForTest(`/rekit continue mission -WhatIf -Format json`)
+	caseRequest.Lane = "feature-mission"
+	status := statusInventory{
+		TemplateRoot: "repo", Target: "case", Pack: "_template",
+		MissionControlRunbook: &statusMissionControlRunbook{Scope: "pack-memory", CurrentDriverRequest: &packRequest},
+		CaseMission:           &statusCaseMission{MissionCommanderActionQueue: mission.MissionCommanderActionQueue{CurrentDriverRequest: &caseRequest}},
+	}
+	currentStepValidatePackMemoryConsumerTask = func(_, _, _, lane string) error {
+		if lane != "feature-mission" {
+			t.Fatalf("strict consumer validation lane=%q", lane)
+		}
+		return nil
+	}
+	request, route, stop := currentLoopStatusCandidate(status)
+	if stop.Code != "" || route != "case" || request == &caseRequest || request.Lane != "feature-mission" || request.Command != caseRequest.Command {
+		t.Fatalf("strict consumer route request=%+v route=%s stop=%+v", request, route, stop)
+	}
+	currentStepValidatePackMemoryConsumerTask = func(_, _, _, _ string) error { return errors.New("stale receipt") }
+	request, route, stop = currentLoopStatusCandidate(status)
+	if stop.Code != "route-policy" || route != "pack-memory" || request != &packRequest {
+		t.Fatalf("ordinary pack-memory route escaped policy: request=%+v route=%s stop=%+v", request, route, stop)
+	}
+}
+
+func TestValidateCurrentLoopResumeStatusUsesStrictConsumerCaseRequest(t *testing.T) {
+	original := currentStepValidatePackMemoryConsumerTask
+	t.Cleanup(func() { currentStepValidatePackMemoryConsumerTask = original })
+	packRequest := missionDriverRequestForTest(`/rekit sync -SelectPackMemoryChange change -WhatIf -Format json`)
+	caseRequest := missionDriverRequestForTest(`/rekit continue mission -WhatIf -Format json`)
+	caseRequest.Lane = "feature-mission"
+	status := statusInventory{
+		TemplateRoot: "repo", Target: "case", Pack: "_template",
+		MissionControlRunbook: &statusMissionControlRunbook{Scope: "pack-memory", CurrentDriverRequest: &packRequest},
+		CaseMission:           &statusCaseMission{MissionCommanderActionQueue: mission.MissionCommanderActionQueue{CurrentDriverRequest: &caseRequest}},
+	}
+	inspection := currentloop.Inspection{ExpectedRoute: "case", ExpectedLane: "feature-mission"}
+	currentStepValidatePackMemoryConsumerTask = func(_, _, _, lane string) error {
+		if lane != inspection.ExpectedLane {
+			t.Fatalf("strict resume validation lane=%q", lane)
+		}
+		return nil
+	}
+	if err := validateCurrentLoopResumeStatus(status, inspection); err != nil {
+		t.Fatalf("strict consumer ready checkpoint did not use normalized case route: %v", err)
+	}
+	currentStepValidatePackMemoryConsumerTask = func(_, _, _, _ string) error { return errors.New("stale selected sync") }
+	if err := validateCurrentLoopResumeStatus(status, inspection); err == nil || !strings.Contains(err.Error(), `scope="pack-memory"`) {
+		t.Fatalf("stale strict consumer checkpoint did not fail closed: %v", err)
+	}
+	for _, route := range []string{"case", "reviewer"} {
+		request := missionDriverRequestForTest(`/rekit continue mission -WhatIf -Format json`)
+		request.Lane = "feature-mission"
+		ordinary := statusInventory{MissionControlRunbook: &statusMissionControlRunbook{Scope: route, CurrentDriverRequest: &request}}
+		if err := validateCurrentLoopResumeStatus(ordinary, currentloop.Inspection{ExpectedRoute: route, ExpectedLane: request.Lane}); err != nil {
+			t.Fatalf("ordinary %s checkpoint resume changed: %v", route, err)
 		}
 	}
 }
@@ -1809,6 +1911,8 @@ func TestRunCurrentLoopObservationInboxOutranksDispatcherStates(t *testing.T) {
 func TestExternalReviewerSubmissionTemplateUsesAcceptedActualIdentity(t *testing.T) {
 	job, err := externalsession.NewReviewerJob(t.TempDir(), "_template", strings.Repeat("a", 64), externalsession.ReviewerIdentity{
 		AttemptSHA256: strings.Repeat("b", 64), PacketID: "packet", RouteID: "route", ShardID: "shard",
+		Items: []string{"item"}, OutputFields: []string{"item"}, DispatchPath: ".rekit/dispatch.json",
+		DispatchSHA256: strings.Repeat("d", 64), DispatchID: "dispatch", Harness: "reserved-harness", Session: "reserved-session",
 	}, []string{"accepted", "returned", "failed"})
 	if err != nil {
 		t.Fatal(err)

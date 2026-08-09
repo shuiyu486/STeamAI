@@ -14,6 +14,7 @@ var (
 	packMemoryConsumptionDiscover = packmemoryconsumption.Discover
 	packMemoryConsumptionPreview  = packmemoryconsumption.Preview
 	packMemoryConsumptionApply    = packmemoryconsumption.Apply
+	packMemoryConsumerUseVerify   = packmemoryconsumption.VerifyConsumerUse
 )
 
 type packMemoryConsumptionStatus struct {
@@ -53,6 +54,30 @@ func buildPackMemoryConsumptionStatus(repoRoot, caseRoot, pack string) *packMemo
 	return &packMemoryConsumptionStatus{Ready: len(discovery.Conflicts) == 0, Summary: summary, Discovery: discovery, MissionCommanderNextActions: actions, MissionCommanderActionQueue: mission.MissionCommanderActionQueueFor(actions)}
 }
 
+func runPackMemoryConsumerUseVerification(ctx runtime.Context, opt Options, out io.Writer) error {
+	if !strings.EqualFold(strings.TrimSpace(opt.Command), "sync") {
+		return fmt.Errorf("pack-memory consumer-use verification is available only through sync")
+	}
+	if strings.TrimSpace(opt.SelectPackMemoryChange) == "" || strings.TrimSpace(opt.MemberExecutionAttemptID) == "" || strings.TrimSpace(opt.MemberOutputStagingLane) == "" || strings.TrimSpace(opt.PackMemoryConsumerOutputPath) == "" {
+		return fmt.Errorf("sync -VerifyPackMemoryConsumerUse requires -SelectPackMemoryChange, -Lane, -MemberExecutionAttemptId, and -PackMemoryConsumerOutputPath")
+	}
+	if opt.Apply || opt.WhatIf || opt.Review || opt.Force || opt.CreateCandidates || strings.TrimSpace(opt.ExpectedPackMemoryConsumptionPlanSHA256) != "" || wantsReviewArtifacts(opt) {
+		return fmt.Errorf("pack-memory consumer-use verification is read-only and cannot be combined with mutation, preview, review, or candidate options")
+	}
+	if format, err := workstreamFormat(opt.Format); err != nil || format != "json" {
+		return fmt.Errorf("pack-memory consumer-use verification requires -Format json")
+	}
+	target, err := commandTarget(ctx, "sync", "attached case")
+	if err != nil {
+		return err
+	}
+	proof, err := packMemoryConsumerUseVerify(ctx.RepoRoot, target, ctx.Pack, packmemoryconsumption.ConsumerUseOptions{ChangeID: opt.SelectPackMemoryChange, Lane: opt.MemberOutputStagingLane, AttemptID: opt.MemberExecutionAttemptID, OutputPath: opt.PackMemoryConsumerOutputPath})
+	if err != nil {
+		return err
+	}
+	return writeJSON(out, proof)
+}
+
 func runPackMemorySelectedSync(ctx runtime.Context, opt Options, out io.Writer) error {
 	if !strings.EqualFold(strings.TrimSpace(opt.Command), "sync") {
 		return fmt.Errorf("pack-memory selected sync is available only through sync")
@@ -60,8 +85,8 @@ func runPackMemorySelectedSync(ctx runtime.Context, opt Options, out io.Writer) 
 	if opt.WhatIf == opt.Apply {
 		return fmt.Errorf("pack-memory selected sync requires exactly one of -WhatIf or -Apply")
 	}
-	if opt.Review || opt.Force || opt.CreateCandidates || wantsReviewArtifacts(opt) {
-		return fmt.Errorf("pack-memory selected sync cannot be combined with ordinary sync review, Force, or candidate options")
+	if opt.Review || opt.Force || opt.CreateCandidates || wantsReviewArtifacts(opt) || strings.TrimSpace(opt.MemberOutputStagingLane) != "" || strings.TrimSpace(opt.MemberExecutionAttemptID) != "" || opt.StageMemberOutput || strings.TrimSpace(opt.MemberOutputPath) != "" || strings.TrimSpace(opt.ManagedTargetPath) != "" || strings.TrimSpace(opt.ExpectedMemberOutputStagingPlanSHA256) != "" {
+		return fmt.Errorf("pack-memory selected sync cannot be combined with ordinary sync review, Force, candidate, lane, member execution, or staging options")
 	}
 	if opt.WhatIf && strings.TrimSpace(opt.ExpectedPackMemoryConsumptionPlanSHA256) != "" {
 		return fmt.Errorf("pack-memory selected sync -WhatIf does not accept -ExpectedPackMemoryConsumptionPlanSha256")

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -193,6 +194,8 @@ type preparedReviewerResultSourceCapture struct {
 	actor           string
 }
 
+var reviewerResultInputBeforePublicationHook func() error
+
 type preparedReviewerResultInputSave struct {
 	packetPath      string
 	packet          Packet
@@ -208,6 +211,9 @@ type preparedReviewerResultInputSave struct {
 	dispatch        ReviewerSessionDispatchReceipt
 	dispatchPath    string
 	dispatchSHA256  string
+	promptPath      string
+	promptSHA256    string
+	prompt          []byte
 	alreadySaved    bool
 	lane            string
 	actor           string
@@ -266,7 +272,22 @@ func SaveReviewerResultInput(repoRoot, caseRoot, pack string, opt ReviewerResult
 	if !reviewerPacketSnapshotCurrent(caseRoot, prepared.packetPath, prepared.packetSnapshot) {
 		return ReviewerResultInputSaveResult{}, fmt.Errorf("review packet changed after reviewer result input save validation")
 	}
-	already, err := publishReviewerResultInputAnchoredExpected(caseRoot, prepared.packet, prepared.handoff, prepared.inputSource, prepared.packetSnapshot, prepared.resultRootID)
+	if reviewerResultInputBeforePublicationHook != nil {
+		if err := reviewerResultInputBeforePublicationHook(); err != nil {
+			return ReviewerResultInputSaveResult{}, err
+		}
+	}
+	prompt, err := readStableReviewerArtifactAnchored(caseRoot, prepared.promptPath, "reviewer result input dispatch prompt", maxReviewPacketBytes)
+	if err != nil || !bytes.Equal(prompt, prepared.prompt) || !strings.EqualFold(prepared.promptSHA256, sha256Hex(prompt)) {
+		return ReviewerResultInputSaveResult{}, errors.Join(err, fmt.Errorf("reviewer result input dispatch prompt changed after validation"))
+	}
+	already, err := publishReviewerResultInputAnchoredExpected(caseRoot, prepared.packet, prepared.handoff, prepared.inputSource, prepared.packetSnapshot, prepared.resultRootID, func() error {
+		prompt, err := readStableReviewerArtifactAnchored(caseRoot, prepared.promptPath, "reviewer result input dispatch prompt", maxReviewPacketBytes)
+		if err != nil || !bytes.Equal(prompt, prepared.prompt) || !strings.EqualFold(prepared.promptSHA256, sha256Hex(prompt)) {
+			return errors.Join(err, fmt.Errorf("reviewer result input dispatch prompt changed during publication"))
+		}
+		return nil
+	})
 	if err != nil {
 		return ReviewerResultInputSaveResult{}, err
 	}
@@ -503,7 +524,7 @@ func prepareReviewerResultInputSave(repoRoot, caseRoot, pack string, opt Reviewe
 	plannedSource := opt.ResultSnapshot != nil
 	if plannedSource {
 		snapshot := opt.ResultSnapshot
-		if !opt.WhatIf || !samePath(snapshot.Path, inputSourcePath) || snapshot.Bytes < 1 || snapshot.Bytes != int64(len(snapshot.Data)) || !strings.EqualFold(snapshot.SHA256, sha256Hex(snapshot.Data)) {
+		if !samePath(snapshot.Path, inputSourcePath) || snapshot.Bytes < 1 || snapshot.Bytes != int64(len(snapshot.Data)) || !strings.EqualFold(snapshot.SHA256, sha256Hex(snapshot.Data)) {
 			return preparedReviewerResultInputSave{}, fmt.Errorf("reviewer result input planned source snapshot is invalid")
 		}
 		if !reviewpath.CollectionNamespacePathSafe(caseRoot, filepath.Dir(inputSourcePath), true) || samePath(inputSourcePath, inputPath) || samePath(inputSourcePath, handoff.ReviewerStagingCommands.SourcePath) {
@@ -542,6 +563,15 @@ func prepareReviewerResultInputSave(repoRoot, caseRoot, pack string, opt Reviewe
 	if expectedDispatchID := strings.TrimSpace(opt.ExpectedReviewerDispatchID); expectedDispatchID != "" && dispatch.DispatchID != expectedDispatchID {
 		return preparedReviewerResultInputSave{}, fmt.Errorf("reviewer result input source dispatch %q does not match current reviewer dispatch %q", dispatch.DispatchID, expectedDispatchID)
 	}
+	promptPath := strings.TrimSpace(dispatch.PromptPath)
+	promptSHA256 := strings.TrimSpace(dispatch.PromptSHA256)
+	if !samePath(promptPath, handoff.DispatchPromptPath) || !strings.EqualFold(promptSHA256, handoff.DispatchPromptSHA256) {
+		return preparedReviewerResultInputSave{}, fmt.Errorf("reviewer result input dispatch prompt binding changed")
+	}
+	prompt, err := readStableReviewerArtifactAnchored(caseRoot, promptPath, "reviewer result input dispatch prompt", maxReviewPacketBytes)
+	if err != nil || !strings.EqualFold(promptSHA256, sha256Hex(prompt)) {
+		return preparedReviewerResultInputSave{}, errors.Join(err, fmt.Errorf("reviewer result input dispatch prompt changed"))
+	}
 	completionPath := reviewerSessionCompletionPath(packetPath, handoff.ShardID, dispatch.DispatchID)
 	if completion, completionErr := readReviewerSessionCompletion(caseRoot, completionPath); completionErr == nil {
 		if completion.Outcome == "failed" {
@@ -573,6 +603,9 @@ func prepareReviewerResultInputSave(repoRoot, caseRoot, pack string, opt Reviewe
 		dispatch:        dispatch,
 		dispatchPath:    dispatchPath,
 		dispatchSHA256:  sha256Hex(dispatchBytes),
+		promptPath:      promptPath,
+		promptSHA256:    promptSHA256,
+		prompt:          prompt,
 		alreadySaved:    alreadySaved,
 		lane:            lane,
 		actor:           actor,
@@ -1179,15 +1212,15 @@ func existingReviewerResultCandidateAnchored(caseRoot, resultRoot, candidatePath
 	return data, true, nil
 }
 
-func publishReviewerResultInputAnchoredExpected(caseRoot string, packet Packet, handoff ShardHandoff, data []byte, expectedPacket reviewerPacketAnchoredSnapshot, expectedResultRoot os.FileInfo) (bool, error) {
-	return publishReviewerResultChildArtifactAnchoredExpected(caseRoot, packet, data, expectedPacket, expectedResultRoot, "inputs", filepath.Base(handoff.ReviewerStagingCommands.SourceCaptureInput), handoff.ShardID+".reviewer-input.json", "reviewer result input", "packet-derived reviewer result input", "input save")
+func publishReviewerResultInputAnchoredExpected(caseRoot string, packet Packet, handoff ShardHandoff, data []byte, expectedPacket reviewerPacketAnchoredSnapshot, expectedResultRoot os.FileInfo, validate func() error) (bool, error) {
+	return publishReviewerResultChildArtifactAnchoredExpected(caseRoot, packet, data, expectedPacket, expectedResultRoot, "inputs", filepath.Base(handoff.ReviewerStagingCommands.SourceCaptureInput), handoff.ShardID+".reviewer-input.json", "reviewer result input", "packet-derived reviewer result input", "input save", validate)
 }
 
 func publishReviewerResultSourceAnchoredExpected(caseRoot string, packet Packet, handoff ShardHandoff, data []byte, expectedPacket reviewerPacketAnchoredSnapshot, expectedResultRoot os.FileInfo) (bool, error) {
-	return publishReviewerResultChildArtifactAnchoredExpected(caseRoot, packet, data, expectedPacket, expectedResultRoot, "sources", filepath.Base(handoff.ReviewerStagingCommands.SourcePath), handoff.ShardID+".json", "reviewer result source", "packet-derived reviewer result source", "source capture")
+	return publishReviewerResultChildArtifactAnchoredExpected(caseRoot, packet, data, expectedPacket, expectedResultRoot, "sources", filepath.Base(handoff.ReviewerStagingCommands.SourcePath), handoff.ShardID+".json", "reviewer result source", "packet-derived reviewer result source", "source capture", nil)
 }
 
-func publishReviewerResultChildArtifactAnchoredExpected(caseRoot string, packet Packet, data []byte, expectedPacket reviewerPacketAnchoredSnapshot, expectedResultRoot os.FileInfo, child, name, expectedName, label, conflictLabel, operation string) (bool, error) {
+func publishReviewerResultChildArtifactAnchoredExpected(caseRoot string, packet Packet, data []byte, expectedPacket reviewerPacketAnchoredSnapshot, expectedResultRoot os.FileInfo, child, name, expectedName, label, conflictLabel, operation string, validate func() error) (bool, error) {
 	root, err := os.OpenRoot(caseRoot)
 	if err != nil {
 		return false, err
@@ -1263,9 +1296,19 @@ func publishReviewerResultChildArtifactAnchoredExpected(caseRoot string, packet 
 		!reviewerDirectoryIdentityCurrent(caseRoot, packet.ReviewerOrchestration.ResultRoot, expectedResultRoot) {
 		return false, fmt.Errorf("%s directory changed while publishing", label)
 	}
+	if validate != nil {
+		if err := validate(); err != nil {
+			return false, err
+		}
+	}
 	if err := artifactRoot.Link(tmpName, name); err != nil {
 		if existing, present, readErr := existingReviewerResultArtifactAnchored(artifactRoot, name, label); readErr == nil && present {
 			if bytes.Equal(existing, data) {
+				if validate != nil {
+					if err := validate(); err != nil {
+						return false, err
+					}
+				}
 				if !reviewerDirectoryPathMatches(caseRoot, artifactRel, artifactRoot) ||
 					!reviewerDirectoryIdentityCurrent(caseRoot, packet.ReviewerOrchestration.ResultRoot, expectedResultRoot) {
 					return false, fmt.Errorf("%s directory changed while publishing", label)
@@ -1517,8 +1560,9 @@ func newReviewerResultInputSaveResult(repoRoot, caseRoot, pack string, opt Revie
 		AlreadySaved:                  prepared.alreadySaved,
 		ReviewerResult:                prepared.result,
 		Boundary: []string{
-			"input save validates one symlink-free case-local reviewer JSON source against the packet shard and a durable dispatch receipt before publishing exact bytes to the packet-derived reviewerStagingCommands.sourceCaptureInput",
-			"input save never overwrites a different input; exact replay is idempotent and the source remains unchanged",
+			"input save validates one exact reviewer JSON source snapshot or symlink-free case-local file against the packet shard, current dispatch prompt, and durable dispatch receipt before publishing exact bytes to the packet-derived reviewerStagingCommands.sourceCaptureInput",
+			"in-memory snapshot Apply is bound by path, SHA-256, bytes, packet, prompt, dispatch, and the outer reviewer-step plan; it does not publish a host-owned relay source",
+			"input save never overwrites a different input; exact replay is idempotent and any durable source remains unchanged",
 			"runtime does not spawn, stop, poll, monitor, or manage reviewer sessions",
 			"input save does not record completion, source-capture, stage, collect, intake, append facts, execute heavy tools, modify managed/project source files, or write authority/confirmed state",
 			"completion receipt, source capture, staging, collection, and reviewer intake remain separate -WhatIf then explicit -Apply operations",

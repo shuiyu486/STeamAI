@@ -14,6 +14,7 @@ import (
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewersession"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 )
 
@@ -243,16 +244,25 @@ func externalSessionJobFor(target string, pkg *mission.CurrentLoopOperatorPackag
 		return externalsession.Job{}, fmt.Errorf("external session job requires a current member or reviewer handoff")
 	}
 	attempt := pkg.ExternalReviewerHandoff.Attempt
+	receipt, err := reviewersession.ReadDispatch(target, attempt.Receipt.DispatchPath, attempt.Receipt.DispatchSHA256)
+	if err != nil {
+		return externalsession.Job{}, err
+	}
+	fields, err := reviewersession.OutputContractFields(target, receipt)
+	if err != nil {
+		return externalsession.Job{}, err
+	}
+	if receipt.PacketID != attempt.Identity.PacketID || receipt.RouteID != attempt.Identity.RouteID ||
+		receipt.ShardID != attempt.Identity.ShardID || receipt.DispatchID != attempt.Receipt.DispatchID ||
+		receipt.ReviewerHarness != attempt.Receipt.Harness || receipt.ReviewerSession != attempt.Receipt.Session {
+		return externalsession.Job{}, fmt.Errorf("external session reviewer job does not match exact durable dispatch receipt")
+	}
 	reviewer := externalsession.ReviewerIdentity{
 		AttemptSHA256: attempt.AttemptSnapshotSHA256,
-		PacketID:      attempt.Identity.PacketID,
-		RouteID:       attempt.Identity.RouteID,
-		ShardID:       attempt.Identity.ShardID,
-	}
-	if attempt.Receipt.DispatchID != "" {
-		reviewer.DispatchID = attempt.Receipt.DispatchID
-		reviewer.Harness = attempt.Receipt.Harness
-		reviewer.Session = attempt.Receipt.Session
+		PacketID:      receipt.PacketID, RouteID: receipt.RouteID, ShardID: receipt.ShardID,
+		Items: append([]string{}, receipt.Items...), OutputFields: fields,
+		DispatchPath: attempt.Receipt.DispatchPath, DispatchSHA256: attempt.Receipt.DispatchSHA256,
+		DispatchID: receipt.DispatchID, Harness: receipt.ReviewerHarness, Session: receipt.ReviewerSession,
 	}
 	job, err := externalsession.NewReviewerJob(target, pkg.Pack, inspection.ArtifactSHA256, reviewer, allowed)
 	job.DispatchRequired = err == nil
@@ -272,6 +282,70 @@ func bindExternalSessionRequestLane(job *mission.CurrentLoopExternalSessionJob, 
 			request.Lane = lane
 		}
 	}
+}
+
+func sameExternalSessionPath(left, right string) bool {
+	leftPath, leftErr := filepath.Abs(left)
+	rightPath, rightErr := filepath.Abs(right)
+	return leftErr == nil && rightErr == nil && strings.EqualFold(
+		filepath.Clean(leftPath),
+		filepath.Clean(rightPath),
+	)
+}
+
+func externalReviewerLaunchIdentity(
+	caseRoot string,
+	handoff *mission.CurrentLoopExternalReviewerHandoff,
+	launch *mission.CurrentLoopExternalSessionHarnessLaunch,
+) (*mission.CurrentLoopExternalSessionReviewerIdentity, error) {
+	if handoff == nil || handoff.Attempt == nil || launch == nil ||
+		strings.TrimSpace(handoff.Attempt.Receipt.DispatchPath) == "" ||
+		strings.TrimSpace(handoff.Attempt.Receipt.DispatchSHA256) == "" {
+		return nil, fmt.Errorf("current reviewer handoff omitted durable dispatch receipt identity")
+	}
+	dispatchPath := externalSessionHarnessInputPath(
+		caseRoot,
+		handoff.Attempt.Receipt.DispatchPath,
+	)
+	data, err := rekitfs.ReadStableRegularFileAnchored(
+		caseRoot,
+		dispatchPath,
+		"external reviewer dispatch receipt",
+		1<<20,
+	)
+	if err != nil || !strings.EqualFold(
+		externalSessionBytesSHA(data),
+		handoff.Attempt.Receipt.DispatchSHA256,
+	) {
+		return nil, fmt.Errorf("external reviewer dispatch receipt is missing or changed")
+	}
+	receipt, err := reviewersession.DecodeDispatch(data)
+	if err != nil {
+		return nil, err
+	}
+	fields, err := reviewersession.OutputContractFields(caseRoot, receipt)
+	if err != nil {
+		return nil, err
+	}
+	identity := handoff.Attempt.Identity
+	if receipt.PacketID != identity.PacketID || receipt.RouteID != identity.RouteID ||
+		receipt.ShardID != identity.ShardID || receipt.DispatchID != handoff.Attempt.Receipt.DispatchID ||
+		receipt.ReviewerSession != handoff.Attempt.Receipt.Session ||
+		!strings.EqualFold(receipt.PromptSHA256, launch.Input.SHA256) ||
+		!sameExternalSessionPath(receipt.PromptPath, launch.Input.Path) ||
+		!receipt.ReadOnly || !receipt.NoHeavyTool || !receipt.NoAuthority {
+		return nil, fmt.Errorf("external reviewer dispatch receipt does not match current attempt and launch")
+	}
+	return &mission.CurrentLoopExternalSessionReviewerIdentity{
+		PacketID: receipt.PacketID, RouteID: receipt.RouteID,
+		ShardID: receipt.ShardID, Items: append([]string{}, receipt.Items...),
+		OutputFields:   append([]string{}, fields...),
+		DispatchPath:   handoff.Attempt.Receipt.DispatchPath,
+		DispatchSHA256: handoff.Attempt.Receipt.DispatchSHA256,
+		DispatchID:     receipt.DispatchID, ReviewerSession: receipt.ReviewerSession,
+		PromptPath: receipt.PromptPath, PromptSHA256: receipt.PromptSHA256,
+		NoHeavyTool: receipt.NoHeavyTool, NoAuthority: receipt.NoAuthority,
+	}, nil
 }
 
 func externalSessionHarnessPackage(job externalsession.Job, inspection externalsession.Inspection, attempt externalsession.AttemptInspection, operator *mission.CurrentLoopOperatorPackage, typed mission.CurrentLoopExternalSessionJob) *mission.CurrentLoopExternalSessionHarnessPackage {
@@ -305,7 +379,7 @@ func externalSessionHarnessPackage(job externalsession.Job, inspection externals
 		input.Path = operator.ExternalMemberHandoff.TaskContextPath
 		input.SHA256 = operator.ExternalMemberHandoff.TaskContextSHA256
 		memberInspection, err := memberexecution.Inspect(job.CaseRoot, operator.ExternalMemberHandoff.Lane, operator.ExternalMemberHandoff.AttemptID)
-		if err != nil || memberexecution.ValidateCurrentTaskContext(job.CaseRoot, memberInspection) != nil {
+		if err != nil || memberexecution.ValidateActionableTaskContext(job.CaseRoot, memberInspection) != nil {
 			launch.Ready = false
 			pkg.Warnings = append(pkg.Warnings, "current immutable member task context is stale; refresh status and do not launch")
 			break
@@ -346,7 +420,16 @@ func externalSessionHarnessPackage(job externalsession.Job, inspection externals
 		if err != nil || !strings.EqualFold(externalSessionBytesSHA(data), input.SHA256) {
 			launch.Ready = false
 			pkg.Warnings = append(pkg.Warnings, "current reviewer prompt is unavailable or does not match its dispatch sha256; refresh status and do not launch")
+			break
 		}
+		launch.Input = input
+		identity, identityErr := externalReviewerLaunchIdentity(job.CaseRoot, operator.ExternalReviewerHandoff, launch)
+		if identityErr != nil {
+			launch.Ready = false
+			pkg.Warnings = append(pkg.Warnings, "current reviewer dispatch receipt is unavailable or does not match the exact launch identity; refresh status and do not launch")
+			break
+		}
+		launch.ReviewerIdentity = identity
 	}
 	launch.Input = input
 	pkg.Launch = launch

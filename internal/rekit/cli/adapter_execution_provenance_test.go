@@ -17,6 +17,7 @@ func cliAdapterExecutionFixture(t *testing.T) (string, string, string) {
 	repoRoot := filepath.Join(root, "repo")
 	caseRoot := filepath.Join(root, "case")
 	pack := "unit"
+	writeCaseFile(t, repoRoot, "go.mod", "module github.com/shuiyu486/re-context-kits\n")
 	writeCaseFile(t, repoRoot, "rekit/rekit.ps1", "# fixture\n")
 	writeCaseFile(t, repoRoot, "packs/unit/manifest.yml", `name: unit
 managedFiles:

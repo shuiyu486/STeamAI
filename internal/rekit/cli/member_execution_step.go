@@ -62,7 +62,10 @@ func buildMemberExecutionStep(ctx runtime.Context, opt Options, request mission.
 		return nil, false, err
 	}
 	sum := sha256.Sum256(requestBytes)
-	requestSHA := hex.EncodeToString(sum[:])
+	requestSHA, err := memberexecution.BindCurrentTaskRequestSHA256(ctx.Target, lane, hex.EncodeToString(sum[:]))
+	if err != nil {
+		return nil, false, err
+	}
 	if latest, ok, err := memberexecution.Latest(ctx.Target, lane); err == nil && ok {
 		ownerCurrent, err := memberexecution.CurrentOwnerMatches(ctx.Target, ctx.Pack, latest.Owner)
 		if err != nil {

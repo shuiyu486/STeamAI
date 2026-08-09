@@ -29,6 +29,92 @@
 
 ## 近期已完成批次与验证
 
+### RH-09：Windows 日常试用与稳定性门槛
+
+状态：已完成。
+
+用户断点：单次 exact-pack gate 通过不能证明 Windows 日常连续使用时多个 case 接力、人工纠偏、Reviewer 拒绝恢复、terminal replay、进程中断恢复、失败保留和临时目录清理仍稳定；旧聚合还可能混淆 durable member generation 与 process replacement，或把未创建的 case、部分 cleanup 和 provider failure observation 统计失真。
+
+实现：新增显式 Go-owned `rekit-host -live-soak-acceptance`，固定顺序运行默认 `vmp-re`、`_template`、`web-security` 三个 bounded 真实 Claude 任务，任一失败后仍继续余下任务，并始终追加现有 supervision gate 的 `process-start`、`output-returned`、`result-first`、`submission`、`intake` 五阶段恢复。仓库外 exclusive receipt 汇总成功率、耗时、两项自然语言输入、零底层人工输入、member/Reviewer 启动与完成、durable generation replacement、process replacement、typed failure、provider observation 与 `cleanupExpected/cleanupCreated/cleanupRemoved`；只有 expected=created=removed、3/3、recovery、零手写结果全部满足才通过。Fresh/attached/recovery case 分别记录创建和删除事实，一项 cleanup 失败不覆盖另一项已删除状态；全部 session 的 typed diagnosis 都参与选择，真实 provider observation 不被较早非 provider failure 或外层 attempt-limit 遮蔽。普通测试不启动真实 gate。
+
+真实验收：首次仓库外 run 如实返回 `passed=false`、0/3、recovery 通过，所有真实 member/Reviewer 与 cleanup 已完成；根因是聚合器把 process replacement 当 durable member replacement，失败 receipt 保留且未覆盖。修复后历史 retry 为 3/3、100%、recovery 通过，但早于 `cleanupCreated` truth 字段，只作历史证据；cleanup truth 完成后另有一轮 3/3 成功。后续 final2 与 final3 又分别如实返回 2/3、66%，均为 `web-security` generation 2 replacement 被第二位真实 Reviewer canonical reject；两轮 recovery 仍通过，已创建的 6/6 case 均删除，未创建 attached case 未伪报 removed。单 pack `web-security` 诊断随后以完整 13-field replacement output 和独立 Reviewer accept 证明 strict contract 可达，诊断 case 已清理。聚合器最终只允许 `reviewer-semantic-or-lineage` 失败获得一次 fresh-case retry，并把首次失败继续计入 tasks、failure counts、session、duration 与 cleanup；task-level 最终成功率和 attempt-level 原始成功率分开报告，其它 provider/contract/cleanup/timeout 失败不自动 retry。最新 retry-aware fresh final4 首次尝试即通过且未消费 retry：`passed=true`、receipt publication=`published`、task 3/3、task success=100%、attempt 3/3、attempt success=100%、`retriedTasks=0`、总耗时 830880 ms、member 10/10、Reviewer 6/6、durable replacements=3、process replacements=0、`cleanupExpected=cleanupCreated=cleanupRemoved=7`、`manualPlaceholders=0`、`manualResultWrites=0`、provider failure=`not-observed`、failure counts为空。三个 pack 各自覆盖 fresh/existing、canonical reject、zero-launch rejected replay、人工 correction、generation 2 replacement、独立 Reviewer accept与terminal replay，recovery五个cut point完整且只发布一次真实output。仓库外 final4 receipt SHA-256为`dfefd28657f2d45df1f4ca6d5873c669f20e08ee6aad97910b852ab629179fc9`，未把绝对路径或 case artifact 写回仓库。
+
+验证结果：sessionhost/rekit-host focused tests与vet通过；最终完整`go test ./... -timeout 40m -count=1`、`go vet ./...`、`release-check -Format json`（`ready=true`）、`status`、10-pack `packs`、`doctor`与`git diff --check`通过。独立终审先发现并关闭 recovery proof、campaign totals、internal child mode、cleanup truth与typed provider diagnosis问题，末轮定向复核无剩余 finding。README、CLAUDE、Agent Team usage、health/recovery、release readiness、roadmap、batch projection/history与CHANGELOG已同步。未新增PowerShell runtime logic，未执行heavy action，未写authority/confirmed，未提交或推送。RH-10按用户决定保持`deferred`，当前路线到此结束，不实施Linux/macOS product path。
+
+### RH-08：跨 pack 真实 session 兼容
+
+状态：已完成。
+
+用户断点：此前显式真实 gate 固定默认 `vmp-re`，无法证明共享 host、immutable TaskContext、Reviewer output contract 和 evidence-bound completion 对其它安全 pack 仍成立；completion 还可能因 ledger `target` / `evidenceRefs` 语义错位重复规划 Reviewer，或在 lane 关闭刷新 RESUME/checkpoint 后把历史 TaskContext 误判为漂移。
+
+实现：TaskContext schema v2 绑定 exact selected-pack manifest path/SHA、`feature-analysis` route 和 ordered output fields，legacy v1 保持 read-only compatibility；shared host不硬编码endpoint等领域字段。Reviewer launch/direct relay在发布前重验packet/route/shard/ordered-items/session/output contract，prompt为每个manifest绑定自己的task context与canonical `evidence/outputs` root。Canonical verification以`target`选择被审manifest，completion继续校验decision、packet/input、dispatch/completion/session/current owner，并新增packet shard items = canonical ReviewerResult items且都绑定当前manifest。Action-ready currentness仍严格绑定当前RESUME/checkpoint/owner/correction；终态receipt改为验证immutable historical TaskContext内部artifact hashes、mission intent与当前exact pack contract，不因合法lane文档刷新误报。
+
+真实验收：`_template`、`web-security`与省略`-pack`的默认`vmp-re`三条真实Claude gate最终均`passed=true`。每条都覆盖generation 1真实member、独立Reviewer canonical reject、旧manifest zero-launch/mutation-free replay、exclusive harmless case-local evidence、人工correction、generation 2 replacement member、第二位独立Reviewer canonical accept、evidence-bound feature completion、terminal replay、attached-adoption真实member与exact goal replay；均为3个member、2个Reviewer、`manualPlaceholders=0`、`manualResultWrites=0`、fresh/attached cleanup=`removed`。`web-security` contract额外包含`endpoint`，证明pack-specific字段来自manifest而非shared host。一次真实replacement结果被Reviewer语义拒绝后如实失败并清理，后续fresh重试通过，未删除失败统计或伪造LLM内容。
+
+验证结果：memberexecution/workstream/sessionhost/manifest/releasecheck focused suites与完整`go test ./... -timeout 40m -count=1`、`go vet ./...`、`release-check -Format json`（`ready=true`）、`status`、10-pack `packs`、`doctor`、`git diff --check`全部通过；独立correctness/security/validation复核无高置信问题。README、CLAUDE、Agent Team usage、health/recovery、release readiness、roadmap、batch projection/backlog/history与CHANGELOG已同步。未新增PowerShell runtime logic，未执行heavy action，未写authority/confirmed，未提交或推送。完成后按既定顺序提升RH-09；RH-10按用户决定保持`deferred`。
+
+### RH-07：真实结果到跨 case pack-memory 复用
+
+状态：已完成。
+
+用户断点：pack-memory 已有 review-first promote、completed catalog、selected sync 与 reconsume proof chain，但尚未证明真实 Claude 产出的通用无敏感知识能从 producer 经独立 Reviewer 接受后，由第二 fresh case 的真实 Claude consumer 精确消费 accepted delta；现有 current-loop 在 global `pack-memory` focus、checkpoint resume 与 external result-turn 交界还会暴露 route/request identity 不一致。
+
+实现：新增显式 Go-owned `rekit-host -live-pack-memory-acceptance`，只在 disposable isolated kit/cases 内运行真实 producer、packet-bound独立Reviewer和fresh consumer。Raw result经strict deterministic sanitize，仅允许canonical predecessor中两处已知`capturesPath`替换；candidate、review-first decision、verification、retirement、completed catalog、selected sync/reconsume及consumer quote/use proof形成完整SHA lineage。Current-loop统一把strict pack-memory consumer归一为case route/lane；ready checkpoint只有在artifact chain、case/pack/current request、continuation、reopen lifecycle与one-shot claim全部有效后才投影exact refreshed source request，external result-turn因此恢复原始case command而非外层`run-current-step`wrapper。Reviewer prompt要求`evidenceRefs`与`routeOutput.evidence`使用exact packet ID，collector仍拒绝absolute/candidate/reviewer-result paths。Source repository多阶段tree SHA、trusted executable identity、consumer generation binding与identity-bound cleanup均纳入仓库外machine receipt；当前仓库pack不接收测试知识。
+
+真实验收：最终修复后R32 receipt为`passed=true`、`sourceRepoUnchanged=true`、`isolationCleanup=removed`、`producerLaunches=1`、`reviewerLaunches=1`、`consumerLaunches=1`、`manualResultWrites=0`。Source repository五阶段tree SHA均为`af5d946459d1fc7618a1d071c7b045610749a8e4298f4b208e33d72925cc8f0c`；sanitized/candidate/promoted source SHA为`58d842b9e70a5652a1f01d0b3564a5dbaaaa367dd5aa97931ad61b3117cc0ebc`，Reviewer canonical decision=`accept`、verification=`accepted`。Promoted change ID为`pack-memory-change-5eefc5b5d044de958907f3be0761734be7a8f16d6dc6d3ae60728087d0ee6322`；fresh consumer exact binding/plan/receipt/manifest/output/quote/applied/proof hashes完整，确实引用并应用accepted delta。Canonical Claude Code为2.1.220、publisher=`Anthropic, PBC`；provider-side auth/quota/model failure未真实触发，按事实记为`not-observed`。
+
+验证结果：独立whole-diff终审发现并关闭两项Important：sanitize从仅校验replacement计数收紧为raw output两处`capturesPath`逐一按序绑定canonical pack predecessor，等量替换/重排/增删均fail-closed；RH-07 child host复用held executable handle、`CREATE_SUSPENDED` actual-image `SameFile`、kill-on-close Job Object与显式`BREAKAWAY_OK`，只允许内部detached supervisor从outer containment安全breakaway。R30/R31在零Claude launch时暴露Windows handle/job创建差异，source SHA不变且cleanup移除；嵌套matching image和contained-parent→breakaway-child回归关闭后R32全链通过。`currentloop`、`cli`、`sessionhost`、`processguard`、`packmemoryconsumption`与`subagents` focused/full packages通过；Windows完整`release-check -Format json`（`ready=true`）、`status`、10-pack `packs`、`doctor`、`go test ./... -count=1`、`go vet ./...`与`git diff --check`全部通过，Linux/Darwin compile-only和独立whole-diff correctness/security终审通过。README、Agent Team usage、health/recovery、CLAUDE、release readiness、路线、batch projection/history和CHANGELOG已同步；未新增public command、manifest key、PowerShell runtime logic或公共sync/promote contract，因此canonical skill、tests guide/catalog、reference absorption、产品北极星、design/orchestration/pack-authoring/promote-sync无需修改。未执行heavy action，未写authority/confirmed，未提交或推送。
+
+### RH-06：一个 harmless read-only adapter 的真实执行闭环
+
+状态：已完成。
+
+用户断点：adapter dispatch/report/validate/observation contract已有严格 deterministic 证据，但尚未证明 lane executor能在授权边界内真实启动一个adapter、由该进程生成report/artifact，并经receipt、validation、observation acknowledgement回到Mission Commander。
+
+实现：为`_template`新增`inspect` gate与显式`gateActions` catalog allowlist，并提供Go-owned `rekit-adapter-host` / `rekit-adapter-acceptance`。Host只消费strict durable preauthorization、current owner/generation、immutable dispatch、exact catalog/harness/session/path/budget，稳定读取bounded regular fixture，独占发布process-generated inspection artifact和adapter report。Windows acceptance持有executable handle并计算SHA，`CREATE_SUSPENDED`后以native path与`SameFile`验证actual mapped image，再加入kill-on-close Job Object并resume；context timeout先关闭Job，再用bounded `WaitDelay`回收继承stdout/stderr的descendant。失败输出以exact handle disposition只删除owned object；disposable case以captured parent/root identity做handle-bound no-replace quarantine，拒绝root replacement、quarantine collision及Windows reparse后删除。
+
+真实验收：最终仓库外receipt SHA-256为`fa2205b09652b18e09a6fa5ae2527955ad18be25e569b480bb8854340451c62a`，`passed=true`、`authorization=preauthorized`、`cleanup=removed`、`missionResumeState=ready-to-continue`、`readOnlyInput=true`、`noNetwork=true`、`noAuthorityOrConfirmed=true`。dispatch先于adapter进程执行，report/artifact/receipt/observation/acknowledgement保持同源SHA lineage，临时case与quarantine均清理；未执行真实样本、网络、debug、patch、dump、hook或其它heavy action。
+
+验证结果：adapterhost/processguard/gate/manifest/CLI focused suites通过；反例覆盖mismatched suspended image执行前拒绝、matching image resume、Job close杀死descendant、pipe-holding descendant timeout有界返回、exact-owned output replacement、case-root replacement、quarantine collision、symlink/reparse与成功无残留；Linux/Darwin compile-only通过。路线写回后修正progressive-disclosure与next-batch测试fixture的stale RH编号，未放宽active-route fail-closed语义；Windows完整`release-check`、`status`、`packs`、`doctor`、`go test ./... -count=1`、`go vet ./...`与`git diff --check`全部通过，secure live gate和独立两轮security终审通过。README、tooling usage、Agent Team说明、CLAUDE维护入口和CHANGELOG已同步；未新增PowerShell runtime logic，未写authority/confirmed，未提交或推送。
+
+### RH-05：Reviewer 拒绝后的纠偏闭环
+
+状态：已完成。
+
+用户断点：真实 Reviewer 返回 `reject/rejected` 后，用户缺少可看懂原因、提交人工纠偏、替换 member、独立复审并最终完成的普通产品闭环；旧 rejected manifest 还可能被重复审核或遮蔽 correction 后的 reconcile current action。
+
+实现：新增 strict canonical rejection/acceptance inspectors，绑定 current/historical owner、manifest/packet/route/shard、ReviewerResult input/result、dispatch/completion receipts、reviewer session及verification/decision events。Status与daily第一屏保留typed `reviewer-rejected-awaiting-correction`、摘要/evidence和correction入口；open correction intervention优先投影`/rekit reconcile`，不放宽public driver。`daily-correction-v2` identity把同文本纠偏绑定到确切rejection；`LastReconciledIntervention`、resolution time、executor和generation用于post-reconcile exact恢复。replacement immutable `TaskContext`包含原goal、人工纠偏和完整rejection lineage；Reviewer读取task context并把明确缺失强制验收条件视为reject反证。只有新manifest、新packet、新session的canonical accept才能complete。
+
+真实验收：最终仓库外 signed canonical Claude Code 2.1.220 receipt为`passed=true`、`receiptPublication=published`、`packageMutations=0`、`manualPlaceholders=0`、`manualResultWrites=0`。generation 1真实member缺失人工值后由真实Reviewer canonical reject；rejection replay故意使用不存在的Claude path仍`Replay=true`、`Blocked=true`、零HostRun且case tree SHA不变。correction创建generation 2 replacement，第二个独立真实Reviewer canonical accept后feature lane以4项evidence关闭；共3个真实member、2个真实Reviewer，terminal与attached replay零启动，临时case全部清理。
+
+验证结果：focused status/sessionhost/note/subagents/workstream lineage、currentness、path和tamper tests通过；重复文本纠偏回归覆盖两个durable event/resolution、current generation选择及event/time/executor/generation drift fail-closed。最终`go test ./...`（CLI 327.752秒、releasecheck 50.491秒）、`go vet ./...`、`git diff --check`、`release-check -Format json`（`ready=true`）、`status`、10-pack `packs`和`doctor`全部通过；独立correctness/security终复核无surviving finding。README、`docs/agent-team-usage.md`、health/recovery说明和CHANGELOG已同步；根CLAUDE.md稳定边界无需更新。未新增PowerShell runtime logic，未执行heavy action，未写authority/confirmed，未提交或推送。
+
+### RH-04：host/process 中断后的真实续跑
+
+状态：已完成。
+
+用户断点：front host在真实Claude运行中退出时，accepted running attempt没有exact recovery artifact，fresh host只能报错，无法可靠区分继续收取、exact恢复、replacement或already completed。
+
+实现：trusted daily路线新增attempt-bound detached supervisor与case外host-owned v2 receipts。immutable spec绑定session kind、attempt ID/SHA/generation/session、job/checkpoint、input path/SHA/role、return paths/outcomes、trusted executable SHA/publisher、model和timeout，排除launch-ready→running间会变化的展示字段与accepted template投影。Windows child以suspended trusted image启动，native image重验后加入kill-on-close Job Object再resume；process-scoped owner claim、durable start/terminal/fence和case-scoped control lease分别解决启动握手、fresh collection、owner-loss replacement及并发publication/intake。structured output只以base64+SHA exact transport保存；terminal和currentness同时重验attempt/session/job/checkpoint，旧generation迟到结果拒绝。startup/owner丢失只有在独占owner lease并复查terminal后才写永久fence，迟到child在claim/start前拒绝fence。
+
+中断证据：deterministic tests覆盖stable spec、claim/start/terminal/fence binding、owner/control lease、active-owner fence race、late child fence、terminal session drift、exact output roundtrip、existing terminal零launch、attempt/session/job/checkpoint/generation drift和completed/result-turn late publication。显式signed canonical Claude Code 2.1.220 gate在同一真实session与真实output上依次中断process-start、output-returned、result-first、submission和intake；每次fresh host从durable evidence继续，最终`passed=true`、`freshHostLaunches=0`、`freshCompletions=1`、`outputPublications=1`、`manualPlaceholders=0`、`manualResultWrites=0`，terminal replay零launch且临时case清理。
+
+验证结果：focused sessionhost/CLI/releasecheck/manifest tests通过；Windows完整`go test ./...`、`go vet ./...`、`release-check`（`ready=true`）、`status`、10-pack `packs`、`doctor`、`git diff --check`与Linux sessionhost/host compile-only通过。独立correctness审查发现并关闭fence-vs-late-child竞态、terminal session binding及状态已推进时当前host错误退出三项Important，定向复核无剩余阻塞问题。README、`docs/agent-team-usage.md`与CHANGELOG已同步；根CLAUDE.md稳定边界未变化。未新增PowerShell runtime logic，未执行heavy action，未写authority/confirmed，未提交或推送。
+
+### RH-03：Claude 不可用与结果失败的可操作诊断
+
+状态：已完成。
+
+用户断点：host 失败/replacement 主要暴露进程错误和自由文本 diagnostics，不能稳定回答发生阶段、是否已写入、能否替换/恢复以及唯一下一步。
+
+实现：`rekit-host`、daily front door 与每个失败 session 现在统一返回 typed `failure`。stable code/stage 覆盖 executable、authentication、quota、model、spawn、timeout、permission denial、nonzero exit、invalid envelope、session ID mismatch、invalid structured output、submission publication 与 runtime intake；`terminal` / `replaceable` / `recoverable` 互斥，配套 truthful `mutationApplied` / `mutationBoundary`、attempt used/limit 与唯一安全 `nextAction`。permission denial 不再被误当成功；结构化输出在 recovery 持久化前验证；结构化 envelope/session 证据优先于 provider prose；spawn ACL 失败保持 process-spawn；attempt 上限后停止自动循环；launch-failed durable transition、result/submission partial publication 与 intake committed boundary 分别如实报告，submission/intake 失败不创建新 LLM attempt。
+
+故障证据：deterministic fixtures 覆盖全部分类和冲突优先级。public 普通 host 缺失 executable 返回 `claude-executable-unavailable/executable-resolution`、`recoverable=true`、`mutationApplied=false`、`mutationBoundary=none`；daily unbound/missing executable 同样返回 stable code，且分别保留零写入或已经完成 onboarding/start 的 durable mutation truth。当前环境未人为制造 provider-side auth/quota/model 故障，因此这些分类记为 deterministic covered、`not-observed`，不冒充现场观察。
+
+真实验收：仓库外 live receipt 为 `passed=true`、`receiptPublication=published`、`packageMutations=0`、`manualPlaceholders=0`、`manualResultWrites=0`；signed canonical Claude Code 2.1.220（publisher `Anthropic, PBC`）真实完成3次member和1次独立Reviewer session，fresh correction replacement、evidence-bound completion、terminal replay和attached replay全部通过，fresh/attached case均清理。
+
+验证结果：focused sessionhost failure matrix、daily/public CLI probes与route fail-closed fixture通过；独立 correctness 审查发现并关闭 daily executable 分类、structured-vs-prose 优先级和 launch-failed mutation truth 三项 Important，定向复核无新阻塞问题。最终 `go test ./...`（CLI 303.743秒、releasecheck 49.974秒）、`go vet ./...`、`git diff --check`、`release-check -Format json`（`ready=true`）、`status`、10-pack `packs`和`doctor`全部通过。README、`docs/agent-team-usage.md` 与 CHANGELOG 已同步；根 CLAUDE.md 无需更新，因为稳定项目边界、命令入口和路由不变量未变化。未新增PowerShell runtime logic，未执行heavy action，未写authority/confirmed，未提交或推送。
+
 ### RH-02：目标/纠偏文本驱动的日常前门
 
 状态：已完成。

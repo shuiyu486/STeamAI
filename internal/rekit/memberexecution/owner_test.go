@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -68,6 +69,229 @@ func TestDispatchObservationManifestAndReplay(t *testing.T) {
 	latest, err := Inspect(caseRoot, "feature-analysis", dispatch.AttemptID)
 	if err != nil || latest.State != "intake-ready" {
 		t.Fatalf("immutable result snapshot did not survive source drift: latest=%+v err=%v", latest, err)
+	}
+}
+
+func TestDispatchBindsPackOutputContract(t *testing.T) {
+	templateFields := []string{"item", "decision", "confidence", "evidence", "risk", "next_action", "tier_used", "tool_scope", "feature", "request_id", "candidate_path", "defer_reason"}
+	webFields := []string{"item", "decision", "confidence", "evidence", "risk", "next_action", "tier_used", "tool_scope", "feature", "endpoint", "request_id", "candidate_path", "defer_reason"}
+	contracts := map[string]OutputContract{}
+	for _, test := range []struct {
+		pack   string
+		route  string
+		fields []string
+	}{
+		{pack: "_template", route: "_template:lane-feature-analysis", fields: templateFields},
+		{pack: "web-security", route: "web-security:feature-analysis", fields: webFields},
+	} {
+		t.Run(test.pack, func(t *testing.T) {
+			caseRoot := memberCaseForPack(t, test.pack, "executor-a", 1)
+			plan, err := PreviewDispatch(DispatchOptions{CaseRoot: caseRoot, Pack: test.pack, Lane: "feature-analysis", RequestSHA256: strings.Repeat("d", 64), CreatedAt: "2026-08-03T01:02:03Z"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			context := plan.Inspection.TaskContext
+			if context == nil || context.SchemaVersion != TaskContextSchemaVersion || context.OutputContract == nil {
+				t.Fatalf("task context omitted current pack contract: %+v", context)
+			}
+			contract := *context.OutputContract
+			if contract.ManifestPath != "packs/"+test.pack+"/manifest.yml" || !validSHA(contract.ManifestSHA256) || contract.TaskType != "feature-analysis" || contract.RouteID != test.route || !reflect.DeepEqual(contract.Fields, test.fields) {
+				t.Fatalf("pack contract = %+v", contract)
+			}
+			contracts[test.pack] = contract
+		})
+	}
+	if reflect.DeepEqual(contracts["_template"], contracts["web-security"]) {
+		t.Fatal("cross-pack dispatch reused the same output contract")
+	}
+}
+
+func TestLegacyTaskContextRemainsReadableButNewDispatchRequiresCurrentContract(t *testing.T) {
+	caseRoot := memberCase(t, "executor-a", 1)
+	plan, err := PreviewDispatch(DispatchOptions{CaseRoot: caseRoot, Pack: "_template", Lane: "feature-analysis", RequestSHA256: strings.Repeat("c", 64), CreatedAt: "2026-08-03T01:02:03Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Inspection.TaskContext == nil || plan.Inspection.TaskContext.SchemaVersion != TaskContextSchemaVersion || plan.Inspection.TaskContext.OutputContract == nil {
+		t.Fatalf("new dispatch omitted current contract: %+v", plan.Inspection.TaskContext)
+	}
+	if _, err := Apply(plan, plan.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+
+	attemptRoot := plan.Inspection.AttemptRoot
+	legacy := *plan.Inspection.TaskContext
+	legacy.SchemaVersion = legacyTaskContextVersion
+	legacy.OutputContract = nil
+	legacyBytes, err := canonical(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	intentBytes, err := os.ReadFile(filepath.Join(attemptRoot, "intent.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	handoff := *plan.Inspection.Handoff
+	handoff.TaskContextSHA256 = hash(legacyBytes)
+	handoffBytes, err := canonical(handoff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit := Commit{SchemaVersion: SchemaVersion, Kind: KindCommit, AttemptID: plan.AttemptID, IntentSHA256: hash(intentBytes), TaskContextSHA256: hash(legacyBytes), HandoffSHA256: hash(handoffBytes)}
+	commitBytes, err := canonical(commit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for path, data := range map[string][]byte{
+		filepath.Join(attemptRoot, "task-context.json"): legacyBytes,
+		filepath.Join(attemptRoot, "handoff.json"):      handoffBytes,
+		filepath.Join(attemptRoot, "commit.json"):       commitBytes,
+	} {
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	inspection, err := Inspect(caseRoot, "feature-analysis", plan.AttemptID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inspection.TaskContext == nil || inspection.TaskContext.SchemaVersion != legacyTaskContextVersion || inspection.TaskContext.OutputContract != nil {
+		t.Fatalf("legacy task context = %+v", inspection.TaskContext)
+	}
+	if err := ValidateCurrentTaskContext(caseRoot, inspection); err != nil {
+		t.Fatalf("legacy task context lost read/currentness compatibility: %v", err)
+	}
+	if err := ValidateActionableTaskContext(caseRoot, inspection); err == nil || !strings.Contains(err.Error(), "read-only") {
+		t.Fatalf("legacy task context remained actionable: %v", err)
+	}
+	if _, err := PreviewObservation(ObservationOptions{CaseRoot: caseRoot, Pack: "_template", Lane: "feature-analysis", AttemptID: plan.AttemptID, Outcome: "accepted", Actor: "harness", ObservedAt: "2026-08-03T01:03:00Z"}); err == nil || !strings.Contains(err.Error(), "read-only") {
+		t.Fatalf("legacy task context accepted an observation mutation: %v", err)
+	}
+
+	invalid := legacy
+	invalid.OutputContract = plan.Inspection.TaskContext.OutputContract
+	if err := validateTaskContextContract(*inspection.Intent, invalid); err == nil || !strings.Contains(err.Error(), "must not contain") {
+		t.Fatalf("legacy context accepted a partial backport: %v", err)
+	}
+	invalid = *plan.Inspection.TaskContext
+	invalid.OutputContract = nil
+	if err := validateTaskContextContract(*inspection.Intent, invalid); err == nil {
+		t.Fatal("current task-context schema accepted a missing output contract")
+	}
+}
+
+func TestTaskContextPackContractSurvivesLaneArtifactRefresh(t *testing.T) {
+	caseRoot := memberCase(t, "executor-a", 1)
+	plan, err := PreviewDispatch(DispatchOptions{CaseRoot: caseRoot, Pack: "_template", Lane: "feature-analysis", RequestSHA256: strings.Repeat("e", 64), CreatedAt: "2026-08-03T01:02:03Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(plan, plan.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	inspection, err := Inspect(caseRoot, "feature-analysis", plan.AttemptID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "prompts", "RESUME.md"), []byte("terminal lane refresh\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateCurrentTaskContext(caseRoot, inspection); err == nil || !strings.Contains(err.Error(), "task artifact changed") {
+		t.Fatalf("actionable currentness accepted refreshed lane artifact: %v", err)
+	}
+	if err := ValidateTaskContextPackContract(caseRoot, inspection); err != nil {
+		t.Fatalf("immutable task-context pack contract did not survive lane artifact refresh: %v", err)
+	}
+}
+
+func TestCurrentTaskContextRejectsPackManifestDrift(t *testing.T) {
+	caseRoot := memberCase(t, "executor-a", 1)
+	plan, err := PreviewDispatch(DispatchOptions{CaseRoot: caseRoot, Pack: "_template", Lane: "feature-analysis", RequestSHA256: strings.Repeat("b", 64), CreatedAt: "2026-08-03T01:02:03Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(plan, plan.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	inspection, err := Inspect(caseRoot, "feature-analysis", plan.AttemptID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract := inspection.TaskContext.OutputContract
+	if contract == nil {
+		t.Fatal("current dispatch omitted output contract")
+	}
+	manifestPath := filepath.Join(kitRoot(t), filepath.FromSlash(contract.ManifestPath))
+	original, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	copyRoot := t.TempDir()
+	copyPath := filepath.Join(copyRoot, filepath.FromSlash(contract.ManifestPath))
+	if err := os.MkdirAll(filepath.Dir(copyPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(copyPath, append(append([]byte{}, original...), '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	instancePath := filepath.Join(caseRoot, ".rekit", "instance.yml")
+	if err := os.WriteFile(instancePath, []byte("schemaVersion: 1\ntemplateRoot: "+copyRoot+"\ntemplatePack: _template\nprojectRoot: "+caseRoot+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateCurrentTaskContext(caseRoot, inspection); err == nil || !strings.Contains(err.Error(), "output contract changed") {
+		t.Fatalf("manifest drift error = %v", err)
+	}
+	if err := ValidateTaskContextPackContract(caseRoot, inspection); err == nil || !strings.Contains(err.Error(), "output contract changed") {
+		t.Fatalf("receipt pack-contract validation accepted manifest drift: %v", err)
+	}
+}
+
+func TestTaskBindingBindsRequestAndRotatesWithOwnerGeneration(t *testing.T) {
+	caseRoot := memberCase(t, "executor-a", 1)
+	baseRequestSHA := strings.Repeat("a", 64)
+	unbound, err := BindCurrentTaskRequestSHA256(caseRoot, "feature-analysis", baseRequestSHA)
+	if err != nil || unbound != baseRequestSHA {
+		t.Fatalf("unbound request sha=%s err=%v", unbound, err)
+	}
+
+	firstBinding := TaskBinding{Kind: "pack-memory-consumer", Values: map[string]string{"changeId": "change-a", "sourceSha256": strings.Repeat("b", 64)}}
+	firstPath, _, err := WriteTaskBinding(caseRoot, "feature-analysis", firstBinding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(firstPath, "/member-task-bindings/g000001.json") {
+		t.Fatalf("binding path is not owner-generation scoped: %s", firstPath)
+	}
+	firstRequestSHA, err := BindCurrentTaskRequestSHA256(caseRoot, "feature-analysis", baseRequestSHA)
+	if err != nil || firstRequestSHA == baseRequestSHA {
+		t.Fatalf("bound request sha=%s err=%v", firstRequestSHA, err)
+	}
+	dispatch, err := PreviewDispatch(DispatchOptions{CaseRoot: caseRoot, Pack: "_template", Lane: "feature-analysis", RequestSHA256: firstRequestSHA, CreatedAt: "2026-08-03T01:02:03Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dispatch.Inspection.Intent == nil || dispatch.Inspection.Intent.RequestSHA256 != firstRequestSHA || dispatch.Inspection.TaskContext == nil || dispatch.Inspection.TaskContext.Binding == nil || dispatch.Inspection.TaskContext.Binding.Values["changeId"] != "change-a" {
+		t.Fatalf("dispatch omitted request/task-context binding: %+v", dispatch.Inspection)
+	}
+	if _, _, err := WriteTaskBinding(caseRoot, "feature-analysis", TaskBinding{Kind: "pack-memory-consumer", Values: map[string]string{"changeId": "change-b"}}); err == nil || !strings.Contains(err.Error(), "differs") {
+		t.Fatalf("same-generation binding rotation did not fail closed: %v", err)
+	}
+
+	writeBoard(t, caseRoot, "executor-b", 2)
+	rotatedUnbound, err := BindCurrentTaskRequestSHA256(caseRoot, "feature-analysis", baseRequestSHA)
+	if err != nil || rotatedUnbound != baseRequestSHA {
+		t.Fatalf("new owner generation inherited stale binding: sha=%s err=%v", rotatedUnbound, err)
+	}
+	secondPath, _, err := WriteTaskBinding(caseRoot, "feature-analysis", TaskBinding{Kind: "pack-memory-consumer", Values: map[string]string{"changeId": "change-b", "sourceSha256": strings.Repeat("c", 64)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secondPath == firstPath || !strings.Contains(secondPath, "/member-task-bindings/g000002.json") {
+		t.Fatalf("binding did not rotate with owner generation: first=%s second=%s", firstPath, secondPath)
+	}
+	secondRequestSHA, err := BindCurrentTaskRequestSHA256(caseRoot, "feature-analysis", baseRequestSHA)
+	if err != nil || secondRequestSHA == baseRequestSHA || secondRequestSHA == firstRequestSHA {
+		t.Fatalf("rotated binding did not change request sha: first=%s second=%s err=%v", firstRequestSHA, secondRequestSHA, err)
 	}
 }
 
@@ -763,11 +987,17 @@ func TestRejectsManifestTraversalDuplicateAndOutputSymlink(t *testing.T) {
 
 func memberCase(t *testing.T, executor string, generation int) string {
 	t.Helper()
+	return memberCaseForPack(t, "_template", executor, generation)
+}
+
+func memberCaseForPack(t *testing.T, pack, executor string, generation int) string {
+	t.Helper()
 	root := t.TempDir()
+	templateRoot := kitRoot(t)
 	if err := os.MkdirAll(filepath.Join(root, ".rekit", "lanes", "feature-analysis"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, ".rekit", "instance.yml"), []byte("schemaVersion: 1\ntemplateRoot: test\ntemplatePack: _template\nprojectRoot: "+root+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, ".rekit", "instance.yml"), []byte("schemaVersion: 1\ntemplateRoot: "+templateRoot+"\ntemplatePack: "+pack+"\nprojectRoot: "+root+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, ".rekit", "lanes", "feature-analysis", "lane.json"), []byte("{\"id\":\"feature-analysis\",\"status\":\"active\"}\n"), 0o600); err != nil {
@@ -784,8 +1014,17 @@ func memberCase(t *testing.T, executor string, generation int) string {
 			t.Fatal(err)
 		}
 	}
-	writeBoard(t, root, executor, generation)
+	writeBoardForPack(t, root, pack, executor, generation)
 	return root
+}
+
+func kitRoot(t *testing.T) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("cannot resolve kit root")
+	}
+	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", ".."))
 }
 
 func writeCommittedMissionIntent(t *testing.T, root, goal string) {
@@ -808,7 +1047,14 @@ func writeCommittedMissionIntent(t *testing.T, root, goal string) {
 
 func writeBoard(t *testing.T, root, executor string, generation int) {
 	t.Helper()
-	writeBoardValue(t, root, missionBoardFixture(root, executor, generation))
+	writeBoardForPack(t, root, "_template", executor, generation)
+}
+
+func writeBoardForPack(t *testing.T, root, pack, executor string, generation int) {
+	t.Helper()
+	board := missionBoardFixture(root, executor, generation)
+	board["pack"] = pack
+	writeBoardValue(t, root, board)
 }
 
 func writeBoardWithCorrection(t *testing.T, root, executor string, generation int, interventionID string) {

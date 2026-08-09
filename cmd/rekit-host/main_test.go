@@ -35,3 +35,39 @@ func TestPublishLiveAcceptanceReceiptPersistsPublishedState(t *testing.T) {
 		t.Fatalf("durable receipt omitted publication state: %q err=%v", data, readErr)
 	}
 }
+
+func TestPublishLiveSoakAcceptanceReceiptFailureClearsPassed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "receipt.json")
+	if err := os.WriteFile(path, []byte("existing evidence\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := publishLiveSoakAcceptanceReceipt(path, sessionhost.LiveSoakAcceptanceReceipt{Passed: true}, nil)
+	if err == nil || result.Passed || result.ReceiptPublication != "failed" || !strings.Contains(result.ReceiptError, "already exists") {
+		t.Fatalf("publication failure result=%+v err=%v", result, err)
+	}
+	data, readErr := os.ReadFile(path)
+	if readErr != nil || string(data) != "existing evidence\n" {
+		t.Fatalf("existing receipt changed: %q err=%v", data, readErr)
+	}
+}
+
+func TestPublishLiveSoakAcceptanceReceiptPersistsPublishedState(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "receipt.json")
+	result, err := publishLiveSoakAcceptanceReceipt(path, sessionhost.LiveSoakAcceptanceReceipt{Passed: true}, nil)
+	if err != nil || !result.Passed || result.ReceiptPublication != "published" || result.ReceiptError != "" {
+		t.Fatalf("publication success result=%+v err=%v", result, err)
+	}
+	data, readErr := os.ReadFile(path)
+	if readErr != nil || !strings.Contains(string(data), `"receiptPublication": "published"`) {
+		t.Fatalf("durable soak receipt omitted publication state: %q err=%v", data, readErr)
+	}
+}
+
+func TestPublicModeRequestedIncludesLiveSoak(t *testing.T) {
+	if publicModeRequested(false, false, false, false, false) {
+		t.Fatal("empty public mode set was selected")
+	}
+	if !publicModeRequested(false, false, false, false, true) {
+		t.Fatal("live soak public mode was not selected")
+	}
+}

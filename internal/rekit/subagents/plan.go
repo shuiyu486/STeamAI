@@ -695,9 +695,6 @@ func resolveOwnerBinding(planRoot string, m *manifest.Manifest, opt Options, int
 }
 
 func selectRoute(m *manifest.Manifest, routeID, taskType string) (Route, error) {
-	if len(m.SubagentRoutes) == 0 {
-		return Route{}, fmt.Errorf("manifest has no subagentRoutes: %s", m.ManifestPath)
-	}
 	if strings.TrimSpace(routeID) != "" {
 		for _, route := range m.SubagentRoutes {
 			if strings.EqualFold(route.ID, routeID) {
@@ -706,16 +703,11 @@ func selectRoute(m *manifest.Manifest, routeID, taskType string) (Route, error) 
 		}
 		return Route{}, fmt.Errorf("subagent route not found: %s", routeID)
 	}
-	if strings.TrimSpace(taskType) != "" {
-		for _, route := range m.SubagentRoutes {
-			for _, task := range strings.FieldsFunc(route.TaskTypes, func(r rune) bool { return r == ',' || r == ';' }) {
-				if strings.EqualFold(strings.TrimSpace(task), taskType) {
-					return toRoute(route), nil
-				}
-			}
-		}
+	route, err := m.SubagentRouteForTaskType(taskType)
+	if err != nil {
+		return Route{}, err
 	}
-	return toRoute(m.SubagentRoutes[0]), nil
+	return toRoute(route), nil
 }
 
 func toRoute(route manifest.SubagentRoute) Route {
@@ -1896,12 +1888,25 @@ func reviewerRouteOutputFieldHintsFor(fields []string, items []string, evidenceR
 }
 
 func reviewerEvidenceIntegrityGuidance(items []string) string {
+	const manifestSuffix = "/evidence/manifest.json"
+	bindings := []string{}
 	for _, item := range items {
-		if strings.HasSuffix(strings.ToLower(strings.TrimSpace(item)), "/evidence/manifest.json") {
-			return "For a member evidence manifest, first read the manifest path listed in Items, then inspect every manifest output relative to that manifest's outputs root. Verify that the content supports the bounded task and that the manifest path, owner, output SHA-256, and byte-count bindings are coherent. Cite the item exactly as listed in Items plus every inspected output path in evidenceRefs, and keep routeOutput.item exactly equal to that item. The deterministic runtime revalidates declared SHA-256 and byte counts during strict completion; do not invent a missing semantic or provenance check."
+		item = strings.TrimSpace(item)
+		if !strings.HasSuffix(strings.ToLower(item), manifestSuffix) {
+			continue
 		}
+		attemptRoot := item[:len(item)-len(manifestSuffix)]
+		bindings = append(bindings, fmt.Sprintf(
+			"item %q uses immutable task context %q and exact canonical outputs root %q",
+			item,
+			attemptRoot+"/task-context.json",
+			attemptRoot+"/evidence/outputs",
+		))
 	}
-	return "Inspect every cited bounded item before selecting a verdict; do not treat the packet skeleton itself as evidence that the item passed."
+	if len(bindings) == 0 {
+		return "Inspect every cited bounded item before selecting a verdict; do not treat the packet skeleton itself as evidence that the item passed."
+	}
+	return "For each member evidence manifest, use its own exact binding: " + strings.Join(bindings, "; ") + ". For each binding, first read that immutable task context and the manifest item. Resolve every manifest.outputs[].path by joining it beneath that item's exact canonical outputs root, and inspect the resulting file rather than looking beside the manifest or in the case workspace. Compare each output content against its taskContext.goal, taskContext.expectedOutput, and any taskContext.correction including reviewerRejection evidence. Treat explicit acceptance requirements in the task context as mandatory output conditions: if an inspected output acknowledges that a required value or condition is missing, that is contrary evidence and must produce decision=reject with recommendedVerdict=rejected, not accept or defer. A self-consistent manifest does not satisfy a missing goal, acceptance requirement, or correction requirement. Verify that each manifest path, owner, output SHA-256, and byte-count binding is coherent. Keep every item exactly as listed in Items and keep routeOutput.item equal to the reviewed item required by the route contract. The deterministic runtime revalidates declared SHA-256 and byte counts during strict completion; do not invent a missing semantic or provenance check."
 }
 
 func shardDispatchPrompt(shard Shard, route Route, readOnlyBoundary []string, reviewLoop ReviewLoop, ownerBinding OwnerBinding, resultPath, inputPath string, collectionAvailable, intakeAvailable bool) string {
@@ -1926,7 +1931,7 @@ func shardDispatchPrompt(shard Shard, route Route, readOnlyBoundary []string, re
 		"Choose accept with recommendedVerdict=accepted when the immutable evidence and its declared hashes support the bounded item; choose reject only with inspected contrary evidence; choose defer or needs-more-evidence only when a concrete evidence gap remains.",
 		reviewerEvidenceIntegrityGuidance(shard.Items),
 		"Replace packet.packetId with the packet packetId, set routeId to " + route.ID + ", shardId to " + shard.ID + ", and set reviewerSession to your session identifier supplied by the main agent.",
-		"Avoid blocked intake: provide inspectable evidenceRefs, keep conflicts empty unless unresolved, align recommendedVerdict with decision mapping, set tool_scope exactly to read-only and next_action exactly to main-agent review, and do not request writes, heavy tools, authority/confirmed, or external effects.",
+		"Avoid blocked intake: set evidenceRefs to the exact packetId from the JSON shape template and set routeOutput.evidence to that same packetId; never substitute an item path, absolute path, reviewerResultPath, candidate path, diff path, or another identifier. Keep conflicts empty unless unresolved, align recommendedVerdict with decision mapping, set tool_scope exactly to read-only and next_action exactly to main-agent review, and do not request writes, heavy tools, authority/confirmed, or external effects.",
 		"If blocked intake is unavoidable, return a safer needs-more-evidence/defer result and let the main agent consume reviewerIntakeCommands.repairGuidance before rerunning previewCommand.",
 		"Return items exactly as listed in Items, keep routeOutput.item exactly equal to the reviewed item, keep routeOutput.decision and routeOutput.confidence equal to the top-level decision/confidence, and keep routeOutput.evidence inside evidenceRefs.",
 		"Allowed decisions: " + strings.Join(contract.AllowedDecisions, ", ") + ".",

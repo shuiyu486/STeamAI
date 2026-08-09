@@ -10,9 +10,11 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/currentloop"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/externalsession"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/packmemoryconsumption"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 )
 
@@ -47,6 +49,7 @@ type currentStepPlan struct {
 	DriverStep                    *driverStepPlan                       `json:"driverStep,omitempty"`
 	ReviewerStep                  *reviewerStepPlan                     `json:"reviewerStep,omitempty"`
 	MemberExecution               *memberexecution.Plan                 `json:"memberExecution,omitempty"`
+	PackMemoryConsumerLane        string                                `json:"packMemoryConsumerLane,omitempty"`
 	ExternalSessionStep           *currentStepExternalSessionPlan       `json:"externalSessionStep,omitempty"`
 	ExpectedCurrentStepPlanSHA256 string                                `json:"expectedCurrentStepPlanSha256,omitempty"`
 	Receipt                       *currentStepReceipt                   `json:"receipt,omitempty"`
@@ -97,7 +100,11 @@ type currentStepExternalApplyIdentity struct {
 	CheckpointSHA256 string `json:"checkpointSha256"`
 }
 
-var currentStepBeforeStatusRefreshHook func(string) error
+var (
+	currentStepBeforeStatusRefreshHook         func(string) error
+	currentStepValidatePackMemoryConsumerTask  = packmemoryconsumption.ValidateCurrentConsumerTask
+	currentStepWithPackMemoryConsumerTaskLease = packmemoryconsumption.WithCurrentConsumerTaskLease
+)
 
 func runCurrentStep(ctx runtime.Context, opt Options, out io.Writer) error {
 	if !ctx.TargetProvided {
@@ -170,12 +177,74 @@ func currentStepUsesCheckpointSourceRequest(opt Options, status statusInventory)
 		status.MissionControlRunbook.CurrentLoopOperator.SourceCurrentDriverRequest != nil
 }
 
+func currentStepPackMemoryConsumerRequest(repoRoot, caseRoot, pack string, status statusInventory) (*mission.MissionCommanderDriverRequest, error) {
+	if status.MissionControlRunbook == nil || status.MissionControlRunbook.Scope != "pack-memory" || status.CaseMission == nil || status.CaseMission.MissionCommanderActionQueue.CurrentDriverRequest == nil {
+		return nil, fmt.Errorf("current pack-memory focus has no case member request")
+	}
+	request := status.CaseMission.MissionCommanderActionQueue.CurrentDriverRequest
+	lane := strings.TrimSpace(request.Lane)
+	if err := currentStepValidatePackMemoryConsumerTask(repoRoot, caseRoot, pack, lane); err != nil {
+		return nil, err
+	}
+	invocation := statusMissionControlInvocationDriverRequest(caseRoot, *request)
+	invocation = mission.MissionCommanderDriverRequestWithRefreshStatusCommand(
+		invocation,
+		status.MissionControlRunbook.RefreshStatusCommand,
+	)
+	return cloneStatusMissionCommanderDriverRequest(&invocation), nil
+}
+
 func buildCurrentStepPlanFromStatus(ctx runtime.Context, opt Options, status statusInventory) (currentStepPlan, error) {
 	if status.MissionControlRunbook == nil || status.MissionControlRunbook.CurrentDriverRequest == nil {
 		return currentStepPlan{}, fmt.Errorf("run-current-step requires missionControlRunbook.currentDriverRequest")
 	}
+	packMemoryConsumerLane := ""
+	if status.MissionControlRunbook.Scope == "case" {
+		lane := strings.TrimSpace(status.MissionControlRunbook.CurrentDriverRequest.Lane)
+		board, err := mission.ReadBoard(ctx.Target)
+		if err != nil {
+			return currentStepPlan{}, fmt.Errorf("run-current-step current task binding board: %w", err)
+		}
+		owner, ownerReady := mission.LookupBoardLane(board.Lanes, lane, false)
+		ownerReady = ownerReady && strings.TrimSpace(owner.CurrentExecutor) != "" && owner.ExecutorGeneration > 0
+		if ownerReady {
+			binding, err := memberexecution.CurrentTaskBinding(ctx.Target, lane)
+			if err != nil {
+				return currentStepPlan{}, fmt.Errorf("run-current-step current task binding: %w", err)
+			}
+			if binding != nil && binding.Kind == "pack-memory-consumer" {
+				if err := currentStepValidatePackMemoryConsumerTask(ctx.RepoRoot, ctx.Target, ctx.Pack, lane); err != nil {
+					return currentStepPlan{}, fmt.Errorf("run-current-step pack-memory consumer route is not current: %w", err)
+				}
+				packMemoryConsumerLane = lane
+			}
+		}
+	}
 	if status.MissionControlRunbook.Scope != "case" && status.MissionControlRunbook.Scope != "reviewer" {
-		return currentStepPlan{}, fmt.Errorf("run-current-step supports only focused case or reviewer requests; got scope %q", status.MissionControlRunbook.Scope)
+		caseRequest, err := currentStepPackMemoryConsumerRequest(ctx.RepoRoot, ctx.Target, ctx.Pack, status)
+		if err != nil {
+			if status.MissionControlRunbook.Scope != "pack-memory" {
+				return currentStepPlan{}, fmt.Errorf("run-current-step supports only focused case or reviewer requests; got scope %q", status.MissionControlRunbook.Scope)
+			}
+			return currentStepPlan{}, fmt.Errorf("run-current-step pack-memory consumer route is not current: %w", err)
+		}
+		packMemoryConsumerLane = strings.TrimSpace(caseRequest.Lane)
+		runbook := *status.MissionControlRunbook
+		runbook.Scope = "case"
+		runbook.CurrentDriverRequest = caseRequest
+		runbook.CurrentRunLoopStepID = strings.TrimSpace(caseRequest.RunLoopStepID)
+		runbook.CurrentCommand = strings.TrimSpace(caseRequest.Command)
+		inspection := currentloop.InspectAttached(ctx.Target, caseRequest)
+		runbook.CurrentLoopSegment = &inspection
+		runbook.CurrentLoopOperator = statusCurrentLoopOperatorPackage(ctx.Target, status.CaseMission, &runbook, inspection)
+		if operator := runbook.CurrentLoopOperator; operator != nil && externalSessionDispatcherRequestIsFocused(operator) {
+			wrapper := externalSessionCurrentStepRequest(operator)
+			request := mission.MissionCommanderDriverRequestWithRefreshStatusCommand(wrapper, runbook.RefreshStatusCommand)
+			runbook.CurrentDriverRequest = &request
+			runbook.CurrentRunLoopStepID = request.RunLoopStepID
+			runbook.CurrentCommand = request.Command
+		}
+		status.MissionControlRunbook = &runbook
 	}
 	routedRequest := *status.MissionControlRunbook.CurrentDriverRequest
 	if currentStepUsesCheckpointSourceRequest(opt, status) {
@@ -187,14 +256,15 @@ func buildCurrentStepPlanFromStatus(ctx runtime.Context, opt Options, status sta
 		status.MissionControlRunbook = &runbook
 	}
 	plan := currentStepPlan{
-		SchemaVersion:        1,
-		Command:              commands.RunCurrentStep,
-		CaseRoot:             ctx.Target,
-		Pack:                 ctx.Pack,
-		Route:                status.MissionControlRunbook.Scope,
-		ReviewRequired:       true,
-		RequiresConfirmation: true,
-		CurrentDriverRequest: routedRequest,
+		SchemaVersion:          1,
+		Command:                commands.RunCurrentStep,
+		CaseRoot:               ctx.Target,
+		Pack:                   ctx.Pack,
+		Route:                  status.MissionControlRunbook.Scope,
+		ReviewRequired:         true,
+		RequiresConfirmation:   true,
+		CurrentDriverRequest:   routedRequest,
+		PackMemoryConsumerLane: packMemoryConsumerLane,
 		Boundary: []string{
 			"router selects only the focused case or reviewer request from refreshed missionControlRunbook status",
 			"case steps retain the run-driver-step lane mutation lease and preview hash guards",
@@ -287,7 +357,18 @@ func applyCurrentStepPlan(ctx runtime.Context, opt Options, plan currentStepPlan
 	switch plan.Route {
 	case "case":
 		if plan.MemberExecution != nil {
-			memberResult, err := memberexecution.Apply(*plan.MemberExecution, opt.ExpectedMemberExecutionPlanSHA256)
+			var memberResult memberexecution.Result
+			applyMember := func() error {
+				var err error
+				memberResult, err = memberexecution.Apply(*plan.MemberExecution, opt.ExpectedMemberExecutionPlanSHA256)
+				return err
+			}
+			var err error
+			if plan.PackMemoryConsumerLane != "" {
+				err = currentStepWithPackMemoryConsumerTaskLease(ctx.RepoRoot, ctx.Target, ctx.Pack, plan.PackMemoryConsumerLane, applyMember)
+			} else {
+				err = applyMember()
+			}
 			if err != nil {
 				return currentStepPlan{}, currentStepZeroProgressError{cause: err}
 			}

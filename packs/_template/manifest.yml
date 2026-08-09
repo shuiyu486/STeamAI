@@ -109,6 +109,12 @@ toolingCandidateSources:
   - references/template/toolchain-router.md
 
 heavyToolGates:
+  - id: inspect
+    title: Bounded read-only fixture inspection
+    sideEffects: inspect,filesystem-write
+    defaultRisk: medium
+    requiresConfirmation: true
+    stopConditions: timeout,scope-drift,budget-exhausted
   - id: full-trace
     title: Full trace capture
     sideEffects: full-trace,filesystem-write

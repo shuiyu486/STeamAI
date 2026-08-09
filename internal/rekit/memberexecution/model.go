@@ -1,13 +1,15 @@
 package memberexecution
 
 const (
-	SchemaVersion   = 1
-	KindIntent      = "member-lane-execution-intent"
-	KindTaskContext = "member-lane-execution-task-context"
-	KindHandoff     = "member-lane-execution-handoff"
-	KindCommit      = "member-lane-execution-commit"
-	KindManifest    = "member-lane-execution-result-manifest"
-	KindObservation = "member-lane-execution-observation"
+	SchemaVersion            = 1
+	TaskContextSchemaVersion = 2
+	legacyTaskContextVersion = 1
+	KindIntent               = "member-lane-execution-intent"
+	KindTaskContext          = "member-lane-execution-task-context"
+	KindHandoff              = "member-lane-execution-handoff"
+	KindCommit               = "member-lane-execution-commit"
+	KindManifest             = "member-lane-execution-result-manifest"
+	KindObservation          = "member-lane-execution-observation"
 )
 
 type Owner struct {
@@ -39,16 +41,57 @@ type TaskArtifact struct {
 	Content string `json:"content,omitempty"`
 }
 
+type TaskBinding struct {
+	Kind   string            `json:"kind"`
+	Values map[string]string `json:"values"`
+}
+
 type TaskCorrection struct {
-	SourceEventID     string `json:"sourceEventId"`
-	SourceSubject     string `json:"sourceSubject"`
-	SourceSummary     string `json:"sourceSummary"`
-	SourceTarget      string `json:"sourceTarget,omitempty"`
-	ResolutionEventID string `json:"resolutionEventId"`
-	ResolutionSummary string `json:"resolutionSummary"`
-	ResolutionReason  string `json:"resolutionReason"`
-	ResolutionActor   string `json:"resolutionActor"`
-	ResolutionTime    string `json:"resolutionTime"`
+	SourceEventID     string                    `json:"sourceEventId"`
+	SourceSubject     string                    `json:"sourceSubject"`
+	SourceSummary     string                    `json:"sourceSummary"`
+	SourceTarget      string                    `json:"sourceTarget,omitempty"`
+	ReviewerRejection *ReviewerRejectionContext `json:"reviewerRejection,omitempty"`
+	ResolutionEventID string                    `json:"resolutionEventId"`
+	ResolutionSummary string                    `json:"resolutionSummary"`
+	ResolutionReason  string                    `json:"resolutionReason"`
+	ResolutionActor   string                    `json:"resolutionActor"`
+	ResolutionTime    string                    `json:"resolutionTime"`
+}
+
+type ReviewerRejectionContext struct {
+	ManifestRef               string   `json:"manifestRef"`
+	ManifestSHA256            string   `json:"manifestSha256"`
+	PacketID                  string   `json:"packetId"`
+	RouteID                   string   `json:"routeId"`
+	ShardID                   string   `json:"shardId"`
+	PacketPath                string   `json:"packetPath"`
+	ReviewerResultPath        string   `json:"reviewerResultPath"`
+	ReviewerResultSHA256      string   `json:"reviewerResultSha256"`
+	ReviewerResultInputPath   string   `json:"reviewerResultInputPath"`
+	ReviewerResultInputSHA256 string   `json:"reviewerResultInputSha256"`
+	ReviewerResultInputBytes  int64    `json:"reviewerResultInputBytes"`
+	ReviewerSession           string   `json:"reviewerSession"`
+	ReviewerDispatchPath      string   `json:"reviewerDispatchPath"`
+	ReviewerDispatchSHA256    string   `json:"reviewerDispatchSha256"`
+	ReviewerCompletionPath    string   `json:"reviewerCompletionPath"`
+	ReviewerCompletionSHA256  string   `json:"reviewerCompletionSha256"`
+	VerificationEventID       string   `json:"verificationEventId"`
+	DecisionEventID           string   `json:"decisionEventId"`
+	Summary                   string   `json:"summary"`
+	EvidenceRefs              []string `json:"evidenceRefs"`
+	Risks                     []string `json:"risks,omitempty"`
+	Conflicts                 []string `json:"conflicts,omitempty"`
+	OwnerExecutor             string   `json:"ownerExecutor"`
+	OwnerGeneration           int      `json:"ownerGeneration"`
+}
+
+type OutputContract struct {
+	ManifestPath   string   `json:"manifestPath"`
+	ManifestSHA256 string   `json:"manifestSha256"`
+	TaskType       string   `json:"taskType"`
+	RouteID        string   `json:"routeId"`
+	Fields         []string `json:"fields"`
 }
 
 type TaskContext struct {
@@ -66,7 +109,9 @@ type TaskContext struct {
 	Resume         TaskArtifact    `json:"resume"`
 	Checkpoint     TaskArtifact    `json:"checkpoint"`
 	Correction     *TaskCorrection `json:"correction,omitempty"`
+	Binding        *TaskBinding    `json:"binding,omitempty"`
 	ExpectedOutput []string        `json:"expectedOutput"`
+	OutputContract *OutputContract `json:"outputContract,omitempty"`
 	NoHeavyTool    bool            `json:"noHeavyTool"`
 	NoAuthority    bool            `json:"noAuthority"`
 	NoConfirmed    bool            `json:"noConfirmed"`

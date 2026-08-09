@@ -4660,9 +4660,13 @@ func adapterToolCandidateFromCatalogItem(item map[string]string, catalogPath, ac
 	purpose := strings.TrimSpace(item["purpose"])
 	sideEffectsText := strings.TrimSpace(item["sideEffects"])
 	sideEffects := adapterCatalogSideEffects(sideEffectsText)
-	matchesAction := strings.EqualFold(id, action) || sideEffectsContain(sideEffects, action) || sideEffectsOverlap(sideEffects, gate.SideEffects) || adapterCatalogTextLooksActionSpecific(action, id, entry, sideEffectsText)
-	if !matchesAction && !strings.EqualFold(status, "auxiliary") && !adapterCatalogTextNegatesAction(action, purpose) {
-		matchesAction = adapterCatalogTextLooksActionSpecific(action, purpose)
+	declaredActions := splitList(item["gateActions"])
+	matchesAction := sideEffectsContain(declaredActions, action)
+	if len(declaredActions) == 0 {
+		matchesAction = strings.EqualFold(id, action) || sideEffectsContain(sideEffects, action) || sideEffectsOverlap(sideEffects, gate.SideEffects) || adapterCatalogTextLooksActionSpecific(action, id, entry, sideEffectsText)
+		if !matchesAction && !strings.EqualFold(status, "auxiliary") && !adapterCatalogTextNegatesAction(action, purpose) {
+			matchesAction = adapterCatalogTextLooksActionSpecific(action, purpose)
+		}
 	}
 	if !matchesAction {
 		return AdapterToolCandidate{}

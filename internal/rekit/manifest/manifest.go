@@ -814,6 +814,45 @@ func validateSubagentRouteListField(routeID, field, value string) error {
 	return nil
 }
 
+func (m *Manifest) SubagentRouteForTaskType(taskType string) (SubagentRoute, error) {
+	route, found, err := m.subagentRouteForTaskType(taskType)
+	if err != nil {
+		return SubagentRoute{}, err
+	}
+	if found {
+		return route, nil
+	}
+	return m.SubagentRoutes[0], nil
+}
+
+func (m *Manifest) ExactSubagentRouteForTaskType(taskType string) (SubagentRoute, error) {
+	route, found, err := m.subagentRouteForTaskType(taskType)
+	if err != nil {
+		return SubagentRoute{}, err
+	}
+	if !found {
+		return SubagentRoute{}, fmt.Errorf("manifest has no exact subagent route for task type %q: %s", strings.TrimSpace(taskType), m.ManifestPath)
+	}
+	return route, nil
+}
+
+func (m *Manifest) subagentRouteForTaskType(taskType string) (SubagentRoute, bool, error) {
+	if len(m.SubagentRoutes) == 0 {
+		return SubagentRoute{}, false, fmt.Errorf("manifest has no subagentRoutes: %s", m.ManifestPath)
+	}
+	taskType = strings.TrimSpace(taskType)
+	if taskType != "" {
+		for _, route := range m.SubagentRoutes {
+			for _, task := range strings.FieldsFunc(route.TaskTypes, func(r rune) bool { return r == ',' || r == ';' }) {
+				if strings.EqualFold(strings.TrimSpace(task), taskType) {
+					return route, true, nil
+				}
+			}
+		}
+	}
+	return SubagentRoute{}, false, nil
+}
+
 func (m *Manifest) HeavyToolGate(action string) (HeavyToolGate, bool) {
 	action = strings.ToLower(strings.TrimSpace(action))
 	for _, gate := range m.HeavyToolGates {

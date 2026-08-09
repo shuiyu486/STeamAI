@@ -15,7 +15,40 @@ import (
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
+
+func TestLiveAcceptanceEvidenceIsPublishedOnlyForCorrection(t *testing.T) {
+	caseRoot := t.TempDir()
+	goal := liveAcceptanceBoundGoal("Inspect one harmless feature note.")
+	correction := liveAcceptanceBoundCorrection("Revise the analysis.")
+	if !strings.Contains(goal, liveAcceptanceEvidencePath) || !strings.Contains(goal, "Acceptance requires reading and citing") || !strings.Contains(goal, "mandatory acceptance requirement is unmet") {
+		t.Fatalf("goal did not bind the intentional initial evidence gap: %s", goal)
+	}
+	if !strings.Contains(correction, liveAcceptanceEvidencePath) || !strings.Contains(correction, "newly published bounded case-local evidence") {
+		t.Fatalf("correction did not bind the published evidence: %s", correction)
+	}
+	if _, err := os.Lstat(filepath.Join(caseRoot, filepath.FromSlash(liveAcceptanceEvidencePath))); !os.IsNotExist(err) {
+		t.Fatalf("evidence existed before correction publication: %v", err)
+	}
+	evidence, err := publishLiveAcceptanceEvidence(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if evidence.Path != liveAcceptanceEvidencePath || evidence.Bytes != len(liveAcceptanceEvidenceText) || len(evidence.SHA256) != 64 || evidence.Publish != "exclusive-case-local" {
+		t.Fatalf("evidence receipt=%+v", evidence)
+	}
+	data, err := os.ReadFile(filepath.Join(caseRoot, filepath.FromSlash(evidence.Path)))
+	if err != nil || string(data) != liveAcceptanceEvidenceText {
+		t.Fatalf("published evidence differs: err=%v data=%q", err, data)
+	}
+	if err := validateLiveAcceptanceEvidence(caseRoot, evidence); err != nil {
+		t.Fatalf("published evidence failed strict validation: %v", err)
+	}
+	if _, err := publishLiveAcceptanceEvidence(caseRoot); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("evidence publication was not exclusive: %v", err)
+	}
+}
 
 func TestRunLiveAcceptanceRejectsMissingInputsWithoutCreatingCase(t *testing.T) {
 	caseRoot := filepath.Join(t.TempDir(), "fresh-case")
@@ -24,6 +57,32 @@ func TestRunLiveAcceptanceRejectsMissingInputsWithoutCreatingCase(t *testing.T) 
 	}
 	if _, err := os.Lstat(caseRoot); !os.IsNotExist(err) {
 		t.Fatalf("invalid live gate created case root: %v", err)
+	}
+}
+
+func TestRunLiveAcceptanceRejectsPackOutsideAllowlistBeforeCreatingCase(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "fresh-case")
+	_, err := RunLiveAcceptance(context.Background(), LiveAcceptanceOptions{CaseRoot: caseRoot, Pack: "unknown-pack", Goal: "goal", Correction: "correction"})
+	if err == nil || !strings.Contains(err.Error(), "outside the explicit cross-pack allowlist") {
+		t.Fatalf("pack allowlist error=%v", err)
+	}
+	if _, statErr := os.Lstat(caseRoot); !os.IsNotExist(statErr) {
+		t.Fatalf("pack allowlist rejection created case root: %v", statErr)
+	}
+}
+
+func TestRunLiveAcceptanceCanonicalizesAllowlistedPackBeforeExecutableDiscovery(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "fresh-case")
+	fakeClaude := filepath.Join(t.TempDir(), "fake-claude")
+	if err := os.WriteFile(fakeClaude, []byte("fixture must never execute\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := RunLiveAcceptance(context.Background(), LiveAcceptanceOptions{CaseRoot: caseRoot, Pack: " WEB-SECURITY ", Goal: "goal", Correction: "correction", ClaudePath: fakeClaude})
+	if err == nil || !strings.Contains(err.Error(), "refuses a custom Claude executable") {
+		t.Fatalf("canonical allowlisted pack error=%v", err)
+	}
+	if _, statErr := os.Lstat(caseRoot); !os.IsNotExist(statErr) {
+		t.Fatalf("canonical pack validation created case root: %v", statErr)
 	}
 }
 
@@ -257,6 +316,39 @@ func liveAcceptanceMutationSelectors(file *ast.File) []string {
 	return violations
 }
 
+func TestValidateLiveAcceptanceReviewerRejectionStopRequiresFirstRealReviewer(t *testing.T) {
+	result := DailyResult{
+		FinalState:      "reviewer-rejected-awaiting-correction",
+		SessionLaunches: 1, SessionCompletions: 1,
+		HostRuns: []Result{{
+			FinalMode:       "reviewer-rejected-awaiting-correction",
+			SessionLaunches: 1, SessionCompletions: 1,
+			Sessions: []Session{
+				{Started: true, SessionKind: "reviewer", Outcome: "returned"},
+			},
+		}},
+	}
+	if err := validateLiveAcceptanceReviewerRejectionStop(result, 3); err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*DailyResult){
+		"duplicate reviewer": func(value *DailyResult) { value.SessionLaunches = 2; value.SessionCompletions = 2 },
+		"missing completion": func(value *DailyResult) { value.SessionCompletions = 0 },
+		"wrong final state":  func(value *DailyResult) { value.FinalState = "attention-required" },
+		"failed session":     func(value *DailyResult) { value.HostRuns[0].Sessions[0].Outcome = "replacement-requested" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			copy := result
+			copy.HostRuns = append([]Result{}, result.HostRuns...)
+			copy.HostRuns[0].Sessions = append([]Session{}, result.HostRuns[0].Sessions...)
+			mutate(&copy)
+			if err := validateLiveAcceptanceReviewerRejectionStop(copy, 3); err == nil {
+				t.Fatalf("invalid bounded rejection stop was accepted: %+v", copy)
+			}
+		})
+	}
+}
+
 func TestAddLiveAcceptanceSessionsCountsLaunchesWithoutInventingCompletions(t *testing.T) {
 	receipt := LiveAcceptanceReceipt{}
 	addLiveAcceptanceSessions(&receipt, Result{Sessions: []Session{
@@ -268,6 +360,35 @@ func TestAddLiveAcceptanceSessionsCountsLaunchesWithoutInventingCompletions(t *t
 	}
 	if len(receipt.MemberSessions) != 1 || !receipt.MemberSessions[0].Started || receipt.MemberSessions[0].AttemptGeneration != 2 || receipt.MemberSessions[0].HostRun != 2 || receipt.MemberSessions[0].RunLaunchOrdinal != 3 || len(receipt.ReviewerSessions) != 1 || !receipt.ReviewerSessions[0].Recovered || receipt.ReviewerSessions[0].Started || receipt.ReviewerSessions[0].HostRun != 2 || receipt.ReviewerSessions[0].RunLaunchOrdinal != 0 {
 		t.Fatalf("session lifecycle records=%+v", receipt)
+	}
+}
+
+func TestLiveAcceptanceRejectionProjectsCanonicalIdentity(t *testing.T) {
+	input := workstream.MemberReviewerRejection{
+		ManifestRef: ".rekit/manifest.json", ManifestSHA256: strings.Repeat("a", 64),
+		PacketID: "packet", RouteID: "route", ShardID: "shard", ReviewerResultInputSHA256: strings.Repeat("b", 64),
+		ReviewerSession: "reviewer-session", VerificationEventID: "verification", DecisionEventID: "decision",
+		Summary: "missing acceptance code", EvidenceRefs: []string{".rekit/manifest.json#review"}, OwnerExecutor: "member-g1", OwnerGeneration: 1,
+	}
+	projected := liveAcceptanceRejection(input)
+	if projected == nil || projected.ManifestPath != input.ManifestRef || projected.PacketID != input.PacketID || projected.ReviewerSession != input.ReviewerSession || projected.DecisionEventID != input.DecisionEventID || projected.OwnerGeneration != 1 || !sameLiveAcceptanceStrings(projected.EvidenceRefs, input.EvidenceRefs) {
+		t.Fatalf("rejection projection=%+v", projected)
+	}
+	projected.EvidenceRefs[0] = "changed"
+	if input.EvidenceRefs[0] == "changed" {
+		t.Fatal("rejection projection aliases canonical evidence refs")
+	}
+}
+
+func TestLiveAcceptanceAcceptanceProjectsCanonicalIdentity(t *testing.T) {
+	input := workstream.MemberReviewerAcceptance{
+		ManifestRef: ".rekit/replacement-manifest.json", ManifestSHA256: strings.Repeat("a", 64),
+		PacketID: "replacement-packet", RouteID: "replacement-route", ShardID: "replacement-shard", ReviewerResultInputSHA256: strings.Repeat("b", 64),
+		ReviewerSession: "replacement-reviewer", VerificationEventID: "replacement-verification", DecisionEventID: "replacement-decision", OwnerExecutor: "member-g2", OwnerGeneration: 2,
+	}
+	projected := liveAcceptanceAcceptance(input)
+	if projected == nil || projected.ManifestPath != input.ManifestRef || projected.ManifestSHA256 != input.ManifestSHA256 || projected.PacketID != input.PacketID || projected.RouteID != input.RouteID || projected.ShardID != input.ShardID || projected.ReviewerResultInputSHA256 != input.ReviewerResultInputSHA256 || projected.ReviewerSession != input.ReviewerSession || projected.VerificationEventID != input.VerificationEventID || projected.DecisionEventID != input.DecisionEventID || projected.OwnerExecutor != input.OwnerExecutor || projected.OwnerGeneration != input.OwnerGeneration {
+		t.Fatalf("acceptance projection=%+v", projected)
 	}
 }
 
@@ -370,7 +491,8 @@ func TestRemoveLiveAcceptanceCaseRemovesCapturedIdentity(t *testing.T) {
 	if err := os.Mkdir(path, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(path, "owned.txt"), []byte("owned\n"), 0o600); err != nil {
+	marker := []byte("owned\n")
+	if err := os.WriteFile(filepath.Join(path, "owned.txt"), marker, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	var identity liveAcceptanceCaseIdentity
@@ -378,6 +500,9 @@ func TestRemoveLiveAcceptanceCaseRemovesCapturedIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer identity.Close()
+	if err := bindLiveAcceptanceCaseMarker(&identity, "owned.txt", marker); err != nil {
+		t.Fatal(err)
+	}
 	if err := removeLiveAcceptanceCase(path, &identity); err != nil {
 		t.Fatal(err)
 	}
@@ -386,5 +511,33 @@ func TestRemoveLiveAcceptanceCaseRemovesCapturedIdentity(t *testing.T) {
 	}
 	if _, err := os.Lstat(path + ".cleanup"); !os.IsNotExist(err) {
 		t.Fatalf("cleanup quarantine remains: %v", err)
+	}
+}
+
+func TestRemoveLiveAcceptanceCaseRefusesChangedMarker(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "case")
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	markerPath := filepath.Join(path, "marker")
+	if err := os.WriteFile(markerPath, []byte("expected\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var identity liveAcceptanceCaseIdentity
+	if err := captureLiveAcceptanceCaseRoot(path, &identity); err != nil {
+		t.Fatal(err)
+	}
+	defer identity.Close()
+	if err := bindLiveAcceptanceCaseMarker(&identity, "marker", []byte("expected\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(markerPath, []byte("changed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeLiveAcceptanceCase(path, &identity); err == nil || !strings.Contains(err.Error(), "marker changed") {
+		t.Fatalf("changed marker cleanup error=%v", err)
+	}
+	if data, err := os.ReadFile(markerPath); err != nil || string(data) != "changed\n" {
+		t.Fatalf("changed marker was removed: %q err=%v", data, err)
 	}
 }

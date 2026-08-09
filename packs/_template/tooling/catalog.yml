@@ -8,6 +8,16 @@ paths:
   target: <target>
 
 tools:
+  - id: rekit-readonly-inspector
+    status: mainline
+    entry: go-owned rekit-adapter-host
+    purpose: Inspect one bounded case-local text fixture without network, debug, patch, or target mutation.
+    sideEffects: inspect,filesystem-write
+    gateActions: inspect
+    reusableNotes:
+      - Reads only the exact authorized gate target and writes only the dispatch-bound report and inspection artifact.
+      - Requires an immutable dispatch, current durable lane owner, bounded budget, and strict preauthorization before process launch.
+
   - id: example-tool
     status: candidate
     entry: <toolsRoot>/example-tool

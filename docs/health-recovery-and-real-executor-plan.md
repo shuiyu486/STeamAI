@@ -45,6 +45,11 @@
 4. live gate 记录用户显式操作数、手工 placeholder/文件写入数、session launch/completion 数和恢复步骤；owner generation、external attempt generation 与本次 host run 与 run-local launch ordinal 分字段记录。
 5. 同一 member manifest 已有 strict accepted Reviewer lineage 后不再规划第二个 Reviewer；状态直接转向 evidence-bound feature completion。
 6. accepted completion 必须从 canonical `ReviewerResult` 重验 `decision=accept` 与 `recommendedVerdict=accepted`；即使 packet、session、input SHA 和 completion receipt 都有效，账本也不能把真实 reject 结果伪称为 accepted lineage。
+7. packet-bound Reviewer 的 launch 必须从 strict durable dispatch receipt path/SHA 及其绑定的 exact packet path/SHA 构造结构化 packet/route/shard/ordered-items/session/output-contract identity；direct host、generic external-session package 与 detached supervisor child 必须无损传递并在启动前重验，不能把自由文本 `ExpectedOutput` 当作可信 identity。
+8. packet-bound Reviewer 的真实结果必须以 outer reviewer plan-bound 的 in-memory snapshot 进入 canonical route；写 result/submission 或 generic relay artifact 前先按同一 durable receipt 与 packet 重验 packet/route/shard/ordered-items/session，并要求 `routeOutput` 精确包含 output contract 的全部 non-empty string fields且没有unknown field；随后在 shard lock 内重验dispatch prompt exact bytes/SHA、current dispatch/currentness与snapshot identity。placeholder、drifted identity或不完整pack-specific output不得落盘，也不允许先发布host relay source再以其充当authority。
+9. completion 除了验证 accepted decision/verdict、packet/session/input/receipt/current-owner lineage，还必须要求 packet shard items 与 canonical `ReviewerResult.items` 完全一致且都绑定当前 member manifest；ledger `target` 只负责选择该 manifest 的 candidate，不能代替 reviewed-items 证明。
+10. TaskContext 的 action-ready currentness 与终态历史快照验证必须分层：执行/发布前继续严格绑定当前 RESUME/checkpoint/owner/correction 和 exact pack contract；completion 合法刷新 lane 文档后，receipt 只能按 immutable TaskContext 内部 artifact hashes、mission intent 与当前 exact pack manifest/route/fields复核历史attempt，不能要求历史artifact SHA仍等于新的lane文档。
+11. 跨 case consumer 只允许当前 owner generation 的 strict `pack-memory-consumer` binding；其 `changeId`、source/receipt/plan SHA 必须与 current selected-sync receipt 一致，quote 必须来自 predecessor 到 accepted successor 的新增内容。
 
 ## 风险与注意事项
 
@@ -64,18 +69,18 @@
 
 ### 最小产品入口
 
-`cmd/rekit-host` 是 deterministic `rekit` runtime 外的 Go-owned session executor；它不增加 public runtime command 或平行 receipt 协议。入口只接收目标 case 及可选 actor/model/timeout/attempt budget，其余 attempt/session identity、RFC3339Nano 时间、路径和 SHA 均从 `run-current-step` 自动取得或生成。
+`cmd/rekit-host` 是 deterministic `rekit` runtime 外的 Go-owned session executor；它不增加 public runtime command 或平行 receipt 协议。入口只接收目标 case 及可选 actor/model/timeout/attempt budget；省略 `-pack` 时在任何 host操作前从 attached case metadata解析并固定 pack，使parent、supervision spec/child与启动前validator共享同一identity。其余 attempt/session identity、RFC3339Nano 时间、路径和 SHA 均从 `run-current-step` 自动取得或生成。
 
 ```text
 go run ./cmd/rekit-host -target <attached-case>
 ```
 
-host 以 `--safe-mode -p --output-format json --json-schema ... --session-id <uuid> --permission-mode dontAsk` 启动真实 Claude Code；允许工具固定为只读 `Read,Glob,Grep`。进程启动后立即记录 accepted launch，完成后只把真实 `structured_output` 的 bytes 写入 member outputs 或 ReviewerResult，再按 runtime 模板最后写 submission，并循环执行 result-turn/strict intake。进程失败或结果非法时，在 attempt budget 内自动生成 replacement generation；最后一次才提交 failed observation。
+host 以 `--safe-mode -p --output-format json --json-schema ... --session-id <uuid> --permission-mode dontAsk` 启动真实 Claude Code；允许工具固定为只读 `Read,Glob,Grep`。进程启动后立即记录 accepted launch，完成后只把真实 `structured_output` 的 bytes 写入 member outputs 或 ReviewerResult，再按 runtime 模板最后写 submission，并循环执行 result-turn/strict intake。durable member attempt与external-session attempt是不同命名空间；member launch通过immutable task-context path/SHA、task自身lane/attempt inspection和currentness绑定，不要求两个attempt ID字符串相等。pack-memory focus下钻时，current-loop checkpoint绑定实际case request，fresh status才能继续unified external session而不重复exact dispatch。进程失败或结果非法时，在 attempt budget 内自动生成 replacement generation；最后一次才提交 failed observation。
 
 ### 失败与 replacement
 
 - spawn 前失败：记录 failed launch，自动请求 replacement generation。
-- session 非零退出或无合法结果：记录失败原因，保留 stdout/stderr 的有界诊断，自动 replacement。
+- session 非零退出或无合法结果：记录失败原因，保留 stdout/stderr 的有界诊断，自动 replacement；RH-07仓库外receipt只投影bounded typed phase/attempt failure，并按Windows大小写与slash/backslash等价规则脱敏known child-host、Claude和isolated-kit路径。
 - 结果写入后 submission/intake 失败：不得重跑已完成 session；从 durable artifacts 恢复 exact submission/intake。
 - replacement 启动后旧 session 的迟到结果必须被现有 generation/currentness guard 拒绝。
 
@@ -84,19 +89,27 @@ host 以 `--safe-mode -p --output-format json --json-schema ... --session-id <uu
 live gate 独立于普通 hermetic `go test`：它调用真实 Claude Code，使用无敏感内容的临时任务，并输出机器可读 receipt。至少覆盖：
 
 1. 自然语言创建并启动任务；
-2. 第一个真实 session 返回可验证产物；
-3. public intervention 写入人工纠偏；
-4. replacement session 从 durable handoff 接手；
-5. 第二个真实 session 完成剩余工作；
-6. fresh status 判断 mission complete；
-7. 断言测试代码未写 ReviewerResult/member output/submission 内容。
-8. 一个 current manifest 只启动一个独立 Reviewer；accepted writeback 后不重复规划审核。
+2. 第一代真实 member 返回明确不满足 correction-only 要求的可验证产物；
+3. 第一轮独立真实 Reviewer 在 `MaxAttempts` 预算内可以重试，但每次 launch 都必须真实 returned 并有 completion；最终必须形成 canonical `reject/rejected`，old manifest 随后 zero-launch、mutation-free 停止重放；
+4. public intervention 写入与 rejected manifest、packet/result/input/receipts/events/session/historical owner 绑定的人工纠偏；
+5. replacement session 从 durable handoff 接手，并在 immutable `TaskContext` 中读取原 goal、correction 与 canonical rejection evidence；
+6. 第二代新 manifest 由独立新 Reviewer session canonical accept 后完成 feature lane；
+7. fresh status 判断 mission complete；
+8. 断言测试代码未写 ReviewerResult/member output/submission 内容；
 9. receipt 为 `passed=true`、`manualPlaceholders=0`、`manualResultWrites=0`、feature lane `closed`、`cleanup=removed`。
 
 显式命令示例：
 
 ```text
-go run ./cmd/rekit-host -live-acceptance -goal "<bounded-natural-language-goal>" -correction "<human-correction>" -receipt "<outside-case-receipt.json>"
+go run ./cmd/rekit-host -live-acceptance -pack "<_template-or-web-security>" -goal "<bounded-natural-language-goal>" -correction "<human-correction>" -receipt "<outside-case-receipt.json>"
 ```
 
-普通 `go test ./...` 不执行该 gate。2026-08-06 最终代码的 fresh `vmp-re` fixed-15 实测得到两次真实 member completion、一次独立真实 Reviewer completion、零手工 placeholder/result write、严格 reviewer lineage、feature-lane completion 与成功自动清理；全仓 `go test ./... -timeout 40m -count=1`、`go vet ./...`、release-check/status/packs/doctor 与 diff check 同轮通过。
+省略 `-pack` 时仍回归 fresh 默认 `vmp-re`；跨 pack gate 只允许 `_template` / `web-security`，并要求 current TaskContext 的 manifest SHA、feature-analysis route 与 output fields 来自 exact selected pack，Reviewer rejection/acceptance route 与其 exact match。ordinary daily 不接受 pack override。普通 `go test ./...` 不执行该 gate。2026-08-06 最终代码的 fresh `vmp-re` fixed-15 实测得到两次真实 member completion、一次独立真实 Reviewer completion、零手工 placeholder/result write、严格 reviewer lineage、feature-lane completion 与成功自动清理；全仓 `go test ./... -timeout 40m -count=1`、`go vet ./...`、release-check/status/packs/doctor 与 diff check 同轮通过。
+
+RH-09 Windows 连续试用显式运行：
+
+```text
+go run ./cmd/rekit-host -live-soak-acceptance -goal "<bounded-natural-language-goal>" -correction "<human-correction>" -receipt "<outside-repository-receipt.json>"
+```
+
+该聚合 gate 顺序执行默认 `vmp-re`、`_template`、`web-security` 三条既有 exact-pack 真实链，并追加既有 supervision 五阶段中断恢复；运行失败不删除记录，仍尝试后续任务和恢复并发布最终 receipt。Receipt 分开汇总 task-level 最终成功率与 attempt-level 原始成功率；只有 typed `reviewer-semantic-or-lineage` 失败允许一次 fresh-case retry，首次失败仍进入 attempts、failure counts、session、duration 与 cleanup totals，provider/contract/intake/cleanup/timeout 等失败不自动 retry。通过要求 task-level 3/3、fresh/existing/correction/replacement/Reviewer/replay 全闭合、恢复 durable identity 与一次 output publication 完整、全部 disposable case root 真实创建并清理、`manualPlaceholders=0`、`manualResultWrites=0`。

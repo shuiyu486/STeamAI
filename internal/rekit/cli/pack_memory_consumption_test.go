@@ -88,6 +88,32 @@ func TestPackMemoryConsumptionStatusDegradesDiscoveryFailureToWarning(t *testing
 	}
 }
 
+func TestRunPackMemoryConsumerUseVerificationRoutesStrictBindings(t *testing.T) {
+	caseRoot := attachedCase(t)
+	changeID := "pack-memory-change-" + strings.Repeat("a", 64)
+	oldVerify := packMemoryConsumerUseVerify
+	packMemoryConsumerUseVerify = func(repoRoot, target, pack string, opt packmemoryconsumption.ConsumerUseOptions) (packmemoryconsumption.ConsumerUseProof, error) {
+		if target != caseRoot || pack != "_template" || opt.ChangeID != changeID || opt.Lane != "feature-analysis" || opt.AttemptID != "attempt-1" || opt.OutputPath != "consumer-use.json" {
+			t.Fatalf("consumer-use bindings drifted: target=%s pack=%s opt=%+v", target, pack, opt)
+		}
+		return packmemoryconsumption.ConsumerUseProof{SchemaVersion: 1, Kind: packmemoryconsumption.KindConsumerUseProof, ChangeID: changeID, Verified: true, ReadOnly: true, NoAuthority: true, NoConfirmed: true, NoHeavyTool: true}, nil
+	}
+	t.Cleanup(func() { packMemoryConsumerUseVerify = oldVerify })
+
+	var out bytes.Buffer
+	err := Run([]string{"-Command", "sync", "-Target", caseRoot, "-Pack", "_template", "-VerifyPackMemoryConsumerUse", "-SelectPackMemoryChange", changeID, "-Lane", "feature-analysis", "-MemberExecutionAttemptId", "attempt-1", "-PackMemoryConsumerOutputPath", "consumer-use.json", "-Format", "json"}, &out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var proof packmemoryconsumption.ConsumerUseProof
+	if err := json.Unmarshal(out.Bytes(), &proof); err != nil || !proof.Verified || !proof.ReadOnly || !proof.NoAuthority {
+		t.Fatalf("unexpected consumer-use proof output: %+v err=%v", proof, err)
+	}
+	if err := Run([]string{"-Command", "sync", "-Target", caseRoot, "-Pack", "_template", "-VerifyPackMemoryConsumerUse", "-SelectPackMemoryChange", changeID, "-Lane", "feature-analysis", "-MemberExecutionAttemptId", "attempt-1", "-PackMemoryConsumerOutputPath", "consumer-use.json", "-Apply", "-Format", "json"}, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "read-only") {
+		t.Fatalf("consumer-use Apply did not fail closed: %v", err)
+	}
+}
+
 func TestRunPackMemorySelectedSyncValidatesReviewContract(t *testing.T) {
 	caseRoot := attachedCase(t)
 	changeID := "pack-memory-change-" + strings.Repeat("a", 64)
@@ -127,5 +153,11 @@ func TestRunPackMemorySelectedSyncValidatesReviewContract(t *testing.T) {
 	}
 	if err := Run([]string{"-Command", "sync", "-Target", caseRoot, "-Pack", "_template", "-ExpectedPackMemoryConsumptionPlanSha256", planHash, "-Apply", "-Format", "json"}, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "requires -SelectPackMemoryChange") {
 		t.Fatalf("orphan expected hash did not fail closed: %v", err)
+	}
+	if err := Run([]string{"-Command", "sync", "-Target", caseRoot, "-Pack", "_template", "-SelectPackMemoryChange", changeID, "-Lane", "feature-analysis", "-WhatIf", "-Format", "json"}, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "cannot be combined") {
+		t.Fatalf("selected sync silently accepted lane flag: %v", err)
+	}
+	if err := Run([]string{"-Command", "status", "-SelectPackMemoryChange", changeID}, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "supported only by sync") {
+		t.Fatalf("selected sync flag outside sync error = %v", err)
 	}
 }

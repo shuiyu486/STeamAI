@@ -158,33 +158,34 @@ type Claim struct {
 }
 
 type Inspection struct {
-	State                      string                                 `json:"state"`
-	Ready                      bool                                   `json:"ready"`
-	Sequence                   uint64                                 `json:"sequence,omitempty"`
-	ArtifactPath               string                                 `json:"artifactPath,omitempty"`
-	ArtifactSHA256             string                                 `json:"artifactSha256,omitempty"`
-	ArtifactBytes              int                                    `json:"artifactBytes,omitempty"`
-	PayloadSHA256              string                                 `json:"payloadSha256,omitempty"`
-	RecordedAt                 string                                 `json:"recordedAt,omitempty"`
-	StopCode                   string                                 `json:"stopCode,omitempty"`
-	StopPhase                  string                                 `json:"stopPhase,omitempty"`
-	SegmentMaxSteps            int                                    `json:"segmentMaxSteps,omitempty"`
-	AppliedSteps               int                                    `json:"appliedStepsInSegment,omitempty"`
-	RemainingMaxSteps          int                                    `json:"remainingMaxSteps,omitempty"`
-	SegmentRoute               string                                 `json:"segmentRoute,omitempty"`
-	SegmentLane                string                                 `json:"segmentLane,omitempty"`
-	ExpectedRoute              string                                 `json:"expectedRoute,omitempty"`
-	ExpectedLane               string                                 `json:"expectedLane,omitempty"`
-	ResumeSourceSHA256         string                                 `json:"resumeSourceSha256,omitempty"`
-	ObservationPath            string                                 `json:"observationPath,omitempty"`
-	ObservationSHA256          string                                 `json:"observationSha256,omitempty"`
-	ObservationKind            string                                 `json:"observationKind,omitempty"`
-	ObservationActor           string                                 `json:"observationActor,omitempty"`
-	ResumeDriverRequest        *mission.MissionCommanderDriverRequest `json:"resumeDriverRequest,omitempty"`
-	Continuation               *Continuation                          `json:"continuation,omitempty"`
-	LegacyUnboundWhatIfCommand string                                 `json:"legacyUnboundWhatIfCommand,omitempty"`
-	Warnings                   []string                               `json:"warnings,omitempty"`
-	Boundary                   []string                               `json:"boundary"`
+	State                         string                                 `json:"state"`
+	Ready                         bool                                   `json:"ready"`
+	Sequence                      uint64                                 `json:"sequence,omitempty"`
+	ArtifactPath                  string                                 `json:"artifactPath,omitempty"`
+	ArtifactSHA256                string                                 `json:"artifactSha256,omitempty"`
+	ArtifactBytes                 int                                    `json:"artifactBytes,omitempty"`
+	PayloadSHA256                 string                                 `json:"payloadSha256,omitempty"`
+	RecordedAt                    string                                 `json:"recordedAt,omitempty"`
+	StopCode                      string                                 `json:"stopCode,omitempty"`
+	StopPhase                     string                                 `json:"stopPhase,omitempty"`
+	SegmentMaxSteps               int                                    `json:"segmentMaxSteps,omitempty"`
+	AppliedSteps                  int                                    `json:"appliedStepsInSegment,omitempty"`
+	RemainingMaxSteps             int                                    `json:"remainingMaxSteps,omitempty"`
+	SegmentRoute                  string                                 `json:"segmentRoute,omitempty"`
+	SegmentLane                   string                                 `json:"segmentLane,omitempty"`
+	ExpectedRoute                 string                                 `json:"expectedRoute,omitempty"`
+	ExpectedLane                  string                                 `json:"expectedLane,omitempty"`
+	ResumeSourceSHA256            string                                 `json:"resumeSourceSha256,omitempty"`
+	ObservationPath               string                                 `json:"observationPath,omitempty"`
+	ObservationSHA256             string                                 `json:"observationSha256,omitempty"`
+	ObservationKind               string                                 `json:"observationKind,omitempty"`
+	ObservationActor              string                                 `json:"observationActor,omitempty"`
+	ResumeDriverRequest           *mission.MissionCommanderDriverRequest `json:"resumeDriverRequest,omitempty"`
+	RefreshedCurrentDriverRequest *mission.MissionCommanderDriverRequest `json:"refreshedCurrentDriverRequest,omitempty"`
+	Continuation                  *Continuation                          `json:"continuation,omitempty"`
+	LegacyUnboundWhatIfCommand    string                                 `json:"legacyUnboundWhatIfCommand,omitempty"`
+	Warnings                      []string                               `json:"warnings,omitempty"`
+	Boundary                      []string                               `json:"boundary"`
 }
 
 func RequestSHA256(request mission.MissionCommanderDriverRequest) (string, error) {
@@ -583,6 +584,8 @@ func inspectRoot(root *os.Root, identity, caseRoot, pack string, current *missio
 		"legacy unbound WhatIf command is diagnostic-only; execute resumeDriverRequest.command for checkpoint-bound recovery",
 	)
 	base.Continuation = &continuation
+	request := *payload.RefreshedCurrentDriverRequest
+	base.RefreshedCurrentDriverRequest = &request
 	base.ResumeDriverRequest = resumeDriverRequest(caseRoot, pack, latest.artifactSHA256, payload)
 	return base
 }

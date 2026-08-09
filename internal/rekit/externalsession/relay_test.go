@@ -13,6 +13,7 @@ import (
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewerresult"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewersession"
 )
 
 const testCheckpointSHA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -177,7 +178,7 @@ func TestRelayApplyRejectsStaleLiveJobBeforePublication(t *testing.T) {
 
 func TestReviewerRelayRejectsAcceptedDispatchSessionMismatch(t *testing.T) {
 	caseRoot := externalSessionTestCaseRoot(t)
-	job, err := NewReviewerJob(caseRoot, defaults.DefaultPack, testCheckpointSHA, ReviewerIdentity{AttemptSHA256: strings.Repeat("b", 64), PacketID: "packet-a", RouteID: "route-a", ShardID: "shard-a", DispatchID: "dispatch-a", Harness: "claude-code", Session: "session-a"}, []string{"returned"})
+	job, err := NewReviewerJob(caseRoot, defaults.DefaultPack, testCheckpointSHA, ReviewerIdentity{AttemptSHA256: strings.Repeat("b", 64), PacketID: "packet-a", RouteID: "route-a", ShardID: "shard-a", Items: []string{"item-a"}, OutputFields: []string{"item"}, DispatchPath: ".rekit/dispatch.json", DispatchSHA256: strings.Repeat("c", 64), DispatchID: "dispatch-a", Harness: "claude-code", Session: "session-a"}, []string{"accepted"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,13 +202,13 @@ func TestReviewerRelayRejectsAcceptedDispatchSessionMismatch(t *testing.T) {
 
 func TestReviewerRelayValidatesIdentityAndPublishesCanonicalSource(t *testing.T) {
 	caseRoot := externalSessionTestCaseRoot(t)
-	reviewer := ReviewerIdentity{AttemptSHA256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", PacketID: "packet-a", RouteID: "route-a", ShardID: "shard-a"}
+	reviewer := reviewerRelayIdentity(t, caseRoot)
 	job, err := NewReviewerJob(caseRoot, defaults.DefaultPack, testCheckpointSHA, reviewer, []string{"accepted", "returned", "failed"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	inspection, _ := Inspect(job)
-	resultBytes := []byte(`{"packetId":"packet-a","routeId":"route-a","shardId":"shard-a","items":["item-a"],"reviewerSession":"session-test","decision":"accept","confidence":"high","summary":"reviewed","evidenceRefs":["evidence:a"],"risks":[],"conflicts":[],"recommendedVerdict":"accept","routeOutput":{}}`)
+	resultBytes := []byte(`{"packetId":"packet-a","routeId":"route-a","shardId":"shard-a","items":["item-a"],"reviewerSession":"session-test","decision":"accept","confidence":"high","summary":"reviewed","evidenceRefs":["evidence:a"],"risks":[],"conflicts":[],"recommendedVerdict":"accept","routeOutput":{"item":"item-a","decision":"accept","candidate_path":"bounded-candidate"}}`)
 	if decoded, err := reviewerresult.Decode(resultBytes); err != nil || decoded.PacketID != reviewer.PacketID || decoded.RouteID != reviewer.RouteID || decoded.ShardID != reviewer.ShardID {
 		t.Fatalf("fixture decode=%+v err=%v", decoded, err)
 	}
@@ -237,6 +238,44 @@ func TestReviewerRelayValidatesIdentityAndPublishesCanonicalSource(t *testing.T)
 	}
 }
 
+func TestReviewerRelayRejectsItemsAndRouteOutputDriftBeforePublication(t *testing.T) {
+	tests := []struct {
+		name        string
+		items       string
+		routeOutput string
+		want        string
+	}{
+		{name: "wrong items", items: `["item-b"]`, routeOutput: `{"item":"item-a","decision":"accept","candidate_path":"bounded-candidate"}`, want: "exact dispatch"},
+		{name: "missing field", items: `["item-a"]`, routeOutput: `{"item":"item-a","decision":"accept"}`, want: "candidate_path"},
+		{name: "unknown field", items: `["item-a"]`, routeOutput: `{"item":"item-a","decision":"accept","candidate_path":"bounded-candidate","unexpected":"value"}`, want: "unknown field"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			caseRoot := externalSessionTestCaseRoot(t)
+			reviewer := reviewerRelayIdentity(t, caseRoot)
+			job, err := NewReviewerJob(caseRoot, defaults.DefaultPack, testCheckpointSHA, reviewer, []string{"returned"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			inspection, err := Inspect(job)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resultBytes := []byte(`{"packetId":"packet-a","routeId":"route-a","shardId":"shard-a","items":` + tt.items + `,"reviewerSession":"session-test","decision":"accept","confidence":"high","summary":"reviewed","evidenceRefs":["evidence:a"],"risks":[],"conflicts":[],"recommendedVerdict":"accept","routeOutput":` + tt.routeOutput + `}`)
+			writeTestFile(t, caseRoot, job.SubmissionResult, resultBytes)
+			writeTestSubmission(t, caseRoot, job, Submission{SchemaVersion: 1, Kind: KindSubmission, JobID: job.JobID, JobSHA256: inspection.JobSHA256, Outcome: "returned", Actor: "harness", ReviewerSession: "session-test", NoAuthorityOrConfirmed: true, NoHeavyTool: true})
+			if _, err := Preview(job); err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("drift error=%v, want %q", err, tt.want)
+			}
+			for _, rel := range []string{job.RelayResultPath, job.PublicationPath, job.ObservationPath} {
+				if _, err := os.Lstat(filepath.Join(caseRoot, filepath.FromSlash(rel))); !os.IsNotExist(err) {
+					t.Fatalf("invalid reviewer result published %s: %v", rel, err)
+				}
+			}
+		})
+	}
+}
+
 func TestInspectRejectsUnknownSubmissionField(t *testing.T) {
 	caseRoot := externalSessionTestCaseRoot(t)
 	job, err := NewReviewerJob(caseRoot, defaults.DefaultPack, testCheckpointSHA, ReviewerIdentity{AttemptSHA256: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", PacketID: "packet-a", RouteID: "route-a", ShardID: "shard-a"}, []string{"accepted"})
@@ -256,6 +295,34 @@ func TestInspectRejectsUnknownSubmissionField(t *testing.T) {
 	inspection, err = Inspect(job)
 	if err != nil || inspection.State != "invalid" || len(inspection.Warnings) == 0 {
 		t.Fatalf("inspection=%+v err=%v", inspection, err)
+	}
+}
+
+func reviewerRelayIdentity(t *testing.T, caseRoot string) ReviewerIdentity {
+	t.Helper()
+	packetRel := ".rekit/reviews/packet-a/packet.json"
+	packet := []byte(`{"packetId":"packet-a","route":{"id":"route-a","outputContract":"item,decision,candidate_path"},"shards":[{"id":"shard-a","items":["item-a"]}],"outputContract":"item,decision,candidate_path"}`)
+	writeTestFile(t, caseRoot, packetRel, packet)
+	dispatchRel := ".rekit/reviews/packet-a/dispatch.json"
+	receipt := reviewersession.DispatchReceipt{
+		SchemaVersion: 1, Kind: "reviewer-session-dispatch", DispatchID: "dispatch-a",
+		PacketID: "packet-a", PacketPath: packetRel, PacketSHA256: hash(packet), RouteID: "route-a",
+		ShardID: "shard-a", Items: []string{"item-a"}, PromptPath: ".rekit/reviews/packet-a/prompt.md",
+		PromptSHA256: strings.Repeat("d", 64), AgentType: "read-only-reviewer", ReadOnly: true,
+		TargetLane: "analysis", ReviewerHarness: "harness", ReviewerSession: "session-test",
+		Actor: "harness", RecordedAt: "2026-08-09T00:00:00Z", NoSpawn: true, NoHeavyTool: true, NoAuthority: true,
+	}
+	dispatch, err := json.MarshalIndent(receipt, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatch = append(dispatch, '\n')
+	writeTestFile(t, caseRoot, dispatchRel, dispatch)
+	return ReviewerIdentity{
+		AttemptSHA256: strings.Repeat("b", 64), PacketID: receipt.PacketID, RouteID: receipt.RouteID, ShardID: receipt.ShardID,
+		Items: append([]string{}, receipt.Items...), OutputFields: []string{"item", "decision", "candidate_path"},
+		DispatchPath: dispatchRel, DispatchSHA256: hash(dispatch), DispatchID: receipt.DispatchID,
+		Harness: receipt.ReviewerHarness, Session: receipt.ReviewerSession,
 	}
 }
 

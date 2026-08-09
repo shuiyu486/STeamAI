@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"runtime"
 	"sort"
@@ -18,9 +19,13 @@ import (
 	"time"
 
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewerresult"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewersession"
 )
 
 const (
@@ -73,6 +78,11 @@ func PreviewDispatch(opt DispatchOptions) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
+	binding, err := CurrentTaskBinding(caseRoot, owner.Lane)
+	if err != nil {
+		return Plan{}, err
+	}
+	taskContext.Binding = binding
 	taskContextBytes, err := canonical(taskContext)
 	if err != nil {
 		return Plan{}, err
@@ -91,6 +101,131 @@ func PreviewDispatch(opt DispatchOptions) (Plan, error) {
 	writes := []plannedWrite{{filepath.Join(root, "intent.json"), intentBytes}, {filepath.Join(root, "task-context.json"), taskContextBytes}, {filepath.Join(root, "handoff.json"), handoffBytes}, {filepath.Join(root, "commit.json"), commitBytes}}
 	inspection := Inspection{State: "handoff-ready", AttemptID: attemptID, Owner: owner, Intent: &intent, TaskContext: &taskContext, TaskContextPath: filepath.Join(root, "task-context.json"), TaskContextSHA256: hash(taskContextBytes), Handoff: &handoff, HandoffSHA256: hash(handoffBytes), AttemptRoot: root, ManifestPath: filepath.Join(root, "result", "manifest.json"), OutputsRoot: filepath.Join(root, "result", "outputs")}
 	return finishPlan(Plan{SchemaVersion: 1, Mode: "dispatch", CaseRoot: caseRoot, Pack: opt.Pack, AttemptID: attemptID, Owner: owner, ExternalHandoff: &handoff, Inspection: inspection, ReviewRequired: true, RequiresConfirmation: true, Boundary: boundaries(), writes: writes})
+}
+
+func currentTaskBindingRel(lane string, ownerGeneration int) string {
+	return filepath.ToSlash(filepath.Join(".rekit", "lanes", lane, "member-task-bindings", fmt.Sprintf("g%06d.json", ownerGeneration)))
+}
+
+func currentTaskBindingOwnerGeneration(caseRoot, lane string) (int, error) {
+	lane = strings.TrimSpace(lane)
+	if !segment.MatchString(lane) {
+		return 0, fmt.Errorf("member execution task binding lane is invalid")
+	}
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		return 0, err
+	}
+	current, ok := mission.LookupBoardLane(board.Lanes, lane, false)
+	if !ok || strings.TrimSpace(current.CurrentExecutor) == "" || current.ExecutorGeneration < 1 {
+		return 0, fmt.Errorf("member execution task binding requires a current durable executor generation")
+	}
+	return current.ExecutorGeneration, nil
+}
+
+func CurrentTaskBinding(caseRoot, lane string) (*TaskBinding, error) {
+	ownerGeneration, err := currentTaskBindingOwnerGeneration(caseRoot, lane)
+	if err != nil {
+		return nil, err
+	}
+	path, err := rekitfs.SafeJoin(caseRoot, currentTaskBindingRel(lane, ownerGeneration))
+	if err != nil {
+		return nil, err
+	}
+	data, err := rekitfs.ReadStableRegularFileAnchored(caseRoot, path, "member execution task binding", maxJSONBytes)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var envelope struct {
+		SchemaVersion   int         `json:"schemaVersion"`
+		Lane            string      `json:"lane"`
+		OwnerGeneration int         `json:"ownerGeneration"`
+		Binding         TaskBinding `json:"binding"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&envelope); err != nil {
+		return nil, fmt.Errorf("decode member execution task binding: %w", err)
+	}
+	var trailing any
+	if err := dec.Decode(&trailing); err != io.EOF {
+		return nil, fmt.Errorf("member execution task binding must contain exactly one JSON object")
+	}
+	if envelope.SchemaVersion != SchemaVersion || strings.TrimSpace(envelope.Lane) != strings.TrimSpace(lane) || envelope.OwnerGeneration != ownerGeneration {
+		return nil, fmt.Errorf("member execution task binding does not match current lane owner generation")
+	}
+	binding, err := validateTaskBinding(envelope.Binding)
+	if err != nil {
+		return nil, err
+	}
+	return &binding, nil
+}
+
+func WriteTaskBinding(caseRoot, lane string, binding TaskBinding) (string, string, error) {
+	binding, err := validateTaskBinding(binding)
+	if err != nil {
+		return "", "", err
+	}
+	ownerGeneration, err := currentTaskBindingOwnerGeneration(caseRoot, lane)
+	if err != nil {
+		return "", "", err
+	}
+	envelope := struct {
+		SchemaVersion   int         `json:"schemaVersion"`
+		Lane            string      `json:"lane"`
+		OwnerGeneration int         `json:"ownerGeneration"`
+		Binding         TaskBinding `json:"binding"`
+	}{SchemaVersion: SchemaVersion, Lane: strings.TrimSpace(lane), OwnerGeneration: ownerGeneration, Binding: binding}
+	data, err := canonical(envelope)
+	if err != nil {
+		return "", "", err
+	}
+	rel := currentTaskBindingRel(envelope.Lane, ownerGeneration)
+	if _, err := rekitfs.WriteExclusiveRegularFileAnchored(caseRoot, rel, "member execution task binding", data); err != nil {
+		return "", "", err
+	}
+	return rel, hash(data), nil
+}
+
+func BindCurrentTaskRequestSHA256(caseRoot, lane, requestSHA256 string) (string, error) {
+	if !validSHA(requestSHA256) {
+		return "", fmt.Errorf("member execution request sha256 is invalid")
+	}
+	binding, err := CurrentTaskBinding(caseRoot, lane)
+	if err != nil {
+		return "", err
+	}
+	if binding == nil {
+		return strings.ToLower(requestSHA256), nil
+	}
+	data, err := canonical(struct {
+		RequestSHA256 string      `json:"requestSha256"`
+		Binding       TaskBinding `json:"binding"`
+	}{RequestSHA256: strings.ToLower(requestSHA256), Binding: *binding})
+	if err != nil {
+		return "", err
+	}
+	return hash(data), nil
+}
+
+func validateTaskBinding(value TaskBinding) (TaskBinding, error) {
+	value.Kind = strings.TrimSpace(value.Kind)
+	if !segment.MatchString(value.Kind) || len(value.Values) == 0 || len(value.Values) > 32 {
+		return TaskBinding{}, fmt.Errorf("member execution task binding is invalid")
+	}
+	out := TaskBinding{Kind: value.Kind, Values: make(map[string]string, len(value.Values))}
+	for key, item := range value.Values {
+		key = strings.TrimSpace(key)
+		item = strings.TrimSpace(item)
+		if !segment.MatchString(key) || item == "" || len(item) > 4096 || strings.ContainsAny(item, "\r\n") {
+			return TaskBinding{}, fmt.Errorf("member execution task binding value is invalid: %s", key)
+		}
+		out.Values[key] = item
+	}
+	return out, nil
 }
 
 func currentTaskContext(caseRoot, pack string, owner Owner, attemptID string) (TaskContext, error) {
@@ -132,14 +267,72 @@ func currentTaskContext(caseRoot, pack string, owner Owner, attemptID string) (T
 	if err != nil {
 		return TaskContext{}, err
 	}
+	outputContract, err := currentOutputContract(caseRoot, pack)
+	if err != nil {
+		return TaskContext{}, err
+	}
+	expectedOutput := []string{
+		"return at least one bounded output derived from the stated goal and current lane context",
+		"include the pack output-contract fields: " + strings.Join(outputContract.Fields, ","),
+	}
+	if correction != nil {
+		expectedOutput = append(expectedOutput, "explain how the latest reconciled correction was applied")
+	}
 	return TaskContext{
-		SchemaVersion: SchemaVersion, Kind: KindTaskContext, AttemptID: attemptID, Pack: pack,
+		SchemaVersion: TaskContextSchemaVersion, Kind: KindTaskContext, AttemptID: attemptID, Pack: pack,
 		ProjectName: strings.TrimSpace(missionInspection.Identity.ProjectName), Goal: goal, GoalSource: goalSource,
 		MissionIntent: missionArtifact, Owner: owner, LaneTitle: lane.Title, LaneWorkspace: lane.Workspace,
 		Resume: resume, Checkpoint: checkpoint, Correction: correction,
-		ExpectedOutput: []string{"return at least one bounded output derived from the stated goal and current lane context", "explain how the latest reconciled correction was applied when correction is present"},
-		NoHeavyTool:    true, NoAuthority: true, NoConfirmed: true,
+		ExpectedOutput: expectedOutput, OutputContract: &outputContract,
+		NoHeavyTool: true, NoAuthority: true, NoConfirmed: true,
 	}, nil
+}
+
+func currentOutputContract(caseRoot, pack string) (OutputContract, error) {
+	inst, err := instance.Read(caseRoot)
+	if err != nil {
+		return OutputContract{}, fmt.Errorf("bind member execution pack output contract: %w", err)
+	}
+	if inst.Source == "missing" || inst.Moved() || strings.TrimSpace(inst.TemplateRoot) == "" || !strings.EqualFold(inst.TemplatePack, pack) {
+		return OutputContract{}, fmt.Errorf("member execution pack output contract does not match attached case metadata")
+	}
+	m, err := manifest.Load(inst.TemplateRoot, pack)
+	if err != nil {
+		return OutputContract{}, err
+	}
+	if err := m.ValidateSchema(); err != nil {
+		return OutputContract{}, err
+	}
+	route, err := m.ExactSubagentRouteForTaskType("feature-analysis")
+	if err != nil {
+		return OutputContract{}, err
+	}
+	manifestData, err := rekitfs.ReadStableRegularFileAnchored(inst.TemplateRoot, m.ManifestPath, "member execution pack manifest", maxJSONBytes)
+	if err != nil {
+		return OutputContract{}, err
+	}
+	fields := splitOutputContractFields(route.OutputContract)
+	if len(fields) == 0 {
+		return OutputContract{}, fmt.Errorf("member execution pack output contract is empty: %s", route.ID)
+	}
+	return OutputContract{
+		ManifestPath:   filepath.ToSlash(filepath.Join("packs", pack, "manifest.yml")),
+		ManifestSHA256: hash(manifestData), TaskType: "feature-analysis", RouteID: route.ID, Fields: fields,
+	}, nil
+}
+
+func splitOutputContractFields(value string) []string {
+	fields := []string{}
+	seen := map[string]bool{}
+	for _, field := range strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == ';' }) {
+		field = strings.TrimSpace(field)
+		key := strings.ToLower(field)
+		if field != "" && !seen[key] {
+			seen[key] = true
+			fields = append(fields, field)
+		}
+	}
+	return fields
 }
 
 func taskArtifact(caseRoot, path, label string) (TaskArtifact, error) {
@@ -184,10 +377,240 @@ func currentTaskCorrection(caseRoot, laneID, sourceID string) (*TaskCorrection, 
 	if source == nil || resolution == nil {
 		return nil, fmt.Errorf("member execution correction is not durably reconciled: %s", sourceID)
 	}
-	return &TaskCorrection{
+	correction := &TaskCorrection{
 		SourceEventID: sourceID, SourceSubject: mission.Value(source, "subject"), SourceSummary: mission.Value(source, "summary"), SourceTarget: mission.Value(source, "target"),
 		ResolutionEventID: mission.Value(resolution, "eventId"), ResolutionSummary: mission.Value(resolution, "summary"), ResolutionReason: mission.Value(resolution, "reason"), ResolutionActor: mission.Value(resolution, "actor"), ResolutionTime: mission.Value(resolution, "time"),
-	}, nil
+	}
+	if mission.Value(source, "reviewerDecisionEventId") != "" || mission.Value(source, "reviewerVerificationEventId") != "" {
+		rejection, err := currentTaskReviewerRejection(caseRoot, laneID, source)
+		if err != nil {
+			return nil, fmt.Errorf("member execution correction does not match canonical reviewer rejection %s: %w", sourceID, err)
+		}
+		correction.ReviewerRejection = rejection
+	}
+	return correction, nil
+}
+
+func currentTaskReviewerRejection(caseRoot, laneID string, source map[string]any) (*ReviewerRejectionContext, error) {
+	generation, err := strconv.Atoi(mission.Value(source, "ownerGeneration"))
+	if err != nil || generation <= 0 {
+		return nil, fmt.Errorf("invalid historical owner generation")
+	}
+	inputBytes, err := strconv.ParseInt(mission.Value(source, "reviewerResultInputBytes"), 10, 64)
+	if err != nil || inputBytes <= 0 {
+		return nil, fmt.Errorf("invalid reviewer result input bytes")
+	}
+	ctx := &ReviewerRejectionContext{
+		ManifestRef: mission.Value(source, "target"), ManifestSHA256: mission.Value(source, "reviewerManifestSha256"), PacketID: mission.Value(source, "packetId"), RouteID: mission.Value(source, "routeId"), ShardID: mission.Value(source, "shardId"), PacketPath: mission.Value(source, "packetPath"),
+		ReviewerResultPath: mission.Value(source, "reviewerResultPath"), ReviewerResultSHA256: mission.Value(source, "reviewerResultSha256"), ReviewerResultInputPath: mission.Value(source, "reviewerResultInputPath"), ReviewerResultInputSHA256: mission.Value(source, "reviewerResultInputSha256"), ReviewerResultInputBytes: inputBytes,
+		ReviewerSession: mission.Value(source, "reviewerSession"), ReviewerDispatchPath: mission.Value(source, "reviewerDispatchReceiptPath"), ReviewerDispatchSHA256: mission.Value(source, "reviewerDispatchReceiptSha256"), ReviewerCompletionPath: mission.Value(source, "reviewerCompletionReceiptPath"), ReviewerCompletionSHA256: mission.Value(source, "reviewerCompletionReceiptSha256"),
+		VerificationEventID: mission.Value(source, "reviewerVerificationEventId"), DecisionEventID: mission.Value(source, "reviewerDecisionEventId"), OwnerExecutor: mission.Value(source, "ownerExecutor"), OwnerGeneration: generation,
+	}
+	for _, value := range []string{ctx.ManifestRef, ctx.ManifestSHA256, ctx.PacketID, ctx.RouteID, ctx.ShardID, ctx.PacketPath, ctx.ReviewerResultPath, ctx.ReviewerResultSHA256, ctx.ReviewerResultInputPath, ctx.ReviewerResultInputSHA256, ctx.ReviewerSession, ctx.ReviewerDispatchPath, ctx.ReviewerDispatchSHA256, ctx.ReviewerCompletionPath, ctx.ReviewerCompletionSHA256, ctx.VerificationEventID, ctx.DecisionEventID, ctx.OwnerExecutor} {
+		if strings.TrimSpace(value) == "" {
+			return nil, fmt.Errorf("incomplete reviewer rejection binding")
+		}
+	}
+	verification, err := exactTaskCorrectionFact(caseRoot, "verification", ctx.VerificationEventID)
+	if err != nil {
+		return nil, err
+	}
+	decision, err := exactTaskCorrectionFact(caseRoot, "decision", ctx.DecisionEventID)
+	if err != nil {
+		return nil, err
+	}
+	if mission.Value(verification, "lane") != laneID || mission.Value(decision, "lane") != laneID || !strings.EqualFold(mission.Value(verification, "verdict"), "rejected") || !strings.EqualFold(mission.Value(decision, "decision"), "reject") || !taskCorrectionEventReferences(decision, ctx.VerificationEventID) {
+		return nil, fmt.Errorf("reviewer rejection ledger pair is not canonical")
+	}
+	for key, expected := range map[string]string{
+		"packetId": ctx.PacketID, "routeId": ctx.RouteID, "shardId": ctx.ShardID, "packetPath": ctx.PacketPath, "reviewerResultPath": ctx.ReviewerResultPath, "reviewerSession": ctx.ReviewerSession,
+		"reviewerDispatchReceiptPath": ctx.ReviewerDispatchPath, "reviewerDispatchReceiptSha256": ctx.ReviewerDispatchSHA256, "reviewerCompletionReceiptPath": ctx.ReviewerCompletionPath, "reviewerCompletionReceiptSha256": ctx.ReviewerCompletionSHA256,
+		"reviewerResultInputPath": ctx.ReviewerResultInputPath, "reviewerResultInputSha256": ctx.ReviewerResultInputSHA256, "ownerExecutor": ctx.OwnerExecutor, "ownerGeneration": fmt.Sprint(ctx.OwnerGeneration), "reviewerDecision": "reject", "recommendedVerdict": "rejected",
+	} {
+		if mission.Value(verification, key) != expected || mission.Value(decision, key) != expected {
+			return nil, fmt.Errorf("reviewer rejection ledger %s binding changed", key)
+		}
+	}
+	ctx.Summary = mission.Value(verification, "summary")
+	ctx.EvidenceRefs = taskCorrectionStringList(verification["evidenceRefs"])
+	ctx.Risks = taskCorrectionStringList(verification["reviewerRisks"])
+	ctx.Conflicts = taskCorrectionStringList(verification["reviewerConflicts"])
+	if !sameTaskCorrectionStrings(ctx.EvidenceRefs, taskCorrectionStringList(source["evidenceRefs"])) {
+		return nil, fmt.Errorf("reviewer rejection intervention evidence refs differ from canonical verification")
+	}
+	if ctx.Summary == "" || len(ctx.EvidenceRefs) == 0 {
+		return nil, fmt.Errorf("reviewer rejection summary or evidence refs are missing")
+	}
+	if err := validateTaskCorrectionRejectionFiles(caseRoot, ctx); err != nil {
+		return nil, err
+	}
+	return ctx, nil
+}
+
+func exactTaskCorrectionFact(caseRoot, kind, eventID string) (map[string]any, error) {
+	items, err := mission.ReadStrictFact(caseRoot, kind)
+	if err != nil {
+		return nil, err
+	}
+	var match map[string]any
+	for _, item := range items {
+		if mission.Value(item, "eventId") != eventID {
+			continue
+		}
+		if match != nil {
+			return nil, fmt.Errorf("duplicate %s event %s", kind, eventID)
+		}
+		match = item
+	}
+	if match == nil {
+		return nil, fmt.Errorf("missing %s event %s", kind, eventID)
+	}
+	return match, nil
+}
+
+func taskCorrectionEventReferences(event map[string]any, expected string) bool {
+	for _, value := range []any{event["evidenceRefs"], event["related"]} {
+		for _, item := range taskCorrectionStringList(value) {
+			if strings.EqualFold(item, expected) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func taskCorrectionStringList(value any) []string {
+	out := []string{}
+	add := func(value string) {
+		for _, item := range strings.FieldsFunc(value, func(r rune) bool { return r == ',' || r == ';' || r == '\r' || r == '\n' }) {
+			item = strings.TrimSpace(item)
+			if item != "" {
+				out = append(out, item)
+			}
+		}
+	}
+	switch items := value.(type) {
+	case []string:
+		for _, item := range items {
+			add(item)
+		}
+	case []any:
+		for _, item := range items {
+			add(fmt.Sprint(item))
+		}
+	case string:
+		add(items)
+	}
+	return mission.UniqueStrings(out)
+}
+
+func sameTaskCorrectionStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func sameTaskCorrectionPath(left, right string) bool {
+	left = filepath.Clean(filepath.FromSlash(strings.TrimSpace(left)))
+	right = filepath.Clean(filepath.FromSlash(strings.TrimSpace(right)))
+	return strings.EqualFold(left, right)
+}
+
+func taskCorrectionResultBindsManifest(caseRoot string, items []string, manifestRef string) bool {
+	manifestPath, err := taskCorrectionAnchoredPath(caseRoot, manifestRef)
+	if err != nil {
+		return false
+	}
+	for _, item := range items {
+		item, _, _ = strings.Cut(strings.TrimSpace(item), "#")
+		itemPath, err := taskCorrectionAnchoredPath(caseRoot, item)
+		if err == nil && sameTaskCorrectionPath(itemPath, manifestPath) {
+			return true
+		}
+	}
+	return false
+}
+
+func taskCorrectionAnchoredPath(caseRoot, path string) (string, error) {
+	path = filepath.FromSlash(strings.TrimSpace(path))
+	if !filepath.IsAbs(path) {
+		return rekitfs.SafeJoin(caseRoot, path)
+	}
+	rootFull, err := filepath.Abs(caseRoot)
+	if err != nil {
+		return "", err
+	}
+	pathFull, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(rootFull, pathFull)
+	if err != nil || rel == "." || rel == ".." || filepath.IsAbs(rel) || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("reviewer rejection path escapes case root: %s", path)
+	}
+	return pathFull, nil
+}
+
+func validateTaskCorrectionRejectionFiles(caseRoot string, ctx *ReviewerRejectionContext) error {
+	read := func(path, label, expected string) ([]byte, error) {
+		full, err := taskCorrectionAnchoredPath(caseRoot, path)
+		if err != nil {
+			return nil, err
+		}
+		data, err := rekitfs.ReadStableRegularFileAnchored(caseRoot, full, label, maxJSONBytes)
+		if err != nil || !strings.EqualFold(hash(data), expected) {
+			return nil, fmt.Errorf("%s changed after reviewer rejection", label)
+		}
+		return data, nil
+	}
+	manifest, err := read(ctx.ManifestRef, "rejected member manifest", ctx.ManifestSHA256)
+	if err != nil || len(manifest) == 0 {
+		return err
+	}
+	input, err := read(ctx.ReviewerResultInputPath, "reviewer result input", ctx.ReviewerResultInputSHA256)
+	if err != nil || int64(len(input)) != ctx.ReviewerResultInputBytes {
+		return fmt.Errorf("reviewer result input size changed after rejection")
+	}
+	result, err := reviewerresult.Decode(input)
+	if err != nil || result.PacketID != ctx.PacketID || result.RouteID != ctx.RouteID || result.ShardID != ctx.ShardID || result.ReviewerSession != ctx.ReviewerSession || result.Decision != "reject" || result.RecommendedVerdict != "rejected" || !taskCorrectionResultBindsManifest(caseRoot, result.Items, ctx.ManifestRef) {
+		return fmt.Errorf("reviewer result input does not match canonical rejection")
+	}
+	collected, err := read(ctx.ReviewerResultPath, "collected reviewer result", ctx.ReviewerResultSHA256)
+	if err != nil {
+		return err
+	}
+	collectedResult, err := reviewerresult.Decode(collected)
+	if err != nil {
+		return err
+	}
+	left, _ := json.Marshal(result)
+	right, _ := json.Marshal(collectedResult)
+	if !bytes.Equal(left, right) {
+		return fmt.Errorf("collected reviewer result differs from canonical rejection input")
+	}
+	dispatchBytes, err := read(ctx.ReviewerDispatchPath, "reviewer dispatch receipt", ctx.ReviewerDispatchSHA256)
+	if err != nil {
+		return err
+	}
+	dispatch, err := reviewersession.DecodeDispatch(dispatchBytes)
+	if err != nil || dispatch.PacketID != ctx.PacketID || dispatch.RouteID != ctx.RouteID || dispatch.ShardID != ctx.ShardID || dispatch.ReviewerSession != ctx.ReviewerSession || dispatch.TargetLane == "" || dispatch.EffectiveOwner.CurrentExecutor != ctx.OwnerExecutor || dispatch.EffectiveOwner.ExecutorGeneration != ctx.OwnerGeneration {
+		return fmt.Errorf("reviewer dispatch receipt does not match historical rejection owner")
+	}
+	completionBytes, err := read(ctx.ReviewerCompletionPath, "reviewer completion receipt", ctx.ReviewerCompletionSHA256)
+	if err != nil {
+		return err
+	}
+	completion, err := reviewersession.DecodeCompletion(completionBytes)
+	if err != nil || reviewersession.ValidateCompletionDispatchLineage(completion, dispatch, ctx.ReviewerDispatchPath, ctx.ReviewerDispatchSHA256) != nil || completion.Outcome != "succeeded" || !sameTaskCorrectionPath(completion.ReviewerResultInputPath, ctx.ReviewerResultInputPath) || !strings.EqualFold(completion.ReviewerResultInputSHA256, ctx.ReviewerResultInputSHA256) || int64(completion.ReviewerResultInputBytes) != ctx.ReviewerResultInputBytes {
+		return fmt.Errorf("reviewer completion receipt does not match canonical rejection input")
+	}
+	return nil
 }
 
 func PreviewObservation(opt ObservationOptions) (Plan, error) {
@@ -202,7 +625,7 @@ func PreviewObservation(opt ObservationOptions) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
-	if err := ValidateCurrentTaskContext(caseRoot, inspection); err != nil {
+	if err := ValidateActionableTaskContext(caseRoot, inspection); err != nil {
 		return Plan{}, err
 	}
 	if inspection.Owner != owner {
@@ -516,16 +939,72 @@ func inspectAnchored(anchor *anchoredCase, lane, attemptID string) (Inspection, 
 	return inspection, nil
 }
 
+func validateCurrentTaskBinding(task TaskContext) error {
+	if task.Binding == nil {
+		return nil
+	}
+	binding, err := validateTaskBinding(*task.Binding)
+	if err != nil {
+		return err
+	}
+	if binding.Kind != task.Binding.Kind || !reflect.DeepEqual(binding.Values, task.Binding.Values) {
+		return fmt.Errorf("member execution task binding is not canonical")
+	}
+	return nil
+}
+
 func ValidateCurrentTaskContext(caseRoot string, inspection Inspection) error {
 	if inspection.Intent == nil || inspection.TaskContext == nil {
 		return fmt.Errorf("member execution attempt omitted its immutable task context")
 	}
+	if err := validateCurrentTaskBinding(*inspection.TaskContext); err != nil {
+		return err
+	}
 	return validateTaskContext(caseRoot, *inspection.Intent, *inspection.TaskContext)
 }
 
+func ValidateActionableTaskContext(caseRoot string, inspection Inspection) error {
+	if inspection.TaskContext == nil || inspection.TaskContext.SchemaVersion != TaskContextSchemaVersion || inspection.TaskContext.OutputContract == nil {
+		return fmt.Errorf("legacy member execution task context is read-only; dispatch a current task-context generation before continuing execution")
+	}
+	return ValidateCurrentTaskContext(caseRoot, inspection)
+}
+
+func ValidateTaskContextPackContract(caseRoot string, inspection Inspection) error {
+	if inspection.Intent == nil || inspection.TaskContext == nil {
+		return fmt.Errorf("member execution attempt omitted its immutable task context")
+	}
+	task := *inspection.TaskContext
+	if task.SchemaVersion != TaskContextSchemaVersion || task.OutputContract == nil {
+		return fmt.Errorf("legacy member execution task context does not bind a current pack output contract")
+	}
+	if err := validateTaskContextContract(*inspection.Intent, task); err != nil {
+		return err
+	}
+	if err := validateCurrentTaskBinding(task); err != nil {
+		return err
+	}
+	if err := validateTaskContextMission(caseRoot, task); err != nil {
+		return err
+	}
+	return validateTaskContextOutputContract(caseRoot, task)
+}
+
 func validateTaskContextContract(intent Intent, task TaskContext) error {
-	if task.SchemaVersion != SchemaVersion || task.Kind != KindTaskContext || task.AttemptID != intent.AttemptID || task.Owner != intent.Owner || !strings.EqualFold(task.Pack, intent.Pack) || strings.TrimSpace(task.Goal) == "" || strings.TrimSpace(task.GoalSource) == "" || strings.TrimSpace(task.Resume.Content) == "" || strings.TrimSpace(task.Checkpoint.Content) == "" || !task.NoAuthority || !task.NoConfirmed || !task.NoHeavyTool || len(task.ExpectedOutput) == 0 {
+	if (task.SchemaVersion != legacyTaskContextVersion && task.SchemaVersion != TaskContextSchemaVersion) || task.Kind != KindTaskContext || task.AttemptID != intent.AttemptID || task.Owner != intent.Owner || !strings.EqualFold(task.Pack, intent.Pack) || strings.TrimSpace(task.Goal) == "" || strings.TrimSpace(task.GoalSource) == "" || strings.TrimSpace(task.Resume.Content) == "" || strings.TrimSpace(task.Checkpoint.Content) == "" || !task.NoAuthority || !task.NoConfirmed || !task.NoHeavyTool || len(task.ExpectedOutput) == 0 {
 		return fmt.Errorf("invalid member execution task context")
+	}
+	if task.SchemaVersion == legacyTaskContextVersion && task.OutputContract != nil {
+		return fmt.Errorf("legacy member execution task context must not contain a pack output contract")
+	}
+	if task.SchemaVersion == TaskContextSchemaVersion {
+		if task.OutputContract == nil || !validSHA(task.OutputContract.ManifestSHA256) || !validRelative(task.OutputContract.ManifestPath) || task.OutputContract.TaskType != "feature-analysis" || strings.TrimSpace(task.OutputContract.RouteID) == "" || len(task.OutputContract.Fields) == 0 {
+			return fmt.Errorf("invalid member execution task context")
+		}
+		canonicalFields := splitOutputContractFields(strings.Join(task.OutputContract.Fields, ","))
+		if !reflect.DeepEqual(canonicalFields, task.OutputContract.Fields) {
+			return fmt.Errorf("invalid member execution pack output contract fields")
+		}
 	}
 	for _, artifact := range []TaskArtifact{task.Resume, task.Checkpoint} {
 		if !validRelative(artifact.Path) || !validSHA(artifact.SHA256) || !strings.EqualFold(hash([]byte(artifact.Content)), artifact.SHA256) {
@@ -546,6 +1025,9 @@ func validateTaskContext(caseRoot string, intent Intent, task TaskContext) error
 	if err := validateTaskContextContract(intent, task); err != nil {
 		return err
 	}
+	if err := validateCurrentTaskBinding(task); err != nil {
+		return err
+	}
 	for _, artifact := range []TaskArtifact{task.Resume, task.Checkpoint} {
 		full, err := rekitfs.SafeJoin(caseRoot, artifact.Path)
 		if err != nil {
@@ -556,16 +1038,8 @@ func validateTaskContext(caseRoot string, intent Intent, task TaskContext) error
 			return fmt.Errorf("member execution task artifact changed: %s", artifact.Path)
 		}
 	}
-	if task.MissionIntent != nil {
-		if task.GoalSource != "committed-mission-intent" || task.MissionIntent.Path != missionintent.MissionIntentRel || !validSHA(task.MissionIntent.SHA256) {
-			return fmt.Errorf("invalid member execution mission intent binding")
-		}
-		inspection, err := missionintent.Inspect(caseRoot)
-		if err != nil || !inspection.Committed || inspection.Identity.Goal != task.Goal || inspection.Identity.ProjectName != task.ProjectName || !strings.EqualFold(inspection.Identity.Pack, task.Pack) || !strings.EqualFold(inspection.MissionIntentSHA256, task.MissionIntent.SHA256) {
-			return fmt.Errorf("member execution mission intent changed")
-		}
-	} else if task.GoalSource != "lane-resume-fallback" {
-		return fmt.Errorf("invalid member execution goal source")
+	if err := validateTaskContextMission(caseRoot, task); err != nil {
+		return err
 	}
 	board, err := mission.ReadBoard(caseRoot)
 	if err != nil {
@@ -582,14 +1056,42 @@ func validateTaskContext(caseRoot string, intent Intent, task TaskContext) error
 	if !equalTaskCorrection(task.Correction, currentCorrection) {
 		return fmt.Errorf("member execution correction changed")
 	}
+	return validateTaskContextOutputContract(caseRoot, task)
+}
+
+func validateTaskContextMission(caseRoot string, task TaskContext) error {
+	if task.MissionIntent != nil {
+		if task.GoalSource != "committed-mission-intent" || task.MissionIntent.Path != missionintent.MissionIntentRel || !validSHA(task.MissionIntent.SHA256) {
+			return fmt.Errorf("invalid member execution mission intent binding")
+		}
+		inspection, err := missionintent.Inspect(caseRoot)
+		if err != nil || !inspection.Committed || inspection.Identity.Goal != task.Goal || inspection.Identity.ProjectName != task.ProjectName || !strings.EqualFold(inspection.Identity.Pack, task.Pack) || !strings.EqualFold(inspection.MissionIntentSHA256, task.MissionIntent.SHA256) {
+			return fmt.Errorf("member execution mission intent changed")
+		}
+	} else if task.GoalSource != "lane-resume-fallback" {
+		return fmt.Errorf("invalid member execution goal source")
+	}
+	return nil
+}
+
+func validateTaskContextOutputContract(caseRoot string, task TaskContext) error {
+	if task.SchemaVersion != TaskContextSchemaVersion {
+		return nil
+	}
+	currentContract, err := currentOutputContract(caseRoot, task.Pack)
+	if err != nil {
+		return err
+	}
+	if !reflect.DeepEqual(*task.OutputContract, currentContract) {
+		return fmt.Errorf("member execution pack output contract changed")
+	}
 	return nil
 }
 
 func equalTaskCorrection(left, right *TaskCorrection) bool {
-	if left == nil || right == nil {
-		return left == right
-	}
-	return *left == *right
+	leftData, leftErr := json.Marshal(left)
+	rightData, rightErr := json.Marshal(right)
+	return leftErr == nil && rightErr == nil && bytes.Equal(leftData, rightData)
 }
 
 func CurrentOwnerMatches(caseRoot, pack string, owner Owner) (bool, error) {

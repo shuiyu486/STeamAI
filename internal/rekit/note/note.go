@@ -61,6 +61,11 @@ type Options struct {
 	ReviewerCompletionSHA256  string
 	ReviewerResultInputPath   string
 	ReviewerResultInputSHA256 string
+	ReviewerResultInputBytes  string
+	ReviewerResultSHA256      string
+	ReviewerManifestSHA256    string
+	ReviewerVerificationID    string
+	ReviewerDecisionID        string
 	OwnerExecutor             string
 	OwnerGeneration           string
 	OwnerBindingMode          string
@@ -386,6 +391,11 @@ func buildEvent(kind, lane, createdAt string, opt Options) map[string]any {
 	addString("reviewerCompletionReceiptSha256", opt.ReviewerCompletionSHA256)
 	addString("reviewerResultInputPath", opt.ReviewerResultInputPath)
 	addString("reviewerResultInputSha256", opt.ReviewerResultInputSHA256)
+	addString("reviewerResultInputBytes", opt.ReviewerResultInputBytes)
+	addString("reviewerResultSha256", opt.ReviewerResultSHA256)
+	addString("reviewerManifestSha256", opt.ReviewerManifestSHA256)
+	addString("reviewerVerificationEventId", opt.ReviewerVerificationID)
+	addString("reviewerDecisionEventId", opt.ReviewerDecisionID)
 	addString("ownerExecutor", opt.OwnerExecutor)
 	addString("ownerGeneration", opt.OwnerGeneration)
 	addString("ownerBindingMode", opt.OwnerBindingMode)
@@ -652,29 +662,48 @@ func encodeEvent(event map[string]any) ([]byte, string, error) {
 }
 
 var recordCommandReplayableKeys = map[string]bool{
-	"schemaVersion": true,
-	"kind":          true,
-	"lane":          true,
-	"subject":       true,
-	"summary":       true,
-	"actor":         true,
-	"risk":          true,
-	"related":       true,
-	"confidence":    true,
-	"decision":      true,
-	"reason":        true,
-	"status":        true,
-	"batchId":       true,
-	"target":        true,
-	"verifier":      true,
-	"verdict":       true,
-	"action":        true,
-	"approvedBy":    true,
-	"scope":         true,
-	"expires":       true,
-	"evidenceRefs":  true,
-	"eventId":       true,
-	"createdAt":     true,
+	"schemaVersion":                   true,
+	"kind":                            true,
+	"lane":                            true,
+	"subject":                         true,
+	"summary":                         true,
+	"actor":                           true,
+	"risk":                            true,
+	"related":                         true,
+	"confidence":                      true,
+	"decision":                        true,
+	"reason":                          true,
+	"status":                          true,
+	"batchId":                         true,
+	"target":                          true,
+	"verifier":                        true,
+	"verdict":                         true,
+	"action":                          true,
+	"approvedBy":                      true,
+	"scope":                           true,
+	"expires":                         true,
+	"evidenceRefs":                    true,
+	"eventId":                         true,
+	"createdAt":                       true,
+	"packetId":                        true,
+	"routeId":                         true,
+	"shardId":                         true,
+	"packetPath":                      true,
+	"reviewerResultPath":              true,
+	"reviewerSession":                 true,
+	"reviewerDispatchReceiptPath":     true,
+	"reviewerDispatchReceiptSha256":   true,
+	"reviewerCompletionReceiptPath":   true,
+	"reviewerCompletionReceiptSha256": true,
+	"reviewerResultInputPath":         true,
+	"reviewerResultInputSha256":       true,
+	"reviewerResultInputBytes":        true,
+	"reviewerResultSha256":            true,
+	"reviewerManifestSha256":          true,
+	"reviewerVerificationEventId":     true,
+	"reviewerDecisionEventId":         true,
+	"ownerExecutor":                   true,
+	"ownerGeneration":                 true,
 }
 
 func recordCommand(caseRoot, pack string, event map[string]any, eventSHA256 string) string {
@@ -715,6 +744,25 @@ func recordArgs(caseRoot, pack string, event map[string]any, eventSHA256 string)
 		{"-EvidenceRefs", "evidenceRefs"},
 		{"-EventId", "eventId"},
 		{"-CreatedAt", "createdAt"},
+		{"-ReviewerPacketId", "packetId"},
+		{"-ReviewerRouteId", "routeId"},
+		{"-ReviewerShardId", "shardId"},
+		{"-ReviewerPacketPath", "packetPath"},
+		{"-ReviewerResultLineagePath", "reviewerResultPath"},
+		{"-ReviewerLineageSession", "reviewerSession"},
+		{"-ReviewerDispatchReceiptPath", "reviewerDispatchReceiptPath"},
+		{"-ReviewerDispatchReceiptSha256", "reviewerDispatchReceiptSha256"},
+		{"-ReviewerCompletionReceiptPath", "reviewerCompletionReceiptPath"},
+		{"-ReviewerCompletionReceiptSha256", "reviewerCompletionReceiptSha256"},
+		{"-ReviewerLineageInputPath", "reviewerResultInputPath"},
+		{"-ReviewerLineageInputSha256", "reviewerResultInputSha256"},
+		{"-ReviewerLineageInputBytes", "reviewerResultInputBytes"},
+		{"-ReviewerLineageResultSha256", "reviewerResultSha256"},
+		{"-ReviewerManifestSha256", "reviewerManifestSha256"},
+		{"-ReviewerVerificationEventId", "reviewerVerificationEventId"},
+		{"-ReviewerDecisionEventId", "reviewerDecisionEventId"},
+		{"-ReviewerOwnerExecutor", "ownerExecutor"},
+		{"-ReviewerOwnerGeneration", "ownerGeneration"},
 		{"-ExpectedNoteEventSha256", ""},
 	} {
 		value := eventSHA256

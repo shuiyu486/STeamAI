@@ -1485,6 +1485,17 @@ func TestParsePlanSubagentsReviewerPacketRetirement(t *testing.T) {
 	}
 }
 
+func TestParsePromoteMemberOutputStaging(t *testing.T) {
+	expected := strings.Repeat("a", 64)
+	opt, err := Parse([]string{"-Command", "promote", "-StageMemberOutput", "-Lane", "feature-analysis", "-MemberExecutionAttemptId", "g000001-a000001-aaaaaaaaaaaaaaaa", "-MemberOutputPath", "pack-memory.md", "-ManagedTargetPath", "references/template/README.md", "-ExpectedMemberOutputStagingPlanSha256", expected, "-Apply", "-Format", "json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !opt.StageMemberOutput || opt.MemberOutputStagingLane != "feature-analysis" || opt.MemberExecutionAttemptID != "g000001-a000001-aaaaaaaaaaaaaaaa" || opt.MemberOutputPath != "pack-memory.md" || opt.ManagedTargetPath != "references/template/README.md" || opt.ExpectedMemberOutputStagingPlanSHA256 != expected || !opt.Apply {
+		t.Fatalf("unexpected member output staging parse: %+v", opt)
+	}
+}
+
 func TestParsePromoteCandidateVerificationProvisioning(t *testing.T) {
 	opt, err := Parse([]string{"-Command", "promote", "-ProvisionCandidateVerificationCases", "-PacketPath", "packet.json", "-CandidateDecisionPath", "decisions.json", "-FreshCaseRoot", "fresh", "-AttachedCaseRoot", "attached", "-ExpectedProvisionSha256", strings.Repeat("a", 64), "-Apply", "-Format", "json"})
 	if err != nil {
@@ -1869,8 +1880,9 @@ func TestRunStatusJsonKit(t *testing.T) {
 			Summary     string   `json:"summary"`
 			ReadFirst   []string `json:"readFirst"`
 			ActiveRoute struct {
-				Present           bool `json:"present"`
-				NextBatchUnlocked bool `json:"nextBatchUnlocked"`
+				Present           bool   `json:"present"`
+				ExclusiveClaim    string `json:"exclusiveClaim"`
+				NextBatchUnlocked bool   `json:"nextBatchUnlocked"`
 			} `json:"activeRoute"`
 			LatestBatch                   string `json:"latestBatch"`
 			LatestBatchStatus             string `json:"latestBatchStatus"`
@@ -2062,14 +2074,23 @@ func TestRunStatusJsonKit(t *testing.T) {
 		if !statusProjectHandoffNextActionReasonContains(status.ProjectHandoff.MissionCommanderNextActions, "pack-memory candidate queue is closed: no pack-memory candidate cleanup is pending") || !statusProjectHandoffNextActionBoundaryContains(status.ProjectHandoff.MissionCommanderNextActions, "candidate-domain follow-ups are selection guidance only") {
 			t.Fatalf("project handoff next-batch candidates omitted closed-state evidence or selection boundary: %+v", status.ProjectHandoff.MissionCommanderNextActions)
 		}
+	} else if status.ProjectHandoff.ActiveRoute.Present && !status.ProjectHandoff.ActiveRoute.NextBatchUnlocked && status.ProjectHandoff.ActiveRoute.ExclusiveClaim != "" && strings.HasPrefix(strings.ToLower(strings.TrimSpace(status.ProjectHandoff.ActiveRoute.ExclusiveClaim)), "无") {
+		if projectCurrent.Source != "releaseHandoffActiveRoute" || projectCurrent.ActionID != "active-route-completed" || projectCurrent.State != "completed-no-next-batch" || projectCurrent.Label != "RH-09" || !strings.Contains(projectCurrent.Command, "wait for an explicit user route change") || strings.Contains(strings.ToLower(projectCurrent.Command), "select the next") || len(status.ProjectHandoff.NextBatchSelectionPackage.NextBatchPlanningRoutes) != 0 || status.ProjectHandoff.MissionCommanderActionQueue.Counts.RequiresReview != 0 || len(status.ProjectHandoff.MissionCommanderNextActions) != 1 || status.MissionControlRunbook == nil || status.MissionControlRunbook.GuidanceHandoff != nil {
+			t.Fatalf("completed deferred RH route should expose only terminal no-selection guidance: current=%+v route=%+v queue=%+v actions=%+v package=%+v runbook=%+v", projectCurrent, status.ProjectHandoff.ActiveRoute, status.ProjectHandoff.MissionCommanderActionQueue, status.ProjectHandoff.MissionCommanderNextActions, status.ProjectHandoff.NextBatchSelectionPackage, status.MissionControlRunbook)
+		}
+		for _, forbidden := range []string{"select exactly one current guidance outcome", "write docs/batch-plan.md current batch state before implementation", "guidance-accepted-refresh-required"} {
+			if strings.Contains(out.String(), forbidden) {
+				t.Fatalf("completed deferred RH route leaked planning guidance %q:\n%s", forbidden, out.String())
+			}
+		}
 	} else if status.ProjectHandoff.ActiveRoute.Present && !status.ProjectHandoff.ActiveRoute.NextBatchUnlocked && status.ProjectHandoff.LatestBatch == "Batch 821" {
-		if projectCurrent.Source != "releaseHandoffActiveRoute" || projectCurrent.ActionID != "active-route-current-batch" || !strings.Contains(projectCurrent.Command, "RH-03") || status.ProjectHandoff.MissionCommanderActionQueue.Counts.RequiresReview != 0 {
-			t.Fatalf("active RH route should own the completed legacy batch current action: current=%+v queue=%+v", projectCurrent, status.ProjectHandoff.MissionCommanderActionQueue)
+		if projectCurrent.Source != "releaseHandoffActiveRoute" || projectCurrent.ActionID != "active-route-current-batch" || status.ProjectHandoff.ActiveRoute.ExclusiveClaim == "" || projectCurrent.Label != status.ProjectHandoff.ActiveRoute.ExclusiveClaim || !strings.Contains(projectCurrent.Command, status.ProjectHandoff.ActiveRoute.ExclusiveClaim) || status.ProjectHandoff.MissionCommanderActionQueue.Counts.RequiresReview != 0 {
+			t.Fatalf("active RH route should own the completed legacy batch current action: current=%+v route=%+v queue=%+v", projectCurrent, status.ProjectHandoff.ActiveRoute, status.ProjectHandoff.MissionCommanderActionQueue)
 		}
 	} else {
 		wantProjectCommand := statusProjectHandoffExecutableCurrentCommand(status.ProjectHandoff.LatestNextAction)
 		if projectCurrent.Source != "releaseHandoffLatestBatch" || projectCurrent.Command != wantProjectCommand || projectCurrent.Label != status.ProjectHandoff.LatestBatch || status.ProjectHandoff.MissionCommanderActionQueue.Counts.RequiresReview != 1 {
-			t.Fatalf("in-progress latest batch should keep latest-batch release handoff action: current=%+v queue=%+v latest=%q", projectCurrent, status.ProjectHandoff.MissionCommanderActionQueue, status.ProjectHandoff.LatestNextAction)
+			t.Fatalf("latest-batch release handoff action drifted: current=%+v queue=%+v latest=%q route=%+v", projectCurrent, status.ProjectHandoff.MissionCommanderActionQueue, status.ProjectHandoff.LatestNextAction, status.ProjectHandoff.ActiveRoute)
 		}
 	}
 	if status.ProjectHandoff.LatestRemoteReleaseGateDetail.State != status.ProjectHandoff.LatestRemoteReleaseGate {
@@ -2139,15 +2160,25 @@ func TestRunStatusJsonKit(t *testing.T) {
 		"status next action：Read docs/context-routing.md first",
 	}
 	projectActionTextExpected := []string{}
-	if status.ProjectHandoff.ActiveRoute.Present && !status.ProjectHandoff.ActiveRoute.NextBatchUnlocked && status.ProjectHandoff.LatestBatch == "Batch 821" {
+	if status.ProjectHandoff.ActiveRoute.Present && !status.ProjectHandoff.ActiveRoute.NextBatchUnlocked && strings.HasPrefix(strings.ToLower(strings.TrimSpace(status.ProjectHandoff.ActiveRoute.ExclusiveClaim)), "无") {
 		projectActionTextExpected = []string{
 			fmt.Sprintf("status project handoff：summary=%s ready=%t latestBatch=Batch 821", status.ProjectHandoff.Summary, status.ProjectHandoff.Ready),
 			"status project handoff current action queue：total=1 unblocked=1 blocked=0",
-			"status Mission Commander current action：scope=focus-project lane= label=RH-03 state=in_progress source=releaseHandoffActiveRoute",
+			"status Mission Commander current action：scope=focus-project lane= label=RH-09 state=completed-no-next-batch source=releaseHandoffActiveRoute blocked=false requiresReview=false command=the approved route is complete; wait for an explicit user route change before selecting further work",
+			"status Mission Commander focus action reason：scope=project reason=active durable route is completed: real-usage-hardening-v1",
+			"status Mission Commander focus action boundary：scope=project boundary=do not generate or consume next-batch selection guidance while the completed route has no selectable next batch",
+			"status Mission Commander focus project runbook：batch=RH-09 state=completed-no-next-batch",
+			"status project handoff current action queue action：bucket=current lane= label=RH-09 state=completed-no-next-batch source=releaseHandoffActiveRoute",
+		}
+	} else if status.ProjectHandoff.ActiveRoute.Present && !status.ProjectHandoff.ActiveRoute.NextBatchUnlocked && status.ProjectHandoff.LatestBatch == "Batch 821" {
+		projectActionTextExpected = []string{
+			fmt.Sprintf("status project handoff：summary=%s ready=%t latestBatch=Batch 821", status.ProjectHandoff.Summary, status.ProjectHandoff.Ready),
+			"status project handoff current action queue：total=1 unblocked=1 blocked=0",
+			fmt.Sprintf("status Mission Commander current action：scope=focus-project lane= label=%s state=in_progress source=releaseHandoffActiveRoute", status.ProjectHandoff.ActiveRoute.ExclusiveClaim),
 			"status Mission Commander focus action reason：scope=project reason=active durable route: real-usage-hardening-v1",
 			"status Mission Commander focus action boundary：scope=project boundary=do not generate or consume free-form candidate-domain selection while the active route is not unlocked",
-			"status Mission Commander focus project runbook：batch=RH-03 state=in_progress",
-			"status project handoff current action queue action：bucket=current lane= label=RH-03 state=in_progress source=releaseHandoffActiveRoute",
+			fmt.Sprintf("status Mission Commander focus project runbook：batch=%s state=in_progress", status.ProjectHandoff.ActiveRoute.ExclusiveClaim),
+			fmt.Sprintf("status project handoff current action queue action：bucket=current lane= label=%s state=in_progress source=releaseHandoffActiveRoute", status.ProjectHandoff.ActiveRoute.ExclusiveClaim),
 		}
 	} else if status.ProjectHandoff.ReleaseInspectionCadence.State == "complete" {
 		projectActionTextExpected = []string{
@@ -5593,7 +5624,7 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 	if resultCounts.RecommendedMinimum == 0 || resultCounts.Boundaries == 0 || resultCounts.KnownGaps == 0 || resultCounts.Packs == 0 || resultCounts.HeavyToolGateActions == 0 {
 		t.Fatalf("release-check omitted required inventory: %+v", result)
 	}
-	if strings.Join(result.HeavyToolGateActions, ",") != "debug,dump,full-trace,inject,network,patch,symex" {
+	if strings.Join(result.HeavyToolGateActions, ",") != "debug,dump,full-trace,inject,inspect,network,patch,symex" {
 		t.Fatalf("unexpected heavy-tool gate actions: %v", result.HeavyToolGateActions)
 	}
 	packs := map[string]manifest.PackSummary{}
@@ -5618,7 +5649,7 @@ func TestRunReleaseCheckJsonInventory(t *testing.T) {
 		"boundary=inventory-ready-not-remote-ci-green",
 		"release-check required command：command=go run ./cmd/rekit -- -Command release-check -Format json kind=go-run repoPath=cmd/rekit required=true present=true resolved=true inCatalog=true",
 		"release-check document：path=docs/context-routing.md present=true",
-		"release-check heavy actions：actions=debug,dump,full-trace,inject,network,patch,symex",
+		"release-check heavy actions：actions=debug,dump,full-trace,inject,inspect,network,patch,symex",
 		"release-check go-native public surface：summary=Go-native public command surface inventory ok ready=true entrypoint=cmd/rekit",
 		"release-check command group：group=readOnly commands=doctor,packs,release-check,status,validate",
 		"release-check command boundary：boundary=local-validation-receipt count=1 commands=release-run",
@@ -5974,7 +6005,7 @@ func assertReleaseHandoffPackMaturity(t *testing.T, handoff releasecheck.Release
 	if inventory.MaturityCounts["template"] != 1 || inventory.MaturityCounts["mature"] != 1 || inventory.MaturityCounts["skeleton"] != 8 {
 		t.Fatalf("unexpected release handoff maturity counts: %+v", inventory.MaturityCounts)
 	}
-	if strings.Join(inventory.HeavyToolGateActions, ",") != "debug,dump,full-trace,inject,network,patch,symex" {
+	if strings.Join(inventory.HeavyToolGateActions, ",") != "debug,dump,full-trace,inject,inspect,network,patch,symex" {
 		t.Fatalf("unexpected release handoff heavy-tool gate actions: %v", inventory.HeavyToolGateActions)
 	}
 	assertReleaseHandoffMaturityPack(t, inventory.PacksByMaturity, "template", "_template")
@@ -6462,7 +6493,7 @@ func TestRunReleaseCheckTextInventory(t *testing.T) {
 		"docs/mission-control-product-direction.md",
 		"docs/autonomous-goal.md",
 		"packs:",
-		"heavy-tool gate actions: debug,dump,full-trace,inject,network,patch,symex",
+		"heavy-tool gate actions: debug,dump,full-trace,inject,inspect,network,patch,symex",
 		"PowerShell deprecation: PowerShell deprecation inventory ok ready=true",
 		"commands=24 modules=14 freezeGates=10 blocked=5 fallbackRetirement=true noFallback=30 candidates=0 removalModules=0 retiredModules=13 facadeRuntime=true legacyImports=false dispatcher=false publicFacade=true retained=true facadeCommands=30 noFallback=30 moduleRemoval=true removalCandidates=0 retired=13 facadeDeps=0 undocumented=0 moduleReferences=true activeTests=0 fixtures=0 blockers=0 unclassified=0",
 		"Go-native public surface: Go-native public command surface inventory ok ready=true entrypoint=cmd/rekit present=true catalog=internal/rekit/commands/commands.go catalogPresent=true default=status commands=30 handlers=30 symbols=30 profiles=30 boundaries=8 boundaryRows=8 policyRows=5 policyViolations=0 facadeRemovalReady=true facadePrerequisites=5 readOnly=5 mutating=25 writesCase=22 writesKit=2 reviewFirst=12 applyRequired=22 heavyTool=0 authorityConfirmed=0 readOnlyCommands=doctor,packs,release-check,status,validate reviewFirstCommands=complete,next-batch,onboard,promote,reopen,run-current-loop,run-current-step,run-driver-step,run-reviewer-step,run-reviewer-wave,sync,update writesKitCommands=next-batch,promote caseLocalApplyCommands=attach,bootstrap,continue,gate,handoff,init,reconcile,repair,start caseLocalReviewWritebackCommands=plan-subagents kitReviewFirstCommands=next-batch,promote alternative=go run ./cmd/rekit -- -Command <command> unsupportedDiagnostic=true",
@@ -6568,7 +6599,7 @@ func TestRunPacksListsPackMatrix(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"packs：mutation=false count=10",
-		"packs pack：id=_template name=_template maturity=template schema=ok manifestSchema=1 managed=4 template=1 local=3 promote=4 tooling=2 prompts=0 routes=2 heavyToolGates=7 authority=main version=0.1.0",
+		"packs pack：id=_template name=_template maturity=template schema=ok manifestSchema=1 managed=4 template=1 local=3 promote=4 tooling=2 prompts=0 routes=2 heavyToolGates=8 authority=main version=0.1.0",
 		"packs pack：id=vmp-re name=vmp-re maturity=mature schema=ok manifestSchema=1 managed=7 template=1 local=3 promote=7 tooling=12 prompts=4 routes=2 heavyToolGates=7 authority=devirt-main version=0.2.0",
 		"packs pack heavy action：id=vmp-re action=debug",
 		"packs pack heavy action：id=vmp-re action=symex",
@@ -10369,6 +10400,43 @@ func TestRunNoteAppendRejectsInvalidInputs(t *testing.T) {
 				t.Fatalf("error = %q, want %q", err.Error(), tc.want)
 			}
 		})
+	}
+}
+
+func TestRunRejectsMemberOutputStagingFlagsOutsidePromote(t *testing.T) {
+	for _, args := range [][]string{
+		{"-Command", "status", "-StageMemberOutput"},
+		{"-Command", "status", "-MemberOutputPath", "pack-memory.md"},
+		{"-Command", "status", "-ManagedTargetPath", "references/template/README.md"},
+		{"-Command", "status", "-ExpectedMemberOutputStagingPlanSha256", strings.Repeat("a", 64)},
+	} {
+		var out bytes.Buffer
+		err := Run(args, &out)
+		if err == nil || !strings.Contains(err.Error(), "supported only by promote") {
+			t.Fatalf("member output staging flags outside promote error = %v", err)
+		}
+	}
+}
+
+func TestRunPromoteMemberOutputStagingValidation(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	base := []string{"-Command", "promote", "-Target", caseRoot, "-Pack", "_template", "-StageMemberOutput", "-Lane", "feature-analysis", "-MemberExecutionAttemptId", "attempt", "-MemberOutputPath", "pack-memory.md", "-ManagedTargetPath", "references/template/README.md"}
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{base, "requires exactly one"},
+		{append(append([]string{}, base...), "-Apply"), "requires -ExpectedMemberOutputStagingPlanSha256"},
+		{append(append([]string{}, base...), "-ExpectedMemberOutputStagingPlanSha256", strings.Repeat("a", 64), "-WhatIf"), "does not accept"},
+		{append(append([]string{}, base...), "-CreateCandidates", "-WhatIf"), "cannot be combined"},
+		{append(append([]string{}, base...), "-Force", "-WhatIf"), "cannot be combined"},
+		{append(append([]string{}, base...), "-SelectPackMemoryChange", "forged-change", "-WhatIf"), "supported only by sync"},
+	} {
+		var out bytes.Buffer
+		err := Run(tc.args, &out)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("staging validation error = %v, want %q", err, tc.want)
+		}
 	}
 }
 
@@ -25079,8 +25147,42 @@ func disableCLIActiveRouteFixture(t *testing.T, repoRoot string) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		text := strings.Replace(string(data), "| 状态 | `in_progress` |", "| 状态 | `completed` |", 1)
-		text = strings.Replace(text, "| 唯一允许领取 | `RH-03` |", "| 唯一允许领取 | `RH-04` |", 1)
+		lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
+		current := ""
+		for _, line := range lines {
+			columns := strings.Split(strings.TrimSpace(line), "|")
+			if len(columns) >= 4 && strings.TrimSpace(columns[1]) == "当前批次" {
+				current = strings.Fields(strings.Trim(strings.TrimSpace(columns[2]), "`"))[0]
+				break
+			}
+		}
+		claimNumber := strings.TrimPrefix(current, "RH-")
+		var number int
+		if current == "" {
+			t.Fatalf("active route fixture current batch not found in %s", rel)
+		}
+		if _, err := fmt.Sscanf(claimNumber, "%d", &number); err != nil {
+			t.Fatalf("active route fixture current batch %q did not decode: %v", current, err)
+		}
+		next := fmt.Sprintf("RH-%02d", number+1)
+		for index, line := range lines {
+			columns := strings.Split(strings.TrimSpace(line), "|")
+			if len(columns) < 4 {
+				continue
+			}
+			switch strings.TrimSpace(columns[1]) {
+			case "状态":
+				lines[index] = "| 状态 | `completed` |"
+			case "唯一允许领取":
+				lines[index] = "| 唯一允许领取 | `" + next + "` |"
+			case "下一批":
+				lines[index] = "| 下一批 | `" + next + "` |"
+			}
+		}
+		text := strings.Join(lines, "\n")
+		if !strings.Contains(text, "| 状态 | `completed` |") || !strings.Contains(text, "| 唯一允许领取 | `"+next+"` |") || !strings.Contains(text, "| 下一批 | `"+next+"` |") {
+			t.Fatalf("active route fixture did not unlock the next batch in %s", rel)
+		}
 		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
 			t.Fatal(err)
 		}

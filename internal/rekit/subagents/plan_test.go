@@ -102,6 +102,43 @@ func TestWritePlanIncludesShardHandoffs(t *testing.T) {
 	}
 }
 
+func TestReviewerEvidenceIntegrityGuidanceRequiresEveryImmutableMemberTaskContext(t *testing.T) {
+	manifests := []string{
+		".rekit/lanes/feature-mission/member-executions/g000001-a000001/evidence/manifest.json",
+		".rekit/lanes/feature-mission/member-executions/g000002-a000001/evidence/manifest.json",
+	}
+	guidance := reviewerEvidenceIntegrityGuidance(manifests)
+
+	for _, expected := range []string{
+		manifests[0],
+		".rekit/lanes/feature-mission/member-executions/g000001-a000001/task-context.json",
+		".rekit/lanes/feature-mission/member-executions/g000001-a000001/evidence/outputs",
+		manifests[1],
+		".rekit/lanes/feature-mission/member-executions/g000002-a000001/task-context.json",
+		".rekit/lanes/feature-mission/member-executions/g000002-a000001/evidence/outputs",
+		"Resolve every manifest.outputs[].path by joining it beneath that item's exact canonical outputs root",
+		"rather than looking beside the manifest or in the case workspace",
+		"taskContext.goal",
+		"taskContext.expectedOutput",
+		"taskContext.correction",
+		"reviewerRejection evidence",
+		"explicit acceptance requirements in the task context as mandatory output conditions",
+		"decision=reject with recommendedVerdict=rejected",
+		"not accept or defer",
+		"A self-consistent manifest does not satisfy a missing goal, acceptance requirement, or correction requirement",
+		"Keep every item exactly as listed in Items",
+	} {
+		if !strings.Contains(guidance, expected) {
+			t.Fatalf("member reviewer guidance missing %q: %s", expected, guidance)
+		}
+	}
+	for _, manifest := range manifests {
+		if strings.Contains(guidance, "Items: "+strings.TrimSuffix(manifest, "/evidence/manifest.json")+"/task-context.json") {
+			t.Fatalf("task context changed the manifest-only ReviewerResult item contract: %s", guidance)
+		}
+	}
+}
+
 func TestPacketIdentityMatchesLegacyPacketWithoutReviewerOrchestration(t *testing.T) {
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
 	result, err := WritePlan(repoRoot, t.TempDir(), defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", ReviewOutputDir: t.TempDir()})
@@ -406,7 +443,7 @@ func assertShardHandoff(t *testing.T, handoff ShardHandoff, wantID string, wantI
 	if handoff.ShardID != wantID || handoff.Status != "planned" || strings.Join(handoff.Items, ",") != strings.Join(wantItems, ",") || filepath.Base(handoff.ReviewerResultPath) != wantID+".json" {
 		t.Fatalf("unexpected shard handoff identity: %+v", handoff)
 	}
-	for _, expected := range []string{"read-only reviewer", "Do not write files", "plan-subagents -ReviewerResultPath", "shape template contains instructions, not default verdict values", "Choose accept with recommendedVerdict=accepted", "Return items exactly as listed in Items", "do not treat the packet skeleton itself as evidence"} {
+	for _, expected := range []string{"read-only reviewer", "Do not write files", "plan-subagents -ReviewerResultPath", "shape template contains instructions, not default verdict values", "Choose accept with recommendedVerdict=accepted", "Return items exactly as listed in Items", "set evidenceRefs to the exact packetId", "never substitute an item path, absolute path", "do not treat the packet skeleton itself as evidence"} {
 		if !strings.Contains(handoff.DispatchPrompt, expected) {
 			t.Fatalf("dispatch prompt missing %q: %+v", expected, handoff)
 		}

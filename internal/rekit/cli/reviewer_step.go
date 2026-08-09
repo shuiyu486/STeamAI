@@ -20,6 +20,10 @@ type reviewerStepPlan struct {
 	Command                        string                                 `json:"command"`
 	CaseRoot                       string                                 `json:"caseRoot"`
 	Pack                           string                                 `json:"pack"`
+	PacketID                       string                                 `json:"packetId"`
+	PacketPath                     string                                 `json:"packetPath"`
+	TargetLane                     string                                 `json:"targetLane"`
+	ShardID                        string                                 `json:"shardId"`
 	IsMutation                     bool                                   `json:"isMutation"`
 	Applied                        bool                                   `json:"applied"`
 	ReviewRequired                 bool                                   `json:"reviewRequired"`
@@ -29,6 +33,7 @@ type reviewerStepPlan struct {
 	PreviewResult                  any                                    `json:"previewResult,omitempty"`
 	ApplyDriverRequest             *mission.MissionCommanderDriverRequest `json:"applyDriverRequest,omitempty"`
 	ExpectedReviewerStepPlanSHA256 string                                 `json:"expectedReviewerStepPlanSha256,omitempty"`
+	ReviewerResultSnapshot         *reviewerStepResultSnapshotIdentity    `json:"reviewerResultSnapshot,omitempty"`
 	MissionCommanderActionQueue    mission.MissionCommanderActionQueue    `json:"missionCommanderActionQueue"`
 	ExternalHandoff                *reviewerStepExternalHandoff           `json:"externalHandoff,omitempty"`
 	Receipt                        *reviewerStepReceipt                   `json:"receipt,omitempty"`
@@ -83,10 +88,21 @@ type reviewerStepReceipt struct {
 	Boundary                      []string                               `json:"boundary"`
 }
 
+type reviewerStepResultSnapshotIdentity struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+	Bytes  int64  `json:"bytes"`
+}
+
 type reviewerStepPlanIdentity struct {
-	CurrentDriverRequest mission.MissionCommanderDriverRequest `json:"currentDriverRequest"`
-	PreviewDriverRequest mission.MissionCommanderDriverRequest `json:"previewDriverRequest"`
-	ApplyDriverRequest   mission.MissionCommanderDriverRequest `json:"applyDriverRequest"`
+	PacketID               string                                `json:"packetId"`
+	PacketPath             string                                `json:"packetPath"`
+	TargetLane             string                                `json:"targetLane"`
+	ShardID                string                                `json:"shardId"`
+	CurrentDriverRequest   mission.MissionCommanderDriverRequest `json:"currentDriverRequest"`
+	PreviewDriverRequest   mission.MissionCommanderDriverRequest `json:"previewDriverRequest"`
+	ApplyDriverRequest     mission.MissionCommanderDriverRequest `json:"applyDriverRequest"`
+	ReviewerResultSnapshot *reviewerStepResultSnapshotIdentity   `json:"reviewerResultSnapshot,omitempty"`
 }
 
 func runReviewerStep(ctx runtime.Context, opt Options, out io.Writer) error {
@@ -139,7 +155,11 @@ func applyReviewerStepPlan(ctx runtime.Context, opt Options, plan reviewerStepPl
 	if plan.ApplyDriverRequest == nil {
 		return reviewerStepPlan{}, fmt.Errorf("run-reviewer-step preview omitted a typed Apply driver request")
 	}
-	result, err := applyReviewerStep(ctx, *plan.ApplyDriverRequest)
+	snapshot := opt.currentLoopReviewerResultSnapshot
+	if !opt.bindReviewerResultSnapshot {
+		snapshot = nil
+	}
+	result, err := applyReviewerStep(ctx, *plan.ApplyDriverRequest, snapshot)
 	if err != nil {
 		return reviewerStepPlan{}, err
 	}
@@ -190,6 +210,10 @@ func buildReviewerStepPlanFromStatus(ctx runtime.Context, opt Options, status st
 		Command:              commands.RunReviewerStep,
 		CaseRoot:             ctx.Target,
 		Pack:                 ctx.Pack,
+		PacketID:             pkg.PacketID,
+		PacketPath:           pkg.PacketPath,
+		TargetLane:           pkg.TargetLane,
+		ShardID:              pkg.Current.ShardID,
 		CurrentDriverRequest: request,
 		ExternalHandoff:      external,
 		ReviewRequired:       true,
@@ -197,7 +221,7 @@ func buildReviewerStepPlanFromStatus(ctx runtime.Context, opt Options, status st
 		Boundary: []string{
 			"runner consumes only reviewerDispatchIntakeSummary.operatorPackage.currentDriverRequest and its current run-loop step",
 			"spawn-reviewer and reviewer JSON production remain external harness actions; the Go runtime never invokes Agent tool or fabricates reviewer output",
-			"outer plan hash binds the durable current request, resolved preview request, and typed Apply request; each reviewer handler retains its own artifact hashes, packet binding, lock, and currentness checks",
+			"outer plan hash binds the durable current request, resolved preview request, typed Apply request, and any private host-supplied ReviewerResult snapshot identity; each reviewer handler retains its own artifact hashes, packet binding, lock, and currentness checks",
 			"deterministic reviewer artifact and intake mutations remain preview-first and use only the typed Apply request returned by the matching handler",
 			"the Go runtime does not execute heavy tools or write authority/confirmed state",
 			"status is rebuilt after Apply before follow-up reviewer work is selected",
@@ -231,10 +255,21 @@ func buildReviewerStepPlanFromStatus(ctx runtime.Context, opt Options, status st
 	if reviewerStepMode(previewOpt) != reviewerStepMode(applyOpt) {
 		return reviewerStepPlan{}, fmt.Errorf("returned reviewer Apply driver request mode differs from current preview request")
 	}
+	var snapshotIdentity *reviewerStepResultSnapshotIdentity
+	if snapshot := opt.currentLoopReviewerResultSnapshot; snapshot != nil && opt.bindReviewerResultSnapshot {
+		snapshotIdentity = &reviewerStepResultSnapshotIdentity{
+			Path: snapshot.Path, SHA256: snapshot.SHA256, Bytes: snapshot.Bytes,
+		}
+	}
 	identity := reviewerStepPlanIdentity{
-		CurrentDriverRequest: request,
-		PreviewDriverRequest: previewRequest,
-		ApplyDriverRequest:   applyRequest,
+		PacketID:               pkg.PacketID,
+		PacketPath:             pkg.PacketPath,
+		TargetLane:             pkg.TargetLane,
+		ShardID:                pkg.Current.ShardID,
+		CurrentDriverRequest:   request,
+		PreviewDriverRequest:   previewRequest,
+		ApplyDriverRequest:     applyRequest,
+		ReviewerResultSnapshot: snapshotIdentity,
 	}
 	encoded, err := json.Marshal(identity)
 	if err != nil {
@@ -243,6 +278,7 @@ func buildReviewerStepPlanFromStatus(ctx runtime.Context, opt Options, status st
 	sum := sha256.Sum256(encoded)
 	plan.PreviewResult = preview
 	plan.ApplyDriverRequest = &applyRequest
+	plan.ReviewerResultSnapshot = snapshotIdentity
 	plan.ExpectedReviewerStepPlanSHA256 = hex.EncodeToString(sum[:])
 	plan.MissionCommanderActionQueue = reviewerStepResultQueue(preview)
 	return plan, nil
@@ -657,11 +693,12 @@ func previewReviewerStep(ctx runtime.Context, opt Options) (any, error) {
 	return executeReviewerStep(ctx, opt)
 }
 
-func applyReviewerStep(ctx runtime.Context, request mission.MissionCommanderDriverRequest) (any, error) {
+func applyReviewerStep(ctx runtime.Context, request mission.MissionCommanderDriverRequest, snapshot *subagents.ReviewerResultInputSnapshot) (any, error) {
 	opt, err := parseBoundedReviewerRequest(ctx, request, true)
 	if err != nil {
 		return nil, currentStepZeroProgressError{cause: err}
 	}
+	opt.currentLoopReviewerResultSnapshot = snapshot
 	return executeReviewerStep(ctx, opt)
 }
 

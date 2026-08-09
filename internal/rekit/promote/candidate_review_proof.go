@@ -591,7 +591,11 @@ func candidateReviewProofEvidencePath(repoRoot, caseRoot, path string) string {
 func candidateReviewProofDraftPath(repoRoot, candidateRoot, value, proofType, candidatePath string) (string, error) {
 	path := strings.TrimSpace(value)
 	if path == "" {
-		stem := strings.TrimSuffix(filepath.Base(filepath.ToSlash(candidatePath)), filepath.Ext(candidatePath))
+		base := filepath.Base(filepath.ToSlash(candidatePath))
+		stem := strings.TrimSuffix(base, ".candidate.md")
+		if stem == base {
+			stem = strings.TrimSuffix(base, filepath.Ext(base))
+		}
 		path = filepath.ToSlash(filepath.Join(candidateRoot, "review-artifacts", stem+"."+proofType+".json"))
 	}
 	full, err := filepath.Abs(candidateReviewProofResolveRepoPath(repoRoot, path))
