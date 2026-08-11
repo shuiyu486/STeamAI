@@ -38,18 +38,3 @@ func rejectReparseAncestors(path string) error {
 	}
 	return nil
 }
-
-func splitPathComponents(path string) []string {
-	components := []string{}
-	for path != "." && path != "" {
-		dir, leaf := filepath.Split(path)
-		if leaf != "" {
-			components = append([]string{leaf}, components...)
-		}
-		path = filepath.Clean(dir)
-		if path == string(filepath.Separator) {
-			break
-		}
-	}
-	return components
-}

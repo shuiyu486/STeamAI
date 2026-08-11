@@ -26,3 +26,19 @@ func TestRejectExclusiveInitReparsePathRejectsWindowsReparsePoint(t *testing.T) 
 		t.Fatalf("Windows reparse point error = %v", err)
 	}
 }
+
+func TestOrdinaryInitPreviewRejectsNestedWindowsReparsePoint(t *testing.T) {
+	repoRoot, pack := exclusiveInitFixture(t)
+	caseRoot := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(caseRoot, "linked")); err != nil {
+		t.Skipf("Windows symlink creation unavailable: %v", err)
+	}
+	_, err := InitPreview(repoRoot, caseRoot, pack, ApplyOptions{ProjectName: "reparse", CreateLocalFiles: true, Command: "init"})
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "reparse") {
+		t.Fatalf("ordinary reparse preview error = %v", err)
+	}
+	if _, statErr := os.Lstat(filepath.Join(caseRoot, ".rekit")); !os.IsNotExist(statErr) {
+		t.Fatalf("reparse preview wrote .rekit: %v", statErr)
+	}
+}

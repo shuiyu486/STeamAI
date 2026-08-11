@@ -142,6 +142,12 @@ toolingCandidateSources:
   - references/vmp-re/lane-collaboration.md
 
 heavyToolGates:
+  - id: inspect
+    title: Existing IDA sidecar index inspection
+    sideEffects: inspect,filesystem-read,bounded-packet-write
+    defaultRisk: medium
+    requiresConfirmation: true
+    stopConditions: scope-drift,source-drift,output-exceeds-bounded-evidence-packet
   - id: full-trace
     title: Full trace capture
     sideEffects: full-trace,filesystem-write

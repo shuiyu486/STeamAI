@@ -81,6 +81,16 @@ type reviewerResponse struct {
 	Reason  string          `json:"reason"`
 }
 
+type evidenceReviewResponse struct {
+	Decision            string   `json:"decision"`
+	Summary             string   `json:"summary"`
+	Reason              string   `json:"reason"`
+	EvidenceRefs        []string `json:"evidenceRefs"`
+	SelectedEvidenceRef string   `json:"selectedEvidenceRef"`
+	ObservationEventID  string   `json:"observationEventId"`
+	ReceiptSHA256       string   `json:"receiptSha256"`
+}
+
 func runClaude(parent context.Context, opt Options, pkg mission.CurrentLoopExternalSessionHarnessPackage, sessionID string, started func() error) claudeRun {
 	begin := time.Now()
 	ctx, cancel := context.WithTimeout(parent, opt.Timeout)
@@ -350,7 +360,11 @@ func claudeRequest(caseRoot string, pkg mission.CurrentLoopExternalSessionHarnes
 	common := fmt.Sprintf("Read the immutable task input at the exact absolute path %q using the Read tool before answering. Follow it exactly within its no-authority/no-heavy-tool boundary. Resolve any case-relative evidence paths inside that input from the current case root %q. Your actual Claude Code session ID is %s. Return only the requested structured output through the schema. Use Read only for the immutable input and the minimum listed evidence needed for the verdict; do not explore unrelated files or repeat reads. After those bounded reads, immediately return the structured output and never end the response with another Read call. Do not write external-session result or submission files; the host will persist your real returned bytes.", inputPath, caseRoot, sessionID)
 	if pkg.SessionKind == "member" {
 		schema := `{"type":"object","properties":{"outcome":{"type":"string","enum":["returned","failed"]},"summary":{"type":"string"},"reason":{"type":"string"},"outputs":{"type":"array","maxItems":64,"items":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":false}},"reviewerItemsPath":{"type":"string"}},"required":["outcome","summary","reason","outputs","reviewerItemsPath"],"additionalProperties":false}`
-		return common + " For outcome=returned provide a non-empty summary and at least one bounded output path/content pair. Read the task context outputContract.fields and make the returned analysis explicitly address every field using the currently inspected evidence; use a clear unknown, none, or not-applicable value when the evidence supports no stronger claim, and never invent a value. If the task context contains a correction and historical Reviewer rejection, treat them as instructions and provenance for replacing the old result: cite the current correction evidence path and report the corrected current analysis rather than repeating the historical gap as current. An unmet semantic acceptance requirement or missing bounded evidence is not a process failure: return a bounded output that states the concrete gap so an independent Reviewer can reject it; use outcome=failed only when you cannot return any bounded output. Set reviewerItemsPath to one returned output containing one non-empty review item per line when practical; otherwise use an empty string and the manifest will be reviewed. For outcome=failed provide a non-empty reason and no outputs.", schema, nil
+		return common + " For outcome=returned provide a non-empty summary and at least one bounded output path/content pair. Read the task context outputContract.fields and make the returned analysis explicitly address every field using the currently inspected evidence; use a clear unknown, none, or not-applicable value when the evidence supports no stronger claim, and never invent a value. If the task context contains a correction and historical Reviewer rejection, treat them as instructions and provenance for replacing the old result: cite the current correction evidence path and report the corrected current analysis rather than repeating the historical gap as current. The independent Reviewer is a later runtime-owned segment: do not require a Reviewer result inside the member output, do not defer merely because that later review has not happened, and do not claim that it has happened. Judge only whether the member evidence and analysis you can produce now support the requested factual conclusion; the later Reviewer will independently accept or reject that output. An unmet semantic acceptance requirement or missing bounded evidence is not a process failure: return a bounded output that states the concrete gap so an independent Reviewer can reject it; use outcome=failed only when you cannot return any bounded output. If the TaskContext binding kind is vmp-ida-index-evidence, read its exact packet, report, dispatch, and receipt paths and put the exact selected row (preserving TSV text or its exact JSON string escaping), selected evidence ref, packet path, receipt path, and observation event ID in the returned reviewerItemsPath output; a query-term-only echo is invalid. Set reviewerItemsPath to one returned output containing one non-empty review item per line when practical; otherwise use an empty string and the manifest will be reviewed. For outcome=failed provide a non-empty reason and no outputs.", schema, nil
+	}
+	if pkg.SessionKind == "mission-commander-evidence-review" {
+		schema := `{"type":"object","properties":{"decision":{"type":"string","enum":["accepted","rejected"]},"summary":{"type":"string"},"reason":{"type":"string"},"evidenceRefs":{"type":"array","minItems":2,"maxItems":8,"items":{"type":"string"}},"selectedEvidenceRef":{"type":"string"},"observationEventId":{"type":"string"},"receiptSha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}},"required":["decision","summary","reason","evidenceRefs","selectedEvidenceRef","observationEventId","receiptSha256"],"additionalProperties":false}`
+		return common + " This is an independent Mission Commander evidence review, not a member or ReviewerResult session. Verify the immutable review input against the exact packet, request sources, report, dispatch, receipt, and observation paths it names. Accept only if the selected row is an exact source line, its matched term and evidence ref are exact, and every supplied SHA-256 and lineage identity agrees. Reject on any missing, unreadable, ambiguous, or drifted binding. Return the exact selectedEvidenceRef, observationEventId, receiptSha256, and the evidenceRefs listed by the review input; do not write files or ledger state.", schema, nil
 	}
 	if pkg.SessionKind != "reviewer" {
 		return "", "", fmt.Errorf("unsupported Claude session kind %q", pkg.SessionKind)
@@ -361,7 +375,7 @@ func claudeRequest(caseRoot string, pkg mission.CurrentLoopExternalSessionHarnes
 		return "", "", err
 	}
 	identity := reviewerExpectedOutput(receipt, fields)
-	return common + " " + identity + " For outcome=returned, result must be exactly one ReviewerResult object and reviewerSession must equal the actual session ID above. Judge only the current reviewed manifest, its current output bytes, and currently accessible bounded evidence. A historical rejection embedded in the replacement TaskContext is correction provenance, not evidence that the current replacement still has the old defect; reject only if the current output fails to address it. Route fields with evidence-supported unknown, none, or not-applicable values satisfy presence but must not be upgraded into unsupported positive claims. In result.routeOutput set tool_scope exactly to read-only and next_action exactly to main-agent review when those fields are required; do not request writes, heavy tools, authority/confirmed, or external effects. For outcome=failed, result must be null and reason must be non-empty.", schema, nil
+	return common + " " + identity + " For outcome=returned, result must be exactly one ReviewerResult object and reviewerSession must equal the actual session ID above. Judge only the current reviewed manifest, its current output bytes, and currently accessible bounded evidence. This session is the independent Reviewer for the current attempt: do not reject merely because the member correctly said no Reviewer had run yet, and do not require the member output to contain this later session's result. Decide whether the current member evidence and analysis satisfy the factual acceptance requirements; use the current manifest binding as proof that this review is independent and current. A historical rejection embedded in the replacement TaskContext is correction provenance, not evidence that the current replacement still has the old defect; reject only if the current output fails to address it. Route fields with evidence-supported unknown, none, or not-applicable values satisfy presence but must not be upgraded into unsupported positive claims. Put only readable case-relative file references (optionally with a # fragment) or the exact packet ID in result.evidenceRefs; put non-file evidence labels, selected-row refs such as ida-index:..., observation event IDs, and other lineage identifiers in result.summary or result.routeOutput instead. If the current member reviewerItemsPath contains vmp-ida-index-evidence rows, copy the first complete ida-index:... evidenceRef verbatim into result.summary and the exact observationEventId verbatim into result.routeOutput.request_id; do not shorten, paraphrase, or replace either value with a packet ID. Keep result.routeOutput.evidence bound to an inspectable top-level evidenceRefs value, and include the exact case-relative packetPath and receiptPath from those rows in result.evidenceRefs. In result.routeOutput set tool_scope exactly to read-only and next_action exactly to main-agent review when those fields are required; do not request writes, heavy tools, authority/confirmed, or external effects. For outcome=failed, result must be null and reason must be non-empty.", schema, nil
 }
 
 func validateReviewerLaunchIdentity(
@@ -554,6 +568,22 @@ func casePathEqual(left, right string) bool {
 	return leftErr == nil && rightErr == nil && strings.EqualFold(filepath.Clean(leftPath), filepath.Clean(rightPath))
 }
 
+func validateEvidenceReviewResponse(response evidenceReviewResponse) error {
+	if response.Decision != "accepted" && response.Decision != "rejected" {
+		return fmt.Errorf("Claude evidence review returned invalid decision %q", response.Decision)
+	}
+	receiptHash, receiptHashErr := hex.DecodeString(strings.TrimSpace(response.ReceiptSHA256))
+	if strings.TrimSpace(response.Summary) == "" || strings.TrimSpace(response.Reason) == "" || len(response.EvidenceRefs) < 2 || len(response.EvidenceRefs) > 8 || strings.TrimSpace(response.SelectedEvidenceRef) == "" || strings.TrimSpace(response.ObservationEventID) == "" || receiptHashErr != nil || len(receiptHash) != sha256.Size {
+		return fmt.Errorf("Claude evidence review returned incomplete decision bindings")
+	}
+	for _, ref := range response.EvidenceRefs {
+		if strings.TrimSpace(ref) == "" || strings.ContainsAny(ref, "\r\n") {
+			return fmt.Errorf("Claude evidence review returned invalid evidence ref")
+		}
+	}
+	return nil
+}
+
 func validateClaudeStructuredResult(pkg mission.CurrentLoopExternalSessionHarnessPackage, run claudeRun) error {
 	if !run.success() {
 		return nil
@@ -593,6 +623,14 @@ func validateClaudeStructuredResult(pkg mission.CurrentLoopExternalSessionHarnes
 			return fmt.Errorf("validate real Claude ReviewerResult: %w", err)
 		}
 		if err := validateReviewerResultIdentity(result, receipt, fields); err != nil {
+			return err
+		}
+	case "mission-commander-evidence-review":
+		var response evidenceReviewResponse
+		if err := strictJSON(run.structuredOutput, &response); err != nil {
+			return fmt.Errorf("invalid Claude evidence review structured output: %w", err)
+		}
+		if err := validateEvidenceReviewResponse(response); err != nil {
 			return err
 		}
 	default:

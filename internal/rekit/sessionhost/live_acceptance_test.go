@@ -22,11 +22,15 @@ func TestLiveAcceptanceEvidenceIsPublishedOnlyForCorrection(t *testing.T) {
 	caseRoot := t.TempDir()
 	goal := liveAcceptanceBoundGoal("Inspect one harmless feature note.")
 	correction := liveAcceptanceBoundCorrection("Revise the analysis.")
+	attachedGoal := liveAcceptanceAttachedGoal()
 	if !strings.Contains(goal, liveAcceptanceEvidencePath) || !strings.Contains(goal, "Acceptance requires reading and citing") || !strings.Contains(goal, "mandatory acceptance requirement is unmet") {
 		t.Fatalf("goal did not bind the intentional initial evidence gap: %s", goal)
 	}
 	if !strings.Contains(correction, liveAcceptanceEvidencePath) || !strings.Contains(correction, "newly published bounded case-local evidence") {
 		t.Fatalf("correction did not bind the published evidence: %s", correction)
+	}
+	if !strings.Contains(attachedGoal, liveAcceptanceEvidencePath) || !strings.Contains(attachedGoal, "already published") || strings.Contains(attachedGoal, "mandatory acceptance requirement is unmet") {
+		t.Fatalf("attached goal did not bind the pre-published evidence: %s", attachedGoal)
 	}
 	if _, err := os.Lstat(filepath.Join(caseRoot, filepath.FromSlash(liveAcceptanceEvidencePath))); !os.IsNotExist(err) {
 		t.Fatalf("evidence existed before correction publication: %v", err)
@@ -68,6 +72,16 @@ func TestRunLiveAcceptanceRejectsPackOutsideAllowlistBeforeCreatingCase(t *testi
 	}
 	if _, statErr := os.Lstat(caseRoot); !os.IsNotExist(statErr) {
 		t.Fatalf("pack allowlist rejection created case root: %v", statErr)
+	}
+}
+
+func TestInitLiveAcceptanceCaseConsumesExactApplyRequest(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "fresh-case")
+	if err := initLiveAcceptanceCase(caseRoot, liveAcceptancePack, "live-init-contract", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "instance.yml")); err != nil {
+		t.Fatalf("live acceptance init did not publish attached case metadata: %v", err)
 	}
 }
 
@@ -316,31 +330,42 @@ func liveAcceptanceMutationSelectors(file *ast.File) []string {
 	return violations
 }
 
-func TestValidateLiveAcceptanceReviewerRejectionStopRequiresFirstRealReviewer(t *testing.T) {
+func TestValidateLiveAcceptanceReviewerRejectionStopRequiresIsolatedMemberAndReviewer(t *testing.T) {
 	result := DailyResult{
 		FinalState:      "reviewer-rejected-awaiting-correction",
-		SessionLaunches: 1, SessionCompletions: 1,
-		HostRuns: []Result{{
-			FinalMode:       "reviewer-rejected-awaiting-correction",
-			SessionLaunches: 1, SessionCompletions: 1,
-			Sessions: []Session{
-				{Started: true, SessionKind: "reviewer", Outcome: "returned"},
+		SessionLaunches: 2, SessionCompletions: 2,
+		HostRuns: []Result{
+			{
+				FinalMode:       "reviewer-ready",
+				SessionLaunches: 1, SessionCompletions: 1,
+				Sessions: []Session{
+					{Started: true, SessionKind: "member", Outcome: "returned"},
+				},
 			},
-		}},
+			{
+				FinalMode:       "reviewer-rejected-awaiting-correction",
+				SessionLaunches: 1, SessionCompletions: 1,
+				Sessions: []Session{
+					{Started: true, SessionKind: "reviewer", Outcome: "returned"},
+				},
+			},
+		},
 	}
 	if err := validateLiveAcceptanceReviewerRejectionStop(result, 3); err != nil {
 		t.Fatal(err)
 	}
 	for name, mutate := range map[string]func(*DailyResult){
-		"duplicate reviewer": func(value *DailyResult) { value.SessionLaunches = 2; value.SessionCompletions = 2 },
-		"missing completion": func(value *DailyResult) { value.SessionCompletions = 0 },
+		"missing segment":    func(value *DailyResult) { value.HostRuns = value.HostRuns[:1] },
+		"missing completion": func(value *DailyResult) { value.SessionCompletions = 1 },
 		"wrong final state":  func(value *DailyResult) { value.FinalState = "attention-required" },
-		"failed session":     func(value *DailyResult) { value.HostRuns[0].Sessions[0].Outcome = "replacement-requested" },
+		"failed reviewer":    func(value *DailyResult) { value.HostRuns[1].Sessions[0].Outcome = "replacement-requested" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			copy := result
 			copy.HostRuns = append([]Result{}, result.HostRuns...)
-			copy.HostRuns[0].Sessions = append([]Session{}, result.HostRuns[0].Sessions...)
+			for index := range copy.HostRuns {
+				copy.HostRuns[index].Sessions = append([]Session{}, result.HostRuns[index].Sessions...)
+			}
 			mutate(&copy)
 			if err := validateLiveAcceptanceReviewerRejectionStop(copy, 3); err == nil {
 				t.Fatalf("invalid bounded rejection stop was accepted: %+v", copy)

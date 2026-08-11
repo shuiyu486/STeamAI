@@ -31,7 +31,7 @@ func runCurrentLoopExternalSessionAttempt(ctx runtime.Context, opt Options, out 
 	if err := validateCurrentLoopOuterArgs(opt); err != nil {
 		return err
 	}
-	status, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+	status, err := buildInvocationStatusInventory(ctx, opt)
 	if err != nil {
 		return err
 	}
@@ -84,7 +84,7 @@ func runCurrentLoopExternalSessionAttempt(ctx runtime.Context, opt Options, out 
 		return err
 	}
 	result := currentLoopExternalSessionAttemptResult{AttemptPlan: applied}
-	fresh, refreshErr := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+	fresh, refreshErr := buildInvocationStatusInventory(ctx, opt)
 	if refreshErr == nil {
 		result.RefreshedStatus = &fresh
 	}

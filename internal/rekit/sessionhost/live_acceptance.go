@@ -15,10 +15,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/adapterhost"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/lanecompletion"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/processguard"
 	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
@@ -46,6 +50,7 @@ type LiveAcceptanceOptions struct {
 	MaxAttempts int
 	KeepCase    bool
 	ReceiptPath string
+	AdapterPath string
 }
 
 type LiveAcceptanceReceipt struct {
@@ -83,6 +88,7 @@ type LiveAcceptanceReceipt struct {
 	FinalAcceptance     *LiveAcceptanceAcceptance `json:"finalAcceptance,omitempty"`
 	CorrectionEventID   string                    `json:"correctionEventId"`
 	Completion          *LiveAcceptanceCompletion `json:"completion,omitempty"`
+	VMPIDA              *LiveAcceptanceVMPIDA     `json:"vmpIda,omitempty"`
 	TerminalReplay      LiveAcceptanceReplay      `json:"terminalReplay"`
 	AttachedCase        LiveAcceptanceAttached    `json:"attachedCase"`
 	LLMSource           string                    `json:"llmSource"`
@@ -173,6 +179,33 @@ type LiveAcceptanceCompletion struct {
 	NoHeavyTool   bool   `json:"noHeavyTool"`
 }
 
+type LiveAcceptanceVMPIDA struct {
+	Verified                bool                            `json:"verified"`
+	AdapterPath             string                          `json:"adapterPath"`
+	AdapterSHA256           string                          `json:"adapterSha256"`
+	AdapterProcessID        int                             `json:"adapterProcessId"`
+	RequestPath             string                          `json:"requestPath"`
+	RequestSHA256           string                          `json:"requestSha256"`
+	ProfilePreviewSHA256    string                          `json:"profilePreviewSha256"`
+	ProfileSHA256           string                          `json:"profileSha256"`
+	DeniedActions           []string                        `json:"deniedActions"`
+	GateEventID             string                          `json:"gateEventId"`
+	Authorization           string                          `json:"authorization"`
+	Run                     adapterhost.AuthorizedRunResult `json:"run"`
+	AcknowledgementEventID  string                          `json:"acknowledgementEventId"`
+	EvidenceReviewSessionID string                          `json:"evidenceReviewSessionId"`
+	EvidenceReviewDecision  string                          `json:"evidenceReviewDecision"`
+	SelectedEvidenceRef     string                          `json:"selectedEvidenceRef"`
+	EvidenceReviewCleared   bool                            `json:"evidenceReviewCleared"`
+	MemberBindingVerified   bool                            `json:"memberBindingVerified"`
+	ReviewerLineageVerified bool                            `json:"reviewerLineageVerified"`
+	TerminalReplayNoChild   bool                            `json:"terminalReplayNoChild"`
+	TerminalReplayNoClaude  bool                            `json:"terminalReplayNoClaude"`
+	NoAuthorityOrConfirmed  bool                            `json:"noAuthorityOrConfirmed"`
+	NoNetworkBoundary       string                          `json:"noNetworkBoundary"`
+	AcknowledgementBoundary string                          `json:"acknowledgementBoundary"`
+}
+
 type LiveAcceptanceReplay struct {
 	Verified           bool   `json:"verified"`
 	FinalState         string `json:"finalState"`
@@ -182,21 +215,24 @@ type LiveAcceptanceReplay struct {
 }
 
 type LiveAcceptanceAttached struct {
-	Verified            bool                   `json:"verified"`
-	CaseRoot            string                 `json:"caseRoot"`
-	CaseCreated         bool                   `json:"caseCreated"`
-	Pack                string                 `json:"pack"`
-	Lane                string                 `json:"lane"`
-	OnboardingMode      string                 `json:"onboardingMode"`
-	SessionLaunches     int                    `json:"sessionLaunches"`
-	SessionCompletions  int                    `json:"sessionCompletions"`
-	Evidence            LiveAcceptanceEvidence `json:"evidence"`
-	Member              LiveAcceptanceMember   `json:"member"`
-	TerminalReplay      bool                   `json:"terminalReplay"`
-	ReplayLaunches      int                    `json:"replayLaunches"`
-	PreservedCaseSHA256 string                 `json:"preservedCaseSha256"`
-	ReplayTreeSHA256    string                 `json:"replayTreeSha256"`
-	Cleanup             string                 `json:"cleanup"`
+	Verified                   bool                   `json:"verified"`
+	CaseRoot                   string                 `json:"caseRoot"`
+	CaseCreated                bool                   `json:"caseCreated"`
+	Pack                       string                 `json:"pack"`
+	Lane                       string                 `json:"lane"`
+	OnboardingMode             string                 `json:"onboardingMode"`
+	SessionLaunches            int                    `json:"sessionLaunches"`
+	SessionCompletions         int                    `json:"sessionCompletions"`
+	MemberCutpointVerified     bool                   `json:"memberCutpointVerified"`
+	ReviewerCutpointVerified   bool                   `json:"reviewerCutpointVerified"`
+	CompletionRecoveryVerified bool                   `json:"completionRecoveryVerified"`
+	Evidence                   LiveAcceptanceEvidence `json:"evidence"`
+	Member                     LiveAcceptanceMember   `json:"member"`
+	TerminalReplay             bool                   `json:"terminalReplay"`
+	ReplayLaunches             int                    `json:"replayLaunches"`
+	PreservedCaseSHA256        string                 `json:"preservedCaseSha256"`
+	ReplayTreeSHA256           string                 `json:"replayTreeSha256"`
+	Cleanup                    string                 `json:"cleanup"`
 }
 
 type liveAcceptanceCaseIdentity struct {
@@ -231,8 +267,8 @@ func RunLiveAcceptance(parent context.Context, opt LiveAcceptanceOptions) (recei
 	if goalInput == "" || correctionInput == "" {
 		return receipt, fmt.Errorf("live acceptance requires non-empty natural-language goal and human correction")
 	}
-	goal := liveAcceptanceBoundGoal(goalInput)
-	correction := liveAcceptanceBoundCorrection(correctionInput)
+	goal := liveAcceptanceBoundGoalForPack(pack, goalInput)
+	correction := liveAcceptanceBoundCorrectionForPack(pack, correctionInput)
 	caseRoot, err := liveAcceptanceCaseRoot(opt.CaseRoot, pack)
 	if err != nil {
 		return receipt, err
@@ -266,7 +302,7 @@ func RunLiveAcceptance(parent context.Context, opt LiveAcceptanceOptions) (recei
 		NaturalLanguageGoal: goalInput,
 		HumanCorrection:     correctionInput,
 		Claude:              claude,
-		PublicRoute:         "RunDaily exact-pack goal with an intentional bounded evidence gap + reviewer rejection + rejection stop replay + exclusive case-local evidence publication + correction + replacement review + exact terminal replay; RunDaily exact-pack attached goal with the same bounded fixture + exact goal replay",
+		PublicRoute:         "one RunDaily exact-pack goal operation with isolated member and Reviewer segments + intentional bounded evidence gap + reviewer rejection + rejection stop replay + correction-time bounded evidence publication + replacement review + exact terminal replay; default VMP pack additionally proves public profile preview/Apply, canonical authorized-gate, real fixed adapter parent and contained child, evidence review acknowledgement, exact profile revoke, and child-free replay; one attached exact-pack goal resumes across member and Reviewer cutpoints into zero-Claude completion recovery and exact terminal replay",
 		ManualPlaceholders:  0,
 		ManualResultWrites:  0,
 		LLMSource:           "member outputs and ReviewerResult bytes are accepted only from spawned Claude Code JSON envelopes with exact session_id matching",
@@ -279,9 +315,11 @@ func RunLiveAcceptance(parent context.Context, opt LiveAcceptanceOptions) (recei
 			"this gate is explicit opt-in and is never run by ordinary go test ./...",
 			"the gate calls the same Go-owned daily front door used by ordinary operation and binds one exact allowlisted pack",
 			"the gate does not fabricate member output or ReviewerResult bytes",
-			"the gate publishes one fixed harmless case-local input only after the first canonical rejection; that fixture is not member output or ReviewerResult content",
+			"bounded correction input is published only after the first canonical rejection; it is never member output or ReviewerResult content",
+			"default VMP pack alone executes the exact authorized inspect adapter; debug, patch, dump, network, and all other heavy actions remain denied",
+			"the fixed adapter child has no network codepath, but this claim is not OS-enforced socket isolation",
 			"completion scope is the feature lane; the authority main lane remains outside this acceptance claim",
-			"no authority/confirmed state or heavy-tool execution is permitted",
+			"no authority or confirmed state is written; daily completion itself executes no heavy tool",
 		},
 	}
 	var freshCaseIdentity, attachedCaseIdentity liveAcceptanceCaseIdentity
@@ -327,6 +365,25 @@ func RunLiveAcceptance(parent context.Context, opt LiveAcceptanceOptions) (recei
 			return receipt, err
 		}
 		receipt.CaseCreated = true
+	} else {
+		adapterPath := strings.TrimSpace(opt.AdapterPath)
+		if adapterPath == "" {
+			return receipt, fmt.Errorf("default VMP pack live acceptance requires the built rekit-adapter-host executable")
+		}
+		adapterBinding, err := processguard.LockExecutable(adapterPath, 128<<20)
+		if err != nil {
+			return receipt, fmt.Errorf("bind default VMP pack live acceptance adapter executable: %w", err)
+		}
+		receipt.VMPIDA = &LiveAcceptanceVMPIDA{
+			AdapterPath:             adapterBinding.Path(),
+			AdapterSHA256:           adapterBinding.SHA256(),
+			NoAuthorityOrConfirmed:  true,
+			NoNetworkBoundary:       "fixed-child-no-network-codepath",
+			AcknowledgementBoundary: "independent trusted Claude reviews exact packet/source/receipt/observation lineage before hash-bound tool-review verification; the adapter runner never acknowledges its own evidence",
+		}
+		if err := adapterBinding.Close(); err != nil {
+			return receipt, err
+		}
 	}
 	dailyOpt := DailyOptions{
 		Target:                            caseRoot,
@@ -346,6 +403,14 @@ func RunLiveAcceptance(parent context.Context, opt LiveAcceptanceOptions) (recei
 			return nil
 		},
 	}
+	if strings.EqualFold(pack, liveAcceptancePack) {
+		dailyOpt.beforeMemberRun = func(root, currentPack, lane string) error {
+			if strings.TrimSpace(dailyOpt.Correction) == "" {
+				return nil
+			}
+			return prepareLiveAcceptanceVMPIDA(parent, dailyOpt, root, currentPack, lane, receipt.VMPIDA)
+		}
+	}
 	firstResult, err := RunDaily(parent, dailyOpt)
 	addLiveAcceptanceDailyResult(&receipt, firstResult)
 	if err != nil {
@@ -355,6 +420,7 @@ func RunLiveAcceptance(parent context.Context, opt LiveAcceptanceOptions) (recei
 		return receipt, fmt.Errorf("fresh daily goal did not onboard and collect a real member: %+v", firstResult)
 	}
 	lane := firstResult.Lane
+	dailyOpt.SelectedLane = lane
 	first, ok, err := memberexecution.Latest(caseRoot, lane)
 	if err != nil || !ok || first.State != "intake-ready" || first.Owner.ExecutorGeneration != 1 || first.TaskContext == nil || first.Manifest == nil {
 		return receipt, fmt.Errorf("first real member was not durably intake-ready: found=%t state=%s err=%v", ok, first.State, err)
@@ -365,18 +431,13 @@ func RunLiveAcceptance(parent context.Context, opt LiveAcceptanceOptions) (recei
 	bindLiveAcceptanceOwnerGeneration(receipt.MemberSessions, first)
 	receipt.FirstMember = liveAcceptanceMember(first)
 
-	dailyOpt.Goal = ""
-	rejectedResult, err := RunDaily(parent, dailyOpt)
-	addLiveAcceptanceDailyResult(&receipt, rejectedResult)
-	if err != nil {
-		return receipt, fmt.Errorf("first real reviewer rejection: %w", err)
-	}
 	if err := validateLiveAcceptanceReviewerRejectionStop(
-		rejectedResult,
+		firstResult,
 		dailyOpt.MaxAttempts,
 	); err != nil {
 		return receipt, err
 	}
+	dailyOpt.Goal = ""
 	manifestRef := relativeLiveAcceptancePath(caseRoot, first.ManifestPath)
 	rejection, rejected, err := workstream.CurrentMemberManifestReviewerRejection(caseRoot, lane, manifestRef)
 	if err != nil || !rejected {
@@ -409,12 +470,14 @@ func RunLiveAcceptance(parent context.Context, opt LiveAcceptanceOptions) (recei
 	}
 	receipt.RejectedReplay = LiveAcceptanceReplay{Verified: true, FinalState: rejectedReplay.FinalState, SessionLaunches: rejectedReplay.SessionLaunches, SessionCompletions: rejectedReplay.SessionCompletions, MutationSHA256: afterRejectedReplay}
 
-	evidence, err := publishLiveAcceptanceEvidence(caseRoot)
-	if err != nil {
-		return receipt, fmt.Errorf("publish bounded correction evidence: %w", err)
+	if !strings.EqualFold(pack, liveAcceptancePack) {
+		evidence, err := publishLiveAcceptanceEvidence(caseRoot)
+		if err != nil {
+			return receipt, fmt.Errorf("publish bounded correction evidence: %w", err)
+		}
+		receipt.CorrectionEvidence = evidence
+		receipt.PackageMutations++
 	}
-	receipt.CorrectionEvidence = evidence
-	receipt.PackageMutations++
 
 	dailyOpt.Correction = correction
 	correctedResult, err := RunDaily(parent, dailyOpt)
@@ -442,7 +505,11 @@ func RunLiveAcceptance(parent context.Context, opt LiveAcceptanceOptions) (recei
 	if second.ManifestSHA256 == first.ManifestSHA256 {
 		return receipt, fmt.Errorf("replacement member reused the rejected manifest sha256")
 	}
-	if err := validateLiveAcceptanceEvidence(caseRoot, receipt.CorrectionEvidence); err != nil {
+	if strings.EqualFold(pack, liveAcceptancePack) {
+		if err := validateLiveAcceptanceVMPIDAMember(caseRoot, second, receipt.VMPIDA); err != nil {
+			return receipt, err
+		}
+	} else if err := validateLiveAcceptanceEvidence(caseRoot, receipt.CorrectionEvidence); err != nil {
 		return receipt, err
 	}
 	if receipt.ReviewerCompletions < 2 || len(receipt.ReviewerSessions) < 2 {
@@ -461,6 +528,11 @@ func RunLiveAcceptance(parent context.Context, opt LiveAcceptanceOptions) (recei
 		return receipt, fmt.Errorf("final acceptance did not bind the replacement manifest, route, new packet, independent reviewer session, and current owner")
 	}
 	receipt.FinalAcceptance = liveAcceptanceAcceptance(acceptance)
+	if strings.EqualFold(pack, liveAcceptancePack) {
+		if err := validateLiveAcceptanceVMPIDAReviewer(caseRoot, second, acceptance, receipt.VMPIDA); err != nil {
+			return receipt, err
+		}
+	}
 
 	verified, err := workstream.InspectLaneCompletion(caseRoot, lane)
 	if err != nil {
@@ -487,8 +559,24 @@ func RunLiveAcceptance(parent context.Context, opt LiveAcceptanceOptions) (recei
 		return receipt, fmt.Errorf("daily terminal replay was not zero-launch and mutation-free: %+v", replayResult)
 	}
 	receipt.TerminalReplay = LiveAcceptanceReplay{Verified: true, FinalState: replayResult.FinalState, SessionLaunches: replayResult.SessionLaunches, SessionCompletions: replayResult.SessionCompletions, MutationSHA256: afterReplay}
+	if strings.EqualFold(pack, liveAcceptancePack) {
+		repoRoot, err := currentRepoRoot()
+		if err != nil {
+			return receipt, err
+		}
+		adapterReplay, processID, err := adapterhost.RunAuthorizedGateProcess(receipt.VMPIDA.AdapterPath, liveAcceptanceVMPIDARunOptions(repoRoot, caseRoot, lane, receipt.VMPIDA), 20*time.Second)
+		if err != nil {
+			return receipt, fmt.Errorf("replay terminal VMP IDA adapter lifecycle: %w", err)
+		}
+		if !adapterReplay.Replay || adapterReplay.ChildLaunched || processID <= 0 || adapterReplay.PacketSHA256 != receipt.VMPIDA.Run.PacketSHA256 || adapterReplay.TaskBindingSHA256 != receipt.VMPIDA.Run.TaskBindingSHA256 || !adapterReplay.ProfileAlreadyManual {
+			return receipt, fmt.Errorf("terminal VMP IDA replay was not child-free and lineage-stable: %+v", adapterReplay)
+		}
+		receipt.VMPIDA.TerminalReplayNoChild = true
+		receipt.VMPIDA.TerminalReplayNoClaude = replayResult.SessionLaunches == 0
+		receipt.VMPIDA.Verified = true
+	}
 
-	attached, err := runLiveAcceptanceAttached(parent, attachedRoot, pack, goal, actor, claude, opt, &attachedCaseIdentity)
+	attached, err := runLiveAcceptanceAttached(parent, attachedRoot, pack, liveAcceptanceAttachedGoal(), actor, claude, opt, &attachedCaseIdentity)
 	receipt.AttachedCase = attached.Receipt
 	if err != nil {
 		return receipt, err
@@ -496,8 +584,10 @@ func RunLiveAcceptance(parent context.Context, opt LiveAcceptanceOptions) (recei
 	receipt.PublicPreviews++
 	receipt.PublicMutations++
 	receipt.PackageMutations++
-	addLiveAcceptanceDailyResult(&receipt, attached.First)
-	receipt.ExplicitOperations += 3
+	addLiveAcceptanceDailyResult(&receipt, attached.MemberCutpoint)
+	addLiveAcceptanceDailyResult(&receipt, attached.ReviewerCutpoint)
+	addLiveAcceptanceDailyResult(&receipt, attached.CompletionRecovery)
+	receipt.ExplicitOperations++
 	if attached.Replay.SessionLaunches != 0 || !attached.Replay.Replay {
 		return receipt, fmt.Errorf("attached daily goal replay relaunched Claude: %+v", attached.Replay)
 	}
@@ -506,9 +596,11 @@ func RunLiveAcceptance(parent context.Context, opt LiveAcceptanceOptions) (recei
 }
 
 type liveAcceptanceAttachedResult struct {
-	Receipt LiveAcceptanceAttached
-	First   DailyResult
-	Replay  DailyResult
+	Receipt            LiveAcceptanceAttached
+	MemberCutpoint     DailyResult
+	ReviewerCutpoint   DailyResult
+	CompletionRecovery DailyResult
+	Replay             DailyResult
 }
 
 func liveAcceptanceCleanupStatus(created bool, err error) string {
@@ -532,8 +624,26 @@ func liveAcceptanceBoundGoal(goal string) string {
 	return strings.TrimSpace(goal) + " Acceptance requires reading and citing the exact bounded feature note at " + liveAcceptanceEvidencePath + ". Always return a bounded analysis output. If that file is absent or unreadable, do not invent content: state that this mandatory acceptance requirement is unmet so the Reviewer can reject it."
 }
 
+func liveAcceptanceBoundGoalForPack(pack, goal string) string {
+	if strings.EqualFold(strings.TrimSpace(pack), liveAcceptancePack) {
+		return strings.TrimSpace(goal) + " Acceptance requires a bounded literal inspection of the synthetic existing IDA TSV indexes. The required immutable task binding and adapter packet are intentionally absent before correction. Do not invent index findings: return a bounded gap analysis so the independent Reviewer can reject it."
+	}
+	return strings.TrimSpace(goal) + " Acceptance requires reading and citing the exact bounded feature note at " + liveAcceptanceEvidencePath + ". Always return a bounded analysis output. If that file is absent or unreadable, do not invent content: state that this mandatory acceptance requirement is unmet so the Reviewer can reject it."
+}
+
 func liveAcceptanceBoundCorrection(correction string) string {
 	return strings.TrimSpace(correction) + " Read and cite the newly published bounded case-local evidence at " + liveAcceptanceEvidencePath + "."
+}
+
+func liveAcceptanceBoundCorrectionForPack(pack, correction string) string {
+	if strings.EqualFold(strings.TrimSpace(pack), liveAcceptancePack) {
+		return strings.TrimSpace(correction) + " Read the exact vmp-ida-index-evidence task binding, then read its immutable packet, report, dispatch, and receipt paths. In the reviewer-items output cite the exact selected row text and evidenceRef plus the packet path, receipt path, and observation event ID. Report only literal matches supported by that exact lineage and preserve the no-authority/no-confirmed boundary."
+	}
+	return strings.TrimSpace(correction) + " Read and cite the newly published bounded case-local evidence at " + liveAcceptanceEvidencePath + "."
+}
+
+func liveAcceptanceAttachedGoal() string {
+	return "The bounded case-local evidence is already published at " + liveAcceptanceEvidencePath + ". Inspect that exact feature note and report only its observed feature, request ID, candidate path, endpoint, method, impact, observation, and required next action. Cite that exact file and do not infer external facts or perform external effects."
 }
 
 func publishLiveAcceptanceEvidence(caseRoot string) (LiveAcceptanceEvidence, error) {
@@ -572,12 +682,12 @@ func initLiveAcceptanceCase(caseRoot, pack, projectName string, identity *liveAc
 	if err := runPublicCLI(initArgs, &preview); err != nil {
 		return fmt.Errorf("public live acceptance case init preview: %w", err)
 	}
-	if preview.IsMutation || !preview.ReviewRequired || !preview.RequiresConfirmation || len(preview.Writes) == 0 {
-		return fmt.Errorf("public live acceptance case init preview omitted review-first writes")
+	if preview.IsMutation || !preview.ReviewRequired || !preview.RequiresConfirmation || len(preview.Writes) == 0 ||
+		preview.ExpectedPlanSHA256 == "" || len(preview.ApplyArgs) == 0 {
+		return fmt.Errorf("public live acceptance case init preview omitted review-first writes or exact Apply request")
 	}
-	initArgs[len(initArgs)-3] = "-Apply"
 	var applied syncreview.ApplyResult
-	applyErr := runPublicCLI(initArgs, &applied)
+	applyErr := runPublicCLI(preview.ApplyArgs, &applied)
 	if identity != nil {
 		if bindErr := captureLiveAcceptanceCaseRoot(caseRoot, identity); bindErr != nil {
 			return errors.Join(applyErr, fmt.Errorf("bind live acceptance case root: %w", bindErr))
@@ -630,38 +740,104 @@ func runLiveAcceptanceAttached(parent context.Context, caseRoot, pack, goal, act
 		onCaseReady: func(root string) error {
 			return captureLiveAcceptanceCaseRoot(root, identity)
 		},
+		stopAfterMemberSegment: true,
 	}
-	first, err := RunDaily(parent, dailyOpt)
+	memberCutpoint, err := RunDaily(parent, dailyOpt)
 	if err != nil {
-		return result, fmt.Errorf("attached daily goal and real member session: %w", err)
+		return result, fmt.Errorf("attached daily member cutpoint: %w", err)
 	}
-	result.First = first
+	result.MemberCutpoint = memberCutpoint
 	inspection, err := missionintent.Inspect(caseRoot)
 	if err != nil || !inspection.Committed || inspection.Recovery.Mode != "attached-adoption" {
 		return result, fmt.Errorf("attached daily onboarding did not commit strict adoption: state=%s mode=%s err=%v", inspection.State, inspection.Recovery.Mode, err)
 	}
-	if !first.OnboardingApplied || first.Pack != pack || first.Lane == "" || first.SessionLaunches < 1 || first.SessionCompletions < 1 {
-		return result, fmt.Errorf("attached daily goal did not launch and collect a real member: %+v", first)
+	if !memberCutpoint.OnboardingApplied || memberCutpoint.Pack != pack || memberCutpoint.Lane == "" || memberCutpoint.FinalState != "reviewer-ready" || memberCutpoint.SessionLaunches != 1 || memberCutpoint.SessionCompletions != 1 || len(memberCutpoint.HostRuns) != 1 || memberCutpoint.HostRuns[0].FinalMode != "reviewer-ready" || memberCutpoint.HostRuns[0].SessionLaunches != 1 || memberCutpoint.HostRuns[0].SessionCompletions != 1 {
+		return result, fmt.Errorf("attached daily member cutpoint crossed the Reviewer launch boundary: %+v", memberCutpoint)
 	}
-	member, ok, err := memberexecution.Latest(caseRoot, first.Lane)
+	member, ok, err := memberexecution.Latest(caseRoot, memberCutpoint.Lane)
 	if err != nil || !ok || member.State != "intake-ready" || member.TaskContext == nil || member.TaskContext.Goal != goal || member.TaskContext.GoalSource != "committed-mission-intent" || member.TaskContext.Correction != nil || member.Manifest == nil {
 		return result, fmt.Errorf("attached daily member was not durably intake-ready: found=%t state=%s err=%v", ok, member.State, err)
 	}
 	if err := validateLiveAcceptanceOutputContract(pack, member); err != nil {
 		return result, err
 	}
+	facts, err := mission.ReadStrictLedgerFacts(caseRoot)
+	if err != nil {
+		return result, err
+	}
+	handoffs, err := workstream.ReviewerDispatchIntakeHandoffs(caseRoot, facts, memberCutpoint.Lane)
+	if err != nil || len(handoffs) != 1 || handoffs[0].Paused || handoffs[0].State != "ready-for-reviewer-dispatch" || handoffs[0].PacketPath == "" || handoffs[0].DispatchPromptPath == "" || len(handoffs[0].DispatchPromptSHA256) != 64 || !handoffs[0].DispatchPromptCurrent || handoffs[0].ReviewerSession != "" {
+		return result, fmt.Errorf("attached member cutpoint did not materialize one current Reviewer packet without launching it: handoffs=%+v err=%v", handoffs, err)
+	}
+	result.Receipt.MemberCutpointVerified = true
+
+	dailyOpt.SelectedLane = memberCutpoint.Lane
+	dailyOpt.stopAfterMemberSegment = false
+	cutErr := errors.New("live acceptance reviewer intake cutpoint")
+	cutObserved := false
+	restoreObservers := setSupervisionAcceptanceObservers(nil, func(stage string) error {
+		if stage != "reviewer-intake" {
+			return nil
+		}
+		cutObserved = true
+		return cutErr
+	})
+	restored := false
+	restore := func() {
+		if restored {
+			return
+		}
+		restored = true
+		restoreObservers()
+	}
+	defer restore()
+	reviewerCutpoint, reviewerErr := RunDaily(parent, dailyOpt)
+	restore()
+	if !errors.Is(reviewerErr, cutErr) || !cutObserved {
+		return result, fmt.Errorf("attached daily Reviewer intake cutpoint was not observed: result=%+v err=%v", reviewerCutpoint, reviewerErr)
+	}
+	reviewerCutpoint.Failure = nil
+	result.ReviewerCutpoint = reviewerCutpoint
+	if reviewerCutpoint.SessionLaunches != 1 || reviewerCutpoint.SessionCompletions != 1 || len(reviewerCutpoint.HostRuns) != 2 || reviewerCutpoint.HostRuns[0].SessionLaunches != 0 || reviewerCutpoint.HostRuns[0].SessionCompletions != 0 || reviewerCutpoint.HostRuns[0].FinalMode != "reviewer-ready" || reviewerCutpoint.HostRuns[1].SessionLaunches != 1 || reviewerCutpoint.HostRuns[1].SessionCompletions != 1 {
+		return result, fmt.Errorf("attached daily Reviewer cutpoint did not recover with zero member launch and one Reviewer launch: %+v", reviewerCutpoint)
+	}
+	manifestRef := relativeLiveAcceptancePath(caseRoot, member.ManifestPath)
+	acceptance, accepted, err := workstream.CurrentMemberManifestReviewerAcceptance(caseRoot, memberCutpoint.Lane, manifestRef)
+	if err != nil || !accepted || acceptance.OwnerExecutor != member.Owner.Executor || acceptance.OwnerGeneration != member.Owner.ExecutorGeneration || acceptance.ReviewerSession == "" {
+		return result, fmt.Errorf("attached Reviewer cutpoint omitted current accepted lineage: accepted=%t acceptance=%+v err=%v", accepted, acceptance, err)
+	}
+	lifecycle, err := lanecompletion.Inspect(caseRoot, memberCutpoint.Lane)
+	if err != nil || lifecycle.State != lanecompletion.StateNone {
+		return result, fmt.Errorf("attached Reviewer cutpoint crossed the completion boundary: state=%s err=%v", lifecycle.State, err)
+	}
+	status, err := runPublicStatus(caseRoot, pack, memberCutpoint.Lane)
+	if err != nil || !dailyCompletionOwnerRequest(status, memberCutpoint.Lane) {
+		return result, fmt.Errorf("attached Reviewer cutpoint did not expose the exact accepted-lineage completion owner: err=%v", err)
+	}
+	result.Receipt.ReviewerCutpointVerified = true
+
+	completionRecovery, err := RunDaily(parent, dailyOpt)
+	if err != nil {
+		return result, fmt.Errorf("attached daily completion recovery: %w", err)
+	}
+	result.CompletionRecovery = completionRecovery
+	if completionRecovery.Mode != "goal" || !completionRecovery.OnboardingReplay || completionRecovery.FinalState != "lane-closed" || completionRecovery.SessionLaunches != 0 || completionRecovery.SessionCompletions != 0 || len(completionRecovery.HostRuns) != 1 || completionRecovery.HostRuns[0].SessionLaunches != 0 || completionRecovery.HostRuns[0].SessionCompletions != 0 || completionRecovery.Completion == nil || completionRecovery.Completion.Lane.Status != "closed" || len(completionRecovery.DriverSteps) != 1 || completionRecovery.DriverSteps[0] != "complete" {
+		return result, fmt.Errorf("attached completion recovery relaunched Claude or did not apply only canonical completion: %+v", completionRecovery)
+	}
+	result.Receipt.CompletionRecoveryVerified = true
+
 	if err := validateLiveAcceptanceEvidence(caseRoot, result.Receipt.Evidence); err != nil {
 		return result, err
 	}
 	actual, err := os.ReadFile(preservedPath)
 	if err != nil || string(actual) != string(preserved) {
-		return result, fmt.Errorf("attached daily goal changed ordinary case content: err=%v", err)
+		return result, fmt.Errorf("attached daily recovery changed ordinary case content: err=%v", err)
 	}
-
 	beforeReplay, err := liveAcceptanceTreeSHA256(caseRoot)
 	if err != nil {
 		return result, err
 	}
+	dailyOpt.Goal = goal
 	replay, err := RunDaily(parent, dailyOpt)
 	if err != nil {
 		return result, fmt.Errorf("attached daily exact goal replay: %w", err)
@@ -671,18 +847,18 @@ func runLiveAcceptanceAttached(parent context.Context, caseRoot, pack, goal, act
 	if err != nil {
 		return result, err
 	}
-	if !replay.Replay || replay.FinalState != "member-intake-ready" || replay.SessionLaunches != 0 || replay.SessionCompletions != 0 || len(replay.HostRuns) != 0 || beforeReplay != afterReplay {
-		return result, fmt.Errorf("attached daily exact goal replay was not zero-launch and mutation-free: %+v", replay)
+	if !replay.Replay || replay.FinalState != "lane-closed" || replay.SessionLaunches != 0 || replay.SessionCompletions != 0 || len(replay.HostRuns) != 0 || beforeReplay != afterReplay {
+		return result, fmt.Errorf("attached daily exact terminal replay was not zero-launch and mutation-free: %+v", replay)
 	}
 	actual, err = os.ReadFile(preservedPath)
 	if err != nil || string(actual) != string(preserved) {
 		return result, fmt.Errorf("attached daily replay changed ordinary case content: err=%v", err)
 	}
 	result.Receipt.Verified = true
-	result.Receipt.Lane = first.Lane
+	result.Receipt.Lane = memberCutpoint.Lane
 	result.Receipt.OnboardingMode = inspection.Recovery.Mode
-	result.Receipt.SessionLaunches = first.SessionLaunches
-	result.Receipt.SessionCompletions = first.SessionCompletions
+	result.Receipt.SessionLaunches = memberCutpoint.SessionLaunches + reviewerCutpoint.SessionLaunches
+	result.Receipt.SessionCompletions = memberCutpoint.SessionCompletions + reviewerCutpoint.SessionCompletions
 	result.Receipt.Member = liveAcceptanceMember(member)
 	result.Receipt.TerminalReplay = replay.Replay
 	result.Receipt.ReplayLaunches = replay.SessionLaunches
@@ -698,19 +874,22 @@ func validateLiveAcceptanceReviewerRejectionStop(
 		maxAttempts = defaultMaxAttempts
 	}
 	if result.FinalState != "reviewer-rejected-awaiting-correction" ||
-		result.SessionLaunches != 1 ||
-		result.SessionLaunches > maxAttempts ||
-		result.SessionCompletions != 1 ||
-		len(result.HostRuns) != 1 ||
-		result.HostRuns[0].FinalMode != "reviewer-rejected-awaiting-correction" ||
-		result.HostRuns[0].SessionLaunches != result.SessionLaunches ||
-		result.HostRuns[0].SessionCompletions != result.SessionCompletions {
+		result.SessionLaunches < 2 ||
+		result.SessionLaunches > maxAttempts+1 ||
+		result.SessionCompletions < 2 ||
+		len(result.HostRuns) != 2 ||
+		result.HostRuns[0].FinalMode != "reviewer-ready" ||
+		result.HostRuns[0].SessionLaunches != 1 ||
+		result.HostRuns[0].SessionCompletions != 1 ||
+		result.HostRuns[1].FinalMode != "reviewer-rejected-awaiting-correction" ||
+		result.HostRuns[1].SessionLaunches != 1 ||
+		result.HostRuns[1].SessionCompletions != 1 {
 		return fmt.Errorf(
-			"first reviewer did not stop at the bounded typed rejection boundary: %+v",
+			"first member and reviewer did not stop at the isolated bounded rejection boundary: %+v",
 			result,
 		)
 	}
-	for _, session := range result.HostRuns[0].Sessions {
+	for _, session := range result.HostRuns[1].Sessions {
 		if session.SessionKind != "reviewer" ||
 			!session.Started ||
 			session.Outcome != "returned" ||

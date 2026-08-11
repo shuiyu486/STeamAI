@@ -135,14 +135,14 @@ func runReviewerWave(ctx runtime.Context, opt Options, out io.Writer) error {
 			plan.Applied = plan.AppliedCount > 0 || result.Mutated
 			plan.FailedIndex = idx + 1
 			plan.Failure = err.Error()
-			refreshed, _ := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+			refreshed, _ := buildInvocationStatusInventory(ctx, opt)
 			plan.RefreshedWave = reviewerWaveFromStatus(refreshed)
 			return writeJSON(out, plan)
 		}
 		plan.AppliedCount++
 	}
 	plan.Applied = true
-	refreshed, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+	refreshed, err := buildInvocationStatusInventory(ctx, opt)
 	if err != nil {
 		return err
 	}
@@ -154,7 +154,7 @@ func writeReviewerWavePartialFailure(ctx runtime.Context, opt Options, out io.Wr
 	plan.Applied = plan.AppliedCount > 0
 	plan.FailedIndex = failedIndex
 	plan.Failure = cause.Error()
-	refreshed, _ := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+	refreshed, _ := buildInvocationStatusInventory(ctx, opt)
 	plan.RefreshedWave = reviewerWaveFromStatus(refreshed)
 	return writeJSON(out, plan)
 }
@@ -171,7 +171,7 @@ func ensureReviewerWaveLaneNotIntervened(caseRoot, lane string) error {
 }
 
 func buildReviewerWavePlan(ctx runtime.Context, opt Options) (reviewerWavePlan, []reviewerWaveObservation, error) {
-	status, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+	status, err := buildInvocationStatusInventory(ctx, opt)
 	if err != nil {
 		return reviewerWavePlan{}, nil, err
 	}

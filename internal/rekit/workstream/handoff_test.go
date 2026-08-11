@@ -284,6 +284,25 @@ func TestAuthorizedGateAdapterAcknowledgementPreservesMainEscalation(t *testing.
 	}
 }
 
+func TestCompletionKeepsOnlyOpenAuthorizedGateAdapterHandoffs(t *testing.T) {
+	open := AuthorizedGateAdapterHandoff{EventID: "evt-open"}
+	acknowledged := AuthorizedGateAdapterHandoff{
+		EventID:      "evt-acknowledged",
+		Acknowledged: true,
+	}
+
+	items := openAuthorizedGateAdapterHandoffs([]AuthorizedGateAdapterHandoff{
+		open,
+		acknowledged,
+	})
+	if len(items) != 1 || items[0].EventID != open.EventID {
+		t.Fatalf("completion should retain only open adapter handoffs: %+v", items)
+	}
+	if !acknowledged.Acknowledged {
+		t.Fatalf("test fixture lost acknowledged provenance: %+v", acknowledged)
+	}
+}
+
 func TestAuthorizedGateAdapterHandoffsLimitKeepsActionableEarlierGate(t *testing.T) {
 	repair := AuthorizedGateAdapterHandoff{
 		EventID:       "evt-repair-earlier",

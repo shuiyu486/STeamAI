@@ -2,6 +2,8 @@ package sync
 
 import (
 	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -657,6 +659,487 @@ func TestApplyExclusiveInitRejectsDifferentBytes(t *testing.T) {
 	}
 }
 
+func TestOrdinaryInitRequiresExactHashAndPreservesExistingFiles(t *testing.T) {
+	repoRoot, pack := exclusiveInitFixture(t)
+	caseRoot := t.TempDir()
+	sentinelPath := filepath.Join(caseRoot, "sentinel.bin")
+	sentinel := []byte{0, 1, 2, 3, 255}
+	if err := os.WriteFile(sentinelPath, sentinel, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	opt := ApplyOptions{ProjectName: "adopt-demo", CreateLocalFiles: true, Command: "init"}
+	preview, err := InitPreview(repoRoot, caseRoot, pack, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.TargetClass != "ordinary-directory" || !preview.AdoptionReady || len(preview.ExpectedPlanSHA256) != 64 || len(preview.ApplyArgs) == 0 {
+		t.Fatalf("ordinary adoption preview = %+v", preview)
+	}
+	if _, err := Apply(repoRoot, caseRoot, pack, opt); err == nil || !strings.Contains(err.Error(), "requires a valid -ExpectedInitPlanSha256") {
+		t.Fatalf("ordinary adoption accepted unbound Apply: %v", err)
+	}
+	opt.ExpectedPlanSHA256 = preview.ExpectedPlanSHA256
+	result, err := Apply(repoRoot, caseRoot, pack, opt)
+	if err != nil || !result.Applied {
+		t.Fatalf("ordinary adoption Apply = %+v err=%v", result, err)
+	}
+	if got := readFile(t, sentinelPath); !bytes.Equal(got, sentinel) {
+		t.Fatalf("ordinary adoption changed sentinel: %v", got)
+	}
+}
+
+func TestOrdinaryInitBlocksManagedAndManagedBlockCollisions(t *testing.T) {
+	repoRoot, pack := exclusiveInitFixture(t)
+	for _, fixture := range []struct {
+		name string
+		path string
+	}{
+		{name: "managed file", path: "references/template/README.md"},
+		{name: "managed block host", path: "CLAUDE.local.md"},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			caseRoot := t.TempDir()
+			writeText(t, filepath.Join(caseRoot, filepath.FromSlash(fixture.path)), "user content\n")
+			preview, err := InitPreview(repoRoot, caseRoot, pack, ApplyOptions{ProjectName: "blocked", CreateLocalFiles: true, Command: "init"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if preview.AdoptionReady || len(preview.AdoptionBlockers) == 0 {
+				t.Fatalf("collision preview did not block: %+v", preview)
+			}
+			before := readFile(t, filepath.Join(caseRoot, filepath.FromSlash(fixture.path)))
+			_, err = Apply(repoRoot, caseRoot, pack, ApplyOptions{ProjectName: "blocked", CreateLocalFiles: true, Command: "init", ExpectedPlanSHA256: preview.ExpectedPlanSHA256})
+			if err == nil || !strings.Contains(err.Error(), "adoption is blocked") {
+				t.Fatalf("collision Apply error = %v", err)
+			}
+			if after := readFile(t, filepath.Join(caseRoot, filepath.FromSlash(fixture.path))); !bytes.Equal(after, before) {
+				t.Fatalf("blocked collision changed bytes: %q", after)
+			}
+			if _, statErr := os.Lstat(filepath.Join(caseRoot, ".rekit")); !os.IsNotExist(statErr) {
+				t.Fatalf("blocked collision wrote .rekit: %v", statErr)
+			}
+		})
+	}
+}
+
+func TestOrdinaryInitRejectsPlanDriftBeforeFirstWrite(t *testing.T) {
+	repoRoot, pack := exclusiveInitFixture(t)
+	caseRoot := t.TempDir()
+	preview, err := InitPreview(repoRoot, caseRoot, pack, ApplyOptions{ProjectName: "drift", CreateLocalFiles: true, Command: "init"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeText(t, filepath.Join(caseRoot, "references", "template", "README.md"), "collision\n")
+	_, err = Apply(repoRoot, caseRoot, pack, ApplyOptions{ProjectName: "drift", CreateLocalFiles: true, Command: "init", ExpectedPlanSHA256: preview.ExpectedPlanSHA256})
+	if err == nil || !strings.Contains(err.Error(), "plan changed after preview") {
+		t.Fatalf("drift Apply error = %v", err)
+	}
+	if _, statErr := os.Lstat(filepath.Join(caseRoot, ".rekit")); !os.IsNotExist(statErr) {
+		t.Fatalf("drift Apply wrote before rejection: %v", statErr)
+	}
+}
+
+func TestOrdinaryInitPlanHashIsStableAcrossClockTicks(t *testing.T) {
+	repoRoot, pack := exclusiveInitFixture(t)
+	caseRoot := t.TempDir()
+	first, err := InitPreview(repoRoot, caseRoot, pack, ApplyOptions{ProjectName: "stable", CreateLocalFiles: true, Command: "init"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(1100 * time.Millisecond)
+	second, err := InitPreview(repoRoot, caseRoot, pack, ApplyOptions{ProjectName: "stable", CreateLocalFiles: true, Command: "init"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ExpectedPlanSHA256 != second.ExpectedPlanSHA256 {
+		t.Fatalf("stable preview hash changed across clock tick: %s != %s", first.ExpectedPlanSHA256, second.ExpectedPlanSHA256)
+	}
+}
+
+func TestOrdinaryInitSourceBytesChangePlanHash(t *testing.T) {
+	repoRoot, pack := exclusiveInitFixture(t)
+	caseRoot := t.TempDir()
+	first, err := InitPreview(repoRoot, caseRoot, pack, ApplyOptions{ProjectName: "source-drift", CreateLocalFiles: true, Command: "init"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shim := filepath.Join(repoRoot, "rekit", "templates", "case-shim", "SKILL.md")
+	writeText(t, shim, "# changed canonical shim\n")
+	second, err := InitPreview(repoRoot, caseRoot, pack, ApplyOptions{ProjectName: "source-drift", CreateLocalFiles: true, Command: "init"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ExpectedPlanSHA256 == second.ExpectedPlanSHA256 {
+		t.Fatal("shim source drift did not change init plan hash")
+	}
+}
+
+func TestOrdinaryInitSyncStateUsesFreshPlanSourceHashes(t *testing.T) {
+	repoRoot, pack := exclusiveInitFixture(t)
+	caseRoot := t.TempDir()
+	preview, err := InitPreview(repoRoot, caseRoot, pack, ApplyOptions{ProjectName: "fresh-state", CreateLocalFiles: true, Command: "init"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := Apply(repoRoot, caseRoot, pack, ApplyOptions{
+		ProjectName: "fresh-state", CreateLocalFiles: true, Command: "init",
+		ExpectedPlanSHA256: preview.ExpectedPlanSHA256,
+	})
+	if err != nil || !result.Applied {
+		t.Fatalf("ordinary init fresh state Apply = %+v err=%v", result, err)
+	}
+	var state syncState
+	if err := json.Unmarshal(readFile(t, filepath.Join(caseRoot, ".rekit", "state.json")), &state); err != nil {
+		t.Fatal(err)
+	}
+	for _, write := range preview.Writes {
+		if write.Kind != "managed-file" {
+			continue
+		}
+		entry, ok := state.Managed[write.Path]
+		if !ok || !strings.EqualFold(entry.SourceHash, preview.initSourceSHA256[write.Path]) || !strings.EqualFold(entry.TargetHashAtSync, preview.initSourceSHA256[write.Path]) {
+			t.Fatalf("ordinary init state hash drift for %s: entry=%+v expected=%s", write.Path, entry, preview.initSourceSHA256[write.Path])
+		}
+	}
+}
+
+func TestOrdinaryInitManagedBlockUsesManifestBlockID(t *testing.T) {
+	repoRoot, pack := exclusiveInitFixture(t)
+	caseRoot := t.TempDir()
+	preview, err := InitPreview(repoRoot, caseRoot, pack, ApplyOptions{ProjectName: "managed-block-id", CreateLocalFiles: true, Command: "init"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := Apply(repoRoot, caseRoot, pack, ApplyOptions{
+		ProjectName: "managed-block-id", CreateLocalFiles: true, Command: "init",
+		ExpectedPlanSHA256: preview.ExpectedPlanSHA256,
+	})
+	if err != nil || !result.Applied {
+		t.Fatalf("ordinary init with manifest block id failed: result=%+v err=%v", result, err)
+	}
+	block := string(readFile(t, filepath.Join(caseRoot, "CLAUDE.local.md")))
+	if !strings.Contains(block, "<!-- BEGIN unit:router -->") || !strings.Contains(block, "<!-- END unit:router -->") {
+		t.Fatalf("ordinary init used the wrong managed block id:\n%s", block)
+	}
+}
+
+func TestOrdinaryInitCreateOnlyPublicationRejectsLateCollision(t *testing.T) {
+	repoRoot, pack := exclusiveInitFixture(t)
+	caseRoot := t.TempDir()
+	preview, err := InitPreview(repoRoot, caseRoot, pack, ApplyOptions{ProjectName: "late-collision", CreateLocalFiles: true, Command: "init"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := ordinaryInitAfterPlanHook
+	defer func() { ordinaryInitAfterPlanHook = previous }()
+	collision := filepath.Join(caseRoot, "references", "template", "README.md")
+	ordinaryInitAfterPlanHook = func(InitPlan) error {
+		writeText(t, collision, "user collision\n")
+		return nil
+	}
+	_, err = Apply(repoRoot, caseRoot, pack, ApplyOptions{ProjectName: "late-collision", CreateLocalFiles: true, Command: "init", ExpectedPlanSHA256: preview.ExpectedPlanSHA256})
+	if err == nil || !strings.Contains(err.Error(), "plan changed before ordinary-directory publication") {
+		t.Fatalf("late collision error = %v", err)
+	}
+	if got := string(readFile(t, collision)); got != "user collision\n" {
+		t.Fatalf("late collision bytes changed: %q", got)
+	}
+	if _, statErr := os.Lstat(filepath.Join(caseRoot, ".rekit")); !os.IsNotExist(statErr) {
+		t.Fatalf("late collision wrote managed state: %v", statErr)
+	}
+}
+
+func TestOrdinaryInitRollsBackPublishedPrefixAfterLateFailure(t *testing.T) {
+	repoRoot, pack := exclusiveInitFixture(t)
+	caseRoot := t.TempDir()
+	userDirectory := filepath.Join(caseRoot, ".claude")
+	if err := os.Mkdir(userDirectory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	preview, err := InitPreview(repoRoot, caseRoot, pack, ApplyOptions{ProjectName: "rollback-prefix", CreateLocalFiles: true, Command: "init"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := ordinaryInitAfterPublicationHook
+	defer func() { ordinaryInitAfterPublicationHook = previous }()
+	ordinaryInitAfterPublicationHook = func(count int, _ InitPlan) error {
+		if count == 2 {
+			return fmt.Errorf("deterministic publication failure")
+		}
+		return nil
+	}
+	_, err = Apply(repoRoot, caseRoot, pack, ApplyOptions{
+		ProjectName: "rollback-prefix", CreateLocalFiles: true, Command: "init",
+		ExpectedPlanSHA256: preview.ExpectedPlanSHA256,
+	})
+	if err == nil || !strings.Contains(err.Error(), "deterministic publication failure") {
+		t.Fatalf("ordinary init late failure = %v", err)
+	}
+	for _, write := range preview.Writes[:2] {
+		if _, statErr := os.Lstat(write.TargetPath); !os.IsNotExist(statErr) {
+			t.Fatalf("ordinary init rollback left published prefix %s: %v; Apply error: %v", write.Path, statErr, err)
+		}
+	}
+	if _, statErr := os.Lstat(filepath.Join(caseRoot, ".rekit")); !os.IsNotExist(statErr) {
+		t.Fatalf("ordinary init rollback left created .rekit directory: %v; Apply error: %v", statErr, err)
+	}
+	if _, statErr := os.Lstat(filepath.Join(userDirectory, "skills")); !os.IsNotExist(statErr) {
+		t.Fatalf("ordinary init rollback left created .claude/skills directory: %v", statErr)
+	}
+	if info, statErr := os.Lstat(userDirectory); statErr != nil || !info.IsDir() {
+		t.Fatalf("ordinary init rollback removed user directory: info=%v err=%v", info, statErr)
+	}
+}
+
+func TestOrdinaryInitRollbackPreservesExternallyChangedPublication(t *testing.T) {
+	repoRoot, pack := exclusiveInitFixture(t)
+	caseRoot := t.TempDir()
+	preview, err := InitPreview(repoRoot, caseRoot, pack, ApplyOptions{ProjectName: "rollback-changed", CreateLocalFiles: true, Command: "init"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := []byte("external replacement\n")
+	previous := ordinaryInitAfterPublicationHook
+	defer func() { ordinaryInitAfterPublicationHook = previous }()
+	ordinaryInitAfterPublicationHook = func(count int, plan InitPlan) error {
+		if count != 1 {
+			return nil
+		}
+		if err := os.WriteFile(plan.Writes[0].TargetPath, changed, 0o644); err != nil {
+			return err
+		}
+		return fmt.Errorf("deterministic changed-publication failure")
+	}
+	_, err = Apply(repoRoot, caseRoot, pack, ApplyOptions{
+		ProjectName: "rollback-changed", CreateLocalFiles: true, Command: "init",
+		ExpectedPlanSHA256: preview.ExpectedPlanSHA256,
+	})
+	if err == nil || !strings.Contains(err.Error(), "deterministic changed-publication failure") || !strings.Contains(err.Error(), "rollback preserved changed publication") {
+		t.Fatalf("ordinary init changed-publication rollback error = %v", err)
+	}
+	if got := readFile(t, preview.Writes[0].TargetPath); !bytes.Equal(got, changed) {
+		t.Fatalf("ordinary init rollback changed external bytes: %q", got)
+	}
+}
+
+func TestOrdinaryInitFinalValidationRejectsLatePreservedTargetDrift(t *testing.T) {
+	repoRoot, pack := exclusiveInitFixture(t)
+	caseRoot := t.TempDir()
+	preserved := filepath.Join(caseRoot, "references", "template", "task-handoff.md")
+	writeText(t, preserved, "user original\n")
+	preview, err := InitPreview(repoRoot, caseRoot, pack, ApplyOptions{ProjectName: "preserved-drift", CreateLocalFiles: true, Command: "init"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := ordinaryInitBeforeFinalValidationHook
+	defer func() { ordinaryInitBeforeFinalValidationHook = previous }()
+	ordinaryInitBeforeFinalValidationHook = func(InitPlan) error {
+		return os.WriteFile(preserved, []byte("user changed during publication\n"), 0o644)
+	}
+	_, err = Apply(repoRoot, caseRoot, pack, ApplyOptions{
+		ProjectName: "preserved-drift", CreateLocalFiles: true, Command: "init",
+		ExpectedPlanSHA256: preview.ExpectedPlanSHA256,
+	})
+	if err == nil || !strings.Contains(err.Error(), "preserved target changed after preview") {
+		t.Fatalf("ordinary init preserved late drift error = %v", err)
+	}
+	if got := string(readFile(t, preserved)); got != "user changed during publication\n" {
+		t.Fatalf("ordinary init changed late preserved bytes: %q", got)
+	}
+	if _, statErr := os.Lstat(filepath.Join(caseRoot, ".rekit")); !os.IsNotExist(statErr) {
+		t.Fatalf("ordinary init preserved late drift left created state: %v; Apply error: %v", statErr, err)
+	}
+}
+
+func TestOrdinaryInitFinalValidationRejectsLateManifestDrift(t *testing.T) {
+	repoRoot, pack := exclusiveInitFixture(t)
+	caseRoot := t.TempDir()
+	preview, err := InitPreview(repoRoot, caseRoot, pack, ApplyOptions{ProjectName: "manifest-drift", CreateLocalFiles: true, Command: "init"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(repoRoot, "packs", pack, "manifest.yml")
+	previous := ordinaryInitBeforeFinalValidationHook
+	defer func() { ordinaryInitBeforeFinalValidationHook = previous }()
+	ordinaryInitBeforeFinalValidationHook = func(InitPlan) error {
+		file, err := os.OpenFile(manifestPath, os.O_APPEND|os.O_WRONLY, 0o644)
+		if err != nil {
+			return err
+		}
+		_, writeErr := file.WriteString("\n# changed during ordinary init\n")
+		return errors.Join(writeErr, file.Close())
+	}
+	_, err = Apply(repoRoot, caseRoot, pack, ApplyOptions{
+		ProjectName: "manifest-drift", CreateLocalFiles: true, Command: "init",
+		ExpectedPlanSHA256: preview.ExpectedPlanSHA256,
+	})
+	if err == nil || !strings.Contains(err.Error(), "manifest changed during publication") {
+		t.Fatalf("ordinary init late manifest drift error = %v", err)
+	}
+	if _, statErr := os.Lstat(filepath.Join(caseRoot, ".rekit")); !os.IsNotExist(statErr) {
+		t.Fatalf("ordinary init late manifest drift left created state: %v; Apply error: %v", statErr, err)
+	}
+}
+
+func TestOrdinaryInitTracksCreatedDirectoryWhenRollbackHandleOpenFails(t *testing.T) {
+	repoRoot, pack := exclusiveInitFixture(t)
+	caseRoot := t.TempDir()
+	preview, err := InitPreview(repoRoot, caseRoot, pack, ApplyOptions{ProjectName: "directory-handle-failure", CreateLocalFiles: true, Command: "init"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := ordinaryInitOpenRollbackHandleForApply
+	defer func() { ordinaryInitOpenRollbackHandleForApply = previous }()
+	failed := false
+	ordinaryInitOpenRollbackHandleForApply = func(path string, directory bool) (*os.File, error) {
+		if directory && !failed {
+			failed = true
+			return nil, fmt.Errorf("directory rollback handle fixture")
+		}
+		return ordinaryInitOpenRollbackHandle(path, directory)
+	}
+	_, err = Apply(repoRoot, caseRoot, pack, ApplyOptions{
+		ProjectName: "directory-handle-failure", CreateLocalFiles: true, Command: "init",
+		ExpectedPlanSHA256: preview.ExpectedPlanSHA256,
+	})
+	if err == nil || !strings.Contains(err.Error(), "directory rollback handle fixture") || !strings.Contains(err.Error(), "rollback directory handle is missing") {
+		t.Fatalf("ordinary init directory handle failure = %v", err)
+	}
+	if _, statErr := os.Lstat(filepath.Join(caseRoot, ".rekit")); statErr != nil {
+		t.Fatalf("tracked residue must remain visible when exact rollback handle is unavailable: %v", statErr)
+	}
+}
+
+func TestOrdinaryInitRollbackCapabilityFailureWritesNothing(t *testing.T) {
+	repoRoot, pack := exclusiveInitFixture(t)
+	caseRoot := t.TempDir()
+	preview, err := InitPreview(repoRoot, caseRoot, pack, ApplyOptions{ProjectName: "unsupported-rollback", CreateLocalFiles: true, Command: "init"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := ordinaryInitRollbackCapability
+	defer func() { ordinaryInitRollbackCapability = previous }()
+	ordinaryInitRollbackCapability = func() error { return fmt.Errorf("rollback unsupported fixture") }
+	_, err = Apply(repoRoot, caseRoot, pack, ApplyOptions{
+		ProjectName: "unsupported-rollback", CreateLocalFiles: true, Command: "init",
+		ExpectedPlanSHA256: preview.ExpectedPlanSHA256,
+	})
+	if err == nil || !strings.Contains(err.Error(), "rollback unsupported fixture") {
+		t.Fatalf("ordinary init rollback capability error = %v", err)
+	}
+	if _, statErr := os.Lstat(filepath.Join(caseRoot, ".rekit")); !os.IsNotExist(statErr) {
+		t.Fatalf("ordinary init rollback capability failure wrote state: %v", statErr)
+	}
+}
+
+func TestOrdinaryInitFinalValidationRejectsLateSourceDrift(t *testing.T) {
+	repoRoot, pack := exclusiveInitFixture(t)
+	caseRoot := t.TempDir()
+	preview, err := InitPreview(repoRoot, caseRoot, pack, ApplyOptions{ProjectName: "late-source", CreateLocalFiles: true, Command: "init"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shim := filepath.Join(repoRoot, "rekit", "templates", "case-shim", "SKILL.md")
+	previous := ordinaryInitBeforeFinalValidationHook
+	defer func() { ordinaryInitBeforeFinalValidationHook = previous }()
+	ordinaryInitBeforeFinalValidationHook = func(InitPlan) error {
+		return os.WriteFile(shim, []byte("# late source replacement\n"), 0o644)
+	}
+	_, err = Apply(repoRoot, caseRoot, pack, ApplyOptions{
+		ProjectName: "late-source", CreateLocalFiles: true, Command: "init",
+		ExpectedPlanSHA256: preview.ExpectedPlanSHA256,
+	})
+	if err == nil || !strings.Contains(err.Error(), "source changed during publication") {
+		t.Fatalf("ordinary init late source drift error = %v", err)
+	}
+	if _, statErr := os.Lstat(filepath.Join(caseRoot, ".rekit")); !os.IsNotExist(statErr) {
+		t.Fatalf("ordinary init late source drift left created state: %v", statErr)
+	}
+}
+
+type ordinaryInitUnlockErrorLease struct {
+	mutationLease
+}
+
+func (lease ordinaryInitUnlockErrorLease) Unlock() error {
+	return errors.Join(lease.mutationLease.Unlock(), errors.New("ordinary init unlock fixture"))
+}
+
+func TestOrdinaryInitReportsCommittedCleanupWarningWithoutApplyError(t *testing.T) {
+	repoRoot, pack := exclusiveInitFixture(t)
+	caseRoot := t.TempDir()
+	preview, err := InitPreview(repoRoot, caseRoot, pack, ApplyOptions{ProjectName: "cleanup-warning", CreateLocalFiles: true, Command: "init"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := ordinaryInitLeaseForTest
+	defer func() { ordinaryInitLeaseForTest = previous }()
+	ordinaryInitLeaseForTest = func(lease mutationLease) mutationLease {
+		return ordinaryInitUnlockErrorLease{mutationLease: lease}
+	}
+	result, err := Apply(repoRoot, caseRoot, pack, ApplyOptions{
+		ProjectName: "cleanup-warning", CreateLocalFiles: true, Command: "init",
+		ExpectedPlanSHA256: preview.ExpectedPlanSHA256,
+	})
+	if err != nil || !result.Applied {
+		t.Fatalf("ordinary init cleanup warning lost committed result: result=%+v err=%v", result, err)
+	}
+	if !strings.Contains(strings.Join(result.NextSteps, "\n"), "do not retry the original plan") || !strings.Contains(strings.Join(result.NextSteps, "\n"), "ordinary init unlock fixture") {
+		t.Fatalf("ordinary init cleanup warning missing from committed result: %+v", result.NextSteps)
+	}
+}
+
+func TestOrdinaryInitRollbackPreservesCanonicalReplacementAfterIdentityCheck(t *testing.T) {
+	repoRoot, pack := exclusiveInitFixture(t)
+	caseRoot := t.TempDir()
+	preview, err := InitPreview(repoRoot, caseRoot, pack, ApplyOptions{ProjectName: "rollback-rebound", CreateLocalFiles: true, Command: "init"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousPublication := ordinaryInitAfterPublicationHook
+	previousIdentity := ordinaryInitRollbackAfterIdentityHook
+	defer func() {
+		ordinaryInitAfterPublicationHook = previousPublication
+		ordinaryInitRollbackAfterIdentityHook = previousIdentity
+	}()
+	ordinaryInitAfterPublicationHook = func(count int, _ InitPlan) error {
+		if count == 2 {
+			return fmt.Errorf("deterministic rebound rollback")
+		}
+		return nil
+	}
+	replacement := []byte("external canonical replacement\n")
+	replaced := false
+	ordinaryInitRollbackAfterIdentityHook = func(rel string) error {
+		if replaced || !strings.EqualFold(filepath.Clean(rel), filepath.Clean(preview.Writes[1].Path)) {
+			return nil
+		}
+		target := preview.Writes[1].TargetPath
+		moved := target + ".owned"
+		if err := os.Rename(target, moved); err != nil {
+			return err
+		}
+		if err := os.WriteFile(target, replacement, 0o644); err != nil {
+			return err
+		}
+		replaced = true
+		return nil
+	}
+	_, err = Apply(repoRoot, caseRoot, pack, ApplyOptions{
+		ProjectName: "rollback-rebound", CreateLocalFiles: true, Command: "init",
+		ExpectedPlanSHA256: preview.ExpectedPlanSHA256,
+	})
+	if err == nil || !strings.Contains(err.Error(), "deterministic rebound rollback") || !strings.Contains(err.Error(), "publication name rebound") {
+		t.Fatalf("ordinary init rebound rollback error = %v", err)
+	}
+	if got := readFile(t, preview.Writes[1].TargetPath); !bytes.Equal(got, replacement) {
+		t.Fatalf("ordinary init rollback removed canonical replacement: %q", got)
+	}
+	if _, statErr := os.Lstat(preview.Writes[1].TargetPath + ".owned"); !os.IsNotExist(statErr) {
+		t.Fatalf("ordinary init rollback left exact owned object: %v", statErr)
+	}
+}
+
 func TestExclusiveInitKeepsOrdinaryInitCompatible(t *testing.T) {
 	repoRoot, pack := exclusiveInitFixture(t)
 	caseRoot := filepath.Join(t.TempDir(), "ordinary")
@@ -665,10 +1148,10 @@ func TestExclusiveInitKeepsOrdinaryInitCompatible(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if preview.Command != "init" || preview.ProjectName != "ordinary-demo" {
+	if preview.Command != "init" || preview.ProjectName != "ordinary-demo" || preview.TargetClass != "missing" || len(preview.ExpectedPlanSHA256) != 64 {
 		t.Fatalf("unexpected ordinary init preview: %+v", preview)
 	}
-	result, err := Apply(repoRoot, caseRoot, pack, ApplyOptions{ProjectName: "ordinary-demo", CreateLocalFiles: true, Command: "init"})
+	result, err := Apply(repoRoot, caseRoot, pack, ApplyOptions{ProjectName: "ordinary-demo", CreateLocalFiles: true, Command: "init", ExpectedPlanSHA256: preview.ExpectedPlanSHA256})
 	if err != nil {
 		t.Fatal(err)
 	}

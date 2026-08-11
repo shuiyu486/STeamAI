@@ -216,7 +216,7 @@ func summarizeLiveSoakTask(ordinal, attempt int, pack string, receipt LiveAccept
 	task := LiveSoakAcceptanceTask{
 		Ordinal: ordinal, Attempt: attempt, Pack: pack, DurationMillis: duration.Milliseconds(),
 		FreshCaseVerified:    receipt.FirstMember.AttemptID != "" && receipt.FinalAcceptance != nil,
-		ExistingCaseVerified: receipt.AttachedCase.Verified && receipt.AttachedCase.TerminalReplay && receipt.AttachedCase.ReplayLaunches == 0,
+		ExistingCaseVerified: receipt.AttachedCase.Verified && receipt.AttachedCase.MemberCutpointVerified && receipt.AttachedCase.ReviewerCutpointVerified && receipt.AttachedCase.CompletionRecoveryVerified && receipt.AttachedCase.TerminalReplay && receipt.AttachedCase.ReplayLaunches == 0,
 		HumanCorrection:      receipt.CorrectionEventID != "" && receipt.ReplacementMember.Generation > receipt.FirstMember.Generation && receipt.ReplacementMember.CorrectionSourceID == receipt.CorrectionEventID,
 		RejectedReplay:       receipt.RejectedReplay.Verified && receipt.RejectedReplay.SessionLaunches == 0 && receipt.RejectedReplay.SessionCompletions == 0,
 		TerminalReplay:       receipt.TerminalReplay.Verified && receipt.TerminalReplay.SessionLaunches == 0 && receipt.TerminalReplay.SessionCompletions == 0,

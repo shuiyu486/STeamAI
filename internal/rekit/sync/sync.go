@@ -21,6 +21,15 @@ var acquireMutationLease = func(caseRoot string) (mutationLease, error) {
 	return kitmutation.Acquire(caseRoot)
 }
 
+var ordinaryInitAfterPlanHook func(InitPlan) error
+var ordinaryInitAfterPublicationHook func(int, InitPlan) error
+var ordinaryInitBeforeFinalValidationHook func(InitPlan) error
+var ordinaryInitBeforeRollbackHook func(string, InitPlan) error
+var ordinaryInitRollbackAfterIdentityHook func(string) error
+var ordinaryInitLeaseForTest func(mutationLease) mutationLease
+var ordinaryInitRollbackCapability = ordinaryInitRollbackCapabilityCheck
+var ordinaryInitOpenRollbackHandleForApply = ordinaryInitOpenRollbackHandle
+
 type mutationLease interface{ Unlock() error }
 
 type ApplyOptions struct {
@@ -28,6 +37,7 @@ type ApplyOptions struct {
 	ForceLocalTemplates bool
 	CreateLocalFiles    bool
 	Command             string
+	ExpectedPlanSHA256  string
 }
 
 type WriteResult struct {
@@ -37,6 +47,7 @@ type WriteResult struct {
 	SourcePath string `json:"sourcePath,omitempty"`
 	TargetPath string `json:"targetPath,omitempty"`
 	BackupPath string `json:"backupPath,omitempty"`
+	blockID    string
 }
 
 type ApplyResult struct {
@@ -62,10 +73,20 @@ type InitPlan struct {
 	IsMutation           bool          `json:"isMutation"`
 	ReviewRequired       bool          `json:"reviewRequired"`
 	RequiresConfirmation bool          `json:"requiresConfirmation"`
+	TargetClass          string        `json:"targetClass"`
+	AdoptionReady        bool          `json:"adoptionReady"`
+	AdoptionBlockers     []string      `json:"adoptionBlockers,omitempty"`
+	ExpectedPlanSHA256   string        `json:"expectedPlanSha256"`
+	ApplyArgs            []string      `json:"applyArgs,omitempty"`
 	BackupRoot           string        `json:"backupRoot"`
 	Writes               []WriteResult `json:"writes"`
 	BlockedActions       []string      `json:"blockedActions"`
 	NextSteps            []string      `json:"nextSteps"`
+
+	initSourceSHA256     map[string]string
+	initTargetSHA256     map[string]string
+	initManifestSHA256   string
+	initGitignorePresent bool
 }
 
 func Plan(repoRoot, caseRoot, pack string) (review.Plan, error) {
@@ -210,7 +231,7 @@ func InitPreview(repoRoot, caseRoot, pack string, opt ApplyOptions) (InitPlan, e
 	if casebind.SamePath(caseFull, repoFull) {
 		return InitPlan{}, fmt.Errorf("%s target must be an external case directory, not the kit repo root: %s", command, caseFull)
 	}
-	inst, err := readApplyInstance(caseFull, repoFull, pack, true)
+	targetClass, inst, err := classifyInitTarget(caseFull, repoFull, pack)
 	if err != nil {
 		return InitPlan{}, err
 	}
@@ -232,9 +253,13 @@ func InitPreview(repoRoot, caseRoot, pack string, opt ApplyOptions) (InitPlan, e
 	if err != nil {
 		return InitPlan{}, err
 	}
+	shimSource := filepath.Join(repoFull, "rekit", "templates", "case-shim", "SKILL.md")
+	if _, err := readRequiredText(shimSource); err != nil {
+		return InitPlan{}, err
+	}
 	writes := []WriteResult{
 		{Path: ".rekit/instance.yml", Kind: "instance-metadata", Action: casebind.ActionFor(filepath.Join(caseFull, ".rekit", "instance.yml")), TargetPath: filepath.Join(caseFull, ".rekit", "instance.yml")},
-		{Path: ".claude/skills/rekit/SKILL.md", Kind: "case-local-thin-shim", Action: casebind.ActionFor(filepath.Join(caseFull, ".claude", "skills", "rekit", "SKILL.md")), TargetPath: filepath.Join(caseFull, ".claude", "skills", "rekit", "SKILL.md")},
+		{Path: ".claude/skills/rekit/SKILL.md", Kind: "case-local-thin-shim", Action: casebind.ActionFor(filepath.Join(caseFull, ".claude", "skills", "rekit", "SKILL.md")), SourcePath: shimSource, TargetPath: filepath.Join(caseFull, ".claude", "skills", "rekit", "SKILL.md")},
 		{Path: ".re-template.yml", Kind: "legacy-metadata", Action: casebind.ActionFor(filepath.Join(caseFull, ".re-template.yml")), TargetPath: filepath.Join(caseFull, ".re-template.yml")},
 	}
 	for _, rel := range m.ManagedFiles {
@@ -303,9 +328,10 @@ func InitPreview(repoRoot, caseRoot, pack string, opt ApplyOptions) (InitPlan, e
 		return InitPlan{}, err
 	}
 	nextHostText := review.ApplyManagedBlock(hostText, m.ManagedBlock["blockId"], blockText)
-	writes = append(writes, WriteResult{Path: m.ManagedBlock["file"], Kind: "managed-block", Action: managedBlockAction(hostText, nextHostText, m.ManagedBlock["blockId"]), SourcePath: blockSource, TargetPath: blockHost})
+	writes = append(writes, WriteResult{Path: m.ManagedBlock["file"], Kind: "managed-block", Action: managedBlockAction(hostText, nextHostText, m.ManagedBlock["blockId"]), SourcePath: blockSource, TargetPath: blockHost, blockID: m.ManagedBlock["blockId"]})
 	gitignoreSource, err := m.SourcePath("examples/gitignore.example")
-	if err == nil && refsf.Exists(gitignoreSource) {
+	gitignorePresent := err == nil && refsf.Exists(gitignoreSource)
+	if gitignorePresent {
 		gitignoreTarget, err := refsf.SafeJoin(caseFull, ".gitignore")
 		if err != nil {
 			return InitPlan{}, err
@@ -317,38 +343,19 @@ func InitPreview(repoRoot, caseRoot, pack string, opt ApplyOptions) (InitPlan, e
 		writes = append(writes, WriteResult{Path: ".gitignore", Kind: "support-file", Action: action, SourcePath: gitignoreSource, TargetPath: gitignoreTarget})
 	}
 	writes = append(writes, WriteResult{Path: ".rekit/state.json", Kind: "sync-state", Action: casebind.ActionFor(filepath.Join(caseFull, ".rekit", "state.json")), TargetPath: filepath.Join(caseFull, ".rekit", "state.json")})
-	return InitPlan{SchemaVersion: 1, Command: command, CaseRoot: caseFull, RepoRoot: repoFull, Pack: pack, ProjectName: projectName, IsMutation: false, ReviewRequired: true, RequiresConfirmation: true, BackupRoot: backupRoot, Writes: writes, BlockedActions: []string{"pack writes", "promote", "authority/confirmed writes", "heavy-tool execution", "board/facts/lanes migration"}, NextSteps: []string{"review this plan, then re-run " + command + " with -Apply to initialize the case", "use /rekit as the Mission Commander entrypoint; this remains a review-first Go runtime path"}}, nil
+	manifestBytes, err := os.ReadFile(m.ManifestPath)
+	if err != nil {
+		return InitPlan{}, err
+	}
+	return finalizeInitPlan(InitPlan{SchemaVersion: 1, Command: command, CaseRoot: caseFull, RepoRoot: repoFull, Pack: pack, ProjectName: projectName, TargetClass: targetClass, IsMutation: false, ReviewRequired: true, RequiresConfirmation: true, BackupRoot: backupRoot, Writes: writes, BlockedActions: []string{"pack writes", "promote", "authority/confirmed writes", "heavy-tool execution", "board/facts/lanes migration"}, NextSteps: []string{"review this plan, then re-run " + command + " with -Apply and the exact plan hash to initialize the case", "use /rekit as the Mission Commander entrypoint; this remains a review-first Go runtime path"}, initManifestSHA256: sha256Bytes(manifestBytes), initGitignorePresent: gitignorePresent})
 }
 
 func readApplyInstance(caseRoot, repoRoot, pack string, createLocalFiles bool) (instance.Instance, error) {
 	if !createLocalFiles {
 		return instance.AssertAttached(caseRoot, repoRoot, pack)
 	}
-	if st, err := os.Stat(caseRoot); err == nil && !st.IsDir() {
-		return instance.Instance{}, fmt.Errorf("case target is not a directory: %s", caseRoot)
-	} else if err != nil && !os.IsNotExist(err) {
-		return instance.Instance{}, err
-	}
-	inst, err := instance.Read(caseRoot)
-	if err != nil {
-		return instance.Instance{}, err
-	}
-	if inst.Source == "missing" {
-		return inst, nil
-	}
-	if inst.Moved() {
-		return instance.Instance{}, instance.MovedRepairPreviewError(caseRoot, pack)
-	}
-	if strings.TrimSpace(inst.TemplateRoot) == "" {
-		return instance.Instance{}, fmt.Errorf("missing templateRoot in case metadata: %s", caseRoot)
-	}
-	if !casebind.SameExistingPath(inst.TemplateRoot, repoRoot) {
-		return instance.Instance{}, fmt.Errorf("case is attached to a different templateRoot: %s", inst.TemplateRoot)
-	}
-	if strings.TrimSpace(inst.TemplatePack) != "" && !strings.EqualFold(inst.TemplatePack, pack) {
-		return instance.Instance{}, fmt.Errorf("case is attached to a different templatePack: %s", inst.TemplatePack)
-	}
-	return inst, nil
+	_, inst, err := classifyInitTarget(caseRoot, repoRoot, pack)
+	return inst, err
 }
 
 func ApplyPreview(repoRoot, caseRoot, pack string, opt ApplyOptions) (ApplyResult, error) {
@@ -376,7 +383,40 @@ func Apply(repoRoot, caseRoot, pack string, opt ApplyOptions) (_ ApplyResult, re
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	defer func() { retErr = errors.Join(retErr, lease.Unlock()) }()
+	leaseOwned := true
+	defer func() {
+		if leaseOwned {
+			retErr = errors.Join(retErr, lease.Unlock())
+		}
+	}()
+	if opt.CreateLocalFiles {
+		if strings.TrimSpace(opt.ExpectedPlanSHA256) != "" && !validInitPlanSHA256(opt.ExpectedPlanSHA256) {
+			return ApplyResult{}, fmt.Errorf("%s -Apply requires a valid -ExpectedInitPlanSha256 from -WhatIf", command)
+		}
+		fresh, err := InitPreview(repoFull, caseFull, pack, opt)
+		if err != nil {
+			return ApplyResult{}, err
+		}
+		if fresh.TargetClass == "ordinary-directory" && !validInitPlanSHA256(opt.ExpectedPlanSHA256) {
+			return ApplyResult{}, fmt.Errorf("%s ordinary-directory adoption requires a valid -ExpectedInitPlanSha256 from -WhatIf", command)
+		}
+		if validInitPlanSHA256(opt.ExpectedPlanSHA256) && !strings.EqualFold(fresh.ExpectedPlanSHA256, opt.ExpectedPlanSHA256) {
+			return ApplyResult{}, fmt.Errorf("%s plan changed after preview; rerun -WhatIf", command)
+		}
+		if fresh.TargetClass == "ordinary-directory" && !fresh.AdoptionReady {
+			return ApplyResult{}, fmt.Errorf("%s ordinary-directory adoption is blocked: %s", command, strings.Join(fresh.AdoptionBlockers, ", "))
+		}
+		if fresh.TargetClass != "missing" && fresh.TargetClass != "ordinary-directory" && fresh.TargetClass != "attached-case" && fresh.TargetClass != "mission-case" {
+			return ApplyResult{}, fmt.Errorf("%s refuses target class %s", command, fresh.TargetClass)
+		}
+		if fresh.TargetClass == "ordinary-directory" {
+			if ordinaryInitLeaseForTest != nil {
+				lease = ordinaryInitLeaseForTest(lease)
+			}
+			leaseOwned = false
+			return applyOrdinaryInit(fresh, lease)
+		}
+	}
 
 	caseRoot = caseFull
 	repoRoot = repoFull

@@ -79,7 +79,7 @@ var documents = []DocumentCheck{
 	{Path: ".claude/skills/rekit/SKILL.md", Purpose: "canonical slash skill instructions"},
 	{Path: "CLAUDE.md", Purpose: "stable project maintainer boundaries and router pointer"},
 	{Path: "docs/context-routing.md", Purpose: "canonical progressive-disclosure router and read-first policy"},
-	{Path: "docs/real-usage-hardening-roadmap.md", Purpose: "active real-usage route pointer and current batch card"},
+	{Path: "docs/real-usage-hardening-roadmap.md", Purpose: "active approved route pointer and current batch card"},
 	{Path: "docs/batch-plan.md", Purpose: "compact current batch projection"},
 	{Path: "docs/mission-control-product-direction.md", Purpose: "Lane-centric Mission Control product direction"},
 	{Path: "docs/autonomous-goal.md", Purpose: "short approved-route goal anchor"},

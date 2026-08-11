@@ -8,18 +8,18 @@
 
 ## 实施摘要
 
-`ida-agent-bridge` 在本 pack 中保持 `candidate` 状态。D6 的目标不是安装、连接或驱动 IDA，而是把它能提供给 Agent 的只读索引抽象成稳定 contract：先消费小索引和 sidecar refs，再按需窄范围读取 pseudocode / xref / hexdump 摘要；Markdown 只记录 bounded summary 和 evidence refs，不粘贴完整 decompile/disasm。
+外部 `ida-agent-bridge` 在本 pack 中保持 `candidate` 状态，不安装、不连接也不由 catalog `entry` 启动。DPC-04 另行落地了 compiled-in `vmp-ida-index-inspector`：它只消费本 contract 中已经验证的固定 TSV 子集，以 literal query 生成 bounded packet，并在 exact generated profile + canonical `authorized-gate` 下进入 dispatch/receipt/observation、独立 evidence review、member 与 Reviewer 链。
 
-默认允许的动作仅限读取已有 export 目录中的文本/JSON/TSV sidecar，并生成小型 adapter packet。任何会创建全量导出、修改 IDB、调试进程、patch/dump、联网安装或发布内容的动作都不属于本 recipe 的默认路径。
+fixed runtime path 只读取已有 `function_index.tsv`（必需）和可选 `strings.tsv` / `imports.tsv` / `xrefs.tsv`；不读取 pseudocode/disassembly sidecar，不打开 IDB，不启动 IDA，不联网。更广的 bridge 能力仍只是 candidate recipe，任何全量导出、IDB 修改、调试、patch/dump 或外部连接都不属于默认路径。
 
 ## 执行清单
 
-- [ ] 确认已有 bridge/export 目录，或先记录需要用户确认的导出请求。
-- [ ] 优先读取 `function_index.tsv`、`strings.tsv`、`imports.tsv`、`xrefs.tsv` 等小索引。
-- [ ] 按任务选择少量函数 / 字符串 / import / xref，生成 bounded `ida-index-packet.json` 或等价 summary sidecar。
-- [ ] pseudocode / disasm / hexdump 只允许按函数或地址范围窄读，并记录路径、行范围、hash 或 query id。
-- [ ] 在 candidate / verification 中引用 packet path、query id、函数名/RVA 和摘要，不复制完整大输出。
-- [ ] 若需要 rename/comment/patch、全量导出、动态 attach 或 dump，停止并走 heavy-tool gate。
+- [ ] 确认已有 bridge/export 目录；缺少 export 时停止，不自动启动 IDA 生成。
+- [ ] 对 fixed runtime path 只使用 1～16 个 literal term，先生成内容寻址 request 和 exact profile preview。
+- [ ] 只有 profile 明确确认并得到 current `authorized-gate` 后，才运行 compiled-in `vmp-ida-index-inspector`。
+- [ ] 复核 bounded packet/report/receipt/observation、profile 已恢复 manual，以及 independent evidence review 决策。
+- [ ] member/Reviewer 只引用 exact selected row、evidence ref、packet、receipt 和 observation lineage，不复制完整大输出。
+- [ ] 若需要 pseudocode/disasm/hexdump、rename/comment/patch、全量导出、动态 attach 或 dump，fixed adapter 停止并回到对应独立 gate/recipe。
 
 ## 验证标准
 
@@ -27,7 +27,8 @@
 - packet 明确 `mode: read-only-index`、`sideEffects: ["filesystem-read"]`，且不包含 rename/comment/patch/debug/dump/network 动作。
 - 单个 packet 的 selected functions / strings / imports / xrefs 有上限；超限时写 `truncated: true` 与 `droppedCount`。
 - Markdown / handoff / candidate 只写摘要和 evidence refs，不粘贴完整 decompile/disasm/hexdump。
-- adapter 失败时返回结构化 `errors[]` 与 `nextActions[]`，不无界重试。
+- adapter 失败时写 dispatch-bound `failed` / `aborted` terminal report，零 packet artifact，且同一 dispatch 不重启 child；packet 内的 `errors[]` / `nextActions[]` 只用于已成功解析的有界检查结果。
+- Windows contained child 在 resume 前发布 parent-owned launch proof；该 proof 使用 anchored create-only write-through publication。它覆盖进程崩溃恢复并强化文件/metadata 落盘请求，但不宣称跨所有文件系统与硬件的断电原子性。success seal 只在 exact packet/report 发布并完成最终 source、lane lease 与 runtime budget 检查后写入。
 
 ## 风险与注意事项
 
@@ -35,6 +36,25 @@
 - 全量导出可能耗时、占磁盘并泄漏样本结构；默认不自动触发。
 - rename/comment/patch 会修改共享 IDB 状态，多 Agent 不并发写，且本 recipe 不授权这些动作。
 - 不把真实样本名、绝对路径、完整 trace/dump/decompile/disasm 写回 pack 模板。
+
+## Fixed runtime contract
+
+`vmp-ida-index-inspector` 只接受以下输入：
+
+```text
+tooling/ida-agent-bridge/export/
+  function_index.tsv   # 必需
+  strings.tsv          # 可选
+  imports.tsv          # 可选
+  xrefs.tsv             # 可选
+```
+
+- query 为 1～16 个单行 UTF-8 literal term，每项 1～128 字符；case-insensitive substring matching，不支持 regex、glob、DSL 或 quoting/control characters。
+- 每个文件最多 1 MiB、每行最多 64 KiB；每类最多 200 rows；packet 最多 256 KiB。
+- request filename 绑定 canonical request bytes SHA-256；request 绑定每个输入的 path/SHA/bytes 与 aggregate SHA。
+- profile 仅允许 exact `inspect`、该 request path、固定 output/stop conditions 和最长 15 分钟 expiry；child 前后 input/source drift 均 fail-closed。
+- 成功路径为 request → profile → `authorized-gate` → immutable dispatch → compiled-in child → committed packet/report → receipt/observation → profile revoke → independent evidence review → member/Reviewer。
+- `NoNetwork` 只表示该 fixed child 没有网络代码路径；不是 OS 级 socket 隔离。
 
 ## Capability card
 

@@ -55,6 +55,7 @@ type currentStepPlan struct {
 	Receipt                       *currentStepReceipt                   `json:"receipt,omitempty"`
 	RefreshedStatus               *statusInventory                      `json:"refreshedStatus,omitempty"`
 	Boundary                      []string                              `json:"boundary"`
+	memberExecutionAlreadyApplied bool
 }
 
 type currentStepReceipt struct {
@@ -164,7 +165,7 @@ func runCurrentStep(ctx runtime.Context, opt Options, out io.Writer) error {
 }
 
 func buildCurrentStepPlan(ctx runtime.Context, opt Options) (currentStepPlan, error) {
-	status, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+	status, err := buildInvocationStatusInventory(ctx, opt)
 	if err != nil {
 		return currentStepPlan{}, err
 	}
@@ -172,9 +173,13 @@ func buildCurrentStepPlan(ctx runtime.Context, opt Options) (currentStepPlan, er
 }
 
 func currentStepUsesCheckpointSourceRequest(opt Options, status statusInventory) bool {
-	return (opt.currentLoopExternalTurnResume || currentStepHasMemberObservation(opt) || currentStepHasReviewerObservation(opt)) &&
-		status.MissionControlRunbook != nil && status.MissionControlRunbook.CurrentLoopOperator != nil &&
-		status.MissionControlRunbook.CurrentLoopOperator.SourceCurrentDriverRequest != nil
+	if status.MissionControlRunbook == nil || status.MissionControlRunbook.CurrentLoopOperator == nil ||
+		status.MissionControlRunbook.CurrentLoopOperator.SourceCurrentDriverRequest == nil {
+		return false
+	}
+	source := *status.MissionControlRunbook.CurrentLoopOperator.SourceCurrentDriverRequest
+	return currentStepRequestIsEvidenceReview(source) || opt.currentLoopExternalTurnResume ||
+		currentStepHasMemberObservation(opt) || currentStepHasReviewerObservation(opt)
 }
 
 func currentStepPackMemoryConsumerRequest(repoRoot, caseRoot, pack string, status statusInventory) (*mission.MissionCommanderDriverRequest, error) {
@@ -291,15 +296,34 @@ func buildCurrentStepPlanFromStatus(ctx runtime.Context, opt Options, status sta
 			if currentStepHasReviewerObservation(opt) {
 				return currentStepPlan{}, fmt.Errorf("run-current-step case route does not accept reviewer observation inputs")
 			}
-			member, intake, err := buildMemberExecutionStep(ctx, opt, routedRequest)
-			if err != nil {
-				return currentStepPlan{}, fmt.Errorf("run-current-step member execution: %w", err)
+			if currentStepRequestIsEvidenceReview(routedRequest) {
+				if currentStepHasMemberObservation(opt) {
+					return currentStepPlan{}, fmt.Errorf("run-current-step evidence review route does not accept member observation inputs")
+				}
+				plan.RequiresConfirmation = false
+				plan.Boundary = append(plan.Boundary,
+					"execution evidence review is a typed user-review stop; it does not dispatch a member or apply the acknowledgement",
+					"accepted or superseded durable review closure must become fresh current status before member execution can resume",
+				)
+				break
 			}
-			if member != nil {
-				plan.MemberExecution = member
-				if !intake {
-					nestedSHA256 = member.ExpectedPlanSHA256
-					break
+			if currentStepHasMemberObservation(opt) && !currentStepRequestOwnsMemberExecution(routedRequest) {
+				return currentStepPlan{}, fmt.Errorf("run-current-step member observation requires the current member-owned continuation request")
+			}
+			if currentStepRequestUsesMemberContinueCommand(routedRequest) && !currentStepRequestOwnsMemberExecution(routedRequest) {
+				return currentStepPlan{}, fmt.Errorf("run-current-step rejects unrecognized member continuation source %q state %q", routedRequest.Source, routedRequest.State)
+			}
+			if currentStepRequestOwnsMemberExecution(routedRequest) {
+				member, intake, err := buildMemberExecutionStep(ctx, opt, routedRequest)
+				if err != nil {
+					return currentStepPlan{}, fmt.Errorf("run-current-step member execution: %w", err)
+				}
+				if member != nil {
+					plan.MemberExecution = member
+					if !intake {
+						nestedSHA256 = member.ExpectedPlanSHA256
+						break
+					}
 				}
 			}
 			nested, err := buildDriverStepPlanFromStatus(ctx, status)
@@ -348,6 +372,32 @@ func buildCurrentStepPlanFromStatus(ctx runtime.Context, opt Options, status sta
 	return plan, nil
 }
 
+func validateCurrentMemberExecutionRequest(ctx runtime.Context, opt Options, expected mission.MissionCommanderDriverRequest) error {
+	fresh, err := buildInvocationStatusInventory(ctx, opt)
+	if err != nil {
+		return fmt.Errorf("member execution current request refresh: %w", err)
+	}
+	if fresh.MissionControlRunbook == nil || fresh.MissionControlRunbook.CurrentDriverRequest == nil {
+		return fmt.Errorf("member execution current request is unavailable")
+	}
+	current := *fresh.MissionControlRunbook.CurrentDriverRequest
+	if !currentStepRequestOwnsMemberExecution(current) {
+		return fmt.Errorf("member execution current request is no longer the member-owned continuation")
+	}
+	expectedSHA256, err := currentloop.RequestSHA256(expected)
+	if err != nil {
+		return fmt.Errorf("member execution expected current request identity: %w", err)
+	}
+	currentSHA256, err := currentloop.RequestSHA256(current)
+	if err != nil {
+		return fmt.Errorf("member execution fresh current request identity: %w", err)
+	}
+	if !strings.EqualFold(expectedSHA256, currentSHA256) {
+		return fmt.Errorf("member execution current request changed before Apply")
+	}
+	return nil
+}
+
 func applyCurrentStepPlan(ctx runtime.Context, opt Options, plan currentStepPlan) (currentStepPlan, error) {
 	if plan.ExternalSessionStep != nil {
 		return applyCurrentStepExternalSession(ctx, opt, plan)
@@ -360,7 +410,11 @@ func applyCurrentStepPlan(ctx runtime.Context, opt Options, plan currentStepPlan
 			var memberResult memberexecution.Result
 			applyMember := func() error {
 				var err error
-				memberResult, err = memberexecution.Apply(*plan.MemberExecution, opt.ExpectedMemberExecutionPlanSHA256)
+				memberResult, err = memberexecution.ApplyCurrent(
+					*plan.MemberExecution,
+					opt.ExpectedMemberExecutionPlanSHA256,
+					func() error { return validateCurrentMemberExecutionRequest(ctx, opt, plan.CurrentDriverRequest) },
+				)
 				return err
 			}
 			var err error
@@ -375,19 +429,25 @@ func applyCurrentStepPlan(ctx runtime.Context, opt Options, plan currentStepPlan
 			plan.MemberExecution = &memberResult.Plan
 			plan.IsMutation = memberResult.Applied
 			plan.Applied = memberResult.Applied
+			plan.memberExecutionAlreadyApplied = memberResult.AlreadyApplied
 			plan.ReviewRequired = false
 			plan.RequiresConfirmation = false
 			nestedCommand = commands.RunCurrentStep
 			plan.Receipt = &currentStepReceipt{State: "refreshed", Outcome: "current-step-applied", Route: plan.Route, NestedCommand: nestedCommand, Boundary: append([]string{"member execution outcome: " + memberResult.Inspection.State}, boundariesForMemberReceipt()...)}
 			if !plan.Applied {
-				return plan, nil
+				if !plan.memberExecutionAlreadyApplied || opt.Command != commands.RunCurrentLoop {
+					return plan, nil
+				}
+				plan.Receipt.Boundary = append(plan.Receipt.Boundary,
+					"the current-loop recovered an exact already-published member execution after owner, plan hash, and artifact bytes were revalidated",
+				)
 			}
 			if currentStepBeforeStatusRefreshHook != nil {
 				if err := currentStepBeforeStatusRefreshHook(nestedCommand); err != nil {
 					return currentStepPartialResult(plan, nestedCommand), fmt.Errorf("refresh status after member execution: %w", err)
 				}
 			}
-			fresh, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+			fresh, err := buildInvocationStatusInventory(ctx, opt)
 			if err != nil {
 				return currentStepPartialResult(plan, nestedCommand), fmt.Errorf("refresh status after member execution: %w", err)
 			}
@@ -486,6 +546,7 @@ func validateCurrentStepOuterArgs(opt Options) error {
 		"-command": true, "--command": true,
 		"-target": true, "--target": true,
 		"-pack": true, "--pack": true,
+		"-lane": true, "--lane": true,
 		"-format": true, "--format": true,
 		"-expectedcurrentstepplansha256": true, "--expected-current-step-plan-sha256": true,
 		"-actor": true, "--actor": true,
@@ -559,6 +620,8 @@ func currentStepCanonicalOuterFlag(key string) string {
 		return "-target"
 	case "--pack":
 		return "-pack"
+	case "--lane":
+		return "-lane"
 	case "--format":
 		return "-format"
 	case "--expected-current-step-plan-sha256":

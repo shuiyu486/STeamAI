@@ -13,6 +13,20 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 )
 
+func currentStepRequestOwnsMemberExecution(request mission.MissionCommanderDriverRequest) bool {
+	return strings.TrimSpace(request.Source) == "missionCommanderActions" &&
+		strings.TrimSpace(request.State) == "ready-to-continue" &&
+		driverStepCommandName(request.Command) == commands.Continue
+}
+
+func currentStepRequestIsEvidenceReview(request mission.MissionCommanderDriverRequest) bool {
+	return strings.HasPrefix(strings.TrimSpace(request.Source), "executionEvidenceReview")
+}
+
+func currentStepRequestUsesMemberContinueCommand(request mission.MissionCommanderDriverRequest) bool {
+	return driverStepCommandName(request.Command) == commands.Continue
+}
+
 func buildMemberExecutionStep(ctx runtime.Context, opt Options, request mission.MissionCommanderDriverRequest) (*memberexecution.Plan, bool, error) {
 	lane := strings.TrimSpace(request.Lane)
 	if lane == "" {

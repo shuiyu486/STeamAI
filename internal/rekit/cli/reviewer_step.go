@@ -174,7 +174,7 @@ func applyReviewerStepPlan(ctx runtime.Context, opt Options, plan reviewerStepPl
 			return plan, fmt.Errorf("refresh status after reviewer step: %w", err)
 		}
 	}
-	refreshed, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+	refreshed, err := buildInvocationStatusInventory(ctx, opt)
 	if err != nil {
 		return plan, fmt.Errorf("refresh status after reviewer step: %w", err)
 	}
@@ -188,7 +188,7 @@ func applyReviewerStepPlan(ctx runtime.Context, opt Options, plan reviewerStepPl
 }
 
 func buildReviewerStepPlan(ctx runtime.Context, opt Options) (reviewerStepPlan, error) {
-	status, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+	status, err := buildInvocationStatusInventory(ctx, opt)
 	if err != nil {
 		return reviewerStepPlan{}, err
 	}

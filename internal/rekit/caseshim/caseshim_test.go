@@ -27,6 +27,44 @@ func TestInspectRepoCaseShimReady(t *testing.T) {
 	assertForbiddenAbsent(t, readiness.ForbiddenStrings, "go run")
 }
 
+func TestCanonicalSkillAndShimPermitModelInvocationAndRemainBounded(t *testing.T) {
+	repo := repoRoot(t)
+	for _, check := range []struct {
+		path     string
+		maxBytes int
+	}{
+		{path: CanonicalSkillRelPath, maxBytes: 8 * 1024},
+		{path: TemplateRelPath, maxBytes: 4 * 1024},
+	} {
+		data, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(check.path)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(data) > check.maxBytes {
+			t.Fatalf("%s size = %d, want <= %d", check.path, len(data), check.maxBytes)
+		}
+		if strings.Contains(string(data), "disable-model-invocation: true") {
+			t.Fatalf("%s still disables natural-language model invocation", check.path)
+		}
+	}
+
+	canonical, err := os.ReadFile(filepath.Join(repo, filepath.FromSlash(CanonicalSkillRelPath)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, phrase := range []string{
+		"go run ./cmd/rekit -- -Command status -Target <case-root> -Format json",
+		"typed queue 的非 follow-up actions 涉及多个不同 lane",
+		"停止且不调用 daily host",
+		"忽略 `projectHandoff`，不得把 kit 路线、批次、commit/push 或 release 验证当成 case 进度",
+		"`actionId=case-mission-onboarding` 或 `state=case-board-missing`",
+	} {
+		if !strings.Contains(string(canonical), phrase) {
+			t.Fatalf("canonical natural-language contract missing %q", phrase)
+		}
+	}
+}
+
 func TestInspectInstalledDetectsTemplateMatchAndDrift(t *testing.T) {
 	repo := t.TempDir()
 	caseRoot := t.TempDir()

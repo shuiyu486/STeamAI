@@ -80,6 +80,13 @@ type Options struct {
 	AdapterSession                                string
 	ExecutionExitStatus                           string
 	EmitDriverReceipt                             bool
+	ProvisionProfile                              bool
+	RevokeProfile                                 bool
+	ProfileID                                     string
+	ProfileGrantedBy                              string
+	ProfileGrantedAt                              string
+	ProfileExpiresAt                              string
+	ExpectedProfilePlanSHA256                     string
 }
 
 type Plan struct {

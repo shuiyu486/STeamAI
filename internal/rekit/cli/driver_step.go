@@ -111,7 +111,7 @@ func applyDriverStepPlan(ctx runtime.Context, opt Options, plan driverStepPlan) 
 			return plan, fmt.Errorf("refresh status after driver step: %w", err)
 		}
 	}
-	refreshed, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+	refreshed, err := buildInvocationStatusInventory(ctx, opt)
 	if err != nil {
 		return plan, fmt.Errorf("refresh status after driver step: %w", err)
 	}
@@ -125,7 +125,7 @@ func applyDriverStepPlan(ctx runtime.Context, opt Options, plan driverStepPlan) 
 }
 
 func buildDriverStepPlan(ctx runtime.Context, opt Options) (driverStepPlan, error) {
-	status, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+	status, err := buildInvocationStatusInventory(ctx, opt)
 	if err != nil {
 		return driverStepPlan{}, err
 	}
@@ -206,6 +206,7 @@ func validateDriverStepOuterArgs(opt Options) error {
 		"-command": true, "--command": true,
 		"-target": true, "--target": true,
 		"-pack": true, "--pack": true,
+		"-lane": true, "--lane": true,
 		"-format": true, "--format": true,
 		"-expecteddriverstepplansha256": true, "--expected-driver-step-plan-sha256": true,
 	}
@@ -236,6 +237,8 @@ func validateDriverStepOuterArgs(opt Options) error {
 			canonical = "-target"
 		case "--pack":
 			canonical = "-pack"
+		case "--lane":
+			canonical = "-lane"
 		case "--format":
 			canonical = "-format"
 		case "--expected-driver-step-plan-sha256":

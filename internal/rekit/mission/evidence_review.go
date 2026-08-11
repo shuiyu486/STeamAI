@@ -82,7 +82,7 @@ func executionEvidenceReviewAcknowledgedIDs(facts LedgerFacts) map[string]bool {
 
 func executionEvidenceReviewClosingStatus(status string) bool {
 	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "accepted", "rejected", "resolved", "confirmed", "superseded":
+	case "accepted", "resolved", "confirmed", "superseded":
 		return true
 	default:
 		return false
@@ -96,12 +96,10 @@ func executionEvidenceReviewClosingVerification(verification map[string]any) boo
 	if !executionEvidenceReviewClosingStatus(firstObjectText(verification, "status")) {
 		return false
 	}
-	switch strings.ToLower(strings.TrimSpace(firstObjectText(verification, "verdict"))) {
-	case "accepted", "rejected":
-		return true
-	default:
-		return false
-	}
+	return strings.EqualFold(
+		strings.TrimSpace(firstObjectText(verification, "verdict")),
+		"accepted",
+	)
 }
 
 func executionEvidenceReviewClosingDecision(decision map[string]any) bool {
@@ -112,7 +110,7 @@ func executionEvidenceReviewClosingDecision(decision map[string]any) bool {
 		return false
 	}
 	switch strings.ToLower(strings.TrimSpace(FirstText(firstObjectText(decision, "decision"), firstObjectText(decision, "action")))) {
-	case "accept", "reject", "supersede":
+	case "accept", "supersede":
 		return true
 	default:
 		return false

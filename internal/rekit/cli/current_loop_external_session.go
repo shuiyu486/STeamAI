@@ -34,7 +34,7 @@ func runCurrentLoopExternalSessionRelay(ctx runtime.Context, opt Options, out io
 	if err := validateCurrentLoopOuterArgs(opt); err != nil {
 		return err
 	}
-	status, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+	status, err := buildInvocationStatusInventory(ctx, opt)
 	if err != nil {
 		return err
 	}
@@ -69,7 +69,7 @@ func runCurrentLoopExternalSessionRelay(ctx runtime.Context, opt Options, out io
 	if err != nil {
 		return err
 	}
-	fresh, refreshErr := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+	fresh, refreshErr := buildInvocationStatusInventory(ctx, opt)
 	result := currentLoopExternalSessionRelayResult{Plan: applied}
 	if refreshErr == nil && fresh.MissionControlRunbook != nil {
 		applied.Boundary = append(applied.Boundary, "status refreshed after publication; consume the unique observation inbox selected request before checkpoint resume")
@@ -85,7 +85,7 @@ type currentLoopExternalSessionRelayResult struct {
 }
 
 func currentExternalSessionJob(ctx runtime.Context, opt Options) (externalsession.Job, error) {
-	status, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+	status, err := buildInvocationStatusInventory(ctx, opt)
 	if err != nil {
 		return externalsession.Job{}, err
 	}

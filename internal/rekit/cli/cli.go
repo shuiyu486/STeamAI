@@ -64,9 +64,11 @@ type Options struct {
 	CreateCandidates                          bool
 	StageMemberOutput                         bool
 	MemberOutputStagingLane                   string
+	SelectedCurrentLane                       string
 	MemberOutputPath                          string
 	ManagedTargetPath                         string
 	ExpectedMemberOutputStagingPlanSHA256     string
+	ExpectedInitPlanSHA256                    string
 	WhatIf                                    bool
 	Force                                     bool
 	List                                      bool
@@ -490,6 +492,12 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ExpectedNextBatchPlanSha256")
 			}
 			opt.ExpectedNextBatchPlanSHA256 = args[i]
+		case "-ExpectedInitPlanSha256", "-ExpectedInitPlanSHA256", "--expected-init-plan-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedInitPlanSha256")
+			}
+			opt.ExpectedInitPlanSHA256 = args[i]
 		case "-ExpectedHandoffPlanSha256", "-ExpectedHandoffPlanSHA256", "--expected-handoff-plan-sha256":
 			i++
 			if i >= len(args) {
@@ -925,6 +933,7 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -Lane")
 			}
 			opt.MemberOutputStagingLane = args[i]
+			opt.SelectedCurrentLane = args[i]
 			opt.Gate.Lane = args[i]
 			opt.Note.Lane = args[i]
 			opt.Complete.Selector = args[i]
@@ -1251,6 +1260,40 @@ func Parse(args []string) (Options, error) {
 			opt.Gate.RecordAdapterExecutionDispatch = true
 		case "-RecordAdapterExecutionReceipt", "--record-adapter-execution-receipt":
 			opt.Gate.RecordAdapterExecutionReceipt = true
+		case "-ProvisionProfile", "--provision-profile":
+			opt.Gate.ProvisionProfile = true
+		case "-RevokeProfile", "--revoke-profile":
+			opt.Gate.RevokeProfile = true
+		case "-ProfileId", "--profile-id":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ProfileId")
+			}
+			opt.Gate.ProfileID = args[i]
+		case "-ProfileGrantedBy", "--profile-granted-by":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ProfileGrantedBy")
+			}
+			opt.Gate.ProfileGrantedBy = args[i]
+		case "-ProfileGrantedAt", "--profile-granted-at":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ProfileGrantedAt")
+			}
+			opt.Gate.ProfileGrantedAt = args[i]
+		case "-ProfileExpiresAt", "--profile-expires-at":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ProfileExpiresAt")
+			}
+			opt.Gate.ProfileExpiresAt = args[i]
+		case "-ExpectedProfilePlanSha256", "-ExpectedProfilePlanSHA256", "--expected-profile-plan-sha256":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExpectedProfilePlanSha256")
+			}
+			opt.Gate.ExpectedProfilePlanSHA256 = args[i]
 		case "-AdapterExecutionReceiptPath", "--adapter-execution-receipt-path":
 			i++
 			if i >= len(args) {
@@ -1477,6 +1520,9 @@ func runWithOptions(args []string, stdout io.Writer, snapshot *subagents.Reviewe
 	}
 	if (strings.TrimSpace(opt.NextBatchDomain) != "" || strings.TrimSpace(opt.NextBatchClosure) != "" || strings.TrimSpace(opt.ExpectedNextBatchPlanSHA256) != "") && opt.Command != commands.NextBatch {
 		return fmt.Errorf("next-batch planning receipt flags are supported only by next-batch")
+	}
+	if strings.TrimSpace(opt.ExpectedInitPlanSHA256) != "" && opt.Command != commands.Init && opt.Command != commands.Bootstrap {
+		return fmt.Errorf("-ExpectedInitPlanSha256 is supported only by init and bootstrap")
 	}
 	if strings.TrimSpace(opt.Complete.ExpectedPreviewSHA256) != "" && opt.Command != commands.Complete {
 		return fmt.Errorf("-ExpectedCompletePlanSha256 is supported only by complete")
@@ -4052,6 +4098,7 @@ type statusInventory struct {
 	Onboarding            *missionintent.Inspection    `json:"onboarding,omitempty"`
 	MissionControlRunbook *statusMissionControlRunbook `json:"missionControlRunbook,omitempty"`
 	MemberExecution       *memberExecutionStatus       `json:"memberExecution,omitempty"`
+	selectedCurrentLane   string
 }
 
 type statusCase struct {
@@ -4453,7 +4500,7 @@ func runStatus(ctx runtime.Context, opt Options, out io.Writer) error {
 	case "text":
 		return runStatusText(ctx, packSource, out)
 	case "json":
-		status, err := buildStatusInventory(ctx, packSource)
+		status, err := buildInvocationStatusInventory(ctx, opt)
 		if err != nil {
 			return err
 		}
@@ -4811,34 +4858,35 @@ func buildStatusMissionControlRunbookWithConsumption(target string, caseMission 
 			}
 		}
 	}
-	if instance.LooksLikeCase(target) {
-		inspectionRequest := statusCurrentLoopInspectionRequest(
-			target,
-			caseMission,
-			runbook,
-		)
-		inspection := currentloop.InspectAttached(target, inspectionRequest)
-		runbook.CurrentLoopSegment = &inspection
-		runbook.CurrentLoopOperator = statusCurrentLoopOperatorPackage(target, caseMission, runbook, inspection)
-		if operator := runbook.CurrentLoopOperator; operator != nil && externalSessionDispatcherRequestIsFocused(operator) {
-			wrapper := externalSessionCurrentStepRequest(operator)
-			request := mission.MissionCommanderDriverRequestWithRefreshStatusCommand(
-				wrapper,
-				runbook.RefreshStatusCommand,
-			)
-			runbook.CurrentDriverRequest = &request
-			runbook.CurrentRunLoopStepID = request.RunLoopStepID
-			if strings.TrimSpace(request.Command) != "" {
-				runbook.CurrentCommand = strings.TrimSpace(request.Command)
-			}
-		}
-	}
+	bindStatusCurrentLoop(target, caseMission, runbook)
 	runbook.CurrentDriverReceipt = statusMissionControlCurrentDriverReceipt(runbook)
 	runbook.GuidanceHandoff = statusMissionControlGuidanceHandoffFor(runbook, projectHandoff)
 	runbook.ReplacementExecutorTakeover = statusReplacementExecutorTakeoverPackageFor(target, runbook, projectHandoff)
 	runbook.RunLoop = statusMissionControlRunbookSteps(runbook)
 	runbook.Quickstart = statusMissionControlQuickstartFor(runbook, projectHandoff)
 	return runbook
+}
+
+func bindStatusCurrentLoop(target string, caseMission *statusCaseMission, runbook *statusMissionControlRunbook) {
+	if runbook == nil || !instance.LooksLikeCase(target) {
+		return
+	}
+	inspectionRequest := statusCurrentLoopInspectionRequest(target, caseMission, runbook)
+	inspection := currentloop.InspectAttached(target, inspectionRequest)
+	runbook.CurrentLoopSegment = &inspection
+	runbook.CurrentLoopOperator = statusCurrentLoopOperatorPackage(target, caseMission, runbook, inspection)
+	if operator := runbook.CurrentLoopOperator; operator != nil && externalSessionDispatcherRequestIsFocused(operator) {
+		wrapper := externalSessionCurrentStepRequest(operator)
+		request := mission.MissionCommanderDriverRequestWithRefreshStatusCommand(
+			wrapper,
+			runbook.RefreshStatusCommand,
+		)
+		runbook.CurrentDriverRequest = &request
+		runbook.CurrentRunLoopStepID = request.RunLoopStepID
+		if strings.TrimSpace(request.Command) != "" {
+			runbook.CurrentCommand = strings.TrimSpace(request.Command)
+		}
+	}
 }
 
 func statusCurrentLoopInspectionRequest(
@@ -8770,6 +8818,16 @@ func writeStatusProjectHandoffText(out io.Writer, handoff *statusProjectHandoff)
 }
 
 func buildStatusInventory(ctx runtime.Context, packSource string) (statusInventory, error) {
+	status, err := buildStatusInventoryBase(ctx, packSource)
+	if err != nil {
+		return statusInventory{}, err
+	}
+	bindStatusMemberExecution(&status)
+	bindStatusReviewerCorrection(&status)
+	return status, nil
+}
+
+func buildStatusInventoryBase(ctx runtime.Context, packSource string) (statusInventory, error) {
 	status := statusInventory{
 		Command:        "status",
 		SchemaVersion:  1,
@@ -8846,8 +8904,6 @@ func buildStatusInventory(ctx runtime.Context, packSource string) (statusInvento
 		bindStatusCaseCandidateDecisionDraftHandoffs(status.ProjectHandoff, ctx.RepoRoot, inst.CaseRoot, ctx.Pack)
 		status.PackMemoryConsumption = buildPackMemoryConsumptionStatus(ctx.RepoRoot, inst.CaseRoot, ctx.Pack)
 		status.MissionControlRunbook = buildStatusMissionControlRunbookWithConsumption(ctx.Target, status.CaseMission, status.ProjectHandoff, status.PackMemoryConsumption)
-		bindStatusMemberExecution(&status)
-		bindStatusReviewerCorrection(&status)
 		return status, nil
 	}
 	m, err := manifest.Load(ctx.RepoRoot, ctx.Pack)
@@ -10445,8 +10501,11 @@ func runInitBootstrap(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("unsupported %s format: %s", opt.Command, opt.Format)
 	}
-	applyOpt := syncreview.ApplyOptions{ProjectName: opt.ProjectName, ForceLocalTemplates: opt.Force, CreateLocalFiles: true, Command: opt.Command}
+	applyOpt := syncreview.ApplyOptions{ProjectName: opt.ProjectName, ForceLocalTemplates: opt.Force, CreateLocalFiles: true, Command: opt.Command, ExpectedPlanSHA256: opt.ExpectedInitPlanSHA256}
 	if opt.WhatIf {
+		if strings.TrimSpace(opt.ExpectedInitPlanSHA256) != "" {
+			return fmt.Errorf("%s -WhatIf does not accept -ExpectedInitPlanSha256", opt.Command)
+		}
 		result, err := syncreview.InitPreview(ctx.RepoRoot, ctx.Target, ctx.Pack, applyOpt)
 		if err != nil {
 			return err
@@ -10457,6 +10516,12 @@ func runInitBootstrap(ctx runtime.Context, opt Options, out io.Writer) error {
 		return writeInitPlanText(out, result)
 	}
 	if opt.Apply {
+		if _, err := syncreview.InitPreview(ctx.RepoRoot, ctx.Target, ctx.Pack, applyOpt); err != nil {
+			return err
+		}
+		if strings.TrimSpace(opt.ExpectedInitPlanSHA256) == "" {
+			return fmt.Errorf("%s -Apply requires -ExpectedInitPlanSha256 from -WhatIf", opt.Command)
+		}
 		result, err := syncreview.Apply(ctx.RepoRoot, ctx.Target, ctx.Pack, applyOpt)
 		if err != nil {
 			return err
@@ -14856,6 +14921,15 @@ func runGate(ctx runtime.Context, opt Options, out io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("unsupported gate format: %s", opt.Format)
 	}
+	if opt.Gate.ProvisionProfile || opt.Gate.RevokeProfile {
+		if gateNonProfileModeSelected(opt) {
+			return fmt.Errorf("gate profile mode cannot be combined with gate decision, execution, dispatch, receipt, or report modes")
+		}
+		return runGateProfileMode(ctx, target, opt, format, out)
+	}
+	if gateProfileOnlyFieldsPresent(opt) {
+		return fmt.Errorf("gate profile fields require -ProvisionProfile or -RevokeProfile")
+	}
 	if opt.Gate.ExecutionReportContract && opt.Gate.ValidateExecutionReport {
 		return fmt.Errorf("gate -ExecutionReportContract cannot be combined with -ValidateExecutionReport")
 	}
@@ -15986,11 +16060,16 @@ func writeRepairApplyText(out io.Writer, result repair.ApplyResult) error {
 }
 
 func writeInitPlanText(out io.Writer, result syncreview.InitPlan) error {
-	if _, err := fmt.Fprintf(out, "%s plan：mutation=%t reviewRequired=%t requiresConfirmation=%t writes=%d blocked=%d backupRoot=%s caseRoot=%s repoRoot=%s pack=%s projectName=%s\n", result.Command, result.IsMutation, result.ReviewRequired, result.RequiresConfirmation, len(result.Writes), len(result.BlockedActions), result.BackupRoot, result.CaseRoot, result.RepoRoot, result.Pack, result.ProjectName); err != nil {
+	if _, err := fmt.Fprintf(out, "%s plan：mutation=%t reviewRequired=%t requiresConfirmation=%t targetClass=%s adoptionReady=%t planSha256=%s writes=%d blocked=%d backupRoot=%s caseRoot=%s repoRoot=%s pack=%s projectName=%s\n", result.Command, result.IsMutation, result.ReviewRequired, result.RequiresConfirmation, result.TargetClass, result.AdoptionReady, result.ExpectedPlanSHA256, len(result.Writes), len(result.BlockedActions), result.BackupRoot, result.CaseRoot, result.RepoRoot, result.Pack, result.ProjectName); err != nil {
 		return err
 	}
 	for _, write := range result.Writes {
 		if _, err := fmt.Fprintf(out, "%s plan write：path=%s kind=%s action=%s source=%s target=%s backup=%s\n", result.Command, write.Path, write.Kind, write.Action, write.SourcePath, write.TargetPath, write.BackupPath); err != nil {
+			return err
+		}
+	}
+	for _, blocker := range result.AdoptionBlockers {
+		if _, err := fmt.Fprintf(out, "%s adoption blocker：%s\n", result.Command, blocker); err != nil {
 			return err
 		}
 	}

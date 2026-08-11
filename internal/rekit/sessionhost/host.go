@@ -33,6 +33,7 @@ const (
 type Options struct {
 	Target                            string
 	Pack                              string
+	SelectedLane                      string
 	Actor                             string
 	ClaudePath                        string
 	ExpectedClaudeExecutableSHA256    string
@@ -41,6 +42,7 @@ type Options struct {
 	Timeout                           time.Duration
 	MaxAttempts                       int
 	StopAfterMemberIntake             bool
+	requireDailyClaudeTrust           bool
 	reviewerBinding                   *reviewerBinding
 }
 
@@ -91,15 +93,24 @@ type Session struct {
 }
 
 type currentStepPlan struct {
-	Pack                          string                `json:"pack"`
-	ExpectedCurrentStepPlanSHA256 string                `json:"expectedCurrentStepPlanSha256,omitempty"`
-	MemberExecution               *memberexecution.Plan `json:"memberExecution,omitempty"`
-	ReviewerStep                  *reviewerStep         `json:"reviewerStep,omitempty"`
-	ExternalSessionStep           *externalSessionStep  `json:"externalSessionStep,omitempty"`
+	Pack                          string                                `json:"pack"`
+	ExpectedCurrentStepPlanSHA256 string                                `json:"expectedCurrentStepPlanSha256,omitempty"`
+	CurrentDriverRequest          mission.MissionCommanderDriverRequest `json:"currentDriverRequest"`
+	MemberExecution               *memberexecution.Plan                 `json:"memberExecution,omitempty"`
+	ReviewerStep                  *reviewerStep                         `json:"reviewerStep,omitempty"`
+	ExternalSessionStep           *externalSessionStep                  `json:"externalSessionStep,omitempty"`
+}
+
+func currentStepIsEvidenceReviewStop(plan currentStepPlan) bool {
+	return plan.MemberExecution == nil &&
+		plan.ReviewerStep == nil &&
+		plan.ExternalSessionStep == nil &&
+		strings.HasPrefix(strings.TrimSpace(plan.CurrentDriverRequest.Source), "executionEvidenceReview")
 }
 
 type memberExecutionStatus struct {
 	State               string `json:"state,omitempty"`
+	Lane                string `json:"lane,omitempty"`
 	ReviewerPlanCommand string `json:"reviewerPlanCommand,omitempty"`
 }
 
@@ -240,7 +251,7 @@ func Run(parent context.Context, opt Options) (result Result, retErr error) {
 		return result, hostError("claude-attempt-limit-invalid", "attempt-control", "none", "Set -max-attempts to a value from 1 through 256, then rerun the same host command.", false, fmt.Errorf("max attempts cannot exceed 256"))
 	}
 	if !opt.StopAfterMemberIntake {
-		rejected, err := currentReviewerRejectionAwaitingCorrection(opt.Target, opt.Pack)
+		rejected, err := currentReviewerRejectionAwaitingCorrection(opt.Target, opt.Pack, opt.SelectedLane)
 		if err != nil {
 			return result, err
 		}
@@ -248,6 +259,30 @@ func Run(parent context.Context, opt Options) (result Result, retErr error) {
 			result.FinalMode = "reviewer-rejected-awaiting-correction"
 			return result, nil
 		}
+	}
+	var preview currentStepPlan
+	if opt.requireDailyClaudeTrust || instance.LooksLikeCase(caseRoot) {
+		preview, err = runCurrentStep(opt, nil, false)
+		if err != nil {
+			return result, err
+		}
+		if currentStepIsEvidenceReviewStop(preview) {
+			result.FinalMode = DailyActionReadyForEvidenceReview
+			return result, nil
+		}
+	}
+	if opt.requireDailyClaudeTrust {
+		dailyOpt := DailyOptions{
+			ClaudePath:                        opt.ClaudePath,
+			ExpectedClaudeExecutableSHA256:    opt.ExpectedClaudeExecutableSHA256,
+			ExpectedClaudeExecutablePublisher: opt.ExpectedClaudeExecutablePublisher,
+		}
+		if err := bindDailyTrustedClaude(&dailyOpt); err != nil {
+			return result, err
+		}
+		opt.ClaudePath = dailyOpt.ClaudePath
+		opt.ExpectedClaudeExecutableSHA256 = dailyOpt.ExpectedClaudeExecutableSHA256
+		opt.ExpectedClaudeExecutablePublisher = dailyOpt.ExpectedClaudeExecutablePublisher
 	}
 	claudePath, err := resolveClaudePath(opt.ClaudePath)
 	if err != nil {
@@ -268,7 +303,7 @@ func Run(parent context.Context, opt Options) (result Result, retErr error) {
 	launchAttempts := 0
 	for range 64 {
 		if !opt.StopAfterMemberIntake {
-			rejected, err := currentReviewerRejectionAwaitingCorrection(opt.Target, opt.Pack)
+			rejected, err := currentReviewerRejectionAwaitingCorrection(opt.Target, opt.Pack, opt.SelectedLane)
 			if err != nil {
 				return result, err
 			}
@@ -277,15 +312,22 @@ func Run(parent context.Context, opt Options) (result Result, retErr error) {
 				return result, nil
 			}
 		}
-		preview, err := runCurrentStep(opt, nil, false)
+		preview, err = runCurrentStep(opt, nil, false)
 		if err != nil {
 			return result, err
 		}
-		if opt.StopAfterMemberIntake && memberIntakeComplete(opt.Target, preview) {
-			result.FinalMode = "member-intake-ready"
+		if selected := strings.TrimSpace(opt.SelectedLane); selected != "" && preview.MemberExecution != nil && strings.TrimSpace(preview.MemberExecution.Owner.Lane) != selected {
+			return result, fmt.Errorf("selected lane %q resolved member execution for lane %q", selected, preview.MemberExecution.Owner.Lane)
+		}
+		if currentStepIsEvidenceReviewStop(preview) {
+			result.FinalMode = DailyActionReadyForEvidenceReview
 			return result, nil
 		}
-		if !opt.StopAfterMemberIntake && preview.ReviewerStep == nil && preview.ExternalSessionStep == nil {
+		if opt.StopAfterMemberIntake && preview.ReviewerStep != nil {
+			result.FinalMode = "reviewer-ready"
+			return result, nil
+		}
+		if preview.ReviewerStep == nil && preview.ExternalSessionStep == nil {
 			status, err := runStatus(opt)
 			if err != nil {
 				return result, err
@@ -294,13 +336,17 @@ func Run(parent context.Context, opt Options) (result Result, retErr error) {
 				result.FinalMode = "reviewer-rejected-awaiting-correction"
 				return result, nil
 			}
-			planned, err := applyMemberReviewerPlanFromStatus(status)
+			planned, err := applyMemberReviewerPlanFromStatus(opt, status)
 			if err != nil {
 				return result, err
 			}
 			if planned {
 				result.AppliedSteps++
 				continue
+			}
+			if opt.StopAfterMemberIntake && memberIntakeComplete(opt.Target, opt.SelectedLane, preview) {
+				result.FinalMode = "member-intake-ready"
+				return result, nil
 			}
 		}
 		if preview.ExternalSessionStep == nil {
@@ -426,9 +472,13 @@ func Run(parent context.Context, opt Options) (result Result, retErr error) {
 				}
 				result.Sessions = append(result.Sessions, sessionResult(run, attemptGeneration, launchOrdinal, receipt.ReviewerSession, "reviewer", outcome, opt.MaxAttempts))
 				reservationID = ""
+				if err := observeSupervisionCut("submission"); err != nil {
+					return result, err
+				}
 				continue
 			}
 			if reviewerActorStep(preview) {
+				reviewerStepID := preview.ReviewerStep.ExternalHandoff.RunLoopStepID
 				args := []string{"-Actor", opt.Actor}
 				plan, err := runCurrentStep(opt, args, false)
 				if err != nil {
@@ -441,9 +491,14 @@ func Run(parent context.Context, opt Options) (result Result, retErr error) {
 					return result, err
 				}
 				result.AppliedSteps++
-				if opt.reviewerBinding != nil && preview.ReviewerStep.ExternalHandoff.RunLoopStepID == "intake-results" {
-					result.FinalMode = "reviewer-intake-complete"
-					return result, nil
+				if reviewerStepID == "intake-results" {
+					if err := observeSupervisionCut("reviewer-intake"); err != nil {
+						return result, err
+					}
+					if opt.reviewerBinding != nil {
+						result.FinalMode = "reviewer-intake-complete"
+						return result, nil
+					}
 				}
 				continue
 			}
@@ -723,13 +778,20 @@ func requireSameRunningHandoff(before, fresh currentStepPlan) error {
 	return nil
 }
 
-func applyMemberReviewerPlanFromStatus(status statusPlan) (bool, error) {
+func applyMemberReviewerPlanFromStatus(opt Options, status statusPlan) (bool, error) {
 	if status.MissionControlRunbook == nil || status.MissionControlRunbook.Scope != "case" || status.MemberExecution == nil || status.MemberExecution.State != "intake-ready" || strings.TrimSpace(status.MemberExecution.ReviewerPlanCommand) == "" {
 		return false, nil
+	}
+	selected := strings.TrimSpace(opt.SelectedLane)
+	if selected != "" && strings.TrimSpace(status.MemberExecution.Lane) != selected {
+		return false, fmt.Errorf("selected lane %q cannot apply member reviewer plan for lane %q", selected, status.MemberExecution.Lane)
 	}
 	args, err := cli.SplitPublicCommand(status.MemberExecution.ReviewerPlanCommand)
 	if err != nil {
 		return false, fmt.Errorf("decode member reviewer plan command: %w", err)
+	}
+	if selected != "" && !publicArgsSelectExactLane(args, selected) {
+		return false, fmt.Errorf("selected lane %q member reviewer plan command changed lane", selected)
 	}
 	var out bytes.Buffer
 	if err := cli.Run(args, &out); err != nil {
@@ -738,7 +800,25 @@ func applyMemberReviewerPlanFromStatus(status statusPlan) (bool, error) {
 	return true, nil
 }
 
-func currentReviewerRejectionAwaitingCorrection(caseRoot, pack string) (bool, error) {
+func publicArgsSelectExactLane(args []string, selected string) bool {
+	selected = strings.TrimSpace(selected)
+	for idx, arg := range args {
+		if !strings.EqualFold(arg, "-Lane") && !strings.EqualFold(arg, "--lane") {
+			continue
+		}
+		return idx+1 < len(args) && strings.TrimSpace(args[idx+1]) == selected
+	}
+	return false
+}
+
+func appendSelectedLaneArg(args []string, selected string) []string {
+	if selected = strings.TrimSpace(selected); selected != "" {
+		args = append(args, "-Lane", selected)
+	}
+	return args
+}
+
+func currentReviewerRejectionAwaitingCorrection(caseRoot, pack string, selected ...string) (bool, error) {
 	board, err := mission.ReadBoard(caseRoot)
 	if os.IsNotExist(err) {
 		return false, nil
@@ -746,7 +826,15 @@ func currentReviewerRejectionAwaitingCorrection(caseRoot, pack string) (bool, er
 	if err != nil {
 		return false, err
 	}
-	for _, lane := range mission.OpenBoardLanes(board.Lanes) {
+	lanes := mission.OpenBoardLanes(board.Lanes)
+	if len(selected) > 0 && strings.TrimSpace(selected[0]) != "" {
+		lane, ok := mission.LookupBoardLane(lanes, strings.TrimSpace(selected[0]), false)
+		if !ok {
+			return false, fmt.Errorf("selected lane %q is not an open current lane", selected[0])
+		}
+		lanes = []mission.BoardLane{lane}
+	}
+	for _, lane := range lanes {
 		if lane.Authority || strings.TrimSpace(lane.CurrentExecutor) == "" || lane.ExecutorGeneration < 1 {
 			continue
 		}
@@ -784,6 +872,7 @@ func runStatus(opt Options) (statusPlan, error) {
 	if strings.TrimSpace(opt.Pack) != "" {
 		args = append(args, "-Pack", opt.Pack)
 	}
+	args = appendSelectedLaneArg(args, opt.SelectedLane)
 	args = append(args, "-Format", "json")
 	var out bytes.Buffer
 	if err := cli.Run(args, &out); err != nil {
@@ -801,7 +890,7 @@ func runStatus(opt Options) (statusPlan, error) {
 	return status, nil
 }
 
-func memberIntakeComplete(caseRoot string, plan currentStepPlan) bool {
+func memberIntakeComplete(caseRoot, selected string, plan currentStepPlan) bool {
 	if plan.ExternalSessionStep != nil || plan.ReviewerStep != nil {
 		return false
 	}
@@ -809,7 +898,15 @@ func memberIntakeComplete(caseRoot string, plan currentStepPlan) bool {
 	if err != nil {
 		return false
 	}
-	for _, lane := range mission.OpenBoardLanes(board.Lanes) {
+	lanes := mission.OpenBoardLanes(board.Lanes)
+	if selected = strings.TrimSpace(selected); selected != "" {
+		lane, ok := mission.LookupBoardLane(lanes, selected, false)
+		if !ok {
+			return false
+		}
+		lanes = []mission.BoardLane{lane}
+	}
+	for _, lane := range lanes {
 		if strings.TrimSpace(lane.CurrentExecutor) == "" || lane.ExecutorGeneration < 1 {
 			continue
 		}
@@ -874,6 +971,7 @@ func runCurrentStepWithReviewerSnapshot(opt Options, extra []string, apply bool,
 	if strings.TrimSpace(opt.Pack) != "" {
 		args = append(args, "-Pack", opt.Pack)
 	}
+	args = appendSelectedLaneArg(args, opt.SelectedLane)
 	args = append(args, extra...)
 	if apply {
 		args = append(args, "-Apply")
@@ -905,6 +1003,7 @@ func runBoundReviewerStep(opt Options, extra []string, apply bool, snapshot *sub
 	if strings.TrimSpace(opt.Pack) != "" {
 		args = append(args, "-Pack", opt.Pack)
 	}
+	args = appendSelectedLaneArg(args, opt.SelectedLane)
 	args = append(args, extra...)
 	if apply {
 		args = append(args, "-Apply")
@@ -1058,6 +1157,7 @@ func runCurrentLoop(opt Options, apply bool, expected, memberPlanSHA256 string) 
 	if strings.TrimSpace(opt.Pack) != "" {
 		args = append(args, "-Pack", opt.Pack)
 	}
+	args = appendSelectedLaneArg(args, opt.SelectedLane)
 	args = append(args, "-MaxSteps", "2")
 	if apply {
 		args = append(args, "-ExpectedMemberExecutionPlanSha256", memberPlanSHA256, "-ExpectedCurrentLoopPlanSha256", expected, "-Apply")

@@ -188,6 +188,7 @@ func RunLiveAcceptance(opt LiveAcceptanceOptions) (receipt LiveAcceptanceReceipt
 	if err != nil || initPlan.IsMutation || !initPlan.ReviewRequired || !initPlan.RequiresConfirmation {
 		return receipt, fmt.Errorf("adapter live acceptance init preview failed review-first validation: %w", err)
 	}
+	initOpt.ExpectedPlanSHA256 = initPlan.ExpectedPlanSHA256
 	initialized, err := syncreview.Apply(repoRoot, caseRoot, liveAcceptancePack, initOpt)
 	if err != nil || !initialized.Applied {
 		return receipt, fmt.Errorf("adapter live acceptance init Apply failed: %w", err)

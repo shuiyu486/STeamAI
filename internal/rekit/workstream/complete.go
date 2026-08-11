@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -728,6 +729,14 @@ func (ctx completeContext) validateMemberReviewerLineage(evidence []CompletionEv
 	return fmt.Errorf("completion evidence does not bind canonical reviewer input %s", input.Ref)
 }
 
+func openAuthorizedGateAdapterHandoffs(
+	items []AuthorizedGateAdapterHandoff,
+) []AuthorizedGateAdapterHandoff {
+	return slices.DeleteFunc(items, func(item AuthorizedGateAdapterHandoff) bool {
+		return item.Acknowledged
+	})
+}
+
 func (ctx completeContext) completionBlockers() ([]CompletionBlocker, error) {
 	blockers := []CompletionBlocker{}
 	add := func(kind, detail string) { blockers = append(blockers, CompletionBlocker{Kind: kind, Detail: detail}) }
@@ -773,7 +782,7 @@ func (ctx completeContext) completionBlockers() ([]CompletionBlocker, error) {
 	if items := laneExecutionEvidenceReview(ctx.lane, ctx.facts); len(items) > 0 {
 		add("execution-evidence-review", fmt.Sprintf("%d execution evidence item(s) require acknowledgement", len(items)))
 	}
-	if items := AuthorizedGateAdapterHandoffsWithAcknowledgements(ctx.manifest.RepoRoot, ctx.inst.CaseRoot, ctx.manifest.Pack, ctx.facts.Requests, ctx.lane.ID, ExecutionEvidenceReviewAcknowledgedIDs(ctx.facts)); len(items) > 0 {
+	if items := openAuthorizedGateAdapterHandoffs(AuthorizedGateAdapterHandoffsWithAcknowledgements(ctx.manifest.RepoRoot, ctx.inst.CaseRoot, ctx.manifest.Pack, ctx.facts.Requests, ctx.lane.ID, ExecutionEvidenceReviewAcknowledgedIDs(ctx.facts))); len(items) > 0 {
 		add("authorized-gate-adapter", fmt.Sprintf("%d authorized adapter action(s) remain open", len(items)))
 	}
 	if ctx.lane.Authority {

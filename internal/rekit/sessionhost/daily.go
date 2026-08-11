@@ -31,6 +31,7 @@ type DailyOptions struct {
 	Target                            string
 	Goal                              string
 	Correction                        string
+	SelectedLane                      string
 	Actor                             string
 	ClaudePath                        string
 	ExpectedClaudeExecutableSHA256    string
@@ -40,6 +41,7 @@ type DailyOptions struct {
 	MaxAttempts                       int
 	onCaseReady                       func(string) error
 	beforeMemberRun                   func(caseRoot, pack, lane string) error
+	stopAfterMemberSegment            bool
 }
 
 type DailyResult struct {
@@ -63,6 +65,7 @@ type DailyResult struct {
 	SessionCompletions int                        `json:"sessionCompletions"`
 	Replacements       int                        `json:"replacements"`
 	Failure            *FailureDiagnosis          `json:"failure,omitempty"`
+	Action             *DailyUserAction           `json:"action,omitempty"`
 	Boundary           []string                   `json:"boundary"`
 }
 
@@ -70,6 +73,15 @@ func RunDaily(parent context.Context, opt DailyOptions) (result DailyResult, ret
 	defer func() {
 		if retErr != nil && result.Failure == nil {
 			result.Failure = diagnosisForError(retErr, result.SessionLaunches, opt.MaxAttempts, len(result.DriverSteps))
+		}
+		if retErr != nil && len(result.DriverSteps) > 0 && result.Failure != nil && !result.Failure.MutationApplied {
+			failure := *result.Failure
+			failure.MutationApplied = true
+			failure.MutationBoundary = "durable-runtime-step-may-have-committed"
+			result.Failure = &failure
+		}
+		if result.Failure != nil || result.Action == nil {
+			result.Action = dailyUserAction(result)
 		}
 	}()
 	goal := strings.TrimSpace(opt.Goal)
@@ -95,11 +107,18 @@ func RunDaily(parent context.Context, opt DailyOptions) (result DailyResult, ret
 	if goal != "" && correction != "" {
 		return result, fmt.Errorf("daily front door accepts either -goal or -correction, not both")
 	}
-	caseRoot, exists, err := canonicalDailyTarget(opt.Target)
+	target, err := classifyDailyTarget(opt.Target)
 	if err != nil {
 		return result, err
 	}
+	caseRoot := target.Root
+	exists := target.Kind != dailyTargetMissing
 	result.CaseRoot = caseRoot
+	if target.Kind == dailyTargetOrdinary {
+		result.Blocked = true
+		result.Action = dailyAction(DailyActionDirectoryAdoptionRequired)
+		return result, nil
+	}
 	if exists && opt.onCaseReady != nil {
 		if err := opt.onCaseReady(caseRoot); err != nil {
 			return result, fmt.Errorf("bind existing daily case root identity: %w", err)
@@ -168,14 +187,31 @@ func RunDaily(parent context.Context, opt DailyOptions) (result DailyResult, ret
 	}
 	result.Pack = pack
 	if inspection.Committed {
-		result.Lane = inspection.Identity.InitialLane
+		selected := strings.TrimSpace(opt.SelectedLane)
+		var action *DailyUserAction
+		if correction != "" {
+			selected, action, err = dailyCorrectionSelectedLane(caseRoot, selected)
+		} else {
+			selected, action, err = dailySelectedLane(caseRoot, pack, selected, inspection.Identity.InitialLane)
+		}
+		if err != nil {
+			return result, err
+		}
+		if action != nil {
+			result.Blocked = true
+			result.Action = action
+			return result, nil
+		}
+		result.Lane = selected
 	} else if goal != "" {
 		return result, fmt.Errorf("daily goal requires a committed mission intent")
 	}
 
+	routeLane := result.Lane
 	hostOpt := Options{
 		Target:                            caseRoot,
 		Pack:                              pack,
+		SelectedLane:                      routeLane,
 		Actor:                             opt.Actor,
 		ClaudePath:                        opt.ClaudePath,
 		ExpectedClaudeExecutableSHA256:    opt.ExpectedClaudeExecutableSHA256,
@@ -183,25 +219,11 @@ func RunDaily(parent context.Context, opt DailyOptions) (result DailyResult, ret
 		Model:                             opt.Model,
 		Timeout:                           opt.Timeout,
 		MaxAttempts:                       opt.MaxAttempts,
+		requireDailyClaudeTrust:           true,
 	}
 
 	if correction != "" {
-		return runDailyCorrection(parent, hostOpt, inspection, correction, result)
-	}
-	if goal == "" {
-		rejected, err := currentReviewerRejectionAwaitingCorrection(caseRoot, pack)
-		if err != nil {
-			return result, err
-		}
-		if rejected {
-			result.FinalState = "reviewer-rejected-awaiting-correction"
-			result.Blocked = true
-			result.Replay = true
-			return result, nil
-		}
-	}
-	if err := ensureDailyStarted(caseRoot, pack, &result); err != nil {
-		return result, err
+		return runDailyCorrection(parent, hostOpt, inspection, correction, result, opt.beforeMemberRun)
 	}
 	if state, generation, terminal, err := dailyLaneTerminal(caseRoot, result.Lane); err != nil {
 		return result, err
@@ -211,48 +233,53 @@ func RunDaily(parent context.Context, opt DailyOptions) (result DailyResult, ret
 		result.Replay = true
 		return result, nil
 	}
-	if goal != "" && result.OnboardingReplay {
-		generation, ready, err := dailyCurrentMemberReady(caseRoot, result.Lane, goal)
-		if err != nil {
-			return result, err
-		}
-		if ready {
-			result.FinalState = "member-intake-ready"
-			result.ExecutorGeneration = generation
-			result.Replay = true
-			return result, nil
-		}
+	rejected, err := currentReviewerRejectionAwaitingCorrection(caseRoot, pack, routeLane)
+	if err != nil {
+		return result, err
+	}
+	if rejected {
+		result.FinalState = "reviewer-rejected-awaiting-correction"
+		result.Blocked = true
+		result.Replay = true
+		return result, nil
+	}
+	if err := ensureDailyStarted(caseRoot, pack, &result, routeLane); err != nil {
+		return result, err
 	}
 	if opt.beforeMemberRun != nil {
 		if err := opt.beforeMemberRun(caseRoot, pack, result.Lane); err != nil {
 			return result, fmt.Errorf("prepare daily member run: %w", err)
 		}
 	}
-	if err := bindDailyTrustedClaude(&opt); err != nil {
-		return result, err
-	}
-	hostOpt.ClaudePath = opt.ClaudePath
-	hostOpt.ExpectedClaudeExecutableSHA256 = opt.ExpectedClaudeExecutableSHA256
-	hostOpt.ExpectedClaudeExecutablePublisher = opt.ExpectedClaudeExecutablePublisher
-	hostOpt.StopAfterMemberIntake = goal != ""
-	hostResult, err := Run(parent, hostOpt)
-	addDailyHostRun(&result, hostResult)
-	if err != nil {
-		return result, err
-	}
-	result.FinalState = hostResult.FinalMode
 	if goal != "" {
-		if result.Lane != "" {
-			if latest, ok, inspectErr := memberexecution.Latest(caseRoot, result.Lane); inspectErr == nil && ok {
-				result.ExecutorGeneration = latest.Owner.ExecutorGeneration
+		if opt.stopAfterMemberSegment {
+			hostOpt.StopAfterMemberIntake = true
+			hostResult, err := Run(parent, hostOpt)
+			addDailyHostRun(&result, hostResult)
+			if err != nil {
+				return result, err
 			}
+			result.FinalState = hostResult.FinalMode
+		} else if err := runDailyGoalFlow(parent, hostOpt, caseRoot, pack, &result); err != nil {
+			return result, err
 		}
-		result.Replay = result.OnboardingReplay && hostResult.SessionLaunches == 0
-		return result, nil
+	} else {
+		hostResult, err := Run(parent, hostOpt)
+		addDailyHostRun(&result, hostResult)
+		if err != nil {
+			return result, err
+		}
+		result.FinalState = hostResult.FinalMode
+		if err := finishDailyCompletion(caseRoot, pack, &result); err != nil {
+			return result, err
+		}
 	}
-	if err := finishDailyCompletion(caseRoot, pack, &result); err != nil {
-		return result, err
+	if result.Lane != "" {
+		if latest, ok, inspectErr := memberexecution.Latest(caseRoot, result.Lane); inspectErr == nil && ok {
+			result.ExecutorGeneration = latest.Owner.ExecutorGeneration
+		}
 	}
+	result.Replay = result.OnboardingReplay && result.SessionLaunches == 0
 	return result, nil
 }
 
@@ -287,29 +314,6 @@ func bindDailyTrustedClaude(opt *DailyOptions) error {
 	opt.ExpectedClaudeExecutableSHA256 = identity.SHA256
 	opt.ExpectedClaudeExecutablePublisher = identity.Publisher
 	return nil
-}
-
-func canonicalDailyTarget(value string) (string, bool, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "", false, fmt.Errorf("daily front door requires -target <case root>")
-	}
-	full, err := filepath.Abs(value)
-	if err != nil {
-		return "", false, err
-	}
-	full = filepath.Clean(full)
-	info, err := os.Lstat(full)
-	if os.IsNotExist(err) {
-		return full, false, nil
-	}
-	if err != nil {
-		return "", false, err
-	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return "", false, fmt.Errorf("daily target must be a regular directory or a missing fresh path: %s", full)
-	}
-	return full, true, nil
 }
 
 func applyDailyOnboarding(caseRoot, goal, actor string, result *DailyResult) (missionintent.Inspection, error) {
@@ -419,14 +423,153 @@ func dailyPack(caseRoot string, inspection missionintent.Inspection) (string, er
 	return inst.TemplatePack, nil
 }
 
-func ensureDailyStarted(caseRoot, pack string, result *DailyResult) error {
+func dailySelectedLane(caseRoot, pack, selected string, fallback ...string) (string, *DailyUserAction, error) {
+	status, err := runPublicStatus(caseRoot, pack, "")
+	if err != nil {
+		return "", nil, err
+	}
+	choices := dailyStatusLaneChoices(status)
+	selected = strings.TrimSpace(selected)
+	explicit := selected != ""
+	if !explicit && len(fallback) > 0 {
+		fallbackLane := strings.TrimSpace(fallback[0])
+		if fallbackLane != "" {
+			board, readErr := mission.ReadBoard(caseRoot)
+			if readErr == nil {
+				if lane, found := mission.LookupBoardLane(board.Lanes, fallbackLane, false); found {
+					switch strings.ToLower(strings.TrimSpace(lane.Status)) {
+					case "archived":
+						return "", nil, fmt.Errorf("daily terminal replay refuses archived lane %s because no durable archive transition is supported", fallbackLane)
+					case "closed":
+						return fallbackLane, nil, nil
+					}
+				}
+			} else if !os.IsNotExist(readErr) {
+				return "", nil, readErr
+			}
+		}
+	}
+	if !explicit {
+		if len(choices) > 1 {
+			return "", dailyLaneSelectionAction(choices), nil
+		}
+		if len(choices) == 1 {
+			selected = choices[0].ID
+		} else if len(fallback) > 0 {
+			selected = strings.TrimSpace(fallback[0])
+		}
+	}
+	if selected == "" {
+		return "", dailyAction(DailyActionBlocked), nil
+	}
+	choice, ok := dailyChoiceForLane(choices, selected)
+	if !ok {
+		board, readErr := mission.ReadBoard(caseRoot)
+		if readErr != nil {
+			if !explicit && os.IsNotExist(readErr) {
+				return selected, nil, nil
+			}
+			return "", nil, readErr
+		}
+		lane, found := mission.LookupBoardLane(board.Lanes, selected, false)
+		if !found {
+			return "", nil, fmt.Errorf("selected daily lane %q is not current", selected)
+		}
+		choice = DailyChoice{ID: selected, Label: mission.BoardLaneLabel(lane)}
+		state := strings.ToLower(strings.TrimSpace(lane.Status))
+		if !explicit && state == "closed" {
+			return selected, nil, nil
+		}
+		if !explicit && state == "archived" {
+			return "", nil, fmt.Errorf("daily terminal replay refuses archived lane %s because no durable archive transition is supported", selected)
+		}
+		return "", dailySelectedLaneBlockedAction(choice), nil
+	}
+	if _, err := runPublicStatus(caseRoot, pack, selected); err != nil {
+		return "", dailySelectedLaneBlockedAction(choice), nil
+	}
+	return selected, nil, nil
+}
+
+func dailyCorrectionSelectedLane(caseRoot, selected string) (string, *DailyUserAction, error) {
+	selected = strings.TrimSpace(selected)
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		return "", nil, fmt.Errorf("daily correction requires an initialized board: %w", err)
+	}
+	if selected != "" {
+		if _, ok := mission.LookupBoardLane(board.Lanes, selected, false); !ok {
+			return "", nil, fmt.Errorf("selected daily correction lane %q is not current", selected)
+		}
+		return selected, nil, nil
+	}
+	choices := []DailyChoice{}
+	for _, lane := range mission.OpenBoardLanes(board.Lanes) {
+		if lane.Authority || strings.TrimSpace(lane.CurrentExecutor) == "" || lane.ExecutorGeneration < 1 {
+			continue
+		}
+		choices = append(choices, DailyChoice{ID: lane.ID, Label: mission.BoardLaneLabel(lane)})
+	}
+	if len(choices) > 1 {
+		return "", dailyLaneSelectionAction(choices), nil
+	}
+	if len(choices) == 1 {
+		return choices[0].ID, nil, nil
+	}
+	return "", nil, nil
+}
+
+func dailyStatusLaneChoices(status publicStatus) []DailyChoice {
+	if status.CaseMission == nil {
+		return nil
+	}
+	items := append([]publicLaneAction{}, status.CaseMission.MissionCommanderActionQueue.UnblockedActions...)
+	items = append(items, status.CaseMission.ReviewerDispatchIntakeActionQueue.UnblockedActions...)
+	seen := map[string]bool{}
+	choices := []DailyChoice{}
+	for _, item := range items {
+		lane := strings.TrimSpace(item.Lane)
+		if lane == "" || item.Blocked || seen[lane] {
+			continue
+		}
+		seen[lane] = true
+		label := strings.TrimSpace(item.Label)
+		if label == "" {
+			label = lane
+		}
+		choices = append(choices, DailyChoice{ID: lane, Label: label})
+	}
+	return choices
+}
+
+func dailyChoiceForLane(choices []DailyChoice, selected string) (DailyChoice, bool) {
+	for _, choice := range choices {
+		if choice.ID == selected {
+			return choice, true
+		}
+	}
+	return DailyChoice{}, false
+}
+
+func ensureDailyStarted(caseRoot, pack string, result *DailyResult, selected ...string) error {
+	lane := firstSelectedLane(selected)
 	for range 4 {
-		status, err := runPublicStatus(caseRoot, pack)
+		statusLane := lane
+		if board, err := mission.ReadBoard(caseRoot); os.IsNotExist(err) {
+			statusLane = ""
+		} else if err != nil {
+			return err
+		} else if statusLane != "" {
+			if _, found := mission.LookupBoardLane(board.Lanes, statusLane, false); !found {
+				statusLane = ""
+			}
+		}
+		status, err := runPublicStatus(caseRoot, pack, statusLane)
 		if err != nil {
 			return err
 		}
 		request := currentDailyRequest(status)
-		if request == nil {
+		if request == nil || dailyReviewerOwnerRequest(status, lane) {
 			return nil
 		}
 		command, err := publicCommandName(request.Command)
@@ -443,7 +586,7 @@ func ensureDailyStarted(caseRoot, pack string, result *DailyResult) error {
 			}
 			result.DriverSteps = append(result.DriverSteps, "overview")
 		case "start":
-			step, err := runPublicDriverStep(caseRoot, pack)
+			step, err := runPublicDriverStep(caseRoot, pack, statusLane)
 			if err != nil {
 				return fmt.Errorf("daily public start route: %w", err)
 			}
@@ -458,25 +601,20 @@ func ensureDailyStarted(caseRoot, pack string, result *DailyResult) error {
 	return fmt.Errorf("daily front door exceeded bootstrap transition limit")
 }
 
-func currentDailyRequest(status publicStatus) *struct {
-	Kind              string `json:"kind,omitempty"`
-	RunLoopStepID     string `json:"runLoopStepId,omitempty"`
-	Command           string `json:"command"`
-	CommandExecutable bool   `json:"commandExecutable"`
-	Blocked           bool   `json:"blocked,omitempty"`
-} {
+func currentDailyRequest(status publicStatus) *publicDriverRequest {
 	if status.MissionControlRunbook == nil {
 		return nil
 	}
 	return status.MissionControlRunbook.CurrentDriverRequest
 }
 
-func runDailyCorrection(parent context.Context, hostOpt Options, inspection missionintent.Inspection, correction string, result DailyResult) (DailyResult, error) {
-	lane, boardLane, existing, err := dailyCorrectionLane(result.CaseRoot, inspection, correction, hostOpt.Actor)
+func runDailyCorrection(parent context.Context, hostOpt Options, inspection missionintent.Inspection, correction string, result DailyResult, beforeMemberRun func(caseRoot, pack, lane string) error) (DailyResult, error) {
+	lane, boardLane, existing, err := dailyCorrectionLane(result.CaseRoot, inspection, correction, hostOpt.Actor, hostOpt.SelectedLane)
 	if err != nil {
 		return result, err
 	}
 	result.Lane = lane
+	hostOpt.SelectedLane = lane
 	result.CorrectionEventID = dailyCorrectionEventID(dailyCorrectionScope(result.CaseRoot, inspection), lane, correction)
 	terminalState := strings.ToLower(strings.TrimSpace(boardLane.Status))
 	if terminalState == "archived" {
@@ -573,7 +711,7 @@ func runDailyCorrection(parent context.Context, hostOpt Options, inspection miss
 		if err := verifyDailyCorrection(existing, lane, correction, hostOpt.Actor, result.CorrectionEventID, targetRef, rejection); err != nil {
 			return result, err
 		}
-		step, err := runPublicDriverStep(result.CaseRoot, result.Pack)
+		step, err := runPublicDriverStep(result.CaseRoot, result.Pack, lane)
 		if err != nil {
 			return result, fmt.Errorf("daily public correction reconcile: %w", err)
 		}
@@ -599,17 +737,11 @@ func runDailyCorrection(parent context.Context, hostOpt Options, inspection miss
 		result.Replay = true
 		return result, nil
 	}
-	dailyOpt := DailyOptions{
-		ClaudePath:                        hostOpt.ClaudePath,
-		ExpectedClaudeExecutableSHA256:    hostOpt.ExpectedClaudeExecutableSHA256,
-		ExpectedClaudeExecutablePublisher: hostOpt.ExpectedClaudeExecutablePublisher,
+	if beforeMemberRun != nil {
+		if err := beforeMemberRun(result.CaseRoot, result.Pack, lane); err != nil {
+			return result, fmt.Errorf("prepare corrected daily member run: %w", err)
+		}
 	}
-	if err := bindDailyTrustedClaude(&dailyOpt); err != nil {
-		return result, err
-	}
-	hostOpt.ClaudePath = dailyOpt.ClaudePath
-	hostOpt.ExpectedClaudeExecutableSHA256 = dailyOpt.ExpectedClaudeExecutableSHA256
-	hostOpt.ExpectedClaudeExecutablePublisher = dailyOpt.ExpectedClaudeExecutablePublisher
 	hostResult, err := Run(parent, hostOpt)
 	addDailyHostRun(&result, hostResult)
 	if err != nil {
@@ -622,46 +754,55 @@ func runDailyCorrection(parent context.Context, hostOpt Options, inspection miss
 	return result, nil
 }
 
-func dailyCorrectionLane(caseRoot string, inspection missionintent.Inspection, correction, actor string) (string, mission.BoardLane, map[string]any, error) {
+func dailyCorrectionLane(caseRoot string, inspection missionintent.Inspection, correction, actor string, selected ...string) (string, mission.BoardLane, map[string]any, error) {
 	board, err := mission.ReadBoard(caseRoot)
 	if err != nil {
 		return "", mission.BoardLane{}, nil, fmt.Errorf("daily correction requires an initialized board: %w", err)
 	}
 	scope := dailyCorrectionScope(caseRoot, inspection)
+	if laneID := strings.TrimSpace(firstSelectedLane(selected)); laneID != "" {
+		return dailyCorrectionStateForLane(caseRoot, scope, board, laneID, correction, actor)
+	}
 	if inspection.Committed {
-		laneID := inspection.Identity.InitialLane
-		lane, ok := mission.LookupBoardLane(board.Lanes, laneID, false)
-		if !ok {
-			return "", mission.BoardLane{}, nil, fmt.Errorf("daily committed initial lane is missing from board: %s", laneID)
-		}
-		latest, found, latestErr := memberexecution.Latest(caseRoot, laneID)
-		if latestErr != nil {
-			return "", mission.BoardLane{}, nil, latestErr
-		}
-		if found && latest.State == "intake-ready" && latest.Manifest != nil && latest.Owner.Executor == lane.CurrentExecutor && latest.Owner.ExecutorGeneration == lane.ExecutorGeneration {
+		candidates := []string{}
+		for _, lane := range board.Lanes {
+			latest, found, latestErr := memberexecution.Latest(caseRoot, lane.ID)
+			if latestErr != nil {
+				return "", mission.BoardLane{}, nil, latestErr
+			}
+			if !found || latest.State != "intake-ready" || latest.Manifest == nil || latest.Owner.Executor != lane.CurrentExecutor || latest.Owner.ExecutorGeneration != lane.ExecutorGeneration {
+				continue
+			}
 			targetRef := relativeLiveAcceptancePath(caseRoot, latest.ManifestPath)
-			rejection, rejected, rejectionErr := workstream.CurrentMemberManifestReviewerRejection(caseRoot, laneID, targetRef)
+			_, rejected, rejectionErr := workstream.CurrentMemberManifestReviewerRejection(caseRoot, lane.ID, targetRef)
 			if rejectionErr != nil {
 				return "", mission.BoardLane{}, nil, rejectionErr
 			}
 			if rejected {
-				eventID := dailyCorrectionEventID(scope, laneID, correction, rejection)
-				existing, existingErr := existingDailyCorrectionByID(caseRoot, eventID, laneID, correction, actor)
-				return laneID, lane, existing, existingErr
+				candidates = append(candidates, lane.ID)
 			}
 		}
-		if eventID := strings.TrimSpace(lane.LastReconciledIntervention); eventID != "" {
-			existing, err := existingDailyCorrectionByID(caseRoot, eventID, laneID, correction, actor)
-			if err != nil {
-				return "", mission.BoardLane{}, nil, err
+		if len(candidates) == 0 {
+			items, readErr := mission.ReadStrictFact(caseRoot, "intervention")
+			if readErr != nil {
+				return "", mission.BoardLane{}, nil, readErr
 			}
-			if existing == nil {
-				return "", mission.BoardLane{}, nil, fmt.Errorf("daily correction board reconcile identity is missing from the intervention ledger: %s", eventID)
+			seen := map[string]bool{}
+			for _, item := range items {
+				laneID := mission.Value(item, "lane")
+				if laneID == "" || seen[laneID] || mission.Value(item, "kind") != "intervention" || mission.Value(item, "subject") != "daily human correction" || mission.Value(item, "summary") != correction || mission.Value(item, "actor") != actor || mission.Value(item, "action") != "override" || !strings.EqualFold(mission.Value(item, "status"), "open") {
+					continue
+				}
+				if _, ok := mission.LookupBoardLane(board.Lanes, laneID, false); ok {
+					seen[laneID] = true
+					candidates = append(candidates, laneID)
+				}
 			}
-			return laneID, lane, existing, nil
 		}
-		existing, err := existingDailyCorrectionForRequest(caseRoot, scope, laneID, correction, actor)
-		return laneID, lane, existing, err
+		if len(candidates) != 1 {
+			return "", mission.BoardLane{}, nil, fmt.Errorf("daily correction requires exactly one canonical reviewer rejection lane; found %d", len(candidates))
+		}
+		return dailyCorrectionStateForLane(caseRoot, scope, board, candidates[0], correction, actor)
 	}
 	matches := []struct {
 		lane  mission.BoardLane
@@ -702,6 +843,47 @@ func dailyCorrectionLane(caseRoot string, inspection missionintent.Inspection, c
 		return "", mission.BoardLane{}, nil, fmt.Errorf("daily correction requires exactly one current intake-ready feature lane; found %d", len(candidates))
 	}
 	return candidates[0].ID, candidates[0], nil, nil
+}
+
+func dailyCorrectionStateForLane(caseRoot, scope string, board mission.Board, laneID, correction, actor string) (string, mission.BoardLane, map[string]any, error) {
+	lane, ok := mission.LookupBoardLane(board.Lanes, laneID, false)
+	if !ok {
+		return "", mission.BoardLane{}, nil, fmt.Errorf("selected daily correction lane is not current: %s", laneID)
+	}
+	latest, found, err := memberexecution.Latest(caseRoot, laneID)
+	if err != nil {
+		return "", mission.BoardLane{}, nil, err
+	}
+	if found && latest.State == "intake-ready" && latest.Manifest != nil && latest.Owner.Executor == lane.CurrentExecutor && latest.Owner.ExecutorGeneration == lane.ExecutorGeneration {
+		targetRef := relativeLiveAcceptancePath(caseRoot, latest.ManifestPath)
+		rejection, rejected, rejectionErr := workstream.CurrentMemberManifestReviewerRejection(caseRoot, laneID, targetRef)
+		if rejectionErr != nil {
+			return "", mission.BoardLane{}, nil, rejectionErr
+		}
+		if rejected {
+			eventID := dailyCorrectionEventID(scope, laneID, correction, rejection)
+			existing, existingErr := existingDailyCorrectionByID(caseRoot, eventID, laneID, correction, actor)
+			return laneID, lane, existing, existingErr
+		}
+	}
+	if eventID := strings.TrimSpace(lane.LastReconciledIntervention); eventID != "" {
+		existing, existingErr := existingDailyCorrectionByID(caseRoot, eventID, laneID, correction, actor)
+		if existingErr != nil {
+			return "", mission.BoardLane{}, nil, existingErr
+		}
+		if existing == nil {
+			return "", mission.BoardLane{}, nil, fmt.Errorf("daily correction board reconcile identity is missing from the intervention ledger: %s", eventID)
+		}
+		return laneID, lane, existing, nil
+	}
+	existing, err := existingDailyCorrectionForRequest(caseRoot, scope, laneID, correction, actor)
+	if err != nil {
+		return "", mission.BoardLane{}, nil, err
+	}
+	if existing == nil {
+		return "", mission.BoardLane{}, nil, fmt.Errorf("selected daily correction lane %s has no canonical reviewer rejection", laneID)
+	}
+	return laneID, lane, existing, nil
 }
 
 func currentDailyCorrectionMemberTarget(caseRoot string, boardLane mission.BoardLane) (workstream.MemberReviewerRejection, string, error) {
@@ -919,30 +1101,6 @@ func inspectDailyCorrectionResolution(caseRoot, lane, eventID string) (dailyCorr
 	return resolution, true, nil
 }
 
-func dailyCurrentMemberReady(caseRoot, laneID, goal string) (int, bool, error) {
-	board, err := mission.ReadBoard(caseRoot)
-	if err != nil {
-		return 0, false, err
-	}
-	lane, ok := mission.LookupBoardLane(board.Lanes, laneID, false)
-	if !ok {
-		return 0, false, fmt.Errorf("daily committed initial lane is missing from board: %s", laneID)
-	}
-	latest, found, err := memberexecution.Latest(caseRoot, laneID)
-	if err != nil || !found {
-		return lane.ExecutorGeneration, false, err
-	}
-	ready := latest.State == "intake-ready" &&
-		latest.Manifest != nil &&
-		latest.TaskContext != nil &&
-		latest.TaskContext.Correction == nil &&
-		latest.TaskContext.Goal == goal &&
-		latest.TaskContext.GoalSource == "committed-mission-intent" &&
-		latest.Owner.Executor == lane.CurrentExecutor &&
-		latest.Owner.ExecutorGeneration == lane.ExecutorGeneration
-	return lane.ExecutorGeneration, ready, nil
-}
-
 func dailyLaneTerminal(caseRoot, laneID string) (string, int, bool, error) {
 	if strings.TrimSpace(laneID) == "" {
 		return "", 0, false, nil
@@ -986,11 +1144,18 @@ func dailyLaneTerminal(caseRoot, laneID string) (string, int, bool, error) {
 }
 
 func finishDailyCompletion(caseRoot, pack string, result *DailyResult) error {
+	if result != nil && result.FinalState == DailyActionReadyForEvidenceReview {
+		return nil
+	}
 	if result != nil && result.FinalState == "reviewer-rejected-awaiting-correction" {
 		result.Blocked = true
 		return nil
 	}
-	status, err := runPublicStatus(caseRoot, pack)
+	selected := ""
+	if result != nil {
+		selected = result.Lane
+	}
+	status, err := runPublicStatus(caseRoot, pack, selected)
 	if err != nil {
 		return err
 	}
@@ -1014,7 +1179,7 @@ func finishDailyCompletion(caseRoot, pack string, result *DailyResult) error {
 		result.FinalState = "attention-required"
 		return nil
 	}
-	step, err := runPublicDriverStep(caseRoot, pack)
+	step, err := runPublicDriverStep(caseRoot, pack, selected)
 	if err != nil {
 		return fmt.Errorf("daily public completion: %w", err)
 	}

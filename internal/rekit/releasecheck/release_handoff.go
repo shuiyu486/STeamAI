@@ -4166,6 +4166,18 @@ func BuildNextBatchSelectionPackage(handoff ReleaseHandoff) *ReleaseHandoffNextB
 	if !releaseHandoffReadyForNextBatchSelection(handoff) {
 		return nil
 	}
+	if releaseHandoffUsesExactActiveRouteNextBatch(handoff) {
+		current := releaseHandoffExactActiveRouteNextBatchAction(handoff.ActiveRoute)
+		actions := []mission.MissionCommanderNextActionItem{current}
+		queue := mission.MissionCommanderActionQueueFor(actions)
+		return &ReleaseHandoffNextBatchSelectionPackage{
+			Ready:                       true,
+			Summary:                     queue.Summary,
+			MissionCommanderNextActions: actions,
+			MissionCommanderActionQueue: queue,
+			Boundary:                    append([]string{}, current.Boundary...),
+		}
+	}
 	current := releaseHandoffNextBatchSelectionAction(handoff)
 	actions := append([]mission.MissionCommanderNextActionItem{current}, releaseHandoffNextBatchCandidateActions(handoff)...)
 	actions = mission.UniqueCommanderNextActions(actions)
@@ -4321,20 +4333,44 @@ func releaseHandoffNextBatchID(latest string) string {
 	return fmt.Sprintf("Batch %d", n+1)
 }
 
-func releaseHandoffActiveRouteOwnsCurrentBatch(handoff ReleaseHandoff) bool {
-	current := firstReleaseHandoffToken(handoff.ActiveRoute.CurrentBatch)
+func releaseHandoffUsesExactActiveRouteNextBatch(handoff ReleaseHandoff) bool {
 	return handoff.ActiveRoute.Present &&
 		handoff.ActiveRoute.Ready &&
 		handoff.ActiveRoute.ProjectionConsistent &&
-		!handoff.ActiveRoute.NextBatchUnlocked &&
-		handoff.ActiveRoute.Route == "real-usage-hardening-v1" &&
-		current != "" &&
-		strings.EqualFold(handoff.ActiveRoute.ExclusiveClaim, current)
+		handoff.ActiveRoute.State == "completed" &&
+		handoff.ActiveRoute.NextBatchUnlocked &&
+		releaseHandoffBatchID(handoff.ActiveRoute.NextBatch) != "" &&
+		strings.EqualFold(
+			releaseHandoffBatchID(handoff.ActiveRoute.NextBatch),
+			strings.TrimSpace(handoff.ActiveRoute.ExclusiveClaim),
+		)
+}
+
+func releaseHandoffExactActiveRouteNextBatchAction(route ReleaseHandoffActiveRoute) mission.MissionCommanderNextActionItem {
+	next := releaseHandoffBatchID(route.NextBatch)
+	return mission.MissionCommanderNextActionItem{
+		Label:          next,
+		ActionID:       "active-route-next-batch-selection",
+		State:          "ready-for-next-batch-selection",
+		Command:        "continue the exact unlocked active route next batch " + next + " from " + route.Path,
+		Source:         "releaseHandoffActiveRoute.nextBatch",
+		Blocked:        false,
+		RequiresReview: true,
+		Reasons: mission.UniqueStrings([]string{
+			"the approved active route completed its current batch",
+			"exact next batch is unlocked by the active route: " + next,
+			"exclusive claim matches the exact next batch; generic candidate domains are not available",
+		}),
+		Boundary: []string{
+			"consume only the exact active-route next batch id; do not select from a generic candidate pool",
+			"read the active route and batch-plan projection before implementation",
+			"planning guidance is read-only and does not write docs, case state, authority/confirmed, or execute tools",
+		},
+	}
 }
 
 func releaseHandoffReadyForNextBatchSelection(handoff ReleaseHandoff) bool {
-	if releaseHandoffActiveRouteOwnsCurrentBatch(handoff) ||
-		(handoff.ActiveRoute.Present && (!handoff.ActiveRoute.Ready || !handoff.ActiveRoute.ProjectionConsistent || !handoff.ActiveRoute.NextBatchUnlocked)) {
+	if handoff.ActiveRoute.Present && !releaseHandoffUsesExactActiveRouteNextBatch(handoff) {
 		return false
 	}
 	if !handoff.Ready || !handoff.LatestBatch.Handoff.LocalValidationReady || !handoff.LatestBatch.Handoff.ReleaseCheckReady {
@@ -4747,21 +4783,29 @@ func releaseHandoffActiveRoute(repo string) ReleaseHandoffActiveRoute {
 			route.NextBatch == projectionNext
 	}
 	if route.Route == "" || route.CurrentBatch == "" || route.State == "" || route.ExclusiveClaim == "" || route.NextBatch == "" {
-		route.Warnings = append(route.Warnings, "active real-usage route omitted route/current/state/claim/next fields")
+		route.Warnings = append(route.Warnings, "active approved route omitted route/current/state/claim/next fields")
 	}
 	if projectionErr != nil {
-		route.Warnings = append(route.Warnings, "active real-usage route batch-plan projection is unavailable")
+		route.Warnings = append(route.Warnings, "active approved route batch-plan projection is unavailable")
 	} else if projectionRoute == "" || projectionCurrent == "" || projectionState == "" || projectionClaim == "" || projectionNext == "" {
-		route.Warnings = append(route.Warnings, "active real-usage route batch-plan projection omitted route/current/state/claim/next fields")
+		route.Warnings = append(route.Warnings, "active approved route batch-plan projection omitted route/current/state/claim/next fields")
 	} else if !route.ProjectionConsistent {
-		route.Warnings = append(route.Warnings, "active real-usage route and batch-plan projection disagree")
+		route.Warnings = append(route.Warnings, "active approved route and batch-plan projection disagree")
 	}
-	current := firstReleaseHandoffToken(route.CurrentBatch)
-	if current == "" || (route.State != "completed" && !strings.EqualFold(strings.TrimSpace(route.ExclusiveClaim), current)) {
-		route.Warnings = append(route.Warnings, "active real-usage route exclusive claim does not match the current batch")
+	if !releaseHandoffActiveRouteStateSupported(route.State) {
+		route.Warnings = append(route.Warnings, "active approved route uses unsupported state: "+route.State)
+	}
+	current := releaseHandoffBatchID(route.CurrentBatch)
+	next := releaseHandoffBatchID(route.NextBatch)
+	claim := strings.TrimSpace(route.ExclusiveClaim)
+	if current == "" || (route.State != "completed" && !strings.EqualFold(claim, current)) {
+		route.Warnings = append(route.Warnings, "active approved route exclusive claim does not match the current batch")
+	}
+	if route.State == "completed" && releaseHandoffNextBatchSelectable(route.NextBatch) && (next == "" || !strings.EqualFold(claim, next)) {
+		route.Warnings = append(route.Warnings, "active approved route exclusive claim does not match the exact next batch")
 	}
 	route.Ready = len(route.Warnings) == 0
-	route.NextBatchUnlocked = route.Ready && route.ProjectionConsistent && route.State == "completed" && current != "" && !strings.EqualFold(strings.TrimSpace(route.ExclusiveClaim), current) && releaseHandoffNextBatchSelectable(route.NextBatch)
+	route.NextBatchUnlocked = route.Ready && route.ProjectionConsistent && route.State == "completed" && next != "" && strings.EqualFold(claim, next)
 	if route.Ready && route.ProjectionConsistent && route.State == "completed" && !releaseHandoffNextBatchSelectable(route.NextBatch) {
 		route.CurrentAction = releaseHandoffCompletedRouteAction(route)
 	} else if !route.NextBatchUnlocked {
@@ -4779,7 +4823,7 @@ func releaseHandoffActiveRoute(repo string) ReleaseHandoffActiveRoute {
 }
 
 func markdownTableValue(data []byte, field string) string {
-	for _, line := range strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
 		columns := strings.Split(strings.TrimSpace(line), "|")
 		if len(columns) < 4 || strings.TrimSpace(columns[1]) != field {
 			continue
@@ -4795,6 +4839,41 @@ func firstReleaseHandoffToken(value string) string {
 		return value[:index]
 	}
 	return value
+}
+
+func releaseHandoffBatchID(value string) string {
+	value = strings.TrimSpace(value)
+	if index := strings.IndexFunc(value, func(r rune) bool {
+		return r == ',' || r == '，' || r == ';' || r == '；' || r == '\t' || r == '\n' || r == '\r'
+	}); index >= 0 {
+		value = strings.TrimSpace(value[:index])
+	}
+	first := ""
+	second := ""
+	for field := range strings.FieldsSeq(value) {
+		if first == "" {
+			first = field
+			continue
+		}
+		second = field
+		break
+	}
+	if first == "" {
+		return ""
+	}
+	if second != "" && strings.EqualFold(first, "batch") {
+		return first + " " + second
+	}
+	return first
+}
+
+func releaseHandoffActiveRouteStateSupported(state string) bool {
+	switch strings.ToLower(strings.TrimSpace(state)) {
+	case "in_progress", "blocked", "completed":
+		return true
+	default:
+		return false
+	}
 }
 
 func releaseHandoffNextBatchSelectable(value string) bool {

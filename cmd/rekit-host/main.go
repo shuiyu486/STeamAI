@@ -26,6 +26,7 @@ func main() {
 	internalPackMemoryAcceptanceSHA256 := flag.String("internal-pack-memory-live-acceptance-sha256", "", "internal RH-07 isolated child spec sha256")
 	flag.StringVar(&opt.Target, "target", "", "fresh or attached case root")
 	flag.StringVar(&opt.Pack, "pack", "", "optional attached pack override")
+	flag.StringVar(&opt.SelectedLane, "lane", "", "exact current lane selected for this invocation")
 	flag.StringVar(&opt.Actor, "actor", "rekit-claude-host", "durable host actor")
 	flag.StringVar(&opt.ClaudePath, "claude", "", "Claude Code executable path")
 	flag.StringVar(&opt.Model, "model", "", "optional Claude model")
@@ -35,7 +36,13 @@ func main() {
 	flag.StringVar(&liveOpt.Correction, "correction", "", "human correction for daily or explicit live acceptance mode")
 	flag.BoolVar(&liveOpt.KeepCase, "keep-case", false, "retain the fresh acceptance case after the gate")
 	flag.StringVar(&liveOpt.ReceiptPath, "receipt", "", "machine-readable acceptance receipt path; required by -live-soak-acceptance")
+	flag.StringVar(&liveOpt.AdapterPath, "adapter", "", "built rekit-adapter-host executable required by vmp-re live acceptance")
 	flag.Parse()
+
+	if err := validateAdapterFlag(*liveAcceptance, opt.Pack, liveOpt.AdapterPath); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
 
 	if strings.TrimSpace(*internalSupervisor) != "" || strings.TrimSpace(*internalSupervisorSHA256) != "" {
 		if strings.TrimSpace(*internalSupervisor) == "" || strings.TrimSpace(*internalSupervisorSHA256) == "" || strings.TrimSpace(*internalPackMemoryAcceptance) != "" || strings.TrimSpace(*internalPackMemoryAcceptanceSHA256) != "" || publicModeRequested(*daily, *liveAcceptance, *liveSupervisionAcceptance, *livePackMemoryAcceptance, *liveSoakAcceptance) || flag.NArg() != 0 {
@@ -145,14 +152,15 @@ func main() {
 			os.Exit(2)
 		}
 		result, err := sessionhost.RunDaily(context.Background(), sessionhost.DailyOptions{
-			Target:      opt.Target,
-			Goal:        liveOpt.Goal,
-			Correction:  liveOpt.Correction,
-			Actor:       opt.Actor,
-			ClaudePath:  opt.ClaudePath,
-			Model:       opt.Model,
-			Timeout:     opt.Timeout,
-			MaxAttempts: opt.MaxAttempts,
+			Target:       opt.Target,
+			Goal:         liveOpt.Goal,
+			Correction:   liveOpt.Correction,
+			SelectedLane: opt.SelectedLane,
+			Actor:        opt.Actor,
+			ClaudePath:   opt.ClaudePath,
+			Model:        opt.Model,
+			Timeout:      opt.Timeout,
+			MaxAttempts:  opt.MaxAttempts,
 		})
 		printResult(result, err)
 		return
@@ -219,6 +227,18 @@ func printResult(result any, err error) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+func validateAdapterFlag(liveAcceptance bool, pack, adapterPath string) error {
+	adapterPath = strings.TrimSpace(adapterPath)
+	if adapterPath != "" && !liveAcceptance {
+		return fmt.Errorf("-adapter is supported only by -live-acceptance")
+	}
+	pack = strings.ToLower(strings.TrimSpace(pack))
+	if liveAcceptance && (pack == "" || pack == "vmp-re") && adapterPath == "" {
+		return fmt.Errorf("vmp-re live acceptance requires -adapter with the built rekit-adapter-host executable")
+	}
+	return nil
 }
 
 func publicModeRequested(modes ...bool) bool {

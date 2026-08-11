@@ -36,6 +36,10 @@ func ValidateContainAndResume(process *os.Process, binding *ExecutableBinding) (
 	return nil, fmt.Errorf("verified suspended executable launch is available only on Windows")
 }
 
+func ValidateContainAndResumeObserved(process *os.Process, binding *ExecutableBinding, beforeResume func() error) (*Containment, error) {
+	return nil, fmt.Errorf("verified suspended executable launch is available only on Windows")
+}
+
 func ValidateContainAndResumeAllowBreakaway(process *os.Process, binding *ExecutableBinding) (*Containment, error) {
 	return nil, fmt.Errorf("verified suspended executable launch is available only on Windows")
 }

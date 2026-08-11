@@ -888,6 +888,64 @@ func TestReconcileTakeoverSerializesWithContinueAndMakesCallerStale(t *testing.T
 	}
 }
 
+func TestReconcileDistinctInterventionAdvancesSameExecutorGeneration(t *testing.T) {
+	repoRoot, caseRoot := setupOwnedContinueCase(t)
+	appendIntervention := func(eventID string) {
+		t.Helper()
+		intervention := map[string]any{
+			"schemaVersion": 1,
+			"eventId":       eventID,
+			"kind":          "intervention",
+			"lane":          "devirt-main",
+			"status":        "open",
+			"subject":       "retry current executor with corrected evidence",
+		}
+		if _, _, err := mission.AppendFact(caseRoot, "intervention", intervention); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	appendIntervention("intervention-same-executor-generation-2")
+	firstOpt := ReconcileOptions{
+		Selector: "devirt-main", InterventionID: "intervention-same-executor-generation-2",
+		Actor: "main-agent", Executor: "executor-one", Reason: "first corrected attempt",
+	}
+	firstPreview, err := ReconcilePreview(repoRoot, caseRoot, defaults.DefaultPack, firstOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstPreview.ExecutorGeneration != 1 || !strings.Contains(firstPreview.ExecutorAction.ResumeCommand, "-ExpectedExecutorGeneration 2") {
+		t.Fatalf("same-executor preview did not project the next generation: %+v", firstPreview)
+	}
+	first, err := ReconcileApply(repoRoot, caseRoot, defaults.DefaultPack, firstOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.PreviousExecutor != "executor-one" || first.Executor != "executor-one" || first.ExecutorGeneration != 2 || first.Lane.ExecutorGeneration != 2 {
+		t.Fatalf("first same-executor reconcile did not advance generation: %+v", first)
+	}
+
+	replay, err := ReconcileApply(repoRoot, caseRoot, defaults.DefaultPack, firstOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replay.ExecutorGeneration != 2 || replay.Lane.ExecutorGeneration != 2 {
+		t.Fatalf("same intervention replay advanced generation: %+v", replay)
+	}
+
+	appendIntervention("intervention-same-executor-generation-3")
+	second, err := ReconcileApply(repoRoot, caseRoot, defaults.DefaultPack, ReconcileOptions{
+		Selector: "devirt-main", InterventionID: "intervention-same-executor-generation-3",
+		Actor: "main-agent", Executor: "executor-one", Reason: "second corrected attempt",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.ExecutorGeneration != 3 || second.Lane.ExecutorGeneration != 3 {
+		t.Fatalf("distinct same-executor intervention reused prior generation: %+v", second)
+	}
+}
+
 func TestDifferentLaneWriterBlocksOnProjectLease(t *testing.T) {
 	repoRoot, caseRoot := setupOwnedContinueCase(t)
 	if _, err := StartApply(repoRoot, caseRoot, defaults.DefaultPack, StartOptions{Selector: "feature-other", Executor: "executor-other", Actor: "main-agent", TakeoverReason: "second lane setup"}); err != nil {

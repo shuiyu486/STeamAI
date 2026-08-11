@@ -1,7 +1,6 @@
 package adapterhost
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -13,7 +12,53 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/processguard"
 )
 
+const (
+	maxContainedStdoutBytes = 1 << 20
+	maxContainedStderrBytes = 64 << 10
+)
+
+var errContainedProcessTimeout = errors.New("adapter live process exceeded dispatch runtime budget")
+
+type limitedProcessBuffer struct {
+	mu       sync.Mutex
+	data     []byte
+	limit    int
+	exceeded bool
+}
+
+func (buffer *limitedProcessBuffer) Write(data []byte) (int, error) {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	if !buffer.exceeded {
+		remaining := min(buffer.limit-len(buffer.data), len(data))
+		if remaining > 0 {
+			buffer.data = append(buffer.data, data[:remaining]...)
+		}
+		buffer.exceeded = remaining < len(data)
+	}
+	return len(data), nil
+}
+
+func (buffer *limitedProcessBuffer) Bytes() []byte {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	return append([]byte{}, buffer.data...)
+}
+
+func (buffer *limitedProcessBuffer) String() string {
+	return string(buffer.Bytes())
+}
+
 func runContainedProcess(binding *processguard.ExecutableBinding, args, env []string, timeout time.Duration) ([]byte, []byte, int, error) {
+	return runContainedProcessObserved(binding, args, env, timeout, nil)
+}
+
+func runContainedProcessObserved(
+	binding *processguard.ExecutableBinding,
+	args, env []string,
+	timeout time.Duration,
+	afterLaunch func(int) error,
+) ([]byte, []byte, int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, binding.Path(), args...)
@@ -24,14 +69,25 @@ func runContainedProcess(binding *processguard.ExecutableBinding, args, env []st
 		return nil, nil, 0, err
 	}
 	cmd.WaitDelay = time.Second
-	var stdout, stderr bytes.Buffer
+	stdout := limitedProcessBuffer{limit: maxContainedStdoutBytes}
+	stderr := limitedProcessBuffer{limit: maxContainedStderrBytes}
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
 		return nil, nil, 0, fmt.Errorf("start suspended adapter live process: %w", err)
 	}
 	childPID := cmd.Process.Pid
-	containment, err := processguard.ValidateContainAndResume(cmd.Process, binding)
+	var containment *processguard.Containment
+	var err error
+	if afterLaunch == nil {
+		containment, err = processguard.ValidateContainAndResume(cmd.Process, binding)
+	} else {
+		containment, err = processguard.ValidateContainAndResumeObserved(
+			cmd.Process,
+			binding,
+			func() error { return afterLaunch(childPID) },
+		)
+	}
 	if err != nil {
 		_ = cmd.Process.Kill()
 		waitErr := cmd.Wait()
@@ -54,7 +110,10 @@ func runContainedProcess(binding *processguard.ExecutableBinding, args, env []st
 	close(watchDone)
 	closeContainment()
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return stdout.Bytes(), stderr.Bytes(), childPID, errors.Join(fmt.Errorf("adapter live process exceeded dispatch runtime budget"), waitErr, containmentErr)
+		return stdout.Bytes(), stderr.Bytes(), childPID, errors.Join(errContainedProcessTimeout, waitErr, containmentErr)
+	}
+	if stdout.exceeded || stderr.exceeded {
+		return stdout.Bytes(), stderr.Bytes(), childPID, errors.Join(fmt.Errorf("adapter live process exceeded bounded stdout or stderr"), waitErr, containmentErr)
 	}
 	if waitErr != nil {
 		return stdout.Bytes(), stderr.Bytes(), childPID, errors.Join(fmt.Errorf("adapter live process failed: %w: %s", waitErr, strings.TrimSpace(stderr.String())), containmentErr)

@@ -214,14 +214,27 @@ func ConfigureSuspended(cmd *exec.Cmd, binding *ExecutableBinding) error {
 }
 
 func ValidateContainAndResume(process *os.Process, binding *ExecutableBinding) (*Containment, error) {
-	return validateContainAndResume(process, binding, false)
+	return validateContainAndResume(process, binding, false, nil)
+}
+
+func ValidateContainAndResumeObserved(
+	process *os.Process,
+	binding *ExecutableBinding,
+	beforeResume func() error,
+) (*Containment, error) {
+	return validateContainAndResume(process, binding, false, beforeResume)
 }
 
 func ValidateContainAndResumeAllowBreakaway(process *os.Process, binding *ExecutableBinding) (*Containment, error) {
-	return validateContainAndResume(process, binding, true)
+	return validateContainAndResume(process, binding, true, nil)
 }
 
-func validateContainAndResume(process *os.Process, binding *ExecutableBinding, allowBreakaway bool) (*Containment, error) {
+func validateContainAndResume(
+	process *os.Process,
+	binding *ExecutableBinding,
+	allowBreakaway bool,
+	beforeResume func() error,
+) (*Containment, error) {
 	if process == nil || binding == nil {
 		return nil, fmt.Errorf("suspended executable process or binding is missing")
 	}
@@ -287,6 +300,12 @@ func validateContainAndResume(process *os.Process, binding *ExecutableBinding, a
 	if assigned == 0 {
 		_ = containment.Close()
 		return nil, fmt.Errorf("assign verified process to containment job: %v", callErr)
+	}
+	if beforeResume != nil {
+		if err := beforeResume(); err != nil {
+			_ = containment.Close()
+			return nil, fmt.Errorf("record verified contained process before resume: %w", err)
+		}
 	}
 	status, _, callErr := ntResumeProcess.Call(uintptr(handle))
 	if int32(status) < 0 {

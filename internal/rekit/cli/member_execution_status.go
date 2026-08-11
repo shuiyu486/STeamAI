@@ -77,7 +77,7 @@ func bindStatusMemberExecution(status *statusInventory) {
 		if rejected {
 			status.MemberExecution.State = "reviewer-rejected-awaiting-correction"
 			status.MemberExecution.ReviewerRejection = &rejection
-			status.MemberExecution.CorrectionCommand = joinDriverCommand([]string{"rekit-host", "-daily", "-target", status.Target, "-correction", "<human-correction>", "-actor", "<actor>"})
+			status.MemberExecution.CorrectionCommand = joinDriverCommand([]string{"rekit-host", "-daily", "-target", status.Target, "-lane", lane, "-correction", "<human-correction>", "-actor", "<actor>"})
 			status.MemberExecution.Boundary = append(base, "the rejected member manifest cannot be reviewed again; apply a human correction bound to this canonical rejection before replacing the owner generation")
 			return
 		}
@@ -122,7 +122,13 @@ func bindStatusReviewerCorrection(status *statusInventory) {
 		status.CaseMission.MissionCommanderActionQueue = queue
 		status.CaseMission.DailyMissionControlRunbook = workstream.DailyMissionControlRunbookFor(status.Target, "case", queue, status.CaseMission.HandoffPreviewCommand, status.CaseMission.HandoffApplyCommand)
 	}
-	status.MissionControlRunbook = buildStatusMissionControlRunbookWithConsumption(status.Target, status.CaseMission, status.ProjectHandoff, status.PackMemoryConsumption)
+	projectHandoff := status.ProjectHandoff
+	packMemoryConsumption := status.PackMemoryConsumption
+	if strings.TrimSpace(status.selectedCurrentLane) != "" {
+		projectHandoff = nil
+		packMemoryConsumption = nil
+	}
+	status.MissionControlRunbook = buildStatusMissionControlRunbookWithConsumption(status.Target, status.CaseMission, projectHandoff, packMemoryConsumption)
 	status.MissionControlRunbook.RoutingReasons = mission.UniqueStrings(append(status.MissionControlRunbook.RoutingReasons, "canonical reviewer reject requires evidence-bound human correction before any member or reviewer redispatch"))
 }
 

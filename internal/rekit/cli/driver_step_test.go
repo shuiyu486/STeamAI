@@ -232,10 +232,41 @@ func TestRunDriverStepSupportsLeadingGoRunSeparator(t *testing.T) {
 	}
 }
 
+func TestRunDriverStepSupportsExactSelectedLane(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatalf("preview exact selected lane: %v\n%s", err, out.String())
+	}
+	var preview driverStepPlan
+	decodeJSONStrict(t, out.Bytes(), &preview)
+	if preview.CurrentDriverRequest.Lane != "main" || !strings.Contains(preview.CurrentDriverRequest.Command, "-Lane main") {
+		t.Fatalf("selected lane was not preserved in the driver request: %+v", preview.CurrentDriverRequest)
+	}
+	out.Reset()
+	if err := Run([]string{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-ExpectedDriverStepPlanSha256", preview.ExpectedDriverStepPlanSHA256, "-Apply", "-Format", "json"}, &out); err != nil {
+		t.Fatalf("apply exact selected lane: %v\n%s", err, out.String())
+	}
+	var applied driverStepPlan
+	decodeJSONStrict(t, out.Bytes(), &applied)
+	if !applied.Applied || applied.Receipt == nil || applied.Receipt.CommandResultCommand != "continue" {
+		t.Fatalf("selected-lane driver step did not apply the exact current request: %+v", applied)
+	}
+
+	out.Reset()
+	err := Run([]string{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-Lane", "other", "-WhatIf", "-Format", "json"}, &out)
+	if err == nil || !strings.Contains(err.Error(), "selected current lane") {
+		t.Fatalf("non-current selected lane should fail closed: err=%v output=%s", err, out.String())
+	}
+}
+
 func TestRunDriverStepRejectsUnsupportedOuterArguments(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	for _, args := range [][]string{
-		{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-Lane", "other", "-WhatIf", "-Format", "json"},
 		{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-Actor", "other", "-WhatIf", "-Format", "json"},
 		{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-Unexpected", "value", "-WhatIf", "-Format", "json"},
 		{"-Command", "run-driver-step", "--", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"},

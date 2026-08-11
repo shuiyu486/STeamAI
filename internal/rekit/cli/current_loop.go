@@ -240,7 +240,7 @@ func applyBuiltCurrentLoop(ctx runtime.Context, opt Options, plan currentLoopPla
 		return plan, err
 	}
 	if plan.ResumeSource != nil && plan.AppliedSteps == 0 && plan.zeroProgressVerified {
-		fresh, refreshErr := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+		fresh, refreshErr := buildInvocationStatusInventory(ctx, opt)
 		freshRequest, freshRoute, freshStop := currentLoopStatusCandidate(fresh)
 		initialRequestSHA256, initialHashErr := currentloop.RequestSHA256(*plan.InitialCurrentDriverRequest)
 		freshRequestSHA256 := ""
@@ -251,7 +251,7 @@ func applyBuiltCurrentLoop(ctx runtime.Context, opt Options, plan currentLoopPla
 			plan.FinalStatus = &fresh
 			plan.StopReason.Code = "zero-progress-retry"
 			plan.StopReason.Message = "resume claim succeeded, but the nested step failed before mutation: " + plan.StopReason.Message
-			plan.ContinuationRequest = currentLoopContinuationFor(ctx, plan.MaxSteps, 0, plan.InitialRoute, plan.InitialLane, freshRoute, plan.Actor, plan.StopReason)
+			plan.ContinuationRequest = currentLoopContinuationFor(ctx, opt.SelectedCurrentLane, plan.MaxSteps, 0, plan.InitialRoute, plan.InitialLane, freshRoute, plan.Actor, plan.StopReason)
 			if plan.ContinuationRequest != nil {
 				plan.ResumeCommand = plan.ContinuationRequest.WhatIfCommand
 			}
@@ -289,7 +289,7 @@ func applyBuiltCurrentLoop(ctx runtime.Context, opt Options, plan currentLoopPla
 }
 
 func buildCurrentLoopPlan(ctx runtime.Context, opt Options) (currentLoopPlan, statusInventory, error) {
-	status, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+	status, err := buildInvocationStatusInventory(ctx, opt)
 	if err != nil {
 		return currentLoopPlan{}, statusInventory{}, err
 	}
@@ -349,7 +349,7 @@ func buildCurrentLoopPlan(ctx runtime.Context, opt Options) (currentLoopPlan, st
 		ReviewRequired:       true,
 		RequiresConfirmation: true,
 		Steps:                []currentLoopStepReceipt{},
-		ResumeCommand:        currentLoopResumeCommand(ctx, opt.MaxSteps),
+		ResumeCommand:        currentLoopResumeCommand(ctx, opt.MaxSteps, opt.SelectedCurrentLane),
 		Boundary: []string{
 			"the loop hash conditionally authorizes only the exact initial step plus at most maxSteps under a fixed initial route and lane",
 			"every later step is rebuilt from refreshed durable status and retains the current-step and nested runner hash, lease, packet, artifact, and lock guards",
@@ -378,7 +378,7 @@ func buildCurrentLoopPlan(ctx runtime.Context, opt Options) (currentLoopPlan, st
 	plan.InitialCurrentStep = &step
 	if step.ExpectedCurrentStepPlanSHA256 == "" {
 		plan.StopReason = currentLoopExternalStop(step, request, status)
-		plan.ContinuationRequest = currentLoopContinuationFor(ctx, opt.MaxSteps, 0, route, plan.InitialLane, route, plan.Actor, plan.StopReason)
+		plan.ContinuationRequest = currentLoopContinuationFor(ctx, opt.SelectedCurrentLane, opt.MaxSteps, 0, route, plan.InitialLane, route, plan.Actor, plan.StopReason)
 		if plan.ContinuationRequest != nil {
 			plan.ResumeCommand = plan.ContinuationRequest.WhatIfCommand
 		}
@@ -443,7 +443,7 @@ func applyCurrentLoopPlan(ctx runtime.Context, opt Options, plan currentLoopPlan
 		}
 		if route != initialRoute || strings.TrimSpace(request.Lane) != initialLane {
 			plan.StopReason = currentLoopStopReason{Code: "route-policy", Phase: "before-step", Message: "refreshed route or lane changed; review a fresh loop preview", CurrentDriverRequest: request}
-			plan.ContinuationRequest = currentLoopContinuationFor(ctx, plan.MaxSteps, plan.AppliedSteps, initialRoute, initialLane, route, plan.Actor, plan.StopReason)
+			plan.ContinuationRequest = currentLoopContinuationFor(ctx, opt.SelectedCurrentLane, plan.MaxSteps, plan.AppliedSteps, initialRoute, initialLane, route, plan.Actor, plan.StopReason)
 			if plan.ContinuationRequest != nil {
 				plan.ResumeCommand = plan.ContinuationRequest.WhatIfCommand
 			}
@@ -451,7 +451,7 @@ func applyCurrentLoopPlan(ctx runtime.Context, opt Options, plan currentLoopPlan
 		}
 		if policyStop := currentLoopBeforeStepPolicyStop(stepNumber, route, request); policyStop.Code != "" {
 			plan.StopReason = policyStop
-			plan.ContinuationRequest = currentLoopContinuationFor(ctx, plan.MaxSteps, plan.AppliedSteps, initialRoute, initialLane, route, plan.Actor, plan.StopReason)
+			plan.ContinuationRequest = currentLoopContinuationFor(ctx, opt.SelectedCurrentLane, plan.MaxSteps, plan.AppliedSteps, initialRoute, initialLane, route, plan.Actor, plan.StopReason)
 			if plan.ContinuationRequest != nil {
 				plan.ResumeCommand = plan.ContinuationRequest.WhatIfCommand
 			}
@@ -464,7 +464,7 @@ func applyCurrentLoopPlan(ctx runtime.Context, opt Options, plan currentLoopPlan
 		}
 		if step.ExpectedCurrentStepPlanSHA256 == "" {
 			plan.StopReason = currentLoopExternalStop(step, request, status)
-			plan.ContinuationRequest = currentLoopContinuationFor(ctx, plan.MaxSteps, plan.AppliedSteps, initialRoute, initialLane, route, plan.Actor, plan.StopReason)
+			plan.ContinuationRequest = currentLoopContinuationFor(ctx, opt.SelectedCurrentLane, plan.MaxSteps, plan.AppliedSteps, initialRoute, initialLane, route, plan.Actor, plan.StopReason)
 			if plan.ContinuationRequest != nil {
 				plan.ResumeCommand = plan.ContinuationRequest.WhatIfCommand
 			}
@@ -512,7 +512,7 @@ func applyCurrentLoopPlan(ctx runtime.Context, opt Options, plan currentLoopPlan
 			plan.StopReason = currentLoopApplyErrorStop(stepNumber, request, err)
 			break
 		}
-		if applied.Applied && applied.Receipt != nil && applied.MemberExecution != nil {
+		if (applied.Applied || applied.memberExecutionAlreadyApplied) && applied.Receipt != nil && applied.MemberExecution != nil {
 			receipt := currentLoopStepReceipt{Step: stepNumber, Route: route, Lane: strings.TrimSpace(request.Lane), RunLoopStepID: strings.TrimSpace(request.RunLoopStepID), ExpectedCurrentStepPlanSHA256: step.ExpectedCurrentStepPlanSHA256, RequestBefore: *request, CurrentStepReceipt: applied.Receipt}
 			if applied.RefreshedStatus == nil {
 				receipt.CurrentStepReceipt.State = "refresh-failed"
@@ -533,7 +533,7 @@ func applyCurrentLoopPlan(ctx runtime.Context, opt Options, plan currentLoopPlan
 			memberState := applied.MemberExecution.Inspection.State
 			if memberState == "intake-ready" {
 				plan.StopReason = currentLoopStopReason{Code: "member-intake-ready", Phase: "after-step", Message: "member result passed strict intake; review a fresh segment before continuing deterministic work", CurrentDriverRequest: receipt.RequestAfter}
-				plan.ContinuationRequest = currentLoopContinuationFor(ctx, plan.MaxSteps, plan.AppliedSteps, initialRoute, initialLane, route, plan.Actor, plan.StopReason)
+				plan.ContinuationRequest = currentLoopContinuationFor(ctx, opt.SelectedCurrentLane, plan.MaxSteps, plan.AppliedSteps, initialRoute, initialLane, route, plan.Actor, plan.StopReason)
 				if plan.ContinuationRequest != nil {
 					plan.ResumeCommand = plan.ContinuationRequest.WhatIfCommand
 				}
@@ -543,7 +543,7 @@ func applyCurrentLoopPlan(ctx runtime.Context, opt Options, plan currentLoopPlan
 			if memberState == "handoff-ready" || memberState == "accepted" {
 				plan.StopReason.ExternalMemberHandoff = currentLoopExternalMemberHandoff(ctx, applied.MemberExecution.Inspection, nil)
 			}
-			plan.ContinuationRequest = currentLoopContinuationFor(ctx, plan.MaxSteps, plan.AppliedSteps, initialRoute, initialLane, route, plan.Actor, plan.StopReason)
+			plan.ContinuationRequest = currentLoopContinuationFor(ctx, opt.SelectedCurrentLane, plan.MaxSteps, plan.AppliedSteps, initialRoute, initialLane, route, plan.Actor, plan.StopReason)
 			if plan.ContinuationRequest != nil {
 				plan.ResumeCommand = plan.ContinuationRequest.WhatIfCommand
 			}
@@ -722,8 +722,12 @@ func currentLoopRequestKey(route string, request mission.MissionCommanderDriverR
 	return hex.EncodeToString(sum[:]), nil
 }
 
-func currentLoopResumeCommand(ctx runtime.Context, maxSteps int) string {
-	return fmt.Sprintf("/rekit run-current-loop -Target %s -Pack %s -MaxSteps %d -WhatIf -Format json", statusQuoteCommandArg(ctx.Target), statusQuoteCommandArg(ctx.Pack), maxSteps)
+func currentLoopResumeCommand(ctx runtime.Context, maxSteps int, selected ...string) string {
+	command := fmt.Sprintf("/rekit run-current-loop -Target %s -Pack %s -MaxSteps %d -WhatIf -Format json", statusQuoteCommandArg(ctx.Target), statusQuoteCommandArg(ctx.Pack), maxSteps)
+	if len(selected) > 0 {
+		command = selectedLaneCommand(command, selected[0])
+	}
+	return command
 }
 
 func currentLoopResumeApplyCommand(ctx runtime.Context, plan currentLoopPlan, opt Options) string {
@@ -739,6 +743,7 @@ func currentLoopResumeApplyCommand(ctx runtime.Context, plan currentLoopPlan, op
 			args = append(args, flag, statusQuoteCommandArg(value))
 		}
 	}
+	appendValue("-Lane", opt.SelectedCurrentLane)
 	if strings.TrimSpace(opt.CurrentLoopObservationPath) != "" {
 		appendValue("-CurrentLoopObservationPath", opt.CurrentLoopObservationPath)
 		appendValue("-ExpectedCurrentLoopObservationSha256", opt.ExpectedCurrentLoopObservationSHA256)
@@ -796,7 +801,7 @@ func currentLoopExternalMemberHandoff(ctx runtime.Context, inspection memberexec
 	if inspection.Handoff == nil || inspection.AttemptID == "" || (inspection.State != "handoff-ready" && inspection.State != "accepted") {
 		return nil
 	}
-	previewCommand := currentLoopResumeCommand(ctx, 1)
+	previewCommand := currentLoopResumeCommand(ctx, 1, inspection.Owner.Lane)
 	if selected != nil && strings.TrimSpace(selected.Command) != "" {
 		previewCommand = strings.TrimSpace(selected.Command)
 	}
@@ -864,7 +869,7 @@ func currentLoopMemberObservationPreviewCommand(command, attemptID, outcome stri
 	return joinDriverCommand(fields)
 }
 
-func currentLoopContinuationFor(ctx runtime.Context, segmentMaxSteps, appliedSteps int, segmentRoute, segmentLane, expectedRoute, actor string, stop currentLoopStopReason) *currentLoopContinuationRequest {
+func currentLoopContinuationFor(ctx runtime.Context, selectedLane string, segmentMaxSteps, appliedSteps int, segmentRoute, segmentLane, expectedRoute, actor string, stop currentLoopStopReason) *currentLoopContinuationRequest {
 	if stop.Code != "external-reviewer-handoff" && stop.Code != "external-member-handoff" && stop.Code != "member-intake-ready" && stop.Code != "route-policy" && stop.Code != "human-intervention" && stop.Code != "zero-progress-retry" {
 		return nil
 	}
@@ -878,7 +883,7 @@ func currentLoopContinuationFor(ctx runtime.Context, segmentMaxSteps, appliedSte
 	if remaining < 1 || stop.CurrentDriverRequest == nil {
 		return nil
 	}
-	whatIfCommand := currentLoopResumeCommand(ctx, remaining)
+	whatIfCommand := currentLoopResumeCommand(ctx, remaining, selectedLane)
 	if strings.TrimSpace(actor) != "" {
 		whatIfCommand = strings.Replace(whatIfCommand, " -WhatIf", " -Actor "+statusQuoteCommandArg(actor)+" -WhatIf", 1)
 	}
@@ -1034,7 +1039,7 @@ func writeCurrentLoopSegmentCheckpoint(ctx runtime.Context, opt Options, plan cu
 	validate := (func() error)(nil)
 	if payload.ZeroProgressRecovery {
 		validate = func() error {
-			fresh, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+			fresh, err := buildInvocationStatusInventory(ctx, opt)
 			if err != nil {
 				return err
 			}
@@ -1120,6 +1125,7 @@ func validateCurrentLoopOuterArgs(opt Options) error {
 		"-command": true, "--command": true,
 		"-target": true, "--target": true,
 		"-pack": true, "--pack": true,
+		"-lane": true, "--lane": true,
 		"-format": true, "--format": true,
 		"-maxsteps": true, "--max-steps": true,
 		"-expectedcurrentloopplansha256": true, "--expected-current-loop-plan-sha256": true,
@@ -1212,6 +1218,8 @@ func currentLoopCanonicalOuterFlag(key string) string {
 		return "-target"
 	case "--pack":
 		return "-pack"
+	case "--lane":
+		return "-lane"
 	case "--format":
 		return "-format"
 	case "--max-steps":

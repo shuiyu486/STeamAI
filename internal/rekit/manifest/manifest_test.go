@@ -29,7 +29,7 @@ func TestLoadDefaultManifestSchema(t *testing.T) {
 	if len(m.PromoteDenyPatterns) == 0 {
 		t.Fatal("PromoteDenyPatterns is empty")
 	}
-	assertHeavyToolGateSet(t, m)
+	assertHeavyToolGateSet(t, m, "inspect")
 	if _, err := regexp.Compile(m.PromoteDenyPatterns[0]); err != nil {
 		t.Fatalf("first deny pattern does not compile: %v", err)
 	}
@@ -1813,7 +1813,7 @@ func TestListPackSummaries(t *testing.T) {
 	if byID["_template"].Maturity != "template" || byID["_template"].SchemaVersion != "1" || byID["_template"].SubagentRoutes != 2 || byID["_template"].HeavyToolGates != 8 {
 		t.Fatalf("unexpected template summary: %+v", byID["_template"])
 	}
-	if byID["vmp-re"].Maturity != "mature" || byID["vmp-re"].SchemaVersion != "1" || byID["vmp-re"].DefaultAuthorityLane != "devirt-main" || byID["vmp-re"].HeavyToolGates != 7 {
+	if byID["vmp-re"].Maturity != "mature" || byID["vmp-re"].SchemaVersion != "1" || byID["vmp-re"].DefaultAuthorityLane != "devirt-main" || byID["vmp-re"].HeavyToolGates != 8 {
 		t.Fatalf("unexpected vmp summary: %+v", byID["vmp-re"])
 	}
 	if byID["web-security"].Maturity != "skeleton" || byID["web-security"].SchemaVersion != "1" || byID["web-security"].DefaultAuthorityLane != "main" || byID["web-security"].HeavyToolGates != 7 {

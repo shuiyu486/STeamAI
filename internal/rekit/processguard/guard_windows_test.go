@@ -4,6 +4,7 @@ package processguard
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -82,6 +83,49 @@ func TestValidateContainAndResumeRejectsMismatchedImageBeforeExecution(t *testin
 	}
 	if _, err := os.Lstat(marker); !os.IsNotExist(err) {
 		t.Fatalf("mismatched suspended image executed before validation: %v", err)
+	}
+}
+
+func TestValidateContainAndResumeObservedRecordsBeforeExecution(t *testing.T) {
+	current, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := LockExecutable(current, 128<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer binding.Close()
+	marker := filepath.Join(t.TempDir(), "marker.txt")
+	cmd := helperCommand(binding.Path(), "marker", marker)
+	if err := ConfigureSuspended(cmd, binding); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	callbackRan := false
+	containment, observeErr := ValidateContainAndResumeObserved(
+		cmd.Process,
+		binding,
+		func() error {
+			callbackRan = true
+			if _, err := os.Lstat(marker); !os.IsNotExist(err) {
+				return fmt.Errorf("suspended child executed before launch observation: %v", err)
+			}
+			return errors.New("injected durable launch proof failure")
+		},
+	)
+	if containment != nil {
+		_ = containment.Close()
+	}
+	_ = cmd.Process.Kill()
+	_ = cmd.Wait()
+	if !callbackRan || observeErr == nil || !strings.Contains(observeErr.Error(), "durable launch proof failure") {
+		t.Fatalf("pre-resume observation callback result: ran=%t err=%v", callbackRan, observeErr)
+	}
+	if _, err := os.Lstat(marker); !os.IsNotExist(err) {
+		t.Fatalf("child executed after failed pre-resume observation: %v", err)
 	}
 }
 

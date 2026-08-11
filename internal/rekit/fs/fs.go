@@ -29,6 +29,94 @@ func FullPath(path string) (string, error) {
 	return filepath.Abs(path)
 }
 
+func ValidateNonReparseDirectory(path, label string) (os.FileInfo, error) {
+	full, err := filepath.Abs(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := ValidateNoReparseComponents(full); err != nil {
+		return nil, fmt.Errorf("%s: %w", label, err)
+	}
+	info, err := os.Lstat(full)
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return nil, fmt.Errorf("%s must be a non-symlink directory: %s", label, full)
+	}
+	return info, nil
+}
+
+func ValidateTreeNoReparse(root, label string) error {
+	if _, err := ValidateNonReparseDirectory(root, label); err != nil {
+		return err
+	}
+	return filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if err := ValidateNoReparseComponents(path); err != nil {
+			return fmt.Errorf("%s: %w", label, err)
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%s must not contain a symlink or reparse point: %s", label, path)
+		}
+		if !info.IsDir() && !info.Mode().IsRegular() {
+			return fmt.Errorf("%s must contain only regular files and directories: %s", label, path)
+		}
+		return nil
+	})
+}
+
+func ValidateNoReparseComponents(path string) error {
+	full, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	volume := filepath.VolumeName(full)
+	current := volume + string(filepath.Separator)
+	rel, err := filepath.Rel(current, full)
+	if err != nil {
+		return err
+	}
+	for _, component := range splitPathComponents(rel) {
+		current = filepath.Join(current, component)
+		info, err := os.Lstat(current)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("path must not traverse symlink: %s", current)
+		}
+		if err := rejectReparsePath(current); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func splitPathComponents(path string) []string {
+	components := []string{}
+	for path != "." && path != "" {
+		dir, leaf := filepath.Split(path)
+		if leaf != "" {
+			components = append([]string{leaf}, components...)
+		}
+		path = filepath.Clean(dir)
+		if path == string(filepath.Separator) {
+			break
+		}
+	}
+	return components
+}
+
 func SamePath(left, right string) bool {
 	left, err := lexicalPath(left)
 	if err != nil {
@@ -327,15 +415,23 @@ func WalkRegularFilesAnchored(caseRoot, rel, label string, limit int) ([]string,
 }
 
 func WriteExclusiveRegularFileAnchored(caseRoot, rel, label string, data []byte) (bool, error) {
-	return writeExclusiveRegularFileAnchored(caseRoot, rel, label, data, true)
+	return writeExclusiveRegularFileAnchored(caseRoot, rel, label, data, true, false)
+}
+
+// WriteExclusiveRegularFileAnchoredWriteThrough requests write-through file
+// publication before returning. On Windows, os.O_SYNC maps to
+// FILE_FLAG_WRITE_THROUGH; Unix also retains the parent-directory sync. This
+// strengthens metadata persistence but is not a universal power-loss guarantee.
+func WriteExclusiveRegularFileAnchoredWriteThrough(caseRoot, rel, label string, data []byte) (bool, error) {
+	return writeExclusiveRegularFileAnchored(caseRoot, rel, label, data, true, true)
 }
 
 func WriteNewExclusiveRegularFileAnchored(caseRoot, rel, label string, data []byte) error {
-	_, err := writeExclusiveRegularFileAnchored(caseRoot, rel, label, data, false)
+	_, err := writeExclusiveRegularFileAnchored(caseRoot, rel, label, data, false, false)
 	return err
 }
 
-func writeExclusiveRegularFileAnchored(caseRoot, rel, label string, data []byte, allowReplay bool) (bool, error) {
+func writeExclusiveRegularFileAnchored(caseRoot, rel, label string, data []byte, allowReplay, writeThrough bool) (bool, error) {
 	if len(data) == 0 {
 		return false, fmt.Errorf("%s content must be non-empty", label)
 	}
@@ -388,7 +484,11 @@ func writeExclusiveRegularFileAnchored(caseRoot, rel, label string, data []byte,
 	} else if !os.IsNotExist(statErr) {
 		return false, statErr
 	}
-	file, err := parent.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	openFlags := os.O_WRONLY | os.O_CREATE | os.O_EXCL
+	if writeThrough {
+		openFlags |= os.O_SYNC
+	}
+	file, err := parent.OpenFile(name, openFlags, 0o600)
 	if os.IsExist(err) {
 		if !allowReplay {
 			return false, fmt.Errorf("%s target already exists: %s", label, rel)

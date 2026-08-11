@@ -18,6 +18,8 @@
 - 长期愿景与阶段实施方案：`docs/vision.md`
 - Mission Control 最终产品方向：`docs/mission-control-product-direction.md`
 - 当前架构说明：`docs/design.md`
+- 当前真实可用性与产品化程度评估快照：`docs/current-usability-assessment-2026-08-11.md`（仅在复评“现在能否真实使用、下一轮优先改善什么”时按需读取；不是当前路线或默认 read-first；`2026-08-09` 快照仅供历史对比）
+- 已实现的日常产品四闭环详细设计：`docs/daily-product-closure-plan.md`（`DPC-01`～`DPC-04` 均已完成实现和独立真实验收；当前只按需读取完成证据与共同边界）
 - 后续真实使用有序路线与压缩后接手协议：`docs/real-usage-hardening-roadmap.md`
 - 当前批次和路线指针投影：`docs/batch-plan.md`
 - 启动已批准路线的短 goal 与新会话接手指南：`docs/autonomous-goal.md`
@@ -70,10 +72,16 @@ go run ./cmd/rekit-host -daily -target <workspaceRoot>\cases\<caseName> -goal "�
 
 fresh target 会选择默认 `vmp-re`；已通过 `attach/init` 绑定且 doctor-ready、尚无 Mission Control 状态的 existing case 会从 metadata 选择 pack，并只追加 immutable onboarding intent/mission/commit，不覆盖普通 case 文件。相同 goal 在当前真实 member 已 intake-ready 后安全 replay，不重复启动 Claude；冲突 goal 会明确拒绝。
 
-人工纠偏也只提交文本：
+已有 case 同时有多个可继续 lane 时，daily 先返回 typed choices，选择前不启动 Claude、也不写 case。主 Agent 使用 choice 的 canonical ID 重新调用 `-lane <lane-id>`；该 selector 只在本次调用生效，并贯穿 status、current-step/current-loop、纠偏和完成，所选 lane 不可继续时会停止，不会回退到其它 lane。lane 的人话 label 只用于展示，不能代替 canonical ID。
+
+已有普通非空目录会先只读返回 `directory-adoption-required`，选择 `initialize-in-place` 前零写入。接入使用 canonical `init -WhatIf` 的 exact plan SHA，再执行 hash-bound `init -Apply`；只允许新增或保留现有文件，managed collision、partial `.rekit`、wrong binding、symlink/reparse 和 plan/source/target drift 均 fail-closed。
+
+`vmp-re` 还支持查询用户已经导出的 `function_index.tsv`（必需）以及可选 `strings.tsv` / `imports.tsv` / `xrefs.tsv`。主 Agent 会先预览内容寻址 request 和最长 15 分钟的 exact `inspect` profile；只有用户确认 profile 且 canonical `authorized-gate` current 时，独立 `rekit-adapter-host` 才运行 compiled-in `vmp-ida-index-inspector`，随后写入 bounded packet/report/receipt/observation、恢复默认 manual profile，并交给独立 evidence review、member 和 Reviewer。该路径不安装或启动 IDA、不打开 IDB、不联网，也从不执行 tooling catalog 的 `entry`；当前 `NoNetwork` 只表示固定 Go child 没有网络代码路径，不是 OS 级 socket 隔离。
+
+人工纠偏也只提交文本；多 lane 场景使用同一个 canonical ID：
 
 ```text
-go run ./cmd/rekit-host -daily -target <workspaceRoot>\cases\<caseName> -correction "优先核对控制流证据，区分 observation 与 hypothesis"
+go run ./cmd/rekit-host -daily -target <workspaceRoot>\cases\<caseName> -lane <lane-id> -correction "优先核对控制流证据，区分 observation 与 hypothesis"
 ```
 
 front door 自动记录 intervention，消费 public hash-bound reconcile，启动 replacement member 与独立 Reviewer，并在 evidence-bound 条件满足后完成 lane；terminal exact replay 零启动、零新增 mutation。trusted daily 路线还使用 host-owned durable supervisor：front host 在 Claude 启动、output 返回、result-first、submission 或 intake 后中断时，fresh host 会收取同一 attempt/session 的 exact result、从已提交边界继续或在 ownership 证据丢失时先 durable fence 再 replacement，不用 PID 单独声称 liveness，也不会重复启动成功 session。Claude 登录、配额、模型或进程不可用时会真实返回 blocked/failed，不会退化为伪造 member output 或 `ReviewerResult`。失败 JSON 的顶层 `failure` 返回 stable `code` / `stage`、`terminal|replaceable|recoverable`、真实 `mutationApplied` / `mutationBoundary`、attempt 计数和唯一 `nextAction`；达到上限后不会自动循环。完整故障矩阵与恢复语义按需见 `docs/agent-team-usage.md`。
@@ -182,7 +190,7 @@ Adapter execution report lifecycle 的 contract、dispatch、scaffold、draft、
 go run ./cmd/rekit-host -live-acceptance -pack "<_template-or-web-security>" -goal "<bounded-natural-language-goal>" -correction "<human-correction>" -receipt "<outside-case-receipt.json>"
 ```
 
-通过 receipt 必须同时满足 `passed=true`、exact `pack`、`manualPlaceholders=0`、`manualResultWrites=0`、两代 member 完成、至少一个独立 Reviewer 完成、completion fail-closed 边界成立且 `cleanup=removed`。每个 member 还会记录从所选 pack manifest 派生的 `outputContract`（manifest path/SHA、task type、route ID 与 fields），Reviewer rejection/acceptance 必须绑定同一 exact route；completion 还会重验 packet shard 与 canonical `ReviewerResult.items` 完全一致，并都指向当前 member manifest。action-ready 路径继续要求 TaskContext 绑定当前 RESUME/checkpoint/owner/correction；终态 receipt 只把已完成 attempt 当作 immutable snapshot 验证其内部 artifact hashes、mission intent 与当前 exact pack contract，不能因 completion 合法刷新 lane 文档而误报历史快照漂移。receipt 将 durable owner、external attempt 与本次 host 启动顺序分别记录为 `ownerGeneration`、`attemptGeneration`、`hostRun` + `runLaunchOrdinal`，不再用一个含糊的 generation 字段混表示。
+通过 receipt 必须同时满足 `passed=true`、exact `pack`、`manualPlaceholders=0`、`manualResultWrites=0`、两代 member 完成、独立 Reviewer 完成、completion fail-closed 边界成立且 `cleanup=removed`。attached case 还必须证明 member packet cutpoint、accepted Reviewer intake cutpoint、同一 goal 的零 Claude completion recovery 和 terminal replay，且 `replayLaunches=0`。每个 member 记录从所选 pack manifest 派生的 `outputContract`（manifest path/SHA、task type、route ID 与 fields），Reviewer rejection/acceptance 必须绑定同一 exact route；completion 还会重验 packet shard 与 canonical `ReviewerResult.items` 完全一致，并都指向当前 member manifest。action-ready 路径继续要求 TaskContext 绑定当前 RESUME/checkpoint/owner/correction；终态 receipt 只把已完成 attempt 当作 immutable snapshot 验证其内部 artifact hashes、mission intent 与当前 exact pack contract，不能因 completion 合法刷新 lane 文档而误报历史快照漂移。receipt 将 durable owner、external attempt 与本次 host 启动顺序分别记录为 `ownerGeneration`、`attemptGeneration`、`hostRun` + `runLaunchOrdinal`，不再用一个含糊的 generation 字段混表示。
 
 维护 RH-09 Windows 连续试用时，使用 Go-owned 聚合 gate；它顺序运行默认 `vmp-re`、`_template`、`web-security` 三个真实任务，并追加既有真实进程中断恢复门槛，任一失败仍保留在最终仓库外 receipt 中：
 

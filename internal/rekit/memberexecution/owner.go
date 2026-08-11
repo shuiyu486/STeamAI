@@ -107,20 +107,25 @@ func currentTaskBindingRel(lane string, ownerGeneration int) string {
 	return filepath.ToSlash(filepath.Join(".rekit", "lanes", lane, "member-task-bindings", fmt.Sprintf("g%06d.json", ownerGeneration)))
 }
 
-func currentTaskBindingOwnerGeneration(caseRoot, lane string) (int, error) {
+func currentTaskBindingOwner(caseRoot, lane string) (string, int, error) {
 	lane = strings.TrimSpace(lane)
 	if !segment.MatchString(lane) {
-		return 0, fmt.Errorf("member execution task binding lane is invalid")
+		return "", 0, fmt.Errorf("member execution task binding lane is invalid")
 	}
 	board, err := mission.ReadBoard(caseRoot)
 	if err != nil {
-		return 0, err
+		return "", 0, err
 	}
 	current, ok := mission.LookupBoardLane(board.Lanes, lane, false)
 	if !ok || strings.TrimSpace(current.CurrentExecutor) == "" || current.ExecutorGeneration < 1 {
-		return 0, fmt.Errorf("member execution task binding requires a current durable executor generation")
+		return "", 0, fmt.Errorf("member execution task binding requires a current durable executor generation")
 	}
-	return current.ExecutorGeneration, nil
+	return strings.TrimSpace(current.CurrentExecutor), current.ExecutorGeneration, nil
+}
+
+func currentTaskBindingOwnerGeneration(caseRoot, lane string) (int, error) {
+	_, generation, err := currentTaskBindingOwner(caseRoot, lane)
+	return generation, err
 }
 
 func CurrentTaskBinding(caseRoot, lane string) (*TaskBinding, error) {
@@ -165,20 +170,71 @@ func CurrentTaskBinding(caseRoot, lane string) (*TaskBinding, error) {
 }
 
 func WriteTaskBinding(caseRoot, lane string, binding TaskBinding) (string, string, error) {
+	_, generation, err := currentTaskBindingOwner(caseRoot, lane)
+	if err != nil {
+		return "", "", err
+	}
+	return writeTaskBinding(caseRoot, lane, "", generation, false, binding)
+}
+
+func WriteTaskBindingForOwner(
+	caseRoot,
+	lane,
+	expectedExecutor string,
+	expectedGeneration int,
+	binding TaskBinding,
+) (string, string, error) {
+	return writeTaskBinding(
+		caseRoot,
+		lane,
+		strings.TrimSpace(expectedExecutor),
+		expectedGeneration,
+		true,
+		binding,
+	)
+}
+
+func writeTaskBinding(
+	caseRoot,
+	lane,
+	expectedExecutor string,
+	expectedGeneration int,
+	requireExpectedOwner bool,
+	binding TaskBinding,
+) (_ string, _ string, retErr error) {
 	binding, err := validateTaskBinding(binding)
 	if err != nil {
 		return "", "", err
 	}
-	ownerGeneration, err := currentTaskBindingOwnerGeneration(caseRoot, lane)
+	lane = strings.TrimSpace(lane)
+	lease, err := lanemutation.AcquireLane(caseRoot, lane)
 	if err != nil {
 		return "", "", err
+	}
+	defer func() { retErr = errors.Join(retErr, lease.Unlock()) }()
+	if err := lease.Validate(); err != nil {
+		return "", "", err
+	}
+	currentExecutor, ownerGeneration, err := currentTaskBindingOwner(caseRoot, lane)
+	if err != nil {
+		return "", "", err
+	}
+	if requireExpectedOwner &&
+		(expectedExecutor == "" || expectedGeneration < 1 ||
+			currentExecutor != expectedExecutor ||
+			ownerGeneration != expectedGeneration) {
+		return "", "", fmt.Errorf(
+			"member execution task binding owner changed: current executor=%s generation=%d",
+			currentExecutor,
+			ownerGeneration,
+		)
 	}
 	envelope := struct {
 		SchemaVersion   int         `json:"schemaVersion"`
 		Lane            string      `json:"lane"`
 		OwnerGeneration int         `json:"ownerGeneration"`
 		Binding         TaskBinding `json:"binding"`
-	}{SchemaVersion: SchemaVersion, Lane: strings.TrimSpace(lane), OwnerGeneration: ownerGeneration, Binding: binding}
+	}{SchemaVersion: SchemaVersion, Lane: lane, OwnerGeneration: ownerGeneration, Binding: binding}
 	data, err := canonical(envelope)
 	if err != nil {
 		return "", "", err
@@ -186,6 +242,9 @@ func WriteTaskBinding(caseRoot, lane string, binding TaskBinding) (string, strin
 	rel := currentTaskBindingRel(envelope.Lane, ownerGeneration)
 	if _, err := rekitfs.WriteExclusiveRegularFileAnchored(caseRoot, rel, "member execution task binding", data); err != nil {
 		return "", "", err
+	}
+	if err := lease.Validate(); err != nil {
+		return "", "", fmt.Errorf("member execution task binding may already be durable: %w", err)
 	}
 	return rel, hash(data), nil
 }
@@ -688,7 +747,11 @@ func PreviewObservation(opt ObservationOptions) (Plan, error) {
 	return finishPlan(Plan{SchemaVersion: 1, Mode: "observe", CaseRoot: caseRoot, Pack: opt.Pack, AttemptID: opt.AttemptID, Owner: owner, Outcome: outcome, Actor: actor, Reason: opt.Reason, Inspection: inspection, ReviewRequired: true, RequiresConfirmation: true, Boundary: boundaries(), writes: resultWrites})
 }
 
-func Apply(plan Plan, expected string) (_ Result, retErr error) {
+func Apply(plan Plan, expected string) (Result, error) {
+	return ApplyCurrent(plan, expected, nil)
+}
+
+func ApplyCurrent(plan Plan, expected string, validateCurrent func() error) (_ Result, retErr error) {
 	if !validSHA(expected) || !strings.EqualFold(expected, plan.ExpectedPlanSHA256) {
 		return Result{}, fmt.Errorf("member execution expected plan sha256 mismatch")
 	}
@@ -699,6 +762,11 @@ func Apply(plan Plan, expected string) (_ Result, retErr error) {
 	defer func() { retErr = errors.Join(retErr, lease.Unlock()) }()
 	if applyLeaseHook != nil {
 		if err := applyLeaseHook(plan); err != nil {
+			return Result{}, err
+		}
+	}
+	if validateCurrent != nil {
+		if err := validateCurrent(); err != nil {
 			return Result{}, err
 		}
 	}

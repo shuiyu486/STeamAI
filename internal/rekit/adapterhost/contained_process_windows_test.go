@@ -3,6 +3,7 @@
 package adapterhost
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +18,14 @@ import (
 )
 
 func TestContainedProcessHelper(t *testing.T) {
+	if bytesText := os.Getenv("REKIT_CONTAINED_PROCESS_STDOUT_BYTES"); bytesText != "" {
+		count, err := strconv.Atoi(bytesText)
+		if err != nil {
+			os.Exit(93)
+		}
+		_, _ = os.Stdout.Write([]byte(strings.Repeat("x", count)))
+		return
+	}
 	if os.Getenv("REKIT_CONTAINED_PROCESS_HELPER") == "" {
 		return
 	}
@@ -32,6 +41,26 @@ func TestContainedProcessHelper(t *testing.T) {
 		os.Exit(92)
 	}
 	select {}
+}
+
+func TestRunContainedProcessRejectsOversizedStdout(t *testing.T) {
+	current, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := processguard.LockExecutable(current, 128<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer binding.Close()
+	env := append(os.Environ(), fmt.Sprintf("REKIT_CONTAINED_PROCESS_STDOUT_BYTES=%d", maxContainedStdoutBytes+1))
+	stdout, _, _, runErr := runContainedProcess(binding, []string{"-test.run=TestContainedProcessHelper"}, env, 10*time.Second)
+	if runErr == nil || !strings.Contains(runErr.Error(), "exceeded bounded stdout or stderr") {
+		t.Fatalf("contained process oversized stdout should fail closed: %v", runErr)
+	}
+	if len(stdout) != maxContainedStdoutBytes {
+		t.Fatalf("contained stdout bytes = %d, want %d", len(stdout), maxContainedStdoutBytes)
+	}
 }
 
 func TestRunContainedProcessTimeoutKillsPipeHoldingDescendant(t *testing.T) {

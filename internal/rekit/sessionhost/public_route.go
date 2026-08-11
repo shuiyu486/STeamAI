@@ -11,18 +11,39 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
+type publicDriverRequest struct {
+	Kind              string `json:"kind,omitempty"`
+	RunLoopStepID     string `json:"runLoopStepId,omitempty"`
+	Actor             string `json:"actor,omitempty"`
+	Source            string `json:"source,omitempty"`
+	Lane              string `json:"lane,omitempty"`
+	Label             string `json:"label,omitempty"`
+	Command           string `json:"command"`
+	Guidance          string `json:"guidance,omitempty"`
+	CommandExecutable bool   `json:"commandExecutable"`
+	Blocked           bool   `json:"blocked,omitempty"`
+}
+
+type publicLaneAction struct {
+	Lane    string `json:"lane,omitempty"`
+	Label   string `json:"label,omitempty"`
+	Blocked bool   `json:"blocked,omitempty"`
+}
+
+type publicActionQueue struct {
+	UnblockedActions []publicLaneAction `json:"unblockedActions,omitempty"`
+	BlockedActions   []publicLaneAction `json:"blockedActions,omitempty"`
+}
+
 type publicStatus struct {
 	MissionControlRunbook *struct {
-		CurrentDriverRequest *struct {
-			Kind              string `json:"kind,omitempty"`
-			RunLoopStepID     string `json:"runLoopStepId,omitempty"`
-			Command           string `json:"command"`
-			CommandExecutable bool   `json:"commandExecutable"`
-			Blocked           bool   `json:"blocked,omitempty"`
-		} `json:"currentDriverRequest,omitempty"`
+		Scope                string               `json:"scope,omitempty"`
+		CurrentDriverRequest *publicDriverRequest `json:"currentDriverRequest,omitempty"`
 	} `json:"missionControlRunbook,omitempty"`
 	CaseMission *struct {
-		MissionCompletion *struct {
+		MissionCommanderActionQueue       publicActionQueue `json:"missionCommanderActionQueue"`
+		ReviewerDispatchIntakeActionQueue publicActionQueue `json:"reviewerDispatchIntakeActionQueue"`
+		MissionCompletion                 *struct {
 			Ready                 bool   `json:"ready"`
 			State                 string `json:"state"`
 			OperationallyComplete bool   `json:"operationallyComplete"`
@@ -49,6 +70,15 @@ type publicDriverResult struct {
 	PreviousExecutor   string
 	ExecutorGeneration int
 	Completion         *workstream.CompleteResult
+}
+
+type publicNoteResult struct {
+	IsMutation  bool     `json:"isMutation"`
+	Applied     bool     `json:"applied"`
+	Reason      string   `json:"reason,omitempty"`
+	EventID     string   `json:"eventId"`
+	EventSHA256 string   `json:"eventSha256"`
+	RecordArgs  []string `json:"recordArgs,omitempty"`
 }
 
 func runPublicCLI(args []string, target any) error {
@@ -78,6 +108,13 @@ func runPublicCommand(command string) error {
 	return runPublicCLI(args, nil)
 }
 
+func firstSelectedLane(selected []string) string {
+	if len(selected) == 0 {
+		return ""
+	}
+	return selected[0]
+}
+
 func publicCommandName(command string) (string, error) {
 	args, err := cli.SplitPublicCommand(command)
 	if err != nil {
@@ -89,22 +126,25 @@ func publicCommandName(command string) (string, error) {
 	return strings.ToLower(strings.TrimSpace(args[1])), nil
 }
 
-func runPublicStatus(caseRoot, pack string) (publicStatus, error) {
+func runPublicStatus(caseRoot, pack, selected string) (publicStatus, error) {
 	args := []string{"-Command", "status", "-Target", caseRoot}
 	if strings.TrimSpace(pack) != "" {
 		args = append(args, "-Pack", pack)
 	}
+	args = appendSelectedLaneArg(args, selected)
 	args = append(args, "-Format", "json")
 	var status publicStatus
 	err := runPublicCLI(args, &status)
 	return status, err
 }
 
-func runPublicDriverStep(caseRoot, pack string) (publicDriverResult, error) {
+func runPublicDriverStep(caseRoot, pack string, selected ...string) (publicDriverResult, error) {
+	lane := firstSelectedLane(selected)
 	previewArgs := []string{"-Command", "run-driver-step", "-Target", caseRoot}
 	if strings.TrimSpace(pack) != "" {
 		previewArgs = append(previewArgs, "-Pack", pack)
 	}
+	previewArgs = appendSelectedLaneArg(previewArgs, lane)
 	previewArgs = append(previewArgs, "-WhatIf", "-Format", "json")
 	var preview publicDriverStep
 	if err := runPublicCLI(previewArgs, &preview); err != nil {
@@ -117,6 +157,7 @@ func runPublicDriverStep(caseRoot, pack string) (publicDriverResult, error) {
 	if strings.TrimSpace(pack) != "" {
 		applyArgs = append(applyArgs, "-Pack", pack)
 	}
+	applyArgs = appendSelectedLaneArg(applyArgs, lane)
 	applyArgs = append(applyArgs, "-ExpectedDriverStepPlanSha256", preview.ExpectedDriverStepPlanSHA256, "-Apply", "-Format", "json")
 	var applied struct {
 		publicDriverStep

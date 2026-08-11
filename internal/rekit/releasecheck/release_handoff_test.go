@@ -3,6 +3,7 @@ package releasecheck
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -92,9 +93,7 @@ func TestPostPushReceiptFailsClosed(t *testing.T) {
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
 			values := map[string]string{}
-			for key, value := range base {
-				values[key] = value
-			}
+			maps.Copy(values, base)
 			fixture.change(values)
 			receipt := releaseHandoffPostPushReceiptFor(t.TempDir(), latest, postPushGitFixture(values))
 			if receipt.Ready || receipt.State != fixture.state {
@@ -330,8 +329,8 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	assertHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "removalImpact=true impactReferences=")
 	assertHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "workItems=")
 	assertHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "validationCommands=")
-	assertHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "migrationTargets=75")
-	assertHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "migrationValidationCommands=600")
+	assertHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "migrationTargets=76")
+	assertHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "migrationValidationCommands=608")
 	assertHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "smokeMigrationTargets=29")
 	assertHandoffSignalDetailContains(t, handoff, "public facade removal prerequisites", "smokeMigrationValidationCommands=232")
 	assertHandoffSignalDetail(t, handoff, "public facade removal prerequisites", "public-facade-retained-boundary ready=true publicFacadeReady=true present=true retained=true migrationBoundary=true removalBoundary=true")
@@ -384,12 +383,12 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 
 func TestReleaseHandoffActiveRouteBlocksCompletedLegacyBatchSelection(t *testing.T) {
 	repo := cleanReleaseRepoRoot(t)
-	setReleaseHandoffActiveRouteFixture(t, repo, "in_progress", "RH-09", "fixture-next-batch")
+	setReleaseHandoffActiveRouteFixture(t, repo, "in_progress", "DPC-02", "fixture-next-batch")
 	writeReleaseHandoffLatestBatchFixture(t, repo, `### Batch 999：fixture completed numbered batch
 
 状态：已完成。
 
-目标：证明 active RH route 必须优先于任意已完成 numbered batch。
+目标：证明 active approved route 必须优先于任意已完成 numbered batch。
 
 验证结果：完成态 release-check -Format json 返回 ready=true；统一 release-run -Format json 以7/7通过；implementation commit abc999d 已推送。
 
@@ -399,11 +398,11 @@ func TestReleaseHandoffActiveRouteBlocksCompletedLegacyBatchSelection(t *testing
 		t.Fatal(err)
 	}
 	route := result.ReleaseHandoff.ActiveRoute
-	if !route.Present || !route.Ready || route.Route != "real-usage-hardening-v1" || !strings.HasPrefix(route.CurrentBatch, route.ExclusiveClaim+" ") || route.State != "in_progress" || route.ExclusiveClaim == "" || route.NextBatchUnlocked || route.CurrentAction == nil {
-		t.Fatalf("active RH route=%+v", route)
+	if !route.Present || !route.Ready || route.Route != "daily-product-closure-v1" || !strings.HasPrefix(route.CurrentBatch, route.ExclusiveClaim+" ") || route.State != "in_progress" || route.ExclusiveClaim == "" || route.NextBatchUnlocked || route.CurrentAction == nil {
+		t.Fatalf("active product route=%+v", route)
 	}
 	if result.ReleaseHandoff.NextBatchSelectionPackage != nil {
-		t.Fatalf("in-progress RH route exposed free next-batch selection: %+v", result.ReleaseHandoff.NextBatchSelectionPackage)
+		t.Fatalf("in-progress product route exposed free next-batch selection: %+v", result.ReleaseHandoff.NextBatchSelectionPackage)
 	}
 	if route.CurrentAction.ActionID != "active-route-current-batch" || route.CurrentAction.Source != "releaseHandoffActiveRoute" || !strings.Contains(route.CurrentAction.Command, route.ExclusiveClaim) || strings.Contains(route.CurrentAction.Command, "select the next Windows-verifiable") {
 		t.Fatalf("active route current action=%+v", route.CurrentAction)
@@ -434,7 +433,7 @@ func TestReleaseHandoffActiveRouteMissingProjectionFieldFailsClosed(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := strings.Replace(string(data), "| 路线 | `real-usage-hardening-v1` |", "", 1)
+	text := strings.Replace(string(data), "| 路线 | `daily-product-closure-v1` |", "", 1)
 	if text == string(data) {
 		t.Fatal("fixture did not remove the route projection field")
 	}
@@ -463,7 +462,7 @@ func TestReleaseHandoffCompletedRouteWithInvalidProjectionFailsClosed(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	broken := strings.Replace(string(projection), "| 路线 | `real-usage-hardening-v1` |", "", 1)
+	broken := strings.Replace(string(projection), "| 路线 | `daily-product-closure-v1` |", "", 1)
 	if broken == string(projection) {
 		t.Fatal("fixture did not remove the completed route projection field")
 	}
@@ -481,36 +480,94 @@ func TestReleaseHandoffCompletedRouteWithInvalidProjectionFailsClosed(t *testing
 	}
 }
 
-func TestReleaseHandoffBuildsNextBatchSelectionPackage(t *testing.T) {
+func TestReleaseHandoffUnsupportedActiveRouteStatesFailClosed(t *testing.T) {
+	for _, state := range []string{"unknown", "draft", "proposed"} {
+		t.Run(state, func(t *testing.T) {
+			repo := cleanReleaseRepoRoot(t)
+			setReleaseHandoffActiveRouteFixture(t, repo, state, "DPC-01", "DPC-02")
+			writeCompletedReleaseHandoffLatestBatchFixture(t, repo)
+			result, err := Build(repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			route := result.ReleaseHandoff.ActiveRoute
+			if route.Ready || route.NextBatchUnlocked || route.CurrentAction == nil ||
+				route.CurrentAction.ActionID != "active-route-conflict" ||
+				!route.CurrentAction.Blocked || !route.CurrentAction.RequiresReview ||
+				!releaseHandoffStringsContain(route.Warnings, "unsupported state") ||
+				result.ReleaseHandoff.NextBatchSelectionPackage != nil {
+				t.Fatalf("unsupported active route state did not fail closed: route=%+v package=%+v", route, result.ReleaseHandoff.NextBatchSelectionPackage)
+			}
+		})
+	}
+}
+
+func TestReleaseHandoffCompletedRouteRequiresExactNextBatchClaim(t *testing.T) {
 	repo := cleanReleaseRepoRoot(t)
-	disableReleaseHandoffActiveRouteFixture(t, repo)
+	setReleaseHandoffActiveRouteFixture(t, repo, "completed", "DPC-03", "DPC-02，only after acceptance")
+	writeCompletedReleaseHandoffLatestBatchFixture(t, repo)
+	result, err := Build(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	route := result.ReleaseHandoff.ActiveRoute
+	if route.Ready || route.NextBatchUnlocked || route.CurrentAction == nil ||
+		route.CurrentAction.ActionID != "active-route-conflict" ||
+		!releaseHandoffStringsContain(route.Warnings, "exact next batch") ||
+		result.ReleaseHandoff.NextBatchSelectionPackage != nil {
+		t.Fatalf("wrong completed route claim did not fail closed: route=%+v package=%+v", route, result.ReleaseHandoff.NextBatchSelectionPackage)
+	}
+}
+
+func TestReleaseHandoffBatchIDStopsAtRoutePunctuation(t *testing.T) {
+	for _, fixture := range []struct {
+		value string
+		want  string
+	}{
+		{value: "DPC-02, only after acceptance", want: "DPC-02"},
+		{value: "DPC-02，only after acceptance", want: "DPC-02"},
+		{value: "DPC-02; only after acceptance", want: "DPC-02"},
+		{value: "DPC-02；only after acceptance", want: "DPC-02"},
+		{value: "Batch 822，only after acceptance", want: "Batch 822"},
+	} {
+		if got := releaseHandoffBatchID(fixture.value); got != fixture.want {
+			t.Fatalf("releaseHandoffBatchID(%q) = %q, want %q", fixture.value, got, fixture.want)
+		}
+	}
+}
+
+func TestReleaseHandoffCompletedRouteUnlocksPunctuatedExactNextBatch(t *testing.T) {
+	repo := cleanReleaseRepoRoot(t)
+	setReleaseHandoffActiveRouteFixture(t, repo, "completed", "DPC-02", "DPC-02，only after acceptance")
+	writeCompletedReleaseHandoffLatestBatchFixture(t, repo)
+	result, err := Build(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.ReleaseHandoff.ActiveRoute.NextBatchUnlocked {
+		t.Fatalf("punctuated exact next batch did not unlock: %+v", result.ReleaseHandoff.ActiveRoute)
+	}
+	assertExactActiveRouteNextBatchPackage(t, result.ReleaseHandoff.NextBatchSelectionPackage, "DPC-02")
+}
+
+func TestReleaseHandoffBuildsExactActiveRouteNextBatchPackage(t *testing.T) {
+	repo := cleanReleaseRepoRoot(t)
+	unlockReleaseHandoffActiveRouteFixture(t, repo)
 	writeCompletedReleaseHandoffLatestBatchFixture(t, repo)
 	result, err := Build(repo)
 	if err != nil {
 		t.Fatal(err)
 	}
 	pkg := result.ReleaseHandoff.NextBatchSelectionPackage
-	if pkg == nil || !pkg.Ready || pkg.MissionCommanderActionQueue.CurrentAction == nil || pkg.MissionCommanderActionQueue.CurrentAction.ActionID != "next-batch-selection" || pkg.MissionCommanderActionQueue.Counts.Total != 8 || pkg.MissionCommanderActionQueue.Counts.FollowUp != 7 {
-		t.Fatalf("release-check Build should expose next-batch selection package after completed cadence: pkg=%+v handoffReady=%t warnings=%+v latest=%+v", pkg, result.ReleaseHandoff.Ready, result.ReleaseHandoff.Warnings, result.ReleaseHandoff.LatestBatch.Handoff)
-	}
-	foundReplacementExecutor := false
-	for _, item := range pkg.MissionCommanderNextActions {
-		if item.ActionID == "next-batch-replacement-executor-takeover" && item.Source == "releaseHandoffNextBatch.followUp.candidateDomain" && releaseHandoffStringsContain(item.Reasons, "pack-memory candidate queue is closed") && releaseHandoffStringsContain(item.Boundary, "candidate-domain follow-ups are selection guidance only") {
-			foundReplacementExecutor = true
-			break
-		}
-	}
-	if !foundReplacementExecutor {
-		t.Fatalf("release-check Build omitted replacement executor candidate-domain action: %+v", pkg.MissionCommanderNextActions)
-	}
-	if len(pkg.NextBatchPlanningRoutes) != 7 || pkg.NextBatchPlanningRoutes[1].Domain != "replacement-executor" || pkg.NextBatchPlanningRoutes[1].DomainActionID != "next-batch-replacement-executor-takeover" || pkg.NextBatchPlanningRoutes[1].CommandExecutable || !pkg.NextBatchPlanningRoutes[1].RequiresReview || pkg.NextBatchPlanningRoutes[1].ExpectedApplySource != "nextBatchCommand" || pkg.NextBatchPlanningRoutes[1].ExpectedApplyDriverKind != "preview-command" || !strings.Contains(pkg.NextBatchPlanningRoutes[1].WhatIfCommandTemplate, pkg.NextBatchPlanningRoutes[1].ClosurePlaceholder) || !releaseHandoffStringsContain(pkg.NextBatchPlanningRoutes[1].RunbookSteps, "replace closurePlaceholder") || !releaseHandoffStringsContain(pkg.NextBatchPlanningRoutes[1].Boundary, "durable handoff templates") {
-		t.Fatalf("release-check Build omitted durable next-batch planning routes: %+v", pkg.NextBatchPlanningRoutes)
+	assertExactActiveRouteNextBatchPackage(t, pkg, "fixture-next-batch")
+	if pkg.StarterPackage != nil || len(pkg.NextBatchPlanningRoutes) != 0 {
+		t.Fatalf("exact active route next batch exposed generic starter or planning routes: %+v", pkg)
 	}
 }
 
 func TestReleaseHandoffBuildsNextBatchSelectionPackageWhenCurrentInventoryClosesStaleReleaseCheckNarrative(t *testing.T) {
 	repo := cleanReleaseRepoRoot(t)
-	disableReleaseHandoffActiveRouteFixture(t, repo)
+	unlockReleaseHandoffActiveRouteFixture(t, repo)
 	writeStaleReleaseCheckNarrativeLatestBatchFixture(t, repo)
 	result, err := Build(repo)
 	if err != nil {
@@ -527,14 +584,12 @@ func TestReleaseHandoffBuildsNextBatchSelectionPackageWhenCurrentInventoryCloses
 		t.Fatalf("completed cadence should hand off to next-batch selection, got %q", latest.NextAction)
 	}
 	pkg := result.ReleaseHandoff.NextBatchSelectionPackage
-	if pkg == nil || !pkg.Ready || pkg.MissionCommanderActionQueue.CurrentAction == nil || pkg.MissionCommanderActionQueue.CurrentAction.ActionID != "next-batch-selection" {
-		t.Fatalf("completed stale-narrative handoff should expose next-batch selection package: pkg=%+v handoff=%+v warnings=%+v", pkg, latest, result.ReleaseHandoff.Warnings)
-	}
+	assertExactActiveRouteNextBatchPackage(t, pkg, "fixture-next-batch")
 }
 
 func TestReleaseHandoffBuildsNextBatchSelectionPackageWithShortLocalValidationEvidence(t *testing.T) {
 	repo := cleanReleaseRepoRoot(t)
-	disableReleaseHandoffActiveRouteFixture(t, repo)
+	unlockReleaseHandoffActiveRouteFixture(t, repo)
 	writeShortLocalValidationEvidenceLatestBatchFixture(t, repo)
 	result, err := Build(repo)
 	if err != nil {
@@ -556,14 +611,12 @@ func TestReleaseHandoffBuildsNextBatchSelectionPackageWithShortLocalValidationEv
 		t.Fatalf("short local validation evidence should hand off to next-batch selection, got %q", latest.NextAction)
 	}
 	pkg := result.ReleaseHandoff.NextBatchSelectionPackage
-	if pkg == nil || !pkg.Ready || pkg.MissionCommanderActionQueue.CurrentAction == nil || pkg.MissionCommanderActionQueue.CurrentAction.ActionID != "next-batch-selection" {
-		t.Fatalf("short local validation evidence should expose next-batch selection package: pkg=%+v handoff=%+v warnings=%+v", pkg, latest, result.ReleaseHandoff.Warnings)
-	}
+	assertExactActiveRouteNextBatchPackage(t, pkg, "fixture-next-batch")
 }
 
 func TestReleaseHandoffBuildsNextBatchAfterSevenOfSevenPushWithRemoteNotRecorded(t *testing.T) {
 	repo := cleanReleaseRepoRoot(t)
-	disableReleaseHandoffActiveRouteFixture(t, repo)
+	unlockReleaseHandoffActiveRouteFixture(t, repo)
 	longValidationPrefix := strings.Repeat("reviewed candidate reconsume operator evidence recorded; ", 12)
 	writeReleaseHandoffLatestBatchFixture(t, repo, `### Batch 816：Fixture
 
@@ -592,9 +645,7 @@ func TestReleaseHandoffBuildsNextBatchAfterSevenOfSevenPushWithRemoteNotRecorded
 		t.Fatalf("canonical 7/7 pushed batch should complete Windows-first cadence: %+v", cadence)
 	}
 	pkg := result.ReleaseHandoff.NextBatchSelectionPackage
-	if pkg == nil || !pkg.Ready || pkg.MissionCommanderActionQueue.CurrentAction == nil || pkg.MissionCommanderActionQueue.CurrentAction.ActionID != "next-batch-selection" {
-		t.Fatalf("canonical 7/7 pushed batch should expose next-batch selection without remote evidence: %+v", pkg)
-	}
+	assertExactActiveRouteNextBatchPackage(t, pkg, "fixture-next-batch")
 	if !strings.Contains(latest.NextAction, "without waiting for remote CI") {
 		t.Fatalf("canonical 7/7 pushed batch should not route to remote inspection: %q", latest.NextAction)
 	}
@@ -619,6 +670,10 @@ func setReleaseHandoffActiveRouteFixture(t *testing.T, repo, state, claim, next 
 				continue
 			}
 			name := strings.TrimSpace(columns[1])
+			if name == "当前批次" && state == "in_progress" {
+				lines[index] = "| 当前批次 | `" + claim + "` fixture current batch |"
+				continue
+			}
 			value, ok := fields[name]
 			if ok {
 				lines[index] = "| " + name + " | `" + value + "` |"
@@ -630,9 +685,31 @@ func setReleaseHandoffActiveRouteFixture(t *testing.T, repo, state, claim, next 
 	}
 }
 
-func disableReleaseHandoffActiveRouteFixture(t *testing.T, repo string) {
+func unlockReleaseHandoffActiveRouteFixture(t *testing.T, repo string) {
 	t.Helper()
 	setReleaseHandoffActiveRouteFixture(t, repo, "completed", "fixture-next-batch", "fixture-next-batch")
+}
+
+func assertExactActiveRouteNextBatchPackage(t *testing.T, pkg *ReleaseHandoffNextBatchSelectionPackage, next string) {
+	t.Helper()
+	if pkg == nil || !pkg.Ready || pkg.MissionCommanderActionQueue.CurrentAction == nil {
+		t.Fatalf("exact active route next-batch package is not ready: %+v", pkg)
+	}
+	current := pkg.MissionCommanderActionQueue.CurrentAction
+	if current.ActionID != "active-route-next-batch-selection" ||
+		current.Source != "releaseHandoffActiveRoute.nextBatch" ||
+		current.Label != next ||
+		!current.RequiresReview ||
+		current.Blocked ||
+		pkg.MissionCommanderActionQueue.Counts.Total != 1 ||
+		pkg.MissionCommanderActionQueue.Counts.FollowUp != 0 ||
+		len(pkg.MissionCommanderNextActions) != 1 {
+		t.Fatalf("exact active route next-batch package drifted: %+v", pkg)
+	}
+	if !strings.Contains(current.Command, next) ||
+		!releaseHandoffStringsContain(current.Boundary, "generic candidate pool") {
+		t.Fatalf("exact active route next-batch action lost its exact binding: %+v", current)
+	}
 }
 
 func writeCompletedReleaseHandoffLatestBatchFixture(t *testing.T, repo string) {

@@ -34,7 +34,7 @@ func runCurrentLoopExternalSessionDispatch(ctx runtime.Context, opt Options, out
 	if err := validateCurrentLoopOuterArgs(opt); err != nil {
 		return err
 	}
-	status, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+	status, err := buildInvocationStatusInventory(ctx, opt)
 	if err != nil {
 		return err
 	}
@@ -86,7 +86,7 @@ func runCurrentLoopExternalSessionDispatch(ctx runtime.Context, opt Options, out
 		return err
 	}
 	result := currentLoopExternalSessionDispatchResult{DispatchPlan: applied}
-	if fresh, refreshErr := buildStatusInventory(ctx, statusPackSource(ctx, opt)); refreshErr == nil {
+	if fresh, refreshErr := buildInvocationStatusInventory(ctx, opt); refreshErr == nil {
 		result.RefreshedStatus = &fresh
 	}
 	return writeJSON(out, result)
@@ -135,6 +135,9 @@ func externalSessionDispatcherPackage(job externalsession.Job, attemptSHA256 str
 
 func externalSessionDispatcherRequestIsFocused(operator *mission.CurrentLoopOperatorPackage) bool {
 	if operator == nil || operator.ExternalSessionJob == nil || operator.ExternalSessionJob.Dispatcher == nil || operator.SelectedDriverRequest == nil || (operator.ObservationInbox != nil && operator.ObservationInbox.State != "empty") || operator.SelectedDriverRequest.Source == "current-loop-observation-inbox" {
+		return false
+	}
+	if operator.SourceCurrentDriverRequest != nil && currentStepRequestIsEvidenceReview(*operator.SourceCurrentDriverRequest) {
 		return false
 	}
 	job := operator.ExternalSessionJob

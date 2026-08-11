@@ -250,6 +250,24 @@ func TestRunLiveSoakAcceptanceDoesNotCountUncreatedCaseAsRemoved(t *testing.T) {
 	}
 }
 
+func TestLiveSoakTaskRequiresAllAttachedRecoveryCutpoints(t *testing.T) {
+	base := successfulLiveSoakTaskReceipt()
+	for name, mutate := range map[string]func(*LiveAcceptanceReceipt){
+		"member":     func(receipt *LiveAcceptanceReceipt) { receipt.AttachedCase.MemberCutpointVerified = false },
+		"reviewer":   func(receipt *LiveAcceptanceReceipt) { receipt.AttachedCase.ReviewerCutpointVerified = false },
+		"completion": func(receipt *LiveAcceptanceReceipt) { receipt.AttachedCase.CompletionRecoveryVerified = false },
+	} {
+		t.Run(name, func(t *testing.T) {
+			receipt := base
+			mutate(&receipt)
+			task := summarizeLiveSoakTask(1, 1, liveAcceptancePack, receipt, nil, time.Second)
+			if task.ExistingCaseVerified || task.Passed {
+				t.Fatalf("attached task passed without %s cutpoint: %+v", name, task)
+			}
+		})
+	}
+}
+
 func TestLiveAcceptanceSessionPreservesTypedFailure(t *testing.T) {
 	receipt := LiveAcceptanceReceipt{}
 	addLiveAcceptanceSessions(&receipt, Result{Sessions: []Session{{
@@ -388,12 +406,15 @@ func successfulLiveSoakTaskReceipt() LiveAcceptanceReceipt {
 			Verified: true,
 		},
 		AttachedCase: LiveAcceptanceAttached{
-			CaseRoot:       filepath.Join("C:\\temp", "attached"),
-			CaseCreated:    true,
-			Verified:       true,
-			TerminalReplay: true,
-			ReplayLaunches: 0,
-			Cleanup:        "removed",
+			CaseRoot:                   filepath.Join("C:\\temp", "attached"),
+			CaseCreated:                true,
+			Verified:                   true,
+			MemberCutpointVerified:     true,
+			ReviewerCutpointVerified:   true,
+			CompletionRecoveryVerified: true,
+			TerminalReplay:             true,
+			ReplayLaunches:             0,
+			Cleanup:                    "removed",
 		},
 		MemberLaunches:      3,
 		MemberCompletions:   3,

@@ -295,6 +295,37 @@ func TestTaskBindingBindsRequestAndRotatesWithOwnerGeneration(t *testing.T) {
 	}
 }
 
+func TestWriteTaskBindingForOwnerRejectsTakeover(t *testing.T) {
+	caseRoot := memberCase(t, "executor-a", 1)
+	writeBoard(t, caseRoot, "executor-b", 2)
+
+	_, _, err := WriteTaskBindingForOwner(
+		caseRoot,
+		"feature-analysis",
+		"executor-a",
+		1,
+		TaskBinding{
+			Kind: "vmp-ida-index-evidence",
+			Values: map[string]string{
+				"gate-event-id": "gate-a",
+			},
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "owner changed") {
+		t.Fatalf("stale owner task binding did not fail closed: %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(
+		caseRoot,
+		".rekit",
+		"lanes",
+		"feature-analysis",
+		"member-task-bindings",
+		"g000002.json",
+	)); !os.IsNotExist(statErr) {
+		t.Fatalf("stale evidence was written into the replacement generation: %v", statErr)
+	}
+}
+
 func TestReturnedCanCommitDirectlyFromHandoffReady(t *testing.T) {
 	caseRoot := memberCase(t, "executor-a", 1)
 	dispatch, err := PreviewDispatch(DispatchOptions{CaseRoot: caseRoot, Pack: "_template", Lane: "feature-analysis", RequestSHA256: strings.Repeat("f", 64), CreatedAt: "2026-08-03T01:02:03Z"})
@@ -544,6 +575,31 @@ func TestFailedRetryAndGenerationFence(t *testing.T) {
 	writeBoard(t, caseRoot, "executor-b", 2)
 	if _, err := PreviewObservation(ObservationOptions{CaseRoot: caseRoot, Pack: "_template", Lane: "feature-analysis", AttemptID: first.AttemptID, Outcome: "accepted", Actor: "late", ObservedAt: "2026-08-03T01:05:00Z"}); err == nil || !strings.Contains(err.Error(), "stale") {
 		t.Fatalf("late generation observation error=%v", err)
+	}
+}
+
+func TestApplyCurrentValidationFailurePublishesNoArtifacts(t *testing.T) {
+	caseRoot := memberCase(t, "executor-a", 1)
+	dispatch, err := PreviewDispatch(DispatchOptions{
+		CaseRoot: caseRoot, Pack: "_template", Lane: "feature-analysis",
+		RequestSHA256: strings.Repeat("7", 64), CreatedAt: "2026-08-03T01:02:03Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	called := false
+	_, err = ApplyCurrent(dispatch, dispatch.ExpectedPlanSHA256, func() error {
+		called = true
+		return fmt.Errorf("current request changed")
+	})
+	if err == nil || !called || !strings.Contains(err.Error(), "current request changed") {
+		t.Fatalf("current validation failure was not returned: called=%t err=%v", called, err)
+	}
+	if _, statErr := os.Stat(dispatch.Inspection.AttemptRoot); !os.IsNotExist(statErr) {
+		t.Fatalf("rejected current validation published attempt artifacts: %v", statErr)
+	}
+	if _, ok, latestErr := Latest(caseRoot, "feature-analysis"); latestErr != nil || ok {
+		t.Fatalf("rejected current validation became latest attempt: present=%t err=%v", ok, latestErr)
 	}
 }
 

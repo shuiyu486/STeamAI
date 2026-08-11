@@ -320,7 +320,14 @@ func TestClaudeReviewerRequestBindsExactDispatchIdentity(t *testing.T) {
 		`exactly these fields: ["item","decision","candidate_path"]`,
 		"Do not copy placeholder text such as packet.packetId",
 		"Judge only the current reviewed manifest",
+		"This session is the independent Reviewer for the current attempt",
+		"do not require the member output to contain this later session's result",
 		"historical rejection embedded in the replacement TaskContext is correction provenance",
+		"Put only readable case-relative file references",
+		"copy the first complete ida-index:... evidenceRef verbatim into result.summary",
+		"exact observationEventId verbatim",
+		"Keep result.routeOutput.evidence bound to an inspectable top-level evidenceRefs value",
+		"exact case-relative packetPath and receiptPath",
 	} {
 		if !strings.Contains(prompt, expected) {
 			t.Fatalf("reviewer prompt omitted exact dispatch identity %q: %s", expected, prompt)
@@ -355,6 +362,86 @@ func TestClaudeReviewerRequestBindsExactDispatchIdentity(t *testing.T) {
 	pkg.Launch.ReviewerIdentity = nil
 	if _, _, err := claudeRequest(caseRoot, pkg, "session-id"); err == nil || !strings.Contains(err.Error(), "exact durable dispatch identity") {
 		t.Fatalf("reviewer request accepted missing exact durable identity: %v", err)
+	}
+}
+
+func TestClaudeEvidenceReviewRequestBindsExactReadOnlyDecision(t *testing.T) {
+	caseRoot := t.TempDir()
+	inputRel := ".rekit/evidence-review-input.json"
+	input := []byte("{}\n")
+	inputPath := filepath.Join(caseRoot, filepath.FromSlash(inputRel))
+	if err := os.MkdirAll(filepath.Dir(inputPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(inputPath, input, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pkg := hostPackageForTest(caseRoot, inputRel, input)
+	pkg.SessionKind = "mission-commander-evidence-review"
+	pkg.Launch.ReadOnly = true
+	prompt, schema, err := claudeRequest(caseRoot, pkg, "session-id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"independent Mission Commander evidence review", "exact packet, request sources, report, dispatch, receipt, and observation", "Reject on any missing, unreadable, ambiguous, or drifted binding", "do not write files or ledger state"} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("evidence review prompt omitted %q: %s", expected, prompt)
+		}
+	}
+	for _, expected := range []string{`"enum":["accepted","rejected"]`, `"selectedEvidenceRef"`, `"observationEventId"`, `"receiptSha256"`, `"additionalProperties":false`} {
+		if !strings.Contains(schema, expected) {
+			t.Fatalf("evidence review schema omitted %q: %s", expected, schema)
+		}
+	}
+}
+
+func TestValidateEvidenceReviewResponseFailsClosed(t *testing.T) {
+	valid := evidenceReviewResponse{
+		Decision: "accepted", Summary: "exact lineage", Reason: "all bindings agree",
+		EvidenceRefs: []string{"packet.json", "receipt.json"}, SelectedEvidenceRef: "ida-index:function_index.tsv#L2",
+		ObservationEventID: "obs-exact", ReceiptSHA256: strings.Repeat("a", 64),
+	}
+	if err := validateEvidenceReviewResponse(valid); err != nil {
+		t.Fatal(err)
+	}
+	for name, mutate := range map[string]func(*evidenceReviewResponse){
+		"decision":          func(value *evidenceReviewResponse) { value.Decision = "defer" },
+		"summary":           func(value *evidenceReviewResponse) { value.Summary = "" },
+		"reason":            func(value *evidenceReviewResponse) { value.Reason = "" },
+		"refs":              func(value *evidenceReviewResponse) { value.EvidenceRefs = []string{"packet.json"} },
+		"empty ref":         func(value *evidenceReviewResponse) { value.EvidenceRefs[1] = "" },
+		"selected":          func(value *evidenceReviewResponse) { value.SelectedEvidenceRef = "" },
+		"observation":       func(value *evidenceReviewResponse) { value.ObservationEventID = "" },
+		"receipt malformed": func(value *evidenceReviewResponse) { value.ReceiptSHA256 = strings.Repeat("z", 64) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			copy := valid
+			copy.EvidenceRefs = append([]string{}, valid.EvidenceRefs...)
+			mutate(&copy)
+			if err := validateEvidenceReviewResponse(copy); err == nil {
+				t.Fatalf("invalid evidence review response was accepted: %+v", copy)
+			}
+		})
+	}
+	pkg := mission.CurrentLoopExternalSessionHarnessPackage{SessionKind: "mission-commander-evidence-review"}
+	run := claudeRun{envelope: claudeEnvelope{Type: "result", Subtype: "success"}, exitCode: 0, sessionID: "session-id", structuredOutput: json.RawMessage(`{"decision":"accepted","summary":"x","reason":"y","evidenceRefs":["a","b"],"selectedEvidenceRef":"ref","observationEventId":"obs","receiptSha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","extra":true}`)}
+	if err := validateClaudeStructuredResult(pkg, run); err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("evidence review accepted extra structured field: %v", err)
+	}
+}
+
+func TestRejectedVMPIDAEvidenceReviewStopsBeforeAcknowledgement(t *testing.T) {
+	decision := evidenceReviewResponse{
+		Decision: "rejected", Summary: "lineage rejected", Reason: "receipt drifted",
+		EvidenceRefs: []string{"packet.json", "receipt.json"}, SelectedEvidenceRef: "ida-index:function_index.tsv#L2",
+		ObservationEventID: "obs-exact", ReceiptSHA256: strings.Repeat("a", 64),
+	}
+	if err := requireAcceptedLiveAcceptanceVMPIDAEvidenceReview(decision); err == nil || !strings.Contains(err.Error(), "receipt drifted") {
+		t.Fatalf("rejected evidence review did not stop before acknowledgement: %v", err)
+	}
+	decision.Decision = "accepted"
+	if err := requireAcceptedLiveAcceptanceVMPIDAEvidenceReview(decision); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -398,7 +485,7 @@ func TestClaudeSchemasBindImmutableInputAndDurableSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(prompt, strconv.Quote(filepath.Join(caseRoot, filepath.FromSlash(inputRel)))) || !strings.Contains(prompt, strconv.Quote(caseRoot)) || !strings.Contains(prompt, "using the Read tool") || !strings.Contains(prompt, "never end the response with another Read call") || !strings.Contains(prompt, "missing bounded evidence is not a process failure") || !strings.Contains(prompt, "independent Reviewer can reject it") || !strings.Contains(prompt, "explicitly address every field") || !strings.Contains(prompt, "historical Reviewer rejection") || !strings.Contains(schema, `"outputs"`) {
+	if !strings.Contains(prompt, strconv.Quote(filepath.Join(caseRoot, filepath.FromSlash(inputRel)))) || !strings.Contains(prompt, strconv.Quote(caseRoot)) || !strings.Contains(prompt, "using the Read tool") || !strings.Contains(prompt, "never end the response with another Read call") || !strings.Contains(prompt, "missing bounded evidence is not a process failure") || !strings.Contains(prompt, "independent Reviewer can reject it") || !strings.Contains(prompt, "independent Reviewer is a later runtime-owned segment") || !strings.Contains(prompt, "do not defer merely because that later review has not happened") || !strings.Contains(prompt, "explicitly address every field") || !strings.Contains(prompt, "historical Reviewer rejection") || !strings.Contains(schema, `"outputs"`) {
 		t.Fatalf("member Claude request omitted input or output contract: prompt=%q schema=%s", prompt, schema)
 	}
 	pkg.Launch.Attempt.Session = "different"

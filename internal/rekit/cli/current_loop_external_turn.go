@@ -160,7 +160,7 @@ func applyCurrentLoopExternalSessionTurn(ctx runtime.Context, opt Options, plan 
 	plan.Applied = plan.Resume.Applied || plan.Relay.Applied
 	plan.ReviewRequired = false
 	plan.RequiresConfirmation = false
-	fresh, refreshErr := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+	fresh, refreshErr := buildInvocationStatusInventory(ctx, opt)
 	if refreshErr == nil {
 		plan.RefreshedStatus = &fresh
 	}
@@ -168,7 +168,7 @@ func applyCurrentLoopExternalSessionTurn(ctx runtime.Context, opt Options, plan 
 }
 
 func buildCurrentLoopExternalSessionTurnPlan(ctx runtime.Context, opt Options) (currentLoopExternalSessionTurnPlan, Options, statusInventory, error) {
-	status, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+	status, err := buildInvocationStatusInventory(ctx, opt)
 	if err != nil {
 		return currentLoopExternalSessionTurnPlan{}, Options{}, statusInventory{}, err
 	}

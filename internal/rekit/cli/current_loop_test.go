@@ -199,6 +199,58 @@ func TestRunCurrentLoopAppliesBoundedCaseSteps(t *testing.T) {
 	}
 }
 
+func TestRunCurrentLoopRecoversExactMemberDispatchPublication(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	board.Lanes[0].CurrentExecutor = "replay-member"
+	board.Lanes[0].ExecutorGeneration = 1
+	board.Lanes[0].UpdatedAt = "2026-08-10T01:00:00Z"
+	boardData, err := json.MarshalIndent(board, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "board.json"), append(boardData, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	preview := runCurrentLoopPreviewWith(t, caseRoot, 2, "-Lane", "main")
+	if preview.InitialCurrentStep == nil || preview.InitialCurrentStep.MemberExecution == nil {
+		t.Fatalf("member dispatch preview missing: %+v", preview)
+	}
+	memberPlan := preview.InitialCurrentStep.MemberExecution
+	published, err := memberexecution.Apply(*memberPlan, memberPlan.ExpectedPlanSHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !published.Applied || published.AlreadyApplied {
+		t.Fatalf("member dispatch crash-window fixture was not freshly published: %+v", published)
+	}
+
+	recovered := runCurrentLoopApplyWith(t, caseRoot, preview, "-Lane", "main", "-ExpectedMemberExecutionPlanSha256", memberPlan.ExpectedPlanSHA256)
+	if !recovered.Applied || recovered.AppliedSteps != 1 || len(recovered.Steps) != 1 || recovered.FinalStatus == nil || recovered.SegmentCheckpoint == nil {
+		t.Fatalf("current-loop did not recover the exact published member dispatch: %+v", recovered)
+	}
+	if recovered.StopReason.Code != "external-member-handoff" || recovered.Steps[0].CurrentStepReceipt == nil || recovered.Steps[0].CurrentStepReceipt.Outcome != "current-step-applied" {
+		t.Fatalf("member dispatch recovery omitted the strict receipt and external handoff stop: %+v", recovered)
+	}
+	var statusOut bytes.Buffer
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &statusOut); err != nil {
+		t.Fatal(err)
+	}
+	var status statusInventory
+	decodeJSONStrict(t, statusOut.Bytes(), &status)
+	segment := status.MissionControlRunbook.CurrentLoopSegment
+	if segment == nil || !segment.Ready || segment.State != "ready" || segment.StopCode != "external-member-handoff" {
+		t.Fatalf("selected-lane status did not retain the recovered member checkpoint: status=%+v written=%+v", segment, recovered.SegmentCheckpoint)
+	}
+}
+
 func TestRunCurrentLoopAppliesTwoDistinctCaseStepsToLimit(t *testing.T) {
 	caseRoot := currentLoopCaseWithOpenIntervention(t, "int-current-loop-limit")
 	preview := runCurrentLoopPreview(t, caseRoot, 2)
@@ -912,19 +964,19 @@ func TestCurrentLoopRouteDriftReturnsTypedCampaignContinuation(t *testing.T) {
 		Message:              "refreshed route or lane changed; review a fresh loop preview",
 		CurrentDriverRequest: &request,
 	}
-	continuation := currentLoopContinuationFor(runtime.Context{Target: `C:\cases\campaign`, Pack: "_template"}, 8, 3, "case", "feature-triage", "case", "", stop)
+	continuation := currentLoopContinuationFor(runtime.Context{Target: `C:\cases\campaign`, Pack: "_template"}, "", 8, 3, "case", "feature-triage", "case", "", stop)
 	if continuation == nil || continuation.StopCode != "route-policy" || continuation.SegmentRoute != "case" || continuation.SegmentLane != "feature-triage" || continuation.ExpectedRoute != "case" || continuation.ExpectedLane != "feature-verifier" || continuation.RemainingMaxSteps != 5 || continuation.ObservationContract != nil || continuation.CumulativeReceipts {
 		t.Fatalf("lane drift continuation = %+v", continuation)
 	}
 	if !strings.Contains(continuation.WhatIfCommand, "-MaxSteps 5") || !continuation.FreshPreviewRequired {
 		t.Fatalf("lane drift continuation command = %+v", continuation)
 	}
-	if got := currentLoopContinuationFor(runtime.Context{}, 3, 3, "case", "main", "reviewer", "", stop); got != nil {
+	if got := currentLoopContinuationFor(runtime.Context{}, "", 3, 3, "case", "main", "reviewer", "", stop); got != nil {
 		t.Fatalf("exhausted segment created continuation: %+v", got)
 	}
 	forgedExternal := stop
 	forgedExternal.Code = "external-reviewer-handoff"
-	if got := currentLoopContinuationFor(runtime.Context{}, 8, 3, "case", "main", "reviewer", "", forgedExternal); got != nil {
+	if got := currentLoopContinuationFor(runtime.Context{}, "", 8, 3, "case", "main", "reviewer", "", forgedExternal); got != nil {
 		t.Fatalf("external stop without a typed handoff created continuation: %+v", got)
 	}
 }
@@ -1258,7 +1310,7 @@ func TestRunCurrentLoopValidatesOuterContract(t *testing.T) {
 		{args: []string{"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", "_template", "-MaxSteps", "21", "-WhatIf", "-Format", "json"}, want: "between 1 and 20"},
 		{args: []string{"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", "_template", "-ResumeCurrentLoop", "-MaxSteps", "2", "-WhatIf", "-Format", "json"}, want: "does not accept -MaxSteps"},
 		{args: []string{"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", "_template", "-ResumeCurrentLoop", "-WhatIf", "-Format", "json"}, want: "requires -ExpectedCurrentLoopCheckpointSha256"},
-		{args: []string{"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", "_template", "-MaxSteps", "2", "-Lane", "unexpected", "-WhatIf", "-Format", "json"}, want: "unsupported flag"},
+		{args: []string{"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", "_template", "-MaxSteps", "2", "-Lane", "unexpected", "-WhatIf", "-Format", "json"}, want: "selected current lane"},
 	}
 	for _, tc := range cases {
 		var out bytes.Buffer

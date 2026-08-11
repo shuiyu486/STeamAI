@@ -67,6 +67,9 @@ func TestWritePlanIncludesShardHandoffs(t *testing.T) {
 	if strings.Contains(result.ShardHandoffs[0].DispatchPrompt, "reviewerStagingCommands.sourcePath") || !strings.Contains(result.ShardHandoffs[0].DispatchPrompt, "retain it until the target is attached or initialized") {
 		t.Fatalf("dispatch-only prompt advertised unavailable staging source: %s", result.ShardHandoffs[0].DispatchPrompt)
 	}
+	if !strings.Contains(result.ShardHandoffs[0].DispatchPrompt, "accept=accepted, reject=rejected, defer=inconclusive, abandon=inconclusive, needs-more-evidence=needs-more-evidence") || !strings.Contains(result.ShardHandoffs[0].DispatchPrompt, "Do not invent synonyms such as deferred") {
+		t.Fatalf("dispatch prompt omitted the exact recommendedVerdict mapping: %s", result.ShardHandoffs[0].DispatchPrompt)
+	}
 	assertShardHandoff(t, result.ShardHandoffs[0], "shard-01", []string{"alpha", "beta"})
 
 	packetBytes, err := os.ReadFile(result.PacketPath)

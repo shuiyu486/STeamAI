@@ -3,6 +3,7 @@ package sessionhost
 import (
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
@@ -48,6 +49,24 @@ func TestRequireSameRunningHandoffRejectsCompletedOrSubmissionTurn(t *testing.T)
 		if err := requireSameRunningHandoff(original, fresh); err == nil {
 			t.Fatal("non-running current step should reject late supervised publication")
 		}
+	}
+}
+
+func TestCurrentStepIsEvidenceReviewStopRequiresExactTypedShape(t *testing.T) {
+	plan := currentStepPlan{CurrentDriverRequest: mission.MissionCommanderDriverRequest{
+		Source: "executionEvidenceReview",
+		State:  "ready-for-evidence-review",
+	}}
+	if !currentStepIsEvidenceReviewStop(plan) {
+		t.Fatal("typed evidence review stop was not recognized")
+	}
+	plan.CurrentDriverRequest.Source = "executionEvidenceReview.followUp"
+	if !currentStepIsEvidenceReviewStop(plan) {
+		t.Fatal("typed evidence review follow-up stop was not recognized")
+	}
+	plan.MemberExecution = &memberexecution.Plan{}
+	if currentStepIsEvidenceReviewStop(plan) {
+		t.Fatal("evidence review stop accepted a member dispatch plan")
 	}
 }
 

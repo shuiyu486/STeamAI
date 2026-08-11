@@ -27,6 +27,16 @@ const (
 type hostTestHooks struct {
 	beforeReportWrite        func() error
 	afterCleanupIdentityOpen func(string) error
+	runVMPIDAChild           func(VMPIDAIndexChildOptions) ([]byte, int, error)
+	afterVMPChildLaunch      func(int) error
+	beforeVMPPublication     func() error
+	beforeVMPSuccessSeal     func() error
+	beforeVMPProfileRevoke   func() error
+	afterVMPStageCommit      func() error
+	afterVMPOutputsPublished func() error
+	afterVMPOutputCommit     func() error
+	afterVMPReceiptRecorded  func() error
+	afterVMPObservation      func() error
 }
 
 type Options struct {
@@ -39,32 +49,35 @@ type Options struct {
 }
 
 type Result struct {
-	SchemaVersion    int    `json:"schemaVersion"`
-	Kind             string `json:"kind"`
-	CaseRoot         string `json:"caseRoot"`
-	Pack             string `json:"pack"`
-	GateEventID      string `json:"gateEventId"`
-	Lane             string `json:"lane"`
-	Executor         string `json:"executor"`
-	Generation       int    `json:"generation"`
-	AdapterID        string `json:"adapterId"`
-	AdapterHarness   string `json:"adapterHarness"`
-	AdapterSession   string `json:"adapterSession"`
-	ExecutableSHA256 string `json:"executableSha256"`
-	DispatchPath     string `json:"dispatchPath"`
-	DispatchSHA256   string `json:"dispatchSha256"`
-	InputPath        string `json:"inputPath"`
-	InputSHA256      string `json:"inputSha256"`
-	ArtifactPath     string `json:"artifactPath"`
-	ArtifactSHA256   string `json:"artifactSha256"`
-	ReportPath       string `json:"reportPath"`
-	ReportSHA256     string `json:"reportSha256"`
-	ProcessID        int    `json:"processId"`
-	StartedAt        string `json:"startedAt"`
-	CompletedAt      string `json:"completedAt"`
-	ReadOnlyInput    bool   `json:"readOnlyInput"`
-	NoNetwork        bool   `json:"noNetwork"`
-	NoAuthority      bool   `json:"noAuthorityOrConfirmed"`
+	SchemaVersion       int    `json:"schemaVersion"`
+	Kind                string `json:"kind"`
+	CaseRoot            string `json:"caseRoot"`
+	Pack                string `json:"pack"`
+	GateEventID         string `json:"gateEventId"`
+	Lane                string `json:"lane"`
+	Executor            string `json:"executor"`
+	Generation          int    `json:"generation"`
+	AdapterID           string `json:"adapterId"`
+	AdapterHarness      string `json:"adapterHarness"`
+	AdapterSession      string `json:"adapterSession"`
+	ExecutableSHA256    string `json:"executableSha256"`
+	DispatchPath        string `json:"dispatchPath"`
+	DispatchSHA256      string `json:"dispatchSha256"`
+	InputPath           string `json:"inputPath"`
+	InputSHA256         string `json:"inputSha256"`
+	ArtifactPath        string `json:"artifactPath"`
+	ArtifactSHA256      string `json:"artifactSha256"`
+	ReportPath          string `json:"reportPath"`
+	ReportSHA256        string `json:"reportSha256"`
+	ProcessID           int    `json:"processId"`
+	StartedAt           string `json:"startedAt"`
+	CompletedAt         string `json:"completedAt"`
+	ReadOnlyInput       bool   `json:"readOnlyInput"`
+	NoNetwork           bool   `json:"noNetwork"`
+	NoNetworkBoundary   string `json:"noNetworkBoundary,omitempty"`
+	NoAuthority         bool   `json:"noAuthorityOrConfirmed"`
+	ExecutionStatus     string `json:"executionStatus,omitempty"`
+	ExecutionExitStatus string `json:"executionExitStatus,omitempty"`
 }
 
 type inspectionArtifact struct {
@@ -138,6 +151,9 @@ func Run(opt Options) (_ Result, retErr error) {
 	}
 	if !strings.EqualFold(dispatchSHA, opt.ExpectedDispatchSHA256) {
 		return result, fmt.Errorf("adapter execution dispatch sha256 changed before host launch: expected %s got %s", opt.ExpectedDispatchSHA256, dispatchSHA)
+	}
+	if dispatch.Adapter.AdapterID == VMPIDAIndexAdapterID {
+		return runVMPIDAExistingDispatch(opt, result, dispatch, dispatchPath, dispatchSHA, started)
 	}
 	if err := validateDispatch(dispatch); err != nil {
 		return result, err

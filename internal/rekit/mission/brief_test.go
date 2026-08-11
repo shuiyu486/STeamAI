@@ -740,6 +740,35 @@ func TestExecutionEvidenceReviewItemsWithLedgerFactsHonorsRelatedReviewNotes(t *
 	}
 }
 
+func TestExecutionEvidenceReviewRejectedNotesRemainOpen(t *testing.T) {
+	for name, facts := range map[string]LedgerFacts{
+		"verification": {
+			Observations: []map[string]any{executionEvidenceObservation("obs-rejected", "gate-rejected")},
+			Verifications: []map[string]any{
+				{"kind": "verification", "lane": "main", "status": "resolved", "verdict": "rejected", "related": []any{"obs-rejected", "gate-rejected"}},
+			},
+		},
+		"decision": {
+			Observations: []map[string]any{executionEvidenceObservation("obs-rejected", "gate-rejected")},
+			Facts: Facts{Decisions: []map[string]any{
+				{"kind": "decision", "lane": "main", "status": "resolved", "decision": "reject", "related": []any{"obs-rejected", "gate-rejected"}},
+			}},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			items := ExecutionEvidenceReviewItemsWithLedgerFacts(
+				facts,
+				"main",
+				func(string) string { return "main" },
+				0,
+			)
+			if len(items) != 1 || items[0].EventID != "obs-rejected" {
+				t.Fatalf("rejected evidence review incorrectly closed the blocker: %+v", items)
+			}
+		})
+	}
+}
+
 func TestExecutionEvidenceReviewItemProjectsAdapterExecutionReceiptLineage(t *testing.T) {
 	observation := executionEvidenceObservation("obs-receipt", "gate-receipt")
 	execution := observation["execution"].(map[string]any)

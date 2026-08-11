@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +13,115 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
+
+func TestRunReviewerWaveSelectedLaneOverridesGlobalReviewerWave(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "review", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+
+	planWave := func(root, lane, items string) *workstream.ReviewerDispatchWavePackage {
+		t.Helper()
+		out.Reset()
+		if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", items, "-ItemsPerAgent", "1", "-MaxParallel", "2", "-Lane", lane, "-ReviewOutputDir", filepath.Join(caseRoot, ".rekit", "reviews", root), "-Format", "json"}, &out); err != nil {
+			t.Fatal(err)
+		}
+		status := reviewerWaveStatusForLane(t, caseRoot, lane)
+		wave := reviewerWaveFromStatus(status)
+		if wave == nil || wave.TargetLane != lane {
+			t.Fatalf("reviewer wave for lane %q = %+v", lane, wave)
+		}
+		return wave
+	}
+
+	laneA := "main"
+	waveA := planWave("20-lane-a-wave", laneA, "alpha,beta")
+	laneB := "feature-review"
+	waveB := planWave("10-lane-b-wave", laneB, "gamma")
+	global := reviewerWaveFromStatus(reviewerWaveStatus(t, caseRoot))
+	if global == nil || global.TargetLane != laneB || global.PacketID != waveB.PacketID {
+		t.Fatalf("global reviewer wave = %+v, want lane B %q", global, laneB)
+	}
+
+	observationPath := filepath.Join(caseRoot, "workspace", "selected-lane-wave.json")
+	writeReviewerWaveObservations(t, observationPath, reviewerWaveObservationFile{SchemaVersion: 1, PacketID: waveA.PacketID, Observations: []reviewerWaveObservation{
+		{ShardID: waveA.SpawnWave[0].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "selected-lane-wave-01"},
+		{ShardID: waveA.SpawnWave[1].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "selected-lane-wave-02"},
+	}})
+	args := []string{"-Command", "run-reviewer-wave", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", waveA.PacketPath, "-Lane", laneA, "-Actor", "mission-commander", "-ReviewerWaveObservationsPath", observationPath, "-Format", "json"}
+	preview := reviewerWavePreview(t, append(args, "-WhatIf")...)
+	if preview.Lane != laneA || preview.PacketID != waveA.PacketID || preview.WaveSnapshotSHA256 != waveA.SnapshotSHA256 {
+		t.Fatalf("selected-lane reviewer wave preview = %+v", preview)
+	}
+	selectedStatus := reviewerWaveStatusForLane(t, caseRoot, laneA)
+	assertSelectedLaneReviewerWaveContracts(t, selectedStatus, laneA)
+
+	out.Reset()
+	if err := Run(append(args, "-ExpectedReviewerWavePlanSha256", preview.ExpectedReviewerWavePlanSHA256, "-Apply"), &out); err != nil {
+		t.Fatal(err)
+	}
+	var applied reviewerWavePlan
+	if err := json.Unmarshal(out.Bytes(), &applied); err != nil {
+		t.Fatal(err)
+	}
+	if !applied.Applied || applied.AppliedCount != 2 || applied.RefreshedWave == nil || applied.RefreshedWave.TargetLane != laneA || applied.RefreshedWave.PacketID != waveA.PacketID || len(applied.RefreshedWave.Active) != 2 {
+		t.Fatalf("selected-lane reviewer wave Apply = %+v", applied)
+	}
+	global = reviewerWaveFromStatus(reviewerWaveStatus(t, caseRoot))
+	if global == nil || global.TargetLane != laneB || global.PacketID != waveB.PacketID {
+		t.Fatalf("selected-lane Apply changed global reviewer wave: %+v", global)
+	}
+}
+
+func TestRunReviewerWaveSelectedLanePartialFailureRefreshesExactLane(t *testing.T) {
+	caseRoot := fullAttachedCase(t)
+	var out bytes.Buffer
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "review", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	plan := func(root, lane, items string) *workstream.ReviewerDispatchWavePackage {
+		t.Helper()
+		out.Reset()
+		if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", items, "-ItemsPerAgent", "1", "-MaxParallel", "2", "-Lane", lane, "-ReviewOutputDir", filepath.Join(caseRoot, ".rekit", "reviews", root), "-Format", "json"}, &out); err != nil {
+			t.Fatal(err)
+		}
+		return reviewerWaveFromStatus(reviewerWaveStatusForLane(t, caseRoot, lane))
+	}
+	laneA := "main"
+	waveA := plan("20-lane-a-partial-wave", laneA, "alpha,beta")
+	laneB := "feature-review"
+	waveB := plan("10-lane-b-partial-wave", laneB, "gamma")
+	observationPath := filepath.Join(caseRoot, "workspace", "selected-lane-wave-partial.json")
+	writeReviewerWaveObservations(t, observationPath, reviewerWaveObservationFile{SchemaVersion: 1, PacketID: waveA.PacketID, Observations: []reviewerWaveObservation{
+		{ShardID: waveA.SpawnWave[0].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "selected-lane-partial-01"},
+		{ShardID: waveA.SpawnWave[1].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "selected-lane-partial-02"},
+	}})
+	args := []string{"-Command", "run-reviewer-wave", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", waveA.PacketPath, "-Lane", laneA, "-Actor", "mission-commander", "-ReviewerWaveObservationsPath", observationPath, "-Format", "json"}
+	preview := reviewerWavePreview(t, append(args, "-WhatIf")...)
+	reviewerWaveBeforeApplyObservationHook = func(index int) error {
+		if index == 2 {
+			return errors.New("selected-lane partial failure")
+		}
+		return nil
+	}
+	defer func() { reviewerWaveBeforeApplyObservationHook = nil }()
+	out.Reset()
+	if err := Run(append(args, "-ExpectedReviewerWavePlanSha256", preview.ExpectedReviewerWavePlanSHA256, "-Apply"), &out); err != nil {
+		t.Fatal(err)
+	}
+	var partial reviewerWavePlan
+	if err := json.Unmarshal(out.Bytes(), &partial); err != nil {
+		t.Fatal(err)
+	}
+	if !partial.Applied || partial.AppliedCount != 1 || partial.FailedIndex != 2 || partial.RefreshedWave == nil || partial.RefreshedWave.TargetLane != laneA || partial.RefreshedWave.PacketID != waveA.PacketID || len(partial.RefreshedWave.Active) != 1 {
+		t.Fatalf("selected-lane reviewer wave partial failure = %+v", partial)
+	}
+	global := reviewerWaveFromStatus(reviewerWaveStatus(t, caseRoot))
+	if global == nil || global.TargetLane != laneB || global.PacketID != waveB.PacketID {
+		t.Fatalf("selected-lane partial failure refreshed global reviewer wave: %+v", global)
+	}
+}
 
 func TestRunReviewerWaveRecordsParallelAcceptances(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
@@ -377,7 +488,7 @@ func TestRunReviewerWaveRejectsInvalidObservationContracts(t *testing.T) {
 	}{
 		{name: "duplicate shard", file: reviewerWaveObservationFile{SchemaVersion: 1, PacketID: wave.PacketID, Observations: []reviewerWaveObservation{valid, valid}}, want: "repeats shardId"},
 		{name: "packet mismatch", file: reviewerWaveObservationFile{SchemaVersion: 1, PacketID: "other-packet", Observations: []reviewerWaveObservation{valid}}, want: "does not match current packet"},
-		{name: "lane mismatch", file: reviewerWaveObservationFile{SchemaVersion: 1, PacketID: wave.PacketID, Observations: []reviewerWaveObservation{valid}}, lane: "other-lane", want: "packet or lane does not match"},
+		{name: "lane mismatch", file: reviewerWaveObservationFile{SchemaVersion: 1, PacketID: wave.PacketID, Observations: []reviewerWaveObservation{valid}}, lane: "other-lane", want: "is not current"},
 		{name: "accepted terminal field", file: reviewerWaveObservationFile{SchemaVersion: 1, PacketID: wave.PacketID, Observations: []reviewerWaveObservation{{ShardID: valid.ShardID, Kind: "accepted", ReviewerHarness: valid.ReviewerHarness, ReviewerSession: valid.ReviewerSession, ReviewerExitStatus: "completed"}}}, want: "does not accept terminal"},
 		{name: "returned without result", file: reviewerWaveObservationFile{SchemaVersion: 1, PacketID: wave.PacketID, Observations: []reviewerWaveObservation{{ShardID: valid.ShardID, Kind: "returned"}}}, want: "requires reviewerResultInputSourcePath"},
 		{name: "failed without dispatch", file: reviewerWaveObservationFile{SchemaVersion: 1, PacketID: wave.PacketID, Observations: []reviewerWaveObservation{{ShardID: valid.ShardID, Kind: "failed", ReviewerExitStatus: "reviewer-error"}}}, want: "requires reviewerDispatchId"},
@@ -850,8 +961,18 @@ func TestRunReviewerWavePartialFailurePreservesEarlierObservation(t *testing.T) 
 
 func reviewerWaveStatus(t *testing.T, caseRoot string) statusInventory {
 	t.Helper()
+	return reviewerWaveStatusForLane(t, caseRoot, "")
+}
+
+func reviewerWaveStatusForLane(t *testing.T, caseRoot, lane string) statusInventory {
+	t.Helper()
+	args := []string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template"}
+	if strings.TrimSpace(lane) != "" {
+		args = append(args, "-Lane", lane)
+	}
+	args = append(args, "-Format", "json")
 	var out bytes.Buffer
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+	if err := Run(args, &out); err != nil {
 		t.Fatal(err)
 	}
 	var status statusInventory
@@ -859,6 +980,52 @@ func reviewerWaveStatus(t *testing.T, caseRoot string) statusInventory {
 		t.Fatal(err)
 	}
 	return status
+}
+
+func assertSelectedLaneReviewerWaveContracts(t *testing.T, status statusInventory, lane string) {
+	t.Helper()
+	if status.MissionControlRunbook == nil || status.MissionControlRunbook.CurrentLoopOperator == nil || status.MissionControlRunbook.CurrentLoopOperator.ExternalReviewerHandoff == nil {
+		t.Fatalf("selected-lane status omitted current reviewer handoff: %+v", status.MissionControlRunbook)
+	}
+	handoff := status.MissionControlRunbook.CurrentLoopOperator.ExternalReviewerHandoff
+	if handoff.Wave == nil || handoff.Wave.Lane != lane || len(handoff.Wave.Shards) == 0 {
+		t.Fatalf("selected-lane status reviewer wave = %+v", handoff.Wave)
+	}
+	assertAttempt := func(label string, attempt *mission.CurrentLoopReviewerAttempt) {
+		t.Helper()
+		if attempt == nil || attempt.Identity.Lane != lane {
+			t.Fatalf("%s lane binding = %+v, want %q", label, attempt, lane)
+		}
+		for requestLabel, request := range map[string]*mission.MissionCommanderDriverRequest{
+			"current": attempt.CurrentReviewerDriverRequest,
+			"durable": attempt.DurableContinuationDriverRequest,
+		} {
+			if request == nil {
+				continue
+			}
+			if request.Lane != lane {
+				t.Fatalf("%s %s request lane = %q, want %q", label, requestLabel, request.Lane, lane)
+			}
+			if request.CommandExecutable && (request.Command == "" || selectedLaneCommand(request.Command, lane) != request.Command) {
+				t.Fatalf("%s %s request command lost exact lane: %q", label, requestLabel, request.Command)
+			}
+			if command := request.ExpectedReceipt.RefreshStatusCommand; command != "" && selectedLaneCommand(command, lane) != command {
+				t.Fatalf("%s %s request refresh lost exact lane: %q", label, requestLabel, command)
+			}
+		}
+		if attempt.RefreshStatusCommand != "" && selectedLaneCommand(attempt.RefreshStatusCommand, lane) != attempt.RefreshStatusCommand {
+			t.Fatalf("%s refresh command lost exact lane: %q", label, attempt.RefreshStatusCommand)
+		}
+		for _, alternative := range attempt.SelectedAction.ObservationContract.Alternatives {
+			if alternative.PreviewCommandTemplate == "" || selectedLaneCommand(alternative.PreviewCommandTemplate, lane) != alternative.PreviewCommandTemplate {
+				t.Fatalf("%s selected action observation lost exact lane: %+v", label, alternative)
+			}
+		}
+	}
+	assertAttempt("current reviewer attempt", handoff.Attempt)
+	for idx, attempt := range handoff.Wave.Shards {
+		assertAttempt(fmt.Sprintf("reviewer wave shard %d", idx+1), attempt)
+	}
 }
 
 func reviewerWavePreview(t *testing.T, args ...string) reviewerWavePlan {

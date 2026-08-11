@@ -123,6 +123,26 @@ func TestListRegularFilesAnchoredRejectsInvalidNamespaceEntries(t *testing.T) {
 	}
 }
 
+func TestWriteExclusiveRegularFileAnchoredWriteThroughPublishesOrReplaysExactBytes(t *testing.T) {
+	caseRoot := t.TempDir()
+	rel := ".rekit/lanes/main/adapter-executions/gate-a/child-launch.json"
+	data := []byte("{\"launched\":true}\n")
+	replayed, err := WriteExclusiveRegularFileAnchoredWriteThrough(caseRoot, rel, "child launch proof", data)
+	if err != nil || replayed {
+		t.Fatalf("first write-through publication replayed=%t err=%v", replayed, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(caseRoot, filepath.FromSlash(rel))); err != nil || string(got) != string(data) {
+		t.Fatalf("write-through publication bytes=%q err=%v", got, err)
+	}
+	replayed, err = WriteExclusiveRegularFileAnchoredWriteThrough(caseRoot, rel, "child launch proof", data)
+	if err != nil || !replayed {
+		t.Fatalf("write-through replay replayed=%t err=%v", replayed, err)
+	}
+	if _, err := WriteExclusiveRegularFileAnchoredWriteThrough(caseRoot, rel, "child launch proof", []byte("different\n")); err == nil {
+		t.Fatal("write-through publication accepted different existing bytes")
+	}
+}
+
 func TestWriteExclusiveRegularFileAnchoredPublishesOrReplaysExactBytes(t *testing.T) {
 	caseRoot := t.TempDir()
 	rel := ".rekit/external-session-relays/job-a/publication.json"
@@ -156,12 +176,10 @@ func TestWriteExclusiveRegularFileAnchoredConcurrentExactReplay(t *testing.T) {
 	}
 	results := make(chan outcome, writers)
 	for range writers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			replayed, err := WriteExclusiveRegularFileAnchored(caseRoot, rel, "relay receipt", data)
 			results <- outcome{replayed: replayed, err: err}
-		}()
+		})
 	}
 	wg.Wait()
 	close(results)

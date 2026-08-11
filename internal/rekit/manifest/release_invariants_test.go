@@ -150,6 +150,7 @@ func TestGoRuntimeDefaultPackInvariants(t *testing.T) {
 	defaultPackFile := filepath.ToSlash(filepath.Join(repo, defaultPackPackage, "defaults.go"))
 	manifestFile := filepath.ToSlash(filepath.Join(repo, "internal", "rekit", "manifest", "manifest.go"))
 	allowedLiteralTestFiles := map[string]bool{
+		filepath.ToSlash(filepath.Join(repo, "internal", "rekit", "adapterhost", "authorized_run_test.go")):   true,
 		filepath.ToSlash(filepath.Join(repo, "internal", "rekit", "gate", "gate_test.go")):                    true,
 		filepath.ToSlash(filepath.Join(repo, "internal", "rekit", "instance", "instance_test.go")):            true,
 		filepath.ToSlash(filepath.Join(repo, "internal", "rekit", "note", "note_test.go")):                    true,
@@ -157,6 +158,7 @@ func TestGoRuntimeDefaultPackInvariants(t *testing.T) {
 		filepath.ToSlash(filepath.Join(repo, "internal", "rekit", "manifest", "release_invariants_test.go")):  true,
 		filepath.ToSlash(filepath.Join(repo, "internal", "rekit", "releasecheck", "release_handoff_test.go")): true,
 		filepath.ToSlash(filepath.Join(repo, "internal", "rekit", "cli", "cli_test.go")):                      true,
+		filepath.ToSlash(filepath.Join(repo, "internal", "rekit", "cli", "gate_profile_test.go")):             true,
 	}
 	goFiles := listGoFiles(t, filepath.Join(repo, "internal", "rekit"))
 	for _, path := range goFiles {
@@ -506,15 +508,21 @@ func TestDocumentationProgressiveDisclosureInvariants(t *testing.T) {
 	if len(roadmap) > 10000 {
 		t.Fatalf("active roadmap is %d bytes, want current-card entry <= 10000", len(roadmap))
 	}
-	if count := len(regexp.MustCompile(`(?m)^### RH-[0-9]+`).FindAllString(roadmap, -1)); count != 1 {
-		t.Fatalf("active roadmap contains %d RH cards, want exactly current card", count)
+	if count := len(regexp.MustCompile(`(?m)^### (?:RH|DPC)-[0-9]+`).FindAllString(roadmap, -1)); count != 1 {
+		t.Fatalf("active roadmap contains %d route cards, want exactly current card", count)
 	}
-	currentCards := regexp.MustCompile(`(?m)^### RH-[0-9]+：`).FindAllString(roadmap, -1)
+	currentCards := regexp.MustCompile(`(?m)^### (?:RH|DPC)-[0-9]+：`).FindAllString(roadmap, -1)
 	currentCard := currentCards[0]
 	if strings.Contains(backlog, currentCard) {
 		t.Fatalf("future backlog duplicates active roadmap card %s", currentCard)
 	}
-	assertTextContains(t, roadmap, "### RH-09：", "active Windows soak roadmap card")
+	currentBatch := regexp.MustCompile(`(?m)^\| 当前批次 \| ` + "`" + `((?:RH|DPC)-[0-9]+)` + "`" + `(?: [^|]+)? \|$`).FindStringSubmatch(roadmap)
+	if len(currentBatch) != 2 {
+		t.Fatal("active roadmap current batch pointer is missing or malformed")
+	}
+	if want := "### " + currentBatch[1] + "："; currentCard != want {
+		t.Fatalf("active roadmap card = %q, want current batch card %q", currentCard, want)
+	}
 	assertTextContains(t, backlog, "### RH-10：", "routed deferred cross-platform roadmap card")
 	assertTextContains(t, backlog, "**状态**：`deferred`", "deferred cross-platform state")
 	if strings.Contains(roadmap, "### RH-10：") {

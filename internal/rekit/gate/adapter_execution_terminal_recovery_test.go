@@ -72,7 +72,7 @@ func TestAdapterReportContractRoutesCurrentDispatchToTerminalReport(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !validation.Valid || !validation.ProvenanceValid || validation.Report == nil || validation.Report.Status != "failed" || validation.AdapterExecutionReceiptSHA256 != receipt.ReceiptSHA256 {
+	if !validation.Valid || !validation.ProvenanceValid || validation.Report == nil || validation.Report.Status != "failed" || len(validation.Report.OutputRefs) != 0 || len(validation.Report.EvidenceRefs) != 0 || validation.AdapterExecution == nil || len(validation.AdapterExecution.Artifacts) != 0 || validation.AdapterExecution.Execution.Outcome != "failed" || validation.AdapterExecution.Execution.ExitStatus != "external-failure" || validation.AdapterExecutionReceiptSHA256 != receipt.ReceiptSHA256 {
 		t.Fatalf("terminal report did not close completion provenance: %+v", validation)
 	}
 	result, err := RecordExecution(repoRoot, caseRoot, pack, Options{

@@ -419,7 +419,7 @@ func applyCurrentStepExternalSession(ctx runtime.Context, opt Options, outer cur
 	}
 	outer.ReviewRequired, outer.RequiresConfirmation = false, false
 	outer.ExternalSessionStep = step
-	fresh, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+	fresh, err := buildInvocationStatusInventory(ctx, opt)
 	if err != nil {
 		return currentStepPartialResult(outer, "run-current-loop"), fmt.Errorf("refresh status after external session step: %w", err)
 	}

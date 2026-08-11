@@ -252,7 +252,7 @@ func ReconcileApply(repoRoot, caseRoot, pack string, opt ReconcileOptions) (resu
 				writes = append(writes, takeoverWrite)
 			}
 		}
-	} else if ctx.executor != "" && !strings.EqualFold(previousExecutor, ctx.executor) {
+	} else if ctx.executor != "" {
 		generation++
 		ctx.lane.CurrentExecutor = ctx.executor
 		ctx.lane.ExecutorGeneration = generation
@@ -277,10 +277,6 @@ func ReconcileApply(repoRoot, caseRoot, pack string, opt ReconcileOptions) (resu
 			return ReconcileResult{}, err
 		}
 		writes = append(writes, takeoverWrite)
-	} else if ctx.executor != "" && generation == 0 {
-		generation = 1
-		ctx.lane.CurrentExecutor = ctx.executor
-		ctx.lane.ExecutorGeneration = generation
 	}
 	ctx.lane.LastReconciledIntervention = sourceID
 	ctx.lane.LastReconcileAt = now
@@ -490,12 +486,9 @@ func (ctx reconcileContext) result(mutating, applied, confirm bool, writes []Sta
 	executorAction := laneExecutorActionFor(ctx.lane, laneFacts, laneBrief)
 	if !applied && executorAction.MissionCommanderAction.State == "needs-reconcile" {
 		continuationLane := ctx.lane
-		if ctx.executor != "" && !strings.EqualFold(strings.TrimSpace(continuationLane.CurrentExecutor), ctx.executor) {
+		if ctx.executor != "" {
 			continuationLane.CurrentExecutor = ctx.executor
 			continuationLane.ExecutorGeneration = max(continuationLane.ExecutorGeneration, 0) + 1
-		} else if ctx.executor != "" && continuationLane.ExecutorGeneration == 0 {
-			continuationLane.CurrentExecutor = ctx.executor
-			continuationLane.ExecutorGeneration = 1
 		}
 		executorAction = bindLaneContinueCommands(executorAction, continuationLane)
 		executorAction.MissionCommanderAction = ctx.reconcileApplyCommanderAction()
@@ -673,7 +666,7 @@ func (ctx reconcileContext) plannedWrites() []StartWrite {
 		{Path: mission.FactRelPath("intervention"), Kind: "fact-jsonl", Action: "would-append"},
 		{Path: laneEventsPath, Kind: "lane-event", Action: "would-append-intervention-reconciled"},
 	}
-	if ctx.executor != "" && !strings.EqualFold(strings.TrimSpace(ctx.lane.CurrentExecutor), ctx.executor) {
+	if ctx.executor != "" {
 		writes = append(writes, StartWrite{Path: laneEventsPath, Kind: "lane-event", Action: "would-append-executor-takeover"})
 	}
 	writes = append(writes,

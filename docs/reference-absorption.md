@@ -16,7 +16,7 @@
 2. **工具 adapter 策略**：IDA/调试器/trace 等工具先 recipe 化、candidate 化，再逐步 adapter 化，避免成为硬依赖或大输出源。
 3. **证据与门禁模型**：evidence ledger、batch/intervention、heavy-tool gate、人工确认和可回滚的审查流程。
 
-当前已经落地的是安全 Agent Team 框架底座、文档契约、Go-owned/no-fallback `/rekit` runtime、durable lanes、显式 reconcile、typed autonomy preflight、Mission brief / executor action、review-first sync/promote、首个成熟 pack `vmp-re` 扩展、安全领域 pack 骨架 `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 与 `generic-binary-re`、tooling candidate、`ida-agent-bridge` 只读 packet contract、bounded reviewer dispatch/result/writeback 本机 E2E、deterministic runtime 外的 Go-owned `cmd/rekit-host` 真实 member/reviewer Claude Code session orchestration与自然语言→人工纠偏→replacement→独立 Reviewer→feature completion live gate、authorized execution observation evidence + bounded adapter execution report strict intake/contract projection/read-only validation preflight（含 invalid sidecar `valid=false` envelope/failure taxonomy、sidecar boundary/escalation marker fail-closed validation、machine-readable workspace handoff 与 Mission brief `eventId`/`reportContract` handoff）、pack-memory promote/reconsume package E2E，以及 evidence ledger runtime；尚未落地的是把真实工具 bridge adapter / lane executor live validation、pack-memory product UX、更多 pack 的真实 session 产品场景与跨平台 product-path E2E 做到日常成熟，也不能宣称已具备自动脱壳/逆向引擎、自动漏洞挖掘器、自动恶意样本分析平台或通用自动渗透平台。
+当前已经落地的是安全 Agent Team 框架底座、文档契约、Go-owned/no-fallback `/rekit` runtime、durable lanes、显式 reconcile、typed autonomy preflight、Mission brief / executor action、review-first sync/promote、首个成熟 pack `vmp-re` 扩展、安全领域 pack 骨架 `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 与 `generic-binary-re`、tooling candidate、`ida-agent-bridge` 只读 packet contract、独立的 compiled-in `vmp-ida-index-inspector` fixed adapter、bounded reviewer dispatch/result/writeback 本机 E2E、deterministic runtime 外的 Go-owned `cmd/rekit-host` 真实 member/reviewer Claude Code session orchestration与自然语言→人工纠偏→replacement→独立 Reviewer→feature completion live gate、authorized execution observation evidence + bounded adapter execution report strict intake/contract projection/read-only validation preflight、pack-memory promote/reconsume package E2E，以及 evidence ledger runtime。固定 IDA inspector 已把已有 TSV 索引接入 exact request/profile/gate/contained child/receipt/observation/evidence/member/Reviewer 链，但不安装、不连接或控制 IDA，也不执行外部 bridge。尚未落地的是更多真实工具 bridge、更多 pack 的真实 session 产品场景、普通安装交付和跨平台 product-path E2E。
 
 ## 执行清单
 
@@ -29,7 +29,7 @@
 - [x] 增加 orchestration 计划和 pack authoring template。
 - [x] 将 evidence ledger 从文档推进为 Go-owned append-only JSONL（`internal/rekit/note/**` append/list + `internal/rekit/mission/**` typed facts/brief + `internal/rekit/workstream/**` consume/writeback，9 种 kind 与 decision 字段对齐 `docs/evidence-ledger.md`，见 `docs/agent-team-rollout-plan.md` §4-§5）。
 - [x] 将 typed autonomy + `authorized-gate` 从 authorization preflight 推进为 executor/tool-adapter execution evidence closure：Go `gate -ExecutionReportContract -GateEventId ... -Format json` 只读投影 adapter execution report contract（含 `defaultReportPath`、`liveValidation.authorizedWorkspaces[]` / `reportFileName` / `caseRelativeReportPath`、workspace-relative 与 case-relative validate/record handoff，以及 validation taxonomy），Mission brief / overview / handoff / continue artifacts 直接显示 authorized-gate `eventId` 与可复制 `reportContract` command，`gate -ValidateExecutionReport -GateEventId ... -ExecutionReportPath ... -Format json` 以 `valid=true/false` non-mutating envelope 只读校验 bounded adapter sidecar，`gate -Apply -GateEventId ... -ExecutionStatus ... -ExecutionReportPath ...` 消费 authorized-gate、actual budget、output refs、evidence refs、boundary hits、escalation 与 strict validated bounded adapter execution report provenance，并写 observation evidence；真实工具业务逻辑仍留在 lane executor / tool adapter，不塞入 core runtime。
-- [x] 将 `ida-agent-bridge` 从 candidate tooling 推进到只读 packet contract / capability card（仍不安装、不连接、不实现 runtime-level adapter）。
+- [x] 将 `ida-agent-bridge` 保持为不安装、不连接的 candidate contract，并另行实现 compiled-in `vmp-ida-index-inspector`：只读已有固定 TSV，不控制 IDA，不执行 candidate `entry`。
 - [x] 将 bounded dispatch 从完整 contract 推进为 Mission Commander 可验证 E2E：主 Agent实际 spawn 只读 reviewer，完成 result intake、WhatIf、ledger writeback 与 post-validation；`plan-subagents` 本身仍不自动 spawn。
 - [x] 在 deterministic runtime 外增加 Go-owned `cmd/rekit-host`，自动消费 durable current step、启动真实 Claude Code member/reviewer session、收取真实 structured output、处理有界 replacement，并用显式 fresh `vmp-re` live gate 验证人工纠偏、新会话接手、canonical accepted Reviewer lineage 与 feature completion；普通 Go tests 不伪造或启动 LLM。
 - [ ] 扩展 `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native`、`generic-binary-re` 等安全领域 pack（`web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 与 `generic-binary-re` 已有最小骨架；后续按真实需求继续扩展）。
@@ -65,7 +65,7 @@ git diff --check
 | 参考来源 | 吸收的核心思想 | 当前落地文件 | 当前状态 |
 |---|---|---|---|
 | 微信文章：Agent 化逆向经验 | 多 Agent 分工、上下文管理、人工确认、handoff、证据先行 | `docs/vision.md`、`docs/agent-team-usage.md`、`common/policies/agent-team.md`、`packs/vmp-re/references/vmp-re/agent-driven-re.md` | 已落地为工作方式和 policy；自动编排仍在计划中 |
-| `TsingShui/ida-agent-bridge` | IDA sidecar/bridge、短连接查询、function index、strings/imports/xref、避免全量输出 | `packs/vmp-re/tooling/catalog.yml`、`packs/vmp-re/tooling/recipes/ida-x64dbg-mcp.md`、`packs/vmp-re/tooling/recipes/ida-agent-bridge-readonly.md`、`common/policies/tool-adapters.md` | 已作为 candidate tooling，并补只读 packet contract；未成为硬依赖 |
+| `TsingShui/ida-agent-bridge` | IDA sidecar/bridge、短连接查询、function index、strings/imports/xref、避免全量输出 | `packs/vmp-re/tooling/catalog.yml`、`packs/vmp-re/tooling/recipes/ida-agent-bridge-readonly.md`、`internal/rekit/adapterhost/vmp_ida_*.go` | 外部 bridge 仍是 candidate；其固定 TSV 子集已由 compiled-in `vmp-ida-index-inspector` 落地为非硬依赖的只读 authorized adapter |
 | `clarkluoluo/clark-utov` | batch/ledger/intervention、agent-as-judge、轻到重门禁、可回滚记录 | `docs/evidence-ledger.md`、`docs/orchestration-plan.md`、`internal/rekit/note/**`、`internal/rekit/mission/**`、`internal/rekit/workstream/**`、`packs/vmp-re/references/vmp-re/toolchain-router.md`、`workflow-template.md` | 设计契约与 Go-owned ledger/read-model/runtime 已落地；9 种 kind + decision 字段已对齐草案，batch-level replay/resume 与 candidate → verified → confirmed 机器强制 gate 待实现 |
 
 ## 2. 微信文章方向：Agent 化逆向工作流
@@ -120,14 +120,14 @@ git diff --check
 | adapter 契约 | `common/policies/tool-adapters.md` | 定义 capability card、输出契约、side effects、stop conditions |
 | 重型工具门禁 | `packs/vmp-re/references/vmp-re/toolchain-router.md` | full trace/debug/inject/patch/dump/symex 需要 reason、budget、outputs、stop conditions、confirmation |
 
-### 3.3 当前还没落地
+### 3.3 已落地与仍未落地的边界
 
-- 没有把 `ida-agent-bridge` 安装或绑定成硬依赖。
-- 没有实现 runtime-level IDA adapter（当前只定义只读 packet contract / recipe）。
-- 没有在 `/rekit` 中直接调用 IDA bridge。
-- 没有允许自动 rename/comment/patch。
+- 已落地 fixed-purpose runtime adapter `vmp-ida-index-inspector`：只读取已有 `function_index.tsv` 及可选 strings/imports/xrefs，以 literal query 生成有界 packet，并进入 exact profile、`authorized-gate`、dispatch、receipt/observation 和独立 evidence/member/Reviewer 链。
+- 没有把外部 `ida-agent-bridge` 安装、启动或绑定成硬依赖，也没有在 `/rekit` 中调用它。
+- fixed adapter 不打开 `.i64/.idb`，不生成导出，不联网，不执行 catalog `entry`。
+- 没有允许自动 rename/comment/patch/debug/dump 或通用 IDA 控制。
 
-这是刻意保守的：工具先 recipe 化，再 adapter 化，避免把不稳定外部工具变成模板硬依赖。
+这是刻意保守的：把经过验证的固定文本输入子集编译进显式 adapter ID，而不是把不稳定外部工具或动态 plugin 变成模板硬依赖。
 
 ## 4. `clark-utov`：batch、ledger、intervention 与 gate
 
@@ -182,7 +182,7 @@ git diff --check
 | evidence ledger | runtime 已落地（`/rekit note` 9 种 kind + overview/handoff/note-List 读层 + auto decision 字段对齐草案） | 索引优化（SQLite 仅在查询压垮 runtime 时） |
 | orchestration | `plan-subagents` planning mode 生成 route/shard/review-loop observability 与 read-only reviewer contract；显式 reviewer intake 已支持 strict WhatIf/Apply、verification-before-decision facts 写回、幂等重试与 post-validation（runtime 仍不自动 spawn 或管理 reviewer/session） | 下一步是统一 session/reviewer orchestration 与跨工具 adapter 实际调用 |
 | heavy-tool gate runtime | Go-owned/no-fallback `gate -WhatIf/-Apply` preview/request/evidence 与 `note`、`overview`、`handoff` 读写/投影链路；可写 pending/authorized gate decision，也可在授权动作后写 observation execution evidence（actual budget / output refs / evidence refs / boundary hits / escalation）；不执行 heavy-tool、不写 confirmed/authority | 后续由 lane executor/tool adapter 消费授权并承担真实工具调用、隔离、停止条件和 adapter-specific validation |
-| tool adapter | policy + candidate + `ida-agent-bridge` 只读 packet contract | 后续多个真实 case 验证后，再考虑 runtime-level adapter 或其它工具 adapter |
+| tool adapter | `_template` fixture inspector + `vmp-re` fixed `vmp-ida-index-inspector` 已有真实 contained-child/receipt/Claude E2E；外部 `ida-agent-bridge` 仍是 candidate | 后续按真实需求增加其它固定低风险 adapter；不先建动态 plugin registry |
 | 多 pack 扩展 | `_template` + `packs/web-security/` + `packs/malware-analysis/` + `packs/vuln-research/` + `packs/ctf/` + `packs/unpack-pe/` + `packs/ollvm/` + `packs/android-native/` + `packs/generic-binary-re/` | `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 与 `generic-binary-re` 已有 skeleton；后续按真实需求继续扩展领域 pack |
 
 ### 5.3 尚未实现，不能对外宣称
