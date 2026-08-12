@@ -123,8 +123,16 @@ func bindExternalSessionJob(target string, pkg *mission.CurrentLoopOperatorPacka
 		pkg.Boundary = mission.UniqueStrings(append(pkg.Boundary, err.Error()))
 		return
 	}
+	transport, err := externalsession.InspectTransport(job, attempt, dispatch)
+	if err != nil {
+		pkg.Ready = false
+		pkg.State = "external-session-transport-invalid"
+		pkg.Boundary = mission.UniqueStrings(append(pkg.Boundary, err.Error()))
+		return
+	}
 	typed := missionExternalSessionJob(inspected)
 	typed.Dispatcher = externalSessionDispatcherPackage(job, attempt.AttemptSHA256, dispatch)
+	typed.Transport = externalSessionTransportPackage(job, attempt, dispatch, transport)
 	bindExternalSessionRequestLane(&typed, pkg.Lane)
 	if dispatch.State == "attempt-publication-pending" && inspected.State != "submission-ready" && (pkg.ObservationInbox == nil || pkg.ObservationInbox.State == "empty") {
 		pending, pendingErr := externalsession.PendingAttemptPlan(job, dispatch)
@@ -164,7 +172,11 @@ func bindExternalSessionJob(target string, pkg *mission.CurrentLoopOperatorPacka
 		bindExternalSessionRequestLane(&typed, pkg.Lane)
 		typed.HarnessPackage = externalSessionHarnessPackage(job, inspected, attempt, pkg, typed)
 		if inspected.State == "awaiting-submission" && (pkg.ObservationInbox == nil || pkg.ObservationInbox.State == "empty") {
-			applyExternalSessionDispatchState(pkg, &typed, dispatch)
+			if transport.Applicable && (dispatch.State == "claimed" || dispatch.State == "running") {
+				applyExternalSessionTransportState(pkg, &typed, transport)
+			} else {
+				applyExternalSessionDispatchState(pkg, &typed, dispatch)
+			}
 		}
 		pkg.ExternalSessionJob = &typed
 	}()
@@ -206,11 +218,19 @@ func bindExternalSessionJob(target string, pkg *mission.CurrentLoopOperatorPacka
 			))
 		} else {
 			pkg.State = "external-session-running"
-			pkg.RunbookSteps = mission.UniqueStrings(append(pkg.RunbookSteps,
-				"the current durable attempt owns this job; wait for its submission or explicitly record a replacement attempt",
-				"a replacement must use attemptRequest with the exact current attempt sha256 and a distinct harness or session",
-				"write outputs or reviewer-result first, then write submissionPath last with the current attempt identity",
-			))
+			if job.SessionKind == "reviewer" && job.Reviewer != nil && job.Reviewer.DispatchID != "" {
+				pkg.RunbookSteps = mission.UniqueStrings(append(pkg.RunbookSteps,
+					"the current durable Reviewer attempt owns this job; wait for its submission or create a new durable Reviewer dispatch",
+					"do not replace this Reviewer job; recovery requires a new reviewerSession binding and external-session job",
+					"write reviewer-result first, then write submissionPath last with the current attempt identity",
+				))
+			} else {
+				pkg.RunbookSteps = mission.UniqueStrings(append(pkg.RunbookSteps,
+					"the current durable attempt owns this job; wait for its submission or explicitly record a replacement attempt",
+					"a replacement must use attemptRequest with the exact current attempt sha256 and a distinct harness or session",
+					"write outputs first, then write submissionPath last with the current attempt identity",
+				))
+			}
 		}
 	case "invalid":
 		pkg.Ready = false
@@ -276,6 +296,9 @@ func bindExternalSessionRequestLane(job *mission.CurrentLoopExternalSessionJob, 
 	requests := []*mission.MissionCommanderDriverRequest{job.AttemptRequest, job.RelayPreviewRequest}
 	if job.Dispatcher != nil {
 		requests = append(requests, job.Dispatcher.ClaimRequest, job.Dispatcher.LaunchAcceptedRequest, job.Dispatcher.LaunchFailedRequest)
+	}
+	if job.Transport != nil {
+		requests = append(requests, job.Transport.DiscoveryRequest, job.Transport.DeliveryRequest, job.Transport.LaunchRequest, job.Transport.ReturnRequest, job.Transport.ReplacementRequest)
 	}
 	for _, request := range requests {
 		if request != nil && strings.TrimSpace(request.Lane) == "" {
@@ -463,6 +486,9 @@ func externalSessionReturnContract(job externalsession.Job, inspection externals
 		}
 		if job.SessionKind == "reviewer" && outcome == "returned" {
 			required = append([]string{attempt.Current.SubmissionResult}, required...)
+			if job.Reviewer != nil && job.Reviewer.Harness == externalsession.RemoteControlHarness {
+				required = append(required[:1], append([]string{externalsession.TransportReturnReceiptPath(job.JobID, attempt.Current.Generation)}, required[1:]...)...)
+			}
 		}
 		contract.Templates = append(contract.Templates, mission.CurrentLoopExternalSessionSubmissionTemplate{Outcome: outcome, JSON: template, RequiredWrites: required, RequiredReplace: replacements})
 	}

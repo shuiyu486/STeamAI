@@ -101,6 +101,32 @@ func TestExternalSessionAttemptRejectsReviewerDispatchSessionMismatch(t *testing
 	}
 }
 
+func TestExternalSessionAttemptRejectsDurableReviewerSameJobReplacement(t *testing.T) {
+	caseRoot := externalSessionTestCaseRoot(t)
+	job, err := NewReviewerJob(caseRoot, defaults.DefaultPack, testCheckpointSHA, ReviewerIdentity{AttemptSHA256: strings.Repeat("b", 64), PacketID: "packet", RouteID: "route", ShardID: "shard", Items: []string{"item"}, OutputFields: []string{"item"}, DispatchPath: ".rekit/dispatch.json", DispatchSHA256: strings.Repeat("c", 64), DispatchID: "dispatch-a", Harness: "claude-code", Session: "session-a"}, []string{"accepted", "failed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := PreviewAttempt(job, "claude-code", "session-a", "mission-commander", "2026-08-05T03:00:00Z", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ApplyAttempt(first, first.JobSHA256, first.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	inspection, err := InspectAttempt(job)
+	if err != nil || inspection.Current == nil {
+		t.Fatalf("first reviewer attempt=%+v err=%v", inspection, err)
+	}
+	if _, err := PreviewAttempt(job, "replacement-harness", "replacement-session", "mission-commander", "2026-08-05T03:01:00Z", inspection.AttemptSHA256); err == nil || !strings.Contains(err.Error(), "new Reviewer dispatch") {
+		t.Fatalf("durable reviewer replacement error=%v", err)
+	}
+	current, err := InspectAttempt(job)
+	if err != nil || current.Generations != 1 || current.AttemptSHA256 != inspection.AttemptSHA256 {
+		t.Fatalf("durable reviewer replacement changed current attempt: %+v err=%v", current, err)
+	}
+}
+
 func TestExternalSessionAttemptRejectsTamperAndSubmissionBeforeStart(t *testing.T) {
 	caseRoot := externalSessionTestCaseRoot(t)
 	job, err := NewReviewerJob(caseRoot, defaults.DefaultPack, testCheckpointSHA, ReviewerIdentity{AttemptSHA256: strings.Repeat("b", 64), PacketID: "packet", RouteID: "route", ShardID: "shard"}, []string{"accepted", "failed"})

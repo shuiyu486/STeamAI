@@ -2090,9 +2090,9 @@ func TestRunStatusJsonKit(t *testing.T) {
 				t.Fatalf("completed route leaked planning guidance %q:\n%s", forbidden, out.String())
 			}
 		}
-	} else if status.ProjectHandoff.ActiveRoute.Present && !status.ProjectHandoff.ActiveRoute.NextBatchUnlocked && status.ProjectHandoff.LatestBatch == "Batch 821" {
-		if projectCurrent.Source != "releaseHandoffActiveRoute" || projectCurrent.ActionID != "active-route-current-batch" || status.ProjectHandoff.ActiveRoute.ExclusiveClaim == "" || projectCurrent.Label != status.ProjectHandoff.ActiveRoute.ExclusiveClaim || !strings.Contains(projectCurrent.Command, status.ProjectHandoff.ActiveRoute.ExclusiveClaim) || status.ProjectHandoff.MissionCommanderActionQueue.Counts.RequiresReview != 0 {
-			t.Fatalf("active RH route should own the completed legacy batch current action: current=%+v route=%+v queue=%+v", projectCurrent, status.ProjectHandoff.ActiveRoute, status.ProjectHandoff.MissionCommanderActionQueue)
+	} else if status.ProjectHandoff.ActiveRoute.Present && !status.ProjectHandoff.ActiveRoute.NextBatchUnlocked && projectCurrent.ActionID == "active-route-current-batch" {
+		if projectCurrent.Source != "releaseHandoffActiveRoute" || status.ProjectHandoff.ActiveRoute.ExclusiveClaim == "" || projectCurrent.Label != status.ProjectHandoff.ActiveRoute.ExclusiveClaim || !strings.Contains(projectCurrent.Command, status.ProjectHandoff.ActiveRoute.ExclusiveClaim) || status.ProjectHandoff.MissionCommanderActionQueue.Counts.RequiresReview != 0 {
+			t.Fatalf("active route should own the latest batch current action: current=%+v route=%+v queue=%+v", projectCurrent, status.ProjectHandoff.ActiveRoute, status.ProjectHandoff.MissionCommanderActionQueue)
 		}
 	} else {
 		wantProjectCommand := statusProjectHandoffExecutableCurrentCommand(status.ProjectHandoff.LatestNextAction)
@@ -2169,23 +2169,43 @@ func TestRunStatusJsonKit(t *testing.T) {
 	projectActionTextExpected := []string{}
 	if status.ProjectHandoff.ActiveRoute.Present && !status.ProjectHandoff.ActiveRoute.NextBatchUnlocked && projectCurrent.ActionID == "active-route-completed" {
 		projectActionTextExpected = []string{
-			fmt.Sprintf("status project handoff：summary=%s ready=%t latestBatch=Batch 821", status.ProjectHandoff.Summary, status.ProjectHandoff.Ready),
+			fmt.Sprintf("status project handoff：summary=%s ready=%t latestBatch=%s", status.ProjectHandoff.Summary, status.ProjectHandoff.Ready, status.ProjectHandoff.LatestBatch),
 			"status project handoff current action queue：total=1 unblocked=1 blocked=0",
-			fmt.Sprintf("status Mission Commander current action：scope=focus-project lane= label=%s state=completed-no-next-batch source=releaseHandoffActiveRoute blocked=false requiresReview=false command=the approved route is complete; wait for an explicit user route change before selecting further work", status.ProjectHandoff.ActiveRoute.ExclusiveClaim),
-			"status Mission Commander focus action reason：scope=project reason=active durable route is completed: daily-product-closure-v1",
-			"status Mission Commander focus action boundary：scope=project boundary=do not generate or consume next-batch selection guidance while the completed route has no selectable next batch",
-			fmt.Sprintf("status Mission Commander focus project runbook：batch=%s state=completed-no-next-batch", status.ProjectHandoff.ActiveRoute.ExclusiveClaim),
-			fmt.Sprintf("status project handoff current action queue action：bucket=current lane= label=%s state=completed-no-next-batch source=releaseHandoffActiveRoute", status.ProjectHandoff.ActiveRoute.ExclusiveClaim),
+			fmt.Sprintf("status Mission Commander current action：scope=focus-project lane= label=%s state=%s source=%s blocked=%t requiresReview=%t command=%s", projectCurrent.Label, projectCurrent.State, projectCurrent.Source, projectCurrent.Blocked, projectCurrent.RequiresReview, projectCurrent.Command),
+			fmt.Sprintf("status Mission Commander focus project runbook：batch=%s state=%s", projectCurrent.Label, projectCurrent.State),
+			fmt.Sprintf("status project handoff current action queue action：bucket=current lane= label=%s state=%s source=%s blocked=%t requiresReview=%t command=%s", projectCurrent.Label, projectCurrent.State, projectCurrent.Source, projectCurrent.Blocked, projectCurrent.RequiresReview, projectCurrent.Command),
 		}
-	} else if status.ProjectHandoff.ActiveRoute.Present && !status.ProjectHandoff.ActiveRoute.NextBatchUnlocked && status.ProjectHandoff.LatestBatch == "Batch 821" {
+		for _, reason := range projectCurrent.Reasons {
+			projectActionTextExpected = append(projectActionTextExpected,
+				fmt.Sprintf("status Mission Commander focus action reason：scope=project reason=%s", reason),
+				fmt.Sprintf("status project handoff current action queue action reason：bucket=current lane= reason=%s", reason),
+			)
+		}
+		for _, boundary := range projectCurrent.Boundary {
+			projectActionTextExpected = append(projectActionTextExpected,
+				fmt.Sprintf("status Mission Commander focus action boundary：scope=project boundary=%s", boundary),
+				fmt.Sprintf("status project handoff current action queue action boundary：bucket=current lane= boundary=%s", boundary),
+			)
+		}
+	} else if status.ProjectHandoff.ActiveRoute.Present && !status.ProjectHandoff.ActiveRoute.NextBatchUnlocked && projectCurrent.ActionID == "active-route-current-batch" {
 		projectActionTextExpected = []string{
-			fmt.Sprintf("status project handoff：summary=%s ready=%t latestBatch=Batch 821", status.ProjectHandoff.Summary, status.ProjectHandoff.Ready),
+			fmt.Sprintf("status project handoff：summary=%s ready=%t latestBatch=%s", status.ProjectHandoff.Summary, status.ProjectHandoff.Ready, status.ProjectHandoff.LatestBatch),
 			"status project handoff current action queue：total=1 unblocked=1 blocked=0",
-			fmt.Sprintf("status Mission Commander current action：scope=focus-project lane= label=%s state=in_progress source=releaseHandoffActiveRoute", status.ProjectHandoff.ActiveRoute.ExclusiveClaim),
-			"status Mission Commander focus action reason：scope=project reason=active durable route: daily-product-closure-v1",
-			"status Mission Commander focus action boundary：scope=project boundary=do not generate or consume free-form candidate-domain selection while the active route is not unlocked",
-			fmt.Sprintf("status Mission Commander focus project runbook：batch=%s state=in_progress", status.ProjectHandoff.ActiveRoute.ExclusiveClaim),
-			fmt.Sprintf("status project handoff current action queue action：bucket=current lane= label=%s state=in_progress source=releaseHandoffActiveRoute", status.ProjectHandoff.ActiveRoute.ExclusiveClaim),
+			fmt.Sprintf("status Mission Commander current action：scope=focus-project lane= label=%s state=%s source=%s blocked=%t requiresReview=%t command=%s", projectCurrent.Label, projectCurrent.State, projectCurrent.Source, projectCurrent.Blocked, projectCurrent.RequiresReview, projectCurrent.Command),
+			fmt.Sprintf("status Mission Commander focus project runbook：batch=%s state=%s", projectCurrent.Label, projectCurrent.State),
+			fmt.Sprintf("status project handoff current action queue action：bucket=current lane= label=%s state=%s source=%s blocked=%t requiresReview=%t command=%s", projectCurrent.Label, projectCurrent.State, projectCurrent.Source, projectCurrent.Blocked, projectCurrent.RequiresReview, projectCurrent.Command),
+		}
+		for _, reason := range projectCurrent.Reasons {
+			projectActionTextExpected = append(projectActionTextExpected,
+				fmt.Sprintf("status Mission Commander focus action reason：scope=project reason=%s", reason),
+				fmt.Sprintf("status project handoff current action queue action reason：bucket=current lane= reason=%s", reason),
+			)
+		}
+		for _, boundary := range projectCurrent.Boundary {
+			projectActionTextExpected = append(projectActionTextExpected,
+				fmt.Sprintf("status Mission Commander focus action boundary：scope=project boundary=%s", boundary),
+				fmt.Sprintf("status project handoff current action queue action boundary：bucket=current lane= boundary=%s", boundary),
+			)
 		}
 	} else if status.ProjectHandoff.ReleaseInspectionCadence.State == "complete" {
 		projectActionTextExpected = []string{

@@ -142,6 +142,13 @@ func externalSessionDispatcherRequestIsFocused(operator *mission.CurrentLoopOper
 	}
 	job := operator.ExternalSessionJob
 	dispatcher := job.Dispatcher
+	if transport := job.Transport; transport != nil {
+		for _, request := range []*mission.MissionCommanderDriverRequest{transport.DiscoveryRequest, transport.DeliveryRequest, transport.LaunchRequest, transport.ReturnRequest, transport.ReplacementRequest} {
+			if request != nil && operator.SelectedDriverRequest.ActionID == request.ActionID && operator.SelectedDriverRequest.Source == request.Source {
+				return job.CurrentAttempt != nil && dispatcher.Claim != nil
+			}
+		}
+	}
 	if job.State == "submission-ready" {
 		return job.CurrentAttempt != nil && strings.TrimSpace(operator.SelectedDriverRequest.Lane) != "" && operator.SelectedDriverRequest.Source == "current-loop-external-session-turn"
 	}
@@ -161,7 +168,7 @@ func externalSessionDispatcherRequestIsFocused(operator *mission.CurrentLoopOper
 	case "claimed":
 		return job.CurrentAttempt != nil && dispatcher.LaunchAcceptedRequest != nil && operator.SelectedDriverRequest.Command == dispatcher.LaunchAcceptedRequest.Command
 	case "running":
-		return job.CurrentAttempt != nil && strings.TrimSpace(operator.SelectedDriverRequest.Lane) != "" && dispatcher.Claim != nil && dispatcher.LaunchReceipt != nil && dispatcher.LaunchReceipt.State == "accepted" && operator.SelectedDriverRequest.Source == "current-loop-external-session-dispatch"
+		return job.CurrentAttempt != nil && strings.TrimSpace(operator.SelectedDriverRequest.Lane) != "" && dispatcher.Claim != nil && dispatcher.LaunchReceipt != nil && dispatcher.LaunchReceipt.State == "accepted" && (operator.SelectedDriverRequest.Source == "current-loop-external-session-dispatch" || operator.SelectedDriverRequest.Source == "current-loop-external-session-transport")
 	case "launch-failed":
 		return job.CurrentAttempt != nil && job.AttemptRequest != nil && operator.SelectedDriverRequest.Command == job.AttemptRequest.Command
 	default:
@@ -239,16 +246,26 @@ func externalSessionCurrentStepRequest(operator *mission.CurrentLoopOperatorPack
 
 func externalSessionRunningRequest(job *mission.CurrentLoopExternalSessionJob) mission.MissionCommanderDriverRequest {
 	dispatcher := job.Dispatcher
+	guidance := "Wait for or reconnect to the exact accepted external session; refresh status after submission. Use replacementRequest only after explicit orphan review."
+	receiptState := "submission-or-replacement-review"
+	description := "the exact accepted external session either publishes submission last or is explicitly superseded after review"
+	receiptBoundary := []string{"running is durable launch truth, not a liveness claim", "replacement fences this generation but does not stop an external process"}
+	if job.SessionKind == "reviewer" && job.Reviewer != nil && job.Reviewer.DispatchID != "" {
+		guidance = "Wait for the exact accepted Reviewer submission and refresh status. Do not replace this durable Reviewer job; orphan recovery requires a new Reviewer dispatch, reviewerSession binding, and external-session job."
+		receiptState = "submission-or-new-reviewer-dispatch-review"
+		description = "the exact accepted Reviewer either publishes submission last or recovery re-enters the canonical durable Reviewer dispatch path"
+		receiptBoundary = []string{"running is durable launch truth, not a liveness claim", "no same-job Reviewer replacement", "new dispatch/session/job identity required for orphan recovery"}
+	}
 	request := mission.MissionCommanderDriverRequest{
 		Kind: "external-session-lifecycle-handoff", RunLoopStepID: "external-session-running:" + job.JobID,
 		Actor: "mission-commander", State: "external-session-running", Source: "current-loop-external-session-dispatch",
 		Lane:  currentLoopExternalSessionLane(job),
 		Label: job.SessionKind + " external session running", CommandExecutable: false, RequiresReview: true,
-		Guidance: "Wait for or reconnect to the exact accepted external session; refresh status after submission. Use replacementRequest only after explicit orphan review.",
+		Guidance: guidance,
 		ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
-			State: "submission-or-replacement-review", RefreshStatusCommand: job.HarnessPackage.RefreshStatusCommand,
-			Description: "the exact accepted external session either publishes submission last or is explicitly superseded after review",
-			Boundary:    []string{"running is durable launch truth, not a liveness claim", "replacement fences this generation but does not stop an external process"},
+			State: receiptState, RefreshStatusCommand: job.HarnessPackage.RefreshStatusCommand,
+			Description: description,
+			Boundary:    receiptBoundary,
 		},
 		Boundary: []string{"this handoff is not executable and does not poll or manage the external session", "do not resume the underlying lane or reviewer action while this generation is current"},
 	}

@@ -164,6 +164,11 @@ type Options struct {
 	ExternalSessionLaunchOutcome              string
 	ExternalSessionObservedAt                 string
 	ExternalSessionLaunchReason               string
+	ExternalSessionTransportEndpoint          string
+	ExternalSessionDeliveryOutcome            string
+	ExternalSessionProviderAckFingerprint     string
+	ExternalSessionDeliveryReason             string
+	ExternalSessionReviewerResultSourcePath   string
 	ExpectedExternalSessionAttemptSHA256      string
 	ExpectedExternalSessionAttemptPlanSHA256  string
 	ExpectedExternalSessionDispatchSHA256     string
@@ -612,6 +617,36 @@ func Parse(args []string) (Options, error) {
 				return opt, fmt.Errorf("missing value for -ExternalSessionLaunchReason")
 			}
 			opt.ExternalSessionLaunchReason = args[i]
+		case "-ExternalSessionTransportEndpoint", "--external-session-transport-endpoint":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExternalSessionTransportEndpoint")
+			}
+			opt.ExternalSessionTransportEndpoint = args[i]
+		case "-ExternalSessionDeliveryOutcome", "--external-session-delivery-outcome":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExternalSessionDeliveryOutcome")
+			}
+			opt.ExternalSessionDeliveryOutcome = args[i]
+		case "-ExternalSessionProviderAckFingerprint", "--external-session-provider-ack-fingerprint":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExternalSessionProviderAckFingerprint")
+			}
+			opt.ExternalSessionProviderAckFingerprint = args[i]
+		case "-ExternalSessionDeliveryReason", "--external-session-delivery-reason":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExternalSessionDeliveryReason")
+			}
+			opt.ExternalSessionDeliveryReason = args[i]
+		case "-ExternalSessionReviewerResultSourcePath", "--external-session-reviewer-result-source-path":
+			i++
+			if i >= len(args) {
+				return opt, fmt.Errorf("missing value for -ExternalSessionReviewerResultSourcePath")
+			}
+			opt.ExternalSessionReviewerResultSourcePath = args[i]
 		case "-ExpectedExternalSessionAttemptSha256", "-ExpectedExternalSessionAttemptSHA256", "--expected-external-session-attempt-sha256":
 			i++
 			if i >= len(args) {

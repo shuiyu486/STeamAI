@@ -4833,14 +4833,6 @@ func markdownTableValue(data []byte, field string) string {
 	return ""
 }
 
-func firstReleaseHandoffToken(value string) string {
-	value = strings.TrimSpace(value)
-	if index := strings.IndexAny(value, " \t"); index >= 0 {
-		return value[:index]
-	}
-	return value
-}
-
 func releaseHandoffBatchID(value string) string {
 	value = strings.TrimSpace(value)
 	if index := strings.IndexFunc(value, func(r rune) bool {
@@ -4882,7 +4874,7 @@ func releaseHandoffNextBatchSelectable(value string) bool {
 }
 
 func releaseHandoffCompletedRouteAction(route ReleaseHandoffActiveRoute) *mission.MissionCommanderNextActionItem {
-	label := firstReleaseHandoffToken(route.CurrentBatch)
+	label := releaseHandoffBatchID(route.CurrentBatch)
 	if label == "" {
 		label = "completed-route"
 	}
@@ -4907,7 +4899,7 @@ func releaseHandoffCompletedRouteAction(route ReleaseHandoffActiveRoute) *missio
 }
 
 func releaseHandoffActiveRouteAction(route ReleaseHandoffActiveRoute) *mission.MissionCommanderNextActionItem {
-	currentID := firstReleaseHandoffToken(route.CurrentBatch)
+	currentID := releaseHandoffBatchID(route.CurrentBatch)
 	if currentID == "" {
 		currentID = "active-route"
 	}

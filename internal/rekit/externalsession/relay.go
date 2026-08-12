@@ -509,6 +509,18 @@ func validateSubmission(job Job, jobSHA string, submission Submission) error {
 	if strings.TrimSpace(submission.Actor) == "" || strings.ContainsAny(submission.Actor, "\r\n") || !submission.NoAuthorityOrConfirmed || !submission.NoHeavyTool {
 		return fmt.Errorf("external session submission requires a single-line actor and strict no-authority/no-heavy-tool boundaries")
 	}
+	if IsRemoteControlAttempt(attempt.Current) {
+		resultPath := filepath.Join(job.CaseRoot, filepath.FromSlash(attempt.Current.SubmissionResult))
+		resultData, err := rekitfs.ReadStableRegularFileAnchored(job.CaseRoot, resultPath, "Remote Control reviewer result", reviewerresult.MaxBytes)
+		if err != nil {
+			return err
+		}
+		if err := validateRemoteControlReturnLineage(job, attempt, dispatch, submission, resultData); err != nil {
+			return err
+		}
+	} else if submission.TransportReturnReceiptPath != "" || submission.TransportReturnReceiptSHA256 != "" {
+		return fmt.Errorf("non-Remote-Control submission cannot claim a transport return receipt")
+	}
 	if submission.ObservedAt != "" {
 		if _, err := time.Parse(time.RFC3339Nano, submission.ObservedAt); err != nil {
 			return fmt.Errorf("external session submission observedAt must be RFC3339Nano")

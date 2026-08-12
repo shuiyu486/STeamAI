@@ -7,6 +7,22 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
+func TestAttemptArgsKeepLocalClaudeCodeProviderAsDefault(t *testing.T) {
+	if defaultHarness != "claude-code-cli" {
+		t.Fatalf("default external session harness constant = %q", defaultHarness)
+	}
+	args := attemptArgs("actor", "session", "")
+	for index := 0; index+1 < len(args); index++ {
+		if args[index] == "-ExternalSessionHarness" {
+			if args[index+1] != defaultHarness {
+				t.Fatalf("attempt external session harness = %q", args[index+1])
+			}
+			return
+		}
+	}
+	t.Fatalf("attempt args omitted external session harness: %v", args)
+}
+
 func TestRequireSameRunningHandoffAcceptsExactCurrentPackage(t *testing.T) {
 	plan := supervisedRunningPlanForTest()
 	if err := requireSameRunningHandoff(plan, plan); err != nil {

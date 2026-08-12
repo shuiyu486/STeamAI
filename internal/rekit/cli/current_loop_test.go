@@ -16,9 +16,65 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewersession"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/subagents"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
+
+func TestRemoteControlTransportPackageProjectsTypedLifecycleRequests(t *testing.T) {
+	job := externalsession.Job{
+		CaseRoot: "case-root", JobID: "reviewer-job", CheckpointSHA256: strings.Repeat("a", 64), SessionKind: "reviewer",
+		Reviewer: &externalsession.ReviewerIdentity{DispatchID: "dispatch-a", Harness: externalsession.RemoteControlHarness, Session: "transport-binding-a"},
+	}
+	attempt := externalsession.AttemptInspection{AttemptSHA256: strings.Repeat("b", 64), Current: &externalsession.Attempt{AttemptID: "reviewer-job-g000001", Generation: 1, Harness: externalsession.RemoteControlHarness, Session: "transport-binding-a"}}
+	dispatch := externalsession.DispatchInspection{
+		State: "claimed", TicketSHA256: strings.Repeat("c", 64), ClaimSHA256: strings.Repeat("d", 64),
+		Claim: &externalsession.DispatchClaim{Actor: "mission-commander"},
+	}
+	binding := externalsession.TransportBinding{
+		Transport: externalsession.TransportRemoteControl, TransportBindingID: "transport-binding-a", JobID: job.JobID,
+		JobSHA256: strings.Repeat("e", 64), CheckpointSHA256: job.CheckpointSHA256, AttemptID: attempt.Current.AttemptID,
+		AttemptSHA256: attempt.AttemptSHA256, Generation: 1, DispatchSHA256: dispatch.TicketSHA256, ClaimSHA256: dispatch.ClaimSHA256,
+	}
+
+	discovery := externalSessionTransportPackage(job, attempt, dispatch, externalsession.TransportInspection{Applicable: true, State: "endpoint-required", Binding: binding})
+	if discovery == nil || discovery.DiscoveryTool != "ListAgents" || discovery.DiscoveryRequest == nil || discovery.DiscoveryRequest.CommandExecutable || discovery.DiscoveryRequest.Source != "current-loop-external-session-transport" || !strings.Contains(discovery.DiscoveryRequest.Guidance, "ListAgents") {
+		t.Fatalf("Remote Control endpoint discovery package=%+v", discovery)
+	}
+
+	endpoint := &externalsession.TransportEndpointSnapshot{Endpoint: "reviewer [opaque-ref]", Actor: "mission-commander", ObservedAt: "2026-08-12T01:00:00Z", Envelope: externalsession.TransportMessageEnvelope{Operation: "SendMessage", Recipient: "reviewer [opaque-ref]", Message: "bounded message", MessageSHA256: strings.Repeat("f", 64), NoFileTransfer: true}}
+	delivery := externalSessionTransportPackage(job, attempt, dispatch, externalsession.TransportInspection{Applicable: true, State: "delivery-required", Binding: binding, Endpoint: endpoint, EndpointSHA256: strings.Repeat("1", 64), EnvelopeSHA256: strings.Repeat("2", 64)})
+	if delivery == nil || delivery.Message == nil || delivery.Message.Operation != "SendMessage" || !delivery.Message.NoFileTransfer || delivery.DeliveryRequest == nil || delivery.DeliveryRequest.CommandExecutable || !strings.Contains(delivery.DeliveryRequest.Guidance, "exactly once") {
+		t.Fatalf("Remote Control delivery package=%+v", delivery)
+	}
+
+	acceptedObservation := &externalsession.TransportDeliveryObservation{Outcome: "accepted", Actor: "mission-commander", ObservedAt: "2026-08-12T01:01:00Z"}
+	running := dispatch
+	running.State = "running"
+	running.LaunchSHA256 = strings.Repeat("4", 64)
+	returned := externalSessionTransportPackage(job, attempt, running, externalsession.TransportInspection{Applicable: true, State: "delivery-accepted", Binding: binding, Endpoint: endpoint, EndpointSHA256: strings.Repeat("1", 64), EnvelopeSHA256: strings.Repeat("2", 64), Delivery: acceptedObservation, DeliverySHA256: strings.Repeat("3", 64)})
+	if returned == nil || returned.ReturnRequest == nil || returned.ReturnRequest.CommandExecutable || returned.ReturnRequest.State != "remote-control-reviewer-result-required" || returned.ReturnRequest.ExpectedReceipt.State != "transport-return-preview" || !strings.Contains(returned.ReturnRequest.Guidance, "ExternalSessionReviewerResultSourcePath") || returned.LaunchRequest != nil {
+		t.Fatalf("Remote Control return package=%+v", returned)
+	}
+
+	uncertainObservation := &externalsession.TransportDeliveryObservation{Outcome: "uncertain", Actor: "mission-commander", ObservedAt: "2026-08-12T01:01:00Z", Reason: "no stable acknowledgement"}
+	uncertain := externalSessionTransportPackage(job, attempt, dispatch, externalsession.TransportInspection{Applicable: true, State: "delivery-uncertain", Binding: binding, Delivery: uncertainObservation, DeliverySHA256: strings.Repeat("3", 64)})
+	if uncertain == nil || uncertain.ReplacementRequest == nil || uncertain.ReplacementRequest.CommandExecutable || uncertain.ReplacementRequest.State != "transport-delivery-uncertain-new-dispatch-required" || !strings.Contains(uncertain.ReplacementRequest.Guidance, "Do not resend or replace this job") || uncertain.ReplacementRequest.Command != "" {
+		t.Fatalf("Remote Control uncertain package=%+v", uncertain)
+	}
+}
+
+func TestExternalSessionRunningRequestForDurableReviewerForbidsSameJobReplacement(t *testing.T) {
+	job := &mission.CurrentLoopExternalSessionJob{
+		JobID: "reviewer-job", SessionKind: "reviewer", Reviewer: &mission.CurrentLoopExternalSessionJobReviewer{DispatchID: "dispatch-a", Harness: "claude-code", Session: "session-a"},
+		HarnessPackage: &mission.CurrentLoopExternalSessionHarnessPackage{RefreshStatusCommand: "/rekit status"},
+	}
+	request := externalSessionRunningRequest(job)
+	if request.CommandExecutable || request.ExpectedReceipt.State != "submission-or-new-reviewer-dispatch-review" || !strings.Contains(request.Guidance, "Do not replace this durable Reviewer job") || !slices.Contains(request.ExpectedReceipt.Boundary, "no same-job Reviewer replacement") {
+		t.Fatalf("durable Reviewer running request=%+v", request)
+	}
+}
 
 func TestExternalSessionHarnessPackageFailsClosedWithoutStableMemberInput(t *testing.T) {
 	caseRoot := t.TempDir()
@@ -418,11 +474,16 @@ func TestRunCurrentLoopReportsAppliedStepWhenStatusRefreshFails(t *testing.T) {
 func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
 	var out bytes.Buffer
-	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "review", "-Apply"}, &out); err != nil {
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "remote-evidence", "-Executor", "member-evidence-executor", "-Actor", "mission-commander", "-Reason", "seed exact reviewer evidence closure", "-Apply"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	manifestItem := currentLoopRemoteControlEvidenceItem(t, caseRoot, "feature-remote-evidence")
+	out.Reset()
+	if err := Run([]string{"-Command", "start", "-Target", caseRoot, "-Pack", "_template", "-Name", "review", "-Executor", "review-owner-executor", "-Actor", "mission-commander", "-Reason", "bind the durable Reviewer campaign owner", "-Apply"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	out.Reset()
-	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", "alpha"}, &out); err != nil {
+	if err := Run([]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-TaskType", "feature-analysis", "-Items", manifestItem}, &out); err != nil {
 		t.Fatal(err)
 	}
 	external := runCurrentLoopPreview(t, caseRoot, 10)
@@ -459,7 +520,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		t.Fatalf("current-loop operator was not projected to quickstart and replacement takeover: %+v", external.FinalStatus.MissionControlRunbook)
 	}
 	var handoffPreviewOut bytes.Buffer
-	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, &handoffPreviewOut); err != nil {
+	if err := Run([]string{"-Command", "handoff", "review", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, &handoffPreviewOut); err != nil {
 		t.Fatal(err)
 	}
 	var handoffPreview workstream.HandoffResult
@@ -470,10 +531,10 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		t.Fatalf("handoff JSON omitted current-loop operator: %+v", handoffPreview)
 	}
 	var handoffApplyOut bytes.Buffer
-	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-Format", "json"}, &handoffApplyOut); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "review", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-Format", "json"}, &handoffApplyOut); err != nil {
 		t.Fatal(err)
 	}
-	durableHandoff, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "handovers", "latest.md"))
+	durableHandoff, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "handovers", "feature-review-latest.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -565,6 +626,9 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		t.Fatalf("fresh reviewer job omitted attempt-review harness package: %+v", harness)
 	}
 	resultJob = recordCurrentLoopExternalSessionAttempt(t, resultOperator, "go-cli-test-harness", "reviewer-session-runner", "mission-commander", "2026-08-05T00:30:00Z")
+	if resultJob.AttemptRequest == nil || resultJob.AttemptRequest.State != "new-reviewer-dispatch-required" || resultJob.AttemptRequest.CommandExecutable || resultJob.AttemptRequest.Command != "" || !strings.Contains(resultJob.AttemptRequest.Guidance, "new Reviewer dispatch") {
+		t.Fatalf("durable Reviewer attempt exposed same-job replacement: %+v", resultJob.AttemptRequest)
+	}
 	resultOperator.ExternalSessionJob = resultJob
 	resultJob = acceptCurrentLoopExternalSessionLaunch(t, resultOperator, "dispatcher", "go-cli-test-harness", "reviewer-session-runner", "2026-08-05T00:30:01Z")
 	if harness := resultJob.HarnessPackage; harness == nil || harness.State != "running" || harness.Launch == nil || harness.Launch.Ready || harness.Launch.Tool != "Claude Code Agent" || harness.Launch.AgentType != "read-only-reviewer" || !harness.Launch.ReadOnly || harness.Launch.Input.Role != "reviewer-dispatch-prompt" || harness.Launch.Input.Path != resultOperator.ExternalReviewerHandoff.DispatchPromptPath || harness.Launch.Input.SHA256 != resultOperator.ExternalReviewerHandoff.DispatchPromptSHA256 || harness.Launch.Attempt.AttemptSHA256 != resultJob.CurrentAttempt.AttemptSHA256 || harness.Launch.Attempt.Session != "reviewer-session-runner" || harness.Launch.ReviewerIdentity == nil || harness.Launch.ReviewerIdentity.PacketID != resultAttempt.Identity.PacketID || harness.Launch.ReviewerIdentity.RouteID != resultAttempt.Identity.RouteID || harness.Launch.ReviewerIdentity.ShardID != resultAttempt.Identity.ShardID || harness.Launch.ReviewerIdentity.DispatchID != resultAttempt.Receipt.DispatchID || harness.Launch.ReviewerIdentity.DispatchSHA256 != resultAttempt.Receipt.DispatchSHA256 || harness.Return == nil || harness.Return.SubmissionResult != resultJob.SubmissionResult || !harness.Return.SubmissionLast || len(harness.Return.Templates) != len(resultJob.AllowedOutcomes) {
@@ -678,7 +742,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	}
 	replacementDispatchObservationPath := writeCurrentLoopObservation(t, caseRoot, "reviewer-accepted", currentLoopObservationEnvelope{
 		SchemaVersion: 1, Kind: "current-loop-external-session-observation", CheckpointSHA256: failedApplied.SegmentCheckpoint.ArtifactSHA256,
-		ObservationKind: "reviewer-session-accepted", Actor: actor, ReviewerAttemptSHA256: replacementSpawnAttempt.AttemptSnapshotSHA256, ReviewerHarness: "go-cli-test-harness", ReviewerSession: "reviewer-session-replacement",
+		ObservationKind: "reviewer-session-accepted", Actor: actor, ReviewerAttemptSHA256: replacementSpawnAttempt.AttemptSnapshotSHA256, ReviewerHarness: externalsession.RemoteControlHarness, ReviewerSession: "reviewer-session-replacement",
 		NoAuthorityOrConfirmed: true, NoHeavyTool: true,
 	})
 	replacementDispatchPreview := runCurrentLoopResumePreviewWith(t, caseRoot, failedApplied.SegmentCheckpoint.ArtifactSHA256, "-CurrentLoopObservationPath", replacementDispatchObservationPath)
@@ -687,8 +751,15 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		t.Fatalf("replacement reviewer dispatch did not reach result handoff: %+v", replacementDispatchApplied)
 	}
 	replacementResultAttempt := replacementDispatchApplied.FinalStatus.MissionControlRunbook.CurrentLoopOperator.ExternalReviewerHandoff.Attempt
-	if replacementResultAttempt == nil || replacementResultAttempt.RunLoopStepID != "save-result-input" || replacementResultAttempt.Receipt.Session != "reviewer-session-replacement" || replacementResultAttempt.Receipt.DispatchID == resultAttempt.Receipt.DispatchID {
-		t.Fatalf("replacement result attempt did not bind the fresh reviewer session: prior=%+v replacement=%+v", resultAttempt, replacementResultAttempt)
+	if replacementResultAttempt == nil || replacementResultAttempt.RunLoopStepID != "save-result-input" || replacementResultAttempt.Receipt.Harness != externalsession.RemoteControlHarness || replacementResultAttempt.Receipt.Session != "reviewer-session-replacement" || replacementResultAttempt.Receipt.DispatchID == resultAttempt.Receipt.DispatchID {
+		t.Fatalf("replacement result attempt did not bind the fresh Remote Control reviewer session: prior=%+v replacement=%+v", resultAttempt, replacementResultAttempt)
+	}
+	replacementDispatch, err := reviewersession.ReadDispatch(caseRoot, replacementResultAttempt.Receipt.DispatchPath, replacementResultAttempt.Receipt.DispatchSHA256)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replacementDispatch.ReviewerHarness != externalsession.RemoteControlHarness || replacementDispatch.ReviewerSession != "reviewer-session-replacement" || !replacementDispatch.ReadOnly || !replacementDispatch.NoSpawn || !replacementDispatch.NoHeavyTool || !replacementDispatch.NoAuthority || !slices.Equal(replacementDispatch.Items, []string{manifestItem}) {
+		t.Fatalf("replacement Remote Control dispatch receipt lost strict read-only evidence binding: %+v", replacementDispatch)
 	}
 
 	staleResultSource := filepath.Join(caseRoot, "workspace", "current-loop-stale-reviewer-result.json")
@@ -715,27 +786,157 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	decodeJSONStrict(t, replacementStatusOut.Bytes(), &replacementStatus)
 	replacementResultOperator := replacementStatus.MissionControlRunbook.CurrentLoopOperator
 	replacementResultJob := replacementResultOperator.ExternalSessionJob
-	if replacementResultJob == nil || replacementResultJob.State != "awaiting-submission" || replacementResultJob.SessionKind != "reviewer" || replacementResultJob.Reviewer == nil || replacementResultJob.Reviewer.AttemptSHA256 != replacementResultAttempt.AttemptSnapshotSHA256 {
-		t.Fatalf("replacement reviewer external job is invalid: %+v", replacementResultJob)
+	if replacementResultJob == nil || replacementResultJob.State != "awaiting-submission" || replacementResultJob.SessionKind != "reviewer" || replacementResultJob.Reviewer == nil || replacementResultJob.Reviewer.AttemptSHA256 != replacementResultAttempt.AttemptSnapshotSHA256 || replacementResultJob.Reviewer.Harness != externalsession.RemoteControlHarness || replacementResultJob.Reviewer.Session != "reviewer-session-replacement" {
+		t.Fatalf("replacement Remote Control reviewer external job is invalid: %+v", replacementResultJob)
 	}
-	replacementResultJob = recordCurrentLoopExternalSessionAttempt(t, replacementResultOperator, "go-cli-test-harness", "reviewer-session-replacement", "mission-commander", "2026-08-05T00:35:00Z")
-	replacementResultOperator.ExternalSessionJob = replacementResultJob
-	replacementResultJob = acceptCurrentLoopExternalSessionLaunch(t, replacementResultOperator, "dispatcher", "go-cli-test-harness", "reviewer-session-replacement", "2026-08-05T00:35:01Z")
+
+	attemptInputs := []string{
+		"-ExternalSessionHarness", externalsession.RemoteControlHarness,
+		"-ExternalSessionId", "reviewer-session-replacement",
+		"-ExternalSessionActor", actor,
+		"-ExternalSessionStartedAt", "2026-08-12T10:00:00Z",
+	}
+	attemptPreview := runMemberCurrentStep(t, caseRoot, append(append([]string{}, attemptInputs...), "-WhatIf"))
+	if attemptPreview.Route != "reviewer" || attemptPreview.ExternalSessionStep == nil || attemptPreview.ExternalSessionStep.Mode != "attempt" || attemptPreview.ExternalSessionStep.Attempt == nil || attemptPreview.ExpectedCurrentStepPlanSHA256 == "" || attemptPreview.ExternalSessionStep.Attempt.ExpectedPlanSHA256 == "" || attemptPreview.ExternalSessionStep.Attempt.Attempt.Harness != externalsession.RemoteControlHarness || attemptPreview.ExternalSessionStep.Attempt.Attempt.Session != "reviewer-session-replacement" {
+		t.Fatalf("Remote Control attempt preview omitted exact durable binding: %+v", attemptPreview)
+	}
+	attemptApplied := runCurrentStepApply(t, caseRoot, attemptPreview, attemptInputs...)
+	if attemptApplied.ExternalSessionStep == nil || attemptApplied.ExternalSessionStep.Attempt == nil || !attemptApplied.ExternalSessionStep.Attempt.Applied || attemptApplied.RefreshedStatus == nil || attemptApplied.RefreshedStatus.MissionControlRunbook.CurrentLoopOperator.ExternalSessionJob.Dispatcher.State != "queued" {
+		t.Fatalf("Remote Control attempt Apply did not reach queued dispatch: %+v", attemptApplied)
+	}
+
+	claimInputs := []string{"-ExternalSessionActor", actor, "-ExternalSessionObservedAt", "2026-08-12T10:00:01Z"}
+	claimPreview := runMemberCurrentStep(t, caseRoot, append(append([]string{}, claimInputs...), "-WhatIf"))
+	if claimPreview.ExternalSessionStep == nil || claimPreview.ExternalSessionStep.Mode != "dispatch-claim" || claimPreview.ExternalSessionStep.Dispatch == nil || claimPreview.ExternalSessionStep.Dispatch.Outcome != "claimed" || claimPreview.ExternalSessionStep.Dispatch.ExpectedPlanSHA256 == "" {
+		t.Fatalf("Remote Control dispatch claim preview is incomplete: %+v", claimPreview)
+	}
+	claimApplied := runCurrentStepApply(t, caseRoot, claimPreview, claimInputs...)
+	if claimApplied.RefreshedStatus == nil || claimApplied.RefreshedStatus.MissionControlRunbook.CurrentLoopOperator.ExternalSessionJob.Dispatcher.State != "claimed" {
+		t.Fatalf("Remote Control dispatch claim Apply did not reach claimed: %+v", claimApplied)
+	}
+
+	discovery := runMemberCurrentStep(t, caseRoot, []string{"-WhatIf"})
+	if discovery.ExternalSessionStep == nil || discovery.ExternalSessionStep.Mode != "remote-control-discovery-input" || discovery.ExpectedCurrentStepPlanSHA256 != "" || !slices.Contains(discovery.ExternalSessionStep.InputRequired, "run ListAgents") || discovery.ExternalSessionStep.HarnessPackage == nil {
+		t.Fatalf("Remote Control discovery input stop is invalid: %+v", discovery)
+	}
+	endpointInputs := []string{
+		"-ExternalSessionTransportEndpoint", "reviewer [opaque-ref]",
+		"-ExternalSessionActor", actor,
+		"-ExternalSessionObservedAt", "2026-08-12T10:00:02Z",
+	}
+	endpointPreview := runMemberCurrentStep(t, caseRoot, append(append([]string{}, endpointInputs...), "-WhatIf"))
+	transportEndpoint := endpointPreview.ExternalSessionStep
+	if transportEndpoint == nil || transportEndpoint.Mode != "remote-control-endpoint" || transportEndpoint.Transport == nil || transportEndpoint.Transport.Endpoint == nil || endpointPreview.ExpectedCurrentStepPlanSHA256 == "" || transportEndpoint.Transport.ExpectedPlanSHA256 == "" || transportEndpoint.Transport.Endpoint.DiscoveryTool != "ListAgents" || transportEndpoint.Transport.Endpoint.Envelope.Operation != "SendMessage" || transportEndpoint.Transport.Endpoint.Envelope.Recipient != "reviewer [opaque-ref]" || !transportEndpoint.Transport.Endpoint.Envelope.NoFileTransfer || transportEndpoint.Transport.BundlePath == "" || transportEndpoint.Transport.BundleSHA256 == "" || transportEndpoint.Transport.BundleBytes == 0 || !transportEndpoint.Transport.Endpoint.NoSessionManagement || !transportEndpoint.Transport.Endpoint.NoAutomaticRetry || !transportEndpoint.Transport.Endpoint.NoHeavyTool || !transportEndpoint.Transport.Endpoint.NoAuthority || !transportEndpoint.Transport.Endpoint.NoConfirmed || strings.Contains(strings.ToLower(transportEndpoint.Transport.Endpoint.Envelope.Message), strings.ToLower(caseRoot)) {
+		t.Fatalf("Remote Control endpoint preview omitted self-contained transport closure: %+v", endpointPreview)
+	}
+	for _, rel := range []string{transportEndpoint.Transport.BundlePath, transportEndpoint.Transport.ArtifactPath} {
+		assertFileNotExists(t, filepath.Join(caseRoot, filepath.FromSlash(rel)))
+	}
+	endpointApplied := runCurrentStepApply(t, caseRoot, endpointPreview, endpointInputs...)
+	if endpointApplied.RefreshedStatus == nil || endpointApplied.RefreshedStatus.MissionControlRunbook.CurrentLoopOperator.State != "remote-control-delivery-required" {
+		t.Fatalf("Remote Control endpoint Apply did not require exact delivery: %+v", endpointApplied)
+	}
+	for _, rel := range []string{transportEndpoint.Transport.BundlePath, transportEndpoint.Transport.ArtifactPath} {
+		assertRegularNonSymlinkFile(t, filepath.Join(caseRoot, filepath.FromSlash(rel)))
+	}
+
+	deliveryInputs := []string{
+		"-ExternalSessionDeliveryOutcome", "accepted",
+		"-ExternalSessionProviderAckFingerprint", strings.Repeat("e", 64),
+		"-ExternalSessionActor", actor,
+		"-ExternalSessionObservedAt", "2026-08-12T10:00:03Z",
+	}
+	deliveryPreview := runMemberCurrentStep(t, caseRoot, append(append([]string{}, deliveryInputs...), "-WhatIf"))
+	transportDelivery := deliveryPreview.ExternalSessionStep
+	if transportDelivery == nil || transportDelivery.Mode != "remote-control-delivery" || transportDelivery.Transport == nil || transportDelivery.Transport.Delivery == nil || deliveryPreview.ExpectedCurrentStepPlanSHA256 == "" || transportDelivery.Transport.Delivery.Operation != "SendMessage" || transportDelivery.Transport.Delivery.Outcome != "accepted" || transportDelivery.Transport.Delivery.EndpointSnapshotSHA256 != transportEndpoint.Transport.ArtifactSHA256 || transportDelivery.Transport.Delivery.EnvelopeSHA256 == "" || !transportDelivery.Transport.Delivery.NoSessionManagement || !transportDelivery.Transport.Delivery.NoAutomaticRetry || !transportDelivery.Transport.Delivery.NoHeavyTool || !transportDelivery.Transport.Delivery.NoAuthority || !transportDelivery.Transport.Delivery.NoConfirmed {
+		t.Fatalf("Remote Control delivery preview omitted exact endpoint/message binding: %+v", deliveryPreview)
+	}
+	assertFileNotExists(t, filepath.Join(caseRoot, filepath.FromSlash(transportDelivery.Transport.ArtifactPath)))
+	deliveryApplied := runCurrentStepApply(t, caseRoot, deliveryPreview, deliveryInputs...)
+	if deliveryApplied.RefreshedStatus == nil || deliveryApplied.RefreshedStatus.MissionControlRunbook.CurrentLoopOperator.ExternalSessionJob.Transport.State != "delivery-accepted" {
+		t.Fatalf("Remote Control accepted delivery Apply did not retain transport truth: %+v", deliveryApplied)
+	}
+
+	launchPreview := runMemberCurrentStep(t, caseRoot, []string{"-WhatIf"})
+	if launchPreview.ExternalSessionStep == nil || launchPreview.ExternalSessionStep.Mode != "launch-accepted" || launchPreview.ExternalSessionStep.Dispatch == nil || launchPreview.ExternalSessionStep.Dispatch.Actor != actor || launchPreview.ExternalSessionStep.Dispatch.ObservedAt != "2026-08-12T10:00:03Z" || launchPreview.ExternalSessionStep.Dispatch.ActualHarness != externalsession.RemoteControlHarness || launchPreview.ExternalSessionStep.Dispatch.ActualSession != "reviewer-session-replacement" {
+		t.Fatalf("Remote Control launch preview was not derived from accepted delivery: %+v", launchPreview)
+	}
+	launchApplied := runCurrentStepApply(t, caseRoot, launchPreview)
+	if launchApplied.RefreshedStatus == nil || launchApplied.RefreshedStatus.MissionControlRunbook.CurrentLoopOperator.State != "remote-control-reviewer-result-required" || launchApplied.RefreshedStatus.MissionControlRunbook.CurrentLoopOperator.ExternalSessionJob.Dispatcher.State != "running" || launchApplied.RefreshedStatus.MissionControlRunbook.CurrentLoopOperator.ExternalSessionJob.Transport.ReturnRequest == nil || launchApplied.RefreshedStatus.MissionControlRunbook.CurrentLoopOperator.ExternalSessionJob.Transport.ReturnRequest.CommandExecutable {
+		t.Fatalf("Remote Control launch Apply did not expose a non-executable return request: %+v", launchApplied)
+	}
+	runningJob := launchApplied.RefreshedStatus.MissionControlRunbook.CurrentLoopOperator.ExternalSessionJob
+	if runningJob.CurrentAttempt == nil {
+		t.Fatalf("Remote Control running job omitted current attempt destinations: %+v", runningJob)
+	}
+	currentAttempt := runningJob.CurrentAttempt
+
 	replacementResultBytes := reviewerResultForCLIPlan(t, plan, handoff, "accept", "accepted", "reviewer-session-replacement")
-	if err := os.MkdirAll(filepath.Dir(filepath.Join(caseRoot, filepath.FromSlash(replacementResultJob.SubmissionResult))), 0o700); err != nil {
+	replacementResultSource := filepath.Join(caseRoot, "workspace", "remote-control-reviewer-result.json")
+	if err := os.WriteFile(replacementResultSource, replacementResultBytes, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(caseRoot, filepath.FromSlash(replacementResultJob.SubmissionResult)), replacementResultBytes, 0o600); err != nil {
-		t.Fatal(err)
+	returnInputs := []string{
+		"-ExternalSessionReviewerResultSourcePath", replacementResultSource,
+		"-ExternalSessionActor", actor,
+		"-ExternalSessionObservedAt", "2026-08-12T10:00:04Z",
 	}
-	replacementSubmission := map[string]any{
-		"schemaVersion": 1, "kind": "current-loop-external-session-submission", "jobId": replacementResultJob.JobID, "jobSha256": replacementResultJob.JobSHA256,
-		"outcome": "returned", "actor": "go-cli-test-harness", "reviewerSession": "reviewer-session-replacement", "noAuthorityOrConfirmed": true, "noHeavyTool": true,
+	returnPreview := runMemberCurrentStep(t, caseRoot, append(append([]string{}, returnInputs...), "-WhatIf"))
+	transportReturn := returnPreview.ExternalSessionStep
+	if transportReturn == nil || transportReturn.Mode != "remote-control-return" || transportReturn.TransportReturn == nil {
+		t.Fatalf("Remote Control return preview omitted typed plan: %+v", returnPreview)
 	}
-	bindCurrentLoopExternalSubmissionAttempt(t, replacementResultJob, replacementSubmission)
-	replacementSubmissionData, _ := json.MarshalIndent(replacementSubmission, "", "  ")
-	if err := os.WriteFile(filepath.Join(caseRoot, filepath.FromSlash(replacementResultJob.SubmissionPath)), append(replacementSubmissionData, '\n'), 0o600); err != nil {
-		t.Fatal(err)
+	returnPlan := transportReturn.TransportReturn
+	checks := []struct {
+		name  string
+		valid bool
+	}{
+		{"outer plan hash", returnPreview.ExpectedCurrentStepPlanSHA256 != ""},
+		{"source hash", returnPlan.SourceSHA256 == statusSHA256Hex(replacementResultBytes)},
+		{"result hash", returnPlan.ResultSHA256 == returnPlan.SourceSHA256},
+		{"source bytes", returnPlan.SourceBytes == len(replacementResultBytes)},
+		{"result bytes", returnPlan.ResultBytes == len(replacementResultBytes)},
+		{"result path", returnPlan.ResultPath == currentAttempt.SubmissionResult},
+		{"submission path", returnPlan.SubmissionPath == currentAttempt.SubmissionPath},
+		{"generation result path", returnPlan.ResultPath != replacementResultJob.SubmissionResult},
+		{"generation submission path", returnPlan.SubmissionPath != replacementResultJob.SubmissionPath},
+		{"return receipt path", returnPlan.ReturnReceiptPath != ""},
+		{"receipt result path", returnPlan.ReturnReceipt.ResultPath == returnPlan.ResultPath},
+		{"submission receipt path", returnPlan.Submission.TransportReturnReceiptPath == returnPlan.ReturnReceiptPath},
+		{"submission receipt hash", returnPlan.Submission.TransportReturnReceiptSHA256 == returnPlan.ReturnReceiptSHA256},
+		{"delivery lineage", returnPlan.ReturnReceipt.DeliverySHA256 == transportDelivery.Transport.ArtifactSHA256},
+		{"launch lineage", returnPlan.ReturnReceipt.LaunchReceiptSHA256 != ""},
+		{"no session management", returnPlan.ReturnReceipt.NoSessionManagement},
+		{"no heavy tool", returnPlan.ReturnReceipt.NoHeavyTool},
+		{"no authority", returnPlan.ReturnReceipt.NoAuthority},
+		{"no confirmed", returnPlan.ReturnReceipt.NoConfirmed},
+		{"submission outcome", returnPlan.Submission.Outcome == "returned"},
+		{"submission harness", returnPlan.Submission.ReviewerHarness == externalsession.RemoteControlHarness},
+		{"submission session", returnPlan.Submission.ReviewerSession == "reviewer-session-replacement"},
+		{"submission no authority", returnPlan.Submission.NoAuthorityOrConfirmed},
+		{"submission no heavy tool", returnPlan.Submission.NoHeavyTool},
+	}
+	for _, check := range checks {
+		if !check.valid {
+			t.Fatalf("Remote Control return preview failed %s: return=%+v job=%+v attempt=%+v", check.name, returnPlan, replacementResultJob, currentAttempt)
+		}
+	}
+	for _, rel := range []string{transportReturn.TransportReturn.ResultPath, transportReturn.TransportReturn.ReturnReceiptPath, transportReturn.TransportReturn.SubmissionPath} {
+		assertFileNotExists(t, filepath.Join(caseRoot, filepath.FromSlash(rel)))
+	}
+	returnApplied := runCurrentStepApply(t, caseRoot, returnPreview, returnInputs...)
+	if returnApplied.ExternalSessionStep == nil || returnApplied.ExternalSessionStep.TransportReturn == nil || !returnApplied.ExternalSessionStep.TransportReturn.Applied || returnApplied.RefreshedStatus == nil {
+		t.Fatalf("Remote Control return Apply omitted deterministic receipt: %+v", returnApplied)
+	}
+	replacementResultJob = returnApplied.RefreshedStatus.MissionControlRunbook.CurrentLoopOperator.ExternalSessionJob
+	if replacementResultJob == nil || replacementResultJob.State != "submission-ready" {
+		t.Fatalf("Remote Control return Apply did not reach submission-ready: %+v", replacementResultJob)
+	}
+	for _, rel := range []string{transportReturn.TransportReturn.ResultPath, transportReturn.TransportReturn.ReturnReceiptPath, transportReturn.TransportReturn.SubmissionPath} {
+		assertRegularNonSymlinkFile(t, filepath.Join(caseRoot, filepath.FromSlash(rel)))
+	}
+	if got, err := os.ReadFile(filepath.Join(caseRoot, filepath.FromSlash(transportReturn.TransportReturn.ResultPath))); err != nil || !bytes.Equal(got, replacementResultBytes) {
+		t.Fatalf("Remote Control return changed inbound ReviewerResult bytes: %v", err)
 	}
 
 	replacementStatusOut.Reset()
@@ -783,6 +984,26 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	if got, err := os.ReadFile(filepath.Join(caseRoot, filepath.FromSlash(replacementResultJob.RelayResultPath))); err != nil || !bytes.Equal(got, replacementResultBytes) {
 		t.Fatalf("reviewer composite turn relay bytes drifted: %v", err)
 	}
+	completionPath := reviewersession.CompletionPath(replacementResultAttempt.Identity.PacketPath, replacementDispatch.ShardID, replacementDispatch.DispatchID)
+	completionData, err := os.ReadFile(completionPath)
+	if err != nil {
+		t.Fatalf("Remote Control reviewer completion receipt is unavailable: %v", err)
+	}
+	completion, err := reviewersession.DecodeCompletion(completionData)
+	if err != nil || completion.DispatchID != replacementDispatch.DispatchID || completion.DispatchReceiptSHA256 != replacementResultAttempt.Receipt.DispatchSHA256 || completion.ReviewerHarness != externalsession.RemoteControlHarness || completion.ReviewerSession != "reviewer-session-replacement" || completion.Outcome != "succeeded" || completion.ExitStatus != "completed" || completion.ReviewerResultInputPath != replacementResultAttempt.ReviewerResultInputPath || completion.ReviewerResultInputSHA256 != statusSHA256Hex(replacementResultBytes) || completion.ReviewerResultInputBytes != len(replacementResultBytes) || !completion.NoCollection || !completion.NoIntake || !completion.NoFacts || !completion.NoHeavyTool || !completion.NoAuthority {
+		t.Fatalf("Remote Control reviewer completion receipt lost exact lineage: receipt=%+v err=%v", completion, err)
+	}
+	for role, path := range map[string]string{
+		"reviewer input":     replacementResultAttempt.ReviewerResultInputPath,
+		"reviewer source":    replacementResultAttempt.ReviewerResultSourcePath,
+		"reviewer candidate": replacementResultAttempt.ReviewerResultCandidatePath,
+		"reviewer result":    replacementResultAttempt.ReviewerResultPath,
+	} {
+		got, err := os.ReadFile(path)
+		if err != nil || !bytes.Equal(got, replacementResultBytes) {
+			t.Fatalf("%s did not preserve exact Remote Control ReviewerResult bytes: %v", role, err)
+		}
+	}
 	expectedSteps := []string{"save-result-input", "record-completion", "source-capture", "stage-candidate", "collect-result", "intake-results"}
 	campaign := resultApplied.ContinuationRequest
 	if campaign == nil || campaign.StopCode != "route-policy" || campaign.SegmentRoute != "reviewer" || campaign.ExpectedRoute != "case" || campaign.RemainingMaxSteps != turn.Resume.MaxSteps-len(expectedSteps) || campaign.ObservationContract != nil || !strings.Contains(campaign.WhatIfCommand, "-MaxSteps "+stringInt(campaign.RemainingMaxSteps)) || len(resultApplied.Steps) != len(expectedSteps) {
@@ -809,11 +1030,17 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		}
 	}
 	casePreview := runCurrentLoopResumePreview(t, caseRoot, durableCampaign.ArtifactSHA256)
-	if casePreview.InitialRoute != "case" || casePreview.InitialLane != campaign.ExpectedLane || casePreview.MaxSteps != campaign.RemainingMaxSteps || casePreview.ExpectedCurrentLoopPlanSHA256 == "" || casePreview.ResumeSource == nil || casePreview.ResumeSource.ArtifactSHA256 != durableCampaign.ArtifactSHA256 || casePreview.ExpectedResumeCheckpointSHA256 != durableCampaign.ArtifactSHA256 || casePreview.ApplyCommand == "" || len(casePreview.Steps) != 0 || casePreview.ContinuationRequest != nil {
+	if casePreview.InitialRoute != "case" || casePreview.InitialLane != campaign.ExpectedLane || casePreview.MaxSteps != campaign.RemainingMaxSteps || casePreview.ExpectedCurrentLoopPlanSHA256 == "" || casePreview.ResumeSource == nil || casePreview.ResumeSource.ArtifactSHA256 != durableCampaign.ArtifactSHA256 || casePreview.ExpectedResumeCheckpointSHA256 != durableCampaign.ArtifactSHA256 || casePreview.ApplyCommand == "" || casePreview.InitialCurrentStep == nil || casePreview.InitialCurrentStep.MemberExecution == nil || len(casePreview.Steps) != 0 || casePreview.ContinuationRequest != nil {
 		t.Fatalf("durable campaign operator did not rebuild a checkpoint-bound fresh case segment: %+v", casePreview)
 	}
 	out.Reset()
-	err = Run([]string{"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", "_template", "-MaxSteps", stringInt(campaign.RemainingMaxSteps), "-ExpectedCurrentLoopPlanSha256", turn.Resume.ExpectedCurrentLoopPlanSHA256, "-Apply", "-Format", "json"}, &out)
+	err = Run([]string{
+		"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", "_template",
+		"-ResumeCurrentLoop", "-ExpectedCurrentLoopCheckpointSha256", durableCampaign.ArtifactSHA256,
+		"-ExpectedMemberExecutionPlanSha256", casePreview.InitialCurrentStep.MemberExecution.ExpectedPlanSHA256,
+		"-ExpectedCurrentLoopPlanSha256", turn.Resume.ExpectedCurrentLoopPlanSHA256,
+		"-Apply", "-Format", "json",
+	}, &out)
 	if err == nil || !strings.Contains(err.Error(), "expected plan sha256 mismatch") {
 		t.Fatalf("previous reviewer segment hash crossed the route boundary: %v", err)
 	}
@@ -825,10 +1052,99 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	if err != nil || !strings.Contains(string(decisions), plan.PacketID) {
 		t.Fatalf("reviewer continuation omitted decision writeback: %v\n%s", err, decisions)
 	}
+	var revalidationOut bytes.Buffer
+	if err := Run([]string{
+		"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template",
+		"-PacketPath", replacementResultAttempt.Identity.PacketPath, "-ReadyReviewerResults",
+		"-Lane", replacementDispatch.TargetLane, "-Actor", actor,
+		"-WhatIf", "-Format", "json",
+	}, &revalidationOut); err != nil {
+		t.Fatal(err)
+	}
+	var revalidation subagents.ReviewerBatchIntakeResult
+	decodeJSONStrict(t, revalidationOut.Bytes(), &revalidation)
+	if revalidation.Total != 1 || revalidation.Ready != 1 || revalidation.Processed != 1 || revalidation.Completed != 0 || revalidation.AlreadyComplete != 1 || revalidation.Stopped || revalidation.Partial || len(revalidation.Results) != 1 || revalidation.Results[0].WritebackStatus != "already-complete" || revalidation.Results[0].PostValidation == nil || !revalidation.Results[0].PostValidation.Valid || !revalidation.Results[0].Summary.PostValidationPresent || !revalidation.Results[0].Summary.PostValidationValid || revalidation.Results[0].Summary.PostValidationOverviewVerifications < 1 || revalidation.Results[0].Summary.PostValidationOverviewDecisions < 1 {
+		t.Fatalf("completed Remote Control reviewer intake did not strictly revalidate: %+v", revalidation)
+	}
 	for _, forbidden := range []string{"authority.jsonl", "confirmed.jsonl"} {
 		if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", forbidden)); !os.IsNotExist(err) {
 			t.Fatalf("reviewer continuation created forbidden ledger %s: %v", forbidden, err)
 		}
+	}
+}
+
+func currentLoopRemoteControlEvidenceItem(t *testing.T, caseRoot, lane string) string {
+	t.Helper()
+	plan, err := memberexecution.PreviewDispatch(memberexecution.DispatchOptions{
+		CaseRoot: caseRoot, Pack: "_template", Lane: lane,
+		RequestSHA256: strings.Repeat("a", 64), CreatedAt: "2026-08-12T09:00:00Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := memberexecution.Apply(plan, plan.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := memberexecution.PreviewObservation(memberexecution.ObservationOptions{
+		CaseRoot: caseRoot, Pack: "_template", Lane: lane, AttemptID: plan.AttemptID,
+		Outcome: "accepted", Actor: "member-evidence-harness", ObservedAt: "2026-08-12T09:00:01Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := memberexecution.Apply(accepted, accepted.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(plan.Inspection.OutputsRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	output := []byte("bounded current-loop Remote Control reviewer evidence\n")
+	if err := os.WriteFile(filepath.Join(plan.Inspection.OutputsRoot, "review-items.json"), output, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifest := memberexecution.ResultManifest{
+		SchemaVersion: memberexecution.SchemaVersion, Kind: memberexecution.KindManifest,
+		AttemptID: plan.AttemptID, Owner: plan.Owner, Summary: "bounded Remote Control reviewer evidence",
+		Outputs:           []memberexecution.Output{{Path: "review-items.json", SHA256: statusSHA256Hex(output), Bytes: int64(len(output))}},
+		ReviewerItemsPath: "review-items.json", NoAuthority: true, NoConfirmed: true, NoHeavyTool: true,
+	}
+	manifestData, err := memberexecution.MarshalResultManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(plan.Inspection.ManifestPath, manifestData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	returned, err := memberexecution.PreviewObservation(memberexecution.ObservationOptions{
+		CaseRoot: caseRoot, Pack: "_template", Lane: lane, AttemptID: plan.AttemptID,
+		Outcome: "returned", Actor: "member-evidence-harness", ObservedAt: "2026-08-12T09:00:02Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	applied, err := memberexecution.Apply(returned, returned.ExpectedPlanSHA256)
+	if err != nil || applied.Inspection.State != "intake-ready" {
+		t.Fatalf("member evidence return=%+v err=%v", applied, err)
+	}
+	taskContextInfo, err := os.Lstat(applied.Inspection.TaskContextPath)
+	if err != nil {
+		t.Fatalf("member evidence task context stat failed: path=%s err=%v", applied.Inspection.TaskContextPath, err)
+	}
+	if !taskContextInfo.Mode().IsRegular() || taskContextInfo.Mode()&os.ModeSymlink != 0 || taskContextInfo.Size() < 1 || taskContextInfo.Size() > memberexecution.MaxReviewerEvidenceArtifactBytes {
+		t.Fatalf("member evidence task context is not transport-bounded: path=%s bytes=%d mode=%v", applied.Inspection.TaskContextPath, taskContextInfo.Size(), taskContextInfo.Mode())
+	}
+	item, err := filepath.Rel(caseRoot, applied.Inspection.ManifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return filepath.ToSlash(item)
+}
+
+func assertRegularNonSymlinkFile(t *testing.T, path string) {
+	t.Helper()
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("expected regular non-symlink file %s: info=%v err=%v", path, info, err)
 	}
 }
 

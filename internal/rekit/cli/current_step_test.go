@@ -1041,7 +1041,7 @@ func TestMemberExecutionOldGenerationLosesToPublicReconcileLease(t *testing.T) {
 	if err := <-reconcileDone; err != nil {
 		t.Fatalf("public reconcile failed: %v", err)
 	}
-	if err := <-memberDone; err == nil || (!strings.Contains(err.Error(), "changed") && !strings.Contains(err.Error(), "stale") && !strings.Contains(err.Error(), "mismatch")) {
+	if err := <-memberDone; err == nil || (!strings.Contains(err.Error(), "changed") && !strings.Contains(err.Error(), "stale") && !strings.Contains(err.Error(), "mismatch") && !strings.Contains(err.Error(), "not an effective open intervention")) {
 		t.Fatalf("old member generation survived public reconcile: %v", err)
 	}
 	if _, found, err := memberexecution.Latest(caseRoot, "feature-analysis"); err != nil || found {

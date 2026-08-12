@@ -2,29 +2,29 @@
 
 ## 读取指南
 
-本文件是当前已批准路线的唯一 active source，只内联当前批次卡。先由 `docs/context-routing.md` 路由到本文件；当前批的详细设计再按需读取 `docs/daily-product-closure-plan.md` 的共同架构边界与对应 `DPC-*` 章节，不预读其余批次全文。
+本文件是当前已批准路线的唯一 active source，只内联当前批次卡。先由 `docs/context-routing.md` 路由到本文件；当前批的 transport contract 与操作边界再按需读取 `docs/agent-team-usage.md` 的 “Remote Control Reviewer transport companion” 小节。`docs/daily-product-closure-plan.md` 只保留上一条已关闭路线的历史完成证据，不是当前批入口。
 
 ## 实施摘要
 
-`real-usage-hardening-v1` 已完成 Windows 本机真实 Claude member、Reviewer、恢复和 soak 门槛。`daily-product-closure-v1` 也已用四个中型闭环把既有底层能力收成可试日用的产品路径，并完成最终源码真实 Claude/adapter 验收与独立终审；当前路线已关闭，不自动选择 installer、GUI、第二个成熟 pack 或其它后续路线。
+`real-usage-hardening-v1` 与 `daily-product-closure-v1` 已完成 Windows 本机真实 Claude member、Reviewer、恢复、soak 和四个日常产品闭环。用户随后明确批准把 Claude Code Remote Control 多会话通信吸收到架构中；当前唯一 active route 是 `remote-control-reviewer-transport-v1`，以一个中型闭环把它实现为 durable external-session 的可选 read-only Reviewer transport companion，而不是默认 provider、第二套 session runtime或新的 durable identity。
 
 ### 当前指针
 
 | 字段 | 当前值 |
 |---|---|
-| 路线 | `daily-product-closure-v1` |
-| 当前批次 | `DPC-04` IDA 索引只读 adapter 与四闭环整体验收已完成 |
+| 路线 | `remote-control-reviewer-transport-v1` |
+| 当前批次 | `Batch 822` optional Remote Control read-only Reviewer transport companion |
 | 状态 | `completed` |
-| 唯一允许领取 | `DPC-04` |
-| 上一批 | `DPC-03` 已完成；ordinary-directory admission、hash-bound create-only init 与 Windows exact rollback 已通过 |
-| 下一批 | 无；等待用户明确批准新的产品路线 |
-| 详细设计 | `docs/daily-product-closure-plan.md` 顶部完成证据；不作为新路线入口 |
-| 最近完成 | 最终源码真实 `vmp-re` acceptance `passed=true`；contained adapter、独立 evidence review、member/Reviewer lineage、terminal replay、attached recovery、missing-Claude evidence stop 与独立终审全部通过 |
+| 唯一允许领取 | `Batch 822` |
+| 上一批 | `daily-product-closure-v1` / `DPC-04` 已完成并关闭 |
+| 下一批 | 无；Batch 822 完成后等待用户明确批准新的产品路线 |
+| canonical 使用说明 | `docs/agent-team-usage.md` 的 “Remote Control Reviewer transport companion” 小节 |
+| 最近完成 | Batch 822：explicit durable Reviewer opt-in、self-contained evidence bundle、endpoint/delivery/return lineage、uncertain fencing、relay→strict intake全链、完整 Windows 本机 release minimum 与独立高强度复审均已通过 |
 
 ## 执行清单
 
 1. 从源码、public command、临时 case 或真实进程重验当前断点；文档陈述不算证据。
-2. 只实现当前卡及其必要支撑；不提前实现后续 `DPC-*`，不顺手修测试性能或相邻产品问题。
+2. 只实现当前卡及其必要支撑；不顺手扩展 member transport、自动 Remote Control 登录/配置、跨平台 product path、测试性能或相邻产品问题。
 3. 保留 Go-owned currentness、WhatIf/hash-bound Apply、strict intake、Human-in-the-Lane 和无未授权 heavy action 边界。
 4. 人话 action 只从 fresh typed result/status 派生，不持久化，不反向决定 runtime 路由。
 5. 运行当前卡 focused/真实入口验收，再运行 Windows 本机 release minimum；任何失败都保持 `in_progress` 或标记 `blocked`。
@@ -32,27 +32,28 @@
 
 ## 当前批次卡
 
-### DPC-04：IDA index 只读 adapter 终审修复与整体验收
+### Batch 822：optional Remote Control read-only Reviewer transport companion
 
-**用户断点**：成功 live receipt 已证明固定 IDA TSV 查询能进入日常 completion/correction 链，但终审发现 child 失败终态、public profile capability、rejected evidence review 和 observation 后 takeover 仍有 fail-closed 缺口；不关闭这些边界就不能把 DPC-04 标记完成。
+**用户断点**：Claude Code 已提供跨会话 `ListAgents` / `SendMessage`，但 ReKit 不能直接把临时聊天 endpoint当成长久成员、把一次工具返回当作可靠launch/completion，或要求另一台机器读取本机case路径。若只写评估而不进入durable external-session、evidence和strict intake闭环，这项能力对Mission Commander不可真实使用。
 
 **范围内**：
 
-- child timeout/nonzero/invalid stdout 写 dispatch-bound failed/aborted report、零 artifact receipt、failed observation并 exact revoke；同一 dispatch terminal replay 零 child；
-- public profile provision 只允许 `vmp-re` + `inspect` + 内容寻址 request + fixed budget/output/stop contract；
-- rejected evidence review 保持可见 blocker，只有 accepted/superseded closure 才允许消费；
-- TaskBinding 必须绑定 dispatch owner executor/generation，observation 后 takeover 不能把旧 evidence 重绑到新 generation；
-- focused tests与真实 DPC-04 acceptance 全部通过后，再进入四闭环整体验收与发布收口。
+- 只允许durable Reviewer dispatch显式使用`ReviewerHarness=claude-code-remote-control`与caller-generated durable `ReviewerSession` opt-in；local Windows `sessionhost`继续默认`claude-code-cli`；
+- 从canonical current member evidence manifest生成deterministic、content-addressed、完整内联的UTF-8 evidence closure；missing/extra/drift、duplicate/case-fold collision、path escape、symlink/reparse、oversize、binary和本机case root泄漏全部fail-closed；
+- 将`ListAgents name [ref]`记录为immutable opaque endpoint snapshot，将一次exact `SendMessage`记录为`accepted|rejected|uncertain` delivery observation；accepted/rejected只能精确派生既有launch receipt，uncertain禁止自动重发和same-job replacement；
+- inbound `ReviewerResult`使用current generation destination，按result first→transport-return receipt second→submission last发布；relay独立重验bundle/endpoint/delivery/launch/source/result lineage，并进入既有Reviewer completion/source/stage/collect/strict intake/writeback路径；
+- typed Mission Commander discovery/delivery/launch/return/new-dispatch handoff、对抗回归、canonical文档和Windows本机deterministic acceptance闭合。
 
 **范围外**：
 
-- 不新增 workflow engine、durable schema、Go package、public command 或 generic profile provision；
-- 不启动 IDA、不执行 catalog entry、不联网、不打开 IDB、不 rename/comment/patch/debug/dump；
-- 不把 installer、GUI、第二个成熟 pack、远程三平台 CI 或 OS 级网络隔离混入本批。
+- 不把Remote Control设为默认provider，不支持member/heavy-tool transport，不把chat session或`name [ref]`写入lane owner；
+- 不自动登录claude.ai、修改全局provider/settings、安装WSL、启动真实Remote Control session、调用真实跨机器`ListAgents`/`SendMessage`或发送消息；
+- 不承诺exactly-once、FIFO、offline queue、stable endpoint TTL、reconnect或Remote Control process supervision；
+- 不伪造原生Windows live cross-machine E2E，不扩大authority/confirmed、heavy action、sync/promote或外部副作用授权。
 
-**完成结果**：`completed`。Child 失败终态、profile capability、rejected evidence blocker、owner-generation binding、evidence-review currentness 与 missing-Claude host/daily stop 均有对抗回归；最终源码相关包和全仓 tests/vet、真实 `vmp-re` acceptance、公开 inventory 与独立终审通过。真实 receipt 为 `passed=true`，profile revoke、terminal replay、attached recovery 和 cleanup 均闭合。
+**当前结果**：`completed`。生产实现、focused Remote Control 全链、`memberexecution` / `externalsession` / `cli` / `sessionhost` 四包完整回归、全仓 `go test ./... -count=1`、`go vet ./...`、`git diff --check`、公开 `release-check` / `status` / `packs` / `doctor` 与 canonical 文档写回均通过；完成态 `release-check -Format json` 返回 `ready=true`，10 个 pack inventory有效。独立代码终审无surviving finding，独立文档复核的两项Important路由漂移已修复。
 
-**关闭边界**：本卡完成不授权新的产品路线。Installer、GUI、第二个成熟 pack、远程跨平台专项和 OS 级网络隔离继续等待用户明确选择；不得从本卡自行领取。
+**关闭边界**：本卡完成只证明ReKit transport契约和Windows deterministic product path闭合，不证明Claude Code/claude.ai外部服务的delivery guarantee或原生Windows live跨机器支持；不自动解锁其它产品路线。
 
 ## 验证标准
 
@@ -71,6 +72,7 @@
 
 ## 路线变更记录
 
+- 2026-08-12：用户明确批准吸收Claude Code Remote Control多会话能力，`remote-control-reviewer-transport-v1` / Batch 822成为唯一active route；实现限定为explicit read-only Reviewer transport companion，保留durable lane/session identity、local provider默认值、uncertain fencing、existing relay/intake与Windows truthful acceptance边界。
 - 2026-08-11：`daily-product-closure-v1` 完成。最终源码真实 `vmp-re` live acceptance 为 `passed=true`，3 个真实 member 与 3 个独立 Reviewer 完成，fixed adapter child、profile revoke、evidence acknowledgement、exact-generation binding、terminal replay、attached recovery 和 cleanup 全部通过；missing-Claude direct/daily evidence stop、currentness 竞态与失败/漂移边界回归通过，独立终审无高置信 Critical/Important。Active route 关闭为 `completed` 且无下一批，等待用户明确选择新路线。
 - 2026-08-10：`DPC-03` 完成 ordinary-directory 五类只读 admission、`directory-adoption-required`、manifest/source/target 绑定的 stable init hash、Windows create-only exact rollback 和 cleanup truthful outcome；focused、分组全仓 tests、vet、公开命令、真实 sentinel/doctor 及两轮只读复审通过，解锁 `DPC-04` 为唯一 active batch。
 - 2026-08-10：`DPC-02` 的真实 member/Reviewer/completion-correction、attached 两个 cutpoint 恢复、同 goal 零启动 completion recovery 和 terminal replay 全部通过；解锁 `DPC-03` 为唯一 active batch。

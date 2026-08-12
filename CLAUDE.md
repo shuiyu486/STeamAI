@@ -21,6 +21,7 @@
 - `/rekit` skill：`.claude/skills/rekit/SKILL.md`
 - Go deterministic backend：`cmd/rekit/main.go`、`internal/rekit/**`
 - Claude session host：`cmd/rekit-host/main.go`、`internal/rekit/sessionhost/**`；日常用 `-daily`；维护 gate 为 `-live-acceptance`（默认 `vmp-re`，或 `_template` / `web-security`）、Windows `-live-soak-acceptance` 和 `-live-pack-memory-acceptance`。Soak 仅对 typed Reviewer semantic/lineage failure 保留首败并 fresh retry 一次；均不替代 currentness、授权或 strict intake
+- External session / Remote Control companion：`internal/rekit/externalsession/**`、`internal/rekit/cli/current_loop_external_transport.go`；Remote Control 仅在 durable Reviewer dispatch 显式 opt-in时使用，local `sessionhost`仍是Windows默认provider，opaque endpoint不是durable identity
 - Read-only adapter/验收：`cmd/rekit-adapter-{host,acceptance}/**`、`internal/rekit/adapterhost/**`；只消费 strict gate/dispatch，`gate` 不启动进程
 - PowerShell compatibility façade：`rekit/rekit.ps1`（不新增业务 runtime）
 - pack：`packs/<pack>/**`；manifest：`packs/<pack>/manifest.yml`；common policies/prompts：`common/**`
@@ -34,13 +35,11 @@
 
 ## 当前推进原则
 
-当前阶段优先把已有骨架收敛到可真实日常使用：用户能用自然语言开始 case、继续推进、查看状态、人工插手纠偏、新会话接手；允许半自动，但必须顺畅、可记录、可恢复。当前支持与日常完成门槛以 Windows 本机为准；PowerShell-free default/product path 与 Go-native 继续作为底座约束推进。跨平台 portability 和远程 Linux/macOS/Windows CI 保留为发布/专项/周期复审信号，不作为普通 batch 的同步阻塞门槛，不挤占本机 Windows 可验证的最低可用 Mission Control / executor / reviewer / pack-memory 闭环迭代效率。
+当前阶段优先把已有骨架收敛到可真实日常使用：自然语言开始/继续/查看、人工纠偏和新会话接手必须顺畅、可记录、可恢复。当前支持与日常完成门槛以 Windows 本机为准；PowerShell-free/Go-native保持底座，跨平台portability与远程CI仅作发布/专项/周期复审信号，不阻塞普通batch。
 
-禁止新增 PowerShell runtime logic。PowerShell convergence batch 应实际减少 retained residue 或完成删除门禁；其它 batch 可推进 lane、reconcile、autonomy、reviewer dispatch/intake、authorized execution evidence、adapter-specific live validation、pack-memory 或文档上下文路由闭环。
+禁止新增PowerShell runtime logic。PowerShell convergence batch必须减少residue或完成删除门禁；其它batch可推进lane/reconcile/autonomy、reviewer dispatch/intake、authorized execution evidence、adapter live validation、pack-memory或文档路由闭环。
 
-不要连续推进单字段 contract / inventory / metadata 微批次；新增 contract 字段必须嵌入 Mission Commander、replaceable executor、reviewer writeback、authorized execution evidence、adapter-specific live validation、pack-memory UX 或 product path，并由 package / CLI / 临时 case / product-path 验证证明解决真实断点。
-
-同样避免连续做“把某个字段、summary、handoff detail、text line 从 A 投影到 B”的可见性微调。单批可做投影补齐，但连续出现时必须升级为中大型能力闭环：先写清用户或 Mission Commander 能感知的断点，再把相关字段/文本作为该闭环的支撑，而不是为了寻找 `latestX` / `summaryX` / `contextX` 继续局部最优。
+不要连续推进单字段contract/inventory/metadata或字段投影微批次。支撑字段必须并入Mission Commander、replaceable executor、reviewer writeback、authorized execution、adapter validation、pack-memory UX或product path的中大型可验证闭环。
 
 PowerShell replacement/removal 不再因“删除 PowerShell”本身停下询问，但必须有 Go-native 替代、文档和验证；若要删除公共入口且替代、恢复或真实 release-gate-green 条件不完整，仍需升级。
 
@@ -50,6 +49,7 @@ PowerShell replacement/removal 不再因“删除 PowerShell”本身停下询�
 - `continue -Apply` 不写 authority/confirmed、不执行 heavy-tool。
 - `gate -Apply` 默认只写 pending-gate / authorized-gate request ledger decision；传入 execution fields 时只写 authorized execution observation evidence，不执行实际 heavy action。
 - actual heavy/debug/patch/dump/hook/network/exploit replay 由 lane executor 或 tool adapter 在 strict durable autonomy profile + `authorized-gate` 范围内执行，并写回 evidence/ledger。
+- 跨会话 transport message、endpoint discovery或delivery observation都不能授予authority/confirmed或heavy-action授权；Remote Control uncertain delivery不得自动重发或same-job replacement，必须新建durable Reviewer dispatch/session/job。
 - confirmed/authority 写入、runtime schema 迁移、公共 façade 删除门禁不完整、未授权外部副作用、产品方向变化或难以判断的架构取舍，需要升级。
 - 不要把真实样本、trace、dump、capture、artifact、绝对 case 路径、payload、flag、客户信息或 case-specific 进度写入模板仓库。
 - case-local `/rekit` 必须保持 thin shim，回到 kit 仓库 canonical runtime；不要复制 runtime 逻辑。

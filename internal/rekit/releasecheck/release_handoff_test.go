@@ -398,7 +398,7 @@ func TestReleaseHandoffActiveRouteBlocksCompletedLegacyBatchSelection(t *testing
 		t.Fatal(err)
 	}
 	route := result.ReleaseHandoff.ActiveRoute
-	if !route.Present || !route.Ready || route.Route != "daily-product-closure-v1" || !strings.HasPrefix(route.CurrentBatch, route.ExclusiveClaim+" ") || route.State != "in_progress" || route.ExclusiveClaim == "" || route.NextBatchUnlocked || route.CurrentAction == nil {
+	if !route.Present || !route.Ready || route.Route == "" || !strings.HasPrefix(route.CurrentBatch, route.ExclusiveClaim+" ") || route.State != "in_progress" || route.ExclusiveClaim == "" || route.NextBatchUnlocked || route.CurrentAction == nil {
 		t.Fatalf("active product route=%+v", route)
 	}
 	if result.ReleaseHandoff.NextBatchSelectionPackage != nil {
@@ -433,10 +433,7 @@ func TestReleaseHandoffActiveRouteMissingProjectionFieldFailsClosed(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := strings.Replace(string(data), "| 路线 | `daily-product-closure-v1` |", "", 1)
-	if text == string(data) {
-		t.Fatal("fixture did not remove the route projection field")
-	}
+	text := removeReleaseHandoffTableField(t, string(data), "路线")
 	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -462,10 +459,7 @@ func TestReleaseHandoffCompletedRouteWithInvalidProjectionFailsClosed(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	broken := strings.Replace(string(projection), "| 路线 | `daily-product-closure-v1` |", "", 1)
-	if broken == string(projection) {
-		t.Fatal("fixture did not remove the completed route projection field")
-	}
+	broken := removeReleaseHandoffTableField(t, string(projection), "路线")
 	if err := os.WriteFile(projectionPath, []byte(broken), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -649,6 +643,19 @@ func TestReleaseHandoffBuildsNextBatchAfterSevenOfSevenPushWithRemoteNotRecorded
 	if !strings.Contains(latest.NextAction, "without waiting for remote CI") {
 		t.Fatalf("canonical 7/7 pushed batch should not route to remote inspection: %q", latest.NextAction)
 	}
+}
+
+func removeReleaseHandoffTableField(t *testing.T, text, field string) string {
+	t.Helper()
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	for index, line := range lines {
+		columns := strings.Split(strings.TrimSpace(line), "|")
+		if len(columns) >= 4 && strings.TrimSpace(columns[1]) == field {
+			return strings.Join(append(lines[:index], lines[index+1:]...), "\n")
+		}
+	}
+	t.Fatalf("fixture did not remove the %s projection field", field)
+	return ""
 }
 
 func setReleaseHandoffActiveRouteFixture(t *testing.T, repo, state, claim, next string) {

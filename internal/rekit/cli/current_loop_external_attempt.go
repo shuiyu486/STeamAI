@@ -171,11 +171,30 @@ func externalSessionPendingAttemptRequest(plan externalsession.AttemptPlan) miss
 
 func externalSessionAttemptRequest(job externalsession.Job, jobSHA string, inspection externalsession.AttemptInspection) mission.MissionCommanderDriverRequest {
 	supersedes := inspection.AttemptSHA256
+	if inspection.Current != nil && job.SessionKind == "reviewer" && job.Reviewer != nil && job.Reviewer.DispatchID != "" {
+		return mission.MissionCommanderDriverRequest{
+			Kind: "model-guidance", RunLoopStepID: "external-reviewer-redispatch:" + job.JobID,
+			Actor: "mission-commander", State: "new-reviewer-dispatch-required", Source: "current-loop-external-session-job",
+			Lane: memberLane(job), Label: "new durable Reviewer dispatch required", ActionID: inspection.AttemptSHA256,
+			Guidance:          "Do not replace this durable Reviewer job. Create a new Reviewer dispatch with a new reviewerSession binding; the canonical dispatch path will produce a new external-session job.",
+			CommandExecutable: false, RequiresReview: true,
+			ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
+				State: "new-reviewer-dispatch-required", RefreshStatusCommand: statusMissionControlRefreshCommand(job.CaseRoot),
+				Description: "re-enters the durable Reviewer dispatch path rather than violating the current job's fixed harness/session identity",
+				Boundary:    []string{"no same-job Reviewer replacement", "new dispatch/session/job identity required", "current attempt remains fenced by its generation"},
+			},
+			Boundary: []string{"the current Reviewer job identity is fixed by its durable dispatch receipt", "no session launch, transport resend, authority, confirmed state, or heavy tool is performed"},
+		}
+	}
+	harness, session := "<harness>", "<session-id>"
+	if job.SessionKind == "reviewer" && job.Reviewer != nil {
+		harness, session = job.Reviewer.Harness, job.Reviewer.Session
+	}
 	args := []string{
 		"/rekit", "run-current-loop", "-Target", job.CaseRoot, "-Pack", job.Pack,
 		"-ResumeCurrentLoop", "-ExpectedCurrentLoopCheckpointSha256", job.CheckpointSHA256,
 		"-RecordExternalSessionAttempt", "-ExpectedExternalSessionJobSha256", jobSHA,
-		"-ExternalSessionHarness", "<harness>", "-ExternalSessionId", "<session-id>",
+		"-ExternalSessionHarness", harness, "-ExternalSessionId", session,
 		"-ExternalSessionActor", "<actor>", "-ExternalSessionStartedAt", "<rfc3339nano>",
 	}
 	if supersedes != "" {
@@ -199,7 +218,7 @@ func externalSessionAttemptRequest(job externalsession.Job, jobSHA string, inspe
 			Description: description,
 			Boundary:    []string{"replace placeholders before execution; WhatIf writes nothing", "Apply records ownership but does not start or manage a session"},
 		},
-		Boundary: []string{"only the external harness starts, polls, stops, and reports the session", "replacement requires exact current attempt sha256"},
+		Boundary: []string{"only the external harness starts, polls, stops, and reports the session", "local sessionhost remains the default concrete provider; Remote Control requires a prior reviewer dispatch receipt with harness claude-code-remote-control and an explicit durable transport binding id", "replacement requires exact current attempt sha256"},
 	}
 }
 

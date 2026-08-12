@@ -25,6 +25,20 @@ func currentStepExternalIdentity(step *currentStepExternalSessionPlan) currentSt
 		identity.DispatchSHA256 = step.Dispatch.DispatchSHA256
 		identity.ClaimSHA256 = step.Dispatch.ExpectedClaimSHA256
 		identity.CheckpointSHA256 = step.Dispatch.Job.CheckpointSHA256
+	case step.Transport != nil:
+		identity.NestedPlanSHA256 = step.Transport.ExpectedPlanSHA256
+		identity.JobSHA256 = step.Transport.JobSHA256
+		identity.AttemptSHA256 = step.Transport.AttemptSHA256
+		identity.DispatchSHA256 = step.Transport.DispatchSHA256
+		identity.ClaimSHA256 = step.Transport.ClaimSHA256
+		identity.CheckpointSHA256 = step.Transport.Job.CheckpointSHA256
+	case step.TransportReturn != nil:
+		identity.NestedPlanSHA256 = step.TransportReturn.ExpectedPlanSHA256
+		identity.JobSHA256 = step.TransportReturn.JobSHA256
+		identity.AttemptSHA256 = step.TransportReturn.AttemptSHA256
+		identity.DispatchSHA256 = step.TransportReturn.DispatchSHA256
+		identity.ClaimSHA256 = step.TransportReturn.ClaimSHA256
+		identity.CheckpointSHA256 = step.TransportReturn.Job.CheckpointSHA256
 	case step.Turn != nil:
 		identity.NestedPlanSHA256 = step.Turn.ExpectedPlanSHA256
 		identity.JobSHA256 = step.Turn.Relay.JobSHA256
@@ -38,18 +52,27 @@ func currentStepHasExternalSessionInputs(opt Options) bool {
 	return strings.TrimSpace(opt.ExternalSessionHarness) != "" || strings.TrimSpace(opt.ExternalSessionID) != "" ||
 		strings.TrimSpace(opt.ExternalSessionActor) != "" || strings.TrimSpace(opt.ExternalSessionStartedAt) != "" ||
 		strings.TrimSpace(opt.ExternalSessionLaunchOutcome) != "" || strings.TrimSpace(opt.ExternalSessionObservedAt) != "" ||
-		strings.TrimSpace(opt.ExternalSessionLaunchReason) != "" || strings.TrimSpace(opt.ExpectedExternalSessionAttemptSHA256) != ""
+		strings.TrimSpace(opt.ExternalSessionLaunchReason) != "" || strings.TrimSpace(opt.ExternalSessionTransportEndpoint) != "" ||
+		strings.TrimSpace(opt.ExternalSessionDeliveryOutcome) != "" || strings.TrimSpace(opt.ExternalSessionProviderAckFingerprint) != "" ||
+		strings.TrimSpace(opt.ExternalSessionDeliveryReason) != "" || strings.TrimSpace(opt.ExternalSessionReviewerResultSourcePath) != "" ||
+		strings.TrimSpace(opt.ExpectedExternalSessionAttemptSHA256) != ""
+}
+
+func currentStepHasExternalSessionTransportInputs(opt Options) bool {
+	return strings.TrimSpace(opt.ExternalSessionTransportEndpoint) != "" || strings.TrimSpace(opt.ExternalSessionDeliveryOutcome) != "" ||
+		strings.TrimSpace(opt.ExternalSessionProviderAckFingerprint) != "" || strings.TrimSpace(opt.ExternalSessionDeliveryReason) != "" ||
+		strings.TrimSpace(opt.ExternalSessionReviewerResultSourcePath) != ""
 }
 
 func validateCurrentStepExternalAttemptInputs(opt Options) error {
-	if strings.TrimSpace(opt.ExternalSessionLaunchOutcome) != "" || strings.TrimSpace(opt.ExternalSessionObservedAt) != "" || strings.TrimSpace(opt.ExternalSessionLaunchReason) != "" {
+	if strings.TrimSpace(opt.ExternalSessionLaunchOutcome) != "" || strings.TrimSpace(opt.ExternalSessionObservedAt) != "" || strings.TrimSpace(opt.ExternalSessionLaunchReason) != "" || currentStepHasExternalSessionTransportInputs(opt) {
 		return fmt.Errorf("run-current-step attempt transition accepts only attempt identity inputs")
 	}
 	return nil
 }
 
 func validateCurrentStepExternalClaimInputs(opt Options) error {
-	if strings.TrimSpace(opt.ExternalSessionHarness) != "" || strings.TrimSpace(opt.ExternalSessionID) != "" || strings.TrimSpace(opt.ExternalSessionStartedAt) != "" || strings.TrimSpace(opt.ExternalSessionLaunchOutcome) != "" || strings.TrimSpace(opt.ExternalSessionLaunchReason) != "" || strings.TrimSpace(opt.ExpectedExternalSessionAttemptSHA256) != "" {
+	if strings.TrimSpace(opt.ExternalSessionHarness) != "" || strings.TrimSpace(opt.ExternalSessionID) != "" || strings.TrimSpace(opt.ExternalSessionStartedAt) != "" || strings.TrimSpace(opt.ExternalSessionLaunchOutcome) != "" || strings.TrimSpace(opt.ExternalSessionLaunchReason) != "" || currentStepHasExternalSessionTransportInputs(opt) || strings.TrimSpace(opt.ExpectedExternalSessionAttemptSHA256) != "" {
 		return fmt.Errorf("run-current-step dispatch claim accepts only externalSessionActor and externalSessionObservedAt")
 	}
 	return nil
@@ -66,8 +89,8 @@ func validateCurrentStepExternalOuterInputs(opt Options) error {
 }
 
 func validateCurrentStepExternalLaunchInputs(opt Options, outcome string) error {
-	if strings.TrimSpace(opt.ExternalSessionStartedAt) != "" || strings.TrimSpace(opt.ExpectedExternalSessionAttemptSHA256) != "" {
-		return fmt.Errorf("run-current-step launch receipt does not accept attempt transition inputs")
+	if strings.TrimSpace(opt.ExternalSessionStartedAt) != "" || currentStepHasExternalSessionTransportInputs(opt) || strings.TrimSpace(opt.ExpectedExternalSessionAttemptSHA256) != "" {
+		return fmt.Errorf("run-current-step launch receipt does not accept attempt or transport transition inputs")
 	}
 	switch outcome {
 	case "accepted":
@@ -99,7 +122,7 @@ func buildCurrentStepExternalSessionPlan(ctx runtime.Context, opt Options, statu
 		return nil, "", false, nil
 	}
 	typed := operator.ExternalSessionJob
-	if request.Source != "current-step-external-session" && request.Source != "current-loop-external-session-job" && request.Source != "current-loop-external-session-dispatch" && request.Source != "current-loop-external-session-turn" {
+	if request.Source != "current-step-external-session" && request.Source != "current-loop-external-session-job" && request.Source != "current-loop-external-session-dispatch" && request.Source != "current-loop-external-session-transport" && request.Source != "current-loop-external-session-turn" {
 		return nil, "", false, nil
 	}
 	if err := validateCurrentStepExternalOuterInputs(opt); err != nil {
@@ -117,6 +140,7 @@ func buildCurrentStepExternalSessionPlan(ctx runtime.Context, opt Options, statu
 		Boundary: []string{
 			"the unified step binds the exact current external job, checkpoint, attempt generation, and nested plan",
 			"the Go runtime records deterministic artifacts only; the external harness owns session launch, reconnect, polling, stop, and result production",
+			"Remote Control endpoint and delivery observations are transport facts only; accepted delivery is not completion or authority",
 			"no heavy tool, authority, or confirmed state is produced by this step",
 		},
 	}
@@ -128,9 +152,43 @@ func buildCurrentStepExternalSessionPlan(ctx runtime.Context, opt Options, statu
 	if err != nil {
 		return nil, "", true, err
 	}
+	transport, err := externalsession.InspectTransport(job, attempt, dispatch)
+	if err != nil {
+		return nil, "", true, err
+	}
 
 	if opt.Apply {
 		switch {
+		case strings.TrimSpace(opt.ExternalSessionTransportEndpoint) != "":
+			if strings.TrimSpace(opt.ExternalSessionDeliveryOutcome) != "" || strings.TrimSpace(opt.ExternalSessionProviderAckFingerprint) != "" || strings.TrimSpace(opt.ExternalSessionDeliveryReason) != "" || strings.TrimSpace(opt.ExternalSessionReviewerResultSourcePath) != "" || strings.TrimSpace(opt.ExternalSessionLaunchOutcome) != "" || strings.TrimSpace(opt.ExternalSessionStartedAt) != "" || strings.TrimSpace(opt.ExternalSessionHarness) != "" || strings.TrimSpace(opt.ExternalSessionID) != "" {
+				return nil, "", true, fmt.Errorf("run-current-step Remote Control endpoint transition accepts only endpoint, actor, and observedAt inputs")
+			}
+			transportPlan, err := externalsession.PreviewTransportEndpoint(job, attempt, dispatch, opt.ExternalSessionTransportEndpoint, opt.ExternalSessionActor, opt.ExternalSessionObservedAt)
+			if err != nil {
+				return nil, "", true, err
+			}
+			plan.Mode, plan.Transport = "remote-control-endpoint", &transportPlan
+			return plan, transportPlan.ExpectedPlanSHA256, true, nil
+		case strings.TrimSpace(opt.ExternalSessionDeliveryOutcome) != "":
+			if strings.TrimSpace(opt.ExternalSessionTransportEndpoint) != "" || strings.TrimSpace(opt.ExternalSessionReviewerResultSourcePath) != "" || strings.TrimSpace(opt.ExternalSessionLaunchOutcome) != "" || strings.TrimSpace(opt.ExternalSessionStartedAt) != "" || strings.TrimSpace(opt.ExternalSessionHarness) != "" || strings.TrimSpace(opt.ExternalSessionID) != "" {
+				return nil, "", true, fmt.Errorf("run-current-step Remote Control delivery transition accepts only outcome, provider ack fingerprint, actor, observedAt, and reason inputs")
+			}
+			transportPlan, err := externalsession.PreviewTransportDelivery(job, attempt, dispatch, opt.ExternalSessionDeliveryOutcome, opt.ExternalSessionProviderAckFingerprint, opt.ExternalSessionActor, opt.ExternalSessionObservedAt, opt.ExternalSessionDeliveryReason)
+			if err != nil {
+				return nil, "", true, err
+			}
+			plan.Mode, plan.Transport = "remote-control-delivery", &transportPlan
+			return plan, transportPlan.ExpectedPlanSHA256, true, nil
+		case strings.TrimSpace(opt.ExternalSessionReviewerResultSourcePath) != "":
+			if strings.TrimSpace(opt.ExternalSessionTransportEndpoint) != "" || strings.TrimSpace(opt.ExternalSessionDeliveryOutcome) != "" || strings.TrimSpace(opt.ExternalSessionProviderAckFingerprint) != "" || strings.TrimSpace(opt.ExternalSessionDeliveryReason) != "" || strings.TrimSpace(opt.ExternalSessionLaunchOutcome) != "" || strings.TrimSpace(opt.ExternalSessionStartedAt) != "" || strings.TrimSpace(opt.ExternalSessionHarness) != "" || strings.TrimSpace(opt.ExternalSessionID) != "" {
+				return nil, "", true, fmt.Errorf("run-current-step Remote Control return accepts only source path, actor, and observedAt inputs")
+			}
+			returnPlan, err := externalsession.PreviewTransportReturn(job, opt.ExternalSessionReviewerResultSourcePath, opt.ExternalSessionActor, opt.ExternalSessionObservedAt)
+			if err != nil {
+				return nil, "", true, err
+			}
+			plan.Mode, plan.TransportReturn = "remote-control-return", &returnPlan
+			return plan, returnPlan.ExpectedPlanSHA256, true, nil
 		case strings.TrimSpace(opt.ExternalSessionStartedAt) != "":
 			if err := validateCurrentStepExternalAttemptInputs(opt); err != nil {
 				return nil, "", true, err
@@ -229,6 +287,14 @@ func buildCurrentStepExternalSessionPlan(ctx runtime.Context, opt Options, statu
 		plan.Attempt = &pending
 		return plan, pending.ExpectedPlanSHA256, true, nil
 	case typed.State == "invalid":
+		if attempt.Current != nil && job.SessionKind == "reviewer" && job.Reviewer != nil && job.Reviewer.DispatchID != "" {
+			if currentStepHasExternalSessionInputs(opt) {
+				return nil, "", true, fmt.Errorf("invalid durable Reviewer job blocks same-job replacement inputs; create a new Reviewer dispatch, session binding, and external-session job")
+			}
+			plan.Mode = "new-reviewer-dispatch-required"
+			plan.ReplacementRequest = typed.AttemptRequest
+			return plan, "", true, nil
+		}
 		if err := validateCurrentStepExternalAttemptInputs(opt); err != nil {
 			return nil, "", true, err
 		}
@@ -272,6 +338,56 @@ func buildCurrentStepExternalSessionPlan(ctx runtime.Context, opt Options, statu
 		plan.Mode = "dispatch-claim"
 		plan.Dispatch = &dispatchPlan
 		return plan, dispatchPlan.ExpectedPlanSHA256, true, nil
+	case dispatch.State == "claimed" && externalsession.IsRemoteControlAttempt(attempt.Current):
+		switch transport.State {
+		case "endpoint-required":
+			if strings.TrimSpace(opt.ExternalSessionTransportEndpoint) == "" || strings.TrimSpace(opt.ExternalSessionActor) == "" || strings.TrimSpace(opt.ExternalSessionObservedAt) == "" {
+				plan.Mode = "remote-control-discovery-input"
+				plan.InputRequired = []string{"run ListAgents", "externalSessionTransportEndpoint=name [ref]", "externalSessionActor", "externalSessionObservedAt"}
+				return plan, "", true, nil
+			}
+			transportPlan, err := externalsession.PreviewTransportEndpoint(job, attempt, dispatch, opt.ExternalSessionTransportEndpoint, opt.ExternalSessionActor, opt.ExternalSessionObservedAt)
+			if err != nil {
+				return nil, "", true, err
+			}
+			plan.Mode, plan.Transport = "remote-control-endpoint", &transportPlan
+			return plan, transportPlan.ExpectedPlanSHA256, true, nil
+		case "delivery-required":
+			if strings.TrimSpace(opt.ExternalSessionDeliveryOutcome) == "" || strings.TrimSpace(opt.ExternalSessionActor) == "" || strings.TrimSpace(opt.ExternalSessionObservedAt) == "" {
+				plan.Mode = "remote-control-delivery-input"
+				plan.InputRequired = []string{"send transport.message.message with SendMessage to transport.message.recipient", "externalSessionDeliveryOutcome=accepted|rejected|uncertain", "externalSessionActor", "externalSessionObservedAt", "rejected|uncertain: externalSessionDeliveryReason"}
+				return plan, "", true, nil
+			}
+			transportPlan, err := externalsession.PreviewTransportDelivery(job, attempt, dispatch, opt.ExternalSessionDeliveryOutcome, opt.ExternalSessionProviderAckFingerprint, opt.ExternalSessionActor, opt.ExternalSessionObservedAt, opt.ExternalSessionDeliveryReason)
+			if err != nil {
+				return nil, "", true, err
+			}
+			plan.Mode, plan.Transport = "remote-control-delivery", &transportPlan
+			return plan, transportPlan.ExpectedPlanSHA256, true, nil
+		case "delivery-accepted", "delivery-rejected":
+			outcome, actor, observedAt, actualHarness, actualSession, reason, err := externalsession.TransportLaunchTransition(transport)
+			if err != nil {
+				return nil, "", true, err
+			}
+			dispatchPlan, err := externalsession.PreviewDispatchTransition(job, attempt, outcome, actor, observedAt, actualHarness, actualSession, reason)
+			if err != nil {
+				return nil, "", true, err
+			}
+			plan.Mode = "launch-" + outcome
+			plan.Dispatch = &dispatchPlan
+			return plan, dispatchPlan.ExpectedPlanSHA256, true, nil
+		case "delivery-uncertain":
+			if currentStepHasExternalSessionInputs(opt) {
+				return nil, "", true, fmt.Errorf("uncertain Remote Control delivery blocks automatic resend, launch receipt, and same-job replacement inputs")
+			}
+			plan.Mode = "remote-control-delivery-uncertain"
+			if typed.Transport != nil {
+				plan.ReplacementRequest = typed.Transport.ReplacementRequest
+			}
+			return plan, "", true, nil
+		default:
+			return nil, "", true, fmt.Errorf("run-current-step Remote Control transport state %q is unsupported", transport.State)
+		}
 	case dispatch.State == "claimed":
 		outcome := strings.ToLower(strings.TrimSpace(opt.ExternalSessionLaunchOutcome))
 		if err := validateCurrentStepExternalLaunchInputs(opt, outcome); err != nil {
@@ -292,7 +408,36 @@ func buildCurrentStepExternalSessionPlan(ctx runtime.Context, opt Options, statu
 		plan.Mode = "launch-" + outcome
 		plan.Dispatch = &dispatchPlan
 		return plan, dispatchPlan.ExpectedPlanSHA256, true, nil
+	case dispatch.State == "running" && externalsession.IsRemoteControlAttempt(attempt.Current):
+		if strings.TrimSpace(opt.ExternalSessionReviewerResultSourcePath) == "" {
+			if currentStepHasExternalSessionInputs(opt) {
+				return nil, "", true, fmt.Errorf("running Remote Control return accepts only ReviewerResult source path, actor, and observedAt")
+			}
+			plan.Mode = "remote-control-return-input"
+			plan.InputRequired = []string{"write one case-local ReviewerResult source file", "externalSessionReviewerResultSourcePath", "externalSessionActor", "externalSessionObservedAt"}
+			if typed.Transport != nil {
+				plan.ReturnRequest = typed.Transport.ReturnRequest
+			}
+			return plan, "", true, nil
+		}
+		if strings.TrimSpace(opt.ExternalSessionActor) == "" || strings.TrimSpace(opt.ExternalSessionObservedAt) == "" || strings.TrimSpace(opt.ExternalSessionTransportEndpoint) != "" || strings.TrimSpace(opt.ExternalSessionDeliveryOutcome) != "" || strings.TrimSpace(opt.ExternalSessionProviderAckFingerprint) != "" || strings.TrimSpace(opt.ExternalSessionDeliveryReason) != "" || strings.TrimSpace(opt.ExternalSessionLaunchOutcome) != "" || strings.TrimSpace(opt.ExternalSessionStartedAt) != "" || strings.TrimSpace(opt.ExternalSessionHarness) != "" || strings.TrimSpace(opt.ExternalSessionID) != "" || strings.TrimSpace(opt.ExpectedExternalSessionAttemptSHA256) != "" {
+			return nil, "", true, fmt.Errorf("running Remote Control return requires only source path, actor, and observedAt")
+		}
+		returnPlan, err := externalsession.PreviewTransportReturn(job, opt.ExternalSessionReviewerResultSourcePath, opt.ExternalSessionActor, opt.ExternalSessionObservedAt)
+		if err != nil {
+			return nil, "", true, err
+		}
+		plan.Mode, plan.TransportReturn = "remote-control-return", &returnPlan
+		return plan, returnPlan.ExpectedPlanSHA256, true, nil
 	case dispatch.State == "running":
+		if job.SessionKind == "reviewer" && job.Reviewer != nil && job.Reviewer.DispatchID != "" {
+			if currentStepHasExternalSessionInputs(opt) {
+				return nil, "", true, fmt.Errorf("running durable Reviewer job blocks same-job replacement inputs; create a new Reviewer dispatch, session binding, and external-session job")
+			}
+			plan.Mode = "new-reviewer-dispatch-required"
+			plan.ReplacementRequest = typed.AttemptRequest
+			return plan, "", true, nil
+		}
 		if !currentStepHasExternalSessionInputs(opt) {
 			plan.Mode = "running-handoff"
 			plan.ReplacementRequest = typed.AttemptRequest
@@ -323,6 +468,14 @@ func buildCurrentStepExternalSessionPlan(ctx runtime.Context, opt Options, statu
 		plan.Mode, plan.Attempt = "replacement-attempt", &attemptPlan
 		return plan, attemptPlan.ExpectedPlanSHA256, true, nil
 	case dispatch.State == "launch-failed" || attempt.Current == nil || typed.State == "invalid":
+		if attempt.Current != nil && job.SessionKind == "reviewer" && job.Reviewer != nil && job.Reviewer.DispatchID != "" {
+			if currentStepHasExternalSessionInputs(opt) {
+				return nil, "", true, fmt.Errorf("failed durable Reviewer job blocks same-job replacement inputs; create a new Reviewer dispatch, session binding, and external-session job")
+			}
+			plan.Mode = "new-reviewer-dispatch-required"
+			plan.ReplacementRequest = typed.AttemptRequest
+			return plan, "", true, nil
+		}
 		if err := validateCurrentStepExternalAttemptInputs(opt); err != nil {
 			return nil, "", true, err
 		}
@@ -392,6 +545,24 @@ func applyCurrentStepExternalSession(ctx runtime.Context, opt Options, outer cur
 			return currentStepPlan{}, currentStepZeroProgressError{cause: err}
 		}
 		step.Dispatch = &applied
+		outer.Applied, outer.IsMutation = applied.Applied, applied.Applied
+	} else if step.Transport != nil {
+		applied, err := externalsession.ApplyTransportCurrent(*step.Transport, step.Transport.ExpectedPlanSHA256, func() (externalsession.Job, error) {
+			return currentExternalSessionJob(ctx, opt)
+		})
+		if err != nil {
+			return currentStepPlan{}, currentStepZeroProgressError{cause: err}
+		}
+		step.Transport = &applied
+		outer.Applied, outer.IsMutation = applied.Applied, applied.Applied
+	} else if step.TransportReturn != nil {
+		applied, err := externalsession.ApplyTransportReturnCurrent(*step.TransportReturn, step.TransportReturn.ExpectedPlanSHA256, func() (externalsession.Job, error) {
+			return currentExternalSessionJob(ctx, opt)
+		})
+		if err != nil {
+			return currentStepPlan{}, currentStepZeroProgressError{cause: err}
+		}
+		step.TransportReturn = &applied
 		outer.Applied, outer.IsMutation = applied.Applied, applied.Applied
 	} else if step.Turn != nil {
 		inner := externalSessionTurnOptions(ctx, opt, step.Turn.Relay.Job, step.Turn.Relay.JobSHA256)

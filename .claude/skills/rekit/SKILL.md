@@ -58,7 +58,9 @@ correction: go run ./cmd/rekit-host -daily -target <case-root> -lane <typed-choi
 
 `rekit-host` 后不能插入 `--`。单 lane 可省略 `-lane`；多 lane 先展示 `action.choices[]`，选定后用 choice `id`。选择前零启动、零写入，后续保持同一 selector。
 
-每次只相信返回的 `action.code`、`action.requiresInput`、`action.choices[]`、typed `failure` 与 fresh durable status：
+每次只相信返回的 `action.code`、`action.requiresInput`、`action.choices[]`、typed `failure` 与 fresh durable status。若 fresh `currentDriverRequest.kind=model-tool-handoff` 且 `source=current-loop-external-session-transport`，只按 typed request执行：endpoint discovery至多调用一次`ListAgents`并先记录snapshot；delivery严格使用返回的recipient/message调用一次`SendMessage`；`uncertain`立即停止且不重发、不same-job replacement；return只保存一个bounded `ReviewerResult` source并交给deterministic producer，不能手写submission。opaque `name [ref]`不得写成lane/member/session identity，transport message不得授予heavy action或authority/confirmed。
+
+随后按 action code 处理：
 
 - `completed`：说明当前阶段已完成；
 - `ready-to-continue`：结果已保存；exact Reviewer 路由成立时 goal/correction owner 会继续独立 Reviewer 与 completion，拒绝时停止；
@@ -100,5 +102,6 @@ correction: go run ./cmd/rekit-host -daily -target <case-root> -lane <typed-choi
 - 文档路由：`docs/context-routing.md`
 - Agent Team 日常与接手：`docs/agent-team-usage.md`
 - active route/current card：`docs/real-usage-hardening-roadmap.md`
-- 当前四闭环详细设计：`docs/daily-product-closure-plan.md`（只读 active `DPC-*` 卡）
+- 已完成四闭环设计：`docs/daily-product-closure-plan.md`（仅复核历史完成证据时按需读取）
+- Remote Control Reviewer transport 使用与边界：`docs/agent-team-usage.md` 对应小节；active状态以路线图为准
 - release 与 PowerShell 退役边界：由 router 分别进入 `docs/release-readiness.md`、`docs/powershell-deprecation.md`

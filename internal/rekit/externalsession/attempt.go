@@ -154,6 +154,9 @@ func PreviewAttempt(job Job, harness, session, actor, startedAt, supersedesSHA25
 	if generation > 1 && !strings.EqualFold(supersedesSHA256, inspection.AttemptSHA256) {
 		return AttemptPlan{}, fmt.Errorf("replacement external session attempt must supersede the exact current attempt")
 	}
+	if inspection.Current != nil && job.SessionKind == "reviewer" && job.Reviewer != nil && job.Reviewer.DispatchID != "" {
+		return AttemptPlan{}, fmt.Errorf("durable Reviewer job cannot be replaced; create a new Reviewer dispatch, session binding, and external-session job")
+	}
 	if job.Reviewer != nil && job.Reviewer.DispatchID != "" && (job.Reviewer.Harness != harness || job.Reviewer.Session != session) {
 		return AttemptPlan{}, fmt.Errorf("external reviewer result attempt must match the accepted dispatch harness and session")
 	}

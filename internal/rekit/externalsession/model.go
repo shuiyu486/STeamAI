@@ -52,27 +52,29 @@ type Job struct {
 }
 
 type Submission struct {
-	SchemaVersion          int    `json:"schemaVersion"`
-	Kind                   string `json:"kind"`
-	JobID                  string `json:"jobId"`
-	JobSHA256              string `json:"jobSha256"`
-	Outcome                string `json:"outcome"`
-	Actor                  string `json:"actor"`
-	ObservedAt             string `json:"observedAt,omitempty"`
-	Reason                 string `json:"reason,omitempty"`
-	Summary                string `json:"summary,omitempty"`
-	ReviewerItemsPath      string `json:"reviewerItemsPath,omitempty"`
-	ReviewerHarness        string `json:"reviewerHarness,omitempty"`
-	ReviewerSession        string `json:"reviewerSession,omitempty"`
-	ReviewerExitStatus     string `json:"reviewerExitStatus,omitempty"`
-	AttemptID              string `json:"attemptId"`
-	AttemptSHA256          string `json:"attemptSha256"`
-	DispatchClaimSHA256    string `json:"dispatchClaimSha256,omitempty"`
-	LaunchReceiptSHA256    string `json:"launchReceiptSha256,omitempty"`
-	Harness                string `json:"harness"`
-	Session                string `json:"session"`
-	NoAuthorityOrConfirmed bool   `json:"noAuthorityOrConfirmed"`
-	NoHeavyTool            bool   `json:"noHeavyTool"`
+	SchemaVersion                int    `json:"schemaVersion"`
+	Kind                         string `json:"kind"`
+	JobID                        string `json:"jobId"`
+	JobSHA256                    string `json:"jobSha256"`
+	Outcome                      string `json:"outcome"`
+	Actor                        string `json:"actor"`
+	ObservedAt                   string `json:"observedAt,omitempty"`
+	Reason                       string `json:"reason,omitempty"`
+	Summary                      string `json:"summary,omitempty"`
+	ReviewerItemsPath            string `json:"reviewerItemsPath,omitempty"`
+	ReviewerHarness              string `json:"reviewerHarness,omitempty"`
+	ReviewerSession              string `json:"reviewerSession,omitempty"`
+	ReviewerExitStatus           string `json:"reviewerExitStatus,omitempty"`
+	AttemptID                    string `json:"attemptId"`
+	AttemptSHA256                string `json:"attemptSha256"`
+	DispatchClaimSHA256          string `json:"dispatchClaimSha256,omitempty"`
+	LaunchReceiptSHA256          string `json:"launchReceiptSha256,omitempty"`
+	TransportReturnReceiptPath   string `json:"transportReturnReceiptPath,omitempty"`
+	TransportReturnReceiptSHA256 string `json:"transportReturnReceiptSha256,omitempty"`
+	Harness                      string `json:"harness"`
+	Session                      string `json:"session"`
+	NoAuthorityOrConfirmed       bool   `json:"noAuthorityOrConfirmed"`
+	NoHeavyTool                  bool   `json:"noHeavyTool"`
 }
 
 type Artifact struct {

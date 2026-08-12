@@ -396,6 +396,15 @@ func PreviewDispatchTransition(job Job, attempt AttemptInspection, outcome, acto
 		if outcome == "failed" && (reason == "" || actualHarness != "" || actualSession != "") {
 			return DispatchPlan{}, fmt.Errorf("failed external session launch requires a reason and cannot claim an actual session")
 		}
+		if IsRemoteControlAttempt(attempt.Current) {
+			transport, transportErr := InspectTransport(job, attempt, inspection)
+			if transportErr != nil {
+				return DispatchPlan{}, transportErr
+			}
+			if err := ValidateRemoteControlLaunchTransition(transport, outcome, actor, observedAt, actualHarness, actualSession, reason); err != nil {
+				return DispatchPlan{}, err
+			}
+		}
 		launch := LaunchReceipt{
 			SchemaVersion: SchemaVersion, Kind: KindLaunchReceipt, DispatchSHA256: inspection.TicketSHA256, ClaimSHA256: inspection.ClaimSHA256,
 			JobID: job.JobID, JobSHA256: inspection.Ticket.JobSHA256, CheckpointSHA256: job.CheckpointSHA256,

@@ -8,6 +8,8 @@
 
 一句话：**用户主要指挥主 Agent / Mission Commander；Go-owned `rekit-host -daily` 让主 Agent 只提交 case target + natural-language goal/correction，自动派生 pack、lane、executor、ID、时间、generation、路径和 SHA，并通过 public exact preview/Apply 路线完成 onboarding、真实 Claude member、人工纠偏、replacement、Reviewer 与 completion。`/rekit`、Go CLI/backend 是背后的 canonical deterministic runtime/API，`rekit.ps1` 仅作为 retained compatibility façade，不承载业务 runtime，也没有 PowerShell 业务 fallback。durable member identity 绑定 lane，不绑定旧聊天窗口；底层 `status`、`overview`、handoff、typed checkpoint、reviewer/session handoff、authorized-gate adapter live validation 与 pack-memory flow 继续作为可审计、可恢复支撑。默认路径继续向 PowerShell-free / Go-native / 跨平台收敛，并保持 truthful release readiness。**
 
+Claude Code Remote Control 现已作为**可选的 read-only Reviewer transport companion**接入同一 durable external-session 状态机：只有 Reviewer dispatch 显式使用 `claude-code-remote-control` harness 和独立 durable session binding 时才启用；本机 `claude-code-cli` 仍是 Windows 日常默认 provider。跨机器的 `name [ref]` 只是一轮 `ListAgents` 得到的 opaque endpoint snapshot，不是 lane/member/session identity；发送内容是完整内联、content-addressed evidence bundle，不依赖对端读取本机路径。`SendMessage` accepted 只派生 launch truth，uncertain 禁止自动重发和 same-job replacement；返回仍按 ReviewerResult → transport receipt → submission 发布，并只经既有 relay 与 strict Reviewer intake 消费。该 transport 不授予 heavy action、authority 或 confirmed。
+
 ## 项目路线（按需文档索引）
 
 以下是文档索引，不是默认必读清单。新会话、上下文压缩后接手或维护文档时，先在 `main` 分支确认 `main` 与 `origin/main` 同步且工作树干净，再读 `docs/context-routing.md`，并按场景只读对应顶部区。

@@ -74,8 +74,11 @@ type currentStepExternalSessionPlan struct {
 	InputRequired        []string                                          `json:"inputRequired,omitempty"`
 	Attempt              *externalsession.AttemptPlan                      `json:"attempt,omitempty"`
 	Dispatch             *externalsession.DispatchPlan                     `json:"dispatch,omitempty"`
+	Transport            *externalsession.TransportPlan                    `json:"transport,omitempty"`
+	TransportReturn      *externalsession.TransportReturnPlan              `json:"transportReturn,omitempty"`
 	Turn                 *currentLoopExternalSessionTurnPlan               `json:"turn,omitempty"`
 	HarnessPackage       *mission.CurrentLoopExternalSessionHarnessPackage `json:"harnessPackage,omitempty"`
+	ReturnRequest        *mission.MissionCommanderDriverRequest            `json:"returnRequest,omitempty"`
 	ReplacementRequest   *mission.MissionCommanderDriverRequest            `json:"replacementRequest,omitempty"`
 	RefreshStatusCommand string                                            `json:"refreshStatusCommand"`
 	Boundary             []string                                          `json:"boundary"`
@@ -567,6 +570,11 @@ func validateCurrentStepOuterArgs(opt Options) error {
 		"-externalsessionlaunchoutcome": true, "--external-session-launch-outcome": true,
 		"-externalsessionobservedat": true, "--external-session-observed-at": true,
 		"-externalsessionlaunchreason": true, "--external-session-launch-reason": true,
+		"-externalsessiontransportendpoint": true, "--external-session-transport-endpoint": true,
+		"-externalsessiondeliveryoutcome": true, "--external-session-delivery-outcome": true,
+		"-externalsessionproviderackfingerprint": true, "--external-session-provider-ack-fingerprint": true,
+		"-externalsessiondeliveryreason": true, "--external-session-delivery-reason": true,
+		"-externalsessionreviewerresultsourcepath": true, "--external-session-reviewer-result-source-path": true,
 		"-expectedexternalsessionattemptsha256": true, "--expected-external-session-attempt-sha256": true,
 	}
 	switchFlags := map[string]bool{
@@ -666,6 +674,16 @@ func currentStepCanonicalOuterFlag(key string) string {
 		return "-externalsessionobservedat"
 	case "--external-session-launch-reason":
 		return "-externalsessionlaunchreason"
+	case "--external-session-transport-endpoint":
+		return "-externalsessiontransportendpoint"
+	case "--external-session-delivery-outcome":
+		return "-externalsessiondeliveryoutcome"
+	case "--external-session-provider-ack-fingerprint":
+		return "-externalsessionproviderackfingerprint"
+	case "--external-session-delivery-reason":
+		return "-externalsessiondeliveryreason"
+	case "--external-session-reviewer-result-source-path":
+		return "-externalsessionreviewerresultsourcepath"
 	case "--expected-external-session-attempt-sha256":
 		return "-expectedexternalsessionattemptsha256"
 	default:

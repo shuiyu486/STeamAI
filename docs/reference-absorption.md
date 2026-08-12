@@ -10,13 +10,14 @@
 
 ## 实施摘要
 
-本项目从参考资料中吸收的不是“某个现成脱壳器”，而是三类能力：
+本项目从参考资料中吸收的不是“某个现成脱壳器”，而是四类能力：
 
 1. **Agent Team 工作方式**：多 Agent 分工、上下文隔离、工作线、handoff、candidate -> review -> confirmed。
 2. **工具 adapter 策略**：IDA/调试器/trace 等工具先 recipe 化、candidate 化，再逐步 adapter 化，避免成为硬依赖或大输出源。
 3. **证据与门禁模型**：evidence ledger、batch/intervention、heavy-tool gate、人工确认和可回滚的审查流程。
+4. **Claude Code 多会话 transport**：吸收 Remote Control 的 `ListAgents` / `SendMessage` 作为可替换 transport primitive，但不吸收其临时 endpoint 为 durable member identity，也不把未承诺的 delivery/lifecycle 语义伪装成 runtime guarantee。
 
-当前已经落地的是安全 Agent Team 框架底座、文档契约、Go-owned/no-fallback `/rekit` runtime、durable lanes、显式 reconcile、typed autonomy preflight、Mission brief / executor action、review-first sync/promote、首个成熟 pack `vmp-re` 扩展、安全领域 pack 骨架 `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 与 `generic-binary-re`、tooling candidate、`ida-agent-bridge` 只读 packet contract、独立的 compiled-in `vmp-ida-index-inspector` fixed adapter、bounded reviewer dispatch/result/writeback 本机 E2E、deterministic runtime 外的 Go-owned `cmd/rekit-host` 真实 member/reviewer Claude Code session orchestration与自然语言→人工纠偏→replacement→独立 Reviewer→feature completion live gate、authorized execution observation evidence + bounded adapter execution report strict intake/contract projection/read-only validation preflight、pack-memory promote/reconsume package E2E，以及 evidence ledger runtime。固定 IDA inspector 已把已有 TSV 索引接入 exact request/profile/gate/contained child/receipt/observation/evidence/member/Reviewer 链，但不安装、不连接或控制 IDA，也不执行外部 bridge。尚未落地的是更多真实工具 bridge、更多 pack 的真实 session 产品场景、普通安装交付和跨平台 product-path E2E。
+当前已经落地的是安全 Agent Team 框架底座、文档契约、Go-owned/no-fallback `/rekit` runtime、durable lanes、显式 reconcile、typed autonomy preflight、Mission brief / executor action、review-first sync/promote、首个成熟 pack `vmp-re` 扩展、安全领域 pack 骨架 `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 与 `generic-binary-re`、tooling candidate、`ida-agent-bridge` 只读 packet contract、独立的 compiled-in `vmp-ida-index-inspector` fixed adapter、bounded reviewer dispatch/result/writeback 本机 E2E、deterministic runtime 外的 Go-owned `cmd/rekit-host` 真实 member/reviewer Claude Code session orchestration与自然语言→人工纠偏→replacement→独立 Reviewer→feature completion live gate、optional Claude Code Remote Control read-only Reviewer transport companion、authorized execution observation evidence + bounded adapter execution report strict intake/contract projection/read-only validation preflight、pack-memory promote/reconsume package E2E，以及 evidence ledger runtime。固定 IDA inspector 已把已有 TSV 索引接入 exact request/profile/gate/contained child/receipt/observation/evidence/member/Reviewer 链，但不安装、不连接或控制 IDA，也不执行外部 bridge。Remote Control companion 只在 explicit durable Reviewer dispatch binding 下内联完整 content-addressed evidence bundle，并保留既有 relay/intake为唯一 canonical consumer；它不是 local provider替代品，也不授予 authority/heavy action。尚未落地的是更多真实工具 bridge、更多 pack 的真实 session 产品场景、普通安装交付、原生 Windows live cross-machine Remote Control E2E 和完整跨平台 product-path E2E。
 
 ## 执行清单
 
@@ -32,6 +33,7 @@
 - [x] 将 `ida-agent-bridge` 保持为不安装、不连接的 candidate contract，并另行实现 compiled-in `vmp-ida-index-inspector`：只读已有固定 TSV，不控制 IDA，不执行 candidate `entry`。
 - [x] 将 bounded dispatch 从完整 contract 推进为 Mission Commander 可验证 E2E：主 Agent实际 spawn 只读 reviewer，完成 result intake、WhatIf、ledger writeback 与 post-validation；`plan-subagents` 本身仍不自动 spawn。
 - [x] 在 deterministic runtime 外增加 Go-owned `cmd/rekit-host`，自动消费 durable current step、启动真实 Claude Code member/reviewer session、收取真实 structured output、处理有界 replacement，并用显式 fresh `vmp-re` live gate 验证人工纠偏、新会话接手、canonical accepted Reviewer lineage 与 feature completion；普通 Go tests 不伪造或启动 LLM。
+- [x] 将 Claude Code Remote Control 的跨会话 `ListAgents` / `SendMessage` 吸收为可选 read-only Reviewer transport companion：explicit durable Reviewer dispatch/session opt-in、opaque endpoint snapshot、自包含 evidence bundle、immutable delivery observation、uncertain no-retry/new-job fencing、generation-specific return producer与既有 strict intake 已闭合；local `claude-code-cli` 仍为默认 provider，原生 Windows live cross-machine E2E 不伪造。
 - [ ] 扩展 `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native`、`generic-binary-re` 等安全领域 pack（`web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 与 `generic-binary-re` 已有最小骨架；后续按真实需求继续扩展）。
 
 ## 验证标准
@@ -67,6 +69,7 @@ git diff --check
 | 微信文章：Agent 化逆向经验 | 多 Agent 分工、上下文管理、人工确认、handoff、证据先行 | `docs/vision.md`、`docs/agent-team-usage.md`、`common/policies/agent-team.md`、`packs/vmp-re/references/vmp-re/agent-driven-re.md` | 已落地为工作方式和 policy；自动编排仍在计划中 |
 | `TsingShui/ida-agent-bridge` | IDA sidecar/bridge、短连接查询、function index、strings/imports/xref、避免全量输出 | `packs/vmp-re/tooling/catalog.yml`、`packs/vmp-re/tooling/recipes/ida-agent-bridge-readonly.md`、`internal/rekit/adapterhost/vmp_ida_*.go` | 外部 bridge 仍是 candidate；其固定 TSV 子集已由 compiled-in `vmp-ida-index-inspector` 落地为非硬依赖的只读 authorized adapter |
 | `clarkluoluo/clark-utov` | batch/ledger/intervention、agent-as-judge、轻到重门禁、可回滚记录 | `docs/evidence-ledger.md`、`docs/orchestration-plan.md`、`internal/rekit/note/**`、`internal/rekit/mission/**`、`internal/rekit/workstream/**`、`packs/vmp-re/references/vmp-re/toolchain-router.md`、`workflow-template.md` | 设计契约与 Go-owned ledger/read-model/runtime 已落地；9 种 kind + decision 字段已对齐草案，batch-level replay/resume 与 candidate → verified → confirmed 机器强制 gate 待实现 |
+| Claude Code Remote Control 跨会话通信 | `ListAgents` 发现短期 endpoint、`SendMessage` 传递完整任务、peer 不继承旧会话上下文 | `internal/rekit/externalsession/transport*.go`、`internal/rekit/memberexecution/reviewer_evidence_snapshot.go`、`internal/rekit/cli/current_loop_external_transport.go`、`docs/agent-team-usage.md` | 已落地为 explicit read-only Reviewer transport companion；durable identity、delivery truth、return publication与strict intake仍由ReKit拥有，原生Windows live跨机器E2E保持未验证 |
 
 ## 2. 微信文章方向：Agent 化逆向工作流
 

@@ -508,15 +508,16 @@ func TestDocumentationProgressiveDisclosureInvariants(t *testing.T) {
 	if len(roadmap) > 10000 {
 		t.Fatalf("active roadmap is %d bytes, want current-card entry <= 10000", len(roadmap))
 	}
-	if count := len(regexp.MustCompile(`(?m)^### (?:RH|DPC)-[0-9]+`).FindAllString(roadmap, -1)); count != 1 {
+	routeCardPattern := `(?:(?:RH|DPC)-[0-9]+|Batch [0-9]+)`
+	if count := len(regexp.MustCompile(`(?m)^### `+routeCardPattern+`：`).FindAllString(roadmap, -1)); count != 1 {
 		t.Fatalf("active roadmap contains %d route cards, want exactly current card", count)
 	}
-	currentCards := regexp.MustCompile(`(?m)^### (?:RH|DPC)-[0-9]+：`).FindAllString(roadmap, -1)
+	currentCards := regexp.MustCompile(`(?m)^### `+routeCardPattern+`：`).FindAllString(roadmap, -1)
 	currentCard := currentCards[0]
 	if strings.Contains(backlog, currentCard) {
 		t.Fatalf("future backlog duplicates active roadmap card %s", currentCard)
 	}
-	currentBatch := regexp.MustCompile(`(?m)^\| 当前批次 \| ` + "`" + `((?:RH|DPC)-[0-9]+)` + "`" + `(?: [^|]+)? \|$`).FindStringSubmatch(roadmap)
+	currentBatch := regexp.MustCompile(`(?m)^\| 当前批次 \| ` + "`" + `(` + routeCardPattern + `)` + "`" + `(?: [^|]+)? \|$`).FindStringSubmatch(roadmap)
 	if len(currentBatch) != 2 {
 		t.Fatal("active roadmap current batch pointer is missing or malformed")
 	}
