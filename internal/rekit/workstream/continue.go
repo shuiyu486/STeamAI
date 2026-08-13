@@ -28,6 +28,7 @@ const continuePreviewRunID = "run-preview"
 
 type ContinueOptions struct {
 	Selector                   string
+	ExactSelector              bool
 	Executor                   string
 	ExpectedExecutorGeneration int
 	ExpectedPreviewSHA256      string
@@ -481,7 +482,16 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (result
 		result.updateApplySummary(preview)
 		known[id] = true
 	}
-	resumePath, checkpointPath, err := writeLaneResume(ctx.inst.CaseRoot, ctx.manifest, ctx.lane)
+	publicationSelector := ""
+	if ctx.continueOptions.ExactSelector {
+		publicationSelector = ctx.selector
+	}
+	resumePath, checkpointPath, err := writeLaneResumeForSelector(
+		ctx.inst.CaseRoot,
+		ctx.manifest,
+		ctx.lane,
+		publicationSelector,
+	)
 	if err != nil {
 		return ContinueResult{}, err
 	}
@@ -669,10 +679,25 @@ func (ctx continueContext) executorAction() laneExecutorAction {
 	facts, err := readHandoffFacts(ctx.inst.CaseRoot)
 	if err != nil {
 		brief := mission.Brief{Summary: "unavailable: " + err.Error()}
-		return laneExecutorActionFor(ctx.lane, mission.Facts{}, brief)
+		return ctx.bindSelectedLaneExecutorAction(
+			laneExecutorActionFor(ctx.lane, mission.Facts{}, brief),
+		)
 	}
 	brief := laneMissionBrief(ctx.lane, facts)
-	return laneExecutorActionFor(ctx.lane, facts.Facts, brief)
+	return ctx.bindSelectedLaneExecutorAction(
+		laneExecutorActionFor(ctx.lane, facts.Facts, brief),
+	)
+}
+
+func (ctx continueContext) bindSelectedLaneExecutorAction(action laneExecutorAction) laneExecutorAction {
+	if !ctx.continueOptions.ExactSelector || strings.TrimSpace(ctx.selector) != ctx.lane.ID {
+		return action
+	}
+	return bindHandoffLaneExecutorAction(
+		action,
+		ctx.lane.ID,
+		workstreamLabel(ctx.lane),
+	)
 }
 
 func (ctx continueContext) executionEvidenceReview() []ExecutionEvidenceReviewItem {

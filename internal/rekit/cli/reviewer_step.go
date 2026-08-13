@@ -174,7 +174,11 @@ func applyReviewerStepPlan(ctx runtime.Context, opt Options, plan reviewerStepPl
 			return plan, fmt.Errorf("refresh status after reviewer step: %w", err)
 		}
 	}
-	refreshed, err := buildInvocationStatusInventory(ctx, opt)
+	refreshOpt, err := optionsWithEffectiveSelectedCurrentLane(opt, plan.ApplyDriverRequest.Lane)
+	if err != nil {
+		return plan, fmt.Errorf("refresh status after reviewer step: %w", err)
+	}
+	refreshed, err := buildInvocationStatusInventoryAfterMutation(ctx, refreshOpt)
 	if err != nil {
 		return plan, fmt.Errorf("refresh status after reviewer step: %w", err)
 	}

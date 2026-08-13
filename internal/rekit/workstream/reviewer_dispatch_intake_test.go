@@ -207,11 +207,11 @@ func TestReviewerDispatchIntakeSummaryDrainsReturnedShardBeforeFailedRetry(t *te
 func TestReviewerDispatchFailedRetryPreemptsEarlierRunningPacket(t *testing.T) {
 	items := []ReviewerDispatchIntakeHandoff{
 		{PacketID: "packet-running", PacketPath: "running.json", TargetLane: "feature-review", ShardID: "shard-running", State: "reviewer-session-running-unknown"},
-		{PacketID: "packet-failed", PacketPath: "failed.json", TargetLane: "feature-review", ShardID: "shard-failed", State: "reviewer-session-failed", ReviewerDispatchRecordCommand: "/rekit retry shard-failed"},
+		{PacketID: "packet-failed", PacketPath: "failed.json", TargetLane: "feature-review", ShardID: "shard-failed", State: "reviewer-session-failed", ReviewerDispatchRecordCommand: "/rekit plan-subagents -PacketPath failed.json -RecordReviewerDispatch -ShardId shard-failed -ReviewerHarness <harness> -ReviewerSession <session-id> -Lane feature-review -Actor <main-agent> -WhatIf -Format json"},
 	}
 
 	summary := ReviewerDispatchIntakeSummaryFor(items)
-	if summary.NextActionShardID != "shard-failed" || summary.NextActionState != "reviewer-session-failed" || summary.NextAction != "/rekit retry shard-failed" {
+	if summary.NextActionShardID != "shard-failed" || summary.NextActionState != "reviewer-session-failed" || summary.NextAction != items[1].ReviewerDispatchRecordCommand {
 		t.Fatalf("failed retry was starved by an earlier running packet: %+v", summary)
 	}
 	actions := MissionCommanderNextActionsWithReviewerDispatches(nil, items)

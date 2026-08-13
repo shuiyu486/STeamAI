@@ -203,6 +203,9 @@ func currentStepPackMemoryConsumerRequest(repoRoot, caseRoot, pack string, statu
 }
 
 func buildCurrentStepPlanFromStatus(ctx runtime.Context, opt Options, status statusInventory) (currentStepPlan, error) {
+	if status.MissionControlRunbook != nil && status.MissionControlRunbook.Focus == "case-lane-choice" && status.MissionControlRunbook.CurrentDriverRequest == nil {
+		return currentStepPlan{}, fmt.Errorf("run-current-step requires -Lane from the current typed lane choices")
+	}
 	if status.MissionControlRunbook == nil || status.MissionControlRunbook.CurrentDriverRequest == nil {
 		return currentStepPlan{}, fmt.Errorf("run-current-step requires missionControlRunbook.currentDriverRequest")
 	}
@@ -450,7 +453,11 @@ func applyCurrentStepPlan(ctx runtime.Context, opt Options, plan currentStepPlan
 					return currentStepPartialResult(plan, nestedCommand), fmt.Errorf("refresh status after member execution: %w", err)
 				}
 			}
-			fresh, err := buildInvocationStatusInventory(ctx, opt)
+			refreshOpt, err := optionsWithEffectiveSelectedCurrentLane(opt, plan.CurrentDriverRequest.Lane)
+			if err != nil {
+				return currentStepPartialResult(plan, nestedCommand), fmt.Errorf("refresh status after member execution: %w", err)
+			}
+			fresh, err := buildInvocationStatusInventory(ctx, refreshOpt)
 			if err != nil {
 				return currentStepPartialResult(plan, nestedCommand), fmt.Errorf("refresh status after member execution: %w", err)
 			}

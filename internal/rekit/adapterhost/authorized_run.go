@@ -24,7 +24,6 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
-	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/processguard"
@@ -157,7 +156,13 @@ func validateVMPIDAIndexChildBinding(
 	); err != nil {
 		return "", "", err
 	}
-	if err := validateCurrentAuthorization(repoRoot, caseRoot, dispatch); err != nil {
+	if err := validateCurrentAuthorization(
+		repoRoot,
+		caseRoot,
+		dispatch,
+		dispatchPath,
+		dispatchSHA,
+	); err != nil {
 		return "", "", err
 	}
 	current, currentPath, currentSHA, _, err :=
@@ -376,7 +381,7 @@ func runAuthorizedGateExecution(opt AuthorizedRunOptions) (AuthorizedRunResult, 
 		return result, err
 	}
 	if dispatchPresent {
-		if dispatch.ReportPath != reportPath || dispatch.Owner.AdapterSession != result.AdapterSession || dispatch.Owner.CurrentExecutor != owner.CurrentExecutor || dispatch.Owner.ExecutorGeneration != owner.ExecutorGeneration {
+		if dispatch.ReportPath != reportPath || dispatch.Owner.AdapterSession != result.AdapterSession {
 			return result, fmt.Errorf("authorized VMP IDA run does not match the immutable existing dispatch")
 		}
 		result.DispatchPath, result.DispatchSHA256 = dispatchPath, dispatchSHA
@@ -432,13 +437,25 @@ func runAuthorizedGateExecution(opt AuthorizedRunOptions) (AuthorizedRunResult, 
 		result.PacketPath = filepath.ToSlash(filepath.Join(filepath.Dir(dispatch.ReportPath), vmpIDAIndexPacketFileName))
 	}
 
-	hostResult, err := Run(Options{
-		RepoRoot: repoRoot, CaseRoot: caseRoot, Pack: result.Pack,
-		GateEventID: result.GateEventID, ExpectedDispatchSHA256: dispatchSHA,
-		testHooks: opt.testHooks,
-	})
+	hostResult, recovered, err := recoverVMPIDAInterruptedAttempt(
+		caseRoot,
+		result.Pack,
+		dispatch,
+		dispatchPath,
+		dispatchSHA,
+	)
 	if err != nil {
 		return result, err
+	}
+	if !recovered {
+		hostResult, err = Run(Options{
+			RepoRoot: repoRoot, CaseRoot: caseRoot, Pack: result.Pack,
+			GateEventID: result.GateEventID, ExpectedDispatchSHA256: dispatchSHA,
+			testHooks: opt.testHooks,
+		})
+		if err != nil {
+			return result, err
+		}
 	}
 	result.ChildLaunched = hostResult.ProcessID > 0
 	result.ChildProcessID = hostResult.ProcessID
@@ -480,7 +497,9 @@ func terminalVMPExecutionExitStatus(report gate.AdapterReport) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	aborted := exitStatus == "child-timeout" || exitStatus == "runtime-budget-exceeded"
+	aborted := exitStatus == "child-timeout" ||
+		exitStatus == "runtime-budget-exceeded" ||
+		exitStatus == "parent-interrupted"
 	if (status == "aborted") != aborted {
 		return "", fmt.Errorf("VMP IDA terminal report status does not match execution exit status: %s/%s", status, exitStatus)
 	}
@@ -489,7 +508,7 @@ func terminalVMPExecutionExitStatus(report gate.AdapterReport) (string, error) {
 
 func validVMPIDAFailureExitStatus(value string) bool {
 	switch value {
-	case "child-timeout", "child-failed", "child-invalid-stdout", "child-invalid-packet", "source-drift", "output-budget-exceeded", "runtime-budget-exceeded":
+	case "child-timeout", "child-failed", "child-invalid-stdout", "child-invalid-packet", "source-drift", "authorization-drift", "output-budget-exceeded", "runtime-budget-exceeded", "parent-interrupted":
 		return true
 	}
 	const prefix = "child-exit-"
@@ -506,6 +525,11 @@ const vmpIDAChildLaunchSHA256Marker = ";vmp-ida-child-launch-sha256:"
 func vmpIDAFailureEscalation(exitStatus, launchSHA string) string {
 	return vmpIDAFailureExitStatusPrefix + exitStatus +
 		vmpIDAChildLaunchSHA256Marker + strings.ToLower(launchSHA)
+}
+
+func terminalVMPFailureLaunchSHA(report gate.AdapterReport) (string, error) {
+	_, launchSHA, err := terminalVMPFailureBinding(report)
+	return launchSHA, err
 }
 
 func terminalVMPFailureBinding(report gate.AdapterReport) (string, string, error) {
@@ -539,6 +563,57 @@ func completeVMPIDAEvidenceLifecycle(
 ) (AuthorizedRunResult, error) {
 	repoRoot := strings.TrimSpace(opt.RepoRoot)
 	caseRoot := result.CaseRoot
+	if result.ExecutionStatus == "failed" || result.ExecutionStatus == "aborted" {
+		report, reportData, _, terminal, err := readTerminalVMPReport(
+			caseRoot,
+			dispatch,
+			dispatchPath,
+			dispatchSHA,
+			filepath.ToSlash(filepath.Join(filepath.Dir(result.ReportPath), vmpIDAIndexPacketFileName)),
+		)
+		if err != nil || !terminal {
+			if err == nil {
+				err = fmt.Errorf("VMP IDA failed/aborted closure requires an exact terminal report")
+			}
+			return result, err
+		}
+		exitStatus, err := terminalVMPExecutionExitStatus(report)
+		if err != nil {
+			return result, err
+		}
+		_, launchSHA, err := terminalVMPFailureBinding(report)
+		if err != nil {
+			return result, err
+		}
+		closure, err := gate.RecordAdapterExecutionTerminalClosure(
+			repoRoot,
+			caseRoot,
+			result.Pack,
+			gate.AdapterExecutionTerminalClosureOptions{
+				GateEventID:                   result.GateEventID,
+				DispatchPath:                  dispatchPath,
+				ExpectedDispatchSHA256:        dispatchSHA,
+				ExecutionReportPath:           result.ReportPath,
+				ExpectedExecutionReportSHA256: sha256Hex(reportData),
+				ExecutionExitStatus:           exitStatus,
+				RecoveryProofPath:             vmpIDAChildLaunchPath(result.ReportPath),
+				ExpectedRecoveryProofSHA256:   launchSHA,
+				Actor:                         strings.TrimSpace(opt.Actor),
+			},
+		)
+		if err != nil {
+			return result, err
+		}
+		result.ReportSHA256 = sha256Hex(reportData)
+		result.PacketPath = ""
+		result.PacketSHA256 = ""
+		result.ReceiptPath = closure.ReceiptPath
+		result.ReceiptSHA256 = closure.ReceiptSHA256
+		result.ObservationEventID = closure.ObservationEventID
+		result.ExecutionStatus = report.Status
+		result.ExecutionExitStatus = exitStatus
+		return result, nil
+	}
 	validation, err := gate.ValidateAdapterExecutionReport(
 		repoRoot,
 		caseRoot,
@@ -548,6 +623,44 @@ func completeVMPIDAEvidenceLifecycle(
 			ExecutionReportPath: result.ReportPath,
 		},
 	)
+	if err == nil && validation.Report != nil &&
+		(validation.Report.Status == "failed" || validation.Report.Status == "aborted") &&
+		(!validation.ReceiptPresent || !validation.ProvenanceValid) {
+		launchSHA, proofErr := terminalVMPFailureLaunchSHA(*validation.Report)
+		if proofErr != nil {
+			return result, proofErr
+		}
+		closure, closureErr := gate.RecordAdapterExecutionTerminalClosure(
+			repoRoot,
+			caseRoot,
+			result.Pack,
+			gate.AdapterExecutionTerminalClosureOptions{
+				GateEventID:                   result.GateEventID,
+				DispatchPath:                  dispatchPath,
+				ExpectedDispatchSHA256:        dispatchSHA,
+				ExecutionReportPath:           result.ReportPath,
+				ExpectedExecutionReportSHA256: validation.ReportSHA256,
+				ExecutionExitStatus:           result.ExecutionExitStatus,
+				RecoveryProofPath:             vmpIDAChildLaunchPath(result.ReportPath),
+				ExpectedRecoveryProofSHA256:   launchSHA,
+				Actor:                         strings.TrimSpace(opt.Actor),
+			},
+		)
+		if closureErr != nil {
+			return result, closureErr
+		}
+		result.ReceiptPath = closure.ReceiptPath
+		result.ReceiptSHA256 = closure.ReceiptSHA256
+		result.ObservationEventID = closure.ObservationEventID
+		result.ExecutionStatus = validation.Report.Status
+		if result.ExecutionExitStatus == "" {
+			result.ExecutionExitStatus, err = terminalVMPExecutionExitStatus(*validation.Report)
+			if err != nil {
+				return result, err
+			}
+		}
+		return result, nil
+	}
 	if validation.Report != nil {
 		result.ExecutionStatus = validation.Report.Status
 	}
@@ -881,14 +994,10 @@ func bindVMPIDAEvidence(
 	)
 }
 
-func authorizedGateLane(repoRoot, caseRoot, pack, gateEventID string) string {
-	dispatch, _, _, _, err := gate.ReadCurrentAdapterExecutionDispatch(repoRoot, caseRoot, pack, gateEventID)
-	if err == nil {
-		return dispatch.Owner.Lane
-	}
-	// The dispatch does not exist yet. Derive the lane from the strict authorized
-	// request ledger; RecordAdapterExecutionDispatch remains the canonical semantic
-	// validator and rejects stale or malformed authorization.
+func authorizedGateLane(_, caseRoot, _, gateEventID string) string {
+	// Derive the durable lane from the strict authorized request ledger. Existing
+	// dispatch recovery must remain discoverable after owner/catalog drift; the
+	// current execution path still performs its own strict currentness validation.
 	items, readErr := mission.ReadStrictFact(caseRoot, "request")
 	if readErr != nil {
 		return ""
@@ -899,6 +1008,102 @@ func authorizedGateLane(repoRoot, caseRoot, pack, gateEventID string) string {
 		}
 	}
 	return ""
+}
+
+func recoverVMPIDAInterruptedAttempt(
+	caseRoot,
+	pack string,
+	dispatch adapterexecution.DispatchReceipt,
+	dispatchPath,
+	dispatchSHA string,
+) (Result, bool, error) {
+	result := Result{
+		SchemaVersion:     1,
+		Kind:              "rekit-readonly-adapter-host-result",
+		CaseRoot:          caseRoot,
+		Pack:              pack,
+		GateEventID:       dispatch.Gate.GateEventID,
+		Lane:              dispatch.Owner.Lane,
+		Executor:          dispatch.Owner.CurrentExecutor,
+		Generation:        dispatch.Owner.ExecutorGeneration,
+		AdapterID:         VMPIDAIndexAdapterID,
+		AdapterHarness:    dispatch.Owner.AdapterHarness,
+		AdapterSession:    dispatch.Owner.AdapterSession,
+		DispatchPath:      dispatchPath,
+		DispatchSHA256:    dispatchSHA,
+		InputPath:         cleanCaseRelative(dispatch.Gate.Target),
+		ReportPath:        cleanCaseRelative(dispatch.ReportPath),
+		ReadOnlyInput:     true,
+		NoNetwork:         true,
+		NoNetworkBoundary: fixedChildNoNetworkCodepath,
+		NoAuthority:       true,
+	}
+	request, err := readVMPIDAIndexRequestArtifact(caseRoot, result.InputPath)
+	if err != nil {
+		return result, false, err
+	}
+	result.InputSHA256 = request.RequestSHA256
+	launchData, err := readVMPIDAFile(
+		caseRoot,
+		vmpIDAChildLaunchPath(result.ReportPath),
+		"VMP IDA prior child launch proof",
+		64<<10,
+	)
+	if errors.Is(err, os.ErrNotExist) {
+		return Result{}, false, nil
+	}
+	if err != nil {
+		return result, false, err
+	}
+	if _, reportErr := readVMPIDAFile(caseRoot, result.ReportPath, "VMP IDA terminal report", 1<<20); reportErr == nil {
+		return Result{}, false, nil
+	} else if !errors.Is(reportErr, os.ErrNotExist) {
+		return result, false, reportErr
+	}
+	commitPath := filepath.ToSlash(filepath.Join(filepath.Dir(result.ReportPath), vmpIDAOutputCommitFileName))
+	if _, commitErr := readVMPIDAFile(caseRoot, commitPath, "VMP IDA output commit", VMPIDAIndexMaxPacketBytes+2<<20); commitErr == nil {
+		return Result{}, false, nil
+	} else if !errors.Is(commitErr, os.ErrNotExist) {
+		return result, false, commitErr
+	}
+	launchSHA := sha256Hex(launchData)
+	attempt, _, present, err := readVMPIDAExecutionAttempt(
+		caseRoot,
+		dispatch,
+		dispatchPath,
+		dispatchSHA,
+		request.RequestSHA256,
+		result.ReportPath,
+	)
+	if err != nil || !present {
+		return result, false, fmt.Errorf("VMP IDA orphan child launch lacks its exact execution attempt: %w", err)
+	}
+	if err := validateVMPIDAChildLaunchAttempt(
+		caseRoot,
+		dispatch,
+		dispatchPath,
+		dispatchSHA,
+		request.RequestSHA256,
+		result.ReportPath,
+		launchSHA,
+	); err != nil {
+		return result, false, err
+	}
+	started, err := time.Parse(time.RFC3339Nano, attempt.StartedAt)
+	if err != nil {
+		return result, false, err
+	}
+	result, err = publishVMPIDAFailureReport(
+		result,
+		dispatch,
+		dispatchPath,
+		dispatchSHA,
+		started,
+		"aborted",
+		"parent-interrupted",
+		launchSHA,
+	)
+	return result, true, err
 }
 
 func runVMPIDAExistingDispatch(opt Options, result Result, dispatch adapterexecution.DispatchReceipt, dispatchPath, dispatchSHA string, started time.Time) (_ Result, retErr error) {
@@ -952,16 +1157,18 @@ func runVMPIDAExistingDispatch(opt Options, result Result, dispatch adapterexecu
 		return result, err
 	}
 	if existing != nil {
+		result.ProcessID = 0
 		if len(existing.commitData) == 0 || !validSHA256(existing.launchSHA) {
 			return result, fmt.Errorf("VMP IDA recoverable outputs lack exact commit or launch proof")
 		}
 		if existing.sealed {
-			if err := publishVMPIDACommittedOutputsFromBytes(
-				result.CaseRoot,
+			if _, err := publishOwnedVMPIDACommittedOutputsFromBytes(
+				root,
 				result.ArtifactPath,
 				result.ReportPath,
 				existing.packetData,
 				existing.reportData,
+				opt.testHooks,
 			); err != nil {
 				return result, err
 			}
@@ -975,6 +1182,12 @@ func runVMPIDAExistingDispatch(opt Options, result Result, dispatch adapterexecu
 		}
 		var attemptStarted time.Time
 		if !existing.sealed {
+			if existing.packetPresent || existing.reportPresent {
+				return result, fmt.Errorf(
+					"%w; preserve unsealed committed outputs and use a distinct authorized gate and dispatch",
+					errVMPIDARecoveryOutputOwnership,
+				)
+			}
 			attempt, _, present, attemptErr := readVMPIDAExecutionAttempt(
 				result.CaseRoot,
 				dispatch,
@@ -995,15 +1208,6 @@ func runVMPIDAExistingDispatch(opt Options, result Result, dispatch adapterexecu
 			requestCurrent, currentErr := ReadVMPIDAIndexRequest(result.CaseRoot, result.InputPath)
 			if currentErr != nil || requestCurrent.RequestSHA256 != requestArtifact.RequestSHA256 ||
 				!bytes.Equal(requestCurrent.CanonicalBytes, requestArtifact.CanonicalBytes) {
-				if err := removeExactVMPIDAPublicOutputs(
-					result.CaseRoot,
-					result.ArtifactPath,
-					result.ReportPath,
-					existing.packetData,
-					existing.reportData,
-				); err != nil {
-					return result, err
-				}
 				return publishVMPIDAFailureReport(
 					result,
 					dispatch,
@@ -1016,9 +1220,6 @@ func runVMPIDAExistingDispatch(opt Options, result Result, dispatch adapterexecu
 				)
 			}
 			if elapsedSecondsCeil(attemptStarted) > dispatch.Gate.AuthorizedBudget.RuntimeSeconds {
-				if err := removeExactVMPIDAPublicOutputs(result.CaseRoot, result.ArtifactPath, result.ReportPath, existing.packetData, existing.reportData); err != nil {
-					return result, err
-				}
 				return publishVMPIDAFailureReport(
 					result,
 					dispatch,
@@ -1031,25 +1232,57 @@ func runVMPIDAExistingDispatch(opt Options, result Result, dispatch adapterexecu
 				)
 			}
 		}
-		if err := publishVMPIDACommittedOutputsFromBytes(
-			result.CaseRoot,
+		if !existing.sealed {
+			if err := validateVMPAuthorizationPhase(
+				opt,
+				authorizationPhasePrePublication,
+				dispatch,
+				dispatchPath,
+				dispatchSHA,
+			); err != nil {
+				return publishVMPIDAFailureReport(
+					result,
+					dispatch,
+					dispatchPath,
+					dispatchSHA,
+					attemptStarted,
+					"failed",
+					"authorization-drift",
+					existing.launchSHA,
+				)
+			}
+		}
+		ownedOutputs, err := publishOwnedVMPIDACommittedOutputsFromBytes(
+			root,
 			result.ArtifactPath,
 			result.ReportPath,
 			existing.packetData,
 			existing.reportData,
-		); err != nil {
-			return result, err
+			opt.testHooks,
+		)
+		if err != nil {
+			return result, errors.Join(err, removeOwnedVMPIDAPublicOutputs(
+				root,
+				ownedOutputs,
+				result.ArtifactPath,
+				result.ReportPath,
+				existing.packetData,
+				existing.reportData,
+				opt.testHooks,
+			))
 		}
 		if !existing.sealed {
 			requestCurrent, currentErr := ReadVMPIDAIndexRequest(result.CaseRoot, result.InputPath)
 			if currentErr != nil || requestCurrent.RequestSHA256 != requestArtifact.RequestSHA256 ||
 				!bytes.Equal(requestCurrent.CanonicalBytes, requestArtifact.CanonicalBytes) {
-				if err := removeExactVMPIDAPublicOutputs(
-					result.CaseRoot,
+				if err := removeOwnedVMPIDAPublicOutputs(
+					root,
+					ownedOutputs,
 					result.ArtifactPath,
 					result.ReportPath,
 					existing.packetData,
 					existing.reportData,
+					opt.testHooks,
 				); err != nil {
 					return result, err
 				}
@@ -1066,18 +1299,28 @@ func runVMPIDAExistingDispatch(opt Options, result Result, dispatch adapterexecu
 			}
 			if opt.testHooks != nil && opt.testHooks.beforeVMPSuccessSeal != nil {
 				if err := opt.testHooks.beforeVMPSuccessSeal(); err != nil {
-					return result, err
+					return result, errors.Join(err, removeOwnedVMPIDAPublicOutputs(
+						root,
+						ownedOutputs,
+						result.ArtifactPath,
+						result.ReportPath,
+						existing.packetData,
+						existing.reportData,
+						opt.testHooks,
+					))
 				}
 			}
 			requestCurrent, currentErr = ReadVMPIDAIndexRequest(result.CaseRoot, result.InputPath)
 			if currentErr != nil || requestCurrent.RequestSHA256 != requestArtifact.RequestSHA256 ||
 				!bytes.Equal(requestCurrent.CanonicalBytes, requestArtifact.CanonicalBytes) {
-				if err := removeExactVMPIDAPublicOutputs(
-					result.CaseRoot,
+				if err := removeOwnedVMPIDAPublicOutputs(
+					root,
+					ownedOutputs,
 					result.ArtifactPath,
 					result.ReportPath,
 					existing.packetData,
 					existing.reportData,
+					opt.testHooks,
 				); err != nil {
 					return result, err
 				}
@@ -1093,13 +1336,58 @@ func runVMPIDAExistingDispatch(opt Options, result Result, dispatch adapterexecu
 				)
 			}
 			if err := lease.Validate(); err != nil {
-				if cleanupErr := removeExactVMPIDAPublicOutputs(result.CaseRoot, result.ArtifactPath, result.ReportPath, existing.packetData, existing.reportData); cleanupErr != nil {
+				if cleanupErr := removeOwnedVMPIDAPublicOutputs(
+					root,
+					ownedOutputs,
+					result.ArtifactPath,
+					result.ReportPath,
+					existing.packetData,
+					existing.reportData,
+					opt.testHooks,
+				); cleanupErr != nil {
 					return result, errors.Join(err, cleanupErr)
 				}
 				return result, err
 			}
+			if err := validateVMPAuthorizationPhase(
+				opt,
+				authorizationPhasePostPublication,
+				dispatch,
+				dispatchPath,
+				dispatchSHA,
+			); err != nil {
+				if cleanupErr := removeOwnedVMPIDAPublicOutputs(
+					root,
+					ownedOutputs,
+					result.ArtifactPath,
+					result.ReportPath,
+					existing.packetData,
+					existing.reportData,
+					opt.testHooks,
+				); cleanupErr != nil {
+					return result, errors.Join(err, cleanupErr)
+				}
+				return publishVMPIDAFailureReport(
+					result,
+					dispatch,
+					dispatchPath,
+					dispatchSHA,
+					attemptStarted,
+					"failed",
+					"authorization-drift",
+					existing.launchSHA,
+				)
+			}
 			if elapsedSecondsCeil(attemptStarted) > dispatch.Gate.AuthorizedBudget.RuntimeSeconds {
-				if err := removeExactVMPIDAPublicOutputs(result.CaseRoot, result.ArtifactPath, result.ReportPath, existing.packetData, existing.reportData); err != nil {
+				if err := removeOwnedVMPIDAPublicOutputs(
+					root,
+					ownedOutputs,
+					result.ArtifactPath,
+					result.ReportPath,
+					existing.packetData,
+					existing.reportData,
+					opt.testHooks,
+				); err != nil {
 					return result, err
 				}
 				return publishVMPIDAFailureReport(
@@ -1133,19 +1421,62 @@ func runVMPIDAExistingDispatch(opt Options, result Result, dispatch adapterexecu
 		result.CompletedAt = time.Now().UTC().Format(time.RFC3339Nano)
 		return result, nil
 	}
-	if err := validateCurrentAuthorization(opt.RepoRoot, result.CaseRoot, dispatch); err != nil {
+	if err := validateVMPAuthorizationPhase(
+		opt,
+		authorizationPhasePreExecution,
+		dispatch,
+		dispatchPath,
+		dispatchSHA,
+	); err != nil {
 		return result, err
 	}
 	if _, err := ReadVMPIDAIndexRequest(result.CaseRoot, result.InputPath); err != nil {
 		return result, err
 	}
-	if _, launchErr := readVMPIDAFile(
+	if launchData, launchErr := readVMPIDAFile(
 		result.CaseRoot,
 		vmpIDAChildLaunchPath(result.ReportPath),
 		"VMP IDA prior child launch proof",
 		64<<10,
 	); launchErr == nil {
-		return result, fmt.Errorf("VMP IDA dispatch has a child launch proof without a terminal outcome; a distinct authorized gate and dispatch are required")
+		launchSHA := sha256Hex(launchData)
+		attempt, _, present, attemptErr := readVMPIDAExecutionAttempt(
+			result.CaseRoot,
+			dispatch,
+			dispatchPath,
+			dispatchSHA,
+			requestArtifact.RequestSHA256,
+			result.ReportPath,
+		)
+		if attemptErr != nil || !present {
+			return result, fmt.Errorf("VMP IDA orphan child launch lacks its exact execution attempt: %w", attemptErr)
+		}
+		if err := validateVMPIDAChildLaunchAttempt(
+			result.CaseRoot,
+			dispatch,
+			dispatchPath,
+			dispatchSHA,
+			requestArtifact.RequestSHA256,
+			result.ReportPath,
+			launchSHA,
+		); err != nil {
+			return result, err
+		}
+		attemptStarted, err := time.Parse(time.RFC3339Nano, attempt.StartedAt)
+		if err != nil {
+			return result, err
+		}
+		result.ProcessID = 0
+		return publishVMPIDAFailureReport(
+			result,
+			dispatch,
+			dispatchPath,
+			dispatchSHA,
+			attemptStarted,
+			"aborted",
+			"parent-interrupted",
+			launchSHA,
+		)
 	} else if !errors.Is(launchErr, os.ErrNotExist) {
 		return result, launchErr
 	}
@@ -1285,8 +1616,23 @@ func runVMPIDAExistingDispatch(opt Options, result Result, dispatch adapterexecu
 	if err != nil || latestPath != dispatchPath || !strings.EqualFold(latestSHA, dispatchSHA) || !adapterexecution.DispatchSemanticEqual(latest, dispatch) {
 		return result, fmt.Errorf("VMP IDA adapter dispatch changed before output publication: %w", err)
 	}
-	if err := validateCurrentAuthorization(opt.RepoRoot, result.CaseRoot, dispatch); err != nil {
-		return result, err
+	if err := validateVMPAuthorizationPhase(
+		opt,
+		authorizationPhasePrePublication,
+		dispatch,
+		dispatchPath,
+		dispatchSHA,
+	); err != nil {
+		return publishVMPIDAFailureReport(
+			result,
+			dispatch,
+			dispatchPath,
+			dispatchSHA,
+			started,
+			"failed",
+			"authorization-drift",
+			launchSHA,
+		)
 	}
 	report := gate.AdapterReport{
 		SchemaVersion: 1, Kind: "adapter-execution-report", AdapterID: VMPIDAIndexAdapterID,
@@ -1369,23 +1715,43 @@ func runVMPIDAExistingDispatch(opt Options, result Result, dispatch adapterexecu
 	if err := lease.Validate(); err != nil {
 		return result, err
 	}
-	if err := publishVMPIDACommittedOutputs(result.CaseRoot, commit, opt.testHooks); err != nil {
-		return result, err
+	ownedOutputs, err := publishVMPIDACommittedOutputs(root, commit, opt.testHooks)
+	if err != nil {
+		return result, errors.Join(err, removeOwnedVMPIDAPublicOutputs(
+			root,
+			ownedOutputs,
+			result.ArtifactPath,
+			result.ReportPath,
+			packetData,
+			reportData,
+			opt.testHooks,
+		))
 	}
 	if opt.testHooks != nil && opt.testHooks.beforeVMPSuccessSeal != nil {
 		if err := opt.testHooks.beforeVMPSuccessSeal(); err != nil {
-			return result, err
+			cleanupErr := removeOwnedVMPIDAPublicOutputs(
+				root,
+				ownedOutputs,
+				result.ArtifactPath,
+				result.ReportPath,
+				packetData,
+				reportData,
+				opt.testHooks,
+			)
+			return result, errors.Join(err, cleanupErr)
 		}
 	}
 	requestFinal, err = ReadVMPIDAIndexRequest(result.CaseRoot, result.InputPath)
 	if err != nil || requestFinal.RequestSHA256 != requestArtifact.RequestSHA256 ||
 		!bytes.Equal(requestFinal.CanonicalBytes, requestArtifact.CanonicalBytes) {
-		if cleanupErr := removeExactVMPIDAPublicOutputs(
-			result.CaseRoot,
+		if cleanupErr := removeOwnedVMPIDAPublicOutputs(
+			root,
+			ownedOutputs,
 			result.ArtifactPath,
 			result.ReportPath,
 			packetData,
 			reportData,
+			opt.testHooks,
 		); cleanupErr != nil {
 			return result, cleanupErr
 		}
@@ -1401,18 +1767,57 @@ func runVMPIDAExistingDispatch(opt Options, result Result, dispatch adapterexecu
 		)
 	}
 	if err := lease.Validate(); err != nil {
-		if cleanupErr := removeExactVMPIDAPublicOutputs(result.CaseRoot, result.ArtifactPath, result.ReportPath, packetData, reportData); cleanupErr != nil {
-			return result, errors.Join(err, cleanupErr)
-		}
-		return result, err
-	}
-	if elapsedSecondsCeil(started) > dispatch.Gate.AuthorizedBudget.RuntimeSeconds {
-		if err := removeExactVMPIDAPublicOutputs(
-			result.CaseRoot,
+		if cleanupErr := removeOwnedVMPIDAPublicOutputs(
+			root,
+			ownedOutputs,
 			result.ArtifactPath,
 			result.ReportPath,
 			packetData,
 			reportData,
+			opt.testHooks,
+		); cleanupErr != nil {
+			return result, errors.Join(err, cleanupErr)
+		}
+		return result, err
+	}
+	if err := validateVMPAuthorizationPhase(
+		opt,
+		authorizationPhasePostPublication,
+		dispatch,
+		dispatchPath,
+		dispatchSHA,
+	); err != nil {
+		if cleanupErr := removeOwnedVMPIDAPublicOutputs(
+			root,
+			ownedOutputs,
+			result.ArtifactPath,
+			result.ReportPath,
+			packetData,
+			reportData,
+			opt.testHooks,
+		); cleanupErr != nil {
+			return result, errors.Join(err, cleanupErr)
+		}
+		return publishVMPIDAFailureReport(
+			result,
+			dispatch,
+			dispatchPath,
+			dispatchSHA,
+			started,
+			"failed",
+			"authorization-drift",
+			launchSHA,
+		)
+	}
+	if elapsedSecondsCeil(started) > dispatch.Gate.AuthorizedBudget.RuntimeSeconds {
+		if err := removeOwnedVMPIDAPublicOutputs(
+			root,
+			ownedOutputs,
+			result.ArtifactPath,
+			result.ReportPath,
+			packetData,
+			reportData,
+			opt.testHooks,
 		); err != nil {
 			return result, err
 		}
@@ -1537,65 +1942,45 @@ func validateVMPIDADispatch(dispatch adapterexecution.DispatchReceipt, requestPa
 	return nil
 }
 
-func validateCurrentAuthorization(repoRoot, caseRoot string, dispatch adapterexecution.DispatchReceipt) error {
-	m, err := manifest.Load(repoRoot, dispatch.Adapter.Pack)
-	if err != nil {
-		return err
-	}
-	profile, profilePath, exists, err := autonomy.Read(caseRoot, dispatch.Owner.Lane)
-	if err != nil || !exists {
-		return fmt.Errorf("read current VMP IDA autonomy profile: %w", err)
-	}
-	profileHash := autonomy.FileHash(profilePath)
-	fresh, _, freshExists, err := autonomy.Read(caseRoot, dispatch.Owner.Lane)
-	if err != nil || !freshExists || profileHash == "" || autonomy.FileHash(profilePath) != profileHash || !reflect.DeepEqual(profile, fresh) {
-		return fmt.Errorf("VMP IDA autonomy profile changed while reading")
-	}
-	profile = fresh
-	if err := autonomy.Validate(profile, dispatch.Owner.Lane, m, caseRoot); err != nil {
-		return err
-	}
-	if profile.Mode != autonomy.ModePreauthorized || autonomy.IsExpired(profile, time.Now().UTC()) {
-		return fmt.Errorf("VMP IDA autonomy profile is not current preauthorized or has expired")
-	}
-	authorization := dispatch.Gate.Authorization
-	if authorization.Decision != autonomy.DecisionPreauthorized || authorization.RequiresConfirmation || !strings.EqualFold(authorization.ProfileHash, profileHash) || authorization.ProfilePath != autonomy.RelPath(dispatch.Owner.Lane) {
-		return fmt.Errorf("VMP IDA authorization profile hash, path, or decision drifted")
-	}
-	request := autonomy.Request{
-		Lane: dispatch.Owner.Lane, Action: dispatch.Gate.Action, Target: dispatch.Gate.Target,
-		Budget: dispatch.Gate.AuthorizedBudget, StopConditions: append([]string{}, dispatch.Gate.StopConditions...),
-		OutputPaths: append([]string{}, dispatch.Gate.OutputPaths...),
-	}
-	freshDecision := autonomy.Evaluate(profile, autonomy.RelPath(dispatch.Owner.Lane), true, profileHash, request, time.Now().UTC())
-	if !authorizationDecisionEqual(freshDecision, authorization) {
-		return fmt.Errorf("VMP IDA authorization decision drifted from the current profile")
-	}
-	if !reflect.DeepEqual(profile.Budget, dispatch.Gate.AuthorizedBudget) {
-		return fmt.Errorf("VMP IDA authorization budget drifted from the current profile")
-	}
-	if !reflect.DeepEqual(profile.OutputPaths, dispatch.Gate.OutputPaths) {
-		return fmt.Errorf("VMP IDA authorization output paths drifted from the current profile")
-	}
-	if !reflect.DeepEqual(profile.StopConditions, dispatch.Gate.StopConditions) {
-		return fmt.Errorf("VMP IDA authorization stop conditions drifted from the current profile")
-	}
-	expectedDeniedActions := make([]string, 0, len(m.HeavyToolGates))
-	for _, action := range m.HeavyToolGateIDs() {
-		if action != "inspect" {
-			expectedDeniedActions = append(expectedDeniedActions, action)
+func validateVMPAuthorizationPhase(
+	opt Options,
+	phase string,
+	dispatch adapterexecution.DispatchReceipt,
+	dispatchPath,
+	dispatchSHA string,
+) error {
+	if opt.testHooks != nil && opt.testHooks.beforeVMPAuthorizationCurrentness != nil {
+		if err := opt.testHooks.beforeVMPAuthorizationCurrentness(phase); err != nil {
+			return err
 		}
 	}
-	if !reflect.DeepEqual(profile.AllowedActions, []string{"inspect"}) || !reflect.DeepEqual(profile.DeniedActions, expectedDeniedActions) || len(profile.TargetScope) != 1 || profile.TargetScope[0] != (autonomy.Target{Match: "exact", Value: dispatch.Gate.Target}) {
-		return fmt.Errorf("VMP IDA authorization action or target drifted from the current profile")
-	}
-	return nil
+	return validateCurrentAuthorization(
+		opt.RepoRoot,
+		opt.CaseRoot,
+		dispatch,
+		dispatchPath,
+		dispatchSHA,
+	)
 }
 
-func authorizationDecisionEqual(left, right autonomy.Decision) bool {
-	leftData, leftErr := json.Marshal(left)
-	rightData, rightErr := json.Marshal(right)
-	return leftErr == nil && rightErr == nil && bytes.Equal(leftData, rightData)
+func validateCurrentAuthorization(
+	repoRoot,
+	caseRoot string,
+	dispatch adapterexecution.DispatchReceipt,
+	dispatchPath,
+	dispatchSHA string,
+) error {
+	if dispatch.Gate.Authorization.Mode != autonomy.ModePreauthorized {
+		return fmt.Errorf("VMP IDA autonomy profile is not current preauthorized")
+	}
+	_, err := gate.ValidateAdapterExecutionCurrentness(
+		repoRoot,
+		caseRoot,
+		dispatch,
+		dispatchPath,
+		dispatchSHA,
+	)
+	return err
 }
 
 func runVMPIDAChild(
@@ -1712,12 +2097,16 @@ func decodeVMPIDAChildResult(data []byte, requestPath string) (VMPIDAIndexChildR
 }
 
 type recoverableVMPOutputs struct {
-	reportData []byte
-	packetData []byte
-	commitData []byte
-	launchSHA  string
-	sealed     bool
+	reportData    []byte
+	packetData    []byte
+	commitData    []byte
+	launchSHA     string
+	reportPresent bool
+	packetPresent bool
+	sealed        bool
 }
+
+var errVMPIDARecoveryOutputOwnership = errors.New("VMP IDA recovery output ownership is unavailable")
 
 type vmpIDAExecutionAttempt struct {
 	SchemaVersion    int    `json:"schemaVersion"`
@@ -2208,105 +2597,143 @@ func readVMPIDASuccessSeal(
 	return seal, nil
 }
 
-func publishVMPIDACommittedOutputsFromBytes(
-	caseRoot,
+type vmpIDAOwnedOutputs struct {
+	packet *ownedOutput
+	report *ownedOutput
+}
+
+func publishOwnedVMPIDACommittedOutputsFromBytes(
+	root *os.Root,
 	packetPath,
 	reportPath string,
 	packetData,
 	reportData []byte,
-) error {
-	if len(packetData) == 0 || len(reportData) == 0 {
-		return fmt.Errorf("VMP IDA committed output bytes are missing")
+	hooks *hostTestHooks,
+) (vmpIDAOwnedOutputs, error) {
+	var owned vmpIDAOwnedOutputs
+	if root == nil || len(packetData) == 0 || len(reportData) == 0 {
+		return owned, fmt.Errorf("VMP IDA committed output root or bytes are missing")
 	}
-	if _, err := rekitfs.WriteExclusiveRegularFileAnchored(
-		caseRoot,
+	var err error
+	owned.packet, err = publishVMPIDAOutput(
+		root,
 		packetPath,
 		"VMP IDA committed packet",
 		packetData,
-	); err != nil {
-		return err
+	)
+	if err != nil {
+		return owned, err
 	}
-	_, err := rekitfs.WriteExclusiveRegularFileAnchored(
-		caseRoot,
+	if hooks != nil && hooks.beforeReportWrite != nil {
+		if err := hooks.beforeReportWrite(); err != nil {
+			return owned, err
+		}
+	}
+	owned.report, err = publishVMPIDAOutput(
+		root,
 		reportPath,
 		"VMP IDA committed report",
 		reportData,
 	)
-	return err
+	return owned, err
 }
 
-func removeExactVMPIDAPublicOutputs(
-	caseRoot,
+func publishVMPIDAOutput(root *os.Root, path, label string, data []byte) (*ownedOutput, error) {
+	owned, err := writeExclusive(root, path, data, nil)
+	if err == nil {
+		return owned, nil
+	}
+	if !errors.Is(err, os.ErrExist) {
+		return nil, err
+	}
+	file, openErr := root.Open(filepath.FromSlash(path))
+	if openErr != nil {
+		return nil, openErr
+	}
+	info, statErr := file.Stat()
+	existing, readErr := io.ReadAll(io.LimitReader(file, int64(len(data))+1))
+	closeErr := file.Close()
+	if statErr != nil || readErr != nil || closeErr != nil ||
+		!info.Mode().IsRegular() || info.Size() != int64(len(data)) ||
+		!bytes.Equal(existing, data) {
+		return nil, fmt.Errorf(
+			"existing %s differs from the exact output commit: %w",
+			label,
+			errors.Join(statErr, readErr, closeErr),
+		)
+	}
+	return nil, nil
+}
+
+func removeOwnedVMPIDAPublicOutputs(
+	root *os.Root,
+	owned vmpIDAOwnedOutputs,
 	packetPath,
 	reportPath string,
 	expectedPacket,
 	expectedReport []byte,
+	hooks *hostTestHooks,
 ) error {
-	root, err := os.OpenRoot(caseRoot)
-	if err != nil {
-		return err
+	if root == nil {
+		return fmt.Errorf("VMP IDA output cleanup root is missing")
 	}
-	defer root.Close()
+	var afterIdentity func(string) error
+	var afterQuarantineIdentity func(string, string) error
+	if hooks != nil {
+		afterIdentity = hooks.afterCleanupIdentityOpen
+		afterQuarantineIdentity = hooks.afterCleanupQuarantineIdentityCheck
+	}
+	var cleanupErr error
 	for _, output := range []struct {
 		path     string
-		label    string
+		owned    *ownedOutput
 		expected []byte
-		limit    int64
 	}{
-		{path: packetPath, label: "VMP IDA committed packet", expected: expectedPacket, limit: VMPIDAIndexMaxPacketBytes},
-		{path: reportPath, label: "VMP IDA committed report", expected: expectedReport, limit: 1 << 20},
+		{path: packetPath, owned: owned.packet, expected: expectedPacket},
+		{path: reportPath, owned: owned.report, expected: expectedReport},
 	} {
-		file, openErr := root.Open(filepath.FromSlash(output.path))
-		if errors.Is(openErr, os.ErrNotExist) {
+		if output.owned == nil {
+			if _, err := root.Lstat(filepath.FromSlash(output.path)); errors.Is(err, os.ErrNotExist) {
+				continue
+			} else if err != nil {
+				cleanupErr = errors.Join(cleanupErr, err)
+				continue
+			}
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf(
+				"refuse cleanup because VMP IDA output ownership was not captured at publication: %s",
+				output.path,
+			))
 			continue
 		}
-		if openErr != nil {
-			return openErr
+		if err := validateOwnedOutput(root, output.path, output.owned, output.expected); err != nil {
+			cleanupErr = errors.Join(cleanupErr, err)
+			continue
 		}
-		info, statErr := file.Stat()
-		data, readErr := io.ReadAll(io.LimitReader(file, output.limit+1))
-		owned, identityErr := captureOwnedOutput(file)
-		closeErr := file.Close()
-		if statErr != nil || readErr != nil || identityErr != nil || closeErr != nil ||
-			!info.Mode().IsRegular() || int64(len(data)) != info.Size() ||
-			int64(len(data)) > output.limit || !bytes.Equal(data, output.expected) {
-			return fmt.Errorf(
-				"refuse cleanup because %s differs from its exact output commit: %w",
-				output.label,
-				errors.Join(statErr, readErr, identityErr, closeErr),
-			)
-		}
-		if err := removeOwnedOutput(root, output.path, owned, nil); err != nil {
-			return err
+		if err := removeOwnedOutput(
+			root,
+			output.path,
+			output.owned,
+			afterIdentity,
+			afterQuarantineIdentity,
+		); err != nil && !isOwnedOutputIsolation(err) {
+			cleanupErr = errors.Join(cleanupErr, err)
 		}
 	}
-	return nil
+	return cleanupErr
 }
 
 func publishVMPIDACommittedOutputs(
-	caseRoot string,
+	root *os.Root,
 	commit vmpIDAOutputCommit,
 	hooks *hostTestHooks,
-) error {
-	if _, err := rekitfs.WriteExclusiveRegularFileAnchored(
-		caseRoot,
-		commit.Packet.Path,
-		"VMP IDA committed packet",
-		commit.PacketBytes,
-	); err != nil {
-		return err
-	}
-	if hooks != nil && hooks.beforeReportWrite != nil {
-		if err := hooks.beforeReportWrite(); err != nil {
-			return err
-		}
-	}
-	return publishVMPIDACommittedOutputsFromBytes(
-		caseRoot,
+) (vmpIDAOwnedOutputs, error) {
+	return publishOwnedVMPIDACommittedOutputsFromBytes(
+		root,
 		commit.Packet.Path,
 		commit.Report.Path,
 		commit.PacketBytes,
 		commit.ReportBytes,
+		hooks,
 	)
 }
 
@@ -2456,10 +2883,12 @@ func readRecoverableVMPOutputs(
 		return nil, err
 	}
 	recoverable := &recoverableVMPOutputs{
-		reportData: reportData,
-		packetData: packetData,
-		commitData: commitData,
-		launchSHA:  launchSHA,
+		reportData:    reportData,
+		packetData:    packetData,
+		commitData:    commitData,
+		launchSHA:     launchSHA,
+		reportPresent: !reportMissing,
+		packetPresent: !packetMissing,
 	}
 	seal, err := readVMPIDASuccessSeal(
 		caseRoot,

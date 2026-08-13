@@ -61,7 +61,7 @@ func TestRunContinueReplaceableSessionOwnerGuardNestedProductPath(t *testing.T) 
 	})
 
 	var out bytes.Buffer
-	if err := Run([]string{"start", "login", "-Name", "login", "-Apply", "-Force", "-Executor", "session-a", "-Actor", "mission-commander", "-Reason", "initial nested session claim"}, &out); err != nil {
+	if err := Run([]string{"start", "-Name", "login", "-Apply", "-Force", "-Executor", "session-a", "-Actor", "mission-commander", "-Reason", "initial nested session claim"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	claim := decodeStartResult(t, out.Bytes())
@@ -85,7 +85,7 @@ func TestRunContinueReplaceableSessionOwnerGuardNestedProductPath(t *testing.T) 
 	}
 
 	out.Reset()
-	if err := Run([]string{"start", "login", "-Name", "login", "-Apply", "-Force", "--executor", "session-b", "-Actor", "mission-commander", "-Reason", "replace nested session"}, &out); err != nil {
+	if err := Run([]string{"start", "-Name", "login", "-Apply", "-Force", "--executor", "session-b", "-Actor", "mission-commander", "-Reason", "replace nested session"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	takeover := decodeStartResult(t, out.Bytes())

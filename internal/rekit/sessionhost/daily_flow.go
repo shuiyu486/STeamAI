@@ -2,49 +2,12 @@ package sessionhost
 
 import (
 	"context"
+	"fmt"
 	"strings"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
-
-var dailyReviewerRunLoopSteps = map[string]struct{}{
-	"verify-prompt":     {},
-	"spawn-reviewer":    {},
-	"save-result-input": {},
-	"record-completion": {},
-	"source-capture":    {},
-	"stage-candidate":   {},
-	"collect-result":    {},
-	"intake-results":    {},
-}
-
-func dailyReviewerOwnerRequest(status publicStatus, selected string) bool {
-	if status.MissionControlRunbook == nil ||
-		status.MissionControlRunbook.Scope != "reviewer" {
-		return false
-	}
-	request := status.MissionControlRunbook.CurrentDriverRequest
-	selected = strings.TrimSpace(selected)
-	if request == nil || request.Blocked || selected == "" ||
-		strings.TrimSpace(request.Source) != "reviewerDispatchOperatorPackage" ||
-		strings.TrimSpace(request.Lane) != selected {
-		return false
-	}
-	step := strings.TrimSpace(request.RunLoopStepID)
-	if _, ok := dailyReviewerRunLoopSteps[step]; !ok {
-		return false
-	}
-	if step == "spawn-reviewer" {
-		return request.Kind == "review-guidance" &&
-			strings.TrimSpace(request.Actor) == "main-agent-harness" &&
-			!request.CommandExecutable &&
-			strings.TrimSpace(request.Command) == "" &&
-			strings.TrimSpace(request.Guidance) != ""
-	}
-	return request.Kind == "preview-command" &&
-		strings.TrimSpace(request.Actor) == "main-agent" &&
-		request.CommandExecutable &&
-		strings.TrimSpace(request.Command) != "" &&
-		strings.TrimSpace(request.Guidance) == ""
-}
 
 func dailyCompletionOwnerRequest(status publicStatus, selected string) bool {
 	if status.MissionControlRunbook == nil ||
@@ -64,8 +27,7 @@ func dailyCompletionOwnerRequest(status publicStatus, selected string) bool {
 		strings.TrimSpace(request.Guidance) != "" {
 		return false
 	}
-	command, err := publicCommandName(request.Command)
-	return err == nil && command == "complete"
+	return mission.ValidateMissionCommanderDriverRequest(*request) == nil && request.Invocation.Command == commands.Complete
 }
 
 func runDailyGoalFlow(
@@ -76,6 +38,9 @@ func runDailyGoalFlow(
 	result *DailyResult,
 ) error {
 	hostOpt.StopAfterMemberIntake = true
+	if _, err := bindHostCurrentDriverRequest(&hostOpt); err != nil {
+		return fmt.Errorf("bind daily member current driver request: %w", err)
+	}
 	member, err := Run(parent, hostOpt)
 	addDailyHostRun(result, member)
 	if err != nil {
@@ -100,6 +65,9 @@ func runDailyGoalFlow(
 		return nil
 	}
 	hostOpt.StopAfterMemberIntake = false
+	if _, err := bindHostCurrentDriverRequest(&hostOpt); err != nil {
+		return fmt.Errorf("bind daily Reviewer current driver request: %w", err)
+	}
 	reviewer, err := Run(parent, hostOpt)
 	addDailyHostRun(result, reviewer)
 	if err != nil {

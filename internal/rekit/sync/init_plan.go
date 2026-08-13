@@ -15,6 +15,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/review"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/sourceartifact"
 )
 
 type initWriteIdentity struct {
@@ -163,7 +164,11 @@ func initWriteSourceSHA256(plan InitPlan, write WriteResult) (string, error) {
 		return sha256Bytes(data), nil
 	}
 	if strings.TrimSpace(write.SourcePath) != "" {
+		canonicalSources := initPublishesCanonicalText(plan.TargetClass)
 		data, err := os.ReadFile(write.SourcePath)
+		if canonicalSources {
+			data, err = sourceartifact.ReadCanonical(write.SourcePath)
+		}
 		if err != nil {
 			return "", err
 		}
@@ -221,9 +226,16 @@ func initSyncStateIdentityForPlan(plan InitPlan) (initSyncStateIdentity, error) 
 				return initSyncStateIdentity{}, err
 			}
 		}
+		targetHash := hash
+		if candidate.Action == "unchanged" {
+			targetHash = strings.TrimSpace(plan.initTargetSHA256[candidate.Path])
+			if targetHash == "" {
+				return initSyncStateIdentity{}, fmt.Errorf("unchanged init target hash is missing: %s", candidate.Path)
+			}
+		}
 		managed[candidate.Path] = syncManagedEntry{
 			SourceHash:       hash,
-			TargetHashAtSync: hash,
+			TargetHashAtSync: targetHash,
 			LastAction:       "sync",
 		}
 	}

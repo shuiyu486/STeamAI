@@ -3,9 +3,15 @@ package mission
 import (
 	"strings"
 	"testing"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 )
 
 func TestReplacementExecutorDriverRequestSHA256BindsFullIdentity(t *testing.T) {
+	invocation, err := commands.NewPublicInvocation(commands.Continue, "main", "-WhatIf", "-Format", "json")
+	if err != nil {
+		t.Fatal(err)
+	}
 	request := MissionCommanderDriverRequest{
 		Kind:              "preview-command",
 		RunLoopStepID:     "apply-or-run-current",
@@ -15,6 +21,7 @@ func TestReplacementExecutorDriverRequestSHA256BindsFullIdentity(t *testing.T) {
 		Lane:              "main",
 		Label:             "main",
 		ActionID:          "continue-main",
+		Invocation:        &invocation,
 		Command:           "/rekit continue main -WhatIf -Format json",
 		CommandExecutable: true,
 		RequiresReview:    true,
@@ -53,6 +60,25 @@ func TestReplacementExecutorDriverRequestSHA256BindsFullIdentity(t *testing.T) {
 				t.Fatalf("full request identity mutation did not change SHA-256: base=%s got=%s", base, got)
 			}
 		})
+	}
+}
+
+func TestReplacementExecutorDriverRequestSHA256IgnoresCommandQuoting(t *testing.T) {
+	invocation, err := commands.NewPublicInvocation(commands.Continue, "main", "-WhatIf", "-Format", "json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := MissionCommanderDriverRequest{
+		Kind: "preview-command", RunLoopStepID: "preview-current", Invocation: &invocation,
+		Command: "/rekit continue \"main\" -WhatIf -Format json", CommandExecutable: true,
+		ExpectedReceipt: MissionCommanderDriverReceiptExpectation{Command: "/rekit continue \"main\" -WhatIf -Format json"},
+	}
+	first := ReplacementExecutorDriverRequestSHA256(request)
+	request.Command = "/rekit continue main -WhatIf -Format json"
+	request.ExpectedReceipt.Command = request.Command
+	second := ReplacementExecutorDriverRequestSHA256(request)
+	if first == "" || first != second {
+		t.Fatalf("quoting-only projection changed typed request identity: first=%s second=%s", first, second)
 	}
 }
 
@@ -125,9 +151,14 @@ func TestReplacementExecutorTakeoverConsumesHarnessPackage(t *testing.T) {
 }
 
 func TestReplacementExecutorTakeoverPackageCarriesRequestIdentity(t *testing.T) {
+	invocation, err := commands.NewPublicInvocation(commands.Status, "-Format", "json")
+	if err != nil {
+		t.Fatal(err)
+	}
 	request := MissionCommanderDriverRequest{
 		Kind:              "execute-command",
 		RunLoopStepID:     "apply-or-run-current",
+		Invocation:        &invocation,
 		Command:           "/rekit status -Format json",
 		CommandExecutable: true,
 		ExpectedReceipt: MissionCommanderDriverReceiptExpectation{

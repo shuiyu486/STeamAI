@@ -1,11 +1,15 @@
 package mission
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 )
 
 const DefaultMaxRows = 10
@@ -86,17 +90,18 @@ type MissionCommanderAction struct {
 }
 
 type MissionCommanderNextActionItem struct {
-	Lane           string   `json:"lane,omitempty"`
-	Label          string   `json:"label,omitempty"`
-	GateEventID    string   `json:"gateEventId,omitempty"`
-	ActionID       string   `json:"actionId,omitempty"`
-	State          string   `json:"state"`
-	Command        string   `json:"command"`
-	Source         string   `json:"source"`
-	Blocked        bool     `json:"blocked,omitempty"`
-	RequiresReview bool     `json:"requiresReview,omitempty"`
-	Reasons        []string `json:"reasons,omitempty"`
-	Boundary       []string `json:"boundary,omitempty"`
+	Lane           string                     `json:"lane,omitempty"`
+	Label          string                     `json:"label,omitempty"`
+	GateEventID    string                     `json:"gateEventId,omitempty"`
+	ActionID       string                     `json:"actionId,omitempty"`
+	State          string                     `json:"state"`
+	Invocation     *commands.PublicInvocation `json:"invocation,omitempty"`
+	Command        string                     `json:"command"`
+	Source         string                     `json:"source"`
+	Blocked        bool                       `json:"blocked,omitempty"`
+	RequiresReview bool                       `json:"requiresReview,omitempty"`
+	Reasons        []string                   `json:"reasons,omitempty"`
+	Boundary       []string                   `json:"boundary,omitempty"`
 }
 
 type MissionCommanderRunLoopStep struct {
@@ -120,6 +125,7 @@ type MissionCommanderDriverRequest struct {
 	Label             string                                   `json:"label,omitempty"`
 	GateEventID       string                                   `json:"gateEventId,omitempty"`
 	ActionID          string                                   `json:"actionId,omitempty"`
+	Invocation        *commands.PublicInvocation               `json:"invocation,omitempty"`
 	Command           string                                   `json:"command,omitempty"`
 	Guidance          string                                   `json:"guidance,omitempty"`
 	CommandExecutable bool                                     `json:"commandExecutable"`
@@ -127,6 +133,49 @@ type MissionCommanderDriverRequest struct {
 	RequiresReview    bool                                     `json:"requiresReview,omitempty"`
 	ExpectedReceipt   MissionCommanderDriverReceiptExpectation `json:"expectedReceipt"`
 	Boundary          []string                                 `json:"boundary,omitempty"`
+}
+
+func MissionCommanderDriverRequestSHA256(request MissionCommanderDriverRequest) (string, error) {
+	if err := ValidateMissionCommanderDriverRequest(request); err != nil {
+		return "", err
+	}
+	canonical := request
+	if canonical.Invocation != nil {
+		canonical.Command, _ = canonical.Invocation.Render()
+		canonical.ExpectedReceipt.Command = canonical.Command
+	}
+	encoded, err := json.Marshal(canonical)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func ValidateMissionCommanderDriverRequest(request MissionCommanderDriverRequest) error {
+	if request.Invocation == nil {
+		if request.CommandExecutable || strings.TrimSpace(request.Command) != "" {
+			return fmt.Errorf("mission commander driver request executable command requires a typed invocation")
+		}
+		return nil
+	}
+	if err := request.Invocation.Validate(); err != nil {
+		return fmt.Errorf("mission commander driver request invocation: %w", err)
+	}
+	projected, err := commands.ParsePublicInvocation(request.Command)
+	if err != nil || !request.Invocation.Equivalent(projected) {
+		return fmt.Errorf("mission commander driver request command differs from its typed invocation")
+	}
+	if expected := strings.TrimSpace(request.ExpectedReceipt.Command); expected != "" {
+		expectedInvocation, err := commands.ParsePublicInvocation(expected)
+		if err != nil || !request.Invocation.Equivalent(expectedInvocation) {
+			return fmt.Errorf("mission commander driver request expected receipt command differs from its typed invocation")
+		}
+	}
+	if !request.CommandExecutable || request.Blocked {
+		return fmt.Errorf("mission commander driver request typed invocation is not executable")
+	}
+	return nil
 }
 
 type MissionCommanderDriverReceiptExpectation struct {
@@ -1081,6 +1130,11 @@ func UniqueCommanderNextActions(items []MissionCommanderNextActionItem) []Missio
 }
 
 func MissionCommanderActionQueueFor(items []MissionCommanderNextActionItem) MissionCommanderActionQueue {
+	normalized := make([]MissionCommanderNextActionItem, 0, len(items))
+	for _, item := range items {
+		normalized = append(normalized, normalizeMissionCommanderNextAction(item))
+	}
+	items = normalized
 	queue := MissionCommanderActionQueue{}
 	for _, item := range items {
 		queue.Counts.Total++
@@ -1114,6 +1168,52 @@ func MissionCommanderNextActionIsFollowUp(item MissionCommanderNextActionItem) b
 	return strings.Contains(item.Source, ".followUp")
 }
 
+func normalizeMissionCommanderNextAction(item MissionCommanderNextActionItem) MissionCommanderNextActionItem {
+	command := strings.TrimSpace(item.Command)
+	var invocation commands.PublicInvocation
+	var err error
+	if item.Invocation != nil {
+		invocation = *item.Invocation
+		err = invocation.Validate()
+		if err == nil && command != "" {
+			var projected commands.PublicInvocation
+			projected, err = commands.ParsePublicInvocation(command)
+			if err == nil && !invocation.Equivalent(projected) {
+				err = fmt.Errorf("typed invocation does not match the command projection")
+			}
+		}
+		if err == nil && command == "" {
+			command, err = invocation.Render()
+		}
+	} else if command != "" {
+		invocation, err = commands.ParsePublicInvocation(command)
+	}
+	if err == nil && command != "" {
+		copy := invocation
+		item.Invocation = &copy
+		item.Command = command
+		return item
+	}
+	item.Invocation = nil
+	item.Command = command
+	if command != "" && (strings.HasPrefix(command, "/rekit") || strings.HasPrefix(command, "rekit")) {
+		item.Blocked = true
+		item.RequiresReview = true
+		item.Reasons = UniqueStrings(append(item.Reasons, "invalid typed ReKit invocation: "+err.Error()))
+		item.Boundary = UniqueStrings(append(item.Boundary, "invalid or uncataloged ReKit text is guidance only and must not be executed"))
+	}
+	return item
+}
+
+func clonePublicInvocation(invocation *commands.PublicInvocation) *commands.PublicInvocation {
+	if invocation == nil {
+		return nil
+	}
+	clone := *invocation
+	clone.Arguments = append([]string{}, invocation.Arguments...)
+	return &clone
+}
+
 func MissionCommanderDriverRequestWithRefreshStatusCommand(request MissionCommanderDriverRequest, refreshStatusCommand string) MissionCommanderDriverRequest {
 	refreshStatusCommand = strings.TrimSpace(refreshStatusCommand)
 	if refreshStatusCommand == "" {
@@ -1129,7 +1229,12 @@ func MissionCommanderCurrentDriverRequest(current MissionCommanderNextActionItem
 	if currentRunLoopStepID == "" {
 		return nil
 	}
-	executable := MissionCommanderNextActionCommandExecutable(current.Command)
+	current = normalizeMissionCommanderNextAction(current)
+	executable := current.Invocation != nil && !current.Blocked
+	var invocation *commands.PublicInvocation
+	if executable {
+		invocation = clonePublicInvocation(current.Invocation)
+	}
 	request := &MissionCommanderDriverRequest{
 		Kind:              missionCommanderDriverRequestKind(current, executable),
 		RunLoopStepID:     currentRunLoopStepID,
@@ -1139,6 +1244,7 @@ func MissionCommanderCurrentDriverRequest(current MissionCommanderNextActionItem
 		Label:             strings.TrimSpace(current.Label),
 		GateEventID:       strings.TrimSpace(current.GateEventID),
 		ActionID:          strings.TrimSpace(current.ActionID),
+		Invocation:        invocation,
 		CommandExecutable: executable,
 		Blocked:           current.Blocked,
 		RequiresReview:    current.RequiresReview,
@@ -1191,13 +1297,14 @@ func missionCommanderDriverRequestKind(current MissionCommanderNextActionItem, e
 	if !executable {
 		return "review-guidance"
 	}
-	if current.RequiresReview || strings.Contains(current.Command, " -WhatIf") {
+	if current.RequiresReview || current.Invocation.HasFlag("-WhatIf") {
 		return "preview-command"
 	}
 	return "execute-command"
 }
 
 func MissionCommanderCurrentActionRunLoop(current MissionCommanderNextActionItem, followUps []MissionCommanderNextActionItem) []MissionCommanderRunLoopStep {
+	current = normalizeMissionCommanderNextAction(current)
 	steps := []MissionCommanderRunLoopStep{}
 	add := func(step MissionCommanderRunLoopStep) {
 		step.StepID = strings.TrimSpace(step.StepID)
@@ -1214,7 +1321,7 @@ func MissionCommanderCurrentActionRunLoop(current MissionCommanderNextActionItem
 		"status, overview, handoff, and continue projections are read-only handoffs",
 		"do not skip blocked/review-required reasons or boundary lines when choosing the next command",
 	}
-	if strings.TrimSpace(current.Command) != "" && !MissionCommanderNextActionCommandExecutable(current.Command) {
+	if strings.TrimSpace(current.Command) != "" && !missionCommanderNextActionExecutable(current) {
 		inspectBoundary = append(inspectBoundary, "not every current action command is shell-executable; guidance text must be reviewed but not run as a command")
 	}
 	if current.Blocked {
@@ -1228,14 +1335,14 @@ func MissionCommanderCurrentActionRunLoop(current MissionCommanderNextActionItem
 		Source:      current.Source,
 		Boundary:    inspectBoundary,
 	})
-	if strings.TrimSpace(current.Command) != "" && MissionCommanderNextActionCommandExecutable(current.Command) {
+	if strings.TrimSpace(current.Command) != "" && missionCommanderNextActionExecutable(current) {
 		stepID := "apply-or-run-current"
 		description := "run the current command only after inspection confirms it is the intended next action"
 		boundary := []string{
 			"the main Agent or executor runs this command explicitly; the Go runtime does not auto-run queued actions",
 			"do not write authority/confirmed state or execute heavy tools unless the command itself is an authorized gate-backed bounded action",
 		}
-		if current.Blocked || current.RequiresReview || strings.Contains(current.Command, " -WhatIf") {
+		if current.Blocked || current.RequiresReview || current.Invocation.HasFlag("-WhatIf") {
 			stepID = "preview-current"
 			description = "run or review the current command as a bounded preview/review step before any apply or follow-up"
 			boundary = append(boundary, "review preview output and returned expected hashes before any apply follow-up")
@@ -1280,18 +1387,24 @@ func MissionCommanderCurrentActionRunLoop(current MissionCommanderNextActionItem
 }
 
 func missionCommanderCurrentRunLoopStepID(current MissionCommanderNextActionItem) string {
-	if current.Blocked || !MissionCommanderNextActionCommandExecutable(current.Command) {
+	current = normalizeMissionCommanderNextAction(current)
+	if current.Blocked || !missionCommanderNextActionExecutable(current) {
 		return "inspect-current"
 	}
-	if current.RequiresReview || strings.Contains(current.Command, " -WhatIf") {
+	if current.RequiresReview || current.Invocation.HasFlag("-WhatIf") {
 		return "preview-current"
 	}
 	return "apply-or-run-current"
 }
 
+func missionCommanderNextActionExecutable(item MissionCommanderNextActionItem) bool {
+	item = normalizeMissionCommanderNextAction(item)
+	return item.Invocation != nil && !item.Blocked
+}
+
 func MissionCommanderNextActionCommandExecutable(command string) bool {
-	command = strings.TrimSpace(command)
-	return strings.HasPrefix(command, "/rekit") || strings.HasPrefix(command, "rekit")
+	invocation, err := commands.ParsePublicInvocation(command)
+	return err == nil && invocation.Command != ""
 }
 
 func missionCommanderFirstRelevantFollowUp(current MissionCommanderNextActionItem, followUps []MissionCommanderNextActionItem) MissionCommanderNextActionItem {
@@ -1317,6 +1430,11 @@ func missionCommanderNextActionIsBoundedLanePrimary(item MissionCommanderNextAct
 		(item.State == "needs-start-apply" || item.State == "needs-reconcile")
 }
 
+func missionCommanderNextActionIsLaneDecisionReview(item MissionCommanderNextActionItem) bool {
+	return item.Source == "missionCommanderActions" &&
+		(item.State == "needs-gate-decision" || item.State == "needs-open-decision-review")
+}
+
 func MissionCommanderActionQueueSummary(queue MissionCommanderActionQueue) string {
 	current := "none"
 	if queue.CurrentAction != nil {
@@ -1338,7 +1456,50 @@ func firstMissionCommanderCurrentAction(items []MissionCommanderNextActionItem) 
 			currentPriority = priority
 		}
 	}
+	if len(missionCommanderCurrentLaneChoices(items, currentPriority)) > 1 {
+		return MissionCommanderNextActionItem{}, false
+	}
 	return current, true
+}
+
+func MissionCommanderActionQueueLaneChoices(queue MissionCommanderActionQueue) []MissionCommanderNextActionItem {
+	items := append([]MissionCommanderNextActionItem{}, queue.UnblockedActions...)
+	items = append(items, queue.BlockedActions...)
+	if len(items) == 0 {
+		return nil
+	}
+	currentPriority := missionCommanderNextActionCurrentPriority(items[0])
+	for _, item := range items[1:] {
+		if priority := missionCommanderNextActionCurrentPriority(item); priority < currentPriority {
+			currentPriority = priority
+		}
+	}
+	choices := missionCommanderCurrentLaneChoices(items, currentPriority)
+	if len(choices) < 2 {
+		return nil
+	}
+	return choices
+}
+
+func MissionCommanderActionQueueRequiresLaneChoice(queue MissionCommanderActionQueue) bool {
+	return len(MissionCommanderActionQueueLaneChoices(queue)) > 1
+}
+
+func missionCommanderCurrentLaneChoices(items []MissionCommanderNextActionItem, currentPriority int) []MissionCommanderNextActionItem {
+	lanes := map[string]bool{}
+	choices := []MissionCommanderNextActionItem{}
+	for _, item := range items {
+		if missionCommanderNextActionCurrentPriority(item) != currentPriority {
+			continue
+		}
+		lane := strings.TrimSpace(item.Lane)
+		if lane == "" || lanes[lane] {
+			continue
+		}
+		lanes[lane] = true
+		choices = append(choices, item)
+	}
+	return choices
 }
 
 func missionCommanderNextActionCurrentPriority(item MissionCommanderNextActionItem) int {
@@ -1346,11 +1507,15 @@ func missionCommanderNextActionCurrentPriority(item MissionCommanderNextActionIt
 	idleGuidance := missionCommanderNextActionIsIdleGuidance(item)
 	activeProjectWork := missionCommanderNextActionIsActiveProjectWork(item)
 	boundedLanePrimary := missionCommanderNextActionIsBoundedLanePrimary(item)
+	laneDecisionReview := missionCommanderNextActionIsLaneDecisionReview(item)
 	if !followUp && !item.Blocked && boundedLanePrimary {
 		return 0
 	}
 	if !followUp && !item.Blocked && activeProjectWork {
 		return 10
+	}
+	if !followUp && !item.Blocked && laneDecisionReview {
+		return 15
 	}
 	if !followUp && !item.Blocked && !idleGuidance {
 		return 20

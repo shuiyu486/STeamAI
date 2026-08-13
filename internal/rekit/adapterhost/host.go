@@ -22,21 +22,28 @@ const (
 	readonlyInspectorID = "rekit-readonly-inspector"
 	adapterHarness      = "rekit-adapter-host"
 	maxFixtureBytes     = 1 << 20
+
+	authorizationPhasePreExecution    = "pre-execution"
+	authorizationPhasePrePublication  = "pre-publication"
+	authorizationPhasePostPublication = "post-publication-pre-success"
 )
 
 type hostTestHooks struct {
-	beforeReportWrite        func() error
-	afterCleanupIdentityOpen func(string) error
-	runVMPIDAChild           func(VMPIDAIndexChildOptions) ([]byte, int, error)
-	afterVMPChildLaunch      func(int) error
-	beforeVMPPublication     func() error
-	beforeVMPSuccessSeal     func() error
-	beforeVMPProfileRevoke   func() error
-	afterVMPStageCommit      func() error
-	afterVMPOutputsPublished func() error
-	afterVMPOutputCommit     func() error
-	afterVMPReceiptRecorded  func() error
-	afterVMPObservation      func() error
+	beforeReportWrite                   func() error
+	afterCleanupIdentityOpen            func(string) error
+	afterCleanupQuarantineIdentityCheck func(string, string) error
+	runVMPIDAChild                      func(VMPIDAIndexChildOptions) ([]byte, int, error)
+	afterVMPChildLaunch                 func(int) error
+	beforeVMPPublication                func() error
+	beforeVMPAuthorizationCurrentness   func(string) error
+	beforeVMPSuccessSeal                func() error
+	beforeVMPProfileRevoke              func() error
+	afterVMPStageCommit                 func() error
+	afterVMPOutputsPublished            func() error
+	afterVMPOutputCommit                func() error
+	afterVMPReceiptRecorded             func() error
+	afterVMPObservation                 func() error
+	beforeAuthorizationCurrentness      func(string) error
 }
 
 type Options struct {
@@ -195,6 +202,17 @@ func Run(opt Options) (_ Result, retErr error) {
 	if err := lease.Validate(); err != nil {
 		return result, err
 	}
+	if err := validateAdapterAuthorizationPhase(
+		opt,
+		repoRoot,
+		caseRoot,
+		authorizationPhasePreExecution,
+		dispatch,
+		dispatchPath,
+		dispatchSHA,
+	); err != nil {
+		return result, err
+	}
 
 	root, err := os.OpenRoot(caseRoot)
 	if err != nil {
@@ -288,6 +306,17 @@ func Run(opt Options) (_ Result, retErr error) {
 	if err := lease.Validate(); err != nil {
 		return result, err
 	}
+	if err := validateAdapterAuthorizationPhase(
+		opt,
+		repoRoot,
+		caseRoot,
+		authorizationPhasePrePublication,
+		dispatch,
+		dispatchPath,
+		dispatchSHA,
+	); err != nil {
+		return result, err
+	}
 
 	var artifactOwned, reportOwned *ownedOutput
 	defer func() {
@@ -295,12 +324,14 @@ func Run(opt Options) (_ Result, retErr error) {
 			return
 		}
 		var afterIdentity func(string) error
+		var afterQuarantineIdentity func(string, string) error
 		if opt.testHooks != nil {
 			afterIdentity = opt.testHooks.afterCleanupIdentityOpen
+			afterQuarantineIdentity = opt.testHooks.afterCleanupQuarantineIdentityCheck
 		}
 		retErr = errors.Join(retErr,
-			removeOwnedOutput(root, result.ReportPath, reportOwned, afterIdentity),
-			removeOwnedOutput(root, result.ArtifactPath, artifactOwned, afterIdentity),
+			removeOwnedOutput(root, result.ReportPath, reportOwned, afterIdentity, afterQuarantineIdentity),
+			removeOwnedOutput(root, result.ArtifactPath, artifactOwned, afterIdentity, afterQuarantineIdentity),
 		)
 	}()
 	artifactOwned, err = writeExclusive(root, result.ArtifactPath, artifactData, opt.testHooks)
@@ -338,12 +369,70 @@ func Run(opt Options) (_ Result, retErr error) {
 	if finalRuntime > dispatch.Gate.AuthorizedBudget.RuntimeSeconds {
 		return result, fmt.Errorf("adapter host runtime exceeded authorized gate budget")
 	}
+	if err := validateAdapterAuthorizationPhase(
+		opt,
+		repoRoot,
+		caseRoot,
+		authorizationPhasePostPublication,
+		dispatch,
+		dispatchPath,
+		dispatchSHA,
+	); err != nil {
+		return result, err
+	}
+	if err := validateOwnedOutput(
+		root,
+		result.ArtifactPath,
+		artifactOwned,
+		artifactData,
+	); err != nil {
+		return result, err
+	}
+	if err := validateOwnedOutput(
+		root,
+		result.ReportPath,
+		reportOwned,
+		reportData,
+	); err != nil {
+		return result, err
+	}
 	result.ArtifactSHA256 = sha256Hex(artifactData)
 	result.ReportSHA256 = sha256Hex(reportData)
 	result.CompletedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	artifactOwned = nil
 	reportOwned = nil
 	return result, nil
+}
+
+func validateAdapterAuthorizationPhase(
+	opt Options,
+	repoRoot,
+	caseRoot,
+	phase string,
+	dispatch adapterexecution.DispatchReceipt,
+	dispatchPath,
+	dispatchSHA string,
+) error {
+	if opt.testHooks != nil &&
+		opt.testHooks.beforeAuthorizationCurrentness != nil {
+		if err := opt.testHooks.beforeAuthorizationCurrentness(phase); err != nil {
+			return err
+		}
+	}
+	if _, err := gate.ValidateAdapterExecutionCurrentness(
+		repoRoot,
+		caseRoot,
+		dispatch,
+		dispatchPath,
+		dispatchSHA,
+	); err != nil {
+		return fmt.Errorf(
+			"adapter execution authorization is not current at %s: %w",
+			phase,
+			err,
+		)
+	}
+	return nil
 }
 
 func validateDispatch(dispatch adapterexecution.DispatchReceipt) error {
@@ -461,10 +550,18 @@ func writeExclusive(root *os.Root, rel string, data []byte, hooks *hostTestHooks
 		}
 		if retErr != nil {
 			var afterIdentity func(string) error
+			var afterQuarantineIdentity func(string, string) error
 			if hooks != nil {
 				afterIdentity = hooks.afterCleanupIdentityOpen
+				afterQuarantineIdentity = hooks.afterCleanupQuarantineIdentityCheck
 			}
-			retErr = errors.Join(retErr, removeOwnedOutput(root, rel, owned, afterIdentity))
+			retErr = errors.Join(retErr, removeOwnedOutput(
+				root,
+				rel,
+				owned,
+				afterIdentity,
+				afterQuarantineIdentity,
+			))
 		}
 	}()
 	if _, err := file.Write(data); err != nil {

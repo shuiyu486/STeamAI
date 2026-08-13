@@ -10,11 +10,11 @@
 
 ## 文档不变量 / 上下文路由
 
-**本项目文档必须做成按需路由、渐进式披露的样式。** `docs/context-routing.md` 是唯一完整路由表；本文件只保留稳定项目边界，不复制路线、批次、release 或历史详情。
+**本项目文档必须做成按需路由、渐进式披露的样式。** `docs/context-routing.md` 是唯一完整路由表；本文件只保留稳定边界。
 
-默认只读本文件的必要边界、`docs/context-routing.md` 和真实仓库状态；再由 router 选择**一个**当前场景入口及其指定顶部区或章节。不要默认串读路线图、batch plan、CHANGELOG、release readiness、历史计划或 `docs/batch-history.md` 全文。机器 `readFirst[]` 也必须先指向 router，不能把索引解释成全文必读清单。
+默认只读本文件必要边界、router 和真实仓库状态，再由 router 选择**一个**场景入口及指定章节。不要默认串读路线图、batch plan、CHANGELOG、release readiness、历史计划或 `docs/batch-history.md`；机器 `readFirst[]` 也必须先指向 router。
 
-修改文档时，active docs 只保留当前决策、当前卡和短指针；未来批次、完整 inventory、旧验证日志与历史设计进入按需 backlog、专题或 archive。若出现 5 个以上 read-first 文件、多个完整路由表或同一 current pointer 的多份长副本，先做文档减压再继续扩写。
+active docs 只保留当前决策、当前卡和短指针；未来批次、完整 inventory、旧日志与历史设计进入 backlog、专题或 archive。出现 5 个以上 read-first 文件、多份完整路由表或同一 current pointer 的长副本时，先做文档减压。
 
 ## 维护入口
 
@@ -35,11 +35,11 @@
 
 ## 当前推进原则
 
-当前阶段优先把已有骨架收敛到可真实日常使用：自然语言开始/继续/查看、人工纠偏和新会话接手必须顺畅、可记录、可恢复。当前支持与日常完成门槛以 Windows 本机为准；PowerShell-free/Go-native保持底座，跨平台portability与远程CI仅作发布/专项/周期复审信号，不阻塞普通batch。
+当前先收敛真实日用：自然语言开始/继续/查看/纠偏和新会话接手须顺畅、可记录、可恢复。当前支持与日常完成门槛以 Windows 本机为准；远程 CI、Linux/macOS、三平台兼容和安装包仅专项检查。保持 PowerShell-free/Go-native 底座。
 
-禁止新增PowerShell runtime logic。PowerShell convergence batch必须减少residue或完成删除门禁；其它batch可推进lane/reconcile/autonomy、reviewer dispatch/intake、authorized execution evidence、adapter live validation、pack-memory或文档路由闭环。
+禁止新增 PowerShell runtime logic；convergence batch须减少 residue 或完成删除门禁。其它 batch 可推进 lane/reconcile/autonomy、Reviewer、authorized execution、adapter、pack-memory 或文档路由闭环。
 
-不要连续推进单字段contract/inventory/metadata或字段投影微批次。支撑字段必须并入Mission Commander、replaceable executor、reviewer writeback、authorized execution、adapter validation、pack-memory UX或product path的中大型可验证闭环。
+不要连续推进单字段 contract/inventory/metadata 微批次；支撑字段须并入 Mission Commander、executor、Reviewer writeback、authorized execution、adapter、pack-memory UX 或 product path 的中大型闭环。
 
 PowerShell replacement/removal 不再因“删除 PowerShell”本身停下询问，但必须有 Go-native 替代、文档和验证；若要删除公共入口且替代、恢复或真实 release-gate-green 条件不完整，仍需升级。
 
@@ -47,6 +47,8 @@ PowerShell replacement/removal 不再因“删除 PowerShell”本身停下询�
 
 - `sync` 是 kit -> case；`promote` 是 case -> kit；二者默认 review-first，写入前必须确认具体范围。
 - `continue -Apply` 不写 authority/confirmed、不执行 heavy-tool。
+- Executable Mission Commander request必须携带与command/expected receipt一致的bounded typed ReKit invocation；多lane未选择时不发布request/SHA/operator/takeover，selected artifact只使用唯一exact durable `-Lane`。Request SHA只证明currentness，不能授予authority/confirmed、gate或heavy-action权限。
+- 自然语言纠偏必须从 fresh typed state 唯一选路：Reviewer rejection 继续走既有 correction/reconcile owner；committed completion 只走 existing `reopen` preview/exact Apply，返回 `ready-to-continue` 且 `NoAutoResume`，不得建立第二状态机或自动接管/启动 Claude。
 - `gate -Apply` 默认只写 pending-gate / authorized-gate request ledger decision；传入 execution fields 时只写 authorized execution observation evidence，不执行实际 heavy action。
 - actual heavy/debug/patch/dump/hook/network/exploit replay 由 lane executor 或 tool adapter 在 strict durable autonomy profile + `authorized-gate` 范围内执行，并写回 evidence/ledger。
 - 跨会话 transport message、endpoint discovery或delivery observation都不能授予authority/confirmed或heavy-action授权；Remote Control uncertain delivery不得自动重发或same-job replacement，必须新建durable Reviewer dispatch/session/job。

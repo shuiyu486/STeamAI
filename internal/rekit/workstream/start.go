@@ -995,6 +995,16 @@ type laneResumePublication struct {
 }
 
 func buildLaneResumePublication(caseRoot string, m *manifest.Manifest, lane Lane, updatedAt ...string) (laneResumePublication, error) {
+	return buildLaneResumePublicationForSelector(
+		caseRoot,
+		m,
+		lane,
+		"",
+		updatedAt...,
+	)
+}
+
+func buildLaneResumePublicationForSelector(caseRoot string, m *manifest.Manifest, lane Lane, selector string, updatedAt ...string) (laneResumePublication, error) {
 	laneRoot, err := laneRootPath(caseRoot, lane)
 	if err != nil {
 		return laneResumePublication{}, err
@@ -1034,6 +1044,13 @@ func buildLaneResumePublication(caseRoot string, m *manifest.Manifest, lane Lane
 	})
 	autonomySummary := autonomy.ReadSummary(caseRoot, lane.ID, m)
 	executorAction := laneExecutorActionFor(lane, laneFacts, brief)
+	if strings.TrimSpace(selector) == lane.ID {
+		executorAction = bindHandoffLaneExecutorAction(
+			executorAction,
+			lane.ID,
+			workstreamLabel(lane),
+		)
+	}
 	executorAction = withReviewerDispatchBlocker(executorAction, reviewerDispatchIntakeHandoffs)
 	missionCommanderNextActions := mission.MissionCommanderNextActions([]mission.LaneExecutorActionSnapshot{laneCommanderActionSnapshot(lane, executorAction)}, executionEvidenceReview, executorAction.Blocked)
 	missionCommanderNextActions = MissionCommanderNextActionsWithAuthorizedGateAdaptersAndAcknowledgements(missionCommanderNextActions, authorizedGateAdapterHandoffs, ExecutionEvidenceReviewAcknowledgedIDs(ledgerFacts))
@@ -1224,7 +1241,17 @@ func writeLaneResumePublication(publication laneResumePublication) error {
 }
 
 func writeLaneResume(caseRoot string, m *manifest.Manifest, lane Lane, updatedAt ...string) (string, string, error) {
-	publication, err := buildLaneResumePublication(caseRoot, m, lane, updatedAt...)
+	return writeLaneResumeForSelector(caseRoot, m, lane, "", updatedAt...)
+}
+
+func writeLaneResumeForSelector(caseRoot string, m *manifest.Manifest, lane Lane, selector string, updatedAt ...string) (string, string, error) {
+	publication, err := buildLaneResumePublicationForSelector(
+		caseRoot,
+		m,
+		lane,
+		selector,
+		updatedAt...,
+	)
 	if err != nil {
 		return "", "", err
 	}

@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanecompletion"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
@@ -594,22 +595,31 @@ func resumeDriverRequest(caseRoot, pack, artifactSHA256 string, payload Payload)
 	if payload.Continuation == nil || payload.Continuation.RemainingMaxSteps < 1 || strings.TrimSpace(artifactSHA256) == "" {
 		return nil
 	}
-	command := fmt.Sprintf("/rekit run-current-loop -Target %s -Pack %s -ResumeCurrentLoop -ExpectedCurrentLoopCheckpointSha256 %s -WhatIf -Format json", quoteCommandArg(caseRoot), quoteCommandArg(pack), artifactSHA256)
+	lane := strings.TrimSpace(payload.Continuation.ExpectedLane)
+	if lane == "" {
+		return nil
+	}
+	command := fmt.Sprintf("/rekit run-current-loop -Target %s -Pack %s -ResumeCurrentLoop -ExpectedCurrentLoopCheckpointSha256 %s -Lane %s -WhatIf -Format json", quoteCommandArg(caseRoot), quoteCommandArg(pack), artifactSHA256, quoteCommandArg(lane))
+	invocation, err := commands.ParsePublicInvocation(command)
+	if err != nil {
+		return nil
+	}
 	return &mission.MissionCommanderDriverRequest{
 		Kind:              "preview-command",
 		RunLoopStepID:     "resume-current-loop",
 		Actor:             "main-agent",
 		State:             "durable-campaign-resume-review-required",
 		Source:            "currentLoopSegment.resumeDriverRequest",
-		Lane:              payload.Continuation.ExpectedLane,
+		Lane:              lane,
 		ActionID:          "resume-current-loop-segment-" + sequenceText(payload.Sequence),
+		Invocation:        &invocation,
 		Command:           command,
 		CommandExecutable: true,
 		RequiresReview:    true,
 		ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
 			State:                "previewed",
 			Command:              command,
-			RefreshStatusCommand: fmt.Sprintf("/rekit status -Target %s -Pack %s -Format json", quoteCommandArg(caseRoot), quoteCommandArg(pack)),
+			RefreshStatusCommand: fmt.Sprintf("/rekit status -Target %s -Pack %s -Format json -Lane %s", quoteCommandArg(caseRoot), quoteCommandArg(pack), quoteCommandArg(lane)),
 			Boundary: []string{
 				"review the fresh loop plan and use only its exact applyCommand",
 				"preview must revalidate this checkpoint artifact, expected route/lane, current request, and remaining budget",

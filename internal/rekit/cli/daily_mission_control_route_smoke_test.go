@@ -182,11 +182,11 @@ func TestRunDailyMissionControlRouteSmokeProductPath(t *testing.T) {
 		t.Fatalf("reconcile refresh should restore continue quickstart and handoff route: %+v", reconciledRunbook)
 	}
 
-	beforeHandoffPreview := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
-	handoffPreviewArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, reconciledRunbook.HandoffPreviewDriverRequest)
-	if !ok {
-		t.Fatalf("handoff preview request should be executable: %+v", reconciledRunbook.HandoffPreviewDriverRequest)
+	if !strings.Contains(reconciledRunbook.HandoffPreviewDriverRequest.Command, `-Lane "main" -WhatIf`) || reconciledRunbook.HandoffApplyDriverRequest != nil || reconciledRunbook.HandoffApplyCommand != "" {
+		t.Fatalf("selected status should expose only an exact lane handoff preview: %+v", reconciledRunbook)
 	}
+	beforeHandoffPreview := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
+	handoffPreviewArgs := []string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}
 	var handoffPreview struct {
 		Command                    string                              `json:"command"`
 		Applied                    bool                                `json:"applied"`
@@ -267,7 +267,7 @@ func TestRunDailyMissionControlRouteSmokeProductPath(t *testing.T) {
 		t.Fatalf("lane handoff apply should return replacement executor takeover package: %+v", laneHandoffApplied)
 	}
 	laneArtifactPath := assertStartWrite(t, laneHandoffApplied.Writes, ".rekit/handovers/main-latest-replacement-executor-takeover.json", "write-latest-replacement-executor-takeover-package").TargetPath
-	laneArtifact := assertDailyMissionControlTakeoverArtifact(t, laneArtifactPath, reconciledRequest.Command, laneHandoffApplied.ReplacementExecutorTakeoverPackage.RefreshStatusCommand, ".rekit/handovers/main-latest-replacement-executor-takeover.json")
+	laneArtifact := assertDailyMissionControlTakeoverArtifact(t, laneArtifactPath, laneHandoffApplied.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command, laneHandoffApplied.ReplacementExecutorTakeoverPackage.RefreshStatusCommand, ".rekit/handovers/main-latest-replacement-executor-takeover.json")
 
 	var takeoverStatus struct {
 		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`

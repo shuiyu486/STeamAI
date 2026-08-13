@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/sourceartifact"
 )
 
 func TestInspectRepoCaseShimReady(t *testing.T) {
@@ -40,8 +42,9 @@ func TestCanonicalSkillAndShimPermitModelInvocationAndRemainBounded(t *testing.T
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(data) > check.maxBytes {
-			t.Fatalf("%s size = %d, want <= %d", check.path, len(data), check.maxBytes)
+		semanticSize := len(sourceartifact.SemanticText(data))
+		if semanticSize > check.maxBytes {
+			t.Fatalf("%s semantic size = %d, want <= %d", check.path, semanticSize, check.maxBytes)
 		}
 		if strings.Contains(string(data), "disable-model-invocation: true") {
 			t.Fatalf("%s still disables natural-language model invocation", check.path)
@@ -69,7 +72,7 @@ func TestInspectInstalledDetectsTemplateMatchAndDrift(t *testing.T) {
 	repo := t.TempDir()
 	caseRoot := t.TempDir()
 	writeRepoText(t, repo, TemplateRelPath, "thin shim\n")
-	writeCaseText(t, caseRoot, ".claude/skills/rekit/SKILL.md", "thin shim\n")
+	writeCaseText(t, caseRoot, ".claude/skills/rekit/SKILL.md", "thin shim\r\n")
 
 	ready := InspectInstalled(repo, caseRoot)
 	if !ready.Ready || !ready.MatchesTemplate || ready.Summary != "installed case shim readiness ok" || len(ready.Warnings) != 0 {

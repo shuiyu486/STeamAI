@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/sourceartifact"
 )
 
 type testCatalog struct {
@@ -496,8 +498,8 @@ func TestDocumentationProgressiveDisclosureInvariants(t *testing.T) {
 	repo := repoRoot(t)
 	claude := readRepoText(t, repo, "CLAUDE.md")
 	router := readRepoText(t, repo, "docs/context-routing.md")
-	roadmap := readRepoText(t, repo, "docs/real-usage-hardening-roadmap.md")
-	backlog := readRepoText(t, repo, "docs/real-usage-hardening-backlog.md")
+	roadmap := string(sourceartifact.SemanticText([]byte(readRepoText(t, repo, "docs/real-usage-hardening-roadmap.md"))))
+	backlog := string(sourceartifact.SemanticText([]byte(readRepoText(t, repo, "docs/real-usage-hardening-backlog.md"))))
 
 	for _, text := range []string{claude, router} {
 		assertTextContains(t, text, "本项目文档必须做成按需路由、渐进式披露的样式", "canonical documentation policy")

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
@@ -11,14 +12,47 @@ import (
 
 func usesSelectedCurrentLaneProjection(command string) bool {
 	switch strings.ToLower(strings.TrimSpace(command)) {
-	case "status", "run-current-step", "run-current-loop", "run-driver-step", "run-reviewer-step", "run-reviewer-wave":
+	case "status", "handoff", "run-current-step", "run-current-loop", "run-driver-step", "run-reviewer-step", "run-reviewer-wave":
 		return true
 	default:
 		return false
 	}
 }
 
+func selectedCurrentLaneRequiresExecutable(command string) bool {
+	switch strings.ToLower(strings.TrimSpace(command)) {
+	case "handoff", "run-reviewer-wave":
+		return false
+	default:
+		return true
+	}
+}
+
+func optionsWithEffectiveSelectedCurrentLane(opt Options, reviewedLane string) (Options, error) {
+	selected := strings.TrimSpace(opt.SelectedCurrentLane)
+	reviewedLane = strings.TrimSpace(reviewedLane)
+	if selected != "" && reviewedLane != "" && selected != reviewedLane {
+		return Options{}, fmt.Errorf("selected current lane %q does not match reviewed lane %q", selected, reviewedLane)
+	}
+	if selected == "" {
+		opt.SelectedCurrentLane = reviewedLane
+	}
+	return opt, nil
+}
+
 func buildInvocationStatusInventory(ctx runtime.Context, opt Options) (statusInventory, error) {
+	return buildInvocationStatusInventoryWithExecutableRequirement(
+		ctx,
+		opt,
+		selectedCurrentLaneRequiresExecutable(opt.Command),
+	)
+}
+
+func buildInvocationStatusInventoryAfterMutation(ctx runtime.Context, opt Options) (statusInventory, error) {
+	return buildInvocationStatusInventoryWithExecutableRequirement(ctx, opt, false)
+}
+
+func buildInvocationStatusInventoryWithExecutableRequirement(ctx runtime.Context, opt Options, requireExecutable bool) (statusInventory, error) {
 	selected := strings.TrimSpace(opt.SelectedCurrentLane)
 	if selected == "" || !usesSelectedCurrentLaneProjection(opt.Command) {
 		return buildStatusInventory(ctx, statusPackSource(ctx, opt))
@@ -35,7 +69,7 @@ func buildInvocationStatusInventory(ctx runtime.Context, opt Options) (statusInv
 	bindStatusSelectedCurrentLaneCommands(&status, selected)
 	bindStatusCurrentLoop(status.Target, status.CaseMission, status.MissionControlRunbook)
 	bindStatusSelectedCurrentLaneCommands(&status, selected)
-	if err := validateStatusSelectedCurrentLane(status, selected, !strings.EqualFold(strings.TrimSpace(opt.Command), "run-reviewer-wave")); err != nil {
+	if err := validateStatusSelectedCurrentLane(status, selected, requireExecutable); err != nil {
 		return statusInventory{}, err
 	}
 	return status, nil
@@ -60,7 +94,10 @@ func bindStatusSelectedCurrentLane(status *statusInventory, selected string) err
 	caseMission := *status.CaseMission
 	caseActions := selectedLaneActions(caseMission.MissionCommanderNextActions, selected)
 	reviewerHandoffs := selectedLaneReviewerHandoffs(caseMission.ReviewerDispatchIntakeHandoffs, selected)
-	reviewerActions := workstream.MissionCommanderNextActionsWithReviewerDispatches(nil, reviewerHandoffs)
+	reviewerActions := selectedLaneActions(
+		workstream.MissionCommanderNextActionsWithReviewerDispatches(nil, reviewerHandoffs),
+		selected,
+	)
 
 	caseMission.MissionCommanderNextActions = caseActions
 	caseMission.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(caseActions)
@@ -89,9 +126,12 @@ func bindStatusSelectedCurrentLane(status *statusInventory, selected string) err
 func selectedLaneActions(items []mission.MissionCommanderNextActionItem, selected string) []mission.MissionCommanderNextActionItem {
 	out := make([]mission.MissionCommanderNextActionItem, 0, len(items))
 	for _, item := range items {
-		if strings.TrimSpace(item.Lane) == selected {
-			out = append(out, item)
+		if strings.TrimSpace(item.Lane) != selected {
+			continue
 		}
+		item.Command = selectedLaneCommand(item.Command, selected)
+		item.Invocation = nil
+		out = append(out, item)
 	}
 	return mission.UniqueCommanderNextActions(out)
 }
@@ -107,7 +147,13 @@ func selectedLaneReviewerHandoffs(items []workstream.ReviewerDispatchIntakeHando
 }
 
 func validateStatusSelectedCurrentLane(status statusInventory, selected string, requireExecutable bool) error {
-	if status.MissionControlRunbook == nil || status.MissionControlRunbook.CurrentDriverRequest == nil {
+	if status.MissionControlRunbook == nil {
+		return fmt.Errorf("selected current lane %q has no mission control runbook", selected)
+	}
+	if status.MissionControlRunbook.CurrentDriverRequest == nil {
+		if !requireExecutable && statusSelectedLaneMissionComplete(status, selected) {
+			return nil
+		}
 		return fmt.Errorf("selected current lane %q has no current driver request", selected)
 	}
 	route := strings.TrimSpace(status.MissionControlRunbook.Scope)
@@ -118,8 +164,13 @@ func validateStatusSelectedCurrentLane(status statusInventory, selected string, 
 	if err := validateSelectedLaneDriverRequest(request, selected, "current driver request", requireExecutable && route == "case"); err != nil {
 		return err
 	}
-	if request.Blocked || (!request.CommandExecutable && strings.TrimSpace(request.Guidance) == "") {
+	if route == "case" &&
+		((requireExecutable && request.Blocked) ||
+			(!request.CommandExecutable && strings.TrimSpace(request.Guidance) == "")) {
 		return fmt.Errorf("selected current lane %q current driver request is blocked or has no typed action", selected)
+	}
+	if route == "reviewer" && !request.CommandExecutable && strings.TrimSpace(request.Guidance) == "" && status.MissionControlRunbook.CurrentLoopOperator == nil {
+		return fmt.Errorf("selected current lane %q reviewer request has no typed external handoff", selected)
 	}
 	if command := strings.TrimSpace(status.MissionControlRunbook.RefreshStatusCommand); command == "" || selectedLaneCommand(command, selected) != command {
 		return fmt.Errorf("selected current lane %q has an invalid refresh command", selected)
@@ -160,6 +211,24 @@ func validateStatusSelectedCurrentLane(status statusInventory, selected string, 
 		}
 	}
 	return nil
+}
+
+func statusSelectedLaneMissionComplete(status statusInventory, selected string) bool {
+	if status.CaseMission == nil || status.CaseMission.MissionCompletion == nil ||
+		!status.CaseMission.MissionCompletion.Ready ||
+		!status.CaseMission.MissionCompletion.OperationallyComplete ||
+		status.CaseMission.MissionCompletion.State != "mission-complete" ||
+		status.CaseMission.DailyMissionControlRunbook == nil ||
+		status.CaseMission.DailyMissionControlRunbook.CurrentState != "mission-complete" ||
+		status.CaseMission.DailyMissionControlRunbook.CurrentDriverRequest != nil {
+		return false
+	}
+	board, err := mission.ReadBoard(status.Target)
+	if err != nil {
+		return false
+	}
+	lane, ok := mission.LookupBoardLane(board.Lanes, selected, false)
+	return ok && strings.EqualFold(strings.TrimSpace(lane.Status), "closed")
 }
 
 func validateSelectedLaneReviewerAttempt(attempt *mission.CurrentLoopReviewerAttempt, selected, label string) error {
@@ -229,12 +298,20 @@ func bindStatusSelectedCurrentLaneCommands(status *statusInventory, selected str
 	runbook := status.MissionControlRunbook
 	runbook.RefreshStatusCommand = selectedLaneCommand(runbook.RefreshStatusCommand, selected)
 	bindSelectedLaneDriverRequest(runbook.CurrentDriverRequest, selected)
+	if runbook.CurrentDriverRequest != nil {
+		runbook.CurrentCommand = strings.TrimSpace(runbook.CurrentDriverRequest.Command)
+	}
 	bindSelectedLaneDriverRequest(runbook.HandoffPreviewDriverRequest, selected)
 	bindSelectedLaneDriverRequest(runbook.HandoffApplyDriverRequest, selected)
 	if runbook.CurrentLoopOperator != nil {
 		bindSelectedLaneCurrentLoopOperator(runbook.CurrentLoopOperator, selected)
 	}
+	runbook.CurrentDriverRequestSHA256 = ""
+	if runbook.CurrentDriverRequest != nil {
+		runbook.CurrentDriverRequestSHA256, _ = mission.MissionCommanderDriverRequestSHA256(*runbook.CurrentDriverRequest)
+	}
 	runbook.CurrentDriverReceipt = statusMissionControlCurrentDriverReceipt(runbook)
+	runbook.ReplacementExecutorTakeover = statusReplacementExecutorTakeoverPackageFor(status.Target, runbook, status.ProjectHandoff)
 	runbook.RunLoop = statusMissionControlRunbookSteps(runbook)
 	runbook.Quickstart = statusMissionControlQuickstartFor(runbook, nil)
 }
@@ -317,6 +394,11 @@ func bindSelectedLaneDriverRequest(request *mission.MissionCommanderDriverReques
 	request.Command = selectedLaneCommand(request.Command, selected)
 	request.ExpectedReceipt.Command = selectedLaneCommand(request.ExpectedReceipt.Command, selected)
 	request.ExpectedReceipt.RefreshStatusCommand = selectedLaneCommand(request.ExpectedReceipt.RefreshStatusCommand, selected)
+	if request.Invocation != nil && request.Command != "" {
+		if invocation, err := commands.ParsePublicInvocation(request.Command); err == nil {
+			request.Invocation = &invocation
+		}
+	}
 }
 
 func selectedLaneCommand(command, selected string) string {
@@ -329,32 +411,49 @@ func selectedLaneCommand(command, selected string) string {
 	if err != nil || len(fields) < 2 || fields[0] != "/rekit" {
 		return command
 	}
+	laneFlag := -1
 	for idx := 2; idx < len(fields); idx++ {
 		if !strings.EqualFold(fields[idx], "-Lane") && !strings.EqualFold(fields[idx], "--lane") {
 			continue
 		}
-		if idx+1 >= len(fields) || strings.TrimSpace(fields[idx+1]) != selected {
+		if laneFlag >= 0 || idx+1 >= len(fields) || strings.TrimSpace(fields[idx+1]) != selected {
+			return ""
+		}
+		laneFlag = idx
+		idx++
+	}
+	positional, hasPositional := selectedLaneCommandPositionalIndex(fields)
+	if laneFlag >= 0 {
+		if hasPositional {
 			return ""
 		}
 		return joinDriverCommand(fields)
 	}
-	if positional, ok := selectedLaneCommandPositionalIndex(fields); ok {
+	if hasPositional {
 		positionalLane := strings.TrimSpace(fields[positional])
 		commandName := strings.ToLower(strings.TrimSpace(fields[1]))
 		if !selectedLanePositionalSelectorMatches(positionalLane, selected) {
 			return ""
 		}
-		if commandName == "continue" {
-			fields = append(fields[:positional], fields[positional+1:]...)
-			insertAt := len(fields)
-			for idx, field := range fields {
-				if strings.EqualFold(field, "-WhatIf") || strings.EqualFold(field, "--what-if") || strings.EqualFold(field, "-Apply") || strings.EqualFold(field, "--apply") {
-					insertAt = idx
-					break
-				}
+		fields = append(fields[:positional], fields[positional+1:]...)
+		insertAt := len(fields)
+		for idx, field := range fields {
+			if strings.EqualFold(field, "-WhatIf") || strings.EqualFold(field, "--what-if") || strings.EqualFold(field, "-Apply") || strings.EqualFold(field, "--apply") {
+				insertAt = idx
+				break
 			}
-			fields = append(fields[:insertAt], append([]string{"-Lane", selected}, fields[insertAt:]...)...)
 		}
+		selector := []string{"-Lane", selected}
+		if commandName == "start" {
+			selector = append(
+				[]string{"-Name", positionalLane},
+				selector...,
+			)
+		}
+		fields = append(
+			fields[:insertAt],
+			append(selector, fields[insertAt:]...)...,
+		)
 		return joinDriverCommand(fields)
 	}
 	insertAt := len(fields)
@@ -377,6 +476,9 @@ func selectedLanePositionalSelectorMatches(selector, selected string) bool {
 	if selector == selected {
 		return true
 	}
+	if selector == "main" && strings.HasSuffix(selected, "-main") {
+		return true
+	}
 	label, ok := strings.CutPrefix(selected, "feature-")
 	return ok && label != "" && selector == label
 }
@@ -386,7 +488,7 @@ func selectedLaneCommandPositionalIndex(fields []string) (int, bool) {
 		return 0, false
 	}
 	switch strings.ToLower(strings.TrimSpace(fields[1])) {
-	case "continue", "complete", "reconcile":
+	case "start", "continue", "complete", "reconcile", "handoff":
 	default:
 		return 0, false
 	}
@@ -404,7 +506,7 @@ func selectedLaneCommandPositionalIndex(fields []string) (int, bool) {
 
 func selectedLaneCommandValueFlag(flag string) bool {
 	switch strings.ToLower(strings.TrimSpace(flag)) {
-	case "-target", "--target", "-pack", "--pack", "-format", "--format", "-executor", "--executor", "-actor", "--actor", "-reason", "--reason", "-summary", "--summary", "-evidencerefs", "--evidence-refs", "-interventionid", "--intervention-id", "-expectedexecutorgeneration", "--expected-executor-generation", "-expectedcompleteplansha256", "--expected-complete-plan-sha256":
+	case "-target", "--target", "-pack", "--pack", "-format", "--format", "-name", "--name", "-lane", "--lane", "-executor", "--executor", "-actor", "--actor", "-reason", "--reason", "-summary", "--summary", "-evidencerefs", "--evidence-refs", "-interventionid", "--intervention-id", "-expectedexecutorgeneration", "--expected-executor-generation", "-expectedcompleteplansha256", "--expected-complete-plan-sha256":
 		return true
 	default:
 		return false

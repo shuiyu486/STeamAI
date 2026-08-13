@@ -143,11 +143,11 @@ func TestRunPlanSubagentsReviewerPacketRetirementWhatIfApplyE2E(t *testing.T) {
 	if invalidPacket.State != "reviewer-packet-integrity-invalid" || invalidPacket.DispatchCommand != "" || invalidPacket.PreviewCommand != "" || invalidPacket.ApplyCommand != "" || invalidPacket.BatchPreviewCommand != "" || invalidPacket.BatchApplyCommand != "" {
 		t.Fatalf("invalid packet status did not block reviewer dispatch/intake commands: %+v", invalidPacket)
 	}
-	retirementRequest := requireMissionCommanderDriverRequest(t, invalidStatus.CaseMission.MissionCommanderActionQueue, "blocked-review", "inspect-current", invalidPacket.PacketRetirementPreviewCommand, true, true, true)
-	if invalidStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentDriverRequest == nil || invalidStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentDriverRequest.Command != retirementRequest.Command {
+	retirementRequest := requireBlockedMissionCommanderDriverRequest(t, invalidStatus.CaseMission.MissionCommanderActionQueue, invalidPacket.PacketRetirementPreviewCommand)
+	if invalidStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentDriverRequest == nil || invalidStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentDriverRequest.Guidance != retirementRequest.Guidance {
 		t.Fatalf("packet retirement reviewer queue request drifted from first screen: first=%+v reviewer=%+v", retirementRequest, invalidStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentDriverRequest)
 	}
-	if strings.Contains(retirementRequest.Command, "-RecordReviewerDispatch") || strings.Contains(retirementRequest.Command, "-AdoptReviewerPacket") || strings.Contains(retirementRequest.Command, "-ReadyReviewerResults") {
+	if strings.Contains(retirementRequest.Guidance, "-RecordReviewerDispatch") || strings.Contains(retirementRequest.Guidance, "-AdoptReviewerPacket") || strings.Contains(retirementRequest.Guidance, "-ReadyReviewerResults") {
 		t.Fatalf("packet retirement driver-loop exposed reviewer dispatch/adoption/intake while packet was invalid: %+v", retirementRequest)
 	}
 	out.Reset()
@@ -169,9 +169,17 @@ func TestRunPlanSubagentsReviewerPacketRetirementWhatIfApplyE2E(t *testing.T) {
 			t.Fatalf("%s missing driver request", label)
 		}
 		requestCopy := *request
-		if replacements != nil {
-			requestCopy.Command = replacements.Replace(requestCopy.Command)
+		command := requestCopy.Command
+		if requestCopy.Guidance != "" {
+			command = requestCopy.Guidance
+			requestCopy.Guidance = ""
+			requestCopy.CommandExecutable = true
+			requestCopy.Blocked = false
 		}
+		if replacements != nil {
+			command = replacements.Replace(command)
+		}
+		requestCopy.Command = command
 		args, ok := missionCommanderDriverRequestCommandCLIArgs(t, &requestCopy)
 		if !ok {
 			t.Fatalf("%s driver request did not expose executable command: %+v", label, request)

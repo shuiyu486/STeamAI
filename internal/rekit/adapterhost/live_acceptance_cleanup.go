@@ -74,6 +74,13 @@ func (identity *liveAcceptanceCaseIdentity) Close() error {
 }
 
 func (identity *liveAcceptanceCaseIdentity) cleanup(afterQuarantine func(string) error) error {
+	return identity.cleanupWithHooks(afterQuarantine, nil)
+}
+
+func (identity *liveAcceptanceCaseIdentity) cleanupWithHooks(
+	afterQuarantine,
+	afterValidation func(string) error,
+) error {
 	if identity == nil || identity.parent == nil {
 		return fmt.Errorf("adapter live cleanup has no captured case identity")
 	}
@@ -109,12 +116,53 @@ func (identity *liveAcceptanceCaseIdentity) cleanup(afterQuarantine func(string)
 	if err := validateLiveAcceptanceCleanupTree(quarantinePath); err != nil {
 		return err
 	}
-	if err := identity.parent.RemoveAll(quarantine); err != nil {
+	quarantineRoot, err := identity.parent.OpenRoot(quarantine)
+	if err != nil {
+		return err
+	}
+	defer quarantineRoot.Close()
+	opened, err := quarantineRoot.Lstat(".")
+	if err != nil || !opened.IsDir() || !os.SameFile(identity.caseInfo, opened) {
+		return fmt.Errorf("adapter live quarantined case identity changed while binding cleanup root: %s", quarantinePath)
+	}
+	if afterValidation != nil {
+		if err := afterValidation(quarantinePath); err != nil {
+			return err
+		}
+	}
+	if err := identity.validateNamedRoot(quarantine, true); err != nil {
+		return err
+	}
+	if err := removeLiveAcceptanceQuarantineContents(quarantineRoot); err != nil {
+		return err
+	}
+	if err := removeEmptyLiveAcceptanceQuarantine(identity, quarantine, quarantineRoot); err != nil {
 		return err
 	}
 	currentParent, err := os.Lstat(identity.parentPath)
 	if err != nil || !os.SameFile(identity.parentInfo, currentParent) {
 		return fmt.Errorf("adapter live case parent changed during cleanup: %s", identity.parentPath)
+	}
+	return nil
+}
+
+func removeLiveAcceptanceQuarantineContents(root *os.Root) error {
+	entries, err := root.Open(".")
+	if err != nil {
+		return err
+	}
+	names, readErr := entries.Readdirnames(-1)
+	closeErr := entries.Close()
+	if readErr != nil {
+		return readErr
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	for _, name := range names {
+		if err := root.RemoveAll(name); err != nil {
+			return err
+		}
 	}
 	return nil
 }

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/autonomy"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/currentloop"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
@@ -151,7 +152,7 @@ func HandoffPreview(repoRoot, caseRoot, pack string, opt HandoffOptions) (Handof
 	result = plan.Preview
 	result.PublicationPlanSHA256 = plan.PublicationSHA256
 	result.PublicationStamp = ctx.stamp
-	result.ApplyCommand = handoffApplyCommand(ctx.inst.CaseRoot, ctx.selector, result.PublicationPlanSHA256, ctx.stamp)
+	result.ApplyCommand = handoffApplyCommand(ctx.inst.CaseRoot, ctx.canonicalSelector(), result.PublicationPlanSHA256, ctx.stamp)
 	bindHandoffApplyRoute(&result, result.ApplyCommand)
 	return result, nil
 }
@@ -297,7 +298,7 @@ func HandoffApply(repoRoot, caseRoot, pack string, opt HandoffOptions) (result H
 	result.RequiresConfirmation = false
 	result.PublicationPlanSHA256 = plan.PublicationSHA256
 	result.PublicationStamp = ctx.stamp
-	result.ApplyCommand = handoffApplyCommand(ctx.inst.CaseRoot, ctx.selector, plan.PublicationSHA256, ctx.stamp)
+	result.ApplyCommand = handoffApplyCommand(ctx.inst.CaseRoot, ctx.canonicalSelector(), plan.PublicationSHA256, ctx.stamp)
 	bindHandoffApplyRoute(&result, result.ApplyCommand)
 	result.Writes = appliedHandoffWrites(plan.Writes)
 	result.NextSteps = mission.UniqueStrings(append([]string{"use /rekit as the Mission Commander entrypoint; JSON preview/apply is Go-owned by default"}, appliedHandoffNextSteps(result)...))
@@ -317,6 +318,13 @@ type handoffContext struct {
 	projectNextBatchStarterPackage     *ProjectNextBatchStarterPackage
 	projectPackMemoryConsumption       *PackMemoryConsumptionHandoff
 	currentLoopOperator                *mission.CurrentLoopOperatorPackage
+}
+
+func (ctx handoffContext) canonicalSelector() string {
+	if ctx.lane != nil {
+		return strings.TrimSpace(ctx.lane.ID)
+	}
+	return strings.TrimSpace(ctx.selector)
 }
 
 func newHandoffContext(repoRoot, caseRoot, pack string, opt HandoffOptions) (handoffContext, error) {
@@ -437,7 +445,11 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 		}
 	}
 	if lane != nil {
-		action := ctx.executorAction(*lane)
+		action := bindHandoffLaneExecutorAction(
+			ctx.executorAction(*lane),
+			lane.ID,
+			workstreamLabel(*lane),
+		)
 		executorAction = &action
 		executionEvidenceReview = ctx.executionEvidenceReview(*lane)
 	} else if ctx.project {
@@ -461,8 +473,26 @@ func (ctx handoffContext) result(mutating, applied, confirm bool, writes []Start
 		missionCommanderNext = mission.UniqueCommanderNextActions(append(append([]mission.MissionCommanderNextActionItem{}, missionCommanderNext...), ctx.projectMissionCommanderNextActions...))
 	}
 	missionCommanderActionQueue := mission.MissionCommanderActionQueueFor(missionCommanderNext)
-	runbookScope := handoffRunbookScope(ctx.project, ctx.selector)
-	dailyRunbook := DailyMissionControlRunbookForWithHandoffApplyReady(ctx.inst.CaseRoot, runbookScope, missionCommanderActionQueue, handoffPreviewCommand(ctx.inst.CaseRoot, ctx.selector), handoffApplyCommand(ctx.inst.CaseRoot, ctx.selector), true)
+	if lane != nil {
+		missionCommanderActionQueue = bindHandoffLaneActionQueue(
+			missionCommanderActionQueue,
+			lane.ID,
+			workstreamLabel(*lane),
+		)
+	}
+	runbookScope := handoffRunbookScope(ctx.project, ctx.canonicalSelector())
+	handoffSelector := ctx.canonicalSelector()
+	if lane != nil {
+		handoffSelector = lane.ID
+	}
+	dailyRunbook := DailyMissionControlRunbookForWithHandoffApplyReady(ctx.inst.CaseRoot, runbookScope, missionCommanderActionQueue, handoffPreviewCommand(ctx.inst.CaseRoot, handoffSelector), handoffApplyCommand(ctx.inst.CaseRoot, handoffSelector), true)
+	if lane != nil {
+		bindHandoffLaneRunbook(
+			dailyRunbook,
+			lane.ID,
+			workstreamLabel(*lane),
+		)
+	}
 	latestDriverReceiptHandoff, _ := latestDriverReceiptHandoffFor(ctx.inst.CaseRoot, lane)
 	replacementExecutorTakeoverPackage := handoffReplacementExecutorTakeoverPackage(ctx.inst.CaseRoot, runbookScope, lane, missionCommanderActionQueue, dailyRunbook, latestDriverReceiptHandoff, ctx.replacementExecutorTakeoverPackageLatestRel(), ctx.currentLoopOperator)
 	var laneTakeoverPackage *LaneTakeoverPackage
@@ -608,7 +638,7 @@ func (ctx handoffContext) buildPublicationPlan() (handoffPublicationPlan, error)
 		StartWrite{Path: relativePath(ctx.inst.CaseRoot, latestPath), Kind: "handoff", Action: "would-write-latest-" + scope + "-handoff", TargetPath: latestPath},
 	)
 	preview := ctx.result(false, false, true, writes)
-	bindHandoffApplyRoute(&preview, handoffApplyCommand(ctx.inst.CaseRoot, ctx.selector, handoffPublicationPlanSHA256Marker, ctx.stamp))
+	bindHandoffApplyRoute(&preview, handoffApplyCommand(ctx.inst.CaseRoot, ctx.canonicalSelector(), handoffPublicationPlanSHA256Marker, ctx.stamp))
 	takeoverWrites, err := ctx.replacementExecutorTakeoverPackageArtifactWrites(false, preview.ReplacementExecutorTakeoverPackage)
 	if err != nil {
 		return handoffPublicationPlan{}, err
@@ -1004,8 +1034,8 @@ func readStableHandoffPublicationInput(path string, before os.FileInfo) ([]byte,
 }
 
 func (ctx handoffContext) bindHandoffPublicationMarkdown(markdown, publicationPlanSHA256 string) string {
-	generic := handoffApplyCommand(ctx.inst.CaseRoot, ctx.selector)
-	bound := handoffApplyCommand(ctx.inst.CaseRoot, ctx.selector, publicationPlanSHA256, ctx.stamp)
+	generic := handoffApplyCommand(ctx.inst.CaseRoot, ctx.canonicalSelector())
+	bound := handoffApplyCommand(ctx.inst.CaseRoot, ctx.canonicalSelector(), publicationPlanSHA256, ctx.stamp)
 	markdown = strings.ReplaceAll(markdown, generic, bound)
 	if !strings.Contains(markdown, bound) {
 		markdown += "\n## Handoff publication plan\n\n"
@@ -1068,7 +1098,7 @@ func handoffCommand(caseRoot, selector string, apply bool, expectedSHA256, publi
 	}
 	selector = strings.TrimSpace(selector)
 	if selector != "" {
-		parts = append(parts, selector)
+		parts = append(parts, "-Lane", selector)
 	}
 	parts = append(parts, "-Format", "json")
 	for i, part := range parts {
@@ -1077,10 +1107,185 @@ func handoffCommand(caseRoot, selector string, apply bool, expectedSHA256, publi
 	return strings.Join(parts, " ")
 }
 
+func bindHandoffLaneExecutorAction(action laneExecutorAction, laneID, laneLabel string) laneExecutorAction {
+	action.ResumeCommand = handoffLaneCommand(action.ResumeCommand, laneID, laneLabel)
+	action.HandoffCommand = handoffLaneCommand(action.HandoffCommand, laneID, laneLabel)
+	for index := range action.NextAgentActions {
+		action.NextAgentActions[index] = handoffLaneCommand(
+			action.NextAgentActions[index],
+			laneID,
+			laneLabel,
+		)
+	}
+	action.MissionCommanderAction.PrimaryCommand = handoffLaneCommand(
+		action.MissionCommanderAction.PrimaryCommand,
+		laneID,
+		laneLabel,
+	)
+	for index := range action.MissionCommanderAction.FollowUpCommands {
+		action.MissionCommanderAction.FollowUpCommands[index] = handoffLaneCommand(
+			action.MissionCommanderAction.FollowUpCommands[index],
+			laneID,
+			laneLabel,
+		)
+	}
+	return action
+}
+
+func bindHandoffLaneRunbook(runbook *DailyMissionControlRunbook, laneID, laneLabel string) {
+	if runbook == nil {
+		return
+	}
+	runbook.RefreshStatusCommand = handoffLaneStatusCommand(runbook.RefreshStatusCommand, laneID)
+	bindHandoffLaneDriverRequest(runbook.CurrentDriverRequest, laneID, laneLabel)
+	bindHandoffLaneDriverRequest(runbook.HandoffPreviewDriverRequest, laneID, laneLabel)
+	bindHandoffLaneDriverRequest(runbook.HandoffApplyDriverRequest, laneID, laneLabel)
+	if runbook.CurrentDriverRequest != nil {
+		runbook.CurrentCommand = runbook.CurrentDriverRequest.Command
+	}
+	for index := range runbook.RunLoop {
+		step := &runbook.RunLoop[index]
+		switch step.StepID {
+		case "inspect-status", "refresh-after-driver":
+			step.Command = runbook.RefreshStatusCommand
+		case "consume-current-driver-request":
+			if runbook.CurrentDriverRequest != nil {
+				step.Command = runbook.CurrentDriverRequest.Command
+			}
+		}
+	}
+}
+
+func bindHandoffLaneDriverRequest(request *mission.MissionCommanderDriverRequest, laneID, laneLabel string) {
+	if request == nil {
+		return
+	}
+	request.Lane = laneID
+	request.Command = handoffLaneCommand(request.Command, laneID, laneLabel)
+	request.ExpectedReceipt.Command = handoffLaneCommand(request.ExpectedReceipt.Command, laneID, laneLabel)
+	request.ExpectedReceipt.RefreshStatusCommand = handoffLaneStatusCommand(request.ExpectedReceipt.RefreshStatusCommand, laneID)
+	if request.Command != "" {
+		invocation, err := commands.ParsePublicInvocation(request.Command)
+		if err == nil {
+			request.Invocation = &invocation
+		}
+	}
+}
+
+func handoffLaneStatusCommand(command, laneID string) string {
+	command = strings.TrimSpace(command)
+	laneID = strings.TrimSpace(laneID)
+	if command == "" || laneID == "" {
+		return command
+	}
+	invocation, err := commands.ParsePublicInvocation(command)
+	if err != nil || invocation.Command != commands.Status {
+		return command
+	}
+	if invocation.HasFlag("-Lane") || invocation.HasFlag("--lane") {
+		return command
+	}
+	invocation.Arguments = append(invocation.Arguments, "-Lane", laneID)
+	bound, err := commands.NewPublicInvocation(invocation.Command, invocation.Arguments...)
+	if err != nil {
+		return ""
+	}
+	rendered, err := bound.Render()
+	if err != nil {
+		return ""
+	}
+	return rendered
+}
+
+func bindHandoffLaneActionQueue(queue mission.MissionCommanderActionQueue, laneID, laneLabel string) mission.MissionCommanderActionQueue {
+	bind := func(item mission.MissionCommanderNextActionItem) mission.MissionCommanderNextActionItem {
+		item.Command = handoffLaneCommand(item.Command, laneID, laneLabel)
+		if item.Command != "" {
+			invocation, err := commands.ParsePublicInvocation(item.Command)
+			if err == nil {
+				item.Invocation = &invocation
+			}
+		}
+		return item
+	}
+	items := make([]mission.MissionCommanderNextActionItem, 0, len(queue.UnblockedActions)+len(queue.BlockedActions))
+	for _, item := range queue.UnblockedActions {
+		items = append(items, bind(item))
+	}
+	for _, item := range queue.BlockedActions {
+		items = append(items, bind(item))
+	}
+	return mission.MissionCommanderActionQueueFor(items)
+}
+
+func handoffLaneCommand(command, laneID, laneLabel string) string {
+	command = strings.TrimSpace(command)
+	laneID = strings.TrimSpace(laneID)
+	laneLabel = strings.TrimSpace(laneLabel)
+	if command == "" || laneID == "" {
+		return command
+	}
+	invocation, err := commands.ParsePublicInvocation(command)
+	if err != nil {
+		return command
+	}
+	if invocation.Command != commands.Continue && invocation.Command != commands.Complete && invocation.Command != commands.Reconcile && invocation.Command != commands.Handoff {
+		return command
+	}
+	arguments := append([]string{}, invocation.Arguments...)
+	for index, argument := range arguments {
+		if !strings.EqualFold(argument, "-Lane") && !strings.EqualFold(argument, "--lane") {
+			continue
+		}
+		if index+1 >= len(arguments) || strings.TrimSpace(arguments[index+1]) != laneID {
+			return ""
+		}
+		return command
+	}
+	selector := laneLabel
+	if selector == "" {
+		selector = workstreamLabel(Lane{ID: laneID})
+	}
+	for index, argument := range arguments {
+		if strings.HasPrefix(argument, "-") {
+			continue
+		}
+		if index == 0 && selectedLaneSelectorMatches(argument, laneID, selector) {
+			arguments = append(arguments[:index], arguments[index+1:]...)
+		}
+		break
+	}
+	insertAt := len(arguments)
+	for index, argument := range arguments {
+		if strings.EqualFold(argument, "-WhatIf") || strings.EqualFold(argument, "--what-if") || strings.EqualFold(argument, "-Apply") || strings.EqualFold(argument, "--apply") {
+			insertAt = index
+			break
+		}
+	}
+	arguments = append(arguments[:insertAt], append([]string{"-Lane", laneID}, arguments[insertAt:]...)...)
+	bound, err := commands.NewPublicInvocation(invocation.Command, arguments...)
+	if err != nil {
+		return ""
+	}
+	rendered, err := bound.Render()
+	if err != nil {
+		return ""
+	}
+	return rendered
+}
+
+func selectedLaneSelectorMatches(value, laneID, label string) bool {
+	value = strings.TrimSpace(value)
+	return value == strings.TrimSpace(laneID) || value == strings.TrimSpace(label)
+}
+
 func handoffReplacementExecutorTakeoverPackage(caseRoot, scope string, lane *Lane, queue mission.MissionCommanderActionQueue, runbook *DailyMissionControlRunbook, latestReceipt *LatestDriverReceiptHandoff, packagePath string, operator *mission.CurrentLoopOperatorPackage) *mission.ReplacementExecutorTakeoverPackage {
 	refresh := dailyMissionControlStatusCommand(caseRoot)
 	if runbook != nil && strings.TrimSpace(runbook.RefreshStatusCommand) != "" {
 		refresh = runbook.RefreshStatusCommand
+	}
+	if lane != nil {
+		refresh = handoffLaneStatusCommand(refresh, lane.ID)
 	}
 	packagePath = strings.TrimSpace(packagePath)
 	if packagePath == "" {
@@ -2139,7 +2344,11 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 		kind = "主线"
 	}
 	label := workstreamLabel(lane)
-	executorAction := ctx.executorAction(lane)
+	executorAction := bindHandoffLaneExecutorAction(
+		ctx.executorAction(lane),
+		lane.ID,
+		label,
+	)
 	executionEvidenceReview := ctx.executionEvidenceReview(lane)
 	evidenceNeedsMainReview := ExecutionEvidenceReviewNeedsMainReview(executionEvidenceReview)
 	facts, err := readHandoffFacts(ctx.inst.CaseRoot)
@@ -2153,6 +2362,11 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 	missionCommanderNextActions = MissionCommanderNextActionsWithAuthorizedGateAdaptersAndAcknowledgements(missionCommanderNextActions, authorizedGateAdapterHandoffs, ExecutionEvidenceReviewAcknowledgedIDs(facts))
 	missionCommanderNextActions = MissionCommanderNextActionsWithReviewerDispatches(missionCommanderNextActions, laneReviewerDispatches)
 	missionCommanderActionQueue := mission.MissionCommanderActionQueueFor(missionCommanderNextActions)
+	missionCommanderActionQueue = bindHandoffLaneActionQueue(
+		missionCommanderActionQueue,
+		lane.ID,
+		label,
+	)
 	executionEvidenceReviewSummary := ExecutionEvidenceReviewSummaryFor(executionEvidenceReview, missionCommanderActionQueue)
 	var out bytes.Buffer
 	fmt.Fprintf(&out, "# rekit 工作线接手：%s\n", lane.ID)
@@ -2207,7 +2421,8 @@ func (ctx handoffContext) renderLane(lane Lane, apply bool) (string, []StartWrit
 	}
 	writeLaneMissionBrief(&out, lane, facts, executorAction)
 	writeLaneMissionCommanderActionQueue(&out, missionCommanderActionQueue)
-	dailyRunbook := DailyMissionControlRunbookFor(ctx.inst.CaseRoot, "lane:"+label, missionCommanderActionQueue, handoffPreviewCommand(ctx.inst.CaseRoot, label), handoffApplyCommand(ctx.inst.CaseRoot, label))
+	dailyRunbook := DailyMissionControlRunbookFor(ctx.inst.CaseRoot, "lane:"+label, missionCommanderActionQueue, handoffPreviewCommand(ctx.inst.CaseRoot, lane.ID), handoffApplyCommand(ctx.inst.CaseRoot, lane.ID))
+	bindHandoffLaneRunbook(dailyRunbook, lane.ID, label)
 	writeDailyMissionControlRunbook(&out, dailyRunbook)
 	writeCurrentLoopOperatorPackage(&out, ctx.currentLoopOperator)
 	latestDriverReceiptHandoff, _ := latestDriverReceiptHandoffFor(ctx.inst.CaseRoot, &lane)
@@ -2352,6 +2567,18 @@ func readBoard(caseRoot string) (board, error) {
 	return mission.ReadBoard(caseRoot)
 }
 
+func ResolveHandoffLaneID(caseRoot, selector string) (string, error) {
+	b, err := readBoard(caseRoot)
+	if err != nil {
+		return "", err
+	}
+	lane, err := resolveHandoffLane(caseRoot, b, selector)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(lane.ID), nil
+}
+
 func resolveHandoffLane(caseRoot string, b board, selector string) (Lane, error) {
 	raw := strings.TrimSpace(selector)
 	if raw == "" {
@@ -2360,7 +2587,7 @@ func resolveHandoffLane(caseRoot string, b board, selector string) (Lane, error)
 	normalized := strings.ToLower(raw)
 	candidates := []string{}
 	if normalized == "main" {
-		candidates = append(candidates, b.DefaultAuthorityLane)
+		candidates = append(candidates, b.DefaultAuthorityLane, raw)
 	} else {
 		candidates = append(candidates, raw)
 		if !strings.HasPrefix(normalized, "feature-") {

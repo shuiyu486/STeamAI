@@ -668,6 +668,42 @@ func TestApplyCandidateDecisionsPreviewsAndAppliesReviewedManagedCandidate(t *te
 	}
 }
 
+func TestVerifyCandidateDecisionCaseContentIgnoresOnlyLineEndingRepresentation(t *testing.T) {
+	packRoot := filepath.Join(t.TempDir(), "pack")
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	rel := filepath.FromSlash("references/template/README.md")
+	packTarget := filepath.Join(packRoot, rel)
+	caseTarget := filepath.Join(caseRoot, rel)
+	candidateBackup := filepath.Join(t.TempDir(), "candidate.md")
+	for _, path := range []string{packTarget, caseTarget, candidateBackup} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(candidateBackup, []byte("# README\n\nreviewed content\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(caseTarget, []byte("# README\r\n\r\nreviewed content\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	actions := []CandidateDecisionAction{{
+		Decision:            "accept",
+		Kind:                "managed-doc",
+		PackTarget:          packTarget,
+		CandidateBackupPath: candidateBackup,
+	}}
+	if err := verifyCandidateDecisionCaseContent(packRoot, caseRoot, "fresh", actions); err != nil {
+		t.Fatalf("line-ending-only representation should reconsume: %v", err)
+	}
+
+	if err := os.WriteFile(caseTarget, []byte("# README\r\n\r\ndifferent content\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyCandidateDecisionCaseContent(packRoot, caseRoot, "fresh", actions); err == nil || !strings.Contains(err.Error(), "has not reconsumed accepted candidate content") {
+		t.Fatalf("real content drift should be rejected: %v", err)
+	}
+}
+
 func TestVerifyCandidateDecisionPreviewsAppliesAndReplays(t *testing.T) {
 	repoRoot, sourceCase, freshCase, pack := packMemoryReconsumeFixture(t)
 	attachedCase := filepath.Join(t.TempDir(), "attachedcase")

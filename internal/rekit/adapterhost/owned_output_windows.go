@@ -3,7 +3,9 @@
 package adapterhost
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -40,7 +42,37 @@ func captureOwnedOutput(file *os.File) (*ownedOutput, error) {
 	return &identity, nil
 }
 
-func removeOwnedOutput(root *os.Root, rel string, owned *ownedOutput, afterIdentity func(string) error) error {
+func validateOwnedOutput(root *os.Root, rel string, owned *ownedOutput, expected []byte) error {
+	if root == nil || owned == nil {
+		return fmt.Errorf("owned output identity is missing: %s", rel)
+	}
+	opened, err := root.Open(filepath.FromSlash(rel))
+	if err != nil {
+		return err
+	}
+	defer opened.Close()
+	identity, attributes, err := ownedOutputIdentity(syscall.Handle(opened.Fd()))
+	if err != nil {
+		return err
+	}
+	data, readErr := io.ReadAll(io.LimitReader(opened, int64(len(expected))+1))
+	if identity != *owned ||
+		attributes&syscall.FILE_ATTRIBUTE_REPARSE_POINT != 0 ||
+		attributes&syscall.FILE_ATTRIBUTE_DIRECTORY != 0 ||
+		readErr != nil ||
+		!bytes.Equal(data, expected) {
+		return fmt.Errorf("owned output identity or bytes changed: %s", rel)
+	}
+	return nil
+}
+
+func removeOwnedOutput(
+	root *os.Root,
+	rel string,
+	owned *ownedOutput,
+	afterIdentity func(string) error,
+	_ func(string, string) error,
+) error {
 	if root == nil || owned == nil {
 		return nil
 	}

@@ -107,9 +107,10 @@ func TestRunLaneReopenProductPathSupersedesTerminalCompletion(t *testing.T) {
 	if !applied.Applied || applied.OperationCommit == nil || applied.OperationCommit.State != "committed" || applied.OperationCommit.Sequence != 1 || !applied.OperationCommit.NoAuthority || !applied.OperationCommit.NoConfirmed || !applied.OperationCommit.NoHeavyTool || !applied.OperationCommit.NoAutoResume {
 		t.Fatalf("compound reopen did not publish a truthful final operation commit: %+v", applied)
 	}
-	if applied.MissionCommanderActionQueue.CurrentDriverRequest == nil {
-		t.Fatalf("reopened mission did not expose a fresh driver request: %+v", applied.MissionCommanderActionQueue)
+	if applied.MissionCommanderActionQueue.CurrentDriverRequest != nil {
+		t.Fatalf("compound reopen must require an explicit lane choice: %+v", applied.MissionCommanderActionQueue)
 	}
+	requireMissionCommanderLaneChoices(t, applied.MissionCommanderActionQueue, "feature-verifier", "main")
 	assertFileBytesEqual(t, featureReceiptPath, featureReceiptBefore)
 	assertFileBytesEqual(t, mainReceiptPath, mainReceiptBefore)
 
@@ -142,9 +143,9 @@ func TestRunLaneReopenProductPathSupersedesTerminalCompletion(t *testing.T) {
 			CurrentLoopSegment *currentloop.Inspection `json:"currentLoopSegment"`
 		} `json:"missionControlRunbook"`
 	}
-	runCompletionJSON(t, &out, []string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &status)
-	if status.CaseMission == nil || !status.CaseMission.Ready || status.CaseMission.MissionCompletion != nil || status.CaseMission.MissionCommanderActionQueue.CurrentDriverRequest == nil {
-		t.Fatalf("reopened case did not return to active mission control: %+v", status.CaseMission)
+	runCompletionJSON(t, &out, []string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "feature-verifier", "-Format", "json"}, &status)
+	if status.CaseMission == nil || !status.CaseMission.Ready || status.CaseMission.MissionCompletion != nil || status.CaseMission.MissionCommanderActionQueue.CurrentDriverRequest == nil || status.CaseMission.MissionCommanderActionQueue.CurrentDriverRequest.Lane != "feature-verifier" {
+		t.Fatalf("selected reopened lane did not return to active mission control: %+v", status.CaseMission)
 	}
 	checkpoint := status.MissionControlRunbook.CurrentLoopSegment
 	if checkpoint == nil || checkpoint.Ready || checkpoint.State != "stale-reopen-lifecycle" || checkpoint.Continuation != nil || checkpoint.ResumeDriverRequest != nil || checkpoint.ArtifactSHA256 != loopApplied.SegmentCheckpoint.ArtifactSHA256 {

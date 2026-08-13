@@ -12,7 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/doctor"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
 )
 
 func TestApplyExclusiveInitMissingRootCreatesDoctorReadyCase(t *testing.T) {
@@ -688,6 +690,64 @@ func TestOrdinaryInitRequiresExactHashAndPreservesExistingFiles(t *testing.T) {
 	}
 }
 
+func TestOrdinaryInitPreservesSemanticEqualManagedFileBytes(t *testing.T) {
+	repoRoot, pack := exclusiveInitFixture(t)
+	caseRoot := t.TempDir()
+	target := filepath.Join(caseRoot, "references", "template", "README.md")
+	source := filepath.Join(repoRoot, "packs", pack, "references", "template", "README.md")
+	sourceBytes := readFile(t, source)
+	preserved := []byte(strings.ReplaceAll(string(sourceBytes), "\n", "\r\n"))
+	if bytes.Equal(preserved, sourceBytes) {
+		t.Fatal("fixture did not create a distinct target line-ending representation")
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, preserved, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	opt := ApplyOptions{ProjectName: "semantic-equal", CreateLocalFiles: true, Command: "init"}
+	preview, err := InitPreview(repoRoot, caseRoot, pack, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !preview.AdoptionReady {
+		t.Fatalf("semantic-equal ordinary target was blocked: %+v", preview.AdoptionBlockers)
+	}
+	var write WriteResult
+	for _, candidate := range preview.Writes {
+		if candidate.Path == "references/template/README.md" {
+			write = candidate
+			break
+		}
+	}
+	if write.Path == "" || write.Action != "unchanged" {
+		t.Fatalf("semantic-equal managed file write = %+v, want unchanged", write)
+	}
+	preservedHash := sha256Bytes(preserved)
+	if preview.initTargetSHA256[write.Path] != preservedHash {
+		t.Fatalf("preview target hash = %s, want exact preserved hash %s", preview.initTargetSHA256[write.Path], preservedHash)
+	}
+
+	opt.ExpectedPlanSHA256 = preview.ExpectedPlanSHA256
+	result, err := Apply(repoRoot, caseRoot, pack, opt)
+	if err != nil || !result.Applied {
+		t.Fatalf("semantic-equal ordinary Apply = %+v err=%v", result, err)
+	}
+	if got := readFile(t, target); !bytes.Equal(got, preserved) {
+		t.Fatalf("semantic-equal target bytes changed: %q != %q", got, preserved)
+	}
+	var state syncState
+	if err := json.Unmarshal(readFile(t, filepath.Join(caseRoot, ".rekit", "state.json")), &state); err != nil {
+		t.Fatal(err)
+	}
+	entry := state.Managed[write.Path]
+	if entry.SourceHash != preview.initSourceSHA256[write.Path] || entry.TargetHashAtSync != preservedHash {
+		t.Fatalf("semantic-equal state did not bind source and exact target independently: %+v", entry)
+	}
+}
+
 func TestOrdinaryInitBlocksManagedAndManagedBlockCollisions(t *testing.T) {
 	repoRoot, pack := exclusiveInitFixture(t)
 	for _, fixture := range []struct {
@@ -754,6 +814,208 @@ func TestOrdinaryInitPlanHashIsStableAcrossClockTicks(t *testing.T) {
 	if first.ExpectedPlanSHA256 != second.ExpectedPlanSHA256 {
 		t.Fatalf("stable preview hash changed across clock tick: %s != %s", first.ExpectedPlanSHA256, second.ExpectedPlanSHA256)
 	}
+}
+
+func TestOrdinaryInitPlanAndWritesIgnoreSourceLineEndingRepresentation(t *testing.T) {
+	repoRoot, pack := exclusiveInitFixture(t)
+	caseRoot := t.TempDir()
+	opt := ApplyOptions{ProjectName: "line-endings", CreateLocalFiles: true, Command: "init"}
+
+	lfPlan, err := InitPreview(repoRoot, caseRoot, pack, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lfPublications, err := ordinaryInitPublications(lfPlan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	convertTreeTextLineEndings(t, repoRoot, "\r\n")
+	crlfPlan, err := InitPreview(repoRoot, caseRoot, pack, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	crlfPublications, err := ordinaryInitPublications(crlfPlan)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if lfPlan.ExpectedPlanSHA256 != crlfPlan.ExpectedPlanSHA256 {
+		t.Fatalf("line-ending-only source change altered plan hash: %s != %s", lfPlan.ExpectedPlanSHA256, crlfPlan.ExpectedPlanSHA256)
+	}
+	if len(lfPublications) != len(crlfPublications) {
+		t.Fatalf("publication count changed: %d != %d", len(lfPublications), len(crlfPublications))
+	}
+	for index := range lfPublications {
+		left, right := lfPublications[index], crlfPublications[index]
+		if left.write.Path != right.write.Path {
+			t.Fatalf("publication path changed: %s != %s", left.write.Path, right.write.Path)
+		}
+		if left.write.Kind == "sync-state" {
+			var leftState, rightState syncState
+			if err := json.Unmarshal(left.data, &leftState); err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal(right.data, &rightState); err != nil {
+				t.Fatal(err)
+			}
+			leftState.LastSyncAt, rightState.LastSyncAt = "", ""
+			left.data, _ = json.Marshal(leftState)
+			right.data, _ = json.Marshal(rightState)
+		}
+		if !bytes.Equal(left.data, right.data) {
+			t.Fatalf("publication changed at %s: %q != %q", left.write.Path, left.data, right.data)
+		}
+	}
+}
+
+func TestExclusiveInitWritesIgnoreSourceLineEndingRepresentation(t *testing.T) {
+	repoRoot, pack := exclusiveInitFixture(t)
+	options := exclusiveInitOptionsForTest()
+	caseRoot := filepath.Join(t.TempDir(), "canonical-case")
+
+	lfPlan, err := PlanExclusiveInit(repoRoot, caseRoot, pack, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	convertTreeTextLineEndings(t, repoRoot, "\r\n")
+	crlfPlan, err := PlanExclusiveInit(repoRoot, caseRoot, pack, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lfPlan.Writes) != len(crlfPlan.Writes) {
+		t.Fatalf("exclusive write count changed: %d != %d", len(lfPlan.Writes), len(crlfPlan.Writes))
+	}
+	for index := range lfPlan.Writes {
+		left, right := lfPlan.Writes[index], crlfPlan.Writes[index]
+		if left.Path != right.Path || left.SHA256 != right.SHA256 || left.Size != right.Size || !bytes.Equal(left.Content, right.Content) {
+			t.Fatalf("exclusive write changed at %s: left=%+v right=%+v", left.Path, left, right)
+		}
+	}
+}
+
+func TestAttachedInitUsesRawSourceText(t *testing.T) {
+	repoRoot, pack := exclusiveInitFixture(t)
+	caseRoot := filepath.Join(t.TempDir(), "attached-case")
+	if err := os.MkdirAll(caseRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := casebind.WriteInstance(caseRoot, repoRoot, pack, "attached-raw"); err != nil {
+		t.Fatal(err)
+	}
+	convertTreeTextLineEndings(t, repoRoot, "\n")
+	opt := ApplyOptions{ProjectName: "attached-raw", CreateLocalFiles: true, Command: "init"}
+	preview, err := InitPreview(repoRoot, caseRoot, pack, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.TargetClass != "attached-case" {
+		t.Fatalf("attached init target class = %q", preview.TargetClass)
+	}
+	opt.ExpectedPlanSHA256 = preview.ExpectedPlanSHA256
+	if _, err := Apply(repoRoot, caseRoot, pack, opt); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{
+		".claude/skills/rekit/SKILL.md",
+		"references/template/README.md",
+		"references/template/task-handoff.md",
+	} {
+		data := readFile(t, filepath.Join(caseRoot, filepath.FromSlash(rel)))
+		if bytes.Contains(data, []byte("\r\n")) {
+			t.Fatalf("attached init canonicalized raw source at %s: %q", rel, data)
+		}
+	}
+}
+
+func TestMissionInitUsesRawSourceText(t *testing.T) {
+	repoRoot, pack := exclusiveInitFixture(t)
+	caseRoot := filepath.Join(t.TempDir(), "mission-case")
+	if err := os.MkdirAll(caseRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := casebind.WriteInstance(caseRoot, repoRoot, pack, "mission-raw"); err != nil {
+		t.Fatal(err)
+	}
+	identity := missionintent.Identity{
+		SchemaVersion: 1, Target: caseRoot, Pack: pack, ProjectName: "mission-raw",
+		Goal: "verify raw source text", Actor: "mission-commander", Executor: "claude-code", InitialLane: "main",
+	}
+	missionBytes, err := missionintent.MarshalMissionIntent(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeText(t, filepath.Join(caseRoot, filepath.FromSlash(missionintent.MissionIntentRel)), string(missionBytes))
+	convertTreeTextLineEndings(t, repoRoot, "\n")
+	opt := ApplyOptions{ProjectName: "mission-raw", CreateLocalFiles: true, Command: "init"}
+	preview, err := InitPreview(repoRoot, caseRoot, pack, opt)
+	if err == nil || !strings.Contains(err.Error(), "onboarding intent is missing") {
+		t.Fatalf("partial mission fixture did not fail closed: preview=%+v err=%v", preview, err)
+	}
+
+	intent := missionintent.Intent{
+		SchemaVersion: 1, Kind: "mission-onboarding-intent", PublicationStamp: "20260812-010203004",
+		OnboardingPlanSHA256: strings.Repeat("a", 64), Identity: identity,
+		Recovery: missionintent.RecoveryEnvelope{
+			SchemaVersion: 1, RepoRoot: repoRoot, CreatedAt: "2026-08-12T01:02:03Z", Mode: "attached-adoption",
+			AttachedSnapshot: missionInitAttachedSnapshot(t, caseRoot),
+		},
+	}
+	intentBytes, err := missionintent.MarshalIntent(intent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commitBytes, err := missionintent.MarshalCommit(missionintent.Commit{
+		SchemaVersion: 1, Kind: "mission-onboarding-commit", PublicationStamp: intent.PublicationStamp,
+		OnboardingPlanSHA256: intent.OnboardingPlanSHA256, MissionIntentSHA256: missionintent.SHA256(missionBytes), IntentSHA256: missionintent.SHA256(intentBytes),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeText(t, filepath.Join(caseRoot, filepath.FromSlash(missionintent.IntentRel)), string(intentBytes))
+	writeText(t, filepath.Join(caseRoot, filepath.FromSlash(missionintent.CommitRel)), string(commitBytes))
+	preview, err = InitPreview(repoRoot, caseRoot, pack, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.TargetClass != "mission-case" {
+		t.Fatalf("mission init target class = %q", preview.TargetClass)
+	}
+	opt.ExpectedPlanSHA256 = preview.ExpectedPlanSHA256
+	if _, err := Apply(repoRoot, caseRoot, pack, opt); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{
+		".claude/skills/rekit/SKILL.md",
+		"references/template/README.md",
+		"references/template/task-handoff.md",
+	} {
+		data := readFile(t, filepath.Join(caseRoot, filepath.FromSlash(rel)))
+		if bytes.Contains(data, []byte("\r\n")) {
+			t.Fatalf("mission init canonicalized raw source at %s: %q", rel, data)
+		}
+	}
+}
+
+func missionInitAttachedSnapshot(t *testing.T, caseRoot string) []missionintent.SnapshotArtifact {
+	t.Helper()
+	artifacts := []missionintent.SnapshotArtifact{}
+	for _, fixture := range []struct {
+		path string
+		kind string
+	}{
+		{path: ".claude/skills/rekit/SKILL.md", kind: "case-local-thin-shim"},
+		{path: ".re-template.yml", kind: "legacy-metadata"},
+		{path: ".rekit/instance.yml", kind: "instance-metadata"},
+		{path: ".rekit/state.json", kind: "sync-state"},
+	} {
+		path := filepath.Join(caseRoot, filepath.FromSlash(fixture.path))
+		if fixture.path != ".rekit/instance.yml" {
+			writeText(t, path, "fixture\n")
+		}
+		data := readFile(t, path)
+		artifacts = append(artifacts, missionintent.SnapshotArtifact{Path: fixture.path, Kind: fixture.kind, SHA256: missionintent.SHA256(data), Size: int64(len(data))})
+	}
+	return artifacts
 }
 
 func TestOrdinaryInitSourceBytesChangePlanHash(t *testing.T) {
@@ -1192,6 +1454,24 @@ func exclusiveInitFixture(t *testing.T) (repoRoot, pack string) {
 	writeText(t, filepath.Join(repoRoot, ".claude", "skills", "rekit", "SKILL.md"), "# canonical test skill\n")
 	pack = fixturePack
 	return repoRoot, pack
+}
+
+func convertTreeTextLineEndings(t *testing.T, root, lineEnding string) {
+	t.Helper()
+	for _, rel := range []string{
+		"rekit/templates/case-shim/SKILL.md",
+		"packs/unit-pack/manifest.yml",
+		"packs/unit-pack/references/template/README.md",
+		"packs/unit-pack/references/template/task-handoff.template.md",
+		"packs/unit-pack/CLAUDE.local.snippet.md",
+	} {
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		data := readFile(t, path)
+		semantic := strings.ReplaceAll(strings.ReplaceAll(string(data), "\r\n", "\n"), "\r", "\n")
+		if err := os.WriteFile(path, []byte(strings.ReplaceAll(semantic, "\n", lineEnding)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 func copyTreeForExclusiveTest(sourceRoot, targetRoot string) error {

@@ -27,6 +27,7 @@ func main() {
 	flag.StringVar(&opt.Target, "target", "", "fresh or attached case root")
 	flag.StringVar(&opt.Pack, "pack", "", "optional attached pack override")
 	flag.StringVar(&opt.SelectedLane, "lane", "", "exact current lane selected for this invocation")
+	flag.StringVar(&opt.ExpectedCurrentDriverRequestSHA256, "expected-current-driver-request-sha256", "", "exact fresh missionControlRunbook current driver request sha256")
 	flag.StringVar(&opt.Actor, "actor", "rekit-claude-host", "durable host actor")
 	flag.StringVar(&opt.ClaudePath, "claude", "", "Claude Code executable path")
 	flag.StringVar(&opt.Model, "model", "", "optional Claude model")
@@ -40,6 +41,14 @@ func main() {
 	flag.Parse()
 
 	if err := validateAdapterFlag(*liveAcceptance, opt.Pack, liveOpt.AdapterPath); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	ordinaryHostRequested := !publicModeRequested(*daily, *liveAcceptance, *liveSupervisionAcceptance, *livePackMemoryAcceptance, *liveSoakAcceptance) &&
+		strings.TrimSpace(liveOpt.Goal) == "" && strings.TrimSpace(liveOpt.Correction) == "" &&
+		strings.TrimSpace(*internalSupervisor) == "" && strings.TrimSpace(*internalSupervisorSHA256) == "" &&
+		strings.TrimSpace(*internalPackMemoryAcceptance) == "" && strings.TrimSpace(*internalPackMemoryAcceptanceSHA256) == ""
+	if err := validateExpectedCurrentDriverRequestFlag(opt.ExpectedCurrentDriverRequestSHA256, ordinaryHostRequested); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
@@ -143,6 +152,10 @@ func main() {
 	}
 
 	if *daily || strings.TrimSpace(liveOpt.Goal) != "" || strings.TrimSpace(liveOpt.Correction) != "" {
+		if strings.TrimSpace(opt.ExpectedCurrentDriverRequestSHA256) != "" {
+			fmt.Fprintln(os.Stderr, "-expected-current-driver-request-sha256 is supported only by the ordinary rekit-host mode")
+			os.Exit(2)
+		}
 		if strings.TrimSpace(liveOpt.ReceiptPath) != "" || liveOpt.KeepCase {
 			fmt.Fprintln(os.Stderr, "-receipt and -keep-case are supported only by -live-acceptance")
 			os.Exit(2)
@@ -170,6 +183,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "-receipt and -keep-case are supported only by -live-acceptance")
 		os.Exit(2)
 	}
+	opt.RequireCurrentDriverRequest()
 	result, err := sessionhost.Run(context.Background(), opt)
 	printResult(result, err)
 }
@@ -237,6 +251,13 @@ func validateAdapterFlag(liveAcceptance bool, pack, adapterPath string) error {
 	pack = strings.ToLower(strings.TrimSpace(pack))
 	if liveAcceptance && (pack == "" || pack == "vmp-re") && adapterPath == "" {
 		return fmt.Errorf("vmp-re live acceptance requires -adapter with the built rekit-adapter-host executable")
+	}
+	return nil
+}
+
+func validateExpectedCurrentDriverRequestFlag(value string, ordinaryHost bool) error {
+	if strings.TrimSpace(value) != "" && !ordinaryHost {
+		return fmt.Errorf("-expected-current-driver-request-sha256 is supported only by the ordinary rekit-host mode")
 	}
 	return nil
 }

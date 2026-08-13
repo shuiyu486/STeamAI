@@ -60,7 +60,10 @@ func runCurrentLoopExternalSessionRelay(ctx runtime.Context, opt Options, out io
 		if expected := strings.TrimSpace(opt.ExpectedExternalSessionJobSHA256); expected == "" || !strings.EqualFold(expected, plan.JobSHA256) {
 			return fmt.Errorf("external session relay expected job sha256 mismatch: got %s want %s", expected, plan.JobSHA256)
 		}
-		plan.ApplyCommand = externalSessionRelayApplyCommand(plan)
+		plan.ApplyCommand = selectedLaneCommand(
+			externalSessionRelayApplyCommand(plan),
+			opt.SelectedCurrentLane,
+		)
 		return writeJSON(out, plan)
 	}
 	applied, err := externalsession.ApplyCurrent(plan, opt.ExpectedExternalSessionJobSHA256, opt.ExpectedExternalSessionSubmissionSHA256, opt.ExpectedExternalSessionRelayPlanSHA256, func() (externalsession.Job, error) {
@@ -105,15 +108,30 @@ func bindExternalSessionJob(target string, pkg *mission.CurrentLoopOperatorPacka
 	}
 	job, err := externalSessionJobFor(target, pkg, inspection)
 	if err != nil {
+		if pkg.ExternalMemberHandoff != nil || pkg.ExternalReviewerHandoff != nil {
+			pkg.Ready = false
+			pkg.State = "external-session-job-invalid"
+			pkg.Boundary = mission.UniqueStrings(append(pkg.Boundary, err.Error()))
+		}
 		return
 	}
 	job.DispatchRequired = true
 	inspected, err := externalsession.Inspect(job)
 	if err != nil {
+		pkg.Ready = false
+		pkg.State = "external-session-job-invalid"
+		pkg.Boundary = mission.UniqueStrings(
+			append(pkg.Boundary, err.Error()),
+		)
 		return
 	}
 	attempt, err := externalsession.InspectAttempt(job)
 	if err != nil {
+		pkg.Ready = false
+		pkg.State = "external-session-attempt-invalid"
+		pkg.Boundary = mission.UniqueStrings(
+			append(pkg.Boundary, err.Error()),
+		)
 		return
 	}
 	dispatch, err := externalsession.InspectDispatch(job, attempt)

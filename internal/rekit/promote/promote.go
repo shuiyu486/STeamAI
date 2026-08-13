@@ -15,6 +15,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/review"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/sourceartifact"
 )
 
 type CandidateOptions struct {
@@ -371,7 +372,7 @@ func Plan(repoRoot, caseRoot, pack string) (review.Plan, error) {
 		if caseExists {
 			violations = review.MatchAny(caseText, denyPatterns)
 		}
-		changed := caseText != packText
+		changed := !sourceTextEqual(caseText, packText)
 		action := "candidate-after-llm-review"
 		switch {
 		case !caseExists:
@@ -428,6 +429,10 @@ func Plan(repoRoot, caseRoot, pack string) (review.Plan, error) {
 		tooling = append(tooling, review.Item{Path: rel, Kind: "tooling-candidate-source", Direction: "case-to-kit", Action: action, RiskLevel: risk, SourcePath: source, SourceHash: review.FileHash(source), ReplacementCounts: counts, DenyViolations: remaining, MechanicalRecommendation: recommendation, SanitizedPreviewText: previewText})
 	}
 	return review.Plan{SchemaVersion: 1, Command: "promote", Direction: "case-to-kit", CaseRoot: caseRoot, RepoRoot: repoRoot, Pack: pack, ManifestPath: m.ManifestPath, ManifestVersion: m.Version, Items: items, ToolingItems: tooling}, nil
+}
+
+func sourceTextEqual(left, right string) bool {
+	return string(sourceartifact.SemanticText([]byte(left))) == string(sourceartifact.SemanticText([]byte(right)))
 }
 
 func CreateCandidates(repoRoot, caseRoot, pack string, opt CandidateOptions) (CandidateResult, error) {
@@ -1362,8 +1367,8 @@ func candidateMissionCommanderNextActions(result CandidateResult, plan Candidate
 			reasons = append(reasons, "update or remove indexPath after deleting candidatePath")
 		}
 		items = append(items, mission.MissionCommanderNextActionItem{
-			Lane:           target.Path,
 			Label:          label,
+			ActionID:       "cleanup-pack-memory-candidate:" + target.Path,
 			State:          mode + ":cleanup-candidate",
 			Command:        "delete candidatePath and update/remove indexPath",
 			Source:         "reviewPlan.cleanupTargets",

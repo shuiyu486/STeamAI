@@ -261,7 +261,7 @@ func TestRunReviewerStepIntakesDirectResultAfterDispatchReceipt(t *testing.T) {
 		t.Fatalf("direct-write handoff omitted typed no-flag success alternative: %+v", waiting.ExternalHandoff)
 	}
 	out.Reset()
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var waitingStatus statusInventory
@@ -322,7 +322,7 @@ func TestRunReviewerStepIntakesDirectResultAfterDispatchReceipt(t *testing.T) {
 	if intakeLoop.ExpectedCurrentLoopPlanSHA256 == "" || intakeLoop.InitialCurrentStep == nil || intakeLoop.InitialCurrentStep.CurrentDriverRequest.RunLoopStepID != "intake-results" {
 		t.Fatalf("direct result did not enter fresh current-loop intake: %+v", intakeLoop)
 	}
-	runCurrentLoopApplyWith(t, caseRoot, intakeLoop, "-Actor", actor)
+	runCurrentLoopApplyWith(t, caseRoot, intakeLoop, "-Lane", "main", "-Actor", actor)
 	for _, ledger := range []string{"verifications.jsonl", "decisions.jsonl"} {
 		data, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "facts", ledger))
 		if err != nil || !strings.Contains(string(data), packet.PacketID) {

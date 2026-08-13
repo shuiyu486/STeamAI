@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
 func TestCurrentReviewerRejectionProbeAllowsMissingBootstrapBoard(t *testing.T) {
@@ -17,6 +18,140 @@ func TestCurrentReviewerRejectionProbeAllowsMissingBootstrapBoard(t *testing.T) 
 	if err != nil || rejected {
 		t.Fatalf("missing bootstrap board rejection probe: rejected=%t err=%v", rejected, err)
 	}
+}
+
+func TestRunPublicHostRequiresFreshCurrentDriverRequestBeforeClaudeResolution(t *testing.T) {
+	opt := Options{Target: t.TempDir(), ClaudePath: missingClaudePath(t), MaxAttempts: 1}
+	opt.RequireCurrentDriverRequest()
+	result, err := Run(context.Background(), opt)
+	if err == nil || !strings.Contains(err.Error(), "exact current driver request SHA-256") {
+		t.Fatalf("missing current driver request binding: result=%+v err=%v", result, err)
+	}
+	if result.Failure == nil || result.Failure.Code != "current-driver-request-required" || result.Failure.Stage != "driver-request-currentness" || result.Failure.MutationApplied || result.Failure.MutationBoundary != "none" {
+		t.Fatalf("missing request binding diagnosis=%+v", result.Failure)
+	}
+	if result.SessionLaunches != 0 || len(result.Sessions) != 0 {
+		t.Fatalf("missing request binding launched Claude: %+v", result)
+	}
+}
+
+func TestRunPublicHostRejectsMalformedCurrentDriverRequestBeforeClaudeResolution(t *testing.T) {
+	opt := Options{
+		Target: t.TempDir(), ClaudePath: missingClaudePath(t), MaxAttempts: 1,
+		ExpectedCurrentDriverRequestSHA256: strings.Repeat("z", 64),
+	}
+	opt.RequireCurrentDriverRequest()
+	result, err := Run(context.Background(), opt)
+	if err == nil || result.Failure == nil || result.Failure.Code != "current-driver-request-required" || result.Failure.Stage != "driver-request-currentness" || result.SessionLaunches != 0 {
+		t.Fatalf("malformed request binding: result=%+v err=%v", result, err)
+	}
+}
+
+func TestRunPublicHostRejectsStaleCurrentDriverRequestWithoutMutation(t *testing.T) {
+	repo := sessionhostTestRepoRoot(t)
+	caseRoot := provisionSessionhostAttachedCase(t, repo, "_template")
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	if _, err := applyDailyOnboarding(caseRoot, "bind a stale host request", "host-request-test", &bootstrap); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotDailyCaseFiles(t, caseRoot)
+	opt := Options{
+		Target: caseRoot, Pack: "_template", SelectedLane: bootstrap.Lane,
+		ClaudePath: missingClaudePath(t), MaxAttempts: 1,
+		ExpectedCurrentDriverRequestSHA256: strings.Repeat("0", 64),
+	}
+	opt.RequireCurrentDriverRequest()
+	result, err := Run(context.Background(), opt)
+	if err == nil || result.Failure == nil || result.Failure.Code != "current-driver-request-stale" || result.Failure.Stage != "driver-request-currentness" {
+		t.Fatalf("stale current request: result=%+v err=%v", result, err)
+	}
+	if result.Failure.MutationApplied || result.SessionLaunches != 0 || len(result.Sessions) != 0 {
+		t.Fatalf("stale current request crossed zero-write boundary: %+v", result)
+	}
+	assertDailyCaseFilesEqual(t, before, snapshotDailyCaseFiles(t, caseRoot))
+}
+
+func TestRunPublicHostRequiresTypedLaneChoiceForMultipleCurrentLanes(t *testing.T) {
+	repo := sessionhostTestRepoRoot(t)
+	caseRoot := provisionSessionhostAttachedCase(t, repo, "_template")
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	inspection, err := applyDailyOnboarding(caseRoot, "bind an ambiguous host request", "host-request-test", &bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap.Lane = inspection.Identity.InitialLane
+	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := workstream.StartApply(repo, caseRoot, inspection.Identity.Pack, workstream.StartOptions{
+		Name: "login", Actor: "host-request-test", Executor: "session-login", TakeoverReason: "ordinary host lane choice regression",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	status, err := runStatus(Options{Target: caseRoot, Pack: inspection.Identity.Pack})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.MissionControlRunbook == nil || status.MissionControlRunbook.CurrentDriverRequest != nil || status.MissionControlRunbook.CurrentDriverRequestSHA256 != "" || len(publicCaseMissionLaneChoices(status.CaseMission)) < 2 {
+		t.Fatalf("multi-lane fixture did not require a typed lane choice: %+v", status)
+	}
+	before := snapshotDailyCaseFiles(t, caseRoot)
+	opt := Options{
+		Target: caseRoot, Pack: inspection.Identity.Pack,
+		ClaudePath: missingClaudePath(t), MaxAttempts: 1,
+		ExpectedCurrentDriverRequestSHA256: strings.Repeat("0", 64),
+	}
+	opt.RequireCurrentDriverRequest()
+	result, err := Run(context.Background(), opt)
+	if err == nil || result.Failure == nil || result.Failure.Code != "current-driver-request-lane-required" || result.Failure.Stage != "driver-request-currentness" {
+		t.Fatalf("ambiguous current request: result=%+v err=%v", result, err)
+	}
+	if result.Failure.MutationApplied || result.Failure.MutationBoundary != "none" || result.SessionLaunches != 0 || len(result.Sessions) != 0 {
+		t.Fatalf("ambiguous current request crossed zero-write boundary: %+v", result)
+	}
+	assertDailyCaseFilesEqual(t, before, snapshotDailyCaseFiles(t, caseRoot))
+}
+
+func TestRunPublicHostAcceptsFreshRequestForExplicitLane(t *testing.T) {
+	repo := sessionhostTestRepoRoot(t)
+	caseRoot := provisionSessionhostAttachedCase(t, repo, "_template")
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	inspection, err := applyDailyOnboarding(caseRoot, "bind an explicit host lane", "host-request-test", &bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap.Lane = inspection.Identity.InitialLane
+	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := workstream.StartApply(repo, caseRoot, inspection.Identity.Pack, workstream.StartOptions{
+		Name: "login", Actor: "host-request-test", Executor: "session-login", TakeoverReason: "ordinary host explicit lane regression",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	selected := "feature-login"
+	status, err := runStatus(Options{Target: caseRoot, Pack: inspection.Identity.Pack, SelectedLane: selected})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.MissionControlRunbook == nil || status.MissionControlRunbook.CurrentDriverRequest == nil || status.MissionControlRunbook.CurrentDriverRequest.Lane != selected {
+		t.Fatalf("selected-lane status omitted its request: %+v", status)
+	}
+	before := snapshotDailyCaseFiles(t, caseRoot)
+	opt := Options{
+		Target: caseRoot, Pack: inspection.Identity.Pack, SelectedLane: selected,
+		ClaudePath: missingClaudePath(t), MaxAttempts: 1,
+		ExpectedCurrentDriverRequestSHA256: status.MissionControlRunbook.CurrentDriverRequestSHA256,
+	}
+	opt.RequireCurrentDriverRequest()
+	result, err := Run(context.Background(), opt)
+	if err == nil || result.Failure == nil || result.Failure.Code != "claude-executable-unavailable" || result.Failure.Stage != "executable-resolution" {
+		t.Fatalf("fresh selected-lane request did not reach executable resolution: result=%+v err=%v", result, err)
+	}
+	if result.Failure.MutationApplied || result.SessionLaunches != 0 || len(result.Sessions) != 0 {
+		t.Fatalf("selected-lane executable failure crossed zero-write boundary: %+v", result)
+	}
+	assertDailyCaseFilesEqual(t, before, snapshotDailyCaseFiles(t, caseRoot))
 }
 
 func TestRunStopsForExecutionEvidenceReviewWithoutLaunchingClaude(t *testing.T) {

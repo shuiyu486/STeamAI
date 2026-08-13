@@ -56,11 +56,11 @@
 | 短 goal / 接手 cadence | `docs/autonomous-goal.md` 顶部 80-120 行；goal 只启动已批准路线 | 不复制整段 goal 到每次总结，不让 goal 自由选题 |
 | 当前多批次真实使用路线 | `docs/real-usage-hardening-roadmap.md` 顶部 + 当前批次卡 | 不预读后续批次全文，不从旧复审报告替换当前顺序 |
 | 2026-07-28 项目复审 / 历史中长期建议 | `docs/project-reassessment-2026-07-28.md` 顶部执行区；仅在路线整体复审时按需读取 | 不把复审报告加入每轮默认 read-first，不用它临时选批 |
-| 当前真实可用性 / 产品化程度复评 | `docs/current-usability-assessment-2026-08-11.md` 顶部执行区；仅在判断“现在能否真实使用、产品化还差什么、下一轮优先改善什么”时按需读取 | 不把一次性评估快照当当前路线、release green 或默认 read-first；旧的 `2026-08-09` 快照只供历史对比，关键结论仍需用当前仓库状态和实跑重新核对 |
+| 当前真实可用性 / 产品化程度复评 | `docs/current-usability-assessment-2026-08-11.md` 顶部执行区；先只判断 Windows 本机能否真实日用、还差什么和下一步改善什么 | 不把远程 CI、Linux/macOS、三平台兼容或预编译安装包纳入当前评分；只有用户明确启动正式发布、跨平台或安装交付专项时才评估。也不把一次性评估快照当当前路线或默认 read-first，关键结论仍需用 Windows 本机实跑核对 |
 | 日常产品收口实施方案 | `docs/daily-product-closure-plan.md` 顶部执行区；四个 `DPC-*` 与整体验收均已完成，只在复核完成证据时按需读取共同边界和对应卡 | 不从已完成设计自行开始下一阶段，不默认预读四张长卡 |
 | 当前 batch 和指针投影 | `docs/batch-plan.md` 顶部 current milestone / roadmap pointer / current state / latest completed；执行旧健康恢复考古时再读 `docs/health-recovery-and-real-executor-plan.md` 顶部 | 不读 `docs/batch-history.md`，也不默认读旧执行专文全文 |
 | 旧 batch 细节 / 考古 | `docs/batch-history.md` 中按 Batch ID 搜索 | 不从 Batch 0 顺序读 |
-| release / CI 判断 | `docs/release-readiness.md` 顶部和 Known gaps；再看 `release-check -Format json` | 不把 `ciReleaseGate.ready` 当远程 green |
+| 正式发布 / CI 判断（仅用户明确要求正式发布、跨平台专项或周期复审时） | `docs/release-readiness.md` 顶部和 Known gaps；再看 `release-check -Format json` | 判断 Windows 当前能否日用时不要进入远程 jobs、Linux/macOS、三平台兼容或安装验收；也不把 `ciReleaseGate.ready` 当远程 green |
 | PowerShell façade / removal | `docs/powershell-deprecation.md` 顶部和相关矩阵行 | 不默认运行 façade smoke |
 | Go runtime / command owner | CodeGraph 查询 `internal/rekit/**`，必要时读 `docs/go-first-convergence-plan.md` 或 `docs/go-runtime-migration.md` 顶部 | 不先读历史 migration 全文 |
 | ledger / evidence / intervention 字段 | `docs/evidence-ledger.md` 顶部和对应事件类型 | 不读取完整 case ledger 或复制大 sidecar |
@@ -83,5 +83,5 @@
 
 - 渐进式披露不是删除事实；只是把事实放到正确层级，并通过路由按需读取。
 - 不要把历史归档重新并回 `docs/batch-plan.md`。
-- 当前产品支持和普通 batch 完成门槛以 Windows 本机为准；远程 Linux/macOS/Windows CI 是异步发布/专项/周期复审信号，不阻塞本机 Mission Control 闭环或下一批选择。
+- 当前产品支持、可用性评价和普通 batch 完成门槛只看 Windows 本机实跑。远程 CI、Linux/macOS、三平台兼容和预编译安装包只属于未来正式发布/专项范围，不阻塞当前闭环、不影响当前成熟度评分，也不能用来否定 Windows 本机结果；除非用户明确要求，不主动检查或讨论。
 - actual heavy-tool、authority/confirmed、sync/promote 写回、runtime schema 迁移和公共 façade 删除仍按对应 gate 升级。

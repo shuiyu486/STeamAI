@@ -111,7 +111,11 @@ func applyDriverStepPlan(ctx runtime.Context, opt Options, plan driverStepPlan) 
 			return plan, fmt.Errorf("refresh status after driver step: %w", err)
 		}
 	}
-	refreshed, err := buildInvocationStatusInventory(ctx, opt)
+	refreshOpt, err := optionsWithEffectiveSelectedCurrentLane(opt, plan.ApplyDriverRequest.Lane)
+	if err != nil {
+		return plan, fmt.Errorf("refresh status after driver step: %w", err)
+	}
+	refreshed, err := buildInvocationStatusInventoryAfterMutation(ctx, refreshOpt)
 	if err != nil {
 		return plan, fmt.Errorf("refresh status after driver step: %w", err)
 	}
@@ -140,6 +144,9 @@ func buildDriverStepPlanFromStatus(ctx runtime.Context, status statusInventory) 
 		return driverStepPlan{}, fmt.Errorf("run-driver-step supports only case-scoped current driver requests; got %q", status.MissionControlRunbook.Scope)
 	}
 	request := *status.MissionControlRunbook.CurrentDriverRequest
+	if lane := strings.TrimSpace(request.Lane); lane != "" {
+		bindSelectedLaneDriverRequest(&request, lane)
+	}
 	previewOpt, err := parseBoundedDriverRequest(ctx, request, false)
 	if err != nil {
 		return driverStepPlan{}, err
@@ -156,10 +163,13 @@ func buildDriverStepPlanFromStatus(ctx runtime.Context, status statusInventory) 
 	if err != nil {
 		return driverStepPlan{}, err
 	}
+	if lane := strings.TrimSpace(request.Lane); lane != "" {
+		bindSelectedLaneDriverRequest(&applyRequest, lane)
+	}
 	if _, err := parseBoundedDriverRequest(ctx, applyRequest, true); err != nil {
 		return driverStepPlan{}, fmt.Errorf("returned apply driver request: %w", err)
 	}
-	if !strings.EqualFold(driverStepCommandName(request.Command), driverStepCommandName(applyRequest.Command)) {
+	if request.Invocation == nil || applyRequest.Invocation == nil || request.Invocation.Validate() != nil || applyRequest.Invocation.Validate() != nil || request.Invocation.Command != applyRequest.Invocation.Command {
 		return driverStepPlan{}, fmt.Errorf("returned apply driver request command differs from current preview request")
 	}
 	previewEncoded, err := json.Marshal(preview)
@@ -291,6 +301,15 @@ func qualifyDriverStepApplyRequest(ctx runtime.Context, request mission.MissionC
 		fields = append(fields, "-Format", "json")
 	}
 	request.Command = joinDriverCommand(fields)
+	request.ExpectedReceipt.Command = request.Command
+	invocation, err := commands.ParsePublicInvocation(request.Command)
+	if err != nil {
+		return mission.MissionCommanderDriverRequest{}, err
+	}
+	request.Invocation = &invocation
+	if err := mission.ValidateMissionCommanderDriverRequest(request); err != nil {
+		return mission.MissionCommanderDriverRequest{}, err
+	}
 	return request, nil
 }
 
@@ -312,6 +331,9 @@ func parseBoundedDriverRequest(ctx runtime.Context, request mission.MissionComma
 		return Options{}, fmt.Errorf("driver request command %q is outside the run-driver-step allowlist", fields[1])
 	}
 	if err := validateBoundedDriverTokens(fields[1], fields[2:], apply); err != nil {
+		return Options{}, err
+	}
+	if err := mission.ValidateMissionCommanderDriverRequest(request); err != nil {
 		return Options{}, err
 	}
 	inner, err := Parse(append([]string{"-Command", fields[1]}, fields[2:]...))
@@ -433,10 +455,13 @@ func validateBoundedDriverTokens(command string, fields []string, apply bool) er
 		if seen["-name"] {
 			selectorKinds++
 		}
+		if seen["-lane"] && seen["-name"] {
+			selectorKinds--
+		}
 		if selectorKinds != 1 {
 			return fmt.Errorf("start driver request requires exactly one lane selector")
 		}
-		if seen["-lane"] || seen["-interventionid"] || seen["-expectedexecutorgeneration"] || seen["-summary"] || (seen["-actor"] || seen["-reason"]) && !seen["-executor"] {
+		if seen["-interventionid"] || seen["-expectedexecutorgeneration"] || seen["-summary"] || (seen["-actor"] || seen["-reason"]) && !seen["-executor"] {
 			return fmt.Errorf("start driver request contains flags outside its bounded contract")
 		}
 	case commands.Continue:
@@ -453,7 +478,7 @@ func validateBoundedDriverTokens(command string, fields []string, apply bool) er
 		if !seen["-actor"] || !seen["-reason"] || !seen["-evidencerefs"] {
 			return fmt.Errorf("complete driver request requires -Actor, -Reason, and -EvidenceRefs")
 		}
-		if seen["-name"] || seen["-lane"] || seen["-interventionid"] || seen["-executor"] || seen["-summary"] || seen["-expectedexecutorgeneration"] {
+		if seen["-name"] || seen["-interventionid"] || seen["-executor"] || seen["-summary"] || seen["-expectedexecutorgeneration"] {
 			return fmt.Errorf("complete driver request contains flags outside its bounded contract")
 		}
 		if apply != seen["-expectedcompleteplansha256"] {
@@ -708,14 +733,11 @@ func joinDriverCommand(fields []string) string {
 }
 
 func SplitPublicCommand(command string) ([]string, error) {
-	fields, err := splitDriverCommand(command)
+	invocation, err := commands.ParsePublicInvocation(command)
 	if err != nil {
 		return nil, err
 	}
-	if len(fields) < 2 || fields[0] != "/rekit" || strings.TrimSpace(fields[1]) == "" {
-		return nil, fmt.Errorf("public driver command must begin with /rekit <command>")
-	}
-	return append([]string{"-Command", fields[1]}, fields[2:]...), nil
+	return invocation.CLIArgs()
 }
 
 func splitDriverCommand(command string) ([]string, error) {

@@ -121,16 +121,19 @@ func TestRunLaneCompletionProductPathRoutesNextLaneAndMissionComplete(t *testing
 	if strings.Contains(string(runbookJSON), "start <name>") || strings.Contains(string(runbookJSON), "/rekit continue") || strings.Contains(string(runbookJSON), "handoff-preview") {
 		t.Fatalf("mission-complete runbook leaked non-terminal action guidance: %s", runbookJSON)
 	}
-	for _, args := range [][]string{
-		{"-Command", "continue", "verifier", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"},
-		{"-Command", "handoff", "verifier", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"},
-		{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-Kind", "observation", "-Lane", "feature-verifier", "-Summary", "late note", "-WhatIf", "-Format", "json"},
-		{"-Command", "gate", "-Target", caseRoot, "-Pack", "_template", "-Action", "debug", "-Lane", "feature-verifier", "-WhatIf", "-Format", "json"},
-		{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-Lane", "feature-verifier", "-TaskType", "feature-analysis", "-Items", "late-review", "-Format", "json"},
+	for _, test := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"-Command", "continue", "verifier", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, "refuses closed lane"},
+		{[]string{"-Command", "handoff", "verifier", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, `selected current lane "feature-verifier" has no current driver request`},
+		{[]string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-Kind", "observation", "-Lane", "feature-verifier", "-Summary", "late note", "-WhatIf", "-Format", "json"}, "refuses closed lane"},
+		{[]string{"-Command", "gate", "-Target", caseRoot, "-Pack", "_template", "-Action", "debug", "-Lane", "feature-verifier", "-WhatIf", "-Format", "json"}, "refuses closed lane"},
+		{[]string{"-Command", "plan-subagents", "-Target", caseRoot, "-Pack", "_template", "-Lane", "feature-verifier", "-TaskType", "feature-analysis", "-Items", "late-review", "-Format", "json"}, "refuses closed lane"},
 	} {
 		out.Reset()
-		if err := Run(args, &out); err == nil || !strings.Contains(err.Error(), "refuses closed lane") {
-			t.Fatalf("closed lane mutation must fail closed: args=%+v err=%v", args, err)
+		if err := Run(test.args, &out); err == nil || !strings.Contains(err.Error(), test.want) {
+			t.Fatalf("closed lane mutation must fail closed: args=%+v err=%v", test.args, err)
 		}
 	}
 }

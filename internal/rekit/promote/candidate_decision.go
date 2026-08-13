@@ -21,6 +21,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/sourceartifact"
 )
 
 const maxCandidateDecisionBytes = 1024 * 1024
@@ -1721,7 +1722,12 @@ func verifyCandidateDecisionCaseContent(packRoot, caseRoot, label string, action
 		if err := rejectCandidateDecisionSymlinkPath(caseRoot, caseTarget, false); err != nil {
 			return err
 		}
-		if fileSHA256(caseTarget) == "" || fileSHA256(caseTarget) != fileSHA256(action.CandidateBackupPath) {
+		caseData, err := os.ReadFile(caseTarget)
+		if err != nil {
+			return fmt.Errorf("%s case has not reconsumed accepted candidate content: %s", label, caseTarget)
+		}
+		candidateData, err := os.ReadFile(action.CandidateBackupPath)
+		if err != nil || !bytes.Equal(sourceartifact.SemanticText(caseData), sourceartifact.SemanticText(candidateData)) {
 			return fmt.Errorf("%s case has not reconsumed accepted candidate content: %s", label, caseTarget)
 		}
 	}

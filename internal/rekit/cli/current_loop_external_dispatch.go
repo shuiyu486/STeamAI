@@ -74,7 +74,10 @@ func runCurrentLoopExternalSessionDispatch(ctx runtime.Context, opt Options, out
 		if strings.TrimSpace(opt.ExpectedExternalSessionDispatchPlanSHA256) != "" {
 			return fmt.Errorf("external session dispatch WhatIf does not accept a dispatch plan hash")
 		}
-		plan.ApplyCommand = externalSessionDispatchApplyCommand(plan)
+		plan.ApplyCommand = selectedLaneCommand(
+			externalSessionDispatchApplyCommand(plan),
+			opt.SelectedCurrentLane,
+		)
 		return writeJSON(out, plan)
 	}
 	applied, err := externalsession.ApplyDispatchTransitionCurrent(

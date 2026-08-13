@@ -74,7 +74,10 @@ func runCurrentLoopExternalSessionAttempt(ctx runtime.Context, opt Options, out 
 		if strings.TrimSpace(opt.ExpectedExternalSessionAttemptPlanSHA256) != "" {
 			return fmt.Errorf("external session attempt WhatIf does not accept an attempt plan hash")
 		}
-		plan.ApplyCommand = externalSessionAttemptApplyCommand(plan)
+		plan.ApplyCommand = selectedLaneCommand(
+			externalSessionAttemptApplyCommand(plan),
+			opt.SelectedCurrentLane,
+		)
 		return writeJSON(out, plan)
 	}
 	applied, err := externalsession.ApplyAttemptCurrent(plan, opt.ExpectedExternalSessionJobSHA256, opt.ExpectedExternalSessionAttemptPlanSHA256, func() (externalsession.Job, error) {

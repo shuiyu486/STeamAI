@@ -28,7 +28,7 @@ func TestRunCurrentStepRoutesLaneThenReviewerLifecycle(t *testing.T) {
 	if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	base := []string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}
+	base := []string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-WhatIf", "-Format", "json"}
 
 	out.Reset()
 	err := Run([]string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-ReviewerHarness", "unexpected", "-WhatIf", "-Format", "json"}, &out)
@@ -130,7 +130,7 @@ func TestRunCurrentStepRoutesLaneThenReviewerLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	out.Reset()
-	err = Run([]string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-ExpectedCurrentStepPlanSha256", driftPreview.ExpectedCurrentStepPlanSHA256, "-Apply", "-Format", "json"}, &out)
+	err = Run([]string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-ExpectedCurrentStepPlanSha256", driftPreview.ExpectedCurrentStepPlanSHA256, "-Apply", "-Format", "json"}, &out)
 	if err == nil || !strings.Contains(err.Error(), "expected plan sha256 mismatch") {
 		t.Fatalf("valid current-step plan survived durable state drift: %v", err)
 	}
@@ -182,7 +182,7 @@ func TestRunCurrentStepStopsForExecutionEvidenceReviewBeforeMemberDispatch(t *te
 
 func TestRunCurrentStepEvidenceReviewSupersedesReadyExternalMemberCheckpoint(t *testing.T) {
 	caseRoot := currentStepMemberCase(t, "checkpoint-member")
-	loop := runCurrentLoopPreview(t, caseRoot, 2)
+	loop := runCurrentLoopPreviewWith(t, caseRoot, 2, "-Lane", "main")
 	if loop.InitialCurrentStep == nil || loop.InitialCurrentStep.MemberExecution == nil {
 		t.Fatalf("member loop preview omitted dispatch: %+v", loop)
 	}
@@ -211,22 +211,25 @@ func TestRunCurrentStepEvidenceReviewSupersedesReadyExternalMemberCheckpoint(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	status, err := buildStatusInventory(ctx, "")
+	status, err := buildInvocationStatusInventory(ctx, Options{
+		Command:             commands.Status,
+		SelectedCurrentLane: "main",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	runbook := status.MissionControlRunbook
 	if runbook == nil || runbook.CurrentDriverRequest == nil ||
 		!currentStepRequestIsEvidenceReview(*runbook.CurrentDriverRequest) ||
-		runbook.CurrentLoopOperator == nil || runbook.CurrentLoopOperator.ExternalSessionJob == nil ||
-		runbook.CurrentLoopOperator.SourceCurrentDriverRequest == nil ||
-		!currentStepRequestIsEvidenceReview(*runbook.CurrentLoopOperator.SourceCurrentDriverRequest) {
-		t.Fatalf("ready checkpoint hid the evidence-review source: %+v", runbook)
+		runbook.CurrentLoopSegment == nil ||
+		runbook.CurrentLoopOperator == nil ||
+		runbook.CurrentLoopOperator.ExternalSessionJob != nil {
+		t.Fatalf("evidence review did not suppress the prior external checkpoint handoff: %+v", runbook)
 	}
 	before := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 	preview := runCurrentStepPreview(t, []string{
 		"-Command", "run-current-step", "-Target", caseRoot,
-		"-Pack", "_template", "-WhatIf", "-Format", "json",
+		"-Pack", "_template", "-Lane", "main", "-WhatIf", "-Format", "json",
 	})
 	if !currentStepRequestIsEvidenceReview(preview.CurrentDriverRequest) ||
 		preview.MemberExecution != nil || preview.DriverStep != nil ||
@@ -457,7 +460,7 @@ func TestRunCurrentStepDurableMemberExecutionFixtureHandoffAndIntake(t *testing.
 		t.Fatal("member journey start Apply route is not executable")
 	}
 	runCompletionJSON(t, &out, append(startApplyArgs, "-Target", caseRoot, "-Pack", "_template", "-Format", "json"), nil)
-	base := []string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}
+	base := []string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-Lane", "feature-analysis", "-WhatIf", "-Format", "json"}
 	dispatch := runCurrentStepPreview(t, base)
 	if dispatch.MemberExecution == nil || dispatch.MemberExecution.ExternalHandoff == nil || dispatch.ExpectedCurrentStepPlanSHA256 == "" {
 		t.Fatalf("member dispatch preview mismatch: %+v", dispatch)
@@ -479,14 +482,14 @@ func TestRunCurrentStepDurableMemberExecutionFixtureHandoffAndIntake(t *testing.
 	if recoveredDispatch.ExpectedCurrentStepPlanSHA256 != dispatch.ExpectedCurrentStepPlanSHA256 || recoveredDispatch.MemberExecution == nil || recoveredDispatch.MemberExecution.ExpectedPlanSHA256 != memberHash || recoveredDispatch.MemberExecution.AttemptID != attempt {
 		t.Fatalf("public current-step did not reconstruct exact intent-only dispatch: recovered=%+v original=%+v", recoveredDispatch, dispatch)
 	}
-	apply := runMemberCurrentStep(t, caseRoot, []string{"-ExpectedMemberExecutionPlanSha256", memberHash, "-ExpectedCurrentStepPlanSha256", recoveredDispatch.ExpectedCurrentStepPlanSHA256, "-Apply"})
+	apply := runMemberCurrentStepForLane(t, caseRoot, "feature-analysis", []string{"-ExpectedMemberExecutionPlanSha256", memberHash, "-ExpectedCurrentStepPlanSha256", recoveredDispatch.ExpectedCurrentStepPlanSHA256, "-Apply"})
 	if !apply.Applied || apply.MemberExecution == nil || apply.MemberExecution.Inspection.State != "handoff-ready" || apply.Receipt == nil || apply.Receipt.State != "refreshed" || apply.Receipt.Outcome != "current-step-applied" || apply.RefreshedStatus == nil || apply.Receipt.RefreshedCurrentDriverRequest == nil {
 		t.Fatalf("member dispatch Apply mismatch: %+v", apply)
 	}
 
-	acceptedPreview := runMemberCurrentStep(t, caseRoot, []string{"-MemberExecutionAttemptId", attempt, "-MemberExecutionOutcome", "accepted", "-MemberExecutionObservedAt", "2026-08-03T02:01:00Z", "-Actor", "harness", "-WhatIf"})
-	acceptedAuthorized := runMemberCurrentStep(t, caseRoot, []string{"-MemberExecutionAttemptId", attempt, "-MemberExecutionOutcome", "accepted", "-MemberExecutionObservedAt", "2026-08-03T02:01:00Z", "-Actor", "harness", "-ExpectedMemberExecutionPlanSha256", acceptedPreview.MemberExecution.ExpectedPlanSHA256, "-WhatIf"})
-	acceptedApply := runMemberCurrentStep(t, caseRoot, []string{"-MemberExecutionAttemptId", attempt, "-MemberExecutionOutcome", "accepted", "-MemberExecutionObservedAt", "2026-08-03T02:01:00Z", "-Actor", "harness", "-ExpectedMemberExecutionPlanSha256", acceptedPreview.MemberExecution.ExpectedPlanSHA256, "-ExpectedCurrentStepPlanSha256", acceptedAuthorized.ExpectedCurrentStepPlanSHA256, "-Apply"})
+	acceptedPreview := runMemberCurrentStepForLane(t, caseRoot, "feature-analysis", []string{"-MemberExecutionAttemptId", attempt, "-MemberExecutionOutcome", "accepted", "-MemberExecutionObservedAt", "2026-08-03T02:01:00Z", "-Actor", "harness", "-WhatIf"})
+	acceptedAuthorized := runMemberCurrentStepForLane(t, caseRoot, "feature-analysis", []string{"-MemberExecutionAttemptId", attempt, "-MemberExecutionOutcome", "accepted", "-MemberExecutionObservedAt", "2026-08-03T02:01:00Z", "-Actor", "harness", "-ExpectedMemberExecutionPlanSha256", acceptedPreview.MemberExecution.ExpectedPlanSHA256, "-WhatIf"})
+	acceptedApply := runMemberCurrentStepForLane(t, caseRoot, "feature-analysis", []string{"-MemberExecutionAttemptId", attempt, "-MemberExecutionOutcome", "accepted", "-MemberExecutionObservedAt", "2026-08-03T02:01:00Z", "-Actor", "harness", "-ExpectedMemberExecutionPlanSha256", acceptedPreview.MemberExecution.ExpectedPlanSHA256, "-ExpectedCurrentStepPlanSha256", acceptedAuthorized.ExpectedCurrentStepPlanSHA256, "-Apply"})
 	if acceptedApply.MemberExecution == nil || acceptedApply.MemberExecution.Inspection.State != "accepted" || acceptedApply.RefreshedStatus == nil || acceptedApply.Receipt == nil || acceptedApply.Receipt.RefreshedCurrentDriverRequest == nil {
 		t.Fatalf("member accepted Apply mismatch: %+v", acceptedApply)
 	}
@@ -508,9 +511,9 @@ func TestRunCurrentStepDurableMemberExecutionFixtureHandoffAndIntake(t *testing.
 	if err := os.WriteFile(inspection.ManifestPath, manifestData, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	returnedPreview := runMemberCurrentStep(t, caseRoot, []string{"-MemberExecutionAttemptId", attempt, "-MemberExecutionOutcome", "returned", "-MemberExecutionObservedAt", "2026-08-03T02:02:00Z", "-Actor", "harness", "-WhatIf"})
-	returnedAuthorized := runMemberCurrentStep(t, caseRoot, []string{"-MemberExecutionAttemptId", attempt, "-MemberExecutionOutcome", "returned", "-MemberExecutionObservedAt", "2026-08-03T02:02:00Z", "-Actor", "harness", "-ExpectedMemberExecutionPlanSha256", returnedPreview.MemberExecution.ExpectedPlanSHA256, "-WhatIf"})
-	returnedApply := runMemberCurrentStep(t, caseRoot, []string{"-MemberExecutionAttemptId", attempt, "-MemberExecutionOutcome", "returned", "-MemberExecutionObservedAt", "2026-08-03T02:02:00Z", "-Actor", "harness", "-ExpectedMemberExecutionPlanSha256", returnedPreview.MemberExecution.ExpectedPlanSHA256, "-ExpectedCurrentStepPlanSha256", returnedAuthorized.ExpectedCurrentStepPlanSHA256, "-Apply"})
+	returnedPreview := runMemberCurrentStepForLane(t, caseRoot, "feature-analysis", []string{"-MemberExecutionAttemptId", attempt, "-MemberExecutionOutcome", "returned", "-MemberExecutionObservedAt", "2026-08-03T02:02:00Z", "-Actor", "harness", "-WhatIf"})
+	returnedAuthorized := runMemberCurrentStepForLane(t, caseRoot, "feature-analysis", []string{"-MemberExecutionAttemptId", attempt, "-MemberExecutionOutcome", "returned", "-MemberExecutionObservedAt", "2026-08-03T02:02:00Z", "-Actor", "harness", "-ExpectedMemberExecutionPlanSha256", returnedPreview.MemberExecution.ExpectedPlanSHA256, "-WhatIf"})
+	returnedApply := runMemberCurrentStepForLane(t, caseRoot, "feature-analysis", []string{"-MemberExecutionAttemptId", attempt, "-MemberExecutionOutcome", "returned", "-MemberExecutionObservedAt", "2026-08-03T02:02:00Z", "-Actor", "harness", "-ExpectedMemberExecutionPlanSha256", returnedPreview.MemberExecution.ExpectedPlanSHA256, "-ExpectedCurrentStepPlanSha256", returnedAuthorized.ExpectedCurrentStepPlanSHA256, "-Apply"})
 	if returnedApply.MemberExecution == nil || returnedApply.MemberExecution.Inspection.State != "intake-ready" || returnedApply.RefreshedStatus == nil || returnedApply.Receipt == nil || returnedApply.Receipt.RefreshedCurrentDriverRequest == nil {
 		t.Fatalf("member returned intake mismatch: %+v", returnedApply)
 	}
@@ -555,7 +558,7 @@ func TestRunCurrentStepDurableMemberExecutionFixtureHandoffAndIntake(t *testing.
 			t.Fatal(err)
 		}
 		var staleStatus statusInventory
-		runCompletionJSON(t, &out, []string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &staleStatus)
+		runCompletionJSON(t, &out, []string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "feature-analysis", "-Format", "json"}, &staleStatus)
 		if staleStatus.MemberExecution == nil || staleStatus.MemberExecution.State != "dispatch-preview-required" || staleStatus.MemberExecution.ReviewerPlanCommand != "" || len(staleStatus.MemberExecution.CompletionEvidence) != 0 {
 			t.Fatalf("stale member generation drove current reviewer planning: %+v", staleStatus.MemberExecution)
 		}
@@ -577,7 +580,7 @@ func TestRunCurrentStepDurableMemberExecutionFixtureHandoffAndIntake(t *testing.
 	reviewerPlan := decodePlanSubagentsResult(t, out.Bytes())
 	packet := decodePlanSubagentsPacket(t, reviewerPlan.PacketPath)
 	handoff := reviewerPlan.ShardHandoffs[0]
-	reviewerBase := []string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}
+	reviewerBase := []string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-Lane", "feature-analysis", "-WhatIf", "-Format", "json"}
 	dispatchReviewer := runCurrentStepPreview(t, append(append([]string{}, reviewerBase...), "-ReviewerHarness", "member-e2e-harness", "-ReviewerSession", "member-e2e-reviewer", "-Actor", "mission-commander"))
 	runCurrentStepApply(t, caseRoot, dispatchReviewer, "-ReviewerHarness", "member-e2e-harness", "-ReviewerSession", "member-e2e-reviewer", "-Actor", "mission-commander")
 	resultSource := filepath.Join(caseRoot, "workspace", "member-review-result.json")
@@ -788,11 +791,15 @@ func TestRunCurrentStepDurableMemberExecutionFixtureHandoffAndIntake(t *testing.
 	if completionHandoff.ReplacementExecutorTakeoverPackage == nil || completionHandoff.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command != completionRequest.Command || completionHandoff.MissionCommanderActionQueue.CurrentDriverRequest == nil || completionHandoff.MissionCommanderActionQueue.CurrentDriverRequest.Command != completionRequest.Command {
 		t.Fatalf("replacement executor handoff did not preserve completion request: %+v", completionHandoff.ReplacementExecutorTakeoverPackage)
 	}
+	selectedCompletionCommand := selectedLaneCommand(completionRequest.Command, "feature-analysis")
+	if selectedCompletionCommand == "" {
+		t.Fatalf("completion request could not be projected to the exact selected lane: %+v", completionRequest)
+	}
 	var statusCompletionPreview completionProductResult
-	runCompletionJSON(t, &out, rekitCommandCLIArgs(t, completionRequest.Command), &statusCompletionPreview)
+	runCompletionJSON(t, &out, rekitCommandCLIArgs(t, selectedCompletionCommand), &statusCompletionPreview)
 	completionStep := runCurrentStepPreview(t, reviewerBase)
-	if completionStep.Route != "case" || completionStep.DriverStep == nil || completionStep.DriverStep.CurrentDriverRequest.Command != completionRequest.Command || statusCompletionPreview.Blocked || statusCompletionPreview.CompletionPlanSHA256 == "" || completionStep.DriverStep.ExpectedDriverStepPreviewSHA256 != statusCompletionPreview.CompletionPlanSHA256 || completionStep.DriverStep.ExpectedDriverStepPlanSHA256 == "" || completionStep.ExpectedCurrentStepPlanSHA256 == "" {
-		t.Fatalf("bounded current-step did not preserve completion double hash: %+v preview=%+v", completionStep, statusCompletionPreview)
+	if completionStep.Route != "case" || completionStep.DriverStep == nil || completionStep.DriverStep.CurrentDriverRequest.Command != selectedCompletionCommand || statusCompletionPreview.Blocked || statusCompletionPreview.CompletionPlanSHA256 == "" || completionStep.DriverStep.ExpectedDriverStepPreviewSHA256 != statusCompletionPreview.CompletionPlanSHA256 || completionStep.DriverStep.ExpectedDriverStepPlanSHA256 == "" || completionStep.ExpectedCurrentStepPlanSHA256 == "" {
+		t.Fatalf("bounded current-step did not preserve completion double hash: current=%q selected=%q driverCurrent=%q driverPreviewHash=%q directPreviewHash=%q driverPreview=%+v", completionRequest.Command, selectedCompletionCommand, completionStep.DriverStep.CurrentDriverRequest.Command, completionStep.DriverStep.ExpectedDriverStepPreviewSHA256, statusCompletionPreview.CompletionPlanSHA256, completionStep.DriverStep.PreviewResult)
 	}
 	laneRoot := filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis")
 	lanePath := filepath.Join(laneRoot, "lane.json")
@@ -957,7 +964,10 @@ func TestRunCurrentStepMemberExecutionRefreshFailurePreservesAppliedReceipt(t *t
 	runCompletionJSON(t, &out, startArgs, &startPreview)
 	startApplyArgs, _ := missionCommanderDriverRequestCommandCLIArgs(t, startPreview.MissionCommanderActionQueue.CurrentDriverRequest)
 	runCompletionJSON(t, &out, append(startApplyArgs, "-Target", caseRoot, "-Pack", "_template", "-Format", "json"), nil)
-	preview := runMemberCurrentStep(t, caseRoot, []string{"-WhatIf"})
+	preview := runMemberCurrentStepForLane(t, caseRoot, "feature-analysis", []string{"-WhatIf"})
+	if preview.MemberExecution == nil {
+		t.Fatalf("feature-analysis member dispatch plan missing: %+v", preview)
+	}
 	currentStepBeforeStatusRefreshHook = func(command string) error {
 		if command != commands.RunCurrentStep {
 			t.Fatalf("unexpected member refresh hook command: %s", command)
@@ -966,7 +976,7 @@ func TestRunCurrentStepMemberExecutionRefreshFailurePreservesAppliedReceipt(t *t
 	}
 	t.Cleanup(func() { currentStepBeforeStatusRefreshHook = nil })
 	out.Reset()
-	err := Run([]string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-ExpectedMemberExecutionPlanSha256", preview.MemberExecution.ExpectedPlanSHA256, "-ExpectedCurrentStepPlanSha256", preview.ExpectedCurrentStepPlanSHA256, "-Apply", "-Format", "json"}, &out)
+	err := Run([]string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-Lane", "feature-analysis", "-ExpectedMemberExecutionPlanSha256", preview.MemberExecution.ExpectedPlanSHA256, "-ExpectedCurrentStepPlanSha256", preview.ExpectedCurrentStepPlanSHA256, "-Apply", "-Format", "json"}, &out)
 	if err == nil || !strings.Contains(err.Error(), "injected member status refresh failure") {
 		t.Fatalf("public member refresh failure did not return original error: %v", err)
 	}
@@ -1004,7 +1014,7 @@ func TestMemberExecutionOldGenerationLosesToPublicReconcileLease(t *testing.T) {
 	startApplyArgs, _ := missionCommanderDriverRequestCommandCLIArgs(t, startPreview.MissionCommanderActionQueue.CurrentDriverRequest)
 	runCompletionJSON(t, &out, append(startApplyArgs, "-Target", caseRoot, "-Pack", "_template", "-Format", "json"), nil)
 
-	memberPlan := runCurrentStepPreview(t, []string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"})
+	memberPlan := runCurrentStepPreview(t, []string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-Lane", "feature-analysis", "-WhatIf", "-Format", "json"})
 	if memberPlan.MemberExecution == nil {
 		t.Fatalf("member dispatch plan missing: %+v", memberPlan)
 	}
@@ -1035,7 +1045,7 @@ func TestMemberExecutionOldGenerationLosesToPublicReconcileLease(t *testing.T) {
 	memberDone := make(chan error, 1)
 	go func() {
 		var memberOut bytes.Buffer
-		memberDone <- Run([]string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-ExpectedMemberExecutionPlanSha256", memberPlan.MemberExecution.ExpectedPlanSHA256, "-ExpectedCurrentStepPlanSha256", memberPlan.ExpectedCurrentStepPlanSHA256, "-Apply", "-Format", "json"}, &memberOut)
+		memberDone <- Run([]string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-Lane", "feature-analysis", "-ExpectedMemberExecutionPlanSha256", memberPlan.MemberExecution.ExpectedPlanSHA256, "-ExpectedCurrentStepPlanSha256", memberPlan.ExpectedCurrentStepPlanSHA256, "-Apply", "-Format", "json"}, &memberOut)
 	}()
 	close(releaseLease)
 	if err := <-reconcileDone; err != nil {
@@ -1122,7 +1132,7 @@ func TestBuildCurrentStepCaseScopePackMemoryConsumerUsesStrictGuard(t *testing.T
 		currentStepValidatePackMemoryConsumerTask = originalValidate
 		currentStepWithPackMemoryConsumerTaskLease = originalLease
 	})
-	preview := runCurrentStepPreview(t, []string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"})
+	preview := runCurrentStepPreview(t, []string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-WhatIf", "-Format", "json"})
 	if !validated || preview.MemberExecution == nil {
 		t.Fatalf("case-scope consumer omitted strict preview validation: validated=%t preview=%+v", validated, preview)
 	}
@@ -1174,7 +1184,8 @@ func TestCaseScopePackMemoryConsumerDispatchPublishesFocusedExternalSession(t *t
 		currentStepWithPackMemoryConsumerTaskLease = originalLease
 	})
 
-	loop := runCurrentLoopPreview(t, caseRoot, 2)
+	lane := board.Lanes[0].ID
+	loop := runCurrentLoopPreviewWith(t, caseRoot, 2, "-Lane", lane)
 	if loop.InitialCurrentStep == nil || loop.InitialCurrentStep.MemberExecution == nil {
 		t.Fatalf("consumer loop preview omitted member dispatch: %+v", loop)
 	}
@@ -1182,6 +1193,8 @@ func TestCaseScopePackMemoryConsumerDispatchPublishesFocusedExternalSession(t *t
 		t,
 		caseRoot,
 		loop,
+		"-Lane",
+		lane,
 		"-ExpectedMemberExecutionPlanSha256",
 		loop.InitialCurrentStep.MemberExecution.ExpectedPlanSHA256,
 	)
@@ -1193,7 +1206,10 @@ func TestCaseScopePackMemoryConsumerDispatchPublishesFocusedExternalSession(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	status, err := buildStatusInventory(ctx, "")
+	status, err := buildInvocationStatusInventory(ctx, Options{
+		Command:             commands.Status,
+		SelectedCurrentLane: lane,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1223,12 +1239,13 @@ func TestBuildCurrentStepStrictPackMemoryConsumerUsesCheckpointExternalSessionWr
 		t.Fatal(err)
 	}
 
-	loop := runCurrentLoopPreview(t, caseRoot, 3)
+	lane := board.Lanes[0].ID
+	loop := runCurrentLoopPreviewWith(t, caseRoot, 3, "-Lane", lane)
 	if loop.InitialCurrentStep == nil || loop.InitialCurrentStep.MemberExecution == nil {
 		t.Fatalf("member loop preview omitted dispatch: %+v", loop)
 	}
 	memberPlan := loop.InitialCurrentStep.MemberExecution
-	applied := runCurrentLoopApplyWith(t, caseRoot, loop, "-ExpectedMemberExecutionPlanSha256", memberPlan.ExpectedPlanSHA256)
+	applied := runCurrentLoopApplyWith(t, caseRoot, loop, "-Lane", lane, "-ExpectedMemberExecutionPlanSha256", memberPlan.ExpectedPlanSHA256)
 	if applied.SegmentCheckpoint == nil || !applied.SegmentCheckpoint.Ready || applied.StopReason.Code != "external-member-handoff" {
 		t.Fatalf("member loop did not publish ready external checkpoint: %+v", applied)
 	}
@@ -1237,14 +1254,18 @@ func TestBuildCurrentStepStrictPackMemoryConsumerUsesCheckpointExternalSessionWr
 	if err != nil {
 		t.Fatal(err)
 	}
-	status, err := buildStatusInventory(ctx, "")
+	status, err := buildInvocationStatusInventory(ctx, Options{
+		Command:             commands.Status,
+		SelectedCurrentLane: lane,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	caseRequest := status.CaseMission.MissionCommanderActionQueue.CurrentDriverRequest
+	caseRequest := status.MissionControlRunbook.CurrentLoopOperator.SourceCurrentDriverRequest
 	if caseRequest == nil || caseRequest.Lane == "" {
-		t.Fatalf("status omitted case queue request: %+v", status.CaseMission)
+		t.Fatalf("status omitted selected checkpoint source request: %+v", status.MissionControlRunbook.CurrentLoopOperator)
 	}
+	status.CaseMission.MissionCommanderActionQueue.CurrentDriverRequest = caseRequest
 	globalRequest := missionDriverRequestForTest(`/rekit sync -SelectPackMemoryChange change -WhatIf -Format json`)
 	status.MissionControlRunbook.Scope = "pack-memory"
 	status.MissionControlRunbook.CurrentDriverRequest = &globalRequest
@@ -1279,12 +1300,13 @@ func TestBuildCurrentStepStrictConsumerExternalTurnUsesCheckpointSourceRequest(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	caseRequest := missionDriverRequestForTest(`/rekit continue main -WhatIf -Format json`)
-	caseRequest.Lane = "feature-mission"
+	const lane = "main"
+	caseRequest := missionDriverRequestForTest(`/rekit continue -Lane main -WhatIf -Format json`)
+	caseRequest.Lane = lane
 	caseRequest.Source = "missionCommanderActions"
 	caseRequest.State = "ready-to-continue"
-	wrapper := missionDriverRequestForTest(`/rekit run-current-step -Target case -WhatIf -Format json`)
-	wrapper.Lane = caseRequest.Lane
+	wrapper := missionDriverRequestForTest(`/rekit run-current-step -Target case -Lane main -WhatIf -Format json`)
+	wrapper.Lane = lane
 	wrapper.Source = "current-step-external-session"
 	status := statusInventory{
 		TemplateRoot: ctx.RepoRoot, Target: caseRoot, Pack: "_template",
@@ -1333,11 +1355,12 @@ func TestRunCurrentStepExternalRouteRejectsUnboundOuterInputs(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "board.json"), append(boardData, '\n'), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	loop := runCurrentLoopPreview(t, caseRoot, 3)
-	runCurrentLoopApplyWith(t, caseRoot, loop, "-ExpectedMemberExecutionPlanSha256", loop.InitialCurrentStep.MemberExecution.ExpectedPlanSHA256)
+	lane := board.Lanes[0].ID
+	loop := runCurrentLoopPreviewWith(t, caseRoot, 3, "-Lane", lane)
+	runCurrentLoopApplyWith(t, caseRoot, loop, "-Lane", lane, "-ExpectedMemberExecutionPlanSha256", loop.InitialCurrentStep.MemberExecution.ExpectedPlanSHA256)
 	for _, flag := range []string{"-Actor", "-ExpectedMemberExecutionPlanSha256"} {
 		var out bytes.Buffer
-		err := Run([]string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-ExternalSessionHarness", "harness", "-ExternalSessionId", "session", "-ExternalSessionActor", "external-actor", "-ExternalSessionStartedAt", "2026-08-05T10:00:00Z", flag, "unexpected", "-WhatIf", "-Format", "json"}, &out)
+		err := Run([]string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-Lane", lane, "-ExternalSessionHarness", "harness", "-ExternalSessionId", "session", "-ExternalSessionActor", "external-actor", "-ExternalSessionStartedAt", "2026-08-05T10:00:00Z", flag, "unexpected", "-WhatIf", "-Format", "json"}, &out)
 		if err == nil || !strings.Contains(err.Error(), "external session route does not accept") {
 			t.Fatalf("external route silently accepted %s: err=%v output=%s", flag, err, out.String())
 		}
@@ -1361,21 +1384,15 @@ func TestRunCurrentStepSelectedLaneOverridesGlobalCurrentLane(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	global := runCurrentStepPreview(t, []string{
+	var globalOut bytes.Buffer
+	err := Run([]string{
 		"-Command", "run-current-step",
 		"-Target", caseRoot,
 		"-Pack", "_template",
 		"-WhatIf", "-Format", "json",
-	})
-	if global.Route != "case" || global.ReviewerStep != nil {
-		t.Fatalf("unexpected global plan: %+v", global)
-	}
-	if global.DriverStep != nil {
-		if got := global.DriverStep.CurrentDriverRequest.Lane; got != "feature-login" {
-			t.Fatalf("global current lane = %q, want feature-login", got)
-		}
-	} else if global.MemberExecution == nil || global.MemberExecution.Owner.Lane != "feature-login" {
-		t.Fatalf("global current member lane is not feature-login: %+v", global.MemberExecution)
+	}, &globalOut)
+	if err == nil || !strings.Contains(err.Error(), "requires -Lane from the current typed lane choices") {
+		t.Fatalf("global multi-lane current step did not fail closed: err=%v output=%s", err, globalOut.String())
 	}
 
 	selected := runCurrentStepPreview(t, []string{
@@ -1398,8 +1415,8 @@ func TestRunCurrentStepSelectedLaneOverridesGlobalCurrentLane(t *testing.T) {
 	if !strings.Contains(request.Command, "-Lane main") {
 		t.Fatalf("selected command does not preserve lane: %q", request.Command)
 	}
-	if selected.ExpectedCurrentStepPlanSHA256 == "" || selected.ExpectedCurrentStepPlanSHA256 == global.ExpectedCurrentStepPlanSHA256 {
-		t.Fatalf("selected plan hash is not independently bound: global=%q selected=%q", global.ExpectedCurrentStepPlanSHA256, selected.ExpectedCurrentStepPlanSHA256)
+	if selected.ExpectedCurrentStepPlanSHA256 == "" {
+		t.Fatalf("selected plan hash is empty: %+v", selected)
 	}
 
 	applied := runCurrentStepApplyWithLane(t, caseRoot, selected, "main")
@@ -1425,7 +1442,17 @@ func TestRunCurrentStepRejectsExternalInputsOutsideExternalRoute(t *testing.T) {
 
 func runMemberCurrentStep(t *testing.T, caseRoot string, inputs []string) currentStepTestPlan {
 	t.Helper()
-	args := []string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template"}
+	return runMemberCurrentStepForLane(t, caseRoot, "main", inputs)
+}
+
+func runMemberCurrentStepForLane(t *testing.T, caseRoot, lane string, inputs []string) currentStepTestPlan {
+	t.Helper()
+	args := []string{
+		"-Command", "run-current-step",
+		"-Target", caseRoot,
+		"-Pack", "_template",
+		"-Lane", lane,
+	}
 	args = append(args, inputs...)
 	args = append(args, "-Format", "json")
 	return runCurrentStepPreview(t, args)
@@ -1486,7 +1513,13 @@ func runCurrentStepPreview(t *testing.T, args []string) currentStepTestPlan {
 
 func runCurrentStepApply(t *testing.T, caseRoot string, preview currentStepTestPlan, inputs ...string) currentStepTestPlan {
 	t.Helper()
-	return runCurrentStepApplyWithLane(t, caseRoot, preview, "", inputs...)
+	return runCurrentStepApplyWithLane(
+		t,
+		caseRoot,
+		preview,
+		preview.CurrentDriverRequest.Lane,
+		inputs...,
+	)
 }
 
 func runCurrentStepApplyWithLane(t *testing.T, caseRoot string, preview currentStepTestPlan, lane string, inputs ...string) currentStepTestPlan {

@@ -531,7 +531,7 @@ func TestAdapterReportContractDescribesAuthorizedGateBoundaries(t *testing.T) {
 	if strings.Join(contract.LiveValidation.ScaffoldArgs, " ") != "-Command gate -Pack "+pack+" -GateEventId "+authorized.EventID+" -ScaffoldExecutionReport -ExecutionReportPath adapter-report.json -Format json" {
 		t.Fatalf("adapter report contract scaffold args drifted: %+v", contract.LiveValidation.ScaffoldArgs)
 	}
-	if contract.LiveValidation.ScaffoldCommand != "rekit "+strings.Join(contract.LiveValidation.ScaffoldArgs, " ") {
+	if contract.LiveValidation.ScaffoldCommand != "/rekit gate "+strings.Join(contract.LiveValidation.ScaffoldArgs[2:], " ") {
 		t.Fatalf("adapter report contract scaffold command drifted: %q", contract.LiveValidation.ScaffoldCommand)
 	}
 	if len(contract.LiveValidation.ScaffoldApplyArgs) != 14 || strings.Join(contract.LiveValidation.ScaffoldApplyArgs[:10], " ") != "-Command gate -Pack "+pack+" -GateEventId "+authorized.EventID+" -ScaffoldExecutionReport -ExecutionReportPath adapter-report.json -ExpectedExecutionReportSha256" || contract.LiveValidation.ScaffoldApplyArgs[11] != "-Apply" || strings.Join(contract.LiveValidation.ScaffoldApplyArgs[12:], " ") != "-Format json" {
@@ -543,7 +543,7 @@ func TestAdapterReportContractDescribesAuthorizedGateBoundaries(t *testing.T) {
 	if strings.Join(contract.LiveValidation.ValidateArgs, " ") != "-Command gate -Pack "+pack+" -GateEventId "+authorized.EventID+" -ValidateExecutionReport -ExecutionReportPath adapter-report.json -Format json" {
 		t.Fatalf("adapter report contract validate args drifted: %+v", contract.LiveValidation.ValidateArgs)
 	}
-	if contract.LiveValidation.ValidateCommand != "rekit "+strings.Join(contract.LiveValidation.ValidateArgs, " ") {
+	if contract.LiveValidation.ValidateCommand != "/rekit gate "+strings.Join(contract.LiveValidation.ValidateArgs[2:], " ") {
 		t.Fatalf("adapter report contract validate command drifted: %q", contract.LiveValidation.ValidateCommand)
 	}
 	if len(contract.LiveValidation.RecordArgs) != 0 || contract.LiveValidation.RecordCommand != "" {
@@ -552,19 +552,19 @@ func TestAdapterReportContractDescribesAuthorizedGateBoundaries(t *testing.T) {
 	if strings.Join(contract.LiveValidation.CaseRelativeScaffoldArgs, " ") != "-Command gate -Pack "+pack+" -GateEventId "+authorized.EventID+" -ScaffoldExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Format json" {
 		t.Fatalf("adapter report contract case-relative scaffold args drifted: %+v", contract.LiveValidation.CaseRelativeScaffoldArgs)
 	}
-	if contract.LiveValidation.CaseRelativeScaffoldCommand != "rekit "+strings.Join(contract.LiveValidation.CaseRelativeScaffoldArgs, " ") {
+	if contract.LiveValidation.CaseRelativeScaffoldCommand != "/rekit gate "+strings.Join(contract.LiveValidation.CaseRelativeScaffoldArgs[2:], " ") {
 		t.Fatalf("adapter report contract case-relative scaffold command drifted: %q", contract.LiveValidation.CaseRelativeScaffoldCommand)
 	}
 	if len(contract.LiveValidation.CaseRelativeScaffoldApplyArgs) != 14 || strings.Join(contract.LiveValidation.CaseRelativeScaffoldApplyArgs[:10], " ") != "-Command gate -Pack "+pack+" -GateEventId "+authorized.EventID+" -ScaffoldExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -ExpectedExecutionReportSha256" || contract.LiveValidation.CaseRelativeScaffoldApplyArgs[10] != contract.LiveValidation.SidecarTemplateSHA256 || contract.LiveValidation.CaseRelativeScaffoldApplyArgs[11] != "-Apply" || strings.Join(contract.LiveValidation.CaseRelativeScaffoldApplyArgs[12:], " ") != "-Format json" {
 		t.Fatalf("adapter report contract case-relative scaffold apply args drifted: %+v", contract.LiveValidation.CaseRelativeScaffoldApplyArgs)
 	}
-	if contract.LiveValidation.CaseRelativeScaffoldApplyCommand != "rekit "+strings.Join(contract.LiveValidation.CaseRelativeScaffoldApplyArgs, " ") {
+	if contract.LiveValidation.CaseRelativeScaffoldApplyCommand != "/rekit gate "+strings.Join(contract.LiveValidation.CaseRelativeScaffoldApplyArgs[2:], " ") {
 		t.Fatalf("adapter report contract case-relative scaffold apply command drifted: %q", contract.LiveValidation.CaseRelativeScaffoldApplyCommand)
 	}
 	if strings.Join(contract.LiveValidation.CaseRelativeValidateArgs, " ") != "-Command gate -Pack "+pack+" -GateEventId "+authorized.EventID+" -ValidateExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Format json" {
 		t.Fatalf("adapter report contract case-relative validate args drifted: %+v", contract.LiveValidation.CaseRelativeValidateArgs)
 	}
-	if contract.LiveValidation.CaseRelativeValidateCommand != "rekit "+strings.Join(contract.LiveValidation.CaseRelativeValidateArgs, " ") {
+	if contract.LiveValidation.CaseRelativeValidateCommand != "/rekit gate "+strings.Join(contract.LiveValidation.CaseRelativeValidateArgs[2:], " ") {
 		t.Fatalf("adapter report contract case-relative validate command drifted: %q", contract.LiveValidation.CaseRelativeValidateCommand)
 	}
 	if len(contract.LiveValidation.CaseRelativeRecordArgs) != 0 || contract.LiveValidation.CaseRelativeRecordCommand != "" {

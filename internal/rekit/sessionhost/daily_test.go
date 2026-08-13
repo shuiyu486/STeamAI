@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -11,8 +12,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/cli"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanecompletion"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/note"
@@ -539,6 +542,353 @@ func TestRunDailyReplaysCommittedClosedLaneBeforeOpenLaneProbe(t *testing.T) {
 	}
 }
 
+func TestRunDailyCorrectionReopensCommittedClosedLaneBeforeNewMember(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "terminal-correction")
+	actor := "daily-test"
+	correction := "post-completion review found one more bounded verification step"
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	inspection, err := applyDailyOnboarding(caseRoot, "terminal correction goal", actor, &bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap.Lane = inspection.Identity.InitialLane
+	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
+		t.Fatal(err)
+	}
+	evidenceRef := filepath.ToSlash(filepath.Join(".rekit", "lanes", bootstrap.Lane, "workspace", "completion-evidence.md"))
+	evidencePath := filepath.Join(caseRoot, filepath.FromSlash(evidenceRef))
+	if err := os.MkdirAll(filepath.Dir(evidencePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(evidencePath, []byte("reviewed completion evidence before terminal correction\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	completeOpt := workstream.CompleteOptions{Selector: bootstrap.Lane, Actor: actor, Reason: "publish terminal correction fixture", EvidenceRefs: evidenceRef}
+	preview, err := workstream.CompletePreview(sessionhostTestRepoRoot(t), caseRoot, inspection.Identity.Pack, completeOpt)
+	if err != nil || preview.Blocked || len(preview.CompletionPlanSHA256) != 64 {
+		t.Fatalf("completion preview=%+v err=%v", preview, err)
+	}
+	completeOpt.ExpectedPreviewSHA256 = preview.CompletionPlanSHA256
+	completed, err := workstream.CompleteApply(sessionhostTestRepoRoot(t), caseRoot, inspection.Identity.Pack, completeOpt)
+	if err != nil || !completed.Applied || completed.Lane.Status != "closed" || completed.CompletionReceipt == nil {
+		t.Fatalf("completion result=%+v err=%v", completed, err)
+	}
+
+	memberRunCalled := false
+	result, err := RunDaily(context.Background(), DailyOptions{
+		Target: caseRoot, Correction: correction, Actor: actor,
+		beforeMemberRun: func(_, _, _ string) error { memberRunCalled = true; return nil },
+	})
+	if err != nil {
+		t.Fatalf("terminal correction result=%+v err=%v", result, err)
+	}
+	if memberRunCalled || result.Lane != bootstrap.Lane || result.FinalState != "terminal-correction-reopened" || result.Action == nil || result.Action.Code != DailyActionReadyToContinue || result.ReopenOperationID == "" || result.ReopenOperationCommit == nil || result.ReopenOperationCommit.State != "committed" || result.ReopenOperationCommit.Reason != correction || result.SessionLaunches != 0 || len(result.HostRuns) != 0 || !containsDailyStep(result.DriverSteps, "reopen") {
+		t.Fatalf("terminal correction did not stop at committed review-first reopen: memberRunCalled=%t result=%+v", memberRunCalled, result)
+	}
+	if result.CurrentDriverRequest == nil || result.CurrentDriverRequestSHA256 == "" {
+		t.Fatalf("terminal correction omitted the fresh typed continuation request: %+v", result)
+	}
+	if identity, err := mission.MissionCommanderDriverRequestSHA256(*result.CurrentDriverRequest); err != nil || identity != result.CurrentDriverRequestSHA256 {
+		t.Fatalf("terminal correction current driver request identity=%s err=%v result=%+v", identity, err, result)
+	}
+	if !result.ReopenOperationCommit.NoAuthority || !result.ReopenOperationCommit.NoConfirmed || !result.ReopenOperationCommit.NoHeavyTool || !result.ReopenOperationCommit.NoAutoResume {
+		t.Fatalf("terminal correction crossed reopen boundaries: %+v", result.ReopenOperationCommit)
+	}
+	lifecycle, err := lanecompletion.Inspect(caseRoot, bootstrap.Lane)
+	if err != nil || lifecycle.State != lanecompletion.StateReopened || lifecycle.CurrentReopen == nil || lifecycle.CurrentReopen.OperationID != result.ReopenOperationID {
+		t.Fatalf("terminal correction lifecycle=%+v err=%v", lifecycle, err)
+	}
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lane, ok := mission.LookupBoardLane(board.Lanes, bootstrap.Lane, false)
+	if !ok || lane.Status != "open" || lane.ExecutorGeneration != completed.Lane.ExecutorGeneration+1 || lane.CurrentExecutor != "" {
+		t.Fatalf("terminal correction did not fence the completed owner before fresh execution: %+v", lane)
+	}
+}
+
+func TestRunDailyCommittedTerminalCorrectionDoesNotClaimDifferentExplicitLane(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "terminal-correction-explicit-lane")
+	actor := "daily-test"
+	correction := "reuse this bounded correction on the selected lane"
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	inspection, err := applyDailyOnboarding(caseRoot, "explicit terminal correction goal", actor, &bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap.Lane = inspection.Identity.InitialLane
+	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := workstream.StartApply(sessionhostTestRepoRoot(t), caseRoot, inspection.Identity.Pack, workstream.StartOptions{
+		Name: "login", Actor: actor, Executor: "session-login", TakeoverReason: "explicit terminal correction regression",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	closed := []string{bootstrap.Lane, "feature-login"}
+	for _, lane := range closed {
+		evidenceRef := filepath.ToSlash(filepath.Join(".rekit", "lanes", lane, "workspace", "completion-evidence.md"))
+		evidencePath := filepath.Join(caseRoot, filepath.FromSlash(evidenceRef))
+		if err := os.MkdirAll(filepath.Dir(evidencePath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(evidencePath, []byte("reviewed completion evidence for "+lane+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		completeOpt := workstream.CompleteOptions{Selector: lane, Actor: actor, Reason: "close lane for explicit terminal correction", EvidenceRefs: evidenceRef}
+		preview, err := workstream.CompletePreview(sessionhostTestRepoRoot(t), caseRoot, inspection.Identity.Pack, completeOpt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		completeOpt.ExpectedPreviewSHA256 = preview.CompletionPlanSHA256
+		if completed, err := workstream.CompleteApply(sessionhostTestRepoRoot(t), caseRoot, inspection.Identity.Pack, completeOpt); err != nil || !completed.Applied {
+			t.Fatalf("complete %s: result=%+v err=%v", lane, completed, err)
+		}
+	}
+
+	first, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Correction: correction, SelectedLane: bootstrap.Lane, Actor: actor})
+	if err != nil {
+		t.Fatalf("first terminal correction: result=%+v err=%v", first, err)
+	}
+	if first.Lane != bootstrap.Lane || first.FinalState != "terminal-correction-reopened" || first.ReopenOperationID == "" || first.SessionLaunches != 0 || len(first.HostRuns) != 0 {
+		t.Fatalf("first explicit terminal correction crossed its boundary: %+v", first)
+	}
+
+	second, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Correction: correction, SelectedLane: "feature-login", Actor: actor})
+	if err != nil {
+		t.Fatalf("second terminal correction: result=%+v err=%v", second, err)
+	}
+	if second.Lane != "feature-login" || second.FinalState != "terminal-correction-reopened" || second.ReopenOperationID == "" || second.ReopenOperationID == first.ReopenOperationID || second.Replay || second.SessionLaunches != 0 || len(second.HostRuns) != 0 {
+		t.Fatalf("different explicit lane did not create its own terminal correction: first=%+v second=%+v", first, second)
+	}
+	operations, err := lanecompletion.InspectOperations(caseRoot)
+	if err != nil || operations.LatestSequence != 2 || len(operations.Commits) != 2 {
+		t.Fatalf("different explicit lane operation history=%+v err=%v", operations, err)
+	}
+
+	beforeReplay := snapshotDailyCaseFiles(t, caseRoot)
+	replayed, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Correction: correction, SelectedLane: "feature-login", Actor: actor})
+	if err != nil {
+		t.Fatalf("same explicit lane replay: result=%+v err=%v", replayed, err)
+	}
+	if !replayed.Replay || replayed.Lane != "feature-login" || replayed.ReopenOperationID != second.ReopenOperationID || replayed.SessionLaunches != 0 || len(replayed.HostRuns) != 0 {
+		t.Fatalf("same explicit lane did not replay its exact committed operation: %+v", replayed)
+	}
+	assertDailyCaseFilesEqual(t, beforeReplay, snapshotDailyCaseFiles(t, caseRoot))
+
+	beforeHistoricalReplay := snapshotDailyCaseFiles(t, caseRoot)
+	historical, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Correction: correction, SelectedLane: bootstrap.Lane, Actor: actor})
+	if err != nil {
+		t.Fatalf("historical explicit lane replay: result=%+v err=%v", historical, err)
+	}
+	if !historical.Replay || historical.Lane != bootstrap.Lane || historical.ReopenOperationID != first.ReopenOperationID || historical.SessionLaunches != 0 || len(historical.HostRuns) != 0 {
+		t.Fatalf("historical explicit lane did not replay operation 1: %+v", historical)
+	}
+	assertDailyCaseFilesEqual(t, beforeHistoricalReplay, snapshotDailyCaseFiles(t, caseRoot))
+}
+
+func TestRunDailyTerminalCorrectionMultipleClosedLanesRequiresChoiceWithoutWrite(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "multiple-terminal-correction")
+	actor := "daily-test"
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	inspection, err := applyDailyOnboarding(caseRoot, "multiple terminal correction goal", actor, &bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap.Lane = inspection.Identity.InitialLane
+	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := workstream.StartApply(sessionhostTestRepoRoot(t), caseRoot, inspection.Identity.Pack, workstream.StartOptions{
+		Name: "login", Actor: actor, Executor: "session-login", TakeoverReason: "multiple terminal correction choice regression",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	closed := []string{bootstrap.Lane, "feature-login"}
+	for _, lane := range closed {
+		evidenceRef := filepath.ToSlash(filepath.Join(".rekit", "lanes", lane, "workspace", "completion-evidence.md"))
+		evidencePath := filepath.Join(caseRoot, filepath.FromSlash(evidenceRef))
+		if err := os.MkdirAll(filepath.Dir(evidencePath), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(evidencePath, []byte("reviewed completion evidence for "+lane+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		completeOpt := workstream.CompleteOptions{Selector: lane, Actor: actor, Reason: "close lane for terminal correction choice", EvidenceRefs: evidenceRef}
+		preview, err := workstream.CompletePreview(sessionhostTestRepoRoot(t), caseRoot, inspection.Identity.Pack, completeOpt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		completeOpt.ExpectedPreviewSHA256 = preview.CompletionPlanSHA256
+		if completed, err := workstream.CompleteApply(sessionhostTestRepoRoot(t), caseRoot, inspection.Identity.Pack, completeOpt); err != nil || !completed.Applied {
+			t.Fatalf("complete %s: result=%+v err=%v", lane, completed, err)
+		}
+	}
+
+	before := snapshotDailyCaseFiles(t, caseRoot)
+	result, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Correction: "reopen only the lane I select", Actor: actor})
+	if err != nil {
+		t.Fatalf("multiple terminal correction choices: result=%+v err=%v", result, err)
+	}
+	if result.Action == nil || result.Action.Code != DailyActionBlocked || !result.Action.RequiresInput || len(result.Action.Choices) != len(closed) || result.SessionLaunches != 0 || len(result.HostRuns) != 0 || len(result.DriverSteps) != 0 {
+		t.Fatalf("multiple terminal correction did not stop at typed choice: %+v", result)
+	}
+	ids := make([]string, 0, len(result.Action.Choices))
+	for _, choice := range result.Action.Choices {
+		ids = append(ids, choice.ID)
+	}
+	for _, lane := range closed {
+		if !slices.Contains(ids, lane) {
+			t.Fatalf("multiple terminal correction omitted %s: %+v", lane, result.Action.Choices)
+		}
+	}
+	assertDailyCaseFilesEqual(t, before, snapshotDailyCaseFiles(t, caseRoot))
+}
+
+func TestRunDailyTerminalCorrectionRecoversExactPendingReopen(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "terminal-correction-recovery")
+	actor := "daily-test"
+	correction := "resume the exact terminal correction after interruption"
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	inspection, err := applyDailyOnboarding(caseRoot, "terminal correction recovery goal", actor, &bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap.Lane = inspection.Identity.InitialLane
+	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
+		t.Fatal(err)
+	}
+	evidenceRef := filepath.ToSlash(filepath.Join(".rekit", "lanes", bootstrap.Lane, "workspace", "completion-evidence.md"))
+	evidencePath := filepath.Join(caseRoot, filepath.FromSlash(evidenceRef))
+	if err := os.MkdirAll(filepath.Dir(evidencePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(evidencePath, []byte("reviewed completion evidence before recoverable reopen\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	completeOpt := workstream.CompleteOptions{Selector: bootstrap.Lane, Actor: actor, Reason: "publish terminal correction recovery fixture", EvidenceRefs: evidenceRef}
+	preview, err := workstream.CompletePreview(sessionhostTestRepoRoot(t), caseRoot, inspection.Identity.Pack, completeOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completeOpt.ExpectedPreviewSHA256 = preview.CompletionPlanSHA256
+	if completed, err := workstream.CompleteApply(sessionhostTestRepoRoot(t), caseRoot, inspection.Identity.Pack, completeOpt); err != nil || !completed.Applied {
+		t.Fatalf("complete recovery fixture: result=%+v err=%v", completed, err)
+	}
+
+	restore := workstream.SetReopenAfterOperationIntentHookForTest(func() error { return errors.New("stop after daily reopen intent") })
+	interrupted, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Correction: correction, Actor: actor})
+	restore()
+	if err == nil || !strings.Contains(err.Error(), "stop after daily reopen intent") {
+		t.Fatalf("terminal correction interruption result=%+v err=%v", interrupted, err)
+	}
+	if !containsDailyStep(interrupted.DriverSteps, "reopen") || interrupted.Failure == nil || !interrupted.Failure.MutationApplied || interrupted.Failure.MutationBoundary != "durable-runtime-step-may-have-committed" {
+		t.Fatalf("terminal correction interruption omitted its durable mutation boundary: %+v", interrupted)
+	}
+	operations, err := lanecompletion.InspectOperations(caseRoot)
+	if err != nil || !operations.Pending {
+		t.Fatalf("interrupted correction did not leave an exact pending operation: %+v err=%v", operations, err)
+	}
+	beforeMismatch := snapshotDailyCaseFiles(t, caseRoot)
+	mismatch, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Correction: "a different terminal correction", Actor: actor})
+	if err == nil || !strings.Contains(err.Error(), "exact original correction") {
+		t.Fatalf("mismatched pending recovery result=%+v err=%v", mismatch, err)
+	}
+	assertDailyCaseFilesEqual(t, beforeMismatch, snapshotDailyCaseFiles(t, caseRoot))
+
+	recovered, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Correction: correction, Actor: actor})
+	if err != nil {
+		t.Fatalf("recover pending terminal correction: result=%+v err=%v", recovered, err)
+	}
+	if recovered.FinalState != "terminal-correction-reopened" || recovered.Action == nil || recovered.Action.Code != DailyActionReadyToContinue || recovered.ReopenOperationCommit == nil || recovered.ReopenOperationCommit.State != "committed" || recovered.SessionLaunches != 0 || len(recovered.HostRuns) != 0 || !containsDailyStep(recovered.DriverSteps, "reopen") {
+		t.Fatalf("pending terminal correction recovery crossed its boundary: %+v", recovered)
+	}
+	operations, err = lanecompletion.InspectOperations(caseRoot)
+	if err != nil || operations.Pending || operations.LatestSequence != 1 {
+		t.Fatalf("pending terminal correction did not commit exactly once: %+v err=%v", operations, err)
+	}
+	replayed, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Correction: correction, Actor: actor})
+	if err != nil || !replayed.Replay || replayed.ReopenOperationID != recovered.ReopenOperationID || replayed.FinalState != "terminal-correction-reopened" || replayed.SessionLaunches != 0 {
+		t.Fatalf("committed terminal correction did not replay exactly: result=%+v err=%v", replayed, err)
+	}
+	operations, err = lanecompletion.InspectOperations(caseRoot)
+	if err != nil || operations.LatestSequence != 1 || len(operations.Commits) != 1 {
+		t.Fatalf("committed replay changed operation history: %+v err=%v", operations, err)
+	}
+	board, err := mission.ReadBoard(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := range board.Lanes {
+		if board.Lanes[index].ID == bootstrap.Lane {
+			board.Lanes[index].CurrentExecutor = "post-reopen-session"
+		}
+	}
+	writeDailyTestBoard(t, caseRoot, board)
+	stale, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Correction: correction, Actor: actor})
+	if err == nil || !strings.Contains(err.Error(), "current board lane") {
+		t.Fatalf("advanced committed correction replay result=%+v err=%v", stale, err)
+	}
+	if len(stale.DriverSteps) != 0 || stale.Failure == nil || stale.Failure.MutationApplied {
+		t.Fatalf("advanced committed correction replay was reported as a new mutation: %+v", stale)
+	}
+}
+
+func TestRunDailyTerminalCorrectionRejectsStaleCompletionAfterPreview(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "terminal-correction-stale")
+	actor := "daily-test"
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	inspection, err := applyDailyOnboarding(caseRoot, "terminal correction stale goal", actor, &bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bootstrap.Lane = inspection.Identity.InitialLane
+	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
+		t.Fatal(err)
+	}
+	evidenceRef := filepath.ToSlash(filepath.Join(".rekit", "lanes", bootstrap.Lane, "workspace", "completion-evidence.md"))
+	evidencePath := filepath.Join(caseRoot, filepath.FromSlash(evidenceRef))
+	if err := os.MkdirAll(filepath.Dir(evidencePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(evidencePath, []byte("completion evidence before stale preview\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	completeOpt := workstream.CompleteOptions{Selector: bootstrap.Lane, Actor: actor, Reason: "publish stale terminal correction fixture", EvidenceRefs: evidenceRef}
+	preview, err := workstream.CompletePreview(sessionhostTestRepoRoot(t), caseRoot, inspection.Identity.Pack, completeOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completeOpt.ExpectedPreviewSHA256 = preview.CompletionPlanSHA256
+	if completed, err := workstream.CompleteApply(sessionhostTestRepoRoot(t), caseRoot, inspection.Identity.Pack, completeOpt); err != nil || !completed.Applied {
+		t.Fatalf("complete stale fixture: result=%+v err=%v", completed, err)
+	}
+
+	previous := dailyTerminalCorrectionAfterPreviewHook
+	dailyTerminalCorrectionAfterPreviewHook = func() error {
+		board, err := mission.ReadBoard(caseRoot)
+		if err != nil {
+			return err
+		}
+		board.UpdatedAt = "2026-08-12T23:59:59Z"
+		writeDailyTestBoard(t, caseRoot, board)
+		return nil
+	}
+	t.Cleanup(func() { dailyTerminalCorrectionAfterPreviewHook = previous })
+	result, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Correction: "reopen only if the reviewed terminal state stays current", Actor: actor})
+	if err == nil || (!strings.Contains(err.Error(), "changed") && !strings.Contains(err.Error(), "mismatch")) {
+		t.Fatalf("stale terminal correction result=%+v err=%v", result, err)
+	}
+	if result.ReopenOperationID != "" || result.ReopenOperationCommit != nil || containsDailyStep(result.DriverSteps, "reopen") || result.SessionLaunches != 0 {
+		t.Fatalf("stale terminal correction crossed zero-commit boundary: %+v", result)
+	}
+	lifecycle, err := lanecompletion.Inspect(caseRoot, bootstrap.Lane)
+	if err != nil || lifecycle.State != lanecompletion.StateComplete || lifecycle.CurrentCompletion == nil {
+		t.Fatalf("stale terminal correction changed lifecycle: %+v err=%v", lifecycle, err)
+	}
+}
+
 func TestRunDailyRefusesPendingCompletionAsTerminalReplay(t *testing.T) {
 	caseRoot := filepath.Join(t.TempDir(), "pending-completion")
 	bootstrap := DailyResult{CaseRoot: caseRoot}
@@ -731,12 +1081,207 @@ func TestRunDailyCorrectionRefusesPendingCompletionAsTerminalReplay(t *testing.T
 		Target: caseRoot, Correction: correction, SelectedLane: inspection.Identity.InitialLane, Actor: actor, ClaudePath: missingClaudePath(t),
 		ExpectedClaudeExecutableSHA256: strings.Repeat("0", 64), ExpectedClaudeExecutablePublisher: liveAcceptanceClaudePublisher,
 	})
-	if err == nil || !strings.Contains(err.Error(), "pending lane completion publication") {
+	if err == nil || (!strings.Contains(err.Error(), "pending lane completion publication") && !strings.Contains(err.Error(), "completion publication is incomplete")) {
 		t.Fatalf("pending correction completion result=%+v err=%v", result, err)
 	}
 	if result.Replay || result.SessionLaunches != 0 || result.SessionCompletions != 0 {
 		t.Fatalf("pending correction completion was treated as terminal replay: %+v", result)
 	}
+}
+
+func TestRunDailyExplicitReviewerRejectionReplayPreservesLaneWithoutMutation(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "explicit-reviewer-rejection")
+	actor := "daily-test"
+	bootstrap := DailyResult{CaseRoot: caseRoot}
+	inspection, err := applyDailyOnboarding(caseRoot, "explicit reviewer rejection replay goal", actor, &bootstrap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lane := inspection.Identity.InitialLane
+	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap, lane); err != nil {
+		t.Fatal(err)
+	}
+	manifestRef := writeDailyReviewerRejectionFixture(t, caseRoot, inspection.Identity.Pack, lane, actor)
+	if _, rejected, err := workstream.CurrentMemberManifestReviewerRejection(caseRoot, lane, manifestRef); err != nil || !rejected {
+		t.Fatalf("reviewer rejection fixture is not canonical: rejected=%t err=%v", rejected, err)
+	}
+
+	before := snapshotDailyCaseFiles(t, caseRoot)
+	result, err := RunDaily(context.Background(), DailyOptions{
+		Target:                            caseRoot,
+		SelectedLane:                      lane,
+		ClaudePath:                        missingClaudePath(t),
+		ExpectedClaudeExecutableSHA256:    strings.Repeat("0", 64),
+		ExpectedClaudeExecutablePublisher: liveAcceptanceClaudePublisher,
+		beforeMemberRun: func(_, _, _ string) error {
+			t.Fatal("reviewer rejection replay reached member execution")
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("explicit reviewer rejection replay: result=%+v err=%v", result, err)
+	}
+	if result.Lane != lane || result.FinalState != "reviewer-rejected-awaiting-correction" || !result.Blocked || !result.Replay || result.Action == nil || result.Action.Code != DailyActionWaitingForCorrection || result.SessionLaunches != 0 || result.SessionCompletions != 0 || result.Replacements != 0 || len(result.HostRuns) != 0 || len(result.DriverSteps) != 0 {
+		t.Fatalf("explicit reviewer rejection replay lost its canonical projection: %+v", result)
+	}
+	assertDailyCaseFilesEqual(t, before, snapshotDailyCaseFiles(t, caseRoot))
+}
+
+func writeDailyReviewerRejectionFixture(t *testing.T, caseRoot, pack, lane, actor string) string {
+	t.Helper()
+	status, err := runPublicStatus(caseRoot, pack, lane)
+	if err != nil || status.MissionControlRunbook == nil || status.MissionControlRunbook.CurrentDriverRequest == nil {
+		t.Fatalf("read member dispatch request: status=%+v err=%v", status, err)
+	}
+	requestSHA256, err := mission.MissionCommanderDriverRequestSHA256(*status.MissionControlRunbook.CurrentDriverRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatch, err := memberexecution.PreviewDispatch(memberexecution.DispatchOptions{CaseRoot: caseRoot, Pack: pack, Lane: lane, RequestSHA256: requestSHA256, CreatedAt: "2026-08-12T01:00:00Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := memberexecution.Apply(dispatch, dispatch.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := memberexecution.PreviewObservation(memberexecution.ObservationOptions{CaseRoot: caseRoot, Pack: pack, Lane: lane, AttemptID: dispatch.AttemptID, Outcome: "accepted", Actor: actor, ObservedAt: "2026-08-12T01:01:00Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := memberexecution.Apply(accepted, accepted.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+
+	output := []byte("bounded member result for reviewer rejection\n")
+	manifest := memberexecution.ResultManifest{
+		SchemaVersion: 1, Kind: memberexecution.KindManifest, AttemptID: dispatch.AttemptID, Owner: dispatch.Owner,
+		Summary: "bounded member result", Outputs: []memberexecution.Output{{Path: "review-items.txt", SHA256: bytesSHA256(output), Bytes: int64(len(output))}},
+		ReviewerItemsPath: "review-items.txt", NoAuthority: true, NoConfirmed: true, NoHeavyTool: true,
+	}
+	manifestData, err := memberexecution.MarshalResultManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dispatch.Inspection.OutputsRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dispatch.Inspection.OutputsRoot, "review-items.txt"), output, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dispatch.Inspection.ManifestPath, manifestData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	returned, err := memberexecution.PreviewObservation(memberexecution.ObservationOptions{
+		CaseRoot: caseRoot, Pack: pack, Lane: lane, AttemptID: dispatch.AttemptID, Outcome: "returned", Actor: actor, ObservedAt: "2026-08-12T01:02:00Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := memberexecution.Apply(returned, returned.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	latest, found, err := memberexecution.Latest(caseRoot, lane)
+	if err != nil || !found || latest.State != "intake-ready" || latest.Manifest == nil {
+		t.Fatalf("member rejection fixture is not intake-ready: latest=%+v found=%t err=%v", latest, found, err)
+	}
+	manifestRef := relativeLiveAcceptancePath(caseRoot, latest.ManifestPath)
+
+	planCommand := "/rekit plan-subagents -Target " + quoteDailyCommandArg(caseRoot) + " -Pack " + pack + " -TaskType feature-analysis -Items " + quoteDailyCommandArg(manifestRef) + " -Lane " + lane + " -Format json"
+	var reviewerPlan struct {
+		PacketID      string `json:"packetId"`
+		PacketPath    string `json:"packetPath"`
+		TargetLane    string `json:"targetLane"`
+		ShardHandoffs []struct {
+			ShardID string `json:"shardId"`
+		} `json:"shardHandoffs"`
+	}
+	if err := runPublicCommandJSON(planCommand, &reviewerPlan); err != nil {
+		t.Fatal(err)
+	}
+	if reviewerPlan.PacketPath == "" || reviewerPlan.TargetLane != lane || len(reviewerPlan.ShardHandoffs) != 1 {
+		t.Fatalf("reviewer rejection plan identity is incomplete: %+v", reviewerPlan)
+	}
+
+	hostOpt := Options{Target: caseRoot, Pack: pack, SelectedLane: lane, Actor: actor}
+	spawn, err := runCurrentStep(hostOpt, []string{"-ReviewerHarness", "daily-test-harness", "-ReviewerSession", "daily-test-reviewer", "-Actor", actor}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := applyCurrentStep(hostOpt, spawn, []string{"-ReviewerHarness", "daily-test-harness", "-ReviewerSession", "daily-test-reviewer", "-Actor", actor}); err != nil {
+		t.Fatal(err)
+	}
+	status, err = runPublicStatus(caseRoot, pack, lane)
+	if err != nil {
+		t.Fatal(err)
+	}
+	operator := dailyReviewerOperatorPackage(t, caseRoot, pack, lane)
+	if operator.PacketID == "" || operator.RouteID == "" || operator.TargetLane != lane || operator.Current == nil || operator.Current.ShardID != reviewerPlan.ShardHandoffs[0].ShardID {
+		t.Fatalf("reviewer rejection operator identity is incomplete: %+v", operator)
+	}
+	resultData, err := json.Marshal(map[string]any{
+		"packetId": operator.PacketID, "routeId": operator.RouteID, "shardId": reviewerPlan.ShardHandoffs[0].ShardID, "items": []string{manifestRef},
+		"reviewerSession": "daily-test-reviewer", "decision": "reject", "confidence": "high", "summary": "bounded member result requires correction", "evidenceRefs": []string{manifestRef}, "risks": []string{"missing bounded acceptance detail"}, "conflicts": []string{}, "recommendedVerdict": "rejected",
+		"routeOutput": map[string]any{"item": manifestRef, "decision": "reject", "confidence": "high", "evidence": manifestRef, "risk": "missing bounded acceptance detail", "next_action": "main-agent-writeback", "tier_used": "light", "tool_scope": "read-only", "feature": "mission", "request_id": "n/a", "candidate_path": "n/a", "defer_reason": "n/a"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resultSource := filepath.Join(caseRoot, "workspace", "daily-reviewer-rejection.json")
+	if err := os.MkdirAll(filepath.Dir(resultSource), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(resultSource, resultData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	input, err := runCurrentStep(hostOpt, []string{"-ReviewerResultInputSourcePath", resultSource, "-Actor", actor}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := applyCurrentStep(hostOpt, input, []string{"-ReviewerResultInputSourcePath", resultSource, "-Actor", actor}); err != nil {
+		t.Fatal(err)
+	}
+	for _, stepID := range []string{"record-completion", "source-capture", "stage-candidate", "collect-result", "intake-results"} {
+		operator = dailyReviewerOperatorPackage(t, caseRoot, pack, lane)
+		if operator.CurrentRunLoopStepID != stepID {
+			t.Fatalf("reviewer rejection pipeline step=%s want=%s operator=%+v", operator.CurrentRunLoopStepID, stepID, operator)
+		}
+		step, err := runCurrentStep(hostOpt, []string{"-Actor", actor}, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := applyCurrentStep(hostOpt, step, []string{"-Actor", actor}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return manifestRef
+}
+
+func dailyReviewerOperatorPackage(t *testing.T, caseRoot, pack, lane string) *workstream.ReviewerDispatchOperatorPackage {
+	t.Helper()
+	var status struct {
+		CaseMission *struct {
+			ReviewerDispatchIntakeSummary workstream.ReviewerDispatchIntakeSummary `json:"reviewerDispatchIntakeSummary"`
+		} `json:"caseMission"`
+	}
+	if err := runPublicCLI([]string{"-Command", "status", "-Target", caseRoot, "-Pack", pack, "-Lane", lane, "-Format", "json"}, &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.CaseMission == nil || status.CaseMission.ReviewerDispatchIntakeSummary.OperatorPackage == nil {
+		t.Fatalf("reviewer operator package is missing: %+v", status)
+	}
+	return status.CaseMission.ReviewerDispatchIntakeSummary.OperatorPackage
+}
+
+func runPublicCommandJSON(command string, target any) error {
+	args, err := cli.SplitPublicCommand(command)
+	if err != nil {
+		return err
+	}
+	return runPublicCLI(args, target)
+}
+
+func quoteDailyCommandArg(value string) string {
+	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
 }
 
 func TestFinishDailyCompletionPreservesReviewerRejectionState(t *testing.T) {

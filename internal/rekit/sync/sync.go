@@ -15,6 +15,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/kitmutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/review"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/sourceartifact"
 )
 
 var acquireMutationLease = func(caseRoot string) (mutationLease, error) {
@@ -253,8 +254,9 @@ func InitPreview(repoRoot, caseRoot, pack string, opt ApplyOptions) (InitPlan, e
 	if err != nil {
 		return InitPlan{}, err
 	}
+	canonicalSources := initPublishesCanonicalText(targetClass)
 	shimSource := filepath.Join(repoFull, "rekit", "templates", "case-shim", "SKILL.md")
-	if _, err := readRequiredText(shimSource); err != nil {
+	if _, err := readSourceText(shimSource, canonicalSources); err != nil {
 		return InitPlan{}, err
 	}
 	writes := []WriteResult{
@@ -271,7 +273,7 @@ func InitPreview(repoRoot, caseRoot, pack string, opt ApplyOptions) (InitPlan, e
 		if err != nil {
 			return InitPlan{}, err
 		}
-		sourceText, err := readRequiredText(source)
+		sourceText, err := readSourceText(source, canonicalSources)
 		if err != nil {
 			return InitPlan{}, err
 		}
@@ -281,7 +283,11 @@ func InitPreview(repoRoot, caseRoot, pack string, opt ApplyOptions) (InitPlan, e
 		}
 		action := "create-managed-file"
 		if destExists {
-			if destText == sourceText {
+			sameText := destText == sourceText
+			if targetClass == "ordinary-directory" {
+				sameText = sourceTextEquivalent(destText, sourceText)
+			}
+			if sameText {
 				action = "unchanged"
 			} else {
 				action = "overwrite-with-backup"
@@ -299,7 +305,7 @@ func InitPreview(repoRoot, caseRoot, pack string, opt ApplyOptions) (InitPlan, e
 		if err != nil {
 			return InitPlan{}, err
 		}
-		if _, err := readRequiredText(source); err != nil {
+		if _, err := readSourceText(source, canonicalSources); err != nil {
 			return InitPlan{}, err
 		}
 		destExists := refsf.Exists(dest)
@@ -323,7 +329,7 @@ func InitPreview(repoRoot, caseRoot, pack string, opt ApplyOptions) (InitPlan, e
 	if err != nil {
 		return InitPlan{}, err
 	}
-	blockText, err := readRequiredText(blockSource)
+	blockText, err := readSourceText(blockSource, canonicalSources)
 	if err != nil {
 		return InitPlan{}, err
 	}
@@ -347,7 +353,15 @@ func InitPreview(repoRoot, caseRoot, pack string, opt ApplyOptions) (InitPlan, e
 	if err != nil {
 		return InitPlan{}, err
 	}
-	return finalizeInitPlan(InitPlan{SchemaVersion: 1, Command: command, CaseRoot: caseFull, RepoRoot: repoFull, Pack: pack, ProjectName: projectName, TargetClass: targetClass, IsMutation: false, ReviewRequired: true, RequiresConfirmation: true, BackupRoot: backupRoot, Writes: writes, BlockedActions: []string{"pack writes", "promote", "authority/confirmed writes", "heavy-tool execution", "board/facts/lanes migration"}, NextSteps: []string{"review this plan, then re-run " + command + " with -Apply and the exact plan hash to initialize the case", "use /rekit as the Mission Commander entrypoint; this remains a review-first Go runtime path"}, initManifestSHA256: sha256Bytes(manifestBytes), initGitignorePresent: gitignorePresent})
+	return finalizeInitPlan(InitPlan{SchemaVersion: 1, Command: command, CaseRoot: caseFull, RepoRoot: repoFull, Pack: pack, ProjectName: projectName, TargetClass: targetClass, IsMutation: false, ReviewRequired: true, RequiresConfirmation: true, BackupRoot: backupRoot, Writes: writes, BlockedActions: []string{"pack writes", "promote", "authority/confirmed writes", "heavy-tool execution", "board/facts/lanes migration"}, NextSteps: []string{"review this plan, then re-run " + command + " with -Apply and the exact plan hash to initialize the case", "use /rekit as the Mission Commander entrypoint; this remains a review-first Go runtime path"}, initManifestSHA256: sha256Bytes(sourceartifact.SemanticText(manifestBytes)), initGitignorePresent: gitignorePresent})
+}
+
+func initPublishesCanonicalText(targetClass string) bool {
+	return targetClass == "missing" || targetClass == "ordinary-directory"
+}
+
+func sourceTextEquivalent(left, right string) bool {
+	return string(sourceartifact.SemanticText([]byte(left))) == string(sourceartifact.SemanticText([]byte(right)))
 }
 
 func readApplyInstance(caseRoot, repoRoot, pack string, createLocalFiles bool) (instance.Instance, error) {
@@ -389,6 +403,7 @@ func Apply(repoRoot, caseRoot, pack string, opt ApplyOptions) (_ ApplyResult, re
 			retErr = errors.Join(retErr, lease.Unlock())
 		}
 	}()
+	canonicalSources := false
 	if opt.CreateLocalFiles {
 		if strings.TrimSpace(opt.ExpectedPlanSHA256) != "" && !validInitPlanSHA256(opt.ExpectedPlanSHA256) {
 			return ApplyResult{}, fmt.Errorf("%s -Apply requires a valid -ExpectedInitPlanSha256 from -WhatIf", command)
@@ -409,6 +424,7 @@ func Apply(repoRoot, caseRoot, pack string, opt ApplyOptions) (_ ApplyResult, re
 		if fresh.TargetClass != "missing" && fresh.TargetClass != "ordinary-directory" && fresh.TargetClass != "attached-case" && fresh.TargetClass != "mission-case" {
 			return ApplyResult{}, fmt.Errorf("%s refuses target class %s", command, fresh.TargetClass)
 		}
+		canonicalSources = initPublishesCanonicalText(fresh.TargetClass)
 		if fresh.TargetClass == "ordinary-directory" {
 			if ordinaryInitLeaseForTest != nil {
 				lease = ordinaryInitLeaseForTest(lease)
@@ -431,8 +447,14 @@ func Apply(repoRoot, caseRoot, pack string, opt ApplyOptions) (_ ApplyResult, re
 		return ApplyResult{}, err
 	}
 	writes = append(writes, WriteResult{Path: ".rekit/instance.yml", Kind: "instance-metadata", Action: "refresh", TargetPath: filepath.Join(caseFull, ".rekit", "instance.yml")})
-	if _, err := casebind.WriteCaseShim(caseFull, repoFull); err != nil {
-		return ApplyResult{}, err
+	var shimErr error
+	if canonicalSources {
+		_, shimErr = casebind.WriteCanonicalCaseShim(caseFull, repoFull)
+	} else {
+		_, shimErr = casebind.WriteCaseShim(caseFull, repoFull)
+	}
+	if shimErr != nil {
+		return ApplyResult{}, shimErr
 	}
 	writes = append(writes, WriteResult{Path: ".claude/skills/rekit/SKILL.md", Kind: "case-local-thin-shim", Action: "refresh", TargetPath: filepath.Join(caseFull, ".claude", "skills", "rekit", "SKILL.md")})
 	if _, err := casebind.WriteLegacyMetadataForAttach(caseFull, repoFull, pack); err != nil {
@@ -449,7 +471,7 @@ func Apply(repoRoot, caseRoot, pack string, opt ApplyOptions) (_ ApplyResult, re
 		if err != nil {
 			return ApplyResult{}, err
 		}
-		sourceText, err := readRequiredText(source)
+		sourceText, err := readSourceText(source, canonicalSources)
 		if err != nil {
 			return ApplyResult{}, err
 		}
@@ -489,7 +511,7 @@ func Apply(repoRoot, caseRoot, pack string, opt ApplyOptions) (_ ApplyResult, re
 		if err != nil {
 			return ApplyResult{}, err
 		}
-		sourceText, err := readRequiredText(source)
+		sourceText, err := readSourceText(source, canonicalSources)
 		if err != nil {
 			return ApplyResult{}, err
 		}
@@ -530,7 +552,7 @@ func Apply(repoRoot, caseRoot, pack string, opt ApplyOptions) (_ ApplyResult, re
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	blockText, err := readRequiredText(blockSource)
+	blockText, err := readSourceText(blockSource, canonicalSources)
 	if err != nil {
 		return ApplyResult{}, err
 	}
@@ -560,7 +582,7 @@ func Apply(repoRoot, caseRoot, pack string, opt ApplyOptions) (_ ApplyResult, re
 		if refsf.Exists(gitignoreTarget) {
 			writes = append(writes, WriteResult{Path: ".gitignore", Kind: "support-file", Action: "skip-existing-support-file", SourcePath: gitignoreSource, TargetPath: gitignoreTarget})
 		} else {
-			text, err := readRequiredText(gitignoreSource)
+			text, err := readSourceText(gitignoreSource, canonicalSources)
 			if err != nil {
 				return ApplyResult{}, err
 			}
@@ -571,7 +593,7 @@ func Apply(repoRoot, caseRoot, pack string, opt ApplyOptions) (_ ApplyResult, re
 		}
 	}
 
-	statePath, err := writeSyncState(caseRoot, m)
+	statePath, err := writeSyncState(caseRoot, m, canonicalSources)
 	if err != nil {
 		return ApplyResult{}, err
 	}
@@ -636,7 +658,7 @@ func planApplyWrites(caseRoot string, m *manifest.Manifest, opt ApplyOptions, ba
 		if err != nil {
 			return nil, err
 		}
-		sourceText, err := readRequiredText(source)
+		sourceText, err := readSourceText(source, false)
 		if err != nil {
 			return nil, err
 		}
@@ -666,7 +688,7 @@ func planApplyWrites(caseRoot string, m *manifest.Manifest, opt ApplyOptions, ba
 		if err != nil {
 			return nil, err
 		}
-		if _, err := readRequiredText(source); err != nil {
+		if _, err := readSourceText(source, false); err != nil {
 			return nil, err
 		}
 		destExists := refsf.Exists(dest)
@@ -694,7 +716,7 @@ func planApplyWrites(caseRoot string, m *manifest.Manifest, opt ApplyOptions, ba
 	if err != nil {
 		return nil, err
 	}
-	blockText, err := readRequiredText(blockSource)
+	blockText, err := readSourceText(blockSource, opt.CreateLocalFiles)
 	if err != nil {
 		return nil, err
 	}
@@ -736,12 +758,20 @@ func previewBackupPath(path, caseRoot, backupRoot string) string {
 	return filepath.Join(backupRoot, rel)
 }
 
-func readRequiredText(path string) (string, error) {
-	b, err := os.ReadFile(path)
+func readSourceText(path string, canonical bool) (string, error) {
+	var (
+		data []byte
+		err  error
+	)
+	if canonical {
+		data, err = sourceartifact.ReadCanonical(path)
+	} else {
+		data, err = os.ReadFile(path)
+	}
 	if err != nil {
 		return "", err
 	}
-	return string(b), nil
+	return string(data), nil
 }
 
 func syncBackupRoot(caseRoot string, m *manifest.Manifest) (string, error) {
@@ -812,7 +842,7 @@ type syncManagedEntry struct {
 	LastAction       string `json:"lastAction"`
 }
 
-func writeSyncState(caseRoot string, m *manifest.Manifest) (string, error) {
+func writeSyncState(caseRoot string, m *manifest.Manifest, canonical bool) (string, error) {
 	managed := map[string]syncManagedEntry{}
 	for _, rel := range m.ManagedFiles {
 		source, err := m.SourcePath(rel)
@@ -823,7 +853,11 @@ func writeSyncState(caseRoot string, m *manifest.Manifest) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		managed[rel] = syncManagedEntry{SourceHash: review.FileHash(source), TargetHashAtSync: review.FileHash(target), LastAction: "sync"}
+		sourceText, err := readSourceText(source, canonical)
+		if err != nil {
+			return "", err
+		}
+		managed[rel] = syncManagedEntry{SourceHash: sha256Bytes([]byte(sourceText)), TargetHashAtSync: review.FileHash(target), LastAction: "sync"}
 	}
 	state := syncState{SchemaVersion: 1, TemplateRoot: m.RepoRoot, TemplatePack: m.Pack, LastSyncAt: time.Now().Format("2006-01-02T15:04:05-07:00"), Managed: managed}
 	b, err := json.MarshalIndent(state, "", "  ")

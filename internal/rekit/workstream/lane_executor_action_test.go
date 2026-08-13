@@ -110,6 +110,75 @@ func TestBindLaneContinueCommandsTakeoverReplacesStaleDurableCommand(t *testing.
 	}
 }
 
+func TestResolveHandoffLaneIDSupportsAuthorityAndNamedLanes(t *testing.T) {
+	repoRoot, caseRoot := setupContinueCase(t, "")
+	started, err := StartApply(repoRoot, caseRoot, defaults.DefaultPack, StartOptions{Selector: "analysis-sample"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lanePath := filepath.Join(caseRoot, ".rekit", "lanes", started.Lane.ID, "lane.json")
+	started.Lane.Name = "sample"
+	data, err := json.Marshal(started.Lane)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lanePath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, fixture := range []struct {
+		selector string
+		want     string
+	}{
+		{selector: "main", want: "devirt-main"},
+		{selector: "sample", want: started.Lane.ID},
+		{selector: started.Lane.ID, want: started.Lane.ID},
+	} {
+		got, err := ResolveHandoffLaneID(caseRoot, fixture.selector)
+		if err != nil {
+			t.Fatalf("ResolveHandoffLaneID(%q): %v", fixture.selector, err)
+		}
+		if got != fixture.want {
+			t.Fatalf("ResolveHandoffLaneID(%q) = %q, want %q", fixture.selector, got, fixture.want)
+		}
+	}
+}
+
+func TestResolveHandoffLaneIDSupportsExactMainWithoutDefaultAuthorityLane(t *testing.T) {
+	_, caseRoot := setupContinueCase(t, "")
+	boardPath := filepath.Join(caseRoot, ".rekit", "board.json")
+	data, err := os.ReadFile(boardPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var board map[string]any
+	if err := json.Unmarshal(data, &board); err != nil {
+		t.Fatal(err)
+	}
+	delete(board, "defaultAuthorityLane")
+	board["lanes"] = []map[string]any{{"id": "main"}}
+	data, err = json.Marshal(board)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(boardPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	laneRoot := filepath.Join(caseRoot, ".rekit", "lanes", "main")
+	if err := os.MkdirAll(laneRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(laneRoot, "lane.json"), []byte(`{"schemaVersion":1,"id":"main","type":"main","status":"open","authority":true,"workspace":"workspace/main","laneRoot":".rekit/lanes/main"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ResolveHandoffLaneID(caseRoot, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "main" {
+		t.Fatalf("ResolveHandoffLaneID(main) = %q", got)
+	}
+}
+
 func TestTakeoverRefreshesDurableResumeCheckpointHandoffAndDigestCommands(t *testing.T) {
 	repoRoot, caseRoot := setupContinueCase(t, "executor-one")
 	beforePreview, err := HandoffPreview(repoRoot, caseRoot, defaults.DefaultPack, HandoffOptions{Selector: "devirt-main"})
@@ -130,8 +199,8 @@ func TestTakeoverRefreshesDurableResumeCheckpointHandoffAndDigestCommands(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "/rekit continue main -Executor executor-two -ExpectedExecutorGeneration 2"
-	if preview.ExecutorAction == nil || preview.ExecutorAction.ResumeCommand != want {
+	canonicalAfter := "/rekit continue -Executor executor-two -ExpectedExecutorGeneration 2 -Lane devirt-main"
+	if preview.ExecutorAction == nil || preview.ExecutorAction.ResumeCommand != canonicalAfter {
 		t.Fatalf("live handoff did not switch to current owner: %+v", preview.ExecutorAction)
 	}
 	applied, err := ContinueApply(repoRoot, caseRoot, defaults.DefaultPack, ContinueOptions{Selector: "devirt-main", Executor: "executor-two", ExpectedExecutorGeneration: 2})
@@ -149,7 +218,7 @@ func TestTakeoverRefreshesDurableResumeCheckpointHandoffAndDigestCommands(t *tes
 			t.Fatal(err)
 		}
 		text := string(data)
-		if !strings.Contains(text, want) || strings.Contains(text, "-Executor executor-one -ExpectedExecutorGeneration 1") {
+		if !strings.Contains(text, "/rekit continue main -Executor executor-two -ExpectedExecutorGeneration 2") || strings.Contains(text, "-Executor executor-one -ExpectedExecutorGeneration 1") {
 			t.Fatalf("durable artifact did not use only current authority command %s:\n%s", path, text)
 		}
 	}
@@ -162,7 +231,11 @@ func TestTakeoverRefreshesDurableResumeCheckpointHandoffAndDigestCommands(t *tes
 	if err := json.Unmarshal(data, &takeover); err != nil {
 		t.Fatalf("replacement executor takeover package JSON did not decode: %v\n%s", err, string(data))
 	}
-	if !takeover.Ready || takeover.Focus != "durable-handoff-current-action" || takeover.Scope != "lane:devirt-main" || takeover.DriverKind != "execute-command" || !takeover.CommandExecutable || takeover.Command != "/rekit continue main -Executor executor-one -ExpectedExecutorGeneration 1" || takeover.CurrentDriverRequest.Command != takeover.Command || takeover.RefreshStatusCommand == "" || !slices.ContainsFunc(takeover.TargetDocuments, func(doc string) bool {
+	canonicalBefore := "/rekit continue -Executor executor-one -ExpectedExecutorGeneration 1 -Lane devirt-main"
+	if before.ExecutorAction == nil || before.ExecutorAction.ResumeCommand != canonicalBefore || before.ExecutorAction.HandoffCommand != "/rekit handoff -Lane devirt-main" || before.LaneTakeoverPackage == nil || before.LaneTakeoverPackage.ContinueCommand != canonicalBefore || before.LaneTakeoverPackage.HandoffCommand != "/rekit handoff -Lane devirt-main" || before.LaneTakeoverPackage.CurrentCommand != canonicalBefore {
+		t.Fatalf("handoff result did not share one canonical current action: executor=%+v takeover=%+v", before.ExecutorAction, before.LaneTakeoverPackage)
+	}
+	if !takeover.Ready || takeover.Focus != "durable-handoff-current-action" || takeover.Scope != "lane:devirt-main" || takeover.DriverKind != "execute-command" || !takeover.CommandExecutable || takeover.Command != canonicalBefore || takeover.CurrentDriverRequest.Command != takeover.Command || takeover.RefreshStatusCommand == "" || !slices.ContainsFunc(takeover.TargetDocuments, func(doc string) bool {
 		return doc == ".rekit/handovers/devirt-main-latest-replacement-executor-takeover.json"
 	}) || !slices.ContainsFunc(takeover.RunbookSteps, func(step string) bool {
 		return strings.Contains(step, "read .rekit/handovers/devirt-main-latest-replacement-executor-takeover.json before using any prior chat context")

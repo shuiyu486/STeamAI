@@ -75,7 +75,10 @@ func runCurrentLoopExternalSessionTurn(ctx runtime.Context, opt Options, out io.
 		if strings.TrimSpace(opt.ExpectedExternalSessionSubmissionSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionRelayPlanSHA256) != "" || strings.TrimSpace(opt.ExpectedExternalSessionTurnPlanSHA256) != "" {
 			return fmt.Errorf("external session turn -WhatIf does not accept submission, relay, or turn plan hashes")
 		}
-		plan.ApplyCommand = externalSessionTurnApplyCommand(plan)
+		plan.ApplyCommand = selectedLaneCommand(
+			externalSessionTurnApplyCommand(plan),
+			opt.SelectedCurrentLane,
+		)
 		return writeJSON(out, plan)
 	}
 	if expected := strings.TrimSpace(opt.ExpectedExternalSessionTurnPlanSHA256); expected == "" || !strings.EqualFold(expected, plan.ExpectedPlanSHA256) {

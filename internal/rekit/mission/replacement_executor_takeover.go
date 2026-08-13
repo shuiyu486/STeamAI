@@ -196,12 +196,11 @@ func replacementExecutorTakeoverBoundary(pkg *ReplacementExecutorTakeoverPackage
 func ReplacementExecutorDriverRequestSHA256(request MissionCommanderDriverRequest) string {
 	request.Boundary = UniqueStrings(request.Boundary)
 	request.ExpectedReceipt.Boundary = UniqueStrings(request.ExpectedReceipt.Boundary)
-	data, err := json.Marshal(request)
+	identity, err := MissionCommanderDriverRequestSHA256(request)
 	if err != nil {
 		return ""
 	}
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
+	return identity
 }
 
 type replacementExecutorTakeoverArtifactIdentity struct {
@@ -267,6 +266,7 @@ func cloneMissionCommanderDriverRequest(request *MissionCommanderDriverRequest) 
 		return nil
 	}
 	clone := *request
+	clone.Invocation = clonePublicInvocation(request.Invocation)
 	clone.Boundary = UniqueStrings(clone.Boundary)
 	clone.ExpectedReceipt.Boundary = UniqueStrings(clone.ExpectedReceipt.Boundary)
 	return &clone

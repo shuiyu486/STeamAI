@@ -16,7 +16,14 @@ import (
 func currentStepRequestOwnsMemberExecution(request mission.MissionCommanderDriverRequest) bool {
 	return strings.TrimSpace(request.Source) == "missionCommanderActions" &&
 		strings.TrimSpace(request.State) == "ready-to-continue" &&
-		driverStepCommandName(request.Command) == commands.Continue
+		currentStepRequestCommand(request) == commands.Continue
+}
+
+func currentStepRequestCommand(request mission.MissionCommanderDriverRequest) string {
+	if request.Invocation == nil || request.Invocation.Validate() != nil {
+		return ""
+	}
+	return request.Invocation.Command
 }
 
 func currentStepRequestIsEvidenceReview(request mission.MissionCommanderDriverRequest) bool {
@@ -24,7 +31,7 @@ func currentStepRequestIsEvidenceReview(request mission.MissionCommanderDriverRe
 }
 
 func currentStepRequestUsesMemberContinueCommand(request mission.MissionCommanderDriverRequest) bool {
-	return driverStepCommandName(request.Command) == commands.Continue
+	return currentStepRequestCommand(request) == commands.Continue
 }
 
 func buildMemberExecutionStep(ctx runtime.Context, opt Options, request mission.MissionCommanderDriverRequest) (*memberexecution.Plan, bool, error) {
@@ -33,7 +40,7 @@ func buildMemberExecutionStep(ctx runtime.Context, opt Options, request mission.
 		return nil, false, fmt.Errorf("current case driver request has no durable lane")
 	}
 	hasObservation := strings.TrimSpace(opt.MemberExecutionAttemptID) != "" || strings.TrimSpace(opt.MemberExecutionOutcome) != "" || strings.TrimSpace(opt.MemberExecutionObservedAt) != "" || strings.TrimSpace(opt.MemberExecutionReason) != ""
-	if driverStepCommandName(request.Command) == commands.Complete && !hasObservation {
+	if currentStepRequestCommand(request) == commands.Complete && !hasObservation {
 		return nil, true, nil
 	}
 	if opt.skipMemberExecutionDispatch && !hasObservation {

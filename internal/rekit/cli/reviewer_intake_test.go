@@ -66,7 +66,7 @@ func TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E(t *testing.T) {
 	if preview.Verification.Applied || preview.Decision.Applied || preview.Verification.Event["verdict"] != "accepted" || preview.Decision.Event["decision"] != "accept" {
 		t.Fatalf("unexpected reviewer intake event previews: verification=%+v decision=%+v", preview.Verification, preview.Decision)
 	}
-	if preview.MissionCommanderAction.State != "ready-for-reviewer-intake-apply" || !strings.Contains(preview.MissionCommanderAction.PrimaryCommand, "-Apply -Format json") || !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "reviewerIntake.previewed", preview.MissionCommanderAction.PrimaryCommand, false, true) || !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "reviewerIntake.previewed.followUp", "/rekit handoff main", false, true) {
+	if preview.MissionCommanderAction.State != "ready-for-reviewer-intake-apply" || !strings.Contains(preview.MissionCommanderAction.PrimaryCommand, "-Apply -Format json") || !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "reviewerIntake.previewed", preview.MissionCommanderAction.PrimaryCommand, false, true) || !containsMissionCommanderNextAction(preview.MissionCommanderNextActions, "reviewerIntake.previewed.followUp", "/rekit handoff -Lane main", false, true) {
 		t.Fatalf("preview omitted reviewer intake Mission Commander guidance: action=%+v next=%+v", preview.MissionCommanderAction, preview.MissionCommanderNextActions)
 	}
 	assertCLIActionQueue(t, preview.MissionCommanderActionQueue, 2, 2, 0, 2, 1, preview.MissionCommanderAction.PrimaryCommand)
@@ -173,8 +173,8 @@ func TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E(t *testing.T) {
 		"reviewer intake summary：status=already-complete readyForWriteback=true applied=false lane=main shard=shard-01",
 		"postValidation=true valid=true postValidationVerifications=1 postValidationDecisions=1 reviewerWritebacks=2",
 		"reviewer intake summary post-validation reviewer writeback summary：total=2 verifications=1 decisions=1 lanes=1 latestKind=decision",
-		"reviewer intake summary current action：state=ready-to-continue source=reviewerIntake.postValidation.missionCommanderActions blocked=false requiresReview=false command=`/rekit continue main`",
-		"reviewer intake summary next action：state=ready-to-continue source=reviewerIntake.postValidation.missionCommanderActions blocked=false requiresReview=false command=`/rekit continue main`",
+		"reviewer intake summary current action：state=ready-to-continue source=reviewerIntake.postValidation.missionCommanderActions blocked=false requiresReview=false command=`/rekit continue -Lane main`",
+		"reviewer intake summary next action：state=ready-to-continue source=reviewerIntake.postValidation.missionCommanderActions blocked=false requiresReview=false command=`/rekit continue -Lane main`",
 		"reviewer intake summary boundary：intake summary is read-only; full reviewer result, note writebacks, orchestration snapshot, postValidation, and action queue remain available",
 		"reviewer intake result：packetId=" + packet.PacketID + " routeId=" + packet.Route.ID + " shard=shard-01 decision=accept confidence=high reviewerSession=reviewer-session-cli recommendedVerdict=accepted",
 		"reviewer intake result items：alpha",
@@ -183,7 +183,7 @@ func TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E(t *testing.T) {
 		"reviewer intake post-validation summary：valid=true",
 		"lane=main project=false executorAction=true ready=",
 		"reviewer intake post-validation summary reviewer writeback summary：total=2 verifications=1 decisions=1 lanes=1 latestKind=decision",
-		"reviewer intake post-validation summary current action：state=ready-to-continue source=missionCommanderActions blocked=false requiresReview=false command=`/rekit continue main` lane=main label=main",
+		"reviewer intake post-validation summary current action：state=ready-to-continue source=missionCommanderActions blocked=false requiresReview=false command=`/rekit continue -Lane main` lane=main label=main",
 		"reviewer intake post-validation summary current action reason：ready lane primary action",
 		"reviewer intake post-validation summary current action boundary：no heavy-tool execution",
 		"reviewer intake post-validation summary next action：state=ready-to-continue source=missionCommanderActions",
@@ -222,7 +222,7 @@ func TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E(t *testing.T) {
 
 	factsBeforeContinue := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
 	out.Reset()
-	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "main", "-Apply", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "continue", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Apply", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var continueApply struct {
@@ -240,7 +240,7 @@ func TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E(t *testing.T) {
 	if !continueApply.Applied || continueApply.Blocked || continueApply.RunID == "" || continueApply.RunID == "run-preview" || len(continueApply.ReviewerWritebacks) != 2 || continueApply.ReviewerWritebackSummary.Total != 2 || continueApply.ReviewerWritebackSummary.VerificationCount != 1 || continueApply.ReviewerWritebackSummary.DecisionCount != 1 || continueApply.ReviewerWritebackSummary.LatestReviewerResult != resultPath || continueApply.ReviewerWritebackSummary.LatestReviewerSession != "reviewer-session-cli" || !continueApply.ReviewerWritebackSummary.HasReviewerResult || !continueApply.ReviewerWritebackSummary.HasOwnerBinding || !continueApply.ReviewerWritebackSummary.HasRouteOutput {
 		t.Fatalf("continue after reviewer writeback omitted writeback summary: %+v", continueApply)
 	}
-	if continueApply.MissionCommanderActionQueue.CurrentAction == nil || continueApply.MissionCommanderActionQueue.CurrentAction.Command != "/rekit continue main" {
+	if continueApply.MissionCommanderActionQueue.CurrentAction == nil || continueApply.MissionCommanderActionQueue.CurrentAction.Command != "/rekit continue -Lane main" {
 		t.Fatalf("continue after reviewer writeback should remain ready for replacement executor continuation: %+v", continueApply.MissionCommanderActionQueue)
 	}
 	resumePath := assertStartWrite(t, continueApply.Writes, ".rekit/lanes/main/prompts/RESUME.md", "refresh").TargetPath
@@ -290,7 +290,7 @@ func TestRunPlanSubagentsReviewerIntakeWhatIfApplyE2E(t *testing.T) {
 	if err := json.Unmarshal(checkpointBytes, &checkpoint); err != nil {
 		t.Fatalf("checkpoint after reviewer writeback did not decode: %v\n%s", err, string(checkpointBytes))
 	}
-	if checkpoint.ReviewerWritebackSummary.Total != 2 || checkpoint.ReviewerWritebackSummary.LatestReviewerResult != resultPath || checkpoint.MissionCommanderActionQueue.CurrentAction == nil || checkpoint.MissionCommanderActionQueue.CurrentAction.Command != "/rekit continue main" {
+	if checkpoint.ReviewerWritebackSummary.Total != 2 || checkpoint.ReviewerWritebackSummary.LatestReviewerResult != resultPath || checkpoint.MissionCommanderActionQueue.CurrentAction == nil || checkpoint.MissionCommanderActionQueue.CurrentAction.Command != "/rekit continue -Lane main" {
 		t.Fatalf("checkpoint after reviewer writeback omitted durable continuation handoff: %+v", checkpoint)
 	}
 }
@@ -737,7 +737,7 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "status", "-Lane", "main", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var status statusInventory
@@ -782,7 +782,9 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 		"status case mission section：name=decisions total=1 shown=1",
 		"status case mission section event：section=decisions index=1 eventId=evt-",
 		"status case mission reviewer writeback：kind=decision eventId=evt-",
-		"status case mission queue action：bucket=current",
+		"status Mission Commander first screen：focus=case-lane-choice",
+		"status Mission Commander lane choice：lane=feature-review label=review state=ready-to-continue",
+		"status Mission Commander lane choice：lane=main label=main state=ready-to-continue",
 		"continueBoundary=status is read-only; run continue with -WhatIf first",
 	} {
 		if !strings.Contains(out.String(), expected) {
@@ -814,7 +816,7 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "handoff", "main", "-WhatIf", "-Format", "text"}, &out); err != nil {
+	if err := Run([]string{"-Command", "handoff", "-Lane", "main", "-WhatIf", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
@@ -837,7 +839,7 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 	}
 
 	out.Reset()
-	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "main", "-Apply", "-Format", "json"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Lane", "main", "-Apply", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	handoffApply := decodeHandoffResult(t, out.Bytes())
@@ -886,7 +888,7 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "continue", "main", "-WhatIf", "-Format", "text"}, &out); err != nil {
+	if err := Run([]string{"-Command", "continue", "-Lane", "main", "-WhatIf", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
@@ -906,7 +908,7 @@ func TestRunPlanSubagentsReviewerIntakeCaseLocalProductPathUsesMetadataRuntime(t
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "continue", "main", "-Apply", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "continue", "-Lane", "main", "-Apply", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var continueApply struct {
@@ -1049,7 +1051,14 @@ func TestRunPlanSubagentsReviewerPromptRepairDriverRequestConsumerLoop(t *testin
 		}
 		requestCopy := *request
 		if replacements != nil {
-			requestCopy.Command = replacements.Replace(requestCopy.Command)
+			command := requestCopy.Command
+			if requestCopy.Guidance != "" {
+				command = requestCopy.Guidance
+				requestCopy.Guidance = ""
+				requestCopy.CommandExecutable = true
+				requestCopy.Blocked = false
+			}
+			requestCopy.Command = replacements.Replace(command)
 		}
 		args, ok := missionCommanderDriverRequestCommandCLIArgs(t, &requestCopy)
 		if !ok {
@@ -1161,8 +1170,8 @@ func TestRunPlanSubagentsReviewerPromptRepairDriverRequestConsumerLoop(t *testin
 	if repairedItem.State != "ready-for-reviewer-dispatch" || repairedItem.DispatchPromptState != "ready" || !repairedItem.DispatchPromptCurrent || repairedItem.DispatchPromptActualSHA256 != handoff.DispatchPromptSHA256 || repairedStatus.CaseMission.ReviewerDispatchIntakeSummary.PromptArtifactBlocked != 0 || strings.Contains(repairedStatus.CaseMission.ReviewerDispatchIntakeSummary.NextAction, "-RepairReviewerPromptArtifact") || !strings.Contains(repairedItem.ReviewerDispatchRecordCommand, "-RecordReviewerDispatch") {
 		t.Fatalf("prompt repair driver-loop did not refresh to reviewer dispatch receipt preview: item=%+v summary=%+v", repairedItem, repairedStatus.CaseMission.ReviewerDispatchIntakeSummary)
 	}
-	dispatchRequest := requireMissionCommanderDriverRequest(t, repairedStatus.CaseMission.MissionCommanderActionQueue, "blocked-review", "inspect-current", repairedItem.ReviewerDispatchRecordCommand, true, true, true)
-	if repairedStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentDriverRequest == nil || repairedStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentDriverRequest.Command != dispatchRequest.Command {
+	dispatchRequest := requireBlockedMissionCommanderDriverRequest(t, repairedStatus.CaseMission.MissionCommanderActionQueue, repairedItem.ReviewerDispatchRecordCommand)
+	if repairedStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentDriverRequest == nil || repairedStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentDriverRequest.Guidance != dispatchRequest.Guidance {
 		t.Fatalf("prompt repair driver-loop repaired reviewer queue request drifted from first screen: first=%+v reviewer=%+v", dispatchRequest, repairedStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentDriverRequest)
 	}
 	if running := repairedStatus.CaseMission.ReviewerDispatchIntakeSummary.OperatorPackage; running == nil || running.Current == nil || running.CurrentRunLoopStepID != "spawn-reviewer" || running.Current.State != "ready-for-reviewer-dispatch" || !running.Current.DispatchPromptCurrent || running.Current.DispatchPromptSHA256 != handoff.DispatchPromptSHA256 {
@@ -1230,7 +1239,14 @@ func TestRunPlanSubagentsReviewerAdoptionRedispatchDriverRequestConsumerLoop(t *
 		}
 		requestCopy := *request
 		if replacements != nil {
-			requestCopy.Command = replacements.Replace(requestCopy.Command)
+			command := requestCopy.Command
+			if requestCopy.Guidance != "" {
+				command = requestCopy.Guidance
+				requestCopy.Guidance = ""
+				requestCopy.CommandExecutable = true
+				requestCopy.Blocked = false
+			}
+			requestCopy.Command = replacements.Replace(command)
 		}
 		args, ok := missionCommanderDriverRequestCommandCLIArgs(t, &requestCopy)
 		if !ok {
@@ -1337,8 +1353,8 @@ func TestRunPlanSubagentsReviewerAdoptionRedispatchDriverRequestConsumerLoop(t *
 	if dispatchItem.State != "reviewer-session-receipt-owner-stale" || dispatchItem.ReviewerDispatchRecordCommand == "" || !dispatchItem.OwnerAdoptionCurrent || dispatchItem.OwnerAdoptionPath != adoptionApply.AdoptionPath {
 		t.Fatalf("driver-loop dispatch status omitted adopted stale-owner receipt preview: %+v", dispatchItem)
 	}
-	dispatchRequest := requireMissionCommanderDriverRequest(t, dispatchStatus.CaseMission.MissionCommanderActionQueue, "blocked-review", "inspect-current", dispatchItem.ReviewerDispatchRecordCommand, true, true, true)
-	if dispatchStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentDriverRequest == nil || dispatchStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentDriverRequest.Command != dispatchRequest.Command {
+	dispatchRequest := requireBlockedMissionCommanderDriverRequest(t, dispatchStatus.CaseMission.MissionCommanderActionQueue, dispatchItem.ReviewerDispatchRecordCommand)
+	if dispatchStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentDriverRequest == nil || dispatchStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentDriverRequest.Guidance != dispatchRequest.Guidance {
 		t.Fatalf("driver-loop dispatch reviewer queue request drifted from first screen: first=%+v reviewer=%+v", dispatchRequest, dispatchStatus.CaseMission.ReviewerDispatchIntakeActionQueue.CurrentDriverRequest)
 	}
 	out.Reset()
@@ -1803,7 +1819,14 @@ func TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath(t *
 			t.Fatalf("%s missing driver request", label)
 		}
 		requestCopy := *request
-		requestCopy.Command = runtimeCommand(requestCopy.Command)
+		command := requestCopy.Command
+		if requestCopy.Guidance != "" {
+			command = requestCopy.Guidance
+			requestCopy.Guidance = ""
+			requestCopy.CommandExecutable = true
+			requestCopy.Blocked = false
+		}
+		requestCopy.Command = runtimeCommand(command)
 		args, ok := missionCommanderDriverRequestCommandCLIArgs(t, &requestCopy)
 		if !ok {
 			t.Fatalf("%s driver request did not expose executable command: %+v", label, request)
@@ -1835,8 +1858,8 @@ func TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath(t *
 		t.Fatalf("initial operator package did not point at reviewer dispatch: %+v", pkg)
 	}
 
-	dispatchRequest := requireMissionCommanderDriverRequest(t, status.FirstScreenQueue, "blocked-review", "inspect-current", pkg.Current.ReviewerDispatchRecordCommand, true, true, true)
-	if status.ReviewerQueue.CurrentDriverRequest == nil || status.ReviewerQueue.CurrentDriverRequest.Command != dispatchRequest.Command {
+	dispatchRequest := requireBlockedMissionCommanderDriverRequest(t, status.FirstScreenQueue, pkg.Current.ReviewerDispatchRecordCommand)
+	if status.ReviewerQueue.CurrentDriverRequest == nil || status.ReviewerQueue.CurrentDriverRequest.Guidance != dispatchRequest.Guidance {
 		t.Fatalf("initial operator reviewer queue driver request drifted from first screen: firstScreen=%+v reviewer=%+v", dispatchRequest, status.ReviewerQueue.CurrentDriverRequest)
 	}
 	out.Reset()
@@ -1980,7 +2003,7 @@ func TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath(t *
 	if summary.OperatorPackage.CurrentRunLoopStepID != "record-completion" || summary.OperatorPackage.Current.State != "ready-for-reviewer-completion-receipt-preview" || summary.OperatorPackage.Current.ReviewerCompletionRecordCommand == "" {
 		t.Fatalf("operator package did not advance to completion receipt: %+v", summary.OperatorPackage)
 	}
-	completionRequest := requireMissionCommanderDriverRequest(t, status.ReviewerQueue, "blocked-review", "inspect-current", summary.OperatorPackage.Current.ReviewerCompletionRecordCommand, true, true, true)
+	completionRequest := requireBlockedMissionCommanderDriverRequest(t, status.ReviewerQueue, summary.OperatorPackage.Current.ReviewerCompletionRecordCommand)
 	out.Reset()
 	if err := Run(driverRequestCommandArgs("operator completion receipt", completionRequest), &out); err != nil {
 		t.Fatal(err)
@@ -2392,7 +2415,7 @@ func TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath(t *testing.T) 
 		t.Fatalf("partial reviewer intake verification count = %d, want 1", got)
 	}
 	out.Reset()
-	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "status", "-Lane", "feature-review", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var partialStatus struct {
@@ -2410,7 +2433,7 @@ func TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath(t *testing.T) 
 		t.Fatalf("partial status omitted reviewer batch recovery handoff: %+v", partialStatus.CaseMission)
 	}
 	out.Reset()
-	if err := Run([]string{"-Command", "continue", "review", "-WhatIf", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "continue", "-Lane", "feature-review", "-WhatIf", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var partialContinue struct {
@@ -2487,7 +2510,7 @@ func TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath(t *testing.T) 
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "status", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "status", "-Lane", "feature-review", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var statusAfterBatch struct {
@@ -2508,12 +2531,12 @@ func TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath(t *testing.T) 
 	if len(statusAfterBatch.CaseMission.ReviewerWritebacks) != 4 || statusAfterBatch.CaseMission.ReviewerWritebackSummary.Total != 4 || statusAfterBatch.CaseMission.ReviewerWritebackSummary.VerificationCount != 2 || statusAfterBatch.CaseMission.ReviewerWritebackSummary.DecisionCount != 2 || statusAfterBatch.CaseMission.ReviewerWritebackSummary.LatestLane != "feature-review" || statusAfterBatch.CaseMission.ReviewerWritebackSummary.LatestReviewerSession != "reviewer-batch-product-2" {
 		t.Fatalf("status after reviewer batch intake omitted writeback closure: %+v", statusAfterBatch.CaseMission.ReviewerWritebackSummary)
 	}
-	if statusAfterBatch.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || statusAfterBatch.CaseMission.MissionCommanderActionQueue.CurrentAction.Command != "/rekit continue review" {
+	if statusAfterBatch.CaseMission.MissionCommanderActionQueue.CurrentAction == nil || statusAfterBatch.CaseMission.MissionCommanderActionQueue.CurrentAction.Command != "/rekit continue -Lane feature-review" {
 		t.Fatalf("status after reviewer batch intake should advance to feature-review continuation: %+v", statusAfterBatch.CaseMission.MissionCommanderActionQueue)
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "continue", "review", "-WhatIf", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "continue", "-Lane", "feature-review", "-WhatIf", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var continuePreview struct {
@@ -2532,13 +2555,13 @@ func TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath(t *testing.T) 
 	if continuePreview.Applied || continuePreview.Blocked || !continuePreview.RequiresConfirmation || len(continuePreview.ReviewerDispatchIntakeHandoffs) != 0 || continuePreview.ReviewerDispatchIntakeSummary.Total != 0 {
 		t.Fatalf("continue preview after reviewer batch intake should be unblocked and dispatch-clean: %+v", continuePreview)
 	}
-	if len(continuePreview.ReviewerWritebacks) != 4 || continuePreview.ReviewerWritebackSummary.Total != 4 || continuePreview.ReviewerWritebackSummary.LatestShardID != "shard-02" || continuePreview.MissionCommanderActionQueue.CurrentAction == nil || continuePreview.MissionCommanderActionQueue.CurrentAction.Command != "/rekit continue review" {
+	if len(continuePreview.ReviewerWritebacks) != 4 || continuePreview.ReviewerWritebackSummary.Total != 4 || continuePreview.ReviewerWritebackSummary.LatestShardID != "shard-02" || continuePreview.MissionCommanderActionQueue.CurrentAction == nil || continuePreview.MissionCommanderActionQueue.CurrentAction.Command != "/rekit continue -Lane feature-review" {
 		t.Fatalf("continue preview after reviewer batch intake omitted reviewer writeback continuation handoff: %+v", continuePreview)
 	}
 
 	factsBeforeContinue := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
 	out.Reset()
-	if err := Run([]string{"-Command", "continue", "review", "-Apply", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "continue", "-Lane", "feature-review", "-Apply", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var continueApply struct {
@@ -2554,7 +2577,7 @@ func TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath(t *testing.T) 
 	if err := json.Unmarshal(out.Bytes(), &continueApply); err != nil {
 		t.Fatalf("continue apply after reviewer batch intake stdout is not JSON: %v\n%s", err, out.String())
 	}
-	if !continueApply.Applied || continueApply.Blocked || len(continueApply.ReviewerDispatchIntakeHandoffs) != 0 || len(continueApply.ReviewerWritebacks) != 4 || continueApply.ReviewerWritebackSummary.Total != 4 || continueApply.ReviewerWritebackSummary.LatestReviewerSession != "reviewer-batch-product-2" || continueApply.MissionCommanderActionQueue.CurrentAction == nil || continueApply.MissionCommanderActionQueue.CurrentAction.Command != "/rekit continue review" {
+	if !continueApply.Applied || continueApply.Blocked || len(continueApply.ReviewerDispatchIntakeHandoffs) != 0 || len(continueApply.ReviewerWritebacks) != 4 || continueApply.ReviewerWritebackSummary.Total != 4 || continueApply.ReviewerWritebackSummary.LatestReviewerSession != "reviewer-batch-product-2" || continueApply.MissionCommanderActionQueue.CurrentAction == nil || continueApply.MissionCommanderActionQueue.CurrentAction.Command != "/rekit continue -Lane feature-review" {
 		t.Fatalf("continue apply after reviewer batch intake omitted durable unblocked handoff: %+v", continueApply)
 	}
 	assertSnapshotEqual(t, factsBeforeContinue, snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts")))
@@ -2600,7 +2623,7 @@ func TestRunPlanSubagentsReadyReviewerResultsCaseLocalProductPath(t *testing.T) 
 	if err := json.Unmarshal(checkpointBytes, &checkpoint); err != nil {
 		t.Fatalf("checkpoint after reviewer batch intake did not decode: %v\n%s", err, string(checkpointBytes))
 	}
-	if len(checkpoint.ReviewerDispatchIntakeHandoffs) != 0 || checkpoint.ReviewerWritebackSummary.Total != 4 || checkpoint.MissionCommanderActionQueue.CurrentAction == nil || checkpoint.MissionCommanderActionQueue.CurrentAction.Command != "/rekit continue review" {
+	if len(checkpoint.ReviewerDispatchIntakeHandoffs) != 0 || checkpoint.ReviewerWritebackSummary.Total != 4 || checkpoint.MissionCommanderActionQueue.CurrentAction == nil || checkpoint.MissionCommanderActionQueue.CurrentAction.Command != "/rekit continue -Lane feature-review" {
 		t.Fatalf("checkpoint after reviewer batch intake omitted durable continuation handoff: %+v", checkpoint)
 	}
 }

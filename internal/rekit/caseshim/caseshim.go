@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/sourceartifact"
 )
 
 type Readiness struct {
@@ -198,7 +200,7 @@ func InspectInstalled(repoRoot, caseRoot string) InstalledReadiness {
 		result.Summary = "installed case shim readiness has warnings"
 		return result
 	}
-	if !bytes.Equal(left, right) {
+	if !bytes.Equal(sourceartifact.SemanticText(left), sourceartifact.SemanticText(right)) {
 		result.MatchesTemplate = false
 		result.Ready = false
 		result.Warnings = append(result.Warnings, fmt.Sprintf("case-local /rekit shim differs from canonical thin shim template: %s", shim))

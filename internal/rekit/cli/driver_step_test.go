@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 )
@@ -26,8 +27,17 @@ func TestRunDriverStepContinueProductPath(t *testing.T) {
 	}
 	var preview driverStepPlan
 	decodeJSONStrict(t, out.Bytes(), &preview)
-	if preview.Command != "run-driver-step" || preview.IsMutation || preview.Applied || !preview.ReviewRequired || !preview.RequiresConfirmation || preview.CurrentDriverRequest.Kind != "preview-command" || !strings.Contains(preview.CurrentDriverRequest.Command, "/rekit continue -Target ") || !strings.Contains(preview.ApplyDriverRequest.Command, "/rekit continue main") || !strings.Contains(preview.ApplyDriverRequest.Command, "-Apply") || !strings.Contains(preview.ApplyDriverRequest.Command, "-Target ") || len(preview.ExpectedDriverStepPlanSHA256) != 64 {
+	if preview.Command != "run-driver-step" || preview.IsMutation || preview.Applied || !preview.ReviewRequired || !preview.RequiresConfirmation || preview.CurrentDriverRequest.Kind != "preview-command" || !strings.Contains(preview.CurrentDriverRequest.Command, "/rekit continue -Target ") || !strings.Contains(preview.ApplyDriverRequest.Command, "/rekit continue -Lane main") || !strings.Contains(preview.ApplyDriverRequest.Command, "-Apply") || !strings.Contains(preview.ApplyDriverRequest.Command, "-Target ") || len(preview.ExpectedDriverStepPlanSHA256) != 64 {
 		t.Fatalf("unexpected driver step preview: %+v", preview)
+	}
+	if err := mission.ValidateMissionCommanderDriverRequest(preview.CurrentDriverRequest); err != nil {
+		t.Fatalf("current driver request violates the typed invariant: %v", err)
+	}
+	if err := mission.ValidateMissionCommanderDriverRequest(preview.ApplyDriverRequest); err != nil {
+		t.Fatalf("qualified Apply request violates the typed invariant: %v", err)
+	}
+	if preview.ApplyDriverRequest.ExpectedReceipt.Command != preview.ApplyDriverRequest.Command {
+		t.Fatalf("qualified Apply request expected receipt drifted: %+v", preview.ApplyDriverRequest)
 	}
 	assertSnapshotEqual(t, before, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 
@@ -301,14 +311,25 @@ func TestRunDriverStepRejectsOnboardingAndUnsupportedNestedRequests(t *testing.T
 		{name: "handoff outside MVP", command: `/rekit handoff -Target "` + caseRoot + `" -WhatIf -Format json`, want: "outside the run-driver-step allowlist"},
 		{name: "unknown flag", command: `/rekit continue -Target "` + caseRoot + `" main -WhatIf -Format json -Unexpected value`, want: "unsupported flag"},
 		{name: "cross command actor", command: `/rekit continue -Target "` + caseRoot + `" main -Actor other -WhatIf -Format json`, want: "unsupported flag"},
-		{name: "start lane alias", command: `/rekit start -Target "` + caseRoot + `" -Lane triage -WhatIf -Format json`, want: "outside its bounded contract"},
+		{name: "duplicate start selector", command: `/rekit start -Target "` + caseRoot + `" triage -Name triage -Lane feature-triage -WhatIf -Format json`, want: "exactly one lane selector"},
 		{name: "start actor without executor", command: `/rekit start -Target "` + caseRoot + `" -Name triage -Actor other -WhatIf -Format json`, want: "outside its bounded contract"},
 		{name: "start reason without executor", command: `/rekit start -Target "` + caseRoot + `" -Name triage -Reason other -WhatIf -Format json`, want: "outside its bounded contract"},
 		{name: "duplicate selector", command: `/rekit continue -Target "` + caseRoot + `" main -Lane other -WhatIf -Format json`, want: "exactly one lane selector"},
+		{name: "duplicate matching selector", command: `/rekit complete -Target "` + caseRoot + `" main -Lane main -Actor main-agent -Reason done -EvidenceRefs evidence.md -WhatIf -Format json`, want: "exactly one lane selector"},
 		{name: "duplicate phase", command: `/rekit continue -Target "` + caseRoot + `" main -WhatIf -WhatIf -Format json`, want: "repeats flag"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			_, err := parseBoundedDriverRequest(ctx, missionDriverRequestForTest(test.command), false)
+			request := mission.MissionCommanderDriverRequest{
+				Kind:              "preview-command",
+				RunLoopStepID:     "preview-current",
+				Command:           test.command,
+				CommandExecutable: true,
+				RequiresReview:    true,
+				ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
+					Command: test.command,
+				},
+			}
+			_, err := parseBoundedDriverRequest(ctx, request, false)
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("request should fail closed with %q: err=%v", test.want, err)
 			}
@@ -344,7 +365,7 @@ func TestRunDriverStepStartContinueReconcileProductPath(t *testing.T) {
 	assertFileExists(t, filepath.Join(caseRoot, ".rekit", "lanes", "feature-triage", "lane.json"))
 
 	out.Reset()
-	if err := Run([]string{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-Lane", "feature-triage", "-WhatIf", "-Format", "json"}, &out); err != nil {
 		t.Fatalf("preview current continue step: %v\n%s", err, out.String())
 	}
 	var continuePreview driverStepPlan
@@ -353,7 +374,7 @@ func TestRunDriverStepStartContinueReconcileProductPath(t *testing.T) {
 		t.Fatalf("start refresh did not focus continue: %+v", continuePreview.CurrentDriverRequest)
 	}
 	out.Reset()
-	if err := Run([]string{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-ExpectedDriverStepPlanSha256", continuePreview.ExpectedDriverStepPlanSHA256, "-Apply", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-Lane", "feature-triage", "-ExpectedDriverStepPlanSha256", continuePreview.ExpectedDriverStepPlanSHA256, "-Apply", "-Format", "json"}, &out); err != nil {
 		t.Fatalf("apply current continue step: %v\n%s", err, out.String())
 	}
 	var continueApplied driverStepPlan
@@ -377,7 +398,7 @@ func TestRunDriverStepStartContinueReconcileProductPath(t *testing.T) {
 
 	beforeReconcile := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 	out.Reset()
-	if err := Run([]string{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-Lane", "feature-triage", "-WhatIf", "-Format", "json"}, &out); err != nil {
 		t.Fatalf("preview current reconcile step: %v\n%s", err, out.String())
 	}
 	var reconcilePreview driverStepPlan
@@ -388,7 +409,7 @@ func TestRunDriverStepStartContinueReconcileProductPath(t *testing.T) {
 	assertSnapshotEqual(t, beforeReconcile, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 
 	out.Reset()
-	if err := Run([]string{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-ExpectedDriverStepPlanSha256", reconcilePreview.ExpectedDriverStepPlanSHA256, "-Apply", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-Lane", "feature-triage", "-ExpectedDriverStepPlanSha256", reconcilePreview.ExpectedDriverStepPlanSHA256, "-Apply", "-Format", "json"}, &out); err != nil {
 		t.Fatalf("apply current reconcile step: %v\n%s", err, out.String())
 	}
 	var reconcileApplied driverStepPlan
@@ -415,7 +436,7 @@ func TestRunDriverStepStartAndReconcileRejectStateDrift(t *testing.T) {
 		}
 		beforeApply := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 		out.Reset()
-		err := Run([]string{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-ExpectedDriverStepPlanSha256", preview.ExpectedDriverStepPlanSHA256, "-Apply", "-Format", "json"}, &out)
+		err := Run([]string{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-Lane", "feature-triage", "-ExpectedDriverStepPlanSha256", preview.ExpectedDriverStepPlanSHA256, "-Apply", "-Format", "json"}, &out)
 		if err == nil || !strings.Contains(err.Error(), "expected plan sha256 mismatch") {
 			t.Fatalf("stale start plan should fail closed: err=%v output=%s", err, out.String())
 		}
@@ -469,12 +490,20 @@ func decodeJSONStrict(t *testing.T, data []byte, target any) {
 }
 
 func missionDriverRequestForTest(command string) mission.MissionCommanderDriverRequest {
+	invocation, err := commands.ParsePublicInvocation(command)
+	if err != nil {
+		panic(err)
+	}
 	return mission.MissionCommanderDriverRequest{
 		Kind:              "preview-command",
 		RunLoopStepID:     "preview-current",
+		Invocation:        &invocation,
 		Command:           command,
 		CommandExecutable: true,
 		RequiresReview:    true,
+		ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
+			Command: command,
+		},
 	}
 }
 

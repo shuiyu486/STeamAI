@@ -428,6 +428,171 @@ func authorizedRunOptionsForFixture(
 	}
 }
 
+func TestRunAuthorizedGateTerminalizesPostLaunchAuthorizationDrift(t *testing.T) {
+	for _, phase := range []string{
+		authorizationPhasePreExecution,
+		authorizationPhasePrePublication,
+		authorizationPhasePostPublication,
+	} {
+		t.Run(phase, func(t *testing.T) {
+			fixture := newVMPAuthorizedFixture(t, false)
+			launches := 0
+			profileChanged := false
+			hooks := &hostTestHooks{
+				runVMPIDAChild: func(child VMPIDAIndexChildOptions) ([]byte, int, error) {
+					launches++
+					return strictChildBytes(t, child), 5656, nil
+				},
+				beforeVMPAuthorizationCurrentness: func(current string) error {
+					if current != phase || profileChanged {
+						return nil
+					}
+					profileChanged = true
+					profile := autonomy.DefaultProfile("main")
+					data, err := json.MarshalIndent(profile, "", "  ")
+					if err != nil {
+						return err
+					}
+					return os.WriteFile(
+						filepath.Join(fixture.caseRoot, ".rekit", "lanes", "main", "autonomy.json"),
+						append(data, '\n'),
+						0o600,
+					)
+				},
+			}
+			result, err := RunAuthorizedGate(authorizedRunOptionsForFixture(fixture, hooks))
+			if phase == authorizationPhasePreExecution {
+				if err == nil || launches != 0 || result.ObservationEventID != "" || result.ReceiptSHA256 != "" {
+					t.Fatalf("pre-execution drift must fail before launch: result=%+v launches=%d err=%v", result, launches, err)
+				}
+				assertHostFileMissing(t, filepath.Join(fixture.caseRoot, "workspace", "main", "ida", "session-1", "adapter-report.json"))
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if launches != 1 || result.ExecutionStatus != "failed" || result.ExecutionExitStatus != "authorization-drift" || result.ObservationEventID == "" || result.ReceiptSHA256 == "" || result.TaskBindingSHA256 != "" || !result.ProfileAlreadyManual || result.ProfileRevoked {
+				t.Fatalf("post-launch drift omitted terminal evidence or preserved profile: result=%+v launches=%d", result, launches)
+			}
+			assertHostFileMissing(t, filepath.Join(fixture.caseRoot, "workspace", "main", "ida", "session-1", vmpIDAIndexPacketFileName))
+		})
+	}
+}
+
+func TestRunAuthorizedGateTerminalizesUnsealedRecoveryAuthorizationDrift(t *testing.T) {
+	for _, phase := range []string{
+		authorizationPhasePrePublication,
+		authorizationPhasePostPublication,
+	} {
+		t.Run(phase, func(t *testing.T) {
+			fixture := newVMPAuthorizedFixture(t, false)
+			launches := 0
+			hooks := &hostTestHooks{
+				runVMPIDAChild: func(child VMPIDAIndexChildOptions) ([]byte, int, error) {
+					launches++
+					return strictChildBytes(t, child), 5666, nil
+				},
+				afterVMPStageCommit: func() error {
+					return errors.New("stop after unsealed output commit")
+				},
+			}
+			opt := authorizedRunOptionsForFixture(fixture, hooks)
+			if _, err := RunAuthorizedGate(opt); err == nil || !strings.Contains(err.Error(), "stop after unsealed output commit") {
+				t.Fatalf("unsealed recovery setup error=%v", err)
+			}
+			hooks.afterVMPStageCommit = nil
+			profileChanged := false
+			hooks.beforeVMPAuthorizationCurrentness = func(current string) error {
+				if current != phase || profileChanged {
+					return nil
+				}
+				profileChanged = true
+				profile := autonomy.DefaultProfile("main")
+				data, err := json.MarshalIndent(profile, "", "  ")
+				if err != nil {
+					return err
+				}
+				return os.WriteFile(
+					filepath.Join(fixture.caseRoot, ".rekit", "lanes", "main", "autonomy.json"),
+					append(data, '\n'),
+					0o600,
+				)
+			}
+			hooks.runVMPIDAChild = func(VMPIDAIndexChildOptions) ([]byte, int, error) {
+				launches++
+				return nil, 0, errors.New("unsealed authorization recovery relaunched child")
+			}
+			result, err := RunAuthorizedGate(opt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if launches != 1 || !result.Replay || result.ChildLaunched || result.ExecutionStatus != "failed" || result.ExecutionExitStatus != "authorization-drift" || result.ObservationEventID == "" || result.ReceiptSHA256 == "" || result.TaskBindingSHA256 != "" || !result.ProfileAlreadyManual || result.ProfileRevoked {
+				t.Fatalf("unsealed recovery drift omitted terminal evidence: result=%+v launches=%d", result, launches)
+			}
+			assertHostFileMissing(t, filepath.Join(fixture.caseRoot, "workspace", "main", "ida", "session-1", vmpIDAIndexPacketFileName))
+		})
+	}
+}
+
+func TestRunAuthorizedGatePreservesSameBytesReplacementDuringCleanup(t *testing.T) {
+	fixture := newVMPAuthorizedFixture(t, false)
+	launches := 0
+	var replacement os.FileInfo
+	packetPath := filepath.Join(fixture.caseRoot, "workspace", "main", "ida", "session-1", vmpIDAIndexPacketFileName)
+	hooks := &hostTestHooks{
+		runVMPIDAChild: func(child VMPIDAIndexChildOptions) ([]byte, int, error) {
+			launches++
+			return strictChildBytes(t, child), 5757, nil
+		},
+		beforeVMPSuccessSeal: func() error {
+			packet, err := os.ReadFile(packetPath)
+			if err != nil {
+				return err
+			}
+			if err := os.Rename(packetPath, packetPath+".original"); err != nil {
+				return err
+			}
+			if err := os.WriteFile(packetPath, packet, 0o600); err != nil {
+				return err
+			}
+			replacement, err = os.Lstat(packetPath)
+			if err != nil {
+				return err
+			}
+			return os.WriteFile(
+				filepath.Join(fixture.caseRoot, filepath.FromSlash(VMPIDAIndexDefaultExportRoot), "function_index.tsv"),
+				[]byte("rva\tname\n0x6000\treplacement_drift\n"),
+				0o600,
+			)
+		},
+	}
+	opt := authorizedRunOptionsForFixture(fixture, hooks)
+	result, err := RunAuthorizedGate(opt)
+	if err == nil || !strings.Contains(err.Error(), "owned output identity") {
+		t.Fatalf("same-bytes replacement cleanup was not rejected: result=%+v err=%v", result, err)
+	}
+	current, statErr := os.Lstat(packetPath)
+	if statErr != nil || replacement == nil || !os.SameFile(replacement, current) {
+		t.Fatalf("same-bytes replacement was removed or displaced: replacement=%v current=%v err=%v", replacement, current, statErr)
+	}
+	if launches != 1 {
+		t.Fatalf("initial replacement scenario launches=%d, want 1", launches)
+	}
+
+	hooks.beforeVMPSuccessSeal = nil
+	hooks.runVMPIDAChild = func(VMPIDAIndexChildOptions) ([]byte, int, error) {
+		launches++
+		return nil, 0, errors.New("ownership-conflict recovery relaunched child")
+	}
+	if _, err := RunAuthorizedGate(opt); err == nil || !errors.Is(err, errVMPIDARecoveryOutputOwnership) {
+		t.Fatalf("ownership-conflict recovery did not fail closed: %v", err)
+	}
+	current, statErr = os.Lstat(packetPath)
+	if statErr != nil || !os.SameFile(replacement, current) || launches != 1 {
+		t.Fatalf("ownership-conflict replay changed replacement or relaunched: current=%v err=%v launches=%d", current, statErr, launches)
+	}
+}
+
 func vmpIDAExecutionReceiptPath(fixture vmpAuthorizedFixture) string {
 	return filepath.Join(
 		fixture.caseRoot,
@@ -506,7 +671,7 @@ func TestRunAuthorizedGateRejectsFailureReportWithoutParentLaunchProof(t *testin
 	}
 }
 
-func TestRunAuthorizedGateDoesNotRelaunchAfterLaunchProofWithoutTerminalReport(t *testing.T) {
+func TestRunAuthorizedGateClosesLaunchProofWithoutTerminalReport(t *testing.T) {
 	fixture := newVMPAuthorizedFixture(t, false)
 	launches := 0
 	stop := true
@@ -532,12 +697,96 @@ func TestRunAuthorizedGateDoesNotRelaunchAfterLaunchProofWithoutTerminalReport(t
 		return nil, 0, errors.New("orphan launch proof relaunched child")
 	}
 	result, err := RunAuthorizedGate(opt)
-	if err == nil || !strings.Contains(err.Error(), "without a terminal outcome") {
-		t.Fatalf("orphan launch proof result=%+v err=%v", result, err)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if launches != 1 || result.ReceiptSHA256 != "" || result.ObservationEventID != "" || result.ProfileRevoked {
-		t.Fatalf("orphan launch proof caused side effects: result=%+v launches=%d", result, launches)
+	if launches != 1 || result.ChildLaunched || !result.Replay ||
+		result.ExecutionStatus != "aborted" ||
+		result.ExecutionExitStatus != "parent-interrupted" ||
+		result.ReceiptSHA256 == "" || result.ObservationEventID == "" ||
+		result.TaskBindingSHA256 != "" || !result.ProfileRevoked {
+		t.Fatalf("orphan launch proof was not closed exactly once: result=%+v launches=%d", result, launches)
 	}
+	second, err := RunAuthorizedGate(opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if launches != 1 || !second.Replay || second.ChildLaunched ||
+		second.ExecutionStatus != "aborted" ||
+		second.ExecutionExitStatus != "parent-interrupted" ||
+		second.ReceiptSHA256 != result.ReceiptSHA256 ||
+		second.ObservationEventID != result.ObservationEventID ||
+		!second.ProfileAlreadyManual {
+		t.Fatalf("closed orphan attempt did not replay: first=%+v second=%+v launches=%d", result, second, launches)
+	}
+}
+
+func TestRunAuthorizedGateClosesOrphanAfterOwnerAndCatalogDrift(t *testing.T) {
+	fixture := newVMPAuthorizedFixture(t, false)
+	launches := 0
+	stop := true
+	hooks := &hostTestHooks{
+		runVMPIDAChild: func(child VMPIDAIndexChildOptions) ([]byte, int, error) {
+			launches++
+			return strictChildBytes(t, child), 7272, nil
+		},
+		afterVMPChildLaunch: func(int) error {
+			if stop {
+				return errors.New("stop after child launch proof")
+			}
+			return nil
+		},
+	}
+	opt := authorizedRunOptionsForFixture(fixture, hooks)
+	if _, err := RunAuthorizedGate(opt); err == nil || !strings.Contains(err.Error(), "stop after child launch proof") {
+		t.Fatalf("launch proof cutpoint error=%v", err)
+	}
+	stop = false
+	writeHostFile(t, filepath.Join(fixture.caseRoot, ".rekit", "board.json"), `{"lanes":[{"id":"main","status":"open","workspace":"workspace/main","currentExecutor":"executor-replacement","executorGeneration":2}]}`)
+	writeHostFile(t, filepath.Join(fixture.caseRoot, ".rekit", "lanes", "main", "lane.json"), `{
+  "schemaVersion": 1,
+  "id": "main",
+  "type": "main",
+  "name": "main",
+  "title": "Main",
+  "status": "open",
+  "authority": false,
+  "workspace": "workspace/main",
+  "canWrite": ["own-workspace"],
+  "readOnly": [".rekit/facts/**"],
+  "outputs": ["observation"],
+  "counters": {},
+  "currentExecutor": "executor-replacement",
+  "executorGeneration": 2,
+  "createdAt": "2026-08-10T00:00:00Z",
+  "updatedAt": "2026-08-10T00:00:00Z"
+}`)
+	catalogPath := filepath.Join(fixture.repoRoot, "packs", "vmp-re", "tooling", "catalog.yml")
+	catalog, err := os.ReadFile(catalogPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(catalogPath, bytes.Replace(catalog, []byte("Inspect fixed existing IDA TSV indexes."), []byte("Replacement catalog purpose."), 1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	hooks.runVMPIDAChild = func(VMPIDAIndexChildOptions) ([]byte, int, error) {
+		launches++
+		return nil, 0, errors.New("stale orphan recovery relaunched child")
+	}
+	result, err := RunAuthorizedGate(opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if launches != 1 || result.ChildLaunched || !result.Replay ||
+		result.ExecutionStatus != "aborted" ||
+		result.ExecutionExitStatus != "parent-interrupted" ||
+		result.ReceiptSHA256 == "" || result.ObservationEventID == "" ||
+		result.TaskBindingSHA256 != "" || !result.ProfileRevoked ||
+		result.ProfileAlreadyManual {
+		t.Fatalf("stale orphan attempt was not closed without new authority: result=%+v launches=%d", result, launches)
+	}
+	assertHostFileMissing(t, filepath.Join(fixture.caseRoot, ".rekit", "facts", "authority.jsonl"))
+	assertHostFileMissing(t, filepath.Join(fixture.caseRoot, ".rekit", "facts", "confirmed.jsonl"))
 }
 
 func TestRunAuthorizedGateRecordsChildTerminalFailuresAndReplaysWithoutChild(t *testing.T) {

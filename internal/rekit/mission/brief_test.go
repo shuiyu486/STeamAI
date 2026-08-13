@@ -4,7 +4,122 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 )
+
+func TestMissionCommanderActionQueueProjectsTypedInvocation(t *testing.T) {
+	queue := MissionCommanderActionQueueFor([]MissionCommanderNextActionItem{{
+		State:   "ready-to-continue",
+		Source:  "missionCommanderActions",
+		Lane:    "feature-mission",
+		Command: `/rekit continue "feature-mission" -WhatIf -Format json`,
+	}})
+	if queue.CurrentAction == nil || queue.CurrentAction.Invocation == nil || queue.CurrentDriverRequest == nil || queue.CurrentDriverRequest.Invocation == nil {
+		t.Fatalf("typed current action/request missing: %+v", queue)
+	}
+	if queue.CurrentAction.Invocation.Command != "continue" || !queue.CurrentAction.Invocation.HasFlag("-WhatIf") {
+		t.Fatalf("unexpected typed action: %+v", queue.CurrentAction)
+	}
+	request := queue.CurrentDriverRequest
+	if request.Kind != "preview-command" || !request.CommandExecutable || request.Command != `/rekit continue "feature-mission" -WhatIf -Format json` {
+		t.Fatalf("unexpected typed request: %+v", request)
+	}
+	first, err := MissionCommanderDriverRequestSHA256(*request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := MissionCommanderDriverRequestSHA256(*request)
+	if err != nil || first != second || len(first) != 64 {
+		t.Fatalf("driver request hash first=%q second=%q err=%v", first, second, err)
+	}
+}
+
+func TestMissionCommanderDriverRequestRejectsExpectedReceiptCommandDrift(t *testing.T) {
+	queue := MissionCommanderActionQueueFor([]MissionCommanderNextActionItem{{
+		State:   "ready-to-continue",
+		Source:  "missionCommanderActions",
+		Lane:    "main",
+		Command: "/rekit continue main -WhatIf -Format json",
+	}})
+	if queue.CurrentDriverRequest == nil {
+		t.Fatalf("typed current driver request missing: %+v", queue)
+	}
+	drifted := *queue.CurrentDriverRequest
+	drifted.ExpectedReceipt.Command = "/rekit status -Format json"
+	if _, err := MissionCommanderDriverRequestSHA256(drifted); err == nil || !strings.Contains(err.Error(), "expected receipt command differs") {
+		t.Fatalf("expected receipt command drift should fail closed: %v", err)
+	}
+}
+
+func TestMissionCommanderActionQueueDoesNotSelectAmbiguousCurrentLane(t *testing.T) {
+	for _, items := range [][]MissionCommanderNextActionItem{
+		{
+			{State: "ready-to-continue", Source: "missionCommanderActions", Lane: "feature-alpha", Command: "/rekit continue alpha -WhatIf -Format json"},
+			{State: "ready-to-continue", Source: "missionCommanderActions", Lane: "feature-beta", Command: "/rekit continue beta -WhatIf -Format json"},
+		},
+		{
+			{State: "ready-to-continue", Source: "missionCommanderActions", Lane: "feature-beta", Command: "/rekit continue beta -WhatIf -Format json"},
+			{State: "ready-to-continue", Source: "missionCommanderActions", Lane: "feature-alpha", Command: "/rekit continue alpha -WhatIf -Format json"},
+		},
+	} {
+		queue := MissionCommanderActionQueueFor(items)
+		if queue.CurrentAction != nil || queue.CurrentDriverRequest != nil || queue.CurrentRunLoopStepID != "" || len(queue.CurrentActionRunLoop) != 0 {
+			t.Fatalf("ambiguous lane queue selected an executable current action: %+v", queue)
+		}
+		if len(queue.UnblockedActions) != 2 || queue.Counts.Unblocked != 2 || queue.Summary != "total=2 unblocked=2 blocked=0 requiresReview=0 followUp=0 current=none" {
+			t.Fatalf("ambiguous lane queue lost typed candidates: %+v", queue)
+		}
+		choices := MissionCommanderActionQueueLaneChoices(queue)
+		if !MissionCommanderActionQueueRequiresLaneChoice(queue) || len(choices) != 2 {
+			t.Fatalf("ambiguous lane queue did not publish typed choices: %+v", choices)
+		}
+	}
+}
+
+func TestMissionCommanderActionQueueKeepsSameLaneCurrentAction(t *testing.T) {
+	queue := MissionCommanderActionQueueFor([]MissionCommanderNextActionItem{
+		{State: "ready-to-continue", Source: "missionCommanderActions", Lane: "feature-alpha", Command: "/rekit continue alpha -WhatIf -Format json"},
+		{State: "ready-to-continue", Source: "missionCommanderActions.followUp", Lane: "feature-alpha", Command: "/rekit handoff alpha -WhatIf -Format json"},
+	})
+	if queue.CurrentAction == nil || queue.CurrentDriverRequest == nil || queue.CurrentAction.Lane != "feature-alpha" || !queue.CurrentDriverRequest.CommandExecutable {
+		t.Fatalf("single-lane queue lost current action: %+v", queue)
+	}
+	if MissionCommanderActionQueueRequiresLaneChoice(queue) || len(MissionCommanderActionQueueLaneChoices(queue)) != 0 {
+		t.Fatalf("single-lane queue published a false lane choice: %+v", queue)
+	}
+}
+
+func TestMissionCommanderActionQueueBlocksInvalidReKitText(t *testing.T) {
+	for _, command := range []string{"rekit-host -daily", "rekitfoo status", "/rekit unknown", "/rekit continue -Command status"} {
+		t.Run(command, func(t *testing.T) {
+			queue := MissionCommanderActionQueueFor([]MissionCommanderNextActionItem{{State: "ready", Source: "test", Command: command}})
+			if queue.CurrentAction == nil || !queue.CurrentAction.Blocked || !queue.CurrentAction.RequiresReview || queue.CurrentAction.Invocation != nil {
+				t.Fatalf("invalid ReKit text was not blocked: %+v", queue.CurrentAction)
+			}
+			if queue.CurrentDriverRequest == nil || queue.CurrentDriverRequest.CommandExecutable || queue.CurrentDriverRequest.Invocation != nil || queue.CurrentDriverRequest.Kind != "blocked-review" {
+				t.Fatalf("invalid ReKit text produced executable request: %+v", queue.CurrentDriverRequest)
+			}
+		})
+	}
+}
+
+func TestValidateMissionCommanderDriverRequestRejectsInvocationTextDrift(t *testing.T) {
+	invocation, err := commands.NewPublicInvocation(commands.Continue, "feature-mission")
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := MissionCommanderDriverRequest{
+		Kind:              "execute-command",
+		RunLoopStepID:     "apply-or-run-current",
+		Invocation:        &invocation,
+		Command:           "/rekit status",
+		CommandExecutable: true,
+	}
+	if err := ValidateMissionCommanderDriverRequest(request); err == nil || !strings.Contains(err.Error(), "differs") {
+		t.Fatalf("ValidateMissionCommanderDriverRequest error=%v", err)
+	}
+}
 
 func TestBuildBlocksLanesAndUsesSharedDecisionAction(t *testing.T) {
 	brief := BuildWithOptions(
@@ -248,7 +363,7 @@ func TestMissionCommanderActionQueuePromotesActiveProjectWorkOverLaneContinue(t 
 	}
 }
 
-func TestMissionCommanderActionQueuePromotesOwnedLaneOverUnassignedAuthorityLane(t *testing.T) {
+func TestMissionCommanderActionQueueRequiresChoiceBetweenOwnedAndUnassignedLanes(t *testing.T) {
 	actions := []LaneExecutorActionSnapshot{
 		{
 			Lane:  "devirt-main",
@@ -271,11 +386,11 @@ func TestMissionCommanderActionQueuePromotesOwnedLaneOverUnassignedAuthorityLane
 	}
 
 	queue := MissionCommanderActionQueueFor(MissionCommanderNextActions(actions, nil, false))
-	if queue.CurrentAction == nil || queue.CurrentAction.Lane != "feature-analysis-live-acceptance" || queue.CurrentAction.Command != `/rekit continue analysis-live-acceptance -Executor "live-member-generation-1" -ExpectedExecutorGeneration 1` {
-		t.Fatalf("Mission Commander action queue should focus the owned feature lane before the unassigned authority lane: %+v", queue)
+	if queue.CurrentAction != nil || queue.CurrentDriverRequest != nil || queue.CurrentRunLoopStepID != "" {
+		t.Fatalf("Mission Commander action queue silently selected one of multiple current lanes: %+v", queue)
 	}
-	if queue.CurrentDriverRequest == nil || queue.CurrentDriverRequest.Lane != "feature-analysis-live-acceptance" {
-		t.Fatalf("Mission Commander driver request did not retain the owned feature lane focus: %+v", queue.CurrentDriverRequest)
+	if len(queue.UnblockedActions) != 2 || queue.UnblockedActions[0].Lane != "feature-analysis-live-acceptance" || queue.UnblockedActions[1].Lane != "devirt-main" {
+		t.Fatalf("Mission Commander action queue lost the typed lane choices: %+v", queue)
 	}
 }
 

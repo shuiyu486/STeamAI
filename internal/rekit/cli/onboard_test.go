@@ -147,6 +147,7 @@ func TestRunOnboardDefaultPackRoundTripsEmittedStartRoute(t *testing.T) {
 	}
 
 	statusArgs := []string{"-Command", "status", "-Target", caseRoot, "-Pack", defaults.DefaultPack, "-Format", "json"}
+	selectedStatusArgs := append(append([]string{}, statusArgs...), "-Lane", "feature-analysis-live-check")
 	var status struct {
 		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
 	}
@@ -227,9 +228,12 @@ func TestRunOnboardDefaultPackRoundTripsEmittedStartRoute(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := Run(statusArgs, &out); err != nil {
+	if err := Run(selectedStatusArgs, &out); err != nil {
 		t.Fatal(err)
 	}
+	status = struct {
+		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
+	}{}
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil {
 		t.Fatal(err)
 	}
@@ -237,20 +241,21 @@ func TestRunOnboardDefaultPackRoundTripsEmittedStartRoute(t *testing.T) {
 		t.Fatalf("default-pack status omitted post-start runbook: %+v", status.MissionControlRunbook)
 	}
 	current := status.MissionControlRunbook.Quickstart.CurrentDriverRequest
-	if current == nil || current.Lane != "feature-analysis-live-check" || !strings.Contains(current.Command, " analysis-live-check ") || !strings.Contains(current.Command, "-Executor executor-a -ExpectedExecutorGeneration 1") {
+	if current == nil || current.Lane != "feature-analysis-live-check" || !strings.Contains(current.Command, "-Lane feature-analysis-live-check") || !strings.Contains(current.Command, "-Executor executor-a -ExpectedExecutorGeneration 1") {
 		t.Fatalf("default-pack status did not focus the owned initial feature lane after exact lane creation: %+v", current)
 	}
 	if current.Source == "committedMissionIntent" || strings.Contains(current.Command, "/rekit start ") {
 		t.Fatalf("default-pack status repeated committed mission-intent bootstrap after exact lane creation: %+v", current)
 	}
 
-	loop := runCurrentLoopResult(t, []string{"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", defaults.DefaultPack, "-MaxSteps", "2", "-WhatIf", "-Format", "json"})
+	loop := runCurrentLoopResult(t, []string{"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", defaults.DefaultPack, "-MaxSteps", "2", "-Lane", "feature-analysis-live-check", "-WhatIf", "-Format", "json"})
 	if loop.InitialCurrentStep == nil || loop.InitialCurrentStep.MemberExecution == nil || loop.ExpectedCurrentLoopPlanSHA256 == "" {
 		t.Fatalf("default-pack current-loop preview omitted the owned member dispatch: %+v", loop)
 	}
 	memberPlan := loop.InitialCurrentStep.MemberExecution
 	appliedLoop := runCurrentLoopResult(t, []string{
 		"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", defaults.DefaultPack, "-MaxSteps", "2",
+		"-Lane", "feature-analysis-live-check",
 		"-ExpectedMemberExecutionPlanSha256", memberPlan.ExpectedPlanSHA256,
 		"-ExpectedCurrentLoopPlanSha256", loop.ExpectedCurrentLoopPlanSHA256,
 		"-Apply", "-Format", "json",
@@ -261,7 +266,7 @@ func TestRunOnboardDefaultPackRoundTripsEmittedStartRoute(t *testing.T) {
 
 	var durableStatus statusInventory
 	out.Reset()
-	if err := Run(statusArgs, &out); err != nil {
+	if err := Run(selectedStatusArgs, &out); err != nil {
 		t.Fatal(err)
 	}
 	if err := json.Unmarshal(out.Bytes(), &durableStatus); err != nil {

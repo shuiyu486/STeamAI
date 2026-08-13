@@ -5,24 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/cli"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
-type publicDriverRequest struct {
-	Kind              string `json:"kind,omitempty"`
-	RunLoopStepID     string `json:"runLoopStepId,omitempty"`
-	Actor             string `json:"actor,omitempty"`
-	Source            string `json:"source,omitempty"`
-	Lane              string `json:"lane,omitempty"`
-	Label             string `json:"label,omitempty"`
-	Command           string `json:"command"`
-	Guidance          string `json:"guidance,omitempty"`
-	CommandExecutable bool   `json:"commandExecutable"`
-	Blocked           bool   `json:"blocked,omitempty"`
-}
+type publicDriverRequest = mission.MissionCommanderDriverRequest
 
 type publicLaneAction struct {
 	Lane    string `json:"lane,omitempty"`
@@ -35,20 +26,25 @@ type publicActionQueue struct {
 	BlockedActions   []publicLaneAction `json:"blockedActions,omitempty"`
 }
 
+type publicMissionControlRunbook struct {
+	Scope                      string                                 `json:"scope,omitempty"`
+	CurrentDriverRequest       *mission.MissionCommanderDriverRequest `json:"currentDriverRequest,omitempty"`
+	CurrentDriverRequestSHA256 string                                 `json:"currentDriverRequestSha256,omitempty"`
+}
+
+type publicCaseMission struct {
+	MissionCommanderActionQueue       publicActionQueue `json:"missionCommanderActionQueue"`
+	ReviewerDispatchIntakeActionQueue publicActionQueue `json:"reviewerDispatchIntakeActionQueue"`
+	MissionCompletion                 *struct {
+		Ready                 bool   `json:"ready"`
+		State                 string `json:"state"`
+		OperationallyComplete bool   `json:"operationallyComplete"`
+	} `json:"missionCompletion,omitempty"`
+}
+
 type publicStatus struct {
-	MissionControlRunbook *struct {
-		Scope                string               `json:"scope,omitempty"`
-		CurrentDriverRequest *publicDriverRequest `json:"currentDriverRequest,omitempty"`
-	} `json:"missionControlRunbook,omitempty"`
-	CaseMission *struct {
-		MissionCommanderActionQueue       publicActionQueue `json:"missionCommanderActionQueue"`
-		ReviewerDispatchIntakeActionQueue publicActionQueue `json:"reviewerDispatchIntakeActionQueue"`
-		MissionCompletion                 *struct {
-			Ready                 bool   `json:"ready"`
-			State                 string `json:"state"`
-			OperationallyComplete bool   `json:"operationallyComplete"`
-		} `json:"missionCompletion,omitempty"`
-	} `json:"caseMission,omitempty"`
+	MissionControlRunbook *publicMissionControlRunbook `json:"missionControlRunbook,omitempty"`
+	CaseMission           *publicCaseMission           `json:"caseMission,omitempty"`
 }
 
 type publicDriverStep struct {
@@ -108,6 +104,32 @@ func runPublicCommand(command string) error {
 	return runPublicCLI(args, nil)
 }
 
+func runPublicApplyCommand(command, expectedCommand, caseRoot, pack string, target any) error {
+	args, err := cli.SplitPublicCommand(command)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "override the command identity") {
+			return fmt.Errorf("public Apply command must not override the bounded command: %w", err)
+		}
+		return err
+	}
+	if len(args) < 2 || !strings.EqualFold(args[0], "-Command") || !strings.EqualFold(args[1], expectedCommand) || !slices.Contains(args[2:], "-Apply") {
+		return fmt.Errorf("public Apply command is not the expected bounded %s route", expectedCommand)
+	}
+	for _, arg := range args[2:] {
+		if strings.EqualFold(arg, "-Command") || strings.EqualFold(arg, "--command") {
+			return fmt.Errorf("public Apply command must not override the bounded command")
+		}
+		if strings.EqualFold(arg, "-Target") || strings.EqualFold(arg, "--target") || strings.EqualFold(arg, "-Pack") || strings.EqualFold(arg, "--pack") {
+			return fmt.Errorf("public Apply command must not override the bound target or pack")
+		}
+	}
+	args = append(args, "-Target", caseRoot)
+	if strings.TrimSpace(pack) != "" {
+		args = append(args, "-Pack", pack)
+	}
+	return runPublicCLI(args, target)
+}
+
 func firstSelectedLane(selected []string) string {
 	if len(selected) == 0 {
 		return ""
@@ -115,15 +137,61 @@ func firstSelectedLane(selected []string) string {
 	return selected[0]
 }
 
-func publicCommandName(command string) (string, error) {
-	args, err := cli.SplitPublicCommand(command)
+func publicCaseMissionLaneChoices(caseMission *publicCaseMission) []DailyChoice {
+	if caseMission == nil {
+		return nil
+	}
+	return publicActionQueueLaneChoices(
+		caseMission.MissionCommanderActionQueue,
+		caseMission.ReviewerDispatchIntakeActionQueue,
+	)
+}
+
+func publicActionQueueLaneChoices(queues ...publicActionQueue) []DailyChoice {
+	seen := map[string]bool{}
+	choices := []DailyChoice{}
+	for _, queue := range queues {
+		for _, item := range queue.UnblockedActions {
+			lane := strings.TrimSpace(item.Lane)
+			if lane == "" || item.Blocked || seen[lane] {
+				continue
+			}
+			seen[lane] = true
+			label := strings.TrimSpace(item.Label)
+			if label == "" {
+				label = lane
+			}
+			choices = append(choices, DailyChoice{ID: lane, Label: label})
+		}
+	}
+	return choices
+}
+
+func bindHostCurrentDriverRequest(opt *Options) (*mission.MissionCommanderDriverRequest, error) {
+	if opt == nil {
+		return nil, fmt.Errorf("host options are missing")
+	}
+	status, err := runPublicStatus(opt.Target, opt.Pack, opt.SelectedLane)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	if len(args) < 2 || !strings.EqualFold(args[0], "-Command") {
-		return "", fmt.Errorf("public command omitted command identity")
+	if status.MissionControlRunbook == nil || status.MissionControlRunbook.CurrentDriverRequest == nil {
+		return nil, fmt.Errorf("fresh status omitted the current driver request")
 	}
-	return strings.ToLower(strings.TrimSpace(args[1])), nil
+	request := *status.MissionControlRunbook.CurrentDriverRequest
+	if err := mission.ValidateMissionCommanderDriverRequest(request); err != nil {
+		return nil, err
+	}
+	sha256, err := mission.MissionCommanderDriverRequestSHA256(request)
+	if err != nil {
+		return nil, err
+	}
+	if !strings.EqualFold(sha256, strings.TrimSpace(status.MissionControlRunbook.CurrentDriverRequestSHA256)) {
+		return nil, fmt.Errorf("fresh status current driver request SHA-256 is inconsistent")
+	}
+	opt.ExpectedCurrentDriverRequestSHA256 = sha256
+	opt.requireCurrentDriverRequest = true
+	return &request, nil
 }
 
 func runPublicStatus(caseRoot, pack, selected string) (publicStatus, error) {

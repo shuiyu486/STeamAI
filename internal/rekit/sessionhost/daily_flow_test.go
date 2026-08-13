@@ -1,19 +1,25 @@
 package sessionhost
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
+)
 
 func TestDailyCompletionOwnerRequest(t *testing.T) {
 	valid := func() publicStatus {
-		return publicStatus{MissionControlRunbook: &struct {
-			Scope                string               `json:"scope,omitempty"`
-			CurrentDriverRequest *publicDriverRequest `json:"currentDriverRequest,omitempty"`
-		}{Scope: "case", CurrentDriverRequest: &publicDriverRequest{
+		invocation, err := commands.NewPublicInvocation(commands.Complete, "-Lane", "feature-mission", "-WhatIf", "-Format", "json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return publicStatus{MissionControlRunbook: &publicMissionControlRunbook{Scope: "case", CurrentDriverRequest: &publicDriverRequest{
 			Kind:              "preview-command",
 			RunLoopStepID:     "preview-current",
 			Actor:             "main-agent",
 			Source:            "laneCompletion.acceptedReviewerLineage",
 			Lane:              "feature-mission",
-			Command:           "/rekit complete mission -Lane feature-mission -WhatIf -Format json",
+			Invocation:        &invocation,
+			Command:           "/rekit complete -Lane feature-mission -WhatIf -Format json",
 			CommandExecutable: true,
 		}}}
 	}
@@ -39,6 +45,14 @@ func TestDailyCompletionOwnerRequest(t *testing.T) {
 			status.MissionControlRunbook.CurrentDriverRequest.CommandExecutable = false
 		},
 		"wrong-command": func(status *publicStatus) {
+			invocation, err := commands.NewPublicInvocation(commands.Continue, "-Lane", "feature-mission", "-WhatIf", "-Format", "json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			status.MissionControlRunbook.CurrentDriverRequest.Invocation = &invocation
+			status.MissionControlRunbook.CurrentDriverRequest.Command = "/rekit continue -Lane feature-mission -WhatIf -Format json"
+		},
+		"command-projection-drift": func(status *publicStatus) {
 			status.MissionControlRunbook.CurrentDriverRequest.Command = "/rekit continue -Lane feature-mission -WhatIf -Format json"
 		},
 	}
@@ -71,10 +85,7 @@ func TestDailyReviewerOwnerRequest(t *testing.T) {
 			request.CommandExecutable = false
 			request.Guidance = "invoke the read-only Agent tool request"
 		}
-		return publicStatus{MissionControlRunbook: &struct {
-			Scope                string               `json:"scope,omitempty"`
-			CurrentDriverRequest *publicDriverRequest `json:"currentDriverRequest,omitempty"`
-		}{Scope: "reviewer", CurrentDriverRequest: request}}
+		return publicStatus{MissionControlRunbook: &publicMissionControlRunbook{Scope: "reviewer", CurrentDriverRequest: request}}
 	}
 
 	for step := range dailyReviewerRunLoopSteps {

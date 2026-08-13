@@ -2391,10 +2391,10 @@ func adapterReportCaseRelativeArgs(pack, gateEventID, mode, reportPath string, e
 }
 
 func adapterReportCaseRelativeCommand(args []string) string {
-	if len(args) == 0 {
+	if len(args) < 2 || !strings.EqualFold(args[0], "-Command") || strings.TrimSpace(args[1]) == "" {
 		return ""
 	}
-	return "rekit " + strings.Join(args, " ")
+	return "/rekit " + strings.TrimSpace(args[1]) + " " + strings.Join(args[2:], " ")
 }
 
 func adapterReportLiveValidationWithState(pack string, event EventPreview, live AdapterReportLiveValidation, state string) AdapterReportLiveValidation {
@@ -2636,12 +2636,12 @@ func adapterReportLiveValidation(m *manifest.Manifest, caseRoot, pack string, ev
 		AdapterExecutionDispatchPath:     dispatchPath,
 		AdapterExecutionDispatchSHA256:   dispatchSHA,
 		SidecarTemplate:                  template,
-		ValidateCommand:                  "rekit " + strings.Join(validateArgs, " "),
-		ScaffoldCommand:                  "rekit " + strings.Join(scaffoldArgs, " "),
-		ScaffoldApplyCommand:             "rekit " + strings.Join(scaffoldApplyArgs, " "),
+		ValidateCommand:                  adapterReportCaseRelativeCommand(validateArgs),
+		ScaffoldCommand:                  adapterReportCaseRelativeCommand(scaffoldArgs),
+		ScaffoldApplyCommand:             adapterReportCaseRelativeCommand(scaffoldApplyArgs),
 		SidecarTemplateSHA256:            templateSHA256,
-		DraftCommand:                     "rekit " + strings.Join(draftArgs, " "),
-		DraftApplyCommand:                "rekit " + strings.Join(draftApplyArgs, " "),
+		DraftCommand:                     adapterReportCaseRelativeCommand(draftArgs),
+		DraftApplyCommand:                adapterReportCaseRelativeCommand(draftApplyArgs),
 		DraftReportSHA256:                "<reportSha256-from-draft-preview>",
 		ValidateArgs:                     validateArgs,
 		ScaffoldArgs:                     scaffoldArgs,

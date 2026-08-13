@@ -27,7 +27,6 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/doctor"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
-	"github.com/shuiyu486/re-context-kits/internal/rekit/kitmutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/laneid"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
@@ -50,7 +49,6 @@ var (
 	releaseCheckBuild                           = releasecheck.Build
 	projectHandoffBuild                         = releasecheck.BuildProjectHandoff
 	statusHandoffGenerationAfterTargetsReadHook func()
-	nextBatchAfterWritePassHook                 func()
 )
 
 type Options struct {
@@ -208,6 +206,7 @@ type Options struct {
 
 func Parse(args []string) (Options, error) {
 	opt := Options{rawArgs: append([]string{}, args...), Command: commands.DefaultCommand, Pack: defaults.DefaultPack}
+	selectorArguments := []string{}
 	for i := 0; i < len(args); i++ {
 		if strings.EqualFold(args[i], "--") {
 			continue
@@ -263,10 +262,12 @@ func Parse(args []string) (Options, error) {
 			}
 			opt.ExpectedOnboardingPlanSHA256 = args[i]
 		case "-Name", "--name":
+			selectorArguments = append(selectorArguments, args[i])
 			i++
 			if i >= len(args) {
 				return opt, fmt.Errorf("missing value for -Name")
 			}
+			selectorArguments = append(selectorArguments, args[i])
 			opt.Start.Name = args[i]
 			opt.Start.Selector = args[i]
 		case "-Review", "--review":
@@ -963,17 +964,22 @@ func Parse(args []string) (Options, error) {
 			opt.Gate.Action = args[i]
 			opt.Note.Action = args[i]
 		case "-Lane", "--lane":
+			selectorArguments = append(selectorArguments, args[i])
 			i++
-			if i >= len(args) {
+			if i >= len(args) || strings.TrimSpace(args[i]) == "" || strings.HasPrefix(strings.TrimSpace(args[i]), "-") {
 				return opt, fmt.Errorf("missing value for -Lane")
 			}
+			selectorArguments = append(selectorArguments, args[i])
 			opt.MemberOutputStagingLane = args[i]
 			opt.SelectedCurrentLane = args[i]
+			opt.Start.Selector = args[i]
 			opt.Gate.Lane = args[i]
 			opt.Note.Lane = args[i]
 			opt.Complete.Selector = args[i]
+			opt.Handoff.Selector = args[i]
 			opt.Reopen.Selector = args[i]
 			opt.Continue.Selector = args[i]
+			opt.Continue.ExactSelector = true
 			opt.Reconcile.Selector = args[i]
 		case "-Kind", "--kind":
 			i++
@@ -1447,6 +1453,7 @@ func Parse(args []string) (Options, error) {
 			if i == 0 && args[i] != "" && args[i][0] != '-' {
 				opt.Command = args[i]
 			} else if strings.EqualFold(opt.Command, "start") && args[i] != "" && args[i][0] != '-' {
+				selectorArguments = append(selectorArguments, args[i])
 				if opt.Start.Name == "" {
 					opt.Start.Name = args[i]
 					opt.Start.Selector = args[i]
@@ -1455,30 +1462,35 @@ func Parse(args []string) (Options, error) {
 					opt.Start.Selector += "-" + args[i]
 				}
 			} else if strings.EqualFold(opt.Command, "handoff") && args[i] != "" && args[i][0] != '-' {
+				selectorArguments = append(selectorArguments, args[i])
 				if opt.Handoff.Selector == "" {
 					opt.Handoff.Selector = args[i]
 				} else {
 					opt.Handoff.Selector += "-" + args[i]
 				}
 			} else if strings.EqualFold(opt.Command, "complete") && args[i] != "" && args[i][0] != '-' {
+				selectorArguments = append(selectorArguments, args[i])
 				if opt.Complete.Selector == "" {
 					opt.Complete.Selector = args[i]
 				} else {
 					opt.Complete.Selector += "-" + args[i]
 				}
 			} else if strings.EqualFold(opt.Command, "reopen") && args[i] != "" && args[i][0] != '-' {
+				selectorArguments = append(selectorArguments, args[i])
 				if opt.Reopen.Selector == "" {
 					opt.Reopen.Selector = args[i]
 				} else {
 					opt.Reopen.Selector += "-" + args[i]
 				}
 			} else if strings.EqualFold(opt.Command, "continue") && args[i] != "" && args[i][0] != '-' {
+				selectorArguments = append(selectorArguments, args[i])
 				if opt.Continue.Selector == "" {
 					opt.Continue.Selector = args[i]
 				} else {
 					opt.Continue.Selector += "-" + args[i]
 				}
 			} else if strings.EqualFold(opt.Command, "reconcile") && args[i] != "" && args[i][0] != '-' {
+				selectorArguments = append(selectorArguments, args[i])
 				if opt.Reconcile.Selector == "" {
 					opt.Reconcile.Selector = args[i]
 				} else {
@@ -1492,6 +1504,9 @@ func Parse(args []string) (Options, error) {
 	}
 	if opt.Pack == "" {
 		opt.Pack = defaults.DefaultPack
+	}
+	if err := commands.ValidatePublicInvocationSelectors(opt.Command, selectorArguments); err != nil {
+		return opt, err
 	}
 	return opt, nil
 }
@@ -1874,763 +1889,6 @@ func writeFailedReleaseRunResult(out io.Writer, opt Options, result releaseRunRe
 		return err
 	}
 	return fmt.Errorf("release-run not ready: %w", cause)
-}
-
-type nextBatchResult struct {
-	SchemaVersion               int                                    `json:"schemaVersion"`
-	Command                     string                                 `json:"command"`
-	RepoRoot                    string                                 `json:"repoRoot"`
-	IsMutation                  bool                                   `json:"isMutation"`
-	Applied                     bool                                   `json:"applied"`
-	ReviewRequired              bool                                   `json:"reviewRequired"`
-	RequiresConfirmation        bool                                   `json:"requiresConfirmation"`
-	LatestCompletedBatch        string                                 `json:"latestCompletedBatch,omitempty"`
-	NextBatch                   string                                 `json:"nextBatch"`
-	Domain                      string                                 `json:"domain"`
-	DomainActionID              string                                 `json:"domainActionId,omitempty"`
-	Closure                     string                                 `json:"closure"`
-	ExpectedNextBatchPlanSHA256 string                                 `json:"expectedNextBatchPlanSha256"`
-	CurrentBatchSection         string                                 `json:"currentBatchSection"`
-	ChangelogEntry              string                                 `json:"changelogEntry"`
-	Writes                      []nextBatchWritePlan                   `json:"writes"`
-	ValidationCommands          []string                               `json:"validationCommands,omitempty"`
-	ReleaseCadenceSteps         []string                               `json:"releaseCadenceSteps,omitempty"`
-	MissionCommanderAction      mission.MissionCommanderNextActionItem `json:"missionCommanderAction"`
-	MissionCommanderActionQueue mission.MissionCommanderActionQueue    `json:"missionCommanderActionQueue"`
-	Boundary                    []string                               `json:"boundary"`
-	NextSteps                   []string                               `json:"nextSteps"`
-}
-
-type nextBatchWritePlan struct {
-	Path         string `json:"path"`
-	Action       string `json:"action"`
-	TargetPath   string `json:"targetPath"`
-	InsertAfter  string `json:"insertAfter,omitempty"`
-	BeforeSHA256 string `json:"beforeSha256,omitempty"`
-	AfterSHA256  string `json:"afterSha256"`
-	BeforeBytes  int    `json:"beforeBytes"`
-	AfterBytes   int    `json:"afterBytes"`
-	Changed      bool   `json:"changed"`
-	PreviewText  string `json:"previewText,omitempty"`
-	PlannedText  string `json:"-"`
-}
-
-func runNextBatch(ctx runtime.Context, opt Options, out io.Writer) (resultErr error) {
-	if ctx.TargetProvided {
-		return fmt.Errorf("next-batch writes kit repo docs; omit -Target")
-	}
-	if opt.Apply == opt.WhatIf {
-		return fmt.Errorf("next-batch requires exactly one of -WhatIf or -Apply")
-	}
-	if opt.CreateCandidates || opt.Review || opt.Force || opt.List || wantsReviewArtifacts(opt) {
-		return fmt.Errorf("next-batch accepts only planning receipt flags; omit create/review/force/list/review artifact flags")
-	}
-	if opt.WhatIf && strings.TrimSpace(opt.ExpectedNextBatchPlanSHA256) != "" {
-		return fmt.Errorf("next-batch -WhatIf does not accept -ExpectedNextBatchPlanSha256")
-	}
-	if opt.Apply && strings.TrimSpace(opt.ExpectedNextBatchPlanSHA256) == "" {
-		return fmt.Errorf("next-batch -Apply requires -ExpectedNextBatchPlanSha256 from -WhatIf")
-	}
-	format, err := workstreamFormat(opt.Format)
-	if err != nil {
-		return fmt.Errorf("unsupported next-batch format: %s", opt.Format)
-	}
-	var lease *kitmutation.Lease
-	if opt.Apply {
-		lease, err = kitmutation.Acquire(ctx.RepoRoot)
-		if err != nil {
-			return err
-		}
-		defer func() { resultErr = errors.Join(resultErr, lease.Unlock()) }()
-	}
-	result := nextBatchResult{}
-	committedReplay := false
-	if opt.Apply {
-		result, committedReplay, err = buildNextBatchCommittedReplayResult(ctx.RepoRoot, opt)
-		if err != nil {
-			return err
-		}
-	}
-	if !committedReplay {
-		result, err = buildNextBatchResult(ctx.RepoRoot, opt)
-		if err != nil {
-			return err
-		}
-	}
-	if opt.Apply {
-		if !strings.EqualFold(strings.TrimSpace(opt.ExpectedNextBatchPlanSHA256), result.ExpectedNextBatchPlanSHA256) {
-			return fmt.Errorf("next-batch expected plan sha256 mismatch: got %s want %s", strings.TrimSpace(opt.ExpectedNextBatchPlanSHA256), result.ExpectedNextBatchPlanSHA256)
-		}
-		if err := applyNextBatchWrites(result.Writes); err != nil {
-			return err
-		}
-		result.IsMutation = true
-		result.Applied = true
-		result.ReviewRequired = false
-		result.RequiresConfirmation = false
-		result.MissionCommanderAction = nextBatchRefreshAction()
-		result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor([]mission.MissionCommanderNextActionItem{result.MissionCommanderAction})
-		result.NextSteps = []string{
-			"next-batch planning receipt applied to docs/batch-history.md, CHANGELOG.md, and docs/batch-plan.md only",
-			"rerun /rekit status -Format json to refresh Mission Commander current action from durable docs",
-			"implement the selected Windows-verifiable product-path slice, then run focused regressions and the full local release minimum",
-		}
-	}
-	if format == "json" {
-		return writeJSON(out, result)
-	}
-	return writeNextBatchText(out, result)
-}
-
-func buildNextBatchCommittedReplayResult(repoRoot string, opt Options) (nextBatchResult, bool, error) {
-	domain := nextBatchSingleLine(opt.NextBatchDomain)
-	closure := nextBatchSingleLine(opt.NextBatchClosure)
-	if domain == "" || closure == "" {
-		return nextBatchResult{}, false, nil
-	}
-	batchPlanPath := filepath.Join(repoRoot, filepath.FromSlash("docs/batch-plan.md"))
-	batchHistoryPath := filepath.Join(repoRoot, filepath.FromSlash("docs/batch-history.md"))
-	changelogPath := filepath.Join(repoRoot, "CHANGELOG.md")
-	batchPlanText, err := os.ReadFile(batchPlanPath)
-	if err != nil {
-		return nextBatchResult{}, false, err
-	}
-	batchHistoryText, err := os.ReadFile(batchHistoryPath)
-	if err != nil {
-		return nextBatchResult{}, false, err
-	}
-	changelogText, err := os.ReadFile(changelogPath)
-	if err != nil {
-		return nextBatchResult{}, false, err
-	}
-	section, title, batchID, found := nextBatchFirstDocumentSection(string(batchPlanText))
-	if !found || title != "### "+batchID+"："+closure {
-		return nextBatchResult{}, false, nil
-	}
-	selectedDomain := nextBatchTextBetween(section, "本批选择 `", "`")
-	if selectedDomain == "" || !strings.EqualFold(domain, selectedDomain) {
-		return nextBatchResult{}, false, nil
-	}
-	if _, historyFound, historyDuplicate := nextBatchHistorySection(string(batchHistoryText), batchID); historyDuplicate || historyFound {
-		return nextBatchResult{}, false, fmt.Errorf("next-batch committed replay conflicts with archived %s", batchID)
-	}
-	entryPrefix := "- " + batchID + " 新增 " + closure + "：选择 `" + selectedDomain + "` candidate（"
-	entry, entryFound, entryDuplicate := nextBatchLineWithPrefix(string(changelogText), entryPrefix)
-	if entryDuplicate {
-		return nextBatchResult{}, false, fmt.Errorf("next-batch committed replay found duplicate %s changelog entries", batchID)
-	}
-	if !entryFound {
-		return nextBatchResult{}, false, nil
-	}
-	writes := []nextBatchWritePlan{
-		nextBatchWrite("docs/batch-history.md", "archive-completed-batch-sections", batchHistoryPath, "", batchHistoryText, string(batchHistoryText), ""),
-		nextBatchWrite("CHANGELOG.md", "insert-unreleased-changelog-entry", changelogPath, "### Changed", changelogText, string(changelogText), entry),
-		nextBatchWrite("docs/batch-plan.md", "rotate-and-insert-current-batch-section", batchPlanPath, "### Current batch state", batchPlanText, string(batchPlanText), section),
-	}
-	expectedSHA := nextBatchPlanningSHA256(writes)
-	if !strings.EqualFold(strings.TrimSpace(opt.ExpectedNextBatchPlanSHA256), expectedSHA) {
-		return nextBatchResult{}, false, nil
-	}
-	current := nextBatchApplyAction(batchID, selectedDomain, closure, expectedSHA)
-	return nextBatchResult{
-		SchemaVersion:               1,
-		Command:                     commands.NextBatch,
-		RepoRoot:                    repoRoot,
-		ReviewRequired:              true,
-		RequiresConfirmation:        true,
-		NextBatch:                   batchID,
-		Domain:                      selectedDomain,
-		Closure:                     closure,
-		ExpectedNextBatchPlanSHA256: expectedSHA,
-		CurrentBatchSection:         section,
-		ChangelogEntry:              entry,
-		Writes:                      writes,
-		MissionCommanderAction:      current,
-		MissionCommanderActionQueue: mission.MissionCommanderActionQueueFor([]mission.MissionCommanderNextActionItem{current}),
-		Boundary: []string{
-			"next-batch committed replay is accepted only when all three current document bytes match the reviewed expected hash",
-			"committed replay does not reopen next-batch selection or mutate case state, authority/confirmed, heavy tools, commits, pushes, or remote CI",
-		},
-	}, true, nil
-}
-
-func nextBatchTextBetween(text, prefix, suffix string) string {
-	start := strings.Index(text, prefix)
-	if start < 0 {
-		return ""
-	}
-	start += len(prefix)
-	end := strings.Index(text[start:], suffix)
-	if end < 0 {
-		return ""
-	}
-	return strings.TrimSpace(text[start : start+end])
-}
-
-func nextBatchFirstDocumentSection(text string) (string, string, string, bool) {
-	normalized := strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n")
-	start := strings.Index(normalized, "### Batch ")
-	if start < 0 || (start > 0 && normalized[start-1] != '\n') {
-		return "", "", "", false
-	}
-	end := len(normalized)
-	for _, marker := range []string{"\n### Batch ", "\n## "} {
-		if idx := strings.Index(normalized[start+1:], marker); idx >= 0 && start+1+idx < end {
-			end = start + 1 + idx
-		}
-	}
-	section := strings.TrimSpace(normalized[start:end])
-	titleEnd := strings.IndexByte(section, '\n')
-	if titleEnd < 0 {
-		titleEnd = len(section)
-	}
-	title := strings.TrimSpace(section[:titleEnd])
-	batchID := nextBatchSectionID(title)
-	return section, title, batchID, batchID != ""
-}
-
-func nextBatchLineWithPrefix(text, prefix string) (string, bool, bool) {
-	matched := ""
-	found := false
-	for line := range strings.SplitSeq(strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n"), "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, prefix) {
-			continue
-		}
-		if found {
-			return "", true, true
-		}
-		matched = line
-		found = true
-	}
-	return matched, found, false
-}
-
-func buildNextBatchResult(repoRoot string, opt Options) (nextBatchResult, error) {
-	domain := nextBatchSingleLine(opt.NextBatchDomain)
-	closure := nextBatchSingleLine(opt.NextBatchClosure)
-	if domain == "" {
-		return nextBatchResult{}, fmt.Errorf("next-batch requires -Domain with one release handoff candidate domain")
-	}
-	if closure == "" {
-		return nextBatchResult{}, fmt.Errorf("next-batch requires -Closure describing the selected product-path closure")
-	}
-	if strings.ContainsAny(domain+closure, "<>") {
-		return nextBatchResult{}, fmt.Errorf("next-batch -Domain and -Closure must be concrete values, not starter-package placeholders")
-	}
-	inventory, err := releaseCheckBuild(repoRoot)
-	if err != nil {
-		return nextBatchResult{}, err
-	}
-	pkg := inventory.ReleaseHandoff.NextBatchSelectionPackage
-	if pkg == nil || !pkg.Ready || pkg.StarterPackage == nil || !pkg.StarterPackage.Ready {
-		return nextBatchResult{}, fmt.Errorf("next-batch selection package is not ready; run release-check/status and finish the current batch first")
-	}
-	selectedAction, err := nextBatchSelectDomain(pkg, domain)
-	if err != nil {
-		return nextBatchResult{}, err
-	}
-	selectedDomain := strings.TrimSpace(selectedAction.Label)
-	actionID := strings.TrimSpace(selectedAction.ActionID)
-	starter := pkg.StarterPackage
-	nextBatch := strings.TrimSpace(starter.SuggestedNextBatch)
-	if nextBatch == "" || strings.Contains(nextBatch, "<") {
-		return nextBatchResult{}, fmt.Errorf("next-batch starter package did not provide a concrete suggested batch id")
-	}
-	batchPlanPath := filepath.Join(repoRoot, filepath.FromSlash("docs/batch-plan.md"))
-	batchHistoryPath := filepath.Join(repoRoot, filepath.FromSlash("docs/batch-history.md"))
-	changelogPath := filepath.Join(repoRoot, "CHANGELOG.md")
-	batchPlanText, err := os.ReadFile(batchPlanPath)
-	if err != nil {
-		return nextBatchResult{}, err
-	}
-	batchHistoryText, err := os.ReadFile(batchHistoryPath)
-	if err != nil {
-		return nextBatchResult{}, err
-	}
-	changelogText, err := os.ReadFile(changelogPath)
-	if err != nil {
-		return nextBatchResult{}, err
-	}
-	if _, found, duplicate := nextBatchHistorySection(string(batchHistoryText), nextBatch); duplicate {
-		return nextBatchResult{}, fmt.Errorf("next-batch history contains duplicate %s sections", nextBatch)
-	} else if found {
-		return nextBatchResult{}, fmt.Errorf("next-batch history already contains %s; refusing an active/history batch id collision", nextBatch)
-	}
-	section := nextBatchCurrentBatchSection(nextBatch, selectedAction, closure, starter.ValidationCommands)
-	entry := nextBatchChangelogEntry(nextBatch, selectedAction, closure)
-	plannedBatchHistory := strings.ReplaceAll(strings.ReplaceAll(string(batchHistoryText), "\r\n", "\n"), "\r", "\n")
-	archivedSections := []string{}
-	batchNeedle := "### " + nextBatch + "："
-	plannedBatchPlan := ""
-	existingBatchSection, batchFound, batchDuplicate := nextBatchHistorySection(string(batchPlanText), nextBatch)
-	if batchDuplicate {
-		return nextBatchResult{}, fmt.Errorf("next-batch active plan contains duplicate %s sections", nextBatch)
-	}
-	if batchFound {
-		if strings.TrimSpace(existingBatchSection) != strings.TrimSpace(section) {
-			return nextBatchResult{}, fmt.Errorf("next-batch active plan already contains %s with different content", nextBatch)
-		}
-		plannedBatchPlan = strings.ReplaceAll(strings.ReplaceAll(string(batchPlanText), "\r\n", "\n"), "\r", "\n")
-	} else {
-		var rotatedBatchPlan string
-		rotatedBatchPlan, plannedBatchHistory, archivedSections, err = nextBatchRotateActiveHistory(string(batchPlanText), string(batchHistoryText))
-		if err == nil {
-			plannedBatchPlan, err = nextBatchInsertAfterHeading(rotatedBatchPlan, "### Current batch state", batchNeedle, section)
-		}
-	}
-	if err != nil {
-		return nextBatchResult{}, err
-	}
-	plannedChangelog, err := nextBatchInsertAfterHeading(string(changelogText), "### Changed", "- "+nextBatch+" ", entry)
-	if err != nil {
-		return nextBatchResult{}, err
-	}
-	beforeBatchHistory := batchHistoryText
-	beforeBatchPlan := batchPlanText
-	beforeChangelog := changelogText
-	if batchFound {
-		beforeBatchHistory = []byte(plannedBatchHistory)
-		beforeBatchPlan = []byte(plannedBatchPlan)
-		beforeChangelog = []byte(plannedChangelog)
-	}
-	writes := []nextBatchWritePlan{
-		nextBatchWrite("docs/batch-history.md", "archive-completed-batch-sections", batchHistoryPath, "", beforeBatchHistory, plannedBatchHistory, strings.Join(archivedSections, "\n\n")),
-		nextBatchWrite("CHANGELOG.md", "insert-unreleased-changelog-entry", changelogPath, "### Changed", beforeChangelog, plannedChangelog, entry),
-		nextBatchWrite("docs/batch-plan.md", "rotate-and-insert-current-batch-section", batchPlanPath, "### Current batch state", beforeBatchPlan, plannedBatchPlan, section),
-	}
-	current := nextBatchApplyAction(nextBatch, selectedDomain, closure, nextBatchPlanningSHA256(writes))
-	queue := mission.MissionCommanderActionQueueFor([]mission.MissionCommanderNextActionItem{current})
-	return nextBatchResult{
-		SchemaVersion:               1,
-		Command:                     commands.NextBatch,
-		RepoRoot:                    repoRoot,
-		IsMutation:                  false,
-		Applied:                     false,
-		ReviewRequired:              true,
-		RequiresConfirmation:        true,
-		LatestCompletedBatch:        strings.TrimSpace(starter.LatestCompletedBatch),
-		NextBatch:                   nextBatch,
-		Domain:                      selectedDomain,
-		DomainActionID:              actionID,
-		Closure:                     closure,
-		ExpectedNextBatchPlanSHA256: nextBatchPlanningSHA256(writes),
-		CurrentBatchSection:         section,
-		ChangelogEntry:              entry,
-		Writes:                      writes,
-		ValidationCommands:          mission.UniqueStrings(starter.ValidationCommands),
-		ReleaseCadenceSteps:         mission.UniqueStrings(starter.ReleaseCadenceSteps),
-		MissionCommanderAction:      current,
-		MissionCommanderActionQueue: queue,
-		Boundary: []string{
-			"next-batch is a kit review-first planning receipt command",
-			"WhatIf reads release handoff and previews docs/batch-history.md, CHANGELOG.md, and docs/batch-plan.md writes without mutation",
-			"Apply requires the exact ExpectedNextBatchPlanSha256 from WhatIf and writes only those three kit docs",
-			"next-batch does not touch case state, authority/confirmed, reviewer/adapter/pack-memory/gate/sync/promote mutation, heavy tools, commits, pushes, or remote CI",
-		},
-		NextSteps: []string{
-			"review this WhatIf output and the selected domain/closure",
-			"rerun next-batch with -Apply and -ExpectedNextBatchPlanSha256 to write the planning receipt",
-			"after Apply, rerun /rekit status -Format json before implementation",
-		},
-	}, nil
-}
-
-func nextBatchApplyAction(nextBatch, domain, closure, expectedSHA string) mission.MissionCommanderNextActionItem {
-	return mission.MissionCommanderNextActionItem{
-		Label:          nextBatch,
-		ActionID:       "next-batch-planning-receipt",
-		State:          "ready-for-next-batch-planning-apply",
-		Command:        fmt.Sprintf("/rekit next-batch -Domain %s -Closure %s -ExpectedNextBatchPlanSha256 %s -Apply -Format json", statusQuoteCommandArg(domain), statusQuoteCommandArg(closure), expectedSHA),
-		Source:         "nextBatchCommand",
-		RequiresReview: true,
-		Reasons: []string{
-			"release handoff next-batch selection package is ready",
-			"planning receipt writes only the bounded active/history/changelog kit docs before implementation",
-		},
-		Boundary: []string{
-			"review the next-batch WhatIf output before Apply",
-			"Apply writes only docs/batch-history.md, CHANGELOG.md, and docs/batch-plan.md in the kit repo",
-			"Apply does not execute reviewer, adapter, pack-memory, gate, sync, promote, heavy-tool, commit, push, or remote CI inspection",
-		},
-	}
-}
-
-func nextBatchRefreshAction() mission.MissionCommanderNextActionItem {
-	return mission.MissionCommanderNextActionItem{
-		Label:    "status-refresh",
-		ActionID: "next-batch-status-refresh",
-		State:    "next-batch-planning-applied-refresh-required",
-		Command:  "/rekit status -Format json",
-		Source:   "nextBatchCommand",
-		Reasons: []string{
-			"next-batch planning receipt was applied to kit docs",
-			"status must be refreshed before implementation follow-up is selected",
-		},
-		Boundary: []string{
-			"status refresh is read-only",
-			"do not infer follow-up work from next-batch Apply output alone",
-		},
-	}
-}
-
-func nextBatchSelectDomain(pkg *releasecheck.ReleaseHandoffNextBatchSelectionPackage, domain string) (mission.MissionCommanderNextActionItem, error) {
-	domain = strings.TrimSpace(domain)
-	allowed := []string{}
-	for _, action := range pkg.MissionCommanderNextActions {
-		if strings.TrimSpace(action.State) != "next-batch-candidate-domain" {
-			continue
-		}
-		label := strings.TrimSpace(action.Label)
-		actionID := strings.TrimSpace(action.ActionID)
-		if label != "" {
-			allowed = append(allowed, label)
-		}
-		if strings.EqualFold(domain, label) || strings.EqualFold(domain, actionID) {
-			action.Label = label
-			action.ActionID = actionID
-			action.Command = nextBatchSingleLine(action.Command)
-			action.Reasons = mission.UniqueStrings(action.Reasons)
-			action.Boundary = mission.UniqueStrings(action.Boundary)
-			return action, nil
-		}
-	}
-	return mission.MissionCommanderNextActionItem{}, fmt.Errorf("next-batch -Domain %q is not in ready candidate domains: %s", domain, strings.Join(mission.UniqueStrings(allowed), ", "))
-}
-
-func nextBatchCurrentBatchSection(nextBatch string, action mission.MissionCommanderNextActionItem, closure string, validationCommands []string) string {
-	domain := strings.TrimSpace(action.Label)
-	candidateCommand := nextBatchCandidateCommand(action)
-	validation := nextBatchValidationSummary(validationCommands)
-	return strings.Join([]string{
-		"### " + nextBatch + "：" + closure,
-		"",
-		"状态：进行中。本批选择 `" + domain + "`，推进 " + closure + "；release handoff candidate guidance 是：" + candidateCommand + "。上一批完成后仍需要解决的接手断点必须落在该 domain 的可操作 product-path closure 上，并能由 status/handoff/continue/release-check 或必要临时 case 验证；本批不是字段、文案或 summary 投影微调。",
-		"",
-		"目标：把 `" + domain + "` candidate 收敛成 Windows 本机可验证的闭环：" + closure + "。实现应复用既有 typed handoff/envelope 和 deterministic runtime 边界，让 Mission Commander 或 replacement executor 能从 durable docs/status 消费结果，不依赖上一会话隐性上下文；focused work 必须证明该候选命令所描述的能力：" + candidateCommand + "。",
-		"",
-		"边界：本批不新增 PowerShell runtime logic，不执行 heavy-tool，不写 authority/confirmed，不自动执行 reviewer/adapter/pack-memory/gate/sync/promote mutation，不自动提交或声明 remote CI green；`/rekit next-batch -Apply` 只在 expected hash 匹配时归档更早 active batch，并写 kit repo `docs/batch-history.md`、`CHANGELOG.md` 与 `docs/batch-plan.md` planning receipt。",
-		"",
-		"验证标准：focused regressions 覆盖 `" + domain + "` 的 selected product-path closure、durable status/handoff refresh，以及不回归 `/rekit next-batch` WhatIf/Apply/hash guard；随后运行完整本机 release minimum：" + validation + "。实现完成后记录 implementation commit/push 与 push-triggered remote release-gate inspection；远程 `steps=[]` 仍只记录 blocker，不声明 green。",
-	}, "\n")
-}
-
-func nextBatchChangelogEntry(nextBatch string, action mission.MissionCommanderNextActionItem, closure string) string {
-	domain := strings.TrimSpace(action.Label)
-	candidateCommand := nextBatchCandidateCommand(action)
-	return "- " + nextBatch + " 新增 " + closure + "：选择 `" + domain + "` candidate（" + candidateCommand + "）并将其收敛为 Windows 本机可验证的 product-path planning receipt；`/rekit next-batch` 仍只负责 WhatIf → `expectedNextBatchPlanSha256` → Apply 的 bounded kit docs receipt，并在写入新批次前归档更早 active batch，不触碰 case state、不执行 reviewer/adapter/pack-memory/gate/sync/promote mutation、heavy-tool、authority/confirmed 写入、自动提交或 remote CI green 声明。Focused validation、完整本机 release minimum、implementation commit/push 与 push-triggered remote inspection 待记录。"
-}
-
-func nextBatchCandidateCommand(action mission.MissionCommanderNextActionItem) string {
-	command := nextBatchSingleLine(action.Command)
-	if command == "" {
-		return "select a Windows-verifiable product-path closure for " + strings.TrimSpace(action.Label)
-	}
-	return command
-}
-
-func nextBatchValidationSummary(commands []string) string {
-	commands = mission.UniqueStrings(commands)
-	if len(commands) == 0 {
-		return "focused regressions、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`"
-	}
-	quoted := make([]string, 0, len(commands))
-	for _, command := range commands {
-		quoted = append(quoted, "`"+command+"`")
-	}
-	return strings.Join(quoted, "、")
-}
-
-func applyNextBatchWrites(writes []nextBatchWritePlan) error {
-	for _, write := range writes {
-		current, err := os.ReadFile(write.TargetPath)
-		if err != nil {
-			return err
-		}
-		currentSHA := nextBatchSHA256(current)
-		switch {
-		case strings.EqualFold(currentSHA, write.AfterSHA256):
-			continue
-		case strings.EqualFold(currentSHA, write.BeforeSHA256):
-			if err := writeNextBatchFileAtomic(write.TargetPath, []byte(write.PlannedText)); err != nil {
-				return err
-			}
-		default:
-			return fmt.Errorf("next-batch write %s drifted from reviewed before/after bytes", write.Path)
-		}
-	}
-	if nextBatchAfterWritePassHook != nil {
-		nextBatchAfterWritePassHook()
-	}
-	for _, write := range writes {
-		current, err := os.ReadFile(write.TargetPath)
-		if err != nil {
-			return err
-		}
-		if currentSHA := nextBatchSHA256(current); !strings.EqualFold(currentSHA, write.AfterSHA256) {
-			return fmt.Errorf("next-batch write %s drifted before final exact-byte validation", write.Path)
-		}
-	}
-	return nil
-}
-
-func writeNextBatchFileAtomic(path string, data []byte) error {
-	temp, err := os.CreateTemp(filepath.Dir(path), ".next-batch-*.tmp")
-	if err != nil {
-		return err
-	}
-	tempPath := temp.Name()
-	defer os.Remove(tempPath)
-	if err := temp.Chmod(0o644); err != nil {
-		temp.Close()
-		return err
-	}
-	if _, err := temp.Write(data); err != nil {
-		temp.Close()
-		return err
-	}
-	if err := temp.Sync(); err != nil {
-		temp.Close()
-		return err
-	}
-	if err := temp.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tempPath, path); err != nil {
-		return err
-	}
-	return nil
-}
-
-func nextBatchRotateActiveHistory(planText, historyText string) (string, string, []string, error) {
-	plan := strings.ReplaceAll(strings.ReplaceAll(planText, "\r\n", "\n"), "\r", "\n")
-	history := strings.ReplaceAll(strings.ReplaceAll(historyText, "\r\n", "\n"), "\r", "\n")
-	starts := []int{}
-	for offset := 0; offset < len(plan); {
-		idx := strings.Index(plan[offset:], "### Batch ")
-		if idx < 0 {
-			break
-		}
-		idx += offset
-		if idx == 0 || plan[idx-1] == '\n' {
-			starts = append(starts, idx)
-		}
-		offset = idx + len("### Batch ")
-	}
-	if len(starts) <= 1 {
-		return plan, history, nil, nil
-	}
-	archiveStart := starts[1]
-	archiveEnd := len(plan)
-	for _, marker := range []string{"\n## 活动文档维护规则", "\n## 验证标准"} {
-		if idx := strings.Index(plan[archiveStart:], marker); idx >= 0 && archiveStart+idx < archiveEnd {
-			archiveEnd = archiveStart + idx
-		}
-	}
-	sections := strings.TrimSpace(plan[archiveStart:archiveEnd])
-	if sections == "" {
-		return "", "", nil, fmt.Errorf("next-batch active batch rotation found no sections to archive")
-	}
-	archived := []string{}
-	sectionStarts := []int{}
-	for offset := 0; offset < len(sections); {
-		idx := strings.Index(sections[offset:], "### Batch ")
-		if idx < 0 {
-			break
-		}
-		idx += offset
-		if idx == 0 || sections[idx-1] == '\n' {
-			sectionStarts = append(sectionStarts, idx)
-		}
-		offset = idx + len("### Batch ")
-	}
-	for i, start := range sectionStarts {
-		end := len(sections)
-		if i+1 < len(sectionStarts) {
-			end = sectionStarts[i+1]
-		}
-		section := strings.TrimSpace(sections[start:end])
-		titleEnd := strings.IndexByte(section, '\n')
-		if titleEnd < 0 {
-			titleEnd = len(section)
-		}
-		title := strings.TrimSpace(section[:titleEnd])
-		batchID := nextBatchSectionID(title)
-		if batchID == "" {
-			return "", "", nil, fmt.Errorf("next-batch active batch rotation found an invalid batch title %q", title)
-		}
-		historySection, found, duplicate := nextBatchHistorySection(history, batchID)
-		if duplicate {
-			return "", "", nil, fmt.Errorf("next-batch history contains duplicate %s sections", batchID)
-		}
-		if found {
-			if strings.TrimSpace(historySection) != section {
-				return "", "", nil, fmt.Errorf("next-batch history already contains %q with different content", title)
-			}
-			continue
-		}
-		archived = append(archived, section)
-	}
-	rotatedPlan := strings.TrimSpace(plan[:archiveStart]) + "\n\n" + strings.TrimLeft(plan[archiveEnd:], "\n")
-	if len(archived) > 0 {
-		history = strings.TrimRight(history, "\n") + "\n\n" + strings.Join(archived, "\n\n") + "\n"
-	}
-	return rotatedPlan, history, archived, nil
-}
-
-func nextBatchSectionID(title string) string {
-	value := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(title), "### "))
-	if !strings.HasPrefix(value, "Batch ") {
-		return ""
-	}
-	value = strings.TrimPrefix(value, "Batch ")
-	end := 0
-	for end < len(value) && value[end] >= '0' && value[end] <= '9' {
-		end++
-	}
-	if end == 0 || end >= len(value) || (value[end] != ':' && value[end:] != "：" && !strings.HasPrefix(value[end:], "：")) {
-		return ""
-	}
-	return "Batch " + value[:end]
-}
-
-func nextBatchHistorySection(history, batchID string) (string, bool, bool) {
-	starts := []int{}
-	for offset := 0; offset < len(history); {
-		idx := strings.Index(history[offset:], "### Batch ")
-		if idx < 0 {
-			break
-		}
-		idx += offset
-		if idx == 0 || history[idx-1] == '\n' {
-			starts = append(starts, idx)
-		}
-		offset = idx + len("### Batch ")
-	}
-	matched := ""
-	found := false
-	for i, start := range starts {
-		end := len(history)
-		if i+1 < len(starts) {
-			end = starts[i+1]
-		}
-		section := strings.TrimSpace(history[start:end])
-		titleEnd := strings.IndexByte(section, '\n')
-		if titleEnd < 0 {
-			titleEnd = len(section)
-		}
-		if nextBatchSectionID(section[:titleEnd]) != batchID {
-			continue
-		}
-		if found {
-			return "", true, true
-		}
-		matched = section
-		found = true
-	}
-	return matched, found, false
-}
-
-func nextBatchInsertAfterHeading(text, heading, duplicateNeedle, insert string) (string, error) {
-	normalized := strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n")
-	if strings.Contains(normalized, duplicateNeedle) {
-		if strings.Contains(normalized, strings.TrimSpace(insert)) {
-			return normalized, nil
-		}
-		return "", fmt.Errorf("next-batch target already contains %q with different content", strings.TrimSpace(duplicateNeedle))
-	}
-	idx := strings.Index(normalized, heading)
-	if idx < 0 {
-		return "", fmt.Errorf("next-batch target heading %q not found", heading)
-	}
-	lineEnd := strings.Index(normalized[idx:], "\n")
-	if lineEnd < 0 {
-		return normalized + "\n\n" + strings.TrimSpace(insert) + "\n", nil
-	}
-	insertAt := idx + lineEnd + 1
-	for insertAt < len(normalized) && normalized[insertAt] == '\n' {
-		insertAt++
-	}
-	return normalized[:insertAt] + "\n" + strings.TrimSpace(insert) + "\n\n" + normalized[insertAt:], nil
-}
-
-func nextBatchWrite(path, action, targetPath, insertAfter string, before []byte, plannedText, previewText string) nextBatchWritePlan {
-	return nextBatchWritePlan{
-		Path:         path,
-		Action:       action,
-		TargetPath:   targetPath,
-		InsertAfter:  insertAfter,
-		BeforeSHA256: nextBatchSHA256(before),
-		AfterSHA256:  nextBatchSHA256([]byte(plannedText)),
-		BeforeBytes:  len(before),
-		AfterBytes:   len([]byte(plannedText)),
-		Changed:      string(before) != plannedText,
-		PreviewText:  strings.TrimSpace(previewText),
-		PlannedText:  plannedText,
-	}
-}
-
-func nextBatchPlanningSHA256(writes []nextBatchWritePlan) string {
-	h := sha256.New()
-	nextBatchHashLength(h, len(writes))
-	for _, write := range writes {
-		nextBatchHashLength(h, len(write.Path))
-		_, _ = io.WriteString(h, write.Path)
-		nextBatchHashLength(h, len(write.PlannedText))
-		_, _ = io.WriteString(h, write.PlannedText)
-	}
-	return hex.EncodeToString(h.Sum(nil))
-}
-
-func nextBatchHashLength(out io.Writer, value int) {
-	var encoded [8]byte
-	for i := len(encoded) - 1; i >= 0; i-- {
-		encoded[i] = byte(value)
-		value >>= 8
-	}
-	_, _ = out.Write(encoded[:])
-}
-
-func nextBatchSHA256(data []byte) string {
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
-}
-
-func nextBatchSingleLine(value string) string {
-	return strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
-}
-
-func writeNextBatchText(out io.Writer, result nextBatchResult) error {
-	if _, err := fmt.Fprintf(out, "next-batch：mutation=%t applied=%t reviewRequired=%t repoRoot=%s latestCompletedBatch=%s nextBatch=%s domain=%s closure=%s expectedNextBatchPlanSha256=%s writes=%d\n", result.IsMutation, result.Applied, result.ReviewRequired, result.RepoRoot, result.LatestCompletedBatch, result.NextBatch, result.Domain, result.Closure, result.ExpectedNextBatchPlanSHA256, len(result.Writes)); err != nil {
-		return err
-	}
-	for _, write := range result.Writes {
-		if _, err := fmt.Fprintf(out, "next-batch write：path=%s action=%s changed=%t beforeSha256=%s afterSha256=%s beforeBytes=%d afterBytes=%d insertAfter=%s\n", write.Path, write.Action, write.Changed, write.BeforeSHA256, write.AfterSHA256, write.BeforeBytes, write.AfterBytes, write.InsertAfter); err != nil {
-			return err
-		}
-	}
-	if err := writePrefixedMultilineText(out, "next-batch current batch section：", result.CurrentBatchSection); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(out, "next-batch changelog entry：%s\n", result.ChangelogEntry); err != nil {
-		return err
-	}
-	if request := result.MissionCommanderActionQueue.CurrentDriverRequest; request != nil {
-		if _, err := fmt.Fprintf(out, "next-batch driver：kind=%s executable=%t requiresReview=%t command=%s\n", request.Kind, request.CommandExecutable, request.RequiresReview, request.Command); err != nil {
-			return err
-		}
-	}
-	for _, boundary := range result.Boundary {
-		if _, err := fmt.Fprintf(out, "next-batch boundary：%s\n", boundary); err != nil {
-			return err
-		}
-	}
-	for _, step := range result.NextSteps {
-		if _, err := fmt.Fprintf(out, "next-batch next step：%s\n", step); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func runReleaseRunSteps(repoRoot string, profile releasecheck.GateProfile, executor releaseRunCommandExecutor) releaseRunResult {
@@ -4186,6 +3444,7 @@ type statusMissionControlRunbook struct {
 	CurrentCommand              string                                      `json:"currentCommand,omitempty"`
 	CurrentRunLoopStepID        string                                      `json:"currentRunLoopStepId,omitempty"`
 	CurrentDriverRequest        *mission.MissionCommanderDriverRequest      `json:"currentDriverRequest,omitempty"`
+	CurrentDriverRequestSHA256  string                                      `json:"currentDriverRequestSha256,omitempty"`
 	CurrentDriverReceipt        *workstream.MissionCommanderDriverReceipt   `json:"currentDriverReceipt,omitempty"`
 	Quickstart                  *statusMissionControlQuickstart             `json:"quickstart,omitempty"`
 	GuidanceHandoff             *statusMissionControlGuidanceHandoff        `json:"guidanceHandoff,omitempty"`
@@ -4531,9 +3790,12 @@ func runStatus(ctx runtime.Context, opt Options, out io.Writer) error {
 	packSource := statusPackSource(ctx, opt)
 	switch format {
 	case "table", "tsv":
+		if strings.TrimSpace(opt.SelectedCurrentLane) != "" {
+			return fmt.Errorf("status -Lane supports only -Format text or json")
+		}
 		return runStatusLegacyText(ctx, packSource, out)
 	case "text":
-		return runStatusText(ctx, packSource, out)
+		return runStatusText(ctx, opt, out)
 	case "json":
 		status, err := buildInvocationStatusInventory(ctx, opt)
 		if err != nil {
@@ -4688,8 +3950,8 @@ func runStatusLegacyText(ctx runtime.Context, packSource string, out io.Writer) 
 	return writeStatusProjectHandoffText(out, projectHandoff)
 }
 
-func runStatusText(ctx runtime.Context, packSource string, out io.Writer) error {
-	status, err := buildStatusInventory(ctx, packSource)
+func runStatusText(ctx runtime.Context, opt Options, out io.Writer) error {
+	status, err := buildInvocationStatusInventory(ctx, opt)
 	if err != nil {
 		return err
 	}
@@ -4834,7 +4096,11 @@ func buildStatusMissionControlRunbookWithConsumption(target string, caseMission 
 		projectQueue = projectHandoff.MissionCommanderActionQueue
 		projectCurrent = projectQueue.CurrentAction
 	}
-	focus := statusMissionCommanderFirstScreenFocus(caseCurrent, reviewerCurrent, projectCurrent, projectHandoff, packCurrent)
+	focus, focusPriority := statusMissionCommanderFirstScreenFocusWithPriority(caseCurrent, reviewerCurrent, projectCurrent, projectHandoff, packCurrent)
+	laneChoiceScope := statusMissionControlLaneChoiceScope(caseQueue, reviewerQueue)
+	if laneChoiceScope != "" && statusMissionControlLaneChoicePriority(caseQueue, reviewerQueue) <= focusPriority {
+		focus = laneChoiceScope + "-lane-choice"
+	}
 	scope := statusMissionControlRunbookScope(focus, caseCurrent, reviewerCurrent)
 	runbook := &statusMissionControlRunbook{
 		Ready:                focus != "none",
@@ -4893,13 +4159,41 @@ func buildStatusMissionControlRunbookWithConsumption(target string, caseMission 
 			}
 		}
 	}
-	bindStatusCurrentLoop(target, caseMission, runbook)
+	if laneChoiceScope == "" {
+		bindStatusCurrentLoop(target, caseMission, runbook)
+	}
+	bindStatusFocusedLaneHandoff(target, runbook)
+	if runbook.CurrentDriverRequest != nil {
+		runbook.CurrentDriverRequestSHA256, _ = mission.MissionCommanderDriverRequestSHA256(*runbook.CurrentDriverRequest)
+	}
 	runbook.CurrentDriverReceipt = statusMissionControlCurrentDriverReceipt(runbook)
 	runbook.GuidanceHandoff = statusMissionControlGuidanceHandoffFor(runbook, projectHandoff)
 	runbook.ReplacementExecutorTakeover = statusReplacementExecutorTakeoverPackageFor(target, runbook, projectHandoff)
 	runbook.RunLoop = statusMissionControlRunbookSteps(runbook)
 	runbook.Quickstart = statusMissionControlQuickstartFor(runbook, projectHandoff)
 	return runbook
+}
+
+func bindStatusFocusedLaneHandoff(target string, runbook *statusMissionControlRunbook) {
+	if runbook == nil || runbook.CurrentDriverRequest == nil {
+		return
+	}
+	switch strings.TrimSpace(runbook.Scope) {
+	case "case", "reviewer":
+	default:
+		return
+	}
+	request := statusReplacementExecutorTakeoverLaneHandoffPreviewDriverRequest(
+		target,
+		runbook,
+	)
+	if request == nil || mission.ValidateMissionCommanderDriverRequest(*request) != nil {
+		return
+	}
+	runbook.HandoffPreviewDriverRequest = request
+	runbook.HandoffPreviewCommand = strings.TrimSpace(request.Command)
+	runbook.HandoffApplyDriverRequest = nil
+	runbook.HandoffApplyCommand = ""
 }
 
 func bindStatusCurrentLoop(target string, caseMission *statusCaseMission, runbook *statusMissionControlRunbook) {
@@ -5078,7 +4372,8 @@ func statusCurrentLoopOperatorPackage(target string, caseMission *statusCaseMiss
 			}
 		}
 	}
-	if strings.TrimSpace(runbook.Scope) == "case" {
+	if strings.TrimSpace(runbook.Scope) == "case" &&
+		!currentStepRequestIsEvidenceReview(*runbook.CurrentDriverRequest) {
 		if inspection.Ready && inspection.StopCode == "external-member-handoff" && inspection.Continuation != nil && inspection.Continuation.ExternalMemberHandoff != nil {
 			expected := inspection.Continuation.ExternalMemberHandoff
 			memberInspection, err := memberexecution.Inspect(target, expected.Lane, expected.AttemptID)
@@ -5104,7 +4399,9 @@ func statusCurrentLoopOperatorPackage(target string, caseMission *statusCaseMiss
 			pkg.ExternalMemberHandoff = currentLoopExternalMemberHandoff(runtime.Context{Target: target, Pack: pkg.Pack}, memberInspection, legacyObservationRequest)
 		}
 	}
-	bindExternalSessionJob(target, pkg, inspection)
+	if !currentStepRequestIsEvidenceReview(*runbook.CurrentDriverRequest) {
+		bindExternalSessionJob(target, pkg, inspection)
+	}
 	return pkg
 }
 
@@ -5162,6 +4459,7 @@ func statusCurrentLoopStartActionID(actionID string) string {
 
 func statusCurrentLoopStartDriverRequest(target, pack string, maxSteps int, current mission.MissionCommanderDriverRequest) mission.MissionCommanderDriverRequest {
 	command := fmt.Sprintf("/rekit run-current-loop -Target %s -Pack %s -MaxSteps %d -WhatIf -Format json", statusQuoteCommandArg(target), statusQuoteCommandArg(pack), maxSteps)
+	invocation, _ := commands.ParsePublicInvocation(command)
 	return mission.MissionCommanderDriverRequest{
 		Kind:              "preview-command",
 		RunLoopStepID:     "start-current-loop",
@@ -5171,6 +4469,7 @@ func statusCurrentLoopStartDriverRequest(target, pack string, maxSteps int, curr
 		Lane:              strings.TrimSpace(current.Lane),
 		Label:             strings.TrimSpace(current.Label),
 		ActionID:          statusCurrentLoopStartActionID(current.ActionID),
+		Invocation:        &invocation,
 		Command:           command,
 		CommandExecutable: true,
 		RequiresReview:    true,
@@ -5678,6 +4977,12 @@ func statusMissionControlQuickstartFor(runbook *statusMissionControlRunbook, pro
 		quickstart.State = "no-focused-driver-request"
 		quickstart.Source = "missionControlRunbook.quickstart"
 		quickstart.Guidance = "inspect missionControlRunbook.routingReasons, then initialize/select a case lane or rerun status after state changes"
+		if runbook.Focus == "case-lane-choice" {
+			quickstart.NextStepID = "select-current-lane"
+			quickstart.State = "lane-choice-required"
+			quickstart.Guidance = "select one typed lane from the focused case/reviewer action queues, then refresh status for that exact lane"
+			quickstart.RequiresReview = true
+		}
 	}
 	return quickstart
 }
@@ -5901,7 +5206,7 @@ func statusReplacementExecutorTakeoverArtifactRefreshDriverRequest(target string
 	default:
 		request = cloneStatusMissionCommanderDriverRequest(runbook.HandoffPreviewDriverRequest)
 	}
-	if request == nil || !request.CommandExecutable || strings.TrimSpace(request.Command) == "" {
+	if request == nil || mission.ValidateMissionCommanderDriverRequest(*request) != nil {
 		return nil
 	}
 	request.Boundary = mission.UniqueStrings(append(request.Boundary,
@@ -5923,13 +5228,14 @@ func statusReplacementExecutorTakeoverLaneHandoffPreviewDriverRequest(target str
 		return nil
 	}
 	current := runbook.CurrentDriverRequest
-	label := statusFirstText(current.Label, statusLaneCommandLabel(current.Lane))
-	if strings.TrimSpace(label) == "" || !statusSafePathSegment(label) {
+	lane := strings.TrimSpace(current.Lane)
+	label := statusFirstText(current.Label, statusLaneCommandLabel(lane))
+	if lane == "" || !statusSafePathSegment(lane) || strings.TrimSpace(label) == "" {
 		return nil
 	}
-	command := "/rekit handoff -Target " + statusQuoteCommandArg(target) + " " + statusQuoteCommandArg(label) + " -WhatIf -Format json"
+	command := "/rekit handoff -Target " + statusQuoteCommandArg(target) + " -Lane " + statusQuoteCommandArg(lane) + " -WhatIf -Format json"
 	action := mission.MissionCommanderNextActionItem{
-		Lane:           strings.TrimSpace(current.Lane),
+		Lane:           lane,
 		Label:          strings.TrimSpace(label),
 		ActionID:       strings.TrimSpace(statusFirstText(current.ActionID, current.Label, current.Lane, label)),
 		State:          "handoff-preview-available",
@@ -6008,11 +5314,7 @@ func statusReplacementExecutorTakeoverArtifactScope(scope string, request missio
 	}
 	if scope == "case" || scope == "reviewer" {
 		if lane := strings.TrimSpace(request.Lane); lane != "" {
-			label := strings.TrimSpace(request.Label)
-			if label == "" {
-				label = strings.TrimPrefix(lane, "feature-")
-			}
-			return "lane:" + label
+			return "lane:" + lane
 		}
 	}
 	return scope
@@ -6064,9 +5366,21 @@ func statusReplacementExecutorTakeoverArtifactDiscovery(target, scope string, re
 		return statusTakeoverArtifactDiscovery{Path: rel, State: "invalid-json", ArtifactSHA256: artifactSHA256, Warnings: []string{"durable takeover artifact JSON contains trailing data; refresh handoff before using it"}}
 	}
 	rawArtifactRequestSHA256 := mission.ReplacementExecutorDriverRequestSHA256(pkg.CurrentDriverRequest)
-	rawCanonicalPackage := statusCanonicalTakeoverArtifactPackage(pkg.CurrentDriverRequest, pkg, rel)
 	artifactRequest := statusMissionControlInvocationDriverRequest(target, pkg.CurrentDriverRequest)
-	artifactRequest = mission.MissionCommanderDriverRequestWithRefreshStatusCommand(artifactRequest, statusMissionControlRefreshCommand(target))
+	artifactOperator := pkg.CurrentLoopOperator
+	if artifactOperator != nil {
+		copy := *artifactOperator
+		bindSelectedLaneCurrentLoopOperator(&copy, strings.TrimSpace(artifactRequest.Lane))
+		artifactOperator = &copy
+	}
+	artifactRefresh := strings.TrimSpace(pkg.RefreshStatusCommand)
+	if artifactRefresh == "" {
+		artifactRefresh = statusMissionControlRefreshCommand(target)
+	}
+	artifactRequest = mission.MissionCommanderDriverRequestWithRefreshStatusCommand(artifactRequest, artifactRefresh)
+	artifactSource := pkg
+	artifactSource.CurrentLoopOperator = artifactOperator
+	rawCanonicalPackage := statusCanonicalTakeoverArtifactPackage(pkg.CurrentDriverRequest, pkg, rel)
 	artifactRequestSHA256 := mission.ReplacementExecutorDriverRequestSHA256(artifactRequest)
 	currentRequestSHA256 := mission.ReplacementExecutorDriverRequestSHA256(request)
 	if !pkg.Ready {
@@ -6078,14 +5392,17 @@ func statusReplacementExecutorTakeoverArtifactDiscovery(target, scope string, re
 	if artifactRequestSHA256 == "" || currentRequestSHA256 == "" || !strings.EqualFold(artifactRequestSHA256, currentRequestSHA256) {
 		return statusTakeoverArtifactDiscovery{Path: rel, State: "stale-current-driver-request", ArtifactSHA256: artifactSHA256, RequestSHA256: artifactRequestSHA256, Warnings: []string{"durable takeover artifact full currentDriverRequest identity does not match refreshed status; use missionControlRunbook.currentDriverRequest and refresh handoff before takeover"}}
 	}
-	qualifiedArtifact := statusCanonicalTakeoverArtifactPackage(artifactRequest, pkg, rel)
+	qualifiedArtifact := statusCanonicalTakeoverArtifactPackage(artifactRequest, artifactSource, rel)
 	artifactIdentitySHA256 := ""
 	if qualifiedArtifact != nil {
 		artifactIdentitySHA256 = mission.ReplacementExecutorTakeoverArtifactIdentitySHA256(*qualifiedArtifact)
 	}
 	expectedIdentitySHA256 := ""
 	if expectedArtifact != nil {
-		expectedIdentitySHA256 = mission.ReplacementExecutorTakeoverArtifactIdentitySHA256(*expectedArtifact)
+		expectedArtifact = statusCanonicalTakeoverArtifactPackage(artifactRequest, *expectedArtifact, rel)
+		if expectedArtifact != nil {
+			expectedIdentitySHA256 = mission.ReplacementExecutorTakeoverArtifactIdentitySHA256(*expectedArtifact)
+		}
 	}
 	if artifactIdentitySHA256 == "" || expectedIdentitySHA256 == "" || !strings.EqualFold(artifactIdentitySHA256, expectedIdentitySHA256) {
 		return statusTakeoverArtifactDiscovery{Path: rel, State: "stale-package-identity", ArtifactSHA256: artifactSHA256, RequestSHA256: artifactRequestSHA256, Warnings: []string{"durable takeover artifact full executable package identity does not match the canonical package rebuilt from refreshed status; refresh handoff before takeover"}}
@@ -6517,43 +5834,130 @@ func statusMissionControlInvocationDriverRequest(target string, request mission.
 	if !request.CommandExecutable {
 		return request
 	}
-	command := strings.TrimSpace(request.Command)
-	if command == "" || !strings.HasPrefix(command, "/rekit ") || !instance.LooksLikeCase(target) {
+	if request.Invocation == nil {
+		return statusMissionControlInvalidInvocationRequest(request, "executable driver request omitted its typed invocation")
+	}
+	invocation := *request.Invocation
+	invocation.Arguments = append([]string{}, request.Invocation.Arguments...)
+	if err := invocation.Validate(); err != nil {
+		return statusMissionControlInvalidInvocationRequest(request, err.Error())
+	}
+	projected, err := commands.ParsePublicInvocation(request.Command)
+	if err != nil || !invocation.Equivalent(projected) {
+		return statusMissionControlInvalidInvocationRequest(request, "typed invocation differs from its command projection")
+	}
+	if !instance.LooksLikeCase(target) {
 		return request
 	}
-	commandName := statusMissionControlCommandName(command)
-	if statusMissionControlCommandUsesCaseTarget(commandName) {
-		command = statusMissionControlTargetQualifiedCommand(command, target)
+	addedTarget := false
+	if statusMissionControlCommandUsesCaseTarget(invocation.Command) {
+		value, present, valid := statusMissionControlInvocationFlagValue(invocation, "-Target", "--target")
+		if present && (!valid || !sameDriverStepPath(value, target)) {
+			return statusMissionControlInvalidInvocationRequest(request, "typed invocation attempts to rebind the status target")
+		}
+		if !present {
+			invocation.Arguments = append([]string{"-Target", target}, invocation.Arguments...)
+			addedTarget = true
+		}
 	}
-	if commandName == commands.Continue && !statusMissionControlCommandHasFlag(command, "-WhatIf") && !statusMissionControlCommandHasFlag(command, "--what-if") && !statusMissionControlCommandHasFlag(command, "-Apply") && !statusMissionControlCommandHasFlag(command, "--apply") {
-		command += " -WhatIf"
+	addedWhatIf := false
+	if invocation.Command == commands.Continue && !invocation.HasFlag("-WhatIf") && !invocation.HasFlag("--what-if") && !invocation.HasFlag("-Apply") && !invocation.HasFlag("--apply") {
+		invocation.Arguments = append(invocation.Arguments, "-WhatIf")
+		addedWhatIf = true
 		request.Kind = "preview-command"
+		request.RunLoopStepID = "preview-current"
 		request.RequiresReview = true
 		request.Boundary = append(request.Boundary, "status missionControlRunbook qualifies continue commands as WhatIf previews for invocation-scoped handoff")
 	}
-	if !statusMissionControlCommandHasFlag(command, "-Format") && !statusMissionControlCommandHasFlag(command, "--format") {
-		command += " -Format json"
+	_, present, valid := statusMissionControlInvocationFlagValue(invocation, "-Format", "--format")
+	if present && !valid {
+		return statusMissionControlInvalidInvocationRequest(request, "typed invocation contains an invalid or duplicate format binding")
 	}
-	if command != strings.TrimSpace(request.Command) {
-		request.Command = command
-		request.ExpectedReceipt.Command = command
-		request.Boundary = append(request.Boundary, "status missionControlRunbook currentDriverRequest.command is qualified for the status invocation target")
+	addedFormat := !present
+	if addedFormat {
+		invocation.Arguments = append(invocation.Arguments, "-Format", "json")
 	}
-	request.Boundary = mission.UniqueStrings(request.Boundary)
+	qualified, err := commands.NewPublicInvocation(invocation.Command, invocation.Arguments...)
+	if err != nil {
+		return statusMissionControlInvalidInvocationRequest(request, err.Error())
+	}
+	command, err := statusMissionControlQualifiedCommand(request.Command, qualified, target, addedTarget, addedWhatIf, addedFormat)
+	if err != nil {
+		return statusMissionControlInvalidInvocationRequest(request, err.Error())
+	}
+	request.Invocation = &qualified
+	request.Command = command
+	request.ExpectedReceipt.Command = command
+	request.Boundary = mission.UniqueStrings(append(request.Boundary, "status missionControlRunbook currentDriverRequest invocation is qualified for the status target"))
 	request.ExpectedReceipt.Boundary = mission.UniqueStrings(request.ExpectedReceipt.Boundary)
 	return request
 }
 
+func statusMissionControlQualifiedCommand(original string, invocation commands.PublicInvocation, target string, addedTarget, addedWhatIf, addedFormat bool) (string, error) {
+	command := strings.TrimSpace(original)
+	if addedTarget {
+		prefix := "/rekit " + invocation.Command
+		if !strings.HasPrefix(command, prefix) {
+			return "", fmt.Errorf("typed invocation command projection lost its canonical prefix")
+		}
+		command = strings.Replace(command, prefix, prefix+" -Target "+statusQuoteCommandArg(target), 1)
+	}
+	if addedWhatIf {
+		command += " -WhatIf"
+	}
+	if addedFormat {
+		command += " -Format json"
+	}
+	projected, err := commands.ParsePublicInvocation(command)
+	if err != nil || !invocation.Equivalent(projected) {
+		return "", fmt.Errorf("qualified command differs from its typed invocation")
+	}
+	return command, nil
+}
+
+func statusMissionControlInvalidInvocationRequest(request mission.MissionCommanderDriverRequest, reason string) mission.MissionCommanderDriverRequest {
+	guidance := strings.TrimSpace(request.Command)
+	request.Invocation = nil
+	request.Command = ""
+	request.Guidance = guidance
+	request.CommandExecutable = false
+	request.Blocked = true
+	request.RequiresReview = true
+	request.Kind = "blocked-review"
+	request.ExpectedReceipt.Command = ""
+	request.Boundary = mission.UniqueStrings(append(request.Boundary, "typed invocation blocked before execution: "+strings.TrimSpace(reason)))
+	return request
+}
+
+func statusMissionControlInvocationFlagValue(invocation commands.PublicInvocation, names ...string) (string, bool, bool) {
+	value := ""
+	present := false
+	for index, argument := range invocation.Arguments {
+		matched := false
+		for _, name := range names {
+			if strings.EqualFold(argument, name) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			continue
+		}
+		if present || index+1 >= len(invocation.Arguments) {
+			return "", true, false
+		}
+		present = true
+		value = invocation.Arguments[index+1]
+	}
+	return value, present, true
+}
+
 func statusMissionControlCommandName(command string) string {
-	rest := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(command), "/rekit"))
-	if rest == "" {
+	invocation, err := commands.ParsePublicInvocation(command)
+	if err != nil {
 		return ""
 	}
-	name, _, ok := strings.Cut(rest, " ")
-	if !ok {
-		return strings.TrimSpace(rest)
-	}
-	return strings.TrimSpace(name)
+	return invocation.Command
 }
 
 func statusMissionControlCommandUsesCaseTarget(commandName string) bool {
@@ -6565,35 +5969,44 @@ func statusMissionControlCommandUsesCaseTarget(commandName string) bool {
 	}
 }
 
-func statusMissionControlTargetQualifiedCommand(command, target string) string {
-	command = strings.TrimSpace(command)
-	target = strings.TrimSpace(target)
-	if command == "" || target == "" || statusMissionControlCommandHasFlag(command, "-Target") || statusMissionControlCommandHasFlag(command, "--target") {
-		return command
+func statusMissionControlLaneChoiceScope(caseQueue, reviewerQueue mission.MissionCommanderActionQueue) string {
+	if len(statusMissionControlLaneChoices(caseQueue, reviewerQueue)) > 1 {
+		return "case"
 	}
-	rest := strings.TrimSpace(strings.TrimPrefix(command, "/rekit"))
-	name, tail, ok := strings.Cut(rest, " ")
-	if !ok {
-		return "/rekit " + rest + " -Target " + statusQuoteCommandArg(target)
-	}
-	out := "/rekit " + strings.TrimSpace(name) + " -Target " + statusQuoteCommandArg(target)
-	if strings.TrimSpace(tail) != "" {
-		out += " " + strings.TrimSpace(tail)
-	}
-	return out
+	return ""
 }
 
-func statusMissionControlCommandHasFlag(command, flag string) bool {
-	command = " " + strings.ToLower(strings.TrimSpace(command)) + " "
-	flag = " " + strings.ToLower(strings.TrimSpace(flag)) + " "
-	return strings.Contains(command, flag)
+func statusMissionControlLaneChoicePriority(caseQueue, reviewerQueue mission.MissionCommanderActionQueue) int {
+	priority := statusMissionCommanderFirstScreenNoActionPriority
+	for _, choice := range statusMissionControlLaneChoices(caseQueue, reviewerQueue) {
+		candidate := statusCaseMissionFirstScreenPriority(&choice)
+		if statusMissionCommanderActionIsReviewerDispatch(&choice) {
+			candidate = statusReviewerDispatchFirstScreenPriority(&choice)
+		}
+		if candidate < priority {
+			priority = candidate
+		}
+	}
+	return priority
+}
+
+func statusMissionControlLaneChoices(caseQueue, reviewerQueue mission.MissionCommanderActionQueue) []mission.MissionCommanderNextActionItem {
+	items := append([]mission.MissionCommanderNextActionItem{}, caseQueue.UnblockedActions...)
+	items = append(items, caseQueue.BlockedActions...)
+	items = append(items, reviewerQueue.UnblockedActions...)
+	items = append(items, reviewerQueue.BlockedActions...)
+	return mission.MissionCommanderActionQueueLaneChoices(mission.MissionCommanderActionQueueFor(items))
 }
 
 func statusMissionControlRunbookScope(focus string, caseCurrent, reviewerCurrent *mission.MissionCommanderNextActionItem) string {
-	if strings.TrimSpace(focus) == "reviewer-current-action" && reviewerCurrent == nil && statusMissionCommanderActionIsReviewerDispatch(caseCurrent) {
+	focus = strings.TrimSpace(focus)
+	if focus == "reviewer-current-action" && reviewerCurrent == nil && statusMissionCommanderActionIsReviewerDispatch(caseCurrent) {
 		return "case"
 	}
-	if scope, ok := strings.CutSuffix(strings.TrimSpace(focus), "-current-action"); ok && scope != "" {
+	if scope, ok := strings.CutSuffix(focus, "-lane-choice"); ok && (scope == "case" || scope == "reviewer") {
+		return scope
+	}
+	if scope, ok := strings.CutSuffix(focus, "-current-action"); ok && scope != "" {
 		return scope
 	}
 	return "none"
@@ -7191,7 +6604,10 @@ func writeStatusMissionCommanderFirstScreenTextWithConsumption(out io.Writer, ca
 		projectQueue = projectHandoff.MissionCommanderActionQueue
 		projectCurrent = projectQueue.CurrentAction
 	}
-	focus := statusMissionCommanderFirstScreenFocus(caseCurrent, reviewerCurrent, projectCurrent, projectHandoff, packCurrent)
+	focus, focusPriority := statusMissionCommanderFirstScreenFocusWithPriority(caseCurrent, reviewerCurrent, projectCurrent, projectHandoff, packCurrent)
+	if statusMissionControlLaneChoiceScope(caseQueue, reviewerQueue) != "" && statusMissionControlLaneChoicePriority(caseQueue, reviewerQueue) <= focusPriority {
+		focus = "case-lane-choice"
+	}
 	if _, err := fmt.Fprintf(out, "status Mission Commander first screen：focus=%s caseCurrent=%s caseQueueTotal=%d caseQueueBlocked=%d caseQueueRequiresReview=%d reviewerCurrent=%s reviewerQueueTotal=%d reviewerQueueBlocked=%d reviewerQueueRequiresReview=%d packMemoryCurrent=%s packMemoryTotal=%d packMemoryRequiresReview=%d\n", focus, statusMissionActionCommand(caseCurrent), caseQueue.Counts.Total, caseQueue.Counts.Blocked, caseQueue.Counts.RequiresReview, statusMissionActionCommand(reviewerCurrent), reviewerQueue.Counts.Total, reviewerQueue.Counts.Blocked, reviewerQueue.Counts.RequiresReview, statusMissionActionCommand(packCurrent), packTotal, packQueue.Counts.RequiresReview); err != nil {
 		return err
 	}
@@ -7199,6 +6615,10 @@ func writeStatusMissionCommanderFirstScreenTextWithConsumption(out io.Writer, ca
 		return err
 	}
 	switch focus {
+	case "case-lane-choice":
+		if err := writeStatusMissionCommanderLaneChoicesText(out, caseQueue, reviewerQueue); err != nil {
+			return err
+		}
 	case "case-current-action":
 		if err := writeStatusMissionCommanderFirstScreenActionText(out, "case", caseQueue, caseCurrent); err != nil {
 			return err
@@ -7254,6 +6674,14 @@ func writeStatusMissionCommanderFirstScreenTextWithConsumption(out io.Writer, ca
 			}
 		}
 	}
+	if statusMissionControlLaneChoiceScope(caseQueue, reviewerQueue) != "" && focus != "case-lane-choice" {
+		if _, err := fmt.Fprintf(out, "status Mission Commander deferred lane choice：scope=case focus=%s executable=false reason=select one typed lane after the higher-priority focus is resolved\n", focus); err != nil {
+			return err
+		}
+		if err := writeStatusMissionCommanderLaneChoicesText(out, caseQueue, reviewerQueue); err != nil {
+			return err
+		}
+	}
 	if caseCurrent != nil {
 		if err := writeStatusMissionCommanderCurrentActionText(out, "case", *caseCurrent); err != nil {
 			return err
@@ -7278,6 +6706,11 @@ func writeStatusMissionCommanderFirstScreenTextWithConsumption(out io.Writer, ca
 }
 
 func statusMissionCommanderFirstScreenFocus(caseCurrent, reviewerCurrent, projectCurrent *mission.MissionCommanderNextActionItem, projectHandoff *statusProjectHandoff, packCurrent *mission.MissionCommanderNextActionItem) string {
+	focus, _ := statusMissionCommanderFirstScreenFocusWithPriority(caseCurrent, reviewerCurrent, projectCurrent, projectHandoff, packCurrent)
+	return focus
+}
+
+func statusMissionCommanderFirstScreenFocusWithPriority(caseCurrent, reviewerCurrent, projectCurrent *mission.MissionCommanderNextActionItem, projectHandoff *statusProjectHandoff, packCurrent *mission.MissionCommanderNextActionItem) (string, int) {
 	focus := "none"
 	bestPriority := statusMissionCommanderFirstScreenNoActionPriority
 	consider := func(candidate string, priority int) {
@@ -7307,7 +6740,7 @@ func statusMissionCommanderFirstScreenFocus(caseCurrent, reviewerCurrent, projec
 	if projectCurrent != nil {
 		consider("project-current-action", statusProjectHandoffFirstScreenPriority(projectCurrent))
 	}
-	return focus
+	return focus, bestPriority
 }
 
 const statusMissionCommanderFirstScreenNoActionPriority = 1000
@@ -7408,6 +6841,8 @@ func statusMissionCommanderFirstScreenFocusRoutingReasons(focus string, caseCurr
 		} else {
 			reasons = append(reasons, "reviewer current action is the highest available fallback")
 		}
+	case "case-lane-choice":
+		reasons = append(reasons, "multiple equally current case lanes require one typed lane choice before any driver request can be published")
 	case "case-current-action":
 		if statusCaseMissionCurrentActionNeedsAttention(caseCurrent) {
 			reasons = append(reasons, "case current action needs attention before lower-priority queues")
@@ -7576,6 +7011,23 @@ func statusProjectHandoffCurrentAction(projectHandoff *statusProjectHandoff) *mi
 		Reasons:        mission.UniqueStrings(reasons),
 		Boundary:       boundary,
 	}
+}
+
+func writeStatusMissionCommanderLaneChoicesText(out io.Writer, queues ...mission.MissionCommanderActionQueue) error {
+	seen := map[string]bool{}
+	for _, queue := range queues {
+		for _, choice := range mission.MissionCommanderActionQueueLaneChoices(queue) {
+			lane := strings.TrimSpace(choice.Lane)
+			if lane == "" || seen[lane] {
+				continue
+			}
+			seen[lane] = true
+			if _, err := fmt.Fprintf(out, "status Mission Commander lane choice：lane=%s label=%s state=%s source=%s command=%s\n", lane, strings.TrimSpace(choice.Label), strings.TrimSpace(choice.State), strings.TrimSpace(choice.Source), strings.TrimSpace(choice.Command)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func writeStatusMissionCommanderFirstScreenActionText(out io.Writer, scope string, queue mission.MissionCommanderActionQueue, action *mission.MissionCommanderNextActionItem) error {
@@ -9156,7 +8608,7 @@ func buildStatusCaseMission(repoRoot, caseRoot, pack string, onboarding ...missi
 		dailyRunbook = workstream.DailyMissionControlRunbookForMissionComplete(caseRoot)
 	}
 	return &statusCaseMission{
-		Ready:                             caseMissionActionQueue.CurrentAction != nil && caseMissionActionQueue.Counts.Blocked == 0 && len(inventory.MissionBrief.Escalations) == 0,
+		Ready:                             caseMissionActionQueue.Counts.Unblocked > 0 && caseMissionActionQueue.Counts.Blocked == 0 && len(inventory.MissionBrief.Escalations) == 0,
 		Summary:                           inventory.MissionBrief.Summary,
 		LaneCount:                         len(inventory.Lanes),
 		ReadyLaneCount:                    len(inventory.MissionBrief.ReadyLanes),
@@ -11463,10 +10915,20 @@ func runHandoff(ctx runtime.Context, opt Options, out io.Writer) error {
 		return fmt.Errorf("handoff -WhatIf cannot use -HandoffPublicationStamp")
 	}
 	handoffOpt := opt.Handoff
+	if selected, err := resolveHandoffSelectedCurrentLane(target, handoffOpt.Selector); err != nil {
+		return err
+	} else if selected != "" {
+		handoffOpt.Selector = selected
+		opt.Handoff.Selector = selected
+		opt, err = optionsWithEffectiveSelectedCurrentLane(opt, selected)
+		if err != nil {
+			return err
+		}
+	}
 	if err := bindProjectHandoffMissionCommanderActions(ctx.RepoRoot, target, ctx.Pack, &handoffOpt); err != nil {
 		return err
 	}
-	status, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+	status, err := buildInvocationStatusInventory(ctx, opt)
 	if err != nil {
 		return err
 	}
@@ -11492,6 +10954,18 @@ func runHandoff(ctx runtime.Context, opt Options, out io.Writer) error {
 		return writeJSON(out, result)
 	}
 	return writeHandoffText(out, result)
+}
+
+func resolveHandoffSelectedCurrentLane(target, selector string) (string, error) {
+	selector = strings.TrimSpace(selector)
+	if selector == "" {
+		return "", nil
+	}
+	selected, err := workstream.ResolveHandoffLaneID(target, selector)
+	if err != nil {
+		return "", fmt.Errorf("resolve handoff lane: %w", err)
+	}
+	return selected, nil
 }
 
 func bindProjectHandoffMissionCommanderActions(repoRoot, target, pack string, opt *workstream.HandoffOptions) error {

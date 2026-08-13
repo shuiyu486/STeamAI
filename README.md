@@ -4,11 +4,13 @@
 
 当前阶段，它已经提供 `/rekit` case 管理、首个成熟 pack `vmp-re`、安全领域 pack 骨架 `web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 与 `generic-binary-re`、工作线协同、handoff、sync/promote 和 tooling 经验沉淀；`vmp-re` 是验证框架的第一个重点领域，不是最终边界。长期目标是逐步扩展到逆向工程、恶意样本分析、漏洞研究、Web/API 安全评估、授权测试/靶场/CTF、Android native、OLLVM 等多类安全任务。
 
-当前项目不是全自动脱壳器、自动逆向引擎、自动漏洞挖掘器、自动恶意样本分析平台或通用自动渗透平台；它优先提供可审计、可交接、review-first 的 Agent Team 底座。lane 文档/packet 只能表达授权意图；heavy action 的确定性预授权来自 strict durable autonomy profile 与 `authorized-gate` decision。
+当前项目不是全自动脱壳器、自动逆向引擎、自动漏洞挖掘器、自动恶意样本分析平台或通用自动渗透平台；它优先提供可审计、可交接、review-first 的 Agent Team 底座。lane 文档/packet 只能表达授权意图；heavy action 的确定性预授权来自 strict durable autonomy profile 与 `authorized-gate` decision。实际 adapter 在执行前、发布输出前和成功返回前会重验同一授权、current owner/generation 与 immutable dispatch；任一过期、撤销或漂移都 fail-closed，失败清理不会按路径删除并发 replacement。
 
 一句话：**用户主要指挥主 Agent / Mission Commander；Go-owned `rekit-host -daily` 让主 Agent 只提交 case target + natural-language goal/correction，自动派生 pack、lane、executor、ID、时间、generation、路径和 SHA，并通过 public exact preview/Apply 路线完成 onboarding、真实 Claude member、人工纠偏、replacement、Reviewer 与 completion。`/rekit`、Go CLI/backend 是背后的 canonical deterministic runtime/API，`rekit.ps1` 仅作为 retained compatibility façade，不承载业务 runtime，也没有 PowerShell 业务 fallback。durable member identity 绑定 lane，不绑定旧聊天窗口；底层 `status`、`overview`、handoff、typed checkpoint、reviewer/session handoff、authorized-gate adapter live validation 与 pack-memory flow 继续作为可审计、可恢复支撑。默认路径继续向 PowerShell-free / Go-native / 跨平台收敛，并保持 truthful release readiness。**
 
 Claude Code Remote Control 现已作为**可选的 read-only Reviewer transport companion**接入同一 durable external-session 状态机：只有 Reviewer dispatch 显式使用 `claude-code-remote-control` harness 和独立 durable session binding 时才启用；本机 `claude-code-cli` 仍是 Windows 日常默认 provider。跨机器的 `name [ref]` 只是一轮 `ListAgents` 得到的 opaque endpoint snapshot，不是 lane/member/session identity；发送内容是完整内联、content-addressed evidence bundle，不依赖对端读取本机路径。`SendMessage` accepted 只派生 launch truth，uncertain 禁止自动重发和 same-job replacement；返回仍按 ReviewerResult → transport receipt → submission 发布，并只经既有 relay 与 strict Reviewer intake 消费。该 transport 不授予 heavy action、authority 或 confirmed。
+
+**当前支持口径**：现阶段先把 Windows 本机源码路径跑顺。当前能不能用、普通迭代是否完成，只按 Windows 本机真实运行判断；远程 CI、Linux/macOS、三平台兼容和预编译安装包不作为当前阻塞或扣分项。只有用户明确启动正式发布、跨平台兼容或安装交付专项时，才检查这些内容。
 
 ## 项目路线（按需文档索引）
 
@@ -80,15 +82,15 @@ fresh target 会选择默认 `vmp-re`；已通过 `attach/init` 绑定且 doctor
 
 `vmp-re` 还支持查询用户已经导出的 `function_index.tsv`（必需）以及可选 `strings.tsv` / `imports.tsv` / `xrefs.tsv`。主 Agent 会先预览内容寻址 request 和最长 15 分钟的 exact `inspect` profile；只有用户确认 profile 且 canonical `authorized-gate` current 时，独立 `rekit-adapter-host` 才运行 compiled-in `vmp-ida-index-inspector`，随后写入 bounded packet/report/receipt/observation、恢复默认 manual profile，并交给独立 evidence review、member 和 Reviewer。该路径不安装或启动 IDA、不打开 IDB、不联网，也从不执行 tooling catalog 的 `entry`；当前 `NoNetwork` 只表示固定 Go child 没有网络代码路径，不是 OS 级 socket 隔离。
 
-人工纠偏也只提交文本；多 lane 场景使用同一个 canonical ID：
+人工纠偏也只提交文本；多个可纠偏 lane（包括已完成 lane）会先返回 typed choices，选择前零写入、零 Claude launch，之后使用同一个 canonical ID：
 
 ```text
 go run ./cmd/rekit-host -daily -target <workspaceRoot>\cases\<caseName> -lane <lane-id> -correction "优先核对控制流证据，区分 observation 与 hypothesis"
 ```
 
-front door 自动记录 intervention，消费 public hash-bound reconcile，启动 replacement member 与独立 Reviewer，并在 evidence-bound 条件满足后完成 lane；terminal exact replay 零启动、零新增 mutation。trusted daily 路线还使用 host-owned durable supervisor：front host 在 Claude 启动、output 返回、result-first、submission 或 intake 后中断时，fresh host 会收取同一 attempt/session 的 exact result、从已提交边界继续或在 ownership 证据丢失时先 durable fence 再 replacement，不用 PID 单独声称 liveness，也不会重复启动成功 session。Claude 登录、配额、模型或进程不可用时会真实返回 blocked/failed，不会退化为伪造 member output 或 `ReviewerResult`。失败 JSON 的顶层 `failure` 返回 stable `code` / `stage`、`terminal|replaceable|recoverable`、真实 `mutationApplied` / `mutationBoundary`、attempt 计数和唯一 `nextAction`；达到上限后不会自动循环。完整故障矩阵与恢复语义按需见 `docs/agent-team-usage.md`。
+Reviewer rejection 仍由既有 correction/reconcile owner 记录 intervention、启动 replacement member 与独立 Reviewer，并在 evidence-bound 条件满足后完成 lane。若所选 lane 已 committed completion/closed，front door 会把当前 completion receipt 作为证据，消费 public zero-write `reopen` preview 与 owner 返回的 exact Apply；提交后只返回 `ready-to-continue`，不会自动接管 executor、恢复旧 session/current-loop budget或启动 Claude。中断恢复只接受同 actor、纠偏文本、lane 与 exact plan；成功响应丢失后的相同请求返回同 operation 的 mutation-free replay，并复核 compound targets 仍是 current reopen。trusted daily 路线还使用 host-owned durable supervisor：front host 在 Claude 启动、output 返回、result-first、submission 或 intake 后中断时，fresh host 会收取同一 attempt/session 的 exact result、从已提交边界继续或在 ownership 证据丢失时先 durable fence 再 replacement，不用 PID 单独声称 liveness，也不会重复启动成功 session。Claude 登录、配额、模型或进程不可用时会真实返回 blocked/failed，不会退化为伪造 member output 或 `ReviewerResult`。失败 JSON 的顶层 `failure` 返回 stable `code` / `stage`、`terminal|replaceable|recoverable`、真实 `mutationApplied` / `mutationBoundary`、attempt 计数和唯一 `nextAction`；达到上限后不会自动循环。完整故障矩阵与恢复语义按需见 `docs/agent-team-usage.md`。
 
-`/rekit onboard`、`attach/init`、普通 `rekit-host -target` 仍作为 deterministic/兼容/排障入口保留；direct host 省略 `-pack` 时会在任何 status/current-step/session 操作前从 attached case metadata 解析并固定 pack，使 parent、durable supervision spec、recovered child 与启动前 currentness validator 使用同一 identity。日常不需要手工拼接 onboard/start/host/reconcile 顺序，这里不需要你手动执行底层脚本。
+`/rekit onboard`、`attach/init`、普通 `rekit-host -target` 仍作为 deterministic/兼容/排障入口保留；ordinary host 必须消费 fresh status 发布的 typed current driver request 及其 exact SHA-256，多条可继续 lane 并存时还必须先传入 typed lane choice，request SHA 不能替代 lane 选择。direct host 省略 `-pack` 时会在任何 status/current-step/session 操作前从 attached case metadata 解析并固定 pack，使 parent、durable supervision spec、recovered child 与启动前 currentness validator 使用同一 identity。日常不需要手工拼接 onboard/start/host/reconcile 顺序，这里不需要你手动执行底层脚本。
 
 ### 2. 之后每天在 case 里
 
@@ -151,7 +153,7 @@ claude
 
 ## Runtime/API 命令参考
 
-这些命令是主 Agent 和维护者使用的确定性 runtime API，不是最终产品的主要 UX。普通日常使用优先通过自然语言让主 Agent 选择和组合这些动作。Mission Commander `currentDriverRequest.expectedReceipt` 会保留当前应执行/预览的 `command`，并在 status/handoff/daily runbook 与 replacement takeover package 中提供同源 `refreshStatusCommand`；接手者执行 driver 后应直接运行该 refresh command 重建 durable state，不再从相邻文本手工拼接。
+这些命令是主 Agent 和维护者使用的确定性 runtime API，不是最终产品的主要 UX。普通日常使用优先通过自然语言让主 Agent 选择和组合这些动作。Executable Mission Commander action/request同时携带bounded typed ReKit invocation；`command`只是其兼容投影，不接受任意shell/executable，也不能扩大target/pack/lane或授权范围。多lane未选择时不发布可执行request；选定后status/handoff/daily/current-step/current-loop与replacement takeover只使用唯一exact durable `-Lane`，普通人工命令仍兼容positional label。`currentDriverRequest.expectedReceipt`保留同源command与`refreshStatusCommand`；接手者执行driver后应直接运行该refresh command重建durable state，不从相邻文本手工拼接。Request SHA只校验exact消费，不代表authority/confirmed、authorized gate或heavy-action授权。
 
 Adapter execution report lifecycle 的 contract、dispatch、scaffold、draft、validation、receipt、record 与 status/handoff 投影会输出 `runbookSteps[]` 或对应 text runbook 行；replacement executor 应优先按这些步骤确认 state/path/hash。durable lane 且当前 action 有 tooling catalog candidate 时，先按 `liveValidation.dispatchCommand` 记录 immutable dispatch，再等外部 adapter/harness 写出 bounded report；`_template` 的 `rekit-readonly-inspector` 可由独立 Go-owned `rekit-adapter-host` 消费 exact dispatch，在 strict preauthorization 下只读一个 bounded case-local text fixture并独占写入 report/artifact；显式 Windows acceptance 会在任何 adapter bytes 执行前验证 suspended actual image、用 kill-on-close Job Object约束进程树，并以 exact-object output cleanup 与 no-replace disposable-case quarantine 收尾；canonical `/rekit gate` 本身仍不启动进程。contract、validation、`status`、`overview`、project/lane `handoff` 与 durable Markdown 会共享 `currentRunLoopStepId` / `runLoop`，按 `inspect-contract → record-dispatch → run-external-adapter → draft-or-write-report → validate-report → record-receipt → record-observation → review-recorded-evidence` 显示当前步骤、命令、owner/provenance 与 boundary。随后用 validation 返回的 receipt preview 记录 current executor generation、external harness/session、catalog/report/artifact hashes 与 outcome/exit status，再使用 validation/status 返回的 report+receipt 双 hash-bound record Apply；record 后只进入 evidence review。已记录 execution evidence 且无需 main escalation 时，`status`/`handoff`/`continue` 的 Mission Commander current action 与 `currentDriverRequest.command` 会直接指向 `acknowledgementReviewCommand`（accepted `note -Kind verification ... -WhatIf -Format json`），review 后再执行该 WhatIf 返回的 hash-bound `recordCommand` 关闭 review queue；`/rekit handoff <lane>` 仍保留为 follow-up/provenance，而不是当前 primary。installed case-local `/rekit` 可从 nested lane/workspace cwd 完成同一路径；takeover 后旧 executor/generation/session receipt 会 fail-closed，acknowledgement 后的 handoff、`RESUME.md` 与 continue digest 仍保留 receipt/owner/harness/catalog/artifact lineage。Go runtime 不执行 adapter/heavy tool，也不从 contract/report/receipt 推断 authority/confirmed。
 
@@ -210,7 +212,7 @@ go run ./cmd/rekit-host -live-pack-memory-acceptance -goal "<bounded-generic-pac
 
 该 gate 在 disposable isolated kit 中依次运行真实 Claude producer、packet-bound 独立 Reviewer 和第二 fresh case consumer，验证 strict raw-output → deterministic sanitize → candidate/promoted-source hash lineage、review-first promote、verification/retirement、completed catalog、selected sync/reconsume，以及只能引用 predecessor → accepted successor 新增内容的 exact accepted-delta quote/use proof；sanitize 只能重写 predecessor 中已知的两处 `capturesPath`，其它 replacement 或 deny violation 均 fail closed。Reviewer bytes 作为 outer reviewer plan-bound 的 hash/length/bytes in-memory snapshot 进入 canonical route；shard lock 内再次校验 packet、dispatch prompt exact bytes/SHA、current dispatch/currentness 和 snapshot identity，再直接写入 canonical input，不先发布 host relay source。consumer route 也只在当前 owner generation 的 `pack-memory-consumer` binding 与 current selected-sync receipt 的 `changeId`、source/receipt/plan SHA 全部一致时开放；case scope与pack-memory下钻都必须经过同一strict validator和repo+case lease，checkpoint绑定下钻后实际执行的case request而非全局pack-memory focus，真实Claude process启动前还会在该双lease内最终重验immutable task context、target/state/receipt、catalog与promoted source，drift时零process launch。durable member attempt ID 与 external-session attempt ID 属于不同命名空间；launch通过exact task-context path/SHA和current durable inspection绑定，不要求二者字符串相等。它不向当前仓库 pack 写入测试知识；默认清理 isolated kit/cases；receipt 必须位于仓库外，且不公开本机或 disposable case 绝对路径；失败receipt保留bounded typed phase/attempt诊断，并按Windows大小写与两种路径分隔符脱敏known local paths。普通 `go test ./...` 不运行该 gate。
 
-维护 onboarding、status quickstart、continue/reconcile、handoff 或 replacement executor takeover 路线时，可用一条跨平台 Go-native smoke 覆盖完整日常闭环：
+维护 onboarding、status quickstart、continue/reconcile、handoff 或 replacement executor takeover 路线时，当前只在 Windows 本机运行以下 Go-native smoke，覆盖完整日常闭环；它不作为跨平台验收：
 
 ```text
 go test ./internal/rekit/cli -run '^TestRunDailyMissionControlRouteSmokeProductPath$' -count=1
@@ -503,4 +505,4 @@ packs/vmp-re/scripts/promote.ps1
 - case-local `.claude/skills/rekit/SKILL.md` 只是 thin shim，不维护业务逻辑。
 - `.re-template.yml` 只保留兼容旧入口；新状态看 `.rekit/instance.yml`。
 - 不默认安装用户级 skill。
-- 不默认 commit / push；只有当前用户 goal/session 明确授权具体仓库和分支时才执行。已授权的普通 batch 以 Windows 本机 focused tests 与完整 release minimum 为完成门槛，只做一次 implementation commit/push；推送成功后立即继续下一批，不轮询或等待远程 workflow，也不创建专门的 release inspection commit。远程 Linux/macOS/Windows CI 保留为异步信号，仅在正式发布、跨平台专项或周期复审时等待并记录。
+- 不默认 commit / push；只有当前用户 goal/session 明确授权具体仓库和分支时才执行。已授权的普通 batch 以 Windows 本机 focused tests 与完整 release minimum 为完成门槛，只做一次 implementation commit/push；推送成功后立即继续下一批，不轮询或等待远程 workflow，也不创建专门的 release inspection commit。远程 CI、Linux/macOS、三平台兼容和安装包不参与当前 Windows 可用性或成熟度判断；仅在用户明确启动正式发布、跨平台兼容、安装交付专项或周期复审时检查。

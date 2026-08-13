@@ -68,6 +68,39 @@ func TestParseDefaults(t *testing.T) {
 	}
 }
 
+func TestParseRejectsAmbiguousLaneSelectors(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "positional and lane", args: []string{"complete", "main", "-Lane", "feature-other"}, want: "both positional and -Lane"},
+		{name: "matching duplicate lane", args: []string{"complete", "-Lane", "main", "--lane", "main"}, want: "repeats -Lane"},
+		{name: "conflicting duplicate lane", args: []string{"complete", "-Lane", "main", "-Lane", "feature-other"}, want: "repeats -Lane"},
+		{name: "lane missing value", args: []string{"complete", "-Lane", "-WhatIf"}, want: "missing value for -Lane"},
+		{name: "start positional and name", args: []string{"start", "login", "-Name", "admin"}, want: "both positional and -Name"},
+		{name: "start matching duplicate name", args: []string{"start", "-Name", "login", "--name", "login"}, want: "repeats -Name"},
+		{name: "start conflicting duplicate name", args: []string{"start", "-Name", "login", "-Name", "admin"}, want: "repeats -Name"},
+		{name: "start name missing value", args: []string{"start", "-Name", "-WhatIf"}, want: "missing a value"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := Parse(test.args)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("Parse error=%v want substring %q", err, test.want)
+			}
+		})
+	}
+
+	opt, err := Parse([]string{"start", "-Name", "login", "-Lane", "feature-login"})
+	if err != nil {
+		t.Fatalf("start -Name plus exact -Lane should remain valid: %v", err)
+	}
+	if opt.Start.Name != "login" || opt.Start.Selector != "feature-login" {
+		t.Fatalf("unexpected typed start options: %+v", opt.Start)
+	}
+}
+
 func TestParseNextBatchPlanningReceiptFlags(t *testing.T) {
 	opt, err := Parse([]string{"next-batch", "-Domain", "mission-commander", "-Closure", "Mission Control next-batch acceptance", "-ExpectedNextBatchPlanSha256", "abc123", "-Apply", "-Format", "json"})
 	if err != nil {
@@ -2521,33 +2554,37 @@ func TestRunStartBootstrapDriverRequestConsumerLoopProductPath(t *testing.T) {
 	}
 	var refreshed struct {
 		CaseMission struct {
-			Ready                          bool                                `json:"ready"`
-			LaneCount                      int                                 `json:"laneCount"`
-			FirstScreenLaneTakeoverPackage *laneTakeoverPackage                `json:"firstScreenLaneTakeoverPackage"`
-			MissionCommanderActionQueue    missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
+			Ready                       bool                                `json:"ready"`
+			LaneCount                   int                                 `json:"laneCount"`
+			MissionCommanderActionQueue missionCommanderActionQueueSnapshot `json:"missionCommanderActionQueue"`
 		} `json:"caseMission"`
 		MissionControlRunbook *statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &refreshed); err != nil {
 		t.Fatalf("bootstrap refresh status JSON did not decode: %v\n%s", err, out.String())
 	}
-	refreshedRequest := requireMissionCommanderDriverRequest(t, refreshed.CaseMission.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue triage", true, false, false)
-	if !refreshed.CaseMission.Ready || refreshed.CaseMission.LaneCount != 2 || refreshedRequest.Command != continueRequest.Command {
-		t.Fatalf("status refresh should expose triage as the case-local current request: refreshed=%+v request=%+v", refreshed, refreshedRequest)
+	requireMissionCommanderLaneChoices(t, refreshed.CaseMission.MissionCommanderActionQueue, "feature-triage", "main")
+	if !refreshed.CaseMission.Ready || refreshed.CaseMission.LaneCount != 2 || refreshed.MissionControlRunbook == nil || refreshed.MissionControlRunbook.Focus != "case-lane-choice" || refreshed.MissionControlRunbook.Scope != "case" || refreshed.MissionControlRunbook.CurrentDriverRequest != nil || refreshed.MissionControlRunbook.ReplacementExecutorTakeoverPackage != nil || refreshed.MissionControlRunbook.Quickstart == nil || refreshed.MissionControlRunbook.Quickstart.Ready || refreshed.MissionControlRunbook.Quickstart.CommandExecutable || refreshed.MissionControlRunbook.Quickstart.CurrentDriverRequest != nil {
+		t.Fatalf("global status should require an explicit lane choice without publishing an executable request: %+v", refreshed)
 	}
-	packageRequest := (*missionCommanderDriverRequestSnapshot)(nil)
-	if refreshed.CaseMission.FirstScreenLaneTakeoverPackage != nil {
-		packageRequest = refreshed.CaseMission.FirstScreenLaneTakeoverPackage.MissionCommanderActionQueue.CurrentDriverRequest
+
+	out.Reset()
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "feature-triage", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
 	}
-	if refreshed.CaseMission.FirstScreenLaneTakeoverPackage == nil || !refreshed.CaseMission.FirstScreenLaneTakeoverPackage.Ready || refreshed.CaseMission.FirstScreenLaneTakeoverPackage.ApplyRequired || refreshed.CaseMission.FirstScreenLaneTakeoverPackage.Lane != "feature-triage" || packageRequest == nil || packageRequest.Command != continueRequest.Command {
-		t.Fatalf("status refresh should expose durable triage takeover package: package=%+v request=%+v", refreshed.CaseMission.FirstScreenLaneTakeoverPackage, packageRequest)
+	if err := json.Unmarshal(out.Bytes(), &refreshed); err != nil {
+		t.Fatalf("selected bootstrap refresh status JSON did not decode: %v\n%s", err, out.String())
 	}
-	if refreshed.MissionControlRunbook == nil || refreshed.MissionControlRunbook.CurrentDriverRequest == nil || refreshed.MissionControlRunbook.CurrentDriverRequest.Kind != "preview-command" || !refreshed.MissionControlRunbook.CurrentDriverRequest.CommandExecutable || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "/rekit continue -Target") || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, " triage") || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "-WhatIf") || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "-Format json") || refreshed.MissionControlRunbook.Quickstart == nil || !refreshed.MissionControlRunbook.Quickstart.Ready || refreshed.MissionControlRunbook.Quickstart.Command != refreshed.MissionControlRunbook.CurrentDriverRequest.Command || refreshed.MissionControlRunbook.Quickstart.CurrentDriverRequest == nil || refreshed.MissionControlRunbook.Quickstart.CurrentDriverRequest.Command != refreshed.MissionControlRunbook.CurrentDriverRequest.Command || refreshed.MissionControlRunbook.Quickstart.CurrentDriverReceipt == nil || refreshed.MissionControlRunbook.Quickstart.CurrentDriverReceipt.RefreshedCurrentDriverRequest == nil || refreshed.MissionControlRunbook.Quickstart.CurrentDriverReceipt.RefreshedCurrentDriverRequest.Command != refreshed.MissionControlRunbook.Quickstart.CurrentDriverRequest.Command {
-		t.Fatalf("status runbook should expose invocation-scoped triage quickstart preview request after refresh: %+v", refreshed.MissionControlRunbook)
+	refreshedRequest := requireMissionCommanderDriverRequest(t, refreshed.CaseMission.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue -Lane feature-triage", true, false, false)
+	if !refreshed.CaseMission.Ready || refreshed.CaseMission.LaneCount != 2 || refreshedRequest.Command == continueRequest.Command {
+		t.Fatalf("selected status should expose an exact-lane triage request without rewriting historical start output: refreshed=%+v request=%+v", refreshed, refreshedRequest)
+	}
+	if refreshed.MissionControlRunbook == nil || refreshed.MissionControlRunbook.CurrentDriverRequest == nil || refreshed.MissionControlRunbook.CurrentDriverRequest.Kind != "preview-command" || !refreshed.MissionControlRunbook.CurrentDriverRequest.CommandExecutable || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "/rekit continue -Target") || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "-Lane feature-triage") || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "-WhatIf") || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "-Format json") || refreshed.MissionControlRunbook.Quickstart == nil || !refreshed.MissionControlRunbook.Quickstart.Ready || refreshed.MissionControlRunbook.Quickstart.Command != refreshed.MissionControlRunbook.CurrentDriverRequest.Command || refreshed.MissionControlRunbook.Quickstart.CurrentDriverRequest == nil || refreshed.MissionControlRunbook.Quickstart.CurrentDriverRequest.Command != refreshed.MissionControlRunbook.CurrentDriverRequest.Command || refreshed.MissionControlRunbook.Quickstart.CurrentDriverReceipt == nil || refreshed.MissionControlRunbook.Quickstart.CurrentDriverReceipt.RefreshedCurrentDriverRequest == nil || refreshed.MissionControlRunbook.Quickstart.CurrentDriverReceipt.RefreshedCurrentDriverRequest.Command != refreshed.MissionControlRunbook.Quickstart.CurrentDriverRequest.Command || refreshed.MissionControlRunbook.ReplacementExecutorTakeoverPackage == nil || refreshed.MissionControlRunbook.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Lane != "feature-triage" {
+		t.Fatalf("selected status runbook should expose invocation-scoped triage quickstart preview request after refresh: %+v", refreshed.MissionControlRunbook)
 	}
 	topLevelContinueRequest := refreshed.MissionControlRunbook.Quickstart.CurrentDriverRequest
-	if topLevelContinueRequest.ExpectedReceipt.RefreshStatusCommand == "" || !strings.Contains(topLevelContinueRequest.ExpectedReceipt.RefreshStatusCommand, "/rekit status -Target") || !strings.Contains(topLevelContinueRequest.ExpectedReceipt.RefreshStatusCommand, "-Format json") {
-		t.Fatalf("status runbook continue request should bind refresh command: %+v", topLevelContinueRequest)
+	if topLevelContinueRequest.ExpectedReceipt.RefreshStatusCommand == "" || !strings.Contains(topLevelContinueRequest.ExpectedReceipt.RefreshStatusCommand, "/rekit status -Target") || !strings.Contains(topLevelContinueRequest.ExpectedReceipt.RefreshStatusCommand, "-Lane feature-triage") || !strings.Contains(topLevelContinueRequest.ExpectedReceipt.RefreshStatusCommand, "-Format json") {
+		t.Fatalf("selected status runbook continue request should bind exact lane refresh command: %+v", topLevelContinueRequest)
 	}
 
 	beforeContinuePreview := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
@@ -2572,8 +2609,8 @@ func TestRunStartBootstrapDriverRequestConsumerLoopProductPath(t *testing.T) {
 		t.Fatalf("status runbook continue preview JSON did not decode: %v\n%s", err, out.String())
 	}
 	previewCurrent := continuation.MissionCommanderActionQueue.CurrentAction
-	previewRequest := requireMissionCommanderDriverRequest(t, continuation.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue triage", true, false, false)
-	if continuation.Command != "continue" || continuation.Applied || continuation.Blocked || continuation.OpenDecisionRequired || continuation.ExecutorAction.Blocked || !continuation.ExecutorAction.Ready || previewCurrent == nil || previewCurrent.State != "ready-to-continue" || previewCurrent.Command != "/rekit continue triage" || continuation.LaneTakeoverPackage == nil || !continuation.LaneTakeoverPackage.Ready || !continuation.LaneTakeoverPackage.ContinueReady || continuation.LaneTakeoverPackage.CurrentCommand != "/rekit continue triage" {
+	previewRequest := requireMissionCommanderDriverRequest(t, continuation.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue -Lane feature-triage", true, false, false)
+	if continuation.Command != "continue" || continuation.Applied || continuation.Blocked || continuation.OpenDecisionRequired || continuation.ExecutorAction.Blocked || !continuation.ExecutorAction.Ready || previewCurrent == nil || previewCurrent.State != "ready-to-continue" || previewCurrent.Command != "/rekit continue -Lane feature-triage" || continuation.LaneTakeoverPackage == nil || !continuation.LaneTakeoverPackage.Ready || !continuation.LaneTakeoverPackage.ContinueReady || continuation.LaneTakeoverPackage.CurrentCommand != "/rekit continue -Lane feature-triage" {
 		t.Fatalf("status runbook continue preview should return ready case-local driver request: result=%+v current=%+v request=%+v", continuation, previewCurrent, previewRequest)
 	}
 	if previewRequest.Command == topLevelContinueRequest.Command {
@@ -2604,11 +2641,11 @@ func TestRunStartBootstrapDriverRequestConsumerLoopProductPath(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &previewHandoff); err != nil {
 		t.Fatalf("status runbook handoff preview JSON did not decode: %v\n%s", err, out.String())
 	}
-	previewHandoffRequest := requireMissionCommanderDriverRequest(t, previewHandoff.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", previewRequest.Command, true, false, false)
-	if previewHandoff.Command != "handoff" || previewHandoff.IsMutation || previewHandoff.Applied || !previewHandoff.RequiresConfirmation || !previewHandoff.Project || previewHandoff.DailyMissionControlRunbook == nil || previewHandoff.DailyMissionControlRunbook.HandoffApplyDriverRequest == nil || !previewHandoff.DailyMissionControlRunbook.HandoffApplyDriverRequest.CommandExecutable || previewHandoff.DailyMissionControlRunbook.HandoffApplyDriverRequest.Command != previewHandoff.DailyMissionControlRunbook.HandoffApplyCommand || previewHandoff.ReplacementExecutorTakeoverPackage == nil || previewHandoff.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command != previewHandoffRequest.Command {
-		t.Fatalf("status handoff preview request should return durable takeover and executable handoff apply request: handoff=%+v request=%+v", previewHandoff, previewHandoffRequest)
+	previewHandoffRequest := requireMissionCommanderDriverRequest(t, previewHandoff.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue -Lane feature-triage", true, false, false)
+	if previewHandoff.Command != "handoff" || previewHandoff.IsMutation || previewHandoff.Applied || !previewHandoff.RequiresConfirmation || previewHandoff.Project || previewHandoff.DailyMissionControlRunbook == nil || previewHandoff.DailyMissionControlRunbook.HandoffApplyDriverRequest == nil || !previewHandoff.DailyMissionControlRunbook.HandoffApplyDriverRequest.CommandExecutable || previewHandoff.DailyMissionControlRunbook.HandoffApplyDriverRequest.Command != previewHandoff.DailyMissionControlRunbook.HandoffApplyCommand || previewHandoff.ReplacementExecutorTakeoverPackage == nil || previewHandoff.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command != previewHandoffRequest.Command || previewHandoffRequest.Lane != "feature-triage" {
+		t.Fatalf("selected status handoff preview should return exact-lane takeover and executable apply request: handoff=%+v request=%+v", previewHandoff, previewHandoffRequest)
 	}
-	assertStartWrite(t, previewHandoff.Writes, ".rekit/handovers/latest.md", "would-write-latest-project-handoff")
+	assertStartWrite(t, previewHandoff.Writes, ".rekit/handovers/feature-triage-latest.md", "would-write-latest-lane-handoff")
 	assertSnapshotEqual(t, beforeTypedHandoffPreview, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 
 	factsBeforeContinueApply := snapshotFiles(t, filepath.Join(caseRoot, ".rekit", "facts"))
@@ -2641,18 +2678,18 @@ func TestRunStartBootstrapDriverRequestConsumerLoopProductPath(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &continued); err != nil {
 		t.Fatalf("continue apply JSON did not decode: %v\n%s", err, out.String())
 	}
-	if continued.Command != "continue" || continued.RunID == "" || continued.RunID == "run-preview" || continued.BatchID != "batch-"+continued.RunID || !continued.IsMutation || !continued.Applied || continued.RequiresConfirmation || continued.Selector != "triage" || continued.Lane.ID != "feature-triage" || continued.Blocked || continued.OpenDecisionRequired || continued.ExecutorAction.Blocked || !continued.ExecutorAction.Ready {
+	if continued.Command != "continue" || continued.RunID == "" || continued.RunID == "run-preview" || continued.BatchID != "batch-"+continued.RunID || !continued.IsMutation || !continued.Applied || continued.RequiresConfirmation || continued.Selector != "feature-triage" || continued.Lane.ID != "feature-triage" || continued.Blocked || continued.OpenDecisionRequired || continued.ExecutorAction.Blocked || !continued.ExecutorAction.Ready {
 		t.Fatalf("continue apply should persist triage run artifact closure: %+v", continued)
 	}
-	returnedRequest := requireMissionCommanderDriverRequest(t, continued.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue triage", true, false, false)
+	returnedRequest := requireMissionCommanderDriverRequest(t, continued.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue -Lane feature-triage", true, false, false)
 	assertMissionCommanderDriverReceipt(t, "bootstrap continue apply", continued.MissionCommanderDriverReceipt, continued.RunID, continued.BatchID, "feature-triage", returnedRequest, ".rekit/runs/"+continued.RunID+"/status.json", ".rekit/runs/"+continued.RunID+"/digest.md")
 	if returnedRequest.Command != previewRequest.Command {
 		t.Fatalf("continue apply returned stale driver receipt: before=%+v after=%+v", previewRequest, returnedRequest)
 	}
-	if continued.LaneTakeoverPackage == nil || !continued.LaneTakeoverPackage.Ready || !continued.LaneTakeoverPackage.ContinueReady || continued.LaneTakeoverPackage.Blocked || continued.LaneTakeoverPackage.CurrentCommand != "/rekit continue triage" {
+	if continued.LaneTakeoverPackage == nil || !continued.LaneTakeoverPackage.Ready || !continued.LaneTakeoverPackage.ContinueReady || continued.LaneTakeoverPackage.Blocked || continued.LaneTakeoverPackage.CurrentCommand != "/rekit continue -Lane feature-triage" {
 		t.Fatalf("continue apply omitted triage takeover receipt: %+v", continued.LaneTakeoverPackage)
 	}
-	takeoverRequest := requireMissionCommanderDriverRequest(t, continued.LaneTakeoverPackage.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue triage", true, false, false)
+	takeoverRequest := requireMissionCommanderDriverRequest(t, continued.LaneTakeoverPackage.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue -Lane feature-triage", true, false, false)
 	if takeoverRequest.Command != returnedRequest.Command {
 		t.Fatalf("continue apply takeover receipt drifted from returned queue: returned=%+v takeover=%+v", returnedRequest, takeoverRequest)
 	}
@@ -2709,9 +2746,9 @@ func TestRunStartBootstrapDriverRequestConsumerLoopProductPath(t *testing.T) {
 	if laneHandoff.Command != "handoff" || !laneHandoff.IsMutation || !laneHandoff.Applied || laneHandoff.Project || laneHandoff.Lane == nil || laneHandoff.Lane.ID != "feature-triage" {
 		t.Fatalf("latest receipt lane handoff did not preserve triage handoff envelope: %+v", laneHandoff)
 	}
-	handoffRequest := requireMissionCommanderDriverRequest(t, laneHandoff.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue triage", true, false, false)
-	if handoffRequest.Command != returnedRequest.Command {
-		t.Fatalf("latest receipt handoff queue drifted from continue receipt: returned=%+v handoff=%+v", returnedRequest, handoffRequest)
+	handoffRequest := requireMissionCommanderDriverRequest(t, laneHandoff.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue -Lane feature-triage", true, false, false)
+	if handoffRequest.Lane != "feature-triage" || handoffRequest.Command != returnedRequest.Command {
+		t.Fatalf("latest receipt handoff should preserve the exact selected route recorded by the run receipt: returned=%+v handoff=%+v", returnedRequest, handoffRequest)
 	}
 	latestReceipt := laneHandoff.LatestDriverReceiptHandoff
 	if latestReceipt == nil || !latestReceipt.Ready || latestReceipt.State != "latest-driver-receipt-ready" || latestReceipt.RunID != continued.RunID || latestReceipt.BatchID != continued.BatchID || latestReceipt.Lane != "feature-triage" || latestReceipt.Command != returnedRequest.Command || latestReceipt.RunStatusPath != ".rekit/runs/"+continued.RunID+"/status.json" || latestReceipt.RunDigestPath != ".rekit/runs/"+continued.RunID+"/digest.md" || !containsSubstring(latestReceipt.TargetDocuments, "latestDriverReceiptHandoff") || !containsSubstring(latestReceipt.TargetDocuments, latestReceipt.RunStatusPath) || !containsSubstring(latestReceipt.TargetDocuments, latestReceipt.RunDigestPath) || !containsSubstring(latestReceipt.Boundary, "read-only evidence") {
@@ -2832,6 +2869,26 @@ func TestRunHandoffStartContinueTakeoverRunLoopProductPath(t *testing.T) {
 	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
+	var globalContinueHandoff struct {
+		MissionCommanderActionQueue        missionCommanderActionQueueSnapshot         `json:"missionCommanderActionQueue"`
+		DailyMissionControlRunbook         *dailyMissionControlRunbookSnapshot         `json:"dailyMissionControlRunbook"`
+		ReplacementExecutorTakeoverPackage *replacementExecutorTakeoverPackageSnapshot `json:"replacementExecutorTakeoverPackage"`
+		Writes                             []startWrite                                `json:"writes"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &globalContinueHandoff); err != nil {
+		t.Fatalf("global handoff continue takeover preview result did not decode: %v\n%s", err, out.String())
+	}
+	requireMissionCommanderLaneChoices(t, globalContinueHandoff.MissionCommanderActionQueue, "feature-triage", "main")
+	if globalContinueHandoff.DailyMissionControlRunbook == nil || globalContinueHandoff.DailyMissionControlRunbook.CurrentDriverRequest != nil || globalContinueHandoff.ReplacementExecutorTakeoverPackage != nil {
+		t.Fatalf("global handoff should require lane choice without publishing an executable takeover: %+v", globalContinueHandoff)
+	}
+	assertStartWrite(t, globalContinueHandoff.Writes, ".rekit/handovers/latest.md", "would-write-latest-project-handoff")
+	assertSnapshotEqual(t, beforeContinueHandoffPreview, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
+
+	out.Reset()
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Lane", "feature-triage", "-WhatIf", "-Format", "json"}, &out); err != nil {
+		t.Fatal(err)
+	}
 	var continueHandoff struct {
 		MissionCommanderActionQueue        missionCommanderActionQueueSnapshot         `json:"missionCommanderActionQueue"`
 		DailyMissionControlRunbook         *dailyMissionControlRunbookSnapshot         `json:"dailyMissionControlRunbook"`
@@ -2839,12 +2896,12 @@ func TestRunHandoffStartContinueTakeoverRunLoopProductPath(t *testing.T) {
 		Writes                             []startWrite                                `json:"writes"`
 	}
 	if err := json.Unmarshal(out.Bytes(), &continueHandoff); err != nil {
-		t.Fatalf("handoff continue takeover preview result did not decode: %v\n%s", err, out.String())
+		t.Fatalf("selected handoff continue takeover preview result did not decode: %v\n%s", err, out.String())
 	}
-	continueHandoffRequest := requireMissionCommanderDriverRequest(t, continueHandoff.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", continueRequest.Command, true, false, false)
-	assertStartWrite(t, continueHandoff.Writes, ".rekit/handovers/latest.md", "would-write-latest-project-handoff")
-	if continueHandoff.DailyMissionControlRunbook == nil || continueHandoff.DailyMissionControlRunbook.CurrentDriverRequest == nil || continueHandoff.DailyMissionControlRunbook.CurrentDriverRequest.Command != continueHandoffRequest.Command || continueHandoff.ReplacementExecutorTakeoverPackage == nil || !continueHandoff.ReplacementExecutorTakeoverPackage.Ready || continueHandoff.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command != continueHandoffRequest.Command || continueHandoff.ReplacementExecutorTakeoverPackage.RefreshStatusCommand == "" {
-		t.Fatalf("handoff continue takeover should expose durable continue request and refresh route: handoff=%+v request=%+v", continueHandoff, continueHandoffRequest)
+	continueHandoffRequest := requireMissionCommanderDriverRequest(t, continueHandoff.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue -Lane feature-triage", true, false, false)
+	assertStartWrite(t, continueHandoff.Writes, ".rekit/handovers/feature-triage-latest.md", "would-write-latest-lane-handoff")
+	if continueHandoff.DailyMissionControlRunbook == nil || continueHandoff.DailyMissionControlRunbook.CurrentDriverRequest == nil || continueHandoff.DailyMissionControlRunbook.CurrentDriverRequest.Command != continueHandoffRequest.Command || continueHandoff.ReplacementExecutorTakeoverPackage == nil || !continueHandoff.ReplacementExecutorTakeoverPackage.Ready || continueHandoff.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command != continueHandoffRequest.Command || !strings.Contains(continueHandoff.ReplacementExecutorTakeoverPackage.RefreshStatusCommand, "-Lane feature-triage") {
+		t.Fatalf("selected handoff continue takeover should expose exact-lane continue request and refresh route: handoff=%+v request=%+v", continueHandoff, continueHandoffRequest)
 	}
 	assertSnapshotEqual(t, beforeContinueHandoffPreview, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
 
@@ -2859,8 +2916,8 @@ func TestRunHandoffStartContinueTakeoverRunLoopProductPath(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &refreshed); err != nil {
 		t.Fatalf("handoff refresh status JSON did not decode: %v\n%s", err, out.String())
 	}
-	if refreshed.MissionControlRunbook == nil || refreshed.MissionControlRunbook.CurrentDriverRequest == nil || refreshed.MissionControlRunbook.CurrentDriverRequest.Kind != "preview-command" || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "/rekit continue -Target "+statusQuoteCommandArg(caseRoot)+" triage -WhatIf -Format json") || refreshed.MissionControlRunbook.ReplacementExecutorTakeoverPackage == nil || refreshed.MissionControlRunbook.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command != refreshed.MissionControlRunbook.CurrentDriverRequest.Command {
-		t.Fatalf("handoff refresh should advance to invocation-scoped continue preview: %+v", refreshed.MissionControlRunbook)
+	if refreshed.MissionControlRunbook == nil || refreshed.MissionControlRunbook.CurrentDriverRequest == nil || refreshed.MissionControlRunbook.CurrentDriverRequest.Kind != "preview-command" || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "/rekit continue -Target ") || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, caseRoot) || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "-Lane feature-triage -WhatIf -Format json") || refreshed.MissionControlRunbook.ReplacementExecutorTakeoverPackage == nil || refreshed.MissionControlRunbook.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command != refreshed.MissionControlRunbook.CurrentDriverRequest.Command {
+		t.Fatalf("selected handoff refresh should advance to exact-lane invocation-scoped continue preview: %+v", refreshed.MissionControlRunbook)
 	}
 
 	beforeContinuePreview := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
@@ -2882,8 +2939,8 @@ func TestRunHandoffStartContinueTakeoverRunLoopProductPath(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &continuation); err != nil {
 		t.Fatalf("refreshed continue preview JSON did not decode: %v\n%s", err, out.String())
 	}
-	returnedRequest := requireMissionCommanderDriverRequest(t, continuation.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", continueRequest.Command, true, false, false)
-	if continuation.Command != "continue" || continuation.Applied || continuation.Blocked || continuation.LaneTakeoverPackage == nil || !continuation.LaneTakeoverPackage.Ready || continuation.LaneTakeoverPackage.CurrentCommand != continueRequest.Command || returnedRequest.Command == refreshed.MissionControlRunbook.CurrentDriverRequest.Command {
+	returnedRequest := requireMissionCommanderDriverRequest(t, continuation.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", "/rekit continue -Lane feature-triage", true, false, false)
+	if continuation.Command != "continue" || continuation.Applied || continuation.Blocked || continuation.LaneTakeoverPackage == nil || !continuation.LaneTakeoverPackage.Ready || continuation.LaneTakeoverPackage.CurrentCommand != returnedRequest.Command || returnedRequest.Command == refreshed.MissionControlRunbook.CurrentDriverRequest.Command {
 		t.Fatalf("refreshed continue preview should return case-local continue handoff: result=%+v returned=%+v", continuation, returnedRequest)
 	}
 	assertSnapshotEqual(t, beforeContinuePreview, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
@@ -3075,7 +3132,8 @@ func TestRunInterventionReconcileDriverRequestClosureProductPath(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &handoff); err != nil {
 		t.Fatalf("post-reconcile handoff JSON did not decode: %v\n%s", err, out.String())
 	}
-	handoffRequest := requireMissionCommanderDriverRequest(t, handoff.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", returnedRequest.Command, true, false, false)
+	handoffCommand := "/rekit continue -Executor main-agent -ExpectedExecutorGeneration 1 -Lane main"
+	handoffRequest := requireMissionCommanderDriverRequest(t, handoff.MissionCommanderActionQueue, "execute-command", "apply-or-run-current", handoffCommand, true, false, false)
 	if handoff.ReplacementExecutorTakeoverPackage == nil || !handoff.ReplacementExecutorTakeoverPackage.Ready || handoff.ReplacementExecutorTakeoverPackage.Command != handoffRequest.Command || !containsSubstring(handoff.ReplacementExecutorTakeoverPackage.TargetDocuments, ".rekit/handovers/main-latest.md") || !containsSubstring(handoff.ReplacementExecutorTakeoverPackage.TargetDocuments, ".rekit/lanes/main/checkpoints/latest.json") {
 		t.Fatalf("handoff did not persist replacement executor continue package after reconcile: handoff=%+v request=%+v", handoff, handoffRequest)
 	}
@@ -3090,7 +3148,7 @@ func TestRunStatusJsonCase(t *testing.T) {
 		t.Fatal(err)
 	}
 	out.Reset()
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "feature-login", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var status struct {
@@ -3196,7 +3254,7 @@ func TestRunStatusJsonCase(t *testing.T) {
 		t.Fatalf("ready case mission should not include evidence review items: %+v", status.CaseMission.ExecutionEvidenceReview)
 	}
 
-	if runbook := status.CaseMission.DailyMissionControlRunbook; runbook == nil || !runbook.Ready || runbook.Scope != "case" || runbook.CurrentState != "ready-to-continue" || runbook.CurrentCommand != "/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1" || runbook.CurrentRunLoopStepID != "apply-or-run-current" || runbook.RefreshStatusCommand == "" || runbook.HandoffPreviewCommand == "" || runbook.HandoffApplyCommand == "" || len(runbook.RunLoop) != 5 || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Kind != "execute-command" || runbook.CurrentDriverRequest.Command != runbook.CurrentCommand || runbook.CurrentDriverRequest.ExpectedReceipt.Command != runbook.CurrentCommand || runbook.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != runbook.RefreshStatusCommand {
+	if runbook := status.CaseMission.DailyMissionControlRunbook; runbook == nil || !runbook.Ready || runbook.Scope != "case" || runbook.CurrentState != "ready-to-continue" || runbook.CurrentCommand != "/rekit continue -Executor session-1 -ExpectedExecutorGeneration 1 -Lane feature-login" || runbook.CurrentRunLoopStepID != "apply-or-run-current" || runbook.RefreshStatusCommand == "" || runbook.HandoffPreviewCommand == "" || runbook.HandoffApplyCommand == "" || len(runbook.RunLoop) != 5 || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Kind != "execute-command" || runbook.CurrentDriverRequest.Command != runbook.CurrentCommand || runbook.CurrentDriverRequest.ExpectedReceipt.Command != runbook.CurrentCommand || runbook.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != runbook.RefreshStatusCommand {
 		t.Fatalf("case mission daily runbook should bind current driver receipt refresh command: %+v", runbook)
 	}
 	if !strings.Contains(status.CaseMission.HandoffPreviewCommand, " -WhatIf") || !strings.Contains(status.CaseMission.HandoffPreviewCommand, " -Format json") || strings.Contains(status.CaseMission.HandoffPreviewCommand, " -Apply") || !strings.Contains(status.CaseMission.HandoffApplyCommand, " -Apply") || !strings.Contains(status.CaseMission.HandoffApplyCommand, " -Format json") {
@@ -3218,7 +3276,7 @@ func TestRunStatusJsonCase(t *testing.T) {
 		t.Fatalf("status handoff preview route should be read-only project handoff preview: %+v", handoffPreview)
 	}
 	assertSnapshotEqual(t, beforeHandoffPreview, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
-	if runbook := status.MissionControlRunbook; runbook == nil || !runbook.Ready || runbook.Focus != "case-current-action" || runbook.Scope != "case" || runbook.CurrentRunLoopStepID != "apply-or-run-current" || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Kind != "preview-command" || runbook.CurrentDriverRequest.Command != runbook.CurrentCommand || runbook.CurrentDriverRequest.ExpectedReceipt.Command != runbook.CurrentCommand || runbook.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != runbook.RefreshStatusCommand || !strings.Contains(runbook.CurrentDriverRequest.Command, " -Target ") || !strings.Contains(runbook.CurrentDriverRequest.Command, " -WhatIf") || !strings.Contains(runbook.CurrentDriverRequest.Command, " -Format json") || !strings.Contains(runbook.CurrentDriverRequest.Command, "login -Executor session-1 -ExpectedExecutorGeneration 1") || runbook.RefreshStatusCommand == "" || !strings.Contains(runbook.RefreshStatusCommand, " -Target ") || runbook.HandoffPreviewCommand != status.CaseMission.HandoffPreviewCommand || runbook.HandoffApplyCommand != status.CaseMission.HandoffApplyCommand || !strings.Contains(runbook.HandoffPreviewCommand, " -WhatIf") || !strings.Contains(runbook.HandoffPreviewCommand, " -Format json") || strings.Contains(runbook.HandoffPreviewCommand, " -Apply") || !strings.Contains(runbook.HandoffApplyCommand, " -Apply") || !strings.Contains(runbook.HandoffApplyCommand, " -Format json") || len(runbook.Queues) != 4 || len(runbook.RunLoop) != 5 || !containsSubstring(runbook.CurrentDriverRequest.Boundary, "invocation-scoped") || !containsSubstring(runbook.CurrentDriverRequest.ExpectedReceipt.Boundary, "expectedReceipt.refreshStatusCommand") || !containsSubstring(runbook.RoutingReasons, "deferred focus queues: project") || !containsSubstring(runbook.Boundary, "read-only") {
+	if runbook := status.MissionControlRunbook; runbook == nil || !runbook.Ready || runbook.Focus != "case-current-action" || runbook.Scope != "case" || runbook.CurrentRunLoopStepID != "apply-or-run-current" || runbook.CurrentDriverRequest == nil || runbook.CurrentDriverRequest.Kind != "preview-command" || runbook.CurrentDriverRequest.Lane != "feature-login" || runbook.CurrentDriverRequest.Command != runbook.CurrentCommand || runbook.CurrentDriverRequest.ExpectedReceipt.Command != runbook.CurrentCommand || runbook.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != runbook.RefreshStatusCommand || !strings.Contains(runbook.CurrentDriverRequest.Command, " -Target ") || !strings.Contains(runbook.CurrentDriverRequest.Command, " -WhatIf") || !strings.Contains(runbook.CurrentDriverRequest.Command, " -Format json") || !strings.Contains(runbook.CurrentDriverRequest.Command, "-Executor session-1 -ExpectedExecutorGeneration 1 -Lane feature-login") || runbook.RefreshStatusCommand == "" || !strings.Contains(runbook.RefreshStatusCommand, " -Target ") || !strings.Contains(runbook.RefreshStatusCommand, "-Lane feature-login") || runbook.HandoffPreviewDriverRequest == nil || runbook.HandoffPreviewDriverRequest.Lane != "feature-login" || !strings.Contains(runbook.HandoffPreviewCommand, "-Lane \"feature-login\"") || !strings.Contains(runbook.HandoffPreviewCommand, " -WhatIf") || !strings.Contains(runbook.HandoffPreviewCommand, " -Format json") || strings.Contains(runbook.HandoffPreviewCommand, " -Apply") || runbook.HandoffApplyCommand != "" || runbook.HandoffApplyDriverRequest != nil || len(runbook.Queues) != 4 || len(runbook.RunLoop) != 4 || !containsSubstring(runbook.CurrentDriverRequest.Boundary, "invocation-scoped") || !containsSubstring(runbook.CurrentDriverRequest.ExpectedReceipt.Boundary, "expectedReceipt.refreshStatusCommand") || !containsSubstring(runbook.RoutingReasons, "case current action is the highest available fallback") || !containsSubstring(runbook.Boundary, "read-only") {
 		t.Fatalf("status Mission Control runbook should route to invocation-scoped case current action with refresh receipt: %+v", runbook)
 	} else {
 		args, ok := missionCommanderDriverRequestCommandCLIArgs(t, runbook.CurrentDriverRequest)
@@ -3241,12 +3299,12 @@ func TestRunStatusJsonCase(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "login", "-Apply", "-Format", "json"}, &out); err != nil {
+	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Lane", "feature-login", "-Apply", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	assertFileExists(t, filepath.Join(caseRoot, ".rekit", "handovers", "feature-login-latest-replacement-executor-takeover.json"))
 	out.Reset()
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "feature-login", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var takeoverStatus struct {
@@ -3260,7 +3318,7 @@ func TestRunStatusJsonCase(t *testing.T) {
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "feature-login", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
@@ -3275,34 +3333,32 @@ func TestRunStatusJsonCase(t *testing.T) {
 		"warnings=0",
 		"status case mission：summary=openLanes=",
 		"ready=true lanes=",
-		"status case mission queue：total=4 unblocked=4 blocked=0 requiresReview=0 followUp=2 current=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
-		"status case mission queue action：bucket=current lane=feature-login label=login state=ready-to-continue source=missionCommanderActions blocked=false requiresReview=false command=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
+		"status case mission queue：total=2 unblocked=2 blocked=0 requiresReview=0 followUp=1 current=/rekit continue -Executor session-1 -ExpectedExecutorGeneration 1 -Lane feature-login",
+		"status case mission queue action：bucket=current lane=feature-login label=login state=ready-to-continue source=missionCommanderActions blocked=false requiresReview=false command=/rekit continue -Executor session-1 -ExpectedExecutorGeneration 1 -Lane feature-login",
 		"status Mission Control runbook：ready=true focus=case-current-action scope=case currentStep=apply-or-run-current currentCommand=/rekit continue -Target",
-		"login -Executor session-1 -ExpectedExecutorGeneration 1 -WhatIf -Format json",
+		"-Executor session-1 -ExpectedExecutorGeneration 1 -Lane feature-login -WhatIf -Format json",
 		"status Mission Control runbook driver：kind=preview-command actor=main-agent state=ready-to-continue source=missionCommanderActions executable=true blocked=false requiresReview=true command=/rekit continue -Target",
-		"status Mission Control runbook queue：scope=case focused=true total=4 blocked=0 requiresReview=0 currentState=ready-to-continue currentSource=missionCommanderActions currentStep=apply-or-run-current currentCommand=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
+		"status Mission Control runbook queue：scope=case focused=true total=2 blocked=0 requiresReview=0 currentState=ready-to-continue currentSource=missionCommanderActions currentStep=apply-or-run-current currentCommand=/rekit continue -Executor session-1 -ExpectedExecutorGeneration 1 -Lane feature-login",
 		"status Mission Control runbook handoff：preview=/rekit handoff -Target",
-		" -WhatIf -Format json apply=/rekit handoff -Target",
-		" -Apply -Format json",
+		"-Lane \"feature-login\" -WhatIf -Format json apply=",
 		"status Mission Control runbook step：order=3 step=refresh-after-focus-result actor=main-agent",
 		"status Mission Control runbook step：order=4 step=preview-handoff actor=main-agent",
-		"status Mission Control runbook step：order=5 step=write-handoff-for-takeover actor=main-agent",
 		"status Mission Control runbook boundary：missionControlRunbook is read-only",
 		"status replacement executor takeover package durable artifact：path=.rekit/handovers/feature-login-latest-replacement-executor-takeover.json fresh=true state=fresh",
 		"status replacement executor takeover package target document：.rekit/handovers/feature-login-latest-replacement-executor-takeover.json",
 		"status replacement executor takeover package runbook step：read .rekit/handovers/feature-login-latest-replacement-executor-takeover.json before using any prior chat context",
-		"status case mission daily runbook：ready=true scope=case currentState=ready-to-continue currentSource=missionCommanderActions currentStep=apply-or-run-current currentCommand=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
-		"status case mission daily runbook driver：kind=execute-command actor=main-agent state=ready-to-continue source=missionCommanderActions executable=true blocked=false requiresReview=false command=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
+		"status case mission daily runbook：ready=true scope=case currentState=ready-to-continue currentSource=missionCommanderActions currentStep=apply-or-run-current currentCommand=/rekit continue -Executor session-1 -ExpectedExecutorGeneration 1 -Lane feature-login",
+		"status case mission daily runbook driver：kind=execute-command actor=main-agent state=ready-to-continue source=missionCommanderActions executable=true blocked=false requiresReview=false command=/rekit continue -Executor session-1 -ExpectedExecutorGeneration 1 -Lane feature-login",
 		"status case mission daily runbook step：order=3 step=refresh-after-driver actor=main-agent",
 		"status case mission daily runbook step：order=5 step=write-handoff-for-takeover actor=main-agent",
 		"status case mission daily runbook boundary：after any preview/apply/continue/reconcile result, refresh status before choosing follow-up work",
-		"status case mission queue action：bucket=followUp lane=feature-login label=login state=ready-to-continue source=missionCommanderActions.followUp blocked=false requiresReview=false command=/rekit handoff login",
+		"status case mission queue action：bucket=followUp lane=feature-login label=login state=ready-to-continue source=missionCommanderActions.followUp blocked=false requiresReview=false command=/rekit handoff -Lane feature-login",
 		"status case mission queue action reason：bucket=followUp lane=feature-login reason=follow Mission Commander handoff after primary action",
 		"status case mission lane action：lane=feature-login label=login status=open workspace=workspace/features/feature-login executor=session-1 generation=1 ready=true blocked=false pendingGates=0 openInterventions=0 openDecisions=0 resume=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1 handoff=/rekit handoff login commanderState=ready-to-continue commanderPrimary=/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
 		"status case mission lane boundary：lane=feature-login boundary=no authority/confirmed writes",
 		"status case mission ready lane：login",
 		"status case mission next action：lane=feature-login",
-		"command=/rekit handoff login",
+		"command=/rekit handoff -Lane feature-login",
 		"status case mission brief next action：/rekit continue login -Executor session-1 -ExpectedExecutorGeneration 1",
 		"status case mission handoff：preview=/rekit handoff -Target",
 		"continueBoundary=status is read-only; run continue with -WhatIf first",
@@ -3335,7 +3391,7 @@ func TestRunStatusJsonCase(t *testing.T) {
 		t.Fatal(err)
 	}
 	out.Reset()
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "feature-login", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var staleStatus struct {
@@ -3389,7 +3445,7 @@ func TestRunStatusJsonCase(t *testing.T) {
 		t.Fatalf("durable artifact refresh apply should rewrite takeover package for current driver: %+v", refreshApply)
 	}
 	out.Reset()
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "feature-login", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var refreshedArtifactStatus struct {
@@ -3399,7 +3455,7 @@ func TestRunStatusJsonCase(t *testing.T) {
 		t.Fatalf("refreshed takeover artifact status JSON did not decode: %v\n%s", err, out.String())
 	}
 	if refreshed := refreshedArtifactStatus.MissionControlRunbook; refreshed == nil || refreshed.ReplacementExecutorTakeoverPackage == nil || !refreshed.ReplacementExecutorTakeoverPackage.DurableArtifactFresh || refreshed.ReplacementExecutorTakeoverPackage.DurableArtifactState != "fresh" || refreshed.ReplacementExecutorTakeoverPackage.DurableArtifactRefreshDriverRequest != nil || !strings.Contains(refreshed.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command, "session-2") {
-		t.Fatalf("status should treat refreshed durable takeover artifact as fresh: %+v", refreshed)
+		t.Fatalf("status should treat refreshed durable takeover artifact as fresh: %+v", refreshed.ReplacementExecutorTakeoverPackage)
 	}
 }
 
@@ -3608,7 +3664,7 @@ func TestRunMissingBoardOnboardingDriverRequestConsumerLoopProductPath(t *testin
 	if !refreshed.CaseMission.Ready || refreshed.CaseMission.LaneCount != 1 || refreshed.CaseMission.ReadyLaneCount != 1 || !slices.Contains(refreshed.CaseMission.ReadyLanes, "main") || refreshed.CaseMission.FirstScreenLaneTakeoverPackage == nil || !refreshed.CaseMission.FirstScreenLaneTakeoverPackage.Ready || refreshed.CaseMission.FirstScreenLaneTakeoverPackage.CurrentCommand != caseContinueRequest.Command {
 		t.Fatalf("status refresh did not advance onboarding case to durable main continue: refreshed=%+v request=%+v", refreshed.CaseMission, caseContinueRequest)
 	}
-	if refreshed.MissionControlRunbook == nil || refreshed.MissionControlRunbook.CurrentDriverRequest == nil || refreshed.MissionControlRunbook.CurrentDriverRequest.Kind != "preview-command" || !refreshed.MissionControlRunbook.CurrentDriverRequest.CommandExecutable || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "/rekit continue -Target "+statusQuoteCommandArg(caseRoot)+" main") || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "-WhatIf") || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "-Format json") || !containsSubstring(refreshed.MissionControlRunbook.CurrentDriverRequest.Boundary, "qualified for the status invocation target") || refreshed.MissionControlRunbook.ReplacementExecutorTakeoverPackage == nil || refreshed.MissionControlRunbook.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command != refreshed.MissionControlRunbook.CurrentDriverRequest.Command {
+	if refreshed.MissionControlRunbook == nil || refreshed.MissionControlRunbook.CurrentDriverRequest == nil || refreshed.MissionControlRunbook.CurrentDriverRequest.Kind != "preview-command" || !refreshed.MissionControlRunbook.CurrentDriverRequest.CommandExecutable || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "/rekit continue -Target "+statusQuoteCommandArg(caseRoot)+" main") || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "-WhatIf") || !strings.Contains(refreshed.MissionControlRunbook.CurrentDriverRequest.Command, "-Format json") || !containsSubstring(refreshed.MissionControlRunbook.CurrentDriverRequest.Boundary, "qualified for the status target") || refreshed.MissionControlRunbook.ReplacementExecutorTakeoverPackage == nil || refreshed.MissionControlRunbook.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command != refreshed.MissionControlRunbook.CurrentDriverRequest.Command {
 		t.Fatalf("status refresh did not expose invocation-scoped continue preview takeover: runbook=%+v", refreshed.MissionControlRunbook)
 	}
 	topLevelContinueRequest := refreshed.MissionControlRunbook.CurrentDriverRequest
@@ -3693,7 +3749,7 @@ func TestRunStatusCaseMissionPromotesPendingGateWhatIfCurrentAction(t *testing.T
 	writeFactFile(t, factsRoot, "interventions.jsonl", nil)
 
 	var out bytes.Buffer
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var status struct {
@@ -3716,13 +3772,13 @@ func TestRunStatusCaseMissionPromotesPendingGateWhatIfCurrentAction(t *testing.T
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &out); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "text"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
 		"status Mission Commander first screen：focus=case-current-action",
 		"status Mission Commander current action：scope=focus-case lane=main label=main state=needs-gate-decision source=missionCommanderActions blocked=false requiresReview=true command=/rekit gate -Action debug -Lane main -WhatIf",
-		"status case mission queue：total=6 unblocked=3 blocked=3 requiresReview=4 followUp=4 current=/rekit gate -Action debug -Lane main -WhatIf",
+		"status case mission queue：total=4 unblocked=1 blocked=3 requiresReview=4 followUp=3 current=/rekit gate -Action debug -Lane main -WhatIf",
 		"status case mission queue action：bucket=current lane=main label=main state=needs-gate-decision source=missionCommanderActions blocked=false requiresReview=true command=/rekit gate -Action debug -Lane main -WhatIf",
 		"status case mission queue action：bucket=blocked lane=main label=main state=needs-gate-decision source=missionCommanderActions.followUp blocked=true requiresReview=true command=/rekit gate -Action debug -Lane main -Apply -Actor <actor>",
 		"status case mission brief next action：follow Mission Commander current action: /rekit gate -Action debug -Lane main -WhatIf",
@@ -3767,7 +3823,7 @@ func TestRunPendingGateCurrentRunLoopApplyOpensAuthorizedGateHandoff(t *testing.
 	beforePreview := snapshotFiles(t, filepath.Join(caseRoot, ".rekit"))
 
 	var out bytes.Buffer
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var pendingStatus struct {
@@ -4246,10 +4302,10 @@ func TestRunOpenDecisionFirstScreenHandoffHashBoundApplyUnblocksLane(t *testing.
 		t.Fatalf("open decision lane handoff apply stdout is not JSON: %v\n%s", err, out.String())
 	}
 	handoffCurrent := laneHandoff.MissionCommanderActionQueue.CurrentAction
-	if laneHandoff.Command != "handoff" || !laneHandoff.IsMutation || !laneHandoff.Applied || laneHandoff.Project || laneHandoff.Lane == nil || laneHandoff.Lane.ID != "main" || laneHandoff.ExecutorAction == nil || laneHandoff.ExecutorAction.Blocked || !laneHandoff.ExecutorAction.Ready || laneHandoff.ExecutorAction.OpenDecisions != 0 || len(laneHandoff.OpenDecisionHandoffs) != 0 || handoffCurrent == nil || handoffCurrent.State != "ready-to-continue" || handoffCurrent.Command != "/rekit continue main" {
+	if laneHandoff.Command != "handoff" || !laneHandoff.IsMutation || !laneHandoff.Applied || laneHandoff.Project || laneHandoff.Lane == nil || laneHandoff.Lane.ID != "main" || laneHandoff.ExecutorAction == nil || laneHandoff.ExecutorAction.Blocked || !laneHandoff.ExecutorAction.Ready || laneHandoff.ExecutorAction.OpenDecisions != 0 || len(laneHandoff.OpenDecisionHandoffs) != 0 || handoffCurrent == nil || handoffCurrent.State != "ready-to-continue" || handoffCurrent.Command != "/rekit continue -Lane main" {
 		t.Fatalf("lane handoff reopened open decision blocker after continue apply: handoff=%+v current=%+v", laneHandoff, handoffCurrent)
 	}
-	if laneHandoff.LaneTakeoverPackage == nil || !laneHandoff.LaneTakeoverPackage.Ready || laneHandoff.LaneTakeoverPackage.ApplyRequired || !laneHandoff.LaneTakeoverPackage.ContinueReady || laneHandoff.LaneTakeoverPackage.Blocked || laneHandoff.LaneTakeoverPackage.CurrentCommand != "/rekit continue main" || laneHandoff.LaneTakeoverPackage.MissionCommanderActionQueue.CurrentAction == nil || laneHandoff.LaneTakeoverPackage.MissionCommanderActionQueue.CurrentAction.Command != "/rekit continue main" {
+	if laneHandoff.LaneTakeoverPackage == nil || !laneHandoff.LaneTakeoverPackage.Ready || laneHandoff.LaneTakeoverPackage.ApplyRequired || !laneHandoff.LaneTakeoverPackage.ContinueReady || laneHandoff.LaneTakeoverPackage.Blocked || laneHandoff.LaneTakeoverPackage.ContinueCommand != "/rekit continue -Lane main" || laneHandoff.LaneTakeoverPackage.HandoffCommand != "/rekit handoff -Lane main" || laneHandoff.LaneTakeoverPackage.CurrentCommand != "/rekit continue -Lane main" || laneHandoff.LaneTakeoverPackage.MissionCommanderActionQueue.CurrentAction == nil || laneHandoff.LaneTakeoverPackage.MissionCommanderActionQueue.CurrentAction.Command != "/rekit continue -Lane main" {
 		t.Fatalf("lane handoff omitted ready takeover package after open decision closure: %+v", laneHandoff.LaneTakeoverPackage)
 	}
 	handoffPath := assertStartWrite(t, laneHandoff.Writes, ".rekit/handovers/main-latest.md", "write-latest-lane-handoff").TargetPath
@@ -4258,7 +4314,7 @@ func TestRunOpenDecisionFirstScreenHandoffHashBoundApplyUnblocksLane(t *testing.
 		t.Fatal(err)
 	}
 	handoffText := string(handoffBytes)
-	for _, expected := range []string{"直接说：按 `.rekit/handovers/main-latest.md` 接手，然后执行 `/rekit continue main`。", "## Lane takeover package", "- continue command: `/rekit continue main`", "- current command: `/rekit continue main`", "Mission Commander action queue", "command=`/rekit continue main`"} {
+	for _, expected := range []string{"直接说：按 `.rekit/handovers/main-latest.md` 接手，然后执行 `/rekit continue -Lane main`。", "## Lane takeover package", "- continue command: `/rekit continue -Lane main`", "- handoff command: `/rekit handoff -Lane main`", "- current command: `/rekit continue -Lane main`", "Mission Commander action queue", "command=`/rekit continue -Lane main`"} {
 		if !strings.Contains(handoffText, expected) {
 			t.Fatalf("lane handoff markdown omitted open decision closure handoff %q:\n%s", expected, handoffText)
 		}
@@ -8012,7 +8068,9 @@ func TestRunInstalledCaseShimProductPathStatusAndRefresh(t *testing.T) {
 		"status Mission Commander focus pack-memory evidence：pack=_template state=pack-memory-proof-required item=7 text=proof boundary: status/release are read-only; proof Apply requires the WhatIf ExpectedProofSha256",
 		"status Mission Commander focus pack-memory runbook：pack=_template state=pack-memory-proof-required step=1 text=run proof draft WhatIf from the current pack-memory action; Apply only with the returned ExpectedProofSha256",
 		"status Mission Commander focus pack-memory runbook：pack=_template state=pack-memory-proof-required step=2 text=after proof WhatIf, use the draft apply template with <proofSha256-from-WhatIf>",
-		"status Mission Commander current action：scope=case lane=feature-login label=login state=ready-to-continue",
+		"status Mission Commander deferred lane choice：scope=case focus=pack-memory-current-action executable=false",
+		"status Mission Commander lane choice：lane=feature-login label=login state=ready-to-continue",
+		"status Mission Commander lane choice：lane=main label=main state=ready-to-continue",
 		"status Mission Commander current action：scope=pack-memory lane= label=_template state=pack-memory-proof-required",
 		"status case shim first-screen check: reviewer writeback or reviewer dispatch intake summaries show reviewer state without reopening packet/result JSON",
 		"status case shim first-screen check: project handoff pack-memory and next-batch action queues show durable takeover state without prior chat context",
@@ -10845,16 +10903,17 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 		t.Fatal(err)
 	}
 	laneHandoff := decodeHandoffResult(t, out.Bytes())
-	if !laneHandoff.IsMutation || !laneHandoff.Applied || laneHandoff.Project || laneHandoff.Lane == nil || laneHandoff.Lane.ID != "main" || laneHandoff.Lane.CurrentExecutor != "session-main-replacement" || laneHandoff.Lane.ExecutorGeneration != 2 || laneHandoff.ExecutorAction == nil || !laneHandoff.ExecutorAction.Ready || laneHandoff.ExecutorAction.ResumeCommand != "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2" {
+	canonicalTakeoverCommand := "/rekit continue -Executor session-main-replacement -ExpectedExecutorGeneration 2 -Lane main"
+	if !laneHandoff.IsMutation || !laneHandoff.Applied || laneHandoff.Project || laneHandoff.Lane == nil || laneHandoff.Lane.ID != "main" || laneHandoff.Lane.CurrentExecutor != "session-main-replacement" || laneHandoff.Lane.ExecutorGeneration != 2 || laneHandoff.ExecutorAction == nil || !laneHandoff.ExecutorAction.Ready || laneHandoff.ExecutorAction.ResumeCommand != canonicalTakeoverCommand || laneHandoff.ExecutorAction.HandoffCommand != "/rekit handoff -Lane main" {
 		t.Fatalf("lane handoff should preserve replacement executor owner and next action: %+v", laneHandoff)
 	}
-	if laneHandoff.ExecutorAction.MissionCommanderAction.State != "ready-to-continue" || laneHandoff.ExecutorAction.MissionCommanderAction.PrimaryCommand != "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2" {
+	if laneHandoff.ExecutorAction.MissionCommanderAction.State != "ready-to-continue" || laneHandoff.ExecutorAction.MissionCommanderAction.PrimaryCommand != canonicalTakeoverCommand {
 		t.Fatalf("lane handoff should expose Mission Commander continue handoff: %+v", laneHandoff.ExecutorAction.MissionCommanderAction)
 	}
-	if laneHandoff.LaneTakeoverPackage == nil || !laneHandoff.LaneTakeoverPackage.Ready || !laneHandoff.LaneTakeoverPackage.ContinueReady || laneHandoff.LaneTakeoverPackage.CurrentExecutor != "session-main-replacement" || laneHandoff.LaneTakeoverPackage.ExecutorGeneration != 2 || laneHandoff.LaneTakeoverPackage.HandoffPath != ".rekit/handovers/main-latest.md" || laneHandoff.LaneTakeoverPackage.CurrentCommand != "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2" || !containsSubstring(laneHandoff.LaneTakeoverPackage.RunbookSteps, "owner-bound continue") {
+	if laneHandoff.LaneTakeoverPackage == nil || !laneHandoff.LaneTakeoverPackage.Ready || !laneHandoff.LaneTakeoverPackage.ContinueReady || laneHandoff.LaneTakeoverPackage.CurrentExecutor != "session-main-replacement" || laneHandoff.LaneTakeoverPackage.ExecutorGeneration != 2 || laneHandoff.LaneTakeoverPackage.HandoffPath != ".rekit/handovers/main-latest.md" || laneHandoff.LaneTakeoverPackage.ContinueCommand != canonicalTakeoverCommand || laneHandoff.LaneTakeoverPackage.HandoffCommand != "/rekit handoff -Lane main" || laneHandoff.LaneTakeoverPackage.CurrentCommand != canonicalTakeoverCommand || !containsSubstring(laneHandoff.LaneTakeoverPackage.RunbookSteps, "owner-bound continue") {
 		t.Fatalf("lane handoff omitted lane takeover package: %+v", laneHandoff.LaneTakeoverPackage)
 	}
-	if takeoverPackage := laneHandoff.ReplacementExecutorTakeoverPackage; takeoverPackage == nil || !takeoverPackage.Ready || takeoverPackage.Focus != "durable-handoff-current-action" || takeoverPackage.Scope != "lane:main" || takeoverPackage.DriverKind != "execute-command" || !takeoverPackage.CommandExecutable || takeoverPackage.RequiresReview || takeoverPackage.Command != "/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2" || takeoverPackage.CurrentDriverRequest.Command != takeoverPackage.Command || takeoverPackage.CurrentDriverRequest.ExpectedReceipt.Command != takeoverPackage.Command || takeoverPackage.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != takeoverPackage.RefreshStatusCommand || !containsSubstring(takeoverPackage.TargetDocuments, ".rekit/handovers/main-latest-replacement-executor-takeover.json") || !containsSubstring(takeoverPackage.TargetDocuments, "missionCommanderActionQueue.currentDriverRequest") || !containsSubstring(takeoverPackage.RunbookSteps, "read .rekit/handovers/main-latest-replacement-executor-takeover.json before using any prior chat context") || !containsSubstring(takeoverPackage.RunbookSteps, "run currentDriverRequest.command exactly") || !containsSubstring(takeoverPackage.RunbookSteps, "run refreshStatusCommand") || !containsSubstring(takeoverPackage.Boundary, "read-only and self-contained") {
+	if takeoverPackage := laneHandoff.ReplacementExecutorTakeoverPackage; takeoverPackage == nil || !takeoverPackage.Ready || takeoverPackage.Focus != "durable-handoff-current-action" || takeoverPackage.Scope != "lane:main" || takeoverPackage.DriverKind != "execute-command" || !takeoverPackage.CommandExecutable || takeoverPackage.RequiresReview || takeoverPackage.Command != canonicalTakeoverCommand || takeoverPackage.CurrentDriverRequest.Command != takeoverPackage.Command || takeoverPackage.CurrentDriverRequest.ExpectedReceipt.Command != takeoverPackage.Command || takeoverPackage.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != takeoverPackage.RefreshStatusCommand || !containsSubstring(takeoverPackage.TargetDocuments, ".rekit/handovers/main-latest-replacement-executor-takeover.json") || !containsSubstring(takeoverPackage.TargetDocuments, "missionCommanderActionQueue.currentDriverRequest") || !containsSubstring(takeoverPackage.RunbookSteps, "read .rekit/handovers/main-latest-replacement-executor-takeover.json before using any prior chat context") || !containsSubstring(takeoverPackage.RunbookSteps, "run currentDriverRequest.command exactly") || !containsSubstring(takeoverPackage.RunbookSteps, "run refreshStatusCommand") || !containsSubstring(takeoverPackage.Boundary, "read-only and self-contained") {
 		t.Fatalf("lane handoff omitted replacement executor takeover package with refresh receipt: %+v", takeoverPackage)
 	}
 	takeoverLatest := assertStartWrite(t, laneHandoff.Writes, ".rekit/handovers/main-latest-replacement-executor-takeover.json", "write-latest-replacement-executor-takeover-package")
@@ -10874,7 +10933,7 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(laneHandoffText), "current executor：session-main-replacement") || !strings.Contains(string(laneHandoffText), "executor generation：2") || !strings.Contains(string(laneHandoffText), "直接说：按 `.rekit/handovers/main-latest.md` 接手，然后执行 `/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2`。") {
+	if !strings.Contains(string(laneHandoffText), "current executor：session-main-replacement") || !strings.Contains(string(laneHandoffText), "executor generation：2") || !strings.Contains(string(laneHandoffText), "直接说：按 `.rekit/handovers/main-latest.md` 接手，然后执行 `"+canonicalTakeoverCommand+"`。") {
 		t.Fatalf("lane handoff omitted replacement executor handoff text:\n%s", string(laneHandoffText))
 	}
 	for _, expected := range []string{
@@ -10882,11 +10941,11 @@ func TestRunReplaceableSessionExecutorTakeoverFromHandoffProductPath(t *testing.
 		"- resume: `.rekit/lanes/main/prompts/RESUME.md`",
 		"- checkpoint: `.rekit/lanes/main/checkpoints/latest.json`",
 		"- handoff: `.rekit/handovers/main-latest.md`",
-		"- continue command: `/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2`",
+		"- continue command: `" + canonicalTakeoverCommand + "`",
 		"- boundary: lane takeover package is read-only guidance; it does not claim a new executor",
 		"## Replacement executor takeover package",
 		"- focus: durable-handoff-current-action scope=lane:main",
-		"- current driver request expected receipt: state=refresh-required command=`/rekit continue main -Executor session-main-replacement -ExpectedExecutorGeneration 2` refreshStatusCommand=`",
+		"- current driver request expected receipt: state=refresh-required command=`" + canonicalTakeoverCommand + "` refreshStatusCommand=`",
 		"- target document: missionCommanderActionQueue.currentDriverRequest",
 		"- target document: .rekit/handovers/main-latest-replacement-executor-takeover.json",
 		"- runbook step 1: read .rekit/handovers/main-latest-replacement-executor-takeover.json before using any prior chat context",
@@ -11593,16 +11652,16 @@ func TestRunHandoffApplyWritesProjectAndLane(t *testing.T) {
 	if !slices.Contains(lane.MissionBrief.BlockedLanes, "login (pending-gate,intervention,open-decision)") || !containsSubstring(lane.MissionBrief.PendingGates, "debug gate") || !containsSubstring(lane.MissionBrief.OpenDecisions, "decision subject") || !containsSubstring(lane.MissionBrief.NextAgentActions, "review open candidate/decision item(s)") {
 		t.Fatalf("lane handoff JSON missing structured mission brief: %+v", lane.MissionBrief)
 	}
-	if lane.ExecutorAction == nil || !lane.ExecutorAction.Blocked || lane.ExecutorAction.PendingGates != 1 || lane.ExecutorAction.OpenInterventions != 1 || lane.ExecutorAction.OpenDecisions != 1 || !lane.ExecutorAction.ReconcileRequired || !lane.ExecutorAction.PendingGateRequired || !lane.ExecutorAction.OpenDecisionRequired || lane.ExecutorAction.ResumeCommand != "/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2" || lane.ExecutorAction.HandoffCommand != "/rekit handoff login" || !slices.Contains(lane.ExecutorAction.BlockerReasons, "pending-gate") || !slices.Contains(lane.ExecutorAction.BlockerReasons, "intervention") || !slices.Contains(lane.ExecutorAction.BlockerReasons, "open-decision") {
+	if lane.ExecutorAction == nil || !lane.ExecutorAction.Blocked || lane.ExecutorAction.PendingGates != 1 || lane.ExecutorAction.OpenInterventions != 1 || lane.ExecutorAction.OpenDecisions != 1 || !lane.ExecutorAction.ReconcileRequired || !lane.ExecutorAction.PendingGateRequired || !lane.ExecutorAction.OpenDecisionRequired || lane.ExecutorAction.ResumeCommand != "/rekit continue -Executor session-login -ExpectedExecutorGeneration 2 -Lane feature-login" || lane.ExecutorAction.HandoffCommand != "/rekit handoff -Lane feature-login" || !slices.Contains(lane.ExecutorAction.BlockerReasons, "pending-gate") || !slices.Contains(lane.ExecutorAction.BlockerReasons, "intervention") || !slices.Contains(lane.ExecutorAction.BlockerReasons, "open-decision") {
 		t.Fatalf("lane handoff JSON executor action drifted: %+v", lane.ExecutorAction)
 	}
-	if lane.ExecutorAction.MissionCommanderAction.State != "needs-reconcile" || lane.ExecutorAction.MissionCommanderAction.PrimaryCommand != "/rekit reconcile login -InterventionId evt-human-stop -WhatIf" || !containsSubstring(lane.ExecutorAction.MissionCommanderAction.FollowUpCommands, "/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2 -WhatIf") || !containsSubstring(lane.ExecutorAction.MissionCommanderAction.Boundary, "do not run continue for blocked lanes") {
+	if lane.ExecutorAction.MissionCommanderAction.State != "needs-reconcile" || lane.ExecutorAction.MissionCommanderAction.PrimaryCommand != "/rekit reconcile -InterventionId evt-human-stop -Lane feature-login -WhatIf" || !containsSubstring(lane.ExecutorAction.MissionCommanderAction.FollowUpCommands, "/rekit continue -Executor session-login -ExpectedExecutorGeneration 2 -Lane feature-login -WhatIf") || !containsSubstring(lane.ExecutorAction.MissionCommanderAction.Boundary, "do not run continue for blocked lanes") {
 		t.Fatalf("lane handoff JSON omitted Mission Commander action consumption: %+v", lane.ExecutorAction.MissionCommanderAction)
 	}
-	if len(lane.MissionCommanderNextActions) != 4 || lane.MissionCommanderNextActions[0].Lane != "feature-login" || lane.MissionCommanderNextActions[0].Label != "login" || lane.MissionCommanderNextActions[0].Command != "/rekit reconcile login -InterventionId evt-human-stop -WhatIf" || lane.MissionCommanderNextActions[0].Source != "missionCommanderActions" || lane.MissionCommanderNextActions[0].Blocked || !lane.MissionCommanderNextActions[0].RequiresReview || !containsSubstring(lane.MissionCommanderNextActions[0].Reasons, "open-decision") || !containsSubstring(lane.MissionCommanderNextActions[0].Boundary, "do not run continue") || !containsMissionCommanderNextAction(lane.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit reconcile login -InterventionId evt-human-stop -Apply", true, true) || !containsMissionCommanderNextAction(lane.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2 -WhatIf", true, true) || !containsMissionCommanderNextAction(lane.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff login", true, true) || !containsSubstring(lane.MissionCommanderNextActions[1].Reasons, "after resolving current lane blockers") || !containsSubstring(lane.MissionCommanderNextActions[2].Reasons, "run as -WhatIf first") {
+	if len(lane.MissionCommanderNextActions) != 4 || lane.MissionCommanderNextActions[0].Lane != "feature-login" || lane.MissionCommanderNextActions[0].Label != "login" || lane.MissionCommanderNextActions[0].Command != "/rekit reconcile -InterventionId evt-human-stop -Lane feature-login -WhatIf" || lane.MissionCommanderNextActions[0].Source != "missionCommanderActions" || lane.MissionCommanderNextActions[0].Blocked || !lane.MissionCommanderNextActions[0].RequiresReview || !containsSubstring(lane.MissionCommanderNextActions[0].Reasons, "open-decision") || !containsSubstring(lane.MissionCommanderNextActions[0].Boundary, "do not run continue") || !containsMissionCommanderNextAction(lane.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit reconcile -InterventionId evt-human-stop -Lane feature-login -Apply", true, true) || !containsMissionCommanderNextAction(lane.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit continue -Executor session-login -ExpectedExecutorGeneration 2 -Lane feature-login -WhatIf", true, true) || !containsMissionCommanderNextAction(lane.MissionCommanderNextActions, "missionCommanderActions.followUp", "/rekit handoff -Lane feature-login", true, true) || !containsSubstring(lane.MissionCommanderNextActions[1].Reasons, "after resolving current lane blockers") || !containsSubstring(lane.MissionCommanderNextActions[2].Reasons, "run as -WhatIf first") {
 		t.Fatalf("lane handoff JSON missing Mission Commander next action: %+v", lane.MissionCommanderNextActions)
 	}
-	assertCLIActionQueue(t, lane.MissionCommanderActionQueue, 4, 1, 3, 4, 3, "/rekit reconcile login -InterventionId evt-human-stop -WhatIf")
+	assertCLIActionQueue(t, lane.MissionCommanderActionQueue, 4, 1, 3, 4, 3, "/rekit reconcile -InterventionId evt-human-stop -Lane feature-login -WhatIf")
 	if slices.Contains(lane.ExecutorAction.NextAgentActions, "/rekit continue login") || !containsSubstring(lane.ExecutorAction.NextAgentActions, "reconcile open intervention") || !containsSubstring(lane.NextSteps, "reconcile open intervention") || slices.Contains(lane.NextSteps, "/rekit continue login") {
 		t.Fatalf("lane handoff JSON should expose blocker-aware next steps only: action=%+v next=%+v", lane.ExecutorAction.NextAgentActions, lane.NextSteps)
 	}
@@ -11611,7 +11670,7 @@ func TestRunHandoffApplyWritesProjectAndLane(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"# rekit 工作线接手：feature-login", "workspace/features/feature-login/packet.md", "先处理下列 blocker，不要执行 `/rekit continue login`", "## Mission Control brief", "blocked: true", "pending-gate:", "open intervention:", "open decision:", "next agent action:", "reconcile open intervention(s) before continuing this lane", "resolve or keep deferred pending-gate request(s)", "review open candidate/decision item(s)", "## Mission Commander next actions", "state=needs-reconcile source=missionCommanderActions blocked=false requiresReview=true command=`/rekit reconcile login -InterventionId evt-human-stop -WhatIf`", "state=needs-reconcile source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit reconcile login -InterventionId evt-human-stop -Apply`", "state=needs-reconcile source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2 -WhatIf`", "follow-up is available only after resolving current lane blockers", "run as -WhatIf first; do not continue autonomously while lane remains blocked", "state=needs-reconcile source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit handoff login`", "## Executor action snapshot", "- blocked: `true`", "- ready: `false`", "- pending gates: `1`", "- open interventions: `1`", "- open decisions: `1`", "- reconcile required: `true`", "- pending gate required: `true`", "- open decision required: `true`", "- resume command: `/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2`", "- handoff command: `/rekit handoff login`", "- commander primary command: `/rekit reconcile login -InterventionId evt-human-stop -WhatIf`", "commander follow-up commands:", "/rekit reconcile login -InterventionId evt-human-stop -Apply", "/rekit continue login -Executor session-login -ExpectedExecutorGeneration 2 -WhatIf", "commander boundary:", "do not run continue for blocked lanes", "blocker reasons:", "pending-gate", "intervention", "open-decision", "## verification", "verifier=manual-review", "verdict=accepted", "target=candidate-alpha", "by=reviewer-smoke", "## decision", "by=runtime-test", "## pending-gate", "action=debug", "## intervention", "## rollback", "## 边界"} {
+	for _, expected := range []string{"# rekit 工作线接手：feature-login", "workspace/features/feature-login/packet.md", "先处理下列 blocker，不要执行 `/rekit continue login`", "## Mission Control brief", "blocked: true", "pending-gate:", "open intervention:", "open decision:", "next agent action:", "reconcile open intervention(s) before continuing this lane", "resolve or keep deferred pending-gate request(s)", "review open candidate/decision item(s)", "## Mission Commander next actions", "state=needs-reconcile source=missionCommanderActions blocked=false requiresReview=true command=`/rekit reconcile -InterventionId evt-human-stop -Lane feature-login -WhatIf`", "state=needs-reconcile source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit reconcile -InterventionId evt-human-stop -Lane feature-login -Apply`", "state=needs-reconcile source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit continue -Executor session-login -ExpectedExecutorGeneration 2 -Lane feature-login -WhatIf`", "follow-up is available only after resolving current lane blockers", "run as -WhatIf first; do not continue autonomously while lane remains blocked", "state=needs-reconcile source=missionCommanderActions.followUp blocked=true requiresReview=true command=`/rekit handoff -Lane feature-login`", "## Executor action snapshot", "- blocked: `true`", "- ready: `false`", "- pending gates: `1`", "- open interventions: `1`", "- open decisions: `1`", "- reconcile required: `true`", "- pending gate required: `true`", "- open decision required: `true`", "- resume command: `/rekit continue -Executor session-login -ExpectedExecutorGeneration 2 -Lane feature-login`", "- handoff command: `/rekit handoff -Lane feature-login`", "- commander primary command: `/rekit reconcile -InterventionId evt-human-stop -Lane feature-login -WhatIf`", "commander follow-up commands:", "/rekit reconcile -InterventionId evt-human-stop -Lane feature-login -Apply", "/rekit continue -Executor session-login -ExpectedExecutorGeneration 2 -Lane feature-login -WhatIf", "commander boundary:", "do not run continue for blocked lanes", "blocker reasons:", "pending-gate", "intervention", "open-decision", "## verification", "verifier=manual-review", "verdict=accepted", "target=candidate-alpha", "by=reviewer-smoke", "## decision", "by=runtime-test", "## pending-gate", "action=debug", "## intervention", "## rollback", "## 边界"} {
 		if !strings.Contains(string(laneText), expected) {
 			t.Fatalf("lane handoff missing %q:\n%s", expected, string(laneText))
 		}
@@ -17022,7 +17081,7 @@ func TestRunGateAdapterReportTextOutputsNextActions(t *testing.T) {
 		"gate adapter report contract：gateEventId=" + applied.EventID + " action=debug lane=main reportPath=" + wantReportPath + " mutation=false",
 		"gate adapter report contract summary：state=needs-adapter-report-validation gateEventId=" + applied.EventID + " action=debug lane=main reportPath=" + wantReportPath + " reportSha256= recordExpectedReportSha256= defaultReportPath=" + wantReportPath + " reportPresent=false valid=false recordReady=false recordBlocked=true requiresValidation=true requiresRepair=false requiresMainEscalation=false allowedStatuses=5 allowedOutputPaths=1 stopConditions=1 adapterCandidates=0 repairHints=28 recordBlockedHints=28 escalateHints=1 outcomes=3 nextActions=2 reviewRequiredActions=2 currentAction=" + wantValidate,
 		"gate adapter report contract summary boundary：adapter report summary is read-only; full contract/validation/follow-through arrays remain available",
-		"gate adapter report validate command：rekit -Command gate -Pack _template -GateEventId " + applied.EventID + " -ValidateExecutionReport -ExecutionReportPath " + wantReportPath + " -Format json",
+		"gate adapter report validate command：/rekit gate -Pack _template -GateEventId " + applied.EventID + " -ValidateExecutionReport -ExecutionReportPath " + wantReportPath + " -Format json",
 		"gate adapter report record command：available only after valid=true validation/status returns a hash-bound command with -ExpectedExecutionReportSha256",
 		"gate adapter report contract runbook：confirm adapter report contract state=needs-adapter-report-validation",
 		"gate adapter report contract runbook：keep contract, scaffold/draft, validation, record, and evidence review as separate bounded operations",
@@ -17253,7 +17312,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		"status Mission Commander focus authorized gate package：eventId=" + authorizedEventID + " lane=main state=needs-adapter-report-validation source=adapterReportContract.missionCommanderAction",
 		"status Mission Commander focus authorized gate report summary：eventId=" + authorizedEventID + " state=needs-adapter-report-validation reportPath=workspace/main/debug/session-1/adapter-report.json",
 		"status Mission Commander focus authorized gate live validation：eventId=" + authorizedEventID + " workspace=workspace/main/debug/session-1 reportFileName=adapter-report.json caseRelativeReportPath=workspace/main/debug/session-1/adapter-report.json",
-		"scaffold=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -ScaffoldExecutionReport -ExecutionReportPath adapter-report.json -Format json",
+		"scaffold=/rekit gate -Pack _template -GateEventId " + authorizedEventID + " -ScaffoldExecutionReport -ExecutionReportPath adapter-report.json -Format json",
 		"record=after valid=true, use validation/status returned hash-bound record command with -ExpectedExecutionReportSha256",
 		"status Mission Commander focus authorized gate live validation run loop：currentRunLoopStep=draft-or-write-report",
 		"status Mission Commander focus authorized gate live validation run loop step：order=1 step=inspect-contract actor=main-agent state=needs-adapter-report-validation source=adapterReportLiveValidation.contract",
@@ -17265,9 +17324,9 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		"auth=preauthorized profile=prof-main-debug reportContract=" + wantStatusContract + " defaultReportPath=workspace/main/debug/session-1/adapter-report.json reportPath=workspace/main/debug/session-1/adapter-report.json handoff=/rekit handoff main",
 		"status case mission authorized gate report summary：eventId=" + authorizedEventID + " state=needs-adapter-report-validation reportPath=workspace/main/debug/session-1/adapter-report.json reportSha256= recordExpectedReportSha256= defaultReportPath=workspace/main/debug/session-1/adapter-report.json reportPresent=false valid=false recordReady=false recordBlocked=true requiresValidation=true",
 		"status case mission authorized gate live validation：eventId=" + authorizedEventID + " reportFileName=adapter-report.json caseRelativeReportPath=workspace/main/debug/session-1/adapter-report.json reportSha256= recordExpectedReportSha256= adapterCandidates=0 selectedAdapter= sidecarAdapter=<adapter-id> templateSha256=",
-		"scaffold=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -ScaffoldExecutionReport -ExecutionReportPath adapter-report.json -Format json scaffoldApply=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -ScaffoldExecutionReport -ExecutionReportPath adapter-report.json -ExpectedExecutionReportSha256",
-		"caseScaffold=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -ScaffoldExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Format json caseScaffoldApply=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -ScaffoldExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -ExpectedExecutionReportSha256",
-		"status case mission authorized gate draft handoff：eventId=" + authorizedEventID + " draft=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -DraftExecutionReport -ExecutionReportPath adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -Format json draftApply=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -DraftExecutionReport -ExecutionReportPath adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -ExpectedExecutionReportSha256 <reportSha256-from-draft-preview> -Apply -Format json draftSha256=<reportSha256-from-draft-preview> caseDraft=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -DraftExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -Format json caseDraftApply=rekit -Command gate -Pack _template -GateEventId " + authorizedEventID + " -DraftExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -ExpectedExecutionReportSha256 <reportSha256-from-draft-preview> -Apply -Format json",
+		"scaffold=/rekit gate -Pack _template -GateEventId " + authorizedEventID + " -ScaffoldExecutionReport -ExecutionReportPath adapter-report.json -Format json scaffoldApply=/rekit gate -Pack _template -GateEventId " + authorizedEventID + " -ScaffoldExecutionReport -ExecutionReportPath adapter-report.json -ExpectedExecutionReportSha256",
+		"caseScaffold=/rekit gate -Pack _template -GateEventId " + authorizedEventID + " -ScaffoldExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Format json caseScaffoldApply=/rekit gate -Pack _template -GateEventId " + authorizedEventID + " -ScaffoldExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -ExpectedExecutionReportSha256",
+		"status case mission authorized gate draft handoff：eventId=" + authorizedEventID + " draft=/rekit gate -Pack _template -GateEventId " + authorizedEventID + " -DraftExecutionReport -ExecutionReportPath adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -Format json draftApply=/rekit gate -Pack _template -GateEventId " + authorizedEventID + " -DraftExecutionReport -ExecutionReportPath adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -ExpectedExecutionReportSha256 <reportSha256-from-draft-preview> -Apply -Format json draftSha256=<reportSha256-from-draft-preview> caseDraft=/rekit gate -Pack _template -GateEventId " + authorizedEventID + " -DraftExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -Format json caseDraftApply=/rekit gate -Pack _template -GateEventId " + authorizedEventID + " -DraftExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -ExpectedExecutionReportSha256 <reportSha256-from-draft-preview> -Apply -Format json",
 		"status case mission authorized gate live workspace：eventId=" + authorizedEventID + " workspace=workspace/main/debug/session-1",
 		"status case mission authorized gate live validation run loop：currentRunLoopStep=draft-or-write-report",
 		"status case mission authorized gate live validation run loop step：order=1 step=inspect-contract actor=main-agent state=needs-adapter-report-validation source=adapterReportLiveValidation.contract",
@@ -17902,7 +17961,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 		t.Fatalf("lane handoff next steps should route through evidence review before continuation: %+v", lane.NextSteps)
 	}
 	assertEvidenceReviewBeforeBlockedAdapterActions(t, "lane handoff", lane.MissionCommanderNextActions, authorizedEventID)
-	if lane.MissionCommanderActionQueue.CurrentAction == nil || lane.MissionCommanderActionQueue.CurrentAction.Source != "executionEvidenceReview" || lane.MissionCommanderActionQueue.CurrentAction.Command != "/rekit handoff main" {
+	if lane.MissionCommanderActionQueue.CurrentAction == nil || lane.MissionCommanderActionQueue.CurrentAction.Source != "executionEvidenceReview" || lane.MissionCommanderActionQueue.CurrentAction.Command != "/rekit handoff -Lane main" {
 		t.Fatalf("lane handoff queue should keep evidence review current: %+v", lane.MissionCommanderActionQueue)
 	}
 	laneLatest := assertStartWrite(t, lane.Writes, ".rekit/handovers/main-latest.md", "write-latest-lane-handoff")
@@ -17910,7 +17969,7 @@ func TestRunGoGateApplyAppendsAuthorizedGateRequestVisibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"当前不要执行 `/rekit continue main`", "evidence next action:", "boundary hit or escalation in execution evidence", "## Mission Commander next actions", "state=ready-for-evidence-review source=executionEvidenceReview blocked=true requiresReview=true command=`" + ackReviewCommand + "`", "state=ready-for-evidence-review source=executionEvidenceReview.followUp blocked=true requiresReview=true command=`/rekit overview`", "authorized-gate:", "## authorized-gate", "authorized debug", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "eventId=" + authorizedEventID, "reportContract=" + reportContract, "auth=preauthorized", "## execution evidence review", "status=succeeded | gateEventId=" + authorizedEventID, "status=escalated | gateEventId=" + authorizedEventID, "review command: `review outputRefs/evidenceRefs for gateEventId " + authorizedEventID + "`", "handoff command: `/rekit handoff main`", "review runbook: step=1 text=review execution evidence for gateEventId " + authorizedEventID, "review runbook: step=4 text=do not replay the heavy tool or adapter action", "review runbook: step=5 text=do not write authority/confirmed from evidence review", "commander state: ready-for-evidence-review", "commander state: needs-main-escalation", "commander primary: `" + ackReviewCommand + "`", "follow-through: state=ready-for-evidence-review", "outcome: name=recorded-evidence-review", "when: bounded observation evidence was recorded for an authorized gate", "evidence: workspace/main/debug/session-1/result.json", "follow-through: state=needs-main-escalation", "outcome: name=boundary-or-escalation-review", "when: recorded evidence reports boundaryHits, escalation, boundary-hit, or escalated status", "evidence: workspace/main/debug/session-1/adapter-result.json", "commander follow-up:", "/rekit overview", "/rekit continue main -WhatIf", "review boundary:", "observation evidence is already recorded; do not replay heavy tool", "boundary/escalation requires main review before autonomous continuation"} {
+	for _, expected := range []string{"当前不要执行 `/rekit continue -Lane main`", "evidence next action:", "boundary hit or escalation in execution evidence", "## Mission Commander next actions", "state=ready-for-evidence-review source=executionEvidenceReview blocked=true requiresReview=true command=`" + ackReviewCommand + "`", "state=ready-for-evidence-review source=executionEvidenceReview.followUp blocked=true requiresReview=true command=`/rekit overview`", "authorized-gate:", "## authorized-gate", "authorized debug", "requestedBudget=runtimeSeconds=30,diskMB=64,requests=1", "outputPaths=workspace/main/debug/session-1", "stopConditions=timeout", "eventId=" + authorizedEventID, "reportContract=" + reportContract, "auth=preauthorized", "## execution evidence review", "status=succeeded | gateEventId=" + authorizedEventID, "status=escalated | gateEventId=" + authorizedEventID, "review command: `review outputRefs/evidenceRefs for gateEventId " + authorizedEventID + "`", "handoff command: `/rekit handoff main`", "review runbook: step=1 text=review execution evidence for gateEventId " + authorizedEventID, "review runbook: step=4 text=do not replay the heavy tool or adapter action", "review runbook: step=5 text=do not write authority/confirmed from evidence review", "commander state: ready-for-evidence-review", "commander state: needs-main-escalation", "commander primary: `" + ackReviewCommand + "`", "follow-through: state=ready-for-evidence-review", "outcome: name=recorded-evidence-review", "when: bounded observation evidence was recorded for an authorized gate", "evidence: workspace/main/debug/session-1/result.json", "follow-through: state=needs-main-escalation", "outcome: name=boundary-or-escalation-review", "when: recorded evidence reports boundaryHits, escalation, boundary-hit, or escalated status", "evidence: workspace/main/debug/session-1/adapter-result.json", "commander follow-up:", "/rekit overview", "/rekit continue main -WhatIf", "review boundary:", "observation evidence is already recorded; do not replay heavy tool", "boundary/escalation requires main review before autonomous continuation"} {
 		if !strings.Contains(string(laneText), expected) {
 			t.Fatalf("lane handoff missing %q:\n%s", expected, string(laneText))
 		}
@@ -18216,12 +18275,12 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	}
 	for _, expected := range []string{
 		"gate adapter report contract：gateEventId=" + applied.EventID + " action=debug lane=main reportPath=workspace/main/debug/session-1/adapter-report.json mutation=false",
-		"gate adapter report validate command：rekit -Command gate -Pack _template -GateEventId " + applied.EventID + " -ValidateExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Format json",
+		"gate adapter report validate command：/rekit gate -Pack _template -GateEventId " + applied.EventID + " -ValidateExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Format json",
 		"gate adapter report record command：available only after valid=true validation/status returns a hash-bound command with -ExpectedExecutionReportSha256",
 		"gate adapter report live validation：cwd=authorized output workspace listed in authorizedWorkspaces; use reportFileName as workspace-relative -ExecutionReportPath and omit -Target; or use caseRelativeReportPath with case-relative commands from any case-local cwd reportFileName=adapter-report.json caseRelativeReportPath=workspace/main/debug/session-1/adapter-report.json",
 		"gate adapter report sidecar template：kind=adapter-execution-report adapterId=<adapter-id> action=debug status=succeeded|failed|boundary-hit|escalated|aborted gateEventId=" + applied.EventID,
-		"gate adapter report draft command：rekit -Command gate -Pack _template -GateEventId " + applied.EventID + " -DraftExecutionReport -ExecutionReportPath adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -Format json",
-		"gate adapter report draft apply command：rekit -Command gate -Pack _template -GateEventId " + applied.EventID + " -DraftExecutionReport -ExecutionReportPath adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -ExpectedExecutionReportSha256 <reportSha256-from-draft-preview> -Apply -Format json",
+		"gate adapter report draft command：/rekit gate -Pack _template -GateEventId " + applied.EventID + " -DraftExecutionReport -ExecutionReportPath adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -Format json",
+		"gate adapter report draft apply command：/rekit gate -Pack _template -GateEventId " + applied.EventID + " -DraftExecutionReport -ExecutionReportPath adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -ExpectedExecutionReportSha256 <reportSha256-from-draft-preview> -Apply -Format json",
 		"gate adapter report draft hash：sha256=<reportSha256-from-draft-preview>",
 		"gate adapter report live validation note：Pre-validation contract/scaffold/draft handoffs intentionally omit runnable RecordArgs/CaseRelativeRecordArgs; after valid=true, use validation/status returned hash-bound record command with -ExpectedExecutionReportSha256.",
 		"adapter report commander action：state=needs-adapter-report-validation primary=`" + wantCaseRelativeValidate + "`",
@@ -18236,21 +18295,21 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	if strings.Contains(out.String(), "source=adapterReportValidation.missionCommanderAction") {
 		t.Fatalf("contract text should not expose validation-stage record as current action:\n%s", out.String())
 	}
-	if strings.Join(contract.LiveValidation.AuthorizedWorkspaces, ",") != "workspace/main/debug/session-1" || contract.LiveValidation.ReportFileName != "adapter-report.json" || contract.LiveValidation.CaseRelativeReportPath != "workspace/main/debug/session-1/adapter-report.json" || strings.Join(contract.LiveValidation.ValidateArgs, " ") != "-Command gate -Pack _template -GateEventId "+applied.EventID+" -ValidateExecutionReport -ExecutionReportPath adapter-report.json -Format json" || len(contract.LiveValidation.RecordArgs) != 0 || contract.LiveValidation.ValidateCommand != "rekit "+strings.Join(contract.LiveValidation.ValidateArgs, " ") || contract.LiveValidation.RecordCommand != "" || strings.Join(contract.LiveValidation.CaseRelativeValidateArgs, " ") != "-Command gate -Pack _template -GateEventId "+applied.EventID+" -ValidateExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Format json" || len(contract.LiveValidation.CaseRelativeRecordArgs) != 0 || contract.LiveValidation.CaseRelativeValidateCommand != "rekit "+strings.Join(contract.LiveValidation.CaseRelativeValidateArgs, " ") || contract.LiveValidation.CaseRelativeRecordCommand != "" || contract.LiveValidation.SidecarTemplate.Action != "debug" || contract.LiveValidation.SidecarTemplate.GateEventID != applied.EventID || !containsSubstring(contract.LiveValidation.SidecarTemplate.EvidenceRefs, "authorized outputPaths") || !strings.Contains(contract.LiveValidation.ReplayBehavior, "hash-bound record command") || !strings.Contains(contract.LiveValidation.ReplayBehavior, "duplicate eventId") {
+	if strings.Join(contract.LiveValidation.AuthorizedWorkspaces, ",") != "workspace/main/debug/session-1" || contract.LiveValidation.ReportFileName != "adapter-report.json" || contract.LiveValidation.CaseRelativeReportPath != "workspace/main/debug/session-1/adapter-report.json" || strings.Join(contract.LiveValidation.ValidateArgs, " ") != "-Command gate -Pack _template -GateEventId "+applied.EventID+" -ValidateExecutionReport -ExecutionReportPath adapter-report.json -Format json" || len(contract.LiveValidation.RecordArgs) != 0 || contract.LiveValidation.ValidateCommand != "/rekit gate "+strings.Join(contract.LiveValidation.ValidateArgs[2:], " ") || contract.LiveValidation.RecordCommand != "" || strings.Join(contract.LiveValidation.CaseRelativeValidateArgs, " ") != "-Command gate -Pack _template -GateEventId "+applied.EventID+" -ValidateExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Format json" || len(contract.LiveValidation.CaseRelativeRecordArgs) != 0 || contract.LiveValidation.CaseRelativeValidateCommand != "/rekit gate "+strings.Join(contract.LiveValidation.CaseRelativeValidateArgs[2:], " ") || contract.LiveValidation.CaseRelativeRecordCommand != "" || contract.LiveValidation.SidecarTemplate.Action != "debug" || contract.LiveValidation.SidecarTemplate.GateEventID != applied.EventID || !containsSubstring(contract.LiveValidation.SidecarTemplate.EvidenceRefs, "authorized outputPaths") || !strings.Contains(contract.LiveValidation.ReplayBehavior, "hash-bound record command") || !strings.Contains(contract.LiveValidation.ReplayBehavior, "duplicate eventId") {
 		t.Fatalf("nested workspace adapter report contract omitted live-validation handoff: %+v", contract.LiveValidation)
 	}
 	wantWorkspaceScaffoldArgs := "-Command gate -Pack _template -GateEventId " + applied.EventID + " -ScaffoldExecutionReport -ExecutionReportPath adapter-report.json -Format json"
 	wantWorkspaceScaffoldApplyArgs := "-Command gate -Pack _template -GateEventId " + applied.EventID + " -ScaffoldExecutionReport -ExecutionReportPath adapter-report.json -ExpectedExecutionReportSha256 " + contract.LiveValidation.SidecarTemplateSHA256 + " -Apply -Format json"
 	wantCaseRelativeScaffoldArgs := "-Command gate -Pack _template -GateEventId " + applied.EventID + " -ScaffoldExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -Format json"
 	wantCaseRelativeScaffoldApplyArgs := "-Command gate -Pack _template -GateEventId " + applied.EventID + " -ScaffoldExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -ExpectedExecutionReportSha256 " + contract.LiveValidation.SidecarTemplateSHA256 + " -Apply -Format json"
-	if contract.LiveValidation.SidecarTemplateSHA256 == "" || strings.Join(contract.LiveValidation.ScaffoldArgs, " ") != wantWorkspaceScaffoldArgs || strings.Join(contract.LiveValidation.ScaffoldApplyArgs, " ") != wantWorkspaceScaffoldApplyArgs || contract.LiveValidation.ScaffoldCommand != "rekit "+wantWorkspaceScaffoldArgs || contract.LiveValidation.ScaffoldApplyCommand != "rekit "+wantWorkspaceScaffoldApplyArgs || strings.Join(contract.LiveValidation.CaseRelativeScaffoldArgs, " ") != wantCaseRelativeScaffoldArgs || strings.Join(contract.LiveValidation.CaseRelativeScaffoldApplyArgs, " ") != wantCaseRelativeScaffoldApplyArgs || contract.LiveValidation.CaseRelativeScaffoldCommand != "rekit "+wantCaseRelativeScaffoldArgs || contract.LiveValidation.CaseRelativeScaffoldApplyCommand != "rekit "+wantCaseRelativeScaffoldApplyArgs {
+	if contract.LiveValidation.SidecarTemplateSHA256 == "" || strings.Join(contract.LiveValidation.ScaffoldArgs, " ") != wantWorkspaceScaffoldArgs || strings.Join(contract.LiveValidation.ScaffoldApplyArgs, " ") != wantWorkspaceScaffoldApplyArgs || contract.LiveValidation.ScaffoldCommand != "/rekit gate "+strings.TrimPrefix(wantWorkspaceScaffoldArgs, "-Command gate ") || contract.LiveValidation.ScaffoldApplyCommand != "/rekit gate "+strings.TrimPrefix(wantWorkspaceScaffoldApplyArgs, "-Command gate ") || strings.Join(contract.LiveValidation.CaseRelativeScaffoldArgs, " ") != wantCaseRelativeScaffoldArgs || strings.Join(contract.LiveValidation.CaseRelativeScaffoldApplyArgs, " ") != wantCaseRelativeScaffoldApplyArgs || contract.LiveValidation.CaseRelativeScaffoldCommand != "/rekit gate "+strings.TrimPrefix(wantCaseRelativeScaffoldArgs, "-Command gate ") || contract.LiveValidation.CaseRelativeScaffoldApplyCommand != "/rekit gate "+strings.TrimPrefix(wantCaseRelativeScaffoldApplyArgs, "-Command gate ") {
 		t.Fatalf("nested workspace adapter report contract omitted scaffold handoff: %+v", contract.LiveValidation)
 	}
 	wantWorkspaceDraftArgs := "-Command gate -Pack _template -GateEventId " + applied.EventID + " -DraftExecutionReport -ExecutionReportPath adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -Format json"
 	wantWorkspaceDraftApplyArgs := "-Command gate -Pack _template -GateEventId " + applied.EventID + " -DraftExecutionReport -ExecutionReportPath adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -ExpectedExecutionReportSha256 <reportSha256-from-draft-preview> -Apply -Format json"
 	wantCaseRelativeDraftArgs := "-Command gate -Pack _template -GateEventId " + applied.EventID + " -DraftExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -Format json"
 	wantCaseRelativeDraftApplyArgs := "-Command gate -Pack _template -GateEventId " + applied.EventID + " -DraftExecutionReport -ExecutionReportPath workspace/main/debug/session-1/adapter-report.json -AdapterId <adapter-id> -ExecutionStatus <status> -Summary <bounded-summary> -ExpectedExecutionReportSha256 <reportSha256-from-draft-preview> -Apply -Format json"
-	if contract.LiveValidation.DraftReportSHA256 != "<reportSha256-from-draft-preview>" || strings.Join(contract.LiveValidation.DraftArgs, " ") != wantWorkspaceDraftArgs || strings.Join(contract.LiveValidation.DraftApplyArgs, " ") != wantWorkspaceDraftApplyArgs || contract.LiveValidation.DraftCommand != "rekit "+wantWorkspaceDraftArgs || contract.LiveValidation.DraftApplyCommand != "rekit "+wantWorkspaceDraftApplyArgs || strings.Join(contract.LiveValidation.CaseRelativeDraftArgs, " ") != wantCaseRelativeDraftArgs || strings.Join(contract.LiveValidation.CaseRelativeDraftApplyArgs, " ") != wantCaseRelativeDraftApplyArgs || contract.LiveValidation.CaseRelativeDraftCommand != "rekit "+wantCaseRelativeDraftArgs || contract.LiveValidation.CaseRelativeDraftApplyCommand != "rekit "+wantCaseRelativeDraftApplyArgs {
+	if contract.LiveValidation.DraftReportSHA256 != "<reportSha256-from-draft-preview>" || strings.Join(contract.LiveValidation.DraftArgs, " ") != wantWorkspaceDraftArgs || strings.Join(contract.LiveValidation.DraftApplyArgs, " ") != wantWorkspaceDraftApplyArgs || contract.LiveValidation.DraftCommand != "/rekit gate "+strings.TrimPrefix(wantWorkspaceDraftArgs, "-Command gate ") || contract.LiveValidation.DraftApplyCommand != "/rekit gate "+strings.TrimPrefix(wantWorkspaceDraftApplyArgs, "-Command gate ") || strings.Join(contract.LiveValidation.CaseRelativeDraftArgs, " ") != wantCaseRelativeDraftArgs || strings.Join(contract.LiveValidation.CaseRelativeDraftApplyArgs, " ") != wantCaseRelativeDraftApplyArgs || contract.LiveValidation.CaseRelativeDraftCommand != "/rekit gate "+strings.TrimPrefix(wantCaseRelativeDraftArgs, "-Command gate ") || contract.LiveValidation.CaseRelativeDraftApplyCommand != "/rekit gate "+strings.TrimPrefix(wantCaseRelativeDraftApplyArgs, "-Command gate ") {
 		t.Fatalf("nested workspace adapter report contract omitted draft handoff: %+v", contract.LiveValidation)
 	}
 
@@ -19750,7 +19809,7 @@ func TestRunGateAdapterReportNoPackProductPathFromNestedOutputWorkspace(t *testi
 	if caseRelativeContract.Kind != "adapter-execution-report-contract" || caseRelativeContract.CaseRoot != caseRoot || caseRelativeContract.Pack != "_template" || caseRelativeContract.GateEventID != caseRelativeGate.EventID || caseRelativeContract.IsMutation || caseRelativeContract.LiveValidation.CaseRelativeReportPath != wantCaseRelativeReportPath || caseRelativeContract.LiveValidation.SidecarTemplateSHA256 == "" {
 		t.Fatalf("unexpected case-relative adapter report contract: %+v", caseRelativeContract)
 	}
-	if strings.Join(caseRelativeContract.LiveValidation.CaseRelativeScaffoldArgs, " ") != wantCaseRelativeScaffoldArgs2 || strings.Join(caseRelativeContract.LiveValidation.CaseRelativeScaffoldApplyArgs, " ") != wantCaseRelativeScaffoldApplyArgs2 || caseRelativeContract.LiveValidation.CaseRelativeScaffoldCommand != "rekit "+wantCaseRelativeScaffoldArgs2 || caseRelativeContract.LiveValidation.CaseRelativeScaffoldApplyCommand != "rekit "+wantCaseRelativeScaffoldApplyArgs2 || strings.Join(caseRelativeContract.LiveValidation.CaseRelativeDraftArgs, " ") != wantCaseRelativeDraftArgs2 || strings.Join(caseRelativeContract.LiveValidation.CaseRelativeDraftApplyArgs, " ") != wantCaseRelativeDraftApplyArgs2 || caseRelativeContract.LiveValidation.CaseRelativeDraftCommand != "rekit "+wantCaseRelativeDraftArgs2 || caseRelativeContract.LiveValidation.CaseRelativeDraftApplyCommand != "rekit "+wantCaseRelativeDraftApplyArgs2 || caseRelativeContract.LiveValidation.CaseRelativeValidateCommand != "rekit "+strings.Join(caseRelativeContract.LiveValidation.CaseRelativeValidateArgs, " ") {
+	if strings.Join(caseRelativeContract.LiveValidation.CaseRelativeScaffoldArgs, " ") != wantCaseRelativeScaffoldArgs2 || strings.Join(caseRelativeContract.LiveValidation.CaseRelativeScaffoldApplyArgs, " ") != wantCaseRelativeScaffoldApplyArgs2 || caseRelativeContract.LiveValidation.CaseRelativeScaffoldCommand != "/rekit gate "+strings.TrimPrefix(wantCaseRelativeScaffoldArgs2, "-Command gate ") || caseRelativeContract.LiveValidation.CaseRelativeScaffoldApplyCommand != "/rekit gate "+strings.TrimPrefix(wantCaseRelativeScaffoldApplyArgs2, "-Command gate ") || strings.Join(caseRelativeContract.LiveValidation.CaseRelativeDraftArgs, " ") != wantCaseRelativeDraftArgs2 || strings.Join(caseRelativeContract.LiveValidation.CaseRelativeDraftApplyArgs, " ") != wantCaseRelativeDraftApplyArgs2 || caseRelativeContract.LiveValidation.CaseRelativeDraftCommand != "/rekit gate "+strings.TrimPrefix(wantCaseRelativeDraftArgs2, "-Command gate ") || caseRelativeContract.LiveValidation.CaseRelativeDraftApplyCommand != "/rekit gate "+strings.TrimPrefix(wantCaseRelativeDraftApplyArgs2, "-Command gate ") || caseRelativeContract.LiveValidation.CaseRelativeValidateCommand != "/rekit gate "+strings.Join(caseRelativeContract.LiveValidation.CaseRelativeValidateArgs[2:], " ") {
 		t.Fatalf("case-relative adapter report contract omitted runnable handoff: %+v", caseRelativeContract.LiveValidation)
 	}
 	assertSnapshotEqual(t, caseRelativeBefore, snapshotFiles(t, filepath.Join(caseRoot, ".rekit")))
@@ -20254,7 +20313,7 @@ func TestRunGateAdapterReportBoundaryHitNoPackProductPathSuppressesContinue(t *t
 	for _, expected := range []string{
 		"handoff execution evidence review：eventId=" + evidence.EventID + " gateEventId=" + applied.EventID + " status=boundary-hit action=debug",
 		"handoff execution evidence boundary hit：eventId=" + evidence.EventID + " hit=timeout",
-		"mission commander action queue current：state=needs-main-escalation source=executionEvidenceReview blocked=true requiresReview=true command=`/rekit handoff main`",
+		"mission commander action queue current：state=needs-main-escalation source=executionEvidenceReview blocked=true requiresReview=true command=`/rekit handoff -Lane main`",
 	} {
 		if !strings.Contains(out.String(), expected) {
 			t.Fatalf("boundary-hit handoff preview text missing %q:\n%s", expected, out.String())
@@ -20281,7 +20340,7 @@ func TestRunGateAdapterReportBoundaryHitNoPackProductPathSuppressesContinue(t *t
 		t.Fatal(err)
 	}
 	for _, expected := range []string{
-		"当前不要执行 `/rekit continue main`",
+		"当前不要执行 `/rekit continue -Lane main`",
 		"status=boundary-hit | gateEventId=" + applied.EventID,
 		"boundary hit: timeout",
 		"follow-through: state=needs-main-escalation",
@@ -21734,7 +21793,7 @@ func assertAdapterReportRepairMarkdown(t *testing.T, label, text, eventID string
 		"  - live validation repair: action=move-evidence-refs-under-authorized-output-paths code=evidence-refs-out-of-scope stage=refs recordBlocked=true rerunValidation=true",
 		"  - live validation next step: report is invalid for read-only preflight",
 		"  - live validation next step: do not record it with gate -Apply until valid=true",
-		"  - case validate: `rekit -Command gate -Pack _template -GateEventId " + eventID,
+		"  - case validate: `/rekit gate -Pack _template -GateEventId " + eventID,
 		"  - case record: `after valid=true, use validation/status returned hash-bound record command with -ExpectedExecutionReportSha256`",
 	} {
 		if !strings.Contains(text, expected) {
@@ -24126,6 +24185,28 @@ func assertMovedCaseRepairPreviewDiagnostic(t *testing.T, err error, caseRoot, p
 	}
 }
 
+func requireMissionCommanderLaneChoices(t *testing.T, queue missionCommanderActionQueueSnapshot, lanes ...string) {
+	t.Helper()
+	if queue.CurrentAction != nil || queue.CurrentDriverRequest != nil {
+		t.Fatalf("lane-choice queue published an implicit current action or driver request: %+v", queue)
+	}
+	got := map[string]bool{}
+	for _, action := range queue.UnblockedActions {
+		if strings.Contains(action.Source, ".followUp") || strings.TrimSpace(action.Lane) == "" {
+			continue
+		}
+		got[action.Lane] = true
+	}
+	if len(got) != len(lanes) {
+		t.Fatalf("lane-choice queue candidates = %+v, want %v: %+v", got, lanes, queue)
+	}
+	for _, lane := range lanes {
+		if !got[lane] {
+			t.Fatalf("lane-choice queue omitted %q: %+v", lane, queue)
+		}
+	}
+}
+
 func requireMissionCommanderDriverRequest(t *testing.T, queue missionCommanderActionQueueSnapshot, kind, stepID, command string, executable, blocked, requiresReview bool) *missionCommanderDriverRequestSnapshot {
 	t.Helper()
 	request := queue.CurrentDriverRequest
@@ -24133,6 +24214,15 @@ func requireMissionCommanderDriverRequest(t *testing.T, queue missionCommanderAc
 		t.Fatalf("mission commander action queue omitted current driver request: %+v", queue)
 	}
 	assertMissionCommanderDriverRequestFields(t, request.Kind, request.RunLoopStepID, request.Actor, request.Command, request.Guidance, request.CommandExecutable, request.Blocked, request.RequiresReview, request.ExpectedReceipt.State, request.ExpectedReceipt.Description, request.Boundary, request.ExpectedReceipt.Boundary, kind, stepID, command, executable, blocked, requiresReview)
+	return request
+}
+
+func requireBlockedMissionCommanderDriverRequest(t *testing.T, queue missionCommanderActionQueueSnapshot, guidance string) *missionCommanderDriverRequestSnapshot {
+	t.Helper()
+	request := requireMissionCommanderDriverRequest(t, queue, "blocked-review", "inspect-current", "", false, true, true)
+	if request.Guidance != guidance || !containsSubstring(request.Boundary, "blocked current actions require blocker review") {
+		t.Fatalf("blocked mission commander driver request omitted guidance boundary: request=%+v wantGuidance=%q", request, guidance)
+	}
 	return request
 }
 

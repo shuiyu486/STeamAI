@@ -196,6 +196,171 @@ func TestReopenApplyReturnsCommittedReplayAfterResponseLoss(t *testing.T) {
 	}
 }
 
+func TestReopenApplyReplaysHistoricalCommittedOperationByExactRequest(t *testing.T) {
+	repoRoot, caseRoot := setupContinueCase(t, "")
+	if _, err := StartApply(repoRoot, caseRoot, defaults.DefaultPack, StartOptions{Name: "other", Selector: "other"}); err != nil {
+		t.Fatal(err)
+	}
+	completeLaneForReopenTest(t, repoRoot, caseRoot, "bootstrap")
+	completeLaneForReopenTest(t, repoRoot, caseRoot, "other")
+
+	type committedRequest struct {
+		opt       ReopenOptions
+		operation string
+	}
+	apply := func(selector string) committedRequest {
+		t.Helper()
+		evidencePath := filepath.Join(caseRoot, ".rekit", "reopen-"+selector+"-evidence.md")
+		if err := os.WriteFile(evidencePath, []byte("reviewed evidence for "+selector+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		opt := ReopenOptions{Selector: selector, Actor: "main-agent", Reason: "reopen the exact selected lane", EvidenceRefs: relativePath(caseRoot, evidencePath)}
+		preview, err := ReopenPreview(repoRoot, caseRoot, defaults.DefaultPack, opt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		opt.ExpectedPreviewSHA256, opt.PublicationStamp = preview.ReopenPlanSHA256, preview.PublicationStamp
+		applied, err := ReopenApply(repoRoot, caseRoot, defaults.DefaultPack, opt)
+		if err != nil || applied.OperationCommit == nil || applied.Replay {
+			t.Fatalf("apply %s: result=%+v err=%v", selector, applied, err)
+		}
+		return committedRequest{opt: opt, operation: applied.OperationCommit.OperationID}
+	}
+
+	first := apply("bootstrap")
+	second := apply("other")
+	if first.operation == second.operation {
+		t.Fatal("distinct lane reopen operations reused one identity")
+	}
+	before := snapshotWorkstreamTree(t, caseRoot)
+	replayed, err := ReopenApply(repoRoot, caseRoot, defaults.DefaultPack, first.opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !replayed.Applied || !replayed.Replay || replayed.OperationCommit == nil || replayed.OperationCommit.OperationID != first.operation || replayed.OperationSequence != 1 {
+		t.Fatalf("historical exact Apply did not replay operation 1: %+v", replayed)
+	}
+	if after := snapshotWorkstreamTree(t, caseRoot); after != before {
+		t.Fatal("historical committed replay changed case state")
+	}
+
+	wrong := first.opt
+	wrong.Actor = "different-actor"
+	if _, err := ReopenApply(repoRoot, caseRoot, defaults.DefaultPack, wrong); err == nil {
+		t.Fatal("historical replay accepted a different actor")
+	}
+}
+
+func TestReopenApplyHistoricalReplayRejectsCurrentProjectionDrift(t *testing.T) {
+	for _, fixture := range []struct {
+		name string
+		path func(string) string
+	}{
+		{name: "lane", path: func(caseRoot string) string {
+			return filepath.Join(caseRoot, ".rekit", "lanes", "feature-bootstrap", "lane.json")
+		}},
+		{name: "board", path: func(caseRoot string) string { return filepath.Join(caseRoot, ".rekit", "board.json") }},
+		{name: "resume", path: func(caseRoot string) string {
+			return filepath.Join(caseRoot, ".rekit", "lanes", "feature-bootstrap", "prompts", "RESUME.md")
+		}},
+		{name: "checkpoint", path: func(caseRoot string) string {
+			return filepath.Join(caseRoot, ".rekit", "lanes", "feature-bootstrap", "checkpoints", "latest.json")
+		}},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			repoRoot, caseRoot := setupContinueCase(t, "")
+			completeLaneForReopenTest(t, repoRoot, caseRoot, "bootstrap")
+			completeLaneForReopenTest(t, repoRoot, caseRoot, "main")
+			evidencePath := filepath.Join(caseRoot, ".rekit", "reopen-evidence.md")
+			if err := os.WriteFile(evidencePath, []byte("reviewed evidence\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			opt := ReopenOptions{Selector: "bootstrap", Actor: "main-agent", Reason: "reopen exact projections", EvidenceRefs: relativePath(caseRoot, evidencePath)}
+			preview, err := ReopenPreview(repoRoot, caseRoot, defaults.DefaultPack, opt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			opt.ExpectedPreviewSHA256, opt.PublicationStamp = preview.ReopenPlanSHA256, preview.PublicationStamp
+			if _, err := ReopenApply(repoRoot, caseRoot, defaults.DefaultPack, opt); err != nil {
+				t.Fatal(err)
+			}
+			path := fixture.path(caseRoot)
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if fixture.name == "board" {
+				var board map[string]any
+				if err := json.Unmarshal(data, &board); err != nil {
+					t.Fatal(err)
+				}
+				lanes := board["lanes"].([]any)
+				for _, item := range lanes {
+					lane := item.(map[string]any)
+					if lane["id"] == "feature-bootstrap" {
+						lane["updatedAt"] = "2099-01-01T00:00:00Z"
+					}
+				}
+				data, err = json.MarshalIndent(board, "", "  ")
+				if err != nil {
+					t.Fatal(err)
+				}
+				data = append(data, '\n')
+			} else {
+				data = append(data, ' ')
+			}
+			if err := os.WriteFile(path, data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := ReopenApply(repoRoot, caseRoot, defaults.DefaultPack, opt); err == nil || !strings.Contains(err.Error(), "projection changed") {
+				t.Fatalf("historical replay accepted %s projection drift: %v", fixture.name, err)
+			}
+		})
+	}
+}
+
+func TestReopenApplyReplayRejectsMalformedStrictLedger(t *testing.T) {
+	for _, fixture := range []struct {
+		name      string
+		interrupt bool
+	}{
+		{name: "historical committed"},
+		{name: "pending recovery", interrupt: true},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			repoRoot, caseRoot := setupContinueCase(t, "")
+			completeLaneForReopenTest(t, repoRoot, caseRoot, "bootstrap")
+			completeLaneForReopenTest(t, repoRoot, caseRoot, "main")
+			evidencePath := filepath.Join(caseRoot, ".rekit", "reopen-evidence.md")
+			if err := os.WriteFile(evidencePath, []byte("reviewed evidence\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			opt := ReopenOptions{Selector: "bootstrap", Actor: "main-agent", Reason: "strict ledger replay", EvidenceRefs: relativePath(caseRoot, evidencePath)}
+			preview, err := ReopenPreview(repoRoot, caseRoot, defaults.DefaultPack, opt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			opt.ExpectedPreviewSHA256, opt.PublicationStamp = preview.ReopenPlanSHA256, preview.PublicationStamp
+			if fixture.interrupt {
+				reopenAfterOperationIntentHook = func() error { return errors.New("stop after intent") }
+				if _, err := ReopenApply(repoRoot, caseRoot, defaults.DefaultPack, opt); err == nil {
+					t.Fatal("pending recovery interruption was not exercised")
+				}
+				reopenAfterOperationIntentHook = nil
+			} else if _, err := ReopenApply(repoRoot, caseRoot, defaults.DefaultPack, opt); err != nil {
+				t.Fatal(err)
+			}
+			factsPath := filepath.Join(caseRoot, ".rekit", "facts", "observations.jsonl")
+			if err := os.WriteFile(factsPath, []byte("{malformed\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := ReopenApply(repoRoot, caseRoot, defaults.DefaultPack, opt); err == nil {
+				t.Fatal("reopen replay accepted malformed strict ledger")
+			}
+		})
+	}
+}
+
 func TestReopenApplyRejectsTamperedPendingPublicationWithOriginalHash(t *testing.T) {
 	repoRoot, caseRoot := setupContinueCase(t, "")
 	completeLaneForReopenTest(t, repoRoot, caseRoot, "bootstrap")

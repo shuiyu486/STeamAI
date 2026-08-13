@@ -1476,11 +1476,10 @@ func reviewerIntakeShardCountsAsComplete(status string) bool {
 
 func reviewerIntakeMissionCommanderAction(result ReviewerIntakeResult) mission.MissionCommanderAction {
 	status := strings.TrimSpace(result.WritebackStatus)
-	label := reviewerIntakeLaneLabel(result.Lane)
 	previewCommand := reviewerIntakeCommand(result, false)
 	applyCommand := reviewerIntakeCommand(result, true)
-	handoffCommand := "/rekit handoff " + label
-	continuePreviewCommand := "/rekit continue " + label + " -WhatIf"
+	handoffCommand := "/rekit handoff -Lane " + result.Lane
+	continuePreviewCommand := "/rekit continue -Lane " + result.Lane + " -WhatIf"
 	boundary := reviewerIntakeCommanderBoundary(result)
 	switch status {
 	case "previewed":

@@ -29,6 +29,12 @@ func TestCheckpointWriteInspectAndStaleCurrentness(t *testing.T) {
 	if !inspection.Ready || inspection.State != "ready" || inspection.Sequence != 1 || inspection.Continuation == nil || inspection.Continuation.RemainingMaxSteps != 3 || inspection.AppliedSteps != 2 || inspection.RefreshedCurrentDriverRequest == nil || inspection.RefreshedCurrentDriverRequest.Command != request.Command || !strings.HasSuffix(inspection.ArtifactPath, "/00000000000000000001.json") {
 		t.Fatalf("unexpected checkpoint inspection: %+v", inspection)
 	}
+	if inspection.ResumeDriverRequest == nil || inspection.ResumeDriverRequest.Lane != "main" || !strings.Contains(inspection.ResumeDriverRequest.Command, `-Lane "main"`) || !strings.Contains(inspection.ResumeDriverRequest.ExpectedReceipt.RefreshStatusCommand, `-Lane "main"`) {
+		t.Fatalf("checkpoint resume request omitted its exact lane: %+v", inspection.ResumeDriverRequest)
+	}
+	if err := mission.ValidateMissionCommanderDriverRequest(*inspection.ResumeDriverRequest); err != nil {
+		t.Fatalf("checkpoint resume request is not a valid typed invocation: %v", err)
+	}
 	if _, err := os.Stat(filepath.Join(caseRoot, filepath.FromSlash(inspection.ArtifactPath))); err != nil {
 		t.Fatalf("checkpoint artifact missing: %v", err)
 	}
@@ -45,6 +51,17 @@ func TestCheckpointWriteInspectAndStaleCurrentness(t *testing.T) {
 	stale := Inspect(repoRoot, caseRoot, "_template", &drift)
 	if stale.Ready || stale.State != "stale-current-driver-request" || stale.Continuation != nil || stale.RefreshedCurrentDriverRequest != nil || len(stale.Warnings) == 0 {
 		t.Fatalf("stale checkpoint exposed continuation: %+v", stale)
+	}
+}
+
+func TestResumeDriverRequestRequiresExactLane(t *testing.T) {
+	payload := Payload{
+		Continuation: &Continuation{
+			RemainingMaxSteps: 1,
+		},
+	}
+	if request := resumeDriverRequest("C:/case", "_template", strings.Repeat("a", 64), payload); request != nil {
+		t.Fatalf("resume request without exact lane = %+v", request)
 	}
 }
 

@@ -68,6 +68,43 @@ func TestCreateCandidatesWhatIfDoesNotWrite(t *testing.T) {
 	assertTreeEmptyOrMissing(t, result.ToolingRoot)
 }
 
+func TestPlanIgnoresOnlyManagedTextLineEndingRepresentation(t *testing.T) {
+	repoRoot, caseRoot, pack := promoteFixture(t)
+	rel := filepath.FromSlash("references/template/README.md")
+	packPath := filepath.Join(repoRoot, "packs", pack, rel)
+	casePath := filepath.Join(caseRoot, rel)
+	if err := os.WriteFile(packPath, []byte("# README\n\nshared content\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(casePath, []byte("# README\r\n\r\nshared content\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := Plan(repoRoot, caseRoot, pack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := plan.Items[0]
+	if item.Action != "unchanged" || item.Changed {
+		t.Fatalf("line-ending-only representation should be unchanged: %+v", item)
+	}
+	if item.CaseHash == "" || item.PackHash == "" || item.CaseHash == item.PackHash {
+		t.Fatalf("plan should retain distinct raw-byte hashes: %+v", item)
+	}
+
+	if err := os.WriteFile(casePath, []byte("# README\r\n\r\ndifferent content\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan, err = Plan(repoRoot, caseRoot, pack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item = plan.Items[0]
+	if item.Action != "candidate-after-llm-review" || !item.Changed {
+		t.Fatalf("real content change should require candidate review: %+v", item)
+	}
+}
+
 func TestCreateCandidatesWritesIndexAndSanitizedTooling(t *testing.T) {
 	repoRoot, caseRoot, pack := promoteFixture(t)
 

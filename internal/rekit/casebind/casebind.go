@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/sourceartifact"
 )
 
 type WritePlan struct {
@@ -69,8 +70,24 @@ func WriteInstance(caseRoot, repoRoot, pack, projectName string) (string, error)
 }
 
 func WriteCaseShim(caseRoot, repoRoot string) (string, error) {
+	return writeCaseShim(caseRoot, repoRoot, false)
+}
+
+func WriteCanonicalCaseShim(caseRoot, repoRoot string) (string, error) {
+	return writeCaseShim(caseRoot, repoRoot, true)
+}
+
+func writeCaseShim(caseRoot, repoRoot string, canonical bool) (string, error) {
 	shimSource := filepath.Join(repoRoot, "rekit", "templates", "case-shim", "SKILL.md")
-	shimText, err := os.ReadFile(shimSource)
+	var (
+		shimText []byte
+		err      error
+	)
+	if canonical {
+		shimText, err = sourceartifact.ReadCanonical(shimSource)
+	} else {
+		shimText, err = os.ReadFile(shimSource)
+	}
 	if err != nil {
 		return "", fmt.Errorf("missing case shim template: %s", shimSource)
 	}

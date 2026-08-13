@@ -90,6 +90,26 @@ func TestValidateAdapterFlagIsolatedToVMPRELiveAcceptance(t *testing.T) {
 	}
 }
 
+func TestOrdinaryHostOptionsRequireCurrentDriverRequest(t *testing.T) {
+	opt := sessionhost.Options{}
+	opt.RequireCurrentDriverRequest()
+	if strings.TrimSpace(opt.ExpectedCurrentDriverRequestSHA256) != "" {
+		t.Fatalf("requiring a request should not fabricate its identity: %+v", opt)
+	}
+}
+
+func TestExpectedCurrentDriverRequestFlagIsOrdinaryHostOnly(t *testing.T) {
+	if err := validateExpectedCurrentDriverRequestFlag(strings.Repeat("a", 64), true); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateExpectedCurrentDriverRequestFlag("", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateExpectedCurrentDriverRequestFlag(strings.Repeat("a", 64), false); err == nil || !strings.Contains(err.Error(), "ordinary rekit-host mode") {
+		t.Fatalf("specialized host mode accepted case request identity: %v", err)
+	}
+}
+
 func TestPublicModeRequestedIncludesLiveSoak(t *testing.T) {
 	if publicModeRequested(false, false, false, false, false) {
 		t.Fatal("empty public mode set was selected")

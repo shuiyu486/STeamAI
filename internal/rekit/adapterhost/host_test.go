@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -442,6 +443,188 @@ func TestRunRejectsRuntimeBudgetOverrun(t *testing.T) {
 	outputRoot := filepath.Join(fixture.caseRoot, "workspace", "main", "inspect", "session-1")
 	assertHostFileMissing(t, filepath.Join(outputRoot, "inspection.json"))
 	assertHostFileMissing(t, filepath.Join(outputRoot, "adapter-report.json"))
+}
+
+func TestRunRevalidatesAuthorizationAtExecutionBoundaries(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		phase  string
+		mutate func(t *testing.T, fixture hostFixture)
+		want   string
+	}{
+		{
+			name:  "profile removed before execution",
+			phase: authorizationPhasePreExecution,
+			mutate: func(t *testing.T, fixture hostFixture) {
+				if err := os.Remove(hostProfilePath(fixture)); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: "profile is missing",
+		},
+		{
+			name:  "profile expired before publication",
+			phase: authorizationPhasePrePublication,
+			mutate: func(t *testing.T, fixture hostFixture) {
+				replaceHostFileText(
+					t,
+					hostProfilePath(fixture),
+					`"expiresAt": "2999-01-01T00:00:00Z"`,
+					`"expiresAt": "2000-01-01T00:00:00Z"`,
+				)
+			},
+			want: "expired",
+		},
+		{
+			name:  "authorization revoked after publication",
+			phase: authorizationPhasePostPublication,
+			mutate: func(t *testing.T, fixture hostFixture) {
+				replaceHostFileText(
+					t,
+					hostProfilePath(fixture),
+					`"mode": "preauthorized"`,
+					`"mode": "manual-gate"`,
+				)
+			},
+			want: "not current preauthorized",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newHostFixture(t, "fixture/input.txt", 10, 4, 1)
+			calls := []string{}
+			fixture.options.testHooks = &hostTestHooks{
+				beforeAuthorizationCurrentness: func(phase string) error {
+					calls = append(calls, phase)
+					if phase == test.phase {
+						test.mutate(t, fixture)
+					}
+					return nil
+				},
+			}
+			_, err := Run(fixture.options)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("authorization drift error=%v, want %q", err, test.want)
+			}
+			if !slices.Contains(calls, test.phase) {
+				t.Fatalf("authorization phase was not reached: calls=%v", calls)
+			}
+			outputRoot := filepath.Join(fixture.caseRoot, "workspace", "main", "inspect", "session-1")
+			assertHostFileMissing(t, filepath.Join(outputRoot, "inspection.json"))
+			assertHostFileMissing(t, filepath.Join(outputRoot, "adapter-report.json"))
+		})
+	}
+}
+
+func TestRunAuthorizationCurrentnessPhaseOrder(t *testing.T) {
+	fixture := newHostFixture(t, "fixture/input.txt", 10, 4, 1)
+	calls := []string{}
+	fixture.options.testHooks = &hostTestHooks{
+		beforeAuthorizationCurrentness: func(phase string) error {
+			calls = append(calls, phase)
+			return nil
+		},
+	}
+	if _, err := Run(fixture.options); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		authorizationPhasePreExecution,
+		authorizationPhasePrePublication,
+		authorizationPhasePostPublication,
+	}
+	if !slices.Equal(calls, want) {
+		t.Fatalf("authorization currentness phases=%v, want %v", calls, want)
+	}
+}
+
+func TestRunRejectsOwnerDriftBeforePublication(t *testing.T) {
+	fixture := newHostFixture(t, "fixture/input.txt", 10, 4, 1)
+	fixture.options.testHooks = &hostTestHooks{
+		beforeAuthorizationCurrentness: func(phase string) error {
+			if phase != authorizationPhasePrePublication {
+				return nil
+			}
+			lanePath := filepath.Join(
+				fixture.caseRoot,
+				".rekit",
+				"lanes",
+				"main",
+				"lane.json",
+			)
+			replaceHostFileText(
+				t,
+				lanePath,
+				`"currentExecutor": "executor-a"`,
+				`"currentExecutor": "executor-b"`,
+			)
+			replaceHostFileText(
+				t,
+				lanePath,
+				`"executorGeneration": 1`,
+				`"executorGeneration": 2`,
+			)
+			return nil
+		},
+	}
+	if _, err := Run(fixture.options); err == nil ||
+		!strings.Contains(err.Error(), "owner is stale") {
+		t.Fatalf("owner drift should fail closed, err=%v", err)
+	}
+	outputRoot := filepath.Join(fixture.caseRoot, "workspace", "main", "inspect", "session-1")
+	assertHostFileMissing(t, filepath.Join(outputRoot, "inspection.json"))
+	assertHostFileMissing(t, filepath.Join(outputRoot, "adapter-report.json"))
+}
+
+func TestRunPostPublicationDoesNotDeleteReplacementOutput(t *testing.T) {
+	fixture := newHostFixture(t, "fixture/input.txt", 10, 4, 1)
+	artifactPath := filepath.Join(
+		fixture.caseRoot,
+		"workspace",
+		"main",
+		"inspect",
+		"session-1",
+		"inspection.json",
+	)
+	replacement := []byte("replacement output\n")
+	fixture.options.testHooks = &hostTestHooks{
+		beforeAuthorizationCurrentness: func(phase string) error {
+			if phase != authorizationPhasePostPublication {
+				return nil
+			}
+			if err := os.Remove(artifactPath); err != nil {
+				return err
+			}
+			return os.WriteFile(artifactPath, replacement, 0o600)
+		},
+	}
+	if _, err := Run(fixture.options); err == nil ||
+		!strings.Contains(err.Error(), "owned output identity") {
+		t.Fatalf("replacement output should fail closed, err=%v", err)
+	}
+	if got, err := os.ReadFile(artifactPath); err != nil ||
+		!bytes.Equal(got, replacement) {
+		t.Fatalf("replacement output was deleted or changed: got=%q err=%v", got, err)
+	}
+	assertHostFileMissing(t, filepath.Join(filepath.Dir(artifactPath), "adapter-report.json"))
+}
+
+func hostProfilePath(fixture hostFixture) string {
+	return filepath.Join(fixture.caseRoot, ".rekit", "lanes", "main", "autonomy.json")
+}
+
+func replaceHostFileText(t *testing.T, path, oldText, newText string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := strings.Replace(string(data), oldText, newText, 1)
+	if updated == string(data) {
+		t.Fatalf("fixture text not found in %s: %s", path, oldText)
+	}
+	if err := os.WriteFile(path, []byte(updated), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func writeHostFile(t *testing.T, path, text string) {

@@ -199,7 +199,7 @@ func TestCurrentLoopOperatorOmitsUnfocusedReviewerHandoff(t *testing.T) {
 	}
 	appendCurrentLoopOpenIntervention(t, caseRoot, "int-current-loop-reviewer-unfocused")
 	out.Reset()
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var status statusInventory
@@ -445,7 +445,7 @@ func TestRunCurrentLoopReportsAppliedStepWhenStatusRefreshFails(t *testing.T) {
 		t.Fatalf("applied step with refresh failure was not reported truthfully: %+v", applied)
 	}
 	var statusOut bytes.Buffer
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &statusOut); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &statusOut); err != nil {
 		t.Fatal(err)
 	}
 	var fresh statusInventory
@@ -519,22 +519,38 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	if external.FinalStatus.MissionControlRunbook.Quickstart == nil || external.FinalStatus.MissionControlRunbook.Quickstart.CurrentLoopOperator == nil || external.FinalStatus.MissionControlRunbook.ReplacementExecutorTakeover == nil || external.FinalStatus.MissionControlRunbook.ReplacementExecutorTakeover.CurrentLoopOperator == nil {
 		t.Fatalf("current-loop operator was not projected to quickstart and replacement takeover: %+v", external.FinalStatus.MissionControlRunbook)
 	}
+	handoffPreviewArgs, ok := typedMissionCommanderDriverRequestCommandCLIArgs(
+		t,
+		external.FinalStatus.MissionControlRunbook.HandoffPreviewDriverRequest,
+	)
+	if !ok {
+		t.Fatal("reviewer status omitted typed handoff preview request")
+	}
 	var handoffPreviewOut bytes.Buffer
-	if err := Run([]string{"-Command", "handoff", "review", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, &handoffPreviewOut); err != nil {
+	if err := Run(handoffPreviewArgs, &handoffPreviewOut); err != nil {
 		t.Fatal(err)
 	}
 	var handoffPreview workstream.HandoffResult
 	if err := json.Unmarshal(handoffPreviewOut.Bytes(), &handoffPreview); err != nil {
 		t.Fatalf("current-loop operator handoff preview did not decode: %v\n%s", err, handoffPreviewOut.String())
 	}
-	if handoffPreview.CurrentLoopOperator == nil || handoffPreview.ReplacementExecutorTakeoverPackage == nil || handoffPreview.ReplacementExecutorTakeoverPackage.CurrentLoopOperator == nil || handoffPreview.CurrentLoopOperator.ExternalReviewerHandoff == nil {
-		t.Fatalf("handoff JSON omitted current-loop operator: %+v", handoffPreview)
+	if handoffPreview.Selector != "main" ||
+		handoffPreview.DailyMissionControlRunbook == nil ||
+		handoffPreview.DailyMissionControlRunbook.HandoffApplyDriverRequest == nil {
+		t.Fatalf("handoff JSON omitted exact Reviewer target lane apply request: %+v", handoffPreview)
+	}
+	handoffApplyArgs, ok := typedMissionCommanderDriverRequestCommandCLIArgs(
+		t,
+		handoffPreview.DailyMissionControlRunbook.HandoffApplyDriverRequest,
+	)
+	if !ok {
+		t.Fatal("reviewer handoff preview omitted typed Apply request")
 	}
 	var handoffApplyOut bytes.Buffer
-	if err := runHashBoundHandoffApply(t, []string{"-Command", "handoff", "review", "-Target", caseRoot, "-Pack", "_template", "-Apply", "-Format", "json"}, &handoffApplyOut); err != nil {
+	if err := Run(handoffApplyArgs, &handoffApplyOut); err != nil {
 		t.Fatal(err)
 	}
-	durableHandoff, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "handovers", "feature-review-latest.md"))
+	durableHandoff, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "handovers", "main-latest.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -603,7 +619,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		t.Fatalf("result continuation did not separate shared command from guarded alternatives: shared=%s returned=%+v failed=%+v", continuation.WhatIfCommand, returnedContinuation, failedContinuation)
 	}
 	var operatorStatusOut bytes.Buffer
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &operatorStatusOut); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &operatorStatusOut); err != nil {
 		t.Fatal(err)
 	}
 	var operatorStatus statusInventory
@@ -678,7 +694,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		t.Fatal(err)
 	}
 	var reviewerRelayStatusOut bytes.Buffer
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &reviewerRelayStatusOut); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &reviewerRelayStatusOut); err != nil {
 		t.Fatal(err)
 	}
 	var reviewerRelayStatus statusInventory
@@ -724,7 +740,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		ObservationKind: "reviewer-session-failed", Actor: actor, ReviewerAttemptSHA256: resultAttempt.AttemptSnapshotSHA256, ReviewerExitStatus: "reviewer-error",
 		NoAuthorityOrConfirmed: true, NoHeavyTool: true,
 	})
-	failedPreview := runCurrentLoopResumePreviewWith(t, caseRoot, dispatchApplied.SegmentCheckpoint.ArtifactSHA256, "-CurrentLoopObservationPath", failedObservationPath)
+	failedPreview := runCurrentLoopResumePreviewWith(t, caseRoot, dispatchApplied.SegmentCheckpoint.ArtifactSHA256, "-Lane", "main", "-CurrentLoopObservationPath", failedObservationPath)
 	if failedPreview.ObservationSHA256 == "" || !strings.Contains(failedPreview.ApplyCommand, "-CurrentLoopObservationPath") || strings.Contains(failedPreview.ApplyCommand, "-ReviewerOutcome") || strings.Contains(failedPreview.ApplyCommand, "-Actor") {
 		t.Fatalf("failed reviewer envelope preview did not preserve path-only apply: %+v", failedPreview)
 	}
@@ -745,7 +761,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		ObservationKind: "reviewer-session-accepted", Actor: actor, ReviewerAttemptSHA256: replacementSpawnAttempt.AttemptSnapshotSHA256, ReviewerHarness: externalsession.RemoteControlHarness, ReviewerSession: "reviewer-session-replacement",
 		NoAuthorityOrConfirmed: true, NoHeavyTool: true,
 	})
-	replacementDispatchPreview := runCurrentLoopResumePreviewWith(t, caseRoot, failedApplied.SegmentCheckpoint.ArtifactSHA256, "-CurrentLoopObservationPath", replacementDispatchObservationPath)
+	replacementDispatchPreview := runCurrentLoopResumePreviewWith(t, caseRoot, failedApplied.SegmentCheckpoint.ArtifactSHA256, "-Lane", "main", "-CurrentLoopObservationPath", replacementDispatchObservationPath)
 	replacementDispatchApplied := runCurrentLoopResult(t, rekitCommandCLIArgs(t, replacementDispatchPreview.ApplyCommand))
 	if replacementDispatchApplied.AppliedSteps != 1 || replacementDispatchApplied.StopReason.Code != "external-reviewer-handoff" || replacementDispatchApplied.SegmentCheckpoint == nil {
 		t.Fatalf("replacement reviewer dispatch did not reach result handoff: %+v", replacementDispatchApplied)
@@ -767,6 +783,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		t.Fatal(err)
 	}
 	staleResultPreview := runCurrentLoopResumePreviewWith(t, caseRoot, replacementDispatchApplied.SegmentCheckpoint.ArtifactSHA256,
+		"-Lane", "main",
 		"-ExpectedCurrentLoopReviewerAttemptSha256", replacementResultAttempt.AttemptSnapshotSHA256,
 		"-ReviewerResultInputSourcePath", staleResultSource,
 		"-Actor", actor,
@@ -779,7 +796,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	}
 
 	var replacementStatusOut bytes.Buffer
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &replacementStatusOut); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &replacementStatusOut); err != nil {
 		t.Fatal(err)
 	}
 	var replacementStatus statusInventory
@@ -940,7 +957,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	}
 
 	replacementStatusOut.Reset()
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &replacementStatusOut); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &replacementStatusOut); err != nil {
 		t.Fatal(err)
 	}
 	decodeJSONStrict(t, replacementStatusOut.Bytes(), &replacementStatus)
@@ -1013,7 +1030,7 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		t.Fatalf("reviewer-to-case segment checkpoint is invalid: %+v", resultApplied.SegmentCheckpoint)
 	}
 	var campaignStatusOut bytes.Buffer
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &campaignStatusOut); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &campaignStatusOut); err != nil {
 		t.Fatal(err)
 	}
 	var campaignStatus statusInventory
@@ -1029,15 +1046,15 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 			t.Fatalf("reviewer continuation step %d = %+v, want %s", index+1, resultApplied.Steps[index], expected)
 		}
 	}
-	casePreview := runCurrentLoopResumePreview(t, caseRoot, durableCampaign.ArtifactSHA256)
-	if casePreview.InitialRoute != "case" || casePreview.InitialLane != campaign.ExpectedLane || casePreview.MaxSteps != campaign.RemainingMaxSteps || casePreview.ExpectedCurrentLoopPlanSHA256 == "" || casePreview.ResumeSource == nil || casePreview.ResumeSource.ArtifactSHA256 != durableCampaign.ArtifactSHA256 || casePreview.ExpectedResumeCheckpointSHA256 != durableCampaign.ArtifactSHA256 || casePreview.ApplyCommand == "" || casePreview.InitialCurrentStep == nil || casePreview.InitialCurrentStep.MemberExecution == nil || len(casePreview.Steps) != 0 || casePreview.ContinuationRequest != nil {
+	casePreview := runCurrentLoopResumePreviewWith(t, caseRoot, durableCampaign.ArtifactSHA256, "-Lane", campaign.ExpectedLane)
+	if casePreview.InitialRoute != "case" || casePreview.InitialLane != campaign.ExpectedLane || casePreview.MaxSteps != campaign.RemainingMaxSteps || casePreview.ExpectedCurrentLoopPlanSHA256 == "" || casePreview.ResumeSource == nil || casePreview.ResumeSource.ArtifactSHA256 != durableCampaign.ArtifactSHA256 || casePreview.ExpectedResumeCheckpointSHA256 != durableCampaign.ArtifactSHA256 || casePreview.ApplyCommand == "" || casePreview.InitialCurrentStep == nil || casePreview.InitialCurrentStep.CurrentDriverRequest.Lane != campaign.ExpectedLane || len(casePreview.Steps) != 0 || casePreview.ContinuationRequest != nil {
 		t.Fatalf("durable campaign operator did not rebuild a checkpoint-bound fresh case segment: %+v", casePreview)
 	}
 	out.Reset()
 	err = Run([]string{
 		"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", "_template",
 		"-ResumeCurrentLoop", "-ExpectedCurrentLoopCheckpointSha256", durableCampaign.ArtifactSHA256,
-		"-ExpectedMemberExecutionPlanSha256", casePreview.InitialCurrentStep.MemberExecution.ExpectedPlanSHA256,
+		"-Lane", campaign.ExpectedLane,
 		"-ExpectedCurrentLoopPlanSha256", turn.Resume.ExpectedCurrentLoopPlanSHA256,
 		"-Apply", "-Format", "json",
 	}, &out)
@@ -1332,7 +1349,7 @@ func TestRunCurrentLoopStopsBeforeReconcileSurfacedByFirstStepRefresh(t *testing
 		t.Fatalf("old loop authorization resolved the fresh intervention: %s", interventions)
 	}
 	var statusOut bytes.Buffer
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &statusOut); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &statusOut); err != nil {
 		t.Fatal(err)
 	}
 	var newSessionStatus statusInventory
@@ -1344,7 +1361,7 @@ func TestRunCurrentLoopStopsBeforeReconcileSurfacedByFirstStepRefresh(t *testing
 		t.Fatalf("new-session status did not recover exact campaign checkpoint and resume request: %+v", durable)
 	}
 	var handoffOut bytes.Buffer
-	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}, &handoffOut); err != nil {
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-WhatIf", "-Format", "json"}, &handoffOut); err != nil {
 		t.Fatal(err)
 	}
 	var handoff struct {
@@ -1357,7 +1374,7 @@ func TestRunCurrentLoopStopsBeforeReconcileSurfacedByFirstStepRefresh(t *testing
 		t.Fatalf("handoff did not project strict campaign checkpoint: %+v", handoff.CurrentLoopSegment)
 	}
 	var statusText bytes.Buffer
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &statusText); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "text"}, &statusText); err != nil {
 		t.Fatal(err)
 	}
 	for _, expected := range []string{"current-loop resume source：artifactSha256=" + durable.ArtifactSHA256, "current-loop checkpoint-bound resume driver request", "-ResumeCurrentLoop", "legacyUnboundCommand="} {
@@ -1366,7 +1383,7 @@ func TestRunCurrentLoopStopsBeforeReconcileSurfacedByFirstStepRefresh(t *testing
 		}
 	}
 	var handoffText bytes.Buffer
-	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "text"}, &handoffText); err != nil {
+	if err := Run([]string{"-Command", "handoff", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-WhatIf", "-Format", "text"}, &handoffText); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(handoffText.String(), "current-loop checkpoint-bound resume driver request") || !strings.Contains(handoffText.String(), durable.ArtifactSHA256) {
@@ -1377,7 +1394,7 @@ func TestRunCurrentLoopStopsBeforeReconcileSurfacedByFirstStepRefresh(t *testing
 		t.Fatal(err)
 	}
 	statusOut.Reset()
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &statusOut); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &statusOut); err != nil {
 		t.Fatal(err)
 	}
 	var tamperedStatus statusInventory
@@ -1482,7 +1499,7 @@ func TestRunCurrentLoopResumePublishesRetryCheckpointAfterZeroWriteFailure(t *te
 		t.Fatalf("original claimed resume Apply remained executable after retry checkpoint publication: %v", err)
 	}
 	var statusOut bytes.Buffer
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &statusOut); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &statusOut); err != nil {
 		t.Fatal(err)
 	}
 	var retryStatus statusInventory
@@ -1584,7 +1601,7 @@ func TestRunCurrentLoopResumeDoesNotRecoverAppliedMutationFailure(t *testing.T) 
 		t.Fatalf("resume applied mutation failure recovered consumed budget: %+v", failed)
 	}
 	var statusOut bytes.Buffer
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &statusOut); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &statusOut); err != nil {
 		t.Fatal(err)
 	}
 	var fresh statusInventory
@@ -1702,11 +1719,6 @@ func runCurrentLoopPreviewWith(t *testing.T, caseRoot string, maxSteps int, inpu
 	args = append(args, inputs...)
 	args = append(args, "-WhatIf", "-Format", "json")
 	return runCurrentLoopResult(t, args)
-}
-
-func runCurrentLoopResumePreview(t *testing.T, caseRoot, checkpointSHA256 string) currentLoopTestPlan {
-	t.Helper()
-	return runCurrentLoopResumePreviewWith(t, caseRoot, checkpointSHA256)
 }
 
 func runCurrentLoopResumePreviewWith(t *testing.T, caseRoot, checkpointSHA256 string, inputs ...string) currentLoopTestPlan {
@@ -1913,16 +1925,21 @@ func recordCurrentLoopExternalSessionAttempt(t *testing.T, operator *mission.Cur
 		t.Fatalf("operator omitted external session attempt request: %+v", operator)
 	}
 	job := operator.ExternalSessionJob
-	args := []string{
-		"-Command", "run-current-loop", "-Target", operator.CaseRoot, "-Pack", operator.Pack,
-		"-ResumeCurrentLoop", "-ExpectedCurrentLoopCheckpointSha256", job.CheckpointSHA256,
-		"-RecordExternalSessionAttempt", "-ExpectedExternalSessionJobSha256", job.JobSHA256,
-		"-ExternalSessionHarness", harness, "-ExternalSessionId", session,
-		"-ExternalSessionActor", actor, "-ExternalSessionStartedAt", startedAt,
-		"-WhatIf", "-Format", "json",
-	}
-	if job.CurrentAttempt != nil {
-		args = append(args[:len(args)-3], "-ExpectedExternalSessionAttemptSha256", job.CurrentAttempt.AttemptSHA256, "-WhatIf", "-Format", "json")
+	args := rekitCommandCLIArgs(
+		t,
+		job.AttemptRequest.Command,
+	)
+	for index := range args {
+		switch strings.ToLower(args[index]) {
+		case "-externalsessionharness":
+			args[index+1] = harness
+		case "-externalsessionid":
+			args[index+1] = session
+		case "-externalsessionactor":
+			args[index+1] = actor
+		case "-externalsessionstartedat":
+			args[index+1] = startedAt
+		}
 	}
 	var out bytes.Buffer
 	if err := Run(args, &out); err != nil {
@@ -1960,16 +1977,21 @@ func recordCurrentLoopExternalSessionAttemptWithPendingRecovery(t *testing.T, op
 		t.Fatalf("operator omitted external session job: %+v", operator)
 	}
 	job := operator.ExternalSessionJob
-	args := []string{
-		"-Command", "run-current-loop", "-Target", operator.CaseRoot, "-Pack", operator.Pack,
-		"-ResumeCurrentLoop", "-ExpectedCurrentLoopCheckpointSha256", job.CheckpointSHA256,
-		"-RecordExternalSessionAttempt", "-ExpectedExternalSessionJobSha256", job.JobSHA256,
-		"-ExternalSessionHarness", harness, "-ExternalSessionId", session,
-		"-ExternalSessionActor", actor, "-ExternalSessionStartedAt", startedAt,
-		"-WhatIf", "-Format", "json",
-	}
-	if job.CurrentAttempt != nil {
-		args = append(args[:len(args)-3], "-ExpectedExternalSessionAttemptSha256", job.CurrentAttempt.AttemptSHA256, "-WhatIf", "-Format", "json")
+	args := rekitCommandCLIArgs(
+		t,
+		job.AttemptRequest.Command,
+	)
+	for index := range args {
+		switch strings.ToLower(args[index]) {
+		case "-externalsessionharness":
+			args[index+1] = harness
+		case "-externalsessionid":
+			args[index+1] = session
+		case "-externalsessionactor":
+			args[index+1] = actor
+		case "-externalsessionstartedat":
+			args[index+1] = startedAt
+		}
 	}
 	var out bytes.Buffer
 	if err := Run(args, &out); err != nil {
@@ -2009,7 +2031,7 @@ func recordCurrentLoopExternalSessionAttemptWithPendingRecovery(t *testing.T, op
 	}
 
 	out.Reset()
-	if err := Run([]string{"-Command", "status", "-Target", operator.CaseRoot, "-Pack", operator.Pack, "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", operator.CaseRoot, "-Pack", operator.Pack, "-Lane", operator.Lane, "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var pending statusInventory
@@ -2166,7 +2188,7 @@ func TestRunCurrentLoopExternalSessionInvalidReplacementRecoversTicketOnlyPrefix
 		t.Fatalf("missing external checkpoint: %+v", dispatched)
 	}
 	var out bytes.Buffer
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var status statusInventory
@@ -2188,7 +2210,7 @@ func TestRunCurrentLoopExternalSessionInvalidReplacementRecoversTicketOnlyPrefix
 		t.Fatal(err)
 	}
 	out.Reset()
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	decodeJSONStrict(t, out.Bytes(), &status)
@@ -2232,7 +2254,7 @@ func TestRunCurrentLoopObservationInboxOutranksDispatcherStates(t *testing.T) {
 			memberPlan := preview.InitialCurrentStep.MemberExecution
 			dispatched := runCurrentLoopApplyWith(t, caseRoot, preview, "-ExpectedMemberExecutionPlanSha256", memberPlan.ExpectedPlanSHA256)
 			var out bytes.Buffer
-			if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+			if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &out); err != nil {
 				t.Fatal(err)
 			}
 			var status statusInventory
@@ -2264,7 +2286,7 @@ func TestRunCurrentLoopObservationInboxOutranksDispatcherStates(t *testing.T) {
 				t.Fatal(err)
 			}
 			out.Reset()
-			if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+			if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &out); err != nil {
 				t.Fatal(err)
 			}
 			decodeJSONStrict(t, out.Bytes(), &status)
@@ -2330,7 +2352,7 @@ func TestRunCurrentLoopExternalSessionTurnAdvancesMemberResult(t *testing.T) {
 		t.Fatalf("member dispatch did not reach external boundary: %+v", dispatched)
 	}
 	var statusOut bytes.Buffer
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &statusOut); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &statusOut); err != nil {
 		t.Fatal(err)
 	}
 	var status statusInventory
@@ -2365,7 +2387,7 @@ func TestRunCurrentLoopExternalSessionTurnAdvancesMemberResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	statusOut.Reset()
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &statusOut); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &statusOut); err != nil {
 		t.Fatal(err)
 	}
 	status = statusInventory{}
@@ -2391,7 +2413,7 @@ func TestRunCurrentLoopExternalSessionTurnAdvancesMemberResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	statusOut.Reset()
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &statusOut); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &statusOut); err != nil {
 		t.Fatal(err)
 	}
 	decodeJSONStrict(t, statusOut.Bytes(), &status)
@@ -2569,7 +2591,7 @@ func TestRunCurrentLoopExternalSessionTurnPreservesRelayButRefusesClaimAfterHuma
 		t.Fatalf("missing external checkpoint: %+v", dispatched)
 	}
 	var statusOut bytes.Buffer
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &statusOut); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &statusOut); err != nil {
 		t.Fatal(err)
 	}
 	var status statusInventory
@@ -2595,7 +2617,7 @@ func TestRunCurrentLoopExternalSessionTurnPreservesRelayButRefusesClaimAfterHuma
 		t.Fatal(err)
 	}
 	statusOut.Reset()
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &statusOut); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &statusOut); err != nil {
 		t.Fatal(err)
 	}
 	decodeJSONStrict(t, statusOut.Bytes(), &status)
@@ -2609,7 +2631,7 @@ func TestRunCurrentLoopExternalSessionTurnPreservesRelayButRefusesClaimAfterHuma
 	}
 	t.Cleanup(func() { currentLoopExternalTurnBeforeClaimHook = nil })
 	var partialOut bytes.Buffer
-	err = Run([]string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-ExpectedCurrentStepPlanSha256", current.ExpectedCurrentStepPlanSHA256, "-Apply", "-Format", "json"}, &partialOut)
+	err = Run([]string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-ExpectedCurrentStepPlanSha256", current.ExpectedCurrentStepPlanSHA256, "-Apply", "-Format", "json"}, &partialOut)
 	if err == nil || !strings.Contains(err.Error(), "Human-in-the-Lane intervention") {
 		t.Fatalf("intervention before claim error=%v", err)
 	}
@@ -2634,7 +2656,7 @@ func TestRunCurrentLoopExternalSessionTurnPreservesRelayButRefusesClaimAfterHuma
 		t.Fatalf("nested member observation mutated after intervention: inspection=%+v ok=%v err=%v", inspection, ok, err)
 	}
 	statusOut.Reset()
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &statusOut); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &statusOut); err != nil {
 		t.Fatal(err)
 	}
 	decodeJSONStrict(t, statusOut.Bytes(), &status)
@@ -2666,7 +2688,7 @@ func TestRunCurrentLoopExternalSessionTurnRejectsStaleTurnHashBeforeRelay(t *tes
 		t.Fatalf("missing external checkpoint: %+v", dispatched)
 	}
 	var statusOut bytes.Buffer
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &statusOut); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &statusOut); err != nil {
 		t.Fatal(err)
 	}
 	var status statusInventory
@@ -2692,7 +2714,7 @@ func TestRunCurrentLoopExternalSessionTurnRejectsStaleTurnHashBeforeRelay(t *tes
 		t.Fatal(err)
 	}
 	statusOut.Reset()
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &statusOut); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &statusOut); err != nil {
 		t.Fatal(err)
 	}
 	decodeJSONStrict(t, statusOut.Bytes(), &status)
@@ -2759,7 +2781,7 @@ func TestRunCurrentLoopMemberExecutionCheckpoint(t *testing.T) {
 		t.Fatalf("member loop checkpoint is not resumable with durable observation handoff: %+v", applied.SegmentCheckpoint)
 	}
 	var statusOut bytes.Buffer
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &statusOut); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &statusOut); err != nil {
 		t.Fatal(err)
 	}
 	var durableStatus statusInventory
@@ -2774,7 +2796,10 @@ func TestRunCurrentLoopMemberExecutionCheckpoint(t *testing.T) {
 		t.Fatalf("status omitted the commit-authenticated member handoff sha256: %+v", operator.ExternalMemberHandoff)
 	}
 	job := operator.ExternalSessionJob
-	if job == nil || job.State != "awaiting-submission" || job.SessionKind != "member" || job.MemberAttemptID != memberPlan.AttemptID || job.MemberOwner == nil || job.MemberOwner.Executor != "loop-member" || job.MemberOwner.ExecutorGeneration != 1 || job.JobSHA256 == "" || job.SubmissionPath == "" || job.SubmissionOutputs == "" || !job.SubmissionLast {
+	if job == nil {
+		t.Fatalf("status omitted typed external member job: operator=%+v", operator)
+	}
+	if job.State != "awaiting-submission" || job.SessionKind != "member" || job.MemberAttemptID != memberPlan.AttemptID || job.MemberOwner == nil || job.MemberOwner.Executor != "loop-member" || job.MemberOwner.ExecutorGeneration != 1 || job.JobSHA256 == "" || job.SubmissionPath == "" || job.SubmissionOutputs == "" || !job.SubmissionLast {
 		t.Fatalf("status omitted typed external member job: %+v", job)
 	}
 	if harness := job.HarnessPackage; harness == nil || harness.State != "attempt-review-required" || harness.AttemptReviewRequest == nil || harness.AttemptReviewRequest.Command != job.AttemptRequest.Command || harness.Launch != nil || harness.Return != nil {
@@ -2807,7 +2832,7 @@ func TestRunCurrentLoopMemberExecutionCheckpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	var relayStatusOut bytes.Buffer
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &relayStatusOut); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &relayStatusOut); err != nil {
 		t.Fatal(err)
 	}
 	var relayStatus statusInventory
@@ -2856,7 +2881,7 @@ func TestRunCurrentLoopMemberExecutionCheckpoint(t *testing.T) {
 		}
 	}
 	var statusText bytes.Buffer
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "text"}, &statusText); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "text"}, &statusText); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"current-loop member handoff：state=handoff-ready attempt=" + memberPlan.AttemptID, "owner=loop-member/1", "current-loop member observation：kind=member-session-accepted", "observationPathCommand=`/rekit run-current-loop", "observationEnvelopeTemplate=`{", applied.SegmentCheckpoint.ArtifactSHA256} {
@@ -2887,7 +2912,7 @@ func TestRunCurrentLoopMemberExecutionCheckpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	var inboxStatusOut bytes.Buffer
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &inboxStatusOut); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &inboxStatusOut); err != nil {
 		t.Fatal(err)
 	}
 	var inboxStatus statusInventory
@@ -2975,7 +3000,7 @@ func TestRunCurrentLoopMemberExecutionCheckpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	var receiptStatusOut bytes.Buffer
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &receiptStatusOut); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &receiptStatusOut); err != nil {
 		t.Fatal(err)
 	}
 	var receiptStatus statusInventory
@@ -3016,7 +3041,7 @@ func TestRunCurrentLoopMemberExecutionCheckpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	var returnedInboxStatusOut bytes.Buffer
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &returnedInboxStatusOut); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &returnedInboxStatusOut); err != nil {
 		t.Fatal(err)
 	}
 	var returnedInboxStatus statusInventory
@@ -3042,7 +3067,7 @@ func TestRunCurrentLoopMemberExecutionCheckpoint(t *testing.T) {
 		t.Fatalf("intake-ready member result retained a stale external handoff: stop=%+v continuation=%+v", returnedApplied.StopReason, returnedApplied.ContinuationRequest)
 	}
 	var returnedStatusOut bytes.Buffer
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &returnedStatusOut); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &returnedStatusOut); err != nil {
 		t.Fatal(err)
 	}
 	var returnedStatus statusInventory
@@ -3063,7 +3088,12 @@ func TestRunCurrentLoopMemberExecutionCheckpoint(t *testing.T) {
 }
 
 func runCurrentLoopError(caseRoot string, inputs []string) error {
-	args := []string{"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", "_template"}
+	args := []string{
+		"-Command", "run-current-loop",
+		"-Target", caseRoot,
+		"-Pack", "_template",
+		"-Lane", "main",
+	}
 	args = append(args, inputs...)
 	args = append(args, "-Format", "json")
 	return Run(args, &bytes.Buffer{})

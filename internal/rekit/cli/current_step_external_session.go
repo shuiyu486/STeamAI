@@ -271,7 +271,10 @@ func buildCurrentStepExternalSessionPlan(ctx runtime.Context, opt Options, statu
 		if err != nil {
 			return nil, "", true, err
 		}
-		turn.ApplyCommand = externalSessionTurnApplyCommand(turn)
+		turn.ApplyCommand = selectedLaneCommand(
+			externalSessionTurnApplyCommand(turn),
+			opt.SelectedCurrentLane,
+		)
 		plan.Mode = "result-turn"
 		plan.Turn = &turn
 		return plan, turn.ExpectedPlanSHA256, true, nil

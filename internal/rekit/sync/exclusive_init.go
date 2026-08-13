@@ -20,6 +20,7 @@ import (
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/review"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/sourceartifact"
 )
 
 // ExclusiveInitOptions supplies the stable identity and optional caller-owned
@@ -173,9 +174,10 @@ func planExclusiveInit(repoRoot, caseRoot, pack string, opt ExclusiveInitOptions
 	if err := builder.add(".rekit/instance.yml", "instance-metadata", []byte(casebind.InstanceText(caseFull, repoFull, pack, projectName))); err != nil {
 		return ExclusiveInitPlan{}, err
 	}
-	shim, err := os.ReadFile(filepath.Join(repoFull, "rekit", "templates", "case-shim", "SKILL.md"))
+	shimPath := filepath.Join(repoFull, "rekit", "templates", "case-shim", "SKILL.md")
+	shim, err := sourceartifact.ReadCanonical(shimPath)
 	if err != nil {
-		return ExclusiveInitPlan{}, fmt.Errorf("missing case shim template: %s", filepath.Join(repoFull, "rekit", "templates", "case-shim", "SKILL.md"))
+		return ExclusiveInitPlan{}, fmt.Errorf("missing case shim template: %s", shimPath)
 	}
 	if err := builder.add(".claude/skills/rekit/SKILL.md", "case-local-thin-shim", shim); err != nil {
 		return ExclusiveInitPlan{}, err
@@ -193,7 +195,7 @@ func planExclusiveInit(repoRoot, caseRoot, pack string, opt ExclusiveInitOptions
 		if err != nil {
 			return ExclusiveInitPlan{}, err
 		}
-		content, err := os.ReadFile(source)
+		content, err := sourceartifact.ReadCanonical(source)
 		if err != nil {
 			return ExclusiveInitPlan{}, err
 		}
@@ -206,7 +208,7 @@ func planExclusiveInit(repoRoot, caseRoot, pack string, opt ExclusiveInitOptions
 		if err != nil {
 			return ExclusiveInitPlan{}, err
 		}
-		content, err := os.ReadFile(source)
+		content, err := sourceartifact.ReadCanonical(source)
 		if err != nil {
 			return ExclusiveInitPlan{}, err
 		}
@@ -220,7 +222,7 @@ func planExclusiveInit(repoRoot, caseRoot, pack string, opt ExclusiveInitOptions
 	if err != nil {
 		return ExclusiveInitPlan{}, err
 	}
-	block, err := os.ReadFile(blockSource)
+	block, err := sourceartifact.ReadCanonical(blockSource)
 	if err != nil {
 		return ExclusiveInitPlan{}, err
 	}
@@ -229,7 +231,7 @@ func planExclusiveInit(repoRoot, caseRoot, pack string, opt ExclusiveInitOptions
 		return ExclusiveInitPlan{}, err
 	}
 	if source, err := m.SourcePath("examples/gitignore.example"); err == nil {
-		if content, readErr := os.ReadFile(source); readErr == nil {
+		if content, readErr := sourceartifact.ReadCanonical(source); readErr == nil {
 			if err := builder.add(".gitignore", "support-file", content); err != nil {
 				return ExclusiveInitPlan{}, err
 			}
@@ -243,7 +245,11 @@ func planExclusiveInit(repoRoot, caseRoot, pack string, opt ExclusiveInitOptions
 		if err != nil {
 			return ExclusiveInitPlan{}, err
 		}
-		hash := review.FileHash(source)
+		content, err := sourceartifact.ReadCanonical(source)
+		if err != nil {
+			return ExclusiveInitPlan{}, err
+		}
+		hash := sha256Bytes(content)
 		managedState[rel] = syncManagedEntry{SourceHash: hash, TargetHashAtSync: hash, LastAction: "sync"}
 	}
 	state := syncState{SchemaVersion: 1, TemplateRoot: repoFull, TemplatePack: pack, LastSyncAt: createdAt, Managed: managedState}

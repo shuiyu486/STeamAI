@@ -13,6 +13,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/review"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/sourceartifact"
 )
 
 type ordinaryInitPublication struct {
@@ -233,7 +234,7 @@ func ordinaryInitWriteBytes(plan InitPlan, write WriteResult) ([]byte, error) {
 	case "sync-state":
 		return ordinaryInitStateBytes(plan)
 	}
-	data, err := os.ReadFile(write.SourcePath)
+	data, err := sourceartifact.ReadCanonical(write.SourcePath)
 	if err != nil {
 		return nil, err
 	}
@@ -344,7 +345,7 @@ func ordinaryInitPublicationsCurrent(root *os.Root, caseRoot string, published o
 
 func ordinaryInitSourcesCurrent(plan InitPlan) error {
 	manifestBytes, err := os.ReadFile(filepath.Join(plan.RepoRoot, "packs", filepath.FromSlash(plan.Pack), "manifest.yml"))
-	if err != nil || !strings.EqualFold(sha256Bytes(manifestBytes), plan.initManifestSHA256) {
+	if err != nil || !strings.EqualFold(sha256Bytes(sourceartifact.SemanticText(manifestBytes)), plan.initManifestSHA256) {
 		return fmt.Errorf("ordinary init manifest changed during publication: %w", err)
 	}
 	gitignorePath := filepath.Join(plan.RepoRoot, "packs", filepath.FromSlash(plan.Pack), "examples", "gitignore.example")

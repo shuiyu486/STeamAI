@@ -29,6 +29,56 @@
 
 ## 近期已完成批次与验证
 
+### Batch 827：maintenance hotspot decomposition and full Windows acceptance
+
+状态：已完成。
+
+用户断点：latest-batch handoff、CLI next-batch、session current-step 与 daily Reviewer correction 集中在大文件中，AI 维护时容易牵连相邻职责；Batch 823～826 也尚缺一次完整 Windows 组合验收。
+
+实现：四个热点按原 package owner 移入专属文件，不改变 public command、durable schema 或状态机。组合回归关闭 typed selector 歧义、historical reopen currentness、Reviewer mutation 后终态刷新、VMP publication ownership/authorization drift、parent-interrupted orphan terminal closure，以及 Windows live acceptance cleanup 的 final quarantine replacement 竞态。
+
+验证结果：真实 Windows live acceptance 为 `passed=true`，member/Reviewer 各 3 次完成，VMP adapter/contained child、纠偏替换、attached recovery、terminal replay、profile revoke 与 cleanup 全部通过；完整 `go test ./... -count=1`、`go vet ./...`、`go mod verify`、公开 `release-check/status/packs/doctor` 和 `git diff --check` 通过。未新增 PowerShell runtime logic，未执行未授权 heavy action，未写 authority/confirmed。README、CLAUDE、Agent Team usage、release readiness、路线、batch projection/history、Windows 可用性评估与 CHANGELOG 已核查；pack manifest/config/examples 未变，因为本批未改变 pack contract、catalog 或 adapter CLI。
+
+### Batch 826：execution-time authorization currentness
+
+状态：已完成。
+
+用户断点：adapter dispatch/host启动前虽已消费strict profile与`authorized-gate`，但child执行、输出发布和success返回之间的授权删除、过期、mode/decision revoke或owner takeover可能绕过旧单点检查；各adapter复制检查还会扩大维护影响。
+
+实现：新增gate-owned共享只读`ValidateAdapterExecutionCurrentness`，每次重读exact immutable dispatch、durable lane owner/generation、strict autonomy profile exact path/hash、manifest并执行fresh`autonomy.Evaluate`；只判断currentness，不创建、续期、迁移授权。Generic adapter在pre-execution、pre-publication和post-publication/pre-success三个边界复用validator，最后一阶段还验证artifact/report object identity与exact bytes。VMP child/publication/seal复用同一validator并保持sealed terminal manual-profile replay。Windows失败清理用绑定handle只删除exact-owned object；Linux/Darwin用平台no-replace rename把exact-owned output移出canonical authorized path，绝不按路径unlink quarantine，typed isolation允许VMP继续写terminal failure report/receipt/observation并revoke profile，replacement/identity drift仍fail-closed。Transport、endpoint、delivery observation、request SHA和command text均不参与授权。
+
+验证结果：profile missing/expired/manual revoke、owner/generation drift、三阶段顺序、post-publication replacement与exact-owned bytes反例通过；Windows完整adapterhost及真实`rekit-adapter-acceptance`产品链通过，disposable case与仓库外临时artifact已清理；Linux/Darwin adapterhost test binary交叉编译通过（本机无可运行WSL发行版/container，未声称非Windows运行测试）。完整`go test ./... -count=1`、`go vet ./...`、`git diff --check`与module verify通过。独立终审连续发现并关闭non-Windows check-then-remove、canonical失败输出残留和VMP terminal failure中断问题，末轮无剩余高置信Critical/Important。README、Agent Team usage、release readiness、路线、batch projection/history与CHANGELOG已同步；pack manifest/config/example未变，因为未新增manifest key、adapter CLI、tool catalog或pack contract。未执行heavy action，未写authority/confirmed，未新增PowerShell runtime logic，未提交或推送。
+
+### Batch 825：typed ReKit invocation
+
+状态：已完成。
+
+用户断点：Mission Commander虽已有typed action queue与driver request，但部分daily/status/handoff/takeover仍依赖command string、implicit first lane或裸host判断可执行性；selected与unselected preview/Apply/refresh还可能混用selector identity，导致request/hash漂移。
+
+实现：新增bounded `commands.PublicInvocation`，只接受public profile catalog中的canonical ReKit command与tokenized arguments，拒绝unknown/lookalike/NUL/nested command且不承载shell、executable、environment或working directory。Executable Mission Commander action/request必须携带与command及expected receipt等价的typed invocation；request SHA只证明exact request currentness。Global multi-lane同优先级时不选第一项、不发布request/SHA/operator/takeover，显式`-Lane`后才投影唯一durable lane。Selected status/handoff/current-step/current-loop/driver/reviewer/member与同次RESUME/checkpoint统一exact selector；普通public positional guidance保持兼容。Reviewer intake使用durable target lane，handoff resolver集中在workstream owner；completion/reconcile/start/continue/handoff均拒绝双selector并在selected executable artifact中只保留exact `-Lane`。Daily host在Claude resolution前绑定fresh current request；terminal correction继续保持`NoAutoResume`。
+
+验证结果：commands/mission/currentloop/gate/workstream/promote、sessionhost/rekit-host、subagents与完整CLI focused/full回归通过；完整`go test ./... -count=1`、`go vet ./...`与`git diff --check`通过。Windows真实临时case从hash-bound init进入selected status和driver-step，status/current-step typed invocation与exact lane一致，错误lane在写前fail-closed且case tree不变，临时case已清理；公开status/packs/doctor通过。独立终审发现并关闭1项Important：authority lane `devirt-main` completion/reconcile与matching positional+`-Lane`双selector；修复后复验无Critical/Important。未写authority/confirmed，未执行heavy action，transport未成为授权输入，未新增PowerShell runtime logic，未提交或推送。
+
+### Batch 824：intelligent terminal correction
+
+状态：已完成。
+
+用户断点：自然语言纠偏只能处理current Reviewer rejection；lane在committed completion/closed后，用户若要求补做只能手工猜`reopen`、lane、actor、evidence和hash，daily无法安全恢复。
+
+实现：daily从fresh public status及current board/lifecycle/member lineage唯一解析Reviewer rejection或committed completion；前者继续复用既有correction owner，后者只消费existing`reopen`零写入preview与bounded exact Apply。多active或closed lane返回typed choices且选择前零写入、零Claude launch；pending operation只允许同actor/reason/lane/exact publication恢复，response-loss committed replay保持同operation、mutation-free，并逐一复核compound commit全部targets仍为current reopen。成功只返回`ready-to-continue`和`NoAutoResume`，不接管executor、不恢复旧session/current-loop budget、不启动Claude；ApplyCommand拒绝command/target/pack重绑定。
+
+验证结果：terminal正例、pending/committed recovery、stale/tamper、multi-closed choices、compound targets、mutation diagnosis与bounded ApplyCommand focused/full回归通过。真实Windows `cmd/rekit-host -daily -correction`临时case首次提交committed reopen，相同请求mutation-free replay，operation相同、case tree不变、两次均零Claude launch；临时case已清理。完整`go test -timeout 40m ./...`、`go vet ./...`、releasecheck/manifest invariants、sessionhost、`git diff --check`通过；独立终审无Critical/Important。README、CLAUDE.md、Agent Team usage、路线、batch projection和CHANGELOG已同步；未执行heavy action，未写authority/confirmed，未新增PowerShell runtime logic，未提交或推送。
+
+### Batch 823：Windows canonical text and trusted onboarding generation
+
+状态：已完成。
+
+用户断点：Windows 新 case 的 managed text 可能因 source 使用 LF、CRLF 或裸 CR 而生成不同 bytes；已有普通目录仅换行不同时也可能被误判为内容冲突，削弱 onboarding 的可信生成与恢复一致性。
+
+实现：missing/ordinary onboarding 与 init publication 统一从任意 source newline representation 生成 canonical Windows CRLF；attached/mission 路径继续保留 exact raw source bytes，semantic-equal existing target 继续保留 exact target bytes。Durable intent/receipt/checkpoint/evidence/currentness 仍绑定 exact bytes 与 SHA-256，trusted shim/pack generations 保持 append-only，真实内容差异继续 fail-closed。
+
+验证结果：LF、CRLF、裸 CR、semantic-equal target、raw attached/mission、recovery/tamper 与 caseshim budget 回归通过；fresh `vmp-re` onboarding、完整 Windows 本机 minimum 和独立终审通过。未改变 pack manifest/config/example，未新增 PowerShell runtime logic，未执行 heavy action，未写 authority/confirmed，未提交或推送。
+
 ### RH-09：Windows 日常试用与稳定性门槛
 
 状态：已完成。
