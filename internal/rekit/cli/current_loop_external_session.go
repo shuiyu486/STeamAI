@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/currentloop"
@@ -14,7 +15,9 @@ import (
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewersession"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewpath"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 )
 
@@ -149,8 +152,20 @@ func bindExternalSessionJob(target string, pkg *mission.CurrentLoopOperatorPacka
 		return
 	}
 	typed := missionExternalSessionJob(inspected)
-	typed.Dispatcher = externalSessionDispatcherPackage(job, attempt.AttemptSHA256, dispatch)
-	typed.Transport = externalSessionTransportPackage(job, attempt, dispatch, transport)
+	typed.Dispatcher, err = externalSessionDispatcherPackage(job, attempt.AttemptSHA256, dispatch)
+	if err != nil {
+		pkg.Ready = false
+		pkg.State = "external-session-state-root-invalid"
+		pkg.Boundary = mission.UniqueStrings(append(pkg.Boundary, err.Error()))
+		return
+	}
+	typed.Transport, err = externalSessionTransportPackage(job, attempt, dispatch, transport)
+	if err != nil {
+		pkg.Ready = false
+		pkg.State = "external-session-state-root-invalid"
+		pkg.Boundary = mission.UniqueStrings(append(pkg.Boundary, err.Error()))
+		return
+	}
 	bindExternalSessionRequestLane(&typed, pkg.Lane)
 	if dispatch.State == "attempt-publication-pending" && inspected.State != "submission-ready" && (pkg.ObservationInbox == nil || pkg.ObservationInbox.State == "empty") {
 		pending, pendingErr := externalsession.PendingAttemptPlan(job, dispatch)
@@ -160,7 +175,13 @@ func bindExternalSessionJob(target string, pkg *mission.CurrentLoopOperatorPacka
 			pkg.Boundary = mission.UniqueStrings(append(pkg.Boundary, pendingErr.Error()))
 			return
 		}
-		request := externalSessionPendingAttemptRequest(pending)
+		request, requestErr := externalSessionPendingAttemptRequest(pending)
+		if requestErr != nil {
+			pkg.Ready = false
+			pkg.State = "external-session-state-root-invalid"
+			pkg.Boundary = mission.UniqueStrings(append(pkg.Boundary, requestErr.Error()))
+			return
+		}
 		typed.AttemptState = dispatch.State
 		typed.AttemptRequest = &request
 		typed.Dispatcher.ClaimRequest = nil
@@ -204,8 +225,20 @@ func bindExternalSessionJob(target string, pkg *mission.CurrentLoopOperatorPacka
 	}
 	switch inspected.State {
 	case "submission-ready":
-		relayRequest := externalSessionRelayRequest(job, inspected.JobSHA256)
-		turnRequest := externalSessionTurnRequest(job, inspected.JobSHA256)
+		relayRequest, requestErr := externalSessionRelayRequest(job, inspected.JobSHA256)
+		if requestErr != nil {
+			pkg.Ready = false
+			pkg.State = "external-session-state-root-invalid"
+			pkg.Boundary = mission.UniqueStrings(append(pkg.Boundary, requestErr.Error()))
+			return
+		}
+		turnRequest, requestErr := externalSessionTurnRequest(job, inspected.JobSHA256)
+		if requestErr != nil {
+			pkg.Ready = false
+			pkg.State = "external-session-state-root-invalid"
+			pkg.Boundary = mission.UniqueStrings(append(pkg.Boundary, requestErr.Error()))
+			return
+		}
 		if strings.TrimSpace(relayRequest.Lane) == "" {
 			relayRequest.Lane = pkg.Lane
 		}
@@ -223,7 +256,13 @@ func bindExternalSessionJob(target string, pkg *mission.CurrentLoopOperatorPacka
 			"use externalSessionJob.relayPreviewRequest only for relay-only recovery or diagnosis",
 		}
 	case "awaiting-submission":
-		attemptRequest := externalSessionAttemptRequest(job, inspected.JobSHA256, attempt)
+		attemptRequest, requestErr := externalSessionAttemptRequest(job, inspected.JobSHA256, attempt)
+		if requestErr != nil {
+			pkg.Ready = false
+			pkg.State = "external-session-state-root-invalid"
+			pkg.Boundary = mission.UniqueStrings(append(pkg.Boundary, requestErr.Error()))
+			return
+		}
 		typed.AttemptRequest = &attemptRequest
 		pkg.ExternalSessionJob = &typed
 		pkg.SelectedDriverRequest = &attemptRequest
@@ -255,7 +294,12 @@ func bindExternalSessionJob(target string, pkg *mission.CurrentLoopOperatorPacka
 		pkg.State = "external-session-submission-invalid"
 		pkg.ResumeDriverRequest = nil
 		if attempt.Current != nil {
-			replacementRequest := externalSessionAttemptRequest(job, inspected.JobSHA256, attempt)
+			replacementRequest, requestErr := externalSessionAttemptRequest(job, inspected.JobSHA256, attempt)
+			if requestErr != nil {
+				pkg.State = "external-session-state-root-invalid"
+				pkg.Boundary = mission.UniqueStrings(append(pkg.Boundary, requestErr.Error()))
+				return
+			}
 			typed.AttemptRequest = &replacementRequest
 			pkg.ExternalSessionJob = &typed
 			pkg.SelectedDriverRequest = &replacementRequest
@@ -303,8 +347,38 @@ func externalSessionJobFor(target string, pkg *mission.CurrentLoopOperatorPackag
 		DispatchID: receipt.DispatchID, Harness: receipt.ReviewerHarness, Session: receipt.ReviewerSession,
 	}
 	job, err := externalsession.NewReviewerJob(target, pkg.Pack, inspection.ArtifactSHA256, reviewer, allowed)
-	job.DispatchRequired = err == nil
-	return job, err
+	if err != nil {
+		return externalsession.Job{}, err
+	}
+	if slices.Contains(allowed, "returned") {
+		job.RelayResultPath, err = currentLoopExternalReviewerRelayResultPath(target, receipt.PacketPath, job.JobID)
+		if err != nil {
+			return externalsession.Job{}, err
+		}
+	}
+	job.DispatchRequired = true
+	return job, nil
+}
+
+func currentLoopExternalReviewerRelayResultPath(caseRoot, packetPath, jobID string) (string, error) {
+	namespace, ok := reviewpath.CanonicalCollectionNamespace(caseRoot, packetPath)
+	if !ok {
+		return "", fmt.Errorf("external session reviewer packet is outside the canonical review namespace")
+	}
+	stateRoot, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return "", err
+	}
+	resultRootRel, err := filepath.Rel(stateRoot.Path, namespace.ResultRoot)
+	if err != nil || filepath.IsAbs(resultRootRel) || resultRootRel == "." || resultRootRel == ".." || strings.HasPrefix(resultRootRel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("external session reviewer result root escapes the selected project state root")
+	}
+	return projectstate.Rel(
+		caseRoot,
+		filepath.ToSlash(resultRootRel),
+		"external-session-returns",
+		strings.TrimSpace(jobID)+".json",
+	)
 }
 
 func bindExternalSessionRequestLane(job *mission.CurrentLoopExternalSessionJob, lane string) {
@@ -390,10 +464,22 @@ func externalReviewerLaunchIdentity(
 }
 
 func externalSessionHarnessPackage(job externalsession.Job, inspection externalsession.Inspection, attempt externalsession.AttemptInspection, operator *mission.CurrentLoopOperatorPackage, typed mission.CurrentLoopExternalSessionJob) *mission.CurrentLoopExternalSessionHarnessPackage {
+	refresh, err := statusMissionControlRefreshCommand(job.CaseRoot)
+	if err != nil {
+		return &mission.CurrentLoopExternalSessionHarnessPackage{
+			SchemaVersion: 1,
+			State:         "invalid-state-root",
+			CaseRoot:      job.CaseRoot,
+			JobID:         job.JobID,
+			JobSHA256:     inspection.JobSHA256,
+			Warnings:      []string{err.Error()},
+			Boundary:      []string{"external session harness package is blocked until one exact project state root resolves"},
+		}
+	}
 	pkg := &mission.CurrentLoopExternalSessionHarnessPackage{
 		SchemaVersion: 1, State: "attempt-review-required", CaseRoot: job.CaseRoot,
 		JobID: job.JobID, JobSHA256: inspection.JobSHA256, CheckpointSHA256: job.CheckpointSHA256, SessionKind: job.SessionKind,
-		AttemptReviewRequest: typed.AttemptRequest, RefreshStatusCommand: statusMissionControlRefreshCommand(job.CaseRoot),
+		AttemptReviewRequest: typed.AttemptRequest, RefreshStatusCommand: refresh,
 		Boundary: []string{
 			"the main Agent reviews and records the attempt before the external harness starts a session",
 			"the external harness owns session start, polling, stop, and result production; Go records only request, receipt, and state",
@@ -475,7 +561,13 @@ func externalSessionHarnessPackage(job externalsession.Job, inspection externals
 	launch.Input = input
 	pkg.Launch = launch
 	pkg.State = "running"
-	pkg.Return = externalSessionReturnContract(job, inspection, attempt, operator, typed)
+	returnContract, err := externalSessionReturnContract(job, inspection, attempt, operator, typed)
+	if err != nil {
+		pkg.Launch.Ready = false
+		pkg.Warnings = append(pkg.Warnings, "external session return contract cannot resolve the selected project state root; refresh status and do not launch")
+	} else {
+		pkg.Return = returnContract
+	}
 	switch inspection.State {
 	case "submission-ready":
 		pkg.State = "return-review-required"
@@ -487,9 +579,9 @@ func externalSessionHarnessPackage(job externalsession.Job, inspection externals
 	return pkg
 }
 
-func externalSessionReturnContract(job externalsession.Job, inspection externalsession.Inspection, attempt externalsession.AttemptInspection, operator *mission.CurrentLoopOperatorPackage, typed mission.CurrentLoopExternalSessionJob) *mission.CurrentLoopExternalSessionReturnContract {
+func externalSessionReturnContract(job externalsession.Job, inspection externalsession.Inspection, attempt externalsession.AttemptInspection, operator *mission.CurrentLoopOperatorPackage, typed mission.CurrentLoopExternalSessionJob) (*mission.CurrentLoopExternalSessionReturnContract, error) {
 	if attempt.Current == nil {
-		return nil
+		return nil, nil
 	}
 	contract := &mission.CurrentLoopExternalSessionReturnContract{
 		SubmissionPath: attempt.Current.SubmissionPath, SubmissionOutputs: attempt.Current.SubmissionOutputs,
@@ -505,7 +597,11 @@ func externalSessionReturnContract(job externalsession.Job, inspection externals
 		if job.SessionKind == "reviewer" && outcome == "returned" {
 			required = append([]string{attempt.Current.SubmissionResult}, required...)
 			if job.Reviewer != nil && job.Reviewer.Harness == externalsession.RemoteControlHarness {
-				required = append(required[:1], append([]string{externalsession.TransportReturnReceiptPath(job.JobID, attempt.Current.Generation)}, required[1:]...)...)
+				returnReceiptPath, err := externalsession.TransportReturnReceiptPathForCase(job.CaseRoot, job.JobID, attempt.Current.Generation)
+				if err != nil {
+					return nil, err
+				}
+				required = append(required[:1], append([]string{returnReceiptPath}, required[1:]...)...)
 			}
 		}
 		contract.Templates = append(contract.Templates, mission.CurrentLoopExternalSessionSubmissionTemplate{Outcome: outcome, JSON: template, RequiredWrites: required, RequiredReplace: replacements})
@@ -514,7 +610,7 @@ func externalSessionReturnContract(job externalsession.Job, inspection externals
 		contract.ReviewRequest = operator.SelectedDriverRequest
 		contract.RelayRecoveryRequest = typed.RelayPreviewRequest
 	}
-	return contract
+	return contract, nil
 }
 
 func externalSessionSubmissionTemplate(job externalsession.Job, jobSHA string, attempt externalsession.AttemptInspection, dispatcher *mission.CurrentLoopExternalSessionDispatcher, outcome string) (string, []string) {
@@ -631,19 +727,25 @@ func externalSessionRelayApplyCommand(plan externalsession.Plan) string {
 	})
 }
 
-func externalSessionRelayRequest(job externalsession.Job, jobSHA string) mission.MissionCommanderDriverRequest {
-	command := joinDriverCommand([]string{"/rekit", "run-current-loop", "-Target", job.CaseRoot, "-ResumeCurrentLoop", "-ExpectedCurrentLoopCheckpointSha256", job.CheckpointSHA256, "-RelayExternalSessionSubmission", "-ExpectedExternalSessionJobSha256", jobSHA, "-WhatIf", "-Format", "json"})
-	return mission.MissionCommanderDriverRequest{
-		Kind: "preview-command", RunLoopStepID: "external-session-relay:" + job.JobID, Actor: "mission-commander",
-		State: "review-required", Source: "current-loop-external-session-job", Lane: memberLane(job), Label: job.SessionKind + " session result relay",
-		Command: command, CommandExecutable: true, RequiresReview: true,
-		ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
-			State: "preview-ready", RefreshStatusCommand: statusMissionControlRefreshCommand(job.CaseRoot),
-			Description: "returns exact submission and relay plan hashes for reviewed Apply",
-			Boundary:    []string{"preview does not publish artifacts or consume the checkpoint"},
-		},
-		Boundary: []string{"execute only while externalSessionJob jobSha256 and submissionSha256 remain current"},
+func externalSessionRelayRequest(job externalsession.Job, jobSHA string) (mission.MissionCommanderDriverRequest, error) {
+	refresh, err := statusMissionControlRefreshCommand(job.CaseRoot)
+	if err != nil {
+		return mission.MissionCommanderDriverRequest{}, err
 	}
+	command := joinDriverCommand([]string{"/rekit", "run-current-loop", "-Target", job.CaseRoot, "-ResumeCurrentLoop", "-ExpectedCurrentLoopCheckpointSha256", job.CheckpointSHA256, "-RelayExternalSessionSubmission", "-ExpectedExternalSessionJobSha256", jobSHA, "-WhatIf", "-Format", "json"})
+	return mission.MissionCommanderDriverRequestWithTypedCommand(
+		mission.MissionCommanderDriverRequest{
+			Kind: "preview-command", RunLoopStepID: "external-session-relay:" + job.JobID, Actor: "mission-commander",
+			State: "review-required", Source: "current-loop-external-session-job", Lane: memberLane(job), Label: job.SessionKind + " session result relay",
+			Command: command, CommandExecutable: true, RequiresReview: true,
+			ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
+				State: "preview-ready", RefreshStatusCommand: refresh,
+				Description: "returns exact submission and relay plan hashes for reviewed Apply",
+				Boundary:    []string{"preview does not publish artifacts or consume the checkpoint"},
+			},
+			Boundary: []string{"execute only while externalSessionJob jobSha256 and submissionSha256 remain current"},
+		},
+	)
 }
 
 func memberLane(job externalsession.Job) string {

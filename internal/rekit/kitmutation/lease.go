@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mutationfence"
 )
 
 type Lease struct {
@@ -17,6 +19,17 @@ type Lease struct {
 }
 
 func Acquire(repoRoot string) (*Lease, error) {
+	return acquire(repoRoot, false)
+}
+
+// AcquireProjectRefresh serializes current-sync with ordinary kit mutations.
+// It bypasses only the current-sync fence owned by the transaction being
+// resumed; callers must also hold the shared project refresh lease.
+func AcquireProjectRefresh(repoRoot string) (*Lease, error) {
+	return acquire(repoRoot, true)
+}
+
+func acquire(repoRoot string, allowCurrentSync bool) (*Lease, error) {
 	repo, err := filepath.Abs(repoRoot)
 	if err != nil {
 		return nil, err
@@ -48,6 +61,11 @@ func Acquire(repoRoot string) (*Lease, error) {
 	}
 	if err := lockFile(file.Fd()); err != nil {
 		return nil, errors.Join(err, file.Close())
+	}
+	if !allowCurrentSync {
+		if err := mutationfence.RefusePendingCurrentSync(repo, "kit mutation"); err != nil {
+			return nil, errors.Join(err, unlockFile(file.Fd()), file.Close())
+		}
 	}
 	return &Lease{file: file, unlock: unlockFile}, nil
 }

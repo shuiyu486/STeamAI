@@ -9,8 +9,44 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	syncpkg "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 )
+
+func TestCandidateDecisionVerificationWorkspaceUsesSingleStateRoot(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		dir  string
+	}{
+		{name: "current", dir: projectstate.CurrentDir},
+		{name: "legacy", dir: projectstate.LegacyDir},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			caseRoot := t.TempDir()
+			if err := os.Mkdir(filepath.Join(caseRoot, tc.dir), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			workspace, err := candidateDecisionVerificationWorkspace(caseRoot, strings.Repeat("a", 64), strings.Repeat("b", 64))
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := filepath.Join(caseRoot, tc.dir, "verifications", "candidate-decisions", shortHash(strings.Repeat("a", 64)+strings.Repeat("b", 64)))
+			if workspace != want {
+				t.Fatalf("workspace = %q, want %q", workspace, want)
+			}
+		})
+	}
+
+	caseRoot := t.TempDir()
+	for _, dir := range []string{projectstate.CurrentDir, projectstate.LegacyDir} {
+		if err := os.Mkdir(filepath.Join(caseRoot, dir), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := candidateDecisionVerificationWorkspace(caseRoot, "packet", "decision"); err == nil || !strings.Contains(err.Error(), "must not coexist") {
+		t.Fatalf("dual-root workspace error = %v", err)
+	}
+}
 
 func TestProvisionCandidateVerificationCasesPreviewsAppliesReplaysAndVerifies(t *testing.T) {
 	repoRoot, sourceCase, _, pack := packMemoryReconsumeFixture(t)
@@ -536,10 +572,13 @@ func candidateProvisionFixture(t *testing.T, name string) (repoRoot, sourceCase,
 	packetPath = created.ReviewWorkspace.PacketPath
 	packetBytes, _ := os.ReadFile(packetPath)
 	decisionBytes, _ := os.ReadFile(decisionPath)
-	workspace = candidateDecisionVerificationWorkspace(sourceCase, sha256Hex(packetBytes), sha256Hex(decisionBytes))
+	var err error
+	workspace, err = candidateDecisionVerificationWorkspace(sourceCase, sha256Hex(packetBytes), sha256Hex(decisionBytes))
+	if err != nil {
+		t.Fatal(err)
+	}
 	freshRoot = filepath.Join(workspace, "fresh")
 	attachedRoot = filepath.Join(workspace, "attached")
-	var err error
 	preview, err = ProvisionCandidateVerificationCases(repoRoot, sourceCase, pack, CandidateVerificationProvisionOptions{PacketPath: packetPath, DecisionPath: decisionPath, FreshCaseRoot: freshRoot, AttachedCaseRoot: attachedRoot, WhatIf: true})
 	if err != nil {
 		t.Fatal(err)

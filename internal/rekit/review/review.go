@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 type Item struct {
@@ -225,10 +227,14 @@ func WriteArtifacts(plan Plan, opts ArtifactOptions) (ArtifactResult, error) {
 
 func reviewPaths(plan Plan, opts ArtifactOptions) (artifactPaths, error) {
 	root := strings.TrimSpace(opts.ReviewOutputDir)
+	var err error
 	if root == "" {
-		root = filepath.Join(plan.CaseRoot, ".rekit", "reviews", time.Now().Format("20060102-150405000")+"-"+plan.Command)
+		root, err = projectstate.Join(plan.CaseRoot, "reviews", time.Now().Format("20060102-150405000")+"-"+plan.Command)
+		if err != nil {
+			return artifactPaths{}, err
+		}
 	}
-	root, err := filepath.Abs(root)
+	root, err = filepath.Abs(root)
 	if err != nil {
 		return artifactPaths{}, err
 	}

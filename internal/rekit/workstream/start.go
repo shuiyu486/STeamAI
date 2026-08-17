@@ -20,6 +20,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 const defaultPolicyText = `schemaVersion: 1
@@ -173,7 +174,7 @@ func StartPreview(repoRoot, caseRoot, pack string, opt StartOptions) (StartResul
 	if err != nil {
 		return StartResult{}, err
 	}
-	laneFile, err := refsf.SafeJoin(inst.CaseRoot, relJoin(".rekit", "lanes", laneID, "lane.json"))
+	laneFile, err := projectstate.Join(inst.CaseRoot, "lanes", laneID, "lane.json")
 	if err != nil {
 		return StartResult{}, err
 	}
@@ -212,9 +213,18 @@ func StartPreview(repoRoot, caseRoot, pack string, opt StartOptions) (StartResul
 	}
 	brief := startMissionBrief(inst.CaseRoot)
 	authorizedGateAdapterHandoffs := authorizedGateAdapterHandoffsForLane(m.RepoRoot, inst.CaseRoot, m.Pack, lane.ID)
-	reviewerDispatchIntakeHandoffs := reviewerDispatchIntakeHandoffsForLane(inst.CaseRoot, lane.ID)
-	reviewerPacketRetirementHandoffs := reviewerPacketRetirementHandoffsForLane(inst.CaseRoot, lane.ID)
-	pendingGateHandoffs, openDecisionHandoffs := gateDecisionHandoffsForLane(inst.CaseRoot, lane)
+	reviewerDispatchIntakeHandoffs, err := reviewerDispatchIntakeHandoffsForLane(inst.CaseRoot, lane.ID)
+	if err != nil {
+		return StartResult{}, err
+	}
+	reviewerPacketRetirementHandoffs, err := reviewerPacketRetirementHandoffsForLane(inst.CaseRoot, lane.ID)
+	if err != nil {
+		return StartResult{}, err
+	}
+	pendingGateHandoffs, openDecisionHandoffs, err := gateDecisionHandoffsForLane(inst.CaseRoot, lane)
+	if err != nil {
+		return StartResult{}, err
+	}
 	executorAction := startExecutorAction(inst.CaseRoot, lane, brief)
 	if strings.HasPrefix(action, "would-create-lane") || strings.Contains(action, "claim-executor") {
 		executorAction.MissionCommanderAction = startApplyCommanderAction(lane, opt, claim)
@@ -223,6 +233,10 @@ func StartPreview(repoRoot, caseRoot, pack string, opt StartOptions) (StartResul
 	commanderNextActions = MissionCommanderNextActionsWithAuthorizedGateAdapters(commanderNextActions, authorizedGateAdapterHandoffs)
 	commanderNextActions = MissionCommanderNextActionsWithReviewerDispatches(commanderNextActions, reviewerDispatchIntakeHandoffs)
 	commanderActionQueue := mission.MissionCommanderActionQueueFor(commanderNextActions)
+	laneTakeoverPackage, err := laneTakeoverPackageFor(inst.CaseRoot, lane, executorAction, commanderActionQueue, true)
+	if err != nil {
+		return StartResult{}, err
+	}
 	return StartResult{
 		SchemaVersion:                    1,
 		Command:                          "start",
@@ -233,7 +247,7 @@ func StartPreview(repoRoot, caseRoot, pack string, opt StartOptions) (StartResul
 		Applied:                          false,
 		RequiresConfirmation:             true,
 		Lane:                             lane,
-		LaneTakeoverPackage:              laneTakeoverPackageFor(inst.CaseRoot, lane, executorAction, commanderActionQueue, true),
+		LaneTakeoverPackage:              laneTakeoverPackage,
 		MissionBrief:                     brief,
 		AuthorizedGateAdapterHandoffs:    authorizedGateAdapterHandoffs,
 		ReviewerDispatchIntakeHandoffs:   reviewerDispatchIntakeHandoffs,
@@ -247,7 +261,7 @@ func StartPreview(repoRoot, caseRoot, pack string, opt StartOptions) (StartResul
 		MissionCommanderNextActions:      commanderNextActions,
 		MissionCommanderActionQueue:      commanderActionQueue,
 		Writes: []StartWrite{{
-			Path:       relJoin(".rekit", "lanes", laneID, "lane.json"),
+			Path:       relativePath(inst.CaseRoot, laneFile),
 			Kind:       "lane",
 			Action:     action,
 			TargetPath: laneFile,
@@ -337,7 +351,7 @@ func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (result Start
 	if err != nil {
 		return StartResult{}, err
 	}
-	writes = append(writes, StartWrite{Path: ".rekit/board.json", Kind: "board", Action: "refresh", TargetPath: boardPath})
+	writes = append(writes, StartWrite{Path: relativePath(inst.CaseRoot, boardPath), Kind: "board", Action: "refresh", TargetPath: boardPath})
 	resumePath, checkpointPath, err := writeLaneResume(inst.CaseRoot, m, lane)
 	if err != nil {
 		return StartResult{}, err
@@ -348,15 +362,28 @@ func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (result Start
 	)
 	brief := startMissionBrief(inst.CaseRoot)
 	authorizedGateAdapterHandoffs := authorizedGateAdapterHandoffsForLane(m.RepoRoot, inst.CaseRoot, m.Pack, lane.ID)
-	reviewerDispatchIntakeHandoffs := reviewerDispatchIntakeHandoffsForLane(inst.CaseRoot, lane.ID)
-	reviewerPacketRetirementHandoffs := reviewerPacketRetirementHandoffsForLane(inst.CaseRoot, lane.ID)
-	pendingGateHandoffs, openDecisionHandoffs := gateDecisionHandoffsForLane(inst.CaseRoot, lane)
+	reviewerDispatchIntakeHandoffs, err := reviewerDispatchIntakeHandoffsForLane(inst.CaseRoot, lane.ID)
+	if err != nil {
+		return StartResult{}, err
+	}
+	reviewerPacketRetirementHandoffs, err := reviewerPacketRetirementHandoffsForLane(inst.CaseRoot, lane.ID)
+	if err != nil {
+		return StartResult{}, err
+	}
+	pendingGateHandoffs, openDecisionHandoffs, err := gateDecisionHandoffsForLane(inst.CaseRoot, lane)
+	if err != nil {
+		return StartResult{}, err
+	}
 	executorAction := startExecutorAction(inst.CaseRoot, lane, brief)
 	executorAction = withReviewerDispatchBlocker(executorAction, reviewerDispatchIntakeHandoffs)
 	commanderNextActions := startMissionCommanderNextActions(lane, executorAction)
 	commanderNextActions = MissionCommanderNextActionsWithAuthorizedGateAdapters(commanderNextActions, authorizedGateAdapterHandoffs)
 	commanderNextActions = MissionCommanderNextActionsWithReviewerDispatches(commanderNextActions, reviewerDispatchIntakeHandoffs)
 	commanderActionQueue := mission.MissionCommanderActionQueueFor(commanderNextActions)
+	laneTakeoverPackage, err := laneTakeoverPackageFor(inst.CaseRoot, lane, executorAction, commanderActionQueue, false)
+	if err != nil {
+		return StartResult{}, err
+	}
 	return StartResult{
 		SchemaVersion:                    1,
 		Command:                          "start",
@@ -368,7 +395,7 @@ func StartApply(repoRoot, caseRoot, pack string, opt StartOptions) (result Start
 		RequiresConfirmation:             false,
 		Lane:                             lane,
 		AutonomyProfile:                  autonomy.ReadSummary(inst.CaseRoot, lane.ID, m),
-		LaneTakeoverPackage:              laneTakeoverPackageFor(inst.CaseRoot, lane, executorAction, commanderActionQueue, false),
+		LaneTakeoverPackage:              laneTakeoverPackage,
 		MissionBrief:                     brief,
 		AuthorizedGateAdapterHandoffs:    authorizedGateAdapterHandoffs,
 		ReviewerDispatchIntakeHandoffs:   reviewerDispatchIntakeHandoffs,
@@ -493,24 +520,16 @@ func startExecutorAction(caseRoot string, lane Lane, brief mission.Brief) laneEx
 	return laneExecutorActionFor(lane, facts, brief)
 }
 
-func reviewerDispatchIntakeHandoffsForLane(caseRoot, laneID string) []ReviewerDispatchIntakeHandoff {
+func reviewerDispatchIntakeHandoffsForLane(caseRoot, laneID string) ([]ReviewerDispatchIntakeHandoff, error) {
 	facts, err := mission.ReadLedgerFacts(caseRoot)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	items, err := ReviewerDispatchIntakeHandoffs(caseRoot, facts, laneID)
-	if err != nil {
-		return nil
-	}
-	return items
+	return ReviewerDispatchIntakeHandoffs(caseRoot, facts, laneID)
 }
 
-func reviewerPacketRetirementHandoffsForLane(caseRoot, laneID string) []ReviewerPacketRetirementHandoff {
-	items, err := ReviewerPacketRetirementHandoffs(caseRoot, laneID)
-	if err != nil {
-		return nil
-	}
-	return items
+func reviewerPacketRetirementHandoffsForLane(caseRoot, laneID string) ([]ReviewerPacketRetirementHandoff, error) {
+	return ReviewerPacketRetirementHandoffs(caseRoot, laneID)
 }
 
 func EnsureBoard(repoRoot, caseRoot, pack string) error {
@@ -690,8 +709,8 @@ func appendExecutorClaimEvent(laneRoot, laneRootRel string, lane Lane, previousE
 }
 
 func ensureWorkstreamState(caseRoot string, m *manifest.Manifest, writes *[]StartWrite) error {
-	for _, rel := range []string{".rekit", ".rekit/lanes", ".rekit/facts", ".rekit/runs", ".rekit/reviews", ".rekit/backups"} {
-		path, err := refsf.SafeJoin(caseRoot, rel)
+	for _, parts := range [][]string{{}, {"lanes"}, {"facts"}, {"runs"}, {"reviews"}, {"backups"}} {
+		path, err := projectstate.Join(caseRoot, parts...)
 		if err != nil {
 			return err
 		}
@@ -699,18 +718,19 @@ func ensureWorkstreamState(caseRoot string, m *manifest.Manifest, writes *[]Star
 			return err
 		}
 	}
-	for _, rel := range mission.FactRelPaths() {
-		path, err := refsf.SafeJoin(caseRoot, rel)
-		if err != nil {
-			return err
-		}
+	factRels, err := mission.FactRelPathsFor(caseRoot)
+	if err != nil {
+		return err
+	}
+	for _, rel := range factRels {
+		path := filepath.Join(caseRoot, filepath.FromSlash(rel))
 		action, err := ensureEmptyFile(path)
 		if err != nil {
 			return err
 		}
 		*writes = append(*writes, StartWrite{Path: rel, Kind: "fact-jsonl", Action: action, TargetPath: path})
 	}
-	policyPath, err := refsf.SafeJoin(caseRoot, ".rekit/policy.yml")
+	policyPath, err := projectstate.Join(caseRoot, "policy.yml")
 	if err != nil {
 		return err
 	}
@@ -721,14 +741,14 @@ func ensureWorkstreamState(caseRoot string, m *manifest.Manifest, writes *[]Star
 		}
 		policyAction = "create-policy"
 	}
-	*writes = append(*writes, StartWrite{Path: ".rekit/policy.yml", Kind: "policy", Action: policyAction, TargetPath: policyPath})
+	*writes = append(*writes, StartWrite{Path: relativePath(caseRoot, policyPath), Kind: "policy", Action: policyAction, TargetPath: policyPath})
 
 	authorityType, err := m.LaneType(m.WorkstreamDefaults["defaultAuthorityLane"])
 	if err != nil {
 		return err
 	}
 	authorityID := laneID(authorityType.ID, "")
-	authorityFile, err := refsf.SafeJoin(caseRoot, relJoin(".rekit", "lanes", authorityID, "lane.json"))
+	authorityFile, err := projectstate.Join(caseRoot, "lanes", authorityID, "lane.json")
 	if err != nil {
 		return err
 	}
@@ -775,8 +795,11 @@ func acquireProjectMutationLock(caseRoot string) (*workstreamMutationLease, erro
 }
 
 func writeLane(caseRoot string, m *manifest.Manifest, laneType manifest.LaneType, id, name string, force bool, claim executorClaim) (Lane, []StartWrite, error) {
-	laneRootRel := relJoin(".rekit", "lanes", id)
-	laneRoot, err := refsf.SafeJoin(caseRoot, laneRootRel)
+	laneRootRel, err := projectstate.Rel(caseRoot, "lanes", id)
+	if err != nil {
+		return Lane{}, nil, err
+	}
+	laneRoot, err := projectstate.Join(caseRoot, "lanes", id)
 	if err != nil {
 		return Lane{}, nil, err
 	}
@@ -924,7 +947,7 @@ func plannedLane(caseRoot string, laneType manifest.LaneType, id, name, now stri
 	if err != nil {
 		return Lane{}, err
 	}
-	laneRoot, err := refsf.SafeJoin(caseRoot, relJoin(".rekit", "lanes", id))
+	laneRoot, err := projectstate.Join(caseRoot, "lanes", id)
 	if err != nil {
 		return Lane{}, err
 	}
@@ -952,7 +975,7 @@ func plannedLane(caseRoot string, laneType manifest.LaneType, id, name, now stri
 }
 
 func saveBoard(caseRoot string, m *manifest.Manifest, updatedAt ...string) (string, error) {
-	lanesRoot, err := refsf.SafeJoin(caseRoot, ".rekit/lanes")
+	lanesRoot, err := projectstate.Join(caseRoot, "lanes")
 	if err != nil {
 		return "", err
 	}
@@ -975,7 +998,11 @@ func saveBoard(caseRoot string, m *manifest.Manifest, updatedAt ...string) (stri
 		lanes = append(lanes, boardLane{ID: lane.ID, Type: lane.Type, Title: lane.Title, Status: lane.Status, Authority: lane.Authority, Workspace: lane.Workspace, CurrentExecutor: lane.CurrentExecutor, ExecutorGeneration: lane.ExecutorGeneration, LastTakeoverAt: lane.LastTakeoverAt, LastTakeoverBy: lane.LastTakeoverBy, LastTakeoverReason: lane.LastTakeoverReason, LastReconciledIntervention: lane.LastReconciledIntervention, LastReconcileAt: lane.LastReconcileAt, UpdatedAt: lane.UpdatedAt})
 	}
 	sort.SliceStable(lanes, func(i, j int) bool { return lanes[i].ID < lanes[j].ID })
-	path, err := refsf.SafeJoin(caseRoot, ".rekit/board.json")
+	path, err := projectstate.Join(caseRoot, "board.json")
+	if err != nil {
+		return "", err
+	}
+	factsRoot, err := projectstate.Rel(caseRoot, "facts")
 	if err != nil {
 		return "", err
 	}
@@ -983,7 +1010,7 @@ func saveBoard(caseRoot string, m *manifest.Manifest, updatedAt ...string) (stri
 	if len(updatedAt) > 0 && strings.TrimSpace(updatedAt[0]) != "" {
 		boardUpdatedAt = strings.TrimSpace(updatedAt[0])
 	}
-	b := board{SchemaVersion: 1, CaseRoot: caseRoot, RepoRoot: m.RepoRoot, Pack: m.Pack, AutomationMode: readAutomationMode(caseRoot), DefaultAuthorityLane: m.WorkstreamDefaults["defaultAuthorityLane"], Lanes: lanes, FactsRoot: ".rekit/facts", UpdatedAt: boardUpdatedAt}
+	b := board{SchemaVersion: 1, CaseRoot: caseRoot, RepoRoot: m.RepoRoot, Pack: m.Pack, AutomationMode: readAutomationMode(caseRoot), DefaultAuthorityLane: m.WorkstreamDefaults["defaultAuthorityLane"], Lanes: lanes, FactsRoot: factsRoot, UpdatedAt: boardUpdatedAt}
 	return path, writeJSON(path, b)
 }
 
@@ -994,17 +1021,32 @@ type laneResumePublication struct {
 	CheckpointBytes []byte
 }
 
+type laneResumePublicationOptions struct {
+	Selector             string
+	CurrentDriverRequest *mission.MissionCommanderDriverRequest
+}
+
 func buildLaneResumePublication(caseRoot string, m *manifest.Manifest, lane Lane, updatedAt ...string) (laneResumePublication, error) {
-	return buildLaneResumePublicationForSelector(
+	return buildLaneResumePublicationWithOptions(
 		caseRoot,
 		m,
 		lane,
-		"",
+		laneResumePublicationOptions{},
 		updatedAt...,
 	)
 }
 
 func buildLaneResumePublicationForSelector(caseRoot string, m *manifest.Manifest, lane Lane, selector string, updatedAt ...string) (laneResumePublication, error) {
+	return buildLaneResumePublicationWithOptions(
+		caseRoot,
+		m,
+		lane,
+		laneResumePublicationOptions{Selector: selector},
+		updatedAt...,
+	)
+}
+
+func buildLaneResumePublicationWithOptions(caseRoot string, m *manifest.Manifest, lane Lane, opt laneResumePublicationOptions, updatedAt ...string) (laneResumePublication, error) {
 	laneRoot, err := laneRootPath(caseRoot, lane)
 	if err != nil {
 		return laneResumePublication{}, err
@@ -1044,7 +1086,7 @@ func buildLaneResumePublicationForSelector(caseRoot string, m *manifest.Manifest
 	})
 	autonomySummary := autonomy.ReadSummary(caseRoot, lane.ID, m)
 	executorAction := laneExecutorActionFor(lane, laneFacts, brief)
-	if strings.TrimSpace(selector) == lane.ID {
+	if strings.TrimSpace(opt.Selector) == lane.ID {
 		executorAction = bindHandoffLaneExecutorAction(
 			executorAction,
 			lane.ID,
@@ -1056,7 +1098,13 @@ func buildLaneResumePublicationForSelector(caseRoot string, m *manifest.Manifest
 	missionCommanderNextActions = MissionCommanderNextActionsWithAuthorizedGateAdaptersAndAcknowledgements(missionCommanderNextActions, authorizedGateAdapterHandoffs, ExecutionEvidenceReviewAcknowledgedIDs(ledgerFacts))
 	missionCommanderNextActions = MissionCommanderNextActionsWithReviewerDispatches(missionCommanderNextActions, reviewerDispatchIntakeHandoffs)
 	missionCommanderActionQueue := mission.MissionCommanderActionQueueFor(missionCommanderNextActions)
-	laneTakeoverPackage := laneTakeoverPackageFor(caseRoot, lane, executorAction, missionCommanderActionQueue, false)
+	if opt.CurrentDriverRequest != nil && strings.EqualFold(strings.TrimSpace(opt.CurrentDriverRequest.Lane), lane.ID) {
+		missionCommanderActionQueue = handoffActionQueueWithCurrentDriverRequest(missionCommanderActionQueue, opt.CurrentDriverRequest)
+	}
+	laneTakeoverPackage, err := laneTakeoverPackageFor(caseRoot, lane, executorAction, missionCommanderActionQueue, false)
+	if err != nil {
+		return laneResumePublication{}, err
+	}
 	lines := []string{
 		"# RESUME：" + lane.ID,
 		"",
@@ -1320,7 +1368,7 @@ func laneRootPath(caseRoot string, lane Lane) (string, error) {
 	if err := validateLaneIDSegment(lane.ID); err != nil {
 		return "", err
 	}
-	rootFromID, err := refsf.SafeJoin(caseRoot, relJoin(".rekit", "lanes", lane.ID))
+	rootFromID, err := projectstate.Join(caseRoot, "lanes", lane.ID)
 	if err != nil {
 		return "", err
 	}
@@ -1650,7 +1698,7 @@ func objectText(value any) string {
 }
 
 func readAutomationMode(caseRoot string) string {
-	path, err := refsf.SafeJoin(caseRoot, ".rekit/policy.yml")
+	path, err := projectstate.Join(caseRoot, "policy.yml")
 	if err != nil {
 		return "assisted-autopilot"
 	}
@@ -1684,6 +1732,31 @@ func writeJSON(path string, v any) error {
 func eventID(laneID, kind, createdAt string) string {
 	sum := sha256.Sum256([]byte(laneID + "|" + kind + "|" + createdAt))
 	return "evt-" + hex.EncodeToString(sum[:])[:16]
+}
+
+func stateRelPath(caseRoot string, parts ...string) (string, error) {
+	return projectstate.Rel(caseRoot, parts...)
+}
+
+func stateJoin(caseRoot string, parts ...string) (string, error) {
+	return projectstate.Join(caseRoot, parts...)
+}
+
+func boardRelPath(caseRoot string) (string, error) {
+	return stateRelPath(caseRoot, "board.json")
+}
+
+func selectedMissionCommanderSurface(caseRoot string) (boardPath, entrypoint string, err error) {
+	root, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return "", "", err
+	}
+	boardPath = filepath.ToSlash(filepath.Join(root.Dir, "board.json"))
+	entrypoint = "/steamai"
+	if root.Legacy {
+		entrypoint = "/rekit"
+	}
+	return boardPath, entrypoint, nil
 }
 
 func relativePath(root, path string) string {

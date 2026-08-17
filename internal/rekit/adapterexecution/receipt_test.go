@@ -15,7 +15,7 @@ func testReceipt(t *testing.T) Receipt {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gate := GateBinding{GateEventID: "evt-gate", Lane: "main", Action: "debug", Authorization: autonomy.Decision{Decision: autonomy.DecisionPreauthorized, Mode: autonomy.ModePreauthorized, ProfileID: "profile-a", ProfileHash: strings.Repeat("d", 64), Source: "durable-profile", RecordRequired: true}, AuthorizedBudget: autonomy.Budget{RuntimeSeconds: 30}, OutputPaths: []string{"workspace/main/debug"}}
+	gate := GateBinding{GateEventID: "evt-gate", Lane: "main", Action: "debug", Authorization: autonomy.Decision{Decision: autonomy.DecisionPreauthorized, Mode: autonomy.ModePreauthorized, ProfileID: "profile-a", ProfilePath: ".rekit/lanes/main/autonomy.json", ProfileHash: strings.Repeat("d", 64), Source: "durable-profile", RecordRequired: true}, AuthorizedBudget: autonomy.Budget{RuntimeSeconds: 30}, OutputPaths: []string{"workspace/main/debug"}}
 	gateSHA, err := GateSHA256(gate)
 	if err != nil {
 		t.Fatal(err)
@@ -105,6 +105,55 @@ func TestDispatchReceiptDecodeStrictAndCompletionLineage(t *testing.T) {
 	changed.ReceiptID, _ = BindingSHA256(changed)
 	if err := ValidateCompletionDispatchLineage(changed, dispatch, completion.Dispatch.Path, completion.Dispatch.SHA256, completion.Dispatch.Bytes); err == nil || !strings.Contains(err.Error(), "gate/adapter/owner") {
 		t.Fatalf("completion session drift error = %v", err)
+	}
+}
+
+func TestReceiptAcceptsSTeamAIStateRootDispatchPath(t *testing.T) {
+	receipt := testReceipt(t)
+	receipt.Dispatch.Path = ".steamai/lanes/main/adapter-executions/evt-gate/dispatch.json"
+	receipt.Gate.Authorization.ProfilePath = ".steamai/lanes/main/autonomy.json"
+	receipt.Gate.SnapshotSHA256, _ = GateSHA256(receipt.Gate)
+	receipt.ReceiptID, _ = BindingSHA256(receipt)
+	if err := Validate(receipt); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReceiptRejectsCrossStateRootReferences(t *testing.T) {
+	for name, profilePath := range map[string]string{
+		"legacy profile with current dispatch": ".rekit/lanes/main/autonomy.json",
+		"traversal profile":                    ".steamai/../.rekit/lanes/main/autonomy.json",
+	} {
+		t.Run(name, func(t *testing.T) {
+			receipt := testReceipt(t)
+			receipt.Dispatch.Path = ".steamai/lanes/main/adapter-executions/evt-gate/dispatch.json"
+			receipt.Gate.Authorization.ProfilePath = profilePath
+			receipt.Gate.SnapshotSHA256, _ = GateSHA256(receipt.Gate)
+			receipt.ReceiptID, _ = BindingSHA256(receipt)
+			if err := Validate(receipt); err == nil {
+				t.Fatalf("cross-root profile path accepted: %s", profilePath)
+			}
+		})
+	}
+}
+
+func TestReceiptRejectsInvalidDispatchPath(t *testing.T) {
+	for _, path := range []string{
+		"/tmp/dispatch.json",
+		"../.steamai/dispatch.json",
+		"workspace/dispatch.json",
+		".steamai/../.rekit/dispatch.json",
+		`C:\temp\dispatch.json`,
+		`.steamai\lanes\main\dispatch.json`,
+	} {
+		t.Run(strings.ReplaceAll(path, "/", "_"), func(t *testing.T) {
+			receipt := testReceipt(t)
+			receipt.Dispatch.Path = path
+			receipt.ReceiptID, _ = BindingSHA256(receipt)
+			if err := Validate(receipt); err == nil {
+				t.Fatalf("invalid dispatch path accepted: %s", path)
+			}
+		})
 	}
 }
 

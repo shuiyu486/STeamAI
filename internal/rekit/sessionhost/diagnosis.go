@@ -109,6 +109,8 @@ func diagnosisForClaudeRun(run claudeRun, outcome, sessionKind string, attemptsU
 		stage, nextAction = "envelope-validation", "Refresh status and rerun the host so the malformed process result is replaced within the attempt limit."
 	case code == "claude-session-id-mismatch":
 		stage, nextAction = "session-validation", "Refresh status and rerun the host so the mismatched session is replaced within the attempt limit."
+	case code == "claude-supervision-fenced":
+		stage, nextAction = "supervision-fence", "Refresh status and rerun the host so the durable fence is handled within the current attempt limit."
 	case run.timedOut:
 		code, stage, nextAction = "claude-timeout", "process-wait", "Increase -timeout or narrow the goal, then rerun the host from refreshed status."
 	case run.spawnErr != nil:
@@ -140,6 +142,25 @@ func diagnosisForClaudeRun(run claudeRun, outcome, sessionKind string, attemptsU
 		nextAction = "Refresh status and correct the reported cause before explicitly starting another bounded host run."
 	}
 	return newFailureDiagnosis(code, stage, state, mutationBoundary, mutationApplied, attemptsUsed, attemptsLimit, nextAction, run.failureReason(), providerObservation)
+}
+
+func diagnosisForReportedFailure(pkgKind, reason string, attemptsUsed, attemptsLimit int) *FailureDiagnosis {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "Claude " + pkgKind + " reported failure without a reason"
+	}
+	return newFailureDiagnosis(
+		"claude-reported-failure",
+		"structured-result",
+		failureStateTerminal,
+		"failed-submission-recorded",
+		true,
+		attemptsUsed,
+		attemptsLimit,
+		"Refresh status and review the reported reason before explicitly starting another bounded host run.",
+		reason,
+		"reported",
+	)
 }
 
 func diagnosisForStructuredResult(pkgKind string, validationErr error, attemptsUsed, attemptsLimit int) *FailureDiagnosis {

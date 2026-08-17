@@ -77,29 +77,7 @@ func ValidateNoReparseComponents(path string) error {
 	if err != nil {
 		return err
 	}
-	volume := filepath.VolumeName(full)
-	current := volume + string(filepath.Separator)
-	rel, err := filepath.Rel(current, full)
-	if err != nil {
-		return err
-	}
-	for _, component := range splitPathComponents(rel) {
-		current = filepath.Join(current, component)
-		info, err := os.Lstat(current)
-		if os.IsNotExist(err) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("path must not traverse symlink: %s", current)
-		}
-		if err := rejectReparsePath(current); err != nil {
-			return err
-		}
-	}
-	return nil
+	return validateNoReparsePath(full)
 }
 
 func splitPathComponents(path string) []string {
@@ -546,6 +524,10 @@ func writeExclusiveRegularFileAnchored(caseRoot, rel, label string, data []byte,
 }
 
 func openOrCreateDirectoryNoFollow(root *os.Root, rel, rootPath, label string) (*os.Root, error) {
+	return openOrCreateDirectoryNoFollowMode(root, rel, rootPath, label, 0o700)
+}
+
+func openOrCreateDirectoryNoFollowMode(root *os.Root, rel, rootPath, label string, mode os.FileMode) (*os.Root, error) {
 	clean := filepath.Clean(rel)
 	if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 		return nil, fmt.Errorf("%s directory escapes anchored case root: %s", label, rel)
@@ -567,7 +549,7 @@ func openOrCreateDirectoryNoFollow(root *os.Root, rel, rootPath, label string) (
 		before, statErr := current.Lstat(component)
 		if os.IsNotExist(statErr) {
 			created := false
-			if err := current.Mkdir(component, 0o700); err != nil {
+			if err := current.Mkdir(component, mode.Perm()); err != nil {
 				if !os.IsExist(err) {
 					current.Close()
 					return nil, err

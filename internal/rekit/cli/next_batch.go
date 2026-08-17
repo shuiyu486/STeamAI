@@ -115,7 +115,7 @@ func runNextBatch(ctx runtime.Context, opt Options, out io.Writer) (resultErr er
 		result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor([]mission.MissionCommanderNextActionItem{result.MissionCommanderAction})
 		result.NextSteps = []string{
 			"next-batch planning receipt applied to docs/batch-history.md, CHANGELOG.md, and docs/batch-plan.md only",
-			"rerun /rekit status -Format json to refresh Mission Commander current action from durable docs",
+			"rerun /rekit status -Format compact-json to refresh Mission Commander current action from durable docs",
 			"implement the selected Windows-verifiable product-path slice, then run focused regressions and the full local release minimum",
 		}
 	}
@@ -374,7 +374,7 @@ func buildNextBatchResult(repoRoot string, opt Options) (nextBatchResult, error)
 		NextSteps: []string{
 			"review this WhatIf output and the selected domain/closure",
 			"rerun next-batch with -Apply and -ExpectedNextBatchPlanSha256 to write the planning receipt",
-			"after Apply, rerun /rekit status -Format json before implementation",
+			"after Apply, rerun /rekit status -Format compact-json before implementation",
 		},
 	}, nil
 }
@@ -404,7 +404,7 @@ func nextBatchRefreshAction() mission.MissionCommanderNextActionItem {
 		Label:    "status-refresh",
 		ActionID: "next-batch-status-refresh",
 		State:    "next-batch-planning-applied-refresh-required",
-		Command:  "/rekit status -Format json",
+		Command:  "/rekit status -Format compact-json",
 		Source:   "nextBatchCommand",
 		Reasons: []string{
 			"next-batch planning receipt was applied to kit docs",
@@ -475,7 +475,7 @@ func nextBatchCandidateCommand(action mission.MissionCommanderNextActionItem) st
 func nextBatchValidationSummary(commands []string) string {
 	commands = mission.UniqueStrings(commands)
 	if len(commands) == 0 {
-		return "focused regressions、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`go test ./...`、`go vet ./...` 与 `git diff --check`"
+		return "focused regressions、`go run ./cmd/rekit -- -Command release-check -Format json`、`go run ./cmd/rekit -- -Command status`、`go run ./cmd/rekit -- -Command packs`、`go run ./cmd/rekit -- -Command doctor`、`" + releasecheck.CanonicalGoTestCommand + "`、`go vet ./...` 与 `git diff --check`"
 	}
 	quoted := make([]string, 0, len(commands))
 	for _, command := range commands {

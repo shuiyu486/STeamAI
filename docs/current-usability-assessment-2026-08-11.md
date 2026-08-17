@@ -1,6 +1,6 @@
 # 当前真实可用性评估（2026-08-11）
 
-> 本文件是完成 `daily-product-closure-v1` 与 `windows-mission-control-usability-v1` 后的 Windows-only 评估快照，不是新的路线或远程 release green 证明。
+> 本文件是完成 `daily-product-closure-v1` 与 `windows-mission-control-usability-v1` 后的 Windows-only 历史评估快照，不是新的路线或远程 release green 证明。后续 STeamAI 自包含路线的 copied-directory / project-local bundle、恢复、自治和 Windows local minimum 已完成；当前完成态与真实边界以 `docs/real-usage-hardening-roadmap.md`、`docs/steamai-self-contained-project.md` 和 fresh `release-check` 为准，不再用本快照的旧前置条件判断新产品模型。
 
 ## 读取指南
 
@@ -29,6 +29,7 @@
 - [x] 验证 `vmp-re` IDA index request/profile/gate/dispatch/child/receipt/observation/evidence/member/Reviewer 全链。
 - [x] 验证 profile 恢复为默认 `manual-gate`，terminal replay 不重复启动 child 或 Claude。
 - [x] 验证 attached case 的 member/Reviewer cutpoint、零 Claude completion recovery 和 mutation-free replay。
+- [x] 直接审查 session host 与 handoff 调用链并补回归：host restart 后 replacement budget 不归零，supervision fence 不绕过 durable generation 上限，structured `outcome=failed` 不计 completion，project/lane handoff 只发布各自 exact executable route。
 - [x] 最终源码真实 acceptance、全仓 tests/vet/module verify、公开 inventory、release gate 与只读终审已通过；完成态文档字节在提交前完成最终 diff 与 gate 复核。
 
 ## 验证标准

@@ -5,7 +5,49 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
+
+func TestPackMemoryAcceptanceReviewPathsUseSelectedStateRoot(t *testing.T) {
+	for _, stateDir := range []string{projectstate.CurrentDir, projectstate.LegacyDir} {
+		t.Run(stateDir, func(t *testing.T) {
+			caseRoot := t.TempDir()
+			if err := os.Mkdir(filepath.Join(caseRoot, stateDir), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			reviewOutputDir, err := packMemoryAcceptanceReviewOutputDir(caseRoot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantReview := filepath.Join(caseRoot, stateDir, "reviews", "rh07-pack-memory-candidate")
+			if reviewOutputDir != wantReview {
+				t.Fatalf("review output dir = %q, want %q", reviewOutputDir, wantReview)
+			}
+			decisionPath, err := packMemoryAcceptanceDecisionPath(caseRoot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantDecision := filepath.Join(wantReview, "decisions.json")
+			if decisionPath != wantDecision {
+				t.Fatalf("decision path = %q, want %q", decisionPath, wantDecision)
+			}
+		})
+	}
+
+	dualRoot := t.TempDir()
+	for _, stateDir := range []string{projectstate.CurrentDir, projectstate.LegacyDir} {
+		if err := os.Mkdir(filepath.Join(dualRoot, stateDir), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := packMemoryAcceptanceReviewOutputDir(dualRoot); err == nil || !strings.Contains(err.Error(), "both .steamai and .rekit") {
+		t.Fatalf("dual-root review output error = %v", err)
+	}
+	if _, err := packMemoryAcceptanceDecisionPath(dualRoot); err == nil || !strings.Contains(err.Error(), "both .steamai and .rekit") {
+		t.Fatalf("dual-root decision path error = %v", err)
+	}
+}
 
 func TestPackMemoryAcceptanceExpectedSanitizationAllowsOnlyBaselineCapturesPaths(t *testing.T) {
 	if !packMemoryAcceptanceExpectedSanitization(map[string]int{"capturesPath": 2, "absolutePath": 0}) {

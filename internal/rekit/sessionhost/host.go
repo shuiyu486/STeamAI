@@ -20,7 +20,10 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectexecution"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/subagents"
+	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
@@ -30,6 +33,14 @@ const (
 	defaultTimeout     = 30 * time.Minute
 	defaultMaxAttempts = 3
 )
+
+func reviewerResultSnapshotPath(caseRoot, dispatchID string) (string, error) {
+	dispatchID = strings.TrimSpace(dispatchID)
+	if dispatchID == "" || dispatchID == "." || dispatchID == ".." || strings.ContainsAny(dispatchID, `/\\`) {
+		return "", fmt.Errorf("reviewer result snapshot requires an exact dispatch ID")
+	}
+	return projectstate.Join(caseRoot, "session-host", "reviewer-results", dispatchID+".json")
+}
 
 type Options struct {
 	Target                             string
@@ -47,6 +58,7 @@ type Options struct {
 	requireCurrentDriverRequest        bool
 	requireDailyClaudeTrust            bool
 	reviewerBinding                    *reviewerBinding
+	projectExecutionLease              *projectexecution.Lease
 }
 
 func (opt *Options) RequireCurrentDriverRequest() {
@@ -113,12 +125,43 @@ type statusPlan struct {
 	CaseMission           *publicCaseMission           `json:"caseMission,omitempty"`
 }
 
+func inspectCurrentSyncRecoveryForHost(caseRoot string) (syncreview.CurrentSyncRecovery, error) {
+	stateRoot, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return syncreview.CurrentSyncRecovery{}, err
+	}
+	if !stateRoot.Existing || stateRoot.Legacy || stateRoot.Dir != projectstate.CurrentDir {
+		return syncreview.CurrentSyncRecovery{}, nil
+	}
+	return syncreview.InspectCurrentSyncRecovery(caseRoot)
+}
+
 func Run(parent context.Context, opt Options) (result Result, retErr error) {
 	caseRoot, err := canonicalCaseRoot(opt.Target)
 	if err != nil {
 		return Result{}, err
 	}
 	opt.Target = caseRoot
+	executionLease := opt.projectExecutionLease
+	if executionLease == nil {
+		executionLease, err = acquireSharedForCurrentProject(caseRoot)
+		if err != nil {
+			return Result{}, err
+		}
+		if executionLease != nil {
+			defer func() {
+				retErr = errors.Join(retErr, executionLease.Unlock())
+			}()
+		}
+	} else if err := executionLease.ValidateFor(caseRoot); err != nil {
+		return Result{}, err
+	}
+	opt.projectExecutionLease = executionLease
+	if recovery, err := inspectCurrentSyncRecoveryForHost(caseRoot); err != nil {
+		return Result{}, err
+	} else if recovery.Pending {
+		return Result{}, fmt.Errorf("%s; %s", recovery.Now, recovery.Next)
+	}
 	opt.Pack = strings.TrimSpace(opt.Pack)
 	if opt.Pack == "" && instance.LooksLikeCase(caseRoot) {
 		inst, err := instance.Read(caseRoot)
@@ -365,7 +408,10 @@ func Run(parent context.Context, opt Options) (result Result, retErr error) {
 					reservationID = ""
 					continue
 				}
-				snapshotPath := filepath.Join(opt.Target, ".rekit", "session-host", "reviewer-results", receipt.DispatchID+".json")
+				snapshotPath, err := reviewerResultSnapshotPath(opt.Target, receipt.DispatchID)
+				if err != nil {
+					return result, err
+				}
 				snapshot := &subagents.ReviewerResultInputSnapshot{
 					Path: snapshotPath, SHA256: bytesSHA256(data), Bytes: int64(len(data)), Data: append([]byte{}, data...),
 				}
@@ -428,8 +474,9 @@ func Run(parent context.Context, opt Options) (result Result, retErr error) {
 		result.FinalMode = step.Mode
 		switch step.Mode {
 		case "attempt-input":
-			if launchAttempts >= opt.MaxAttempts {
-				return result, fmt.Errorf("external session attempt limit reached after %d attempts", launchAttempts)
+			attemptGeneration := currentStepAttemptGeneration(preview)
+			if claudeAttemptLimitReached(attemptGeneration, launchAttempts, opt.MaxAttempts) {
+				return result, fmt.Errorf("external session attempt limit reached after %d attempts", claudeRunAttemptsUsed(attemptGeneration, launchAttempts))
 			}
 			if reservationID == "" {
 				reservationID, err = newUUID()
@@ -480,13 +527,13 @@ func Run(parent context.Context, opt Options) (result Result, retErr error) {
 			}
 			result.AppliedSteps++
 		case "launch-receipt-input":
-			if launchAttempts >= opt.MaxAttempts {
-				return result, fmt.Errorf("external session attempt limit reached after %d attempts", launchAttempts)
-			}
 			if step.HarnessPackage == nil || step.HarnessPackage.Launch == nil || !step.HarnessPackage.Launch.Ready {
 				return result, fmt.Errorf("external session launch package is not ready")
 			}
 			launch := step.HarnessPackage.Launch
+			if claudeLaunchLimitReached(launch.Attempt.Generation, launchAttempts, opt.MaxAttempts) {
+				return result, fmt.Errorf("external session attempt limit reached after %d attempts", claudeRunAttemptsUsed(launch.Attempt.Generation, launchAttempts))
+			}
 			if reservationID == "" {
 				reservationID = launch.Attempt.Session
 			}
@@ -587,11 +634,7 @@ func Run(parent context.Context, opt Options) (result Result, retErr error) {
 			if err := requireRunningHandoffForPackage(*step.HarnessPackage, fresh); err != nil {
 				return result, err
 			}
-			if !run.success() && launchAttempts < opt.MaxAttempts {
-				outcome := "replacement-requested"
-				if run.failureDetail != "" {
-					outcome = "invalid-result-replacement"
-				}
+			if outcome, replace := claudeRunReplacementOutcome(run, launch.Attempt.Generation, launchAttempts, opt.MaxAttempts); replace {
 				result.Sessions = append(result.Sessions, sessionResult(run, launch.Attempt.Generation, launchAttempts, reservationID, step.HarnessPackage.SessionKind, outcome, opt.MaxAttempts))
 				reservationID, err = applyReplacementAttempt(opt, fresh, opt.Actor)
 				if err != nil {
@@ -599,10 +642,14 @@ func Run(parent context.Context, opt Options) (result Result, retErr error) {
 				}
 				result.AppliedSteps++
 				result.Replacements++
+				if err := observeSupervisionCut("replacement"); err != nil {
+					return result, err
+				}
 				continue
 			}
 			outcome, publishErr := publishClaudeResult(opt, fresh, run)
-			result.Sessions = append(result.Sessions, sessionResult(run, launch.Attempt.Generation, launchAttempts, reservationID, step.HarnessPackage.SessionKind, outcome, opt.MaxAttempts))
+			session := sessionResult(run, launch.Attempt.Generation, launchAttempts, reservationID, step.HarnessPackage.SessionKind, outcome, opt.MaxAttempts)
+			result.Sessions = append(result.Sessions, session)
 			if publishErr == nil {
 				publishErr = observeSupervisionCut("submission")
 			}
@@ -612,32 +659,37 @@ func Run(parent context.Context, opt Options) (result Result, retErr error) {
 			if err := removeClaudeRecoveryForCase(opt.Target, opt, *step.HarnessPackage); err != nil {
 				return result, err
 			}
-			if run.success() {
+			if outcome == "returned" {
 				result.SessionCompletions++
 			}
 			reservationID = ""
+			if session.Failure != nil && session.Failure.Terminal {
+				return result, nil
+			}
 		case "running-handoff":
 			if step.HarnessPackage == nil || step.HarnessPackage.Launch == nil {
 				return result, fmt.Errorf("external session running handoff omitted recovery bindings")
 			}
+			attemptGeneration := step.HarnessPackage.Launch.Attempt.Generation
+			launchOrdinal := 0
 			run, recovered, err := recoverClaudeRunForCase(opt.Target, opt, *step.HarnessPackage)
 			if err != nil {
 				return result, err
 			}
 			if !recovered {
-				run, _, err = supervisedClaudeRun(parent, opt, *step.HarnessPackage, step.HarnessPackage.Launch.Attempt.Session, nil)
+				launched := false
+				run, launched, err = supervisedClaudeRun(parent, opt, *step.HarnessPackage, step.HarnessPackage.Launch.Attempt.Session, nil)
+				if launched {
+					launchAttempts++
+					launchOrdinal = launchAttempts
+				}
 				if err != nil {
 					var fencedErr *supervisionFencedError
 					if errors.As(err, &fencedErr) {
-						reservationID, err = applyReplacementAttempt(opt, preview, opt.Actor)
-						if err != nil {
-							return result, errors.Join(fencedErr, err)
-						}
-						result.AppliedSteps++
-						result.Replacements++
-						continue
+						run = claudeRunForSupervisionFence(fencedErr, !launched)
+					} else {
+						return result, err
 					}
-					return result, err
 				}
 				if run.success() {
 					if err := validateClaudeStructuredResult(*step.HarnessPackage, run); err != nil {
@@ -655,6 +707,19 @@ func Run(parent context.Context, opt Options) (result Result, retErr error) {
 			if err := requireSameRunningHandoff(preview, fresh); err != nil {
 				return result, err
 			}
+			if outcome, replace := claudeRunReplacementOutcome(run, attemptGeneration, launchOrdinal, opt.MaxAttempts); replace {
+				result.Sessions = append(result.Sessions, sessionResult(run, attemptGeneration, launchOrdinal, step.HarnessPackage.Launch.Attempt.Session, step.HarnessPackage.SessionKind, outcome, opt.MaxAttempts))
+				reservationID, err = applyReplacementAttempt(opt, fresh, opt.Actor)
+				if err != nil {
+					return result, err
+				}
+				result.AppliedSteps++
+				result.Replacements++
+				if err := observeSupervisionCut("replacement"); err != nil {
+					return result, err
+				}
+				continue
+			}
 			outcome, err := publishClaudeResult(opt, fresh, run)
 			if err != nil {
 				return result, err
@@ -665,9 +730,15 @@ func Run(parent context.Context, opt Options) (result Result, retErr error) {
 			if err := removeClaudeRecoveryForCase(opt.Target, opt, *step.HarnessPackage); err != nil {
 				return result, err
 			}
-			result.Sessions = append(result.Sessions, sessionResult(run, step.HarnessPackage.Launch.Attempt.Generation, 0, step.HarnessPackage.Launch.Attempt.Session, step.HarnessPackage.SessionKind, outcome+"-recovered", opt.MaxAttempts))
-			result.SessionCompletions++
+			session := sessionResult(run, attemptGeneration, launchOrdinal, step.HarnessPackage.Launch.Attempt.Session, step.HarnessPackage.SessionKind, outcome+"-recovered", opt.MaxAttempts)
+			result.Sessions = append(result.Sessions, session)
+			if outcome == "returned" {
+				result.SessionCompletions++
+			}
 			reservationID = ""
+			if session.Failure != nil && session.Failure.Terminal {
+				return result, nil
+			}
 		default:
 			return result, fmt.Errorf("unsupported external session host mode %q", step.Mode)
 		}

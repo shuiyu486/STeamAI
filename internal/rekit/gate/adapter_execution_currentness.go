@@ -12,6 +12,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/autonomy"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 // AdapterExecutionCurrentness is a read-only snapshot proving that an
@@ -118,7 +119,10 @@ func ValidateAdapterExecutionCurrentness(
 	}
 
 	authorization := expected.Gate.Authorization
-	profileRel := autonomy.RelPath(expected.Owner.Lane)
+	profileRel, err := projectstate.Rel(caseRoot, "lanes", expected.Owner.Lane, "autonomy.json")
+	if err != nil {
+		return result, err
+	}
 	if authorization.Decision != autonomy.DecisionPreauthorized ||
 		authorization.RequiresConfirmation ||
 		authorization.ProfilePath != profileRel ||
@@ -140,6 +144,8 @@ func ValidateAdapterExecutionCurrentness(
 		profileSHA256,
 		request,
 		time.Now().UTC(),
+		m,
+		caseRoot,
 	)
 	if !adapterAuthorizationDecisionEqual(freshDecision, authorization) {
 		return result, fmt.Errorf("adapter execution authorization decision drifted from the current profile")

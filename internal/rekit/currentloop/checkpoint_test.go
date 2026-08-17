@@ -9,9 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanecompletion"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 func TestCheckpointWriteInspectAndStaleCurrentness(t *testing.T) {
@@ -38,7 +40,7 @@ func TestCheckpointWriteInspectAndStaleCurrentness(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(caseRoot, filepath.FromSlash(inspection.ArtifactPath))); err != nil {
 		t.Fatalf("checkpoint artifact missing: %v", err)
 	}
-	entries, err := os.ReadDir(filepath.Join(caseRoot, filepath.FromSlash(artifactRelRoot)))
+	entries, err := os.ReadDir(checkpointStatePath(t, caseRoot, "runs", "current-loop-segments"))
 	if err != nil || len(entries) != 1 || strings.HasPrefix(entries[0].Name(), ".") {
 		t.Fatalf("checkpoint publication left unexpected files: %v %+v", err, entries)
 	}
@@ -51,6 +53,64 @@ func TestCheckpointWriteInspectAndStaleCurrentness(t *testing.T) {
 	stale := Inspect(repoRoot, caseRoot, "_template", &drift)
 	if stale.Ready || stale.State != "stale-current-driver-request" || stale.Continuation != nil || stale.RefreshedCurrentDriverRequest != nil || len(stale.Warnings) == 0 {
 		t.Fatalf("stale checkpoint exposed continuation: %+v", stale)
+	}
+}
+
+func TestCheckpointWriteInspectAndClaimUsesSTeamAIStateRoot(t *testing.T) {
+	repoRoot, caseRoot := checkpointAttachedCaseWithStateDir(t, projectstate.CurrentDir)
+	request := checkpointRequest("/rekit continue main -WhatIf -Format json")
+	written, err := Write(repoRoot, caseRoot, "_template", checkpointPayload(t, caseRoot, request))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !written.Ready || written.State != "ready" || !strings.HasPrefix(written.ArtifactPath, projectstate.CurrentDir+"/runs/current-loop-segments/") {
+		t.Fatalf("STeamAI checkpoint was not published under the selected state root: %+v", written)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, filepath.FromSlash(written.ArtifactPath))); err != nil {
+		t.Fatalf("STeamAI checkpoint artifact missing: %v", err)
+	}
+	fresh := Inspect(repoRoot, caseRoot, "_template", &request)
+	if !fresh.Ready || fresh.State != "ready" || fresh.ArtifactPath != written.ArtifactPath || fresh.ArtifactSHA256 != written.ArtifactSHA256 || fresh.PayloadSHA256 != written.PayloadSHA256 {
+		t.Fatalf("STeamAI checkpoint inspection did not recover exact artifact identity: written=%+v fresh=%+v", written, fresh)
+	}
+	requestSHA256, err := RequestSHA256(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim := Claim{
+		SourceArtifactSHA256:          written.ArtifactSHA256,
+		ExpectedCurrentLoopPlanSHA256: strings.Repeat("c", 64),
+		CurrentDriverRequestSHA256:    requestSHA256,
+		Actor:                         "main-agent",
+	}
+	if err := ClaimResume(repoRoot, caseRoot, "_template", claim); err != nil {
+		t.Fatal(err)
+	}
+	claimPath := checkpointStatePath(t, caseRoot, "runs", "current-loop-segment-claims", strings.ToLower(written.ArtifactSHA256)+".json")
+	if _, err := os.Stat(claimPath); err != nil {
+		t.Fatalf("STeamAI checkpoint claim missing: %v", err)
+	}
+	consumed := Inspect(repoRoot, caseRoot, "_template", &request)
+	if consumed.Ready || consumed.State != "consumed" || consumed.ArtifactSHA256 != written.ArtifactSHA256 || consumed.Continuation != nil || consumed.ResumeDriverRequest != nil {
+		t.Fatalf("claimed STeamAI checkpoint remained recoverable: %+v", consumed)
+	}
+	if _, err := os.Lstat(filepath.Join(caseRoot, projectstate.LegacyDir)); !os.IsNotExist(err) {
+		t.Fatalf("STeamAI checkpoint flow unexpectedly created legacy root: %v", err)
+	}
+}
+
+func TestCheckpointRejectsDualProjectStateRoots(t *testing.T) {
+	repoRoot, caseRoot := checkpointAttachedCase(t)
+	if err := os.MkdirAll(filepath.Join(caseRoot, projectstate.CurrentDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	request := checkpointRequest("/rekit continue main -WhatIf -Format json")
+	if _, err := Write(repoRoot, caseRoot, "_template", checkpointPayload(t, caseRoot, request)); err == nil || !strings.Contains(err.Error(), "must not coexist") {
+		t.Fatalf("checkpoint publication accepted dual project state roots: %v", err)
+	}
+	inspection := Inspect(repoRoot, caseRoot, "_template", &request)
+	if inspection.Ready || inspection.State != "invalid" || !strings.Contains(strings.Join(inspection.Warnings, " "), "must not coexist") {
+		t.Fatalf("checkpoint inspection did not fail closed for dual project state roots: %+v", inspection)
 	}
 }
 
@@ -453,7 +513,7 @@ func TestCheckpointWriteValidatedRejectsPublicationCurrentnessDrift(t *testing.T
 	if err == nil || !called || !strings.Contains(err.Error(), "publication currentness") || inspection.ArtifactPath != "" {
 		t.Fatalf("publication currentness drift was accepted: inspection=%+v err=%v", inspection, err)
 	}
-	root := filepath.Join(caseRoot, filepath.FromSlash(artifactRelRoot))
+	root := checkpointStatePath(t, caseRoot, "runs", "current-loop-segments")
 	if entries, readErr := os.ReadDir(root); !os.IsNotExist(readErr) && (readErr != nil || len(entries) != 0) {
 		t.Fatalf("rejected publication currentness drift wrote an artifact: err=%v entries=%v", readErr, entries)
 	}
@@ -496,7 +556,7 @@ func TestCheckpointResumeSourceMustBeLatestBeforePublication(t *testing.T) {
 	if _, err := Write(repoRoot, caseRoot, "_template", payload); err == nil || !strings.Contains(err.Error(), "no longer the latest") {
 		t.Fatalf("stale resume source published a successor: %v", err)
 	}
-	root := filepath.Join(caseRoot, filepath.FromSlash(artifactRelRoot))
+	root := checkpointStatePath(t, caseRoot, "runs", "current-loop-segments")
 	entries, err := os.ReadDir(root)
 	if err != nil || len(entries) != 2 {
 		t.Fatalf("stale resume publication changed chain length: %v entries=%d", err, len(entries))
@@ -646,7 +706,7 @@ func TestCheckpointSequenceChainAndCanonicalBytesFailClosed(t *testing.T) {
 
 	t.Run("crash-temp-does-not-block-next-sequence", func(t *testing.T) {
 		repoRoot, caseRoot := checkpointAttachedCase(t)
-		root := filepath.Join(caseRoot, filepath.FromSlash(artifactRelRoot))
+		root := checkpointStatePath(t, caseRoot, "runs", "current-loop-segments")
 		if err := os.MkdirAll(root, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -725,7 +785,7 @@ func TestCheckpointSequenceChainAndCanonicalBytesFailClosed(t *testing.T) {
 func TestCheckpointNamespaceAndTerminalStatesFailClosed(t *testing.T) {
 	t.Run("unexpected-entry", func(t *testing.T) {
 		repoRoot, caseRoot := checkpointAttachedCase(t)
-		root := filepath.Join(caseRoot, filepath.FromSlash(artifactRelRoot))
+		root := checkpointStatePath(t, caseRoot, "runs", "current-loop-segments")
 		if err := os.MkdirAll(root, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -886,7 +946,10 @@ func TestExternalMemberContinuationValidationFailsClosed(t *testing.T) {
 	caseRoot := filepath.ToSlash(t.TempDir())
 	request := checkpointRequest("/rekit continue main -WhatIf -Format json")
 	attemptID := "g000002-a000001-0123456789abcdef"
-	attemptRoot := ".rekit/lanes/main/member-executions/" + attemptID
+	attemptRoot, err := projectstate.Rel(caseRoot, "lanes", "main", "member-executions", attemptID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	alternatives := []mission.CurrentLoopObservationAlternative{
 		{Kind: "member-session-accepted", RequiredFlags: []string{"-MemberExecutionAttemptId"}, PreviewCommandTemplate: "/rekit run-current-loop -MemberExecutionAttemptId " + attemptID + " -MemberExecutionOutcome accepted -WhatIf", Transition: "handoff-ready-to-accepted"},
 		{Kind: "member-session-returned", RequiredFlags: []string{"-MemberExecutionAttemptId"}, PreviewCommandTemplate: "/rekit run-current-loop -MemberExecutionAttemptId " + attemptID + " -MemberExecutionOutcome returned -WhatIf", Transition: "handoff-ready-to-returned"},
@@ -923,7 +986,7 @@ func TestExternalMemberContinuationValidationFailsClosed(t *testing.T) {
 	}{
 		{name: "attempt-generation-drift", mutate: func(payload *Payload) { payload.Continuation.ExternalMemberHandoff.ExecutorGeneration = 3 }},
 		{name: "handoff-path-drift", mutate: func(payload *Payload) {
-			payload.Continuation.ExternalMemberHandoff.HandoffPath = ".rekit/other/handoff.json"
+			payload.Continuation.ExternalMemberHandoff.HandoffPath = projectstate.CurrentRel("other", "handoff.json")
 		}},
 		{name: "invalid-state", mutate: func(payload *Payload) { payload.Continuation.ExternalMemberHandoff.State = "returned" }},
 		{name: "missing-failed-capability", mutate: func(payload *Payload) {
@@ -1141,18 +1204,35 @@ func checkpointRequest(command string) mission.MissionCommanderDriverRequest {
 }
 
 func checkpointAttachedCase(t *testing.T) (string, string) {
+	return checkpointAttachedCaseWithStateDir(t, projectstate.LegacyDir)
+}
+
+func checkpointAttachedCaseWithStateDir(t *testing.T, stateDir string) (string, string) {
 	t.Helper()
 	repoRoot := filepath.Join(t.TempDir(), "kit")
 	caseRoot := filepath.Join(t.TempDir(), "case")
 	if err := os.MkdirAll(repoRoot, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(caseRoot, ".rekit"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(caseRoot, stateDir), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	instanceText := "templateRoot: " + repoRoot + "\ntemplatePack: _template\nprojectName: checkpoint-test\nprojectRoot: " + caseRoot + "\n"
-	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "instance.yml"), []byte(instanceText), 0o644); err != nil {
+	if stateDir == projectstate.CurrentDir {
+		repoRoot = filepath.Join(caseRoot, projectstate.CurrentDir)
+		instanceText = casebind.STeamAIInstanceText(caseRoot, "_template", "checkpoint-test")
+	}
+	if err := os.WriteFile(filepath.Join(caseRoot, stateDir, "instance.yml"), []byte(instanceText), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return repoRoot, caseRoot
+}
+
+func checkpointStatePath(t *testing.T, caseRoot string, parts ...string) string {
+	t.Helper()
+	path, err := projectstate.Join(caseRoot, parts...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
 }

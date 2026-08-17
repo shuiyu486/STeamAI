@@ -980,7 +980,7 @@ func candidateReviewPlan(result CandidateResult, whatIf bool) CandidateReviewPla
 					When:     "after accepting any tooling candidate into tooling/catalog.yml or tooling/recipes/*",
 					Commands: []string{"go run ./cmd/rekit -- -Command init -Target <fresh-case> -Pack " + result.Pack + " -ProjectName <name> -Apply", "go run ./cmd/rekit -- -Command doctor -Target <fresh-case> -Pack " + result.Pack},
 					Expected: "fresh case binds templateRoot/templatePack and doctor passes while tooling remains pack-sourced",
-					Evidence: []string{"fresh case .rekit/instance.yml", "fresh case doctor output"},
+					Evidence: []string{"fresh case instance metadata", "fresh case doctor output"},
 					Boundary: []string{"use a temporary fresh case only; do not create real case state in the kit repo"},
 				},
 				{
@@ -1320,7 +1320,7 @@ func candidateMainAgentExecutionPlan(result CandidateResult, plan CandidateRevie
 			When:     "after accepting any tooling candidate into tooling/catalog.yml or tooling/recipes/*",
 			Commands: []string{"go run ./cmd/rekit -- -Command init -Target <fresh-case> -Pack " + result.Pack + " -ProjectName <name> -Apply", "go run ./cmd/rekit -- -Command doctor -Target <fresh-case> -Pack " + result.Pack},
 			Expected: "fresh case binds templateRoot/templatePack and doctor passes while tooling remains pack-sourced",
-			Evidence: []string{"fresh case .rekit/instance.yml", "fresh case doctor output"},
+			Evidence: []string{"fresh case instance metadata", "fresh case doctor output"},
 			Boundary: []string{"use a temporary fresh case only", "do not create real case state in the kit repo", "sync does not copy tooling recipes into case-local managed docs"},
 		})
 		steps = append(steps, CandidateExecutionStep{
@@ -1596,7 +1596,7 @@ func candidateReviewArtifacts(_ CandidateResult, item CandidateReviewItem, whatI
 					CandidatePath: item.CandidatePath,
 					PackTarget:    item.PackTarget,
 					Format:        "strict JSON pack-memory-candidate-lifecycle-proof with passed fresh-case-reconsume and pack-doctor checks plus hashed evidenceRefs",
-					Evidence:      []string{"fresh case .rekit/instance.yml", "fresh case doctor output"},
+					Evidence:      []string{"fresh case instance metadata", "fresh case doctor output"},
 					Boundary: append(append([]string{}, baseBoundary...),
 						"use a temporary fresh case only",
 						"do not create real case state in the kit repo",
@@ -1713,7 +1713,7 @@ func candidateDecisionOutcome(result CandidateResult, item CandidateReviewItem, 
 			outcome.Actions = append(outcome.Actions, "verify fresh or attached case reconsume after tooling merge")
 			outcome.VerificationCommands = append(outcome.VerificationCommands, "go run ./cmd/rekit -- -Command init -Target <fresh-case> -Pack "+result.Pack+" -ProjectName <name> -Apply", "go run ./cmd/rekit -- -Command doctor -Target <fresh-case> -Pack "+result.Pack, "go run ./cmd/rekit -- -Command doctor -Target <attached-case> -Pack "+result.Pack)
 			outcome.Expected = "accepted tooling is resolved from pack tooling by fresh or attached cases without copying tooling recipes into managed docs"
-			outcome.Evidence = append(outcome.Evidence, "fresh case .rekit/instance.yml", "fresh or attached case doctor output")
+			outcome.Evidence = append(outcome.Evidence, "fresh case instance metadata", "fresh or attached case doctor output")
 			outcome.Boundary = append(outcome.Boundary, "tooling candidates require manual tooling/catalog.yml or tooling/recipes/* merge", "fresh/attached case verification reads pack tooling through templateRoot/templatePack")
 		}
 	case "reject":

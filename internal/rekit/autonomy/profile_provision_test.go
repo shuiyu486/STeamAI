@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 )
 
 func TestPreviewProvisionStableSemanticHash(t *testing.T) {
@@ -128,11 +131,11 @@ func TestPreviewProvisionRejectsExpiryManifestActionAndOutputScope(t *testing.T)
 			wantErr: "unsafe path",
 		},
 		{
-			name: "autonomous mode",
+			name: "custom autonomous mode",
 			mutate: func(profile *Profile) {
 				profile.Mode = ModeAutonomous
 			},
-			wantErr: "permits only mode=preauthorized",
+			wantErr: "requires explicit",
 		},
 	}
 	for _, test := range tests {
@@ -150,6 +153,289 @@ func TestPreviewProvisionRejectsExpiryManifestActionAndOutputScope(t *testing.T)
 				t.Fatalf("PreviewProvision error = %v, want %q", err, test.wantErr)
 			}
 		})
+	}
+}
+
+func TestManagedAutonomousPresetProvisionEvaluateAndRevoke(t *testing.T) {
+	repoRoot, caseRoot, pack := managedAutonomousProvisionFixture(t, true)
+	now := time.Now().UTC().Truncate(time.Second)
+	opt := managedAutonomousPresetOptions(repoRoot, caseRoot, pack, now)
+
+	built, err := BuildManagedAutonomousPreset(opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := manifest.Load(repoRoot, pack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !isManagedAutonomousProfileV1(built, "main", m, caseRoot) {
+		t.Fatalf("built profile is not recognized as managed: %+v", built)
+	}
+	plan, err := PreviewManagedAutonomousPreset(opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile := plan.PlannedProfile
+	if profile.Mode != ModeAutonomous ||
+		!strings.HasPrefix(profile.ProfileID, managedAutonomousProfileIDPrefix+"main-") ||
+		!profile.RecordRequired ||
+		!slices.Equal(profile.AllowedActions, []string{"debug", "dump"}) ||
+		!slices.Equal(profile.TargetScope, []Target{{Match: "exact", Value: "sample-alpha"}, {Match: "exact", Value: "sample-beta"}}) ||
+		!slices.Equal(profile.StopConditions, []string{"output-exceeds-bounded-evidence-packet", "scope-drift", "timeout"}) ||
+		!slices.Equal(profile.OutputPaths, []string{"workstreams/main/evidence/autonomous"}) {
+		t.Fatalf("unexpected managed autonomous profile: %+v", profile)
+	}
+	applied, err := ApplyProfilePlan(plan, plan.ExpectedPlanSHA256)
+	if err != nil || !applied.Applied {
+		t.Fatalf("apply managed autonomous profile: result=%+v err=%v", applied, err)
+	}
+
+	request := Request{
+		Lane:           "main",
+		Action:         "debug",
+		Target:         "sample-alpha",
+		Budget:         Budget{RuntimeSeconds: 30, DiskMB: 8, Requests: 1},
+		StopConditions: []string{"timeout", "scope-drift"},
+		OutputPaths:    []string{"workstreams/main/evidence/autonomous/run-1"},
+	}
+	decision := Evaluate(profile, RelPath("main"), true, applied.ProfileSHA256, request, now, m, caseRoot)
+	if decision.Decision != DecisionPreauthorized || decision.Mode != ModeAutonomous || decision.RequiresConfirmation {
+		t.Fatalf("managed autonomous evaluation = %+v", decision)
+	}
+	wrongLane := request
+	wrongLane.Lane = "other"
+	if got := Evaluate(profile, RelPath("main"), true, applied.ProfileSHA256, wrongLane, now, m, caseRoot); got.Decision != DecisionOutOfScope || !got.RequiresConfirmation {
+		t.Fatalf("cross-lane evaluation = %+v", got)
+	}
+	overBudget := request
+	overBudget.Budget.RuntimeSeconds = profile.Budget.RuntimeSeconds + 1
+	if got := Evaluate(profile, RelPath("main"), true, applied.ProfileSHA256, overBudget, now, m, caseRoot); got.Decision != DecisionBudgetExceeded || !got.RequiresConfirmation {
+		t.Fatalf("over-budget autonomous evaluation = %+v", got)
+	}
+	for name, test := range map[string]struct {
+		profile Profile
+		request Request
+		want    string
+	}{
+		"action": {profile: profile, request: func() Request {
+			changed := request
+			changed.Action = "network"
+			return changed
+		}(), want: DecisionDenied},
+		"target": {profile: profile, request: func() Request {
+			changed := request
+			changed.Target = "sample-other"
+			return changed
+		}(), want: DecisionOutOfScope},
+		"stop": {profile: profile, request: func() Request {
+			changed := request
+			changed.StopConditions = []string{"unexpected-side-effect"}
+			return changed
+		}(), want: DecisionStopConditionMismatch},
+		"output": {profile: profile, request: func() Request {
+			changed := request
+			changed.OutputPaths = []string{"workstreams/other/evidence"}
+			return changed
+		}(), want: DecisionOutputPathDenied},
+		"unsafe-output": {profile: profile, request: func() Request {
+			changed := request
+			changed.OutputPaths = []string{"../escape"}
+			return changed
+		}(), want: DecisionOutputPathDenied},
+		"tampered-profile-id": {profile: func() Profile {
+			changed := profile
+			changed.ProfileID += "-forged"
+			return changed
+		}(), request: request, want: DecisionInvalidProfile},
+		"tampered-expiry": {profile: func() Profile {
+			changed := profile
+			changed.ExpiresAt = now.Format(time.RFC3339)
+			return changed
+		}(), request: request, want: DecisionInvalidProfile},
+	} {
+		t.Run("evaluate-"+name, func(t *testing.T) {
+			got := Evaluate(test.profile, RelPath("main"), true, applied.ProfileSHA256, test.request, now, m, caseRoot)
+			if got.Decision != test.want || !got.RequiresConfirmation {
+				t.Fatalf("managed autonomous %s evaluation = %+v, want %s", name, got, test.want)
+			}
+		})
+	}
+
+	expiresAt, err := time.Parse(time.RFC3339, profile.ExpiresAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := Evaluate(profile, RelPath("main"), true, applied.ProfileSHA256, request, expiresAt.Add(time.Second), m, caseRoot); got.Decision != DecisionExpired || !got.RequiresConfirmation {
+		t.Fatalf("naturally expired managed autonomous evaluation = %+v", got)
+	}
+	if got := Evaluate(profile, RelPath("main"), true, applied.ProfileSHA256, request, expiresAt.Add(-10*time.Second), m, caseRoot); got.Decision != DecisionExpired || !got.RequiresConfirmation || len(got.Reasons) != 1 || !strings.Contains(got.Reasons[0], "remaining managed autonomous grant duration") {
+		t.Fatalf("request crossing managed autonomous expiry = %+v", got)
+	}
+
+	revoke, err := PreviewRevoke(ProfileRevokeOptions{RepoRoot: repoRoot, CaseRoot: caseRoot, Pack: pack, Lane: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ApplyProfilePlan(revoke, revoke.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	current, _, exists, err := Read(caseRoot, "main")
+	if err != nil || !exists || current.Mode != ModeManualGate {
+		t.Fatalf("revoked managed autonomous profile: exists=%t profile=%+v err=%v", exists, current, err)
+	}
+}
+
+func TestManagedAutonomousIdentityBindsRepoCaseAndPack(t *testing.T) {
+	repoRoot, caseRoot, pack := managedAutonomousProvisionFixture(t, true)
+	opt := managedAutonomousPresetOptions(repoRoot, caseRoot, pack, time.Now().UTC())
+	profile, err := BuildManagedAutonomousPreset(opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalID := profile.ProfileID
+	m, err := manifest.Load(repoRoot, pack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := []string{"sample-alpha", "sample-beta"}
+
+	otherCase := filepath.Join(filepath.Dir(caseRoot), "other-case")
+	otherCaseID, err := managedAutonomousProfileID(m.RepoRoot, otherCase, m.Pack, profile, []string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherRepoID, err := managedAutonomousProfileID(filepath.Join(filepath.Dir(repoRoot), "other-repo"), caseRoot, m.Pack, profile, []string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherPackID, err := managedAutonomousProfileID(m.RepoRoot, caseRoot, "other-pack", profile, []string{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	semanticID, err := managedAutonomousProfileID(m.RepoRoot, caseRoot, m.Pack, profile, targets)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if originalID == otherCaseID || originalID == otherRepoID || originalID == otherPackID || originalID == semanticID {
+		t.Fatalf("managed identity omitted a bound field: original=%s case=%s repo=%s pack=%s semantic=%s", originalID, otherCaseID, otherRepoID, otherPackID, semanticID)
+	}
+	if len(strings.TrimPrefix(originalID, managedAutonomousProfileIDPrefix+"main-")) != 64 {
+		t.Fatalf("managed identity does not carry a full sha256 digest: %s", originalID)
+	}
+}
+
+func TestPreviewProvisionRejectsAutonomousWithoutManagedOptIn(t *testing.T) {
+	repoRoot, caseRoot, pack := managedAutonomousProvisionFixture(t, true)
+	profile, err := BuildManagedAutonomousPreset(managedAutonomousPresetOptions(repoRoot, caseRoot, pack, time.Now().UTC()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = PreviewProvision(ProfileProvisionOptions{RepoRoot: repoRoot, CaseRoot: caseRoot, Pack: pack, Lane: "main", Profile: profile})
+	if err == nil || !strings.Contains(err.Error(), "explicit") || !strings.Contains(err.Error(), "PreviewManagedAutonomousPreset") {
+		t.Fatalf("generic autonomous provision error = %v", err)
+	}
+}
+
+func TestManagedAutonomousPresetFailsClosed(t *testing.T) {
+	repoRoot, caseRoot, pack := managedAutonomousProvisionFixture(t, true)
+	now := time.Now().UTC().Truncate(time.Second)
+	base := managedAutonomousPresetOptions(repoRoot, caseRoot, pack, now)
+
+	tests := []struct {
+		name    string
+		mutate  func(*ManagedAutonomousPresetOptions)
+		wantErr string
+	}{
+		{name: "no explicit opt-in", mutate: func(opt *ManagedAutonomousPresetOptions) { opt.ExplicitOptIn = false }, wantErr: "explicit opt-in"},
+		{name: "wrong preset", mutate: func(opt *ManagedAutonomousPresetOptions) { opt.Preset = "unbounded" }, wantErr: "requires preset"},
+		{name: "undeclared action", mutate: func(opt *ManagedAutonomousPresetOptions) { opt.Actions = []string{"patch"} }, wantErr: "not declared"},
+		{name: "empty targets", mutate: func(opt *ManagedAutonomousPresetOptions) { opt.Targets = nil }, wantErr: "exact targets"},
+		{name: "zero budget", mutate: func(opt *ManagedAutonomousPresetOptions) { opt.Budget.Requests = 0 }, wantErr: "positive"},
+		{name: "missing manifest stop", mutate: func(opt *ManagedAutonomousPresetOptions) {
+			opt.StopConditions = []string{"timeout", "scope-drift"}
+		}, wantErr: "must cover manifest condition"},
+		{name: "overlong duration", mutate: func(opt *ManagedAutonomousPresetOptions) {
+			opt.ExpiresAt = now.Add(20 * time.Minute).Format(time.RFC3339)
+		}, wantErr: "duration exceeds"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			opt := base
+			opt.Actions = append([]string(nil), base.Actions...)
+			opt.Targets = append([]string(nil), base.Targets...)
+			test.mutate(&opt)
+			if _, err := PreviewManagedAutonomousPreset(opt); err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("PreviewManagedAutonomousPreset error = %v, want %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestManagedAutonomousPresetNetworkRequiresExactExternalTargets(t *testing.T) {
+	repoRoot, caseRoot, pack := managedAutonomousProvisionFixture(t, true)
+	now := time.Now().UTC().Truncate(time.Second)
+	base := managedAutonomousPresetOptions(repoRoot, caseRoot, pack, now)
+	base.Actions = []string{"network"}
+	base.Targets = []string{"https://fixture.invalid:443"}
+	base.StopConditions = []string{"live-target-ambiguity", "unexpected-outbound-request", "scope-drift"}
+
+	if _, err := PreviewManagedAutonomousPreset(base); err == nil || !strings.Contains(err.Error(), "external target scope") {
+		t.Fatalf("network preset without explicit external scope error = %v", err)
+	}
+	base.ExternalTargetScope = []string{"https://other.invalid:443"}
+	if _, err := PreviewManagedAutonomousPreset(base); err == nil || !strings.Contains(err.Error(), "every exact network target") {
+		t.Fatalf("network preset with mismatched external scope error = %v", err)
+	}
+	base.ExternalTargetScope = append([]string(nil), base.Targets...)
+	plan, err := PreviewManagedAutonomousPreset(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(plan.PlannedProfile.ProfileID, managedAutonomousProfileIDPrefix+"main-") || plan.PlannedProfile.Mode != ModeAutonomous {
+		t.Fatalf("unexpected managed network profile: %+v", plan.PlannedProfile)
+	}
+}
+
+func TestPreviewRevokeDoesNotMistakeReservedCustomProfileForManaged(t *testing.T) {
+	repoRoot, caseRoot, pack := managedAutonomousProvisionFixture(t, true)
+	path, err := Path(caseRoot, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	custom, err := BuildManagedAutonomousPreset(managedAutonomousPresetOptions(repoRoot, caseRoot, pack, time.Now().UTC()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	custom.Mode = ModePreauthorized
+	custom.ProfileID = managedAutonomousProfileIDPrefix + "forged"
+	if err := writeProfile(path, custom); err != nil {
+		t.Fatal(err)
+	}
+	_, err = PreviewRevoke(ProfileRevokeOptions{RepoRoot: repoRoot, CaseRoot: caseRoot, Pack: pack, Lane: "main"})
+	if err == nil || !strings.Contains(err.Error(), "not owned by managed provisioning") {
+		t.Fatalf("reserved custom preauthorized revoke error = %v", err)
+	}
+}
+
+func TestPreviewRevokeRejectsCustomAutonomousProfile(t *testing.T) {
+	repoRoot, caseRoot, pack := managedAutonomousProvisionFixture(t, true)
+	path, err := Path(caseRoot, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	custom := managedAutonomousPresetOptions(repoRoot, caseRoot, pack, time.Now().UTC())
+	profile, err := BuildManagedAutonomousPreset(custom)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile.ProfileID = "custom-autonomous-main"
+	if err := writeProfile(path, profile); err != nil {
+		t.Fatal(err)
+	}
+	_, err = PreviewRevoke(ProfileRevokeOptions{RepoRoot: repoRoot, CaseRoot: caseRoot, Pack: pack, Lane: "main"})
+	if err == nil || (!strings.Contains(err.Error(), "outside managed preset") && !strings.Contains(err.Error(), "not owned by managed provisioning")) {
+		t.Fatalf("custom autonomous revoke error = %v", err)
 	}
 }
 
@@ -397,6 +683,30 @@ func TestApplyProfilePlanRejectsMalformedOrInexactExpectedHash(t *testing.T) {
 	}
 }
 
+func managedAutonomousPresetOptions(repoRoot, caseRoot, pack string, now time.Time) ManagedAutonomousPresetOptions {
+	grantedAt := now.Add(-time.Minute).UTC().Truncate(time.Second)
+	return ManagedAutonomousPresetOptions{
+		RepoRoot:      repoRoot,
+		CaseRoot:      caseRoot,
+		Pack:          pack,
+		Lane:          "main",
+		Preset:        ManagedAutonomousPresetV1,
+		ExplicitOptIn: true,
+		Actions:       []string{"dump", "debug", "debug"},
+		Targets:       []string{"sample-beta", "sample-alpha", "sample-alpha"},
+		Budget: Budget{
+			RuntimeSeconds: 60,
+			DiskMB:         16,
+			Requests:       2,
+		},
+		StopConditions: []string{"timeout", "scope-drift", "output-exceeds-bounded-evidence-packet", "timeout"},
+		OutputPaths:    []string{"workstreams/main/evidence/autonomous"},
+		GrantedBy:      "user",
+		GrantedAt:      grantedAt.Format(time.RFC3339),
+		ExpiresAt:      grantedAt.Add(maxProvisionDuration).Format(time.RFC3339),
+	}
+}
+
 func provisionedProfile(now time.Time) Profile {
 	grantedAt := now.Add(-time.Minute).UTC().Truncate(time.Second)
 	return Profile{
@@ -430,6 +740,56 @@ func provisionedProfile(now time.Time) Profile {
 	}
 }
 
+func managedAutonomousProvisionFixture(t *testing.T, currentDefault bool) (string, string, string) {
+	t.Helper()
+	root := t.TempDir()
+	repoRoot := filepath.Join(root, "repo")
+	caseRoot := filepath.Join(root, "case")
+	pack := "fixture"
+	writeProfileProvisionText(t, filepath.Join(repoRoot, "packs", pack, "manifest.yml"), `schemaVersion: 1
+name: Fixture
+version: 1.0.0
+description: Fixture pack
+maturity: experimental
+heavyToolGates:
+  - id: debug
+    title: Dynamic debug
+    sideEffects: debug,filesystem-write
+    defaultRisk: high
+    requiresConfirmation: true
+    stopConditions: timeout,scope-drift
+  - id: dump
+    title: Bounded dump
+    sideEffects: dump,filesystem-write
+    defaultRisk: high
+    requiresConfirmation: true
+    stopConditions: scope-drift,output-exceeds-bounded-evidence-packet
+  - id: network
+    title: Exact network access
+    sideEffects: network,filesystem-write
+    defaultRisk: high
+    requiresConfirmation: true
+    stopConditions: live-target-ambiguity,unexpected-outbound-request,scope-drift
+`)
+	writeProfileProvisionText(t, filepath.Join(caseRoot, ".steamai", "instance.yml"), fmt.Sprintf(
+		"templateRoot: %s\ntemplatePack: %s\nprojectName: managed-autonomous-fixture\nprojectRoot: %s\n",
+		repoRoot,
+		pack,
+		caseRoot,
+	))
+	writeProfileProvisionText(t, filepath.Join(caseRoot, ".steamai", "lanes", "main", "lane.json"), "{\"schemaVersion\":1,\"id\":\"main\",\"status\":\"open\"}\n")
+	if currentDefault {
+		path, err := Path(caseRoot, "main")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := writeProfile(path, DefaultProfile("main")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return repoRoot, caseRoot, pack
+}
+
 func profileProvisionFixture(t *testing.T, currentDefault bool) (string, string, string) {
 	t.Helper()
 	root := t.TempDir()
@@ -440,7 +800,7 @@ func profileProvisionFixture(t *testing.T, currentDefault bool) (string, string,
 name: Fixture
 version: 1.0.0
 description: Fixture pack
-maturity: stable
+maturity: experimental
 heavyToolGates:
   - id: inspect
     title: Read-only inspection

@@ -203,6 +203,32 @@ func TestApplyWritesOnlyPendingGateRequest(t *testing.T) {
 	assertGateNotExists(t, filepath.Join(caseRoot, "artifacts"))
 }
 
+func TestApplyUsesSTeamAIStateRoot(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixtureWithStateRoot(t, ".steamai")
+	result, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "STeamAI gate"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Applied || result.Path != ".steamai/facts/requests.jsonl" {
+		t.Fatalf("gate result = %+v, want STeamAI request path", result)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, ".steamai", "facts", "requests.jsonl")); err != nil {
+		t.Fatal(err)
+	}
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit"))
+}
+
+func TestApplyRejectsDualStateRoots(t *testing.T) {
+	repoRoot, caseRoot, pack := gateFixtureWithStateRoot(t, ".steamai")
+	if err := os.Mkdir(filepath.Join(caseRoot, ".rekit"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "conflicting roots"}); err == nil || !strings.Contains(err.Error(), "must not coexist") {
+		t.Fatalf("Apply error = %v, want dual-root rejection", err)
+	}
+	assertGateNotExists(t, filepath.Join(caseRoot, ".steamai", "facts", "requests.jsonl"))
+}
+
 func TestApplyDuplicateEventDoesNotAppend(t *testing.T) {
 	repoRoot, caseRoot, pack := gateFixture(t)
 	opt := Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "duplicate gate", Summary: "same semantic request"}
@@ -252,7 +278,17 @@ func gateFixture(t *testing.T) (repoRoot, caseRoot, pack string) {
 	return gateFixtureWithDefaultRisk(t, "high")
 }
 
+func gateFixtureWithStateRoot(t *testing.T, stateDir string) (repoRoot, caseRoot, pack string) {
+	t.Helper()
+	return gateFixtureWithDefaultRiskAndStateRoot(t, "high", stateDir)
+}
+
 func gateFixtureWithDefaultRisk(t *testing.T, defaultRisk string) (repoRoot, caseRoot, pack string) {
+	t.Helper()
+	return gateFixtureWithDefaultRiskAndStateRoot(t, defaultRisk, ".rekit")
+}
+
+func gateFixtureWithDefaultRiskAndStateRoot(t *testing.T, defaultRisk, stateDir string) (repoRoot, caseRoot, pack string) {
 	t.Helper()
 	root := t.TempDir()
 	repoRoot = filepath.Join(root, "repo")
@@ -267,7 +303,7 @@ heavyToolGates:
     sideEffects: debug,filesystem-write
     defaultRisk: `+defaultRisk+`
     requiresConfirmation: true
-    stopConditions: timeout,unexpected-side-effect,scope-drift
+    stopConditions: timeout
   - id: symex
     title: Long symbolic execution
     sideEffects: symex,filesystem-write
@@ -275,8 +311,8 @@ heavyToolGates:
     requiresConfirmation: true
     stopConditions: path-explosion,budget-exhausted,output-exceeds-bounded-evidence-packet
 `)
-	writeGateText(t, filepath.Join(caseRoot, ".rekit", "instance.yml"), "templateRoot: \""+repoRoot+"\"\ntemplatePack: \""+pack+"\"\nprojectName: \"gate-fixture\"\nprojectRoot: \""+caseRoot+"\"\n")
-	writeGateText(t, filepath.Join(caseRoot, ".rekit", "board.json"), `{"lanes":[{"id":"main"}]}`)
+	writeGateText(t, filepath.Join(caseRoot, stateDir, "instance.yml"), "templateRoot: \""+repoRoot+"\"\ntemplatePack: \""+pack+"\"\nprojectName: \"gate-fixture\"\nprojectRoot: \""+caseRoot+"\"\n")
+	writeGateText(t, filepath.Join(caseRoot, stateDir, "board.json"), `{"lanes":[{"id":"main"}]}`)
 	return repoRoot, caseRoot, pack
 }
 
@@ -320,6 +356,26 @@ tools:
 	return repoRoot, caseRoot, pack
 }
 
+func TestPlanDryRunRejectsPreauthorizationWithIncompleteManifestStopConditions(t *testing.T) {
+	repoRoot, caseRoot, pack := gateToolingFixture(t)
+	writePreauthorizedProfile(t, caseRoot)
+
+	plan, err := PlanDryRun(repoRoot, caseRoot, pack, Options{
+		Action: "debug", Lane: "main", TargetRef: "target-alpha",
+		RuntimeSeconds: 30, DiskMB: 64, Requests: 1,
+		OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !plan.RequiresConfirmation || plan.EventPreview.Status != "pending-gate" ||
+		plan.EventPreview.Gate.Authorization.Decision != "stop-condition-mismatch" ||
+		len(plan.BlockedActions) != 1 {
+		t.Fatalf("incomplete manifest stop conditions were preauthorized: %+v", plan)
+	}
+	assertGateNotExists(t, filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl"))
+}
+
 func TestPlanDryRunUsesPreauthorizedLaneAutonomyProfile(t *testing.T) {
 	repoRoot, caseRoot, pack := gateFixture(t)
 	writeGateText(t, filepath.Join(caseRoot, ".rekit", "lanes", "main", "autonomy.json"), `{
@@ -331,7 +387,7 @@ func TestPlanDryRunUsesPreauthorizedLaneAutonomyProfile(t *testing.T) {
   "deniedActions": ["symex"],
   "targetScope": [{"match":"exact","value":"target-alpha"}],
   "budget": {"runtimeSeconds": 60, "diskMB": 128, "requests": 2},
-  "stopConditions": ["timeout", "scope-drift"],
+  "stopConditions": ["timeout", "unexpected-side-effect", "scope-drift"],
   "outputPaths": ["workspace/main/debug"],
   "recordRequired": true,
   "notifyMainOn": ["boundary-hit", "new-risk"],
@@ -644,7 +700,7 @@ func TestAdapterReportContractDescribesAuthorizedGateBoundaries(t *testing.T) {
 func TestAdapterReportContractProjectsPackToolingCandidateOperationalClosure(t *testing.T) {
 	repoRoot, caseRoot, pack := gateToolingFixture(t)
 	writePreauthorizedProfile(t, caseRoot)
-	authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized pack tooling debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout"})
+	authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized pack tooling debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout,unexpected-side-effect,scope-drift"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1970,7 +2026,7 @@ func writePreauthorizedProfile(t *testing.T, caseRoot string) {
   "deniedActions": ["symex"],
   "targetScope": [{"match":"exact","value":"target-alpha"}],
   "budget": {"runtimeSeconds": 60, "diskMB": 128, "requests": 2},
-  "stopConditions": ["timeout", "scope-drift", "budget-exhausted"],
+  "stopConditions": ["timeout", "unexpected-side-effect", "scope-drift", "budget-exhausted"],
   "outputPaths": ["workspace/main/debug"],
   "recordRequired": true,
   "notifyMainOn": ["boundary-hit", "new-risk"],

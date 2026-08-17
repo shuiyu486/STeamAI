@@ -104,7 +104,11 @@ func ReconcilePreview(repoRoot, caseRoot, pack string, opt ReconcileOptions) (Re
 	if err != nil {
 		return ReconcileResult{}, err
 	}
-	return ctx.result(false, false, true, ctx.plannedWrites()), nil
+	writes, err := ctx.plannedWrites()
+	if err != nil {
+		return ReconcileResult{}, err
+	}
+	return ctx.result(false, false, true, writes)
 }
 
 func ReconcileApply(repoRoot, caseRoot, pack string, opt ReconcileOptions) (result ReconcileResult, err error) {
@@ -290,7 +294,7 @@ func ReconcileApply(repoRoot, caseRoot, pack string, opt ReconcileOptions) (resu
 	if err != nil {
 		return ReconcileResult{}, err
 	}
-	writes = append(writes, StartWrite{Path: ".rekit/board.json", Kind: "board", Action: "refresh", TargetPath: boardPath})
+	writes = append(writes, StartWrite{Path: relativePath(ctx.inst.CaseRoot, boardPath), Kind: "board", Action: "refresh", TargetPath: boardPath})
 	resumePath, checkpointPath, err := writeLaneResume(ctx.inst.CaseRoot, ctx.manifest, ctx.lane)
 	if err != nil {
 		return ReconcileResult{}, err
@@ -303,7 +307,10 @@ func ReconcileApply(repoRoot, caseRoot, pack string, opt ReconcileOptions) (resu
 	if err != nil {
 		return ReconcileResult{}, err
 	}
-	result = ctx.result(true, true, false, writes)
+	result, err = ctx.result(true, true, false, writes)
+	if err != nil {
+		return ReconcileResult{}, err
+	}
 	result.ResolutionEventID = resolutionID
 	result.PreviousExecutor = previousExecutor
 	result.ExecutorGeneration = generation
@@ -323,7 +330,11 @@ func newReconcileContext(repoRoot, caseRoot, pack string, opt ReconcileOptions, 
 	}
 	b, err := readBoard(inst.CaseRoot)
 	if os.IsNotExist(err) {
-		return reconcileContext{}, fmt.Errorf("reconcile requires existing .rekit/board.json; run start -Apply or /rekit overview once to initialize the case-local board")
+		boardPath, entrypoint, pathErr := selectedMissionCommanderSurface(inst.CaseRoot)
+		if pathErr != nil {
+			return reconcileContext{}, pathErr
+		}
+		return reconcileContext{}, fmt.Errorf("reconcile requires existing %s; run %s start -Apply or %s overview once to initialize the case-local board", boardPath, entrypoint, entrypoint)
 	}
 	if err != nil {
 		return reconcileContext{}, err
@@ -479,7 +490,7 @@ func appendReconcileLaneEvent(caseRoot, path, action string, event map[string]an
 	return StartWrite{Path: rel, Kind: "lane-event", Action: action, TargetPath: path}, nil
 }
 
-func (ctx reconcileContext) result(mutating, applied, confirm bool, writes []StartWrite) ReconcileResult {
+func (ctx reconcileContext) result(mutating, applied, confirm bool, writes []StartWrite) (ReconcileResult, error) {
 	brief := projectMissionBrief(ctx.board.Lanes, ctx.facts)
 	laneBrief := laneMissionBrief(ctx.lane, ctx.facts)
 	laneFacts := mission.LaneFacts(ctx.facts.Facts, ctx.lane.ID)
@@ -495,9 +506,18 @@ func (ctx reconcileContext) result(mutating, applied, confirm bool, writes []Sta
 	}
 	commanderAction := executorAction.MissionCommanderAction
 	authorizedGateAdapterHandoffs := AuthorizedGateAdapterHandoffsWithAcknowledgements(ctx.manifest.RepoRoot, ctx.inst.CaseRoot, ctx.manifest.Pack, ctx.facts.Requests, ctx.lane.ID, ExecutionEvidenceReviewAcknowledgedIDs(ctx.facts))
-	reviewerDispatchIntakeHandoffs, _ := ReviewerDispatchIntakeHandoffs(ctx.inst.CaseRoot, ctx.facts, ctx.lane.ID)
-	reviewerPacketRetirementHandoffs, _ := ReviewerPacketRetirementHandoffs(ctx.inst.CaseRoot, ctx.lane.ID)
-	pendingGateHandoffs, openDecisionHandoffs := gateDecisionHandoffs(ctx.lane, laneFacts)
+	reviewerDispatchIntakeHandoffs, err := ReviewerDispatchIntakeHandoffs(ctx.inst.CaseRoot, ctx.facts, ctx.lane.ID)
+	if err != nil {
+		return ReconcileResult{}, err
+	}
+	reviewerPacketRetirementHandoffs, err := ReviewerPacketRetirementHandoffs(ctx.inst.CaseRoot, ctx.lane.ID)
+	if err != nil {
+		return ReconcileResult{}, err
+	}
+	pendingGateHandoffs, openDecisionHandoffs, err := gateDecisionHandoffs(ctx.inst.CaseRoot, ctx.lane, laneFacts)
+	if err != nil {
+		return ReconcileResult{}, err
+	}
 	commanderNextActions := reconcileMissionCommanderNextActions(ctx.lane, executorAction, applied)
 	commanderNextActions = MissionCommanderNextActionsWithAuthorizedGateAdapters(commanderNextActions, authorizedGateAdapterHandoffs)
 	commanderNextActions = MissionCommanderNextActionsWithReviewerDispatches(commanderNextActions, reviewerDispatchIntakeHandoffs)
@@ -541,13 +561,17 @@ func (ctx reconcileContext) result(mutating, applied, confirm bool, writes []Sta
 		},
 	}
 	result.MissionCommanderDriverReceipt = reconcileMissionCommanderDriverReceipt(result)
-	result.ReplacementExecutorTakeoverPackage = reconcileReplacementExecutorTakeoverPackage(result)
+	takeoverPackage, err := reconcileReplacementExecutorTakeoverPackage(result)
+	if err != nil {
+		return ReconcileResult{}, err
+	}
+	result.ReplacementExecutorTakeoverPackage = takeoverPackage
 	if applied {
 		result.Writes = writes
 	} else {
 		result.WouldWrites = writes
 	}
-	return result
+	return result, nil
 }
 
 func reconcileActionQueueWithRefresh(queue mission.MissionCommanderActionQueue, caseRoot string) mission.MissionCommanderActionQueue {
@@ -587,7 +611,11 @@ func reconcileMissionCommanderDriverReceipt(result ReconcileResult) *MissionComm
 	return receipt
 }
 
-func reconcileReplacementExecutorTakeoverPackage(result ReconcileResult) *mission.ReplacementExecutorTakeoverPackage {
+func reconcileReplacementExecutorTakeoverPackage(result ReconcileResult) (*mission.ReplacementExecutorTakeoverPackage, error) {
+	handoffPath, err := stateRelPath(result.CaseRoot, "handovers", result.Lane.ID+"-latest.md")
+	if err != nil {
+		return nil, err
+	}
 	return mission.ReplacementExecutorTakeoverPackageFor(result.MissionCommanderActionQueue.CurrentDriverRequest, mission.ReplacementExecutorTakeoverOptions{
 		Focus:                "reconcile-current-action",
 		Scope:                "lane:" + workstreamLabel(result.Lane),
@@ -598,9 +626,9 @@ func reconcileReplacementExecutorTakeoverPackage(result ReconcileResult) *missio
 			"missionCommanderDriverReceipt",
 			relJoin(result.Lane.LaneRoot, "prompts", "RESUME.md"),
 			relJoin(result.Lane.LaneRoot, "checkpoints", "latest.json"),
-			relJoin(".rekit", "handovers", result.Lane.ID+"-latest.md"),
+			handoffPath,
 		},
-	})
+	}), nil
 }
 
 func (ctx reconcileContext) reconcileApplyCommanderAction() mission.MissionCommanderAction {
@@ -659,11 +687,22 @@ func reconcileMissionCommanderNextActions(lane Lane, action laneExecutorAction, 
 	return items
 }
 
-func (ctx reconcileContext) plannedWrites() []StartWrite {
-	laneRootRel := relJoin(".rekit", "lanes", ctx.lane.ID)
+func (ctx reconcileContext) plannedWrites() ([]StartWrite, error) {
+	laneRootRel, err := stateRelPath(ctx.inst.CaseRoot, "lanes", ctx.lane.ID)
+	if err != nil {
+		return nil, err
+	}
 	laneEventsPath := relJoin(laneRootRel, "events.jsonl")
+	interventionRel, err := mission.FactRelPathFor(ctx.inst.CaseRoot, "intervention")
+	if err != nil {
+		return nil, err
+	}
+	boardPath, err := boardRelPath(ctx.inst.CaseRoot)
+	if err != nil {
+		return nil, err
+	}
 	writes := []StartWrite{
-		{Path: mission.FactRelPath("intervention"), Kind: "fact-jsonl", Action: "would-append"},
+		{Path: interventionRel, Kind: "fact-jsonl", Action: "would-append"},
 		{Path: laneEventsPath, Kind: "lane-event", Action: "would-append-intervention-reconciled"},
 	}
 	if ctx.executor != "" {
@@ -673,9 +712,9 @@ func (ctx reconcileContext) plannedWrites() []StartWrite {
 		StartWrite{Path: relJoin(laneRootRel, "lane.json"), Kind: "lane", Action: "would-update-reconcile-state"},
 		StartWrite{Path: relJoin(laneRootRel, "prompts", "RESUME.md"), Kind: "lane-resume", Action: "would-refresh"},
 		StartWrite{Path: relJoin(laneRootRel, "checkpoints", "latest.json"), Kind: "lane-checkpoint", Action: "would-refresh"},
-		StartWrite{Path: ".rekit/board.json", Kind: "board", Action: "would-refresh"},
+		StartWrite{Path: boardPath, Kind: "board", Action: "would-refresh"},
 	)
-	return writes
+	return writes, nil
 }
 
 func openLaneInterventionSummaries(caseRoot, laneID string) ([]InterventionSummary, error) {

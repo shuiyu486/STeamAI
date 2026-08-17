@@ -7,6 +7,27 @@ import (
 	"testing"
 )
 
+func TestValidateNoReparseComponentsAcceptsRegularAndMissingSuffix(t *testing.T) {
+	root := t.TempDir()
+	regular := filepath.Join(root, "regular")
+	if err := os.Mkdir(regular, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	regularFile := filepath.Join(regular, "file")
+	if err := os.WriteFile(regularFile, []byte("regular\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{
+		regular,
+		filepath.Join(regular, "missing", "suffix"),
+		filepath.Join(regularFile, "missing"),
+	} {
+		if err := ValidateNoReparseComponents(path); err != nil {
+			t.Fatalf("ValidateNoReparseComponents(%q): %v", path, err)
+		}
+	}
+}
+
 func TestWriteNewExclusiveRegularFileAnchoredRejectsExistingFile(t *testing.T) {
 	root := t.TempDir()
 	if err := WriteNewExclusiveRegularFileAnchored(root, "nested/receipt.json", "receipt", []byte("first\n")); err != nil {

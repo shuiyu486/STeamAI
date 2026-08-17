@@ -55,7 +55,14 @@ func buildInvocationStatusInventoryAfterMutation(ctx runtime.Context, opt Option
 func buildInvocationStatusInventoryWithExecutableRequirement(ctx runtime.Context, opt Options, requireExecutable bool) (statusInventory, error) {
 	selected := strings.TrimSpace(opt.SelectedCurrentLane)
 	if selected == "" || !usesSelectedCurrentLaneProjection(opt.Command) {
-		return buildStatusInventory(ctx, statusPackSource(ctx, opt))
+		status, err := buildStatusInventory(ctx, statusPackSource(ctx, opt))
+		if err != nil {
+			return statusInventory{}, err
+		}
+		if err := projectStatusPublicEntrypoint(&status); err != nil {
+			return statusInventory{}, err
+		}
+		return status, nil
 	}
 	status, err := buildStatusInventoryBase(ctx, statusPackSource(ctx, opt))
 	if err != nil {
@@ -69,6 +76,9 @@ func buildInvocationStatusInventoryWithExecutableRequirement(ctx runtime.Context
 	bindStatusSelectedCurrentLaneCommands(&status, selected)
 	bindStatusCurrentLoop(status.Target, status.CaseMission, status.MissionControlRunbook)
 	bindStatusSelectedCurrentLaneCommands(&status, selected)
+	if err := projectStatusPublicEntrypoint(&status); err != nil {
+		return statusInventory{}, err
+	}
 	if err := validateStatusSelectedCurrentLane(status, selected, requireExecutable); err != nil {
 		return statusInventory{}, err
 	}
@@ -202,9 +212,12 @@ func validateStatusSelectedCurrentLane(status statusInventory, selected string, 
 				if strings.TrimSpace(wave.Lane) != selected {
 					return fmt.Errorf("selected current lane %q resolved reviewer wave lane %q", selected, wave.Lane)
 				}
-				for idx, attempt := range wave.Shards {
-					if err := validateSelectedLaneReviewerAttempt(attempt, selected, fmt.Sprintf("reviewer wave shard %d", idx+1)); err != nil {
-						return err
+				for _, collection := range selectedLaneReviewerWaveAttemptCollections(wave) {
+					for idx, attempt := range collection.attempts {
+						label := fmt.Sprintf("reviewer wave %s %d", collection.label, idx+1)
+						if err := validateSelectedLaneReviewerAttempt(attempt, selected, label); err != nil {
+							return err
+						}
 					}
 				}
 			}
@@ -333,12 +346,34 @@ func bindSelectedLaneCurrentLoopOperator(pkg *mission.CurrentLoopOperatorPackage
 	if handoff := pkg.ExternalReviewerHandoff; handoff != nil {
 		bindSelectedLaneReviewerAttempt(handoff.Attempt, selected)
 		if wave := handoff.Wave; wave != nil {
-			for _, attempt := range wave.Shards {
-				bindSelectedLaneReviewerAttempt(attempt, selected)
+			for _, collection := range selectedLaneReviewerWaveAttemptCollections(wave) {
+				for _, attempt := range collection.attempts {
+					bindSelectedLaneReviewerAttempt(attempt, selected)
+				}
 			}
 		}
 	}
 	bindSelectedLaneObservationContract(&pkg.ExternalMemberHandoff, pkg.ExternalReviewerHandoff, selected)
+}
+
+type selectedLaneReviewerWaveAttemptCollection struct {
+	label    string
+	attempts []*mission.CurrentLoopReviewerAttempt
+}
+
+func selectedLaneReviewerWaveAttemptCollections(wave *mission.CurrentLoopReviewerWave) []selectedLaneReviewerWaveAttemptCollection {
+	if wave == nil {
+		return nil
+	}
+	return []selectedLaneReviewerWaveAttemptCollection{
+		{label: "spawn wave", attempts: wave.SpawnWave},
+		{label: "active", attempts: wave.Active},
+		{label: "returned", attempts: wave.Returned},
+		{label: "failed", attempts: wave.Failed},
+		{label: "blocked", attempts: wave.Blocked},
+		{label: "complete", attempts: wave.Complete},
+		{label: "shard", attempts: wave.Shards},
+	}
 }
 
 func bindSelectedLaneReviewerAttempt(attempt *mission.CurrentLoopReviewerAttempt, selected string) {
@@ -408,7 +443,7 @@ func selectedLaneCommand(command, selected string) string {
 		return command
 	}
 	fields, err := splitDriverCommand(command)
-	if err != nil || len(fields) < 2 || fields[0] != "/rekit" {
+	if err != nil || len(fields) < 2 || (fields[0] != "/rekit" && fields[0] != "/steamai") {
 		return command
 	}
 	laneFlag := -1

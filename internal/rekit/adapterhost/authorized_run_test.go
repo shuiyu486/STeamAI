@@ -28,6 +28,11 @@ type vmpAuthorizedFixture struct {
 
 func newVMPAuthorizedFixture(t *testing.T, recordDispatch bool) vmpAuthorizedFixture {
 	t.Helper()
+	return newVMPAuthorizedFixtureWithStateRoot(t, recordDispatch, ".rekit")
+}
+
+func newVMPAuthorizedFixtureWithStateRoot(t *testing.T, recordDispatch bool, stateDir string) vmpAuthorizedFixture {
+	t.Helper()
 	root := t.TempDir()
 	repoRoot := filepath.Join(root, "repo")
 	caseRoot := filepath.Join(root, "case")
@@ -51,7 +56,7 @@ workstreamDefaults:
   defaultAuthorityLane: main
   defaultStartLaneType: main
   handoffPath: handoff.md
-  backupRoot: .rekit/backups
+  backupRoot: `+stateDir+`/backups
   requestDefaultTargetLane: main
 authorityFiles:
   - handoff.md
@@ -68,7 +73,7 @@ laneTypes:
     authority: false
     workspaceRoot: workspace/main
     canWrite: own-workspace
-    readOnly: .rekit/facts/**
+    readOnly: `+stateDir+`/facts/**
     outputs: observation
 toolingCandidateSources: []
 heavyToolGates:
@@ -107,9 +112,9 @@ tools:
     sideEffects: filesystem-read,bounded-packet-write
     gateActions: inspect
 `)
-	writeHostFile(t, filepath.Join(caseRoot, ".rekit", "instance.yml"), "templateRoot: \""+repoRoot+"\"\ntemplatePack: \"vmp-re\"\nprojectName: \"vmp-adapter-fixture\"\nprojectRoot: \""+caseRoot+"\"\n")
-	writeHostFile(t, filepath.Join(caseRoot, ".rekit", "board.json"), `{"lanes":[{"id":"main","status":"open","workspace":"workspace/main","currentExecutor":"executor-vmp","executorGeneration":1}]}`)
-	writeHostFile(t, filepath.Join(caseRoot, ".rekit", "lanes", "main", "lane.json"), `{
+	writeHostFile(t, filepath.Join(caseRoot, stateDir, "instance.yml"), "templateRoot: \""+repoRoot+"\"\ntemplatePack: \"vmp-re\"\nprojectName: \"vmp-adapter-fixture\"\nprojectRoot: \""+caseRoot+"\"\n")
+	writeHostFile(t, filepath.Join(caseRoot, stateDir, "board.json"), `{"lanes":[{"id":"main","status":"open","workspace":"workspace/main","currentExecutor":"executor-vmp","executorGeneration":1}]}`)
+	writeHostFile(t, filepath.Join(caseRoot, stateDir, "lanes", "main", "lane.json"), `{
   "schemaVersion": 1,
   "id": "main",
   "type": "main",
@@ -119,7 +124,7 @@ tools:
   "authority": false,
   "workspace": "workspace/main",
   "canWrite": ["own-workspace"],
-  "readOnly": [".rekit/facts/**"],
+  "readOnly": ["`+stateDir+`/facts/**"],
   "outputs": ["observation"],
   "counters": {},
   "currentExecutor": "executor-vmp",
@@ -377,6 +382,49 @@ func TestRunVMPIDAIndexNeverExecutesCatalogEntryAndPublishesPacket(t *testing.T)
 	catalogEntry := filepath.Join(filepath.Dir(fixture.repoRoot), "catalog-entry-must-not-run")
 	if _, err := os.Lstat(catalogEntry); !os.IsNotExist(err) {
 		t.Fatalf("catalog entry was treated as executable: %v", err)
+	}
+}
+
+func TestRunAuthorizedGateUsesSTeamAIStateRoot(t *testing.T) {
+	fixture := newVMPAuthorizedFixtureWithStateRoot(t, false, ".steamai")
+	if _, err := os.Stat(filepath.Join(fixture.caseRoot, ".steamai", "lanes", "main", "autonomy.json")); err != nil {
+		t.Fatalf("current STeamAI autonomy profile is missing: %v", err)
+	}
+	launches := 0
+	result, err := RunAuthorizedGate(authorizedRunOptionsForFixture(fixture, &hostTestHooks{
+		runVMPIDAChild: func(child VMPIDAIndexChildOptions) ([]byte, int, error) {
+			launches++
+			return strictChildBytes(t, child), 5050, nil
+		},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if launches != 1 || result.DispatchPath != ".steamai/lanes/main/adapter-executions/"+fixture.gateEventID+"/dispatch.json" || result.ReceiptPath != ".steamai/lanes/main/adapter-executions/"+fixture.gateEventID+"/receipt.json" || result.ProfilePath != ".steamai/lanes/main/autonomy.json" {
+		t.Fatalf("STeamAI authorized run paths drifted: result=%+v launches=%d", result, launches)
+	}
+	if _, err := os.Lstat(filepath.Join(fixture.caseRoot, ".rekit")); !os.IsNotExist(err) {
+		t.Fatalf("STeamAI authorized run wrote legacy root: %v", err)
+	}
+}
+
+func TestRunAuthorizedGateRejectsDualStateRoots(t *testing.T) {
+	fixture := newVMPAuthorizedFixtureWithStateRoot(t, false, ".steamai")
+	if _, err := os.Stat(filepath.Join(fixture.caseRoot, ".steamai", "lanes", "main", "autonomy.json")); err != nil {
+		t.Fatalf("current STeamAI autonomy profile is missing before dual-root conflict: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(fixture.caseRoot, ".rekit"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	launches := 0
+	_, err := RunAuthorizedGate(authorizedRunOptionsForFixture(fixture, &hostTestHooks{
+		runVMPIDAChild: func(VMPIDAIndexChildOptions) ([]byte, int, error) {
+			launches++
+			return nil, 0, errors.New("must not launch")
+		},
+	}))
+	if err == nil || !strings.Contains(err.Error(), "must not coexist") || launches != 0 {
+		t.Fatalf("dual-root authorized run error=%v launches=%d", err, launches)
 	}
 }
 

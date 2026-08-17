@@ -132,11 +132,15 @@ func buildCurrentStepExternalSessionPlan(ctx runtime.Context, opt Options, statu
 	if err != nil {
 		return nil, "", true, err
 	}
+	refresh, err := statusMissionControlRefreshCommand(ctx.Target)
+	if err != nil {
+		return nil, "", true, err
+	}
 	plan := &currentStepExternalSessionPlan{
 		SchemaVersion:        1,
 		State:                operator.State,
 		HarnessPackage:       typed.HarnessPackage,
-		RefreshStatusCommand: statusMissionControlRefreshCommand(ctx.Target),
+		RefreshStatusCommand: refresh,
 		Boundary: []string{
 			"the unified step binds the exact current external job, checkpoint, attempt generation, and nested plan",
 			"the Go runtime records deterministic artifacts only; the external harness owns session launch, reconnect, polling, stop, and result production",

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 func reviewerPacketSnapshotForTest(t *testing.T, caseRoot, packetPath string) reviewerPacketAnchoredSnapshot {
@@ -47,7 +48,10 @@ func TestReviewerResultInputPlannedSnapshotIsPreviewApplyExactBound(t *testing.T
 		t.Fatal(err)
 	}
 	data := reviewerResultForPacket(t, packet, "accept", "accepted", nil)
-	relayPath := filepath.Join(caseRoot, ".rekit", "runs", "external-session-relays", "reviewer-result.json")
+	relayPath, err := projectstate.Join(caseRoot, "reviews", "planned-snapshots", "reviewer-result.json")
+	if err != nil {
+		t.Fatal(err)
+	}
 	base := ReviewerResultInputSaveOptions{
 		PacketPath: plan.PacketPath, ShardID: handoff.ShardID, SourcePath: relayPath,
 		Lane: packet.TargetLane, Actor: "mission-commander", ExpectedReviewerDispatchID: dispatch.DispatchID, WhatIf: true,
@@ -127,7 +131,10 @@ func TestReviewerResultSnapshotApplyRejectsPromptDriftBeforePublication(t *testi
 		t.Fatal(err)
 	}
 	data := reviewerResultForPacket(t, packet, "accept", "accepted", nil)
-	snapshotPath := filepath.Join(caseRoot, ".rekit", "session-host", "reviewer-results", dispatch.DispatchID+".json")
+	snapshotPath, err := projectstate.Join(caseRoot, "reviews", "planned-snapshots", dispatch.DispatchID+".json")
+	if err != nil {
+		t.Fatal(err)
+	}
 	base := ReviewerResultInputSaveOptions{
 		PacketPath: plan.PacketPath, ShardID: handoff.ShardID, SourcePath: snapshotPath,
 		Lane: packet.TargetLane, Actor: "mission-commander", ExpectedReviewerDispatchID: dispatch.DispatchID, WhatIf: true,

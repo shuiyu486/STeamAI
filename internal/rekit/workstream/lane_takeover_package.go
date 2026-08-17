@@ -35,7 +35,19 @@ type LaneTakeoverPackage struct {
 	Boundary                      []string                                `json:"boundary,omitempty"`
 }
 
+// LaneTakeoverPackageForActionSnapshot is retained for existing callers. New
+// error-returning flows should use LaneTakeoverPackageForActionSnapshotE. The
+// compatibility API panics rather than returning an incomplete projection when
+// state-root resolution fails.
 func LaneTakeoverPackageForActionSnapshot(caseRoot string, snapshot mission.LaneExecutorActionSnapshot, queue mission.MissionCommanderActionQueue, applyRequired bool) *LaneTakeoverPackage {
+	pkg, err := LaneTakeoverPackageForActionSnapshotE(caseRoot, snapshot, queue, applyRequired)
+	if err != nil {
+		panic(err)
+	}
+	return pkg
+}
+
+func LaneTakeoverPackageForActionSnapshotE(caseRoot string, snapshot mission.LaneExecutorActionSnapshot, queue mission.MissionCommanderActionQueue, applyRequired bool) (*LaneTakeoverPackage, error) {
 	lane := Lane{
 		ID:                 snapshot.Lane,
 		Status:             snapshot.Status,
@@ -49,15 +61,23 @@ func LaneTakeoverPackageForActionSnapshot(caseRoot string, snapshot mission.Lane
 	return laneTakeoverPackageFor(caseRoot, lane, snapshot.ExecutorAction, queue, applyRequired)
 }
 
-func laneTakeoverPackageFor(caseRoot string, lane Lane, action laneExecutorAction, queue mission.MissionCommanderActionQueue, applyRequired bool) *LaneTakeoverPackage {
+func laneTakeoverPackageFor(caseRoot string, lane Lane, action laneExecutorAction, queue mission.MissionCommanderActionQueue, applyRequired bool) (*LaneTakeoverPackage, error) {
 	label := workstreamLabel(lane)
-	resumeRel := relJoin(lane.LaneRoot, "prompts", "RESUME.md")
-	checkpointRel := relJoin(lane.LaneRoot, "checkpoints", "latest.json")
-	if laneRoot, err := laneRootPath(caseRoot, lane); err == nil {
-		resumeRel = relativePath(caseRoot, relJoin(laneRoot, "prompts", "RESUME.md"))
-		checkpointRel = relativePath(caseRoot, relJoin(laneRoot, "checkpoints", "latest.json"))
+	if _, err := laneRootPath(caseRoot, lane); err != nil {
+		return nil, err
 	}
-	handoffRel := relJoin(".rekit", "handovers", lane.ID+"-latest.md")
+	resumeRel, err := stateRelPath(caseRoot, "lanes", lane.ID, "prompts", "RESUME.md")
+	if err != nil {
+		return nil, err
+	}
+	checkpointRel, err := stateRelPath(caseRoot, "lanes", lane.ID, "checkpoints", "latest.json")
+	if err != nil {
+		return nil, err
+	}
+	handoffRel, err := stateRelPath(caseRoot, "handovers", lane.ID+"-latest.md")
+	if err != nil {
+		return nil, err
+	}
 	currentCommand := strings.TrimSpace(action.MissionCommanderAction.PrimaryCommand)
 	if queue.CurrentAction != nil && strings.TrimSpace(queue.CurrentAction.Command) != "" {
 		currentCommand = strings.TrimSpace(queue.CurrentAction.Command)
@@ -94,7 +114,7 @@ func laneTakeoverPackageFor(caseRoot string, lane Lane, action laneExecutorActio
 	}
 	pkg.RunbookSteps = laneTakeoverRunbookSteps(pkg)
 	pkg.Boundary = laneTakeoverBoundary(pkg)
-	return pkg
+	return pkg, nil
 }
 
 func cloneMissionCommanderCurrentAction(item *mission.MissionCommanderNextActionItem) *mission.MissionCommanderNextActionItem {

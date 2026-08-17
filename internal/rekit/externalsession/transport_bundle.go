@@ -10,6 +10,7 @@ import (
 
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewersession"
 )
 
@@ -195,8 +196,8 @@ func validateTransportEvidenceBundle(job Job, ticket DispatchTicket, binding Tra
 	return bundle, nil
 }
 
-func transportBundlePath(jobID string, generation int) string {
-	return filepath.ToSlash(filepath.Join(".rekit", "external-session-transport", "bundles", jobID, fmt.Sprintf("%06d.json", generation)))
+func transportBundlePath(caseRoot, jobID string, generation int) (string, error) {
+	return projectstate.Rel(caseRoot, "external-session-transport", "bundles", jobID, fmt.Sprintf("%06d.json", generation))
 }
 
 func transportAnchoredPath(caseRoot, path string) (string, error) {

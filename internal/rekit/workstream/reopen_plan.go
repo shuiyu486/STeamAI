@@ -9,6 +9,7 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanecompletion"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 const reopenPlanHashMarker = "<reopen-exact-publication-plan-sha256>"
@@ -122,7 +123,10 @@ func (ctx *reopenContext) buildPublicationPlan(stamp string) error {
 	if err != nil {
 		return err
 	}
-	boardPath := filepath.Join(ctx.inst.CaseRoot, ".rekit", "board.json")
+	boardPath, err := projectstate.Join(ctx.inst.CaseRoot, "board.json")
+	if err != nil {
+		return err
+	}
 	boardPublication, err := buildReopenPublication(ctx.inst.CaseRoot, boardPath, "board", lanecompletion.PublicationReplaceExact, boardBytes)
 	if err != nil {
 		return err

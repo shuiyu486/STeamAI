@@ -17,6 +17,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/note"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/processguard"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
@@ -243,7 +244,11 @@ func RunLiveAcceptance(opt LiveAcceptanceOptions) (receipt LiveAcceptanceReceipt
 	if err != nil {
 		return receipt, err
 	}
-	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "lanes", receipt.Lane, "autonomy.json"), profileData, 0o600); err != nil {
+	profilePath, err := projectstate.Join(caseRoot, "lanes", receipt.Lane, "autonomy.json")
+	if err != nil {
+		return receipt, err
+	}
+	if err := os.WriteFile(profilePath, profileData, 0o600); err != nil {
 		return receipt, err
 	}
 
@@ -389,7 +394,11 @@ func RunLiveAcceptance(opt LiveAcceptanceOptions) (receipt LiveAcceptanceReceipt
 		return receipt, fmt.Errorf("adapter live acceptance acknowledgement did not clear evidence review")
 	}
 	for _, kind := range []string{"authority", "confirmed"} {
-		if _, err := os.Lstat(filepath.Join(caseRoot, ".rekit", "facts", mission.FactFileName(kind))); !os.IsNotExist(err) {
+		factPath, pathErr := projectstate.Join(caseRoot, "facts", mission.FactFileName(kind))
+		if pathErr != nil {
+			return receipt, pathErr
+		}
+		if _, err := os.Lstat(factPath); !os.IsNotExist(err) {
 			return receipt, fmt.Errorf("adapter live acceptance unexpectedly wrote %s ledger state", kind)
 		}
 	}

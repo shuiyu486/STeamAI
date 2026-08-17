@@ -16,15 +16,112 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewersession"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/subagents"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
+func TestCurrentLoopExternalReviewerRelayResultUsesResolvedReviewRoot(t *testing.T) {
+	for _, stateDir := range []string{projectstate.CurrentDir, projectstate.LegacyDir} {
+		t.Run(stateDir, func(t *testing.T) {
+			caseRoot := t.TempDir()
+			packetPath := filepath.Join(caseRoot, stateDir, "reviews", "packet-a", "packet.json")
+			if err := os.MkdirAll(filepath.Dir(packetPath), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			got, err := currentLoopExternalReviewerRelayResultPath(caseRoot, packetPath, "reviewer-job-a")
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := filepath.ToSlash(filepath.Join(stateDir, "reviews", "packet-a", "results", "external-session-returns", "reviewer-job-a.json"))
+			if got != want {
+				t.Fatalf("relay result path = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestCurrentLoopExternalReviewerRelayResultRejectsMixedStateRoots(t *testing.T) {
+	caseRoot := t.TempDir()
+	packetPath := filepath.Join(caseRoot, projectstate.CurrentDir, "reviews", "packet-a", "packet.json")
+	for _, stateDir := range []string{projectstate.CurrentDir, projectstate.LegacyDir} {
+		if err := os.MkdirAll(filepath.Join(caseRoot, stateDir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := currentLoopExternalReviewerRelayResultPath(caseRoot, packetPath, "reviewer-job-a"); err == nil {
+		t.Fatal("mixed state roots unexpectedly produced a reviewer relay result path")
+	}
+}
+
+func TestCurrentLoopExternalMemberHandoffUsesResolvedStateRoot(t *testing.T) {
+	for _, fixture := range []struct {
+		name     string
+		stateDir string
+	}{
+		{name: "current", stateDir: projectstate.CurrentDir},
+		{name: "legacy", stateDir: projectstate.LegacyDir},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			caseRoot := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(caseRoot, fixture.stateDir), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			inspection := memberexecution.Inspection{
+				State:     "handoff-ready",
+				AttemptID: "attempt-a",
+				Owner: memberexecution.Owner{
+					Lane:               "feature-a",
+					Executor:           "member-a",
+					ExecutorGeneration: 2,
+				},
+				Handoff: &memberexecution.Handoff{
+					TaskContextPath:   fixture.stateDir + "/task-context.json",
+					TaskContextSHA256: strings.Repeat("a", 64),
+					ManifestPath:      fixture.stateDir + "/manifest.json",
+					OutputsRoot:       fixture.stateDir + "/outputs",
+				},
+				HandoffSHA256: strings.Repeat("b", 64),
+			}
+			handoff := currentLoopExternalMemberHandoff(runtime.Context{Target: caseRoot, Pack: "_template"}, inspection, nil)
+			want, err := projectstate.Rel(caseRoot, "lanes", "feature-a", "member-executions", "attempt-a", "handoff.json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if handoff == nil || handoff.HandoffPath != want {
+				t.Fatalf("external member handoff path=%+v want=%q", handoff, want)
+			}
+		})
+	}
+}
+
+func TestCurrentLoopExternalMemberHandoffRejectsMixedStateRoots(t *testing.T) {
+	caseRoot := t.TempDir()
+	for _, stateDir := range []string{projectstate.CurrentDir, projectstate.LegacyDir} {
+		if err := os.MkdirAll(filepath.Join(caseRoot, stateDir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	inspection := memberexecution.Inspection{
+		State:     "handoff-ready",
+		AttemptID: "attempt-a",
+		Owner:     memberexecution.Owner{Lane: "feature-a", Executor: "member-a", ExecutorGeneration: 2},
+		Handoff:   &memberexecution.Handoff{},
+	}
+	if handoff := currentLoopExternalMemberHandoff(runtime.Context{Target: caseRoot, Pack: "_template"}, inspection, nil); handoff != nil {
+		t.Fatalf("mixed state roots should not project an external member handoff: %+v", handoff)
+	}
+}
+
 func TestRemoteControlTransportPackageProjectsTypedLifecycleRequests(t *testing.T) {
+	caseRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(caseRoot, projectstate.CurrentDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	job := externalsession.Job{
-		CaseRoot: "case-root", JobID: "reviewer-job", CheckpointSHA256: strings.Repeat("a", 64), SessionKind: "reviewer",
+		CaseRoot: caseRoot, JobID: "reviewer-job", CheckpointSHA256: strings.Repeat("a", 64), SessionKind: "reviewer",
 		Reviewer: &externalsession.ReviewerIdentity{DispatchID: "dispatch-a", Harness: externalsession.RemoteControlHarness, Session: "transport-binding-a"},
 	}
 	attempt := externalsession.AttemptInspection{AttemptSHA256: strings.Repeat("b", 64), Current: &externalsession.Attempt{AttemptID: "reviewer-job-g000001", Generation: 1, Harness: externalsession.RemoteControlHarness, Session: "transport-binding-a"}}
@@ -38,13 +135,19 @@ func TestRemoteControlTransportPackageProjectsTypedLifecycleRequests(t *testing.
 		AttemptSHA256: attempt.AttemptSHA256, Generation: 1, DispatchSHA256: dispatch.TicketSHA256, ClaimSHA256: dispatch.ClaimSHA256,
 	}
 
-	discovery := externalSessionTransportPackage(job, attempt, dispatch, externalsession.TransportInspection{Applicable: true, State: "endpoint-required", Binding: binding})
+	discovery, err := externalSessionTransportPackage(job, attempt, dispatch, externalsession.TransportInspection{Applicable: true, State: "endpoint-required", Binding: binding})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if discovery == nil || discovery.DiscoveryTool != "ListAgents" || discovery.DiscoveryRequest == nil || discovery.DiscoveryRequest.CommandExecutable || discovery.DiscoveryRequest.Source != "current-loop-external-session-transport" || !strings.Contains(discovery.DiscoveryRequest.Guidance, "ListAgents") {
 		t.Fatalf("Remote Control endpoint discovery package=%+v", discovery)
 	}
 
 	endpoint := &externalsession.TransportEndpointSnapshot{Endpoint: "reviewer [opaque-ref]", Actor: "mission-commander", ObservedAt: "2026-08-12T01:00:00Z", Envelope: externalsession.TransportMessageEnvelope{Operation: "SendMessage", Recipient: "reviewer [opaque-ref]", Message: "bounded message", MessageSHA256: strings.Repeat("f", 64), NoFileTransfer: true}}
-	delivery := externalSessionTransportPackage(job, attempt, dispatch, externalsession.TransportInspection{Applicable: true, State: "delivery-required", Binding: binding, Endpoint: endpoint, EndpointSHA256: strings.Repeat("1", 64), EnvelopeSHA256: strings.Repeat("2", 64)})
+	delivery, err := externalSessionTransportPackage(job, attempt, dispatch, externalsession.TransportInspection{Applicable: true, State: "delivery-required", Binding: binding, Endpoint: endpoint, EndpointSHA256: strings.Repeat("1", 64), EnvelopeSHA256: strings.Repeat("2", 64)})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if delivery == nil || delivery.Message == nil || delivery.Message.Operation != "SendMessage" || !delivery.Message.NoFileTransfer || delivery.DeliveryRequest == nil || delivery.DeliveryRequest.CommandExecutable || !strings.Contains(delivery.DeliveryRequest.Guidance, "exactly once") {
 		t.Fatalf("Remote Control delivery package=%+v", delivery)
 	}
@@ -53,15 +156,50 @@ func TestRemoteControlTransportPackageProjectsTypedLifecycleRequests(t *testing.
 	running := dispatch
 	running.State = "running"
 	running.LaunchSHA256 = strings.Repeat("4", 64)
-	returned := externalSessionTransportPackage(job, attempt, running, externalsession.TransportInspection{Applicable: true, State: "delivery-accepted", Binding: binding, Endpoint: endpoint, EndpointSHA256: strings.Repeat("1", 64), EnvelopeSHA256: strings.Repeat("2", 64), Delivery: acceptedObservation, DeliverySHA256: strings.Repeat("3", 64)})
+	returned, err := externalSessionTransportPackage(job, attempt, running, externalsession.TransportInspection{Applicable: true, State: "delivery-accepted", Binding: binding, Endpoint: endpoint, EndpointSHA256: strings.Repeat("1", 64), EnvelopeSHA256: strings.Repeat("2", 64), Delivery: acceptedObservation, DeliverySHA256: strings.Repeat("3", 64)})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if returned == nil || returned.ReturnRequest == nil || returned.ReturnRequest.CommandExecutable || returned.ReturnRequest.State != "remote-control-reviewer-result-required" || returned.ReturnRequest.ExpectedReceipt.State != "transport-return-preview" || !strings.Contains(returned.ReturnRequest.Guidance, "ExternalSessionReviewerResultSourcePath") || returned.LaunchRequest != nil {
 		t.Fatalf("Remote Control return package=%+v", returned)
 	}
 
 	uncertainObservation := &externalsession.TransportDeliveryObservation{Outcome: "uncertain", Actor: "mission-commander", ObservedAt: "2026-08-12T01:01:00Z", Reason: "no stable acknowledgement"}
-	uncertain := externalSessionTransportPackage(job, attempt, dispatch, externalsession.TransportInspection{Applicable: true, State: "delivery-uncertain", Binding: binding, Delivery: uncertainObservation, DeliverySHA256: strings.Repeat("3", 64)})
+	uncertain, err := externalSessionTransportPackage(job, attempt, dispatch, externalsession.TransportInspection{Applicable: true, State: "delivery-uncertain", Binding: binding, Delivery: uncertainObservation, DeliverySHA256: strings.Repeat("3", 64)})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if uncertain == nil || uncertain.ReplacementRequest == nil || uncertain.ReplacementRequest.CommandExecutable || uncertain.ReplacementRequest.State != "transport-delivery-uncertain-new-dispatch-required" || !strings.Contains(uncertain.ReplacementRequest.Guidance, "Do not resend or replace this job") || uncertain.ReplacementRequest.Command != "" {
 		t.Fatalf("Remote Control uncertain package=%+v", uncertain)
+	}
+}
+
+func TestRemoteControlReturnContractUsesResolvedStateRoot(t *testing.T) {
+	for _, stateDir := range []string{projectstate.CurrentDir, projectstate.LegacyDir} {
+		t.Run(stateDir, func(t *testing.T) {
+			caseRoot := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(caseRoot, stateDir), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			job := externalsession.Job{
+				CaseRoot: caseRoot, JobID: "reviewer-job", SessionKind: "reviewer", AllowedOutcomes: []string{"returned"},
+				Reviewer: &externalsession.ReviewerIdentity{Harness: externalsession.RemoteControlHarness},
+			}
+			attempt := externalsession.AttemptInspection{Current: &externalsession.Attempt{
+				Generation: 3, SubmissionPath: stateDir + "/attempt/submission.json", SubmissionResult: stateDir + "/attempt/result.json",
+			}}
+			contract, err := externalSessionReturnContract(job, externalsession.Inspection{}, attempt, &mission.CurrentLoopOperatorPackage{}, mission.CurrentLoopExternalSessionJob{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantReceipt, err := externalsession.TransportReturnReceiptPathForCase(caseRoot, job.JobID, attempt.Current.Generation)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if contract == nil || len(contract.Templates) != 1 || !slices.Contains(contract.Templates[0].RequiredWrites, wantReceipt) || !strings.HasPrefix(wantReceipt, stateDir+"/") {
+				t.Fatalf("state root %s return contract=%+v receipt=%q", stateDir, contract, wantReceipt)
+			}
+		})
 	}
 }
 
@@ -571,7 +709,8 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 	staleDispatchInputs[1] = strings.Repeat("0", 64)
 	out.Reset()
 	err = Run(append([]string{"-Command", "run-current-loop", "-Target", caseRoot, "-Pack", "_template", "-MaxSteps", "10", "-WhatIf", "-Format", "json"}, staleDispatchInputs...), &out)
-	if err == nil || !strings.Contains(err.Error(), "expected reviewer attempt sha256 mismatch") {
+	if err == nil || (!strings.Contains(err.Error(), "expected reviewer attempt sha256 mismatch") &&
+		!strings.Contains(err.Error(), "requires a fresh current-loop reviewer attempt")) {
 		t.Fatalf("stale reviewer attempt observation was not rejected before preview: %v", err)
 	}
 	if _, statErr := os.Stat(filepath.Join(filepath.Dir(spawnAttempt.Identity.PacketPath), "sessions", spawnAttempt.Identity.ShardID)); !os.IsNotExist(statErr) {
@@ -778,7 +917,14 @@ func TestRunCurrentLoopStopsForExternalReviewerHandoffs(t *testing.T) {
 		t.Fatalf("replacement Remote Control dispatch receipt lost strict read-only evidence binding: %+v", replacementDispatch)
 	}
 
-	staleResultSource := filepath.Join(caseRoot, "workspace", "current-loop-stale-reviewer-result.json")
+	staleResultSource := filepath.Join(
+		plan.ReviewerOrchestration.ResultRoot,
+		"returned-results",
+		"current-loop-stale-reviewer-result.json",
+	)
+	if err := os.MkdirAll(filepath.Dir(staleResultSource), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(staleResultSource, reviewerResultForCLIPlan(t, plan, handoff, "accept", "accepted", "reviewer-session-runner"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -1729,9 +1875,21 @@ func runCurrentLoopResumePreviewWith(t *testing.T, caseRoot, checkpointSHA256 st
 	return runCurrentLoopResult(t, args)
 }
 
+func mustCurrentLoopObservationInboxPath(t *testing.T, caseRoot string) string {
+	t.Helper()
+	path, err := projectstate.Join(caseRoot, "external-session-observations", "inbox")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func writeCurrentLoopObservation(t *testing.T, caseRoot, name string, envelope currentLoopObservationEnvelope) string {
 	t.Helper()
-	dir := filepath.Join(caseRoot, ".rekit", "external-session-observations")
+	dir, err := projectstate.Join(caseRoot, "external-session-observations")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -1815,7 +1973,7 @@ func TestCurrentLoopObservationInboxFailsClosedOnAmbiguityAndInvalidEntry(t *tes
 			ExternalMemberHandoff: &mission.CurrentLoopExternalMemberHandoff{AttemptID: "g000001-a000001-deadbeefdeadbeef"},
 		},
 	}
-	inboxDir := filepath.Join(caseRoot, filepath.FromSlash(currentLoopObservationInboxRel))
+	inboxDir := mustCurrentLoopObservationInboxPath(t, caseRoot)
 	if err := os.MkdirAll(inboxDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -2269,7 +2427,7 @@ func TestRunCurrentLoopObservationInboxOutranksDispatcherStates(t *testing.T) {
 				claimed := claimCurrentLoopExternalSessionDispatch(t, operator, "dispatcher", "2026-08-05T07:10:01Z")
 				status = *recordCurrentLoopExternalSessionLaunch(t, claimed.MissionControlRunbook.CurrentLoopOperator, "dispatcher", "actual-harness", "actual-session", "2026-08-05T07:10:02Z")
 			}
-			observationDir := filepath.Join(caseRoot, filepath.FromSlash(currentLoopObservationInboxRel))
+			observationDir := mustCurrentLoopObservationInboxPath(t, caseRoot)
 			if err := os.MkdirAll(observationDir, 0o700); err != nil {
 				t.Fatal(err)
 			}
@@ -2512,6 +2670,49 @@ func TestRunCurrentStepUnifiesExternalSessionCampaign(t *testing.T) {
 	running := launched.RefreshedStatus.MissionControlRunbook
 	if running.CurrentDriverRequest == nil || running.CurrentDriverRequest.Source != "current-step-external-session" || !running.CurrentDriverRequest.CommandExecutable || !strings.Contains(running.CurrentDriverRequest.Command, "run-current-step") || running.Quickstart == nil || running.ReplacementExecutorTakeover == nil || running.Quickstart.CurrentDriverRequest == nil || running.Quickstart.CurrentDriverRequest.ActionID != running.CurrentDriverRequest.ActionID || running.ReplacementExecutorTakeover.CurrentDriverRequest.ActionID != running.CurrentDriverRequest.ActionID {
 		t.Fatalf("running lifecycle was not the unique unified fresh-session handoff: %+v", running)
+	}
+	if err := mission.ValidateMissionCommanderDriverRequest(*running.CurrentDriverRequest); err != nil {
+		t.Fatalf("running external-session wrapper is not a valid typed request: %v", err)
+	}
+	for _, binding := range []struct {
+		name    string
+		command string
+	}{
+		{name: "command", command: running.CurrentDriverRequest.Command},
+		{name: "receipt command", command: running.CurrentDriverRequest.ExpectedReceipt.Command},
+	} {
+		if !strings.HasPrefix(binding.command, "/rekit run-current-step ") ||
+			!strings.Contains(binding.command, "-Target "+caseRoot) ||
+			!strings.Contains(binding.command, "-Lane main") ||
+			!strings.Contains(binding.command, "-WhatIf") ||
+			!strings.Contains(binding.command, "-Format json") {
+			t.Fatalf("running wrapper %s is not exact: %q", binding.name, binding.command)
+		}
+	}
+	refresh := running.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand
+	if !strings.HasPrefix(refresh, "/rekit status ") ||
+		!strings.Contains(refresh, "-Target "+caseRoot) ||
+		!strings.Contains(refresh, "-Lane main") ||
+		!strings.Contains(refresh, "-Format compact-json") ||
+		strings.Contains(refresh, "-WhatIf") || strings.Contains(refresh, "-Apply") {
+		t.Fatalf("running wrapper compact refresh is not exact and read-only: %q", refresh)
+	}
+	var handoffOut bytes.Buffer
+	if err := Run([]string{
+		"-Command", "handoff", "-Target", caseRoot,
+		"-Pack", "_template", "-Lane", "main",
+		"-WhatIf", "-Format", "json",
+	}, &handoffOut); err != nil {
+		t.Fatalf("active external-session handoff rejected typed wrapper: %v", err)
+	}
+	var handoff workstream.HandoffResult
+	decodeJSONStrict(t, handoffOut.Bytes(), &handoff)
+	published := handoff.MissionCommanderActionQueue.CurrentDriverRequest
+	if published == nil || published.Command != running.CurrentDriverRequest.Command ||
+		published.ExpectedReceipt.RefreshStatusCommand != refresh ||
+		handoff.ReplacementExecutorTakeoverPackage == nil ||
+		handoff.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command != running.CurrentDriverRequest.Command {
+		t.Fatalf("active external-session handoff drifted typed wrapper: %+v", handoff)
 	}
 	runningPreview := runMemberCurrentStep(t, caseRoot, []string{"-WhatIf"})
 	if runningPreview.ExternalSessionStep == nil || runningPreview.ExternalSessionStep.Mode != "running-handoff" || runningPreview.ExternalSessionStep.ReplacementRequest == nil || runningPreview.ExpectedCurrentStepPlanSHA256 != "" {

@@ -12,6 +12,7 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewersession"
 )
 
@@ -134,7 +135,7 @@ func TestClaudeAdditionalReadDirsAreReviewerOnlyAndAttachedKitBound(t *testing.T
 	caseRoot := provisionSessionhostAttachedCase(t, repo, "_template")
 	reviewer := mission.CurrentLoopExternalSessionHarnessPackage{CaseRoot: caseRoot, SessionKind: "reviewer"}
 	dirs, err := claudeAdditionalReadDirs(Options{Target: caseRoot, Pack: "_template"}, reviewer)
-	if err != nil || len(dirs) != 1 || !casePathEqual(dirs[0], repo) {
+	if err != nil || len(dirs) != 1 || !casePathEqual(dirs[0], filepath.Join(caseRoot, projectstate.CurrentDir)) {
 		t.Fatalf("reviewer additional dirs=%v err=%v", dirs, err)
 	}
 	member := reviewer
@@ -263,7 +264,8 @@ func TestLimitedBufferFailsClosedWithoutTruncationSuccess(t *testing.T) {
 
 func TestClaudeReviewerRequestBindsExactDispatchIdentity(t *testing.T) {
 	caseRoot := t.TempDir()
-	inputRel := ".rekit/reviewer-prompt.md"
+	reviewRoot := filepath.Join(caseRoot, projectstate.CurrentDir, "reviews", "review-exact")
+	inputRel := filepath.ToSlash(filepath.Join(projectstate.CurrentDir, "reviews", "review-exact", "prompts", "shard-01.md"))
 	input := []byte("review bounded evidence\n")
 	inputPath := filepath.Join(caseRoot, filepath.FromSlash(inputRel))
 	if err := os.MkdirAll(filepath.Dir(inputPath), 0o700); err != nil {
@@ -272,14 +274,21 @@ func TestClaudeReviewerRequestBindsExactDispatchIdentity(t *testing.T) {
 	if err := os.WriteFile(inputPath, input, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	packetRel := ".rekit/packet.json"
+	packetRel := filepath.ToSlash(filepath.Join(projectstate.CurrentDir, "reviews", "review-exact", "packet.json"))
 	fields := []string{"item", "decision", "candidate_path"}
 	packet := []byte(`{"packetId":"packet-exact","route":{"id":"_template:lane-feature-analysis","outputContract":"item,decision,candidate_path"},"shards":[{"id":"shard-01","items":["evidence/manifest.json"]}],"outputContract":"item,decision,candidate_path"}`)
 	if err := os.WriteFile(filepath.Join(caseRoot, filepath.FromSlash(packetRel)), packet, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	dispatchRel := ".rekit/reviewer-dispatch.json"
-	dispatchPath := filepath.Join(caseRoot, filepath.FromSlash(dispatchRel))
+	dispatchPath := reviewersession.DispatchPath(filepath.Join(reviewRoot, "packet.json"), "shard-01", "dispatch-exact")
+	dispatchRelPath, err := filepath.Rel(caseRoot, dispatchPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dispatchRel := filepath.ToSlash(dispatchRelPath)
+	if err := os.MkdirAll(filepath.Dir(dispatchPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	receipt := reviewersession.DispatchReceipt{
 		SchemaVersion: 1, Kind: "reviewer-session-dispatch",
 		DispatchID: "dispatch-exact", PacketID: "packet-exact",

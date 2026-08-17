@@ -14,6 +14,7 @@ import (
 
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 const (
@@ -90,7 +91,10 @@ func InspectAttempt(job Job) (AttemptInspection, error) {
 	if err != nil {
 		return AttemptInspection{}, err
 	}
-	root := filepath.ToSlash(filepath.Join(".rekit", "external-session-attempts", job.JobID))
+	root, err := projectstate.Rel(job.CaseRoot, "external-session-attempts", job.JobID)
+	if err != nil {
+		return AttemptInspection{}, err
+	}
 	paths, err := rekitfs.ListRegularFilesAnchored(job.CaseRoot, root, "external session attempts", maxAttemptGenerations)
 	if err != nil {
 		return AttemptInspection{}, err
@@ -182,7 +186,10 @@ func PreviewAttempt(job Job, harness, session, actor, startedAt, supersedesSHA25
 		return AttemptPlan{}, err
 	}
 	attemptID := fmt.Sprintf("%s-g%06d", job.JobID, generation)
-	attemptRoot := filepath.Join(".rekit", "external-session-attempt-inputs", job.JobID, fmt.Sprintf("%06d", generation))
+	attemptRoot, err := projectstate.Rel(job.CaseRoot, "external-session-attempt-inputs", job.JobID, fmt.Sprintf("%06d", generation))
+	if err != nil {
+		return AttemptPlan{}, err
+	}
 	attempt := Attempt{
 		SchemaVersion: SchemaVersion, Kind: KindAttempt, AttemptID: attemptID,
 		JobID: job.JobID, JobSHA256: jobSHA, CheckpointSHA256: job.CheckpointSHA256,
@@ -200,7 +207,10 @@ func PreviewAttempt(job Job, harness, session, actor, startedAt, supersedesSHA25
 	if err != nil {
 		return AttemptPlan{}, err
 	}
-	path := filepath.ToSlash(filepath.Join(".rekit", "external-session-attempts", job.JobID, fmt.Sprintf("%06d.json", generation)))
+	path, err := projectstate.Rel(job.CaseRoot, "external-session-attempts", job.JobID, fmt.Sprintf("%06d.json", generation))
+	if err != nil {
+		return AttemptPlan{}, err
+	}
 	identityBytes, err := json.Marshal(struct {
 		JobSHA256      string `json:"jobSha256"`
 		PreviousSHA256 string `json:"previousSha256,omitempty"`
@@ -385,8 +395,11 @@ func decodeAttemptEnvelope(data []byte) (Attempt, string, error) {
 }
 
 func validateAttempt(job Job, jobSHA string, attempt Attempt, generation int, supersedesSHA string) error {
-	root := filepath.Join(".rekit", "external-session-attempt-inputs", job.JobID, fmt.Sprintf("%06d", generation))
-	expectedSubmission := filepath.ToSlash(filepath.Join(root, "submission.json"))
+	root, err := projectstate.Rel(job.CaseRoot, "external-session-attempt-inputs", job.JobID, fmt.Sprintf("%06d", generation))
+	if err != nil {
+		return err
+	}
+	expectedSubmission := filepath.ToSlash(filepath.Join(filepath.FromSlash(root), "submission.json"))
 	expectedOutputs := ""
 	expectedResult := ""
 	if job.SessionKind == "member" {

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectexecution"
 )
 
 func TestSupervisionSpecBindsAttemptSessionExecutableAndPackage(t *testing.T) {
@@ -240,6 +241,7 @@ func TestSupervisionClaimReceiptBindsExactOwnerRun(t *testing.T) {
 }
 
 func TestSupervisionStartupFailurePublishesPermanentFence(t *testing.T) {
+	requireDurableHandoffForSessionhostTest(t)
 	opt := recoveryOptionsForTest()
 	opt.Target = t.TempDir()
 	opt.ClaudePath = filepath.Join(opt.Target, "claude")
@@ -252,8 +254,20 @@ func TestSupervisionStartupFailurePublishesPermanentFence(t *testing.T) {
 	if err := os.WriteFile(paths.spec, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	firstErr := fenceSupervision(paths, spec, sha, "child exited before claim")
-	secondErr := fenceSupervision(paths, spec, sha, "different reason must not replace first")
+	handoff, err := projectexecution.NewHandoff(
+		spec.Target,
+		spec.RunID,
+		sha,
+		spec.SessionID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := projectexecution.PublishHandoff(spec.Target, handoff); err != nil {
+		t.Fatal(err)
+	}
+	firstErr := fenceSupervision(paths, spec, sha, "child exited before claim", true)
+	secondErr := fenceSupervision(paths, spec, sha, "different reason must not replace first", true)
 	var firstFence, secondFence *supervisionFencedError
 	if !errors.As(firstErr, &firstFence) || !errors.As(secondErr, &secondFence) || firstFence.Reason != secondFence.Reason || firstFence.Reason != "child exited before claim" {
 		t.Fatalf("startup fence was not immutable: first=%v second=%v", firstErr, secondErr)
@@ -324,7 +338,7 @@ func TestSupervisionFenceCannotRaceActiveOwner(t *testing.T) {
 	if err != nil || busy {
 		t.Fatalf("owner acquisition busy=%t err=%v", busy, err)
 	}
-	if err := fenceSupervision(paths, spec, sha, "must not win"); !errors.Is(err, errSupervisionAdvanced) || !strings.Contains(err.Error(), "ownership became active") {
+	if err := fenceSupervision(paths, spec, sha, "must not win", false); !errors.Is(err, errSupervisionAdvanced) || !strings.Contains(err.Error(), "ownership became active") {
 		t.Fatalf("active owner did not advance collection instead of fencing: %v", err)
 	}
 	if _, err := os.Lstat(paths.fenced); !os.IsNotExist(err) {
@@ -356,7 +370,7 @@ func TestSupervisionFenceContinuesWhenTerminalAppears(t *testing.T) {
 	if err := writeSupervisionJSON(paths.runRoot, "terminal.json", "test terminal", terminal); err != nil {
 		t.Fatal(err)
 	}
-	if err := fenceSupervision(paths, spec, sha, "must not win"); !errors.Is(err, errSupervisionAdvanced) || !strings.Contains(err.Error(), "terminal result appeared") {
+	if err := fenceSupervision(paths, spec, sha, "must not win", false); !errors.Is(err, errSupervisionAdvanced) || !strings.Contains(err.Error(), "terminal result appeared") {
 		t.Fatalf("terminal publication did not advance collection instead of fencing: %v", err)
 	}
 	if _, err := os.Lstat(paths.fenced); !os.IsNotExist(err) {
@@ -365,6 +379,7 @@ func TestSupervisionFenceContinuesWhenTerminalAppears(t *testing.T) {
 }
 
 func TestSupervisorChildRejectsFenceBeforeClaim(t *testing.T) {
+	requireDurableHandoffForSessionhostTest(t)
 	opt := recoveryOptionsForTest()
 	opt.Target = t.TempDir()
 	opt.ClaudePath = filepath.Join(opt.Target, "claude")
@@ -377,7 +392,19 @@ func TestSupervisorChildRejectsFenceBeforeClaim(t *testing.T) {
 	if err := os.WriteFile(paths.spec, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := fenceSupervision(paths, spec, sha, "startup deadline"); err == nil {
+	handoff, err := projectexecution.NewHandoff(
+		spec.Target,
+		spec.RunID,
+		sha,
+		spec.SessionID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := projectexecution.PublishHandoff(spec.Target, handoff); err != nil {
+		t.Fatal(err)
+	}
+	if err := fenceSupervision(paths, spec, sha, "startup deadline", true); err == nil {
 		t.Fatal("fence publication did not return typed fence")
 	}
 	err = RunSupervisorChild(context.Background(), paths.spec, sha)

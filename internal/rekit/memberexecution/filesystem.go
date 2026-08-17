@@ -6,12 +6,17 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 type anchoredCase struct {
-	path string
-	root *os.Root
-	info os.FileInfo
+	path      string
+	root      *os.Root
+	info      os.FileInfo
+	stateDir  string
+	statePath string
+	stateInfo os.FileInfo
 }
 
 func openAnchoredCase(path string) (*anchoredCase, error) {
@@ -39,7 +44,33 @@ func openAnchoredCase(path string) (*anchoredCase, error) {
 		root.Close()
 		return nil, fmt.Errorf("member execution case root changed while opening: %s", absolute)
 	}
-	return &anchoredCase{path: absolute, root: root, info: opened}, nil
+	stateRoot, err := projectstate.Resolve(absolute)
+	if err != nil {
+		root.Close()
+		return nil, err
+	}
+	stateBefore, err := root.Lstat(stateRoot.Dir)
+	if err != nil || !stateBefore.IsDir() || stateBefore.Mode()&os.ModeSymlink != 0 {
+		root.Close()
+		return nil, fmt.Errorf("member execution state root must be a non-symlink directory: %s", stateRoot.Path)
+	}
+	if err := rejectReparsePath(stateRoot.Path); err != nil {
+		root.Close()
+		return nil, err
+	}
+	state, err := root.OpenRoot(stateRoot.Dir)
+	if err != nil {
+		root.Close()
+		return nil, err
+	}
+	stateOpened, stateErr := state.Lstat(".")
+	closeErr := state.Close()
+	stateAfter, afterErr := root.Lstat(stateRoot.Dir)
+	if stateErr != nil || closeErr != nil || afterErr != nil || !os.SameFile(stateBefore, stateOpened) || !os.SameFile(stateOpened, stateAfter) {
+		root.Close()
+		return nil, fmt.Errorf("member execution state root changed while opening: %s", stateRoot.Path)
+	}
+	return &anchoredCase{path: absolute, root: root, info: opened, stateDir: stateRoot.Dir, statePath: stateRoot.Path, stateInfo: stateOpened}, nil
 }
 
 func (a *anchoredCase) Close() error { return a.root.Close() }
@@ -52,7 +83,23 @@ func (a *anchoredCase) revalidate() error {
 	if err := rejectReparseAncestors(a.path); err != nil {
 		return err
 	}
+	stateRoot, err := projectstate.Resolve(a.path)
+	if err != nil {
+		return err
+	}
+	stateAfter, err := os.Lstat(a.statePath)
+	if err != nil || stateRoot.Dir != a.stateDir || stateRoot.Path != a.statePath || !stateAfter.IsDir() || stateAfter.Mode()&os.ModeSymlink != 0 || !os.SameFile(a.stateInfo, stateAfter) {
+		return fmt.Errorf("member execution state root identity changed: %s", a.statePath)
+	}
+	if err := rejectReparsePath(a.statePath); err != nil {
+		return err
+	}
 	return nil
+}
+
+func (a *anchoredCase) stateRel(parts ...string) string {
+	clean := append([]string{a.stateDir}, parts...)
+	return filepath.Join(clean...)
 }
 
 func cleanRootRelative(rel string) (string, error) {

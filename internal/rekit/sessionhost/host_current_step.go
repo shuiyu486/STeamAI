@@ -466,6 +466,54 @@ func applyReplacementAttempt(opt Options, running currentStepPlan, actor string)
 	return session, nil
 }
 
+func claudeRunReplacementOutcome(run claudeRun, attemptGeneration, launchOrdinal, attemptsLimit int) (string, bool) {
+	if run.success() || attemptsLimit <= 0 || claudeRunAttemptsUsed(attemptGeneration, launchOrdinal) >= attemptsLimit {
+		return "", false
+	}
+	if run.failureDetail != "" {
+		return "invalid-result-replacement", true
+	}
+	return "replacement-requested", true
+}
+
+func currentStepAttemptGeneration(plan currentStepPlan) int {
+	step := plan.ExternalSessionStep
+	if step == nil {
+		return 0
+	}
+	generation := 0
+	if step.HarnessPackage != nil && step.HarnessPackage.Launch != nil {
+		generation = step.HarnessPackage.Launch.Attempt.Generation
+	}
+	if step.Attempt != nil && step.Attempt.Attempt.Generation > generation {
+		generation = step.Attempt.Attempt.Generation
+	}
+	return generation
+}
+
+func claudeRunAttemptsUsed(attemptGeneration, launchOrdinal int) int {
+	if attemptGeneration > launchOrdinal {
+		return attemptGeneration
+	}
+	return launchOrdinal
+}
+
+func claudeAttemptLimitReached(attemptGeneration, launchOrdinal, attemptsLimit int) bool {
+	return attemptsLimit > 0 && claudeRunAttemptsUsed(attemptGeneration, launchOrdinal) >= attemptsLimit
+}
+
+func claudeLaunchLimitReached(attemptGeneration, launchOrdinal, attemptsLimit int) bool {
+	return attemptsLimit > 0 && (attemptGeneration > attemptsLimit || launchOrdinal >= attemptsLimit)
+}
+
+func claudeRunForSupervisionFence(err *supervisionFencedError, recovered bool) claudeRun {
+	return claudeRun{
+		failureCode: "claude-supervision-fenced",
+		waitErr:     err,
+		recovered:   recovered,
+	}
+}
+
 func attemptArgs(actor, session, supersedes string) []string {
 	args := []string{
 		"-ExternalSessionHarness", defaultHarness,

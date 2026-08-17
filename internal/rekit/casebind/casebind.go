@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/sourceartifact"
 )
 
@@ -30,11 +31,21 @@ type InitialPromoteState struct {
 }
 
 func BindingWrites(caseRoot string) []WritePlan {
-	instancePath := filepath.Join(caseRoot, ".rekit", "instance.yml")
-	shimPath := filepath.Join(caseRoot, ".claude", "skills", "rekit", "SKILL.md")
+	root, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return []WritePlan{{Path: caseRoot, Kind: "state-root-conflict", Action: "blocked"}}
+	}
+	instancePath := filepath.Join(root.Path, "instance.yml")
+	skill := "steamai"
+	kind := "project-local-steamai-skill"
+	if root.Legacy {
+		skill = "rekit"
+		kind = "case-local-thin-shim"
+	}
+	shimPath := filepath.Join(caseRoot, ".claude", "skills", skill, "SKILL.md")
 	return []WritePlan{
 		{Path: instancePath, Kind: "instance-metadata", Action: ActionFor(instancePath)},
-		{Path: shimPath, Kind: "case-local-thin-shim", Action: ActionFor(shimPath)},
+		{Path: shimPath, Kind: kind, Action: ActionFor(shimPath)},
 	}
 }
 
@@ -44,7 +55,11 @@ func LegacyWrite(caseRoot string) WritePlan {
 }
 
 func InitialStateWrite(caseRoot string) WritePlan {
-	path := filepath.Join(caseRoot, ".rekit", "state.json")
+	root, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return WritePlan{Path: caseRoot, Kind: "state-root-conflict", Action: "blocked"}
+	}
+	path := filepath.Join(root.Path, "state.json")
 	action := "create"
 	if refsf.Exists(path) {
 		action = "unchanged"
@@ -53,11 +68,19 @@ func InitialStateWrite(caseRoot string) WritePlan {
 }
 
 func WriteInstance(caseRoot, repoRoot, pack, projectName string) (string, error) {
-	instancePath := filepath.Join(caseRoot, ".rekit", "instance.yml")
+	root, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return "", err
+	}
+	instancePath := filepath.Join(root.Path, "instance.yml")
+	if !root.Legacy {
+		return "", fmt.Errorf("current STeamAI binding requires init to publish a manifest-bound project-local runtime bundle: %s", instancePath)
+	}
 	if err := os.MkdirAll(filepath.Dir(instancePath), 0o755); err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(instancePath, []byte(InstanceText(caseRoot, repoRoot, pack, projectName)), 0o644); err != nil {
+	instanceText := InstanceText(caseRoot, repoRoot, pack, projectName)
+	if err := os.WriteFile(instancePath, []byte(instanceText), 0o644); err != nil {
 		return "", err
 	}
 	if _, err := WriteLegacyMetadataForAttach(caseRoot, repoRoot, pack); err != nil {
@@ -78,11 +101,15 @@ func WriteCanonicalCaseShim(caseRoot, repoRoot string) (string, error) {
 }
 
 func writeCaseShim(caseRoot, repoRoot string, canonical bool) (string, error) {
+	root, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return "", err
+	}
+	if !root.Legacy {
+		return writeSTeamAISkill(caseRoot, repoRoot, canonical)
+	}
 	shimSource := filepath.Join(repoRoot, "rekit", "templates", "case-shim", "SKILL.md")
-	var (
-		shimText []byte
-		err      error
-	)
+	var shimText []byte
 	if canonical {
 		shimText, err = sourceartifact.ReadCanonical(shimSource)
 	} else {
@@ -99,6 +126,30 @@ func writeCaseShim(caseRoot, repoRoot string, canonical bool) (string, error) {
 		return "", err
 	}
 	return shimPath, nil
+}
+
+func writeSTeamAISkill(caseRoot, repoRoot string, canonical bool) (string, error) {
+	source := filepath.Join(repoRoot, "rekit", "templates", "steamai-project", "SKILL.md")
+	var (
+		text []byte
+		err  error
+	)
+	if canonical {
+		text, err = sourceartifact.ReadCanonical(source)
+	} else {
+		text, err = os.ReadFile(source)
+	}
+	if err != nil {
+		return "", fmt.Errorf("missing project-local STeamAI skill: %s", source)
+	}
+	path := filepath.Join(caseRoot, ".claude", "skills", "steamai", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, text, 0o644); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 func WriteLegacyMetadata(caseRoot, repoRoot, pack string) (string, error) {
@@ -142,7 +193,10 @@ func WriteLegacyMetadataForAttach(caseRoot, repoRoot, pack string) (string, erro
 }
 
 func WriteInitialState(caseRoot, repoRoot, pack string) (string, error) {
-	statePath := filepath.Join(caseRoot, ".rekit", "state.json")
+	statePath, err := projectstate.Join(caseRoot, "state.json")
+	if err != nil {
+		return "", err
+	}
 	if refsf.Exists(statePath) {
 		return statePath, nil
 	}
@@ -237,6 +291,31 @@ func InstanceText(caseRoot, repoRoot, pack, projectName string) string {
 		"projectName: " + projectName + "\n" +
 		"projectRoot: " + caseRoot + "\n" +
 		"mode: case-local-shim\n"
+}
+
+func STeamAIInstanceText(_ string, pack, projectName string, bundle ...string) string {
+	bundleManifest := "runtime/manifest.json"
+	bundleSHA256 := ""
+	if len(bundle) > 0 && strings.TrimSpace(bundle[0]) != "" {
+		bundleManifest = filepath.ToSlash(filepath.Clean(filepath.FromSlash(strings.TrimSpace(bundle[0]))))
+	}
+	if len(bundle) > 1 {
+		bundleSHA256 = strings.ToLower(strings.TrimSpace(bundle[1]))
+	}
+	text := "schemaVersion: 2\n" +
+		"brand: STeamAI\n" +
+		"stateNamespace: steamai\n" +
+		"templateRoot: .\n" +
+		"bundleRoot: runtime\n" +
+		"bundleManifest: " + bundleManifest + "\n"
+	if bundleSHA256 != "" {
+		text += "bundleManifestSHA256: " + bundleSHA256 + "\n"
+	}
+	return text +
+		"templatePack: " + pack + "\n" +
+		"projectName: " + projectName + "\n" +
+		"projectRoot: ..\n" +
+		"mode: project-local-bundle\n"
 }
 
 func ActionFor(path string) string {

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	syncpkg "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 )
 
@@ -345,7 +346,10 @@ func prepareCandidateVerificationRetirementFromIntent(repoRoot, sourceCaseRoot, 
 func validateCandidateVerificationRetirementArtifactAuthority(artifact candidateVerificationRetirementArtifact, authority candidateDecisionAuthority, repoRoot, pack, kindSuffix string) error {
 	id := shortHash(authority.packetHash + authority.decisionHash)
 	proofRoot := filepath.Join(authority.candidateRoot, "review-artifacts")
-	workspace := candidateDecisionVerificationWorkspace(authority.instance.CaseRoot, authority.packetHash, authority.decisionHash)
+	workspace, err := candidateDecisionVerificationWorkspace(authority.instance.CaseRoot, authority.packetHash, authority.decisionHash)
+	if err != nil {
+		return err
+	}
 	intentPath := filepath.Join(proofRoot, id+".candidate-verification-retirement-intent.json")
 	receiptPath := filepath.Join(proofRoot, id+".candidate-verification-retirement-receipt.json")
 	if artifact.SchemaVersion != 1 || artifact.Kind != "pack-memory-candidate-verification-retirement"+kindSuffix || artifact.PacketSHA256 != authority.packetHash || artifact.DecisionSHA256 != authority.decisionHash || artifact.DecisionReceiptSHA256 != sha256Hex(authority.receiptBytes) || !sameCandidateDecisionPath(artifact.RepoRoot, repoRoot) || !sameCandidateDecisionPath(artifact.SourceCaseRoot, authority.instance.CaseRoot) || artifact.Pack != pack || !sameCandidateDecisionPath(artifact.PacketPath, authority.packetPath) || !sameCandidateDecisionPath(artifact.DecisionPath, authority.decisionPath) || !sameCandidateDecisionPath(artifact.DecisionReceiptPath, authority.receiptPath) || !sameCandidateDecisionPath(artifact.WorkspaceRoot, workspace) || !sameCandidateDecisionPath(artifact.VerificationProofPath, candidateDecisionVerificationProofPath(authority.candidateRoot, authority.packetHash, authority.decisionHash)) || !sameCandidateDecisionPath(artifact.ProvisionIntentPath, filepath.Join(workspace, "provision.intent.json")) || !sameCandidateDecisionPath(artifact.ProvisionReceiptPath, filepath.Join(workspace, "provision.receipt.json")) || !sameCandidateDecisionPath(artifact.RetirementIntentPath, intentPath) || !sameCandidateDecisionPath(artifact.RetirementReceiptPath, receiptPath) || len(artifact.Roots) != 2 || len(artifact.RetirementPlans) != 2 {
@@ -450,7 +454,10 @@ func prepareCandidateVerificationRetirement(repoRoot, sourceCaseRoot, pack strin
 	if authority.receipt.Accepted <= 0 || !authority.receipt.VerificationPending {
 		return preparedCandidateVerificationRetirement{}, fmt.Errorf("candidate verification retirement requires a current accepted decision receipt")
 	}
-	workspace := candidateDecisionVerificationWorkspace(authority.instance.CaseRoot, authority.packetHash, authority.decisionHash)
+	workspace, err := candidateDecisionVerificationWorkspace(authority.instance.CaseRoot, authority.packetHash, authority.decisionHash)
+	if err != nil {
+		return preparedCandidateVerificationRetirement{}, err
+	}
 	freshRoot := filepath.Join(workspace, "fresh")
 	attachedRoot := filepath.Join(workspace, "attached")
 	provisionIntentPath := filepath.Join(workspace, "provision.intent.json")
@@ -765,8 +772,12 @@ func removeCandidateVerificationProvisionArtifacts(prepared preparedCandidateVer
 	if err := retireCandidateVerificationWorkspaceRoot(prepared, workspace); err != nil {
 		return err
 	}
+	stateRoot, err := projectstate.Resolve(prepared.result.SourceCaseRoot)
+	if err != nil {
+		return err
+	}
 	for _, ancestor := range prepared.result.EmptyAncestorsToRemove {
-		if sameCandidateDecisionPath(filepath.Base(ancestor), ".rekit") {
+		if sameCandidateDecisionPath(ancestor, stateRoot.Path) {
 			break
 		}
 		if err := os.Remove(ancestor); err != nil {

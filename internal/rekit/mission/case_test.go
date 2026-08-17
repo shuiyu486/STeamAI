@@ -129,7 +129,10 @@ func TestLookupBoardLaneSharesCaseSensitivityRules(t *testing.T) {
 
 func TestAssertBoardLaneReportsMissingAndEmptyBoard(t *testing.T) {
 	missingRoot := t.TempDir()
-	if err := AssertBoardLane(missingRoot, "main", LaneGuardOptions{Command: "note"}); err == nil || !strings.Contains(err.Error(), "note requires .rekit/board.json") {
+	if err := os.MkdirAll(filepath.Join(missingRoot, ".rekit"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := AssertBoardLane(missingRoot, "main", LaneGuardOptions{Command: "note"}); err == nil || !strings.Contains(err.Error(), filepath.Join(".rekit", "board.json")) {
 		t.Fatalf("missing board error = %v", err)
 	}
 
@@ -208,6 +211,9 @@ func TestAppendJSONLineCreatesAndAppendsCRLFJSONLines(t *testing.T) {
 
 func TestFactPathUsesSharedMappingAndSafeJoin(t *testing.T) {
 	caseRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(caseRoot, ".rekit"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	rel, path, err := FactPath(caseRoot, "decision")
 	if err != nil {
 		t.Fatal(err)
@@ -222,8 +228,37 @@ func TestFactPathUsesSharedMappingAndSafeJoin(t *testing.T) {
 	}
 }
 
+func TestFactPathUsesCurrentStateRoot(t *testing.T) {
+	caseRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(caseRoot, ".steamai"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rel, path, err := FactPath(caseRoot, "decision")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rel != ".steamai/facts/decisions.jsonl" || path != filepath.Join(caseRoot, ".steamai", "facts", "decisions.jsonl") {
+		t.Fatalf("current fact path = (%q, %q)", rel, path)
+	}
+}
+
+func TestFactPathRejectsConflictingStateRoots(t *testing.T) {
+	caseRoot := t.TempDir()
+	for _, dir := range []string{".steamai", ".rekit"} {
+		if err := os.MkdirAll(filepath.Join(caseRoot, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, err := FactPath(caseRoot, "decision"); err == nil || !strings.Contains(err.Error(), "must not coexist") {
+		t.Fatalf("state-root conflict error = %v", err)
+	}
+}
+
 func TestAppendFactCreatesSharedFactPathAndAppendsJSONLine(t *testing.T) {
 	caseRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(caseRoot, ".rekit"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	rel, path, err := AppendFact(caseRoot, "request", map[string]any{"kind": "request", "eventId": "evt-request"})
 	if err != nil {
 		t.Fatal(err)

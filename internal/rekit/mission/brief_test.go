@@ -35,6 +35,212 @@ func TestMissionCommanderActionQueueProjectsTypedInvocation(t *testing.T) {
 	}
 }
 
+func TestMissionCommanderDriverRequestAcceptsCurrentEntrypointWithCanonicalIdentity(t *testing.T) {
+	queue := MissionCommanderActionQueueFor([]MissionCommanderNextActionItem{{
+		State:   "ready-to-continue",
+		Source:  "missionCommanderActions",
+		Lane:    "feature-mission",
+		Command: `/rekit continue "feature-mission" -WhatIf -Format json`,
+	}})
+	if queue.CurrentDriverRequest == nil {
+		t.Fatalf("typed current driver request missing: %+v", queue)
+	}
+	legacy := *queue.CurrentDriverRequest
+	legacy.ExpectedReceipt.RefreshStatusCommand = `/rekit status -Target "C:\case root" -Lane feature-mission -Format compact-json`
+	current := legacy
+	current.Command = strings.Replace(current.Command, "/rekit", "/steamai", 1)
+	current.ExpectedReceipt.Command = strings.Replace(current.ExpectedReceipt.Command, "/rekit", "/steamai", 1)
+	current.ExpectedReceipt.RefreshStatusCommand = strings.Replace(current.ExpectedReceipt.RefreshStatusCommand, "/rekit", "/steamai", 1)
+	if err := ValidateMissionCommanderDriverRequest(current); err != nil {
+		t.Fatalf("current entrypoint request failed validation: %v", err)
+	}
+	legacySHA, err := MissionCommanderDriverRequestSHA256(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentSHA, err := MissionCommanderDriverRequestSHA256(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if currentSHA != legacySHA {
+		t.Fatalf("migration entrypoint changed canonical request identity: current=%s legacy=%s", currentSHA, legacySHA)
+	}
+}
+
+func TestMissionCommanderDriverRequestForEntrypointPreservesCanonicalIdentity(t *testing.T) {
+	queue := MissionCommanderActionQueueFor([]MissionCommanderNextActionItem{{
+		State:   "ready-to-continue",
+		Source:  "missionCommanderActions",
+		Lane:    "feature-mission",
+		Command: `/rekit continue "feature-mission" -WhatIf -Format json`,
+	}})
+	if queue.CurrentDriverRequest == nil {
+		t.Fatalf("typed current driver request missing: %+v", queue)
+	}
+	canonical := *queue.CurrentDriverRequest
+	canonical.ExpectedReceipt.RefreshStatusCommand = `/rekit status -Target "C:\case root" -Lane feature-mission -Format compact-json`
+	canonicalSHA, err := MissionCommanderDriverRequestSHA256(canonical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := MissionCommanderDriverRequestForEntrypoint(canonical, commands.CurrentPublicEntrypoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(current.Command, "/steamai continue ") || current.ExpectedReceipt.Command != current.Command || !strings.HasPrefix(current.ExpectedReceipt.RefreshStatusCommand, "/steamai status ") {
+		t.Fatalf("current request projection drifted: %+v", current)
+	}
+	currentSHA, err := MissionCommanderDriverRequestSHA256(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if currentSHA != canonicalSHA {
+		t.Fatalf("entrypoint projection changed canonical request identity: current=%s canonical=%s", currentSHA, canonicalSHA)
+	}
+	if !strings.HasPrefix(canonical.Command, "/rekit continue ") || !strings.HasPrefix(canonical.ExpectedReceipt.RefreshStatusCommand, "/rekit status ") {
+		t.Fatalf("entrypoint projection mutated its input: %+v", canonical)
+	}
+	if _, err := MissionCommanderDriverRequestForEntrypoint(canonical, "/other"); err == nil || !strings.Contains(err.Error(), "unsupported") {
+		t.Fatalf("unsupported request entrypoint error = %v", err)
+	}
+}
+
+func TestMissionCommanderDriverRequestForEntrypointProjectsGuidanceRefresh(t *testing.T) {
+	request := MissionCommanderDriverRequest{
+		Kind:              "review-guidance",
+		RunLoopStepID:     "review-handoff",
+		Guidance:          "review the handoff preview first",
+		CommandExecutable: false,
+		RequiresReview:    true,
+		ExpectedReceipt: MissionCommanderDriverReceiptExpectation{
+			RefreshStatusCommand: `/rekit status -Target "C:\case root" -Format json`,
+		},
+	}
+	current, err := MissionCommanderDriverRequestForEntrypoint(request, commands.CurrentPublicEntrypoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Invocation != nil || current.Command != "" || current.ExpectedReceipt.Command != "" || !strings.HasPrefix(current.ExpectedReceipt.RefreshStatusCommand, "/steamai status ") || current.Guidance != request.Guidance {
+		t.Fatalf("guidance request projection drifted: %+v", current)
+	}
+	if !strings.HasPrefix(request.ExpectedReceipt.RefreshStatusCommand, "/rekit status ") {
+		t.Fatalf("guidance request projection mutated its input: %+v", request)
+	}
+}
+
+func TestMissionCommanderDriverRequestTemplatePreservesTypedIdentityWithoutExecution(t *testing.T) {
+	template, err := MissionCommanderDriverRequestWithTypedCommand(
+		MissionCommanderDriverRequest{
+			Kind:              "preview-command-template",
+			RunLoopStepID:     "external-session-attempt",
+			State:             "ready-for-attempt-review",
+			Source:            "current-loop-external-session-job",
+			Command:           "/rekit run-current-loop -ExternalSessionHarness <harness> -WhatIf -Format json",
+			CommandExecutable: false,
+			RequiresReview:    true,
+			ExpectedReceipt: MissionCommanderDriverReceiptExpectation{
+				RefreshStatusCommand: "/rekit status -Format compact-json",
+			},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if template.Invocation == nil || template.CommandExecutable || template.Blocked || template.ExpectedReceipt.Command != "" {
+		t.Fatalf("reviewed typed template gained executable authority: %+v", template)
+	}
+	legacySHA, err := MissionCommanderDriverRequestSHA256(template)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := MissionCommanderDriverRequestForEntrypoint(template, commands.CurrentPublicEntrypoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(current.Command, "/steamai run-current-loop ") || current.CommandExecutable || current.Blocked || current.ExpectedReceipt.Command != "" || !strings.HasPrefix(current.ExpectedReceipt.RefreshStatusCommand, "/steamai status ") {
+		t.Fatalf("current template projection changed its non-executable contract: %+v", current)
+	}
+	currentSHA, err := MissionCommanderDriverRequestSHA256(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if currentSHA != legacySHA {
+		t.Fatalf("template entrypoint projection changed canonical identity: current=%s legacy=%s", currentSHA, legacySHA)
+	}
+}
+
+func TestMissionCommanderDriverRequestRejectsInvalidTypedTemplateContracts(t *testing.T) {
+	base, err := MissionCommanderDriverRequestWithTypedCommand(
+		MissionCommanderDriverRequest{
+			Kind:              "preview-command-template",
+			Command:           "/rekit run-current-loop -ExternalSessionHarness <harness> -WhatIf -Format json",
+			CommandExecutable: false,
+			RequiresReview:    true,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixtures := []struct {
+		name string
+		edit func(*MissionCommanderDriverRequest)
+		want string
+	}{
+		{
+			name: "expected executable receipt",
+			edit: func(request *MissionCommanderDriverRequest) {
+				request.ExpectedReceipt.Command = request.Command
+			},
+			want: "must not carry an expected executable command",
+		},
+		{
+			name: "non-template kind",
+			edit: func(request *MissionCommanderDriverRequest) {
+				request.Kind = "model-guidance"
+			},
+			want: "not an executable or reviewed template",
+		},
+		{
+			name: "blocked template",
+			edit: func(request *MissionCommanderDriverRequest) {
+				request.Blocked = true
+			},
+			want: "not an executable or reviewed template",
+		},
+		{
+			name: "unreviewed template",
+			edit: func(request *MissionCommanderDriverRequest) {
+				request.RequiresReview = false
+			},
+			want: "not an executable or reviewed template",
+		},
+	}
+	for _, fixture := range fixtures {
+		t.Run(fixture.name, func(t *testing.T) {
+			request := base
+			fixture.edit(&request)
+			if err := ValidateMissionCommanderDriverRequest(request); err == nil || !strings.Contains(err.Error(), fixture.want) {
+				t.Fatalf("invalid typed template contract error=%v", err)
+			}
+		})
+	}
+}
+
+func TestMissionCommanderDriverRequestRejectsMalformedGuidanceRefresh(t *testing.T) {
+	request := MissionCommanderDriverRequest{
+		Kind:              "model-guidance",
+		Guidance:          "refresh after review",
+		CommandExecutable: false,
+		RequiresReview:    true,
+		ExpectedReceipt: MissionCommanderDriverReceiptExpectation{
+			RefreshStatusCommand: "/rekit unknown-command",
+		},
+	}
+	if err := ValidateMissionCommanderDriverRequest(request); err == nil || !strings.Contains(err.Error(), "refresh status command is invalid") {
+		t.Fatalf("malformed guidance refresh should fail closed: %v", err)
+	}
+}
+
 func TestMissionCommanderDriverRequestRejectsExpectedReceiptCommandDrift(t *testing.T) {
 	queue := MissionCommanderActionQueueFor([]MissionCommanderNextActionItem{{
 		State:   "ready-to-continue",
@@ -49,6 +255,23 @@ func TestMissionCommanderDriverRequestRejectsExpectedReceiptCommandDrift(t *test
 	drifted.ExpectedReceipt.Command = "/rekit status -Format json"
 	if _, err := MissionCommanderDriverRequestSHA256(drifted); err == nil || !strings.Contains(err.Error(), "expected receipt command differs") {
 		t.Fatalf("expected receipt command drift should fail closed: %v", err)
+	}
+}
+
+func TestMissionCommanderDriverRequestRejectsMissingExpectedReceiptCommand(t *testing.T) {
+	queue := MissionCommanderActionQueueFor([]MissionCommanderNextActionItem{{
+		State:   "ready-to-continue",
+		Source:  "missionCommanderActions",
+		Lane:    "main",
+		Command: "/rekit continue main -WhatIf -Format json",
+	}})
+	if queue.CurrentDriverRequest == nil {
+		t.Fatalf("typed current driver request missing: %+v", queue)
+	}
+	incomplete := *queue.CurrentDriverRequest
+	incomplete.ExpectedReceipt.Command = ""
+	if _, err := MissionCommanderDriverRequestSHA256(incomplete); err == nil || !strings.Contains(err.Error(), "requires expected receipt command") {
+		t.Fatalf("missing expected receipt command should fail closed: %v", err)
 	}
 }
 

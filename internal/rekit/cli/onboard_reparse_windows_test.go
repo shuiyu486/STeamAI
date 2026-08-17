@@ -4,12 +4,14 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/onboarding"
@@ -28,7 +30,9 @@ func TestStatusAndMutationRejectWindowsOnboardingAncestorReparse(t *testing.T) {
 			if err := os.Mkdir(realParent, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			createCLIWindowsDirectoryReparse(t, linkParent, realParent)
+			if err := os.Mkdir(linkParent, 0o755); err != nil {
+				t.Fatal(err)
+			}
 			caseRoot := filepath.Join(linkParent, "case")
 			identity := missionintent.Identity{SchemaVersion: 1, Target: caseRoot, Pack: "_template", ProjectName: "demo", Goal: "goal", Actor: "actor", Executor: "executor", InitialLane: "feature-analysis"}
 			plan, err := onboarding.Preview(testCLIRepoRoot(t), onboarding.Options{Target: identity.Target, Pack: identity.Pack, ProjectName: identity.ProjectName, Goal: identity.Goal, Actor: identity.Actor, Executor: identity.Executor, InitialLane: identity.InitialLane})
@@ -50,6 +54,10 @@ func TestStatusAndMutationRejectWindowsOnboardingAncestorReparse(t *testing.T) {
 				delete(artifacts, missionintent.MissionIntentRel)
 				delete(artifacts, missionintent.CommitRel)
 			}
+			if err := os.Remove(linkParent); err != nil {
+				t.Fatal(err)
+			}
+			createCLIWindowsDirectoryReparse(t, linkParent, realParent)
 			for rel, content := range artifacts {
 				path := filepath.Join(caseRoot, filepath.FromSlash(rel))
 				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -60,15 +68,12 @@ func TestStatusAndMutationRejectWindowsOnboardingAncestorReparse(t *testing.T) {
 				}
 			}
 
-			var out bytes.Buffer
-			if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
-				t.Fatalf("status must remain readable: %v", err)
-			}
-			if !strings.Contains(out.String(), `"state": "corrupt"`) || strings.Contains(out.String(), `"applyArgs"`) {
-				t.Fatalf("status did not fail closed without applyArgs: %s", out.String())
-			}
-			if err := Run([]string{"-Command", "overview", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &bytes.Buffer{}); err == nil {
-				t.Fatal("ordinary mutation crossed onboarding ancestor reparse point")
+			for _, command := range []string{"status", "overview"} {
+				var out bytes.Buffer
+				err := Run([]string{"-Command", command, "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out)
+				if err == nil || !strings.Contains(err.Error(), "path must not traverse symlink") || out.Len() != 0 {
+					t.Fatalf("%s did not fail closed on onboarding ancestor reparse: err=%v stdout=%q", command, err, out.String())
+				}
 			}
 		})
 	}
@@ -88,7 +93,13 @@ func createCLIWindowsDirectoryReparse(t *testing.T, link, target string) {
 	if err := os.Symlink(target, link); err == nil {
 		return
 	}
-	if output, err := exec.Command("cmd.exe", "/c", "mklink", "/J", link, target).CombinedOutput(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	output, err := exec.CommandContext(ctx, "cmd.exe", "/c", "mklink", "/J", link, target).CombinedOutput()
+	if ctx.Err() != nil {
+		t.Fatalf("Windows directory reparse creation timed out: %v", ctx.Err())
+	}
+	if err != nil {
 		t.Skipf("Windows directory reparse creation unavailable: %v (%s)", err, strings.TrimSpace(string(output)))
 	}
 }

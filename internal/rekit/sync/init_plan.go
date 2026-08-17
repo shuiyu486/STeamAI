@@ -15,6 +15,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/review"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/runtimebundle"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/sourceartifact"
 )
 
@@ -117,15 +118,19 @@ func classifyInitTarget(caseRoot, repoRoot, pack string) (string, instance.Insta
 		if err := refsf.ValidateTreeNoReparse(caseRoot, "init ordinary target"); err != nil {
 			return "invalid", instance.Instance{}, err
 		}
-		if _, err := os.Lstat(filepath.Join(caseRoot, ".rekit")); err == nil {
-			return "invalid", instance.Instance{}, fmt.Errorf("init target contains partial .rekit state")
-		} else if !os.IsNotExist(err) {
-			return "invalid", instance.Instance{}, err
+		for _, stateDir := range []string{".steamai", ".rekit"} {
+			if _, err := os.Lstat(filepath.Join(caseRoot, stateDir)); err == nil {
+				return "invalid", instance.Instance{}, fmt.Errorf("init target contains partial %s state", stateDir)
+			} else if !os.IsNotExist(err) {
+				return "invalid", instance.Instance{}, err
+			}
 		}
-		if _, err := os.Lstat(filepath.Join(caseRoot, ".claude", "skills", "rekit", "SKILL.md")); err == nil {
-			return "invalid", instance.Instance{}, fmt.Errorf("init target contains a partial case-local rekit shim")
-		} else if !os.IsNotExist(err) {
-			return "invalid", instance.Instance{}, err
+		for _, skill := range []string{"steamai", "rekit"} {
+			if _, err := os.Lstat(filepath.Join(caseRoot, ".claude", "skills", skill, "SKILL.md")); err == nil {
+				return "invalid", instance.Instance{}, fmt.Errorf("init target contains a partial project-local %s skill", skill)
+			} else if !os.IsNotExist(err) {
+				return "invalid", instance.Instance{}, err
+			}
 		}
 		return "ordinary-directory", inst, nil
 	}
@@ -163,8 +168,11 @@ func initWriteSourceSHA256(plan InitPlan, write WriteResult) (string, error) {
 		}
 		return sha256Bytes(data), nil
 	}
+	if len(write.rawContent) > 0 {
+		return sha256Bytes(write.rawContent), nil
+	}
 	if strings.TrimSpace(write.SourcePath) != "" {
-		canonicalSources := initPublishesCanonicalText(plan.TargetClass)
+		canonicalSources := initPublishesCanonicalText(plan.TargetClass) && write.Kind != "runtime-executable" && write.Kind != "pack-asset" && write.Kind != "common-asset" && write.Kind != "runtime-asset"
 		data, err := os.ReadFile(write.SourcePath)
 		if canonicalSources {
 			data, err = sourceartifact.ReadCanonical(write.SourcePath)
@@ -188,7 +196,11 @@ func initWriteSourceSHA256(plan InitPlan, write WriteResult) (string, error) {
 	var data []byte
 	switch write.Kind {
 	case "instance-metadata":
-		data = []byte(casebind.InstanceText(plan.CaseRoot, plan.RepoRoot, plan.Pack, plan.ProjectName))
+		if strings.HasPrefix(filepath.ToSlash(write.Path), ".steamai/") {
+			data = []byte(casebind.STeamAIInstanceText(plan.CaseRoot, plan.Pack, plan.ProjectName, runtimebundle.ManifestRel, plan.bundleManifestSHA256))
+		} else {
+			data = []byte(casebind.InstanceText(plan.CaseRoot, plan.RepoRoot, plan.Pack, plan.ProjectName))
+		}
 	case "legacy-metadata":
 		data = []byte("templateRoot: " + plan.RepoRoot + "\r\n" +
 			"rekitMode: case-local-shim\r\n" +
@@ -239,9 +251,13 @@ func initSyncStateIdentityForPlan(plan InitPlan) (initSyncStateIdentity, error) 
 			LastAction:       "sync",
 		}
 	}
+	templateRoot := plan.RepoRoot
+	if plan.bundleManifestSHA256 != "" {
+		templateRoot = "."
+	}
 	return initSyncStateIdentity{
 		SchemaVersion: 1,
-		TemplateRoot:  plan.RepoRoot,
+		TemplateRoot:  templateRoot,
 		TemplatePack:  plan.Pack,
 		Managed:       managed,
 	}, nil

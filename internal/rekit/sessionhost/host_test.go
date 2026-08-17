@@ -3,6 +3,7 @@ package sessionhost
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -10,8 +11,50 @@ import (
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
+
+func TestReviewerResultSnapshotPathUsesSelectedStateRoot(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		dir  string
+	}{
+		{name: "current", dir: projectstate.CurrentDir},
+		{name: "legacy", dir: projectstate.LegacyDir},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			caseRoot := t.TempDir()
+			if err := os.Mkdir(filepath.Join(caseRoot, tc.dir), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			path, err := reviewerResultSnapshotPath(caseRoot, "dispatch-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := filepath.Join(caseRoot, tc.dir, "session-host", "reviewer-results", "dispatch-1.json")
+			if path != want {
+				t.Fatalf("snapshot path = %q, want %q", path, want)
+			}
+		})
+	}
+}
+
+func TestReviewerResultSnapshotPathRejectsDualRootsAndInvalidDispatch(t *testing.T) {
+	caseRoot := t.TempDir()
+	for _, dir := range []string{projectstate.CurrentDir, projectstate.LegacyDir} {
+		if err := os.Mkdir(filepath.Join(caseRoot, dir), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := reviewerResultSnapshotPath(caseRoot, "dispatch-1"); err == nil || !strings.Contains(err.Error(), "must not coexist") {
+		t.Fatalf("dual-root snapshot path error = %v", err)
+	}
+	cleanRoot := t.TempDir()
+	if _, err := reviewerResultSnapshotPath(cleanRoot, "../escape"); err == nil {
+		t.Fatal("invalid reviewer dispatch ID was accepted")
+	}
+}
 
 func TestCurrentReviewerRejectionProbeAllowsMissingBootstrapBoard(t *testing.T) {
 	rejected, err := currentReviewerRejectionAwaitingCorrection(t.TempDir(), liveAcceptancePack)
@@ -83,7 +126,7 @@ func TestRunPublicHostRequiresTypedLaneChoiceForMultipleCurrentLanes(t *testing.
 	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := workstream.StartApply(repo, caseRoot, inspection.Identity.Pack, workstream.StartOptions{
+	if _, err := workstream.StartApply(sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack), caseRoot, inspection.Identity.Pack, workstream.StartOptions{
 		Name: "login", Actor: "host-request-test", Executor: "session-login", TakeoverReason: "ordinary host lane choice regression",
 	}); err != nil {
 		t.Fatal(err)
@@ -124,7 +167,7 @@ func TestRunPublicHostAcceptsFreshRequestForExplicitLane(t *testing.T) {
 	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := workstream.StartApply(repo, caseRoot, inspection.Identity.Pack, workstream.StartOptions{
+	if _, err := workstream.StartApply(sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack), caseRoot, inspection.Identity.Pack, workstream.StartOptions{
 		Name: "login", Actor: "host-request-test", Executor: "session-login", TakeoverReason: "ordinary host explicit lane regression",
 	}); err != nil {
 		t.Fatal(err)
@@ -157,10 +200,13 @@ func TestRunPublicHostAcceptsFreshRequestForExplicitLane(t *testing.T) {
 func TestRunStopsForExecutionEvidenceReviewWithoutLaunchingClaude(t *testing.T) {
 	repo := sessionhostTestRepoRoot(t)
 	caseRoot := provisionSessionhostAttachedCase(t, repo, "_template")
+	attachedRepo := sessionhostAttachedRepoRoot(t, caseRoot, "_template")
+	factsRoot := sessionhostStateRel(t, caseRoot, "facts")
+	laneRoot := sessionhostStateRel(t, caseRoot, "lanes", "main")
 	board := mission.Board{
 		SchemaVersion:        1,
 		CaseRoot:             filepath.ToSlash(caseRoot),
-		RepoRoot:             filepath.ToSlash(repo),
+		RepoRoot:             filepath.ToSlash(attachedRepo),
 		Pack:                 "_template",
 		DefaultAuthorityLane: "main",
 		Lanes: []mission.BoardLane{{
@@ -169,17 +215,18 @@ func TestRunStopsForExecutionEvidenceReviewWithoutLaunchingClaude(t *testing.T) 
 			CurrentExecutor: "evidence-review-member", ExecutorGeneration: 1,
 			UpdatedAt: "2026-08-11T00:00:00Z",
 		}},
-		FactsRoot: ".rekit/facts",
+		FactsRoot: factsRoot,
 	}
 	boardData, err := json.Marshal(board)
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeSessionhostTestFile(t, caseRoot, ".rekit/board.json", append(boardData, '\n'))
-	writeSessionhostTestFile(t, caseRoot, ".rekit/lanes/main/lane.json", []byte(`{"schemaVersion":1,"id":"main","type":"main","title":"Main","status":"open","authority":true,"workspace":"workspace/main/main","laneRoot":".rekit/lanes/main","currentExecutor":"evidence-review-member","executorGeneration":1,"lastTakeoverAt":"2026-08-11T00:00:00Z","lastTakeoverBy":"test","lastTakeoverReason":"fixture"}`))
-	writeSessionhostTestFile(t, caseRoot, ".rekit/facts/observations.jsonl", []byte(`{"kind":"observation","eventId":"obs-host-stop","lane":"main","subject":"bounded adapter output","summary":"preauthorized adapter output ready for review","status":"complete","target":"target-alpha","evidenceRefs":["evidence/debug.json"],"execution":{"gateEventId":"gate-host-stop","authorization":"preauthorized","status":"complete","outputRefs":["workspace/main/debug/out.txt"]},"gate":{"action":"debug","authorization":{"decision":"preauthorized"}}}`+"\n"))
+	writeSessionhostTestFile(t, caseRoot, sessionhostStateRel(t, caseRoot, "board.json"), append(boardData, '\n'))
+	laneJSON := fmt.Sprintf(`{"schemaVersion":1,"id":"main","type":"main","title":"Main","status":"open","authority":true,"workspace":"workspace/main/main","laneRoot":%q,"currentExecutor":"evidence-review-member","executorGeneration":1,"lastTakeoverAt":"2026-08-11T00:00:00Z","lastTakeoverBy":"test","lastTakeoverReason":"fixture"}`, laneRoot)
+	writeSessionhostTestFile(t, caseRoot, sessionhostStateRel(t, caseRoot, "lanes", "main", "lane.json"), []byte(laneJSON))
+	writeSessionhostTestFile(t, caseRoot, sessionhostStateRel(t, caseRoot, "facts", "observations.jsonl"), []byte(`{"kind":"observation","eventId":"obs-host-stop","lane":"main","subject":"bounded adapter output","summary":"preauthorized adapter output ready for review","status":"complete","target":"target-alpha","evidenceRefs":["evidence/debug.json"],"execution":{"gateEventId":"gate-host-stop","authorization":"preauthorized","status":"complete","outputRefs":["workspace/main/debug/out.txt"]},"gate":{"action":"debug","authorization":{"decision":"preauthorized"}}}`+"\n"))
 	for _, rel := range []string{"requests.jsonl", "candidates.jsonl", "decisions.jsonl", "interventions.jsonl", "verifications.jsonl"} {
-		writeSessionhostTestFile(t, caseRoot, ".rekit/facts/"+rel, nil)
+		writeSessionhostTestFile(t, caseRoot, sessionhostStateRel(t, caseRoot, "facts", rel), nil)
 	}
 	before := snapshotDailyCaseFiles(t, caseRoot)
 	result, err := Run(context.Background(), Options{

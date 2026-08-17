@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -19,6 +21,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 const (
@@ -27,6 +30,8 @@ const (
 
 	maxProvisionDuration = 15 * time.Minute
 	maxProfileBytes      = 1 << 20
+
+	managedAutonomousProfileIDPrefix = "managed-bounded-autonomous-v1-"
 )
 
 var (
@@ -44,6 +49,27 @@ type ProfileProvisionOptions struct {
 	Pack     string
 	Lane     string
 	Profile  Profile
+}
+
+// ManagedAutonomousPresetOptions describes the explicit, bounded inputs for
+// the v1 managed autonomous preset. It remains one lane in one attached case;
+// every action and target is exact and every request is re-evaluated.
+type ManagedAutonomousPresetOptions struct {
+	RepoRoot            string
+	CaseRoot            string
+	Pack                string
+	Lane                string
+	Preset              string
+	ExplicitOptIn       bool
+	Actions             []string
+	Targets             []string
+	Budget              Budget
+	StopConditions      []string
+	OutputPaths         []string
+	GrantedBy           string
+	GrantedAt           string
+	ExpiresAt           string
+	ExternalTargetScope []string
 }
 
 // ProfileRevokeOptions identifies the lane whose profile will return to the
@@ -106,8 +132,12 @@ type profileMutationBinding struct {
 }
 
 // PreviewProvision validates and binds a preauthorized profile without
-// writing autonomy.json.
+// writing autonomy.json. Autonomous profiles have a separate explicit managed
+// preset entry point and are rejected here.
 func PreviewProvision(opt ProfileProvisionOptions) (ProfileMutationPlan, error) {
+	if strings.TrimSpace(opt.Profile.Mode) == ModeAutonomous {
+		return ProfileMutationPlan{}, fmt.Errorf("autonomy profile mode=%s requires explicit %s opt-in through PreviewManagedAutonomousPreset", ModeAutonomous, ManagedAutonomousPresetV1)
+	}
 	return buildProfileMutationPlan(
 		ProfileOperationProvision,
 		opt.RepoRoot,
@@ -116,6 +146,215 @@ func PreviewProvision(opt ProfileProvisionOptions) (ProfileMutationPlan, error) 
 		opt.Lane,
 		opt.Profile,
 	)
+}
+
+// PreviewManagedAutonomousPreset constructs and previews the only v1 managed
+// autonomous profile. The caller must explicitly opt in and supply every
+// bounded action, exact target, budget, stop condition, and output path.
+func PreviewManagedAutonomousPreset(opt ManagedAutonomousPresetOptions) (ProfileMutationPlan, error) {
+	profile, err := BuildManagedAutonomousPreset(opt)
+	if err != nil {
+		return ProfileMutationPlan{}, err
+	}
+	return buildProfileMutationPlan(
+		ProfileOperationProvision,
+		opt.RepoRoot,
+		opt.CaseRoot,
+		opt.Pack,
+		opt.Lane,
+		profile,
+	)
+}
+
+// BuildManagedAutonomousPreset constructs and validates the strict v1 profile
+// without writing case state. PreviewManagedAutonomousPreset remains the
+// managed provision entry point because it also validates the attached case,
+// lane, current profile, and mutation currentness.
+func BuildManagedAutonomousPreset(opt ManagedAutonomousPresetOptions) (Profile, error) {
+	if strings.TrimSpace(opt.Preset) != ManagedAutonomousPresetV1 {
+		return Profile{}, fmt.Errorf("managed autonomous profile requires preset=%s", ManagedAutonomousPresetV1)
+	}
+	if !opt.ExplicitOptIn {
+		return Profile{}, fmt.Errorf("managed autonomous preset %s requires explicit opt-in", ManagedAutonomousPresetV1)
+	}
+	lane := strings.TrimSpace(opt.Lane)
+	if lane == "" || !profileMutationLanePattern.MatchString(lane) {
+		return Profile{}, fmt.Errorf("invalid lane id for managed autonomous preset: %q", lane)
+	}
+	managedPresetManifest, err := manifest.Load(opt.RepoRoot, opt.Pack)
+	if err != nil {
+		return Profile{}, err
+	}
+	if len(opt.Actions) == 0 || len(opt.Targets) == 0 {
+		return Profile{}, fmt.Errorf("managed autonomous preset requires explicit actions and exact targets")
+	}
+	if len(opt.StopConditions) == 0 || len(opt.OutputPaths) == 0 {
+		return Profile{}, fmt.Errorf("managed autonomous preset requires bounded stop conditions and output paths")
+	}
+
+	actions, err := canonicalUniqueTokens("managed autonomous actions", opt.Actions)
+	if err != nil {
+		return Profile{}, err
+	}
+	manifestStops := map[string]bool{}
+	for _, action := range actions {
+		actionGate, ok := managedPresetManifest.HeavyToolGate(action)
+		if !ok {
+			return Profile{}, fmt.Errorf("managed autonomous action is not declared in pack heavyToolGates: %s", action)
+		}
+		for _, stop := range actionGate.StopConditions {
+			manifestStops[strings.TrimSpace(stop)] = true
+		}
+	}
+	targets, err := canonicalExactValues("managed autonomous targets", opt.Targets)
+	if err != nil {
+		return Profile{}, err
+	}
+	externalTargets, err := canonicalExactValues("managed autonomous external target scope", opt.ExternalTargetScope)
+	if err != nil {
+		return Profile{}, err
+	}
+	stopConditions, err := canonicalUniqueTokens("managed autonomous stop conditions", opt.StopConditions)
+	if err != nil {
+		return Profile{}, err
+	}
+	for stop := range manifestStops {
+		if !slices.Contains(stopConditions, stop) {
+			return Profile{}, fmt.Errorf("managed autonomous stop conditions must cover manifest condition %s", stop)
+		}
+	}
+	outputPaths, err := canonicalExactValues("managed autonomous output paths", opt.OutputPaths)
+	if err != nil {
+		return Profile{}, err
+	}
+
+	networkCapable := false
+	for _, action := range actions {
+		actionGate, _ := managedPresetManifest.HeavyToolGate(action)
+		if slices.ContainsFunc(actionGate.SideEffects, func(effect string) bool {
+			return strings.EqualFold(strings.TrimSpace(effect), "network")
+		}) {
+			networkCapable = true
+		}
+	}
+	if networkCapable {
+		if len(externalTargets) == 0 {
+			return Profile{}, fmt.Errorf("managed autonomous network-capable actions require explicit exact external target scope")
+		}
+		if !slices.Equal(externalTargets, targets) {
+			return Profile{}, fmt.Errorf("managed autonomous v1 requires every exact network target to be explicitly external")
+		}
+	} else if len(externalTargets) != 0 {
+		return Profile{}, fmt.Errorf("managed autonomous external target scope requires a network-capable action")
+	}
+	if err := validateBudget(opt.Budget, ModeAutonomous); err != nil {
+		return Profile{}, err
+	}
+
+	targetScope := make([]Target, 0, len(targets))
+	for _, target := range targets {
+		targetScope = append(targetScope, Target{Match: "exact", Value: target})
+	}
+	profile := Profile{
+		SchemaVersion:  1,
+		Lane:           lane,
+		Mode:           ModeAutonomous,
+		AllowedActions: actions,
+		DeniedActions:  []string{},
+		TargetScope:    targetScope,
+		Budget:         opt.Budget,
+		StopConditions: stopConditions,
+		OutputPaths:    outputPaths,
+		RecordRequired: true,
+		NotifyMainOn:   []string{"boundary-hit", "new-risk", "destructive-change", "authority-write-needed"},
+		GrantedBy:      strings.TrimSpace(opt.GrantedBy),
+		GrantedAt:      strings.TrimSpace(opt.GrantedAt),
+		ExpiresAt:      strings.TrimSpace(opt.ExpiresAt),
+	}
+	caseRoot, err := filepath.Abs(strings.TrimSpace(opt.CaseRoot))
+	if err != nil {
+		return Profile{}, err
+	}
+	profile.ProfileID, err = managedAutonomousProfileID(managedPresetManifest.RepoRoot, caseRoot, managedPresetManifest.Pack, profile, externalTargets)
+	if err != nil {
+		return Profile{}, err
+	}
+	if err := validateProvisionProfile(profile, lane, managedPresetManifest, caseRoot, time.Now().UTC()); err != nil {
+		return Profile{}, err
+	}
+	return profile, nil
+}
+
+func managedAutonomousProfileID(repoRoot, caseRoot, pack string, profile Profile, externalTargets []string) (string, error) {
+	binding := struct {
+		RepoRoot            string   `json:"repoRoot"`
+		CaseRoot            string   `json:"caseRoot"`
+		Pack                string   `json:"pack"`
+		SchemaVersion       int      `json:"schemaVersion"`
+		Lane                string   `json:"lane"`
+		Mode                string   `json:"mode"`
+		AllowedActions      []string `json:"allowedActions"`
+		DeniedActions       []string `json:"deniedActions"`
+		TargetScope         []Target `json:"targetScope"`
+		Budget              Budget   `json:"budget"`
+		StopConditions      []string `json:"stopConditions"`
+		OutputPaths         []string `json:"outputPaths"`
+		RecordRequired      bool     `json:"recordRequired"`
+		NotifyMainOn        []string `json:"notifyMainOn"`
+		GrantedBy           string   `json:"grantedBy"`
+		GrantedAt           string   `json:"grantedAt"`
+		ExpiresAt           string   `json:"expiresAt"`
+		ExternalTargetScope []string `json:"externalTargetScope"`
+	}{
+		RepoRoot: repoRoot, CaseRoot: caseRoot, Pack: pack,
+		SchemaVersion: profile.SchemaVersion, Lane: profile.Lane, Mode: profile.Mode,
+		AllowedActions: profile.AllowedActions, DeniedActions: profile.DeniedActions,
+		TargetScope: profile.TargetScope, Budget: profile.Budget,
+		StopConditions: profile.StopConditions, OutputPaths: profile.OutputPaths,
+		RecordRequired: profile.RecordRequired, NotifyMainOn: profile.NotifyMainOn,
+		GrantedBy: profile.GrantedBy, GrantedAt: profile.GrantedAt, ExpiresAt: profile.ExpiresAt,
+		ExternalTargetScope: externalTargets,
+	}
+	data, err := json.Marshal(binding)
+	if err != nil {
+		return "", err
+	}
+	digest := profileBytesSHA256(data)
+	return managedAutonomousProfileIDPrefix + profile.Lane + "-" + digest, nil
+}
+
+func canonicalUniqueTokens(field string, values []string) ([]string, error) {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || !tokenPattern.MatchString(value) {
+			return nil, fmt.Errorf("%s has invalid item: %s", field, value)
+		}
+		if !seen[value] {
+			seen[value] = true
+			out = append(out, value)
+		}
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+func canonicalExactValues(field string, values []string) ([]string, error) {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return nil, fmt.Errorf("%s contains an empty item", field)
+		}
+		if !seen[value] {
+			seen[value] = true
+			out = append(out, value)
+		}
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 // PreviewRevoke validates the current profile and previews an exact write of
@@ -282,8 +521,8 @@ func buildProfileMutationPlan(operation, repoRoot, caseRoot, pack, lane string, 
 			if err != nil {
 				return ProfileMutationPlan{}, err
 			}
-			if !isDefault && strings.TrimSpace(current.Mode) != ModePreauthorized {
-				return ProfileMutationPlan{}, fmt.Errorf("autonomy profile revoke refuses a current profile not owned by preauthorized provisioning")
+			if !isDefault && !isManagedProvisionedProfile(current, lane, m, caseRoot) {
+				return ProfileMutationPlan{}, fmt.Errorf("autonomy profile revoke refuses a current profile not owned by managed provisioning")
 			}
 		}
 	default:
@@ -307,6 +546,10 @@ func buildProfileMutationPlan(operation, repoRoot, caseRoot, pack, lane string, 
 		}
 	}
 
+	profileRel, err := RelPathForCase(caseRoot, lane)
+	if err != nil {
+		return ProfileMutationPlan{}, err
+	}
 	plan := ProfileMutationPlan{
 		SchemaVersion:        1,
 		Operation:            operation,
@@ -314,7 +557,7 @@ func buildProfileMutationPlan(operation, repoRoot, caseRoot, pack, lane string, 
 		CaseRoot:             caseRoot,
 		Pack:                 pack,
 		Lane:                 lane,
-		ProfilePath:          RelPath(lane),
+		ProfilePath:          profileRel,
 		CurrentProfileExists: currentExists,
 		CurrentProfileSHA256: currentSHA,
 		PlannedProfile:       planned,
@@ -327,6 +570,7 @@ func buildProfileMutationPlan(operation, repoRoot, caseRoot, pack, lane string, 
 			"Preview writes nothing; Apply requires the exact reviewed semantic plan hash",
 			"Apply rebuilds under the lane mutation lease and refuses current profile drift",
 			"profile mutation does not create or authorize a gate decision and does not execute heavy tools",
+			"autonomous v1 remains one lane in one attached case with exact actions and targets, bounded budget/output/stop conditions, durable records, and the existing maximum grant duration",
 		},
 		currentBytes: append([]byte(nil), currentBytes...),
 		plannedBytes: append([]byte(nil), plannedBytes...),
@@ -339,8 +583,8 @@ func buildProfileMutationPlan(operation, repoRoot, caseRoot, pack, lane string, 
 }
 
 func validateProvisionProfile(profile Profile, lane string, m *manifest.Manifest, caseRoot string, now time.Time) error {
-	if profile.Mode != ModePreauthorized {
-		return fmt.Errorf("autonomy profile provision permits only mode=%s", ModePreauthorized)
+	if profile.Mode != ModePreauthorized && profile.Mode != ModeAutonomous {
+		return fmt.Errorf("autonomy profile provision permits only mode=%s or mode=%s", ModePreauthorized, ModeAutonomous)
 	}
 	if profile.Lane != lane {
 		return fmt.Errorf("autonomy profile provision requires exact lane %s", lane)
@@ -382,11 +626,88 @@ func validateProvisionProfile(profile Profile, lane string, m *manifest.Manifest
 	if !now.Before(expiresAt) {
 		return fmt.Errorf("autonomy profile provision refuses an expired profile")
 	}
+	if profile.Mode == ModeAutonomous && !isManagedAutonomousProfileV1(profile, lane, m, caseRoot) {
+		return fmt.Errorf("autonomy profile provision refuses an autonomous profile outside managed preset %s", ManagedAutonomousPresetV1)
+	}
 	return nil
 }
 
+func isManagedProvisionedProfile(profile Profile, lane string, m *manifest.Manifest, caseRoot string) bool {
+	if strings.TrimSpace(profile.Mode) == ModePreauthorized {
+		return !strings.HasPrefix(strings.TrimSpace(profile.ProfileID), managedAutonomousProfileIDPrefix)
+	}
+	return isManagedAutonomousProfileV1(profile, lane, m, caseRoot)
+}
+
+func isManagedAutonomousProfileV1(profile Profile, lane string, m *manifest.Manifest, caseRoot string) bool {
+	if profile.SchemaVersion != 1 ||
+		profile.Lane != lane ||
+		profile.Mode != ModeAutonomous ||
+		len(profile.DeniedActions) != 0 ||
+		!profile.RecordRequired ||
+		!slices.Equal(profile.NotifyMainOn, []string{"boundary-hit", "new-risk", "destructive-change", "authority-write-needed"}) {
+		return false
+	}
+	// Callers validate the full profile shape before checking this managed
+	// semantic identity. Calling Validate here would recurse because Validate
+	// itself requires autonomous profiles to satisfy this identity.
+	canonicalActions, err := canonicalUniqueTokens("managed autonomous actions", profile.AllowedActions)
+	if err != nil || !slices.Equal(profile.AllowedActions, canonicalActions) {
+		return false
+	}
+	targets := make([]string, 0, len(profile.TargetScope))
+	for _, target := range profile.TargetScope {
+		if target.Match != "exact" {
+			return false
+		}
+		targets = append(targets, target.Value)
+	}
+	canonicalTargets, err := canonicalExactValues("managed autonomous targets", targets)
+	if err != nil || !slices.Equal(targets, canonicalTargets) {
+		return false
+	}
+	canonicalStops, err := canonicalUniqueTokens("managed autonomous stop conditions", profile.StopConditions)
+	if err != nil || !slices.Equal(profile.StopConditions, canonicalStops) {
+		return false
+	}
+	canonicalOutputs, err := canonicalExactValues("managed autonomous output paths", profile.OutputPaths)
+	if err != nil || !slices.Equal(profile.OutputPaths, canonicalOutputs) {
+		return false
+	}
+	networkCapable := false
+	for _, action := range profile.AllowedActions {
+		gate, ok := m.HeavyToolGate(action)
+		if !ok {
+			return false
+		}
+		if slices.ContainsFunc(gate.SideEffects, func(effect string) bool {
+			return strings.EqualFold(strings.TrimSpace(effect), "network")
+		}) {
+			networkCapable = true
+		}
+	}
+	externalTargets := make([]string, 0)
+	if networkCapable {
+		externalTargets = append(externalTargets, targets...)
+	}
+	repoRoot, err := filepath.Abs(strings.TrimSpace(m.RepoRoot))
+	if err != nil {
+		return false
+	}
+	caseRoot, err = filepath.Abs(strings.TrimSpace(caseRoot))
+	if err != nil {
+		return false
+	}
+	expectedID, err := managedAutonomousProfileID(repoRoot, caseRoot, m.Pack, profile, externalTargets)
+	return err == nil && profile.ProfileID == expectedID
+}
+
 func validateProfileLane(caseRoot, lane string) error {
-	lanePath, err := refsf.SafeJoin(caseRoot, filepath.ToSlash(filepath.Join(".rekit", "lanes", lane, "lane.json")))
+	laneRel, err := projectstate.Rel(caseRoot, "lanes", lane, "lane.json")
+	if err != nil {
+		return err
+	}
+	lanePath, err := refsf.SafeJoin(caseRoot, laneRel)
 	if err != nil {
 		return err
 	}

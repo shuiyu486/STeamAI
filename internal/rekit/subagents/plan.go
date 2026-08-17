@@ -17,6 +17,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewerresult"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewpath"
 )
@@ -492,6 +493,9 @@ func WritePlan(repoRoot, target, pack string, opt Options) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	if _, err := projectstate.Resolve(planRoot); err != nil {
+		return Result{}, err
+	}
 	caseTarget := instance.LooksLikeCase(planRoot)
 	if caseTarget {
 		if _, err := instance.AssertAttached(planRoot, repoRoot, pack); err != nil {
@@ -534,7 +538,15 @@ func WritePlan(repoRoot, target, pack string, opt Options) (Result, error) {
 	}
 	shards := newShards(items, itemsPerAgent)
 	var planningLease *lanemutation.Lease
-	if caseTarget && refsf.Exists(filepath.Join(planRoot, ".rekit", "board.json")) {
+	boardExists := false
+	if caseTarget {
+		boardPath, err := projectstate.Join(planRoot, "board.json")
+		if err != nil {
+			return Result{}, err
+		}
+		boardExists = refsf.Exists(boardPath)
+	}
+	if boardExists {
 		ownerBinding, err := resolveOwnerBinding(planRoot, m, opt, true)
 		if err != nil {
 			return Result{}, err
@@ -677,7 +689,11 @@ func resolveOwnerBinding(planRoot string, m *manifest.Manifest, opt Options, int
 	}
 	lane, ok := mission.LookupBoardLane(board.Lanes, targetLane, false)
 	if !ok {
-		return OwnerBinding{}, fmt.Errorf("reviewer owner binding target lane %q is not present in .rekit/board.json; known: %s", targetLane, strings.Join(mission.BoardLaneIDs(board.Lanes), ","))
+		boardRel, relErr := projectstate.Rel(planRoot, "board.json")
+		if relErr != nil {
+			return OwnerBinding{}, relErr
+		}
+		return OwnerBinding{}, fmt.Errorf("reviewer owner binding target lane %q is not present in %s; known: %s", targetLane, boardRel, strings.Join(mission.BoardLaneIDs(board.Lanes), ","))
 	}
 	binding.CurrentExecutor = strings.TrimSpace(lane.CurrentExecutor)
 	binding.ExecutorGeneration = lane.ExecutorGeneration
@@ -2038,7 +2054,11 @@ func makeArtifactPaths(planRoot string, opt Options) (artifactPaths, error) {
 	root := strings.TrimSpace(opt.ReviewOutputDir)
 	var err error
 	if defaultRoot {
-		root, err = refsf.SafeJoin(planRoot, filepath.ToSlash(filepath.Join(".rekit", "reviews", time.Now().Format("20060102-150405000")+"-"+commandName)))
+		rel, relErr := projectstate.Rel(planRoot, "reviews", time.Now().Format("20060102-150405000")+"-"+commandName)
+		if relErr != nil {
+			return artifactPaths{}, relErr
+		}
+		root, err = refsf.SafeJoin(planRoot, rel)
 		if err != nil {
 			return artifactPaths{}, err
 		}

@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 const MaxReviewerEvidenceArtifactBytes = 48 * 1024
@@ -33,7 +34,11 @@ func SnapshotReviewerEvidenceClosure(caseRoot, pack, item string) (ReviewerEvide
 	if rawItem != item {
 		return ReviewerEvidenceClosure{}, fmt.Errorf("Remote Control reviewer item must use its exact canonical path")
 	}
-	const prefix = ".rekit/lanes/"
+	stateRoot, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return ReviewerEvidenceClosure{}, err
+	}
+	prefix := filepath.ToSlash(filepath.Join(stateRoot.Dir, "lanes")) + "/"
 	const marker = "/member-executions/"
 	const suffix = "/evidence/manifest.json"
 	if item == "." || filepath.IsAbs(filepath.FromSlash(item)) || !strings.HasPrefix(item, prefix) || !strings.HasSuffix(item, suffix) {

@@ -24,6 +24,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewerresult"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewersession"
 )
@@ -103,8 +104,8 @@ func PreviewDispatch(opt DispatchOptions) (Plan, error) {
 	return finishPlan(Plan{SchemaVersion: 1, Mode: "dispatch", CaseRoot: caseRoot, Pack: opt.Pack, AttemptID: attemptID, Owner: owner, ExternalHandoff: &handoff, Inspection: inspection, ReviewRequired: true, RequiresConfirmation: true, Boundary: boundaries(), writes: writes})
 }
 
-func currentTaskBindingRel(lane string, ownerGeneration int) string {
-	return filepath.ToSlash(filepath.Join(".rekit", "lanes", lane, "member-task-bindings", fmt.Sprintf("g%06d.json", ownerGeneration)))
+func currentTaskBindingRel(caseRoot, lane string, ownerGeneration int) (string, error) {
+	return projectstate.Rel(caseRoot, "lanes", lane, "member-task-bindings", fmt.Sprintf("g%06d.json", ownerGeneration))
 }
 
 func currentTaskBindingOwner(caseRoot, lane string) (string, int, error) {
@@ -133,7 +134,11 @@ func CurrentTaskBinding(caseRoot, lane string) (*TaskBinding, error) {
 	if err != nil {
 		return nil, err
 	}
-	path, err := rekitfs.SafeJoin(caseRoot, currentTaskBindingRel(lane, ownerGeneration))
+	rel, err := currentTaskBindingRel(caseRoot, lane, ownerGeneration)
+	if err != nil {
+		return nil, err
+	}
+	path, err := rekitfs.SafeJoin(caseRoot, rel)
 	if err != nil {
 		return nil, err
 	}
@@ -239,7 +244,10 @@ func writeTaskBinding(
 	if err != nil {
 		return "", "", err
 	}
-	rel := currentTaskBindingRel(envelope.Lane, ownerGeneration)
+	rel, err := currentTaskBindingRel(caseRoot, envelope.Lane, ownerGeneration)
+	if err != nil {
+		return "", "", err
+	}
 	if _, err := rekitfs.WriteExclusiveRegularFileAnchored(caseRoot, rel, "member execution task binding", data); err != nil {
 		return "", "", err
 	}
@@ -307,18 +315,30 @@ func currentTaskContext(caseRoot, pack string, owner Owner, attemptID string) (T
 		if !strings.EqualFold(missionInspection.Identity.Pack, pack) || !validSHA(missionInspection.MissionIntentSHA256) {
 			return TaskContext{}, fmt.Errorf("member execution mission intent identity mismatch")
 		}
-		missionArtifact = &TaskArtifact{Path: missionintent.MissionIntentRel, SHA256: strings.ToLower(missionInspection.MissionIntentSHA256)}
+		paths, err := missionintent.Paths(caseRoot)
+		if err != nil {
+			return TaskContext{}, err
+		}
+		missionArtifact = &TaskArtifact{Path: paths.MissionIntent, SHA256: strings.ToLower(missionInspection.MissionIntentSHA256)}
 	} else if missionInspection.State == "absent" {
 		goal = "Continue the exact current lane work described by the immutable resume and checkpoint artifacts."
 		goalSource = "lane-resume-fallback"
 	} else {
 		return TaskContext{}, fmt.Errorf("member execution requires a committed mission intent; state=%s", missionInspection.State)
 	}
-	resume, err := taskArtifact(caseRoot, filepath.ToSlash(filepath.Join(".rekit", "lanes", owner.Lane, "prompts", "RESUME.md")), "member execution lane resume")
+	resumeRel, err := projectstate.Rel(caseRoot, "lanes", owner.Lane, "prompts", "RESUME.md")
 	if err != nil {
 		return TaskContext{}, err
 	}
-	checkpoint, err := taskArtifact(caseRoot, filepath.ToSlash(filepath.Join(".rekit", "lanes", owner.Lane, "checkpoints", "latest.json")), "member execution lane checkpoint")
+	resume, err := taskArtifact(caseRoot, resumeRel, "member execution lane resume")
+	if err != nil {
+		return TaskContext{}, err
+	}
+	checkpointRel, err := projectstate.Rel(caseRoot, "lanes", owner.Lane, "checkpoints", "latest.json")
+	if err != nil {
+		return TaskContext{}, err
+	}
+	checkpoint, err := taskArtifact(caseRoot, checkpointRel, "member execution lane checkpoint")
 	if err != nil {
 		return TaskContext{}, err
 	}
@@ -943,7 +963,7 @@ func inspectAnchored(anchor *anchoredCase, lane, attemptID string) (Inspection, 
 		return Inspection{}, fmt.Errorf("invalid member execution intent")
 	}
 	taskContextRel := filepath.ToSlash(filepath.Join(rootRel, "task-context.json"))
-	if err := validateTaskContextContract(intent, taskContext); err != nil {
+	if err := validateTaskContextContract(anchor.path, intent, taskContext); err != nil {
 		return Inspection{}, err
 	}
 	if handoff.SchemaVersion != SchemaVersion || handoff.Kind != KindHandoff || handoff.AttemptID != attemptID || handoff.Owner != intent.Owner || !strings.EqualFold(handoff.IntentSHA256, hash(intentBytes)) || handoff.TaskContextPath != taskContextRel || !strings.EqualFold(handoff.TaskContextSHA256, hash(taskContextBytes)) {
@@ -1046,7 +1066,7 @@ func ValidateTaskContextPackContract(caseRoot string, inspection Inspection) err
 	if task.SchemaVersion != TaskContextSchemaVersion || task.OutputContract == nil {
 		return fmt.Errorf("legacy member execution task context does not bind a current pack output contract")
 	}
-	if err := validateTaskContextContract(*inspection.Intent, task); err != nil {
+	if err := validateTaskContextContract(caseRoot, *inspection.Intent, task); err != nil {
 		return err
 	}
 	if err := validateCurrentTaskBinding(task); err != nil {
@@ -1058,7 +1078,7 @@ func ValidateTaskContextPackContract(caseRoot string, inspection Inspection) err
 	return validateTaskContextOutputContract(caseRoot, task)
 }
 
-func validateTaskContextContract(intent Intent, task TaskContext) error {
+func validateTaskContextContract(caseRoot string, intent Intent, task TaskContext) error {
 	if (task.SchemaVersion != legacyTaskContextVersion && task.SchemaVersion != TaskContextSchemaVersion) || task.Kind != KindTaskContext || task.AttemptID != intent.AttemptID || task.Owner != intent.Owner || !strings.EqualFold(task.Pack, intent.Pack) || strings.TrimSpace(task.Goal) == "" || strings.TrimSpace(task.GoalSource) == "" || strings.TrimSpace(task.Resume.Content) == "" || strings.TrimSpace(task.Checkpoint.Content) == "" || !task.NoAuthority || !task.NoConfirmed || !task.NoHeavyTool || len(task.ExpectedOutput) == 0 {
 		return fmt.Errorf("invalid member execution task context")
 	}
@@ -1079,8 +1099,16 @@ func validateTaskContextContract(intent Intent, task TaskContext) error {
 			return fmt.Errorf("invalid member execution task artifact binding")
 		}
 	}
+	return validateTaskContextMissionBinding(caseRoot, task)
+}
+
+func validateTaskContextMissionBinding(caseRoot string, task TaskContext) error {
 	if task.MissionIntent != nil {
-		if task.GoalSource != "committed-mission-intent" || task.MissionIntent.Path != missionintent.MissionIntentRel || !validSHA(task.MissionIntent.SHA256) {
+		paths, err := missionintent.Paths(caseRoot)
+		if err != nil {
+			return fmt.Errorf("resolve member execution mission intent path: %w", err)
+		}
+		if task.GoalSource != "committed-mission-intent" || task.MissionIntent.Path != paths.MissionIntent || !validSHA(task.MissionIntent.SHA256) {
 			return fmt.Errorf("invalid member execution mission intent binding")
 		}
 	} else if task.GoalSource != "lane-resume-fallback" {
@@ -1090,7 +1118,7 @@ func validateTaskContextContract(intent Intent, task TaskContext) error {
 }
 
 func validateTaskContext(caseRoot string, intent Intent, task TaskContext) error {
-	if err := validateTaskContextContract(intent, task); err != nil {
+	if err := validateTaskContextContract(caseRoot, intent, task); err != nil {
 		return err
 	}
 	if err := validateCurrentTaskBinding(task); err != nil {
@@ -1128,16 +1156,14 @@ func validateTaskContext(caseRoot string, intent Intent, task TaskContext) error
 }
 
 func validateTaskContextMission(caseRoot string, task TaskContext) error {
+	if err := validateTaskContextMissionBinding(caseRoot, task); err != nil {
+		return err
+	}
 	if task.MissionIntent != nil {
-		if task.GoalSource != "committed-mission-intent" || task.MissionIntent.Path != missionintent.MissionIntentRel || !validSHA(task.MissionIntent.SHA256) {
-			return fmt.Errorf("invalid member execution mission intent binding")
-		}
 		inspection, err := missionintent.Inspect(caseRoot)
 		if err != nil || !inspection.Committed || inspection.Identity.Goal != task.Goal || inspection.Identity.ProjectName != task.ProjectName || !strings.EqualFold(inspection.Identity.Pack, task.Pack) || !strings.EqualFold(inspection.MissionIntentSHA256, task.MissionIntent.SHA256) {
 			return fmt.Errorf("member execution mission intent changed")
 		}
-	} else if task.GoalSource != "lane-resume-fallback" {
-		return fmt.Errorf("invalid member execution goal source")
 	}
 	return nil
 }
@@ -1190,7 +1216,7 @@ func currentOwner(caseRoot, pack, lane string) (string, Owner, error) {
 }
 
 func currentOwnerAnchored(anchor *anchoredCase, pack, lane string) (Owner, error) {
-	data, err := anchor.readFile(filepath.Join(".rekit", "board.json"), maxJSONBytes)
+	data, err := anchor.readFile(anchor.stateRel("board.json"), maxJSONBytes)
 	if err != nil {
 		return Owner{}, err
 	}
@@ -1217,7 +1243,7 @@ func currentOwnerUpdatedAt(caseRoot, lane string) (string, error) {
 		return "", err
 	}
 	defer anchor.Close()
-	data, err := anchor.readFile(filepath.Join(".rekit", "board.json"), maxJSONBytes)
+	data, err := anchor.readFile(anchor.stateRel("board.json"), maxJSONBytes)
 	if err != nil {
 		return "", err
 	}
@@ -1421,7 +1447,7 @@ func Latest(caseRoot, lane string) (Inspection, bool, error) {
 		return Inspection{}, false, err
 	}
 	defer anchor.Close()
-	rootRel := filepath.Join(".rekit", "lanes", lane, "member-executions")
+	rootRel := anchor.stateRel("lanes", lane, "member-executions")
 	entries, err := anchor.readDir(rootRel)
 	if os.IsNotExist(err) {
 		return Inspection{}, false, nil
@@ -1581,7 +1607,7 @@ func nextAttemptSequence(caseRoot string, owner Owner, requestSHA string) (int, 
 		return 0, err
 	}
 	defer anchor.Close()
-	rootRel := filepath.Join(".rekit", "lanes", owner.Lane, "member-executions")
+	rootRel := anchor.stateRel("lanes", owner.Lane, "member-executions")
 	entries, readErr := anchor.readDir(rootRel)
 	if os.IsNotExist(readErr) {
 		return 1, nil
@@ -1637,7 +1663,10 @@ func attemptRoot(caseRoot, lane, attempt string) (string, error) {
 	if !segment.MatchString(lane) || !segment.MatchString(attempt) {
 		return "", fmt.Errorf("invalid member execution path segment")
 	}
-	root := filepath.Join(caseRoot, ".rekit", "lanes", lane, "member-executions", attempt)
+	root, err := projectstate.Join(caseRoot, "lanes", lane, "member-executions", attempt)
+	if err != nil {
+		return "", err
+	}
 	if !contained(caseRoot, root) {
 		return "", fmt.Errorf("member execution root escapes case")
 	}

@@ -168,7 +168,10 @@ func VerifyConsumerUse(repoRoot, caseRoot, pack string, opt ConsumerUseOptions) 
 }
 
 func BindConsumerTask(caseRoot, lane, changeID string) (string, string, error) {
-	path := consumptionReceiptPath(caseRoot, changeID)
+	path, err := consumptionReceiptPath(caseRoot, changeID)
+	if err != nil {
+		return "", "", err
+	}
 	receiptBytes, err := refsf.ReadStableRegularFileAnchored(caseRoot, path, "pack-memory consumer task receipt", maxConsumerUseBytes)
 	if err != nil {
 		return "", "", err

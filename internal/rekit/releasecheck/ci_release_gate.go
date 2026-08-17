@@ -101,19 +101,19 @@ var ciRequiredCommands = []ciRequiredCommand{
 	{job: "go-checks-linux", command: "go run ./cmd/rekit -- -Command packs"},
 	{job: "go-checks-linux", command: "go run ./cmd/rekit -- -Command doctor"},
 	{job: "go-checks-linux", command: "go vet ./..."},
-	{job: "go-checks-linux", command: "go test ./..."},
+	{job: "go-checks-linux", command: CanonicalGoTestCommand},
 	{job: "go-checks-windows", command: "go run ./cmd/rekit -- -Command release-check -Format json"},
 	{job: "go-checks-windows", command: "go run ./cmd/rekit -- -Command status"},
 	{job: "go-checks-windows", command: "go run ./cmd/rekit -- -Command packs"},
 	{job: "go-checks-windows", command: "go run ./cmd/rekit -- -Command doctor"},
 	{job: "go-checks-windows", command: "go vet ./..."},
-	{job: "go-checks-windows", command: "go test ./..."},
+	{job: "go-checks-windows", command: CanonicalGoTestCommand},
 	{job: "go-checks-macos", command: "go run ./cmd/rekit -- -Command release-check -Format json"},
 	{job: "go-checks-macos", command: "go run ./cmd/rekit -- -Command status"},
 	{job: "go-checks-macos", command: "go run ./cmd/rekit -- -Command packs"},
 	{job: "go-checks-macos", command: "go run ./cmd/rekit -- -Command doctor"},
 	{job: "go-checks-macos", command: "go vet ./..."},
-	{job: "go-checks-macos", command: "go test ./..."},
+	{job: "go-checks-macos", command: CanonicalGoTestCommand},
 }
 
 var ciForbiddenStrings = []string{
@@ -214,7 +214,7 @@ func ciCommandOrderWarnings(jobs map[string]ciParsedJob) []string {
 			continue
 		}
 		vetIndex := ciJobCommandIndex(job, "go vet ./...")
-		testIndex := ciJobCommandIndex(job, "go test ./...")
+		testIndex := ciJobCommandIndex(job, CanonicalGoTestCommand)
 		if vetIndex >= 0 && testIndex >= 0 && vetIndex > testIndex {
 			warnings = append(warnings, fmt.Sprintf("CI workflow must run go vet before go test in %s", required.id))
 		}

@@ -22,10 +22,10 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanecompletion"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 const (
-	artifactRelRoot  = ".rekit/runs/current-loop-segments"
 	maxArtifactBytes = 1 << 20
 	recordedAtLayout = "20060102T150405.000000000Z"
 	sequenceWidth    = 20
@@ -340,8 +340,12 @@ func WriteValidated(repoRoot, caseRoot, pack string, payload Payload, validate f
 		_ = directory.Sync()
 		_ = directory.Close()
 	}
-	inspection = inspectRoot(root, identity, caseRoot, pack, payload.RefreshedCurrentDriverRequest)
-	publishedRel := filepath.ToSlash(filepath.Join(artifactRelRoot, name))
+	artifactRelRoot, err := projectstate.Rel(caseRoot, "runs", "current-loop-segments")
+	if err != nil {
+		return Inspection{}, err
+	}
+	inspection = inspectRoot(root, identity, artifactRelRoot, caseRoot, pack, payload.RefreshedCurrentDriverRequest)
+	publishedRel := filepath.ToSlash(filepath.Join(filepath.FromSlash(artifactRelRoot), name))
 	if inspection.State == "invalid" || inspection.State == "missing" || inspection.ArtifactPath != publishedRel || !strings.EqualFold(inspection.PayloadSHA256, payloadSHA256) {
 		return inspection, fmt.Errorf("published current-loop checkpoint is not the exact latest strict artifact: %s", strings.Join(inspection.Warnings, "; "))
 	}
@@ -480,10 +484,14 @@ func Inspect(repoRoot, caseRoot, pack string, current *mission.MissionCommanderD
 		return invalidInspection(base, "current-loop checkpoint namespace is invalid: "+err.Error())
 	}
 	defer root.Close()
-	return inspectRoot(root, identity, caseRoot, pack, current)
+	artifactRelRoot, err := projectstate.Rel(caseRoot, "runs", "current-loop-segments")
+	if err != nil {
+		return invalidInspection(base, "current-loop checkpoint state root cannot be resolved: "+err.Error())
+	}
+	return inspectRoot(root, identity, artifactRelRoot, caseRoot, pack, current)
 }
 
-func inspectRoot(root *os.Root, identity, caseRoot, pack string, current *mission.MissionCommanderDriverRequest) Inspection {
+func inspectRoot(root *os.Root, identity, artifactRelRoot, caseRoot, pack string, current *mission.MissionCommanderDriverRequest) Inspection {
 	base := Inspection{State: "missing", Boundary: inspectionBoundary()}
 	records, err := readArtifactChain(root, caseRoot)
 	if err != nil {
@@ -848,6 +856,16 @@ func validatePayloadForCase(payload Payload, caseRoot string) error {
 	if err := validatePayload(payload); err != nil {
 		return err
 	}
+	if payload.Continuation != nil && payload.Continuation.ExternalMemberHandoff != nil {
+		member := payload.Continuation.ExternalMemberHandoff
+		expectedAttemptRoot, err := projectstate.Rel(caseRoot, "lanes", member.Lane, "member-executions", member.AttemptID)
+		if err != nil {
+			return err
+		}
+		if member.HandoffPath != expectedAttemptRoot+"/handoff.json" || member.ManifestPath != expectedAttemptRoot+"/result/manifest.json" || member.OutputsRoot != expectedAttemptRoot+"/result/outputs" {
+			return fmt.Errorf("external member continuation persisted paths do not match the selected project state root")
+		}
+	}
 	identity := struct {
 		SchemaVersion                 int                                   `json:"schemaVersion"`
 		CaseRoot                      string                                `json:"caseRoot"`
@@ -1044,8 +1062,10 @@ func validatePayload(payload Payload) error {
 			}
 			member := continuation.ExternalMemberHandoff
 			expectedAttemptPrefix := fmt.Sprintf("g%06d-", member.ExecutorGeneration)
-			expectedAttemptRoot := filepath.ToSlash(filepath.Join(".rekit", "lanes", member.Lane, "member-executions", member.AttemptID))
-			if member.AttemptID == "" || !strings.HasPrefix(member.AttemptID, expectedAttemptPrefix) || member.Lane != continuation.ExpectedLane || member.Executor == "" || member.ExecutorGeneration < 1 || member.HandoffPath != expectedAttemptRoot+"/handoff.json" || member.ManifestPath != expectedAttemptRoot+"/result/manifest.json" || member.OutputsRoot != expectedAttemptRoot+"/result/outputs" || member.State != "handoff-ready" && member.State != "accepted" {
+			expectedSuffix := filepath.ToSlash(filepath.Join("lanes", member.Lane, "member-executions", member.AttemptID))
+			attemptRoot := strings.TrimSuffix(member.HandoffPath, "/handoff.json")
+			rootMatches := attemptRoot == expectedSuffix || strings.HasSuffix(attemptRoot, "/"+expectedSuffix)
+			if member.AttemptID == "" || !strings.HasPrefix(member.AttemptID, expectedAttemptPrefix) || member.Lane != continuation.ExpectedLane || member.Executor == "" || member.ExecutorGeneration < 1 || !rootMatches || member.HandoffPath != attemptRoot+"/handoff.json" || member.ManifestPath != attemptRoot+"/result/manifest.json" || member.OutputsRoot != attemptRoot+"/result/outputs" || member.State != "handoff-ready" && member.State != "accepted" {
 				return fmt.Errorf("external member continuation handoff identity is invalid")
 			}
 			expectedKinds := map[string]bool{
@@ -1110,11 +1130,19 @@ func caseIdentity(repoRoot, caseRoot, pack string) (string, error) {
 }
 
 func openArtifactRoot(caseRoot string, create bool) (*os.Root, error) {
-	return openCaseNamespaceRoot(caseRoot, []string{".rekit", "runs", "current-loop-segments"}, create)
+	stateRoot, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return nil, err
+	}
+	return openCaseNamespaceRoot(caseRoot, []string{stateRoot.Dir, "runs", "current-loop-segments"}, create)
 }
 
 func openClaimRoot(caseRoot string, create bool) (*os.Root, error) {
-	return openCaseNamespaceRoot(caseRoot, []string{".rekit", "runs", "current-loop-segment-claims"}, create)
+	stateRoot, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return nil, err
+	}
+	return openCaseNamespaceRoot(caseRoot, []string{stateRoot.Dir, "runs", "current-loop-segment-claims"}, create)
 }
 
 func openCaseNamespaceRoot(caseRoot string, components []string, create bool) (*os.Root, error) {

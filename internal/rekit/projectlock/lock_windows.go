@@ -1,6 +1,6 @@
 //go:build windows
 
-package lanemutation
+package projectlock
 
 import (
 	"fmt"
@@ -32,7 +32,7 @@ func stableWorkstreamLockRoot() (string, error) {
 	return filepath.Join(root, "rekit", "workstream-locks"), nil
 }
 
-func lockLaneLeaseFile(fd uintptr, exclusive bool) error {
+func lockFile(fd uintptr, exclusive bool) error {
 	var flags uintptr
 	if exclusive {
 		flags = lockfileExclusiveLock
@@ -45,7 +45,7 @@ func lockLaneLeaseFile(fd uintptr, exclusive bool) error {
 	return nil
 }
 
-func unlockLaneLeaseFile(fd uintptr) error {
+func unlockFile(fd uintptr) error {
 	overlapped := syscall.Overlapped{Offset: lockfileOffsetLow, OffsetHigh: lockfileOffsetHigh}
 	r1, _, callErr := procUnlockFileEx.Call(fd, 0, 1, 0, uintptr(unsafe.Pointer(&overlapped)))
 	if r1 == 0 {

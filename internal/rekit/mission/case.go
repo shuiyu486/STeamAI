@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 type Board struct {
@@ -41,7 +41,7 @@ type BoardLane struct {
 }
 
 func ReadBoard(caseRoot string) (Board, error) {
-	path, err := refsf.SafeJoin(caseRoot, ".rekit/board.json")
+	path, err := projectstate.Join(caseRoot, "board.json")
 	if err != nil {
 		return Board{}, err
 	}
@@ -79,8 +79,18 @@ func FactFileNames() []string {
 	return out
 }
 
+// FactRelPath retains the legacy context-free contract for callers that do not
+// have a project root. Case-local flows must use FactRelPathFor.
 func FactRelPath(kind string) string {
-	return filepath.ToSlash(filepath.Join(".rekit", "facts", FactFileName(kind)))
+	return filepath.ToSlash(filepath.Join(projectstate.LegacyDir, "facts", FactFileName(kind)))
+}
+
+func FactRelPathFor(caseRoot, kind string) (string, error) {
+	kind = strings.TrimSpace(kind)
+	if strings.ContainsAny(kind, `/\\`) {
+		return "", fmt.Errorf("invalid fact kind path segment: %s", kind)
+	}
+	return projectstate.Rel(caseRoot, "facts", FactFileName(kind))
 }
 
 func FactRelPaths() []string {
@@ -91,13 +101,24 @@ func FactRelPaths() []string {
 	return out
 }
 
-func FactPath(caseRoot, kind string) (string, string, error) {
-	kind = strings.TrimSpace(kind)
-	if strings.ContainsAny(kind, `/\\`) {
-		return "", "", fmt.Errorf("invalid fact kind path segment: %s", kind)
+func FactRelPathsFor(caseRoot string) ([]string, error) {
+	out := []string{}
+	for _, kind := range LedgerKinds() {
+		rel, err := FactRelPathFor(caseRoot, kind)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, rel)
 	}
-	rel := FactRelPath(kind)
-	path, err := refsf.SafeJoin(caseRoot, rel)
+	return out, nil
+}
+
+func FactPath(caseRoot, kind string) (string, string, error) {
+	rel, err := FactRelPathFor(caseRoot, kind)
+	if err != nil {
+		return "", "", err
+	}
+	path, err := projectstate.Join(caseRoot, "facts", FactFileName(kind))
 	if err != nil {
 		return "", "", err
 	}
@@ -185,7 +206,7 @@ func readLedgerFacts(caseRoot string, readFact func(string, string) ([]map[strin
 }
 
 func ReadFactFile(caseRoot, name string) ([]map[string]any, error) {
-	factsRoot, err := refsf.SafeJoin(caseRoot, ".rekit/facts")
+	factsRoot, err := projectstate.Join(caseRoot, "facts")
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +214,7 @@ func ReadFactFile(caseRoot, name string) ([]map[string]any, error) {
 }
 
 func ReadStrictFactFile(caseRoot, name string) ([]map[string]any, error) {
-	factsRoot, err := refsf.SafeJoin(caseRoot, ".rekit/facts")
+	factsRoot, err := projectstate.Join(caseRoot, "facts")
 	if err != nil {
 		return nil, err
 	}
@@ -371,7 +392,11 @@ func AssertBoardLane(caseRoot, lane string, opts LaneGuardOptions) error {
 	}
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("%s requires .rekit/board.json to validate lane: %s", command, filepath.Join(caseRoot, ".rekit", "board.json"))
+			boardPath, pathErr := projectstate.Join(caseRoot, "board.json")
+			if pathErr != nil {
+				return pathErr
+			}
+			return fmt.Errorf("%s requires a project board to validate lane: %s", command, boardPath)
 		}
 		return err
 	}
@@ -380,7 +405,11 @@ func AssertBoardLane(caseRoot, lane string, opts LaneGuardOptions) error {
 		return nil
 	}
 	if len(known) == 0 {
-		return fmt.Errorf("%s requires at least one lane in .rekit/board.json", command)
+		boardPath, err := projectstate.Rel(caseRoot, "board.json")
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("%s requires at least one lane in %s", command, boardPath)
 	}
 	return fmt.Errorf("unknown lane %q; known: %s", lane, strings.Join(known, ","))
 }

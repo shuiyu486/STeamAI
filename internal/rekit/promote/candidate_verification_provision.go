@@ -15,6 +15,7 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/doctor"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	syncpkg "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 )
 
@@ -158,7 +159,7 @@ func ProvisionCandidateVerificationCases(repoRoot, sourceCaseRoot, pack string, 
 		if err := reconcileCandidateVerificationReceiptTemp(prepared.workspace, candidateVerificationReceiptTempName(prepared.result.ProvisionID), "provision.receipt.json", prepared.receiptBytes); err != nil {
 			return CandidateVerificationProvisionResult{}, err
 		}
-		if err := verifyProvisionedCandidateVerificationCases(repoRoot, pack, prepared.freshPlan, prepared.attachedPlan); err != nil {
+		if err := verifyProvisionedCandidateVerificationCases(prepared.freshPlan, prepared.attachedPlan); err != nil {
 			return CandidateVerificationProvisionResult{}, err
 		}
 		prepared.result.Mode = "already-provisioned"
@@ -205,14 +206,22 @@ func ProvisionCandidateVerificationCases(repoRoot, sourceCaseRoot, pack string, 
 	if err := batch.ValidateRoots(); err != nil {
 		return CandidateVerificationProvisionResult{}, err
 	}
-	freshRows, err := doctor.Case(repoRoot, prepared.freshPlan.CaseRoot, pack)
+	freshAssetRoot, err := candidateVerificationCaseAssetRoot(repoRoot, prepared.freshPlan.CaseRoot)
+	if err != nil {
+		return CandidateVerificationProvisionResult{}, fmt.Errorf("fresh verification case runtime: %w", err)
+	}
+	freshRows, err := doctor.Case(freshAssetRoot, prepared.freshPlan.CaseRoot, pack)
 	if err != nil {
 		return CandidateVerificationProvisionResult{}, fmt.Errorf("fresh verification case doctor: %w", err)
 	}
 	if err := batch.ValidateRoots(); err != nil {
 		return CandidateVerificationProvisionResult{}, err
 	}
-	attachedRows, err := doctor.Case(repoRoot, prepared.attachedPlan.CaseRoot, pack)
+	attachedAssetRoot, err := candidateVerificationCaseAssetRoot(repoRoot, prepared.attachedPlan.CaseRoot)
+	if err != nil {
+		return CandidateVerificationProvisionResult{}, fmt.Errorf("attached verification case runtime: %w", err)
+	}
+	attachedRows, err := doctor.Case(attachedAssetRoot, prepared.attachedPlan.CaseRoot, pack)
 	if err != nil {
 		return CandidateVerificationProvisionResult{}, fmt.Errorf("attached verification case doctor: %w", err)
 	}
@@ -285,7 +294,10 @@ func prepareCandidateVerificationProvision(repoRoot, sourceCaseRoot, pack string
 		return preparedCandidateVerificationProvision{}, fmt.Errorf("candidate decision verification is already complete")
 	}
 	provisionID := shortHash(packetHash + decisionHash)
-	workspace := filepath.Join(inst.CaseRoot, ".rekit", "verifications", "candidate-decisions", provisionID)
+	workspace, err := projectstate.Join(inst.CaseRoot, "verifications", "candidate-decisions", provisionID)
+	if err != nil {
+		return preparedCandidateVerificationProvision{}, err
+	}
 	freshRoot, attachedRoot, err := validateCandidateVerificationProvisionRoots(workspace, opt.FreshCaseRoot, opt.AttachedCaseRoot)
 	if err != nil {
 		return preparedCandidateVerificationProvision{}, err
@@ -713,12 +725,16 @@ func readCandidateVerificationProvisionReceipt(path string) (candidateVerificati
 	return receipt, ok, err
 }
 
-func verifyProvisionedCandidateVerificationCases(repoRoot, pack string, plans ...syncpkg.ExclusiveInitPlan) error {
+func verifyProvisionedCandidateVerificationCases(plans ...syncpkg.ExclusiveInitPlan) error {
 	for _, plan := range plans {
 		if _, err := syncpkg.ApplyExclusiveInit(plan); err != nil {
 			return err
 		}
-		if _, err := doctor.Case(repoRoot, plan.CaseRoot, pack); err != nil {
+		assetRoot, err := candidateVerificationCaseAssetRoot(plan.RepoRoot, plan.CaseRoot)
+		if err != nil {
+			return err
+		}
+		if _, err := doctor.Case(assetRoot, plan.CaseRoot, plan.Pack); err != nil {
 			return err
 		}
 	}

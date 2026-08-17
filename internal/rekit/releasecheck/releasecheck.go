@@ -14,7 +14,10 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 )
 
-const commandName = "release-check"
+const (
+	commandName            = "release-check"
+	CanonicalGoTestCommand = "go test -count=1 -p=2 -timeout=30m ./..."
+)
 
 type Result struct {
 	Command               string                 `json:"command"`
@@ -32,7 +35,7 @@ type Result struct {
 	PowerShellDeprecation PowerShellDeprecation  `json:"powerShellDeprecation"`
 	GoNativePublicSurface GoNativePublicSurface  `json:"goNativePublicSurface"`
 	PublicFacadeRemoval   PublicFacadeRemoval    `json:"publicFacadeRemoval"`
-	CaseShim              caseshim.Readiness     `json:"caseShim"`
+	CaseShim              caseshim.Readiness     `json:"caseShim"` // Legacy /rekit + .rekit compatibility gate; retained key preserves schema history.
 	PublicDefaultDocs     defaultdocs.Readiness  `json:"publicDefaultDocs"`
 	ReleaseHandoff        ReleaseHandoff         `json:"releaseHandoff"`
 	HeavyToolGateActions  []string               `json:"heavyToolGateActions"`
@@ -104,7 +107,7 @@ var requiredCommands = []string{
 	"go run ./cmd/rekit -- -Command status",
 	"go run ./cmd/rekit -- -Command packs",
 	"go run ./cmd/rekit -- -Command doctor",
-	"go test ./...",
+	CanonicalGoTestCommand,
 	"go vet ./...",
 	"git diff --check",
 }

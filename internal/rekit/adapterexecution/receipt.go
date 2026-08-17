@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -276,7 +277,7 @@ func ValidateDispatch(receipt DispatchReceipt) error {
 	if receipt.SchemaVersion != 1 || receipt.Kind != "adapter-execution-dispatch-receipt" {
 		return fmt.Errorf("adapter execution dispatch receipt schema/kind is invalid")
 	}
-	if !validSHA256(receipt.DispatchID) || receipt.Gate.GateEventID == "" || receipt.Gate.Lane == "" || receipt.Gate.Action == "" || receipt.Gate.Authorization.Decision != autonomy.DecisionPreauthorized || !validSHA256(receipt.Gate.SnapshotSHA256) {
+	if !validSHA256(receipt.DispatchID) || receipt.Gate.GateEventID == "" || receipt.Gate.Lane == "" || receipt.Gate.Action == "" || receipt.Gate.Authorization.Decision != autonomy.DecisionPreauthorized || !validStateRootRelativePath(receipt.Gate.Authorization.ProfilePath) || !validSHA256(receipt.Gate.SnapshotSHA256) {
 		return fmt.Errorf("adapter execution dispatch receipt gate binding is invalid")
 	}
 	if receipt.Adapter.Pack == "" || receipt.Adapter.AdapterID == "" || receipt.Adapter.ToolingCatalogPath == "" || !validSHA256(receipt.Adapter.ToolingCatalogSHA256) || receipt.Adapter.ToolingCatalogBytes < 0 || receipt.Adapter.Candidate.ID == "" || !validSHA256(receipt.Adapter.CandidateSnapshotSHA256) {
@@ -285,7 +286,7 @@ func ValidateDispatch(receipt DispatchReceipt) error {
 	if receipt.Owner.Lane != receipt.Gate.Lane || receipt.Owner.CurrentExecutor == "" || receipt.Owner.ExecutorGeneration <= 0 || receipt.Owner.AdapterHarness == "" || receipt.Owner.AdapterSession == "" || receipt.Owner.BindingMode != "durable-lane-owner" {
 		return fmt.Errorf("adapter execution dispatch receipt owner binding is invalid")
 	}
-	if strings.TrimSpace(receipt.ReportPath) == "" {
+	if !validRelativePath(receipt.ReportPath) {
 		return fmt.Errorf("adapter execution dispatch receipt report path binding is invalid")
 	}
 	if strings.TrimSpace(receipt.Actor) == "" || strings.TrimSpace(receipt.RecordedAt) == "" || !receipt.NoExecute || !receipt.NoObservation || !receipt.NoAuthority {
@@ -310,10 +311,10 @@ func Validate(receipt Receipt) error {
 	if receipt.SchemaVersion != 1 || receipt.Kind != "adapter-execution-receipt" {
 		return fmt.Errorf("adapter execution receipt schema/kind is invalid")
 	}
-	if !validSHA256(receipt.ReceiptID) || receipt.Gate.GateEventID == "" || receipt.Gate.Lane == "" || receipt.Gate.Action == "" || receipt.Gate.Authorization.Decision != autonomy.DecisionPreauthorized || !validSHA256(receipt.Gate.SnapshotSHA256) {
+	if !validSHA256(receipt.ReceiptID) || receipt.Gate.GateEventID == "" || receipt.Gate.Lane == "" || receipt.Gate.Action == "" || receipt.Gate.Authorization.Decision != autonomy.DecisionPreauthorized || !validStateRootRelativePath(receipt.Gate.Authorization.ProfilePath) || !validSHA256(receipt.Gate.SnapshotSHA256) {
 		return fmt.Errorf("adapter execution receipt gate binding is invalid")
 	}
-	if !validSHA256(receipt.Dispatch.DispatchID) || receipt.Dispatch.Path == "" || !validSHA256(receipt.Dispatch.SHA256) || receipt.Dispatch.Bytes <= 0 {
+	if !validSHA256(receipt.Dispatch.DispatchID) || !validStateRootRelativePath(receipt.Dispatch.Path) || stateRootRelativePath(receipt.Dispatch.Path) != stateRootRelativePath(receipt.Gate.Authorization.ProfilePath) || !validSHA256(receipt.Dispatch.SHA256) || receipt.Dispatch.Bytes <= 0 {
 		return fmt.Errorf("adapter execution receipt dispatch binding is invalid")
 	}
 	if receipt.Adapter.Pack == "" || receipt.Adapter.AdapterID == "" || receipt.Adapter.ToolingCatalogPath == "" || !validSHA256(receipt.Adapter.ToolingCatalogSHA256) || receipt.Adapter.ToolingCatalogBytes < 0 || receipt.Adapter.Candidate.ID == "" || !validSHA256(receipt.Adapter.CandidateSnapshotSHA256) {
@@ -325,12 +326,12 @@ func Validate(receipt Receipt) error {
 	if !validOutcome(receipt.Execution.Outcome) || strings.TrimSpace(receipt.Execution.ExitStatus) == "" || len(receipt.Execution.ExitStatus) > 256 || receipt.Execution.AuthorizedBudget != receipt.Gate.AuthorizedBudget || receipt.Execution.ActualBudget.RuntimeSeconds < 0 || receipt.Execution.ActualBudget.DiskMB < 0 || receipt.Execution.ActualBudget.Requests < 0 {
 		return fmt.Errorf("adapter execution receipt execution binding is invalid")
 	}
-	if receipt.Report.Path == "" || !validSHA256(receipt.Report.SHA256) || receipt.Report.Bytes < 0 {
+	if !validRelativePath(receipt.Report.Path) || !validSHA256(receipt.Report.SHA256) || receipt.Report.Bytes < 0 {
 		return fmt.Errorf("adapter execution receipt report binding is invalid")
 	}
 	seen := map[string]bool{}
 	for _, artifact := range receipt.Artifacts {
-		if artifact.Path == "" || artifact.Path == receipt.Report.Path || seen[artifact.Path] || !validSHA256(artifact.SHA256) || artifact.Bytes < 0 || len(artifact.Roles) == 0 {
+		if !validRelativePath(artifact.Path) || artifact.Path == receipt.Report.Path || seen[artifact.Path] || !validSHA256(artifact.SHA256) || artifact.Bytes < 0 || len(artifact.Roles) == 0 {
 			return fmt.Errorf("adapter execution receipt artifact binding is invalid")
 		}
 		seen[artifact.Path] = true
@@ -385,7 +386,7 @@ func ValidateCompletionDispatchLineage(receipt Receipt, dispatch DispatchReceipt
 	if err := ValidateDispatch(dispatch); err != nil {
 		return err
 	}
-	if receipt.Dispatch.DispatchID != dispatch.DispatchID || receipt.Dispatch.Path != dispatchPath || !strings.EqualFold(receipt.Dispatch.SHA256, dispatchSHA256) || receipt.Dispatch.Bytes != dispatchBytes {
+	if !validStateRootRelativePath(dispatchPath) || receipt.Dispatch.DispatchID != dispatch.DispatchID || receipt.Dispatch.Path != dispatchPath || !strings.EqualFold(receipt.Dispatch.SHA256, dispatchSHA256) || receipt.Dispatch.Bytes != dispatchBytes {
 		return fmt.Errorf("adapter execution receipt dispatch path/hash binding mismatch")
 	}
 	receiptGate, _ := json.Marshal(receipt.Gate)
@@ -404,6 +405,36 @@ func SHA256(data []byte) string {
 func validSHA256(value string) bool {
 	data, err := hex.DecodeString(strings.TrimSpace(value))
 	return err == nil && len(data) == sha256.Size
+}
+
+func validRelativePath(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.Contains(value, `\`) || filepath.IsAbs(filepath.FromSlash(value)) || looksLikeWindowsAbsolutePath(value) {
+		return false
+	}
+	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(value)))
+	return clean == value && clean != "." && clean != ".." && !strings.HasPrefix(clean, "../")
+}
+
+func validStateRootRelativePath(value string) bool {
+	return stateRootRelativePath(value) != ""
+}
+
+func stateRootRelativePath(value string) string {
+	if !validRelativePath(value) {
+		return ""
+	}
+	clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(value)))
+	for _, root := range []string{".steamai", ".rekit"} {
+		if strings.HasPrefix(clean, root+"/") {
+			return root
+		}
+	}
+	return ""
+}
+
+func looksLikeWindowsAbsolutePath(value string) bool {
+	return len(value) >= 3 && ((value[0] >= 'A' && value[0] <= 'Z') || (value[0] >= 'a' && value[0] <= 'z')) && value[1] == ':' && value[2] == '/'
 }
 
 func validOutcome(value string) bool {

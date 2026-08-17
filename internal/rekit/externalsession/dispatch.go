@@ -14,6 +14,7 @@ import (
 
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 const (
@@ -187,7 +188,10 @@ func BindAttemptDispatch(plan AttemptPlan, ticket DispatchTicket) (AttemptPlan, 
 		return AttemptPlan{}, err
 	}
 	plan.Dispatch = &ticket
-	plan.DispatchPath = dispatchTicketPath(plan.Job.JobID, plan.Attempt.Generation)
+	plan.DispatchPath, err = dispatchTicketPath(plan.Job.CaseRoot, plan.Job.JobID, plan.Attempt.Generation)
+	if err != nil {
+		return AttemptPlan{}, err
+	}
 	plan.DispatchSHA256 = hash(data)
 	plan.dispatchData = data
 	plan.data, err = canonical(attemptEnvelope{SchemaVersion: SchemaVersion, Kind: KindAttempt, Attempt: plan.Attempt, DispatchSHA256: plan.DispatchSHA256})
@@ -216,7 +220,10 @@ func InspectDispatch(job Job, attempt AttemptInspection) (DispatchInspection, er
 		return DispatchInspection{}, err
 	}
 	pendingGeneration := attempt.Generations + 1
-	pendingPath := dispatchTicketPath(job.JobID, pendingGeneration)
+	pendingPath, err := dispatchTicketPath(job.CaseRoot, job.JobID, pendingGeneration)
+	if err != nil {
+		return DispatchInspection{}, err
+	}
 	pendingData, err := readOptionalDispatch(job.CaseRoot, pendingPath, "external session pending dispatch ticket")
 	if err != nil {
 		return DispatchInspection{}, err
@@ -231,12 +238,19 @@ func InspectCurrentDispatch(job Job, attempt AttemptInspection) (DispatchInspect
 	if attempt.Current == nil {
 		return DispatchInspection{State: "absent"}, nil
 	}
-	out := DispatchInspection{
-		State:      "missing",
-		TicketPath: dispatchTicketPath(job.JobID, attempt.Current.Generation),
-		ClaimPath:  dispatchClaimPath(job.JobID, attempt.Current.Generation),
-		LaunchPath: launchReceiptPath(job.JobID, attempt.Current.Generation),
+	ticketPath, err := dispatchTicketPath(job.CaseRoot, job.JobID, attempt.Current.Generation)
+	if err != nil {
+		return DispatchInspection{}, err
 	}
+	claimPath, err := dispatchClaimPath(job.CaseRoot, job.JobID, attempt.Current.Generation)
+	if err != nil {
+		return DispatchInspection{}, err
+	}
+	launchPath, err := launchReceiptPath(job.CaseRoot, job.JobID, attempt.Current.Generation)
+	if err != nil {
+		return DispatchInspection{}, err
+	}
+	out := DispatchInspection{State: "missing", TicketPath: ticketPath, ClaimPath: claimPath, LaunchPath: launchPath}
 	ticketData, err := readOptionalDispatch(job.CaseRoot, out.TicketPath, "external session dispatch ticket")
 	if err != nil {
 		return out, err
@@ -296,7 +310,11 @@ func inspectPendingDispatch(job Job, attempt AttemptInspection, generation int, 
 	if err := decodeCanonicalDispatch(data, &ticket); err != nil {
 		return DispatchInspection{}, fmt.Errorf("invalid pending external session dispatch ticket: %w", err)
 	}
-	if ticket.JobID != job.JobID || ticket.CheckpointSHA256 != job.CheckpointSHA256 || ticket.Attempt.Generation != generation || ticket.Attempt.SupersedesSHA256 != attempt.AttemptSHA256 || ticket.AttemptPath != filepath.ToSlash(filepath.Join(".rekit", "external-session-attempts", job.JobID, fmt.Sprintf("%06d.json", generation))) {
+	expectedAttemptPath, err := projectstate.Rel(job.CaseRoot, "external-session-attempts", job.JobID, fmt.Sprintf("%06d.json", generation))
+	if err != nil {
+		return DispatchInspection{}, err
+	}
+	if ticket.JobID != job.JobID || ticket.CheckpointSHA256 != job.CheckpointSHA256 || ticket.Attempt.Generation != generation || ticket.Attempt.SupersedesSHA256 != attempt.AttemptSHA256 || ticket.AttemptPath != expectedAttemptPath {
 		return DispatchInspection{}, fmt.Errorf("pending external session dispatch ticket does not bind the next exact generation")
 	}
 	attemptBytes, err := canonical(attemptEnvelope{SchemaVersion: SchemaVersion, Kind: KindAttempt, Attempt: ticket.Attempt})
@@ -310,9 +328,17 @@ func inspectPendingDispatch(job Job, attempt AttemptInspection, generation int, 
 	if err := validateDispatchTicket(job, ticket.Attempt, ticket.AttemptPath, ticket.AttemptSHA256, ticket); err != nil {
 		return DispatchInspection{}, err
 	}
+	claimPath, err := dispatchClaimPath(job.CaseRoot, job.JobID, generation)
+	if err != nil {
+		return DispatchInspection{}, err
+	}
+	launchPath, err := launchReceiptPath(job.CaseRoot, job.JobID, generation)
+	if err != nil {
+		return DispatchInspection{}, err
+	}
 	return DispatchInspection{
 		State: "attempt-publication-pending", TicketPath: path, TicketSHA256: hash(data), Ticket: &ticket,
-		ClaimPath: dispatchClaimPath(job.JobID, generation), LaunchPath: launchReceiptPath(job.JobID, generation),
+		ClaimPath: claimPath, LaunchPath: launchPath,
 	}, nil
 }
 
@@ -620,16 +646,16 @@ func validateLaunchReceipt(ticket DispatchTicket, ticketSHA, attemptReceiptSHA s
 	return fmt.Errorf("external session launch receipt outcome or reason is invalid")
 }
 
-func dispatchTicketPath(jobID string, generation int) string {
-	return filepath.ToSlash(filepath.Join(".rekit", "external-session-dispatch", "inbox", jobID, fmt.Sprintf("%06d.json", generation)))
+func dispatchTicketPath(caseRoot, jobID string, generation int) (string, error) {
+	return projectstate.Rel(caseRoot, "external-session-dispatch", "inbox", jobID, fmt.Sprintf("%06d.json", generation))
 }
 
-func dispatchClaimPath(jobID string, generation int) string {
-	return filepath.ToSlash(filepath.Join(".rekit", "external-session-dispatch", "claims", jobID, fmt.Sprintf("%06d.json", generation)))
+func dispatchClaimPath(caseRoot, jobID string, generation int) (string, error) {
+	return projectstate.Rel(caseRoot, "external-session-dispatch", "claims", jobID, fmt.Sprintf("%06d.json", generation))
 }
 
-func launchReceiptPath(jobID string, generation int) string {
-	return filepath.ToSlash(filepath.Join(".rekit", "external-session-dispatch", "launch-receipts", jobID, fmt.Sprintf("%06d.json", generation)))
+func launchReceiptPath(caseRoot, jobID string, generation int) (string, error) {
+	return projectstate.Rel(caseRoot, "external-session-dispatch", "launch-receipts", jobID, fmt.Sprintf("%06d.json", generation))
 }
 
 func readOptionalDispatch(caseRoot, rel, label string) ([]byte, error) {

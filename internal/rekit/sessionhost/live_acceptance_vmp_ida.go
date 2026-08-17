@@ -554,8 +554,14 @@ func validateLiveAcceptanceVMPIDAReviewerArtifact(caseRoot string, member member
 
 func assertLiveAcceptanceNoAuthority(caseRoot, lane string) error {
 	for _, kind := range []string{"authority", "confirmed"} {
-		if _, err := os.Lstat(filepath.Join(caseRoot, ".rekit", "facts", mission.FactFileName(kind))); !os.IsNotExist(err) {
+		_, path, err := mission.FactPath(caseRoot, kind)
+		if err != nil {
+			return fmt.Errorf("resolve VMP IDA live acceptance %s ledger path: %w", kind, err)
+		}
+		if _, err := os.Lstat(path); err == nil {
 			return fmt.Errorf("VMP IDA live acceptance unexpectedly wrote %s ledger state", kind)
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("inspect VMP IDA live acceptance %s ledger state: %w", kind, err)
 		}
 	}
 	lane = strings.TrimSpace(lane)

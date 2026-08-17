@@ -78,7 +78,8 @@ function Write-CapturingFakeGoBackend {
 
 function Write-PreauthorizedGateProfile {
   param([Parameter(Mandatory=$true)][string]$CaseRoot)
-  $laneRoot = Join-Path $CaseRoot '.rekit\lanes\main'
+  $stateRootName = if (Test-Path -LiteralPath (Join-Path $CaseRoot '.steamai') -PathType Container) { '.steamai' } else { '.rekit' }
+  $laneRoot = Join-Path $CaseRoot (Join-Path $stateRootName 'lanes\main')
   New-Item -ItemType Directory -Path $laneRoot -Force | Out-Null
   $profileLines = @(
     '{',
@@ -165,7 +166,9 @@ $gateLane = 'main'
 try {
   if ($usingSelfContainedCase) {
     $CaseRoot = Join-Path $matrixRoot 'case'
-    Invoke-RekitSmoke -Arguments @('-Command','init','-Target',$CaseRoot,'-Pack',$Pack,'-ProjectName',"facade-smoke-$suffix",'-Apply') | Out-Null
+    $initPreview = Invoke-RekitSmoke -Arguments @('-Command','init','-Target',$CaseRoot,'-Pack',$Pack,'-ProjectName',"facade-smoke-$suffix",'-WhatIf','-Format','json') | ConvertFrom-Json
+    if ([string]::IsNullOrWhiteSpace([string]$initPreview.expectedPlanSha256)) { throw 'facade smoke init preview omitted expectedPlanSha256' }
+    Invoke-RekitSmoke -Arguments @('-Command','init','-Target',$CaseRoot,'-Pack',$Pack,'-ProjectName',"facade-smoke-$suffix",'-ExpectedInitPlanSha256',([string]$initPreview.expectedPlanSha256),'-Apply') | Out-Null
     Invoke-RekitSmoke -Arguments @('-Command','overview','-Target',$CaseRoot,'-Pack',$Pack) | Out-Null
     Invoke-RekitSmoke -Arguments @('-Command','note','-Target',$CaseRoot,'-Pack',$Pack,'-Kind','observation','-Lane','main','-Subject',"facade-smoke-$suffix",'-Summary','seed observation for facade smoke','-Actor','facade-smoke') | Out-Null
     Write-PreauthorizedGateProfile -CaseRoot $CaseRoot
@@ -174,6 +177,7 @@ try {
   }
 
   Assert-FacadeRuntimeNoLegacyDependency
+  $activeStateRootName = if (Test-Path -LiteralPath (Join-Path $CaseRoot '.steamai') -PathType Container) { '.steamai' } else { '.rekit' }
 
   # Low-risk read-only commands, review-first onboard, overview/note reads, note append/what-if, gate what-if/apply request paths, bounded case lifecycle writes, sync review/apply, promote review/candidate/apply writes, promote JSON previews, start/handoff JSON preview/apply paths, continue JSON preview/apply, and plan-subagents review artifacts default to Go; retired groups fail instead of using PowerShell fallback.
   $out = Invoke-RekitSmoke -Arguments @('-Command','status')
@@ -323,10 +327,23 @@ try {
   Assert-FakeDefaultDelegation -Arguments @('-Command','validate','-Target',$CaseRoot,'-Pack',$Pack) -CommandName 'validate' -Label 'default validate fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','attach','-Target',(Join-Path $matrixRoot 'default-attach'),'-Pack',$Pack,'-Apply') -CommandName 'attach' -Label 'default attach apply fake delegation'
   Assert-FakeDefaultDelegation -Arguments @('-Command','repair','-Target',$CaseRoot,'-Pack',$Pack,'-Apply') -CommandName 'repair' -Label 'default repair apply fake delegation'
-  Assert-FakeDefaultDelegation -Arguments @('-Command','init','-Target',(Join-Path $matrixRoot 'default-init'),'-Pack',$Pack,'-ProjectName',"default-init-$suffix",'-Apply') -CommandName 'init' -Label 'default init apply fake delegation'
-  Assert-FakeDefaultDelegation -Arguments @('-Command','bootstrap','-Target',(Join-Path $matrixRoot 'default-bootstrap'),'-Pack',$Pack,'-ProjectName',"default-bootstrap-$suffix",'-Apply') -CommandName 'bootstrap' -Label 'default bootstrap apply fake delegation'
+  $initHash = '123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','init','-Target',(Join-Path $matrixRoot 'default-init'),'-Pack',$Pack,'-ProjectName',"default-init-$suffix",'-ExpectedInitPlanSha256',$initHash,'-Apply') -CommandName 'init' -Label 'default init apply fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','bootstrap','-Target',(Join-Path $matrixRoot 'default-bootstrap'),'-Pack',$Pack,'-ProjectName',"default-bootstrap-$suffix",'-ExpectedInitPlanSha256',$initHash,'-Apply') -CommandName 'bootstrap' -Label 'default bootstrap apply fake delegation'
   $onboardTarget = Join-Path $matrixRoot 'default-onboard'
   Assert-FakeDefaultDelegation -Arguments @('-Command','onboard','-Target',$onboardTarget,'-Pack',$Pack,'-ProjectName',"default-onboard-$suffix",'-Goal','recover the daily mission journey','-Actor','facade-smoke','-Executor','facade-session','-InitialLane','main','-WhatIf','-Format','json') -CommandName 'onboard' -Label 'default onboard preview fake delegation'
+  Assert-FakeDefaultDelegation -Arguments @('-Command','migrate-state','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf','-Format','json') -CommandName 'migrate-state' -Label 'default migrate-state preview fake delegation'
+  $migrationHash = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'
+  $migrationCapturePath = Join-Path $matrixRoot 'migrate-state-args.txt'
+  Write-CapturingFakeGoBackend -Path $fakeGo -CapturePath $migrationCapturePath
+  $migrationApplyOut = Invoke-RekitSmoke -Arguments @('-Command','migrate-state','-Target',$CaseRoot,'-Pack',$Pack,'-ExpectedMigrationPlanSha256',$migrationHash,'-Apply','-Format','json') -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = ''; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $migrationApplyOut -Expected '"delegatedByFake":true' -Label 'default migrate-state apply fake delegation'
+  $capturedMigrationArgs = [System.IO.File]::ReadAllText($migrationCapturePath, [System.Text.Encoding]::Default)
+  foreach ($expectedMigrationArg in @('-Command migrate-state',"-ExpectedMigrationPlanSha256 $migrationHash",'-Apply','-Format json')) {
+    Assert-ContainsText -Text $capturedMigrationArgs -Expected $expectedMigrationArg -Label 'migrate-state facade args'
+  }
+  $migrationDisabledOut = Invoke-RekitSmoke -Arguments @('-Command','migrate-state','-Target',$CaseRoot,'-Pack',$Pack,'-WhatIf','-Format','json') -AllowedExitCodes @(1) -Env @{ REKIT_GO_ENABLE = ''; REKIT_GO_DISABLE = '1'; REKIT_GO_EXE = $fakeGo }
+  Assert-ContainsText -Text $migrationDisabledOut -Expected 'PowerShell fallback has been retired' -Label 'disabled migrate-state no-fallback remains retired'
   $onboardHash = 'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789'
   $onboardCapturePath = Join-Path $matrixRoot 'onboard-args.txt'
   Write-CapturingFakeGoBackend -Path $fakeGo -CapturePath $onboardCapturePath
@@ -405,9 +422,9 @@ try {
     Assert-ContainsText -Text $nestedContractOut -Expected '"kind": "adapter-execution-report-contract"' -Label 'facade nested workspace contract product path'
     Assert-ContainsText -Text $nestedContractOut -Expected '"isMutation": false' -Label 'facade nested workspace contract product path'
     Assert-ContainsText -Text $nestedContractOut -Expected '"liveValidation": {' -Label 'facade nested workspace contract live-validation handoff'
-    Assert-ContainsText -Text $nestedContractOut -Expected '"validateCommand": "rekit -Command gate' -Label 'facade nested workspace contract live-validation handoff'
+    Assert-ContainsText -Text $nestedContractOut -Expected '"validateCommand": "/rekit gate' -Label 'facade nested workspace contract live-validation handoff'
     Assert-ContainsText -Text $nestedContractOut -Expected '"validateArgs": ' -Label 'facade nested workspace contract live-validation handoff'
-    Assert-NotContainsText -Text $nestedContractOut -Unexpected '"recordCommand": "rekit -Command gate' -Label 'facade nested workspace pre-validation contract record guard'
+    Assert-NotContainsText -Text $nestedContractOut -Unexpected '"recordCommand": "/rekit gate' -Label 'facade nested workspace pre-validation contract record guard'
     Assert-ContainsText -Text $nestedValidationOut -Expected '"recordExpectedReportSha256": ' -Label 'facade nested workspace valid validation hash handoff'
     Assert-ContainsText -Text $nestedValidationOut -Expected '"primaryCommand": "/rekit gate' -Label 'facade nested workspace valid validation record handoff'
     Assert-ContainsText -Text $nestedContractOut -Expected '"refPathRequires": ' -Label 'facade nested workspace contract live-validation handoff'
@@ -420,18 +437,18 @@ try {
     Assert-ContainsText -Text $nestedValidationOut -Expected '"applied": false' -Label 'facade nested workspace validation product path'
     Assert-ContainsText -Text $nestedValidationOut -Expected '"reportPath": "workspace/main/debug/session-1/adapter-report.json"' -Label 'facade nested workspace validation product path'
     Assert-ContainsText -Text $nestedEvidenceOut -Expected '"applied": true' -Label 'facade nested workspace evidence product path'
-    Assert-ContainsText -Text $nestedEvidenceOut -Expected '"path": ".rekit/facts/observations.jsonl"' -Label 'facade nested workspace evidence product path'
+    Assert-ContainsText -Text $nestedEvidenceOut -Expected ('"path": "' + $activeStateRootName + '/facts/observations.jsonl"') -Label 'facade nested workspace evidence product path'
     Assert-ContainsText -Text $nestedEvidenceOut -Expected '"executionReportPath": "workspace/main/debug/session-1/adapter-report.json"' -Label 'facade nested workspace evidence product path'
     Assert-ContainsText -Text $nestedEvidenceOut -Expected '"adapterId": "facade-smoke-adapter"' -Label 'facade nested workspace evidence product path'
     Assert-ContainsText -Text $nestedEvidenceReplayOut -Expected '"applied": false' -Label 'facade nested workspace evidence replay'
     Assert-ContainsText -Text $nestedEvidenceReplayOut -Expected '"reason": "duplicate eventId"' -Label 'facade nested workspace evidence replay'
-    $observationsText = [System.IO.File]::ReadAllText((Join-Path $CaseRoot '.rekit\facts\observations.jsonl'), [System.Text.Encoding]::UTF8)
+    $observationsText = [System.IO.File]::ReadAllText((Join-Path $CaseRoot (Join-Path $activeStateRootName 'facts\observations.jsonl')), [System.Text.Encoding]::UTF8)
     $adapterEvidenceLines = @($observationsText -split "`n" | Where-Object { $_ -like '*"adapterId":"facade-smoke-adapter"*' })
     if ($adapterEvidenceLines.Count -ne 1) { throw "facade nested workspace evidence replay appended $($adapterEvidenceLines.Count) adapter evidence lines; expected 1" }
     Assert-ContainsText -Text $observationsText -Expected '"executionReportPath":"workspace/main/debug/session-1/adapter-report.json"' -Label 'facade nested workspace evidence ledger'
     Assert-ContainsText -Text $observationsText -Expected '"adapterId":"facade-smoke-adapter"' -Label 'facade nested workspace evidence ledger'
-    if (Test-Path -LiteralPath (Join-Path $CaseRoot '.rekit\facts\authority.jsonl')) { throw 'facade nested workspace evidence wrote authority ledger' }
-    if (Test-Path -LiteralPath (Join-Path $CaseRoot '.rekit\facts\confirmed.jsonl')) { throw 'facade nested workspace evidence wrote confirmed ledger' }
+    if (Test-Path -LiteralPath (Join-Path $CaseRoot (Join-Path $activeStateRootName 'facts\authority.jsonl'))) { throw 'facade nested workspace evidence wrote authority ledger' }
+    if (Test-Path -LiteralPath (Join-Path $CaseRoot (Join-Path $activeStateRootName 'facts\confirmed.jsonl'))) { throw 'facade nested workspace evidence wrote confirmed ledger' }
   }
 
   # Explicit enable delegates the remaining expanded preview/review safe set.

@@ -10,6 +10,9 @@ import (
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/runtimebundle"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/sourceartifact"
 )
 
 type Row struct {
@@ -49,26 +52,58 @@ func Static(repoRoot, caseRoot, pack string) ([]Row, error) {
 		return addRequired(path, limit)
 	}
 
-	if err := addIfExists(filepath.Join(inst.CaseRoot, ".rekit", "instance.yml"), 8192); err != nil {
+	stateRoot, err := projectstate.Resolve(inst.CaseRoot)
+	if err != nil {
 		return nil, err
 	}
-	if err := addIfExists(filepath.Join(inst.CaseRoot, ".re-template.yml"), 8192); err != nil {
+	if err := addRequired(filepath.Join(stateRoot.Path, "instance.yml"), 8192); err != nil {
 		return nil, err
 	}
-	shim := filepath.Join(inst.CaseRoot, ".claude", "skills", "rekit", "SKILL.md")
-	if err := addRequired(shim, 16384); err != nil {
-		return nil, err
-	}
-	canonicalSkill := filepath.Join(repoRoot, ".claude", "skills", "rekit", "SKILL.md")
-	if err := addRequired(canonicalSkill, 32768); err != nil {
-		return nil, err
-	}
-	readiness := caseshim.InspectInstalled(repoRoot, inst.CaseRoot)
-	if !readiness.Ready {
-		return nil, fmt.Errorf("installed case shim readiness failed: %s", strings.Join(readiness.Warnings, "; "))
-	}
-	if err := caseshim.AssertReady(repoRoot); err != nil {
-		return nil, err
+	if stateRoot.Legacy {
+		if err := addIfExists(filepath.Join(inst.CaseRoot, ".re-template.yml"), 8192); err != nil {
+			return nil, err
+		}
+		shim := filepath.Join(inst.CaseRoot, ".claude", "skills", "rekit", "SKILL.md")
+		if err := addRequired(shim, 16384); err != nil {
+			return nil, err
+		}
+		canonicalSkill := filepath.Join(repoRoot, ".claude", "skills", "rekit", "SKILL.md")
+		if err := addRequired(canonicalSkill, 32768); err != nil {
+			return nil, err
+		}
+		readiness := caseshim.InspectInstalled(repoRoot, inst.CaseRoot)
+		if !readiness.Ready {
+			return nil, fmt.Errorf("installed case shim readiness failed: %s", strings.Join(readiness.Warnings, "; "))
+		}
+		if err := caseshim.AssertReady(repoRoot); err != nil {
+			return nil, err
+		}
+	} else {
+		if strings.TrimSpace(inst.BundleManifestSHA256) == "" {
+			return nil, fmt.Errorf("project-local STeamAI metadata omits bundle manifest SHA-256")
+		}
+		if _, err := runtimebundle.Validate(repoRoot, inst.BundleManifest, inst.BundleManifestSHA256, pack); err != nil {
+			return nil, err
+		}
+		installedSkill := filepath.Join(inst.CaseRoot, ".claude", "skills", "steamai", "SKILL.md")
+		canonicalSkill := filepath.Join(repoRoot, "rekit", "templates", "steamai-project", "SKILL.md")
+		if err := addRequired(installedSkill, 16384); err != nil {
+			return nil, err
+		}
+		if err := addRequired(canonicalSkill, 16384); err != nil {
+			return nil, err
+		}
+		installed, err := os.ReadFile(installedSkill)
+		if err != nil {
+			return nil, err
+		}
+		canonical, err := os.ReadFile(canonicalSkill)
+		if err != nil {
+			return nil, err
+		}
+		if string(sourceartifact.SemanticText(installed)) != string(sourceartifact.SemanticText(canonical)) {
+			return nil, fmt.Errorf("project-local /steamai skill differs from canonical template: %s", installedSkill)
+		}
 	}
 
 	for _, rel := range m.ManagedFiles {

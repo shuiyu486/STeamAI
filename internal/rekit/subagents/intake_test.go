@@ -583,6 +583,38 @@ func TestAdoptReviewerPacketPreservesPacketIdentityAndEnablesIntake(t *testing.T
 	}
 }
 
+func TestReviewerPacketAdoptionStateRootRejectsSamePathReplacement(t *testing.T) {
+	caseRoot := t.TempDir()
+	statePath := filepath.Join(caseRoot, ".steamai")
+	if err := os.MkdirAll(statePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	anchored, err := reviewerPacketAdoptionStateRoot(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer anchored.Close()
+	movedPath := filepath.Join(caseRoot, ".steamai-replaced")
+	if err := os.Rename(statePath, movedPath); err != nil {
+		if runtime.GOOS != "windows" {
+			t.Fatal(err)
+		}
+		if _, statErr := os.Stat(statePath); statErr != nil {
+			t.Fatalf("Windows replacement failure did not preserve the state root: %v", statErr)
+		}
+		if validateErr := validateReviewerPacketAdoptionStateRoot(caseRoot, anchored); validateErr != nil {
+			t.Fatalf("held Windows state root became invalid after replacement was blocked: %v", validateErr)
+		}
+		return
+	}
+	if err := os.Mkdir(statePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateReviewerPacketAdoptionStateRoot(caseRoot, anchored); err == nil || !strings.Contains(err.Error(), "changed before publication") {
+		t.Fatalf("same-path STeamAI state-root replacement was accepted: %v", err)
+	}
+}
+
 func TestAdoptReviewerPacketRejectsSymlinkedAdoptionDirectory(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink fixture requires developer mode or elevated privileges on Windows")
@@ -745,7 +777,10 @@ func TestIntakeReviewerResultRejectsForgedAdoptionOwnerContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	adoptionPath := reviewerPacketAdoptionPath(caseRoot, packet.PacketID)
+	adoptionPath, err := reviewerPacketAdoptionPath(caseRoot, packet.PacketID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Dir(adoptionPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1166,6 +1201,7 @@ func writeReviewerIntakeCase(t *testing.T, repoRoot, caseRoot string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	selectLegacySubagentTestStateRoot(t, caseRoot, root, defaults.DefaultPack)
 	if _, err := syncreview.Apply(root, caseRoot, defaults.DefaultPack, syncreview.ApplyOptions{ProjectName: "reviewer-intake-test", CreateLocalFiles: true, Command: "init"}); err != nil {
 		t.Fatal(err)
 	}

@@ -1,6 +1,7 @@
 package missionintent
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -8,6 +9,9 @@ import (
 
 func TestValidateAttachedSnapshotContract(t *testing.T) {
 	identity := Identity{SchemaVersion: 1, Target: filepath.Join(t.TempDir(), "case"), Pack: "_template", ProjectName: "demo", Goal: "goal", Actor: "actor", Executor: "executor", InitialLane: "feature-mission"}
+	if err := os.MkdirAll(filepath.Join(identity.Target, ".rekit"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	valid := RecoveryEnvelope{
 		SchemaVersion: 1,
 		RepoRoot:      filepath.Dir(identity.Target),

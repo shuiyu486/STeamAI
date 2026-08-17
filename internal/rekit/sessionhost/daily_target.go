@@ -11,7 +11,9 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	rekitruntime "github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
+	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 )
 
 type dailyTargetKind string
@@ -49,6 +51,19 @@ func classifyDailyTarget(value string) (dailyTarget, error) {
 	}
 	if _, err := refsf.ValidateNonReparseDirectory(root, "daily target"); err != nil {
 		return dailyTarget{Root: root, Kind: dailyTargetInvalid}, err
+	}
+	stateRoot, err := projectstate.Resolve(root)
+	if err != nil {
+		return dailyTarget{Root: root, Kind: dailyTargetInvalid}, err
+	}
+	if stateRoot.Existing && !stateRoot.Legacy && stateRoot.Dir == projectstate.CurrentDir {
+		recovery, recoveryErr := syncreview.InspectCurrentSyncRecovery(root)
+		if recoveryErr != nil {
+			return dailyTarget{Root: root, Kind: dailyTargetInvalid}, fmt.Errorf("inspect current project update recovery: %w", recoveryErr)
+		}
+		if recovery.Pending {
+			return dailyTarget{Root: root, Kind: dailyTargetMission}, nil
+		}
 	}
 
 	inst, err := instance.Read(root)

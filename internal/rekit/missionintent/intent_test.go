@@ -12,7 +12,40 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/caseshim"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/runtimebundle"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/sourceartifact"
 )
+
+func TestInspectUsesCurrentStateRoot(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "case")
+	if err := os.MkdirAll(filepath.Join(root, ".steamai"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	identity := Identity{SchemaVersion: 1, Target: root, Pack: "_template", ProjectName: "demo", Goal: "goal", Actor: "actor", Executor: "executor", InitialLane: "main"}
+	recovery := currentTestRecovery(identity)
+	intentBytes, err := MarshalIntent(Intent{SchemaVersion: 1, Kind: "mission-onboarding-intent", PublicationStamp: "20260803-010203004", OnboardingPlanSHA256: strings.Repeat("a", 64), Identity: identity, Recovery: recovery})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths, err := Paths(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if paths.Intent != ".steamai/onboarding/intent.json" || paths.MissionIntent != ".steamai/mission-intent.json" || paths.Commit != ".steamai/onboarding/commit.json" {
+		t.Fatalf("current artifact paths = %+v", paths)
+	}
+	path := filepath.Join(root, filepath.FromSlash(paths.Intent))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, intentBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inspection, err := Inspect(root)
+	if err != nil || inspection.State != "pending" || inspection.Identity != identity {
+		t.Fatalf("current inspection = %+v err=%v", inspection, err)
+	}
+}
 
 func TestInspectAcceptsRelativeCaseRoot(t *testing.T) {
 	parent := t.TempDir()
@@ -45,6 +78,9 @@ func TestInspectAcceptsRelativeCaseRoot(t *testing.T) {
 
 func testRecovery(identity Identity) RecoveryEnvelope {
 	repoRoot := filepath.Dir(identity.Target)
+	if err := os.MkdirAll(filepath.Join(identity.Target, ".rekit"), 0o755); err != nil {
+		panic(err)
+	}
 	createdAt := "2026-08-03T01:02:03.004Z"
 	shim, err := os.ReadFile(filepath.Join(testKitRoot(), "rekit", "templates", "case-shim", "SKILL.md"))
 	if err != nil {
@@ -99,6 +135,81 @@ func testRecovery(identity Identity) RecoveryEnvelope {
 	sortRecovery(&RecoveryEnvelope{Writes: writes})
 	sort.Slice(writes, func(i, j int) bool { return writes[i].Path < writes[j].Path })
 	return RecoveryEnvelope{SchemaVersion: 1, RepoRoot: repoRoot, CreatedAt: createdAt, Writes: writes}
+}
+
+func currentTestRecovery(identity Identity) RecoveryEnvelope {
+	createdAt := "2026-08-03T01:02:03.004Z"
+	skill, err := sourceartifact.ReadCanonical(filepath.Join(testKitRoot(), "rekit", "templates", "steamai-project", "SKILL.md"))
+	if err != nil {
+		panic(err)
+	}
+	executable := filepath.Join(filepath.Dir(identity.Target), "steamai-recovery-test.exe")
+	if err := os.WriteFile(executable, []byte("test executable"), 0o700); err != nil {
+		panic(err)
+	}
+	bundle, err := runtimebundle.BuildWithExecutable(testKitRoot(), identity.Pack, executable)
+	if err != nil {
+		panic(err)
+	}
+	instance := []byte("schemaVersion: 2\nbrand: STeamAI\nstateNamespace: steamai\ntemplateRoot: .\nbundleRoot: runtime\nbundleManifest: runtime/manifest.json\nbundleManifestSHA256: " + bundle.ManifestSHA256 + "\ntemplatePack: " + identity.Pack + "\nprojectName: " + identity.ProjectName + "\nprojectRoot: ..\nmode: project-local-bundle\n")
+	writes := []RecoveryWrite{
+		testRecoveryWrite(".claude/skills/steamai/SKILL.md", "project-local-steamai-skill", skill),
+		testRecoveryWrite(".steamai/instance.yml", "instance-metadata", instance),
+	}
+	for _, publication := range bundle.Publications {
+		path := filepath.ToSlash(filepath.Join(".steamai", filepath.FromSlash(publication.Path)))
+		if publication.Kind == "runtime-executable" {
+			writes = append(writes, RecoveryWrite{Path: path, Kind: publication.Kind, SHA256: bundle.Manifest.Executable.SHA256, Size: bundle.Manifest.Executable.Size, PublicationPhase: 1})
+			continue
+		}
+		content := append([]byte{}, publication.Content...)
+		if publication.SourcePath != "" {
+			content, err = os.ReadFile(publication.SourcePath)
+			if err != nil {
+				panic(err)
+			}
+		}
+		writes = append(writes, testRecoveryWrite(path, publication.Kind, content))
+	}
+	managed := map[string]map[string]string{}
+	for path, contract := range caseshim.PackRecoveryWrites(identity.Pack) {
+		content, err := recoveryContractSource(identity, path, contract.Kind)
+		if err != nil {
+			panic(err)
+		}
+		writes = append(writes, testRecoveryWrite(path, contract.Kind, content))
+		if contract.Kind == "managed-file" {
+			hash := SHA256(content)
+			managed[path] = map[string]string{"sourceHash": hash, "targetHashAtSync": hash, "lastAction": "sync"}
+		}
+	}
+	stateValue := struct {
+		SchemaVersion int                          `json:"schemaVersion"`
+		TemplateRoot  string                       `json:"templateRoot"`
+		TemplatePack  string                       `json:"templatePack"`
+		LastSyncAt    string                       `json:"lastSyncAt"`
+		Managed       map[string]map[string]string `json:"managed"`
+	}{1, ".", identity.Pack, createdAt, managed}
+	stateJSON, err := json.MarshalIndent(stateValue, "", "  ")
+	if err != nil {
+		panic(err)
+	}
+	writes = append(writes, testRecoveryWrite(".steamai/state.json", "initial-state", append(stateJSON, '\n')))
+	blockSource, err := os.ReadFile(filepath.Join(testKitRoot(), "packs", identity.Pack, "CLAUDE.local.snippet.md"))
+	if err != nil {
+		panic(err)
+	}
+	block := []byte("# Project Context\r\n\r\n" + strings.TrimSpace(string(blockSource)) + "\r\n")
+	writes = append(writes, testRecoveryWrite("CLAUDE.local.md", "managed-block", block))
+	for _, support := range caseshim.ExpectedSupportPaths(identity.Pack) {
+		content, err := os.ReadFile(filepath.Join(testKitRoot(), "packs", identity.Pack, "examples", "gitignore.example"))
+		if err != nil {
+			panic(err)
+		}
+		writes = append(writes, testRecoveryWrite(support, "support-file", content))
+	}
+	sort.Slice(writes, func(i, j int) bool { return writes[i].Path < writes[j].Path })
+	return RecoveryEnvelope{SchemaVersion: 1, RepoRoot: ".", CreatedAt: createdAt, BundleManifest: BundleBinding{Path: runtimebundle.ManifestRel, SHA256: bundle.ManifestSHA256, Files: len(bundle.Manifest.Files) + 1}, Writes: writes}
 }
 
 func recoveryContractSource(identity Identity, targetPath, kind string) ([]byte, error) {

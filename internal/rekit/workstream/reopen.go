@@ -13,6 +13,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanecompletion"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 var (
@@ -95,6 +96,9 @@ type reopenContext struct {
 	publicationStamp       string
 	exactPublicationSHA256 string
 	operationPublications  []lanecompletion.OperationPublication
+	operationIntentPath    string
+	operationCommitPath    string
+	boardPath              string
 	replayCommit           *lanecompletion.OperationCommit
 }
 
@@ -125,7 +129,10 @@ func ReopenPreview(repoRoot, caseRoot, pack string, opt ReopenOptions) (ReopenRe
 	}
 	result := ctx.result(false, false)
 	result.PublicationStamp = stamp
-	result.WouldWrites = ctx.plannedWrites()
+	result.WouldWrites, err = ctx.plannedWrites()
+	if err != nil {
+		return ReopenResult{}, err
+	}
 	result.ReopenPlanSHA256 = ctx.exactPublicationSHA256
 	result.ApplyCommand = reopenApplyCommand(ctx, ctx.exactPublicationSHA256)
 	result.NextSteps = []string{"review every effective target, superseded completion receipt, evidence identity, publication stamp, and exact write set, then run applyCommand", "after Apply, refresh status and begin only a fresh post-reopen lane campaign"}
@@ -188,7 +195,7 @@ func ReopenApply(repoRoot, caseRoot, pack string, opt ReopenOptions) (result Reo
 		}
 		intent := ctx.newOperationIntent(expected, stamp)
 		mutationStarted = true
-		if err := writeCompletionExclusive(ctx.inst.CaseRoot, lanecompletion.OperationIntentPath(ctx.inst.CaseRoot, ctx.sequence), intent); err != nil {
+		if err := writeCompletionExclusive(ctx.inst.CaseRoot, ctx.operationIntentPath, intent); err != nil {
 			return ReopenResult{}, err
 		}
 		ctx.intent = &intent
@@ -239,6 +246,10 @@ func newReopenContext(repoRoot, caseRoot, pack string, opt ReopenOptions, allowP
 	if err != nil {
 		return reopenContext{}, err
 	}
+	boardPath, err := boardRelPath(inst.CaseRoot)
+	if err != nil {
+		return reopenContext{}, err
+	}
 	if allowPending && !operations.Pending && len(operations.Commits) > 0 {
 		requestedRefs := mission.UniqueStrings(strings.FieldsFunc(opt.EvidenceRefs, func(r rune) bool { return r == ',' || r == ';' || r == '\n' || r == '\r' }))
 		intent, commit, found, err := committedReopenOperationForRequest(
@@ -262,7 +273,7 @@ func newReopenContext(repoRoot, caseRoot, pack string, opt ReopenOptions, allowP
 			if err != nil {
 				return reopenContext{}, err
 			}
-			ctx := reopenContext{inst: inst, manifest: m, facts: facts, selector: selector, requested: requested, actor: actor, reason: reason, evidenceRefs: append([]string{}, intent.EvidenceRefs...), requestedEvidenceRefs: opt.EvidenceRefs, evidence: fromLifecycleEvidence(intent.Evidence), operation: operations}
+			ctx := reopenContext{inst: inst, manifest: m, facts: facts, selector: selector, requested: requested, actor: actor, reason: reason, evidenceRefs: append([]string{}, intent.EvidenceRefs...), requestedEvidenceRefs: opt.EvidenceRefs, evidence: fromLifecycleEvidence(intent.Evidence), operation: operations, boardPath: boardPath}
 			if err := ctx.loadCommittedOperation(intent, commit); err != nil {
 				return reopenContext{}, err
 			}
@@ -301,10 +312,13 @@ func newReopenContext(repoRoot, caseRoot, pack string, opt ReopenOptions, allowP
 		if err != nil {
 			return reopenContext{}, err
 		}
-		ctx := reopenContext{inst: inst, manifest: m, facts: facts, selector: selector, requested: requested, actor: actor, reason: reason, evidenceRefs: append([]string{}, intent.EvidenceRefs...), requestedEvidenceRefs: opt.EvidenceRefs, evidence: fromLifecycleEvidence(intent.Evidence), operation: operations}
+		ctx := reopenContext{inst: inst, manifest: m, facts: facts, selector: selector, requested: requested, actor: actor, reason: reason, evidenceRefs: append([]string{}, intent.EvidenceRefs...), requestedEvidenceRefs: opt.EvidenceRefs, evidence: fromLifecycleEvidence(intent.Evidence), operation: operations, boardPath: boardPath}
 		ctx.sequence, ctx.operationID, ctx.intent = intent.Sequence, intent.OperationID, &intent
 		ctx.publicationStamp, ctx.exactPublicationSHA256 = intent.CreatedAt, intent.ExactPublicationSHA256
 		ctx.operationPublications = append([]lanecompletion.OperationPublication{}, intent.Publications...)
+		if err := ctx.resolveOperationPaths(); err != nil {
+			return reopenContext{}, err
+		}
 		if err := ctx.loadPendingTargets(intent); err != nil {
 			return reopenContext{}, err
 		}
@@ -329,7 +343,7 @@ func newReopenContext(repoRoot, caseRoot, pack string, opt ReopenOptions, allowP
 	if err != nil {
 		return reopenContext{}, err
 	}
-	ctx := reopenContext{inst: inst, manifest: m, board: b, facts: facts, selector: selector, requested: requested, actor: actor, reason: reason, evidenceRefs: refs, requestedEvidenceRefs: opt.EvidenceRefs, evidence: evidence, operation: operations}
+	ctx := reopenContext{inst: inst, manifest: m, board: b, facts: facts, selector: selector, requested: requested, actor: actor, reason: reason, evidenceRefs: refs, requestedEvidenceRefs: opt.EvidenceRefs, evidence: evidence, operation: operations, boardPath: boardPath}
 	if replayed, err := ctx.matchCommittedOperation(); err != nil {
 		return reopenContext{}, err
 	} else if replayed {
@@ -337,10 +351,27 @@ func newReopenContext(repoRoot, caseRoot, pack string, opt ReopenOptions, allowP
 	}
 	ctx.sequence = operations.LatestSequence + 1
 	ctx.operationID = eventID(requested.ID, "lane-reopen-operation", fmt.Sprintf("%d:%s:%s", ctx.sequence, actor, reason))
+	if err := ctx.resolveOperationPaths(); err != nil {
+		return reopenContext{}, err
+	}
 	if err := ctx.buildTargets(); err != nil {
 		return reopenContext{}, err
 	}
 	return ctx, nil
+}
+
+func (ctx *reopenContext) resolveOperationPaths() error {
+	intentPath, err := lanecompletion.OperationIntentPathE(ctx.inst.CaseRoot, ctx.sequence)
+	if err != nil {
+		return err
+	}
+	commitPath, err := lanecompletion.OperationCommitPathE(ctx.inst.CaseRoot, ctx.sequence)
+	if err != nil {
+		return err
+	}
+	ctx.operationIntentPath = intentPath
+	ctx.operationCommitPath = commitPath
+	return nil
 }
 
 func (ctx *reopenContext) buildTargets() error {
@@ -384,7 +415,16 @@ func (ctx *reopenContext) buildTargets() error {
 		if lane.Authority && lane.ID != ctx.requested.ID {
 			reason = "authority aggregate completion is stale when a feature completion is superseded"
 		}
-		ctx.targets = append(ctx.targets, reopenTargetContext{lane: lane, lifecycle: lifecycle, sequence: lifecycle.HeadSequence + 1, previousReceiptSHA256: lifecycle.HeadReceiptSHA256, supersededSequence: lifecycle.HeadSequence, reason: reason, intentPath: lanecompletion.IntentPath(ctx.inst.CaseRoot, lane.ID, lifecycle.HeadSequence+1, "reopen"), receiptPath: lanecompletion.ReceiptPath(ctx.inst.CaseRoot, lane.ID, lifecycle.HeadSequence+1, "reopen")})
+		sequence := lifecycle.HeadSequence + 1
+		intentPath, err := lanecompletion.IntentPathE(ctx.inst.CaseRoot, lane.ID, sequence, "reopen")
+		if err != nil {
+			return err
+		}
+		receiptPath, err := lanecompletion.ReceiptPathE(ctx.inst.CaseRoot, lane.ID, sequence, "reopen")
+		if err != nil {
+			return err
+		}
+		ctx.targets = append(ctx.targets, reopenTargetContext{lane: lane, lifecycle: lifecycle, sequence: sequence, previousReceiptSHA256: lifecycle.HeadReceiptSHA256, supersededSequence: lifecycle.HeadSequence, reason: reason, intentPath: intentPath, receiptPath: receiptPath})
 	}
 	return nil
 }
@@ -486,10 +526,13 @@ func (ctx reopenContext) result(mutating, applied bool) ReopenResult {
 	return ReopenResult{SchemaVersion: 1, Command: "reopen", CaseRoot: ctx.inst.CaseRoot, RepoRoot: ctx.manifest.RepoRoot, Pack: ctx.manifest.Pack, IsMutation: mutating, Applied: applied, RequiresConfirmation: !applied, RequestedLane: ctx.requested.ID, EffectiveTargets: targets, Actor: ctx.actor, Reason: ctx.reason, EvidenceRefs: append([]string{}, ctx.evidenceRefs...), Evidence: append([]CompletionEvidence{}, ctx.evidence...), OperationID: ctx.operationID, OperationSequence: ctx.sequence, ExactPublicationSHA256: ctx.exactPublicationSHA256, PublicationStamp: ctx.publicationStamp, MissionBrief: brief, MissionCommanderNextActions: actions, MissionCommanderActionQueue: queue, BlockedActions: []string{"authority/confirmed writes", "heavy-tool execution", "automatic external session restart", "reuse of pre-reopen current-loop budget", "ordinary lane mutation before operation commit"}}
 }
 
-func (ctx reopenContext) plannedWrites() []StartWrite {
-	writes := []StartWrite{{Path: relativePath(ctx.inst.CaseRoot, lanecompletion.OperationIntentPath(ctx.inst.CaseRoot, ctx.sequence)), Kind: "lane-reopen-operation-intent", Action: "would-create", TargetPath: lanecompletion.OperationIntentPath(ctx.inst.CaseRoot, ctx.sequence)}}
+func (ctx reopenContext) plannedWrites() ([]StartWrite, error) {
+	writes := []StartWrite{{Path: relativePath(ctx.inst.CaseRoot, ctx.operationIntentPath), Kind: "lane-reopen-operation-intent", Action: "would-create", TargetPath: ctx.operationIntentPath}}
 	for _, target := range ctx.targets {
-		laneRoot, _ := laneRootPath(ctx.inst.CaseRoot, target.lane)
+		laneRoot, err := laneRootPath(ctx.inst.CaseRoot, target.lane)
+		if err != nil {
+			return nil, err
+		}
 		writes = append(writes,
 			StartWrite{Path: relativePath(ctx.inst.CaseRoot, target.intentPath), Kind: "lane-reopen-intent", Action: "would-create", TargetPath: target.intentPath},
 			StartWrite{Path: relativePath(ctx.inst.CaseRoot, LaneEventsJSONLPath(laneRoot)), Kind: "lane-event", Action: "would-append-lane-reopened", TargetPath: LaneEventsJSONLPath(laneRoot)},
@@ -499,8 +542,8 @@ func (ctx reopenContext) plannedWrites() []StartWrite {
 			StartWrite{Path: relativePath(ctx.inst.CaseRoot, target.receiptPath), Kind: "lane-reopen-commit", Action: "would-create", TargetPath: target.receiptPath},
 		)
 	}
-	writes = append(writes, StartWrite{Path: ".rekit/board.json", Kind: "board", Action: "would-refresh"}, StartWrite{Path: relativePath(ctx.inst.CaseRoot, lanecompletion.OperationCommitPath(ctx.inst.CaseRoot, ctx.sequence)), Kind: "lane-reopen-operation-commit", Action: "would-create-last", TargetPath: lanecompletion.OperationCommitPath(ctx.inst.CaseRoot, ctx.sequence)})
-	return writes
+	writes = append(writes, StartWrite{Path: ctx.boardPath, Kind: "board", Action: "would-refresh"}, StartWrite{Path: relativePath(ctx.inst.CaseRoot, ctx.operationCommitPath), Kind: "lane-reopen-operation-commit", Action: "would-create-last", TargetPath: ctx.operationCommitPath})
+	return writes, nil
 }
 
 func (ctx reopenContext) newOperationIntent(hash, now string) lanecompletion.OperationIntent {
@@ -534,7 +577,7 @@ func (ctx reopenContext) publish() ([]StartWrite, lanecompletion.OperationCommit
 	if err != nil {
 		return nil, lanecompletion.OperationCommit{}, err
 	}
-	writes := []StartWrite{{Path: relativePath(ctx.inst.CaseRoot, lanecompletion.OperationIntentPath(ctx.inst.CaseRoot, ctx.sequence)), Kind: "lane-reopen-operation-intent", Action: "existing", TargetPath: lanecompletion.OperationIntentPath(ctx.inst.CaseRoot, ctx.sequence)}}
+	writes := []StartWrite{{Path: relativePath(ctx.inst.CaseRoot, ctx.operationIntentPath), Kind: "lane-reopen-operation-intent", Action: "existing", TargetPath: ctx.operationIntentPath}}
 	commitTargets := make([]lanecompletion.OperationTarget, 0, len(ctx.targets))
 	for roleIndex, roles := range [][]string{{"lane-reopen-intent", "lane-event", "lane"}, {"lane-resume", "lane-checkpoint", "lane-reopen-commit"}} {
 		if roleIndex == 1 {
@@ -567,7 +610,7 @@ func (ctx reopenContext) publish() ([]StartWrite, lanecompletion.OperationCommit
 		commitTargets = append(commitTargets, lanecompletion.OperationTarget{Lane: target.lane.ID, Sequence: target.sequence, PreviousReceiptSHA: target.previousReceiptSHA256, SupersededCompletionSequence: target.supersededSequence, IntentPath: relativePath(ctx.inst.CaseRoot, target.intentPath), ReceiptPath: relativePath(ctx.inst.CaseRoot, target.receiptPath), ReceiptSHA256: receiptPublication.AfterSHA256, Reason: target.reason, Publications: append([]lanecompletion.OperationPublication{}, target.publications...)})
 	}
 	commit := lanecompletion.OperationCommit{SchemaVersion: 1, Kind: "lane-reopen-operation", State: "committed", OperationID: ctx.operationID, Sequence: ctx.sequence, RequestedLane: ctx.requested.ID, Actor: ctx.actor, Reason: ctx.reason, Targets: commitTargets, CommittedAt: intent.CreatedAt, PreviewSHA256: intent.PreviewSHA256, IntentSHA256: operationIntentSHA, NoAuthority: true, NoConfirmed: true, NoHeavyTool: true, NoAutoResume: true}
-	commitPath := lanecompletion.OperationCommitPath(ctx.inst.CaseRoot, ctx.sequence)
+	commitPath := ctx.operationCommitPath
 	if err := callReopenPublicationHook("before-commit", ""); err != nil {
 		return nil, lanecompletion.OperationCommit{}, err
 	}
@@ -620,7 +663,11 @@ func requestedLaneFromOperation(intent lanecompletion.OperationIntent) (Lane, er
 func committedReopenOperationForRequest(caseRoot string, operations lanecompletion.OperationInspection, selector, actor, reason string, evidenceRefs []string, expectedPreviewSHA256 string) (lanecompletion.OperationIntent, lanecompletion.OperationCommit, bool, error) {
 	for index := len(operations.Commits) - 1; index >= 0; index-- {
 		commit := operations.Commits[index]
-		intent, err := lanecompletion.ReadOperationIntent(caseRoot, lanecompletion.OperationIntentPath(caseRoot, commit.Sequence))
+		intentPath, err := lanecompletion.OperationIntentPathE(caseRoot, commit.Sequence)
+		if err != nil {
+			return lanecompletion.OperationIntent{}, lanecompletion.OperationCommit{}, false, err
+		}
+		intent, err := lanecompletion.ReadOperationIntent(caseRoot, intentPath)
 		if err != nil {
 			return lanecompletion.OperationIntent{}, lanecompletion.OperationCommit{}, false, err
 		}
@@ -638,7 +685,11 @@ func committedReopenOperationForRequest(caseRoot string, operations lanecompleti
 func (ctx *reopenContext) matchCommittedOperation() (bool, error) {
 	for index := len(ctx.operation.Commits) - 1; index >= 0; index-- {
 		commit := ctx.operation.Commits[index]
-		intent, err := lanecompletion.ReadOperationIntent(ctx.inst.CaseRoot, lanecompletion.OperationIntentPath(ctx.inst.CaseRoot, commit.Sequence))
+		intentPath, err := lanecompletion.OperationIntentPathE(ctx.inst.CaseRoot, commit.Sequence)
+		if err != nil {
+			return false, err
+		}
+		intent, err := lanecompletion.ReadOperationIntent(ctx.inst.CaseRoot, intentPath)
 		if err != nil {
 			return false, err
 		}
@@ -663,6 +714,9 @@ func (ctx *reopenContext) loadCommittedOperation(intent lanecompletion.Operation
 	ctx.sequence, ctx.operationID, ctx.intent = intent.Sequence, intent.OperationID, &intent
 	ctx.publicationStamp, ctx.exactPublicationSHA256 = intent.CreatedAt, intent.ExactPublicationSHA256
 	ctx.operationPublications = append([]lanecompletion.OperationPublication{}, intent.Publications...)
+	if err := ctx.resolveOperationPaths(); err != nil {
+		return err
+	}
 	ctx.replayCommit = &commit
 	ctx.targets = nil
 	for _, target := range intent.Targets {
@@ -703,7 +757,10 @@ func validateCommittedReopenCurrent(caseRoot string, intent lanecompletion.Opera
 		if !ok || !strings.EqualFold(strings.TrimSpace(lane.Status), "open") || lane.ExecutorGeneration != lifecycle.CurrentReopen.ResultingExecutorGeneration || strings.TrimSpace(lane.CurrentExecutor) != "" {
 			return fmt.Errorf("committed reopen operation differs from the current board lane: %s", target.Lane)
 		}
-		lanePath := filepath.Join(caseRoot, ".rekit", "lanes", target.Lane, "lane.json")
+		lanePath, err := projectstate.Join(caseRoot, "lanes", target.Lane, "lane.json")
+		if err != nil {
+			return err
+		}
 		laneBytes, err := lanecompletion.ReadCaseFile(caseRoot, lanePath)
 		if err != nil || !strings.EqualFold(lanecompletion.SHA256Bytes(laneBytes), lifecycle.CurrentReopen.LaneSHA256) {
 			return fmt.Errorf("committed reopen operation lane projection changed: %s", target.Lane)
@@ -712,12 +769,18 @@ func validateCommittedReopenCurrent(caseRoot string, intent lanecompletion.Opera
 		if err != nil || !strings.EqualFold(boardLaneSHA, lifecycle.CurrentReopen.BoardLaneSHA256) {
 			return fmt.Errorf("committed reopen operation board projection changed: %s", target.Lane)
 		}
-		resumePath := filepath.Join(caseRoot, ".rekit", "lanes", target.Lane, "prompts", "RESUME.md")
+		resumePath, err := projectstate.Join(caseRoot, "lanes", target.Lane, "prompts", "RESUME.md")
+		if err != nil {
+			return err
+		}
 		resumeBytes, err := lanecompletion.ReadCaseFile(caseRoot, resumePath)
 		if err != nil || !strings.EqualFold(lanecompletion.SHA256Bytes(resumeBytes), lifecycle.CurrentReopen.ResumeSHA256) {
 			return fmt.Errorf("committed reopen operation resume projection changed: %s", target.Lane)
 		}
-		checkpointPath := filepath.Join(caseRoot, ".rekit", "lanes", target.Lane, "checkpoints", "latest.json")
+		checkpointPath, err := projectstate.Join(caseRoot, "lanes", target.Lane, "checkpoints", "latest.json")
+		if err != nil {
+			return err
+		}
 		checkpointBytes, err := lanecompletion.ReadCaseFile(caseRoot, checkpointPath)
 		if err != nil || !strings.EqualFold(lanecompletion.SHA256Bytes(checkpointBytes), lifecycle.CurrentReopen.CheckpointSHA256) {
 			return fmt.Errorf("committed reopen operation checkpoint projection changed: %s", target.Lane)

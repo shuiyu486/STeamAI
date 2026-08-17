@@ -353,7 +353,11 @@ func TestDispatchRejectsNonCanonicalAndUnsafeArtifacts(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			writeTestFile(t, job.CaseRoot, dispatchTicketPath(job.JobID, 1), test.data)
+			path, err := dispatchTicketPath(job.CaseRoot, job.JobID, 1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeTestFile(t, job.CaseRoot, path, test.data)
 			if _, err := InspectDispatch(job, attempt); err == nil {
 				t.Fatal("malformed dispatch ticket should fail closed")
 			}
@@ -367,7 +371,11 @@ func TestDispatchRejectsNonCanonicalAndUnsafeArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ticketPath := filepath.Join(job.CaseRoot, filepath.FromSlash(dispatchTicketPath(job.JobID, 1)))
+	ticketRel, err := dispatchTicketPath(job.CaseRoot, job.JobID, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ticketPath := filepath.Join(job.CaseRoot, filepath.FromSlash(ticketRel))
 	if err := os.MkdirAll(filepath.Dir(ticketPath), 0o700); err != nil {
 		t.Fatal(err)
 	}

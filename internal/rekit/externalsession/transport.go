@@ -13,6 +13,7 @@ import (
 
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 const (
@@ -160,9 +161,18 @@ func InspectTransport(job Job, attempt AttemptInspection, dispatch DispatchInspe
 		return inspection, err
 	}
 	inspection.Binding = binding
-	inspection.EndpointPath = transportEndpointPath(job.JobID, attempt.Current.Generation)
-	inspection.DeliveryPath = transportDeliveryPath(job.JobID, attempt.Current.Generation)
-	bundlePath := transportBundlePath(job.JobID, attempt.Current.Generation)
+	inspection.EndpointPath, err = transportEndpointPath(job.CaseRoot, job.JobID, attempt.Current.Generation)
+	if err != nil {
+		return inspection, err
+	}
+	inspection.DeliveryPath, err = transportDeliveryPath(job.CaseRoot, job.JobID, attempt.Current.Generation)
+	if err != nil {
+		return inspection, err
+	}
+	bundlePath, err := transportBundlePath(job.CaseRoot, job.JobID, attempt.Current.Generation)
+	if err != nil {
+		return inspection, err
+	}
 	bundleData, err := readOptionalTransport(job.CaseRoot, bundlePath, "external session transport evidence bundle")
 	if err != nil {
 		return inspection, err
@@ -263,7 +273,10 @@ func PreviewTransportEndpoint(job Job, attempt AttemptInspection, dispatch Dispa
 	if err != nil {
 		return TransportPlan{}, err
 	}
-	bundlePath := transportBundlePath(job.JobID, attempt.Current.Generation)
+	bundlePath, err := transportBundlePath(job.CaseRoot, job.JobID, attempt.Current.Generation)
+	if err != nil {
+		return TransportPlan{}, err
+	}
 	bundleSHA := hash(bundleData)
 	envelope, err := buildTransportEnvelope(job, *dispatch.Ticket, inspection.Binding, endpoint, bundlePath, bundleData)
 	if err != nil {
@@ -507,7 +520,11 @@ func buildTransportEnvelope(job Job, ticket DispatchTicket, binding TransportBin
 	if job.SessionKind != "reviewer" || !ticket.Launch.ReadOnly || ticket.Launch.AgentType != "read-only-reviewer" {
 		return TransportMessageEnvelope{}, fmt.Errorf("Remote Control transport v1 supports only the read-only Reviewer vertical slice")
 	}
-	if bundlePath != transportBundlePath(job.JobID, binding.Generation) {
+	expectedBundlePath, err := transportBundlePath(job.CaseRoot, job.JobID, binding.Generation)
+	if err != nil {
+		return TransportMessageEnvelope{}, err
+	}
+	if bundlePath != expectedBundlePath {
 		return TransportMessageEnvelope{}, fmt.Errorf("Remote Control evidence bundle path does not match the transport generation")
 	}
 	if _, err := validateTransportEvidenceBundle(job, ticket, binding, bundleData); err != nil {
@@ -547,7 +564,10 @@ func validateTransportEndpoint(job Job, attempt AttemptInspection, dispatch Disp
 	if err != nil {
 		return err
 	}
-	bundlePath := transportBundlePath(job.JobID, attempt.Current.Generation)
+	bundlePath, err := transportBundlePath(job.CaseRoot, job.JobID, attempt.Current.Generation)
+	if err != nil {
+		return err
+	}
 	bundleData, err := readOptionalTransport(job.CaseRoot, bundlePath, "external session transport evidence bundle")
 	if err != nil || bundleData == nil {
 		return fmt.Errorf("external session transport endpoint evidence bundle is unavailable")
@@ -611,12 +631,12 @@ func remoteControlLaunchFailureReason(delivery TransportDeliveryObservation) str
 	return "Remote Control SendMessage rejected: " + delivery.Reason
 }
 
-func transportEndpointPath(jobID string, generation int) string {
-	return filepath.ToSlash(filepath.Join(".rekit", "external-session-transport", "endpoints", jobID, fmt.Sprintf("%06d.json", generation)))
+func transportEndpointPath(caseRoot, jobID string, generation int) (string, error) {
+	return projectstate.Rel(caseRoot, "external-session-transport", "endpoints", jobID, fmt.Sprintf("%06d.json", generation))
 }
 
-func transportDeliveryPath(jobID string, generation int) string {
-	return filepath.ToSlash(filepath.Join(".rekit", "external-session-transport", "deliveries", jobID, fmt.Sprintf("%06d.json", generation)))
+func transportDeliveryPath(caseRoot, jobID string, generation int) (string, error) {
+	return projectstate.Rel(caseRoot, "external-session-transport", "deliveries", jobID, fmt.Sprintf("%06d.json", generation))
 }
 
 func readOptionalTransport(caseRoot, rel, label string) ([]byte, error) {

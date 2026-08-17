@@ -10,6 +10,18 @@ import (
 	"strings"
 )
 
+var (
+	powerShellModulePathPattern = regexp.MustCompile(
+		`rekit[/\\]lib[/\\][A-Za-z0-9_.-]+\.ps1`,
+	)
+	powerShellJoinPathModulePattern = regexp.MustCompile(
+		`Join-Path\s+\$(RekitRoot|RuntimeRoot|isolatedRoot)\s+'lib\\([^']+\.ps1)'`,
+	)
+	powerShellRelativeModulePattern = regexp.MustCompile(
+		`lib\\([A-Za-z0-9_.-]+\.ps1)`,
+	)
+)
+
 type PowerShellDeprecation struct {
 	StrategyDocument   string                       `json:"strategyDocument"`
 	Ready              bool                         `json:"ready"`
@@ -838,19 +850,19 @@ func powerShellReferenceFile(path string) bool {
 }
 
 func powerShellModuleReferenceTarget(line string) string {
-	if match := regexp.MustCompile(`rekit[/\\]lib[/\\][A-Za-z0-9_.-]+\.ps1`).FindString(line); match != "" {
+	if match := powerShellModulePathPattern.FindString(line); match != "" {
 		return filepath.ToSlash(match)
 	}
 	if strings.Contains(line, "rekit/lib/*.ps1") || strings.Contains(line, "rekit\\lib\\*.ps1") {
 		return "rekit/lib/*.ps1"
 	}
-	if match := regexp.MustCompile(`Join-Path\s+\$(RekitRoot|RuntimeRoot|isolatedRoot)\s+'lib\\([^']+\.ps1)'`).FindStringSubmatch(line); len(match) == 3 {
+	if match := powerShellJoinPathModulePattern.FindStringSubmatch(line); len(match) == 3 {
 		if match[1] == "isolatedRoot" {
 			return "isolated/lib/" + match[2]
 		}
 		return "rekit/lib/" + match[2]
 	}
-	if match := regexp.MustCompile(`lib\\([A-Za-z0-9_.-]+\.ps1)`).FindStringSubmatch(line); len(match) == 2 {
+	if match := powerShellRelativeModulePattern.FindStringSubmatch(line); len(match) == 2 {
 		return "rekit/lib/" + match[1]
 	}
 	return ""

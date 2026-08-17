@@ -8,6 +8,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/caseshim"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/runtimebundle"
 )
 
 type Row struct {
@@ -33,14 +34,23 @@ func Pack(repoRoot, pack string) ([]Row, error) {
 	if err := add(m.ManifestPath, 16384); err != nil {
 		return nil, err
 	}
-	if err := add(filepath.Join(repoRoot, ".claude", "skills", "rekit", "SKILL.md"), 32768); err != nil {
-		return nil, err
-	}
-	if err := add(filepath.Join(repoRoot, "rekit", "templates", "case-shim", "SKILL.md"), 16384); err != nil {
-		return nil, err
-	}
-	if err := caseshim.AssertReady(repoRoot); err != nil {
-		return nil, err
+	if bundleSHA256, bundleErr := runtimebundle.ManifestSHA256(repoRoot); bundleErr == nil {
+		if _, err := runtimebundle.Validate(repoRoot, runtimebundle.ManifestRel, bundleSHA256, pack); err != nil {
+			return nil, err
+		}
+		if err := add(filepath.Join(repoRoot, "rekit", "templates", "steamai-project", "SKILL.md"), 16384); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := add(filepath.Join(repoRoot, ".claude", "skills", "rekit", "SKILL.md"), 32768); err != nil {
+			return nil, err
+		}
+		if err := add(filepath.Join(repoRoot, "rekit", "templates", "case-shim", "SKILL.md"), 16384); err != nil {
+			return nil, err
+		}
+		if err := caseshim.AssertReady(repoRoot); err != nil {
+			return nil, err
+		}
 	}
 	if err := m.ValidateSchema(); err != nil {
 		return nil, err

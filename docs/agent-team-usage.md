@@ -1,28 +1,30 @@
-# Agent Team 使用与兼容指南
+# STeamAI Agent Team 使用与兼容指南
 
 ## 读取指南
 
 如果你只是维护本仓库，先读根目录 `CLAUDE.md` 与 `docs/context-routing.md`，再按场景读取本文件顶部或其它路由入口；不要把本文件全文、README 和 vision 当成默认必读清单。
 
-如果你正在具体安全 case 中工作（当前成熟示例是 `vmp-re` RE case），先在 case 目录用 `/rekit status` 确认绑定，再按本文件选择新 case、旧 case、主线或功能支线流程。
+如果你正在具体安全项目中工作（当前成熟示例是 `vmp-re` RE 项目），先在项目目录启动已有 Claude Code 并用 `/steamai` 或自然语言查询状态，再按本文件选择新项目、legacy 项目、主线或功能支线流程。旧 `/rekit` 只用于迁移兼容与维护诊断。
 
 本文件只说明通用使用方式和兼容策略，不记录真实样本名、RVA/VA、trace/dump、artifact 路径或 case-specific 进度。
 
 ## 实施摘要
 
-新方案不是替换旧 case 的大迁移，而是在现有 `/rekit`、pack、case shim、工作线机制上增加 Agent Team 的组织方式：
+新产品模型是“一个真实项目目录 = 一个自包含 STeamAI 项目”。它复用成熟的 Go runtime、pack、lane 和 review-first 状态机，但将新项目默认入口、状态和运行依赖收敛到 `/steamai`、`.steamai` 和 project-local verified bundle：
 
-- 用户日常入口优先是自然语言主 Agent / Mission Commander；新 case 由主 Agent把自然语言显式收敛为 `Target` / `Pack` / `ProjectName` / opaque bounded `Goal` / `Actor` / `Executor` / `InitialLane`，再调用 public Go-owned/no-fallback `onboard`。`/rekit` 仍是主 Agent、维护者、自动化和排障使用的 deterministic runtime API。
+- 用户已经能使用本机 Claude Code；日常只需在真实项目目录启动 `claude`，使用 `/steamai` 或自然语言指挥主 Agent / Mission Commander。STeamAI 不安装 Claude Code、不管理登录、不要求全局 plugin。
+- 新项目由主 Agent把自然语言显式收敛为 project / selected pack / opaque bounded goal 等 typed inputs，再调用项目内 Go-owned/no-fallback owner。用户不填写 lane、executor、session/event ID、generation、路径或 SHA；`/rekit` 只保留为 legacy/内部 deterministic API。
 - `onboard -WhatIf -Format json` 零写入返回 immutable mission intent、exact publication stamp/hash 与机器可读 `applyArgs[]`；Apply 必须消费 exact stamp/hash 和 identity，按 intent-first / commit-last 发布，支持 partial recovery 与 committed exact replay。提交后先 status，再 overview，最后按 committed initial lane/executor/actor start；后续仍走 public note/reconcile/handoff/complete/reopen。Runtime 不解析自然语言、不执行 heavy-tool、不写 authority/confirmed，也不 spawn/poll session。
-- 旧 case 可继续使用 `.re-template.yml`，也可以通过 `/rekit attach` / `/rekit repair` 补齐 `.rekit/instance.yml`。
+- 新项目只使用 `.steamai` 与项目内 bundle；legacy-only 项目在迁移前继续单写 `.rekit`。两根共存立即 fail-closed。旧项目迁移必须走独立 zero-write preview → exact hash-bound Apply → durable receipt，不能自动双写、合并或择优。
 - 主线和功能支线仍然保留，而且是新架构的核心协作单元。
 - Mission Commander可执行动作使用bounded typed ReKit invocation；多lane先选择，选定后的status/handoff/current-step/current-loop/takeover只携带唯一exact durable `-Lane`。用户手写的普通public命令仍兼容lane label，但不得把command text、request SHA或transport observation当成授权。
 - `sync` / `promote` 仍然 review-first，写入前需要确认具体范围。Completed verified managed-doc pack-memory change 会进入 canonical catalog；当前显式 attached case 的 status/handoff 可发现它，主 Agent选择单个 `changeId` 后审核 exact selected-sync WhatIf，再以返回的 plan hash Apply。成功后 case-local receipt 与 refreshed status/handoff 证明实际消费；runtime 不扫描其它 case、不自动 sync。
 - Mission Commander action queue 现在会为所有 current action 投影 `currentRunLoopStepId` / `currentActionRunLoop`，让 replacement executor 直接按 `inspect-current → apply-or-run-current / preview-current → refresh-state → follow-up-after-refresh` 接手；`currentDriverRequest.expectedReceipt.command` 保留当前应执行/预览的 driver command，`expectedReceipt.refreshStatusCommand` 在 status/handoff/daily runbook 与 replacement takeover package 中给出执行后必须运行的同源 refresh command，避免从相邻文本手工拼接；该 run-loop 是只读 handoff，不会改变 action 选择、不自动执行命令。
 - `status` 顶层会输出统一 `missionControlRunbook`：复用 Mission Commander first-screen focus routing，把当前 focus、routingReasons、focused queue/currentDriverRequest、`quickstart`、`replacementExecutorTakeoverPackage`、`handoffPreviewCommand` / `handoffApplyCommand`、status refresh command 与 `inspect-first-screen → consume-focused-driver-request → refresh-after-focus-result → preview-handoff → write-handoff-for-takeover` 收敛成单一只读入口；`quickstart` 是日常第一屏消费包，直接镜像 focused `currentDriverRequest`、同源 `currentDriverReceipt`、`refreshStatusCommand`、target documents、runbook steps 与 acceptance checklist，让主 Agent / replacement executor 可按 `status → quickstart.currentDriverRequest → explicit outcome → quickstart.refreshStatusCommand` 执行，不需要从 terminal prose 拼命令；`replacementExecutorTakeoverPackage` 会把 currentDriverRequest、targetDocuments、runbookSteps 与 boundary 收敛成无旧聊天上下文也可消费的只读接手包；当 focused driver request 是不可执行的 `review-guidance` 时，顶层 runbook 会附带只读 `guidanceHandoff`，交代 target documents、acceptance checklist、expected receipt，以及 next-batch starter/candidate package，避免 replacement harness 把自然语言 guidance 当命令或从 terminal prose 推断完成；implementation-pending 本机验证 action 会暴露 `/rekit release-run -Format json` Git-local receipt driver request，让 harness 跑本机 gate profile并发布exact validation receipt；从 kit CWD 用 `status -Target <case>` 接手时，顶层 runbook 会把可执行 case request 补成 invocation-scoped `-Target <case>`，并把 bare `continue` 降级为 `-WhatIf -Format json` 预览；遇到 open intervention blocker 时，`quickstart.currentDriverRequest` 会暴露 invocation-scoped `reconcile -WhatIf -Format json`，`reconcile` preview/apply 返回的 current driver request 也绑定同源 `expectedReceipt.refreshStatusCommand`，让人工插手纠偏按 `status → quickstart.currentDriverRequest → reconcile preview → returned apply request → refresh → continue preview` 闭环推进；同时 handoff preview 固定为 `/rekit handoff -Target <case> -WhatIf -Format json`，先预览再刷新/显式 Apply。`status` case mission 与 project/lane `handoff` 继续输出 `dailyMissionControlRunbook`，汇总当前 `currentDriverRequest`、status refresh command、handoff preview/apply command，以及 `inspect-status → consume-current-driver-request → refresh-after-driver → preview-handoff → write-handoff-for-takeover` 的日常主 Agent/harness 接手节奏；project/lane handoff JSON 与 durable Markdown 也输出同源 `replacementExecutorTakeoverPackage`，把 handoff 当前 driver request、target documents、runbookSteps 与 boundary 放到不依赖旧聊天上下文的接手包中；这些 runbook/package 都不 spawn session、不执行命令、不写 authority/confirmed。
+- Handoff Apply 采用 scope-bound currentness：`status` 或 generic runbook 未绑定 publication plan SHA/stamp 时只能投影 non-executable `review-guidance`；只有 fresh、同 scope 的 `handoff -WhatIf` 返回 exact hash/stamp 后才可执行。Project publication 只绑定 project Apply，lane publication只绑定 exact lane Apply；durable Markdown、takeover JSON、typed request、expected receipt 和 run-loop 必须保持同一 command/executable truth。
 - reviewer dispatch operator package 也会投影 ordered `runLoop[]` / `currentRunLoopStepId`，让 replacement executor 直接按 `verify-prompt → spawn-reviewer → record-dispatch → save-result-input → record-completion → source-capture → stage-candidate → collect-result → intake-results` 接手。主 Agent/harness 可用 review-first `/rekit run-reviewer-step -Target <case> -WhatIf -Format json` 消费当前 operator request：spawn 和 reviewer JSON 生成保持 typed external handoff；提供真实 harness/session/result observation 后，runner 直接调用现有 deterministic Go handlers，返回 hash-bound Apply request，每次 Apply 后刷新 reviewer status/receipt。若一次attempt失败并由replacement session重试，managed input-save命令会携带current `ReviewerDispatchId`；迟到的failed session结果即使使用fresh attempt SHA也会在canonical input写入前拒绝，只有当前replacement dispatch的结果能继续completion/source/stage/collect/intake。active wave 中出现 effective open intervention 时，status 会把 operator/wave 标记为 paused，撤销 spawn、run-loop、dispatch/completion/result-pipeline 的全部 executable action，并让全局 Mission Commander queue 优先选择 concrete `reconcile -WhatIf`；wave、single-step 和 direct `plan-subagents` reviewer observation/mutation 都在同一 lane lease 内重验 intervention，不能用旧 preview 绕过。reconcile 切换 executor generation 后，旧 session/result继续被 stale-owner guard拒绝；显式 packet adoption 后才会生成 replacement dispatch。Go runtime仍不调用 Agent tool、不 spawn/poll/stop reviewer session、不伪造 reviewer output、不执行heavy-tool、不写authority/confirmed。
 - 主 Agent/harness需要持续推进时，可用bounded review-first `/rekit run-current-loop -Target <case> -MaxSteps <1..20> -WhatIf -Format json` 预览固定initial route/lane下的exact首步和loop policy，再以返回的`expectedCurrentLoopPlanSha256`、相同`MaxSteps`显式Apply。loop每步刷新durable status并重建nested current-step；输出per-step receipts、typed stop reason、final status和fresh resume command。它在route/lane drift、external reviewer handoff、guidance/blocker、后续新出现的Human-in-the-Lane reconcile、no-progress、limit或error处停止；已成功步骤不回滚。external member/reviewer按typed job完成result-first/submission-last后，status默认选择一次reviewed external-result turn：WhatIf零写入绑定exact job/submission/relay artifacts/observation/checkpoint/nested resume，hash-bound Apply先relay，再从durable filesystem strict intake、one-shot claim并继续bounded loop；reviewer planned snapshot只参与WhatIf，Apply不信任内存overlay。若relay后出现Human intervention或其它漂移，已提交relay仍truthful，checkpoint不会被误消费，fresh status会路由reconcile或relay-only恢复。accepted reviewer lineage与canonical member manifest齐备后，status/handoff/replacement takeover共享同一个evidence-derived completion WhatIf；status 会重用 completion 的 strict verification→decision→packet→canonical input 校验，并从 canonical `ReviewerResult` 重验 `decision=accept` / `recommendedVerdict=accepted`；账本不能把真实 reject 结果伪称为接受，已有 accepted lineage 的 manifest 也不再重复规划 Reviewer。driver orchestration hash和completion evidence/write-plan hash双重绑定。feature关闭路由下一open lane，全部lane关闭后current-loop以typed`mission-complete`无可执行请求停止。首步可携带真实reviewer observation，transient harness/session/result输入不会复用于后续步骤。Go runtime不跨lane、不调用Agent tool、不管理session、不执行heavy-tool、不写authority/confirmed。
-- 仓库内另有 Go-owned `cmd/rekit-host`，用于实际启动和观察 Claude Code member/reviewer session；它自动消费 `run-current-step`，生成 identity/time/path/SHA，发布真实 structured output 和 submission，并在失败时有界 replacement。trusted daily 路线由 attempt-bound detached supervisor持有真实 Claude process和 host-owned immutable spec/claim/start/terminal/fence receipts；fresh host 不以 PID 声称 liveness，而是按 exact attempt/session/job/checkpoint/input/executable binding 继续收取、恢复 result-first bytes、从 submission/intake committed 边界继续，或在 owner 消失且没有 terminal/recovery 时 durable fence旧 generation后 replacement。case-scoped control lease 串行 publication/intake，terminal output采用base64+SHA exact transport，成功output只发布一次。普通 `go test ./...` 不启动 Claude；维护者只在显式 `-live-acceptance` / `-live-supervision-acceptance` / `-live-pack-memory-acceptance` 时启动真实 signed Claude gate。pack-memory gate 只在 disposable isolated kit/cases 内运行真实 producer、packet-bound Reviewer 和 second-case consumer，不写当前仓库 pack；repository-external receipt 只保留 hashes、publisher/version 与 lifecycle proof，不公开本机或 disposable case 绝对路径。
+- 仓库内另有 Go-owned `cmd/rekit-host`，用于实际启动和观察 Claude Code member/reviewer session；它自动消费 `run-current-step`，生成 identity/time/path/SHA，发布真实 structured output 和 submission，并在失败时有界 replacement。trusted daily 路线由 attempt-bound detached supervisor持有真实 Claude process和 host-owned immutable spec/claim/start/terminal/fence receipts；fresh host 不以 PID 声称 liveness，而是按 exact attempt/session/job/checkpoint/input/executable binding 继续收取、恢复 result-first bytes、从 submission/intake committed 边界继续，或在 owner 消失且没有 terminal/recovery 时 durable fence旧 generation后 replacement。case-scoped control lease 串行 publication/intake，terminal output采用base64+SHA exact transport，成功output只发布一次。Current `.steamai` 的 durable detached handoff要求handle-bound exact filesystem mutation：Windows支持；非Windows在写spec/handoff/cancellation或启动child前fail-closed。Source-free只读恢复/preview不因此禁用，legacy `.rekit`继续zero-handoff compatibility。普通 `go test ./...` 不启动 Claude；维护者只在显式 `-live-acceptance` / `-live-supervision-acceptance` / `-live-pack-memory-acceptance` 时启动真实 signed Claude gate。pack-memory gate 只在 disposable isolated kit/cases 内运行真实 producer、packet-bound Reviewer 和 second-case consumer，不写当前仓库 pack；repository-external receipt 只保留 hashes、publisher/version 与 lifecycle proof，不公开本机或 disposable case 绝对路径。
 - Claude Code Remote Control 只作为 durable external-session 的可选 read-only Reviewer transport companion：durable Reviewer dispatch 必须显式使用 `ReviewerHarness=claude-code-remote-control` 与 caller-generated `ReviewerSession=<durable-transport-binding-id>`，且 external attempt、return result与submission必须保持同一 binding。`ListAgents` 返回的 `name [ref]` 只是一轮 opaque endpoint snapshot，不是 lane/member/executor/session identity；`SendMessage` 内联完整 content-addressed evidence closure，不要求对端读取本机路径。accepted delivery只允许派生existing launch receipt，uncertain禁止自动重发与same-job replacement；inbound result仍按result→transport receipt→submission发布，并经既有relay和strict Reviewer intake。Windows本机`sessionhost`继续默认`claude-code-cli`，普通测试只做deterministic/fake transport acceptance，不声称原生Windows live跨机器E2E。详见下文“Remote Control Reviewer transport companion”。
 - authorized-gate adapter live validation 会在 contract、validation、status、overview、handoff 与 durable Markdown 中投影同源 `currentRunLoopStepId` / `runLoop`，按 `inspect-contract → record-dispatch → run-external-adapter → draft-or-write-report → validate-report → record-receipt → record-observation → review-recorded-evidence` 交接当前 adapter 步骤、dispatch command、owner/provenance 与 tooling lineage；记录 execution evidence 后，非 escalation 的 evidence review 会把 `acknowledgementReviewCommand`（accepted `note -Kind verification ... -WhatIf -Format json`）设为 Mission Commander current action / `currentDriverRequest.command`，review 后只执行 returned hash-bound `recordCommand` 关闭 review queue；`/rekit handoff <lane>` 仍作为 follow-up/provenance 保留。Canonical `/rekit gate` 仍不启动 adapter/heavy tool；独立 `rekit-adapter-host` 只接受两个 compiled-in ID：用于框架验收的 `_template/rekit-readonly-inspector`，以及产品路径的 `vmp-re/vmp-ida-index-inspector`。后者只在 exact generated profile + canonical `authorized-gate` 下读取内容寻址 request 绑定的固定 TSV，生成 bounded packet/report/receipt/observation，随后恢复 manual profile并进入独立 trusted Claude evidence review和member/Reviewer lineage；它不启动 IDA、不打开 IDB、不联网，也不执行 catalog `entry`。`rekit-adapter-acceptance` 与 `rekit-host -live-acceptance` 只用于无敏感 disposable case 的显式本机验收，receipt 必须位于 case 与模板仓库之外。
 - Agent Team 当前主要是 context、workflow、tooling、ledger、gate 的底座，不代表已经全自动脱壳、全自动逆向、自动漏洞挖掘、自动恶意样本分析或通用自动渗透。
@@ -30,33 +32,33 @@
 推荐心智模型：
 
 ```text
-kit 仓库 = runtime + packs + common policies + tooling 经验
-case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结论
+一个真实项目目录 = project-local runtime + selected pack + 状态 + 工作线 + 证据
+.steamai = 新项目唯一 mutable source of truth
 主线 = 收敛、确认、长期 handoff
 功能支线 = 专项探索、证据收集、候选结论
+中央 kit / .rekit = 实现仓库与迁移期 compatibility，不是新项目运行依赖
 ```
+
+下文 `<active-state-root>` 指 runtime 唯一解析出的 mutable state root：新项目为 `.steamai`，未迁移的 legacy-only 项目为 `.rekit`；两者不得共存或在一次操作中切换。
 
 ## 执行清单
 
-### 新安全 case（当前以 `vmp-re` 为例）
+### 新 STeamAI 安全项目（当前以 `vmp-re` 为例）
 
-1. 在 kit 仓库启动 Claude Code，用自然语言说明目标、pack 与希望由谁接手。
-2. 主 Agent把自然语言显式收敛为 `Target` / `Pack` / `ProjectName` / opaque bounded `Goal` / `Actor` / `Executor` / `InitialLane`，运行 `/rekit onboard ... -WhatIf -Format json`。
-3. 复核 immutable mission intent、writes、`publicationStamp` 与 `onboardingPlanSha256`，再原样执行 preview 返回的机器可读 `applyArgs[]`；不要从文本手工重建 Apply。若 intent 发布后中断，只用同一 exact stamp/hash/identity 从 durable bounded exact envelope 恢复，不重新消费可能变化的 live kit/pack；committed replay 不重复写入。
-4. committed 后执行 `/rekit status`，先消费 onboarding overview route，再运行 `/rekit overview`；随后按 committed `InitialLane` / `Executor` / `Actor` 用 `/rekit start <lane>` 登记接手。
-5. 需要专项分析时，用 `/rekit start <name>` 创建功能支线；日常记录、纠偏与接手继续使用 public `note` / `reconcile` / `handoff`。
-6. lane 的 evidence 与 blockers 已审核闭合时，用 `/rekit complete <name> -Actor <actor> -Reason <reason> -EvidenceRefs <case-relative-file> -WhatIf -Format json` 预览，再执行返回的 exact-hash Apply；功能支线关闭后继续下一条 open lane，main 最后关闭。
-7. 若误完成、补充证据或事后发现新工作，用 `/rekit reopen <name> -Actor <actor> -Reason <reason> -EvidenceRefs <case-relative-file> -WhatIf -Format json` 审核superseded receipt、effective targets和写集，再执行返回的exact-hash Apply；不要手改lane/board/completion artifacts。
-8. 需要中途换会话时用 `/rekit handoff` 或 `/rekit handoff <name>`；全部 lane committed closed 后 status 返回 `mission-complete`，不再建议 start/continue/handoff。
+1. 在真实项目目录启动已有 Claude Code，使用 `/steamai` 或直接说明目标；不要先进入中央 kit。
+2. 普通目录先只读分类；选择 `initialize-in-place` 后复核 exact init plan，再原样消费 hash-bound Apply。确认前零写入、零 Claude launch。
+3. 安全接入必须发布 `.claude/skills/steamai/SKILL.md`、relocatable `.steamai/instance.yml`、project-local verified runtime、selected pack 和初始状态；bundle/hash/layout 不可信时停止，不从 PATH 或外部 kit 补齐。
+4. 主 Agent从 compact status 消费 fresh typed request；多 lane 先展示 typed choices，选择前不启动 Claude、不写项目。
+5. 需要专项分析、完成、复开、接手、同步或经验沉淀时，主 Agent调用对应内部 review-first owner；用户只确认人话目标、纠偏或精确写入范围。
+6. 全部 lane committed closed 后 status 返回 `mission-complete`；需要换会话时只消费 fresh scope-bound handoff，不复制旧聊天全文。
 
-### 旧 case
+### Legacy `.rekit` 项目
 
-1. 在 kit 仓库或 case 目录确认当前绑定：`/rekit status`。
-2. 如果还没有 `.rekit/instance.yml`，用 `/rekit attach -Target <caseRoot> -Pack vmp-re -Apply` 补齐 metadata 和 case-local shim。
-3. 执行 `/rekit sync` 生成同步审查包。
-4. Claude 复核冲突、收益和覆盖范围后，再由用户确认是否执行写入型 `sync -Apply`。
-5. 执行 `/rekit doctor` 验证结构。
-6. 执行 `/rekit overview`，再选择 `/rekit continue main` 或 `/rekit start <name>`。
+1. 在项目目录用 legacy `/rekit status` 确认它是 `.rekit` only；若 `.steamai` 同时存在，立即停止。
+2. 未执行显式迁移前，全部 mutable owner 继续单写 `.rekit`，不得只换品牌展示或创建第二状态根。
+3. 迁移先生成 zero-write inventory/plan；复核 source tree、skill、metadata、before/after identity 和 exact SHA 后才 Apply。
+4. Apply 保留 lanes/facts/evidence/gate/autonomy 语义，发布 relocatable current metadata、`/steamai` skill 与 durable receipt；drift、reparse、partial publication 或不同 hash fail-closed。
+5. 迁移完成后只从 project-local runtime 使用 `/steamai`；exact replay 只能消费同一 receipt/plan。
 
 ### 日常工作
 
@@ -70,7 +72,7 @@ case 目录 = 具体目标/样本/项目状态 + 工作线 + 证据 + 候选结�
 把这次可复用经验整理成 promote 候选。
 ```
 
-主 Agent 会按需组合底层 runtime API。收到“继续推进当前 mission”时，优先读取 `status.missionControlRunbook.quickstart.currentLoopOperator`：`selectedDriverRequest` 已在 fresh `startDriverRequest` 与 strict checkpoint-bound `resumeDriverRequest` 之间完成选择；外部harness也可把strict envelope写入`.rekit/external-session-observations/inbox/*.json`，fresh status只会提升唯一绑定latest ready checkpoint、exact attempt与capability的`observationInbox.selectedDriverRequest`，歧义、invalid或namespace异常均fail-closed。成功Apply后的top-level `observationReceipt`由successor checkpoint恢复，即使successor已不再等待observation也可供replacement session确认处理结果；旧path/SHA-only checkpoint仍兼容。若存在 `externalReviewerHandoff`，主 Agent 只调用其中的 read-only `agentToolRequest`，并从 `observationContract.alternatives[]` 选择一个与真实结果相符的 `previewCommandTemplate`，替换明确占位符后重新预览，不自行拼接 reviewer flags。若claimed lane尚无可收集输出，status/current-loop会先返回external member execution handoff：外部harness按Go生成的attempt/result paths写bounded outputs与strict canonical manifest，主Agent依次记录同attempt的`accepted`和`returned|failed` observation；只有owner generation、manifest及output path/hash/bytes全部匹配的`intake-ready`结果才进入既有continue→reviewer wave→evidence-bound complete，reconcile后的旧session迟到结果不能移植。该 package 同时写入 replacement executor takeover、handoff JSON 与 durable Markdown；durable takeover artifact 只有在 stable regular-file exact bytes、strict JSON、完整 raw/qualified request、`CurrentLoopOperator`、runbook/boundary 与 refreshed expected package identity 全部匹配时才标为 fresh，失败时给出 typed handoff preview refresh request。它不改变 canonical `currentDriverRequest`，也不放宽 checkpoint、packet、lease、hash 或 currentness guards。
+主 Agent 会按需组合底层 runtime API。收到“继续推进当前 mission”时，优先读取 `status.missionControlRunbook.quickstart.currentLoopOperator`：`selectedDriverRequest` 已在 fresh `startDriverRequest` 与 strict checkpoint-bound `resumeDriverRequest` 之间完成选择；外部harness也可把strict envelope写入`<active-state-root>/external-session-observations/inbox/*.json`，fresh status只会提升唯一绑定latest ready checkpoint、exact attempt与capability的`observationInbox.selectedDriverRequest`，歧义、invalid或namespace异常均fail-closed。成功Apply后的top-level `observationReceipt`由successor checkpoint恢复，即使successor已不再等待observation也可供replacement session确认处理结果；旧path/SHA-only checkpoint仍兼容。若存在 `externalReviewerHandoff`，主 Agent 只调用其中的 read-only `agentToolRequest`，并从 `observationContract.alternatives[]` 选择一个与真实结果相符的 `previewCommandTemplate`，替换明确占位符后重新预览，不自行拼接 reviewer flags。若claimed lane尚无可收集输出，status/current-loop会先返回external member execution handoff：外部harness按Go生成的attempt/result paths写bounded outputs与strict canonical manifest，主Agent依次记录同attempt的`accepted`和`returned|failed` observation；只有owner generation、manifest及output path/hash/bytes全部匹配的`intake-ready`结果才进入既有continue→reviewer wave→evidence-bound complete，reconcile后的旧session迟到结果不能移植。该 package 同时写入 replacement executor takeover、handoff JSON 与 durable Markdown；durable takeover artifact 只有在 stable regular-file exact bytes、strict JSON、完整 raw/qualified request、`CurrentLoopOperator`、runbook/boundary 与 refreshed expected package identity 全部匹配时才标为 fresh，失败时给出 typed handoff preview refresh request。它不改变 canonical `currentDriverRequest`，也不放宽 checkpoint、packet、lease、hash 或 currentness guards。
 
 维护真实 session 路线时，attached case 可启动 host；显式 live gate 省略 `-pack` 时使用 fresh 默认 `vmp-re`，RH-08 维护验收可显式选择 `_template` 或 `web-security`，且 receipt 必须写在 disposable case 外。ordinary daily front door 不接受 pack override，只从 fresh default 或 attached case metadata 派生 pack。用户对 current Reviewer rejection 或已 committed completion/closed lane 都只提交自然语言 correction；多 lane 先消费 typed choice ID。Reviewer rejection 继续走既有 intervention/reconcile owner；已完成 lane 只走 public `reopen` zero-write preview与exact Apply，成功后停在 `ready-to-continue`，不自动takeover/resume或启动Claude。Pending恢复和响应丢失重放都绑定同actor、correction、lane、evidence与exact plan；compound reopen的所有targets必须仍current：
 
@@ -88,9 +90,9 @@ go run ./cmd/rekit-host -live-pack-memory-acceptance -goal "<bounded-generic-pac
 
 live gate 要求第一轮真实 Reviewer 返回 canonical `reject/rejected`，receipt 的 `firstRejection` 固化 rejected manifest、packet/route/shard、ReviewerResult input SHA、reviewer session、verification/decision event 与历史 owner generation；`rejectedReplay` 必须证明同一旧 manifest zero-launch、mutation-free。current `TaskContext` 还必须包含从 exact selected pack manifest 派生的 output contract path/SHA、`feature-analysis` task type、route ID 与 fields；第一轮 rejection 和第二轮 acceptance route 都必须与各自 member contract exact match。correction 后 replacement `TaskContext` 必须读取同一 rejection lineage，第二代新 manifest 只能由独立新 Reviewer session canonical accept 后完成；completion 必须重验 packet shard items 与 canonical ReviewerResult items 完全一致且都绑定当前 manifest。action-ready currentness 继续严格绑定当前 RESUME/checkpoint/owner/correction，终态 receipt 则验证 immutable historical TaskContext 的内部 artifact hashes、mission intent 与当前 exact pack contract，不把 completion 正常刷新 lane 文档误判为历史快照漂移。receipt 中 `ownerGeneration` 表示 durable lane owner 代数，`attemptGeneration` 表示同一 external job 的 attempt 代数，`hostRun` + `runLaunchOrdinal` 表示本次 host 实际启动 Claude 的顺序；recovery completion 不伪装为新 launch。Claude 不可用时 gate 真实失败，不允许 fixture 或测试代码补写 LLM 结果。
 
-host 或 daily front door 失败时，JSON 的顶层 `failure`（每个失败 session 也有同形字段）是唯一可操作诊断：`code` / `stage` 稳定标识 executable、authentication、quota、model、spawn、timeout、permission、nonzero exit、envelope、session ID、structured output、submission 或 intake 阶段；`state` 只取 `terminal` / `replaceable` / `recoverable`，并与同名布尔值保持一致；`mutationApplied` + `mutationBoundary` 说明 durable runtime/result publication 是否可能已经写入；`attemptsUsed` / `attemptsLimit` 证明有界 replacement；`nextAction` 只给一个安全恢复动作。达到 attempt 上限后不会自动循环；submission/intake 失败不会伪装成新 LLM attempt，先刷新 status 并从已提交边界恢复。provider-side auth/quota/model 若当前环境未真实触发，只能把 deterministic 分类覆盖记为预期能力，不能声称现场观察。
+host 或 daily front door 失败时，JSON 的顶层 `failure`（每个失败 session 也有同形字段）是唯一可操作诊断：`code` / `stage` 稳定标识 executable、authentication、quota、model、spawn、timeout、permission、nonzero exit、envelope、session ID、structured output、submission 或 intake 阶段；`state` 只取 `terminal` / `replaceable` / `recoverable`，并与同名布尔值保持一致；`mutationApplied` + `mutationBoundary` 说明 durable runtime/result publication 是否可能已经写入；`attemptsUsed` / `attemptsLimit` 证明有界 replacement；`nextAction` 只给一个安全恢复动作。达到 attempt 上限后不会自动循环；submission/intake 失败不会伪装成新 LLM attempt，先刷新 status 并从已提交边界恢复。provider-side auth/quota/model 若当前环境未真实触发，只能把 deterministic 分类覆盖记为预期能力，不能声称现场观察。Claude process/envelope 成功不等于业务完成；strict structured `outcome=failed` 必须发布 failed submission、保持 completion 为 0，并只从 typed `action.recovery`（fallback `failure.nextAction`）给恢复动作。Replacement 上限同时消费 durable attempt generation 与当前 host launch ordinal，supervision fence 或 host restart 不能重置预算。
 
-维护 deterministic 日常路线时，当前只在 Windows 本机运行以下 Go-native smoke；它不作为跨平台验收：
+维护 deterministic 日常路线时，当前只在 Windows 本机运行以下 Go-native smoke；它不作为跨平台验收。Current `.steamai` 的current-sync Apply和durable detached-supervisor handoff也只在提供handle-bound exact mutation的Windows启用；非Windows在持久化副作用前拒绝，cross-compile不能替代runtime E2E：
 
 ```text
 go test ./internal/rekit/cli -run '^TestRunDailyMissionControlRouteSmokeProductPath$' -count=1
@@ -98,10 +100,12 @@ go test ./internal/rekit/cli -run '^TestRunDailyMissionControlRouteSmokeProductP
 
 该 smoke 在单个临时 case 中验证 `missing-board status → typed onboarding → quickstart continue preview/apply → 读回 durable run receipt/artifacts → intervention reconcile preview/apply → status refresh → typed project handoff preview/apply → explicit lane handoff preview + returned typed Apply → lane-scoped durable takeover → new-session status`；durable takeover artifact 采用 strict JSON decode，绑定完整 `currentDriverRequest` identity SHA 与 exact artifact bytes SHA，fresh status 会先验证 artifact 顶层镜像、再按当前 invocation 补齐 target/WhatIf/format/refresh route 后比较完整 request identity；unknown/trailing JSON、action/driver/expectedReceipt/boundary drift 均 fail-closed 并给出 handoff refresh preview。它不执行 heavy-tool、不 spawn session、不写 authority/confirmed。
 
+以下长命令块是 **legacy／backend deterministic reference**，仅供 legacy-only `.rekit` 项目、维护者、自动化和 full diagnostics 使用。current `.steamai` 项目的普通用户应继续使用 `/steamai` 或自然语言，不照抄这些 `/rekit` 命令。
+
 ```text
-/rekit overview              # 看项目总览，不选择工作线
-/rekit continue main         # 接手主线
-/rekit start unpacking       # 创建/进入功能支线；已有 lane 若仍有 pending gate / open decision 会直接显示 handoff
+/rekit overview              # legacy/维护诊断：看项目总览，不选择工作线
+/rekit continue main         # legacy/内部 owner：接手主线
+/rekit start unpacking       # legacy/内部 owner：创建/进入功能支线；已有 lane 若仍有 pending gate / open decision 会直接显示 handoff
 /rekit continue unpacking    # 继续功能支线；若存在 intervention / pending gate / open decision 会先返回 blocked handoff
 /rekit reconcile unpacking   # 将用户干预显式 reconcile 到 durable lane state；若剩余 gate/decision blocker 会直接显示下一条 handoff
 /rekit handoff               # 生成项目级接手索引
@@ -181,9 +185,9 @@ go test ./internal/rekit/cli -run '^TestRunDailyMissionControlRouteSmokeProductP
 
 ### Bounded current-loop 与外部 session 接力
 
-`run-current-loop`在同一固定route/lane内连续执行deterministic步骤；遇到durable member handoff或reviewer handoff时停止并发布strict checkpoint，不跨边界自动管理session。刷新status后先审核`externalSessionJob.attemptRequest`：把占位替换为真实owner harness/session/actor/time，执行零写入WhatIf，再执行返回的exact hash-bound Apply。Apply先发布immutable `.rekit/external-session-dispatch/inbox/<job>/<generation>.json` ticket，最后写attempt receipt作为commit point；若进程在两者之间中断，fresh status返回`attempt-publication-pending`与由ticket重建的exact Apply，不依赖旧聊天参数。Attempt receipt只表示owner reservation，不表示外部session已启动。
+`run-current-loop`在同一固定route/lane内连续执行deterministic步骤；遇到durable member handoff或reviewer handoff时停止并发布strict checkpoint，不跨边界自动管理session。刷新status后先审核`externalSessionJob.attemptRequest`：把占位替换为真实owner harness/session/actor/time，执行零写入WhatIf，再执行返回的exact hash-bound Apply。Apply先发布immutable `<active-state-root>/external-session-dispatch/inbox/<job>/<generation>.json` ticket，最后写attempt receipt作为commit point；若进程在两者之间中断，fresh status返回`attempt-publication-pending`与由ticket重建的exact Apply，不依赖旧聊天参数。Attempt receipt只表示owner reservation，不表示外部session已启动。
 
-Committed attempt进入`externalSessionJob.dispatcher.state=queued`。外部dispatcher执行`claimRequest`写exclusive claim；claim只表示独占领取，也不表示已启动。实际调用Claude Code harness后，必须按真实结果执行`launchAcceptedRequest`或`launchFailedRequest`，写入`.rekit/external-session-dispatch/launch-receipts/<job>/<generation>.json`。只有accepted receipt才进入`running`，并以`actualHarness`/`actualSession`作为submission identity；failed receipt进入显式replacement handoff。Ticket、claim和launch receipt均为strict canonical JSON，绑定exact job/checkpoint/current generation/attempt SHA，unknown/trailing/noncanonical、input SHA drift、symlink/reparse、different claimant、stale generation或bytes tamper全部fail-closed。
+Committed attempt进入`externalSessionJob.dispatcher.state=queued`。外部dispatcher执行`claimRequest`写exclusive claim；claim只表示独占领取，也不表示已启动。实际调用Claude Code harness后，必须按真实结果执行`launchAcceptedRequest`或`launchFailedRequest`，写入`<active-state-root>/external-session-dispatch/launch-receipts/<job>/<generation>.json`。只有accepted receipt才进入`running`，并以`actualHarness`/`actualSession`作为submission identity；failed receipt进入显式replacement handoff。Ticket、claim和launch receipt均为strict canonical JSON，绑定exact job/checkpoint/current generation/attempt SHA，unknown/trailing/noncanonical、input SHA drift、symlink/reparse、different claimant、stale generation或bytes tamper全部fail-closed。
 
 日常Mission Commander或replacement executor不需要在这些nested modes间手工切换：对fresh status执行`run-current-step -WhatIf`即可得到当前唯一typed external step。首次/replacement attempt需要harness/session/actor/startedAt；queued claim需要actor/observedAt；claimed launch需要accepted或failed outcome及对应actual identity/reason。输入不足时plan只返回`inputRequired`且没有Apply hash；输入齐全时outer hash绑定exact current request与nested plan。`running`返回同源、不可执行的wait/reconnect/replace handoff；它只证明accepted launch truth，不证明process仍存活，replacement只fence旧generation且不stop旧process。Submission-ready时同一入口复用既有composite turn完成relay/intake/checkpoint resume；直接`run-current-loop`命令保留给external host、恢复与诊断。
 
@@ -242,7 +246,7 @@ Replacement executor应以fresh `status.missionControlRunbook.replacementExecuto
 - 长期成员身份绑定 lane，不绑定旧 session；旧会话上下文污染或用户希望重开时，新会话应读取 handoff / packet / evidence 接手同一 lane。需要显式登记或接管当前 lane executor 时，主 Agent使用 `/rekit start <name> -Apply -Executor <session-id> -Actor <actor> -Reason <reason>` 写入 `currentExecutor`、`executorGeneration` 与 takeover metadata；当 `<name>` 解析到已有工作线（例如 `main`、`feature-login` 或 `login`）时，start 进入该 durable lane 而不是新建并行 lane，因此 replacement session 可用 `/rekit start main -Apply -Executor <new-session> ...` 接手主线并刷新 resume/checkpoint/events；runtime 只记录和投影该声明，不自动 spawn、停止或监控 session。
 - 用户可随时进入 lane 打断、纠错、改向或硬切模型；lane 继续时要用 `/rekit reconcile <name> -InterventionId <eventId> -Apply` 将干预写成 append-only resolution event，并刷新 durable lane executor/resume/checkpoint/board state。
 - 已完成lane或terminal mission需要纠正时，日常入口优先把用户原话交给`rekit-host -daily -correction`：它从fresh typed state唯一选择committed completion，多lane先返回typed choices，再复用`/rekit reopen <name>`的WhatIf→expected-hash Apply owner；维护者也可直接使用该底层owner。Terminal feature会与已失效的main aggregate completion作为显式compound targets共同复开。历史completion intent/receipt与events不删除，final operation commit前handoff和ordinary mutation拒绝半完成状态；pending只恢复exact original Apply，committed response-loss replay零写入且复核全部targets仍current。复开清空旧executor并递增generation，返回`ready-to-continue`，不自动接管、不恢复旧session或current-loop budget。
-- `plan-subagents` planning mode 只写 review artifacts，不自动 spawn reviewer；`packet.json` / `summary.md` 的 `ownerBinding`、`shardHandoffs[]` 与 `reviewerOrchestration` 提供 target lane current executor / generation / last takeover snapshot、read-only dispatch prompt、strict `reviewerResultContract`、decision/conflict mapping、`reviewerIntakeCommands`、`reviewerIntakeCommands.repairGuidance[]`、blocked repair boundaries、writeback sequence、多 reviewer dispatch/result root、lifecycle 与 result/intake completion criteria。planning result、packet `reviewerOrchestration` 与 summary 还应输出 top-level / nested `missionCommanderAction`、`missionCommanderNextActions[]` 与 `missionCommanderActionQueue`（summary/counts/current/unblocked/blocked/review/follow-up buckets），把 reviewer dispatch、result collection、intake preview/apply ordering、dispatch-only unattached target 与 empty-plan replan guidance 收口为主 Agent 可直接消费的 source/blocked/requiresReview/reasons/boundary/command 列表；`plan-subagents -Format text` 也应打印同一 commander action、action queue、next-action lines、reviewer orchestration lifecycle（scope、packet/result identity、owner、inputs、mustPass、runtime boundary、completion criteria）与 `shardHandoffs[]` terminal handoff（reviewerResultPath/items/expectedOutput、owner binding/requiredForIntake/current executor/generation/runtime session boundary/takeover provenance、reviewer writeback、main-agent next action、read-only boundary、dispatch prompt、strict `reviewerResultContract`、可复制 reviewer result JSON skeleton、routeOutput required field hints、`reviewerIntakeCommands` preview/apply handoff、preview checks/blocked outputs、intake checklist、decision mappings、conflict handling、writeback sequence `mustPass[]`/command binding source、post-review merge、completion/failure criteria），写入的 `summary.md` review artifact 也必须在 shard handoff 区域保留 reviewerResultPath、可复制 reviewer result JSON skeleton、routeOutput field hints 和 packet/route/shard binding guidance；且生成给 short-lived read-only reviewer 的 packet shard prompt / `dispatchPrompt` 本身也必须要求返回单个 `ReviewerResult` JSON object、内嵌 reviewer result skeleton、routeOutput field hints 与 top-level decision/confidence/evidenceRefs 绑定说明，明确不要只返回 routeOutput alone；这样可避免 terminal replacement executor 或 reviewer 为 reviewer dispatch / intake path 构造 strict reviewer result、解析 JSON packet 或打开 summary。attached-case intake preview/apply next actions 必须保持 blocked/requiresReview，直到 reviewer JSON 已通过 capture/staging/collection 到 canonical result path、preview 返回 `readyForWriteback=true` 且 evidenceRefs 已被主 Agent复核。每个 shard handoff提供 typed `agentToolRequest`；只有严格位于`.rekit/reviews/<单层review>/packet.json`且result/candidate geometry一致的canonical case-local packet才同时提供`reviewerResultCandidatePath`与`reviewerCollectionCommands`。主 Agent使用`agentToolRequest`调度短命read-only reviewer，harness实际接受session后运行`-RecordReviewerDispatch -WhatIf`→returned expected-hash Apply；reviewer只返回包含同一`reviewerSession`的单个JSON object且不写文件/ledger。session结束并保存exact JSON input后运行`-RecordReviewerCompletion -WhatIf`→returned expected-dispatch/input-hash Apply；只有current owner generation下的successful completion receipt才允许canonical packet用 `-CaptureReviewerResultSource` 将 exact JSON input 发布到 packet-derived source，再用 `-StageReviewerResult` 发布到 candidate path，随后运行 collection WhatIf 复核 packet/route/shard/items、case-local evidence、route output 和 blocked 边界，再显式 Apply；collection只向 immutable packet 派生的 canonical `reviewerResultPath` 发布 exact bytes，不覆盖不同结果，相同 replay 幂等。若candidate正确但canonical result已存在不同regular bytes，durable handoff提升typed result recovery WhatIf；主Agent必须复核exact candidate/result hashes，再显式Apply把冲突bytes移动到hash-addressed quarantine并写strict durable intent/receipt。中断于quarantine与receipt之间时，同一WhatIf→expected-hash Apply从exact intent+quarantine补齐receipt；forged path/hash、changed bytes或已有verification/decision均fail-closed。recovery不生成verdict、不写或撤销facts，完成后仍须重新执行collection WhatIf→Apply和独立intake。attached custom/noncanonical packet不产生collection command，仍可将JSON直接放到`reviewerResultPath`后运行strict direct或packet batch intake；out-of-case packet只dispatch，attach/init后必须重新生成canonical packet。canonical result到位后再调用packet-level reviewer intake `-WhatIf/-Apply`；runtime 严格绑定 packet/route/shard/items，验证 lane owner binding、case-local evidence 与 route output contract，若 packet 要求的 executor generation 已被 takeover 则写 facts 前 fail-closed，按 verification-before-decision 顺序写 facts，并返回 top-level `missionCommanderAction` / `missionCommanderNextActions[]` / `missionCommanderActionQueue`、`orchestrationSnapshot`、overview/handoff/doctor post-validation；reviewer-intake `-Format text` 应同步打印 intake status、reviewer result identity/decision/confidence/session/recommendedVerdict、summary/items/evidenceRefs/risks/conflicts、sorted routeOutput key/value、blocked reason、repair guidance/action/evidence/boundary、verification/decision writeback checkpoint（applied/eventId）、verification/decision nested note event detail（kind/eventId/applied、subject/target/lane/confidence/evidenceRefs、summary、verdict/decision/reason、packet/route/shard、reviewerSession、owner binding）、verification/decision/post-validation、postValidation overview totals、handoff lane/queue/current、post-validation next actions、commander action、action queue 与 next actions；blocked / event-id-collision / post-validation failed repair guidance 必须让主 Agent 不解析 JSON 也能看到修复动作、证据和不要 apply / no-heavy / no-authority 边界；partial writeback recovery 必须让主 Agent 不解析 JSON 也能看到已落账 verification、未落账 decision 与同一 apply command 重试边界；nested verification / decision `note.AppendResult` 也保留 note-level current/would/post commander delta。verification / decision events 与 lane handoff 会记录 reviewer session provenance、owner binding snapshot、reviewer decision/recommendedVerdict、risks/conflicts 与 normalized routeOutput；这些字段也会进入 downstream `reviewerWritebacks[]`、overview detail、status/handoff/continue、lane `RESUME.md`、checkpoint 与 digest，并在 status/handoff/continue、lane `RESUME.md`、checkpoint 与 digest 通过 `reviewerWritebackSummary` / reviewer writeback summary lines 压缩 latest reviewer session/result/shard、counts、evidence refs 与 no-heavy/no-authority/no-spawn boundary，让 replacement executor 不必重开 reviewer result JSON 或逐条扫描 writebacks 即可复核 reviewer provenance。reviewer 不写文件或 ledger；intake 不写 authority/confirmed、不执行 heavy-tool，最终 merge decision 仍由主 Agent拥有。多个 shard 的 result 已放入 packet 指定路径后，attached-case planning result、`packet.json`、`summary.md` 与 Mission Commander action queue 会直接提供 packet-level `batchPreviewCommand` / `batchApplyCommand`，主 Agent无需逐 shard拼接 intake 命令；status/handoff/continue 与 durable resume/checkpoint/digest 也会在 ready result 出现时提升同一 batch preview，旧 packet 无 batch fields 时回退 single-result preview，out-of-case dispatch-only packet 不生成 runnable batch commands。若packet创建后lane executor发生takeover，status/handoff会先提升`reviewer-packet-owner-adoption-required`，主Agent必须使用同一packet运行`-AdoptReviewerPacket -WhatIf`再显式`-Apply`；case-local receipt绑定exact packet hash、repo/case/pack/lane及新旧owner generation，保持packet与reviewer result identity immutable，再次takeover会使receipt失效。任何waiting/ready/partial/stale/blocked reviewer packet仍open时，continue WhatIf/Apply都fail-closed且不创建run、不写facts、不刷新resume/checkpoint/board。主 Agent仍必须显式执行 batch WhatIf、复核 ready/waiting/evidence/blocked state 后才 Apply：runtime 只发现非空、非 symlink ready results，要求 result `shardId` 绑定当前 packet handoff，按 packet shard handoff顺序复用同一 strict single-result intake，保持每 shard verification-before-decision 与幂等重试，并在首个 blocked、partial writeback、event collision、post-validation failure 或 strict intake error 处停止；strict error 返回非成功命令状态并保留 recovery envelope，missing/empty paths 仅计入 waiting 且不会建议继续 lane，不自动 spawn、轮询或监控 reviewer。
+- `plan-subagents` planning mode 只写 review artifacts，不自动 spawn reviewer；`packet.json` / `summary.md` 的 `ownerBinding`、`shardHandoffs[]` 与 `reviewerOrchestration` 提供 target lane current executor / generation / last takeover snapshot、read-only dispatch prompt、strict `reviewerResultContract`、decision/conflict mapping、`reviewerIntakeCommands`、`reviewerIntakeCommands.repairGuidance[]`、blocked repair boundaries、writeback sequence、多 reviewer dispatch/result root、lifecycle 与 result/intake completion criteria。planning result、packet `reviewerOrchestration` 与 summary 还应输出 top-level / nested `missionCommanderAction`、`missionCommanderNextActions[]` 与 `missionCommanderActionQueue`（summary/counts/current/unblocked/blocked/review/follow-up buckets），把 reviewer dispatch、result collection、intake preview/apply ordering、dispatch-only unattached target 与 empty-plan replan guidance 收口为主 Agent 可直接消费的 source/blocked/requiresReview/reasons/boundary/command 列表；`plan-subagents -Format text` 也应打印同一 commander action、action queue、next-action lines、reviewer orchestration lifecycle（scope、packet/result identity、owner、inputs、mustPass、runtime boundary、completion criteria）与 `shardHandoffs[]` terminal handoff（reviewerResultPath/items/expectedOutput、owner binding/requiredForIntake/current executor/generation/runtime session boundary/takeover provenance、reviewer writeback、main-agent next action、read-only boundary、dispatch prompt、strict `reviewerResultContract`、可复制 reviewer result JSON skeleton、routeOutput required field hints、`reviewerIntakeCommands` preview/apply handoff、preview checks/blocked outputs、intake checklist、decision mappings、conflict handling、writeback sequence `mustPass[]`/command binding source、post-review merge、completion/failure criteria），写入的 `summary.md` review artifact 也必须在 shard handoff 区域保留 reviewerResultPath、可复制 reviewer result JSON skeleton、routeOutput field hints 和 packet/route/shard binding guidance；且生成给 short-lived read-only reviewer 的 packet shard prompt / `dispatchPrompt` 本身也必须要求返回单个 `ReviewerResult` JSON object、内嵌 reviewer result skeleton、routeOutput field hints 与 top-level decision/confidence/evidenceRefs 绑定说明，明确不要只返回 routeOutput alone；这样可避免 terminal replacement executor 或 reviewer 为 reviewer dispatch / intake path 构造 strict reviewer result、解析 JSON packet 或打开 summary。attached-case intake preview/apply next actions 必须保持 blocked/requiresReview，直到 reviewer JSON 已通过 capture/staging/collection 到 canonical result path、preview 返回 `readyForWriteback=true` 且 evidenceRefs 已被主 Agent复核。每个 shard handoff提供 typed `agentToolRequest`；只有严格位于`<active-state-root>/reviews/<单层review>/packet.json`且result/candidate geometry一致的canonical case-local packet才同时提供`reviewerResultCandidatePath`与`reviewerCollectionCommands`。主 Agent使用`agentToolRequest`调度短命read-only reviewer，harness实际接受session后运行`-RecordReviewerDispatch -WhatIf`→returned expected-hash Apply；reviewer只返回包含同一`reviewerSession`的单个JSON object且不写文件/ledger。session结束并保存exact JSON input后运行`-RecordReviewerCompletion -WhatIf`→returned expected-dispatch/input-hash Apply；只有current owner generation下的successful completion receipt才允许canonical packet用 `-CaptureReviewerResultSource` 将 exact JSON input 发布到 packet-derived source，再用 `-StageReviewerResult` 发布到 candidate path，随后运行 collection WhatIf 复核 packet/route/shard/items、case-local evidence、route output 和 blocked 边界，再显式 Apply；collection只向 immutable packet 派生的 canonical `reviewerResultPath` 发布 exact bytes，不覆盖不同结果，相同 replay 幂等。若candidate正确但canonical result已存在不同regular bytes，durable handoff提升typed result recovery WhatIf；主Agent必须复核exact candidate/result hashes，再显式Apply把冲突bytes移动到hash-addressed quarantine并写strict durable intent/receipt。中断于quarantine与receipt之间时，同一WhatIf→expected-hash Apply从exact intent+quarantine补齐receipt；forged path/hash、changed bytes或已有verification/decision均fail-closed。recovery不生成verdict、不写或撤销facts，完成后仍须重新执行collection WhatIf→Apply和独立intake。attached custom/noncanonical packet不产生collection command，仍可将JSON直接放到`reviewerResultPath`后运行strict direct或packet batch intake；out-of-case packet只dispatch，attach/init后必须重新生成canonical packet。canonical result到位后再调用packet-level reviewer intake `-WhatIf/-Apply`；runtime 严格绑定 packet/route/shard/items，验证 lane owner binding、case-local evidence 与 route output contract，若 packet 要求的 executor generation 已被 takeover 则写 facts 前 fail-closed，按 verification-before-decision 顺序写 facts，并返回 top-level `missionCommanderAction` / `missionCommanderNextActions[]` / `missionCommanderActionQueue`、`orchestrationSnapshot`、overview/handoff/doctor post-validation；reviewer-intake `-Format text` 应同步打印 intake status、reviewer result identity/decision/confidence/session/recommendedVerdict、summary/items/evidenceRefs/risks/conflicts、sorted routeOutput key/value、blocked reason、repair guidance/action/evidence/boundary、verification/decision writeback checkpoint（applied/eventId）、verification/decision nested note event detail（kind/eventId/applied、subject/target/lane/confidence/evidenceRefs、summary、verdict/decision/reason、packet/route/shard、reviewerSession、owner binding）、verification/decision/post-validation、postValidation overview totals、handoff lane/queue/current、post-validation next actions、commander action、action queue 与 next actions；blocked / event-id-collision / post-validation failed repair guidance 必须让主 Agent 不解析 JSON 也能看到修复动作、证据和不要 apply / no-heavy / no-authority 边界；partial writeback recovery 必须让主 Agent 不解析 JSON 也能看到已落账 verification、未落账 decision 与同一 apply command 重试边界；nested verification / decision `note.AppendResult` 也保留 note-level current/would/post commander delta。verification / decision events 与 lane handoff 会记录 reviewer session provenance、owner binding snapshot、reviewer decision/recommendedVerdict、risks/conflicts 与 normalized routeOutput；这些字段也会进入 downstream `reviewerWritebacks[]`、overview detail、status/handoff/continue、lane `RESUME.md`、checkpoint 与 digest，并在 status/handoff/continue、lane `RESUME.md`、checkpoint 与 digest 通过 `reviewerWritebackSummary` / reviewer writeback summary lines 压缩 latest reviewer session/result/shard、counts、evidence refs 与 no-heavy/no-authority/no-spawn boundary，让 replacement executor 不必重开 reviewer result JSON 或逐条扫描 writebacks 即可复核 reviewer provenance。reviewer 不写文件或 ledger；intake 不写 authority/confirmed、不执行 heavy-tool，最终 merge decision 仍由主 Agent拥有。多个 shard 的 result 已放入 packet 指定路径后，attached-case planning result、`packet.json`、`summary.md` 与 Mission Commander action queue 会直接提供 packet-level `batchPreviewCommand` / `batchApplyCommand`，主 Agent无需逐 shard拼接 intake 命令；status/handoff/continue 与 durable resume/checkpoint/digest 也会在 ready result 出现时提升同一 batch preview，旧 packet 无 batch fields 时回退 single-result preview，out-of-case dispatch-only packet 不生成 runnable batch commands。若packet创建后lane executor发生takeover，status/handoff会先提升`reviewer-packet-owner-adoption-required`，主Agent必须使用同一packet运行`-AdoptReviewerPacket -WhatIf`再显式`-Apply`；case-local receipt绑定exact packet hash、repo/case/pack/lane及新旧owner generation，保持packet与reviewer result identity immutable，再次takeover会使receipt失效。任何waiting/ready/partial/stale/blocked reviewer packet仍open时，continue WhatIf/Apply都fail-closed且不创建run、不写facts、不刷新resume/checkpoint/board。主 Agent仍必须显式执行 batch WhatIf、复核 ready/waiting/evidence/blocked state 后才 Apply：runtime 只发现非空、非 symlink ready results，要求 result `shardId` 绑定当前 packet handoff，按 packet shard handoff顺序复用同一 strict single-result intake，保持每 shard verification-before-decision 与幂等重试，并在首个 blocked、partial writeback、event collision、post-validation failure 或 strict intake error 处停止；strict error 返回非成功命令状态并保留 recovery envelope，missing/empty paths 仅计入 waiting 且不会建议继续 lane，不自动 spawn、轮询或监控 reviewer。
 - confirmed / authority 写入仍需要更严格 gate；lane 文档/packet 只表达授权意图，动态调试、注入、patch、dump、hook、full trace、网络、exploit replay 等外部副作用只有在 strict durable autonomy profile + `authorized-gate` decision 完全覆盖 action、exact target、typed budget、stop conditions、output paths、record/notify 和 grant/expiry 时才可由 executor 执行，否则必须升级。
 
 ## 风险与注意事项
@@ -257,92 +261,65 @@ Replacement executor应以fresh `status.missionControlRunbook.replacementExecuto
 
 ## 1. 新架构如何使用
 
-### 1.1 维护 kit 仓库
+### 1.1 维护实现仓库
 
 维护者主要改五层：
 
 | 层 | 路径 | 什么时候改 |
 |---|---|---|
-| Skill UI | `.claude/skills/rekit/SKILL.md` | 调整用户可见 `/rekit` 语义和确认规则 |
-| Runtime | `cmd/rekit/**`、`internal/rekit/**`、retained façade `rekit/rekit.ps1` | 调整确定性命令、状态、review、sync/promote 行为；不新增 PowerShell runtime logic |
+| Skill UI | `.claude/skills/steamai/SKILL.md`、legacy `.claude/skills/rekit/SKILL.md` | 调整 `/steamai` 用户语义或明确的兼容边界 |
+| Runtime | `cmd/rekit/**`、`internal/rekit/**`、retained façade `rekit/rekit.ps1` | 调整确定性命令、状态、review、sync/promote 行为；内部命名暂不机械替换，不新增 PowerShell runtime logic |
 | Pack | `packs/<pack>/**` | 新增领域流程、tooling、reference、manifest 规则 |
 | Common | `common/**` | 多 pack 共享 policy / prompt |
 | Docs | `README.md`、`docs/**` | 使用说明、设计、路线、迁移和验证 |
 
-维护本仓库时不需要运行 `/rekit init`。只有需要验证 case 行为时，才创建临时 case。
+维护本仓库时不要在仓库内创建真实项目状态。只有验证 init/attach/migration/sync/promote 时，才使用临时项目。
 
-### 1.2 接入新安全 case（当前以 `vmp-re` 为例）
+### 1.2 接入新 STeamAI 项目（当前以 `vmp-re` 为例）
 
-从 kit 仓库启动 Claude Code，先让主 Agent把自然语言目标收敛为显式 mission identity，然后：
+用户在真实项目目录启动已有 Claude Code，输入 `/steamai` 或自然语言目标。普通目录先返回零写入的 `directory-adoption-required`；明确选择安全接入后，主 Agent展示 canonical init preview，并只原样消费其 hash-bound Apply。
 
-```text
-/rekit onboard -Target <workspaceRoot>\cases\<caseName> -Pack vmp-re -ProjectName <caseName> -Goal <opaqueGoal> -Actor <actor> -Executor <executor> -InitialLane <lane> -WhatIf -Format json
-```
-
-复核 preview 后原样消费返回的 `applyArgs[]`。`onboard` committed 后形成 immutable mission intent 与 case scaffold，但不创建 board/lane；status 会先路由 overview，再由 committed initial lane/executor/actor 驱动 start。兼容/维护场景仍可使用 `init`；其创建内容包括：
+新项目预期创建：
 
 ```text
-<caseRoot>\.rekit\instance.yml
-<caseRoot>\.rekit\state.json
-<caseRoot>\.claude\skills\rekit\SKILL.md
-<caseRoot>\references\vmp-re\...
-<caseRoot>\CLAUDE.local.md 中的 managed router block
+<project>\.claude\skills\steamai\SKILL.md
+<project>\.steamai\instance.yml
+<project>\.steamai\state.json
+<project>\.steamai\runtime\manifest.json
+<project>\.steamai\runtime\bin\...
+<project>\.steamai\packs\vmp-re\...
+<project>\.steamai\common\...
 ```
 
-之后进入 case 目录，每天只用 `/rekit`：
+确认前零写入、零 Claude launch。接入后每天仍只需 `/steamai` 或自然语言；内部 onboard/start/continue/handoff 操作由主 Agent从 fresh typed state 调用，用户不手工拼接 identity、lane 或 SHA。
 
-```text
-/rekit overview
-/rekit continue main
-/rekit start <feature>
-/rekit handoff
-```
+### 1.3 接入或迁移旧项目
 
-### 1.3 接入已有 case
+已有普通目录不允许无预览覆盖。旧 `.rekit` 项目先确认是 legacy-only，并继续使用 `/rekit` 单写旧根；迁移必须走独立 preview → exact plan SHA Apply → durable receipt。迁移会切换 project skill 和 relocatable metadata，并原样保留 durable state 语义；不得创建 `.steamai` 后仍继续写 `.rekit`，也不得自动合并双根。
 
-已有 case 不建议直接 `init` 覆盖。先用：
-
-```text
-/rekit attach -Target <caseRoot> -Pack vmp-re -Apply
-```
-
-`attach -Apply` 只做四件事：
-
-1. 写 `.rekit/instance.yml`。
-2. 写 legacy `.re-template.yml`。
-3. 写/更新 `.rekit/state.json`。
-4. 写 case-local `/rekit` thin shim。
-
-它不会覆盖已有 references、handoff 或工具链文档。随后用：
-
-```text
-/rekit sync
-```
-
-生成 review 包。确认无误后，再让 Claude 执行写入型 sync；Batch 106 起 `sync -Apply` 默认由 Go backend 处理，Batch 228 起 `sync` / `update` PowerShell fallback 已退休。
+旧 `attach`、`repair`、`sync` 和中央 kit thin-shim 流程继续作为 compatibility/maintenance API。`sync` / `promote` 仍始终 review-first，写入前必须确认具体范围。
 
 ## 2. 主线和功能支线是否还能用
 
 能，而且新架构更依赖它们。
 
-| 工作线 | 典型命令 | 主要职责 | 默认可写 |
-|---|---|---|---|
-| 主线 | `/rekit continue main` | 收敛结论、验证 candidate、维护长期 handoff、处理 authority review；JSON envelope/run artifacts 暴露 apply 后 `missionBrief`，含 pending gates 与非阻塞 authorized gates；若存在 pending gate / open decision / intervention blocker，continue 先 zero-write 返回 handoff | canonical 文件、主线 workspace、`.rekit/**` |
-| 功能支线 | `/rekit start <name>`、`/rekit continue <name>` | 围绕一个功能点/阻塞点做探索、收集 evidence、提出 candidate/request；start/reconcile/continue preview/apply `missionBrief` 让 lane executor 看到全局 ready/blocked 状态、pending gates 与非阻塞 authorized gates；start/reconcile 在接管或清除 intervention 后会直接投影剩余 gate/decision handoff；按 handoff 记录 terminal `note -Kind decision -Related <candidateEventId>` 后会关闭对应 open candidate blocker；blocked continue 不写 lane artifacts，先给 gate/decision/reconcile handoff | 自己的 lane workspace、outbox、candidate/request |
-| 项目级索引 | `/rekit handoff` | 生成跨工作线接手索引，并在顶部 Markdown 与 Go JSON `missionBrief` 汇总 ready/blocked lanes、pending gates、authorized gates、open decisions、interventions、next agent actions 与 escalations | `.rekit/handovers/latest.md` |
+| 工作线 | 普通用户表达 | 内部 deterministic owner | 主要职责 | 默认可写 |
+|---|---|---|---|---|
+| 主线 | “继续主线” | legacy/维护参考：`/rekit continue main` | 收敛结论、验证 candidate、维护长期 handoff、处理 authority review；JSON envelope/run artifacts 暴露 apply 后 `missionBrief`，含 pending gates 与非阻塞 authorized gates；若存在 pending gate / open decision / intervention blocker，continue 先 zero-write 返回 handoff | canonical 文件、主线 workspace、`<active-state-root>/**` |
+| 功能支线 | “开一条 `<name>` 工作线”“继续 `<name>` 工作线” | legacy/维护参考：`/rekit start <name>`、`/rekit continue <name>` | 围绕一个功能点/阻塞点做探索、收集 evidence、提出 candidate/request；start/reconcile/continue preview/apply `missionBrief` 让 lane executor 看到全局 ready/blocked 状态、pending gates 与非阻塞 authorized gates；blocked continue 不写 lane artifacts，先给 gate/decision/reconcile handoff | 自己的 lane workspace、outbox、candidate/request |
+| 项目级索引 | “生成项目接手信息” | legacy/维护参考：`/rekit handoff` | 生成跨工作线接手索引，并在顶部 Markdown 与 Go JSON `missionBrief` 汇总 ready/blocked lanes、pending gates、authorized gates、open decisions、interventions、next agent actions 与 escalations | `<active-state-root>/handovers/latest.md` |
 
-推荐流程：
+current 项目推荐流程：
 
 ```text
-/rekit overview
-/rekit continue main
+/steamai
+现在到哪了？
+继续主线。
 # 主线判断需要专项探索
-/rekit start vm-entry
-# 在 vm-entry 支线收集证据和候选
-/rekit continue vm-entry
-# 回主线复核并决定是否确认
-/rekit continue main
-/rekit handoff
+开一条 vm-entry 工作线并收集证据。
+继续 vm-entry 工作线。
+回到主线复核候选；不要自动写 authority/confirmed。
+生成项目接手信息。
 ```
 
 功能支线不是“低级 agent”，而是隔离写入和上下文的单位。它可以由同一个 Claude 会话推进，也可以由后续子 agent 或新会话接手。
@@ -376,7 +353,7 @@ Replacement executor应以fresh `status.missionControlRunbook.replacementExecuto
 - `references/vmp-re/task-handoff.md` 是 local file，不会被 sync 覆盖。
 - `CLAUDE.local.md` 的 managed router block 会被 sync 管理，但 block 外私有内容保留。
 - `tools.local.yml`、`captures/**`、`artifacts/**` 不会被 promote。
-- 旧 handoff 可继续保留；新 handoff 会优先写 `.rekit/handovers/**`。
+- 旧 handoff 可继续保留；legacy-only 项目在迁移前新生成的 handoff 仍写 `.rekit/handovers/**`。
 
 ### 3.3 旧命令习惯
 
@@ -390,40 +367,22 @@ Replacement executor应以fresh `status.missionControlRunbook.replacementExecuto
 | 手动维护单一 task handoff | `/rekit handoff` 与 `/rekit handoff <name>` |
 | 直接把 case 经验复制回 pack | `/rekit promote` review-first |
 
-## 4. 这套架构的后续优化空间
+## 4. 当前路线与后续边界
 
-### 4.1 短期优化
+当前唯一实施路线是 `steamai-self-contained-project-v1` / Batch 828。append-only evidence ledger、Reviewer strict intake、lane handoff、heavy-action gate、authorized execution evidence 和 adapter 基础已经存在，不再作为“未来待实现”重复立项。
 
-- 补 `docs/agent-team-usage.md` 到 case managed docs 或 reference 路由中，让 case 内也能直接看到本指南。
-- 让 `/rekit overview` 更清楚地区分“未接手工作线”和“已接手工作线”。
-- 增加旧 case 检测摘要：缺 `.rekit/instance.yml`、只有 `.re-template.yml`、缺 managed docs、缺 handoff 索引时给出明确下一步。
-- smoke test 已有维护指南 `rekit/tests/README.md` 和 pack smoke matrix；后续可继续推进 CI 检查，避免只靠人工临时命令。
-
-### 4.2 中期优化
-
-- 将 evidence ledger 从文档草案推进到 runtime 支持的 append-only JSONL。
-- 将 heavy-tool gate / lane autonomy profile 做成可复用 packet、授权和记录流程，支持预授权范围内自主执行与越界升级。
-- 继续完善 `plan-subagents` 的 tactical reviewer dispatch、多 shard intake 与跨会话接手收敛；当前已支持 planning review artifacts、planning compact orchestration summary、capture-first reviewer result source→staging→collection→ready intake 链路、每个 reviewer result writeback execution envelope 的 `runbookSteps[]` / text runbook 行，以及 collection preview 遇 canonical 冲突时的 `recovery-required` → `-RecoverReviewerResult -WhatIf` 恢复 handoff，后续重点是 bounded orchestration，而不是重复实现单 reviewer intake 或恢复手动 note 落账。
-- 为 `packs/_template` 增加最小验证命令，降低新 pack 作者出错概率。
-
-### 4.3 长期优化
-
-- 拆出更多安全领域 pack；`web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 与 `generic-binary-re` 已有 skeleton，后续按真实需求继续推进其它领域 pack。
-- 引入工具 adapter 层，把 IDA/x64dbg/trace/unicorn/symex、Web/API 测试、样本分析等能力先 recipe 化，再稳定成 adapter。
-- 建立 candidate -> review -> confirmed 的机器可验证 gate。
-- 将多 Agent 编排与证据账本结合，支持可回放、可审计、可回滚的安全研究工作流。
+本轮只收口自包含产品闭环：strict active state root、project-local verified runtime/pack、copied-directory 无中央 kit运行、compact status、人话 recovery、`bounded-autonomous-v1`、legacy migration 和完整 Windows 验证。其它 pack 深化、新 adapter、GUI/TUI、安装器、跨平台产品 E2E 或更大自治范围，都要等本轮完成后重新评估，不能从本指南自行领取。
 
 ## 5. 推荐使用决策表
 
 | 你现在的情况 | 推荐动作 |
 |---|---|
-| 只维护本仓库 | 读 `CLAUDE.md` 与 `docs/context-routing.md`，再按场景读本文件顶部或其它入口；不要 init case |
-| 新建安全 case（当前成熟示例：`vmp-re` RE case） | 在 kit 仓库让主 Agent显式收敛 mission identity，运行 `/rekit onboard ... -WhatIf -Format json`，复核后原样消费 `applyArgs[]` |
-| 已有 case 接入新架构 | 用 `/rekit attach`，再 `/rekit sync` review |
-| 旧 case 移动了目录 | `/rekit status` -> `/rekit repair` -> 确认后 `repair -Apply` -> `/rekit doctor` |
-| 想看项目全局状态 | `/rekit overview` |
-| 想继续主线 | `/rekit continue main`；自动化可用 `-WhatIf/-Apply -Format json` 读取 `missionBrief`、`missionCommanderNextActions[]` 与 `missionCommanderActionQueue` |
-| 想做专项探索 | `/rekit start <name>`，之后 `/rekit continue <name>`；start JSON/text、reconcile JSON/text 与 continue run status/digest 会记录 Mission Control brief / executor action snapshot / Mission Commander action queue；已有 blocker 时 start/reconcile 也会直接显示 gate/decision handoff |
-| 想换会话 | `/rekit handoff` 或 `/rekit handoff <name>`；JSON/text/Markdown 会直接投影 Mission Commander action queue |
-| 想把 kit 更新同步到 case | `/rekit sync`，确认后才 apply |
-| 想把 case 经验回流到 kit | `/rekit promote`，优先生成 candidate |
+| 只维护本仓库 | 读 `CLAUDE.md` 与 `docs/context-routing.md`，再按场景进入当前卡；不要在仓库内 init case |
+| 新项目或已接入的 STeamAI 项目 | 在真实项目目录启动已有 Claude Code，输入 `/steamai` 或直接说明目标；未接入目录先审核零写入 adoption preview |
+| 想看全局状态或下一步 | 对主 Agent说“现在到哪了”；默认只消费 compact status |
+| 想继续主线或专项 lane | 对主 Agent说“继续推进”或说明专项目标；多 lane 时只选择 runtime 返回的 typed choice |
+| 想换会话接手 | 对主 Agent说“生成接手包”；只发布 fresh、scope-bound handoff，不复制旧聊天全文 |
+| 旧 `.rekit` 项目 | 迁移前继续用 legacy `/rekit` 单写旧根；先预览 migration inventory/plan，再用 exact plan SHA Apply |
+| 旧项目移动后无法解析 | 使用 legacy status/repair preview 排障；不得创建 `.steamai` 作为临时旁路 |
+| 想同步或沉淀经验 | 说明具体范围；`sync` / `promote` 始终 review-first，确认 exact diff 后才写入 |
+| 想运行 heavy action | 描述 action、target、budget、output 和停止条件；只有 strict profile 与 fresh `authorized-gate` 完整覆盖时才执行并留证 |

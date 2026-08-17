@@ -44,7 +44,7 @@ func TestRunReviewerWaveSelectedLaneOverridesGlobalReviewerWave(t *testing.T) {
 		t.Fatalf("global reviewer wave = %+v, want lane B %q", global, laneB)
 	}
 
-	observationPath := filepath.Join(caseRoot, "workspace", "selected-lane-wave.json")
+	observationPath := reviewerWaveStrictFile(t, waveA.PacketPath, "selected-lane-wave.json")
 	writeReviewerWaveObservations(t, observationPath, reviewerWaveObservationFile{SchemaVersion: 1, PacketID: waveA.PacketID, Observations: []reviewerWaveObservation{
 		{ShardID: waveA.SpawnWave[0].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "selected-lane-wave-01"},
 		{ShardID: waveA.SpawnWave[1].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "selected-lane-wave-02"},
@@ -92,7 +92,7 @@ func TestRunReviewerWaveSelectedLanePartialFailureRefreshesExactLane(t *testing.
 	waveA := plan("20-lane-a-partial-wave", laneA, "alpha,beta")
 	laneB := "feature-review"
 	waveB := plan("10-lane-b-partial-wave", laneB, "gamma")
-	observationPath := filepath.Join(caseRoot, "workspace", "selected-lane-wave-partial.json")
+	observationPath := reviewerWaveStrictFile(t, waveA.PacketPath, "selected-lane-wave-partial.json")
 	writeReviewerWaveObservations(t, observationPath, reviewerWaveObservationFile{SchemaVersion: 1, PacketID: waveA.PacketID, Observations: []reviewerWaveObservation{
 		{ShardID: waveA.SpawnWave[0].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "selected-lane-partial-01"},
 		{ShardID: waveA.SpawnWave[1].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "selected-lane-partial-02"},
@@ -138,7 +138,7 @@ func TestRunReviewerWaveRecordsParallelAcceptances(t *testing.T) {
 	if wave == nil || len(wave.SpawnWave) != 2 {
 		t.Fatalf("initial reviewer wave = %+v", wave)
 	}
-	observationPath := filepath.Join(caseRoot, "workspace", "wave-accepted.json")
+	observationPath := reviewerWaveStrictFile(t, wave.PacketPath, "wave-accepted.json")
 	writeReviewerWaveObservations(t, observationPath, reviewerWaveObservationFile{SchemaVersion: 1, PacketID: wave.PacketID, Observations: []reviewerWaveObservation{
 		{ShardID: wave.SpawnWave[0].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "wave-session-01"},
 		{ShardID: wave.SpawnWave[1].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "wave-session-02"},
@@ -182,7 +182,7 @@ func TestRunReviewerWaveRecordsReturnedAndFailedObservations(t *testing.T) {
 		t.Fatal(err)
 	}
 	wave := reviewerWaveFromStatus(reviewerWaveStatus(t, caseRoot))
-	acceptPath := filepath.Join(caseRoot, "workspace", "wave-accept-for-terminal.json")
+	acceptPath := reviewerWaveStrictFile(t, wave.PacketPath, "wave-accept-for-terminal.json")
 	writeReviewerWaveObservations(t, acceptPath, reviewerWaveObservationFile{SchemaVersion: 1, PacketID: wave.PacketID, Observations: []reviewerWaveObservation{
 		{ShardID: wave.SpawnWave[0].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "wave-return-session"},
 		{ShardID: wave.SpawnWave[1].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "wave-fail-session"},
@@ -206,11 +206,11 @@ func TestRunReviewerWaveRecordsReturnedAndFailedObservations(t *testing.T) {
 	if err := os.WriteFile(evidencePath, []byte("bounded reviewer evidence\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	resultSource := filepath.Join(caseRoot, "workspace", "wave-return-result.json")
+	resultSource := reviewerWaveStrictFile(t, wave.PacketPath, "wave-return-result.json")
 	if err := os.WriteFile(resultSource, reviewerResultForCLIPlan(t, packet, first, "accept", "accepted", "wave-return-session"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	terminalPath := filepath.Join(caseRoot, "workspace", "wave-terminal.json")
+	terminalPath := reviewerWaveStrictFile(t, wave.PacketPath, "wave-terminal.json")
 	writeReviewerWaveObservations(t, terminalPath, reviewerWaveObservationFile{SchemaVersion: 1, PacketID: activeWave.PacketID, Observations: []reviewerWaveObservation{
 		{ShardID: activeWave.Active[0].ShardID, Kind: "returned", ReviewerExitStatus: "completed", ReviewerResultInputSourcePath: resultSource},
 		{ShardID: activeWave.Active[1].ShardID, Kind: "failed", ReviewerDispatchID: activeWave.Active[1].ReviewerDispatchID, ReviewerExitStatus: "reviewer-error"},
@@ -244,7 +244,7 @@ func TestRunReviewerWavePausesForOpenInterventionAndRejectsStalePreview(t *testi
 		t.Fatal(err)
 	}
 	wave := reviewerWaveFromStatus(reviewerWaveStatus(t, caseRoot))
-	observationPath := filepath.Join(caseRoot, "workspace", "wave-intervention-stale-preview.json")
+	observationPath := reviewerWaveStrictFile(t, wave.PacketPath, "wave-intervention-stale-preview.json")
 	writeReviewerWaveObservations(t, observationPath, reviewerWaveObservationFile{SchemaVersion: 1, PacketID: wave.PacketID, Observations: []reviewerWaveObservation{{ShardID: wave.SpawnWave[0].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "stale-session"}}})
 	args := []string{"-Command", "run-reviewer-wave", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", wave.PacketPath, "-Lane", wave.TargetLane, "-Actor", "mission-commander", "-ReviewerWaveObservationsPath", observationPath, "-Format", "json"}
 	preview := reviewerWavePreview(t, append(args, "-WhatIf")...)
@@ -335,7 +335,7 @@ func TestRunReviewerWaveStopsBundleWhenInterventionArrivesBetweenObservations(t 
 		t.Fatal(err)
 	}
 	wave := reviewerWaveFromStatus(reviewerWaveStatus(t, caseRoot))
-	observationPath := filepath.Join(caseRoot, "workspace", "wave-intervention-partial.json")
+	observationPath := reviewerWaveStrictFile(t, wave.PacketPath, "wave-intervention-partial.json")
 	writeReviewerWaveObservations(t, observationPath, reviewerWaveObservationFile{SchemaVersion: 1, PacketID: wave.PacketID, Observations: []reviewerWaveObservation{
 		{ShardID: wave.SpawnWave[0].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "wave-before-intervention"},
 		{ShardID: wave.SpawnWave[1].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "wave-after-intervention"},
@@ -375,7 +375,7 @@ func TestRunReviewerWaveResumesThroughReplacementExecutorTakeover(t *testing.T) 
 	wave := reviewerWaveFromStatus(reviewerWaveStatus(t, caseRoot))
 	packet := decodePlanSubagentsPacket(t, wave.PacketPath)
 	applyWave := func(name string, observations []reviewerWaveObservation) reviewerWavePlan {
-		path := filepath.Join(caseRoot, "workspace", name+".json")
+		path := reviewerWaveStrictFile(t, wave.PacketPath, name+".json")
 		writeReviewerWaveObservations(t, path, reviewerWaveObservationFile{SchemaVersion: 1, PacketID: wave.PacketID, Observations: observations})
 		args := []string{"-Command", "run-reviewer-wave", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", wave.PacketPath, "-Lane", wave.TargetLane, "-Actor", "mission-commander", "-ReviewerWaveObservationsPath", path, "-Format", "json"}
 		preview := reviewerWavePreview(t, append(args, "-WhatIf")...)
@@ -431,7 +431,7 @@ func TestRunReviewerWaveResumesThroughReplacementExecutorTakeover(t *testing.T) 
 	if err := os.WriteFile(evidencePath, []byte("bounded reviewer evidence\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	resultPath := filepath.Join(caseRoot, "workspace", "wave-takeover-result.json")
+	resultPath := reviewerWaveStrictFile(t, wave.PacketPath, "wave-takeover-result.json")
 	if err := os.WriteFile(resultPath, reviewerResultForCLIPlan(t, packet, packet.ShardHandoffs[0], "accept", "accepted", "reviewer-session-b"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -475,7 +475,7 @@ func TestRunReviewerWaveRejectsInvalidObservationContracts(t *testing.T) {
 		t.Fatal(err)
 	}
 	wave := reviewerWaveFromStatus(reviewerWaveStatus(t, caseRoot))
-	observationPath := filepath.Join(caseRoot, "workspace", "wave-invalid.json")
+	observationPath := reviewerWaveStrictFile(t, wave.PacketPath, "wave-invalid.json")
 	args := []string{"-Command", "run-reviewer-wave", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", wave.PacketPath, "-Lane", wave.TargetLane, "-Actor", "mission-commander", "-ReviewerWaveObservationsPath", observationPath, "-WhatIf", "-Format", "json"}
 	valid := reviewerWaveObservation{ShardID: wave.SpawnWave[0].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "wave-contract-session"}
 
@@ -535,7 +535,7 @@ func TestRunReviewerWaveRejectsAcceptanceBeyondSpawnWave(t *testing.T) {
 	if wave.MaxParallel != 1 || len(wave.SpawnWave) != 1 || len(wave.Shards) != 2 {
 		t.Fatalf("bounded reviewer wave = %+v", wave)
 	}
-	observationPath := filepath.Join(caseRoot, "workspace", "wave-over-capacity.json")
+	observationPath := reviewerWaveStrictFile(t, wave.PacketPath, "wave-over-capacity.json")
 	writeReviewerWaveObservations(t, observationPath, reviewerWaveObservationFile{SchemaVersion: 1, PacketID: wave.PacketID, Observations: []reviewerWaveObservation{
 		{ShardID: wave.Shards[0].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "wave-capacity-01"},
 		{ShardID: wave.Shards[1].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "wave-capacity-02"},
@@ -562,7 +562,7 @@ func TestRunReviewerWaveBindsObservationFileBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 	wave := reviewerWaveFromStatus(reviewerWaveStatus(t, caseRoot))
-	observationPath := filepath.Join(caseRoot, "workspace", "wave-drift.json")
+	observationPath := reviewerWaveStrictFile(t, wave.PacketPath, "wave-drift.json")
 	observation := reviewerWaveObservationFile{SchemaVersion: 1, PacketID: wave.PacketID, Observations: []reviewerWaveObservation{{ShardID: wave.SpawnWave[0].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "wave-before-drift"}}}
 	writeReviewerWaveObservations(t, observationPath, observation)
 	args := []string{"-Command", "run-reviewer-wave", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", wave.PacketPath, "-Lane", wave.TargetLane, "-Actor", "mission-commander", "-ReviewerWaveObservationsPath", observationPath, "-Format", "json"}
@@ -578,10 +578,8 @@ func TestRunReviewerWaveBindsObservationFileBytes(t *testing.T) {
 
 func TestReadReviewerWaveObservationsRejectsUnsafeFiles(t *testing.T) {
 	caseRoot := t.TempDir()
-	workspace := filepath.Join(caseRoot, "workspace")
-	if err := os.MkdirAll(workspace, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	packetPath := filepath.Join(caseRoot, ".steamai", "reviews", "unsafe-files", "packet.json")
+	workspace := filepath.Dir(reviewerWaveStrictFile(t, packetPath, "fixture.json"))
 	outside := filepath.Join(t.TempDir(), "outside.json")
 	if err := os.WriteFile(outside, []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -649,10 +647,10 @@ func TestRunReviewerWaveRejectsReturnedResultFromPriorDispatch(t *testing.T) {
 		wave = applied.RefreshedWave
 		return applied
 	}
-	applyWave(filepath.Join(caseRoot, "workspace", "wave-prior-accept.json"), []reviewerWaveObservation{{ShardID: wave.SpawnWave[0].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "wave-prior-session"}})
+	applyWave(reviewerWaveStrictFile(t, wave.PacketPath, "wave-prior-accept.json"), []reviewerWaveObservation{{ShardID: wave.SpawnWave[0].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "wave-prior-session"}})
 	priorDispatchID := wave.Active[0].ReviewerDispatchID
-	applyWave(filepath.Join(caseRoot, "workspace", "wave-prior-failed.json"), []reviewerWaveObservation{{ShardID: wave.Active[0].ShardID, Kind: "failed", ReviewerDispatchID: priorDispatchID, ReviewerExitStatus: "reviewer-error"}})
-	applyWave(filepath.Join(caseRoot, "workspace", "wave-current-accept.json"), []reviewerWaveObservation{{ShardID: wave.SpawnWave[0].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "wave-current-session"}})
+	applyWave(reviewerWaveStrictFile(t, wave.PacketPath, "wave-prior-failed.json"), []reviewerWaveObservation{{ShardID: wave.Active[0].ShardID, Kind: "failed", ReviewerDispatchID: priorDispatchID, ReviewerExitStatus: "reviewer-error"}})
+	applyWave(reviewerWaveStrictFile(t, wave.PacketPath, "wave-current-accept.json"), []reviewerWaveObservation{{ShardID: wave.SpawnWave[0].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "wave-current-session"}})
 	if wave.Active[0].ReviewerDispatchID == priorDispatchID {
 		t.Fatalf("reviewer shard did not receive a new dispatch: %+v", wave.Active[0])
 	}
@@ -664,11 +662,11 @@ func TestRunReviewerWaveRejectsReturnedResultFromPriorDispatch(t *testing.T) {
 	if err := os.WriteFile(evidencePath, []byte("bounded reviewer evidence\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	resultSource := filepath.Join(caseRoot, "workspace", "wave-prior-result.json")
+	resultSource := reviewerWaveStrictFile(t, wave.PacketPath, "wave-prior-result.json")
 	if err := os.WriteFile(resultSource, reviewerResultForCLIPlan(t, packet, packet.ShardHandoffs[0], "accept", "accepted", "wave-prior-session"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	observationPath := filepath.Join(caseRoot, "workspace", "wave-prior-return.json")
+	observationPath := reviewerWaveStrictFile(t, wave.PacketPath, "wave-prior-return.json")
 	writeReviewerWaveObservations(t, observationPath, reviewerWaveObservationFile{SchemaVersion: 1, PacketID: wave.PacketID, Observations: []reviewerWaveObservation{{ShardID: wave.Active[0].ShardID, Kind: "returned", ReviewerExitStatus: "completed", ReviewerResultInputSourcePath: resultSource}}})
 	args := []string{"-Command", "run-reviewer-wave", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", wave.PacketPath, "-Lane", wave.TargetLane, "-Actor", "mission-commander", "-ReviewerWaveObservationsPath", observationPath, "-WhatIf", "-Format", "json"}
 	out.Reset()
@@ -692,7 +690,7 @@ func TestRunReviewerWaveReturnedPartialReportsInputMutation(t *testing.T) {
 		t.Fatal(err)
 	}
 	wave := reviewerWaveFromStatus(reviewerWaveStatus(t, caseRoot))
-	acceptPath := filepath.Join(caseRoot, "workspace", "wave-partial-return-accept.json")
+	acceptPath := reviewerWaveStrictFile(t, wave.PacketPath, "wave-partial-return-accept.json")
 	writeReviewerWaveObservations(t, acceptPath, reviewerWaveObservationFile{SchemaVersion: 1, PacketID: wave.PacketID, Observations: []reviewerWaveObservation{{ShardID: wave.SpawnWave[0].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "wave-partial-return"}}})
 	acceptArgs := []string{"-Command", "run-reviewer-wave", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", wave.PacketPath, "-Lane", wave.TargetLane, "-Actor", "mission-commander", "-ReviewerWaveObservationsPath", acceptPath, "-Format", "json"}
 	acceptPreview := reviewerWavePreview(t, append(acceptArgs, "-WhatIf")...)
@@ -709,11 +707,11 @@ func TestRunReviewerWaveReturnedPartialReportsInputMutation(t *testing.T) {
 	if err := os.WriteFile(evidencePath, []byte("bounded reviewer evidence\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	resultSource := filepath.Join(caseRoot, "workspace", "wave-partial-return-result.json")
+	resultSource := reviewerWaveStrictFile(t, wave.PacketPath, "wave-partial-return-result.json")
 	if err := os.WriteFile(resultSource, reviewerResultForCLIPlan(t, packet, packet.ShardHandoffs[0], "accept", "accepted", "wave-partial-return"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	terminalPath := filepath.Join(caseRoot, "workspace", "wave-partial-return.json")
+	terminalPath := reviewerWaveStrictFile(t, wave.PacketPath, "wave-partial-return.json")
 	writeReviewerWaveObservations(t, terminalPath, reviewerWaveObservationFile{SchemaVersion: 1, PacketID: activeWave.PacketID, Observations: []reviewerWaveObservation{{ShardID: activeWave.Active[0].ShardID, Kind: "returned", ReviewerExitStatus: "completed", ReviewerResultInputSourcePath: resultSource}}})
 	terminalArgs := []string{"-Command", "run-reviewer-wave", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", activeWave.PacketPath, "-Lane", activeWave.TargetLane, "-Actor", "mission-commander", "-ReviewerWaveObservationsPath", terminalPath, "-Format", "json"}
 	terminalPreview := reviewerWavePreview(t, append(terminalArgs, "-WhatIf")...)
@@ -757,7 +755,7 @@ func TestRunCurrentLoopDrainsReturnedShardBeforeRetryingFailedShard(t *testing.T
 		}
 		wave = applied.RefreshedWave
 	}
-	applyWave(filepath.Join(caseRoot, "workspace", "wave-mixed-drain-accept.json"), []reviewerWaveObservation{
+	applyWave(reviewerWaveStrictFile(t, wave.PacketPath, "wave-mixed-drain-accept.json"), []reviewerWaveObservation{
 		{ShardID: wave.SpawnWave[0].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "wave-mixed-drain-01"},
 		{ShardID: wave.SpawnWave[1].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "wave-mixed-drain-02"},
 	})
@@ -769,11 +767,11 @@ func TestRunCurrentLoopDrainsReturnedShardBeforeRetryingFailedShard(t *testing.T
 	if err := os.WriteFile(evidencePath, []byte("bounded reviewer evidence\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	resultPath := filepath.Join(caseRoot, "workspace", "wave-mixed-drain-result.json")
+	resultPath := reviewerWaveStrictFile(t, wave.PacketPath, "wave-mixed-drain-result.json")
 	if err := os.WriteFile(resultPath, reviewerResultForCLIPlan(t, packet, packet.ShardHandoffs[0], "accept", "accepted", "wave-mixed-drain-01"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	applyWave(filepath.Join(caseRoot, "workspace", "wave-mixed-drain-terminal.json"), []reviewerWaveObservation{
+	applyWave(reviewerWaveStrictFile(t, wave.PacketPath, "wave-mixed-drain-terminal.json"), []reviewerWaveObservation{
 		{ShardID: packet.ShardHandoffs[0].ShardID, Kind: "returned", ReviewerExitStatus: "completed", ReviewerResultInputSourcePath: resultPath},
 		{ShardID: packet.ShardHandoffs[1].ShardID, Kind: "failed", ReviewerDispatchID: wave.Active[1].ReviewerDispatchID, ReviewerExitStatus: "reviewer-error"},
 	})
@@ -823,7 +821,7 @@ func TestRunCurrentLoopDrainsReturnedReviewerWave(t *testing.T) {
 		wave = applied.RefreshedWave
 		return applied
 	}
-	applyWave(filepath.Join(caseRoot, "workspace", "wave-drain-accept.json"), []reviewerWaveObservation{
+	applyWave(reviewerWaveStrictFile(t, wave.PacketPath, "wave-drain-accept.json"), []reviewerWaveObservation{
 		{ShardID: wave.SpawnWave[0].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "wave-drain-01"},
 		{ShardID: wave.SpawnWave[1].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "wave-drain-02"},
 	})
@@ -838,13 +836,13 @@ func TestRunCurrentLoopDrainsReturnedReviewerWave(t *testing.T) {
 	terminal := make([]reviewerWaveObservation, 0, 2)
 	for idx, handoff := range packet.ShardHandoffs {
 		session := "wave-drain-0" + string(rune('1'+idx))
-		resultPath := filepath.Join(caseRoot, "workspace", "wave-drain-result-0"+string(rune('1'+idx))+".json")
+		resultPath := reviewerWaveStrictFile(t, wave.PacketPath, "wave-drain-result-0"+string(rune('1'+idx))+".json")
 		if err := os.WriteFile(resultPath, reviewerResultForCLIPlan(t, packet, handoff, "accept", "accepted", session), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		terminal = append(terminal, reviewerWaveObservation{ShardID: handoff.ShardID, Kind: "returned", ReviewerExitStatus: "completed", ReviewerResultInputSourcePath: resultPath})
 	}
-	applyWave(filepath.Join(caseRoot, "workspace", "wave-drain-return.json"), terminal)
+	applyWave(reviewerWaveStrictFile(t, wave.PacketPath, "wave-drain-return.json"), terminal)
 	if len(wave.Returned) != 2 || wave.ActiveSlots != 0 {
 		t.Fatalf("returned reviewer wave = %+v", wave)
 	}
@@ -893,7 +891,7 @@ func TestRunReviewerWaveApplyRejectsCompletionIntentBeforeObservation(t *testing
 		t.Fatal(err)
 	}
 	wave := reviewerWaveFromStatus(reviewerWaveStatus(t, caseRoot))
-	observationPath := filepath.Join(caseRoot, "workspace", "wave-completion-race.json")
+	observationPath := reviewerWaveStrictFile(t, wave.PacketPath, "wave-completion-race.json")
 	writeReviewerWaveObservations(t, observationPath, reviewerWaveObservationFile{SchemaVersion: 1, PacketID: wave.PacketID, Observations: []reviewerWaveObservation{{ShardID: wave.SpawnWave[0].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "wave-session-closed"}}})
 	args := []string{"-Command", "run-reviewer-wave", "-Target", caseRoot, "-Pack", "_template", "-PacketPath", wave.PacketPath, "-Lane", wave.TargetLane, "-Actor", "mission-commander", "-ReviewerWaveObservationsPath", observationPath, "-Format", "json"}
 	preview := reviewerWavePreview(t, append(args, "-WhatIf")...)
@@ -931,7 +929,7 @@ func TestRunReviewerWavePartialFailurePreservesEarlierObservation(t *testing.T) 
 		t.Fatal(err)
 	}
 	wave := reviewerWaveFromStatus(reviewerWaveStatus(t, caseRoot))
-	observationPath := filepath.Join(caseRoot, "workspace", "wave-partial.json")
+	observationPath := reviewerWaveStrictFile(t, wave.PacketPath, "wave-partial.json")
 	writeReviewerWaveObservations(t, observationPath, reviewerWaveObservationFile{SchemaVersion: 1, PacketID: wave.PacketID, Observations: []reviewerWaveObservation{
 		{ShardID: wave.SpawnWave[0].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "wave-session-ok"},
 		{ShardID: wave.SpawnWave[1].ShardID, Kind: "accepted", ReviewerHarness: "go-test-harness", ReviewerSession: "wave-session-late"},
@@ -1039,6 +1037,15 @@ func reviewerWavePreview(t *testing.T, args ...string) reviewerWavePlan {
 		t.Fatal(err)
 	}
 	return plan
+}
+
+func reviewerWaveStrictFile(t *testing.T, packetPath, name string) string {
+	t.Helper()
+	root := filepath.Join(filepath.Dir(packetPath), "results", "external-observations")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(root, name)
 }
 
 func writeReviewerWaveObservations(t *testing.T, path string, value reviewerWaveObservationFile) {

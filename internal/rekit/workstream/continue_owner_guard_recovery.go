@@ -30,8 +30,11 @@ type ContinueOwnerGuardRecovery struct {
 	Boundary                      []string                                `json:"boundary,omitempty"`
 }
 
-func continueOwnerGuardRecoveryFor(caseRoot string, lane Lane, action laneExecutorAction, queue mission.MissionCommanderActionQueue, opt ContinueOptions, reason string) *ContinueOwnerGuardRecovery {
-	pkg := laneTakeoverPackageFor(caseRoot, lane, action, queue, false)
+func continueOwnerGuardRecoveryFor(caseRoot string, lane Lane, action laneExecutorAction, queue mission.MissionCommanderActionQueue, opt ContinueOptions, reason string) (*ContinueOwnerGuardRecovery, error) {
+	pkg, err := laneTakeoverPackageFor(caseRoot, lane, action, queue, false)
+	if err != nil {
+		return nil, err
+	}
 	label := workstreamLabel(lane)
 	previewCommand := "/rekit start " + quoteCommandArg(label) + " -WhatIf -Executor <new-executor> -Actor <main-agent> -Reason " + quoteCommandArg("replace stale executor after owner guard mismatch")
 	applyCommand := "/rekit start " + quoteCommandArg(label) + " -Apply -Executor <new-executor> -Actor <main-agent> -Reason " + quoteCommandArg("replace stale executor after owner guard mismatch")
@@ -57,7 +60,7 @@ func continueOwnerGuardRecoveryFor(caseRoot string, lane Lane, action laneExecut
 	}
 	recovery.RunbookSteps = continueOwnerGuardRecoveryRunbookSteps(recovery)
 	recovery.Boundary = continueOwnerGuardRecoveryBoundary()
-	return recovery
+	return recovery, nil
 }
 
 func continueOwnerGuardRecoveryRunbookSteps(recovery *ContinueOwnerGuardRecovery) []string {

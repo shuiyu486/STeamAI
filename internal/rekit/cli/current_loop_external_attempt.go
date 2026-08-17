@@ -156,23 +156,33 @@ func externalSessionDispatchTicket(job externalsession.Job, inspection externals
 	return ticket, nil
 }
 
-func externalSessionPendingAttemptRequest(plan externalsession.AttemptPlan) mission.MissionCommanderDriverRequest {
-	plan.ApplyCommand = externalSessionAttemptApplyCommand(plan)
-	return mission.MissionCommanderDriverRequest{
-		Kind: "apply-command", RunLoopStepID: "external-session-attempt-recovery:" + plan.Job.JobID,
-		Actor: "mission-commander", State: "attempt-publication-pending", Source: "current-loop-external-session-dispatch",
-		Lane: memberLane(plan.Job), Label: plan.Job.SessionKind + " external session attempt recovery",
-		Command: plan.ApplyCommand, CommandExecutable: true, RequiresReview: true,
-		ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
-			State: "attempt-committed", RefreshStatusCommand: statusMissionControlRefreshCommand(plan.Job.CaseRoot),
-			Description: "completes the exact ticket-first attempt publication by writing the attempt receipt last",
-			Boundary:    []string{"immutable pending ticket fixes every attempt parameter", "different bytes or stale currentness fail closed"},
-		},
-		Boundary: []string{"recovery does not start or manage a session", "attempt receipt is the final commit point"},
+func externalSessionPendingAttemptRequest(plan externalsession.AttemptPlan) (mission.MissionCommanderDriverRequest, error) {
+	refresh, err := statusMissionControlRefreshCommand(plan.Job.CaseRoot)
+	if err != nil {
+		return mission.MissionCommanderDriverRequest{}, err
 	}
+	plan.ApplyCommand = externalSessionAttemptApplyCommand(plan)
+	return mission.MissionCommanderDriverRequestWithTypedCommand(
+		mission.MissionCommanderDriverRequest{
+			Kind: "apply-command", RunLoopStepID: "external-session-attempt-recovery:" + plan.Job.JobID,
+			Actor: "mission-commander", State: "attempt-publication-pending", Source: "current-loop-external-session-dispatch",
+			Lane: memberLane(plan.Job), Label: plan.Job.SessionKind + " external session attempt recovery",
+			Command: plan.ApplyCommand, CommandExecutable: true, RequiresReview: true,
+			ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
+				State: "attempt-committed", RefreshStatusCommand: refresh,
+				Description: "completes the exact ticket-first attempt publication by writing the attempt receipt last",
+				Boundary:    []string{"immutable pending ticket fixes every attempt parameter", "different bytes or stale currentness fail closed"},
+			},
+			Boundary: []string{"recovery does not start or manage a session", "attempt receipt is the final commit point"},
+		},
+	)
 }
 
-func externalSessionAttemptRequest(job externalsession.Job, jobSHA string, inspection externalsession.AttemptInspection) mission.MissionCommanderDriverRequest {
+func externalSessionAttemptRequest(job externalsession.Job, jobSHA string, inspection externalsession.AttemptInspection) (mission.MissionCommanderDriverRequest, error) {
+	refresh, err := statusMissionControlRefreshCommand(job.CaseRoot)
+	if err != nil {
+		return mission.MissionCommanderDriverRequest{}, err
+	}
 	supersedes := inspection.AttemptSHA256
 	if inspection.Current != nil && job.SessionKind == "reviewer" && job.Reviewer != nil && job.Reviewer.DispatchID != "" {
 		return mission.MissionCommanderDriverRequest{
@@ -182,12 +192,12 @@ func externalSessionAttemptRequest(job externalsession.Job, jobSHA string, inspe
 			Guidance:          "Do not replace this durable Reviewer job. Create a new Reviewer dispatch with a new reviewerSession binding; the canonical dispatch path will produce a new external-session job.",
 			CommandExecutable: false, RequiresReview: true,
 			ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
-				State: "new-reviewer-dispatch-required", RefreshStatusCommand: statusMissionControlRefreshCommand(job.CaseRoot),
+				State: "new-reviewer-dispatch-required", RefreshStatusCommand: refresh,
 				Description: "re-enters the durable Reviewer dispatch path rather than violating the current job's fixed harness/session identity",
 				Boundary:    []string{"no same-job Reviewer replacement", "new dispatch/session/job identity required", "current attempt remains fenced by its generation"},
 			},
 			Boundary: []string{"the current Reviewer job identity is fixed by its durable dispatch receipt", "no session launch, transport resend, authority, confirmed state, or heavy tool is performed"},
-		}
+		}, nil
 	}
 	harness, session := "<harness>", "<session-id>"
 	if job.SessionKind == "reviewer" && job.Reviewer != nil {
@@ -211,18 +221,20 @@ func externalSessionAttemptRequest(job externalsession.Job, jobSHA string, inspe
 		state = "running-or-replacement-review"
 		description = "current attempt is running; the command previews an explicit replacement bound to its exact sha256"
 	}
-	return mission.MissionCommanderDriverRequest{
-		Kind: "preview-command-template", RunLoopStepID: "external-session-attempt:" + job.JobID,
-		Actor: "mission-commander", State: state, Source: "current-loop-external-session-job",
-		Lane: memberLane(job), Label: job.SessionKind + " external session attempt", Command: command,
-		CommandExecutable: false, RequiresReview: true,
-		ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
-			State: "attempt-plan-ready", RefreshStatusCommand: statusMissionControlRefreshCommand(job.CaseRoot),
-			Description: description,
-			Boundary:    []string{"replace placeholders before execution; WhatIf writes nothing", "Apply records ownership but does not start or manage a session"},
+	return mission.MissionCommanderDriverRequestWithTypedCommand(
+		mission.MissionCommanderDriverRequest{
+			Kind: "preview-command-template", RunLoopStepID: "external-session-attempt:" + job.JobID,
+			Actor: "mission-commander", State: state, Source: "current-loop-external-session-job",
+			Lane: memberLane(job), Label: job.SessionKind + " external session attempt", Command: command,
+			CommandExecutable: false, RequiresReview: true,
+			ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
+				State: "attempt-plan-ready", RefreshStatusCommand: refresh,
+				Description: description,
+				Boundary:    []string{"replace placeholders before execution; WhatIf writes nothing", "Apply records ownership but does not start or manage a session"},
+			},
+			Boundary: []string{"only the external harness starts, polls, stops, and reports the session", "local sessionhost remains the default concrete provider; Remote Control requires a prior reviewer dispatch receipt with harness claude-code-remote-control and an explicit durable transport binding id", "replacement requires exact current attempt sha256"},
 		},
-		Boundary: []string{"only the external harness starts, polls, stops, and reports the session", "local sessionhost remains the default concrete provider; Remote Control requires a prior reviewer dispatch receipt with harness claude-code-remote-control and an explicit durable transport binding id", "replacement requires exact current attempt sha256"},
-	}
+	)
 }
 
 func externalSessionAttemptApplyCommand(plan externalsession.AttemptPlan) string {

@@ -156,6 +156,9 @@ func TestContinueAuthorityAppendReasonPolicyMatrix(t *testing.T) {
 
 func TestContinueAuthorityPreviewRecordsBackupAndDiffWouldWrites(t *testing.T) {
 	caseRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(caseRoot, ".rekit"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	authorityRel := "captures/vm_opcode_semantics_confirmed.csv"
 	writeWorkstreamTestFile(t, caseRoot, authorityRel, "opcode,semantics,status\nOP_EXISTING,known,confirmed\n")
 	ctx := continueContext{
@@ -164,7 +167,10 @@ func TestContinueAuthorityPreviewRecordsBackupAndDiffWouldWrites(t *testing.T) {
 		policy:   defaultContinuePolicy(),
 	}
 
-	preview := ctx.previewEvent(validAuthorityEvent(authorityRel, "OP_OK"))
+	preview, err := ctx.previewEvent(validAuthorityEvent(authorityRel, "OP_OK"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if preview.Decision != "accept" || preview.Reason != "passed authority append policy" || preview.Rows != 1 {
 		t.Fatalf("unexpected authority preview: %+v", preview)
 	}

@@ -22,6 +22,19 @@ func TestReadStableRegularFileAnchoredRejectsWindowsReparseDirectory(t *testing.
 	if err := os.Symlink(real, link); err != nil {
 		t.Skipf("Windows reparse creation unavailable: %v", err)
 	}
+	linkedFile := filepath.Join(caseRoot, "evidence-link.txt")
+	if err := os.Symlink(filepath.Join(real, "evidence.txt"), linkedFile); err != nil {
+		t.Skipf("Windows file reparse creation unavailable: %v", err)
+	}
+	for _, path := range []string{
+		filepath.Join(link, "evidence.txt"),
+		linkedFile,
+	} {
+		err := ValidateNoReparseComponents(path)
+		if err == nil || !strings.Contains(err.Error(), "path must not traverse symlink") || !strings.Contains(err.Error(), "reparse point") {
+			t.Fatalf("ValidateNoReparseComponents(%q) error = %v", path, err)
+		}
+	}
 	if _, err := ReadStableRegularFileAnchored(caseRoot, filepath.Join(link, "evidence.txt"), "evidence", 1024); err == nil || (!strings.Contains(err.Error(), "reparse") && !strings.Contains(err.Error(), "symlink")) {
 		t.Fatalf("Windows reparse component error = %v", err)
 	}

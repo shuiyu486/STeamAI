@@ -538,12 +538,20 @@ func replaceReviewerStepToken(command, placeholder, value string) string {
 }
 
 func qualifyReviewerStepRequest(ctx runtime.Context, request mission.MissionCommanderDriverRequest) (mission.MissionCommanderDriverRequest, error) {
-	fields, err := splitDriverCommand(request.Command)
+	command, err := projectVisibleCommand(ctx.Target, request.Command)
 	if err != nil {
 		return mission.MissionCommanderDriverRequest{}, err
 	}
-	if len(fields) < 3 || fields[0] != "/rekit" || fields[1] != commands.PlanSubagents {
-		return mission.MissionCommanderDriverRequest{}, fmt.Errorf("reviewer request must use /rekit plan-subagents")
+	fields, err := splitDriverCommand(command)
+	if err != nil {
+		return mission.MissionCommanderDriverRequest{}, err
+	}
+	invocation, err := commands.ParsePublicInvocation(command)
+	if err != nil {
+		return mission.MissionCommanderDriverRequest{}, err
+	}
+	if len(fields) < 3 || !driverStepEntrypointMatches(ctx, fields[0]) || invocation.Command != commands.PlanSubagents {
+		return mission.MissionCommanderDriverRequest{}, fmt.Errorf("reviewer request must use a typed plan-subagents invocation")
 	}
 	args := fields[2:]
 	if !driverCommandHasFlag(args, "-Target", "--target") {
@@ -556,7 +564,11 @@ func qualifyReviewerStepRequest(ctx runtime.Context, request mission.MissionComm
 		fields = append(fields, "-Format", "json")
 	}
 	request.Command = joinDriverCommand(fields)
-	return request, nil
+	request, err = mission.MissionCommanderDriverRequestWithTypedCommand(request)
+	if err != nil {
+		return mission.MissionCommanderDriverRequest{}, err
+	}
+	return mission.MissionCommanderDriverRequestForEntrypoint(request, fields[0])
 }
 
 func parseBoundedReviewerRequest(ctx runtime.Context, request mission.MissionCommanderDriverRequest, apply bool) (Options, error) {
@@ -566,17 +578,27 @@ func parseBoundedReviewerRequest(ctx runtime.Context, request mission.MissionCom
 	if !request.RequiresReview {
 		return Options{}, fmt.Errorf("reviewer driver request is outside the review-first runner boundary")
 	}
+	if err := mission.ValidateMissionCommanderDriverRequest(request); err != nil {
+		return Options{}, err
+	}
 	fields, err := splitDriverCommand(request.Command)
 	if err != nil {
 		return Options{}, err
 	}
-	if len(fields) < 3 || fields[0] != "/rekit" || fields[1] != commands.PlanSubagents {
-		return Options{}, fmt.Errorf("reviewer driver request must use /rekit plan-subagents")
+	if len(fields) < 3 || !driverStepEntrypointMatches(ctx, fields[0]) {
+		return Options{}, fmt.Errorf("reviewer driver request must use the canonical project entrypoint")
 	}
-	if err := validateBoundedReviewerTokens(fields[2:], apply); err != nil {
+	invocation, err := commands.ParsePublicInvocation(request.Command)
+	if err != nil {
 		return Options{}, err
 	}
-	inner, err := Parse(append([]string{"-Command", commands.PlanSubagents}, fields[2:]...))
+	if invocation.Command != commands.PlanSubagents {
+		return Options{}, fmt.Errorf("reviewer driver request must use a typed plan-subagents invocation")
+	}
+	if err := validateBoundedReviewerTokens(invocation.Arguments, apply); err != nil {
+		return Options{}, err
+	}
+	inner, err := Parse(append([]string{"-Command", commands.PlanSubagents}, invocation.Arguments...))
 	if err != nil {
 		return Options{}, err
 	}
@@ -803,6 +825,14 @@ func reviewerStepResultCommand(result any) string {
 }
 
 func reviewerStepReceiptFor(ctx runtime.Context, current, apply mission.MissionCommanderDriverRequest, result any, refreshed statusInventory) (reviewerStepReceipt, error) {
+	refresh, err := statusMissionControlRefreshCommand(ctx.Target)
+	if err != nil {
+		return reviewerStepReceipt{}, err
+	}
+	current = mission.MissionCommanderDriverRequestWithRefreshStatusCommand(current, refresh)
+	if lane := strings.TrimSpace(current.Lane); lane != "" {
+		current.ExpectedReceipt.RefreshStatusCommand = selectedLaneCommand(current.ExpectedReceipt.RefreshStatusCommand, lane)
+	}
 	resultCommand := reviewerStepResultCommand(result)
 	if resultCommand != commands.PlanSubagents {
 		return reviewerStepReceipt{}, fmt.Errorf("reviewer step command result identity mismatch: result=%q", resultCommand)

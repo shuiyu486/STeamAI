@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 const (
@@ -101,8 +103,12 @@ type OperationInspection struct {
 
 func InspectOperations(caseRoot string) (OperationInspection, error) {
 	out := OperationInspection{Ready: true}
-	rootPath := filepath.Join(caseRoot, ".rekit", OperationsDir)
-	root, err := openCaseNamespaceRoot(caseRoot, []string{".rekit", OperationsDir}, false)
+	stateRoot, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return out, err
+	}
+	rootPath := filepath.Join(stateRoot.Path, OperationsDir)
+	root, err := openCaseNamespaceRoot(caseRoot, []string{stateRoot.Dir, OperationsDir}, false)
 	if os.IsNotExist(err) {
 		return out, nil
 	}
@@ -170,7 +176,7 @@ func InspectOperations(caseRoot string) (OperationInspection, error) {
 			_ = dir.Close()
 			return out, err
 		}
-		if err := validateOperationIntent(sequence, intent); err != nil {
+		if err := validateOperationIntent(caseRoot, sequence, intent); err != nil {
 			_ = dir.Close()
 			return out, err
 		}
@@ -220,12 +226,20 @@ func InspectOperations(caseRoot string) (OperationInspection, error) {
 	return out, nil
 }
 
+func OperationIntentPathE(caseRoot string, sequence int) (string, error) {
+	return projectstate.Join(caseRoot, OperationsDir, fmt.Sprintf("%020d", sequence), "intent.json")
+}
+
 func OperationIntentPath(caseRoot string, sequence int) string {
-	return filepath.Join(caseRoot, ".rekit", OperationsDir, fmt.Sprintf("%020d", sequence), "intent.json")
+	return mustResolvedPath(OperationIntentPathE(caseRoot, sequence))
+}
+
+func OperationCommitPathE(caseRoot string, sequence int) (string, error) {
+	return projectstate.Join(caseRoot, OperationsDir, fmt.Sprintf("%020d", sequence), "commit.json")
 }
 
 func OperationCommitPath(caseRoot string, sequence int) string {
-	return filepath.Join(caseRoot, ".rekit", OperationsDir, fmt.Sprintf("%020d", sequence), "commit.json")
+	return mustResolvedPath(OperationCommitPathE(caseRoot, sequence))
 }
 
 func ReadOperationIntent(caseRoot, path string) (OperationIntent, error) {
@@ -246,7 +260,7 @@ func ReadReopenReceipt(caseRoot, path string) (ReopenReceipt, []byte, error) {
 	return receipt, data, err
 }
 
-func validateOperationIntent(sequence int, intent OperationIntent) error {
+func validateOperationIntent(caseRoot string, sequence int, intent OperationIntent) error {
 	if intent.SchemaVersion != 1 || intent.Kind != "lane-reopen-operation-intent" || intent.Sequence != sequence || strings.TrimSpace(intent.OperationID) == "" || strings.TrimSpace(intent.RequestedLane) == "" || strings.TrimSpace(intent.Actor) == "" || strings.TrimSpace(intent.Reason) == "" || len(intent.Targets) == 0 || !intent.NoAuthority || !intent.NoConfirmed || !intent.NoHeavyTool || !intent.NoAutoResume {
 		return fmt.Errorf("invalid reopen operation intent: sequence=%d", sequence)
 	}
@@ -260,7 +274,7 @@ func validateOperationIntent(sequence int, intent OperationIntent) error {
 	if strings.TrimSpace(intent.RequestedSelector) == "" || strings.TrimSpace(intent.ExactPublicationSHA256) == "" || len(intent.Publications) == 0 {
 		return fmt.Errorf("reopen operation intent lacks exact publication plan: sequence=%d", sequence)
 	}
-	if err := validateOperationPublications(intent); err != nil {
+	if err := validateOperationPublications(caseRoot, intent); err != nil {
 		return err
 	}
 	recomputed, err := ExactPublicationSHA256(intent)
@@ -328,8 +342,11 @@ func operationPublicationsEqual(left, right []OperationPublication) bool {
 	return string(leftBytes) == string(rightBytes)
 }
 
-func validateTargetPublicationTopology(target OperationTarget) error {
-	base := filepath.ToSlash(filepath.Join(".rekit", "lanes", target.Lane))
+func validateTargetPublicationTopology(caseRoot string, target OperationTarget) error {
+	base, err := projectstate.Rel(caseRoot, "lanes", target.Lane)
+	if err != nil {
+		return err
+	}
 	sequence := fmt.Sprintf("%020d.reopen", target.Sequence)
 	expected := map[string]string{
 		"lane-reopen-intent": base + "/" + LifecycleDir + "/" + sequence + ".intent.json",
@@ -355,14 +372,18 @@ func validateTargetPublicationTopology(target OperationTarget) error {
 	return nil
 }
 
-func validateOperationPublications(intent OperationIntent) error {
+func validateOperationPublications(caseRoot string, intent OperationIntent) error {
 	seen := map[string]bool{}
-	if len(intent.Publications) != 1 || intent.Publications[0].Role != "board" || filepath.ToSlash(intent.Publications[0].Path) != ".rekit/board.json" {
+	boardRel, err := projectstate.Rel(caseRoot, "board.json")
+	if err != nil {
+		return err
+	}
+	if len(intent.Publications) != 1 || intent.Publications[0].Role != "board" || filepath.ToSlash(intent.Publications[0].Path) != boardRel {
 		return fmt.Errorf("reopen operation requires one exact board publication")
 	}
 	all := append([]OperationPublication{}, intent.Publications...)
 	for _, target := range intent.Targets {
-		if err := validateTargetPublicationTopology(target); err != nil {
+		if err := validateTargetPublicationTopology(caseRoot, target); err != nil {
 			return err
 		}
 		all = append(all, target.Publications...)
@@ -386,11 +407,19 @@ func safeOperationTargetPath(caseRoot, rel string) (string, error) {
 	if filepath.IsAbs(rel) {
 		return "", fmt.Errorf("reopen operation target path must be case-relative: %s", rel)
 	}
+	stateRoot, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return "", err
+	}
 	path := filepath.Clean(filepath.Join(caseRoot, filepath.FromSlash(rel)))
 	base := filepath.Clean(caseRoot)
 	relative, err := filepath.Rel(base, path)
 	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("reopen operation target escapes case root: %s", rel)
+	}
+	stateRelative, err := filepath.Rel(stateRoot.Path, path)
+	if err != nil || stateRelative == "." || stateRelative == ".." || strings.HasPrefix(stateRelative, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("reopen operation target is outside selected state root %s: %s", stateRoot.Dir, rel)
 	}
 	return path, nil
 }

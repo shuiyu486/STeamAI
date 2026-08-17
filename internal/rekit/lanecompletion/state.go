@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 const (
@@ -172,9 +174,13 @@ type Inspection struct {
 }
 
 func Inspect(caseRoot, laneID string) (Inspection, error) {
-	laneRootPath := filepath.Join(caseRoot, ".rekit", "lanes", laneID)
+	stateRoot, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return Inspection{}, err
+	}
+	laneRootPath := filepath.Join(stateRoot.Path, "lanes", laneID)
 	out := Inspection{State: StateNone}
-	laneRoot, err := openCaseNamespaceRoot(caseRoot, []string{".rekit", "lanes", laneID}, false)
+	laneRoot, err := openCaseNamespaceRoot(caseRoot, []string{stateRoot.Dir, "lanes", laneID}, false)
 	if os.IsNotExist(err) {
 		return out, nil
 	}
@@ -387,18 +393,39 @@ func validateReopenPair(lane string, sequence int, previousSHA string, intent Re
 	return nil
 }
 
-func IntentPath(caseRoot, laneID string, sequence int, kind string) string {
+func IntentPathE(caseRoot, laneID string, sequence int, kind string) (string, error) {
 	if sequence == 1 && kind == "complete" {
-		return filepath.Join(caseRoot, ".rekit", "lanes", laneID, IntentFile)
+		return projectstate.Join(caseRoot, "lanes", laneID, IntentFile)
 	}
-	return filepath.Join(caseRoot, ".rekit", "lanes", laneID, LifecycleDir, fmt.Sprintf("%020d.%s.intent.json", sequence, kind))
+	return projectstate.Join(caseRoot, "lanes", laneID, LifecycleDir, fmt.Sprintf("%020d.%s.intent.json", sequence, kind))
 }
 
-func ReceiptPath(caseRoot, laneID string, sequence int, kind string) string {
+// IntentPath is retained for existing callers. New error-returning flows should
+// use IntentPathE so a conflicting state root can be reported explicitly. The
+// compatibility API panics rather than returning an empty, potentially unsafe
+// path when root resolution fails.
+func IntentPath(caseRoot, laneID string, sequence int, kind string) string {
+	return mustResolvedPath(IntentPathE(caseRoot, laneID, sequence, kind))
+}
+
+func ReceiptPathE(caseRoot, laneID string, sequence int, kind string) (string, error) {
 	if sequence == 1 && kind == "complete" {
-		return filepath.Join(caseRoot, ".rekit", "lanes", laneID, CommitFile)
+		return projectstate.Join(caseRoot, "lanes", laneID, CommitFile)
 	}
-	return filepath.Join(caseRoot, ".rekit", "lanes", laneID, LifecycleDir, fmt.Sprintf("%020d.%s.json", sequence, kind))
+	return projectstate.Join(caseRoot, "lanes", laneID, LifecycleDir, fmt.Sprintf("%020d.%s.json", sequence, kind))
+}
+
+// ReceiptPath is retained for existing callers. New error-returning flows
+// should use ReceiptPathE.
+func ReceiptPath(caseRoot, laneID string, sequence int, kind string) string {
+	return mustResolvedPath(ReceiptPathE(caseRoot, laneID, sequence, kind))
+}
+
+func mustResolvedPath(path string, err error) string {
+	if err != nil {
+		panic(err)
+	}
+	return path
 }
 
 func canonicalSHA(value any) (string, error) {

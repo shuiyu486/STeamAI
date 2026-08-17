@@ -15,6 +15,7 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/releasecheck"
 )
 
@@ -76,7 +77,7 @@ func TestValidateCurrentConsumerTaskBindsExactSelectedSyncReceipt(t *testing.T) 
 	if _, err := Apply(repo, caseRoot, "fixture", change.ChangeID, preview.ExpectedPlanSHA256); err != nil {
 		t.Fatal(err)
 	}
-	writeConsumerFile(t, filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "lane.json"), "{\"id\":\"feature-analysis\",\"status\":\"active\"}\n")
+	writeConsumerFile(t, mustProjectStatePath(t, caseRoot, "lanes", "feature-analysis", "lane.json"), "{\"id\":\"feature-analysis\",\"status\":\"active\"}\n")
 	writeConsumerBoard(t, caseRoot, repo, "executor-a", 1)
 	if _, _, err := BindConsumerTask(caseRoot, "feature-analysis", change.ChangeID); err != nil {
 		t.Fatal(err)
@@ -85,7 +86,7 @@ func TestValidateCurrentConsumerTaskBindsExactSelectedSyncReceipt(t *testing.T) 
 		t.Fatalf("exact current consumer binding was rejected: %v", err)
 	}
 
-	bindingPath := filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "member-task-bindings", "g000001.json")
+	bindingPath := mustProjectStatePath(t, caseRoot, "lanes", "feature-analysis", "member-task-bindings", "g000001.json")
 	bindingBytes, err := os.ReadFile(bindingPath)
 	if err != nil {
 		t.Fatal(err)
@@ -123,7 +124,7 @@ func TestWithCurrentConsumerTaskLeaseRevalidatesBeforeMemberPublication(t *testi
 	if _, err := Apply(repo, caseRoot, "fixture", change.ChangeID, preview.ExpectedPlanSHA256); err != nil {
 		t.Fatal(err)
 	}
-	writeConsumerFile(t, filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "lane.json"), "{\"id\":\"feature-analysis\",\"status\":\"active\"}\n")
+	writeConsumerFile(t, mustProjectStatePath(t, caseRoot, "lanes", "feature-analysis", "lane.json"), "{\"id\":\"feature-analysis\",\"status\":\"active\"}\n")
 	writeConsumerBoard(t, caseRoot, repo, "executor-a", 1)
 	if _, _, err := BindConsumerTask(caseRoot, "feature-analysis", change.ChangeID); err != nil {
 		t.Fatal(err)
@@ -148,9 +149,9 @@ func TestWithCurrentConsumerAttemptLeaseRejectsTargetDriftBeforeLaunch(t *testin
 	if _, err := Apply(repo, caseRoot, "fixture", change.ChangeID, preview.ExpectedPlanSHA256); err != nil {
 		t.Fatal(err)
 	}
-	writeConsumerFile(t, filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "lane.json"), "{\"id\":\"feature-analysis\",\"status\":\"active\"}\n")
-	writeConsumerFile(t, filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "prompts", "RESUME.md"), "# feature-analysis\n\nConsume selected pack memory.\n")
-	writeConsumerFile(t, filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "checkpoints", "latest.json"), "{\n  \"schemaVersion\": 1,\n  \"lane\": \"feature-analysis\",\n  \"status\": \"active\"\n}\n")
+	writeConsumerFile(t, mustProjectStatePath(t, caseRoot, "lanes", "feature-analysis", "lane.json"), "{\"id\":\"feature-analysis\",\"status\":\"active\"}\n")
+	writeConsumerFile(t, mustProjectStatePath(t, caseRoot, "lanes", "feature-analysis", "prompts", "RESUME.md"), "# feature-analysis\n\nConsume selected pack memory.\n")
+	writeConsumerFile(t, mustProjectStatePath(t, caseRoot, "lanes", "feature-analysis", "checkpoints", "latest.json"), "{\n  \"schemaVersion\": 1,\n  \"lane\": \"feature-analysis\",\n  \"status\": \"active\"\n}\n")
 	writeConsumerBoard(t, caseRoot, repo, "executor-a", 1)
 	if _, _, err := BindConsumerTask(caseRoot, "feature-analysis", change.ChangeID); err != nil {
 		t.Fatal(err)
@@ -186,9 +187,9 @@ func TestWithCurrentConsumerAttemptLeaseRejectsBindingReplacement(t *testing.T) 
 	if _, err := Apply(repo, caseRoot, "fixture", change.ChangeID, preview.ExpectedPlanSHA256); err != nil {
 		t.Fatal(err)
 	}
-	writeConsumerFile(t, filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "lane.json"), "{\"id\":\"feature-analysis\",\"status\":\"active\"}\n")
-	writeConsumerFile(t, filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "prompts", "RESUME.md"), "# feature-analysis\n\nConsume selected pack memory.\n")
-	writeConsumerFile(t, filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "checkpoints", "latest.json"), "{\n  \"schemaVersion\": 1,\n  \"lane\": \"feature-analysis\",\n  \"status\": \"active\"\n}\n")
+	writeConsumerFile(t, mustProjectStatePath(t, caseRoot, "lanes", "feature-analysis", "lane.json"), "{\"id\":\"feature-analysis\",\"status\":\"active\"}\n")
+	writeConsumerFile(t, mustProjectStatePath(t, caseRoot, "lanes", "feature-analysis", "prompts", "RESUME.md"), "# feature-analysis\n\nConsume selected pack memory.\n")
+	writeConsumerFile(t, mustProjectStatePath(t, caseRoot, "lanes", "feature-analysis", "checkpoints", "latest.json"), "{\n  \"schemaVersion\": 1,\n  \"lane\": \"feature-analysis\",\n  \"status\": \"active\"\n}\n")
 	writeConsumerBoard(t, caseRoot, repo, "executor-a", 1)
 	if _, _, err := BindConsumerTask(caseRoot, "feature-analysis", change.ChangeID); err != nil {
 		t.Fatal(err)
@@ -204,7 +205,7 @@ func TestWithCurrentConsumerAttemptLeaseRejectsBindingReplacement(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	bindingPath := filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "member-task-bindings", "g000001.json")
+	bindingPath := mustProjectStatePath(t, caseRoot, "lanes", "feature-analysis", "member-task-bindings", "g000001.json")
 	bindingBytes, err := os.ReadFile(bindingPath)
 	if err != nil {
 		t.Fatal(err)
@@ -239,7 +240,7 @@ func TestValidateCurrentConsumerTaskRejectsReceiptByteDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeConsumerFile(t, filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "lane.json"), "{\"id\":\"feature-analysis\",\"status\":\"active\"}\n")
+	writeConsumerFile(t, mustProjectStatePath(t, caseRoot, "lanes", "feature-analysis", "lane.json"), "{\"id\":\"feature-analysis\",\"status\":\"active\"}\n")
 	writeConsumerBoard(t, caseRoot, repo, "executor-a", 1)
 	if _, _, err := BindConsumerTask(caseRoot, "feature-analysis", change.ChangeID); err != nil {
 		t.Fatal(err)
@@ -296,6 +297,48 @@ func TestVerifyConsumerUseRejectsFalseCitationAndStaleOwner(t *testing.T) {
 			t.Fatalf("stale owner error = %v", err)
 		}
 	})
+}
+
+func TestPlanUsesSTeamAIStateRootAndPersistentPaths(t *testing.T) {
+	caseRoot := t.TempDir()
+	if err := os.Mkdir(filepath.Join(caseRoot, projectstate.CurrentDir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	change := releasecheck.CompletedPackMemoryChange{
+		ChangeID:     "pack-memory-change-" + strings.Repeat("a", 64),
+		ManagedPath:  "memory.md",
+		SourcePath:   "packs/fixture/memory.md",
+		SourceSHA256: strings.Repeat("b", 64),
+	}
+	plan, err := makePlan(t.TempDir(), caseRoot, "fixture", change, strings.Repeat("c", 64), strings.Repeat("d", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantState := filepath.Join(caseRoot, projectstate.CurrentDir, "state.json")
+	wantReceipt := filepath.Join(caseRoot, projectstate.CurrentDir, "pack-memory", "consumptions", change.ChangeID+".json")
+	wantBackup := filepath.Join(caseRoot, projectstate.CurrentDir, "backups", "pack-memory", change.ChangeID, "memory.md")
+	if plan.StatePath != wantState || plan.ReceiptPath != wantReceipt || plan.BackupPath != wantBackup {
+		t.Fatalf("STeamAI paths = state %q receipt %q backup %q", plan.StatePath, plan.ReceiptPath, plan.BackupPath)
+	}
+	receipt := receiptForIntent(consumptionIntent{Plan: plan}, 1)
+	if want := filepath.ToSlash(filepath.Join(projectstate.CurrentDir, "backups", "pack-memory", change.ChangeID, "memory.md")); receipt.BackupPath != want {
+		t.Fatalf("receipt backupPath = %q, want %q", receipt.BackupPath, want)
+	}
+}
+
+func TestPathsRejectDualStateRoots(t *testing.T) {
+	caseRoot := t.TempDir()
+	for _, dir := range []string{projectstate.CurrentDir, projectstate.LegacyDir} {
+		if err := os.Mkdir(filepath.Join(caseRoot, dir), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := consumptionIntentPath(caseRoot, "change"); err == nil || !strings.Contains(err.Error(), "must not coexist") {
+		t.Fatalf("intent path dual-root error = %v", err)
+	}
+	if _, err := consumptionReceiptPath(caseRoot, "change"); err == nil || !strings.Contains(err.Error(), "must not coexist") {
+		t.Fatalf("receipt path dual-root error = %v", err)
+	}
 }
 
 func TestSelectedSyncPreviewApplyReplayAndLocalConflict(t *testing.T) {
@@ -396,7 +439,7 @@ func TestApplyRecoversExactPrefixAfterDoctorFailure(t *testing.T) {
 	if _, err := Apply(repo, caseRoot, "fixture", change.ChangeID, preview.ExpectedPlanSHA256); err == nil || !strings.Contains(err.Error(), "doctor fixture") {
 		t.Fatalf("expected doctor failure, got %v", err)
 	}
-	if _, err := os.Stat(consumptionIntentPath(caseRoot, change.ChangeID)); err != nil {
+	if _, err := os.Stat(mustConsumptionIntentPath(t, caseRoot, change.ChangeID)); err != nil {
 		t.Fatalf("durable intent missing after failure: %v", err)
 	}
 	if _, err := os.Stat(preview.ReceiptPath); !os.IsNotExist(err) {
@@ -442,7 +485,7 @@ func TestCommittedReplayIgnoresProducerCatalogAndSourceDrift(t *testing.T) {
 	if _, err := Apply(repo, caseRoot, "fixture", change.ChangeID, preview.ExpectedPlanSHA256); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Remove(consumptionIntentPath(caseRoot, change.ChangeID)); err != nil {
+	if err := os.Remove(mustConsumptionIntentPath(t, caseRoot, change.ChangeID)); err != nil {
 		t.Fatal(err)
 	}
 	oldBuilder := completedCatalogBuilder
@@ -466,7 +509,7 @@ func TestApplyRejectsCommittedReceiptMovedToReplacementCaseRoot(t *testing.T) {
 	if _, err := Apply(repo, caseRoot, "fixture", change.ChangeID, preview.ExpectedPlanSHA256); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Remove(consumptionIntentPath(caseRoot, change.ChangeID)); err != nil {
+	if err := os.Remove(mustConsumptionIntentPath(t, caseRoot, change.ChangeID)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -504,7 +547,7 @@ func TestApplyRejectsDurableIntentMovedToReplacementCaseRoot(t *testing.T) {
 	doctorCase = oldDoctor
 	t.Cleanup(func() { doctorCase = oldDoctor })
 
-	intentPath := consumptionIntentPath(caseRoot, change.ChangeID)
+	intentPath := mustConsumptionIntentPath(t, caseRoot, change.ChangeID)
 	if _, err := os.Stat(intentPath); err != nil {
 		t.Fatalf("durable intent was not committed: %v", err)
 	}
@@ -583,7 +626,7 @@ func TestAtomicArtifactCommitLeavesFinalAbsentOnFaultAndRecovers(t *testing.T) {
 			if err == nil || !failed {
 				t.Fatalf("expected %s commit fault: %v", kind, err)
 			}
-			finalPath := consumptionIntentPath(caseRoot, change.ChangeID)
+			finalPath := mustConsumptionIntentPath(t, caseRoot, change.ChangeID)
 			if kind == "receipt" {
 				finalPath = preview.ReceiptPath
 			}
@@ -616,7 +659,7 @@ func TestApplyRejectsNonPrefixRecovery(t *testing.T) {
 	}
 	publicationHook = oldHook
 	t.Cleanup(func() { publicationHook = oldHook })
-	intent, _, err := readIntent(caseRoot, consumptionIntentPath(caseRoot, change.ChangeID))
+	intent, _, err := readIntent(caseRoot, mustConsumptionIntentPath(t, caseRoot, change.ChangeID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -645,8 +688,8 @@ func TestReceiptForgeryAndDriftFailClosed(t *testing.T) {
 			writeConsumptionFile(t, filepath.Join(caseRoot, filepath.FromSlash(receipt.BackupPath)), "forged backup\n")
 		}},
 		{name: "state", drift: func(caseRoot string, _ Receipt) {
-			data := readConsumptionFile(t, filepath.Join(caseRoot, ".rekit", "state.json"))
-			writeConsumptionFile(t, filepath.Join(caseRoot, ".rekit", "state.json"), strings.Replace(data, "pack-memory-selected-sync", "forged", 1))
+			data := readConsumptionFile(t, mustProjectStatePath(t, caseRoot, "state.json"))
+			writeConsumptionFile(t, mustProjectStatePath(t, caseRoot, "state.json"), strings.Replace(data, "pack-memory-selected-sync", "forged", 1))
 		}},
 		{name: "target", drift: func(caseRoot string, _ Receipt) {
 			writeConsumptionFile(t, filepath.Join(caseRoot, "memory.md"), "forged target\n")
@@ -777,7 +820,7 @@ func TestIntentBindsExactPlanAndOriginalBytes(t *testing.T) {
 	doctorCase = func(string, string, string) ([]doctor.Row, error) { return nil, errors.New("stop") }
 	_, _ = Apply(repo, caseRoot, "fixture", change.ChangeID, preview.ExpectedPlanSHA256)
 	doctorCase = oldDoctor
-	intent, exists, err := readIntent(caseRoot, consumptionIntentPath(caseRoot, change.ChangeID))
+	intent, exists, err := readIntent(caseRoot, mustConsumptionIntentPath(t, caseRoot, change.ChangeID))
 	if err != nil || !exists {
 		t.Fatal(err)
 	}
@@ -793,7 +836,7 @@ func TestIntentBindsExactPlanAndOriginalBytes(t *testing.T) {
 func writeConsumerUseMemberResult(t *testing.T, caseRoot string, change releasecheck.CompletedPackMemoryChange, bind bool, quote, appliedAs string) string {
 	t.Helper()
 	repo := filepath.Clean(filepath.Join(caseRoot, ".."))
-	metadata, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "instance.yml"))
+	metadata, err := os.ReadFile(mustProjectStatePath(t, caseRoot, "instance.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -803,10 +846,10 @@ func writeConsumerUseMemberResult(t *testing.T, caseRoot string, change releasec
 			break
 		}
 	}
-	writeConsumerFile(t, filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "lane.json"), "{\"id\":\"feature-analysis\",\"status\":\"active\"}\n")
-	writeConsumerFile(t, filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "prompts", "RESUME.md"), "# feature-analysis\n\nConsume selected pack memory.\n")
-	writeConsumerFile(t, filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "checkpoints", "latest.json"), "{\n  \"schemaVersion\": 1,\n  \"lane\": \"feature-analysis\",\n  \"status\": \"active\"\n}\n")
-	boardPath := filepath.Join(caseRoot, ".rekit", "board.json")
+	writeConsumerFile(t, mustProjectStatePath(t, caseRoot, "lanes", "feature-analysis", "lane.json"), "{\"id\":\"feature-analysis\",\"status\":\"active\"}\n")
+	writeConsumerFile(t, mustProjectStatePath(t, caseRoot, "lanes", "feature-analysis", "prompts", "RESUME.md"), "# feature-analysis\n\nConsume selected pack memory.\n")
+	writeConsumerFile(t, mustProjectStatePath(t, caseRoot, "lanes", "feature-analysis", "checkpoints", "latest.json"), "{\n  \"schemaVersion\": 1,\n  \"lane\": \"feature-analysis\",\n  \"status\": \"active\"\n}\n")
+	boardPath := mustProjectStatePath(t, caseRoot, "board.json")
 	if _, err := os.Stat(boardPath); os.IsNotExist(err) {
 		writeConsumerBoard(t, caseRoot, repo, "executor-a", 1)
 	} else if err != nil {
@@ -867,7 +910,7 @@ func writeConsumerBoard(t *testing.T, caseRoot, repo, executor string, generatio
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeConsumerFile(t, filepath.Join(caseRoot, ".rekit", "board.json"), string(append(data, '\n')))
+	writeConsumerFile(t, mustProjectStatePath(t, caseRoot, "board.json"), string(append(data, '\n')))
 }
 
 func writeConsumerFile(t *testing.T, path, content string) {
@@ -878,6 +921,24 @@ func writeConsumerFile(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func mustProjectStatePath(t *testing.T, caseRoot string, parts ...string) string {
+	t.Helper()
+	path, err := projectstate.Join(caseRoot, parts...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func mustConsumptionIntentPath(t *testing.T, caseRoot, changeID string) string {
+	t.Helper()
+	path, err := consumptionIntentPath(caseRoot, changeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func writeConsumptionFixture(t *testing.T) (string, string, releasecheck.CompletedPackMemoryChange) {
@@ -968,7 +1029,7 @@ budgets:
 	writeConsumptionFile(t, filepath.Join(repo, "common", "policies", "README.md"), "policies\n")
 	writeConsumptionFile(t, filepath.Join(packRoot, "policies", "manifest.yml"), "overlays:\n")
 	writeConsumptionFile(t, filepath.Join(packRoot, "policies", "README.md"), "overlays\n")
-	if err := os.MkdirAll(caseRoot, 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(caseRoot, projectstate.LegacyDir), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := casebind.WriteInstance(caseRoot, repo, "fixture", "consumer"); err != nil {
@@ -982,7 +1043,7 @@ budgets:
 	}
 	writeConsumptionFile(t, filepath.Join(caseRoot, "memory.md"), "old memory\n")
 	writeConsumptionFile(t, filepath.Join(caseRoot, "CLAUDE.md"), "<!-- BEGIN rekit:fixture -->\nmanaged block\n<!-- END rekit:fixture -->\n")
-	writeConsumptionFile(t, filepath.Join(caseRoot, ".rekit", "state.json"), syncStateJSON(t, repo, sha256Hex([]byte("old memory\n"))))
+	writeConsumptionFile(t, mustProjectStatePath(t, caseRoot, "state.json"), syncStateJSON(t, repo, sha256Hex([]byte("old memory\n"))))
 
 	change := releasecheck.CompletedPackMemoryChange{ChangeID: "pack-memory-change-" + strings.Repeat("a", 64), ManagedPath: "memory.md", SourcePath: "packs/fixture/memory.md", SourceSHA256: sha256Hex([]byte("accepted memory\n")), AuthoritySHA256: strings.Repeat("b", 64)}
 	oldBuilder := completedCatalogBuilder

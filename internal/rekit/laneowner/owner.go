@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 var laneIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
@@ -51,7 +51,10 @@ func Path(caseRoot, laneID string) (string, string, error) {
 	if !laneIDPattern.MatchString(laneID) || laneID == "." || laneID == ".." {
 		return "", "", fmt.Errorf("invalid lane id path segment: %s", laneID)
 	}
-	rel := filepath.ToSlash(filepath.Join(".rekit", "lanes", laneID, "lane.json"))
+	rel, err := projectstate.Rel(caseRoot, "lanes", laneID, "lane.json")
+	if err != nil {
+		return "", "", err
+	}
 	path, err := refsf.SafeJoin(caseRoot, rel)
 	if err != nil {
 		return "", "", err

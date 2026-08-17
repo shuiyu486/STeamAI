@@ -1,7 +1,6 @@
 package onboarding
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -37,16 +36,16 @@ func TestPreviewApplyReplayAndIdentityDrift(t *testing.T) {
 	if !result.Applied || result.Replay || !result.Inspection.Committed {
 		t.Fatalf("unexpected apply: %+v", result)
 	}
-	if _, err := os.Lstat(filepath.Join(caseRoot, ".rekit", "board.json")); !os.IsNotExist(err) {
+	if _, err := os.Lstat(filepath.Join(caseRoot, ".steamai", "board.json")); !os.IsNotExist(err) {
 		t.Fatalf("onboard created board: %v", err)
 	}
-	if _, err := os.Lstat(filepath.Join(caseRoot, ".rekit", "lanes")); !os.IsNotExist(err) {
+	if _, err := os.Lstat(filepath.Join(caseRoot, ".steamai", "lanes")); !os.IsNotExist(err) {
 		t.Fatalf("onboard created lanes: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "board.json"), []byte("{\"schemaVersion\":1}\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(caseRoot, ".steamai", "board.json"), []byte("{\"schemaVersion\":1}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(caseRoot, ".rekit", "lanes", "later"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(caseRoot, ".steamai", "lanes", "later"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	replay, err := Apply(repo, opt)
@@ -71,8 +70,12 @@ func TestApplyRecoversPartialExactPublication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	paths, err := missionintent.Paths(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
 	restore := syncreview.SetExclusiveInitLeafWriteHookForTest(func(stage, path string) error {
-		if stage == "before-publish" && path == missionintent.MissionIntentRel {
+		if stage == "before-publish" && path == paths.MissionIntent {
 			return os.ErrClosed
 		}
 		return nil
@@ -107,7 +110,7 @@ func TestApplyIntentOnlyRecoversAfterLiveSourceDrift(t *testing.T) {
 	opt.PublicationStamp = preview.PublicationStamp
 	opt.ExpectedOnboardingPlanSHA256 = preview.OnboardingPlanSHA256
 	restore := syncreview.SetExclusiveInitLeafWriteHookForTest(func(stage, path string) error {
-		if stage == "before-publish" && path != missionintent.IntentRel {
+		if stage == "before-publish" && path != ".steamai/onboarding/intent.json" {
 			return os.ErrClosed
 		}
 		return nil
@@ -133,13 +136,13 @@ func TestApplyIntentOnlyRecoversAfterLiveSourceDrift(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read published %s: %v", write.Path, err)
 		}
-		if !bytes.Equal(published, write.Content) {
-			t.Fatalf("published %s differs from preview snapshot", write.Path)
+		if int64(len(published)) != write.Size || !strings.EqualFold(missionintent.SHA256(published), write.SHA256) {
+			t.Fatalf("published %s differs from preview binding", write.Path)
 		}
 	}
 }
 
-func TestPendingRecoveryRejectsDifferentKitRootWithoutWriting(t *testing.T) {
+func TestPendingBundleRecoveryDoesNotRequireOriginalKitRoot(t *testing.T) {
 	repo := copyOnboardingRepoFixture(t)
 	caseRoot := filepath.Join(t.TempDir(), "repo-root-bound")
 	opt := testOptions(caseRoot)
@@ -150,7 +153,7 @@ func TestPendingRecoveryRejectsDifferentKitRootWithoutWriting(t *testing.T) {
 	opt.PublicationStamp = preview.PublicationStamp
 	opt.ExpectedOnboardingPlanSHA256 = preview.OnboardingPlanSHA256
 	restore := syncreview.SetExclusiveInitLeafWriteHookForTest(func(stage, path string) error {
-		if stage == "before-publish" && path != missionintent.IntentRel {
+		if stage == "before-publish" && path != ".steamai/onboarding/intent.json" {
 			return os.ErrClosed
 		}
 		return nil
@@ -160,23 +163,16 @@ func TestPendingRecoveryRejectsDifferentKitRootWithoutWriting(t *testing.T) {
 		t.Fatal("hooked apply unexpectedly completed")
 	}
 	restore()
-	before := onboardingSnapshot(t, caseRoot)
 	otherRepo := copyOnboardingRepoFixture(t)
-	if _, err := Apply(otherRepo, opt); err == nil || !strings.Contains(err.Error(), "different canonical kit root") {
-		t.Fatalf("different kit root apply error = %v", err)
+	if err := os.Rename(filepath.Join(repo, "packs"), filepath.Join(repo, "packs-unavailable")); err != nil {
+		t.Fatal(err)
 	}
-	after := onboardingSnapshot(t, caseRoot)
-	if len(before) != len(after) {
-		t.Fatalf("different kit root changed file count: before=%d after=%d", len(before), len(after))
+	result, err := Apply(otherRepo, opt)
+	if err != nil {
+		t.Fatalf("bundle recovery depended on original kit root: %v", err)
 	}
-	for path, content := range before {
-		if !bytes.Equal(content, after[path]) {
-			t.Fatalf("different kit root changed %s", path)
-		}
-	}
-	inspection, err := missionintent.Inspect(caseRoot)
-	if err != nil || inspection.State != "pending" {
-		t.Fatalf("different kit root changed pending state: inspection=%+v err=%v", inspection, err)
+	if !result.Inspection.Committed {
+		t.Fatalf("bundle recovery from a different caller root did not commit: %+v", result)
 	}
 }
 
@@ -279,7 +275,7 @@ func TestStrictTamperRejected(t *testing.T) {
 	if _, err := Apply(repo, opt); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(caseRoot, filepath.FromSlash(missionintent.MissionIntentRel))
+	path := filepath.Join(caseRoot, ".steamai", "mission-intent.json")
 	if err := os.WriteFile(path, []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -369,9 +365,24 @@ func copyOnboardingRepoFixture(t *testing.T) string {
 	t.Helper()
 	sourceRoot := testRepoRoot(t)
 	targetRoot := filepath.Join(t.TempDir(), "repo")
-	for _, rel := range []string{"packs/_template", "rekit/templates/case-shim"} {
+	for _, rel := range []string{"packs/_template", "common", "rekit/templates/case-shim", "rekit/templates/steamai-project", "rekit/schemas", "rekit/tests/catalog.json"} {
 		source := filepath.Join(sourceRoot, filepath.FromSlash(rel))
 		target := filepath.Join(targetRoot, filepath.FromSlash(rel))
+		if info, err := os.Stat(source); err != nil {
+			t.Fatal(err)
+		} else if info.Mode().IsRegular() {
+			if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			content, err := os.ReadFile(source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(target, content, info.Mode().Perm()); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
 		err := filepath.Walk(source, func(path string, info os.FileInfo, walkErr error) error {
 			if walkErr != nil {
 				return walkErr

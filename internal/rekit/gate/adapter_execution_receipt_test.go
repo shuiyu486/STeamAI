@@ -39,7 +39,7 @@ func managedAdapterExecutionFixtureWithReportPath(t *testing.T, reportPath strin
   "createdAt": "2026-07-29T00:00:00Z",
   "updatedAt": "2026-07-29T00:00:00Z"
 }`)
-	authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout"})
+	authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout,unexpected-side-effect,scope-drift"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,6 +78,43 @@ func managedAdapterExecutionFixtureWithReportPath(t *testing.T, reportPath strin
   "summary": "Adapter completed bounded debug run"
 }`)
 	return repoRoot, caseRoot, pack, authorized, opt
+}
+
+func TestAdapterExecutionCurrentnessRejectsManifestStopConditionExpansion(t *testing.T) {
+	repoRoot, caseRoot, pack, _, _ := managedAdapterExecutionFixture(t)
+	requestPath := filepath.Join(caseRoot, ".rekit", "facts", "requests.jsonl")
+	gateEvent := readSingleGateEvent(t, requestPath)
+	dispatch, dispatchPath, dispatchSHA, _, err := ReadCurrentAdapterExecutionDispatch(
+		repoRoot,
+		caseRoot,
+		pack,
+		gateEvent.EventID,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(repoRoot, "packs", pack, "manifest.yml")
+	manifestData, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeGateText(t, manifestPath, strings.Replace(
+		string(manifestData),
+		"stopConditions: timeout,unexpected-side-effect,scope-drift",
+		"stopConditions: timeout,unexpected-side-effect,scope-drift,new-required-boundary",
+		1,
+	))
+
+	_, err = ValidateAdapterExecutionCurrentness(
+		repoRoot,
+		caseRoot,
+		dispatch,
+		dispatchPath,
+		dispatchSHA,
+	)
+	if err == nil {
+		t.Fatal("manifest stop condition expansion remained executable")
+	}
 }
 
 func TestAdapterExecutionDispatchRejectsPostExecutionBackfillAndConflictingSession(t *testing.T) {

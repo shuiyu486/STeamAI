@@ -2861,7 +2861,7 @@ func publicFacadeRemovalImpactValidationCommands() []string {
 		"go run ./cmd/rekit -- -Command status",
 		"go run ./cmd/rekit -- -Command packs",
 		"go run ./cmd/rekit -- -Command doctor",
-		"go test ./...",
+		CanonicalGoTestCommand,
 		"go vet ./...",
 		"git diff --check",
 	}

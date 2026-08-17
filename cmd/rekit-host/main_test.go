@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/hostcmd"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/sessionhost"
 )
 
@@ -14,7 +15,7 @@ func TestPublishLiveAcceptanceReceiptFailureClearsPassed(t *testing.T) {
 	if err := os.WriteFile(path, []byte("existing evidence\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	result, err := publishLiveAcceptanceReceipt(path, sessionhost.LiveAcceptanceReceipt{Passed: true}, nil)
+	result, err := hostcmd.PublishLiveAcceptanceReceipt(path, sessionhost.LiveAcceptanceReceipt{Passed: true}, nil)
 	if err == nil || result.Passed || result.ReceiptPublication != "failed" || !strings.Contains(result.ReceiptError, "already exists") {
 		t.Fatalf("publication failure result=%+v err=%v", result, err)
 	}
@@ -26,7 +27,7 @@ func TestPublishLiveAcceptanceReceiptFailureClearsPassed(t *testing.T) {
 
 func TestPublishLiveAcceptanceReceiptPersistsPublishedState(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "receipt.json")
-	result, err := publishLiveAcceptanceReceipt(path, sessionhost.LiveAcceptanceReceipt{Passed: true}, nil)
+	result, err := hostcmd.PublishLiveAcceptanceReceipt(path, sessionhost.LiveAcceptanceReceipt{Passed: true}, nil)
 	if err != nil || !result.Passed || result.ReceiptPublication != "published" || result.ReceiptError != "" {
 		t.Fatalf("publication success result=%+v err=%v", result, err)
 	}
@@ -41,7 +42,7 @@ func TestPublishLiveSoakAcceptanceReceiptFailureClearsPassed(t *testing.T) {
 	if err := os.WriteFile(path, []byte("existing evidence\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	result, err := publishLiveSoakAcceptanceReceipt(path, sessionhost.LiveSoakAcceptanceReceipt{Passed: true}, nil)
+	result, err := hostcmd.PublishLiveSoakAcceptanceReceipt(path, sessionhost.LiveSoakAcceptanceReceipt{Passed: true}, nil)
 	if err == nil || result.Passed || result.ReceiptPublication != "failed" || !strings.Contains(result.ReceiptError, "already exists") {
 		t.Fatalf("publication failure result=%+v err=%v", result, err)
 	}
@@ -53,7 +54,7 @@ func TestPublishLiveSoakAcceptanceReceiptFailureClearsPassed(t *testing.T) {
 
 func TestPublishLiveSoakAcceptanceReceiptPersistsPublishedState(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "receipt.json")
-	result, err := publishLiveSoakAcceptanceReceipt(path, sessionhost.LiveSoakAcceptanceReceipt{Passed: true}, nil)
+	result, err := hostcmd.PublishLiveSoakAcceptanceReceipt(path, sessionhost.LiveSoakAcceptanceReceipt{Passed: true}, nil)
 	if err != nil || !result.Passed || result.ReceiptPublication != "published" || result.ReceiptError != "" {
 		t.Fatalf("publication success result=%+v err=%v", result, err)
 	}
@@ -79,7 +80,7 @@ func TestValidateAdapterFlagIsolatedToVMPRELiveAcceptance(t *testing.T) {
 		"daily rejects adapter":         {adapter: adapter, wantErr: "only by -live-acceptance"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			err := validateAdapterFlag(test.live, test.pack, test.adapter)
+			err := hostcmd.ValidateAdapterFlag(test.live, test.pack, test.adapter)
 			if test.wantErr == "" && err != nil {
 				t.Fatal(err)
 			}
@@ -99,22 +100,22 @@ func TestOrdinaryHostOptionsRequireCurrentDriverRequest(t *testing.T) {
 }
 
 func TestExpectedCurrentDriverRequestFlagIsOrdinaryHostOnly(t *testing.T) {
-	if err := validateExpectedCurrentDriverRequestFlag(strings.Repeat("a", 64), true); err != nil {
+	if err := hostcmd.ValidateExpectedCurrentDriverRequestFlag(strings.Repeat("a", 64), true); err != nil {
 		t.Fatal(err)
 	}
-	if err := validateExpectedCurrentDriverRequestFlag("", false); err != nil {
+	if err := hostcmd.ValidateExpectedCurrentDriverRequestFlag("", false); err != nil {
 		t.Fatal(err)
 	}
-	if err := validateExpectedCurrentDriverRequestFlag(strings.Repeat("a", 64), false); err == nil || !strings.Contains(err.Error(), "ordinary rekit-host mode") {
+	if err := hostcmd.ValidateExpectedCurrentDriverRequestFlag(strings.Repeat("a", 64), false); err == nil || !strings.Contains(err.Error(), "ordinary rekit-host mode") {
 		t.Fatalf("specialized host mode accepted case request identity: %v", err)
 	}
 }
 
 func TestPublicModeRequestedIncludesLiveSoak(t *testing.T) {
-	if publicModeRequested(false, false, false, false, false) {
+	if hostcmd.PublicModeRequested(false, false, false, false, false) {
 		t.Fatal("empty public mode set was selected")
 	}
-	if !publicModeRequested(false, false, false, false, true) {
+	if !hostcmd.PublicModeRequested(false, false, false, false, true) {
 		t.Fatal("live soak public mode was not selected")
 	}
 }

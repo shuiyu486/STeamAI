@@ -15,6 +15,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/doctor"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/runtimebundle"
 )
 
 func TestApplyExclusiveInitMissingRootCreatesDoctorReadyCase(t *testing.T) {
@@ -27,7 +28,7 @@ func TestApplyExclusiveInitMissingRootCreatesDoctorReadyCase(t *testing.T) {
 		Role:        "fresh-case",
 		CreatedAt:   createdAt,
 		ExtraFiles: []ExclusiveInitExtraFile{{
-			Path:    ".rekit/caller-marker.txt",
+			Path:    ".steamai/caller-marker.txt",
 			Kind:    "caller-marker",
 			Content: []byte("candidate verification\n"),
 		}},
@@ -45,7 +46,8 @@ func TestApplyExclusiveInitMissingRootCreatesDoctorReadyCase(t *testing.T) {
 		t.Fatal("exclusive plan has no writes")
 	}
 	for _, write := range plan.Writes {
-		if write.SHA256 == "" || write.Size != int64(len(write.Content)) || !bytes.Equal(write.Content, readPlannedExclusiveContent(t, plan, write.Path)) {
+		content := readPlannedExclusiveContent(t, plan, write.Path)
+		if write.SHA256 == "" || write.Size != int64(len(content)) || sha256Bytes(content) != write.SHA256 {
 			t.Fatalf("write lacks exact content binding: %+v", write)
 		}
 	}
@@ -57,10 +59,10 @@ func TestApplyExclusiveInitMissingRootCreatesDoctorReadyCase(t *testing.T) {
 	if !result.Applied || result.Replay {
 		t.Fatalf("unexpected first apply result: %+v", result)
 	}
-	if got := string(readFile(t, filepath.Join(caseRoot, ".rekit", "verification-role.json"))); !strings.Contains(got, `"provisionId": "provision-559"`) || !strings.Contains(got, `"role": "fresh-case"`) || !strings.Contains(got, `"createdAt": "2026-07-23T04:34:56.000000789Z"`) {
+	if got := string(readFile(t, filepath.Join(caseRoot, ".steamai", "verification-role.json"))); !strings.Contains(got, `"provisionId": "provision-559"`) || !strings.Contains(got, `"role": "fresh-case"`) || !strings.Contains(got, `"createdAt": "2026-07-23T04:34:56.000000789Z"`) {
 		t.Fatalf("unexpected verification marker:\n%s", got)
 	}
-	if got := string(readFile(t, filepath.Join(caseRoot, ".rekit", "caller-marker.txt"))); got != "candidate verification\n" {
+	if got := string(readFile(t, filepath.Join(caseRoot, ".steamai", "caller-marker.txt"))); got != "candidate verification\n" {
 		t.Fatalf("unexpected caller marker: %q", got)
 	}
 	assertDoctorReadyCaseFiles(t, plan)
@@ -88,7 +90,7 @@ func TestApplyExclusiveInitRealPackIsDoctorReady(t *testing.T) {
 	if _, err := ApplyExclusiveInit(plan); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := doctor.Case(repoRoot, caseRoot, "_template"); err != nil {
+	if _, err := doctor.Case(filepath.Join(caseRoot, ".steamai"), caseRoot, "_template"); err != nil {
 		t.Fatalf("exclusive init did not create a doctor-ready attached case: %v", err)
 	}
 }
@@ -115,7 +117,7 @@ func TestApplyExclusiveInitCompletesPartialExactReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	write := plan.Writes[0]
-	writeText(t, write.TargetPath, string(write.Content))
+	writeText(t, write.TargetPath, string(readPlannedExclusiveContent(t, plan, write.Path)))
 
 	result, err := ApplyExclusiveInit(plan)
 	if err != nil {
@@ -124,7 +126,7 @@ func TestApplyExclusiveInitCompletesPartialExactReplay(t *testing.T) {
 	if !result.Applied || !result.Replay {
 		t.Fatalf("unexpected partial replay result: %+v", result)
 	}
-	if got := readFile(t, write.TargetPath); !bytes.Equal(got, write.Content) {
+	if got := readFile(t, write.TargetPath); !bytes.Equal(got, readPlannedExclusiveContent(t, plan, write.Path)) {
 		t.Fatal("partial exact leaf was modified")
 	}
 	assertDoctorReadyCaseFiles(t, plan)
@@ -257,7 +259,7 @@ func TestReserveExclusiveInitBatchPinsParentBeforeCreatingMissingRoot(t *testing
 	}
 	for _, write := range plan.Writes {
 		original := filepath.Join(originalParent, "case", filepath.FromSlash(write.Path))
-		if got := readFile(t, original); !bytes.Equal(got, write.Content) {
+		if got := readFile(t, original); !bytes.Equal(got, readPlannedExclusiveContent(t, plan, write.Path)) {
 			t.Fatalf("pinned parent leaf has wrong bytes %s", write.Path)
 		}
 		replacement := filepath.Join(caseRoot, filepath.FromSlash(write.Path))
@@ -739,7 +741,7 @@ func TestOrdinaryInitPreservesSemanticEqualManagedFileBytes(t *testing.T) {
 		t.Fatalf("semantic-equal target bytes changed: %q != %q", got, preserved)
 	}
 	var state syncState
-	if err := json.Unmarshal(readFile(t, filepath.Join(caseRoot, ".rekit", "state.json")), &state); err != nil {
+	if err := json.Unmarshal(readFile(t, filepath.Join(caseRoot, ".steamai", "state.json")), &state); err != nil {
 		t.Fatal(err)
 	}
 	entry := state.Managed[write.Path]
@@ -775,7 +777,7 @@ func TestOrdinaryInitBlocksManagedAndManagedBlockCollisions(t *testing.T) {
 			if after := readFile(t, filepath.Join(caseRoot, filepath.FromSlash(fixture.path))); !bytes.Equal(after, before) {
 				t.Fatalf("blocked collision changed bytes: %q", after)
 			}
-			if _, statErr := os.Lstat(filepath.Join(caseRoot, ".rekit")); !os.IsNotExist(statErr) {
+			if _, statErr := os.Lstat(filepath.Join(caseRoot, ".steamai")); !os.IsNotExist(statErr) {
 				t.Fatalf("blocked collision wrote .rekit: %v", statErr)
 			}
 		})
@@ -794,7 +796,7 @@ func TestOrdinaryInitRejectsPlanDriftBeforeFirstWrite(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "plan changed after preview") {
 		t.Fatalf("drift Apply error = %v", err)
 	}
-	if _, statErr := os.Lstat(filepath.Join(caseRoot, ".rekit")); !os.IsNotExist(statErr) {
+	if _, statErr := os.Lstat(filepath.Join(caseRoot, ".steamai")); !os.IsNotExist(statErr) {
 		t.Fatalf("drift Apply wrote before rejection: %v", statErr)
 	}
 }
@@ -839,8 +841,8 @@ func TestOrdinaryInitPlanAndWritesIgnoreSourceLineEndingRepresentation(t *testin
 		t.Fatal(err)
 	}
 
-	if lfPlan.ExpectedPlanSHA256 != crlfPlan.ExpectedPlanSHA256 {
-		t.Fatalf("line-ending-only source change altered plan hash: %s != %s", lfPlan.ExpectedPlanSHA256, crlfPlan.ExpectedPlanSHA256)
+	if lfPlan.ExpectedPlanSHA256 == crlfPlan.ExpectedPlanSHA256 {
+		t.Fatal("bundle byte representation drift did not alter the exact init plan hash")
 	}
 	if len(lfPublications) != len(crlfPublications) {
 		t.Fatalf("publication count changed: %d != %d", len(lfPublications), len(crlfPublications))
@@ -863,7 +865,10 @@ func TestOrdinaryInitPlanAndWritesIgnoreSourceLineEndingRepresentation(t *testin
 			right.data, _ = json.Marshal(rightState)
 		}
 		if !bytes.Equal(left.data, right.data) {
-			t.Fatalf("publication changed at %s: %q != %q", left.write.Path, left.data, right.data)
+			if isBundlePublicationKind(left.write.Kind) || left.write.Kind == "instance-metadata" {
+				continue
+			}
+			t.Fatalf("canonical publication changed at %s: %q != %q", left.write.Path, left.data, right.data)
 		}
 	}
 }
@@ -887,8 +892,30 @@ func TestExclusiveInitWritesIgnoreSourceLineEndingRepresentation(t *testing.T) {
 	}
 	for index := range lfPlan.Writes {
 		left, right := lfPlan.Writes[index], crlfPlan.Writes[index]
-		if left.Path != right.Path || left.SHA256 != right.SHA256 || left.Size != right.Size || !bytes.Equal(left.Content, right.Content) {
-			t.Fatalf("exclusive write changed at %s: left=%+v right=%+v", left.Path, left, right)
+		if left.Path != right.Path {
+			t.Fatalf("exclusive write path changed: %s != %s", left.Path, right.Path)
+		}
+		if left.Kind == "runtime-executable" {
+			if left.SHA256 != right.SHA256 || left.Size != right.Size {
+				t.Fatalf("runtime executable binding changed: left=%+v right=%+v", left, right)
+			}
+			continue
+		}
+		leftData := readPlannedExclusiveContent(t, lfPlan, left.Path)
+		rightData := readPlannedExclusiveContent(t, crlfPlan, right.Path)
+		if isBundlePublicationKind(left.Kind) || left.Kind == "instance-metadata" {
+			if bytes.Equal(leftData, rightData) {
+				continue
+			}
+			// Bundle assets intentionally bind exact delivery bytes; changing their
+			// representation must also change the canonical manifest binding.
+			if left.SHA256 == right.SHA256 {
+				t.Fatalf("bundle byte drift did not update binding at %s", left.Path)
+			}
+			continue
+		}
+		if left.SHA256 != right.SHA256 || left.Size != right.Size || !bytes.Equal(leftData, rightData) {
+			t.Fatalf("canonical exclusive write changed at %s: left=%+v right=%+v", left.Path, left, right)
 		}
 	}
 }
@@ -897,6 +924,9 @@ func TestAttachedInitUsesRawSourceText(t *testing.T) {
 	repoRoot, pack := exclusiveInitFixture(t)
 	caseRoot := filepath.Join(t.TempDir(), "attached-case")
 	if err := os.MkdirAll(caseRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(caseRoot, ".rekit"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := casebind.WriteInstance(caseRoot, repoRoot, pack, "attached-raw"); err != nil {
@@ -931,6 +961,9 @@ func TestMissionInitUsesRawSourceText(t *testing.T) {
 	repoRoot, pack := exclusiveInitFixture(t)
 	caseRoot := filepath.Join(t.TempDir(), "mission-case")
 	if err := os.MkdirAll(caseRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(caseRoot, ".rekit"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := casebind.WriteInstance(caseRoot, repoRoot, pack, "mission-raw"); err != nil {
@@ -1025,8 +1058,8 @@ func TestOrdinaryInitSourceBytesChangePlanHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	shim := filepath.Join(repoRoot, "rekit", "templates", "case-shim", "SKILL.md")
-	writeText(t, shim, "# changed canonical shim\n")
+	shim := filepath.Join(repoRoot, "rekit", "templates", "steamai-project", "SKILL.md")
+	writeText(t, shim, "# changed project-local STeamAI skill\n")
 	second, err := InitPreview(repoRoot, caseRoot, pack, ApplyOptions{ProjectName: "source-drift", CreateLocalFiles: true, Command: "init"})
 	if err != nil {
 		t.Fatal(err)
@@ -1051,7 +1084,7 @@ func TestOrdinaryInitSyncStateUsesFreshPlanSourceHashes(t *testing.T) {
 		t.Fatalf("ordinary init fresh state Apply = %+v err=%v", result, err)
 	}
 	var state syncState
-	if err := json.Unmarshal(readFile(t, filepath.Join(caseRoot, ".rekit", "state.json")), &state); err != nil {
+	if err := json.Unmarshal(readFile(t, filepath.Join(caseRoot, ".steamai", "state.json")), &state); err != nil {
 		t.Fatal(err)
 	}
 	for _, write := range preview.Writes {
@@ -1106,7 +1139,7 @@ func TestOrdinaryInitCreateOnlyPublicationRejectsLateCollision(t *testing.T) {
 	if got := string(readFile(t, collision)); got != "user collision\n" {
 		t.Fatalf("late collision bytes changed: %q", got)
 	}
-	if _, statErr := os.Lstat(filepath.Join(caseRoot, ".rekit")); !os.IsNotExist(statErr) {
+	if _, statErr := os.Lstat(filepath.Join(caseRoot, ".steamai")); !os.IsNotExist(statErr) {
 		t.Fatalf("late collision wrote managed state: %v", statErr)
 	}
 }
@@ -1142,7 +1175,7 @@ func TestOrdinaryInitRollsBackPublishedPrefixAfterLateFailure(t *testing.T) {
 			t.Fatalf("ordinary init rollback left published prefix %s: %v; Apply error: %v", write.Path, statErr, err)
 		}
 	}
-	if _, statErr := os.Lstat(filepath.Join(caseRoot, ".rekit")); !os.IsNotExist(statErr) {
+	if _, statErr := os.Lstat(filepath.Join(caseRoot, ".steamai")); !os.IsNotExist(statErr) {
 		t.Fatalf("ordinary init rollback left created .rekit directory: %v; Apply error: %v", statErr, err)
 	}
 	if _, statErr := os.Lstat(filepath.Join(userDirectory, "skills")); !os.IsNotExist(statErr) {
@@ -1208,7 +1241,7 @@ func TestOrdinaryInitFinalValidationRejectsLatePreservedTargetDrift(t *testing.T
 	if got := string(readFile(t, preserved)); got != "user changed during publication\n" {
 		t.Fatalf("ordinary init changed late preserved bytes: %q", got)
 	}
-	if _, statErr := os.Lstat(filepath.Join(caseRoot, ".rekit")); !os.IsNotExist(statErr) {
+	if _, statErr := os.Lstat(filepath.Join(caseRoot, ".steamai")); !os.IsNotExist(statErr) {
 		t.Fatalf("ordinary init preserved late drift left created state: %v; Apply error: %v", statErr, err)
 	}
 }
@@ -1238,7 +1271,7 @@ func TestOrdinaryInitFinalValidationRejectsLateManifestDrift(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "manifest changed during publication") {
 		t.Fatalf("ordinary init late manifest drift error = %v", err)
 	}
-	if _, statErr := os.Lstat(filepath.Join(caseRoot, ".rekit")); !os.IsNotExist(statErr) {
+	if _, statErr := os.Lstat(filepath.Join(caseRoot, ".steamai")); !os.IsNotExist(statErr) {
 		t.Fatalf("ordinary init late manifest drift left created state: %v; Apply error: %v", statErr, err)
 	}
 }
@@ -1267,7 +1300,7 @@ func TestOrdinaryInitTracksCreatedDirectoryWhenRollbackHandleOpenFails(t *testin
 	if err == nil || !strings.Contains(err.Error(), "directory rollback handle fixture") || !strings.Contains(err.Error(), "rollback directory handle is missing") {
 		t.Fatalf("ordinary init directory handle failure = %v", err)
 	}
-	if _, statErr := os.Lstat(filepath.Join(caseRoot, ".rekit")); statErr != nil {
+	if _, statErr := os.Lstat(filepath.Join(caseRoot, ".steamai")); statErr != nil {
 		t.Fatalf("tracked residue must remain visible when exact rollback handle is unavailable: %v", statErr)
 	}
 }
@@ -1289,7 +1322,7 @@ func TestOrdinaryInitRollbackCapabilityFailureWritesNothing(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "rollback unsupported fixture") {
 		t.Fatalf("ordinary init rollback capability error = %v", err)
 	}
-	if _, statErr := os.Lstat(filepath.Join(caseRoot, ".rekit")); !os.IsNotExist(statErr) {
+	if _, statErr := os.Lstat(filepath.Join(caseRoot, ".steamai")); !os.IsNotExist(statErr) {
 		t.Fatalf("ordinary init rollback capability failure wrote state: %v", statErr)
 	}
 }
@@ -1301,7 +1334,7 @@ func TestOrdinaryInitFinalValidationRejectsLateSourceDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	shim := filepath.Join(repoRoot, "rekit", "templates", "case-shim", "SKILL.md")
+	shim := filepath.Join(repoRoot, "rekit", "templates", "steamai-project", "SKILL.md")
 	previous := ordinaryInitBeforeFinalValidationHook
 	defer func() { ordinaryInitBeforeFinalValidationHook = previous }()
 	ordinaryInitBeforeFinalValidationHook = func(InitPlan) error {
@@ -1314,7 +1347,7 @@ func TestOrdinaryInitFinalValidationRejectsLateSourceDrift(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "source changed during publication") {
 		t.Fatalf("ordinary init late source drift error = %v", err)
 	}
-	if _, statErr := os.Lstat(filepath.Join(caseRoot, ".rekit")); !os.IsNotExist(statErr) {
+	if _, statErr := os.Lstat(filepath.Join(caseRoot, ".steamai")); !os.IsNotExist(statErr) {
 		t.Fatalf("ordinary init late source drift left created state: %v", statErr)
 	}
 }
@@ -1420,7 +1453,7 @@ func TestExclusiveInitKeepsOrdinaryInitCompatible(t *testing.T) {
 	if !result.Applied || result.Command != "init" {
 		t.Fatalf("unexpected ordinary init result: %+v", result)
 	}
-	for _, rel := range []string{".rekit/instance.yml", ".claude/skills/rekit/SKILL.md", ".re-template.yml", ".rekit/state.json", "references/template/README.md", "references/template/task-handoff.md", "CLAUDE.local.md"} {
+	for _, rel := range []string{".steamai/instance.yml", ".claude/skills/steamai/SKILL.md", ".steamai/state.json", "references/template/README.md", "references/template/task-handoff.md", "CLAUDE.local.md"} {
 		if info, err := os.Stat(filepath.Join(caseRoot, filepath.FromSlash(rel))); err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
 			t.Fatalf("ordinary init missing doctor-required file %s: info=%v err=%v", rel, info, err)
 		}
@@ -1452,14 +1485,39 @@ func exclusiveInitFixture(t *testing.T) (repoRoot, pack string) {
 		t.Fatal(err)
 	}
 	writeText(t, filepath.Join(repoRoot, ".claude", "skills", "rekit", "SKILL.md"), "# canonical test skill\n")
+	writeText(t, filepath.Join(repoRoot, "rekit", "templates", "steamai-project", "SKILL.md"), "# project-local STeamAI skill\n")
+	for _, rel := range []string{"rekit/schemas/instance.schema.yml", "rekit/schemas/pack-manifest.schema.yml", "rekit/tests/catalog.json", "common/policies/manifest.yml", "common/policies/README.md"} {
+		source := filepath.Join(exclusiveInitKitRoot(t), filepath.FromSlash(rel))
+		data, err := os.ReadFile(source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeText(t, filepath.Join(repoRoot, filepath.FromSlash(rel)), string(data))
+	}
+	executable := filepath.Join(t.TempDir(), runtimebundle.ExecutableName())
+	if err := os.WriteFile(executable, []byte("exclusive init test executable"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	restore := runtimebundle.SetExecutableSourceForTest(executable)
+	t.Cleanup(restore)
 	pack = fixturePack
 	return repoRoot, pack
+}
+
+func exclusiveInitKitRoot(t *testing.T) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("cannot resolve kit root")
+	}
+	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", ".."))
 }
 
 func convertTreeTextLineEndings(t *testing.T, root, lineEnding string) {
 	t.Helper()
 	for _, rel := range []string{
 		"rekit/templates/case-shim/SKILL.md",
+		"rekit/templates/steamai-project/SKILL.md",
 		"packs/unit-pack/manifest.yml",
 		"packs/unit-pack/references/template/README.md",
 		"packs/unit-pack/references/template/task-handoff.template.md",
@@ -1507,11 +1565,24 @@ func exclusiveInitOptionsForTest() ExclusiveInitOptions {
 	}
 }
 
+func isBundlePublicationKind(kind string) bool {
+	switch kind {
+	case "runtime-executable", "runtime-bundle-manifest", "pack-asset", "common-asset", "runtime-asset":
+		return true
+	default:
+		return false
+	}
+}
+
 func readPlannedExclusiveContent(t *testing.T, plan ExclusiveInitPlan, path string) []byte {
 	t.Helper()
 	for _, write := range plan.Writes {
 		if write.Path == path {
-			return write.Content
+			content, err := exclusiveInitWriteBytes(write)
+			if err != nil {
+				t.Fatalf("read planned write %s: %v", path, err)
+			}
+			return content
 		}
 	}
 	t.Fatalf("planned write not found: %s", path)

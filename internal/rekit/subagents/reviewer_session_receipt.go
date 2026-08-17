@@ -389,7 +389,10 @@ func reviewerSessionAdoptionProvenance(caseRoot, packetID string, adoption *Revi
 	if adoption == nil {
 		return "", ""
 	}
-	path := reviewerPacketAdoptionPath(caseRoot, packetID)
+	path, err := reviewerPacketAdoptionPath(caseRoot, packetID)
+	if err != nil {
+		return "", ""
+	}
 	data, err := readStableReviewerArtifact(filepath.Dir(path), path, "reviewer packet adoption", maxReviewPacketBytes)
 	if err != nil {
 		return path, ""

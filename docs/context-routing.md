@@ -26,7 +26,7 @@
 
 ### 有序批次防偏移
 
-- 当前不再从候选池选题。`docs/real-usage-hardening-roadmap.md` 当前指针是唯一允许领取的批次；它未完成时不得做其它路线项，完成后也只能领取明确解锁的下一批。
+- 当前不再从候选池选题。`docs/real-usage-hardening-roadmap.md` 当前指针是唯一允许领取的批次；它未完成时不得做其它路线项，完成后也只能领取明确解锁的下一批。若路线为 completed/no-next，则停止选题并等待用户明确改变路线。
 - 连续多个 batch 如果都只是把字段、summary、handoff detail 或 text line 从一个 envelope 投影到另一个 envelope，就要视为偏移；这些支撑改动只能并入当前路线批次，不能独立立批。
 - 代码事实与路线假设冲突时，先写回路线变更记录、理由、验收和新指针，再实施；不得静默跳批、从历史猜测或用聊天摘要覆盖仓库指针。
 - 两处 current pointer 冲突、完成证据缺失、工作树来源不明时，停止实施并报告冲突；不能“选择另一个能做的候选”绕过。
@@ -55,6 +55,7 @@
 | 架构四层模型 / stable boundary | `docs/design.md` 顶部和对应小节 | 不把 batch 日志并回架构总览 |
 | 短 goal / 接手 cadence | `docs/autonomous-goal.md` 顶部 80-120 行；goal 只启动已批准路线 | 不复制整段 goal 到每次总结，不让 goal 自由选题 |
 | 当前多批次真实使用路线 | `docs/real-usage-hardening-roadmap.md` 顶部 + 当前批次卡 | 不预读后续批次全文，不从旧复审报告替换当前顺序 |
+| STeamAI 自包含项目 / `.steamai` / `/steamai` / runtime bundle / legacy 迁移 | `docs/steamai-self-contained-project.md` 顶部执行区，再按当前断点读取对应章节 | 不把旧中央 kit/thin-shim 流程当新项目默认；完成态仍以 active route、fresh machine inventory 与真实验证为准，不只凭专题合同 |
 | 2026-07-28 项目复审 / 历史中长期建议 | `docs/project-reassessment-2026-07-28.md` 顶部执行区；仅在路线整体复审时按需读取 | 不把复审报告加入每轮默认 read-first，不用它临时选批 |
 | 当前真实可用性 / 产品化程度复评 | `docs/current-usability-assessment-2026-08-11.md` 顶部执行区；先只判断 Windows 本机能否真实日用、还差什么和下一步改善什么 | 不把远程 CI、Linux/macOS、三平台兼容或预编译安装包纳入当前评分；只有用户明确启动正式发布、跨平台或安装交付专项时才评估。也不把一次性评估快照当当前路线或默认 read-first，关键结论仍需用 Windows 本机实跑核对 |
 | 日常产品收口实施方案 | `docs/daily-product-closure-plan.md` 顶部执行区；四个 `DPC-*` 与整体验收均已完成，只在复核完成证据时按需读取共同边界和对应卡 | 不从已完成设计自行开始下一阶段，不默认预读四张长卡 |
@@ -77,7 +78,7 @@
 - `docs/batch-plan.md` 只保留 active/current/latest 摘要；完整旧批次位于 `docs/batch-history.md`。
 - `release-check -Format json` 的 `releaseHandoff.readFirst[]` 优先指向本路由表和短 current state，而不是把所有长文档都列为必读。
 - README、reference、usage guide 或 handoff 话术中的文档列表应表达“按需索引”，不能绕过本文件变成新的默认 read-first 清单。
-- 本机验证仍以 Go-native minimum 为准：`release-check`、`status`、`packs`、`doctor`、`go test ./...`、`go vet ./...`、`git diff --check`。
+- 本机验证仍以 Go-native minimum 为准：`release-check`、`status`、`packs`、`doctor`、`go test -count=1 -p=2 -timeout=30m ./...`、`go vet ./...`、`git diff --check`。
 
 ## 风险与注意事项
 

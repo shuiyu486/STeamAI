@@ -16,6 +16,8 @@ import (
 
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectexecution"
+	rekitruntime "github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 )
 
 const (
@@ -27,9 +29,11 @@ const (
 )
 
 var (
-	supervisionStartedObserver func(supervisionStarted) error
-	supervisionCutObserver     func(string) error
-	supervisionObserverMu      sync.Mutex
+	supervisionStartedObserver     func(supervisionStarted) error
+	supervisionCutObserver         func(string) error
+	supervisionObserverMu          sync.Mutex
+	supervisorChildStageHook       func(string) error
+	supervisorChildCommandTestHook func(*exec.Cmd)
 )
 
 func setSupervisionAcceptanceObservers(started func(supervisionStarted) error, cut func(string) error) func() {
@@ -174,6 +178,15 @@ func supervisedClaudeRun(parent context.Context, opt Options, pkg mission.Curren
 	if !trustedRecoveryProvenance(opt) {
 		return runClaude(parent, opt, pkg, sessionID, started), true, nil
 	}
+	handoffRequired, err := supervisionHandoffRequired(opt)
+	if err != nil {
+		return claudeRun{}, false, err
+	}
+	if handoffRequired && !projectexecution.DurableHandoffSupported() {
+		return claudeRun{}, false, fmt.Errorf(
+			"current Claude supervision requires handle-bound exact filesystem mutation support",
+		)
+	}
 	paths, spec, specData, specSHA, err := prepareSupervision(opt, pkg, sessionID)
 	if err != nil {
 		return claudeRun{}, false, err
@@ -210,7 +223,28 @@ func supervisedClaudeRun(parent context.Context, opt Options, pkg mission.Curren
 		return run, false, nil
 	}
 	if !replayed {
+		var handoff projectexecution.Handoff
+		if handoffRequired {
+			handoff, err = projectexecution.NewHandoff(
+				spec.Target,
+				spec.RunID,
+				specSHA,
+				spec.SessionID,
+			)
+			if err != nil {
+				return claudeRun{}, false, err
+			}
+			if err := projectexecution.PublishHandoff(spec.Target, handoff); err != nil {
+				return claudeRun{}, false, err
+			}
+		}
 		if err := startSupervisorChild(paths.spec, specSHA); err != nil {
+			if handoffRequired {
+				err = errors.Join(
+					err,
+					projectexecution.CancelHandoff(spec.Target, handoff),
+				)
+			}
 			return claudeRun{}, false, err
 		}
 		launched = true
@@ -278,7 +312,7 @@ func supervisedClaudeRun(parent context.Context, opt Options, pkg mission.Curren
 		}
 		if !busy && !claimedRecorded && time.Now().After(startupDeadline) {
 			reason := "supervisor child did not claim the exact run before the startup deadline"
-			if err := fenceSupervision(paths, spec, specSHA, reason); !errors.Is(err, errSupervisionAdvanced) {
+			if err := fenceSupervision(paths, spec, specSHA, reason, handoffRequired); !errors.Is(err, errSupervisionAdvanced) {
 				return claudeRun{}, launched, err
 			}
 		}
@@ -291,7 +325,7 @@ func supervisedClaudeRun(parent context.Context, opt Options, pkg mission.Curren
 				return recovered, launched, nil
 			}
 			reason := "exact supervisor ownership ended without a terminal result or exact structured-output recovery"
-			if err := fenceSupervision(paths, spec, specSHA, reason); !errors.Is(err, errSupervisionAdvanced) {
+			if err := fenceSupervision(paths, spec, specSHA, reason, handoffRequired); !errors.Is(err, errSupervisionAdvanced) {
 				return claudeRun{}, launched, err
 			}
 		}
@@ -305,7 +339,13 @@ func supervisedClaudeRun(parent context.Context, opt Options, pkg mission.Curren
 	}
 }
 
-func fenceSupervision(paths supervisionPaths, spec supervisionSpec, specSHA, reason string) error {
+func fenceSupervision(
+	paths supervisionPaths,
+	spec supervisionSpec,
+	specSHA,
+	reason string,
+	handoffRequired bool,
+) error {
 	if fenced, ok, err := readSupervisionFenced(paths, spec, specSHA); err != nil {
 		return err
 	} else if ok {
@@ -319,6 +359,20 @@ func fenceSupervision(paths supervisionPaths, spec supervisionSpec, specSHA, rea
 		return fmt.Errorf("%w: ownership became active for run %s", errSupervisionAdvanced, paths.runID)
 	}
 	defer lease.Close()
+	if handoffRequired {
+		handoff, err := projectexecution.NewHandoff(
+			spec.Target,
+			spec.RunID,
+			specSHA,
+			spec.SessionID,
+		)
+		if err != nil {
+			return err
+		}
+		if err := projectexecution.CancelHandoff(spec.Target, handoff); err != nil {
+			return err
+		}
+	}
 	if terminal, ok, err := readSupervisionTerminal(paths, spec, specSHA); err != nil {
 		return err
 	} else if ok {
@@ -509,10 +563,50 @@ func startSupervisorChild(specPath, specSHA string) error {
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	configureSupervisorCommand(cmd)
+	if supervisorChildCommandTestHook != nil {
+		supervisorChildCommandTestHook(cmd)
+	}
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start Claude supervisor child: %w", err)
 	}
 	return cmd.Process.Release()
+}
+
+// ValidateSupervisorProjectRoot binds a project-local internal child to the
+// exact target encoded by its strict host-owned supervision spec.
+func ValidateSupervisorProjectRoot(specPath, expectedSHA, projectRoot string) error {
+	specPath, err := filepath.Abs(strings.TrimSpace(specPath))
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(specPath)
+	if err != nil {
+		return err
+	}
+	if len(data) == 0 || len(data) > 2*1024*1024 ||
+		!strings.EqualFold(bytesSHA256(data), strings.TrimSpace(expectedSHA)) {
+		return fmt.Errorf("Claude supervisor spec sha256 mismatch")
+	}
+	var spec supervisionSpec
+	if err := strictJSON(data, &spec); err != nil {
+		return fmt.Errorf("decode Claude supervisor spec: %w", err)
+	}
+	if spec.SchemaVersion != 1 || spec.Kind != supervisionSpecKind ||
+		spec.RunID == "" || spec.SessionID == "" || spec.TimeoutNanos <= 0 {
+		return fmt.Errorf("Claude supervisor spec is incomplete")
+	}
+	resolved, err := rekitruntime.ResolveProjectLocalTarget(
+		projectRoot,
+		spec.Target,
+		"",
+	)
+	if err != nil {
+		return err
+	}
+	if !rekitfs.SamePath(resolved, spec.Execution.CaseRoot) {
+		return fmt.Errorf("Claude supervisor execution case root differs from the project-local executable owner")
+	}
+	return nil
 }
 
 func RunSupervisorChild(parent context.Context, specPath, expectedSHA string) error {
@@ -538,6 +632,42 @@ func RunSupervisorChild(parent context.Context, specPath, expectedSHA string) er
 		Target: spec.Target, Pack: spec.Pack, ClaudePath: spec.ClaudePath, ExpectedClaudeExecutableSHA256: spec.ExpectedClaudeExecutableSHA256,
 		ExpectedClaudeExecutablePublisher: spec.ExpectedClaudeExecutablePublisher, Model: spec.Model, Timeout: time.Duration(spec.TimeoutNanos),
 	}
+	if supervisorChildStageHook != nil {
+		if err := supervisorChildStageHook("before-execution-acquire"); err != nil {
+			return err
+		}
+	}
+	executionLease, err := acquireSharedForCurrentProject(spec.Target)
+	if err != nil {
+		return err
+	}
+	if executionLease != nil {
+		defer executionLease.Unlock()
+		if err := executionLease.ValidateFor(spec.Target); err != nil {
+			return err
+		}
+		handoff, err := projectexecution.NewHandoff(
+			spec.Target,
+			spec.RunID,
+			expectedSHA,
+			spec.SessionID,
+		)
+		if err != nil {
+			return err
+		}
+		if err := projectexecution.ClaimHandoff(spec.Target, handoff); err != nil {
+			return err
+		}
+		if err := executionLease.ValidateFor(spec.Target); err != nil {
+			return err
+		}
+		if recovery, err := inspectCurrentSyncRecoveryForHost(spec.Target); err != nil {
+			return err
+		} else if recovery.Pending {
+			return fmt.Errorf("%s; %s", recovery.Now, recovery.Next)
+		}
+	}
+	opt.projectExecutionLease = executionLease
 	runPackage := spec.Execution.packageForRun()
 	paths, expectedSpec, expectedData, specSHA, err := prepareSupervision(opt, runPackage, spec.SessionID)
 	if err != nil {
@@ -553,6 +683,11 @@ func RunSupervisorChild(parent context.Context, specPath, expectedSHA string) er
 	}
 	if paths.spec != specPath || !strings.EqualFold(specSHA, expectedSHA) || !strings.EqualFold(bytesSHA256(expectedData), expectedSHA) || string(actualCanonical) != string(expectedCanonical) {
 		return fmt.Errorf("Claude supervisor spec does not match its exact host-owned run binding")
+	}
+	if executionLease != nil {
+		if err := executionLease.ValidateFor(spec.Target); err != nil {
+			return err
+		}
 	}
 	lease, busy, err := acquireSupervisionOwner(paths.owner, false)
 	if err != nil {

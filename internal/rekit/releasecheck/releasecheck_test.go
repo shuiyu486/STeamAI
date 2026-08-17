@@ -33,6 +33,53 @@ func TestReleaseCheckRequiresBatchHistory(t *testing.T) {
 	t.Fatalf("missing batch history was not reported: %+v", result.Documents)
 }
 
+func TestReleaseCheckIncludesCurrentAndLegacyEntrypointReadiness(t *testing.T) {
+	repo := cleanReleaseRepoRoot(t)
+	writeCompletedReleaseHandoffLatestBatchFixture(t, repo)
+	result, err := Build(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.PublicDefaultDocs.Ready || result.PublicDefaultDocs.Model != "steamai-self-contained-current" || result.PublicDefaultDocs.DefaultEntrypoint != "/steamai" || result.PublicDefaultDocs.StateRoot != ".steamai" || result.PublicDefaultDocs.RuntimeSource != "project-local-verified-bundle" || result.PublicDefaultDocs.FallbackAllowed {
+		t.Fatalf("release-check omitted current STeamAI entry readiness: %+v", result.PublicDefaultDocs)
+	}
+	if !result.CaseShim.Ready || result.CaseShim.Model != "legacy-rekit-case-shim-compatibility" || result.CaseShim.CompatibilityEntrypoint != "/rekit" || result.CaseShim.StateRoot != ".rekit" || result.CaseShim.DefaultForNewProjects {
+		t.Fatalf("release-check omitted explicit legacy compatibility readiness: %+v", result.CaseShim)
+	}
+}
+
+func TestReleaseCheckCurrentEntryFailureBlocksReadyWithoutReplacingLegacyGate(t *testing.T) {
+	repo := cleanReleaseRepoRoot(t)
+	writeCompletedReleaseHandoffLatestBatchFixture(t, repo)
+	if err := os.Remove(filepath.Join(repo, ".claude", "skills", "steamai", "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Build(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Ready || result.PublicDefaultDocs.Ready || !result.CaseShim.Ready {
+		t.Fatalf("release-check did not independently enforce current and legacy readiness: current=%+v legacy=%+v ready=%t", result.PublicDefaultDocs, result.CaseShim, result.Ready)
+	}
+	assertWarningContains(t, result.Warnings, ".claude/skills/steamai/SKILL.md")
+}
+
+func TestReleaseCheckLegacyCompatibilityFailureStillBlocksReady(t *testing.T) {
+	repo := cleanReleaseRepoRoot(t)
+	writeCompletedReleaseHandoffLatestBatchFixture(t, repo)
+	if err := os.Remove(filepath.Join(repo, "rekit", "templates", "case-shim", "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Build(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Ready || result.CaseShim.Ready || !result.PublicDefaultDocs.Ready {
+		t.Fatalf("release-check stopped enforcing legacy compatibility independently: current=%+v legacy=%+v ready=%t", result.PublicDefaultDocs, result.CaseShim, result.Ready)
+	}
+	assertWarningContains(t, result.Warnings, "case-shim/SKILL.md")
+}
+
 func TestReleaseCheckIncludesManifestHeavyToolGateActions(t *testing.T) {
 	repo := cleanReleaseRepoRoot(t)
 	writeCompletedReleaseHandoffLatestBatchFixture(t, repo)
@@ -78,7 +125,7 @@ func TestCIReleaseGateInventoryFromRepo(t *testing.T) {
 		assertCICommand(t, gate, job, "go run ./cmd/rekit -- -Command status")
 		assertCICommand(t, gate, job, "go run ./cmd/rekit -- -Command packs")
 		assertCICommand(t, gate, job, "go run ./cmd/rekit -- -Command doctor")
-		assertCICommand(t, gate, job, "go test ./...")
+		assertCICommand(t, gate, job, CanonicalGoTestCommand)
 		assertCICommand(t, gate, job, "go vet ./...")
 	}
 	for _, forbidden := range gate.ForbiddenStrings {
@@ -95,8 +142,8 @@ func TestCIReleaseGateInventoryRequiresVetBeforeTests(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := strings.ReplaceAll(string(workflow), "\r\n", "\n")
-	old := "      - name: Go vet\n        run: go vet ./...\n\n      - name: Go tests\n        run: go test ./..."
-	new := "      - name: Go tests\n        run: go test ./...\n\n      - name: Go vet\n        run: go vet ./..."
+	old := "      - name: Go vet\n        run: go vet ./...\n\n      - name: Go tests\n        run: " + CanonicalGoTestCommand
+	new := "      - name: Go tests\n        run: " + CanonicalGoTestCommand + "\n\n      - name: Go vet\n        run: go vet ./..."
 	prefix, suffix, ok := strings.Cut(text, old)
 	if !ok {
 		t.Fatal("failed to locate vet-before-tests workflow fixture block")
@@ -177,34 +224,34 @@ func TestGoNativePublicSurfaceInventoryFromRepo(t *testing.T) {
 		t.Fatalf("unexpected Go-native public surface flags: %+v", inventory)
 	}
 	coverageCounts := surfaceCounts.Coverage
-	if surfaceCounts.Catalog.Commands != 30 || surfaceCounts.Catalog.Empty != 0 || surfaceCounts.Catalog.Duplicates != 0 || coverageCounts.Commands != 30 || coverageCounts.HandlerCommands != 30 || coverageCounts.SymbolCommands != 30 || coverageCounts.ProfileCommands != 30 || coverageCounts.CommandProfiles != 30 || coverageCounts.HandlerMissing != 0 || coverageCounts.HandlerUnknown != 0 || coverageCounts.SymbolMissing != 0 || coverageCounts.SymbolUnknown != 0 || coverageCounts.ProfileMissing != 0 || coverageCounts.ProfileUnknown != 0 || surfaceCounts.MutationBoundaryInventory.Rows != 8 || surfaceCounts.MutationBoundaryInventory.Unknown != 0 {
+	if surfaceCounts.Catalog.Commands != 31 || surfaceCounts.Catalog.Empty != 0 || surfaceCounts.Catalog.Duplicates != 0 || coverageCounts.Commands != 31 || coverageCounts.HandlerCommands != 31 || coverageCounts.SymbolCommands != 31 || coverageCounts.ProfileCommands != 31 || coverageCounts.CommandProfiles != 31 || coverageCounts.HandlerMissing != 0 || coverageCounts.HandlerUnknown != 0 || coverageCounts.SymbolMissing != 0 || coverageCounts.SymbolUnknown != 0 || coverageCounts.ProfileMissing != 0 || coverageCounts.ProfileUnknown != 0 || surfaceCounts.MutationBoundaryInventory.Rows != 8 || surfaceCounts.MutationBoundaryInventory.Unknown != 0 {
 		t.Fatalf("Go-native public surface omitted expected command coverage: %+v", inventory)
 	}
-	for _, command := range []string{"attach", "bootstrap", "complete", "continue", "doctor", "gate", "handoff", "init", "next-batch", "note", "onboard", "overview", "packs", "plan-subagents", "promote", "reconcile", "release-check", "release-run", "repair", "run-current-loop", "run-current-step", "run-driver-step", "run-reviewer-step", "run-reviewer-wave", "start", "status", "sync", "update", "validate"} {
+	for _, command := range []string{"attach", "bootstrap", "complete", "continue", "doctor", "gate", "handoff", "init", "migrate-state", "next-batch", "note", "onboard", "overview", "packs", "plan-subagents", "promote", "reconcile", "release-check", "release-run", "repair", "run-current-loop", "run-current-step", "run-driver-step", "run-reviewer-step", "run-reviewer-wave", "start", "status", "sync", "update", "validate"} {
 		if !slices.Contains(inventory.Commands, command) || !slices.Contains(inventory.HandlerCommands, command) {
 			t.Fatalf("Go-native public command %s missing from catalog or handler coverage: %+v", command, inventory)
 		}
 	}
-	if surfaceCounts.SymbolCatalog.Symbols != 30 || surfaceCounts.SymbolCatalog.EmptySymbols != 0 || surfaceCounts.SymbolCatalog.EmptyCommands != 0 || inventory.SymbolCommands["NextBatch"] != "next-batch" || inventory.SymbolCommands["PlanSubagents"] != "plan-subagents" || inventory.SymbolCommands["Reconcile"] != "reconcile" || inventory.SymbolCommands["ReleaseCheck"] != "release-check" || inventory.SymbolCommands["ReleaseRun"] != "release-run" || inventory.SymbolCommands["RunCurrentLoop"] != "run-current-loop" || inventory.SymbolCommands["RunCurrentStep"] != "run-current-step" {
+	if surfaceCounts.SymbolCatalog.Symbols != 31 || surfaceCounts.SymbolCatalog.EmptySymbols != 0 || surfaceCounts.SymbolCatalog.EmptyCommands != 0 || inventory.SymbolCommands["MigrateState"] != "migrate-state" || inventory.SymbolCommands["NextBatch"] != "next-batch" || inventory.SymbolCommands["PlanSubagents"] != "plan-subagents" || inventory.SymbolCommands["Reconcile"] != "reconcile" || inventory.SymbolCommands["ReleaseCheck"] != "release-check" || inventory.SymbolCommands["ReleaseRun"] != "release-run" || inventory.SymbolCommands["RunCurrentLoop"] != "run-current-loop" || inventory.SymbolCommands["RunCurrentStep"] != "run-current-step" {
 		t.Fatalf("Go-native public symbol catalog drifted: %+v", inventory.SymbolCommands)
 	}
 	profiles := map[string]commands.PublicProfile{}
 	for _, profile := range inventory.CommandProfiles {
 		profiles[profile.Command] = profile
 	}
-	if surfaceCounts.ProfileCatalog.Rows != 30 || surfaceCounts.ProfileCatalog.Empty != 0 || surfaceCounts.ProfileCatalog.Duplicates != 0 || surfaceCounts.ProfileCatalog.UnknownBoundaries != 0 || surfaceCounts.ProfileCatalog.HeavyTool != 0 || surfaceCounts.ProfileCatalog.AuthorityConfirmed != 0 || surfaceCounts.ProfileCatalog.WritesKitNoReview != 0 || surfaceCounts.ProfileCatalog.ReviewNoApply != 0 || profiles["release-check"].MutationBoundary != commands.BoundaryReadOnly || profiles["release-check"].IsMutation || profiles["release-run"].MutationBoundary != commands.BoundaryLocalValidationReceipt || !profiles["release-run"].IsMutation || profiles["next-batch"].MutationBoundary != commands.BoundaryKitReviewFirst || !profiles["next-batch"].WritesKit || !profiles["next-batch"].ReviewFirst || !profiles["next-batch"].ApplyRequired || profiles["reconcile"].MutationBoundary != commands.BoundaryCaseLocalApply || !profiles["reconcile"].WritesCase || !profiles["reconcile"].ApplyRequired || profiles["run-current-loop"].MutationBoundary != commands.BoundaryCaseLocalReviewFirst || !profiles["run-current-loop"].WritesCase || !profiles["run-current-loop"].ReviewFirst || !profiles["run-current-loop"].ApplyRequired || profiles["run-current-step"].MutationBoundary != commands.BoundaryCaseLocalReviewFirst || !profiles["run-current-step"].WritesCase || !profiles["run-current-step"].ReviewFirst || !profiles["run-current-step"].ApplyRequired || !profiles["promote"].WritesKit || !profiles["promote"].ReviewFirst || profiles["sync"].WritesKit || !profiles["sync"].WritesCase || !slices.Contains(inventory.MutationBoundaries, commands.BoundaryKitReviewFirst) {
+	if surfaceCounts.ProfileCatalog.Rows != 31 || surfaceCounts.ProfileCatalog.Empty != 0 || surfaceCounts.ProfileCatalog.Duplicates != 0 || surfaceCounts.ProfileCatalog.UnknownBoundaries != 0 || surfaceCounts.ProfileCatalog.HeavyTool != 0 || surfaceCounts.ProfileCatalog.AuthorityConfirmed != 0 || surfaceCounts.ProfileCatalog.WritesKitNoReview != 0 || surfaceCounts.ProfileCatalog.ReviewNoApply != 0 || profiles["release-check"].MutationBoundary != commands.BoundaryReadOnly || profiles["release-check"].IsMutation || profiles["release-run"].MutationBoundary != commands.BoundaryLocalValidationReceipt || !profiles["release-run"].IsMutation || profiles["migrate-state"].MutationBoundary != commands.BoundaryCaseLocalReviewFirst || !profiles["migrate-state"].WritesCase || !profiles["migrate-state"].ReviewFirst || !profiles["migrate-state"].ApplyRequired || profiles["next-batch"].MutationBoundary != commands.BoundaryKitReviewFirst || !profiles["next-batch"].WritesKit || !profiles["next-batch"].ReviewFirst || !profiles["next-batch"].ApplyRequired || profiles["reconcile"].MutationBoundary != commands.BoundaryCaseLocalApply || !profiles["reconcile"].WritesCase || !profiles["reconcile"].ApplyRequired || profiles["run-current-loop"].MutationBoundary != commands.BoundaryCaseLocalReviewFirst || !profiles["run-current-loop"].WritesCase || !profiles["run-current-loop"].ReviewFirst || !profiles["run-current-loop"].ApplyRequired || profiles["run-current-step"].MutationBoundary != commands.BoundaryCaseLocalReviewFirst || !profiles["run-current-step"].WritesCase || !profiles["run-current-step"].ReviewFirst || !profiles["run-current-step"].ApplyRequired || !profiles["promote"].WritesKit || !profiles["promote"].ReviewFirst || profiles["sync"].WritesKit || !profiles["sync"].WritesCase || !slices.Contains(inventory.MutationBoundaries, commands.BoundaryKitReviewFirst) {
 		t.Fatalf("Go-native public command profiles drifted: profiles=%+v boundaries=%+v", inventory.CommandProfiles, inventory.MutationBoundaries)
 	}
 	profileSummaryCounts := surfaceCounts.ProfileSummary
-	if profileSummaryCounts.Total != 30 || surfaceCounts.ProfileTotal != 30 || profileSummaryCounts.ReadOnly != 5 || profileSummaryCounts.Mutating != 25 || profileSummaryCounts.WritesCase != 22 || profileSummaryCounts.WritesKit != 2 || profileSummaryCounts.ReviewFirst != 12 || profileSummaryCounts.ApplyRequired != 22 || profileSummaryCounts.HeavyTool != 0 || profileSummaryCounts.AuthorityConfirmed != 0 || profileSummaryCounts.BoundaryReadOnly != 5 || profileSummaryCounts.BoundaryLocalValidation != 1 || profileSummaryCounts.BoundaryCaseLocalApply != 9 || profileSummaryCounts.BoundaryCaseLocalWriteback != 1 || profileSummaryCounts.BoundaryCaseLocalReview != 10 || profileSummaryCounts.BoundaryKitReview != 2 {
+	if profileSummaryCounts.Total != 31 || surfaceCounts.ProfileTotal != 31 || profileSummaryCounts.ReadOnly != 5 || profileSummaryCounts.Mutating != 26 || profileSummaryCounts.WritesCase != 23 || profileSummaryCounts.WritesKit != 2 || profileSummaryCounts.ReviewFirst != 13 || profileSummaryCounts.ApplyRequired != 23 || profileSummaryCounts.HeavyTool != 0 || profileSummaryCounts.AuthorityConfirmed != 0 || profileSummaryCounts.BoundaryReadOnly != 5 || profileSummaryCounts.BoundaryLocalValidation != 1 || profileSummaryCounts.BoundaryCaseLocalApply != 9 || profileSummaryCounts.BoundaryCaseLocalWriteback != 1 || profileSummaryCounts.BoundaryCaseLocalReview != 11 || profileSummaryCounts.BoundaryKitReview != 2 {
 		t.Fatalf("Go-native public command profile summary drifted: %+v", inventory.CommandProfileSummary)
 	}
-	if strings.Join(inventory.CommandProfileGroups.ReadOnly, ",") != "doctor,packs,release-check,status,validate" || strings.Join(inventory.CommandProfileGroups.ReviewFirst, ",") != "complete,next-batch,onboard,promote,reopen,run-current-loop,run-current-step,run-driver-step,run-reviewer-step,run-reviewer-wave,sync,update" || strings.Join(inventory.CommandProfileGroups.WritesKit, ",") != "next-batch,promote" || surfaceCounts.Groups.HeavyTool != 0 || surfaceCounts.Groups.AuthorityConfirmed != 0 || surfaceCounts.Groups.CaseLocalApply != 9 || surfaceCounts.Groups.CaseLocalReviewWriteback != 1 || surfaceCounts.Groups.CaseLocalReviewFirst != 10 || surfaceCounts.Groups.LocalValidationReceipt != 1 {
+	if strings.Join(inventory.CommandProfileGroups.ReadOnly, ",") != "doctor,packs,release-check,status,validate" || strings.Join(inventory.CommandProfileGroups.ReviewFirst, ",") != "complete,migrate-state,next-batch,onboard,promote,reopen,run-current-loop,run-current-step,run-driver-step,run-reviewer-step,run-reviewer-wave,sync,update" || strings.Join(inventory.CommandProfileGroups.WritesKit, ",") != "next-batch,promote" || surfaceCounts.Groups.HeavyTool != 0 || surfaceCounts.Groups.AuthorityConfirmed != 0 || surfaceCounts.Groups.CaseLocalApply != 9 || surfaceCounts.Groups.CaseLocalReviewWriteback != 1 || surfaceCounts.Groups.CaseLocalReviewFirst != 11 || surfaceCounts.Groups.LocalValidationReceipt != 1 {
 		t.Fatalf("Go-native public command profile groups drifted: %+v", inventory.CommandProfileGroups)
 	}
 	firstBoundaryCounts := GoNativePublicSurfaceBoundaryRowCountsFor(inventory.CommandProfileBoundaries[0])
 	lastBoundaryCounts := GoNativePublicSurfaceBoundaryRowCountsFor(inventory.CommandProfileBoundaries[len(inventory.CommandProfileBoundaries)-1])
-	if surfaceCounts.Boundaries.Rows != 8 || surfaceCounts.Boundaries.Commands != 30 || surfaceCounts.Boundaries.CountedCommands != 30 || surfaceCounts.Boundaries.Unknown != 0 || surfaceCounts.Boundaries.Duplicates != 0 || surfaceCounts.Boundaries.CountMismatches != 0 || surfaceCounts.Boundaries.Unsorted != 0 || surfaceCounts.Boundaries.SummaryMismatches != 0 || surfaceCounts.Boundaries.GroupMismatches != 0 || surfaceCounts.Boundaries.Missing != 0 || surfaceCounts.Boundaries.CoverageMismatches != 0 || inventory.CommandProfileBoundaries[0].Boundary != commands.BoundaryCaseLocalAppend || firstBoundaryCounts.Count != 1 || firstBoundaryCounts.Commands != 1 || strings.Join(inventory.CommandProfileBoundaries[1].Commands, ",") != "attach,bootstrap,continue,gate,handoff,init,reconcile,repair,start" || strings.Join(inventory.CommandProfileBoundaries[4].Commands, ",") != "complete,onboard,reopen,run-current-loop,run-current-step,run-driver-step,run-reviewer-step,run-reviewer-wave,sync,update" || strings.Join(inventory.CommandProfileBoundaries[5].Commands, ",") != "next-batch,promote" || inventory.CommandProfileBoundaries[len(inventory.CommandProfileBoundaries)-1].Boundary != commands.BoundaryReadOnly || lastBoundaryCounts.Count != 5 || lastBoundaryCounts.Commands != 5 {
+	if surfaceCounts.Boundaries.Rows != 8 || surfaceCounts.Boundaries.Commands != 31 || surfaceCounts.Boundaries.CountedCommands != 31 || surfaceCounts.Boundaries.Unknown != 0 || surfaceCounts.Boundaries.Duplicates != 0 || surfaceCounts.Boundaries.CountMismatches != 0 || surfaceCounts.Boundaries.Unsorted != 0 || surfaceCounts.Boundaries.SummaryMismatches != 0 || surfaceCounts.Boundaries.GroupMismatches != 0 || surfaceCounts.Boundaries.Missing != 0 || surfaceCounts.Boundaries.CoverageMismatches != 0 || inventory.CommandProfileBoundaries[0].Boundary != commands.BoundaryCaseLocalAppend || firstBoundaryCounts.Count != 1 || firstBoundaryCounts.Commands != 1 || strings.Join(inventory.CommandProfileBoundaries[1].Commands, ",") != "attach,bootstrap,continue,gate,handoff,init,reconcile,repair,start" || strings.Join(inventory.CommandProfileBoundaries[4].Commands, ",") != "complete,migrate-state,onboard,reopen,run-current-loop,run-current-step,run-driver-step,run-reviewer-step,run-reviewer-wave,sync,update" || strings.Join(inventory.CommandProfileBoundaries[5].Commands, ",") != "next-batch,promote" || inventory.CommandProfileBoundaries[len(inventory.CommandProfileBoundaries)-1].Boundary != commands.BoundaryReadOnly || lastBoundaryCounts.Count != 5 || lastBoundaryCounts.Commands != 5 {
 		t.Fatalf("Go-native public command profile boundary rows drifted: %+v", inventory.CommandProfileBoundaries)
 	}
 	if surfaceCounts.Policies.Rows != 5 || surfaceCounts.Policies.Violations != 0 || surfaceCounts.Policies.ViolationCommands != 0 || inventory.CommandProfilePolicies[0].Policy != commands.PublicProfilePolicyNoHeavyTool || !inventory.CommandProfilePolicies[0].Ready || inventory.CommandProfilePolicies[3].Policy != commands.PublicProfilePolicyReviewFirstApplyRequired || GoNativePublicSurfacePolicyRowCountsFor(inventory.CommandProfilePolicies[3]).Commands != 0 {
@@ -387,10 +434,10 @@ func assertFallbackRetirement(t *testing.T, inventory PowerShellDeprecation) {
 	if !fallback.Ready || fallback.Summary != "PowerShell fallback retirement inventory ok" || counts.Warnings != 0 {
 		t.Fatalf("unexpected fallback retirement inventory: %+v", fallback)
 	}
-	if counts.GoDefaultCommands != 30 || counts.NoFallbackCommands != 30 || counts.CandidateCommands != 0 || counts.RemovalCandidateModules != 0 || counts.RetiredModules != 13 {
+	if counts.GoDefaultCommands != 31 || counts.NoFallbackCommands != 31 || counts.CandidateCommands != 0 || counts.RemovalCandidateModules != 0 || counts.RetiredModules != 13 {
 		t.Fatalf("fallback retirement inventory omitted expected sections: %+v", fallback)
 	}
-	for _, command := range []string{"attach", "bootstrap", "complete", "continue", "doctor", "gate", "handoff", "init", "next-batch", "note", "overview", "packs", "plan-subagents", "promote", "reconcile", "release-check", "release-run", "repair", "run-current-loop", "run-current-step", "run-driver-step", "run-reviewer-step", "run-reviewer-wave", "start", "status", "sync", "update", "validate"} {
+	for _, command := range []string{"attach", "bootstrap", "complete", "continue", "doctor", "gate", "handoff", "init", "migrate-state", "next-batch", "note", "overview", "packs", "plan-subagents", "promote", "reconcile", "release-check", "release-run", "repair", "run-current-loop", "run-current-step", "run-driver-step", "run-reviewer-step", "run-reviewer-wave", "start", "status", "sync", "update", "validate"} {
 		if !slices.Contains(fallback.NoFallbackCommands, command) {
 			t.Fatalf("NoFallbackCommands = %v, missing %s", fallback.NoFallbackCommands, command)
 		}
@@ -422,10 +469,10 @@ func assertPublicFacade(t *testing.T, inventory PowerShellDeprecation) {
 	if !facade.Present || !facade.Retained || !facade.MigrationBoundaryDocumented || !facade.RemovalBoundaryDocumented || facade.GoNativeAlternative != "go run ./cmd/rekit -- -Command <command>" {
 		t.Fatalf("unexpected PowerShell public facade retention flags: %+v", facade)
 	}
-	if counts.CommandSurface != 30 || counts.GoDefaultCommands != 30 || counts.NoFallbackCommands != 30 {
+	if counts.CommandSurface != 31 || counts.GoDefaultCommands != 31 || counts.NoFallbackCommands != 31 {
 		t.Fatalf("PowerShell public facade inventory omitted expected command lists: %+v", facade)
 	}
-	for _, command := range []string{"attach", "bootstrap", "complete", "continue", "doctor", "gate", "handoff", "init", "next-batch", "note", "overview", "packs", "plan-subagents", "promote", "reconcile", "release-check", "release-run", "repair", "run-current-loop", "run-current-step", "run-driver-step", "run-reviewer-step", "run-reviewer-wave", "start", "status", "sync", "update", "validate"} {
+	for _, command := range []string{"attach", "bootstrap", "complete", "continue", "doctor", "gate", "handoff", "init", "migrate-state", "next-batch", "note", "overview", "packs", "plan-subagents", "promote", "reconcile", "release-check", "release-run", "repair", "run-current-loop", "run-current-step", "run-driver-step", "run-reviewer-step", "run-reviewer-wave", "start", "status", "sync", "update", "validate"} {
 		if !slices.Contains(facade.CommandSurface, command) || !slices.Contains(facade.GoDefaultCommands, command) || !slices.Contains(facade.NoFallbackCommands, command) {
 			t.Fatalf("public facade command %s missing from command lists: %+v", command, facade)
 		}
@@ -582,6 +629,24 @@ func assertModuleReferences(t *testing.T, inventory PowerShellDeprecation) {
 	}
 	if counts.TotalReferences == 0 || counts.ActiveTestDependencies != 0 || counts.CompatibilityFixtures != 0 || counts.InventoryGuards == 0 || counts.RemovalBlockers != 0 || counts.UnclassifiedReferences != 0 {
 		t.Fatalf("PowerShell module reference inventory omitted expected sections: %+v", refs)
+	}
+}
+
+func TestPowerShellModuleReferenceTarget(t *testing.T) {
+	tests := map[string]string{
+		`rekit/lib/B3.State.ps1`:                     "rekit/lib/B3.State.ps1",
+		`rekit\lib\B3.State.ps1`:                     "rekit/lib/B3.State.ps1",
+		`rekit/lib/*.ps1`:                            "rekit/lib/*.ps1",
+		`Join-Path $RekitRoot 'lib\B3.State.ps1'`:    "rekit/lib/B3.State.ps1",
+		`Join-Path $RuntimeRoot 'lib\B3.State.ps1'`:  "rekit/lib/B3.State.ps1",
+		`Join-Path $isolatedRoot 'lib\B3.State.ps1'`: "isolated/lib/B3.State.ps1",
+		`fixture lib\B3.State.ps1`:                   "rekit/lib/B3.State.ps1",
+		`no retired PowerShell module reference`:     "",
+	}
+	for line, want := range tests {
+		if got := powerShellModuleReferenceTarget(line); got != want {
+			t.Errorf("powerShellModuleReferenceTarget(%q) = %q, want %q", line, got, want)
+		}
 	}
 }
 

@@ -127,7 +127,7 @@ func TestLaneMutationLockRejectsSymlinkMetadataRoot(t *testing.T) {
 	if err := os.Symlink(target, filepath.Join(caseRoot, ".rekit")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := acquireLaneMutationLock(caseRoot, "devirt-main"); err == nil || !strings.Contains(err.Error(), "must be a directory and not a symlink") {
+	if _, err := acquireLaneMutationLock(caseRoot, "devirt-main"); err == nil || !(strings.Contains(err.Error(), "must be a directory and not a symlink") || strings.Contains(err.Error(), "path must not traverse symlink")) {
 		t.Fatalf("symlink metadata root error = %v", err)
 	}
 	entries, err := os.ReadDir(target)
@@ -151,7 +151,7 @@ func TestLaneMutationUnlockReportsFailure(t *testing.T) {
 	}
 }
 
-func TestLaneMutationLockSerializesCaseSymlinkAlias(t *testing.T) {
+func TestLaneMutationLockRejectsCaseSymlinkAlias(t *testing.T) {
 	_, caseRoot := setupOwnedContinueCase(t)
 	aliasRoot := filepath.Join(t.TempDir(), "case-alias")
 	if err := os.Symlink(caseRoot, aliasRoot); err != nil {
@@ -161,30 +161,21 @@ func TestLaneMutationLockSerializesCaseSymlinkAlias(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	done := make(chan error, 1)
-	go func() {
-		aliasLease, err := acquireLaneMutationLock(aliasRoot, "devirt-main")
-		if err == nil {
-			err = aliasLease.Unlock()
+	defer func() {
+		if lease != nil {
+			_ = lease.Unlock()
 		}
-		done <- err
 	}()
-	select {
-	case err := <-done:
-		t.Fatalf("case alias acquired a second lease: %v", err)
-	case <-time.After(150 * time.Millisecond):
+	if aliasLease, err := acquireLaneMutationLock(aliasRoot, "devirt-main"); err == nil {
+		_ = aliasLease.Unlock()
+		t.Fatal("case symlink alias acquired a second lease")
+	} else if !strings.Contains(err.Error(), "path must not traverse symlink") {
+		t.Fatalf("case symlink alias error = %v", err)
 	}
 	if err := lease.Unlock(); err != nil {
 		t.Fatal(err)
 	}
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("case alias did not acquire after canonical lease released")
-	}
+	lease = nil
 }
 
 func TestLaneMutationLockSerializesAcrossDifferentCacheEnvironments(t *testing.T) {
@@ -1049,6 +1040,9 @@ func setupContinueCase(t *testing.T, executor string) (string, string) {
 		t.Fatal(err)
 	}
 	caseRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(caseRoot, ".rekit"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := casebind.WriteInstance(caseRoot, repoRoot, defaults.DefaultPack, "continue-owner-guard"); err != nil {
 		t.Fatal(err)
 	}

@@ -275,22 +275,28 @@ func externalSessionTurnApplyCommand(plan currentLoopExternalSessionTurnPlan) st
 	})
 }
 
-func externalSessionTurnRequest(job externalsession.Job, jobSHA string) mission.MissionCommanderDriverRequest {
+func externalSessionTurnRequest(job externalsession.Job, jobSHA string) (mission.MissionCommanderDriverRequest, error) {
+	refresh, err := statusMissionControlRefreshCommand(job.CaseRoot)
+	if err != nil {
+		return mission.MissionCommanderDriverRequest{}, err
+	}
 	command := joinDriverCommand([]string{
 		"/rekit", "run-current-loop", "-Target", job.CaseRoot, "-Pack", job.Pack,
 		"-ResumeCurrentLoop", "-ExpectedCurrentLoopCheckpointSha256", job.CheckpointSHA256,
 		"-AdvanceExternalSessionResult", "-ExpectedExternalSessionJobSha256", jobSHA,
 		"-WhatIf", "-Format", "json",
 	})
-	return mission.MissionCommanderDriverRequest{
-		Kind: "preview-command", RunLoopStepID: "external-session-turn:" + job.JobID, Actor: "mission-commander",
-		State: "review-required", Source: "current-loop-external-session-turn", Lane: memberLane(job), Label: job.SessionKind + " session result turn",
-		Command: command, CommandExecutable: true, RequiresReview: true,
-		ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
-			State: "preview-ready", Command: command, RefreshStatusCommand: statusMissionControlRefreshCommand(job.CaseRoot),
-			Description: "returns one exact external-result turn hash binding relay and checkpoint resume",
-			Boundary:    []string{"preview publishes nothing; Apply advances only to the next typed campaign boundary"},
+	return mission.MissionCommanderDriverRequestWithTypedCommand(
+		mission.MissionCommanderDriverRequest{
+			Kind: "preview-command", RunLoopStepID: "external-session-turn:" + job.JobID, Actor: "mission-commander",
+			State: "review-required", Source: "current-loop-external-session-turn", Lane: memberLane(job), Label: job.SessionKind + " session result turn",
+			Command: command, CommandExecutable: true, RequiresReview: true,
+			ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
+				State: "preview-ready", RefreshStatusCommand: refresh,
+				Description: "returns one exact external-result turn hash binding relay and checkpoint resume",
+				Boundary:    []string{"preview publishes nothing; Apply advances only to the next typed campaign boundary"},
+			},
+			Boundary: []string{"execute only while the exact checkpoint, job, submission, and owner/reviewer attempt remain current"},
 		},
-		Boundary: []string{"execute only while the exact checkpoint, job, submission, and owner/reviewer attempt remain current"},
-	}
+	)
 }

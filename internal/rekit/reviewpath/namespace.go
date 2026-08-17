@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 type CollectionNamespace struct {
@@ -23,7 +24,11 @@ func CanonicalCollectionNamespace(caseRoot, packetPath string) (CollectionNamesp
 	if err != nil {
 		return CollectionNamespace{}, false
 	}
-	reviewsRoot := filepath.Join(caseRoot, ".rekit", "reviews")
+	stateRoot, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return CollectionNamespace{}, false
+	}
+	reviewsRoot := filepath.Join(stateRoot.Path, "reviews")
 	rel, err := filepath.Rel(reviewsRoot, packetPath)
 	if err != nil || filepath.IsAbs(rel) {
 		return CollectionNamespace{}, false
@@ -49,8 +54,17 @@ func CollectionNamespacePathSafe(caseRoot, path string, allowMissingLeaf bool) b
 	if err != nil {
 		return false
 	}
+	stateRoot, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return false
+	}
 	path, err = filepath.Abs(path)
 	if err != nil {
+		return false
+	}
+	reviewsRoot := filepath.Join(stateRoot.Path, "reviews")
+	reviewsRel, err := filepath.Rel(reviewsRoot, path)
+	if err != nil || filepath.IsAbs(reviewsRel) || reviewsRel == ".." || strings.HasPrefix(reviewsRel, ".."+string(filepath.Separator)) {
 		return false
 	}
 	rel, err := filepath.Rel(caseRoot, path)

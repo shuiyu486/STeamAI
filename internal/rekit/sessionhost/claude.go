@@ -96,6 +96,23 @@ func runClaude(parent context.Context, opt Options, pkg mission.CurrentLoopExter
 	ctx, cancel := context.WithTimeout(parent, opt.Timeout)
 	defer cancel()
 
+	executionLease := opt.projectExecutionLease
+	executionOwned := false
+	var err error
+	if executionLease == nil {
+		executionLease, err = acquireSharedForCurrentProject(opt.Target)
+		if err != nil {
+			return claudeRun{spawnErr: err, duration: time.Since(begin)}
+		}
+		executionOwned = executionLease != nil
+		if executionOwned {
+			defer executionLease.Unlock()
+		}
+	} else if err := executionLease.ValidateFor(opt.Target); err != nil {
+		return claudeRun{spawnErr: err, duration: time.Since(begin)}
+	}
+	opt.projectExecutionLease = executionLease
+
 	prompt, schema, err := claudeRequest(opt.Target, pkg, sessionID)
 	if err != nil {
 		return claudeRun{spawnErr: err, duration: time.Since(begin)}
@@ -139,6 +156,16 @@ func runClaude(parent context.Context, opt Options, pkg mission.CurrentLoopExter
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	var containment *claudeProcessContainment
 	startProcess := func() error {
+		if executionLease != nil {
+			if err := executionLease.ValidateFor(opt.Target); err != nil {
+				return fmt.Errorf("revalidate project execution lease immediately before launch: %w", err)
+			}
+			if recovery, err := inspectCurrentSyncRecoveryForHost(opt.Target); err != nil {
+				return fmt.Errorf("recheck current project update immediately before launch: %w", err)
+			} else if recovery.Pending {
+				return fmt.Errorf("%s; %s", recovery.Now, recovery.Next)
+			}
+		}
 		if launchBinding != nil {
 			if err := launchBinding.Validate(); err != nil {
 				return fmt.Errorf("revalidate trusted Claude namespace immediately before launch: %w", err)
@@ -325,9 +352,13 @@ func sessionResult(run claudeRun, attemptGeneration, launchOrdinal int, reservat
 	if run.stderrTail != "" {
 		diagnostics = append(diagnostics, "stderr: "+truncate(oneLine(run.stderrTail), 1024))
 	}
-	failure := diagnosisForClaudeRun(run, outcome, kind, launchOrdinal, attemptsLimit)
+	attemptsUsed := claudeRunAttemptsUsed(attemptGeneration, launchOrdinal)
+	failure := diagnosisForClaudeRun(run, outcome, kind, attemptsUsed, attemptsLimit)
 	if failure == nil && run.failureDetail != "" {
-		failure = diagnosisForStructuredResult(kind, errors.New(run.failureDetail), launchOrdinal, attemptsLimit)
+		failure = diagnosisForStructuredResult(kind, errors.New(run.failureDetail), attemptsUsed, attemptsLimit)
+	}
+	if failure == nil && (outcome == "failed" || outcome == "failed-recovered") {
+		failure = diagnosisForReportedFailure(kind, claudeReportedFailureReason(kind, run), attemptsUsed, attemptsLimit)
 	}
 	return Session{
 		Started: run.started, Recovered: run.recovered, AttemptGeneration: attemptGeneration, RunLaunchOrdinal: launchOrdinal,
@@ -337,6 +368,25 @@ func sessionResult(run claudeRun, attemptGeneration, launchOrdinal int, reservat
 		DurationMillis: run.duration.Milliseconds(), PermissionDenials: run.envelope.PermissionDenials,
 		Failure: failure, Diagnostics: diagnostics,
 	}
+}
+
+func claudeReportedFailureReason(kind string, run claudeRun) string {
+	if !run.success() {
+		return run.failureReason()
+	}
+	switch kind {
+	case "member":
+		var response memberResponse
+		if strictJSON(run.structuredOutput, &response) == nil && response.Outcome == "failed" {
+			return strings.TrimSpace(response.Reason)
+		}
+	case "reviewer":
+		var response reviewerResponse
+		if strictJSON(run.structuredOutput, &response) == nil && response.Outcome == "failed" {
+			return strings.TrimSpace(response.Reason)
+		}
+	}
+	return run.failureReason()
 }
 
 func claudeRequest(caseRoot string, pkg mission.CurrentLoopExternalSessionHarnessPackage, sessionID string) (string, string, error) {

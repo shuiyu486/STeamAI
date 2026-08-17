@@ -11,15 +11,19 @@ import (
 )
 
 type Readiness struct {
-	TemplatePath          string        `json:"templatePath"`
-	CanonicalSkillPath    string        `json:"canonicalSkillPath"`
-	Ready                 bool          `json:"ready"`
-	Summary               string        `json:"summary"`
-	RequiredPhrases       []PhraseCheck `json:"requiredPhrases"`
-	CanonicalSkillPhrases []PhraseCheck `json:"canonicalSkillPhrases"`
-	ForbiddenStrings      []StringCheck `json:"forbiddenStrings"`
-	Boundaries            []string      `json:"boundaries"`
-	Warnings              []string      `json:"warnings"`
+	Model                   string        `json:"model"`
+	CompatibilityEntrypoint string        `json:"compatibilityEntrypoint"`
+	StateRoot               string        `json:"stateRoot"`
+	DefaultForNewProjects   bool          `json:"defaultForNewProjects"`
+	TemplatePath            string        `json:"templatePath"`
+	CanonicalSkillPath      string        `json:"canonicalSkillPath"`
+	Ready                   bool          `json:"ready"`
+	Summary                 string        `json:"summary"`
+	RequiredPhrases         []PhraseCheck `json:"requiredPhrases"`
+	CanonicalSkillPhrases   []PhraseCheck `json:"canonicalSkillPhrases"`
+	ForbiddenStrings        []StringCheck `json:"forbiddenStrings"`
+	Boundaries              []string      `json:"boundaries"`
+	Warnings                []string      `json:"warnings"`
 }
 
 type InstalledReadiness struct {
@@ -103,24 +107,30 @@ var forbiddenShimStrings = []string{
 }
 
 var boundaries = []string{
-	"case-local shim contains no runtime logic",
-	"case-local shim delegates to templateRoot canonical skill",
-	"case-local first screen is /rekit status with installed shim readiness and durable artifact handoff",
-	"case-local shim does not name PowerShell, pwsh, Go CLI commands, or façade fallback switches",
+	"legacy case-local /rekit shim compatibility remains release-blocking while migration support is retained",
+	"legacy case-local shim is not the default UX or install path for new STeamAI projects",
+	"legacy case-local shim contains no runtime logic",
+	"legacy case-local shim delegates to the central-kit canonical /rekit compatibility skill",
+	"legacy .rekit first screen remains /rekit status with installed shim readiness and durable artifact handoff",
+	"legacy case-local shim does not name PowerShell, pwsh, Go CLI commands, or façade fallback switches",
 	"sync/promote remain review-first through the canonical runtime",
 }
 
 func Inspect(repoRoot string) Readiness {
 	result := Readiness{
-		TemplatePath:          TemplateRelPath,
-		CanonicalSkillPath:    CanonicalSkillRelPath,
-		Ready:                 true,
-		Summary:               "case shim readiness ok",
-		RequiredPhrases:       []PhraseCheck{},
-		CanonicalSkillPhrases: []PhraseCheck{},
-		ForbiddenStrings:      []StringCheck{},
-		Boundaries:            append([]string{}, boundaries...),
-		Warnings:              []string{},
+		Model:                   "legacy-rekit-case-shim-compatibility",
+		CompatibilityEntrypoint: "/rekit",
+		StateRoot:               ".rekit",
+		DefaultForNewProjects:   false,
+		TemplatePath:            TemplateRelPath,
+		CanonicalSkillPath:      CanonicalSkillRelPath,
+		Ready:                   true,
+		Summary:                 "case shim readiness ok",
+		RequiredPhrases:         []PhraseCheck{},
+		CanonicalSkillPhrases:   []PhraseCheck{},
+		ForbiddenStrings:        []StringCheck{},
+		Boundaries:              append([]string{}, boundaries...),
+		Warnings:                []string{},
 	}
 
 	shimText, err := readRepoText(repoRoot, TemplateRelPath)

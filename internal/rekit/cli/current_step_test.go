@@ -11,7 +11,9 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/currentloop"
@@ -83,7 +85,10 @@ func TestRunCurrentStepRoutesLaneThenReviewerLifecycle(t *testing.T) {
 	if err := os.WriteFile(evidencePath, []byte("bounded reviewer evidence\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	resultSource := filepath.Join(caseRoot, "workspace", "current-step-reviewer-result.json")
+	resultSource := filepath.Join(packet.ReviewerOrchestration.ResultRoot, "returned-results", "current-step-reviewer-result.json")
+	if err := os.MkdirAll(filepath.Dir(resultSource), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	data, err := json.Marshal(map[string]any{
 		"packetId": packet.PacketID, "routeId": packet.Route.ID, "shardId": handoff.ShardID,
 		"items": []string{"alpha"}, "reviewerSession": "current-step-reviewer",
@@ -530,7 +535,7 @@ func TestRunCurrentStepDurableMemberExecutionFixtureHandoffAndIntake(t *testing.
 		t.Fatalf("status omitted member reviewer/completion relay: %+v", status.MemberExecution)
 	}
 	t.Run("stale owner generation cannot plan reviewer", func(t *testing.T) {
-		boardPath := filepath.Join(caseRoot, ".rekit", "board.json")
+		boardPath := projectStatePath(t, caseRoot, "board.json")
 		original, err := os.ReadFile(boardPath)
 		if err != nil {
 			t.Fatal(err)
@@ -568,7 +573,8 @@ func TestRunCurrentStepDurableMemberExecutionFixtureHandoffAndIntake(t *testing.
 		t.Fatalf("member completion without manifest-bound reviewer writeback was not blocked: %+v", unreviewed)
 	}
 	for _, forbidden := range []string{"authority.jsonl", "confirmed.jsonl"} {
-		if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "facts", forbidden)); !os.IsNotExist(err) {
+		path := projectStatePath(t, caseRoot, "facts", forbidden)
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
 			t.Fatalf("member execution created forbidden ledger %s: %v", forbidden, err)
 		}
 	}
@@ -583,7 +589,15 @@ func TestRunCurrentStepDurableMemberExecutionFixtureHandoffAndIntake(t *testing.
 	reviewerBase := []string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-Lane", "feature-analysis", "-WhatIf", "-Format", "json"}
 	dispatchReviewer := runCurrentStepPreview(t, append(append([]string{}, reviewerBase...), "-ReviewerHarness", "member-e2e-harness", "-ReviewerSession", "member-e2e-reviewer", "-Actor", "mission-commander"))
 	runCurrentStepApply(t, caseRoot, dispatchReviewer, "-ReviewerHarness", "member-e2e-harness", "-ReviewerSession", "member-e2e-reviewer", "-Actor", "mission-commander")
-	resultSource := filepath.Join(caseRoot, "workspace", "member-review-result.json")
+	resultSource := filepath.Join(
+		filepath.Dir(reviewerPlan.PacketPath),
+		"results",
+		"external-observations",
+		"member-review-result.json",
+	)
+	if err := os.MkdirAll(filepath.Dir(resultSource), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	reviewerItem := status.MemberExecution.CompletionEvidence[0]
 	resultData, _ := json.Marshal(map[string]any{
 		"packetId": packet.PacketID, "routeId": packet.Route.ID, "shardId": handoff.ShardID, "items": []string{reviewerItem},
@@ -641,8 +655,8 @@ func TestRunCurrentStepDurableMemberExecutionFixtureHandoffAndIntake(t *testing.
 			t.Fatalf("expected exactly one reviewer completion receipt, got %+v", entries)
 		}
 		completionPath := filepath.Join(completionRoot, entries[0].Name())
-		verificationPath := filepath.Join(caseRoot, ".rekit", "facts", "verifications.jsonl")
-		decisionPath := filepath.Join(caseRoot, ".rekit", "facts", "decisions.jsonl")
+		verificationPath := projectStatePath(t, caseRoot, "facts", "verifications.jsonl")
+		decisionPath := projectStatePath(t, caseRoot, "facts", "decisions.jsonl")
 		originals := map[string][]byte{}
 		for _, path := range []string{inputPath, completionPath, verificationPath, decisionPath} {
 			data, readErr := os.ReadFile(path)
@@ -776,11 +790,15 @@ func TestRunCurrentStepDurableMemberExecutionFixtureHandoffAndIntake(t *testing.
 	}
 	decodeJSONStrict(t, out.Bytes(), &completionStatus)
 	completionRequest := completionStatus.MissionControlRunbook.CurrentDriverRequest
-	if completionRequest == nil || completionRequest.RunLoopStepID != "preview-current" || completionRequest.ActionID != "complete-reviewed-lane-feature-analysis" || completionRequest.Source != "laneCompletion.acceptedReviewerLineage" || completionRequest.Lane != "feature-analysis" || !completionRequest.CommandExecutable || !completionRequest.RequiresReview || !strings.Contains(completionRequest.Command, "/rekit complete analysis") || !strings.Contains(completionRequest.Command, status.MemberExecution.CompletionEvidence[0]) {
+	if completionRequest == nil || completionRequest.RunLoopStepID != "preview-current" || completionRequest.ActionID != "complete-reviewed-lane-feature-analysis" || completionRequest.Source != "laneCompletion.acceptedReviewerLineage" || completionRequest.Lane != "feature-analysis" || !completionRequest.CommandExecutable || !completionRequest.RequiresReview || !strings.Contains(completionRequest.Command, "/steamai complete analysis") || !strings.Contains(completionRequest.Command, status.MemberExecution.CompletionEvidence[0]) {
 		t.Fatalf("durable status did not select evidence-derived completion preview: %+v", completionRequest)
 	}
 	if completionStatus.MemberExecution == nil || completionStatus.MemberExecution.ReviewerPlanCommand != "" || len(completionStatus.MemberExecution.CompletionEvidence) != 1 {
 		t.Fatalf("accepted member manifest requested duplicate reviewer planning: %+v", completionStatus.MemberExecution)
+	}
+	selectedCompletionCommand := selectedLaneCommand(completionRequest.Command, "feature-analysis")
+	if selectedCompletionCommand == "" {
+		t.Fatalf("completion request could not be projected to the exact selected lane: %+v", completionRequest)
 	}
 	var completionHandoff workstream.HandoffResult
 	out.Reset()
@@ -788,12 +806,8 @@ func TestRunCurrentStepDurableMemberExecutionFixtureHandoffAndIntake(t *testing.
 		t.Fatal(err)
 	}
 	decodeJSONStrict(t, out.Bytes(), &completionHandoff)
-	if completionHandoff.ReplacementExecutorTakeoverPackage == nil || completionHandoff.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command != completionRequest.Command || completionHandoff.MissionCommanderActionQueue.CurrentDriverRequest == nil || completionHandoff.MissionCommanderActionQueue.CurrentDriverRequest.Command != completionRequest.Command {
-		t.Fatalf("replacement executor handoff did not preserve completion request: %+v", completionHandoff.ReplacementExecutorTakeoverPackage)
-	}
-	selectedCompletionCommand := selectedLaneCommand(completionRequest.Command, "feature-analysis")
-	if selectedCompletionCommand == "" {
-		t.Fatalf("completion request could not be projected to the exact selected lane: %+v", completionRequest)
+	if completionHandoff.ReplacementExecutorTakeoverPackage == nil || completionHandoff.ReplacementExecutorTakeoverPackage.CurrentDriverRequest.Command != selectedCompletionCommand || completionHandoff.MissionCommanderActionQueue.CurrentDriverRequest == nil || completionHandoff.MissionCommanderActionQueue.CurrentDriverRequest.Command != selectedCompletionCommand {
+		t.Fatalf("replacement executor handoff did not preserve the fresh selected-lane completion request: %+v", completionHandoff.ReplacementExecutorTakeoverPackage)
 	}
 	var statusCompletionPreview completionProductResult
 	runCompletionJSON(t, &out, rekitCommandCLIArgs(t, selectedCompletionCommand), &statusCompletionPreview)
@@ -801,9 +815,9 @@ func TestRunCurrentStepDurableMemberExecutionFixtureHandoffAndIntake(t *testing.
 	if completionStep.Route != "case" || completionStep.DriverStep == nil || completionStep.DriverStep.CurrentDriverRequest.Command != selectedCompletionCommand || statusCompletionPreview.Blocked || statusCompletionPreview.CompletionPlanSHA256 == "" || completionStep.DriverStep.ExpectedDriverStepPreviewSHA256 != statusCompletionPreview.CompletionPlanSHA256 || completionStep.DriverStep.ExpectedDriverStepPlanSHA256 == "" || completionStep.ExpectedCurrentStepPlanSHA256 == "" {
 		t.Fatalf("bounded current-step did not preserve completion double hash: current=%q selected=%q driverCurrent=%q driverPreviewHash=%q directPreviewHash=%q driverPreview=%+v", completionRequest.Command, selectedCompletionCommand, completionStep.DriverStep.CurrentDriverRequest.Command, completionStep.DriverStep.ExpectedDriverStepPreviewSHA256, statusCompletionPreview.CompletionPlanSHA256, completionStep.DriverStep.PreviewResult)
 	}
-	laneRoot := filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis")
+	laneRoot := projectStatePath(t, caseRoot, "lanes", "feature-analysis")
 	lanePath := filepath.Join(laneRoot, "lane.json")
-	boardPath := filepath.Join(caseRoot, ".rekit", "board.json")
+	boardPath := projectStatePath(t, caseRoot, "board.json")
 	eventsPath := filepath.Join(laneRoot, "events.jsonl")
 	laneBeforeIntentDrift, err := os.ReadFile(lanePath)
 	if err != nil {
@@ -1027,6 +1041,10 @@ func TestMemberExecutionOldGenerationLosesToPublicReconcileLease(t *testing.T) {
 
 	leaseHeld := make(chan struct{})
 	releaseLease := make(chan struct{})
+	var releaseLeaseOnce sync.Once
+	release := func() {
+		releaseLeaseOnce.Do(func() { close(releaseLease) })
+	}
 	restore := workstream.SetReconcileLeaseHookForTest(func(_, lane string) error {
 		if lane != "feature-analysis" {
 			return nil
@@ -1035,24 +1053,41 @@ func TestMemberExecutionOldGenerationLosesToPublicReconcileLease(t *testing.T) {
 		<-releaseLease
 		return nil
 	})
-	t.Cleanup(restore)
+	t.Cleanup(func() {
+		release()
+		restore()
+	})
 	reconcileDone := make(chan error, 1)
 	go func() {
 		var reconcileOut bytes.Buffer
 		reconcileDone <- Run([]string{"-Command", "reconcile", "analysis", "-Target", caseRoot, "-Pack", "_template", "-InterventionId", "member-reconcile-race", "-Executor", "member-session-b", "-Actor", "operator", "-Reason", "replace stale member generation", "-Apply", "-Format", "json"}, &reconcileOut)
 	}()
-	<-leaseHeld
+	select {
+	case <-leaseHeld:
+	case <-time.After(10 * time.Second):
+		t.Fatal("public reconcile did not acquire the lane mutation lease within 10 seconds")
+	}
 	memberDone := make(chan error, 1)
 	go func() {
 		var memberOut bytes.Buffer
 		memberDone <- Run([]string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-Lane", "feature-analysis", "-ExpectedMemberExecutionPlanSha256", memberPlan.MemberExecution.ExpectedPlanSHA256, "-ExpectedCurrentStepPlanSha256", memberPlan.ExpectedCurrentStepPlanSHA256, "-Apply", "-Format", "json"}, &memberOut)
 	}()
-	close(releaseLease)
-	if err := <-reconcileDone; err != nil {
-		t.Fatalf("public reconcile failed: %v", err)
+	release()
+	select {
+	case err := <-reconcileDone:
+		if err != nil {
+			t.Fatalf("public reconcile failed: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("public reconcile did not finish within 10 seconds after releasing the lane mutation lease")
 	}
-	if err := <-memberDone; err == nil || (!strings.Contains(err.Error(), "changed") && !strings.Contains(err.Error(), "stale") && !strings.Contains(err.Error(), "mismatch") && !strings.Contains(err.Error(), "not an effective open intervention")) {
-		t.Fatalf("old member generation survived public reconcile: %v", err)
+	select {
+	case err := <-memberDone:
+		if err == nil || (!strings.Contains(err.Error(), "changed") && !strings.Contains(err.Error(), "stale") && !strings.Contains(err.Error(), "mismatch") && !strings.Contains(err.Error(), "not an effective open intervention")) {
+			t.Fatalf("old member generation survived public reconcile: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("stale member execution did not finish within 10 seconds after public reconcile")
 	}
 	if _, found, err := memberexecution.Latest(caseRoot, "feature-analysis"); err != nil || found {
 		t.Fatalf("reconcile race corrupted or published old member execution: found=%v err=%v", found, err)
@@ -1456,6 +1491,94 @@ func runMemberCurrentStepForLane(t *testing.T, caseRoot, lane string, inputs []s
 	args = append(args, inputs...)
 	args = append(args, "-Format", "json")
 	return runCurrentStepPreview(t, args)
+}
+
+func TestCurrentStepReviewerRequestsMatchMigrationEntrypointsWithoutWeakeningIdentity(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "current-reviewer-case")
+	stateRoot := filepath.Join(caseRoot, ".steamai")
+	if err := os.MkdirAll(stateRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(stateRoot, "instance.yml"),
+		[]byte("projectName: current-reviewer-case\n"),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	request := func(command string) mission.MissionCommanderDriverRequest {
+		t.Helper()
+		invocation, err := commands.ParsePublicInvocation(command)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return mission.MissionCommanderDriverRequest{
+			Kind:              "preview-command",
+			Source:            "reviewerDispatchOperatorPackage",
+			Lane:              "feature-review",
+			Label:             "packet-a:shard-01",
+			ActionID:          "reviewer-dispatch:packet-a:shard-01",
+			State:             "ready-for-reviewer-result-source-capture-preview",
+			RunLoopStepID:     "source-capture",
+			Invocation:        &invocation,
+			Command:           command,
+			CommandExecutable: true,
+			RequiresReview:    true,
+			ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
+				State:   "refresh-required",
+				Command: command,
+				RefreshStatusCommand: joinDriverCommand([]string{
+					"/rekit", "status", "-Target", caseRoot,
+					"-Format", "json",
+				}),
+			},
+		}
+	}
+	canonical := request(`/rekit plan-subagents -PacketPath packet.json -CaptureReviewerResultSource -ShardId shard-01 -WhatIf -Format json`)
+	current := statusMissionControlInvocationDriverRequest(caseRoot, canonical)
+	refresh, err := statusMissionControlRefreshCommand(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current = mission.MissionCommanderDriverRequestWithRefreshStatusCommand(
+		current,
+		refresh,
+	)
+	bindSelectedLaneDriverRequest(&current, "feature-review")
+	if !currentStepReviewerRequestsMatch(caseRoot, current, canonical) {
+		t.Fatal("migration entrypoint and status-added target changed reviewer typed identity")
+	}
+	missingTarget := current
+	missingTarget.ExpectedReceipt.RefreshStatusCommand =
+		`/steamai status -Format compact-json -Lane feature-review`
+	if currentStepReviewerRequestsMatch(caseRoot, missingTarget, canonical) {
+		t.Fatal("reviewer request matcher accepted a status-visible request without the current target")
+	}
+	wrongPacket := request(`/rekit plan-subagents -PacketPath other.json -CaptureReviewerResultSource -ShardId shard-01 -WhatIf -Format json`)
+	if currentStepReviewerRequestsMatch(caseRoot, current, wrongPacket) {
+		t.Fatal("reviewer request matcher accepted packet drift")
+	}
+	wrongTarget := current
+	wrongTarget.ExpectedReceipt.RefreshStatusCommand =
+		`/steamai status -Target "C:\other case" -Format compact-json -Lane feature-review`
+	if currentStepReviewerRequestsMatch(caseRoot, wrongTarget, canonical) {
+		t.Fatal("reviewer request matcher accepted target drift")
+	}
+	wrongStep := canonical
+	wrongStep.RunLoopStepID = "collect-result"
+	if currentStepReviewerRequestsMatch(caseRoot, current, wrongStep) {
+		t.Fatal("reviewer request matcher accepted run-loop step drift")
+	}
+	commandDrift := canonical
+	commandDrift.Command = `/rekit plan-subagents -PacketPath other.json -CaptureReviewerResultSource -ShardId shard-01 -WhatIf -Format json`
+	if currentStepReviewerRequestsMatch(caseRoot, current, commandDrift) {
+		t.Fatal("reviewer request matcher accepted command/typed-invocation drift")
+	}
+	unknown := canonical
+	unknown.Command = `/other plan-subagents -PacketPath packet.json -CaptureReviewerResultSource -ShardId shard-01 -WhatIf -Format json`
+	if currentStepReviewerRequestsMatch(caseRoot, current, unknown) {
+		t.Fatal("reviewer request matcher accepted an unknown entrypoint")
+	}
 }
 
 func TestSplitPublicCommandPreservesQuotedArguments(t *testing.T) {

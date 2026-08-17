@@ -15,6 +15,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/packmemoryconsumption"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 )
 
@@ -249,8 +250,10 @@ func buildCurrentStepPlanFromStatus(ctx runtime.Context, opt Options, status sta
 		runbook.CurrentLoopSegment = &inspection
 		runbook.CurrentLoopOperator = statusCurrentLoopOperatorPackage(ctx.Target, status.CaseMission, &runbook, inspection)
 		if operator := runbook.CurrentLoopOperator; operator != nil && externalSessionDispatcherRequestIsFocused(operator) {
-			wrapper := externalSessionCurrentStepRequest(operator)
-			request := mission.MissionCommanderDriverRequestWithRefreshStatusCommand(wrapper, runbook.RefreshStatusCommand)
+			request, err := externalSessionCurrentStepRequest(operator)
+			if err != nil {
+				return currentStepPlan{}, fmt.Errorf("run-current-step external session wrapper: %w", err)
+			}
 			runbook.CurrentDriverRequest = &request
 			runbook.CurrentRunLoopStepID = request.RunLoopStepID
 			runbook.CurrentCommand = request.Command
@@ -344,7 +347,7 @@ func buildCurrentStepPlanFromStatus(ctx runtime.Context, opt Options, status sta
 			if err != nil {
 				return currentStepPlan{}, fmt.Errorf("run-current-step reviewer route: %w", err)
 			}
-			if !currentStepReviewerRequestsMatch(routedRequest, nested.CurrentDriverRequest) {
+			if !currentStepReviewerRequestsMatch(ctx.Target, routedRequest, nested.CurrentDriverRequest) {
 				return currentStepPlan{}, fmt.Errorf("run-current-step reviewer route request drift: missionControlRunbook current request does not match reviewer operator package request")
 			}
 			plan.ReviewerStep = &nested
@@ -698,34 +701,73 @@ func currentStepCanonicalOuterFlag(key string) string {
 	}
 }
 
-func currentStepReviewerRequestsMatch(routed, nested mission.MissionCommanderDriverRequest) bool {
-	if strings.TrimSpace(routed.Source) != "reviewerDispatchOperatorPackage" || strings.TrimSpace(nested.Source) != "reviewerDispatchOperatorPackage" {
+func currentStepReviewerRequestsMatch(caseRoot string, routed, nested mission.MissionCommanderDriverRequest) bool {
+	if strings.TrimSpace(caseRoot) == "" ||
+		strings.TrimSpace(routed.Source) != "reviewerDispatchOperatorPackage" ||
+		strings.TrimSpace(nested.Source) != "reviewerDispatchOperatorPackage" {
 		return false
 	}
-	if strings.TrimSpace(routed.Lane) != strings.TrimSpace(nested.Lane) ||
-		strings.TrimSpace(routed.Label) != strings.TrimSpace(nested.Label) ||
-		strings.TrimSpace(routed.ActionID) != strings.TrimSpace(nested.ActionID) ||
-		strings.TrimSpace(routed.State) != strings.TrimSpace(nested.State) ||
-		strings.TrimSpace(routed.RunLoopStepID) != strings.TrimSpace(nested.RunLoopStepID) {
+	root, err := projectstate.Resolve(caseRoot)
+	if err != nil || mission.ValidateMissionCommanderDriverRequest(nested) != nil {
 		return false
 	}
-	return currentStepReviewerCommandIdentity(routed.Command) == currentStepReviewerCommandIdentity(nested.Command)
-}
-
-func currentStepReviewerCommandIdentity(command string) string {
-	fields, err := splitDriverCommand(command)
+	routedRefresh := strings.TrimSpace(
+		routed.ExpectedReceipt.RefreshStatusCommand,
+	)
+	if !driverStepRefreshCommandMatches(
+		runtime.Context{Target: caseRoot},
+		routedRefresh,
+	) {
+		return false
+	}
+	entrypoint := "/steamai"
+	if root.Legacy {
+		entrypoint = "/rekit"
+	}
+	if !strings.HasPrefix(routedRefresh, entrypoint+" ") {
+		return false
+	}
+	refreshInvocation, err := commands.ParsePublicInvocation(routedRefresh)
 	if err != nil {
-		return ""
+		return false
 	}
-	identity := []string{}
-	for idx := 0; idx < len(fields); idx++ {
-		if strings.EqualFold(fields[idx], "-Target") || strings.EqualFold(fields[idx], "--target") {
-			idx++
-			continue
-		}
-		identity = append(identity, fields[idx])
+	selectedLane, lanePresent, laneValid :=
+		statusMissionControlInvocationFlagValue(
+			refreshInvocation,
+			"-Lane",
+			"--lane",
+		)
+	if !lanePresent || !laneValid || selectedLane == "" ||
+		selectedLane != strings.TrimSpace(nested.Lane) {
+		return false
 	}
-	return joinDriverCommand(identity)
+
+	projected := nested
+	if projected.CommandExecutable {
+		projected = statusMissionControlInvocationDriverRequest(
+			caseRoot,
+			projected,
+		)
+	}
+	refresh, err := statusMissionControlRefreshCommand(caseRoot)
+	if err != nil {
+		return false
+	}
+	projected = mission.MissionCommanderDriverRequestWithRefreshStatusCommand(
+		projected,
+		refresh,
+	)
+	bindSelectedLaneDriverRequest(&projected, selectedLane)
+	projectedSHA256, err := mission.MissionCommanderDriverRequestSHA256(
+		projected,
+	)
+	if err != nil {
+		return false
+	}
+	routedSHA256, err := mission.MissionCommanderDriverRequestSHA256(
+		routed,
+	)
+	return err == nil && routedSHA256 == projectedSHA256
 }
 
 func currentStepHasReviewerObservation(opt Options) bool {

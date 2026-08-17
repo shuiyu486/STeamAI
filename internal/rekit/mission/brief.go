@@ -142,7 +142,19 @@ func MissionCommanderDriverRequestSHA256(request MissionCommanderDriverRequest) 
 	canonical := request
 	if canonical.Invocation != nil {
 		canonical.Command, _ = canonical.Invocation.Render()
-		canonical.ExpectedReceipt.Command = canonical.Command
+		if canonical.CommandExecutable {
+			canonical.ExpectedReceipt.Command = canonical.Command
+		}
+	}
+	if refresh := strings.TrimSpace(canonical.ExpectedReceipt.RefreshStatusCommand); refresh != "" {
+		invocation, err := commands.ParsePublicInvocation(refresh)
+		if err != nil {
+			return "", fmt.Errorf("mission commander driver request refresh status command: %w", err)
+		}
+		canonical.ExpectedReceipt.RefreshStatusCommand, err = invocation.Render()
+		if err != nil {
+			return "", fmt.Errorf("mission commander driver request refresh status command: %w", err)
+		}
 	}
 	encoded, err := json.Marshal(canonical)
 	if err != nil {
@@ -155,9 +167,9 @@ func MissionCommanderDriverRequestSHA256(request MissionCommanderDriverRequest) 
 func ValidateMissionCommanderDriverRequest(request MissionCommanderDriverRequest) error {
 	if request.Invocation == nil {
 		if request.CommandExecutable || strings.TrimSpace(request.Command) != "" {
-			return fmt.Errorf("mission commander driver request executable command requires a typed invocation")
+			return fmt.Errorf("mission commander driver request command requires a typed invocation")
 		}
-		return nil
+		return validateMissionCommanderDriverRequestRefresh(request)
 	}
 	if err := request.Invocation.Validate(); err != nil {
 		return fmt.Errorf("mission commander driver request invocation: %w", err)
@@ -166,16 +178,94 @@ func ValidateMissionCommanderDriverRequest(request MissionCommanderDriverRequest
 	if err != nil || !request.Invocation.Equivalent(projected) {
 		return fmt.Errorf("mission commander driver request command differs from its typed invocation")
 	}
-	if expected := strings.TrimSpace(request.ExpectedReceipt.Command); expected != "" {
-		expectedInvocation, err := commands.ParsePublicInvocation(expected)
-		if err != nil || !request.Invocation.Equivalent(expectedInvocation) {
-			return fmt.Errorf("mission commander driver request expected receipt command differs from its typed invocation")
+	if !request.CommandExecutable {
+		if request.Kind != "preview-command-template" || request.Blocked || !request.RequiresReview {
+			return fmt.Errorf("mission commander driver request typed invocation is not an executable or reviewed template")
+		}
+		if strings.TrimSpace(request.ExpectedReceipt.Command) != "" {
+			return fmt.Errorf("mission commander driver request template must not carry an expected executable command")
+		}
+		return validateMissionCommanderDriverRequestRefresh(request)
+	}
+	if request.Blocked {
+		return fmt.Errorf("mission commander driver request typed invocation is blocked")
+	}
+	expected := strings.TrimSpace(request.ExpectedReceipt.Command)
+	if expected == "" {
+		return fmt.Errorf("mission commander driver request executable command requires expected receipt command")
+	}
+	expectedInvocation, err := commands.ParsePublicInvocation(expected)
+	if err != nil || !request.Invocation.Equivalent(expectedInvocation) {
+		return fmt.Errorf("mission commander driver request expected receipt command differs from its typed invocation")
+	}
+	return validateMissionCommanderDriverRequestRefresh(request)
+}
+
+func validateMissionCommanderDriverRequestRefresh(request MissionCommanderDriverRequest) error {
+	if refresh := strings.TrimSpace(request.ExpectedReceipt.RefreshStatusCommand); refresh != "" {
+		if _, err := commands.ParsePublicInvocation(refresh); err != nil {
+			return fmt.Errorf("mission commander driver request refresh status command is invalid: %w", err)
 		}
 	}
-	if !request.CommandExecutable || request.Blocked {
-		return fmt.Errorf("mission commander driver request typed invocation is not executable")
-	}
 	return nil
+}
+
+func MissionCommanderDriverRequestWithTypedCommand(request MissionCommanderDriverRequest) (MissionCommanderDriverRequest, error) {
+	command := strings.TrimSpace(request.Command)
+	if command == "" {
+		return MissionCommanderDriverRequest{}, fmt.Errorf("mission commander driver request typed command is missing")
+	}
+	invocation, err := commands.ParsePublicInvocation(command)
+	if err != nil {
+		return MissionCommanderDriverRequest{}, fmt.Errorf("mission commander driver request typed command: %w", err)
+	}
+	request.Invocation = &invocation
+	request.Command = command
+	if request.CommandExecutable {
+		request.ExpectedReceipt.Command = command
+	}
+	if err := ValidateMissionCommanderDriverRequest(request); err != nil {
+		return MissionCommanderDriverRequest{}, err
+	}
+	return request, nil
+}
+
+func MissionCommanderDriverRequestForEntrypoint(request MissionCommanderDriverRequest, entrypoint string) (MissionCommanderDriverRequest, error) {
+	if err := ValidateMissionCommanderDriverRequest(request); err != nil {
+		return MissionCommanderDriverRequest{}, err
+	}
+	if request.Invocation != nil {
+		invocation := clonePublicInvocation(request.Invocation)
+		command := strings.TrimSpace(request.Command)
+		if !strings.HasPrefix(command, strings.TrimSpace(entrypoint)+" ") {
+			var err error
+			command, err = invocation.RenderForEntrypoint(entrypoint)
+			if err != nil {
+				return MissionCommanderDriverRequest{}, err
+			}
+		}
+		request.Invocation = invocation
+		request.Command = command
+		if request.CommandExecutable {
+			request.ExpectedReceipt.Command = command
+		}
+	}
+	if refresh := strings.TrimSpace(request.ExpectedReceipt.RefreshStatusCommand); refresh != "" {
+		refreshInvocation, err := commands.ParsePublicInvocation(refresh)
+		if err != nil {
+			return MissionCommanderDriverRequest{}, fmt.Errorf("mission commander driver request refresh status command: %w", err)
+		}
+		if !strings.HasPrefix(refresh, strings.TrimSpace(entrypoint)+" ") {
+			request.ExpectedReceipt.RefreshStatusCommand, err = refreshInvocation.RenderForEntrypoint(entrypoint)
+			if err != nil {
+				return MissionCommanderDriverRequest{}, fmt.Errorf("mission commander driver request refresh status command: %w", err)
+			}
+		}
+	}
+	if err := ValidateMissionCommanderDriverRequest(request); err != nil {
+		return MissionCommanderDriverRequest{}, err
+	}
+	return request, nil
 }
 
 type MissionCommanderDriverReceiptExpectation struct {

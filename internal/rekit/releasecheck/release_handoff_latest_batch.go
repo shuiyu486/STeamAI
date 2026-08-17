@@ -1,14 +1,17 @@
 package releasecheck
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/processguard"
 )
 
 type ReleaseHandoffLatestBatch struct {
@@ -260,16 +263,29 @@ func releaseHandoffPostPushReceiptFor(repo string, latest ReleaseHandoffLatestBa
 }
 
 func defaultReleaseHandoffGitCommand(repo string, args ...string) (int, string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = repo
-	output, err := cmd.CombinedOutput()
-	if err == nil {
-		return 0, string(output), nil
+	stdout, stderr, err := processguard.RunTreeOutputs(
+		ctx,
+		cmd,
+		nil,
+		64<<20,
+	)
+	exitCode := -1
+	if cmd.ProcessState != nil {
+		exitCode = cmd.ProcessState.ExitCode()
 	}
-	if exitErr, ok := err.(*exec.ExitError); ok {
-		return exitErr.ExitCode(), string(output), err
+	if err != nil {
+		err = fmt.Errorf(
+			"git %s: %w: %s",
+			strings.Join(args, " "),
+			err,
+			strings.TrimSpace(string(stderr)),
+		)
 	}
-	return -1, string(output), err
+	return exitCode, string(stdout), err
 }
 
 func nonEmptyReleaseHandoffLines(text string) []string {
@@ -496,7 +512,7 @@ func latestBatchHasLocalValidationCommandEvidence(text string) bool {
 		{"go run ./cmd/rekit -- -command status", "`status`", "status-step"},
 		{"go run ./cmd/rekit -- -command packs", "`packs`", "packs-step"},
 		{"go run ./cmd/rekit -- -command doctor", "`doctor`", "doctor-step"},
-		{"go test ./..."},
+		{CanonicalGoTestCommand, "go test -p=2 -timeout=15m ./...", "go test -timeout=15m ./...", "go test ./..."},
 		{"go vet ./..."},
 		{"git diff --check"},
 	} {
@@ -994,11 +1010,48 @@ func looksLikeRunRef(value string) bool {
 	return true
 }
 
-func latestBatchRemoteGreen(text, lower string) bool {
-	if strings.Contains(text, "不能声明远程 CI green") || strings.Contains(lower, "不能声明 remote ci green") || strings.Contains(lower, "cannot claim remote ci green") || strings.Contains(lower, "not remote ci green") {
-		return false
+func latestBatchRemoteGreen(text, _ string) bool {
+	for _, clause := range latestBatchEvidenceClauses(text) {
+		compact := strings.NewReplacer(" ", "", "\t", "", "`", "").Replace(strings.ToLower(clause))
+		for _, token := range []string{"remotecigreen", "远程cigreen"} {
+			remaining := compact
+			for {
+				index := strings.Index(remaining, token)
+				if index < 0 {
+					break
+				}
+				prefix := remaining[:index]
+				if !latestBatchRemoteGreenClaimNegated(prefix) {
+					return true
+				}
+				remaining = remaining[index+len(token):]
+			}
+		}
 	}
-	return strings.Contains(lower, "remote ci green") || strings.Contains(text, "远程 CI green")
+	return false
+}
+
+func latestBatchRemoteGreenClaimNegated(prefix string) bool {
+	for _, marker := range []string{
+		"不能声明", "不得声明", "不声明", "不声称", "不能声称", "不得声称",
+		"不证明", "不能证明", "不等于", "并非", "而不是", "不是",
+		"cannotclaim", "donotclaim", "doesnotclaim", "mustnotclaim", "shouldnotclaim", "notclaim",
+		"cannotprove", "donotprove", "doesnotprove", "notprove", "isnot", "arenot", "wasnot", "werenot", "not",
+	} {
+		index := strings.LastIndex(prefix, marker)
+		if index < 0 {
+			continue
+		}
+		scope := prefix[index+len(marker):]
+		if len([]rune(scope)) > 64 || strings.ContainsAny(scope, "，,。；;：:") {
+			continue
+		}
+		if latestBatchContainsAny(scope, "但", "然而", "不过", "however", "but", "yet") {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func latestBatchCommitRefs(text string) []string {
@@ -1126,6 +1179,9 @@ func latestBatchEvidence(text string) []string {
 		{match: "go run ./cmd/rekit -- -command doctor", label: "doctor validation recorded"},
 		{match: "`doctor`", label: "doctor validation recorded"},
 		{match: "doctor-step", label: "doctor validation recorded"},
+		{match: CanonicalGoTestCommand, label: "go test ./... recorded"},
+		{match: "go test -p=2 -timeout=15m ./...", label: "go test ./... recorded"},
+		{match: "go test -timeout=15m ./...", label: "go test ./... recorded"},
 		{match: "go test ./...", label: "go test ./... recorded"},
 		{match: "go vet ./...", label: "go vet ./... recorded"},
 		{match: "git diff --check", label: "git diff --check recorded"},

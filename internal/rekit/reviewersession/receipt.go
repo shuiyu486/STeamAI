@@ -14,6 +14,7 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewpath"
 )
 
 type Owner struct {
@@ -121,6 +122,11 @@ func ReadDispatch(caseRoot, path, expectedSHA256 string) (DispatchReceipt, error
 			return DispatchReceipt{}, err
 		}
 	}
+	reviewRoot := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(path))))
+	packetPath := filepath.Join(reviewRoot, "packet.json")
+	if _, ok := reviewpath.CanonicalCollectionNamespace(caseRoot, packetPath); !ok || !reviewpath.CollectionNamespacePathSafe(caseRoot, path, false) {
+		return DispatchReceipt{}, fmt.Errorf("reviewer dispatch receipt path is outside the active review namespace")
+	}
 	data, err := rekitfs.ReadStableRegularFileAnchored(caseRoot, path, "reviewer dispatch receipt", 1<<20)
 	if err != nil {
 		return DispatchReceipt{}, err
@@ -139,6 +145,9 @@ func OutputContractFields(caseRoot string, receipt DispatchReceipt) ([]string, e
 		if err != nil {
 			return nil, err
 		}
+	}
+	if _, ok := reviewpath.CanonicalCollectionNamespace(caseRoot, packetPath); !ok || !reviewpath.CollectionNamespacePathSafe(caseRoot, packetPath, false) {
+		return nil, fmt.Errorf("reviewer dispatch packet path is outside the active review namespace")
 	}
 	data, err := rekitfs.ReadStableRegularFileAnchored(caseRoot, packetPath, "reviewer dispatch packet", 4<<20)
 	if err != nil {

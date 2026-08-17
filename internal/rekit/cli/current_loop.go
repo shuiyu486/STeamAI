@@ -6,13 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"path/filepath"
 	"strings"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/currentloop"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 )
 
@@ -293,9 +293,6 @@ func buildCurrentLoopPlan(ctx runtime.Context, opt Options) (currentLoopPlan, st
 	if err != nil {
 		return currentLoopPlan{}, statusInventory{}, err
 	}
-	if err := validateCurrentLoopReviewerAttemptObservation(opt, status); err != nil {
-		return currentLoopPlan{}, statusInventory{}, err
-	}
 	var resumeSource *currentloop.Inspection
 	if opt.ResumeCurrentLoop {
 		if status.MissionControlRunbook == nil || status.MissionControlRunbook.CurrentLoopSegment == nil {
@@ -385,6 +382,11 @@ func buildCurrentLoopPlan(ctx runtime.Context, opt Options) (currentLoopPlan, st
 		}
 		if route != plan.InitialRoute || strings.TrimSpace(request.Lane) != plan.InitialLane {
 			return currentLoopPlan{}, statusInventory{}, fmt.Errorf("run-current-loop selected lane projection changed the initial route")
+		}
+	}
+	if !opt.ResumeCurrentLoop {
+		if err := validateCurrentLoopReviewerAttemptObservation(opt, status); err != nil {
+			return currentLoopPlan{}, statusInventory{}, err
 		}
 	}
 	plan.ResumeCommand = currentLoopResumeCommand(ctx, opt.MaxSteps, currentLoopSelectedLane(effectiveOpt, plan.InitialLane))
@@ -861,7 +863,10 @@ func currentLoopExternalMemberHandoff(ctx runtime.Context, inspection memberexec
 		}
 		observation.Alternatives = append(observation.Alternatives, alternative)
 	}
-	handoffPath := filepath.ToSlash(filepath.Join(".rekit", "lanes", inspection.Owner.Lane, "member-executions", inspection.AttemptID, "handoff.json"))
+	handoffPath, err := projectstate.Rel(ctx.Target, "lanes", inspection.Owner.Lane, "member-executions", inspection.AttemptID, "handoff.json")
+	if err != nil {
+		return nil
+	}
 	return &mission.CurrentLoopExternalMemberHandoff{
 		State:               inspection.State,
 		AttemptID:           inspection.AttemptID,

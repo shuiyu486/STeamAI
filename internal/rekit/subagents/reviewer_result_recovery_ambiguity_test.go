@@ -10,7 +10,10 @@ import (
 func TestQuarantineReviewerResultRejectsRecreatedCanonicalBytes(t *testing.T) {
 	requireReviewerResultExactMove(t, "regular-file")
 	root := t.TempDir()
-	resultRoot := filepath.Join(root, "results")
+	if err := os.MkdirAll(filepath.Join(root, ".rekit"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	resultRoot := filepath.Join(root, ".rekit", "reviews", "ambiguity", "results")
 	quarantineRoot := filepath.Join(resultRoot, "recoveries")
 	if err := os.MkdirAll(quarantineRoot, 0o755); err != nil {
 		t.Fatal(err)
@@ -44,7 +47,10 @@ func TestQuarantineReviewerResultRejectsRecreatedCanonicalBytes(t *testing.T) {
 func TestQuarantineReviewerResultRejectsRecreatedCanonicalObstruction(t *testing.T) {
 	requireReviewerResultExactMove(t, "empty-file")
 	root := t.TempDir()
-	resultRoot := filepath.Join(root, "results")
+	if err := os.MkdirAll(filepath.Join(root, ".rekit"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	resultRoot := filepath.Join(root, ".rekit", "reviews", "ambiguity", "results")
 	quarantineRoot := filepath.Join(resultRoot, "recoveries")
 	if err := os.MkdirAll(quarantineRoot, 0o755); err != nil {
 		t.Fatal(err)

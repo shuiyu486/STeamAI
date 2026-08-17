@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/subagents"
 )
 
@@ -177,7 +178,19 @@ func TestRunPlanSubagentsReviewerPacketRetirementWhatIfApplyE2E(t *testing.T) {
 			requestCopy.Blocked = false
 		}
 		if replacements != nil {
-			command = replacements.Replace(command)
+			invocation, err := commands.ParsePublicInvocation(command)
+			if err != nil {
+				t.Fatalf("%s driver request command did not parse: %v", label, err)
+			}
+			for index := range invocation.Arguments {
+				invocation.Arguments[index] = replacements.Replace(
+					invocation.Arguments[index],
+				)
+			}
+			command, err = invocation.Render()
+			if err != nil {
+				t.Fatalf("%s driver request command did not render: %v", label, err)
+			}
 		}
 		requestCopy.Command = command
 		args, ok := missionCommanderDriverRequestCommandCLIArgs(t, &requestCopy)
@@ -196,6 +209,7 @@ func TestRunPlanSubagentsReviewerPacketRetirementWhatIfApplyE2E(t *testing.T) {
 	var preview struct {
 		Applied                     bool                                `json:"applied"`
 		IsMutation                  bool                                `json:"isMutation"`
+		Reason                      string                              `json:"reason"`
 		PacketSHA256                string                              `json:"packetSha256"`
 		IntegritySHA256             string                              `json:"integritySha256"`
 		MissionCommanderAction      missionCommanderActionSnapshot      `json:"missionCommanderAction"`
@@ -204,13 +218,19 @@ func TestRunPlanSubagentsReviewerPacketRetirementWhatIfApplyE2E(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &preview); err != nil {
 		t.Fatal(err)
 	}
-	if preview.Applied || preview.IsMutation || preview.PacketSHA256 == "" || preview.IntegritySHA256 == "" || preview.MissionCommanderAction.State != "needs-reviewer-packet-retirement-apply" || !strings.Contains(preview.MissionCommanderAction.PrimaryCommand, "-ExpectedPacketSha256") || !strings.Contains(preview.MissionCommanderAction.PrimaryCommand, "-ExpectedIntegritySha256") {
+	if preview.Applied || preview.IsMutation || preview.Reason != reason || preview.PacketSHA256 == "" || preview.IntegritySHA256 == "" || preview.MissionCommanderAction.State != "needs-reviewer-packet-retirement-apply" || !strings.Contains(preview.MissionCommanderAction.PrimaryCommand, "-ExpectedPacketSha256") || !strings.Contains(preview.MissionCommanderAction.PrimaryCommand, "-ExpectedIntegritySha256") {
 		t.Fatalf("unexpected retirement preview: %+v", preview)
 	}
 	retirementApplyRequest := requireMissionCommanderDriverRequest(t, preview.MissionCommanderActionQueue, "preview-command", "preview-current", preview.MissionCommanderAction.PrimaryCommand, true, false, true)
 
 	out.Reset()
-	if err := Run(driverRequestArgs("packet retirement text preview", retirementRequest, strings.NewReplacer("<actor>", actor, "<reason>", reason, "-Format json", "-Format text")), &out); err != nil {
+	textPreviewArgs := driverRequestArgs(
+		"packet retirement text preview",
+		retirementRequest,
+		strings.NewReplacer("<actor>", actor, "<reason>", reason),
+	)
+	textPreviewArgs = replaceCLIArgValueForTest(t, textPreviewArgs, "-Format", "text")
+	if err := Run(textPreviewArgs, &out); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "plan-subagents reviewer packet retirement：") || strings.HasPrefix(strings.TrimSpace(out.String()), "{") {
@@ -225,7 +245,7 @@ func TestRunPlanSubagentsReviewerPacketRetirementWhatIfApplyE2E(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &applied); err != nil {
 		t.Fatal(err)
 	}
-	if !applied.Applied || applied.Replay || applied.Mode != "reviewer-packet-retirement" || applied.MissionCommanderAction.State != "reviewer-packet-retired" {
+	if !applied.Applied || applied.Replay || applied.Mode != "reviewer-packet-retirement" || applied.Reason != reason || applied.MissionCommanderAction.State != "reviewer-packet-retired" {
 		t.Fatalf("unexpected retirement apply: %+v", applied)
 	}
 	retirementBytes, err := os.ReadFile(applied.RetirementPath)

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
 func TestDailyCompletionOwnerRequest(t *testing.T) {
@@ -21,6 +22,9 @@ func TestDailyCompletionOwnerRequest(t *testing.T) {
 			Invocation:        &invocation,
 			Command:           "/rekit complete -Lane feature-mission -WhatIf -Format json",
 			CommandExecutable: true,
+			ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
+				Command: "/rekit complete -Lane feature-mission -WhatIf -Format json",
+			},
 		}}}
 	}
 	if !dailyCompletionOwnerRequest(valid(), "feature-mission") {

@@ -308,6 +308,7 @@ func TestPackMemoryPromoteReconsumeE2E(t *testing.T) {
 		t.Fatalf("pack doctor rejected consumed memory recipe: %v", err)
 	}
 
+	writeLegacyInitMarker(t, freshCase, repoRoot, pack)
 	if _, err := syncpkg.Apply(repoRoot, freshCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "fresh-reconsumer"}); err != nil {
 		t.Fatal(err)
 	}
@@ -516,6 +517,11 @@ promoteDenyPatterns:
 	return repoRoot, caseRoot, pack
 }
 
+func writeLegacyInitMarker(t *testing.T, caseRoot, repoRoot, pack string) {
+	t.Helper()
+	writeText(t, filepath.Join(caseRoot, ".re-template.yml"), "templateRoot: "+repoRoot+"\ntemplatePack: "+pack+"\ncurrentProjectPath: "+caseRoot+"\nrekitMode: case-local-shim\n")
+}
+
 func packMemoryReconsumeFixture(t *testing.T) (repoRoot, sourceCase, freshCase, pack string) {
 	t.Helper()
 	repoRoot = t.TempDir()
@@ -620,6 +626,10 @@ budgets:
 	writeText(t, filepath.Join(packRoot, "manifest.yml"), manifestText)
 	writeText(t, filepath.Join(repoRoot, ".claude", "skills", "rekit", "SKILL.md"), "# skill\n\n底层 Go CLI 是 canonical runtime\n`rekit.ps1` 只是 retained compatibility façade\ncase 只生成 `.claude/skills/rekit/SKILL.md` 薄 shim\n底层 runtime 只作为 `/rekit` 的内部实现\n")
 	writeText(t, filepath.Join(repoRoot, "rekit", "templates", "case-shim", "SKILL.md"), "# shim\n\ncase-local 薄 shim\n不包含业务逻辑\ncanonical `/rekit`\n.rekit/instance.yml\n.re-template.yml\n<templateRoot>/.claude/skills/rekit/SKILL.md\ncanonical runtime\nsync` / `promote` 默认必须 review-first\n新会话 first screen 先使用 `/rekit`\nstatus case shim ready=true\ninstalledShimMatchesTemplate=true\ndurable artifacts 接手\nnext-batch action queues\n不要在本 shim 里维护模板规则\n不要读取或修改用户级 `~/.claude/skills`\n不要在 shim 中复制逻辑\n不展示底层脚本或 CLI 命令\nGo-native backend\n")
+	writeText(t, filepath.Join(repoRoot, "rekit", "templates", "steamai-project", "SKILL.md"), "# STeamAI\n\nproject-local Mission Control skill\n")
+	writeText(t, filepath.Join(repoRoot, "rekit", "schemas", "instance.schema.yml"), "fixture instance schema\n")
+	writeText(t, filepath.Join(repoRoot, "rekit", "schemas", "pack-manifest.schema.yml"), "fixture pack manifest schema\n")
+	writeText(t, filepath.Join(repoRoot, "rekit", "tests", "catalog.json"), "{}\n")
 	writeText(t, filepath.Join(repoRoot, "common", "policies", "manifest.yml"), "policies:\n  - id: agent-team\n    path: agent-team.md\n")
 	writeText(t, filepath.Join(repoRoot, "common", "policies", "README.md"), "# policies\n")
 	writeText(t, filepath.Join(repoRoot, "common", "policies", "agent-team.md"), "# agent team\n")
@@ -738,6 +748,10 @@ budgets:
 	writeText(t, filepath.Join(packRoot, "manifest.yml"), manifest)
 	writeText(t, filepath.Join(repoRoot, ".claude", "skills", "rekit", "SKILL.md"), "# skill\n\n底层 Go CLI 是 canonical runtime\n`rekit.ps1` 只是 retained compatibility façade\ncase 只生成 `.claude/skills/rekit/SKILL.md` 薄 shim\n底层 runtime 只作为 `/rekit` 的内部实现\n")
 	writeText(t, filepath.Join(repoRoot, "rekit", "templates", "case-shim", "SKILL.md"), "# shim\n\ncase-local 薄 shim\n不包含业务逻辑\ncanonical `/rekit`\n.rekit/instance.yml\n.re-template.yml\n<templateRoot>/.claude/skills/rekit/SKILL.md\ncanonical runtime\nsync` / `promote` 默认必须 review-first\n新会话 first screen 先使用 `/rekit`\nstatus case shim ready=true\ninstalledShimMatchesTemplate=true\ndurable artifacts 接手\nnext-batch action queues\n不要在本 shim 里维护模板规则\n不要读取或修改用户级 `~/.claude/skills`\n不要在 shim 中复制逻辑\n不展示底层脚本或 CLI 命令\nGo-native backend\n")
+	writeText(t, filepath.Join(repoRoot, "rekit", "templates", "steamai-project", "SKILL.md"), "# STeamAI\n\nproject-local Mission Control skill\n")
+	writeText(t, filepath.Join(repoRoot, "rekit", "schemas", "instance.schema.yml"), "fixture instance schema\n")
+	writeText(t, filepath.Join(repoRoot, "rekit", "schemas", "pack-manifest.schema.yml"), "fixture pack manifest schema\n")
+	writeText(t, filepath.Join(repoRoot, "rekit", "tests", "catalog.json"), "{}\n")
 	writeText(t, filepath.Join(repoRoot, "common", "policies", "manifest.yml"), "policies:\n  - id: agent-team\n    path: agent-team.md\n")
 	writeText(t, filepath.Join(repoRoot, "common", "policies", "README.md"), "# policies\n")
 	writeText(t, filepath.Join(repoRoot, "common", "policies", "agent-team.md"), "# agent team\n")

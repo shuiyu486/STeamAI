@@ -85,9 +85,15 @@ func TestSelectedLaneCommandBindsExactLane(t *testing.T) {
 	}{
 		{
 			name:     "insert before what-if",
-			command:  `/rekit status -Target "C:\case root" -Format json`,
+			command:  `/rekit status -Target "C:\case root" -Format compact-json`,
 			selected: "main",
-			want:     `/rekit status -Target "C:\case root" -Format json -Lane main`,
+			want:     `/rekit status -Target "C:\case root" -Format compact-json -Lane main`,
+		},
+		{
+			name:     "bind current steamai refresh",
+			command:  `/steamai status -Target "C:\case root" -Format compact-json`,
+			selected: "feature-review",
+			want:     `/steamai status -Target "C:\case root" -Format compact-json -Lane feature-review`,
 		},
 		{
 			name:     "normalize feature label start",
@@ -247,6 +253,146 @@ func TestStatusMissionControlRunbookPublishesSelectedLaneDriverRequest(t *testin
 	}
 	if runbook.ReplacementExecutorTakeover == nil || !runbook.ReplacementExecutorTakeover.Ready || runbook.ReplacementExecutorTakeover.CurrentDriverRequest.Lane != "feature-login" {
 		t.Fatalf("selected lane takeover is not request-bound: %+v", runbook.ReplacementExecutorTakeover)
+	}
+}
+
+func TestBindSelectedLaneCurrentLoopOperatorProjectsEveryReviewerWaveCollection(t *testing.T) {
+	const selected = "feature-review"
+	newAttempt := func() *mission.CurrentLoopReviewerAttempt {
+		return &mission.CurrentLoopReviewerAttempt{
+			Identity: mission.CurrentLoopReviewerAttemptIdentity{Lane: selected},
+			CurrentReviewerDriverRequest: &mission.MissionCommanderDriverRequest{
+				Lane:              selected,
+				Command:           `/rekit plan-subagents -WhatIf -Format json`,
+				CommandExecutable: true,
+				ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
+					Command:              `/rekit plan-subagents -WhatIf -Format json`,
+					RefreshStatusCommand: `/rekit status -Target "C:\case root" -Format compact-json`,
+				},
+			},
+			DurableContinuationDriverRequest: &mission.MissionCommanderDriverRequest{
+				Lane:              selected,
+				Command:           `/rekit run-current-loop -WhatIf -Format json`,
+				CommandExecutable: true,
+				ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
+					Command: `/rekit run-current-loop -WhatIf -Format json`,
+				},
+			},
+			RefreshStatusCommand: `/rekit status -Target "C:\case root" -Format compact-json`,
+			SelectedAction: mission.CurrentLoopReviewerAttemptAction{
+				ObservationContract: mission.CurrentLoopObservationContract{
+					Alternatives: []mission.CurrentLoopObservationAlternative{{
+						PreviewCommandTemplate: `/rekit run-current-loop -WhatIf -Format json`,
+					}},
+				},
+			},
+		}
+	}
+	attempts := map[string]*mission.CurrentLoopReviewerAttempt{
+		"spawn wave": newAttempt(),
+		"active":     newAttempt(),
+		"returned":   newAttempt(),
+		"failed":     newAttempt(),
+		"blocked":    newAttempt(),
+		"complete":   newAttempt(),
+		"shard":      newAttempt(),
+	}
+	wave := &mission.CurrentLoopReviewerWave{
+		Lane:      selected,
+		SpawnWave: []*mission.CurrentLoopReviewerAttempt{attempts["spawn wave"]},
+		Active:    []*mission.CurrentLoopReviewerAttempt{attempts["active"]},
+		Returned:  []*mission.CurrentLoopReviewerAttempt{attempts["returned"]},
+		Failed:    []*mission.CurrentLoopReviewerAttempt{attempts["failed"]},
+		Blocked:   []*mission.CurrentLoopReviewerAttempt{attempts["blocked"]},
+		Complete:  []*mission.CurrentLoopReviewerAttempt{attempts["complete"]},
+		Shards:    []*mission.CurrentLoopReviewerAttempt{attempts["shard"]},
+	}
+	operator := &mission.CurrentLoopOperatorPackage{
+		ExternalReviewerHandoff: &mission.CurrentLoopExternalReviewerHandoff{Wave: wave},
+	}
+
+	bindSelectedLaneCurrentLoopOperator(operator, selected)
+
+	for label, attempt := range attempts {
+		if err := validateSelectedLaneReviewerAttempt(attempt, selected, "reviewer wave "+label+" 1"); err != nil {
+			t.Fatalf("%s attempt was not projected to the exact lane: %v", label, err)
+		}
+		for nestedLabel, command := range map[string]string{
+			"current request":         attempt.CurrentReviewerDriverRequest.Command,
+			"current receipt":         attempt.CurrentReviewerDriverRequest.ExpectedReceipt.Command,
+			"current receipt refresh": attempt.CurrentReviewerDriverRequest.ExpectedReceipt.RefreshStatusCommand,
+			"durable request":         attempt.DurableContinuationDriverRequest.Command,
+			"durable receipt":         attempt.DurableContinuationDriverRequest.ExpectedReceipt.Command,
+			"attempt refresh":         attempt.RefreshStatusCommand,
+			"observation alternative": attempt.SelectedAction.ObservationContract.Alternatives[0].PreviewCommandTemplate,
+		} {
+			if command == "" || selectedLaneCommand(command, selected) != command {
+				t.Fatalf("%s %s was not bound to %s: %q", label, nestedLabel, selected, command)
+			}
+		}
+	}
+}
+
+func TestValidateStatusSelectedCurrentLaneRejectsDriftInEveryReviewerWaveCollection(t *testing.T) {
+	const selected = "feature-review"
+	collections := []struct {
+		label string
+		set   func(*mission.CurrentLoopReviewerWave, *mission.CurrentLoopReviewerAttempt)
+	}{
+		{label: "spawn wave", set: func(w *mission.CurrentLoopReviewerWave, a *mission.CurrentLoopReviewerAttempt) {
+			w.SpawnWave = []*mission.CurrentLoopReviewerAttempt{a}
+		}},
+		{label: "active", set: func(w *mission.CurrentLoopReviewerWave, a *mission.CurrentLoopReviewerAttempt) {
+			w.Active = []*mission.CurrentLoopReviewerAttempt{a}
+		}},
+		{label: "returned", set: func(w *mission.CurrentLoopReviewerWave, a *mission.CurrentLoopReviewerAttempt) {
+			w.Returned = []*mission.CurrentLoopReviewerAttempt{a}
+		}},
+		{label: "failed", set: func(w *mission.CurrentLoopReviewerWave, a *mission.CurrentLoopReviewerAttempt) {
+			w.Failed = []*mission.CurrentLoopReviewerAttempt{a}
+		}},
+		{label: "blocked", set: func(w *mission.CurrentLoopReviewerWave, a *mission.CurrentLoopReviewerAttempt) {
+			w.Blocked = []*mission.CurrentLoopReviewerAttempt{a}
+		}},
+		{label: "complete", set: func(w *mission.CurrentLoopReviewerWave, a *mission.CurrentLoopReviewerAttempt) {
+			w.Complete = []*mission.CurrentLoopReviewerAttempt{a}
+		}},
+		{label: "shard", set: func(w *mission.CurrentLoopReviewerWave, a *mission.CurrentLoopReviewerAttempt) {
+			w.Shards = []*mission.CurrentLoopReviewerAttempt{a}
+		}},
+	}
+	for _, collection := range collections {
+		t.Run(collection.label, func(t *testing.T) {
+			wave := &mission.CurrentLoopReviewerWave{Lane: selected}
+			collection.set(wave, &mission.CurrentLoopReviewerAttempt{
+				Identity: mission.CurrentLoopReviewerAttemptIdentity{Lane: selected},
+				CurrentReviewerDriverRequest: &mission.MissionCommanderDriverRequest{
+					Lane: "feature-other",
+				},
+			})
+			status := statusInventory{
+				MissionControlRunbook: &statusMissionControlRunbook{
+					Scope: "reviewer",
+					CurrentDriverRequest: &mission.MissionCommanderDriverRequest{
+						Lane:     selected,
+						Guidance: "run the selected reviewer wave",
+					},
+					RefreshStatusCommand: `/rekit status -Target "C:\case root" -Format compact-json -Lane feature-review`,
+					CurrentLoopOperator: &mission.CurrentLoopOperatorPackage{
+						Lane: selected,
+						ExternalReviewerHandoff: &mission.CurrentLoopExternalReviewerHandoff{
+							Wave: wave,
+						},
+					},
+				},
+			}
+
+			err := validateStatusSelectedCurrentLane(status, selected, false)
+			want := "reviewer wave " + collection.label + " 1 current request lane"
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Fatalf("validateStatusSelectedCurrentLane() error = %v, want %q", err, want)
+			}
+		})
 	}
 }
 

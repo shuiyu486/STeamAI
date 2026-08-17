@@ -9,11 +9,79 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/runtimebundle"
 	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
+
+func selectLegacySubagentTestStateRoot(t *testing.T, caseRoot, repoRoot, pack string) {
+	t.Helper()
+	if err := os.MkdirAll(caseRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	metadata := "templateRoot: " + repoRoot + "\n" +
+		"templatePack: " + pack + "\n" +
+		"currentProjectPath: " + caseRoot + "\n" +
+		"rekitMode: case-local-shim\n"
+	if err := os.WriteFile(filepath.Join(caseRoot, ".re-template.yml"), []byte(metadata), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWritePlanUsesSTeamAIProjectRuntimeAndStateRoot(t *testing.T) {
+	sourceRepo := filepath.Clean(filepath.Join("..", "..", ".."))
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	if err := os.MkdirAll(caseRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	executable := filepath.Join(t.TempDir(), "steamai-test.exe")
+	if err := os.WriteFile(executable, []byte("test executable"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := runtimebundle.PublishForTest(caseRoot, sourceRepo, defaults.DefaultPack, executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateRoot := filepath.Join(caseRoot, projectstate.CurrentDir)
+	instanceText := casebind.STeamAIInstanceText(caseRoot, defaults.DefaultPack, "current-plan", runtimebundle.ManifestRel, bundle.ManifestSHA256)
+	if err := os.WriteFile(filepath.Join(stateRoot, "instance.yml"), []byte(instanceText), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := WritePlan(stateRoot, caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", Lane: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPrefix := filepath.Join(stateRoot, "reviews") + string(filepath.Separator)
+	if !strings.HasPrefix(result.ReviewRoot, wantPrefix) || !strings.HasPrefix(result.PacketPath, wantPrefix) || !strings.HasPrefix(result.SummaryPath, wantPrefix) || result.OwnerBinding.BindingMode != "attached-case-board-missing" {
+		t.Fatalf("STeamAI plan paths or owner binding drifted: %+v", result)
+	}
+	manifestPath := filepath.Join(stateRoot, "packs", defaults.DefaultPack, "manifest.yml")
+	packet := readPlanPacket(t, result.PacketPath)
+	if packet.RepoRoot != stateRoot || packet.ManifestPath != manifestPath || packet.PacketIntegrity == nil || !strings.HasPrefix(packet.PacketIntegrity.Path, wantPrefix) {
+		t.Fatalf("STeamAI packet did not bind project-local runtime and selected state root: %+v", packet)
+	}
+	if _, err := os.Lstat(filepath.Join(caseRoot, projectstate.LegacyDir)); !os.IsNotExist(err) {
+		t.Fatalf("STeamAI planning unexpectedly created legacy root: %v", err)
+	}
+}
+
+func TestWritePlanRejectsDualProjectStateRoots(t *testing.T) {
+	caseRoot := filepath.Join(t.TempDir(), "case")
+	for _, dir := range []string{projectstate.CurrentDir, projectstate.LegacyDir} {
+		if err := os.MkdirAll(filepath.Join(caseRoot, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err := WritePlan(filepath.Clean(filepath.Join("..", "..", "..")), caseRoot, defaults.DefaultPack, Options{TaskType: "feature-analysis", Items: "alpha", ReviewOutputDir: t.TempDir()})
+	if err == nil || !strings.Contains(err.Error(), "must not coexist") {
+		t.Fatalf("dual project state roots were accepted: %v", err)
+	}
+}
 
 func TestWritePlanIncludesShardHandoffs(t *testing.T) {
 	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
@@ -167,6 +235,7 @@ func TestWritePlanBindsAttachedCaseLaneExecutor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	selectLegacySubagentTestStateRoot(t, caseRoot, root, defaults.DefaultPack)
 	if _, err := syncreview.Apply(root, caseRoot, defaults.DefaultPack, syncreview.ApplyOptions{ProjectName: "plan-owner-binding-test", CreateLocalFiles: true, Command: "init"}); err != nil {
 		t.Fatal(err)
 	}
@@ -239,6 +308,7 @@ func TestRepairReviewerPromptArtifactRestoresMissingPromptFromPacket(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
+	selectLegacySubagentTestStateRoot(t, caseRoot, root, defaults.DefaultPack)
 	if _, err := syncreview.Apply(root, caseRoot, defaults.DefaultPack, syncreview.ApplyOptions{ProjectName: "prompt-repair-test", CreateLocalFiles: true, Command: "init"}); err != nil {
 		t.Fatal(err)
 	}
@@ -322,6 +392,7 @@ func TestWritePlanGatesCollectionForCustomArtifacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	selectLegacySubagentTestStateRoot(t, caseRoot, root, defaults.DefaultPack)
 	if _, err := syncreview.Apply(root, caseRoot, defaults.DefaultPack, syncreview.ApplyOptions{ProjectName: "plan-collection-gating-test", CreateLocalFiles: true, Command: "init"}); err != nil {
 		t.Fatal(err)
 	}
@@ -370,6 +441,7 @@ func TestWritePlanRejectsCanonicalReviewSymlinkBeforeWriting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	selectLegacySubagentTestStateRoot(t, caseRoot, root, defaults.DefaultPack)
 	if _, err := syncreview.Apply(root, caseRoot, defaults.DefaultPack, syncreview.ApplyOptions{ProjectName: "plan-symlink-test", CreateLocalFiles: true, Command: "init"}); err != nil {
 		t.Fatal(err)
 	}

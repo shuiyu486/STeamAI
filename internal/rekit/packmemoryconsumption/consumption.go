@@ -20,6 +20,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/kitmutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/releasecheck"
 )
 
@@ -128,7 +129,14 @@ func Apply(repoRoot, caseRoot, pack, changeID, expectedPlanSHA256 string) (_ Res
 	}
 	defer func() { retErr = errors.Join(retErr, root.Close()) }()
 
-	intentPath := consumptionIntentPath(caseFull, changeID)
+	intentPath, err := consumptionIntentPath(caseFull, changeID)
+	if err != nil {
+		return Result{}, err
+	}
+	receiptPath, err := consumptionReceiptPath(caseFull, changeID)
+	if err != nil {
+		return Result{}, err
+	}
 	intent, intentExists, err := readIntentRoot(root, caseRelative(caseFull, intentPath))
 	if err != nil {
 		return Result{}, err
@@ -142,7 +150,7 @@ func Apply(repoRoot, caseRoot, pack, changeID, expectedPlanSHA256 string) (_ Res
 		}
 		return executeIntent(root, intent, repoRoot, caseRoot)
 	}
-	if receipt, exists, err := readReceiptRoot(root, caseRelative(caseFull, consumptionReceiptPath(caseFull, changeID))); err != nil {
+	if receipt, exists, err := readReceiptRoot(root, caseRelative(caseFull, receiptPath)); err != nil {
 		return Result{}, err
 	} else if exists {
 		return replayReceipt(root, receipt, repo, caseFull, pack, changeID, expectedPlanSHA256, repoRoot, caseRoot)
@@ -221,7 +229,10 @@ func executeIntent(root *anchoredRoot, intent consumptionIntent, repoRoot, caseR
 		if err != nil {
 			return Result{}, fmt.Errorf("pack-memory selected sync replay doctor verification failed: %w", err)
 		}
-		discovery := committedDiscovery(plan.RepoRoot, plan.CaseRoot, plan.Pack, plan.Authority, receipt)
+		discovery, err := committedDiscovery(plan.RepoRoot, plan.CaseRoot, plan.Pack, plan.Authority, receipt)
+		if err != nil {
+			return Result{}, err
+		}
 		plan.IsMutation, plan.Applied, plan.Replay, plan.RequiresReview = true, true, true, false
 		return Result{Plan: plan, Receipt: receipt, DoctorRows: doctorRows, Discovery: discovery}, nil
 	}
@@ -303,7 +314,10 @@ func executeIntent(root *anchoredRoot, intent consumptionIntent, repoRoot, caseR
 	if err := validateReceipt(root.identity, plan.RepoRoot, plan.CaseRoot, plan.Pack, plan.Authority, mustDecodeState(intent.StateAfter), intent.StateAfter, intent.TargetAfter, receipt); err != nil {
 		return Result{}, err
 	}
-	discovery := committedDiscovery(plan.RepoRoot, plan.CaseRoot, plan.Pack, plan.Authority, receipt)
+	discovery, err := committedDiscovery(plan.RepoRoot, plan.CaseRoot, plan.Pack, plan.Authority, receipt)
+	if err != nil {
+		return Result{}, err
+	}
 	plan.IsMutation, plan.Applied, plan.RequiresReview = true, true, false
 	plan.NextSteps = []string{"retain the case-local consumption receipt as final commit evidence", "refresh status or handoff from the target case"}
 	return Result{Plan: plan, Receipt: receipt, DoctorRows: doctorRows, Discovery: discovery}, nil
@@ -333,7 +347,10 @@ func buildPlan(repoRoot, caseRoot, pack, changeID string) (Plan, []byte, error) 
 		if err != nil {
 			return Plan{}, nil, err
 		}
-		plan := planFromReceipt(change, receipt, status.ReceiptPath)
+		plan, err := planFromReceipt(change, receipt, status.ReceiptPath)
+		if err != nil {
+			return Plan{}, nil, err
+		}
 		plan.Replay = true
 		return plan, nil, nil
 	}
@@ -342,7 +359,10 @@ func buildPlan(repoRoot, caseRoot, pack, changeID string) (Plan, []byte, error) 
 	if err != nil || !strings.EqualFold(sha256Hex(sourceBytes), change.SourceSHA256) {
 		return Plan{}, nil, fmt.Errorf("completed pack-memory change source drifted: %s: %w", sourcePath, err)
 	}
-	statePath := filepath.Join(caseFull, ".rekit", "state.json")
+	statePath, err := projectstate.Join(caseFull, "state.json")
+	if err != nil {
+		return Plan{}, nil, err
+	}
 	stateBytes, _, err := readOptionalAnchored(caseFull, statePath, "pack-memory consumption sync state")
 	if err != nil {
 		return Plan{}, nil, err
@@ -356,15 +376,19 @@ func makePlan(repo, caseRoot, pack string, change releasecheck.CompletedPackMemo
 	if err != nil {
 		return Plan{}, err
 	}
-	receiptPath := filepath.Join(caseRoot, ".rekit", "pack-memory", "consumptions", change.ChangeID+".json")
+	stateRoot, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return Plan{}, err
+	}
+	receiptPath := filepath.Join(stateRoot.Path, "pack-memory", "consumptions", change.ChangeID+".json")
 	backupPath, action := "", "create-managed-file"
 	if targetBefore != "" && !strings.EqualFold(targetBefore, change.SourceSHA256) {
 		action = "overwrite-managed-file-with-backup"
-		backupPath = filepath.Join(caseRoot, ".rekit", "backups", "pack-memory", change.ChangeID, filepath.FromSlash(change.ManagedPath))
+		backupPath = filepath.Join(stateRoot.Path, "backups", "pack-memory", change.ChangeID, filepath.FromSlash(change.ManagedPath))
 	} else if strings.EqualFold(targetBefore, change.SourceSHA256) {
 		action = "record-current-content-consumption"
 	}
-	plan := Plan{SchemaVersion: SchemaVersion, Kind: KindPlan, Command: "sync", RepoRoot: repo, CaseRoot: caseRoot, Pack: pack, ChangeID: change.ChangeID, ManagedPath: change.ManagedPath, SourcePath: filepath.Join(repo, filepath.FromSlash(change.SourcePath)), SourceSHA256: change.SourceSHA256, TargetPath: targetPath, TargetSHA256Before: targetBefore, StatePath: filepath.Join(caseRoot, ".rekit", "state.json"), StateSHA256Before: stateBefore, ReceiptPath: receiptPath, BackupPath: backupPath, Action: action, Authority: change, RequiresReview: true, NextSteps: []string{"review the selected managed path, exact hashes, backup, and producer proof authority", "run the returned expected-hash Apply command only after confirming this scope"}, Boundary: consumptionBoundary()}
+	plan := Plan{SchemaVersion: SchemaVersion, Kind: KindPlan, Command: "sync", RepoRoot: repo, CaseRoot: caseRoot, Pack: pack, ChangeID: change.ChangeID, ManagedPath: change.ManagedPath, SourcePath: filepath.Join(repo, filepath.FromSlash(change.SourcePath)), SourceSHA256: change.SourceSHA256, TargetPath: targetPath, TargetSHA256Before: targetBefore, StatePath: filepath.Join(stateRoot.Path, "state.json"), StateSHA256Before: stateBefore, ReceiptPath: receiptPath, BackupPath: backupPath, Action: action, Authority: change, RequiresReview: true, NextSteps: []string{"review the selected managed path, exact hashes, backup, and producer proof authority", "run the returned expected-hash Apply command only after confirming this scope"}, Boundary: consumptionBoundary()}
 	plan.ExpectedPlanSHA256, err = planHash(plan)
 	if err != nil {
 		return Plan{}, err
@@ -403,7 +427,10 @@ func prepare(repoRoot, caseRoot, pack string) (string, string, *manifest.Manifes
 		return "", "", nil, syncState{}, releasecheck.CompletedPackMemoryChangeCatalog{}, err
 	}
 	state := syncState{Managed: map[string]syncManagedEntry{}}
-	statePath := filepath.Join(inst.CaseRoot, ".rekit", "state.json")
+	statePath, err := projectstate.Join(inst.CaseRoot, "state.json")
+	if err != nil {
+		return "", "", nil, syncState{}, releasecheck.CompletedPackMemoryChangeCatalog{}, err
+	}
 	if data, exists, err := readOptionalAnchored(inst.CaseRoot, statePath, "pack-memory consumption sync state"); err != nil {
 		return "", "", nil, syncState{}, releasecheck.CompletedPackMemoryChangeCatalog{}, err
 	} else if exists {
@@ -435,7 +462,10 @@ func inspectChange(repo, caseRoot, pack string, state syncState, change releasec
 			return status, nil
 		}
 	}
-	receiptPath := filepath.Join(caseRoot, ".rekit", "pack-memory", "consumptions", change.ChangeID+".json")
+	receiptPath, err := consumptionReceiptPath(caseRoot, change.ChangeID)
+	if err != nil {
+		return ChangeStatus{}, err
+	}
 	status.ReceiptPath = receiptPath
 	if receipt, exists, err := readReceipt(caseRoot, receiptPath); err != nil {
 		status.State, status.Warnings = "invalid-receipt", []string{err.Error()}
@@ -469,7 +499,14 @@ func replayReceipt(root *anchoredRoot, receipt Receipt, repo, caseRoot, pack, ch
 		return Result{}, fmt.Errorf("pack-memory consumption receipt has different replay binding")
 	}
 	change := receipt.Authority
-	plan := planFromReceipt(change, receipt, consumptionReceiptPath(caseRoot, changeID))
+	receiptPath, err := consumptionReceiptPath(caseRoot, changeID)
+	if err != nil {
+		return Result{}, err
+	}
+	plan, err := planFromReceipt(change, receipt, receiptPath)
+	if err != nil {
+		return Result{}, err
+	}
 	if !samePath(plan.RepoRoot, repo) || !samePath(plan.CaseRoot, caseRoot) || plan.Pack != pack || plan.ManagedPath != change.ManagedPath {
 		return Result{}, fmt.Errorf("pack-memory consumption receipt identity binding mismatch")
 	}
@@ -495,8 +532,12 @@ func replayReceipt(root *anchoredRoot, receipt Receipt, repo, caseRoot, pack, ch
 	if err != nil {
 		return Result{}, fmt.Errorf("pack-memory selected sync replay doctor verification failed: %w", err)
 	}
+	discovery, err := committedDiscovery(repo, caseRoot, pack, change, receipt)
+	if err != nil {
+		return Result{}, err
+	}
 	plan.IsMutation, plan.Applied, plan.Replay, plan.RequiresReview = true, true, true, false
-	return Result{Plan: plan, Receipt: receipt, DoctorRows: doctorRows, Discovery: committedDiscovery(repo, caseRoot, pack, change, receipt)}, nil
+	return Result{Plan: plan, Receipt: receipt, DoctorRows: doctorRows, Discovery: discovery}, nil
 }
 
 func validateReceipt(identity CaseRootIdentity, repo, caseRoot, pack string, change releasecheck.CompletedPackMemoryChange, state syncState, stateBytes, targetBytes []byte, receipt Receipt) error {
@@ -602,10 +643,14 @@ func receiptForIntent(intent consumptionIntent, doctorRows int) Receipt {
 	return Receipt{SchemaVersion: SchemaVersion, Kind: KindReceipt, RepoRoot: plan.RepoRoot, CaseRoot: plan.CaseRoot, CaseRootIdentity: intent.CaseRootIdentity, Pack: plan.Pack, ChangeID: plan.ChangeID, ManagedPath: plan.ManagedPath, SourceSHA256: plan.SourceSHA256, TargetSHA256Before: plan.TargetSHA256Before, TargetSHA256After: intent.TargetAfterSHA256, StateSHA256Before: plan.StateSHA256Before, StateSHA256After: intent.StateAfterSHA256, BackupPath: caseStoredPath(plan.CaseRoot, plan.BackupPath), PlanSHA256: plan.ExpectedPlanSHA256, Authority: plan.Authority, DoctorRows: doctorRows, NoAuthority: true, NoConfirmed: true, NoHeavyTool: true, Boundary: consumptionBoundary()}
 }
 
-func committedDiscovery(repo, caseRoot, pack string, change releasecheck.CompletedPackMemoryChange, receipt Receipt) Discovery {
-	status := ChangeStatus{ChangeID: change.ChangeID, ManagedPath: change.ManagedPath, SourceSHA256: change.SourceSHA256, TargetSHA256: receipt.TargetSHA256After, TargetHashAtSync: receipt.TargetSHA256After, State: "already-consumed", ReceiptPath: consumptionReceiptPath(caseRoot, change.ChangeID)}
+func committedDiscovery(repo, caseRoot, pack string, change releasecheck.CompletedPackMemoryChange, receipt Receipt) (Discovery, error) {
+	receiptPath, err := consumptionReceiptPath(caseRoot, change.ChangeID)
+	if err != nil {
+		return Discovery{}, err
+	}
+	status := ChangeStatus{ChangeID: change.ChangeID, ManagedPath: change.ManagedPath, SourceSHA256: change.SourceSHA256, TargetSHA256: receipt.TargetSHA256After, TargetHashAtSync: receipt.TargetSHA256After, State: "already-consumed", ReceiptPath: receiptPath}
 	catalog := releasecheck.CompletedPackMemoryChangeCatalog{SchemaVersion: 1, Kind: "completed-pack-memory-change-catalog", RepoRoot: repo, Pack: pack, Changes: []releasecheck.CompletedPackMemoryChange{change}, Warnings: []string{}}
-	return Discovery{SchemaVersion: SchemaVersion, Kind: KindDiscovery, RepoRoot: repo, CaseRoot: caseRoot, Pack: pack, Consumed: []ChangeStatus{status}, Catalog: catalog, NextSteps: []string{"the exact completed change is committed by its strict case-local receipt"}, Boundary: consumptionBoundary()}
+	return Discovery{SchemaVersion: SchemaVersion, Kind: KindDiscovery, RepoRoot: repo, CaseRoot: caseRoot, Pack: pack, Consumed: []ChangeStatus{status}, Catalog: catalog, NextSteps: []string{"the exact completed change is committed by its strict case-local receipt"}, Boundary: consumptionBoundary()}, nil
 }
 
 func selectedChange(catalog releasecheck.CompletedPackMemoryChangeCatalog, changeID string) (releasecheck.CompletedPackMemoryChange, bool) {
@@ -983,12 +1028,15 @@ func planHash(plan Plan) (string, error) {
 	return sha256Hex(data), nil
 }
 
-func planFromReceipt(change releasecheck.CompletedPackMemoryChange, receipt Receipt, receiptPath string) Plan {
-	plan, _ := makePlan(receipt.RepoRoot, receipt.CaseRoot, receipt.Pack, change, receipt.TargetSHA256Before, receipt.StateSHA256Before)
+func planFromReceipt(change releasecheck.CompletedPackMemoryChange, receipt Receipt, receiptPath string) (Plan, error) {
+	plan, err := makePlan(receipt.RepoRoot, receipt.CaseRoot, receipt.Pack, change, receipt.TargetSHA256Before, receipt.StateSHA256Before)
+	if err != nil {
+		return Plan{}, err
+	}
 	plan.Action, plan.ReceiptPath, plan.ExpectedPlanSHA256, plan.RequiresReview = "already-consumed", receiptPath, receipt.PlanSHA256, false
 	plan.ApplyCommand = selectedSyncCommand(receipt.CaseRoot, receipt.Pack, receipt.ChangeID, receipt.PlanSHA256, true)
 	plan.NextSteps = []string{"the exact completed change already has a current case-local consumption receipt"}
-	return plan
+	return plan, nil
 }
 
 func canonical(value any) ([]byte, error) {
@@ -1052,11 +1100,12 @@ func caseStoredPath(caseRoot, path string) string {
 	return caseRelative(caseRoot, path)
 }
 func samePath(left, right string) bool { return refsf.SamePath(left, right) }
-func consumptionIntentPath(caseRoot, changeID string) string {
-	return filepath.Join(caseRoot, ".rekit", "pack-memory", "intents", changeID+".json")
+func consumptionIntentPath(caseRoot, changeID string) (string, error) {
+	return projectstate.Join(caseRoot, "pack-memory", "intents", changeID+".json")
 }
-func consumptionReceiptPath(caseRoot, changeID string) string {
-	return filepath.Join(caseRoot, ".rekit", "pack-memory", "consumptions", changeID+".json")
+
+func consumptionReceiptPath(caseRoot, changeID string) (string, error) {
+	return projectstate.Join(caseRoot, "pack-memory", "consumptions", changeID+".json")
 }
 
 func mustReadSource(repo string, change releasecheck.CompletedPackMemoryChange) []byte {

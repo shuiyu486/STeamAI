@@ -2,14 +2,14 @@
 
 ## 读取指南
 
-- 如果你只想使用当前仓库初始化一个安全 case（当前成熟示例是 `vmp-re` RE case），先读 `README.md` 的使用方式；本文件用于理解长期方向与阶段路线。
-- 如果你要维护或迭代本仓库，先读 `docs/context-routing.md` 与 `docs/batch-plan.md` 顶部 current/next；只有需要长期路线或历史阶段背景时，再读本文件顶部的实施摘要、执行清单、验证标准，并按章节读取细节。
-- 本文件是路线图，不代表所有能力已经实现；当前已经落地的是 Go-owned/no-fallback public command surface、case lifecycle、durable lanes、handoff/checkpoint、显式 reconcile、typed autonomy preflight、Mission brief / executor action、review-first sync/promote、bounded reviewer contracts、deterministic runtime 外的 Go-owned 真实 Claude Code member/reviewer session host、authorized execution observation evidence closure、pack-memory promote/reconsume package E2E、首个成熟领域 pack `vmp-re` 和多领域 skeleton packs。尚未做到日常成熟的是更多 pack 的真实 session 产品场景、真实 lane executor/tool-adapter live validation、pack-memory 产品 UX 与三平台 product-path E2E。
-- 需要具体执行时，优先选择当前阶段的最小可验证切片，不跨阶段提前重构 runtime。
+- 如果你要使用 STeamAI，在真实项目目录启动已有 Claude Code 并使用 `/steamai` 或自然语言；先读 `README.md` 第一屏，不要从本文件的历史 Phase 自行拼接接入流程。
+- 如果你要维护或迭代本仓库，先读 `docs/context-routing.md`，再由 router 选择 active source；只有需要长期方向或历史阶段背景时才读本文件。
+- 本文件描述长期愿景和历史演进，不代表目标能力都已完成，也不拥有当前选题权。当前路线、完成状态与门槛只以 `docs/real-usage-hardening-roadmap.md` 的 active card 和真实测试为准。
+- 当前已形成 Go-owned deterministic runtime、durable lanes、handoff/recovery、Reviewer strict intake、review-first sync/promote、authorized execution evidence 与首个成熟 `vmp-re` pack；正在收口的是 `/steamai`、`.steamai`、project-local verified bundle、compact/recovery/autonomy 与 legacy migration 的自包含产品闭环。
 
 ## 实施摘要
 
-`re-context-kits` 的长期定位是：**面向网络安全研究与安全工程任务的 Claude Code Agent Team Mission Control 框架**。
+`re-context-kits` 实现的长期产品是：**面向网络安全研究与安全工程任务的 STeamAI Claude Code Agent Team Mission Control**。一个真实项目目录就是一个自包含 STeamAI 项目。
 
 它不是单个脱壳工具、IDA 插件、漏洞扫描器或自动化脚本集合，而是把主 Agent 统筹、durable member lanes、可替换 Claude Code session executors、短命 tactical subagents、领域工具链、证据账本、工作线管理、验证门禁和可复用安全领域 pack 组织成可持续迭代的 case workspace。`vmp-re` 是当前首个成熟 pack 和验证场，不是最终边界；长期目标是逐步支持逆向工程、恶意样本分析、漏洞研究、Web/API 安全评估、授权测试/靶场/CTF、Android native、OLLVM 等多类安全任务。最终产品方向详见 `docs/mission-control-product-direction.md`。
 
@@ -17,24 +17,18 @@
 
 - Agent 负责决策、拆解、复核和调度。
 - 外部领域工具负责执行静态/动态/trace/仿真、安全测试、分析或验证任务。
-- `rekit` runtime 负责 case 状态、工作线、sync/promote、handoff 和可审计流程。
-- `packs/<pack>` 负责领域知识、工具路由、验证规则和可复用模板。
-- case-local 目录保存目标样本/系统信息、trace、dump、当前进度和私有结论。
+- 项目内 verified runtime 负责项目状态、工作线、sync/promote、handoff 和可审计流程；内部 Go package/command 暂保留 `rekit` 命名。
+- repository pack source 与项目内 `.steamai/packs/<pack>` 分别负责可复用发布源和当前项目已绑定的领域能力。
+- 真实项目目录保存目标资料、trace、dump、当前进度和私有结论；这些内容不得回流模板仓库。
 
 ## 执行清单
 
-- [ ] Phase 0：定位与文档收敛。
-- [ ] Product north star：Lane-centric Agent Team Mission Control，见 `docs/mission-control-product-direction.md`；后续 UX、lane protocol、session handoff、human-in-the-lane、预授权 lane autonomy、tactical subagents 与 pack memory 都应向该方向收敛。
-- [ ] Phase 1：Agent Team 工作流固化。
-- [ ] Phase 2：`vmp-re` 专项能力深化。
-- [ ] Phase 3：网络安全多领域 pack 扩展（Web/API 安全、恶意样本分析、漏洞研究、CTF/靶场、通用 PE unpacking、Android native、OLLVM、通用二进制分析等；`web-security`、`malware-analysis`、`vuln-research`、`ctf`、`unpack-pe`、`ollvm`、`android-native` 与 `generic-binary-re` 已作为首批安全领域 pack 骨架启动）。
-- [ ] Phase 4：工具适配与候选工具路由。
-- [ ] Phase 5：证据账本与 intervention 模型增强。
-- [ ] Phase 6：半自动 Agent Team runtime / orchestration。
-- [ ] Agent Team rollout（选项 C：契约 dry-run 优先）：见 `docs/agent-team-rollout-plan.md`，先压测契约再按真实缺口决定 Phase 5/6 顺序。
-- [ ] Go-first 收束 / release readiness：见 `docs/go-first-convergence-plan.md` 与 `docs/autonomous-goal.md`，Batch 101 后优先让 Go backend 成为 deterministic runtime owner，收缩 PowerShell 编排扩张，建立 Agent Team 真实 dry-run 闭环，并把长期自主推进约束写成可复制 goal。
+- [x] 产品北极星固定为 STeamAI Lane-centric Agent Team Mission Control；长期身份绑定 lane，会话可替换。
+- [x] Go-owned deterministic runtime、Agent Team 工作流、evidence ledger、Reviewer、gate/adapter 和 `vmp-re` 深化已形成可复用底座。
+- [ ] 当前只完成 `docs/real-usage-hardening-roadmap.md` 指向的 `steamai-self-contained-project-v1`；不得从下文历史 Phase 或其它长期愿景自行领取工作。
+- [ ] self-contained closure 完成后，由 active roadmap 重新评估 pack 深化、adapter、安装/界面、跨平台或更高自治范围。
 
-每个阶段都应按“小步可验证”落地：先文档契约，再 case-local 试用，再 runtime 自动化，最后才抽象为跨 pack 能力。
+下文 Phase 0～6 只保留架构演进背景，不是当前 checklist。新的实施切片必须进入 active roadmap，保持中大型、可验证闭环。
 
 ## 批次执行协议
 
@@ -53,7 +47,7 @@
 文档阶段至少验证：
 
 1. README、CLAUDE.md、vision 文档对项目定位没有互相冲突。
-2. README 仍能指导用户完成 `/rekit init` / `/rekit attach` 的现有流程。
+2. README 第一屏只指导用户在真实项目目录启动已有 Claude Code 并使用 `/steamai` 或自然语言；内部 `/rekit init/attach` 只作为维护/legacy API。
 3. `docs/vision.md` 不承诺尚未实现的自动能力为已完成能力。
 4. `git diff --check` 无空白错误。
 5. 可运行时执行 Go-native `release-check`、`status` 与 `doctor`；若失败，必须区分是本次改动导致还是既有 runtime 问题。
@@ -80,8 +74,8 @@ runtime 阶段还应增加：
 
 它服务的对象有两类：
 
-1. **安全 case 使用者**：在某个安全研究或安全工程 case 中使用 `/rekit overview`、`/rekit continue`、`/rekit start`、`/rekit handoff` 组织长期分析；当前最成熟示例是 `vmp-re` RE case。
-2. **框架维护者**：在本仓库中迭代 runtime、pack、policy、tooling recipe、agent workflow 和文档。
+1. **STeamAI 项目使用者**：在真实安全研究或安全工程项目目录中，通过 `/steamai` 或自然语言指挥主 Agent 组织长期分析；当前最成熟示例是 `vmp-re` RE 项目。
+2. **框架维护者**：在本仓库中迭代 runtime、pack、policy、tooling recipe、agent workflow 和文档；内部 `/rekit` API 用于确定性实现、兼容与排障。
 
 最终形态不是一个“大而全脚本”，而是一个模块化 team system：每个 agent、工具、证据、候选结论和验证动作都有边界、输入输出和留痕。
 
@@ -101,13 +95,13 @@ runtime 阶段还应增加：
 
 | 层 | 职责 | 当前映射 |
 |---|---|---|
-| Skill UI 层 | 给 Claude Code 暴露 `/rekit` 入口和用户语义 | `.claude/skills/rekit/SKILL.md`、case shim |
-| Case runtime 层 | 管理 case 绑定、工作线、状态、handoff、sync/promote | `cmd/rekit/**`、`internal/rekit/**`；`rekit/rekit.ps1` 仅 retained compatibility façade，`rekit/lib/*.ps1` 已删除 |
-| Agent Team 层 | 定义主 agent、功能支线、reviewer、工具 agent 的职责和 packet | `common/prompts/**`、`packs/*/prompts/**`、manifest `subagentRoutes`；实际 session spawn 仍由 Claude Code host / 主 Agent 负责 |
-| Pack 领域层 | 保存某类安全任务的领域知识、流程、验证标准 | `packs/vmp-re/**`（当前成熟示例） |
-| Tooling / adapter 层 | 描述外部工具能力、用法、止损条件和未来 adapter contract | `packs/<pack>/tooling/**`，当前以 `packs/vmp-re/tooling/**` 为主 |
-| Evidence ledger 层 | 保存 observation、request、candidate、publication、decision、intervention | `.rekit/facts/*.jsonl`、`.rekit/lanes/**` |
-| Verification gate 层 | 决定什么能进入 confirmed / authority，什么必须人工确认 | `common/policies/**`、pack overlays、runtime policy gate |
+| Skill UI 层 | 给 Claude Code 暴露 `/steamai` 和自然语言 Mission Control | current 项目的 `.claude/skills/steamai/SKILL.md`；legacy `/rekit` shim 仅兼容 |
+| Project runtime 层 | 管理项目绑定、工作线、状态、handoff、sync/promote | `.steamai/runtime` verified bundle；source owner 为 `cmd/rekit/**`、`internal/rekit/**` |
+| Agent Team 层 | 定义主 agent、功能支线、Reviewer、工具 agent 的职责和 packet | project-local common/pack prompts 与 manifest routes；实际 session spawn 仍由 Claude Code host / 主 Agent 负责 |
+| Pack 领域层 | 保存某类安全任务的领域知识、流程、验证标准 | repository `packs/<pack>/**` 发布源与项目内 `.steamai/packs/<pack>/**`；`vmp-re` 为当前成熟示例 |
+| Tooling / adapter 层 | 描述外部工具能力、用法、止损条件和 adapter contract | selected pack tooling 与 compiled-in adapter owners |
+| Evidence ledger 层 | 保存 observation、request、candidate、publication、decision、intervention | `<active-state-root>/facts/*.jsonl`、`<active-state-root>/lanes/**` |
+| Verification gate 层 | 决定什么能进入 confirmed / authority，什么必须人工确认 | project-local common policies、pack overlays、runtime policy gate |
 
 架构原则：
 
@@ -120,10 +114,12 @@ runtime 阶段还应增加：
 
 ```text
 re-context-kits/
-  .claude/skills/rekit/        # canonical Claude Code 入口
-  cmd/rekit/                   # Go-native deterministic runtime entrypoint
+  .claude/skills/steamai/      # canonical current project skill source
+  .claude/skills/rekit/        # legacy/maintenance compatibility skill
+  cmd/rekit*/                  # Go-native deterministic runtime/session source entrypoints
   internal/rekit/              # Go-owned runtime packages
   rekit/rekit.ps1              # retained compatibility façade，无业务 runtime/fallback
+  rekit/templates/steamai-project/ # project-local skill template
   common/                      # 跨 pack 的 policy 与 prompt
   packs/vmp-re/                # 当前首个成熟领域 pack / RE 验证场
     references/vmp-re/         # 下发到 case 的 managed docs

@@ -13,7 +13,10 @@ func TestInspectRepoCaseShimReady(t *testing.T) {
 	readiness := Inspect(repoRoot(t))
 	counts := ReadinessCountsFor(readiness)
 	if !readiness.Ready || readiness.Summary != "case shim readiness ok" || counts.Warnings != 0 {
-		t.Fatalf("unexpected case shim readiness: %+v", readiness)
+		t.Fatalf("unexpected legacy case shim compatibility readiness: %+v", readiness)
+	}
+	if readiness.Model != "legacy-rekit-case-shim-compatibility" || readiness.CompatibilityEntrypoint != "/rekit" || readiness.StateRoot != ".rekit" || readiness.DefaultForNewProjects {
+		t.Fatalf("legacy case shim readiness did not expose its compatibility-only boundary: %+v", readiness)
 	}
 	if counts.RequiredPhrases == 0 || counts.CanonicalSkillPhrases == 0 || counts.ForbiddenStrings == 0 || counts.Boundaries == 0 {
 		t.Fatalf("case shim readiness omitted required sections: %+v", readiness)
@@ -24,6 +27,8 @@ func TestInspectRepoCaseShimReady(t *testing.T) {
 	assertPhrasePresent(t, readiness.RequiredPhrases, "durable artifacts 接手")
 	assertPhrasePresent(t, readiness.RequiredPhrases, "next-batch action queues")
 	assertPhrasePresent(t, readiness.CanonicalSkillPhrases, "底层 Go CLI 是 canonical runtime")
+	assertBoundaryPresent(t, readiness.Boundaries, "not the default UX")
+	assertBoundaryPresent(t, readiness.Boundaries, "release-blocking")
 	assertBoundaryPresent(t, readiness.Boundaries, "first screen")
 	assertForbiddenAbsent(t, readiness.ForbiddenStrings, "rekit.ps1")
 	assertForbiddenAbsent(t, readiness.ForbiddenStrings, "go run")
@@ -128,7 +133,7 @@ func TestAssertReadyDetectsMissingThinShimBoundary(t *testing.T) {
 
 	err := AssertReady(repo)
 	if err == nil || !strings.Contains(err.Error(), "case shim missing required phrase") {
-		t.Fatalf("AssertReady error = %v, want missing phrase diagnostic", err)
+		t.Fatalf("AssertReady error = %v, want missing legacy phrase diagnostic", err)
 	}
 }
 

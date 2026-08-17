@@ -8,7 +8,40 @@ import (
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
+
+func TestAppendAndListUseCurrentStateRoot(t *testing.T) {
+	repoRoot, caseRoot, pack := noteFixtureWithStateRoot(t, projectstate.CurrentDir)
+	result, err := Append(repoRoot, caseRoot, pack, Options{Kind: "observation", Lane: "main", Subject: "current root note", EventID: "evt-current-root"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Path != ".steamai/facts/observations.jsonl" {
+		t.Fatalf("current note path = %q", result.Path)
+	}
+	if _, err := os.Stat(filepath.Join(caseRoot, projectstate.CurrentDir, "facts", "observations.jsonl")); err != nil {
+		t.Fatal(err)
+	}
+	assertNoteNotExists(t, filepath.Join(caseRoot, projectstate.LegacyDir, "facts", "observations.jsonl"))
+	listed, err := ListEvents(repoRoot, caseRoot, pack, Options{Kind: "observation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if listed.EventCount != 1 || stringValue(listed.Groups[0].Events[0], "eventId") != "evt-current-root" {
+		t.Fatalf("current note list = %+v", listed)
+	}
+}
+
+func TestAppendRejectsDualStateRoots(t *testing.T) {
+	repoRoot, caseRoot, pack := noteFixtureWithStateRoot(t, projectstate.CurrentDir)
+	if err := os.Mkdir(filepath.Join(caseRoot, projectstate.LegacyDir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Append(repoRoot, caseRoot, pack, Options{Kind: "observation", Lane: "main", Subject: "dual root"}, true); err == nil || !strings.Contains(err.Error(), "must not coexist") {
+		t.Fatalf("dual-root note error = %v", err)
+	}
+}
 
 func TestAppendWhatIfDoesNotWrite(t *testing.T) {
 	repoRoot, caseRoot, pack := noteFixture(t)
@@ -426,13 +459,19 @@ func hasNoteCommanderNextAction(items []mission.MissionCommanderNextActionItem, 
 
 func noteFixture(t *testing.T) (repoRoot, caseRoot, pack string) {
 	t.Helper()
+	return noteFixtureWithStateRoot(t, projectstate.LegacyDir)
+}
+
+func noteFixtureWithStateRoot(t *testing.T, stateDir string) (repoRoot, caseRoot, pack string) {
+	t.Helper()
 	root := t.TempDir()
 	repoRoot = filepath.Join(root, "repo")
 	caseRoot = filepath.Join(root, "case")
 	pack = "vmp-re"
 	writeNoteText(t, filepath.Join(repoRoot, "packs", pack, "manifest.yml"), "id: vmp-re\n")
-	writeNoteText(t, filepath.Join(caseRoot, ".rekit", "instance.yml"), "templateRoot: \""+repoRoot+"\"\ntemplatePack: \""+pack+"\"\nprojectName: \"note-fixture\"\nprojectRoot: \""+caseRoot+"\"\n")
-	writeNoteText(t, filepath.Join(caseRoot, ".rekit", "board.json"), `{"lanes":[{"id":"main"}]}`)
+	stateRoot := filepath.Join(caseRoot, stateDir)
+	writeNoteText(t, filepath.Join(stateRoot, "instance.yml"), "templateRoot: \""+repoRoot+"\"\ntemplatePack: \""+pack+"\"\nprojectName: \"note-fixture\"\nprojectRoot: \""+caseRoot+"\"\n")
+	writeNoteText(t, filepath.Join(stateRoot, "board.json"), `{"lanes":[{"id":"main"}]}`)
 	return repoRoot, caseRoot, pack
 }
 

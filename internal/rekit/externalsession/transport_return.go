@@ -12,6 +12,7 @@ import (
 
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewerresult"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewersession"
 )
@@ -136,7 +137,10 @@ func PreviewTransportReturn(job Job, sourcePath, actor, observedAt string) (Tran
 		return TransportReturnPlan{}, err
 	}
 	resultPath := attempt.Current.SubmissionResult
-	returnPath := TransportReturnReceiptPath(job.JobID, attempt.Current.Generation)
+	returnPath, err := TransportReturnReceiptPathForCase(job.CaseRoot, job.JobID, attempt.Current.Generation)
+	if err != nil {
+		return TransportReturnPlan{}, err
+	}
 	if sourceRel == resultPath || sourceRel == returnPath || sourceRel == attempt.Current.SubmissionPath {
 		return TransportReturnPlan{}, fmt.Errorf("Remote Control ReviewerResult source path conflicts with return publication paths")
 	}
@@ -311,7 +315,11 @@ func ApplyTransportReturnCurrent(plan TransportReturnPlan, expectedPlanSHA256 st
 }
 
 func TransportReturnReceiptPath(jobID string, generation int) string {
-	return filepath.ToSlash(filepath.Join(".rekit", "external-session-transport", "returns", jobID, fmt.Sprintf("%06d.json", generation)))
+	return filepath.ToSlash(filepath.Join(projectstate.LegacyDir, "external-session-transport", "returns", jobID, fmt.Sprintf("%06d.json", generation)))
+}
+
+func TransportReturnReceiptPathForCase(caseRoot, jobID string, generation int) (string, error) {
+	return projectstate.Rel(caseRoot, "external-session-transport", "returns", jobID, fmt.Sprintf("%06d.json", generation))
 }
 
 func validateReviewerResultForJob(job Job, data []byte) (reviewerresult.Result, error) {
@@ -363,7 +371,11 @@ func validateRemoteControlReturnLineage(job Job, attempt AttemptInspection, disp
 	if err := ValidateRemoteControlLaunchTransition(transport, dispatch.Launch.Outcome, dispatch.Launch.Actor, dispatch.Launch.ObservedAt, dispatch.Launch.ActualHarness, dispatch.Launch.ActualSession, dispatch.Launch.Reason); err != nil {
 		return err
 	}
-	if submission.TransportReturnReceiptPath != TransportReturnReceiptPath(job.JobID, attempt.Current.Generation) ||
+	expectedReturnPath, err := TransportReturnReceiptPathForCase(job.CaseRoot, job.JobID, attempt.Current.Generation)
+	if err != nil {
+		return err
+	}
+	if submission.TransportReturnReceiptPath != expectedReturnPath ||
 		!validSHA(submission.TransportReturnReceiptSHA256) {
 		return fmt.Errorf("Remote Control submission requires the exact transport return receipt binding")
 	}

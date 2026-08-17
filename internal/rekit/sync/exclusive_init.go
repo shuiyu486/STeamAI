@@ -20,6 +20,7 @@ import (
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/review"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/runtimebundle"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/sourceartifact"
 )
 
@@ -49,9 +50,10 @@ type ExclusiveInitWrite struct {
 	Path             string `json:"path"`
 	Kind             string `json:"kind"`
 	TargetPath       string `json:"targetPath"`
+	SourcePath       string `json:"sourcePath,omitempty"`
 	SHA256           string `json:"sha256"`
 	Size             int64  `json:"size"`
-	Content          []byte `json:"content"`
+	Content          []byte `json:"content,omitempty"`
 	PublicationPhase int    `json:"publicationPhase,omitempty"`
 }
 
@@ -171,22 +173,29 @@ func planExclusiveInit(repoRoot, caseRoot, pack string, opt ExclusiveInitOptions
 		return ExclusiveInitPlan{}, fmt.Errorf("exclusive init requires a non-negative default publication phase")
 	}
 	builder := exclusiveInitBuilder{caseRoot: caseFull, paths: map[string]struct{}{}, defaultPhase: opt.DefaultPublicationPhase}
-	if err := builder.add(".rekit/instance.yml", "instance-metadata", []byte(casebind.InstanceText(caseFull, repoFull, pack, projectName))); err != nil {
-		return ExclusiveInitPlan{}, err
-	}
-	shimPath := filepath.Join(repoFull, "rekit", "templates", "case-shim", "SKILL.md")
-	shim, err := sourceartifact.ReadCanonical(shimPath)
+	bundlePlan, err := runtimebundle.Build(repoFull, pack)
 	if err != nil {
-		return ExclusiveInitPlan{}, fmt.Errorf("missing case shim template: %s", shimPath)
-	}
-	if err := builder.add(".claude/skills/rekit/SKILL.md", "case-local-thin-shim", shim); err != nil {
 		return ExclusiveInitPlan{}, err
 	}
-	legacy := "templateRoot: " + repoFull + "\r\n" +
-		"rekitMode: case-local-shim\r\n" +
-		"templatePack: " + pack + "\r\n" +
-		"templateVersion: 0.0.0\r\n"
-	if err := builder.add(".re-template.yml", "legacy-metadata", []byte(legacy)); err != nil {
+	for _, publication := range bundlePlan.Publications {
+		rel := filepath.ToSlash(filepath.Join(".steamai", filepath.FromSlash(publication.Path)))
+		if publication.SourcePath != "" {
+			if err := builder.addSource(rel, publication.Kind, publication.SourcePath); err != nil {
+				return ExclusiveInitPlan{}, err
+			}
+		} else if err := builder.add(rel, publication.Kind, publication.Content); err != nil {
+			return ExclusiveInitPlan{}, err
+		}
+	}
+	if err := builder.add(".steamai/instance.yml", "instance-metadata", []byte(casebind.STeamAIInstanceText(caseFull, pack, projectName, runtimebundle.ManifestRel, bundlePlan.ManifestSHA256))); err != nil {
+		return ExclusiveInitPlan{}, err
+	}
+	skillPath := filepath.Join(repoFull, "rekit", "templates", "steamai-project", "SKILL.md")
+	skill, err := sourceartifact.ReadCanonical(skillPath)
+	if err != nil {
+		return ExclusiveInitPlan{}, fmt.Errorf("missing STeamAI project skill template: %s", skillPath)
+	}
+	if err := builder.add(".claude/skills/steamai/SKILL.md", "project-local-steamai-skill", skill); err != nil {
 		return ExclusiveInitPlan{}, err
 	}
 
@@ -252,12 +261,12 @@ func planExclusiveInit(repoRoot, caseRoot, pack string, opt ExclusiveInitOptions
 		hash := sha256Bytes(content)
 		managedState[rel] = syncManagedEntry{SourceHash: hash, TargetHashAtSync: hash, LastAction: "sync"}
 	}
-	state := syncState{SchemaVersion: 1, TemplateRoot: repoFull, TemplatePack: pack, LastSyncAt: createdAt, Managed: managedState}
+	state := syncState{SchemaVersion: 1, TemplateRoot: ".", TemplatePack: pack, LastSyncAt: createdAt, Managed: managedState}
 	stateBytes, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return ExclusiveInitPlan{}, err
 	}
-	if err := builder.add(".rekit/state.json", "initial-state", append(stateBytes, '\n')); err != nil {
+	if err := builder.add(".steamai/state.json", "initial-state", append(stateBytes, '\n')); err != nil {
 		return ExclusiveInitPlan{}, err
 	}
 	if !opt.SkipVerificationMarker {
@@ -272,7 +281,7 @@ func planExclusiveInit(repoRoot, caseRoot, pack string, opt ExclusiveInitOptions
 		if err != nil {
 			return ExclusiveInitPlan{}, err
 		}
-		if err := builder.add(".rekit/verification-role.json", "verification-role-marker", append(markerBytes, '\n'), 0); err != nil {
+		if err := builder.add(".steamai/verification-role.json", "verification-role-marker", append(markerBytes, '\n'), 0); err != nil {
 			return ExclusiveInitPlan{}, err
 		}
 	}
@@ -521,6 +530,32 @@ type exclusiveInitBuilder struct {
 	defaultPhase int
 }
 
+func (b *exclusiveInitBuilder) addSource(rel, kind, sourcePath string, phases ...int) error {
+	data, err := refsf.ReadStableRegularFileAnchored(filepath.Dir(sourcePath), sourcePath, "exclusive init bundle source", 64<<20)
+	if err != nil {
+		return err
+	}
+	phase := b.defaultPhase
+	if len(phases) > 1 {
+		return fmt.Errorf("exclusive init write has multiple publication phases: %s", rel)
+	}
+	if len(phases) == 1 {
+		phase = phases[0]
+	}
+	rel, target, err := exclusiveInitPath(b.caseRoot, rel)
+	if err != nil {
+		return err
+	}
+	key := strings.ToLower(rel)
+	if _, exists := b.paths[key]; exists {
+		return fmt.Errorf("exclusive init duplicate write path: %s", rel)
+	}
+	b.paths[key] = struct{}{}
+	sum := sha256.Sum256(data)
+	b.writes = append(b.writes, ExclusiveInitWrite{Path: rel, Kind: kind, TargetPath: target, SourcePath: sourcePath, SHA256: hex.EncodeToString(sum[:]), Size: int64(len(data)), PublicationPhase: phase})
+	return nil
+}
+
 func (b *exclusiveInitBuilder) add(rel, kind string, content []byte, phases ...int) error {
 	phase := b.defaultPhase
 	if len(phases) > 1 {
@@ -578,8 +613,12 @@ func validateExclusiveInitPlan(plan ExclusiveInitPlan) error {
 			return fmt.Errorf("exclusive init duplicate write path: %s", rel)
 		}
 		seen[key] = struct{}{}
-		sum := sha256.Sum256(write.Content)
-		if write.Size != int64(len(write.Content)) || write.SHA256 != hex.EncodeToString(sum[:]) {
+		content, err := exclusiveInitWriteBytes(write)
+		if err != nil {
+			return fmt.Errorf("exclusive init write source is unavailable: %s: %w", rel, err)
+		}
+		sum := sha256.Sum256(content)
+		if write.Size != int64(len(content)) || write.SHA256 != hex.EncodeToString(sum[:]) {
 			return fmt.Errorf("exclusive init write content binding mismatch: %s", rel)
 		}
 	}
@@ -766,7 +805,11 @@ func verifyExclusiveInitReplay(root *os.Root, plan ExclusiveInitPlan) error {
 		if err != nil {
 			return err
 		}
-		if !bytes.Equal(content, write.Content) {
+		expected, sourceErr := exclusiveInitWriteBytes(write)
+		if sourceErr != nil {
+			return sourceErr
+		}
+		if !bytes.Equal(content, expected) {
 			return fmt.Errorf("exclusive init replay rejects different bytes: %s", write.Path)
 		}
 		seen[path.Clean(rel)] = struct{}{}
@@ -817,14 +860,29 @@ func completeExclusiveInitReplay(root *os.Root, plan ExclusiveInitPlan) error {
 		if err != nil {
 			return err
 		}
-		if !bytes.Equal(content, write.Content) {
+		expected, sourceErr := exclusiveInitWriteBytes(write)
+		if sourceErr != nil {
+			return sourceErr
+		}
+		if !bytes.Equal(content, expected) {
 			return fmt.Errorf("exclusive init replay rejects different bytes: %s", write.Path)
 		}
 	}
 	return nil
 }
 
+func exclusiveInitWriteBytes(write ExclusiveInitWrite) ([]byte, error) {
+	if strings.TrimSpace(write.SourcePath) == "" {
+		return write.Content, nil
+	}
+	return refsf.ReadStableRegularFileAnchored(filepath.Dir(write.SourcePath), write.SourcePath, "exclusive init source write", 64<<20)
+}
+
 func createExclusiveInitLeaf(root *os.Root, write ExclusiveInitWrite) error {
+	content, err := exclusiveInitWriteBytes(write)
+	if err != nil {
+		return err
+	}
 	name := filepath.FromSlash(write.Path)
 	if err := mkdirAllExclusiveCase(root, filepath.Dir(name)); err != nil {
 		return err
@@ -843,10 +901,10 @@ func createExclusiveInitLeaf(root *os.Root, write ExclusiveInitWrite) error {
 			writeErr = exclusiveInitLeafWriteHook("before-temp-write", write.Path)
 		}
 		if writeErr == nil {
-			written, err := file.Write(write.Content)
+			written, err := file.Write(content)
 			if err != nil {
 				writeErr = err
-			} else if written != len(write.Content) {
+			} else if written != len(content) {
 				writeErr = io.ErrShortWrite
 			}
 		}
@@ -975,7 +1033,8 @@ func verifyExclusiveInitLeafBytes(root *os.Root, name string, write ExclusiveIni
 		return closeErr
 	}
 	after, err := root.Lstat(name)
-	if err != nil || !os.SameFile(before, opened) || !os.SameFile(opened, after) || !bytes.Equal(content, write.Content) {
+	expected, sourceErr := exclusiveInitWriteBytes(write)
+	if err != nil || sourceErr != nil || !os.SameFile(before, opened) || !os.SameFile(opened, after) || !bytes.Equal(content, expected) {
 		return fmt.Errorf("exclusive init leaf has different bytes or identity: %s", write.Path)
 	}
 	return nil

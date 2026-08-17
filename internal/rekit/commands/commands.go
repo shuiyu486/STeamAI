@@ -16,6 +16,7 @@ const (
 	Gate            = "gate"
 	Handoff         = "handoff"
 	Init            = "init"
+	MigrateState    = "migrate-state"
 	NextBatch       = "next-batch"
 	Note            = "note"
 	Onboard         = "onboard"
@@ -125,6 +126,7 @@ var publicCommands = []string{
 	Gate,
 	Handoff,
 	Init,
+	MigrateState,
 	NextBatch,
 	Note,
 	Onboard,
@@ -158,6 +160,7 @@ var publicProfiles = []PublicProfile{
 	{Command: Gate, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
 	{Command: Handoff, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
 	{Command: Init, MutationBoundary: BoundaryCaseLocalApply, IsMutation: true, WritesCase: true, ApplyRequired: true},
+	{Command: MigrateState, MutationBoundary: BoundaryCaseLocalReviewFirst, IsMutation: true, WritesCase: true, ReviewFirst: true, ApplyRequired: true},
 	{Command: NextBatch, MutationBoundary: BoundaryKitReviewFirst, IsMutation: true, WritesKit: true, ReviewFirst: true, ApplyRequired: true},
 	{Command: Note, MutationBoundary: BoundaryCaseLocalAppend, IsMutation: true, WritesCase: true},
 	{Command: Onboard, MutationBoundary: BoundaryCaseLocalReviewFirst, IsMutation: true, WritesCase: true, ReviewFirst: true, ApplyRequired: true},
@@ -206,6 +209,7 @@ func SymbolValues() map[string]string {
 		"Gate":            Gate,
 		"Handoff":         Handoff,
 		"Init":            Init,
+		"MigrateState":    MigrateState,
 		"NextBatch":       NextBatch,
 		"Note":            Note,
 		"Onboard":         Onboard,

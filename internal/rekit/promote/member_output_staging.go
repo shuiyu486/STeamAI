@@ -19,6 +19,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/review"
 )
 
@@ -322,7 +323,10 @@ func prepareMemberOutputStaging(repoRoot, caseRoot, pack string, opt MemberOutpu
 		return preparedMemberOutputStaging{}, err
 	}
 	planSHA := memberOutputStagingSHA(planBytes)
-	artifactRoot := filepath.Join(inst.CaseRoot, ".rekit", "pack-memory-staging")
+	artifactRoot, err := memberOutputStagingRoot(inst.CaseRoot)
+	if err != nil {
+		return preparedMemberOutputStaging{}, err
+	}
 	intentPath := filepath.Join(artifactRoot, planSHA+".intent.json")
 	receiptPath := filepath.Join(artifactRoot, planSHA+".receipt.json")
 	intent := memberOutputStagingIntent{SchemaVersion: 1, Kind: "pack-memory-member-output-staging-intent", Plan: plan, PlanSHA256: planSHA, SanitizedText: sanitizedText}
@@ -350,6 +354,10 @@ func prepareMemberOutputStaging(repoRoot, caseRoot, pack string, opt MemberOutpu
 		return preparedMemberOutputStaging{}, fmt.Errorf("member output staging managed target differs from both the pack predecessor and the planned sanitized bytes")
 	}
 	return preparedMemberOutputStaging{result: result, plan: plan, targetBefore: packBefore, sanitized: sanitized, intent: intent, intentBytes: intentBytes, receipt: receipt, receiptBytes: receiptBytes}, nil
+}
+
+func memberOutputStagingRoot(caseRoot string) (string, error) {
+	return projectstate.Join(caseRoot, "pack-memory-staging")
 }
 
 func memberOutputStagingManifestTarget(m *manifest.Manifest, target string) bool {
@@ -387,7 +395,11 @@ func publishMemberOutputStagingExclusive(caseRoot, path string, data []byte, lab
 	}
 	defer root.Close()
 	parentRel := filepath.Dir(rel)
-	if parentRel == filepath.Join(".rekit", "pack-memory-staging") {
+	artifactRel, err := projectstate.Rel(caseRoot, "pack-memory-staging")
+	if err != nil {
+		return err
+	}
+	if parentRel == filepath.FromSlash(artifactRel) {
 		if err := root.Mkdir(parentRel, 0o700); err != nil && !os.IsExist(err) {
 			return err
 		}
@@ -509,8 +521,14 @@ func replaceMemberOutputStagingExact(caseRoot, path string, before, after []byte
 	if !bytes.Equal(current, before) {
 		return fmt.Errorf("%s predecessor differs from durable intent", label)
 	}
-	tempRel := filepath.Join(".rekit", "pack-memory-staging", memberOutputStagingSHA(after)+".target.tmp")
-	tempPath := filepath.Join(caseRoot, tempRel)
+	tempPath, err := projectstate.Join(caseRoot, "pack-memory-staging", memberOutputStagingSHA(after)+".target.tmp")
+	if err != nil {
+		return err
+	}
+	tempRel, err := memberOutputStagingRelativePath(caseRoot, tempPath, label+" temporary file")
+	if err != nil {
+		return err
+	}
 	if tempCurrent, exists, err := readMemberOutputStagingArtifact(caseRoot, tempPath, label+" temporary file", maxMemberOutputStagingBytes); err != nil {
 		return err
 	} else if exists && !bytes.Equal(tempCurrent, after) {

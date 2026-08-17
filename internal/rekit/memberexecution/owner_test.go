@@ -11,9 +11,44 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/onboarding"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/runtimebundle"
+	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 )
+
+func TestDispatchUsesSTeamAIStateRoot(t *testing.T) {
+	caseRoot := memberCaseWithStateDir(t, projectstate.CurrentDir, "executor-a", 1)
+	plan, err := PreviewDispatch(DispatchOptions{CaseRoot: caseRoot, Pack: "_template", Lane: "feature-analysis", RequestSHA256: strings.Repeat("a", 64), CreatedAt: "2026-08-13T01:02:03Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPrefix := filepath.Join(caseRoot, projectstate.CurrentDir) + string(filepath.Separator)
+	if !strings.HasPrefix(plan.Inspection.AttemptRoot, wantPrefix) || !strings.HasPrefix(plan.Inspection.TaskContextPath, wantPrefix) || !strings.HasPrefix(plan.Inspection.ManifestPath, wantPrefix) {
+		t.Fatalf("STeamAI member execution paths do not use selected root: %+v", plan.Inspection)
+	}
+	if plan.Inspection.TaskContext == nil || !strings.HasPrefix(plan.Inspection.TaskContext.Resume.Path, projectstate.CurrentDir+"/") || !strings.HasPrefix(plan.Inspection.TaskContext.Checkpoint.Path, projectstate.CurrentDir+"/") {
+		t.Fatalf("STeamAI persisted task refs do not match physical root: %+v", plan.Inspection.TaskContext)
+	}
+	if _, err := Apply(plan, plan.ExpectedPlanSHA256); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(caseRoot, projectstate.LegacyDir)); !os.IsNotExist(err) {
+		t.Fatalf("STeamAI dispatch unexpectedly created legacy root: %v", err)
+	}
+}
+
+func TestMemberExecutionRejectsDualStateRoots(t *testing.T) {
+	caseRoot := memberCaseWithStateDir(t, projectstate.CurrentDir, "executor-a", 1)
+	if err := os.Mkdir(filepath.Join(caseRoot, projectstate.LegacyDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PreviewDispatch(DispatchOptions{CaseRoot: caseRoot, Pack: "_template", Lane: "feature-analysis", RequestSHA256: strings.Repeat("a", 64), CreatedAt: "2026-08-13T01:02:03Z"}); err == nil || !strings.Contains(err.Error(), "must not coexist") {
+		t.Fatalf("dual state roots were accepted: %v", err)
+	}
+}
 
 func TestDispatchObservationManifestAndReplay(t *testing.T) {
 	caseRoot := memberCase(t, "executor-a", 1)
@@ -170,13 +205,44 @@ func TestLegacyTaskContextRemainsReadableButNewDispatchRequiresCurrentContract(t
 
 	invalid := legacy
 	invalid.OutputContract = plan.Inspection.TaskContext.OutputContract
-	if err := validateTaskContextContract(*inspection.Intent, invalid); err == nil || !strings.Contains(err.Error(), "must not contain") {
+	if err := validateTaskContextContract(caseRoot, *inspection.Intent, invalid); err == nil || !strings.Contains(err.Error(), "must not contain") {
 		t.Fatalf("legacy context accepted a partial backport: %v", err)
 	}
 	invalid = *plan.Inspection.TaskContext
 	invalid.OutputContract = nil
-	if err := validateTaskContextContract(*inspection.Intent, invalid); err == nil {
+	if err := validateTaskContextContract(caseRoot, *inspection.Intent, invalid); err == nil {
 		t.Fatal("current task-context schema accepted a missing output contract")
+	}
+}
+
+func TestTaskContextMissionIntentBindingUsesSelectedStateRoot(t *testing.T) {
+	caseRoot := memberCaseWithStateDir(t, projectstate.CurrentDir, "executor-a", 1)
+	plan, err := PreviewDispatch(DispatchOptions{
+		CaseRoot:      caseRoot,
+		Pack:          "_template",
+		Lane:          "feature-analysis",
+		RequestSHA256: strings.Repeat("a", 64),
+		CreatedAt:     "2026-08-03T01:02:03Z",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths, err := missionintent.Paths(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	context := *plan.Inspection.TaskContext
+	context.GoalSource = "committed-mission-intent"
+	context.MissionIntent = &TaskArtifact{
+		Path:   paths.MissionIntent,
+		SHA256: strings.Repeat("b", 64),
+	}
+	if err := validateTaskContextContract(caseRoot, *plan.Inspection.Intent, context); err != nil {
+		t.Fatalf("current state-root mission intent binding rejected: %v", err)
+	}
+	context.MissionIntent.Path = missionintent.MissionIntentRel
+	if err := validateTaskContextContract(caseRoot, *plan.Inspection.Intent, context); err == nil || !strings.Contains(err.Error(), "mission intent binding") {
+		t.Fatalf("current task context accepted legacy mission intent path: %v", err)
 	}
 }
 
@@ -440,7 +506,11 @@ func TestDispatchUsesCommittedNaturalLanguageMissionGoal(t *testing.T) {
 		t.Fatal(err)
 	}
 	context := plan.Inspection.TaskContext
-	if context == nil || context.Goal != goal || context.GoalSource != "committed-mission-intent" || context.MissionIntent == nil || context.MissionIntent.Path != missionintent.MissionIntentRel || context.MissionIntent.SHA256 == "" {
+	paths, err := missionintent.Paths(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if context == nil || context.Goal != goal || context.GoalSource != "committed-mission-intent" || context.MissionIntent == nil || context.MissionIntent.Path != paths.MissionIntent || context.MissionIntent.SHA256 == "" {
 		t.Fatalf("mission task context = %+v", context)
 	}
 }
@@ -1046,22 +1116,37 @@ func memberCase(t *testing.T, executor string, generation int) string {
 	return memberCaseForPack(t, "_template", executor, generation)
 }
 
+func memberCaseWithStateDir(t *testing.T, stateDir, executor string, generation int) string {
+	t.Helper()
+	return memberCaseForPackAndStateDir(t, "_template", stateDir, executor, generation)
+}
+
 func memberCaseForPack(t *testing.T, pack, executor string, generation int) string {
+	t.Helper()
+	return memberCaseForPackAndStateDir(t, pack, projectstate.LegacyDir, executor, generation)
+}
+
+func memberCaseForPackAndStateDir(t *testing.T, pack, stateDir, executor string, generation int) string {
 	t.Helper()
 	root := t.TempDir()
 	templateRoot := kitRoot(t)
-	if err := os.MkdirAll(filepath.Join(root, ".rekit", "lanes", "feature-analysis"), 0o755); err != nil {
+	instanceText := "schemaVersion: 1\ntemplateRoot: " + templateRoot + "\ntemplatePack: " + pack + "\nprojectRoot: " + root + "\n"
+	if stateDir == projectstate.CurrentDir {
+		bundle := writeSTeamAIRuntimePackFixture(t, root, pack)
+		instanceText = casebind.STeamAIInstanceText(root, pack, "member-execution-test", runtimebundle.ManifestRel, bundle.ManifestSHA256)
+	}
+	if err := os.MkdirAll(filepath.Join(root, stateDir, "lanes", "feature-analysis"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, ".rekit", "instance.yml"), []byte("schemaVersion: 1\ntemplateRoot: "+templateRoot+"\ntemplatePack: "+pack+"\nprojectRoot: "+root+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, stateDir, "instance.yml"), []byte(instanceText), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, ".rekit", "lanes", "feature-analysis", "lane.json"), []byte("{\"id\":\"feature-analysis\",\"status\":\"active\"}\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, stateDir, "lanes", "feature-analysis", "lane.json"), []byte("{\"id\":\"feature-analysis\",\"status\":\"active\"}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	for path, data := range map[string][]byte{
-		filepath.Join(root, ".rekit", "lanes", "feature-analysis", "prompts", "RESUME.md"):       []byte("# feature-analysis\n\nContinue the durable lane task.\n"),
-		filepath.Join(root, ".rekit", "lanes", "feature-analysis", "checkpoints", "latest.json"): []byte("{\n  \"schemaVersion\": 1,\n  \"lane\": \"feature-analysis\",\n  \"status\": \"active\"\n}\n"),
+		filepath.Join(root, stateDir, "lanes", "feature-analysis", "prompts", "RESUME.md"):       []byte("# feature-analysis\n\nContinue the durable lane task.\n"),
+		filepath.Join(root, stateDir, "lanes", "feature-analysis", "checkpoints", "latest.json"): []byte("{\n  \"schemaVersion\": 1,\n  \"lane\": \"feature-analysis\",\n  \"status\": \"active\"\n}\n"),
 	} {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
@@ -1069,6 +1154,9 @@ func memberCaseForPack(t *testing.T, pack, executor string, generation int) stri
 		if err := os.WriteFile(path, data, 0o600); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if stateDir == projectstate.CurrentDir {
+		writeSTeamAIRuntimePackFixture(t, root, pack)
 	}
 	writeBoardForPack(t, root, pack, executor, generation)
 	return root
@@ -1090,15 +1178,42 @@ func writeCommittedMissionIntent(t *testing.T, root, goal string) {
 		t.Fatal("cannot resolve kit root")
 	}
 	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", ".."))
-	opt := onboarding.Options{Target: root, Pack: "_template", ProjectName: "demo", Goal: goal, Actor: "operator", Executor: "executor-a", InitialLane: "feature-analysis", PublicationStamp: "20260803-010203004"}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	legacyMetadata := "templateRoot: " + repoRoot + "\n" +
+		"templatePack: _template\n" +
+		"currentProjectPath: " + root + "\n" +
+		"rekitMode: case-local-shim\n"
+	if err := os.WriteFile(filepath.Join(root, ".re-template.yml"), []byte(legacyMetadata), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := syncreview.Apply(repoRoot, root, "_template", syncreview.ApplyOptions{ProjectName: "demo", CreateLocalFiles: true, Command: "init"}); err != nil {
+		t.Fatal(err)
+	}
+	opt := onboarding.Options{Target: root, Pack: "_template", ProjectName: "demo", Goal: goal, Actor: "operator", Executor: "executor-a", InitialLane: "feature-analysis"}
 	preview, err := onboarding.Preview(repoRoot, opt)
 	if err != nil {
 		t.Fatal(err)
 	}
+	opt.PublicationStamp = preview.PublicationStamp
 	opt.ExpectedOnboardingPlanSHA256 = preview.OnboardingPlanSHA256
 	if _, err := onboarding.Apply(repoRoot, opt); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func writeSTeamAIRuntimePackFixture(t *testing.T, caseRoot, pack string) runtimebundle.Plan {
+	t.Helper()
+	executable := filepath.Join(t.TempDir(), "steamai-test.exe")
+	if err := os.WriteFile(executable, []byte("test executable"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := runtimebundle.PublishForTest(caseRoot, kitRoot(t), pack, executable)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return bundle
 }
 
 func writeBoard(t *testing.T, root, executor string, generation int) {
@@ -1128,7 +1243,10 @@ func writeBoardValue(t *testing.T, root string, board map[string]any) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(root, ".rekit", "board.json")
+	path, err := projectstate.Join(root, "board.json")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}

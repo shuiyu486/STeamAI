@@ -10,11 +10,11 @@
 
 ## 实施摘要
 
-`re-context-kits` 的最终产品方向是 **Lane-centric Agent Team Mission Control**：一个面向安全研究、逆向和安全工程任务的 Claude Code 多会话 Agent Team 工作系统。
+最终产品是 **STeamAI Lane-centric Agent Team Mission Control**：一个面向安全研究、逆向和安全工程任务的 Claude Code 多会话 Agent Team 工作系统。一个真实项目目录就是一个自包含 STeamAI 项目。
 
-用户主要和一个 **主 Agent / Mission Commander** 会话交互。主 Agent 通过 ReKit deterministic runtime 调度长期 **member lane**，而不是依赖某个旧聊天窗口。每个 lane 可以由当前 Claude Code 会话执行，也可以在上下文污染、模型切换、会话损坏或用户希望重开时，由新的 Claude Code 会话读取 handoff / packet / evidence 后接手。主 Agent 也可以启动短命 tactical subagent 处理搜索、验证、review、小修、小调研等局部任务。
+用户已经在该项目目录使用本机 Claude Code，并主要和一个 **主 Agent / Mission Commander** 会话交互。主 Agent通过项目内 deterministic runtime 调度长期 **member lane**，而不是依赖某个旧聊天窗口。每个 lane 可以由当前 Claude Code 会话执行，也可以在上下文污染、模型切换、会话损坏或用户希望重开时，由新的 Claude Code 会话读取 handoff / packet / evidence 后接手。主 Agent也可以启动短命 tactical subagent 处理搜索、验证、review、小修、小调研等局部任务。
 
-`/rekit` 与 Go backend 是底层确定性 runtime / API，`rekit.ps1` 只作为 retained compatibility façade；它们都不是主要用户体验。Go-owned `rekit-host -daily` 是主 Agent 的自然语言执行前门，只接收 target + goal/correction 并自动派生 lifecycle identity；用户体验应表现为开始任务、继续推进、查看总体状态、纠偏、进入或接手成员 lane、沉淀经验，而不是手工拼底层命令。
+新项目的用户入口是 `/steamai`，唯一 current 状态根是 `.steamai`，runtime 与 selected pack 随项目发布；用户不安装全局 plugin，也不依赖外部 kit checkout。内部 Go command/package 暂保留 ReKit 命名以避免机械迁移；`/rekit`、`.rekit` 和 `rekit.ps1` 只作为迁移期 compatibility surface。Go-owned daily host 是主 Agent 的自然语言执行前门，只接收 project + goal/correction 并自动派生 lifecycle identity；用户体验应表现为开始任务、继续推进、查看总体状态、纠偏、进入或接手成员 lane、沉淀经验，而不是手工拼底层命令。
 
 Batch 359 后，Go-owned public surface、durable lane state、显式 `reconcile`、typed autonomy preflight、Mission brief / executor action snapshot、Go-native bounded reviewer strict intake/writeback、pack-memory promote/reconsume package E2E，以及 authorized execution observation evidence + bounded adapter execution report strict intake/contract projection/read-only validation preflight（含 invalid sidecar `valid=false` envelope/failure taxonomy 与 sidecar boundary/escalation marker fail-closed validation）已形成底座；主 Agent已在本机真实 spawn 一个 read-only reviewer，并跑通 packet/result binding、evidence-ref validation、WhatIf/Apply verification-before-decision 幂等写回与 overview/handoff/doctor post-validation。Batch 822进一步把Claude Code Remote Control吸收为optional read-only Reviewer transport companion：durable dispatch/session binding仍由ReKit拥有，opaque peer endpoint只是一轮transport observation，完整evidence、delivery truth、generation fencing与strict intake不能委托给聊天窗口。runtime 仍不自动 spawn、注册或管理 reviewer/member session，也不执行 heavy-tool；Remote Control不成为默认provider或durable member identity。远程 Linux/macOS/Windows CI、原生Windows live跨机器Remote Control E2E和macOS/Linux product-path E2E仍是release readiness边界，不阻塞Windows本机deterministic Mission Control闭环。
 
@@ -53,14 +53,14 @@ Batch 359 后，Go-owned public surface、durable lane state、显式 `reconcile
 
 ## 1. 产品定位
 
-最终产品不是一组让用户记忆的 `/rekit` / `rekit.ps1` 命令，而是 Claude Code 中的 Agent Team Mission Control：
+最终产品不是一组让用户记忆的 `/rekit` / `rekit.ps1` 命令，而是项目内 `/steamai` 驱动的 Claude Code Agent Team Mission Control：
 
 ```text
 用户
   ↓
 主 Agent / Mission Commander
   ↓
-ReKit deterministic runtime
+project-local deterministic runtime
   ↓
 长期 member lanes + 可替换 Claude Code session executors + 短命 tactical subagents
 ```
@@ -100,7 +100,7 @@ lane 持久存在，保存 packet、status、outbox、evidence、handoff、inter
 
 ### 2.5 Runtime source of truth
 
-`.rekit/` 下的 board、facts、lanes、runs、handovers、reviews、pack metadata 是协作真相源。聊天上下文可以辅助执行，但不能成为唯一状态。
+active project state root 下的 board、facts、lanes、runs、handovers、reviews、pack metadata 是协作真相源：新项目使用 `.steamai/`，legacy-only 项目在迁移前继续使用 `.rekit/`。聊天上下文可以辅助执行，但不能成为唯一状态；两份 mutable root 不得共存、合并或自动择优。
 
 ## 3. 日常使用模型
 
@@ -170,9 +170,9 @@ lane 持久存在，保存 packet、status、outbox、evidence、handoff、inter
 
 ## 6. 预授权 lane autonomy
 
-lane 文档与 task packet 可以表达或提议较重动作的授权意图，但不能单独作为 deterministic executor grant。当前 runtime 的确定性依据是 strict validated `.rekit/lanes/<lane>/autonomy.json`，并由 `gate -WhatIf/-Apply` 评估 action、exact target、typed budget、stop conditions、output paths、record/notify 与 grant/expiry；只有 `authorized-gate` decision 才允许 executor 在覆盖范围内不逐步打断用户确认。该能力用于提高已明确授权 sandbox、CTF、靶场、样本分析或内部安全评估 case 的自主性。
+lane 文档与 task packet 可以表达或提议较重动作的授权意图，但不能单独作为 deterministic executor grant。当前 runtime 的确定性依据是 active state root 下 strict validated `lanes/<lane>/autonomy.json`，并由 `gate -WhatIf/-Apply` 评估 action、exact target、typed budget、stop conditions、output paths、record/notify 与 grant/expiry；只有 `authorized-gate` decision 才允许 executor 在覆盖范围内不逐步打断用户确认。该能力用于提高已明确授权 sandbox、CTF、靶场、样本分析或内部安全评估项目的自主性。
 
-当前 durable profile field shape 可用一个 strict-valid、默认 fail-closed 的 `manual-gate` 文件表示：
+当前 durable profile field shape 可用一个 strict-valid、默认 fail-closed 的 `manual-gate` 文件表示。用户显式选择更高自治时，只能进入 `bounded-autonomous-v1`：单 project、单 lane、manifest exact actions、exact targets、有限 budget、完整 stop conditions、case-relative outputs、`recordRequired=true`、最长 15 分钟，并在每次 Evaluate 时重验；它不是无限权限：
 
 ```json
 {
@@ -197,7 +197,7 @@ lane 文档与 task packet 可以表达或提议较重动作的授权意图，�
 
 - `manual-gate`：每次 heavy action 都经 gate / 用户确认；budget 可以为零。
 - `preauthorized`：在明确范围内不逐步询问，但必须记录、止损、可回放；要求非空 `allowedActions`、exact `targetScope`、正数 budget、`stopConditions`、`outputPaths`、`notifyMainOn`、`grantedBy`、`grantedAt` 与 `expiresAt`。
-- `autonomous`：只适合完全 sandbox / mock / CTF / 明确授权的本地环境；使用与 `preauthorized` 相同的 strict validation 要求。
+- `autonomous`：通用 provision 不允许直接创建；当前只有显式 managed preset `bounded-autonomous-v1` 可进入，且仍受 exact scope、budget、stop、output、expiry、record 和 revoke 约束。完整 case-wide/multi-lane grant 属于未来 v2，不在当前能力内。
 
 重要边界：
 

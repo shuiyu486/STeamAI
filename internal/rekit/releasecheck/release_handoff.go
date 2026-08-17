@@ -17,6 +17,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaultdocs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/promote"
 	syncpkg "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 )
@@ -548,9 +549,10 @@ func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes
 			Ready:   check.CaseShim.Ready,
 			Summary: check.CaseShim.Summary,
 			Details: []string{
+				fmt.Sprintf("model=%s entrypoint=%s stateRoot=%s defaultForNewProjects=%t", check.CaseShim.Model, check.CaseShim.CompatibilityEntrypoint, check.CaseShim.StateRoot, check.CaseShim.DefaultForNewProjects),
 				fmt.Sprintf("template=%s", check.CaseShim.TemplatePath),
 				fmt.Sprintf("requiredPhrases=%d canonicalPhrases=%d forbidden=%d", caseShimCounts.RequiredPhrases, caseShimCounts.CanonicalSkillPhrases, caseShimCounts.ForbiddenStrings),
-				"case-local shim stays thin and does not name PowerShell or raw Go CLI commands",
+				"legacy /rekit case-local shim stays release-blocking but is not the default UX for new STeamAI projects",
 			},
 		},
 		{
@@ -558,9 +560,10 @@ func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes
 			Ready:   check.PublicDefaultDocs.Ready,
 			Summary: check.PublicDefaultDocs.Summary,
 			Details: []string{
+				fmt.Sprintf("model=%s entrypoint=%s stateRoot=%s runtimeSource=%s fallbackAllowed=%t", check.PublicDefaultDocs.Model, check.PublicDefaultDocs.DefaultEntrypoint, check.PublicDefaultDocs.StateRoot, check.PublicDefaultDocs.RuntimeSource, check.PublicDefaultDocs.FallbackAllowed),
 				fmt.Sprintf("documents=%d requiredPhrases=%d forbiddenCommands=%d forbiddenShellFences=%d", publicDefaultDocCounts.Documents, publicDefaultDocCounts.RequiredPhrases, publicDefaultDocCounts.ForbiddenCommands, publicDefaultDocCounts.ForbiddenShellFences),
-				"README, CLAUDE, slash skill, product direction, autonomous goal, release readiness, Go-first plan, runtime migration, deprecation roadmap, vision, reference map, rollout plan, and tests guide keep Mission Control / Go-native defaults",
-				"PowerShell façade command snippets and shell fences are not documented as default user paths",
+				"README, canonical /steamai skill, project template, router, current route, product direction, and self-contained contract keep project-local no-fallback defaults",
+				"legacy /rekit and .rekit remain compatibility surfaces rather than new-project defaults",
 			},
 		},
 		{
@@ -1514,7 +1517,7 @@ func packMemoryCandidateReviewArtifacts(status ReleaseHandoffPackMemoryCandidate
 				When:          "after accepting tooling candidate into tooling/catalog.yml or tooling/recipes/*",
 				Action:        "record temporary fresh-case init and doctor output proving pack tooling reconsume",
 				Format:        "strict JSON pack-memory-candidate-lifecycle-proof with passed fresh-case-reconsume and pack-doctor checks plus hashed evidenceRefs",
-				Evidence:      []string{"fresh case .rekit/instance.yml", "fresh case doctor output"},
+				Evidence:      []string{"fresh case instance metadata", "fresh case doctor output"},
 				Boundary: append(append([]string{}, baseBoundary...),
 					"use a temporary fresh case only",
 					"do not create real case state in the kit repo",
@@ -2914,7 +2917,10 @@ func packMemoryCandidateDecisionReceipts(repo, proofRoot, proofRootRel string) (
 		}
 		if raw.Accepted > 0 {
 			provisionID := shortReleaseHandoffHash(raw.PacketHash + raw.DecisionHash)
-			expectedWorkspace := filepath.Join(raw.CaseRoot, ".rekit", "verifications", "candidate-decisions", provisionID)
+			expectedWorkspace, err := projectstate.Join(raw.CaseRoot, "verifications", "candidate-decisions", provisionID)
+			if err != nil {
+				return nil, err
+			}
 			if !sameReleaseHandoffPath(raw.VerificationWorkspaceRoot, expectedWorkspace) || !strings.Contains(raw.VerificationProvisionCommand, "-ProvisionCandidateVerificationCases") || !strings.Contains(raw.VerificationProvisionCommand, raw.PacketPath) || !strings.Contains(raw.VerificationProvisionCommand, raw.DecisionPath) {
 				return nil, fmt.Errorf("candidate decision receipt provisioning binding mismatch: %s", path)
 			}

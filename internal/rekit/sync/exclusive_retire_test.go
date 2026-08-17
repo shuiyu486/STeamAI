@@ -178,10 +178,10 @@ func TestExclusiveInitRetirementBatchRejectsOverlappingRoots(t *testing.T) {
 	outerInit := applyExclusiveInitRetirementFixture(t, outerRoot, "outer")
 	outer := retirementPlanForTest(t, outerInit)
 	inner := outer
-	inner.CaseRoot = filepath.Join(outerRoot, ".rekit")
+	inner.CaseRoot = filepath.Join(outerRoot, ".steamai")
 	inner.Leaves = nil
 	for _, leaf := range outer.Leaves {
-		if rel, ok := strings.CutPrefix(leaf.Path, ".rekit/"); ok {
+		if rel, ok := strings.CutPrefix(leaf.Path, ".steamai/"); ok {
 			leaf.Path = rel
 			inner.Leaves = append(inner.Leaves, leaf)
 		}
@@ -220,7 +220,7 @@ func TestExclusiveInitRetirementDifferentExpectedParentMakesNoMutation(t *testin
 		t.Fatalf("Apply error = %v, want parent mismatch", err)
 	}
 	for _, write := range initPlan.Writes {
-		if got := readFile(t, write.TargetPath); !bytes.Equal(got, write.Content) {
+		if got := readFile(t, write.TargetPath); !bytes.Equal(got, readPlannedExclusiveContent(t, initPlan, write.Path)) {
 			t.Fatalf("parent mismatch changed %s", write.Path)
 		}
 	}
@@ -281,7 +281,7 @@ func TestExclusiveInitRetirementBatchPreflightsAllRootsBeforeDeletion(t *testing
 		t.Fatalf("Apply error = %v, want second-root rejection", err)
 	}
 	for _, write := range firstInit.Writes {
-		if got := readFile(t, write.TargetPath); !bytes.Equal(got, write.Content) {
+		if got := readFile(t, write.TargetPath); !bytes.Equal(got, readPlannedExclusiveContent(t, firstInit, write.Path)) {
 			t.Fatalf("second-root failure changed first leaf %s", write.Path)
 		}
 	}
@@ -317,7 +317,7 @@ func TestExclusiveInitRetirementBatchRevalidatesSecondRootBeforeDeletingFirst(t 
 		t.Fatalf("Apply error = %v, want second-root revalidation rejection", err)
 	}
 	for _, write := range firstInit.Writes {
-		if got := readFile(t, write.TargetPath); !bytes.Equal(got, write.Content) {
+		if got := readFile(t, write.TargetPath); !bytes.Equal(got, readPlannedExclusiveContent(t, firstInit, write.Path)) {
 			t.Fatalf("second-root revalidation error changed first leaf %s", write.Path)
 		}
 	}
@@ -340,7 +340,7 @@ func TestExclusiveInitRetirementBatchRejectsPostPreflightExtraBeforeDeletingFirs
 		t.Fatalf("Apply error = %v, want post-preflight extra rejection", err)
 	}
 	for _, write := range firstInit.Writes {
-		if got := readFile(t, write.TargetPath); !bytes.Equal(got, write.Content) {
+		if got := readFile(t, write.TargetPath); !bytes.Equal(got, readPlannedExclusiveContent(t, firstInit, write.Path)) {
 			t.Fatalf("post-preflight second-root extra changed first leaf %s", write.Path)
 		}
 	}
@@ -368,7 +368,7 @@ func TestExclusiveInitRetirementBatchRejectsSecondRootDirectoryQuarantineChildBe
 		t.Fatalf("Apply error = %v, want second-root quarantine child rejection", err)
 	}
 	for _, write := range firstInit.Writes {
-		if got := readFile(t, write.TargetPath); !bytes.Equal(got, write.Content) {
+		if got := readFile(t, write.TargetPath); !bytes.Equal(got, readPlannedExclusiveContent(t, firstInit, write.Path)) {
 			t.Fatalf("second-root quarantine drift changed first leaf %s", write.Path)
 		}
 	}
@@ -556,7 +556,7 @@ func TestExclusiveInitRetirementRejectsRootRebindBeforeMutation(t *testing.T) {
 		t.Fatalf("Apply error = %v, want identity rejection", err)
 	}
 	for _, write := range initPlan.Writes {
-		if got := readFile(t, filepath.Join(originalRoot, filepath.FromSlash(write.Path))); !bytes.Equal(got, write.Content) {
+		if got := readFile(t, filepath.Join(originalRoot, filepath.FromSlash(write.Path))); !bytes.Equal(got, readPlannedExclusiveContent(t, initPlan, write.Path)) {
 			t.Fatalf("rebind changed original leaf %s", write.Path)
 		}
 	}

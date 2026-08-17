@@ -2,6 +2,7 @@ package releasecheck
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -14,6 +15,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/processguard"
 )
 
 const (
@@ -314,7 +317,7 @@ func localValidationReceiptStepEvidence(steps []LocalValidationReceiptStep) []st
 		"go run ./cmd/rekit -- -Command status":                     "status handoff recorded",
 		"go run ./cmd/rekit -- -Command packs":                      "packs inventory recorded",
 		"go run ./cmd/rekit -- -Command doctor":                     "doctor validation recorded",
-		"go test ./...":                                             "go test ./... recorded",
+		CanonicalGoTestCommand:                                      "go test ./... recorded",
 		"go vet ./...":                                              "go vet ./... recorded",
 		"git diff --check":                                          "git diff --check recorded",
 	}
@@ -568,26 +571,34 @@ func localValidationGit(repo string, args ...string) (string, error) {
 }
 
 func localValidationGitRaw(repo string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
-	cmd.Dir = repo
-	output, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
-	}
-	return string(output), nil
+	return localValidationGitOutput(repo, nil, args...)
 }
 
 func localValidationGitInput(repo string, input []byte, args ...string) (string, error) {
+	value, err := localValidationGitOutput(repo, input, args...)
+	return strings.TrimSpace(value), err
+}
+
+func localValidationGitOutput(repo string, input []byte, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = repo
-	if input != nil {
-		cmd.Stdin = bytes.NewReader(input)
-	}
-	output, err := cmd.Output()
+	stdout, stderr, err := processguard.RunTreeOutputs(
+		ctx,
+		cmd,
+		input,
+		64<<20,
+	)
 	if err != nil {
-		return "", fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+		return string(stdout), fmt.Errorf(
+			"git %s: %w: %s",
+			strings.Join(args, " "),
+			err,
+			strings.TrimSpace(string(stderr)),
+		)
 	}
-	return strings.TrimSpace(string(output)), nil
+	return string(stdout), nil
 }
 
 func splitLocalValidationNUL(value string) []string {

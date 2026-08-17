@@ -1,7 +1,7 @@
 [CmdletBinding(PositionalBinding=$false)]
 param(
   [Parameter(Position=0)]
-  [ValidateSet('status','packs','release-check','release-run','run-current-loop','run-current-step','run-driver-step','run-reviewer-step','run-reviewer-wave','next-batch','attach','repair','init','bootstrap','onboard','sync','update','promote','validate','doctor','plan-subagents','overview','complete','reopen','continue','reconcile','start','handoff','note','gate')]
+  [ValidateSet('status','packs','release-check','release-run','run-current-loop','run-current-step','run-driver-step','run-reviewer-step','run-reviewer-wave','next-batch','attach','repair','init','bootstrap','onboard','migrate-state','sync','update','promote','validate','doctor','plan-subagents','overview','complete','reopen','continue','reconcile','start','handoff','note','gate')]
   [string]$Command = 'status',
   [string]$Target = '',
   [string]$Pack = 'vmp-re',
@@ -64,6 +64,8 @@ param(
   [string]$Domain = '',
   [string]$Closure = '',
   [string]$ExpectedNextBatchPlanSha256 = '',
+  [string]$ExpectedInitPlanSha256 = '',
+  [string]$ExpectedMigrationPlanSha256 = '',
   [string]$ExpectedCompletePlanSha256 = '',
   [string]$ExpectedReopenPlanSha256 = '',
   [string]$OnboardingPublicationStamp = '',
@@ -133,7 +135,12 @@ function Resolve-RekitTarget {
 
 function Test-RekitLooksLikeCase {
   param([string]$Path)
-  return (Test-Path -LiteralPath (Join-Path $Path '.rekit\instance.yml')) -or (Test-Path -LiteralPath (Join-Path $Path '.re-template.yml'))
+  return (Test-Path -LiteralPath (Join-Path $Path '.steamai\instance.yml')) -or (Test-Path -LiteralPath (Join-Path $Path '.rekit\instance.yml')) -or (Test-Path -LiteralPath (Join-Path $Path '.re-template.yml'))
+}
+
+function Test-RekitStateFile {
+  param([string]$Path, [string]$RelativePath)
+  return (Test-Path -LiteralPath (Join-Path $Path (Join-Path '.steamai' $RelativePath)) -PathType Leaf) -or (Test-Path -LiteralPath (Join-Path $Path (Join-Path '.rekit' $RelativePath)) -PathType Leaf)
 }
 
 function Resolve-RekitCaseRoot {
@@ -208,12 +215,12 @@ function Test-RekitEnvTruthy {
 
 function Test-RekitGoDefaultDelegationCommand {
   param([string]$Name)
-  return (@('status','packs','release-check','release-run','run-current-loop','run-current-step','run-driver-step','run-reviewer-step','run-reviewer-wave','next-batch','doctor','validate','attach','repair','init','bootstrap','onboard','sync','update','promote','overview','note','gate','start','handoff','complete','reopen','continue','reconcile','plan-subagents') -contains $Name)
+  return (@('status','packs','release-check','release-run','run-current-loop','run-current-step','run-driver-step','run-reviewer-step','run-reviewer-wave','next-batch','doctor','validate','attach','repair','init','bootstrap','onboard','migrate-state','sync','update','promote','overview','note','gate','start','handoff','complete','reopen','continue','reconcile','plan-subagents') -contains $Name)
 }
 
 function Test-RekitNoPowerShellFallbackCommand {
   param([string]$Name)
-  return (@('release-check','release-run','run-current-loop','run-current-step','run-driver-step','run-reviewer-step','run-reviewer-wave','next-batch','status','packs','doctor','validate','attach','repair','init','bootstrap','onboard','sync','update','promote','overview','note','gate','start','handoff','complete','reopen','continue','reconcile','plan-subagents') -contains $Name)
+  return (@('release-check','release-run','run-current-loop','run-current-step','run-driver-step','run-reviewer-step','run-reviewer-wave','next-batch','status','packs','doctor','validate','attach','repair','init','bootstrap','onboard','migrate-state','sync','update','promote','overview','note','gate','start','handoff','complete','reopen','continue','reconcile','plan-subagents') -contains $Name)
 }
 
 function Test-RekitGoDelegationEnabled {
@@ -352,6 +359,8 @@ function Test-RekitGoDelegationSafe {
       if ([string]::IsNullOrWhiteSpace($Target) -or $CreateCandidates -or $Review) { return $false }
       if ($WhatIf -and $Apply) { return $false }
       if ((-not $WhatIf) -and (-not $Apply)) { return $false }
+      if ($WhatIf -and -not [string]::IsNullOrWhiteSpace($ExpectedInitPlanSha256)) { return $false }
+      if ($Apply -and [string]::IsNullOrWhiteSpace($ExpectedInitPlanSha256)) { return $false }
       if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
       return $true
     }
@@ -367,6 +376,17 @@ function Test-RekitGoDelegationSafe {
       if ([string]::IsNullOrWhiteSpace($Pack) -or $CreateCandidates -or $Review -or $Force) { return $false }
       if (-not [string]::IsNullOrWhiteSpace($ReviewOutputDir) -or -not [string]::IsNullOrWhiteSpace($PacketPath) -or -not [string]::IsNullOrWhiteSpace($DiffPath)) { return $false }
       return (([string]$Format).Trim().ToLowerInvariant() -eq 'json')
+    }
+    'migrate-state' {
+      foreach ($key in $script:PSBoundParameters.Keys) {
+        if (@('Command','Target','Pack','WhatIf','Apply','Format','ExpectedMigrationPlanSha256') -notcontains [string]$key) { return $false }
+      }
+      if ([string]::IsNullOrWhiteSpace($Target)) { return $false }
+      if ($WhatIf -and $Apply) { return $false }
+      if ($Apply -and [string]::IsNullOrWhiteSpace($ExpectedMigrationPlanSha256)) { return $false }
+      if ((-not $Apply) -and -not [string]::IsNullOrWhiteSpace($ExpectedMigrationPlanSha256)) { return $false }
+      $formatValue = ([string]$Format).Trim().ToLowerInvariant()
+      return ([string]::IsNullOrWhiteSpace($formatValue) -or @('json','text','table','tsv') -contains $formatValue)
     }
     'overview' {
       if ($Apply -or $CreateCandidates -or $WhatIf -or $Review) { return $false }
@@ -473,7 +493,7 @@ function Test-RekitGoDelegationSafe {
       $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs
       $caseRoot = [string]$resolved.Target
       if (-not (Test-RekitLooksLikeCase $caseRoot)) { return $false }
-      if (-not (Test-Path -LiteralPath (Join-Path $caseRoot '.rekit\board.json'))) { return $false }
+      if (-not (Test-RekitStateFile -Path $caseRoot -RelativePath 'board.json')) { return $false }
       $formatValue = ([string]$Format).Trim().ToLowerInvariant()
       return ([string]::IsNullOrWhiteSpace($formatValue) -or @('json','text','table','tsv') -contains $formatValue)
     }
@@ -488,7 +508,7 @@ function Test-RekitGoDelegationSafe {
       $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs
       $caseRoot = [string]$resolved.Target
       if (-not (Test-RekitLooksLikeCase $caseRoot)) { return $false }
-      if (-not (Test-Path -LiteralPath (Join-Path $caseRoot '.rekit\board.json'))) { return $false }
+      if (-not (Test-RekitStateFile -Path $caseRoot -RelativePath 'board.json')) { return $false }
       $selector = ((@($resolved.Args) | ForEach-Object { [string]$_ }) -join '-').Trim('-')
       if ([string]::IsNullOrWhiteSpace($selector) -and [string]::IsNullOrWhiteSpace($Lane)) { return $false }
       $formatValue = ([string]$Format).Trim().ToLowerInvariant()
@@ -505,7 +525,7 @@ function Test-RekitGoDelegationSafe {
       $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs
       $caseRoot = [string]$resolved.Target
       if (-not (Test-RekitLooksLikeCase $caseRoot)) { return $false }
-      if (-not (Test-Path -LiteralPath (Join-Path $caseRoot '.rekit\board.json'))) { return $false }
+      if (-not (Test-RekitStateFile -Path $caseRoot -RelativePath 'board.json')) { return $false }
       $selector = ((@($resolved.Args) | ForEach-Object { [string]$_ }) -join '-').Trim('-')
       if ([string]::IsNullOrWhiteSpace($selector) -and [string]::IsNullOrWhiteSpace($Lane)) { return $false }
       $formatValue = ([string]$Format).Trim().ToLowerInvariant()
@@ -518,7 +538,7 @@ function Test-RekitGoDelegationSafe {
       $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs
       $caseRoot = [string]$resolved.Target
       if (-not (Test-RekitLooksLikeCase $caseRoot)) { return $false }
-      if (-not (Test-Path -LiteralPath (Join-Path $caseRoot '.rekit\board.json'))) { return $false }
+      if (-not (Test-RekitStateFile -Path $caseRoot -RelativePath 'board.json')) { return $false }
       $formatValue = ([string]$Format).Trim().ToLowerInvariant()
       return ([string]::IsNullOrWhiteSpace($formatValue) -or @('json','text','table','tsv') -contains $formatValue)
     }
@@ -530,7 +550,7 @@ function Test-RekitGoDelegationSafe {
       $resolved = Resolve-RekitActionTargetAndArgs -Value $Target -Remaining $RemainingArgs
       $caseRoot = [string]$resolved.Target
       if (-not (Test-RekitLooksLikeCase $caseRoot)) { return $false }
-      if (-not (Test-Path -LiteralPath (Join-Path $caseRoot '.rekit\board.json'))) { return $false }
+      if (-not (Test-RekitStateFile -Path $caseRoot -RelativePath 'board.json')) { return $false }
       $formatValue = ([string]$Format).Trim().ToLowerInvariant()
       return ([string]::IsNullOrWhiteSpace($formatValue) -or @('json','text','table','tsv') -contains $formatValue)
     }
@@ -594,7 +614,7 @@ function Get-RekitGoTarget {
       if ([string]::IsNullOrWhiteSpace($Target)) { return '' }
       return (Resolve-RekitTarget $Target)
     }
-    { $_ -in @('attach','repair','init','bootstrap','onboard','overview','note','sync','update','promote','plan-subagents') } { return (Resolve-RekitTarget $Target) }
+    { $_ -in @('attach','repair','init','bootstrap','onboard','migrate-state','overview','note','sync','update','promote','plan-subagents') } { return (Resolve-RekitTarget $Target) }
     { $_ -in @('doctor','validate') } {
       if (-not [string]::IsNullOrWhiteSpace($Target)) { return (Resolve-RekitTarget $Target) }
       $cwd = Resolve-RekitTarget ''
@@ -622,7 +642,7 @@ function Get-RekitGoArgs {
   Add-RekitGoArg ([ref]$goArgs) '-DiffPath' (Resolve-RekitCallerPath $DiffPath)
   $goFormat = $Format
   if ($Command -in @('start','handoff','complete','reopen','continue','reconcile') -and (-not $Apply.IsPresent) -and [string]::IsNullOrWhiteSpace([string]$goFormat)) { $goFormat = 'text' }
-  if ($Command -in @('status','packs','release-check','release-run','run-current-loop','run-current-step','run-driver-step','run-reviewer-step','run-reviewer-wave','next-batch','doctor','validate','attach','repair','init','bootstrap','onboard','sync','update','promote','overview','note','gate','start','handoff','complete','reopen','continue','reconcile')) { Add-RekitGoArg ([ref]$goArgs) '-Format' $goFormat }
+  if ($Command -in @('status','packs','release-check','release-run','run-current-loop','run-current-step','run-driver-step','run-reviewer-step','run-reviewer-wave','next-batch','doctor','validate','attach','repair','init','bootstrap','onboard','migrate-state','sync','update','promote','overview','note','gate','start','handoff','complete','reopen','continue','reconcile')) { Add-RekitGoArg ([ref]$goArgs) '-Format' $goFormat }
   if ($Command -eq 'run-current-loop') {
     if (-not $ResumeCurrentLoop) { Add-RekitGoArg ([ref]$goArgs) '-MaxSteps' ([string]$MaxSteps) }
     Add-RekitGoArg ([ref]$goArgs) '-ExpectedCurrentLoopPlanSha256' $ExpectedCurrentLoopPlanSha256
@@ -717,7 +737,11 @@ function Get-RekitGoArgs {
     Add-RekitGoArg ([ref]$goArgs) '-OnboardingPublicationStamp' $OnboardingPublicationStamp
     Add-RekitGoArg ([ref]$goArgs) '-ExpectedOnboardingPlanSha256' $ExpectedOnboardingPlanSha256
   }
+  if ($Command -eq 'migrate-state') {
+    Add-RekitGoArg ([ref]$goArgs) '-ExpectedMigrationPlanSha256' $ExpectedMigrationPlanSha256
+  }
   if ($Command -in @('attach','repair','init','bootstrap','onboard','sync','update')) { Add-RekitGoArg ([ref]$goArgs) '-ProjectName' $ProjectName }
+  if ($Command -in @('init','bootstrap')) { Add-RekitGoArg ([ref]$goArgs) '-ExpectedInitPlanSha256' $ExpectedInitPlanSha256 }
   if ($Command -in @('sync','update')) {
     Add-RekitGoArg ([ref]$goArgs) '-SelectPackMemoryChange' $SelectPackMemoryChange
     Add-RekitGoArg ([ref]$goArgs) '-ExpectedPackMemoryConsumptionPlanSha256' $ExpectedPackMemoryConsumptionPlanSha256

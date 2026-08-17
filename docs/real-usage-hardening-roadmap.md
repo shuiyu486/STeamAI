@@ -2,85 +2,94 @@
 
 ## 读取指南
 
-本文件是当前已批准路线的唯一 active source，只内联当前批次卡。先由 `docs/context-routing.md` 路由到本文件；当前批涉及 adapter execution-time authorization 时，再按需读取 `internal/rekit/autonomy/**`、`internal/rekit/gate/**`、`internal/rekit/adapterhost/**` 与相邻 execution symbols。`docs/batch-plan.md` 只做短投影，历史批次按 ID 查询 `docs/batch-history.md`。
+本文件是当前已批准路线的唯一 active source，只内联当前批次卡。先由 `docs/context-routing.md` 路由到本文件；本轮涉及 STeamAI 自包含项目时，再按需读取 `docs/steamai-self-contained-project.md` 对应章节和相关 Go symbols。`docs/batch-plan.md` 只做短投影，Batch 827 及更早历史按 ID 查询 `docs/batch-history.md`。
 
 ## 实施摘要
 
-`real-usage-hardening-v1`、`daily-product-closure-v1`、`remote-control-reviewer-transport-v1` 与 `windows-mission-control-usability-v1` 均已完成。Windows 路线已依次关闭 canonical text/trusted generation、intelligent terminal correction、typed ReKit invocation、execution-time authorization currentness、maintenance hotspot decomposition 和完整产品验收。
+`real-usage-hardening-v1`、`daily-product-closure-v1`、`remote-control-reviewer-transport-v1` 与 `windows-mission-control-usability-v1` 均已完成。当前路线是 `steamai-self-contained-project-v1`，也已完成并把默认产品从“中央 kit + case-local `/rekit` thin shim”迁移为“一个真实项目目录 = 一个自包含 STeamAI 项目”：新入口 `/steamai`、current 状态根 `.steamai`、project-local verified runtime/pack；旧 `/rekit` 与 `.rekit` 只保留显式兼容和 review-first 迁移。当前没有已批准下一路线。
 
-本路线保持单向依赖和唯一状态机：自然语言入口只消费 fresh typed state，executable action 使用 typed invocation，adapter 在执行/发布边界重算 strict authorization currentness，四个维护热点按原 package 职责拆分。远程 CI、Linux/macOS、三平台兼容和安装包不属于本路线完成口径。
+本路线同时关闭四个已确认用户断点：默认 status 过大、复杂故障不说人话、授权逐次打断、项目复制后依赖中央 kit。它们必须作为一个产品闭环落地，不能拆成连续 contract/metadata 微批次。远程 CI、Linux/macOS、三平台兼容、独立安装器、GUI/TUI 和仓库/Go module/内部 executable 机械改名不属于当前完成口径。
 
 ### 当前指针
 
 | 字段 | 当前值 |
 |---|---|
-| 路线 | `windows-mission-control-usability-v1` |
-| 当前批次 | `Batch 827` maintenance hotspot decomposition and full Windows acceptance |
+| 路线 | `steamai-self-contained-project-v1` |
+| 当前批次 | `Batch 828` STeamAI self-contained project closure |
 | 状态 | `completed` |
-| 唯一允许领取 | 无；路线已完成 |
-| 上一批 | `Batch 826` execution-time authorization currentness 已完成并关闭 |
-| 下一批 | 无；当前路线已按用户指定完成 |
-| canonical 代码入口 | `internal/rekit/releasecheck/**`、`internal/rekit/cli/**`、`internal/rekit/sessionhost/**` |
-| 最近完成 | Batch 827：热点拆分与完整 Windows 产品验收已完成 |
+| 唯一允许领取 | `Batch 828`（已完成的历史绑定；不可继续领取） |
+| 上一批 | `Batch 827` maintenance hotspot decomposition and full Windows acceptance 已完成 |
+| 下一批 | 无；等待用户明确改变路线 |
+| canonical 代码入口 | `internal/rekit/projectstate/**`、`internal/rekit/runtime{,bundle}/**`、`internal/rekit/sync/**`、`internal/rekit/cli/**`、`internal/rekit/sessionhost/**`、`internal/rekit/autonomy/**` |
+| 产品合同 | `docs/steamai-self-contained-project.md` |
+| 最近结果 | Windows state-root、compact status、人话 recovery、bounded autonomy、runtime bundle、copied-directory/no-central-kit、legacy migration、current-sync process recovery 与 durable supervisor handoff已通过；独立 capability 复核无 surviving blocker，完整 local minimum通过；未授权 commit/push，cadence 为 `implementation-pending` |
 
 ## 执行清单
 
-1. 将 latest-batch handoff、CLI next-batch、session current-step 与 daily Reviewer correction 按既有职责移入同 package 专属文件；不改变 public command、durable schema、JSON/text contract 或状态机 owner。
-2. 对拆分后的调用链运行相邻 package 回归，清理移动造成的重复声明、unused import 与旧测试 fixture，不顺手重写相邻代码。
-3. 关闭组合验收暴露的高置信回归：Reviewer Apply 后 fresh blocked status、explicit rejection replay、historical committed reopen、typed selector 歧义、VMP publication-time ownership 与 authorization-drift terminal evidence。
-4. 独立终审 typed invocation/reopen、VMP execution/cleanup 和 Batch 823～827 组合行为；只修复可复现的 Critical/Important finding。
-5. 运行真实 Windows `rekit-host -live-acceptance`、完整 `go test ./...`、`go vet ./...`、`go mod verify`、公开 `release-check/status/packs/doctor` 与 `git diff --check`；任一失败保持 `in_progress`。
-6. 验证全部通过后同步路线、短投影、历史、CHANGELOG 与 Windows-only 可用性复评，再统一 commit/push 到 `main`。
+1. 用 shared `projectstate` owner 完成 `.steamai` / `.rekit` dual-read、single-write；empty/path escape/file/reparse/root switch/dual-root 全部 fail-closed，production mutable owner 不再硬编码 current `.rekit`。
+2. ordinary init/attach 为新项目发布 `.claude/skills/steamai/SKILL.md`、relocatable `.steamai/instance.yml`、verified project-local runtime bundle、selected pack、common 与必要 assets；统一 `.steamai/packs/<pack>` 布局。
+3. runtime resolution 对 current target 优先使用项目内 bundle，拒绝 PATH/外部 kit fallback；复制项目到新路径并移除中央 kit 后，project-local status/packs/doctor/daily 仍可运行。
+4. 默认 Mission Commander refresh 使用 4 KiB `compact-json`；完整保留 typed request/choices，超限或 identity invalid 返回小型 blocked envelope，full JSON 只按需诊断。
+5. daily action 统一“现在、原因、下一步”，只从 typed failure/mutation boundary 投影 `auto-recovered|retryable|user-decision-required`；不把 STeamAI 描述成 Claude Code 安装/登录管理器。
+6. `bounded-autonomous-v1` 只允许显式 managed preset：单 project/lane、manifest exact actions、exact targets、有限 budget、完整 stop、case-relative outputs、最长 15 分钟、record/revoke/evaluate currentness；不宣称无限权限。
+7. 新增独立 `.rekit` → `.steamai` review-first migration：zero-write preview、exact plan SHA Apply、durable receipt、safe replay、skill/relocatable metadata 转换；禁止双写、自动合并、自动择优或权限提升。
+8. 更新 README、canonical/project skill、产品方向、使用指南、router、CHANGELOG 与历史评估指针；默认 quickstart 只保留 `cd <project> → claude → /steamai`，旧命令参考降级为 compatibility/maintenance。
+9. current/legacy/dual-root/copied-directory/compact/recovery/autonomy/migration Windows E2E、独立边界复核与完整 release minimum 均已完成；canonical `release-run` 的步骤、receipt和inspection外部命令统一由有界进程树runner收口，根退出、deadline或64 MiB输出上限均终止 containment 内的剩余子孙，逃逸writer只允许5秒有限pipe drain；在冻结工作树上重新执行 exact 7/7 minimum，只有全绿才写 Git-local machine receipt，当前 receipt 状态以 fresh `release-check` 为准。
 
 ## 当前批次卡
 
-### Batch 827：maintenance hotspot decomposition and full Windows acceptance
+### Batch 828：STeamAI self-contained project closure
 
-目标：在不改变状态机、public command或durable schema的前提下，把四个高频维护热点按现有职责边界拆成同package文件，并用完整Windows产品验收确认Batch 823～827组合行为。
+**目标**：让一个真实项目目录携带自己的 skill、状态、runtime 和 pack，用户只需在项目中启动已有 Claude Code 并使用 `/steamai` 或自然语言；复制项目且中央 kit 不可用时仍能恢复、查询和继续。
 
-验证结果：已完成；四个热点拆分、focused/full 回归、真实 Windows 产品路径、公开入口、独立终审和路线总验收均已关闭。
-
-**用户断点**：连续四批已改善Windows文本、自然语言纠偏、typed invocation和执行时授权，但latest-batch handoff、CLI next-batch、session current-step与daily reviewer correction仍是AI维护时容易牵连相邻职责的热点；最后还缺整条路线的Windows组合验收。
+**用户断点**：旧流程要求先理解 kit/case、中央 runtime、thin shim、`.rekit` 和大量底层命令；默认 status 可能挤占主 Agent 上下文，复杂故障需要维护者知识，heavy action 又缺少诚实的免逐次询问档位。
 
 **范围内**：
 
-- 机械拆分`release_handoff_latest_batch.go`、`cli/next_batch.go`、`sessionhost/host_current_step.go`与`sessionhost/daily_reviewer_correction.go`；
-- 只移动既有symbols及其私有helpers，保持package、调用方向、JSON/text contract、错误文本与测试行为；
-- 每次拆分后运行对应focused package，最后运行完整Windows minimum与适用真实产品验收；
-- 独立终审只接受高置信correctness/security/maintenance regression。
+- STeamAI 品牌、`/steamai`、`.steamai` 和 self-contained bundle；
+- dual-read/single-write legacy compatibility 与显式 migration；
+- compact status、人话 recovery、bounded autonomy；
+- retry/fence、structured failure 和 handoff currentness correctness 回归；
+- Windows copied-directory product E2E 和文档路由收口。
 
 **范围外**：
 
-- 不重写Mission Commander、correction/reopen、authorization或reviewer状态机；
-- 不新增字段、命令、PowerShell runtime logic、heavy action或authority/confirmed写入；
-- 不把机械拆分扩展成跨package abstraction或未来平台产品化。
+- Claude Code 安装、登录或全局 plugin 管理；
+- 无限/无记录/无边界授权，case-wide 或 multi-lane v2 grant；
+- GUI/TUI、独立 installer、远程 CI、Linux/macOS product E2E；
+- 仓库名、Go module、所有 package/executable 的机械改名；
+- authority/confirmed 自动写入、自动 sync/promote 或未授权 heavy action。
 
-**当前结果**：`completed`。四个热点已按原 package 职责拆分；selector/reopen/Reviewer replay、VMP publication ownership、authorization drift、orphan terminal closure 与 Windows identity-bound cleanup 回归均已关闭。真实 Windows live acceptance 通过，member/Reviewer 各 3 次完成，VMP adapter/contained child、纠偏替换、attached recovery、terminal replay 与 cleanup 全部成功；完整 Go tests、vet 和 module verify 通过。
+**当前结果**：`completed`。state-root、`/steamai`、compact recovery、bounded autonomy、project-local bundle/copy、legacy migration、current-sync recovery与durable supervisor handoff均通过focused/E2E；真实hard-kill后late child零启动。独立复核关闭supervision mutation-before-spec和handoff capability-ordering缺口，无surviving blocker。Windows全仓tests、vet、module verify、public CLI、diff和local minimum通过。未授权commit/push，cadence为`implementation-pending`；无下一批，不声称remote CI green。
 
-**完成门槛**：已满足。Windows 本机 focused/full tests、真实产品路径、公开 release-check/status/packs/doctor、独立终审与 diff 检查全部通过后，路线关闭并统一 commit/push 到 `main`。
+**完成门槛**：
+
+- current `.steamai`、legacy `.rekit` 和 dual-root fail-closed package/E2E；
+- copied project 在中央 kit 不可用时从 project-local runtime 完成 status/packs/doctor/daily；
+- compact 输出含换行不超过 4096 bytes，request/choices 与 full identity parity；
+- recovery 正反边界、bounded autonomy provision/evaluate/revoke、migration preview/Apply/replay 全绿；
+- `go test -count=1 -p=2 -timeout=30m ./...`、`go vet ./...`、`go mod verify`、公开 release-check/status/packs/doctor 与 `git diff --check` 全绿；
+- canonical docs 不再把中央 kit/thin shim 或 `/rekit` 当新项目默认。
 
 ## 验证标准
 
-- Windows 本机 `go test ./...`、`go vet ./...`、公开 `release-check/status/packs/doctor` 与 `git diff --check` 全部通过。
-- profile/gate currentness 在三个时点可重算且结果一致；不存在缓存授权、transport 授权或 request-SHA 授权旁路。
-- route/current/state/claim/next 与 `docs/batch-plan.md` 完全一致；冲突时 fail-closed。
-- 路线后续保持 gate 决策 owner、共享 validator、adapter executor 与 publication owner 的单向依赖；失败清理不得删除非本进程 exact-owned object。
+- Windows 本机完整 release minimum 全部通过；remote jobs 不参与当前完成判断。
+- project metadata 和 bundle 不保留旧项目绝对路径作为运行依据；copy 后重新解析 `${CLAUDE_PROJECT_DIR}`。
+- current target 即使从 kit CWD 调用，也不能被中央 source repo 覆盖；bundle 缺失/篡改时 fail-closed，不走 PATH fallback。
+- `.steamai` 与 `.rekit` 共存、root object 非普通目录、reparse/junction/symlink、路径逃逸、执行中切根均拒绝。
+- migration 不改变 authority/confirmed/gate/autonomy/evidence bytes 的语义，不执行 heavy action。
+- route/current/state/claim/next 与 `docs/batch-plan.md` 完全一致；冲突时停止实施。
 
 ## 风险与注意事项
 
-- validator 只判断当前授权是否仍成立，不创建、续期或迁移授权。
-- 不为共享而吞掉 adapter-specific dispatch/output identity；共享层只接收已经解析的 bounded inputs并返回 typed result。
-- actual heavy-tool、authority/confirmed、sync/promote和外部 transport 边界保持不变。
-- 用户已授权本路线实施与必要本机验证；commit/push只在全部 Batch 823～827 完成并总验收后执行。
+- 自包含 runtime bundle 与 copied-directory/no-central-kit 已有 production executable E2E；后续改动不得用仅模拟 central repo attachment 的 fixture 替代该门禁。
+- `bounded-autonomous-v1` 的用户名称可以表达“较高自治”，但文档和 runtime 必须清楚显示 exact scope、budget、expiry 与停止条件，不能说成无限全权。
+- legacy compatibility 允许明确 `.rekit` literals 和 `/rekit` commands；静态门禁应禁止 current mutable owner 新增直写，不应盲删历史、fixture 或兼容字符串。
+- actual heavy-tool、authority/confirmed、sync/promote、未授权外部副作用和公共 façade 删除继续按原 gate 升级。
+- package/focused/E2E与独立复核不能单独替代完整 release minimum；本批三者均已关闭。冻结后的 machine receipt只证明同一Windows工作树的local gate，不证明commit/push或remote CI green。
+- current-sync Apply 与 current durable detached handoff要求handle-bound exact mutation；Windows支持，非Windows在任何持久化副作用前fail-closed。Read-only/preview和legacy zero-handoff compatibility保留；cross-compile不是runtime evidence。
 
 ## 路线变更记录
 
-- 2026-08-13：Batch 827 与 `windows-mission-control-usability-v1` 完成并关闭；四个维护热点按原 package owner 拆分，组合验收关闭 typed selector、historical reopen、Reviewer post-mutation、VMP orphan terminal closure 与 Windows cleanup identity 竞态。真实 Windows live acceptance、完整 Go tests/vet/module verify、公开入口和 release gate 通过；路线无可领取下一批，等待用户明确新路线。
-- 2026-08-13：Batch 826完成并关闭；gate-owned共享只读authorization currentness validator接通generic adapter三阶段与VMP execution/publication/seal，profile/decision/owner/dispatch/output漂移均fail-closed；Windows exact-handle cleanup和Linux/Darwin no-replace canonical isolation关闭replacement误删与VMP terminal lifecycle断点，Windows真实adapter产品链、全仓Go tests/vet/diff、跨平台compile-only和独立终审通过，唯一领取推进到Batch 827。
-- 2026-08-13：Batch 825完成并关闭；bounded `PublicInvocation` 成为 executable ReKit action identity，Mission Commander queue/driver request、daily/status/handoff/takeover和current-step/current-loop统一消费typed invocation与exact selected lane，多lane、unknown/blocked/stale/rebind和双selector均fail-closed；Windows临时case正反路径、全仓Go tests/vet/diff、公开入口和独立终审通过，唯一领取推进到Batch 826。
-- 2026-08-13：Batch 824完成并关闭；fresh typed correction router复用既有Reviewer correction与reopen owner，terminal correction支持pending exact recovery、committed mutation-free replay、compound target currentness和多closed-lane typed choices，真实Windows公开进程零Claude launch；全仓Go tests、vet、文档/发布invariants和独立终审通过，唯一领取推进到Batch 825。
-- 2026-08-12：Batch 823完成并关闭；Windows CRLF/LF source representation现在生成同一canonical new-case write set，attached/mission raw路径与durable exact-byte identity保持，fresh `vmp-re` onboarding和完整Windows本机minimum通过，独立复核无surviving Critical/Important；唯一领取推进到Batch 824。
-- 2026-08-12：用户明确批准`windows-mission-control-usability-v1`，要求在Windows真实可用基础上继续改善好用度、智能化、模块清晰度和AI维护成本；路线固定为Batch 823～827的有序闭环，当前只激活Batch 823。
-- 2026-08-12：`remote-control-reviewer-transport-v1` / Batch 822完成并关闭；explicit read-only Reviewer transport companion保留existing durable external-session、uncertain fencing和strict intake边界。
-- 2026-08-11：`daily-product-closure-v1`完成；Windows本机真实Claude member/Reviewer、恢复、soak与四个日常产品闭环通过。
-- `RH-01`～`RH-09`和旧Batch的完整实现/验证历史按ID查询`docs/batch-history.md`，active入口不重复保存。
+- 2026-08-16：Batch 828按Windows口径完成；独立复核无surviving blocker，全仓local minimum通过。非Windows exact-mutation owner路径在副作用前fail-closed；cross-compile不冒充runtime E2E。未授权commit/push，cadence为`implementation-pending`，路线completed/no-next。
+- 2026-08-14：建立本路线；产品模型固定为自包含项目、`/steamai`、`.steamai`、project-local runtime/pack，旧入口仅迁移兼容。更早历史见`docs/batch-history.md`。

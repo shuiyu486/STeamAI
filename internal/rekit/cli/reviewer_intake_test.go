@@ -1778,7 +1778,7 @@ func TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath(t *
 	handoff := plan.ShardHandoffs[0]
 	baseArgs := []string{"-Target", caseRoot, "-Pack", "_template"}
 	reviewerSession := "reviewer-session-operator-package"
-	reviewerOutputPath := filepath.Join(caseRoot, "workspace", "reviewer-output", "shard-01.json")
+	reviewerOutputPath := filepath.Join(packet.ReviewerOrchestration.ResultRoot, "returned-results", "shard-01.json")
 	runtimeCommand := func(command string) string {
 		return strings.NewReplacer("<harness>", "go-cli-operator-harness", "<session-id>", reviewerSession, "<main-agent>", "mission-commander", "<reviewer-result-json-path>", reviewerOutputPath).Replace(command)
 	}
@@ -1786,6 +1786,7 @@ func TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath(t *
 		Summary          reviewerDispatchIntakeSummaryCLIItem
 		ReviewerQueue    missionCommanderActionQueueSnapshot
 		FirstScreenQueue missionCommanderActionQueueSnapshot
+		RunbookRequest   *missionCommanderDriverRequestSnapshot
 	}
 	statusSnapshot := func(label string) reviewerOperatorStatus {
 		out.Reset()
@@ -1799,6 +1800,7 @@ func TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath(t *
 				ReviewerDispatchIntakeActionQueue missionCommanderActionQueueSnapshot  `json:"reviewerDispatchIntakeActionQueue"`
 				MissionCommanderActionQueue       missionCommanderActionQueueSnapshot  `json:"missionCommanderActionQueue"`
 			} `json:"caseMission"`
+			MissionControlRunbook statusMissionControlRunbookSnapshot `json:"missionControlRunbook"`
 		}
 		if err := json.Unmarshal(out.Bytes(), &status); err != nil {
 			t.Fatalf("%s status JSON did not decode: %v\n%s", label, err, out.String())
@@ -1810,7 +1812,7 @@ func TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath(t *
 		if firstScreenCurrent == nil || firstScreenCurrent.Source != "reviewerDispatchIntakeHandoffs" || reviewerCurrent == nil || reviewerCurrent.Label != firstScreenCurrent.Label || firstScreenRequest == nil || reviewerRequest == nil || firstScreenRequest.Kind != reviewerRequest.Kind || firstScreenRequest.Command != reviewerRequest.Command || firstScreenRequest.Guidance != reviewerRequest.Guidance || firstScreenRequest.ExpectedReceipt.RefreshStatusCommand != reviewerRequest.ExpectedReceipt.RefreshStatusCommand {
 			t.Fatalf("%s status omitted reviewer current driver request: firstScreen=%+v reviewer=%+v", label, status.CaseMission.MissionCommanderActionQueue, status.CaseMission.ReviewerDispatchIntakeActionQueue)
 		}
-		return reviewerOperatorStatus{Summary: status.CaseMission.ReviewerDispatchIntakeSummary, ReviewerQueue: status.CaseMission.ReviewerDispatchIntakeActionQueue, FirstScreenQueue: status.CaseMission.MissionCommanderActionQueue}
+		return reviewerOperatorStatus{Summary: status.CaseMission.ReviewerDispatchIntakeSummary, ReviewerQueue: status.CaseMission.ReviewerDispatchIntakeActionQueue, FirstScreenQueue: status.CaseMission.MissionCommanderActionQueue, RunbookRequest: status.MissionControlRunbook.CurrentDriverRequest}
 	}
 
 	driverRequestCommandArgs := func(label string, request *missionCommanderDriverRequestSnapshot) []string {
@@ -1924,9 +1926,46 @@ func TestRunPlanSubagentsReviewerOperatorPackageExecutableRunLoopProductPath(t *
 	if runningHandoff.IsMutation || runningHandoff.Applied || !runningHandoff.Project || handoffPackage.CurrentRunLoopStepID != "save-result-input" || handoffPackage.Current.State != "reviewer-session-running-unknown" || handoffPackage.Current.ReviewerDispatchID != dispatchApply.DispatchID || handoffPackage.Current.ReviewerSession != reviewerSession {
 		t.Fatalf("project handoff did not carry running reviewer input-save operator package: %+v", runningHandoff)
 	}
-	handoffRequest := requireMissionCommanderDriverRequest(t, runningHandoff.MissionCommanderActionQueue, "preview-command", "preview-current", runningRequest.Command, true, false, true)
-	if handoffRequest.Command != runningRequest.Command || handoffRequest.ExpectedReceipt.Command != runningRequest.ExpectedReceipt.Command || handoffRequest.ExpectedReceipt.State != "refresh-required" || handoffPackage.RefreshStatusCommand == "" || handoffPackage.CurrentDriverRequest == nil || handoffPackage.CurrentDriverRequest.ExpectedReceipt.RefreshStatusCommand != handoffPackage.RefreshStatusCommand || handoffRequest.ExpectedReceipt.RefreshStatusCommand != runningRequest.ExpectedReceipt.RefreshStatusCommand {
-		t.Fatalf("project handoff reviewer driver request drifted from status request: handoff=%+v status=%+v pkg=%+v", handoffRequest, runningRequest, handoffPackage)
+	qualifiedRequest := status.RunbookRequest
+	if qualifiedRequest == nil {
+		t.Fatal("running status omitted qualified mission control driver request")
+	}
+	handoffRequest := requireMissionCommanderDriverRequest(t, runningHandoff.MissionCommanderActionQueue, qualifiedRequest.Kind, qualifiedRequest.RunLoopStepID, qualifiedRequest.Command, true, false, true)
+	qualifiedArgs, qualifiedOK := missionCommanderDriverRequestCommandCLIArgs(t, qualifiedRequest)
+	handoffArgs, handoffOK := missionCommanderDriverRequestCommandCLIArgs(t, handoffRequest)
+	exactFlagValue := func(args []string, flag, value string) bool {
+		count := 0
+		for i := 0; i < len(args); i++ {
+			if !strings.EqualFold(args[i], flag) {
+				continue
+			}
+			count++
+			if i+1 >= len(args) || args[i+1] != value {
+				return false
+			}
+		}
+		return count == 1
+	}
+	qualifiedRefreshArgs := rekitCommandCLIArgs(t, qualifiedRequest.ExpectedReceipt.RefreshStatusCommand)
+	handoffRefreshArgs := rekitCommandCLIArgs(t, handoffRequest.ExpectedReceipt.RefreshStatusCommand)
+	if !qualifiedOK || !handoffOK {
+		t.Fatalf("project handoff omitted executable typed request: handoff=%+v status=%+v", handoffRequest, qualifiedRequest)
+	}
+	if qualifiedRequest.RunLoopStepID != "save-result-input" {
+		t.Fatalf("qualified status request step = %q, want save-result-input", qualifiedRequest.RunLoopStepID)
+	}
+	for label, args := range map[string][]string{"qualified command": qualifiedArgs, "handoff command": handoffArgs} {
+		if !exactFlagValue(args, "-Target", caseRoot) || !exactFlagValue(args, "-Lane", "feature-login") {
+			t.Fatalf("%s omitted exact Target/Lane: %+v", label, args)
+		}
+	}
+	for label, args := range map[string][]string{"qualified refresh": qualifiedRefreshArgs, "handoff refresh": handoffRefreshArgs} {
+		if !exactFlagValue(args, "-Target", caseRoot) {
+			t.Fatalf("%s omitted exact Target: %+v", label, args)
+		}
+	}
+	if !slices.Equal(qualifiedArgs, handoffArgs) || handoffRequest.ExpectedReceipt.Command != qualifiedRequest.ExpectedReceipt.Command || handoffRequest.ExpectedReceipt.State != "refresh-required" || handoffPackage.RefreshStatusCommand == "" || handoffPackage.CurrentDriverRequest == nil || handoffPackage.CurrentDriverRequest.RunLoopStepID != qualifiedRequest.RunLoopStepID {
+		t.Fatalf("project handoff reviewer driver request drifted from qualified status request: handoff=%+v status=%+v rawReviewer=%+v pkg=%+v", handoffRequest, qualifiedRequest, runningRequest, handoffPackage)
 	}
 	resultData := reviewerResultForCLIPlan(t, packet, handoff, "accept", "accepted", reviewerSession)
 	if err := os.MkdirAll(filepath.Dir(reviewerOutputPath), 0o755); err != nil {

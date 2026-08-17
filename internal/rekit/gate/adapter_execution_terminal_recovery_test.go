@@ -242,7 +242,7 @@ func TestAdapterReportTerminalRecoveryRejectsSucceededAndMalformedCatalog(t *tes
   "createdAt": "2026-07-29T00:00:00Z",
   "updatedAt": "2026-07-29T00:00:00Z"
 }`)
-		authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout"})
+		authorized, err := Apply(repoRoot, caseRoot, pack, Options{Action: "debug", Lane: "main", Actor: "gate-test", Subject: "authorized debug", TargetRef: "target-alpha", RuntimeSeconds: 30, DiskMB: 64, Requests: 1, OutputPaths: "workspace/main/debug/session-1", StopConditions: "timeout,unexpected-side-effect,scope-drift"})
 		if err != nil {
 			t.Fatal(err)
 		}

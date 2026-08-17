@@ -9,11 +9,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 
-	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanecompletion"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mutationfence"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectlock"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 var safeLaneIDSegment = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$`)
@@ -44,7 +45,7 @@ func AcquireLane(caseRoot, laneID string) (*Lease, error) {
 	if !safeLaneIDSegment.MatchString(laneID) {
 		return nil, fmt.Errorf("invalid lane id for mutation lock: %q", laneID)
 	}
-	return acquire(caseRoot, laneID)
+	return acquire(caseRoot, laneID, true)
 }
 
 func AcquireOpenLane(caseRoot, laneID, command string) (*Lease, error) {
@@ -59,7 +60,14 @@ func AcquireOpenLane(caseRoot, laneID, command string) (*Lease, error) {
 }
 
 func AcquireProject(caseRoot string) (*Lease, error) {
-	return acquire(caseRoot, "")
+	return acquire(caseRoot, "", true)
+}
+
+// AcquireProjectRefresh serializes with every project and lane mutation while
+// allowing the caller to atomically replace instance.yml as its final
+// activation step. The metadata root and stable case identity remain pinned.
+func AcquireProjectRefresh(caseRoot string) (*Lease, error) {
+	return acquire(caseRoot, "", false)
 }
 
 func AssertLaneOpen(caseRoot, laneID, command string) error {
@@ -67,7 +75,7 @@ func AssertLaneOpen(caseRoot, laneID, command string) error {
 	if command == "" {
 		command = "lane mutation"
 	}
-	lanePath, err := refsf.SafeJoin(caseRoot, filepath.Join(".rekit", "lanes", laneID, "lane.json"))
+	lanePath, err := projectstate.Join(caseRoot, "lanes", laneID, "lane.json")
 	if err != nil {
 		return err
 	}
@@ -125,7 +133,7 @@ func laneStatus(caseRoot, laneID, lanePath string) (string, error) {
 	if !os.IsNotExist(err) {
 		return "", err
 	}
-	boardPath, err := refsf.SafeJoin(caseRoot, filepath.Join(".rekit", "board.json"))
+	boardPath, err := projectstate.Join(caseRoot, "board.json")
 	if err != nil {
 		return "", err
 	}
@@ -150,15 +158,16 @@ func laneStatus(caseRoot, laneID, lanePath string) (string, error) {
 	return "", fmt.Errorf("unknown lane %q in board", laneID)
 }
 
-func acquire(caseRoot, laneID string) (*Lease, error) {
+func acquire(caseRoot, laneID string, pinInstance bool) (*Lease, error) {
 	casePath, err := filepath.Abs(caseRoot)
 	if err != nil {
 		return nil, err
 	}
-	metadataPath, err := refsf.SafeJoin(casePath, ".rekit")
+	stateRoot, err := projectstate.Resolve(casePath)
 	if err != nil {
 		return nil, err
 	}
+	metadataPath := stateRoot.Path
 	if st, err := os.Lstat(metadataPath); err != nil {
 		return nil, err
 	} else if st.Mode()&os.ModeSymlink != 0 || !st.IsDir() {
@@ -172,7 +181,7 @@ func acquire(caseRoot, laneID string) (*Lease, error) {
 	if err != nil {
 		return nil, errors.Join(err, metadataRoot.Close())
 	}
-	lease := &Lease{metadataRoot: metadataRoot, metadataPath: metadataPath, metadataInfo: metadataInfo, unlockFile: unlockLaneLeaseFile}
+	lease := &Lease{metadataRoot: metadataRoot, metadataPath: metadataPath, metadataInfo: metadataInfo, unlockFile: projectlock.Unlock}
 	casePathRoot, err := os.OpenRoot(casePath)
 	if err != nil {
 		return nil, errors.Join(err, metadataRoot.Close())
@@ -205,7 +214,7 @@ func acquire(caseRoot, laneID string) (*Lease, error) {
 		return nil, errors.Join(err, metadataRoot.Close())
 	}
 	if lease.stableCaseFile != nil {
-		if err := lockLaneLeaseFile(lease.stableCaseFile.Fd(), true); err != nil {
+		if err := projectlock.Lock(lease.stableCaseFile.Fd(), true); err != nil {
 			return nil, errors.Join(err, lease.stableCaseFile.Close(), metadataRoot.Close())
 		}
 	}
@@ -231,7 +240,7 @@ func acquire(caseRoot, laneID string) (*Lease, error) {
 	}
 	exclusiveProject := true
 
-	lockRootPath, err := stableWorkstreamLockRoot()
+	lockRootPath, err := projectlock.WorkstreamRoot()
 	if err != nil {
 		return fail(err)
 	}
@@ -250,13 +259,9 @@ func acquire(caseRoot, laneID string) (*Lease, error) {
 	closeLockRoot := func(cause error) (*Lease, error) {
 		return fail(errors.Join(cause, lockRoot.Close()))
 	}
-	caseIdentity, err := filepath.EvalSymlinks(casePath)
+	caseIdentity, err := projectlock.CanonicalProjectIdentity(casePath)
 	if err != nil {
 		return closeLockRoot(fmt.Errorf("resolve canonical workstream case identity: %w", err))
-	}
-	caseIdentity = filepath.Clean(caseIdentity)
-	if runtime.GOOS == "windows" {
-		caseIdentity = strings.ToLower(caseIdentity)
 	}
 	caseKey := sha256.Sum256([]byte(caseIdentity))
 	projectName := "case-" + hex.EncodeToString(caseKey[:]) + ".lease"
@@ -269,7 +274,7 @@ func acquire(caseRoot, laneID string) (*Lease, error) {
 	if err != nil {
 		return closeLockRoot(err)
 	}
-	if err := lockLaneLeaseFile(lease.externalProjectFile.Fd(), exclusiveProject); err != nil {
+	if err := projectlock.Lock(lease.externalProjectFile.Fd(), exclusiveProject); err != nil {
 		return closeLockRoot(err)
 	}
 	if laneExists {
@@ -284,59 +289,61 @@ func acquire(caseRoot, laneID string) (*Lease, error) {
 		if err != nil {
 			return closeLockRoot(err)
 		}
-		if err := lockLaneLeaseFile(lease.externalLaneFile.Fd(), true); err != nil {
+		if err := projectlock.Lock(lease.externalLaneFile.Fd(), true); err != nil {
 			return closeLockRoot(err)
 		}
 	}
 	if err := lockRoot.Close(); err != nil {
 		return fail(err)
 	}
-	instanceRel := "instance.yml"
-	instanceRoot := metadataRoot
-	instanceBase := metadataPath
-	var legacyInstanceRoot *os.Root
-	instanceBefore, err := metadataRoot.Lstat(instanceRel)
-	if os.IsNotExist(err) {
-		instanceRel = ".re-template.yml"
-		instanceBase = casePath
-		legacyInstanceRoot, err = os.OpenRoot(casePath)
+	if pinInstance {
+		instanceRel := "instance.yml"
+		instanceRoot := metadataRoot
+		instanceBase := metadataPath
+		var legacyInstanceRoot *os.Root
+		instanceBefore, err := metadataRoot.Lstat(instanceRel)
+		if os.IsNotExist(err) {
+			instanceRel = ".re-template.yml"
+			instanceBase = casePath
+			legacyInstanceRoot, err = os.OpenRoot(casePath)
+			if err != nil {
+				return fail(err)
+			}
+			instanceRoot = legacyInstanceRoot
+			instanceBefore, err = instanceRoot.Lstat(instanceRel)
+		}
 		if err != nil {
 			return fail(err)
 		}
-		instanceRoot = legacyInstanceRoot
-		instanceBefore, err = instanceRoot.Lstat(instanceRel)
-	}
-	if err != nil {
-		return fail(err)
-	}
-	if instanceBefore.Mode()&os.ModeSymlink != 0 || !instanceBefore.Mode().IsRegular() {
-		if legacyInstanceRoot != nil {
-			_ = legacyInstanceRoot.Close()
+		if instanceBefore.Mode()&os.ModeSymlink != 0 || !instanceBefore.Mode().IsRegular() {
+			if legacyInstanceRoot != nil {
+				_ = legacyInstanceRoot.Close()
+			}
+			return fail(fmt.Errorf("canonical workstream instance must be a regular file and not a symlink: %s", filepath.Join(instanceBase, instanceRel)))
 		}
-		return fail(fmt.Errorf("canonical workstream instance must be a regular file and not a symlink: %s", filepath.Join(instanceBase, instanceRel)))
-	}
-	lease.instanceFile, err = instanceRoot.Open(instanceRel)
-	if legacyInstanceRoot != nil {
-		err = errors.Join(err, legacyInstanceRoot.Close())
-	}
-	if err != nil {
-		return fail(err)
-	}
-	lease.instanceInfo, err = lease.instanceFile.Stat()
-	if err != nil {
-		return fail(err)
-	}
-	lease.instancePath = filepath.Join(instanceBase, instanceRel)
-	if !os.SameFile(instanceBefore, lease.instanceInfo) {
-		return fail(fmt.Errorf("canonical workstream instance changed while opening: %s", lease.instancePath))
-	}
-	if lease.stableCaseFile != nil && os.SameFile(lease.stableCaseInfo, lease.instanceInfo) {
-		if err := lease.instanceFile.Close(); err != nil {
+		lease.instanceFile, err = instanceRoot.Open(instanceRel)
+		if legacyInstanceRoot != nil {
+			err = errors.Join(err, legacyInstanceRoot.Close())
+		}
+		if err != nil {
 			return fail(err)
 		}
-		lease.instanceFile = nil
-	} else if err := lockLaneLeaseFile(lease.instanceFile.Fd(), exclusiveProject); err != nil {
-		return fail(err)
+		lease.instanceInfo, err = lease.instanceFile.Stat()
+		if err != nil {
+			return fail(err)
+		}
+		lease.instancePath = filepath.Join(instanceBase, instanceRel)
+		if !os.SameFile(instanceBefore, lease.instanceInfo) {
+			return fail(fmt.Errorf("canonical workstream instance changed while opening: %s", lease.instancePath))
+		}
+		if lease.stableCaseFile != nil && os.SameFile(lease.stableCaseInfo, lease.instanceInfo) {
+			if err := lease.instanceFile.Close(); err != nil {
+				return fail(err)
+			}
+			lease.instanceFile = nil
+		} else if err := projectlock.Lock(lease.instanceFile.Fd(), exclusiveProject); err != nil {
+			return fail(err)
+		}
 	}
 	if laneExists {
 		laneBefore, err := metadataRoot.Lstat(laneRel)
@@ -358,12 +365,17 @@ func acquire(caseRoot, laneID string) (*Lease, error) {
 		if !os.SameFile(laneBefore, lease.canonicalLaneInfo) {
 			return fail(fmt.Errorf("canonical workstream lane changed while opening: %s", lease.canonicalLanePath))
 		}
-		if err := lockLaneLeaseFile(lease.canonicalLaneFile.Fd(), true); err != nil {
+		if err := projectlock.Lock(lease.canonicalLaneFile.Fd(), true); err != nil {
 			return fail(err)
 		}
 	}
 	if err := lease.Validate(); err != nil {
 		return fail(err)
+	}
+	if pinInstance {
+		if err := mutationfence.RefusePendingCurrentSync(casePath, "workstream mutation"); err != nil {
+			return fail(err)
+		}
 	}
 	return lease, nil
 }

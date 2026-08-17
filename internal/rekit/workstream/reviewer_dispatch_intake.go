@@ -20,6 +20,7 @@ import (
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewerresult"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewersession"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewpath"
@@ -1273,7 +1274,10 @@ func reviewerPacketRetirementSummaryBoundary() []string {
 }
 
 func reviewerDispatchPacketPaths(caseRoot string) ([]string, error) {
-	root := filepath.Join(caseRoot, ".rekit", "reviews")
+	root, err := projectstate.Join(caseRoot, "reviews")
+	if err != nil {
+		return nil, err
+	}
 	entries, err := os.ReadDir(root)
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -1860,12 +1864,15 @@ func reviewerDispatchSessionCurrentOwnerBindings(caseRoot string, packet reviewe
 	if owner.CurrentExecutor == currentExecutor && owner.ExecutorGeneration == currentGeneration {
 		return receipt.EffectiveOwner == reviewerDispatchSessionOwner(owner) && receipt.OwnerAdoptionPath == "" && receipt.OwnerAdoptionSHA256 == ""
 	}
-	adoptionPath := filepath.Join(caseRoot, ".rekit", "reviewer-adoptions", packet.PacketID+".json")
+	adoptionPath, err := stateJoin(caseRoot, "reviewer-adoptions", packet.PacketID+".json")
+	if err != nil {
+		return false
+	}
 	adoption, current := reviewerDispatchCurrentAdoption(caseRoot, adoptionPath, packet, packetPath, currentExecutor, currentGeneration)
 	if !current {
 		return false
 	}
-	data, err := readStableReviewerWorkstreamArtifact(caseRoot, adoptionPath, "reviewer packet adoption")
+	data, err := refsf.ReadStableRegularFileAnchored(caseRoot, adoptionPath, "reviewer packet adoption", 1<<20)
 	if err != nil {
 		return false
 	}
@@ -1943,13 +1950,18 @@ func reviewerDispatchSessionLifecycle(caseRoot string, packet reviewerDispatchPa
 	if len(names) == 0 {
 		return reviewerSessionLifecycle{state: "reviewer-session-receipt-invalid", failure: "dispatch receipt namespace contains no receipt"}
 	}
-	var selected reviewerSessionLifecycle
-	var selectedAt time.Time
+	var selectedCurrent reviewerSessionLifecycle
+	var selectedCurrentAt time.Time
 	var selectedStale reviewerSessionLifecycle
 	var selectedStaleAt time.Time
+	var selectedCurrentInput reviewerSessionLifecycle
+	var selectedCurrentInputAt time.Time
+	var selectedStaleInput reviewerSessionLifecycle
+	var selectedStaleInputAt time.Time
 	var exactInputMatch reviewerSessionLifecycle
 	exactInputMatches := 0
 	matchingInputDispatches := 0
+	matchingCurrentInputDispatches := 0
 	for _, name := range names {
 		path := filepath.Join(root, name)
 		data, readErr := readStableReviewerWorkstreamArtifact(caseRoot, path, "reviewer session dispatch receipt")
@@ -2009,19 +2021,28 @@ func reviewerDispatchSessionLifecycle(caseRoot string, packet reviewerDispatchPa
 			selectedStale = candidate
 			selectedStaleAt = recordedAt
 		}
-		if inputState == "ready" {
-			if receipt.ReviewerSession != inputSession {
-				continue
-			}
-			matchingInputDispatches++
-			if candidate.state == "reviewer-session-completed" {
-				exactInputMatches++
-				exactInputMatch = candidate
-			}
+		if candidate.state != "reviewer-session-receipt-owner-stale" && (selectedCurrent.dispatchID == "" || recordedAt.After(selectedCurrentAt)) {
+			selectedCurrent = candidate
+			selectedCurrentAt = recordedAt
 		}
-		if selected.dispatchID == "" || recordedAt.After(selectedAt) {
-			selected = candidate
-			selectedAt = recordedAt
+		if inputState == "ready" && receipt.ReviewerSession == inputSession {
+			matchingInputDispatches++
+			if candidate.state == "reviewer-session-receipt-owner-stale" {
+				if selectedStaleInput.dispatchID == "" || recordedAt.After(selectedStaleInputAt) {
+					selectedStaleInput = candidate
+					selectedStaleInputAt = recordedAt
+				}
+			} else {
+				matchingCurrentInputDispatches++
+				if selectedCurrentInput.dispatchID == "" || recordedAt.After(selectedCurrentInputAt) {
+					selectedCurrentInput = candidate
+					selectedCurrentInputAt = recordedAt
+				}
+				if candidate.state == "reviewer-session-completed" {
+					exactInputMatches++
+					exactInputMatch = candidate
+				}
+			}
 		}
 	}
 	if inputState == "ready" {
@@ -2031,17 +2052,29 @@ func reviewerDispatchSessionLifecycle(caseRoot string, packet reviewerDispatchPa
 		if exactInputMatches > 1 {
 			return reviewerSessionLifecycle{state: "reviewer-session-receipt-invalid", failure: "reviewer result input matches multiple successful completion receipt lineages"}
 		}
-		if matchingInputDispatches == 0 && selectedStale.dispatchID != "" {
-			return selectedStale
+		if matchingCurrentInputDispatches == 1 {
+			return selectedCurrentInput
 		}
-		if matchingInputDispatches == 0 {
-			return reviewerSessionLifecycle{state: "reviewer-session-receipt-invalid", failure: "reviewer result input session is not bound to a dispatch receipt"}
+		if matchingCurrentInputDispatches > 1 {
+			return reviewerSessionLifecycle{state: "reviewer-session-receipt-invalid", failure: "reviewer result input session has multiple current dispatches without one exact successful completion lineage"}
 		}
-		if matchingInputDispatches > 1 {
-			return reviewerSessionLifecycle{state: "reviewer-session-receipt-invalid", failure: "reviewer result input session has multiple dispatches without one exact successful completion lineage"}
+		if selectedCurrent.dispatchID == "" {
+			if matchingInputDispatches == 0 && selectedStale.dispatchID != "" {
+				return selectedStale
+			}
+			if matchingInputDispatches == 1 {
+				return selectedStaleInput
+			}
+			if matchingInputDispatches == 0 {
+				return reviewerSessionLifecycle{state: "reviewer-session-receipt-invalid", failure: "reviewer result input session is not bound to a dispatch receipt"}
+			}
+			return reviewerSessionLifecycle{state: "reviewer-session-receipt-invalid", failure: "reviewer result input session has multiple stale dispatches without one exact successful completion lineage"}
 		}
 	}
-	return selected
+	if selectedCurrent.dispatchID != "" {
+		return selectedCurrent
+	}
+	return selectedStale
 }
 
 func reviewerDispatchSessionRecordCommand(packetPath, shardID, lane string) string {
@@ -2053,6 +2086,9 @@ func reviewerDispatchSessionCompletionCommand(packetPath, dispatchID, lane, inpu
 }
 
 func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts, packet reviewerDispatchPacket, packetPath, targetLane string, dispatch reviewerDispatchPacketDispatch, idx int) ReviewerDispatchIntakeHandoff {
+	if _, err := projectstate.Resolve(caseRoot); err != nil {
+		return ReviewerDispatchIntakeHandoff{PacketID: packet.PacketID, PacketPath: packetPath, TargetLane: targetLane, ShardID: dispatch.ShardID, State: "reviewer-state-root-invalid", DispatchPromptFailure: err.Error()}
+	}
 	resultPath := strings.TrimSpace(dispatch.ReviewerResultPath)
 	candidatePath := strings.TrimSpace(dispatch.ReviewerResultCandidatePath)
 	expectedInputPath := filepath.Join(packet.ReviewerOrchestration.ResultRoot, "inputs", dispatch.ShardID+".reviewer-input.json")
@@ -2279,8 +2315,12 @@ func reviewerDispatchIntakeHandoffFor(caseRoot string, facts mission.LedgerFacts
 	if reviewerDispatchPromptArtifactBlocksDispatch(promptArtifact, state) {
 		state = reviewerDispatchPromptArtifactBlockedState(promptArtifact)
 	}
-	adoptionPath := filepath.Join(caseRoot, ".rekit", "reviewer-adoptions", packet.PacketID+".json")
-	adoption, adoptionCurrent := reviewerDispatchCurrentAdoption(caseRoot, adoptionPath, packet, packetPath, currentExecutor, currentGeneration)
+	adoptionPath, adoptionPathErr := stateJoin(caseRoot, "reviewer-adoptions", packet.PacketID+".json")
+	adoption := reviewerPacketOwnerAdoption{}
+	adoptionCurrent := false
+	if adoptionPathErr == nil {
+		adoption, adoptionCurrent = reviewerDispatchCurrentAdoption(caseRoot, adoptionPath, packet, packetPath, currentExecutor, currentGeneration)
+	}
 	ownerStale := currentExecutor != strings.TrimSpace(packet.ReviewerOrchestration.OwnerBinding.CurrentExecutor) ||
 		currentGeneration != packet.ReviewerOrchestration.OwnerBinding.ExecutorGeneration
 	if ownerStale && !adoptionCurrent {
@@ -2511,11 +2551,11 @@ func reviewerDispatchSamePath(left, right string) bool {
 }
 
 func reviewerDispatchAdoptionPreviewCommand(packetPath, lane string) string {
-	return "/rekit plan-subagents -PacketPath " + quoteCommandArg(packetPath) + " -AdoptReviewerPacket -Lane " + quoteCommandArg(lane) + " -Actor <actor> -Reason <reason> -WhatIf -Format json"
+	return "/rekit plan-subagents -PacketPath " + quoteCommandArg(packetPath) + " -AdoptReviewerPacket -Lane " + quoteCommandArg(lane) + " -Actor <actor> -Reason " + quoteCommandArgAlways("<reason>") + " -WhatIf -Format json"
 }
 
 func reviewerDispatchPacketRetirementPreviewCommand(packetPath, lane string) string {
-	return "/rekit plan-subagents -PacketPath " + quoteCommandArg(packetPath) + " -RetireInvalidReviewerPacket -Lane " + quoteCommandArg(lane) + " -Actor <actor> -Reason <reason> -WhatIf -Format json"
+	return "/rekit plan-subagents -PacketPath " + quoteCommandArg(packetPath) + " -RetireInvalidReviewerPacket -Lane " + quoteCommandArg(lane) + " -Actor <actor> -Reason " + quoteCommandArgAlways("<reason>") + " -WhatIf -Format json"
 }
 
 func reviewerDispatchIntakeCommandAvailable(command string) bool {

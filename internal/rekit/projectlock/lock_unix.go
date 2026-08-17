@@ -1,6 +1,6 @@
-//go:build aix || darwin || dragonfly || freebsd || linux || netbsd || openbsd || solaris
+//go:build darwin || dragonfly || freebsd || illumos || linux || netbsd || openbsd
 
-package lanemutation
+package projectlock
 
 import (
 	"fmt"
@@ -17,7 +17,7 @@ func stableWorkstreamLockRoot() (string, error) {
 	return filepath.Join("/tmp", fmt.Sprintf("rekit-%d", uid), "workstream-locks"), nil
 }
 
-func lockLaneLeaseFile(fd uintptr, exclusive bool) error {
+func lockFile(fd uintptr, exclusive bool) error {
 	mode := syscall.LOCK_SH
 	if exclusive {
 		mode = syscall.LOCK_EX
@@ -25,6 +25,6 @@ func lockLaneLeaseFile(fd uintptr, exclusive bool) error {
 	return syscall.Flock(int(fd), mode)
 }
 
-func unlockLaneLeaseFile(fd uintptr) error {
+func unlockFile(fd uintptr) error {
 	return syscall.Flock(int(fd), syscall.LOCK_UN)
 }

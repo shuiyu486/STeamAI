@@ -12,11 +12,45 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewerresult"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewersession"
 )
 
 const testCheckpointSHA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+func TestExternalSessionUsesSTeamAIStateRoot(t *testing.T) {
+	caseRoot := externalSessionTestCaseRootWithStateDir(t, projectstate.CurrentDir)
+	job, err := NewMemberJob(caseRoot, defaults.DefaultPack, testCheckpointSHA, "g000001-a000001-steamai", memberexecution.Owner{Lane: "analysis", Executor: "member-a", ExecutorGeneration: 1}, projectstate.CurrentRel("member", "manifest.json"), projectstate.CurrentRel("member", "outputs"), []string{"returned"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for label, path := range map[string]string{
+		"submission": job.SubmissionPath, "submission outputs": job.SubmissionOutputs,
+		"publication": job.PublicationPath, "observation": job.ObservationPath,
+	} {
+		if !strings.HasPrefix(path, projectstate.CurrentDir+"/") {
+			t.Fatalf("%s path = %q, want STeamAI root", label, path)
+		}
+	}
+	plan, err := PreviewAttempt(job, "claude", "session-steamai", "harness", "2026-08-14T00:00:00Z", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(plan.AttemptPath, projectstate.CurrentDir+"/") || !strings.HasPrefix(plan.Attempt.SubmissionPath, projectstate.CurrentDir+"/") {
+		t.Fatalf("attempt paths do not use STeamAI root: %+v", plan)
+	}
+}
+
+func TestExternalSessionRejectsDualStateRoots(t *testing.T) {
+	caseRoot := externalSessionTestCaseRootWithStateDir(t, projectstate.CurrentDir)
+	if err := os.Mkdir(filepath.Join(caseRoot, projectstate.LegacyDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewMemberJob(caseRoot, defaults.DefaultPack, testCheckpointSHA, "g000001-a000001-dual", memberexecution.Owner{Lane: "analysis", Executor: "member-a", ExecutorGeneration: 1}, projectstate.CurrentRel("member", "manifest.json"), projectstate.CurrentRel("member", "outputs"), []string{"returned"}); err == nil || !strings.Contains(err.Error(), "must not coexist") {
+		t.Fatalf("dual state roots were accepted: %v", err)
+	}
+}
 
 func TestMemberRelayPublishesManifestOutputsAndObservationLast(t *testing.T) {
 	caseRoot := externalSessionTestCaseRoot(t)
@@ -300,14 +334,17 @@ func TestInspectRejectsUnknownSubmissionField(t *testing.T) {
 
 func reviewerRelayIdentity(t *testing.T, caseRoot string) ReviewerIdentity {
 	t.Helper()
-	packetRel := ".rekit/reviews/packet-a/packet.json"
+	packetRel, err := projectstate.Rel(caseRoot, "reviews", "packet-a", "packet.json")
+	if err != nil {
+		t.Fatal(err)
+	}
 	packet := []byte(`{"packetId":"packet-a","route":{"id":"route-a","outputContract":"item,decision,candidate_path"},"shards":[{"id":"shard-a","items":["item-a"]}],"outputContract":"item,decision,candidate_path"}`)
 	writeTestFile(t, caseRoot, packetRel, packet)
-	dispatchRel := ".rekit/reviews/packet-a/dispatch.json"
+	dispatchRel := filepath.ToSlash(filepath.Join(filepath.Dir(packetRel), "sessions", "shard-a", "dispatches", "dispatch-a.json"))
 	receipt := reviewersession.DispatchReceipt{
 		SchemaVersion: 1, Kind: "reviewer-session-dispatch", DispatchID: "dispatch-a",
 		PacketID: "packet-a", PacketPath: packetRel, PacketSHA256: hash(packet), RouteID: "route-a",
-		ShardID: "shard-a", Items: []string{"item-a"}, PromptPath: ".rekit/reviews/packet-a/prompt.md",
+		ShardID: "shard-a", Items: []string{"item-a"}, PromptPath: filepath.ToSlash(filepath.Join(filepath.Dir(packetRel), "prompt.md")),
 		PromptSHA256: strings.Repeat("d", 64), AgentType: "read-only-reviewer", ReadOnly: true,
 		TargetLane: "analysis", ReviewerHarness: "harness", ReviewerSession: "session-test",
 		Actor: "harness", RecordedAt: "2026-08-09T00:00:00Z", NoSpawn: true, NoHeavyTool: true, NoAuthority: true,
@@ -380,10 +417,16 @@ func writeTestSubmission(t *testing.T, caseRoot string, job Job, submission Subm
 }
 
 func externalSessionTestCaseRoot(t *testing.T) string {
+	return externalSessionTestCaseRootWithStateDir(t, projectstate.LegacyDir)
+}
+
+func externalSessionTestCaseRootWithStateDir(t *testing.T, stateDir string) string {
 	t.Helper()
 	caseRoot := t.TempDir()
-	writeTestFile(t, caseRoot, ".re-template.yml", []byte("template: true\n"))
-	writeTestFile(t, caseRoot, ".rekit/instance.yml", []byte("projectName: test\n"))
+	if stateDir == projectstate.LegacyDir {
+		writeTestFile(t, caseRoot, ".re-template.yml", []byte("template: true\n"))
+	}
+	writeTestFile(t, caseRoot, filepath.ToSlash(filepath.Join(stateDir, "instance.yml")), []byte("projectName: test\n"))
 	return caseRoot
 }
 

@@ -55,6 +55,46 @@ func TestOutputContractFieldsBindsExactPacketRouteShardAndItems(t *testing.T) {
 	}
 }
 
+func TestOutputContractFieldsUsesSTeamAIReviewNamespace(t *testing.T) {
+	caseRoot := t.TempDir()
+	packetRel := ".steamai/reviews/packet/packet.json"
+	packetPath := filepath.Join(caseRoot, filepath.FromSlash(packetRel))
+	if err := os.MkdirAll(filepath.Dir(packetPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	packet := map[string]any{
+		"packetId":       "packet-a",
+		"route":          map[string]any{"id": "route-a", "outputContract": "item,decision"},
+		"shards":         []any{map[string]any{"id": "shard-01", "items": []string{"item-a"}}},
+		"outputContract": "item,decision",
+	}
+	data, err := json.Marshal(packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(packetPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	receipt := DispatchReceipt{PacketID: "packet-a", PacketPath: packetRel, PacketSHA256: sha256Hex(data), RouteID: "route-a", ShardID: "shard-01", Items: []string{"item-a"}}
+	fields, err := OutputContractFields(caseRoot, receipt)
+	if err != nil || strings.Join(fields, ",") != "item,decision" {
+		t.Fatalf("fields=%v err=%v", fields, err)
+	}
+}
+
+func TestOutputContractFieldsRejectsDualStateRoots(t *testing.T) {
+	caseRoot := t.TempDir()
+	for _, root := range []string{".steamai", ".rekit"} {
+		if err := os.MkdirAll(filepath.Join(caseRoot, root), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	receipt := DispatchReceipt{PacketPath: ".steamai/reviews/packet/packet.json"}
+	if _, err := OutputContractFields(caseRoot, receipt); err == nil {
+		t.Fatal("dual mutable roots must fail closed")
+	}
+}
+
 func TestValidateCompletionDispatchLineageRejectsDrift(t *testing.T) {
 	dispatchPath := filepath.Join(t.TempDir(), "dispatch.json")
 	dispatchSHA256 := strings.Repeat("a", 64)

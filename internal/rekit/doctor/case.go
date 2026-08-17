@@ -12,6 +12,7 @@ import (
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
@@ -35,13 +36,20 @@ func Case(repoRoot, caseRoot, pack string) ([]Row, error) {
 }
 
 func validateWorkstreamState(caseRoot string, m *manifest.Manifest) error {
-	for _, rel := range mission.FactRelPaths() {
+	factRelPaths, err := mission.FactRelPathsFor(caseRoot)
+	if err != nil {
+		return err
+	}
+	for _, rel := range factRelPaths {
 		path := filepath.Join(caseRoot, filepath.FromSlash(rel))
 		if err := mission.ValidateJSONLines(path); err != nil {
 			return err
 		}
 	}
-	boardPath := filepath.Join(caseRoot, ".rekit", "board.json")
+	boardPath, err := projectstate.Join(caseRoot, "board.json")
+	if err != nil {
+		return err
+	}
 	board, exists, err := readJSONMapIfExists(boardPath)
 	if err != nil {
 		return err
@@ -51,7 +59,10 @@ func validateWorkstreamState(caseRoot string, m *manifest.Manifest) error {
 			return fmt.Errorf("board caseRoot mismatch: %s", recorded)
 		}
 	}
-	lanesRoot := filepath.Join(caseRoot, ".rekit", "lanes")
+	lanesRoot, err := projectstate.Join(caseRoot, "lanes")
+	if err != nil {
+		return err
+	}
 	entries, err := os.ReadDir(lanesRoot)
 	if os.IsNotExist(err) {
 		return nil

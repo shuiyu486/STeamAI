@@ -11,6 +11,7 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewersession"
 )
 
@@ -656,12 +657,15 @@ func newRemoteControlFixtureWithItems(t *testing.T, output, prompt []byte, itemF
 	if err != nil {
 		t.Fatal(err)
 	}
-	packetRel := ".rekit/reviews/packet-a/packet.json"
+	packetRel, err := projectstate.Rel(caseRoot, "reviews", "packet-a", "packet.json")
+	if err != nil {
+		t.Fatal(err)
+	}
 	packet := []byte(`{"packetId":"packet-a","route":{"id":"route-a","outputContract":"item,decision,candidate_path"},"shards":[{"id":"shard-a","items":` + string(itemsData) + `}],"outputContract":"item,decision,candidate_path"}`)
 	writeTestFile(t, caseRoot, packetRel, packet)
-	promptRel := ".rekit/reviews/packet-a/prompt.md"
+	promptRel := filepath.ToSlash(filepath.Join(filepath.Dir(packetRel), "prompt.md"))
 	writeTestFile(t, caseRoot, promptRel, prompt)
-	dispatchRel := ".rekit/reviews/packet-a/dispatch.json"
+	dispatchRel := filepath.ToSlash(filepath.Join(filepath.Dir(packetRel), "sessions", "shard-a", "dispatches", "dispatch-remote-a.json"))
 	owner := reviewersession.Owner{CurrentExecutor: memberPlan.Owner.Executor, ExecutorGeneration: memberPlan.Owner.ExecutorGeneration, BindingMode: "durable-lane-owner"}
 	receipt := reviewersession.DispatchReceipt{
 		SchemaVersion: 1, Kind: "reviewer-session-dispatch", DispatchID: "dispatch-remote-a",

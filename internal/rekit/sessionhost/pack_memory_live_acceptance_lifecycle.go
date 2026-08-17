@@ -14,6 +14,7 @@ import (
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/packmemoryconsumption"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/promote"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/releasecheck"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/subagents"
@@ -24,6 +25,22 @@ const (
 	packMemoryAcceptanceProducerOutput = "pack-memory-candidate.md"
 	packMemoryAcceptanceManagedTarget  = "references/" + liveAcceptancePack + "/progressive-disclosure.md"
 )
+
+func packMemoryAcceptanceReviewOutputDir(caseRoot string) (string, error) {
+	path, err := projectstate.Join(caseRoot, "reviews", "rh07-pack-memory-candidate")
+	if err != nil {
+		return "", fmt.Errorf("resolve pack-memory acceptance review output directory: %w", err)
+	}
+	return path, nil
+}
+
+func packMemoryAcceptanceDecisionPath(caseRoot string) (string, error) {
+	path, err := projectstate.Join(caseRoot, "reviews", "rh07-pack-memory-candidate", "decisions.json")
+	if err != nil {
+		return "", fmt.Errorf("resolve pack-memory acceptance decision path: %w", err)
+	}
+	return path, nil
+}
 
 func runPackMemoryLiveAcceptanceLifecycle(
 	parent context.Context,
@@ -187,8 +204,12 @@ func runPackMemoryLiveAcceptanceLifecycle(
 	}
 	result.Producer.CandidateSHA256 = candidateSHA256
 
+	reviewOutputDir, err := packMemoryAcceptanceReviewOutputDir(producerCase)
+	if err != nil {
+		return result, err
+	}
 	created, err = promote.WriteCandidateReviewWorkspace(created, promote.CandidateArtifactOptions{
-		ReviewOutputDir: filepath.Join(producerCase, ".rekit", "reviews", "rh07-pack-memory-candidate"),
+		ReviewOutputDir: reviewOutputDir,
 	})
 	if err != nil || created.ReviewWorkspace == nil {
 		return result, fmt.Errorf("write candidate review workspace: %w", err)
@@ -279,7 +300,10 @@ func runPackMemoryLiveAcceptanceLifecycle(
 	result.Reviewer.MainDecision = reviewed.MainDecision
 	result.Reviewer.WritebackStatus = reviewed.WritebackStatus
 
-	decisionPath := filepath.Join(producerCase, ".rekit", "reviews", "rh07-pack-memory-candidate", "decisions.json")
+	decisionPath, err := packMemoryAcceptanceDecisionPath(producerCase)
+	if err != nil {
+		return result, err
+	}
 	decisionEvidence := strings.Join([]string{created.ReviewWorkspace.CombinedDiffPath, reviewed.ReviewerResultPath}, ",")
 	draftPreview, err := promote.DraftCandidateDecisions(spec.IsolatedKitRoot, producerCase, liveAcceptancePack, promote.CandidateDecisionDraftOptions{
 		PacketPath: created.ReviewWorkspace.PacketPath, DecisionPath: decisionPath, Decision: "accept-managed-reject-tooling",

@@ -12,13 +12,13 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/currentloop"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 )
 
 const (
 	maxCurrentLoopObservationBytes        = 64 * 1024
 	maxCurrentLoopObservationInboxEntries = 128
-	currentLoopObservationInboxRel        = ".rekit/external-session-observations/inbox"
 )
 
 type currentLoopObservationEnvelope struct {
@@ -80,10 +80,16 @@ func applyCurrentLoopObservationSnapshot(ctx runtime.Context, opt *Options, insp
 	if err := qualifyCurrentLoopObservation(&snapshot.Envelope, inspection); err != nil {
 		return err
 	}
-	if requireCanonical && currentLoopObservationInCanonicalInbox(ctx.Target, snapshot.Path) {
-		inbox := inspectCurrentLoopObservationInbox(ctx.Target, inspection)
-		if inbox.State != "ready" || inbox.SelectedCandidate == nil || !refsf.SamePath(inbox.SelectedCandidate.Path, snapshot.Path) || !strings.EqualFold(inbox.SelectedCandidate.SHA256, snapshot.SHA256) {
-			return fmt.Errorf("run-current-loop canonical observation inbox no longer has exactly one matching strict candidate; refresh status")
+	if requireCanonical {
+		inCanonicalInbox, err := currentLoopObservationInCanonicalInbox(ctx.Target, snapshot.Path)
+		if err != nil {
+			return err
+		}
+		if inCanonicalInbox {
+			inbox := inspectCurrentLoopObservationInbox(ctx.Target, inspection)
+			if inbox.State != "ready" || inbox.SelectedCandidate == nil || !refsf.SamePath(inbox.SelectedCandidate.Path, snapshot.Path) || !strings.EqualFold(inbox.SelectedCandidate.SHA256, snapshot.SHA256) {
+				return fmt.Errorf("run-current-loop canonical observation inbox no longer has exactly one matching strict candidate; refresh status")
+			}
 		}
 	}
 	opt.CurrentLoopObservationPath = snapshot.Path
@@ -218,10 +224,15 @@ func currentLoopObservationReceiptFromInspection(inspection currentloop.Inspecti
 	}
 }
 
+func currentLoopObservationInboxRel(caseRoot string) (string, error) {
+	return projectstate.Rel(caseRoot, "external-session-observations", "inbox")
+}
+
 func inspectCurrentLoopObservationInbox(caseRoot string, inspection currentloop.Inspection) *mission.CurrentLoopObservationInbox {
+	inboxRel, relErr := currentLoopObservationInboxRel(caseRoot)
 	inbox := &mission.CurrentLoopObservationInbox{
 		State:         "empty",
-		Path:          currentLoopObservationInboxRel,
+		Path:          inboxRel,
 		LatestReceipt: currentLoopObservationReceiptFromInspection(inspection),
 		Boundary: []string{
 			"status discovery is read-only and selects only one strict envelope bound to the latest ready checkpoint",
@@ -229,7 +240,13 @@ func inspectCurrentLoopObservationInbox(caseRoot string, inspection currentloop.
 			"processing remains WhatIf then exact hash-bound Apply; discovery does not claim the checkpoint or mutate the observation file",
 		},
 	}
-	paths, err := refsf.ListRegularFilesAnchored(caseRoot, currentLoopObservationInboxRel, "current-loop observation inbox", maxCurrentLoopObservationInboxEntries)
+	if relErr != nil {
+		inbox.State = "invalid"
+		inbox.InvalidCount = 1
+		inbox.Warnings = []string{relErr.Error()}
+		return inbox
+	}
+	paths, err := refsf.ListRegularFilesAnchored(caseRoot, inboxRel, "current-loop observation inbox", maxCurrentLoopObservationInboxEntries)
 	if err != nil {
 		inbox.State = "invalid"
 		inbox.InvalidCount = 1
@@ -280,6 +297,13 @@ func inspectCurrentLoopObservationInbox(caseRoot string, inspection currentloop.
 		return inbox
 	}
 	selected := matches[0]
+	refresh, err := statusMissionControlRefreshCommand(caseRoot)
+	if err != nil {
+		inbox.State = "invalid"
+		inbox.InvalidCount++
+		inbox.Warnings = append(inbox.Warnings, err.Error())
+		return inbox
+	}
 	inbox.State = "ready"
 	inbox.SelectedCandidate = &mission.CurrentLoopObservationInboxCandidate{
 		Path:            selected.Path,
@@ -287,44 +311,56 @@ func inspectCurrentLoopObservationInbox(caseRoot string, inspection currentloop.
 		ObservationKind: selected.Envelope.ObservationKind,
 		Actor:           selected.Envelope.Actor,
 	}
-	request := mission.MissionCommanderDriverRequest{
-		Kind:              "preview-command",
-		RunLoopStepID:     "preview-current-loop-inbox-observation",
-		Actor:             "main-agent",
-		State:             "observation-inbox-ready",
-		Source:            "missionControlRunbook.currentLoopOperator.observationInbox.selectedDriverRequest",
-		Lane:              inspection.ExpectedLane,
-		Label:             "preview-current-loop-inbox-observation",
-		ActionID:          "preview-current-loop-inbox-observation-" + selected.SHA256[:12],
-		Command:           currentLoopObservationPreviewCommand(caseRoot, inspection.ArtifactSHA256, selected.Path),
-		CommandExecutable: true,
-		RequiresReview:    true,
-		ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
-			State:                "previewed",
-			Command:              currentLoopObservationPreviewCommand(caseRoot, inspection.ArtifactSHA256, selected.Path),
-			RefreshStatusCommand: statusMissionControlRefreshCommand(caseRoot),
-			Description:          "review the exact inbox observation preview and execute only its returned hash-bound Apply command",
-			Boundary: []string{
-				"preview binds the selected path, exact bytes SHA, source checkpoint, current attempt, and nested plan",
-				"Apply rereads the same bytes before the one-shot checkpoint claim",
+	command := currentLoopObservationPreviewCommand(
+		caseRoot,
+		inspection.ArtifactSHA256,
+		selected.Path,
+	)
+	request, err := mission.MissionCommanderDriverRequestWithTypedCommand(
+		mission.MissionCommanderDriverRequest{
+			Kind:              "preview-command",
+			RunLoopStepID:     "preview-current-loop-inbox-observation",
+			Actor:             "main-agent",
+			State:             "observation-inbox-ready",
+			Source:            "missionControlRunbook.currentLoopOperator.observationInbox.selectedDriverRequest",
+			Lane:              inspection.ExpectedLane,
+			Label:             "preview-current-loop-inbox-observation",
+			ActionID:          "preview-current-loop-inbox-observation-" + selected.SHA256[:12],
+			Command:           command,
+			CommandExecutable: true,
+			RequiresReview:    true,
+			ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
+				State:                "previewed",
+				RefreshStatusCommand: refresh,
+				Description:          "review the exact inbox observation preview and execute only its returned hash-bound Apply command",
+				Boundary: []string{
+					"preview binds the selected path, exact bytes SHA, source checkpoint, current attempt, and nested plan",
+					"Apply rereads the same bytes before the one-shot checkpoint claim",
+				},
 			},
+			Boundary: append([]string{}, inbox.Boundary...),
 		},
-		Boundary: append([]string{}, inbox.Boundary...),
+	)
+	if err != nil {
+		inbox.State = "invalid"
+		inbox.InvalidCount++
+		inbox.Warnings = append(inbox.Warnings, err.Error())
+		return inbox
 	}
 	inbox.SelectedDriverRequest = &request
 	return inbox
 }
 
-func currentLoopObservationInCanonicalInbox(caseRoot, path string) bool {
-	inboxPath, err := refsf.SafeJoin(caseRoot, currentLoopObservationInboxRel)
+func currentLoopObservationInCanonicalInbox(caseRoot, path string) (bool, error) {
+	inboxPath, err := projectstate.Join(caseRoot, "external-session-observations", "inbox")
 	if err != nil {
-		return false
+		return false, err
 	}
 	parent, err := filepath.Abs(filepath.Dir(path))
 	if err != nil {
-		return false
+		return false, err
 	}
-	return refsf.SamePath(parent, inboxPath)
+	return refsf.SamePath(parent, inboxPath), nil
 }
 
 func currentLoopObservationPreviewCommand(caseRoot, checkpointSHA256, path string) string {
@@ -399,6 +435,9 @@ func currentLoopObservationTemplateValue(command, flag string) string {
 }
 
 func readCurrentLoopObservationEnvelope(caseRoot, requested string) (currentLoopObservationSnapshot, error) {
+	if _, err := projectstate.Resolve(caseRoot); err != nil {
+		return currentLoopObservationSnapshot{}, err
+	}
 	path := strings.TrimSpace(requested)
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(caseRoot, path)

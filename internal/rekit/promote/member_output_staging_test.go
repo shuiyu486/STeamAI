@@ -11,7 +11,42 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
+
+func TestMemberOutputStagingRootUsesSingleStateRoot(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		dir  string
+	}{
+		{name: "current", dir: projectstate.CurrentDir},
+		{name: "legacy", dir: projectstate.LegacyDir},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			caseRoot := t.TempDir()
+			if err := os.Mkdir(filepath.Join(caseRoot, tc.dir), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			root, err := memberOutputStagingRoot(caseRoot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := filepath.Join(caseRoot, tc.dir, "pack-memory-staging"); root != want {
+				t.Fatalf("staging root = %q, want %q", root, want)
+			}
+		})
+	}
+
+	caseRoot := t.TempDir()
+	for _, dir := range []string{projectstate.CurrentDir, projectstate.LegacyDir} {
+		if err := os.Mkdir(filepath.Join(caseRoot, dir), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := memberOutputStagingRoot(caseRoot); err == nil || !strings.Contains(err.Error(), "must not coexist") {
+		t.Fatalf("dual-root staging error = %v", err)
+	}
+}
 
 func TestStageMemberOutputWhatIfApplyAndReplay(t *testing.T) {
 	repoRoot, caseRoot, targetRel, dispatch := memberOutputStagingFixture(t, "# Reusable checklist\n\n1. Confirm bounded input.\n2. Record the reusable decision.\n")

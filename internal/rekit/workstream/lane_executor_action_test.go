@@ -244,6 +244,49 @@ func TestTakeoverRefreshesDurableResumeCheckpointHandoffAndDigestCommands(t *tes
 	}
 }
 
+func TestLaneTakeoverPackageUsesSelectedStateRootAndRejectsConflicts(t *testing.T) {
+	snapshot := mission.LaneExecutorActionSnapshot{
+		Lane:      "main",
+		Label:     "main",
+		Status:    "open",
+		Workspace: "workspace/main",
+		ExecutorAction: mission.ExecutorAction{
+			Ready:          true,
+			ResumeCommand:  "/rekit continue main",
+			HandoffCommand: "/rekit handoff main",
+		},
+	}
+	queue := mission.MissionCommanderActionQueue{}
+
+	currentRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(currentRoot, ".steamai"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	current, err := LaneTakeoverPackageForActionSnapshotE(currentRoot, snapshot, queue, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.ResumePath != ".steamai/lanes/main/prompts/RESUME.md" || current.CheckpointPath != ".steamai/lanes/main/checkpoints/latest.json" || current.HandoffPath != ".steamai/handovers/main-latest.md" {
+		t.Fatalf("current takeover paths did not use selected state root: %+v", current)
+	}
+
+	conflictingRoot := t.TempDir()
+	for _, root := range []string{".steamai", ".rekit"} {
+		if err := os.MkdirAll(filepath.Join(conflictingRoot, root), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if pkg, err := LaneTakeoverPackageForActionSnapshotE(conflictingRoot, snapshot, queue, false); err == nil || pkg != nil {
+		t.Fatalf("error-aware takeover projection accepted conflicting state roots: pkg=%+v err=%v", pkg, err)
+	}
+	defer func() {
+		if recovered := recover(); recovered == nil {
+			t.Fatal("compatibility takeover projection swallowed conflicting state roots")
+		}
+	}()
+	_ = LaneTakeoverPackageForActionSnapshot(conflictingRoot, snapshot, queue, false)
+}
+
 func TestStartMissionCommanderNextActionsRequireReviewBeforeApply(t *testing.T) {
 	lane := Lane{ID: "feature-login", Name: "login", Status: "open"}
 	action := laneExecutorAction{

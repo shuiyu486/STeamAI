@@ -707,6 +707,9 @@ func TestVerifyCandidateDecisionCaseContentIgnoresOnlyLineEndingRepresentation(t
 func TestVerifyCandidateDecisionPreviewsAppliesAndReplays(t *testing.T) {
 	repoRoot, sourceCase, freshCase, pack := packMemoryReconsumeFixture(t)
 	attachedCase := filepath.Join(t.TempDir(), "attachedcase")
+	for _, legacyCase := range []string{freshCase, attachedCase} {
+		writeLegacyInitMarker(t, legacyCase, repoRoot, pack)
+	}
 	if _, err := syncpkg.Apply(repoRoot, sourceCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "source"}); err != nil {
 		t.Fatal(err)
 	}
@@ -946,6 +949,9 @@ func TestPackMemoryReviewFirstCrossCaseConsumptionClosure(t *testing.T) {
 func TestVerifyCandidateDecisionClosesMixedManagedAcceptAndToolingReject(t *testing.T) {
 	repoRoot, sourceCase, freshCase, pack := packMemoryReconsumeFixture(t)
 	attachedCase := filepath.Join(t.TempDir(), "attachedcase")
+	for _, legacyCase := range []string{freshCase, attachedCase} {
+		writeLegacyInitMarker(t, legacyCase, repoRoot, pack)
+	}
 	if _, err := syncpkg.Apply(repoRoot, sourceCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "source"}); err != nil {
 		t.Fatal(err)
 	}
@@ -1159,10 +1165,14 @@ func TestApplyCandidateDecisionsClosesToolingOnlyReject(t *testing.T) {
 func TestVerifyCandidateDecisionRejectsDriftAndInvalidRoots(t *testing.T) {
 	repoRoot, sourceCase, freshCase, pack := packMemoryReconsumeFixture(t)
 	attachedCase := filepath.Join(t.TempDir(), "attachedcase")
+	for _, legacyCase := range []string{freshCase, attachedCase} {
+		writeLegacyInitMarker(t, legacyCase, repoRoot, pack)
+	}
 	if _, err := syncpkg.Apply(repoRoot, sourceCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "source"}); err != nil {
 		t.Fatal(err)
 	}
 	staleFreshCase := filepath.Join(t.TempDir(), "stale-fresh-case")
+	writeLegacyInitMarker(t, staleFreshCase, repoRoot, pack)
 	if _, err := syncpkg.Apply(repoRoot, staleFreshCase, pack, syncpkg.ApplyOptions{CreateLocalFiles: true, Command: "init", ProjectName: "stale-fresh"}); err != nil {
 		t.Fatal(err)
 	}
@@ -1435,8 +1445,12 @@ func TestLoadCandidateDecisionAuthorityRejectsEmptyPendingReviewCandidatePathOnR
 			receipt.DecisionHash = decisionHash
 			receipt.ReceiptPath = receiptPath
 			receipt.VerificationProofPath = candidateDecisionVerificationProofPath(created.CandidateRoot, packetHash, decisionHash)
-			receipt.VerificationWorkspaceRoot = candidateDecisionVerificationWorkspace(caseRoot, packetHash, decisionHash)
-			freshRoot := filepath.Join(receipt.VerificationWorkspaceRoot, "fresh")
+			workspace, err := candidateDecisionVerificationWorkspace(caseRoot, packetHash, decisionHash)
+			if err != nil {
+				t.Fatal(err)
+			}
+			receipt.VerificationWorkspaceRoot = workspace
+			freshRoot := filepath.Join(workspace, "fresh")
 			attachedRoot := filepath.Join(receipt.VerificationWorkspaceRoot, "attached")
 			receipt.VerificationProvisionCommand = candidateDecisionVerificationProvisionCommand(created.ReviewWorkspace.PacketPath, decisionPath, freshRoot, attachedRoot)
 			receipt.VerificationCommand = candidateDecisionVerificationCommand(created.ReviewWorkspace.PacketPath, decisionPath, freshRoot, attachedRoot)

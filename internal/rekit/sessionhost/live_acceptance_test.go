@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
@@ -80,7 +81,7 @@ func TestInitLiveAcceptanceCaseConsumesExactApplyRequest(t *testing.T) {
 	if err := initLiveAcceptanceCase(caseRoot, liveAcceptancePack, "live-init-contract", nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "instance.yml")); err != nil {
+	if _, err := os.Stat(filepath.Join(caseRoot, projectstate.CurrentDir, "instance.yml")); err != nil {
 		t.Fatalf("live acceptance init did not publish attached case metadata: %v", err)
 	}
 }

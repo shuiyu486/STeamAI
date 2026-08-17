@@ -54,7 +54,7 @@ func TestReleaseCatalogInvariants(t *testing.T) {
 		"go run ./cmd/rekit -- -Command status",
 		"go run ./cmd/rekit -- -Command packs",
 		"go run ./cmd/rekit -- -Command doctor",
-		"go test ./...",
+		"go test -count=1 -p=2 -timeout=30m ./...",
 		"go vet ./...",
 		"git diff --check",
 	} {
@@ -262,7 +262,7 @@ func TestReleaseReadinessChecklistInvariants(t *testing.T) {
 		"go run ./cmd/rekit -- -Command status",
 		"go run ./cmd/rekit -- -Command packs",
 		"go run ./cmd/rekit -- -Command doctor",
-		"go test ./...",
+		"go test -count=1 -p=2 -timeout=30m ./...",
 		"go vet ./...",
 		"git diff --check",
 	} {
@@ -429,7 +429,7 @@ func TestReleaseGateWorkflowInvariants(t *testing.T) {
 		"go run ./cmd/rekit -- -Command status",
 		"go run ./cmd/rekit -- -Command packs",
 		"go run ./cmd/rekit -- -Command doctor",
-		"go test ./...",
+		"go test -count=1 -p=2 -timeout=30m ./...",
 		"go vet ./...",
 	} {
 		assertTextContains(t, workflow, required, "release gate workflow")
@@ -567,7 +567,7 @@ func TestAutonomousGoalGuideInvariants(t *testing.T) {
 	for _, forbidden := range []string{
 		"每轮默认读取",
 		"CHANGELOG.md",
-		"go test ./...",
+		"go test -count=1 -p=2 -timeout=30m ./...",
 		"Mission Control UX",
 		"Pack-based team memory",
 	} {
@@ -729,6 +729,7 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 		"init",
 		"bootstrap",
 		"onboard",
+		"migrate-state",
 		"sync",
 		"update",
 		"promote",
@@ -767,6 +768,8 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 		"Add-RekitGoArg ([ref]$goArgs) '-ExpectedNextBatchPlanSha256' $ExpectedNextBatchPlanSha256",
 		"Add-RekitGoArg ([ref]$goArgs) '-MaxSteps' ([string]$MaxSteps)",
 		"Add-RekitGoArg ([ref]$goArgs) '-ExpectedCurrentLoopPlanSha256' $ExpectedCurrentLoopPlanSha256",
+		"Add-RekitGoArg ([ref]$goArgs) '-ExpectedInitPlanSha256' $ExpectedInitPlanSha256",
+		"Add-RekitGoArg ([ref]$goArgs) '-ExpectedMigrationPlanSha256' $ExpectedMigrationPlanSha256",
 		"implemented by the Go backend only",
 		"Test-RekitNoPowerShellFallbackCommand",
 		"PowerShell fallback has been retired",
@@ -789,6 +792,7 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 		"| `status` / `packs` / `doctor` / `validate` | Go default | façade delegate + no PowerShell fallback |",
 		"| case lifecycle `attach` / `repair` / `init` / `bootstrap` preview/apply | Go default | façade delegate + no PowerShell fallback |",
 		"| `onboard -WhatIf` / exact-hash `onboard -Apply` | Go default | façade delegate + no PowerShell fallback |",
+		"| `migrate-state` zero-write preview / exact-hash Apply | Go default | façade delegate + no PowerShell fallback |",
 		"| `sync` / `update` review/apply/JSON preview | Go default | façade delegate + no PowerShell fallback |",
 		"| `promote` review/artifacts/candidates/apply/JSON preview | Go default | façade delegate + no PowerShell fallback |",
 		"| `overview` text/JSON 与缺 board 初始化 | Go default | façade delegate + no PowerShell fallback |",
@@ -810,6 +814,8 @@ func TestPowerShellFacadeFreezeInvariants(t *testing.T) {
 	}
 	for _, required := range []string{
 		"default release-check fake delegation",
+		"default migrate-state preview fake delegation",
+		"-ExpectedMigrationPlanSha256",
 		"REKIT_GO_DISABLE",
 		"must-not-run",
 	} {

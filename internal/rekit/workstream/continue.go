@@ -22,6 +22,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 const continuePreviewRunID = "run-preview"
@@ -205,7 +206,7 @@ func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (Cont
 		return ContinueResult{}, err
 	}
 	if ctx.ownerGuardRecoveryReason != "" {
-		return ctx.blockedByOwnerGuardRecovery(false), nil
+		return ctx.blockedByOwnerGuardRecovery(false)
 	}
 	if blocked, err := ctx.blockedByOpenInterventions(false); err != nil || blocked.Blocked {
 		return blocked, err
@@ -213,8 +214,8 @@ func ContinuePreview(repoRoot, caseRoot, pack string, opt ContinueOptions) (Cont
 	if blocked, err := ctx.blockedByPendingGateOrOpenDecision(false); err != nil || blocked.Blocked {
 		return blocked, err
 	}
-	if blocked := ctx.blockedByReviewerDispatches(false); blocked.Blocked {
-		return blocked, nil
+	if blocked, err := ctx.blockedByReviewerDispatches(false); err != nil || blocked.Blocked {
+		return blocked, err
 	}
 	known, err := mission.ReadLedgerEventIDs(ctx.inst.CaseRoot)
 	if err != nil {
@@ -239,11 +240,21 @@ func continuePreviewFromSnapshot(ctx continueContext, known map[string]bool, inp
 	executorAction := ctx.executorAction()
 	executionEvidenceReview := ctx.executionEvidenceReview()
 	reviewerWritebacks := ctx.reviewerWritebacks()
-	reviewerDispatchIntakeHandoffs := ctx.reviewerDispatchIntakeHandoffs()
-	reviewerPacketRetirementHandoffs := ctx.reviewerPacketRetirementHandoffs()
+	reviewerDispatchIntakeHandoffs, err := ctx.reviewerDispatchIntakeHandoffs()
+	if err != nil {
+		return ContinueResult{}, err
+	}
+	reviewerPacketRetirementHandoffs, err := ctx.reviewerPacketRetirementHandoffs()
+	if err != nil {
+		return ContinueResult{}, err
+	}
 	authorizedGateAdapterHandoffs := ctx.authorizedGateAdapterHandoffs()
 	commanderNextActions := ctx.missionCommanderNextActions(executorAction, executionEvidenceReview, authorizedGateAdapterHandoffs, reviewerDispatchIntakeHandoffs)
 	commanderActionQueue := mission.MissionCommanderActionQueueFor(commanderNextActions)
+	laneTakeoverPackage, err := laneTakeoverPackageFor(ctx.inst.CaseRoot, ctx.lane, executorAction, commanderActionQueue, false)
+	if err != nil {
+		return ContinueResult{}, err
+	}
 	result := ContinueResult{
 		SchemaVersion:                    1,
 		Command:                          "continue",
@@ -271,7 +282,7 @@ func continuePreviewFromSnapshot(ctx continueContext, known map[string]bool, inp
 		AuthorizedGateAdapterHandoffs:    authorizedGateAdapterHandoffs,
 		MissionCommanderNextActions:      commanderNextActions,
 		MissionCommanderActionQueue:      commanderActionQueue,
-		LaneTakeoverPackage:              laneTakeoverPackageFor(ctx.inst.CaseRoot, ctx.lane, executorAction, commanderActionQueue, false),
+		LaneTakeoverPackage:              laneTakeoverPackage,
 		Inputs:                           uniqueStrings(inputs),
 		PacketRefs:                       uniqueStrings(packets),
 		BlockedActions:                   []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution without a valid current authorization decision"},
@@ -292,7 +303,10 @@ func continuePreviewFromSnapshot(ctx continueContext, known map[string]bool, inp
 			result.Summary.Skipped++
 			continue
 		}
-		preview := ctx.previewEvent(event)
+		preview, err := ctx.previewEvent(event)
+		if err != nil {
+			return ContinueResult{}, err
+		}
 		result.Summary.Collected++
 		result.Events = append(result.Events, preview)
 		result.WouldWrites = append(result.WouldWrites, preview.WouldWrites...)
@@ -341,7 +355,7 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (result
 		return ContinueResult{}, err
 	}
 	if ctx.ownerGuardRecoveryReason != "" {
-		return ctx.blockedByOwnerGuardRecovery(true), nil
+		return ctx.blockedByOwnerGuardRecovery(true)
 	}
 	lease, err := acquireLaneMutationLock(ctx.inst.CaseRoot, ctx.lane.ID)
 	if err != nil {
@@ -358,7 +372,7 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (result
 		return ContinueResult{}, err
 	}
 	if ctx.ownerGuardRecoveryReason != "" {
-		return ctx.blockedByOwnerGuardRecovery(true), nil
+		return ctx.blockedByOwnerGuardRecovery(true)
 	}
 	if err := lease.Validate(); err != nil {
 		return ContinueResult{}, err
@@ -369,8 +383,8 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (result
 	if blocked, err := ctx.blockedByPendingGateOrOpenDecision(true); err != nil || blocked.Blocked {
 		return blocked, err
 	}
-	if blocked := ctx.blockedByReviewerDispatches(true); blocked.Blocked {
-		return blocked, nil
+	if blocked, err := ctx.blockedByReviewerDispatches(true); err != nil || blocked.Blocked {
+		return blocked, err
 	}
 	known, err := mission.ReadLedgerEventIDs(ctx.inst.CaseRoot)
 	if err != nil {
@@ -411,7 +425,7 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (result
 	stamp := time.Now().UTC().Format("20060102-150405000")
 	runID := "run-" + stamp
 	batchID := "batch-" + runID
-	runRoot, err := refsf.SafeJoin(ctx.inst.CaseRoot, relJoin(".rekit", "runs", runID))
+	runRoot, err := projectstate.Join(ctx.inst.CaseRoot, "runs", runID)
 	if err != nil {
 		return ContinueResult{}, err
 	}
@@ -463,11 +477,17 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (result
 		if strings.TrimSpace(stringFrom(event, "batchId")) == "" {
 			event["batchId"] = batchID
 		}
-		preview := ctx.previewEvent(event)
+		preview, err := ctx.previewEvent(event)
+		if err != nil {
+			return ContinueResult{}, err
+		}
 		if preview.AuthorityFile != "" && preview.Decision == "accept" {
 			preview.Decision = "defer"
 			preview.Reason = "authority append requires explicit user confirmation; Go continue -Apply does not write authority/confirmed"
-			preview.WouldWrites = wouldFactKinds("candidate", "decision")
+			preview.WouldWrites, err = wouldFactKinds(ctx.inst.CaseRoot, "candidate", "decision")
+			if err != nil {
+				return ContinueResult{}, err
+			}
 		}
 		writes, err := ctx.applyContinueEvent(event, preview, runID, batchID)
 		if err != nil {
@@ -503,24 +523,39 @@ func ContinueApply(repoRoot, caseRoot, pack string, opt ContinueOptions) (result
 	if err != nil {
 		return ContinueResult{}, err
 	}
-	result.Writes = append(result.Writes, StartWrite{Path: ".rekit/board.json", Kind: "board", Action: "refresh", TargetPath: boardPath})
+	result.Writes = append(result.Writes, StartWrite{Path: relativePath(ctx.inst.CaseRoot, boardPath), Kind: "board", Action: "refresh", TargetPath: boardPath})
 	result.MissionBrief = ctx.missionBrief()
 	result.ExecutorAction = ctx.executorAction()
 	result.ExecutionEvidenceReview = ctx.executionEvidenceReview()
 	result.ReviewerWritebacks = ctx.reviewerWritebacks()
 	result.ReviewerWritebackSummary = ReviewerWritebackSummaryFor(result.ReviewerWritebacks)
-	result.ReviewerDispatchIntakeHandoffs = ctx.reviewerDispatchIntakeHandoffs()
+	result.ReviewerDispatchIntakeHandoffs, err = ctx.reviewerDispatchIntakeHandoffs()
+	if err != nil {
+		return ContinueResult{}, err
+	}
 	result.ReviewerDispatchIntakeSummary = ReviewerDispatchIntakeSummaryFor(result.ReviewerDispatchIntakeHandoffs)
-	result.ReviewerPacketRetirementHandoffs = ctx.reviewerPacketRetirementHandoffs()
+	result.ReviewerPacketRetirementHandoffs, err = ctx.reviewerPacketRetirementHandoffs()
+	if err != nil {
+		return ContinueResult{}, err
+	}
 	result.ReviewerPacketRetirementSummary = ReviewerPacketRetirementSummaryFor(result.ReviewerPacketRetirementHandoffs)
 	result.AuthorizedGateAdapterHandoffs = ctx.authorizedGateAdapterHandoffs()
 	result.MissionCommanderNextActions = ctx.missionCommanderNextActions(result.ExecutorAction, result.ExecutionEvidenceReview, result.AuthorizedGateAdapterHandoffs, result.ReviewerDispatchIntakeHandoffs)
 	result.MissionCommanderActionQueue = mission.MissionCommanderActionQueueFor(result.MissionCommanderNextActions)
-	result.LaneTakeoverPackage = laneTakeoverPackageFor(ctx.inst.CaseRoot, ctx.lane, result.ExecutorAction, result.MissionCommanderActionQueue, false)
+	result.LaneTakeoverPackage, err = laneTakeoverPackageFor(ctx.inst.CaseRoot, ctx.lane, result.ExecutorAction, result.MissionCommanderActionQueue, false)
+	if err != nil {
+		return ContinueResult{}, err
+	}
 	result.ExecutionEvidenceReviewSummary = ExecutionEvidenceReviewSummaryFor(result.ExecutionEvidenceReview, result.MissionCommanderActionQueue)
 	result.NextSteps = workstreamNextSteps(result.ExecutorAction, true)
-	statusRel := relJoin(".rekit", "runs", runID, "status.json")
-	digestRel := relJoin(".rekit", "runs", runID, "digest.md")
+	statusRel, err := projectstate.Rel(ctx.inst.CaseRoot, "runs", runID, "status.json")
+	if err != nil {
+		return ContinueResult{}, err
+	}
+	digestRel, err := projectstate.Rel(ctx.inst.CaseRoot, "runs", runID, "digest.md")
+	if err != nil {
+		return ContinueResult{}, err
+	}
 	result.MissionCommanderDriverReceipt = newMissionCommanderDriverReceipt(result, statusRel, digestRel)
 	statusPath, digestPath, err := writeContinueRunArtifacts(runRoot, result)
 	if err != nil {
@@ -555,7 +590,11 @@ func newContinueContextCore(repoRoot, caseRoot, pack string, opt ContinueOptions
 	}
 	b, err := readBoard(inst.CaseRoot)
 	if os.IsNotExist(err) {
-		return continueContext{}, fmt.Errorf("continue requires existing .rekit/board.json; run /rekit overview once to initialize the case-local board")
+		boardPath, entrypoint, pathErr := selectedMissionCommanderSurface(inst.CaseRoot)
+		if pathErr != nil {
+			return continueContext{}, pathErr
+		}
+		return continueContext{}, fmt.Errorf("continue requires existing %s; run %s overview once to initialize the case-local board", boardPath, entrypoint)
 	}
 	if err != nil {
 		return continueContext{}, err
@@ -617,17 +656,29 @@ func textOrUnassigned(value string) string {
 	return "unassigned"
 }
 
-func (ctx continueContext) blockedByOwnerGuardRecovery(apply bool) ContinueResult {
+func (ctx continueContext) blockedByOwnerGuardRecovery(apply bool) (ContinueResult, error) {
 	executorAction := ctx.executorAction()
 	executionEvidenceReview := ctx.executionEvidenceReview()
 	reviewerWritebacks := ctx.reviewerWritebacks()
-	reviewerDispatchIntakeHandoffs := ctx.reviewerDispatchIntakeHandoffs()
-	reviewerPacketRetirementHandoffs := ctx.reviewerPacketRetirementHandoffs()
+	reviewerDispatchIntakeHandoffs, err := ctx.reviewerDispatchIntakeHandoffs()
+	if err != nil {
+		return ContinueResult{}, err
+	}
+	reviewerPacketRetirementHandoffs, err := ctx.reviewerPacketRetirementHandoffs()
+	if err != nil {
+		return ContinueResult{}, err
+	}
 	authorizedGateAdapterHandoffs := ctx.authorizedGateAdapterHandoffs()
 	commanderNextActions := ctx.missionCommanderNextActions(executorAction, executionEvidenceReview, authorizedGateAdapterHandoffs, reviewerDispatchIntakeHandoffs)
 	commanderActionQueue := mission.MissionCommanderActionQueueFor(commanderNextActions)
-	laneTakeoverPackage := laneTakeoverPackageFor(ctx.inst.CaseRoot, ctx.lane, executorAction, commanderActionQueue, false)
-	recovery := continueOwnerGuardRecoveryFor(ctx.inst.CaseRoot, ctx.lane, executorAction, commanderActionQueue, ctx.continueOptions, ctx.ownerGuardRecoveryReason)
+	laneTakeoverPackage, err := laneTakeoverPackageFor(ctx.inst.CaseRoot, ctx.lane, executorAction, commanderActionQueue, false)
+	if err != nil {
+		return ContinueResult{}, err
+	}
+	recovery, err := continueOwnerGuardRecoveryFor(ctx.inst.CaseRoot, ctx.lane, executorAction, commanderActionQueue, ctx.continueOptions, ctx.ownerGuardRecoveryReason)
+	if err != nil {
+		return ContinueResult{}, err
+	}
 	result := ContinueResult{
 		SchemaVersion:                    1,
 		Command:                          "continue",
@@ -664,7 +715,7 @@ func (ctx continueContext) blockedByOwnerGuardRecovery(apply bool) ContinueResul
 	if result.ContinueOwnerGuardRecovery != nil {
 		result.ContinueOwnerGuardRecovery.ReceivedExecutor = strings.TrimSpace(result.ContinueOwnerGuardRecovery.ReceivedExecutor)
 	}
-	return result
+	return result, nil
 }
 
 func (ctx continueContext) missionBrief() mission.Brief {
@@ -718,24 +769,16 @@ func (ctx continueContext) reviewerWritebacks() []ReviewerWritebackItem {
 	return ReviewerWritebackItems(facts, ctx.lane.ID)
 }
 
-func (ctx continueContext) reviewerDispatchIntakeHandoffs() []ReviewerDispatchIntakeHandoff {
+func (ctx continueContext) reviewerDispatchIntakeHandoffs() ([]ReviewerDispatchIntakeHandoff, error) {
 	facts, err := readHandoffFacts(ctx.inst.CaseRoot)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	items, err := ReviewerDispatchIntakeHandoffs(ctx.inst.CaseRoot, facts, ctx.lane.ID)
-	if err != nil {
-		return nil
-	}
-	return items
+	return ReviewerDispatchIntakeHandoffs(ctx.inst.CaseRoot, facts, ctx.lane.ID)
 }
 
-func (ctx continueContext) reviewerPacketRetirementHandoffs() []ReviewerPacketRetirementHandoff {
-	items, err := ReviewerPacketRetirementHandoffs(ctx.inst.CaseRoot, ctx.lane.ID)
-	if err != nil {
-		return nil
-	}
-	return items
+func (ctx continueContext) reviewerPacketRetirementHandoffs() ([]ReviewerPacketRetirementHandoff, error) {
+	return ReviewerPacketRetirementHandoffs(ctx.inst.CaseRoot, ctx.lane.ID)
 }
 
 func (ctx continueContext) authorizedGateAdapterHandoffs() []AuthorizedGateAdapterHandoff {
@@ -757,18 +800,28 @@ func (ctx continueContext) missionCommanderNextActions(action laneExecutorAction
 	return MissionCommanderNextActionsWithReviewerDispatches(items, reviewerHandoffs)
 }
 
-func (ctx continueContext) blockedByReviewerDispatches(apply bool) ContinueResult {
-	handoffs := ctx.reviewerDispatchIntakeHandoffs()
+func (ctx continueContext) blockedByReviewerDispatches(apply bool) (ContinueResult, error) {
+	handoffs, err := ctx.reviewerDispatchIntakeHandoffs()
+	if err != nil {
+		return ContinueResult{}, err
+	}
 	if len(handoffs) == 0 {
-		return ContinueResult{}
+		return ContinueResult{}, nil
 	}
 	executorAction := ctx.executorAction()
 	executionEvidenceReview := ctx.executionEvidenceReview()
 	reviewerWritebacks := ctx.reviewerWritebacks()
-	reviewerPacketRetirementHandoffs := ctx.reviewerPacketRetirementHandoffs()
+	reviewerPacketRetirementHandoffs, err := ctx.reviewerPacketRetirementHandoffs()
+	if err != nil {
+		return ContinueResult{}, err
+	}
 	adapterHandoffs := ctx.authorizedGateAdapterHandoffs()
 	nextActions := ctx.missionCommanderNextActions(executorAction, executionEvidenceReview, adapterHandoffs, handoffs)
 	queue := mission.MissionCommanderActionQueueFor(nextActions)
+	laneTakeoverPackage, err := laneTakeoverPackageFor(ctx.inst.CaseRoot, ctx.lane, executorAction, queue, false)
+	if err != nil {
+		return ContinueResult{}, err
+	}
 	return ContinueResult{
 		SchemaVersion:                    1,
 		Command:                          "continue",
@@ -796,11 +849,11 @@ func (ctx continueContext) blockedByReviewerDispatches(apply bool) ContinueResul
 		AuthorizedGateAdapterHandoffs:    adapterHandoffs,
 		MissionCommanderNextActions:      nextActions,
 		MissionCommanderActionQueue:      queue,
-		LaneTakeoverPackage:              laneTakeoverPackageFor(ctx.inst.CaseRoot, ctx.lane, executorAction, queue, false),
+		LaneTakeoverPackage:              laneTakeoverPackage,
 		Blocked:                          true,
 		BlockedActions:                   []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "lane continuation while reviewer dispatch/intake remains open"},
 		NextSteps:                        []string{ReviewerDispatchIntakeSummaryFor(handoffs).NextAction},
-	}
+	}, nil
 }
 
 func (ctx continueContext) blockedByOpenInterventions(apply bool) (ContinueResult, error) {
@@ -814,11 +867,21 @@ func (ctx continueContext) blockedByOpenInterventions(apply bool) (ContinueResul
 	executorAction := ctx.executorAction()
 	executionEvidenceReview := ctx.executionEvidenceReview()
 	reviewerWritebacks := ctx.reviewerWritebacks()
-	reviewerDispatchIntakeHandoffs := ctx.reviewerDispatchIntakeHandoffs()
-	reviewerPacketRetirementHandoffs := ctx.reviewerPacketRetirementHandoffs()
+	reviewerDispatchIntakeHandoffs, err := ctx.reviewerDispatchIntakeHandoffs()
+	if err != nil {
+		return ContinueResult{}, err
+	}
+	reviewerPacketRetirementHandoffs, err := ctx.reviewerPacketRetirementHandoffs()
+	if err != nil {
+		return ContinueResult{}, err
+	}
 	authorizedGateAdapterHandoffs := ctx.authorizedGateAdapterHandoffs()
 	commanderNextActions := ctx.missionCommanderNextActions(executorAction, executionEvidenceReview, authorizedGateAdapterHandoffs, reviewerDispatchIntakeHandoffs)
 	commanderActionQueue := mission.MissionCommanderActionQueueFor(commanderNextActions)
+	laneTakeoverPackage, err := laneTakeoverPackageFor(ctx.inst.CaseRoot, ctx.lane, executorAction, commanderActionQueue, false)
+	if err != nil {
+		return ContinueResult{}, err
+	}
 	return ContinueResult{
 		SchemaVersion:                    1,
 		Command:                          "continue",
@@ -846,7 +909,7 @@ func (ctx continueContext) blockedByOpenInterventions(apply bool) (ContinueResul
 		AuthorizedGateAdapterHandoffs:    authorizedGateAdapterHandoffs,
 		MissionCommanderNextActions:      commanderNextActions,
 		MissionCommanderActionQueue:      commanderActionQueue,
-		LaneTakeoverPackage:              laneTakeoverPackageFor(ctx.inst.CaseRoot, ctx.lane, executorAction, commanderActionQueue, false),
+		LaneTakeoverPackage:              laneTakeoverPackage,
 		OpenRisks:                        interventionRiskLines(open),
 		Blocked:                          true,
 		ReconcileRequired:                true,
@@ -875,14 +938,28 @@ func (ctx continueContext) blockedByPendingGateOrOpenDecision(apply bool) (Conti
 	if len(pendingGates) == 0 && len(openDecisions) == 0 {
 		return ContinueResult{}, nil
 	}
+	openDecisionHandoffs, err := continueOpenDecisionHandoffs(ctx.inst.CaseRoot, ctx.lane, openDecisions)
+	if err != nil {
+		return ContinueResult{}, err
+	}
 	executorAction := ctx.executorAction()
 	executionEvidenceReview := ctx.executionEvidenceReview()
 	reviewerWritebacks := ctx.reviewerWritebacks()
-	reviewerDispatchIntakeHandoffs := ctx.reviewerDispatchIntakeHandoffs()
-	reviewerPacketRetirementHandoffs := ctx.reviewerPacketRetirementHandoffs()
+	reviewerDispatchIntakeHandoffs, err := ctx.reviewerDispatchIntakeHandoffs()
+	if err != nil {
+		return ContinueResult{}, err
+	}
+	reviewerPacketRetirementHandoffs, err := ctx.reviewerPacketRetirementHandoffs()
+	if err != nil {
+		return ContinueResult{}, err
+	}
 	authorizedGateAdapterHandoffs := ctx.authorizedGateAdapterHandoffs()
 	commanderNextActions := ctx.missionCommanderNextActions(executorAction, executionEvidenceReview, authorizedGateAdapterHandoffs, reviewerDispatchIntakeHandoffs)
 	commanderActionQueue := mission.MissionCommanderActionQueueFor(commanderNextActions)
+	laneTakeoverPackage, err := laneTakeoverPackageFor(ctx.inst.CaseRoot, ctx.lane, executorAction, commanderActionQueue, false)
+	if err != nil {
+		return ContinueResult{}, err
+	}
 	return ContinueResult{
 		SchemaVersion:                    1,
 		Command:                          "continue",
@@ -910,13 +987,13 @@ func (ctx continueContext) blockedByPendingGateOrOpenDecision(apply bool) (Conti
 		AuthorizedGateAdapterHandoffs:    authorizedGateAdapterHandoffs,
 		MissionCommanderNextActions:      commanderNextActions,
 		MissionCommanderActionQueue:      commanderActionQueue,
-		LaneTakeoverPackage:              laneTakeoverPackageFor(ctx.inst.CaseRoot, ctx.lane, executorAction, commanderActionQueue, false),
+		LaneTakeoverPackage:              laneTakeoverPackage,
 		OpenRisks:                        append(continuePendingGateRiskLines(pendingGates), continueOpenDecisionRiskLines(openDecisions)...),
 		Blocked:                          true,
 		PendingGateRequired:              len(pendingGates) > 0,
 		OpenDecisionRequired:             len(openDecisions) > 0,
 		PendingGateHandoffs:              continuePendingGateHandoffs(ctx.lane, pendingGates),
-		OpenDecisionHandoffs:             continueOpenDecisionHandoffs(ctx.lane, openDecisions),
+		OpenDecisionHandoffs:             openDecisionHandoffs,
 		WouldWrites:                      []StartWrite{},
 		Writes:                           []StartWrite{},
 		BlockedActions:                   []string{"run directory creation", "facts JSONL writes", "lane resume/checkpoint refresh", "board refresh", "authority/confirmed writes", "heavy-tool execution without a valid current authorization decision", "lane continuation while pending gate or open decision remains unresolved"},
@@ -932,22 +1009,26 @@ func continuePendingGateRiskLines(items []map[string]any) []string {
 	return lines
 }
 
-func gateDecisionHandoffsForLane(caseRoot string, lane Lane) ([]ContinuePendingGateHandoff, []ContinueOpenDecisionHandoff) {
+func gateDecisionHandoffsForLane(caseRoot string, lane Lane) ([]ContinuePendingGateHandoff, []ContinueOpenDecisionHandoff, error) {
 	facts, err := readHandoffFacts(caseRoot)
 	if err != nil {
-		return nil, nil
+		return nil, nil, err
 	}
-	return gateDecisionHandoffs(lane, mission.LaneFacts(facts.Facts, lane.ID))
+	return gateDecisionHandoffs(caseRoot, lane, mission.LaneFacts(facts.Facts, lane.ID))
 }
 
-func gateDecisionHandoffs(lane Lane, facts mission.Facts) ([]ContinuePendingGateHandoff, []ContinueOpenDecisionHandoff) {
+func gateDecisionHandoffs(caseRoot string, lane Lane, facts mission.Facts) ([]ContinuePendingGateHandoff, []ContinueOpenDecisionHandoff, error) {
 	pendingGates := []map[string]any{}
 	for _, item := range facts.Requests {
 		if mission.IsPendingGateRequest(item) {
 			pendingGates = append(pendingGates, item)
 		}
 	}
-	return continuePendingGateHandoffs(lane, pendingGates), continueOpenDecisionHandoffs(lane, continueOpenDecisionItems(facts))
+	openDecisionHandoffs, err := continueOpenDecisionHandoffs(caseRoot, lane, continueOpenDecisionItems(facts))
+	if err != nil {
+		return nil, nil, err
+	}
+	return continuePendingGateHandoffs(lane, pendingGates), openDecisionHandoffs, nil
 }
 
 type continueOpenDecisionItem struct {
@@ -1145,7 +1226,7 @@ func continueGateRequestCommand(lane Lane, item map[string]any, apply bool) stri
 	return continueCommand(parts...)
 }
 
-func continueOpenDecisionHandoffs(lane Lane, items []continueOpenDecisionItem) []ContinueOpenDecisionHandoff {
+func continueOpenDecisionHandoffs(caseRoot string, lane Lane, items []continueOpenDecisionItem) ([]ContinueOpenDecisionHandoff, error) {
 	label := workstreamLabel(lane)
 	handoffs := []ContinueOpenDecisionHandoff{}
 	for _, item := range continueLimitOpenDecisionItems(items, maxHandoffRows) {
@@ -1153,8 +1234,14 @@ func continueOpenDecisionHandoffs(lane Lane, items []continueOpenDecisionItem) [
 		eventID := mission.Value(event, "eventId")
 		sourceKind := continueOpenDecisionSourceKind(item.SourceKind)
 		kind := firstText(mission.Value(event, "kind"), sourceKind, "decision")
-		sourcePath := mission.FactRelPath(sourceKind)
-		recordPath := mission.FactRelPath("decision")
+		sourcePath, err := mission.FactRelPathFor(caseRoot, sourceKind)
+		if err != nil {
+			return nil, err
+		}
+		recordPath, err := mission.FactRelPathFor(caseRoot, "decision")
+		if err != nil {
+			return nil, err
+		}
 		decision := mission.Value(event, "decision")
 		if decision == "" {
 			decision = mission.Value(event, "action")
@@ -1202,7 +1289,7 @@ func continueOpenDecisionHandoffs(lane Lane, items []continueOpenDecisionItem) [
 			Evidence:         evidence,
 		})
 	}
-	return handoffs
+	return handoffs, nil
 }
 
 func continueLimitOpenDecisionItems(events []continueOpenDecisionItem, n int) []continueOpenDecisionItem {
@@ -1290,7 +1377,7 @@ func continueCommand(parts ...string) string {
 	return strings.Join(out, " ")
 }
 
-func (ctx continueContext) previewEvent(event map[string]any) ContinueEventPreview {
+func (ctx continueContext) previewEvent(event map[string]any) (ContinueEventPreview, error) {
 	kind := strings.ToLower(strings.TrimSpace(stringFrom(event, "kind")))
 	if kind == "" {
 		kind = "observation"
@@ -1302,12 +1389,13 @@ func (ctx continueContext) previewEvent(event map[string]any) ContinueEventPrevi
 		Subject: stringFrom(event, "subject"),
 		Summary: stringFrom(event, "summary"),
 	}
+	var err error
 	switch kind {
 	case "observation":
 		if ctx.policy.AutoPublishSharedFacts {
 			preview.Decision = "accept"
 			preview.Reason = "shared observation"
-			preview.WouldWrites = wouldFactKinds("observation", "decision")
+			preview.WouldWrites, err = wouldFactKinds(ctx.inst.CaseRoot, "observation", "decision")
 		} else {
 			preview.Decision = "defer"
 			preview.Reason = "autoPublishSharedFacts disabled"
@@ -1315,7 +1403,7 @@ func (ctx continueContext) previewEvent(event map[string]any) ContinueEventPrevi
 	case "request":
 		preview.Decision = "accept"
 		preview.Reason = "would route request"
-		preview.WouldWrites = wouldFactKinds("request", "decision")
+		preview.WouldWrites, err = wouldFactKinds(ctx.inst.CaseRoot, "request", "decision")
 		if ctx.policy.AutoRouteRequests {
 			targetLane := stringFrom(event, "targetLane")
 			if targetLane == "" {
@@ -1326,7 +1414,15 @@ func (ctx continueContext) previewEvent(event map[string]any) ContinueEventPrevi
 				preview.Reason = err.Error()
 			} else if !requestAlreadyRouted(ctx.inst.CaseRoot, targetLane, event) {
 				preview.TargetLane = targetLane
-				preview.WouldWrites = append(preview.WouldWrites, wouldLane(targetLane, "tasks.jsonl"), wouldLane(targetLane, "inbox.jsonl"))
+				taskWrite, err := wouldLane(ctx.inst.CaseRoot, targetLane, "tasks.jsonl")
+				if err != nil {
+					return ContinueEventPreview{}, err
+				}
+				inboxWrite, err := wouldLane(ctx.inst.CaseRoot, targetLane, "inbox.jsonl")
+				if err != nil {
+					return ContinueEventPreview{}, err
+				}
+				preview.WouldWrites = append(preview.WouldWrites, taskWrite, inboxWrite)
 			}
 		} else {
 			preview.Decision = "defer"
@@ -1343,31 +1439,46 @@ func (ctx continueContext) previewEvent(event map[string]any) ContinueEventPrevi
 			if reason := ctx.authorityAppendReason(event, verification, authorityFile, rows); reason != "" {
 				preview.Decision = "defer"
 				preview.Reason = reason
-				preview.WouldWrites = wouldFactKinds("candidate", "decision")
+				preview.WouldWrites, err = wouldFactKinds(ctx.inst.CaseRoot, "candidate", "decision")
 			} else {
 				preview.Decision = "accept"
 				preview.Reason = "passed authority append policy"
-				preview.WouldWrites = append([]StartWrite{wouldAuthority(authorityFile), wouldRunArtifact("backups", authorityFile), wouldRunArtifact("diffs", sanitizedDiffName(authorityFile))}, wouldFactKinds("publication", "decision")...)
+				backupWrite, err := wouldRunArtifact(ctx.inst.CaseRoot, "backups", authorityFile)
+				if err != nil {
+					return ContinueEventPreview{}, err
+				}
+				diffWrite, err := wouldRunArtifact(ctx.inst.CaseRoot, "diffs", sanitizedDiffName(authorityFile))
+				if err != nil {
+					return ContinueEventPreview{}, err
+				}
+				factWrites, err := wouldFactKinds(ctx.inst.CaseRoot, "publication", "decision")
+				if err != nil {
+					return ContinueEventPreview{}, err
+				}
+				preview.WouldWrites = append([]StartWrite{wouldAuthority(authorityFile), backupWrite, diffWrite}, factWrites...)
 			}
 		} else if ctx.policy.AutoAcceptLowRiskCandidates && boolFrom(verification, "hasEvidence") && verifierAccepted(ctx.policy, verification) {
 			preview.Decision = "accept"
 			preview.Reason = "candidate has evidence, verifier accepted, and does not touch authority"
-			preview.WouldWrites = wouldFactKinds("candidate", "decision")
+			preview.WouldWrites, err = wouldFactKinds(ctx.inst.CaseRoot, "candidate", "decision")
 		} else {
 			preview.Decision = "defer"
 			preview.Reason = "candidate lacks evidence or policy disabled"
-			preview.WouldWrites = wouldFactKinds("candidate", "decision")
+			preview.WouldWrites, err = wouldFactKinds(ctx.inst.CaseRoot, "candidate", "decision")
 		}
 	case "publication":
 		preview.Decision = "accept"
 		preview.Reason = "publication event"
-		preview.WouldWrites = wouldFactKinds("publication", "decision")
+		preview.WouldWrites, err = wouldFactKinds(ctx.inst.CaseRoot, "publication", "decision")
 	default:
 		preview.Decision = "accept"
 		preview.Reason = "unknown kind treated as observation: " + kind
-		preview.WouldWrites = wouldFactKinds("observation", "decision")
+		preview.WouldWrites, err = wouldFactKinds(ctx.inst.CaseRoot, "observation", "decision")
 	}
-	return preview
+	if err != nil {
+		return ContinueEventPreview{}, err
+	}
+	return preview, nil
 }
 
 func (ctx continueContext) applyContinueEvent(event map[string]any, preview ContinueEventPreview, runID, batchID string) ([]StartWrite, error) {
@@ -2065,7 +2176,7 @@ func continuePacketRefs(caseRoot string, lane Lane) ([]string, error) {
 
 func readContinuePolicy(caseRoot string) (continuePolicy, error) {
 	policy := defaultContinuePolicy()
-	path, err := refsf.SafeJoin(caseRoot, ".rekit/policy.yml")
+	path, err := projectstate.Join(caseRoot, "policy.yml")
 	if err != nil {
 		return policy, err
 	}
@@ -2520,16 +2631,24 @@ func sanitizedDiffName(rel string) string {
 	return replacer.Replace(rel) + ".diff"
 }
 
-func wouldLane(laneID, file string) StartWrite {
-	return StartWrite{Path: relJoin(".rekit", "lanes", laneID, file), Kind: "lane-jsonl", Action: "would-append"}
+func wouldLane(caseRoot, laneID, file string) (StartWrite, error) {
+	rel, err := projectstate.Rel(caseRoot, "lanes", laneID, file)
+	if err != nil {
+		return StartWrite{}, err
+	}
+	return StartWrite{Path: rel, Kind: "lane-jsonl", Action: "would-append"}, nil
 }
 
 func wouldAuthority(rel string) StartWrite {
 	return StartWrite{Path: rel, Kind: "authority-csv", Action: "would-append"}
 }
 
-func wouldRunArtifact(kind, rel string) StartWrite {
-	return StartWrite{Path: relJoin(".rekit", "runs", continuePreviewRunID, kind, rel), Kind: "run-artifact", Action: "would-create"}
+func wouldRunArtifact(caseRoot, kind, rel string) (StartWrite, error) {
+	path, err := projectstate.Rel(caseRoot, "runs", continuePreviewRunID, kind, rel)
+	if err != nil {
+		return StartWrite{}, err
+	}
+	return StartWrite{Path: path, Kind: "run-artifact", Action: "would-create"}, nil
 }
 
 func riskLine(preview ContinueEventPreview) string {

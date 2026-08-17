@@ -9,10 +9,53 @@ import (
 	"testing"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/adapterhost"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/autonomy"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewerresult"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
+
+func TestAssertLiveAcceptanceNoAuthorityUsesSelectedStateRoot(t *testing.T) {
+	for _, stateDir := range []string{projectstate.CurrentDir, projectstate.LegacyDir} {
+		t.Run(stateDir, func(t *testing.T) {
+			caseRoot := t.TempDir()
+			if err := os.Mkdir(filepath.Join(caseRoot, stateDir), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := autonomy.EnsureManualProfile(caseRoot, "main"); err != nil {
+				t.Fatal(err)
+			}
+			if err := assertLiveAcceptanceNoAuthority(caseRoot, "main"); err != nil {
+				t.Fatal(err)
+			}
+			_, authorityPath, err := mission.FactPath(caseRoot, "authority")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(filepath.Dir(authorityPath), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(authorityPath, []byte("{}\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := assertLiveAcceptanceNoAuthority(caseRoot, "main"); err == nil || !strings.Contains(err.Error(), "authority ledger state") {
+				t.Fatalf("authority ledger check error = %v", err)
+			}
+		})
+	}
+
+	dualRoot := t.TempDir()
+	for _, stateDir := range []string{projectstate.CurrentDir, projectstate.LegacyDir} {
+		if err := os.Mkdir(filepath.Join(dualRoot, stateDir), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := assertLiveAcceptanceNoAuthority(dualRoot, "main"); err == nil || !strings.Contains(err.Error(), "both .steamai and .rekit") {
+		t.Fatalf("dual-root authority check error = %v", err)
+	}
+}
 
 func TestValidateLiveAcceptanceVMPIDAMemberArtifactRequiresExactLineage(t *testing.T) {
 	member, evidence, proof := vmpIDAMemberArtifactFixture(t)

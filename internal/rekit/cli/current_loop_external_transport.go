@@ -7,9 +7,13 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
 
-func externalSessionTransportPackage(job externalsession.Job, attempt externalsession.AttemptInspection, dispatch externalsession.DispatchInspection, inspection externalsession.TransportInspection) *mission.CurrentLoopExternalSessionTransportPackage {
+func externalSessionTransportPackage(job externalsession.Job, attempt externalsession.AttemptInspection, dispatch externalsession.DispatchInspection, inspection externalsession.TransportInspection) (*mission.CurrentLoopExternalSessionTransportPackage, error) {
 	if !inspection.Applicable {
-		return nil
+		return nil, nil
+	}
+	refresh, err := statusMissionControlRefreshCommand(job.CaseRoot)
+	if err != nil {
+		return nil, err
 	}
 	pkg := &mission.CurrentLoopExternalSessionTransportPackage{
 		State: inspection.State,
@@ -52,7 +56,7 @@ func externalSessionTransportPackage(job externalsession.Job, attempt externalse
 		}
 	}
 	if attempt.Current == nil || dispatch.Claim == nil {
-		return pkg
+		return pkg, nil
 	}
 	lane := memberLane(job)
 	switch inspection.State {
@@ -64,7 +68,7 @@ func externalSessionTransportPackage(job externalsession.Job, attempt externalse
 			Guidance:          "Call the Claude Code ListAgents model tool once, select the intended Remote Control session by its exact opaque name [ref], then preview run-current-step with -ExternalSessionTransportEndpoint, -ExternalSessionActor, and -ExternalSessionObservedAt.",
 			CommandExecutable: false, RequiresReview: true,
 			ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
-				State: "endpoint-snapshot-preview", RefreshStatusCommand: statusMissionControlRefreshCommand(job.CaseRoot),
+				State: "endpoint-snapshot-preview", RefreshStatusCommand: refresh,
 				Description: "returns a hash-bound immutable endpoint snapshot and exact SendMessage envelope",
 				Boundary:    []string{"do not infer endpoint stability across reconnect, resume, or rename", "do not send before endpoint snapshot Apply"},
 			},
@@ -78,7 +82,7 @@ func externalSessionTransportPackage(job externalsession.Job, attempt externalse
 			Guidance:          "Call the Claude Code SendMessage model tool exactly once with transport.message.recipient and transport.message.message. Then record accepted, rejected, or uncertain delivery using a fresh run-current-step preview; never resend automatically after an ambiguous result.",
 			CommandExecutable: false, RequiresReview: true,
 			ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
-				State: "delivery-observation-preview", RefreshStatusCommand: statusMissionControlRefreshCommand(job.CaseRoot),
+				State: "delivery-observation-preview", RefreshStatusCommand: refresh,
 				Description: "records one immutable delivery observation bound to the exact endpoint and message bytes",
 				Boundary:    []string{"accepted delivery is not task completion", "uncertain delivery blocks automatic resend"},
 			},
@@ -94,7 +98,7 @@ func externalSessionTransportPackage(job externalsession.Job, attempt externalse
 				Guidance:          "Capture exactly one received ReviewerResult JSON object into a bounded case-local source file. Then preview run-current-step with -ExternalSessionReviewerResultSourcePath, -ExternalSessionActor, and -ExternalSessionObservedAt; do not write submission.json manually.",
 				CommandExecutable: false, RequiresReview: true,
 				ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
-					State: "transport-return-preview", RefreshStatusCommand: statusMissionControlRefreshCommand(job.CaseRoot),
+					State: "transport-return-preview", RefreshStatusCommand: refresh,
 					Description: "previews result-first, return-receipt-second, submission-last publication bound to the accepted delivery and launch lineage",
 					Boundary:    []string{"one bounded case-local ReviewerResult source", "no manual submission write", "existing relay and strict intake remain authoritative"},
 				},
@@ -107,7 +111,10 @@ func externalSessionTransportPackage(job externalsession.Job, attempt externalse
 		if err == nil {
 			transition, transitionErr := externalsession.PreviewDispatchTransition(job, attempt, outcome, actor, observedAt, harness, session, reason)
 			if transitionErr == nil {
-				request := externalSessionDispatchRequest(job, attempt.AttemptSHA256, dispatch, outcome)
+				request, requestErr := externalSessionDispatchRequest(job, attempt.AttemptSHA256, dispatch, outcome)
+				if requestErr != nil {
+					return nil, requestErr
+				}
 				request.Kind = "apply-command"
 				request.State = "transport-delivery-" + inspection.Delivery.Outcome
 				request.Source = "current-loop-external-session-transport"
@@ -117,6 +124,10 @@ func externalSessionTransportPackage(job externalsession.Job, attempt externalse
 				request.ActionID = inspection.DeliverySHA256
 				request.ExpectedReceipt.Description = "derives the existing launch receipt exactly from the immutable Remote Control delivery observation"
 				request.Boundary = mission.UniqueStrings(append(request.Boundary, pkg.Boundary...))
+				request, requestErr = mission.MissionCommanderDriverRequestWithTypedCommand(request)
+				if requestErr != nil {
+					return nil, requestErr
+				}
 				pkg.LaunchRequest = &request
 			}
 		}
@@ -129,7 +140,7 @@ func externalSessionTransportPackage(job externalsession.Job, attempt externalse
 			Guidance:          "Do not resend or replace this job. Create a new durable Reviewer dispatch with a new reviewerSession transport binding; let that dispatch produce a new external-session job.",
 			CommandExecutable: false, RequiresReview: true,
 			ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
-				State: "new-reviewer-dispatch-required", RefreshStatusCommand: statusMissionControlRefreshCommand(job.CaseRoot),
+				State: "new-reviewer-dispatch-required", RefreshStatusCommand: refresh,
 				Description: "re-enters the canonical Reviewer dispatch path instead of reusing ambiguous transport identity",
 				Boundary:    []string{"no automatic resend", "no same-job replacement", "new dispatch/session/job identity required"},
 			},
@@ -137,7 +148,7 @@ func externalSessionTransportPackage(job externalsession.Job, attempt externalse
 		}
 		pkg.ReplacementRequest = &request
 	}
-	return pkg
+	return pkg, nil
 }
 
 func applyExternalSessionTransportState(operator *mission.CurrentLoopOperatorPackage, job *mission.CurrentLoopExternalSessionJob, transport externalsession.TransportInspection) {

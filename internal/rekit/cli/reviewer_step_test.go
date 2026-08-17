@@ -10,7 +10,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/subagents"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
@@ -68,7 +71,11 @@ func TestRunReviewerStepDispatchInputAndDeterministicPipeline(t *testing.T) {
 	if err := os.WriteFile(evidencePath, []byte("bounded reviewer evidence\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	resultSource := filepath.Join(caseRoot, "workspace", "reviewer-result.json")
+	resultSourceRoot := filepath.Join(filepath.Dir(plan.PacketPath), "external-results")
+	if err := os.MkdirAll(resultSourceRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	resultSource := filepath.Join(resultSourceRoot, "reviewer-result.json")
 	data, err := json.Marshal(map[string]any{
 		"packetId": packet.PacketID, "routeId": packet.Route.ID, "shardId": handoff.ShardID,
 		"items": []string{"alpha"}, "reviewerSession": "reviewer-session-runner",
@@ -235,12 +242,15 @@ func TestRunReviewerStepIntakesDirectResultAfterDispatchReceipt(t *testing.T) {
 	actor := "mission-commander"
 	base := []string{"-Command", "run-reviewer-step", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"}
 	out.Reset()
-	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Format", "json"}, &out); err != nil {
+	if err := Run([]string{"-Command", "status", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-Format", "json"}, &out); err != nil {
 		t.Fatal(err)
 	}
 	var spawnStatus statusInventory
 	if err := json.Unmarshal(out.Bytes(), &spawnStatus); err != nil {
 		t.Fatal(err)
+	}
+	if spawnStatus.MissionControlRunbook == nil || spawnStatus.MissionControlRunbook.CurrentLoopOperator == nil || spawnStatus.MissionControlRunbook.CurrentLoopOperator.ExternalReviewerHandoff == nil {
+		t.Fatalf("direct reviewer current-loop dispatch omitted operator handoff: runbook=%+v caseMission=%+v", spawnStatus.MissionControlRunbook, spawnStatus.CaseMission)
 	}
 	spawnAttempt := spawnStatus.MissionControlRunbook.CurrentLoopOperator.ExternalReviewerHandoff.Attempt
 	if spawnAttempt == nil || spawnAttempt.RunLoopStepID != "spawn-reviewer" {
@@ -377,7 +387,7 @@ func TestRunReviewerStepDefersBatchIntakeWhileAnotherShardRuns(t *testing.T) {
 	if preview.CurrentDriverRequest.RunLoopStepID != "save-result-input" || preview.ExternalHandoff == nil || preview.ExternalHandoff.RunLoopStepID != "save-result-input" || preview.ApplyDriverRequest != nil {
 		t.Fatalf("mixed ready/running shards selected batch intake instead of running reviewer handoff: %+v", preview)
 	}
-	current := runCurrentStepPreview(t, []string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"})
+	current := runCurrentStepPreview(t, []string{"-Command", "run-current-step", "-Target", caseRoot, "-Pack", "_template", "-Lane", "main", "-WhatIf", "-Format", "json"})
 	if current.Route != "reviewer" || current.ReviewerStep == nil || current.ReviewerStep.CurrentDriverRequest.RunLoopStepID != "save-result-input" || current.ReviewerStep.ExternalHandoff == nil || current.ExpectedCurrentStepPlanSHA256 != "" {
 		t.Fatalf("mixed ready/running shards drifted between unified route and reviewer operator package: %+v", current)
 	}
@@ -467,6 +477,83 @@ func TestRunReviewerStepRejectsStalePlanAndUnsupportedOuterArgs(t *testing.T) {
 	err = Run([]string{"-Command", "run-reviewer-step", "-Target", caseRoot, "-Pack", "_template", "-Lane", "feature-review", "-WhatIf", "-Format", "json"}, &out)
 	if err == nil || !strings.Contains(err.Error(), "unsupported flag") {
 		t.Fatalf("unsupported reviewer outer flag was not rejected: %v", err)
+	}
+}
+
+func TestQualifyReviewerStepRequestPreservesProjectEntrypointAndTypedIdentity(t *testing.T) {
+	for _, fixture := range []struct {
+		name       string
+		stateDir   string
+		entrypoint string
+	}{
+		{name: "current", stateDir: projectstate.CurrentDir, entrypoint: commands.CurrentPublicEntrypoint},
+		{name: "legacy", stateDir: projectstate.LegacyDir, entrypoint: commands.LegacyPublicEntrypoint},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			caseRoot := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(caseRoot, fixture.stateDir), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			ctx := runtime.Context{Target: caseRoot, Pack: "_template"}
+			command := fixture.entrypoint + ` plan-subagents -PacketPath workspace/packet.json -ReadyReviewerResults -Lane review -Actor mission-commander -WhatIf`
+			qualified, err := qualifyReviewerStepRequest(ctx, missionDriverRequestForTest(command))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.HasPrefix(qualified.Command, fixture.entrypoint+" ") || qualified.ExpectedReceipt.Command != qualified.Command || qualified.Invocation == nil {
+				t.Fatalf("qualified reviewer request mixed its project entrypoint or typed identity: %+v", qualified)
+			}
+			projected, err := commands.ParsePublicInvocation(qualified.Command)
+			if err != nil || !qualified.Invocation.Equivalent(projected) {
+				t.Fatalf("qualified reviewer invocation differs from command: request=%+v err=%v", qualified, err)
+			}
+			if err := mission.ValidateMissionCommanderDriverRequest(qualified); err != nil {
+				t.Fatalf("qualified reviewer request is invalid: %v", err)
+			}
+			if _, err := parseBoundedReviewerRequest(ctx, qualified, false); err != nil {
+				t.Fatalf("qualified reviewer request is not consumable: %v", err)
+			}
+		})
+	}
+}
+
+func TestBoundedReviewerRequestRejectsEntrypointCommandAndTypedDrift(t *testing.T) {
+	caseRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(caseRoot, projectstate.CurrentDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ctx := runtime.Context{Target: caseRoot, Pack: "_template"}
+	command := commands.CurrentPublicEntrypoint + ` plan-subagents -PacketPath workspace/packet.json -ReadyReviewerResults -Lane review -Actor mission-commander -WhatIf`
+	valid, err := qualifyReviewerStepRequest(ctx, missionDriverRequestForTest(command))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wrongEntrypoint := valid
+	wrongEntrypoint.Command = commands.LegacyPublicEntrypoint + strings.TrimPrefix(valid.Command, commands.CurrentPublicEntrypoint)
+	wrongEntrypoint, err = mission.MissionCommanderDriverRequestWithTypedCommand(wrongEntrypoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parseBoundedReviewerRequest(ctx, wrongEntrypoint, false); err == nil || !strings.Contains(err.Error(), "canonical project entrypoint") {
+		t.Fatalf("wrong project entrypoint was not rejected: %v", err)
+	}
+
+	nonReviewer := missionDriverRequestForTest(commands.CurrentPublicEntrypoint + ` status -Target "` + caseRoot + `" -Format json`)
+	if _, err := parseBoundedReviewerRequest(ctx, nonReviewer, false); err == nil || !strings.Contains(err.Error(), "typed plan-subagents") {
+		t.Fatalf("non-reviewer command was not rejected: %v", err)
+	}
+
+	drifted := valid
+	drifted.Command += " -Actor replacement"
+	if _, err := parseBoundedReviewerRequest(ctx, drifted, false); err == nil || !strings.Contains(err.Error(), "differs from its typed invocation") {
+		t.Fatalf("reviewer typed command drift was not rejected: %v", err)
+	}
+
+	malformed := valid
+	malformed.Command = commands.CurrentPublicEntrypoint + ` plan-subagents "`
+	if _, err := qualifyReviewerStepRequest(ctx, malformed); err == nil {
+		t.Fatal("malformed reviewer command was not rejected")
 	}
 }
 

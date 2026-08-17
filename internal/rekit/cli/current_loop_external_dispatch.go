@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/externalsession"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
@@ -95,7 +96,7 @@ func runCurrentLoopExternalSessionDispatch(ctx runtime.Context, opt Options, out
 	return writeJSON(out, result)
 }
 
-func externalSessionDispatcherPackage(job externalsession.Job, attemptSHA256 string, inspection externalsession.DispatchInspection) *mission.CurrentLoopExternalSessionDispatcher {
+func externalSessionDispatcherPackage(job externalsession.Job, attemptSHA256 string, inspection externalsession.DispatchInspection) (*mission.CurrentLoopExternalSessionDispatcher, error) {
 	pkg := &mission.CurrentLoopExternalSessionDispatcher{
 		State: inspection.State, Warnings: append([]string{}, inspection.Warnings...),
 		Boundary: []string{
@@ -125,15 +126,24 @@ func externalSessionDispatcherPackage(job externalsession.Job, attemptSHA256 str
 		}
 	}
 	if inspection.Ticket != nil && inspection.State == "queued" {
-		request := externalSessionDispatchRequest(job, attemptSHA256, inspection, "claimed")
+		request, err := externalSessionDispatchRequest(job, attemptSHA256, inspection, "claimed")
+		if err != nil {
+			return nil, err
+		}
 		pkg.ClaimRequest = &request
 	}
 	if inspection.Claim != nil && inspection.State == "claimed" {
-		accepted := externalSessionDispatchRequest(job, attemptSHA256, inspection, "accepted")
-		failed := externalSessionDispatchRequest(job, attemptSHA256, inspection, "failed")
+		accepted, err := externalSessionDispatchRequest(job, attemptSHA256, inspection, "accepted")
+		if err != nil {
+			return nil, err
+		}
+		failed, err := externalSessionDispatchRequest(job, attemptSHA256, inspection, "failed")
+		if err != nil {
+			return nil, err
+		}
 		pkg.LaunchAcceptedRequest, pkg.LaunchFailedRequest = &accepted, &failed
 	}
-	return pkg
+	return pkg, nil
 }
 
 func externalSessionDispatcherRequestIsFocused(operator *mission.CurrentLoopOperatorPackage) bool {
@@ -224,27 +234,67 @@ func applyExternalSessionDispatchState(operator *mission.CurrentLoopOperatorPack
 	}
 }
 
-func externalSessionCurrentStepRequest(operator *mission.CurrentLoopOperatorPackage) mission.MissionCommanderDriverRequest {
-	job := operator.ExternalSessionJob
-	command := joinDriverCommand([]string{
-		"/rekit", "run-current-step", "-Target", operator.CaseRoot, "-Pack", operator.Pack, "-WhatIf", "-Format", "json",
-	})
-	lane := operator.Lane
-	if strings.TrimSpace(lane) == "" {
-		lane = currentLoopExternalSessionLane(job)
+func externalSessionCurrentStepRequest(operator *mission.CurrentLoopOperatorPackage) (mission.MissionCommanderDriverRequest, error) {
+	if operator == nil || operator.ExternalSessionJob == nil {
+		return mission.MissionCommanderDriverRequest{}, fmt.Errorf("external session current-step wrapper requires a durable job")
 	}
-	return mission.MissionCommanderDriverRequest{
+	job := operator.ExternalSessionJob
+	caseRoot := strings.TrimSpace(operator.CaseRoot)
+	pack := strings.TrimSpace(operator.Pack)
+	lane := strings.TrimSpace(operator.Lane)
+	if lane == "" {
+		lane = strings.TrimSpace(currentLoopExternalSessionLane(job))
+	}
+	if caseRoot == "" || pack == "" || lane == "" {
+		return mission.MissionCommanderDriverRequest{}, fmt.Errorf("external session current-step wrapper requires exact target, pack, and durable lane")
+	}
+	invocation, err := commands.NewPublicInvocation(
+		commands.RunCurrentStep,
+		"-Target", caseRoot,
+		"-Pack", pack,
+		"-Lane", lane,
+		"-WhatIf",
+		"-Format", "json",
+	)
+	if err != nil {
+		return mission.MissionCommanderDriverRequest{}, err
+	}
+	command, err := invocation.Render()
+	if err != nil {
+		return mission.MissionCommanderDriverRequest{}, err
+	}
+	command, err = projectVisibleCommand(caseRoot, command)
+	if err != nil {
+		return mission.MissionCommanderDriverRequest{}, err
+	}
+	refresh, err := statusMissionControlRefreshCommand(caseRoot)
+	if err != nil {
+		return mission.MissionCommanderDriverRequest{}, err
+	}
+	refresh = selectedLaneCommand(refresh, lane)
+	if refresh == "" || !driverStepRefreshCommandMatches(
+		runtime.Context{Target: caseRoot},
+		refresh,
+	) {
+		return mission.MissionCommanderDriverRequest{}, fmt.Errorf("external session current-step wrapper requires an exact selected-lane compact refresh")
+	}
+	request := mission.MissionCommanderDriverRequest{
 		Kind: "preview-command", RunLoopStepID: "external-session-current-step:" + job.JobID,
 		Actor: "mission-commander", State: "external-session-current-step", Source: "current-step-external-session",
 		Lane: lane, Label: job.SessionKind + " external session current step", ActionID: job.JobSHA256 + ":" + job.CheckpointSHA256,
-		Command: command, CommandExecutable: true, RequiresReview: true,
+		Invocation: &invocation, Command: command, CommandExecutable: true, RequiresReview: true,
 		ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
-			State: "preview-ready", Command: command, RefreshStatusCommand: statusMissionControlRefreshCommand(operator.CaseRoot),
+			State: "preview-ready", Command: command,
 			Description: "returns the typed current external-session campaign step and exact outer Apply hash when mutation inputs are complete",
 			Boundary:    []string{"input-required and running handoffs have no Apply hash", "nested run-current-loop requests remain available only for external host, recovery, or diagnosis"},
 		},
 		Boundary: []string{"consume this stable wrapper from status, quickstart, or replacement takeover", "the wrapper does not start, poll, stop, or manage external sessions"},
 	}
+	request = mission.MissionCommanderDriverRequestWithRefreshStatusCommand(
+		request,
+		refresh,
+	)
+	return request, nil
 }
 
 func externalSessionRunningRequest(job *mission.CurrentLoopExternalSessionJob) mission.MissionCommanderDriverRequest {
@@ -285,7 +335,11 @@ func currentLoopExternalSessionLane(job *mission.CurrentLoopExternalSessionJob) 
 	return ""
 }
 
-func externalSessionDispatchRequest(job externalsession.Job, attemptSHA256 string, inspection externalsession.DispatchInspection, outcome string) mission.MissionCommanderDriverRequest {
+func externalSessionDispatchRequest(job externalsession.Job, attemptSHA256 string, inspection externalsession.DispatchInspection, outcome string) (mission.MissionCommanderDriverRequest, error) {
+	refresh, err := statusMissionControlRefreshCommand(job.CaseRoot)
+	if err != nil {
+		return mission.MissionCommanderDriverRequest{}, err
+	}
 	args := []string{
 		"/rekit", "run-current-loop", "-Target", job.CaseRoot, "-Pack", job.Pack,
 		"-ResumeCurrentLoop", "-ExpectedCurrentLoopCheckpointSha256", job.CheckpointSHA256,
@@ -309,17 +363,19 @@ func externalSessionDispatchRequest(job externalsession.Job, attemptSHA256 strin
 		}
 	}
 	args = append(args, "-WhatIf", "-Format", "json")
-	return mission.MissionCommanderDriverRequest{
-		Kind: "preview-command-template", RunLoopStepID: "external-session-dispatch:" + job.JobID + ":" + outcome,
-		Actor: "mission-commander", State: state, Source: "current-loop-external-session-dispatch", Lane: memberLane(job),
-		Label: label, Command: joinDriverCommand(args), CommandExecutable: false, RequiresReview: true,
-		ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
-			State: "dispatch-plan-ready", RefreshStatusCommand: statusMissionControlRefreshCommand(job.CaseRoot),
-			Description: "returns an exact immutable external session dispatch transition plan",
-			Boundary:    []string{"replace placeholders before execution; WhatIf writes nothing", "Apply records claim or launch observation only"},
+	return mission.MissionCommanderDriverRequestWithTypedCommand(
+		mission.MissionCommanderDriverRequest{
+			Kind: "preview-command-template", RunLoopStepID: "external-session-dispatch:" + job.JobID + ":" + outcome,
+			Actor: "mission-commander", State: state, Source: "current-loop-external-session-dispatch", Lane: memberLane(job),
+			Label: label, Command: joinDriverCommand(args), CommandExecutable: false, RequiresReview: true,
+			ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
+				State: "dispatch-plan-ready", RefreshStatusCommand: refresh,
+				Description: "returns an exact immutable external session dispatch transition plan",
+				Boundary:    []string{"replace placeholders before execution; WhatIf writes nothing", "Apply records claim or launch observation only"},
+			},
+			Boundary: []string{"the external harness owns actual launch", "dispatch receipts do not grant authority or execute heavy tools"},
 		},
-		Boundary: []string{"the external harness owns actual launch", "dispatch receipts do not grant authority or execute heavy tools"},
-	}
+	)
 }
 
 func externalSessionDispatchApplyCommand(plan externalsession.DispatchPlan) string {

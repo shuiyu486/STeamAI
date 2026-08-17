@@ -76,7 +76,14 @@ func DailyMissionControlRunbookForMissionComplete(caseRoot string) *DailyMission
 }
 
 func DailyMissionControlRunbookForWithHandoffApplyReady(caseRoot, scope string, queue mission.MissionCommanderActionQueue, handoffPreviewCommand, handoffApplyCommand string, handoffApplyReady bool) *DailyMissionControlRunbook {
-	refreshCommand := dailyMissionControlStatusCommand(caseRoot)
+	return dailyMissionControlRunbookForWithRefresh(caseRoot, scope, queue, handoffPreviewCommand, handoffApplyCommand, handoffApplyReady, "")
+}
+
+func dailyMissionControlRunbookForWithRefresh(caseRoot, scope string, queue mission.MissionCommanderActionQueue, handoffPreviewCommand, handoffApplyCommand string, handoffApplyReady bool, refreshCommand string) *DailyMissionControlRunbook {
+	refreshCommand = strings.TrimSpace(refreshCommand)
+	if refreshCommand == "" {
+		refreshCommand = dailyMissionControlStatusCommand(caseRoot)
+	}
 	scope = strings.TrimSpace(scope)
 	if scope == "" {
 		scope = "case"
@@ -102,10 +109,19 @@ func DailyMissionControlRunbookForWithHandoffApplyReady(caseRoot, scope string, 
 		runbook.CurrentCommand = strings.TrimSpace(queue.CurrentAction.Command)
 	}
 	if queue.CurrentDriverRequest != nil {
-		request := mission.MissionCommanderDriverRequestWithRefreshStatusCommand(*queue.CurrentDriverRequest, refreshCommand)
+		request := *queue.CurrentDriverRequest
+		if strings.TrimSpace(request.ExpectedReceipt.RefreshStatusCommand) != refreshCommand {
+			request = mission.MissionCommanderDriverRequestWithRefreshStatusCommand(request, refreshCommand)
+		}
 		runbook.CurrentDriverRequest = &request
+		runbook.CurrentRunLoopStepID = strings.TrimSpace(request.RunLoopStepID)
+		runbook.CurrentState = strings.TrimSpace(request.State)
+		runbook.CurrentSource = strings.TrimSpace(request.Source)
+		if strings.TrimSpace(request.Command) != "" {
+			runbook.CurrentCommand = strings.TrimSpace(request.Command)
+		}
 	}
-	runbook.RunLoop = dailyMissionControlRunLoop(runbook)
+	runbook.RunLoop = dailyMissionControlRunLoop(runbook, handoffApplyReady)
 	runbook.HandoffPreviewDriverRequest = dailyMissionControlHandoffDriverRequest(runbook, "preview-handoff", runbook.HandoffPreviewCommand, false, true)
 	runbook.HandoffApplyDriverRequest = dailyMissionControlHandoffDriverRequest(runbook, "write-handoff-for-takeover", runbook.HandoffApplyCommand, true, handoffApplyReady)
 	return runbook
@@ -182,7 +198,7 @@ func quoteCommandArgAlways(arg string) string {
 	return `"` + strings.ReplaceAll(arg, `"`, `\"`) + `"`
 }
 
-func dailyMissionControlRunLoop(runbook *DailyMissionControlRunbook) []DailyMissionControlRunbookStep {
+func dailyMissionControlRunLoop(runbook *DailyMissionControlRunbook, handoffApplyReady bool) []DailyMissionControlRunbookStep {
 	steps := []DailyMissionControlRunbookStep{
 		{
 			StepID:            "inspect-status",
@@ -267,10 +283,12 @@ func dailyMissionControlRunLoop(runbook *DailyMissionControlRunbook) []DailyMiss
 			State:             "handoff-apply-available",
 			Source:            "dailyMissionControlRunbook.handoffApply",
 			Command:           runbook.HandoffApplyCommand,
-			CommandExecutable: true,
+			CommandExecutable: handoffApplyReady,
+			RequiresReview:    true,
 			Boundary: []string{
 				"write durable handoff only after reviewing the current status/driver request",
 				"handoff apply does not execute reviewer, adapter, heavy-tool, authority, or confirmed actions",
+				"an unbound handoff apply command is guidance only; use the exact command returned by a current handoff preview/apply result",
 			},
 		})
 	}

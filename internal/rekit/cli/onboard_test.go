@@ -8,8 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 )
 
@@ -33,7 +35,7 @@ func TestRunOnboardPreviewApplyStatusAndReplay(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &plan); err != nil {
 		t.Fatal(err)
 	}
-	if plan.Command != "onboard" || plan.CaseRoot != caseRoot || plan.OnboardingPlanSHA256 == "" || !strings.HasPrefix(plan.ApplyCommand, "/rekit onboard ") || !strings.Contains(plan.ApplyCommand, plan.PublicationStamp) || len(plan.ApplyArgs) == 0 {
+	if plan.Command != "onboard" || plan.CaseRoot != caseRoot || plan.OnboardingPlanSHA256 == "" || !strings.HasPrefix(plan.ApplyCommand, "/steamai onboard ") || !strings.Contains(plan.ApplyCommand, plan.PublicationStamp) || len(plan.ApplyArgs) == 0 {
 		t.Fatalf("unexpected preview: %+v", plan)
 	}
 	if _, err := os.Lstat(caseRoot); !os.IsNotExist(err) {
@@ -44,7 +46,11 @@ func TestRunOnboardPreviewApplyStatusAndReplay(t *testing.T) {
 	if err := Run(apply, &out); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Lstat(filepath.Join(caseRoot, ".rekit", "board.json")); !os.IsNotExist(err) {
+	boardPath, err := projectstate.Join(caseRoot, "board.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(boardPath); !os.IsNotExist(err) {
 		t.Fatalf("onboard created board: %v", err)
 	}
 	out.Reset()
@@ -60,11 +66,15 @@ func TestRunOnboardPreviewApplyStatusAndReplay(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &overviewStatus); err != nil {
 		t.Fatal(err)
 	}
-	if overviewStatus.Onboarding.State != "committed" || overviewStatus.MissionControlRunbook == nil || overviewStatus.MissionControlRunbook.Quickstart == nil || !strings.Contains(overviewStatus.MissionControlRunbook.Quickstart.Command, "/rekit overview ") {
+	if overviewStatus.Onboarding.State != "committed" || overviewStatus.MissionControlRunbook == nil || overviewStatus.MissionControlRunbook.Quickstart == nil || !strings.Contains(overviewStatus.MissionControlRunbook.Quickstart.Command, "/steamai overview ") {
 		t.Fatalf("status did not expose the single overview onboarding route: %+v\n%s", overviewStatus, out.String())
 	}
 	takeover := overviewStatus.MissionControlRunbook.ReplacementExecutorTakeoverPackage
-	if takeover == nil || !containsSubstring(takeover.TargetDocuments, ".rekit/mission-intent.json") {
+	missionIntentRel, err := projectstate.Rel(caseRoot, "mission-intent.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if takeover == nil || !containsSubstring(takeover.TargetDocuments, missionIntentRel) {
 		t.Fatalf("replacement takeover omitted durable mission identity: %+v", takeover)
 	}
 	overviewArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, overviewStatus.MissionControlRunbook.Quickstart.CurrentDriverRequest)
@@ -86,7 +96,7 @@ func TestRunOnboardPreviewApplyStatusAndReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	startRequest := startStatus.MissionControlRunbook.Quickstart.CurrentDriverRequest
-	if startRequest == nil || !strings.Contains(startRequest.Command, "/rekit start ") || !strings.Contains(startRequest.Command, ` "analysis" `) || !strings.Contains(startRequest.Command, `-Executor "executor-a"`) || !strings.Contains(startRequest.Command, `-Actor "operator"`) {
+	if startRequest == nil || !strings.Contains(startRequest.Command, "/steamai start ") || !strings.Contains(startRequest.Command, ` analysis `) || !strings.Contains(startRequest.Command, `-Executor executor-a`) || !strings.Contains(startRequest.Command, `-Actor operator`) {
 		t.Fatalf("fresh status omitted exact durable start route: %+v", startRequest)
 	}
 	startPreviewArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, startRequest)
@@ -112,7 +122,11 @@ func TestRunOnboardPreviewApplyStatusAndReplay(t *testing.T) {
 	if err := Run(startApplyArgs, &out); err != nil {
 		t.Fatal(err)
 	}
-	laneBytes, err := os.ReadFile(filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "lane.json"))
+	lanePath, err := projectstate.Join(caseRoot, "lanes", "feature-analysis", "lane.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	laneBytes, err := os.ReadFile(lanePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,8 +195,27 @@ func TestRunOnboardDefaultPackRoundTripsEmittedStartRoute(t *testing.T) {
 		t.Fatalf("default-pack status omitted start runbook: %+v", status.MissionControlRunbook)
 	}
 	startRequest := status.MissionControlRunbook.Quickstart.CurrentDriverRequest
-	if startRequest == nil || startRequest.Lane != "feature-analysis-live-check" || startRequest.Label != "analysis-live-check" || !strings.Contains(startRequest.Command, ` "analysis-live-check" `) {
+	if startRequest == nil || startRequest.Lane != "feature-analysis-live-check" || startRequest.Label != "analysis-live-check" {
 		t.Fatalf("default-pack status did not emit the exact round-trip start route: %+v", startRequest)
+	}
+	startInvocation, err := commands.ParsePublicInvocation(startRequest.Command)
+	if err != nil {
+		t.Fatalf("default-pack status emitted an invalid typed start route: %v", err)
+	}
+	wantStartInvocation, err := commands.NewPublicInvocation(
+		commands.Start,
+		"-Target", caseRoot,
+		"analysis-live-check",
+		"-Executor", "executor-a",
+		"-Actor", "operator",
+		"-WhatIf",
+		"-Format", "json",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !startInvocation.Equivalent(wantStartInvocation) {
+		t.Fatalf("default-pack status start route drifted: got=%+v want=%+v", startInvocation, wantStartInvocation)
 	}
 	startPreviewArgs, ok := missionCommanderDriverRequestCommandCLIArgs(t, startRequest)
 	if !ok {
@@ -208,7 +241,10 @@ func TestRunOnboardDefaultPackRoundTripsEmittedStartRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	lanePath := filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis-live-check", "lane.json")
+	lanePath, err := projectstate.Join(caseRoot, "lanes", "feature-analysis-live-check", "lane.json")
+	if err != nil {
+		t.Fatal(err)
+	}
 	laneBytes, err := os.ReadFile(lanePath)
 	if err != nil {
 		t.Fatal(err)
@@ -244,7 +280,7 @@ func TestRunOnboardDefaultPackRoundTripsEmittedStartRoute(t *testing.T) {
 	if current == nil || current.Lane != "feature-analysis-live-check" || !strings.Contains(current.Command, "-Lane feature-analysis-live-check") || !strings.Contains(current.Command, "-Executor executor-a -ExpectedExecutorGeneration 1") {
 		t.Fatalf("default-pack status did not focus the owned initial feature lane after exact lane creation: %+v", current)
 	}
-	if current.Source == "committedMissionIntent" || strings.Contains(current.Command, "/rekit start ") {
+	if current.Source == "committedMissionIntent" || strings.Contains(current.Command, "/steamai start ") {
 		t.Fatalf("default-pack status repeated committed mission-intent bootstrap after exact lane creation: %+v", current)
 	}
 
@@ -289,8 +325,12 @@ func TestRunStatusRecoversIntentFirstPendingWithoutInstanceMetadata(t *testing.T
 	if err := json.Unmarshal(out.Bytes(), &plan); err != nil {
 		t.Fatal(err)
 	}
+	paths, err := missionintent.Paths(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
 	restore := syncreview.SetExclusiveInitLeafWriteHookForTest(func(stage, path string) error {
-		if stage == "before-publish" && path != missionintent.IntentRel {
+		if stage == "before-publish" && path != paths.Intent {
 			return os.ErrClosed
 		}
 		return nil
@@ -299,7 +339,11 @@ func TestRunStatusRecoversIntentFirstPendingWithoutInstanceMetadata(t *testing.T
 		t.Fatal("hooked onboard unexpectedly completed")
 	}
 	restore()
-	if _, err := os.Lstat(filepath.Join(caseRoot, ".rekit", "instance.yml")); !os.IsNotExist(err) {
+	instancePath, err := projectstate.Join(caseRoot, "instance.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(instancePath); !os.IsNotExist(err) {
 		t.Fatalf("partial status fixture unexpectedly has instance metadata: %v", err)
 	}
 	out.Reset()
@@ -369,7 +413,18 @@ func TestRunOnboardPublicJourneyThroughReopenAndRecompletion(t *testing.T) {
 	if !ok {
 		t.Fatal("onboard journey continue apply route is not executable")
 	}
-	runCompletionJSON(t, &out, append(continueApplyArgs, "-Target", caseRoot, "-Pack", "_template", "-Apply", "-Format", "json"), nil)
+	modeReplaced := false
+	for index, argument := range continueApplyArgs {
+		if strings.EqualFold(argument, "-WhatIf") {
+			continueApplyArgs[index] = "-Apply"
+			modeReplaced = true
+		}
+	}
+	if !modeReplaced {
+		t.Fatalf("onboard journey continue preview request omitted -WhatIf: %+v", continueApplyArgs)
+	}
+	continueApplyArgs = append(continueApplyArgs, "-Pack", "_template")
+	runCompletionJSON(t, &out, continueApplyArgs, nil)
 
 	noteArgs := []string{"-Command", "note", "-Target", caseRoot, "-Pack", "_template", "-Kind", "intervention", "-Lane", "feature-analysis", "-Subject", "journey correction", "-Summary", "operator redirected analysis", "-Action", "override", "-Status", "open", "-Actor", "operator", "-EventId", "int-onboard-journey", "-CreatedAt", "2026-08-03T01:02:03Z", "-WhatIf", "-Format", "json"}
 	var notePreview struct {
@@ -400,12 +455,14 @@ func TestRunOnboardPublicJourneyThroughReopenAndRecompletion(t *testing.T) {
 		t.Fatalf("public journey handoff omitted replacement package: %+v", handoffApplied)
 	}
 
-	featureEvidence := filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "workspace", "completion-evidence.md")
+	featureEvidenceRel := projectStateRel(t, caseRoot, "lanes", "feature-analysis", "workspace", "completion-evidence.md")
+	featureEvidence := filepath.Join(caseRoot, filepath.FromSlash(featureEvidenceRel))
 	writeCompletionEvidence(t, featureEvidence, "reviewed initial analysis closure")
-	featureFirst := applyCompletion(t, &out, caseRoot, previewCompletion(t, &out, caseRoot, "analysis", ".rekit/lanes/feature-analysis/workspace/completion-evidence.md"))
-	mainEvidence := filepath.Join(caseRoot, ".rekit", "lanes", "main", "workspace", "completion-evidence.md")
+	featureFirst := applyCompletion(t, &out, caseRoot, previewCompletion(t, &out, caseRoot, "analysis", featureEvidenceRel))
+	mainEvidenceRel := projectStateRel(t, caseRoot, "lanes", "main", "workspace", "completion-evidence.md")
+	mainEvidence := filepath.Join(caseRoot, filepath.FromSlash(mainEvidenceRel))
 	writeCompletionEvidence(t, mainEvidence, "reviewed initial aggregate closure")
-	mainFirst := applyCompletion(t, &out, caseRoot, previewCompletion(t, &out, caseRoot, "main", ".rekit/lanes/main/workspace/completion-evidence.md"))
+	mainFirst := applyCompletion(t, &out, caseRoot, previewCompletion(t, &out, caseRoot, "main", mainEvidenceRel))
 	if featureFirst.CompletionReceipt == nil || mainFirst.CompletionReceipt == nil || featureFirst.CompletionReceipt.Sequence != 1 || mainFirst.CompletionReceipt.Sequence != 1 {
 		t.Fatalf("first public journey completion receipts missing: feature=%+v main=%+v", featureFirst, mainFirst)
 	}
@@ -414,10 +471,11 @@ func TestRunOnboardPublicJourneyThroughReopenAndRecompletion(t *testing.T) {
 		t.Fatalf("first public journey closure did not reach terminal state: %+v", status.CaseMission)
 	}
 
-	reopenEvidence := filepath.Join(caseRoot, ".rekit", "reopen-evidence.md")
+	reopenEvidenceRel := projectStateRel(t, caseRoot, "reopen-evidence.md")
+	reopenEvidence := filepath.Join(caseRoot, filepath.FromSlash(reopenEvidenceRel))
 	writeCompletionEvidence(t, reopenEvidence, "review found additional analysis work")
 	var reopenPreview reopenProductResult
-	runCompletionJSON(t, &out, []string{"-Command", "reopen", "analysis", "-Target", caseRoot, "-Pack", "_template", "-Actor", "operator", "-Reason", "review requires fresh analysis evidence", "-EvidenceRefs", ".rekit/reopen-evidence.md", "-WhatIf", "-Format", "json"}, &reopenPreview)
+	runCompletionJSON(t, &out, []string{"-Command", "reopen", "analysis", "-Target", caseRoot, "-Pack", "_template", "-Actor", "operator", "-Reason", "review requires fresh analysis evidence", "-EvidenceRefs", reopenEvidenceRel, "-WhatIf", "-Format", "json"}, &reopenPreview)
 	var reopened reopenProductResult
 	runCompletionJSON(t, &out, append(rekitCommandCLIArgs(t, reopenPreview.ApplyCommand), "-Target", caseRoot, "-Pack", "_template"), &reopened)
 	if !reopened.Applied || reopened.OperationCommit == nil || !reopened.OperationCommit.NoAuthority || !reopened.OperationCommit.NoConfirmed {
@@ -428,12 +486,14 @@ func TestRunOnboardPublicJourneyThroughReopenAndRecompletion(t *testing.T) {
 		t.Fatalf("fresh status omitted post-reopen route: %+v", status)
 	}
 
-	featureEvidence2 := filepath.Join(caseRoot, ".rekit", "lanes", "feature-analysis", "workspace", "completion-evidence-2.md")
+	featureEvidenceRel2 := projectStateRel(t, caseRoot, "lanes", "feature-analysis", "workspace", "completion-evidence-2.md")
+	featureEvidence2 := filepath.Join(caseRoot, filepath.FromSlash(featureEvidenceRel2))
 	writeCompletionEvidence(t, featureEvidence2, "fresh analysis closure after reopen")
-	featureSecond := applyCompletion(t, &out, caseRoot, previewCompletion(t, &out, caseRoot, "analysis", ".rekit/lanes/feature-analysis/workspace/completion-evidence-2.md"))
-	mainEvidence2 := filepath.Join(caseRoot, ".rekit", "lanes", "main", "workspace", "completion-evidence-2.md")
+	featureSecond := applyCompletion(t, &out, caseRoot, previewCompletion(t, &out, caseRoot, "analysis", featureEvidenceRel2))
+	mainEvidenceRel2 := projectStateRel(t, caseRoot, "lanes", "main", "workspace", "completion-evidence-2.md")
+	mainEvidence2 := filepath.Join(caseRoot, filepath.FromSlash(mainEvidenceRel2))
 	writeCompletionEvidence(t, mainEvidence2, "fresh aggregate closure after reopen")
-	mainSecond := applyCompletion(t, &out, caseRoot, previewCompletion(t, &out, caseRoot, "main", ".rekit/lanes/main/workspace/completion-evidence-2.md"))
+	mainSecond := applyCompletion(t, &out, caseRoot, previewCompletion(t, &out, caseRoot, "main", mainEvidenceRel2))
 	if featureSecond.CompletionReceipt == nil || featureSecond.CompletionReceipt.Sequence != 3 || mainSecond.CompletionReceipt == nil || mainSecond.CompletionReceipt.Sequence != 3 {
 		t.Fatalf("public journey recompletion generation drifted: feature=%+v main=%+v", featureSecond.CompletionReceipt, mainSecond.CompletionReceipt)
 	}
@@ -441,9 +501,10 @@ func TestRunOnboardPublicJourneyThroughReopenAndRecompletion(t *testing.T) {
 	if status.CaseMission == nil || status.CaseMission.MissionCompletion == nil || status.CaseMission.MissionCompletion.State != "mission-complete" || !status.CaseMission.MissionCompletion.OperationallyComplete || status.CaseMission.MissionCompletion.CompletedLaneCount != 2 || status.CaseMission.MissionCompletion.OpenLaneCount != 0 {
 		t.Fatalf("public journey recompletion did not restore terminal state: %+v", status.CaseMission)
 	}
-	for _, rel := range []string{".rekit/facts/authority.jsonl", ".rekit/facts/confirmed.jsonl"} {
-		if _, err := os.Lstat(filepath.Join(caseRoot, filepath.FromSlash(rel))); !os.IsNotExist(err) {
-			t.Fatalf("public journey wrote forbidden %s: %v", rel, err)
+	for _, name := range []string{"authority.jsonl", "confirmed.jsonl"} {
+		path := projectStatePath(t, caseRoot, "facts", name)
+		if _, err := os.Lstat(path); !os.IsNotExist(err) {
+			t.Fatalf("public journey wrote forbidden %s: %v", path, err)
 		}
 	}
 }
@@ -462,7 +523,11 @@ func TestRunStatusReportsCorruptOnboardingAndMutationFailsClosed(t *testing.T) {
 	if err := Run(append(append([]string{}, args...), "-OnboardingPublicationStamp", plan.PublicationStamp, "-ExpectedOnboardingPlanSha256", plan.OnboardingPlanSHA256, "-Apply"), &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "onboarding", "commit.json"), []byte("{}\n"), 0o644); err != nil {
+	paths, err := missionintent.Paths(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(caseRoot, filepath.FromSlash(paths.Commit)), []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	out.Reset()

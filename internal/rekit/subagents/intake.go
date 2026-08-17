@@ -2,6 +2,7 @@ package subagents
 
 import (
 	"bytes"
+	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -14,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/doctor"
@@ -23,6 +25,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/note"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/overview"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewerresult"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewersession"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewpath"
@@ -30,10 +33,9 @@ import (
 )
 
 const (
-	maxReviewerResultBytes          = 64 * 1024
-	maxReviewPacketBytes            = 1024 * 1024
-	maxReviewerPacketAdoptionBytes  = 32 * 1024
-	reviewerPacketAdoptionDirectory = ".rekit/reviewer-adoptions"
+	maxReviewerResultBytes         = 64 * 1024
+	maxReviewPacketBytes           = 1024 * 1024
+	maxReviewerPacketAdoptionBytes = 32 * 1024
 )
 
 var appendReviewerNote = note.Append
@@ -387,7 +389,15 @@ func AdoptReviewerPacket(repoRoot, caseRoot, pack string, opt ReviewerPacketAdop
 	if adoptedOwner.ExecutorGeneration <= packet.OwnerBinding.ExecutorGeneration {
 		return ReviewerPacketAdoptionResult{}, fmt.Errorf("reviewer packet adoption requires a newer executor generation: packet=%d current=%d", packet.OwnerBinding.ExecutorGeneration, adoptedOwner.ExecutorGeneration)
 	}
-	adoptionPath := reviewerPacketAdoptionPath(caseRoot, packet.PacketID)
+	stateRoot, err := reviewerPacketAdoptionStateRoot(caseRoot)
+	if err != nil {
+		return ReviewerPacketAdoptionResult{}, err
+	}
+	defer stateRoot.Close()
+	adoptionPath, err := reviewerPacketAdoptionPath(caseRoot, packet.PacketID)
+	if err != nil {
+		return ReviewerPacketAdoptionResult{}, err
+	}
 	result := ReviewerPacketAdoptionResult{
 		SchemaVersion:        1,
 		Command:              commandName,
@@ -457,7 +467,7 @@ func AdoptReviewerPacket(repoRoot, caseRoot, pack string, opt ReviewerPacketAdop
 			NoHeavyTool:            true,
 			NoAuthorityOrConfirmed: true,
 		}
-		if err := writeReviewerPacketAdoption(adoptionPath, adoption); err != nil {
+		if err := writeReviewerPacketAdoption(stateRoot, adoptionPath, adoption); err != nil {
 			return ReviewerPacketAdoptionResult{}, err
 		}
 		result.Applied = true
@@ -843,13 +853,15 @@ func reviewerBatchIntakePostValidationCommands(result ReviewerBatchIntakeResult)
 
 func validateDirectReviewerSessionReceiptsForIntake(caseRoot, packetPath string, packet Packet, packetBytes []byte, handoff ShardHandoff, _ []byte, result ReviewerResult, effectiveOwner OwnerBinding, adoption *ReviewerPacketAdoption) error {
 	dispatchRoot := filepath.Join(reviewerSessionRoot(packetPath, handoff.ShardID), "dispatches")
-	if !reviewpath.CollectionNamespacePathSafe(caseRoot, dispatchRoot, true) {
+	if _, err := os.Lstat(dispatchRoot); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("inspect direct reviewer session dispatch receipts for intake: %w", err)
+	}
+	if !reviewpath.CollectionNamespacePathSafe(caseRoot, dispatchRoot, false) {
 		return fmt.Errorf("direct reviewer session dispatch receipt namespace is not symlink-free and case-local")
 	}
 	entries, err := os.ReadDir(dispatchRoot)
-	if os.IsNotExist(err) {
-		return nil
-	}
 	if err != nil {
 		return fmt.Errorf("read direct reviewer session dispatch receipts for intake: %w", err)
 	}
@@ -1933,8 +1945,54 @@ func validateAdoptedOwnerStillCurrent(caseRoot string, binding OwnerBinding) err
 	return nil
 }
 
-func reviewerPacketAdoptionPath(caseRoot, packetID string) string {
-	return filepath.Join(caseRoot, filepath.FromSlash(reviewerPacketAdoptionDirectory), strings.TrimSpace(packetID)+".json")
+func reviewerPacketAdoptionPath(caseRoot, packetID string) (string, error) {
+	return projectstate.Join(caseRoot, "reviewer-adoptions", strings.TrimSpace(packetID)+".json")
+}
+
+func reviewerPacketAdoptionRel(path string, stateRoot reviewerPacketAdoptionRoot) (string, error) {
+	rel, err := filepath.Rel(stateRoot.Path, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("reviewer packet adoption path escapes case metadata root: %s", path)
+	}
+	return rel, nil
+}
+
+type reviewerPacketAdoptionRoot struct {
+	projectstate.Root
+	handle   *os.Root
+	identity os.FileInfo
+}
+
+func (root reviewerPacketAdoptionRoot) Close() error {
+	if root.handle == nil {
+		return nil
+	}
+	return root.handle.Close()
+}
+
+func reviewerPacketAdoptionStateRoot(caseRoot string) (reviewerPacketAdoptionRoot, error) {
+	root, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return reviewerPacketAdoptionRoot{}, err
+	}
+	if !root.Existing {
+		return reviewerPacketAdoptionRoot{}, fmt.Errorf("reviewer packet adoption requires an existing project state root: %s", root.Path)
+	}
+	before, err := refsf.ValidateNonReparseDirectory(root.Path, "reviewer packet adoption metadata root")
+	if err != nil {
+		return reviewerPacketAdoptionRoot{}, err
+	}
+	handle, err := os.OpenRoot(root.Path)
+	if err != nil {
+		return reviewerPacketAdoptionRoot{}, err
+	}
+	opened, openErr := handle.Stat(".")
+	after, afterErr := refsf.ValidateNonReparseDirectory(root.Path, "reviewer packet adoption metadata root")
+	if openErr != nil || afterErr != nil || !os.SameFile(before, opened) || !os.SameFile(opened, after) {
+		_ = handle.Close()
+		return reviewerPacketAdoptionRoot{}, fmt.Errorf("reviewer packet adoption state root changed while opening")
+	}
+	return reviewerPacketAdoptionRoot{Root: root, handle: handle, identity: opened}, nil
 }
 
 func reviewerPacketAdoptionCommand(packetPath, lane, actor, reason string, apply bool) string {
@@ -2020,12 +2078,38 @@ func rejectReviewerAdoptionSymlinkPath(root, path string, allowMissing bool) err
 	return nil
 }
 
-func writeReviewerPacketAdoption(path string, adoption ReviewerPacketAdoption) error {
-	root := filepath.Join(adoption.CaseRoot, ".rekit")
+func validateReviewerPacketAdoptionStateRoot(caseRoot string, expected reviewerPacketAdoptionRoot) error {
+	if expected.handle == nil || expected.identity == nil {
+		return fmt.Errorf("reviewer packet adoption state root changed before publication")
+	}
+	current, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return err
+	}
+	canonicalIdentity, identityErr := refsf.ValidateNonReparseDirectory(current.Path, "reviewer packet adoption metadata root")
+	heldIdentity, heldErr := expected.handle.Stat(".")
+	if current.Dir != expected.Dir || !samePath(current.Path, expected.Path) || identityErr != nil || heldErr != nil || !os.SameFile(expected.identity, heldIdentity) || !os.SameFile(heldIdentity, canonicalIdentity) {
+		return fmt.Errorf("reviewer packet adoption state root changed before publication")
+	}
+	return nil
+}
+
+func writeReviewerPacketAdoption(stateRoot reviewerPacketAdoptionRoot, path string, adoption ReviewerPacketAdoption) error {
+	if err := validateReviewerPacketAdoptionStateRoot(adoption.CaseRoot, stateRoot); err != nil {
+		return err
+	}
+	pathRel, err := reviewerPacketAdoptionRel(path, stateRoot)
+	if err != nil {
+		return err
+	}
+	root := stateRoot.Path
 	if err := rejectReviewerAdoptionSymlinkPath(root, filepath.Dir(path), true); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := stateRoot.handle.MkdirAll("reviewer-adoptions", 0o755); err != nil {
+		return err
+	}
+	if err := validateReviewerPacketAdoptionStateRoot(adoption.CaseRoot, stateRoot); err != nil {
 		return err
 	}
 	if err := rejectReviewerAdoptionSymlinkPath(root, path, true); err != nil {
@@ -2048,12 +2132,12 @@ func writeReviewerPacketAdoption(path string, adoption ReviewerPacketAdoption) e
 			return decodeErr
 		}
 		if existing.PacketID == adoption.PacketID && existing.PacketSHA256 == adoption.PacketSHA256 && existing.AdoptedOwner == adoption.AdoptedOwner {
-			return nil
+			return validateReviewerPacketAdoptionStateRoot(adoption.CaseRoot, stateRoot)
 		}
 		if !reviewerPacketAdoptionSameContract(existing, adoption) || existing.AdoptedOwner.ExecutorGeneration >= adoption.AdoptedOwner.ExecutorGeneration {
 			return fmt.Errorf("reviewer packet adoption path %q already contains a different or newer adoption", path)
 		}
-		if err := archiveReviewerPacketAdoption(path, existing); err != nil {
+		if err := archiveReviewerPacketAdoption(stateRoot, path, existing); err != nil {
 			return err
 		}
 	}
@@ -2061,12 +2145,16 @@ func writeReviewerPacketAdoption(path string, adoption ReviewerPacketAdoption) e
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".reviewer-adoption-*.tmp")
+	var tmpNonce [16]byte
+	if _, err := cryptorand.Read(tmpNonce[:]); err != nil {
+		return err
+	}
+	tmpRel := pathRel + ".tmp-" + hex.EncodeToString(tmpNonce[:])
+	tmp, err := stateRoot.handle.OpenFile(tmpRel, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
+	defer stateRoot.handle.Remove(tmpRel)
 	if _, err = tmp.Write(append(encoded, '\n')); err != nil {
 		tmp.Close()
 		return err
@@ -2078,43 +2166,63 @@ func writeReviewerPacketAdoption(path string, adoption ReviewerPacketAdoption) e
 	if err = tmp.Close(); err != nil {
 		return err
 	}
+	if err := validateReviewerPacketAdoptionStateRoot(adoption.CaseRoot, stateRoot); err != nil {
+		return err
+	}
 	if state == refsf.RegularFileReady && runtime.GOOS == "windows" {
 		backupPath := path + ".previous"
+		backupRel := pathRel + ".previous"
 		if previousState, err := refsf.ClassifyNonEmptyRegularFile(backupPath); err != nil {
 			return err
 		} else if previousState != refsf.RegularFileMissing {
 			return fmt.Errorf("reviewer packet adoption recovery path %q already exists", backupPath)
 		}
-		if err := os.Rename(path, backupPath); err != nil {
+		if err := stateRoot.handle.Rename(pathRel, backupRel); err != nil {
 			return err
 		}
-		if err := os.Rename(tmpPath, path); err != nil {
-			_ = os.Rename(backupPath, path)
+		if err := validateReviewerPacketAdoptionStateRoot(adoption.CaseRoot, stateRoot); err != nil {
+			_ = stateRoot.handle.Rename(backupRel, pathRel)
 			return err
 		}
-		return os.Remove(backupPath)
+		if err := stateRoot.handle.Rename(tmpRel, pathRel); err != nil {
+			_ = stateRoot.handle.Rename(backupRel, pathRel)
+			return err
+		}
+		return stateRoot.handle.Remove(backupRel)
 	}
-	return os.Rename(tmpPath, path)
+	return stateRoot.handle.Rename(tmpRel, pathRel)
 }
 
-func archiveReviewerPacketAdoption(path string, adoption ReviewerPacketAdoption) error {
-	historyDir := filepath.Join(filepath.Dir(path), "history")
-	root := filepath.Join(adoption.CaseRoot, ".rekit")
-	if err := rejectReviewerAdoptionSymlinkPath(root, historyDir, true); err != nil {
+func archiveReviewerPacketAdoption(stateRoot reviewerPacketAdoptionRoot, path string, adoption ReviewerPacketAdoption) error {
+	if err := validateReviewerPacketAdoptionStateRoot(adoption.CaseRoot, stateRoot); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(historyDir, 0o755); err != nil {
+	historyDir := filepath.Join(filepath.Dir(path), "history")
+	if err := rejectReviewerAdoptionSymlinkPath(stateRoot.Path, historyDir, true); err != nil {
+		return err
+	}
+	if err := stateRoot.handle.MkdirAll(filepath.Join("reviewer-adoptions", "history"), 0o755); err != nil {
+		return err
+	}
+	if err := validateReviewerPacketAdoptionStateRoot(adoption.CaseRoot, stateRoot); err != nil {
 		return err
 	}
 	historyPath := filepath.Join(historyDir, adoption.PacketID+"-generation-"+strconv.Itoa(adoption.AdoptedOwner.ExecutorGeneration)+".json")
-	if err := rejectReviewerAdoptionSymlinkPath(root, historyPath, true); err != nil {
+	historyRel, err := reviewerPacketAdoptionRel(historyPath, stateRoot)
+	if err != nil {
+		return err
+	}
+	if err := rejectReviewerAdoptionSymlinkPath(stateRoot.Path, historyPath, true); err != nil {
 		return err
 	}
 	encoded, err := json.MarshalIndent(adoption, "", "  ")
 	if err != nil {
 		return err
 	}
-	file, err := os.OpenFile(historyPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err := validateReviewerPacketAdoptionStateRoot(adoption.CaseRoot, stateRoot); err != nil {
+		return err
+	}
+	file, err := stateRoot.handle.OpenFile(historyRel, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if os.IsExist(err) {
 		existing, readErr := readBoundedFile(historyPath, "reviewer packet adoption history", maxReviewerPacketAdoptionBytes)
 		if readErr != nil {
@@ -2125,7 +2233,7 @@ func archiveReviewerPacketAdoption(path string, adoption ReviewerPacketAdoption)
 			return decodeErr
 		}
 		if decoded == adoption {
-			return nil
+			return validateReviewerPacketAdoptionStateRoot(adoption.CaseRoot, stateRoot)
 		}
 		return fmt.Errorf("reviewer packet adoption history path %q already contains a different adoption", historyPath)
 	}
@@ -2160,22 +2268,50 @@ func reviewerPacketAdoptionSameContract(left, right ReviewerPacketAdoption) bool
 }
 
 func readReviewerPacketAdoption(caseRoot string, packet Packet, packetPath string, packetBytes []byte) (*ReviewerPacketAdoption, error) {
-	path := reviewerPacketAdoptionPath(caseRoot, packet.PacketID)
-	if err := rejectReviewerAdoptionSymlinkPath(filepath.Join(caseRoot, ".rekit"), path, true); err != nil {
-		return nil, err
-	}
-	state, err := refsf.ClassifyNonEmptyRegularFile(path)
+	stateRoot, err := reviewerPacketAdoptionStateRoot(caseRoot)
 	if err != nil {
 		return nil, err
 	}
-	if state == refsf.RegularFileMissing || state == refsf.RegularFileWaiting {
+	defer stateRoot.Close()
+	path, err := reviewerPacketAdoptionPath(caseRoot, packet.PacketID)
+	if err != nil {
+		return nil, err
+	}
+	pathRel, err := reviewerPacketAdoptionRel(path, stateRoot)
+	if err != nil {
+		return nil, err
+	}
+	if err := rejectReviewerAdoptionSymlinkPath(stateRoot.Path, path, true); err != nil {
+		return nil, err
+	}
+	info, err := stateRoot.handle.Lstat(pathRel)
+	if os.IsNotExist(err) {
 		return nil, nil
 	}
-	if state == refsf.RegularFileSymlink {
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
 		return nil, fmt.Errorf("reviewer packet adoption path %q must not be a symlink", path)
 	}
-	data, err := readBoundedFile(path, "reviewer packet adoption", maxReviewerPacketAdoptionBytes)
+	if !info.Mode().IsRegular() || info.Size() <= 0 {
+		return nil, nil
+	}
+	if info.Size() > maxReviewerPacketAdoptionBytes {
+		return nil, fmt.Errorf("reviewer packet adoption exceeds %d bytes", maxReviewerPacketAdoptionBytes)
+	}
+	data, err := stateRoot.handle.ReadFile(pathRel)
 	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxReviewerPacketAdoptionBytes {
+		return nil, fmt.Errorf("reviewer packet adoption exceeds %d bytes", maxReviewerPacketAdoptionBytes)
+	}
+	after, err := stateRoot.handle.Lstat(pathRel)
+	if err != nil || !os.SameFile(info, after) {
+		return nil, fmt.Errorf("reviewer packet adoption changed while reading: %s", path)
+	}
+	if err := validateReviewerPacketAdoptionStateRoot(caseRoot, stateRoot); err != nil {
 		return nil, err
 	}
 	adoption, err := decodeReviewerPacketAdoption(data)
@@ -2193,6 +2329,9 @@ func readReviewerPacketAdoption(caseRoot string, packet Packet, packetPath strin
 	}
 	if _, err := time.Parse(time.RFC3339Nano, adoption.CreatedAt); err != nil {
 		return nil, fmt.Errorf("reviewer packet adoption createdAt is invalid: %w", err)
+	}
+	if err := validateReviewerPacketAdoptionStateRoot(caseRoot, stateRoot); err != nil {
+		return nil, err
 	}
 	return &adoption, nil
 }
@@ -2479,7 +2618,11 @@ func reviewerDecisionStatus(decision string) string {
 
 func reviewerPostValidation(repoRoot, caseRoot, pack, lane string, allowInit bool) (ReviewerPostValidation, error) {
 	if !allowInit {
-		if _, err := os.Stat(filepath.Join(caseRoot, ".rekit", "board.json")); err != nil {
+		boardPath, err := projectstate.Join(caseRoot, "board.json")
+		if err != nil {
+			return ReviewerPostValidation{}, err
+		}
+		if _, err := os.Stat(boardPath); err != nil {
 			if os.IsNotExist(err) {
 				validation := ReviewerPostValidation{Valid: false}
 				validation.Summary = reviewerPostValidationSummary(validation)
@@ -2752,25 +2895,62 @@ func isNA(value string) bool {
 }
 
 func acquireReviewerIntakeLock(caseRoot, key string) (func(), error) {
-	metadataRoot := filepath.Join(caseRoot, ".rekit")
+	stateRoot, err := reviewerPacketAdoptionStateRoot(caseRoot)
+	if err != nil {
+		return nil, err
+	}
+	closeStateRoot := true
+	defer func() {
+		if closeStateRoot {
+			_ = stateRoot.Close()
+		}
+	}()
+	metadataRoot := stateRoot.Path
 	lockDir := filepath.Join(metadataRoot, "locks")
 	if err := rejectReviewerAdoptionSymlinkPath(metadataRoot, lockDir, true); err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(lockDir, 0o755); err != nil {
+	if err := stateRoot.handle.MkdirAll("locks", 0o755); err != nil {
+		return nil, err
+	}
+	if err := validateReviewerPacketAdoptionStateRoot(caseRoot, stateRoot); err != nil {
 		return nil, err
 	}
 	lockPath := filepath.Join(lockDir, key+".lock")
+	lockRel := filepath.Join("locks", key+".lock")
 	if err := rejectReviewerAdoptionSymlinkPath(metadataRoot, lockPath, true); err != nil {
 		return nil, err
 	}
 	deadline := time.Now().Add(10 * time.Second)
 	for {
-		file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err := validateReviewerPacketAdoptionStateRoot(caseRoot, stateRoot); err != nil {
+			return nil, err
+		}
+		file, err := stateRoot.handle.OpenFile(lockRel, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 		if err == nil {
-			_, _ = fmt.Fprintf(file, "pid=%d\n", os.Getpid())
-			_ = file.Close()
-			return func() { _ = os.Remove(lockPath) }, nil
+			if _, writeErr := fmt.Fprintf(file, "pid=%d\n", os.Getpid()); writeErr != nil {
+				_ = file.Close()
+				_ = stateRoot.handle.Remove(lockRel)
+				return nil, writeErr
+			}
+			if closeErr := file.Close(); closeErr != nil {
+				_ = stateRoot.handle.Remove(lockRel)
+				return nil, closeErr
+			}
+			if err := validateReviewerPacketAdoptionStateRoot(caseRoot, stateRoot); err != nil {
+				_ = stateRoot.handle.Remove(lockRel)
+				return nil, err
+			}
+			closeStateRoot = false
+			var unlockOnce sync.Once
+			return func() {
+				unlockOnce.Do(func() {
+					if validateReviewerPacketAdoptionStateRoot(caseRoot, stateRoot) == nil {
+						_ = stateRoot.handle.Remove(lockRel)
+					}
+					_ = stateRoot.Close()
+				})
+			}, nil
 		}
 		if !os.IsExist(err) {
 			return nil, err

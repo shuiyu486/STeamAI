@@ -14,7 +14,9 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/kitmutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/review"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/runtimebundle"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/sourceartifact"
 )
 
@@ -49,6 +51,7 @@ type WriteResult struct {
 	TargetPath string `json:"targetPath,omitempty"`
 	BackupPath string `json:"backupPath,omitempty"`
 	blockID    string
+	rawContent []byte
 }
 
 type ApplyResult struct {
@@ -88,6 +91,7 @@ type InitPlan struct {
 	initTargetSHA256     map[string]string
 	initManifestSHA256   string
 	initGitignorePresent bool
+	bundleManifestSHA256 string
 }
 
 func Plan(repoRoot, caseRoot, pack string) (review.Plan, error) {
@@ -255,14 +259,44 @@ func InitPreview(repoRoot, caseRoot, pack string, opt ApplyOptions) (InitPlan, e
 		return InitPlan{}, err
 	}
 	canonicalSources := initPublishesCanonicalText(targetClass)
-	shimSource := filepath.Join(repoFull, "rekit", "templates", "case-shim", "SKILL.md")
-	if _, err := readSourceText(shimSource, canonicalSources); err != nil {
+	stateRoot, err := projectstate.Resolve(caseFull)
+	if err != nil {
 		return InitPlan{}, err
 	}
+	skill := "steamai"
+	skillKind := "project-local-steamai-skill"
+	skillSource := filepath.Join(repoFull, "rekit", "templates", "steamai-project", "SKILL.md")
+	if stateRoot.Legacy {
+		skill = "rekit"
+		skillKind = "case-local-thin-shim"
+		skillSource = filepath.Join(repoFull, "rekit", "templates", "case-shim", "SKILL.md")
+	}
+	if _, err := readSourceText(skillSource, canonicalSources); err != nil {
+		return InitPlan{}, err
+	}
+	instanceRel := filepath.ToSlash(filepath.Join(stateRoot.Dir, "instance.yml"))
+	instanceTarget := filepath.Join(stateRoot.Path, "instance.yml")
+	skillRel := filepath.ToSlash(filepath.Join(".claude", "skills", skill, "SKILL.md"))
+	skillTarget := filepath.Join(caseFull, ".claude", "skills", skill, "SKILL.md")
 	writes := []WriteResult{
-		{Path: ".rekit/instance.yml", Kind: "instance-metadata", Action: casebind.ActionFor(filepath.Join(caseFull, ".rekit", "instance.yml")), TargetPath: filepath.Join(caseFull, ".rekit", "instance.yml")},
-		{Path: ".claude/skills/rekit/SKILL.md", Kind: "case-local-thin-shim", Action: casebind.ActionFor(filepath.Join(caseFull, ".claude", "skills", "rekit", "SKILL.md")), SourcePath: shimSource, TargetPath: filepath.Join(caseFull, ".claude", "skills", "rekit", "SKILL.md")},
-		{Path: ".re-template.yml", Kind: "legacy-metadata", Action: casebind.ActionFor(filepath.Join(caseFull, ".re-template.yml")), TargetPath: filepath.Join(caseFull, ".re-template.yml")},
+		{Path: instanceRel, Kind: "instance-metadata", Action: casebind.ActionFor(instanceTarget), TargetPath: instanceTarget},
+		{Path: skillRel, Kind: skillKind, Action: casebind.ActionFor(skillTarget), SourcePath: skillSource, TargetPath: skillTarget},
+	}
+	bundleManifestSHA256 := ""
+	if !stateRoot.Legacy && initPublishesCanonicalText(targetClass) {
+		bundlePlan, err := runtimebundle.Build(repoFull, pack)
+		if err != nil {
+			return InitPlan{}, err
+		}
+		bundleManifestSHA256 = bundlePlan.ManifestSHA256
+		for _, publication := range bundlePlan.Publications {
+			path := filepath.ToSlash(filepath.Join(stateRoot.Dir, filepath.FromSlash(publication.Path)))
+			target := filepath.Join(stateRoot.Path, filepath.FromSlash(publication.Path))
+			writes = append(writes, WriteResult{Path: path, Kind: publication.Kind, Action: casebind.ActionFor(target), SourcePath: publication.SourcePath, TargetPath: target, rawContent: append([]byte(nil), publication.Content...)})
+		}
+	}
+	if stateRoot.Legacy {
+		writes = append(writes, WriteResult{Path: ".re-template.yml", Kind: "legacy-metadata", Action: casebind.ActionFor(filepath.Join(caseFull, ".re-template.yml")), TargetPath: filepath.Join(caseFull, ".re-template.yml")})
 	}
 	for _, rel := range m.ManagedFiles {
 		source, err := m.SourcePath(rel)
@@ -348,12 +382,18 @@ func InitPreview(repoRoot, caseRoot, pack string, opt ApplyOptions) (InitPlan, e
 		}
 		writes = append(writes, WriteResult{Path: ".gitignore", Kind: "support-file", Action: action, SourcePath: gitignoreSource, TargetPath: gitignoreTarget})
 	}
-	writes = append(writes, WriteResult{Path: ".rekit/state.json", Kind: "sync-state", Action: casebind.ActionFor(filepath.Join(caseFull, ".rekit", "state.json")), TargetPath: filepath.Join(caseFull, ".rekit", "state.json")})
+	stateRel := filepath.ToSlash(filepath.Join(stateRoot.Dir, "state.json"))
+	stateTarget := filepath.Join(stateRoot.Path, "state.json")
+	writes = append(writes, WriteResult{Path: stateRel, Kind: "sync-state", Action: casebind.ActionFor(stateTarget), TargetPath: stateTarget})
 	manifestBytes, err := os.ReadFile(m.ManifestPath)
 	if err != nil {
 		return InitPlan{}, err
 	}
-	return finalizeInitPlan(InitPlan{SchemaVersion: 1, Command: command, CaseRoot: caseFull, RepoRoot: repoFull, Pack: pack, ProjectName: projectName, TargetClass: targetClass, IsMutation: false, ReviewRequired: true, RequiresConfirmation: true, BackupRoot: backupRoot, Writes: writes, BlockedActions: []string{"pack writes", "promote", "authority/confirmed writes", "heavy-tool execution", "board/facts/lanes migration"}, NextSteps: []string{"review this plan, then re-run " + command + " with -Apply and the exact plan hash to initialize the case", "use /rekit as the Mission Commander entrypoint; this remains a review-first Go runtime path"}, initManifestSHA256: sha256Bytes(sourceartifact.SemanticText(manifestBytes)), initGitignorePresent: gitignorePresent})
+	entrypoint := "/steamai"
+	if stateRoot.Legacy {
+		entrypoint = "/rekit"
+	}
+	return finalizeInitPlan(InitPlan{SchemaVersion: 1, Command: command, CaseRoot: caseFull, RepoRoot: repoFull, Pack: pack, ProjectName: projectName, TargetClass: targetClass, IsMutation: false, ReviewRequired: true, RequiresConfirmation: true, BackupRoot: backupRoot, Writes: writes, BlockedActions: []string{"pack writes", "promote", "authority/confirmed writes", "heavy-tool execution", "board/facts/lanes migration"}, NextSteps: []string{"review this plan, then re-run " + command + " with -Apply and the exact plan hash to initialize the case", "use " + entrypoint + " as the Mission Commander entrypoint; this remains a review-first Go runtime path"}, initManifestSHA256: sha256Bytes(sourceartifact.SemanticText(manifestBytes)), initGitignorePresent: gitignorePresent, bundleManifestSHA256: bundleManifestSHA256})
 }
 
 func initPublishesCanonicalText(targetClass string) bool {
@@ -412,8 +452,8 @@ func Apply(repoRoot, caseRoot, pack string, opt ApplyOptions) (_ ApplyResult, re
 		if err != nil {
 			return ApplyResult{}, err
 		}
-		if fresh.TargetClass == "ordinary-directory" && !validInitPlanSHA256(opt.ExpectedPlanSHA256) {
-			return ApplyResult{}, fmt.Errorf("%s ordinary-directory adoption requires a valid -ExpectedInitPlanSha256 from -WhatIf", command)
+		if (fresh.TargetClass == "missing" || fresh.TargetClass == "ordinary-directory") && !validInitPlanSHA256(opt.ExpectedPlanSHA256) {
+			return ApplyResult{}, fmt.Errorf("%s new project initialization requires a valid -ExpectedInitPlanSha256 from -WhatIf", command)
 		}
 		if validInitPlanSHA256(opt.ExpectedPlanSHA256) && !strings.EqualFold(fresh.ExpectedPlanSHA256, opt.ExpectedPlanSHA256) {
 			return ApplyResult{}, fmt.Errorf("%s plan changed after preview; rerun -WhatIf", command)
@@ -425,7 +465,17 @@ func Apply(repoRoot, caseRoot, pack string, opt ApplyOptions) (_ ApplyResult, re
 			return ApplyResult{}, fmt.Errorf("%s refuses target class %s", command, fresh.TargetClass)
 		}
 		canonicalSources = initPublishesCanonicalText(fresh.TargetClass)
-		if fresh.TargetClass == "ordinary-directory" {
+		if fresh.TargetClass == "missing" || fresh.TargetClass == "ordinary-directory" {
+			if fresh.TargetClass == "missing" {
+				if err := os.Mkdir(caseFull, 0o755); err != nil {
+					return ApplyResult{}, fmt.Errorf("%s create missing project root: %w", command, err)
+				}
+				defer func() {
+					if retErr != nil {
+						_ = os.Remove(caseFull)
+					}
+				}()
+			}
 			if ordinaryInitLeaseForTest != nil {
 				lease = ordinaryInitLeaseForTest(lease)
 			}
@@ -443,24 +493,43 @@ func Apply(repoRoot, caseRoot, pack string, opt ApplyOptions) (_ ApplyResult, re
 	}
 	writes := []WriteResult{}
 
-	if _, err := casebind.WriteInstance(caseFull, repoFull, pack, projectName); err != nil {
+	instancePath, err := casebind.WriteInstance(caseFull, repoFull, pack, projectName)
+	if err != nil {
 		return ApplyResult{}, err
 	}
-	writes = append(writes, WriteResult{Path: ".rekit/instance.yml", Kind: "instance-metadata", Action: "refresh", TargetPath: filepath.Join(caseFull, ".rekit", "instance.yml")})
-	var shimErr error
+	instanceRel, err := filepath.Rel(caseFull, instancePath)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	writes = append(writes, WriteResult{Path: filepath.ToSlash(instanceRel), Kind: "instance-metadata", Action: "refresh", TargetPath: instancePath})
+	var shimPath string
 	if canonicalSources {
-		_, shimErr = casebind.WriteCanonicalCaseShim(caseFull, repoFull)
+		shimPath, err = casebind.WriteCanonicalCaseShim(caseFull, repoFull)
 	} else {
-		_, shimErr = casebind.WriteCaseShim(caseFull, repoFull)
+		shimPath, err = casebind.WriteCaseShim(caseFull, repoFull)
 	}
-	if shimErr != nil {
-		return ApplyResult{}, shimErr
-	}
-	writes = append(writes, WriteResult{Path: ".claude/skills/rekit/SKILL.md", Kind: "case-local-thin-shim", Action: "refresh", TargetPath: filepath.Join(caseFull, ".claude", "skills", "rekit", "SKILL.md")})
-	if _, err := casebind.WriteLegacyMetadataForAttach(caseFull, repoFull, pack); err != nil {
+	if err != nil {
 		return ApplyResult{}, err
 	}
-	writes = append(writes, WriteResult{Path: ".re-template.yml", Kind: "legacy-metadata", Action: "refresh", TargetPath: filepath.Join(caseFull, ".re-template.yml")})
+	shimRel, err := filepath.Rel(caseFull, shimPath)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	shimKind := "project-local-steamai-skill"
+	if strings.Contains(filepath.ToSlash(shimRel), "/rekit/") {
+		shimKind = "case-local-thin-shim"
+	}
+	writes = append(writes, WriteResult{Path: filepath.ToSlash(shimRel), Kind: shimKind, Action: "refresh", TargetPath: shimPath})
+	stateRoot, err := projectstate.Resolve(caseFull)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	if stateRoot.Legacy {
+		if _, err := casebind.WriteLegacyMetadataForAttach(caseFull, repoFull, pack); err != nil {
+			return ApplyResult{}, err
+		}
+		writes = append(writes, WriteResult{Path: ".re-template.yml", Kind: "legacy-metadata", Action: "refresh", TargetPath: filepath.Join(caseFull, ".re-template.yml")})
+	}
 
 	for _, rel := range m.ManagedFiles {
 		source, err := m.SourcePath(rel)
@@ -597,7 +666,11 @@ func Apply(repoRoot, caseRoot, pack string, opt ApplyOptions) (_ ApplyResult, re
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	writes = append(writes, WriteResult{Path: ".rekit/state.json", Kind: "sync-state", Action: "refresh", TargetPath: statePath})
+	stateRel, err := filepath.Rel(caseRoot, statePath)
+	if err != nil {
+		return ApplyResult{}, err
+	}
+	writes = append(writes, WriteResult{Path: filepath.ToSlash(stateRel), Kind: "sync-state", Action: "refresh", TargetPath: statePath})
 
 	return ApplyResult{SchemaVersion: 1, Command: command, CaseRoot: caseRoot, RepoRoot: repoRoot, Pack: pack, IsMutation: true, Applied: true, BackupRoot: backupRoot, Writes: writes, NextSteps: []string{"run doctor after apply", "review backupRoot if any overwritten file must be restored"}}, nil
 }
@@ -644,10 +717,25 @@ func applyProjectName(caseRoot string, inst instance.Instance, opt ApplyOptions)
 }
 
 func planApplyWrites(caseRoot string, m *manifest.Manifest, opt ApplyOptions, backupRoot string) ([]WriteResult, error) {
+	stateRoot, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return nil, err
+	}
+	instanceRel := filepath.ToSlash(filepath.Join(stateRoot.Dir, "instance.yml"))
+	instanceTarget := filepath.Join(stateRoot.Path, "instance.yml")
+	skill := "steamai"
+	skillKind := "project-local-steamai-skill"
+	if stateRoot.Legacy {
+		skill = "rekit"
+		skillKind = "case-local-thin-shim"
+	}
+	skillRel := filepath.ToSlash(filepath.Join(".claude", "skills", skill, "SKILL.md"))
 	writes := []WriteResult{
-		{Path: ".rekit/instance.yml", Kind: "instance-metadata", Action: "refresh", TargetPath: filepath.Join(caseRoot, ".rekit", "instance.yml")},
-		{Path: ".claude/skills/rekit/SKILL.md", Kind: "case-local-thin-shim", Action: "refresh", TargetPath: filepath.Join(caseRoot, ".claude", "skills", "rekit", "SKILL.md")},
-		{Path: ".re-template.yml", Kind: "legacy-metadata", Action: "refresh", TargetPath: filepath.Join(caseRoot, ".re-template.yml")},
+		{Path: instanceRel, Kind: "instance-metadata", Action: "refresh", TargetPath: instanceTarget},
+		{Path: skillRel, Kind: skillKind, Action: "refresh", TargetPath: filepath.Join(caseRoot, filepath.FromSlash(skillRel))},
+	}
+	if stateRoot.Legacy {
+		writes = append(writes, WriteResult{Path: ".re-template.yml", Kind: "legacy-metadata", Action: "refresh", TargetPath: filepath.Join(caseRoot, ".re-template.yml")})
 	}
 	for _, rel := range m.ManagedFiles {
 		source, err := m.SourcePath(rel)
@@ -738,7 +826,8 @@ func planApplyWrites(caseRoot string, m *manifest.Manifest, opt ApplyOptions, ba
 		}
 		writes = append(writes, WriteResult{Path: ".gitignore", Kind: "support-file", Action: action, SourcePath: gitignoreSource, TargetPath: gitignoreTarget})
 	}
-	writes = append(writes, WriteResult{Path: ".rekit/state.json", Kind: "sync-state", Action: "refresh", TargetPath: filepath.Join(caseRoot, ".rekit", "state.json")})
+	stateRel := filepath.ToSlash(filepath.Join(stateRoot.Dir, "state.json"))
+	writes = append(writes, WriteResult{Path: stateRel, Kind: "sync-state", Action: "refresh", TargetPath: filepath.Join(stateRoot.Path, "state.json")})
 	return writes, nil
 }
 
@@ -776,10 +865,20 @@ func readSourceText(path string, canonical bool) (string, error) {
 
 func syncBackupRoot(caseRoot string, m *manifest.Manifest) (string, error) {
 	backupRel := strings.TrimSpace(m.WorkstreamDefaults["backupRoot"])
+	stamp := time.Now().Format("20060102-150405")
 	if backupRel == "" {
-		backupRel = ".rekit/backups/sync"
+		return projectstate.Join(caseRoot, "backups", "sync", stamp)
 	}
-	return refsf.SafeJoin(caseRoot, filepath.ToSlash(filepath.Join(filepath.FromSlash(backupRel), time.Now().Format("20060102-150405"))))
+	slash := strings.ReplaceAll(backupRel, `\`, "/")
+	for _, stateDir := range []string{projectstate.CurrentDir, projectstate.LegacyDir} {
+		if local, ok := strings.CutPrefix(slash, stateDir+"/"); ok {
+			return projectstate.Join(caseRoot, local, stamp)
+		}
+	}
+	if _, err := projectstate.Resolve(caseRoot); err != nil {
+		return "", err
+	}
+	return refsf.SafeJoin(caseRoot, filepath.ToSlash(filepath.Join(filepath.FromSlash(backupRel), stamp)))
 }
 
 func backupCaseFile(path, caseRoot, backupRoot string) (string, error) {
@@ -864,7 +963,10 @@ func writeSyncState(caseRoot string, m *manifest.Manifest, canonical bool) (stri
 	if err != nil {
 		return "", err
 	}
-	statePath := filepath.Join(caseRoot, ".rekit", "state.json")
+	statePath, err := projectstate.Join(caseRoot, "state.json")
+	if err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(filepath.Dir(statePath), 0o755); err != nil {
 		return "", err
 	}

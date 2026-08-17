@@ -38,17 +38,53 @@ func runGateProfileMode(ctx runtime.Context, target string, opt Options, format 
 		err  error
 	)
 	if opt.Gate.ProvisionProfile {
-		profile, profileErr := gateProvisionProfile(ctx, opt)
-		if profileErr != nil {
-			return profileErr
+		preset := strings.TrimSpace(opt.Gate.ProfilePreset)
+		if preset != "" {
+			if preset != autonomy.ManagedAutonomousPresetV1 {
+				return fmt.Errorf("gate -ProfilePreset has unsupported value %q; supported: %s", preset, autonomy.ManagedAutonomousPresetV1)
+			}
+			if !opt.Gate.ProfileExplicitOptIn {
+				return fmt.Errorf("gate -ProfilePreset=%s requires explicit -ProfileExplicitOptIn", preset)
+			}
+			if strings.TrimSpace(opt.Gate.ProfileID) != "" {
+				return fmt.Errorf("gate -ProfilePreset=%s generates its managed profile identity; omit -ProfileId", preset)
+			}
+			plan, err = autonomy.PreviewManagedAutonomousPreset(autonomy.ManagedAutonomousPresetOptions{
+				RepoRoot:            ctx.RepoRoot,
+				CaseRoot:            target,
+				Pack:                ctx.Pack,
+				Lane:                opt.Gate.Lane,
+				Preset:              preset,
+				ExplicitOptIn:       true,
+				Actions:             gateProfileList(opt.Gate.Action),
+				Targets:             gateProfileList(opt.Gate.TargetRef),
+				Budget:              autonomy.Budget{RuntimeSeconds: opt.Gate.RuntimeSeconds, DiskMB: opt.Gate.DiskMB, Requests: opt.Gate.Requests},
+				StopConditions:      gateProfileList(opt.Gate.StopConditions),
+				OutputPaths:         gateProfileList(opt.Gate.OutputPaths),
+				GrantedBy:           opt.Gate.ProfileGrantedBy,
+				GrantedAt:           opt.Gate.ProfileGrantedAt,
+				ExpiresAt:           opt.Gate.ProfileExpiresAt,
+				ExternalTargetScope: gateProfileList(opt.Gate.ProfileExternalTargetScope),
+			})
+		} else {
+			if opt.Gate.ProfileExplicitOptIn {
+				return fmt.Errorf("gate -ProfileExplicitOptIn requires -ProfilePreset=%s", autonomy.ManagedAutonomousPresetV1)
+			}
+			if strings.TrimSpace(opt.Gate.ProfileExternalTargetScope) != "" {
+				return fmt.Errorf("gate -ProfileExternalTargetScope requires -ProfilePreset=%s", autonomy.ManagedAutonomousPresetV1)
+			}
+			profile, profileErr := gateProvisionProfile(ctx, opt)
+			if profileErr != nil {
+				return profileErr
+			}
+			plan, err = autonomy.PreviewProvision(autonomy.ProfileProvisionOptions{
+				RepoRoot: ctx.RepoRoot,
+				CaseRoot: target,
+				Pack:     ctx.Pack,
+				Lane:     opt.Gate.Lane,
+				Profile:  profile,
+			})
 		}
-		plan, err = autonomy.PreviewProvision(autonomy.ProfileProvisionOptions{
-			RepoRoot: ctx.RepoRoot,
-			CaseRoot: target,
-			Pack:     ctx.Pack,
-			Lane:     opt.Gate.Lane,
-			Profile:  profile,
-		})
 	} else {
 		if gateProfileProvisionFieldsPresent(opt) {
 			return fmt.Errorf("gate -RevokeProfile accepts only lane and expected plan identity fields")
@@ -212,7 +248,9 @@ func validVMPIDAProfileOutputPath(workspace, outputPath string) bool {
 }
 
 func gateProfileProvisionFieldsPresent(opt Options) bool {
-	return strings.TrimSpace(opt.Gate.ProfileID) != "" ||
+	return strings.TrimSpace(opt.Gate.ProfilePreset) != "" || opt.Gate.ProfileExplicitOptIn ||
+		strings.TrimSpace(opt.Gate.ProfileExternalTargetScope) != "" ||
+		strings.TrimSpace(opt.Gate.ProfileID) != "" ||
 		strings.TrimSpace(opt.Gate.ProfileGrantedBy) != "" ||
 		strings.TrimSpace(opt.Gate.ProfileGrantedAt) != "" ||
 		strings.TrimSpace(opt.Gate.ProfileExpiresAt) != "" ||
@@ -223,7 +261,9 @@ func gateProfileProvisionFieldsPresent(opt Options) bool {
 }
 
 func gateProfileOnlyFieldsPresent(opt Options) bool {
-	return strings.TrimSpace(opt.Gate.ProfileID) != "" ||
+	return strings.TrimSpace(opt.Gate.ProfilePreset) != "" || opt.Gate.ProfileExplicitOptIn ||
+		strings.TrimSpace(opt.Gate.ProfileExternalTargetScope) != "" ||
+		strings.TrimSpace(opt.Gate.ProfileID) != "" ||
 		strings.TrimSpace(opt.Gate.ProfileGrantedBy) != "" ||
 		strings.TrimSpace(opt.Gate.ProfileGrantedAt) != "" ||
 		strings.TrimSpace(opt.Gate.ProfileExpiresAt) != "" ||

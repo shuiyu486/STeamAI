@@ -2,11 +2,11 @@
 
 ## 读取指南
 
-本文件是架构总览，不是默认必读清单。日常维护先读 `docs/context-routing.md` 和 `docs/batch-plan.md` 顶部；只有需要确认四层模型、manifest 边界、sync/promote 方向或 case shim 职责时，才读取本文件对应小节。
+本文件是架构总览，不是默认必读清单。日常维护先读 `docs/context-routing.md`，再由 router 选择 active source；只有需要确认四层模型、manifest 边界、sync/promote 方向、current project skill 或 legacy shim 职责时，才读取本文件对应小节。
 
 ## 实施摘要
 
-当前产品北极星已收敛为 Lane-centric Agent Team Mission Control：用户指挥主 Agent，durable lane 承载长期身份，Go-native `/rekit` 是 canonical runtime，PowerShell façade 仅保留兼容。本文件保留稳定架构边界，具体批次进度与 release 判断转到 `docs/batch-plan.md` / `docs/release-readiness.md`。
+当前产品北极星已收敛为 STeamAI Lane-centric Agent Team Mission Control：用户在一个自包含项目中通过 `/steamai` 指挥主 Agent，durable lane 承载长期身份，项目内 verified bundle 运行 Go-owned deterministic runtime。内部 Go package/command 暂保留 ReKit 命名；`/rekit`、`.rekit` 与 PowerShell façade 仅保留迁移兼容。本文件保留稳定架构边界，具体批次进度与 release 判断转到 `docs/batch-plan.md` / `docs/release-readiness.md`。
 
 ## 执行清单
 
@@ -25,7 +25,7 @@
 
 - 渐进式披露不是删除设计事实；细节应放在正确专题文档并由 `docs/context-routing.md` 路由。
 - 不要把 batch 日志、release 记录、真实 case 进度或工具输出塞入本架构总览。
-- case-local shim 必须保持 thin shim，回到 kit 仓库 canonical runtime；不要复制 runtime logic。
+- current project skill 只调用同项目 verified bundle；legacy `/rekit` shim 在迁移前保持 thin shim。两者都不得复制或另建 runtime 状态机。
 
 ## 产品北极星
 
@@ -33,10 +33,10 @@
 
 ## 四层模型
 
-1. **Skill UI**：`.claude/skills/rekit/SKILL.md`，clone 后在 kit 仓库内直接提供 `/rekit`；用户层应优先表现为主 Agent mission control，而不是命令目录。
-2. **Runtime**：`cmd/rekit/**` 与 `internal/rekit/**` 是 Go-owned canonical runtime，执行 attach/init/sync/promote/validate 并维护 board、facts、lanes、runs、handovers、gate request 等 deterministic state；`rekit/rekit.ps1` 仅 retained compatibility façade，无业务 runtime 或 PowerShell fallback。
-3. **Pack**：`packs/<pack>`，保存某个安全领域的可复用模板、tooling 资产、示例、snippet、lane/autonomy policy 与 `manifest.yml`；当前首个成熟 pack 是 `vmp-re`。
-4. **Instance**：每个 case 的 `.rekit/instance.yml`、`.rekit/state.json`、case-local `.claude/skills/rekit` shim，以及 case-local member lane state。
+1. **Skill UI**：每个 current 项目的 `.claude/skills/steamai/SKILL.md` 提供 `/steamai`；用户通过自然语言指挥主 Agent，而不是记命令目录。仓库 canonical skill 用于发布该项目 skill；legacy `/rekit` 只保留兼容。
+2. **Runtime**：项目内 `.steamai/runtime` verified bundle 是 current 运行边界；`cmd/rekit/**` 与 `internal/rekit/**` 是其 Go-owned source/runtime owner，执行 init/sync/promote/validate 并维护 board、facts、lanes、runs、handovers、gate request 等 deterministic state。`rekit/rekit.ps1` 仅 retained compatibility façade，无业务 runtime 或 PowerShell fallback。
+3. **Pack**：仓库 `packs/<pack>` 是可复用领域源；current 项目只消费 bundle 绑定的 `.steamai/packs/<pack>`，保存模板、tooling、lane/autonomy policy 与 `manifest.yml`。当前首个成熟 pack 是 `vmp-re`。
+4. **Project instance**：每个 current 项目使用 relocatable `.steamai/instance.yml`、`.steamai/state.json` 和同根 member lane state；legacy-only 项目在显式迁移前继续单写 `.rekit`。两份 mutable root 不得共存。
 
 ## managed vs local
 
@@ -64,23 +64,24 @@
 
 ## Bootstrap / attach / init
 
-- `attach`：为已有 case 生成 `.rekit/instance.yml`、`.rekit/state.json` 和 case-local `/rekit` shim，不覆盖 managed docs。
-- `init` / `bootstrap`：执行 attach，然后按 manifest 将 pack 内容落地到 case。
+- current `attach`：为已有项目生成 relocatable `.steamai/instance.yml`、`.steamai/state.json` 和项目级 `/steamai` skill，不覆盖 managed docs。
+- current `init`：在 attach 基础上发布 verified project-local runtime、selected pack、common/runtime assets，并按 manifest 落地 managed 内容；缺失或篡改 bundle 时 fail-closed，不从 PATH 或中央 kit 补齐。
+- legacy-only 项目的 `attach/init/bootstrap` 在迁移前继续使用 `.rekit` 与 `/rekit` 兼容入口；不得创建第二状态根。
 - `bootstrap` 不是用户级安装，也不写入 `~/.claude/skills`。
 
 ## Sync
 
-`sync` 是 `kit -> case`：
+`sync` 是可复用 pack source -> 当前 attached project：
 
-1. 读取 case `.rekit/instance.yml`。
-2. 读取 pack `manifest.yml`。
+1. 解析唯一 active state root 并读取 instance metadata。
+2. 读取其绑定的 pack `manifest.yml`。
 3. 更新 managed files，覆盖前备份。
 4. 更新 managed block。
 5. 对 template files 只 create-if-missing。
-6. 更新 `.rekit/state.json`。
+6. 更新同一 active root 的 `state.json`。
 7. 运行 validate。
 
-`sync` 不碰 local files，不删除 case 文档，不自动 merge live state。`sync` 只允许作用于已经 `attach/init` 的 case；普通目录或拼错路径会失败。
+`sync` 不碰 local files，不删除项目文档，不自动 merge live state。`sync` 只允许作用于已经 `attach/init` 的项目；普通目录、拼错路径、dual root 或 runtime/pack identity 漂移会失败。
 
 ## Promote
 
@@ -99,19 +100,19 @@
 
 manifest 中所有文件路径必须是相对路径，并且 normalize 后不能越出对应 root。runtime 对 pack source、case target、managed block 和 tooling candidate source 统一做 containment check。
 
-## Case shim
+## Project skill 与 legacy shim
 
-case-local `.claude/skills/rekit/SKILL.md` 是薄 shim：
+current 项目的 `.claude/skills/steamai/SKILL.md` 是薄 Mission Control UI：
 
-1. 读取 `.rekit/instance.yml`，回退 `.re-template.yml`。
-2. 取得 `templateRoot` 和 `templatePack`。
-3. 读取 `<templateRoot>/.claude/skills/rekit/SKILL.md`。
-4. 调用 `<templateRoot>/rekit/rekit.ps1`。
+1. 使用 `${CLAUDE_PROJECT_DIR}` 定位 exact project root。
+2. 要求 `.steamai` 是唯一 mutable root，并验证 relocatable metadata。
+3. 验证 `.steamai/runtime/manifest.json` 与 bundle executable/pack/assets identity。
+4. 只调用项目内 bundle，不通过 PATH、用户级 plugin、Go source 或外部 kit 回退。
 
-shim 不复制业务逻辑；后续只维护 kit 仓库中的 canonical `/rekit`。
+legacy-only 项目的 `.claude/skills/rekit/SKILL.md` 继续读取 `.rekit/instance.yml`（必要时兼容 `.re-template.yml`）并保持 thin shim。显式 migration 完成后切换为 current project skill；两种入口都不复制业务逻辑。
 
 ## 兼容策略
 
-- `.re-template.yml` 暂时保留，用于旧项目与旧脚本兼容。
-- `packs/<pack>/scripts/bootstrap.ps1`、`update.ps1`、`validate.ps1` 保留为 wrapper。
-- 后续如果需要 plugin/marketplace，再在当前结构上增加 `.claude-plugin/plugin.json`，不影响 runtime 与 packs。
+- `/rekit`、`.rekit`、`.re-template.yml` 与旧 pack wrappers 暂时保留，用于已存在项目和维护 API；它们不是新项目默认。
+- migration 必须 zero-write preview、exact plan SHA Apply 和 durable receipt；禁止双写、自动合并或自动择优。
+- 不再以 plugin/marketplace 作为默认产品入口；一个真实项目目录就是自包含 STeamAI 项目。

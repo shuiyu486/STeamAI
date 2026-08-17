@@ -162,7 +162,8 @@ func TestReplacementExecutorTakeoverPackageCarriesRequestIdentity(t *testing.T) 
 		Command:           "/rekit status -Format json",
 		CommandExecutable: true,
 		ExpectedReceipt: MissionCommanderDriverReceiptExpectation{
-			State: "refresh-required",
+			State:   "refresh-required",
+			Command: "/rekit status -Format json",
 		},
 	}
 	pkg := ReplacementExecutorTakeoverPackageFor(&request, ReplacementExecutorTakeoverOptions{})

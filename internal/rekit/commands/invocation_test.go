@@ -35,6 +35,37 @@ func TestPublicInvocationRoundTripAndCLIArgs(t *testing.T) {
 	}
 }
 
+func TestParsePublicInvocationAcceptsMigrationEntrypoints(t *testing.T) {
+	legacy, err := ParsePublicInvocation(`/rekit continue "feature-mission" -WhatIf -Format json`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := ParsePublicInvocation(`/steamai continue "feature-mission" -WhatIf -Format json`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !legacy.Equivalent(current) {
+		t.Fatalf("migration entrypoints produced different typed identities: legacy=%+v current=%+v", legacy, current)
+	}
+	rendered, err := current.Render()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rendered != `/rekit continue feature-mission -WhatIf -Format json` {
+		t.Fatalf("typed invocation canonical render = %q", rendered)
+	}
+	currentRendered, err := current.RenderForEntrypoint(CurrentPublicEntrypoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if currentRendered != `/steamai continue feature-mission -WhatIf -Format json` {
+		t.Fatalf("typed invocation current render = %q", currentRendered)
+	}
+	if _, err := current.RenderForEntrypoint("/other"); err == nil || !strings.Contains(err.Error(), "unsupported") {
+		t.Fatalf("unsupported entrypoint render error = %v", err)
+	}
+}
+
 func TestParsePublicInvocationRejectsUncatalogedOrReboundCommands(t *testing.T) {
 	tests := []struct {
 		name string
@@ -63,6 +94,16 @@ func TestPublicInvocationRequiresCanonicalIdentity(t *testing.T) {
 	invocation := PublicInvocation{SchemaVersion: PublicInvocationSchemaVersion, Command: "Continue"}
 	if err := invocation.Validate(); err == nil || !strings.Contains(err.Error(), "canonical lowercase") {
 		t.Fatalf("Validate error=%v", err)
+	}
+}
+
+func TestPublicInvocationMigrateStateHashIsAValueFlag(t *testing.T) {
+	invocation, err := ParsePublicInvocation("/rekit migrate-state -ExpectedMigrationPlanSha256 abcdef -Apply")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if invocation.Command != MigrateState || !slices.Equal(invocation.Arguments, []string{"-ExpectedMigrationPlanSha256", "abcdef", "-Apply"}) {
+		t.Fatalf("unexpected migrate-state invocation: %+v", invocation)
 	}
 }
 

@@ -23,6 +23,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 type gateLaneMutationLease interface {
@@ -82,6 +83,9 @@ type Options struct {
 	EmitDriverReceipt                             bool
 	ProvisionProfile                              bool
 	RevokeProfile                                 bool
+	ProfilePreset                                 string
+	ProfileExplicitOptIn                          bool
+	ProfileExternalTargetScope                    string
 	ProfileID                                     string
 	ProfileGrantedBy                              string
 	ProfileGrantedAt                              string
@@ -2332,7 +2336,8 @@ func adapterReportRecordSlashCommandWithExpectedHash(pack, gateEventID, reportPa
 		receiptSHA256, _ := provenance[0].(string)
 		receipt, _ := provenance[1].(*adapterexecution.Receipt)
 		if receipt != nil && strings.TrimSpace(receiptSHA256) != "" {
-			args = append(args, "-AdapterExecutionReceiptPath", filepath.ToSlash(filepath.Join(".rekit", "lanes", receipt.Owner.Lane, "adapter-executions", receipt.Gate.GateEventID, "receipt.json")), "-ExpectedAdapterExecutionReceiptSha256", receiptSHA256, "-Executor", receipt.Owner.CurrentExecutor, "-ExpectedExecutorGeneration", fmt.Sprintf("%d", receipt.Owner.ExecutorGeneration))
+			receiptPath := filepath.ToSlash(filepath.Join(filepath.Dir(filepath.FromSlash(receipt.Dispatch.Path)), "receipt.json"))
+			args = append(args, "-AdapterExecutionReceiptPath", receiptPath, "-ExpectedAdapterExecutionReceiptSha256", receiptSHA256, "-Executor", receipt.Owner.CurrentExecutor, "-ExpectedExecutorGeneration", fmt.Sprintf("%d", receipt.Owner.ExecutorGeneration))
 			actor = receipt.Actor
 		}
 	}
@@ -4577,10 +4582,18 @@ func buildPreview(repoRoot, caseRoot, pack string, opt Options) (instance.Instan
 }
 
 func canonicalLane(caseRoot, lane string) (string, error) {
+	boardPath, pathErr := projectstate.Join(caseRoot, "board.json")
+	if pathErr != nil {
+		return "", pathErr
+	}
+	boardRel, pathErr := projectstate.Rel(caseRoot, "board.json")
+	if pathErr != nil {
+		return "", pathErr
+	}
 	board, err := mission.ReadBoard(caseRoot)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", fmt.Errorf("gate requires .rekit/board.json to validate lane: %s", filepath.Join(caseRoot, ".rekit", "board.json"))
+			return "", fmt.Errorf("gate requires %s to validate lane: %s", boardRel, boardPath)
 		}
 		return "", err
 	}
@@ -4591,7 +4604,7 @@ func canonicalLane(caseRoot, lane string) (string, error) {
 		}
 	}
 	if len(known) == 0 {
-		return "", fmt.Errorf("gate requires at least one lane in .rekit/board.json")
+		return "", fmt.Errorf("gate requires at least one lane in %s", boardRel)
 	}
 	return "", fmt.Errorf("unknown lane %q; known: %s", lane, strings.Join(known, ","))
 }
@@ -4800,7 +4813,10 @@ func parseOutputPaths(caseRoot, value string) ([]string, error) {
 
 func authorizationDecision(caseRoot, lane string, m *manifest.Manifest, req autonomy.Request) autonomy.Decision {
 	profile, path, exists, err := autonomy.Read(caseRoot, lane)
-	rel := autonomy.RelPath(lane)
+	rel, relErr := projectstate.Rel(caseRoot, "lanes", lane, "autonomy.json")
+	if relErr != nil {
+		return autonomy.Decision{Decision: autonomy.DecisionInvalidProfile, Mode: autonomy.ModeManualGate, Source: "lane-autonomy-profile", RequiresConfirmation: true, Reasons: []string{relErr.Error()}}
+	}
 	if err != nil {
 		return autonomy.Decision{Decision: autonomy.DecisionInvalidProfile, Mode: autonomy.ModeManualGate, ProfilePath: rel, Source: "lane-autonomy-profile", RequiresConfirmation: true, Reasons: []string{err.Error()}}
 	}
@@ -4809,7 +4825,7 @@ func authorizationDecision(caseRoot, lane string, m *manifest.Manifest, req auto
 			return autonomy.Decision{Decision: autonomy.DecisionInvalidProfile, Mode: profile.Mode, ProfileID: profile.ProfileID, ProfilePath: rel, ProfileHash: autonomy.FileHash(path), Source: "lane-autonomy-profile", RequiresConfirmation: true, Reasons: []string{err.Error()}, RecordRequired: profile.RecordRequired}
 		}
 	}
-	return autonomy.Evaluate(profile, rel, exists, autonomy.FileHash(path), req, time.Now().UTC())
+	return autonomy.Evaluate(profile, rel, exists, autonomy.FileHash(path), req, time.Now().UTC(), m, caseRoot)
 }
 
 func parseGateRisk(value string) (string, error) {

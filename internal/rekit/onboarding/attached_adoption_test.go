@@ -1,15 +1,49 @@
 package onboarding
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 )
+
+func TestRecoverySnapshotUsesExactSelectedIntentArtifact(t *testing.T) {
+	caseRoot := t.TempDir()
+	if err := os.Mkdir(filepath.Join(caseRoot, projectstate.CurrentDir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := missionintent.Paths(caseRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := []missionintent.SnapshotArtifact{{Path: projectstate.CurrentRel("instance.yml"), Kind: "instance-metadata", SHA256: strings.Repeat("a", 64), Size: 1}}
+	intentBytes, err := json.Marshal(missionintent.Intent{
+		SchemaVersion: 1,
+		Kind:          "mission-onboarding-intent",
+		Identity:      missionintent.Identity{SchemaVersion: 1, Target: caseRoot},
+		Recovery:      missionintent.RecoveryEnvelope{SchemaVersion: 1, RepoRoot: ".", CreatedAt: "2026-08-13T00:00:00Z", Mode: "attached-adoption", AttachedSnapshot: snapshot},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := syncreview.ExclusiveInitPlan{CaseRoot: caseRoot, Writes: []syncreview.ExclusiveInitWrite{{
+		Path: paths.Intent, Kind: "onboarding-intent", TargetPath: filepath.Join(caseRoot, filepath.FromSlash(paths.Intent)), Content: intentBytes,
+	}}}
+	got, err := recoverySnapshot(plan)
+	if err != nil || len(got) != 1 || got[0] != snapshot[0] {
+		t.Fatalf("current recovery snapshot = %+v err=%v", got, err)
+	}
+	plan.Writes[0].Path = missionintent.IntentRel
+	if _, err := recoverySnapshot(plan); err == nil || !strings.Contains(err.Error(), "omits its exact intent artifact") {
+		t.Fatalf("legacy constant accepted for current plan: %v", err)
+	}
+}
 
 func TestAttachedAdoptionPreviewApplyAndReplay(t *testing.T) {
 	repo := testRepoRoot(t)
@@ -222,11 +256,20 @@ func TestAttachedAdoptionRecoversIntentOnlyPublication(t *testing.T) {
 func provisionAttachedCase(t *testing.T, repo string) string {
 	t.Helper()
 	caseRoot := filepath.Join(t.TempDir(), "attached")
-	plan, err := syncreview.PlanExclusiveInit(repo, caseRoot, "_template", syncreview.ExclusiveInitOptions{ProjectName: "demo", ProvisionID: "attached-fixture", Role: "attached-fixture", CreatedAt: time.Date(2026, 8, 7, 0, 0, 0, 0, time.UTC), SkipVerificationMarker: true, DefaultPublicationPhase: 1})
+	if err := os.MkdirAll(filepath.Join(caseRoot, ".rekit"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := casebind.WriteInstance(caseRoot, repo, "_template", "demo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := casebind.WriteCaseShim(caseRoot, repo); err != nil {
+		t.Fatal(err)
+	}
+	preview, err := syncreview.InitPreview(repo, caseRoot, "_template", syncreview.ApplyOptions{ProjectName: "demo", CreateLocalFiles: true, Command: "init"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := syncreview.ApplyExclusiveInit(plan); err != nil {
+	if _, err := syncreview.Apply(repo, caseRoot, "_template", syncreview.ApplyOptions{ProjectName: "demo", CreateLocalFiles: true, Command: "init", ExpectedPlanSHA256: preview.ExpectedPlanSHA256}); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(caseRoot, "case-local.txt"), []byte("preserve me\n"), 0o600); err != nil {

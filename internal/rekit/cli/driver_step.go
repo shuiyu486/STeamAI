@@ -11,6 +11,7 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
@@ -279,11 +280,16 @@ func validateDriverStepOuterArgs(opt Options) error {
 }
 
 func qualifyDriverStepApplyRequest(ctx runtime.Context, request mission.MissionCommanderDriverRequest) (mission.MissionCommanderDriverRequest, error) {
+	command, err := projectVisibleCommand(ctx.Target, request.Command)
+	if err != nil {
+		return mission.MissionCommanderDriverRequest{}, err
+	}
+	request.Command = command
 	fields, err := splitDriverCommand(request.Command)
 	if err != nil {
 		return mission.MissionCommanderDriverRequest{}, err
 	}
-	if len(fields) < 2 || fields[0] != "/rekit" || !boundedDriverStepCommand(fields[1]) {
+	if len(fields) < 2 || !driverStepEntrypointMatches(ctx, fields[0]) || !boundedDriverStepCommand(fields[1]) {
 		return mission.MissionCommanderDriverRequest{}, fmt.Errorf("returned Apply request is outside the bounded driver command allowlist")
 	}
 	args := fields[2:]
@@ -324,8 +330,8 @@ func parseBoundedDriverRequest(ctx runtime.Context, request mission.MissionComma
 	if err != nil {
 		return Options{}, err
 	}
-	if len(fields) < 2 || fields[0] != "/rekit" {
-		return Options{}, fmt.Errorf("driver request command must start with /rekit")
+	if len(fields) < 2 || !driverStepEntrypointMatches(ctx, fields[0]) {
+		return Options{}, fmt.Errorf("driver request command must use the canonical project entrypoint")
 	}
 	if !boundedDriverStepCommand(fields[1]) {
 		return Options{}, fmt.Errorf("driver request command %q is outside the run-driver-step allowlist", fields[1])
@@ -679,11 +685,23 @@ func driverStepReceiptFor(ctx runtime.Context, current, apply mission.MissionCom
 
 func driverStepRefreshCommandMatches(ctx runtime.Context, command string) bool {
 	fields, err := splitDriverCommand(command)
-	if err != nil || len(fields) < 2 || fields[0] != "/rekit" {
+	if err != nil || len(fields) < 2 || !driverStepEntrypointMatches(ctx, fields[0]) {
 		return false
 	}
 	opt, err := Parse(append([]string{"-Command", fields[1]}, fields[2:]...))
-	return err == nil && opt.Command == commands.Status && strings.TrimSpace(opt.Target) != "" && sameDriverStepPath(opt.Target, ctx.Target) && strings.EqualFold(strings.TrimSpace(opt.Format), "json") && !opt.Apply && !opt.WhatIf
+	return err == nil && opt.Command == commands.Status && strings.TrimSpace(opt.Target) != "" && sameDriverStepPath(opt.Target, ctx.Target) && strings.EqualFold(strings.TrimSpace(opt.Format), "compact-json") && !opt.Apply && !opt.WhatIf
+}
+
+func driverStepEntrypointMatches(ctx runtime.Context, entrypoint string) bool {
+	root, err := projectstate.Resolve(ctx.Target)
+	if err != nil {
+		return false
+	}
+	want := "/steamai"
+	if root.Legacy {
+		want = "/rekit"
+	}
+	return entrypoint == want
 }
 
 func boundedDriverStepCommand(command string) bool {

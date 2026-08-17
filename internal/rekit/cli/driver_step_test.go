@@ -10,8 +10,238 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 )
+
+func TestParseProjectVisibleInvocationSupportsCurrentAndLegacy(t *testing.T) {
+	for _, command := range []string{
+		`/steamai start -Target "C:\case root" -Name triage -WhatIf -Format json`,
+		`/rekit start -Target "C:\case root" -Name triage -WhatIf -Format json`,
+	} {
+		invocation, err := parseProjectVisibleInvocation(command)
+		if err != nil {
+			t.Fatalf("parse %q: %v", command, err)
+		}
+		if invocation.Command != commands.Start || len(invocation.Arguments) != 7 || invocation.Arguments[1] != `C:\case root` {
+			t.Fatalf("unexpected typed invocation for %q: %+v", command, invocation)
+		}
+	}
+}
+
+func TestParseProjectVisibleInvocationRejectsUnsafeCommands(t *testing.T) {
+	for _, command := range []string{
+		`/other status -Format json`,
+		`/steamai`,
+		`/steamai unknown -Format json`,
+		`/steamai start main -Lane other -WhatIf -Format json`,
+		`/steamai status "unterminated`,
+		`/steamai status -Command start`,
+	} {
+		if invocation, err := parseProjectVisibleInvocation(command); err == nil {
+			t.Fatalf("unsafe command parsed as %+v: %s", invocation, command)
+		}
+	}
+}
+
+func TestProjectVisibleCommandUsesResolvedEntrypointAndRejectsMixedRoots(t *testing.T) {
+	for _, fixture := range []struct {
+		name       string
+		stateDir   string
+		entrypoint string
+	}{
+		{name: "current", stateDir: projectstate.CurrentDir, entrypoint: "/steamai"},
+		{name: "legacy", stateDir: projectstate.LegacyDir, entrypoint: "/rekit"},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			caseRoot := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(caseRoot, fixture.stateDir), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			command, err := projectVisibleCommand(caseRoot, `/rekit overview -Format text`)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if command != fixture.entrypoint+` overview -Format text` {
+				t.Fatalf("command=%q", command)
+			}
+		})
+	}
+	caseRoot := t.TempDir()
+	for _, stateDir := range []string{projectstate.CurrentDir, projectstate.LegacyDir} {
+		if err := os.MkdirAll(filepath.Join(caseRoot, stateDir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := projectVisibleCommand(caseRoot, `/rekit status -Format compact-json`); err == nil {
+		t.Fatal("mixed state roots must fail closed")
+	}
+}
+
+func TestCloneStatusMissionCommanderDriverRequestPreservesExactIdentity(t *testing.T) {
+	invocation, err := commands.NewPublicInvocation(
+		commands.Status,
+		"-Format",
+		"compact-json",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := mission.MissionCommanderDriverRequest{
+		Kind:              "execute-command",
+		RunLoopStepID:     "apply-or-run-current",
+		Invocation:        &invocation,
+		Command:           "/rekit status -Format compact-json",
+		CommandExecutable: true,
+		ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
+			Command:              "/rekit status -Format compact-json",
+			RefreshStatusCommand: "/rekit status -Format compact-json",
+			Boundary:             []string{"receipt-a", "receipt-a"},
+		},
+		Boundary: []string{"request-a", "request-a"},
+	}
+	beforeSHA, err := mission.MissionCommanderDriverRequestSHA256(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clone := cloneStatusMissionCommanderDriverRequest(&request)
+	afterSHA, err := mission.MissionCommanderDriverRequestSHA256(*clone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if beforeSHA != afterSHA {
+		t.Fatalf("clone changed exact request identity: before=%s after=%s", beforeSHA, afterSHA)
+	}
+	if clone.Invocation == request.Invocation {
+		t.Fatal("clone reused typed invocation pointer")
+	}
+	clone.Invocation.Arguments[0] = "changed"
+	clone.Boundary[0] = "changed"
+	clone.ExpectedReceipt.Boundary[0] = "changed"
+	if request.Invocation.Arguments[0] != "-Format" ||
+		request.Boundary[0] != "request-a" ||
+		request.ExpectedReceipt.Boundary[0] != "receipt-a" {
+		t.Fatal("clone mutation changed source request")
+	}
+}
+
+func TestProjectVisibleMissionCommanderActionsPreserveGuidanceAndRejectUnknownSlashEntrypoints(t *testing.T) {
+	caseRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(caseRoot, projectstate.CurrentDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	invocation, err := commands.NewPublicInvocation(
+		commands.Status,
+		"-Format",
+		"compact-json",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actions := []mission.MissionCommanderNextActionItem{
+		{
+			State:      "blocked",
+			Command:    "match-authorized-gate-event",
+			Source:     "test-guidance",
+			Invocation: &invocation,
+		},
+		{
+			State:   "ready",
+			Command: `/rekit status -Format compact-json`,
+			Source:  "test-command",
+		},
+	}
+	visible, err := projectVisibleMissionCommanderActions(caseRoot, actions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if visible[0].Command != actions[0].Command {
+		t.Fatalf("guidance command changed: %q", visible[0].Command)
+	}
+	if visible[1].Command != `/steamai status -Format compact-json` {
+		t.Fatalf("project command=%q", visible[1].Command)
+	}
+	if visible[0].Invocation == actions[0].Invocation {
+		t.Fatal("typed invocation was not deep-cloned")
+	}
+	visible[0].Invocation.Arguments[0] = "changed"
+	if actions[0].Invocation.Arguments[0] != "-Format" {
+		t.Fatal("projected action mutated the source typed invocation")
+	}
+	if _, err := projectVisibleMissionCommanderActions(
+		caseRoot,
+		[]mission.MissionCommanderNextActionItem{{
+			State:   "blocked",
+			Command: `/other status -Format compact-json`,
+			Source:  "test-unknown-command",
+		}},
+	); err == nil {
+		t.Fatal("unknown slash entrypoint must fail closed")
+	}
+}
+
+func TestDriverStepRefreshCommandMatchesCurrentAndLegacyEntrypoints(t *testing.T) {
+	for _, fixture := range []struct {
+		name       string
+		stateDir   string
+		entrypoint string
+		other      string
+	}{
+		{name: "current", stateDir: projectstate.CurrentDir, entrypoint: "/steamai", other: "/rekit"},
+		{name: "legacy", stateDir: projectstate.LegacyDir, entrypoint: "/rekit", other: "/steamai"},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			caseRoot := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(caseRoot, fixture.stateDir), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			ctx := runtime.Context{Target: caseRoot}
+			valid := fixture.entrypoint + ` status -Target "` + caseRoot + `" -Format compact-json`
+			if !driverStepRefreshCommandMatches(ctx, valid) {
+				t.Fatalf("valid compact refresh command rejected: %s", valid)
+			}
+			for _, command := range []string{
+				fixture.entrypoint + ` status -Target "` + caseRoot + `" -Format json`,
+				fixture.other + ` status -Target "` + caseRoot + `" -Format compact-json`,
+				`/other status -Target "` + caseRoot + `" -Format compact-json`,
+				fixture.entrypoint + ` status -Target "` + filepath.Join(caseRoot, "other") + `" -Format compact-json`,
+			} {
+				if driverStepRefreshCommandMatches(ctx, command) {
+					t.Fatalf("invalid refresh command accepted: %s", command)
+				}
+			}
+		})
+	}
+}
+
+func TestBoundedDriverRequestRequiresCanonicalProjectEntrypoint(t *testing.T) {
+	for _, fixture := range []struct {
+		name       string
+		stateDir   string
+		entrypoint string
+		other      string
+	}{
+		{name: "current", stateDir: projectstate.CurrentDir, entrypoint: "/steamai", other: "/rekit"},
+		{name: "legacy", stateDir: projectstate.LegacyDir, entrypoint: "/rekit", other: "/steamai"},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			caseRoot := t.TempDir()
+			if err := os.MkdirAll(filepath.Join(caseRoot, fixture.stateDir), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			ctx := runtime.Context{Target: caseRoot, Pack: "_template"}
+			command := fixture.entrypoint + ` start -Target "` + caseRoot + `" -Name triage -WhatIf -Format json`
+			request := missionDriverRequestForTest(command)
+			if _, err := parseBoundedDriverRequest(ctx, request, false); err != nil {
+				t.Fatalf("canonical request rejected: %v", err)
+			}
+			wrong := fixture.other + strings.TrimPrefix(command, fixture.entrypoint)
+			if _, err := parseBoundedDriverRequest(ctx, missionDriverRequestForTest(wrong), false); err == nil || !strings.Contains(err.Error(), "canonical project entrypoint") {
+				t.Fatalf("non-canonical request was not rejected: %v", err)
+			}
+		})
+	}
+}
 
 func TestRunDriverStepContinueProductPath(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
@@ -276,16 +506,32 @@ func TestRunDriverStepSupportsExactSelectedLane(t *testing.T) {
 
 func TestRunDriverStepRejectsUnsupportedOuterArguments(t *testing.T) {
 	caseRoot := fullAttachedCase(t)
-	for _, args := range [][]string{
-		{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-Actor", "other", "-WhatIf", "-Format", "json"},
-		{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-Unexpected", "value", "-WhatIf", "-Format", "json"},
-		{"-Command", "run-driver-step", "--", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"},
-		{"--", "--", "-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"},
-	} {
+	tests := []struct {
+		args      []string
+		wantError string
+	}{
+		{
+			args:      []string{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-Actor", "other", "-WhatIf", "-Format", "json"},
+			wantError: "run-driver-step contains unsupported flag",
+		},
+		{
+			args:      []string{"-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-Unexpected", "value", "-WhatIf", "-Format", "json"},
+			wantError: "unknown argument: -Unexpected",
+		},
+		{
+			args:      []string{"-Command", "run-driver-step", "--", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"},
+			wantError: "accepts -- only once",
+		},
+		{
+			args:      []string{"--", "--", "-Command", "run-driver-step", "-Target", caseRoot, "-Pack", "_template", "-WhatIf", "-Format", "json"},
+			wantError: "accepts -- only once",
+		},
+	}
+	for _, test := range tests {
 		var out bytes.Buffer
-		err := Run(args, &out)
-		if err == nil || (!strings.Contains(err.Error(), "run-driver-step contains unsupported flag") && !strings.Contains(err.Error(), "accepts -- only once")) {
-			t.Fatalf("outer args should fail closed: args=%v err=%v output=%s", args, err, out.String())
+		err := Run(test.args, &out)
+		if err == nil || !strings.Contains(err.Error(), test.wantError) {
+			t.Fatalf("outer args should fail closed with %q: args=%v err=%v output=%s", test.wantError, test.args, err, out.String())
 		}
 	}
 }

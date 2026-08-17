@@ -9,6 +9,11 @@ import (
 )
 
 type Readiness struct {
+	Model                string                `json:"model"`
+	DefaultEntrypoint    string                `json:"defaultEntrypoint"`
+	StateRoot            string                `json:"stateRoot"`
+	RuntimeSource        string                `json:"runtimeSource"`
+	FallbackAllowed      bool                  `json:"fallbackAllowed"`
 	Ready                bool                  `json:"ready"`
 	Summary              string                `json:"summary"`
 	Documents            []DocumentCheck       `json:"documents"`
@@ -75,49 +80,71 @@ type requiredPhrase struct {
 const forbiddenFacadeCommandPattern = `rekit/rekit.ps1 command snippet`
 
 var documents = []DocumentCheck{
-	{Path: "README.md", Purpose: "primary public usage entrypoint"},
-	{Path: ".claude/skills/rekit/SKILL.md", Purpose: "canonical slash skill instructions"},
+	{Path: "README.md", Purpose: "primary current STeamAI public usage entrypoint"},
+	{Path: ".claude/skills/steamai/SKILL.md", Purpose: "canonical current /steamai slash skill"},
+	{Path: "rekit/templates/steamai-project/SKILL.md", Purpose: "project-local /steamai skill published into current projects"},
 	{Path: "CLAUDE.md", Purpose: "stable project maintainer boundaries and router pointer"},
-	{Path: "docs/context-routing.md", Purpose: "canonical progressive-disclosure router and read-first policy"},
-	{Path: "docs/real-usage-hardening-roadmap.md", Purpose: "active approved route pointer and current batch card"},
-	{Path: "docs/batch-plan.md", Purpose: "compact current batch projection"},
-	{Path: "docs/mission-control-product-direction.md", Purpose: "Lane-centric Mission Control product direction"},
+	{Path: "docs/context-routing.md", Purpose: "canonical progressive-disclosure router and current-model route"},
+	{Path: "docs/real-usage-hardening-roadmap.md", Purpose: "active STeamAI self-contained route and current batch card"},
+	{Path: "docs/batch-plan.md", Purpose: "compact current route projection"},
+	{Path: "docs/mission-control-product-direction.md", Purpose: "STeamAI self-contained Mission Control product direction"},
+	{Path: "docs/steamai-self-contained-project.md", Purpose: "current self-contained project contract"},
 	{Path: "docs/autonomous-goal.md", Purpose: "short approved-route goal anchor"},
-	{Path: "docs/release-readiness.md", Purpose: "routed release gate guidance"},
+	{Path: "docs/release-readiness.md", Purpose: "routed current and legacy release gate guidance"},
 	{Path: "docs/powershell-deprecation.md", Purpose: "routed PowerShell retirement contract"},
 	{Path: "rekit/tests/README.md", Purpose: "routed smoke selection guide"},
 }
 
 var requiredPhrases = []requiredPhrase{
 	{path: "README.md", phrase: "用户主要指挥主 Agent / Mission Commander"},
-	{path: "README.md", phrase: "Go CLI/backend 是背后的 canonical deterministic runtime/API"},
-	{path: "README.md", phrase: "`rekit.ps1` 仅作为 retained compatibility façade"},
-	{path: "README.md", phrase: "默认路径继续向 PowerShell-free / Go-native / 跨平台收敛"},
-	{path: "README.md", phrase: "这里不需要你手动执行底层脚本"},
-	{path: "README.md", phrase: "用户不需要把 `/rekit` 子命令当成主要交互界面"},
-	{path: "README.md", phrase: "`continue -Apply` 不写 authority/confirmed"},
-	{path: "docs/mission-control-product-direction.md", phrase: "Lane-centric Agent Team Mission Control"},
-	{path: "docs/mission-control-product-direction.md", phrase: "用户主要和一个 **主 Agent / Mission Commander** 会话交互"},
-	{path: "docs/mission-control-product-direction.md", phrase: "Go-first deterministic substrate"},
-	{path: ".claude/skills/rekit/SKILL.md", phrase: "产品方向是 Mission Control"},
-	{path: ".claude/skills/rekit/SKILL.md", phrase: "底层 Go CLI 是 canonical runtime"},
-	{path: ".claude/skills/rekit/SKILL.md", phrase: "`rekit.ps1` 只是 retained compatibility façade"},
-	{path: ".claude/skills/rekit/SKILL.md", phrase: "底层 runtime 只作为 `/rekit` 的内部实现"},
-	{path: ".claude/skills/rekit/SKILL.md", phrase: "`continue -Apply` 不写 authority/confirmed"},
-	{path: "CLAUDE.md", phrase: "本项目文档必须做成按需路由、渐进式披露的样式"},
+	{path: "README.md", phrase: "/steamai"},
+	{path: "README.md", phrase: "未接入的普通目录在 init 前没有项目级 `/steamai`"},
+	{path: "README.md", phrase: "目前仓库尚未提供面向普通用户的独立安装包"},
+	{path: "README.md", phrase: "唯一 current 状态根 `.steamai/`"},
+	{path: "README.md", phrase: "不能依赖旧绝对路径、机器 PATH 或原中央 kit"},
+	{path: "README.md", phrase: "旧 `/rekit`、`.rekit` 和中央 kit/thin-shim 模型只在迁移期间兼容，不是新项目默认"},
+	{path: ".claude/skills/steamai/SKILL.md", phrase: "STeamAI 项目内 Mission Control 入口"},
+	{path: ".claude/skills/steamai/SKILL.md", phrase: "新项目唯一可变状态根是 `${CLAUDE_PROJECT_DIR}/.steamai`"},
+	{path: ".claude/skills/steamai/SKILL.md", phrase: "不通过 PATH、全局 plugin、项目内 Go source 或外部 kit 回退"},
+	{path: ".claude/skills/steamai/SKILL.md", phrase: "bounded-autonomous-v1"},
+	{path: ".claude/skills/steamai/SKILL.md", phrase: "不要让用户记 SHA"},
+	{path: ".claude/skills/steamai/SKILL.md", phrase: "typed `invocation` 是唯一通用命令桥"},
+	{path: ".claude/skills/steamai/SKILL.md", phrase: "[\"runtime\", \"-Command\", invocation.command]"},
+	{path: ".claude/skills/steamai/SKILL.md", phrase: "`commandExecutable=false`"},
+	{path: "rekit/templates/steamai-project/SKILL.md", phrase: "自包含 STeamAI 项目"},
+	{path: "rekit/templates/steamai-project/SKILL.md", phrase: "`${CLAUDE_PROJECT_DIR}/.steamai/instance.yml`"},
+	{path: "rekit/templates/steamai-project/SKILL.md", phrase: "不通过 PATH 或外部 kit 回退"},
+	{path: "rekit/templates/steamai-project/SKILL.md", phrase: "bounded-autonomous-v1"},
+	{path: "rekit/templates/steamai-project/SKILL.md", phrase: "不要让用户记 SHA"},
+	{path: "rekit/templates/steamai-project/SKILL.md", phrase: "typed `invocation` 是唯一通用命令桥"},
+	{path: "rekit/templates/steamai-project/SKILL.md", phrase: "[\"runtime\", \"-Command\", invocation.command]"},
+	{path: "rekit/templates/steamai-project/SKILL.md", phrase: "`commandExecutable=false`"},
+	{path: "CLAUDE.md", phrase: "`/steamai` canonical skill"},
+	{path: "CLAUDE.md", phrase: "legacy `/rekit` compatibility skill"},
+	{path: "CLAUDE.md", phrase: "不得回退机器 PATH 或外部 kit"},
+	{path: "CLAUDE.md", phrase: "case public JSON 的 project-local typed command 由 resolved state root 统一投影"},
 	{path: "docs/context-routing.md", phrase: "本项目文档必须做成按需路由、渐进式披露的样式"},
-	{path: "docs/context-routing.md", phrase: "唯一完整文档路由入口"},
-	{path: "docs/context-routing.md", phrase: "不要默认读取 `docs/batch-history.md` 全文"},
-	{path: "docs/context-routing.md", phrase: "当前不再从候选池选题"},
+	{path: "docs/context-routing.md", phrase: "STeamAI 自包含项目 / `.steamai` / `/steamai` / runtime bundle / legacy 迁移"},
+	{path: "docs/context-routing.md", phrase: "不把旧中央 kit/thin-shim 流程当新项目默认"},
 	{path: "docs/real-usage-hardening-roadmap.md", phrase: "active source"},
-	{path: "docs/real-usage-hardening-roadmap.md", phrase: "只内联当前批次卡"},
-	{path: "docs/batch-plan.md", phrase: "完整历史已拆到 `docs/batch-history.md`"},
+	{path: "docs/real-usage-hardening-roadmap.md", phrase: "当前路线是 `steamai-self-contained-project-v1`"},
+	{path: "docs/real-usage-hardening-roadmap.md", phrase: "拒绝 PATH/外部 kit fallback"},
+	{path: "docs/real-usage-hardening-roadmap.md", phrase: "默认 quickstart 只保留 `cd <project> → claude → /steamai`"},
+	{path: "docs/batch-plan.md", phrase: "当前路线是 `steamai-self-contained-project-v1`"},
 	{path: "docs/batch-plan.md", phrase: "唯一允许领取"},
-	{path: "CLAUDE.md", phrase: "当前支持与日常完成门槛以 Windows 本机为准"},
-	{path: "CLAUDE.md", phrase: "PowerShell replacement/removal 不再因“删除 PowerShell”本身停下询问"},
+	{path: "docs/mission-control-product-direction.md", phrase: "STeamAI Lane-centric Agent Team Mission Control"},
+	{path: "docs/mission-control-product-direction.md", phrase: "新项目的用户入口是 `/steamai`"},
+	{path: "docs/mission-control-product-direction.md", phrase: "唯一 current 状态根是 `.steamai`"},
+	{path: "docs/mission-control-product-direction.md", phrase: "`/rekit`、`.rekit` 和 `rekit.ps1` 只作为迁移期 compatibility surface"},
+	{path: "docs/steamai-self-contained-project.md", phrase: "一个真实项目目录 = 一个自包含 STeamAI 项目"},
+	{path: "docs/steamai-self-contained-project.md", phrase: "不能依赖旧绝对路径、机器全局 PATH 或原中央 kit 仓库"},
+	{path: "docs/steamai-self-contained-project.md", phrase: "旧 `/rekit` 与 `.rekit` 在迁移期间只作为兼容入口"},
+	{path: "docs/steamai-self-contained-project.md", phrase: "case public JSON 按 resolved state root 投影全部 project-local typed command"},
 	{path: "docs/autonomous-goal.md", phrase: "聊天 goal 只负责启动或继续**已批准路线**"},
 	{path: "docs/autonomous-goal.md", phrase: "默认继续自主推进仅表示继续**已批准路线**"},
 	{path: "docs/release-readiness.md", phrase: "普通 batch 默认依赖 Go-owned `release-check` inventory"},
+	{path: "docs/release-readiness.md", phrase: "current STeamAI entry readiness"},
+	{path: "docs/release-readiness.md", phrase: "legacy `/rekit` / `.rekit` compatibility readiness"},
 	{path: "docs/release-readiness.md", phrase: "默认本机验证路径不依赖 PowerShell"},
 	{path: "docs/powershell-deprecation.md", phrase: "PowerShell-free default/product path / Go-native / 跨平台 convergence"},
 	{path: "docs/powershell-deprecation.md", phrase: "Go CLI/backend 是 canonical runtime"},
@@ -129,14 +156,20 @@ var requiredPhrases = []requiredPhrase{
 var forbiddenFacadeCommand = regexp.MustCompile(`(?i)(^|[\s` + "`" + `])(?:\.?[\\/])?rekit[\\/]rekit\.ps1\s+(?:-[a-z][a-z0-9-]*\s+)*?(?:release-check|status|packs|doctor|validate|overview|continue|start|handoff|sync|promote|note|gate|plan-subagents|attach|init|bootstrap|repair)\b`)
 
 var boundaries = []string{
-	"public docs may mention PowerShell only as legacy façade, fallback, or compatibility residue",
-	"public daily-use docs must keep natural-language Mission Control and `/rekit` as the user-facing path",
-	"Go CLI/backend remains the canonical deterministic runtime/API behind `/rekit`",
-	"this readiness check is read-only and does not delete PowerShell files or change façade delegation",
+	"current public daily-use entrypoint is natural-language Mission Control through /steamai",
+	"current projects use only .steamai state and a verified project-local runtime/pack without PATH or external-kit fallback",
+	"/rekit, .rekit, the central kit, and the thin shim remain explicit legacy compatibility or migration surfaces, not new-project defaults",
+	"legacy compatibility readiness is checked separately and remains required for release readiness",
+	"this readiness check is read-only and does not publish a runtime bundle, migrate state, or change compatibility delegation",
 }
 
 func Inspect(repoRoot string) Readiness {
 	readiness := Readiness{
+		Model:                "steamai-self-contained-current",
+		DefaultEntrypoint:    "/steamai",
+		StateRoot:            ".steamai",
+		RuntimeSource:        "project-local-verified-bundle",
+		FallbackAllowed:      false,
 		Ready:                true,
 		Summary:              "public default docs readiness ok",
 		Documents:            []DocumentCheck{},

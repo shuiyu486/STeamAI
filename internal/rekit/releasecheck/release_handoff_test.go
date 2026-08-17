@@ -11,12 +11,46 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/caseshim"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/defaultdocs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/promote"
 	syncpkg "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 )
+
+func TestReleaseHandoffSignalsDistinguishCurrentAndLegacyEntryReadiness(t *testing.T) {
+	check := Result{
+		CaseShim: caseshim.Readiness{
+			Model:                   "legacy-rekit-case-shim-compatibility",
+			CompatibilityEntrypoint: "/rekit",
+			StateRoot:               ".rekit",
+			DefaultForNewProjects:   false,
+			Ready:                   true,
+			Summary:                 "case shim readiness ok",
+			RequiredPhrases:         []caseshim.PhraseCheck{},
+			CanonicalSkillPhrases:   []caseshim.PhraseCheck{},
+			ForbiddenStrings:        []caseshim.StringCheck{},
+		},
+		PublicDefaultDocs: defaultdocs.Readiness{
+			Model:             "steamai-self-contained-current",
+			DefaultEntrypoint: "/steamai",
+			StateRoot:         ".steamai",
+			RuntimeSource:     "project-local-verified-bundle",
+			FallbackAllowed:   false,
+			Ready:             true,
+			Summary:           "public default docs readiness ok",
+		},
+	}
+
+	signals := releaseHandoffSignals(check, ReleaseHandoffLatestBatch{}, ReleaseHandoffReleaseNotes{}, nil, ReleaseHandoffPackMaturity{}, ReleaseHandoffPackMemoryCandidateList{})
+	handoff := ReleaseHandoff{Signals: signals}
+	assertHandoffSignal(t, handoff, "case shim readiness")
+	assertHandoffSignalDetailContains(t, handoff, "case shim readiness", "model=legacy-rekit-case-shim-compatibility entrypoint=/rekit stateRoot=.rekit defaultForNewProjects=false")
+	assertHandoffSignal(t, handoff, "public default docs")
+	assertHandoffSignalDetailContains(t, handoff, "public default docs", "model=steamai-self-contained-current entrypoint=/steamai stateRoot=.steamai runtimeSource=project-local-verified-bundle fallbackAllowed=false")
+}
 
 func TestPostPushReceiptClosesImplementationPendingCadence(t *testing.T) {
 	latest := latestBatchSummaryFromData("docs/batch-plan.md", []byte(`### Batch 794：post-push closure
@@ -259,16 +293,16 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	}
 	assertHandoffSignal(t, handoff, "release-check inventory")
 	assertHandoffSignal(t, handoff, "CI release gate")
-	assertHandoffSignalDetail(t, handoff, "PowerShell deprecation", "fallbackRetirement=true noFallback=30 candidates=0 removalModules=0 retiredModules=13")
+	assertHandoffSignalDetail(t, handoff, "PowerShell deprecation", "fallbackRetirement=true noFallback=31 candidates=0 removalModules=0 retiredModules=13")
 	assertHandoffSignalDetail(t, handoff, "PowerShell deprecation", "facadeRuntime=true legacyImports=false dispatcher=false")
-	assertHandoffSignalDetail(t, handoff, "PowerShell deprecation", "publicFacade=true retained=true facadeCommands=30 noFallback=30")
+	assertHandoffSignalDetail(t, handoff, "PowerShell deprecation", "publicFacade=true retained=true facadeCommands=31 noFallback=31")
 	assertHandoffSignalDetail(t, handoff, "PowerShell deprecation", "moduleRemoval=true candidates=0 retired=13 facadeDeps=0 undocumented=0")
 	assertHandoffSignalDetail(t, handoff, "PowerShell deprecation", "moduleReferences=true activeTests=0 fixtures=0 blockers=0 unclassified=0")
 	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "entrypoint=cmd/rekit present=true catalog=internal/rekit/commands/commands.go catalogPresent=true")
-	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "default=status commands=30 handlers=30 symbols=30 profiles=30 boundaries=8 alternative=go run ./cmd/rekit -- -Command <command>")
-	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "profileSummary total=30 readOnly=5 mutating=25 writesCase=22 writesKit=2 reviewFirst=12 applyRequired=22 heavyTool=0 authorityConfirmed=0")
-	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "profileGroups readOnly=doctor,packs,release-check,status,validate reviewFirst=complete,next-batch,onboard,promote,reopen,run-current-loop,run-current-step,run-driver-step,run-reviewer-step,run-reviewer-wave,sync,update writesKit=next-batch,promote")
-	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "profileBoundaries rows=8 caseLocalApply=attach,bootstrap,continue,gate,handoff,init,reconcile,repair,start caseLocalReviewWriteback=plan-subagents caseLocalReviewFirst=complete,onboard,reopen,run-current-loop,run-current-step,run-driver-step,run-reviewer-step,run-reviewer-wave,sync,update kitReviewFirst=next-batch,promote readOnly=doctor,packs,release-check,status,validate")
+	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "default=status commands=31 handlers=31 symbols=31 profiles=31 boundaries=8 alternative=go run ./cmd/rekit -- -Command <command>")
+	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "profileSummary total=31 readOnly=5 mutating=26 writesCase=23 writesKit=2 reviewFirst=13 applyRequired=23 heavyTool=0 authorityConfirmed=0")
+	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "profileGroups readOnly=doctor,packs,release-check,status,validate reviewFirst=complete,migrate-state,next-batch,onboard,promote,reopen,run-current-loop,run-current-step,run-driver-step,run-reviewer-step,run-reviewer-wave,sync,update writesKit=next-batch,promote")
+	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "profileBoundaries rows=8 caseLocalApply=attach,bootstrap,continue,gate,handoff,init,reconcile,repair,start caseLocalReviewWriteback=plan-subagents caseLocalReviewFirst=complete,migrate-state,onboard,reopen,run-current-loop,run-current-step,run-driver-step,run-reviewer-step,run-reviewer-wave,sync,update kitReviewFirst=next-batch,promote readOnly=doctor,packs,release-check,status,validate")
 	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "profilePolicies rows=5 violations=0")
 	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "facadeRemovalReady=true prerequisites=5")
 	assertHandoffSignalDetail(t, handoff, "Go-native public surface", "unsupportedDiagnostic=true")
@@ -336,7 +370,9 @@ func TestReleaseHandoffInventoryFromRepo(t *testing.T) {
 	assertHandoffSignalDetail(t, handoff, "public facade removal prerequisites", "public-facade-retained-boundary ready=true publicFacadeReady=true present=true retained=true migrationBoundary=true removalBoundary=true")
 	assertHandoffSignalDetail(t, handoff, "public facade removal prerequisites", "go-native-public-surface ready=true goNativeReady=true facadeRemovalReady=true prerequisites=5")
 	assertHandoffSignal(t, handoff, "case shim readiness")
+	assertHandoffSignalDetailContains(t, handoff, "case shim readiness", "model=legacy-rekit-case-shim-compatibility entrypoint=/rekit stateRoot=.rekit defaultForNewProjects=false")
 	assertHandoffSignal(t, handoff, "public default docs")
+	assertHandoffSignalDetailContains(t, handoff, "public default docs", "model=steamai-self-contained-current entrypoint=/steamai stateRoot=.steamai runtimeSource=project-local-verified-bundle fallbackAllowed=false")
 	assertHandoffSignal(t, handoff, "heavy-tool gate manifests")
 	assertHandoffSignal(t, handoff, "pack maturity summary")
 	assertHandoffPackMaturity(t, handoff)
@@ -1007,6 +1043,17 @@ func TestLatestBatchHandoffAcceptsSplitReleaseCheckLocalMinimum(t *testing.T) {
 	}
 }
 
+func TestLatestBatchHandoffAcceptsPreviousP2GoTestCommand(t *testing.T) {
+	section := `状态：已完成 fixture implementation 与完整本机 release minimum。
+
+验证结果：` + "`" + `release-check ready=true` + "`" + `；` + "`" + `go run ./cmd/rekit -- -Command status` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command packs` + "`" + `、` + "`" + `go run ./cmd/rekit -- -Command doctor` + "`" + `、` + "`" + `go test -p=2 -timeout=15m ./...` + "`" + `、` + "`" + `go vet ./...` + "`" + ` 与 ` + "`" + `git diff --check` + "`" + ` 均已运行。`
+
+	handoff := latestBatchHandoff(ReleaseHandoffLatestBatch{Status: "已完成 fixture"}, section)
+	if !handoff.LocalValidationReady || !handoff.ReleaseCheckReady || !slices.Contains(handoff.Evidence, "go test ./... recorded") {
+		t.Fatalf("previous -p=2/15m Go test evidence should remain compatible: %+v", handoff)
+	}
+}
+
 func TestLatestBatchHandoffAcceptsReleaseRunLocalMinimum(t *testing.T) {
 	section := `状态：已完成 runtime/test/doc 工作树实现、完整本机 ` + "`" + `release-run` + "`" + ` release minimum，以及 implementation commit/push 和 PR-triggered remote release-gate inspection；implementation commit ` + "`" + `483947c` + "`" + ` 已推送。PR run ` + "`" + `30199667894` + "`" + ` completed failure，macOS/Windows/Linux jobs ` + "`" + `89787316201` + "`" + `/` + "`" + `89787316236` + "`" + `/` + "`" + `89787316256` + "`" + ` 均 ` + "`" + `steps=[]` + "`" + ` 且无 logs。
 
@@ -1222,9 +1269,27 @@ func TestLatestBatchReleaseInspectionCadenceWaitsForImplementationCommit(t *test
 }
 
 func TestLatestBatchRemoteGateDoesNotTreatNegativeGreenAsGreen(t *testing.T) {
-	section := `验证结果：已通过完整本地 release minimum；release-check ready=true。远程 release-gate inspection 待 commit/push 后执行；若仍为 jobs steps: []，按既有 blocker 记录，不能声明远程 CI green。`
-	if got := latestBatchRemoteReleaseGate(section); got != "not-recorded" {
-		t.Fatalf("remote gate should stay not-recorded before inspection, got %q", got)
+	for _, section := range []string{
+		`验证结果：已通过完整本地 release minimum；release-check ready=true。远程 release-gate inspection 待 commit/push 后执行；若仍为 jobs steps: []，按既有 blocker 记录，不能声明远程 CI green。`,
+		`Windows全仓tests、vet、module verify、public CLI、diff和local minimum通过。未授权commit/push，cadence为implementation-pending；无下一批，不声称remote CI green。`,
+		`未授权commit/push，release cadence仍为implementation-pending，不声称post-push receipt或remote CI green。`,
+		`receipt is repo-local git metadata and does not claim remote CI green.`,
+		`inventory ready 只是本地定义一致，而不是 remote CI green。`,
+	} {
+		if got := latestBatchRemoteReleaseGate(section); got != "not-recorded" {
+			t.Fatalf("remote gate should stay not-recorded before inspection, got %q for %q", got, section)
+		}
+	}
+}
+
+func TestLatestBatchRemoteGateKeepsPositiveGreenDespiteUnrelatedOrPriorNegativeClaim(t *testing.T) {
+	for _, section := range []string{
+		`Push run ` + "`" + `123456789` + "`" + ` completed success，Linux/Windows/macOS jobs completed success，remote CI green，但不声明 authority/confirmed。`,
+		`旧 run ` + "`" + `123456788` + "`" + ` completed failure，不能声明 remote CI green。Push run ` + "`" + `123456789` + "`" + ` completed success，Linux/Windows/macOS jobs completed success，remote CI green。`,
+	} {
+		if got := latestBatchRemoteReleaseGate(section); got != "green" {
+			t.Fatalf("explicit positive remote green should win its own clause, got %q for %q", got, section)
+		}
 	}
 }
 
@@ -1552,8 +1617,8 @@ func TestReleaseHandoffPackMemoryCandidateDecisionVerificationReceipt(t *testing
 	proofRoot := filepath.Join(repo, "packs", "fixture", "promote-candidates", "review-artifacts")
 	receiptPath := filepath.Join(proofRoot, "fixture.candidate-decision-receipt.json")
 	proofPath := filepath.Join(proofRoot, "fixture.candidate-verification-proof.json")
-	packetPath := filepath.Join(repo, "case", ".rekit", "reviews", "packet.json")
-	decisionPath := filepath.Join(repo, "case", ".rekit", "reviews", "decisions.json")
+	packetPath := filepath.Join(repo, "case", ".steamai", "reviews", "packet.json")
+	decisionPath := filepath.Join(repo, "case", ".steamai", "reviews", "decisions.json")
 	packetHash := "packet-hash"
 	decisionHash := "decision-hash"
 	backupRoot := filepath.Join(repo, "packs", "fixture", "promote-candidates", ".decision-backup", "fixture")
@@ -1592,7 +1657,7 @@ func TestReleaseHandoffPackMemoryCandidateDecisionVerificationReceipt(t *testing
 		"decisionEvidence":             []string{},
 		"receiptPath":                  receiptPath,
 		"verificationPending":          true,
-		"verificationWorkspaceRoot":    filepath.Join(caseRoot, ".rekit", "verifications", "candidate-decisions", shortReleaseHandoffHash(packetHash+decisionHash)),
+		"verificationWorkspaceRoot":    filepath.Join(caseRoot, ".steamai", "verifications", "candidate-decisions", shortReleaseHandoffHash(packetHash+decisionHash)),
 		"verificationProvisionCommand": "/rekit promote -PacketPath " + packetPath + " -CandidateDecisionPath " + decisionPath + " -ProvisionCandidateVerificationCases -FreshCaseRoot <workspace>/fresh -AttachedCaseRoot <workspace>/attached -WhatIf -Format json",
 		"verificationCommand":          "/rekit promote -VerifyCandidateDecision -FreshCaseRoot <workspace>/fresh -AttachedCaseRoot <workspace>/attached -WhatIf -Format json",
 		"verificationProofPath":        proofPath,
@@ -1618,7 +1683,7 @@ func TestReleaseHandoffPackMemoryCandidateDecisionVerificationReceipt(t *testing
 	assertReleaseHandoffCommandTargetsSource(t, receiptStatus.VerificationProvisionCommand, caseRoot)
 	assertReleaseHandoffCommandTargetsSource(t, receiptStatus.VerificationCommand, caseRoot)
 
-	workspace := filepath.Join(caseRoot, ".rekit", "verifications", "candidate-decisions", shortReleaseHandoffHash(packetHash+decisionHash))
+	workspace := filepath.Join(caseRoot, ".steamai", "verifications", "candidate-decisions", shortReleaseHandoffHash(packetHash+decisionHash))
 	freshCaseRoot = filepath.Join(workspace, "fresh")
 	attachedCaseRoot = filepath.Join(workspace, "attached")
 	provisionIntentPath := filepath.Join(workspace, "provision.intent.json")
@@ -1739,8 +1804,8 @@ func TestReleaseHandoffPackMemoryCandidateDecisionVerificationReceipt(t *testing
 	retirementCommand := assertReleaseHandoffPackMemoryCurrentAction(t, retirementRequired, "fixture", "pack-memory-verification-retirement-required", "pack-memory-verification-required", "-RetireCandidateVerificationWorkspace")
 	assertReleaseHandoffCommandTargetsSource(t, retirementCommand, caseRoot)
 
-	pendingPacketPath := filepath.Join(repo, "case", ".rekit", "reviews", "pending-packet.json")
-	pendingDecisionPath := filepath.Join(repo, "case", ".rekit", "reviews", "pending-decisions.json")
+	pendingPacketPath := filepath.Join(repo, "case", ".steamai", "reviews", "pending-packet.json")
+	pendingDecisionPath := filepath.Join(repo, "case", ".steamai", "reviews", "pending-decisions.json")
 	pendingPacketHash := "packet-hash-pending"
 	pendingDecisionHash := "decision-hash-pending"
 	pendingReceiptPath := filepath.Join(proofRoot, "00-pending.candidate-decision-receipt.json")
@@ -1755,7 +1820,7 @@ func TestReleaseHandoffPackMemoryCandidateDecisionVerificationReceipt(t *testing
 		"candidateBackupPath": filepath.Join(pendingBackupRoot, "actions", "000", "candidate"),
 		"evidenceRefs":        []string{},
 	}}
-	pendingWorkspace := filepath.Join(caseRoot, ".rekit", "verifications", "candidate-decisions", shortReleaseHandoffHash(pendingPacketHash+pendingDecisionHash))
+	pendingWorkspace := filepath.Join(caseRoot, ".steamai", "verifications", "candidate-decisions", shortReleaseHandoffHash(pendingPacketHash+pendingDecisionHash))
 	pendingReceipt := map[string]any{
 		"schemaVersion":                1,
 		"kind":                         "pack-memory-candidate-decision-receipt",

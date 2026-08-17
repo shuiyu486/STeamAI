@@ -5,7 +5,11 @@ import (
 	"strings"
 )
 
-const PublicInvocationSchemaVersion = 1
+const (
+	PublicInvocationSchemaVersion = 1
+	CurrentPublicEntrypoint       = "/steamai"
+	LegacyPublicEntrypoint        = "/rekit"
+)
 
 type PublicInvocation struct {
 	SchemaVersion int      `json:"schemaVersion"`
@@ -33,8 +37,10 @@ func ParsePublicInvocation(text string) (PublicInvocation, error) {
 	if err != nil {
 		return PublicInvocation{}, err
 	}
-	if len(fields) < 2 || fields[0] != "/rekit" || strings.TrimSpace(fields[1]) == "" {
-		return PublicInvocation{}, fmt.Errorf("public invocation must begin with /rekit <command>")
+	if len(fields) < 2 ||
+		(fields[0] != "/rekit" && fields[0] != "/steamai") ||
+		strings.TrimSpace(fields[1]) == "" {
+		return PublicInvocation{}, fmt.Errorf("public invocation must begin with /rekit or /steamai <command>")
 	}
 	return NewPublicInvocation(fields[1], fields[2:]...)
 }
@@ -124,7 +130,7 @@ func publicInvocationCommandHasPositionalSelector(command string) bool {
 
 func publicInvocationSelectorValueFlag(flag string) bool {
 	switch strings.ToLower(strings.TrimSpace(flag)) {
-	case "-target", "--target", "-pack", "--pack", "-format", "--format", "-name", "--name", "-executor", "--executor", "-actor", "--actor", "-reason", "--reason", "-summary", "--summary", "-evidencerefs", "--evidence-refs", "-interventionid", "--intervention-id", "-expectedexecutorgeneration", "--expected-executor-generation", "-expectedcompleteplansha256", "--expected-complete-plan-sha256", "-expectedhandoffplansha256", "--expected-handoff-plan-sha256", "-expectedreopenplansha256", "--expected-reopen-plan-sha256", "-handoffpublicationstamp", "--handoff-publication-stamp", "-reopenpublicationstamp", "--reopen-publication-stamp":
+	case "-target", "--target", "-pack", "--pack", "-format", "--format", "-name", "--name", "-executor", "--executor", "-actor", "--actor", "-reason", "--reason", "-summary", "--summary", "-evidencerefs", "--evidence-refs", "-interventionid", "--intervention-id", "-expectedexecutorgeneration", "--expected-executor-generation", "-expectedcompleteplansha256", "--expected-complete-plan-sha256", "-expectedhandoffplansha256", "--expected-handoff-plan-sha256", "-expectedmigrationplansha256", "--expected-migration-plan-sha256", "-expectedreopenplansha256", "--expected-reopen-plan-sha256", "-handoffpublicationstamp", "--handoff-publication-stamp", "-reopenpublicationstamp", "--reopen-publication-stamp":
 		return true
 	default:
 		return false
@@ -139,10 +145,18 @@ func (invocation PublicInvocation) CLIArgs() ([]string, error) {
 }
 
 func (invocation PublicInvocation) Render() (string, error) {
+	return invocation.RenderForEntrypoint(LegacyPublicEntrypoint)
+}
+
+func (invocation PublicInvocation) RenderForEntrypoint(entrypoint string) (string, error) {
 	if err := invocation.Validate(); err != nil {
 		return "", err
 	}
-	parts := []string{"/rekit", invocation.Command}
+	entrypoint = strings.TrimSpace(entrypoint)
+	if entrypoint != CurrentPublicEntrypoint && entrypoint != LegacyPublicEntrypoint {
+		return "", fmt.Errorf("unsupported public invocation entrypoint: %s", entrypoint)
+	}
+	parts := []string{entrypoint, invocation.Command}
 	for _, argument := range invocation.Arguments {
 		parts = append(parts, renderPublicInvocationArgument(argument))
 	}

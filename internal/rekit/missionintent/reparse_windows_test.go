@@ -26,7 +26,10 @@ func TestInspectRejectsWindowsAncestorReparsePoint(t *testing.T) {
 			createWindowsDirectoryReparse(t, linkParent, realParent)
 			caseRoot := filepath.Join(linkParent, "case")
 			identity := Identity{SchemaVersion: 1, Target: caseRoot, Pack: "_template", ProjectName: "demo", Goal: "goal", Actor: "actor", Executor: "executor", InitialLane: "main"}
-			intentBytes, err := MarshalIntent(Intent{SchemaVersion: 1, Kind: "mission-onboarding-intent", PublicationStamp: "20260803-010203004", OnboardingPlanSHA256: strings.Repeat("a", 64), Identity: identity, Recovery: testRecovery(identity)})
+			recoveryIdentity := identity
+			recoveryIdentity.Target = filepath.Join(realParent, "case")
+			recovery := testRecovery(recoveryIdentity)
+			intentBytes, err := marshalCanonical(Intent{SchemaVersion: 1, Kind: "mission-onboarding-intent", PublicationStamp: "20260803-010203004", OnboardingPlanSHA256: strings.Repeat("a", 64), Identity: identity, Recovery: recovery})
 			if err != nil {
 				t.Fatal(err)
 			}

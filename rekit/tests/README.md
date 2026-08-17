@@ -8,7 +8,7 @@
 
 `rekit/tests` 里的脚本都是仓库维护验证入口，默认使用临时 case 或只读仓库状态，用于锁定 review-first、planning/no-write、Go façade parity、remaining PowerShell compatibility 和 pack skeleton 边界。Batch 353 的 strict reviewer intake 目前主要由 Go package tests与一次真实本机 reviewer E2E验证；PowerShell smoke 的具体覆盖和缺口按下表如实记录。`catalog.json` 用相同分类记录全部 `*.ps1` smoke/helper 的 `category`、`purpose`、`recommendedFor`、`supportsWorkRoot` 和 `riskBoundary`，供后续自动测试选择器或 CI 读取。
 
-Go-first release gate 优先由 Go-owned `release-check` inventory（完整 release audit）、Go-native lightweight daily `status` / `packs` / `doctor`、`go test ./...` 与 `go vet ./...` 捕获确定性 invariant；`status` 只构建 Mission Control 所需 project handoff，不替代 full release audit。默认远程 CI 见 `.github/workflows/release-gate.yml`，在 Linux、Windows、macOS 上先运行 `go vet` 再运行完整 Go tests，避免 test failure 使 vet 无信号；`facade-smoke.ps1`、`catalog-smoke.ps1`、`pack-smoke-matrix-selftest.ps1` 与 pack matrix 保留为按需 PowerShell compatibility / parity 层，不继续扩张成新的 runtime owner。
+Go-first release gate 优先由 Go-owned `release-check` inventory（完整 release audit）、Go-native lightweight daily `status` / `packs` / `doctor`、`go test -count=1 -p=2 -timeout=30m ./...` 与 `go vet ./...` 捕获确定性 invariant；其中`-count=1`禁用 package test-result cache，保证当前 frozen bytes 被 fresh 执行但保留 Go build cache；`-p=2`限制跨 package并发；30分钟是逐 package test binary上限，`release-run`另以45分钟硬上限收口整条命令；`status` 只构建 Mission Control 所需 project handoff，不替代 full release audit。默认远程 CI 见 `.github/workflows/release-gate.yml`，在 Linux、Windows、macOS 上先运行 `go vet` 再运行完整 Go tests，避免 test failure 使 vet 无信号；`facade-smoke.ps1`、`catalog-smoke.ps1`、`pack-smoke-matrix-selftest.ps1` 与 pack matrix 保留为按需 PowerShell compatibility / parity 层，不继续扩张成新的 runtime owner。
 
 推荐最小回归组合：
 
@@ -17,7 +17,7 @@ go run ./cmd/rekit -- -Command release-check -Format json
 go run ./cmd/rekit -- -Command status
 go run ./cmd/rekit -- -Command packs
 go run ./cmd/rekit -- -Command doctor
-go test ./...
+go test -count=1 -p=2 -timeout=30m ./...
 go vet ./...
 git diff --check
 ```
@@ -129,9 +129,9 @@ C:\AI\m_projects\RE\_dryrun_cases
 
 | 改动类型 | 推荐验证 |
 |---|---|
-| 新增 skeleton pack | 单 pack smoke -> `pack-smoke-matrix.ps1 -DiscoveryOnly` -> `pack-inventory-smoke.ps1` -> `go test ./...` -> `doctor`。 |
+| 新增 skeleton pack | 单 pack smoke -> `pack-smoke-matrix.ps1 -DiscoveryOnly` -> `pack-inventory-smoke.ps1` -> `go test -count=1 -p=2 -timeout=30m ./...` -> `doctor`。 |
 | 改测试导航 catalog | `catalog-smoke.ps1` -> `pack-smoke-matrix.ps1 -DiscoveryOnly` -> `pack-inventory-smoke.ps1`。 |
 | 改 pack smoke helper/matrix | `pack-smoke-matrix-selftest.ps1` -> `pack-smoke-matrix.ps1 -DiscoveryOnly` -> 1-2 个代表 pack smoke -> `pack-inventory-smoke.ps1`。 |
-| 改 Go façade 委托 | 按需运行 `facade-smoke.ps1` 与相关命令 smoke -> `go test ./...`。 |
+| 改 Go façade 委托 | 按需运行 `facade-smoke.ps1` 与相关命令 smoke -> `go test -count=1 -p=2 -timeout=30m ./...`。 |
 | 改 sync/promote 写入 | 对应 preflight/apply smoke -> `doctor` -> `git diff --check`。 |
-| 改 workstream/ledger/gate | 对应 workstream/ledger smoke -> `go test ./...` -> `doctor`。 |
+| 改 workstream/ledger/gate | 对应 workstream/ledger smoke -> `go test -count=1 -p=2 -timeout=30m ./...` -> `doctor`。 |

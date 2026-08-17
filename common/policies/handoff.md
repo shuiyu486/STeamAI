@@ -11,6 +11,13 @@
 - 下一步命令或检查清单。
 - 权威数据文件路径。
 
+## Apply currentness
+
+- `status` 或 generic runbook 中未绑定 publication plan SHA/stamp 的 handoff Apply route 只是 `review-guidance`，必须保持 non-executable。
+- 只有 fresh、同 scope 的 `handoff -WhatIf` 返回 exact `publicationPlanSha256`、`publicationStamp` 和 Apply request 后，才能执行该 Apply；不要手工重建参数。
+- project publication 只能绑定 project Apply，lane publication 只能绑定 exact lane Apply；二者的 SHA/stamp 不得交叉复用。
+- 持久化 Markdown、takeover JSON、typed driver request、expected receipt 和 run-loop 必须表达同一个 command/executable 状态。
+
 ## 不应包含
 
 - round-by-round 长历史。

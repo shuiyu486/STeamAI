@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -14,11 +15,14 @@ import (
 
 	"github.com/shuiyu486/re-context-kits/internal/rekit/cli"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
+	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanecompletion"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/note"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectexecution"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	rekitruntime "github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
 	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
@@ -162,7 +166,7 @@ func TestRunDailyMultipleLanesRequiresChoiceWithoutLaunchOrWrite(t *testing.T) {
 	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := workstream.StartApply(sessionhostTestRepoRoot(t), caseRoot, inspection.Identity.Pack, workstream.StartOptions{
+	if _, err := workstream.StartApply(sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack), caseRoot, inspection.Identity.Pack, workstream.StartOptions{
 		Name: "login", Actor: "daily-test", Executor: "session-login", TakeoverReason: "daily multi-lane choice regression",
 	}); err != nil {
 		t.Fatal(err)
@@ -214,7 +218,7 @@ func TestRunDailyCorrectionMultipleLanesRequiresChoiceWithoutWrite(t *testing.T)
 	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := workstream.StartApply(sessionhostTestRepoRoot(t), caseRoot, inspection.Identity.Pack, workstream.StartOptions{
+	if _, err := workstream.StartApply(sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack), caseRoot, inspection.Identity.Pack, workstream.StartOptions{
 		Name: "login", Actor: "daily-test", Executor: "session-login", TakeoverReason: "daily correction multi-lane choice regression",
 	}); err != nil {
 		t.Fatal(err)
@@ -362,6 +366,141 @@ func TestRunDailyAdoptsExistingAttachedCaseBeforeClaudeUnavailable(t *testing.T)
 	}
 }
 
+func TestRunDailyRecoveryRequiresPendingTransactionWithoutMutation(t *testing.T) {
+	caseRoot := t.TempDir()
+	before := snapshotDailyCaseFiles(t, caseRoot)
+	result, err := RunDailyRecovery(context.Background(), DailyOptions{
+		Target:       caseRoot,
+		ClaudePath:   missingClaudePath(t),
+		Model:        "recovery-test-model",
+		Timeout:      time.Second,
+		MaxAttempts:  7,
+		SelectedLane: "must-not-be-used",
+	})
+	if err == nil || !strings.Contains(
+		err.Error(),
+		"requires a pending durable current project update",
+	) {
+		t.Fatalf("RunDailyRecovery result=%+v err=%v", result, err)
+	}
+	if result.SessionLaunches != 0 || len(result.HostRuns) != 0 ||
+		result.OnboardingApplied {
+		t.Fatalf("RunDailyRecovery crossed zero-launch boundary: %+v", result)
+	}
+	if after := snapshotDailyCaseFiles(t, caseRoot); !maps.Equal(before, after) {
+		t.Fatalf("RunDailyRecovery changed target: before=%d after=%d", len(before), len(after))
+	}
+}
+
+func TestRunDailyStopsForCurrentSyncRecoveryBeforeClaudeOrWrites(t *testing.T) {
+	if !rekitfs.HandleBoundExactMutationSupported() {
+		t.Skip("current sync Apply requires handle-bound exact filesystem mutation")
+	}
+	repo := sessionhostTestRepoRoot(t)
+	caseRoot := provisionSessionhostAttachedCase(t, repo, "_template")
+	sourceRepo := copySessionhostCurrentSyncSourceFixture(t, repo)
+	refreshPath := filepath.Join(
+		sourceRepo,
+		"common",
+		"policies",
+		"current-sync-daily-recovery-test.md",
+	)
+	if err := os.WriteFile(
+		refreshPath,
+		[]byte("current sync daily recovery test\n"),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	sourceExecutable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := syncreview.CurrentSyncPreview(
+		sourceRepo,
+		caseRoot,
+		"_template",
+		syncreview.CurrentSyncOptions{
+			Command:          "sync",
+			ProjectName:      "attached-demo",
+			SourceExecutable: sourceExecutable,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.AlreadyCurrent || len(plan.ApplyArgs) == 0 {
+		t.Fatalf("current sync daily recovery fixture produced no refresh: %+v", plan)
+	}
+	restore := syncreview.SetCurrentSyncApplyTransitionHookForTest(
+		func(stage string, _ syncreview.CurrentSyncPlan) error {
+			if stage == "after-operation-effect:activation-live-to-previous" {
+				return errors.New("simulated daily activation interruption")
+			}
+			return nil
+		},
+	)
+	_, err = syncreview.CurrentSyncApply(
+		caseRoot,
+		"_template",
+		syncreview.CurrentSyncApplyOptions{
+			SourceRepoRoot:     sourceRepo,
+			ExpectedPlanSHA256: plan.ExpectedPlanSHA256,
+			CurrentSyncOptions: syncreview.CurrentSyncOptions{
+				Command:          "sync",
+				ProjectName:      "attached-demo",
+				SourceExecutable: sourceExecutable,
+			},
+		},
+	)
+	restore()
+	if err == nil || !strings.Contains(err.Error(), "simulated daily activation interruption") {
+		t.Fatalf("current sync daily fixture did not interrupt activation: %v", err)
+	}
+	instancePath := filepath.Join(caseRoot, projectstate.CurrentDir, "instance.yml")
+	if _, err := os.Lstat(instancePath); !os.IsNotExist(err) {
+		t.Fatalf("current sync daily fixture retained active instance: %v", err)
+	}
+	before := snapshotDailyCaseFiles(t, caseRoot)
+	readyCalls := 0
+	memberCalls := 0
+	result, err := RunDailyRecovery(context.Background(), DailyOptions{
+		Target:      caseRoot,
+		Goal:        "must not start while maintenance is pending",
+		ClaudePath:  missingClaudePath(t),
+		Model:       "recovery-test-model",
+		Timeout:     time.Second,
+		MaxAttempts: 7,
+		onCaseReady: func(string) error {
+			readyCalls++
+			return nil
+		},
+		beforeMemberRun: func(string, string, string) error {
+			memberCalls++
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.FinalState != "maintenance-recovery-required" || !result.Blocked ||
+		result.CurrentSyncRecovery == nil ||
+		result.CurrentSyncRecovery.State != syncreview.CurrentSyncRecoveryResume ||
+		result.Action == nil || result.Action.RequiresInput ||
+		result.SessionLaunches != 0 || len(result.HostRuns) != 0 ||
+		readyCalls != 0 || memberCalls != 0 {
+		t.Fatalf(
+			"daily recovery crossed zero-launch boundary: result=%+v ready=%d member=%d",
+			result,
+			readyCalls,
+			memberCalls,
+		)
+	}
+	if after := snapshotDailyCaseFiles(t, caseRoot); !maps.Equal(before, after) {
+		t.Fatalf("daily recovery changed project files: before=%d after=%d", len(before), len(after))
+	}
+}
+
 func TestRunDailyReturnsOrdinaryDirectoryAdoptionWithoutMutation(t *testing.T) {
 	caseRoot := t.TempDir()
 	path := filepath.Join(caseRoot, "user.txt")
@@ -497,7 +636,7 @@ func TestRunDailyReplaysCommittedClosedLaneBeforeOpenLaneProbe(t *testing.T) {
 	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
 		t.Fatal(err)
 	}
-	evidenceRef := filepath.ToSlash(filepath.Join(".rekit", "lanes", bootstrap.Lane, "workspace", "completion-evidence.md"))
+	evidenceRef := sessionhostStateRel(t, caseRoot, "lanes", bootstrap.Lane, "workspace", "completion-evidence.md")
 	evidencePath := filepath.Join(caseRoot, filepath.FromSlash(evidenceRef))
 	if err := os.MkdirAll(filepath.Dir(evidencePath), 0o755); err != nil {
 		t.Fatal(err)
@@ -511,12 +650,12 @@ func TestRunDailyReplaysCommittedClosedLaneBeforeOpenLaneProbe(t *testing.T) {
 		Reason:       "publish a valid fail-closed completion for terminal replay",
 		EvidenceRefs: evidenceRef,
 	}
-	preview, err := workstream.CompletePreview(sessionhostTestRepoRoot(t), caseRoot, inspection.Identity.Pack, completeOpt)
+	preview, err := workstream.CompletePreview(sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack), caseRoot, inspection.Identity.Pack, completeOpt)
 	if err != nil || preview.Blocked || len(preview.CompletionPlanSHA256) != 64 {
 		t.Fatalf("completion preview=%+v err=%v", preview, err)
 	}
 	completeOpt.ExpectedPreviewSHA256 = preview.CompletionPlanSHA256
-	completed, err := workstream.CompleteApply(sessionhostTestRepoRoot(t), caseRoot, inspection.Identity.Pack, completeOpt)
+	completed, err := workstream.CompleteApply(sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack), caseRoot, inspection.Identity.Pack, completeOpt)
 	if err != nil || !completed.Applied || completed.Lane.Status != "closed" || completed.CompletionReceipt == nil {
 		t.Fatalf("completion result=%+v err=%v", completed, err)
 	}
@@ -555,7 +694,7 @@ func TestRunDailyCorrectionReopensCommittedClosedLaneBeforeNewMember(t *testing.
 	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
 		t.Fatal(err)
 	}
-	evidenceRef := filepath.ToSlash(filepath.Join(".rekit", "lanes", bootstrap.Lane, "workspace", "completion-evidence.md"))
+	evidenceRef := sessionhostStateRel(t, caseRoot, "lanes", bootstrap.Lane, "workspace", "completion-evidence.md")
 	evidencePath := filepath.Join(caseRoot, filepath.FromSlash(evidenceRef))
 	if err := os.MkdirAll(filepath.Dir(evidencePath), 0o755); err != nil {
 		t.Fatal(err)
@@ -564,12 +703,12 @@ func TestRunDailyCorrectionReopensCommittedClosedLaneBeforeNewMember(t *testing.
 		t.Fatal(err)
 	}
 	completeOpt := workstream.CompleteOptions{Selector: bootstrap.Lane, Actor: actor, Reason: "publish terminal correction fixture", EvidenceRefs: evidenceRef}
-	preview, err := workstream.CompletePreview(sessionhostTestRepoRoot(t), caseRoot, inspection.Identity.Pack, completeOpt)
+	preview, err := workstream.CompletePreview(sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack), caseRoot, inspection.Identity.Pack, completeOpt)
 	if err != nil || preview.Blocked || len(preview.CompletionPlanSHA256) != 64 {
 		t.Fatalf("completion preview=%+v err=%v", preview, err)
 	}
 	completeOpt.ExpectedPreviewSHA256 = preview.CompletionPlanSHA256
-	completed, err := workstream.CompleteApply(sessionhostTestRepoRoot(t), caseRoot, inspection.Identity.Pack, completeOpt)
+	completed, err := workstream.CompleteApply(sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack), caseRoot, inspection.Identity.Pack, completeOpt)
 	if err != nil || !completed.Applied || completed.Lane.Status != "closed" || completed.CompletionReceipt == nil {
 		t.Fatalf("completion result=%+v err=%v", completed, err)
 	}
@@ -621,14 +760,14 @@ func TestRunDailyCommittedTerminalCorrectionDoesNotClaimDifferentExplicitLane(t 
 	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := workstream.StartApply(sessionhostTestRepoRoot(t), caseRoot, inspection.Identity.Pack, workstream.StartOptions{
+	if _, err := workstream.StartApply(sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack), caseRoot, inspection.Identity.Pack, workstream.StartOptions{
 		Name: "login", Actor: actor, Executor: "session-login", TakeoverReason: "explicit terminal correction regression",
 	}); err != nil {
 		t.Fatal(err)
 	}
 	closed := []string{bootstrap.Lane, "feature-login"}
 	for _, lane := range closed {
-		evidenceRef := filepath.ToSlash(filepath.Join(".rekit", "lanes", lane, "workspace", "completion-evidence.md"))
+		evidenceRef := sessionhostStateRel(t, caseRoot, "lanes", lane, "workspace", "completion-evidence.md")
 		evidencePath := filepath.Join(caseRoot, filepath.FromSlash(evidenceRef))
 		if err := os.MkdirAll(filepath.Dir(evidencePath), 0o755); err != nil {
 			t.Fatal(err)
@@ -637,12 +776,12 @@ func TestRunDailyCommittedTerminalCorrectionDoesNotClaimDifferentExplicitLane(t 
 			t.Fatal(err)
 		}
 		completeOpt := workstream.CompleteOptions{Selector: lane, Actor: actor, Reason: "close lane for explicit terminal correction", EvidenceRefs: evidenceRef}
-		preview, err := workstream.CompletePreview(sessionhostTestRepoRoot(t), caseRoot, inspection.Identity.Pack, completeOpt)
+		preview, err := workstream.CompletePreview(sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack), caseRoot, inspection.Identity.Pack, completeOpt)
 		if err != nil {
 			t.Fatal(err)
 		}
 		completeOpt.ExpectedPreviewSHA256 = preview.CompletionPlanSHA256
-		if completed, err := workstream.CompleteApply(sessionhostTestRepoRoot(t), caseRoot, inspection.Identity.Pack, completeOpt); err != nil || !completed.Applied {
+		if completed, err := workstream.CompleteApply(sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack), caseRoot, inspection.Identity.Pack, completeOpt); err != nil || !completed.Applied {
 			t.Fatalf("complete %s: result=%+v err=%v", lane, completed, err)
 		}
 	}
@@ -700,14 +839,14 @@ func TestRunDailyTerminalCorrectionMultipleClosedLanesRequiresChoiceWithoutWrite
 	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := workstream.StartApply(sessionhostTestRepoRoot(t), caseRoot, inspection.Identity.Pack, workstream.StartOptions{
+	if _, err := workstream.StartApply(sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack), caseRoot, inspection.Identity.Pack, workstream.StartOptions{
 		Name: "login", Actor: actor, Executor: "session-login", TakeoverReason: "multiple terminal correction choice regression",
 	}); err != nil {
 		t.Fatal(err)
 	}
 	closed := []string{bootstrap.Lane, "feature-login"}
 	for _, lane := range closed {
-		evidenceRef := filepath.ToSlash(filepath.Join(".rekit", "lanes", lane, "workspace", "completion-evidence.md"))
+		evidenceRef := sessionhostStateRel(t, caseRoot, "lanes", lane, "workspace", "completion-evidence.md")
 		evidencePath := filepath.Join(caseRoot, filepath.FromSlash(evidenceRef))
 		if err := os.MkdirAll(filepath.Dir(evidencePath), 0o755); err != nil {
 			t.Fatal(err)
@@ -716,12 +855,12 @@ func TestRunDailyTerminalCorrectionMultipleClosedLanesRequiresChoiceWithoutWrite
 			t.Fatal(err)
 		}
 		completeOpt := workstream.CompleteOptions{Selector: lane, Actor: actor, Reason: "close lane for terminal correction choice", EvidenceRefs: evidenceRef}
-		preview, err := workstream.CompletePreview(sessionhostTestRepoRoot(t), caseRoot, inspection.Identity.Pack, completeOpt)
+		preview, err := workstream.CompletePreview(sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack), caseRoot, inspection.Identity.Pack, completeOpt)
 		if err != nil {
 			t.Fatal(err)
 		}
 		completeOpt.ExpectedPreviewSHA256 = preview.CompletionPlanSHA256
-		if completed, err := workstream.CompleteApply(sessionhostTestRepoRoot(t), caseRoot, inspection.Identity.Pack, completeOpt); err != nil || !completed.Applied {
+		if completed, err := workstream.CompleteApply(sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack), caseRoot, inspection.Identity.Pack, completeOpt); err != nil || !completed.Applied {
 			t.Fatalf("complete %s: result=%+v err=%v", lane, completed, err)
 		}
 	}
@@ -759,7 +898,7 @@ func TestRunDailyTerminalCorrectionRecoversExactPendingReopen(t *testing.T) {
 	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
 		t.Fatal(err)
 	}
-	evidenceRef := filepath.ToSlash(filepath.Join(".rekit", "lanes", bootstrap.Lane, "workspace", "completion-evidence.md"))
+	evidenceRef := sessionhostStateRel(t, caseRoot, "lanes", bootstrap.Lane, "workspace", "completion-evidence.md")
 	evidencePath := filepath.Join(caseRoot, filepath.FromSlash(evidenceRef))
 	if err := os.MkdirAll(filepath.Dir(evidencePath), 0o755); err != nil {
 		t.Fatal(err)
@@ -768,12 +907,12 @@ func TestRunDailyTerminalCorrectionRecoversExactPendingReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	completeOpt := workstream.CompleteOptions{Selector: bootstrap.Lane, Actor: actor, Reason: "publish terminal correction recovery fixture", EvidenceRefs: evidenceRef}
-	preview, err := workstream.CompletePreview(sessionhostTestRepoRoot(t), caseRoot, inspection.Identity.Pack, completeOpt)
+	preview, err := workstream.CompletePreview(sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack), caseRoot, inspection.Identity.Pack, completeOpt)
 	if err != nil {
 		t.Fatal(err)
 	}
 	completeOpt.ExpectedPreviewSHA256 = preview.CompletionPlanSHA256
-	if completed, err := workstream.CompleteApply(sessionhostTestRepoRoot(t), caseRoot, inspection.Identity.Pack, completeOpt); err != nil || !completed.Applied {
+	if completed, err := workstream.CompleteApply(sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack), caseRoot, inspection.Identity.Pack, completeOpt); err != nil || !completed.Applied {
 		t.Fatalf("complete recovery fixture: result=%+v err=%v", completed, err)
 	}
 
@@ -847,7 +986,7 @@ func TestRunDailyTerminalCorrectionRejectsStaleCompletionAfterPreview(t *testing
 	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
 		t.Fatal(err)
 	}
-	evidenceRef := filepath.ToSlash(filepath.Join(".rekit", "lanes", bootstrap.Lane, "workspace", "completion-evidence.md"))
+	evidenceRef := sessionhostStateRel(t, caseRoot, "lanes", bootstrap.Lane, "workspace", "completion-evidence.md")
 	evidencePath := filepath.Join(caseRoot, filepath.FromSlash(evidenceRef))
 	if err := os.MkdirAll(filepath.Dir(evidencePath), 0o755); err != nil {
 		t.Fatal(err)
@@ -856,12 +995,12 @@ func TestRunDailyTerminalCorrectionRejectsStaleCompletionAfterPreview(t *testing
 		t.Fatal(err)
 	}
 	completeOpt := workstream.CompleteOptions{Selector: bootstrap.Lane, Actor: actor, Reason: "publish stale terminal correction fixture", EvidenceRefs: evidenceRef}
-	preview, err := workstream.CompletePreview(sessionhostTestRepoRoot(t), caseRoot, inspection.Identity.Pack, completeOpt)
+	preview, err := workstream.CompletePreview(sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack), caseRoot, inspection.Identity.Pack, completeOpt)
 	if err != nil {
 		t.Fatal(err)
 	}
 	completeOpt.ExpectedPreviewSHA256 = preview.CompletionPlanSHA256
-	if completed, err := workstream.CompleteApply(sessionhostTestRepoRoot(t), caseRoot, inspection.Identity.Pack, completeOpt); err != nil || !completed.Applied {
+	if completed, err := workstream.CompleteApply(sessionhostAttachedRepoRoot(t, caseRoot, inspection.Identity.Pack), caseRoot, inspection.Identity.Pack, completeOpt); err != nil || !completed.Applied {
 		t.Fatalf("complete stale fixture: result=%+v err=%v", completed, err)
 	}
 
@@ -900,7 +1039,7 @@ func TestRunDailyRefusesPendingCompletionAsTerminalReplay(t *testing.T) {
 	if err := ensureDailyStarted(caseRoot, inspection.Identity.Pack, &bootstrap); err != nil {
 		t.Fatal(err)
 	}
-	boardPath := filepath.Join(caseRoot, ".rekit", "board.json")
+	boardPath := sessionhostStatePath(t, caseRoot, "board.json")
 	board, err := mission.ReadBoard(caseRoot)
 	if err != nil {
 		t.Fatal(err)
@@ -991,7 +1130,7 @@ func TestRunDailyRefusesArchivedLaneWithoutDurableArchiveTransition(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "board.json"), append(boardBytes, '\n'), 0o600); err != nil {
+	if err := os.WriteFile(sessionhostStatePath(t, caseRoot, "board.json"), append(boardBytes, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	result, err := RunDaily(context.Background(), DailyOptions{Target: caseRoot, Goal: inspection.Identity.Goal})
@@ -1059,7 +1198,7 @@ func TestRunDailyCorrectionRefusesPendingCompletionAsTerminalReplay(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "board.json"), append(boardBytes, '\n'), 0o600); err != nil {
+	if err := os.WriteFile(sessionhostStatePath(t, caseRoot, "board.json"), append(boardBytes, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	intent := lanecompletion.CompletionIntent{
@@ -1226,7 +1365,7 @@ func writeDailyReviewerRejectionFixture(t *testing.T, caseRoot, pack, lane, acto
 	if err != nil {
 		t.Fatal(err)
 	}
-	resultSource := filepath.Join(caseRoot, "workspace", "daily-reviewer-rejection.json")
+	resultSource := filepath.Join(filepath.Dir(operator.PacketPath), "results", "incoming", "daily-reviewer-rejection.json")
 	if err := os.MkdirAll(filepath.Dir(resultSource), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -1471,7 +1610,7 @@ func writeDailyTestBoard(t *testing.T, caseRoot string, board mission.Board) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(caseRoot, ".rekit", "board.json"), append(data, '\n'), 0o600); err != nil {
+	if err := os.WriteFile(sessionhostStatePath(t, caseRoot, "board.json"), append(data, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -1488,7 +1627,7 @@ func TestRunDailyStopsForExecutionEvidenceReviewWithoutTrustedClaude(t *testing.
 		t.Fatal(err)
 	}
 	observation := `{"kind":"observation","eventId":"obs-daily-host-stop","lane":"` + bootstrap.Lane + `","subject":"bounded adapter output","summary":"preauthorized adapter output ready for review","status":"complete","target":"target-alpha","evidenceRefs":["evidence/debug.json"],"execution":{"gateEventId":"gate-daily-host-stop","authorization":"preauthorized","status":"complete","outputRefs":["workspace/output.txt"]},"gate":{"action":"inspect","authorization":{"decision":"preauthorized"}}}` + "\n"
-	writeSessionhostTestFile(t, caseRoot, ".rekit/facts/observations.jsonl", []byte(observation))
+	writeSessionhostTestFile(t, caseRoot, sessionhostStateRel(t, caseRoot, "facts", "observations.jsonl"), []byte(observation))
 
 	before := snapshotDailyCaseFiles(t, caseRoot)
 	result, err := RunDaily(context.Background(), DailyOptions{
@@ -1548,6 +1687,72 @@ func TestRunDailyPrewrittenCorrectionCannotBypassMemberReadiness(t *testing.T) {
 	}
 }
 
+func TestRunDailyHoldsSharedExecutionLease(t *testing.T) {
+	repo := sessionhostTestRepoRoot(t)
+	caseRoot := provisionSessionhostAttachedCase(t, repo, "_template")
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	dailyDone := make(chan error, 1)
+	go func() {
+		_, err := RunDaily(context.Background(), DailyOptions{
+			Target: caseRoot,
+			Goal:   "hold daily execution fence",
+			onCaseReady: func(string) error {
+				close(entered)
+				<-release
+				return errors.New("stop after observing the daily execution fence")
+			},
+		})
+		dailyDone <- err
+	}()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("daily did not reach its case-ready boundary")
+	}
+
+	exclusiveDone := make(chan struct {
+		lease *projectexecution.Lease
+		err   error
+	}, 1)
+	go func() {
+		lease, err := projectexecution.AcquireExclusive(caseRoot)
+		exclusiveDone <- struct {
+			lease *projectexecution.Lease
+			err   error
+		}{lease, err}
+	}()
+	select {
+	case acquired := <-exclusiveDone:
+		if acquired.lease != nil {
+			_ = acquired.lease.Unlock()
+		}
+		close(release)
+		t.Fatalf("current-sync exclusive lease crossed active daily: %v", acquired.err)
+	case <-time.After(150 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case err := <-dailyDone:
+		if err == nil || !strings.Contains(err.Error(), "stop after observing") {
+			t.Fatalf("daily stop error = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("daily did not release its execution lease")
+	}
+	select {
+	case acquired := <-exclusiveDone:
+		if acquired.err != nil {
+			t.Fatal(acquired.err)
+		}
+		if err := acquired.lease.Unlock(); err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("current-sync exclusive lease did not acquire after daily returned")
+	}
+}
+
 func provisionSessionhostAttachedCase(t *testing.T, repo, pack string) string {
 	t.Helper()
 	caseRoot := filepath.Join(t.TempDir(), "attached")
@@ -1571,6 +1776,86 @@ func sessionhostTestRepoRoot(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return ctx.RepoRoot
+}
+
+func copySessionhostCurrentSyncSourceFixture(t *testing.T, source string) string {
+	t.Helper()
+	target := filepath.Join(t.TempDir(), "maintenance-source")
+	for _, rel := range []string{
+		"packs/_template",
+		"common",
+		"rekit/templates/steamai-project/SKILL.md",
+		"rekit/schemas/instance.schema.yml",
+		"rekit/schemas/pack-manifest.schema.yml",
+		"rekit/tests/catalog.json",
+	} {
+		sourcePath := filepath.Join(source, filepath.FromSlash(rel))
+		info, err := os.Stat(sourcePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.IsDir() {
+			err = filepath.WalkDir(sourcePath, func(path string, entry os.DirEntry, walkErr error) error {
+				if walkErr != nil {
+					return walkErr
+				}
+				nested, err := filepath.Rel(source, path)
+				if err != nil {
+					return err
+				}
+				destination := filepath.Join(target, nested)
+				if entry.IsDir() {
+					return os.MkdirAll(destination, 0o755)
+				}
+				data, err := os.ReadFile(path)
+				if err != nil {
+					return err
+				}
+				return os.WriteFile(destination, data, 0o644)
+			})
+		} else {
+			data, readErr := os.ReadFile(sourcePath)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			destination := filepath.Join(target, filepath.FromSlash(rel))
+			if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			err = os.WriteFile(destination, data, 0o644)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	return target
+}
+
+func sessionhostAttachedRepoRoot(t *testing.T, caseRoot, pack string) string {
+	t.Helper()
+	ctx, err := rekitruntime.New(caseRoot, pack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ctx.RepoRoot
+}
+
+func sessionhostStateRel(t *testing.T, caseRoot string, parts ...string) string {
+	t.Helper()
+	path, err := projectstate.Rel(caseRoot, parts...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func sessionhostStatePath(t *testing.T, caseRoot string, parts ...string) string {
+	t.Helper()
+	path, err := projectstate.Join(caseRoot, parts...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func snapshotDailyCaseFiles(t *testing.T, caseRoot string) map[string]string {

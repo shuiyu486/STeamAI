@@ -21,6 +21,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/sourceartifact"
 )
 
@@ -350,7 +351,10 @@ func loadCandidateDecisionAuthority(repoRoot, caseRoot, pack, packetInput, decis
 		return candidateDecisionAuthority{}, fmt.Errorf("candidate decision receipt action counts do not match reviewed decisions")
 	}
 	if accepted > 0 {
-		workspace := candidateDecisionVerificationWorkspace(inst.CaseRoot, packetHash, decisionHash)
+		workspace, err := candidateDecisionVerificationWorkspace(inst.CaseRoot, packetHash, decisionHash)
+		if err != nil {
+			return candidateDecisionAuthority{}, err
+		}
 		freshRoot := filepath.Join(workspace, "fresh")
 		attachedRoot := filepath.Join(workspace, "attached")
 		expectedProvisionCommand := candidateDecisionVerificationProvisionCommand(packetPath, decisionPath, freshRoot, attachedRoot)
@@ -572,11 +576,19 @@ func VerifyCandidateDecision(repoRoot, caseRoot, pack string, opt CandidateDecis
 	if sameCandidateDecisionPath(freshRoot, attachedRoot) || sameCandidateDecisionPath(freshRoot, inst.CaseRoot) || sameCandidateDecisionPath(attachedRoot, inst.CaseRoot) {
 		return CandidateDecisionVerificationResult{}, fmt.Errorf("candidate verification requires distinct source, fresh, and attached case roots")
 	}
-	freshRows, err := doctor.Case(repoRoot, freshRoot, pack)
+	freshAssetRoot, err := candidateVerificationCaseAssetRoot(repoRoot, freshRoot)
+	if err != nil {
+		return CandidateDecisionVerificationResult{}, fmt.Errorf("fresh case reconsume runtime: %w", err)
+	}
+	freshRows, err := doctor.Case(freshAssetRoot, freshRoot, pack)
 	if err != nil {
 		return CandidateDecisionVerificationResult{}, fmt.Errorf("fresh case reconsume validation: %w", err)
 	}
-	attachedRows, err := doctor.Case(repoRoot, attachedRoot, pack)
+	attachedAssetRoot, err := candidateVerificationCaseAssetRoot(repoRoot, attachedRoot)
+	if err != nil {
+		return CandidateDecisionVerificationResult{}, fmt.Errorf("attached case reconsume runtime: %w", err)
+	}
+	attachedRows, err := doctor.Case(attachedAssetRoot, attachedRoot, pack)
 	if err != nil {
 		return CandidateDecisionVerificationResult{}, fmt.Errorf("attached case reconsume validation: %w", err)
 	}
@@ -592,7 +604,10 @@ func VerifyCandidateDecision(repoRoot, caseRoot, pack string, opt CandidateDecis
 		}
 	}
 	proofPath := candidateDecisionVerificationProofPath(canonicalCandidateRoot, packetHash, decisionHash)
-	workspace := candidateDecisionVerificationWorkspace(inst.CaseRoot, packetHash, decisionHash)
+	workspace, err := candidateDecisionVerificationWorkspace(inst.CaseRoot, packetHash, decisionHash)
+	if err != nil {
+		return CandidateDecisionVerificationResult{}, err
+	}
 	provisionIntentPath := filepath.Join(workspace, "provision.intent.json")
 	provisionReceiptPath := filepath.Join(workspace, "provision.receipt.json")
 	var provisionIntentBytes, provisionReceiptBytes []byte
@@ -685,6 +700,24 @@ func VerifyCandidateDecision(repoRoot, caseRoot, pack string, opt CandidateDecis
 	}
 	result.VerificationRunbookSteps = candidateVerificationRunbookSteps(result)
 	return finalizeCandidateDecisionVerificationResult(result), nil
+}
+
+func candidateVerificationCaseAssetRoot(repoRoot, caseRoot string) (string, error) {
+	inst, err := instance.Read(caseRoot)
+	if err != nil {
+		return "", err
+	}
+	if inst.Source == "missing" {
+		return "", fmt.Errorf("candidate verification case is not attached: %s", caseRoot)
+	}
+	if inst.SchemaVersion < 2 {
+		return repoRoot, nil
+	}
+	assetRoot := strings.TrimSpace(inst.TemplateRoot)
+	if inst.Mode != "project-local-bundle" || assetRoot == "" {
+		return "", fmt.Errorf("candidate verification case is not bound to a project-local runtime bundle: %s", caseRoot)
+	}
+	return assetRoot, nil
 }
 
 func candidateVerificationRunbookSteps(result CandidateDecisionVerificationResult) []string {
@@ -1601,8 +1634,12 @@ func writeCandidateDecisionReceipt(plan candidateDecisionPlan, result CandidateD
 	}
 	nextSteps := []string{"retain the candidate decision receipt as terminal cleanup evidence; no accepted candidate verification is pending"}
 	if receipt.VerificationPending {
-		receipt.VerificationWorkspaceRoot = candidateDecisionVerificationWorkspace(result.CaseRoot, result.PacketHash, plan.decisionHash)
-		freshRoot := filepath.Join(receipt.VerificationWorkspaceRoot, "fresh")
+		workspace, err := candidateDecisionVerificationWorkspace(result.CaseRoot, result.PacketHash, plan.decisionHash)
+		if err != nil {
+			return CandidateDecisionReceipt{}, nil, err
+		}
+		receipt.VerificationWorkspaceRoot = workspace
+		freshRoot := filepath.Join(workspace, "fresh")
 		attachedRoot := filepath.Join(receipt.VerificationWorkspaceRoot, "attached")
 		receipt.VerificationProvisionCommand = candidateDecisionVerificationProvisionCommand(result.PacketPath, result.DecisionPath, freshRoot, attachedRoot)
 		receipt.VerificationCommand = candidateDecisionVerificationCommand(result.PacketPath, result.DecisionPath, freshRoot, attachedRoot)
@@ -1769,8 +1806,8 @@ func candidateDecisionVerificationProofPath(candidateRoot, packetHash, decisionH
 	return filepath.Join(candidateRoot, "review-artifacts", shortHash(packetHash+decisionHash)+".candidate-verification-proof.json")
 }
 
-func candidateDecisionVerificationWorkspace(caseRoot, packetHash, decisionHash string) string {
-	return filepath.Join(caseRoot, ".rekit", "verifications", "candidate-decisions", shortHash(packetHash+decisionHash))
+func candidateDecisionVerificationWorkspace(caseRoot, packetHash, decisionHash string) (string, error) {
+	return projectstate.Join(caseRoot, "verifications", "candidate-decisions", shortHash(packetHash+decisionHash))
 }
 
 func candidateDecisionVerificationProvisionCommand(packetPath, decisionPath, freshRoot, attachedRoot string) string {

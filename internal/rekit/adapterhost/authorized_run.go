@@ -27,6 +27,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/processguard"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 const (
@@ -309,7 +310,10 @@ func RunAuthorizedGate(opt AuthorizedRunOptions) (AuthorizedRunResult, error) {
 		if !reflect.DeepEqual(profile, autonomy.DefaultProfile(lane)) {
 			return result, fmt.Errorf("VMP IDA profile is manual but not the exact generated default")
 		}
-		result.ProfilePath = autonomy.RelPath(lane)
+		result.ProfilePath, err = projectstate.Rel(result.CaseRoot, "lanes", lane, "autonomy.json")
+		if err != nil {
+			return result, err
+		}
 		result.ProfileSHA256 = profileSHA
 		result.ProfileAlreadyManual = true
 		return result, nil
@@ -366,6 +370,9 @@ func runAuthorizedGateExecution(opt AuthorizedRunOptions) (AuthorizedRunResult, 
 		return result, err
 	}
 	result.CaseRoot = caseRoot
+	if _, err := projectstate.Resolve(caseRoot); err != nil {
+		return result, err
+	}
 	lane := authorizedGateLane(repoRoot, caseRoot, result.Pack, result.GateEventID)
 	owner, err := laneowner.Read(caseRoot, lane)
 	if err != nil {
@@ -824,7 +831,10 @@ func readVMPIDADispatchArtifact(caseRoot, lane, gateEventID string) (adapterexec
 	if lane == "" || gateEventID == "" {
 		return adapterexecution.DispatchReceipt{}, "", "", false, nil
 	}
-	rel := filepath.ToSlash(filepath.Join(".rekit", "lanes", lane, "adapter-executions", gateEventID, "dispatch.json"))
+	rel, err := projectstate.Rel(caseRoot, "lanes", lane, "adapter-executions", gateEventID, "dispatch.json")
+	if err != nil {
+		return adapterexecution.DispatchReceipt{}, "", "", false, err
+	}
 	data, err := readVMPIDAFile(caseRoot, rel, "VMP IDA immutable dispatch", 1<<20)
 	if errors.Is(err, os.ErrNotExist) {
 		return adapterexecution.DispatchReceipt{}, rel, "", false, nil

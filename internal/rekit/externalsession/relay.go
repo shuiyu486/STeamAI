@@ -17,6 +17,7 @@ import (
 	rekitfs "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/lanemutation"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewerresult"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewersession"
 )
@@ -78,7 +79,10 @@ func NewMemberJob(caseRoot, pack, checkpointSHA256, attemptID string, owner memb
 	job.MemberOwner = &owner
 	job.MemberManifestPath = cleanRelative(manifestPath)
 	job.MemberOutputsRoot = cleanRelative(outputsRoot)
-	job.SubmissionOutputs = filepath.ToSlash(filepath.Join(".rekit", "external-session-jobs", job.JobID, "outputs"))
+	job.SubmissionOutputs, err = projectstate.Rel(job.CaseRoot, "external-session-jobs", job.JobID, "outputs")
+	if err != nil {
+		return Job{}, err
+	}
 	if job.MemberAttemptID == "" || owner.Lane == "" || owner.Executor == "" || owner.ExecutorGeneration < 1 || job.MemberManifestPath == "" || job.MemberOutputsRoot == "" {
 		return Job{}, fmt.Errorf("external member job requires exact attempt, owner, manifest, and outputs identity")
 	}
@@ -91,8 +95,14 @@ func NewReviewerJob(caseRoot, pack, checkpointSHA256 string, reviewer ReviewerId
 		return Job{}, err
 	}
 	job.Reviewer = &reviewer
-	job.SubmissionResult = filepath.ToSlash(filepath.Join(".rekit", "external-session-jobs", job.JobID, "reviewer-result.json"))
-	job.RelayResultPath = filepath.ToSlash(filepath.Join(".rekit", "external-session-relays", job.JobID, "reviewer-result.json"))
+	job.SubmissionResult, err = projectstate.Rel(job.CaseRoot, "external-session-jobs", job.JobID, "reviewer-result.json")
+	if err != nil {
+		return Job{}, err
+	}
+	job.RelayResultPath, err = projectstate.Rel(job.CaseRoot, "external-session-relays", job.JobID, "reviewer-result.json")
+	if err != nil {
+		return Job{}, err
+	}
 	if !validSHA(reviewer.AttemptSHA256) || reviewer.PacketID == "" || reviewer.RouteID == "" || reviewer.ShardID == "" {
 		return Job{}, fmt.Errorf("external reviewer job requires exact attempt, packet, route, and shard identity")
 	}
@@ -121,14 +131,24 @@ func baseJob(caseRoot, pack, checkpointSHA256, sessionKind, identity string, all
 	}
 	idSum := hash([]byte(sessionKind + "\x00" + strings.ToLower(checkpointSHA256) + "\x00" + identity))
 	jobID := sessionKind + "-" + idSum[:24]
-	base := filepath.Join(".rekit", "external-session-jobs", jobID)
-	relay := filepath.Join(".rekit", "external-session-relays", jobID)
+	base, err := projectstate.Rel(caseRoot, "external-session-jobs", jobID)
+	if err != nil {
+		return Job{}, err
+	}
+	relay, err := projectstate.Rel(caseRoot, "external-session-relays", jobID)
+	if err != nil {
+		return Job{}, err
+	}
+	observationPath, err := projectstate.Rel(caseRoot, "external-session-observations", "inbox", jobID+".json")
+	if err != nil {
+		return Job{}, err
+	}
 	return Job{
 		SchemaVersion: SchemaVersion, Kind: KindJob, JobID: jobID, CaseRoot: caseRoot, Pack: strings.TrimSpace(pack),
 		CheckpointSHA256: strings.ToLower(checkpointSHA256), SessionKind: sessionKind, AllowedOutcomes: allowedOutcomes,
-		SubmissionPath:  filepath.ToSlash(filepath.Join(base, "submission.json")),
-		PublicationPath: filepath.ToSlash(filepath.Join(relay, "publication.json")),
-		ObservationPath: filepath.ToSlash(filepath.Join(".rekit", "external-session-observations", "inbox", jobID+".json")),
+		SubmissionPath:  filepath.ToSlash(filepath.Join(filepath.FromSlash(base), "submission.json")),
+		PublicationPath: filepath.ToSlash(filepath.Join(filepath.FromSlash(relay), "publication.json")),
+		ObservationPath: observationPath,
 		SubmissionLast:  true, NoSessionManagement: true, NoHeavyTool: true, NoAuthority: true, NoConfirmed: true,
 	}, nil
 }

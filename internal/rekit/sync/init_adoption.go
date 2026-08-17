@@ -13,6 +13,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/review"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/runtimebundle"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/sourceartifact"
 )
 
@@ -63,7 +64,12 @@ func applyOrdinaryInit(plan InitPlan, lease mutationLease) (result ApplyResult, 
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	if fresh.TargetClass != "ordinary-directory" || !fresh.AdoptionReady || !strings.EqualFold(fresh.ExpectedPlanSHA256, plan.ExpectedPlanSHA256) {
+	if plan.TargetClass == "missing" {
+		if fresh.TargetClass != "ordinary-directory" || !fresh.AdoptionReady {
+			return ApplyResult{}, fmt.Errorf("%s plan changed before new-project publication; rerun -WhatIf", plan.Command)
+		}
+		fresh.ExpectedPlanSHA256 = plan.ExpectedPlanSHA256
+	} else if fresh.TargetClass != "ordinary-directory" || !fresh.AdoptionReady || !strings.EqualFold(fresh.ExpectedPlanSHA256, plan.ExpectedPlanSHA256) {
 		return ApplyResult{}, fmt.Errorf("%s plan changed before ordinary-directory publication; rerun -WhatIf", plan.Command)
 	}
 	publications, err := ordinaryInitPublications(fresh)
@@ -83,7 +89,10 @@ func applyOrdinaryInit(plan InitPlan, lease mutationLease) (result ApplyResult, 
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	if current.TargetClass != "ordinary-directory" || !current.AdoptionReady || !strings.EqualFold(current.ExpectedPlanSHA256, fresh.ExpectedPlanSHA256) {
+	if current.TargetClass != "ordinary-directory" || !current.AdoptionReady {
+		return ApplyResult{}, fmt.Errorf("%s plan changed before ordinary-directory publication; rerun -WhatIf", plan.Command)
+	}
+	if plan.TargetClass != "missing" && !strings.EqualFold(current.ExpectedPlanSHA256, fresh.ExpectedPlanSHA256) {
 		return ApplyResult{}, fmt.Errorf("%s plan changed before ordinary-directory publication; rerun -WhatIf", plan.Command)
 	}
 	root, err := os.OpenRoot(fresh.CaseRoot)
@@ -225,6 +234,9 @@ func ordinaryInitPublications(plan InitPlan) ([]ordinaryInitPublication, error) 
 func ordinaryInitWriteBytes(plan InitPlan, write WriteResult) ([]byte, error) {
 	switch write.Kind {
 	case "instance-metadata":
+		if strings.HasPrefix(filepath.ToSlash(write.Path), ".steamai/") {
+			return []byte(casebind.STeamAIInstanceText(plan.CaseRoot, plan.Pack, plan.ProjectName, runtimebundle.ManifestRel, plan.bundleManifestSHA256)), nil
+		}
 		return []byte(casebind.InstanceText(plan.CaseRoot, plan.RepoRoot, plan.Pack, plan.ProjectName)), nil
 	case "legacy-metadata":
 		return []byte("templateRoot: " + plan.RepoRoot + "\r\n" +
@@ -234,7 +246,18 @@ func ordinaryInitWriteBytes(plan InitPlan, write WriteResult) ([]byte, error) {
 	case "sync-state":
 		return ordinaryInitStateBytes(plan)
 	}
-	data, err := sourceartifact.ReadCanonical(write.SourcePath)
+	if len(write.rawContent) > 0 {
+		return append([]byte(nil), write.rawContent...), nil
+	}
+	var (
+		data []byte
+		err  error
+	)
+	if write.Kind == "runtime-executable" || write.Kind == "pack-asset" || write.Kind == "common-asset" || write.Kind == "runtime-asset" {
+		data, err = os.ReadFile(write.SourcePath)
+	} else {
+		data, err = sourceartifact.ReadCanonical(write.SourcePath)
+	}
 	if err != nil {
 		return nil, err
 	}

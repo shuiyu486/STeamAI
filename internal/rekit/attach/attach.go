@@ -9,6 +9,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/instance"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 type Options struct {
@@ -121,7 +122,14 @@ func buildPlan(repoRoot, target, pack string, opt Options) (PreviewPlan, error) 
 		projectName = projectNameFromRoot(caseRoot)
 	}
 	writes := append([]casebind.WritePlan{}, casebind.BindingWrites(caseRoot)...)
-	writes = append(writes, casebind.LegacyWrite(caseRoot), casebind.InitialStateWrite(caseRoot))
+	stateRoot, err := projectstate.Resolve(caseRoot)
+	if err != nil {
+		return PreviewPlan{}, err
+	}
+	if stateRoot.Legacy {
+		writes = append(writes, casebind.LegacyWrite(caseRoot))
+	}
+	writes = append(writes, casebind.InitialStateWrite(caseRoot))
 	return PreviewPlan{
 		SchemaVersion:  1,
 		Command:        "attach",

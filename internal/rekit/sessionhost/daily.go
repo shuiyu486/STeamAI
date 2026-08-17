@@ -20,7 +20,10 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/missionintent"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/onboarding"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectexecution"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	rekitruntime "github.com/shuiyu486/re-context-kits/internal/rekit/runtime"
+	syncreview "github.com/shuiyu486/re-context-kits/internal/rekit/sync"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/workstream"
 )
 
@@ -41,6 +44,7 @@ type DailyOptions struct {
 	onCaseReady                       func(string) error
 	beforeMemberRun                   func(caseRoot, pack, lane string) error
 	stopAfterMemberSegment            bool
+	projectExecutionLease             *projectexecution.Lease
 }
 
 type DailyResult struct {
@@ -69,10 +73,22 @@ type DailyResult struct {
 	Action                     *DailyUserAction                       `json:"action,omitempty"`
 	CurrentDriverRequest       *mission.MissionCommanderDriverRequest `json:"currentDriverRequest,omitempty"`
 	CurrentDriverRequestSHA256 string                                 `json:"currentDriverRequestSha256,omitempty"`
+	CurrentSyncRecovery        *syncreview.CurrentSyncRecovery        `json:"currentSyncRecovery,omitempty"`
 	Boundary                   []string                               `json:"boundary"`
 }
 
-func RunDaily(parent context.Context, opt DailyOptions) (result DailyResult, retErr error) {
+func RunDaily(parent context.Context, opt DailyOptions) (DailyResult, error) {
+	return runDaily(parent, opt, false)
+}
+
+// RunDailyRecovery exposes only the zero-launch current-sync recovery result.
+// If the durable transaction is no longer pending, it fails instead of falling
+// through to onboarding, lane mutation, Claude discovery, or process launch.
+func RunDailyRecovery(parent context.Context, opt DailyOptions) (DailyResult, error) {
+	return runDaily(parent, opt, true)
+}
+
+func runDaily(parent context.Context, opt DailyOptions, recoveryOnly bool) (result DailyResult, retErr error) {
 	defer func() {
 		if retErr != nil && result.Failure == nil {
 			result.Failure = diagnosisForError(retErr, result.SessionLaunches, opt.MaxAttempts, len(result.DriverSteps))
@@ -113,6 +129,32 @@ func RunDaily(parent context.Context, opt DailyOptions) (result DailyResult, ret
 	if goal != "" && correction != "" {
 		return result, fmt.Errorf("daily front door accepts either -goal or -correction, not both")
 	}
+	var err error
+	executionLease := opt.projectExecutionLease
+	executionOwned := false
+	defer func() {
+		if executionOwned && executionLease != nil {
+			retErr = errors.Join(retErr, executionLease.Unlock())
+		}
+	}()
+	ensureExecutionLease := func(caseRoot string) error {
+		if executionLease != nil {
+			return executionLease.ValidateFor(caseRoot)
+		}
+		acquired, acquireErr := acquireSharedForCurrentProject(caseRoot)
+		if acquireErr != nil {
+			return acquireErr
+		}
+		if acquired != nil {
+			executionLease = acquired
+			executionOwned = true
+		}
+		return nil
+	}
+	if err := ensureExecutionLease(opt.Target); err != nil {
+		return result, err
+	}
+	opt.projectExecutionLease = executionLease
 	target, err := classifyDailyTarget(opt.Target)
 	if err != nil {
 		return result, err
@@ -120,6 +162,31 @@ func RunDaily(parent context.Context, opt DailyOptions) (result DailyResult, ret
 	caseRoot := target.Root
 	exists := target.Kind != dailyTargetMissing
 	result.CaseRoot = caseRoot
+	if exists {
+		stateRoot, stateErr := projectstate.Resolve(caseRoot)
+		if stateErr != nil {
+			return result, stateErr
+		}
+		if stateRoot.Existing && !stateRoot.Legacy && stateRoot.Dir == projectstate.CurrentDir {
+			recovery, recoveryErr := syncreview.InspectCurrentSyncRecovery(caseRoot)
+			if recoveryErr != nil {
+				return result, fmt.Errorf("inspect current project update recovery: %w", recoveryErr)
+			}
+			if recovery.Pending {
+				result.Pack = recovery.Pack
+				result.FinalState = "maintenance-recovery-required"
+				result.Blocked = true
+				result.CurrentSyncRecovery = &recovery
+				result.Action = dailyCurrentSyncRecoveryAction(recovery)
+				return result, nil
+			}
+		}
+	}
+	if recoveryOnly {
+		return result, fmt.Errorf(
+			"project-local recovery front door requires a pending durable current project update",
+		)
+	}
 	if target.Kind == dailyTargetOrdinary {
 		result.Blocked = true
 		result.Action = dailyAction(DailyActionDirectoryAdoptionRequired)
@@ -149,15 +216,29 @@ func RunDaily(parent context.Context, opt DailyOptions) (result DailyResult, ret
 			return result, fmt.Errorf("daily target without committed onboarding requires -goal <natural-language goal>")
 		}
 		inspection, err = applyDailyOnboarding(caseRoot, goal, opt.Actor, &result)
-		if opt.onCaseReady != nil {
-			if bindErr := opt.onCaseReady(caseRoot); bindErr != nil {
-				return result, errors.Join(err, fmt.Errorf("bind fresh daily case root identity: %w", bindErr))
-			}
-		}
 		if err != nil {
 			return result, err
 		}
 		exists = true
+		if err := ensureExecutionLease(caseRoot); err != nil {
+			return result, fmt.Errorf("acquire current project execution lease after onboarding: %w", err)
+		}
+		opt.projectExecutionLease = executionLease
+		if recovery, recoveryErr := syncreview.InspectCurrentSyncRecovery(caseRoot); recoveryErr != nil {
+			return result, fmt.Errorf("inspect current project update after onboarding: %w", recoveryErr)
+		} else if recovery.Pending {
+			result.Pack = recovery.Pack
+			result.FinalState = "maintenance-recovery-required"
+			result.Blocked = true
+			result.CurrentSyncRecovery = &recovery
+			result.Action = dailyCurrentSyncRecoveryAction(recovery)
+			return result, nil
+		}
+		if opt.onCaseReady != nil {
+			if bindErr := opt.onCaseReady(caseRoot); bindErr != nil {
+				return result, fmt.Errorf("bind fresh daily case root identity: %w", bindErr)
+			}
+		}
 	} else if inspection.State == "pending" {
 		if correction != "" {
 			return result, fmt.Errorf("daily correction cannot run while onboarding publication is pending")
@@ -167,6 +248,20 @@ func RunDaily(parent context.Context, opt DailyOptions) (result DailyResult, ret
 		}
 		if err := recoverDailyOnboarding(inspection, &result); err != nil {
 			return result, err
+		}
+		if err := ensureExecutionLease(caseRoot); err != nil {
+			return result, fmt.Errorf("acquire current project execution lease after onboarding recovery: %w", err)
+		}
+		opt.projectExecutionLease = executionLease
+		if recovery, recoveryErr := syncreview.InspectCurrentSyncRecovery(caseRoot); recoveryErr != nil {
+			return result, fmt.Errorf("inspect current project update after onboarding recovery: %w", recoveryErr)
+		} else if recovery.Pending {
+			result.Pack = recovery.Pack
+			result.FinalState = "maintenance-recovery-required"
+			result.Blocked = true
+			result.CurrentSyncRecovery = &recovery
+			result.Action = dailyCurrentSyncRecoveryAction(recovery)
+			return result, nil
 		}
 		inspection, err = missionintent.Inspect(caseRoot)
 		if err != nil || !inspection.Committed {
@@ -233,6 +328,7 @@ func RunDaily(parent context.Context, opt DailyOptions) (result DailyResult, ret
 		Timeout:                           opt.Timeout,
 		MaxAttempts:                       opt.MaxAttempts,
 		requireDailyClaudeTrust:           true,
+		projectExecutionLease:             opt.projectExecutionLease,
 	}
 
 	if correction != "" {

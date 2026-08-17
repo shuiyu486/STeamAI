@@ -133,6 +133,74 @@ func TestInspectRejectsLifecycleNamespaceObstructions(t *testing.T) {
 	})
 }
 
+func TestPathsAndInspectionUseCurrentStateRoot(t *testing.T) {
+	caseRoot := t.TempDir()
+	laneID := "main"
+	laneRoot := filepath.Join(caseRoot, ".steamai", "lanes", laneID)
+	if err := os.MkdirAll(laneRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	intent := validCompletionIntent(laneID, 1, "")
+	receipt := validCompletionReceipt(t, intent, 1, "")
+	writeJSON(t, filepath.Join(laneRoot, IntentFile), intent)
+	writeJSON(t, filepath.Join(laneRoot, CommitFile), receipt)
+
+	intentPath, err := IntentPathE(caseRoot, laneID, 1, "complete")
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiptPath, err := ReceiptPathE(caseRoot, laneID, 1, "complete")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if intentPath != filepath.Join(laneRoot, IntentFile) || receiptPath != filepath.Join(laneRoot, CommitFile) {
+		t.Fatalf("current lifecycle paths = %s, %s", intentPath, receiptPath)
+	}
+	inspection, err := Inspect(caseRoot, laneID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inspection.State != StateComplete || inspection.HeadSequence != 1 {
+		t.Fatalf("current completion was not inspected: %+v", inspection)
+	}
+}
+
+func TestPathsAndInspectionRejectConflictingStateRoots(t *testing.T) {
+	caseRoot := t.TempDir()
+	for _, root := range []string{".steamai", ".rekit"} {
+		if err := os.MkdirAll(filepath.Join(caseRoot, root), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := IntentPathE(caseRoot, "main", 1, "complete"); err == nil {
+		t.Fatal("completion intent path accepted conflicting state roots")
+	}
+	if _, err := OperationIntentPathE(caseRoot, 1); err == nil {
+		t.Fatal("operation intent path accepted conflicting state roots")
+	}
+	if _, err := Inspect(caseRoot, "main"); err == nil {
+		t.Fatal("completion inspection accepted conflicting state roots")
+	}
+	if _, err := InspectOperations(caseRoot); err == nil {
+		t.Fatal("operation inspection accepted conflicting state roots")
+	}
+	for name, path := range map[string]func() string{
+		"completion intent":  func() string { return IntentPath(caseRoot, "main", 1, "complete") },
+		"completion receipt": func() string { return ReceiptPath(caseRoot, "main", 1, "complete") },
+		"operation intent":   func() string { return OperationIntentPath(caseRoot, 1) },
+		"operation commit":   func() string { return OperationCommitPath(caseRoot, 1) },
+	} {
+		t.Run(name+" compatibility panic", func(t *testing.T) {
+			defer func() {
+				if recovered := recover(); recovered == nil {
+					t.Fatal("compatibility path helper swallowed conflicting state roots")
+				}
+			}()
+			_ = path()
+		})
+	}
+}
+
 func TestInspectOperationsRejectsNamespaceObstructions(t *testing.T) {
 	for _, tc := range []struct {
 		name string

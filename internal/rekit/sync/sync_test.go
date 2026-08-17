@@ -8,6 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 func TestApplyPreviewDoesNotWrite(t *testing.T) {
@@ -129,6 +132,46 @@ func TestBackupCaseFileRejectsOutsideCaseRoot(t *testing.T) {
 	_, err := backupCaseFile(outside, caseRoot, backupRoot)
 	if err == nil || !strings.Contains(err.Error(), "outside case root") {
 		t.Fatalf("backupCaseFile error = %v, want outside case root", err)
+	}
+}
+
+func TestSyncBackupRootUsesSelectedStateRoot(t *testing.T) {
+	for _, stateDir := range []string{projectstate.CurrentDir, projectstate.LegacyDir} {
+		t.Run(stateDir, func(t *testing.T) {
+			caseRoot := t.TempDir()
+			if err := os.Mkdir(filepath.Join(caseRoot, stateDir), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			for name, configured := range map[string]string{
+				"empty":        "",
+				"legacy-root":  ".rekit/backups/sync",
+				"current-root": ".steamai/backups/sync",
+			} {
+				t.Run(name, func(t *testing.T) {
+					root, err := syncBackupRoot(caseRoot, &manifest.Manifest{WorkstreamDefaults: map[string]string{"backupRoot": configured}})
+					if err != nil {
+						t.Fatal(err)
+					}
+					wantPrefix := filepath.Join(caseRoot, stateDir, "backups", "sync") + string(filepath.Separator)
+					if !strings.HasPrefix(root, wantPrefix) {
+						t.Fatalf("backup root = %q, want prefix %q", root, wantPrefix)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestSyncBackupRootRejectsDualStateRoots(t *testing.T) {
+	caseRoot := t.TempDir()
+	for _, stateDir := range []string{projectstate.CurrentDir, projectstate.LegacyDir} {
+		if err := os.Mkdir(filepath.Join(caseRoot, stateDir), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, err := syncBackupRoot(caseRoot, &manifest.Manifest{WorkstreamDefaults: map[string]string{"backupRoot": ".rekit/backups/sync"}})
+	if err == nil || !strings.Contains(err.Error(), "both .steamai and .rekit") {
+		t.Fatalf("dual-root backup error = %v", err)
 	}
 }
 

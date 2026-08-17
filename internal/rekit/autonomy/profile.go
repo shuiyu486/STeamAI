@@ -16,12 +16,15 @@ import (
 
 	refsf "github.com/shuiyu486/re-context-kits/internal/rekit/fs"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 const (
 	ModeManualGate    = "manual-gate"
 	ModePreauthorized = "preauthorized"
 	ModeAutonomous    = "autonomous"
+
+	ManagedAutonomousPresetV1 = "bounded-autonomous-v1"
 
 	DecisionManualConfirmationRequired = "manual-confirmation-required"
 	DecisionPreauthorized              = "preauthorized"
@@ -116,12 +119,22 @@ type Summary struct {
 	Error          string   `json:"error,omitempty"`
 }
 
+// RelPath preserves the legacy .rekit-relative compatibility surface for
+// callers without a case root. Current project code must use RelPathForCase.
 func RelPath(laneID string) string {
-	return filepath.ToSlash(filepath.Join(".rekit", "lanes", strings.TrimSpace(laneID), profileFileName))
+	return filepath.ToSlash(filepath.Join(projectstate.LegacyDir, "lanes", strings.TrimSpace(laneID), profileFileName))
+}
+
+func RelPathForCase(caseRoot, laneID string) (string, error) {
+	return projectstate.Rel(caseRoot, "lanes", strings.TrimSpace(laneID), profileFileName)
 }
 
 func Path(caseRoot, laneID string) (string, error) {
-	return refsf.SafeJoin(caseRoot, RelPath(laneID))
+	rel, err := RelPathForCase(caseRoot, laneID)
+	if err != nil {
+		return "", err
+	}
+	return refsf.SafeJoin(caseRoot, rel)
 }
 
 func DefaultProfile(laneID string) Profile {
@@ -137,12 +150,16 @@ func DefaultProfile(laneID string) Profile {
 }
 
 func EnsureManualProfile(caseRoot, laneID string) (string, string, error) {
+	rel, err := RelPathForCase(caseRoot, laneID)
+	if err != nil {
+		return "", "", err
+	}
 	path, err := Path(caseRoot, laneID)
 	if err != nil {
 		return "", "", err
 	}
 	if refsf.Exists(path) {
-		return RelPath(laneID), path, nil
+		return rel, path, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return "", "", err
@@ -150,7 +167,7 @@ func EnsureManualProfile(caseRoot, laneID string) (string, string, error) {
 	if err := writeProfile(path, DefaultProfile(laneID)); err != nil {
 		return "", "", err
 	}
-	return RelPath(laneID), path, nil
+	return rel, path, nil
 }
 
 func Read(caseRoot, laneID string) (Profile, string, bool, error) {
@@ -182,8 +199,11 @@ func Read(caseRoot, laneID string) (Profile, string, bool, error) {
 }
 
 func ReadSummary(caseRoot, laneID string, m *manifest.Manifest) Summary {
+	rel, relErr := RelPathForCase(caseRoot, laneID)
+	if relErr != nil {
+		return Summary{Mode: ModeManualGate, Missing: true, Valid: false, Error: relErr.Error()}
+	}
 	profile, path, exists, err := Read(caseRoot, laneID)
-	rel := RelPath(laneID)
 	if err != nil {
 		return Summary{Mode: ModeManualGate, ProfilePath: rel, Missing: !exists, Valid: false, Error: err.Error()}
 	}
@@ -319,10 +339,29 @@ func Validate(profile Profile, laneID string, m *manifest.Manifest, caseRoot str
 			return err
 		}
 	}
+	if mode == ModeAutonomous {
+		grantedAt, err := parseRequiredTime("grantedAt", profile.GrantedAt)
+		if err != nil {
+			return err
+		}
+		expiresAt, err := parseRequiredTime("expiresAt", profile.ExpiresAt)
+		if err != nil {
+			return err
+		}
+		if !expiresAt.After(grantedAt) {
+			return fmt.Errorf("autonomy profile expiresAt must be after grantedAt")
+		}
+		if expiresAt.Sub(grantedAt) > maxProvisionDuration {
+			return fmt.Errorf("autonomy profile autonomous duration exceeds %s", maxProvisionDuration)
+		}
+		if m == nil || strings.TrimSpace(caseRoot) == "" || !isManagedAutonomousProfileV1(profile, laneID, m, caseRoot) {
+			return fmt.Errorf("autonomy profile mode=%s is outside managed preset %s", ModeAutonomous, ManagedAutonomousPresetV1)
+		}
+	}
 	return nil
 }
 
-func Evaluate(profile Profile, profilePath string, profileExists bool, profileHash string, req Request, now time.Time) Decision {
+func Evaluate(profile Profile, profilePath string, profileExists bool, profileHash string, req Request, now time.Time, m *manifest.Manifest, caseRoot string) Decision {
 	mode := strings.TrimSpace(profile.Mode)
 	decision := Decision{
 		Mode:                 firstText(mode, ModeManualGate),
@@ -343,15 +382,51 @@ func Evaluate(profile Profile, profilePath string, profileExists bool, profileHa
 		GrantedAt:            strings.TrimSpace(profile.GrantedAt),
 		ExpiresAt:            strings.TrimSpace(profile.ExpiresAt),
 	}
-	if !profileExists || mode == ModeManualGate {
+	if !profileExists {
 		decision.Decision = DecisionManualConfirmationRequired
 		decision.Reasons = append(decision.Reasons, "lane autonomy profile is manual-gate")
+		return decision
+	}
+	if mode != ModeManualGate && m == nil {
+		decision.Decision = DecisionInvalidProfile
+		decision.Reasons = append(decision.Reasons, "lane autonomy preauthorization requires the current pack manifest")
+		return decision
+	}
+	if err := Validate(profile, profile.Lane, m, caseRoot); err != nil {
+		decision.Decision = DecisionInvalidProfile
+		decision.Reasons = append(decision.Reasons, err.Error())
+		return decision
+	}
+	if mode == ModeManualGate {
+		decision.Decision = DecisionManualConfirmationRequired
+		decision.Reasons = append(decision.Reasons, "lane autonomy profile is manual-gate")
+		return decision
+	}
+	if mode == ModeAutonomous {
+		grantedAt, err := parseRequiredTime("grantedAt", profile.GrantedAt)
+		if err != nil || grantedAt.After(now) {
+			decision.Decision = DecisionInvalidProfile
+			decision.Reasons = append(decision.Reasons, "managed autonomous profile grant is not current")
+			return decision
+		}
+	}
+	if strings.TrimSpace(req.Lane) == "" || !strings.EqualFold(strings.TrimSpace(profile.Lane), strings.TrimSpace(req.Lane)) {
+		decision.Decision = DecisionOutOfScope
+		decision.Reasons = append(decision.Reasons, "request lane does not exactly match lane autonomy profile")
 		return decision
 	}
 	if IsExpired(profile, now) {
 		decision.Decision = DecisionExpired
 		decision.Reasons = append(decision.Reasons, "lane autonomy profile is expired")
 		return decision
+	}
+	if mode == ModeAutonomous {
+		expiresAt, _ := parseRequiredTime("expiresAt", profile.ExpiresAt)
+		if time.Duration(req.Budget.RuntimeSeconds)*time.Second > expiresAt.Sub(now) {
+			decision.Decision = DecisionExpired
+			decision.Reasons = append(decision.Reasons, "requested runtime exceeds the remaining managed autonomous grant duration")
+			return decision
+		}
 	}
 	if slices.Contains(profile.DeniedActions, req.Action) {
 		decision.Decision = DecisionDenied
@@ -378,9 +453,19 @@ func Evaluate(profile Profile, profilePath string, profileExists bool, profileHa
 		decision.Reasons = append(decision.Reasons, reason)
 		return decision
 	}
-	if !stopConditionsAllowed(profile.StopConditions, req.StopConditions) {
+	actionGate, actionDeclared := m.HeavyToolGate(req.Action)
+	if !actionDeclared || !stopConditionsAllowed(
+		profile.StopConditions,
+		actionGate.StopConditions,
+		req.StopConditions,
+	) {
 		decision.Decision = DecisionStopConditionMismatch
-		decision.Reasons = append(decision.Reasons, "requested stopConditions are not covered by lane autonomy profile")
+		decision.Reasons = append(decision.Reasons, "requested stopConditions must include every current pack manifest condition and remain covered by lane autonomy profile")
+		return decision
+	}
+	if err := validateOutputPaths(caseRoot, req.OutputPaths); err != nil {
+		decision.Decision = DecisionOutputPathDenied
+		decision.Reasons = append(decision.Reasons, err.Error())
 		return decision
 	}
 	if !outputPathsAllowed(profile.OutputPaths, req.OutputPaths) {
@@ -516,16 +601,25 @@ func budgetExceeded(limit Budget, requested Budget) (bool, string) {
 	return false, ""
 }
 
-func stopConditionsAllowed(allowed, requested []string) bool {
-	if len(requested) == 0 {
+func stopConditionsAllowed(allowed, required, requested []string) bool {
+	if len(required) == 0 || len(requested) == 0 {
 		return false
 	}
 	allow := map[string]bool{}
 	for _, item := range allowed {
 		allow[strings.TrimSpace(item)] = true
 	}
+	request := map[string]bool{}
 	for _, item := range requested {
-		if !allow[strings.TrimSpace(item)] {
+		item = strings.TrimSpace(item)
+		if !allow[item] {
+			return false
+		}
+		request[item] = true
+	}
+	for _, item := range required {
+		item = strings.TrimSpace(item)
+		if !allow[item] || !request[item] {
 			return false
 		}
 	}

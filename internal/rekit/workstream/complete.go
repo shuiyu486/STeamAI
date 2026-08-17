@@ -21,6 +21,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/memberexecution"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewerresult"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/reviewersession"
 )
@@ -182,6 +183,9 @@ type completeContext struct {
 	sequence            int
 	previousSHA         string
 	intent              *completionIntent
+	intentFile          string
+	commitFile          string
+	boardFile           string
 	memberReviewBlocker string
 }
 
@@ -244,7 +248,10 @@ func CompletePreview(repoRoot, caseRoot, pack string, opt CompleteOptions) (Comp
 		return CompleteResult{}, err
 	}
 	result := ctx.result(false, false)
-	result.WouldWrites = ctx.plannedWrites()
+	result.WouldWrites, err = ctx.plannedWrites()
+	if err != nil {
+		return CompleteResult{}, err
+	}
 	if result.Blocked {
 		result.WouldWrites = nil
 		result.NextSteps = []string{"resolve every typed completion blocker, refresh status, then preview complete again"}
@@ -358,7 +365,11 @@ func newCompleteContext(repoRoot, caseRoot, pack string, opt CompleteOptions, al
 	}
 	b, err := readBoard(inst.CaseRoot)
 	if os.IsNotExist(err) {
-		return completeContext{}, fmt.Errorf("complete requires existing .rekit/board.json; run start -Apply first")
+		boardPath, entrypoint, pathErr := selectedMissionCommanderSurface(inst.CaseRoot)
+		if pathErr != nil {
+			return completeContext{}, pathErr
+		}
+		return completeContext{}, fmt.Errorf("complete requires existing %s; run %s start -Apply first", boardPath, entrypoint)
 	}
 	if err != nil {
 		return completeContext{}, err
@@ -469,6 +480,18 @@ func finishCompleteContext(ctx completeContext, allowPending bool) (completeCont
 		}
 		ctx.sequence = lifecycle.PendingSequence
 		ctx.previousSHA = lifecycle.HeadReceiptSHA256
+	}
+	ctx.intentFile, lifecycleErr = lanecompletion.IntentPathE(inst.CaseRoot, lane.ID, ctx.sequence, "complete")
+	if lifecycleErr != nil {
+		return completeContext{}, lifecycleErr
+	}
+	ctx.commitFile, lifecycleErr = lanecompletion.ReceiptPathE(inst.CaseRoot, lane.ID, ctx.sequence, "complete")
+	if lifecycleErr != nil {
+		return completeContext{}, lifecycleErr
+	}
+	ctx.boardFile, lifecycleErr = boardRelPath(inst.CaseRoot)
+	if lifecycleErr != nil {
+		return completeContext{}, lifecycleErr
 	}
 	intent, intentErr := readCompletionIntent(ctx.intentPath())
 	if intentErr == nil {
@@ -841,17 +864,20 @@ func completionFreshActions(caseRoot string, b board, facts mission.LedgerFacts)
 	return items, mission.MissionCommanderActionQueueFor(items)
 }
 
-func (ctx completeContext) plannedWrites() []StartWrite {
-	laneRoot, _ := laneRootPath(ctx.inst.CaseRoot, ctx.lane)
+func (ctx completeContext) plannedWrites() ([]StartWrite, error) {
+	laneRoot, err := laneRootPath(ctx.inst.CaseRoot, ctx.lane)
+	if err != nil {
+		return nil, err
+	}
 	return []StartWrite{
 		{Path: relativePath(ctx.inst.CaseRoot, ctx.intentPath()), Kind: "lane-completion-intent", Action: "would-create", TargetPath: ctx.intentPath()},
 		{Path: relativePath(ctx.inst.CaseRoot, LaneEventsJSONLPath(laneRoot)), Kind: "lane-event", Action: "would-append-lane-completed", TargetPath: LaneEventsJSONLPath(laneRoot)},
 		{Path: relativePath(ctx.inst.CaseRoot, filepath.Join(laneRoot, "lane.json")), Kind: "lane", Action: "would-close", TargetPath: filepath.Join(laneRoot, "lane.json")},
-		{Path: ".rekit/board.json", Kind: "board", Action: "would-refresh"},
+		{Path: ctx.boardFile, Kind: "board", Action: "would-refresh"},
 		{Path: relativePath(ctx.inst.CaseRoot, filepath.Join(laneRoot, "prompts", "RESUME.md")), Kind: "lane-resume", Action: "would-refresh"},
 		{Path: relativePath(ctx.inst.CaseRoot, filepath.Join(laneRoot, "checkpoints", "latest.json")), Kind: "lane-checkpoint", Action: "would-refresh"},
 		{Path: relativePath(ctx.inst.CaseRoot, ctx.commitPath()), Kind: "lane-completion-commit", Action: "would-create-last", TargetPath: ctx.commitPath()},
-	}
+	}, nil
 }
 
 func (ctx completeContext) newIntent(previewSHA, now string) completionIntent {
@@ -912,7 +938,7 @@ func (ctx completeContext) publishCompletion() ([]StartWrite, CompletionReceipt,
 	if err != nil {
 		return nil, CompletionReceipt{}, err
 	}
-	writes = append(writes, StartWrite{Path: ".rekit/board.json", Kind: "board", Action: "refresh", TargetPath: boardPath})
+	writes = append(writes, StartWrite{Path: relativePath(ctx.inst.CaseRoot, boardPath), Kind: "board", Action: "refresh", TargetPath: boardPath})
 	resumePath, checkpointPath, err := writeLaneResume(ctx.inst.CaseRoot, ctx.manifest, ctx.lane)
 	if err != nil {
 		return nil, CompletionReceipt{}, err
@@ -1001,7 +1027,7 @@ func InspectLaneCompletion(caseRoot, laneID string) (CompletionReceipt, error) {
 	if err != nil || intentSHA != receipt.IntentSHA256 {
 		return CompletionReceipt{}, fmt.Errorf("lane completion intent hash mismatch: %s", laneID)
 	}
-	root, err := refsf.SafeJoin(caseRoot, relJoin(".rekit", "lanes", laneID))
+	root, err := projectstate.Join(caseRoot, "lanes", laneID)
 	if err != nil {
 		return CompletionReceipt{}, err
 	}
@@ -1241,11 +1267,11 @@ func completionBlockerSummary(items []CompletionBlocker) string {
 }
 
 func (ctx completeContext) intentPath() string {
-	return lanecompletion.IntentPath(ctx.inst.CaseRoot, ctx.lane.ID, ctx.sequence, "complete")
+	return ctx.intentFile
 }
 
 func (ctx completeContext) commitPath() string {
-	return lanecompletion.ReceiptPath(ctx.inst.CaseRoot, ctx.lane.ID, ctx.sequence, "complete")
+	return ctx.commitFile
 }
 
 func readCompletionIntent(path string) (completionIntent, error) {

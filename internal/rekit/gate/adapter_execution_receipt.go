@@ -20,6 +20,7 @@ import (
 	"github.com/shuiyu486/re-context-kits/internal/rekit/laneowner"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/manifest"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/projectstate"
 )
 
 var adapterExecutionSegmentPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
@@ -1020,7 +1021,10 @@ func adapterExecutionDispatchPath(caseRoot, laneID, gateEventID string) (string,
 	if !adapterExecutionSegmentPattern.MatchString(laneID) || !adapterExecutionSegmentPattern.MatchString(gateEventID) {
 		return "", "", fmt.Errorf("invalid adapter execution dispatch path identity")
 	}
-	rel := filepath.ToSlash(filepath.Join(".rekit", "lanes", laneID, "adapter-executions", gateEventID, "dispatch.json"))
+	rel, err := projectstate.Rel(caseRoot, "lanes", laneID, "adapter-executions", gateEventID, "dispatch.json")
+	if err != nil {
+		return "", "", err
+	}
 	full, err := refsf.SafeJoin(caseRoot, rel)
 	return rel, full, err
 }
@@ -1029,7 +1033,10 @@ func adapterExecutionReceiptPath(caseRoot, laneID, gateEventID string) (string, 
 	if !adapterExecutionSegmentPattern.MatchString(laneID) || !adapterExecutionSegmentPattern.MatchString(gateEventID) {
 		return "", "", fmt.Errorf("invalid adapter execution receipt path identity")
 	}
-	rel := filepath.ToSlash(filepath.Join(".rekit", "lanes", laneID, "adapter-executions", gateEventID, "receipt.json"))
+	rel, err := projectstate.Rel(caseRoot, "lanes", laneID, "adapter-executions", gateEventID, "receipt.json")
+	if err != nil {
+		return "", "", err
+	}
 	full, err := refsf.SafeJoin(caseRoot, rel)
 	return rel, full, err
 }

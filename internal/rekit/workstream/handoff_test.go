@@ -2,13 +2,18 @@ package workstream
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/shuiyu486/re-context-kits/internal/rekit/casebind"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/commands"
+	"github.com/shuiyu486/re-context-kits/internal/rekit/defaults"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/gate"
 	"github.com/shuiyu486/re-context-kits/internal/rekit/mission"
 )
@@ -66,37 +71,500 @@ func TestWriteCurrentLoopOperatorPackageIncludesExternalMemberHandoff(t *testing
 }
 
 func TestHandoffReplacementExecutorTakeoverIncludesDispatcherRunbookAtConstruction(t *testing.T) {
-	request := mission.MissionCommanderDriverRequest{
+	queueRequest := mission.MissionCommanderDriverRequest{
+		Kind: "execute-command", State: "ready-to-continue", Source: "missionCommanderActions",
+		Command: "/rekit continue -Lane main", CommandExecutable: true,
+	}
+	selectedRequest := mission.MissionCommanderDriverRequest{
 		Kind: "preview-command-template", State: "ready-for-dispatch-claim-review", Source: "current-loop-external-session-dispatch",
 		Command: "/rekit run-current-loop -ClaimExternalSessionDispatch -WhatIf -Format json", RequiresReview: true,
 	}
-	queue := mission.MissionCommanderActionQueue{CurrentDriverRequest: &request}
+	queue := mission.MissionCommanderActionQueue{CurrentDriverRequest: &queueRequest}
 	for _, test := range []struct {
-		state string
-		want  string
+		name        string
+		state       string
+		preferQueue bool
+		wantStep    string
+		wantCommand string
 	}{
-		{state: "queued", want: "consume dispatcher.claimRequest before any launch"},
-		{state: "claimed", want: "actual launch is not yet recorded"},
-		{state: "running", want: "actually running under dispatcher.launchReceipt"},
+		{name: "queued-selected", state: "queued", wantStep: "consume dispatcher.claimRequest before any launch", wantCommand: selectedRequest.Command},
+		{name: "claimed-selected", state: "claimed", wantStep: "actual launch is not yet recorded", wantCommand: selectedRequest.Command},
+		{name: "launch-failed-selected", state: "launch-failed", wantStep: "launch failed", wantCommand: selectedRequest.Command},
+		{name: "running-queue", state: "running", wantStep: "actually running under dispatcher.launchReceipt", wantCommand: queueRequest.Command},
+		{name: "queued-explicit-queue", state: "queued", preferQueue: true, wantStep: "consume dispatcher.claimRequest before any launch", wantCommand: queueRequest.Command},
+		{name: "claimed-explicit-queue", state: "claimed", preferQueue: true, wantStep: "actual launch is not yet recorded", wantCommand: queueRequest.Command},
+		{name: "launch-failed-explicit-queue", state: "launch-failed", preferQueue: true, wantStep: "launch failed", wantCommand: queueRequest.Command},
 	} {
-		t.Run(test.state, func(t *testing.T) {
+		t.Run(test.name, func(t *testing.T) {
 			operator := &mission.CurrentLoopOperatorPackage{
-				SelectedDriverRequest: &request,
+				SelectedDriverRequest: &selectedRequest,
 				ExternalSessionJob: &mission.CurrentLoopExternalSessionJob{
 					State:      "awaiting-submission",
 					Dispatcher: &mission.CurrentLoopExternalSessionDispatcher{State: test.state},
 				},
 			}
-			pkg := handoffReplacementExecutorTakeoverPackage(
+			pkg, err := handoffReplacementExecutorTakeoverPackage(
 				t.TempDir(), "project", nil, queue, nil, nil,
-				".rekit/handovers/latest-replacement-executor-takeover.json", operator,
+				".rekit/handovers/latest-replacement-executor-takeover.json", operator, test.preferQueue,
 			)
-			if pkg == nil || pkg.CurrentLoopOperator != operator || pkg.CurrentDriverRequest.Command != operator.SelectedDriverRequest.Command || pkg.CurrentDriverRequestSHA256 != mission.ReplacementExecutorDriverRequestSHA256(pkg.CurrentDriverRequest) || !slices.ContainsFunc(pkg.RunbookSteps, func(step string) bool {
-				return strings.Contains(step, test.want)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if pkg == nil || pkg.CurrentLoopOperator != operator || pkg.CurrentDriverRequest.Command != test.wantCommand || pkg.CurrentDriverRequestSHA256 != mission.ReplacementExecutorDriverRequestSHA256(pkg.CurrentDriverRequest) || !slices.ContainsFunc(pkg.RunbookSteps, func(step string) bool {
+				return strings.Contains(step, test.wantStep)
 			}) {
 				t.Fatalf("dispatcher %s was not part of takeover construction: %+v", test.state, pkg)
 			}
 		})
+	}
+}
+
+func TestHandoffContextInjectsValidatedFinalDriverRequest(t *testing.T) {
+	repoRoot, caseRoot := setupContinueCase(t, "")
+	request := handoffFinalDriverRequestForTest(t, caseRoot, "devirt-main")
+	opt := HandoffOptions{Selector: "devirt-main", CurrentDriverRequest: &request}
+
+	ctx, err := newHandoffContext(repoRoot, caseRoot, defaults.DefaultPack, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Command = "/rekit status -Format json"
+	request.Invocation.Arguments[1] = t.TempDir()
+	request.Boundary[0] = "mutated"
+	request.ExpectedReceipt.Boundary[0] = "mutated"
+
+	result, err := ctx.result(false, false, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue := result.MissionCommanderActionQueue
+	got := queue.CurrentDriverRequest
+	if got == nil || got.Command != `/rekit continue -Target "`+caseRoot+`" -Lane devirt-main -WhatIf -Format json` || got.Invocation == nil || got.Invocation.Arguments[1] != caseRoot || got.Boundary[0] == "mutated" || got.ExpectedReceipt.Boundary[0] == "mutated" {
+		t.Fatalf("handoff final request was not deep-cloned into the action queue: %+v", got)
+	}
+	assertHandoffQueueCurrentIdentity(t, "result queue", queue, got)
+	assertSameHandoffDriverRequest(t, "runbook", got, result.DailyMissionControlRunbook.CurrentDriverRequest)
+	if result.DailyMissionControlRunbook.RefreshStatusCommand != got.ExpectedReceipt.RefreshStatusCommand {
+		t.Fatalf("handoff runbook refresh command drifted: %+v", result.DailyMissionControlRunbook)
+	}
+	pkg := result.ReplacementExecutorTakeoverPackage
+	if pkg == nil {
+		t.Fatalf("handoff takeover package is missing")
+	}
+	assertSameHandoffDriverRequest(t, "takeover", got, &pkg.CurrentDriverRequest)
+	if pkg.RefreshStatusCommand != got.ExpectedReceipt.RefreshStatusCommand {
+		t.Fatalf("handoff takeover refresh command drifted: %+v", pkg)
+	}
+	gotSHA, err := mission.MissionCommanderDriverRequestSHA256(*got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pkg.CurrentDriverRequestSHA256 != gotSHA {
+		t.Fatalf("handoff takeover request SHA drifted: got=%s want=%s", pkg.CurrentDriverRequestSHA256, gotSHA)
+	}
+	resumePublications, err := ctx.buildResumePublications()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resumePublications) != 1 || !strings.Contains(string(resumePublications[0].ResumeBytes), "command=`"+got.Command+"`") || !strings.Contains(string(resumePublications[0].ResumeBytes), "refreshStatusCommand=`"+got.ExpectedReceipt.RefreshStatusCommand+"`") {
+		t.Fatalf("handoff RESUME publication did not preserve the final request identity: %+v", resumePublications)
+	}
+	var checkpoint struct {
+		MissionCommanderActionQueue mission.MissionCommanderActionQueue `json:"missionCommanderActionQueue"`
+	}
+	if err := json.Unmarshal(resumePublications[0].CheckpointBytes, &checkpoint); err != nil {
+		t.Fatalf("handoff checkpoint publication did not decode: %v", err)
+	}
+	checkpointRequest := checkpoint.MissionCommanderActionQueue.CurrentDriverRequest
+	if checkpointRequest == nil || checkpointRequest.Command != got.Command || checkpointRequest.ExpectedReceipt.RefreshStatusCommand != got.ExpectedReceipt.RefreshStatusCommand {
+		t.Fatalf("handoff checkpoint publication did not preserve the final request identity: %+v", checkpointRequest)
+	}
+}
+
+func TestProjectHandoffInjectsFinalRequestOnlyIntoMatchingLaneResume(t *testing.T) {
+	repoRoot, caseRoot := setupContinueCase(t, "")
+	other, err := StartApply(repoRoot, caseRoot, defaults.DefaultPack, StartOptions{Selector: "analysis-other"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := handoffFinalDriverRequestForTest(t, caseRoot, "devirt-main")
+	ctx, err := newHandoffContext(repoRoot, caseRoot, defaults.DefaultPack, HandoffOptions{CurrentDriverRequest: &request})
+	if err != nil {
+		t.Fatal(err)
+	}
+	publications, err := ctx.buildResumePublications()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(publications) < 2 {
+		t.Fatalf("project handoff resume publication count=%d want at least 2", len(publications))
+	}
+	seenMatching := false
+	seenOther := false
+	for _, publication := range publications {
+		var checkpoint struct {
+			Lane                        string                              `json:"lane"`
+			MissionCommanderActionQueue mission.MissionCommanderActionQueue `json:"missionCommanderActionQueue"`
+		}
+		if err := json.Unmarshal(publication.CheckpointBytes, &checkpoint); err != nil {
+			t.Fatal(err)
+		}
+		if checkpoint.Lane == "devirt-main" {
+			seenMatching = true
+			assertSameHandoffDriverRequest(t, "matching lane checkpoint", ctx.currentDriverRequest, checkpoint.MissionCommanderActionQueue.CurrentDriverRequest)
+			assertHandoffQueueCurrentIdentity(t, "matching lane checkpoint", checkpoint.MissionCommanderActionQueue, checkpoint.MissionCommanderActionQueue.CurrentDriverRequest)
+			continue
+		}
+		if checkpoint.Lane == other.Lane.ID {
+			seenOther = true
+		}
+		if checkpoint.MissionCommanderActionQueue.CurrentDriverRequest != nil && checkpoint.MissionCommanderActionQueue.CurrentDriverRequest.Command == request.Command {
+			t.Fatalf("project handoff copied one lane request into %s: %+v", checkpoint.Lane, checkpoint)
+		}
+	}
+	if !seenMatching || !seenOther {
+		t.Fatalf("project handoff resume publications omitted lanes: matching=%t other=%t", seenMatching, seenOther)
+	}
+	markdown, _, err := ctx.renderProject(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherSection := projectHandoffLaneSectionForTest(markdown, other.Lane.ID)
+	if strings.Contains(otherSection, "command=`"+request.Command+"`") || strings.Contains(otherSection, "refreshStatusCommand=`"+request.ExpectedReceipt.RefreshStatusCommand+"`") {
+		t.Fatalf("project handoff copied one lane request into non-matching lane Markdown:\n%s", otherSection)
+	}
+}
+
+func TestProjectHandoffCurrentLoopOperatorStaysInExactLane(t *testing.T) {
+	repoRoot, caseRoot := setupContinueCase(t, "")
+	other, err := StartApply(repoRoot, caseRoot, defaults.DefaultPack, StartOptions{Selector: "analysis-other"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := handoffFinalDriverRequestForTest(t, caseRoot, "devirt-main")
+	operatorRequest := request
+	operatorRequest.Source = "currentLoopOperator.selectedDriverRequest"
+	operator := &mission.CurrentLoopOperatorPackage{
+		Ready:                      true,
+		State:                      "fresh-loop-review-required",
+		CaseRoot:                   caseRoot,
+		Route:                      "case",
+		Lane:                       "devirt-main",
+		SourceCurrentDriverRequest: &operatorRequest,
+		SelectedDriverRequest:      &operatorRequest,
+		RunbookSteps:               []string{"consume exact lane operator"},
+	}
+	ctx, err := newHandoffContext(repoRoot, caseRoot, defaults.DefaultPack, HandoffOptions{CurrentDriverRequest: &request, CurrentLoopOperator: operator})
+	if err != nil {
+		t.Fatal(err)
+	}
+	markdown, _, err := ctx.renderProject(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	matchingSection := projectHandoffLaneSectionForTest(markdown, "devirt-main")
+	otherSection := projectHandoffLaneSectionForTest(markdown, other.Lane.ID)
+	if !strings.Contains(matchingSection, "## Current-loop operator") || !strings.Contains(matchingSection, operatorRequest.Command) {
+		t.Fatalf("matching lane omitted current-loop operator:\n%s", matchingSection)
+	}
+	if strings.Contains(otherSection, "## Current-loop operator") || strings.Contains(otherSection, operatorRequest.Command) {
+		t.Fatalf("non-matching lane received current-loop operator:\n%s", otherSection)
+	}
+
+	assertOperatorDriftOmitted := func(name string, mutate func(*mission.CurrentLoopOperatorPackage)) {
+		t.Helper()
+		candidate := *operator
+		mutate(&candidate)
+		ctx.currentLoopOperator = &candidate
+		markdown, _, err = ctx.renderProject(false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		matchingSection = projectHandoffLaneSectionForTest(markdown, "devirt-main")
+		if strings.Contains(matchingSection, "## Current-loop operator") {
+			t.Fatalf("%s lane drift was partially published:\n%s", name, matchingSection)
+		}
+	}
+	drifted := operatorRequest
+	drifted.Lane = other.Lane.ID
+	assertOperatorDriftOmitted("direct nested request", func(candidate *mission.CurrentLoopOperatorPackage) {
+		candidate.ResumeDriverRequest = &drifted
+	})
+	assertOperatorDriftOmitted("reviewer attempt current request", func(candidate *mission.CurrentLoopOperatorPackage) {
+		candidate.ExternalReviewerHandoff = &mission.CurrentLoopExternalReviewerHandoff{
+			Attempt: &mission.CurrentLoopReviewerAttempt{CurrentReviewerDriverRequest: &drifted},
+		}
+	})
+	assertOperatorDriftOmitted("reviewer attempt durable continuation", func(candidate *mission.CurrentLoopOperatorPackage) {
+		candidate.ExternalReviewerHandoff = &mission.CurrentLoopExternalReviewerHandoff{
+			Attempt: &mission.CurrentLoopReviewerAttempt{DurableContinuationDriverRequest: &drifted},
+		}
+	})
+	assertOperatorDriftOmitted("reviewer wave shard", func(candidate *mission.CurrentLoopOperatorPackage) {
+		candidate.ExternalReviewerHandoff = &mission.CurrentLoopExternalReviewerHandoff{
+			Wave: &mission.CurrentLoopReviewerWave{
+				Lane: "devirt-main",
+				Shards: []*mission.CurrentLoopReviewerAttempt{{
+					Identity:                     mission.CurrentLoopReviewerAttemptIdentity{Lane: "devirt-main"},
+					CurrentReviewerDriverRequest: &drifted,
+				}},
+			},
+		}
+	})
+	assertOperatorDriftOmitted("reviewer attempt identity", func(candidate *mission.CurrentLoopOperatorPackage) {
+		candidate.ExternalReviewerHandoff = &mission.CurrentLoopExternalReviewerHandoff{
+			Attempt: &mission.CurrentLoopReviewerAttempt{Identity: mission.CurrentLoopReviewerAttemptIdentity{Lane: other.Lane.ID}},
+		}
+	})
+	assertOperatorDriftOmitted("reviewer wave identity", func(candidate *mission.CurrentLoopOperatorPackage) {
+		candidate.ExternalReviewerHandoff = &mission.CurrentLoopExternalReviewerHandoff{
+			Wave: &mission.CurrentLoopReviewerWave{Lane: other.Lane.ID},
+		}
+	})
+	assertOperatorDriftOmitted("external member identity", func(candidate *mission.CurrentLoopOperatorPackage) {
+		candidate.ExternalMemberHandoff = &mission.CurrentLoopExternalMemberHandoff{Lane: other.Lane.ID}
+	})
+	assertOperatorDriftOmitted("external session member owner", func(candidate *mission.CurrentLoopOperatorPackage) {
+		candidate.ExternalSessionJob = &mission.CurrentLoopExternalSessionJob{
+			MemberOwner: &mission.CurrentLoopExternalSessionJobOwner{Lane: other.Lane.ID},
+		}
+	})
+}
+
+func TestLaneHandoffResultFiltersCurrentLoopOperator(t *testing.T) {
+	repoRoot, caseRoot := setupContinueCase(t, "")
+	request := handoffFinalDriverRequestForTest(t, caseRoot, "devirt-main")
+	operatorRequest := request
+	operatorRequest.Source = "currentLoopOperator.selectedDriverRequest"
+	operator := &mission.CurrentLoopOperatorPackage{
+		Ready:                      true,
+		State:                      "fresh-loop-review-required",
+		CaseRoot:                   caseRoot,
+		Route:                      "case",
+		Lane:                       "devirt-main",
+		SourceCurrentDriverRequest: &operatorRequest,
+		SelectedDriverRequest:      &operatorRequest,
+	}
+	ctx, err := newHandoffContext(repoRoot, caseRoot, defaults.DefaultPack, HandoffOptions{
+		Selector:             "devirt-main",
+		CurrentDriverRequest: &request,
+		CurrentLoopOperator:  operator,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := ctx.result(false, false, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.CurrentLoopOperator != operator || result.ReplacementExecutorTakeoverPackage == nil || result.ReplacementExecutorTakeoverPackage.CurrentLoopOperator != operator {
+		t.Fatalf("matching lane result omitted current-loop operator: %+v", result)
+	}
+
+	drifted := operatorRequest
+	drifted.Lane = "analysis-other"
+	operator.ExternalReviewerHandoff = &mission.CurrentLoopExternalReviewerHandoff{
+		Wave: &mission.CurrentLoopReviewerWave{
+			Lane: "devirt-main",
+			Active: []*mission.CurrentLoopReviewerAttempt{{
+				DurableContinuationDriverRequest: &drifted,
+			}},
+		},
+	}
+	ctx.currentLoopOperator = operator
+	result, err = ctx.result(false, false, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.CurrentLoopOperator != nil || result.ReplacementExecutorTakeoverPackage == nil || result.ReplacementExecutorTakeoverPackage.CurrentLoopOperator != nil {
+		t.Fatalf("lane result published cross-lane operator: result=%+v package=%+v", result.CurrentLoopOperator, result.ReplacementExecutorTakeoverPackage)
+	}
+}
+
+func TestHandoffContextRejectsInvalidFinalDriverRequest(t *testing.T) {
+	repoRoot, caseRoot := setupContinueCase(t, "")
+	other, err := StartApply(repoRoot, caseRoot, defaults.DefaultPack, StartOptions{Selector: "analysis-other"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name      string
+		selector  string
+		mutate    func(*mission.MissionCommanderDriverRequest)
+		wantError string
+	}{
+		{
+			name: "missing-target",
+			mutate: func(request *mission.MissionCommanderDriverRequest) {
+				setHandoffRequestCommandForTest(t, request, `/rekit continue -Lane devirt-main -WhatIf -Format json`)
+			},
+			wantError: "-Target must bind",
+		},
+		{
+			name: "request-lane-differs-from-invocation",
+			mutate: func(request *mission.MissionCommanderDriverRequest) {
+				request.Lane = other.Lane.ID
+			},
+			wantError: "bind one exact -Lane to request.lane",
+		},
+		{
+			name: "refresh-lane-differs",
+			mutate: func(request *mission.MissionCommanderDriverRequest) {
+				request.ExpectedReceipt.RefreshStatusCommand = `/rekit status -Target "` + caseRoot + `" -Lane ` + other.Lane.ID + ` -Format compact-json`
+			},
+			wantError: "status refresh command must bind the exact",
+		},
+		{
+			name:     "resolved-handoff-lane-differs",
+			selector: "devirt-main",
+			mutate: func(request *mission.MissionCommanderDriverRequest) {
+				*request = handoffFinalDriverRequestForTest(t, caseRoot, other.Lane.ID)
+			},
+			wantError: "differs from resolved handoff lane",
+		},
+		{
+			name: "refresh-target-differs",
+			mutate: func(request *mission.MissionCommanderDriverRequest) {
+				request.ExpectedReceipt.RefreshStatusCommand = `/rekit status -Target "` + t.TempDir() + `" -Lane devirt-main -Format compact-json`
+			},
+			wantError: "status refresh command must bind -Target",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := handoffFinalDriverRequestForTest(t, caseRoot, "devirt-main")
+			test.mutate(&request)
+			before := snapshotWorkstreamTree(t, caseRoot)
+			selector := test.selector
+			if selector == "" {
+				selector = "devirt-main"
+			}
+			_, err := HandoffPreview(repoRoot, caseRoot, defaults.DefaultPack, HandoffOptions{Selector: selector, CurrentDriverRequest: &request})
+			if err == nil || !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("invalid final request error = %v; want %q", err, test.wantError)
+			}
+			if after := snapshotWorkstreamTree(t, caseRoot); after != before {
+				t.Fatalf("invalid final request changed workstream state")
+			}
+		})
+	}
+}
+
+func TestHandoffApplyRejectsFinalDriverRequestDriftWithoutWrites(t *testing.T) {
+	repoRoot, caseRoot := setupContinueCase(t, "")
+	request := handoffFinalDriverRequestForTest(t, caseRoot, "devirt-main")
+	preview, err := HandoffPreview(repoRoot, caseRoot, defaults.DefaultPack, HandoffOptions{Selector: "devirt-main", CurrentDriverRequest: &request})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotWorkstreamTree(t, caseRoot)
+	drifted := handoffFinalDriverRequestForTest(t, caseRoot, "devirt-main")
+	drifted.Boundary = append(drifted.Boundary, "fresh request drift")
+	_, err = HandoffApply(repoRoot, caseRoot, defaults.DefaultPack, HandoffOptions{
+		Selector:                      "devirt-main",
+		ExpectedPublicationPlanSHA256: preview.PublicationPlanSHA256,
+		PublicationStamp:              preview.PublicationStamp,
+		CurrentDriverRequest:          &drifted,
+	})
+	if err == nil || !strings.Contains(err.Error(), "publication plan sha256 mismatch") {
+		t.Fatalf("drifted final request error = %v", err)
+	}
+	if after := snapshotWorkstreamTree(t, caseRoot); after != before {
+		t.Fatalf("drifted final request wrote handoff state")
+	}
+}
+
+func handoffFinalDriverRequestForTest(t *testing.T, caseRoot, lane string) mission.MissionCommanderDriverRequest {
+	t.Helper()
+	command := `/rekit continue -Target "` + caseRoot + `" -Lane ` + lane + ` -WhatIf -Format json`
+	invocation, err := commands.ParsePublicInvocation(command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refresh := `/rekit status -Target "` + caseRoot + `" -Lane ` + lane + ` -Format compact-json`
+	return mission.MissionCommanderDriverRequest{
+		Kind:              "preview-command",
+		RunLoopStepID:     "preview-current",
+		Actor:             "main-agent",
+		State:             "ready-to-continue",
+		Source:            "missionCommanderActions",
+		Lane:              lane,
+		Label:             lane,
+		Invocation:        &invocation,
+		Command:           command,
+		CommandExecutable: true,
+		RequiresReview:    true,
+		ExpectedReceipt: mission.MissionCommanderDriverReceiptExpectation{
+			State:                "refresh-required",
+			Command:              command,
+			RefreshStatusCommand: refresh,
+			Boundary:             []string{"refresh durable state"},
+		},
+		Boundary: []string{"read-only request envelope"},
+	}
+}
+
+func projectHandoffLaneSectionForTest(markdown, laneID string) string {
+	marker := "`" + laneID + "`："
+	start := strings.Index(markdown, marker)
+	if start < 0 {
+		return ""
+	}
+	section := markdown[start:]
+	end := len(section)
+	for _, next := range []string{"\n- 主线 `", "\n- 功能支线 `", "\n## 注意边界"} {
+		if index := strings.Index(section[1:], next); index >= 0 && index+1 < end {
+			end = index + 1
+		}
+	}
+	return section[:end]
+}
+
+func setHandoffRequestCommandForTest(t *testing.T, request *mission.MissionCommanderDriverRequest, command string) {
+	t.Helper()
+	invocation, err := commands.ParsePublicInvocation(command)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Invocation = &invocation
+	request.Command = command
+	request.ExpectedReceipt.Command = command
+}
+
+func assertHandoffQueueCurrentIdentity(t *testing.T, surface string, queue mission.MissionCommanderActionQueue, request *mission.MissionCommanderDriverRequest) {
+	t.Helper()
+	if request == nil || queue.CurrentAction == nil {
+		t.Fatalf("%s current identity is missing: %+v", surface, queue)
+	}
+	if queue.CurrentAction.Command != request.Command || queue.CurrentAction.Invocation == nil || request.Invocation == nil || !queue.CurrentAction.Invocation.Equivalent(*request.Invocation) || queue.CurrentAction.Lane != request.Lane || queue.CurrentAction.Source != request.Source || queue.CurrentAction.State != request.State || queue.CurrentAction.Blocked != request.Blocked || queue.CurrentAction.RequiresReview != request.RequiresReview {
+		t.Fatalf("%s current action differs from final request: action=%+v request=%+v", surface, queue.CurrentAction, request)
+	}
+	if queue.CurrentRunLoopStepID != request.RunLoopStepID || len(queue.CurrentActionRunLoop) != 1 {
+		t.Fatalf("%s current run loop differs from final request: %+v", surface, queue)
+	}
+	step := queue.CurrentActionRunLoop[0]
+	if step.StepID != request.RunLoopStepID || step.Command != request.Command || step.Actor != request.Actor || step.State != request.State || step.Source != request.Source {
+		t.Fatalf("%s current run-loop step differs from final request: step=%+v request=%+v", surface, step, request)
+	}
+}
+
+func assertSameHandoffDriverRequest(t *testing.T, surface string, want, got *mission.MissionCommanderDriverRequest) {
+	t.Helper()
+	if want == nil || got == nil {
+		t.Fatalf("%s request missing: want=%+v got=%+v", surface, want, got)
+	}
+	if !reflect.DeepEqual(*got, *want) {
+		t.Fatalf("%s request structure drifted:\nwant=%+v\ngot=%+v", surface, want, got)
+	}
+	wantSHA, err := mission.MissionCommanderDriverRequestSHA256(*want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotSHA, err := mission.MissionCommanderDriverRequestSHA256(*got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotSHA != wantSHA {
+		t.Fatalf("%s request SHA drifted: got=%s want=%s", surface, gotSHA, wantSHA)
 	}
 }
 
@@ -147,6 +615,14 @@ func TestDailyMissionControlRunbookHandoffDriverRequestsGateApply(t *testing.T) 
 	contains := func(items []string, want string) bool {
 		return slices.ContainsFunc(items, func(item string) bool { return strings.Contains(item, want) })
 	}
+	findStep := func(items []DailyMissionControlRunbookStep, stepID string) *DailyMissionControlRunbookStep {
+		for index := range items {
+			if items[index].StepID == stepID {
+				return &items[index]
+			}
+		}
+		return nil
+	}
 	queue := mission.MissionCommanderActionQueueFor([]mission.MissionCommanderNextActionItem{{
 		Lane:    "feature-triage",
 		Label:   "triage",
@@ -161,10 +637,198 @@ func TestDailyMissionControlRunbookHandoffDriverRequestsGateApply(t *testing.T) 
 	if statusRunbook.HandoffApplyDriverRequest == nil || statusRunbook.HandoffApplyDriverRequest.Kind != "review-guidance" || statusRunbook.HandoffApplyDriverRequest.CommandExecutable || statusRunbook.HandoffApplyDriverRequest.Command != "" || !strings.Contains(statusRunbook.HandoffApplyDriverRequest.Guidance, statusRunbook.HandoffApplyCommand) || statusRunbook.HandoffApplyDriverRequest.ExpectedReceipt.Command != "" || !contains(statusRunbook.HandoffApplyDriverRequest.Boundary, "review guidance until a handoff preview/apply result marks it executable") {
 		t.Fatalf("status runbook should gate handoff apply as review guidance: %+v", statusRunbook.HandoffApplyDriverRequest)
 	}
+	statusApplyStep := findStep(statusRunbook.RunLoop, "write-handoff-for-takeover")
+	if statusApplyStep == nil || statusApplyStep.CommandExecutable {
+		t.Fatalf("status run loop should gate handoff apply as review guidance: %+v", statusApplyStep)
+	}
 
 	handoffRunbook := DailyMissionControlRunbookForWithHandoffApplyReady("C:/case", "case", queue, `/rekit handoff -Target "C:/case" -WhatIf -Format json`, `/rekit handoff -Target "C:/case" -Apply -Format json`, true)
 	if handoffRunbook.HandoffApplyDriverRequest == nil || handoffRunbook.HandoffApplyDriverRequest.Kind != "preview-command" || !handoffRunbook.HandoffApplyDriverRequest.CommandExecutable || handoffRunbook.HandoffApplyDriverRequest.Command != handoffRunbook.HandoffApplyCommand || handoffRunbook.HandoffApplyDriverRequest.ExpectedReceipt.Command != handoffRunbook.HandoffApplyCommand || handoffRunbook.HandoffApplyDriverRequest.ExpectedReceipt.RefreshStatusCommand != handoffRunbook.RefreshStatusCommand || !contains(handoffRunbook.HandoffApplyDriverRequest.Boundary, "handoff apply writes case-local handoff/resume/checkpoint files only") {
 		t.Fatalf("handoff result runbook should expose executable typed handoff apply request: %+v", handoffRunbook.HandoffApplyDriverRequest)
+	}
+	handoffApplyStep := findStep(handoffRunbook.RunLoop, "write-handoff-for-takeover")
+	if handoffApplyStep == nil || !handoffApplyStep.CommandExecutable || handoffApplyStep.Command != handoffRunbook.HandoffApplyCommand {
+		t.Fatalf("handoff result run loop should expose the executable apply command: %+v", handoffApplyStep)
+	}
+}
+
+func TestMissingBoardHandoffPreviewKeepsApplyNonExecutable(t *testing.T) {
+	repoRoot, _ := setupContinueCase(t, "")
+	caseRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(caseRoot, ".rekit"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := casebind.WriteInstance(
+		caseRoot,
+		repoRoot,
+		defaults.DefaultPack,
+		"handoff-missing-board",
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := HandoffPreview(
+		repoRoot,
+		caseRoot,
+		defaults.DefaultPack,
+		HandoffOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Applied || !result.Project || len(result.Writes) != 0 ||
+		result.PublicationPlanSHA256 != "" || result.ApplyCommand != "" ||
+		result.DailyMissionControlRunbook == nil ||
+		result.DailyMissionControlRunbook.HandoffApplyDriverRequest == nil ||
+		result.DailyMissionControlRunbook.HandoffApplyDriverRequest.CommandExecutable ||
+		result.DailyMissionControlRunbook.HandoffApplyDriverRequest.Command != "" ||
+		result.MissionCommanderActionQueue.CurrentDriverRequest == nil ||
+		result.MissionCommanderActionQueue.CurrentDriverRequest.Source != "caseMissionOnboarding" ||
+		result.ReplacementExecutorTakeoverPackage == nil ||
+		!result.ReplacementExecutorTakeoverPackage.CommandExecutable ||
+		result.ReplacementExecutorTakeoverPackage.Command != result.MissionCommanderActionQueue.CurrentDriverRequest.Command {
+		t.Fatalf("missing-board handoff projection crossed onboarding boundary: %+v", result)
+	}
+	for _, step := range result.DailyMissionControlRunbook.RunLoop {
+		if step.StepID == "write-handoff-for-takeover" && step.CommandExecutable {
+			t.Fatalf("missing-board handoff exposed executable apply: %+v", step)
+		}
+	}
+}
+
+func TestLaneHandoffApplyPersistsExactExecutableRoute(t *testing.T) {
+	repoRoot, caseRoot := setupContinueCase(t, "")
+	preview, err := HandoffPreview(
+		repoRoot,
+		caseRoot,
+		defaults.DefaultPack,
+		HandoffOptions{Selector: "devirt-main"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applied, err := HandoffApply(
+		repoRoot,
+		caseRoot,
+		defaults.DefaultPack,
+		HandoffOptions{
+			Selector:                      "devirt-main",
+			ExpectedPublicationPlanSHA256: preview.PublicationPlanSHA256,
+			PublicationStamp:              preview.PublicationStamp,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exact := applied.ApplyCommand
+	if exact == "" || !strings.Contains(exact, applied.PublicationPlanSHA256) ||
+		!strings.Contains(exact, applied.PublicationStamp) ||
+		!strings.Contains(exact, "-Lane devirt-main") {
+		t.Fatalf("lane handoff result omitted exact bounded apply: %+v", applied)
+	}
+
+	markdown := readHandoffTestFile(
+		t,
+		filepath.Join(caseRoot, ".rekit", "handovers", "devirt-main-latest.md"),
+	)
+	assertPersistedExecutableHandoffRunbook(t, markdown, exact)
+
+	takeoverData := readHandoffTestFile(
+		t,
+		filepath.Join(
+			caseRoot,
+			".rekit",
+			"handovers",
+			"devirt-main-latest-replacement-executor-takeover.json",
+		),
+	)
+	var takeover mission.ReplacementExecutorTakeoverPackage
+	if err := json.Unmarshal([]byte(takeoverData), &takeover); err != nil {
+		t.Fatalf("decode persisted lane takeover: %v\n%s", err, takeoverData)
+	}
+	if !takeover.Ready || !takeover.CommandExecutable ||
+		takeover.Command != takeover.CurrentDriverRequest.Command ||
+		takeover.CurrentDriverRequest.ExpectedReceipt.Command != takeover.Command {
+		t.Fatalf("persisted lane takeover route drifted: %+v", takeover)
+	}
+}
+
+func TestProjectHandoffApplyPersistsOnlyProjectExactRoute(t *testing.T) {
+	repoRoot, caseRoot := setupContinueCase(t, "")
+	preview, err := HandoffPreview(
+		repoRoot,
+		caseRoot,
+		defaults.DefaultPack,
+		HandoffOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applied, err := HandoffApply(
+		repoRoot,
+		caseRoot,
+		defaults.DefaultPack,
+		HandoffOptions{
+			ExpectedPublicationPlanSHA256: preview.PublicationPlanSHA256,
+			PublicationStamp:              preview.PublicationStamp,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exact := applied.ApplyCommand
+	if exact == "" || !strings.Contains(exact, applied.PublicationPlanSHA256) ||
+		!strings.Contains(exact, applied.PublicationStamp) ||
+		strings.Contains(exact, "-Lane") {
+		t.Fatalf("project handoff result omitted project-scoped apply: %+v", applied)
+	}
+
+	markdown := readHandoffTestFile(
+		t,
+		filepath.Join(caseRoot, ".rekit", "handovers", "latest.md"),
+	)
+	assertPersistedExecutableHandoffRunbook(t, markdown, exact)
+	for _, selector := range []string{"main", "bootstrap"} {
+		laneExact := handoffApplyCommand(
+			caseRoot,
+			selector,
+			applied.PublicationPlanSHA256,
+			applied.PublicationStamp,
+		)
+		if strings.Contains(markdown, laneExact) {
+			t.Fatalf("project handoff bound project plan to lane command: %s", laneExact)
+		}
+	}
+	if strings.Count(markdown, "handoff apply driver request: kind=review-guidance executable=false") < 2 ||
+		strings.Count(markdown, "step=write-handoff-for-takeover") < 3 ||
+		strings.Count(markdown, "step=write-handoff-for-takeover actor=main-agent state=handoff-apply-available source=dailyMissionControlRunbook.handoffApply driverKind= executable=false") < 2 {
+		t.Fatalf("project handoff lane sub-runbook became executable:\n%s", markdown)
+	}
+}
+
+func readHandoffTestFile(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func assertPersistedExecutableHandoffRunbook(
+	t *testing.T,
+	markdown,
+	exact string,
+) {
+	t.Helper()
+	if strings.Contains(markdown, handoffPublicationPlanSHA256Marker) ||
+		!strings.Contains(markdown, "handoff apply: `"+exact+"`") ||
+		!strings.Contains(markdown, "handoff apply driver request: kind=preview-command executable=true") ||
+		!strings.Contains(markdown, "handoff apply driver request expected receipt: state=refresh-required command=`"+exact+"`") ||
+		!strings.Contains(markdown, "step=write-handoff-for-takeover") ||
+		!strings.Contains(markdown, "executable=true") ||
+		!strings.Contains(markdown, "command=`"+exact+"`") {
+		t.Fatalf("persisted handoff route is not exact and executable:\n%s", markdown)
 	}
 }
 

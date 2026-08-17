@@ -11,36 +11,43 @@ func TestInspectRepoPublicDefaultDocsReady(t *testing.T) {
 	readiness := Inspect(repoRoot(t))
 	counts := ReadinessCountsFor(readiness)
 	if !readiness.Ready || readiness.Summary != "public default docs readiness ok" || counts.Warnings != 0 {
-		t.Fatalf("unexpected public default docs readiness: %+v", readiness)
+		t.Fatalf("unexpected current STeamAI public default docs readiness: %+v", readiness)
+	}
+	if readiness.Model != "steamai-self-contained-current" || readiness.DefaultEntrypoint != "/steamai" || readiness.StateRoot != ".steamai" || readiness.RuntimeSource != "project-local-verified-bundle" || readiness.FallbackAllowed {
+		t.Fatalf("unexpected current STeamAI public defaults: %+v", readiness)
 	}
 	assertDocument(t, readiness, "README.md")
-	assertDocument(t, readiness, ".claude/skills/rekit/SKILL.md")
+	assertDocument(t, readiness, ".claude/skills/steamai/SKILL.md")
+	assertDocument(t, readiness, "rekit/templates/steamai-project/SKILL.md")
 	assertDocument(t, readiness, "CLAUDE.md")
 	assertDocument(t, readiness, "docs/context-routing.md")
 	assertDocument(t, readiness, "docs/real-usage-hardening-roadmap.md")
 	assertDocument(t, readiness, "docs/batch-plan.md")
 	assertDocument(t, readiness, "docs/mission-control-product-direction.md")
+	assertDocument(t, readiness, "docs/steamai-self-contained-project.md")
 	assertDocument(t, readiness, "docs/autonomous-goal.md")
 	assertDocument(t, readiness, "docs/release-readiness.md")
 	assertDocument(t, readiness, "docs/powershell-deprecation.md")
 	assertDocument(t, readiness, "rekit/tests/README.md")
-	assertPhrase(t, readiness, "README.md", "用户主要指挥主 Agent / Mission Commander")
-	assertPhrase(t, readiness, "docs/mission-control-product-direction.md", "Lane-centric Agent Team Mission Control")
-	assertPhrase(t, readiness, ".claude/skills/rekit/SKILL.md", "底层 Go CLI 是 canonical runtime")
-	assertPhrase(t, readiness, "CLAUDE.md", "本项目文档必须做成按需路由、渐进式披露的样式")
-	assertPhrase(t, readiness, "docs/context-routing.md", "本项目文档必须做成按需路由、渐进式披露的样式")
-	assertPhrase(t, readiness, "docs/context-routing.md", "不要默认读取 `docs/batch-history.md` 全文")
-	assertPhrase(t, readiness, "docs/context-routing.md", "当前不再从候选池选题")
-	assertPhrase(t, readiness, "docs/real-usage-hardening-roadmap.md", "active source")
-	assertPhrase(t, readiness, "docs/real-usage-hardening-roadmap.md", "只内联当前批次卡")
-	assertPhrase(t, readiness, "docs/batch-plan.md", "完整历史已拆到 `docs/batch-history.md`")
-	assertPhrase(t, readiness, "docs/batch-plan.md", "唯一允许领取")
-	assertPhrase(t, readiness, "CLAUDE.md", "当前支持与日常完成门槛以 Windows 本机为准")
-	assertPhrase(t, readiness, "docs/autonomous-goal.md", "聊天 goal 只负责启动或继续**已批准路线**")
-	assertPhrase(t, readiness, "docs/autonomous-goal.md", "默认继续自主推进仅表示继续**已批准路线**")
-	assertPhrase(t, readiness, "docs/release-readiness.md", "默认本机验证路径不依赖 PowerShell")
-	assertPhrase(t, readiness, "docs/powershell-deprecation.md", "Go CLI/backend 是 canonical runtime")
-	assertPhrase(t, readiness, "rekit/tests/README.md", "推荐最小回归组合")
+	assertPhrase(t, readiness, "README.md", "旧 `/rekit`、`.rekit` 和中央 kit/thin-shim 模型只在迁移期间兼容，不是新项目默认")
+	assertPhrase(t, readiness, ".claude/skills/steamai/SKILL.md", "新项目唯一可变状态根是 `${CLAUDE_PROJECT_DIR}/.steamai`")
+	assertPhrase(t, readiness, ".claude/skills/steamai/SKILL.md", "不通过 PATH、全局 plugin、项目内 Go source 或外部 kit 回退")
+	assertPhrase(t, readiness, "rekit/templates/steamai-project/SKILL.md", "`${CLAUDE_PROJECT_DIR}/.steamai/instance.yml`")
+	assertPhrase(t, readiness, "rekit/templates/steamai-project/SKILL.md", "不通过 PATH 或外部 kit 回退")
+	assertPhrase(t, readiness, "CLAUDE.md", "`/steamai` canonical skill")
+	assertPhrase(t, readiness, "CLAUDE.md", "legacy `/rekit` compatibility skill")
+	assertPhrase(t, readiness, "CLAUDE.md", "case public JSON 的 project-local typed command 由 resolved state root 统一投影")
+	assertPhrase(t, readiness, "docs/context-routing.md", "STeamAI 自包含项目 / `.steamai` / `/steamai` / runtime bundle / legacy 迁移")
+	assertPhrase(t, readiness, "docs/real-usage-hardening-roadmap.md", "当前路线是 `steamai-self-contained-project-v1`")
+	assertPhrase(t, readiness, "docs/real-usage-hardening-roadmap.md", "拒绝 PATH/外部 kit fallback")
+	assertPhrase(t, readiness, "docs/batch-plan.md", "当前路线是 `steamai-self-contained-project-v1`")
+	assertPhrase(t, readiness, "docs/mission-control-product-direction.md", "新项目的用户入口是 `/steamai`")
+	assertPhrase(t, readiness, "docs/mission-control-product-direction.md", "唯一 current 状态根是 `.steamai`")
+	assertPhrase(t, readiness, "docs/steamai-self-contained-project.md", "一个真实项目目录 = 一个自包含 STeamAI 项目")
+	assertPhrase(t, readiness, "docs/steamai-self-contained-project.md", "旧 `/rekit` 与 `.rekit` 在迁移期间只作为兼容入口")
+	assertPhrase(t, readiness, "docs/steamai-self-contained-project.md", "case public JSON 按 resolved state root 投影全部 project-local typed command")
+	assertPhrase(t, readiness, "docs/release-readiness.md", "current STeamAI entry readiness")
+	assertPhrase(t, readiness, "docs/release-readiness.md", "legacy `/rekit` / `.rekit` compatibility readiness")
 	if counts.ForbiddenCommands != 0 {
 		t.Fatalf("unexpected forbidden public default commands: %+v", readiness.ForbiddenCommands)
 	}
@@ -79,16 +86,31 @@ func TestInspectDetectsPowerShellShellFence(t *testing.T) {
 	assertWarningContains(t, readiness.Warnings, "uses PowerShell shell fence")
 }
 
-func TestInspectDetectsMissingMissionControlDefaultPhrase(t *testing.T) {
+func TestInspectDetectsMissingCurrentSTeamAIDefaultPhrase(t *testing.T) {
 	repo := t.TempDir()
 	writeReadyDocs(t, repo)
-	writeFile(t, filepath.Join(repo, "README.md"), "# README\n\nmissing public defaults\n")
+	writeFile(t, filepath.Join(repo, ".claude", "skills", "steamai", "SKILL.md"), "# current skill\n\nmissing project-local no-fallback boundary\n")
 
 	readiness := Inspect(repo)
 	if readiness.Ready {
-		t.Fatalf("public default docs unexpectedly ready despite missing phrases: %+v", readiness)
+		t.Fatalf("current STeamAI public default docs unexpectedly ready despite missing phrases: %+v", readiness)
 	}
-	assertWarningContains(t, readiness.Warnings, "README.md missing required phrase")
+	assertWarningContains(t, readiness.Warnings, ".claude/skills/steamai/SKILL.md missing required phrase")
+}
+
+func TestInspectDoesNotRequireLegacyRekitSkillAsCurrentDefault(t *testing.T) {
+	repo := t.TempDir()
+	writeReadyDocs(t, repo)
+
+	readiness := Inspect(repo)
+	if !readiness.Ready {
+		t.Fatalf("current STeamAI public defaults should not require a legacy /rekit skill fixture: %+v", readiness)
+	}
+	for _, doc := range readiness.Documents {
+		if doc.Path == ".claude/skills/rekit/SKILL.md" {
+			t.Fatalf("legacy /rekit skill leaked into current default document inventory: %+v", readiness.Documents)
+		}
+	}
 }
 
 func assertDocument(t *testing.T, readiness Readiness, path string) {
@@ -130,12 +152,14 @@ func assertWarningContains(t *testing.T, warnings []string, want string) {
 func writeReadyDocs(t *testing.T, repo string) {
 	t.Helper()
 	writeFile(t, filepath.Join(repo, "README.md"), readyREADME)
-	writeFile(t, filepath.Join(repo, ".claude", "skills", "rekit", "SKILL.md"), readySkill)
+	writeFile(t, filepath.Join(repo, ".claude", "skills", "steamai", "SKILL.md"), readySTeamAISkill)
+	writeFile(t, filepath.Join(repo, "rekit", "templates", "steamai-project", "SKILL.md"), readySTeamAIProjectSkill)
 	writeFile(t, filepath.Join(repo, "CLAUDE.md"), readyClaude)
 	writeFile(t, filepath.Join(repo, "docs", "context-routing.md"), readyContextRouting)
 	writeFile(t, filepath.Join(repo, "docs", "real-usage-hardening-roadmap.md"), readyRealUsageHardeningRoadmap)
 	writeFile(t, filepath.Join(repo, "docs", "batch-plan.md"), readyBatchPlan)
 	writeFile(t, filepath.Join(repo, "docs", "mission-control-product-direction.md"), readyMissionControlProductDirection)
+	writeFile(t, filepath.Join(repo, "docs", "steamai-self-contained-project.md"), readySTeamAISelfContainedProject)
 	writeFile(t, filepath.Join(repo, "docs", "autonomous-goal.md"), readyAutonomousGoal)
 	writeFile(t, filepath.Join(repo, "docs", "release-readiness.md"), readyReleaseReadiness)
 	writeFile(t, filepath.Join(repo, "docs", "powershell-deprecation.md"), readyPowerShellDeprecation)
@@ -173,65 +197,83 @@ func repoRoot(t *testing.T) string {
 const readyREADME = `# README
 
 用户主要指挥主 Agent / Mission Commander。
-Go CLI/backend 是背后的 canonical deterministic runtime/API。
-` + "`rekit.ps1` 仅作为 retained compatibility façade。" + `
-默认路径继续向 PowerShell-free / Go-native / 跨平台收敛。
-这里不需要你手动执行底层脚本。
-用户不需要把 ` + "`/rekit`" + ` 子命令当成主要交互界面。
+未接入的普通目录在 init 前没有项目级 ` + "`/steamai`" + `；目前仓库尚未提供面向普通用户的独立安装包。
+新项目使用 /steamai，唯一 current 状态根 ` + "`.steamai/`" + `。
+项目内 verified runtime 不能依赖旧绝对路径、机器 PATH 或原中央 kit。
+旧 ` + "`/rekit`" + `、` + "`.rekit`" + ` 和中央 kit/thin-shim 模型只在迁移期间兼容，不是新项目默认。
 `
 
-const readySkill = `# skill
+const readySTeamAISkill = `# STeamAI 项目内 Mission Control 入口
 
-产品方向是 Mission Control。
-底层 Go CLI 是 canonical runtime。
-` + "`rekit.ps1` 只是 retained compatibility façade。" + `
-底层 runtime 只作为 ` + "`/rekit`" + ` 的内部实现。
+新项目唯一可变状态根是 ` + "`${CLAUDE_PROJECT_DIR}/.steamai`" + `。
+旧 ` + "`.rekit`" + ` 项目只走兼容入口。
+不通过 PATH、全局 plugin、项目内 Go source 或外部 kit 回退。
+bounded-autonomous-v1 preview 后 exact Apply；不要让用户记 SHA。
+typed ` + "`invocation`" + ` 是唯一通用命令桥，按 ["runtime", "-Command", invocation.command] 传 argv；` + "`commandExecutable=false`" + ` 不执行。
+`
+
+const readySTeamAIProjectSkill = `# project STeamAI skill
+
+本目录是一个自包含 STeamAI 项目。
+只接受 ` + "`${CLAUDE_PROJECT_DIR}/.steamai/instance.yml`" + `。
+不通过 PATH 或外部 kit 回退。
+bounded-autonomous-v1 preview 后 exact Apply；不要让用户记 SHA。
+typed ` + "`invocation`" + ` 是唯一通用命令桥，按 ["runtime", "-Command", invocation.command] 传 argv；` + "`commandExecutable=false`" + ` 不执行。
 `
 
 const readyClaude = `# CLAUDE
 
-本项目文档必须做成按需路由、渐进式披露的样式。
-当前支持与日常完成门槛以 Windows 本机为准。
-PowerShell replacement/removal 不再因“删除 PowerShell”本身停下询问。
-默认远程 CI workflow 是 ` + "`.github/workflows/release-gate.yml`" + `，定义 Linux、Windows、macOS Go-native release checks。
+` + "`/steamai`" + ` canonical skill；legacy ` + "`/rekit`" + ` compatibility skill。
+新项目不得回退机器 PATH 或外部 kit。
+case public JSON 的 project-local typed command 由 resolved state root 统一投影。
 `
 
 const readyContextRouting = `# context routing
 
-本文件是唯一完整文档路由入口。
 本项目文档必须做成按需路由、渐进式披露的样式。
-不要默认读取 ` + "`docs/batch-history.md`" + ` 全文。
-当前不再从候选池选题。
+STeamAI 自包含项目 / ` + "`.steamai`" + ` / ` + "`/steamai`" + ` / runtime bundle / legacy 迁移。
+不把旧中央 kit/thin-shim 流程当新项目默认。
 `
 
 const readyRealUsageHardeningRoadmap = `# roadmap
 
-本文件是 active source，只内联当前批次卡。
+本文件是 active source。
+当前路线是 ` + "`steamai-self-contained-project-v1`" + `。
+拒绝 PATH/外部 kit fallback。
+默认 quickstart 只保留 ` + "`cd <project> → claude → /steamai`" + `。
 `
 
 const readyBatchPlan = `# batch plan
 
-完整历史已拆到 ` + "`docs/batch-history.md`" + `。
-唯一允许领取：RH-01。
+当前路线是 ` + "`steamai-self-contained-project-v1`" + `。
+唯一允许领取：完成 current closure。
 `
 
 const readyMissionControlProductDirection = `# mission
 
-Lane-centric Agent Team Mission Control。
-用户主要和一个 **主 Agent / Mission Commander** 会话交互。
-Go-first deterministic substrate。
+STeamAI Lane-centric Agent Team Mission Control。
+新项目的用户入口是 ` + "`/steamai`" + `，唯一 current 状态根是 ` + "`.steamai`" + `。
+` + "`/rekit`" + `、` + "`.rekit`" + ` 和 ` + "`rekit.ps1`" + ` 只作为迁移期 compatibility surface。
+`
+
+const readySTeamAISelfContainedProject = `# self-contained project
+
+一个真实项目目录 = 一个自包含 STeamAI 项目。
+项目复制或移动后不能依赖旧绝对路径、机器全局 PATH 或原中央 kit 仓库。
+旧 ` + "`/rekit`" + ` 与 ` + "`.rekit`" + ` 在迁移期间只作为兼容入口。
+case public JSON 按 resolved state root 投影全部 project-local typed command。
 `
 
 const readyAutonomousGoal = `# goal
 
-PowerShell-free / Go-native / 跨平台。
-每轮自主推进按这个循环做。
+聊天 goal 只负责启动或继续**已批准路线**。
 默认继续自主推进仅表示继续**已批准路线**。
 `
 
 const readyReleaseReadiness = `# release
 
 普通 batch 默认依赖 Go-owned ` + "`release-check`" + ` inventory。
+current STeamAI entry readiness 与 legacy ` + "`/rekit`" + ` / ` + "`.rekit`" + ` compatibility readiness 分开验证且都参与 ready。
 默认本机验证路径不依赖 PowerShell。
 `
 
