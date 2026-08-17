@@ -29,6 +29,16 @@
 
 ## 近期已完成批次与验证
 
+### Batch 828：STeamAI self-contained project closure
+
+状态：已完成。
+
+用户断点：旧产品要求用户理解中央 kit、case thin shim、`.rekit`、大量底层命令和逐次授权；默认 status 可能挤占上下文，复杂 recovery 需要维护者知识，项目复制后又依赖原 kit。
+
+实现：默认模型迁移为“一个真实项目目录 = 一个自包含 STeamAI 项目”：项目内 `/steamai`、唯一 current `.steamai` root、verified runtime/selected pack、dual-read/single-write legacy migration、4 KiB compact status、人话 typed recovery、`bounded-autonomous-v1`、copied-directory/no-central-kit、current-sync process recovery、project execution lease与durable detached-supervisor handoff。非Windows缺少handle-bound exact mutation时在任何持久化副作用前fail-closed；read-only/preview与legacy compatibility保留。
+
+验证结果：Windows current/legacy/dual-root、bundle/copy、recovery/autonomy/migration和真实product-path E2E通过；完整`go test -count=1 -p=2 -timeout=30m ./...`、`go vet ./...`、`go mod verify`、public CLI与`git diff --check`通过。主体commit `b7d2f2d0eba6c128a4e4d2b5128bd9a685bf731b`已推送；post-push发现的Windows `core.autocrlf=true` receipt误报由repair commit `f6dc97bdedda01ed3d1e0ed11887906830799709`收口，inspector只额外接受HEAD-bound text attributes允许的exact LF blob→CRLF checkout物化，hidden clean-filter bytes和其它drift继续拒绝。最终`HEAD == origin/main`、工作树clean、Git-local receipt validated；未把local evidence冒充remote CI green。
+
 ### Batch 827：maintenance hotspot decomposition and full Windows acceptance
 
 状态：已完成。

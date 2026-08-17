@@ -561,8 +561,9 @@ func releaseHandoffSignals(check Result, latest ReleaseHandoffLatestBatch, notes
 			Summary: check.PublicDefaultDocs.Summary,
 			Details: []string{
 				fmt.Sprintf("model=%s entrypoint=%s stateRoot=%s runtimeSource=%s fallbackAllowed=%t", check.PublicDefaultDocs.Model, check.PublicDefaultDocs.DefaultEntrypoint, check.PublicDefaultDocs.StateRoot, check.PublicDefaultDocs.RuntimeSource, check.PublicDefaultDocs.FallbackAllowed),
+				fmt.Sprintf("canonicalRepository=%s canonicalCloneUrl=%s moduleCompatibilityIdentity=%s", check.PublicDefaultDocs.CanonicalRepository, check.PublicDefaultDocs.CanonicalCloneURL, check.PublicDefaultDocs.ModuleCompatibilityIdentity),
 				fmt.Sprintf("documents=%d requiredPhrases=%d forbiddenCommands=%d forbiddenShellFences=%d", publicDefaultDocCounts.Documents, publicDefaultDocCounts.RequiredPhrases, publicDefaultDocCounts.ForbiddenCommands, publicDefaultDocCounts.ForbiddenShellFences),
-				"README, canonical /steamai skill, project template, router, current route, product direction, and self-contained contract keep project-local no-fallback defaults",
+				"README, canonical /steamai skill, project template, router, current route, repository handoff guidance, product direction, and self-contained contract keep project-local no-fallback defaults",
 				"legacy /rekit and .rekit remain compatibility surfaces rather than new-project defaults",
 			},
 		},

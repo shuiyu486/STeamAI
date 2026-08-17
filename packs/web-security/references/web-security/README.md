@@ -1,6 +1,6 @@
 # Web/API security pack
 
-`web-security` 是面向授权 Web/API 安全评估、靶场/CTF 与防御性安全工程任务的最小 Agent Team pack 骨架。它用于验证 `re-context-kits` 的非 RE pack 扩展边界：工作线、packet、ledger、review gate、handoff、sync/promote 和 tooling adapter 契约应保持 pack-neutral。
+`web-security` 是面向授权 Web/API 安全评估、靶场/CTF 与防御性安全工程任务的最小 Agent Team pack 骨架。它用于验证 STeamAI 的非 RE pack 扩展边界：工作线、packet、ledger、review gate、handoff、sync/promote 和 tooling adapter 契约应保持 pack-neutral。
 
 当前不是自动化扫描器、漏洞利用器、凭据测试器或 DoS 工具；它只提供可审计、可交接、review-first 的 case workspace 规则。
 

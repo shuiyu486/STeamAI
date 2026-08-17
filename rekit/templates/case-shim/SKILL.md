@@ -1,11 +1,11 @@
 ---
 name: rekit
-description: Automatically use inside an attached re-context-kits case for natural-language status, start, continue, correction, handoff, sync/promote review, or gated tooling requests. This is a thin metadata redirect to the canonical kit skill.
+description: Automatically use inside a legacy .rekit case attached to the STeamAI repository for natural-language status, start, continue, correction, handoff, sync/promote review, or gated tooling requests. This is a thin metadata redirect to the canonical compatibility skill.
 ---
 
 # rekit case shim
 
-本 skill 是 case-local 薄 shim，不包含业务逻辑。真正的 canonical `/rekit` 位于绑定的 `re-context-kits` 仓库；解释与执行由 canonical runtime / Go-native backend 负责。
+本 skill 是 legacy case-local 薄 shim，不包含业务逻辑。真正的 canonical `/rekit` compatibility skill 位于 metadata 绑定的 STeamAI repository checkout；解释与执行由 canonical runtime / Go-native backend 负责。Repository 在 GitHub 上改名不会自动改写既有绝对 `templateRoot`，因此本 shim继续以绑定metadata为准。
 
 ## 跳转步骤
 

@@ -2,7 +2,7 @@
 
 ## 项目定位
 
-`re-context-kits` 是 STeamAI 的实现仓库：面向安全研究的 Claude Code Agent Team Mission Control，组织 Mission Commander、durable lanes、可替换 session executors、短命 subagents、领域 pack、证据和门禁。
+本仓库是 STeamAI 的 canonical 实现仓库（`https://github.com/shuiyu486/STeamAI`）：面向安全研究的 Claude Code Agent Team Mission Control，组织 Mission Commander、durable lanes、可替换 session executors、短命 subagents、领域 pack、证据和门禁。旧 `github.com/shuiyu486/re-context-kits` 暂时只作为 Go module compatibility identity 保留。
 
 产品北极星见 `docs/mission-control-product-direction.md`：一个真实项目目录就是一个自包含 STeamAI 项目。用户在目录内启动已有 Claude Code，主要指挥主 Agent；新项目入口 `/steamai`、current 根 `.steamai`，runtime/selected pack 随项目发布。`/rekit`、`.rekit`、中央 kit/thin-shim 仅迁移兼容。成员身份绑定 lane；heavy action 只认 active root 的 strict autonomy profile + `authorized-gate`。
 
@@ -34,7 +34,7 @@
 
 ## 当前推进原则
 
-路线 `steamai-self-contained-project-v1` / Batch 828 已按 Windows 本机口径完成：自然语言日常和接手顺畅、可记录、可恢复；init 发布可重定位 project-local bundle，复制并移除中央 kit 后仍能运行。当前没有已批准下一批，等待用户明确改变路线；远程 CI、Linux/macOS runtime E2E、独立安装包仅专项检查，cross-compile 不等于平台运行证据。
+路线 `steamai-repository-identity-v1` / Batch 829 已完成 current GitHub repository identity implementation：canonical repository/clone 使用 `shuiyu486/STeamAI`；Go module/import、内部 `rekit` names、legacy `/rekit` / `.rekit` 与本地 checkout 目录名暂保留兼容。最终验证与发布完成态只认 Git-local machine receipt 和本地 tracking ref；当前无已批准下一批，等待用户明确改变路线。远程 CI、Linux/macOS runtime E2E、独立安装包仅专项检查，cross-compile 不等于平台运行证据。
 
 保持 PowerShell-free/Go-native；禁止新增 PowerShell runtime logic。避免单字段 contract/inventory/metadata 微批次，把支撑改动并入产品闭环。PowerShell replacement/removal 有 Go-native 替代、文档和验证时可继续；公共入口删除门禁不完整则升级。
 

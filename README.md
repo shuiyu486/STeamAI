@@ -2,6 +2,8 @@
 
 STeamAI 是面向网络安全研究与安全工程任务的 Claude Code **Agent Team Mission Control**。它把一个真实项目目录组织成自包含工作空间：用户主要指挥主 Agent / Mission Commander；durable member lanes、可替换 Claude Code session executors、短命 tactical subagents、领域 pack、证据账本和授权门禁在项目内协作。
 
+Canonical GitHub repository：[`shuiyu486/STeamAI`](https://github.com/shuiyu486/STeamAI)。从源码维护或试用时使用 `git clone https://github.com/shuiyu486/STeamAI.git`；`github.com/shuiyu486/re-context-kits` 暂时只作为 Go module compatibility identity 保留，不是当前 repository clone 地址。
+
 用户前提很简单：**本机已经能正常使用 Claude Code**。STeamAI 不安装 Claude Code、不管理登录、不要求全局 plugin，也不另造桌面启动器。
 
 下面三步只适用于**已经完成一次 STeamAI 接入**的项目。未接入的普通目录在 init 前没有项目级 `/steamai`，Claude Code 不会凭空识别它；首次接入必须由可信的外部 STeamAI initializer / maintenance executable 先做只读分类并生成 hash-bound init preview，用户确认 exact writes 后才 Apply。Apply 会把 `/steamai` skill、`.steamai` 状态根、verified runtime 和 selected pack 发布进项目；此后日常使用不再依赖 initializer、机器 PATH、全局 plugin 或原中央 kit。
@@ -25,7 +27,7 @@ claude
 
 新项目使用项目级 `.claude/skills/steamai/SKILL.md`、唯一 current 状态根 `.steamai/`、项目内 verified runtime 和 selected pack。一个项目目录就是一个隔离的 STeamAI 项目；复制或移动后不能依赖旧绝对路径、机器 PATH 或原中央 kit。旧 `/rekit`、`.rekit` 和中央 kit/thin-shim 模型只在迁移期间兼容，不是新项目默认。
 
-> `steamai-self-contained-project-v1` / Batch 828 已完成 Windows 本机产品闭环：state-root、compact status、人话 recovery、有界自治、project-local runtime bundle、copied-directory/no-central-kit、hash-bound legacy migration、current-sync process recovery、durable supervisor handoff、独立边界复核和完整 local minimum 均已关闭。当前无已批准下一批；未授权 commit/push，release cadence 仍为 `implementation-pending`，不声称 post-push receipt 或 remote CI green。当前状态见 `docs/real-usage-hardening-roadmap.md`，详细合同见 `docs/steamai-self-contained-project.md`。
+> `steamai-self-contained-project-v1` / Batch 828 已完成并推送 Windows 本机产品闭环；`steamai-repository-identity-v1` / Batch 829 已完成 GitHub repository 公开身份的 implementation，不机械改动 Go module/import、内部 `rekit` names 或 legacy `/rekit` / `.rekit`。最终验证、commit/push 与 post-push 完成态只由 Git-local machine receipt 和本地 tracking ref 判定，不由文案预先声称；当前状态见 `docs/real-usage-hardening-roadmap.md`，自包含合同见 `docs/steamai-self-contained-project.md`，本地 readiness 不冒充 remote CI green。
 
 STeamAI 不是全自动脱壳器、自动逆向引擎、自动漏洞挖掘器、自动恶意样本分析平台或通用自动渗透平台；它优先提供可审计、可交接、review-first 的 Agent Team 底座。heavy action 只在 strict durable profile 与 fresh `authorized-gate` 覆盖的 exact scope/budget/stop/output 内执行并留证；`bounded-autonomous-v1` 只是显式、短时、有界的免逐次询问，不是无限权限。
 

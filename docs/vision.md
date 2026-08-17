@@ -1,15 +1,15 @@
-# re-context-kits vision
+# STeamAI vision
 
 ## 读取指南
 
 - 如果你要使用 STeamAI，在真实项目目录启动已有 Claude Code 并使用 `/steamai` 或自然语言；先读 `README.md` 第一屏，不要从本文件的历史 Phase 自行拼接接入流程。
 - 如果你要维护或迭代本仓库，先读 `docs/context-routing.md`，再由 router 选择 active source；只有需要长期方向或历史阶段背景时才读本文件。
 - 本文件描述长期愿景和历史演进，不代表目标能力都已完成，也不拥有当前选题权。当前路线、完成状态与门槛只以 `docs/real-usage-hardening-roadmap.md` 的 active card 和真实测试为准。
-- 当前已形成 Go-owned deterministic runtime、durable lanes、handoff/recovery、Reviewer strict intake、review-first sync/promote、authorized execution evidence 与首个成熟 `vmp-re` pack；正在收口的是 `/steamai`、`.steamai`、project-local verified bundle、compact/recovery/autonomy 与 legacy migration 的自包含产品闭环。
+- Go-owned deterministic runtime、durable lanes、handoff/recovery、Reviewer strict intake、review-first sync/promote、authorized execution evidence、首个成熟 `vmp-re` pack，以及 `/steamai`、`.steamai`、project-local verified bundle、compact/recovery/autonomy 与 legacy migration 的自包含产品闭环均已形成；GitHub repository identity implementation 已完成，不扩大为 Go module/internal rename，最终发布完成态由 machine receipt 判定。
 
 ## 实施摘要
 
-`re-context-kits` 实现的长期产品是：**面向网络安全研究与安全工程任务的 STeamAI Claude Code Agent Team Mission Control**。一个真实项目目录就是一个自包含 STeamAI 项目。
+STeamAI repository 实现的长期产品是：**面向网络安全研究与安全工程任务的 STeamAI Claude Code Agent Team Mission Control**。一个真实项目目录就是一个自包含 STeamAI 项目。
 
 它不是单个脱壳工具、IDA 插件、漏洞扫描器或自动化脚本集合，而是把主 Agent 统筹、durable member lanes、可替换 Claude Code session executors、短命 tactical subagents、领域工具链、证据账本、工作线管理、验证门禁和可复用安全领域 pack 组织成可持续迭代的 case workspace。`vmp-re` 是当前首个成熟 pack 和验证场，不是最终边界；长期目标是逐步支持逆向工程、恶意样本分析、漏洞研究、Web/API 安全评估、授权测试/靶场/CTF、Android native、OLLVM 等多类安全任务。最终产品方向详见 `docs/mission-control-product-direction.md`。
 
@@ -25,8 +25,8 @@
 
 - [x] 产品北极星固定为 STeamAI Lane-centric Agent Team Mission Control；长期身份绑定 lane，会话可替换。
 - [x] Go-owned deterministic runtime、Agent Team 工作流、evidence ledger、Reviewer、gate/adapter 和 `vmp-re` 深化已形成可复用底座。
-- [ ] 当前只完成 `docs/real-usage-hardening-roadmap.md` 指向的 `steamai-self-contained-project-v1`；不得从下文历史 Phase 或其它长期愿景自行领取工作。
-- [ ] self-contained closure 完成后，由 active roadmap 重新评估 pack 深化、adapter、安装/界面、跨平台或更高自治范围。
+- [x] `steamai-self-contained-project-v1` / Batch 828 已完成；current product不再依赖中央kit/thin shim。
+- [x] `steamai-repository-identity-v1` / Batch 829 repository identity implementation 已完成；当前无已批准下一批，等待用户明确改变路线，不得从下文历史 Phase 或其它长期愿景自行领取工作。
 
 下文 Phase 0～6 只保留架构演进背景，不是当前 checklist。新的实施切片必须进入 active roadmap，保持中大型、可验证闭环。
 
@@ -70,7 +70,7 @@ runtime 阶段还应增加：
 
 ## 1. 项目定位
 
-`re-context-kits` 是安全研究 / 安全工程 Agent Team 的上下文、流程和工具编排框架。
+STeamAI 是安全研究 / 安全工程 Agent Team 的上下文、流程和工具编排框架。
 
 它服务的对象有两类：
 
@@ -113,7 +113,7 @@ runtime 阶段还应增加：
 ## 4. 现有模块如何映射到目标架构
 
 ```text
-re-context-kits/
+STeamAI/
   .claude/skills/steamai/      # canonical current project skill source
   .claude/skills/rekit/        # legacy/maintenance compatibility skill
   cmd/rekit*/                  # Go-native deterministic runtime/session source entrypoints

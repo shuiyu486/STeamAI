@@ -1,6 +1,6 @@
 ---
 name: rekit
-description: Legacy compatibility and maintenance skill for legacy-only .rekit projects, central re-context-kits maintenance, or an explicit /rekit diagnostic request. Current .steamai projects use the project-local /steamai skill instead.
+description: Legacy compatibility and maintenance skill for legacy-only .rekit projects, central STeamAI repository maintenance, or an explicit /rekit diagnostic request. Current .steamai projects use the project-local /steamai skill instead.
 ---
 
 # rekit compatibility
@@ -16,7 +16,7 @@ description: Legacy compatibility and maintenance skill for legacy-only .rekit p
 1. 同时发现 `.steamai` 与 `.rekit`：立即 fail-closed；不得合并、择优、双写或把其中一个当 alias。
 2. 发现 `.steamai`，或发现 project-local `.claude/skills/steamai/SKILL.md`：停止本 skill，交给该项目的 `/steamai`；不得从中央 kit 运行 `/rekit` 代替它。
 3. 只发现 `.rekit/instance.yml`：这是 legacy-only 项目；从 metadata 取得 `templateRoot`、`templatePack` 和 case root，再使用 `<templateRoot>/.claude/skills/rekit/SKILL.md` 的 deterministic compatibility 协议。
-4. 当前目录是 `re-context-kits` 实现仓库：仅在维护本仓库或用户显式要求 `/rekit` 诊断时使用本 skill。
+4. 当前目录是 STeamAI 实现仓库：仅在维护本仓库或用户显式要求 `/rekit` 诊断时使用本 skill。GitHub canonical identity 是 `shuiyu486/STeamAI`；旧 Go module/internal names 不用于判断 repository identity。
 5. 普通目录且没有上述标记：不要自动接入或创建 legacy state；引导用户从该目录使用 `/steamai`／自然语言走 current 安全接入。
 
 路径、binding 或 shim 不可信时，只做 fresh status/repair preview；不要扫描零散 `.rekit` 文件拼出状态，也不要静默改写 metadata。

@@ -1,6 +1,6 @@
 # CTF pack
 
-`ctf` 是面向授权 CTF、靶场、课程实验与本地 challenge 分析任务的最小 Agent Team pack 骨架。它用于验证 `re-context-kits` 的多安全领域扩展边界：工作线、packet、ledger、review gate、handoff、sync/promote 和 tooling adapter 契约应保持 pack-neutral。
+`ctf` 是面向授权 CTF、靶场、课程实验与本地 challenge 分析任务的最小 Agent Team pack 骨架。它用于验证 STeamAI 的多安全领域扩展边界：工作线、packet、ledger、review gate、handoff、sync/promote 和 tooling adapter 契约应保持 pack-neutral。
 
 当前不是面向真实目标的攻击执行平台、自动利用链生成器、flag 泄漏库或远程靶场刷题器；它只提供可审计、可交接、review-first 的 case workspace 规则。
 

@@ -130,7 +130,7 @@ both          → fail closed
 
 新项目不得依赖：
 
-- 原 `re-context-kits` checkout 仍位于初始化时路径；
+- 原中央 STeamAI source checkout 仍位于初始化时路径；
 - 全局 PATH 中碰巧存在 `rekit`；
 - 用户级 Claude skill 或全局 plugin；
 - 复制项目之前的绝对路径。

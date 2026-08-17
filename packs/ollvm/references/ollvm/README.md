@@ -1,6 +1,6 @@
 # OLLVM pack
 
-`ollvm` 是面向授权 OLLVM / native obfuscation analysis、control-flow flattening triage、opaque predicate review、MBA simplification 与 deobfuscation candidate review 的最小 Agent Team pack 骨架。它用于验证 `re-context-kits` 在 native 混淆分析子领域的 pack-neutral 边界：工作线、packet、ledger、review gate、handoff、sync/promote 和 tooling adapter 契约应保持可审计、可交接、review-first。
+`ollvm` 是面向授权 OLLVM / native obfuscation analysis、control-flow flattening triage、opaque predicate review、MBA simplification 与 deobfuscation candidate review 的最小 Agent Team pack 骨架。它用于验证 STeamAI 在 native 混淆分析子领域的 pack-neutral 边界：工作线、packet、ledger、review gate、handoff、sync/promote 和 tooling adapter 契约应保持可审计、可交接、review-first。
 
 当前不是自动反混淆引擎、patch 平台、符号恢复器、样本执行器或函数级大规模改写系统；它只提供 case workspace 组织规则与工具经验入口。
 

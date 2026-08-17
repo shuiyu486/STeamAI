@@ -2,7 +2,7 @@
 
 ## 读取指南
 
-本文件是 `re-context-kits` 的最终产品方向锚点，用于防止后续自主推进时偏回“命令大全”、短命 subagent 或用户手动盯多个会话的路线。
+本文件是 STeamAI repository 的最终产品方向锚点，用于防止后续自主推进时偏回“命令大全”、短命 subagent 或用户手动盯多个会话的路线。
 
 如果你是新会话或上下文压缩后的 AI，先读 `docs/context-routing.md`；只有在判断产品北极星、Mission Control 方向或会话接手语义时，再读本文件顶部。实现时以本文件的产品方向为北极星，以 `docs/batch-plan.md` 顶部 current/next 与 context-routing 指向的 Go-first / release readiness 顶部区为落地路线。
 
@@ -67,7 +67,7 @@ project-local deterministic runtime
 
 推荐一句话定位：
 
-> `re-context-kits` 是一个面向安全研究 / 逆向 / 安全工程任务的 Claude Code 多会话 Agent Team 操作系统：用户主要指挥主 Agent，主 Agent 调度长期 member lanes 与短命 tactical subagents，runtime 负责可靠状态与验证，pack 负责领域能力沉淀，团队能力会随着使用持续增强。
+> STeamAI 是一个面向安全研究 / 逆向 / 安全工程任务的 Claude Code 多会话 Agent Team 操作系统：用户主要指挥主 Agent，主 Agent 调度长期 member lanes 与短命 tactical subagents，runtime 负责可靠状态与验证，pack 负责领域能力沉淀，团队能力会随着使用持续增强。
 
 ## 2. 核心抽象
 
@@ -261,7 +261,7 @@ case observation / recipe / checklist / prompt / adapter candidate
 在发正式 goal 前，可先把这段发给新会话：
 
 ```text
-在 C:\AI\m_projects\RE\re-context-kits 继续维护项目。先读取 CLAUDE.md、docs/context-routing.md、docs/batch-plan.md 顶部 current/next 和 CHANGELOG.md 顶部 Unreleased，并检查 git 与必要的本地/远程 release gate 实际状态；只有当前任务需要产品北极星、长期 goal、Go-first 或 release 判断时，才按 docs/context-routing.md 读取对应文档顶部。当前产品方向已经确认：re-context-kits 要收敛为 Lane-centric Agent Team Mission Control，而不是命令大全；主 Agent 统筹 durable member lanes，lane 由可替换 Claude Code session executor 执行，也可用短命 tactical subagents；用户可随时介入 lane，当前通过显式 reconcile 把干预写回 durable state；lane 文档/packet 只表达授权意图，实际 heavy action 必须由 strict durable autonomy profile + authorized-gate decision 覆盖 target、budget、stop conditions、output paths、记录和升级边界。先只读取并确认接手，不要立刻改文件，等我发正式 goal。
+在本机 STeamAI repository checkout 中继续维护项目（canonical GitHub repository：`https://github.com/shuiyu486/STeamAI`；本地目录名可以保留旧值）。先读取 CLAUDE.md 与 docs/context-routing.md，并检查 git；再由 router 选择当前任务所需入口。当前产品方向已经确认：STeamAI 是 Lane-centric Agent Team Mission Control，而不是命令大全；主 Agent 统筹 durable member lanes，lane 由可替换 Claude Code session executor 执行，也可用短命 tactical subagents；用户可随时介入 lane，当前通过显式 reconcile 把干预写回 durable state；lane 文档/packet 只表达授权意图，实际 heavy action 必须由 strict durable autonomy profile + authorized-gate decision 覆盖 target、budget、stop conditions、output paths、记录和升级边界。先只读取并确认接手，不要立刻改文件，等我发正式 goal。
 ```
 
 ## 11. 推荐长期 goal 语句

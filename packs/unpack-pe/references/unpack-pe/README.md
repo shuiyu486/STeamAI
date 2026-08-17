@@ -1,6 +1,6 @@
 # Unpack PE pack
 
-`unpack-pe` 是面向授权 PE unpacking、loader triage、import recovery 与 unpack candidate review 的最小 Agent Team pack 骨架。它用于验证 `re-context-kits` 在二进制安全研究子领域的 pack-neutral 边界：工作线、packet、ledger、review gate、handoff、sync/promote 和 tooling adapter 契约应保持可审计、可交接、review-first。
+`unpack-pe` 是面向授权 PE unpacking、loader triage、import recovery 与 unpack candidate review 的最小 Agent Team pack 骨架。它用于验证 STeamAI 在二进制安全研究子领域的 pack-neutral 边界：工作线、packet、ledger、review gate、handoff、sync/promote 和 tooling adapter 契约应保持可审计、可交接、review-first。
 
 当前不是自动脱壳器、样本执行器、动态调试平台、patch/dump 自动化引擎或 IOC/样本库；它只提供 case workspace 组织规则与工具经验入口。
 

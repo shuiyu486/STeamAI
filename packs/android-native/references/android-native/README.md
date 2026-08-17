@@ -1,6 +1,6 @@
 # Android native pack
 
-`android-native` 是面向授权 Android native / JNI / NDK 分析、APK native library triage、Frida hook candidate review 与 emulator sidecar review 的最小 Agent Team pack 骨架。它用于验证 `re-context-kits` 在移动端 native 安全分析子领域的 pack-neutral 边界：工作线、packet、ledger、review gate、handoff、sync/promote 和 tooling adapter 契约应保持可审计、可交接、review-first。
+`android-native` 是面向授权 Android native / JNI / NDK 分析、APK native library triage、Frida hook candidate review 与 emulator sidecar review 的最小 Agent Team pack 骨架。它用于验证 STeamAI 在移动端 native 安全分析子领域的 pack-neutral 边界：工作线、packet、ledger、review gate、handoff、sync/promote 和 tooling adapter 契约应保持可审计、可交接、review-first。
 
 当前不是 APK 自动逆向平台、设备操控器、hook 执行器、移动端动态测试平台或真实设备取证系统；它只提供 case workspace 组织规则与工具经验入口。
 

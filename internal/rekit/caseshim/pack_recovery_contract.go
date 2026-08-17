@@ -19,6 +19,20 @@ func generation(kind string, sums ...string) PackRecoveryWrite {
 	return PackRecoveryWrite{Kind: kind, AcceptedSHA256s: accepted}
 }
 
+// Repository identity changes only the current README generation. Keep both
+// source and canonical publication bytes so pending legacy and current intents
+// remain recoverable across checkout line-ending representations.
+var repositoryIdentityReadmeGenerations = map[string][]string{
+	"web-security":      {"b46e8838c2bffe068ea1924cd44429dfe91b1f1ef43b5d06acc5c2727d6ea206", "751918b6ed75804f122af5e3bb8e2a78c53f58a04b1a61203eeb0716492483b5"},
+	"malware-analysis":  {"2ecdaa3341d6bb149a6874ca075eb021d6d9c23cc1ba3592b3301114e9968547", "df9138719fba90db867072c3cc8b605493aa492d134625c0e8a64d0caf0fe3bc"},
+	"vuln-research":     {"1f90eebfe35e46264c7e44bfb8e616381ddb3d46eb9cbb10b31bde3d295b5896", "8601faedb4f3014bf369b4397d43539782072997b00f4e138a198e1edad2c2cd"},
+	"ctf":               {"ec1ad3c131b863799cff6488b0f7e80b88398880caf2f99b0a8ebd33ace3e6d0", "051f056f72d88b1bc0f189dc4827aee693ed5d0c6037b03efbfbc3a2cbc32526"},
+	"unpack-pe":         {"2769228bbbd50646712b0be2c22412e2e0b8c704686d71fa31ffbd6673b8b9bc", "226c2c8d7c4fa5e7258655637aa17f1e3feea2abdbcea9535f25f0ecc6c3b100"},
+	"ollvm":             {"9683acc99b1bf35e74b0371c7b87d74b1f7f6c510b55ff64cc76f4f0795c9548", "8794c807a6be20c20f330c926cbaae7e760e0c33adab854e4ae27b0dafc18de8"},
+	"android-native":    {"1006878baf2a91032b39dc890262ae795325696ad5a1b7224a141567c3585331", "23098f039871e33d0ceab2e576534da518a5f97d3ff95f4e55a6c2e595a9cbb9"},
+	"generic-binary-re": {"744bff97810b86a998402e40f16070c6fe48cd880756ce247e91cc4b78531e9a", "896c780549c096d3b420a32422e30d643f5c48d94920725b9d3feaa4f1c4e3ed"},
+}
+
 // packRecoveryWrites is append-only by path and generation hash. Removing an
 // accepted generation would make an already-published pending intent unrecoverable.
 var packRecoveryWrites = map[string]map[string]PackRecoveryWrite{
@@ -55,9 +69,14 @@ func defaultPackRecoveryWrites() map[string]PackRecoveryWrite {
 }
 
 func packSkeletonWithCanonical(pack, readme, agent, workflow, router, handoff, canonicalReadme, canonicalWorkflow, canonicalHandoff string) map[string]PackRecoveryWrite {
+	readmeGenerations := []string{readme}
+	if canonicalReadme != "" {
+		readmeGenerations = append(readmeGenerations, canonicalReadme)
+	}
+	readmeGenerations = append(readmeGenerations, repositoryIdentityReadmeGenerations[pack]...)
 	prefix := "references/" + pack + "/"
 	return map[string]PackRecoveryWrite{
-		prefix + "README.md":            generationWithCanonical("managed-file", readme, canonicalReadme),
+		prefix + "README.md":            generation("managed-file", readmeGenerations...),
 		prefix + "agent-team.md":        generation("managed-file", agent),
 		prefix + "workflow-template.md": generationWithCanonical("managed-file", workflow, canonicalWorkflow),
 		prefix + "toolchain-router.md":  generation("managed-file", router),

@@ -30,5 +30,5 @@
 ## 给新会话的 goal 语句
 
 ```text
-继续执行 re-context-kits 的已批准真实使用加固路线。先按 docs/context-routing.md 选择场景，只领取 docs/real-usage-hardening-roadmap.md 当前卡；完成该卡全部真实验收并同步指针后，才能继续明确解锁的下一卡。不要从 future backlog、历史或聊天摘要另选工作，也不要自动 commit/push。
+继续执行 STeamAI repository 的已批准真实使用加固路线。先按 docs/context-routing.md 选择场景，只领取 docs/real-usage-hardening-roadmap.md 当前卡；完成该卡全部真实验收并同步指针后，才能继续明确解锁的下一卡。不要从 future backlog、历史或聊天摘要另选工作，也不要自动 commit/push。
 ```

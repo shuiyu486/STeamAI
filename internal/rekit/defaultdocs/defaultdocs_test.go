@@ -13,7 +13,7 @@ func TestInspectRepoPublicDefaultDocsReady(t *testing.T) {
 	if !readiness.Ready || readiness.Summary != "public default docs readiness ok" || counts.Warnings != 0 {
 		t.Fatalf("unexpected current STeamAI public default docs readiness: %+v", readiness)
 	}
-	if readiness.Model != "steamai-self-contained-current" || readiness.DefaultEntrypoint != "/steamai" || readiness.StateRoot != ".steamai" || readiness.RuntimeSource != "project-local-verified-bundle" || readiness.FallbackAllowed {
+	if readiness.Model != "steamai-self-contained-current" || readiness.DefaultEntrypoint != "/steamai" || readiness.StateRoot != ".steamai" || readiness.RuntimeSource != "project-local-verified-bundle" || readiness.FallbackAllowed || readiness.CanonicalRepository != canonicalRepository || readiness.CanonicalCloneURL != canonicalCloneURL || readiness.ModuleCompatibilityIdentity != moduleCompatibilityIdentity {
 		t.Fatalf("unexpected current STeamAI public defaults: %+v", readiness)
 	}
 	assertDocument(t, readiness, "README.md")
@@ -26,9 +26,13 @@ func TestInspectRepoPublicDefaultDocsReady(t *testing.T) {
 	assertDocument(t, readiness, "docs/mission-control-product-direction.md")
 	assertDocument(t, readiness, "docs/steamai-self-contained-project.md")
 	assertDocument(t, readiness, "docs/autonomous-goal.md")
+	assertDocument(t, readiness, "docs/reference-absorption.md")
 	assertDocument(t, readiness, "docs/release-readiness.md")
 	assertDocument(t, readiness, "docs/powershell-deprecation.md")
 	assertDocument(t, readiness, "rekit/tests/README.md")
+	assertPhrase(t, readiness, "README.md", canonicalRepository)
+	assertPhrase(t, readiness, "README.md", canonicalCloneURL)
+	assertPhrase(t, readiness, "README.md", moduleCompatibilityIdentity)
 	assertPhrase(t, readiness, "README.md", "旧 `/rekit`、`.rekit` 和中央 kit/thin-shim 模型只在迁移期间兼容，不是新项目默认")
 	assertPhrase(t, readiness, ".claude/skills/steamai/SKILL.md", "新项目唯一可变状态根是 `${CLAUDE_PROJECT_DIR}/.steamai`")
 	assertPhrase(t, readiness, ".claude/skills/steamai/SKILL.md", "不通过 PATH、全局 plugin、项目内 Go source 或外部 kit 回退")
@@ -38,14 +42,19 @@ func TestInspectRepoPublicDefaultDocsReady(t *testing.T) {
 	assertPhrase(t, readiness, "CLAUDE.md", "legacy `/rekit` compatibility skill")
 	assertPhrase(t, readiness, "CLAUDE.md", "case public JSON 的 project-local typed command 由 resolved state root 统一投影")
 	assertPhrase(t, readiness, "docs/context-routing.md", "STeamAI 自包含项目 / `.steamai` / `/steamai` / runtime bundle / legacy 迁移")
-	assertPhrase(t, readiness, "docs/real-usage-hardening-roadmap.md", "当前路线是 `steamai-self-contained-project-v1`")
+	assertPhrase(t, readiness, "docs/context-routing.md", "GitHub repository identity / clone / rename / Go module compatibility")
+	assertPhrase(t, readiness, "docs/real-usage-hardening-roadmap.md", "当前路线是 `steamai-repository-identity-v1`")
 	assertPhrase(t, readiness, "docs/real-usage-hardening-roadmap.md", "拒绝 PATH/外部 kit fallback")
-	assertPhrase(t, readiness, "docs/batch-plan.md", "当前路线是 `steamai-self-contained-project-v1`")
+	assertPhrase(t, readiness, "docs/batch-plan.md", "当前路线是 `steamai-repository-identity-v1`")
 	assertPhrase(t, readiness, "docs/mission-control-product-direction.md", "新项目的用户入口是 `/steamai`")
 	assertPhrase(t, readiness, "docs/mission-control-product-direction.md", "唯一 current 状态根是 `.steamai`")
 	assertPhrase(t, readiness, "docs/steamai-self-contained-project.md", "一个真实项目目录 = 一个自包含 STeamAI 项目")
 	assertPhrase(t, readiness, "docs/steamai-self-contained-project.md", "旧 `/rekit` 与 `.rekit` 在迁移期间只作为兼容入口")
 	assertPhrase(t, readiness, "docs/steamai-self-contained-project.md", "case public JSON 按 resolved state root 投影全部 project-local typed command")
+	assertPhrase(t, readiness, "docs/reference-absorption.md", "git clone "+canonicalCloneURL)
+	assertPhrase(t, readiness, "docs/release-readiness.md", canonicalRepository)
+	assertPhrase(t, readiness, "docs/release-readiness.md", canonicalCloneURL)
+	assertPhrase(t, readiness, "docs/release-readiness.md", moduleCompatibilityIdentity)
 	assertPhrase(t, readiness, "docs/release-readiness.md", "current STeamAI entry readiness")
 	assertPhrase(t, readiness, "docs/release-readiness.md", "legacy `/rekit` / `.rekit` compatibility readiness")
 	if counts.ForbiddenCommands != 0 {
@@ -86,6 +95,43 @@ func TestInspectDetectsPowerShellShellFence(t *testing.T) {
 	assertWarningContains(t, readiness.Warnings, "uses PowerShell shell fence")
 }
 
+func TestInspectDetectsLegacyGitHubRepositoryCloneReference(t *testing.T) {
+	for _, reference := range []string{
+		legacyRepositoryURL,
+		legacyRepositoryURL + ".git",
+		"git@github.com:shuiyu486/re-context-kits.git",
+		"ssh://git@github.com/shuiyu486/re-context-kits.git",
+		"git://github.com/shuiyu486/re-context-kits.git",
+		"git clone shuiyu486/re-context-kits",
+		"gh repo clone shuiyu486/re-context-kits",
+	} {
+		t.Run(reference, func(t *testing.T) {
+			repo := t.TempDir()
+			writeReadyDocs(t, repo)
+			writeFile(t, filepath.Join(repo, "docs", "reference-absorption.md"), readyReferenceAbsorption+"\nlegacy: "+reference+"\n")
+
+			readiness := Inspect(repo)
+			if readiness.Ready {
+				t.Fatalf("public default docs unexpectedly ready despite legacy GitHub repository clone reference %q: %+v", reference, readiness)
+			}
+			assertWarningContains(t, readiness.Warnings, "still uses a legacy GitHub repository clone reference")
+		})
+	}
+}
+
+func TestInspectRequiresCanonicalRepositorySeparateFromCloneURL(t *testing.T) {
+	repo := t.TempDir()
+	writeReadyDocs(t, repo)
+	withoutRepository := strings.Replace(readyREADME, "Canonical repository: "+canonicalRepository+"；", "Canonical repository omitted；", 1)
+	writeFile(t, filepath.Join(repo, "README.md"), withoutRepository)
+
+	readiness := Inspect(repo)
+	if readiness.Ready {
+		t.Fatalf("public default docs unexpectedly ready when clone URL only satisfied repository identity: %+v", readiness)
+	}
+	assertWarningContains(t, readiness.Warnings, "README.md missing required phrase: "+canonicalRepository)
+}
+
 func TestInspectDetectsMissingCurrentSTeamAIDefaultPhrase(t *testing.T) {
 	repo := t.TempDir()
 	writeReadyDocs(t, repo)
@@ -96,6 +142,17 @@ func TestInspectDetectsMissingCurrentSTeamAIDefaultPhrase(t *testing.T) {
 		t.Fatalf("current STeamAI public default docs unexpectedly ready despite missing phrases: %+v", readiness)
 	}
 	assertWarningContains(t, readiness.Warnings, ".claude/skills/steamai/SKILL.md missing required phrase")
+}
+
+func TestInspectAllowsModuleCompatibilityIdentityWithoutRepositoryURL(t *testing.T) {
+	repo := t.TempDir()
+	writeReadyDocs(t, repo)
+	writeFile(t, filepath.Join(repo, "docs", "autonomous-goal.md"), readyAutonomousGoal+"\nmodule "+moduleCompatibilityIdentity+"\n")
+
+	readiness := Inspect(repo)
+	if !readiness.Ready {
+		t.Fatalf("bare Go module compatibility identity should remain allowed: %+v", readiness)
+	}
 }
 
 func TestInspectDoesNotRequireLegacyRekitSkillAsCurrentDefault(t *testing.T) {
@@ -161,6 +218,7 @@ func writeReadyDocs(t *testing.T, repo string) {
 	writeFile(t, filepath.Join(repo, "docs", "mission-control-product-direction.md"), readyMissionControlProductDirection)
 	writeFile(t, filepath.Join(repo, "docs", "steamai-self-contained-project.md"), readySTeamAISelfContainedProject)
 	writeFile(t, filepath.Join(repo, "docs", "autonomous-goal.md"), readyAutonomousGoal)
+	writeFile(t, filepath.Join(repo, "docs", "reference-absorption.md"), readyReferenceAbsorption)
 	writeFile(t, filepath.Join(repo, "docs", "release-readiness.md"), readyReleaseReadiness)
 	writeFile(t, filepath.Join(repo, "docs", "powershell-deprecation.md"), readyPowerShellDeprecation)
 	writeFile(t, filepath.Join(repo, "rekit", "tests", "README.md"), readyTestsReadme)
@@ -197,6 +255,7 @@ func repoRoot(t *testing.T) string {
 const readyREADME = `# README
 
 用户主要指挥主 Agent / Mission Commander。
+Canonical repository: https://github.com/shuiyu486/STeamAI；clone: https://github.com/shuiyu486/STeamAI.git；Go module compatibility identity: github.com/shuiyu486/re-context-kits。
 未接入的普通目录在 init 前没有项目级 ` + "`/steamai`" + `；目前仓库尚未提供面向普通用户的独立安装包。
 新项目使用 /steamai，唯一 current 状态根 ` + "`.steamai/`" + `。
 项目内 verified runtime 不能依赖旧绝对路径、机器 PATH 或原中央 kit。
@@ -223,6 +282,7 @@ typed ` + "`invocation`" + ` 是唯一通用命令桥，按 ["runtime", "-Comman
 
 const readyClaude = `# CLAUDE
 
+Canonical repository: https://github.com/shuiyu486/STeamAI；module compatibility: github.com/shuiyu486/re-context-kits。
 ` + "`/steamai`" + ` canonical skill；legacy ` + "`/rekit`" + ` compatibility skill。
 新项目不得回退机器 PATH 或外部 kit。
 case public JSON 的 project-local typed command 由 resolved state root 统一投影。
@@ -232,20 +292,22 @@ const readyContextRouting = `# context routing
 
 本项目文档必须做成按需路由、渐进式披露的样式。
 STeamAI 自包含项目 / ` + "`.steamai`" + ` / ` + "`/steamai`" + ` / runtime bundle / legacy 迁移。
+GitHub repository identity / clone / rename / Go module compatibility。
 不把旧中央 kit/thin-shim 流程当新项目默认。
 `
 
 const readyRealUsageHardeningRoadmap = `# roadmap
 
 本文件是 active source。
-当前路线是 ` + "`steamai-self-contained-project-v1`" + `。
+Canonical repository: https://github.com/shuiyu486/STeamAI；module compatibility: github.com/shuiyu486/re-context-kits。
+当前路线是 ` + "`steamai-repository-identity-v1`" + `。
 拒绝 PATH/外部 kit fallback。
 默认 quickstart 只保留 ` + "`cd <project> → claude → /steamai`" + `。
 `
 
 const readyBatchPlan = `# batch plan
 
-当前路线是 ` + "`steamai-self-contained-project-v1`" + `。
+当前路线是 ` + "`steamai-repository-identity-v1`" + `。
 唯一允许领取：完成 current closure。
 `
 
@@ -270,8 +332,15 @@ const readyAutonomousGoal = `# goal
 默认继续自主推进仅表示继续**已批准路线**。
 `
 
+const readyReferenceAbsorption = `# reference absorption
+
+git clone https://github.com/shuiyu486/STeamAI.git
+Go module compatibility identity: github.com/shuiyu486/re-context-kits。
+`
+
 const readyReleaseReadiness = `# release
 
+Canonical repository: https://github.com/shuiyu486/STeamAI；clone: https://github.com/shuiyu486/STeamAI.git；module compatibility: github.com/shuiyu486/re-context-kits。
 普通 batch 默认依赖 Go-owned ` + "`release-check`" + ` inventory。
 current STeamAI entry readiness 与 legacy ` + "`/rekit`" + ` / ` + "`.rekit`" + ` compatibility readiness 分开验证且都参与 ready。
 默认本机验证路径不依赖 PowerShell。

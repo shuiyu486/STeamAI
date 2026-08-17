@@ -202,32 +202,33 @@ git diff --check
 
 ## 6. 另一台电脑接手建议
 
-### 6.1 只接手维护 kit 仓库
+### 6.1 只接手维护 STeamAI repository
 
 ```text
-git clone https://github.com/shuiyu486/re-context-kits
-cd re-context-kits
+git clone https://github.com/shuiyu486/STeamAI.git
+cd STeamAI
 claude
 ```
 
 给 Claude 的接手提示：
 
 ```text
-你正在接手 re-context-kits 项目。
-请先读 CLAUDE.md 与 docs/context-routing.md；再按当前任务只读 docs/batch-plan.md 顶部 current/next、CHANGELOG.md 顶部 Unreleased，以及 context-routing 指向的场景入口顶部。
-本项目目标是逐步优化为网络安全研究 / 安全工程 Agent Team 框架；当前以 vmp-re 作为首个成熟 pack，不是完整自动脱壳器、自动逆向引擎、自动漏洞挖掘器、自动恶意样本分析平台或通用自动渗透平台。
-不要在 kit 仓库里创建真实 case；验证 init/attach/sync/promote 时只用临时 case。
-请总结当前已落地能力和待实现能力，然后按 docs/batch-plan.md 选择下一批最小可验证优化。
+你正在接手 STeamAI repository（canonical GitHub identity：shuiyu486/STeamAI）。
+请先读 CLAUDE.md 与 docs/context-routing.md，再由 router选择当前场景入口并检查真实git状态。
+STeamAI是网络安全研究/安全工程Agent Team Mission Control；当前以vmp-re作为首个成熟pack，不是完整自动脱壳器、自动逆向引擎、自动漏洞挖掘器、自动恶意样本分析平台或通用自动渗透平台。
+不要在repository中创建真实case；验证init/attach/sync/promote时只用临时case。只领取active route明确允许的当前批次。
 ```
 
-### 6.2 接手已有 case
+旧本地checkout目录可以继续沿用原名称；GitHub rename不要求物理目录改名。`github.com/shuiyu486/re-context-kits`当前只作为Go module compatibility identity保留，不能继续当clone地址。
+
+### 6.2 接手已有 legacy case
 
 推荐目录：
 
 ```text
 <workspaceRoot>\
   kits\
-    re-context-kits\
+    STeamAI\
   cases\
     <caseName>\
 ```

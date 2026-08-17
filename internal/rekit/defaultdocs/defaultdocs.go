@@ -6,22 +6,27 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 type Readiness struct {
-	Model                string                `json:"model"`
-	DefaultEntrypoint    string                `json:"defaultEntrypoint"`
-	StateRoot            string                `json:"stateRoot"`
-	RuntimeSource        string                `json:"runtimeSource"`
-	FallbackAllowed      bool                  `json:"fallbackAllowed"`
-	Ready                bool                  `json:"ready"`
-	Summary              string                `json:"summary"`
-	Documents            []DocumentCheck       `json:"documents"`
-	RequiredPhrases      []PhraseCheck         `json:"requiredPhrases"`
-	ForbiddenCommands    []ForbiddenCommand    `json:"forbiddenCommands"`
-	ForbiddenShellFences []ForbiddenShellFence `json:"forbiddenShellFences"`
-	Boundaries           []string              `json:"boundaries"`
-	Warnings             []string              `json:"warnings"`
+	Model                       string                `json:"model"`
+	DefaultEntrypoint           string                `json:"defaultEntrypoint"`
+	StateRoot                   string                `json:"stateRoot"`
+	RuntimeSource               string                `json:"runtimeSource"`
+	FallbackAllowed             bool                  `json:"fallbackAllowed"`
+	CanonicalRepository         string                `json:"canonicalRepository"`
+	CanonicalCloneURL           string                `json:"canonicalCloneUrl"`
+	ModuleCompatibilityIdentity string                `json:"moduleCompatibilityIdentity"`
+	Ready                       bool                  `json:"ready"`
+	Summary                     string                `json:"summary"`
+	Documents                   []DocumentCheck       `json:"documents"`
+	RequiredPhrases             []PhraseCheck         `json:"requiredPhrases"`
+	ForbiddenCommands           []ForbiddenCommand    `json:"forbiddenCommands"`
+	ForbiddenShellFences        []ForbiddenShellFence `json:"forbiddenShellFences"`
+	Boundaries                  []string              `json:"boundaries"`
+	Warnings                    []string              `json:"warnings"`
 }
 
 type DocumentCheck struct {
@@ -77,7 +82,13 @@ type requiredPhrase struct {
 	phrase string
 }
 
-const forbiddenFacadeCommandPattern = `rekit/rekit.ps1 command snippet`
+const (
+	forbiddenFacadeCommandPattern = `rekit/rekit.ps1 command snippet`
+	canonicalRepository           = "https://github.com/shuiyu486/STeamAI"
+	canonicalCloneURL             = canonicalRepository + ".git"
+	moduleCompatibilityIdentity   = "github.com/shuiyu486/re-context-kits"
+	legacyRepositoryURL           = "https://github.com/shuiyu486/re-context-kits"
+)
 
 var documents = []DocumentCheck{
 	{Path: "README.md", Purpose: "primary current STeamAI public usage entrypoint"},
@@ -90,6 +101,7 @@ var documents = []DocumentCheck{
 	{Path: "docs/mission-control-product-direction.md", Purpose: "STeamAI self-contained Mission Control product direction"},
 	{Path: "docs/steamai-self-contained-project.md", Purpose: "current self-contained project contract"},
 	{Path: "docs/autonomous-goal.md", Purpose: "short approved-route goal anchor"},
+	{Path: "docs/reference-absorption.md", Purpose: "current cross-machine repository clone and handoff guidance"},
 	{Path: "docs/release-readiness.md", Purpose: "routed current and legacy release gate guidance"},
 	{Path: "docs/powershell-deprecation.md", Purpose: "routed PowerShell retirement contract"},
 	{Path: "rekit/tests/README.md", Purpose: "routed smoke selection guide"},
@@ -97,6 +109,9 @@ var documents = []DocumentCheck{
 
 var requiredPhrases = []requiredPhrase{
 	{path: "README.md", phrase: "用户主要指挥主 Agent / Mission Commander"},
+	{path: "README.md", phrase: canonicalRepository},
+	{path: "README.md", phrase: canonicalCloneURL},
+	{path: "README.md", phrase: moduleCompatibilityIdentity},
 	{path: "README.md", phrase: "/steamai"},
 	{path: "README.md", phrase: "未接入的普通目录在 init 前没有项目级 `/steamai`"},
 	{path: "README.md", phrase: "目前仓库尚未提供面向普通用户的独立安装包"},
@@ -120,17 +135,22 @@ var requiredPhrases = []requiredPhrase{
 	{path: "rekit/templates/steamai-project/SKILL.md", phrase: "[\"runtime\", \"-Command\", invocation.command]"},
 	{path: "rekit/templates/steamai-project/SKILL.md", phrase: "`commandExecutable=false`"},
 	{path: "CLAUDE.md", phrase: "`/steamai` canonical skill"},
+	{path: "CLAUDE.md", phrase: canonicalRepository},
+	{path: "CLAUDE.md", phrase: moduleCompatibilityIdentity},
 	{path: "CLAUDE.md", phrase: "legacy `/rekit` compatibility skill"},
 	{path: "CLAUDE.md", phrase: "不得回退机器 PATH 或外部 kit"},
 	{path: "CLAUDE.md", phrase: "case public JSON 的 project-local typed command 由 resolved state root 统一投影"},
 	{path: "docs/context-routing.md", phrase: "本项目文档必须做成按需路由、渐进式披露的样式"},
 	{path: "docs/context-routing.md", phrase: "STeamAI 自包含项目 / `.steamai` / `/steamai` / runtime bundle / legacy 迁移"},
+	{path: "docs/context-routing.md", phrase: "GitHub repository identity / clone / rename / Go module compatibility"},
 	{path: "docs/context-routing.md", phrase: "不把旧中央 kit/thin-shim 流程当新项目默认"},
 	{path: "docs/real-usage-hardening-roadmap.md", phrase: "active source"},
-	{path: "docs/real-usage-hardening-roadmap.md", phrase: "当前路线是 `steamai-self-contained-project-v1`"},
+	{path: "docs/real-usage-hardening-roadmap.md", phrase: "当前路线是 `steamai-repository-identity-v1`"},
+	{path: "docs/real-usage-hardening-roadmap.md", phrase: canonicalRepository},
+	{path: "docs/real-usage-hardening-roadmap.md", phrase: moduleCompatibilityIdentity},
 	{path: "docs/real-usage-hardening-roadmap.md", phrase: "拒绝 PATH/外部 kit fallback"},
 	{path: "docs/real-usage-hardening-roadmap.md", phrase: "默认 quickstart 只保留 `cd <project> → claude → /steamai`"},
-	{path: "docs/batch-plan.md", phrase: "当前路线是 `steamai-self-contained-project-v1`"},
+	{path: "docs/batch-plan.md", phrase: "当前路线是 `steamai-repository-identity-v1`"},
 	{path: "docs/batch-plan.md", phrase: "唯一允许领取"},
 	{path: "docs/mission-control-product-direction.md", phrase: "STeamAI Lane-centric Agent Team Mission Control"},
 	{path: "docs/mission-control-product-direction.md", phrase: "新项目的用户入口是 `/steamai`"},
@@ -142,7 +162,12 @@ var requiredPhrases = []requiredPhrase{
 	{path: "docs/steamai-self-contained-project.md", phrase: "case public JSON 按 resolved state root 投影全部 project-local typed command"},
 	{path: "docs/autonomous-goal.md", phrase: "聊天 goal 只负责启动或继续**已批准路线**"},
 	{path: "docs/autonomous-goal.md", phrase: "默认继续自主推进仅表示继续**已批准路线**"},
+	{path: "docs/reference-absorption.md", phrase: "git clone " + canonicalCloneURL},
+	{path: "docs/reference-absorption.md", phrase: moduleCompatibilityIdentity},
 	{path: "docs/release-readiness.md", phrase: "普通 batch 默认依赖 Go-owned `release-check` inventory"},
+	{path: "docs/release-readiness.md", phrase: canonicalRepository},
+	{path: "docs/release-readiness.md", phrase: canonicalCloneURL},
+	{path: "docs/release-readiness.md", phrase: moduleCompatibilityIdentity},
 	{path: "docs/release-readiness.md", phrase: "current STeamAI entry readiness"},
 	{path: "docs/release-readiness.md", phrase: "legacy `/rekit` / `.rekit` compatibility readiness"},
 	{path: "docs/release-readiness.md", phrase: "默认本机验证路径不依赖 PowerShell"},
@@ -155,7 +180,15 @@ var requiredPhrases = []requiredPhrase{
 
 var forbiddenFacadeCommand = regexp.MustCompile(`(?i)(^|[\s` + "`" + `])(?:\.?[\\/])?rekit[\\/]rekit\.ps1\s+(?:-[a-z][a-z0-9-]*\s+)*?(?:release-check|status|packs|doctor|validate|overview|continue|start|handoff|sync|promote|note|gate|plan-subagents|attach|init|bootstrap|repair)\b`)
 
+var legacyRepositoryReferencePatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)(?:https?|ssh|git)://(?:git@)?github\.com/shuiyu486/re-context-kits(?:\.git)?`),
+	regexp.MustCompile(`(?i)git@github\.com:shuiyu486/re-context-kits(?:\.git)?`),
+	regexp.MustCompile(`(?i)\bgit[ \t]+clone(?:[ \t]+-[^ \t\r\n]+)*[ \t]+(?:github\.com/)?shuiyu486/re-context-kits(?:\.git)?`),
+	regexp.MustCompile(`(?i)\bgh[ \t]+repo[ \t]+clone[ \t]+shuiyu486/re-context-kits(?:\.git)?`),
+}
+
 var boundaries = []string{
+	"canonical GitHub repository is shuiyu486/STeamAI; the old repository slug remains only a Go module compatibility identity",
 	"current public daily-use entrypoint is natural-language Mission Control through /steamai",
 	"current projects use only .steamai state and a verified project-local runtime/pack without PATH or external-kit fallback",
 	"/rekit, .rekit, the central kit, and the thin shim remain explicit legacy compatibility or migration surfaces, not new-project defaults",
@@ -165,19 +198,22 @@ var boundaries = []string{
 
 func Inspect(repoRoot string) Readiness {
 	readiness := Readiness{
-		Model:                "steamai-self-contained-current",
-		DefaultEntrypoint:    "/steamai",
-		StateRoot:            ".steamai",
-		RuntimeSource:        "project-local-verified-bundle",
-		FallbackAllowed:      false,
-		Ready:                true,
-		Summary:              "public default docs readiness ok",
-		Documents:            []DocumentCheck{},
-		RequiredPhrases:      []PhraseCheck{},
-		ForbiddenCommands:    []ForbiddenCommand{},
-		ForbiddenShellFences: []ForbiddenShellFence{},
-		Boundaries:           append([]string{}, boundaries...),
-		Warnings:             []string{},
+		Model:                       "steamai-self-contained-current",
+		DefaultEntrypoint:           "/steamai",
+		StateRoot:                   ".steamai",
+		RuntimeSource:               "project-local-verified-bundle",
+		FallbackAllowed:             false,
+		CanonicalRepository:         canonicalRepository,
+		CanonicalCloneURL:           canonicalCloneURL,
+		ModuleCompatibilityIdentity: moduleCompatibilityIdentity,
+		Ready:                       true,
+		Summary:                     "public default docs readiness ok",
+		Documents:                   []DocumentCheck{},
+		RequiredPhrases:             []PhraseCheck{},
+		ForbiddenCommands:           []ForbiddenCommand{},
+		ForbiddenShellFences:        []ForbiddenShellFence{},
+		Boundaries:                  append([]string{}, boundaries...),
+		Warnings:                    []string{},
 	}
 	texts := map[string]string{}
 	for _, doc := range documents {
@@ -193,7 +229,7 @@ func Inspect(repoRoot string) Readiness {
 	}
 	for _, required := range requiredPhrases {
 		check := PhraseCheck{Path: required.path, Phrase: required.phrase}
-		check.Present = strings.Contains(texts[required.path], required.phrase)
+		check.Present = containsRequiredPhrase(texts[required.path], required.phrase)
 		if !check.Present {
 			readiness.Warnings = append(readiness.Warnings, fmt.Sprintf("public default doc %s missing required phrase: %s", required.path, required.phrase))
 		}
@@ -206,6 +242,9 @@ func Inspect(repoRoot string) Readiness {
 		}
 		readiness.ForbiddenCommands = append(readiness.ForbiddenCommands, forbiddenCommandsInDoc(doc.Path, text)...)
 		readiness.ForbiddenShellFences = append(readiness.ForbiddenShellFences, forbiddenShellFencesInDoc(doc.Path, text)...)
+		if containsLegacyRepositoryReference(text) {
+			readiness.Warnings = append(readiness.Warnings, fmt.Sprintf("public default doc %s still uses a legacy GitHub repository clone reference", doc.Path))
+		}
 	}
 	for _, forbidden := range readiness.ForbiddenCommands {
 		if forbidden.Present {
@@ -222,6 +261,54 @@ func Inspect(repoRoot string) Readiness {
 		readiness.Summary = "public default docs readiness has warnings"
 	}
 	return readiness
+}
+
+func containsRequiredPhrase(text, phrase string) bool {
+	switch phrase {
+	case canonicalRepository, canonicalCloneURL:
+		return containsDelimitedRepositoryToken(text, phrase)
+	default:
+		return strings.Contains(text, phrase)
+	}
+}
+
+func containsDelimitedRepositoryToken(text, token string) bool {
+	for offset := 0; offset <= len(text)-len(token); {
+		index := strings.Index(text[offset:], token)
+		if index < 0 {
+			return false
+		}
+		start := offset + index
+		end := start + len(token)
+		beforeDelimited := start == 0
+		if !beforeDelimited {
+			before, _ := utf8.DecodeLastRuneInString(text[:start])
+			beforeDelimited = !repositoryReferenceRune(before)
+		}
+		afterDelimited := end == len(text)
+		if !afterDelimited {
+			after, _ := utf8.DecodeRuneInString(text[end:])
+			afterDelimited = !repositoryReferenceRune(after)
+		}
+		if beforeDelimited && afterDelimited {
+			return true
+		}
+		offset = start + 1
+	}
+	return false
+}
+
+func repositoryReferenceRune(value rune) bool {
+	return unicode.IsLetter(value) || unicode.IsNumber(value) || strings.ContainsRune("-._~/:@?&=#%+", value)
+}
+
+func containsLegacyRepositoryReference(text string) bool {
+	for _, pattern := range legacyRepositoryReferencePatterns {
+		if pattern.MatchString(text) {
+			return true
+		}
+	}
+	return false
 }
 
 func forbiddenCommandsInDoc(path, text string) []ForbiddenCommand {

@@ -32,7 +32,7 @@
 ```text
 <workspaceRoot>\
   kits\
-    re-context-kits\              # 模板仓库
+    STeamAI\                      # canonical repository checkout；旧本地目录名可继续使用
   cases\
     <caseName>\                   # 具体 case
   tools\                          # 第三方工具

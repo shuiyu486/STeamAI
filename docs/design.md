@@ -1,4 +1,4 @@
-# re-context-kits design
+# STeamAI design
 
 ## 读取指南
 
@@ -29,7 +29,7 @@
 
 ## 产品北极星
 
-最终产品方向见 `docs/mission-control-product-direction.md`：`re-context-kits` 应收敛为 Lane-centric Agent Team Mission Control。用户主要指挥主 Agent / Mission Commander；长期成员身份绑定 durable member lane，而不是绑定旧聊天窗口；Claude Code session 只是可替换 executor；主 Agent 可按需启动短命 tactical subagents；用户可进入任意 lane 纠错、改向或硬切模型，当前通过显式 reconcile 把干预写入 durable state。lane 文档/packet 只表达授权意图；成员 lane 只有在 strict durable autonomy profile + `authorized-gate` decision 完全覆盖 action、exact target、typed budget、stop conditions、output paths、record/notify 和 grant/expiry 时才可执行 heavy/debug/patch/dump/hook/network/exploit-replay。
+最终产品方向见 `docs/mission-control-product-direction.md`：STeamAI 应保持 Lane-centric Agent Team Mission Control 的产品边界。用户主要指挥主 Agent / Mission Commander；长期成员身份绑定 durable member lane，而不是绑定旧聊天窗口；Claude Code session 只是可替换 executor；主 Agent 可按需启动短命 tactical subagents；用户可进入任意 lane 纠错、改向或硬切模型，当前通过显式 reconcile 把干预写入 durable state。lane 文档/packet 只表达授权意图；成员 lane 只有在 strict durable autonomy profile + `authorized-gate` decision 完全覆盖 action、exact target、typed budget、stop conditions、output paths、record/notify 和 grant/expiry 时才可执行 heavy/debug/patch/dump/hook/network/exploit-replay。
 
 ## 四层模型
 

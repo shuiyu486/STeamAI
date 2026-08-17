@@ -1,6 +1,6 @@
 # Generic binary RE pack
 
-`generic-binary-re` 是面向授权通用二进制逆向、static triage、function behavior analysis、API behavior review 与 tooling sidecar review 的最小 Agent Team pack 骨架。它用于验证 `re-context-kits` 在通用二进制安全研究子领域的 pack-neutral 边界：工作线、packet、ledger、review gate、handoff、sync/promote 和 tooling adapter 契约应保持可审计、可交接、review-first。
+`generic-binary-re` 是面向授权通用二进制逆向、static triage、function behavior analysis、API behavior review 与 tooling sidecar review 的最小 Agent Team pack 骨架。它用于验证 STeamAI 在通用二进制安全研究子领域的 pack-neutral 边界：工作线、packet、ledger、review gate、handoff、sync/promote 和 tooling adapter 契约应保持可审计、可交接、review-first。
 
 当前不是自动逆向引擎、样本执行器、patch 平台、漏洞研究 pack、恶意样本分析 pack 或 VMP/OLLVM 专项 pack 的替代品；它只提供 case workspace 组织规则与工具经验入口。
 
