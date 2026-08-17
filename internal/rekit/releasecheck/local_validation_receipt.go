@@ -3,6 +3,7 @@ package releasecheck
 import (
 	"bytes"
 	"context"
+	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -146,9 +147,9 @@ func PublishLocalValidationReceipt(repo string, input LocalValidationReceiptInpu
 		Steps:             append([]LocalValidationReceiptStep{}, input.Steps...),
 		Artifacts:         artifacts,
 		Boundary: []string{
-			"receipt binds the successful local gate profile to the exact validated working-tree artifacts",
+			"receipt binds the successful local gate profile to the exact validated working-tree artifacts and Git blob identities",
 			"receipt is repo-local git metadata and does not claim remote CI green",
-			"post-push acceptance requires one direct implementation commit whose exact artifact set and bytes match this receipt",
+			"post-push acceptance requires one direct implementation commit whose exact artifact set, committed blobs, and raw or Git line-ending checkout-equivalent bytes match this receipt",
 		},
 	}
 	data, err := canonicalLocalValidationReceipt(receipt)
@@ -275,15 +276,19 @@ func InspectLocalValidationReceipt(repo string, latest ReleaseHandoffLatestBatch
 		inspection.Warnings = append(inspection.Warnings, "implementation commit changed paths differ from the validated artifact set")
 		return inspection
 	}
-	for _, artifact := range receipt.Artifacts {
-		if err := validateLocalValidationCommittedArtifact(repo, receipt.BaselineHead, head, artifact); err != nil {
-			inspection.State = "artifact-content-mismatch"
-			inspection.Warnings = append(inspection.Warnings, err.Error())
-			return inspection
-		}
+	if err := validateLocalValidationCommittedArtifacts(repo, receipt.BaselineHead, head, receipt.Artifacts); err != nil {
+		inspection.State = "artifact-content-mismatch"
+		inspection.Warnings = append(inspection.Warnings, err.Error())
+		return inspection
 	}
-	worktreeBefore, err := localValidationReceiptWorktreeArtifacts(repo, receipt.Artifacts)
-	if err != nil || !slices.Equal(worktreeBefore, receipt.Artifacts) {
+	checkoutEligible, err := localValidationLineEndingCheckoutEligibility(repo, head, receipt.Artifacts)
+	if err != nil {
+		inspection.State = "git-state-unavailable"
+		inspection.Warnings = append(inspection.Warnings, err.Error())
+		return inspection
+	}
+	worktreeBefore, matchesReceipt, err := localValidationReceiptWorktreeArtifacts(repo, receipt.Artifacts, checkoutEligible)
+	if err != nil || !matchesReceipt {
 		inspection.State = "artifact-content-mismatch"
 		inspection.Warnings = append(inspection.Warnings, "validated working-tree artifact bytes changed after the release run")
 		return inspection
@@ -294,7 +299,7 @@ func InspectLocalValidationReceipt(repo string, latest ReleaseHandoffLatestBatch
 		inspection.Warnings = append(inspection.Warnings, "HEAD changed while validating the local validation receipt")
 		return inspection
 	}
-	worktreeAfter, err := localValidationReceiptWorktreeArtifacts(repo, receipt.Artifacts)
+	worktreeAfter, _, err := localValidationReceiptWorktreeArtifacts(repo, receipt.Artifacts, checkoutEligible)
 	if err != nil || !slices.Equal(worktreeAfter, worktreeBefore) {
 		inspection.State = "stale-repository-snapshot"
 		inspection.Warnings = append(inspection.Warnings, "validated working-tree artifacts changed while validating the local validation receipt")
@@ -305,7 +310,7 @@ func InspectLocalValidationReceipt(repo string, latest ReleaseHandoffLatestBatch
 	inspection.ValidatedHead = head
 	inspection.Evidence = append([]string{
 		"machine-readable local release-run receipt validated",
-		"validated implementation commit exactly matches the pre-commit artifact snapshot",
+		"validated implementation commit exactly matches the pre-commit artifact snapshot or its Git line-ending checkout",
 		"release-check step and complete local gate profile are bound by the receipt",
 	}, localValidationReceiptStepEvidence(receipt.Steps)...)
 	return inspection
@@ -335,7 +340,7 @@ func localValidationReceiptInspectionBase() LocalValidationReceiptInspection {
 		State: "unavailable",
 		Boundary: []string{
 			"local validation receipt is repo-local git metadata and never claims remote CI green",
-			"missing, malformed, stale, multi-commit, path-drifted, or byte-drifted receipts fail closed",
+			"missing, malformed, stale, multi-commit, path-drifted, or non-checkout-equivalent byte-drifted receipts fail closed",
 		},
 	}
 }
@@ -434,36 +439,141 @@ func localValidationWorkingArtifacts(repo string) ([]LocalValidationReceiptArtif
 	return artifacts, nil
 }
 
-func localValidationReceiptWorktreeArtifacts(repo string, expected []LocalValidationReceiptArtifact) ([]LocalValidationReceiptArtifact, error) {
+func localValidationIndexArtifacts(repo string) (map[string]LocalValidationReceiptArtifact, error) {
+	data, err := localValidationGitRaw(repo, "ls-files", "--stage", "-z")
+	if err != nil {
+		return nil, err
+	}
+	artifacts := map[string]LocalValidationReceiptArtifact{}
+	for _, record := range splitLocalValidationNULRaw(data) {
+		metadata, path, ok := strings.Cut(record, "\t")
+		fields := strings.Fields(metadata)
+		path = filepath.ToSlash(path)
+		if !ok || len(fields) != 3 || !validLocalValidationPath(path) || !validLocalValidationObjectID(fields[1]) {
+			return nil, fmt.Errorf("local validation artifact index entry is invalid: %s", path)
+		}
+		if fields[2] != "0" {
+			artifacts[path] = LocalValidationReceiptArtifact{Path: path, State: "present", Mode: "unmerged", BlobOID: fields[1]}
+			continue
+		}
+		artifacts[path] = LocalValidationReceiptArtifact{Path: path, State: "present", Mode: fields[0], BlobOID: fields[1]}
+	}
+	return artifacts, nil
+}
+
+func localValidationLineEndingCheckoutEligibility(repo, head string, expected []LocalValidationReceiptArtifact) (map[string]bool, error) {
+	paths := make([]string, 0, len(expected))
+	for _, artifact := range expected {
+		if artifact.State == "present" {
+			paths = append(paths, artifact.Path)
+		}
+	}
+	input := []byte{}
+	for _, path := range paths {
+		input = append(input, path...)
+		input = append(input, 0)
+	}
+	output, err := localValidationGitOutput(repo, input, "check-attr", "-z", "--stdin", "--source="+head, "text", "eol")
+	if err != nil {
+		return nil, err
+	}
+	records := splitLocalValidationNULRaw(output)
+	if len(records) != len(paths)*6 {
+		return nil, fmt.Errorf("local validation line-ending attribute count differs: got %d want %d", len(records), len(paths)*6)
+	}
+	autocrlf, err := localValidationGit(repo, "config", "--get", "--default=false", "core.autocrlf")
+	if err != nil {
+		return nil, err
+	}
+	eligible := make(map[string]bool, len(paths))
+	for index, path := range paths {
+		record := records[index*6 : index*6+6]
+		if record[0] != path || record[1] != "text" || record[3] != path || record[4] != "eol" {
+			return nil, fmt.Errorf("local validation line-ending attributes are invalid: %s", path)
+		}
+		text, eol := record[2], record[5]
+		eligible[path] = text != "unset" && eol != "lf" && (eol == "crlf" || eol == "unspecified" && strings.EqualFold(autocrlf, "true"))
+	}
+	return eligible, nil
+}
+
+func localValidationReceiptWorktreeArtifacts(repo string, expected []LocalValidationReceiptArtifact, checkoutEligible map[string]bool) ([]LocalValidationReceiptArtifact, bool, error) {
+	indexArtifacts, err := localValidationIndexArtifacts(repo)
+	if err != nil {
+		return nil, false, err
+	}
 	artifacts := make([]LocalValidationReceiptArtifact, 0, len(expected))
+	matchesReceipt := true
 	for _, artifact := range expected {
 		path := filepath.Join(repo, filepath.FromSlash(artifact.Path))
 		info, err := os.Lstat(path)
 		if os.IsNotExist(err) {
-			artifacts = append(artifacts, LocalValidationReceiptArtifact{Path: artifact.Path, State: "deleted"})
+			current := LocalValidationReceiptArtifact{Path: artifact.Path, State: "deleted"}
+			artifacts = append(artifacts, current)
+			_, indexed := indexArtifacts[artifact.Path]
+			matchesReceipt = matchesReceipt && current == artifact && !indexed
 			continue
 		}
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() > localValidationArtifactMaxBytes {
-			return nil, fmt.Errorf("local validation artifact must remain a bounded regular non-symlink file: %s", artifact.Path)
+			return nil, false, fmt.Errorf("local validation artifact must remain a bounded regular non-symlink file: %s", artifact.Path)
 		}
 		data, err := readStableLocalValidationArtifact(path, info)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
-		blobOID, err := localValidationGitInput(repo, data, "hash-object", "--path="+artifact.Path, "--stdin")
-		if err != nil || !validLocalValidationObjectID(blobOID) {
-			return nil, fmt.Errorf("rehash local validation artifact through Git clean filters %s: %w", artifact.Path, err)
+		indexed, indexedOK := indexArtifacts[artifact.Path]
+		current := LocalValidationReceiptArtifact{Path: artifact.Path, State: "present", Mode: indexed.Mode, SHA256: localValidationHash(data), Bytes: int64(len(data)), BlobOID: indexed.BlobOID}
+		artifacts = append(artifacts, current)
+		indexMatches := indexedOK && artifact.State == "present" && indexed.Mode == artifact.Mode && indexed.BlobOID == artifact.BlobOID
+		if indexMatches && localValidationArtifactRawIdentityMatches(data, artifact) {
+			continue
 		}
-		gitMode, err := localValidationExpectedGitMode(repo, artifact.Path, info.Mode())
-		if err != nil {
-			return nil, err
+		if !indexMatches || !checkoutEligible[artifact.Path] || !localValidationArtifactMatchesLineEndingCheckout(data, artifact) {
+			matchesReceipt = false
 		}
-		artifacts = append(artifacts, LocalValidationReceiptArtifact{Path: artifact.Path, State: "present", Mode: gitMode, SHA256: localValidationHash(data), Bytes: int64(len(data)), BlobOID: blobOID})
 	}
-	return artifacts, nil
+	return artifacts, matchesReceipt, nil
+}
+
+func localValidationArtifactMatchesLineEndingCheckout(data []byte, artifact LocalValidationReceiptArtifact) bool {
+	if bytes.IndexByte(data, 0) >= 0 {
+		return false
+	}
+	blobData := bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
+	if bytes.IndexByte(blobData, '\r') >= 0 || localValidationBlobOID(blobData, artifact.BlobOID) != artifact.BlobOID {
+		return false
+	}
+	checkoutData := bytes.ReplaceAll(blobData, []byte("\n"), []byte("\r\n"))
+	if bytes.Equal(checkoutData, blobData) || int64(len(checkoutData)) > localValidationArtifactMaxBytes {
+		return false
+	}
+	receiptMatches := localValidationArtifactRawIdentityMatches(blobData, artifact) || localValidationArtifactRawIdentityMatches(checkoutData, artifact)
+	return receiptMatches && (bytes.Equal(data, blobData) || bytes.Equal(data, checkoutData))
+}
+
+func localValidationArtifactRawIdentityMatches(data []byte, artifact LocalValidationReceiptArtifact) bool {
+	return int64(len(data)) == artifact.Bytes && localValidationHash(data) == artifact.SHA256
+}
+
+func localValidationBlobOID(data []byte, expected string) string {
+	header := fmt.Appendf(nil, "blob %d\x00", len(data))
+	switch len(expected) {
+	case sha1.Size * 2:
+		hash := sha1.New()
+		_, _ = hash.Write(header)
+		_, _ = hash.Write(data)
+		return hex.EncodeToString(hash.Sum(nil))
+	case sha256.Size * 2:
+		hash := sha256.New()
+		_, _ = hash.Write(header)
+		_, _ = hash.Write(data)
+		return hex.EncodeToString(hash.Sum(nil))
+	default:
+		return ""
+	}
 }
 
 func readStableLocalValidationArtifact(path string, before os.FileInfo) ([]byte, error) {
@@ -501,42 +611,60 @@ func localValidationExpectedGitMode(repo, path string, mode os.FileMode) (string
 	return fields[0], nil
 }
 
-func validateLocalValidationCommittedArtifact(repo, baseline, head string, artifact LocalValidationReceiptArtifact) error {
-	statusData, err := localValidationGitRaw(repo, "diff", "--name-status", "-z", baseline, head, "--", artifact.Path)
+func validateLocalValidationCommittedArtifacts(repo, baseline, head string, artifacts []LocalValidationReceiptArtifact) error {
+	baselineTree, err := localValidationTreeArtifacts(repo, baseline, artifacts)
 	if err != nil {
 		return err
 	}
-	statusRecords := splitLocalValidationNULRaw(statusData)
-	if len(statusRecords) != 2 || statusRecords[1] != artifact.Path {
-		return fmt.Errorf("validated artifact status is unavailable: %s", artifact.Path)
+	headTree, err := localValidationTreeArtifacts(repo, head, artifacts)
+	if err != nil {
+		return err
 	}
-	status := statusRecords[0]
-	if artifact.State == "deleted" {
-		if status != "D" {
-			return fmt.Errorf("validated artifact deletion status differs: %s", artifact.Path)
+	for _, artifact := range artifacts {
+		before, existedBefore := baselineTree[artifact.Path]
+		after, existsAfter := headTree[artifact.Path]
+		if artifact.State == "deleted" {
+			if !existedBefore || existsAfter {
+				return fmt.Errorf("validated artifact deletion status differs: %s", artifact.Path)
+			}
+			continue
 		}
-		return nil
-	}
-	if status != "A" && status != "M" {
-		return fmt.Errorf("validated artifact status differs: %s", artifact.Path)
-	}
-	treeData, err := localValidationGitRaw(repo, "ls-tree", "-z", head, "--", artifact.Path)
-	if err != nil {
-		return err
-	}
-	treeRecords := splitLocalValidationNULRaw(treeData)
-	if len(treeRecords) != 1 {
-		return fmt.Errorf("validated artifact tree entry is unavailable: %s", artifact.Path)
-	}
-	metadata, treePath, ok := strings.Cut(treeRecords[0], "\t")
-	modeFields := strings.Fields(metadata)
-	if !ok || treePath != artifact.Path || len(modeFields) != 3 || modeFields[0] != artifact.Mode || modeFields[1] != "blob" {
-		return fmt.Errorf("validated artifact mode differs: %s", artifact.Path)
-	}
-	if !validLocalValidationObjectID(artifact.BlobOID) || modeFields[2] != artifact.BlobOID {
-		return fmt.Errorf("validated artifact blob differs in implementation commit: %s", artifact.Path)
+		if !existsAfter || after.Mode != artifact.Mode {
+			return fmt.Errorf("validated artifact mode differs: %s", artifact.Path)
+		}
+		if !validLocalValidationObjectID(artifact.BlobOID) || after.BlobOID != artifact.BlobOID {
+			return fmt.Errorf("validated artifact blob differs in implementation commit: %s", artifact.Path)
+		}
+		if existedBefore && (before.Mode != "100644" && before.Mode != "100755" || before == after) {
+			return fmt.Errorf("validated artifact status differs: %s", artifact.Path)
+		}
 	}
 	return nil
+}
+
+func localValidationTreeArtifacts(repo, revision string, expected []LocalValidationReceiptArtifact) (map[string]LocalValidationReceiptArtifact, error) {
+	data, err := localValidationGitRaw(repo, "ls-tree", "-r", "-z", revision)
+	if err != nil {
+		return nil, err
+	}
+	wanted := make(map[string]struct{}, len(expected))
+	for _, artifact := range expected {
+		wanted[artifact.Path] = struct{}{}
+	}
+	artifacts := map[string]LocalValidationReceiptArtifact{}
+	for _, record := range splitLocalValidationNULRaw(data) {
+		metadata, path, ok := strings.Cut(record, "\t")
+		path = filepath.ToSlash(path)
+		if _, relevant := wanted[path]; !relevant {
+			continue
+		}
+		fields := strings.Fields(metadata)
+		if !ok || len(fields) != 3 || !validLocalValidationPath(path) || (fields[1] != "blob" && fields[1] != "commit") || !validLocalValidationObjectID(fields[2]) {
+			return nil, fmt.Errorf("local validation tree entry is invalid: %s", path)
+		}
+		artifacts[path] = LocalValidationReceiptArtifact{Path: path, State: "present", Mode: fields[0], BlobOID: fields[2]}
+	}
+	return artifacts, nil
 }
 
 func localValidationFileMode(mode os.FileMode) string {

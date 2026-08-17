@@ -43,11 +43,43 @@ func TestLocalValidationReceiptBindsDirectImplementationCommit(t *testing.T) {
 		t.Fatalf("pre-commit receipt should remain pending: %+v", beforeCommit)
 	}
 
+	validatedBytes, err := os.ReadFile(filepath.Join(repo, "docs", "batch-plan.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	runPostPushGit(t, repo, "add", ".")
 	runPostPushGit(t, repo, "commit", "-m", "Complete Batch 817")
+	for _, rel := range []string{"docs/batch-plan.md", "CHANGELOG.md"} {
+		if err := os.Remove(filepath.Join(repo, filepath.FromSlash(rel))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runPostPushGit(t, repo, "checkout-index", "--", "docs/batch-plan.md", "CHANGELOG.md")
+	checkoutBytes, err := os.ReadFile(filepath.Join(repo, "docs", "batch-plan.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(checkoutBytes) == string(validatedBytes) || !strings.Contains(string(checkoutBytes), "\r\n") {
+		t.Fatalf("fixture did not rematerialize validated LF bytes as CRLF checkout bytes")
+	}
 	ready := InspectLocalValidationReceipt(repo, latestBatchSummary(repo))
 	if !ready.Ready || ready.State != "validated-implementation-commit" || ready.ValidatedHead == "" {
 		t.Fatalf("direct implementation commit did not validate: %+v", ready)
+	}
+	goPath := filepath.Join(repo, "internal", "rekit", "my fixture.go")
+	goBytes, err := os.ReadFile(goPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(goPath, []byte(strings.ReplaceAll(string(goBytes), "\n", "\r\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	binaryDrift := InspectLocalValidationReceipt(repo, latestBatchSummary(repo))
+	if binaryDrift.Ready || binaryDrift.State != "artifact-content-mismatch" {
+		t.Fatalf("-text artifact line-ending drift should fail closed: %+v", binaryDrift)
+	}
+	if err := os.WriteFile(goPath, goBytes, 0o644); err != nil {
+		t.Fatal(err)
 	}
 	for _, want := range []string{
 		"release-check -Format json recorded",
